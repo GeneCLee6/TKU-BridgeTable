@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <title>TKU BridgeTable</title>
+  <rect width="64" height="64" rx="14" fill="#0f3d7a"/>
+  <path d="M32 4v5" stroke="#f2b84b" stroke-width="3.5" stroke-linecap="round"/>
+  <path d="M9 15c5.5 0 9-2.2 11-6.5h24c2 4.3 5.5 6.5 11 6.5l-4.5 4.5h-37z" fill="#f2b84b"/>
+  <path d="M16 19.5h32c8 7 8 22 0 29H16c-8-7-8-22 0-29z" fill="#fff3d6"/>
+  <path d="M32 23c-4.5 5.5-11.5 8.8-11.5 14.4 0 3.6 2.9 5.9 6 5.9 1.8 0 3.2-.7 4-1.7L28.9 46h6.2l-1.6-4.4c.8 1 2.2 1.7 4 1.7 3.1 0 6-2.3 6-5.9 0-5.6-7-8.9-11.5-14.4z" fill="#0f3d7a"/>
+  <path d="M18 48.5h28l-3.5 5h-21z" fill="#f2b84b"/>
+  <path d="M32 53.5l3.6 4.5-3.6 4.5-3.6-4.5z" fill="#ff5a5f"/>
+</svg>

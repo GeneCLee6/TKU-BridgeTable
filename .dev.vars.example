@@ -1,0 +1,2 @@
+# Copy to .dev.vars for local development. Leave empty to allow registration without a code.
+INVITE_CODE=tku-bridge
