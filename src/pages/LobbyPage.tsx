@@ -16,7 +16,7 @@ import { useT } from '../state/PreferencesContext.tsx'
 /** The lobby on the left, BBO's side panel (people, history) on the right */
 const Layout = styled.div`
   display: grid;
-  grid-template-columns: minmax(0, 1fr) ${({ theme }) => theme.layout.sidePanelWidth};
+  grid-template-columns: minmax(0, 1fr) auto;
   height: calc(100vh - ${({ theme }) => theme.layout.headerHeight});
 
   & > main { overflow-y: auto; }
@@ -214,7 +214,7 @@ export function LobbyPage() {
           )}
         </section>
       </PageMain>
-      <SidePanel tabs={['people', 'history']} />
+      <SidePanel tabs={['people', 'history']} page="lobby" initial="people" />
     </Layout>
   )
 }

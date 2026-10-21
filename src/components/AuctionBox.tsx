@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import styled, { css } from 'styled-components'
 import type { AuctionCall } from '../../shared/auction.ts'
 import { isVulnerable, type Vulnerability } from '../../shared/board.ts'
@@ -11,7 +11,8 @@ import { CallLabel } from './Suit.tsx'
  * The auction as a table, BBO style: four columns from the viewer's point of view (left-hand
  * opponent, partner, right-hand opponent, the viewer last), vulnerable seats with a red header,
  * the dealer's first call in the dealer's column and '?' where the next call goes. Alerted calls
- * are yellow; click one to read its explanation.
+ * are yellow; click one to read its explanation. With `maxRows`, a long auction scrolls inside
+ * the table (the header stays put) and always shows the latest round.
  */
 
 const Box = styled.div<{ $size: number }>`
@@ -25,6 +26,10 @@ const Box = styled.div<{ $size: number }>`
   font-family: ${({ theme }) => theme.fonts.cards};
 `
 
+const Scroll = styled.div<{ $maxHeight?: number }>`
+  ${({ $maxHeight }) => $maxHeight && `max-height: ${$maxHeight}px; overflow-y: auto; overscroll-behavior: contain;`}
+`
+
 const Table = styled.table<{ $size: number }>`
   width: 100%;
   border-collapse: collapse;
@@ -35,6 +40,9 @@ const Table = styled.table<{ $size: number }>`
 `
 
 const Head = styled.th<{ $vul: boolean; $turn: boolean }>`
+  position: sticky;
+  top: 0;
+  z-index: 1;
   padding: 3px 2px;
   font-size: 0.85em;
   line-height: 1.15;
@@ -90,6 +98,7 @@ export function AuctionBox({
   turn,
   names,
   size = 56,
+  maxRows,
 }: {
   auction: AuctionCall[]
   dealer: Seat
@@ -102,6 +111,8 @@ export function AuctionBox({
   names?: Partial<Record<Seat, string>>
   /** Scale, roughly the card width at the table */
   size?: number
+  /** Rounds shown before the table scrolls */
+  maxRows?: number
 }) {
   const t = useT()
   const [open, setOpen] = useState<number | null>(null)
@@ -112,52 +123,63 @@ export function AuctionBox({
   const rows = Array.from({ length: Math.max(1, Math.ceil(cells.length / 4)) }, (_, r) => cells.slice(r * 4, r * 4 + 4))
   const explained = open !== null ? auction[open] : undefined
   const cellSize = Math.max(44, size)
+  const rowHeight = Math.round(cellSize * 0.5)
+  const headHeight = Math.round(cellSize * (names ? 0.62 : 0.42))
+  const scroller = useRef<HTMLDivElement>(null)
+
+  // Keep the newest round in view as calls come in
+  useEffect(() => {
+    const el = scroller.current
+    if (el) el.scrollTop = el.scrollHeight
+  }, [auction.length, turn])
 
   return (
     <Box $size={cellSize}>
-      <Table $size={cellSize} aria-label={t.auction}>
-        <thead>
-          <tr>
-            {order.map((seat) => (
-              <Head key={seat} scope="col" $vul={isVulnerable(vul, seat)} $turn={turn === seat}>
-                {seatLetter[seat]}
-                {names?.[seat] && <HeadName>{names[seat]}</HeadName>}
-              </Head>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row, r) => (
-            <tr key={r}>
-              {order.map((_, c) => {
-                const cell = row[c]
-                if (!cell) return <Cell key={c} $size={cellSize} />
-                if (cell === 'turn')
+      <Scroll ref={scroller} $maxHeight={maxRows ? headHeight + rowHeight * maxRows + 2 : undefined}>
+        <Table $size={cellSize} aria-label={t.auction}>
+          <thead>
+            <tr>
+              {order.map((seat) => (
+                <Head key={seat} scope="col" $vul={isVulnerable(vul, seat)} $turn={turn === seat}>
+                  {seatLetter[seat]}
+                  {names?.[seat] && <HeadName>{names[seat]}</HeadName>}
+                </Head>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row, r) => (
+              <tr key={r}>
+                {order.map((_, c) => {
+                  const cell = row[c]
+                  if (!cell) return <Cell key={c} $size={cellSize} />
+                  if (cell === 'turn')
+                    return (
+                      <Cell key={c} $size={cellSize}>
+                        ?
+                      </Cell>
+                    )
+                  const index = auction.indexOf(cell)
+                  const alerted = cell.alert !== undefined
                   return (
-                    <Cell key={c} $size={cellSize}>
-                      ?
+                    <Cell
+                      key={c}
+                      $size={cellSize}
+                      $call={cell.call}
+                      $alert={alerted}
+                      onClick={alerted ? () => setOpen(open === index ? null : index) : undefined}
+                      title={alerted ? cell.alert || t.alert : undefined}
+                    >
+                      <CallLabel call={cell.call} onCard />
+                      {alerted && <span className="visually-hidden">（Alert：{cell.alert}）</span>}
                     </Cell>
                   )
-                const index = auction.indexOf(cell)
-                const alerted = cell.alert !== undefined
-                return (
-                  <Cell
-                    key={c}
-                    $size={cellSize}
-                    $call={cell.call}
-                    $alert={alerted}
-                    onClick={alerted ? () => setOpen(open === index ? null : index) : undefined}
-                    title={alerted ? cell.alert || t.alert : undefined}
-                  >
-                    <CallLabel call={cell.call} onCard />
-                    {alerted && <span className="visually-hidden">（Alert：{cell.alert}）</span>}
-                  </Cell>
-                )
-              })}
-            </tr>
-          ))}
-        </tbody>
-      </Table>
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </Table>
+      </Scroll>
       {explained && (
         <Explain>
           <CallLabel call={explained.call} onCard />：{explained.alert || t.alert}
