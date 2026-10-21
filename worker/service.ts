@@ -2,48 +2,61 @@ import { isCall } from '../shared/auction.ts'
 import { deal, secureRandomInt, type RandomInt } from '../shared/board.ts'
 import { isCard, isSeat, sameSide, SEATS, type Seat } from '../shared/cards.ts'
 import {
+  claimApprovers,
   controllerOf,
   dummyOf,
-  GameError,
   lastActor,
+  legalCards,
   makeCall,
   makeClaim,
   newBoard,
   playCard,
   remainingCards,
   respondToClaim,
+  turnOf,
   undoLast,
   type BoardState,
 } from '../shared/game.ts'
+import { AppError, type MessageCode, type MessageParams } from '../shared/messages.ts'
 import {
+  isRobotId,
   LIMITS,
+  ROBOT_PREFIX,
   summarize,
   USERNAME_PATTERN,
+  type AdminUser,
   type BoardRecord,
   type BoardSummary,
   type ClientMessage,
+  type ClubSettings,
+  type HistoryPage,
   type LobbyView,
+  type Me,
   type PublicUser,
   type ServerMessage,
   type TableSummary,
   type TableView,
 } from '../shared/protocol.ts'
+import { chooseCall } from '../shared/robot/bidding.ts'
+import { chooseCard } from '../shared/robot/play.ts'
 import { hashPassword, randomId, SESSION_DAYS, verifyPassword } from './auth.ts'
 import type { Store } from './store.ts'
 import { boardView, seatOccupants, type Table } from './views.ts'
 
-/** An error shown to the user as-is */
-export class ClubError extends Error {
-  readonly status: number
-  constructor(message: string, status = 400) {
-    super(message)
-    this.status = status
+/** An error shown to the user; the code is translated in the browser */
+export class ClubError extends AppError {
+  constructor(code: MessageCode, params: MessageParams = {}, status = 400) {
+    super(code, params, status)
   }
 }
 
-interface StoredUser extends PublicUser {
+interface StoredUser {
+  id: string
+  username: string
   passwordHash: string
   createdAt: number
+  lastLoginAt?: number
+  admin?: boolean
 }
 
 interface Session {
@@ -55,30 +68,46 @@ interface Session {
 export interface Connections {
   onlineUserIds(): string[]
   send(userId: string, message: ServerMessage): void
+  /** Closes every socket of a user (after their account is deleted) */
+  disconnect(userId: string): void
 }
 
 export interface ClubConfig {
+  /** Defaults from the Worker environment; an admin can override them (ClubSettings) */
   maxUsers: number
-  /** When set, registering requires this code */
   inviteCode?: string
   now?: () => number
   random?: RandomInt
+  /** Runs robot moves after a short pause; tests pass a manual queue */
+  schedule?: (run: () => void, ms: number) => void
 }
 
 const CHAT_KEEP = 100
+const SCHEMA = 2
+/** How long robots wait before acting, so people can follow the play */
+const ROBOT_DELAY = { call: 800, card: 700, afterTrick: 1500, answer: 400 }
+const ROBOT_NAME = 'Robot'
 
 /**
  * Accounts, tables and boards for one bridge club. All state lives in memory and every change is
  * written through to the store, so the Durable Object can be evicted and reloaded at any time.
+ *
+ * History is kept as one key per board (`board:<id>`) plus two small, time-ordered indexes of
+ * summaries (`hist:` for everyone, `uhist:<userId>:` per member), so listing a page of history
+ * reads only that page no matter how many boards the club has played.
  */
 export class ClubService {
   private users = new Map<string, StoredUser>()
   private tables = new Map<string, Table>()
+  private settings: Partial<ClubSettings> = {}
   private readonly store: Store
   private readonly connections: Connections
   private readonly config: ClubConfig
   private readonly now: () => number
   private readonly random: RandomInt
+  private readonly schedule: (run: () => void, ms: number) => void
+  /** Tables with a robot move already scheduled */
+  private readonly robotTimers = new Set<string>()
 
   constructor(store: Store, connections: Connections, config: ClubConfig) {
     this.store = store
@@ -86,59 +115,96 @@ export class ClubService {
     this.config = config
     this.now = config.now ?? Date.now
     this.random = config.random ?? secureRandomInt
+    this.schedule = config.schedule ?? ((run, ms) => void setTimeout(run, ms))
   }
 
   async load() {
-    for (const user of (await this.store.list<StoredUser>('user:')).values())
-      this.users.set(user.id, user)
-    for (const table of (await this.store.list<Table>('table:')).values())
-      this.tables.set(table.id, table)
+    for (const user of (await this.store.list<StoredUser>('user:')).values()) this.users.set(user.id, user)
+    for (const table of (await this.store.list<Table>('table:')).values()) this.tables.set(table.id, table)
+    this.settings = (await this.store.get<Partial<ClubSettings>>('meta:settings')) ?? {}
+    if (((await this.store.get<number>('meta:schema')) ?? 1) < SCHEMA) await this.migrate()
+    await this.ensureAdmin()
+    for (const table of this.tables.values()) this.scheduleRobots(table)
+  }
+
+  /** Version 1 kept history as `board:<time>-<id>` only; build the indexes from it */
+  private async migrate() {
+    for (const [key, record] of await this.store.list<BoardRecord>('board:')) {
+      if (!key.includes('-')) continue
+      await this.saveRecord(record)
+      await this.store.delete(key)
+    }
+    await this.store.put('meta:schema', SCHEMA)
+  }
+
+  /** A club always has an admin: if nobody is one, the oldest account becomes admin */
+  private async ensureAdmin() {
+    const members = [...this.users.values()]
+    if (!members.length || members.some((u) => u.admin)) return
+    const oldest = members.sort((a, b) => a.createdAt - b.createdAt)[0]
+    oldest.admin = true
+    await this.store.put(`user:${oldest.id}`, oldest)
+  }
+
+  // ── Settings ────────────────────────────────────────────────────────────────────────────────
+
+  get clubSettings(): ClubSettings {
+    return {
+      maxUsers: this.settings.maxUsers ?? this.config.maxUsers,
+      inviteCode: this.settings.inviteCode ?? this.config.inviteCode ?? '',
+    }
   }
 
   // ── Accounts ────────────────────────────────────────────────────────────────────────────────
 
   async register(username: string, password: string, inviteCode: string) {
+    const { inviteCode: code } = this.clubSettings
+    if (code && inviteCode !== code) throw new ClubError('badInvite', {}, 403)
+    const user = await this.createUser(username, password)
+    return { user: this.me(user), token: await this.createSession(user.id) }
+  }
+
+  private async createUser(username: string, password: string) {
     username = String(username ?? '').trim()
     password = String(password ?? '')
-    if (this.config.inviteCode && inviteCode !== this.config.inviteCode)
-      throw new ClubError('badInvite', {}, 403)
-    if (this.users.size >= this.config.maxUsers)
-      throw new ClubError(`社團帳號已達上限（${this.config.maxUsers} 人）`, 403)
-    if (
-      username.length < LIMITS.usernameMin ||
-      username.length > LIMITS.usernameMax ||
-      !USERNAME_PATTERN.test(username)
-    )
-      throw new ClubError(
-        `帳號需為 ${LIMITS.usernameMin}–${LIMITS.usernameMax} 個字，只能用中英文、數字與 _ . -`,
-      )
-    if (password.length < LIMITS.passwordMin)
-      throw new ClubError(`密碼至少 ${LIMITS.passwordMin} 個字`)
-    if (this.findUser(username)) throw new ClubError('usernameTaken', {}, 409)
+    const { maxUsers } = this.clubSettings
+    if (this.users.size >= maxUsers) throw new ClubError('memberCap', { max: maxUsers }, 403)
+    if (username.length < LIMITS.usernameMin || username.length > LIMITS.usernameMax || !USERNAME_PATTERN.test(username))
+      throw new ClubError('badUsername', { min: LIMITS.usernameMin, max: LIMITS.usernameMax })
+    this.checkPassword(password)
+    if (this.findUser(username) || username.toLowerCase() === ROBOT_NAME.toLowerCase())
+      throw new ClubError('usernameTaken', {}, 409)
 
     const user: StoredUser = {
       id: randomId(8),
       username,
       passwordHash: await hashPassword(password),
       createdAt: this.now(),
+      admin: this.users.size === 0,
     }
     this.users.set(user.id, user)
     await this.store.put(`user:${user.id}`, user)
-    return { user: publicUser(user), token: await this.createSession(user.id) }
+    return user
+  }
+
+  private checkPassword(password: string) {
+    if (password.length < LIMITS.passwordMin) throw new ClubError('shortPassword', { min: LIMITS.passwordMin })
   }
 
   async login(username: string, password: string) {
     const user = this.findUser(String(username ?? '').trim())
     if (!user || !(await verifyPassword(String(password ?? ''), user.passwordHash)))
       throw new ClubError('badLogin', {}, 401)
-    return { user: publicUser(user), token: await this.createSession(user.id) }
+    user.lastLoginAt = this.now()
+    await this.store.put(`user:${user.id}`, user)
+    return { user: this.me(user), token: await this.createSession(user.id) }
   }
 
   async logout(token: string) {
     await this.store.delete(`session:${token}`)
   }
 
-  async userForToken(token: string | null): Promise<PublicUser | null> {
+  async userForToken(token: string | null): Promise<Me | null> {
     if (!token) return null
     const session = await this.store.get<Session>(`session:${token}`)
     if (!session) return null
@@ -147,7 +213,23 @@ export class ClubService {
       return null
     }
     const user = this.users.get(session.userId)
-    return user ? publicUser(user) : null
+    return user ? this.me(user) : null
+  }
+
+  async changePassword(userId: string, current: string, next: string) {
+    const user = this.requireUser(userId)
+    if (!(await verifyPassword(String(current ?? ''), user.passwordHash))) throw new ClubError('wrongPassword', {}, 403)
+    await this.setPassword(user, String(next ?? ''))
+  }
+
+  private async setPassword(user: StoredUser, password: string) {
+    this.checkPassword(password)
+    user.passwordHash = await hashPassword(password)
+    await this.store.put(`user:${user.id}`, user)
+  }
+
+  private me(user: StoredUser): Me {
+    return { id: user.id, username: user.username, admin: !!user.admin }
   }
 
   private findUser(username: string) {
@@ -155,29 +237,132 @@ export class ClubService {
     return [...this.users.values()].find((u) => u.username.toLowerCase() === wanted)
   }
 
+  private requireUser(id: string) {
+    const user = this.users.get(id)
+    if (!user) throw new ClubError('userGone', {}, 404)
+    return user
+  }
+
   private async createSession(userId: string) {
     const token = randomId(32)
-    await this.store.put<Session>(`session:${token}`, {
-      userId,
-      expires: this.now() + SESSION_DAYS * 86_400_000,
-    })
+    await this.store.put<Session>(`session:${token}`, { userId, expires: this.now() + SESSION_DAYS * 86_400_000 })
     return token
+  }
+
+  private async revokeSessions(userId: string) {
+    for (const [key, session] of await this.store.list<Session>('session:'))
+      if (session.userId === userId) await this.store.delete(key)
+  }
+
+  // ── Admin ───────────────────────────────────────────────────────────────────────────────────
+
+  requireAdmin(userId: string) {
+    if (!this.users.get(userId)?.admin) throw new ClubError('adminOnly', {}, 403)
+  }
+
+  async adminUsers(): Promise<AdminUser[]> {
+    const online = this.connections.onlineUserIds()
+    const users = [...this.users.values()].sort((a, b) => a.createdAt - b.createdAt)
+    return Promise.all(
+      users.map(async (u) => ({
+        id: u.id,
+        username: u.username,
+        admin: !!u.admin,
+        createdAt: u.createdAt,
+        lastLoginAt: u.lastLoginAt ?? null,
+        boards: (await this.store.list(`uhist:${u.id}:`)).size,
+        online: online.includes(u.id),
+      })),
+    )
+  }
+
+  async adminCreateUser(username: string, password: string) {
+    return this.me(await this.createUser(username, password))
+  }
+
+  async adminResetPassword(userId: string, password: string) {
+    const user = this.requireUser(userId)
+    await this.setPassword(user, String(password ?? ''))
+    await this.revokeSessions(user.id)
+    this.connections.disconnect(user.id)
+  }
+
+  async adminSetAdmin(actorId: string, userId: string, admin: boolean) {
+    const user = this.requireUser(userId)
+    if (!admin && user.admin && [...this.users.values()].filter((u) => u.admin).length === 1)
+      throw new ClubError('lastAdmin')
+    if (!admin && actorId === userId) throw new ClubError('notSelf')
+    user.admin = admin
+    await this.store.put(`user:${user.id}`, user)
+  }
+
+  async adminDeleteUser(actorId: string, userId: string) {
+    if (actorId === userId) throw new ClubError('notSelf')
+    const user = this.requireUser(userId)
+    await this.leave(user.id)
+    this.users.delete(user.id)
+    await this.store.delete(`user:${user.id}`)
+    await this.revokeSessions(user.id)
+    this.connections.disconnect(user.id)
+    this.broadcast()
+  }
+
+  async adminUpdateSettings(update: Partial<ClubSettings>) {
+    const next = { ...this.settings }
+    if (update.maxUsers !== undefined) {
+      const max = Number(update.maxUsers)
+      if (!Number.isInteger(max) || max < LIMITS.maxUsersMin || max > LIMITS.maxUsersMax)
+        throw new ClubError('badCap', { min: LIMITS.maxUsersMin, max: LIMITS.maxUsersMax })
+      next.maxUsers = max
+    }
+    if (update.inviteCode !== undefined) next.inviteCode = String(update.inviteCode).trim().slice(0, 40)
+    this.settings = next
+    await this.store.put('meta:settings', next)
+    return this.clubSettings
+  }
+
+  async adminCloseTable(tableId: string) {
+    const table = this.requireTable(tableId)
+    this.tables.delete(table.id)
+    await this.store.delete(`table:${table.id}`)
+    this.broadcast()
   }
 
   // ── History ─────────────────────────────────────────────────────────────────────────────────
 
-  /** Newest first; only boards the user played unless `all` */
-  async history(userId: string, all: boolean): Promise<BoardSummary[]> {
-    const records = [...(await this.store.list<BoardRecord>('board:')).values()]
-    return records
-      .filter((r) => all || SEATS.some((seat) => r.players[seat].id === userId))
-      .map(summarize)
-      .reverse()
+  /** Newest first, one page at a time; `before` is the `next` cursor of the previous page */
+  async history(userId: string, all: boolean, before?: string): Promise<HistoryPage> {
+    const prefix = all ? 'hist:' : `uhist:${userId}:`
+    const limit = LIMITS.historyPage
+    const page = await this.store.list<BoardSummary>(prefix, {
+      reverse: true,
+      limit: limit + 1,
+      ...(before ? { end: prefix + before } : {}),
+    })
+    const entries = [...page.entries()]
+    const more = entries.length > limit
+    const shown = entries.slice(0, limit)
+    return {
+      boards: shown.map(([, summary]) => summary),
+      next: more ? shown.at(-1)![0].slice(prefix.length) : null,
+    }
   }
 
   async record(id: string): Promise<BoardRecord | null> {
-    const records = await this.store.list<BoardRecord>('board:')
-    return [...records.values()].find((r) => r.id === id) ?? null
+    if (!/^[\w-]+$/.test(id)) return null
+    return (await this.store.get<BoardRecord>(`board:${id}`)) ?? null
+  }
+
+  private async saveRecord(record: BoardRecord) {
+    // Zero-padded time keeps the indexes in chronological order
+    const order = `${String(record.finishedAt).padStart(14, '0')}-${record.id}`
+    const summary = summarize(record)
+    await this.store.put(`board:${record.id}`, record)
+    await this.store.put(`hist:${order}`, summary)
+    for (const seat of SEATS) {
+      const id = record.players[seat].id
+      if (id && !isRobotId(id)) await this.store.put(`uhist:${id}:${order}`, summary)
+    }
   }
 
   // ── Connections ─────────────────────────────────────────────────────────────────────────────
@@ -185,7 +370,7 @@ export class ClubService {
   connected(userId: string) {
     const user = this.users.get(userId)
     if (!user) return
-    this.connections.send(userId, { type: 'welcome', me: publicUser(user) })
+    this.connections.send(userId, { type: 'welcome', me: this.me(user) })
     this.broadcast()
   }
 
@@ -203,13 +388,15 @@ export class ClubService {
     try {
       await this.dispatch(userId, message)
     } catch (error) {
-      if (error instanceof ClubError || error instanceof GameError) {
-        this.connections.send(userId, { type: 'error', message: error.message })
+      if (error instanceof AppError) {
+        this.connections.send(userId, { type: 'error', code: error.code, params: error.params, message: error.message })
         return
       }
       throw error
     }
     this.broadcast()
+    const table = this.tableOf(userId)
+    if (table) this.scheduleRobots(table)
   }
 
   private async dispatch(userId: string, message: ClientMessage) {
@@ -228,6 +415,10 @@ export class ClubService {
         return this.leave(userId)
       case 'freeSeat':
         return this.freeSeat(userId, message.seat)
+      case 'addRobot':
+        return this.addRobot(userId, message.seat)
+      case 'removeRobot':
+        return this.removeRobot(userId, message.seat)
       case 'chat':
         return this.chat(userId, message.text)
       case 'ready':
@@ -254,6 +445,10 @@ export class ClubService {
 
   private seatOf(table: Table, userId: string): Seat | null {
     return SEATS.find((s) => table.seats[s] === userId) ?? null
+  }
+
+  private humansSeated(table: Table) {
+    return SEATS.filter((s) => table.seats[s] && !isRobotId(table.seats[s])).length
   }
 
   private requireTable(tableId: unknown): Table {
@@ -294,17 +489,16 @@ export class ClubService {
     const current = this.tableOf(userId)
     const currentSeat = current === table ? this.seatOf(table, userId) : null
     if (currentSeat === seat) return
-    if (table.seats[seat]) throw new ClubError('seatTaken')
-    if (currentSeat && table.board && table.board.phase !== 'finished')
-      throw new ClubError('noSeatChange')
+    // A person may take a robot's seat at any time, as on BBO
+    const occupant = table.seats[seat]
+    if (occupant && !isRobotId(occupant)) throw new ClubError('seatTaken')
+    if (currentSeat && table.board && table.board.phase !== 'finished') throw new ClubError('noSeatChange')
     if (current !== table) await this.leave(userId)
 
     table.spectators = table.spectators.filter((id) => id !== userId)
-    if (currentSeat) {
-      table.seats[currentSeat] = null
-      table.ready = table.ready.filter((s) => s !== currentSeat)
-    }
+    if (currentSeat) this.vacate(table, currentSeat)
     table.seats[seat] = userId
+    table.ready = table.ready.filter((s) => s !== seat)
     this.startBoardIfReady(table)
     await this.save(table)
   }
@@ -331,9 +525,28 @@ export class ClubService {
   private async freeSeat(userId: string, seat: unknown) {
     const table = this.tableOf(userId)
     if (!table) throw new ClubError('notAtTable')
-    if (!isSeat(seat) || !table.seats[seat]) return
-    if (this.connections.onlineUserIds().includes(table.seats[seat]!))
-      throw new ClubError('freeOfflineOnly')
+    if (!isSeat(seat) || !table.seats[seat] || isRobotId(table.seats[seat])) return
+    if (this.connections.onlineUserIds().includes(table.seats[seat]!)) throw new ClubError('freeOfflineOnly')
+    this.vacate(table, seat)
+    await this.save(table)
+  }
+
+  /** A seated player may put a robot in an empty seat */
+  private async addRobot(userId: string, seat: unknown) {
+    const table = this.tableOf(userId)
+    if (!table || !this.seatOf(table, userId)) throw new ClubError('notSeated')
+    if (!isSeat(seat)) throw new ClubError('badSeat')
+    if (table.seats[seat]) throw new ClubError('seatTaken')
+    table.seats[seat] = ROBOT_PREFIX + seat
+    this.startBoardIfReady(table)
+    await this.save(table)
+  }
+
+  private async removeRobot(userId: string, seat: unknown) {
+    const table = this.tableOf(userId)
+    if (!table || !this.seatOf(table, userId)) throw new ClubError('notSeated')
+    if (!isSeat(seat)) throw new ClubError('badSeat')
+    if (!isRobotId(table.seats[seat])) throw new ClubError('seatNotRobot')
     this.vacate(table, seat)
     await this.save(table)
   }
@@ -364,11 +577,18 @@ export class ClubService {
     await this.save(table)
   }
 
-  /** Deals the next board once all four seats are taken and everyone is done with the last one */
+  /**
+   * Deals the next board once all four seats are taken (by people or robots), at least one person
+   * is seated, and every person is done with the last board. Robots are always ready.
+   */
   private startBoardIfReady(table: Table) {
-    if (SEATS.some((s) => !table.seats[s])) return
+    if (SEATS.some((s) => !table.seats[s]) || this.humansSeated(table) === 0) return
     const board = table.board
-    if (board && (board.phase !== 'finished' || table.ready.length < 4)) return
+    if (board) {
+      if (board.phase !== 'finished') return
+      const waiting = SEATS.filter((s) => !isRobotId(table.seats[s]) && !table.ready.includes(s))
+      if (waiting.length) return
+    }
     table.board = newBoard(table.boardsPlayed + 1, deal(this.random))
     table.ready = []
     table.undo = undefined
@@ -381,6 +601,11 @@ export class ClubService {
     const table = this.tableOf(userId)
     const seat = table && this.seatOf(table, userId)
     if (!table || !seat) throw new ClubError('notSeated')
+    await this.act(table, seat, message)
+  }
+
+  /** Applies one board action for a seat, from a person or a robot */
+  private async act(table: Table, seat: Seat, message: ClientMessage) {
     const board = table.board
     if (!board) throw new ClubError('noBoard')
 
@@ -398,8 +623,7 @@ export class ClubService {
       case 'play': {
         if (!isCard(message.card)) throw new ClubError('unknownCard')
         const dummy = dummyOf(board)
-        const hand =
-          dummy && remainingCards(board, dummy).includes(message.card) ? dummy : seat
+        const hand = dummy && remainingCards(board, dummy).includes(message.card) ? dummy : seat
         if (controllerOf(board, hand) !== seat) throw new ClubError('notYourCard')
         next = playCard(board, hand, message.card)
         break
@@ -436,28 +660,88 @@ export class ClubService {
     // Any new action supersedes a pending undo request
     table.undo = undefined
     table.board = next
-    if (next.phase === 'finished' && board.phase !== 'finished') await this.recordBoard(table, next)
+    if (next.phase === 'finished' && board.phase !== 'finished') {
+      await this.recordBoard(table, next)
+      this.startBoardIfReady(table)
+    }
     await this.save(table)
   }
 
   private async recordBoard(table: Table, board: BoardState) {
     const players = {} as BoardRecord['players']
-    for (const seat of SEATS) {
-      const user = table.seats[seat] ? this.users.get(table.seats[seat]!) : undefined
-      players[seat] = user ? publicUser(user) : { id: '', username: '—' }
-    }
-    const finishedAt = this.now()
-    const record: BoardRecord = {
-      id: randomId(8),
-      tableNumber: table.number,
-      finishedAt,
-      players,
-      board,
-    }
-    // Zero-padded time keeps the history listing in chronological order
-    await this.store.put(`board:${String(finishedAt).padStart(14, '0')}-${record.id}`, record)
+    for (const seat of SEATS) players[seat] = this.publicUserById(table.seats[seat] ?? '') ?? { id: '', username: '—' }
+    const record: BoardRecord = { id: randomId(8), tableNumber: table.number, finishedAt: this.now(), players, board }
+    await this.saveRecord(record)
     table.recordId = record.id
     table.boardsPlayed++
+  }
+
+  // ── Robots ──────────────────────────────────────────────────────────────────────────────────
+
+  /** What a robot at this table should do next, if anything */
+  private robotMove(table: Table): { seat: Seat; message: ClientMessage; delay: number } | null {
+    const board = table.board
+    if (!board || board.phase === 'finished' || this.humansSeated(table) === 0) return null
+    const robot = (seat: Seat | null | undefined): seat is Seat => !!seat && isRobotId(table.seats[seat])
+
+    // Robots agree to undo requests and accept claims
+    if (table.undo) {
+      const answer = SEATS.find((s) => robot(s) && !sameSide(s, table.undo!.seat))
+      if (answer) return { seat: answer, message: { type: 'undoRespond', accept: true }, delay: ROBOT_DELAY.answer }
+      return null
+    }
+    if (board.claim) {
+      const answer = claimApprovers(board, board.claim.seat).find((s) => robot(s) && !board.claim!.accepted.includes(s))
+      return answer ? { seat: answer, message: { type: 'claimRespond', accept: true }, delay: ROBOT_DELAY.answer } : null
+    }
+    const turn = turnOf(board)
+    if (!turn) return null
+    if (board.phase === 'auction') {
+      if (!robot(turn)) return null
+      const { call, alert } = chooseCall(board.hands[turn], turn, board.auction, board.dealer, board.vul)
+      return { seat: turn, message: { type: 'call', call, alert }, delay: ROBOT_DELAY.call }
+    }
+    const controller = controllerOf(board, turn)
+    if (!robot(controller)) return null
+    const card = chooseCard(board, turn)
+    const trickJustEnded = board.play.length > 0 && board.play.length % 4 === 0
+    return {
+      seat: controller,
+      message: { type: 'play', card },
+      delay: trickJustEnded ? ROBOT_DELAY.afterTrick : ROBOT_DELAY.card,
+    }
+  }
+
+  /** Schedules the next robot move at a table; each move schedules the one after it */
+  scheduleRobots(table: Table) {
+    if (this.robotTimers.has(table.id)) return
+    const move = this.robotMove(table)
+    if (!move) return
+    this.robotTimers.add(table.id)
+    this.schedule(() => void this.runRobot(table.id), move.delay)
+  }
+
+  private async runRobot(tableId: string) {
+    this.robotTimers.delete(tableId)
+    const table = this.tables.get(tableId)
+    if (!table) return
+    const move = this.robotMove(table)
+    if (!move) return
+    try {
+      await this.act(table, move.seat, move.message)
+    } catch (error) {
+      // A robot move that turns out illegal must not stall the table: pass or play any legal card
+      if (!(error instanceof AppError)) throw error
+      console.error('robot move rejected', error.code, move)
+      const board = table.board!
+      const turn = turnOf(board)
+      const fallback: ClientMessage | null =
+        board.phase === 'auction' ? { type: 'call', call: 'P' } : turn ? { type: 'play', card: legalCards(board, turn)[0] } : null
+      if (!fallback) return
+      await this.act(table, move.seat, fallback)
+    }
+    this.broadcast()
+    this.scheduleRobots(table)
   }
 
   // ── Persistence and broadcasting ────────────────────────────────────────────────────────────
@@ -466,9 +750,9 @@ export class ClubService {
     await this.store.put(`table:${table.id}`, table)
   }
 
-  /** Closes a table nobody is sitting at or watching */
+  /** Closes a table no person is sitting at or watching (robots do not keep it open) */
   private async saveOrDrop(table: Table) {
-    if (table.spectators.length === 0 && SEATS.every((s) => !table.seats[s])) {
+    if (table.spectators.length === 0 && this.humansSeated(table) === 0) {
       this.tables.delete(table.id)
       await this.store.delete(`table:${table.id}`)
     } else {
@@ -487,7 +771,7 @@ export class ClubService {
   }
 
   lobbyView(userId: string, online = this.connections.onlineUserIds()): LobbyView {
-    const isOnline = (id: string) => online.includes(id)
+    const isOnline = (id: string) => isRobotId(id) || online.includes(id)
     const tables: TableSummary[] = [...this.tables.values()]
       .sort((a, b) => a.number - b.number)
       .map((t) => ({
@@ -513,23 +797,20 @@ export class ClubService {
       id: table.id,
       number: table.number,
       hostId: table.hostId,
-      seats: seatOccupants(table, (id) => this.publicUserById(id), (id) => online.includes(id)),
+      seats: seatOccupants(table, (id) => this.publicUserById(id), (id) => isRobotId(id) || online.includes(id)),
       spectators: table.spectators.flatMap((id) => this.publicUserById(id) ?? []),
       mySeat,
-      board: table.board
-        ? boardView(table.board, mySeat, { undo: table.undo, recordId: table.recordId })
-        : null,
+      board: table.board ? boardView(table.board, mySeat, { undo: table.undo, recordId: table.recordId }) : null,
       boardsPlayed: table.boardsPlayed,
-      ready: table.ready,
+      ready: [...table.ready, ...SEATS.filter((s) => isRobotId(table.seats[s]))],
       chat: table.chat,
     }
   }
 
   private publicUserById(id: string): PublicUser | undefined {
+    if (isRobotId(id)) return { id, username: ROBOT_NAME, robot: true }
     const user = this.users.get(id)
-    return user && publicUser(user)
+    return user && { id: user.id, username: user.username }
   }
 }
-
-const publicUser = (user: StoredUser): PublicUser => ({ id: user.id, username: user.username })
 

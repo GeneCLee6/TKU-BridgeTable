@@ -11,7 +11,7 @@ import {
   type Seat,
   type Suit,
 } from '../cards.ts'
-import { dummyOf, legalCards, remainingCards, tricksOf, type BoardState } from '../game.ts'
+import { dummyOf, legalCards, remainingCards, tricksOf, type BoardState, type PlayedCard } from '../game.ts'
 import { suitCards } from './hand.ts'
 
 /**
@@ -41,22 +41,26 @@ export function chooseCard(state: BoardState, seat: Seat): Card {
   const following = legal.filter((c) => suitOf(c) === led)
   const lowest = (cards: Card[]) => [...cards].sort(byRank)[0]
 
+  const defending = !sameSide(seat, contract.declarer)
+  // A card that signals rather than wins, from the club's methods (橋牌防守信號)
+  const signal = (cards: Card[]) => (defending ? signalFollow(state, seat, trick, cards, trump) : lowest(cards))
+
   if (following.length) {
-    if (partnerWinning && (lastToPlay || view.isMaster(best.card))) return lowest(following)
+    if (partnerWinning && (lastToPlay || view.isMaster(best.card))) return signal(following)
     if (partnerWinning) {
       // Third hand high: protect partner's lead from the last player
       const top = [...following].sort(byRank).at(-1)!
-      return rankValue(rankOf(top)) > rankValue(rankOf(best.card)) ? top : lowest(following)
+      return rankValue(rankOf(top)) > rankValue(rankOf(best.card)) ? top : signal(following)
     }
     const trumped = trump !== null && suitOf(best.card) === trump && led !== trump
-    if (trumped && !partnerWinning) return lowest(following)
+    if (trumped) return signal(following)
     const beaters = following.filter((c) => suitOf(best.card) === led && rankValue(rankOf(c)) > rankValue(rankOf(best.card)))
     if (trick.length === 1) {
       // Second hand low, but cover an honour
       const honour = rankValue(rankOf(trick[0].card)) >= 11
-      return honour && beaters.length ? lowest(beaters) : lowest(following)
+      return honour && beaters.length ? lowest(beaters) : signal(following)
     }
-    return beaters.length ? lowest(beaters) : lowest(following)
+    return beaters.length ? lowest(beaters) : signal(following)
   }
 
   // Void in the suit led
@@ -67,7 +71,7 @@ export function chooseCard(state: BoardState, seat: Seat): Card {
     const over = trumps.filter((c) => rankValue(rankOf(c)) > Math.max(0, ...highestTrump))
     if (over.length) return lowest(over)
   }
-  return discard(view, legal, trump)
+  return defending ? signalDiscard(view, legal, trump, led) : discard(view, legal, trump)
 }
 
 function lead(state: BoardState, seat: Seat, view: View, legal: Card[], trump: Suit | null): Card {
@@ -98,6 +102,12 @@ function lead(state: BoardState, seat: Seat, view: View, legal: Card[], trump: S
     for (const s of nonTrump) {
       const top = suitCards(hand, s)[0]
       if (view.isMaster(top) && state.play.length >= 4) return top
+    }
+    // Lead the suit partner asked for with a discard
+    const wanted = partnerSignal(state, seat, trump)
+    if (wanted && suitCards(hand, wanted).length) {
+      const cards = suitCards(hand, wanted)
+      return cards.length === 2 ? cards[0] : cards.at(-1)!
     }
     // Return partner's opening lead
     const first = state.play[0]
@@ -179,6 +189,94 @@ function winningCard(trick: { seat: Seat; card: Card }[], trump: Suit | null) {
 }
 
 const byRank = (a: Card, b: Card) => rankValue(rankOf(a)) - rankValue(rankOf(b))
+const value = (card: Card) => rankValue(rankOf(card))
+const HONOUR_POINTS: Record<string, number> = { A: 4, K: 3, Q: 2, J: 1 }
+const honours = (cards: Card[]) => cards.reduce((sum, c) => sum + (HONOUR_POINTS[rankOf(c)] ?? 0), 0)
+/** The highest card below the jack, so a signal never wastes an honour */
+const highSpot = (cards: Card[]) => [...cards].sort(byRank).filter((c) => value(c) < 11).at(-1) ?? [...cards].sort(byRank)[0]
+
+/**
+ * Following suit without trying to win, as the club signals:
+ * - partner's lead: attitude, reversed (小牌＝歡迎，大牌＝不歡迎); after partner leads a king,
+ *   count instead (A、Q 看態度，K 看張數)
+ * - declarer's lead: count, standard (先大後小＝偶數張); in notrump, the first suit declarer
+ *   plays carries a Smith Echo about the opening lead instead (小牌＝歡迎首攻花色)
+ */
+function signalFollow(state: BoardState, seat: Seat, trick: PlayedCard[], cards: Card[], trump: Suit | null): Card {
+  const low = [...cards].sort(byRank)[0]
+  if (cards.length === 1) return low
+  const leader = trick[0]
+  const led = suitOf(leader.card)
+  const hand = remainingCards(state, seat)
+  if (leader.seat === partnerOf(seat)) {
+    if (rankOf(leader.card) === 'K') return cards.length % 2 === 0 ? highSpot(cards) : low
+    const like = cards.some((c) => 'AKQ'.includes(rankOf(c)))
+    return like ? low : highSpot(cards)
+  }
+  const tricks = tricksOf(state)
+  const firstDeclarerTrick = tricks.slice(1).find((t) => sameSide(t.leader, state.contract!.declarer))
+  if (!trump && firstDeclarerTrick && firstDeclarerTrick === tricks.at(-1) && state.play[0]) {
+    const opening = suitOf(state.play[0].card)
+    if (opening !== led) {
+      const mine = suitCards(hand, opening)
+      const like = honours(mine) >= 2 || (state.play[0].seat === partnerOf(seat) && mine.length > 0 && mine.length <= 2)
+      return like ? low : highSpot(cards)
+    }
+  }
+  return cards.length % 2 === 0 ? highSpot(cards) : low
+}
+
+/**
+ * Discards that signal, as the club plays them:
+ * - trump contracts, odd/even (奇正偶轉): an odd card asks for that suit; an even card refuses
+ *   it, high asking for the higher and low for the lower of the other two side suits
+ * - notrump, full transfer (全轉換): high asks for the higher, low for the lower of the other two
+ */
+function signalDiscard(view: View, legal: Card[], trump: Suit | null, led: Suit): Card {
+  const sideSuits = SUITS.filter((s) => s !== trump && s !== led && legal.some((c) => suitOf(c) === s))
+  if (!sideSuits.length) return discard(view, legal, trump)
+  const strength = (s: Suit) => honours(legal.filter((c) => suitOf(c) === s))
+  const best = [...sideSuits].sort((a, b) => strength(b) - strength(a))[0]
+  const want = strength(best) >= 3 ? best : null
+  const spare = (s: Suit) => legal.filter((c) => suitOf(c) === s && !view.isMaster(c))
+
+  if (trump && want) {
+    const odd = spare(want).filter((c) => value(c) % 2 === 1 && value(c) < 11)
+    if (odd.length && legal.filter((c) => suitOf(c) === want).length >= 3) return odd.sort(byRank)[0]
+  }
+  const throwFrom = sideSuits
+    .filter((s) => s !== want)
+    .sort((a, b) => strength(a) - strength(b) || spare(b).length - spare(a).length)[0]
+  if (!throwFrom) return discard(view, legal, trump)
+  const pool = spare(throwFrom).length ? spare(throwFrom) : legal.filter((c) => suitOf(c) === throwFrom)
+  // The two suits a high or low card points to: not the discard suit, not trumps (or, in
+  // notrump, not the suit led)
+  const pointsTo = SUITS.filter((s) => s !== throwFrom && s !== (trump ?? led))
+  const higher = pointsTo.length === 2 ? pointsTo[0] : null
+  const askHigh = want !== null && want === higher
+  const candidates = trump ? pool.filter((c) => value(c) % 2 === 0 && value(c) < 11) : pool.filter((c) => value(c) < 11)
+  const sorted = (candidates.length ? candidates : pool).sort(byRank)
+  return askHigh ? sorted.at(-1)! : sorted[0]
+}
+
+/** The suit partner asked for with their first discard, read with the club's methods */
+function partnerSignal(state: BoardState, seat: Seat, trump: Suit | null): Suit | null {
+  const partner = partnerOf(seat)
+  for (const trick of tricksOf(state)) {
+    const led = suitOf(trick.cards[0].card)
+    const theirs = trick.cards.find((p) => p.seat === partner)
+    if (!theirs || suitOf(theirs.card) === led || suitOf(theirs.card) === trump) continue
+    const suit = suitOf(theirs.card)
+    const v = value(theirs.card)
+    if (trump && v % 2 === 1 && v < 11) return suit
+    const pointsTo = SUITS.filter((s) => s !== suit && s !== (trump ?? led))
+    if (pointsTo.length !== 2) return null
+    // SUITS runs ♠ ♥ ♦ ♣, so the first is the higher ranking
+    const high = trump ? v >= 6 : v >= 7
+    return high ? pointsTo[0] : pointsTo[1]
+  }
+  return null
+}
 
 /** The cards a robot may take into account */
 class View {

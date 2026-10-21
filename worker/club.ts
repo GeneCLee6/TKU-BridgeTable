@@ -1,5 +1,6 @@
 import { DurableObject } from 'cloudflare:workers'
-import type { ClientMessage, ServerMessage } from '../shared/protocol.ts'
+import { AppError } from '../shared/messages.ts'
+import type { ClientMessage, Me, ServerMessage } from '../shared/protocol.ts'
 import { readCookie, SESSION_COOKIE, sessionCookie } from './auth.ts'
 import { ClubError, ClubService, type Connections } from './service.ts'
 import type { Store } from './store.ts'
@@ -14,6 +15,9 @@ export interface Env {
 interface Attachment {
   userId: string
 }
+
+type Body = Record<string, unknown>
+const text = (value: unknown) => String(value ?? '')
 
 /**
  * The whole club lives in one Durable Object: a handful of members and tables fit easily, and a
@@ -32,7 +36,7 @@ export class Club extends DurableObject<Env> implements Connections {
       delete: async (key) => {
         await storage.delete(key)
       },
-      list: (prefix) => storage.list({ prefix }),
+      list: (prefix, options = {}) => storage.list({ prefix, ...options }),
     }
     this.service = new ClubService(store, this, {
       maxUsers: Number(env.MAX_USERS ?? 10),
@@ -42,19 +46,26 @@ export class Club extends DurableObject<Env> implements Connections {
   }
 
   onlineUserIds(): string[] {
-    const ids = this.ctx.getWebSockets().map((ws) => (ws.deserializeAttachment() as Attachment).userId)
+    const ids = this.ctx
+      .getWebSockets()
+      .filter((ws) => ws.readyState === WebSocket.OPEN)
+      .map((ws) => (ws.deserializeAttachment() as Attachment).userId)
     return [...new Set(ids)]
   }
 
   send(userId: string, message: ServerMessage) {
-    const text = JSON.stringify(message)
+    const payload = JSON.stringify(message)
     for (const ws of this.ctx.getWebSockets(userId)) {
       try {
-        ws.send(text)
+        ws.send(payload)
       } catch {
         // The socket is closing; webSocketClose cleans up
       }
     }
+  }
+
+  disconnect(userId: string) {
+    for (const ws of this.ctx.getWebSockets(userId)) ws.close(4001, 'signed out')
   }
 
   async fetch(request: Request): Promise<Response> {
@@ -64,9 +75,10 @@ export class Club extends DurableObject<Env> implements Connections {
       if (url.pathname === '/ws') return await this.upgrade(request, token)
       return await this.api(request, url, token)
     } catch (error) {
-      if (error instanceof ClubError) return json({ error: error.message }, error.status)
+      if (error instanceof AppError)
+        return json({ error: error.message, code: error.code, params: error.params }, error.status)
       console.error(error)
-      return json({ error: '伺服器發生錯誤' }, 500)
+      return json({ error: '伺服器發生錯誤', code: 'serverError', params: {} }, 500)
     }
   }
 
@@ -84,16 +96,16 @@ export class Club extends DurableObject<Env> implements Connections {
   private async api(request: Request, url: URL, token: string | null) {
     const secure = url.protocol === 'https:'
     const route = `${request.method} ${url.pathname}`
-    const body = async () => (await request.json().catch(() => ({}))) as Record<string, string>
+    const body = async () => (await request.json().catch(() => ({}))) as Body
 
     if (route === 'POST /api/register') {
-      const { username, password, inviteCode } = await body()
-      const { user, token: newToken } = await this.service.register(username, password, inviteCode)
+      const b = await body()
+      const { user, token: newToken } = await this.service.register(text(b.username), text(b.password), text(b.inviteCode))
       return json({ user }, 200, sessionCookie(newToken, secure))
     }
     if (route === 'POST /api/login') {
-      const { username, password } = await body()
-      const { user, token: newToken } = await this.service.login(username, password)
+      const b = await body()
+      const { user, token: newToken } = await this.service.login(text(b.username), text(b.password))
       return json({ user }, 200, sessionCookie(newToken, secure))
     }
     if (route === 'POST /api/logout') {
@@ -104,13 +116,59 @@ export class Club extends DurableObject<Env> implements Connections {
     const user = await this.service.userForToken(token)
     if (!user) throw new ClubError('signInFirst', {}, 401)
     if (route === 'GET /api/me') return json({ user })
-    if (route === 'GET /api/history')
-      return json({ boards: await this.service.history(user.id, url.searchParams.get('scope') === 'all') })
-    const match = url.pathname.match(/^\/api\/history\/([\w-]+)$/)
-    if (request.method === 'GET' && match) {
-      const record = await this.service.record(match[1])
-      if (!record) throw new ClubError('boardGone', {}, 404)
-      return json({ record })
+    if (route === 'POST /api/account/password') {
+      const b = await body()
+      await this.service.changePassword(user.id, text(b.current), text(b.next))
+      return json({ ok: true })
+    }
+    if (route === 'GET /api/history') {
+      const all = url.searchParams.get('scope') === 'all'
+      return json(await this.service.history(user.id, all, url.searchParams.get('before') ?? undefined))
+    }
+    const record = url.pathname.match(/^\/api\/history\/([\w-]+)$/)
+    if (request.method === 'GET' && record) {
+      const found = await this.service.record(record[1])
+      if (!found) throw new ClubError('boardGone', {}, 404)
+      return json({ record: found })
+    }
+    if (url.pathname.startsWith('/api/admin/')) return this.admin(request, url, user, body)
+    throw new ClubError('noSuchApi', {}, 404)
+  }
+
+  private async admin(request: Request, url: URL, user: Me, body: () => Promise<Body>) {
+    this.service.requireAdmin(user.id)
+    const path = url.pathname.slice('/api/admin'.length)
+    const method = request.method
+
+    if (method === 'GET' && path === '/users') return json({ users: await this.service.adminUsers() })
+    if (method === 'POST' && path === '/users') {
+      const b = await body()
+      return json({ user: await this.service.adminCreateUser(text(b.username), text(b.password)) })
+    }
+    if (method === 'GET' && path === '/settings') return json({ settings: this.service.clubSettings })
+    if (method === 'POST' && path === '/settings') {
+      const b = await body()
+      const settings = await this.service.adminUpdateSettings({
+        maxUsers: b.maxUsers === undefined ? undefined : Number(b.maxUsers),
+        inviteCode: b.inviteCode === undefined ? undefined : text(b.inviteCode),
+      })
+      return json({ settings })
+    }
+    const member = path.match(/^\/users\/(\w+)(\/password|\/admin)?$/)
+    if (member) {
+      const [, id, action] = member
+      if (method === 'DELETE' && !action) await this.service.adminDeleteUser(user.id, id)
+      else if (method === 'POST' && action === '/password')
+        await this.service.adminResetPassword(id, text((await body()).password))
+      else if (method === 'POST' && action === '/admin')
+        await this.service.adminSetAdmin(user.id, id, Boolean((await body()).admin))
+      else throw new ClubError('noSuchApi', {}, 404)
+      return json({ ok: true })
+    }
+    const table = path.match(/^\/tables\/(\w+)$/)
+    if (method === 'DELETE' && table) {
+      await this.service.adminCloseTable(table[1])
+      return json({ ok: true })
     }
     throw new ClubError('noSuchApi', {}, 404)
   }
