@@ -29,20 +29,18 @@ import { seatLetter } from '../strings.ts'
 const POSITIONS: Record<Position, Seat> = { top: 'N', right: 'E', bottom: 'S', left: 'W' }
 const positionOf = (seat: Seat) => (Object.keys(POSITIONS) as Position[]).find((p) => POSITIONS[p] === seat)!
 
+/** The diagram uses the full width so all four hands fan out; the details follow below */
 const Columns = styled.div`
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 300px;
-  gap: 20px;
-  align-items: start;
-
-  ${mobile} {
-    grid-template-columns: minmax(0, 1fr);
-  }
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+  max-width: 1000px;
 `
 
 const Diagram = styled.div`
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  /* Equal thirds, so a long North or South hand cannot squeeze East and West */
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   grid-template-areas:
     'info top .'
     'left center right'
@@ -146,7 +144,8 @@ export function BoardPage() {
   return <BoardRecordView record={record} />
 }
 
-function BoardRecordView({ record }: { record: BoardRecord }) {
+/** One board's record; `embedded` drops the page frame for the table's history dialog */
+export function BoardRecordView({ record, embedded = false }: { record: BoardRecord; embedded?: boolean }) {
   const { t, lang, cardStyle } = usePreferences()
   const phone = useMediaQuery(mobileQuery)
   const { board, players } = record
@@ -183,8 +182,9 @@ function BoardRecordView({ record }: { record: BoardRecord }) {
     }
   }
 
+  const Frame = embedded ? EmbeddedFrame : PageMain
   return (
-    <PageMain>
+    <Frame>
       <PageTitle>
         {t.tableName(record.tableNumber)} · {t.boardNo(board.boardNo)}
       </PageTitle>
@@ -313,9 +313,13 @@ function BoardRecordView({ record }: { record: BoardRecord }) {
           </Card>
         </>
       )}
-      <p>
-        <Link to="/history">{t.backToHistory}</Link>
-      </p>
-    </PageMain>
+      {!embedded && (
+        <p>
+          <Link to="/history">{t.backToHistory}</Link>
+        </p>
+      )}
+    </Frame>
   )
 }
+
+const EmbeddedFrame = styled.div``

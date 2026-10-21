@@ -84,10 +84,23 @@ export interface TableView {
   /** Seats that pressed "next board" after a finished board */
   ready: Seat[]
   chat: ChatMessage[]
+  /** Boards finished at this table, newest first, for the History panel */
+  recent: BoardSummary[]
+}
+
+/** A club member as the People panel lists them */
+export interface MemberStatus extends PublicUser {
+  online: boolean
+  /** Number of the table they are seated at or watching */
+  tableNumber: number | null
+  /** Their seat there, if seated */
+  seat: Seat | null
 }
 
 export interface LobbyView {
   online: PublicUser[]
+  /** Every member, online first, for the People panel */
+  members: MemberStatus[]
   tables: TableSummary[]
   /** The table the current user is seated at or watching */
   myTableId: string | null

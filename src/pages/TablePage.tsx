@@ -8,6 +8,7 @@ import { AuctionBox } from '../components/AuctionBox.tsx'
 import { BiddingBox } from '../components/BiddingBox.tsx'
 import { BoardInfo } from '../components/BoardInfo.tsx'
 import { ChatPanel } from '../components/ChatPanel.tsx'
+import { SidePanel } from '../components/SidePanel.tsx'
 import { HandView } from '../components/HandView.tsx'
 import { SeatPlate } from '../components/SeatPlate.tsx'
 import { ContractLabel } from '../components/Suit.tsx'
@@ -40,10 +41,11 @@ const Layout = styled.div`
 const Felt = styled.div<{ $phone: boolean }>`
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1.35fr) minmax(0, 1fr);
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
   grid-template-areas:
     'info top status'
     'left center right'
+    'box box box'
     'bottom bottom bottom';
   gap: 6px 12px;
   min-height: 0;
@@ -148,40 +150,8 @@ const Actions = styled.div`
   gap: 8px;
 `
 
-const Side = styled.aside`
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  border-left: 1px solid ${({ theme }) => theme.colors.border};
-  background: ${({ theme }) => theme.colors.surface};
 
-  ${mobile} {
-    border-left: 0;
-    border-top: 1px solid ${({ theme }) => theme.colors.border};
-    min-height: 320px;
-  }
-`
 
-const Tabs = styled.div`
-  display: flex;
-  border-bottom: 1px solid ${({ theme }) => theme.colors.border};
-`
-
-const Tab = styled.button<{ $active: boolean }>`
-  flex: 1;
-  min-height: 42px;
-  border: 0;
-  border-bottom: 3px solid transparent;
-  background: none;
-  font-weight: 600;
-  color: ${({ theme }) => theme.colors.textMuted};
-  ${({ $active, theme }) =>
-    $active &&
-    css`
-      color: ${theme.colors.primary};
-      border-bottom-color: ${theme.colors.primary};
-    `}
-`
 
 const TableTitle = styled.div`
   display: flex;
@@ -194,13 +164,6 @@ const TableTitle = styled.div`
   font-weight: 700;
 `
 
-const PeopleList = styled.ul`
-  margin: 0;
-  padding: 8px 16px;
-  list-style: none;
-  font-size: 15px;
-  line-height: 2;
-`
 
 const Note = styled.div`
   color: ${({ theme }) => theme.table.feltMuted};
@@ -328,7 +291,6 @@ function TableScreen({
   const { cardStyle } = usePreferences()
   const [feltRef, feltSize] = useSize()
   const sizes = cardSizes(feltSize.width, feltSize.height)
-  const [tab, setTab] = useState<'chat' | 'people'>('chat')
   const board = table.board
   // Toggles that belong to one board are stored with its number, so they reset on the next deal
   const boardNo = board?.boardNo ?? 0
@@ -453,18 +415,12 @@ function TableScreen({
       )
     }
     const myCall = b.legalCalls.length > 0 && !b.undo
-    // On a phone the bidding box gets its own full-width row above the viewer's hand
-    const box = myCall && !sizes.phone
     return (
       <BidArea>
         {spot('top')}
         {spot('left')}
         <BidSpot $area="middle">
-          {box ? (
-            <BiddingBox legal={b.legalCalls} onCall={(call, alert) => send({ type: 'call', call, alert })} size={sizes.bottom * 0.9} />
-          ) : (
-            <Waiting>{b.turn && !myCall ? t.waitingFor(nameOf(b.turn)) : ''}</Waiting>
-          )}
+          <Waiting>{b.turn && !myCall ? t.waitingFor(nameOf(b.turn)) : ''}</Waiting>
           {undoPrompt()}
         </BidSpot>
         {spot('right')}
@@ -533,9 +489,6 @@ function TableScreen({
           {board && <BoardInfo boardNo={board.boardNo} dealer={board.dealer} vul={board.vul} positions={at} size={infoSize} />}
         </Area>
         <Area $area="status" $align="end">
-          {board && board.phase === 'auction' && !sizes.phone && (
-            <AuctionBox auction={board.auction} dealer={board.dealer} vul={board.vul} viewer={viewer} turn={board.turn} size={sizes.side} />
-          )}
           {board && board.phase !== 'auction' && (
             <>
               <ContractBox
@@ -559,9 +512,13 @@ function TableScreen({
         {seatArea('left')}
         <Center $area="center">{center()}</Center>
         {seatArea('right')}
-        {sizes.phone && board?.phase === 'auction' && board.legalCalls.length > 0 && !board.undo && (
+        {board?.phase === 'auction' && board.legalCalls.length > 0 && !board.undo && (
           <Area $area="box">
-            <BiddingBox legal={board.legalCalls} onCall={(call, alert) => send({ type: 'call', call, alert })} size={56} />
+            <BiddingBox
+              legal={board.legalCalls}
+              onCall={(call, alert) => send({ type: 'call', call, alert })}
+              size={sizes.phone ? 56 : Math.round(sizes.bottom * 0.85)}
+            />
           </Area>
         )}
         <Area $area="bottom">
@@ -592,49 +549,28 @@ function TableScreen({
           </Actions>
         </Area>
       </Felt>
-      <Side>
-        <TableTitle>
-          <span>
-            {t.tableName(table.number)} · {t.boardsPlayed(table.boardsPlayed)}
-          </span>
-          <span>
-            {me && (
-              <Button type="button" $small $variant="ghost" onClick={() => send({ type: 'stand' })}>
-                {t.standUp}
+      <SidePanel
+        tabs={['chat', 'people', 'history']}
+        recent={table.recent}
+        header={
+          <TableTitle>
+            <span>
+              {t.tableName(table.number)} · {t.boardsPlayed(table.boardsPlayed)}
+            </span>
+            <span>
+              {me && (
+                <Button type="button" $small $variant="ghost" onClick={() => send({ type: 'stand' })}>
+                  {t.standUp}
+                </Button>
+              )}
+              <Button type="button" $small $variant="danger" onClick={onLeave}>
+                {t.leaveTable}
               </Button>
-            )}
-            <Button type="button" $small $variant="danger" onClick={onLeave}>
-              {t.leaveTable}
-            </Button>
-          </span>
-        </TableTitle>
-        <Tabs role="tablist">
-          <Tab type="button" role="tab" aria-selected={tab === 'chat'} $active={tab === 'chat'} onClick={() => setTab('chat')}>
-            {t.chat}
-          </Tab>
-          <Tab type="button" role="tab" aria-selected={tab === 'people'} $active={tab === 'people'} onClick={() => setTab('people')}>
-            {t.people}
-          </Tab>
-        </Tabs>
-        {tab === 'chat' ? (
-          <ChatPanel messages={table.chat} onSend={(text) => send({ type: 'chat', text })} />
-        ) : (
-          <PeopleList>
-            {SEATS.map((seat) => {
-              const o = table.seats[seat]
-              return (
-                <li key={seat}>
-                  {seatLetter[seat]}：{o ? (o.robot ? t.robot : o.username) : t.emptySeat}
-                  {o && !o.online && `（${t.offline}）`}
-                </li>
-              )
-            })}
-            <li>
-              {t.spectatorsTitle}：{table.spectators.length ? table.spectators.map((u) => u.username).join('、') : t.noSpectators}
-            </li>
-          </PeopleList>
-        )}
-      </Side>
+            </span>
+          </TableTitle>
+        }
+        chat={<ChatPanel messages={table.chat} onSend={(text) => send({ type: 'chat', text })} />}
+      />
     </Layout>
   )
 }
