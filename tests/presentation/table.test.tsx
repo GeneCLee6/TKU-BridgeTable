@@ -7,6 +7,10 @@ import { AuctionBox } from '../../src/components/AuctionBox.tsx'
 import { BiddingBox } from '../../src/components/BiddingBox.tsx'
 import { HandView } from '../../src/components/HandView.tsx'
 import { SeatPlate } from '../../src/components/SeatPlate.tsx'
+import { MemoryRouter } from 'react-router-dom'
+import { SidePanel } from '../../src/components/SidePanel.tsx'
+import { AuthProvider } from '../../src/state/AuthContext.tsx'
+import { ClubProvider } from '../../src/state/ClubContext.tsx'
 import { PreferencesProvider } from '../../src/state/PreferencesContext.tsx'
 
 const wrap = (ui: ReactNode) => render(<PreferencesProvider>{ui}</PreferencesProvider>)
@@ -113,5 +117,39 @@ describe('viewer perspective and robots', () => {
     expect(screen.getByRole('group', { name: 'Bidding box' })).toBeInTheDocument()
     wrap(<HandView cards={['SA']} count={1} width={60} label="S" />)
     expect(screen.getByRole('button', { name: 'A of spades' })).toBeInTheDocument()
+  })
+})
+
+describe('long auctions and the dock', () => {
+  it('scrolls a long auction inside the table instead of growing it', () => {
+    const calls = Array.from({ length: 40 }, (_, i) => ({ seat: (['N', 'E', 'S', 'W'] as const)[i % 4], call: 'P' }))
+    wrap(<AuctionBox auction={calls} dealer="N" vul="None" size={80} maxRows={5} />)
+    const scroller = screen.getByRole('table', { name: '叫牌過程' }).parentElement!
+    const style = getComputedStyle(scroller)
+    expect(style.overflowY).toBe('auto')
+    expect(parseInt(style.maxHeight)).toBeGreaterThan(0)
+    // The dealer's column starts one cell in, so 40 calls take 11 rounds, plus the header
+    expect(screen.getAllByRole('row')).toHaveLength(12)
+  })
+
+  it('opens a tab from the strip and closes it again', async () => {
+    render(
+      <PreferencesProvider>
+        <AuthProvider>
+          <ClubProvider>
+            <MemoryRouter>
+              <SidePanel tabs={['chat', 'people', 'history']} page="test" chat={<p>hello</p>} />
+            </MemoryRouter>
+          </ClubProvider>
+        </AuthProvider>
+      </PreferencesProvider>,
+    )
+    expect(screen.queryByRole('tabpanel')).toBeNull()
+    await userEvent.click(screen.getByRole('tab', { name: '聊天' }))
+    expect(screen.getByRole('tabpanel', { name: '聊天' })).toHaveTextContent('hello')
+    await userEvent.click(screen.getByRole('tab', { name: '社員' }))
+    expect(screen.getByRole('tabpanel', { name: '社員' })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('tab', { name: '社員' }))
+    expect(screen.queryByRole('tabpanel')).toBeNull()
   })
 })

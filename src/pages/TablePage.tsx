@@ -14,7 +14,7 @@ import { SeatPlate } from '../components/SeatPlate.tsx'
 import { ContractLabel } from '../components/Suit.tsx'
 import { ClaimPicker, FeltButton, FeltPanel, Prompt, ResultPanel } from '../components/TablePanels.tsx'
 import { TrickArea, TrickSpace, type Position } from '../components/TrickArea.tsx'
-import { Button, Muted, PageMain } from '../components/ui.tsx'
+import { Muted, PageMain } from '../components/ui.tsx'
 import { useClub } from '../state/ClubContext.tsx'
 import { usePreferences, useT } from '../state/PreferencesContext.tsx'
 import { mobile } from '../styles/tokens.ts'
@@ -29,7 +29,7 @@ import { seatLetter } from '../strings.ts'
 
 const Layout = styled.div`
   display: grid;
-  grid-template-columns: minmax(0, 1fr) ${({ theme }) => theme.layout.sidePanelWidth};
+  grid-template-columns: minmax(0, 1fr) auto;
   height: calc(100vh - ${({ theme }) => theme.layout.headerHeight});
 
   ${mobile} {
@@ -135,14 +135,14 @@ const Actions = styled.div`
 
 
 const TableTitle = styled.div`
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 10px 12px;
-  border-bottom: 1px solid ${({ theme }) => theme.colors.border};
+  display: grid;
+  gap: 6px;
+  justify-items: start;
+  font-size: 14px;
   font-weight: 700;
+  color: ${({ theme }) => theme.table.feltText};
+
+  & > div { display: flex; flex-wrap: wrap; gap: 6px; }
 `
 
 
@@ -330,7 +330,15 @@ function TableScreen({
         count={board.handCounts[seat]}
         width={width}
         style={cardStyle}
-        orientation={side && sizes.phone && cardStyle === 'cards' ? 'vertical' : 'horizontal'}
+        orientation={
+          !side || cardStyle !== 'cards'
+            ? 'horizontal'
+            : sizes.phone
+              ? 'vertical'
+              : seat === board.dummy && board.phase === 'play' && cards
+                ? 'suits'
+                : 'horizontal'
+        }
         playable={board.turn === seat ? board.legalCards : []}
         onPlay={(card) => send({ type: 'play', card })}
         label={`${seatLetter[seat]} ${nameOf(seat)}`}
@@ -391,7 +399,8 @@ function TableScreen({
           viewer={viewer}
           turn={b.turn}
           names={names}
-          size={sizes.phone ? 60 : Math.round(sizes.bottom * 1.05)}
+          size={sizes.phone ? 60 : Math.round(sizes.bottom * 1.3)}
+          maxRows={sizes.phone ? 4 : 5}
         />
         <Waiting>{b.turn && !myCall ? t.waitingFor(nameOf(b.turn)) : ''}</Waiting>
         {undoPrompt()}
@@ -457,6 +466,21 @@ function TableScreen({
       <Felt ref={feltRef} $phone={sizes.phone}>
         <Area $area="info" $align="start">
           {board && <BoardInfo boardNo={board.boardNo} dealer={board.dealer} vul={board.vul} positions={at} size={infoSize} />}
+          <TableTitle>
+            <span>
+              {t.tableName(table.number)} · {t.boardsPlayed(table.boardsPlayed)}
+            </span>
+            <div>
+              {me && (
+                <FeltButton type="button" $tone="plain" onClick={() => send({ type: 'stand' })}>
+                  {t.standUp}
+                </FeltButton>
+              )}
+              <FeltButton type="button" $tone="stop" onClick={onLeave}>
+                {t.leaveTable}
+              </FeltButton>
+            </div>
+          </TableTitle>
         </Area>
         <Area $area="status" $align="end">
           {board && board.phase !== 'auction' && (
@@ -487,7 +511,7 @@ function TableScreen({
             <BiddingBox
               legal={board.legalCalls}
               onCall={(call, alert) => send({ type: 'call', call, alert })}
-              size={sizes.phone ? 56 : Math.round(sizes.bottom * 0.85)}
+              size={sizes.phone ? 50 : Math.round(sizes.bottom * 0.62)}
             />
           </Area>
         )}
@@ -522,23 +546,8 @@ function TableScreen({
       <SidePanel
         tabs={['chat', 'people', 'history']}
         recent={table.recent}
-        header={
-          <TableTitle>
-            <span>
-              {t.tableName(table.number)} · {t.boardsPlayed(table.boardsPlayed)}
-            </span>
-            <span>
-              {me && (
-                <Button type="button" $small $variant="ghost" onClick={() => send({ type: 'stand' })}>
-                  {t.standUp}
-                </Button>
-              )}
-              <Button type="button" $small $variant="danger" onClick={onLeave}>
-                {t.leaveTable}
-              </Button>
-            </span>
-          </TableTitle>
-        }
+        page="table"
+        initial="chat"
         chat={<ChatPanel messages={table.chat} onSend={(text) => send({ type: 'chat', text })} />}
       />
     </Layout>

@@ -16,7 +16,13 @@ import { SuitSymbol } from './Suit.tsx'
  * A hand the viewer may not see is card backs (or the number of cards in text style).
  */
 
-export type Orientation = 'horizontal' | 'vertical'
+/**
+ * - horizontal: one overlapped row (your hand, partner, a hidden hand)
+ * - vertical: one column fanned downwards (side hands on a phone)
+ * - suits: BBO's dummy layout, one column per suit with the cards stacked downwards; narrow, so
+ *   it suits the left and right seats
+ */
+export type Orientation = 'horizontal' | 'vertical' | 'suits'
 
 const Fan = styled.div<{ $w: number }>`
   display: flex;
@@ -31,6 +37,12 @@ const Slot = styled.span<{ $w: number; $gap: boolean }>`
   min-width: 0;
   ${({ $gap, $w }) => $gap && `margin-left: ${Math.round($w * 0.1)}px;`}
   &:last-child { flex: none; width: ${({ $w }) => $w}px; }
+`
+
+const SuitColumns = styled.div<{ $w: number }>`
+  display: flex;
+  justify-content: center;
+  gap: ${({ $w }) => Math.round($w * 0.1)}px;
 `
 
 const Column = styled.div<{ $w: number }>`
@@ -56,7 +68,7 @@ const Text = styled.div<{ $w: number }>`
   color: ${({ theme }) => theme.table.panelText};
   font-family: ${({ theme }) => theme.fonts.cards};
   font-weight: 700;
-  font-size: ${({ $w }) => Math.max(18, Math.round($w * 0.32))}px;
+  font-size: ${({ $w }) => Math.max(14, Math.round($w * 0.32))}px;
   line-height: 1.35;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
 `
@@ -161,12 +173,29 @@ export function HandView({
         width={width}
         playable={canPlay.has(card)}
         dim={anyPlayable && !canPlay.has(card)}
-        corner={orientation === 'vertical' ? 'inline' : 'stack'}
+        corner={orientation === 'horizontal' ? 'stack' : 'inline'}
         onPlay={onPlay}
       />
     ) : (
       <CardBack key={key} width={width} />
     )
+
+  if (orientation === 'suits' && cards) {
+    const groups = bySuit(cards)
+    return (
+      <SuitColumns $w={width} role="group" aria-label={label}>
+        {SUITS.filter((suit) => groups[suit].length).map((suit) => (
+          <Column key={suit} $w={width}>
+            {groups[suit].map((card) => (
+              <Row key={card} $w={width} $gap={false}>
+                {face(card, 0)}
+              </Row>
+            ))}
+          </Column>
+        ))}
+      </SuitColumns>
+    )
+  }
 
   if (orientation === 'vertical')
     return (
