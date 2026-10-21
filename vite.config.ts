@@ -4,13 +4,13 @@ import react from '@vitejs/plugin-react'
 import { defineConfig, type Plugin } from 'vite'
 
 // Stamps the built commit into index.html so a deployment can be traced back to its commit.
-// GitHub Actions provides GITHUB_SHA.
+// The deploy workflow sets APP_VERSION to the commit it deploys.
 const appVersion = (): Plugin => ({
   name: 'app-version',
   transformIndexHtml: () => [
     {
       tag: 'meta',
-      attrs: { name: 'app-version', content: process.env.GITHUB_SHA ?? 'local' },
+      attrs: { name: 'app-version', content: process.env.APP_VERSION ?? process.env.GITHUB_SHA ?? 'local' },
       injectTo: 'head',
     },
   ],

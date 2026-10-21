@@ -22,7 +22,8 @@ jobs:
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      GITHUB_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+      # The merged commit (GitHub's own GITHUB_SHA cannot be overridden)
+      DEPLOY_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
     steps:
       - name: Check for Cloudflare credentials
         id: creds
@@ -37,7 +38,7 @@ jobs:
       - uses: actions/checkout@v7
         if: steps.creds.outputs.ready == 'true'
         with:
-          ref: ${{ env.GITHUB_SHA }}
+          ref: ${{ env.DEPLOY_SHA }}
 
       - uses: actions/setup-node@v7
         if: steps.creds.outputs.ready == 'true'
@@ -50,8 +51,8 @@ jobs:
         id: deploy
         run: |
           npm ci
-          npm run build
-          npx wrangler deploy | tee deploy.log
+          APP_VERSION="$DEPLOY_SHA" npm run build
+          npx wrangler deploy --message "$DEPLOY_SHA" | tee deploy.log
           echo "url=$(grep -o 'https://[^ ]*workers.dev' deploy.log | head -1)" >> "$GITHUB_OUTPUT"
 
       - name: Smoke test
@@ -61,11 +62,11 @@ jobs:
         run: |
           for i in $(seq 1 10); do
             live=$(curl -fsS "$SITE_URL/" | grep -o 'name="app-version" content="[^"]*"' | cut -d'"' -f4 || true)
-            echo "attempt $i: live=$live expected=$GITHUB_SHA"
-            [ "$live" = "$GITHUB_SHA" ] && break
+            echo "attempt $i: live=$live expected=$DEPLOY_SHA"
+            [ "$live" = "$DEPLOY_SHA" ] && break
             sleep 6
           done
-          [ "$live" = "$GITHUB_SHA" ] || { echo "::error::Site is not serving $GITHUB_SHA"; exit 1; }
+          [ "$live" = "$DEPLOY_SHA" ] || { echo "::error::Site is not serving $DEPLOY_SHA"; exit 1; }
           code=$(curl -s -o /dev/null -w '%{http_code}' "$SITE_URL/api/me")
           echo "/api/me -> $code"; [ "$code" = "401" ] || exit 1
           code=$(curl -s -o /dev/null -w '%{http_code}' "$SITE_URL/history")
