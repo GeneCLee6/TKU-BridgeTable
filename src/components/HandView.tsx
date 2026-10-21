@@ -1,84 +1,106 @@
 import styled, { css } from 'styled-components'
 import { bySuit, rankLabel, rankOf, SUITS, suitOf, type Card } from '../../shared/cards.ts'
-import { cardName, cardWidth, type CardSize } from '../lib/cards.ts'
+import { CARD_RATIO, cardName } from '../lib/cards.ts'
+import { useT, type CardStyle } from '../state/PreferencesContext.tsx'
 import { CardBack, PlayingCard } from './PlayingCard.tsx'
 import { SuitSymbol } from './Suit.tsx'
 
 /**
- * One hand on the table. `fan` overlaps the cards as BBO does; `rows` lists each suit on a line
- * (BBO's text hand style), which fits the narrow side columns on a phone. A hand the viewer may
- * not see is drawn as card backs.
+ * One hand on the table, drawn the same way for every hand (the viewer picks card faces or text):
+ *
+ * - cards, horizontal: overlapped like BBO, as wide as the space allows; each card keeps at most
+ *   about 40% of its width visible and squeezes when the space is narrow
+ * - cards, vertical: fanned downwards, for the side hands on a phone
+ * - text: one line per suit (♠ A K 10 5), BBO's text hand style
+ *
+ * A hand the viewer may not see is card backs (or the number of cards in text style).
  */
 
-export type HandLayout = 'fan' | 'rows'
+export type Orientation = 'horizontal' | 'vertical'
 
-/** How much of each overlapped card stays visible */
-const OVERLAP: Record<CardSize, number> = { lg: 32, md: 22, sm: 16 }
-
-const Fan = styled.div<{ $size: CardSize }>`
+const Fan = styled.div<{ $w: number }>`
   display: flex;
   justify-content: center;
-  min-height: ${({ $size }) => ($size === 'lg' ? 104 : $size === 'md' ? 84 : 64)}px;
-  padding-top: 10px;
-
-  & > * + * {
-    margin-left: ${({ $size }) => OVERLAP[$size] - cardWidth($size)}px;
-  }
-  & > [data-suit-start] {
-    margin-left: ${({ $size }) => OVERLAP[$size] - cardWidth($size) + 6}px;
-  }
+  width: 100%;
+  min-width: 0;
+  padding-top: ${({ $w }) => Math.round($w * 0.2)}px;
 `
 
-const Rows = styled.div`
+const Slot = styled.span<{ $w: number; $gap: boolean }>`
+  flex: 0 1 ${({ $w }) => Math.round($w * 0.47)}px;
+  min-width: 0;
+  ${({ $gap, $w }) => $gap && `margin-left: ${Math.round($w * 0.1)}px;`}
+  &:last-child { flex: none; width: ${({ $w }) => $w}px; }
+`
+
+const Column = styled.div<{ $w: number }>`
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+`
+
+const Row = styled.span<{ $w: number; $gap: boolean }>`
+  display: block;
+  height: ${({ $w }) => Math.round($w * 0.4)}px;
+  ${({ $gap, $w }) => $gap && `margin-top: ${Math.round($w * 0.08)}px;`}
+  &:last-child { height: ${({ $w }) => Math.round($w * CARD_RATIO)}px; }
+`
+
+const Text = styled.div<{ $w: number }>`
   display: inline-grid;
   gap: 2px;
-  min-width: 120px;
-  padding: 6px 10px;
-  border-radius: 6px;
+  min-width: ${({ $w }) => Math.round($w * 2.6)}px;
+  padding: ${({ $w }) => `${Math.round($w * 0.1)}px ${Math.round($w * 0.18)}px`};
+  border-radius: 8px;
   background: ${({ theme }) => theme.table.panel};
   color: ${({ theme }) => theme.table.panelText};
   font-family: ${({ theme }) => theme.fonts.cards};
-  font-weight: 600;
-  font-size: 15px;
-  line-height: 1.5;
+  font-weight: 700;
+  font-size: ${({ $w }) => Math.max(18, Math.round($w * 0.32))}px;
+  line-height: 1.35;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
 `
 
-const Row = styled.div`
+const TextRow = styled.div`
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0 2px;
-  min-height: 22px;
+  gap: 0 0.2em;
 `
 
 const RankButton = styled.button<{ $playable: boolean }>`
-  min-width: 20px;
-  padding: 0 2px;
+  min-width: 1.2em;
+  padding: 0 0.12em;
   border: 0;
-  border-radius: 3px;
+  border-radius: 4px;
   background: none;
   font-weight: 700;
+  font-size: inherit;
+  color: inherit;
   ${({ $playable, theme }) =>
-    $playable
-      ? css`
-          cursor: pointer;
-          background: ${theme.table.turn};
-        `
-      : css`
-          &:disabled { color: inherit; }
-        `}
+    $playable &&
+    css`
+      cursor: pointer;
+      background: ${theme.table.turn};
+      &:hover { outline: 2px solid ${theme.table.panelText}; }
+    `}
+  &:disabled { color: inherit; }
 `
 
-const Hidden = styled.div`
+const Hidden = styled.div<{ $w: number }>`
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.18);
   color: ${({ theme }) => theme.table.feltMuted};
-  font-size: 14px;
+  font-size: ${({ $w }) => Math.max(14, Math.round($w * 0.24))}px;
 `
 
 export function HandView({
   cards,
   count,
-  layout = 'fan',
-  size = 'md',
+  width,
+  orientation = 'horizontal',
+  style = 'cards',
   playable = [],
   onPlay,
   label,
@@ -86,22 +108,31 @@ export function HandView({
   /** The cards, or undefined when the viewer may not see them */
   cards?: Card[]
   count: number
-  layout?: HandLayout
-  size?: CardSize
+  /** Card width in pixels; text style scales its font from it */
+  width: number
+  orientation?: Orientation
+  style?: CardStyle
   playable?: Card[]
   onPlay?: (card: Card) => void
   label: string
 }) {
+  const t = useT()
   const canPlay = new Set(playable)
   const anyPlayable = canPlay.size > 0
+  const suitStart = (list: Card[], i: number) => i > 0 && suitOf(list[i - 1]) !== suitOf(list[i])
 
-  if (layout === 'rows') {
-    if (!cards) return <Hidden aria-label={label}>{count ? `${count} 張` : ''}</Hidden>
+  if (style === 'text') {
+    if (!cards)
+      return (
+        <Hidden $w={width} role="group" aria-label={label}>
+          {count ? t.cardsLeft(count) : ''}
+        </Hidden>
+      )
     const groups = bySuit(cards)
     return (
-      <Rows role="group" aria-label={label}>
+      <Text $w={width} role="group" aria-label={label}>
         {SUITS.map((suit) => (
-          <Row key={suit}>
+          <TextRow key={suit}>
             <SuitSymbol suit={suit} onCard />
             {groups[suit].length === 0 && <span aria-hidden>—</span>}
             {groups[suit].map((card) => (
@@ -111,38 +142,49 @@ export function HandView({
                 $playable={canPlay.has(card)}
                 disabled={!canPlay.has(card)}
                 onClick={() => onPlay?.(card)}
-                aria-label={cardName(card)}
+                aria-label={cardName(card, t)}
               >
                 {rankLabel(rankOf(card))}
               </RankButton>
             ))}
-          </Row>
+          </TextRow>
         ))}
-      </Rows>
+      </Text>
     )
   }
 
-  if (!cards)
+  const list: (Card | null)[] = cards ?? Array.from({ length: count }, () => null)
+  const face = (card: Card | null, key: number) =>
+    card ? (
+      <PlayingCard
+        card={card}
+        width={width}
+        playable={canPlay.has(card)}
+        dim={anyPlayable && !canPlay.has(card)}
+        corner={orientation === 'vertical' ? 'inline' : 'stack'}
+        onPlay={onPlay}
+      />
+    ) : (
+      <CardBack key={key} width={width} />
+    )
+
+  if (orientation === 'vertical')
     return (
-      <Fan $size={size} role="group" aria-label={label}>
-        {Array.from({ length: count }, (_, i) => (
-          <CardBack key={i} size={size} />
+      <Column $w={width} role="group" aria-label={label}>
+        {list.map((card, i) => (
+          <Row key={card ?? i} $w={width} $gap={!!cards && suitStart(cards, i)}>
+            {face(card, i)}
+          </Row>
         ))}
-      </Fan>
+      </Column>
     )
 
   return (
-    <Fan $size={size} role="group" aria-label={label}>
-      {cards.map((card, i) => (
-        <span key={card} data-suit-start={i > 0 && suitOf(cards[i - 1]) !== suitOf(card) ? '' : undefined}>
-          <PlayingCard
-            card={card}
-            size={size}
-            playable={canPlay.has(card)}
-            dim={anyPlayable && !canPlay.has(card)}
-            onPlay={onPlay}
-          />
-        </span>
+    <Fan $w={width} role="group" aria-label={label}>
+      {list.map((card, i) => (
+        <Slot key={card ?? i} $w={width} $gap={!!cards && suitStart(cards, i)}>
+          {face(card, i)}
+        </Slot>
       ))}
     </Fan>
   )

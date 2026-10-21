@@ -1,10 +1,10 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
-import type { PublicUser } from '../../shared/protocol.ts'
+import type { Me } from '../../shared/protocol.ts'
 import { api } from '../lib/api.ts'
 
 /** The signed-in member. `undefined` while the session is being checked, `null` when signed out. */
 interface Auth {
-  user: PublicUser | null | undefined
+  user: Me | null | undefined
   login: (username: string, password: string) => Promise<void>
   register: (username: string, password: string, inviteCode: string) => Promise<void>
   logout: () => Promise<void>
@@ -13,7 +13,7 @@ interface Auth {
 const AuthContext = createContext<Auth | null>(null)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<PublicUser | null | undefined>(undefined)
+  const [user, setUser] = useState<Me | null | undefined>(undefined)
 
   useEffect(() => {
     api

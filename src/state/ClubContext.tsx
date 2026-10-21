@@ -14,6 +14,7 @@ import type {
   ServerMessage,
   TableView,
 } from '../../shared/protocol.ts'
+import type { MessageParams } from '../../shared/messages.ts'
 import { useAuth } from './AuthContext.tsx'
 
 /**
@@ -28,7 +29,7 @@ interface Club {
   status: ConnectionStatus
   lobby: LobbyView | null
   table: TableView | null
-  error: { message: string; at: number } | null
+  error: { code: string; params: MessageParams; message: string; at: number } | null
   send: (message: ClientMessage) => void
   dismissError: () => void
 }
@@ -62,7 +63,8 @@ export function ClubProvider({ children }: { children: ReactNode }) {
         const message = JSON.parse(event.data) as ServerMessage
         if (message.type === 'lobby') setLobby(message.lobby)
         else if (message.type === 'table') setTable(message.table)
-        else if (message.type === 'error') setError({ message: message.message, at: Date.now() })
+        else if (message.type === 'error')
+          setError({ code: message.code, params: message.params, message: message.message, at: Date.now() })
       }
       ws.onclose = (event) => {
         if (socket.current === ws) socket.current = null

@@ -6,6 +6,7 @@ import { legalCalls } from '../../shared/auction.ts'
 import { AuctionBox } from '../../src/components/AuctionBox.tsx'
 import { BiddingBox } from '../../src/components/BiddingBox.tsx'
 import { HandView } from '../../src/components/HandView.tsx'
+import { SeatPlate } from '../../src/components/SeatPlate.tsx'
 import { PreferencesProvider } from '../../src/state/PreferencesContext.tsx'
 
 const wrap = (ui: ReactNode) => render(<PreferencesProvider>{ui}</PreferencesProvider>)
@@ -62,14 +63,55 @@ describe('AuctionBox', () => {
 describe('HandView', () => {
   it('lets only legal cards be played', async () => {
     const onPlay = vi.fn()
-    wrap(<HandView cards={['SA', 'SK', 'H2']} count={3} playable={['SA', 'SK']} onPlay={onPlay} label="S" />)
+    wrap(<HandView cards={['SA', 'SK', 'H2']} count={3} width={60} playable={['SA', 'SK']} onPlay={onPlay} label="S" />)
     expect(screen.getByRole('button', { name: '紅心2' })).toBeDisabled()
     await userEvent.click(screen.getByRole('button', { name: '黑桃K' }))
     expect(onPlay).toHaveBeenCalledWith('SK')
   })
 
   it('shows card backs for a hidden hand', () => {
-    wrap(<HandView count={13} label="N" />)
+    wrap(<HandView count={13} width={60} label="N" />)
     expect(screen.getByRole('group', { name: 'N' }).children).toHaveLength(13)
+  })
+})
+
+describe('viewer perspective and robots', () => {
+  it('turns the auction so the viewer is the last column', () => {
+    wrap(<AuctionBox auction={[{ seat: 'N', call: '1C' }]} dealer="N" vul="None" viewer="E" />)
+    const heads = screen.getAllByRole('columnheader').map((h) => h.textContent)
+    expect(heads).toEqual(['S', 'W', 'N', 'E'])
+  })
+
+  it('offers sit and add-robot on an empty seat, and remove on a robot', async () => {
+    const onAddRobot = vi.fn()
+    const onRemoveRobot = vi.fn()
+    const { rerender } = wrap(
+      <SeatPlate seat="N" occupant={null} vulnerable={false} turn={false} isMe={false} onSit={() => {}} onAddRobot={onAddRobot} />,
+    )
+    await userEvent.click(screen.getByRole('button', { name: '放機器人 N' }))
+    expect(onAddRobot).toHaveBeenCalled()
+    rerender(
+      <PreferencesProvider>
+        <SeatPlate
+          seat="N"
+          occupant={{ id: 'robot:N', username: 'Robot', robot: true, online: true }}
+          vulnerable={false}
+          turn={false}
+          isMe={false}
+          onRemoveRobot={onRemoveRobot}
+        />
+      </PreferencesProvider>,
+    )
+    expect(screen.getByText('機器人')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: '移除機器人 N' }))
+    expect(onRemoveRobot).toHaveBeenCalled()
+  })
+
+  it('speaks English when the viewer chooses it', () => {
+    window.localStorage.setItem('tku-bridge-table:prefs', JSON.stringify({ lang: 'en' }))
+    wrap(<BiddingBox legal={['P']} onCall={() => {}} />)
+    expect(screen.getByRole('group', { name: 'Bidding box' })).toBeInTheDocument()
+    wrap(<HandView cards={['SA']} count={1} width={60} label="S" />)
+    expect(screen.getByRole('button', { name: 'A of spades' })).toBeInTheDocument()
   })
 })

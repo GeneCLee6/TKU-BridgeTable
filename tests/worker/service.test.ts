@@ -14,6 +14,9 @@ class FakeConnections implements Connections {
   send(userId: string, message: ServerMessage) {
     this.inbox.set(userId, [...(this.inbox.get(userId) ?? []), message])
   }
+  disconnect(userId: string) {
+    this.online.delete(userId)
+  }
   last<T extends ServerMessage['type']>(userId: string, type: T) {
     return (this.inbox.get(userId) ?? []).findLast((m) => m.type === type) as
       | Extract<ServerMessage, { type: T }>
@@ -24,12 +27,28 @@ class FakeConnections implements Connections {
 let store: MemoryStore
 let connections: FakeConnections
 let club: ClubService
+/** Robot moves wait here until a test runs them */
+let robotQueue: (() => void)[]
 
 async function setup(config: { maxUsers?: number; inviteCode?: string } = {}) {
   store = new MemoryStore()
   connections = new FakeConnections()
-  club = new ClubService(store, connections, { maxUsers: config.maxUsers ?? 10, inviteCode: config.inviteCode })
+  robotQueue = []
+  club = new ClubService(store, connections, {
+    maxUsers: config.maxUsers ?? 10,
+    inviteCode: config.inviteCode,
+    schedule: (run) => robotQueue.push(run),
+  })
   await club.load()
+}
+
+/** Runs scheduled robot moves until none are left (or a person has to act) */
+async function runRobots(limit = 400) {
+  for (let i = 0; i < limit && robotQueue.length; i++) {
+    robotQueue.shift()!()
+    // Each move is async; let it finish before the next
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  }
 }
 
 async function member(name: string) {
@@ -206,13 +225,13 @@ describe('finishing boards', () => {
     expect(view.board?.recordId).toBeTruthy()
     expect(Object.keys(view.board!.hands)).toHaveLength(4)
 
-    const history = await club.history(bySeat.E, false)
+    const history = (await club.history(bySeat.E, false)).boards
     expect(history).toHaveLength(1)
     expect(history[0].players.S.username).toBe('south')
     const record = await club.record(history[0].id)
     expect(record?.board.hands.N).toHaveLength(13)
-    expect(await club.history(await member('other'), false)).toHaveLength(0)
-    expect(await club.history('other', true)).toHaveLength(1)
+    expect((await club.history(await member('other'), false)).boards).toHaveLength(0)
+    expect((await club.history('other', true)).boards).toHaveLength(1)
 
     for (const seat of ['N', 'E', 'S'] as const) await send(bySeat[seat], { type: 'ready' })
     expect(tableFor(bySeat.N).ready).toEqual(['N', 'E', 'S'])
@@ -242,5 +261,171 @@ describe('finishing boards', () => {
     const { bySeat } = await fullTable()
     await send(bySeat.N, { type: 'chat', text: '  大家好  ' })
     expect(tableFor(bySeat.W).chat.map((m) => [m.username, m.text])).toEqual([['north', '大家好']])
+  })
+})
+
+describe('dummy', () => {
+  it('sees the declarer’s hand once the opening lead is made', async () => {
+    const { bySeat } = await fullTable()
+    for (const [seat, call] of [['N', '1S'], ['E', 'P'], ['S', 'P'], ['W', 'P']] as const)
+      await send(bySeat[seat], { type: 'call', call })
+    // North declares; South is dummy
+    expect(Object.keys(tableFor(bySeat.S).board!.hands)).toEqual(['S'])
+    await send(bySeat.E, { type: 'play', card: tableFor(bySeat.E).board!.legalCards[0] })
+    expect(Object.keys(tableFor(bySeat.S).board!.hands).sort()).toEqual(['N', 'S'])
+    // The defenders still see only their own hand and dummy
+    expect(Object.keys(tableFor(bySeat.E).board!.hands).sort()).toEqual(['E', 'S'])
+  })
+})
+
+describe('robots at the table', () => {
+  it('fill empty seats and play a whole board with one person', async () => {
+    const gene = await member('gene')
+    await send(gene, { type: 'createTable' })
+    for (const seat of ['N', 'E', 'W'] as const) await send(gene, { type: 'addRobot', seat })
+    const view = tableFor(gene)
+    expect(view.seats.N).toMatchObject({ username: 'Robot', robot: true, online: true })
+    expect(view.board?.boardNo).toBe(1)
+
+    // The person passes and plays the first legal card; robots do the rest
+    for (let i = 0; i < 200 && tableFor(gene).board?.phase !== 'finished'; i++) {
+      await runRobots()
+      const board = tableFor(gene).board!
+      if (board.legalCalls.length) await send(gene, { type: 'call', call: 'P' })
+      else if (board.legalCards.length) await send(gene, { type: 'play', card: board.legalCards[0] })
+      else if (board.claim || board.phase === 'finished') break
+    }
+    const done = tableFor(gene)
+    expect(done.board?.phase).toBe('finished')
+    expect(done.ready).toEqual(expect.arrayContaining(['N', 'E', 'W']))
+    const history = (await club.history(gene, false)).boards
+    expect(history).toHaveLength(1)
+    expect(history[0].players.N).toMatchObject({ username: 'Robot', robot: true })
+
+    // The person alone decides when to deal again
+    await send(gene, { type: 'ready' })
+    expect(tableFor(gene).board?.boardNo).toBe(2)
+  })
+
+  it('give their seat to a person who sits down, and close with the last person', async () => {
+    const gene = await member('gene')
+    const amy = await member('amy')
+    await send(gene, { type: 'createTable' })
+    const tableId = tableFor(gene).id
+    await send(gene, { type: 'addRobot', seat: 'N' })
+    await send(amy, { type: 'sit', tableId, seat: 'N' })
+    expect(tableFor(amy).seats.N?.username).toBe('amy')
+    await send(gene, { type: 'addRobot', seat: 'E' })
+    await send(amy, { type: 'removeRobot', seat: 'E' })
+    expect(tableFor(amy).seats.E).toBeNull()
+
+    await send(gene, { type: 'addRobot', seat: 'E' })
+    await send(amy, { type: 'leaveTable' })
+    await send(gene, { type: 'leaveTable' })
+    expect(connections.last(gene, 'lobby')!.lobby.tables).toHaveLength(0)
+  })
+
+  it('only seated players may add robots, and only to empty seats', async () => {
+    const { tableId, bySeat } = await fullTable()
+    const watcher = await member('watcher')
+    await send(watcher, { type: 'joinTable', tableId })
+    await send(watcher, { type: 'addRobot', seat: 'N' })
+    expect(connections.last(watcher, 'error')?.code).toBe('notSeated')
+    await send(bySeat.S, { type: 'addRobot', seat: 'N' })
+    expect(connections.last(bySeat.S, 'error')?.code).toBe('seatTaken')
+  })
+})
+
+describe('admin', () => {
+  it('makes the first account admin, and only admins pass requireAdmin', async () => {
+    const first = await club.register('first', 'secret1', '')
+    const second = await club.register('second', 'secret1', '')
+    expect(first.user.admin).toBe(true)
+    expect(second.user.admin).toBe(false)
+    expect(() => club.requireAdmin(second.user.id)).toThrow(ClubError)
+    expect(() => club.requireAdmin(first.user.id)).not.toThrow()
+  })
+
+  it('lists, creates, resets, promotes and deletes members', async () => {
+    const admin = (await club.register('admin', 'secret1', '')).user
+    const amy = await club.adminCreateUser('amy', 'secret1')
+    expect((await club.adminUsers()).map((u) => [u.username, u.admin])).toEqual([
+      ['admin', true],
+      ['amy', false],
+    ])
+    const { token } = await club.login('amy', 'secret1')
+    await club.adminResetPassword(amy.id, 'newpass1')
+    expect(await club.userForToken(token)).toBeNull()
+    await expect(club.login('amy', 'secret1')).rejects.toThrow()
+    await club.login('amy', 'newpass1')
+
+    await club.adminSetAdmin(admin.id, amy.id, true)
+    await club.adminSetAdmin(admin.id, amy.id, false)
+    await expect(club.adminSetAdmin(admin.id, admin.id, false)).rejects.toThrow('至少要保留一位管理員')
+    await expect(club.adminDeleteUser(admin.id, admin.id)).rejects.toThrow()
+    await club.adminDeleteUser(admin.id, amy.id)
+    expect((await club.adminUsers()).map((u) => u.username)).toEqual(['admin'])
+  })
+
+  it('changes the member limit and invite code at run time', async () => {
+    await setup({ maxUsers: 10, inviteCode: 'env-code' })
+    await club.register('admin', 'secret1', 'env-code')
+    await club.adminUpdateSettings({ maxUsers: 2, inviteCode: 'new-code' })
+    expect(club.clubSettings).toEqual({ maxUsers: 2, inviteCode: 'new-code' })
+    await expect(club.register('amy', 'secret1', 'env-code')).rejects.toThrow('邀請碼不正確')
+    await club.register('amy', 'secret1', 'new-code')
+    await expect(club.register('ben', 'secret1', 'new-code')).rejects.toThrow('上限')
+    await expect(club.adminUpdateSettings({ maxUsers: 1 })).rejects.toThrow(ClubError)
+    // Settings survive a reload
+    const reloaded = new ClubService(store, connections, { maxUsers: 10 })
+    await reloaded.load()
+    expect(reloaded.clubSettings.maxUsers).toBe(2)
+  })
+
+  it('lets members change their own password', async () => {
+    const { user } = await club.register('gene', 'secret1', '')
+    await expect(club.changePassword(user.id, 'wrong', 'newpass1')).rejects.toThrow('目前的密碼不正確')
+    await club.changePassword(user.id, 'secret1', 'newpass1')
+    await club.login('gene', 'newpass1')
+  })
+})
+
+describe('history pages', () => {
+  it('reads one page at a time, newest first, with a cursor', async () => {
+    let time = 1_000
+    const now = () => time
+    store = new MemoryStore()
+    connections = new FakeConnections()
+    club = new ClubService(store, connections, { maxUsers: 10, now, schedule: () => undefined })
+    await club.load()
+    const { bySeat } = await fullTable()
+    for (let board = 0; board < 55; board++) {
+      time += 1000
+      for (let i = 0; i < 4; i++) {
+        const turn = tableFor(bySeat.N).board!.turn!
+        await send(bySeat[turn], { type: 'call', call: 'P' })
+      }
+      for (const seat of ['N', 'E', 'S', 'W'] as const) await send(bySeat[seat], { type: 'ready' })
+    }
+    const first = await club.history(bySeat.N, false)
+    expect(first.boards).toHaveLength(50)
+    expect(first.boards[0].finishedAt).toBeGreaterThan(first.boards[49].finishedAt)
+    const second = await club.history(bySeat.N, false, first.next!)
+    expect(second.boards).toHaveLength(5)
+    expect(second.next).toBeNull()
+    expect(new Set([...first.boards, ...second.boards].map((b) => b.id)).size).toBe(55)
+  })
+
+  it('moves version-1 history into the new indexes', async () => {
+    store = new MemoryStore()
+    const old = { id: 'old1', tableNumber: 1, finishedAt: 5, players: {}, board: {} }
+    for (const seat of ['N', 'E', 'S', 'W']) (old.players as Record<string, unknown>)[seat] = { id: 'u1', username: 'gene' }
+    old.board = { boardNo: 1, dealer: 'N', vul: 'None', contract: null, result: { declarerTricks: 0, scoreNS: 0, claimed: false } }
+    await store.put('board:00000000000005-old1', old)
+    club = new ClubService(store, new FakeConnections(), { maxUsers: 10 })
+    await club.load()
+    expect((await club.record('old1'))?.id).toBe('old1')
+    expect((await club.history('u1', false)).boards.map((b) => b.id)).toEqual(['old1'])
+    expect(await store.get('board:00000000000005-old1')).toBeUndefined()
   })
 })

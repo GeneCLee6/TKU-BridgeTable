@@ -3,6 +3,8 @@ import { Navigate, Route, Routes } from 'react-router-dom'
 import styled from 'styled-components'
 import { AppHeader } from './components/AppHeader.tsx'
 import { PageMain } from './components/ui.tsx'
+import { AccountPage } from './pages/AccountPage.tsx'
+import { AdminPage } from './pages/AdminPage.tsx'
 import { BoardPage } from './pages/BoardPage.tsx'
 import { HistoryPage } from './pages/HistoryPage.tsx'
 import { LobbyPage } from './pages/LobbyPage.tsx'
@@ -10,9 +12,8 @@ import { LoginPage } from './pages/LoginPage.tsx'
 import { TablePage } from './pages/TablePage.tsx'
 import { AuthProvider, useAuth } from './state/AuthContext.tsx'
 import { ClubProvider, useClub } from './state/ClubContext.tsx'
-import { PreferencesProvider } from './state/PreferencesContext.tsx'
+import { PreferencesProvider, usePreferences } from './state/PreferencesContext.tsx'
 import { GlobalStyle } from './styles/GlobalStyle.ts'
-import { strings } from './strings.ts'
 
 const Toast = styled.div`
   position: fixed;
@@ -37,9 +38,10 @@ const Banner = styled.div`
   text-align: center;
 `
 
-/** Server errors (an illegal call, a taken seat) appear briefly at the bottom */
+/** Server errors (an illegal call, a taken seat) appear briefly at the bottom, in the viewer's language */
 function ErrorToast() {
   const { error, dismissError } = useClub()
+  const { message } = usePreferences()
   useEffect(() => {
     if (!error) return
     const timer = setTimeout(dismissError, 4000)
@@ -47,21 +49,21 @@ function ErrorToast() {
   }, [error, dismissError])
   return error ? (
     <Toast role="alert" onClick={dismissError}>
-      {error.message}
+      {message(error.code, error.params, error.message)}
     </Toast>
   ) : null
 }
 
 function ConnectionBanner() {
   const { status, lobby } = useClub()
-  return status === 'closed' && lobby === null ? null : status === 'closed' ? (
-    <Banner role="status">{strings.reconnecting}</Banner>
-  ) : null
+  const { t } = usePreferences()
+  return status === 'closed' && lobby !== null ? <Banner role="status">{t.reconnecting}</Banner> : null
 }
 
 function Routed() {
   const { user } = useAuth()
-  if (user === undefined) return <PageMain>{strings.loading}</PageMain>
+  const { t } = usePreferences()
+  if (user === undefined) return <PageMain>{t.loading}</PageMain>
   if (user === null) return <LoginPage />
   return (
     <>
@@ -71,6 +73,8 @@ function Routed() {
         <Route path="/table/:tableId" element={<TablePage />} />
         <Route path="/history" element={<HistoryPage />} />
         <Route path="/history/:recordId" element={<BoardPage />} />
+        <Route path="/account" element={<AccountPage />} />
+        {user.admin && <Route path="/admin" element={<AdminPage />} />}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
       <ErrorToast />

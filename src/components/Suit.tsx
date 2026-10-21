@@ -1,10 +1,11 @@
 import styled from 'styled-components'
 import { isBid, levelOf, strainOf, type Call, type Contract } from '../../shared/auction.ts'
 import { SUIT_SYMBOL, type Strain, type Suit } from '../../shared/cards.ts'
-import { seatLetter, strings } from '../strings.ts'
+import { useT } from '../state/PreferencesContext.tsx'
+import { seatLetter } from '../strings.ts'
 
 /**
- * The only way suits, calls and contracts are drawn. `$onCard` picks the card colours (fixed, on
+ * The only way suits, calls and contracts are drawn. `onCard` picks the card colours (fixed, on
  * white) instead of the chrome colours that follow the theme.
  */
 
@@ -13,12 +14,11 @@ const Symbol = styled.span<{ $suit: Suit; $onCard?: boolean }>`
   font-family: ${({ theme }) => theme.fonts.symbols};
 `
 
-const SUIT_NAME: Record<Strain, string> = { S: '黑桃', H: '紅心', D: '方塊', C: '梅花', N: '無王' }
-
 export function SuitSymbol({ suit, onCard }: { suit: Strain; onCard?: boolean }) {
+  const t = useT()
   if (suit === 'N') return <span>NT</span>
   return (
-    <Symbol $suit={suit} $onCard={onCard} role="img" aria-label={SUIT_NAME[suit]}>
+    <Symbol $suit={suit} $onCard={onCard} role="img" aria-label={t.suitNames[suit]}>
       {SUIT_SYMBOL[suit]}
     </Symbol>
   )
@@ -26,7 +26,7 @@ export function SuitSymbol({ suit, onCard }: { suit: Strain; onCard?: boolean })
 
 /** '1S' → 1♠, 'P' → Pass, 'X' → X */
 export function CallLabel({ call, onCard }: { call: Call; onCard?: boolean }) {
-  if (!isBid(call)) return <span>{strings.callNames[call] === 'Pass' ? 'Pass' : call}</span>
+  if (!isBid(call)) return <span>{call === 'P' ? 'Pass' : call}</span>
   return (
     <span>
       {levelOf(call)}
@@ -37,7 +37,8 @@ export function CallLabel({ call, onCard }: { call: Call; onCard?: boolean }) {
 
 /** 4♠X S */
 export function ContractLabel({ contract, onCard }: { contract: Contract | null; onCard?: boolean }) {
-  if (!contract) return <span>{strings.passedOut}</span>
+  const t = useT()
+  if (!contract) return <span>{t.passedOut}</span>
   return (
     <span>
       {contract.level}

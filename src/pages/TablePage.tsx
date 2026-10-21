@@ -1,9 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import styled, { css } from 'styled-components'
 import { isVulnerable } from '../../shared/board.ts'
-import { nextSeat, sideOf, type Seat } from '../../shared/cards.ts'
-import type { BoardView, TableView } from '../../shared/protocol.ts'
+import { nextSeat, SEATS, sideOf, type Seat } from '../../shared/cards.ts'
+import { isRobotId, type BoardView, type TableView } from '../../shared/protocol.ts'
 import { AuctionBox } from '../components/AuctionBox.tsx'
 import { BiddingBox } from '../components/BiddingBox.tsx'
 import { BoardInfo } from '../components/BoardInfo.tsx'
@@ -11,54 +11,62 @@ import { ChatPanel } from '../components/ChatPanel.tsx'
 import { HandView } from '../components/HandView.tsx'
 import { SeatPlate } from '../components/SeatPlate.tsx'
 import { ContractLabel } from '../components/Suit.tsx'
-import { ClaimPicker, FeltButton, FeltPanel, Prompt, ResultPanel } from '../components/TablePanels.tsx'
-import { TrickArea, type Position } from '../components/TrickArea.tsx'
+import { BidStack, ClaimPicker, FeltButton, FeltPanel, Prompt, ResultPanel } from '../components/TablePanels.tsx'
+import { TrickArea, TrickSpace, type Position } from '../components/TrickArea.tsx'
 import { Button, Muted, PageMain } from '../components/ui.tsx'
-import { useMediaQuery } from '../lib/useMediaQuery.ts'
 import { useClub } from '../state/ClubContext.tsx'
-import { mobile, mobileQuery } from '../styles/tokens.ts'
-import { seatLetter, strings } from '../strings.ts'
+import { usePreferences, useT } from '../state/PreferencesContext.tsx'
+import { mobile } from '../styles/tokens.ts'
+import { seatLetter } from '../strings.ts'
 
 /**
  * The table, laid out like BBO: green felt, the viewer's seat always at the bottom, partner on
- * top, opponents left and right. The middle shows the auction and bidding box, then the trick
- * being played, then the result. Chat and the people at the table sit in a side panel.
+ * top, opponents left and right. Card sizes follow the size of the felt, so the table fills the
+ * window. During the auction each player's calls sit in front of them with the bidding box in the
+ * middle; during play the middle shows the trick; at the end, the result.
  */
 
 const Layout = styled.div`
   display: grid;
   grid-template-columns: minmax(0, 1fr) ${({ theme }) => theme.layout.sidePanelWidth};
-  min-height: calc(100vh - ${({ theme }) => theme.layout.headerHeight});
+  height: calc(100vh - ${({ theme }) => theme.layout.headerHeight});
 
   ${mobile} {
     grid-template-columns: minmax(0, 1fr);
+    height: auto;
   }
 `
 
-const Felt = styled.div`
+const Felt = styled.div<{ $phone: boolean }>`
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.35fr) minmax(0, 1fr);
   grid-template-rows: auto minmax(0, 1fr) auto;
   grid-template-areas:
     'info top status'
     'left center right'
     'bottom bottom bottom';
-  gap: 8px 12px;
-  padding: 12px 16px 16px;
+  gap: 6px 12px;
+  min-height: 0;
+  overflow: auto;
+  padding: 10px 16px 12px;
   background: radial-gradient(ellipse at center, ${({ theme }) => theme.table.felt} 55%, ${({ theme }) => theme.table.feltEdge});
   color: ${({ theme }) => theme.table.feltText};
 
-  ${mobile} {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    grid-template-rows: auto;
-    grid-template-areas:
-      'info status'
-      'top top'
-      'left right'
-      'center center'
-      'bottom bottom';
-    padding: 8px 12px 12px;
-  }
+  ${({ $phone }) =>
+    $phone &&
+    css`
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      grid-template-rows: auto auto minmax(0, 1fr) auto auto;
+      grid-template-areas:
+        'info info status'
+        'top top top'
+        'left center right'
+        'box box box'
+        'bottom bottom bottom';
+      gap: 6px;
+      padding: 8px 8px 12px;
+      min-height: calc(100vh - ${({ theme }) => theme.layout.headerHeight});
+    `}
 `
 
 const Area = styled.div<{ $area: string; $align?: 'start' | 'center' | 'end' }>`
@@ -72,34 +80,72 @@ const Area = styled.div<{ $area: string; $align?: 'start' | 'center' | 'end' }>`
 `
 
 const Center = styled(Area)`
-  justify-content: center;
-  min-height: 240px;
+  position: relative;
   gap: 10px;
+`
+
+/** Prompts float over the trick so the table does not move */
+const Overlay = styled.div`
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 10px;
+  pointer-events: none;
+  & > * { pointer-events: auto; }
+`
+
+const BidArea = styled.div`
+  display: grid;
+  grid-template-columns: minmax(0, auto) minmax(0, 1fr) minmax(0, auto);
+  grid-template-areas:
+    '. top .'
+    'left middle right'
+    '. bottom .';
+  align-items: center;
+  justify-items: center;
+  gap: 8px;
+  width: 100%;
+`
+
+const BidSpot = styled.div<{ $area: string }>`
+  grid-area: ${({ $area }) => $area};
+  display: grid;
+  place-items: center;
+  gap: 8px;
+  min-width: 0;
+`
+
+const Waiting = styled.div`
+  color: ${({ theme }) => theme.table.feltMuted};
+  font-size: 16px;
+  font-weight: 600;
 `
 
 const ContractBox = styled.button`
   display: grid;
   gap: 2px;
-  min-width: 120px;
-  padding: 6px 10px;
+  min-width: 140px;
+  padding: 8px 12px;
   border: 0;
-  border-radius: 6px;
+  border-radius: 8px;
   background: ${({ theme }) => theme.table.panel};
   color: ${({ theme }) => theme.table.panelText};
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
   font-family: ${({ theme }) => theme.fonts.cards};
-  font-size: 14px;
+  font-size: 16px;
+  font-weight: 700;
   text-align: left;
 
-  & > strong { font-size: 18px; }
+  & > strong { font-size: 22px; }
 `
 
 const Actions = styled.div`
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
-  gap: 6px;
-  margin-top: 4px;
+  gap: 8px;
 `
 
 const Side = styled.aside`
@@ -139,6 +185,7 @@ const Tab = styled.button<{ $active: boolean }>`
 
 const TableTitle = styled.div`
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
@@ -157,7 +204,7 @@ const PeopleList = styled.ul`
 
 const Note = styled.div`
   color: ${({ theme }) => theme.table.feltMuted};
-  font-size: 14px;
+  font-size: 15px;
   text-align: center;
 `
 
@@ -196,28 +243,65 @@ function useShownTrick(board: BoardView | null, showLast: boolean) {
   return current
 }
 
+/** The felt's size, so cards can be as large as the window allows */
+function useSize() {
+  const ref = useRef<HTMLDivElement>(null)
+  const [size, setSize] = useState({ width: 1000, height: 700 })
+  useEffect(() => {
+    const el = ref.current
+    if (!el || typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(([entry]) => {
+      const { width, height } = entry.contentRect
+      setSize({ width: Math.round(width), height: Math.round(height) })
+    })
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
+  return [ref, size] as const
+}
+
+const clamp = (min: number, value: number, max: number) => Math.round(Math.max(min, Math.min(value, max)))
+
+/** Card widths for each part of the table */
+function cardSizes(width: number, height: number) {
+  const phone = width < 700
+  if (phone) {
+    const bottom = clamp(44, width * 0.155, 84)
+    return { phone, bottom, top: clamp(36, bottom * 0.8, 70), side: clamp(30, width * 0.11, 50), trick: clamp(40, bottom * 0.78, 70) }
+  }
+  const bottom = clamp(56, Math.min(width * 0.085, height * 0.13), 124)
+  return {
+    phone,
+    bottom,
+    top: Math.round(bottom * 0.82),
+    side: Math.round(bottom * 0.74),
+    trick: Math.round(bottom * 0.88),
+  }
+}
+
 export function TablePage() {
   const { tableId } = useParams()
   const { table, lobby, status, send } = useClub()
+  const t = useT()
   const navigate = useNavigate()
 
   useEffect(() => {
     if (status !== 'open' || !lobby || !tableId) return
-    if (lobby.myTableId === tableId || !lobby.tables.some((t) => t.id === tableId)) return
+    if (lobby.myTableId === tableId || !lobby.tables.some((x) => x.id === tableId)) return
     send({ type: 'joinTable', tableId })
   }, [status, lobby, tableId, send])
 
-  if (!lobby) return <PageMain>{strings.connecting}</PageMain>
-  if (!lobby.tables.some((t) => t.id === tableId))
+  if (!lobby) return <PageMain>{t.connecting}</PageMain>
+  if (!lobby.tables.some((x) => x.id === tableId))
     return (
       <PageMain>
-        <Muted>找不到這張牌桌，可能已經關閉。</Muted>
+        <Muted>{t.tableGone}</Muted>
         <p>
-          <Link to="/">{strings.navLobby}</Link>
+          <Link to="/">{t.navLobby}</Link>
         </p>
       </PageMain>
     )
-  if (!table || table.id !== tableId) return <PageMain>{strings.loading}</PageMain>
+  if (!table || table.id !== tableId) return <PageMain>{t.loading}</PageMain>
 
   return (
     <TableScreen
@@ -240,7 +324,10 @@ function TableScreen({
   send: ReturnType<typeof useClub>['send']
   onLeave: () => void
 }) {
-  const isPhone = useMediaQuery(mobileQuery)
+  const t = useT()
+  const { cardStyle } = usePreferences()
+  const [feltRef, feltSize] = useSize()
+  const sizes = cardSizes(feltSize.width, feltSize.height)
   const [tab, setTab] = useState<'chat' | 'people'>('chat')
   const board = table.board
   // Toggles that belong to one board are stored with its number, so they reset on the next deal
@@ -251,17 +338,18 @@ function TableScreen({
   const showAuction = auctionFor === boardNo
   const showLast = lastTrickFor === boardNo
   const claiming = claimingFor === boardNo
-  const setShowAuction = (on: boolean) => setAuctionFor(on ? boardNo : 0)
-  const setShowLast = (on: boolean) => setLastTrickFor(on ? boardNo : 0)
-  const setClaiming = (on: boolean) => setClaimingFor(on ? boardNo : 0)
 
   const me = table.mySeat
-  const at = rotation(me ?? 'S')
+  const viewer = me ?? 'S'
+  const at = rotation(viewer)
   const positionOf = (seat: Seat) => (Object.keys(at) as Position[]).find((p) => at[p] === seat)!
   const shownTrick = useShownTrick(board, showLast)
-
-  const nameOf = (seat: Seat) => table.seats[seat]?.username ?? seatLetter[seat]
-  const missing = (['N', 'E', 'S', 'W'] as Seat[]).filter((s) => !table.seats[s]).length
+  const nameOf = (seat: Seat) => {
+    const o = table.seats[seat]
+    return o ? (o.robot ? `${t.robot} ${seatLetter[seat]}` : o.username) : seatLetter[seat]
+  }
+  const people = SEATS.filter((s) => table.seats[s] && !isRobotId(table.seats[s]!.id))
+  const missing = SEATS.filter((s) => !table.seats[s]).length
 
   const seatParts = (position: Position) => {
     const seat = at[position]
@@ -276,6 +364,7 @@ function TableScreen({
             ? 'dummy'
             : undefined
         : undefined
+    const canSit = (!occupant || occupant.robot) && (!me || !board || board.phase === 'finished')
     const plate = (
       <SeatPlate
         seat={seat}
@@ -284,19 +373,24 @@ function TableScreen({
         turn={!!board && board.turn === seat && board.phase !== 'finished'}
         role={role}
         isMe={seat === me}
-        onSit={!occupant && (!me || !board || board.phase === 'finished') ? () => send({ type: 'sit', tableId: table.id, seat }) : undefined}
+        onSit={canSit && !(occupant?.robot && me) ? () => send({ type: 'sit', tableId: table.id, seat }) : undefined}
         onFree={occupant && !occupant.online && seat !== me ? () => send({ type: 'freeSeat', seat }) : undefined}
+        onAddRobot={me && !occupant ? () => send({ type: 'addRobot', seat }) : undefined}
+        onRemoveRobot={me && occupant?.robot ? () => send({ type: 'removeRobot', seat }) : undefined}
+        compact={side && sizes.phone}
       />
     )
+    const width = position === 'bottom' ? sizes.bottom : side ? sizes.side : sizes.top
     const hand = board && (
       <HandView
         cards={cards}
         count={board.handCounts[seat]}
-        layout={side && isPhone ? 'rows' : 'fan'}
-        size={position === 'bottom' ? (isPhone ? 'md' : 'lg') : side || isPhone ? 'sm' : 'md'}
+        width={width}
+        style={cardStyle}
+        orientation={side && sizes.phone && cardStyle === 'cards' ? 'vertical' : 'horizontal'}
         playable={board.turn === seat ? board.legalCards : []}
         onPlay={(card) => send({ type: 'play', card })}
-        label={`${seatLetter[seat]} ${occupant?.username ?? ''}`}
+        label={`${seatLetter[seat]} ${nameOf(seat)}`}
       />
     )
     return { plate, hand }
@@ -312,81 +406,19 @@ function TableScreen({
     )
   }
 
-  const remaining = board ? 13 - board.tricks.filter((t) => t.winner).length : 0
+  const remaining = board ? 13 - board.tricks.filter((x) => x.winner).length : 0
   const atTrickBoundary = !!board && (board.tricks.length === 0 || !!board.tricks.at(-1)!.winner)
-  const canClaim =
-    !!board && board.phase === 'play' && !!me && me !== board.dummy && !board.claim && atTrickBoundary
-
-  const center = () => {
-    if (!board)
-      return (
-        <FeltPanel>
-          <div>{strings.waitingForPlayers(missing)}</div>
-        </FeltPanel>
-      )
-    if (board.phase === 'auction')
-      return (
-        <>
-          <AuctionBox auction={board.auction} dealer={board.dealer} vul={board.vul} turn={board.turn} />
-          {board.legalCalls.length > 0 && !board.undo && (
-            <BiddingBox legal={board.legalCalls} onCall={(call, alert) => send({ type: 'call', call, alert })} />
-          )}
-          {undoPrompt()}
-        </>
-      )
-    if (board.phase === 'finished')
-      return (
-        <ResultPanel
-          board={board}
-          seated={me}
-          ready={table.ready}
-          onReady={() => send({ type: 'ready' })}
-          declarerName={board.contract ? nameOf(board.contract.declarer) : undefined}
-        />
-      )
-    return (
-      <>
-        {shownTrick && (
-          <TrickArea
-            cards={shownTrick.cards}
-            positionOf={positionOf}
-            winner={shownTrick.winner}
-            size={isPhone ? 'sm' : 'md'}
-            label={showLast ? strings.lastTrick : strings.tricks}
-          />
-        )}
-        {!shownTrick && <TrickPlaceholder $phone={isPhone} />}
-        {claiming && canClaim && (
-          <ClaimPicker
-            remaining={remaining}
-            onClaim={(tricks) => {
-              send({ type: 'claim', tricks })
-              setClaiming(false)
-            }}
-            onCancel={() => setClaiming(false)}
-          />
-        )}
-        {claimPrompt()}
-        {undoPrompt()}
-      </>
-    )
-  }
+  const canClaim = !!board && board.phase === 'play' && !!me && me !== board.dummy && !board.claim && atTrickBoundary
 
   const claimPrompt = () => {
     const claim = board?.claim
     if (!claim) return null
-    const text = strings.claimBy(nameOf(claim.seat), claim.tricks)
-    const waiting = claim.approvers.length - claim.accepted.length
+    const text = t.claimBy(nameOf(claim.seat), claim.tricks)
     if (me && claim.approvers.includes(me) && !claim.accepted.includes(me))
       return (
-        <Prompt
-          text={text}
-          yes={strings.accept}
-          no={strings.reject}
-          onAnswer={(accept) => send({ type: 'claimRespond', accept })}
-        />
+        <Prompt text={text} yes={t.accept} no={t.reject} onAnswer={(accept) => send({ type: 'claimRespond', accept })} />
       )
-    return <Prompt text={text} detail={strings.claimWaiting(waiting)} />
+    return <Prompt text={text} detail={t.claimWaiting(claim.approvers.length - claim.accepted.length)} />
   }
 
   const undoPrompt = () => {
@@ -395,25 +427,123 @@ function TableScreen({
     if (me && sideOf(me) !== sideOf(undo.seat))
       return (
         <Prompt
-          text={strings.undoBy(nameOf(undo.seat))}
-          yes={strings.agree}
-          no={strings.reject}
+          text={t.undoBy(nameOf(undo.seat))}
+          yes={t.agree}
+          no={t.reject}
           onAnswer={(accept) => send({ type: 'undoRespond', accept })}
         />
       )
-    return <Prompt text={me === undo.seat ? strings.undoRequested : strings.undoBy(nameOf(undo.seat))} />
+    return <Prompt text={me === undo.seat ? t.undoRequested : t.undoBy(nameOf(undo.seat))} />
   }
+
+  const auctionCenter = (b: BoardView) => {
+    const callsOf = (seat: Seat) => b.auction.filter((c) => c.seat === seat)
+    const spot = (position: Position) => {
+      const seat = at[position]
+      return (
+        <BidSpot key={position} $area={position}>
+          <BidStack
+            calls={callsOf(seat)}
+            vertical={(position === 'left' || position === 'right') && sizes.phone}
+            turn={b.turn === seat}
+            size={sizes.trick}
+            label={`${t.auction} ${seatLetter[seat]}`}
+          />
+        </BidSpot>
+      )
+    }
+    const myCall = b.legalCalls.length > 0 && !b.undo
+    // On a phone the bidding box gets its own full-width row above the viewer's hand
+    const box = myCall && !sizes.phone
+    return (
+      <BidArea>
+        {spot('top')}
+        {spot('left')}
+        <BidSpot $area="middle">
+          {box ? (
+            <BiddingBox legal={b.legalCalls} onCall={(call, alert) => send({ type: 'call', call, alert })} size={sizes.bottom * 0.9} />
+          ) : (
+            <Waiting>{b.turn && !myCall ? t.waitingFor(nameOf(b.turn)) : ''}</Waiting>
+          )}
+          {undoPrompt()}
+        </BidSpot>
+        {spot('right')}
+        {spot('bottom')}
+      </BidArea>
+    )
+  }
+
+  const center = () => {
+    if (!board)
+      return (
+        <FeltPanel>
+          <div>{t.waitingForPlayers(missing)}</div>
+        </FeltPanel>
+      )
+    if (board.phase === 'auction') return auctionCenter(board)
+    if (board.phase === 'finished')
+      return (
+        <ResultPanel
+          board={board}
+          seated={me}
+          ready={table.ready}
+          people={people}
+          onReady={() => send({ type: 'ready' })}
+          declarerName={board.contract ? nameOf(board.contract.declarer) : undefined}
+        />
+      )
+    return (
+      <>
+        {shownTrick ? (
+          <TrickArea
+            cards={shownTrick.cards}
+            positionOf={positionOf}
+            winner={shownTrick.winner}
+            width={sizes.trick}
+            label={showLast ? t.lastTrick : t.thisTrick}
+          />
+        ) : (
+          <TrickSpace $w={sizes.trick} />
+        )}
+        <Overlay>
+          {claiming && canClaim && (
+            <ClaimPicker
+              remaining={remaining}
+              onClaim={(tricks) => {
+                send({ type: 'claim', tricks })
+                setClaimingFor(0)
+              }}
+              onCancel={() => setClaimingFor(0)}
+            />
+          )}
+          {claimPrompt()}
+          {undoPrompt()}
+        </Overlay>
+      </>
+    )
+  }
+
+  const bottom = seatParts('bottom')
+  const infoSize = Math.max(20, Math.round(sizes.bottom * 0.3))
 
   return (
     <Layout>
-      <Felt>
+      <Felt ref={feltRef} $phone={sizes.phone}>
         <Area $area="info" $align="start">
-          {board && <BoardInfo boardNo={board.boardNo} dealer={board.dealer} vul={board.vul} positions={at} />}
+          {board && <BoardInfo boardNo={board.boardNo} dealer={board.dealer} vul={board.vul} positions={at} size={infoSize} />}
         </Area>
         <Area $area="status" $align="end">
+          {board && board.phase === 'auction' && !sizes.phone && (
+            <AuctionBox auction={board.auction} dealer={board.dealer} vul={board.vul} viewer={viewer} turn={board.turn} size={sizes.side} />
+          )}
           {board && board.phase !== 'auction' && (
             <>
-              <ContractBox type="button" onClick={() => setShowAuction(!showAuction)} aria-expanded={showAuction} aria-label={strings.showAuction}>
+              <ContractBox
+                type="button"
+                onClick={() => setAuctionFor(showAuction ? 0 : boardNo)}
+                aria-expanded={showAuction}
+                aria-label={t.showAuction}
+              >
                 <strong>
                   <ContractLabel contract={board.contract} onCard />
                 </strong>
@@ -421,7 +551,7 @@ function TableScreen({
                   NS {board.tricksWon.NS} · EW {board.tricksWon.EW}
                 </span>
               </ContractBox>
-              {showAuction && <AuctionBox auction={board.auction} dealer={board.dealer} vul={board.vul} />}
+              {showAuction && <AuctionBox auction={board.auction} dealer={board.dealer} vul={board.vul} viewer={viewer} size={sizes.side} />}
             </>
           )}
         </Area>
@@ -429,24 +559,34 @@ function TableScreen({
         {seatArea('left')}
         <Center $area="center">{center()}</Center>
         {seatArea('right')}
+        {sizes.phone && board?.phase === 'auction' && board.legalCalls.length > 0 && !board.undo && (
+          <Area $area="box">
+            <BiddingBox legal={board.legalCalls} onCall={(call, alert) => send({ type: 'call', call, alert })} size={56} />
+          </Area>
+        )}
         <Area $area="bottom">
-          {seatParts('bottom').hand}
-          {seatParts('bottom').plate}
+          {bottom.hand}
+          {bottom.plate}
           <Actions>
-            {!me && <Note>{strings.kibitzing}</Note>}
+            {!me && <Note>{t.kibitzing}</Note>}
             {board && board.phase === 'play' && (
-              <FeltButton type="button" $tone="plain" onClick={() => setShowLast(!showLast)} disabled={!board.tricks.some((t) => t.winner)}>
-                {showLast ? strings.hideLastTrick : strings.lastTrick}
+              <FeltButton
+                type="button"
+                $tone="plain"
+                onClick={() => setLastTrickFor(showLast ? 0 : boardNo)}
+                disabled={!board.tricks.some((x) => x.winner)}
+              >
+                {showLast ? t.hideLastTrick : t.lastTrick}
               </FeltButton>
             )}
             {board && me && canUndo(board, me) && (
               <FeltButton type="button" $tone="plain" onClick={() => send({ type: 'undoRequest' })}>
-                {strings.undo}
+                {t.undo}
               </FeltButton>
             )}
             {canClaim && (
-              <FeltButton type="button" $tone="plain" onClick={() => setClaiming(!claiming)}>
-                {strings.claim}
+              <FeltButton type="button" $tone="plain" onClick={() => setClaimingFor(claiming ? 0 : boardNo)}>
+                {t.claim}
               </FeltButton>
             )}
           </Actions>
@@ -455,40 +595,42 @@ function TableScreen({
       <Side>
         <TableTitle>
           <span>
-            {strings.tableName(table.number)} · {strings.boardsPlayed(table.boardsPlayed)}
+            {t.tableName(table.number)} · {t.boardsPlayed(table.boardsPlayed)}
           </span>
           <span>
             {me && (
               <Button type="button" $small $variant="ghost" onClick={() => send({ type: 'stand' })}>
-                {strings.standUp}
+                {t.standUp}
               </Button>
             )}
             <Button type="button" $small $variant="danger" onClick={onLeave}>
-              {strings.leaveTable}
+              {t.leaveTable}
             </Button>
           </span>
         </TableTitle>
         <Tabs role="tablist">
           <Tab type="button" role="tab" aria-selected={tab === 'chat'} $active={tab === 'chat'} onClick={() => setTab('chat')}>
-            {strings.chat}
+            {t.chat}
           </Tab>
           <Tab type="button" role="tab" aria-selected={tab === 'people'} $active={tab === 'people'} onClick={() => setTab('people')}>
-            {strings.people}
+            {t.people}
           </Tab>
         </Tabs>
         {tab === 'chat' ? (
           <ChatPanel messages={table.chat} onSend={(text) => send({ type: 'chat', text })} />
         ) : (
           <PeopleList>
-            {(['N', 'E', 'S', 'W'] as Seat[]).map((seat) => (
-              <li key={seat}>
-                {seatLetter[seat]}：{table.seats[seat]?.username ?? strings.emptySeat}
-                {table.seats[seat] && !table.seats[seat]!.online && `（${strings.offline}）`}
-              </li>
-            ))}
+            {SEATS.map((seat) => {
+              const o = table.seats[seat]
+              return (
+                <li key={seat}>
+                  {seatLetter[seat]}：{o ? (o.robot ? t.robot : o.username) : t.emptySeat}
+                  {o && !o.online && `（${t.offline}）`}
+                </li>
+              )
+            })}
             <li>
-              {strings.spectatorsTitle}：
-              {table.spectators.length ? table.spectators.map((u) => u.username).join('、') : strings.noSpectators}
+              {t.spectatorsTitle}：{table.spectators.length ? table.spectators.map((u) => u.username).join('、') : t.noSpectators}
             </li>
           </PeopleList>
         )}
@@ -497,9 +639,3 @@ function TableScreen({
   )
 }
 
-const TrickPlaceholder = styled.div<{ $phone: boolean }>`
-  width: ${({ $phone }) => ($phone ? 150 : 190)}px;
-  height: ${({ $phone }) => ($phone ? 150 : 190)}px;
-  border-radius: 50%;
-  border: 2px dashed rgba(255, 255, 255, 0.12);
-`

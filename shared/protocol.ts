@@ -2,17 +2,29 @@ import type { AuctionCall, Call, Contract } from './auction.ts'
 import type { Vulnerability } from './board.ts'
 import type { Card, Seat, Side } from './cards.ts'
 import type { BoardResult, BoardState, Phase, Trick } from './game.ts'
+import type { MessageCode, MessageParams } from './messages.ts'
 
 /** Messages and views exchanged between the browser and the Worker over HTTP and WebSocket */
 
 export interface PublicUser {
   id: string
   username: string
+  /** Set for a robot player in a seat or a history record */
+  robot?: boolean
+}
+
+/** The signed-in user, as /api/me returns it */
+export interface Me extends PublicUser {
+  admin: boolean
 }
 
 export interface SeatOccupant extends PublicUser {
   online: boolean
 }
+
+/** Robots sit in seats under ids like 'robot:N' */
+export const ROBOT_PREFIX = 'robot:'
+export const isRobotId = (id: string | null | undefined) => !!id && id.startsWith(ROBOT_PREFIX)
 
 export interface ChatMessage {
   id: string
@@ -88,6 +100,8 @@ export type ClientMessage =
   | { type: 'stand' }
   | { type: 'leaveTable' }
   | { type: 'freeSeat'; seat: Seat }
+  | { type: 'addRobot'; seat: Seat }
+  | { type: 'removeRobot'; seat: Seat }
   | { type: 'call'; call: Call; alert?: string }
   | { type: 'play'; card: Card }
   | { type: 'claim'; tricks: number }
@@ -98,10 +112,10 @@ export type ClientMessage =
   | { type: 'chat'; text: string }
 
 export type ServerMessage =
-  | { type: 'welcome'; me: PublicUser }
+  | { type: 'welcome'; me: Me }
   | { type: 'lobby'; lobby: LobbyView }
   | { type: 'table'; table: TableView | null }
-  | { type: 'error'; message: string }
+  | { type: 'error'; code: MessageCode; params: MessageParams; message: string }
 
 /** A finished board kept in the history */
 export interface BoardRecord {
@@ -139,6 +153,30 @@ export function summarize(record: BoardRecord): BoardSummary {
   }
 }
 
+/** One page of the history list; `next` is the cursor for the following (older) page */
+export interface HistoryPage {
+  boards: BoardSummary[]
+  next: string | null
+}
+
+/** A member as the admin page lists them */
+export interface AdminUser {
+  id: string
+  username: string
+  admin: boolean
+  createdAt: number
+  lastLoginAt: number | null
+  boards: number
+  online: boolean
+}
+
+/** Club settings an admin can change; they override the Worker's environment defaults */
+export interface ClubSettings {
+  maxUsers: number
+  /** Empty means anyone may register (up to the limit) */
+  inviteCode: string
+}
+
 /** Limits shared by the client forms and the server checks */
 export const LIMITS = {
   usernameMin: 2,
@@ -146,6 +184,9 @@ export const LIMITS = {
   passwordMin: 6,
   chatMax: 300,
   alertMax: 200,
+  maxUsersMin: 2,
+  maxUsersMax: 100,
+  historyPage: 50,
 }
 
 export const USERNAME_PATTERN = /^[\p{L}\p{N}_.-]+$/u

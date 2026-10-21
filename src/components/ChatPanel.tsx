@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import styled from 'styled-components'
 import { LIMITS, type ChatMessage } from '../../shared/protocol.ts'
-import { strings } from '../strings.ts'
+import { useT } from '../state/PreferencesContext.tsx'
 
 const Panel = styled.div`
   display: flex;
@@ -68,6 +68,7 @@ const time = (at: number) =>
   new Date(at).toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit', hour12: false })
 
 export function ChatPanel({ messages, onSend }: { messages: ChatMessage[]; onSend: (text: string) => void }) {
+  const t = useT()
   const [text, setText] = useState('')
   const log = useRef<HTMLOListElement>(null)
 
@@ -77,7 +78,7 @@ export function ChatPanel({ messages, onSend }: { messages: ChatMessage[]; onSen
 
   return (
     <Panel>
-      <Log ref={log} aria-label={strings.chat} aria-live="polite">
+      <Log ref={log} aria-label={t.chat} aria-live="polite">
         {messages.map((m) => (
           <Line key={m.id}>
             <Time>{time(m.at)}</Time>
@@ -97,10 +98,10 @@ export function ChatPanel({ messages, onSend }: { messages: ChatMessage[]; onSen
           value={text}
           maxLength={LIMITS.chatMax}
           onChange={(e) => setText(e.target.value)}
-          placeholder={strings.chatPlaceholder}
-          aria-label={strings.chatPlaceholder}
+          placeholder={t.chatPlaceholder}
+          aria-label={t.chatPlaceholder}
         />
-        <Send type="submit">{strings.send}</Send>
+        <Send type="submit">{t.send}</Send>
       </Form>
     </Panel>
   )

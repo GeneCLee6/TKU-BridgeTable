@@ -22,6 +22,7 @@ import {
   type Seat,
   type Side,
 } from './cards.ts'
+import { AppError } from './messages.ts'
 import { duplicateScore } from './scoring.ts'
 
 /**
@@ -71,7 +72,8 @@ export interface BoardState {
   result?: BoardResult
 }
 
-export class GameError extends Error {}
+/** A rule was broken; the code says which (shared/messages.ts) */
+export class GameError extends AppError {}
 
 export function newBoard(boardNo: number, hands: Hands): BoardState {
   return {
@@ -160,9 +162,9 @@ export function legalCards(state: BoardState, seat: Seat): Card[] {
 }
 
 export function makeCall(state: BoardState, seat: Seat, call: Call, alert?: string): BoardState {
-  if (state.phase !== 'auction') throw new GameError('叫牌已經結束')
-  if (turnOf(state) !== seat) throw new GameError('還沒輪到你叫牌')
-  if (!legalCalls(state.auction, state.dealer).has(call)) throw new GameError('不合法的叫品')
+  if (state.phase !== 'auction') throw new GameError('auctionOver')
+  if (turnOf(state) !== seat) throw new GameError('notYourCall')
+  if (!legalCalls(state.auction, state.dealer).has(call)) throw new GameError('illegalCall')
   const entry: AuctionCall = { seat, call }
   if (alert !== undefined) entry.alert = alert.slice(0, 200)
   const auction = [...state.auction, entry]
@@ -176,11 +178,11 @@ export function makeCall(state: BoardState, seat: Seat, call: Call, alert?: stri
 }
 
 export function playCard(state: BoardState, seat: Seat, card: Card): BoardState {
-  if (state.phase !== 'play') throw new GameError('現在不能出牌')
-  if (state.claim) throw new GameError('請先處理攤牌')
-  if (turnOf(state) !== seat) throw new GameError('還沒輪到這家出牌')
-  if (!remainingCards(state, seat).includes(card)) throw new GameError('手上沒有這張牌')
-  if (!legalCards(state, seat).includes(card)) throw new GameError('必須跟出同花色')
+  if (state.phase !== 'play') throw new GameError('cannotPlayNow')
+  if (state.claim) throw new GameError('claimPending')
+  if (turnOf(state) !== seat) throw new GameError('notThisHandsTurn')
+  if (!remainingCards(state, seat).includes(card)) throw new GameError('cardNotHeld')
+  if (!legalCards(state, seat).includes(card)) throw new GameError('mustFollowSuit')
   const next: BoardState = { ...state, play: [...state.play, { seat, card }] }
   if (next.play.length === 52) {
     const declarer = next.contract!.declarer
@@ -198,19 +200,19 @@ export function claimApprovers(state: BoardState, claimer: Seat): Seat[] {
 }
 
 export function makeClaim(state: BoardState, seat: Seat, tricks: number): BoardState {
-  if (state.phase !== 'play') throw new GameError('現在不能攤牌')
-  if (seat === dummyOf(state)) throw new GameError('夢家不能攤牌')
-  if (state.claim) throw new GameError('已經有人攤牌')
-  if (state.play.length % 4 !== 0) throw new GameError('請在一墩結束後再攤牌')
+  if (state.phase !== 'play') throw new GameError('cannotClaimNow')
+  if (seat === dummyOf(state)) throw new GameError('dummyCannotClaim')
+  if (state.claim) throw new GameError('alreadyClaimed')
+  if (state.play.length % 4 !== 0) throw new GameError('claimAtTrickEnd')
   if (!Number.isInteger(tricks) || tricks < 0 || tricks > remainingTricks(state))
-    throw new GameError('墩數不合理')
+    throw new GameError('badClaim')
   return { ...state, claim: { seat, tricks, accepted: [] } }
 }
 
 export function respondToClaim(state: BoardState, seat: Seat, accept: boolean): BoardState {
   const claim = state.claim
-  if (!claim) throw new GameError('沒有待處理的攤牌')
-  if (!claimApprovers(state, claim.seat).includes(seat)) throw new GameError('你不需要回應這次攤牌')
+  if (!claim) throw new GameError('noClaim')
+  if (!claimApprovers(state, claim.seat).includes(seat)) throw new GameError('notClaimApprover')
   if (!accept) return { ...state, claim: undefined }
   const accepted = claim.accepted.includes(seat) ? claim.accepted : [...claim.accepted, seat]
   if (accepted.length < claimApprovers(state, claim.seat).length)
@@ -225,14 +227,14 @@ export function respondToClaim(state: BoardState, seat: Seat, accept: boolean): 
 
 /** Removes the most recent call or card */
 export function undoLast(state: BoardState): BoardState {
-  if (state.phase === 'finished') throw new GameError('這副牌已經結束')
-  if (state.claim) throw new GameError('請先處理攤牌')
+  if (state.phase === 'finished') throw new GameError('boardOver')
+  if (state.claim) throw new GameError('claimPending')
   if (state.phase === 'play' && state.play.length > 0)
     return { ...state, play: state.play.slice(0, -1) }
   if (state.phase === 'play')
     // Undoing the final pass reopens the auction
     return { ...state, phase: 'auction', contract: null, auction: state.auction.slice(0, -1) }
-  if (state.auction.length === 0) throw new GameError('沒有可以撤回的動作')
+  if (state.auction.length === 0) throw new GameError('nothingToUndo')
   return { ...state, auction: state.auction.slice(0, -1) }
 }
 

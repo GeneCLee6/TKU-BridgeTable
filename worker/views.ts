@@ -45,7 +45,8 @@ export function seatOccupants(
 
 /**
  * What one viewer may see of a board. Players see their own hand, dummy once the opening lead is
- * made, a claimer's hand when asked to accept the claim, and everything once the board is over.
+ * made (and dummy then sees the declarer's hand, as on BBO), a claimer's hand when asked to accept
+ * the claim, and everything once the board is over.
  * Spectators see all four hands, as kibitzers do on BBO. Partners never see each other's alerts
  * until the board is over.
  */
@@ -57,8 +58,13 @@ export function boardView(
   const finished = board.phase === 'finished'
   const dummy = dummyOf(board)
   const dummyExposed = dummy !== null && board.play.length > 0
+  const declarer = board.contract?.declarer
   const canSee = (seat: Seat) =>
-    finished || viewer === null || seat === viewer || (dummyExposed && seat === dummy)
+    finished ||
+    viewer === null ||
+    seat === viewer ||
+    (dummyExposed && seat === dummy) ||
+    (dummyExposed && viewer === dummy && seat === declarer)
 
   const hands: BoardView['hands'] = {}
   const handCounts = {} as BoardView['handCounts']

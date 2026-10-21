@@ -43,12 +43,13 @@
 
 | 元件 | 檔案 | 說明 |
 | --- | --- | --- |
-| PlayingCard、CardBack | `components/PlayingCard.tsx` | 白色牌面，左上角點數與花色直排（重疊時仍看得到），右下大花色。三種尺寸：lg（自己）、md（同伴／出牌）、sm（左右、手機） |
-| HandView | `components/HandView.tsx` | `fan`：重疊排列，花色之間多留一點空隙，可出的牌滑上；不可出的牌在輪到你時變暗。`rows`：每個花色一行（BBO 文字手牌），手機左右兩家使用 |
+| PlayingCard、CardBack | `components/PlayingCard.tsx` | 白色牌面，左上角大字點數與花色（重疊時仍看得到），右下大花色。寬度以像素傳入，由牌桌依視窗大小計算 |
+| HandView | `components/HandView.tsx` | 實體牌橫向：重疊排列，每張最多露出約 47%，空間不夠時自動擠緊；花色之間多留空隙；可出的牌滑上，不可出的變暗。實體牌直向：往下疊，手機的左右兩家使用。文字牌：每個花色一行（♠ A K 10 5），可出的牌標黃。四家永遠同一種樣式 |
+| BidStack | `components/TablePanels.tsx` | 叫牌時每家的叫品像小牌一樣擺在該座位前方，Alert 的叫品黃底，輪到誰就顯示黃框「?」 |
 | BiddingBox | `components/BiddingBox.tsx` | 先按 1–7，再按花色即叫出；不合法的按鈕停用；Alert 開啟後出現說明欄 |
-| AuctionBox | `components/AuctionBox.tsx` | W N E S 四欄（BBO 順序），有身價的座位表頭紅色；Alert 叫品黃底，點一下看說明；`?` 是下一個要叫的位置 |
+| AuctionBox | `components/AuctionBox.tsx` | 四欄依觀看者視角：左手敵方、同伴、右手敵方、自己（坐南時就是 W N E S）；有身價的座位表頭紅色；Alert 叫品黃底，點一下看說明；`?` 是下一個要叫的位置 |
 | BoardInfo | `components/BoardInfo.tsx` | 小羅盤：中間牌號，有身價的座位紅底，發牌者加底線；隨座位旋轉 |
-| SeatPlate | `components/SeatPlate.tsx` | 座位字母＋名字；莊家／夢家／離線標籤；空位顯示「坐 N」 |
+| SeatPlate | `components/SeatPlate.tsx` | 座位字母＋名字；莊家／夢家／離線標籤；空位顯示「坐 N」與「放機器人」，機器人可移除；手機左右兩家用直排的精簡版 |
 | TrickArea | `components/TrickArea.tsx` | 中間四個位置放這一墩的牌；完成的一墩停留 1.4 秒再清掉（BBO 行為）；勝者黃框 |
 | TablePanels | `components/TablePanels.tsx` | 結果、攤牌選墩數、攤牌／撤回詢問 |
 
@@ -69,6 +70,19 @@
 ```
 
 **手機（≤ 900px）**：桌布改成兩欄（上：同伴，中：左右兩家文字列，下：叫牌或出牌、自己的手牌），側欄移到桌布下方；頁首只剩圖示。
+
+## 5.1 牌的大小
+
+牌桌量測桌布的寬高（`ResizeObserver`）來決定牌寬：
+
+| 位置 | 桌機 | 手機（桌布 < 700px） |
+| --- | --- | --- |
+| 自己 | 桌布寬 8.5% 與高 13% 取小，56–124px | 寬的 15.5%，44–84px |
+| 同伴 | 自己的 82% | 自己的 80% |
+| 左右 | 自己的 74% | 寬的 11%，直向疊放 |
+| 墩 | 自己的 88% | 自己的 78% |
+
+叫牌盒、叫品小牌、叫牌表、牌號羅盤都依同一個尺寸縮放。在 1568×726 的視窗，自己的牌約 82px 寬（原本固定 66px）；在 1920×1080 約 124px。
 
 ## 6. Logo
 

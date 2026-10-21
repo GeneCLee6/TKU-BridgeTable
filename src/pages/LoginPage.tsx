@@ -4,7 +4,8 @@ import { LIMITS } from '../../shared/protocol.ts'
 import { LogoMark } from '../components/Logo.tsx'
 import { Button, Card, ErrorText, Muted } from '../components/ui.tsx'
 import { useAuth } from '../state/AuthContext.tsx'
-import { strings } from '../strings.ts'
+import { ApiError } from '../lib/api.ts'
+import { usePreferences, useT } from '../state/PreferencesContext.tsx'
 
 const Wrap = styled.main`
   display: grid;
@@ -62,6 +63,8 @@ const Switch = styled.p`
 `
 
 export function LoginPage() {
+  const t = useT()
+  const { message } = usePreferences()
   const { login, register } = useAuth()
   const [mode, setMode] = useState<'login' | 'register'>('login')
   const [username, setUsername] = useState('')
@@ -79,7 +82,7 @@ export function LoginPage() {
       if (registering) await register(username, password, inviteCode)
       else await login(username, password)
     } catch (e) {
-      setError(e instanceof Error ? e.message : strings.genericError)
+      setError(e instanceof ApiError ? message(e.code, e.params, e.message) : t.genericError)
     } finally {
       setBusy(false)
     }
@@ -91,13 +94,13 @@ export function LoginPage() {
         <Brand>
           <LogoMark size={56} />
           <h1>
-            {strings.appNameEn} · {strings.appNameZh}
+            {t.appNameEn} · {t.appNameZh}
           </h1>
-          <Muted>{strings.loginIntro}</Muted>
+          <Muted>{t.loginIntro}</Muted>
         </Brand>
-        <Form onSubmit={submit} aria-label={registering ? strings.register : strings.login}>
+        <Form onSubmit={submit} aria-label={registering ? t.register : t.login}>
           <Field>
-            {strings.username}
+            {t.username}
             <input
               value={username}
               onChange={(e) => setUsername(e.target.value)}
@@ -106,10 +109,10 @@ export function LoginPage() {
               minLength={LIMITS.usernameMin}
               maxLength={LIMITS.usernameMax}
             />
-            {registering && <small>{strings.usernameHint(LIMITS.usernameMin, LIMITS.usernameMax)}</small>}
+            {registering && <small>{t.usernameHint(LIMITS.usernameMin, LIMITS.usernameMax)}</small>}
           </Field>
           <Field>
-            {strings.password}
+            {t.password}
             <input
               type="password"
               value={password}
@@ -118,22 +121,22 @@ export function LoginPage() {
               required
               minLength={registering ? LIMITS.passwordMin : undefined}
             />
-            {registering && <small>{strings.passwordHint(LIMITS.passwordMin)}</small>}
+            {registering && <small>{t.passwordHint(LIMITS.passwordMin)}</small>}
           </Field>
           {registering && (
             <Field>
-              {strings.inviteCode}
+              {t.inviteCode}
               <input value={inviteCode} onChange={(e) => setInviteCode(e.target.value)} autoComplete="off" />
-              <small>{strings.inviteHint}</small>
+              <small>{t.inviteHint}</small>
             </Field>
           )}
           {error && <ErrorText role="alert">{error}</ErrorText>}
           <Button type="submit" $variant="primary" disabled={busy}>
-            {registering ? strings.register : strings.login}
+            {registering ? t.register : t.login}
           </Button>
         </Form>
         <Switch>
-          {registering ? strings.haveAccount : strings.noAccount}{' '}
+          {registering ? t.haveAccount : t.noAccount}{' '}
           <Button
             type="button"
             $variant="ghost"
@@ -143,7 +146,7 @@ export function LoginPage() {
               setError('')
             }}
           >
-            {registering ? strings.login : strings.register}
+            {registering ? t.login : t.register}
           </Button>
         </Switch>
       </Panel>
