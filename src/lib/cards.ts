@@ -1,20 +1,12 @@
 import { rankLabel, rankOf, suitOf, type Card } from '../../shared/cards.ts'
+import type { Strings } from '../strings.ts'
 
-/** Card sizes on screen and card names for screen readers */
+/** Card proportions and names, shared by every component that draws cards */
 
-export type CardSize = 'lg' | 'md' | 'sm'
+/** Height divided by width, close to a real playing card */
+export const CARD_RATIO = 1.4
 
-export const CARD_SIZES: Record<CardSize, { w: number; h: number; font: number }> = {
-  lg: { w: 66, h: 94, font: 22 },
-  md: { w: 52, h: 74, font: 18 },
-  sm: { w: 40, h: 58, font: 15 },
-}
-
-export const cardWidth = (size: CardSize) => CARD_SIZES[size].w
-
-const SUIT_TEXT = { S: '黑桃', H: '紅心', D: '方塊', C: '梅花' }
-
-/** 黑桃A, 紅心10: used for screen readers and tests */
-export function cardName(card: Card) {
-  return `${SUIT_TEXT[suitOf(card)]}${rankLabel(rankOf(card))}`
+/** 黑桃A, 紅心10 / "A of spades": the accessible name of a card */
+export function cardName(card: Card, t: Strings) {
+  return t.cardName(t.suitNames[suitOf(card)], rankLabel(rankOf(card)))
 }

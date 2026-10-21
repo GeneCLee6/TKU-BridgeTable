@@ -5,19 +5,21 @@ import styled from 'styled-components'
 import { hcp, rankLabel, rankOf, SEATS, suitOf, type Seat } from '../../shared/cards.ts'
 import { remainingCards, tricksOf } from '../../shared/game.ts'
 import { handviewerUrl, toLin } from '../../shared/lin.ts'
-import type { BoardRecord } from '../../shared/protocol.ts'
+import type { BoardRecord, PublicUser } from '../../shared/protocol.ts'
 import { resultLabel } from '../../shared/scoring.ts'
 import { AuctionBox } from '../components/AuctionBox.tsx'
 import { BoardInfo } from '../components/BoardInfo.tsx'
 import { HandView } from '../components/HandView.tsx'
 import { ContractLabel, SuitSymbol } from '../components/Suit.tsx'
-import { TrickArea, type Position } from '../components/TrickArea.tsx'
+import { TrickArea, TrickSpace, type Position } from '../components/TrickArea.tsx'
 import { Button, Card, ErrorText, Muted, PageMain, PageTitle } from '../components/ui.tsx'
 import { api } from '../lib/api.ts'
 import { cardName } from '../lib/cards.ts'
 import { formatDateTime, signed } from '../lib/format.ts'
-import { mobile } from '../styles/tokens.ts'
-import { seatLetter, strings } from '../strings.ts'
+import { useMediaQuery } from '../lib/useMediaQuery.ts'
+import { usePreferences } from '../state/PreferencesContext.tsx'
+import { mobile, mobileQuery } from '../styles/tokens.ts'
+import { seatLetter } from '../strings.ts'
 
 /**
  * One finished board: the deal as a hand diagram, the auction, and a card-by-card replay like
@@ -29,7 +31,7 @@ const positionOf = (seat: Seat) => (Object.keys(POSITIONS) as Position[]).find((
 
 const Columns = styled.div`
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 280px;
+  grid-template-columns: minmax(0, 1fr) 300px;
   gap: 20px;
   align-items: start;
 
@@ -65,11 +67,12 @@ const Spot = styled.div<{ $area: string }>`
   justify-items: center;
   gap: 4px;
   min-width: 0;
+  width: 100%;
 `
 
 const Name = styled.div`
-  font-size: 14px;
-  font-weight: 600;
+  font-size: 15px;
+  font-weight: 700;
 `
 
 const Controls = styled.div`
@@ -95,7 +98,7 @@ const Meta = styled.dl`
 const PlayTable = styled.table`
   width: 100%;
   border-collapse: collapse;
-  font-size: 14px;
+  font-size: 15px;
   text-align: center;
 
   th, td { padding: 4px; border-bottom: 1px solid ${({ theme }) => theme.colors.border}; }
@@ -118,6 +121,7 @@ const Links = styled.div`
 
 export function BoardPage() {
   const { recordId } = useParams()
+  const { t, message } = usePreferences()
   const [record, setRecord] = useState<BoardRecord | null>(null)
   const [error, setError] = useState('')
 
@@ -126,34 +130,37 @@ export function BoardPage() {
     api
       .record(recordId)
       .then(({ record }) => setRecord(record))
-      .catch((e: Error) => setError(e.message))
-  }, [recordId])
+      .catch((e) => setError(message(e.code, e.params, e.message)))
+  }, [recordId, message])
 
   if (error)
     return (
       <PageMain>
         <ErrorText role="alert">{error}</ErrorText>
         <p>
-          <Link to="/history">{strings.backToHistory}</Link>
+          <Link to="/history">{t.backToHistory}</Link>
         </p>
       </PageMain>
     )
-  if (!record) return <PageMain>{strings.loading}</PageMain>
+  if (!record) return <PageMain>{t.loading}</PageMain>
   return <BoardRecordView record={record} />
 }
 
 function BoardRecordView({ record }: { record: BoardRecord }) {
+  const { t, lang, cardStyle } = usePreferences()
+  const phone = useMediaQuery(mobileQuery)
   const { board, players } = record
   const total = board.play.length
   const [step, setStep] = useState(0)
   const [copied, setCopied] = useState(false)
 
   const shown = { ...board, play: board.play.slice(0, step) }
-  const tricks = tricksOf(shown)
-  const current = tricks.at(-1)
+  const current = tricksOf(shown).at(-1)
   const allTricks = tricksOf(board)
   const contract = board.contract
   const result = board.result!
+  const name = (u: PublicUser) => (u.robot ? t.robot : u.username)
+  const width = phone ? 34 : 54
 
   const go = (n: number) => setStep(Math.max(0, Math.min(total, n)))
 
@@ -179,7 +186,7 @@ function BoardRecordView({ record }: { record: BoardRecord }) {
   return (
     <PageMain>
       <PageTitle>
-        {strings.tableName(record.tableNumber)} · {strings.boardNo(board.boardNo)}
+        {t.tableName(record.tableNumber)} · {t.boardNo(board.boardNo)}
       </PageTitle>
       <Columns>
         <div>
@@ -190,39 +197,40 @@ function BoardRecordView({ record }: { record: BoardRecord }) {
             {SEATS.map((seat) => (
               <Spot key={seat} $area={positionOf(seat)}>
                 <Name>
-                  {seatLetter[seat]} {players[seat].username} · {strings.hcp(hcp(board.hands[seat]))}
+                  {seatLetter[seat]} {name(players[seat])} · {t.hcp(hcp(board.hands[seat]))}
                 </Name>
                 <HandView
                   cards={step === 0 ? board.hands[seat] : remainingCards(shown, seat)}
                   count={13}
-                  layout="rows"
-                  label={`${seatLetter[seat]} ${players[seat].username}`}
+                  width={width}
+                  style={phone && (seat === 'E' || seat === 'W') ? 'text' : cardStyle}
+                  label={`${seatLetter[seat]} ${name(players[seat])}`}
                 />
               </Spot>
             ))}
             <Spot $area="center">
               {current && step > 0 ? (
-                <TrickArea cards={current.cards} positionOf={positionOf} winner={current.winner} size="sm" label={strings.tricks} />
+                <TrickArea cards={current.cards} positionOf={positionOf} winner={current.winner} width={width} label={t.thisTrick} />
               ) : (
-                <div style={{ width: 150, height: 150 }} />
+                <TrickSpace $w={width} />
               )}
             </Spot>
           </Diagram>
           {total > 0 && (
-            <Controls role="group" aria-label={strings.replay}>
-              <Button type="button" $small onClick={() => go(0)} aria-label={strings.start}>
+            <Controls role="group" aria-label={t.replay}>
+              <Button type="button" $small onClick={() => go(0)} aria-label={t.start}>
                 <ChevronFirst size={18} aria-hidden />
               </Button>
-              <Button type="button" $small onClick={() => go(step - 1)} aria-label={strings.prev}>
+              <Button type="button" $small onClick={() => go(step - 1)} aria-label={t.prev}>
                 <ChevronLeft size={18} aria-hidden />
               </Button>
               <Muted>
                 {step}/{total}
               </Muted>
-              <Button type="button" $small onClick={() => go(step + 1)} aria-label={strings.next}>
+              <Button type="button" $small onClick={() => go(step + 1)} aria-label={t.next}>
                 <ChevronRight size={18} aria-hidden />
               </Button>
-              <Button type="button" $small onClick={() => go(total)} aria-label={strings.end}>
+              <Button type="button" $small onClick={() => go(total)} aria-label={t.end}>
                 <ChevronLast size={18} aria-hidden />
               </Button>
             </Controls>
@@ -230,34 +238,34 @@ function BoardRecordView({ record }: { record: BoardRecord }) {
         </div>
         <Card>
           <Meta>
-            <dt>{strings.date}</dt>
-            <dd>{formatDateTime(record.finishedAt)}</dd>
-            <dt>{strings.contract}</dt>
+            <dt>{t.date}</dt>
+            <dd>{formatDateTime(record.finishedAt, lang)}</dd>
+            <dt>{t.contract}</dt>
             <dd>
               <ContractLabel contract={contract} />
             </dd>
             {contract && (
               <>
-                <dt>{strings.declarer}</dt>
-                <dd>{players[contract.declarer].username}</dd>
-                <dt>{strings.result}</dt>
+                <dt>{t.declarer}</dt>
+                <dd>{name(players[contract.declarer])}</dd>
+                <dt>{t.result}</dt>
                 <dd>
-                  {result.declarerTricks} {strings.tricks}（{resultLabel(contract, result.declarerTricks)}）
-                  {result.claimed && strings.claimed}
+                  {result.declarerTricks} {t.tricks}（{resultLabel(contract, result.declarerTricks)}）
+                  {result.claimed && t.claimed}
                 </dd>
               </>
             )}
-            <dt>{strings.scoreNS}</dt>
+            <dt>{t.scoreNS}</dt>
             <dd>{signed(result.scoreNS)}</dd>
           </Meta>
           <AuctionBox auction={board.auction} dealer={board.dealer} vul={board.vul} />
           <Links>
             <Button as="a" href={handviewerUrl(record)} target="_blank" rel="noopener" $small>
               <ExternalLink size={16} aria-hidden />
-              {strings.openHandviewer}
+              {t.openHandviewer}
             </Button>
             <Button type="button" $small onClick={copyLin}>
-              {copied ? strings.copiedLin : strings.copyLin}
+              {copied ? t.copiedLin : t.copyLin}
             </Button>
           </Links>
         </Card>
@@ -265,7 +273,7 @@ function BoardRecordView({ record }: { record: BoardRecord }) {
 
       {allTricks.length > 0 && (
         <>
-          <Section>{strings.playRecord}</Section>
+          <Section>{t.playRecord}</Section>
           <Card>
             <PlayTable>
               <thead>
@@ -287,7 +295,7 @@ function BoardRecordView({ record }: { record: BoardRecord }) {
                           key={seat}
                           data-lead={trick.leader === seat ? '' : undefined}
                           data-win={trick.winner === seat ? '' : undefined}
-                          aria-label={played ? cardName(played.card) : undefined}
+                          aria-label={played ? cardName(played.card, t) : undefined}
                         >
                           {played && (
                             <>
@@ -306,7 +314,7 @@ function BoardRecordView({ record }: { record: BoardRecord }) {
         </>
       )}
       <p>
-        <Link to="/history">{strings.backToHistory}</Link>
+        <Link to="/history">{t.backToHistory}</Link>
       </p>
     </PageMain>
   )

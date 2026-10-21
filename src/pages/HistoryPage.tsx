@@ -1,15 +1,15 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import styled, { css } from 'styled-components'
-import type { BoardSummary } from '../../shared/protocol.ts'
+import type { BoardSummary, PublicUser } from '../../shared/protocol.ts'
 import { resultLabel } from '../../shared/scoring.ts'
 import { ContractLabel } from '../components/Suit.tsx'
-import { Card, ErrorText, Muted, PageMain, PageTitle } from '../components/ui.tsx'
+import { Button, Card, ErrorText, Muted, PageMain, PageTitle } from '../components/ui.tsx'
 import { api } from '../lib/api.ts'
 import { formatDateTime, signed } from '../lib/format.ts'
-import { strings } from '../strings.ts'
+import { usePreferences } from '../state/PreferencesContext.tsx'
 
-/** BBO's history list: every finished board, newest first; click one to open it */
+/** BBO's history list: every finished board, newest first, fifty at a time; click one to open it */
 
 const Toggle = styled.div`
   display: inline-flex;
@@ -67,77 +67,95 @@ const Num = styled.td<{ $value?: number }>`
     $value === undefined || $value === 0 ? 'inherit' : $value > 0 ? theme.colors.success : theme.colors.danger};
 `
 
-const RowLink = styled.a`
-  color: inherit;
-  text-decoration: none;
+const More = styled.div`
+  display: flex;
+  justify-content: center;
+  margin-top: 12px;
 `
 
+interface Loaded {
+  all: boolean
+  boards: BoardSummary[]
+  next: string | null
+}
+
 export function HistoryPage() {
+  const { t, lang, message } = usePreferences()
   const [all, setAll] = useState(false)
   // The list is tagged with the scope it was loaded for, so switching scope shows "loading"
-  const [loaded, setLoaded] = useState<{ all: boolean; boards: BoardSummary[] } | null>(null)
+  const [loaded, setLoaded] = useState<Loaded | null>(null)
+  const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const navigate = useNavigate()
-  const boards = loaded?.all === all ? loaded.boards : null
+  const current = loaded?.all === all ? loaded : null
 
   useEffect(() => {
     let cancelled = false
     api
       .history(all)
-      .then(({ boards }) => !cancelled && setLoaded({ all, boards }))
-      .catch((e: Error) => !cancelled && setError(e.message))
+      .then((page) => !cancelled && setLoaded({ all, ...page }))
+      .catch((e) => !cancelled && setError(message(e.code, e.params, e.message)))
     return () => {
       cancelled = true
     }
-  }, [all])
+  }, [all, message])
+
+  const loadMore = async () => {
+    if (!current?.next) return
+    setBusy(true)
+    try {
+      const page = await api.history(all, current.next)
+      setLoaded({ all, boards: [...current.boards, ...page.boards], next: page.next })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const name = (u: PublicUser) => (u.robot ? t.robot : u.username)
 
   return (
     <PageMain>
-      <PageTitle>{strings.historyTitle}</PageTitle>
-      <Toggle role="group" aria-label={strings.historyTitle}>
+      <PageTitle>{t.historyTitle}</PageTitle>
+      <Toggle role="group" aria-label={t.historyTitle}>
         <ToggleButton type="button" $active={!all} aria-pressed={!all} onClick={() => setAll(false)}>
-          {strings.historyMine}
+          {t.historyMine}
         </ToggleButton>
         <ToggleButton type="button" $active={all} aria-pressed={all} onClick={() => setAll(true)}>
-          {strings.historyAll}
+          {t.historyAll}
         </ToggleButton>
       </Toggle>
       {error && <ErrorText role="alert">{error}</ErrorText>}
       <Card>
-        {!boards ? (
-          <Muted>{strings.loading}</Muted>
-        ) : boards.length === 0 ? (
-          <Muted>{strings.historyEmpty}</Muted>
+        {!current ? (
+          <Muted>{t.loading}</Muted>
+        ) : current.boards.length === 0 ? (
+          <Muted>{t.historyEmpty}</Muted>
         ) : (
           <Scroll>
             <Table>
               <thead>
                 <tr>
-                  <th>{strings.date}</th>
-                  <th>{strings.board}</th>
-                  <th>{strings.ns}</th>
-                  <th>{strings.ew}</th>
-                  <th>{strings.contract}</th>
-                  <th>{strings.result}</th>
-                  <th style={{ textAlign: 'right' }}>{strings.scoreNS}</th>
+                  <th>{t.date}</th>
+                  <th>{t.board}</th>
+                  <th>{t.ns}</th>
+                  <th>{t.ew}</th>
+                  <th>{t.contract}</th>
+                  <th>{t.result}</th>
+                  <th style={{ textAlign: 'right' }}>{t.scoreNS}</th>
                 </tr>
               </thead>
               <tbody>
-                {boards.map((b) => (
+                {current.boards.map((b) => (
                   <tr key={b.id} onClick={() => navigate(`/history/${b.id}`)}>
+                    <td>{formatDateTime(b.finishedAt, lang)}</td>
                     <td>
-                      <RowLink href={`/history/${b.id}`} onClick={(e) => e.preventDefault()}>
-                        {formatDateTime(b.finishedAt)}
-                      </RowLink>
+                      {t.tableName(b.tableNumber)} #{b.boardNo}
                     </td>
                     <td>
-                      {strings.tableName(b.tableNumber)} #{b.boardNo}
+                      {name(b.players.N)}–{name(b.players.S)}
                     </td>
                     <td>
-                      {b.players.N.username}–{b.players.S.username}
-                    </td>
-                    <td>
-                      {b.players.E.username}–{b.players.W.username}
+                      {name(b.players.E)}–{name(b.players.W)}
                     </td>
                     <td>
                       <ContractLabel contract={b.contract} />
@@ -149,6 +167,13 @@ export function HistoryPage() {
               </tbody>
             </Table>
           </Scroll>
+        )}
+        {current?.next && (
+          <More>
+            <Button type="button" onClick={() => void loadMore()} disabled={busy}>
+              {t.loadMore}
+            </Button>
+          </More>
         )}
       </Card>
     </PageMain>

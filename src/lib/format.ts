@@ -1,7 +1,7 @@
 /** Display formatting that is not a component */
 
-export function formatDateTime(at: number): string {
-  return new Date(at).toLocaleString('zh-TW', {
+export function formatDateTime(at: number, lang: 'zh' | 'en' = 'zh'): string {
+  return new Date(at).toLocaleString(lang === 'zh' ? 'zh-TW' : 'en-GB', {
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',

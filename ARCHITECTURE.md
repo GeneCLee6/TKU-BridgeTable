@@ -29,7 +29,9 @@ TKU-BridgeTable/
 │  ├─ game.ts              一副牌的狀態機：叫牌 → 出牌 → 結束；攤牌、撤回
 │  ├─ scoring.ts           複式計分
 │  ├─ lin.ts               BBO LIN 匯出與 Handviewer 連結
-│  └─ protocol.ts          HTTP／WebSocket 的訊息與畫面型別
+│  ├─ messages.ts          錯誤代碼與中英文訊息
+│  ├─ protocol.ts          HTTP／WebSocket 的訊息與畫面型別
+│  └─ robot/               機器人：hand（牌型分析）、bidding（淡江制度）、play（坐莊、防守信號）
 ├─ worker/
 │  ├─ index.ts             Worker 入口：/api/* 與 /ws 轉給 Durable Object，其他交給靜態檔案
 │  ├─ club.ts              Durable Object：HTTP 路由、WebSocket（hibernation）、儲存轉接
@@ -39,11 +41,11 @@ TKU-BridgeTable/
 │  └─ store.ts             儲存介面與測試用 MemoryStore
 ├─ src/                    React app
 │  ├─ components/          牌、手牌、叫牌盒、叫牌過程、牌號、名牌、墩、面板、頁首、聊天
-│  ├─ pages/               Login、Lobby、Table、History、Board
+│  ├─ pages/               Login、Lobby、Table、History、Board、Account、Admin
 │  ├─ state/               AuthContext、ClubContext（WebSocket）、PreferencesContext
 │  ├─ lib/                 api（fetch）、cards（尺寸、名稱）、format、useMediaQuery
 │  ├─ styles/              tokens、GlobalStyle
-│  └─ strings.ts           所有介面文字
+│  └─ strings.ts           所有介面文字（zh、en）
 ├─ tests/                  engine／worker／presentation 三層測試
 ├─ wrangler.jsonc          Worker、Durable Object、靜態檔案設定
 └─ *.md                    文件
@@ -74,7 +76,7 @@ interface BoardState {
 
 | 誰 | 看得到 |
 | --- | --- |
-| 入座者 | 自己的牌；首攻後的夢家；有人攤牌且自己需要回應時，攤牌者的牌 |
+| 入座者 | 自己的牌；首攻後的夢家；夢家在首攻後也看得到莊家的牌；有人攤牌且自己需要回應時，攤牌者的牌 |
 | 觀看者 | 四家（同 BBO kibitz） |
 | 所有人，打完後 | 四家原始牌與所有 Alert 說明 |
 | Alert 說明 | 叫牌者的同伴在打完前看不到 |
@@ -83,11 +85,11 @@ interface BoardState {
 
 ## 5. 通訊與儲存
 
-**HTTP**：`POST /api/register`、`/api/login`、`/api/logout`；`GET /api/me`、`/api/history?scope=all`、`/api/history/:id`。session 放在 HttpOnly、SameSite=Lax 的 cookie（`tbt_session`）。
+**HTTP**：`POST /api/register`、`/api/login`、`/api/logout`、`/api/account/password`；`GET /api/me`、`/api/history?scope=all&before=<cursor>`、`/api/history/:id`。管理員：`GET/POST /api/admin/users`、`POST /api/admin/users/:id/password`、`POST /api/admin/users/:id/admin`、`DELETE /api/admin/users/:id`、`GET/POST /api/admin/settings`、`DELETE /api/admin/tables/:id`。session 放在 HttpOnly、SameSite=Lax 的 cookie（`tbt_session`）。錯誤回應帶 `code` 與 `params`（`shared/messages.ts`），瀏覽器依語言顯示。
 
 **WebSocket** `/ws`（同網域，帶 cookie 驗證）：
 
-- 瀏覽器 → 伺服器：`createTable`、`joinTable`、`sit`、`stand`、`leaveTable`、`freeSeat`、`call`、`play`、`claim`、`claimRespond`、`undoRequest`、`undoRespond`、`ready`、`chat`
+- 瀏覽器 → 伺服器：`createTable`、`joinTable`、`sit`、`stand`、`leaveTable`、`freeSeat`、`addRobot`、`removeRobot`、`call`、`play`、`claim`、`claimRespond`、`undoRequest`、`undoRespond`、`ready`、`chat`
 - 伺服器 → 瀏覽器：`welcome`、`lobby`、`table`、`error`
 - 使用 Durable Object 的 hibernation API：沒人打牌時物件可以休眠，WebSocket 不會斷，醒來時從儲存重新載入。
 
@@ -95,12 +97,22 @@ interface BoardState {
 
 | Key | 內容 |
 | --- | --- |
-| `user:<id>` | 帳號、密碼雜湊 |
+| `user:<id>` | 帳號、密碼雜湊、是否管理員、最後登入時間 |
 | `session:<token>` | userId、到期時間 |
 | `table:<id>` | 牌桌：座位、觀看者、目前這副、聊天、準備狀態、撤回請求 |
-| `board:<時間>-<id>` | 牌局紀錄（補零的時間讓列表自然依時間排序） |
+| `board:<id>` | 一副牌的完整紀錄（原始四手牌、叫牌、出牌、結果） |
+| `hist:<時間>-<id>` | 全社團的紀錄索引（摘要，補零的時間讓列表依時間排序） |
+| `uhist:<userId>:<時間>-<id>` | 每位社員自己的紀錄索引 |
+| `meta:settings` | 管理員改過的人數上限與邀請碼（沒改過就用環境變數） |
+| `meta:schema` | 資料版本；舊版 `board:<時間>-<id>` 在載入時自動搬到新索引 |
 
-每個動作處理完立即寫回，物件隨時被回收都不會遺失牌局。
+每個動作處理完立即寫回，物件隨時被回收都不會遺失牌局。紀錄列表一次只讀一頁（50 筆摘要），不論累積多少副都一樣快。
+
+**容量**：免費方案每個帳號 5 GB；一副牌的紀錄連同兩筆索引約 4 KB，大約可存一百萬副以上。
+
+## 5.1 機器人
+
+座位裡的 id 若是 `robot:N` 這種格式就是機器人。每次狀態改變後，`ClubService.scheduleRobots` 檢查是否輪到機器人（叫牌、出牌，或回應攤牌／撤回），排一個短暫延遲（叫牌 0.8 秒、出牌 0.7 秒、一墩結束後 1.5 秒）再執行，執行完再排下一個；每張桌子同時最多一個排程。物件重新載入時也會重新排程。至少要有一位真人在座，機器人才會行動；最後一位真人離開，桌子就關閉。叫牌與出牌規則見 `ROBOT.md`。
 
 ## 6. 技術選擇
 

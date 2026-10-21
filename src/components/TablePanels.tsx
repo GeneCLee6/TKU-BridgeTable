@@ -1,37 +1,40 @@
 import { Link } from 'react-router-dom'
-import styled from 'styled-components'
+import styled, { css } from 'styled-components'
+import type { AuctionCall } from '../../shared/auction.ts'
 import type { Seat } from '../../shared/cards.ts'
 import type { BoardView } from '../../shared/protocol.ts'
 import { resultLabel } from '../../shared/scoring.ts'
 import { signed } from '../lib/format.ts'
-import { seatLetter, strings } from '../strings.ts'
-import { ContractLabel } from './Suit.tsx'
+import { useT } from '../state/PreferencesContext.tsx'
+import { seatLetter } from '../strings.ts'
+import { CallLabel, ContractLabel } from './Suit.tsx'
 
-/** Panels that appear in the middle of the felt: claim and undo prompts, the result of a board */
+/** Panels in the middle of the felt: each seat's calls, claim and undo prompts, the result */
 
 export const FeltPanel = styled.div`
   display: grid;
   justify-items: center;
-  gap: 8px;
-  width: min(100%, 320px);
-  padding: 12px 14px;
-  border-radius: 8px;
+  gap: 10px;
+  width: min(100%, 380px);
+  padding: 14px 18px;
+  border-radius: 10px;
   background: ${({ theme }) => theme.table.panel};
   color: ${({ theme }) => theme.table.panelText};
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.35);
   text-align: center;
-  font-size: 15px;
+  font-size: 16px;
 `
 
 export const FeltButton = styled.button<{ $tone?: 'go' | 'stop' | 'plain' }>`
-  min-height: 34px;
-  padding: 0 14px;
+  min-height: 38px;
+  padding: 0 16px;
   border: 0;
-  border-radius: 5px;
+  border-radius: 6px;
   background: ${({ $tone, theme }) =>
     $tone === 'go' ? theme.table.bidPass : $tone === 'stop' ? theme.table.bidDouble : theme.table.bidRedouble};
   color: #ffffff;
-  font-weight: 600;
+  font-size: 15px;
+  font-weight: 700;
   &:disabled { opacity: 0.55; }
 `
 
@@ -44,13 +47,13 @@ const Buttons = styled.div`
 
 const Big = styled.div`
   font-family: ${({ theme }) => theme.fonts.cards};
-  font-size: 22px;
-  font-weight: 700;
+  font-size: 26px;
+  font-weight: 800;
 `
 
 const Score = styled.div<{ $positive: boolean }>`
-  font-size: 17px;
-  font-weight: 700;
+  font-size: 19px;
+  font-weight: 800;
   color: ${({ $positive, theme }) => ($positive ? theme.table.bidPass : theme.table.bidDouble)};
 `
 
@@ -63,45 +66,46 @@ export function ResultPanel({
   board,
   seated,
   ready,
+  people,
   onReady,
   declarerName,
 }: {
   board: BoardView
   seated: Seat | null
   ready: Seat[]
+  /** Seats held by people, who each press "next board" */
+  people: Seat[]
   onReady: () => void
   declarerName?: string
 }) {
+  const t = useT()
   const result = board.result!
   const contract = board.contract
   const iAmReady = seated !== null && ready.includes(seated)
   return (
-    <FeltPanel role="status" aria-label={strings.result}>
+    <FeltPanel role="status" aria-label={t.result}>
       <Big>
         <ContractLabel contract={contract} onCard />
       </Big>
       {contract && (
         <div>
-          {declarerName ?? seatLetter[contract.declarer]} · {result.declarerTricks} {strings.tricks}
-          {' · '}
-          {strings.made(resultLabel(contract, result.declarerTricks))}
-          {result.claimed && strings.claimed}
+          {declarerName ?? seatLetter[contract.declarer]} · {result.declarerTricks} {t.tricks} ·{' '}
+          {t.made(resultLabel(contract, result.declarerTricks))}
+          {result.claimed && t.claimed}
         </div>
       )}
       <Score $positive={result.scoreNS >= 0}>
-        {strings.ns} {signed(result.scoreNS)}
+        {t.ns} {signed(result.scoreNS)}
       </Score>
-      <Buttons>
-        {seated && (
-          <FeltButton type="button" $tone="go" disabled={iAmReady} onClick={onReady}>
-            {iAmReady ? strings.waitingOthers : strings.nextBoard}
-          </FeltButton>
-        )}
-      </Buttons>
-      <div>{strings.readyCount(ready.length)}</div>
+      {seated && (
+        <FeltButton type="button" $tone="go" disabled={iAmReady} onClick={onReady}>
+          {iAmReady ? t.waitingOthers : t.nextBoard}
+        </FeltButton>
+      )}
+      <div>{t.readyCount(people.filter((s) => ready.includes(s)).length, people.length)}</div>
       {board.recordId && (
         <SmallLink to={`/history/${board.recordId}`} target="_blank" rel="noopener">
-          {strings.viewRecord}
+          {t.viewRecord}
         </SmallLink>
       )}
     </FeltPanel>
@@ -117,18 +121,19 @@ export function ClaimPicker({
   onClaim: (tricks: number) => void
   onCancel: () => void
 }) {
+  const t = useT()
   return (
     <FeltPanel>
-      <div>{strings.claimTitle}</div>
+      <div>{t.claimTitle}</div>
       <Buttons>
         {Array.from({ length: remaining + 1 }, (_, n) => (
-          <FeltButton key={n} type="button" $tone="plain" onClick={() => onClaim(n)} aria-label={strings.claimTricks(n)}>
+          <FeltButton key={n} type="button" $tone="plain" onClick={() => onClaim(n)} aria-label={t.claimTricks(n)}>
             {n}
           </FeltButton>
         ))}
       </Buttons>
       <FeltButton type="button" $tone="stop" onClick={onCancel}>
-        {strings.cancel}
+        {t.cancel}
       </FeltButton>
     </FeltPanel>
   )
@@ -163,5 +168,73 @@ export function Prompt({
         </Buttons>
       )}
     </FeltPanel>
+  )
+}
+
+const Stack = styled.div<{ $vertical: boolean; $size: number }>`
+  display: flex;
+  flex-direction: ${({ $vertical }) => ($vertical ? 'column' : 'row')};
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: ${({ $size }) => Math.round($size * 0.08)}px;
+  min-height: ${({ $size }) => Math.round($size * 0.6)}px;
+`
+
+const Chip = styled.span<{ $call?: string; $alert?: boolean; $turn?: boolean; $size: number }>`
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: ${({ $size }) => Math.round($size * 1.05)}px;
+  height: ${({ $size }) => Math.round($size * 0.56)}px;
+  padding: 0 8px;
+  border-radius: 6px;
+  background: ${({ theme, $alert }) => ($alert ? theme.table.alert : theme.table.panel)};
+  color: ${({ $call, theme }) =>
+    $call === 'P' ? theme.table.bidPass : $call === 'X' ? theme.table.bidDouble : $call === 'XX' ? theme.table.bidRedouble : theme.table.panelText};
+  font-family: ${({ theme }) => theme.fonts.cards};
+  font-size: ${({ $size }) => Math.max(15, Math.round($size * 0.32))}px;
+  font-weight: 800;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+  ${({ $turn, theme }) =>
+    $turn &&
+    css`
+      background: transparent;
+      color: ${theme.table.turn};
+      box-shadow: inset 0 0 0 2px ${theme.table.turn};
+    `}
+`
+
+/**
+ * One seat's calls, placed in front of that seat during the auction as BBO shows them, so each
+ * player's bids sit on their side of the table. Alerted calls are yellow (hover for the
+ * explanation); '?' marks the seat to call.
+ */
+export function BidStack({
+  calls,
+  vertical,
+  turn,
+  size,
+  label,
+}: {
+  calls: AuctionCall[]
+  vertical: boolean
+  turn: boolean
+  size: number
+  label: string
+}) {
+  return (
+    <Stack $vertical={vertical} $size={size} role="list" aria-label={label}>
+      {calls.map((c, i) => (
+        <Chip key={i} role="listitem" $call={c.call} $alert={c.alert !== undefined} $size={size} title={c.alert || undefined}>
+          <CallLabel call={c.call} onCard />
+        </Chip>
+      ))}
+      {turn && (
+        <Chip role="listitem" $turn $size={size}>
+          ?
+        </Chip>
+      )}
+    </Stack>
   )
 }

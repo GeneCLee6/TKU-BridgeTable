@@ -1,17 +1,17 @@
 import styled from 'styled-components'
 import type { Seat } from '../../shared/cards.ts'
 import type { PlayedCard } from '../../shared/game.ts'
-import type { CardSize } from '../lib/cards.ts'
+import { CARD_RATIO } from '../lib/cards.ts'
 import { PlayingCard } from './PlayingCard.tsx'
 
 /** The cards of one trick in the middle of the table, each in front of the seat that played it */
 
 export type Position = 'top' | 'right' | 'bottom' | 'left'
 
-const Area = styled.div<{ $size: CardSize }>`
+const Area = styled.div<{ $w: number }>`
   position: relative;
-  width: ${({ $size }) => ($size === 'sm' ? 150 : 190)}px;
-  height: ${({ $size }) => ($size === 'sm' ? 150 : 190)}px;
+  width: ${({ $w }) => Math.round($w * 3.1)}px;
+  height: ${({ $w }) => Math.round($w * CARD_RATIO * 2.3)}px;
   margin: 0 auto;
 `
 
@@ -30,22 +30,28 @@ export function TrickArea({
   cards,
   positionOf,
   winner,
-  size = 'md',
+  width,
   label,
 }: {
   cards: PlayedCard[]
   positionOf: (seat: Seat) => Position
   winner?: Seat
-  size?: CardSize
+  width: number
   label: string
 }) {
   return (
-    <Area $size={size} role="group" aria-label={label}>
+    <Area $w={width} role="group" aria-label={label}>
       {cards.map(({ seat, card }) => (
         <Slot key={seat} $position={positionOf(seat)}>
-          <PlayingCard card={card} size={size} highlight={seat === winner} />
+          <PlayingCard card={card} width={width} highlight={seat === winner} />
         </Slot>
       ))}
     </Area>
   )
 }
+
+/** The empty space a trick will take, so the table does not jump when the first card is played */
+export const TrickSpace = styled.div<{ $w: number }>`
+  width: ${({ $w }) => Math.round($w * 3.1)}px;
+  height: ${({ $w }) => Math.round($w * CARD_RATIO * 2.3)}px;
+`

@@ -8,7 +8,8 @@ import { Button, Card, Muted, PageMain, PageTitle } from '../components/ui.tsx'
 import { useAuth } from '../state/AuthContext.tsx'
 import { useClub } from '../state/ClubContext.tsx'
 import { mobile } from '../styles/tokens.ts'
-import { seatLetter, strings } from '../strings.ts'
+import { seatLetter } from '../strings.ts'
+import { useT } from '../state/PreferencesContext.tsx'
 
 /** BBO's casual lobby, reduced to what a club needs: start a table, take a seat, or watch */
 
@@ -130,12 +131,13 @@ const SectionTitle = styled.h2`
 const SEAT_ORDER: Seat[] = ['N', 'W', 'E', 'S']
 
 function TableTile({ table, onSit, onWatch }: { table: TableSummary; onSit: (seat: Seat) => void; onWatch: () => void }) {
+  const t = useT()
   return (
     <Card>
       <TileHead>
-        <h2>{strings.tableName(table.number)}</h2>
+        <h2>{t.tableName(table.number)}</h2>
         <Muted>
-          {strings.host}：{table.hostName}
+          {t.host}：{table.hostName}
         </Muted>
       </TileHead>
       <MiniTable>
@@ -149,9 +151,9 @@ function TableTile({ table, onSit, onWatch }: { table: TableSummary; onSit: (sea
               $taken={!!occupant}
               disabled={!!occupant}
               onClick={() => onSit(seat)}
-              aria-label={occupant ? `${seatLetter[seat]} ${occupant.username}` : `${strings.sit} ${seatLetter[seat]}`}
+              aria-label={occupant ? `${seatLetter[seat]} ${occupant.robot ? t.robot : occupant.username}` : `${t.sit} ${seatLetter[seat]}`}
             >
-              {seatLetter[seat]} {occupant ? occupant.username : strings.sit}
+              {seatLetter[seat]} {occupant ? (occupant.robot ? t.robot : occupant.username) : t.sit}
             </SeatButton>
           )
         })}
@@ -159,11 +161,11 @@ function TableTile({ table, onSit, onWatch }: { table: TableSummary; onSit: (sea
       </MiniTable>
       <TileHead>
         <Muted>
-          {strings.boardsPlayed(table.boardsPlayed)} · {strings.spectators(table.spectators)}
+          {t.boardsPlayed(table.boardsPlayed)} · {t.spectators(table.spectators)}
         </Muted>
         <Button type="button" $small onClick={onWatch}>
           <Eye size={16} aria-hidden />
-          {strings.watch}
+          {t.watch}
         </Button>
       </TileHead>
     </Card>
@@ -171,13 +173,14 @@ function TableTile({ table, onSit, onWatch }: { table: TableSummary; onSit: (sea
 }
 
 export function LobbyPage() {
+  const t = useT()
   const { lobby, send, status } = useClub()
   const { user } = useAuth()
   const navigate = useNavigate()
   // After creating a table or taking a seat, follow the server to the table it puts us at
   const [follow, setFollow] = useState<{ to?: string; from: string | null } | null>(null)
 
-  if (!lobby) return <PageMain>{status === 'open' ? strings.loading : strings.connecting}</PageMain>
+  if (!lobby) return <PageMain>{status === 'open' ? t.loading : t.connecting}</PageMain>
   const here = lobby.myTableId
   if (follow && here && (follow.to ? here === follow.to : here !== follow.from))
     return <Navigate to={`/table/${here}`} />
@@ -185,7 +188,7 @@ export function LobbyPage() {
   return (
     <PageMain>
       <Toolbar>
-        <PageTitle>{strings.lobbyTitle}</PageTitle>
+        <PageTitle>{t.lobbyTitle}</PageTitle>
         <Button
           type="button"
           $variant="primary"
@@ -195,22 +198,22 @@ export function LobbyPage() {
           }}
         >
           <Plus size={18} aria-hidden />
-          {strings.newTable}
+          {t.newTable}
         </Button>
       </Toolbar>
       {lobby.myTableId && (
         <Banner>
-          <span>{strings.tableName(lobby.tables.find((t) => t.id === lobby.myTableId)?.number ?? 0)}</span>
+          <span>{t.tableName(lobby.tables.find((x) => x.id === lobby.myTableId)?.number ?? 0)}</span>
           <Button as={Link} to={`/table/${lobby.myTableId}`} $small $variant="primary">
-            {strings.backToTable}
+            {t.backToTable}
           </Button>
         </Banner>
       )}
       <Columns>
-        <section aria-label={strings.tables}>
+        <section aria-label={t.tables}>
           {lobby.tables.length === 0 ? (
             <Card>
-              <Muted>{strings.noTables}</Muted>
+              <Muted>{t.noTables}</Muted>
             </Card>
           ) : (
             <Grid>
@@ -228,15 +231,15 @@ export function LobbyPage() {
             </Grid>
           )}
         </section>
-        <Card as="aside" aria-label={strings.online}>
+        <Card as="aside" aria-label={t.online}>
           <SectionTitle>
-            {strings.online}（{lobby.online.length}）
+            {t.online}（{lobby.online.length}）
           </SectionTitle>
           <OnlineList>
             {lobby.online.map((u) => (
               <li key={u.id}>
                 {u.username}
-                {u.id === user?.id && `（${strings.you}）`}
+                {u.id === user?.id && t.youTag}
               </li>
             ))}
           </OnlineList>

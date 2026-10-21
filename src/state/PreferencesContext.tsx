@@ -1,24 +1,40 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { ThemeProvider } from 'styled-components'
+import { formatMessage, isMessageCode, type Lang, type MessageParams } from '../../shared/messages.ts'
+import { STRINGS, type Strings } from '../strings.ts'
 import { createTheme, type DeckColors, type ThemeMode } from '../styles/tokens.ts'
 
 /**
- * Per-viewer display preferences: light/dark chrome and a two- or four-colour deck (BBO offers
- * both; two-colour is its default). Remembered in localStorage when it is available.
+ * Per-viewer display preferences: language, light/dark, a two- or four-colour deck, and whether
+ * hands are drawn as card faces or as text (♠ A K Q, BBO's text style). Remembered in
+ * localStorage when it is available.
  */
 
-interface Preferences {
+export type CardStyle = 'cards' | 'text'
+
+interface Prefs {
   mode: ThemeMode
   deck: DeckColors
+  lang: Lang
+  cardStyle: CardStyle
+}
+
+interface Preferences extends Prefs {
+  set: (change: Partial<Prefs>) => void
   toggleMode: () => void
   toggleDeck: () => void
+  toggleLang: () => void
+  toggleCardStyle: () => void
+  t: Strings
+  /** A server message code in the current language */
+  message: (code: string, params?: MessageParams, fallback?: string) => string
 }
 
 const PreferencesContext = createContext<Preferences | null>(null)
 
 const STORAGE_KEY = 'tku-bridge-table:prefs'
 
-function readStored(): Partial<{ mode: ThemeMode; deck: DeckColors }> {
+function readStored(): Partial<Prefs> {
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY)
     return raw ? JSON.parse(raw) : {}
@@ -35,23 +51,53 @@ function systemMode(): ThemeMode {
   }
 }
 
+/** Chinese unless the browser asks for another language */
+function systemLang(): Lang {
+  try {
+    const wanted = navigator.language.toLowerCase()
+    return !wanted || wanted.startsWith('zh') ? 'zh' : 'en'
+  } catch {
+    return 'zh'
+  }
+}
+
 export function PreferencesProvider({ children }: { children: ReactNode }) {
-  const [mode, setMode] = useState<ThemeMode>(() => readStored().mode ?? systemMode())
-  const [deck, setDeck] = useState<DeckColors>(() => readStored().deck ?? 'two')
+  const [prefs, setPrefs] = useState<Prefs>(() => {
+    const stored = readStored()
+    return {
+      mode: stored.mode ?? systemMode(),
+      deck: stored.deck ?? 'two',
+      lang: stored.lang ?? systemLang(),
+      cardStyle: stored.cardStyle ?? 'cards',
+    }
+  })
 
   useEffect(() => {
     try {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ mode, deck }))
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(prefs))
     } catch {
       // Private mode or blocked storage: the preference simply is not remembered.
     }
-  }, [mode, deck])
+    document.documentElement.lang = prefs.lang === 'zh' ? 'zh-Hant-TW' : 'en'
+  }, [prefs])
 
-  const toggleMode = useCallback(() => setMode((m) => (m === 'light' ? 'dark' : 'light')), [])
-  const toggleDeck = useCallback(() => setDeck((d) => (d === 'two' ? 'four' : 'two')), [])
+  const set = useCallback((change: Partial<Prefs>) => setPrefs((p) => ({ ...p, ...change })), [])
+  const value = useMemo<Preferences>(() => {
+    const t = STRINGS[prefs.lang]
+    return {
+      ...prefs,
+      set,
+      toggleMode: () => set({ mode: prefs.mode === 'light' ? 'dark' : 'light' }),
+      toggleDeck: () => set({ deck: prefs.deck === 'two' ? 'four' : 'two' }),
+      toggleLang: () => set({ lang: prefs.lang === 'zh' ? 'en' : 'zh' }),
+      toggleCardStyle: () => set({ cardStyle: prefs.cardStyle === 'cards' ? 'text' : 'cards' }),
+      t,
+      message: (code, params, fallback) =>
+        isMessageCode(code) ? formatMessage(code, prefs.lang, params) : (fallback ?? t.genericError),
+    }
+  }, [prefs, set])
 
-  const theme = useMemo(() => createTheme(mode, deck), [mode, deck])
-  const value = useMemo(() => ({ mode, deck, toggleMode, toggleDeck }), [mode, deck, toggleMode, toggleDeck])
+  const theme = useMemo(() => createTheme(prefs.mode, prefs.deck), [prefs.mode, prefs.deck])
 
   return (
     <PreferencesContext.Provider value={value}>
@@ -60,10 +106,16 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
   )
 }
 
-// The hook belongs next to its provider; fast refresh of this file reloads the page, which is fine.
+// The hooks belong next to their provider; fast refresh of this file reloads the page, which is fine.
 // oxlint-disable-next-line react/only-export-components
 export function usePreferences(): Preferences {
   const ctx = useContext(PreferencesContext)
   if (!ctx) throw new Error('usePreferences must be used inside PreferencesProvider')
   return ctx
+}
+
+/** The UI strings in the viewer's language */
+// oxlint-disable-next-line react/only-export-components
+export function useT(): Strings {
+  return usePreferences().t
 }

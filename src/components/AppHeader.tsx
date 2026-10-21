@@ -1,11 +1,10 @@
-import { History, LogOut, Moon, Palette, Sun, Users } from 'lucide-react'
+import { History, Layers, List, LogOut, Moon, Palette, Shield, Sun, UserRound, Users } from 'lucide-react'
 import { NavLink } from 'react-router-dom'
 import styled from 'styled-components'
 import { useAuth } from '../state/AuthContext.tsx'
 import { useClub } from '../state/ClubContext.tsx'
 import { usePreferences } from '../state/PreferencesContext.tsx'
 import { mobile } from '../styles/tokens.ts'
-import { strings } from '../strings.ts'
 import { LogoMark } from './Logo.tsx'
 
 const Bar = styled.header`
@@ -18,6 +17,11 @@ const Bar = styled.header`
   gap: 12px;
   height: ${({ theme }) => theme.layout.headerHeight};
   padding: 0 16px;
+
+  ${mobile} {
+    gap: 4px;
+    padding: 0 8px;
+  }
   background: ${({ theme }) => theme.colors.surface};
   border-bottom: 1px solid ${({ theme }) => theme.colors.border};
   color: ${({ theme }) => theme.colors.primary};
@@ -71,6 +75,12 @@ const Right = styled.div`
   align-items: center;
   gap: 4px;
   margin-left: auto;
+
+  /* Theme and deck colours stay on the account page on a phone */
+  ${mobile} {
+    gap: 0;
+    & > [data-wide-only] { display: none; }
+  }
 `
 
 const IconButton = styled.button`
@@ -106,45 +116,71 @@ const Dot = styled.span<{ $ok: boolean }>`
   background: ${({ $ok, theme }) => ($ok ? theme.colors.success : theme.colors.lantern)};
 `
 
+const LangButton = styled(IconButton)`
+  width: auto;
+  padding: 0 8px;
+  font-size: 13px;
+  font-weight: 700;
+`
+
 export function AppHeader() {
   const { user, logout } = useAuth()
   const { status } = useClub()
-  const { mode, deck, toggleMode, toggleDeck } = usePreferences()
+  const { mode, deck, cardStyle, t, toggleMode, toggleDeck, toggleCardStyle, toggleLang } = usePreferences()
 
   return (
     <Bar>
-      <Brand to="/" aria-label={`${strings.appNameEn} ${strings.appNameZh}`}>
+      <Brand to="/" aria-label={`${t.appNameEn} ${t.appNameZh}`}>
         <LogoMark size={34} />
         <span>
-          {strings.appNameEn} · {strings.appNameZh}
+          {t.appNameEn} · {t.appNameZh}
         </span>
       </Brand>
       {user && (
-        <Nav aria-label="主選單">
-          <Link to="/" end aria-label={strings.navLobby}>
+        <Nav aria-label={t.navLobby}>
+          <Link to="/" end aria-label={t.navLobby}>
             <Users size={18} aria-hidden />
-            <span>{strings.navLobby}</span>
+            <span>{t.navLobby}</span>
           </Link>
-          <Link to="/history" aria-label={strings.navHistory}>
+          <Link to="/history" aria-label={t.navHistory}>
             <History size={18} aria-hidden />
-            <span>{strings.navHistory}</span>
+            <span>{t.navHistory}</span>
           </Link>
+          {user.admin && (
+            <Link to="/admin" aria-label={t.navAdmin}>
+              <Shield size={18} aria-hidden />
+              <span>{t.navAdmin}</span>
+            </Link>
+          )}
         </Nav>
       )}
       <Right>
+        <LangButton type="button" onClick={toggleLang} aria-label={t.languageLabel} title={t.languageLabel}>
+          {t.language}
+        </LangButton>
         <IconButton
           type="button"
+          onClick={toggleCardStyle}
+          aria-label={cardStyle === 'cards' ? t.styleToText : t.styleToCards}
+          title={cardStyle === 'cards' ? t.styleToText : t.styleToCards}
+        >
+          {cardStyle === 'cards' ? <List size={18} aria-hidden /> : <Layers size={18} aria-hidden />}
+        </IconButton>
+        <IconButton
+          type="button"
+          data-wide-only
           onClick={toggleDeck}
-          aria-label={deck === 'two' ? strings.deckToFour : strings.deckToTwo}
-          title={deck === 'two' ? strings.deckToFour : strings.deckToTwo}
+          aria-label={deck === 'two' ? t.deckToFour : t.deckToTwo}
+          title={deck === 'two' ? t.deckToFour : t.deckToTwo}
         >
           <Palette size={18} aria-hidden />
         </IconButton>
         <IconButton
           type="button"
+          data-wide-only
           onClick={toggleMode}
-          aria-label={mode === 'light' ? strings.themeToDark : strings.themeToLight}
-          title={mode === 'light' ? strings.themeToDark : strings.themeToLight}
+          aria-label={mode === 'light' ? t.themeToDark : t.themeToLight}
+          title={mode === 'light' ? t.themeToDark : t.themeToLight}
         >
           {mode === 'light' ? <Moon size={18} aria-hidden /> : <Sun size={18} aria-hidden />}
         </IconButton>
@@ -153,11 +189,14 @@ export function AppHeader() {
             <Dot
               $ok={status === 'open'}
               role="status"
-              aria-label={status === 'open' ? '已連線' : strings.connecting}
-              title={status === 'open' ? '已連線' : strings.connecting}
+              aria-label={status === 'open' ? t.connected : t.connecting}
+              title={status === 'open' ? t.connected : t.connecting}
             />
-            <Who>{user.username}</Who>
-            <IconButton type="button" onClick={() => void logout()} aria-label={strings.logout} title={strings.logout}>
+            <AccountLink to="/account" title={t.navAccount}>
+              <UserRound size={16} aria-hidden />
+              <Who>{user.username}</Who>
+            </AccountLink>
+            <IconButton type="button" onClick={() => void logout()} aria-label={t.logout} title={t.logout}>
               <LogOut size={18} aria-hidden />
             </IconButton>
           </>
@@ -166,3 +205,15 @@ export function AppHeader() {
     </Bar>
   )
 }
+
+const AccountLink = styled(NavLink)`
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 36px;
+  padding: 0 6px;
+  border-radius: ${({ theme }) => theme.radius.sm};
+  color: ${({ theme }) => theme.colors.textMuted};
+  text-decoration: none;
+  &.active { background: ${({ theme }) => theme.colors.primarySoft}; }
+`
