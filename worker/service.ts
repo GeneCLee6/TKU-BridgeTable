@@ -101,7 +101,7 @@ export class ClubService {
     username = String(username ?? '').trim()
     password = String(password ?? '')
     if (this.config.inviteCode && inviteCode !== this.config.inviteCode)
-      throw new ClubError('邀請碼不正確', 403)
+      throw new ClubError('badInvite', {}, 403)
     if (this.users.size >= this.config.maxUsers)
       throw new ClubError(`社團帳號已達上限（${this.config.maxUsers} 人）`, 403)
     if (
@@ -114,7 +114,7 @@ export class ClubService {
       )
     if (password.length < LIMITS.passwordMin)
       throw new ClubError(`密碼至少 ${LIMITS.passwordMin} 個字`)
-    if (this.findUser(username)) throw new ClubError('這個帳號已經有人使用', 409)
+    if (this.findUser(username)) throw new ClubError('usernameTaken', {}, 409)
 
     const user: StoredUser = {
       id: randomId(8),
@@ -130,7 +130,7 @@ export class ClubService {
   async login(username: string, password: string) {
     const user = this.findUser(String(username ?? '').trim())
     if (!user || !(await verifyPassword(String(password ?? ''), user.passwordHash)))
-      throw new ClubError('帳號或密碼錯誤', 401)
+      throw new ClubError('badLogin', {}, 401)
     return { user: publicUser(user), token: await this.createSession(user.id) }
   }
 
@@ -213,14 +213,14 @@ export class ClubService {
   }
 
   private async dispatch(userId: string, message: ClientMessage) {
-    if (!this.users.has(userId)) throw new ClubError('請重新登入', 401)
+    if (!this.users.has(userId)) throw new ClubError('signInAgain', {}, 401)
     switch (message?.type) {
       case 'createTable':
         return this.createTable(userId)
       case 'joinTable':
         return this.joinTable(userId, this.requireTable(message.tableId))
       case 'sit':
-        if (!isSeat(message.seat)) throw new ClubError('座位不正確')
+        if (!isSeat(message.seat)) throw new ClubError('badSeat')
         return this.sit(userId, this.requireTable(message.tableId), message.seat)
       case 'stand':
         return this.stand(userId)
@@ -240,7 +240,7 @@ export class ClubService {
       case 'undoRespond':
         return this.boardAction(userId, message)
       default:
-        throw new ClubError('不認得的指令')
+        throw new ClubError('unknownCommand')
     }
   }
 
@@ -258,7 +258,7 @@ export class ClubService {
 
   private requireTable(tableId: unknown): Table {
     const table = typeof tableId === 'string' ? this.tables.get(tableId) : undefined
-    if (!table) throw new ClubError('找不到這張牌桌，可能已經關閉', 404)
+    if (!table) throw new ClubError('tableGone', {}, 404)
     return table
   }
 
@@ -294,9 +294,9 @@ export class ClubService {
     const current = this.tableOf(userId)
     const currentSeat = current === table ? this.seatOf(table, userId) : null
     if (currentSeat === seat) return
-    if (table.seats[seat]) throw new ClubError('這個位子已經有人了')
+    if (table.seats[seat]) throw new ClubError('seatTaken')
     if (currentSeat && table.board && table.board.phase !== 'finished')
-      throw new ClubError('牌局進行中不能換位子')
+      throw new ClubError('noSeatChange')
     if (current !== table) await this.leave(userId)
 
     table.spectators = table.spectators.filter((id) => id !== userId)
@@ -330,10 +330,10 @@ export class ClubService {
   /** Anyone at the table may free the seat of a player who has gone offline */
   private async freeSeat(userId: string, seat: unknown) {
     const table = this.tableOf(userId)
-    if (!table) throw new ClubError('你不在牌桌上')
+    if (!table) throw new ClubError('notAtTable')
     if (!isSeat(seat) || !table.seats[seat]) return
     if (this.connections.onlineUserIds().includes(table.seats[seat]!))
-      throw new ClubError('只能請離線的玩家離座')
+      throw new ClubError('freeOfflineOnly')
     this.vacate(table, seat)
     await this.save(table)
   }
@@ -380,14 +380,14 @@ export class ClubService {
   private async boardAction(userId: string, message: ClientMessage) {
     const table = this.tableOf(userId)
     const seat = table && this.seatOf(table, userId)
-    if (!table || !seat) throw new ClubError('你沒有坐在牌桌上')
+    if (!table || !seat) throw new ClubError('notSeated')
     const board = table.board
-    if (!board) throw new ClubError('還沒有發牌')
+    if (!board) throw new ClubError('noBoard')
 
     let next: BoardState
     switch (message.type) {
       case 'call':
-        if (!isCall(message.call)) throw new ClubError('不合法的叫品')
+        if (!isCall(message.call)) throw new ClubError('illegalCall')
         next = makeCall(
           board,
           seat,
@@ -396,11 +396,11 @@ export class ClubService {
         )
         break
       case 'play': {
-        if (!isCard(message.card)) throw new ClubError('不認得這張牌')
+        if (!isCard(message.card)) throw new ClubError('unknownCard')
         const dummy = dummyOf(board)
         const hand =
           dummy && remainingCards(board, dummy).includes(message.card) ? dummy : seat
-        if (controllerOf(board, hand) !== seat) throw new ClubError('這不是你可以出的牌')
+        if (controllerOf(board, hand) !== seat) throw new ClubError('notYourCard')
         next = playCard(board, hand, message.card)
         break
       }
@@ -414,8 +414,8 @@ export class ClubService {
         // During play the declarer may take back dummy's card; otherwise only one's own action
         const actor = lastActor(board)
         const mine = board.play.length ? actor && controllerOf(board, actor) === seat : actor === seat
-        if (!mine) throw new ClubError('只能撤回自己剛做的動作')
-        if (board.claim) throw new ClubError('請先處理攤牌')
+        if (!mine) throw new ClubError('undoOwnOnly')
+        if (board.claim) throw new ClubError('claimPending')
         table.undo = { seat }
         await this.save(table)
         return
@@ -423,7 +423,7 @@ export class ClubService {
       case 'undoRespond': {
         const undo = table.undo
         if (!undo) return
-        if (sameSide(undo.seat, seat)) throw new ClubError('要由對手回應撤回')
+        if (sameSide(undo.seat, seat)) throw new ClubError('undoByOpponent')
         table.undo = undefined
         if (message.accept) table.board = undoLast(board)
         await this.save(table)

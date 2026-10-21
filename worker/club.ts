@@ -102,17 +102,17 @@ export class Club extends DurableObject<Env> implements Connections {
     }
 
     const user = await this.service.userForToken(token)
-    if (!user) throw new ClubError('請先登入', 401)
+    if (!user) throw new ClubError('signInFirst', {}, 401)
     if (route === 'GET /api/me') return json({ user })
     if (route === 'GET /api/history')
       return json({ boards: await this.service.history(user.id, url.searchParams.get('scope') === 'all') })
     const match = url.pathname.match(/^\/api\/history\/([\w-]+)$/)
     if (request.method === 'GET' && match) {
       const record = await this.service.record(match[1])
-      if (!record) throw new ClubError('找不到這副牌', 404)
+      if (!record) throw new ClubError('boardGone', {}, 404)
       return json({ record })
     }
-    throw new ClubError('找不到這個 API', 404)
+    throw new ClubError('noSuchApi', {}, 404)
   }
 
   async webSocketMessage(ws: WebSocket, data: string | ArrayBuffer) {
