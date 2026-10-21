@@ -90,7 +90,7 @@ interface BoardState {
 **WebSocket** `/ws`（同網域，帶 cookie 驗證）：
 
 - 瀏覽器 → 伺服器：`createTable`、`joinTable`、`sit`、`stand`、`leaveTable`、`freeSeat`、`addRobot`、`removeRobot`、`call`、`play`、`claim`、`claimRespond`、`undoRequest`、`undoRespond`、`ready`、`chat`
-- 伺服器 → 瀏覽器：`welcome`、`lobby`、`table`、`error`
+- 伺服器 → 瀏覽器：`welcome`、`lobby`（牌桌列表與 `members`：每位社員是否在線、在哪一桌哪個座位）、`table`（含 `recent`：本桌最近 30 副的摘要）、`error`
 - 使用 Durable Object 的 hibernation API：沒人打牌時物件可以休眠，WebSocket 不會斷，醒來時從儲存重新載入。
 
 **儲存**（Durable Object 的 key-value，SQLite 後端）：

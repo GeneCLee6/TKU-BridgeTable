@@ -4,8 +4,8 @@ import { Link, Navigate, useNavigate } from 'react-router-dom'
 import styled from 'styled-components'
 import type { Seat } from '../../shared/cards.ts'
 import type { TableSummary } from '../../shared/protocol.ts'
+import { SidePanel } from '../components/SidePanel.tsx'
 import { Button, Card, Muted, PageMain, PageTitle } from '../components/ui.tsx'
-import { useAuth } from '../state/AuthContext.tsx'
 import { useClub } from '../state/ClubContext.tsx'
 import { mobile } from '../styles/tokens.ts'
 import { seatLetter } from '../strings.ts'
@@ -13,14 +13,17 @@ import { useT } from '../state/PreferencesContext.tsx'
 
 /** BBO's casual lobby, reduced to what a club needs: start a table, take a seat, or watch */
 
-const Columns = styled.div`
+/** The lobby on the left, BBO's side panel (people, history) on the right */
+const Layout = styled.div`
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 240px;
-  gap: 24px;
-  align-items: start;
+  grid-template-columns: minmax(0, 1fr) ${({ theme }) => theme.layout.sidePanelWidth};
+  height: calc(100vh - ${({ theme }) => theme.layout.headerHeight});
+
+  & > main { overflow-y: auto; }
 
   ${mobile} {
     grid-template-columns: minmax(0, 1fr);
+    height: auto;
   }
 `
 
@@ -106,27 +109,7 @@ const SeatButton = styled.button<{ $area: Seat; $taken: boolean }>`
   font-weight: 600;
 `
 
-const OnlineList = styled.ul`
-  margin: 8px 0 0;
-  padding: 0;
-  list-style: none;
-  line-height: 2;
 
-  & > li::before {
-    content: '';
-    display: inline-block;
-    width: 8px;
-    height: 8px;
-    margin-right: 8px;
-    border-radius: 50%;
-    background: ${({ theme }) => theme.colors.success};
-  }
-`
-
-const SectionTitle = styled.h2`
-  margin: 0;
-  font-size: 16px;
-`
 
 const SEAT_ORDER: Seat[] = ['N', 'W', 'E', 'S']
 
@@ -175,7 +158,6 @@ function TableTile({ table, onSit, onWatch }: { table: TableSummary; onSit: (sea
 export function LobbyPage() {
   const t = useT()
   const { lobby, send, status } = useClub()
-  const { user } = useAuth()
   const navigate = useNavigate()
   // After creating a table or taking a seat, follow the server to the table it puts us at
   const [follow, setFollow] = useState<{ to?: string; from: string | null } | null>(null)
@@ -186,30 +168,30 @@ export function LobbyPage() {
     return <Navigate to={`/table/${here}`} />
 
   return (
-    <PageMain>
-      <Toolbar>
-        <PageTitle>{t.lobbyTitle}</PageTitle>
-        <Button
-          type="button"
-          $variant="primary"
-          onClick={() => {
-            setFollow({ from: lobby.myTableId })
-            send({ type: 'createTable' })
-          }}
-        >
-          <Plus size={18} aria-hidden />
-          {t.newTable}
-        </Button>
-      </Toolbar>
-      {lobby.myTableId && (
-        <Banner>
-          <span>{t.tableName(lobby.tables.find((x) => x.id === lobby.myTableId)?.number ?? 0)}</span>
-          <Button as={Link} to={`/table/${lobby.myTableId}`} $small $variant="primary">
-            {t.backToTable}
+    <Layout>
+      <PageMain>
+        <Toolbar>
+          <PageTitle>{t.lobbyTitle}</PageTitle>
+          <Button
+            type="button"
+            $variant="primary"
+            onClick={() => {
+              setFollow({ from: lobby.myTableId })
+              send({ type: 'createTable' })
+            }}
+          >
+            <Plus size={18} aria-hidden />
+            {t.newTable}
           </Button>
-        </Banner>
-      )}
-      <Columns>
+        </Toolbar>
+        {lobby.myTableId && (
+          <Banner>
+            <span>{t.tableName(lobby.tables.find((x) => x.id === lobby.myTableId)?.number ?? 0)}</span>
+            <Button as={Link} to={`/table/${lobby.myTableId}`} $small $variant="primary">
+              {t.backToTable}
+            </Button>
+          </Banner>
+        )}
         <section aria-label={t.tables}>
           {lobby.tables.length === 0 ? (
             <Card>
@@ -231,20 +213,8 @@ export function LobbyPage() {
             </Grid>
           )}
         </section>
-        <Card as="aside" aria-label={t.online}>
-          <SectionTitle>
-            {t.online}（{lobby.online.length}）
-          </SectionTitle>
-          <OnlineList>
-            {lobby.online.map((u) => (
-              <li key={u.id}>
-                {u.username}
-                {u.id === user?.id && t.youTag}
-              </li>
-            ))}
-          </OnlineList>
-        </Card>
-      </Columns>
-    </PageMain>
+      </PageMain>
+      <SidePanel tabs={['people', 'history']} />
+    </Layout>
   )
 }

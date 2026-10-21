@@ -11,7 +11,7 @@ import {
   turnOf,
   type BoardState,
 } from '../shared/game.ts'
-import type { BoardView, ChatMessage, PublicUser, SeatOccupant } from '../shared/protocol.ts'
+import type { BoardSummary, BoardView, ChatMessage, PublicUser, SeatOccupant } from '../shared/protocol.ts'
 
 /** A table as the Worker keeps it */
 export interface Table {
@@ -26,6 +26,8 @@ export interface Table {
   chat: ChatMessage[]
   undo?: { seat: Seat }
   recordId?: string
+  /** Boards finished here, newest first (older tables may not have it) */
+  recent?: BoardSummary[]
   createdAt: number
 }
 

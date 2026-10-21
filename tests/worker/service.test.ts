@@ -429,3 +429,28 @@ describe('history pages', () => {
     expect(await store.get('board:00000000000005-old1')).toBeUndefined()
   })
 })
+
+describe('side panel data', () => {
+  it('lists every member with where they are, online first', async () => {
+    const { bySeat } = await fullTable()
+    await club.register('away', 'secret1', '')
+    club.broadcast()
+    const members = connections.last(bySeat.N, 'lobby')!.lobby.members
+    expect(members.at(-1)).toMatchObject({ username: 'away', online: false, tableNumber: null, seat: null })
+    expect(members.find((m) => m.username === 'east')).toMatchObject({ online: true, tableNumber: 1, seat: 'E' })
+  })
+
+  it('keeps the boards finished at a table, newest first', async () => {
+    const { bySeat } = await fullTable()
+    for (let board = 0; board < 2; board++) {
+      for (let i = 0; i < 4; i++) {
+        const turn = tableFor(bySeat.N).board!.turn!
+        await send(bySeat[turn], { type: 'call', call: 'P' })
+      }
+      for (const seat of ['N', 'E', 'S', 'W'] as const) await send(bySeat[seat], { type: 'ready' })
+    }
+    const recent = tableFor(bySeat.W).recent
+    expect(recent.map((b) => b.boardNo)).toEqual([2, 1])
+    expect(await club.record(recent[0].id)).not.toBeNull()
+  })
+})

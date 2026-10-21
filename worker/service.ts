@@ -32,6 +32,7 @@ import {
   type HistoryPage,
   type LobbyView,
   type Me,
+  type MemberStatus,
   type PublicUser,
   type ServerMessage,
   type TableSummary,
@@ -83,6 +84,8 @@ export interface ClubConfig {
 }
 
 const CHAT_KEEP = 100
+/** Boards a table keeps for its History panel */
+const RECENT_KEEP = 30
 const SCHEMA = 2
 /** How long robots wait before acting, so people can follow the play */
 const ROBOT_DELAY = { call: 800, card: 700, afterTrick: 1500, answer: 400 }
@@ -673,6 +676,7 @@ export class ClubService {
     const record: BoardRecord = { id: randomId(8), tableNumber: table.number, finishedAt: this.now(), players, board }
     await this.saveRecord(record)
     table.recordId = record.id
+    table.recent = [summarize(record), ...(table.recent ?? [])].slice(0, RECENT_KEEP)
     table.boardsPlayed++
   }
 
@@ -783,8 +787,21 @@ export class ClubService {
         boardsPlayed: t.boardsPlayed,
         boardNo: t.board ? t.board.boardNo : null,
       }))
+    const members: MemberStatus[] = [...this.users.values()]
+      .map((u) => {
+        const table = this.tableOf(u.id)
+        return {
+          id: u.id,
+          username: u.username,
+          online: online.includes(u.id),
+          tableNumber: table?.number ?? null,
+          seat: table ? this.seatOf(table, u.id) : null,
+        }
+      })
+      .sort((a, b) => Number(b.online) - Number(a.online) || a.username.localeCompare(b.username))
     return {
       online: online.flatMap((id) => this.publicUserById(id) ?? []),
+      members,
       tables,
       myTableId: this.tableOf(userId)?.id ?? null,
     }
@@ -804,6 +821,7 @@ export class ClubService {
       boardsPlayed: table.boardsPlayed,
       ready: [...table.ready, ...SEATS.filter((s) => isRobotId(table.seats[s]))],
       chat: table.chat,
+      recent: table.recent ?? [],
     }
   }
 
