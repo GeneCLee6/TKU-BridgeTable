@@ -12,7 +12,7 @@ import { SidePanel } from '../components/SidePanel.tsx'
 import { HandView } from '../components/HandView.tsx'
 import { SeatPlate } from '../components/SeatPlate.tsx'
 import { ContractLabel } from '../components/Suit.tsx'
-import { BidStack, ClaimPicker, FeltButton, FeltPanel, Prompt, ResultPanel } from '../components/TablePanels.tsx'
+import { ClaimPicker, FeltButton, FeltPanel, Prompt, ResultPanel } from '../components/TablePanels.tsx'
 import { TrickArea, TrickSpace, type Position } from '../components/TrickArea.tsx'
 import { Button, Muted, PageMain } from '../components/ui.tsx'
 import { useClub } from '../state/ClubContext.tsx'
@@ -98,26 +98,7 @@ const Overlay = styled.div`
   & > * { pointer-events: auto; }
 `
 
-const BidArea = styled.div`
-  display: grid;
-  grid-template-columns: minmax(0, auto) minmax(0, 1fr) minmax(0, auto);
-  grid-template-areas:
-    '. top .'
-    'left middle right'
-    '. bottom .';
-  align-items: center;
-  justify-items: center;
-  gap: 8px;
-  width: 100%;
-`
 
-const BidSpot = styled.div<{ $area: string }>`
-  grid-area: ${({ $area }) => $area};
-  display: grid;
-  place-items: center;
-  gap: 8px;
-  min-width: 0;
-`
 
 const Waiting = styled.div`
   color: ${({ theme }) => theme.table.feltMuted};
@@ -399,33 +380,22 @@ function TableScreen({
   }
 
   const auctionCenter = (b: BoardView) => {
-    const callsOf = (seat: Seat) => b.auction.filter((c) => c.seat === seat)
-    const spot = (position: Position) => {
-      const seat = at[position]
-      return (
-        <BidSpot key={position} $area={position}>
-          <BidStack
-            calls={callsOf(seat)}
-            vertical={(position === 'left' || position === 'right') && sizes.phone}
-            turn={b.turn === seat}
-            size={sizes.trick}
-            label={`${t.auction} ${seatLetter[seat]}`}
-          />
-        </BidSpot>
-      )
-    }
     const myCall = b.legalCalls.length > 0 && !b.undo
+    const names = Object.fromEntries(SEATS.map((seat) => [seat, nameOf(seat)])) as Record<Seat, string>
     return (
-      <BidArea>
-        {spot('top')}
-        {spot('left')}
-        <BidSpot $area="middle">
-          <Waiting>{b.turn && !myCall ? t.waitingFor(nameOf(b.turn)) : ''}</Waiting>
-          {undoPrompt()}
-        </BidSpot>
-        {spot('right')}
-        {spot('bottom')}
-      </BidArea>
+      <>
+        <AuctionBox
+          auction={b.auction}
+          dealer={b.dealer}
+          vul={b.vul}
+          viewer={viewer}
+          turn={b.turn}
+          names={names}
+          size={sizes.phone ? 60 : Math.round(sizes.bottom * 1.05)}
+        />
+        <Waiting>{b.turn && !myCall ? t.waitingFor(nameOf(b.turn)) : ''}</Waiting>
+        {undoPrompt()}
+      </>
     )
   }
 
