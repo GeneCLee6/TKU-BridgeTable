@@ -16,16 +16,31 @@ npm run deploy                      # 建置並部署
 
 > 第一次部署時 Cloudflare 可能要求先在 Dashboard 選一個 `workers.dev` 子網域。
 
-## 2. 自動部署（GitHub Actions，選用）
+## 2. 自動部署（CI/CD）
 
-`.github/workflows/deploy.yml` 會在 `main` 有新 commit、CI 通過後自動部署。要啟用：
+PR 合併到 `main` 後，GitHub Actions 會自動：
 
-1. Cloudflare Dashboard → My Profile → API Tokens → Create Token → 範本「Edit Cloudflare Workers」。
-2. GitHub repo → Settings → Secrets and variables → Actions，新增：
-   - `CLOUDFLARE_API_TOKEN`：上一步的 token
-   - `CLOUDFLARE_ACCOUNT_ID`：Cloudflare Dashboard 右側的 Account ID
+1. **CI**（`.github/workflows/ci.yml`）：lint → 型別檢查 → 測試 → 建置。
+2. **Deploy**（`.github/workflows/deploy.yml`）：CI 通過後，建置並 `wrangler deploy`，再檢查網站是否已經在跑這個 commit（`/api/me` 回 401、`/history` 回 200）。CI 失敗就不會部署。
 
-沒有設定這兩個 secret 時，部署步驟會自動略過，不會讓 CI 失敗。
+要啟用，GitHub repo 需要兩個 secret（Settings → Secrets and variables → Actions）：
+
+| Secret | 內容 |
+| --- | --- |
+| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare 帳號 ID（Dashboard 右側，或 `npx wrangler whoami`） |
+| `CLOUDFLARE_API_TOKEN` | 部署用的 API token，建立方式如下 |
+
+建立 API token：Cloudflare Dashboard → 右上頭像 → **My Profile** → **API Tokens** → **Create Token** → 範本 **Edit Cloudflare Workers** → **Use template** → Account Resources 選你的帳號、Zone Resources 選 **All zones** → **Continue to summary** → **Create Token**，複製產生的 token（只會顯示一次）。
+
+在專案資料夾執行下面這行，貼上 token 後按 Enter（不會顯示在畫面上）：
+
+```bash
+gh secret set CLOUDFLARE_API_TOKEN
+```
+
+沒有設定這兩個 secret 時，部署步驟會自動略過，不會讓 CI 失敗。要手動重新部署目前的 `main`：GitHub → Actions → Deploy → **Run workflow**，或 `gh workflow run Deploy`。
+
+每次部署都會在 Cloudflare 的版本紀錄留下 commit 編號（`npx wrangler deployments list` 的 Message 欄位）。
 
 ## 3. 設定
 
