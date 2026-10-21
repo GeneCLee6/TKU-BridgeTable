@@ -1,15 +1,14 @@
 import { Link } from 'react-router-dom'
-import styled, { css } from 'styled-components'
-import type { AuctionCall } from '../../shared/auction.ts'
+import styled from 'styled-components'
 import type { Seat } from '../../shared/cards.ts'
 import type { BoardView } from '../../shared/protocol.ts'
 import { resultLabel } from '../../shared/scoring.ts'
 import { signed } from '../lib/format.ts'
 import { useT } from '../state/PreferencesContext.tsx'
 import { seatLetter } from '../strings.ts'
-import { CallLabel, ContractLabel } from './Suit.tsx'
+import { ContractLabel } from './Suit.tsx'
 
-/** Panels in the middle of the felt: each seat's calls, claim and undo prompts, the result */
+/** Panels in the middle of the felt: claim and undo prompts, the result */
 
 export const FeltPanel = styled.div`
   display: grid;
@@ -168,73 +167,5 @@ export function Prompt({
         </Buttons>
       )}
     </FeltPanel>
-  )
-}
-
-const Stack = styled.div<{ $vertical: boolean; $size: number }>`
-  display: flex;
-  flex-direction: ${({ $vertical }) => ($vertical ? 'column' : 'row')};
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: center;
-  gap: ${({ $size }) => Math.round($size * 0.08)}px;
-  min-height: ${({ $size }) => Math.round($size * 0.6)}px;
-`
-
-const Chip = styled.span<{ $call?: string; $alert?: boolean; $turn?: boolean; $size: number }>`
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: ${({ $size }) => Math.round($size * 1.05)}px;
-  height: ${({ $size }) => Math.round($size * 0.56)}px;
-  padding: 0 8px;
-  border-radius: 6px;
-  background: ${({ theme, $alert }) => ($alert ? theme.table.alert : theme.table.panel)};
-  color: ${({ $call, theme }) =>
-    $call === 'P' ? theme.table.bidPass : $call === 'X' ? theme.table.bidDouble : $call === 'XX' ? theme.table.bidRedouble : theme.table.panelText};
-  font-family: ${({ theme }) => theme.fonts.cards};
-  font-size: ${({ $size }) => Math.max(15, Math.round($size * 0.32))}px;
-  font-weight: 800;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
-  ${({ $turn, theme }) =>
-    $turn &&
-    css`
-      background: transparent;
-      color: ${theme.table.turn};
-      box-shadow: inset 0 0 0 2px ${theme.table.turn};
-    `}
-`
-
-/**
- * One seat's calls, placed in front of that seat during the auction as BBO shows them, so each
- * player's bids sit on their side of the table. Alerted calls are yellow (hover for the
- * explanation); '?' marks the seat to call.
- */
-export function BidStack({
-  calls,
-  vertical,
-  turn,
-  size,
-  label,
-}: {
-  calls: AuctionCall[]
-  vertical: boolean
-  turn: boolean
-  size: number
-  label: string
-}) {
-  return (
-    <Stack $vertical={vertical} $size={size} role="list" aria-label={label}>
-      {calls.map((c, i) => (
-        <Chip key={i} role="listitem" $call={c.call} $alert={c.alert !== undefined} $size={size} title={c.alert || undefined}>
-          <CallLabel call={c.call} onCard />
-        </Chip>
-      ))}
-      {turn && (
-        <Chip role="listitem" $turn $size={size}>
-          ?
-        </Chip>
-      )}
-    </Stack>
   )
 }

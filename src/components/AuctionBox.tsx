@@ -34,9 +34,11 @@ const Table = styled.table<{ $size: number }>`
   text-align: center;
 `
 
-const Head = styled.th<{ $vul: boolean }>`
-  padding: 2px 0;
+const Head = styled.th<{ $vul: boolean; $turn: boolean }>`
+  padding: 3px 2px;
   font-size: 0.85em;
+  line-height: 1.15;
+  ${({ $turn, theme }) => $turn && css`box-shadow: inset 0 -4px 0 ${theme.table.turn};`}
   ${({ $vul, theme }) =>
     $vul
       ? css`
@@ -61,6 +63,17 @@ const Cell = styled.td<{ $alert?: boolean; $call?: string; $size: number }>`
     `}
 `
 
+const HeadName = styled.span`
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: ${({ theme }) => theme.fonts.body};
+  font-size: 0.55em;
+  font-weight: 600;
+  opacity: 0.85;
+`
+
 const Explain = styled.p`
   margin: 0;
   padding: 4px 8px;
@@ -75,6 +88,7 @@ export function AuctionBox({
   vul,
   viewer = 'S',
   turn,
+  names,
   size = 56,
 }: {
   auction: AuctionCall[]
@@ -84,6 +98,8 @@ export function AuctionBox({
   viewer?: Seat
   /** Shows '?' in this seat's next cell while the auction is running */
   turn?: Seat | null
+  /** Player names shown under the seat letters */
+  names?: Partial<Record<Seat, string>>
   /** Scale, roughly the card width at the table */
   size?: number
 }) {
@@ -103,8 +119,9 @@ export function AuctionBox({
         <thead>
           <tr>
             {order.map((seat) => (
-              <Head key={seat} scope="col" $vul={isVulnerable(vul, seat)}>
+              <Head key={seat} scope="col" $vul={isVulnerable(vul, seat)} $turn={turn === seat}>
                 {seatLetter[seat]}
+                {names?.[seat] && <HeadName>{names[seat]}</HeadName>}
               </Head>
             ))}
           </tr>
