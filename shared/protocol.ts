@@ -65,7 +65,7 @@ export interface BoardView {
   legalCards: Card[]
   /** Calls the viewer may make, if it is their turn to call */
   legalCalls: Call[]
-  claim?: { seat: Seat; tricks: number; accepted: Seat[]; approvers: Seat[]; hand?: Card[] }
+  claim?: { seat: Seat; tricks: number; accepted: Seat[]; approvers: Seat[] }
   undo?: { seat: Seat }
   result?: BoardResult
   /** History record id once the board is saved */
@@ -81,10 +81,26 @@ export interface TableView {
   mySeat: Seat | null
   board: BoardView | null
   boardsPlayed: number
+  /**
+   * When the next board will be dealt (server clock, ms), while a finished board is on the table
+   * and all four seats are taken; the browser runs its countdown from it
+   */
+  dealAt: number | null
   chat: ChatMessage[]
   /** Boards finished at this table, newest first, for the History panel */
   recent: BoardSummary[]
 }
+
+/**
+ * A table as it goes over the wire: chat and recent boards are left out when they have not changed
+ * since the last message to that member, and the browser keeps its copy
+ */
+export type TableWire = Omit<TableView, 'chat' | 'recent'> & { chat?: ChatMessage[]; recent?: BoardSummary[] }
+
+/** After the last card the trick stays on the table this long before the countdown starts */
+export const LAST_TRICK_MS = 2500
+/** The countdown before the next deal */
+export const DEAL_COUNTDOWN_MS = 3000
 
 /** A club member as the People panel lists them */
 export interface MemberStatus extends PublicUser {
@@ -110,7 +126,8 @@ export type ClientMessage =
   | { type: 'sit'; tableId: string; seat: Seat }
   | { type: 'stand' }
   | { type: 'leaveTable' }
-  | { type: 'freeSeat'; seat: Seat }
+  /** The host asks a person to leave a seat; they stay at the table, watching */
+  | { type: 'kick'; seat: Seat }
   | { type: 'addRobot'; seat: Seat }
   | { type: 'removeRobot'; seat: Seat }
   | { type: 'call'; call: Call; alert?: string }
@@ -124,7 +141,8 @@ export type ClientMessage =
 export type ServerMessage =
   | { type: 'welcome'; me: Me }
   | { type: 'lobby'; lobby: LobbyView }
-  | { type: 'table'; table: TableView | null }
+  /** `now` is the server's clock when sent, so the browser can turn `dealAt` into its own time */
+  | { type: 'table'; table: TableWire | null; now: number }
   | { type: 'error'; code: MessageCode; params: MessageParams; message: string }
 
 /** A finished board kept in the history */
@@ -163,11 +181,16 @@ export function summarize(record: BoardRecord): BoardSummary {
   }
 }
 
-/** One page of the history list; `next` is the cursor for the following (older) page */
+/** One page of the history list, newest first; `page` counts from 1 */
 export interface HistoryPage {
   boards: BoardSummary[]
-  next: string | null
+  total: number
+  page: number
+  size: number
 }
+
+/** Page sizes the history list offers */
+export const HISTORY_PAGE_SIZES = [10, 20, 50, 100] as const
 
 /** A member as the admin page lists them */
 export interface AdminUser {
@@ -196,7 +219,7 @@ export const LIMITS = {
   alertMax: 200,
   maxUsersMin: 2,
   maxUsersMax: 100,
-  historyPage: 50,
+  historyPageDefault: 20,
 }
 
 export const USERNAME_PATTERN = /^[\p{L}\p{N}_.-]+$/u

@@ -42,6 +42,9 @@ export class Club extends DurableObject<Env> implements Connections {
       maxUsers: Number(env.MAX_USERS ?? 10),
       inviteCode: env.INVITE_CODE || undefined,
     })
+    // Browsers send "ping" every few seconds to keep phone connections alive and to notice a dead
+    // one quickly; the runtime answers without waking the object
+    ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair('ping', 'pong'))
     ctx.blockConcurrencyWhile(() => this.service.load())
   }
 
@@ -122,8 +125,9 @@ export class Club extends DurableObject<Env> implements Connections {
       return json({ ok: true })
     }
     if (route === 'GET /api/history') {
-      const all = url.searchParams.get('scope') === 'all'
-      return json(await this.service.history(user.id, all, url.searchParams.get('before') ?? undefined))
+      const query = url.searchParams
+      const all = query.get('scope') === 'all'
+      return json(await this.service.history(user.id, all, Number(query.get('page') ?? 1), Number(query.get('size') ?? 0) || undefined))
     }
     const record = url.pathname.match(/^\/api\/history\/([\w-]+)$/)
     if (request.method === 'GET' && record) {

@@ -91,6 +91,11 @@ const table = {
   bidSelected: '#ffd43b',
   bidDisabled: '#c9cfc6',
   winner: '#ffd43b',
+  /** The crown before the host's name */
+  crown: '#e0a100',
+  /** The countdown ring before the next deal */
+  ring: '#2f9e44',
+  ringTrack: '#d9ded6',
 } as const
 
 /** Suit colours printed on the cards: two-colour like BBO's default, or four-colour */

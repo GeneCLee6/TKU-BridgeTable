@@ -69,6 +69,11 @@ export interface BoardState {
   play: PlayedCard[]
   phase: Phase
   claim?: Claim
+  /**
+   * Seats that have claimed on this board. A claim lays the hand face up, and it stays face up
+   * even if the claim is rejected and play goes on.
+   */
+  claimed?: Seat[]
   result?: BoardResult
 }
 
@@ -206,7 +211,8 @@ export function makeClaim(state: BoardState, seat: Seat, tricks: number): BoardS
   if (state.play.length % 4 !== 0) throw new GameError('claimAtTrickEnd')
   if (!Number.isInteger(tricks) || tricks < 0 || tricks > remainingTricks(state))
     throw new GameError('badClaim')
-  return { ...state, claim: { seat, tricks, accepted: [] } }
+  const claimed = state.claimed?.includes(seat) ? state.claimed : [...(state.claimed ?? []), seat]
+  return { ...state, claim: { seat, tricks, accepted: [] }, claimed }
 }
 
 export function respondToClaim(state: BoardState, seat: Seat, accept: boolean): BoardState {

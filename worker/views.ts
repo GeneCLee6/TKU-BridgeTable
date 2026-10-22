@@ -25,6 +25,8 @@ export interface Table {
   chat: ChatMessage[]
   undo?: { seat: Seat }
   recordId?: string
+  /** When the next board is dealt (ms), once a board is finished */
+  dealAt?: number
   /** Boards finished here, newest first (older tables may not have it) */
   recent?: BoardSummary[]
   createdAt: number
@@ -46,8 +48,10 @@ export function seatOccupants(
 
 /**
  * What one viewer may see of a board. Players see their own hand, dummy once the opening lead is
- * made (and dummy then sees the declarer's hand, as on BBO), a claimer's hand when asked to accept
- * the claim, and everything once the board is over.
+ * made (and dummy then sees the declarer's hand, as on BBO), and everything once the board is over.
+ * A claim lays the claimer's hand face up for good, even if it is rejected: once the declarer has
+ * claimed, both defenders see all four hands (the declarer still sees only their own and dummy);
+ * a defender who claimed shows their hand to everyone.
  * Spectators see all four hands, as kibitzers do on BBO. Partners never see each other's alerts
  * until the board is over.
  */
@@ -60,12 +64,16 @@ export function boardView(
   const dummy = dummyOf(board)
   const dummyExposed = dummy !== null && board.play.length > 0
   const declarer = board.contract?.declarer
+  const claimed = board.claimed ?? []
+  const defender = viewer !== null && viewer !== declarer && viewer !== dummy
   const canSee = (seat: Seat) =>
     finished ||
     viewer === null ||
     seat === viewer ||
     (dummyExposed && seat === dummy) ||
-    (dummyExposed && viewer === dummy && seat === declarer)
+    (dummyExposed && viewer === dummy && seat === declarer) ||
+    (claimed.includes(seat) && seat !== declarer) ||
+    (defender && !!declarer && claimed.includes(declarer))
 
   const hands: BoardView['hands'] = {}
   const handCounts = {} as BoardView['handCounts']
@@ -107,10 +115,7 @@ export function boardView(
   }
 
   if (board.claim) {
-    const approvers = claimApprovers(board, board.claim.seat)
-    view.claim = { ...board.claim, approvers }
-    if (viewer === null || approvers.includes(viewer))
-      view.claim.hand = remainingCards(board, board.claim.seat)
+    view.claim = { ...board.claim, approvers: claimApprovers(board, board.claim.seat) }
   }
   if (extras.undo && !finished) view.undo = extras.undo
   if (board.result) view.result = board.result

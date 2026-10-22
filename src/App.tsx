@@ -57,7 +57,7 @@ function ErrorToast() {
 function ConnectionBanner() {
   const { status, lobby } = useClub()
   const { t } = usePreferences()
-  return status === 'closed' && lobby !== null ? <Banner role="status">{t.reconnecting}</Banner> : null
+  return status !== 'open' && lobby !== null ? <Banner role="status">{t.reconnecting}</Banner> : null
 }
 
 function Routed() {

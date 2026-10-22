@@ -1,6 +1,7 @@
 import styled from 'styled-components'
 import { isBid, levelOf, strainOf, type Call, type Contract } from '../../shared/auction.ts'
 import { SUIT_SYMBOL, type Strain, type Suit } from '../../shared/cards.ts'
+import { resultLabel } from '../../shared/scoring.ts'
 import { useT } from '../state/PreferencesContext.tsx'
 import { seatLetter } from '../strings.ts'
 
@@ -35,15 +36,24 @@ export function CallLabel({ call, onCard }: { call: Call; onCard?: boolean }) {
   )
 }
 
-/** 4♠X S */
+/** 4♠X S, or AP when all four passed: bridge shorthand, the same in every language */
 export function ContractLabel({ contract, onCard }: { contract: Contract | null; onCard?: boolean }) {
-  const t = useT()
-  if (!contract) return <span>{t.passedOut}</span>
+  if (!contract) return <span>AP</span>
   return (
     <span>
       {contract.level}
       <SuitSymbol suit={contract.strain} onCard={onCard} />
       {contract.doubled} {seatLetter[contract.declarer]}
+    </span>
+  )
+}
+
+/** The contract and how it went: 4♥ S +1, 3NT N =, 2♠ E -2, AP */
+export function ContractResult({ contract, tricks, onCard }: { contract: Contract | null; tricks: number; onCard?: boolean }) {
+  if (!contract) return <span>AP</span>
+  return (
+    <span>
+      <ContractLabel contract={contract} onCard={onCard} /> {resultLabel(contract, tricks)}
     </span>
   )
 }

@@ -86,29 +86,45 @@ describe('viewer perspective and robots', () => {
     expect(heads).toEqual(['S', 'W', 'N', 'E'])
   })
 
-  it('offers sit and add-robot on an empty seat, and remove on a robot', async () => {
+  it('opens the seat’s menu when the plate is clicked', async () => {
     const onAddRobot = vi.fn()
-    const onRemoveRobot = vi.fn()
-    const { rerender } = wrap(
-      <SeatPlate seat="N" occupant={null} vulnerable={false} turn={false} isMe={false} onSit={() => {}} onAddRobot={onAddRobot} />,
+    wrap(
+      <SeatPlate
+        seat="N"
+        occupant={null}
+        vulnerable={false}
+        turn={false}
+        isMe={false}
+        actions={[
+          { label: '坐 N', onSelect: () => {} },
+          { label: '放機器人', onSelect: onAddRobot },
+        ]}
+      />,
     )
-    await userEvent.click(screen.getByRole('button', { name: '放機器人 N' }))
+    expect(screen.queryByRole('menu')).toBeNull()
+    await userEvent.click(screen.getByRole('button', { name: /空位/ }))
+    const menu = screen.getByRole('menu', { name: 'N 座位選項' })
+    expect(within(menu).getAllByRole('menuitem').map((i) => i.textContent)).toEqual(['坐 N', '放機器人'])
+    await userEvent.click(within(menu).getByRole('menuitem', { name: '放機器人' }))
     expect(onAddRobot).toHaveBeenCalled()
-    rerender(
-      <PreferencesProvider>
-        <SeatPlate
-          seat="N"
-          occupant={{ id: 'robot:N', username: 'Robot', robot: true, online: true }}
-          vulnerable={false}
-          turn={false}
-          isMe={false}
-          onRemoveRobot={onRemoveRobot}
-        />
-      </PreferencesProvider>,
+    expect(screen.queryByRole('menu')).toBeNull()
+  })
+
+  it('crowns the host, puts declarer and dummy at the right end, and has no menu without actions', () => {
+    wrap(
+      <SeatPlate
+        seat="S"
+        occupant={{ id: 'u1', username: 'gene', online: true }}
+        vulnerable={false}
+        turn={false}
+        isMe={false}
+        isHost
+        role="declarer"
+      />,
     )
-    expect(screen.getByText('機器人')).toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: '移除機器人 N' }))
-    expect(onRemoveRobot).toHaveBeenCalled()
+    expect(screen.getByLabelText('房主')).toBeInTheDocument()
+    expect(screen.getByText('莊家').parentElement?.style.marginLeft ?? '').toBe('')
+    expect(screen.queryByRole('button')).toBeNull()
   })
 
   it('speaks English when the viewer chooses it', () => {

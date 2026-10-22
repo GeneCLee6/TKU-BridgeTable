@@ -33,6 +33,8 @@
 - **`getWebSockets()` 在 `webSocketClose` 裡仍包含正在關閉的 socket**，判斷使用者是否離線要排除它（見 `club.ts`）。
 - **Durable Object 隨時可能被回收**：所有狀態改動都要寫回 `Store`；`load()` 在建構時透過 `blockConcurrencyWhile` 載入。
 - **Vitest 不載入 Cloudflare 外掛**（`vite.config.ts` 依 `VITEST` 判斷）；`tests/worker` 用 `// @vitest-environment node`。
+- **開發模式的 React StrictMode 會把 effect 跑兩次**：牌桌動畫（`TrickArea`、`DealAnimation`）第一次就記下起點、重量位置前先取消進行中的動畫，否則開發時牌會從錯的地方飛出來。
+- **離開牌桌頁面就離開牌桌**：`TablePage` 卸載時若網址已不在 `/table/` 就送 `leaveTable`；牌桌頁裡會離開頁面的連結（側欄紀錄）要開新分頁。
 - **本機四人測試**：同一個瀏覽器共用 cookie，要用不同的瀏覽器設定檔或無痕視窗；或直接放三個機器人。
 - **機器人排程**：`ClubService` 的 `schedule` 在測試裡換成手動佇列（`tests/worker/service.test.ts` 的 `runRobots`）。
 - **jsdom 的瀏覽器語言是英文**：`tests/setup.ts` 先把偏好設成中文，元件測試才能用中文名稱查詢。

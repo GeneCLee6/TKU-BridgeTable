@@ -6,7 +6,6 @@ import { SEATS, type Seat } from '../../shared/cards.ts'
 import { remainingCards, tricksOf } from '../../shared/game.ts'
 import { handviewerUrl } from '../../shared/lin.ts'
 import type { BoardRecord, BoardSummary, MemberStatus, PublicUser } from '../../shared/protocol.ts'
-import { resultLabel } from '../../shared/scoring.ts'
 import { api } from '../lib/api.ts'
 import { formatDateTime, signed } from '../lib/format.ts'
 import { useTrickReplay } from '../lib/useTrickReplay.ts'
@@ -18,7 +17,7 @@ import { seatLetter } from '../strings.ts'
 import { AuctionBox } from './AuctionBox.tsx'
 import { BoardInfo } from './BoardInfo.tsx'
 import { HandView } from './HandView.tsx'
-import { ContractLabel } from './Suit.tsx'
+import { ContractResult } from './Suit.tsx'
 import { TrickArea, TrickSpace, type Position } from './TrickArea.tsx'
 
 /**
@@ -200,7 +199,7 @@ export function SidePanel({
           <Body>
             {open === 'chat' && chat}
             {open === 'people' && <PeopleList />}
-            {open === 'history' && <HistoryList recent={recent} board={board} onBoard={setBoard} />}
+            {open === 'history' && <HistoryList recent={recent} board={board} onBoard={setBoard} newTab={page === 'table'} />}
           </Body>
         </Content>
       )}
@@ -368,14 +367,19 @@ const AllLink = styled(Link)`
   font-size: 14px;
 `
 
+/** Links that would leave the table page open in a new tab there, since leaving the page leaves the table */
+const NEW_TAB = { target: '_blank', rel: 'noopener' } as const
+
 function HistoryList({
   recent,
   board,
   onBoard,
+  newTab,
 }: {
   recent?: BoardSummary[]
   board: string | null
   onBoard: (id: string | null) => void
+  newTab: boolean
 }) {
   const { t, lang } = usePreferences()
   const [scope, setScope] = useState<'table' | 'mine'>(recent ? 'table' : 'mine')
@@ -395,7 +399,7 @@ function HistoryList({
     }
   }, [scope, finished])
 
-  if (board) return <BoardInPanel id={board} onBack={() => onBoard(null)} />
+  if (board) return <BoardInPanel id={board} onBack={() => onBoard(null)} newTab={newTab} />
 
   const boards = scope === 'table' ? recent : mine
   const name = (u: PublicUser) => (u.robot ? t.robot : u.username)
@@ -422,8 +426,7 @@ function HistoryList({
             <Row key={b.id} type="button" onClick={() => onBoard(b.id)}>
               <BoardNo>#{b.boardNo}</BoardNo>
               <span>
-                <ContractLabel contract={b.contract} />
-                {b.contract && ` ${resultLabel(b.contract, b.result.declarerTricks)}`}
+                <ContractResult contract={b.contract} tricks={b.result.declarerTricks} />
               </span>
               <Score $value={b.result.scoreNS}>{signed(b.result.scoreNS)}</Score>
               <small>
@@ -434,7 +437,9 @@ function HistoryList({
           ))}
         </div>
       )}
-      <AllLink to="/history">{t.historyTitle} →</AllLink>
+      <AllLink to="/history" {...(newTab ? NEW_TAB : {})}>
+        {t.historyTitle} →
+      </AllLink>
     </>
   )
 }
@@ -522,7 +527,7 @@ const Facts = styled.div`
 `
 
 /** A finished board in the side panel: deal, replay, auction and result */
-function BoardInPanel({ id, onBack }: { id: string; onBack: () => void }) {
+function BoardInPanel({ id, onBack, newTab }: { id: string; onBack: () => void; newTab: boolean }) {
   const { t } = usePreferences()
   const [record, setRecord] = useState<BoardRecord | null>(null)
   const replay = useTrickReplay(record?.board.play.length ?? 0)
@@ -614,13 +619,14 @@ function BoardInPanel({ id, onBack }: { id: string; onBack: () => void }) {
       )}
       <Facts>
         <strong>
-          <ContractLabel contract={board.contract} />
-          {board.contract && ` · ${result.declarerTricks} ${t.tricks}（${resultLabel(board.contract, result.declarerTricks)}）`} ·{' '}
-          {t.ns} {signed(result.scoreNS)}
+          <ContractResult contract={board.contract} tricks={result.declarerTricks} /> · NS {signed(result.scoreNS)}
         </strong>
         <AuctionBox auction={board.auction} dealer={board.dealer} vul={board.vul} size={44} />
         <span>
-          <Link to={`/history/${id}`}>{t.openFullPage}</Link> ·{' '}
+          <Link to={`/history/${id}`} {...(newTab ? NEW_TAB : {})}>
+            {t.openFullPage}
+          </Link>{' '}
+          ·{' '}
           <a href={handviewerUrl(record)} target="_blank" rel="noopener">
             BBO Handviewer
           </a>

@@ -82,21 +82,25 @@ const Text = styled.div<{ $w: number }>`
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
 `
 
+/** One suit: the symbol, then the ranks packed together as BBO writes them (♥Q10763), on one line */
 const TextRow = styled.div`
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0 0.2em;
+  align-items: baseline;
+  white-space: nowrap;
+
+  & > :first-child { flex: none; width: 1.15em; }
 `
 
 const RankButton = styled.button<{ $playable: boolean }>`
-  min-width: 1.2em;
-  padding: 0 0.12em;
+  min-width: 0;
+  padding: 0 0.05em;
   border: 0;
   border-radius: 4px;
   background: none;
+  font-family: inherit;
   font-weight: 700;
   font-size: inherit;
+  line-height: inherit;
   color: inherit;
   ${({ $playable, theme }) =>
     $playable &&
@@ -106,6 +110,12 @@ const RankButton = styled.button<{ $playable: boolean }>`
       &:hover { outline: 2px solid ${theme.table.panelText}; }
     `}
   &:disabled { color: inherit; }
+`
+
+/** A void: a dash on the same line and baseline as the ranks would be */
+const Void = styled.span`
+  padding: 0 0.05em;
+  opacity: 0.55;
 `
 
 const Hidden = styled.div<{ $w: number }>`
@@ -159,7 +169,7 @@ export function HandView({
         {groups(sorted).map((suitCards, i) => (
           <TextRow key={order[i]}>
             <SuitSymbol suit={order[i]} onCard />
-            {suitCards.length === 0 && <span aria-hidden>—</span>}
+            {suitCards.length === 0 && <Void aria-hidden>—</Void>}
             {suitCards.map((card) => (
               <RankButton
                 key={card}

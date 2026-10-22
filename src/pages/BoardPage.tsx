@@ -6,11 +6,10 @@ import { hcp, rankLabel, rankOf, SEATS, suitOf, type Seat } from '../../shared/c
 import { remainingCards, tricksOf } from '../../shared/game.ts'
 import { handviewerUrl, toLin } from '../../shared/lin.ts'
 import type { BoardRecord, PublicUser } from '../../shared/protocol.ts'
-import { resultLabel } from '../../shared/scoring.ts'
 import { AuctionBox } from '../components/AuctionBox.tsx'
 import { BoardInfo } from '../components/BoardInfo.tsx'
 import { HandView } from '../components/HandView.tsx'
-import { ContractLabel, SuitSymbol } from '../components/Suit.tsx'
+import { ContractLabel, ContractResult, SuitSymbol } from '../components/Suit.tsx'
 import { TrickArea, TrickSpace, type Position } from '../components/TrickArea.tsx'
 import { Button, Card, ErrorText, Muted, PageMain, PageTitle } from '../components/ui.tsx'
 import { api } from '../lib/api.ts'
@@ -251,13 +250,13 @@ export function BoardRecordView({ record, embedded = false }: { record: BoardRec
                 <dd>{name(players[contract.declarer])}</dd>
                 <dt>{t.result}</dt>
                 <dd>
-                  {result.declarerTricks} {t.tricks}（{resultLabel(contract, result.declarerTricks)}）
+                  <ContractResult contract={contract} tricks={result.declarerTricks} />
                   {result.claimed && t.claimed}
                 </dd>
               </>
             )}
             <dt>{t.scoreNS}</dt>
-            <dd>{signed(result.scoreNS)}</dd>
+            <dd>NS {signed(result.scoreNS)}</dd>
           </Meta>
           <AuctionBox auction={board.auction} dealer={board.dealer} vul={board.vul} />
           <Links>
