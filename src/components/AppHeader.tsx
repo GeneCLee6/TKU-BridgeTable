@@ -1,9 +1,28 @@
-import { History, Layers, List, LogOut, Moon, Palette, Shield, Sun, UserRound, Users } from 'lucide-react'
+import {
+  Check,
+  ChevronDown,
+  Globe,
+  History,
+  Layers,
+  List,
+  LogOut,
+  Moon,
+  Palette,
+  Shield,
+  Sun,
+  UserRound,
+  Users,
+  Volume2,
+  VolumeX,
+} from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
 import { NavLink } from 'react-router-dom'
 import styled from 'styled-components'
+import { LANGS } from '../../shared/messages.ts'
 import { useAuth } from '../state/AuthContext.tsx'
 import { useClub } from '../state/ClubContext.tsx'
 import { usePreferences } from '../state/PreferencesContext.tsx'
+import { LANG_NAMES } from '../strings.ts'
 import { mobile } from '../styles/tokens.ts'
 import { LogoMark } from './Logo.tsx'
 
@@ -76,7 +95,7 @@ const Right = styled.div`
   gap: 4px;
   margin-left: auto;
 
-  /* Theme and deck colours stay on the account page on a phone */
+  /* Theme, deck colours and sound stay on the account page on a phone */
   ${mobile} {
     gap: 0;
     & > [data-wide-only] { display: none; }
@@ -116,17 +135,115 @@ const Dot = styled.span<{ $ok: boolean }>`
   background: ${({ $ok, theme }) => ($ok ? theme.colors.success : theme.colors.lantern)};
 `
 
+const MenuWrap = styled.div`
+  position: relative;
+`
+
 const LangButton = styled(IconButton)`
+  gap: 4px;
   width: auto;
   padding: 0 8px;
   font-size: 13px;
   font-weight: 700;
+
+  ${mobile} {
+    & > span, & > svg + span + svg { display: none; }
+  }
 `
+
+const Menu = styled.div`
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 30;
+  display: grid;
+  min-width: 170px;
+  padding: 6px;
+  border: 1px solid ${({ theme }) => theme.colors.border};
+  border-radius: ${({ theme }) => theme.radius.md};
+  background: ${({ theme }) => theme.colors.surface};
+  box-shadow: ${({ theme }) => theme.shadow};
+`
+
+const MenuItem = styled.button`
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: ${({ theme }) => theme.radius.sm};
+  background: none;
+  color: ${({ theme }) => theme.colors.text};
+  font-size: 15px;
+  text-align: left;
+
+  & > svg { flex: none; color: ${({ theme }) => theme.colors.primary}; }
+  &:hover { background: ${({ theme }) => theme.colors.surfaceAlt}; }
+  &[aria-checked='true'] { font-weight: 700; color: ${({ theme }) => theme.colors.primary}; }
+`
+
+/** The language menu: a globe button that opens the list of languages, each in its own name */
+function LanguageMenu() {
+  const { lang, set, t } = usePreferences()
+  const [open, setOpen] = useState(false)
+  const wrap = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const onPointer = (e: PointerEvent) => {
+      if (!wrap.current?.contains(e.target as Node)) setOpen(false)
+    }
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false)
+    document.addEventListener('pointerdown', onPointer)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('pointerdown', onPointer)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+
+  return (
+    <MenuWrap ref={wrap}>
+      <LangButton
+        type="button"
+        onClick={() => setOpen(!open)}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label={t.languageLabel}
+        title={t.languageLabel}
+      >
+        <Globe size={18} aria-hidden />
+        <span>{LANG_NAMES[lang].short}</span>
+        <ChevronDown size={14} aria-hidden />
+      </LangButton>
+      {open && (
+        <Menu role="menu" aria-label={t.languageLabel}>
+          {LANGS.map((code) => (
+            <MenuItem
+              key={code}
+              type="button"
+              role="menuitemradio"
+              aria-checked={code === lang}
+              onClick={() => {
+                set({ lang: code })
+                setOpen(false)
+              }}
+            >
+              {code === lang ? <Check size={16} aria-hidden /> : <span style={{ width: 16 }} aria-hidden />}
+              {LANG_NAMES[code].name}
+            </MenuItem>
+          ))}
+        </Menu>
+      )}
+    </MenuWrap>
+  )
+}
 
 export function AppHeader() {
   const { user, logout } = useAuth()
   const { status } = useClub()
-  const { mode, deck, cardStyle, t, toggleMode, toggleDeck, toggleCardStyle, toggleLang } = usePreferences()
+  const { mode, deck, cardStyle, sound, t, toggleMode, toggleDeck, toggleCardStyle, toggleSound } = usePreferences()
 
   return (
     <Bar>
@@ -155,9 +272,16 @@ export function AppHeader() {
         </Nav>
       )}
       <Right>
-        <LangButton type="button" onClick={toggleLang} aria-label={t.languageLabel} title={t.languageLabel}>
-          {t.language}
-        </LangButton>
+        <LanguageMenu />
+        <IconButton
+          type="button"
+          data-wide-only
+          onClick={toggleSound}
+          aria-label={sound ? t.soundOff : t.soundOn}
+          title={sound ? t.soundOff : t.soundOn}
+        >
+          {sound ? <Volume2 size={18} aria-hidden /> : <VolumeX size={18} aria-hidden />}
+        </IconButton>
         <IconButton
           type="button"
           onClick={toggleCardStyle}

@@ -17,13 +17,15 @@ import { api } from '../lib/api.ts'
 import { cardName } from '../lib/cards.ts'
 import { formatDateTime, signed } from '../lib/format.ts'
 import { useMediaQuery } from '../lib/useMediaQuery.ts'
+import { useTrickReplay } from '../lib/useTrickReplay.ts'
 import { usePreferences } from '../state/PreferencesContext.tsx'
 import { mobile, mobileQuery } from '../styles/tokens.ts'
 import { seatLetter } from '../strings.ts'
 
 /**
- * One finished board: the deal as a hand diagram, the auction, and a card-by-card replay like
- * BBO's movie. North is always at the top here, as in a printed hand record.
+ * One finished board: the deal as a hand diagram, the auction, and a trick-by-trick replay like
+ * BBO's movie (each step plays the four cards of a trick one after another). North is always at
+ * the top here, as in a printed hand record.
  */
 
 const POSITIONS: Record<Position, Seat> = { top: 'N', right: 'E', bottom: 'S', left: 'W' }
@@ -150,7 +152,8 @@ export function BoardRecordView({ record, embedded = false }: { record: BoardRec
   const phone = useMediaQuery(mobileQuery)
   const { board, players } = record
   const total = board.play.length
-  const [step, setStep] = useState(0)
+  const replay = useTrickReplay(total)
+  const { step } = replay
   const [copied, setCopied] = useState(false)
 
   const shown = { ...board, play: board.play.slice(0, step) }
@@ -161,16 +164,14 @@ export function BoardRecordView({ record, embedded = false }: { record: BoardRec
   const name = (u: PublicUser) => (u.robot ? t.robot : u.username)
   const width = phone ? 34 : 54
 
-  const go = (n: number) => setStep(Math.max(0, Math.min(total, n)))
-
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'ArrowRight') setStep((s) => Math.min(total, s + 1))
-      if (e.key === 'ArrowLeft') setStep((s) => Math.max(0, s - 1))
+      if (e.key === 'ArrowRight') replay.next()
+      if (e.key === 'ArrowLeft') replay.prev()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [total])
+  }, [replay])
 
   const copyLin = async () => {
     try {
@@ -218,19 +219,19 @@ export function BoardRecordView({ record, embedded = false }: { record: BoardRec
           </Diagram>
           {total > 0 && (
             <Controls role="group" aria-label={t.replay}>
-              <Button type="button" $small onClick={() => go(0)} aria-label={t.start}>
+              <Button type="button" $small onClick={replay.start} aria-label={t.start}>
                 <ChevronFirst size={18} aria-hidden />
               </Button>
-              <Button type="button" $small onClick={() => go(step - 1)} aria-label={t.prev}>
+              <Button type="button" $small onClick={replay.prev} disabled={replay.playing || step === 0} aria-label={t.prevTrick}>
                 <ChevronLeft size={18} aria-hidden />
               </Button>
-              <Muted>
-                {step}/{total}
+              <Muted aria-label={t.trickProgress(replay.trick, replay.tricks)}>
+                {replay.trick}/{replay.tricks}
               </Muted>
-              <Button type="button" $small onClick={() => go(step + 1)} aria-label={t.next}>
+              <Button type="button" $small onClick={replay.next} disabled={replay.playing || step >= total} aria-label={t.nextTrick}>
                 <ChevronRight size={18} aria-hidden />
               </Button>
-              <Button type="button" $small onClick={() => go(total)} aria-label={t.end}>
+              <Button type="button" $small onClick={replay.end} aria-label={t.end}>
                 <ChevronLast size={18} aria-hidden />
               </Button>
             </Controls>
@@ -286,7 +287,7 @@ export function BoardRecordView({ record, embedded = false }: { record: BoardRec
               </thead>
               <tbody>
                 {allTricks.map((trick, i) => (
-                  <tr key={i} onClick={() => go(i * 4 + trick.cards.length)} style={{ cursor: 'pointer' }}>
+                  <tr key={i} onClick={() => replay.jump(i * 4 + trick.cards.length)} style={{ cursor: 'pointer' }}>
                     <td>{i + 1}</td>
                     {SEATS.map((seat) => {
                       const played = trick.cards.find((c) => c.seat === seat)

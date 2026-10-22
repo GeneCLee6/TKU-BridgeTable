@@ -1,12 +1,12 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { ThemeProvider } from 'styled-components'
-import { formatMessage, isMessageCode, type Lang, type MessageParams } from '../../shared/messages.ts'
+import { formatMessage, isLang, isMessageCode, type Lang, type MessageParams } from '../../shared/messages.ts'
 import { STRINGS, type Strings } from '../strings.ts'
 import { createTheme, type DeckColors, type ThemeMode } from '../styles/tokens.ts'
 
 /**
- * Per-viewer display preferences: language, light/dark, a two- or four-colour deck, and whether
- * hands are drawn as card faces or as text (♠ A K Q, BBO's text style). Remembered in
+ * Per-viewer display preferences: language, light/dark, a two- or four-colour deck, whether hands
+ * are drawn as card faces or as text (♠ A K Q, BBO's text style), and table sounds. Remembered in
  * localStorage when it is available.
  */
 
@@ -17,14 +17,15 @@ interface Prefs {
   deck: DeckColors
   lang: Lang
   cardStyle: CardStyle
+  sound: boolean
 }
 
 interface Preferences extends Prefs {
   set: (change: Partial<Prefs>) => void
   toggleMode: () => void
   toggleDeck: () => void
-  toggleLang: () => void
   toggleCardStyle: () => void
+  toggleSound: () => void
   t: Strings
   /** A server message code in the current language */
   message: (code: string, params?: MessageParams, fallback?: string) => string
@@ -51,15 +52,21 @@ function systemMode(): ThemeMode {
   }
 }
 
-/** Chinese unless the browser asks for another language */
+/** Traditional Chinese unless the browser asks for another language the site speaks (else English) */
 function systemLang(): Lang {
   try {
     const wanted = navigator.language.toLowerCase()
-    return !wanted || wanted.startsWith('zh') ? 'zh' : 'en'
+    if (!wanted) return 'zh'
+    if (wanted.startsWith('zh')) return /hans|cn|sg/.test(wanted) ? 'zh-Hans' : 'zh'
+    const base = wanted.split('-')[0]
+    return isLang(base) ? base : 'en'
   } catch {
     return 'zh'
   }
 }
+
+/** The `lang` attribute of the page for each language */
+const HTML_LANG: Record<Lang, string> = { zh: 'zh-Hant-TW', 'zh-Hans': 'zh-Hans-CN', en: 'en', vi: 'vi', ja: 'ja', ko: 'ko' }
 
 export function PreferencesProvider({ children }: { children: ReactNode }) {
   const [prefs, setPrefs] = useState<Prefs>(() => {
@@ -67,8 +74,9 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     return {
       mode: stored.mode ?? systemMode(),
       deck: stored.deck ?? 'two',
-      lang: stored.lang ?? systemLang(),
+      lang: isLang(stored.lang) ? stored.lang : systemLang(),
       cardStyle: stored.cardStyle ?? 'cards',
+      sound: stored.sound ?? true,
     }
   })
 
@@ -78,7 +86,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     } catch {
       // Private mode or blocked storage: the preference simply is not remembered.
     }
-    document.documentElement.lang = prefs.lang === 'zh' ? 'zh-Hant-TW' : 'en'
+    document.documentElement.lang = HTML_LANG[prefs.lang]
   }, [prefs])
 
   const set = useCallback((change: Partial<Prefs>) => setPrefs((p) => ({ ...p, ...change })), [])
@@ -89,8 +97,8 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
       set,
       toggleMode: () => set({ mode: prefs.mode === 'light' ? 'dark' : 'light' }),
       toggleDeck: () => set({ deck: prefs.deck === 'two' ? 'four' : 'two' }),
-      toggleLang: () => set({ lang: prefs.lang === 'zh' ? 'en' : 'zh' }),
       toggleCardStyle: () => set({ cardStyle: prefs.cardStyle === 'cards' ? 'text' : 'cards' }),
+      toggleSound: () => set({ sound: !prefs.sound }),
       t,
       message: (code, params, fallback) =>
         isMessageCode(code) ? formatMessage(code, prefs.lang, params) : (fallback ?? t.genericError),

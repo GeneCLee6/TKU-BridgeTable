@@ -1,10 +1,12 @@
 import { useState, type FormEvent } from 'react'
 import styled from 'styled-components'
+import { LANGS } from '../../shared/messages.ts'
 import { LIMITS } from '../../shared/protocol.ts'
 import { Button, Card, ErrorText, PageMain, PageTitle } from '../components/ui.tsx'
 import { api, ApiError } from '../lib/api.ts'
 import { useAuth } from '../state/AuthContext.tsx'
 import { usePreferences } from '../state/PreferencesContext.tsx'
+import { LANG_NAMES } from '../strings.ts'
 
 /** A member's own page: display preferences and changing the password */
 
@@ -84,7 +86,7 @@ function Options<T extends string>({
 }
 
 export function AccountPage() {
-  const { t, message, lang, mode, deck, cardStyle, set } = usePreferences()
+  const { t, message, lang, mode, deck, cardStyle, sound, set } = usePreferences()
   const { user } = useAuth()
   const [current, setCurrent] = useState('')
   const [next, setNext] = useState('')
@@ -113,7 +115,12 @@ export function AccountPage() {
       <Stack>
         <Card>
           <SectionTitle>{t.preferences}</SectionTitle>
-          <Options legend={t.languageName} value={lang} options={[['zh', '繁體中文'], ['en', 'English']]} onChange={(v) => set({ lang: v })} />
+          <Options
+            legend={t.languageName}
+            value={lang}
+            options={LANGS.map((code) => [code, LANG_NAMES[code].name])}
+            onChange={(v) => set({ lang: v })}
+          />
           <Options
             legend={t.cardStyle}
             value={cardStyle}
@@ -122,6 +129,12 @@ export function AccountPage() {
           />
           <Options legend={t.deckColors} value={deck} options={[['two', t.deckTwo], ['four', t.deckFour]]} onChange={(v) => set({ deck: v })} />
           <Options legend={t.theme} value={mode} options={[['light', t.themeLight], ['dark', t.themeDark]]} onChange={(v) => set({ mode: v })} />
+          <Options
+            legend={t.sound}
+            value={sound ? 'on' : 'off'}
+            options={[['on', t.soundOnShort], ['off', t.soundOffShort]]}
+            onChange={(v) => set({ sound: v === 'on' })}
+          />
         </Card>
         <Card>
           <SectionTitle>{t.changePassword}</SectionTitle>

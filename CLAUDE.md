@@ -22,7 +22,7 @@
 2. **不要把不該看的牌送到瀏覽器。** 可見性只在 `worker/views.ts`，改動時更新 `ARCHITECTURE.md` §4 與測試。
 3. **`shared/` 保持純函式**，不 import React、DOM 或 `cloudflare:workers`。
 4. **`ClubService` 不碰 Cloudflare API**，只透過 `Store` 與 `Connections`。
-5. **顏色只來自 `styles/tokens.ts`**，介面文字只來自 `strings.ts`（zh 與 en 兩份都要加）；伺服器的錯誤只丟 `ClubError`／`GameError` 加 `shared/messages.ts` 的代碼。只用於樣式的 prop 加 `$` 前綴。
+5. **顏色只來自 `styles/tokens.ts`**，介面文字只來自 `strings.ts`（繁中、簡中、英、越、日、韓六份都要加，`shared/messages.ts` 也一樣）；伺服器的錯誤只丟 `ClubError`／`GameError` 加 `shared/messages.ts` 的代碼。只用於樣式的 prop 加 `$` 前綴。
 6. **機器人只能用它看得到的牌**（`shared/robot/play.ts` 的 `View`），不能讀 `state.hands` 裡別人的牌。叫牌規則以淡江橋譜為準，改了要更新 `ROBOT.md`。
 7. **不要直接推送到 `main`，也不要 force-push。** 功能走分支＋PR。
 8. 程式碼、註解、commit 用英文；文件與介面用繁體中文（台灣用語）。

@@ -9,6 +9,7 @@ import type { BoardRecord, BoardSummary, MemberStatus, PublicUser } from '../../
 import { resultLabel } from '../../shared/scoring.ts'
 import { api } from '../lib/api.ts'
 import { formatDateTime, signed } from '../lib/format.ts'
+import { useTrickReplay } from '../lib/useTrickReplay.ts'
 import { useAuth } from '../state/AuthContext.tsx'
 import { useClub } from '../state/ClubContext.tsx'
 import { usePreferences } from '../state/PreferencesContext.tsx'
@@ -509,6 +510,7 @@ const SmallButton = styled.button`
   border: 1px solid ${({ theme }) => theme.colors.border};
   border-radius: ${({ theme }) => theme.radius.sm};
   background: ${({ theme }) => theme.colors.surface};
+  &:disabled { opacity: 0.45; }
 `
 
 const Facts = styled.div`
@@ -523,7 +525,8 @@ const Facts = styled.div`
 function BoardInPanel({ id, onBack }: { id: string; onBack: () => void }) {
   const { t } = usePreferences()
   const [record, setRecord] = useState<BoardRecord | null>(null)
-  const [step, setStep] = useState(0)
+  const replay = useTrickReplay(record?.board.play.length ?? 0)
+  const { step } = replay
 
   useEffect(() => {
     let cancelled = false
@@ -550,7 +553,6 @@ function BoardInPanel({ id, onBack }: { id: string; onBack: () => void }) {
   const total = board.play.length
   const shown = { ...board, play: board.play.slice(0, step) }
   const current = tricksOf(shown).at(-1)
-  const go = (n: number) => setStep(Math.max(0, Math.min(total, n)))
   const name = (u: PublicUser) => (u.robot ? t.robot : u.username)
   const result = board.result!
 
@@ -593,19 +595,19 @@ function BoardInPanel({ id, onBack }: { id: string; onBack: () => void }) {
       </Diagram>
       {total > 0 && (
         <Controls role="group" aria-label={t.replay}>
-          <SmallButton type="button" onClick={() => go(0)} aria-label={t.start}>
+          <SmallButton type="button" onClick={replay.start} aria-label={t.start}>
             <ChevronFirst size={16} aria-hidden />
           </SmallButton>
-          <SmallButton type="button" onClick={() => go(step - 1)} aria-label={t.prev}>
+          <SmallButton type="button" onClick={replay.prev} disabled={replay.playing || step === 0} aria-label={t.prevTrick}>
             <ChevronLeft size={16} aria-hidden />
           </SmallButton>
-          <span>
-            {step}/{total}
+          <span aria-label={t.trickProgress(replay.trick, replay.tricks)}>
+            {replay.trick}/{replay.tricks}
           </span>
-          <SmallButton type="button" onClick={() => go(step + 1)} aria-label={t.next}>
+          <SmallButton type="button" onClick={replay.next} disabled={replay.playing || step >= total} aria-label={t.nextTrick}>
             <ChevronRight size={16} aria-hidden />
           </SmallButton>
-          <SmallButton type="button" onClick={() => go(total)} aria-label={t.end}>
+          <SmallButton type="button" onClick={replay.end} aria-label={t.end}>
             <ChevronLast size={16} aria-hidden />
           </SmallButton>
         </Controls>

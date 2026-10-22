@@ -1,7 +1,11 @@
+import type { Lang } from '../../shared/messages.ts'
+
 /** Display formatting that is not a component */
 
-export function formatDateTime(at: number, lang: 'zh' | 'en' = 'zh'): string {
-  return new Date(at).toLocaleString(lang === 'zh' ? 'zh-TW' : 'en-GB', {
+const LOCALE: Record<Lang, string> = { zh: 'zh-TW', 'zh-Hans': 'zh-CN', en: 'en-GB', vi: 'vi-VN', ja: 'ja-JP', ko: 'ko-KR' }
+
+export function formatDateTime(at: number, lang: Lang = 'zh'): string {
+  return new Date(at).toLocaleString(LOCALE[lang], {
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',

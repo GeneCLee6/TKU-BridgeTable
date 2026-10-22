@@ -81,8 +81,6 @@ export interface TableView {
   mySeat: Seat | null
   board: BoardView | null
   boardsPlayed: number
-  /** Seats that pressed "next board" after a finished board */
-  ready: Seat[]
   chat: ChatMessage[]
   /** Boards finished at this table, newest first, for the History panel */
   recent: BoardSummary[]
@@ -121,7 +119,6 @@ export type ClientMessage =
   | { type: 'claimRespond'; accept: boolean }
   | { type: 'undoRequest' }
   | { type: 'undoRespond'; accept: boolean }
-  | { type: 'ready' }
   | { type: 'chat'; text: string }
 
 export type ServerMessage =

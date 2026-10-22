@@ -3,6 +3,7 @@ import styled, { css } from 'styled-components'
 import type { AuctionCall } from '../../shared/auction.ts'
 import { isVulnerable, type Vulnerability } from '../../shared/board.ts'
 import { nextSeat, type Seat } from '../../shared/cards.ts'
+import { auctionBoxHeight, auctionCell } from '../lib/measure.ts'
 import { useT } from '../state/PreferencesContext.tsx'
 import { seatLetter } from '../strings.ts'
 import { CallLabel } from './Suit.tsx'
@@ -11,13 +12,15 @@ import { CallLabel } from './Suit.tsx'
  * The auction as a table, BBO style: four columns from the viewer's point of view (left-hand
  * opponent, partner, right-hand opponent, the viewer last), vulnerable seats with a red header,
  * the dealer's first call in the dealer's column and '?' where the next call goes. Alerted calls
- * are yellow; click one to read its explanation. With `maxRows`, a long auction scrolls inside
- * the table (the header stays put) and always shows the latest round.
+ * are yellow; click one to read its explanation. With `maxRows` the table keeps one fixed height
+ * from the first call to the last, as on BBO: a long auction scrolls inside it (the header stays
+ * put, the latest round in view) and an alert explanation floats over its foot.
  */
 
-const Box = styled.div<{ $size: number }>`
+const Box = styled.div<{ $size: number; $width?: number }>`
+  position: relative;
   width: 100%;
-  max-width: ${({ $size }) => Math.round($size * 4.4)}px;
+  max-width: ${({ $size, $width }) => $width ?? Math.round($size * 4.4)}px;
   border-radius: 6px;
   overflow: hidden;
   background: ${({ theme }) => theme.table.panel};
@@ -26,8 +29,8 @@ const Box = styled.div<{ $size: number }>`
   font-family: ${({ theme }) => theme.fonts.cards};
 `
 
-const Scroll = styled.div<{ $maxHeight?: number }>`
-  ${({ $maxHeight }) => $maxHeight && `max-height: ${$maxHeight}px; overflow-y: auto; overscroll-behavior: contain;`}
+const Scroll = styled.div<{ $height?: number }>`
+  ${({ $height }) => $height && `height: ${$height}px; max-height: ${$height}px; overflow-y: auto; overscroll-behavior: contain;`}
 `
 
 const Table = styled.table<{ $size: number }>`
@@ -82,12 +85,14 @@ const HeadName = styled.span`
   opacity: 0.85;
 `
 
-const Explain = styled.p`
+const Explain = styled.p<{ $float: boolean }>`
   margin: 0;
   padding: 4px 8px;
   border-top: 1px solid ${({ theme }) => theme.table.panelBorder};
+  background: ${({ theme }) => theme.table.panel};
   font-size: 14px;
   font-family: ${({ theme }) => theme.fonts.body};
+  ${({ $float }) => $float && 'position: absolute; left: 0; right: 0; bottom: 0; z-index: 2;'}
 `
 
 export function AuctionBox({
@@ -99,6 +104,7 @@ export function AuctionBox({
   names,
   size = 56,
   maxRows,
+  width,
 }: {
   auction: AuctionCall[]
   dealer: Seat
@@ -111,8 +117,10 @@ export function AuctionBox({
   names?: Partial<Record<Seat, string>>
   /** Scale, roughly the card width at the table */
   size?: number
-  /** Rounds shown before the table scrolls */
+  /** Rounds shown before the table scrolls; the table then keeps this height */
   maxRows?: number
+  /** Widest the table may grow, in pixels (4.4 × size by default) */
+  width?: number
 }) {
   const t = useT()
   const [open, setOpen] = useState<number | null>(null)
@@ -122,9 +130,7 @@ export function AuctionBox({
   if (turn) cells.push('turn')
   const rows = Array.from({ length: Math.max(1, Math.ceil(cells.length / 4)) }, (_, r) => cells.slice(r * 4, r * 4 + 4))
   const explained = open !== null ? auction[open] : undefined
-  const cellSize = Math.max(44, size)
-  const rowHeight = Math.round(cellSize * 0.5)
-  const headHeight = Math.round(cellSize * (names ? 0.62 : 0.42))
+  const cellSize = auctionCell(size)
   const scroller = useRef<HTMLDivElement>(null)
 
   // Keep the newest round in view as calls come in
@@ -134,8 +140,8 @@ export function AuctionBox({
   }, [auction.length, turn])
 
   return (
-    <Box $size={cellSize}>
-      <Scroll ref={scroller} $maxHeight={maxRows ? headHeight + rowHeight * maxRows + 2 : undefined}>
+    <Box $size={cellSize} $width={width}>
+      <Scroll ref={scroller} $height={maxRows ? auctionBoxHeight(size, maxRows, !!names) : undefined}>
         <Table $size={cellSize} aria-label={t.auction}>
           <thead>
             <tr>
@@ -181,7 +187,7 @@ export function AuctionBox({
         </Table>
       </Scroll>
       {explained && (
-        <Explain>
+        <Explain $float={!!maxRows}>
           <CallLabel call={explained.call} onCard />：{explained.alert || t.alert}
         </Explain>
       )}

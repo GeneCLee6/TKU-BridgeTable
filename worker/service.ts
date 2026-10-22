@@ -89,6 +89,8 @@ const RECENT_KEEP = 30
 const SCHEMA = 2
 /** How long robots wait before acting, so people can follow the play */
 const ROBOT_DELAY = { call: 800, card: 700, afterTrick: 1500, answer: 400 }
+/** How long a finished board stays on the table before the next one is dealt, as on BBO */
+export const NEXT_BOARD_DELAY = 4000
 const ROBOT_NAME = 'Robot'
 
 /**
@@ -111,6 +113,8 @@ export class ClubService {
   private readonly schedule: (run: () => void, ms: number) => void
   /** Tables with a robot move already scheduled */
   private readonly robotTimers = new Set<string>()
+  /** Tables with the next deal already scheduled */
+  private readonly dealTimers = new Set<string>()
 
   constructor(store: Store, connections: Connections, config: ClubConfig) {
     this.store = store
@@ -127,7 +131,10 @@ export class ClubService {
     this.settings = (await this.store.get<Partial<ClubSettings>>('meta:settings')) ?? {}
     if (((await this.store.get<number>('meta:schema')) ?? 1) < SCHEMA) await this.migrate()
     await this.ensureAdmin()
-    for (const table of this.tables.values()) this.scheduleRobots(table)
+    for (const table of this.tables.values()) {
+      this.scheduleRobots(table)
+      this.scheduleDeal(table)
+    }
   }
 
   /** Version 1 kept history as `board:<time>-<id>` only; build the indexes from it */
@@ -424,8 +431,6 @@ export class ClubService {
         return this.removeRobot(userId, message.seat)
       case 'chat':
         return this.chat(userId, message.text)
-      case 'ready':
-        return this.ready(userId)
       case 'call':
       case 'play':
       case 'claim':
@@ -473,7 +478,6 @@ export class ClubService {
       spectators: [],
       boardsPlayed: 0,
       board: null,
-      ready: [],
       chat: [],
       createdAt: this.now(),
     }
@@ -501,7 +505,6 @@ export class ClubService {
     table.spectators = table.spectators.filter((id) => id !== userId)
     if (currentSeat) this.vacate(table, currentSeat)
     table.seats[seat] = userId
-    table.ready = table.ready.filter((s) => s !== seat)
     this.startBoardIfReady(table)
     await this.save(table)
   }
@@ -556,7 +559,6 @@ export class ClubService {
 
   private vacate(table: Table, seat: Seat) {
     table.seats[seat] = null
-    table.ready = table.ready.filter((s) => s !== seat)
     if (table.undo?.seat === seat) table.undo = undefined
   }
 
@@ -571,31 +573,46 @@ export class ClubService {
     await this.save(table)
   }
 
-  private async ready(userId: string) {
-    const table = this.tableOf(userId)
-    const seat = table && this.seatOf(table, userId)
-    if (!table || !seat || table.board?.phase !== 'finished') return
-    if (!table.ready.includes(seat)) table.ready.push(seat)
-    this.startBoardIfReady(table)
-    await this.save(table)
-  }
-
   /**
-   * Deals the next board once all four seats are taken (by people or robots), at least one person
-   * is seated, and every person is done with the last board. Robots are always ready.
+   * Deals the first board as soon as all four seats are taken (by people or robots) and at least
+   * one person is seated. After that every board is dealt by itself a moment after the last one
+   * ends, as on BBO: nobody has to press "next board".
    */
   private startBoardIfReady(table: Table) {
-    if (SEATS.some((s) => !table.seats[s]) || this.humansSeated(table) === 0) return
-    const board = table.board
-    if (board) {
-      if (board.phase !== 'finished') return
-      const waiting = SEATS.filter((s) => !isRobotId(table.seats[s]) && !table.ready.includes(s))
-      if (waiting.length) return
-    }
+    if (!this.canDeal(table)) return
+    if (table.board) this.scheduleDeal(table)
+    else this.dealBoard(table)
+  }
+
+  private canDeal(table: Table) {
+    return (
+      SEATS.every((s) => table.seats[s]) &&
+      this.humansSeated(table) > 0 &&
+      (!table.board || table.board.phase === 'finished')
+    )
+  }
+
+  private dealBoard(table: Table) {
     table.board = newBoard(table.boardsPlayed + 1, deal(this.random))
-    table.ready = []
     table.undo = undefined
     table.recordId = undefined
+  }
+
+  private scheduleDeal(table: Table) {
+    if (this.dealTimers.has(table.id) || !table.board || !this.canDeal(table)) return
+    this.dealTimers.add(table.id)
+    this.schedule(() => void this.dealNext(table.id), NEXT_BOARD_DELAY)
+  }
+
+  private async dealNext(tableId: string) {
+    this.dealTimers.delete(tableId)
+    const table = this.tables.get(tableId)
+    // Someone may have stood up while the result was showing; sitting down deals again
+    if (!table || !this.canDeal(table)) return
+    this.dealBoard(table)
+    await this.save(table)
+    this.broadcast()
+    this.scheduleRobots(table)
   }
 
   // ── Bidding and play ────────────────────────────────────────────────────────────────────────
@@ -819,7 +836,6 @@ export class ClubService {
       mySeat,
       board: table.board ? boardView(table.board, mySeat, { undo: table.undo, recordId: table.recordId }) : null,
       boardsPlayed: table.boardsPlayed,
-      ready: [...table.ready, ...SEATS.filter((s) => isRobotId(table.seats[s]))],
       chat: table.chat,
       recent: table.recent ?? [],
     }
