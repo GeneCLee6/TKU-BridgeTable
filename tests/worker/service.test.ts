@@ -580,3 +580,62 @@ describe('side panel data', () => {
     expect(await club.record(recent[0].id)).not.toBeNull()
   })
 })
+
+describe('a robot partner as declarer', () => {
+  /** A repeatable shuffle (mulberry32), so a test can find a deal it needs */
+  const seeded = (seed: number) => {
+    let a = seed
+    return (n: number) => {
+      a = (a + 0x6d2b79f5) | 0
+      let t = Math.imul(a ^ (a >>> 15), 1 | a)
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
+      return Math.floor((((t ^ (t >>> 14)) >>> 0) / 4294967296) * n)
+    }
+  }
+
+  it('moves the person into the declarer’s seat, and back if the auction is reopened', async () => {
+    for (let seed = 1; seed < 300; seed++) {
+      store = new MemoryStore()
+      connections = new FakeConnections()
+      queue = []
+      club = new ClubService(store, connections, {
+        maxUsers: 10,
+        now: () => time,
+        random: seeded(seed),
+        schedule: (run, ms, kind) => queue.push({ run, ms, kind }),
+      })
+      await club.load()
+      const gene = await member('gene')
+      const east = await member('east')
+      const west = await member('west')
+      await send(gene, { type: 'createTable' })
+      const tableId = tableFor(gene).id
+      await send(gene, { type: 'addRobot', seat: 'N' })
+      await send(east, { type: 'sit', tableId, seat: 'E' })
+      await send(west, { type: 'sit', tableId, seat: 'W' })
+      // Board 1: the robot in North deals and calls first; we need it to open
+      await runRobots()
+      if (tableFor(gene).board!.auction[0]?.call === 'P') continue
+      const southHand = tableFor(gene).board!.hands.S
+      for (const person of [east, gene, west]) await send(person, { type: 'call', call: 'P' })
+
+      const view = tableFor(gene)
+      expect(view.board!.contract?.declarer).toBe('N')
+      expect(view.mySeat).toBe('N')
+      expect(view.seats.S?.robot).toBe(true)
+      expect(view.board!.dummy).toBe('S')
+      // Gene's own cards are now dummy's
+      expect(view.board!.hands.S ?? southHand).toEqual(southHand)
+
+      // West takes back the last pass; the auction is open again and Gene is back in South
+      await send(west, { type: 'undoRequest' })
+      await runRobots()
+      if (tableFor(gene).board!.undo) await send(gene, { type: 'undoRespond', accept: true })
+      expect(tableFor(gene).board!.phase).toBe('auction')
+      expect(tableFor(gene).mySeat).toBe('S')
+      expect(tableFor(gene).seats.N?.robot).toBe(true)
+      return
+    }
+    throw new Error('no deal where the robot opens')
+  })
+})

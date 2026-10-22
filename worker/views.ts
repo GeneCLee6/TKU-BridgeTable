@@ -27,6 +27,8 @@ export interface Table {
   recordId?: string
   /** When the next board is dealt (ms), once a board is finished */
   dealAt?: number
+  /** Declarer's and dummy's seats when a person was moved into a robot partner's declaring seat */
+  swapped?: [Seat, Seat]
   /** Boards finished here, newest first (older tables may not have it) */
   recent?: BoardSummary[]
   createdAt: number

@@ -20,7 +20,7 @@ import { TrickPile } from '../components/TrickPile.tsx'
 import { Muted, PageMain } from '../components/ui.tsx'
 import { suitOrder } from '../lib/cards.ts'
 import { auctionBoxHeight, biddingBoxHeight, handHeight, type Orientation } from '../lib/measure.ts'
-import { dealSound, playCardSound, unlockSound } from '../lib/sound.ts'
+import { dealSound, playCardSound, turnSound, unlockSound } from '../lib/sound.ts'
 import { useAuth } from '../state/AuthContext.tsx'
 import { useClub } from '../state/ClubContext.tsx'
 import { usePreferences, useT } from '../state/PreferencesContext.tsx'
@@ -60,10 +60,13 @@ const GAP = { row: 6, column: 12 }
 const STACK_GAP = 8
 /** A name plate's height; on a computer it covers the foot of its hand's cards, as on BBO */
 const PLATE = 34
+/** On a phone the left and right plates are smaller, and cover a little less of their cards */
+const PHONE_PLATE = 24
+const PHONE_COVER = 10
 /** A card you clicked is shown on the table at once; if the server has not taken it by then, it goes back */
 const PENDING_MS = 4000
 
-const Felt = styled.div<{ $phone: boolean }>`
+const Felt = styled.div<{ $phone: boolean; $sides?: number }>`
   position: relative;
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) minmax(0, 1fr);
@@ -79,10 +82,11 @@ const Felt = styled.div<{ $phone: boolean }>`
   background: radial-gradient(ellipse at center, ${({ theme }) => theme.table.felt} 55%, ${({ theme }) => theme.table.feltEdge});
   color: ${({ theme }) => theme.table.feltText};
 
-  ${({ $phone }) =>
+  ${({ $phone, $sides }) =>
     $phone &&
     css`
-      grid-template-columns: auto minmax(0, 1fr) auto;
+      /* The turned side seats are the same width, so the middle sits in the middle */
+      grid-template-columns: ${$sides ? `${$sides}px minmax(0, 1fr) ${$sides}px` : 'auto minmax(0, 1fr) auto'};
       grid-template-rows: auto auto minmax(0, 1fr) auto auto auto;
       grid-template-areas:
         'info info status'
@@ -144,12 +148,20 @@ const appear = keyframes`
  * the foot of the cards, as BBO's name bar does; the rank and suit stay visible at the top. Just
  * after a deal the hand fades in as the packet from the middle arrives.
  */
-const SeatBlock = styled.div<{ $overlap: number; $appear: boolean }>`
+const SeatBlock = styled.div<{ $overlap: number; $appear: boolean; $size?: { width: number; height: number } }>`
   display: flex;
   flex-direction: column;
   align-items: stretch;
   min-width: 0;
   max-width: 100%;
+  ${({ $size }) =>
+    $size &&
+    css`
+      justify-content: flex-end;
+      width: ${$size.width}px;
+      max-width: none;
+      height: ${$size.height}px;
+    `}
   & > [data-hand] {
     display: flex;
     justify-content: center;
@@ -167,6 +179,27 @@ const SeatBlock = styled.div<{ $overlap: number; $appear: boolean }>`
     justify-content: center;
     margin-top: -${({ $overlap }) => $overlap}px;
     ${({ $overlap }) => $overlap > 0 && '& > * { flex: 1 1 auto; }'}
+  }
+`
+
+/**
+ * On a phone, West and East sit turned towards the middle, as if facing each other across the
+ * table: the seat is laid on its side in a box of fixed size, so the plate runs the full length
+ * whatever the number of cards left, and both sides line up.
+ */
+const Turned = styled.div<{ $thick: number; $length: number; $dir: 1 | -1 }>`
+  position: relative;
+  flex: none;
+  width: ${({ $thick }) => $thick}px;
+  height: ${({ $length }) => $length}px;
+
+  & > * {
+    position: absolute;
+    top: 0;
+    left: 0;
+    transform-origin: 0 0;
+    transform: ${({ $dir, $thick, $length }) =>
+      $dir === 1 ? `translateX(${$thick}px) rotate(90deg)` : `translateY(${$length}px) rotate(-90deg)`};
   }
 `
 
@@ -304,6 +337,35 @@ function useTableSounds(boardNo: number, played: number, on: boolean) {
   }, [boardNo, played, on])
 }
 
+/**
+ * Tells you it is your turn when you are looking elsewhere: a chime when your call comes round (and
+ * when your card is due while this tab is in the background), and the tab's title says so too
+ */
+function useTurnAlert(turn: 'call' | 'play' | null, label: string | null, on: boolean) {
+  const last = useRef(turn)
+  const baseTitle = useRef(document.title)
+
+  useEffect(() => {
+    const before = last.current
+    last.current = turn
+    if (!on || !turn || turn === before) return
+    if (turn === 'call' || document.hidden) turnSound()
+  }, [turn, on])
+
+  useEffect(() => {
+    const base = baseTitle.current
+    const update = () => {
+      document.title = label && document.hidden ? `🔔 ${label} · ${base}` : base
+    }
+    update()
+    document.addEventListener('visibilitychange', update)
+    return () => {
+      document.removeEventListener('visibilitychange', update)
+      document.title = base
+    }
+  }, [label])
+}
+
 /** The felt's size, so cards can be as large as the window allows */
 function useSize() {
   const ref = useRef<HTMLDivElement>(null)
@@ -342,11 +404,15 @@ function tableSizes(feltWidth: number, feltHeight: number) {
   const phone = feltWidth < 700
   if (phone) {
     const bottom = clamp(44, feltWidth * 0.155, 84)
+    // The side seats lie on their side: the card height sets their width, 13 cards their length
+    const side = clamp(26, feltWidth * 0.085, 40)
     return {
       phone,
       bottom,
       top: clamp(36, bottom * 0.8, 70),
-      side: clamp(30, feltWidth * 0.11, 50),
+      side,
+      sideThick: handHeight(side, 'horizontal') + PHONE_PLATE - PHONE_COVER,
+      sideLength: Math.round(side * 7),
       trick: clamp(40, bottom * 0.78, 70),
       auction: 60,
       auctionRows: 4,
@@ -383,6 +449,8 @@ function tableSizes(feltWidth: number, feltHeight: number) {
     auctionRows: AUCTION_ROWS,
     auctionWidth: Math.round(Math.min(middleWidth, auction * 5.2)),
     box,
+    sideThick: 0,
+    sideLength: 0,
   }
 }
 
@@ -450,6 +518,15 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
   const missing = SEATS.filter((s) => !table.seats[s]).length
   const trump = board?.contract && board.phase !== 'auction' ? board.contract.strain : null
 
+  // The server moved me into my robot partner's declaring seat: say so until the first trick is done
+  const [seatSeen, setSeatSeen] = useState({ seat: me, boardNo })
+  const [swappedFor, setSwappedFor] = useState(0)
+  if (seatSeen.seat !== me || seatSeen.boardNo !== boardNo) {
+    if (seatSeen.boardNo === boardNo && seatSeen.seat && me && board?.contract?.declarer === me) setSwappedFor(boardNo)
+    setSeatSeen({ seat: me, boardNo })
+  }
+  const swapNotice = swappedFor === boardNo && board?.phase === 'play' && board.tricks.every((x) => !x.winner)
+
   // ── The card you just clicked, shown on the table before the server confirms it ──
   const [pending, setPending] = useState<{ card: Card; seat: Seat; boardNo: number } | null>(null)
   const playedCards = board?.tricks.flatMap((x) => x.cards.map((c) => c.card)) ?? []
@@ -500,6 +577,13 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
     return () => clearTimeout(timer)
   }, [dealing])
   useTableSounds(boardNo, playedCount, sound)
+  const myTurn =
+    board?.phase === 'auction' && board.legalCalls.length > 0 && !board.undo
+      ? 'call'
+      : board?.phase === 'play' && board.legalCards.length > 0 && !board.claim
+        ? 'play'
+        : null
+  useTurnAlert(myTurn, myTurn === 'call' ? t.yourCall : myTurn === 'play' ? t.yourPlay : null, sound)
 
   // ── After the board: the last trick stays, then a countdown to the next deal ──
   const finished = board?.phase === 'finished'
@@ -523,6 +607,8 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
     const held = [...new Set([...cards, ...played].map(suitOf))] as Suit[]
     return suitOrder(trump, held)
   }
+
+  const turnedSides = sizes.phone && cardStyle === 'cards'
 
   /** What the viewer may do with a seat: sit there, and for the host: robots and asking people to leave */
   const seatActions = (seat: Seat): SeatAction[] => {
@@ -556,8 +642,10 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
             : undefined
         : undefined
     const width = position === 'bottom' ? sizes.bottom : side ? sizes.side : sizes.top
+    // On a phone the side seats lie on their side (cards only; text hands stay as they are)
+    const turned = side && turnedSides
     // Face-up hands on the left and right go in rows by suit (BBO's dummy), which is narrow
-    const orientation: Orientation = !side ? 'horizontal' : sizes.phone ? 'vertical' : cards ? 'rows' : 'horizontal'
+    const orientation: Orientation = !side || turned ? 'horizontal' : sizes.phone ? 'vertical' : cards ? 'rows' : 'horizontal'
     const hand = board && (
       <div data-hand={seat} data-hand-at={position}>
         <HandView
@@ -573,9 +661,13 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
         />
       </div>
     )
-    const covers = !!hand && !sizes.phone && cardStyle === 'cards'
-    return (
-      <SeatBlock $overlap={covers ? PLATE : 0} $appear={dealing === boardNo && dealing > 0}>
+    const cover = !hand || cardStyle !== 'cards' ? 0 : !sizes.phone ? PLATE : turned ? PHONE_COVER : 0
+    const block = (
+      <SeatBlock
+        $overlap={cover}
+        $appear={dealing === boardNo && dealing > 0}
+        $size={turned ? { width: sizes.sideLength, height: sizes.sideThick } : undefined}
+      >
         {hand}
         <div data-plate>
           <SeatPlate
@@ -592,6 +684,13 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
           />
         </div>
       </SeatBlock>
+    )
+    return turned ? (
+      <Turned $thick={sizes.sideThick} $length={sizes.sideLength} $dir={position === 'left' ? 1 : -1}>
+        {block}
+      </Turned>
+    ) : (
+      block
     )
   }
 
@@ -704,7 +803,7 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
 
   return (
     <Layout>
-      <Felt ref={feltRef} $phone={sizes.phone}>
+      <Felt ref={feltRef} $phone={sizes.phone} $sides={turnedSides ? sizes.sideThick : undefined}>
         {dealing > 0 && dealing === boardNo && (
           <DealAnimation key={dealing} felt={feltRef} width={Math.round(sizes.side * 0.8)} />
         )}
@@ -772,6 +871,7 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
         <Area $area="actions" $align="end" $justify="end">
           <Actions>
             {!me && <Note>{t.kibitzing}</Note>}
+            {swapNotice && <Note role="status">{t.swappedToDeclare}</Note>}
             {board && me && canUndo(board, me) && (
               <FeltButton type="button" $tone="plain" onClick={() => send({ type: 'undoRequest' })}>
                 {t.undo}

@@ -64,6 +64,7 @@ const zh = {
 
   // Table
   kick: '請他離座',
+  swappedToDeclare: '機器人同伴叫到合約：換你坐莊家的位子主打',
   seatOptions: (seat: string) => `${seat} 座位選項`,
   emptySeat: '空位',
   takeSeat: (seat: string) => `坐 ${seat}`,
@@ -278,6 +279,7 @@ const en: Strings = {
   robot: 'Robot',
 
   kick: 'Ask to leave the seat',
+  swappedToDeclare: 'Your robot partner won the contract: you moved to its seat to play it',
   seatOptions: (seat) => `Seat ${seat} options`,
   emptySeat: 'Empty',
   takeSeat: (seat) => `Sit ${seat}`,
@@ -485,6 +487,7 @@ const zhHans: Strings = {
   robot: '机器人',
 
   kick: '请他离座',
+  swappedToDeclare: '机器人同伴叫到定约：换你坐庄家的位子主打',
   seatOptions: (seat) => `${seat} 座位选项`,
   emptySeat: '空位',
   takeSeat: (seat) => `坐 ${seat}`,
@@ -692,6 +695,7 @@ const vi: Strings = {
   robot: 'Robot',
 
   kick: 'Mời rời chỗ',
+  swappedToDeclare: 'Đồng đội robot thắng hợp đồng: bạn đổi sang chỗ của nó để chơi chính',
   seatOptions: (seat) => `Tùy chọn chỗ ${seat}`,
   emptySeat: 'Trống',
   takeSeat: (seat) => `Ngồi ${seat}`,
@@ -899,6 +903,7 @@ const ja: Strings = {
   robot: 'ロボット',
 
   kick: '席を空けてもらう',
+  swappedToDeclare: 'ロボットのパートナーがコントラクトを取りました：あなたが席を替わってプレイします',
   seatOptions: (seat) => `${seat} 席のメニュー`,
   emptySeat: '空席',
   takeSeat: (seat) => `${seat} に着席`,
@@ -1106,6 +1111,7 @@ const ko: Strings = {
   robot: '로봇',
 
   kick: '자리에서 내보내기',
+  swappedToDeclare: '로봇 파트너가 계약을 땄습니다: 자리를 바꿔 당신이 플레이합니다',
   seatOptions: (seat) => `${seat} 자리 메뉴`,
   emptySeat: '빈자리',
   takeSeat: (seat) => `${seat}에 앉기`,

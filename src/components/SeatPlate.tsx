@@ -1,5 +1,6 @@
 import { Bot, ChevronDown, Crown } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type CSSProperties } from 'react'
+import { createPortal } from 'react-dom'
 import styled, { css, keyframes } from 'styled-components'
 import type { Seat } from '../../shared/cards.ts'
 import type { SeatOccupant } from '../../shared/protocol.ts'
@@ -11,6 +12,8 @@ import { seatLetter } from '../strings.ts'
  * offline on the right, red when that side is vulnerable, a pulsing yellow ring when it is their
  * turn, and a crown before the host's name. Clicking the plate opens the seat's menu (sit here,
  * and for the host: add or remove a robot, ask a player to leave) when there is anything to do.
+ * The menu floats above the page next to the plate, so it stays upright even when the seat is
+ * turned on its side (the left and right seats on a phone).
  */
 
 export interface SeatAction {
@@ -59,11 +62,13 @@ const Plate = styled.div<{ $vul: boolean; $turn: boolean; $offline: boolean; $co
   ${({ $compact }) =>
     $compact &&
     css`
-      flex-direction: column;
-      gap: 2px;
-      padding: 3px;
+      gap: 4px;
+      min-height: 24px;
+      padding: 2px 6px 2px 2px;
+      border-radius: 5px;
       font-size: 12px;
-      & > span { max-width: 64px; }
+      & [data-letter] { width: 20px; height: 20px; }
+      & [data-tag] { padding: 0 5px; font-size: 11px; }
     `}
 `
 
@@ -112,18 +117,17 @@ const Tag = styled.span`
   white-space: nowrap;
 `
 
-const Menu = styled.div<{ $up: boolean }>`
-  position: absolute;
-  left: 50%;
-  z-index: 20;
-  ${({ $up }) => ($up ? 'bottom: calc(100% + 6px);' : 'top: calc(100% + 6px);')}
+const MENU_WIDTH = 190
+
+const Menu = styled.div`
+  position: fixed;
+  z-index: 40;
   display: grid;
-  min-width: 180px;
+  width: ${MENU_WIDTH}px;
   padding: 6px;
   border-radius: 10px;
   background: ${({ theme }) => theme.table.panel};
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
-  transform: translateX(-50%);
 `
 
 const MenuItem = styled.button<{ $tone?: 'danger' }>`
@@ -164,28 +168,46 @@ export function SeatPlate({
   actions?: SeatAction[]
   /** Open the menu above the plate (the bottom seat) */
   menuUp?: boolean
-  /** Stacked and narrow, for the side seats on a phone */
+  /** Small, for the seats turned on their side on a phone */
   compact?: boolean
 }) {
   const t = useT()
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState<CSSProperties | null>(null)
   const wrap = useRef<HTMLDivElement>(null)
+  const menu = useRef<HTMLDivElement>(null)
   const offline = !!occupant && !occupant.online
   const clickable = actions.length > 0
 
   useEffect(() => {
     if (!open) return
     const onPointer = (e: PointerEvent) => {
-      if (!wrap.current?.contains(e.target as Node)) setOpen(false)
+      const target = e.target as Node
+      if (!wrap.current?.contains(target) && !menu.current?.contains(target)) setOpen(null)
     }
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false)
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(null)
+    // The menu is placed once; if the page moves under it, it simply closes
+    const close = () => setOpen(null)
     document.addEventListener('pointerdown', onPointer)
     document.addEventListener('keydown', onKey)
+    window.addEventListener('resize', close)
+    window.addEventListener('scroll', close, true)
     return () => {
       document.removeEventListener('pointerdown', onPointer)
       document.removeEventListener('keydown', onKey)
+      window.removeEventListener('resize', close)
+      window.removeEventListener('scroll', close, true)
     }
   }, [open])
+
+  /** Next to the plate, centred on it, kept inside the window; above it near the bottom */
+  const toggle = () => {
+    if (open) return setOpen(null)
+    const plate = wrap.current?.getBoundingClientRect()
+    if (!plate) return
+    const left = Math.min(Math.max(8, plate.left + plate.width / 2 - MENU_WIDTH / 2), window.innerWidth - MENU_WIDTH - 8)
+    const up = menuUp || plate.bottom > window.innerHeight - 160
+    setOpen(up ? { left, bottom: window.innerHeight - plate.top + 6 } : { left, top: plate.bottom + 6 })
+  }
 
   const name = occupant ? (
     <Name>
@@ -203,9 +225,9 @@ export function SeatPlate({
       <Plate
         as={clickable ? 'button' : 'div'}
         type={clickable ? 'button' : undefined}
-        onClick={clickable ? () => setOpen(!open) : undefined}
+        onClick={clickable ? toggle : undefined}
         aria-haspopup={clickable ? 'menu' : undefined}
-        aria-expanded={clickable ? open : undefined}
+        aria-expanded={clickable ? !!open : undefined}
         $vul={vulnerable}
         $turn={turn}
         $offline={offline}
@@ -213,35 +235,37 @@ export function SeatPlate({
         $clickable={clickable}
         data-seat={seat}
       >
-        <Letter>{seatLetter[seat]}</Letter>
+        <Letter data-letter>{seatLetter[seat]}</Letter>
         {name}
         {(role || offline || clickable) && (
           <Tags>
-            {role && <Tag>{role === 'declarer' ? t.declarer : t.dummy}</Tag>}
-            {offline && <Tag>{t.offline}</Tag>}
-            {clickable && !compact && <ChevronDown size={16} aria-hidden />}
+            {role && <Tag data-tag>{role === 'declarer' ? t.declarer : t.dummy}</Tag>}
+            {offline && <Tag data-tag>{t.offline}</Tag>}
+            {clickable && <ChevronDown size={compact ? 13 : 16} aria-hidden />}
           </Tags>
         )}
         {turn && <span className="visually-hidden">{t.waitingFor(occupant?.username ?? seatLetter[seat])}</span>}
       </Plate>
-      {open && (
-        <Menu role="menu" aria-label={t.seatOptions(seatLetter[seat])} $up={menuUp}>
-          {actions.map((action) => (
-            <MenuItem
-              key={action.label}
-              type="button"
-              role="menuitem"
-              $tone={action.tone}
-              onClick={() => {
-                setOpen(false)
-                action.onSelect()
-              }}
-            >
-              {action.label}
-            </MenuItem>
-          ))}
-        </Menu>
-      )}
+      {open &&
+        createPortal(
+          <Menu ref={menu} role="menu" aria-label={t.seatOptions(seatLetter[seat])} style={open}>
+            {actions.map((action) => (
+              <MenuItem
+                key={action.label}
+                type="button"
+                role="menuitem"
+                $tone={action.tone}
+                onClick={() => {
+                  setOpen(null)
+                  action.onSelect()
+                }}
+              >
+                {action.label}
+              </MenuItem>
+            ))}
+          </Menu>,
+          document.body,
+        )}
     </Wrap>
   )
 }
