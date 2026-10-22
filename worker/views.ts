@@ -22,7 +22,6 @@ export interface Table {
   spectators: string[]
   boardsPlayed: number
   board: BoardState | null
-  ready: Seat[]
   chat: ChatMessage[]
   undo?: { seat: Seat }
   recordId?: string

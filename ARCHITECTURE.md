@@ -29,7 +29,7 @@ TKU-BridgeTable/
 │  ├─ game.ts              一副牌的狀態機：叫牌 → 出牌 → 結束；攤牌、撤回
 │  ├─ scoring.ts           複式計分
 │  ├─ lin.ts               BBO LIN 匯出與 Handviewer 連結
-│  ├─ messages.ts          錯誤代碼與中英文訊息
+│  ├─ messages.ts          錯誤代碼與六種語言的訊息
 │  ├─ protocol.ts          HTTP／WebSocket 的訊息與畫面型別
 │  └─ robot/               機器人：hand（牌型分析）、bidding（淡江制度）、play（坐莊、防守信號）
 ├─ worker/
@@ -89,7 +89,7 @@ interface BoardState {
 
 **WebSocket** `/ws`（同網域，帶 cookie 驗證）：
 
-- 瀏覽器 → 伺服器：`createTable`、`joinTable`、`sit`、`stand`、`leaveTable`、`freeSeat`、`addRobot`、`removeRobot`、`call`、`play`、`claim`、`claimRespond`、`undoRequest`、`undoRespond`、`ready`、`chat`
+- 瀏覽器 → 伺服器：`createTable`、`joinTable`、`sit`、`stand`、`leaveTable`、`freeSeat`、`addRobot`、`removeRobot`、`call`、`play`、`claim`、`claimRespond`、`undoRequest`、`undoRespond`、`chat`（沒有「下一副」：一副結束 4 秒後伺服器自動發下一副，見 `NEXT_BOARD_DELAY`）
 - 伺服器 → 瀏覽器：`welcome`、`lobby`（牌桌列表與 `members`：每位社員是否在線、在哪一桌哪個座位）、`table`（含 `recent`：本桌最近 30 副的摘要）、`error`
 - 使用 Durable Object 的 hibernation API：沒人打牌時物件可以休眠，WebSocket 不會斷，醒來時從儲存重新載入。
 
@@ -99,7 +99,7 @@ interface BoardState {
 | --- | --- |
 | `user:<id>` | 帳號、密碼雜湊、是否管理員、最後登入時間 |
 | `session:<token>` | userId、到期時間 |
-| `table:<id>` | 牌桌：座位、觀看者、目前這副、聊天、準備狀態、撤回請求 |
+| `table:<id>` | 牌桌：座位、觀看者、目前這副、聊天、撤回請求 |
 | `board:<id>` | 一副牌的完整紀錄（原始四手牌、叫牌、出牌、結果） |
 | `hist:<時間>-<id>` | 全社團的紀錄索引（摘要，補零的時間讓列表依時間排序） |
 | `uhist:<userId>:<時間>-<id>` | 每位社員自己的紀錄索引 |

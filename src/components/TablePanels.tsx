@@ -1,6 +1,5 @@
 import { Link } from 'react-router-dom'
 import styled from 'styled-components'
-import type { Seat } from '../../shared/cards.ts'
 import type { BoardView } from '../../shared/protocol.ts'
 import { resultLabel } from '../../shared/scoring.ts'
 import { signed } from '../lib/format.ts'
@@ -61,26 +60,16 @@ const SmallLink = styled(Link)`
   font-size: 14px;
 `
 
-export function ResultPanel({
-  board,
-  seated,
-  ready,
-  people,
-  onReady,
-  declarerName,
-}: {
-  board: BoardView
-  seated: Seat | null
-  ready: Seat[]
-  /** Seats held by people, who each press "next board" */
-  people: Seat[]
-  onReady: () => void
-  declarerName?: string
-}) {
+const Soon = styled.div`
+  color: ${({ theme }) => theme.table.panelMuted};
+  font-size: 14px;
+`
+
+/** The result of the board just finished; the server deals the next one a moment later */
+export function ResultPanel({ board, declarerName }: { board: BoardView; declarerName?: string }) {
   const t = useT()
   const result = board.result!
   const contract = board.contract
-  const iAmReady = seated !== null && ready.includes(seated)
   return (
     <FeltPanel role="status" aria-label={t.result}>
       <Big>
@@ -96,12 +85,7 @@ export function ResultPanel({
       <Score $positive={result.scoreNS >= 0}>
         {t.ns} {signed(result.scoreNS)}
       </Score>
-      {seated && (
-        <FeltButton type="button" $tone="go" disabled={iAmReady} onClick={onReady}>
-          {iAmReady ? t.waitingOthers : t.nextBoard}
-        </FeltButton>
-      )}
-      <div>{t.readyCount(people.filter((s) => ready.includes(s)).length, people.length)}</div>
+      <Soon>{t.nextBoardSoon}</Soon>
       {board.recordId && (
         <SmallLink to={`/history/${board.recordId}`} target="_blank" rel="noopener">
           {t.viewRecord}

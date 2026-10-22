@@ -2,7 +2,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { SEATS, type Seat } from '../../shared/cards.ts'
 import type { ClientMessage, ServerMessage, TableView } from '../../shared/protocol.ts'
-import { ClubError, ClubService, type Connections } from '../../worker/service.ts'
+import { ClubError, ClubService, NEXT_BOARD_DELAY, type Connections } from '../../worker/service.ts'
 import { MemoryStore } from '../../worker/store.ts'
 
 class FakeConnections implements Connections {
@@ -27,28 +27,40 @@ class FakeConnections implements Connections {
 let store: MemoryStore
 let connections: FakeConnections
 let club: ClubService
-/** Robot moves wait here until a test runs them */
-let robotQueue: (() => void)[]
+/** Robot moves and the next deal wait here until a test runs them */
+let queue: { run: () => void; ms: number }[]
 
 async function setup(config: { maxUsers?: number; inviteCode?: string } = {}) {
   store = new MemoryStore()
   connections = new FakeConnections()
-  robotQueue = []
+  queue = []
   club = new ClubService(store, connections, {
     maxUsers: config.maxUsers ?? 10,
     inviteCode: config.inviteCode,
-    schedule: (run) => robotQueue.push(run),
+    schedule: (run, ms) => queue.push({ run, ms }),
   })
   await club.load()
 }
 
+const isDeal = (job: { ms: number }) => job.ms === NEXT_BOARD_DELAY
+
 /** Runs scheduled robot moves until none are left (or a person has to act) */
 async function runRobots(limit = 400) {
-  for (let i = 0; i < limit && robotQueue.length; i++) {
-    robotQueue.shift()!()
+  for (let i = 0; i < limit; i++) {
+    const index = queue.findIndex((job) => !isDeal(job))
+    if (index < 0) return
+    queue.splice(index, 1)[0].run()
     // Each move is async; let it finish before the next
     await new Promise((resolve) => setTimeout(resolve, 0))
   }
+}
+
+/** Lets the pause after a finished board run out, so the next board is dealt */
+async function dealNext() {
+  const deals = queue.filter(isDeal)
+  queue = queue.filter((job) => !isDeal(job))
+  for (const job of deals) job.run()
+  await new Promise((resolve) => setTimeout(resolve, 0))
 }
 
 async function member(name: string) {
@@ -217,7 +229,7 @@ describe('finishing boards', () => {
     for (const seat of ['N', 'E', 'S', 'W'] as const) await send(bySeat[seat], { type: 'call', call: 'P' })
   }
 
-  it('records a finished board in everyone’s history and deals the next when all are ready', async () => {
+  it('records a finished board in everyone’s history and deals the next by itself', async () => {
     const { bySeat } = await fullTable()
     await playPassedOut(bySeat)
     const view = tableFor(bySeat.N)
@@ -233,13 +245,25 @@ describe('finishing boards', () => {
     expect((await club.history(await member('other'), false)).boards).toHaveLength(0)
     expect((await club.history('other', true)).boards).toHaveLength(1)
 
-    for (const seat of ['N', 'E', 'S'] as const) await send(bySeat[seat], { type: 'ready' })
-    expect(tableFor(bySeat.N).ready).toEqual(['N', 'E', 'S'])
-    await send(bySeat.W, { type: 'ready' })
+    // Nobody presses anything: the result shows for a moment, then the next board is dealt
+    expect(queue.filter(isDeal)).toHaveLength(1)
+    expect(tableFor(bySeat.N).board?.boardNo).toBe(1)
+    await dealNext()
     const next = tableFor(bySeat.N)
     expect(next.board?.boardNo).toBe(2)
     expect(next.board?.dealer).toBe('E')
     expect(next.boardsPlayed).toBe(1)
+  })
+
+  it('waits for an empty seat to be filled before dealing again', async () => {
+    const { tableId, bySeat } = await fullTable()
+    await playPassedOut(bySeat)
+    await send(bySeat.W, { type: 'stand' })
+    await dealNext()
+    expect(tableFor(bySeat.N).board?.phase).toBe('finished')
+    await send(bySeat.W, { type: 'sit', tableId, seat: 'W' })
+    await dealNext()
+    expect(tableFor(bySeat.N).board?.boardNo).toBe(2)
   })
 
   it('undoes a call when an opponent agrees', async () => {
@@ -297,13 +321,12 @@ describe('robots at the table', () => {
     }
     const done = tableFor(gene)
     expect(done.board?.phase).toBe('finished')
-    expect(done.ready).toEqual(expect.arrayContaining(['N', 'E', 'W']))
     const history = (await club.history(gene, false)).boards
     expect(history).toHaveLength(1)
     expect(history[0].players.N).toMatchObject({ username: 'Robot', robot: true })
 
-    // The person alone decides when to deal again
-    await send(gene, { type: 'ready' })
+    // The next board comes by itself
+    await dealNext()
     expect(tableFor(gene).board?.boardNo).toBe(2)
   })
 
@@ -396,7 +419,7 @@ describe('history pages', () => {
     const now = () => time
     store = new MemoryStore()
     connections = new FakeConnections()
-    club = new ClubService(store, connections, { maxUsers: 10, now, schedule: () => undefined })
+    club = new ClubService(store, connections, { maxUsers: 10, now, schedule: (run) => run() })
     await club.load()
     const { bySeat } = await fullTable()
     for (let board = 0; board < 55; board++) {
@@ -405,7 +428,7 @@ describe('history pages', () => {
         const turn = tableFor(bySeat.N).board!.turn!
         await send(bySeat[turn], { type: 'call', call: 'P' })
       }
-      for (const seat of ['N', 'E', 'S', 'W'] as const) await send(bySeat[seat], { type: 'ready' })
+      await new Promise((resolve) => setTimeout(resolve, 0))
     }
     const first = await club.history(bySeat.N, false)
     expect(first.boards).toHaveLength(50)
@@ -447,7 +470,7 @@ describe('side panel data', () => {
         const turn = tableFor(bySeat.N).board!.turn!
         await send(bySeat[turn], { type: 'call', call: 'P' })
       }
-      for (const seat of ['N', 'E', 'S', 'W'] as const) await send(bySeat[seat], { type: 'ready' })
+      await dealNext()
     }
     const recent = tableFor(bySeat.W).recent
     expect(recent.map((b) => b.boardNo)).toEqual([2, 1])

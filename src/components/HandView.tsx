@@ -1,6 +1,7 @@
 import styled, { css } from 'styled-components'
-import { bySuit, rankLabel, rankOf, SUITS, suitOf, type Card } from '../../shared/cards.ts'
-import { CARD_RATIO, cardName } from '../lib/cards.ts'
+import { rankLabel, rankOf, SUITS, suitOf, type Card, type Suit } from '../../shared/cards.ts'
+import { CARD_RATIO, cardName, sortForDisplay } from '../lib/cards.ts'
+import { LIFT, ROW_STEP, type Orientation } from '../lib/measure.ts'
 import { useT, type CardStyle } from '../state/PreferencesContext.tsx'
 import { CardBack, PlayingCard } from './PlayingCard.tsx'
 import { SuitSymbol } from './Suit.tsx'
@@ -9,27 +10,23 @@ import { SuitSymbol } from './Suit.tsx'
  * One hand on the table, drawn the same way for every hand (the viewer picks card faces or text):
  *
  * - cards, horizontal: overlapped like BBO, as wide as the space allows; each card keeps at most
- *   about 40% of its width visible and squeezes when the space is narrow
+ *   about 47% of its width visible and squeezes when the space is narrow
+ * - cards, rows: BBO's dummy on the left or right, one overlapped row per suit, the rows stacked
  * - cards, vertical: fanned downwards, for the side hands on a phone
  * - text: one line per suit (♠ A K 10 5), BBO's text hand style
  *
- * A hand the viewer may not see is card backs (or the number of cards in text style).
+ * Suits follow `order` (the table passes BBO's alternating colours with trumps first). A hand the
+ * viewer may not see is card backs (or the number of cards in text style).
  */
 
-/**
- * - horizontal: one overlapped row (your hand, partner, a hidden hand)
- * - vertical: one column fanned downwards (side hands on a phone)
- * - suits: BBO's dummy layout, one column per suit with the cards stacked downwards; narrow, so
- *   it suits the left and right seats
- */
-export type Orientation = 'horizontal' | 'vertical' | 'suits'
+export type { Orientation }
 
 const Fan = styled.div<{ $w: number }>`
   display: flex;
   justify-content: center;
-  width: 100%;
   min-width: 0;
-  padding-top: ${({ $w }) => Math.round($w * 0.2)}px;
+  max-width: 100%;
+  padding-top: ${({ $w }) => Math.round($w * LIFT)}px;
 `
 
 const Slot = styled.span<{ $w: number; $gap: boolean }>`
@@ -39,19 +36,31 @@ const Slot = styled.span<{ $w: number; $gap: boolean }>`
   &:last-child { flex: none; width: ${({ $w }) => $w}px; }
 `
 
-const SuitColumns = styled.div<{ $w: number }>`
+const Rows = styled.div<{ $w: number }>`
   display: flex;
-  justify-content: center;
-  gap: ${({ $w }) => Math.round($w * 0.1)}px;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 0;
+  max-width: 100%;
+  padding-top: ${({ $w }) => Math.round($w * LIFT)}px;
 `
 
-const Column = styled.div<{ $w: number }>`
+/** Each suit row shows just its top, enough for the rank and suit in the corner */
+const SuitRow = styled.div<{ $w: number }>`
+  display: flex;
+  min-width: 0;
+  max-width: 100%;
+  height: ${({ $w }) => Math.round($w * ROW_STEP)}px;
+  &:last-child { height: ${({ $w }) => Math.round($w * CARD_RATIO)}px; }
+`
+
+const Column = styled.div`
   display: flex;
   flex-direction: column;
   align-items: center;
 `
 
-const Row = styled.span<{ $w: number; $gap: boolean }>`
+const Down = styled.span<{ $w: number; $gap: boolean }>`
   display: block;
   height: ${({ $w }) => Math.round($w * 0.4)}px;
   ${({ $gap, $w }) => $gap && `margin-top: ${Math.round($w * 0.08)}px;`}
@@ -102,7 +111,7 @@ const RankButton = styled.button<{ $playable: boolean }>`
 const Hidden = styled.div<{ $w: number }>`
   padding: 4px 10px;
   border-radius: 6px;
-  background: rgba(0, 0, 0, 0.18);
+  background: ${({ theme }) => theme.table.shade};
   color: ${({ theme }) => theme.table.feltMuted};
   font-size: ${({ $w }) => Math.max(14, Math.round($w * 0.24))}px;
 `
@@ -113,6 +122,7 @@ export function HandView({
   width,
   orientation = 'horizontal',
   style = 'cards',
+  order = SUITS,
   playable = [],
   onPlay,
   label,
@@ -124,6 +134,8 @@ export function HandView({
   width: number
   orientation?: Orientation
   style?: CardStyle
+  /** The order of the suits, left to right (top to bottom in text and rows) */
+  order?: readonly Suit[]
   playable?: Card[]
   onPlay?: (card: Card) => void
   label: string
@@ -131,23 +143,24 @@ export function HandView({
   const t = useT()
   const canPlay = new Set(playable)
   const anyPlayable = canPlay.size > 0
+  const sorted = cards && sortForDisplay(cards, order)
   const suitStart = (list: Card[], i: number) => i > 0 && suitOf(list[i - 1]) !== suitOf(list[i])
+  const groups = (list: Card[]) => order.map((suit) => list.filter((card) => suitOf(card) === suit))
 
   if (style === 'text') {
-    if (!cards)
+    if (!sorted)
       return (
         <Hidden $w={width} role="group" aria-label={label}>
           {count ? t.cardsLeft(count) : ''}
         </Hidden>
       )
-    const groups = bySuit(cards)
     return (
       <Text $w={width} role="group" aria-label={label}>
-        {SUITS.map((suit) => (
-          <TextRow key={suit}>
-            <SuitSymbol suit={suit} onCard />
-            {groups[suit].length === 0 && <span aria-hidden>—</span>}
-            {groups[suit].map((card) => (
+        {groups(sorted).map((suitCards, i) => (
+          <TextRow key={order[i]}>
+            <SuitSymbol suit={order[i]} onCard />
+            {suitCards.length === 0 && <span aria-hidden>—</span>}
+            {suitCards.map((card) => (
               <RankButton
                 key={card}
                 type="button"
@@ -165,7 +178,7 @@ export function HandView({
     )
   }
 
-  const list: (Card | null)[] = cards ?? Array.from({ length: count }, () => null)
+  const list: (Card | null)[] = sorted ?? Array.from({ length: count }, () => null)
   const face = (card: Card | null, key: number) =>
     card ? (
       <PlayingCard
@@ -173,37 +186,37 @@ export function HandView({
         width={width}
         playable={canPlay.has(card)}
         dim={anyPlayable && !canPlay.has(card)}
-        corner={orientation === 'horizontal' ? 'stack' : 'inline'}
+        corner={orientation === 'vertical' ? 'inline' : 'stack'}
         onPlay={onPlay}
       />
     ) : (
       <CardBack key={key} width={width} />
     )
 
-  if (orientation === 'suits' && cards) {
-    const groups = bySuit(cards)
+  if (orientation === 'rows' && sorted)
     return (
-      <SuitColumns $w={width} role="group" aria-label={label}>
-        {SUITS.filter((suit) => groups[suit].length).map((suit) => (
-          <Column key={suit} $w={width}>
-            {groups[suit].map((card) => (
-              <Row key={card} $w={width} $gap={false}>
-                {face(card, 0)}
-              </Row>
-            ))}
-          </Column>
-        ))}
-      </SuitColumns>
+      <Rows $w={width} role="group" aria-label={label}>
+        {groups(sorted)
+          .filter((suitCards) => suitCards.length)
+          .map((suitCards) => (
+            <SuitRow key={suitOf(suitCards[0])} $w={width}>
+              {suitCards.map((card) => (
+                <Slot key={card} $w={width} $gap={false}>
+                  {face(card, 0)}
+                </Slot>
+              ))}
+            </SuitRow>
+          ))}
+      </Rows>
     )
-  }
 
   if (orientation === 'vertical')
     return (
-      <Column $w={width} role="group" aria-label={label}>
+      <Column role="group" aria-label={label}>
         {list.map((card, i) => (
-          <Row key={card ?? i} $w={width} $gap={!!cards && suitStart(cards, i)}>
+          <Down key={card ?? i} $w={width} $gap={!!sorted && suitStart(sorted, i)}>
             {face(card, i)}
-          </Row>
+          </Down>
         ))}
       </Column>
     )
@@ -211,7 +224,7 @@ export function HandView({
   return (
     <Fan $w={width} role="group" aria-label={label}>
       {list.map((card, i) => (
-        <Slot key={card ?? i} $w={width} $gap={!!cards && suitStart(cards, i)}>
+        <Slot key={card ?? i} $w={width} $gap={!!sorted && suitStart(sorted, i)}>
           {face(card, i)}
         </Slot>
       ))}
