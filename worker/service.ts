@@ -1,6 +1,6 @@
 import { isCall } from '../shared/auction.ts'
 import { deal, secureRandomInt, type RandomInt } from '../shared/board.ts'
-import { isCard, isSeat, sameSide, SEATS, type Seat } from '../shared/cards.ts'
+import { isCard, isSeat, partnerOf, sameSide, SEATS, type Seat } from '../shared/cards.ts'
 import {
   claimApprovers,
   controllerOf,
@@ -653,6 +653,36 @@ export class ClubService {
     table.undo = undefined
     table.recordId = undefined
     table.dealAt = undefined
+    table.swapped = undefined
+  }
+
+  /**
+   * A person never sits out a board as dummy for a robot: when a robot partner becomes declarer,
+   * the person moves into the declarer's seat and plays the hand from there, as on BBO (the robot
+   * takes the person's seat, which is now dummy)
+   */
+  private swapForDeclarer(table: Table) {
+    const contract = table.board?.contract
+    if (!contract) return
+    const declarer = contract.declarer
+    const dummy = partnerOf(declarer)
+    const person = table.seats[dummy]
+    if (!isRobotId(table.seats[declarer]) || !person || isRobotId(person)) return
+    table.seats[declarer] = person
+    table.seats[dummy] = ROBOT_PREFIX + dummy
+    table.swapped = [declarer, dummy]
+  }
+
+  /** Puts a swapped person back in their own seat (the auction was reopened by an undo) */
+  private unswap(table: Table) {
+    if (!table.swapped) return
+    const [declarer, dummy] = table.swapped
+    const person = table.seats[declarer]
+    if (person && !isRobotId(person) && isRobotId(table.seats[dummy])) {
+      table.seats[dummy] = person
+      table.seats[declarer] = ROBOT_PREFIX + declarer
+    }
+    table.swapped = undefined
   }
 
   private scheduleDeal(table: Table) {
@@ -728,7 +758,10 @@ export class ClubService {
         if (!undo) return
         if (sameSide(undo.seat, seat)) throw new ClubError('undoByOpponent')
         table.undo = undefined
-        if (message.accept) table.board = undoLast(board)
+        if (message.accept) {
+          table.board = undoLast(board)
+          if (table.board.phase === 'auction') this.unswap(table)
+        }
         await this.save(table)
         return
       }
@@ -739,6 +772,7 @@ export class ClubService {
     // Any new action supersedes a pending undo request
     table.undo = undefined
     table.board = next
+    if (board.phase === 'auction' && next.phase === 'play') this.swapForDeclarer(table)
     if (next.phase === 'finished' && board.phase !== 'finished') {
       await this.recordBoard(table, next)
       // A board played to the last card leaves that trick on the table for a moment first

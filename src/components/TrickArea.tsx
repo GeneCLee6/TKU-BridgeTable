@@ -18,7 +18,9 @@ export type Position = 'top' | 'right' | 'bottom' | 'left'
 /** Where a played card was on screen just before it was played, if known */
 export type CardOrigin = (card: Card, seat: Seat) => DOMRect | undefined
 
-const GLIDE_MS = 380
+/** A card takes this long to reach the middle, easing in gently and settling softly */
+const GLIDE_MS = 650
+const GLIDE_EASING = 'cubic-bezier(0.33, 0.1, 0.2, 1)'
 
 const Area = styled.div<{ $w: number }>`
   position: relative;
@@ -78,7 +80,7 @@ function Landing({
           }[position],
           opacity: 0,
         }
-    el.animate([begin, { transform: 'none', opacity: 1 }], { duration: GLIDE_MS, easing: 'cubic-bezier(0.22, 0.8, 0.3, 1)' })
+    el.animate([begin, { transform: 'none', opacity: 1 }], { duration: GLIDE_MS, easing: GLIDE_EASING })
     // Only when the card first lands; later renders leave it where it is
     // oxlint-disable-next-line react-hooks/exhaustive-deps
   }, [])
