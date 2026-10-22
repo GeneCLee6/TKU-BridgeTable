@@ -239,13 +239,13 @@ export const MESSAGES = {
     ja: '席についていません',
     ko: '자리에 앉아 있지 않습니다',
   },
-  freeOfflineOnly: {
-    zh: '只能請離線的玩家離座',
-    'zh-Hans': '只能请离线的玩家离座',
-    en: 'Only an offline player can be removed',
-    vi: 'Chỉ có thể mời người chơi đang ngoại tuyến rời chỗ',
-    ja: '席を空けられるのはオフラインのプレイヤーだけです',
-    ko: '오프라인인 플레이어만 자리에서 뺄 수 있습니다',
+  hostOnly: {
+    zh: '只有房主可以這樣做',
+    'zh-Hans': '只有房主可以这样做',
+    en: 'Only the host can do that',
+    vi: 'Chỉ chủ bàn mới làm được việc này',
+    ja: 'ホストだけができる操作です',
+    ko: '호스트만 할 수 있습니다',
   },
   noBoard: {
     zh: '還沒有發牌',

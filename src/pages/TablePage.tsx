@@ -1,24 +1,27 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
-import styled, { css } from 'styled-components'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { Link, useParams } from 'react-router-dom'
+import styled, { css, keyframes } from 'styled-components'
 import { isVulnerable } from '../../shared/board.ts'
-import { nextSeat, SEATS, sideOf, suitOf, type Seat, type Suit } from '../../shared/cards.ts'
-import type { BoardView, TableView } from '../../shared/protocol.ts'
+import { nextSeat, SEATS, sideOf, suitOf, type Card, type Seat, type Suit } from '../../shared/cards.ts'
+import type { Trick } from '../../shared/game.ts'
+import { DEAL_COUNTDOWN_MS, type BoardView, type TableView } from '../../shared/protocol.ts'
 import { AuctionBox } from '../components/AuctionBox.tsx'
 import { BiddingBox } from '../components/BiddingBox.tsx'
 import { BoardInfo } from '../components/BoardInfo.tsx'
 import { ChatPanel } from '../components/ChatPanel.tsx'
+import { DEAL_MS, DealAnimation } from '../components/DealAnimation.tsx'
 import { SidePanel } from '../components/SidePanel.tsx'
 import { HandView } from '../components/HandView.tsx'
-import { SeatPlate } from '../components/SeatPlate.tsx'
+import { SeatPlate, type SeatAction } from '../components/SeatPlate.tsx'
 import { ContractLabel } from '../components/Suit.tsx'
 import { ClaimPicker, FeltButton, FeltPanel, Prompt, ResultPanel } from '../components/TablePanels.tsx'
-import { TrickArea, TrickSpace, type Position } from '../components/TrickArea.tsx'
+import { TrickArea, TrickSpace, type CardOrigin, type Position } from '../components/TrickArea.tsx'
 import { TrickPile } from '../components/TrickPile.tsx'
 import { Muted, PageMain } from '../components/ui.tsx'
 import { suitOrder } from '../lib/cards.ts'
 import { auctionBoxHeight, biddingBoxHeight, handHeight, type Orientation } from '../lib/measure.ts'
 import { dealSound, playCardSound, unlockSound } from '../lib/sound.ts'
+import { useAuth } from '../state/AuthContext.tsx'
 import { useClub } from '../state/ClubContext.tsx'
 import { usePreferences, useT } from '../state/PreferencesContext.tsx'
 import { mobile } from '../styles/tokens.ts'
@@ -31,6 +34,12 @@ import { seatLetter } from '../strings.ts'
  * table with room for the bidding box kept free below it, so neither ever moves or covers the
  * other; during play it holds the trick. Finished tricks go face down to the bottom-left corner;
  * undo and claim sit in the bottom-right one.
+ *
+ * A card you play glides to the middle at once, before the server answers; other players' cards
+ * glide in from their hands. After the last card the trick stays a moment, then the result shows
+ * with a three-second countdown, and the next deal slides out to the four hands.
+ *
+ * There is no "leave" button: going to any other page leaves the table.
  */
 
 const Layout = styled.div`
@@ -51,8 +60,11 @@ const GAP = { row: 6, column: 12 }
 const STACK_GAP = 8
 /** A name plate's height; on a computer it covers the foot of its hand's cards, as on BBO */
 const PLATE = 34
+/** A card you clicked is shown on the table at once; if the server has not taken it by then, it goes back */
+const PENDING_MS = 4000
 
 const Felt = styled.div<{ $phone: boolean }>`
+  position: relative;
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) minmax(0, 1fr);
   grid-template-rows: auto minmax(0, 1fr) auto;
@@ -122,16 +134,32 @@ const BoxSlot = styled.div<{ $h: number }>`
   flex: none;
 `
 
+const appear = keyframes`
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: none; }
+`
+
 /**
  * A hand with its name plate below. On a computer the plate runs the width of the hand and covers
- * the foot of the cards, as BBO's name bar does; the rank and suit stay visible at the top.
+ * the foot of the cards, as BBO's name bar does; the rank and suit stay visible at the top. Just
+ * after a deal the hand fades in as the packet from the middle arrives.
  */
-const SeatBlock = styled.div<{ $overlap: number }>`
+const SeatBlock = styled.div<{ $overlap: number; $appear: boolean }>`
   display: flex;
   flex-direction: column;
   align-items: stretch;
   min-width: 0;
   max-width: 100%;
+  & > [data-hand] {
+    display: flex;
+    justify-content: center;
+    min-width: 0;
+    ${({ $appear }) =>
+      $appear &&
+      css`
+        animation: ${appear} 0.28s ease-out ${DEAL_MS - 120}ms both;
+      `}
+  }
   & > [data-plate] {
     position: relative;
     z-index: 2;
@@ -160,6 +188,19 @@ const ContractBox = styled.button`
   & > strong { font-size: 22px; }
 `
 
+/** The contract box and the auction it opens, which floats over the table instead of pushing it */
+const StatusWrap = styled.div`
+  position: relative;
+`
+
+const AuctionPopup = styled.div<{ $w: number }>`
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 6;
+  width: ${({ $w }) => $w}px;
+`
+
 const Actions = styled.div`
   display: grid;
   justify-items: stretch;
@@ -174,15 +215,9 @@ const InfoRow = styled.div`
 `
 
 const TableTitle = styled.div`
-  display: grid;
-  gap: 6px;
-  justify-items: start;
   font-size: 14px;
   font-weight: 700;
   color: ${({ theme }) => theme.table.feltText};
-
-  & > div { display: flex; flex-wrap: wrap; gap: 6px; }
-  & button { min-height: 32px; padding: 0 12px; font-size: 14px; }
 `
 
 const Note = styled.div`
@@ -208,8 +243,11 @@ function canUndo(board: BoardView, me: Seat | null) {
   return board.auction.at(-1)?.seat === me
 }
 
-/** Keeps a finished trick on the table for a moment before it goes to the pile, as BBO does */
-function useShownTrick(board: BoardView | null) {
+/**
+ * The trick to show in the middle: a finished trick stays for a moment before it goes to the pile,
+ * as BBO does, and the last trick of the board stays until the countdown starts (`holdLast`)
+ */
+function useShownTrick(board: BoardView | null, holdLast: boolean) {
   const tricks = board?.tricks ?? []
   const current = tricks.at(-1)
   const completed = tricks.filter((t) => t.winner).length
@@ -222,14 +260,29 @@ function useShownTrick(board: BoardView | null) {
   }, [completed])
 
   if (!current) return null
-  if (current.winner && (cleared >= completed || board?.phase !== 'play')) return null
+  if (board?.phase === 'finished') return holdLast ? current : null
+  if (current.winner && cleared >= completed) return null
   return current
 }
 
-/** Plays BBO's sounds: a riffle when a board is dealt, a snap for every card played */
-function useTableSounds(board: BoardView | null, on: boolean) {
-  const boardNo = board?.boardNo ?? 0
-  const played = board ? board.tricks.reduce((n, t) => n + t.cards.length, 0) : 0
+/** The time, kept current a few times a second while `active` (for the countdown) */
+function useClock(active: boolean) {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    if (!active) return
+    const tick = () => setNow(Date.now())
+    const first = setTimeout(tick, 0)
+    const timer = setInterval(tick, 200)
+    return () => {
+      clearTimeout(first)
+      clearInterval(timer)
+    }
+  }, [active])
+  return now
+}
+
+/** Plays BBO's sounds: a soft riffle when a board is dealt, a soft knock for every card played */
+function useTableSounds(boardNo: number, played: number, on: boolean) {
   const last = useRef({ boardNo, played })
 
   useEffect(() => {
@@ -337,13 +390,20 @@ export function TablePage() {
   const { tableId } = useParams()
   const { table, lobby, status, send } = useClub()
   const t = useT()
-  const navigate = useNavigate()
 
   useEffect(() => {
     if (status !== 'open' || !lobby || !tableId) return
     if (lobby.myTableId === tableId || !lobby.tables.some((x) => x.id === tableId)) return
     send({ type: 'joinTable', tableId })
   }, [status, lobby, tableId, send])
+
+  // Going to any other page leaves the table (a reload does not: the seat is kept while offline)
+  useEffect(
+    () => () => {
+      if (!window.location.pathname.startsWith('/table/')) send({ type: 'leaveTable' })
+    },
+    [send],
+  )
 
   if (!lobby) return <PageMain>{t.connecting}</PageMain>
   if (!lobby.tables.some((x) => x.id === tableId))
@@ -357,29 +417,14 @@ export function TablePage() {
     )
   if (!table || table.id !== tableId) return <PageMain>{t.loading}</PageMain>
 
-  return (
-    <TableScreen
-      table={table}
-      send={send}
-      onLeave={() => {
-        send({ type: 'leaveTable' })
-        navigate('/')
-      }}
-    />
-  )
+  return <TableScreen table={table} send={send} />
 }
 
-function TableScreen({
-  table,
-  send,
-  onLeave,
-}: {
-  table: TableView
-  send: ReturnType<typeof useClub>['send']
-  onLeave: () => void
-}) {
+function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeof useClub>['send'] }) {
   const t = useT()
   const { cardStyle, sound } = usePreferences()
+  const { user } = useAuth()
+  const { error } = useClub()
   const [feltRef, feltSize] = useSize()
   const sizes = tableSizes(feltSize.width, feltSize.height)
   const board = table.board
@@ -394,17 +439,83 @@ function TableScreen({
   const toggleLast = useCallback(() => setLastTrickFor((n) => (n === boardNo ? 0 : boardNo)), [boardNo])
 
   const me = table.mySeat
+  const iAmHost = !!user && table.hostId === user.id
   const viewer = me ?? 'S'
   const at = rotation(viewer)
   const positionOf = (seat: Seat) => (Object.keys(at) as Position[]).find((p) => at[p] === seat)!
-  const shownTrick = useShownTrick(board)
-  useTableSounds(board, sound)
   const nameOf = (seat: Seat) => {
     const o = table.seats[seat]
     return o ? (o.robot ? `${t.robot} ${seatLetter[seat]}` : o.username) : seatLetter[seat]
   }
   const missing = SEATS.filter((s) => !table.seats[s]).length
   const trump = board?.contract && board.phase !== 'auction' ? board.contract.strain : null
+
+  // ── The card you just clicked, shown on the table before the server confirms it ──
+  const [pending, setPending] = useState<{ card: Card; seat: Seat; boardNo: number } | null>(null)
+  const playedCards = board?.tricks.flatMap((x) => x.cards.map((c) => c.card)) ?? []
+  const pendingShown = pending && pending.boardNo === boardNo && !playedCards.includes(pending.card) ? pending : null
+  const playedCount = playedCards.length + (pendingShown ? 1 : 0)
+  // Taken by the server (or a new board): stop tracking it, so an undo cannot bring it back
+  if (pending && (pending.boardNo !== boardNo || playedCards.includes(pending.card))) setPending(null)
+  // The server turned something down: the card goes back to the hand
+  const [errorSeen, setErrorSeen] = useState(error?.at)
+  if (error?.at !== errorSeen) {
+    setErrorSeen(error?.at)
+    setPending(null)
+  }
+  useEffect(() => {
+    if (!pending) return
+    const timer = setTimeout(() => setPending(null), PENDING_MS)
+    return () => clearTimeout(timer)
+  }, [pending])
+  const play = (seat: Seat) => (card: Card) => {
+    setPending({ card, seat, boardNo })
+    send({ type: 'play', card })
+  }
+
+  // ── Where every card was on screen at the last render, so a played card glides from there ──
+  const cardRects = useRef(new Map<string, DOMRect>())
+  useLayoutEffect(() => {
+    const felt = feltRef.current
+    if (!felt) return
+    const rects = new Map<string, DOMRect>()
+    for (const el of felt.querySelectorAll<HTMLElement>('[data-hand]')) {
+      rects.set(`hand:${el.dataset.hand}`, el.getBoundingClientRect())
+      for (const card of el.querySelectorAll<HTMLElement>('[data-card]')) rects.set(card.dataset.card!, card.getBoundingClientRect())
+    }
+    cardRects.current = rects
+  })
+  const origin: CardOrigin = (card, seat) => cardRects.current.get(card) ?? cardRects.current.get(`hand:${seat}`)
+
+  // ── A new deal: packets slide out from the middle and the hands fade in ──
+  const [dealtSeen, setDealtSeen] = useState(boardNo)
+  const [dealing, setDealing] = useState(0)
+  if (boardNo !== dealtSeen) {
+    setDealtSeen(boardNo)
+    setDealing(boardNo)
+  }
+  useEffect(() => {
+    if (!dealing) return
+    const timer = setTimeout(() => setDealing(0), DEAL_MS + 450)
+    return () => clearTimeout(timer)
+  }, [dealing])
+  useTableSounds(boardNo, playedCount, sound)
+
+  // ── After the board: the last trick stays, then a countdown to the next deal ──
+  const finished = board?.phase === 'finished'
+  const now = useClock(finished && table.dealAt !== null)
+  const toDeal = finished && table.dealAt !== null ? table.dealAt - now : null
+  const playedOut = finished && board!.tricks.length === 13 && !!board!.tricks[12].winner && !board!.result?.claimed
+  const holdLast = playedOut && toDeal !== null && toDeal > DEAL_COUNTDOWN_MS
+  const seconds = toDeal === null ? null : Math.max(1, Math.ceil(Math.min(toDeal, DEAL_COUNTDOWN_MS) / 1000))
+
+  const liveTrick = useShownTrick(board, holdLast)
+  let shownTrick: Trick | null = liveTrick
+  if (pendingShown && board?.phase === 'play') {
+    const current = board.tricks.at(-1)
+    const base = current && !current.winner ? current : { leader: pendingShown.seat, cards: [] }
+    shownTrick = { ...base, cards: [...base.cards, { seat: pendingShown.seat, card: pendingShown.card }], winner: undefined }
+  }
 
   /** Suits in BBO's order: colours alternate around the suits the hand was dealt, trumps first */
   const orderFor = (seat: Seat, cards: string[]) => {
@@ -413,10 +524,28 @@ function TableScreen({
     return suitOrder(trump, held)
   }
 
+  /** What the viewer may do with a seat: sit there, and for the host: robots and asking people to leave */
+  const seatActions = (seat: Seat): SeatAction[] => {
+    const occupant = table.seats[seat]
+    const actions: SeatAction[] = []
+    const between = !board || board.phase === 'finished'
+    // A free seat (or a robot's) can be taken; someone already seated moves only between boards
+    if ((!occupant || (occupant.robot && !me)) && (!me || between))
+      actions.push({ label: t.takeSeat(seatLetter[seat]), onSelect: () => send({ type: 'sit', tableId: table.id, seat }) })
+    if (iAmHost && !occupant) actions.push({ label: t.addRobot, onSelect: () => send({ type: 'addRobot', seat }) })
+    if (iAmHost && occupant?.robot)
+      actions.push({ label: t.removeRobot, onSelect: () => send({ type: 'removeRobot', seat }), tone: 'danger' })
+    if (iAmHost && occupant && !occupant.robot && occupant.id !== user?.id)
+      actions.push({ label: t.kick, onSelect: () => send({ type: 'kick', seat }), tone: 'danger' })
+    return actions
+  }
+
   const seatBlock = (position: Position) => {
     const seat = at[position]
     const occupant = table.seats[seat]
-    const cards = board?.hands[seat] ?? (board?.claim?.seat === seat ? board.claim.hand : undefined)
+    // While the last trick is still on the table every hand is empty; then the deal is shown again
+    const dealt = holdLast ? [] : board?.hands[seat]
+    const cards = pendingShown?.seat === seat ? dealt?.filter((c) => c !== pendingShown.card) : dealt
     const side = position === 'left' || position === 'right'
     const role =
       board?.contract && board.phase !== 'auction'
@@ -426,26 +555,27 @@ function TableScreen({
             ? 'dummy'
             : undefined
         : undefined
-    const canSit = (!occupant || occupant.robot) && (!me || !board || board.phase === 'finished')
     const width = position === 'bottom' ? sizes.bottom : side ? sizes.side : sizes.top
     // Face-up hands on the left and right go in rows by suit (BBO's dummy), which is narrow
     const orientation: Orientation = !side ? 'horizontal' : sizes.phone ? 'vertical' : cards ? 'rows' : 'horizontal'
     const hand = board && (
-      <HandView
-        cards={cards}
-        count={board.handCounts[seat]}
-        width={width}
-        style={cardStyle}
-        orientation={orientation}
-        order={cards ? orderFor(seat, cards) : undefined}
-        playable={board.turn === seat ? board.legalCards : []}
-        onPlay={(card) => send({ type: 'play', card })}
-        label={`${seatLetter[seat]} ${nameOf(seat)}`}
-      />
+      <div data-hand={seat} data-hand-at={position}>
+        <HandView
+          cards={cards}
+          count={holdLast ? 0 : board.handCounts[seat] - (pendingShown?.seat === seat ? 1 : 0)}
+          width={width}
+          style={cardStyle}
+          orientation={orientation}
+          order={cards ? orderFor(seat, cards) : undefined}
+          playable={board.turn === seat && !pendingShown ? board.legalCards : []}
+          onPlay={play(seat)}
+          label={`${seatLetter[seat]} ${nameOf(seat)}`}
+        />
+      </div>
     )
     const covers = !!hand && !sizes.phone && cardStyle === 'cards'
     return (
-      <SeatBlock $overlap={covers ? PLATE : 0}>
+      <SeatBlock $overlap={covers ? PLATE : 0} $appear={dealing === boardNo && dealing > 0}>
         {hand}
         <div data-plate>
           <SeatPlate
@@ -455,10 +585,9 @@ function TableScreen({
             turn={!!board && board.turn === seat && board.phase !== 'finished'}
             role={role}
             isMe={seat === me}
-            onSit={canSit && !(occupant?.robot && me) ? () => send({ type: 'sit', tableId: table.id, seat }) : undefined}
-            onFree={occupant && !occupant.online && seat !== me ? () => send({ type: 'freeSeat', seat }) : undefined}
-            onAddRobot={me && !occupant ? () => send({ type: 'addRobot', seat }) : undefined}
-            onRemoveRobot={me && occupant?.robot ? () => send({ type: 'removeRobot', seat }) : undefined}
+            isHost={!!occupant && occupant.id === table.hostId}
+            actions={seatActions(seat)}
+            menuUp={position === 'bottom'}
             compact={side && sizes.phone}
           />
         </div>
@@ -468,7 +597,7 @@ function TableScreen({
 
   const remaining = board ? 13 - board.tricks.filter((x) => x.winner).length : 0
   const atTrickBoundary = !!board && (board.tricks.length === 0 || !!board.tricks.at(-1)!.winner)
-  const canClaim = !!board && board.phase === 'play' && !!me && me !== board.dummy && !board.claim && atTrickBoundary
+  const canClaim = !!board && board.phase === 'play' && !!me && me !== board.dummy && !board.claim && atTrickBoundary && !pendingShown
 
   const claimPrompt = () => {
     const claim = board?.claim
@@ -507,6 +636,13 @@ function TableScreen({
     </BoxSlot>
   )
 
+  const trickView = (trick: Trick | null) =>
+    trick ? (
+      <TrickArea cards={trick.cards} positionOf={positionOf} winner={trick.winner} width={sizes.trick} label={t.thisTrick} origin={origin} />
+    ) : (
+      <TrickSpace $w={sizes.trick} />
+    )
+
   const center = () => {
     if (!board)
       return (
@@ -533,15 +669,19 @@ function TableScreen({
         </>
       )
     }
-    if (board.phase === 'finished')
-      return <ResultPanel board={board} declarerName={board.contract ? nameOf(board.contract.declarer) : undefined} />
+    if (board.phase === 'finished') {
+      if (holdLast) return trickView(shownTrick)
+      return (
+        <ResultPanel
+          board={board}
+          declarerName={board.contract ? nameOf(board.contract.declarer) : undefined}
+          seconds={seconds}
+        />
+      )
+    }
     return (
       <>
-        {shownTrick ? (
-          <TrickArea cards={shownTrick.cards} positionOf={positionOf} winner={shownTrick.winner} width={sizes.trick} label={t.thisTrick} />
-        ) : (
-          <TrickSpace $w={sizes.trick} />
-        )}
+        {trickView(shownTrick)}
         <Overlay>
           {claiming && canClaim && (
             <ClaimPicker
@@ -565,29 +705,20 @@ function TableScreen({
   return (
     <Layout>
       <Felt ref={feltRef} $phone={sizes.phone}>
+        {dealing > 0 && dealing === boardNo && (
+          <DealAnimation key={dealing} felt={feltRef} width={Math.round(sizes.side * 0.8)} />
+        )}
         <Area $area="info" $align="start" $justify="start">
           <InfoRow>
             {board && <BoardInfo boardNo={board.boardNo} dealer={board.dealer} vul={board.vul} positions={at} size={infoSize} />}
             <TableTitle>
-              <span>
-                {t.tableName(table.number)} · {t.boardsPlayed(table.boardsPlayed)}
-              </span>
-              <div>
-                {me && (
-                  <FeltButton type="button" $tone="plain" onClick={() => send({ type: 'stand' })}>
-                    {t.standUp}
-                  </FeltButton>
-                )}
-                <FeltButton type="button" $tone="stop" onClick={onLeave}>
-                  {t.leaveTable}
-                </FeltButton>
-              </div>
+              {t.tableName(table.number)} · {t.boardsPlayed(table.boardsPlayed)}
             </TableTitle>
           </InfoRow>
         </Area>
         <Area $area="status" $align="end" $justify="start">
           {board && board.phase !== 'auction' && (
-            <>
+            <StatusWrap>
               <ContractBox
                 type="button"
                 onClick={() => setAuctionFor(showAuction ? 0 : boardNo)}
@@ -601,13 +732,26 @@ function TableScreen({
                   NS {board.tricksWon.NS} · EW {board.tricksWon.EW}
                 </span>
               </ContractBox>
-              {showAuction && <AuctionBox auction={board.auction} dealer={board.dealer} vul={board.vul} viewer={viewer} size={sizes.side} />}
-            </>
+              {showAuction && (
+                <AuctionPopup $w={Math.round(Math.max(sizes.side, 56) * 4.4)}>
+                  <AuctionBox
+                    auction={board.auction}
+                    dealer={board.dealer}
+                    vul={board.vul}
+                    viewer={viewer}
+                    size={sizes.side}
+                    maxRows={sizes.phone ? 4 : 5}
+                  />
+                </AuctionPopup>
+              )}
+            </StatusWrap>
           )}
         </Area>
         <Area $area="top">{seatBlock('top')}</Area>
         <Area $area="left">{seatBlock('left')}</Area>
-        <Center $area="center">{center()}</Center>
+        <Center $area="center" data-center>
+          {center()}
+        </Center>
         <Area $area="right">{seatBlock('right')}</Area>
         {sizes.phone && board?.phase === 'auction' && <Area $area="box">{biddingSlot(board)}</Area>}
         <Area $area="bottom" $justify="end">
@@ -616,7 +760,7 @@ function TableScreen({
         <Area $area="tricks" $align="start" $justify="end">
           {board && board.phase !== 'auction' && (
             <TrickPile
-              tricks={board.tricks}
+              tricks={holdLast ? board.tricks.slice(0, -1) : board.tricks}
               side={sideOf(viewer)}
               positionOf={positionOf}
               width={sizes.bottom}

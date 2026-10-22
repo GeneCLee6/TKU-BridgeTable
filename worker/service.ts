@@ -19,7 +19,10 @@ import {
 } from '../shared/game.ts'
 import { AppError, type MessageCode, type MessageParams } from '../shared/messages.ts'
 import {
+  DEAL_COUNTDOWN_MS,
+  HISTORY_PAGE_SIZES,
   isRobotId,
+  LAST_TRICK_MS,
   LIMITS,
   ROBOT_PREFIX,
   summarize,
@@ -37,6 +40,7 @@ import {
   type ServerMessage,
   type TableSummary,
   type TableView,
+  type TableWire,
 } from '../shared/protocol.ts'
 import { chooseCall } from '../shared/robot/bidding.ts'
 import { chooseCard } from '../shared/robot/play.ts'
@@ -79,9 +83,11 @@ export interface ClubConfig {
   inviteCode?: string
   now?: () => number
   random?: RandomInt
-  /** Runs robot moves after a short pause; tests pass a manual queue */
-  schedule?: (run: () => void, ms: number) => void
+  /** Runs robot moves and the next deal after a pause; tests pass a manual queue */
+  schedule?: (run: () => void, ms: number, kind: ScheduleKind) => void
 }
+
+export type ScheduleKind = 'robot' | 'deal'
 
 const CHAT_KEEP = 100
 /** Boards a table keeps for its History panel */
@@ -89,8 +95,6 @@ const RECENT_KEEP = 30
 const SCHEMA = 2
 /** How long robots wait before acting, so people can follow the play */
 const ROBOT_DELAY = { call: 800, card: 700, afterTrick: 1500, answer: 400 }
-/** How long a finished board stays on the table before the next one is dealt, as on BBO */
-export const NEXT_BOARD_DELAY = 4000
 const ROBOT_NAME = 'Robot'
 
 /**
@@ -110,11 +114,16 @@ export class ClubService {
   private readonly config: ClubConfig
   private readonly now: () => number
   private readonly random: RandomInt
-  private readonly schedule: (run: () => void, ms: number) => void
+  private readonly schedule: (run: () => void, ms: number, kind: ScheduleKind) => void
   /** Tables with a robot move already scheduled */
   private readonly robotTimers = new Set<string>()
   /** Tables with the next deal already scheduled */
   private readonly dealTimers = new Set<string>()
+  /**
+   * What each member was last sent (as JSON), so an update that changes nothing for them is not
+   * sent at all, and the chat and recent boards only go out when they change
+   */
+  private readonly sent = new Map<string, { lobby?: string; table?: string; chat?: string; recent?: string }>()
 
   constructor(store: Store, connections: Connections, config: ClubConfig) {
     this.store = store
@@ -340,22 +349,33 @@ export class ClubService {
 
   // ── History ─────────────────────────────────────────────────────────────────────────────────
 
-  /** Newest first, one page at a time; `before` is the `next` cursor of the previous page */
-  async history(userId: string, all: boolean, before?: string): Promise<HistoryPage> {
+  /** Newest first, one page at a time; `page` counts from 1 and `size` is one of HISTORY_PAGE_SIZES */
+  async history(userId: string, all: boolean, page = 1, size: number = LIMITS.historyPageDefault): Promise<HistoryPage> {
     const prefix = all ? 'hist:' : `uhist:${userId}:`
-    const limit = LIMITS.historyPage
-    const page = await this.store.list<BoardSummary>(prefix, {
-      reverse: true,
-      limit: limit + 1,
-      ...(before ? { end: prefix + before } : {}),
-    })
-    const entries = [...page.entries()]
-    const more = entries.length > limit
-    const shown = entries.slice(0, limit)
-    return {
-      boards: shown.map(([, summary]) => summary),
-      next: more ? shown.at(-1)![0].slice(prefix.length) : null,
-    }
+    if (!(HISTORY_PAGE_SIZES as readonly number[]).includes(size)) size = LIMITS.historyPageDefault
+    const total = await this.countOf(prefix)
+    const last = Math.max(1, Math.ceil(total / size))
+    page = Math.min(Math.max(1, Math.floor(page) || 1), last)
+    const offset = (page - 1) * size
+    const entries = await this.store.list<BoardSummary>(prefix, { reverse: true, limit: offset + size })
+    return { boards: [...entries.values()].slice(offset), total, page, size }
+  }
+
+  /** How many entries an index holds; counted once, then kept up to date as boards are saved */
+  private async countOf(prefix: string) {
+    const key = `meta:count:${prefix}`
+    const stored = await this.store.get<number>(key)
+    if (stored !== undefined) return stored
+    const counted = (await this.store.list(prefix)).size
+    await this.store.put(key, counted)
+    return counted
+  }
+
+  private async bumpCount(prefix: string) {
+    const key = `meta:count:${prefix}`
+    const stored = await this.store.get<number>(key)
+    // Not counted yet: counting now includes the entry just written
+    await this.store.put(key, stored === undefined ? (await this.store.list(prefix)).size : stored + 1)
   }
 
   async record(id: string): Promise<BoardRecord | null> {
@@ -369,9 +389,11 @@ export class ClubService {
     const summary = summarize(record)
     await this.store.put(`board:${record.id}`, record)
     await this.store.put(`hist:${order}`, summary)
-    for (const seat of SEATS) {
-      const id = record.players[seat].id
-      if (id && !isRobotId(id)) await this.store.put(`uhist:${id}:${order}`, summary)
+    await this.bumpCount('hist:')
+    for (const id of new Set(SEATS.map((seat) => record.players[seat].id))) {
+      if (!id || isRobotId(id)) continue
+      await this.store.put(`uhist:${id}:${order}`, summary)
+      await this.bumpCount(`uhist:${id}:`)
     }
   }
 
@@ -380,16 +402,26 @@ export class ClubService {
   connected(userId: string) {
     const user = this.users.get(userId)
     if (!user) return
+    // A new socket starts with nothing: send it everything
+    this.sent.delete(userId)
     this.connections.send(userId, { type: 'welcome', me: this.me(user) })
     this.broadcast()
   }
 
-  /** Called when a user's last socket closes. Spectators leave; seated players keep their seat. */
+  /**
+   * Called when a user's last socket closes. Spectators leave; seated players keep their seat, but
+   * a host who drops out hands the table to someone still there.
+   */
   async disconnected(userId: string) {
+    this.sent.delete(userId)
     const table = this.tableOf(userId)
     if (table && table.spectators.includes(userId)) {
       table.spectators = table.spectators.filter((id) => id !== userId)
+      this.checkHost(table)
       await this.saveOrDrop(table)
+    } else if (table) {
+      this.checkHost(table)
+      await this.save(table)
     }
     this.broadcast()
   }
@@ -423,8 +455,8 @@ export class ClubService {
         return this.stand(userId)
       case 'leaveTable':
         return this.leave(userId)
-      case 'freeSeat':
-        return this.freeSeat(userId, message.seat)
+      case 'kick':
+        return this.kick(userId, message.seat)
       case 'addRobot':
         return this.addRobot(userId, message.seat)
       case 'removeRobot':
@@ -524,23 +556,47 @@ export class ClubService {
     const seat = this.seatOf(table, userId)
     if (seat) this.vacate(table, seat)
     table.spectators = table.spectators.filter((id) => id !== userId)
+    this.checkHost(table)
     await this.saveOrDrop(table)
   }
 
-  /** Anyone at the table may free the seat of a player who has gone offline */
-  private async freeSeat(userId: string, seat: unknown) {
+  /** Only the host runs the table: asking people to leave a seat, adding and removing robots */
+  private hostTable(userId: string) {
     const table = this.tableOf(userId)
     if (!table) throw new ClubError('notAtTable')
-    if (!isSeat(seat) || !table.seats[seat] || isRobotId(table.seats[seat])) return
-    if (this.connections.onlineUserIds().includes(table.seats[seat]!)) throw new ClubError('freeOfflineOnly')
+    if (table.hostId !== userId) throw new ClubError('hostOnly')
+    return table
+  }
+
+  /**
+   * The host is whoever opened the table; when they leave or drop offline, the first person still
+   * at the table and online takes over (a seated player before a spectator)
+   */
+  private checkHost(table: Table) {
+    const online = this.connections.onlineUserIds()
+    const people = [
+      ...SEATS.map((s) => table.seats[s]).filter((id): id is string => !!id && !isRobotId(id)),
+      ...table.spectators,
+    ]
+    if (people.includes(table.hostId) && online.includes(table.hostId)) return
+    const next = people.find((id) => online.includes(id))
+    if (next) table.hostId = next
+  }
+
+  /** The host may ask anyone else to leave their seat; they stay at the table, watching */
+  private async kick(userId: string, seat: unknown) {
+    const table = this.hostTable(userId)
+    if (!isSeat(seat)) throw new ClubError('badSeat')
+    const occupant = table.seats[seat]
+    if (!occupant || isRobotId(occupant)) return
+    if (occupant === userId) throw new ClubError('notSelf')
     this.vacate(table, seat)
+    table.spectators.push(occupant)
     await this.save(table)
   }
 
-  /** A seated player may put a robot in an empty seat */
   private async addRobot(userId: string, seat: unknown) {
-    const table = this.tableOf(userId)
-    if (!table || !this.seatOf(table, userId)) throw new ClubError('notSeated')
+    const table = this.hostTable(userId)
     if (!isSeat(seat)) throw new ClubError('badSeat')
     if (table.seats[seat]) throw new ClubError('seatTaken')
     table.seats[seat] = ROBOT_PREFIX + seat
@@ -549,8 +605,7 @@ export class ClubService {
   }
 
   private async removeRobot(userId: string, seat: unknown) {
-    const table = this.tableOf(userId)
-    if (!table || !this.seatOf(table, userId)) throw new ClubError('notSeated')
+    const table = this.hostTable(userId)
     if (!isSeat(seat)) throw new ClubError('badSeat')
     if (!isRobotId(table.seats[seat])) throw new ClubError('seatNotRobot')
     this.vacate(table, seat)
@@ -575,13 +630,14 @@ export class ClubService {
 
   /**
    * Deals the first board as soon as all four seats are taken (by people or robots) and at least
-   * one person is seated. After that every board is dealt by itself a moment after the last one
-   * ends, as on BBO: nobody has to press "next board".
+   * one person is seated. After that every board is dealt by itself, as on BBO: nobody has to
+   * press "next board". The browsers count down the last DEAL_COUNTDOWN_MS from `dealAt`.
    */
   private startBoardIfReady(table: Table) {
     if (!this.canDeal(table)) return
-    if (table.board) this.scheduleDeal(table)
-    else this.dealBoard(table)
+    if (!table.board) return this.dealBoard(table)
+    table.dealAt = Math.max(table.dealAt ?? 0, this.now() + DEAL_COUNTDOWN_MS)
+    this.scheduleDeal(table)
   }
 
   private canDeal(table: Table) {
@@ -596,12 +652,13 @@ export class ClubService {
     table.board = newBoard(table.boardsPlayed + 1, deal(this.random))
     table.undo = undefined
     table.recordId = undefined
+    table.dealAt = undefined
   }
 
   private scheduleDeal(table: Table) {
     if (this.dealTimers.has(table.id) || !table.board || !this.canDeal(table)) return
     this.dealTimers.add(table.id)
-    this.schedule(() => void this.dealNext(table.id), NEXT_BOARD_DELAY)
+    this.schedule(() => void this.dealNext(table.id), Math.max(0, (table.dealAt ?? 0) - this.now()), 'deal')
   }
 
   private async dealNext(tableId: string) {
@@ -609,6 +666,8 @@ export class ClubService {
     const table = this.tables.get(tableId)
     // Someone may have stood up while the result was showing; sitting down deals again
     if (!table || !this.canDeal(table)) return
+    // The countdown was restarted (a seat was filled again): wait for it
+    if ((table.dealAt ?? 0) > this.now() + 50) return this.scheduleDeal(table)
     this.dealBoard(table)
     await this.save(table)
     this.broadcast()
@@ -682,6 +741,9 @@ export class ClubService {
     table.board = next
     if (next.phase === 'finished' && board.phase !== 'finished') {
       await this.recordBoard(table, next)
+      // A board played to the last card leaves that trick on the table for a moment first
+      const playedOut = next.play.length === 52
+      table.dealAt = this.now() + (playedOut ? LAST_TRICK_MS : 0) + DEAL_COUNTDOWN_MS
       this.startBoardIfReady(table)
     }
     await this.save(table)
@@ -739,7 +801,7 @@ export class ClubService {
     const move = this.robotMove(table)
     if (!move) return
     this.robotTimers.add(table.id)
-    this.schedule(() => void this.runRobot(table.id), move.delay)
+    this.schedule(() => void this.runRobot(table.id), move.delay, 'robot')
   }
 
   private async runRobot(tableId: string) {
@@ -781,13 +843,40 @@ export class ClubService {
     }
   }
 
-  /** Sends every online user the lobby and the table they are at. A club is small enough for this. */
+  /**
+   * Sends every online member the lobby and the table they are at, but only what changed for them:
+   * a card played at one table sends nothing to people in the lobby, and the chat and recent boards
+   * only travel when they change. That keeps each update small on a phone connection.
+   */
   broadcast() {
     const online = this.connections.onlineUserIds()
     for (const userId of online) {
-      this.connections.send(userId, { type: 'lobby', lobby: this.lobbyView(userId, online) })
+      const sent = this.sent.get(userId) ?? {}
+      this.sent.set(userId, sent)
+
+      const lobby = this.lobbyView(userId, online)
+      const lobbyJson = JSON.stringify(lobby)
+      if (lobbyJson !== sent.lobby) {
+        sent.lobby = lobbyJson
+        this.connections.send(userId, { type: 'lobby', lobby })
+      }
+
       const table = this.tableOf(userId)
-      this.connections.send(userId, { type: 'table', table: table ? this.tableView(table, userId) : null })
+      if (!table) {
+        if (sent.table !== 'null') this.connections.send(userId, { type: 'table', table: null, now: this.now() })
+        Object.assign(sent, { table: 'null', chat: undefined, recent: undefined })
+        continue
+      }
+      const { chat, recent, ...rest } = this.tableView(table, userId)
+      const restJson = JSON.stringify(rest)
+      const chatJson = JSON.stringify(chat)
+      const recentJson = JSON.stringify(recent)
+      if (restJson === sent.table && chatJson === sent.chat && recentJson === sent.recent) continue
+      const wire: TableWire = { ...rest }
+      if (chatJson !== sent.chat) wire.chat = chat
+      if (recentJson !== sent.recent) wire.recent = recent
+      Object.assign(sent, { table: restJson, chat: chatJson, recent: recentJson })
+      this.connections.send(userId, { type: 'table', table: wire, now: this.now() })
     }
   }
 
@@ -836,6 +925,7 @@ export class ClubService {
       mySeat,
       board: table.board ? boardView(table.board, mySeat, { undo: table.undo, recordId: table.recordId }) : null,
       boardsPlayed: table.boardsPlayed,
+      dealAt: table.board?.phase === 'finished' && this.canDeal(table) ? (table.dealAt ?? null) : null,
       chat: table.chat,
       recent: table.recent ?? [],
     }

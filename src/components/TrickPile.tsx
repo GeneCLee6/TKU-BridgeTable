@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import styled from 'styled-components'
 import { sideOf, type Seat, type Side } from '../../shared/cards.ts'
 import type { Trick } from '../../shared/game.ts'
@@ -8,9 +8,13 @@ import { TrickArea, type Position } from './TrickArea.tsx'
 
 /**
  * The finished tricks, face down in the corner as on BBO: upright for a trick your side won,
- * sideways for one it lost. Clicking the pile opens the last trick in a small window just above
- * it, away from the trick being played in the middle; clicking again (or Escape) closes it.
+ * sideways for one it lost, packed close together. Clicking the pile opens the last trick in a
+ * small window just above it, away from the trick being played in the middle, and plays its four
+ * cards again one at a time in the order they were played; clicking again (or Escape) closes it.
  */
+
+/** Pause between the cards when the last trick is played again */
+export const LAST_TRICK_STEP_MS = 450
 
 const Wrap = styled.div`
   position: relative;
@@ -31,9 +35,8 @@ const Pile = styled.button<{ $h: number }>`
   &:hover:not(:disabled), &[aria-expanded='true'] { background: ${({ theme }) => theme.table.shade}; }
 `
 
-const Mini = styled.span<{ $w: number; $h: number; $overlap: number }>`
-  flex: 0 1 auto;
-  min-width: 6px;
+const Mini = styled.span<{ $w: number; $h: number }>`
+  flex: none;
   width: ${({ $w }) => $w}px;
   height: ${({ $h }) => $h}px;
   border: 2px solid ${({ theme }) => theme.table.cardFace};
@@ -44,7 +47,6 @@ const Mini = styled.span<{ $w: number; $h: number; $overlap: number }>`
     ${({ theme }) => theme.table.cardBackStripe} 4px 8px
   );
   box-shadow: ${({ theme }) => theme.cardShadow};
-  & + & { margin-left: -${({ $overlap }) => $overlap}px; }
 `
 
 const Popup = styled.div`
@@ -63,6 +65,32 @@ const Popup = styled.div`
   font-size: 14px;
   font-weight: 700;
 `
+
+/** The last trick, its cards coming out one by one */
+function LastTrick({ trick, positionOf, width }: { trick: Trick; positionOf: (seat: Seat) => Position; width: number }) {
+  const t = useT()
+  const [shown, setShown] = useState(1)
+
+  useEffect(() => {
+    if (shown >= trick.cards.length) return
+    const timer = setTimeout(() => setShown(shown + 1), LAST_TRICK_STEP_MS)
+    return () => clearTimeout(timer)
+  }, [shown, trick.cards.length])
+
+  const complete = shown >= trick.cards.length
+  return (
+    <Popup role="dialog" aria-label={t.lastTrick}>
+      <span>{t.lastTrick}</span>
+      <TrickArea
+        cards={trick.cards.slice(0, shown)}
+        positionOf={positionOf}
+        winner={complete ? trick.winner : undefined}
+        width={width}
+        label={t.lastTrick}
+      />
+    </Popup>
+  )
+}
 
 export function TrickPile({
   tricks,
@@ -88,6 +116,9 @@ export function TrickPile({
   const last = done.at(-1)
   const w = Math.max(14, Math.round(width * 0.3))
   const h = Math.round(w * CARD_RATIO)
+  // Every card starts this far from the one before, whichever way each lies
+  const step = Math.round(w * 0.42)
+  const widthOf = (trick: Trick & { winner: Seat }) => (sideOf(trick.winner) === side ? w : h)
 
   useEffect(() => {
     if (!open) return
@@ -99,16 +130,7 @@ export function TrickPile({
   return (
     <Wrap>
       {open && last && (
-        <Popup role="dialog" aria-label={t.lastTrick}>
-          <span>{t.lastTrick}</span>
-          <TrickArea
-            cards={last.cards}
-            positionOf={positionOf}
-            winner={last.winner}
-            width={Math.max(30, Math.round(width * 0.5))}
-            label={t.lastTrick}
-          />
-        </Popup>
+        <LastTrick key={done.length} trick={last} positionOf={positionOf} width={Math.max(30, Math.round(width * 0.5))} />
       )}
       <Pile
         type="button"
@@ -121,7 +143,15 @@ export function TrickPile({
       >
         {done.map((trick, i) => {
           const ours = sideOf(trick.winner) === side
-          return <Mini key={i} $w={ours ? w : h} $h={ours ? h : w} $overlap={Math.round(w * 0.4)} data-ours={ours} />
+          return (
+            <Mini
+              key={i}
+              $w={ours ? w : h}
+              $h={ours ? h : w}
+              style={i ? { marginLeft: step - widthOf(done[i - 1]) } : undefined}
+              data-ours={ours}
+            />
+          )
         })}
       </Pile>
     </Wrap>

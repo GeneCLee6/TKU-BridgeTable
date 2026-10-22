@@ -76,7 +76,8 @@ interface BoardState {
 
 | 誰 | 看得到 |
 | --- | --- |
-| 入座者 | 自己的牌；首攻後的夢家；夢家在首攻後也看得到莊家的牌；有人攤牌且自己需要回應時，攤牌者的牌 |
+| 入座者 | 自己的牌；首攻後的夢家；夢家在首攻後也看得到莊家的牌 |
+| 攤牌之後（被拒絕也一樣） | 攤過的牌不會再蓋回去：莊家攤牌後，兩位防家看得到四家的牌（莊家仍只看自己和夢家）；防家攤牌後，他的牌所有人都看得到。記在 `BoardState.claimed` |
 | 觀看者 | 四家（同 BBO kibitz） |
 | 所有人，打完後 | 四家原始牌與所有 Alert 說明 |
 | Alert 說明 | 叫牌者的同伴在打完前看不到 |
@@ -85,12 +86,15 @@ interface BoardState {
 
 ## 5. 通訊與儲存
 
-**HTTP**：`POST /api/register`、`/api/login`、`/api/logout`、`/api/account/password`；`GET /api/me`、`/api/history?scope=all&before=<cursor>`、`/api/history/:id`。管理員：`GET/POST /api/admin/users`、`POST /api/admin/users/:id/password`、`POST /api/admin/users/:id/admin`、`DELETE /api/admin/users/:id`、`GET/POST /api/admin/settings`、`DELETE /api/admin/tables/:id`。session 放在 HttpOnly、SameSite=Lax 的 cookie（`tbt_session`）。錯誤回應帶 `code` 與 `params`（`shared/messages.ts`），瀏覽器依語言顯示。
+**HTTP**：`POST /api/register`、`/api/login`、`/api/logout`、`/api/account/password`；`GET /api/me`、`/api/history?scope=all&page=<n>&size=<10|20|50|100>`（回傳該頁與總數）、`/api/history/:id`。管理員：`GET/POST /api/admin/users`、`POST /api/admin/users/:id/password`、`POST /api/admin/users/:id/admin`、`DELETE /api/admin/users/:id`、`GET/POST /api/admin/settings`、`DELETE /api/admin/tables/:id`。session 放在 HttpOnly、SameSite=Lax 的 cookie（`tbt_session`）。錯誤回應帶 `code` 與 `params`（`shared/messages.ts`），瀏覽器依語言顯示。
 
 **WebSocket** `/ws`（同網域，帶 cookie 驗證）：
 
-- 瀏覽器 → 伺服器：`createTable`、`joinTable`、`sit`、`stand`、`leaveTable`、`freeSeat`、`addRobot`、`removeRobot`、`call`、`play`、`claim`、`claimRespond`、`undoRequest`、`undoRespond`、`chat`（沒有「下一副」：一副結束 4 秒後伺服器自動發下一副，見 `NEXT_BOARD_DELAY`）
-- 伺服器 → 瀏覽器：`welcome`、`lobby`（牌桌列表與 `members`：每位社員是否在線、在哪一桌哪個座位）、`table`（含 `recent`：本桌最近 30 副的摘要）、`error`
+- 瀏覽器 → 伺服器：`createTable`、`joinTable`、`sit`、`stand`、`leaveTable`、`kick`、`addRobot`、`removeRobot`、`call`、`play`、`claim`、`claimRespond`、`undoRequest`、`undoRespond`、`chat`。`kick`、`addRobot`、`removeRobot` 只有房主能用；房主離開或斷線時，桌上第一位在線的真人（先入座者、再觀看者）接手
+- 伺服器 → 瀏覽器：`welcome`、`lobby`（牌桌列表與 `members`：每位社員是否在線、在哪一桌哪個座位）、`table`、`error`
+- **只送有變的部分**：伺服器記住每位社員上次收到的大廳與牌桌（JSON），沒變就不送；牌桌的 `chat` 與 `recent`（本桌最近 30 副的摘要）只在改變時才附上，瀏覽器沿用手上那份（`TableWire`）。所以某桌出一張牌，大廳裡的人什麼都收不到，桌上的人只收到小小一份。新連線一律收完整資料
+- **沒有「下一副」**：一副結束後伺服器設定 `dealAt`（打到最後一張多等 `LAST_TRICK_MS` 2.5 秒，再加 `DEAL_COUNTDOWN_MS` 3 秒倒數），時間到自動發牌；`table` 訊息附上伺服器時間 `now`，瀏覽器據此換算成自己的時鐘來倒數
+- **心跳**：瀏覽器每 15 秒送 `ping`，由 `setWebSocketAutoResponse` 直接回 `pong`（不必喚醒物件）。40 秒沒收到任何訊息、分頁回到前景或網路恢復時，瀏覽器立刻重新連線；重連期間的動作暫存 8 秒內補送
 - 使用 Durable Object 的 hibernation API：沒人打牌時物件可以休眠，WebSocket 不會斷，醒來時從儲存重新載入。
 
 **儲存**（Durable Object 的 key-value，SQLite 後端）：
@@ -105,8 +109,9 @@ interface BoardState {
 | `uhist:<userId>:<時間>-<id>` | 每位社員自己的紀錄索引 |
 | `meta:settings` | 管理員改過的人數上限與邀請碼（沒改過就用環境變數） |
 | `meta:schema` | 資料版本；舊版 `board:<時間>-<id>` 在載入時自動搬到新索引 |
+| `meta:count:<索引前綴>` | 每個紀錄索引的筆數（分頁的總數）；第一次用到時數一次，之後每存一副加一 |
 
-每個動作處理完立即寫回，物件隨時被回收都不會遺失牌局。紀錄列表一次只讀一頁（50 筆摘要），不論累積多少副都一樣快。
+每個動作處理完立即寫回，物件隨時被回收都不會遺失牌局。紀錄列表一次只讀到那一頁為止（每頁 10／20／50／100 筆摘要）。
 
 **容量**：免費方案每個帳號 5 GB；一副牌的紀錄連同兩筆索引約 4 KB，大約可存一百萬副以上。
 

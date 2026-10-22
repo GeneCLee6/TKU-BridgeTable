@@ -6,12 +6,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Trick } from '../../shared/game.ts'
 import { AppHeader } from '../../src/components/AppHeader.tsx'
 import { HandView } from '../../src/components/HandView.tsx'
-import { TrickPile } from '../../src/components/TrickPile.tsx'
+import { LAST_TRICK_STEP_MS, TrickPile } from '../../src/components/TrickPile.tsx'
 import { suitOrder } from '../../src/lib/cards.ts'
 import { REPLAY_CARD_MS, useTrickReplay } from '../../src/lib/useTrickReplay.ts'
 import { AuthProvider } from '../../src/state/AuthContext.tsx'
 import { ClubProvider } from '../../src/state/ClubContext.tsx'
 import { PreferencesProvider } from '../../src/state/PreferencesContext.tsx'
+import { HistoryPage } from '../../src/pages/HistoryPage.tsx'
 
 const wrap = (ui: ReactNode) => render(<PreferencesProvider>{ui}</PreferencesProvider>)
 const cardNames = (group: HTMLElement) => within(group).getAllByRole('button').map((b) => b.getAttribute('aria-label'))
@@ -54,7 +55,11 @@ describe('the trick pile', () => {
   ]
   const positions = { N: 'top', E: 'right', S: 'bottom', W: 'left' } as const
 
-  it('stands tricks we won upright, lays the others down, and shows the last one on a click', async () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('stands tricks we won upright, lays the others down, and plays the last one again on a click', async () => {
     const onToggle = vi.fn()
     const { rerender } = wrap(
       <TrickPile tricks={tricks} side="NS" positionOf={(s) => positions[s]} width={80} open={false} onToggle={onToggle} />,
@@ -64,13 +69,18 @@ describe('the trick pile', () => {
     await userEvent.click(pile)
     expect(onToggle).toHaveBeenCalled()
 
+    vi.useFakeTimers()
     rerender(
       <PreferencesProvider>
         <TrickPile tricks={tricks} side="NS" positionOf={(s) => positions[s]} width={80} open onToggle={onToggle} />
       </PreferencesProvider>,
     )
     const last = screen.getByRole('dialog', { name: '上一墩' })
-    expect(within(last).getAllByRole('button').map((b) => b.getAttribute('aria-label'))).toEqual(['紅心2', '紅心A', '紅心3', '紅心4'])
+    const shown = () => within(last).getAllByRole('button').map((b) => b.getAttribute('aria-label'))
+    // One card at a time, in the order they were played
+    expect(shown()).toEqual(['紅心2'])
+    for (let i = 0; i < 3; i++) act(() => vi.advanceTimersByTime(LAST_TRICK_STEP_MS))
+    expect(shown()).toEqual(['紅心2', '紅心A', '紅心3', '紅心4'])
   })
 })
 
@@ -130,5 +140,56 @@ describe('the language menu', () => {
     expect(screen.queryByRole('menu')).toBeNull()
     expect(document.documentElement.lang).toBe('ja')
     expect(screen.getByRole('button', { name: '言語' })).toBeInTheDocument()
+  })
+})
+
+describe('the history list', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('pages through the boards and lets the viewer choose how many a page shows', async () => {
+    const asked: URLSearchParams[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: string) => {
+        const query = new URL(input, 'http://x').searchParams
+        asked.push(query)
+        const size = Number(query.get('size'))
+        const page = Number(query.get('page'))
+        const board = (n: number) => ({
+          id: `b${n}`,
+          tableNumber: 1,
+          finishedAt: n,
+          boardNo: n,
+          dealer: 'N',
+          vul: 'None',
+          contract: null,
+          result: { declarerTricks: 0, scoreNS: 0, claimed: false },
+          players: Object.fromEntries(['N', 'E', 'S', 'W'].map((s) => [s, { id: s, username: s }])),
+        })
+        const boards = Array.from({ length: Math.min(size, 45 - (page - 1) * size) }, (_, i) => board((page - 1) * size + i + 1))
+        return new Response(JSON.stringify({ boards, total: 45, page, size }), { status: 200 })
+      }),
+    )
+    render(
+      <PreferencesProvider>
+        <MemoryRouter>
+          <HistoryPage />
+        </MemoryRouter>
+      </PreferencesProvider>,
+    )
+    expect(await screen.findByText('第 1–20 副，共 45 副')).toBeInTheDocument()
+    expect(screen.getAllByRole('row')).toHaveLength(21)
+    await userEvent.click(screen.getByRole('button', { name: '3' }))
+    expect(await screen.findByText('第 41–45 副，共 45 副')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '下一頁' })).toBeDisabled()
+
+    await userEvent.selectOptions(screen.getByRole('combobox'), '50')
+    expect(await screen.findByText('第 1–45 副，共 45 副')).toBeInTheDocument()
+    expect(asked.at(-1)?.get('size')).toBe('50')
+    expect(asked.at(-1)?.get('page')).toBe('1')
+    // All on one page: AP for every passed-out board
+    expect(screen.getAllByText('AP')).toHaveLength(45)
   })
 })

@@ -1,11 +1,10 @@
 import { Link } from 'react-router-dom'
-import styled from 'styled-components'
+import styled, { keyframes } from 'styled-components'
 import type { BoardView } from '../../shared/protocol.ts'
-import { resultLabel } from '../../shared/scoring.ts'
 import { signed } from '../lib/format.ts'
 import { useT } from '../state/PreferencesContext.tsx'
 import { seatLetter } from '../strings.ts'
-import { ContractLabel } from './Suit.tsx'
+import { ContractResult } from './Suit.tsx'
 
 /** Panels in the middle of the felt: claim and undo prompts, the result */
 
@@ -60,32 +59,81 @@ const SmallLink = styled(Link)`
   font-size: 14px;
 `
 
-const Soon = styled.div`
-  color: ${({ theme }) => theme.table.panelMuted};
-  font-size: 14px;
+const RING = 26
+const CIRCUMFERENCE = 2 * Math.PI * RING
+
+const drain = keyframes`
+  from { stroke-dashoffset: 0; }
+  to { stroke-dashoffset: ${CIRCUMFERENCE}; }
 `
 
-/** The result of the board just finished; the server deals the next one a moment later */
-export function ResultPanel({ board, declarerName }: { board: BoardView; declarerName?: string }) {
+const pop = keyframes`
+  from { transform: scale(1.35); opacity: 0.2; }
+  to { transform: scale(1); opacity: 1; }
+`
+
+const Ring = styled.div`
+  position: relative;
+  width: 64px;
+  height: 64px;
+
+  & > svg { position: absolute; inset: 0; transform: rotate(-90deg); }
+  & circle { fill: none; stroke-width: 6; }
+  & circle:first-child { stroke: ${({ theme }) => theme.table.ringTrack}; }
+  & circle:last-child {
+    stroke: ${({ theme }) => theme.table.ring};
+    stroke-linecap: round;
+    stroke-dasharray: ${CIRCUMFERENCE};
+    animation: ${drain} 1s linear both;
+  }
+  & > span {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    font-family: ${({ theme }) => theme.fonts.cards};
+    font-size: 26px;
+    font-weight: 800;
+    animation: ${pop} 0.35s ease-out both;
+  }
+`
+
+/** BBO's countdown before the next deal: the number in a ring that empties each second */
+export function Countdown({ seconds }: { seconds: number }) {
+  const t = useT()
+  return (
+    // Keyed by the second, so the ring and the number start again each time
+    <Ring key={seconds} role="timer" aria-label={t.dealingIn(seconds)}>
+      <svg viewBox="0 0 64 64" aria-hidden>
+        <circle cx="32" cy="32" r={RING} />
+        <circle cx="32" cy="32" r={RING} />
+      </svg>
+      <span aria-hidden>{seconds}</span>
+    </Ring>
+  )
+}
+
+/**
+ * The result of the board just finished, in bridge shorthand whatever the language (2♦ N +5,
+ * AP), with the countdown to the next deal while it runs
+ */
+export function ResultPanel({ board, declarerName, seconds }: { board: BoardView; declarerName?: string; seconds: number | null }) {
   const t = useT()
   const result = board.result!
   const contract = board.contract
   return (
     <FeltPanel role="status" aria-label={t.result}>
       <Big>
-        <ContractLabel contract={contract} onCard />
+        <ContractResult contract={contract} tricks={result.declarerTricks} onCard />
       </Big>
       {contract && (
         <div>
-          {declarerName ?? seatLetter[contract.declarer]} · {result.declarerTricks} {t.tricks} ·{' '}
-          {t.made(resultLabel(contract, result.declarerTricks))}
+          {declarerName ?? seatLetter[contract.declarer]}
           {result.claimed && t.claimed}
         </div>
       )}
-      <Score $positive={result.scoreNS >= 0}>
-        {t.ns} {signed(result.scoreNS)}
-      </Score>
-      <Soon>{t.nextBoardSoon}</Soon>
+      <Score $positive={result.scoreNS >= 0}>NS {signed(result.scoreNS)}</Score>
+      {seconds !== null && <Countdown seconds={seconds} />}
       {board.recordId && (
         <SmallLink to={`/history/${board.recordId}`} target="_blank" rel="noopener">
           {t.viewRecord}

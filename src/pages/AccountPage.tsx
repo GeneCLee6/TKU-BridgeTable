@@ -4,6 +4,7 @@ import { LANGS } from '../../shared/messages.ts'
 import { LIMITS } from '../../shared/protocol.ts'
 import { Button, Card, ErrorText, PageMain, PageTitle } from '../components/ui.tsx'
 import { api, ApiError } from '../lib/api.ts'
+import { isAppleMobile, isStandalone, useInstallOffer } from '../lib/pwa.ts'
 import { useAuth } from '../state/AuthContext.tsx'
 import { usePreferences } from '../state/PreferencesContext.tsx'
 import { LANG_NAMES } from '../strings.ts'
@@ -85,6 +86,34 @@ function Options<T extends string>({
   )
 }
 
+const Steps = styled.p`
+  margin: 0 0 10px;
+  color: ${({ theme }) => theme.colors.textMuted};
+  font-size: 15px;
+`
+
+/** How to put the site on a phone's home screen: a button where the browser offers it, steps elsewhere */
+function InstallApp() {
+  const { t } = usePreferences()
+  const { available, install } = useInstallOffer()
+  if (isStandalone()) return <Success>{t.installedApp}</Success>
+  const apple = isAppleMobile()
+  return (
+    <>
+      <Steps>{t.installIntro}</Steps>
+      {available && (
+        <p>
+          <Button type="button" $variant="primary" onClick={() => void install()}>
+            {t.installButton}
+          </Button>
+        </p>
+      )}
+      {(apple || !available) && <Steps>{t.installIos}</Steps>}
+      {!apple && !available && <Steps>{t.installAndroid}</Steps>}
+    </>
+  )
+}
+
 export function AccountPage() {
   const { t, message, lang, mode, deck, cardStyle, sound, set } = usePreferences()
   const { user } = useAuth()
@@ -135,6 +164,10 @@ export function AccountPage() {
             options={[['on', t.soundOnShort], ['off', t.soundOffShort]]}
             onChange={(v) => set({ sound: v === 'on' })}
           />
+        </Card>
+        <Card>
+          <SectionTitle>{t.installTitle}</SectionTitle>
+          <InstallApp />
         </Card>
         <Card>
           <SectionTitle>{t.changePassword}</SectionTitle>

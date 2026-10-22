@@ -1,8 +1,8 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it } from 'vitest'
 import { SEATS, type Seat } from '../../shared/cards.ts'
-import type { ClientMessage, ServerMessage, TableView } from '../../shared/protocol.ts'
-import { ClubError, ClubService, NEXT_BOARD_DELAY, type Connections } from '../../worker/service.ts'
+import { DEAL_COUNTDOWN_MS, LAST_TRICK_MS, type ClientMessage, type ServerMessage, type TableView } from '../../shared/protocol.ts'
+import { ClubError, ClubService, type Connections, type ScheduleKind } from '../../worker/service.ts'
 import { MemoryStore } from '../../worker/store.ts'
 
 class FakeConnections implements Connections {
@@ -22,27 +22,45 @@ class FakeConnections implements Connections {
       | Extract<ServerMessage, { type: T }>
       | undefined
   }
+  /** The table as the browser holds it: chat and recent boards carry over when left out */
+  table(userId: string): TableView | null {
+    let view = null as TableView | null
+    for (const m of this.inbox.get(userId) ?? []) {
+      if (m.type !== 'table') continue
+      const wire = m.table
+      if (!wire) {
+        view = null
+        continue
+      }
+      const keep = view?.id === wire.id ? view : null
+      view = { ...wire, chat: wire.chat ?? keep?.chat ?? [], recent: wire.recent ?? keep?.recent ?? [] }
+    }
+    return view
+  }
 }
 
 let store: MemoryStore
 let connections: FakeConnections
 let club: ClubService
 /** Robot moves and the next deal wait here until a test runs them */
-let queue: { run: () => void; ms: number }[]
+let queue: { run: () => void; ms: number; kind: ScheduleKind }[]
+let time: number
 
 async function setup(config: { maxUsers?: number; inviteCode?: string } = {}) {
   store = new MemoryStore()
   connections = new FakeConnections()
   queue = []
+  time = 1_000_000
   club = new ClubService(store, connections, {
     maxUsers: config.maxUsers ?? 10,
     inviteCode: config.inviteCode,
-    schedule: (run, ms) => queue.push({ run, ms }),
+    now: () => time,
+    schedule: (run, ms, kind) => queue.push({ run, ms, kind }),
   })
   await club.load()
 }
 
-const isDeal = (job: { ms: number }) => job.ms === NEXT_BOARD_DELAY
+const isDeal = (job: { kind: ScheduleKind }) => job.kind === 'deal'
 
 /** Runs scheduled robot moves until none are left (or a person has to act) */
 async function runRobots(limit = 400) {
@@ -59,6 +77,7 @@ async function runRobots(limit = 400) {
 async function dealNext() {
   const deals = queue.filter(isDeal)
   queue = queue.filter((job) => !isDeal(job))
+  time += Math.max(0, ...deals.map((job) => job.ms))
   for (const job of deals) job.run()
   await new Promise((resolve) => setTimeout(resolve, 0))
 }
@@ -71,7 +90,7 @@ async function member(name: string) {
 }
 
 const send = (userId: string, message: ClientMessage) => club.handle(userId, message)
-const tableFor = (userId: string) => connections.last(userId, 'table')!.table as TableView
+const tableFor = (userId: string) => connections.table(userId)!
 
 /** Four members seated N E S W at one table */
 async function fullTable() {
@@ -166,15 +185,30 @@ describe('tables', () => {
     expect([...store.data.keys()].some((k) => k.startsWith('table:'))).toBe(false)
   })
 
-  it('lets anyone free the seat of an offline player only', async () => {
+  it('lets only the host ask a player to leave a seat or add robots', async () => {
     const { bySeat } = await fullTable()
-    await send(bySeat.N, { type: 'freeSeat', seat: 'E' })
-    expect(connections.last(bySeat.N, 'error')?.message).toBe('只能請離線的玩家離座')
-    connections.online.delete(bySeat.E)
-    await club.disconnected(bySeat.E)
-    expect(tableFor(bySeat.N).seats.E?.online).toBe(false)
-    await send(bySeat.N, { type: 'freeSeat', seat: 'E' })
-    expect(tableFor(bySeat.N).seats.E).toBeNull()
+    // South opened the table
+    expect(tableFor(bySeat.N).hostId).toBe(bySeat.S)
+    await send(bySeat.N, { type: 'kick', seat: 'E' })
+    expect(connections.last(bySeat.N, 'error')?.message).toBe('只有房主可以這樣做')
+    await send(bySeat.S, { type: 'kick', seat: 'E' })
+    const view = tableFor(bySeat.E)
+    expect(view.seats.E).toBeNull()
+    expect(view.mySeat).toBeNull()
+    expect(view.spectators.map((u) => u.username)).toEqual(['east'])
+    await send(bySeat.N, { type: 'addRobot', seat: 'E' })
+    expect(connections.last(bySeat.N, 'error')?.message).toBe('只有房主可以這樣做')
+    await send(bySeat.S, { type: 'addRobot', seat: 'E' })
+    expect(tableFor(bySeat.N).seats.E?.robot).toBe(true)
+  })
+
+  it('hands the table to someone else when the host leaves or drops offline', async () => {
+    const { bySeat } = await fullTable()
+    connections.online.delete(bySeat.S)
+    await club.disconnected(bySeat.S)
+    expect(tableFor(bySeat.N).hostId).toBe(bySeat.N)
+    await send(bySeat.N, { type: 'leaveTable' })
+    expect(tableFor(bySeat.E).hostId).toBe(bySeat.E)
   })
 })
 
@@ -340,6 +374,8 @@ describe('robots at the table', () => {
     expect(tableFor(amy).seats.N?.username).toBe('amy')
     await send(gene, { type: 'addRobot', seat: 'E' })
     await send(amy, { type: 'removeRobot', seat: 'E' })
+    expect(connections.last(amy, 'error')?.code).toBe('hostOnly')
+    await send(gene, { type: 'removeRobot', seat: 'E' })
     expect(tableFor(amy).seats.E).toBeNull()
 
     await send(gene, { type: 'addRobot', seat: 'E' })
@@ -348,14 +384,82 @@ describe('robots at the table', () => {
     expect(connections.last(gene, 'lobby')!.lobby.tables).toHaveLength(0)
   })
 
-  it('only seated players may add robots, and only to empty seats', async () => {
+  it('only the host may add robots, and only to empty seats', async () => {
     const { tableId, bySeat } = await fullTable()
     const watcher = await member('watcher')
     await send(watcher, { type: 'joinTable', tableId })
     await send(watcher, { type: 'addRobot', seat: 'N' })
-    expect(connections.last(watcher, 'error')?.code).toBe('notSeated')
+    expect(connections.last(watcher, 'error')?.code).toBe('hostOnly')
     await send(bySeat.S, { type: 'addRobot', seat: 'N' })
     expect(connections.last(bySeat.S, 'error')?.code).toBe('seatTaken')
+  })
+})
+
+describe('claims', () => {
+  it('leaves the declarer’s hand face up after a rejected claim: defenders see all four hands', async () => {
+    const { bySeat } = await fullTable()
+    for (const [seat, call] of [['N', '1S'], ['E', 'P'], ['S', 'P'], ['W', 'P']] as const)
+      await send(bySeat[seat], { type: 'call', call })
+    // North declares, South is dummy; North claims before the lead and East rejects
+    await send(bySeat.N, { type: 'claim', tricks: 13 })
+    expect(Object.keys(tableFor(bySeat.E).board!.hands).sort()).toEqual(['E', 'N', 'S', 'W'])
+    await send(bySeat.E, { type: 'claimRespond', accept: false })
+    expect(tableFor(bySeat.E).board!.claim).toBeUndefined()
+    expect(Object.keys(tableFor(bySeat.E).board!.hands).sort()).toEqual(['E', 'N', 'S', 'W'])
+    expect(Object.keys(tableFor(bySeat.W).board!.hands).sort()).toEqual(['E', 'N', 'S', 'W'])
+    // The declarer still sees only their own hand (dummy is not down yet)
+    expect(Object.keys(tableFor(bySeat.N).board!.hands)).toEqual(['N'])
+  })
+
+  it('shows a defender’s claimed hand to everyone', async () => {
+    const { bySeat } = await fullTable()
+    for (const [seat, call] of [['N', '1S'], ['E', 'P'], ['S', 'P'], ['W', 'P']] as const)
+      await send(bySeat[seat], { type: 'call', call })
+    await send(bySeat.E, { type: 'claim', tricks: 0 })
+    await send(bySeat.N, { type: 'claimRespond', accept: false })
+    expect(Object.keys(tableFor(bySeat.N).board!.hands).sort()).toEqual(['E', 'N'])
+    expect(Object.keys(tableFor(bySeat.W).board!.hands).sort()).toEqual(['E', 'W'])
+  })
+})
+
+describe('the pause before the next deal', () => {
+  it('counts down three seconds after a passed-out board, and waits for the last trick after a played one', async () => {
+    const { bySeat } = await fullTable()
+    for (let i = 0; i < 4; i++) await send(bySeat[tableFor(bySeat.N).board!.turn!], { type: 'call', call: 'P' })
+    expect(tableFor(bySeat.N).dealAt).toBe(time + DEAL_COUNTDOWN_MS)
+    expect(queue.find(isDeal)?.ms).toBe(DEAL_COUNTDOWN_MS)
+    await dealNext()
+    expect(tableFor(bySeat.N).dealAt).toBeNull()
+
+    // Board 2: everyone plays the first legal card until the end
+    for (const [seat, call] of [['E', '1C'], ['S', 'P'], ['W', 'P'], ['N', 'P']] as const)
+      await send(bySeat[seat], { type: 'call', call })
+    for (let i = 0; i < 60 && tableFor(bySeat.N).board!.phase === 'play'; i++) {
+      const board = tableFor(bySeat.N).board!
+      const controller = board.turn === board.dummy ? board.contract!.declarer : board.turn!
+      const cards = tableFor(bySeat[controller]).board!.legalCards
+      await send(bySeat[controller], { type: 'play', card: cards[0] })
+    }
+    expect(tableFor(bySeat.N).dealAt).toBe(time + LAST_TRICK_MS + DEAL_COUNTDOWN_MS)
+  })
+})
+
+describe('updates', () => {
+  it('sends a member only what changed for them', async () => {
+    const { bySeat } = await fullTable()
+    const lounger = await member('lounger')
+    const before = connections.inbox.get(lounger)!.length
+    const tableMessages = () => connections.inbox.get(bySeat.E)!.filter((m) => m.type === 'table')
+    const sentToEast = tableMessages().length
+    await send(bySeat.N, { type: 'call', call: 'P' })
+    // Someone in the lobby hears nothing about a call at a table
+    expect(connections.inbox.get(lounger)!.length).toBe(before)
+    // The table goes out again, but without the unchanged chat and recent boards
+    const latest = tableMessages().at(-1)!
+    expect(tableMessages().length).toBe(sentToEast + 1)
+    expect(latest.type === 'table' && latest.table && 'chat' in latest.table).toBe(false)
+    await send(bySeat.N, { type: 'chat', text: 'hi' })
+    expect(tableFor(bySeat.E).chat.map((m) => m.text)).toEqual(['hi'])
   })
 })
 
@@ -414,13 +518,7 @@ describe('admin', () => {
 })
 
 describe('history pages', () => {
-  it('reads one page at a time, newest first, with a cursor', async () => {
-    let time = 1_000
-    const now = () => time
-    store = new MemoryStore()
-    connections = new FakeConnections()
-    club = new ClubService(store, connections, { maxUsers: 10, now, schedule: (run) => run() })
-    await club.load()
+  it('reads numbered pages of a chosen size, newest first, with the total', async () => {
     const { bySeat } = await fullTable()
     for (let board = 0; board < 55; board++) {
       time += 1000
@@ -428,15 +526,20 @@ describe('history pages', () => {
         const turn = tableFor(bySeat.N).board!.turn!
         await send(bySeat[turn], { type: 'call', call: 'P' })
       }
-      await new Promise((resolve) => setTimeout(resolve, 0))
+      await dealNext()
     }
-    const first = await club.history(bySeat.N, false)
+    const first = await club.history(bySeat.N, false, 1, 50)
+    expect(first).toMatchObject({ total: 55, page: 1, size: 50 })
     expect(first.boards).toHaveLength(50)
     expect(first.boards[0].finishedAt).toBeGreaterThan(first.boards[49].finishedAt)
-    const second = await club.history(bySeat.N, false, first.next!)
+    const second = await club.history(bySeat.N, false, 2, 50)
     expect(second.boards).toHaveLength(5)
-    expect(second.next).toBeNull()
     expect(new Set([...first.boards, ...second.boards].map((b) => b.id)).size).toBe(55)
+
+    // An unknown size falls back to 20; a page past the end shows the last one
+    const odd = await club.history(bySeat.N, true, 9, 7)
+    expect(odd).toMatchObject({ total: 55, page: 3, size: 20 })
+    expect(odd.boards).toHaveLength(15)
   })
 
   it('moves version-1 history into the new indexes', async () => {

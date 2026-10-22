@@ -37,12 +37,11 @@ export const api = {
     post<{ user: Me }>('/api/register', { username, password, inviteCode }),
   logout: () => post<{ ok: true }>('/api/logout'),
   changePassword: (current: string, next: string) => post<{ ok: true }>('/api/account/password', { current, next }),
-  history: (all: boolean, before?: string) => {
-    const query = new URLSearchParams()
+  /** One page of history, newest first; `page` counts from 1 */
+  history: (all: boolean, page = 1, size = 20) => {
+    const query = new URLSearchParams({ page: String(page), size: String(size) })
     if (all) query.set('scope', 'all')
-    if (before) query.set('before', before)
-    const text = query.toString()
-    return request<HistoryPage>(`/api/history${text ? `?${text}` : ''}`)
+    return request<HistoryPage>(`/api/history?${query}`)
   },
   record: (id: string) => request<{ record: BoardRecord }>(`/api/history/${encodeURIComponent(id)}`),
 
