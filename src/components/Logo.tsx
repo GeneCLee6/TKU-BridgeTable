@@ -1,3 +1,5 @@
+import styled from 'styled-components'
+
 /**
  * The lantern mark (public/logo-mark.svg) inline, so its navy parts follow the theme through
  * currentColor. The lantern body, red suits and gold tassel stay fixed in both themes.
@@ -37,5 +39,76 @@ export function LogoMark({ size = 40 }: { size?: number }) {
         <path d="M42.4 58.5h1.2l.7 3.5h-2.6z" />
       </g>
     </svg>
+  )
+}
+
+const Wordmark = styled.span`
+  display: grid;
+  gap: 2px;
+  line-height: 1.1;
+  color: ${({ theme }) => theme.colors.primaryStrong};
+`
+
+const Line = styled.span`
+  display: flex;
+  align-items: center;
+  gap: 7px;
+`
+
+/** The TKU badge: navy with a gold bar under it, as in logo.svg */
+const Badge = styled.span`
+  padding: 1px 5px 0;
+  border-bottom: 2px solid ${({ theme }) => theme.colors.lantern};
+  border-radius: 4px 4px 2px 2px;
+  background: ${({ theme }) => theme.colors.primaryStrong};
+  color: ${({ theme }) => theme.colors.onPrimary};
+  font-family: 'Arial Black', 'Segoe UI', Arial, sans-serif;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 1px;
+`
+
+const English = styled.span`
+  font-family: ${({ theme }) => theme.fonts.cards};
+  font-size: 18px;
+  font-weight: 700;
+`
+
+const Chinese = styled.span`
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 3px;
+`
+
+/** The suits and the club's line; left out when the header is short of room */
+const Tagline = styled.span`
+  color: ${({ theme }) => theme.colors.textMuted};
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 1px;
+
+  & > [data-red] { color: ${({ theme }) => theme.suits.H}; }
+  @media (max-width: 1180px) { display: none; }
+`
+
+/**
+ * The wordmark of public/logo.svg, laid out the same way for the page header: the TKU badge and
+ * BridgeTable on the first line, 淡江牌桌 and the club's line under it. It is the club's name, so
+ * it reads the same in every language (like the logo itself); its colours follow the theme.
+ */
+export function LogoWordmark() {
+  return (
+    <Wordmark aria-hidden>
+      <Line>
+        <Badge>TKU</Badge>
+        <English>BridgeTable</English>
+      </Line>
+      <Line>
+        <Chinese>淡江牌桌</Chinese>
+        <Tagline>
+          ♠<span data-red>♥♦</span>♣ 橋藝社線上牌桌
+        </Tagline>
+      </Line>
+    </Wordmark>
   )
 }

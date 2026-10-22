@@ -24,7 +24,7 @@ import { useClub } from '../state/ClubContext.tsx'
 import { usePreferences } from '../state/PreferencesContext.tsx'
 import { LANG_NAMES } from '../strings.ts'
 import { mobile } from '../styles/tokens.ts'
-import { LogoMark } from './Logo.tsx'
+import { LogoMark, LogoWordmark } from './Logo.tsx'
 
 const Bar = styled.header`
   position: sticky;
@@ -49,7 +49,7 @@ const Bar = styled.header`
 const Brand = styled(NavLink)`
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 9px;
   color: ${({ theme }) => theme.colors.primaryStrong};
   text-decoration: none;
   font-weight: 700;
@@ -248,10 +248,8 @@ export function AppHeader() {
   return (
     <Bar>
       <Brand to="/" aria-label={`${t.appNameEn} ${t.appNameZh}`}>
-        <LogoMark size={34} />
-        <span>
-          {t.appNameEn} · {t.appNameZh}
-        </span>
+        <LogoMark size={42} />
+        <LogoWordmark />
       </Brand>
       {user && (
         <Nav aria-label={t.navLobby}>
