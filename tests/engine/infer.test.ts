@@ -99,4 +99,11 @@ describe('reading the auction', () => {
   it('is freed by an opponent who bids or doubles', () => {
     expect(contextFor(toy, 'N', auctionOf('1N P 2D X'), 'N', 'None').forced).toBe(false)
   })
+
+  it('makes the emergency call when forced and no rule fits', () => {
+    // After the transfer only 2♥ with two to five hearts fits; a void needs the emergency call
+    const strict: System = { ...toy, emergency: () => '2S' }
+    expect(choose(strict, hand('AQ32 - KJ54 AQ432'), 'N', auctionOf('1N P 2D P'), 'N').call).toBe('2S')
+    expect(choose(toy, hand('AQ32 - KJ54 AQ432'), 'N', auctionOf('1N P 2D P'), 'N').call).toBe('P')
+  })
 })

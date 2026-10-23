@@ -177,7 +177,10 @@ export interface Book {
   /** Any other condition on the auction */
   only?: (ctx: Ctx) => boolean
   rules: readonly Rule[]
-  /** Later books that also fit the auction add their rules (by default this book is the last word) */
+  /**
+   * Later books that also fit the auction add their rules for calls this book does not make (by
+   * default this book is the last word)
+   */
   more?: boolean
 }
 
@@ -186,4 +189,6 @@ export type SystemId = 'gib'
 export interface System {
   id: SystemId
   books: readonly Book[]
+  /** The call to make when pass is not allowed and no rule fits the hand */
+  emergency?: (hand: Hand, ctx: Ctx) => Call
 }

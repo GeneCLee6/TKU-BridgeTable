@@ -86,6 +86,71 @@ describe('the 2/1 books', () => {
   })
 })
 
+describe('after 1♣ / 1♦ (§2)', () => {
+  it('answers in a new suit: longer diamonds first, majors 4-4 hearts, 5-5 spades', () => {
+    expect(bidOver('32 K432 QJ432 32', '1C P')).toBe('1D')
+    expect(bidOver('432 K432 QJ43 32', '1C P')).toBe('1H')
+    expect(bidOver('K432 Q432 J43 32', '1C P')).toBe('1H')
+    expect(bidOver('K5432 Q5432 J 32', '1C P')).toBe('1S')
+  })
+
+  it('raises inverted, bids 2♣ over 1♦ as a game force, and jumps to 3♣ to invite', () => {
+    expect(bidOver('32 K32 A32 KJ432', '1C P')).toBe('2C')
+    expect(bidOver('A3 K32 Q32 AK432', '1D P')).toBe('2C')
+    expect(bidOver('K2 32 432 AQJ432', '1D P')).toBe('3C')
+    expect(bidOver('32 432 KJ5432 32', '1D P')).toBe('3D')
+  })
+
+  it('shows balanced hands without a major in notrump, and passes 0–5', () => {
+    expect(bidOver('K32 Q32 J32 J432', '1C P')).toBe('1N')
+    expect(bidOver('K32 Q32 AJ3 J432', '1D P')).toBe('2N')
+    expect(bidOver('K32 Q32 AJ3 KJ32', '1C P')).toBe('3N')
+    expect(bidOver('432 432 5432 432', '1C P')).toBe('P')
+  })
+
+  it('makes fit jumps as a passed hand', () => {
+    expect(bidOver('KQJ32 32 K432 32', 'P P 1D P')).toBe('2S')
+  })
+
+  it('opener raises by strength, shows a new suit, notrump or a long minor', () => {
+    expect(bidOver('A32 KJ32 32 KJ32', '1C P 1H P')).toBe('2H')
+    expect(bidOver('A32 KQ32 32 AKJ2', '1C P 1H P')).toBe('3H')
+    expect(bidOver('A32 AKQ2 3 AKJ32', '1C P 1H P')).toBe('4H')
+    expect(bidOver('KJ32 32 A32 KQ32', '1C P 1H P')).toBe('1S')
+    expect(bidOver('K32 Q2 A32 KJ432', '1C P 1H P')).toBe('1N')
+    expect(bidOver('AQ2 K2 AJ32 KQ32', '1D P 1H P')).toBe('2N')
+    expect(bidOver('A2 32 K32 AKQJ32', '1C P 1H P')).toBe('3C')
+    // A four-card major comes before raising 1♦
+    expect(bidOver('- KJ32 Q432 AKJ32', '1C P 1D P')).toBe('1H')
+  })
+
+  it('reverses with 17+ and the minor longer; the 2NT relay shows a weak hand', () => {
+    expect(bidOver('A2 K2 KQ32 AJ432', '1C P 1S P')).toBe('2D')
+    expect(bidOver('KQ432 32 432 432', '1C P 1S P 2D P')).toBe('2N')
+    expect(bidOver('A2 K2 KQ32 AJ432', '1C P 1S P 2D P 2N P')).toBe('3C')
+  })
+
+  it('uses new minor forcing after 1NT, and opener answers it', () => {
+    expect(bidOver('K2 AQ432 Q32 432', '1C P 1H P 1N P')).toBe('2D')
+    expect(bidOver('K32 Q32 A2 QJ432', '1C P 1H P 1N P 2D P')).toBe('2H')
+    expect(bidOver('K32 Q2 A32 QJ432', '1C P 1H P 1N P 2D P')).toBe('2N')
+  })
+
+  it('bids the fourth suit as an artificial game force', () => {
+    expect(bidOver('32 K32 AQJ32 K32', '1C P 1D P 1H P')).toBe('1S')
+  })
+
+  it('explains these calls the way GIB does', () => {
+    expect(meaning('1C P', '2C')).toBe('倒轉低花加叫：0–3 張♠，0–3 張♥，5+ 張♣，10+ 大牌點，迫叫一圈')
+    expect(meaning('1C P', '1N')).toBe('0–3 張♠，0–3 張♥，6–10 大牌點')
+    expect(meaning('1C P', 'P')).toBe('0–5 大牌點')
+    expect(meaning('1C P 1S P', '2D')).toBe('反序：4+ 張♦，5+ 張♣，17–21 大牌點，迫叫一圈')
+    expect(meaning('1C P 1H P 1N P', '2D')).toBe('新低花迫叫：11+ 大牌點，迫叫一圈')
+    expect(meaning('1C P 1D P 1H P', '1S')).toBe('第四花色迫叫：12+ 大牌點，迫叫成局')
+    expect(meaning('1C P 1S P 2D P', '2N')).toBe('雷本索：請同伴叫 3♣，5–8 大牌點，迫叫一圈')
+  })
+})
+
 describe('when no book covers the auction (§11)', () => {
   const goal = (cards: string, calls: string) => {
     const { h, ctx } = situation(cards, calls)

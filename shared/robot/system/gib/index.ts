@@ -1,5 +1,6 @@
 import type { System } from '../spec.ts'
-import { fallback, silent } from './fallback.ts'
+import { fallback, forcedCall, silent } from './fallback.ts'
+import { minors } from './minors.ts'
 import { openings } from './openings.ts'
 
 /**
@@ -8,5 +9,6 @@ import { openings } from './openings.ts'
  */
 export const GIB: System = {
   id: 'gib',
-  books: [openings, silent, fallback],
+  books: [openings, ...minors, silent, fallback],
+  emergency: forcedCall,
 }

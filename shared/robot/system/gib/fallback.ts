@@ -178,16 +178,21 @@ function work(h: Hand, ctx: Ctx): Call {
     return 'P'
   }
   // We bid last: go on only if we are below the goal
+  const stay = ctx.forced ? forcedCall(h, ctx) : 'P'
   if (goal.kind === 'part' || !target) {
     if (strainOf(last.call) === goal.strain && !ctx.forced) return 'P'
-    return cheap && levelOf(cheap) <= 3 ? cheap : ctx.forced ? forcedCall(h, ctx) : 'P'
+    // A part score only at a part-score level: the cheapest bid may already invite
+    return cheap && levelKind(goal.strain, levelOf(cheap)) === 'part' ? cheap : stay
   }
-  if (bidIndex(target) <= bidIndex(last.call)) return ctx.forced ? forcedCall(h, ctx) : 'P'
+  // Already in a game: do not move to another one
+  const lastKind = levelKind(strainOf(last.call), levelOf(last.call))
+  if (goal.kind === 'game' && lastKind !== 'part' && lastKind !== 'invite') return stay
+  if (bidIndex(target) <= bidIndex(last.call)) return stay
   return target
 }
 
-/** Pass is not allowed: the cheapest sensible bid */
-function forcedCall(h: Hand, ctx: Ctx): Call {
+/** Pass is not allowed: the cheapest sensible bid (also the system's emergency call) */
+export function forcedCall(h: Hand, ctx: Ctx): Call {
   const partnerSuits = SUITS.filter((s) => partnerLength(ctx, s) >= 4).sort((a, b) => partnerLength(ctx, b) - partnerLength(ctx, a))
   const tries: Strain[] = [
     ...partnerSuits.filter((s) => h.len[s] >= 3),
