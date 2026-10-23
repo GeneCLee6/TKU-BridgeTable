@@ -140,7 +140,7 @@ tests/bidding-quiz/*.json   題庫：手牌、叫牌過程、身價、正解、�
 **M1 · 制度引擎（先搬家，行為不變）**
 
 - [x] `e5-t12` 設計文件：規則格式（`Book`、`Rule`、`Spec`）、說明的合併、推論與迫叫，寫進 `ROBOT.md` §6；GIB 的來源與制度表放在 `docs/BBO GIB/` · AC-5.3 · #14
-- [ ] `e5-t13` `system/spec.ts`、`match.ts`：叫牌情境比對（含萬用插叫）與手牌條件求值（點力、張數、牌型、擋張），單元測試 · AC-5.3 · M · ← e5-t12
+- [x] `e5-t13` `system/spec.ts`、`context.ts`、`evaluate.ts`、`rules.ts`、`engine.ts`：規則格式、叫牌過程記號與比對（含萬用插叫）、GIB 的牌力（總點、花色品質、擋張、控制、關鍵張）、選出叫品，單元測試 · AC-5.3 · #15
 - [ ] `e5-t14` `Meaning` 與 `describe.ts`：點力範圍、各門張數範圍、迫叫性、人工與否、`minLevel`；由意義產生六種語言說明 · AC-5.3, AC-5.7 · M · ← e5-t13
 - [ ] `e5-t15` 搬移開叫規則到 `systems/tku.ts`，引擎與舊程式並存，舊測試全過 · AC-5.3 · M · ← e5-t14
 - [ ] `e5-t16` 搬移 1NT 體系（Stayman、轉換、Texas、低花詢問、雷本索）· AC-5.3 · M · ← e5-t15

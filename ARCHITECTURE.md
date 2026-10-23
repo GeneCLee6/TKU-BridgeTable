@@ -31,7 +31,8 @@ TKU-BridgeTable/
 │  ├─ lin.ts               BBO LIN 匯出與 Handviewer 連結
 │  ├─ messages.ts          錯誤代碼與六種語言的訊息
 │  ├─ protocol.ts          HTTP／WebSocket 的訊息與畫面型別
-│  └─ robot/               機器人：hand（牌型分析）、bidding（淡江制度）、play（坐莊、防守信號）
+│  └─ robot/               機器人：hand（牌型分析）、bidding（淡江制度）、play（坐莊、防守信號）、
+│                          system/（制度引擎：規則書、GIB 的牌力、說明、推論，`ROBOT.md` §6）
 ├─ worker/
 │  ├─ index.ts             Worker 入口：/api/* 與 /ws 轉給 Durable Object，其他交給靜態檔案
 │  ├─ club.ts              Durable Object：HTTP 路由、WebSocket（hibernation）、儲存轉接
