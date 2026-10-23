@@ -3,6 +3,7 @@ import { contractOf, type AuctionCall } from '../../shared/auction.ts'
 import { deal, type Vulnerability } from '../../shared/board.ts'
 import { nextSeat, type Card, type Seat } from '../../shared/cards.ts'
 import { makeCall, newBoard, turnOf } from '../../shared/game.ts'
+import { robotCall } from '../../shared/robot/robots.ts'
 import { patternProblem } from '../../shared/robot/system/context.ts'
 import { describe as words } from '../../shared/robot/system/describe.ts'
 import { choose, explain } from '../../shared/robot/system/engine.ts'
@@ -55,6 +56,21 @@ function seeded(seed: number) {
     return seed % n
   }
 }
+
+describe('the robots a host can seat', () => {
+  it('the 2/1 robot alerts with GIB-style words and keeps what the call shows', () => {
+    const bid = robotCall('gib', hand('AKJ32 K43 Q54 32'), 'N', [], 'N', 'None')
+    expect(bid).toEqual({ call: '1S', alert: '5+ 張♠，11–21 大牌點，12–22 總點', meaning: { len: { S: [5, 13] }, hcp: [11, 21], tp: [12, 22] } })
+    expect(robotCall('gib', hand('932 843 J54 5432'), 'N', [], 'N', 'None')).toEqual({ call: 'P' })
+  })
+
+  it('the club’s robot still bids the club’s system, with its own words', () => {
+    const bid = robotCall('tku', hand('AKJ32 K43 Q54 32'), 'N', [], 'N', 'None')
+    expect(bid.call).toBe('1S')
+    expect(bid.alert).toBe('5+ 張♠，12–21 點')
+    expect(bid.meaning).toBeUndefined()
+  })
+})
 
 describe('the 2/1 books', () => {
   it('write every auction pattern with the opponents in the right places', () => {

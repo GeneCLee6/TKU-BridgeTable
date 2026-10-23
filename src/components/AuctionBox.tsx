@@ -6,7 +6,8 @@ import type { AuctionCall } from '../../shared/auction.ts'
 import { isVulnerable, type Vulnerability } from '../../shared/board.ts'
 import { nextSeat, type Seat } from '../../shared/cards.ts'
 import { auctionBoxHeight, auctionCell } from '../lib/measure.ts'
-import { useT } from '../state/PreferencesContext.tsx'
+import { useRobotRules } from '../lib/useRobotRules.ts'
+import { usePreferences, useT } from '../state/PreferencesContext.tsx'
 import { seatLetter } from '../strings.ts'
 import { CallLabel } from './Suit.tsx'
 
@@ -151,6 +152,11 @@ const PopupText = styled.p`
 /** The explanation window, placed under the call (above it when there is no room below) */
 function AlertPopup({ call, anchor, who, onClose }: { call: AuctionCall; anchor: HTMLElement; who: string; onClose: () => void }) {
   const t = useT()
+  const { lang } = usePreferences()
+  // A 2/1 robot's call carries what it shows: explain it in the viewer's language (the stored
+  // Traditional Chinese words until the rules have loaded)
+  const rules = useRobotRules(!!call.meaning)
+  const text = (call.meaning && rules ? rules.describe(call.meaning, lang) : call.alert) || t.noExplanation
   const ref = useRef<HTMLDivElement>(null)
   const [place, setPlace] = useState<{ left: number; top: number } | null>(null)
 
@@ -197,7 +203,7 @@ function AlertPopup({ call, anchor, who, onClose }: { call: AuctionCall; anchor:
           <X size={18} aria-hidden />
         </PopupClose>
       </PopupHead>
-      <PopupText>{call.alert || t.noExplanation}</PopupText>
+      <PopupText>{text}</PopupText>
     </Popup>,
     document.body,
   )

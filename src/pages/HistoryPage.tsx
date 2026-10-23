@@ -9,6 +9,7 @@ import { Card, ErrorText, Muted, PageMain, PageTitle } from '../components/ui.ts
 import { api } from '../lib/api.ts'
 import { formatDateTime, signed } from '../lib/format.ts'
 import { usePreferences } from '../state/PreferencesContext.tsx'
+import { playerName } from '../strings.ts'
 
 /**
  * BBO's history list: every finished board, newest first, a page at a time; the viewer picks how
@@ -182,7 +183,7 @@ export function HistoryPage() {
     }
   }
 
-  const name = (u: PublicUser) => (u.robot ? t.robot : u.username)
+  const name = (u: PublicUser) => playerName(t, u)
 
   return (
     <PageMain>

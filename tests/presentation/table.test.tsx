@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { ReactNode } from 'react'
 import { describe, expect, it, vi } from 'vitest'
@@ -71,6 +71,14 @@ describe('AuctionBox', () => {
     expect(popup).toHaveTextContent('E Robot')
     await userEvent.click(within(popup).getByRole('button', { name: '關閉' }))
     expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('explains a 2/1 robot’s call from what it shows, in the viewer’s language', async () => {
+    const meaning = { len: { S: [5, 13] as const }, hcp: [11, 21] as const, tp: [12, 22] as const }
+    wrap(<AuctionBox auction={[{ seat: 'E', call: '1S', alert: 'stored text', robot: true, meaning }]} dealer="E" vul="None" />)
+    await userEvent.click(screen.getByRole('button', { name: /Alert/ }))
+    // The rules load on their own; until then the stored words show
+    await waitFor(() => expect(screen.getByRole('dialog', { name: 'Alert' })).toHaveTextContent('5+ 張♠，11–21 大牌點，12–22 總點'))
   })
 })
 

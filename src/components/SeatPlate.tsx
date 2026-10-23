@@ -5,7 +5,7 @@ import styled, { css, keyframes } from 'styled-components'
 import type { Seat } from '../../shared/cards.ts'
 import type { SeatOccupant } from '../../shared/protocol.ts'
 import { useT } from '../state/PreferencesContext.tsx'
-import { seatLetter } from '../strings.ts'
+import { playerName, seatLetter } from '../strings.ts'
 
 /**
  * A player's name plate, as on BBO: the seat letter and name on the left, declarer / dummy /
@@ -213,7 +213,7 @@ export function SeatPlate({
     <Name>
       {isHost && <Crown size={16} aria-label={t.host} data-crown />}
       {occupant.robot && <Bot size={18} aria-hidden />}
-      {occupant.robot ? t.robot : occupant.username}
+      {playerName(t, occupant)}
       {isMe && t.youTag}
     </Name>
   ) : (

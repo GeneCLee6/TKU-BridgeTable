@@ -1,6 +1,7 @@
 import type { Vulnerability } from '../shared/board.ts'
 import type { Seat, Strain } from '../shared/cards.ts'
 import type { Lang } from '../shared/messages.ts'
+import type { PublicUser } from '../shared/protocol.ts'
 
 /**
  * All user-facing UI copy: 繁體中文 (zh, the original), 简体中文, English, Tiếng Việt, 日本語 and
@@ -73,7 +74,7 @@ const zh = {
   offline: '離線',
   you: '你',
   youTag: '（你）',
-  robot: '機器人',
+  robots: { tku: '淡江機器人', gib: '2/1 機器人' },
 
   // Table
   kick: '請他離座',
@@ -81,7 +82,7 @@ const zh = {
   seatOptions: (seat: string) => `${seat} 座位選項`,
   emptySeat: '空位',
   takeSeat: (seat: string) => `坐 ${seat}`,
-  addRobot: '放機器人',
+  addRobots: { tku: '放淡江機器人', gib: '放 2/1 機器人' },
   removeRobot: '移除機器人',
   waitingForPlayers: (n: number) => `還差 ${n} 位：等社員入座，或在空位放機器人`,
   board: '牌號',
@@ -319,14 +320,14 @@ const en: Strings = {
   offline: 'offline',
   you: 'you',
   youTag: ' (you)',
-  robot: 'Robot',
+  robots: { tku: 'TKU robot', gib: '2/1 robot' },
 
   kick: 'Ask to leave the seat',
   swappedToDeclare: 'Your robot partner won the contract: you moved to its seat to play it',
   seatOptions: (seat) => `Seat ${seat} options`,
   emptySeat: 'Empty',
   takeSeat: (seat) => `Sit ${seat}`,
-  addRobot: 'Add robot',
+  addRobots: { tku: 'Add TKU robot', gib: 'Add 2/1 robot' },
   removeRobot: 'Remove robot',
   waitingForPlayers: (n) => `${n} more needed: wait for members or add robots`,
   board: 'Board',
@@ -557,14 +558,14 @@ const zhHans: Strings = {
   offline: '离线',
   you: '你',
   youTag: '（你）',
-  robot: '机器人',
+  robots: { tku: '淡江机器人', gib: '2/1 机器人' },
 
   kick: '请他离座',
   swappedToDeclare: '机器人同伴叫到定约：换你坐庄家的位子主打',
   seatOptions: (seat) => `${seat} 座位选项`,
   emptySeat: '空位',
   takeSeat: (seat) => `坐 ${seat}`,
-  addRobot: '放机器人',
+  addRobots: { tku: '放淡江机器人', gib: '放 2/1 机器人' },
   removeRobot: '移除机器人',
   waitingForPlayers: (n) => `还差 ${n} 位：等社员入座，或在空位放机器人`,
   board: '牌号',
@@ -795,14 +796,14 @@ const vi: Strings = {
   offline: 'ngoại tuyến',
   you: 'bạn',
   youTag: ' (bạn)',
-  robot: 'Robot',
+  robots: { tku: 'Robot TKU', gib: 'Robot 2/1' },
 
   kick: 'Mời rời chỗ',
   swappedToDeclare: 'Đồng đội robot thắng hợp đồng: bạn đổi sang chỗ của nó để chơi chính',
   seatOptions: (seat) => `Tùy chọn chỗ ${seat}`,
   emptySeat: 'Trống',
   takeSeat: (seat) => `Ngồi ${seat}`,
-  addRobot: 'Thêm robot',
+  addRobots: { tku: 'Thêm robot TKU', gib: 'Thêm robot 2/1' },
   removeRobot: 'Bỏ robot',
   waitingForPlayers: (n) => `Còn thiếu ${n} người: chờ thành viên hoặc thêm robot`,
   board: 'Ván',
@@ -1033,14 +1034,14 @@ const ja: Strings = {
   offline: 'オフライン',
   you: 'あなた',
   youTag: '（あなた）',
-  robot: 'ロボット',
+  robots: { tku: '淡江ロボット', gib: '2/1ロボット' },
 
   kick: '席を空けてもらう',
   swappedToDeclare: 'ロボットのパートナーがコントラクトを取りました：あなたが席を替わってプレイします',
   seatOptions: (seat) => `${seat} 席のメニュー`,
   emptySeat: '空席',
   takeSeat: (seat) => `${seat} に着席`,
-  addRobot: 'ロボットを入れる',
+  addRobots: { tku: '淡江ロボットを入れる', gib: '2/1ロボットを入れる' },
   removeRobot: 'ロボットを外す',
   waitingForPlayers: (n) => `あと ${n} 人：会員の着席を待つか、ロボットを入れてください`,
   board: 'ボード',
@@ -1271,14 +1272,14 @@ const ko: Strings = {
   offline: '오프라인',
   you: '나',
   youTag: ' (나)',
-  robot: '로봇',
+  robots: { tku: '단장 로봇', gib: '2/1 로봇' },
 
   kick: '자리에서 내보내기',
   swappedToDeclare: '로봇 파트너가 계약을 땄습니다: 자리를 바꿔 당신이 플레이합니다',
   seatOptions: (seat) => `${seat} 자리 메뉴`,
   emptySeat: '빈자리',
   takeSeat: (seat) => `${seat}에 앉기`,
-  addRobot: '로봇 넣기',
+  addRobots: { tku: '단장 로봇 넣기', gib: '2/1 로봇 넣기' },
   removeRobot: '로봇 빼기',
   waitingForPlayers: (n) => `${n}명 더 필요: 회원을 기다리거나 로봇을 넣으세요`,
   board: '보드',
@@ -1460,3 +1461,7 @@ export const LANG_NAMES: Record<Lang, { name: string; short: string }> = {
 
 /** The table uses BBO's seat letters in both languages */
 export const seatLetter: Record<Seat, string> = { N: 'N', E: 'E', S: 'S', W: 'W' }
+
+/** A player's name as shown: a robot by its kind in the viewer's language */
+export const playerName = (t: Strings, user: PublicUser) =>
+  user.robot ? t.robots[user.robotKind ?? 'tku'] : user.username

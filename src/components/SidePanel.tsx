@@ -11,7 +11,7 @@ import { useAuth } from '../state/AuthContext.tsx'
 import { useClub } from '../state/ClubContext.tsx'
 import { usePreferences } from '../state/PreferencesContext.tsx'
 import { mobile } from '../styles/tokens.ts'
-import { seatLetter } from '../strings.ts'
+import { playerName, seatLetter } from '../strings.ts'
 import { AuctionBox } from './AuctionBox.tsx'
 import { PlayedCardsSwitch, RecordDiagram } from './RecordDiagram.tsx'
 import { ContractResult } from './Suit.tsx'
@@ -398,7 +398,7 @@ function HistoryList({
   if (board) return <BoardInPanel id={board} onBack={() => onBoard(null)} newTab={newTab} />
 
   const boards = scope === 'table' ? recent : mine
-  const name = (u: PublicUser) => (u.robot ? t.robot : u.username)
+  const name = (u: PublicUser) => playerName(t, u)
 
   return (
     <>

@@ -25,7 +25,7 @@ import { useAuth } from '../state/AuthContext.tsx'
 import { useClub } from '../state/ClubContext.tsx'
 import { usePreferences, useT } from '../state/PreferencesContext.tsx'
 import { mobile } from '../styles/tokens.ts'
-import { seatLetter } from '../strings.ts'
+import { playerName, seatLetter } from '../strings.ts'
 
 /**
  * The table, laid out like BBO: green felt, the viewer's seat always at the bottom, partner on
@@ -526,7 +526,7 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
   const positionOf = (seat: Seat) => (Object.keys(at) as Position[]).find((p) => at[p] === seat)!
   const nameOf = (seat: Seat) => {
     const o = table.seats[seat]
-    return o ? (o.robot ? `${t.robot} ${seatLetter[seat]}` : o.username) : seatLetter[seat]
+    return o ? (o.robot ? `${playerName(t, o)} ${seatLetter[seat]}` : o.username) : seatLetter[seat]
   }
   const missing = SEATS.filter((s) => !table.seats[s]).length
   const trump = board?.contract && board.phase !== 'auction' ? board.contract.strain : null
@@ -632,7 +632,10 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
     // A free seat (or a robot's) can be taken; someone already seated moves only between boards
     if ((!occupant || (occupant.robot && !me)) && (!me || between))
       actions.push({ label: t.takeSeat(seatLetter[seat]), onSelect: () => send({ type: 'sit', tableId: table.id, seat }) })
-    if (iAmHost && !occupant) actions.push({ label: t.addRobot, onSelect: () => send({ type: 'addRobot', seat }) })
+    // The host chooses which robot: the 2/1 robot (GIB-compatible) or the club's
+    if (iAmHost && !occupant)
+      for (const kind of ['gib', 'tku'] as const)
+        actions.push({ label: t.addRobots[kind], onSelect: () => send({ type: 'addRobot', seat, kind }) })
     if (iAmHost && occupant?.robot)
       actions.push({ label: t.removeRobot, onSelect: () => send({ type: 'removeRobot', seat }), tone: 'danger' })
     if (iAmHost && occupant && !occupant.robot && occupant.id !== user?.id)

@@ -438,6 +438,31 @@ describe('robots at the table', () => {
     expect(connections.last(gene, 'lobby')!.lobby.tables).toHaveLength(0)
   })
 
+  it('come in two kinds: the club’s robot by default, or the 2/1 robot (GIB-compatible)', async () => {
+    const gene = await member('gene')
+    await send(gene, { type: 'createTable' })
+    await send(gene, { type: 'addRobot', seat: 'N', kind: 'gib' })
+    await send(gene, { type: 'addRobot', seat: 'E' })
+    await send(gene, { type: 'addRobot', seat: 'W', kind: 'nobody' as never })
+    expect(connections.last(gene, 'error')?.code).toBe('unknownRobot')
+    await send(gene, { type: 'addRobot', seat: 'W', kind: 'gib' })
+    const view = tableFor(gene)
+    expect(view.seats.N).toMatchObject({ robot: true, robotKind: 'gib' })
+    expect(view.seats.E).toMatchObject({ robot: true, robotKind: 'tku' })
+
+    // The 2/1 robots' calls carry what they show; the club's robot has its own words only
+    for (let i = 0; i < 200 && tableFor(gene).board?.phase === 'auction'; i++) {
+      await runRobots()
+      if (tableFor(gene).board!.legalCalls.length) await send(gene, { type: 'call', call: 'P' })
+    }
+    const auction = tableFor(gene).board!.auction
+    for (const entry of auction) {
+      if (entry.call === 'P' || !entry.robot) continue
+      if (entry.seat === 'E') expect(entry.meaning).toBeUndefined()
+      else if (entry.seat === 'N' || entry.seat === 'W') expect(entry.meaning).toBeDefined()
+    }
+  })
+
   it('only the host may add robots, and only to empty seats', async () => {
     const { tableId, bySeat } = await fullTable()
     const watcher = await member('watcher')
@@ -773,7 +798,8 @@ describe('a robot partner as declarer', () => {
       const west = await member('west')
       await send(gene, { type: 'createTable' })
       const tableId = tableFor(gene).id
-      await send(gene, { type: 'addRobot', seat: 'N' })
+      // A 2/1 robot: it must stay one when the seats are swapped
+      await send(gene, { type: 'addRobot', seat: 'N', kind: 'gib' })
       await send(east, { type: 'sit', tableId, seat: 'E' })
       await send(west, { type: 'sit', tableId, seat: 'W' })
       // Board 1: the robot in North deals and calls first; we need it to open
@@ -785,7 +811,7 @@ describe('a robot partner as declarer', () => {
       const view = tableFor(gene)
       expect(view.board!.contract?.declarer).toBe('N')
       expect(view.mySeat).toBe('N')
-      expect(view.seats.S?.robot).toBe(true)
+      expect(view.seats.S).toMatchObject({ robot: true, robotKind: 'gib' })
       expect(view.board!.dummy).toBe('S')
       // Gene's own cards are now dummy's
       expect(view.board!.hands.S ?? southHand).toEqual(southHand)
@@ -796,7 +822,7 @@ describe('a robot partner as declarer', () => {
       if (tableFor(gene).board!.undo) await send(gene, { type: 'undoRespond', accept: true })
       expect(tableFor(gene).board!.phase).toBe('auction')
       expect(tableFor(gene).mySeat).toBe('S')
-      expect(tableFor(gene).seats.N?.robot).toBe(true)
+      expect(tableFor(gene).seats.N).toMatchObject({ robot: true, robotKind: 'gib' })
       return
     }
     throw new Error('no deal where the robot opens')

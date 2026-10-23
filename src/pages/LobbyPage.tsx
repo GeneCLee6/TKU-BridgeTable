@@ -8,7 +8,7 @@ import { SidePanel } from '../components/SidePanel.tsx'
 import { Button, Card, Muted, PageMain, PageTitle } from '../components/ui.tsx'
 import { useClub } from '../state/ClubContext.tsx'
 import { mobile } from '../styles/tokens.ts'
-import { seatLetter } from '../strings.ts'
+import { playerName, seatLetter } from '../strings.ts'
 import { useT } from '../state/PreferencesContext.tsx'
 
 /** BBO's casual lobby, reduced to what a club needs: start a table, take a seat, or watch */
@@ -134,9 +134,9 @@ function TableTile({ table, onSit, onWatch }: { table: TableSummary; onSit: (sea
               $taken={!!occupant}
               disabled={!!occupant}
               onClick={() => onSit(seat)}
-              aria-label={occupant ? `${seatLetter[seat]} ${occupant.robot ? t.robot : occupant.username}` : `${t.sit} ${seatLetter[seat]}`}
+              aria-label={occupant ? `${seatLetter[seat]} ${playerName(t, occupant)}` : `${t.sit} ${seatLetter[seat]}`}
             >
-              {seatLetter[seat]} {occupant ? (occupant.robot ? t.robot : occupant.username) : t.sit}
+              {seatLetter[seat]} {occupant ? playerName(t, occupant) : t.sit}
             </SeatButton>
           )
         })}
