@@ -13,10 +13,38 @@ export interface PublicUser {
   robot?: boolean
 }
 
+/**
+ * What an admin can let a member do beyond playing: edit TKU BridgeBook (淡江橋譜) online, and
+ * import Word or PDF files into it. Admins can do both.
+ */
+export const PERMISSIONS = ['bookEdit', 'bookImport'] as const
+export type Permission = (typeof PERMISSIONS)[number]
+export const isPermission = (value: unknown): value is Permission => PERMISSIONS.includes(value as Permission)
+
 /** The signed-in user, as /api/me returns it */
 export interface Me extends PublicUser {
   admin: boolean
+  /** Everything for an admin */
+  permissions: Permission[]
+  /** Admins only: registrations waiting for approval */
+  applications?: number
 }
+
+/** Where someone registered; both sites share the accounts */
+export type Site = 'table' | 'book'
+
+/** A registration waiting for an admin to approve it, as the admin page lists it */
+export interface Application {
+  id: string
+  username: string
+  /** What the applicant wrote about themselves, e.g. their name and class */
+  note: string
+  site: Site
+  createdAt: number
+}
+
+/** POST /api/register: the first account signs in at once; later ones wait for approval */
+export type RegisterResult = { user: Me } | { pending: true; username: string }
 
 export interface SeatOccupant extends PublicUser {
   online: boolean
@@ -201,6 +229,9 @@ export interface AdminUser {
   lastLoginAt: number | null
   boards: number
   online: boolean
+  permissions: Permission[]
+  /** When they last reset a forgotten password themselves */
+  passwordResetAt: number | null
 }
 
 /** Club settings an admin can change; they override the Worker's environment defaults */
@@ -215,6 +246,7 @@ export const LIMITS = {
   usernameMin: 2,
   usernameMax: 16,
   passwordMin: 6,
+  applicationNoteMax: 60,
   chatMax: 300,
   alertMax: 200,
   maxUsersMin: 2,

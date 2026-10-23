@@ -2,6 +2,8 @@ import { DurableObject } from 'cloudflare:workers'
 import { AppError } from '../shared/messages.ts'
 import type { ClientMessage, Me, ServerMessage } from '../shared/protocol.ts'
 import { readCookie, SESSION_COOKIE, sessionCookie } from './auth.ts'
+import { BookService, importRequestFrom } from './book.ts'
+import { claudeImporter } from './importer.ts'
 import { ClubError, ClubService, type Connections } from './service.ts'
 import type { Store } from './store.ts'
 
@@ -10,6 +12,17 @@ export interface Env {
   ASSETS: Fetcher
   MAX_USERS?: string
   INVITE_CODE?: string
+  /** For TKU BridgeBook's AI import (wrangler secret put ANTHROPIC_API_KEY) */
+  ANTHROPIC_API_KEY?: string
+  IMPORT_MODEL?: string
+}
+
+/** The import upload comes straight from TKU BridgeBook's page; its single-use pass is the check */
+const IMPORT_CORS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type',
+  'Access-Control-Max-Age': '86400',
 }
 
 interface Attachment {
@@ -26,6 +39,7 @@ const text = (value: unknown) => String(value ?? '')
  */
 export class Club extends DurableObject<Env> implements Connections {
   private readonly service: ClubService
+  private readonly book: BookService
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env)
@@ -42,6 +56,7 @@ export class Club extends DurableObject<Env> implements Connections {
       maxUsers: Number(env.MAX_USERS ?? 10),
       inviteCode: env.INVITE_CODE || undefined,
     })
+    this.book = new BookService(store)
     // Browsers send "ping" every few seconds to keep phone connections alive and to notice a dead
     // one quickly; the runtime answers without waking the object
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair('ping', 'pong'))
@@ -74,15 +89,34 @@ export class Club extends DurableObject<Env> implements Connections {
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url)
     const token = readCookie(request.headers.get('Cookie'), SESSION_COOKIE)
+    if (url.pathname === '/api/book/import') return this.importUpload(request)
     try {
       if (url.pathname === '/ws') return await this.upgrade(request, token)
       return await this.api(request, url, token)
     } catch (error) {
-      if (error instanceof AppError)
-        return json({ error: error.message, code: error.code, params: error.params }, error.status)
-      console.error(error)
-      return json({ error: '伺服器發生錯誤', code: 'serverError', params: {} }, 500)
+      return errorResponse(error)
     }
+  }
+
+  /** TKU BridgeBook's AI import: streams Claude's reply straight back to the page */
+  private async importUpload(request: Request): Promise<Response> {
+    if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: IMPORT_CORS })
+    let response: Response
+    try {
+      if (request.method !== 'POST') throw new ClubError('noSuchApi', {}, 404)
+      const form = await request.formData().catch(() => null)
+      const { ticket, request: job } = importRequestFrom(form)
+      this.service.requirePermission(await this.book.useTicket(ticket), 'bookImport')
+      if (!this.env.ANTHROPIC_API_KEY) throw new ClubError('importOff', {}, 503)
+      const upstream = await claudeImporter(this.env.ANTHROPIC_API_KEY, this.env.IMPORT_MODEL || undefined)(job)
+      response = new Response(upstream.body, {
+        headers: { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-store' },
+      })
+    } catch (error) {
+      response = errorResponse(error)
+    }
+    for (const [key, value] of Object.entries(IMPORT_CORS)) response.headers.set(key, value)
+    return response
   }
 
   private async upgrade(request: Request, token: string | null) {
@@ -103,8 +137,15 @@ export class Club extends DurableObject<Env> implements Connections {
 
     if (route === 'POST /api/register') {
       const b = await body()
-      const { user, token: newToken } = await this.service.register(text(b.username), text(b.password), text(b.inviteCode))
-      return json({ user }, 200, sessionCookie(newToken, secure))
+      const result = await this.service.register(
+        text(b.username),
+        text(b.password),
+        text(b.inviteCode),
+        text(b.note),
+        b.site === 'book' ? 'book' : 'table',
+      )
+      if ('pending' in result) return json(result, 202)
+      return json({ user: result.user }, 200, sessionCookie(result.token, secure))
     }
     if (route === 'POST /api/login') {
       const b = await body()
@@ -115,10 +156,23 @@ export class Club extends DurableObject<Env> implements Connections {
       if (token) await this.service.logout(token)
       return json({ ok: true }, 200, sessionCookie('', secure))
     }
+    if (route === 'POST /api/password/reset') {
+      const b = await body()
+      await this.service.resetForgottenPassword(text(b.username), text(b.inviteCode), text(b.password))
+      return json({ ok: true })
+    }
+    if (route === 'GET /api/book/content') {
+      const { json: content, version } = await this.book.content()
+      const etag = `W/"book-${version}"`
+      const headers = { ETag: etag, 'Cache-Control': 'no-cache' }
+      if (request.headers.get('If-None-Match') === etag) return new Response(null, { status: 304, headers })
+      return new Response(content, { headers: { ...headers, 'Content-Type': 'application/json; charset=utf-8' } })
+    }
 
     const user = await this.service.userForToken(token)
     if (!user) throw new ClubError('signInFirst', {}, 401)
     if (route === 'GET /api/me') return json({ user })
+    if (url.pathname.startsWith('/api/book/')) return this.bookApi(request, url, user, body)
     if (route === 'POST /api/account/password') {
       const b = await body()
       await this.service.changePassword(user.id, text(b.current), text(b.next))
@@ -149,6 +203,17 @@ export class Club extends DurableObject<Env> implements Connections {
       const b = await body()
       return json({ user: await this.service.adminCreateUser(text(b.username), text(b.password)) })
     }
+    if (method === 'GET' && path === '/applications') return json({ applications: this.service.adminApplications() })
+    const application = path.match(/^\/applications\/(\w+)(\/approve)?$/)
+    if (application) {
+      const [, id, approve] = application
+      if (method === 'POST' && approve) return json({ user: await this.service.adminApprove(id) })
+      if (method === 'DELETE' && !approve) {
+        await this.service.adminReject(id)
+        return json({ ok: true })
+      }
+      throw new ClubError('noSuchApi', {}, 404)
+    }
     if (method === 'GET' && path === '/settings') return json({ settings: this.service.clubSettings })
     if (method === 'POST' && path === '/settings') {
       const b = await body()
@@ -158,7 +223,7 @@ export class Club extends DurableObject<Env> implements Connections {
       })
       return json({ settings })
     }
-    const member = path.match(/^\/users\/(\w+)(\/password|\/admin)?$/)
+    const member = path.match(/^\/users\/(\w+)(\/password|\/admin|\/permissions)?$/)
     if (member) {
       const [, id, action] = member
       if (method === 'DELETE' && !action) await this.service.adminDeleteUser(user.id, id)
@@ -166,12 +231,65 @@ export class Club extends DurableObject<Env> implements Connections {
         await this.service.adminResetPassword(id, text((await body()).password))
       else if (method === 'POST' && action === '/admin')
         await this.service.adminSetAdmin(user.id, id, Boolean((await body()).admin))
+      else if (method === 'POST' && action === '/permissions')
+        await this.service.adminSetPermissions(id, (await body()).permissions)
       else throw new ClubError('noSuchApi', {}, 404)
       return json({ ok: true })
     }
     const table = path.match(/^\/tables\/(\w+)$/)
     if (method === 'DELETE' && table) {
       await this.service.adminCloseTable(table[1])
+      return json({ ok: true })
+    }
+    throw new ClubError('noSuchApi', {}, 404)
+  }
+
+  /** TKU BridgeBook's online editing; reading the content (GET /api/book/content) needs no sign-in */
+  private async bookApi(request: Request, url: URL, user: Me, body: () => Promise<Body>) {
+    const path = url.pathname.slice('/api/book'.length)
+    const method = request.method
+    const editor = () => this.service.requirePermission(user.id, 'bookEdit')
+    const importer = () => this.service.requirePermission(user.id, 'bookImport')
+
+    const convention = path.match(/^\/conventions\/([\w-]+)(?:\/(hide|reset|revisions)(?:\/([\w-]+))?)?$/)
+    if (convention) {
+      const [, slug, action, revisionId] = convention
+      if (method === 'PUT' && !action) return json({ entry: await this.book.save(editor(), slug, await body()) })
+      if (method === 'POST' && action === 'hide') {
+        this.service.requireAdmin(user.id)
+        return json({ entry: await this.book.hide(user, slug, await body()) })
+      }
+      if (method === 'POST' && action === 'reset') {
+        await this.book.reset(editor(), slug, await body())
+        return json({ ok: true })
+      }
+      if (method === 'GET' && action === 'revisions' && revisionId) {
+        editor()
+        return json({ revision: await this.book.revision(slug, revisionId) })
+      }
+      if (method === 'GET' && action === 'revisions') {
+        editor()
+        return json({ revisions: await this.book.revisions(slug) })
+      }
+      throw new ClubError('noSuchApi', {}, 404)
+    }
+    if (method === 'POST' && path === '/import/ticket') {
+      const ticket = await this.book.createTicket(importer())
+      return json({ ticket, url: `${url.origin}/api/book/import`, ready: !!this.env.ANTHROPIC_API_KEY })
+    }
+    if (method === 'GET' && path === '/drafts') {
+      importer()
+      return json({ drafts: await this.book.drafts() })
+    }
+    if (method === 'POST' && path === '/drafts') return json({ draft: await this.book.saveDraft(importer(), await body()) })
+    const draft = path.match(/^\/drafts\/([\w-]+)$/)
+    if (draft && method === 'GET') {
+      importer()
+      return json({ draft: await this.book.draft(draft[1]) })
+    }
+    if (draft && method === 'DELETE') {
+      importer()
+      await this.book.deleteDraft(draft[1])
       return json({ ok: true })
     }
     throw new ClubError('noSuchApi', {}, 404)
@@ -207,4 +325,10 @@ function json(data: unknown, status = 200, cookie?: string) {
   const headers = new Headers({ 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' })
   if (cookie) headers.set('Set-Cookie', cookie)
   return new Response(JSON.stringify(data), { status, headers })
+}
+
+function errorResponse(error: unknown) {
+  if (error instanceof AppError) return json({ error: error.message, code: error.code, params: error.params }, error.status)
+  console.error(error)
+  return json({ error: '伺服器發生錯誤', code: 'serverError', params: {} }, 500)
 }

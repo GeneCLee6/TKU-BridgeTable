@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import styled from 'styled-components'
-import { LIMITS, type AdminUser, type ClubSettings } from '../../shared/protocol.ts'
+import { LIMITS, PERMISSIONS, type AdminUser, type Application, type ClubSettings, type Permission } from '../../shared/protocol.ts'
 import { Button, Card, ErrorText, Muted, PageMain, PageTitle } from '../components/ui.tsx'
 import { api, ApiError } from '../lib/api.ts'
 import { formatDateTime } from '../lib/format.ts'
@@ -9,8 +9,10 @@ import { useClub } from '../state/ClubContext.tsx'
 import { usePreferences } from '../state/PreferencesContext.tsx'
 
 /**
- * The club admin page: settings (account limit, invite code), members (reset password, admin
- * role, delete), adding a member directly, and closing stuck tables. Only admins reach it.
+ * The club admin page: registrations waiting for approval, settings (account limit, invite code),
+ * members (TKU BridgeBook permissions, reset password, admin role, delete), adding a member
+ * directly, and closing stuck tables. Only admins reach it. The accounts are shared with
+ * TKU BridgeBook, which has the same approvals and permissions on its own admin page.
  */
 
 const Stack = styled.div`
@@ -102,18 +104,34 @@ const Inline = styled.input`
   background: ${({ theme }) => theme.colors.bg};
 `
 
+const Small = styled.small`
+  display: block;
+  color: ${({ theme }) => theme.colors.textMuted};
+  font-size: 12px;
+`
+
+const Check = styled.label`
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-right: 10px;
+  font-size: 14px;
+  white-space: nowrap;
+`
+
 const Success = styled.span`
   color: ${({ theme }) => theme.colors.success};
   font-weight: 600;
 `
 
-type Pending = { id: string; action: 'password' | 'delete' } | null
+type Pending = { id: string; action: 'password' | 'delete' | 'reject' } | null
 
 export function AdminPage() {
   const { t, lang, message } = usePreferences()
-  const { user: me } = useAuth()
+  const { user: me, refresh } = useAuth()
   const { lobby } = useClub()
   const [users, setUsers] = useState<AdminUser[] | null>(null)
+  const [applications, setApplications] = useState<Application[]>([])
   const [settings, setSettings] = useState<ClubSettings | null>(null)
   const [draft, setDraft] = useState({ maxUsers: '', inviteCode: '' })
   const [error, setError] = useState('')
@@ -129,14 +147,17 @@ export function AdminPage() {
 
   const reload = useCallback(
     () =>
-      Promise.all([api.admin.users(), api.admin.settings()])
-        .then(([{ users }, { settings }]) => {
+      Promise.all([api.admin.users(), api.admin.settings(), api.admin.applications()])
+        .then(([{ users }, { settings }, { applications }]) => {
           setUsers(users)
           setSettings(settings)
+          setApplications(applications)
           setDraft({ maxUsers: String(settings.maxUsers), inviteCode: settings.inviteCode })
+          // The header shows how many applications are waiting
+          void refresh()
         })
         .catch(fail),
-    [fail],
+    [fail, refresh],
   )
 
   useEffect(() => {
@@ -162,6 +183,18 @@ export function AdminPage() {
     void run(() => api.admin.saveSettings({ maxUsers: Number(draft.maxUsers), inviteCode: draft.inviteCode }))
   }
 
+  const permissionLabel: Record<Permission, string> = {
+    bookEdit: t.permissionBookEdit,
+    bookImport: t.permissionBookImport,
+  }
+  const togglePermission = (u: AdminUser, permission: Permission, on: boolean) =>
+    void run(() =>
+      api.admin.setPermissions(
+        u.id,
+        PERMISSIONS.filter((p) => (p === permission ? on : u.permissions.includes(p))),
+      ),
+    )
+
   const addMember = (e: FormEvent) => {
     e.preventDefault()
     void run(async () => {
@@ -183,6 +216,63 @@ export function AdminPage() {
       <Stack>
         {error && <ErrorText role="alert">{error}</ErrorText>}
         {notice && <Success role="status">{notice}</Success>}
+
+        <Card>
+          <SectionTitle>
+            {t.applicationsTitle}
+            {applications.length > 0 && `（${applications.length}）`}
+          </SectionTitle>
+          {!applications.length ? (
+            <Muted>{t.noApplications}</Muted>
+          ) : (
+            <Scroll>
+              <Table aria-label={t.applicationsTitle}>
+                <thead>
+                  <tr>
+                    <th>{t.username}</th>
+                    <th>{t.about}</th>
+                    <th>{t.applied}</th>
+                    <th>{t.actions}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {applications.map((a) => (
+                    <tr key={a.id}>
+                      <td>
+                        {a.username}
+                        <Small>{t.appliedFrom(a.site)}</Small>
+                      </td>
+                      <td>{a.note || t.never}</td>
+                      <td>{formatDateTime(a.createdAt, lang)}</td>
+                      <td>
+                        {pending?.id === a.id && pending.action === 'reject' ? (
+                          <Row>
+                            <span>{t.confirmReject(a.username)}</span>
+                            <Button type="button" $small $variant="danger" onClick={() => void run(() => api.admin.reject(a.id))}>
+                              {t.confirm}
+                            </Button>
+                            <Button type="button" $small onClick={() => setPending(null)}>
+                              {t.cancel}
+                            </Button>
+                          </Row>
+                        ) : (
+                          <Row>
+                            <Button type="button" $small $variant="primary" onClick={() => void run(() => api.admin.approve(a.id))}>
+                              {t.approve}
+                            </Button>
+                            <Button type="button" $small $variant="danger" onClick={() => setPending({ id: a.id, action: 'reject' })}>
+                              {t.reject}
+                            </Button>
+                          </Row>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </Table>
+            </Scroll>
+          )}
+        </Card>
 
         <Card>
           <SectionTitle>{t.settingsTitle}</SectionTitle>
@@ -218,6 +308,7 @@ export function AdminPage() {
                 <tr>
                   <th>{t.username}</th>
                   <th>{t.role}</th>
+                  <th>{t.bookPermissions}</th>
                   <th>{t.joined}</th>
                   <th>{t.lastLogin}</th>
                   <th>{t.boardsCount}</th>
@@ -233,9 +324,24 @@ export function AdminPage() {
                       <td>
                         {u.username}
                         {u.online && <Online aria-label={t.online} />}
+                        {u.passwordResetAt && <Small>{t.selfReset(formatDateTime(u.passwordResetAt, lang))}</Small>}
                       </td>
                       <td>
                         <Badge $on={u.admin}>{u.admin ? t.admin : t.member}</Badge>
+                      </td>
+                      <td title={u.admin ? t.adminHasAll : undefined}>
+                        {PERMISSIONS.map((permission) => (
+                          <Check key={permission}>
+                            <input
+                              type="checkbox"
+                              checked={u.permissions.includes(permission)}
+                              disabled={u.admin}
+                              onChange={(e) => togglePermission(u, permission, e.target.checked)}
+                              aria-label={`${u.username}：${permissionLabel[permission]}`}
+                            />
+                            {permissionLabel[permission]}
+                          </Check>
+                        ))}
                       </td>
                       <td>{formatDateTime(u.createdAt, lang)}</td>
                       <td>{u.lastLoginAt ? formatDateTime(u.lastLoginAt, lang) : t.never}</td>

@@ -21,13 +21,16 @@ import { AppError, type MessageCode, type MessageParams } from '../shared/messag
 import {
   DEAL_COUNTDOWN_MS,
   HISTORY_PAGE_SIZES,
+  isPermission,
   isRobotId,
   LAST_TRICK_MS,
   LIMITS,
+  PERMISSIONS,
   ROBOT_PREFIX,
   summarize,
   USERNAME_PATTERN,
   type AdminUser,
+  type Application,
   type BoardRecord,
   type BoardSummary,
   type ClientMessage,
@@ -36,8 +39,10 @@ import {
   type LobbyView,
   type Me,
   type MemberStatus,
+  type Permission,
   type PublicUser,
   type ServerMessage,
+  type Site,
   type TableSummary,
   type TableView,
   type TableWire,
@@ -62,6 +67,19 @@ interface StoredUser {
   createdAt: number
   lastLoginAt?: number
   admin?: boolean
+  permissions?: Permission[]
+  /** Set when the member reset a forgotten password themselves, so admins can see it */
+  passwordResetAt?: number
+}
+
+/** A registration waiting for approval: the account it becomes once an admin approves it */
+interface StoredApplication {
+  id: string
+  username: string
+  passwordHash: string
+  note: string
+  site: Site
+  createdAt: number
 }
 
 interface Session {
@@ -107,6 +125,7 @@ const ROBOT_NAME = 'Robot'
  */
 export class ClubService {
   private users = new Map<string, StoredUser>()
+  private applications = new Map<string, StoredApplication>()
   private tables = new Map<string, Table>()
   private settings: Partial<ClubSettings> = {}
   private readonly store: Store
@@ -136,6 +155,8 @@ export class ClubService {
 
   async load() {
     for (const user of (await this.store.list<StoredUser>('user:')).values()) this.users.set(user.id, user)
+    for (const application of (await this.store.list<StoredApplication>('app:')).values())
+      this.applications.set(application.id, application)
     for (const table of (await this.store.list<Table>('table:')).values()) this.tables.set(table.id, table)
     this.settings = (await this.store.get<Partial<ClubSettings>>('meta:settings')) ?? {}
     if (((await this.store.get<number>('meta:schema')) ?? 1) < SCHEMA) await this.migrate()
@@ -176,28 +197,74 @@ export class ClubService {
 
   // ── Accounts ────────────────────────────────────────────────────────────────────────────────
 
-  async register(username: string, password: string, inviteCode: string) {
-    const { inviteCode: code } = this.clubSettings
-    if (code && inviteCode !== code) throw new ClubError('badInvite', {}, 403)
-    const user = await this.createUser(username, password)
-    return { user: this.me(user), token: await this.createSession(user.id) }
+  /**
+   * The very first account becomes the admin and is signed in at once. Every later registration is
+   * an application that keeps the chosen name and password, and becomes an account only when an
+   * admin approves it. TKU BridgeTable and TKU BridgeBook share these accounts, so `site` only
+   * tells the admin where someone signed up.
+   */
+  async register(
+    username: string,
+    password: string,
+    inviteCode: string,
+    note = '',
+    site: Site = 'table',
+  ): Promise<{ user: Me; token: string } | { pending: true; username: string }> {
+    this.checkInvite(inviteCode)
+    const name = this.checkNewName(username)
+    this.checkPassword(String(password ?? ''))
+    this.checkRoom()
+    const passwordHash = await hashPassword(String(password))
+    if (!this.users.size) {
+      const user = await this.addUser(name, passwordHash)
+      return { user: this.me(user), token: await this.createSession(user.id) }
+    }
+    const application: StoredApplication = {
+      id: randomId(8),
+      username: name,
+      passwordHash,
+      note: String(note ?? '').trim().slice(0, LIMITS.applicationNoteMax),
+      site: site === 'book' ? 'book' : 'table',
+      createdAt: this.now(),
+    }
+    this.applications.set(application.id, application)
+    await this.store.put(`app:${application.id}`, application)
+    return { pending: true, username: name }
   }
 
-  private async createUser(username: string, password: string) {
-    username = String(username ?? '').trim()
-    password = String(password ?? '')
+  private checkInvite(inviteCode: string) {
+    const { inviteCode: code } = this.clubSettings
+    if (code && inviteCode !== code) throw new ClubError('badInvite', {}, 403)
+  }
+
+  /** A valid name nobody uses yet, including people still waiting for approval */
+  private checkNewName(username: string) {
+    const name = String(username ?? '').trim()
+    if (name.length < LIMITS.usernameMin || name.length > LIMITS.usernameMax || !USERNAME_PATTERN.test(name))
+      throw new ClubError('badUsername', { min: LIMITS.usernameMin, max: LIMITS.usernameMax })
+    if (this.findUser(name) || this.findApplication(name) || name.toLowerCase() === ROBOT_NAME.toLowerCase())
+      throw new ClubError('usernameTaken', {}, 409)
+    return name
+  }
+
+  private checkRoom() {
     const { maxUsers } = this.clubSettings
     if (this.users.size >= maxUsers) throw new ClubError('memberCap', { max: maxUsers }, 403)
-    if (username.length < LIMITS.usernameMin || username.length > LIMITS.usernameMax || !USERNAME_PATTERN.test(username))
-      throw new ClubError('badUsername', { min: LIMITS.usernameMin, max: LIMITS.usernameMax })
-    this.checkPassword(password)
-    if (this.findUser(username) || username.toLowerCase() === ROBOT_NAME.toLowerCase())
-      throw new ClubError('usernameTaken', {}, 409)
+  }
 
+  /** Accounts admins add themselves need no approval */
+  private async createUser(username: string, password: string) {
+    const name = this.checkNewName(username)
+    this.checkPassword(String(password ?? ''))
+    this.checkRoom()
+    return this.addUser(name, await hashPassword(String(password)))
+  }
+
+  private async addUser(username: string, passwordHash: string) {
     const user: StoredUser = {
       id: randomId(8),
       username,
-      passwordHash: await hashPassword(password),
+      passwordHash,
       createdAt: this.now(),
       admin: this.users.size === 0,
     }
@@ -211,9 +278,16 @@ export class ClubService {
   }
 
   async login(username: string, password: string) {
-    const user = this.findUser(String(username ?? '').trim())
-    if (!user || !(await verifyPassword(String(password ?? ''), user.passwordHash)))
+    const name = String(username ?? '').trim()
+    const user = this.findUser(name)
+    if (!user) {
+      // Someone still waiting for approval learns that, but only with their own password
+      const application = this.findApplication(name)
+      if (application && (await verifyPassword(String(password ?? ''), application.passwordHash)))
+        throw new ClubError('awaitingApproval', {}, 403)
       throw new ClubError('badLogin', {}, 401)
+    }
+    if (!(await verifyPassword(String(password ?? ''), user.passwordHash))) throw new ClubError('badLogin', {}, 401)
     user.lastLoginAt = this.now()
     await this.store.put(`user:${user.id}`, user)
     return { user: this.me(user), token: await this.createSession(user.id) }
@@ -241,19 +315,65 @@ export class ClubService {
     await this.setPassword(user, String(next ?? ''))
   }
 
+  /**
+   * 忘記密碼: whoever knows the club's invite code can give a member account a new password by name.
+   * There is no e-mail check yet, so admin accounts are left out (another admin resets them on the
+   * admin page), the member is signed out everywhere, and the admin page shows when it happened.
+   * Someone still waiting for approval can change the password of their application the same way.
+   */
+  async resetForgottenPassword(username: string, inviteCode: string, password: string) {
+    this.checkInvite(inviteCode)
+    const name = String(username ?? '').trim()
+    const user = this.findUser(name)
+    const application = user ? undefined : this.findApplication(name)
+    if (!user && !application) throw new ClubError('userGone', {}, 404)
+    if (user?.admin) throw new ClubError('adminNoSelfReset', {}, 403)
+    this.checkPassword(String(password ?? ''))
+    const passwordHash = await hashPassword(String(password))
+    if (application) {
+      application.passwordHash = passwordHash
+      await this.store.put(`app:${application.id}`, application)
+      return
+    }
+    user!.passwordHash = passwordHash
+    user!.passwordResetAt = this.now()
+    await this.store.put(`user:${user!.id}`, user)
+    await this.revokeSessions(user!.id)
+    this.connections.disconnect(user!.id)
+  }
+
   private async setPassword(user: StoredUser, password: string) {
     this.checkPassword(password)
     user.passwordHash = await hashPassword(password)
     await this.store.put(`user:${user.id}`, user)
   }
 
+  private permissionsOf(user: StoredUser): Permission[] {
+    return user.admin ? [...PERMISSIONS] : PERMISSIONS.filter((p) => user.permissions?.includes(p))
+  }
+
   private me(user: StoredUser): Me {
-    return { id: user.id, username: user.username, admin: !!user.admin }
+    const me: Me = { id: user.id, username: user.username, admin: !!user.admin, permissions: this.permissionsOf(user) }
+    if (user.admin) me.applications = this.applications.size
+    return me
+  }
+
+  /** The member, if they may use a permission (admins may use all of them) */
+  requirePermission(userId: string, permission: Permission): Me {
+    const user = this.users.get(userId)
+    if (!user) throw new ClubError('signInAgain', {}, 401)
+    if (!this.permissionsOf(user).includes(permission)) throw new ClubError('noPermission', {}, 403)
+    return this.me(user)
   }
 
   private findUser(username: string) {
     const wanted = username.toLowerCase()
     return [...this.users.values()].find((u) => u.username.toLowerCase() === wanted)
+  }
+
+  private findApplication(username: string) {
+    const wanted = username.toLowerCase()
+    return [...this.applications.values()].find((a) => a.username.toLowerCase() === wanted)
   }
 
   private requireUser(id: string) {
@@ -291,12 +411,53 @@ export class ClubService {
         lastLoginAt: u.lastLoginAt ?? null,
         boards: (await this.store.list(`uhist:${u.id}:`)).size,
         online: online.includes(u.id),
+        permissions: this.permissionsOf(u),
+        passwordResetAt: u.passwordResetAt ?? null,
       })),
     )
   }
 
   async adminCreateUser(username: string, password: string) {
     return this.me(await this.createUser(username, password))
+  }
+
+  adminApplications(): Application[] {
+    return [...this.applications.values()]
+      .sort((a, b) => a.createdAt - b.createdAt)
+      .map(({ id, username, note, site, createdAt }) => ({ id, username, note, site, createdAt }))
+  }
+
+  /** Turns an application into an account with the name and password the applicant chose */
+  async adminApprove(applicationId: string) {
+    const application = this.requireApplication(applicationId)
+    this.checkRoom()
+    // An admin may have added an account with the same name in the meantime
+    if (this.findUser(application.username)) throw new ClubError('usernameTaken', {}, 409)
+    const user = await this.addUser(application.username, application.passwordHash)
+    await this.dropApplication(application)
+    return this.me(user)
+  }
+
+  async adminReject(applicationId: string) {
+    await this.dropApplication(this.requireApplication(applicationId))
+  }
+
+  private requireApplication(id: string) {
+    const application = this.applications.get(id)
+    if (!application) throw new ClubError('applicationGone', {}, 404)
+    return application
+  }
+
+  private async dropApplication(application: StoredApplication) {
+    this.applications.delete(application.id)
+    await this.store.delete(`app:${application.id}`)
+  }
+
+  async adminSetPermissions(userId: string, permissions: unknown) {
+    const user = this.requireUser(userId)
+    if (!Array.isArray(permissions) || !permissions.every(isPermission)) throw new ClubError('badPermission')
+    user.permissions = PERMISSIONS.filter((p) => permissions.includes(p))
+    await this.store.put(`user:${user.id}`, user)
   }
 
   async adminResetPassword(userId: string, password: string) {
