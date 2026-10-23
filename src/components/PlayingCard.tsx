@@ -10,7 +10,7 @@ import { useT } from '../state/PreferencesContext.tsx'
  * hands fanned downwards.
  */
 
-const Face = styled.button<{ $w: number; $playable: boolean; $dim: boolean; $highlight: boolean }>`
+const Face = styled.button<{ $w: number; $playable: boolean; $dim: boolean; $played: boolean; $highlight: boolean }>`
   position: relative;
   flex: none;
   width: ${({ $w }) => $w}px;
@@ -42,6 +42,17 @@ const Face = styled.button<{ $w: number; $playable: boolean; $dim: boolean; $hig
         inset: 0;
         border-radius: inherit;
         background: ${theme.table.cardDisabled};
+      }
+    `}
+  ${({ $played, theme }) =>
+    $played &&
+    css`
+      &::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        border-radius: inherit;
+        background: ${theme.table.cardPlayed};
       }
     `}
   ${({ $highlight, theme }) =>
@@ -84,6 +95,7 @@ export function PlayingCard({
   width,
   playable = false,
   dim = false,
+  played = false,
   highlight = false,
   corner = 'stack',
   onPlay,
@@ -92,6 +104,8 @@ export function PlayingCard({
   width: number
   playable?: boolean
   dim?: boolean
+  /** Already played: greyed out but left in the hand (a board record's replay) */
+  played?: boolean
   highlight?: boolean
   corner?: 'stack' | 'inline'
   onPlay?: (card: Card) => void
@@ -105,6 +119,7 @@ export function PlayingCard({
       $w={width}
       $playable={playable}
       $dim={dim}
+      $played={played}
       $highlight={highlight}
       disabled={!playable}
       onClick={playable ? () => onPlay?.(card) : undefined}

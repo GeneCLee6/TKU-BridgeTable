@@ -66,6 +66,12 @@ export interface BoardView {
   /** Calls the viewer may make, if it is their turn to call */
   legalCalls: Call[]
   claim?: { seat: Seat; tricks: number; accepted: Seat[]; approvers: Seat[] }
+  /** The last claim, turned down by `by`; shown until the next card */
+  rejectedClaim?: { seat: Seat; tricks: number; by: Seat }
+  /** Whether the viewer may ask to take back their last call or card (and everything since) */
+  canUndo: boolean
+  /** Whether the viewer may claim now: any time during the play, for anyone but dummy */
+  canClaim: boolean
   undo?: { seat: Seat }
   result?: BoardResult
   /** History record id once the board is saved */
@@ -98,7 +104,7 @@ export interface TableView {
 export type TableWire = Omit<TableView, 'chat' | 'recent'> & { chat?: ChatMessage[]; recent?: BoardSummary[] }
 
 /** After the last card the trick stays on the table this long before the countdown starts */
-export const LAST_TRICK_MS = 2500
+export const LAST_TRICK_MS = 3500
 /** The countdown before the next deal */
 export const DEAL_COUNTDOWN_MS = 3000
 

@@ -2,15 +2,13 @@ import { ChevronFirst, ChevronLast, ChevronLeft, ChevronRight, ExternalLink } fr
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import styled from 'styled-components'
-import { hcp, rankLabel, rankOf, SEATS, suitOf, type Seat } from '../../shared/cards.ts'
-import { remainingCards, tricksOf } from '../../shared/game.ts'
+import { rankLabel, rankOf, SEATS, suitOf } from '../../shared/cards.ts'
+import { tricksOf } from '../../shared/game.ts'
 import { handviewerUrl, toLin } from '../../shared/lin.ts'
 import type { BoardRecord, PublicUser } from '../../shared/protocol.ts'
 import { AuctionBox } from '../components/AuctionBox.tsx'
-import { BoardInfo } from '../components/BoardInfo.tsx'
-import { HandView } from '../components/HandView.tsx'
+import { PlayedCardsSwitch, RecordDiagram } from '../components/RecordDiagram.tsx'
 import { ContractLabel, ContractResult, SuitSymbol } from '../components/Suit.tsx'
-import { TrickArea, TrickSpace, type Position } from '../components/TrickArea.tsx'
 import { Button, Card, ErrorText, Muted, PageMain, PageTitle } from '../components/ui.tsx'
 import { api } from '../lib/api.ts'
 import { cardName } from '../lib/cards.ts'
@@ -18,60 +16,21 @@ import { formatDateTime, signed } from '../lib/format.ts'
 import { useMediaQuery } from '../lib/useMediaQuery.ts'
 import { useTrickReplay } from '../lib/useTrickReplay.ts'
 import { usePreferences } from '../state/PreferencesContext.tsx'
-import { mobile, mobileQuery } from '../styles/tokens.ts'
+import { mobileQuery } from '../styles/tokens.ts'
 import { seatLetter } from '../strings.ts'
 
 /**
- * One finished board: the deal as a hand diagram, the auction, and a trick-by-trick replay like
- * BBO's movie (each step plays the four cards of a trick one after another). North is always at
- * the top here, as in a printed hand record.
+ * One finished board: the deal as a hand diagram (RecordDiagram, BBO's Handviewer), the auction,
+ * and a trick-by-trick replay like BBO's movie (each step plays the four cards of a trick one after
+ * another). North is always at the top here, as in a printed hand record.
  */
 
-const POSITIONS: Record<Position, Seat> = { top: 'N', right: 'E', bottom: 'S', left: 'W' }
-const positionOf = (seat: Seat) => (Object.keys(POSITIONS) as Position[]).find((p) => POSITIONS[p] === seat)!
-
-/** The diagram uses the full width so all four hands fan out; the details follow below */
+/** The diagram uses the full width so the hands can be large; the details follow below */
 const Columns = styled.div`
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 16px;
   max-width: 1000px;
-`
-
-const Diagram = styled.div`
-  display: grid;
-  /* Equal thirds, so a long North or South hand cannot squeeze East and West */
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  grid-template-areas:
-    'info top .'
-    'left center right'
-    '. bottom .';
-  gap: 10px;
-  align-items: center;
-  justify-items: center;
-  padding: 16px;
-  border-radius: ${({ theme }) => theme.radius.lg};
-  background: radial-gradient(ellipse at center, ${({ theme }) => theme.table.felt} 55%, ${({ theme }) => theme.table.feltEdge});
-  color: ${({ theme }) => theme.table.feltText};
-
-  ${mobile} {
-    padding: 10px 6px;
-    gap: 6px;
-  }
-`
-
-const Spot = styled.div<{ $area: string }>`
-  grid-area: ${({ $area }) => $area};
-  display: grid;
-  justify-items: center;
-  gap: 4px;
-  min-width: 0;
-  width: 100%;
-`
-
-const Name = styled.div`
-  font-size: 15px;
-  font-weight: 700;
 `
 
 const Controls = styled.div`
@@ -155,13 +114,13 @@ export function BoardRecordView({ record, embedded = false }: { record: BoardRec
   const { step } = replay
   const [copied, setCopied] = useState(false)
 
-  const shown = { ...board, play: board.play.slice(0, step) }
-  const current = tricksOf(shown).at(-1)
   const allTricks = tricksOf(board)
   const contract = board.contract
   const result = board.result!
   const name = (u: PublicUser) => (u.robot ? t.robot : u.username)
-  const width = phone ? 34 : 54
+  // North and South fan out across the full width; East and West go in rows by suit beside the trick
+  const width = phone ? 40 : 72
+  const side = (seat: string) => seat === 'E' || seat === 'W'
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -190,32 +149,14 @@ export function BoardRecordView({ record, embedded = false }: { record: BoardRec
       </PageTitle>
       <Columns>
         <div>
-          <Diagram>
-            <Spot $area="info">
-              <BoardInfo boardNo={board.boardNo} dealer={board.dealer} vul={board.vul} positions={POSITIONS} />
-            </Spot>
-            {SEATS.map((seat) => (
-              <Spot key={seat} $area={positionOf(seat)}>
-                <Name>
-                  {seatLetter[seat]} {name(players[seat])} · {t.hcp(hcp(board.hands[seat]))}
-                </Name>
-                <HandView
-                  cards={step === 0 ? board.hands[seat] : remainingCards(shown, seat)}
-                  count={13}
-                  width={width}
-                  style={phone && (seat === 'E' || seat === 'W') ? 'text' : cardStyle}
-                  label={`${seatLetter[seat]} ${name(players[seat])}`}
-                />
-              </Spot>
-            ))}
-            <Spot $area="center">
-              {current && step > 0 ? (
-                <TrickArea cards={current.cards} positionOf={positionOf} winner={current.winner} width={width} label={t.thisTrick} />
-              ) : (
-                <TrickSpace $w={width} />
-              )}
-            </Spot>
-          </Diagram>
+          <RecordDiagram
+            record={record}
+            step={step}
+            width={width}
+            trickWidth={phone ? 34 : 58}
+            styleFor={(seat) => (phone && side(seat) ? 'text' : cardStyle)}
+            orientationFor={(seat) => (side(seat) && !phone ? 'rows' : 'horizontal')}
+          />
           {total > 0 && (
             <Controls role="group" aria-label={t.replay}>
               <Button type="button" $small onClick={replay.start} aria-label={t.start}>
@@ -233,6 +174,7 @@ export function BoardRecordView({ record, embedded = false }: { record: BoardRec
               <Button type="button" $small onClick={replay.end} aria-label={t.end}>
                 <ChevronLast size={18} aria-hidden />
               </Button>
+              <PlayedCardsSwitch />
             </Controls>
           )}
         </div>

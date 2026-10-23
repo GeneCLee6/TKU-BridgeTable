@@ -1,6 +1,7 @@
 import { legalCalls } from '../shared/auction.ts'
 import { partnerOf, SEATS, type Seat } from '../shared/cards.ts'
 import {
+  canUndoFor,
   claimApprovers,
   controllerOf,
   dummyOf,
@@ -24,6 +25,8 @@ export interface Table {
   board: BoardState | null
   chat: ChatMessage[]
   undo?: { seat: Seat }
+  /** The last claim, when it was turned down; cleared by the next action */
+  rejectedClaim?: { seat: Seat; tricks: number; by: Seat }
   recordId?: string
   /** When the next board is dealt (ms), once a board is finished */
   dealAt?: number
@@ -55,12 +58,18 @@ export function seatOccupants(
  * claimed, both defenders see all four hands (the declarer still sees only their own and dummy);
  * a defender who claimed shows their hand to everyone.
  * Spectators see all four hands, as kibitzers do on BBO. Partners never see each other's alerts
- * until the board is over.
+ * until the board is over, except a robot's, which are for everyone (GIB's on BBO are too).
+ * `auctionSeat` is where the viewer bid from, if a declarer swap has moved them since.
  */
 export function boardView(
   board: BoardState,
   viewer: Seat | null,
-  extras: { undo?: { seat: Seat }; recordId?: string } = {},
+  extras: {
+    undo?: { seat: Seat }
+    recordId?: string
+    rejectedClaim?: { seat: Seat; tricks: number; by: Seat }
+    auctionSeat?: Seat
+  } = {},
 ): BoardView {
   const finished = board.phase === 'finished'
   const dummy = dummyOf(board)
@@ -86,7 +95,7 @@ export function boardView(
   }
 
   const auction = board.auction.map((entry) => {
-    if (entry.alert === undefined || finished || viewer === null || viewer !== partnerOf(entry.seat))
+    if (entry.alert === undefined || entry.robot || finished || viewer === null || viewer !== partnerOf(entry.seat))
       return entry
     const { alert: _hidden, ...rest } = entry
     return rest
@@ -114,12 +123,15 @@ export function boardView(
       viewer && board.phase === 'auction' && turn === viewer
         ? [...legalCalls(board.auction, board.dealer)]
         : [],
+    canUndo: !!viewer && !extras.undo && canUndoFor(board, viewer, extras.auctionSeat ?? viewer),
+    canClaim: !!viewer && board.phase === 'play' && viewer !== dummy && !board.claim,
   }
 
   if (board.claim) {
     view.claim = { ...board.claim, approvers: claimApprovers(board, board.claim.seat) }
   }
   if (extras.undo && !finished) view.undo = extras.undo
+  if (extras.rejectedClaim && board.phase === 'play') view.rejectedClaim = extras.rejectedClaim
   if (board.result) view.result = board.result
   if (extras.recordId && finished) view.recordId = extras.recordId
   return view

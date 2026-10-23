@@ -16,7 +16,8 @@ import { SuitSymbol } from './Suit.tsx'
  * - text: one line per suit (♠ A K 10 5), BBO's text hand style
  *
  * Suits follow `order` (the table passes BBO's alternating colours with trumps first). A hand the
- * viewer may not see is card backs (or the number of cards in text style).
+ * viewer may not see is card backs (or the number of cards in text style). Cards in `played` stay
+ * in the hand greyed out, as BBO's Handviewer shows a board being replayed.
  */
 
 export type { Orientation }
@@ -91,7 +92,7 @@ const TextRow = styled.div`
   & > :first-child { flex: none; width: 1.15em; }
 `
 
-const RankButton = styled.button<{ $playable: boolean }>`
+const RankButton = styled.button<{ $playable: boolean; $played: boolean }>`
   min-width: 0;
   padding: 0 0.05em;
   border: 0;
@@ -110,6 +111,11 @@ const RankButton = styled.button<{ $playable: boolean }>`
       &:hover { outline: 2px solid ${theme.table.panelText}; }
     `}
   &:disabled { color: inherit; }
+  ${({ $played, theme }) =>
+    $played &&
+    css`
+      &, &:disabled { color: ${theme.table.playedText}; }
+    `}
 `
 
 /** A void: a dash on the same line and baseline as the ranks would be */
@@ -134,6 +140,7 @@ export function HandView({
   style = 'cards',
   order = SUITS,
   playable = [],
+  played = [],
   onPlay,
   label,
 }: {
@@ -147,11 +154,14 @@ export function HandView({
   /** The order of the suits, left to right (top to bottom in text and rows) */
   order?: readonly Suit[]
   playable?: Card[]
+  /** Cards already played that are still drawn, greyed out */
+  played?: Card[]
   onPlay?: (card: Card) => void
   label: string
 }) {
   const t = useT()
   const canPlay = new Set(playable)
+  const gone = new Set(played)
   const anyPlayable = canPlay.size > 0
   const sorted = cards && sortForDisplay(cards, order)
   const suitStart = (list: Card[], i: number) => i > 0 && suitOf(list[i - 1]) !== suitOf(list[i])
@@ -175,9 +185,10 @@ export function HandView({
                 key={card}
                 type="button"
                 $playable={canPlay.has(card)}
+                $played={gone.has(card)}
                 disabled={!canPlay.has(card)}
                 onClick={() => onPlay?.(card)}
-                aria-label={cardName(card, t)}
+                aria-label={gone.has(card) ? t.playedCard(cardName(card, t)) : cardName(card, t)}
               >
                 {rankLabel(rankOf(card))}
               </RankButton>
@@ -196,6 +207,7 @@ export function HandView({
         width={width}
         playable={canPlay.has(card)}
         dim={anyPlayable && !canPlay.has(card)}
+        played={gone.has(card)}
         corner={orientation === 'vertical' ? 'inline' : 'stack'}
         onPlay={onPlay}
       />

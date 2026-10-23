@@ -10,7 +10,8 @@ import { PlayingCard } from './PlayingCard.tsx'
  * The cards of one trick in the middle of the table, each in front of the seat that played it.
  * A card that arrives glides in, as on BBO: from where it was on screen (the card you clicked, or
  * the hand of the player who played it) when `origin` knows, otherwise a short slide from that
- * player's side.
+ * player's side. A finished trick that is `leaving` is taken by its winner: the four cards gather
+ * on the winning card and slide off towards that player, at the same unhurried pace.
  */
 
 export type Position = 'top' | 'right' | 'bottom' | 'left'
@@ -19,7 +20,9 @@ export type Position = 'top' | 'right' | 'bottom' | 'left'
 export type CardOrigin = (card: Card, seat: Seat) => DOMRect | undefined
 
 /** A card takes this long to reach the middle, easing in gently and settling softly */
-const GLIDE_MS = 650
+export const GLIDE_MS = 1300
+/** A finished trick takes as long to go to its winner */
+export const COLLECT_MS = 1300
 const GLIDE_EASING = 'cubic-bezier(0.33, 0.1, 0.2, 1)'
 
 const Area = styled.div<{ $w: number }>`
@@ -92,6 +95,61 @@ function Landing({
   )
 }
 
+/** Which way each seat's cards leave the middle when that seat takes the trick */
+const AWAY: Record<Position, [number, number]> = { top: [0, -1], bottom: [0, 1], left: [-1, 0], right: [1, 0] }
+
+/** A finished trick going to its winner: the cards gather on the winning card, then slide off together */
+function Leaving({
+  trick,
+  positionOf,
+  width,
+}: {
+  trick: { cards: PlayedCard[]; winner: Seat }
+  positionOf: (seat: Seat) => Position
+  width: number
+}) {
+  const ref = useRef<HTMLDivElement>(null)
+
+  useLayoutEffect(() => {
+    const layer = ref.current
+    if (!layer || prefersReducedMotion()) return
+    const items = [...layer.querySelectorAll<HTMLElement>('[data-leaving]')]
+    const target = items.find((el) => el.dataset.leaving === trick.winner)
+    if (!target || typeof target.animate !== 'function') return
+    for (const el of items) for (const running of el.getAnimations()) running.cancel()
+    const to = target.getBoundingClientRect()
+    const [ax, ay] = AWAY[positionOf(trick.winner)]
+    const away = width * 1.4
+    for (const el of items) {
+      const from = el.getBoundingClientRect()
+      const dx = to.left - from.left
+      const dy = to.top - from.top
+      el.animate(
+        [
+          { transform: 'none', opacity: 1 },
+          { transform: `translate(${dx}px, ${dy}px)`, opacity: 1, offset: 0.45 },
+          { transform: `translate(${dx + ax * away}px, ${dy + ay * away}px) scale(0.7)`, opacity: 0 },
+        ],
+        { duration: COLLECT_MS, easing: GLIDE_EASING, fill: 'forwards' },
+      )
+    }
+    // Only when the trick starts to leave
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  return (
+    <div ref={ref} aria-hidden>
+      {trick.cards.map((played) => (
+        <Slot key={played.card} $position={positionOf(played.seat)} style={played.seat === trick.winner ? { zIndex: 1 } : undefined}>
+          <div data-leaving={played.seat}>
+            <PlayingCard card={played.card} width={width} highlight={played.seat === trick.winner} />
+          </div>
+        </Slot>
+      ))}
+    </div>
+  )
+}
+
 export function TrickArea({
   cards,
   positionOf,
@@ -99,6 +157,7 @@ export function TrickArea({
   width,
   label,
   origin,
+  leaving,
 }: {
   cards: PlayedCard[]
   positionOf: (seat: Seat) => Position
@@ -106,11 +165,14 @@ export function TrickArea({
   width: number
   label: string
   origin?: CardOrigin
+  /** The trick before, on its way to the player who won it */
+  leaving?: { cards: PlayedCard[]; winner: Seat; key: string }
 }) {
   return (
     <Area $w={width} role="group" aria-label={label}>
+      {leaving && <Leaving key={leaving.key} trick={leaving} positionOf={positionOf} width={width} />}
       {cards.map((played) => (
-        <Slot key={played.card} $position={positionOf(played.seat)}>
+        <Slot key={played.card} $position={positionOf(played.seat)} style={leaving ? { zIndex: 2 } : undefined}>
           <Landing played={played} position={positionOf(played.seat)} width={width} highlight={played.seat === winner} origin={origin} />
         </Slot>
       ))}

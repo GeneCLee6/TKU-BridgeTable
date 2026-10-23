@@ -2,8 +2,6 @@ import { ArrowLeft, ChevronFirst, ChevronLast, ChevronLeft, ChevronRight, Histor
 import { useEffect, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import styled, { css } from 'styled-components'
-import { SEATS, type Seat } from '../../shared/cards.ts'
-import { remainingCards, tricksOf } from '../../shared/game.ts'
 import { handviewerUrl } from '../../shared/lin.ts'
 import type { BoardRecord, BoardSummary, MemberStatus, PublicUser } from '../../shared/protocol.ts'
 import { api } from '../lib/api.ts'
@@ -15,10 +13,8 @@ import { usePreferences } from '../state/PreferencesContext.tsx'
 import { mobile } from '../styles/tokens.ts'
 import { seatLetter } from '../strings.ts'
 import { AuctionBox } from './AuctionBox.tsx'
-import { BoardInfo } from './BoardInfo.tsx'
-import { HandView } from './HandView.tsx'
+import { PlayedCardsSwitch, RecordDiagram } from './RecordDiagram.tsx'
 import { ContractResult } from './Suit.tsx'
-import { TrickArea, TrickSpace, type Position } from './TrickArea.tsx'
 
 /**
  * BBO's right-hand dock: a narrow strip of tabs on the far right (chat, people, history). Clicking
@@ -446,9 +442,6 @@ function HistoryList({
 
 // ── One board, inside the panel ──────────────────────────────────────────────────────────────
 
-const POSITIONS: Record<Position, Seat> = { top: 'N', right: 'E', bottom: 'S', left: 'W' }
-const positionOf = (seat: Seat) => (Object.keys(POSITIONS) as Position[]).find((p) => POSITIONS[p] === seat)!
-
 const BoardBar = styled.div`
   display: flex;
   align-items: center;
@@ -471,31 +464,14 @@ const BackButton = styled.button`
   font-weight: 600;
 `
 
-const Diagram = styled.div`
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  grid-template-areas:
-    'info top .'
-    'left center right'
-    '. bottom .';
-  align-items: center;
-  justify-items: center;
-  gap: 6px;
-  margin: 8px;
-  padding: 8px 4px;
-  border-radius: ${({ theme }) => theme.radius.md};
-  background: ${({ theme }) => theme.table.felt};
-  color: ${({ theme }) => theme.table.feltText};
+const PanelDiagram = styled.div`
+  margin: 8px 6px;
 `
 
-const Spot = styled.div<{ $area: string }>`
-  grid-area: ${({ $area }) => $area};
-  display: grid;
-  justify-items: center;
-  gap: 2px;
-  min-width: 0;
-  font-size: 12px;
-  font-weight: 700;
+const SwitchRow = styled.div`
+  display: flex;
+  justify-content: center;
+  padding: 8px 0 0;
 `
 
 const Controls = styled.div`
@@ -554,11 +530,8 @@ function BoardInPanel({ id, onBack, newTab }: { id: string; onBack: () => void; 
       </>
     )
 
-  const { board, players } = record
+  const { board } = record
   const total = board.play.length
-  const shown = { ...board, play: board.play.slice(0, step) }
-  const current = tricksOf(shown).at(-1)
-  const name = (u: PublicUser) => (u.robot ? t.robot : u.username)
   const result = board.result!
 
   return (
@@ -572,32 +545,9 @@ function BoardInPanel({ id, onBack, newTab }: { id: string; onBack: () => void; 
           {t.tableName(record.tableNumber)} #{board.boardNo}
         </span>
       </BoardBar>
-      <Diagram>
-        <Spot $area="info">
-          <BoardInfo boardNo={board.boardNo} dealer={board.dealer} vul={board.vul} positions={POSITIONS} size={16} />
-        </Spot>
-        {SEATS.map((seat) => (
-          <Spot key={seat} $area={positionOf(seat)}>
-            <span>
-              {seatLetter[seat]} {name(players[seat])}
-            </span>
-            <HandView
-              cards={step === 0 ? board.hands[seat] : remainingCards(shown, seat)}
-              count={13}
-              width={30}
-              style="text"
-              label={`${seatLetter[seat]} ${name(players[seat])}`}
-            />
-          </Spot>
-        ))}
-        <Spot $area="center">
-          {current && step > 0 ? (
-            <TrickArea cards={current.cards} positionOf={positionOf} winner={current.winner} width={30} label={t.thisTrick} />
-          ) : (
-            <TrickSpace $w={30} />
-          )}
-        </Spot>
-      </Diagram>
+      <PanelDiagram>
+        <RecordDiagram record={record} step={step} width={48} trickWidth={30} styleFor={() => 'text'} compact />
+      </PanelDiagram>
       {total > 0 && (
         <Controls role="group" aria-label={t.replay}>
           <SmallButton type="button" onClick={replay.start} aria-label={t.start}>
@@ -616,6 +566,11 @@ function BoardInPanel({ id, onBack, newTab }: { id: string; onBack: () => void; 
             <ChevronLast size={16} aria-hidden />
           </SmallButton>
         </Controls>
+      )}
+      {total > 0 && (
+        <SwitchRow>
+          <PlayedCardsSwitch />
+        </SwitchRow>
       )}
       <Facts>
         <strong>

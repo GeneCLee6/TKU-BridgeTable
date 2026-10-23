@@ -75,6 +75,9 @@ const table = {
   cardBack: '#1d4f91',
   cardBackStripe: '#2f68b3',
   cardDisabled: 'rgba(0, 0, 0, 0.16)',
+  /** A card already played, still shown in the hand in a board record (BBO's Handviewer) */
+  cardPlayed: 'rgba(120, 128, 124, 0.62)',
+  playedText: '#b3bab5',
   plate: '#f7f8f4',
   plateText: '#1d2420',
   plateVul: '#c62828',

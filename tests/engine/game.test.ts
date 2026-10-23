@@ -14,7 +14,7 @@ import {
   tricksOf,
   tricksWon,
   turnOf,
-  undoLast,
+  undoFor,
   type BoardState,
 } from '../../shared/game.ts'
 
@@ -153,6 +153,14 @@ describe('claims', () => {
     expect(state.phase).toBe('play')
   })
 
+  it('may be made in the middle of a trick', () => {
+    let state = bid(newBoard(1, suitHands), '4S P P P')
+    state = playOut(state, 1)
+    state = makeClaim(state, 'N', 13)
+    state = respondToClaim(respondToClaim(state, 'E', true), 'W', true)
+    expect(state.result?.declarerTricks).toBe(13)
+  })
+
   it('is credited to the declarer when a defender claims', () => {
     let state = bid(newBoard(1, suitHands), '4S P P P')
     state = makeClaim(state, 'E', 3)
@@ -162,16 +170,38 @@ describe('claims', () => {
   })
 })
 
-describe('undoLast', () => {
-  it('takes back a card, then reopens the auction', () => {
+describe('undoFor', () => {
+  it('takes back a card, then reopens the auction at the seat’s last call', () => {
     let state = bid(newBoard(1, suitHands), '1S P P P')
     state = playOut(state, 1)
-    state = undoLast(state)
+    state = undoFor(state, 'E')
     expect(state.play).toHaveLength(0)
     expect(state.phase).toBe('play')
-    state = undoLast(state)
+    state = undoFor(state, 'E')
     expect(state.phase).toBe('auction')
     expect(state.contract).toBeNull()
-    expect(state.auction).toHaveLength(3)
+    expect(state.auction.map((c) => c.call)).toEqual(['1S'])
+    state = undoFor(state, 'N')
+    expect(state.auction).toHaveLength(0)
+  })
+
+  it('takes back everything since the seat’s own last card, dummy’s included for the declarer', () => {
+    let state = bid(newBoard(1, suitHands), '1S P P P')
+    // East leads, South (dummy, played by North) and West follow
+    state = playOut(state, 3)
+    expect(undoFor(state, 'N').play).toHaveLength(1)
+    expect(undoFor(state, 'W').play).toHaveLength(2)
+    expect(() => undoFor(playOut(bid(newBoard(1, suitHands), '1S P P P'), 1), 'W')).toThrow(GameError)
+  })
+
+  it('has nothing to undo before the seat has called', () => {
+    expect(() => undoFor(newBoard(1, suitHands), 'N')).toThrow('沒有可以撤回的動作')
+    expect(() => undoFor(bid(newBoard(1, suitHands), '1S'), 'E')).toThrow(GameError)
+  })
+
+  it('reopens the auction from where a swapped declarer bid', () => {
+    const state = bid(newBoard(1, suitHands), '1S P 2S P P P')
+    // A person who bid 2♠ from South now sits North: the auction goes back to before the 2♠
+    expect(undoFor(state, 'N', 'S').auction.map((c) => c.call)).toEqual(['1S', 'P'])
   })
 })
