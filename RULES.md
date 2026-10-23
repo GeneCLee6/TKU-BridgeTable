@@ -35,3 +35,4 @@
 - Conventional Commits：`feat:`、`fix:`、`docs:`、`chore:`、`test:`、`refactor:`、`design:`，可加範圍，如 `feat(table): add claim dialog`。
 - 主旨用英文、祈使句。
 - 功能在分支上開發，以 PR 合併到 `main`；不要直接推送 `main`，不要 force-push。
+- **一個 task 一個 PR**（`docs/PRD/README.md`）：分支名帶 task 編號（`feat/e4-t16-contract-filter`），PR 標題結尾加編號（`feat(records): filter by contract [e4-t16]`），PR 本文寫對應的 AC；在同一個 PR 把 epic 裡的 task 勾起來並寫上 PR 號。
