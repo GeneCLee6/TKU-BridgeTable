@@ -490,6 +490,37 @@ describe('when our opening is doubled or overcalled (§8)', () => {
   })
 })
 
+describe('Soloway jump shifts (§9)', () => {
+  it('jumps with one of the four hands', () => {
+    // A solid suit
+    expect(bidOver('AKQJ32 AK2 32 32', '1C P')).toBe('2S')
+    // Four-card support for opener (before Jacoby 2NT)
+    expect(bidOver('AKJ32 KQ32 A2 32', '1H P')).toBe('2S')
+    // 18+ and 5332
+    expect(bidOver('AQJ32 KQ2 K2 A32', '1D P')).toBe('2S')
+    // Not one of them: a normal response
+    expect(bidOver('AQJ32 K32 K2 432', '1C P')).toBe('1S')
+    // Not by a passed hand
+    expect(bidOver('AKQJ32 AK2 32 32', 'P P 1C P').startsWith('2S')).toBe(false)
+  })
+
+  it('opener raises, rebids six cards, shows a side suit with at least KQ, or bids notrump', () => {
+    expect(bidOver('K32 K32 A2 QJ432', '1C P 2S P')).toBe('3S')
+    expect(bidOver('32 K32 A2 KQJ432', '1C P 2S P')).toBe('3C')
+    expect(bidOver('32 K32 AJ32 KQJ2', '1C P 2S P')).toBe('3D')
+    expect(bidOver('32 Q432 Q32 AKJ2', '1C P 2S P')).toBe('2N')
+  })
+
+  it('the jump shifter shows the type with the next bid', () => {
+    expect(bidOver('AKQJ32 AK2 32 32', '1C P 2S P 3C P')).toBe('3S')
+    expect(bidOver('AKJ32 KQ32 A32 2', '1H P 2S P 2N P')).toBe('3C')
+  })
+
+  it('explains the jump shift the way GIB does', () => {
+    expect(meaning('1C P', '2S')).toBe('Soloway 跳叫新花：♠ 可再叫，17+ 總點，4+ 控制，迫叫成局')
+  })
+})
+
 describe('when no book covers the auction (§11)', () => {
   const goal = (cards: string, calls: string) => {
     const { h, ctx } = situation(cards, calls)
