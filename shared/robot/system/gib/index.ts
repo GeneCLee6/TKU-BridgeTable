@@ -2,6 +2,7 @@ import type { System } from '../spec.ts'
 import { fallback, forcedCall, silent } from './fallback.ts'
 import { majors } from './majors.ts'
 import { minors } from './minors.ts'
+import { notrump } from './notrump.ts'
 import { openings } from './openings.ts'
 
 /**
@@ -10,6 +11,6 @@ import { openings } from './openings.ts'
  */
 export const GIB: System = {
   id: 'gib',
-  books: [openings, ...minors, ...majors, silent, fallback],
+  books: [openings, ...notrump, ...minors, ...majors, silent, fallback],
   emergency: forcedCall,
 }

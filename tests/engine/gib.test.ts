@@ -230,6 +230,92 @@ describe('after 1♥ / 1♠ (§3)', () => {
   })
 })
 
+describe('after 1NT / 2NT (§4, §5)', () => {
+  it('answers 1NT with Stayman, transfers, Texas, minor-suit Stayman, shortness and notrump', () => {
+    expect(bidOver('KJ32 Q43 Q54 Q32', '1N P')).toBe('2C')
+    expect(bidOver('KJ432 Q432 Q5 32', '1N P')).toBe('2C')
+    expect(bidOver('32 QJ432 J54 432', '1N P')).toBe('2D')
+    expect(bidOver('QJ432 32 J54 432', '1N P')).toBe('2H')
+    // 5-5 in the majors: through hearts when weak, through spades with game
+    expect(bidOver('QJ432 QJ432 32 2', '1N P')).toBe('2D')
+    expect(bidOver('KQ432 AJ432 32 2', '1N P')).toBe('2H')
+    expect(bidOver('KQJ432 32 K54 Q2', '1N P')).toBe('4H')
+    expect(bidOver('2 32 AQ432 KJ432', '1N P')).toBe('2S')
+    expect(bidOver('KJ32 Q432 2 AJ32', '1N P')).toBe('3D')
+    expect(bidOver('2 32 432 QJ86432', '1N P')).toBe('2N')
+    expect(bidOver('K32 Q43 K54 Q432', '1N P')).toBe('3N')
+    // Inviting 3NT without a major goes through Stayman
+    expect(bidOver('K32 Q43 J54 Q432', '1N P')).toBe('2C')
+    expect(bidOver('KQ2 AQ3 K54 Q432', '1N P')).toBe('4N')
+    expect(bidOver('932 843 J54 5432', '1N P')).toBe('P')
+  })
+
+  it('opener answers Stayman, transfers and minor-suit Stayman', () => {
+    expect(bidOver('AQ2 KJ32 Q54 K32', '1N P 2C P')).toBe('2H')
+    expect(bidOver('AQ32 KJ3 Q54 K32', '1N P 2C P')).toBe('2S')
+    expect(bidOver('AQ2 KJ3 Q54 K432', '1N P 2C P')).toBe('2D')
+    expect(bidOver('AQ2 KJ3 Q54 K432', '1N P 2D P')).toBe('2H')
+    expect(bidOver('AQ2 KJ32 KQ5 Q32', '1N P 2D P')).toBe('3H')
+    expect(bidOver('AQ2 KJ3 Q54 K432', '1N P 2S P')).toBe('2N')
+    expect(bidOver('AQ2 K3 Q543 K432', '1N P 2S P')).toBe('3D')
+    expect(bidOver('AQ2 KJ3 Q54 K432', '1N P 2N P')).toBe('3C')
+    expect(bidOver('AQ2 KJ3 Q54 K432', '1N P 4D P')).toBe('4H')
+  })
+
+  it('responder continues after Stayman: Smolen, invitations, game', () => {
+    expect(bidOver('KJ32 AQ432 32 32', '1N P 2C P 2D P')).toBe('3S')
+    expect(bidOver('KJ32 QJ432 Q2 32', '1N P 2C P 2D P')).toBe('2H')
+    expect(bidOver('KJ32 Q432 K54 32', '1N P 2C P 2H P')).toBe('3H')
+    expect(bidOver('KJ32 Q432 K54 Q2', '1N P 2C P 2H P')).toBe('4H')
+    expect(bidOver('KJ32 Q43 K54 Q32', '1N P 2C P 2H P')).toBe('3N')
+    expect(bidOver('KJ32 Q43 J54 Q32', '1N P 2C P 2S P')).toBe('3S')
+  })
+
+  it('responder continues after a transfer, and opener answers the choice', () => {
+    expect(bidOver('32 QJ432 J54 432', '1N P 2D P 2H P')).toBe('P')
+    expect(bidOver('32 KJ432 K54 Q32', '1N P 2D P 2H P')).toBe('2N')
+    expect(bidOver('32 KJ432 K54 K32', '1N P 2D P 2H P')).toBe('3N')
+    expect(bidOver('A2 KJ5432 54 432', '1N P 2D P 2H P')).toBe('3H')
+    expect(bidOver('KJ432 KJ432 2 32', '1N P 2D P 2H P')).toBe('2S')
+    expect(bidOver('AQ2 KJ3 Q54 K432', '1N P 2D P 2H P 3N P')).toBe('4H')
+    expect(bidOver('AQ32 K3 Q54 K432', '1N P 2D P 2H P 3N P')).toBe('P')
+    expect(bidOver('AQ2 KJ3 Q54 K432', '1N P 2D P 2H P 2N P')).toBe('3H')
+    expect(bidOver('AQ32 K3 KQ4 K432', '1N P 2D P 2H P 2N P')).toBe('3N')
+    // Opener declined the invitation: responder passes
+    expect(bidOver('KJ432 32 K54 Q32', '1N P 2H P 2S P 2N P 3S P')).toBe('P')
+  })
+
+  it('answers 2NT the same way a level higher', () => {
+    expect(bidOver('K432 Q43 543 432', '2N P')).toBe('3C')
+    expect(bidOver('Q5432 32 543 432', '2N P')).toBe('3H')
+    expect(bidOver('KQ5432 32 543 32', '2N P')).toBe('4H')
+    expect(bidOver('2 32 KQ432 J5432', '2N P')).toBe('3S')
+    expect(bidOver('K32 Q43 543 5432', '2N P')).toBe('3N')
+    expect(bidOver('932 843 543 5432', '2N P')).toBe('P')
+    expect(bidOver('AK2 KQJ2 AQ4 K32', '2N P 3C P')).toBe('3H')
+  })
+
+  it('keeps the system on over a 2♣ overcall or a double, and uses Lebensohl otherwise', () => {
+    expect(bidOver('KJ32 Q43 K54 Q32', '1N 2C')).toBe('X')
+    expect(bidOver('32 32 J5432 Q432', '1N X')).toBe('XX')
+    expect(bidOver('KJ432 32 Q54 432', '1N 2H')).toBe('2S')
+    expect(bidOver('K32 32 A54 KQJ32', '1N 2H')).toBe('3C')
+    expect(bidOver('K32 KJ32 A54 J43', '1N 2H')).toBe('X')
+    expect(bidOver('K32 KJ2 A54 J432', '1N 2H')).toBe('2N')
+    expect(bidOver('AQ2 Q43 KQ54 K32', '1N 2H 2N P')).toBe('3C')
+    expect(bidOver('K32 KJ2 A54 J432', '1N 2H 2N P 3C P')).toBe('3N')
+  })
+
+  it('explains these calls the way GIB does', () => {
+    expect(meaning('1N P', '2C')).toBe('Stayman：詢問 4 張高花，8+ 大牌點，迫叫一圈')
+    expect(meaning('1N P', '2D')).toBe('轉換：轉到♥，5+ 張♥，迫叫一圈')
+    expect(meaning('1N P', '4C')).toBe('Gerber')
+    expect(meaning('1N P 2D P 2H P', '3N')).toBe('請同伴選 4♥ 或 3NT，5 張♥，10–15 大牌點')
+    expect(meaning('1N P 2C P 2D P', '3S')).toBe('Smolen：4 張♠，5 張♥，10+ 大牌點，迫叫成局')
+    expect(meaning('1N 2H', '2N')).toBe('雷本索：請同伴叫 3♣，迫叫一圈')
+  })
+})
+
 describe('when no book covers the auction (§11)', () => {
   const goal = (cards: string, calls: string) => {
     const { h, ctx } = situation(cards, calls)

@@ -117,6 +117,7 @@ const zh: Grammar = {
   notes: {
     asksMajor: () => '詢問 4 張高花',
     noMajor: () => '沒有 4 張高花',
+    noMinor: () => '沒有 4 張低花',
     transferTo: ({ s }) => `轉到${s}`,
     completes: () => '完成轉換',
     relayTo: ({ c }) => `請同伴叫 ${c[0]}`,
@@ -164,6 +165,7 @@ const zhHans: Grammar = {
   notes: {
     asksMajor: () => '询问 4 张高花',
     noMajor: () => '没有 4 张高花',
+    noMinor: () => '没有 4 张低花',
     transferTo: ({ s }) => `转移到${s}`,
     completes: () => '完成转移',
     relayTo: ({ c }) => `请同伴叫 ${c[0]}`,
@@ -217,6 +219,7 @@ const en: Grammar = {
   notes: {
     asksMajor: () => 'asks for a 4-card major',
     noMajor: () => 'no 4-card major',
+    noMinor: () => 'no 4-card minor',
     transferTo: ({ s }) => `transfer to ${s}`,
     completes: () => 'completes the transfer',
     relayTo: ({ c }) => `asks partner to bid ${c[0]}`,
@@ -269,6 +272,7 @@ const vi: Grammar = {
   notes: {
     asksMajor: () => 'hỏi hoa cao 4 lá',
     noMajor: () => 'không có hoa cao 4 lá',
+    noMinor: () => 'không có hoa thấp 4 lá',
     transferTo: ({ s }) => `chuyển sang ${s}`,
     completes: () => 'hoàn tất chuyển',
     relayTo: ({ c }) => `nhờ đồng đội kêu ${c[0]}`,
@@ -322,6 +326,7 @@ const ja: Grammar = {
   notes: {
     asksMajor: () => '4枚のメジャーを尋ねる',
     noMajor: () => '4枚のメジャーなし',
+    noMinor: () => '4枚のマイナーなし',
     transferTo: ({ s }) => `${s}へのトランスファー`,
     completes: () => 'トランスファーを完了',
     relayTo: ({ c }) => `パートナーに${c[0]}を求める`,
@@ -375,6 +380,7 @@ const ko: Grammar = {
   notes: {
     asksMajor: () => '4장 메이저 질문',
     noMajor: () => '4장 메이저 없음',
+    noMinor: () => '4장 마이너 없음',
     transferTo: ({ s }) => `${s} 트랜스퍼`,
     completes: () => '트랜스퍼 완료',
     relayTo: ({ c }) => `파트너에게 ${c[0]} 요청`,

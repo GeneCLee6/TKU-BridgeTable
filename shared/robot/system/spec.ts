@@ -85,6 +85,7 @@ export type Convention = (typeof CONVENTIONS)[number]
 export const NOTES = [
   'asksMajor',
   'noMajor',
+  'noMinor',
   'transferTo',
   'completes',
   'relayTo',
