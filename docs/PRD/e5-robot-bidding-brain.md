@@ -127,7 +127,7 @@ tests/bidding-quiz/*.json   題庫：手牌、叫牌過程、身價、正解、�
 - [x] `e5-t54` 開叫（§1）：所有開叫、第三四家、開叫位置的 Pass；說明照 GIB 的特徵 · AC-5.13 · #18
 - [x] `e5-t55` 規則沒寫到時（§11）：依推論找配合與成局、迫叫中不 Pass、叫到目標就停；300 副隨機牌四個 2/1 機器人叫完全部合法、都會停 · AC-5.13 · #19
 - [x] `e5-t56` 1♣／1♦ 之後（§2）：答叫、倒轉低花、1♦–2♣ 迫叫成局、開叫者再叫、新低花迫叫、第四花色、反序之後的接力 · AC-5.13 · #20
-- [ ] `e5-t57` 1♥／1♠ 之後（§3）：單加叫、1NT 迫叫、2/1、Jacoby 2NT、limit raise、splinter、雙向成局試探、Reverse Drury · AC-5.13 · M · ← e5-t55
+- [x] `e5-t57` 1♥／1♠ 之後（§3）：單加叫、1NT 迫叫、2/1、Jacoby 2NT、limit raise、splinter、雙向成局試探、Reverse Drury · AC-5.13 · #21
 - [ ] `e5-t58` 1NT／2NT 之後（§4、§5）：Stayman、Smolen、轉換與超接受、低花 Stayman、低花轉換、短門、Texas、Gerber、定量；被插叫 · AC-5.13 · M · ← e5-t55
 - [ ] `e5-t59` 2♣、弱二與阻擊之後（§6）· AC-5.13 · S · ← e5-t55
 - [ ] `e5-t60` 敵方開叫（§7）：爭叫、弱跳爭叫、1NT 爭叫、技術性賭倍與回應、Michaels、不尋常 2NT、Cappelletti、Sandwich、平衡位置、回答性賭倍 · AC-5.13 · M · ← e5-t55

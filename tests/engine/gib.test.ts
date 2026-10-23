@@ -151,6 +151,85 @@ describe('after 1♣ / 1♦ (§2)', () => {
   })
 })
 
+describe('after 1♥ / 1♠ (§3)', () => {
+  it('raises with four trumps by strength: splinter, Jacoby 2NT, limit raise, preempt', () => {
+    expect(bidOver('KQ32 A432 KJ32 2', '1S P')).toBe('4C')
+    expect(bidOver('KQ32 A32 KJ32 32', '1S P')).toBe('2N')
+    expect(bidOver('KQ32 A32 J432 32', '1S P')).toBe('3S')
+    expect(bidOver('Q8432 2 J5432 32', '1S P')).toBe('4S')
+    expect(bidOver('K32 Q432 J432 32', '1S P')).toBe('2S')
+  })
+
+  it('bids a 2/1 game force, 1♠ over 1♥, or 1NT forcing', () => {
+    expect(bidOver('32 AKJ32 K32 Q32', '1S P')).toBe('2H')
+    expect(bidOver('32 A32 AKJ32 Q32', '1S P')).toBe('2D')
+    expect(bidOver('A32 KQ32 KQ3 Q32', '1S P')).toBe('2C')
+    expect(bidOver('K2 Q432 J432 432', '1S P')).toBe('1N')
+    expect(bidOver('KJ32 32 Q432 K32', '1H P')).toBe('1S')
+    expect(bidOver('KJ32 Q32 J32 432', '1H P')).toBe('2H')
+    expect(bidOver('2 32 K32 AQJ5432', '1S P')).toBe('3C')
+  })
+
+  it('uses Reverse Drury as a passed hand, and opener answers it', () => {
+    expect(bidOver('K32 A32 KJ32 432', 'P P 1S P')).toBe('2C')
+    expect(bidOver('KQJ32 K32 432 32', 'P P 1S P 2C P')).toBe('2S')
+    expect(bidOver('KQJ32 K32 A32 32', 'P P 1S P 2C P')).toBe('2N')
+    expect(bidOver('KQJ32 K2 A432 32', 'P P 1S P 2C P')).toBe('2D')
+  })
+
+  it('makes two-way game tries after a single raise', () => {
+    expect(bidOver('AKQ32 AK32 K2 32', '1S P 2S P')).toBe('4S')
+    expect(bidOver('AKJ32 KQ32 Q32 2', '1S P 2S P')).toBe('2N')
+    expect(bidOver('AKJ32 Q32 AK2 32', '1S P 2S P')).toBe('3H')
+    expect(bidOver('AKJ32 AK2 432 32', '1S P 2S P')).toBe('3S')
+    expect(bidOver('AKJ32 Q32 432 32', '1S P 2S P')).toBe('P')
+  })
+
+  it('answers a short-suit try, and opener shows where the shortness is', () => {
+    expect(bidOver('Q32 A32 K432 432', '1S P 2S P 2N P')).toBe('4S')
+    expect(bidOver('Q32 A32 Q432 432', '1S P 2S P 2N P')).toBe('3C')
+    expect(bidOver('Q32 A32 J432 432', '1S P 2S P 2N P')).toBe('3S')
+    // Short in clubs, the step suit: bid the major
+    expect(bidOver('AKJ32 KQ32 Q32 2', '1S P 2S P 2N P 3C P')).toBe('3S')
+    expect(bidOver('AKJ32 KQ32 2 Q32', '1S P 2S P 2N P 3C P')).toBe('3D')
+  })
+
+  it('rebids after 1NT forcing, and responder makes the delayed limit raise', () => {
+    expect(bidOver('AKJ32 KQ32 32 32', '1S P 1N P')).toBe('2H')
+    expect(bidOver('AKJ432 K32 32 32', '1S P 1N P')).toBe('2S')
+    expect(bidOver('AKJ32 K2 Q32 432', '1S P 1N P')).toBe('2C')
+    expect(bidOver('AKJ32 KQ2 AQ2 32', '1S P 1N P')).toBe('2N')
+    expect(bidOver('AKJ2 KQJ32 A2 32', '1H P 1N P')).toBe('2S')
+    expect(bidOver('K32 Q2 KQ432 432', '1S P 1N P 2H P')).toBe('3S')
+    expect(bidOver('K2 432 Q5432 Q32', '1S P 1N P 2H P')).toBe('2S')
+  })
+
+  it('opener answers Jacoby 2NT: shortness, a good second suit, or strength', () => {
+    expect(bidOver('AKJ32 KQ32 Q32 2', '1S P 2N P')).toBe('3C')
+    expect(bidOver('AKJ32 AQ432 32 2', '1S P 2N P')).toBe('4H')
+    expect(bidOver('AKJ32 KQ2 AQ2 32', '1S P 2N P')).toBe('3S')
+    expect(bidOver('AKJ32 K32 A32 32', '1S P 2N P')).toBe('3N')
+    expect(bidOver('AKJ32 Q32 Q32 32', '1S P 2N P')).toBe('4S')
+  })
+
+  it('opener rebids after a 2/1: raise, new suit, notrump or the major', () => {
+    expect(bidOver('AKJ32 32 KQ32 32', '1S P 2D P')).toBe('3D')
+    expect(bidOver('AKJ32 KQ32 32 32', '1S P 2D P')).toBe('2H')
+    expect(bidOver('AKJ32 K32 32 432', '1S P 2D P')).toBe('2N')
+    expect(bidOver('AKJ32 32 32 K432', '1S P 2D P')).toBe('2S')
+  })
+
+  it('explains these calls the way GIB does', () => {
+    expect(meaning('1S P', '2N')).toBe('Jacoby 2NT：4+ 張♠，13+ 總點，迫叫成局')
+    expect(meaning('1S P', '4C')).toBe('Splinter：♣單張或缺門，4+ 張♠，0–1 張♣，13–16 總點，迫叫成局')
+    expect(meaning('1S P', '2S')).toBe('3+ 張♠，7–10 總點')
+    expect(meaning('1S P', '1N')).toBe('6–12 大牌點，迫叫一圈')
+    expect(meaning('1S P 2S P', '2N')).toBe('短門成局試探：某一門單張或缺門，16–18 總點，迫叫一圈')
+    expect(meaning('1H P 2H P', '2N')).toBe('長門成局試探：♠需要幫助，3+ 張♠，16–18 總點，迫叫一圈')
+    expect(meaning('P P 1S P', '2C')).toBe('Reverse Drury：3+ 張♠，11–12 總點，迫叫一圈')
+  })
+})
+
 describe('when no book covers the auction (§11)', () => {
   const goal = (cards: string, calls: string) => {
     const { h, ctx } = situation(cards, calls)

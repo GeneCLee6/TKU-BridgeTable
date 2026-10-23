@@ -9,6 +9,10 @@ export const MAJORS: readonly Suit[] = ['S', 'H']
 export const MINORS: readonly Suit[] = ['D', 'C']
 /** Suits from the top: ♠ ♥ ♦ ♣ */
 export const SUITS_DOWN: readonly Suit[] = ['S', 'H', 'D', 'C']
+/** Suits from the bottom: ♣ ♦ ♥ ♠ */
+export const UP: readonly Suit[] = ['C', 'D', 'H', 'S']
+/** Whether suit `a` ranks above suit `b` */
+export const above = (a: Suit, b: Suit) => UP.indexOf(a) > UP.indexOf(b)
 
 export const bid = (level: number, strain: Strain): Call => `${level}${strain}`
 export const isMajor = (s: Strain): s is Suit => s === 'S' || s === 'H'

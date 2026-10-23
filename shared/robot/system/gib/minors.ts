@@ -2,13 +2,10 @@ import type { Suit } from '../../../cards.ts'
 import type { Ctx } from '../context.ts'
 import type { Hand } from '../evaluate.ts'
 import type { Book, Rule, Spec } from '../spec.ts'
-import { bid, isMajor, MAJORS, other, plus, upTo } from './util.ts'
+import { openerRebids } from './rebids.ts'
+import { above, bid, MAJORS, other, plus, UP, upTo } from './util.ts'
 
 /** After 1♣ or 1♦, docs/BBO GIB/gib-2over1.md §2 */
-
-/** Suits from the bottom: ♣ ♦ ♥ ♠ */
-const UP: readonly Suit[] = ['C', 'D', 'H', 'S']
-const above = (a: Suit, b: Suit) => UP.indexOf(a) > UP.indexOf(b)
 
 const noFourMajor = (h: Hand) => h.len.S < 4 && h.len.H < 4
 const fewMajors: Spec['len'] = { S: [0, 3], H: [0, 3] }
@@ -74,46 +71,6 @@ function responses(m: Suit, passed: boolean): Rule[] {
     { call: '1N', shows: { hcp: [6, 10], len: fewMajors } },
     { call: 'P', shows: { hcp: upTo(5) } },
   )
-  return rules
-}
-
-// ── Opener's rebid after a one-level response ─────────────────────────────────────────────────
-
-/** Opener's rebids after 1m–1y */
-function openerRebids(m: Suit, y: Suit): Rule[] {
-  const rules: Rule[] = []
-  const others = UP.filter((z) => z !== m && z !== y)
-  // A new suit we can show at the one level, the cheapest first
-  const oneLevel = others.filter((z) => above(z, y))
-  // At the two level: a reverse when higher than our minor, a plain new suit when lower
-  const twoLevel = others.filter((z) => !above(z, y))
-  const jumpLevel = (z: Suit) => (above(z, y) ? 2 : 3)
-
-  if (isMajor(y)) rules.push({ call: bid(4, y), shows: { len: { [y]: [4, 13] }, hcp: [18, 21], notes: [{ key: 'game' }] } })
-  rules.push({ call: '2N', shows: { hcp: [18, 19], balanced: true } })
-  // Jump shifts: 19+ and game forcing
-  for (const z of others)
-    rules.push({ call: bid(jumpLevel(z), z), shows: { len: { [z]: [4, 13] }, hcp: [19, 21], forcing: 'game' }, when: (h) => !(isMajor(y) && h.len[y] >= 4) })
-  rules.push(
-    { call: bid(3, y), shows: { len: { [y]: [4, 13] }, hcp: [15, 17], notes: [{ key: 'invite' }] } },
-    { call: bid(3, m), shows: { len: { [m]: [6, 13] }, hcp: [17, 20] } },
-  )
-  // Reverses: a higher suit at the two level, 17+, the minor longer, forcing
-  for (const z of twoLevel.filter((z) => above(z, m)))
-    rules.push({
-      call: bid(2, z),
-      shows: { name: 'reverse', len: { [z]: [4, 13], [m]: [5, 13] }, hcp: [17, 21], forcing: 'oneRound' },
-      when: (h) => h.len[m] > h.len[z] && !(isMajor(y) && h.len[y] >= 4),
-    })
-  // A raise of 1♦ would hide a four-card major
-  rules.push({ call: bid(2, y), shows: { len: { [y]: [4, 13] }, hcp: [11, 14] }, when: (h) => isMajor(y) || noFourMajor(h) })
-  // A new suit at the one level: four or more, the cheapest first (no four cards in partner's major)
-  for (const z of oneLevel)
-    rules.push({ call: bid(1, z), shows: { len: { [z]: [4, 13] }, hcp: [11, 17] }, when: (h) => !(isMajor(y) && h.len[y] >= 4) })
-  rules.push({ call: '1N', shows: { hcp: [11, 14], balanced: true } })
-  for (const z of twoLevel.filter((z) => !above(z, m)))
-    rules.push({ call: bid(2, z), shows: { len: { [z]: [4, 13] }, hcp: [11, 17] } })
-  rules.push({ call: bid(2, m), shows: { len: { [m]: [5, 13] }, hcp: [11, 16] } })
   return rules
 }
 

@@ -129,8 +129,21 @@ export function goalFor(h: Hand, ctx: Ctx): Goal | null {
     strain = 'N'
     points = pointsIn('N')
   }
+  // Slams also need the high cards: both hands count their short suits in total points, so shape
+  // alone must not carry the partnership to slam
+  const highCards = h.hcp + partnerPoints(ctx, true)
   let kind: Level | null =
-    points >= 37 ? 'grand' : points >= 33 ? 'slam' : points >= (isMinor(strain) ? 28 : 25) ? 'game' : points >= 23 ? 'invite' : points >= 19 ? 'part' : null
+    points >= 37 && highCards >= 35
+      ? 'grand'
+      : points >= 33 && highCards >= 31
+        ? 'slam'
+        : points >= (isMinor(strain) ? 28 : 25)
+          ? 'game'
+          : points >= 23
+            ? 'invite'
+            : points >= 19
+              ? 'part'
+              : null
   if (!kind) return null
   // No four-level invitations in a minor: compete for a part score instead
   if (kind === 'invite' && isMinor(strain)) kind = 'part'
