@@ -8,7 +8,7 @@ import { above, bid, MAJORS, other, plus, UP } from './util.ts'
 /** After a 1NT or 2NT opening, docs/BBO GIB/gib-2over1.md §4 and §5 (GIB System Notes) */
 
 /** Responder's ranges facing each opening, and how far up its relays sit */
-interface Ranges {
+export interface Ranges {
   /** 0 after 1NT; 1 after 2NT, where Stayman, transfers and their answers are a level higher */
   up: 0 | 1
   weak: Range
@@ -325,11 +325,12 @@ function afterLebensohlRelay(theirs: Suit): Rule[] {
 
 const completes = (call: Call): Rule[] => [{ call, shows: { notes: [{ key: 'completes' }] } }]
 
-const books: Book[] = []
-for (const [r, open] of [
-  [ONE_NT, '1N'],
-  [TWO_NT, '2N'],
-] as const) {
+/**
+ * The books for a notrump opening or rebid: `open` is the auction up to it ('1N', '2N', or
+ * '2C (P) 2D (P) 2N' for the strong 2♣ rebid of 22–24)
+ */
+export function notrumpBooks(r: Ranges, open: string): Book[] {
+  const books: Book[] = []
   const stayman = bid(2 + r.up, 'C')
   const mss = bid(2 + r.up, 'S')
   books.push(
@@ -364,7 +365,10 @@ for (const [r, open] of [
       )
   }
   for (const m of ['C', 'D'] as Suit[]) books.push({ after: `${open} (P) ${mss} (P) ${bid(3 + r.up, m)} (P)`, rules: shortMajor(r), more: true })
+  return books
 }
+
+const books: Book[] = [...notrumpBooks(ONE_NT, '1N'), ...notrumpBooks(TWO_NT, '2N')]
 // Minor transfers over 1NT: opener must accept
 books.push(
   { after: '1N (P) 2N (P)', rules: completes('3C'), more: true },

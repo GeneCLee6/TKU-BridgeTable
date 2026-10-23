@@ -4,6 +4,7 @@ import { majors } from './majors.ts'
 import { minors } from './minors.ts'
 import { notrump } from './notrump.ts'
 import { openings } from './openings.ts'
+import { strong } from './strong.ts'
 
 /**
  * The 2/1 robot's system, compatible with BBO's GIB (docs/BBO GIB/gib-2over1.md). Books are tried
@@ -11,6 +12,6 @@ import { openings } from './openings.ts'
  */
 export const GIB: System = {
   id: 'gib',
-  books: [openings, ...notrump, ...minors, ...majors, silent, fallback],
+  books: [openings, ...notrump, ...strong, ...minors, ...majors, silent, fallback],
   emergency: forcedCall,
 }

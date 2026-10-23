@@ -109,6 +109,7 @@ export const NOTES = [
   'minimum',
   'maximum',
   'kingIn',
+  'honourIn',
   'noKing',
   'void',
   'aces',

@@ -316,6 +316,48 @@ describe('after 1NT / 2NT (§4, §5)', () => {
   })
 })
 
+describe('after 2♣, weak twos and preempts (§6)', () => {
+  it('answers 2♣ with a positive in a good suit, 2NT, or the 2♦ waiting bid', () => {
+    expect(bidOver('32 KQJ32 K32 432', '2C P')).toBe('2H')
+    expect(bidOver('K2 QJ432 K32 432', '2C P')).toBe('2N')
+    expect(bidOver('32 Q432 J32 5432', '2C P')).toBe('2D')
+  })
+
+  it('opener rebids 2NT with 22–24 (then the 2NT system), 3NT with 25–27, or a long suit', () => {
+    expect(bidOver('AK2 AQ3 KQ54 KQ2', '2C P 2D P')).toBe('2N')
+    expect(bidOver('AKQ2 AK3 KQ5 A32', '2C P 2D P')).toBe('3N')
+    expect(bidOver('AKQJ32 AK3 AQ 32', '2C P 2D P')).toBe('2S')
+    expect(bidOver('K432 Q43 543 432', '2C P 2D P 2N P')).toBe('3C')
+  })
+
+  it('answers a weak two: the feature ask, raises by the Law of Total Tricks, a new suit', () => {
+    expect(bidOver('A2 AKJ2 KQ32 432', '2S P')).toBe('2N')
+    expect(bidOver('Q432 2 J5432 432', '2S P')).toBe('4S')
+    expect(bidOver('Q32 32 J5432 432', '2S P')).toBe('3S')
+    expect(bidOver('2 AKQJ32 K32 432', '2S P')).toBe('3H')
+    expect(bidOver('32 Q432 J32 5432', '2S P')).toBe('P')
+  })
+
+  it('opener shows a feature with a maximum', () => {
+    expect(bidOver('KQJ932 A2 432 32', '2S P 2N P')).toBe('3H')
+    expect(bidOver('KQJ932 32 432 32', '2S P 2N P')).toBe('3S')
+  })
+
+  it('raises a preempt or bids 3NT', () => {
+    expect(bidOver('Q32 2 J5432 Q432', '3S P')).toBe('4S')
+    expect(bidOver('2 AK32 KQ32 KQ32', '3S P')).toBe('3N')
+    expect(bidOver('K432 Q2 32 Q5432', '3C P')).toBe('5C')
+  })
+
+  it('explains these calls the way GIB does', () => {
+    expect(meaning('2C P', '2D')).toBe('等待叫：迫叫一圈')
+    // GIB's own example: weak with four trumps or strong with two
+    expect(meaning('2S P', '4S')).toBe('打這個合約，2+ 張♠，4+ 總點')
+    expect(meaning('2S P', '2N')).toBe('詢問特徵：15+ 大牌點，迫叫一圈')
+    expect(meaning('2S P 2N P', '3H')).toBe('特徵：高限，♥有 A 或 K，8–10 大牌點')
+  })
+})
+
 describe('when no book covers the auction (§11)', () => {
   const goal = (cards: string, calls: string) => {
     const { h, ctx } = situation(cards, calls)
