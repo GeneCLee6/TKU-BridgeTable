@@ -1,11 +1,17 @@
 import { describe, expect, it } from 'vitest'
-import type { AuctionCall } from '../../shared/auction.ts'
-import type { Vulnerability } from '../../shared/board.ts'
+import { contractOf, type AuctionCall } from '../../shared/auction.ts'
+import { deal, type Vulnerability } from '../../shared/board.ts'
 import { nextSeat, type Card, type Seat } from '../../shared/cards.ts'
+import { makeCall, newBoard, turnOf } from '../../shared/game.ts'
 import { patternProblem } from '../../shared/robot/system/context.ts'
 import { describe as words } from '../../shared/robot/system/describe.ts'
 import { choose, explain } from '../../shared/robot/system/engine.ts'
+import { evaluate } from '../../shared/robot/system/evaluate.ts'
+import { decide, fallback, goalFor } from '../../shared/robot/system/gib/fallback.ts'
 import { GIB } from '../../shared/robot/system/gib/index.ts'
+import { openings } from '../../shared/robot/system/gib/openings.ts'
+import { contextFor } from '../../shared/robot/system/infer.ts'
+import type { System } from '../../shared/robot/system/spec.ts'
 
 /** A hand from text like 'AKQ2 KJ3 Q54 32' (♠ ♥ ♦ ♣; '-' for a void) */
 function hand(text: string): Card[] {
@@ -33,12 +39,87 @@ function meaning(calls: string, call: string, dealer: Seat = 'N', lang: 'zh' | '
   return spec ? words(spec, lang) : undefined
 }
 
+/** Openings and the fallback alone, so these tests do not change as books are added to GIB */
+const FALLBACK_ONLY: System = { id: 'gib', books: [openings, fallback] }
+
+/** The auction from the seat about to call (fallback only), and a hand for it */
+function situation(cards: string, calls: string, dealer: Seat = 'N') {
+  const auction = auctionOf(calls, dealer)
+  const ctx = contextFor(FALLBACK_ONLY, nextSeat(dealer, auction.length), auction, dealer, 'None')
+  return { h: evaluate(hand(cards)), ctx }
+}
+
+function seeded(seed: number) {
+  return (n: number) => {
+    seed = (seed * 1_103_515_245 + 12_345) % 2_147_483_648
+    return seed % n
+  }
+}
+
 describe('the 2/1 books', () => {
   it('write every auction pattern with the opponents in the right places', () => {
     for (const book of GIB.books) {
       const after = book.after === undefined ? [] : typeof book.after === 'string' ? [book.after] : book.after
       for (const pattern of after) expect(patternProblem(pattern), pattern).toBeNull()
     }
+  })
+
+  it('bid 300 random boards legally to the end, explaining every call but pass', () => {
+    const contracts = new Map<string, number>()
+    for (let seed = 1; seed <= 300; seed++) {
+      let state = newBoard(seed, deal(seeded(seed)))
+      while (state.phase === 'auction') {
+        const seat = turnOf(state)!
+        const { call, shows } = choose(GIB, state.hands[seat], seat, state.auction, state.dealer, state.vul)
+        if (call !== 'P') expect(shows && words(shows, 'zh'), `board ${seed}: ${call}`).toBeTruthy()
+        // makeCall throws on an illegal call
+        state = makeCall(state, seat, call, shows ? words(shows, 'zh') : undefined)
+        expect(state.auction.length, `board ${seed}`).toBeLessThan(40)
+      }
+      const c = contractOf(state.auction)
+      const kind = !c ? 'passed' : c.level >= 6 ? 'slam' : c.level >= (c.strain === 'N' ? 3 : c.strain === 'S' || c.strain === 'H' ? 4 : 5) ? 'game' : 'part'
+      contracts.set(kind, (contracts.get(kind) ?? 0) + 1)
+    }
+    expect(contracts.get('passed') ?? 0).toBeLessThan(30)
+    expect(contracts.get('game') ?? 0).toBeGreaterThan(90)
+    expect(contracts.get('slam') ?? 0).toBeLessThan(20)
+  })
+})
+
+describe('when no book covers the auction (§11)', () => {
+  const goal = (cards: string, calls: string) => {
+    const { h, ctx } = situation(cards, calls)
+    return goalFor(h, ctx)
+  }
+  const call = (cards: string, calls: string) => {
+    const { h, ctx } = situation(cards, calls)
+    return decide(h, ctx)
+  }
+
+  it('aims for a fit, otherwise notrump, at the level the points are worth', () => {
+    // Partner opened 1NT, counted as 16: 10 more is game, 17 more a small slam, 6 more a part score
+    expect(goal('K32 Q43 K54 Q432', '1N P')).toEqual({ strain: 'N', level: 3, kind: 'game' })
+    expect(goal('KQ2 AQ3 K54 K432', '1N P')).toEqual({ strain: 'N', level: 6, kind: 'slam' })
+    expect(goal('K32 Q43 J54 5432', '1N P')).toEqual({ strain: 'N', level: 0, kind: 'part' })
+    // Partner showed five spades: three of them make a fit
+    expect(goal('K32 A43 K54 5432', '1S P')?.strain).toBe('S')
+    expect(goal('932 843 J54 5432', '1S P')).toBeNull()
+  })
+
+  it('stops once the contract is reached', () => {
+    expect(call('AQ2 KJ3 Q54 K432', '1N P 3N P')).toBe('P')
+  })
+
+  it('competes over the opponents by the Law of Total Tricks', () => {
+    // Partner raised to 2♠ (three trumps): eight trumps stay at two, nine compete to three
+    expect(call('AKQ32 43 K54 Q32', '1S P 2S 3H')).toBe('P')
+    expect(call('AKQ432 43 K5 Q32', '1S P 2S 3H')).toBe('3S')
+  })
+
+  it('explains every bid it might make', () => {
+    const calls = explain(FALLBACK_ONLY, auctionOf('1N P 2N P', 'N'), 'N')
+    expect(words(calls.get('3N')!, 'zh')).toMatch(/成局/)
+    expect(words(calls.get('6N')!, 'zh')).toMatch(/小滿貫/)
   })
 })
 
