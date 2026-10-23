@@ -1,0 +1,102 @@
+import { describe, expect, it } from 'vitest'
+import type { AuctionCall } from '../../shared/auction.ts'
+import { nextSeat, type Card, type Seat } from '../../shared/cards.ts'
+import { choose, explain } from '../../shared/robot/system/engine.ts'
+import { contextFor, intersect, read } from '../../shared/robot/system/infer.ts'
+import { ANY, type System } from '../../shared/robot/system/spec.ts'
+
+function hand(text: string): Card[] {
+  return text.split(' ').flatMap((ranks, i) => [...ranks.replace('-', '')].map((r) => 'SHDC'[i] + r))
+}
+
+function auctionOf(calls: string, dealer: Seat = 'N'): AuctionCall[] {
+  return calls
+    .split(' ')
+    .filter(Boolean)
+    .map((call, i) => ({ seat: nextSeat(dealer, i), call }))
+}
+
+const toy: System = {
+  id: 'gib',
+  books: [
+    {
+      after: '',
+      rules: [
+        { call: '1N', shows: { hcp: [15, 17], balanced: true } },
+        { call: '1S', shows: { hcp: [11, 21], len: { S: [5, 13] } } },
+        { call: 'P', shows: { hcp: [0, 11] } },
+      ],
+    },
+    {
+      after: '1N (P)',
+      rules: [
+        { call: '2C', shows: { name: 'stayman', hcp: [8, ANY], forcing: 'oneRound', artificial: true }, when: (h) => h.len.H >= 4 || h.len.S >= 4 },
+        { call: '2D', shows: { name: 'transfer', len: { H: [5, 13] }, forcing: 'oneRound', artificial: true } },
+        { call: '3C', shows: { len: { C: [5, 13] }, hcp: [10, ANY], forcing: 'game' } },
+        { call: 'P', shows: { hcp: [0, 7] } },
+      ],
+    },
+    {
+      after: '1N (P) 2C (P)',
+      rules: [
+        { call: '2H', shows: { len: { H: [4, 4] } } },
+        { call: '2D', shows: { len: { H: [0, 3], S: [0, 3] } } },
+      ],
+    },
+    // Opener rebids without a rule for it: nothing but a pass is written, so pass is the only option
+    { after: '1N (P) 2D (P)', rules: [{ call: 'P' }, { call: '2H', shows: { len: { H: [2, 5] } } }] },
+    { after: '1N (P) 3C (P)', rules: [{ call: 'P' }, { call: '3N', shows: { hcp: [15, 17] } }] },
+    { after: '1N (P) 3C (P) 3N (P)', rules: [{ call: 'P' }] },
+  ],
+}
+
+describe('intersect: one player, several calls', () => {
+  it('narrows each feature to what all the calls show', () => {
+    expect(intersect({ hcp: [15, 17], balanced: true }, { len: { H: [4, 4] } })).toEqual({ hcp: [15, 17], len: { H: [4, 4] }, balanced: true })
+    expect(intersect({ hcp: [11, 21], len: { S: [5, 13] } }, { hcp: [11, 14], len: { S: [6, 13] } })).toEqual({ hcp: [11, 14], len: { S: [6, 13] } })
+    expect(intersect({ stop: { D: 'likely' } }, { stop: { D: 'stop' } })).toEqual({ stop: { D: 'stop' } })
+  })
+
+  it('lets the newer call win when the two do not overlap', () => {
+    expect(intersect({ hcp: [0, 7] }, { hcp: [10, 12] })).toEqual({ hcp: [10, 12] })
+  })
+
+  it('keeps only hand features', () => {
+    expect(intersect({}, { name: 'stayman', hcp: [8, ANY], forcing: 'oneRound', artificial: true })).toEqual({ hcp: [8, ANY] })
+  })
+})
+
+describe('reading the auction', () => {
+  it('collects what each seat has shown, opponents too', () => {
+    const reading = read(toy, auctionOf('1N P 2C P 2H P'), 'N', 'None')
+    expect(reading.shown.N).toEqual({ hcp: [15, 17], len: { H: [4, 4] }, balanced: true })
+    expect(reading.shown.S).toEqual({ hcp: [8, ANY] })
+    // East's pass over 1NT is outside the books: nothing learnt
+    expect(reading.shown.E).toEqual({})
+    expect(read(toy, auctionOf('P P 1N'), 'N', 'None').shown.N).toEqual({ hcp: [0, 11] })
+  })
+
+  it('shows the inference to the rules, by role', () => {
+    const ctx = contextFor(toy, 'S', auctionOf('1N P'), 'N', 'None')
+    expect(ctx.shown.partner).toEqual({ hcp: [15, 17], balanced: true })
+    expect(ctx.shown.me).toEqual({})
+  })
+
+  it('does not pass a forcing call', () => {
+    // After the transfer the 1NT book above has pass first; it may not be used
+    const ctx = contextFor(toy, 'N', auctionOf('1N P 2D P'), 'N', 'None')
+    expect(ctx.forced).toBe(true)
+    expect(choose(toy, hand('AQ2 KJ3 Q54 K432'), 'N', auctionOf('1N P 2D P'), 'N').call).toBe('2H')
+    expect(explain(toy, auctionOf('1N P 2D P'), 'N').has('P')).toBe(false)
+  })
+
+  it('keeps bidding to game after a game force, but may stop there', () => {
+    expect(choose(toy, hand('AQ2 KJ3 Q54 K432'), 'N', auctionOf('1N P 3C P'), 'N').call).toBe('3N')
+    const ctx = contextFor(toy, 'S', auctionOf('1N P 3C P 3N P'), 'N', 'None')
+    expect(ctx.forced).toBe(false)
+  })
+
+  it('is freed by an opponent who bids or doubles', () => {
+    expect(contextFor(toy, 'N', auctionOf('1N P 2D X'), 'N', 'None').forced).toBe(false)
+  })
+})

@@ -1,8 +1,8 @@
 import { seatToCall, type AuctionCall, type Call } from '../../auction.ts'
 import type { Vulnerability } from '../../board.ts'
 import type { Card, Seat } from '../../cards.ts'
-import { contextOf, emptyReading, type Ctx } from './context.ts'
 import { evaluate, fits } from './evaluate.ts'
+import { contextFor } from './infer.ts'
 import { callOf, meanings, resolve, rulesFor } from './rules.ts'
 import type { Spec, System } from './spec.ts'
 
@@ -15,12 +15,6 @@ export interface Choice {
   call: Call
   /** What the call shows, from the rule that chose it */
   shows?: Spec
-}
-
-/** The auction from a seat's point of view */
-export function contextFor(system: System, seat: Seat, auction: readonly AuctionCall[], dealer: Seat, vul: Vulnerability): Ctx {
-  void system
-  return contextOf(seat, auction, dealer, vul, emptyReading())
 }
 
 /** A robot's call: the first rule for the auction that the hand fits; pass when none does */
