@@ -357,7 +357,11 @@ describe('robots at the table', () => {
     expect(done.board?.phase).toBe('finished')
     const history = (await club.history(gene, false)).boards
     expect(history).toHaveLength(1)
-    expect(history[0].players.N).toMatchObject({ username: 'Robot', robot: true })
+    // Gene sat South, or North if moved into a robot partner's declaring seat
+    const players = Object.values(history[0].players)
+    expect(players.filter((p) => p.robot)).toHaveLength(3)
+    expect(players.filter((p) => p.username === 'gene')).toHaveLength(1)
+    expect(['N', 'S']).toContain(SEATS.find((s) => history[0].players[s].username === 'gene'))
 
     // The next board comes by itself
     await dealNext()

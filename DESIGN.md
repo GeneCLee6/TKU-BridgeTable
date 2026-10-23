@@ -102,4 +102,4 @@
 
 ## 6. Logo
 
-沿用 TKU BridgeBook 的宮燈（`public/logo-mark.svg`），字標改為「TKU BridgeTable · 淡江牌桌」，副標「♠♥♦♣ 橋藝社線上牌桌」。`components/Logo.tsx` 是同一個圖形的 inline 版本，深藍部分跟隨主題。不使用 BBO 標誌。
+宮燈＋黑桃（`public/logo-mark.svg`，App 圖示是米色底 #fbf6ea）。完整 logo（`public/logo.svg`）：宮燈旁兩行字標，上行 TKU 徽章（深藍底、金色底線）＋ BridgeTable，下行「淡江牌桌」＋「♠♥♦♣ 橋藝社線上牌桌」；四周留白，每行字都指定固定寬度（`textLength`），換什麼字型都不會超出畫布。`components/Logo.tsx` 的 `LogoMark` 是宮燈的 inline 版本，`LogoWordmark` 是頁首用的同樣兩行字標（網頁文字，顏色跟著淺／深色主題；視窗較窄時省略副標，手機只留宮燈）。字標是社團名稱，任何語言都一樣。淡江橋譜改用書本圖示，兩個 App 不會撞。不使用 BBO 標誌。
