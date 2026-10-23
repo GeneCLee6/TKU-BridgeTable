@@ -382,6 +382,11 @@ books.push(
   { after: '1N (2C)', rules: responses(ONE_NT, 'X').filter((rule) => rule.call !== '2C'), more: true },
   { after: '1N (2C) X (P)', rules: staymanAnswers(ONE_NT), more: true },
   { after: '1N (X)', rules: responses(ONE_NT, '2C', true), more: true },
+  { after: '1N (X) 2C (P)', rules: staymanAnswers(ONE_NT), more: true },
+  // Transfers over a 2♣ overcall or a double: opener completes them as usual
+  ...MAJORS.flatMap((M): Book[] =>
+    ['1N (2C)', '1N (X)'].map((start) => ({ after: `${start} ${M === 'H' ? '2D' : '2H'} (P)`, rules: transferAnswers(ONE_NT, M), more: true })),
+  ),
   { after: '1N (X) XX (P)', rules: [{ call: '2C', shows: { notes: [{ key: 'completes' }], artificial: true } }], more: true },
   {
     after: '1N (X) XX (P) 2C (P)',

@@ -358,6 +358,87 @@ describe('after 2♣, weak twos and preempts (§6)', () => {
   })
 })
 
+describe('when the opponents open (§7)', () => {
+  it('overcalls directly: Michaels, Unusual 2NT, 1NT, takeout doubles, weak jumps, simple overcalls', () => {
+    expect(bidOver('KQJ32 2 AQ432 32', '1H')).toBe('2H')
+    expect(bidOver('KQ432 AJ432 32 2', '1C')).toBe('2C')
+    // Unusual 2NT: an intermediate hand not vulnerable; vulnerable it needs more
+    expect(bidOver('2 32 KQJ32 KJ432', '1S')).toBe('2N')
+    expect(bidOver('2 32 KQJ32 KJ432', '1S', 'N', 'Both')).toBe('2D')
+    expect(bidOver('AQ2 KJ3 KQ5 J432', '1D')).toBe('1N')
+    expect(bidOver('AQ32 2 KJ32 Q432', '1H')).toBe('X')
+    expect(bidOver('KQJ932 32 432 32', '1C')).toBe('2S')
+    expect(bidOver('KQJ32 32 K32 432', '1C')).toBe('1S')
+    expect(bidOver('32 AQJ32 K32 432', '1S')).toBe('2H')
+    expect(bidOver('32 Q432 J32 5432', '1S')).toBe('P')
+  })
+
+  it('balances lighter, and makes a sandwich 1NT as a passed hand', () => {
+    expect(bidOver('K32 32 KJ32 Q432', '1H P P')).toBe('X')
+    expect(bidOver('K32 KJ2 Q432 Q32', '1H P P')).toBe('1N')
+    expect(bidOver('KQ432 QJ32 32 32', 'P P 1C P 1D')).toBe('1N')
+  })
+
+  it('acts over a weak two and over 1NT (Cappelletti)', () => {
+    expect(bidOver('AQ32 2 KJ32 KQ32', '2H')).toBe('X')
+    expect(bidOver('AQ2 KJ3 KQ5 J432', '2H')).toBe('2N')
+    expect(bidOver('KQ32 AJ432 32 32', '1N')).toBe('2D')
+    expect(bidOver('AKJ932 K2 432 32', '1N')).toBe('2C')
+    expect(bidOver('32 AQJ32 KQ32 32', '1N')).toBe('2H')
+  })
+
+  it('advances a takeout double', () => {
+    expect(bidOver('KQ32 32 AJ32 K32', '1H X P')).toBe('2H')
+    expect(bidOver('KQ432 32 AJ32 32', '1H X P')).toBe('4S')
+    expect(bidOver('KQ32 32 KJ32 432', '1H X P')).toBe('2S')
+    expect(bidOver('J432 432 Q32 432', '1H X P')).toBe('1S')
+    expect(bidOver('J32 KJ2 Q432 432', '1H X P')).toBe('1N')
+  })
+
+  it('uses Lebensohl after doubling a weak two', () => {
+    expect(bidOver('32 432 432 Q8432', '2H X P')).toBe('2N')
+    expect(bidOver('AQ32 2 KJ32 KQ32', '2H X P 2N P')).toBe('3C')
+    expect(bidOver('32 432 432 Q8432', '2H X P 2N P 3C P')).toBe('P')
+    expect(bidOver('32 432 K32 AQ432', '2H X P')).toBe('3C')
+    expect(bidOver('J5432 432 432 32', '2H X P')).toBe('2S')
+  })
+
+  it('makes responsive doubles, and partner answers them', () => {
+    expect(bidOver('K32 32 KJ32 Q432', '1H X 2H')).toBe('X')
+    // Equal length: the cheaper suit
+    expect(bidOver('AQ32 2 KJ32 Q432', '1H X 2H X P')).toBe('3C')
+    expect(bidOver('AQ32 2 KJ432 Q43', '1H X 2H X P')).toBe('3D')
+  })
+
+  it('advances an overcall: cue-bid raise, raises, notrump', () => {
+    expect(bidOver('K32 A32 KJ32 432', '1C 1S P')).toBe('2C')
+    expect(bidOver('K32 Q432 J432 32', '1C 1S P')).toBe('2S')
+    expect(bidOver('Q432 2 J5432 432', '1C 1S P')).toBe('4S')
+    expect(bidOver('J2 KJ3 Q432 K432', '1C 1S P')).toBe('1N')
+  })
+
+  it('advances Michaels, Unusual 2NT and Cappelletti', () => {
+    expect(bidOver('Q32 K432 432 432', '1C 2C P')).toBe('2H')
+    expect(bidOver('32 32 KJ432 Q432', '1S 2S P')).toBe('2N')
+    expect(bidOver('2 KQJ32 AQ432 32', '1S 2S P 2N P')).toBe('3D')
+    expect(bidOver('432 Q432 Q32 K32', '1S 2N P')).toBe('3C')
+    expect(bidOver('432 Q432 Q32 K32', '1N 2C P')).toBe('2D')
+    expect(bidOver('AKJ932 K2 432 32', '1N 2C P 2D P')).toBe('2S')
+    expect(bidOver('K32 J432 432 432', '1N 2D P')).toBe('2H')
+    expect(bidOver('K32 J2 Q5432 432', '1N 2H P')).toBe('P')
+  })
+
+  it('explains these calls the way GIB does', () => {
+    expect(meaning('1C', '2C')).toBe('Michaels 扣叫：兩門高花，5+ 張♠，5+ 張♥，8+ 大牌點，迫叫一圈')
+    expect(meaning('1H', 'X')).toBe('技術性賭倍：12+ 大牌點，迫叫一圈')
+    expect(meaning('1S', '2N')).toBe('不尋常 2NT：兩門低花，5+ 張♦，5+ 張♣，8–12 大牌點，迫叫一圈')
+    expect(meaning('1C', '2S')).toBe('弱跳爭叫：6+ 張♠，3–9 大牌點')
+    expect(meaning('1C', '1S')).toBe('爭叫：5+ 張♠，8–17 大牌點，9–19 總點')
+    expect(meaning('1N', '2D')).toBe('Cappelletti：兩門高花，4+ 張♠，4+ 張♥，10–15 大牌點')
+    expect(meaning('1H X 2H', 'X')).toBe('回答性賭倍：4+ 張♦，4+ 張♣，7+ 大牌點，迫叫一圈')
+  })
+})
+
 describe('when no book covers the auction (§11)', () => {
   const goal = (cards: string, calls: string) => {
     const { h, ctx } = situation(cards, calls)
