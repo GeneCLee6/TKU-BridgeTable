@@ -106,4 +106,18 @@ describe('reading the auction', () => {
     expect(choose(strict, hand('AQ32 - KJ54 AQ432'), 'N', auctionOf('1N P 2D P'), 'N').call).toBe('2S')
     expect(choose(toy, hand('AQ32 - KJ54 AQ432'), 'N', auctionOf('1N P 2D P'), 'N').call).toBe('P')
   })
+
+  it('may still pass to leave partner’s double in for penalty', () => {
+    // North opens, East doubles for takeout, South passes: West may not pass, except for penalty
+    const doubling: System = {
+      id: 'gib',
+      books: [
+        { after: '(1H)', rules: [{ call: 'X', shows: { forcing: 'oneRound' } }] },
+        { after: '(1H) X (P)', rules: [{ call: 'P', shows: { name: 'penalty' } }, { call: 'P', shows: {} }, { call: '1S' }] },
+      ],
+    }
+    const calls = explain(doubling, auctionOf('1H X P'), 'N')
+    expect(calls.get('P')).toEqual({ name: 'penalty' })
+    expect(choose(doubling, hand('AQ32 KJ54 32 Q32'), 'W', auctionOf('1H X P'), 'N').call).toBe('P')
+  })
 })

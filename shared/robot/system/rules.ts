@@ -50,11 +50,15 @@ export function rulesFor(system: System, ctx: Ctx): Rule[] {
 export const resolve = <T>(value: Dynamic<T> | undefined, ctx: Ctx): T | undefined =>
   typeof value === 'function' ? (value as (ctx: Ctx) => T)(ctx) : value
 
-/** The call a rule makes here, if it is legal (and not a pass when pass is not allowed) */
+/**
+ * The call a rule makes here, if it is legal. When pass is not allowed, the only pass left is one
+ * that leaves partner's double in for penalty
+ */
 export function callOf(rule: Rule, ctx: Ctx): Call | null {
   const call = resolve(rule.call, ctx) ?? null
   if (!call || !ctx.legal.has(call)) return null
-  return call === 'P' && ctx.forced ? null : call
+  if (call === 'P' && ctx.forced && resolve(rule.shows, ctx)?.name !== 'penalty') return null
+  return call
 }
 
 /**

@@ -439,6 +439,57 @@ describe('when the opponents open (§7)', () => {
   })
 })
 
+describe('when our opening is doubled or overcalled (§8)', () => {
+  it('makes negative doubles that show the unbid majors', () => {
+    expect(bidOver('KJ32 Q432 432 32', '1C 1D')).toBe('X')
+    // One major left at the one level: the double shows exactly four, five bid it
+    expect(bidOver('KJ32 432 432 Q32', '1D 1H')).toBe('X')
+    expect(bidOver('KJ432 32 432 Q32', '1D 1H')).toBe('1S')
+    // No major left: both minors
+    expect(bidOver('K2 432 KJ32 Q432', '1S 2H')).toBe('X')
+  })
+
+  it('raises with the cue bid, bids a free suit, or notrump with a stopper', () => {
+    expect(bidOver('K32 A432 K432 32', '1H 1S')).toBe('2S')
+    expect(bidOver('J32 Q32 K432 432', '1H 1S')).toBe('2H')
+    // Four trumps and a weak hand: the preemptive jump (nine trumps, three level)
+    expect(bidOver('32 Q5432 J432 32', '1H 1S')).toBe('3H')
+    expect(bidOver('32 AQJ32 K32 432', '1S 2C')).toBe('2H')
+    expect(bidOver('KJ2 Q43 432 Q432', '1D 1S')).toBe('1N')
+  })
+
+  it('redoubles, or uses Truscott 2NT, over a double', () => {
+    expect(bidOver('KQ32 32 KJ32 Q32', '1H X')).toBe('XX')
+    expect(bidOver('K32 A432 K432 32', '1H X')).toBe('2N')
+    expect(bidOver('J32 Q32 K432 432', '1H X')).toBe('2H')
+    expect(bidOver('KJ432 32 Q32 432', '1H X')).toBe('1S')
+  })
+
+  it('uses Unusual vs. Unusual over their 2NT', () => {
+    expect(bidOver('K32 A432 K432 32', '1H 2N')).toBe('3C')
+    expect(bidOver('AQJ32 2 K32 K432', '1H 2N')).toBe('3D')
+  })
+
+  it('opener answers a negative double, or leaves it in for penalty', () => {
+    expect(bidOver('A32 KJ32 32 KQ32', '1C 1D X P')).toBe('1H')
+    expect(bidOver('A2 32 KQJ32 AQ32', '1C 1D X P')).toBe('P')
+  })
+
+  it('opener makes a support double with three trumps, raises with four', () => {
+    expect(bidOver('A32 K32 32 KQ432', '1C P 1H 1S')).toBe('X')
+    expect(bidOver('A32 K432 3 KQ432', '1C P 1H 1S')).toBe('2H')
+  })
+
+  it('explains these calls the way GIB does', () => {
+    expect(meaning('1C 1D', 'X')).toBe('負性賭倍：4+ 張♠，4+ 張♥，6+ 大牌點，迫叫一圈')
+    expect(meaning('1D 1H', 'X')).toBe('負性賭倍：4 張♠，6+ 大牌點，迫叫一圈')
+    expect(meaning('1H X', '2N')).toBe('Truscott 2NT：3+ 張♥，10+ 總點，迫叫一圈')
+    expect(meaning('1H 2N', '3C')).toBe('對抗不尋常 2NT：3+ 張♥，10+ 總點，迫叫一圈')
+    expect(meaning('1C P 1H 1S', 'X')).toBe('支持性賭倍：2–3 張♥，迫叫一圈')
+    expect(meaning('1H 1S', '2S')).toBe('扣叫加叫：3+ 張♥，10+ 總點，迫叫一圈')
+  })
+})
+
 describe('when no book covers the auction (§11)', () => {
   const goal = (cards: string, calls: string) => {
     const { h, ctx } = situation(cards, calls)

@@ -131,7 +131,7 @@ tests/bidding-quiz/*.json   題庫：手牌、叫牌過程、身價、正解、�
 - [x] `e5-t58` 1NT／2NT 之後（§4、§5）：Stayman、Smolen、轉換與超接受、低花 Stayman、低花轉換、短門、Texas、Gerber、定量；被插叫 · AC-5.13 · #22
 - [x] `e5-t59` 2♣、弱二與阻擊之後（§6）· AC-5.13 · #23
 - [x] `e5-t60` 敵方開叫（§7）：爭叫、弱跳爭叫、1NT 爭叫、技術性賭倍與回應、Michaels、不尋常 2NT、Cappelletti、Sandwich、平衡位置、回答性賭倍 · AC-5.13 · #24
-- [ ] `e5-t61` 我方開叫被插叫（§8）：負性、支持性賭倍、Truscott 2NT、扣叫加叫、Unusual vs Unusual、自由叫、對弱二賭倍後的 Lebensohl、總墩數法則 · AC-5.13 · M · ← e5-t60
+- [x] `e5-t61` 我方開叫被插叫（§8）：負性、支持性賭倍、Truscott 2NT、扣叫加叫、Unusual vs Unusual、自由叫、總墩數法則（對弱二賭倍後的 Lebensohl 已在 `e5-t60`）· AC-5.13 · #25
 - [ ] `e5-t62` Soloway 跳叫新花與之後（§9）· AC-5.13 · S · ← e5-t56, e5-t57
 - [ ] `e5-t63` 滿貫（§10）：RKCB 0314、問王牌 Q、5NT 問 K、Gerber 的回答、DOPI · AC-5.13 · M · ← e5-t57, e5-t58
 - [ ] `e5-t64` 具名機器人：機器人角色（名字、制度），房主放機器人時選淡江機器人或 2/1 機器人；名牌與紀錄顯示名字；機器人的 Alert 存結構化的意義、依觀看者的語言顯示 · AC-5.13 · M · ← e5-t55
