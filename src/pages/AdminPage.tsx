@@ -17,6 +17,8 @@ import { usePreferences } from '../state/PreferencesContext.tsx'
 
 const Stack = styled.div`
   display: grid;
+  /* minmax(0, …) so the members table scrolls inside its card instead of widening the page */
+  grid-template-columns: minmax(0, 1fr);
   gap: 20px;
 `
 
