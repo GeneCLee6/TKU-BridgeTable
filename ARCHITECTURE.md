@@ -35,7 +35,9 @@ TKU-BridgeTable/
 ├─ worker/
 │  ├─ index.ts             Worker 入口：/api/* 與 /ws 轉給 Durable Object，其他交給靜態檔案
 │  ├─ club.ts              Durable Object：HTTP 路由、WebSocket（hibernation）、儲存轉接
-│  ├─ service.ts           ClubService：帳號、session、牌桌、權限、牌局紀錄（可單獨測試）
+│  ├─ service.ts           ClubService：帳號、申請、session、牌桌、權限、牌局紀錄（可單獨測試）
+│  ├─ book.ts              BookService：淡江橋譜的線上內容、版本、匯入草稿與憑證
+│  ├─ importer.ts          淡江橋譜的 AI 匯入：Claude 的提示、回覆 schema、串流
 │  ├─ views.ts             每位觀看者可見的牌桌畫面（可見性規則）
 │  ├─ auth.ts              PBKDF2 密碼雜湊、session cookie
 │  └─ store.ts             儲存介面與測試用 MemoryStore
@@ -86,7 +88,7 @@ interface BoardState {
 
 ## 5. 通訊與儲存
 
-**HTTP**：`POST /api/register`、`/api/login`、`/api/logout`、`/api/account/password`；`GET /api/me`、`/api/history?scope=all&page=<n>&size=<10|20|50|100>`（回傳該頁與總數）、`/api/history/:id`。管理員：`GET/POST /api/admin/users`、`POST /api/admin/users/:id/password`、`POST /api/admin/users/:id/admin`、`DELETE /api/admin/users/:id`、`GET/POST /api/admin/settings`、`DELETE /api/admin/tables/:id`。session 放在 HttpOnly、SameSite=Lax 的 cookie（`tbt_session`）。錯誤回應帶 `code` 與 `params`（`shared/messages.ts`），瀏覽器依語言顯示。
+**HTTP**：`POST /api/register`（第一個帳號直接登入，之後回 202 `{ pending }`）、`/api/login`、`/api/logout`、`/api/password/reset`（忘記密碼）、`/api/account/password`；`GET /api/me`（含 `permissions`，管理員另有 `applications` 待審核數）、`/api/history?scope=all&page=<n>&size=<10|20|50|100>`（回傳該頁與總數）、`/api/history/:id`。管理員：`GET/POST /api/admin/users`、`POST /api/admin/users/:id/password`、`POST /api/admin/users/:id/admin`、`POST /api/admin/users/:id/permissions`、`DELETE /api/admin/users/:id`、`GET /api/admin/applications`、`POST /api/admin/applications/:id/approve`、`DELETE /api/admin/applications/:id`、`GET/POST /api/admin/settings`、`DELETE /api/admin/tables/:id`。淡江橋譜的 `/api/book/*` 見 §5.2。session 放在 HttpOnly、SameSite=Lax 的 cookie（`tbt_session`）。錯誤回應帶 `code` 與 `params`（`shared/messages.ts`），瀏覽器依語言顯示。
 
 **WebSocket** `/ws`（同網域，帶 cookie 驗證）：
 
@@ -101,7 +103,8 @@ interface BoardState {
 
 | Key | 內容 |
 | --- | --- |
-| `user:<id>` | 帳號、密碼雜湊、是否管理員、最後登入時間 |
+| `user:<id>` | 帳號、密碼雜湊、是否管理員、橋譜權限、最後登入時間、自行重設密碼的時間 |
+| `app:<id>` | 待審核的註冊申請：帳號名稱、密碼雜湊、自我介紹、從哪個網站申請 |
 | `session:<token>` | userId、到期時間 |
 | `table:<id>` | 牌桌：座位、觀看者、目前這副、聊天、撤回請求 |
 | `board:<id>` | 一副牌的完整紀錄（原始四手牌、叫牌、出牌、結果） |
@@ -110,10 +113,47 @@ interface BoardState {
 | `meta:settings` | 管理員改過的人數上限與邀請碼（沒改過就用環境變數） |
 | `meta:schema` | 資料版本；舊版 `board:<時間>-<id>` 在載入時自動搬到新索引 |
 | `meta:count:<索引前綴>` | 每個紀錄索引的筆數（分頁的總數）；第一次用到時數一次，之後每存一副加一 |
+| `book:entry:<slug>` | 淡江橋譜線上修改的特約（版本、誰在何時改；`convention: null` 表示隱藏），內容在 `bookpart:` |
+| `book:rev:<slug>:<時間>-<id>` | 每次儲存、隱藏、還原的版本紀錄 |
+| `book:draft:<時間>-<id>` | AI 匯入產生的草稿（只留最新 30 份） |
+| `book:ticket:<token>` | 匯入上傳用的一次性憑證（10 分鐘） |
+| `book:version` | 橋譜線上內容的版本號，`GET /api/book/content` 的 ETag |
+| `bookpart:<key>:<n>` | 大內容的分段（Durable Object 單筆值上限 128 KiB，以 4 萬字一段儲存） |
 
 每個動作處理完立即寫回，物件隨時被回收都不會遺失牌局。紀錄列表一次只讀到那一頁為止（每頁 10／20／50／100 筆摘要）。
 
 **容量**：免費方案每個帳號 5 GB；一副牌的紀錄連同兩筆索引約 4 KB，大約可存一百萬副以上。
+
+## 5.2 與淡江橋譜共用帳號
+
+淡江橋譜（TKU BridgeBook，Vercel 上的靜態網站）沒有自己的後端，帳號與線上內容都在這個 Worker：
+
+```
+橋譜的瀏覽器 ──/api/*──► Vercel（vercel.json rewrite）──► 這個 Worker ──► Durable Object
+             └─匯入上傳（帶一次性憑證，直接連 Worker，不經過 Vercel）──┘
+```
+
+- **同一批帳號、各自的登入**：橋譜的 `/api/*` 由 Vercel 轉發，`tbt_session` cookie（沒有 Domain 屬性）因此屬於橋譜自己的網域。兩站用同一組帳號密碼，但要各自登入一次。`/ws` 不經過橋譜。
+- **申請與核准**：`ClubService.register` 第一個帳號直接建立（管理員），之後一律存成 `app:<id>`，`adminApprove` 才建立帳號（受人數上限限制）。申請中的名稱不能被別人註冊；用申請時的密碼登入會得到 `awaitingApproval`。
+- **忘記密碼**：`resetForgottenPassword(username, inviteCode, password)`，管理員帳號不行（`adminNoSelfReset`）；重設後登出所有 session 並記下 `passwordResetAt`。
+- **權限**：`StoredUser.permissions`：`bookEdit`（線上編輯）、`bookImport`（匯入檔案）；管理員兩者都有。`requirePermission` 在 `/api/book/*` 檢查。
+
+**橋譜 API**（`worker/book.ts` 的 `BookService`，路由在 `club.ts` 的 `bookApi`）：
+
+| 路由 | 權限 | 說明 |
+| --- | --- | --- |
+| `GET /api/book/content` | 不用登入 | 所有線上修改 `{ version, entries }`，帶 ETag |
+| `PUT /api/book/conventions/:slug` | bookEdit | `{ convention, baseVersion, bundledUpdated?, note? }`；`baseVersion` 不是目前版本時回 409 `bookConflict` |
+| `POST /api/book/conventions/:slug/reset` | bookEdit | 刪除線上版本，橋譜改回顯示內建的版本 |
+| `POST /api/book/conventions/:slug/hide` | 管理員 | 從橋譜隱藏 |
+| `GET /api/book/conventions/:slug/revisions[/:id]` | bookEdit | 版本紀錄（新的在前）與某一版的內容 |
+| `POST /api/book/import/ticket` | bookImport | 一次性憑證與上傳網址 |
+| `POST /api/book/import` | 憑證 | multipart：`ticket`、`meta`、`file`（PDF）或 `text`；回應是 Claude 的 SSE 串流，CORS `*` |
+| `GET/POST /api/book/drafts`、`GET/DELETE /api/book/drafts/:id` | bookImport | 匯入草稿 |
+
+伺服器只檢查特約的**形狀**（`checkConvention`：必填欄位、段落 id 唯一、區塊種類），不管內容；橋譜載入時也會再檢查一次，壞掉的內容不會讓網站掛掉。
+
+**AI 匯入**（`worker/importer.ts`）：用官方 SDK 呼叫 `claude-opus-5-5`（`max_tokens` 128K、effort medium、結構化輸出、伺服器端 refusal fallback）。PDF 用 Files API 上傳（Worker 不必自己做 base64，免費方案每次請求的 CPU 只有 10 ms），文字直接放進 document 區塊。回應用 `asResponse()` 原封不動串流回瀏覽器，Worker 不解析。上傳不經過 Vercel，因為 Vercel 轉發外部請求最多等 120 秒。結構化輸出不支援遞迴 schema，所以回覆是扁平的（段落用 `parentId`、條列用 `level`），**由橋譜的 `src/lib/importResult.ts` 組回樹狀，兩邊要一起改**。
 
 ## 5.1 機器人
 

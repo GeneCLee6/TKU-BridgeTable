@@ -156,8 +156,9 @@ export function importPrompt(request: ImportRequest) {
   ].join('\n\n')
 }
 
-export function claudeImporter(apiKey: string, model = IMPORT_MODEL): Importer {
-  const client = new Anthropic({ apiKey })
+/** `baseURL` is only for tests and API gateways; by default the SDK talks to api.anthropic.com */
+export function claudeImporter(apiKey: string, model = IMPORT_MODEL, baseURL?: string): Importer {
+  const client = new Anthropic({ apiKey, ...(baseURL && { baseURL }) })
   return async (request) => {
     try {
       return await analyse(client, model, request)

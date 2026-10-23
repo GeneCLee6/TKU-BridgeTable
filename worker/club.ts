@@ -15,6 +15,8 @@ export interface Env {
   /** For TKU BridgeBook's AI import (wrangler secret put ANTHROPIC_API_KEY) */
   ANTHROPIC_API_KEY?: string
   IMPORT_MODEL?: string
+  /** Only for tests or an API gateway */
+  ANTHROPIC_BASE_URL?: string
 }
 
 /** The import upload comes straight from TKU BridgeBook's page; its single-use pass is the check */
@@ -108,7 +110,8 @@ export class Club extends DurableObject<Env> implements Connections {
       const { ticket, request: job } = importRequestFrom(form)
       this.service.requirePermission(await this.book.useTicket(ticket), 'bookImport')
       if (!this.env.ANTHROPIC_API_KEY) throw new ClubError('importOff', {}, 503)
-      const upstream = await claudeImporter(this.env.ANTHROPIC_API_KEY, this.env.IMPORT_MODEL || undefined)(job)
+      const importer = claudeImporter(this.env.ANTHROPIC_API_KEY, this.env.IMPORT_MODEL || undefined, this.env.ANTHROPIC_BASE_URL || undefined)
+      const upstream = await importer(job)
       response = new Response(upstream.body, {
         headers: { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-store' },
       })
