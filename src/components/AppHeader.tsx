@@ -66,6 +66,20 @@ const Nav = styled.nav`
   margin-left: 8px;
 `
 
+/** Registrations waiting for approval, next to 管理 */
+const Count = styled.b`
+  display: inline-grid;
+  place-items: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: ${({ theme }) => theme.colors.danger};
+  color: ${({ theme }) => theme.colors.onPrimary};
+  font-size: 11px;
+  line-height: 1;
+`
+
 const Link = styled(NavLink)`
   display: inline-flex;
   align-items: center;
@@ -262,9 +276,13 @@ export function AppHeader() {
             <span>{t.navHistory}</span>
           </Link>
           {user.admin && (
-            <Link to="/admin" aria-label={t.navAdmin}>
+            <Link
+              to="/admin"
+              aria-label={user.applications ? `${t.navAdmin}（${t.navAdminPending(user.applications)}）` : t.navAdmin}
+            >
               <Shield size={18} aria-hidden />
               <span>{t.navAdmin}</span>
+              {!!user.applications && <Count aria-hidden>{user.applications}</Count>}
             </Link>
           )}
         </Nav>

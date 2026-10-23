@@ -4,7 +4,7 @@
 
 ## 這是什麼
 
-淡江橋藝社的線上牌桌：社員註冊、開桌、四人即時打橋牌、保存牌局紀錄。牌桌樣式參照 BBO。React 19 + TypeScript（strict）+ styled-components + Vite；後端是 Cloudflare Worker + 一個 Durable Object（`Club`）。姊妹專案是 TKU BridgeBook（`C:\dev\TKU-BridgeBook`），外框設計與慣例相同。
+淡江橋藝社的線上牌桌：社員註冊（管理員核准）、開桌、四人即時打橋牌、保存牌局紀錄。這個 Worker 也是姊妹站淡江橋譜的後端：兩站共用帳號，橋譜的線上內容、版本紀錄與 AI 匯入在 `worker/book.ts`、`worker/importer.ts`（ARCHITECTURE.md §5.2）。牌桌樣式參照 BBO。React 19 + TypeScript（strict）+ styled-components + Vite；後端是 Cloudflare Worker + 一個 Durable Object（`Club`）。姊妹專案是 TKU BridgeBook（`C:\dev\TKU-BridgeBook`），外框設計與慣例相同。
 
 ## 先讀
 
@@ -12,7 +12,8 @@
 | --- | --- |
 | 改規則、通訊、可見性、儲存 | `ARCHITECTURE.md` |
 | 改介面、顏色、牌桌元件 | `DESIGN.md` |
-| 部署、管理員、邀請碼、人數上限 | `DEPLOY.md` |
+| 部署、管理員、邀請碼、人數上限、AI 金鑰 | `DEPLOY.md` |
+| 帳號申請、權限、淡江橋譜的 API | `ARCHITECTURE.md` §5.2 |
 | 機器人的叫牌與防守 | `ROBOT.md` |
 | 產品範圍與 Roadmap | `PRD.md` |
 
@@ -38,6 +39,9 @@
 - **本機四人測試**：同一個瀏覽器共用 cookie，要用不同的瀏覽器設定檔或無痕視窗；或直接放三個機器人。
 - **機器人排程**：`ClubService` 的 `schedule` 在測試裡換成手動佇列（`tests/worker/service.test.ts` 的 `runRobots`）。
 - **jsdom 的瀏覽器語言是英文**：`tests/setup.ts` 先把偏好設成中文，元件測試才能用中文名稱查詢。
+- **註冊不再直接建立帳號**：只有第一個帳號會；測試要用 `tests/worker/service.test.ts` 的 `join()`（註冊＋核准）或 `founder()`。
+- **`/api/book/*` 是淡江橋譜在用的介面**：型別在橋譜的 `src/lib/api.ts`，AI 匯入的扁平 schema 由橋譜的 `src/lib/importResult.ts` 解讀，改了要一起改橋譜。
+- **免費方案每次請求只有 10 ms CPU**：AI 匯入的串流原封不動轉回瀏覽器（`asResponse()`），PDF 走 Files API，不要在 Worker 解析串流或做 base64。
 
 ## 指令
 

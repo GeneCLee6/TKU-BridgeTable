@@ -82,8 +82,23 @@ async function dealNext() {
   await new Promise((resolve) => setTimeout(resolve, 0))
 }
 
+/** The first account, which becomes the admin and signs in at once */
+async function founder(name = 'gene', inviteCode = '') {
+  const result = await club.register(name, 'secret1', inviteCode)
+  if (!('user' in result)) throw new Error('the first account should sign in at once')
+  return result
+}
+
+/** Registers and, past the first account, approves the application as an admin would */
+async function join(name: string, inviteCode = '') {
+  const result = await club.register(name, 'secret1', inviteCode)
+  if ('user' in result) return result.user
+  const application = club.adminApplications().find((a) => a.username === name)!
+  return club.adminApprove(application.id)
+}
+
 async function member(name: string) {
-  const { user } = await club.register(name, 'secret1', '')
+  const user = await join(name)
   connections.online.add(user.id)
   club.connected(user.id)
   return user.id
@@ -108,7 +123,7 @@ beforeEach(() => setup())
 
 describe('accounts', () => {
   it('registers, logs in and resolves sessions', async () => {
-    const { user, token } = await club.register('Gene', 'secret1', '')
+    const { user, token } = await founder('Gene')
     expect(await club.userForToken(token)).toEqual(user)
     const again = await club.login('gene', 'secret1')
     expect(again.user).toEqual(user)
@@ -119,22 +134,27 @@ describe('accounts', () => {
 
   it('stores a hash, never the password', async () => {
     await club.register('gene', 'secret1', '')
+    // Applications too
+    await club.register('amy', 'secret1', '')
     expect(JSON.stringify([...store.data.values()])).not.toContain('secret1')
   })
 
   it('rejects duplicate names, bad names and short passwords', async () => {
-    await club.register('gene', 'secret1', '')
+    await founder('gene')
     await expect(club.register('GENE', 'secret1', '')).rejects.toThrow('已經有人使用')
     await expect(club.register('a', 'secret1', '')).rejects.toThrow(ClubError)
     await expect(club.register('has space', 'secret1', '')).rejects.toThrow(ClubError)
     await expect(club.register('amy', '123', '')).rejects.toThrow('密碼至少')
+    // A name waiting for approval is taken too
+    await club.register('amy', 'secret1', '')
+    await expect(club.register('Amy', 'secret1', '')).rejects.toThrow('已經有人使用')
   })
 
   it('caps the number of accounts and checks the invite code', async () => {
     await setup({ maxUsers: 2, inviteCode: 'tku' })
     await expect(club.register('amy', 'secret1', 'nope')).rejects.toThrow('邀請碼不正確')
-    await club.register('amy', 'secret1', 'tku')
-    await club.register('ben', 'secret1', 'tku')
+    await founder('amy', 'tku')
+    await join('ben', 'tku')
     await expect(club.register('cat', 'secret1', 'tku')).rejects.toThrow('上限')
   })
 
@@ -515,16 +535,16 @@ describe('updates', () => {
 
 describe('admin', () => {
   it('makes the first account admin, and only admins pass requireAdmin', async () => {
-    const first = await club.register('first', 'secret1', '')
-    const second = await club.register('second', 'secret1', '')
-    expect(first.user.admin).toBe(true)
-    expect(second.user.admin).toBe(false)
-    expect(() => club.requireAdmin(second.user.id)).toThrow(ClubError)
-    expect(() => club.requireAdmin(first.user.id)).not.toThrow()
+    const first = (await founder('first')).user
+    const second = await join('second')
+    expect(first.admin).toBe(true)
+    expect(second.admin).toBe(false)
+    expect(() => club.requireAdmin(second.id)).toThrow(ClubError)
+    expect(() => club.requireAdmin(first.id)).not.toThrow()
   })
 
   it('lists, creates, resets, promotes and deletes members', async () => {
-    const admin = (await club.register('admin', 'secret1', '')).user
+    const admin = (await founder('admin')).user
     const amy = await club.adminCreateUser('amy', 'secret1')
     expect((await club.adminUsers()).map((u) => [u.username, u.admin])).toEqual([
       ['admin', true],
@@ -546,11 +566,11 @@ describe('admin', () => {
 
   it('changes the member limit and invite code at run time', async () => {
     await setup({ maxUsers: 10, inviteCode: 'env-code' })
-    await club.register('admin', 'secret1', 'env-code')
+    await founder('admin', 'env-code')
     await club.adminUpdateSettings({ maxUsers: 2, inviteCode: 'new-code' })
     expect(club.clubSettings).toEqual({ maxUsers: 2, inviteCode: 'new-code' })
     await expect(club.register('amy', 'secret1', 'env-code')).rejects.toThrow('邀請碼不正確')
-    await club.register('amy', 'secret1', 'new-code')
+    await join('amy', 'new-code')
     await expect(club.register('ben', 'secret1', 'new-code')).rejects.toThrow('上限')
     await expect(club.adminUpdateSettings({ maxUsers: 1 })).rejects.toThrow(ClubError)
     // Settings survive a reload
@@ -560,10 +580,103 @@ describe('admin', () => {
   })
 
   it('lets members change their own password', async () => {
-    const { user } = await club.register('gene', 'secret1', '')
+    const { user } = await founder('gene')
     await expect(club.changePassword(user.id, 'wrong', 'newpass1')).rejects.toThrow('目前的密碼不正確')
     await club.changePassword(user.id, 'secret1', 'newpass1')
     await club.login('gene', 'newpass1')
+  })
+})
+
+describe('registration approval', () => {
+  it('holds later registrations until an admin approves them', async () => {
+    await founder('admin')
+    expect(await club.register('amy', 'secret1', '', '  王小美 資工二  ', 'book')).toEqual({ pending: true, username: 'amy' })
+    await expect(club.login('amy', 'secret1')).rejects.toThrow('等管理員核准')
+    await expect(club.login('amy', 'wrong')).rejects.toThrow('帳號或密碼錯誤')
+    expect((await club.login('admin', 'secret1')).user.applications).toBe(1)
+    const [application] = club.adminApplications()
+    expect(application).toMatchObject({ username: 'amy', note: '王小美 資工二', site: 'book' })
+    expect(application).not.toHaveProperty('passwordHash')
+
+    const amy = await club.adminApprove(application.id)
+    expect(amy).toMatchObject({ username: 'amy', admin: false, permissions: [] })
+    expect((await club.login('amy', 'secret1')).user.id).toBe(amy.id)
+    expect(club.adminApplications()).toEqual([])
+    expect((await club.userForToken((await club.login('admin', 'secret1')).token))!.applications).toBe(0)
+    await expect(club.adminApprove(application.id)).rejects.toThrow('找不到這筆申請')
+  })
+
+  it('frees the name of a rejected application, and keeps waiting ones across a reload', async () => {
+    await founder('admin')
+    await club.register('amy', 'secret1', '')
+    await club.adminReject(club.adminApplications()[0].id)
+    await expect(club.login('amy', 'secret1')).rejects.toThrow('帳號或密碼錯誤')
+    await club.register('amy', 'secret2', '')
+    const reloaded = new ClubService(store, connections, { maxUsers: 10 })
+    await reloaded.load()
+    expect(reloaded.adminApplications().map((a) => a.username)).toEqual(['amy'])
+    await expect(reloaded.login('amy', 'secret2')).rejects.toThrow('等管理員核准')
+  })
+
+  it('does not approve past the member limit', async () => {
+    await setup({ maxUsers: 2 })
+    await founder('admin')
+    await club.register('amy', 'secret1', '')
+    await club.register('ben', 'secret1', '')
+    const [amy, ben] = club.adminApplications()
+    await club.adminApprove(amy.id)
+    await expect(club.adminApprove(ben.id)).rejects.toThrow('上限')
+    await club.adminUpdateSettings({ maxUsers: 3 })
+    await club.adminApprove(ben.id)
+    expect((await club.adminUsers()).map((u) => u.username)).toEqual(['admin', 'amy', 'ben'])
+  })
+})
+
+describe('forgotten passwords', () => {
+  beforeEach(() => setup({ inviteCode: 'tku' }))
+
+  it('lets a member set a new password with the invite code, and signs them out', async () => {
+    await founder('admin', 'tku')
+    const amy = await join('amy', 'tku')
+    const { token } = await club.login('amy', 'secret1')
+    await expect(club.resetForgottenPassword('amy', 'nope', 'newpass1')).rejects.toThrow('邀請碼不正確')
+    await expect(club.resetForgottenPassword('amy', 'tku', '123')).rejects.toThrow('密碼至少')
+    await expect(club.resetForgottenPassword('nobody', 'tku', 'newpass1')).rejects.toThrow('找不到這個帳號')
+    time += 60_000
+    await club.resetForgottenPassword('AMY', 'tku', 'newpass1')
+    expect(await club.userForToken(token)).toBeNull()
+    await expect(club.login('amy', 'secret1')).rejects.toThrow('帳號或密碼錯誤')
+    expect((await club.login('amy', 'newpass1')).user.id).toBe(amy.id)
+    expect((await club.adminUsers()).find((u) => u.id === amy.id)!.passwordResetAt).toBe(time)
+  })
+
+  it('leaves admin accounts to other admins, and lets a waiting applicant change theirs', async () => {
+    await founder('admin', 'tku')
+    await expect(club.resetForgottenPassword('admin', 'tku', 'newpass1')).rejects.toThrow('其他管理員')
+    await club.register('amy', 'secret1', 'tku')
+    await club.resetForgottenPassword('amy', 'tku', 'newpass1')
+    await expect(club.login('amy', 'newpass1')).rejects.toThrow('等管理員核准')
+    await club.adminApprove(club.adminApplications()[0].id)
+    await club.login('amy', 'newpass1')
+  })
+})
+
+describe('permissions', () => {
+  it('lets admins grant TKU BridgeBook editing and import; admins have both', async () => {
+    const admin = (await founder('admin')).user
+    expect(admin.permissions).toEqual(['bookEdit', 'bookImport'])
+    const amy = await join('amy')
+    expect(() => club.requirePermission(amy.id, 'bookEdit')).toThrow('沒有這項權限')
+    await club.adminSetPermissions(amy.id, ['bookImport', 'bookEdit', 'bookEdit'])
+    expect(club.requirePermission(amy.id, 'bookEdit').permissions).toEqual(['bookEdit', 'bookImport'])
+    await club.adminSetPermissions(amy.id, ['bookEdit'])
+    expect(() => club.requirePermission(amy.id, 'bookImport')).toThrow(ClubError)
+    await expect(club.adminSetPermissions(amy.id, ['everything'])).rejects.toThrow('不明的權限')
+    expect((await club.adminUsers()).map((u) => [u.username, u.permissions])).toEqual([
+      ['admin', ['bookEdit', 'bookImport']],
+      ['amy', ['bookEdit']],
+    ])
+    expect(() => club.requirePermission(admin.id, 'bookImport')).not.toThrow()
   })
 })
 
@@ -609,7 +722,7 @@ describe('history pages', () => {
 describe('side panel data', () => {
   it('lists every member with where they are, online first', async () => {
     const { bySeat } = await fullTable()
-    await club.register('away', 'secret1', '')
+    await join('away')
     club.broadcast()
     const members = connections.last(bySeat.N, 'lobby')!.lobby.members
     expect(members.at(-1)).toMatchObject({ username: 'away', online: false, tableNumber: null, seat: null })

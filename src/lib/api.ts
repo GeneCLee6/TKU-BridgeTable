@@ -1,5 +1,14 @@
 import type { MessageParams } from '../../shared/messages.ts'
-import type { AdminUser, BoardRecord, ClubSettings, HistoryPage, Me } from '../../shared/protocol.ts'
+import type {
+  AdminUser,
+  Application,
+  BoardRecord,
+  ClubSettings,
+  HistoryPage,
+  Me,
+  Permission,
+  RegisterResult,
+} from '../../shared/protocol.ts'
 
 /** HTTP calls to the Worker. The session lives in an HttpOnly cookie, so no token is handled here. */
 
@@ -33,8 +42,12 @@ const post = <T>(path: string, body: unknown = {}) => request<T>(path, { method:
 export const api = {
   me: () => request<{ user: Me }>('/api/me'),
   login: (username: string, password: string) => post<{ user: Me }>('/api/login', { username, password }),
-  register: (username: string, password: string, inviteCode: string) =>
-    post<{ user: Me }>('/api/register', { username, password, inviteCode }),
+  /** The first account signs in at once; later ones wait for an admin to approve them */
+  register: (username: string, password: string, inviteCode: string, note: string) =>
+    post<RegisterResult>('/api/register', { username, password, inviteCode, note, site: 'table' }),
+  /** 忘記密碼: needs the club's invite code; not for admin accounts */
+  resetPassword: (username: string, inviteCode: string, password: string) =>
+    post<{ ok: true }>('/api/password/reset', { username, inviteCode, password }),
   logout: () => post<{ ok: true }>('/api/logout'),
   changePassword: (current: string, next: string) => post<{ ok: true }>('/api/account/password', { current, next }),
   /** One page of history, newest first; `page` counts from 1 */
@@ -47,6 +60,11 @@ export const api = {
 
   admin: {
     users: () => request<{ users: AdminUser[] }>('/api/admin/users'),
+    applications: () => request<{ applications: Application[] }>('/api/admin/applications'),
+    approve: (id: string) => post<{ user: Me }>(`/api/admin/applications/${id}/approve`),
+    reject: (id: string) => request<{ ok: true }>(`/api/admin/applications/${id}`, { method: 'DELETE' }),
+    setPermissions: (id: string, permissions: Permission[]) =>
+      post<{ ok: true }>(`/api/admin/users/${id}/permissions`, { permissions }),
     createUser: (username: string, password: string) => post<{ user: Me }>('/api/admin/users', { username, password }),
     resetPassword: (id: string, password: string) => post<{ ok: true }>(`/api/admin/users/${id}/password`, { password }),
     setAdmin: (id: string, admin: boolean) => post<{ ok: true }>(`/api/admin/users/${id}/admin`, { admin }),
