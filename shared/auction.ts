@@ -11,6 +11,8 @@ export interface AuctionCall {
   call: Call
   /** Set when the caller alerted the call; the text is the explanation (may be empty) */
   alert?: string
+  /** Made by a robot: it alerts every call but pass, and its explanations are for everyone */
+  robot?: boolean
 }
 
 export interface Contract {

@@ -208,7 +208,6 @@ export function makeClaim(state: BoardState, seat: Seat, tricks: number): BoardS
   if (state.phase !== 'play') throw new GameError('cannotClaimNow')
   if (seat === dummyOf(state)) throw new GameError('dummyCannotClaim')
   if (state.claim) throw new GameError('alreadyClaimed')
-  if (state.play.length % 4 !== 0) throw new GameError('claimAtTrickEnd')
   if (!Number.isInteger(tricks) || tricks < 0 || tricks > remainingTricks(state))
     throw new GameError('badClaim')
   const claimed = state.claimed?.includes(seat) ? state.claimed : [...(state.claimed ?? []), seat]
@@ -231,24 +230,38 @@ export function respondToClaim(state: BoardState, seat: Seat, accept: boolean): 
   return finish(settled, tricksWon(state)[sideOf(declarer)] + declarerShare, true)
 }
 
-/** Removes the most recent call or card */
-export function undoLast(state: BoardState): BoardState {
+/**
+ * BBO's undo: takes back the seat's most recent call or card and everything after it. During the
+ * play a seat's cards include dummy's for the declarer, and only cards can be taken back once the
+ * opening lead is made; before it, the auction reopens at the seat's last call. `auctionSeat` is
+ * the seat it bid from, when that is not where it sits now (a person moved into a robot partner's
+ * declaring seat).
+ */
+export function undoFor(state: BoardState, seat: Seat, auctionSeat: Seat = seat): BoardState {
   if (state.phase === 'finished') throw new GameError('boardOver')
   if (state.claim) throw new GameError('claimPending')
-  if (state.phase === 'play' && state.play.length > 0)
-    return { ...state, play: state.play.slice(0, -1) }
-  if (state.phase === 'play')
-    // Undoing the final pass reopens the auction
-    return { ...state, phase: 'auction', contract: null, auction: state.auction.slice(0, -1) }
-  if (state.auction.length === 0) throw new GameError('nothingToUndo')
-  return { ...state, auction: state.auction.slice(0, -1) }
+  if (state.play.length) {
+    const from = state.play.findLastIndex((p) => controllerOf(state, p.seat) === seat)
+    if (from < 0) throw new GameError('nothingToUndo')
+    return { ...state, play: state.play.slice(0, from) }
+  }
+  const from = state.auction.findLastIndex((c) => c.seat === auctionSeat)
+  if (from < 0) throw new GameError('nothingToUndo')
+  if (state.phase === 'auction') return { ...state, auction: state.auction.slice(0, from) }
+  // The auction reopens: there is no contract, and a claim made before the lead no longer counts
+  const { claimed: _gone, ...rest } = state
+  return { ...rest, phase: 'auction', contract: null, auction: state.auction.slice(0, from) }
 }
 
-/** The seat that made the most recent call or played the most recent card */
-export function lastActor(state: BoardState): Seat | null {
-  if (state.phase === 'finished') return null
-  if (state.play.length) return state.play.at(-1)!.seat
-  return state.auction.at(-1)?.seat ?? null
+/** Whether `undoFor` has something to take back for the seat */
+export function canUndoFor(state: BoardState, seat: Seat, auctionSeat: Seat = seat): boolean {
+  try {
+    undoFor(state, seat, auctionSeat)
+    return true
+  } catch (error) {
+    if (error instanceof GameError) return false
+    throw error
+  }
 }
 
 function finish(state: BoardState, declarerTricks: number, claimed: boolean): BoardState {

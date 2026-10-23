@@ -5,6 +5,7 @@ import { fullDeck, nextSeat, type Card, type Hands, type Seat } from '../../shar
 import { makeCall, newBoard, playCard, turnOf, type BoardState } from '../../shared/game.ts'
 import { chooseCall } from '../../shared/robot/bidding.ts'
 import { chooseCard } from '../../shared/robot/play.ts'
+import { LIMITS } from '../../shared/protocol.ts'
 
 function seeded(seed: number) {
   return (n: number) => {
@@ -55,6 +56,18 @@ describe('robots play 300 random boards', () => {
     expect(levels.get('passed') ?? 0).toBeLessThan(60)
     expect((levels.get('3') ?? 0) + (levels.get('4') ?? 0)).toBeGreaterThan(50)
   })
+
+  it('alerting and explaining every call but pass, as GIB does', () => {
+    for (let seed = 1; seed <= 300; seed++) {
+      for (const entry of robotBoard(seed, deal(seeded(seed))).auction) {
+        if (entry.call === 'P') expect(entry.alert).toBeUndefined()
+        else {
+          expect(entry.alert, `board ${seed}: ${entry.call}`).toBeTruthy()
+          expect(entry.alert!.length).toBeLessThanOrEqual(LIMITS.alertMax)
+        }
+      }
+    }
+  })
 })
 
 describe('openings (淡江制度)', () => {
@@ -70,6 +83,13 @@ describe('openings (淡江制度)', () => {
     expect(bidOver(hand('AKJ32 K43 Q54 32'), '')).toBe('1S')
     expect(bidOver(hand('A43 K43 Q543 K32'), '')).toBe('1D')
     expect(bidOver(hand('A32 K43 Q54 K432'), '')).toBe('1C')
+  })
+
+  it('5542: 1♦ promises four, 1♣ may be two', () => {
+    const short = chooseCall(hand('AK32 KQ32 432 32'), 'N', [], 'N')
+    expect(short).toEqual({ call: '1C', alert: expect.stringContaining('2+ 張♣') })
+    expect(bidOver(hand('AK32 KQ32 Q432 2'), '')).toBe('1D')
+    expect(chooseCall(hand('AKJ32 K43 Q54 32'), 'N', [], 'N').alert).toBe('5+ 張♠，12–21 點')
   })
 
   it('2♦ is a weak two in one major (一高弱二)', () => {

@@ -101,14 +101,6 @@ export const MESSAGES = {
     ja: 'すでにクレームが出ています',
     ko: '이미 클레임이 진행 중입니다',
   },
-  claimAtTrickEnd: {
-    zh: '請在一墩結束後再攤牌',
-    'zh-Hans': '请在一墩结束后再摊牌',
-    en: 'Claim at the end of a trick',
-    vi: 'Hãy claim khi một nước đã kết thúc',
-    ja: 'トリックが終わってからクレームしてください',
-    ko: '트릭이 끝난 뒤에 클레임하세요',
-  },
   badClaim: {
     zh: '墩數不合理',
     'zh-Hans': '墩数不合理',
@@ -164,14 +156,6 @@ export const MESSAGES = {
     vi: 'Lá bài không xác định',
     ja: '不明なカードです',
     ko: '알 수 없는 카드입니다',
-  },
-  undoOwnOnly: {
-    zh: '只能撤回自己剛做的動作',
-    'zh-Hans': '只能撤回自己刚做的动作',
-    en: 'You can only undo your own last action',
-    vi: 'Bạn chỉ có thể hoàn tác thao tác vừa làm của mình',
-    ja: '取り消せるのは自分の直前の操作だけです',
-    ko: '자신이 방금 한 동작만 되돌릴 수 있습니다',
   },
   undoByOpponent: {
     zh: '要由對手回應撤回',

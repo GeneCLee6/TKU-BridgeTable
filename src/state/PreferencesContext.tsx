@@ -6,11 +6,13 @@ import { createTheme, type DeckColors, type ThemeMode } from '../styles/tokens.t
 
 /**
  * Per-viewer display preferences: language, light/dark, a two- or four-colour deck, whether hands
- * are drawn as card faces or as text (♠ A K Q, BBO's text style), and table sounds. Remembered in
- * localStorage when it is available.
+ * are drawn as card faces or as text (♠ A K Q, BBO's text style), table sounds, and whether a
+ * board record's replay greys out the cards already played (BBO's Handviewer) or takes them out of
+ * the hands. Remembered in localStorage when it is available.
  */
 
 export type CardStyle = 'cards' | 'text'
+export type PlayedCards = 'grey' | 'hide'
 
 interface Prefs {
   mode: ThemeMode
@@ -18,6 +20,7 @@ interface Prefs {
   lang: Lang
   cardStyle: CardStyle
   sound: boolean
+  playedCards: PlayedCards
 }
 
 interface Preferences extends Prefs {
@@ -77,6 +80,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
       lang: isLang(stored.lang) ? stored.lang : systemLang(),
       cardStyle: stored.cardStyle ?? 'cards',
       sound: stored.sound ?? true,
+      playedCards: stored.playedCards === 'hide' ? 'hide' : 'grey',
     }
   })
 

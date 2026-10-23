@@ -15,14 +15,18 @@ import { analyze, longest, stopper, suitCards, type HandInfo } from './hand.ts'
  * - Competition: overcalls, takeout and negative doubles, Unusual 2NT, the club's defence to
  *   Unusual 2NT, and responsive doubles.
  *
- * Later rounds fall back to aiming for a contract from the combined strength and the fits shown.
- * Every call is checked against the legal calls; anything unexpected becomes a pass. Conventional
- * calls carry the explanation from the handbook as their alert.
+ * Anything the handbook does not cover is bid in the club's natural system, 5542 自然制: five-card
+ * majors, 1♦ four or more, 1♣ as few as two, 1NT 15–17. Later rounds fall back to aiming for a
+ * contract from the combined strength and the fits shown. Every call is checked against the legal
+ * calls; anything unexpected becomes a pass.
+ *
+ * Like GIB on BBO, a robot alerts every call but pass and explains it: conventional calls with the
+ * handbook's words, natural ones with what they show (points, suit lengths) in 5542.
  */
 
 export interface RobotCall {
   call: Call
-  /** Explanation when the call is conventional; the robot alerts it */
+  /** What the call shows; the robot alerts every call but pass */
   alert?: string
 }
 
@@ -56,6 +60,10 @@ const bid = (level: number, strain: Strain) => `${level}${strain}`
 const isSuit = (strain: Strain): strain is Suit => strain !== 'N'
 const other = (major: Suit): Suit => (major === 'S' ? 'H' : 'S')
 const said = (call: Call, alert?: string): RobotCall => (alert ? { call, alert } : { call })
+/** '12–21 點', or '12+ 點' without an upper limit */
+const pts = (min: number, max?: number) => (max === undefined ? `${min}+ 點` : min === max ? `${min} 點` : `${min}–${max} 點`)
+/** '5+ 張♠', or '4 張♥' with `exact` */
+const cards = (s: Suit, n: number, exact = false) => `${n}${exact ? '' : '+'} 張${symbol(s)}`
 
 export function chooseCall(
   hand: readonly Card[],
@@ -81,7 +89,8 @@ export function chooseCall(
     last: auction.findLast((c) => isBid(c.call)),
   }
   const choice = decide(ctx)
-  return choice && legal.has(choice.call) ? choice : { call: 'P' }
+  if (!choice || choice.call === 'P' || !legal.has(choice.call)) return { call: 'P' }
+  return { call: choice.call, alert: choice.alert ?? describe(ctx, choice.call) }
 }
 
 function decide(ctx: Context): Rule {
@@ -102,18 +111,18 @@ function decide(ctx: Context): Rule {
 
 function openingBid({ h }: Context): RobotCall {
   const fiveMajor = h.len.S >= 5 || h.len.H >= 5
-  if (h.hcp >= 22) return said('2C', '22+ 點強牌，人工叫')
+  if (h.hcp >= 22) return said('2C', '22+ 點強牌，人工叫，迫叫')
   if (h.balanced && h.hcp >= 20 && h.hcp <= 21) return said('2N', '20–21 點平均牌型')
   if (h.balanced && !fiveMajor && h.hcp >= 15 && h.hcp <= 17) return said('1N', '15–17，3334、4432、5332（五張只能是低花）')
   if (h.hcp >= 12) {
-    if (h.len.S >= 5 && h.len.S >= h.len.H) return said('1S')
-    if (h.len.H >= 5) return said('1H')
-    if (h.len.D > h.len.C) return said('1D')
-    if (h.len.C > h.len.D) return said('1C')
-    return said(h.len.D >= 4 ? '1D' : '1C')
+    if (h.len.S >= 5 && h.len.S >= h.len.H) return said('1S', `${cards('S', 5)}，${pts(12, 21)}`)
+    if (h.len.H >= 5) return said('1H', `${cards('H', 5)}，${pts(12, 21)}`)
+    // 5542: 1♦ promises four, 1♣ may be as short as two (4♠4♥3♦2♣ opens 1♣)
+    if (h.len.D >= 4 && h.len.D >= h.len.C) return said('1D', `${cards('D', 4)}，${pts(12, 21)}，沒有 5 張高花`)
+    return said('1C', `${cards('C', 2)}，${pts(12, 21)}，沒有 5 張高花（5542 短梅花）`)
   }
   if (h.hcp >= 5 && h.hcp <= 10) {
-    for (const s of ORDER.slice().reverse()) if (h.len[s] >= 7) return said(bid(3, s))
+    for (const s of ORDER.slice().reverse()) if (h.len[s] >= 7) return said(bid(3, s), `阻擊：${cards(s, 7)}，${pts(5, 10)}`)
     if (h.len.S === 6 || h.len.H === 6) return said('2D', '一高弱二：6–10 點，6 張高花')
   }
   return said('P')
@@ -140,23 +149,24 @@ function response(ctx: Context, opened: Call): Rule {
   const { h } = ctx
   if (opened === '1N') return notrumpResponse(ctx)
   if (opened === '2N') {
-    if (h.hcp >= 4 && h.len.S >= 5) return said('3S')
-    if (h.hcp >= 4 && h.len.H >= 5) return said('3H')
-    if (h.hcp >= 12) return said('6N')
-    return said(h.hcp >= 4 ? '3N' : 'P')
+    if (h.hcp >= 4 && h.len.S >= 5) return said('3S', `${cards('S', 5)}，${pts(4)}，迫叫`)
+    if (h.hcp >= 4 && h.len.H >= 5) return said('3H', `${cards('H', 5)}，${pts(4)}，迫叫`)
+    if (h.hcp >= 12) return said('6N', `${pts(12)}，直接叫小滿貫`)
+    return said(h.hcp >= 4 ? '3N' : 'P', `${pts(4, 11)}，到 3NT 為止`)
   }
   if (opened === '2C') {
     if (h.hcp >= 8) {
       const s = longest(h)
-      if (h.len[s] >= 5) return said(MAJORS.includes(s) ? bid(2, s) : bid(3, s))
-      return said('2N')
+      if (h.len[s] >= 5) return said(MAJORS.includes(s) ? bid(2, s) : bid(3, s), `正面答叫：${cards(s, 5)}，${pts(8)}`)
+      return said('2N', `正面答叫：${pts(8)}，沒有 5 張花色`)
     }
-    return said('2D', '等待叫')
+    return said('2D', '等待叫（人工）：0–7 點')
   }
   if (opened === '2D') return weakTwoResponse(ctx)
   if (levelOf(opened) >= 3) {
     const s = strainOf(opened) as Suit
-    if (h.len[s] >= 2 && h.hcp >= 16) return said(MAJORS.includes(s) ? bid(4, s) : h.balanced ? '3N' : bid(5, s))
+    if (h.len[s] >= 2 && h.hcp >= 16)
+      return said(MAJORS.includes(s) ? bid(4, s) : h.balanced ? '3N' : bid(5, s), `${pts(16)}，同伴阻擊後叫到成局`)
     return said('P')
   }
   const s = strainOf(opened) as Suit
@@ -173,9 +183,9 @@ function notrumpResponse({ h }: Context): Rule {
   if (longMajor) return said(longMajor === 'H' ? '2D' : '2H', `transfer：5 張${longMajor === 'H' ? '♥' : '♠'}↑轉換`)
   if (fourMajor && h.hcp >= 9) return said('2C', 'Stayman：詢問高花，9↑')
   if (h.hcp < 8 && (h.len.C >= 6 || h.len.D >= 6)) return said('2S', '詢問低花，通常是爛牌')
-  if (h.hcp >= 17 && h.hcp <= 19) return said('6N')
+  if (h.hcp >= 17 && h.hcp <= 19) return said('6N', `${pts(17, 19)}，直接叫 6NT`)
   if (h.hcp === 16) return said('4N', '15–16，無 4 張高花，邀請 6NT')
-  if (h.hcp >= 10) return said('3N')
+  if (h.hcp >= 10) return said('3N', `${pts(10, 15)}，沒有 4 張高花，打 3NT`)
   if (h.hcp >= 8) return said('2N', '8–10，無 4 張高花，邀請 3NT')
   return said('P')
 }
@@ -217,30 +227,34 @@ function majorResponse(ctx: Context, m: Suit): Rule {
     if (h.hcp >= 8 && h.hcp <= 10) return said(bid(2, m), `3 張${spades ? '♠' : '♥'}，8–10`)
   }
   if (h.hcp < 6) return said('P')
-  if (!spades && h.len.S >= 4 && (fit < 3 || h.hcp < 8)) return said('1S', '6↑，迫叫')
+  if (!spades && h.len.S >= 4 && (fit < 3 || h.hcp < 8)) return said('1S', `${cards('S', 4)}，${pts(6)}，迫叫`)
   if (h.hcp >= 12 && fit < 3) {
     if (!spades || h.len.H < 5) {
       if (spades && h.len.H >= 5) return said('2H', '12+，迫叫成局，5 張♥↑')
     } else return said('2H', '12+，迫叫成局，5 張♥↑')
     if (h.len.D >= (spades ? 4 : 5) && h.len.D > h.len.C) return said('2D', `12+，迫叫成局，${spades ? 4 : 5} 張♦↑`)
-    if (!spades && h.len.S >= 4) return said('1S', '6↑，迫叫')
-    return said('2C', '12+，迫叫成局')
+    if (!spades && h.len.S >= 4) return said('1S', `${cards('S', 4)}，${pts(6)}，迫叫`)
+    return said('2C', '2/1：12+，迫叫成局')
   }
   return said('1N', '6–12，迫叫一圈')
 }
 
 function minorResponse({ h }: Context, s: Suit): Rule {
   if (h.hcp < 6) return said('P')
-  for (const t of ['H', 'S'] as Suit[]) if (h.len[t] >= 4 && h.len[t] >= h.len[other(t)]) return said(bid(1, t))
-  for (const t of ['H', 'S'] as Suit[]) if (h.len[t] >= 4) return said(bid(1, t))
-  if (s === 'C' && h.len.D >= 4) return said('1D')
-  const support = h.len[s] >= (s === 'C' ? 5 : 4)
-  if (h.hcp >= 11 && s === 'D' && h.len.C >= 4) return said('2C')
-  if (support && h.hcp <= 10) return said(h.hcp >= 10 ? bid(3, s) : bid(2, s))
-  if (h.balanced && h.hcp >= 13) return said('3N')
-  if (h.balanced && h.hcp >= 11) return said('2N')
-  if (h.hcp >= 11) return said(bid(3, s))
-  return said('1N')
+  const newMajor = (t: Suit) => said(bid(1, t), `${cards(t, 4)}，${pts(6)}，迫叫`)
+  for (const t of ['H', 'S'] as Suit[]) if (h.len[t] >= 4 && h.len[t] >= h.len[other(t)]) return newMajor(t)
+  for (const t of ['H', 'S'] as Suit[]) if (h.len[t] >= 4) return newMajor(t)
+  if (s === 'C' && h.len.D >= 4) return said('1D', `${cards('D', 4)}，${pts(6)}，沒有 4 張高花，迫叫`)
+  // 1♣ may be two cards, so raising it takes five
+  const need = s === 'C' ? 5 : 4
+  const support = h.len[s] >= need
+  if (h.hcp >= 11 && s === 'D' && h.len.C >= 4) return said('2C', `${cards('C', 4)}，${pts(11)}，迫叫`)
+  if (support && h.hcp <= 10)
+    return h.hcp >= 10 ? said(bid(3, s), `${cards(s, need)}，${pts(10)}，邀請`) : said(bid(2, s), `${cards(s, need)}，${pts(6, 9)}`)
+  if (h.balanced && h.hcp >= 13) return said('3N', `${pts(13)}，平均牌型，沒有 4 張高花`)
+  if (h.balanced && h.hcp >= 11) return said('2N', `${pts(11, 12)}，平均牌型，沒有 4 張高花，邀請`)
+  if (h.hcp >= 11) return said(bid(3, s), support ? `${cards(s, need)}，${pts(11)}` : `${pts(11)}，沒有 4 張高花`)
+  return said('1N', `${pts(6, 10)}，沒有 4 張高花`)
 }
 
 /** 2♦ (一高弱二): pass-or-correct and the 2NT ask */
@@ -263,9 +277,9 @@ function responderRebid(ctx: Context): Rule {
   if (opened === '1N') {
     if (mine === '2D' || mine === '2H') {
       const m: Suit = mine === '2D' ? 'H' : 'S'
-      if (theirs === bid(3, m)) return said(h.hcp >= 5 ? bid(4, m) : 'P')
-      if (h.len[m] >= 6) return said(h.hcp >= 8 ? bid(3, m) : 'P')
-      if (h.hcp >= 10) return said('3N')
+      if (theirs === bid(3, m)) return said(h.hcp >= 5 ? bid(4, m) : 'P', '接受，成局')
+      if (h.len[m] >= 6) return said(h.hcp >= 8 ? bid(3, m) : 'P', `${cards(m, 6)}，${pts(8, 9)}，邀請`)
+      if (h.hcp >= 10) return said('3N', `${cards(m, 5, true)}，${pts(10)}，請同伴選 3NT 或 4${symbol(m)}`)
       if (h.hcp >= 8) return said('2N', `5 張${m === 'H' ? '♥' : '♠'}，邀請`)
       return said('P')
     }
@@ -273,14 +287,14 @@ function responderRebid(ctx: Context): Rule {
       const s = strainOf(theirs)
       const fit = (s === 'H' || s === 'S') && h.len[s] >= 4
       const game = h.hcp >= 10
-      if (fit) return said(game ? bid(4, s) : bid(3, s))
-      if (s === 'H' && h.len.S >= 4 && !game) return said('2N')
-      return said(game ? '3N' : '2N')
+      if (fit) return game ? said(bid(4, s), `${cards(s, 4)}，${pts(10)}，成局`) : said(bid(3, s), `${cards(s, 4)}，${pts(9)}，邀請`)
+      if (s === 'H' && h.len.S >= 4 && !game) return said('2N', `${cards('S', 4, true)}，${pts(9)}，邀請`)
+      return game ? said('3N', `${pts(10)}，高花沒有配合`) : said('2N', `${pts(9)}，邀請`)
     }
     if (mine === '2S') {
       if (h.len.C >= 6 && theirs === '3C') return said('P')
-      if (h.len.C >= 6) return said('3C')
-      return said('3D')
+      if (h.len.C >= 6) return said('3C', `${cards('C', 6)}，止叫`)
+      return said('3D', `${cards('D', 6)}，止叫`)
     }
     return null
   }
@@ -292,7 +306,7 @@ function responderRebid(ctx: Context): Rule {
       const high = theirs === '3H' || theirs === '3S'
       const m: Suit = heart ? 'H' : 'S'
       const game = h.hcp + (high ? 9 : 7) >= 24 && h.len[m] >= 2
-      return said(game ? bid(4, m) : h.len[m] >= 2 ? bid(3, m) : '3N')
+      return said(game ? bid(4, m) : h.len[m] >= 2 ? bid(3, m) : '3N', game ? '成局' : '止叫')
     }
     return said('P')
   }
@@ -300,11 +314,12 @@ function responderRebid(ctx: Context): Rule {
   // Single raise of a major, 淡江用: answer the long-suit try or the invitation
   if ((opened === '1H' || opened === '1S') && mine === bid(2, strainOf(opened))) {
     const m = strainOf(opened) as Suit
-    if (theirs === bid(3, m)) return said(h.hcp >= 10 ? bid(4, m) : 'P')
+    if (theirs === bid(3, m)) return said(h.hcp >= 10 ? bid(4, m) : 'P', '接受邀請，成局')
     const tried = strainOf(theirs)
     if (isSuit(tried) && tried !== m && levelOf(theirs) <= 3) {
       const help = suitCards(h.cards, tried).slice(0, 2).some((c) => 'AKQ'.includes(rankOf(c))) || h.len[tried] <= 1
-      return said(h.hcp >= 9 || help ? bid(4, m) : bid(3, m))
+      const accept = h.hcp >= 9 || help
+      return said(accept ? bid(4, m) : bid(3, m), accept ? '接受長門邀請，成局' : '拒絕長門邀請')
     }
     return null
   }
@@ -312,9 +327,10 @@ function responderRebid(ctx: Context): Rule {
   // 1NT forcing with three-card support: preference or the delayed limit raise
   if ((opened === '1H' || opened === '1S') && mine === '1N') {
     const m = strainOf(opened) as Suit
-    if (h.len[m] >= 3) return said(h.hcp >= 10 ? bid(3, m) : bid(2, m))
+    if (h.len[m] >= 3)
+      return h.hcp >= 10 ? said(bid(3, m), `${cards(m, 3, true)}，${pts(10, 12)}，邀請`) : said(bid(2, m), `${cards(m, 3, true)}，${pts(6, 9)}`)
     if (h.len[m] === 2 && strainOf(theirs) !== m && isSuit(strainOf(theirs)) && h.len[strainOf(theirs) as Suit] < 4)
-      return said(bid(2, m))
+      return said(bid(2, m), `${cards(m, 2, true)}，選擇${symbol(m)}`)
     return null
   }
   return null
@@ -336,8 +352,9 @@ function openerRules(ctx: Context): Rule {
       if (isBid(answer) && levelOf(answer) === 3 && isSuit(strainOf(answer))) {
         const s = strainOf(answer) as Suit
         const theirs = overcallSuit(ctx)
-        if (MAJORS.includes(s) && h.len[s] >= 3) return said(bid(4, s))
-        return said(theirs && stopper(h.cards, theirs) ? '3N' : MAJORS.includes(s) ? bid(4, s) : '3N')
+        if (MAJORS.includes(s) && h.len[s] >= 3) return said(bid(4, s), `${cards(s, 3)}，成局`)
+        const call = theirs && stopper(h.cards, theirs) ? '3N' : MAJORS.includes(s) ? bid(4, s) : '3N'
+        return said(call, call === '3N' ? '選擇 3NT' : `選擇 4${symbol(s)}`)
       }
       return said('P')
     }
@@ -348,29 +365,29 @@ function openerRules(ctx: Context): Rule {
 
   if (opened === '1N') {
     if (answer === '2C') {
-      if (h.len.H >= 4) return said('2H')
-      if (h.len.S >= 4) return said('2S')
-      return said('2D', '無 4 張高花')
+      if (h.len.H >= 4) return said('2H', 'Stayman 回答：4 張♥（可能也有 4 張♠）')
+      if (h.len.S >= 4) return said('2S', 'Stayman 回答：4 張♠，沒有 4 張♥')
+      return said('2D', 'Stayman 回答：無 4 張高花')
     }
     if (answer === '2D' || answer === '2H') {
       const m: Suit = answer === '2D' ? 'H' : 'S'
-      return h.len[m] >= 4 && h.hcp >= 17 ? said(bid(3, m), '4 張王，17 點好牌') : said(bid(2, m))
+      return h.len[m] >= 4 && h.hcp >= 17 ? said(bid(3, m), '4 張王，17 點好牌') : said(bid(2, m), '完成轉換')
     }
-    if (answer === '4D') return said('4H')
-    if (answer === '4H') return said('4S')
-    if (answer === '2S') return h.len.C >= h.len.D ? said('3C') : said('2N', '♦ 較好')
-    if (answer === '2N') return said(h.hcp >= 16 ? '3N' : 'P')
-    if (answer === '4N') return said(h.hcp >= 16 ? '6N' : 'P')
+    if (answer === '4D') return said('4H', '完成 Texas 轉換')
+    if (answer === '4H') return said('4S', '完成 Texas 轉換')
+    if (answer === '2S') return h.len.C >= h.len.D ? said('3C', '♣ 較好') : said('2N', '♦ 較好')
+    if (answer === '2N') return said(h.hcp >= 16 ? '3N' : 'P', `${pts(16, 17)}，接受邀請`)
+    if (answer === '4N') return said(h.hcp >= 16 ? '6N' : 'P', `${pts(16, 17)}，接受滿貫邀請`)
     if (isBid(answer) && levelOf(answer) === 3 && isSuit(strainOf(answer))) {
       const s = strainOf(answer) as Suit
-      return said(h.len[s] >= 3 ? (MAJORS.includes(s) ? bid(4, s) : bid(4, s)) : '3N')
+      return h.len[s] >= 3 ? said(bid(4, s), `${cards(s, 3)}，支持`) : said('3N', `${symbol(s)} 不到 3 張`)
     }
     return said('P')
   }
   if (opened === '2C' && answer === '2D') {
-    if (h.balanced) return said(h.hcp >= 25 ? '3N' : '2N')
+    if (h.balanced) return h.hcp >= 25 ? said('3N', `${pts(25)}，平均牌型`) : said('2N', `${pts(22, 24)}，平均牌型`)
     const s = longest(h)
-    return said(MAJORS.includes(s) ? bid(2, s) : bid(3, s))
+    return said(MAJORS.includes(s) ? bid(2, s) : bid(3, s), `長門${symbol(s)}，${pts(22)}，迫叫`)
   }
   if (opened === '2D') {
     const m: Suit = h.len.H >= 6 ? 'H' : 'S'
@@ -379,11 +396,12 @@ function openerRules(ctx: Context): Rule {
       const reply = m === 'H' ? (high ? '3S' : '3C') : high ? '3H' : '3D'
       return said(reply, `${m === 'H' ? '♥' : '♠'}${high ? '高限' : '低限'}`)
     }
-    if (answer === '2H') return said(m === 'H' ? 'P' : '2S')
-    if (answer === '2S') return said(m === 'S' ? 'P' : '3H')
-    if (answer === '3H') return said(m === 'H' ? 'P' : '3S')
-    if (answer === '3S') return said(m === 'S' ? 'P' : '4H')
-    if (answer === '4H') return said(m === 'H' ? 'P' : '4S')
+    const mine = `一高弱二的高花是${symbol(m)}`
+    if (answer === '2H') return said(m === 'H' ? 'P' : '2S', mine)
+    if (answer === '2S') return said(m === 'S' ? 'P' : '3H', mine)
+    if (answer === '3H') return said(m === 'H' ? 'P' : '3S', mine)
+    if (answer === '3S') return said(m === 'S' ? 'P' : '4H', mine)
+    if (answer === '4H') return said(m === 'H' ? 'P' : '4S', mine)
     return said('P')
   }
   if (opened === '1H' || opened === '1S') return majorRebid(ctx, strainOf(opened) as Suit, answer)
@@ -399,16 +417,16 @@ function majorRebid(ctx: Context, m: Suit, answer: Call): Rule {
   const bergen = spades ? ['3C', '3D', '3H', '3S'] : ['2N', '3C', '3D', '3H']
   const needed = [14, 15, 17, 19]
   const step = bergen.indexOf(answer)
-  if (step >= 0) return said(h.hcp >= needed[step] ? game : step === 3 ? 'P' : bid(3, m))
+  if (step >= 0) return h.hcp >= needed[step] ? said(game, '接受，成局') : said(step === 3 ? 'P' : bid(3, m), '拒絕，止叫')
   // J2N: game, or slam when the hands are clearly strong enough
-  if (answer === (spades ? '2N' : '2S')) return said(h.hcp >= 19 ? bid(6, m) : game)
+  if (answer === (spades ? '2N' : '2S')) return h.hcp >= 19 ? said(bid(6, m), `${pts(19)}，小滿貫`) : said(game, '成局')
   // Splinters
   const splinters = spades ? ['3N', '4C', '4D', '4H'] : ['3S', '3N', '4C', '4D']
-  if (splinters.includes(answer)) return said(h.hcp >= 18 ? bid(6, m) : game)
+  if (splinters.includes(answer)) return h.hcp >= 18 ? said(bid(6, m), `${pts(18)}，小滿貫`) : said(game, '成局')
   if (answer === game) return said('P')
   // Single raise, 淡江用: long-suit try or invitation
   if (answer === bid(2, m)) {
-    if (h.hcp >= 19) return said(game)
+    if (h.hcp >= 19) return said(game, `${pts(19)}，成局`)
     if (h.hcp >= 16) {
       const tries = ORDER.filter((s) => s !== m && h.len[s] >= 3)
       const weak = tries.find((s) => suitCards(h.cards, s).filter((c) => 'AK'.includes(rankOf(c))).length <= 1)
@@ -422,28 +440,34 @@ function majorRebid(ctx: Context, m: Suit, answer: Call): Rule {
   }
   // 1NT forcing one round
   if (answer === '1N') {
-    if (h.len[m] >= 6) return said(h.hcp >= 16 ? bid(3, m) : bid(2, m))
-    if (spades && h.len.H >= 4) return said('2H')
+    if (h.len[m] >= 6) return h.hcp >= 16 ? said(bid(3, m), `${cards(m, 6)}，${pts(16, 18)}`) : said(bid(2, m), `${cards(m, 6)}，${pts(12, 15)}`)
+    if (spades && h.len.H >= 4) return said('2H', `${cards('H', 4)}，${pts(12, 17)}`)
     const minor: Suit = h.len.D > h.len.C ? 'D' : h.len.C > h.len.D ? 'C' : h.len.C >= 3 ? 'C' : 'D'
-    if (h.balanced && h.hcp >= 18) return said('2N')
-    return said(bid(2, minor))
+    if (h.balanced && h.hcp >= 18) return said('2N', `${pts(18, 19)}，平均牌型`)
+    return said(bid(2, minor), `${cards(minor, 3)}（1NT 迫叫之後的再叫）`)
   }
   // Responder's new suit (1♠ over 1♥, or a 2/1 game force)
   const s = strainOf(answer)
   if (isSuit(s) && s !== m) {
     const twoOverOne = levelOf(answer) === 2
     if (h.len[s] >= 4 || (MAJORS.includes(s) && h.len[s] >= 3 && twoOverOne && s === 'H')) {
-      if (!twoOverOne) return said(h.hcp >= 18 ? bid(4, s) : h.hcp >= 15 ? bid(3, s) : bid(2, s))
-      return said(bid(3, s))
+      if (!twoOverOne) {
+        if (h.hcp >= 18) return said(bid(4, s), `${cards(s, 4)}，${pts(18, 21)}`)
+        return h.hcp >= 15 ? said(bid(3, s), `${cards(s, 4)}，${pts(15, 17)}，邀請`) : said(bid(2, s), `${cards(s, 4)}，${pts(12, 14)}`)
+      }
+      return said(bid(3, s), `支持${symbol(s)}，迫叫成局`)
     }
-    if (h.len[m] >= 6) return said(cheapest(ctx, m) ?? 'P')
+    if (h.len[m] >= 6) return said(cheapest(ctx, m) ?? 'P', cards(m, 6))
     const side = ORDER.find((x) => x !== m && x !== s && h.len[x] >= 4)
     if (side) {
       const call = cheapest(ctx, side)
-      if (call && levelOf(call) <= (twoOverOne ? 3 : 2)) return said(call)
+      if (call && levelOf(call) <= (twoOverOne ? 3 : 2)) return said(call, cards(side, 4))
     }
-    if (h.balanced) return said(twoOverOne ? '2N' : h.hcp >= 18 ? '2N' : '1N')
-    return said(cheapest(ctx, m) ?? 'P')
+    if (h.balanced) {
+      if (twoOverOne) return said('2N', '平均牌型，迫叫成局')
+      return h.hcp >= 18 ? said('2N', `${pts(18, 19)}，平均牌型`) : said('1N', `${pts(12, 14)}，平均牌型`)
+    }
+    return said(cheapest(ctx, m) ?? 'P', `再叫${symbol(m)}，5 張`)
   }
   return null
 }
@@ -453,22 +477,31 @@ function minorRebid(ctx: Context, mine: Suit, answer: Call): Rule {
   const s = strainOf(answer)
   const level = levelOf(answer)
   if (s === mine) {
-    if (level >= 3) return said(h.hcp >= 15 && h.balanced ? '3N' : 'P')
-    return said(h.hcp >= 18 ? '3N' : h.hcp >= 16 ? bid(3, mine) : 'P')
+    if (level >= 3) return said(h.hcp >= 15 && h.balanced ? '3N' : 'P', `${pts(15)}，平均牌型`)
+    if (h.hcp >= 18) return said('3N', pts(18))
+    return said(h.hcp >= 16 ? bid(3, mine) : 'P', `${pts(16, 17)}，邀請`)
   }
   if (s === 'N') {
     if (level >= 3) return said('P')
-    if (level === 2) return said(h.hcp >= 13 ? '3N' : 'P')
-    return said(h.hcp >= 18 ? '3N' : h.hcp >= 16 && h.balanced ? '2N' : h.len[mine] >= 6 ? bid(2, mine) : 'P')
+    if (level === 2) return said(h.hcp >= 13 ? '3N' : 'P', `${pts(13)}，接受`)
+    if (h.hcp >= 18) return said('3N', pts(18))
+    if (h.hcp >= 16 && h.balanced) return said('2N', `${pts(16, 17)}，平均牌型，邀請`)
+    return said(h.len[mine] >= 6 ? bid(2, mine) : 'P', `${cards(mine, 6)}，低限`)
   }
   if (!isSuit(s)) return null
-  if (h.len[s] >= 4) return said(h.hcp >= 18 && MAJORS.includes(s) ? bid(4, s) : h.hcp >= 15 ? bid(level + 1, s) : bid(level === 1 ? 2 : level, s))
-  if (s === 'H' && h.len.S >= 4) return said('1S')
-  if (h.balanced) return said(h.hcp >= 18 ? '2N' : level === 1 ? '1N' : '2N')
-  if (h.len[mine] >= 6) return said(cheapest(ctx, mine) ?? 'P')
+  if (h.len[s] >= 4) {
+    if (h.hcp >= 18 && MAJORS.includes(s)) return said(bid(4, s), `${cards(s, 4)}，${pts(18, 21)}`)
+    return h.hcp >= 15 ? said(bid(level + 1, s), `${cards(s, 4)}，${pts(15, 17)}，邀請`) : said(bid(level === 1 ? 2 : level, s), `${cards(s, 4)}，${pts(12, 14)}`)
+  }
+  if (s === 'H' && h.len.S >= 4) return said('1S', `${cards('S', 4)}，沒有 4 張♥`)
+  if (h.balanced) {
+    if (h.hcp >= 18) return said('2N', `${pts(18, 19)}，平均牌型`)
+    return level === 1 ? said('1N', `${pts(12, 14)}，平均牌型`) : said('2N', '平均牌型')
+  }
+  if (h.len[mine] >= 6) return said(cheapest(ctx, mine) ?? 'P', cards(mine, 6))
   const side = ORDER.find((x) => x !== mine && x !== s && h.len[x] >= 4 && ORDER.indexOf(x) < ORDER.indexOf(mine))
-  if (side) return said(cheapest(ctx, side) ?? 'P')
-  return said(cheapest(ctx, mine) ?? '1N')
+  if (side) return said(cheapest(ctx, side) ?? 'P', cards(side, 4))
+  return said(cheapest(ctx, mine) ?? '1N', `再叫${symbol(mine)}`)
 }
 
 // ── Competition after our opening ────────────────────────────────────────────────────────────
@@ -511,7 +544,7 @@ function lebensohlRebid(ctx: Context): Rule {
   const theirs = overcallSuit(ctx)
   const long = ORDER.filter((s) => s !== theirs && h.len[s] >= 6).sort((a, b) => h.len[b] - h.len[a])[0]
   if (!long || long === 'C') return said('P')
-  return said(bid(3, long))
+  return said(bid(3, long), `${cards(long, 6)}，止叫`)
 }
 
 /** We opened 1♥/1♠ and they bid Unusual 2NT: the club's defence */
@@ -526,7 +559,7 @@ function versusUnusual(ctx: Context, opened: Call): Rule {
   if (h.len[m] >= 3 && h.hcp >= 10) return said(fitCue, `${symbol(m)} fit，至少邀請點，迫叫至 3${symbol(m)}`)
   if (h.len[o] >= 5 && h.hcp >= 13) return said(otherGF, `5 張${symbol(o)}↑，至少成局點`)
   if ((h.len[o] >= 5 && h.hcp >= 10) || (h.len[o] >= 6 && h.hcp >= 8)) return said(bid(3, o), `5 張${symbol(o)}，10–12 或 6 張 8–10，不迫叫`)
-  if (h.len[m] >= 3 && h.hcp >= 6) return said(bid(3, m))
+  if (h.len[m] >= 3 && h.hcp >= 6) return said(bid(3, m), `${cards(m, 3)}，${pts(6, 9)}，不迫叫`)
   if (h.balanced && h.hcp >= 10) return said('X', `平均牌型，${symbol(m)}不 fit，至少邀請點，建議處罰`)
   return said('P')
 }
@@ -560,21 +593,26 @@ function contestedResponse(ctx: Context): Rule {
   if (isSuit(mine) && h.len[mine] >= (MAJORS.includes(mine) ? 3 : 5) && h.hcp >= 6) {
     const call = cheapest(ctx, mine)
     if (!call) return null
-    if (h.hcp >= 13 && MAJORS.includes(mine)) return said(bid(4, mine))
-    if (h.hcp >= 10 && ctx.legal.has(bid(levelOf(call) + 1, mine))) return said(bid(levelOf(call) + 1, mine))
-    return levelOf(call) <= 3 ? said(call) : said('P')
+    const support = cards(mine, MAJORS.includes(mine) ? 3 : 5)
+    if (h.hcp >= 13 && MAJORS.includes(mine)) return said(bid(4, mine), `${support}，${pts(13)}，成局`)
+    if (h.hcp >= 10 && ctx.legal.has(bid(levelOf(call) + 1, mine))) return said(bid(levelOf(call) + 1, mine), `${support}，${pts(10, 12)}`)
+    return levelOf(call) <= 3 ? said(call, `${support}，${pts(6, 9)}`) : said('P')
   }
   const five = ORDER.filter((s) => s !== theirs && s !== mine && h.len[s] >= 5).sort((a, b) => h.len[b] - h.len[a])[0]
   if (five) {
     const call = cheapest(ctx, five)
-    if (call && (levelOf(call) === 1 ? h.hcp >= 6 : h.hcp >= 10)) return said(call)
+    if (call && (levelOf(call) === 1 ? h.hcp >= 6 : h.hcp >= 10)) return said(call, `${cards(five, 5)}，${pts(levelOf(call) === 1 ? 6 : 10)}`)
   }
   const unbidMajors = MAJORS.filter((s) => s !== theirs && s !== mine && h.len[s] >= 4)
-  if (unbidMajors.length && h.hcp >= 7 && levelOf(ctx.last.call) <= 2 && ctx.legal.has('X')) return said('X', '負性賭倍')
+  if (unbidMajors.length && h.hcp >= 7 && levelOf(ctx.last.call) <= 2 && ctx.legal.has('X'))
+    return said('X', `負性賭倍：沒叫過的高花 4 張，${pts(7)}`)
   if (stopper(h.cards, theirs) && h.hcp >= 8) {
     const nt = cheapest(ctx, 'N')
-    if (nt && levelOf(nt) <= 2) return said(h.hcp >= 11 && levelOf(nt) === 1 ? '2N' : nt)
-    if (h.hcp >= 13) return said('3N')
+    if (nt && levelOf(nt) <= 2) {
+      if (h.hcp >= 11 && levelOf(nt) === 1) return said('2N', `${pts(11, 12)}，${symbol(theirs)}有擋`)
+      return said(nt, `${levelOf(nt) === 1 ? pts(8, 10) : pts(8)}，${symbol(theirs)}有擋`)
+    }
+    if (h.hcp >= 13) return said('3N', `${pts(13)}，${symbol(theirs)}有擋`)
   }
   return said('P')
 }
@@ -585,11 +623,13 @@ function openerAfterNegativeDouble(ctx: Context, opened: Call): Rule {
   const majors = MAJORS.filter((s) => s !== theirs && s !== strainOf(opened) && h.len[s] >= 4)
   if (majors.length) {
     const call = cheapest(ctx, majors[0])
-    if (call) return said(h.hcp >= 15 && ctx.legal.has(bid(levelOf(call) + 1, majors[0])) ? bid(levelOf(call) + 1, majors[0]) : call)
+    const jump = call && bid(levelOf(call) + 1, majors[0])
+    if (call && jump && h.hcp >= 15 && ctx.legal.has(jump)) return said(jump, `${cards(majors[0], 4)}，${pts(15)}`)
+    if (call) return said(call, `${cards(majors[0], 4)}，${pts(12, 14)}`)
   }
-  if (theirs && h.balanced && stopper(h.cards, theirs)) return said(cheapest(ctx, 'N') ?? 'P')
+  if (theirs && h.balanced && stopper(h.cards, theirs)) return said(cheapest(ctx, 'N') ?? 'P', `平均牌型，${symbol(theirs)}有擋`)
   const own = strainOf(opened)
-  return said(isSuit(own) ? (cheapest(ctx, own) ?? 'P') : 'P')
+  return said(isSuit(own) ? (cheapest(ctx, own) ?? 'P') : 'P', `再叫${isSuit(own) ? symbol(own) : ''}，沒有 4 張未叫高花`)
 }
 
 // ── The opponents opened ─────────────────────────────────────────────────────────────────────
@@ -621,7 +661,7 @@ function defenderRules(ctx: Context): Rule {
     const o = strainOf(opened.call) as Suit
     const choices = (MAJORS.includes(o) ? [other(o), 'D', 'C'] : ['S', 'H', 'D', 'C']).filter((s) => s !== o) as Suit[]
     const pick = choices.find((s) => h.len[s] >= 4) ?? longest(h, choices)
-    return said(cheapest(ctx, pick) ?? 'P')
+    return said(cheapest(ctx, pick) ?? 'P', `回答同伴的回答性賭倍：選${symbol(pick)}`)
   }
   if (mine.length === 0 && partners.length) return advance(ctx, partners[0])
   return null
@@ -639,19 +679,20 @@ function overcall(ctx: Context): Rule {
     if (h.hcp >= lo && h.hcp <= hi) return said('2N', `不尋常 2NT：兩低 5-5↑，${lo}–${hi}`)
   }
   if (lastLevel === 1 && isSuit(theirs) && h.balanced && h.hcp >= 15 && h.hcp <= 18 && stopper(h.cards, theirs))
-    return said('1N')
+    return said('1N', `${pts(15, 18)}，平均牌型，${symbol(theirs)}有擋`)
 
   const unbid = ORDER.filter((s) => s !== theirs)
   const takeout = isSuit(theirs) && h.len[theirs] <= 2 && unbid.every((s) => h.len[s] >= 3)
-  if (h.hcp >= 12 && takeout && ctx.legal.has('X')) return said('X')
+  if (h.hcp >= 12 && takeout && ctx.legal.has('X'))
+    return said('X', `技術性賭倍：${pts(12)}，敵方花色 2 張以下，其他三門 3 張以上`)
 
   const best = longest(h, unbid)
   const minPoints = lastLevel === 1 ? 8 : lastLevel === 2 ? 11 : 15
   if (h.len[best] >= 5 && h.hcp >= minPoints && h.hcp <= 18) {
     const call = cheapest(ctx, best)
-    if (call && levelOf(call) <= Math.max(2, lastLevel)) return said(call)
+    if (call && levelOf(call) <= Math.max(2, lastLevel)) return said(call, `爭叫：${cards(best, 5)}，${pts(minPoints, 18)}`)
   }
-  if (h.hcp >= 17 && ctx.legal.has('X')) return said('X')
+  if (h.hcp >= 17 && ctx.legal.has('X')) return said('X', `技術性賭倍：${pts(17)}，牌型不限`)
   return said('P')
 }
 
@@ -665,15 +706,17 @@ function advance(ctx: Context, partnerAction: AuctionCall): Rule {
     const majors = MAJORS.filter((s) => s !== theirs).sort((a, b) => h.len[b] - h.len[a])
     const suit = majors.find((s) => h.len[s] >= 4) ?? longest(h, ORDER.filter((s) => s !== theirs))
     if (h.hcp >= 12) {
-      if (MAJORS.includes(suit) && h.len[suit] >= 4) return said(bid(4, suit))
-      if (isSuit(theirs) && stopper(h.cards, theirs)) return said('3N')
+      if (MAJORS.includes(suit) && h.len[suit] >= 4) return said(bid(4, suit), `回應賭倍：${cards(suit, 4)}，${pts(12)}，成局`)
+      if (isSuit(theirs) && stopper(h.cards, theirs)) return said('3N', `回應賭倍：${pts(12)}，${symbol(theirs)}有擋`)
     }
     if (isSuit(theirs) && h.balanced && h.hcp >= 6 && h.hcp <= 9 && stopper(h.cards, theirs))
-      return said(cheapest(ctx, 'N') ?? 'P')
+      return said(cheapest(ctx, 'N') ?? 'P', `回應賭倍：${pts(6, 9)}，平均牌型，${symbol(theirs)}有擋`)
     const call = cheapest(ctx, suit)
     if (call && (mustBid || h.hcp >= 6)) {
       const jump = h.hcp >= 9 ? bid(levelOf(call) + 1, suit) : call
-      return said(ctx.legal.has(jump) && levelOf(jump) <= 3 ? jump : call)
+      const chosen = ctx.legal.has(jump) && levelOf(jump) <= 3 ? jump : call
+      const length = MAJORS.includes(suit) && h.len[suit] >= 4 ? cards(suit, 4) : `最長的${symbol(suit)}`
+      return said(chosen, `回應賭倍：${length}，${chosen === call ? pts(0, 8) : pts(9)}`)
     }
     return said('P')
   }
@@ -683,16 +726,16 @@ function advance(ctx: Context, partnerAction: AuctionCall): Rule {
     if (isSuit(s) && h.len[s] >= 3 && h.hcp >= 6) {
       const call = cheapest(ctx, s)
       if (!call) return said('P')
-      if (h.hcp >= 13 && MAJORS.includes(s)) return said(bid(4, s))
-      if (h.hcp >= 10 && ctx.legal.has(bid(levelOf(call) + 1, s))) return said(bid(levelOf(call) + 1, s))
-      return said(levelOf(call) <= 3 ? call : 'P')
+      if (h.hcp >= 13 && MAJORS.includes(s)) return said(bid(4, s), `支持同伴：${cards(s, 3)}，${pts(13)}，成局`)
+      if (h.hcp >= 10 && ctx.legal.has(bid(levelOf(call) + 1, s))) return said(bid(levelOf(call) + 1, s), `支持同伴：${cards(s, 3)}，${pts(10, 12)}`)
+      return said(levelOf(call) <= 3 ? call : 'P', `支持同伴：${cards(s, 3)}，${pts(6, 9)}`)
     }
     if (partnerAction.call === '2N' && opening) {
       // Partner's Unusual 2NT: pick the better minor
       const minor: Suit = h.len.D > h.len.C ? 'D' : 'C'
-      return said(h.hcp >= 12 ? bid(5, minor) : bid(3, minor))
+      return h.hcp >= 12 ? said(bid(5, minor), `選${symbol(minor)}，${pts(12)}，成局`) : said(bid(3, minor), `選${symbol(minor)}`)
     }
-    if (s === 'N' && h.hcp >= 10) return said('3N')
+    if (s === 'N' && h.hcp >= 10) return said('3N', `${pts(10)}，成局`)
   }
   return said('P')
 }
@@ -744,6 +787,28 @@ function target(ctx: Context): RobotCall {
   return said(combined >= 25 ? goal : (cheapest(ctx, strain) ?? 'P'))
 }
 
+/**
+ * Words for a natural call that has none of its own, mostly the later rounds where the robot aims
+ * for a contract: what it shows by the same reading of the auction the robots use for each other's
+ * calls (inferShown), and whether it is game or slam
+ */
+function describe(ctx: Context, call: Call): string {
+  if (call === 'X') return '賭倍'
+  if (call === 'XX') return '再賭倍'
+  const strain = strainOf(call)
+  const level = levelOf(call)
+  const supports = ctx.auction.some((c) => c.seat === ctx.partner && isBid(c.call) && strainOf(c.call) === strain)
+  const after = inferShown([...ctx.auction, { seat: ctx.seat, call }])[ctx.seat]
+  const parts: string[] = []
+  if (!isSuit(strain)) parts.push('無王')
+  else parts.push(supports ? `支持同伴的${symbol(strain)}` : cards(strain, Math.max(4, after.len[strain])))
+  if (after.min > 0 || after.max < 37) parts.push(after.max >= 37 ? pts(after.min) : pts(after.min, after.max))
+  const game = (strain === 'N' && level >= 3) || ((strain === 'H' || strain === 'S') && level >= 4) || level >= 5
+  if (level >= 6) parts.push(level === 7 ? '大滿貫' : '小滿貫')
+  else if (game) parts.push('成局')
+  return parts.join('，')
+}
+
 function cheapest(ctx: Context, strain: Strain): Call | null {
   for (let level = 1; level <= 7; level++) if (ctx.legal.has(bid(level, strain))) return bid(level, strain)
   return null
@@ -792,7 +857,8 @@ function inferShown(auction: readonly AuctionCall[]): Record<Seat, Shown> {
       else if (call === '2N') at(seat, 20, 21)
       else if (call === '2C') at(seat, 22, 37)
       else if (call === '2D') at(seat, 6, 10)
-      else if (level === 1) at(seat, 12, 21, suit, suit === 'S' || suit === 'H' ? 5 : 3)
+      // 5542: five-card majors, 1♦ four or more, 1♣ as few as two
+      else if (level === 1) at(seat, 12, 21, suit, suit === 'S' || suit === 'H' ? 5 : suit === 'D' ? 4 : 2)
       else at(seat, 5, 10, suit, 7)
       if (call === '1N' || call === '2N') for (const s of ORDER) shown[seat].len[s] = Math.max(shown[seat].len[s], 2)
       return

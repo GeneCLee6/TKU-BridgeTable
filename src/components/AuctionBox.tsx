@@ -1,4 +1,6 @@
-import { useEffect, useRef, useState } from 'react'
+import { X } from 'lucide-react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import styled, { css } from 'styled-components'
 import type { AuctionCall } from '../../shared/auction.ts'
 import { isVulnerable, type Vulnerability } from '../../shared/board.ts'
@@ -12,9 +14,9 @@ import { CallLabel } from './Suit.tsx'
  * The auction as a table, BBO style: four columns from the viewer's point of view (left-hand
  * opponent, partner, right-hand opponent, the viewer last), vulnerable seats with a red header,
  * the dealer's first call in the dealer's column and '?' where the next call goes. Alerted calls
- * are yellow; click one to read its explanation. With `maxRows` the table keeps one fixed height
- * from the first call to the last, as on BBO: a long auction scrolls inside it (the header stays
- * put, the latest round in view) and an alert explanation floats over its foot.
+ * are yellow; click one and its explanation opens in a small window next to it. With `maxRows` the
+ * table keeps one fixed height from the first call to the last, as on BBO: a long auction scrolls
+ * inside it (the header stays put, the latest round in view).
  */
 
 const Box = styled.div<{ $size: number; $width?: number }>`
@@ -70,8 +72,20 @@ const Cell = styled.td<{ $alert?: boolean; $call?: string; $size: number }>`
     $alert &&
     css`
       background: ${theme.table.alert};
-      cursor: pointer;
     `}
+`
+
+/** An alerted call: the whole cell is a button that opens the explanation */
+const AlertButton = styled.button`
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  &[aria-expanded='true'] { box-shadow: inset 0 0 0 2px ${({ theme }) => theme.table.panelText}; }
 `
 
 const HeadName = styled.span`
@@ -85,15 +99,109 @@ const HeadName = styled.span`
   opacity: 0.85;
 `
 
-const Explain = styled.p<{ $float: boolean }>`
-  margin: 0;
-  padding: 4px 8px;
-  border-top: 1px solid ${({ theme }) => theme.table.panelBorder};
+/** The explanation of an alerted call, in a small window by the call, over everything else */
+const Popup = styled.div`
+  position: fixed;
+  z-index: 50;
+  width: max-content;
+  max-width: min(300px, calc(100vw - 16px));
+  border: 1px solid ${({ theme }) => theme.table.panelBorder};
+  border-radius: 10px;
+  overflow: hidden;
   background: ${({ theme }) => theme.table.panel};
-  font-size: 14px;
+  color: ${({ theme }) => theme.table.panelText};
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
   font-family: ${({ theme }) => theme.fonts.body};
-  ${({ $float }) => $float && 'position: absolute; left: 0; right: 0; bottom: 0; z-index: 2;'}
 `
+
+const PopupHead = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 6px 6px 12px;
+  background: ${({ theme }) => theme.table.alert};
+  font-weight: 700;
+
+  & > strong { font-family: ${({ theme }) => theme.fonts.cards}; font-size: 18px; }
+  & > span { flex: 1; font-size: 13px; opacity: 0.8; }
+`
+
+const PopupClose = styled.button`
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: inherit;
+  &:hover { background: ${({ theme }) => theme.table.shade}; }
+`
+
+const PopupText = styled.p`
+  margin: 0;
+  padding: 10px 12px 12px;
+  font-size: 15px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+`
+
+/** The explanation window, placed under the call (above it when there is no room below) */
+function AlertPopup({ call, anchor, who, onClose }: { call: AuctionCall; anchor: HTMLElement; who: string; onClose: () => void }) {
+  const t = useT()
+  const ref = useRef<HTMLDivElement>(null)
+  const [place, setPlace] = useState<{ left: number; top: number } | null>(null)
+
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const at = anchor.getBoundingClientRect()
+    const box = el.getBoundingClientRect()
+    const left = Math.max(8, Math.min(at.left + at.width / 2 - box.width / 2, window.innerWidth - box.width - 8))
+    const below = at.bottom + 6
+    const top = below + box.height <= window.innerHeight - 8 ? below : Math.max(8, at.top - box.height - 6)
+    setPlace({ left, top })
+  }, [anchor])
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
+    const onDown = (e: PointerEvent) => {
+      const target = e.target as Node
+      if (!ref.current?.contains(target) && !anchor.contains(target)) onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    window.addEventListener('pointerdown', onDown)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      window.removeEventListener('pointerdown', onDown)
+    }
+  }, [anchor, onClose])
+
+  return createPortal(
+    <Popup
+      ref={ref}
+      role="dialog"
+      aria-label={t.alert}
+      style={place ? { left: place.left, top: place.top } : { left: 0, top: 0, visibility: 'hidden' }}
+    >
+      <PopupHead>
+        <strong>
+          <CallLabel call={call.call} onCard />
+        </strong>
+        <span>
+          {t.alert} · {who}
+        </span>
+        <PopupClose type="button" onClick={onClose} aria-label={t.close}>
+          <X size={18} aria-hidden />
+        </PopupClose>
+      </PopupHead>
+      <PopupText>{call.alert || t.noExplanation}</PopupText>
+    </Popup>,
+    document.body,
+  )
+}
 
 export function AuctionBox({
   auction,
@@ -123,13 +231,14 @@ export function AuctionBox({
   width?: number
 }) {
   const t = useT()
-  const [open, setOpen] = useState<number | null>(null)
+  const [open, setOpen] = useState<{ index: number; anchor: HTMLElement } | null>(null)
   const order: Seat[] = [nextSeat(viewer, 1), nextSeat(viewer, 2), nextSeat(viewer, 3), viewer]
   const offset = order.indexOf(dealer)
   const cells: (AuctionCall | 'turn' | null)[] = [...Array(offset).fill(null), ...auction]
   if (turn) cells.push('turn')
   const rows = Array.from({ length: Math.max(1, Math.ceil(cells.length / 4)) }, (_, r) => cells.slice(r * 4, r * 4 + 4))
-  const explained = open !== null ? auction[open] : undefined
+  const explained = open ? auction[open.index] : undefined
+  const closePopup = useCallback(() => setOpen(null), [])
   const cellSize = auctionCell(size)
   const scroller = useRef<HTMLDivElement>(null)
 
@@ -168,16 +277,20 @@ export function AuctionBox({
                   const index = auction.indexOf(cell)
                   const alerted = cell.alert !== undefined
                   return (
-                    <Cell
-                      key={c}
-                      $size={cellSize}
-                      $call={cell.call}
-                      $alert={alerted}
-                      onClick={alerted ? () => setOpen(open === index ? null : index) : undefined}
-                      title={alerted ? cell.alert || t.alert : undefined}
-                    >
-                      <CallLabel call={cell.call} onCard />
-                      {alerted && <span className="visually-hidden">（Alert：{cell.alert}）</span>}
+                    <Cell key={c} $size={cellSize} $call={cell.call} $alert={alerted}>
+                      {alerted ? (
+                        <AlertButton
+                          type="button"
+                          aria-haspopup="dialog"
+                          aria-expanded={open?.index === index}
+                          onClick={(e) => setOpen(open?.index === index ? null : { index, anchor: e.currentTarget })}
+                        >
+                          <CallLabel call={cell.call} onCard />
+                          <span className="visually-hidden">（{t.alert}）</span>
+                        </AlertButton>
+                      ) : (
+                        <CallLabel call={cell.call} onCard />
+                      )}
                     </Cell>
                   )
                 })}
@@ -186,10 +299,13 @@ export function AuctionBox({
           </tbody>
         </Table>
       </Scroll>
-      {explained && (
-        <Explain $float={!!maxRows}>
-          <CallLabel call={explained.call} onCard />：{explained.alert || t.alert}
-        </Explain>
+      {explained && open && (
+        <AlertPopup
+          call={explained}
+          anchor={open.anchor}
+          who={`${seatLetter[explained.seat]}${names?.[explained.seat] ? ` ${names[explained.seat]}` : ''}`}
+          onClose={closePopup}
+        />
       )}
     </Box>
   )

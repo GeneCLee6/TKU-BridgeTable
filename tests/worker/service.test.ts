@@ -303,8 +303,10 @@ describe('finishing boards', () => {
   it('undoes a call when an opponent agrees', async () => {
     const { bySeat } = await fullTable()
     await send(bySeat.N, { type: 'call', call: '1H' })
+    expect(tableFor(bySeat.E).board!.canUndo).toBe(false)
     await send(bySeat.E, { type: 'undoRequest' })
-    expect(connections.last(bySeat.E, 'error')?.message).toBe('只能撤回自己剛做的動作')
+    expect(connections.last(bySeat.E, 'error')?.message).toBe('沒有可以撤回的動作')
+    expect(tableFor(bySeat.N).board!.canUndo).toBe(true)
     await send(bySeat.N, { type: 'undoRequest' })
     expect(tableFor(bySeat.E).board!.undo).toEqual({ seat: 'N' })
     await send(bySeat.S, { type: 'undoRespond', accept: true })
@@ -313,6 +315,17 @@ describe('finishing boards', () => {
     const view = tableFor(bySeat.N).board!
     expect(view.auction).toHaveLength(0)
     expect(view.turn).toBe('N')
+  })
+
+  it('takes back everything since your own last call, as on BBO', async () => {
+    const { bySeat } = await fullTable()
+    for (const [seat, call] of [['N', '1H'], ['E', 'P'], ['S', '2H']] as const) await send(bySeat[seat], { type: 'call', call })
+    // North may still undo after the others have called
+    expect(tableFor(bySeat.N).board!.canUndo).toBe(true)
+    await send(bySeat.N, { type: 'undoRequest' })
+    await send(bySeat.E, { type: 'undoRespond', accept: true })
+    expect(tableFor(bySeat.N).board!.auction).toHaveLength(0)
+    expect(tableFor(bySeat.N).board!.turn).toBe('N')
   })
 
   it('keeps table chat', async () => {
@@ -357,11 +370,32 @@ describe('robots at the table', () => {
     expect(done.board?.phase).toBe('finished')
     const history = (await club.history(gene, false)).boards
     expect(history).toHaveLength(1)
-    expect(history[0].players.N).toMatchObject({ username: 'Robot', robot: true })
+    // Gene sat South, or North if moved into a robot partner's declaring seat
+    const players = Object.values(history[0].players)
+    expect(players.filter((p) => p.robot)).toHaveLength(3)
+    expect(players.filter((p) => p.username === 'gene')).toHaveLength(1)
+    expect(['N', 'S']).toContain(SEATS.find((s) => history[0].players[s].username === 'gene'))
 
     // The next board comes by itself
     await dealNext()
     expect(tableFor(gene).board?.boardNo).toBe(2)
+  })
+
+  it('accept a person’s claim the cards allow, such as a concession', async () => {
+    const gene = await member('gene')
+    await send(gene, { type: 'createTable' })
+    for (const seat of ['N', 'E', 'W'] as const) await send(gene, { type: 'addRobot', seat })
+    for (let i = 0; i < 40 && tableFor(gene).board?.phase !== 'play'; i++) {
+      await runRobots()
+      const board = tableFor(gene).board!
+      if (board.legalCalls.length) await send(gene, { type: 'call', call: 'P' })
+      else if (board.phase === 'finished') await dealNext()
+    }
+    expect(tableFor(gene).board!.canClaim).toBe(true)
+    await send(gene, { type: 'claim', tricks: 0 })
+    await runRobots()
+    expect(tableFor(gene).board!.phase).toBe('finished')
+    expect(tableFor(gene).board!.result?.claimed).toBe(true)
   })
 
   it('give their seat to a person who sits down, and close with the last person', async () => {
@@ -409,6 +443,22 @@ describe('claims', () => {
     expect(Object.keys(tableFor(bySeat.W).board!.hands).sort()).toEqual(['E', 'N', 'S', 'W'])
     // The declarer still sees only their own hand (dummy is not down yet)
     expect(Object.keys(tableFor(bySeat.N).board!.hands)).toEqual(['N'])
+  })
+
+  it('may be made at any point of the play and says who turned it down', async () => {
+    const { bySeat } = await fullTable()
+    for (const [seat, call] of [['N', '1S'], ['E', 'P'], ['S', 'P'], ['W', 'P']] as const)
+      await send(bySeat[seat], { type: 'call', call })
+    expect(tableFor(bySeat.N).board!.canClaim).toBe(true)
+    expect(tableFor(bySeat.S).board!.canClaim).toBe(false)
+    // East leads; North claims in the middle of the trick, and West turns it down
+    await send(bySeat.E, { type: 'play', card: tableFor(bySeat.E).board!.legalCards[0] })
+    await send(bySeat.N, { type: 'claim', tricks: 13 })
+    await send(bySeat.W, { type: 'claimRespond', accept: false })
+    expect(tableFor(bySeat.E).board!.rejectedClaim).toEqual({ seat: 'N', tricks: 13, by: 'W' })
+    // The note goes with the next card
+    await send(bySeat.N, { type: 'play', card: tableFor(bySeat.N).board!.legalCards[0] })
+    expect(tableFor(bySeat.E).board!.rejectedClaim).toBeUndefined()
   })
 
   it('shows a defender’s claimed hand to everyone', async () => {

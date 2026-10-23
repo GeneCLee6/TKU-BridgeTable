@@ -59,8 +59,18 @@ describe('AuctionBox', () => {
     const rows = screen.getAllByRole('row')
     const cells = within(rows[1]).getAllByRole('cell')
     // W N E S: West and North are empty, East opened, South passed
-    expect(cells.map((c) => c.textContent)).toEqual(['', '', '1♣（Alert：2+）', 'Pass'])
+    expect(cells.map((c) => c.textContent)).toEqual(['', '', '1♣（Alert）', 'Pass'])
     expect(within(rows[2]).getAllByRole('cell')[0]).toHaveTextContent('?')
+  })
+
+  it('opens an alerted call’s explanation in a small window, and closes it', async () => {
+    wrap(<AuctionBox auction={[{ seat: 'E', call: '1C', alert: '2+ 張♣，12–21 點' }]} dealer="E" vul="None" names={{ E: 'Robot' }} />)
+    await userEvent.click(screen.getByRole('button', { name: /Alert/ }))
+    const popup = screen.getByRole('dialog', { name: 'Alert' })
+    expect(popup).toHaveTextContent('2+ 張♣，12–21 點')
+    expect(popup).toHaveTextContent('E Robot')
+    await userEvent.click(within(popup).getByRole('button', { name: '關閉' }))
+    expect(screen.queryByRole('dialog')).toBeNull()
   })
 })
 

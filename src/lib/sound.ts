@@ -1,11 +1,12 @@
 /**
- * Table sounds, made on the fly with the Web Audio API so there are no sound files to load. They
- * are built from filtered noise, like paper: a card is a faint slide followed by a crisp tap as it
- * lands, the deal is a riffle shuffle (dozens of tiny flicks) squared off with two taps, and your
- * turn is a soft two-note chime. Everything goes through one compressor, so nothing clips or
- * booms. Browsers only allow sound after the page has been clicked or typed in, so the audio
- * context is created (or resumed) on the first such gesture. Where Web Audio is missing (tests,
- * old browsers) nothing plays.
+ * Table sounds, made on the fly with the Web Audio API so there are no sound files to load, and
+ * modelled on BBO's. Cards are filtered noise, like paper: a played card is a quick swish that
+ * swells as it comes down and a crisp snap as it lands on the felt, the deal is a riffle shuffle
+ * (dozens of tiny flicks) squared off with two taps. Your turn is a soft wooden "dum", somewhere
+ * between a drum and a marimba, as on BBO. Everything goes through one compressor, so nothing
+ * clips or booms. Browsers only allow sound after the page has been clicked or typed in, so the
+ * audio context is created (or resumed) on the first such gesture. Where Web Audio is missing
+ * (tests, old browsers) nothing plays.
  */
 
 let context: AudioContext | null = null
@@ -82,17 +83,39 @@ function paper(
   source.start(at, Math.random() * (1 - length), length)
 }
 
-/** How long after the sound starts a played card lands (the table's glide takes about this long) */
-const LANDS_AFTER = 0.5
+/** How long after the card leaves the hand it lands: the table's 1.3 s glide is all but done by then */
+const LANDS_AFTER = 0.95
 
-/** A card played to the table: a faint slide while it travels, then a crisp, light tap as it lands */
+/** A short, soft knock: a low sine that drops in pitch as it dies away */
+function knock(ctx: AudioContext, at: number, frequency: number, peak: number, decay: number) {
+  const osc = ctx.createOscillator()
+  osc.type = 'sine'
+  osc.frequency.setValueAtTime(frequency, at)
+  osc.frequency.exponentialRampToValueAtTime(frequency * 0.6, at + decay)
+  const gain = ctx.createGain()
+  gain.gain.setValueAtTime(0.0001, at)
+  gain.gain.exponentialRampToValueAtTime(peak, at + 0.003)
+  gain.gain.exponentialRampToValueAtTime(0.0001, at + decay)
+  osc.connect(gain).connect(out(ctx))
+  osc.start(at)
+  osc.stop(at + decay + 0.02)
+}
+
+/**
+ * A card played to the table, as on BBO: high, airy noise swelling over the last 60 ms as the card
+ * comes down, then a crisp snap (mostly 4–8 kHz, gone in about 15 ms) with a little low body from
+ * the felt. Each card varies a touch, so a trick does not sound mechanical.
+ */
 export function playCardSound() {
   const ctx = ready()
   if (!ctx) return
-  const at = ctx.currentTime
-  paper(ctx, at, { low: 2500, high: 7500, peak: 0.025, attack: 0.18, hold: 0.12, decay: 0.2 })
-  paper(ctx, at + LANDS_AFTER, { low: 900, high: 6000, peak: 0.5, attack: 0.002, decay: 0.045 })
-  paper(ctx, at + LANDS_AFTER, { low: 300, high: 1200, peak: 0.1, attack: 0.002, decay: 0.03 })
+  const land = ctx.currentTime + LANDS_AFTER
+  const vary = 0.9 + Math.random() * 0.2
+  paper(ctx, land - 0.06, { low: 3000, high: 9000, peak: 0.1 * vary, attack: 0.058, decay: 0.004 })
+  paper(ctx, land, { low: 3500, high: 10000, peak: 0.55 * vary, attack: 0.001, decay: 0.014 })
+  paper(ctx, land, { low: 1200, high: 4000, peak: 0.16 * vary, attack: 0.001, decay: 0.022 })
+  paper(ctx, land + 0.012, { low: 4000, high: 9000, peak: 0.03, attack: 0.002, decay: 0.03 })
+  knock(ctx, land, 190 * vary, 0.06, 0.03)
 }
 
 /** A new board: a riffle shuffle, the cards flicking together, then squared off with two taps */
@@ -114,34 +137,58 @@ export function dealSound() {
   paper(ctx, at + span + 0.19, { low: 400, high: 3000, peak: 0.16, attack: 0.002, decay: 0.05 })
 }
 
-/** A soft bell note */
-function bell(ctx: AudioContext, at: number, frequency: number, peak: number, decay: number) {
+/** A sine overtone that rings briefly: `decay` is its time constant (seconds) */
+function overtone(ctx: AudioContext, at: number, frequency: number, peak: number, decay: number) {
+  const osc = ctx.createOscillator()
+  osc.type = 'sine'
+  osc.frequency.value = frequency
   const gain = ctx.createGain()
-  gain.gain.setValueAtTime(0.0001, at)
-  gain.gain.exponentialRampToValueAtTime(peak, at + 0.012)
-  gain.gain.exponentialRampToValueAtTime(0.0001, at + decay)
-  gain.connect(out(ctx))
-  for (const [multiple, level] of [
-    [1, 1],
-    [2, 0.18],
-    [3, 0.06],
-  ]) {
-    const osc = ctx.createOscillator()
-    osc.type = 'sine'
-    osc.frequency.value = frequency * multiple
-    const partial = ctx.createGain()
-    partial.gain.value = level
-    osc.connect(partial).connect(gain)
-    osc.start(at)
-    osc.stop(at + decay + 0.05)
-  }
+  gain.gain.setValueAtTime(0, at)
+  gain.gain.linearRampToValueAtTime(peak, at + 0.01)
+  gain.gain.setTargetAtTime(0, at + 0.01, decay)
+  osc.connect(gain).connect(out(ctx))
+  osc.start(at)
+  osc.stop(at + decay * 10)
 }
 
-/** Your turn: a gentle rising "ding-dong", so you hear it from another tab */
+/**
+ * Your turn, like BBO's: a soft wooden "dum", between a tom and a marimba. A low B (247 Hz) with a
+ * fast 40 Hz warble in pitch that gives it a drum's burr, two overtones off the harmonic series
+ * (546 and 848 Hz) that die away first, a faint thump underneath and a short, quiet tail. It rises
+ * in about 12 ms and falls by 20 dB in a quarter of a second.
+ */
 export function turnSound() {
   const ctx = ready()
   if (!ctx) return
-  const at = ctx.currentTime
-  bell(ctx, at, 784, 0.16, 0.7)
-  bell(ctx, at + 0.17, 1175, 0.13, 0.9)
+  const at = ctx.currentTime + 0.01
+  const end = at + 1.3
+
+  const tone = ctx.createOscillator()
+  tone.type = 'sine'
+  tone.frequency.value = 247
+  // The warble: ±27 Hz forty times a second, which puts sidebands 9 dB down at 207 and 287 Hz
+  const lfo = ctx.createOscillator()
+  lfo.frequency.value = 40
+  const depth = ctx.createGain()
+  depth.gain.value = 27
+  lfo.connect(depth).connect(tone.frequency)
+
+  const body = ctx.createGain()
+  body.gain.setValueAtTime(0, at)
+  body.gain.linearRampToValueAtTime(0.3, at + 0.012)
+  body.gain.setTargetAtTime(0, at + 0.012, 0.1)
+  const tail = ctx.createGain()
+  tail.gain.setValueAtTime(0, at)
+  tail.gain.linearRampToValueAtTime(0.011, at + 0.05)
+  tail.gain.setTargetAtTime(0, at + 0.05, 0.35)
+  tone.connect(body).connect(out(ctx))
+  tone.connect(tail).connect(out(ctx))
+  for (const osc of [tone, lfo]) {
+    osc.start(at)
+    osc.stop(end)
+  }
+
+  overtone(ctx, at, 546, 0.09, 0.07)
+  overtone(ctx, at, 848, 0.035, 0.09)
+  knock(ctx, at, 60, 0.16, 0.14)
 }

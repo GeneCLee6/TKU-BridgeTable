@@ -15,7 +15,7 @@ import { HandView } from '../components/HandView.tsx'
 import { SeatPlate, type SeatAction } from '../components/SeatPlate.tsx'
 import { ContractLabel } from '../components/Suit.tsx'
 import { ClaimPicker, FeltButton, FeltPanel, Prompt, ResultPanel } from '../components/TablePanels.tsx'
-import { TrickArea, TrickSpace, type CardOrigin, type Position } from '../components/TrickArea.tsx'
+import { COLLECT_MS, TrickArea, TrickSpace, type CardOrigin, type Position } from '../components/TrickArea.tsx'
 import { TrickPile } from '../components/TrickPile.tsx'
 import { Muted, PageMain } from '../components/ui.tsx'
 import { suitOrder } from '../lib/cards.ts'
@@ -264,38 +264,51 @@ function rotation(bottom: Seat): Record<Position, Seat> {
   return { bottom, left: nextSeat(bottom, 1), top: nextSeat(bottom, 2), right: nextSeat(bottom, 3) }
 }
 
-/** Whether `me` may ask to take back the most recent call or card */
-function canUndo(board: BoardView, me: Seat | null) {
-  if (!me || board.phase === 'finished' || board.claim || board.undo) return false
-  const played = board.tricks.flatMap((t) => t.cards)
-  if (played.length) {
-    // Dummy's cards belong to the declarer, as on the server
-    const seat = played.at(-1)!.seat
-    return seat === board.dummy ? board.contract?.declarer === me : seat === me
-  }
-  return board.auction.at(-1)?.seat === me
-}
-
 /**
- * The trick to show in the middle: a finished trick stays for a moment before it goes to the pile,
- * as BBO does, and the last trick of the board stays until the countdown starts (`holdLast`)
+ * The trick in the middle, as on BBO: a finished trick stays on the table until you click the
+ * table or its winner leads to the next trick (`leading`: your own card on its way counts), then
+ * its four cards go to the winner (`leaving`) and on to the pile in the corner. The last trick of
+ * the board stays until the countdown starts (`holdLast`).
  */
-function useShownTrick(board: BoardView | null, holdLast: boolean) {
+function useTrickTable(board: BoardView | null, holdLast: boolean, leading: boolean) {
+  const boardNo = board?.boardNo ?? 0
   const tricks = board?.tricks ?? []
   const current = tricks.at(-1)
   const completed = tricks.filter((t) => t.winner).length
-  // How many completed tricks have already been cleared from the table
-  const [cleared, setCleared] = useState(0)
+  // Finished tricks taken off the table so far, and the one on its way to its winner
+  const [collected, setCollected] = useState({ boardNo, count: 0 })
+  const [leaving, setLeaving] = useState<{ boardNo: number; index: number } | null>(null)
+  const taken = collected.boardNo === boardNo ? Math.min(collected.count, completed) : 0
+  const going = leaving && leaving.boardNo === boardNo && leaving.index < completed ? leaving : null
+
+  const takeAway = () => {
+    setCollected({ boardNo, count: completed })
+    setLeaving({ boardNo, index: completed - 1 })
+  }
+  // The winner led before anyone clicked: the trick goes now
+  const nextStarted = (!!current && !current.winner) || leading
+  if (board?.phase === 'play' && nextStarted && completed > 0 && taken < completed) takeAway()
 
   useEffect(() => {
-    const timer = setTimeout(() => setCleared(completed), 1400)
+    if (!going) return
+    const timer = setTimeout(() => setLeaving(null), COLLECT_MS)
     return () => clearTimeout(timer)
-  }, [completed])
+  }, [going])
 
-  if (!current) return null
-  if (board?.phase === 'finished') return holdLast ? current : null
-  if (current.winner && cleared >= completed) return null
-  return current
+  const finished = board?.phase === 'finished'
+  const waiting = board?.phase === 'play' && !!current?.winner && taken < completed
+  const shown = !current ? null : finished ? (holdLast ? current : null) : current.winner && !waiting ? null : current
+  const goingTrick = going ? tricks[going.index] : undefined
+  return {
+    shown,
+    leaving: goingTrick?.winner ? { cards: goingTrick.cards, winner: goingTrick.winner, key: `${boardNo}:${going!.index}` } : undefined,
+    /** The finished tricks already in the pile */
+    pile: tricks.filter((t) => t.winner).slice(0, finished ? completed - (holdLast ? 1 : 0) : waiting ? completed - 1 : going ? going.index : completed),
+    /** Clears a finished trick that is waiting on the table */
+    collect: () => {
+      if (waiting) takeAway()
+    },
+  }
 }
 
 /** The time, kept current a few times a second while `active` (for the countdown) */
@@ -593,8 +606,9 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
   const holdLast = playedOut && toDeal !== null && toDeal > DEAL_COUNTDOWN_MS
   const seconds = toDeal === null ? null : Math.max(1, Math.ceil(Math.min(toDeal, DEAL_COUNTDOWN_MS) / 1000))
 
-  const liveTrick = useShownTrick(board, holdLast)
-  let shownTrick: Trick | null = liveTrick
+  const leadingNow = !!pendingShown && (!board?.tricks.length || !!board.tricks.at(-1)!.winner)
+  const trickTable = useTrickTable(board, holdLast, leadingNow)
+  let shownTrick: Trick | null = trickTable.shown
   if (pendingShown && board?.phase === 'play') {
     const current = board.tricks.at(-1)
     const base = current && !current.winner ? current : { leader: pendingShown.seat, cards: [] }
@@ -695,8 +709,9 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
   }
 
   const remaining = board ? 13 - board.tricks.filter((x) => x.winner).length : 0
-  const atTrickBoundary = !!board && (board.tricks.length === 0 || !!board.tricks.at(-1)!.winner)
-  const canClaim = !!board && board.phase === 'play' && !!me && me !== board.dummy && !board.claim && atTrickBoundary && !pendingShown
+  // Undo and claim stay on the table for the whole board; the server says when each may be used
+  const canClaim = !!board && board.canClaim && !pendingShown
+  const canUndo = !!board && board.canUndo && !pendingShown
 
   const claimPrompt = () => {
     const claim = board?.claim
@@ -736,8 +751,16 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
   )
 
   const trickView = (trick: Trick | null) =>
-    trick ? (
-      <TrickArea cards={trick.cards} positionOf={positionOf} winner={trick.winner} width={sizes.trick} label={t.thisTrick} origin={origin} />
+    trick || trickTable.leaving ? (
+      <TrickArea
+        cards={trick?.cards ?? []}
+        positionOf={positionOf}
+        winner={trick?.winner}
+        width={sizes.trick}
+        label={t.thisTrick}
+        origin={origin}
+        leaving={trickTable.leaving}
+      />
     ) : (
       <TrickSpace $w={sizes.trick} />
     )
@@ -794,6 +817,12 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
           )}
           {claimPrompt()}
           {undoPrompt()}
+          {!board.claim && board.rejectedClaim && (
+            <Prompt
+              text={t.claimRejected(nameOf(board.rejectedClaim.by))}
+              detail={t.claimBy(nameOf(board.rejectedClaim.seat), board.rejectedClaim.tricks)}
+            />
+          )}
         </Overlay>
       </>
     )
@@ -803,7 +832,7 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
 
   return (
     <Layout>
-      <Felt ref={feltRef} $phone={sizes.phone} $sides={turnedSides ? sizes.sideThick : undefined}>
+      <Felt ref={feltRef} $phone={sizes.phone} $sides={turnedSides ? sizes.sideThick : undefined} onClick={trickTable.collect}>
         {dealing > 0 && dealing === boardNo && (
           <DealAnimation key={dealing} felt={feltRef} width={Math.round(sizes.side * 0.8)} />
         )}
@@ -859,7 +888,7 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
         <Area $area="tricks" $align="start" $justify="end">
           {board && board.phase !== 'auction' && (
             <TrickPile
-              tricks={holdLast ? board.tricks.slice(0, -1) : board.tricks}
+              tricks={trickTable.pile}
               side={sideOf(viewer)}
               positionOf={positionOf}
               width={sizes.bottom}
@@ -872,15 +901,21 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
           <Actions>
             {!me && <Note>{t.kibitzing}</Note>}
             {swapNotice && <Note role="status">{t.swappedToDeclare}</Note>}
-            {board && me && canUndo(board, me) && (
-              <FeltButton type="button" $tone="plain" onClick={() => send({ type: 'undoRequest' })}>
-                {t.undo}
-              </FeltButton>
-            )}
-            {canClaim && (
-              <FeltButton type="button" $tone="plain" onClick={() => setClaimingFor(claiming ? 0 : boardNo)}>
-                {t.claim}
-              </FeltButton>
+            {board && me && board.phase !== 'finished' && (
+              <>
+                <FeltButton type="button" $tone="plain" disabled={!canUndo} onClick={() => send({ type: 'undoRequest' })}>
+                  {t.undo}
+                </FeltButton>
+                <FeltButton
+                  type="button"
+                  $tone="plain"
+                  disabled={!canClaim}
+                  aria-expanded={claiming && canClaim}
+                  onClick={() => setClaimingFor(claiming ? 0 : boardNo)}
+                >
+                  {t.claim}
+                </FeltButton>
+              </>
             )}
           </Actions>
         </Area>

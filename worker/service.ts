@@ -5,7 +5,6 @@ import {
   claimApprovers,
   controllerOf,
   dummyOf,
-  lastActor,
   legalCards,
   makeCall,
   makeClaim,
@@ -14,7 +13,7 @@ import {
   remainingCards,
   respondToClaim,
   turnOf,
-  undoLast,
+  undoFor,
   type BoardState,
 } from '../shared/game.ts'
 import { AppError, type MessageCode, type MessageParams } from '../shared/messages.ts'
@@ -43,6 +42,7 @@ import {
   type TableWire,
 } from '../shared/protocol.ts'
 import { chooseCall } from '../shared/robot/bidding.ts'
+import { acceptsClaim } from '../shared/robot/claim.ts'
 import { chooseCard } from '../shared/robot/play.ts'
 import { hashPassword, randomId, SESSION_DAYS, verifyPassword } from './auth.ts'
 import type { Store } from './store.ts'
@@ -93,8 +93,11 @@ const CHAT_KEEP = 100
 /** Boards a table keeps for its History panel */
 const RECENT_KEEP = 30
 const SCHEMA = 2
-/** How long robots wait before acting, so people can follow the play */
-const ROBOT_DELAY = { call: 800, card: 700, afterTrick: 1500, answer: 400 }
+/**
+ * How long robots wait before acting, so people can follow the play: a card glides to the middle
+ * for 1.3 s, and a finished trick stays on the table until its winner leads again
+ */
+const ROBOT_DELAY = { call: 800, card: 1400, afterTrick: 3000, answer: 400 }
 const ROBOT_NAME = 'Robot'
 
 /**
@@ -651,6 +654,7 @@ export class ClubService {
   private dealBoard(table: Table) {
     table.board = newBoard(table.boardsPlayed + 1, deal(this.random))
     table.undo = undefined
+    table.rejectedClaim = undefined
     table.recordId = undefined
     table.dealAt = undefined
     table.swapped = undefined
@@ -671,6 +675,11 @@ export class ClubService {
     table.seats[declarer] = person
     table.seats[dummy] = ROBOT_PREFIX + dummy
     table.swapped = [declarer, dummy]
+  }
+
+  /** The seat a player bid from: a person moved into a robot partner's declaring seat bid from dummy's */
+  private auctionSeat(table: Table, seat: Seat): Seat {
+    return table.swapped && seat === table.swapped[0] ? table.swapped[1] : seat
   }
 
   /** Puts a swapped person back in their own seat (the auction was reopened by an undo) */
@@ -714,7 +723,7 @@ export class ClubService {
   }
 
   /** Applies one board action for a seat, from a person or a robot */
-  private async act(table: Table, seat: Seat, message: ClientMessage) {
+  private async act(table: Table, seat: Seat, message: ClientMessage, byRobot = false) {
     const board = table.board
     if (!board) throw new ClubError('noBoard')
 
@@ -728,6 +737,8 @@ export class ClubService {
           message.call,
           message.alert === undefined ? undefined : String(message.alert).slice(0, LIMITS.alertMax),
         )
+        // A robot's explanations are for everyone, its partner too, as GIB's are on BBO
+        if (byRobot) next = { ...next, auction: [...board.auction, { ...next.auction.at(-1)!, robot: true }] }
         break
       case 'play': {
         if (!isCard(message.card)) throw new ClubError('unknownCard')
@@ -740,15 +751,17 @@ export class ClubService {
       case 'claim':
         next = makeClaim(board, seat, Number(message.tricks))
         break
-      case 'claimRespond':
+      case 'claimRespond': {
+        const claim = board.claim
         next = respondToClaim(board, seat, Boolean(message.accept))
+        if (claim && !next.claim && next.phase !== 'finished') table.rejectedClaim = { seat: claim.seat, tricks: claim.tricks, by: seat }
         break
+      }
       case 'undoRequest': {
-        // During play the declarer may take back dummy's card; otherwise only one's own action
-        const actor = lastActor(board)
-        const mine = board.play.length ? actor && controllerOf(board, actor) === seat : actor === seat
-        if (!mine) throw new ClubError('undoOwnOnly')
-        if (board.claim) throw new ClubError('claimPending')
+        // Anyone may take back their own last call or card (and everything since), as on BBO;
+        // during the play the declarer's cards include dummy's
+        if (table.undo) return
+        undoFor(board, seat, this.auctionSeat(table, seat))
         table.undo = { seat }
         await this.save(table)
         return
@@ -759,7 +772,8 @@ export class ClubService {
         if (sameSide(undo.seat, seat)) throw new ClubError('undoByOpponent')
         table.undo = undefined
         if (message.accept) {
-          table.board = undoLast(board)
+          table.board = undoFor(board, undo.seat, this.auctionSeat(table, undo.seat))
+          table.rejectedClaim = undefined
           if (table.board.phase === 'auction') this.unswap(table)
         }
         await this.save(table)
@@ -769,8 +783,9 @@ export class ClubService {
         return
     }
 
-    // Any new action supersedes a pending undo request
+    // Any new action supersedes a pending undo request and the note about a rejected claim
     table.undo = undefined
+    if (message.type !== 'claimRespond') table.rejectedClaim = undefined
     table.board = next
     if (board.phase === 'auction' && next.phase === 'play') this.swapForDeclarer(table)
     if (next.phase === 'finished' && board.phase !== 'finished') {
@@ -801,7 +816,7 @@ export class ClubService {
     if (!board || board.phase === 'finished' || this.humansSeated(table) === 0) return null
     const robot = (seat: Seat | null | undefined): seat is Seat => !!seat && isRobotId(table.seats[seat])
 
-    // Robots agree to undo requests and accept claims
+    // Robots agree to undo requests, and accept a claim only if the cards make it good
     if (table.undo) {
       const answer = SEATS.find((s) => robot(s) && !sameSide(s, table.undo!.seat))
       if (answer) return { seat: answer, message: { type: 'undoRespond', accept: true }, delay: ROBOT_DELAY.answer }
@@ -809,7 +824,8 @@ export class ClubService {
     }
     if (board.claim) {
       const answer = claimApprovers(board, board.claim.seat).find((s) => robot(s) && !board.claim!.accepted.includes(s))
-      return answer ? { seat: answer, message: { type: 'claimRespond', accept: true }, delay: ROBOT_DELAY.answer } : null
+      if (!answer) return null
+      return { seat: answer, message: { type: 'claimRespond', accept: acceptsClaim(board, answer) }, delay: ROBOT_DELAY.answer }
     }
     const turn = turnOf(board)
     if (!turn) return null
@@ -845,7 +861,7 @@ export class ClubService {
     const move = this.robotMove(table)
     if (!move) return
     try {
-      await this.act(table, move.seat, move.message)
+      await this.act(table, move.seat, move.message, true)
     } catch (error) {
       // A robot move that turns out illegal must not stall the table: pass or play any legal card
       if (!(error instanceof AppError)) throw error
@@ -855,7 +871,7 @@ export class ClubService {
       const fallback: ClientMessage | null =
         board.phase === 'auction' ? { type: 'call', call: 'P' } : turn ? { type: 'play', card: legalCards(board, turn)[0] } : null
       if (!fallback) return
-      await this.act(table, move.seat, fallback)
+      await this.act(table, move.seat, fallback, true)
     }
     this.broadcast()
     this.scheduleRobots(table)
@@ -957,7 +973,14 @@ export class ClubService {
       seats: seatOccupants(table, (id) => this.publicUserById(id), (id) => isRobotId(id) || online.includes(id)),
       spectators: table.spectators.flatMap((id) => this.publicUserById(id) ?? []),
       mySeat,
-      board: table.board ? boardView(table.board, mySeat, { undo: table.undo, recordId: table.recordId }) : null,
+      board: table.board
+        ? boardView(table.board, mySeat, {
+            undo: table.undo,
+            recordId: table.recordId,
+            rejectedClaim: table.rejectedClaim,
+            auctionSeat: mySeat ? this.auctionSeat(table, mySeat) : undefined,
+          })
+        : null,
       boardsPlayed: table.boardsPlayed,
       dealAt: table.board?.phase === 'finished' && this.canDeal(table) ? (table.dealAt ?? null) : null,
       chat: table.chat,
