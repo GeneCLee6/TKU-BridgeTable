@@ -1,6 +1,7 @@
 import type { Call } from '../../auction.ts'
+import { union } from './combine.ts'
 import { fitsPattern, tokens, type Ctx } from './context.ts'
-import type { Book, Dynamic, Rule, System } from './spec.ts'
+import type { Book, Dynamic, Rule, Spec, System } from './spec.ts'
 
 /** Finding the rules of a system (`spec.ts`) for an auction */
 
@@ -42,4 +43,20 @@ export function callOf(rule: Rule, ctx: Ctx): Call | null {
   const call = resolve(rule.call, ctx) ?? null
   if (!call || !ctx.legal.has(call)) return null
   return call === 'P' && ctx.forced ? null : call
+}
+
+/**
+ * What each call would show if made now, as GIB explains a call before you make it: the rules for
+ * the auction that make that call, put together with `union`. Calls no rule makes are left out.
+ */
+export function meanings(system: System, ctx: Ctx): Map<Call, Spec> {
+  const byCall = new Map<Call, Spec[]>()
+  for (const rule of rulesFor(system, ctx)) {
+    const call = callOf(rule, ctx)
+    if (!call) continue
+    const list = byCall.get(call) ?? []
+    list.push(resolve(rule.shows, ctx) ?? {})
+    byCall.set(call, list)
+  }
+  return new Map([...byCall].map(([call, specs]) => [call, union(specs)]))
 }

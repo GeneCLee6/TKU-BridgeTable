@@ -1,14 +1,14 @@
-import type { AuctionCall, Call } from '../../auction.ts'
+import { seatToCall, type AuctionCall, type Call } from '../../auction.ts'
 import type { Vulnerability } from '../../board.ts'
 import type { Card, Seat } from '../../cards.ts'
 import { contextOf, emptyReading, type Ctx } from './context.ts'
 import { evaluate, fits } from './evaluate.ts'
-import { callOf, resolve, rulesFor } from './rules.ts'
+import { callOf, meanings, resolve, rulesFor } from './rules.ts'
 import type { Spec, System } from './spec.ts'
 
 /**
  * Runs a system (`spec.ts`): a robot's call is the first rule for the auction whose requirements
- * its hand meets, as GIB picks its "book bid".
+ * its hand meets, as GIB picks its "book bid"; an explanation is what the rules for a call show.
  */
 
 export interface Choice {
@@ -44,4 +44,10 @@ export function choose(
     return shows ? { call, shows } : { call }
   }
   return { call: 'P' }
+}
+
+/** What each legal call would show for the seat whose turn it is (the bidding box hints) */
+export function explain(system: System, auction: readonly AuctionCall[], dealer: Seat, vul: Vulnerability = 'None'): Map<Call, Spec> {
+  const seat = seatToCall(dealer, auction.length)
+  return meanings(system, contextFor(system, seat, auction, dealer, vul))
 }
