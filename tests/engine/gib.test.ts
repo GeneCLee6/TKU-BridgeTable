@@ -521,6 +521,49 @@ describe('Soloway jump shifts (§9)', () => {
   })
 })
 
+describe('slams (§10)', () => {
+  // 1♠–2NT (Jacoby), 3♠ (18+, no shortness): spades are agreed
+  const jacoby = '1S P 2N P 3S P'
+
+  it('asks with RKCB 4NT when the hands are worth a slam', () => {
+    expect(bidOver('KQ32 A32 AJ32 K2', jacoby)).toBe('4N')
+    expect(bidOver('KQ32 A32 QJ32 32', jacoby)).toBe('4S')
+  })
+
+  it('answers RKCB 0314', () => {
+    expect(bidOver('AKJ32 KQ2 QJ2 A2', `${jacoby} 4N P`)).toBe('5C')
+    expect(bidOver('AKQ32 K32 Q32 32', `${jacoby} 4N P`)).toBe('5S')
+    expect(bidOver('AKJ32 KQ2 QJ2 32', `${jacoby} 4N P`)).toBe('5H')
+  })
+
+  it('the asker bids the slam, signs off two keycards short, or asks for the queen', () => {
+    expect(bidOver('QJ32 A32 AK32 K2', `${jacoby} 4N P 5C P`)).toBe('6S')
+    expect(bidOver('J432 A32 AK32 K2', `${jacoby} 4N P 5C P`)).toBe('5D')
+    // Opener showed a minimum (4♠): 5♦ is one keycard, two are missing
+    expect(bidOver('Q432 KQ2 AQ32 KQ', '1S P 2N P 4S P 4N P 5D P')).toBe('5S')
+  })
+
+  it('answers the queen ask and the king ask', () => {
+    expect(bidOver('AKQ32 K32 QJ2 A2', `${jacoby} 4N P 5C P 5D P`)).toBe('5H')
+    expect(bidOver('AKJ32 K32 QJ2 A2', `${jacoby} 4N P 5C P 5D P`)).toBe('5S')
+    expect(bidOver('AKQ32 K32 QJ2 A2', `${jacoby} 4N P 5S P 5N P`)).toBe('6H')
+  })
+
+  it('uses DOPI over interference, answers Gerber, and leaves the decision to the asker', () => {
+    expect(bidOver('AKJ32 KQ2 QJ2 A2', `${jacoby} 4N 5C`)).toBe('X')
+    expect(bidOver('AQ2 KJ3 A54 K432', '1N P 4C P')).toBe('4S')
+    expect(bidOver('AKJ32 KQ2 QJ2 A2', `${jacoby} 4N P 5C P 6S P`)).toBe('P')
+  })
+
+  it('explains these calls the way GIB does', () => {
+    expect(meaning(jacoby, '4N')).toBe('RKCB 0314：有滿貫興趣，迫叫一圈')
+    expect(meaning(`${jacoby} 4N P`, '5C')).toBe('回答關鍵張：0 或 3 張關鍵張')
+    expect(meaning(`${jacoby} 4N P`, '5H')).toBe('回答關鍵張：2 或 5 張關鍵張，沒有王牌 Q')
+    expect(meaning(`${jacoby} 4N P 5C P`, '5D')).toBe('詢問王牌 Q：迫叫一圈')
+    expect(meaning('1N P 4C P', '4D')).toBe('回答關鍵張：0 或 4 張 A')
+  })
+})
+
 describe('when no book covers the auction (§11)', () => {
   const goal = (cards: string, calls: string) => {
     const { h, ctx } = situation(cards, calls)

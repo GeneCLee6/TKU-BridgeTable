@@ -34,6 +34,8 @@ export interface Ctx {
   theyVul: boolean
   /** What each player has shown so far (`infer`) */
   shown: Record<Role, Spec>
+  /** What each player's last call meant, if anything (to answer a convention: RKCB, a relay) */
+  said: Partial<Record<Role, Spec>>
   /** Pass is not allowed by agreement: partner forced, or we are in a game force below game */
   forced: boolean
   /** The last bid (not pass, double or redouble), if any */
@@ -45,13 +47,15 @@ export interface Ctx {
 /** What `infer` knows about the earlier calls */
 export interface Reading {
   shown: Record<Seat, Spec>
+  /** What each seat's last call meant */
+  said: Partial<Record<Seat, Spec>>
   /** How far each seat's last call forces its partner */
   forcing: Partial<Record<Seat, Spec['forcing']>>
   /** Seats whose side has agreed to play game */
   gameForce: Partial<Record<Seat, boolean>>
 }
 
-export const emptyReading = (): Reading => ({ shown: { N: {}, E: {}, S: {}, W: {} }, forcing: {}, gameForce: {} })
+export const emptyReading = (): Reading => ({ shown: { N: {}, E: {}, S: {}, W: {} }, said: {}, forcing: {}, gameForce: {} })
 
 export function roleOf(me: Seat, seat: Seat): Role {
   return seat === me ? 'me' : seat === partnerOf(me) ? 'partner' : seat === nextSeat(me) ? 'lho' : 'rho'
@@ -67,7 +71,11 @@ export function contextOf(seat: Seat, auction: readonly AuctionCall[], dealer: S
   const before = opened ? auction.slice(0, start) : auction
   const lastBid = turns.findLast((t) => isBid(t.call)) ?? null
   const shown = {} as Record<Role, Spec>
-  for (const s of SEATS) shown[roleOf(seat, s)] = reading.shown[s]
+  const said: Partial<Record<Role, Spec>> = {}
+  for (const s of SEATS) {
+    shown[roleOf(seat, s)] = reading.shown[s]
+    if (reading.said[s]) said[roleOf(seat, s)] = reading.said[s]
+  }
   return {
     seat,
     dealer,
@@ -82,6 +90,7 @@ export function contextOf(seat: Seat, auction: readonly AuctionCall[], dealer: S
     weVul: isVulnerable(vul, seat),
     theyVul: isVulnerable(vul, nextSeat(seat)),
     shown,
+    said,
     forced: isForced(seat, turns, lastBid, reading),
     last: lastBid,
     key: turns.map((t) => (t.ours ? t.call : `(${t.call})`)),

@@ -6,6 +6,7 @@ import { majors } from './majors.ts'
 import { minors } from './minors.ts'
 import { notrump } from './notrump.ts'
 import { openings } from './openings.ts'
+import { slamAnswers, slamAsks } from './slam.ts'
 import { soloway } from './soloway.ts'
 import { strong } from './strong.ts'
 
@@ -15,6 +16,20 @@ import { strong } from './strong.ts'
  */
 export const GIB: System = {
   id: 'gib',
-  books: [openings, ...notrump, ...strong, ...soloway, ...minors, ...majors, ...contested, ...defence, silent, fallback],
+  books: [
+    // Answers to the slam conventions come first, whatever the auction (§10)
+    ...slamAnswers,
+    openings,
+    ...notrump,
+    ...strong,
+    ...soloway,
+    ...minors,
+    ...majors,
+    ...contested,
+    ...defence,
+    ...slamAsks,
+    silent,
+    fallback,
+  ],
   emergency: forcedCall,
 }

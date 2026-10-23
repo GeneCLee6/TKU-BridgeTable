@@ -356,7 +356,7 @@ for (const x of UP) {
   books.push(
     { after: `(1${x})`, rules: overcalls(x, false), more: true },
     { after: `(1${x}) P (P)`, rules: overcalls(x, true), more: true },
-    { after: `(1${x}) X (P)`, rules: advanceDouble(x), more: true },
+    { after: [`(1${x}) X (P)`, `(1${x}) P (P) X (P)`], rules: advanceDouble(x), more: true },
     // Responsive doubles up to 3♠: a raise to two or three of their suit
     { after: [`(1${x}) X (2${x})`, `(1${x}) X (3${x})`], rules: responsive(x, null), more: true },
     { after: [`(1${x}) X (2${x}) X (P)`, `(1${x}) X (3${x}) X (P)`], rules: answerResponsive(x, null), more: true },

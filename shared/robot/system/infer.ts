@@ -58,6 +58,7 @@ export function read(system: System, auction: readonly AuctionCall[], dealer: Se
     const ctx = contextOf(seat, auction.slice(0, i), dealer, vul, reading)
     const spec = meanings(system, ctx).get(call)
     reading.forcing[seat] = spec?.forcing
+    reading.said[seat] = spec
     if (!spec) continue
     reading.shown[seat] = intersect(reading.shown[seat], spec)
     if (spec.forcing === 'game') reading.gameForce[seat] = reading.gameForce[partnerOf(seat)] = true

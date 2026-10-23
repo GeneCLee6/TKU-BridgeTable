@@ -66,6 +66,11 @@ const theirSuits = (ctx: Ctx) => bidStrains(ctx, 'theirs').filter((s): s is Suit
 function showsFor(ctx: Ctx, call: Call): Spec {
   if (call === 'X') return { name: 'penalty' }
   const strain = strainOf(call)
+  // Their suit, not shown naturally by us: a cue bid, strength and nothing about the suit
+  if (strain !== 'N' && theirSuits(ctx).includes(strain) && partnerLength(ctx, strain) < 3 && myLength(ctx, strain) < 4) {
+    const points = partnerPoints(ctx, false)
+    return { name: 'cue', tp: [Math.max(0, POINTS.game[0] - points), ANY], forcing: 'oneRound', artificial: true }
+  }
   const kind = levelKind(strain, levelOf(call))
   const notrump = strain === 'N'
   const partner = partnerPoints(ctx, notrump)
@@ -119,7 +124,8 @@ export function goalFor(h: Hand, ctx: Ctx): Goal | null {
   const fits = SUITS.filter((s) => total(s) >= 8).sort((a, b) => total(b) - total(a) || SUITS.indexOf(a) - SUITS.indexOf(b))
   const majorFit = fits.find(isMajor)
   const minorFit = fits.find(isMinor)
-  const ownSuit = SUITS.find((s) => h.len[s] >= 6 && h.quality[s] !== null && h.quality[s] !== 'biddable')
+  const theirs = theirSuits(ctx)
+  const ownSuit = SUITS.find((s) => !theirs.includes(s) && h.len[s] >= 6 && h.quality[s] !== null && h.quality[s] !== 'biddable')
 
   let strain: Strain = majorFit ?? (notrumpOk(h, ctx) ? 'N' : (minorFit ?? ownSuit ?? 'N'))
   const pointsIn = (st: Strain) => (st === 'N' ? h.hcp : h.tp) + partnerPoints(ctx, st === 'N')
@@ -210,7 +216,8 @@ export function forcedCall(h: Hand, ctx: Ctx): Call {
   const tries: Strain[] = [
     ...partnerSuits.filter((s) => h.len[s] >= 3),
     ...(notrumpOk(h, ctx) ? (['N'] as const) : []),
-    ...[...SUITS].sort((a, b) => h.len[b] - h.len[a]),
+    // Our own suits, never theirs
+    ...SUITS.filter((s) => !theirSuits(ctx).includes(s)).sort((a, b) => h.len[b] - h.len[a]),
     'N',
   ]
   for (const strain of tries) {
