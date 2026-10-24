@@ -1,16 +1,20 @@
 import { Eye, EyeOff, Lock, Plus } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, Navigate, useNavigate } from 'react-router-dom'
 import styled from 'styled-components'
 import type { Seat } from '../../shared/cards.ts'
+import type { ChallengeView } from '../../shared/challenge.ts'
 import type { TableSummary } from '../../shared/protocol.ts'
+import { api } from '../lib/api.ts'
+import { formatDateTime } from '../lib/format.ts'
+import { useAuth } from '../state/AuthContext.tsx'
 import { SidePanel } from '../components/SidePanel.tsx'
 import { TableSettingsDialog } from '../components/TableSettingsDialog.tsx'
 import { Button, Card, Muted, PageMain, PageTitle } from '../components/ui.tsx'
 import { useClub } from '../state/ClubContext.tsx'
 import { mobile } from '../styles/tokens.ts'
 import { playerName, seatLetter } from '../strings.ts'
-import { useT } from '../state/PreferencesContext.tsx'
+import { usePreferences, useT } from '../state/PreferencesContext.tsx'
 
 /** BBO's casual lobby, reduced to what a club needs: start a table, take a seat, or watch */
 
@@ -191,6 +195,87 @@ function TableTile({ table, onSit, onWatch }: { table: TableSummary; onSit: (sea
   )
 }
 
+const ChallengeRow = styled.li`
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  padding: 8px 0;
+
+  & + & { border-top: 1px solid ${({ theme }) => theme.colors.border}; }
+`
+
+const ChallengeCard = styled(Card)`
+  margin-bottom: 16px;
+`
+
+const ChallengeRows = styled.ul`
+  list-style: none;
+  margin: 0;
+  padding: 0;
+`
+
+/** Whether the member can play the challenge now: accepted, still open, boards left */
+function playable(c: ChallengeView, userId: string, now: number) {
+  const me = c.players.find((p) => p.userId === userId)
+  return (
+    !!me &&
+    me.status === 'accepted' &&
+    !me.knownDeals &&
+    me.played < c.boards &&
+    (c.status === 'pending' || c.status === 'active') &&
+    now < c.deadline
+  )
+}
+
+/**
+ * The challenges the member can play now, to start or carry on (`e7-t15`). The challenge pages,
+ * with answering, standings and the rest, come with C6 (`e7-t16`)
+ */
+function MyChallenges({ refresh, onPlay }: { refresh: unknown; onPlay: (id: string) => void }) {
+  const t = useT()
+  const { lang } = usePreferences()
+  const { user } = useAuth()
+  // When the list was fetched, which is also the time a deadline is checked against
+  const [fetched, setFetched] = useState<{ challenges: ChallengeView[]; at: number }>({ challenges: [], at: 0 })
+  useEffect(() => {
+    let live = true
+    api
+      .challenges()
+      .then((r) => live && setFetched({ challenges: r.challenges, at: Date.now() }))
+      .catch(() => {})
+    return () => {
+      live = false
+    }
+  }, [refresh])
+  if (!user) return null
+  const open = fetched.challenges.filter((c) => playable(c, user.id, fetched.at))
+  if (!open.length) return null
+  return (
+    <ChallengeCard as="section" aria-label={t.myChallenges}>
+      <strong>{t.myChallenges}</strong>
+      <ChallengeRows>
+        {open.map((c) => {
+          const me = c.players.find((p) => p.userId === user.id)!
+          const creator = c.players.find((p) => p.userId === c.creatorId)?.user?.username ?? '—'
+          return (
+            <ChallengeRow key={c.id}>
+              <span>
+                {t.challengeBy(creator)} · {t.challengeProgress(me.played, c.boards)} ·{' '}
+                <Muted as="span">{t.challengeDeadline(formatDateTime(c.deadline, lang))}</Muted>
+              </span>
+              <Button type="button" $small $variant="primary" onClick={() => onPlay(c.id)}>
+                {me.startedAt !== undefined ? t.resumeChallenge : t.startChallenge}
+              </Button>
+            </ChallengeRow>
+          )
+        })}
+      </ChallengeRows>
+    </ChallengeCard>
+  )
+}
+
 export function LobbyPage() {
   const t = useT()
   const { lobby, send, status } = useClub()
@@ -201,6 +286,7 @@ export function LobbyPage() {
 
   if (!lobby) return <PageMain>{status === 'open' ? t.loading : t.connecting}</PageMain>
   const here = lobby.myTableId
+  const myTable = lobby.tables.find((x) => x.id === here)
   if (follow && here && (follow.to ? here === follow.to : here !== follow.from))
     return <Navigate to={`/table/${here}`} />
 
@@ -232,12 +318,22 @@ export function LobbyPage() {
         )}
         {lobby.myTableId && (
           <Banner>
-            <span>{t.tableName(lobby.tables.find((x) => x.id === lobby.myTableId)?.number ?? 0)}</span>
+            {/* A challenge table is not in the lobby's list */}
+            <span>
+              {myTable ? t.tableName(myTable.number) : t.challenge}
+            </span>
             <Button as={Link} to={`/table/${lobby.myTableId}`} $small $variant="primary">
-              {t.backToTable}
+              {myTable ? t.backToTable : t.backToChallenge}
             </Button>
           </Banner>
         )}
+        <MyChallenges
+          refresh={lobby.myTableId}
+          onPlay={(challengeId) => {
+            setFollow({ from: lobby.myTableId })
+            send({ type: 'playChallenge', challengeId })
+          }}
+        />
         <section aria-label={t.tables}>
           {lobby.tables.length === 0 ? (
             <Card>

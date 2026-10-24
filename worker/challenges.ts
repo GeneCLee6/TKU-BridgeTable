@@ -144,6 +144,11 @@ export class ChallengeStore {
     })
   }
 
+  /** Runs several writes as one: all of them or none */
+  transaction<T>(fn: () => T): T {
+    return this.sql.transaction(fn)
+  }
+
   /** Saves a new challenge with its participants; it has no results yet */
   create(challenge: Challenge) {
     const c = challenge

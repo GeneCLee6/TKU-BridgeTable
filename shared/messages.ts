@@ -607,6 +607,38 @@ export const MESSAGES = {
     ja: 'もう誰かがプレーを始めたので取り消せません',
     ko: '이미 누군가 플레이를 시작해서 취소할 수 없습니다',
   },
+  challengeNotAccepted: {
+    zh: '先接受挑戰才能開打',
+    'zh-Hans': '先接受挑战才能开打',
+    en: 'Accept the challenge before you play it',
+    vi: 'Hãy nhận thử thách trước khi chơi',
+    ja: 'プレーする前にチャレンジを受けてください',
+    ko: '도전을 수락해야 플레이할 수 있습니다',
+  },
+  challengeDone: {
+    zh: '這個挑戰你已經打完了',
+    'zh-Hans': '这个挑战你已经打完了',
+    en: 'You have played every board of this challenge',
+    vi: 'Bạn đã chơi hết các ván của thử thách này',
+    ja: 'このチャレンジのボードはすべてプレーしました',
+    ko: '이 도전의 보드를 모두 플레이했습니다',
+  },
+  challengeTableFixed: {
+    zh: '挑戰牌桌不能觀看、換座位或改設定',
+    'zh-Hans': '挑战牌桌不能观看、换座位或改设置',
+    en: 'A challenge table has no kibitzers, and its seats and settings stay as they are',
+    vi: 'Bàn thử thách không cho xem, đổi chỗ hay đổi cài đặt',
+    ja: 'チャレンジのテーブルでは観戦、席の変更、設定の変更はできません',
+    ko: '도전 테이블에서는 관전, 자리 변경, 설정 변경을 할 수 없습니다',
+  },
+  challengeNoUndo: {
+    zh: '挑戰不能撤回',
+    'zh-Hans': '挑战不能撤回',
+    en: 'There is no undo in a challenge',
+    vi: 'Thử thách không cho hoàn tác',
+    ja: 'チャレンジでは取り消しはできません',
+    ko: '도전에서는 되돌리기를 할 수 없습니다',
+  },
 
   // HTTP
   boardGone: {
