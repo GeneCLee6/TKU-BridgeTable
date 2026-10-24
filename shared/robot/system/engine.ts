@@ -37,6 +37,12 @@ export function choose(
     const shows = resolve(rule.shows, ctx)
     return shows ? { call, shows } : { call }
   }
+  // Pass is not allowed and nothing fits: the system's emergency call, explained as any rule for it
+  const call = ctx.forced && system.emergency?.(hand, ctx)
+  if (call && ctx.legal.has(call)) {
+    const shows = meanings(system, ctx).get(call)
+    return shows ? { call, shows } : { call }
+  }
   return { call: 'P' }
 }
 

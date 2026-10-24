@@ -112,4 +112,17 @@ group('explain: every call before it is made', () => {
   it('knows nothing outside its books', () => {
     expect(explain(toy, auctionOf('1S P'), 'N').size).toBe(0)
   })
+
+  it('lets a later book add only the calls an earlier book does not make', () => {
+    const layered: System = {
+      id: 'gib',
+      books: [
+        { after: '1S (P)', rules: [{ call: '2S', shows: { len: { S: [3, 13] }, tp: [7, 10] } }], more: true },
+        { rules: [{ call: '2S', shows: { tp: [0, ANY] } }, { call: '3S', shows: { tp: [11, 12] } }] },
+      ],
+    }
+    const calls = explain(layered, auctionOf('1S P'), 'N')
+    expect(calls.get('2S')).toEqual({ len: { S: [3, 13] }, tp: [7, 10] })
+    expect(calls.get('3S')).toEqual({ tp: [11, 12] })
+  })
 })

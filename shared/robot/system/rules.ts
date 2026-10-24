@@ -24,12 +24,24 @@ export function bookFits(book: Book, ctx: Ctx): boolean {
   return !book.only || book.only(ctx)
 }
 
-/** The rules for this auction, in order: books that fit, up to the first that is the last word */
+/**
+ * The rules for this auction, in order: books that fit, up to the first that is the last word. A
+ * book that lets later books add rules (`more`) still has the last word on the calls it makes: the
+ * later books' rules for those calls are left out, so their meanings stay the book's.
+ */
 export function rulesFor(system: System, ctx: Ctx): Rule[] {
   const rules: Rule[] = []
+  const covered = new Set<Call>()
   for (const book of system.books) {
     if (!bookFits(book, ctx)) continue
-    rules.push(...book.rules)
+    const made: Call[] = []
+    for (const rule of book.rules) {
+      const call = resolve(rule.call, ctx)
+      if (call && covered.has(call)) continue
+      rules.push(rule)
+      if (call) made.push(call)
+    }
+    for (const call of made) covered.add(call)
     if (!book.more) break
   }
   return rules
@@ -38,11 +50,15 @@ export function rulesFor(system: System, ctx: Ctx): Rule[] {
 export const resolve = <T>(value: Dynamic<T> | undefined, ctx: Ctx): T | undefined =>
   typeof value === 'function' ? (value as (ctx: Ctx) => T)(ctx) : value
 
-/** The call a rule makes here, if it is legal (and not a pass when pass is not allowed) */
+/**
+ * The call a rule makes here, if it is legal. When pass is not allowed, the only pass left is one
+ * that leaves partner's double in for penalty
+ */
 export function callOf(rule: Rule, ctx: Ctx): Call | null {
   const call = resolve(rule.call, ctx) ?? null
   if (!call || !ctx.legal.has(call)) return null
-  return call === 'P' && ctx.forced ? null : call
+  if (call === 'P' && ctx.forced && resolve(rule.shows, ctx)?.name !== 'penalty') return null
+  return call
 }
 
 /**
