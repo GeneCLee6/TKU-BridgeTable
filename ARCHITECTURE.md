@@ -161,15 +161,15 @@ interface BoardState {
 
 ## 5.5 挑戰（決策紀錄，`e7-t01`，2026-10-24）
 
-挑戰（E7）：發起者邀請 1–20 位社員，每個人各自坐南、和三個同等級的機器人打同一組牌，打完比名次。這一節是 C2 定下的設計，後面的批次（C3–C9）照這裡做；要改設計先改這裡。
+挑戰（E7）：發起者邀請 1–20 位好友，每個人各自坐南、和三個同等級的機器人打同一組牌，打完比名次。這一節是 C2 定下的設計，後面的批次（C3–C9）照這裡做；要改設計先改這裡。
 
 **資料模型**（`worker/challenges.ts` 的 `Challenge`，型別與狀態在 `shared/challenge.ts`）：
 
 ```
 challenge（challenges 一列）
-  ├─ settings  計分、沒打完的副、機器人種類與等級、Best Hand、Just Declare、接受／完成天數、排名公開範圍（JSON）
+  ├─ settings  計分、沒打完的副、機器人種類與等級、Best Hand、Just Declare、截止天數、排名公開範圍（JSON）
   ├─ deals     DealSet：N 副的牌號與四手牌（shared/deal-set.ts，一副一行 PBN）
-  ├─ players   challenge_players：invited → accepted｜declined；開打、完成期限、完成時間、已知牌
+  ├─ players   challenge_players：invited → accepted｜declined；開打、完成時間、已知牌
   └─ results   challenge_results：人 × 副：牌局 id、南北分數、時間
 ```
 
@@ -179,15 +179,17 @@ challenge（challenges 一列）
 
 | 從 | 到 | 什麼時候 |
 | --- | --- | --- |
-| — | `pending` | 建立；發起者自動是 `accepted` |
-| `pending` | `active` | 接受的人（含發起者）到 2 人。之後到接受期限前，其他人仍可接受、接受後就能開打 |
-| `pending`／`active` | `cancelled` | 發起者取消，而且還沒有人開打（沒有任何一位有 `started_at`）；或帳號刪除後剩不到 2 位沒拒絕的人 |
-| `pending` | `expired` | 接受期限到時，接受的不到 2 人 |
-| `active` | `finished` | 每個受邀者都回覆了（或接受期限已過），而且每位接受者都打完或自己的完成期限到了；名次就此固定 |
+| — | `pending` | 建立；發起者自動是 `accepted`，**建立後就能先打** |
+| `pending` | `active` | 發起者以外有人接受；之後到截止時間前，其他人仍可接受，接受後就能打 |
+| `pending`／`active` | `cancelled` | 發起者取消，而且除了他以外還沒人開打（別人都沒有 `started_at`）；或帳號刪除後剩不到 2 位沒拒絕的人 |
+| `pending` | `expired` | 截止時間到時，除了發起者沒人接受 |
+| `active` | `finished` | 截止時間到；或每個受邀者都回覆了、每位接受者都打完；名次就此固定 |
 
-接受期限到時沒回覆的人算 `declined`。只有 `active` 才能打；`finished`、`cancelled`、`expired` 之後不再改動（`isOpenChallenge`）。
+截止時間到時沒回覆的人算 `declined`。發起者在 `pending` 與 `active` 都能打，其他人接受後才能打；`finished`、`cancelled`、`expired` 之後不再改動（`isOpenChallenge`）。這些規則是 2026-10-24 社長的決定（E7 PRD 的未決問題）。
 
-**期限**：接受期限 `accept_by` ＝ 建立時間＋`acceptDays`；每個人的完成期限 `finish_by` ＝ 他接受的時間＋`finishDays`（PRD 的「接受後 1–7 天」），所以最晚結束是 `accept_by + finishDays`。期限走統一排程器（§5）：每個進行中的挑戰一個 `challenge:<id>` 工作，排在它最近的一個期限（含 `e7-t07` 的 12 小時前提醒），到時重新判斷狀態再排下一個；工作不存，`load()` 用 `ChallengeStore.openIds()` 重排（`e7-t13`，`JobKind` 那時加 `challenge`）。
+**期限**：只有一個截止時間 `deadline` ＝ 建立時間＋`days`（1–7 天，`challengeDeadline`），所有人共用，回覆與打完都要在這之前。SQL 的欄名沿用 C2 建表時的 `accept_by`（表已在正式環境建立，不改名）；`challenge_players.finish_by` 不再使用，欄位留著是空的。期限走統一排程器（§5）：每個進行中的挑戰一個 `challenge:<id>` 工作，排在它最近的一個時間點（`e7-t07` 的 12 小時前提醒，或截止時間），到時重新判斷狀態再排下一個；工作不存，`load()` 用 `ChallengeStore.openIds()` 重排（`e7-t13`，`JobKind` 那時加 `challenge`）。
+
+**對象與牌組**（2026-10-24 社長決定）：只能邀請自己的好友（`worker/relations.ts`，被封鎖的不行），選人是可以搜尋的輸入框（`e7-t17`）；全社的每週挑戰（`e7-t23`）由管理員建立，不受這條限制。牌組**只用隨機牌**（`makeDealSet({ kind: 'random' })`，不用條件預設集），選項只有 Best Hand 與 Just Declare。唯一的例外是「用這副牌挑戰」（`e7-t22`）：發起者拿自己打過、可以先收藏的牌（`kind: 'given'`）挑戰別人，他不再打，建立時就把他當時的結果寫進 `challenge_results`（`known_deals = 1`），照樣計分、排名。他當時不一定坐南，所以牌組轉成讓他的座位變成南，結果也換成南北的角度。
 
 **挑戰牌桌**（`e7-t08`）：牌桌模式 `challenge`（`worker/modes.ts`），`modeState` 記挑戰 id、參與者與打到第幾副；`Table.dealSource` 是 `dealSourceOf(deals)`（`fixed`，整組牌只在伺服器的 `Table` 裡，§4）。一人一桌：真人坐南，北東西是設定裡同種類、同等級的機器人；不能觀看、不能撤回、不能換座位、大廳不列出。真人離開不關桌（「中途斷線視同暫停」，`e7-t12`），回來從下一副繼續。`boardFinished` 寫 `challenge_results`（同一副第二次寫入會被主鍵擋下，「每副只打一次」由資料庫保證）；`record` 加上 `mode=challenge`、`eventId`＝挑戰 id、`revealAt`。牌號、發牌者與身價照 `DealSetBoard.boardNo`（隨機牌組就是 1…N，照 16 副循環；「用這副牌挑戰」保留原牌號），C4 讓挑戰模式的發牌用它，不用 `boardsPlayed + 1`。
 
@@ -200,14 +202,14 @@ challenge（challenges 一列）
 - 牌局紀錄：寫入時 `revealAt` ＝ 最晚可能的結束時間；挑戰結束時改成實際結束時間（KV 的紀錄與 `boards_index.reveal_at`，依 `event_id`）。在那之前紀錄、搜尋都只給打的人（AC-4.9 現有的規則）。
 - 這些判斷寫成 `worker/views.ts` 的純函式（`e7-t14`），和 `recordVisible` 一樣在每個出口套用。
 
-**計分**：`scoreChallenge`（`shared/challenge-scoring.ts`）吃 `scores[參與者][副 − 1]`（南北分數，沒打是 null），參與者是所有 `accepted` 的人，`declined` 不算。結束前的「目前排名」用同一個函式、還沒打的副當沒打；已知牌的發起者（`knownDeals`）不放進比較，另外顯示他的分數。
+**計分**：`scoreChallenge`（`shared/challenge-scoring.ts`）吃 `scores[參與者][副 − 1]`（南北分數，沒打是 null），參與者是所有 `accepted` 的人，`declined` 不算。結束前的「目前排名」用同一個函式、還沒打的副當沒打；已知牌的發起者（`knownDeals`）用他當時的結果，一起比、一起排名。沒打完的副一律算最差分（`unfinished: 'worst'`，建立時不能選）。
 
 **儲存**：三張 SQL 表就是挑戰的正本（不像 §5.3 的索引可以從 KV 重建）。
 
 | 表 | 欄位 | 索引 |
 | --- | --- | --- |
 | `challenges` | `challenge_id`（主鍵）、`creator_id`、`created_at`、`status`、`accept_by`、`started_at`（變 `active` 的時間）、`ended_at`、`settings`（JSON）、`deals`（`encodeDealSet`） | `(status, accept_by)` |
-| `challenge_players` | `challenge_id`、`user_id`（主鍵兩欄）、`position`（邀請順序，發起者 0）、`status`、`invited_at`、`answered_at`、`started_at`、`finish_by`、`finished_at`、`known_deals` | `(user_id, challenge_id)` |
+| `challenge_players` | `challenge_id`、`user_id`（主鍵兩欄）、`position`（邀請順序，發起者 0）、`status`、`invited_at`、`answered_at`、`started_at`、`finish_by`（不再使用）、`finished_at`、`known_deals` | `(user_id, challenge_id)` |
 | `challenge_results` | `challenge_id`、`user_id`、`seq`（主鍵三欄；`seq` 是牌組裡第幾副）、`board_id`、`score_ns`、`played_at` | — |
 
 為什麼用 SQL、不用 KV：

@@ -16,11 +16,12 @@ export interface ChallengePlayer {
   answeredAt?: number
   /** Their first board was dealt; once anyone has started, the creator can no longer cancel */
   startedAt?: number
-  /** When their time to play runs out (accepted + `finishDays`) */
-  finishBy?: number
   /** They played every board */
   finishedAt?: number
-  /** They saw the deals before (「用這副牌挑戰」): shown in the standings but not ranked */
+  /**
+   * The creator of a challenge made from boards they already played (「用這副牌挑戰」): they do not
+   * play again, their results from those boards are copied in and ranked like everyone's
+   */
   knownDeals: boolean
 }
 
@@ -40,8 +41,9 @@ export interface Challenge {
   creatorId: string
   createdAt: number
   status: ChallengeStatus
-  acceptBy: number
-  /** When it became active */
+  /** The one deadline for answering and playing (`challengeDeadline`; column `accept_by`) */
+  deadline: number
+  /** When someone besides the creator accepted */
   startedAt?: number
   /** When it was finished, cancelled or expired */
   endedAt?: number
@@ -153,7 +155,7 @@ export class ChallengeStore {
         c.creatorId,
         c.createdAt,
         c.status,
-        c.acceptBy,
+        c.deadline,
         c.startedAt ?? null,
         c.endedAt ?? null,
         JSON.stringify(c.settings),
@@ -177,7 +179,8 @@ export class ChallengeStore {
       p.invitedAt,
       p.answeredAt ?? null,
       p.startedAt ?? null,
-      p.finishBy ?? null,
+      // finish_by: per-player deadlines were dropped for the one deadline; the column stays unused
+      null,
       p.finishedAt ?? null,
       p.knownDeals ? 1 : 0,
     ]
@@ -197,7 +200,6 @@ export class ChallengeStore {
           invitedAt: p.invited_at,
           ...optional('answeredAt', p.answered_at),
           ...optional('startedAt', p.started_at),
-          ...optional('finishBy', p.finish_by),
           ...optional('finishedAt', p.finished_at),
           knownDeals: p.known_deals === 1,
         }),
@@ -218,7 +220,7 @@ export class ChallengeStore {
       creatorId: row.creator_id,
       createdAt: row.created_at,
       status: row.status as ChallengeStatus,
-      acceptBy: row.accept_by,
+      deadline: row.accept_by,
       ...optional('startedAt', row.started_at),
       ...optional('endedAt', row.ended_at),
       settings: JSON.parse(row.settings) as ChallengeSettings,
@@ -259,7 +261,7 @@ export class ChallengeStore {
     else this.sql.exec('UPDATE challenges SET status = ?, ended_at = ? WHERE challenge_id = ?', status, at, id)
   }
 
-  /** Writes a participant's answer, start, deadline or finish */
+  /** Writes a participant's answer, start or finish */
   updatePlayer(id: string, player: ChallengePlayer) {
     this.sql.exec(
       `UPDATE challenge_players SET status = ?, invited_at = ?, answered_at = ?, started_at = ?, finish_by = ?,

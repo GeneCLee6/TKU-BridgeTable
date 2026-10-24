@@ -6,11 +6,17 @@ import type { RobotKind } from './protocol.ts'
  * Creating, inviting and answering are C3 (`e7-t05`, `e7-t06`); this file only names the states
  * and the settings so the server, its storage and later the pages agree on them.
  *
- * - `pending`: invitations are out; fewer than two participants have accepted yet
- * - `active`: two or more have accepted; those who did can play
- * - `finished`: everyone who accepted is done, or their time ran out; standings are final
- * - `cancelled`: the creator called it off before anyone started, or too few people are left
- * - `expired`: the accept deadline passed with fewer than two participants
+ * - `pending`: invitations are out and nobody but the creator has accepted yet; the creator can
+ *   already play
+ * - `active`: someone besides the creator accepted; everyone who accepted can play
+ * - `finished`: everyone who accepted is done, or the deadline passed; standings are final
+ * - `cancelled`: the creator called it off before anyone else started, or too few people are left
+ * - `expired`: the deadline passed and nobody but the creator accepted
+ *
+ * One deadline, counted from when the challenge is created, is for answering and for playing
+ * alike. Only friends are invited (`e1-t19`), and the deals are always dealt at random, with Best
+ * Hand or Just Declare as the only options, unless the creator challenges with boards they already
+ * played (「用這副牌挑戰」), whose own results then count (社長, 2026-10-24).
  */
 export const CHALLENGE_STATUSES = ['pending', 'active', 'finished', 'cancelled', 'expired'] as const
 export type ChallengeStatus = (typeof CHALLENGE_STATUSES)[number]
@@ -37,10 +43,8 @@ export interface ChallengeSettings {
   bestHand: boolean
   /** Robots bid; only boards the participant's side declares are kept (`e7-t11`) */
   justDeclare: boolean
-  /** Days the invited have to answer */
-  acceptDays: number
-  /** Days each participant has to play, from the moment they accept */
-  finishDays: number
+  /** Days from creation until the one deadline, for answering and for playing */
+  days: number
   ranking: RankingVisibility
 }
 
@@ -58,25 +62,20 @@ export const CHALLENGE_LIMITS = {
 
 const DAY_MS = 86_400_000
 
-/** The defaults of AC-7.1: IMPs one on one, matchpoints with more */
+/** The defaults of AC-7.1: IMPs one on one, matchpoints with more; an unplayed board scores worst */
 export function defaultChallengeSettings(invited: number): ChallengeSettings {
   return {
     scoring: invited > 1 ? 'mp' : 'imp',
-    unfinished: 'avgMinus',
+    unfinished: 'worst',
     robotKind: 'gib',
     robotLevel: 'open',
     bestHand: false,
     justDeclare: false,
-    acceptDays: CHALLENGE_LIMITS.daysDefault,
-    finishDays: CHALLENGE_LIMITS.daysDefault,
+    days: CHALLENGE_LIMITS.daysDefault,
     ranking: 'players',
   }
 }
 
-/** When the invited must have answered by */
-export const acceptDeadline = (createdAt: number, settings: ChallengeSettings) =>
-  createdAt + settings.acceptDays * DAY_MS
-
-/** When a participant must have played every board by */
-export const finishDeadline = (acceptedAt: number, settings: ChallengeSettings) =>
-  acceptedAt + settings.finishDays * DAY_MS
+/** The one deadline: everyone answers and plays every board by then */
+export const challengeDeadline = (createdAt: number, settings: ChallengeSettings) =>
+  createdAt + settings.days * DAY_MS

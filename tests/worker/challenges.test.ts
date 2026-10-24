@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it } from 'vitest'
-import { acceptDeadline, defaultChallengeSettings, finishDeadline } from '../../shared/challenge.ts'
+import { challengeDeadline, defaultChallengeSettings } from '../../shared/challenge.ts'
 import { makeDealSet } from '../../shared/deal-set.ts'
 import type { ServerMessage } from '../../shared/protocol.ts'
 import { ChallengeStore, type Challenge } from '../../worker/challenges.ts'
@@ -19,11 +19,11 @@ function challenge(id: string, creator: string, invited: string[], at = T0): Cha
     creatorId: creator,
     createdAt: at,
     status: 'pending',
-    acceptBy: acceptDeadline(at, settings),
+    deadline: challengeDeadline(at, settings),
     settings,
     deals: makeDealSet({ kind: 'random', count: 4 })!,
     players: [
-      { userId: creator, status: 'accepted', invitedAt: at, answeredAt: at, finishBy: finishDeadline(at, settings), knownDeals: false },
+      { userId: creator, status: 'accepted', invitedAt: at, answeredAt: at, knownDeals: false },
       ...invited.map((userId) => ({ userId, status: 'invited' as const, invitedAt: at, knownDeals: false })),
     ],
     results: [],
@@ -43,7 +43,7 @@ describe('challenge store', () => {
     store.create(c)
     expect(store.get('c1')).toEqual(c)
     expect(store.get('nope')).toBeNull()
-    expect(c.acceptBy).toBe(T0 + 3 * DAY)
+    expect(c.deadline).toBe(T0 + 3 * DAY)
     expect(c.settings.scoring).toBe('mp')
   })
 
