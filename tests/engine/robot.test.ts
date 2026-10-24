@@ -3,9 +3,13 @@ import { contractOf, type AuctionCall } from '../../shared/auction.ts'
 import { deal } from '../../shared/board.ts'
 import { fullDeck, nextSeat, type Card, type Hands, type Seat } from '../../shared/cards.ts'
 import { makeCall, newBoard, playCard, turnOf, type BoardState } from '../../shared/game.ts'
-import { chooseCall } from '../../shared/robot/bidding.ts'
+import { robotCall } from '../../shared/robot/robots.ts'
 import { chooseCard } from '../../shared/robot/play.ts'
 import { LIMITS } from '../../shared/protocol.ts'
+import { patternProblem } from '../../shared/robot/system/context.ts'
+import { describe as words } from '../../shared/robot/system/describe.ts'
+import { explain } from '../../shared/robot/system/engine.ts'
+import { TKU } from '../../shared/robot/system/tku/index.ts'
 
 function seeded(seed: number) {
   return (n: number) => {
@@ -18,7 +22,7 @@ function robotBoard(boardNo: number, hands: Hands): BoardState {
   let state = newBoard(boardNo, hands)
   while (state.phase === 'auction') {
     const seat = turnOf(state)!
-    const { call, alert } = chooseCall(state.hands[seat], seat, state.auction, state.dealer, state.vul)
+    const { call, alert } = robotCall('tku', state.hands[seat], seat, state.auction, state.dealer, state.vul)
     state = makeCall(state, seat, call, alert)
   }
   while (state.phase === 'play') {
@@ -39,7 +43,7 @@ function bidOver(cards: Card[], calls: string, dealer: Seat = 'N', vul: 'None' |
     .split(' ')
     .filter(Boolean)
     .map((call, i) => ({ seat: nextSeat(dealer, i), call }))
-  return chooseCall(cards, nextSeat(dealer, auction.length), auction, dealer, vul).call
+  return robotCall('tku', cards, nextSeat(dealer, auction.length), auction, dealer, vul).call
 }
 
 describe('robots play 300 random boards', () => {
@@ -72,8 +76,8 @@ describe('robots play 300 random boards', () => {
 
 describe('openings (淡江制度)', () => {
   it('1NT 15–17 without a five-card major', () => {
-    expect(chooseCall(hand('AQ2 KJ3 Q54 K432'), 'N', [], 'N').call).toBe('1N')
-    expect(chooseCall(hand('AQ2 KJ3 Q54 K432'), 'N', [], 'N').alert).toContain('15–17')
+    expect(robotCall('tku', hand('AQ2 KJ3 Q54 K432'), 'N', [], 'N', 'None').call).toBe('1N')
+    expect(robotCall('tku', hand('AQ2 KJ3 Q54 K432'), 'N', [], 'N', 'None').alert).toContain('15–17')
     // Five clubs is fine, five hearts is not
     expect(bidOver(hand('A2 KJ3 Q54 KQ432'), '')).toBe('1N')
     expect(bidOver(hand('A2 KJ432 Q54 KQ3'), '')).toBe('1H')
@@ -86,10 +90,10 @@ describe('openings (淡江制度)', () => {
   })
 
   it('5542: 1♦ promises four, 1♣ may be two', () => {
-    const short = chooseCall(hand('AK32 KQ32 432 32'), 'N', [], 'N')
-    expect(short).toEqual({ call: '1C', alert: expect.stringContaining('2+ 張♣') })
+    const short = robotCall('tku', hand('AK32 KQ32 432 32'), 'N', [], 'N', 'None')
+    expect(short).toMatchObject({ call: '1C', alert: expect.stringContaining('2+ 張♣') })
     expect(bidOver(hand('AK32 KQ32 Q432 2'), '')).toBe('1D')
-    expect(chooseCall(hand('AKJ32 K43 Q54 32'), 'N', [], 'N').alert).toBe('5+ 張♠，12–21 點')
+    expect(robotCall('tku', hand('AKJ32 K43 Q54 32'), 'N', [], 'N', 'None').alert).toBe('5+ 張♠，12–21 大牌點')
   })
 
   it('2♦ is a weak two in one major (一高弱二)', () => {
@@ -198,6 +202,50 @@ describe('competition', () => {
     expect(bidOver(hand('32 KQJ943 54 432'), '2D P 2N P')).toBe('3C')
     expect(bidOver(hand('KQJ943 32 A4 432'), '2D P 2N P')).toBe('3H')
     expect(bidOver(hand('KQJ943 32 54 432'), '2D P 2H P')).toBe('2S')
+  })
+})
+
+describe('the club’s rules in the system engine', () => {
+  /** What the club's robot partner reads from `call` made after these calls */
+  const reads = (calls: string, call: string, lang: 'zh' | 'en' = 'zh') => {
+    const auction = calls
+      .split(' ')
+      .filter(Boolean)
+      .map((c, i) => ({ seat: nextSeat('N', i), call: c }))
+    const spec = explain(TKU, auction, 'N').get(call)
+    return spec ? words(spec, lang) : undefined
+  }
+
+  it('write every auction pattern with the opponents in the right places', () => {
+    for (const book of TKU.books) {
+      const after = book.after === undefined ? [] : typeof book.after === 'string' ? [book.after] : book.after
+      for (const pattern of after) expect(patternProblem(pattern), pattern).toBeNull()
+    }
+  })
+
+  it('explain each call for the bidding box hints, in every language', () => {
+    expect(reads('1S P', '3C')).toBe('Bergen 加叫：4+ 張♠，10–11 大牌點')
+    expect(reads('1S P', '2N')).toBe('J2N：3+ 張♠，12+ 大牌點，迫叫成局')
+    expect(reads('1N P', '2D')).toBe('轉換：轉到♥，5+ 張♥')
+    expect(reads('1N P', '2C', 'en')).toBe('Stayman: asks for a 4-card major; 9+ HCP; forcing')
+    expect(reads('', '2D')).toBe('一高弱二：6–10 大牌點')
+    expect(reads('1H 2N', '3C')).toContain('對抗不尋常 2NT')
+    expect(reads('1H X 2H', 'X')).toBe('回答性賭倍：兩門低花，6–11 大牌點')
+    expect(reads('1N P', 'P')).toBe('0–7 大牌點')
+    // A call no rule makes means nothing in particular to the robot
+    expect(reads('1N P', '5C')).toBeUndefined()
+  })
+
+  it('keep what each robot call shows, for the alert in each viewer’s language', () => {
+    const bid = robotCall('tku', hand('KJ32 Q43 J54 A32'), 'S', [{ seat: 'N', call: '1S' }, { seat: 'E', call: 'P' }], 'N', 'None')
+    expect(bid.call).toBe('3C')
+    expect(bid.alert).toBe('Bergen 加叫：4+ 張♠，10–11 大牌點')
+    expect(words(bid.meaning!, 'en')).toBe('Bergen raise: 4+ ♠; 10–11 HCP')
+  })
+
+  it('read partner’s calls with the same rules in the later rounds', () => {
+    // 1NT–2♥ (transfer) 2♠ 2NT (five spades, 8–9): opener with 15 and three spades invites in spades
+    expect(bidOver(hand('KJ93 Q6 K54 AQ98'), '1N P 2H P 2S P 2N P')).toBe('3S')
   })
 })
 

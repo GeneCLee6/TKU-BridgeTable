@@ -4,10 +4,10 @@ type RobotRules = typeof import('./robotRules.ts')
 
 let loading: Promise<RobotRules> | null = null
 
-/** Loads the 2/1 robot's rules once, the first time a table needs them */
+/** Loads the robots' rules once, the first time a table needs them */
 export const loadRobotRules = () => (loading ??= import('./robotRules.ts'))
 
-/** The 2/1 robot's rules when `needed`, once loaded (null until then) */
+/** The robots' rules when `needed`, once loaded (null until then) */
 export function useRobotRules(needed: boolean): RobotRules | null {
   const [rules, setRules] = useState<RobotRules | null>(null)
   useEffect(() => {
