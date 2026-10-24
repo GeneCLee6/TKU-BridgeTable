@@ -38,3 +38,44 @@ jobs:
 
       - name: Production build
         run: npm run build
+
+  # e6-t17: on a pull request that changes the robots (shared/robot/) or the platform (eval/), this
+  # branch's robots play the base branch's on the 200-board quick set; the job fails when this branch
+  # is worse by more than 2 standard errors and 0.25 IMP/board (eval/README.md). The report is the
+  # job summary. The platform needs no npm packages, so there is no install.
+  robot-eval:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      BASE_REF: ${{ github.base_ref }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Did the robots change?
+        id: changes
+        run: |
+          if git diff --quiet "origin/$BASE_REF...HEAD" -- shared/robot eval; then
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "No change to shared/robot/ or eval/: the robot evaluation gate is skipped." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check out the base branch into base/
+        if: steps.changes.outputs.run == 'true'
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.base_ref }}
+          path: base
+
+      - uses: actions/setup-node@v7
+        if: steps.changes.outputs.run == 'true'
+        with:
+          node-version: '22'
+
+      - name: This branch's robots against the base's (quick set)
+        if: steps.changes.outputs.run == 'true'
+        run: npm run eval:gate -- --base base

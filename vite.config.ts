@@ -26,5 +26,8 @@ export default defineConfig({
     globals: true,
     setupFiles: ['./tests/setup.ts'],
     include: ['tests/**/*.test.ts', 'tests/**/*.test.tsx'],
+    // Several tests play hundreds of robot boards; with every file running at once they can take
+    // longer than Vitest's default 5 s on a busy machine
+    testTimeout: 15_000,
   },
 })

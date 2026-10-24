@@ -137,6 +137,10 @@
 
 `tests/worker/service.test.ts` 用一位真人加三個機器人打完整副，確認伺服器排程、紀錄與自動發下一副都正確；機器人接受真人的讓墩攤牌。
 
+**評測平台**（`eval/`，[`eval/README.md`](eval/README.md)，`e6-t15`～`e6-t17`）：兩組機器人設定在固定牌組（種子 `tku-eval-v1`，5,000 副，快速版是前 200 副）上兩桌換位對打，報告 IMP／副、標準誤、MP 與合約統計，例如 `npm run eval -- --a tku:college --b tku:beginner`；`@目錄` 用另一份 checkout 的機器人，`,play=目錄` 只換出牌（§3.3 那種「同一個合約只換出牌」的比較）。改到 `shared/robot/` 的 PR，CI 的 `robot-eval` 讓這個分支的機器人對 main 的打快速版（兩種機器人 × 大專、初學者），差超過 2 個標準誤且超過 0.25 IMP／副就失敗，報告在 job summary。`tests/eval/eval.test.ts` 檢查 IMP、標準誤、MP 的算法、牌組可重現與指紋、同一設定對自己每副 0 IMP。
+
+第一次量（快速版 200 副，A 大專對 B 初學者）：淡江 **+0.99 ± 0.36** IMP／副（MP 60.5%）、2/1 **+1.10 ± 0.33**（MP 59.8%）；全部 5,000 副是淡江 +1.26 ± 0.07、2/1 +1.26 ± 0.07。等級校準（`e6-t22`）照這個方法做。
+
 ## 5. 修改規則
 
 1. 改 `shared/robot/system/tku/` 裡對應的規則書（叫牌）或 `play.ts`（出牌）。`when` 寫手牌條件、`shows` 寫叫品的意義；約定名稱用淡江橋譜的叫法，新的名稱加在 `spec.ts` 的 `CONVENTIONS` 與 `describe.ts` 的六種語言。
