@@ -26,13 +26,18 @@ TKU-BridgeTable/
 │  ├─ cards.ts             牌、花色、座位
 │  ├─ board.ts             發牌、發牌者、身價循環、密碼學亂數
 │  ├─ deal-source.ts       牌從哪裡來：每副重洗（random）或指定牌組（fixed）
+│  ├─ dealer.ts            條件發牌：每家點力、各門張數、平均牌型、一方合計點力；先抽張數再發牌，抽不到會回報
+│  ├─ deal-presets.ts      條件預設集：1NT 開叫、高花開叫、滿貫、競叫、阻擊（南家的角度）
 │  ├─ auction.ts           叫品、合法叫品、叫牌結束、合約與莊家
 │  ├─ game.ts              一副牌的狀態機：叫牌 → 出牌 → 結束；攤牌、撤回
 │  ├─ scoring.ts           複式計分
+│  ├─ imp.ts               WBF IMP 表（挑戰與隊制賽共用）
+│  ├─ challenge-scoring.ts 挑戰的計分：IMP、總分、MP、Cross-IMP、沒打完的副、同分名次
+│  ├─ history-query.ts     紀錄搜尋的條件型別、解析與網址字串
 │  ├─ lin.ts               BBO LIN 匯出與 Handviewer 連結
 │  ├─ messages.ts          錯誤代碼與六種語言的訊息
 │  ├─ protocol.ts          HTTP／WebSocket 的訊息與畫面型別
-│  └─ robot/               機器人：robots（兩種機器人與各自的叫牌）、hand（牌型分析）、bidding（淡江制度）、
+│  └─ robot/               機器人：robots（兩種機器人與各自的叫牌）、hand（牌型分析）、
 │                          play（坐莊、防守信號）、system/（制度引擎與 2/1 制度：規則書、GIB 的牌力、說明、推論，
 │                          `ROBOT.md` §6）
 ├─ worker/
@@ -42,6 +47,8 @@ TKU-BridgeTable/
 │  ├─ book.ts              BookService：淡江橋譜的線上內容、版本、匯入草稿與憑證
 │  ├─ importer.ts          淡江橋譜的 AI 匯入：Claude 的提示、回覆 schema、串流
 │  ├─ views.ts             每位觀看者可見的牌桌畫面（可見性規則）
+│  ├─ history-index.ts     紀錄的 SQL 索引：建表、寫入、搜尋（§5.3）
+│  ├─ notifications.ts     通知中心（§5.4）
 │  ├─ modes.ts             牌桌模式與三個掛勾（發新一副、一副結束、寫紀錄）
 │  ├─ scheduler.ts         統一排程器：機器人、自動發牌、之後的計時都走同一個 alarm 佇列
 │  ├─ auth.ts              PBKDF2 密碼雜湊、session cookie
