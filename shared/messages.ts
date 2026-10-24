@@ -387,6 +387,22 @@ export const MESSAGES = {
     ja: '自分のアカウントにはできません',
     ko: '자신의 계정에는 할 수 없습니다',
   },
+  unblockFirst: {
+    zh: '請先解除封鎖，才能加為好友',
+    'zh-Hans': '请先解除屏蔽，才能加为好友',
+    en: 'Unblock this member before adding them as a friend',
+    vi: 'Hãy bỏ chặn thành viên này trước khi kết bạn',
+    ja: 'フレンドに追加する前にブロックを解除してください',
+    ko: '친구로 추가하려면 먼저 차단을 해제하세요',
+  },
+  blockedByHost: {
+    zh: '房主不讓你加入這一桌',
+    'zh-Hans': '房主不让你加入这一桌',
+    en: 'The host does not allow you at this table',
+    vi: 'Chủ bàn không cho bạn vào bàn này',
+    ja: 'ホストがこのテーブルへの参加を許可していません',
+    ko: '호스트가 이 테이블 참가를 허용하지 않습니다',
+  },
   lastAdmin: {
     zh: '至少要保留一位管理員',
     'zh-Hans': '至少要保留一位管理员',

@@ -195,6 +195,10 @@ export interface LobbyView {
   tables: TableSummary[]
   /** The table the current user is seated at or watching */
   myTableId: string | null
+  /** Ids of the members the viewer follows (好友, one-way: nobody is asked); `members` lists them first */
+  friends: string[]
+  /** Ids of the members the viewer blocked: their chat is hidden from the viewer, and they cannot join a table the viewer hosts */
+  blocked: string[]
 }
 
 /**
@@ -246,6 +250,10 @@ export type ClientMessage =
   | { type: 'chat'; text: string }
   /** Marks these notifications read, or all of them when `ids` is left out */
   | { type: 'readNotifications'; ids?: string[] }
+  /** Follows another member (好友) or stops following them; one-way, they are not asked */
+  | { type: 'setFriend'; userId: string; friend: boolean }
+  /** Blocks or unblocks another member; blocking also stops following them */
+  | { type: 'setBlocked'; userId: string; blocked: boolean }
 
 export type ServerMessage =
   | { type: 'welcome'; me: Me }

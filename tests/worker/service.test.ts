@@ -845,6 +845,151 @@ describe('notifications', () => {
   })
 })
 
+describe('friends and blocks (AC-1.6)', () => {
+  const lobby = (userId: string) => connections.last(userId, 'lobby')!.lobby
+  const error = (userId: string) => connections.last(userId, 'error')?.code
+
+  it('follows one way, puts friends on top of the People list, and survives a reload', async () => {
+    await founder('admin')
+    const amy = await member('amy')
+    const ben = await member('ben')
+    const zoe = await member('zoe')
+    expect(lobby(amy).members.filter((m) => m.online).map((m) => m.username)).toEqual(['amy', 'ben', 'zoe'])
+
+    await send(amy, { type: 'setFriend', userId: zoe, friend: true })
+    expect(lobby(amy).friends).toEqual([zoe])
+    expect(lobby(amy).members.filter((m) => m.online).map((m) => m.username)).toEqual(['zoe', 'amy', 'ben'])
+    // Nobody is asked or told: zoe's own lists and order stay as they were
+    expect(lobby(zoe).friends).toEqual([])
+    expect(lobby(zoe).members.filter((m) => m.online).map((m) => m.username)).toEqual(['amy', 'ben', 'zoe'])
+    expect(await store.get(`friend:${amy}:${zoe}`)).toEqual({ at: time })
+
+    // Saying it twice changes nothing
+    await send(amy, { type: 'setFriend', userId: zoe, friend: true })
+    expect(lobby(amy).friends).toEqual([zoe])
+
+    const reloaded = new ClubService(store, connections, { maxUsers: 10 })
+    await reloaded.load()
+    expect(reloaded.lobbyView(amy).friends).toEqual([zoe])
+    expect(reloaded.lobbyView(ben).friends).toEqual([])
+
+    await send(amy, { type: 'setFriend', userId: zoe, friend: false })
+    expect(lobby(amy).friends).toEqual([])
+    expect(await store.get(`friend:${amy}:${zoe}`)).toBeUndefined()
+  })
+
+  it('refuses oneself, robots, unknown members and malformed requests', async () => {
+    await founder('admin')
+    const amy = await member('amy')
+    await send(amy, { type: 'setFriend', userId: amy, friend: true })
+    expect(error(amy)).toBe('notSelf')
+    await send(amy, { type: 'setBlocked', userId: amy, blocked: true })
+    expect(error(amy)).toBe('notSelf')
+    await send(amy, { type: 'setFriend', userId: 'nobody', friend: true })
+    expect(error(amy)).toBe('userGone')
+    await send(amy, { type: 'setBlocked', userId: 'robot:tku:N', blocked: true })
+    expect(error(amy)).toBe('userGone')
+    await send(amy, { type: 'setFriend', userId: 42 as never, friend: true })
+    expect(error(amy)).toBe('userGone')
+    const ben = await member('ben')
+    await send(amy, { type: 'setFriend', userId: ben, friend: 'yes' as never })
+    expect(error(amy)).toBe('unknownCommand')
+    await send(amy, { type: 'setBlocked', userId: ben, blocked: 1 as never })
+    expect(error(amy)).toBe('unknownCommand')
+    expect(lobby(amy)).toMatchObject({ friends: [], blocked: [] })
+    expect(await store.list('friend:')).toEqual(new Map())
+    expect(await store.list('block:')).toEqual(new Map())
+  })
+
+  it('blocking overrides friendship: it unfollows, and following again needs an unblock', async () => {
+    await founder('admin')
+    const amy = await member('amy')
+    const ben = await member('ben')
+    await send(amy, { type: 'setFriend', userId: ben, friend: true })
+    await send(ben, { type: 'setFriend', userId: amy, friend: true })
+
+    await send(amy, { type: 'setBlocked', userId: ben, blocked: true })
+    expect(lobby(amy)).toMatchObject({ friends: [], blocked: [ben] })
+    expect(await store.get(`block:${amy}:${ben}`)).toEqual({ at: time })
+    // Ben is not told, and his own following of amy is his to keep
+    expect(lobby(ben)).toMatchObject({ friends: [amy], blocked: [] })
+
+    await send(amy, { type: 'setFriend', userId: ben, friend: true })
+    expect(error(amy)).toBe('unblockFirst')
+    expect(lobby(amy).friends).toEqual([])
+
+    await send(amy, { type: 'setBlocked', userId: ben, blocked: false })
+    expect(lobby(amy).blocked).toEqual([])
+    await send(amy, { type: 'setFriend', userId: ben, friend: true })
+    expect(lobby(amy).friends).toEqual([ben])
+  })
+
+  it('hides a blocked member’s table chat from the blocker only, until unblocked', async () => {
+    await founder('admin')
+    const amy = await member('amy')
+    const ben = await member('ben')
+    const cat = await member('cat')
+    await send(amy, { type: 'createTable' })
+    const tableId = tableFor(amy).id
+    await send(ben, { type: 'joinTable', tableId })
+    await send(cat, { type: 'joinTable', tableId })
+    await send(cat, { type: 'setBlocked', userId: ben, blocked: true })
+
+    await send(ben, { type: 'chat', text: 'hello from ben' })
+    await send(amy, { type: 'chat', text: 'hi' })
+    expect(tableFor(cat).chat.map((m) => m.text)).toEqual(['hi'])
+    expect(tableFor(amy).chat.map((m) => m.text)).toEqual(['hello from ben', 'hi'])
+    expect(tableFor(ben).chat.map((m) => m.text)).toEqual(['hello from ben', 'hi'])
+    // The browser of the blocker is never sent the message at all
+    const sentToCat = connections.inbox.get(cat)!.flatMap((m) => (m.type === 'table' ? (m.table?.chat ?? []) : []))
+    expect(sentToCat.some((m) => m.userId === ben)).toBe(false)
+
+    await send(cat, { type: 'setBlocked', userId: ben, blocked: false })
+    expect(tableFor(cat).chat.map((m) => m.text)).toEqual(['hello from ben', 'hi'])
+  })
+
+  it('keeps a member the host blocked away from the host’s table, to watch or to sit', async () => {
+    await founder('admin')
+    const amy = await member('amy')
+    const ben = await member('ben')
+    const cat = await member('cat')
+    await send(amy, { type: 'setBlocked', userId: ben, blocked: true })
+    await send(amy, { type: 'createTable' })
+    const tableId = tableFor(amy).id
+
+    await send(ben, { type: 'joinTable', tableId })
+    expect(error(ben)).toBe('blockedByHost')
+    await send(ben, { type: 'sit', tableId, seat: 'N' })
+    expect(error(ben)).toBe('blockedByHost')
+    expect(connections.table(ben)).toBeNull()
+    expect(lobby(amy).tables[0].seats.N).toBeNull()
+
+    // Others are welcome, and ben may host and join other tables
+    await send(cat, { type: 'sit', tableId, seat: 'N' })
+    expect(tableFor(cat).mySeat).toBe('N')
+    await send(ben, { type: 'createTable' })
+    expect(tableFor(ben).hostId).toBe(ben)
+
+    // Blocking only one way: amy may still join ben's table
+    await send(amy, { type: 'joinTable', tableId: tableFor(ben).id })
+    expect(tableFor(amy).id).toBe(tableFor(ben).id)
+  })
+
+  it('go with a deleted account, on both sides', async () => {
+    const admin = (await founder('admin')).user.id
+    const amy = await member('amy')
+    const ben = await member('ben')
+    await send(amy, { type: 'setFriend', userId: ben, friend: true })
+    await send(ben, { type: 'setBlocked', userId: amy, blocked: true })
+    await send(ben, { type: 'setFriend', userId: admin, friend: true })
+
+    await club.adminDeleteUser(admin, amy)
+    expect(await store.list('friend:')).toEqual(new Map([[`friend:${ben}:${admin}`, { at: time }]]))
+    expect(await store.list('block:')).toEqual(new Map())
+    expect(lobby(ben)).toMatchObject({ friends: [admin], blocked: [] })
+  })
+})
+
 describe('permissions', () => {
   it('lets admins grant TKU BridgeBook editing and import; admins have both', async () => {
     const admin = (await founder('admin')).user
