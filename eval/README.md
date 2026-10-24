@@ -53,7 +53,7 @@ npm run eval:gate -- --base ../main                           # CI 門檻（見�
 
 ## CI 門檻（`gate.ts`，`e6-t17`）
 
-`.github/workflows/ci.yml` 的 `robot-eval`：pull request 改到 `shared/robot/` 或 `eval/` 時，把目標分支（main）checkout 到 `base/`，這個分支的機器人對 main 的機器人打快速版 200 副，兩種機器人各打大專與初學者四場。
+`.github/workflows/ci.yml` 的 `robot-eval`：pull request 改到 `shared/`（機器人和它們依照的引擎）或 `eval/` 時，把目標分支（main）checkout 到 `base/`，這個分支的機器人對 main 的機器人打快速版 200 副，兩種機器人各打大專與初學者四場。
 
 **規則**：任何一場 A（這個分支）比 B（main）**差超過 2 個標準誤，而且差超過 0.25 IMP／副**，就失敗（`stats.ts` 的 `regressed`）。
 
