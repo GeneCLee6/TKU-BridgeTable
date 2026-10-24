@@ -33,6 +33,7 @@ import {
   robotLevelOf,
   DEFAULT_ROBOT_LEVEL,
   isOfferedRobotLevel,
+  isRobotLevel,
   summarize,
   USERNAME_PATTERN,
   type AdminUser,
@@ -49,6 +50,7 @@ import {
   type ServerMessage,
   type Site,
   type TableSettings,
+  type TableChallenge,
   type TableSummary,
   type TableView,
   type TableWire,
@@ -58,11 +60,11 @@ import type { RobotBid } from '../shared/robot/robots.ts'
 import { hashPassword, randomId, SESSION_DAYS, verifyPassword } from './auth.ts'
 import { DEFAULT_HISTORY_QUERY, type HistoryQuery } from '../shared/history-query.ts'
 import { CHALLENGE_LIMITS, parseChallengeSettings, type ChallengeView } from '../shared/challenge.ts'
-import { makeDealSet } from '../shared/deal-set.ts'
-import { answer, cancel, newChallenge, type ChallengeChange } from './challenge-flow.ts'
+import { dealSourceOf, makeDealSet } from '../shared/deal-set.ts'
+import { answer, cancel, challengeTakesPart, newChallenge, type ChallengeChange } from './challenge-flow.ts'
 import { ChallengeStore, type Challenge } from './challenges.ts'
 import { createHistoryIndex, indexRecord, searchBoards, unindexRecord } from './history-index.ts'
-import { modeOf } from './modes.ts'
+import { challengeStateOf, modeOf, nextSeq, playedSeqs, type ChallengeTableState, type ModeContext } from './modes.ts'
 import { NotificationService } from './notifications.ts'
 import { Relations } from './relations.ts'
 import { AlarmQueue, manualScheduler, type JobKind, type Scheduler } from './scheduler.ts'
@@ -579,6 +581,9 @@ export class ClubService {
     if (actorId === userId) throw new ClubError('notSelf')
     const user = this.requireUser(userId)
     await this.leave(user.id)
+    // Their challenges forget them, so their parked challenge tables go too
+    for (const table of [...this.tables.values()])
+      if (challengeStateOf(table)?.userId === user.id) await this.dropTable(table)
     this.users.delete(user.id)
     await this.store.delete(`user:${user.id}`)
     await this.revokeSessions(user.id)
@@ -761,6 +766,8 @@ export class ClubService {
         return this.answerChallenge(userId, message.challengeId, message.accept)
       case 'cancelChallenge':
         return this.cancelChallenge(userId, message.challengeId)
+      case 'playChallenge':
+        return this.playChallenge(userId, message.challengeId)
       case 'call':
       case 'play':
       case 'claim':
@@ -902,6 +909,101 @@ export class ClubService {
     return challenge && challengeView(challenge, userId, (other) => this.publicUserById(other))
   }
 
+  // ── Challenge tables (§5.5, e7-t08, e7-t12) ─────────────────────────────────────────────────
+
+  /** A participant's table for a challenge, at it or parked */
+  private challengeTable(challengeId: string, userId: string): Table | undefined {
+    return [...this.tables.values()].find((t) => {
+      const state = challengeStateOf(t)
+      return state?.challengeId === challengeId && state.userId === userId
+    })
+  }
+
+  /**
+   * Starts a challenge or goes back to it (e7-t08, e7-t12). Only an accepted participant, while
+   * the challenge is open and before the deadline: the creator at once, the others after accepting.
+   * The first time it opens their own table: they sit South, the other three seats are robots of the
+   * challenge's kind and level, and the first board of the set is dealt. Coming back seats them
+   * where they were: a board in progress goes on exactly as it was, a finished one is followed by
+   * the next board of the set. Whatever table they were at they leave first
+   */
+  private async playChallenge(userId: string, challengeId: unknown) {
+    const challenge = this.requireChallenge(challengeId)
+    const player = challenge.players.find((p) => p.userId === userId)
+    if (!player) throw new ClubError('challengeGone', {}, 404)
+    const existing = this.challengeTable(challenge.id, userId)
+    if (!challengeTakesPart(challenge, this.now())) {
+      if (existing && this.tableOf(userId) !== existing) await this.dropTable(existing)
+      throw new ClubError('challengeClosed')
+    }
+    if (player.status !== 'accepted') throw new ClubError('challengeNotAccepted')
+    if (existing && this.tableOf(userId) === existing) return
+    if (player.knownDeals || (!existing && nextSeq(challenge, userId) === null)) throw new ClubError('challengeDone')
+    await this.leave(userId)
+    if (existing) {
+      const state = challengeStateOf(existing)!
+      existing.seats[state.parkedSeat ?? 'S'] = userId
+      state.parkedSeat = undefined
+      existing.hostId = userId
+      this.startBoardIfReady(existing)
+      await this.save(existing)
+      return
+    }
+    const { robotKind: kind, robotLevel } = challenge.settings
+    const level = isRobotLevel(robotLevel) ? robotLevel : DEFAULT_ROBOT_LEVEL
+    const state: ChallengeTableState = { challengeId: challenge.id, userId, seq: 0 }
+    const table: Table = {
+      id: randomId(6),
+      // Challenge tables are not in the lobby and take no number from it
+      number: 0,
+      hostId: userId,
+      seats: { N: robotId(kind, 'N', level), E: robotId(kind, 'E', level), S: userId, W: robotId(kind, 'W', level) },
+      spectators: [],
+      boardsPlayed: playedSeqs(challenge, userId).size,
+      board: null,
+      chat: [],
+      createdAt: this.now(),
+      mode: 'challenge',
+      modeState: state,
+      dealSource: dealSourceOf(challenge.deals),
+      settings: { visibility: 'invite', allowKibitz: false, robotLevel: level },
+    }
+    this.tables.set(table.id, table)
+    this.startBoardIfReady(table)
+    await this.save(table)
+  }
+
+  /**
+   * Whether a challenge table has nothing left to play: the challenge is gone, closed or past its
+   * deadline, or the participant finished every board and the last one is over
+   */
+  private challengeTableOver(table: Table): boolean {
+    const state = challengeStateOf(table)
+    if (!state) return false
+    const challenge = this.challenges.get(state.challengeId)
+    if (!challenge || !challengeTakesPart(challenge, this.now())) return true
+    return nextSeq(challenge, state.userId) === null && (!table.board || table.board.phase === 'finished')
+  }
+
+  /** At a challenge table nobody watches or takes back a call or card, and seats and settings stay */
+  private checkNotChallenge(table: Table) {
+    if (table.mode === 'challenge') throw new ClubError('challengeTableFixed')
+  }
+
+  /** What a challenge table's player sees of the challenge: which board of how many, until when */
+  private tableChallenge(table: Table): TableChallenge | undefined {
+    const state = challengeStateOf(table)
+    const challenge = state && this.challenges.get(state.challengeId)
+    if (!state || !challenge) return undefined
+    return {
+      id: challenge.id,
+      seq: state.seq,
+      boards: challenge.deals.boards.length,
+      played: playedSeqs(challenge, state.userId).size,
+      deadline: challenge.deadline,
+    }
+  }
+
   // ── Tables ──────────────────────────────────────────────────────────────────────────────────
 
   private tableOf(userId: string): Table | undefined {
@@ -950,6 +1052,8 @@ export class ClubService {
 
   private async joinTable(userId: string, table: Table) {
     if (this.tableOf(userId) === table) return
+    // Someone else's challenge table is not there for anyone to see
+    if (table.mode === 'challenge') throw new ClubError('tableGone', {}, 404)
     this.checkWelcome(userId, table)
     await this.leave(userId)
     table.spectators.push(userId)
@@ -960,6 +1064,10 @@ export class ClubService {
     const current = this.tableOf(userId)
     const currentSeat = current === table ? this.seatOf(table, userId) : null
     if (currentSeat === seat) return
+    if (table.mode === 'challenge') {
+      if (current === table) this.checkNotChallenge(table)
+      throw new ClubError('tableGone', {}, 404)
+    }
     if (current !== table) this.checkWelcome(userId, table)
     // A person may take a robot's seat at any time, as on BBO
     const occupant = table.seats[seat]
@@ -978,6 +1086,7 @@ export class ClubService {
     const table = this.tableOf(userId)
     const seat = table && this.seatOf(table, userId)
     if (!table || !seat) return
+    this.checkNotChallenge(table)
     this.vacate(table, seat)
     table.spectators.push(userId)
     await this.save(table)
@@ -987,6 +1096,17 @@ export class ClubService {
     const table = this.tableOf(userId)
     if (!table) return
     const seat = this.seatOf(table, userId)
+    const challenge = challengeStateOf(table)
+    if (challenge) {
+      // Leaving a challenge table only pauses it (中途斷線視同暫停): it waits with the board as it
+      // was until they come back. One with nothing left to play closes
+      if (this.challengeTableOver(table)) return this.dropTable(table)
+      if (seat) {
+        challenge.parkedSeat = seat
+        this.vacate(table, seat)
+      }
+      return this.save(table)
+    }
     if (seat) this.vacate(table, seat)
     table.spectators = table.spectators.filter((id) => id !== userId)
     this.checkHost(table)
@@ -998,6 +1118,7 @@ export class ClubService {
     const table = this.tableOf(userId)
     if (!table) throw new ClubError('notAtTable')
     if (table.hostId !== userId) throw new ClubError('hostOnly')
+    this.checkNotChallenge(table)
     return table
   }
 
@@ -1098,13 +1219,13 @@ export class ClubService {
   }
 
   private dealBoard(table: Table) {
-    const hands = modeOf(table).deal(table, this.random)
+    const dealt = modeOf(table).deal(table, this.modeContext())
     // The mode has no more boards: the last one stays on the table
-    if (!hands) {
+    if (!dealt) {
       table.dealAt = undefined
       return
     }
-    table.board = newBoard(table.boardsPlayed + 1, hands)
+    table.board = newBoard(dealt.boardNo, dealt.hands)
     table.undo = undefined
     table.rejectedClaim = undefined
     table.recordId = undefined
@@ -1173,6 +1294,8 @@ export class ClubService {
     const table = this.tableOf(userId)
     const seat = table && this.seatOf(table, userId)
     if (!table || !seat) throw new ClubError('notSeated')
+    if (table.mode === 'challenge' && (message.type === 'undoRequest' || message.type === 'undoRespond'))
+      throw new ClubError('challengeNoUndo')
     await this.act(table, seat, message)
   }
 
@@ -1253,8 +1376,8 @@ export class ClubService {
     table.board = next
     if (board.phase === 'auction' && next.phase === 'play') this.swapForDeclarer(table)
     if (next.phase === 'finished' && board.phase !== 'finished') {
-      modeOf(table).boardFinished(table, next)
-      await this.recordBoard(table, next)
+      const record = await this.recordBoard(table, next)
+      modeOf(table).boardFinished(table, record, this.modeContext())
       // A board played to the last card leaves that trick on the table for a moment first
       const playedOut = next.play.length === 52
       table.dealAt = this.now() + (playedOut ? LAST_TRICK_MS : 0) + DEAL_COUNTDOWN_MS
@@ -1266,17 +1389,20 @@ export class ClubService {
   private async recordBoard(table: Table, board: BoardState) {
     const players = {} as BoardRecord['players']
     for (const seat of SEATS) players[seat] = this.publicUserById(table.seats[seat] ?? '') ?? { id: '', username: '—' }
-    const record = modeOf(table).record(table, {
-      id: randomId(8),
-      tableNumber: table.number,
-      finishedAt: this.now(),
-      players,
-      board,
-    })
+    const record = modeOf(table).record(
+      table,
+      { id: randomId(8), tableNumber: table.number, finishedAt: this.now(), players, board },
+      this.modeContext(),
+    )
     await this.saveRecord(record)
     table.recordId = record.id
     table.recent = [summarize(record), ...(table.recent ?? [])].slice(0, RECENT_KEEP)
     table.boardsPlayed++
+    return record
+  }
+
+  private modeContext(): ModeContext {
+    return { random: this.random, now: this.now(), challenges: this.challenges }
   }
 
   // ── Robots ──────────────────────────────────────────────────────────────────────────────────
@@ -1331,9 +1457,12 @@ export class ClubService {
   /**
    * The key for the robots' deliberate mistakes on this board (ROBOT.md §8): the table and the
    * board number, which stay the same when the board is undone or the object reloaded. A challenge
-   * table will key them by the challenge and the board's place in the set instead (§5.5)
+   * table keys them by the challenge and the board's place in the set instead, so every participant
+   * who does the same meets the same robots (§5.5, e7-t09); the brain adds the action number
    */
   private mistakeSeed(table: Table, board: BoardState) {
+    const challenge = challengeStateOf(table)
+    if (challenge) return `challenge:${challenge.challengeId}:${challenge.seq}`
     return `${table.id}:${board.boardNo}`
   }
 
@@ -1420,12 +1549,13 @@ export class ClubService {
 
   /** Closes a table no person is sitting at or watching (robots do not keep it open) */
   private async saveOrDrop(table: Table) {
-    if (table.spectators.length === 0 && this.humansSeated(table) === 0) {
-      this.tables.delete(table.id)
-      await this.store.delete(`table:${table.id}`)
-    } else {
-      await this.save(table)
-    }
+    if (table.spectators.length === 0 && this.humansSeated(table) === 0) await this.dropTable(table)
+    else await this.save(table)
+  }
+
+  private async dropTable(table: Table) {
+    this.tables.delete(table.id)
+    await this.store.delete(`table:${table.id}`)
   }
 
   /**
@@ -1468,6 +1598,8 @@ export class ClubService {
   lobbyView(userId: string, online = this.connections.onlineUserIds()): LobbyView {
     const isOnline = (id: string) => isRobotId(id) || online.includes(id)
     const tables: TableSummary[] = [...this.tables.values()]
+      // A challenge table is its player's alone and is not listed (§5.5)
+      .filter((t) => t.mode !== 'challenge')
       .sort((a, b) => a.number - b.number)
       .map((t) => ({
         id: t.id,
@@ -1481,7 +1613,8 @@ export class ClubService {
       }))
     const members: MemberStatus[] = [...this.users.values()]
       .map((u) => {
-        const table = this.tableOf(u.id)
+        const found = this.tableOf(u.id)
+        const table = found?.mode === 'challenge' ? undefined : found
         return {
           id: u.id,
           username: u.username,
@@ -1524,12 +1657,17 @@ export class ClubService {
             recordId: table.recordId,
             rejectedClaim: table.rejectedClaim,
             auctionSeat: mySeat ? this.auctionSeat(table, mySeat) : undefined,
+            undoAllowed: table.mode !== 'challenge',
           })
         : null,
       boardsPlayed: table.boardsPlayed,
-      dealAt: table.board?.phase === 'finished' && this.canDeal(table) ? (table.dealAt ?? null) : null,
+      dealAt:
+        table.board?.phase === 'finished' && this.canDeal(table) && !this.challengeTableOver(table)
+          ? (table.dealAt ?? null)
+          : null,
       chat: chatFor(table.chat, (authorId) => this.blocks.has(userId, authorId)),
       recent: (table.recent ?? []).filter((summary) => recordVisible(summary, userId, this.now())),
+      ...(table.mode === 'challenge' && { challenge: this.tableChallenge(table) }),
     }
   }
 

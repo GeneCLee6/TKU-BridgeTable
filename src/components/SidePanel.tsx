@@ -470,7 +470,7 @@ function BoardInPanel({ id, onBack, newTab }: { id: string; onBack: () => void; 
           {t.tabHistory}
         </BackButton>
         <span>
-          {t.tableName(record.tableNumber)} #{board.boardNo}
+          {record.mode === 'challenge' ? t.challenge : t.tableName(record.tableNumber)} #{board.boardNo}
         </span>
       </BoardBar>
       <PanelDiagram>

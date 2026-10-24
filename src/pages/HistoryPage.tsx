@@ -237,7 +237,7 @@ export function HistoryPage() {
                   <tr key={b.id} onClick={() => navigate(`/history/${b.id}`)}>
                     <td>{formatDateTime(b.finishedAt, lang)}</td>
                     <td>
-                      {t.tableName(b.tableNumber)} #{b.boardNo}
+                      {b.mode === 'challenge' ? t.challenge : t.tableName(b.tableNumber)} #{b.boardNo}
                     </td>
                     <td>
                       {name(b.players.N)}–{name(b.players.S)}

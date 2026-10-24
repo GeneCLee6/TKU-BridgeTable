@@ -16,6 +16,7 @@ import {
 import { AuctionBox } from '../components/AuctionBox.tsx'
 import { BiddingBox, type BiddingHints } from '../components/BiddingBox.tsx'
 import { BoardInfo } from '../components/BoardInfo.tsx'
+import { ChallengeBanner } from '../components/ChallengeBanner.tsx'
 import { ChatPanel } from '../components/ChatPanel.tsx'
 import { DEAL_MS, DealAnimation } from '../components/DealAnimation.tsx'
 import { SidePanel } from '../components/SidePanel.tsx'
@@ -511,7 +512,8 @@ export function TablePage() {
     send({ type: 'joinTable', tableId })
   }, [status, lobby, tableId, send])
 
-  // Going to any other page leaves the table (a reload does not: the seat is kept while offline)
+  // Going to any other page leaves the table (a reload does not: the seat is kept while offline).
+  // A challenge table is not closed by it: the server keeps it, paused, until playChallenge
   useEffect(
     () => () => {
       if (!window.location.pathname.startsWith('/table/')) send({ type: 'leaveTable' })
@@ -520,7 +522,8 @@ export function TablePage() {
   )
 
   if (!lobby) return <PageMain>{t.connecting}</PageMain>
-  if (!lobby.tables.some((x) => x.id === tableId))
+  // A challenge table is not in the lobby: it is there only for its player
+  if (lobby.myTableId !== tableId && !lobby.tables.some((x) => x.id === tableId))
     return (
       <PageMain>
         <Muted>{t.tableGone}</Muted>
@@ -554,7 +557,9 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
   const toggleLast = useCallback(() => setLastTrickFor((n) => (n === boardNo ? 0 : boardNo)), [boardNo])
 
   const me = table.mySeat
-  const iAmHost = !!user && table.hostId === user.id
+  const challenge = table.challenge
+  // Nobody runs a challenge table: its seats, robots and settings are fixed
+  const iAmHost = !!user && table.hostId === user.id && !challenge
   const viewer = me ?? 'S'
   const at = rotation(viewer)
   const positionOf = (seat: Seat) => (Object.keys(at) as Position[]).find((p) => at[p] === seat)!
@@ -678,6 +683,7 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
   const seatActions = (seat: Seat): SeatAction[] => {
     const occupant = table.seats[seat]
     const actions: SeatAction[] = []
+    if (challenge) return actions
     const between = !board || board.phase === 'finished'
     // A free seat (or a robot's) can be taken; someone already seated moves only between boards
     if ((!occupant || (occupant.robot && !me)) && (!me || between))
@@ -911,11 +917,17 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
           <InfoRow>
             {board && <BoardInfo boardNo={board.boardNo} dealer={board.dealer} vul={board.vul} positions={at} size={infoSize} />}
             <TableTitle>
-              <span>
-                {t.tableName(table.number)} · {t.boardsPlayed(table.boardsPlayed)}
-              </span>
-              {table.settings.visibility === 'invite' && <Lock size={15} aria-label={t.inviteOnly} role="img" />}
-              {!table.settings.allowKibitz && <EyeOff size={15} aria-label={t.noKibitz} role="img" />}
+              {challenge ? (
+                <ChallengeBanner challenge={challenge} />
+              ) : (
+                <>
+                  <span>
+                    {t.tableName(table.number)} · {t.boardsPlayed(table.boardsPlayed)}
+                  </span>
+                  {table.settings.visibility === 'invite' && <Lock size={15} aria-label={t.inviteOnly} role="img" />}
+                  {!table.settings.allowKibitz && <EyeOff size={15} aria-label={t.noKibitz} role="img" />}
+                </>
+              )}
               {iAmHost && (
                 <SettingsButton
                   type="button"
@@ -989,9 +1001,20 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
           <Actions>
             {!me && <Note>{t.kibitzing}</Note>}
             {swapNotice && <Note role="status">{t.swappedToDeclare}</Note>}
+            {challenge && challenge.played >= challenge.boards && board?.phase === 'finished' && (
+              <Note role="status">
+                {t.challengeAllDone} <Link to="/">{t.navLobby}</Link>
+              </Note>
+            )}
             {board && me && board.phase !== 'finished' && (
               <>
-                <FeltButton type="button" $tone="plain" disabled={!canUndo} onClick={() => send({ type: 'undoRequest' })}>
+                <FeltButton
+                  type="button"
+                  $tone="plain"
+                  disabled={!canUndo}
+                  title={challenge ? t.challengeNoUndo : undefined}
+                  onClick={() => send({ type: 'undoRequest' })}
+                >
                   {t.undo}
                 </FeltButton>
                 <FeltButton

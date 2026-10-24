@@ -67,8 +67,7 @@ export function indexRecord(sql: Sql, record: BoardRecord) {
       record.id,
       record.finishedAt,
       record.tableNumber,
-      // Every board so far is from a casual table; other modes will record theirs
-      'casual',
+      record.mode ?? 'casual',
       record.eventId ?? null,
       board.boardNo,
       board.dealer,

@@ -1,3 +1,4 @@
+import type { ChallengeView } from '../../shared/challenge.ts'
 import { historyQueryString, type HistoryQuery } from '../../shared/history-query.ts'
 import type { MessageParams } from '../../shared/messages.ts'
 import type {
@@ -60,6 +61,8 @@ export const api = {
   /** One page of a history search (`shared/history-query.ts`) */
   searchHistory: (query: Partial<HistoryQuery>) => request<HistoryPage>(`/api/history/search?${historyQueryString(query)}`),
   record: (id: string) => request<{ record: BoardRecord }>(`/api/history/${encodeURIComponent(id)}`),
+  /** The challenges the member is in, newest first (§5.5) */
+  challenges: () => request<{ challenges: ChallengeView[] }>('/api/challenges'),
 
   admin: {
     users: () => request<{ users: AdminUser[] }>('/api/admin/users'),

@@ -137,6 +137,25 @@ export function parseTableSettings(value: unknown): Partial<TableSettings> | nul
   }
 }
 
+/**
+ * What a table is for (`worker/modes.ts`): `casual` tables anyone opens, and a participant's own
+ * `challenge` table (ARCHITECTURE.md §5.5). Team matches, practice and pairs events add theirs
+ */
+export const TABLE_MODES = ['casual', 'challenge'] as const
+export type TableMode = (typeof TABLE_MODES)[number]
+
+/** A challenge table as its player sees it: which challenge, which board of how many, until when */
+export interface TableChallenge {
+  id: string
+  /** The board on the table: its place in the challenge, 1-based (0 before the first) */
+  seq: number
+  /** Boards in the challenge */
+  boards: number
+  /** Boards the player has finished */
+  played: number
+  deadline: number
+}
+
 export interface TableSummary {
   id: string
   number: number
@@ -200,6 +219,11 @@ export interface TableView {
   chat: ChatMessage[]
   /** Boards finished at this table, newest first, for the History panel */
   recent: BoardSummary[]
+  /**
+   * At a challenge table (§5.5): the challenge and the player's progress. Nobody watches, there is
+   * no undo, and seats and settings do not change there
+   */
+  challenge?: TableChallenge
 }
 
 /**
@@ -301,6 +325,8 @@ export type ClientMessage =
   | { type: 'setFriend'; userId: string; friend: boolean }
   /** Blocks or unblocks another member; blocking also stops following them */
   | { type: 'setBlocked'; userId: string; blocked: boolean }
+  /** Starts a challenge, or goes back to it: the player's own table, from the next board (§5.5) */
+  | { type: 'playChallenge'; challengeId: string }
   /** Challenges 1–20 friends (§5.5): `boards` 4–16 (8 when left out), settings over the defaults */
   | { type: 'createChallenge'; invitees: string[]; boards?: number; settings?: Partial<ChallengeSettings> }
   /** An invitee accepts or declines, once, before the deadline */
@@ -324,6 +350,8 @@ export interface BoardRecord {
   finishedAt: number
   players: Record<Seat, PublicUser>
   board: BoardState
+  /** The table's mode when it is not `casual` */
+  mode?: TableMode
   /** The challenge or match the board belongs to, if any */
   eventId?: string
   /**
@@ -343,6 +371,7 @@ export interface BoardSummary {
   vul: Vulnerability
   contract: Contract | null
   result: BoardResult
+  mode?: TableMode
   eventId?: string
   revealAt?: number
 }
@@ -359,6 +388,7 @@ export function summarize(record: BoardRecord): BoardSummary {
     vul: board.vul,
     contract: board.contract,
     result: board.result!,
+    ...(record.mode !== undefined && { mode: record.mode }),
     ...(record.eventId !== undefined && { eventId: record.eventId }),
     ...(record.revealAt !== undefined && { revealAt: record.revealAt }),
   }

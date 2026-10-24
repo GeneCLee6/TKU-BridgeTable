@@ -12,11 +12,10 @@ import {
   turnOf,
   type BoardState,
 } from '../shared/game.ts'
-import type { BoardSummary, BoardView, ChatMessage, PublicUser, SeatOccupant, TableSettings } from '../shared/protocol.ts'
+import type { BoardSummary, BoardView, ChatMessage, PublicUser, SeatOccupant, TableMode, TableSettings } from '../shared/protocol.ts'
 import type { ChallengeView } from '../shared/challenge.ts'
 import type { DealSource } from '../shared/deal-source.ts'
 import type { Challenge } from './challenges.ts'
-import type { TableMode } from './modes.ts'
 
 /** A table as the Worker keeps it */
 export interface Table {
@@ -95,6 +94,8 @@ export function seatOccupants(
  * Spectators see all four hands, as kibitzers do on BBO. Partners never see each other's alerts
  * until the board is over, except a robot's, which are for everyone (GIB's on BBO are too).
  * `auctionSeat` is where the viewer bid from, if a declarer swap has moved them since.
+ * A challenge table's deal set (`Table.dealSource`) never goes out: only the board being played
+ * is in `board`, and this function only ever sees that one.
  */
 export function boardView(
   board: BoardState,
@@ -104,6 +105,8 @@ export function boardView(
     recordId?: string
     rejectedClaim?: { seat: Seat; tricks: number; by: Seat }
     auctionSeat?: Seat
+    /** False at a table without undo (a challenge table) */
+    undoAllowed?: boolean
   } = {},
 ): BoardView {
   const finished = board.phase === 'finished'
@@ -158,7 +161,7 @@ export function boardView(
       viewer && board.phase === 'auction' && turn === viewer
         ? [...legalCalls(board.auction, board.dealer)]
         : [],
-    canUndo: !!viewer && !extras.undo && canUndoFor(board, viewer, extras.auctionSeat ?? viewer),
+    canUndo: !!viewer && extras.undoAllowed !== false && !extras.undo && canUndoFor(board, viewer, extras.auctionSeat ?? viewer),
     canClaim: !!viewer && board.phase === 'play' && viewer !== dummy && !board.claim,
   }
 

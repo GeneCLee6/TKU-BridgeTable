@@ -145,7 +145,7 @@ export function BoardRecordView({ record, embedded = false }: { record: BoardRec
   return (
     <Frame>
       <PageTitle>
-        {t.tableName(record.tableNumber)} · {t.boardNo(board.boardNo)}
+        {record.mode === 'challenge' ? t.challenge : t.tableName(record.tableNumber)} · {t.boardNo(board.boardNo)}
       </PageTitle>
       <Columns>
         <div>
