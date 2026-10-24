@@ -1,3 +1,4 @@
+import type { Contract } from './auction.ts'
 import type { ChallengeScoring } from './challenge-scoring.ts'
 import { isOfferedRobotLevel, isRobotKind, type PublicUser, type RobotKind } from './protocol.ts'
 
@@ -140,10 +141,60 @@ export interface ChallengePlayerView {
   knownDeals: boolean
 }
 
+/** One ranked participant: their place, total and, for those allowed to see it, each board's result */
+export interface ChallengeStandingView {
+  userId: string
+  /** Equal totals share a place and the next is skipped: 1, 2, 2, 4 */
+  rank: number
+  /** The average percentage for `mp`, the sum otherwise */
+  total: number
+  /** Each board's result in the scoring's unit, in board order (a row of the person × board matrix) */
+  boards?: number[]
+}
+
 /**
- * A challenge as one of its participants sees it (`worker/views.ts` `challengeView`): settings,
- * state and everyone's progress. Never the deals or anyone's results; the standings and travellers
- * come with C5 (`e7-t14`)
+ * The standings (`e7-t13`, `e7-t14`): only those who played every board are ranked; the others who
+ * accepted are listed after them as 未完成 with how far they got. Before the end they are the live
+ * standings of those who finished so far
+ */
+export interface ChallengeStandingsView {
+  /** The challenge is finished and these are its final places */
+  final: boolean
+  /**
+   * What `total` and `boards` are in: the challenge's scoring, or `total` when only one person
+   * finished (nobody to compare with, so only their total score)
+   */
+  scoring: ChallengeScoring
+  ranked: ChallengeStandingView[]
+  /** Accepted participants who did not play every board, in the order they were invited */
+  unfinished: { userId: string; played: number }[]
+}
+
+/** One participant's result on a board, as its traveller lists it */
+export interface ChallengeTravellerEntry {
+  userId: string
+  /** The board record (`/api/history/:id`), for the replay */
+  boardId: string
+  scoreNS: number
+  /** Null for a passed-out board */
+  contract: Contract | null
+  declarerTricks: number | null
+}
+
+/** Everyone's result on one board of the challenge */
+export interface ChallengeTraveller {
+  /** The board's place in the deal set, 1-based */
+  seq: number
+  boardNo: number
+  entries: ChallengeTravellerEntry[]
+}
+
+/**
+ * A challenge as a member sees it (`worker/views.ts` `challengeView`): settings, state and
+ * everyone's progress, never the deals. The results follow the rules of §4 (`e7-t14`): a board's
+ * traveller only for those who played that board (everyone after the end); the standings for
+ * those who played every board, every participant after the end, and the whole club when the
+ * ranking is `club` (the standings only, without the boards)
  */
 export interface ChallengeView {
   id: string
@@ -156,4 +207,6 @@ export interface ChallengeView {
   settings: ChallengeSettings
   boards: number
   players: ChallengePlayerView[]
+  standings?: ChallengeStandingsView
+  travellers?: ChallengeTraveller[]
 }

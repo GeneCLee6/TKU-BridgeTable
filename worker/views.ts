@@ -13,9 +13,11 @@ import {
   type BoardState,
 } from '../shared/game.ts'
 import type { BoardSummary, BoardView, ChatMessage, PublicUser, SeatOccupant, TableMode, TableSettings } from '../shared/protocol.ts'
-import type { ChallengeView } from '../shared/challenge.ts'
+import { isOpenChallenge, type ChallengeTraveller, type ChallengeView } from '../shared/challenge.ts'
 import type { DealSource } from '../shared/deal-source.ts'
+import { challengeStandings, hasFinished } from './challenge-flow.ts'
 import type { Challenge } from './challenges.ts'
+import type { EventBoard } from './history-index.ts'
 
 /** A table as the Worker keeps it */
 export interface Table {
@@ -175,22 +177,46 @@ export function boardView(
   return view
 }
 
+/** What a challenge's viewer is to it, for the rules below */
+function challengeRole(c: Challenge, userId: string) {
+  const player = c.players.find((p) => p.userId === userId)
+  const played = new Set(c.results.filter((r) => r.userId === userId).map((r) => r.seq))
+  return { player, played, ended: !isOpenChallenge(c.status), finished: !!player && hasFinished(c, player) }
+}
+
 /**
- * A challenge as a member may see it (§4, §5.5), or null. Only its participants (invited, accepted
- * or declined) see it at all; they get the settings, the state and how many boards each person
- * has played. The deals and everyone's results never go out here: the standings and travellers
- * have their own rules (`e7-t14`), and non-participants see a finished `club` ranking only then
+ * Whether a member may see one board of a challenge before it is shown to everyone (§4, `e7-t14`):
+ * a participant who played the same board of the set sees everyone's record of it (the traveller
+ * and its replay). Everyone else waits for the record's `revealAt`, brought forward to the end
+ * (`recordVisible`)
+ */
+export function challengeBoardVisible(c: Challenge, boardId: string, userId: string): boolean {
+  const result = c.results.find((r) => r.boardId === boardId)
+  return !!result && challengeRole(c, userId).played.has(result.seq)
+}
+
+/**
+ * A challenge as a member may see it (§4, §5.5, `e7-t14`), or null. Participants (invited,
+ * accepted or declined) always see the settings, the state and how many boards each person has
+ * played; the deals never go out. On top of that, while it is open:
+ * - a board's traveller (everyone's contract, tricks and score on it) only for those who played it;
+ * - the live standings and the person × board matrix only for those who played every board.
+ * Once it ended every participant sees all of it. Non-participants see nothing, unless it finished
+ * with `ranking = club`: then the standings, without the boards
  */
 export function challengeView(
   challenge: Challenge,
   userId: string,
   userById: (id: string) => PublicUser | undefined,
+  boards: (boardId: string) => EventBoard | undefined = () => undefined,
 ): ChallengeView | null {
-  if (!challenge.players.some((p) => p.userId === userId)) return null
-  const played = new Map<string, number>()
-  for (const r of challenge.results) played.set(r.userId, (played.get(r.userId) ?? 0) + 1)
   const c = challenge
-  return {
+  const role = challengeRole(c, userId)
+  const clubRanking = !role.player && c.status === 'finished' && c.settings.ranking === 'club'
+  if (!role.player && !clubRanking) return null
+  const played = new Map<string, number>()
+  for (const r of c.results) played.set(r.userId, (played.get(r.userId) ?? 0) + 1)
+  const view: ChallengeView = {
     id: c.id,
     creatorId: c.creatorId,
     createdAt: c.createdAt,
@@ -214,4 +240,32 @@ export function challengeView(
       }
     }),
   }
+
+  if (clubRanking) {
+    const standings = challengeStandings(c)
+    view.standings = { ...standings, ranked: standings.ranked.map(({ boards: _matrix, ...rest }) => rest) }
+    return view
+  }
+  // Expired and cancelled challenges rank nobody; their boards are open to the participants
+  if (c.status === 'finished' || (!role.ended && role.finished)) view.standings = challengeStandings(c)
+  const travellers: ChallengeTraveller[] = []
+  for (const [i, board] of c.deals.boards.entries()) {
+    const seq = i + 1
+    if (!role.ended && !role.played.has(seq)) continue
+    const entries = c.results
+      .filter((r) => r.seq === seq)
+      .map((r) => {
+        const found = boards(r.boardId)
+        return {
+          userId: r.userId,
+          boardId: r.boardId,
+          scoreNS: r.scoreNS,
+          contract: found?.contract ?? null,
+          declarerTricks: found?.declarerTricks ?? null,
+        }
+      })
+    if (entries.length) travellers.push({ seq, boardNo: board.boardNo, entries })
+  }
+  if (travellers.length) view.travellers = travellers
+  return view
 }

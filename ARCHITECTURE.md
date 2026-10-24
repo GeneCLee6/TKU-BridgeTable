@@ -55,7 +55,7 @@ TKU-BridgeTable/
 │  ├─ challenges.ts        挑戰的 SQL 表與 ChallengeStore（§5.5）
 │  ├─ challenge-flow.ts    挑戰的狀態轉移（建立、回覆、取消、截止）：純函式，ClubService 寫回（§5.5）
 │  ├─ modes.ts             牌桌模式（casual、challenge）與三個掛勾（發新一副、寫紀錄、一副結束）
-│  ├─ scheduler.ts         統一排程器：機器人、自動發牌、之後的計時都走同一個 alarm 佇列
+│  ├─ scheduler.ts         統一排程器：機器人、自動發牌、挑戰的提醒與截止都走同一個 alarm 佇列
 │  ├─ auth.ts              PBKDF2 密碼雜湊、session cookie
 │  └─ store.ts             儲存介面與測試用 MemoryStore
 ├─ src/                    React app
@@ -106,7 +106,18 @@ interface BoardState {
 
 指定牌組（`Table.dealSource` 的 `fixed`）整份只存在伺服器的 `Table` 裡，發到哪一副才放進 `BoardState.hands`，之後照上表的規則送出；`Table` 本身從不整份送到瀏覽器。
 
-**挑戰**（§5.5）：挑戰的牌組（`DealSet`）只存在伺服器，參與者的挑戰牌桌發到哪一副才放進 `BoardState`。別人在某一副的結果只給已打完那一副的參與者，總排名只給打完全部的參與者或挑戰結束後；非參與者在結束前什麼都看不到（`e7-t14` 實作）。挑戰牌桌（C4）只是一般的牌桌：整組牌在伺服器的 `Table.dealSource`，`boardView` 只看得到正在打的那一副，所以看得到的牌和一般牌桌完全一樣；大廳不列出挑戰牌桌，別人 `joinTable`／`sit` 拿到 `tableGone`，不能觀看。挑戰牌局的紀錄寫入時 `revealAt` ＝截止時間，在那之前只有打的人看得到（`recordVisible`）。現在讀挑戰只有 `challengeView`（`GET /api/challenges`、`/api/challenges/:id`，C3）：只給參與者（受邀、接受、拒絕的都算），內容是設定、狀態、每個人的回覆與打了幾副，不含牌組與任何人的結果；非參與者拿到 404。
+**挑戰**（§5.5）：挑戰的牌組（`DealSet`）只存在伺服器，參與者的挑戰牌桌發到哪一副才放進 `BoardState`。別人在某一副的結果只給已打完那一副的參與者，總排名只給打完全部的參與者或挑戰結束後；非參與者在結束前什麼都看不到（`e7-t14`，規則見下面的「讀挑戰」）。挑戰牌桌（C4）只是一般的牌桌：整組牌在伺服器的 `Table.dealSource`，`boardView` 只看得到正在打的那一副，所以看得到的牌和一般牌桌完全一樣；大廳不列出挑戰牌桌，別人 `joinTable`／`sit` 拿到 `tableGone`，不能觀看。挑戰牌局的紀錄寫入時 `revealAt` ＝截止時間，挑戰一結束（完成、過期、取消）就提前到結束的那一刻，之後所有人都看得到（`recordVisible`）；在那之前只有打的人看得到，另外**打過同一副的參與者**也能打開別人那一副的紀錄（traveller 與重播，`challengeBoardVisible`，只在 `/api/history/:id`；搜尋仍只列自己打的）。
+
+讀挑戰（`challengeView`，`GET /api/challenges`、`/api/challenges/:id`）：牌組永遠不送。
+
+| 誰 | 挑戰進行中 | 挑戰結束後 |
+| --- | --- | --- |
+| 參與者（受邀、接受、拒絕都算） | 設定、狀態、每個人的回覆與打了幾副 | 同左，再加下面全部 |
+| 打過第 k 副的參與者 | 第 k 副的 traveller（每個人的合約、莊家、墩數、南北分數、牌局 id） | 每一副的 traveller |
+| 打完全部的參與者 | 再加目前排名（只排已經打完的人）與人 × 副矩陣 | 最終排名與矩陣（`finished` 才有排名；`expired`、`cancelled` 沒有） |
+| 非參與者 | 404 | `ranking = club` 且 `finished`：排名（名次與總成績，不含每副分數、traveller）；否則 404 |
+
+`GET /api/challenges` 的列表不帶 traveller（給大廳用），單一挑戰才帶。這些判斷都在 `worker/views.ts`（`challengeView`、`challengeBoardVisible`），測試在 `tests/worker/challenge-settlement.test.ts`。
 
 **打完的牌局什麼時候公開**（AC-4.9，`recordVisible`）：紀錄可以帶 `revealAt`（挑戰、隊制賽還在進行時）。在那之前，只有打那一副的四位看得到；其他人在紀錄列表、搜尋、詳細頁、牌桌側欄的 `recent` 都看不到（之後的收藏、精選也要套用）。搜尋在 SQL 裡套同一條規則（`reveal_at IS NULL OR reveal_at <= 現在 OR 我打過`），而且不管搜尋什麼條件都會套用，前端無法關掉。
 
@@ -126,7 +137,7 @@ interface BoardState {
 - **沒有「下一副」**：一副結束後伺服器設定 `dealAt`（打到最後一張多等 `LAST_TRICK_MS` 3.5 秒，再加 `DEAL_COUNTDOWN_MS` 3 秒倒數），時間到自動發牌；`table` 訊息附上伺服器時間 `now`，瀏覽器據此換算成自己的時鐘來倒數
 - **牌桌設定**：`Table.settings`（`shared/protocol.ts` 的 `TableSettings`）：`visibility`（`public` 所有社員可入座／`invite` 只限受邀）與 `allowKibitz`（是否允許觀看）；舊資料沒有這欄就用 `DEFAULT_TABLE_SETTINGS`（公開、允許觀看）。伺服器用 `parseTableSettings` 檢查，只接受這兩欄，錯了丟 `badTableSettings`。大廳的 `TableSummary` 與 `TableView` 都帶設定；受邀名單與不允許觀看的限制在 `e2-t25`、`e2-t26` 才生效
 - **牌桌模式**：`Table.mode`（`casual` 或挑戰的 `challenge`，舊資料沒有這欄也當 `casual`）與 `modeState`；`ClubService` 只在三個地方問模式（`worker/modes.ts` 的 `TableModeHooks`，都拿到 `ModeContext`：社團的亂數、現在時間、`ChallengeStore`）：發新一副（`deal`，回傳牌號與四手牌，`null` 表示沒有下一副，最後一副留在桌上）、寫紀錄（`record`）、一副結束（`boardFinished`，在紀錄存好之後，所以拿得到牌局 id）。叫牌、出牌、入座與可見性在每種模式都一樣。牌從 `Table.dealSource` 來（`shared/deal-source.ts`；沒有就是每副重洗）
-- **排程**：機器人的下一步與自動發牌都交給同一個排程器（`worker/scheduler.ts`），每桌每種工作一個 key（`robot:<桌>`、`deal:<桌>`），同一個 key 還在等就不重排。Durable Object 用 `AlarmQueue`：工作放在記憶體，只把最早的一個設成物件唯一的 storage alarm（`alarm()` → `ClubService.runDue()`），所以不會互相覆蓋 alarm，物件在兩步之間也能休眠；工作不寫進儲存，物件被回收後由 `load()` 依牌桌狀態重新排程。測試傳 `schedule` 換成手動佇列
+- **排程**：機器人的下一步與自動發牌都交給同一個排程器（`worker/scheduler.ts`），每桌每種工作一個 key（`robot:<桌>`、`deal:<桌>`），每個進行中的挑戰一個 `challenge:<挑戰>`（§5.5），同一個 key 還在等就不重排。Durable Object 用 `AlarmQueue`：工作放在記憶體，只把最早的一個設成物件唯一的 storage alarm（`alarm()` → `ClubService.runDue()`），所以不會互相覆蓋 alarm，物件在兩步之間也能休眠；工作不寫進儲存，物件被回收後由 `load()` 依牌桌狀態與進行中的挑戰重新排程。測試傳 `schedule` 換成手動佇列
 - **心跳**：瀏覽器每 15 秒送 `ping`，由 `setWebSocketAutoResponse` 直接回 `pong`（不必喚醒物件）。40 秒沒收到任何訊息、分頁回到前景或網路恢復時，瀏覽器立刻重新連線；重連期間的動作暫存 8 秒內補送
 - **好友與封鎖**（AC-1.6，`worker/relations.ts`）：好友是單向關注，不需對方同意、也不通知對方（同 BBO）；`setFriend`／`setBlocked` 帶對方的 id 與 `true`／`false`，不能對自己（`notSelf`）、不存在的帳號或機器人（`userGone`）。封鎖會同時取消關注，封鎖中不能加好友（`unblockFirst`）。封鎖的效果都在伺服器：被封鎖者的聊天對封鎖者隱藏（§4），封鎖者當房主時被封鎖者不能 `joinTable` 或 `sit` 進那一桌（`blockedByHost`；已經在桌上的不會被請走）。之後的私訊、挑戰與隊制賽邀請也要檢查 `blocks`（`e1-t27`、`e7-t05`）。帳號刪除時雙方名單裡的他都會刪掉
 - 使用 Durable Object 的 hibernation API：沒人打牌時物件可以休眠，WebSocket 不會斷，醒來時從儲存重新載入。
@@ -188,13 +199,21 @@ challenge（challenges 一列）
 
 截止時間到時沒回覆的人算 `declined`。發起者在 `pending` 與 `active` 都能打，其他人接受後才能打；`finished`、`cancelled`、`expired` 之後不再改動（`isOpenChallenge`）。這些規則是 2026-10-24 社長的決定（E7 PRD 的未決問題）。
 
-**期限**：只有一個截止時間 `deadline` ＝ 建立時間＋`days`（1–7 天，`challengeDeadline`），所有人共用，回覆與打完都要在這之前。SQL 的欄名沿用 C2 建表時的 `accept_by`（表已在正式環境建立，不改名）；`challenge_players.finish_by` 不再使用，欄位留著是空的。期限走統一排程器（§5）：每個進行中的挑戰一個 `challenge:<id>` 工作，排在它最近的一個時間點（`e7-t07` 的 12 小時前提醒，或截止時間），到時重新判斷狀態再排下一個；工作不存，`load()` 用 `ChallengeStore.openIds()` 重排（`e7-t13`，`JobKind` 那時加 `challenge`）。
+**期限**：只有一個截止時間 `deadline` ＝ 建立時間＋`days`（1–7 天，`challengeDeadline`），所有人共用，回覆與打完都要在這之前。SQL 的欄名沿用 C2 建表時的 `accept_by`（表已在正式環境建立，不改名）；`challenge_players.finish_by` 不再使用，欄位留著是空的。期限走統一排程器（§5）：每個進行中的挑戰一個 `challenge:<id>` 工作，排在它最近的一個時間點（`e7-t07` 的 12 小時前提醒，或截止時間），到時重新判斷狀態再排下一個；工作不存，`load()` 用 `ChallengeStore.openIds()` 重排（`e7-t13`，`JobKind` 的 `challenge`）。
+
+**期限工作與結算**（C5，`e7-t13`，2026-10-24）：
+- 下一個時間點由 `nextChallengeTime` 決定：提醒還沒送就是截止前 12 小時（`REMINDER_MS`），送了就是截止時間。工作執行時（`ClubService.challengeDue`）用現在的時間重新判斷，所以早跑只是把自己排回去；物件睡著時錯過的時間點在 `load()` 後立刻補跑。
+- **提醒**：截止前 12 小時送 `challengeReminder` 給已接受、還沒打完的人（沒回覆的不送）；送出前先寫 `challenges.reminded_at`，所以只送一次，物件被回收也不會重送。物件睡到截止時間以後才醒，就不補送提醒，直接結算。
+- **截止**：`deadlineOutcome`（沒回覆的改 `declined`；除了發起者沒人接受就 `expired`，否則 `finished`），寫 `ended_at`。
+- **提前完成**（`earlyFinish`）：`active` 的挑戰，每個受邀者都回覆了、每位接受者都打完了，就立刻 `finished`。在回覆、取消、打完一副、刪除帳號之後檢查（`challengeChanged`）。
+- **結束時**（完成、過期、取消都一樣，`challengeEnded`）：收掉這個挑戰所有的牌桌（停著的、打到一半的都收，打到一半的那一副作廢）；唯一的例外是打完最後一副還坐在桌上的人，桌子留到他離開，讓他看完最後一副的結果。牌局紀錄的 `revealAt` 提前到結束的那一刻：`boards_index.reveal_at` 依 `event_id` 一次改（`revealEvent`，`event_id` 有索引），KV 的 `board:`、`hist:`、`uhist:` 跟著重寫。
+- **通知**：`finished` 時送 `challengeResults` 給每位接受的人（含沒打完的）；`expired` 不送通知（發起者在挑戰列表看得到狀態）。
 
 **建立與回覆**（C3，`worker/challenge-flow.ts` 的純函式，`ClubService` 檢查身分、在一個 transaction 裡寫回 `ChallengeStore`、送通知）：
 - `createChallenge { invitees, boards?, settings? }`：`invitees` 是 1–20 個不重複的社員 id（`challengeInvitees`、`badChallengeSettings`），每位都要是發起者關注的好友（`notFriend`；封鎖對方時已取消關注，所以也是這個），不能是自己（`notSelf`）、不存在的帳號或機器人（`userGone`）；對方封鎖了發起者時回 `cannotInvite`，不說是被封鎖。`boards` 4–16，預設 8（`challengeBoards`）。`settings` 由 `parseChallengeSettings`（`shared/challenge.ts`）檢查：每欄可省略、套 `defaultChallengeSettings`，不能有其他欄位；計分單挑只能 `imp`／`total`，多人 `mp`／`crossImp`／`total`；`unfinished` 只能是 `worst`；機器人種類 `tku`／`gib`，等級只收現在開放的（`OFFERED_ROBOT_LEVELS`，橋士組、自訂不行）；`days` 1–7 的整數；錯了回 `badChallengeSettings { field }`。牌組用 `makeDealSet({ kind: 'random', count })`、社團的亂數。
 - `answerChallenge { challengeId, accept }`：只有受邀、還沒回覆的人（發起者已經是 `accepted`，所以回 `alreadyAnswered`）；挑戰要是 `pending`／`active` 而且還沒到截止時間（`challengeClosed`）。不是參與者的一律 `challengeGone`，不透露挑戰存在。
 - `cancelChallenge { challengeId }`：只有發起者（`challengeCreatorOnly`），只在 `pending`／`active`，而且除了他以外沒人有 `started_at`（`challengeStarted`；發起者自己先打了不影響）。
-- 截止時間的處理寫成 `deadlineOutcome`（沒回覆的改 `declined`，除了發起者沒人接受就 `expired`，否則 `finished`），C5 的期限工作呼叫它並結算。
+- 截止時間的處理寫成 `deadlineOutcome`（沒回覆的改 `declined`，除了發起者沒人接受就 `expired`，否則 `finished`），C5 的期限工作呼叫它並結算（見上面的「期限工作與結算」）。
 
 **對象與牌組**（2026-10-24 社長決定）：只能邀請自己的好友（`worker/relations.ts`，被封鎖的不行），選人是可以搜尋的輸入框（`e7-t17`）；全社的每週挑戰（`e7-t23`）由管理員建立，不受這條限制。牌組**只用隨機牌**（`makeDealSet({ kind: 'random' })`，不用條件預設集），選項只有 Best Hand 與 Just Declare。唯一的例外是「用這副牌挑戰」（`e7-t22`）：發起者拿自己打過、可以先收藏的牌（`kind: 'given'`）挑戰別人，他不再打，建立時就把他當時的結果寫進 `challenge_results`（`known_deals = 1`），照樣計分、排名。他當時不一定坐南，所以牌組轉成讓他的座位變成南，結果也換成南北的角度。只限他和三個機器人打的牌，挑戰的機器人種類與等級鎖成當時的（紀錄裡的 `robotKind`、`robotLevel`），否則他的成績和別人的比不起來。
 
@@ -204,7 +223,7 @@ C4 的實作（2026-10-24）：
 - **開打與續打**：`playChallenge { challengeId }`。只有 `accepted` 的參與者、挑戰還是 `pending`／`active` 而且沒過截止時間（`challengeTakesPart`）：不是參與者 `challengeGone`、受邀還沒接受或拒絕了 `challengeNotAccepted`、截止或結束了 `challengeClosed`（順便把他停著的桌子收掉）、全部打完或「已知牌」的發起者 `challengeDone`。第一次開一張新桌（`number` 是 0，不佔大廳的桌號），先離開他原本在的桌。發牌時找他還沒有結果的第一副（`nextSeq`），第一副發牌時寫 `started_at`。
 - **離開＝暫停**（`e7-t12`）：`leaveTable`、開新桌、坐到別桌都會呼叫 `leave`；挑戰牌桌不關，只把他從座位拿下來、記住位子（他可能因為當莊換到北），桌子留在 `table:` 裡（物件回收後照樣載入）。座位空了就不發牌、機器人也不動。再送 `playChallenge` 就坐回原位：**打到一半的那一副原封不動接著打**（叫牌、出牌都在，不重發，也不能換一副重來，否則可以先看牌再重打），已經打完的那一副就倒數發下一副。斷線（沒送 `leaveTable`）時座位照舊保留，跟一般牌桌一樣，重連就回到桌上。牌桌頁卸載時照樣送 `leaveTable`，伺服器把它當暫停。打完最後一副後離開，或挑戰已經結束，桌子才關掉。
 - **固定的桌子**：撤回 `challengeNoUndo`（`BoardView.canUndo` 一律是 false）；`stand`、換座位、`kick`、`addRobot`、`removeRobot`、`updateTableSettings` 是 `challengeTableFixed`；攤牌照舊由機器人判斷。桌子設定是 `invite`、不允許觀看。
-- **結果**：`boardFinished` 在一個 transaction 裡寫 `challenge_results`（南北分數就是他的分數，換到北當莊也一樣）；最後一副寫 `finished_at`。**截止時間一到就停止**（同 BBO）：之後送來的叫牌、出牌一律回 `challengeClosed`，機器人也不再動（`challengeClosedAt`），打到一半的那一副作廢、不寫結果，還沒打的副也不再發。挑戰變 `finished`、結算與通知是 C5（`e7-t13`）。
+- **結果**：`boardFinished` 在一個 transaction 裡寫 `challenge_results`（南北分數就是他的分數，換到北當莊也一樣）；最後一副寫 `finished_at`。**截止時間一到就停止**（同 BBO）：之後送來的叫牌、出牌一律回 `challengeClosed`，機器人也不再動（`challengeClosedAt`），打到一半的那一副作廢、不寫結果，還沒打的副也不再發。挑戰變 `finished`、結算與通知見上面的「期限工作與結算」（C5）。
 - **確定性**（`e7-t09`）：`mistakeSeed` 在挑戰牌桌是 `challenge:<挑戰 id>:<seq>`，大腦再加上動作序號；所以兩個人做一樣的叫牌與出牌，機器人的反應（含初學者的失誤）完全一樣（`tests/worker/challenge-table.test.ts`）。
 - **紀錄**：`BoardRecord.mode = 'challenge'`、`eventId`、`revealAt` ＝截止時間；`boards_index.mode` 照 `record.mode` 寫。紀錄、側欄與牌局頁把挑戰的牌顯示成「挑戰」而不是桌號。
 - **畫面**（`e7-t15`）：`TableView.challenge`（`TableChallenge`：第幾副、共幾副、打完幾副、截止時間）；牌桌頁首顯示「挑戰 · 第 3／8 副」與截止時間（`ChallengeBanner`），沒有房主設定、座位選單，撤回鍵停用並說明原因，打完全部顯示提示與回大廳的連結。大廳的「我的挑戰」列出現在能打的挑戰（開始打／繼續打），挑戰頁是 C6。
@@ -215,16 +234,17 @@ C4 的實作（2026-10-24）：
 - 牌：`deals` 只在伺服器；第 k 副的四手牌只有在參與者的挑戰牌桌發到第 k 副時才進 `BoardState`，之後照一般規則。
 - 別人的結果：第 k 副的 traveller（別人的合約、結果、分數、重播）只給已打完第 k 副的參與者；總成績與人 × 副矩陣只給已打完全部的參與者，或挑戰結束後。之前只看得到每個人的狀態與進度（打完幾副）。
 - 非參與者：挑戰結束前什麼都看不到；結束後 `ranking = club` 才看得到排名。
-- 牌局紀錄：寫入時 `revealAt` ＝ 最晚可能的結束時間；挑戰結束時改成實際結束時間（KV 的紀錄與 `boards_index.reveal_at`，依 `event_id`）。在那之前紀錄、搜尋都只給打的人（AC-4.9 現有的規則）。
-- 這些判斷寫成 `worker/views.ts` 的純函式（`e7-t14`），和 `recordVisible` 一樣在每個出口套用。
+- 牌局紀錄：寫入時 `revealAt` ＝ 最晚可能的結束時間；挑戰結束時改成實際結束時間（KV 的紀錄與 `boards_index.reveal_at`，依 `event_id`）。在那之前搜尋只給打的人（AC-4.9 現有的規則），詳細頁另外給打過同一副的參與者（traveller 的重播）。結束後所有人都看得到牌局，不管 `ranking`；`ranking` 只管排名。
+- 這些判斷寫成 `worker/views.ts` 的純函式（`challengeView`、`challengeBoardVisible`，`e7-t14`），和 `recordVisible` 一樣在每個出口套用；誰看得到什麼的表在 §4。
+- 挑戰的牌局在 E4 的搜尋可以用 `mode=challenge` 篩選（`GET /api/history/search?mode=challenge`，`shared/history-query.ts` 的 `mode`，§5.3）；紀錄頁還沒有篩選的介面，等搜尋介面（E4）一起做。
 
-**計分**：`scoreChallenge`（`shared/challenge-scoring.ts`）吃 `scores[參與者][副 − 1]`（南北分數，沒打是 null），**排名的人只有打完全部副數的參與者**（只有打完全部副數的人才排名，沒打完的人不排名、也不替他沒打的副算分（社長，2026-10-24））：例如 10 人的挑戰只有 8 人打完，就只排這 8 人，沒打完的 2 人列在排名下面、標「未完成」。所以 `scores` 裡沒有 null，`unfinished` 的規則用不到（設定裡也拿掉了，送來會被拒絕）。結束前的「目前排名」只排已經打完的人。已知牌的發起者（`knownDeals`）用他當時的結果，算打完，一起比、一起排名。只有一人打完時他就是唯一的名次，沒有對手可比，只顯示他的總分。
+**計分**：`scoreChallenge`（`shared/challenge-scoring.ts`）吃 `scores[參與者][副 − 1]`（南北分數，沒打是 null），**排名的人只有打完全部副數的參與者**（只有打完全部副數的人才排名，沒打完的人不排名、也不替他沒打的副算分（社長，2026-10-24））：例如 10 人的挑戰只有 8 人打完，就只排這 8 人，沒打完的 2 人列在排名下面、標「未完成」。所以 `scores` 裡沒有 null，`unfinished` 的規則用不到（設定裡也拿掉了，送來會被拒絕）。結束前的「目前排名」只排已經打完的人。已知牌的發起者（`knownDeals`）用他當時的結果，算打完，一起比、一起排名。只有一人打完時他就是唯一的名次，沒有對手可比，只顯示他的總分。實作是 `challengeStandings`（`worker/challenge-flow.ts`）：只把打完的人交給 `scoreChallenge`，只有一人時用 `total` 計分（`ChallengeStandingsView.scoring` 說明 `total` 與每副的單位），沒人打完就沒有名次；`unfinished` 列出接受了但沒打完的人和打了幾副。
 
 **儲存**：三張 SQL 表就是挑戰的正本（不像 §5.3 的索引可以從 KV 重建）。
 
 | 表 | 欄位 | 索引 |
 | --- | --- | --- |
-| `challenges` | `challenge_id`（主鍵）、`creator_id`、`created_at`、`status`、`accept_by`、`started_at`（變 `active` 的時間）、`ended_at`、`settings`（JSON）、`deals`（`encodeDealSet`） | `(status, accept_by)` |
+| `challenges` | `challenge_id`（主鍵）、`creator_id`、`created_at`、`status`、`accept_by`、`started_at`（變 `active` 的時間）、`ended_at`、`settings`（JSON）、`deals`（`encodeDealSet`）、`reminded_at`（截止前提醒送出的時間，C5） | `(status, accept_by)` |
 | `challenge_players` | `challenge_id`、`user_id`（主鍵兩欄）、`position`（邀請順序，發起者 0）、`status`、`invited_at`、`answered_at`、`started_at`、`finish_by`（不再使用）、`finished_at`、`known_deals` | `(user_id, challenge_id)` |
 | `challenge_results` | `challenge_id`、`user_id`、`seq`（主鍵三欄；`seq` 是牌組裡第幾副）、`board_id`、`score_ns`、`played_at` | — |
 
@@ -235,7 +255,7 @@ C4 的實作（2026-10-24）：
 - 只有要查的欄位拆成欄；其他設定放 JSON，之後加設定不必改表。
 - 大小：M1 社團規模，一個挑戰最多 21 人 × 16 副＝336 列結果，牌組一副約 75 字元；全社每週一場 50 人 8 副，一年約兩萬列，沒有負擔。
 
-**版本**：三張表是新的，載入時 `CREATE TABLE IF NOT EXISTS`，沒有舊資料要搬，所以 `meta:schema` 不變（仍是 3）。之後改欄位時把 `meta:schema` 升到 4，在 `load()` 裡跑 `ALTER TABLE`，做法同 2→3。
+**版本**：三張表是新的，載入時 `CREATE TABLE IF NOT EXISTS`，沒有舊資料要搬，所以 `meta:schema` 不變（仍是 3）。C5 加的 `challenges.reminded_at`（提醒送出的時間）由 `createTables` 用 `PRAGMA table_info` 檢查、缺了就 `ALTER TABLE ADD COLUMN`（新欄位是空的，不必回填），所以也不升 `meta:schema`；之後要搬資料的改動才把 `meta:schema` 升到 4，做法同 2→3。
 
 **刪除帳號**（`ChallengeStore.forget`）：進行中的挑戰拿掉他的位子與結果，剩不到 2 位沒拒絕的人就 `cancelled`；已結束的挑戰保留他的列，最終名次不變（同牌局紀錄，名字顯示為已刪除的社員）。
 
@@ -248,7 +268,7 @@ C4 的實作（2026-10-24）：
 | C2（本批） | 這份設計、`DealSet`（`shared/deal-set.ts`）、三張表與 `ChallengeStore`（`ClubService.challenges`） |
 | C3 | 建立（設定檢查、封鎖、`makeDealSet`）、邀請／接受／拒絕／取消與狀態轉移、通知種類與訊息 |
 | C4 | 挑戰牌桌模式、確定性種子、進度與續打、牌桌頁首提示 |
-| C5 | 期限工作與結算、可見性函式、挑戰牌局進紀錄（`mode`、`event_id`、`revealAt`） |
+| C5 | 期限工作與結算、可見性函式、挑戰牌局進紀錄（`mode`、`event_id`、`revealAt`）；`ChallengeView` 加 `standings`、`travellers` |
 | C6 | 挑戰大廳、發起對話框、排名頁（建立／回覆／取消的訊息與 `ChallengeView` 在 C3 已經有了；這時加畫面要的推送與排名的型別） |
 | C7 | Traveller、並排重播 |
 | C8–C9 | Best Hand（發給參與者前旋轉牌組，所有人一致）、Just Declare、再戰、「用這副牌挑戰」（`DealSetSpec` 的 `given`）、每週社團挑戰、分享卡、端對端測試 |
@@ -257,7 +277,7 @@ C4 的實作（2026-10-24）：
 
 `NotificationService`（`worker/notifications.ts`）是 `ClubService.notifications`；其他功能呼叫 `notify(userId, kind, params)`。伺服器只存種類（`NOTIFICATION_KINDS`）和參數，文字由瀏覽器依語言組出來、點了到哪一頁也由瀏覽器決定（`src/lib/notifications.ts`），所以加新種類時要一起加 `strings.ts` 六種語言與連結。某位社員的通知第一次用到時才從儲存讀出、之後留在記憶體；有變就推 `notifications` 給在線的他（同樣只送有變的部分）。頁首鈴鐺（`NotificationBell`）顯示未讀數與列表，點一則標為已讀並跳到對應頁。
 
-現有的種類：`application`（有人申請註冊，通知每位管理員，連到管理頁）；挑戰（§5.5）：`challengeInvited`（給受邀者）、`challengeAccepted`／`challengeDeclined`（給發起者）、`challengeCancelled`（給沒拒絕的人），參數是 `challengeId` 與對方的 `username`；`challengeReminder`（截止前 12 小時）與 `challengeResults`（結果出爐）的種類與文字已經有了，由 C5 的期限工作送出（`e7-t13`）。挑戰頁出來前（C6）挑戰的通知連到大廳。受邀桌、私訊等之後各自加。PWA 推播是 `e1-t28`（M2）。
+現有的種類：`application`（有人申請註冊，通知每位管理員，連到管理頁）；挑戰（§5.5）：`challengeInvited`（給受邀者）、`challengeAccepted`／`challengeDeclined`（給發起者）、`challengeCancelled`（給沒拒絕的人），參數是 `challengeId` 與對方的 `username`；`challengeReminder`（截止前 12 小時，給接受了還沒打完的人）與 `challengeResults`（挑戰 `finished` 時給每位接受的人），參數是 `challengeId`，由期限工作與結算送出（§5.5，`e7-t13`）。挑戰頁出來前（C6）挑戰的通知連到大廳。受邀桌、私訊等之後各自加。PWA 推播是 `e1-t28`（M2）。
 
 ## 5.3 紀錄的 SQL 索引（決策紀錄，`e4-t10`）
 
@@ -274,7 +294,7 @@ C4 的實作（2026-10-24）：
 
 | 表 | 欄位 | 索引 |
 | --- | --- | --- |
-| `boards_index` | `board_id`（主鍵）、`played_at`、`table_no`、`mode`（現在都是 `casual`）、`event_id`、`board_no`、`dealer`、`vul`、`level`、`strain`（四家 Pass 時兩者為 null）、`doubled`（0／1／2）、`declarer_seat`、`declarer_user`（機器人主打為 null）、`tricks`、`score_ns`、`claimed`、`reveal_at`（null＝已公開；挑戰與隊制賽在 `e4-t15` 用） | `(played_at, board_id)`、`(level, strain, played_at)`、`(declarer_user, played_at)` |
+| `boards_index` | `board_id`（主鍵）、`played_at`、`table_no`、`mode`（`casual`，挑戰牌桌是 `challenge`）、`event_id`、`board_no`、`dealer`、`vul`、`level`、`strain`（四家 Pass 時兩者為 null）、`doubled`（0／1／2）、`declarer_seat`、`declarer_user`（機器人主打為 null）、`tricks`、`score_ns`、`claimed`、`reveal_at`（null＝已公開；挑戰的牌寫截止時間，挑戰結束時依 `event_id` 提前到結束時間） | `(played_at, board_id)`、`(level, strain, played_at)`、`(declarer_user, played_at)`、`(event_id)` |
 | `board_players` | `board_id`、`seat`（主鍵兩欄）、`side`（NS／EW）、`user_id`（機器人與空位為 null） | `(user_id, board_id)` |
 
 「誰打的」查 `board_players.user_id`；「搭檔是誰」是同一副、同一個 `side`、不同 `seat`（`boardsPlayedBy`、`boardsPlayedWith`）。
@@ -295,7 +315,7 @@ C4 的實作（2026-10-24）：
 | `player`、`partner` | 某人有打（配 `scope=mine` 就是「我和他同桌」）、他是我的搭檔 |
 | `from`、`to` | 台灣日期 `YYYY-MM-DD`，兩端都含 |
 | `result` | `made`（含超墩）、`down`、`overtricks` |
-| `vul`、`boardNo`、`table`、`mode` | 身價、牌號、桌號、模式 |
+| `vul`、`boardNo`、`table`、`mode` | 身價、牌號、桌號、模式（`mode=challenge` 只列挑戰的牌，C5） |
 | `sort` | `date_desc`（預設）、`date_asc`、`score_desc`、`score_asc`、`tricks_desc`、`tricks_asc`（四家 Pass 一律排最後） |
 | `page`、`size` | 頁碼（超過最後一頁就給最後一頁）、每頁 10／20／50／100 |
 

@@ -1,4 +1,5 @@
-import { SEATS, sideOf } from '../shared/cards.ts'
+import type { Contract } from '../shared/auction.ts'
+import { SEATS, sideOf, type Seat, type Strain } from '../shared/cards.ts'
 import { taiwanDayEnd, taiwanDayStart, type HistoryQuery, type HistorySort } from '../shared/history-query.ts'
 import { isRobotId, type BoardRecord } from '../shared/protocol.ts'
 import type { Sql, SqlValue } from './store.ts'
@@ -33,6 +34,8 @@ const SCHEMA = [
   'CREATE INDEX IF NOT EXISTS boards_by_time ON boards_index (played_at, board_id)',
   'CREATE INDEX IF NOT EXISTS boards_by_contract ON boards_index (level, strain, played_at)',
   'CREATE INDEX IF NOT EXISTS boards_by_declarer ON boards_index (declarer_user, played_at)',
+  // A challenge's travellers and bringing its boards forward when it ends (§5.5)
+  'CREATE INDEX IF NOT EXISTS boards_by_event ON boards_index (event_id)',
   `CREATE TABLE IF NOT EXISTS board_players (
     board_id TEXT NOT NULL,
     seat TEXT NOT NULL,
@@ -102,6 +105,66 @@ export function unindexRecord(sql: Sql, boardId: string) {
 }
 
 const ids = (rows: { board_id: string }[]) => rows.map((row) => row.board_id)
+
+/** What a challenge's traveller shows of one board, read from the index */
+export interface EventBoard {
+  contract: Contract | null
+  declarerTricks: number | null
+}
+
+interface EventRow extends Record<string, SqlValue> {
+  board_id: string
+  level: number | null
+  strain: string | null
+  doubled: number
+  declarer_seat: string | null
+  tricks: number | null
+}
+
+const DOUBLED_TEXT = ['', 'X', 'XX'] as const
+
+/** The boards of a challenge or match (`event_id`), by board id: contract and tricks for its travellers */
+export function eventBoards(sql: Sql, eventId: string): Map<string, EventBoard> {
+  const rows = sql.exec<EventRow>(
+    'SELECT board_id, level, strain, doubled, declarer_seat, tricks FROM boards_index WHERE event_id = ?',
+    eventId,
+  )
+  return new Map(
+    rows.map((r) => [
+      r.board_id,
+      {
+        contract:
+          r.level === null || r.strain === null || r.declarer_seat === null
+            ? null
+            : {
+                level: r.level,
+                strain: r.strain as Strain,
+                doubled: DOUBLED_TEXT[r.doubled] ?? '',
+                declarer: r.declarer_seat as Seat,
+              },
+        declarerTricks: r.tricks,
+      },
+    ]),
+  )
+}
+
+/**
+ * Shows an event's boards from `at` on, once it ended (§5.5): every board of it still kept back
+ * later than that is brought forward. Returns the ids changed, for their records to follow
+ */
+export function revealEvent(sql: Sql, eventId: string, at: number): string[] {
+  return sql.transaction(() => {
+    const changed = ids(
+      sql.exec<{ board_id: string }>(
+        'SELECT board_id FROM boards_index WHERE event_id = ? AND reveal_at > ?',
+        eventId,
+        at,
+      ),
+    )
+    sql.exec('UPDATE boards_index SET reveal_at = ? WHERE event_id = ? AND reveal_at > ?', at, eventId, at)
+    return changed
+  })
+}
 
 /** Boards a member played, newest first */
 export function boardsPlayedBy(sql: Sql, userId: string): string[] {

@@ -59,17 +59,36 @@ import { ruleBrain, type RobotBrain } from '../shared/robot/brain.ts'
 import type { RobotBid } from '../shared/robot/robots.ts'
 import { hashPassword, randomId, SESSION_DAYS, verifyPassword } from './auth.ts'
 import { DEFAULT_HISTORY_QUERY, type HistoryQuery } from '../shared/history-query.ts'
-import { CHALLENGE_LIMITS, parseChallengeSettings, type ChallengeView } from '../shared/challenge.ts'
+import { CHALLENGE_LIMITS, isOpenChallenge, parseChallengeSettings, type ChallengeView } from '../shared/challenge.ts'
 import { dealSourceOf, makeDealSet } from '../shared/deal-set.ts'
-import { answer, cancel, challengeTakesPart, newChallenge, type ChallengeChange } from './challenge-flow.ts'
+import {
+  answer,
+  cancel,
+  challengeTakesPart,
+  deadlineOutcome,
+  earlyFinish,
+  newChallenge,
+  nextChallengeTime,
+  REMINDER_MS,
+  remindWhom,
+  type ChallengeChange,
+} from './challenge-flow.ts'
 import { ChallengeStore, type Challenge } from './challenges.ts'
-import { createHistoryIndex, indexRecord, searchBoards, unindexRecord } from './history-index.ts'
+import { createHistoryIndex, eventBoards, indexRecord, revealEvent, searchBoards, unindexRecord } from './history-index.ts'
 import { challengeStateOf, modeOf, nextSeq, playedSeqs, type ChallengeTableState, type ModeContext } from './modes.ts'
 import { NotificationService } from './notifications.ts'
 import { Relations } from './relations.ts'
 import { AlarmQueue, manualScheduler, type JobKind, type Scheduler } from './scheduler.ts'
 import type { Store } from './store.ts'
-import { boardView, challengeView, chatFor, recordVisible, seatOccupants, type Table } from './views.ts'
+import {
+  boardView,
+  challengeBoardVisible,
+  challengeView,
+  chatFor,
+  recordVisible,
+  seatOccupants,
+  type Table,
+} from './views.ts'
 
 /** An error shown to the user; the code is translated in the browser */
 export class ClubError extends AppError {
@@ -241,6 +260,8 @@ export class ClubService {
       this.scheduleRobots(table)
       this.scheduleDeal(table)
     }
+    // Jobs are not stored: each open challenge's reminder or deadline is scheduled again
+    for (const id of this.challenges.openIds()) this.scheduleChallenge(id)
   }
 
   /** Version 1 kept history as `board:<time>-<id>` only; build the indexes from it */
@@ -590,7 +611,8 @@ export class ClubService {
     await this.notifications.forget(user.id)
     await this.friends.forget(user.id)
     await this.blocks.forget(user.id)
-    this.challenges.forget(user.id, this.now())
+    // A challenge left with too few people is cancelled; one where everyone left is done finishes
+    for (const id of this.challenges.forget(user.id, this.now())) await this.challengeChanged(id)
     this.connections.disconnect(user.id)
     this.broadcast()
   }
@@ -641,31 +663,42 @@ export class ClubService {
     }
   }
 
-  /** A board's full record, if the member may see it (a board kept back only to its players) */
+  /**
+   * A board's full record, if the member may see it: a board kept back is seen only by its players,
+   * and a challenge board also by the participants who played the same board (its traveller, §4)
+   */
   async record(id: string, userId: string): Promise<BoardRecord | null> {
     if (!/^[\w-]+$/.test(id)) return null
     const record = await this.store.get<BoardRecord>(`board:${id}`)
-    return record && recordVisible(record, userId, this.now()) ? record : null
+    if (!record) return null
+    if (recordVisible(record, userId, this.now())) return record
+    const challenge = record.mode === 'challenge' && record.eventId ? this.challenges.get(record.eventId) : null
+    return challenge && challengeBoardVisible(challenge, record.id, userId) ? record : null
   }
 
   private async saveRecord(record: BoardRecord) {
-    // Zero-padded time keeps the indexes in chronological order
-    const order = `${String(record.finishedAt).padStart(14, '0')}-${record.id}`
-    const summary = summarize(record)
     // The SQL index first, in one transaction: if it fails nothing is written. If a key-value
     // write fails after it, the index rows are taken back out, so a board is never half saved
     indexRecord(this.store.sql, record)
     try {
-      await this.store.put(`board:${record.id}`, record)
-      await this.store.put(`hist:${order}`, summary)
-      for (const id of new Set(SEATS.map((seat) => record.players[seat].id))) {
-        if (!id || isRobotId(id)) continue
-        await this.store.put(`uhist:${id}:${order}`, summary)
-      }
+      await this.writeRecord(record)
     } catch (error) {
       unindexRecord(this.store.sql, record.id)
       await this.store.delete(`board:${record.id}`)
       throw error
+    }
+  }
+
+  /** The record and its two key-value summaries (written again when a challenge brings `revealAt` forward) */
+  private async writeRecord(record: BoardRecord) {
+    // Zero-padded time keeps the indexes in chronological order
+    const order = `${String(record.finishedAt).padStart(14, '0')}-${record.id}`
+    const summary = summarize(record)
+    await this.store.put(`board:${record.id}`, record)
+    await this.store.put(`hist:${order}`, summary)
+    for (const id of new Set(SEATS.map((seat) => record.players[seat].id))) {
+      if (!id || isRobotId(id)) continue
+      await this.store.put(`uhist:${id}:${order}`, summary)
     }
   }
 
@@ -850,6 +883,7 @@ export class ClubService {
       now: this.now(),
     })
     this.challenges.create(challenge)
+    this.scheduleChallenge(challenge.id)
     const username = this.users.get(userId)!.username
     for (const id of invitees as string[])
       await this.notifications.notify(id, 'challengeInvited', { challengeId: challenge.id, username })
@@ -880,6 +914,8 @@ export class ClubService {
       challengeId: challenge.id,
       username: this.users.get(userId)!.username,
     })
+    // The last decline may expire it, or leave only people who are done
+    await this.challengeChanged(challenge.id)
   }
 
   /** The creator calls it off while nobody else has started; everyone who has not declined is told */
@@ -892,21 +928,115 @@ export class ClubService {
     for (const p of challenge.players)
       if (p.userId !== userId && p.status !== 'declined')
         await this.notifications.notify(p.userId, 'challengeCancelled', { challengeId: challenge.id, username })
+    await this.challengeChanged(challenge.id)
   }
 
-  /** The challenges a member is in, newest first, as they may see them */
+  /**
+   * The challenges a member is in, newest first, as they may see them (`challengeView`), without
+   * the travellers: the list is for the lobby, one challenge's page asks for it with `challengeFor`
+   */
   challengeList(userId: string): ChallengeView[] {
     return this.challenges.idsOf(userId).flatMap((id) => {
       const challenge = this.challenges.get(id)
       const view = challenge && challengeView(challenge, userId, (other) => this.publicUserById(other))
-      return view ? [view] : []
+      if (!view) return []
+      const { travellers: _later, ...rest } = view
+      return [rest]
     })
   }
 
-  /** One challenge, if the member is in it */
+  /**
+   * One challenge as the member may see it (`challengeView`, §4): its participants, and the whole
+   * club once it finished with `ranking = club`; null for anyone else
+   */
   challengeFor(id: string, userId: string): ChallengeView | null {
     const challenge = this.challenges.get(id)
-    return challenge && challengeView(challenge, userId, (other) => this.publicUserById(other))
+    if (!challenge) return null
+    const boards = eventBoards(this.store.sql, id)
+    return challengeView(challenge, userId, (other) => this.publicUserById(other), (boardId) => boards.get(boardId))
+  }
+
+  // ── Challenge deadlines and settlement (§5.5, e7-t13) ───────────────────────────────────────
+
+  /**
+   * Puts an open challenge's one job (`challenge:<id>`) at its next time point: the reminder 12
+   * hours before the deadline until it went out, then the deadline. Jobs are not stored; `load()`
+   * schedules every open challenge again
+   */
+  private scheduleChallenge(id: string) {
+    const challenge = this.challenges.get(id)
+    const at = challenge ? nextChallengeTime(challenge) : null
+    if (at === null) return
+    this.scheduler.add(`challenge:${id}`, 'challenge', Math.max(0, at - this.now()), () => this.challengeDue(id))
+  }
+
+  /**
+   * The challenge's job. At the deadline it settles (`deadlineOutcome`); before it, from 12 hours
+   * out, it reminds those who accepted and still have boards to play, once. Either way the time is
+   * checked again here, so a job run early only puts itself back
+   */
+  private async challengeDue(id: string) {
+    const challenge = this.challenges.get(id)
+    if (!challenge || !isOpenChallenge(challenge.status)) return
+    const now = this.now()
+    if (now >= challenge.deadline) {
+      const change = deadlineOutcome(challenge, now)
+      if (change) await this.endChallenge(challenge, change)
+      this.broadcast()
+      return
+    }
+    if (challenge.remindedAt === undefined && now >= challenge.deadline - REMINDER_MS) {
+      // Noted first, so a failure halfway never sends it twice
+      this.challenges.setReminded(id, now)
+      for (const userId of remindWhom(challenge))
+        await this.notifications.notify(userId, 'challengeReminder', { challengeId: id })
+    }
+    this.scheduleChallenge(id)
+  }
+
+  /**
+   * After anything that may end a challenge (an answer, a cancel, a finished board, an account
+   * deleted): one that just ended closes up; one where every invitee answered and everyone who
+   * accepted played every board finishes now, before the deadline
+   */
+  private async challengeChanged(id: string) {
+    const challenge = this.challenges.get(id)
+    if (!challenge) return
+    if (!isOpenChallenge(challenge.status)) return this.challengeEnded(challenge)
+    const change = earlyFinish(challenge)
+    if (change) await this.endChallenge(challenge, change)
+  }
+
+  /** Moves a challenge to its end (`finished` or `expired`); a finished one tells everyone who accepted */
+  private async endChallenge(challenge: Challenge, change: ChallengeChange) {
+    this.applyChallenge(challenge, change)
+    const ended = this.challenges.get(challenge.id)!
+    await this.challengeEnded(ended)
+    if (ended.status !== 'finished') return
+    for (const p of ended.players)
+      if (p.status === 'accepted')
+        await this.notifications.notify(p.userId, 'challengeResults', { challengeId: ended.id })
+  }
+
+  /**
+   * A challenge that ended (finished, expired or cancelled). Its tables close: a board still being
+   * played is dropped, as the deadline stops play; only someone still sitting at their table after
+   * their last board keeps it until they leave. Its boards are shown to everyone from now on: the
+   * records' `revealAt` and `boards_index.reveal_at` are brought forward to the end
+   */
+  private async challengeEnded(challenge: Challenge) {
+    for (const table of [...this.tables.values()]) {
+      const state = challengeStateOf(table)
+      if (state?.challengeId !== challenge.id) continue
+      const done = nextSeq(challenge, state.userId) === null && table.board?.phase === 'finished'
+      if (done && this.humansSeated(table) > 0) continue
+      await this.dropTable(table)
+    }
+    const now = this.now()
+    for (const boardId of revealEvent(this.store.sql, challenge.id, now)) {
+      const record = await this.store.get<BoardRecord>(`board:${boardId}`)
+      if (record) await this.writeRecord({ ...record, revealAt: now })
+    }
   }
 
   // ── Challenge tables (§5.5, e7-t08, e7-t12) ─────────────────────────────────────────────────
@@ -1385,7 +1515,8 @@ export class ClubService {
     if (message.type !== 'claimRespond') table.rejectedClaim = undefined
     table.board = next
     if (board.phase === 'auction' && next.phase === 'play') this.swapForDeclarer(table)
-    if (next.phase === 'finished' && board.phase !== 'finished') {
+    const finished = next.phase === 'finished' && board.phase !== 'finished'
+    if (finished) {
       const record = await this.recordBoard(table, next)
       modeOf(table).boardFinished(table, record, this.modeContext())
       // A board played to the last card leaves that trick on the table for a moment first
@@ -1394,6 +1525,9 @@ export class ClubService {
       this.startBoardIfReady(table)
     }
     await this.save(table)
+    // The last board of the last participant finishes the challenge before its deadline
+    const challenge = challengeStateOf(table)
+    if (finished && challenge) await this.challengeChanged(challenge.challengeId)
   }
 
   private async recordBoard(table: Table, board: BoardState) {
