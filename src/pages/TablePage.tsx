@@ -1,12 +1,12 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import styled, { css, keyframes } from 'styled-components'
 import { isVulnerable } from '../../shared/board.ts'
-import { nextSeat, SEATS, sideOf, suitOf, type Card, type Seat, type Suit } from '../../shared/cards.ts'
+import { nextSeat, partnerOf, SEATS, sideOf, suitOf, type Card, type Seat, type Suit } from '../../shared/cards.ts'
 import type { Trick } from '../../shared/game.ts'
 import { DEAL_COUNTDOWN_MS, type BoardView, type TableView } from '../../shared/protocol.ts'
 import { AuctionBox } from '../components/AuctionBox.tsx'
-import { BiddingBox } from '../components/BiddingBox.tsx'
+import { BiddingBox, type BiddingHints } from '../components/BiddingBox.tsx'
 import { BoardInfo } from '../components/BoardInfo.tsx'
 import { ChatPanel } from '../components/ChatPanel.tsx'
 import { DEAL_MS, DealAnimation } from '../components/DealAnimation.tsx'
@@ -21,6 +21,7 @@ import { Muted, PageMain } from '../components/ui.tsx'
 import { suitOrder } from '../lib/cards.ts'
 import { auctionBoxHeight, biddingBoxHeight, handHeight, type Orientation } from '../lib/measure.ts'
 import { dealSound, playCardSound, turnSound, unlockSound } from '../lib/sound.ts'
+import { useRobotRules } from '../lib/useRobotRules.ts'
 import { useAuth } from '../state/AuthContext.tsx'
 import { useClub } from '../state/ClubContext.tsx'
 import { usePreferences, useT } from '../state/PreferencesContext.tsx'
@@ -503,7 +504,7 @@ export function TablePage() {
 
 function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeof useClub>['send'] }) {
   const t = useT()
-  const { cardStyle, sound } = usePreferences()
+  const { cardStyle, sound, lang } = usePreferences()
   const { user } = useAuth()
   const { error } = useClub()
   const [feltRef, feltSize] = useSize()
@@ -529,6 +530,22 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
     return o ? (o.robot ? `${playerName(t, o)} ${seatLetter[seat]}` : o.username) : seatLetter[seat]
   }
   const missing = SEATS.filter((s) => !table.seats[s]).length
+
+  // A 2/1 robot partner: the bidding box tells how it will read each call, as GIB does on BBO
+  const partner = me ? table.seats[partnerOf(me)] : null
+  const hinting = !!board && board.legalCalls.length > 0 && !!partner?.robot && partner.robotKind === 'gib'
+  const rules = useRobotRules(hinting)
+  const hints = useMemo((): BiddingHints | null => {
+    if (!hinting || !rules || !board || !partner) return null
+    const meanings = rules.explain(rules.GIB, board.auction, board.dealer, board.vul)
+    return {
+      title: t.robotReads(playerName(t, partner)),
+      text: (call) => {
+        const spec = meanings.get(call)
+        return (spec && rules.describe(spec, lang)) || t.noRobotMeaning
+      },
+    }
+  }, [hinting, rules, board, partner, t, lang])
   const trump = board?.contract && board.phase !== 'auction' ? board.contract.strain : null
 
   // The server moved me into my robot partner's declaring seat: say so until the first trick is done
@@ -748,7 +765,12 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
       {b.undo
         ? undoPrompt()
         : b.legalCalls.length > 0 && (
-            <BiddingBox legal={b.legalCalls} onCall={(call, alert) => send({ type: 'call', call, alert })} size={sizes.box} />
+            <BiddingBox
+              legal={b.legalCalls}
+              onCall={(call, alert) => send({ type: 'call', call, alert })}
+              size={sizes.box}
+              hints={hints}
+            />
           )}
     </BoxSlot>
   )
