@@ -95,9 +95,9 @@ challenge（pending → active → finished｜cancelled｜expired）
 
 **M1 · 規則、資料與計分**
 
-- [x] `e7-t01` 設計文件：資料模型、狀態機、計分定義、公平規則、可見性，寫進 `ARCHITECTURE.md`（新章節「挑戰」）與 §4 · AC-7.1, AC-7.2, AC-7.3, AC-7.4, AC-7.5 · #PR
-- [x] `e7-t02` `DealSet`：伺服器以密碼學亂數產生 N 副並保存；牌號與身價照 16 副循環；只在參與者開打那一副時揭露 · AC-7.3 · #PR
-- [x] `e7-t03` 儲存：`challenges`、`challenge_players`、`challenge_results` SQL 表與 repository · AC-7.1 · #PR
+- [x] `e7-t01` 設計文件：資料模型、狀態機、計分定義、公平規則、可見性，寫進 `ARCHITECTURE.md`（新章節「挑戰」）與 §4 · AC-7.1, AC-7.2, AC-7.3, AC-7.4, AC-7.5 · #44
+- [x] `e7-t02` `DealSet`：伺服器以密碼學亂數產生 N 副並保存；牌號與身價照 16 副循環；只在參與者開打那一副時揭露 · AC-7.3 · #44
+- [x] `e7-t03` 儲存：`challenges`、`challenge_players`、`challenge_results` SQL 表與 repository · AC-7.1 · #44
 - [x] `e7-t04` `shared/imp.ts`（WBF IMP 表，E8 共用）與 `shared/challenge-scoring.ts`：IMP、總分、MP 百分比、Cross-IMP、Avg-／最差分、同分名次；手算範例單元測試 · AC-7.5 · #38
 - [ ] `e7-t05` 建立挑戰 API 與驗證（人數、副數、設定、封鎖檢查）· AC-7.1 · S · ← e7-t03, e1-t21
 - [ ] `e7-t06` 邀請、接受、拒絕、取消 API 與狀態轉移測試（含「沒人開打才能取消」「至少 2 人接受」）· AC-7.2 · S · ← e7-t05
