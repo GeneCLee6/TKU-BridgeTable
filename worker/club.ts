@@ -204,6 +204,13 @@ export class Club extends DurableObject<Env> implements Connections {
       if (!found) throw new ClubError('boardGone', {}, 404)
       return json({ record: found })
     }
+    if (route === 'GET /api/challenges') return json({ challenges: this.service.challengeList(user.id) })
+    const challenge = url.pathname.match(/^\/api\/challenges\/([\w-]+)$/)
+    if (request.method === 'GET' && challenge) {
+      const found = this.service.challengeFor(challenge[1], user.id)
+      if (!found) throw new ClubError('challengeGone', {}, 404)
+      return json({ challenge: found })
+    }
     if (url.pathname.startsWith('/api/admin/')) return this.admin(request, url, user, body)
     throw new ClubError('noSuchApi', {}, 404)
   }

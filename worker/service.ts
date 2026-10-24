@@ -57,14 +57,17 @@ import { ruleBrain, type RobotBrain } from '../shared/robot/brain.ts'
 import type { RobotBid } from '../shared/robot/robots.ts'
 import { hashPassword, randomId, SESSION_DAYS, verifyPassword } from './auth.ts'
 import { DEFAULT_HISTORY_QUERY, type HistoryQuery } from '../shared/history-query.ts'
-import { ChallengeStore } from './challenges.ts'
+import { CHALLENGE_LIMITS, parseChallengeSettings, type ChallengeView } from '../shared/challenge.ts'
+import { makeDealSet } from '../shared/deal-set.ts'
+import { answer, cancel, newChallenge, type ChallengeChange } from './challenge-flow.ts'
+import { ChallengeStore, type Challenge } from './challenges.ts'
 import { createHistoryIndex, indexRecord, searchBoards, unindexRecord } from './history-index.ts'
 import { modeOf } from './modes.ts'
 import { NotificationService } from './notifications.ts'
 import { Relations } from './relations.ts'
 import { AlarmQueue, manualScheduler, type JobKind, type Scheduler } from './scheduler.ts'
 import type { Store } from './store.ts'
-import { boardView, chatFor, recordVisible, seatOccupants, type Table } from './views.ts'
+import { boardView, challengeView, chatFor, recordVisible, seatOccupants, type Table } from './views.ts'
 
 /** An error shown to the user; the code is translated in the browser */
 export class ClubError extends AppError {
@@ -179,7 +182,7 @@ export class ClubService {
   /** Whom each member follows (好友) and whom they blocked (AC-1.6) */
   private readonly friends: Relations
   private readonly blocks: Relations
-  /** Challenges, kept in SQL (§5.5); creating and playing them come in later batches */
+  /** Challenges, kept in SQL (§5.5); created and answered here, played in later batches */
   readonly challenges: ChallengeStore
 
   constructor(store: Store, connections: Connections, config: ClubConfig) {
@@ -740,6 +743,12 @@ export class ClubService {
         return this.setFriend(userId, message.userId, message.friend)
       case 'setBlocked':
         return this.setBlocked(userId, message.userId, message.blocked)
+      case 'createChallenge':
+        return this.createChallenge(userId, message.invitees, message.boards, message.settings)
+      case 'answerChallenge':
+        return this.answerChallenge(userId, message.challengeId, message.accept)
+      case 'cancelChallenge':
+        return this.cancelChallenge(userId, message.challengeId)
       case 'call':
       case 'play':
       case 'claim':
@@ -783,6 +792,102 @@ export class ClubService {
   /** A member the host blocked may not join the table, to sit or to watch */
   private checkWelcome(userId: string, table: Table) {
     if (this.blocks.has(table.hostId, userId)) throw new ClubError('blockedByHost', {}, 403)
+  }
+
+  // ── Challenges (§5.5) ───────────────────────────────────────────────────────────────────────
+
+  /**
+   * Creates a challenge (e7-t05): 1–20 different members the creator follows, neither side
+   * blocking the other; 4–16 boards dealt at random now; settings checked by
+   * `parseChallengeSettings`. The creator has accepted and may play at once; the invitees are told
+   */
+  private async createChallenge(userId: string, invitees: unknown, boards: unknown, wanted: unknown) {
+    const { invitedMin, invitedMax, boardsMin, boardsMax, boardsDefault } = CHALLENGE_LIMITS
+    if (!Array.isArray(invitees)) throw new ClubError('badChallengeSettings', { field: 'invitees' })
+    if (invitees.length < invitedMin || invitees.length > invitedMax)
+      throw new ClubError('challengeInvitees', { min: invitedMin, max: invitedMax })
+    if (new Set(invitees).size !== invitees.length) throw new ClubError('badChallengeSettings', { field: 'invitees' })
+    for (const id of invitees) {
+      const other = this.otherMember(userId, id)
+      const name = this.users.get(other)!.username
+      // Blocking the invitee also stopped following them, so a member one blocked is never a friend
+      if (!this.friends.has(userId, other)) throw new ClubError('notFriend', { name })
+      // Whether they blocked the creator stays private: the creator only hears they cannot be invited
+      if (this.blocks.has(other, userId)) throw new ClubError('cannotInvite', { name }, 403)
+    }
+    const count = boards ?? boardsDefault
+    if (!Number.isInteger(count) || (count as number) < boardsMin || (count as number) > boardsMax)
+      throw new ClubError('challengeBoards', { min: boardsMin, max: boardsMax })
+    const parsed = parseChallengeSettings(wanted, invitees.length)
+    if ('field' in parsed) throw new ClubError('badChallengeSettings', { field: parsed.field })
+    const deals = makeDealSet({ kind: 'random', count: count as number }, this.random)
+    if (!deals) throw new ClubError('serverError', {}, 500)
+    const challenge = newChallenge({
+      id: randomId(8),
+      creatorId: userId,
+      invitees: invitees as string[],
+      settings: parsed.settings,
+      deals,
+      now: this.now(),
+    })
+    this.challenges.create(challenge)
+    const username = this.users.get(userId)!.username
+    for (const id of invitees as string[])
+      await this.notifications.notify(id, 'challengeInvited', { challengeId: challenge.id, username })
+  }
+
+  private requireChallenge(id: unknown): Challenge {
+    const challenge = typeof id === 'string' ? this.challenges.get(id) : null
+    if (!challenge) throw new ClubError('challengeGone', {}, 404)
+    return challenge
+  }
+
+  /** Writes a step of `challenge-flow.ts` in one transaction */
+  private applyChallenge(challenge: Challenge, change: ChallengeChange) {
+    this.store.sql.transaction(() => {
+      for (const player of change.players) this.challenges.updatePlayer(challenge.id, player)
+      if (change.status) this.challenges.setStatus(challenge.id, change.status, this.now())
+    })
+  }
+
+  /** An invitee accepts or declines (e7-t06); the creator is told either way */
+  private async answerChallenge(userId: string, challengeId: unknown, accept: unknown) {
+    if (typeof accept !== 'boolean') throw new ClubError('unknownCommand')
+    const challenge = this.requireChallenge(challengeId)
+    const step = answer(challenge, userId, accept, this.now())
+    if ('error' in step) throw new ClubError(step.error, {}, step.error === 'challengeGone' ? 404 : 400)
+    this.applyChallenge(challenge, step)
+    await this.notifications.notify(challenge.creatorId, accept ? 'challengeAccepted' : 'challengeDeclined', {
+      challengeId: challenge.id,
+      username: this.users.get(userId)!.username,
+    })
+  }
+
+  /** The creator calls it off while nobody else has started; everyone who has not declined is told */
+  private async cancelChallenge(userId: string, challengeId: unknown) {
+    const challenge = this.requireChallenge(challengeId)
+    const step = cancel(challenge, userId)
+    if ('error' in step) throw new ClubError(step.error, {}, step.error === 'challengeGone' ? 404 : 400)
+    this.applyChallenge(challenge, step)
+    const username = this.users.get(userId)!.username
+    for (const p of challenge.players)
+      if (p.userId !== userId && p.status !== 'declined')
+        await this.notifications.notify(p.userId, 'challengeCancelled', { challengeId: challenge.id, username })
+  }
+
+  /** The challenges a member is in, newest first, as they may see them */
+  challengeList(userId: string): ChallengeView[] {
+    return this.challenges.idsOf(userId).flatMap((id) => {
+      const challenge = this.challenges.get(id)
+      const view = challenge && challengeView(challenge, userId, (other) => this.publicUserById(other))
+      return view ? [view] : []
+    })
+  }
+
+  /** One challenge, if the member is in it */
+  challengeFor(id: string, userId: string): ChallengeView | null {
+    const challenge = this.challenges.get(id)
+    return challenge && challengeView(challenge, userId, (other) => this.publicUserById(other))
   }
 
   // ── Tables ──────────────────────────────────────────────────────────────────────────────────
