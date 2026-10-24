@@ -55,6 +55,7 @@ import { acceptsClaim } from '../shared/robot/claim.ts'
 import { chooseCard } from '../shared/robot/play.ts'
 import { robotCall, type RobotBid } from '../shared/robot/robots.ts'
 import { hashPassword, randomId, SESSION_DAYS, verifyPassword } from './auth.ts'
+import { createHistoryIndex, indexRecord, unindexRecord } from './history-index.ts'
 import { modeOf } from './modes.ts'
 import { AlarmQueue, manualScheduler, type JobKind, type Scheduler } from './scheduler.ts'
 import type { Store } from './store.ts'
@@ -122,7 +123,10 @@ export type ScheduleKind = JobKind
 const CHAT_KEEP = 100
 /** Boards a table keeps for its History panel */
 const RECENT_KEEP = 30
-const SCHEMA = 2
+/** 2: history indexes in KV (`hist:`, `uhist:`); 3: the SQL history index as well */
+const SCHEMA = 3
+/** Boards indexed per step of the backfill; the position is saved after each step */
+const BACKFILL_BATCH = 100
 /**
  * How long robots wait before acting, so people can follow the play: a card glides to the middle
  * for 1.3 s, and a finished trick stays on the table until its winner leads again
@@ -185,7 +189,10 @@ export class ClubService {
       this.applications.set(application.id, application)
     for (const table of (await this.store.list<Table>('table:')).values()) this.tables.set(table.id, table)
     this.settings = (await this.store.get<Partial<ClubSettings>>('meta:settings')) ?? {}
-    if (((await this.store.get<number>('meta:schema')) ?? 1) < SCHEMA) await this.migrate()
+    createHistoryIndex(this.store.sql)
+    const schema = (await this.store.get<number>('meta:schema')) ?? 1
+    if (schema < 2) await this.migrate()
+    if (schema < 3) await this.backfillIndex()
     await this.ensureAdmin()
     for (const table of this.tables.values()) {
       this.scheduleRobots(table)
@@ -200,7 +207,29 @@ export class ClubService {
       await this.saveRecord(record)
       await this.store.delete(key)
     }
+    await this.store.put('meta:schema', 2)
+  }
+
+  /**
+   * Version 3 adds the SQL history index: every `board:` record is indexed, a batch at a time. The
+   * last key done is kept in `meta:backfill`, so an object evicted halfway carries on where it
+   * stopped; indexing a board twice changes nothing
+   */
+  private async backfillIndex() {
+    let after = await this.store.get<string>('meta:backfill')
+    for (;;) {
+      // `start` is inclusive: the key after `after` is `after` + the lowest character
+      const batch = await this.store.list<BoardRecord>('board:', {
+        limit: BACKFILL_BATCH,
+        ...(after && { start: `${after}\0` }),
+      })
+      if (!batch.size) break
+      for (const record of batch.values()) indexRecord(this.store.sql, record)
+      after = [...batch.keys()].at(-1)!
+      await this.store.put('meta:backfill', after)
+    }
     await this.store.put('meta:schema', SCHEMA)
+    await this.store.delete('meta:backfill')
   }
 
   /** A club always has an admin: if nobody is one, the oldest account becomes admin */
@@ -574,13 +603,22 @@ export class ClubService {
     // Zero-padded time keeps the indexes in chronological order
     const order = `${String(record.finishedAt).padStart(14, '0')}-${record.id}`
     const summary = summarize(record)
-    await this.store.put(`board:${record.id}`, record)
-    await this.store.put(`hist:${order}`, summary)
-    await this.bumpCount('hist:')
-    for (const id of new Set(SEATS.map((seat) => record.players[seat].id))) {
-      if (!id || isRobotId(id)) continue
-      await this.store.put(`uhist:${id}:${order}`, summary)
-      await this.bumpCount(`uhist:${id}:`)
+    // The SQL index first, in one transaction: if it fails nothing is written. If a key-value
+    // write fails after it, the index rows are taken back out, so a board is never half saved
+    indexRecord(this.store.sql, record)
+    try {
+      await this.store.put(`board:${record.id}`, record)
+      await this.store.put(`hist:${order}`, summary)
+      await this.bumpCount('hist:')
+      for (const id of new Set(SEATS.map((seat) => record.players[seat].id))) {
+        if (!id || isRobotId(id)) continue
+        await this.store.put(`uhist:${id}:${order}`, summary)
+        await this.bumpCount(`uhist:${id}:`)
+      }
+    } catch (error) {
+      unindexRecord(this.store.sql, record.id)
+      await this.store.delete(`board:${record.id}`)
+      throw error
     }
   }
 

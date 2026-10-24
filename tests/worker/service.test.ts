@@ -4,7 +4,8 @@ import { deal } from '../../shared/board.ts'
 import { SEATS, type Seat } from '../../shared/cards.ts'
 import { DEAL_COUNTDOWN_MS, LAST_TRICK_MS, type ClientMessage, type ServerMessage, type TableView } from '../../shared/protocol.ts'
 import { ClubError, ClubService, type Connections, type ScheduleKind } from '../../worker/service.ts'
-import { MemoryStore } from '../../worker/store.ts'
+import type { MemoryStore } from '../../worker/store.ts'
+import { memoryStore } from './sqlite.ts'
 import type { Table } from '../../worker/views.ts'
 
 class FakeConnections implements Connections {
@@ -49,7 +50,7 @@ let queue: { run: () => void; ms: number; kind: ScheduleKind }[]
 let time: number
 
 async function setup(config: { maxUsers?: number; inviteCode?: string } = {}) {
-  store = new MemoryStore()
+  store = memoryStore()
   connections = new FakeConnections()
   queue = []
   time = 1_000_000
@@ -778,7 +779,7 @@ describe('history pages', () => {
   })
 
   it('moves version-1 history into the new indexes', async () => {
-    store = new MemoryStore()
+    store = memoryStore()
     const old = { id: 'old1', tableNumber: 1, finishedAt: 5, players: {}, board: {} }
     for (const seat of ['N', 'E', 'S', 'W']) (old.players as Record<string, unknown>)[seat] = { id: 'u1', username: 'gene' }
     old.board = { boardNo: 1, dealer: 'N', vul: 'None', contract: null, result: { declarerTricks: 0, scoreNS: 0, claimed: false } }
@@ -788,6 +789,77 @@ describe('history pages', () => {
     expect((await club.record('old1'))?.id).toBe('old1')
     expect((await club.history('u1', false)).boards.map((b) => b.id)).toEqual(['old1'])
     expect(await store.get('board:00000000000005-old1')).toBeUndefined()
+  })
+})
+
+describe('the SQL history index', () => {
+  const count = (table: string) => store.sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM ${table}`)[0].n
+
+  async function passOut(bySeat: Record<Seat, string>) {
+    for (let i = 0; i < 4; i++) {
+      const turn = tableFor(bySeat.N).board!.turn!
+      await send(bySeat[turn], { type: 'call', call: 'P' })
+    }
+  }
+
+  it('gets every finished board with its four players', async () => {
+    const { bySeat } = await fullTable()
+    await passOut(bySeat)
+    const id = tableFor(bySeat.N).board!.recordId!
+    expect(store.sql.exec('SELECT board_id, level FROM boards_index')).toEqual([{ board_id: id, level: null }])
+    expect(store.sql.exec('SELECT seat, user_id FROM board_players ORDER BY seat')).toEqual(
+      (['E', 'N', 'S', 'W'] as const).map((seat) => ({ seat, user_id: bySeat[seat] })),
+    )
+    expect(await store.get('meta:schema')).toBe(3)
+  })
+
+  it('fills in boards saved before it, a batch at a time, and can carry on or run again', async () => {
+    const seats = { N: 'u1', E: 'u2', S: 'u3', W: 'robot:gib:W' }
+    const players = Object.fromEntries(Object.entries(seats).map(([s, id]) => [s, { id, username: id }]))
+    const board = { boardNo: 1, dealer: 'N', vul: 'None', contract: null, result: { declarerTricks: 0, scoreNS: 0, claimed: false } }
+    for (let i = 0; i < 250; i++) {
+      const id = `r${String(i).padStart(3, '0')}`
+      await store.put(`board:${id}`, { id, tableNumber: 1, finishedAt: i, players, board })
+    }
+    await store.put('meta:schema', 2)
+    // An earlier load stopped after the first 120 boards
+    await store.put('meta:backfill', 'board:r119')
+    await new ClubService(store, connections, { maxUsers: 10 }).load()
+    expect(count('boards_index')).toBe(130)
+    expect(await store.get('meta:schema')).toBe(3)
+    expect(await store.get('meta:backfill')).toBeUndefined()
+
+    await store.put('meta:schema', 2)
+    await new ClubService(store, connections, { maxUsers: 10 }).load()
+    expect(count('boards_index')).toBe(250)
+    expect(count('board_players')).toBe(1000)
+    expect(store.sql.exec("SELECT COUNT(*) AS n FROM board_players WHERE user_id IS NULL")).toEqual([{ n: 250 }])
+  })
+
+  it('never keeps half a board when the index fails', async () => {
+    const { bySeat } = await fullTable()
+    const sql = store.sql as { exec: typeof store.sql.exec }
+    const exec = sql.exec
+    sql.exec = (query, ...params) => {
+      if (query.startsWith('INSERT OR REPLACE INTO boards_index')) throw new Error('SQL down')
+      return exec(query, ...params)
+    }
+    await expect(passOut(bySeat)).rejects.toThrow('SQL down')
+    expect((await store.list('board:')).size).toBe(0)
+    expect((await store.list('hist:')).size).toBe(0)
+  })
+
+  it('never keeps half a board when a key-value write fails after the index', async () => {
+    const { bySeat } = await fullTable()
+    const put = store.put.bind(store)
+    store.put = async (key, value) => {
+      if (key.startsWith('hist:')) throw new Error('KV down')
+      return put(key, value)
+    }
+    await expect(passOut(bySeat)).rejects.toThrow('KV down')
+    expect(count('boards_index')).toBe(0)
+    expect(count('board_players')).toBe(0)
+    expect((await store.list('board:')).size).toBe(0)
   })
 })
 
@@ -830,7 +902,7 @@ describe('a robot partner as declarer', () => {
 
   it('moves the person into the declarer’s seat, and back if the auction is reopened', async () => {
     for (let seed = 1; seed < 300; seed++) {
-      store = new MemoryStore()
+      store = memoryStore()
       connections = new FakeConnections()
       queue = []
       club = new ClubService(store, connections, {

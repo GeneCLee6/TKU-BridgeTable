@@ -53,6 +53,10 @@ export class Club extends DurableObject<Env> implements Connections {
         await storage.delete(key)
       },
       list: (prefix, options = {}) => storage.list({ prefix, ...options }),
+      sql: {
+        exec: (query, ...params) => storage.sql.exec(query, ...params).toArray() as never,
+        transaction: (fn) => storage.transactionSync(fn),
+      },
     }
     this.service = new ClubService(store, this, {
       maxUsers: Number(env.MAX_USERS ?? 10),
