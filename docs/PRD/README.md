@@ -17,12 +17,12 @@
 
 ## Epic 進度
 
-統計日期 2026-10-23。勾選以各 epic 文件為準，改了勾選順手更新這張表。
+統計日期 2026-10-24。勾選以各 epic 文件為準，改了勾選順手更新這張表。
 
 | Epic | 名稱 | Task 完成 | AC 完成 | M1 task 數 | 狀態 |
 | --- | --- | --- | --- | --- | --- |
 | [E1](e1-accounts-identity-community.md) | 帳號、身分與社群 | 14／34 | 4／9 | 13 | in-progress |
-| [E2](e2-table-engine-realtime.md) | 牌桌引擎與即時連線 | 19／35 | 8／14 | 12 | in-progress |
+| [E2](e2-table-engine-realtime.md) | 牌桌引擎與即時連線 | 22／35 | 8／14 | 12 | in-progress |
 | [E3](e3-table-ui-experience.md) | 牌桌介面與體驗 | 27／44 | 7／12 | 13 | in-progress |
 | [E4](e4-records-favorites-search.md) | 牌局紀錄、收藏與搜尋 | 9／39 | 3／13 | 24 | in-progress |
 | [E5](e5-robot-bidding-brain.md) | 智慧機器人（一）：叫牌制度引擎、2/1 機器人與完整 5542 | 27／63 | 4／14 | 45 | in-progress |

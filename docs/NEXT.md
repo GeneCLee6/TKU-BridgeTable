@@ -7,7 +7,8 @@
 - **M0 社團 MVP** ✅ 已上線。
 - **M1 社團完整版**進行中（PRD 進度表見 `docs/PRD/README.md`）。
 - **2/1 機器人（GIB 相容）這條線做完並已合併**（#17 引擎、#27 2/1 制度、#29 牌桌整合、#30 交接文件）。
-- **下一批：ROADMAP 第 A1 批**（`e2-t20`～`t22` 牌桌模式與排程器）。機器人線的 B1 可以和 A 線交錯做。
+- **A1 完成**（#32）：牌桌模式（`worker/modes.ts`）、`DealSource`（`shared/deal-source.ts`）、統一排程器（`worker/scheduler.ts`，Durable Object 用 storage alarm）。
+- **下一批：ROADMAP 第 A2 批**（`e2-t23` `e2-t24` 牌桌設定與開桌對話框）。機器人線的 B1 可以和 A 線交錯做。
 - 淡江機器人仍用舊程式 `shared/robot/bidding.ts`，還沒搬進引擎（下面第 2 點第一項）。
 
 ## 2. 建議順序
