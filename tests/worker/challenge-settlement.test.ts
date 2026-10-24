@@ -450,19 +450,15 @@ describe('who sees which results (e7-t14, §4)', () => {
     return { ...ids, zoe } as Record<string, string>
   }
 
-  it('an unfinished participant sees progress and the travellers of the boards they played, nothing else', async () => {
+  it('an unfinished participant sees progress only, not even the boards they played (社長)', async () => {
     const { id, amy, ben } = await started()
     const view = seen(id, ben)!
     expect(view.players.map((p) => p.played)).toEqual([4, 2, 0])
     expect(view.standings).toBeUndefined()
-    expect(view.travellers!.map((t) => t.seq)).toEqual([1, 2])
-    expect(view.travellers![0].entries.map((e) => [e.userId, e.scoreNS])).toEqual([
-      [amy, 420],
-      [ben, 170],
-    ])
+    // Knowing whether they are ahead would change how they play the rest
+    expect(view.travellers).toBeUndefined()
     const json = JSON.stringify(view)
-    // amy's boards 3 and 4 stay hidden
-    for (const hidden of ['b-' + amy + '-3', '600', 'hands']) expect(json).not.toContain(hidden)
+    for (const hidden of ['b-' + amy + '-1', '420', '170', '600', 'hands']) expect(json).not.toContain(hidden)
   })
 
   it('a participant who has not played sees statuses and progress only', async () => {
@@ -524,7 +520,7 @@ describe('who sees which results (e7-t14, §4)', () => {
     expect(listed.standings).toBeDefined()
   })
 
-  it('opens another participant’s record of a board only to those who played that board', async () => {
+  it('opens another participant’s record of a board only to those who played every board', async () => {
     const { id, amy, ben, cat } = await setup(['ben', 'cat'], { accept: ['ben', 'cat'] })
     await send(amy, { type: 'playChallenge', challengeId: id })
     await playBoard(amy)
@@ -533,6 +529,10 @@ describe('who sees which results (e7-t14, §4)', () => {
 
     await send(ben, { type: 'playChallenge', challengeId: id })
     await playBoard(ben)
+    // ben played the same board but not the others yet
+    expect(await club.record(amyBoard, ben)).toBeNull()
+    await dealNext()
+    await playAll(ben, id)
     expect((await club.record(amyBoard, ben))!.id).toBe(amyBoard)
     expect(await club.record(amyBoard, cat)).toBeNull()
     const view = seen(id, ben)!

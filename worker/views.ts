@@ -186,21 +186,22 @@ function challengeRole(c: Challenge, userId: string) {
 
 /**
  * Whether a member may see one board of a challenge before it is shown to everyone (§4, `e7-t14`):
- * a participant who played the same board of the set sees everyone's record of it (the traveller
- * and its replay). Everyone else waits for the record's `revealAt`, brought forward to the end
- * (`recordVisible`)
+ * a participant who played every board sees everyone's record of each (the traveller and its
+ * replay). Someone still playing sees no one else's board, not even one they played: knowing
+ * whether they are ahead or behind would change how they play the rest (社長, 2026-10-24).
+ * Everyone else waits for the record's `revealAt`, brought forward to the end (`recordVisible`)
  */
 export function challengeBoardVisible(c: Challenge, boardId: string, userId: string): boolean {
-  const result = c.results.find((r) => r.boardId === boardId)
-  return !!result && challengeRole(c, userId).played.has(result.seq)
+  return c.results.some((r) => r.boardId === boardId) && challengeRole(c, userId).finished
 }
 
 /**
  * A challenge as a member may see it (§4, §5.5, `e7-t14`), or null. Participants (invited,
  * accepted or declined) always see the settings, the state and how many boards each person has
  * played; the deals never go out. On top of that, while it is open:
- * - a board's traveller (everyone's contract, tricks and score on it) only for those who played it;
- * - the live standings and the person × board matrix only for those who played every board.
+ * - the boards' travellers (everyone's contract, tricks and score), the live standings and the
+ *   person × board matrix only for those who played every board: someone still playing sees none
+ *   of it, not even for boards they played, so they cannot tell whether they are ahead (社長).
  * Once it ended every participant sees all of it. Non-participants see nothing, unless it finished
  * with `ranking = club`: then the standings, without the boards
  */
@@ -251,7 +252,7 @@ export function challengeView(
   const travellers: ChallengeTraveller[] = []
   for (const [i, board] of c.deals.boards.entries()) {
     const seq = i + 1
-    if (!role.ended && !role.played.has(seq)) continue
+    if (!role.ended && !role.finished) break
     const entries = c.results
       .filter((r) => r.seq === seq)
       .map((r) => {

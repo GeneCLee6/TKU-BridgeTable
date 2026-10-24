@@ -320,16 +320,11 @@ describe('reading challenges', () => {
       expect(seen.players.map((p) => p.played)).toEqual([2, 0, 0])
       expect(seen.standings).toBeUndefined()
       expect(club.challengeList(id).map((x) => x.id)).toEqual([c.id])
-      if (id === amy) continue
       const json = JSON.stringify(seen)
       for (const hidden of ['4321', 'secretBoard', 'hands', 'scoreNS', 'results']) expect(json).not.toContain(hidden)
     }
-    // amy sees the travellers of the boards she played: only her own results are on them yet
-    expect(view(c.id, amy)!.travellers!.map((t) => [t.seq, t.entries.map((e) => e.scoreNS)])).toEqual([
-      [1, [4321]],
-      [2, [-50]],
-    ])
-    expect(JSON.stringify(view(c.id, amy))).not.toContain('hands')
+    // amy has not played every board yet: no travellers, not even for the boards she played
+    expect(view(c.id, amy)!.travellers).toBeUndefined()
     expect(view(c.id, zoe)).toBeNull()
     expect(club.challengeList(zoe)).toEqual([])
     expect(view('nope', amy)).toBeNull()
