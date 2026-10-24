@@ -124,7 +124,8 @@ interface BoardState {
 | `hist:<時間>-<id>` | 全社團的紀錄索引（摘要，補零的時間讓列表依時間排序） |
 | `uhist:<userId>:<時間>-<id>` | 每位社員自己的紀錄索引 |
 | `meta:settings` | 管理員改過的人數上限與邀請碼（沒改過就用環境變數） |
-| `meta:schema` | 資料版本；舊版 `board:<時間>-<id>` 在載入時自動搬到新索引 |
+| `meta:schema` | 資料版本（現在是 3）：1→2 把舊版 `board:<時間>-<id>` 搬到新索引；2→3 把所有 `board:` 回填進 SQL 紀錄索引（§5.3） |
+| `meta:backfill` | 回填 SQL 索引時做到哪一個 `board:` key；做完就刪掉，物件中途被回收時從這裡接著做 |
 | `meta:count:<索引前綴>` | 每個紀錄索引的筆數（分頁的總數）；第一次用到時數一次，之後每存一副加一 |
 | `book:entry:<slug>` | 淡江橋譜線上修改的特約（版本、誰在何時改；`convention: null` 表示隱藏），內容在 `bookpart:` |
 | `book:rev:<slug>:<時間>-<id>` | 每次儲存、隱藏、還原的版本紀錄 |
@@ -136,6 +137,30 @@ interface BoardState {
 每個動作處理完立即寫回，物件隨時被回收都不會遺失牌局。紀錄列表一次只讀到那一頁為止（每頁 10／20／50／100 筆摘要）。
 
 **容量**：免費方案每個帳號 5 GB；一副牌的紀錄連同兩筆索引約 4 KB，大約可存一百萬副以上。
+
+## 5.3 紀錄的 SQL 索引（決策紀錄，`e4-t10`）
+
+**決定**：紀錄的篩選與搜尋用 Durable Object 自己的 SQLite（`ctx.storage.sql`），不用 D1、不另開服務。完整紀錄仍放在 KV 的 `board:<id>`；SQL 只放查詢需要的欄位，隨時可以從 `board:` 重建。`hist:`／`uhist:` 的 KV 索引暫時保留給現有的列表與側欄，搜尋 API（`e4-t14`）上線後再決定要不要拿掉。
+
+**為什麼**：
+- `Club` 本來就是 SQLite 後端（`wrangler.jsonc` 的 `new_sqlite_classes`），不用新增 binding 或付費方案；查詢跟牌局在同一個物件裡，寫入和讀取都不必跨網路。
+- KV 索引只能依時間往前翻，做不到「4♠ 合約」「我和 X 是搭檔」這種條件；SQL 加上索引在一萬副時也很快（AC-4.8 的測試在 `e4-t23`）。
+- E11 把紀錄搬到 D1（AC-11.4）時，這份 schema 原樣搬過去。
+
+**介面**：`ClubService` 只透過 `Store.sql`（`worker/store.ts` 的 `Sql`：同步的 `exec`、`transaction`）碰 SQL；Durable Object 接到 `storage.sql.exec` 與 `storage.transactionSync`，測試用 Node 內建的 `node:sqlite`（`tests/worker/sqlite.ts`）。所有查詢一律用 `?` 參數，不拼字串。程式在 `worker/history-index.ts`。
+
+**表**（載入時 `CREATE TABLE IF NOT EXISTS`，每次載入都跑也沒關係）：
+
+| 表 | 欄位 | 索引 |
+| --- | --- | --- |
+| `boards_index` | `board_id`（主鍵）、`played_at`、`table_no`、`mode`（現在都是 `casual`）、`event_id`、`board_no`、`dealer`、`vul`、`level`、`strain`（四家 Pass 時兩者為 null）、`doubled`（0／1／2）、`declarer_seat`、`declarer_user`（機器人主打為 null）、`tricks`、`score_ns`、`claimed`、`reveal_at`（null＝已公開；挑戰與隊制賽在 `e4-t15` 用） | `(played_at, board_id)`、`(level, strain, played_at)`、`(declarer_user, played_at)` |
+| `board_players` | `board_id`、`seat`（主鍵兩欄）、`side`（NS／EW）、`user_id`（機器人與空位為 null） | `(user_id, board_id)` |
+
+「誰打的」查 `board_players.user_id`；「搭檔是誰」是同一副、同一個 `side`、不同 `seat`（`boardsPlayedBy`、`boardsPlayedWith`）。
+
+**寫入**：每副打完，`saveRecord` 先在一個 transaction 裡寫 SQL（一列 `boards_index`＋四列 `board_players`，`INSERT OR REPLACE`，重寫同一副不會多出列），再寫 KV。SQL 失敗就什麼都不寫；SQL 寫好之後 KV 失敗，就把 SQL 的列和 `board:` 拿掉再丟出錯誤，不留半套。
+
+**回填**（`meta:schema` 2→3）：載入時把既有的 `board:` 一次 100 副寫進 SQL，每批寫完把最後一個 key 存在 `meta:backfill`，物件被回收就從那裡接著做；同一副寫兩次結果一樣，所以重跑也安全。全部做完才把 `meta:schema` 設成 3。
 
 ## 5.2 與淡江橋譜共用帳號
 
