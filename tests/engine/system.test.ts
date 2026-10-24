@@ -167,4 +167,20 @@ describe('choosing a call', () => {
   it('never makes an illegal call', () => {
     expect(pick('AKJ32 K32 Q32 32', '2S').call).toBe('P')
   })
+
+  it('in a first-fit system, passes when the rule the hand fits names an illegal call', () => {
+    const list: System = {
+      id: 'tku',
+      firstFit: true,
+      books: [{ rules: [{ call: '1S', needs: {}, when: (h) => h.len.S >= 5 }, { call: '2S', needs: {} }] }],
+    }
+    const after = (calls: string) => {
+      const auction = auctionOf(calls, 'N')
+      return choose(list, hand('AKJ32 K32 Q32 32'), nextSeat('N', auction.length), auction, 'N').call
+    }
+    expect(after('')).toBe('1S')
+    // 1♠ is not legal over 1NT: the first rule that fits still decides, so the robot passes
+    expect(after('1N')).toBe('P')
+    expect(choose({ ...list, firstFit: false }, hand('AKJ32 K32 Q32 32'), 'E', auctionOf('1N', 'N'), 'N').call).toBe('2S')
+  })
 })

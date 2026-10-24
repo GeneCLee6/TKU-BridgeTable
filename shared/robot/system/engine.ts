@@ -29,11 +29,13 @@ export function choose(
   const ctx = contextFor(system, seat, auction, dealer, vul)
   const hand = evaluate(cards)
   for (const rule of rulesFor(system, ctx)) {
-    const call = callOf(rule, ctx)
+    const call = system.firstFit ? (resolve(rule.call, ctx) ?? null) : callOf(rule, ctx)
     if (!call) continue
     const needs = resolve(rule.needs ?? rule.shows, ctx)
     if (needs && !fits(hand, needs)) continue
     if (rule.when && !rule.when(hand, ctx)) continue
+    // A first-fit system passes when the rule that fits names a call that is not legal here
+    if (!ctx.legal.has(call)) return { call: 'P' }
     const shows = resolve(rule.shows, ctx)
     return shows ? { call, shows } : { call }
   }

@@ -64,6 +64,12 @@ const NAMES: Record<Convention, Words> = {
   dopi: { zh: 'DOPI', 'zh-Hans': 'DOPI', en: 'DOPI', vi: 'DOPI', ja: 'DOPI', ko: 'DOPI' },
   cue: { zh: '扣叫', 'zh-Hans': '扣叫', en: 'Cue bid', vi: 'Cue bid', ja: 'キュービッド', ko: '큐비드' },
   relay: { zh: '接力', 'zh-Hans': '接力', en: 'Relay', vi: 'Chuyển tiếp', ja: 'リレー', ko: '릴레이' },
+  j2n: { zh: 'J2N', 'zh-Hans': 'J2N', en: 'J2N (Jacoby 2NT)', vi: 'J2N (Jacoby 2NT)', ja: 'J2N（ジャコビー2NT）', ko: 'J2N (자코비 2NT)' },
+  bergen: { zh: 'Bergen 加叫', 'zh-Hans': 'Bergen 加叫', en: 'Bergen raise', vi: 'Nâng Bergen', ja: 'バーゲン・レイズ', ko: '버건 레이즈' },
+  oneMajorWeakTwo: { zh: '一高弱二', 'zh-Hans': '一高弱二', en: 'Weak two in a major', vi: 'Weak two một hoa cao', ja: 'どちらかのメジャーのウィークツー', ko: '메이저 하나의 위크 투' },
+  minorAsk: { zh: '詢問低花', 'zh-Hans': '询问低花', en: 'Minor-suit ask', vi: 'Hỏi hoa thấp', ja: 'マイナーのアスク', ko: '마이너 질문' },
+  passOrCorrect: { zh: 'P/C', 'zh-Hans': 'P/C', en: 'Pass or correct', vi: 'Pass hoặc sửa', ja: 'パス・オア・コレクト', ko: '패스 오어 코렉트' },
+  ask: { zh: '詢問', 'zh-Hans': '询问', en: 'Asking bid', vi: 'Hỏi', ja: 'アスク', ko: '질문' },
 }
 
 const QUALITY: Record<Quality, Words> = {
@@ -151,6 +157,8 @@ const zh: Grammar = {
     grandSlam: () => '大滿貫',
     preference: ({ s }) => `選擇${s}`,
     support: ({ s }) => `支持同伴的${s}`,
+    notrump: () => '無王',
+    positive: () => '正面答叫',
   },
 }
 
@@ -200,6 +208,8 @@ const zhHans: Grammar = {
     grandSlam: () => '大满贯',
     preference: ({ s }) => `选择${s}`,
     support: ({ s }) => `支持同伴的${s}`,
+    notrump: () => '无将',
+    positive: () => '积极应叫',
   },
 }
 
@@ -255,6 +265,8 @@ const en: Grammar = {
     grandSlam: () => 'grand slam',
     preference: ({ s }) => `preference for ${s}`,
     support: ({ s }) => `supports partner's ${s}`,
+    notrump: () => 'notrump',
+    positive: () => 'positive response',
   },
 }
 
@@ -309,6 +321,8 @@ const vi: Grammar = {
     grandSlam: () => 'đại slam',
     preference: ({ s }) => `chọn ${s}`,
     support: ({ s }) => `ủng hộ ${s} của đồng đội`,
+    notrump: () => 'không chủ',
+    positive: () => 'đáp tích cực',
   },
 }
 
@@ -364,6 +378,8 @@ const ja: Grammar = {
     grandSlam: () => 'グランドスラム',
     preference: ({ s }) => `${s}を選ぶ`,
     support: ({ s }) => `パートナーの${s}をサポート`,
+    notrump: () => 'ノートランプ',
+    positive: () => 'ポジティブ・レスポンス',
   },
 }
 
@@ -419,6 +435,8 @@ const ko: Grammar = {
     grandSlam: () => '그랜드 슬램',
     preference: ({ s }) => `${s} 선택`,
     support: ({ s }) => `파트너의 ${s} 서포트`,
+    notrump: () => '노트럼프',
+    positive: () => '포지티브 응답',
   },
 }
 
@@ -449,6 +467,8 @@ export function describe(spec: Spec, lang: Lang): string {
 
   for (const note of spec.notes ?? []) add(noteText(g, note))
   for (const s of SUITS) {
+    // A balanced hand already has two to five cards in every suit
+    if (spec.balanced && spec.len?.[s]?.[0] === 2 && spec.len[s]![1] === 5) continue
     const range = spec.len?.[s] && rangeText(spec.len[s]!, LENGTH_TOP)
     if (range) add(g.len(range, SUIT_SYMBOL[s]))
   }

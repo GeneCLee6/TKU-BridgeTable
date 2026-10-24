@@ -78,6 +78,13 @@ export const CONVENTIONS = [
   'dopi',
   'cue',
   'relay',
+  // The club's own names (淡江橋譜)
+  'j2n',
+  'bergen',
+  'oneMajorWeakTwo',
+  'minorAsk',
+  'passOrCorrect',
+  'ask',
 ] as const
 export type Convention = (typeof CONVENTIONS)[number]
 
@@ -119,6 +126,8 @@ export const NOTES = [
   'grandSlam',
   'preference',
   'support',
+  'notrump',
+  'positive',
 ] as const
 export type NoteKey = (typeof NOTES)[number]
 
@@ -186,11 +195,17 @@ export interface Book {
   more?: boolean
 }
 
-export type SystemId = 'gib'
+export type SystemId = 'gib' | 'tku'
 
 export interface System {
   id: SystemId
   books: readonly Book[]
+  /**
+   * The first rule whose hand requirements fit decides, and when its call is not legal here the
+   * robot passes (instead of trying the next rule). The club's robot was written as one decision
+   * list per auction, so its rules keep that order; its explanations come from the same rules.
+   */
+  firstFit?: boolean
   /** The call to make when pass is not allowed and no rule fits the hand */
   emergency?: (hand: Hand, ctx: Ctx) => Call
 }
