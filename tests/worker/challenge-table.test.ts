@@ -3,8 +3,6 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { deal } from '../../shared/board.ts'
 import { encodeDealSet, type DealSet } from '../../shared/deal-set.ts'
 import { ruleBrain, type RobotBrain } from '../../shared/robot/brain.ts'
-import { paramsOf } from '../../shared/robot/levels.ts'
-import { actionNumber, errs } from '../../shared/robot/mistakes.ts'
 import type { BoardRecord, ClientMessage, ServerMessage, TableView } from '../../shared/protocol.ts'
 import { ClubService, type Connections, type ScheduleKind } from '../../worker/service.ts'
 import type { MemoryStore } from '../../worker/store.ts'
@@ -50,18 +48,18 @@ let connections: FakeConnections
 let club: ClubService
 let queue: { run: () => void; ms: number; kind: ScheduleKind }[]
 let time: number
-/** Every robot decision: the seed it was given and the action it was for */
-let asked: { seed: string | undefined; action: number }[]
+/** Every robot decision: the seat asked and the calls and cards made before it */
+let asked: { seat: string; action: number }[]
 
-/** The rule robot, noting the seeds it is given */
+/** The rule robot, noting what it is asked */
 const noting: RobotBrain = {
-  bid: (kind, state, seat, level, seed) => {
-    asked.push({ seed, action: actionNumber(state) })
-    return ruleBrain.bid(kind, state, seat, level, seed)
+  bid: (kind, state, seat) => {
+    asked.push({ seat, action: state.auction.length + state.play.length })
+    return ruleBrain.bid(kind, state, seat)
   },
-  play: (kind, state, seat, level, seed) => {
-    asked.push({ seed, action: actionNumber(state) })
-    return ruleBrain.play(kind, state, seat, level, seed)
+  play: (kind, state, seat) => {
+    asked.push({ seat, action: state.auction.length + state.play.length })
+    return ruleBrain.play(kind, state, seat)
   },
   acceptsClaim: (...args) => ruleBrain.acceptsClaim(...args),
 }
@@ -173,14 +171,14 @@ async function records(challengeId: string, userId: string) {
 }
 
 describe('starting a challenge (e7-t08)', () => {
-  it('opens the player’s own table: South, three robots of the challenge’s kind and level, board 1 of the set', async () => {
-    const { amy, id } = await challenge({ robotKind: 'tku', robotLevel: 'beginner' })
+  it('opens the player’s own table: South, three TKB in the challenge’s system, board 1 of the set', async () => {
+    const { amy, id } = await challenge({ robotKind: 'tku' })
     await play(amy, id)
     const table = view(amy)!
     expect(table.mySeat).toBe('S')
     expect(table.challenge).toEqual({ id, seq: 1, boards: 4, played: 0, deadline: club.challenges.get(id)!.deadline })
     for (const seat of ['N', 'E', 'W'] as const)
-      expect(table.seats[seat]).toMatchObject({ robot: true, robotKind: 'tku', robotLevel: 'beginner' })
+      expect(table.seats[seat]).toMatchObject({ id: `robot:tku:${seat}`, robot: true, robotKind: 'tku' })
     expect(table.settings.allowKibitz).toBe(false)
     const stored = club.challenges.get(id)!
     expect(table.board!.boardNo).toBe(1)
@@ -402,6 +400,32 @@ describe('progress and coming back (e7-t12)', () => {
     await play(amy, id)
     expect(view(amy)!.challenge).toMatchObject({ seq: 2, played: 1 })
   })
+
+  it('a challenge saved when robots had levels loads and plays on', async () => {
+    const { amy, id } = await challenge({ robotKind: 'tku' })
+    await play(amy, id)
+    const tableId = view(amy)!.id
+    // What the earlier version saved: a level in the settings and in the robots' ids
+    const settings = { ...club.challenges.get(id)!.settings, robotLevel: 'beginner' }
+    store.sql.exec('UPDATE challenges SET settings = ? WHERE challenge_id = ?', JSON.stringify(settings), id)
+    const saved = (await store.get<{ seats: Record<string, string | null>; settings: object }>(`table:${tableId}`))!
+    await store.put(`table:${tableId}`, {
+      ...saved,
+      seats: { ...saved.seats, N: 'robot:tku:beginner:N', E: 'robot:tku:beginner:E', W: 'robot:tku:beginner:W' },
+      settings: { ...saved.settings, robotLevel: 'beginner' },
+    })
+    queue = []
+    club = newClub()
+    await club.load()
+    connections.inbox.set(amy, [])
+    club.connected(amy)
+    await tick()
+    expect(club.challenges.get(id)!.settings).not.toHaveProperty('robotLevel')
+    expect(view(amy)!.settings).toEqual({ visibility: 'invite', allowKibitz: false })
+    for (const seat of ['N', 'E', 'W'] as const) expect(view(amy)!.seats[seat]).toMatchObject({ robot: true, robotKind: 'tku' })
+    await playAll(amy)
+    expect(club.challenges.get(id)!.results.filter((r) => r.userId === amy)).toHaveLength(4)
+  })
 })
 
 describe('the same robots for everyone (e7-t09)', () => {
@@ -410,31 +434,22 @@ describe('the same robots for everyone (e7-t09)', () => {
     const { amy, ben, id } = await challenge(settings)
     await play(amy, id)
     await playAll(amy)
-    const amySeeds = asked.splice(0)
+    const amyAsked = asked.splice(0)
     await send(amy, { type: 'leaveTable' })
     await play(ben, id)
     await playAll(ben)
-    const benSeeds = asked.splice(0)
+    const benAsked = asked.splice(0)
     const of = async (userId: string) =>
       (await records(id, userId)).map(({ record }) => ({ auction: record.board.auction, play: record.board.play, result: record.board.result }))
-    return { amy: await of(amy), ben: await of(ben), amySeeds, benSeeds, id }
+    return { amy: await of(amy), ben: await of(ben), amyAsked, benAsked }
   }
 
-  it('gives two participants who play alike identical auctions and play', async () => {
-    const { amy, ben, amySeeds, benSeeds, id } = await bothPlay({ robotLevel: 'open' })
+  it.each(['gib', 'tku'])('gives two participants who play alike identical auctions and play (%s)', async (robotKind) => {
+    const { amy, ben, amyAsked, benAsked } = await bothPlay({ robotKind })
     expect(amy).toHaveLength(4)
     expect(amy.some((b) => b.play.length > 0)).toBe(true)
     expect(ben).toEqual(amy)
-    expect(benSeeds).toEqual(amySeeds)
-    expect(new Set(amySeeds.map((s) => s.seed))).toEqual(new Set([1, 2, 3, 4].map((seq) => `challenge:${id}:${seq}`)))
-  })
-
-  it('makes the same mistakes for both at the beginner level', async () => {
-    const { amy, ben, amySeeds, benSeeds } = await bothPlay({ robotLevel: 'beginner', robotKind: 'tku' })
-    expect(ben).toEqual(amy)
-    expect(benSeeds).toEqual(amySeeds)
-    // Beginners did err along the way, at the very same actions for both
-    const { errorRate } = paramsOf('beginner')
-    expect(amySeeds.filter(({ seed, action }) => errs(errorRate, seed, action)).length).toBeGreaterThan(0)
+    // The robots are deterministic: asked the same things in the same order, they answer alike
+    expect(benAsked).toEqual(amyAsked)
   })
 })

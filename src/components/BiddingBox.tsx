@@ -19,7 +19,7 @@ import { CallLabel, SuitSymbol } from './Suit.tsx'
  */
 
 export interface BiddingHints {
-  /** Whose reading this is, e.g. "2/1 機器人的理解" */
+  /** Whose reading this is, e.g. "TKB（2/1）的理解" */
   title: string
   /** What a call would show */
   text: (call: Call) => string

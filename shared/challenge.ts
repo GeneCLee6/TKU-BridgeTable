@@ -1,6 +1,6 @@
 import type { Contract } from './auction.ts'
 import type { ChallengeScoring } from './challenge-scoring.ts'
-import { isOfferedRobotLevel, isRobotKind, type PublicUser, type RobotKind } from './protocol.ts'
+import { isRobotKind, type PublicUser, type RobotKind } from './protocol.ts'
 
 /**
  * A challenge's lifecycle and settings (docs/PRD/e7-challenges.md, ARCHITECTURE.md §5.5).
@@ -37,10 +37,11 @@ export type RankingVisibility = (typeof RANKING_VISIBILITIES)[number]
 
 export interface ChallengeSettings {
   scoring: ChallengeScoring
-  /** Every robot in the challenge is the same kind and level, locked when it is created */
+  /**
+   * The system TKB bids for every robot in the challenge, locked when it is created. Challenges
+   * saved when robots had levels also have a `robotLevel`, which nothing reads
+   */
   robotKind: RobotKind
-  /** A robot level from E6 (`e6-t21`); checked when a challenge is created (`e7-t05`) */
-  robotLevel: string
   /** Rotate each deal so the participant holds the most points (`e7-t10`) */
   bestHand: boolean
   /** Robots bid; only boards the participant's side declares are kept (`e7-t11`) */
@@ -69,7 +70,6 @@ export function defaultChallengeSettings(invited: number): ChallengeSettings {
   return {
     scoring: invited > 1 ? 'mp' : 'imp',
     robotKind: 'gib',
-    robotLevel: 'open',
     bestHand: false,
     justDeclare: false,
     days: CHALLENGE_LIMITS.daysDefault,
@@ -88,8 +88,7 @@ export const scoringsFor = (invited: number): readonly ChallengeScoring[] =>
 /**
  * Checks the settings a creator sent (`e7-t05`): every field optional, falling back on
  * `defaultChallengeSettings`, nothing else allowed. There is no rule for unplayed boards: only
- * those who play every board are ranked; the robot level must be one offered now. Returns the settings,
- * or the first field that is wrong
+ * those who play every board are ranked. Returns the settings, or the first field that is wrong
  */
 export function parseChallengeSettings(
   value: unknown,
@@ -98,7 +97,7 @@ export function parseChallengeSettings(
   const settings = defaultChallengeSettings(invited)
   if (value === undefined) return { settings }
   if (!value || typeof value !== 'object' || Array.isArray(value)) return { field: 'settings' }
-  const { scoring, robotKind, robotLevel, bestHand, justDeclare, days, ranking, ...rest } = value as Record<
+  const { scoring, robotKind, bestHand, justDeclare, days, ranking, ...rest } = value as Record<
     string,
     unknown
   >
@@ -106,7 +105,6 @@ export function parseChallengeSettings(
   if (extra !== undefined) return { field: extra }
   if (scoring !== undefined && !scoringsFor(invited).includes(scoring as ChallengeScoring)) return { field: 'scoring' }
   if (robotKind !== undefined && !isRobotKind(robotKind)) return { field: 'robotKind' }
-  if (robotLevel !== undefined && !isOfferedRobotLevel(robotLevel)) return { field: 'robotLevel' }
   if (bestHand !== undefined && typeof bestHand !== 'boolean') return { field: 'bestHand' }
   if (justDeclare !== undefined && typeof justDeclare !== 'boolean') return { field: 'justDeclare' }
   const { daysMin, daysMax } = CHALLENGE_LIMITS
@@ -118,7 +116,6 @@ export function parseChallengeSettings(
       ...settings,
       ...(scoring !== undefined && { scoring: scoring as ChallengeScoring }),
       ...(robotKind !== undefined && { robotKind }),
-      ...(robotLevel !== undefined && { robotLevel }),
       ...(bestHand !== undefined && { bestHand }),
       ...(justDeclare !== undefined && { justDeclare }),
       ...(days !== undefined && { days: days as number }),

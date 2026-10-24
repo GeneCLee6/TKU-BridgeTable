@@ -75,7 +75,7 @@ describe('evaluation: scoring a match', () => {
   })
 
   it('writes a report', () => {
-    const report = matchReport({ a: 'tku:college', b: 'tku:beginner', boards: 'boards 1–4' }, summarize([game, overtrick, flat, sacrifice]))
+    const report = matchReport({ a: 'tku', b: 'gib', boards: 'boards 1–4' }, summarize([game, overtrick, flat, sacrifice]))
     expect(report).toContain('**+2.50**')
     expect(report).toContain('62.5%')
   })
@@ -105,10 +105,10 @@ describe('evaluation: deal sets', () => {
 })
 
 describe('evaluation: robot matches', () => {
-  const config = (kind: RobotConfig['kind'], level: RobotConfig['level']): RobotConfig => ({ name: `${kind}:${level}`, kind, level })
+  const config = (kind: RobotConfig['kind']): RobotConfig => ({ name: kind, kind })
 
-  it('scores exactly 0 on every board when a configuration plays itself, with mistakes', async () => {
-    for (const robot of [config('tku', 'college'), config('gib', 'beginner')]) {
+  it('scores exactly 0 on every board when a configuration plays itself', async () => {
+    for (const robot of [config('tku'), config('gib')]) {
       const outcomes = await playMatch({ a: robot, b: { ...robot }, boards: evalBoards(16) })
       expect(outcomes.map(boardImps)).toEqual(Array(16).fill(0))
       expect(outcomes.every((o) => o.table1.scoreNS === o.table2.scoreNS)).toBe(true)
@@ -117,8 +117,8 @@ describe('evaluation: robot matches', () => {
 
   it('seats A North-South at table 1 and East-West at table 2, reproducibly', async () => {
     const boards = evalBoards(8)
-    const a = config('tku', 'college')
-    const b = config('tku', 'beginner')
+    const a = config('tku')
+    const b = config('gib')
     const first = await playMatch({ a, b, boards })
     expect(await playMatch({ a, b, boards })).toEqual(first)
     // Swapping A and B swaps the tables: B's IMPs are A's negated

@@ -4,7 +4,6 @@ import { cheapest, type Ctx } from '../context.ts'
 import type { Hand } from '../evaluate.ts'
 import type { Book, Rule, Spec } from '../spec.ts'
 import {
-  convention,
   aceKings,
   answer,
   answerIs,
@@ -60,18 +59,16 @@ function responses(m: Suit): Book {
   const splinterHand = (h: Hand) => four(h) && h.hcp >= 12 && h.hcp <= 13 && !!shortSuit(h, m)
   const P = { hcp: [0, 5] } as const satisfies Spec
   const rules: Rule[] = [
-    convention(rule(voidSplinter(m), { name: 'splinter', len: length(m, 4), hcp: [12, 13], notes: [{ key: 'void' }] }, (h) => splinterHand(h) && h.len[shortSuit(h, m)!] === 0)),
+    rule(voidSplinter(m), { name: 'splinter', len: length(m, 4), hcp: [12, 13], notes: [{ key: 'void' }] }, (h) => splinterHand(h) && h.len[shortSuit(h, m)!] === 0),
     ...ORDER.filter((x) => x !== m).map((x) =>
-      convention(rule(splinter(m, x), { name: 'splinter', len: length(m, 4), hcp: [12, 13], notes: [{ key: 'shortIn', strain: x }] }, (h) => splinterHand(h) && shortSuit(h, m) === x)),
+      rule(splinter(m, x), { name: 'splinter', len: length(m, 4), hcp: [12, 13], notes: [{ key: 'shortIn', strain: x }] }, (h) => splinterHand(h) && shortSuit(h, m) === x),
     ),
-    convention(rule(j2n(m), { name: 'j2n', len: length(m, 4), hcp: plus(12), forcing: 'game' }, (h) => four(h) && h.hcp >= 12)),
-    // The beginner keeps Bergen's natural raise to three and leaves out the artificial steps
-    ...bergen(m).map((call, i) => {
-      const r = rule(call, { name: 'bergen', len: length(m, 4), hcp: BERGEN_POINTS[i], artificial: call !== bid(3, m) }, (h) => four(h) && supportPoints(h, m) >= SUPPORT_POINTS[i])
-      return call === bid(3, m) ? r : convention(r)
-    }),
+    rule(j2n(m), { name: 'j2n', len: length(m, 4), hcp: plus(12), forcing: 'game' }, (h) => four(h) && h.hcp >= 12),
+    ...bergen(m).map((call, i) =>
+      rule(call, { name: 'bergen', len: length(m, 4), hcp: BERGEN_POINTS[i], artificial: call !== bid(3, m) }, (h) => four(h) && supportPoints(h, m) >= SUPPORT_POINTS[i]),
+    ),
     rule('P', P, four),
-    convention(rule(j2n(m), { name: 'j2n', len: length(m, 3, 3), hcp: plus(13), forcing: 'game' }, (h) => h.len[m] === 3 && h.hcp >= 13)),
+    rule(j2n(m), { name: 'j2n', len: length(m, 3, 3), hcp: plus(13), forcing: 'game' }, (h) => h.len[m] === 3 && h.hcp >= 13),
     rule(bid(2, m), { len: length(m, 3, 3), hcp: [8, 10] }, (h) => h.len[m] === 3 && h.hcp >= 8 && h.hcp <= 10),
     rule('P', P, (h) => h.hcp < 6),
   ]
@@ -129,13 +126,11 @@ function openerRebids(m: Suit): Book {
   rules.push(rule(onlyIf(raised, game), { hcp: plus(19), notes: [{ key: 'game' }] }, (h) => h.hcp >= 19))
   for (const x of ORDER.filter((s) => s !== m))
     rules.push(
-      convention(
-        rule(
+      rule(
           onlyIf(raised, cheapestIn(x)),
           { name: 'longSuitTry', len: length(x, 3), hcp: [16, 18], notes: [{ key: 'tryIn', strain: x }], forcing: 'oneRound' },
           (h, ctx) => h.hcp >= 16 && weakTry(h, m) === x && levelOf(cheapest(ctx, x)!) <= 3,
         ),
-      ),
     )
   rules.push(rule(onlyIf(raised, bid(3, m)), { hcp: [16, 18], notes: [{ key: 'invite' }] }, (h) => h.hcp >= 16), rule(onlyIf(raised, 'P')))
 
@@ -242,8 +237,8 @@ function versusUnusual(m: Suit): Book {
     after: `1${m} (2N)`,
     rules: [
       rule(bid(4, m), { len: length(m, 4), hcp: [6, 9], notes: [{ key: 'shortSomewhere' }] }, (h) => h.len[m] >= 4 && h.hcp >= 6 && h.hcp <= 9 && !!shortSuit(h, m)),
-      convention(rule(fit, { name: 'unusualVsUnusual', len: length(m, 3), hcp: plus(10), forcing: 'oneRound', artificial: true }, (h) => h.len[m] >= 3 && h.hcp >= 10)),
-      convention(rule(otherGF, { name: 'unusualVsUnusual', len: length(o, 5), hcp: plus(13), forcing: 'game', artificial: true }, (h) => h.len[o] >= 5 && h.hcp >= 13)),
+      rule(fit, { name: 'unusualVsUnusual', len: length(m, 3), hcp: plus(10), forcing: 'oneRound', artificial: true }, (h) => h.len[m] >= 3 && h.hcp >= 10),
+      rule(otherGF, { name: 'unusualVsUnusual', len: length(o, 5), hcp: plus(13), forcing: 'game', artificial: true }, (h) => h.len[o] >= 5 && h.hcp >= 13),
       rule(bid(3, o), { len: length(o, 5), hcp: [8, 12] }, (h) => (h.len[o] >= 5 && h.hcp >= 10) || (h.len[o] >= 6 && h.hcp >= 8)),
       rule(bid(3, m), { len: length(m, 3), hcp: [6, 9] }, (h) => h.len[m] >= 3 && h.hcp >= 6),
       rule('X', { name: 'penalty', balanced: true, hcp: plus(10) }, (h) => h.balanced && h.hcp >= 10),

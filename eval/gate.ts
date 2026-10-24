@@ -8,14 +8,14 @@ import { GATE_ERRORS, GATE_FLOOR, regressed, summarize } from './stats.ts'
 
 /**
  * The CI gate (e6-t17, eval/README.md): this checkout's robots (A) against the robots of the
- * checkout in `--base` (B, main in CI) on the quick set, for both kinds at 大專 and 初學者. Fails
+ * checkout in `--base` (B, main in CI) on the quick set, TKB in both systems. Fails
  * (exit 1) when any match regressed (`regressed` in stats.ts). The report goes to stdout and, in
  * GitHub Actions, to the job summary.
  *
  *   npm run eval:gate -- --base base [--set quick|full|N]
  */
 
-const MATCHES = ['tku:college', 'gib:college', 'tku:beginner', 'gib:beginner']
+const MATCHES = ['tku', 'gib']
 
 async function main() {
   const args = readArgs(process.argv.slice(2))

@@ -247,14 +247,6 @@ export const MESSAGES = {
     ja: 'そのロボットはありません',
     ko: '그런 로봇은 없습니다',
   },
-  badRobotLevel: {
-    zh: '沒有這個機器人等級，或這個等級還沒開放',
-    'zh-Hans': '没有这个机器人等级，或这个等级还没开放',
-    en: 'There is no such robot level, or it is not available yet',
-    vi: 'Không có cấp độ robot này, hoặc cấp độ này chưa được mở',
-    ja: 'そのロボットのレベルはないか、まだ利用できません',
-    ko: '그런 로봇 레벨이 없거나 아직 열리지 않았습니다',
-  },
   badTableSettings: {
     zh: '牌桌設定不正確',
     'zh-Hans': '牌桌设置不正确',

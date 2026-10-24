@@ -236,7 +236,7 @@ export class ChallengeStore {
       ...optional('startedAt', row.started_at),
       ...optional('endedAt', row.ended_at),
       ...optional('remindedAt', row.reminded_at),
-      settings: JSON.parse(row.settings) as ChallengeSettings,
+      settings: settingsFrom(row.settings),
       deals,
       players,
       results,
@@ -330,4 +330,10 @@ export class ChallengeStore {
       return ids
     })
   }
+}
+
+/** Settings as saved; challenges from when robots had levels also saved a `robotLevel`, dropped here */
+function settingsFrom(json: string): ChallengeSettings {
+  const { robotLevel: _level, ...settings } = JSON.parse(json) as ChallengeSettings & { robotLevel?: unknown }
+  return settings
 }

@@ -112,14 +112,13 @@ describe('creating a challenge (e7-t05)', () => {
     const [amy, ben, cat] = await friends('amy', 'ben', 'cat')
     const c = await create(amy, [ben, cat], {
       boards: 12,
-      settings: { scoring: 'crossImp', robotKind: 'tku', robotLevel: 'beginner', bestHand: true, justDeclare: true, days: 7, ranking: 'club' },
+      settings: { scoring: 'crossImp', robotKind: 'tku', bestHand: true, justDeclare: true, days: 7, ranking: 'club' },
     })
     expect(c.boards).toBe(12)
     expect(c.deadline).toBe(time + 7 * DAY)
     expect(c.settings).toEqual({
       scoring: 'crossImp',
       robotKind: 'tku',
-      robotLevel: 'beginner',
       bestHand: true,
       justDeclare: true,
       days: 7,
@@ -193,8 +192,8 @@ describe('creating a challenge (e7-t05)', () => {
     // Unplayed boards are not scored at all: only those who play every board are ranked
     expect(await bad({ unfinished: 'worst' })).toBe('unfinished')
     expect(await bad({ robotKind: 'deep' })).toBe('robotKind')
-    expect(await bad({ robotLevel: 'master' })).toBe('robotLevel')
-    expect(await bad({ robotLevel: 'custom' })).toBe('robotLevel')
+    // The robot is TKB, with no levels (社長, 2026-10-24): a level is an unknown field
+    expect(await bad({ robotLevel: 'college' })).toBe('robotLevel')
     expect(await bad({ bestHand: 'yes' })).toBe('bestHand')
     expect(await bad({ justDeclare: 1 })).toBe('justDeclare')
     expect(await bad({ days: 0 })).toBe('days')

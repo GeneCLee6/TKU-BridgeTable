@@ -5,7 +5,7 @@ import { fullDeck, nextSeat, type Card, type Hands, type Seat } from '../../shar
 import { makeCall, newBoard, playCard, turnOf, type BoardState } from '../../shared/game.ts'
 import { robotCall } from '../../shared/robot/robots.ts'
 import { chooseCard } from '../../shared/robot/play.ts'
-import { LIMITS } from '../../shared/protocol.ts'
+import { LIMITS, robotId, robotKindOf } from '../../shared/protocol.ts'
 import { patternProblem } from '../../shared/robot/system/context.ts'
 import { describe as words } from '../../shared/robot/system/describe.ts'
 import { explain } from '../../shared/robot/system/engine.ts'
@@ -258,5 +258,17 @@ describe('card play', () => {
       W: fullDeck().filter((c) => c[0] === 'C'),
     }
     expect(robotBoard(1, hands).phase).toBe('finished')
+  })
+})
+
+describe('robot ids', () => {
+  it('carry the system TKB bids, and read every id saved before', () => {
+    expect(robotId('gib', 'E')).toBe('robot:gib:E')
+    expect(robotKindOf(robotId('tku', 'S'))).toBe('tku')
+    // Before the 2/1 robot: the club's system
+    expect(robotKindOf('robot:N')).toBe('tku')
+    // When robots had levels: any level is TKB
+    expect(robotKindOf('robot:gib:beginner:N')).toBe('gib')
+    expect(robotKindOf('robot:tku:open:W')).toBe('tku')
   })
 })

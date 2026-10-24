@@ -7,10 +7,7 @@ import { nextSeat, partnerOf, SEATS, sideOf, suitOf, type Card, type Seat, type 
 import type { Trick } from '../../shared/game.ts'
 import {
   DEAL_COUNTDOWN_MS,
-  DEFAULT_ROBOT_LEVEL,
-  isOfferedRobotLevel,
   type BoardView,
-  type RobotLevel,
   type TableView,
 } from '../../shared/protocol.ts'
 import { AuctionBox } from '../components/AuctionBox.tsx'
@@ -39,7 +36,6 @@ import { mobile } from '../styles/tokens.ts'
 import { playerName, seatLetter } from '../strings.ts'
 
 /** The levels in the seat menu: the ones offered now, and 橋士組 shown as coming later */
-const MENU_LEVELS: readonly RobotLevel[] = ['beginner', 'college', 'open', 'master']
 
 /**
  * The table, laid out like BBO: green felt, the viewer's seat always at the bottom, partner on
@@ -688,23 +684,9 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
     // A free seat (or a robot's) can be taken; someone already seated moves only between boards
     if ((!occupant || (occupant.robot && !me)) && (!me || between))
       actions.push({ label: t.takeSeat(seatLetter[seat]), onSelect: () => send({ type: 'sit', tableId: table.id, seat }) })
-    // The host chooses which robot, the 2/1 robot (GIB-compatible) or the club's, and its level;
-    // the table's default level is marked. 橋士組 shows but waits for the paid plan (DDS)
-    if (iAmHost && !occupant) {
-      const preset = table.settings.robotLevel ?? DEFAULT_ROBOT_LEVEL
-      for (const kind of ['gib', 'tku'] as const)
-        actions.push({
-          label: t.addRobots[kind],
-          options: MENU_LEVELS.map((level) => ({
-            label: t.robotLevels[level],
-            name: t.addRobotAt(t.addRobots[kind], t.robotLevels[level]),
-            current: level === preset,
-            disabled: !isOfferedRobotLevel(level),
-            hint: isOfferedRobotLevel(level) ? undefined : t.robotLevelLater,
-            onSelect: () => send({ type: 'addRobot', seat, kind, level }),
-          })),
-        })
-    }
+    // The host seats TKB in the club's system or in 2/1 (GIB-compatible)
+    if (iAmHost && !occupant)
+      for (const kind of ['tku', 'gib'] as const) actions.push({ label: t.addRobots[kind], onSelect: () => send({ type: 'addRobot', seat, kind }) })
     if (iAmHost && occupant?.robot)
       actions.push({ label: t.removeRobot, onSelect: () => send({ type: 'removeRobot', seat }), tone: 'danger' })
     if (iAmHost && occupant && !occupant.robot && occupant.id !== user?.id)

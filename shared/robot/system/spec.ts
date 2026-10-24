@@ -2,7 +2,6 @@ import type { Call } from '../../auction.ts'
 import type { Strain, Suit } from '../../cards.ts'
 import type { Ctx } from './context.ts'
 import type { Hand } from './evaluate.ts'
-import type { SystemDepth } from '../levels.ts'
 
 /**
  * A bidding system as data, the way GIB's bidding database works (docs/BBO GIB, ROBOT.md §6).
@@ -177,16 +176,7 @@ export interface Rule {
   needs?: Dynamic<Spec>
   /** Anything else the hand must satisfy, given what the others have shown */
   when?: (hand: Hand, ctx: Ctx) => boolean
-  /**
-   * The lowest robot level that makes this call (e6-t19): a convention a beginner robot leaves
-   * out, so it bids naturally. The rule still explains the call for everyone, and its answers
-   * stay in the system for partners who use it.
-   */
-  minLevel?: SystemDepth
 }
-
-/** Rules a robot uses from `level` up (ROBOT.md §7): 大專 for the club's everyday conventions */
-export const fromLevel = (level: SystemDepth, rule: Rule): Rule => ({ ...rule, minLevel: level })
 
 export interface Book {
   /**

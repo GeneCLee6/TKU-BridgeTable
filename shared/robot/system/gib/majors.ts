@@ -26,11 +26,10 @@ function responses(M: Suit): Rule[] {
   for (const x of UP.filter((s) => s !== M))
     rules.push({
       call: splinterCall(M, x),
-      minLevel: 'college',
       shows: { name: 'splinter', len: { [M]: [4, 13], [x]: [0, 1] }, tp: [13, 16], forcing: 'game', notes: [{ key: 'shortIn', strain: x }] },
     })
   rules.push(
-    { minLevel: 'college', call: '2N', shows: { name: 'jacoby2N', len: { [M]: [4, 13] }, tp: plus(13), forcing: 'game' } },
+    { call: '2N', shows: { name: 'jacoby2N', len: { [M]: [4, 13] }, tp: plus(13), forcing: 'game' } },
     {
       call: bid(4, M),
       shows: { name: 'preemptiveRaise', len: { [M]: [5, 13] }, hcp: [0, 9] },
@@ -60,13 +59,13 @@ function responses(M: Suit): Rule[] {
 /** A passed hand: Reverse Drury, fit jumps, nothing game forcing */
 function passedResponses(M: Suit): Rule[] {
   const rules: Rule[] = [
-    { minLevel: 'college', call: '2C', shows: { name: 'drury', len: { [M]: [3, 13] }, tp: [11, 12], forcing: 'oneRound', artificial: true } },
+    { call: '2C', shows: { name: 'drury', len: { [M]: [3, 13] }, tp: [11, 12], forcing: 'oneRound', artificial: true } },
     { call: bid(4, M), shows: { name: 'preemptiveRaise', len: { [M]: [5, 13] }, hcp: [0, 9] }, when: (h) => h.shape[3] <= 1 || h.len[M] >= 6 },
   ]
   // Fit jumps: a five-card suit and four trumps (a jump to 3♣ stays natural)
   for (const x of UP.filter((s) => s !== M && s !== 'C')) {
     const call = M === 'H' && x === 'S' ? '2S' : bid(3, x)
-    rules.push({ minLevel: 'college', call, shows: { name: 'fitJump', len: { [x]: [5, 13], [M]: [4, 13] }, tp: [10, 12] } })
+    rules.push({ call, shows: { name: 'fitJump', len: { [x]: [5, 13], [M]: [4, 13] }, tp: [10, 12] } })
   }
   rules.push({ call: '3C', shows: { len: { C: [6, 13] }, hcp: [9, 11], notes: [{ key: 'invite' }] }, when: (h) => h.len[M] <= 2 })
   if (M === 'H') rules.push({ call: '1S', shows: { len: { S: [4, 13] }, hcp: plus(6), forcing: 'oneRound' }, when: (h) => h.len.H < 3 })
@@ -118,7 +117,6 @@ function gameTries(M: Suit): Rule[] {
     { call: bid(4, M), shows: { tp: plus(19), notes: [{ key: 'game' }] } },
     {
       call: short,
-      minLevel: 'college',
       shows: { name: 'shortSuitTry', tp: [16, 18], notes: [{ key: 'shortSomewhere' }], forcing: 'oneRound', artificial: true },
       when: (h) => shortness(h, M) !== null,
     },
@@ -130,7 +128,6 @@ function gameTries(M: Suit): Rule[] {
     if (!above(M, x) && !(M === 'H' && x === 'S')) continue
     rules.push({
       call,
-      minLevel: 'college',
       shows: { name: 'longSuitTry', len: { [x]: [3, 13] }, tp: [16, 18], notes: [{ key: 'tryIn', strain: x }], forcing: 'oneRound' },
       when: (h) => helpWanted(h, x),
     })
