@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { deal } from '../../shared/board.ts'
 import { SEATS, type Seat } from '../../shared/cards.ts'
 import { DEFAULT_HISTORY_QUERY } from '../../shared/history-query.ts'
+import { ruleBrain, type RobotBrain } from '../../shared/robot/brain.ts'
 import {
   DEAL_COUNTDOWN_MS,
   LAST_TRICK_MS,
@@ -58,7 +59,7 @@ let club: ClubService
 let queue: { run: () => void; ms: number; kind: ScheduleKind }[]
 let time: number
 
-async function setup(config: { maxUsers?: number; inviteCode?: string } = {}) {
+async function setup(config: { maxUsers?: number; inviteCode?: string; brain?: RobotBrain } = {}) {
   store = memoryStore()
   connections = new FakeConnections()
   queue = []
@@ -68,6 +69,7 @@ async function setup(config: { maxUsers?: number; inviteCode?: string } = {}) {
     inviteCode: config.inviteCode,
     now: () => time,
     schedule: (run, ms, kind) => queue.push({ run, ms, kind }),
+    brain: config.brain,
   })
   await club.load()
 }
@@ -430,6 +432,34 @@ describe('robots at the table', () => {
     await runRobots()
     expect(tableFor(gene).board!.phase).toBe('finished')
     expect(tableFor(gene).board!.result?.claimed).toBe(true)
+  })
+
+  it('think only through the robot brain the club was given', async () => {
+    const asked: string[] = []
+    await setup({
+      brain: {
+        bid: (kind, state, seat) => (asked.push(`bid ${kind} ${seat}`), ruleBrain.bid(kind, state, seat)),
+        play: (kind, state, seat) => (asked.push(`play ${kind} ${seat}`), ruleBrain.play(kind, state, seat)),
+        acceptsClaim: (kind, state, seat) => (asked.push(`claim ${kind} ${seat}`), ruleBrain.acceptsClaim(kind, state, seat)),
+      },
+    })
+    const gene = await member('gene')
+    await send(gene, { type: 'createTable' })
+    await send(gene, { type: 'addRobot', seat: 'N', kind: 'gib' })
+    for (const seat of ['E', 'W'] as const) await send(gene, { type: 'addRobot', seat })
+    for (let i = 0; i < 200 && tableFor(gene).board?.phase !== 'finished'; i++) {
+      await runRobots()
+      const board = tableFor(gene).board!
+      if (board.legalCalls.length) await send(gene, { type: 'call', call: 'P' })
+      else if (board.legalCards.length) await send(gene, { type: 'play', card: board.legalCards[0] })
+      else if (board.phase === 'finished') break
+    }
+    const board = tableFor(gene).board!
+    const robotCalls = board.auction.filter((entry) => entry.robot).length
+    expect(asked.filter((a) => a.startsWith('bid'))).toHaveLength(robotCalls)
+    expect(asked).toContain('bid gib N')
+    expect(asked).toContain('bid tku E')
+    expect(asked.some((a) => a.startsWith('play'))).toBe(board.auction.some((entry) => entry.call !== 'P'))
   })
 
   it('give their seat to a person who sits down, and close with the last person', async () => {
