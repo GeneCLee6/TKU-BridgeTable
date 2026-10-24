@@ -4,6 +4,7 @@ import { deal } from '../../shared/board.ts'
 import { SEATS, type Seat } from '../../shared/cards.ts'
 import { DEFAULT_HISTORY_QUERY } from '../../shared/history-query.ts'
 import { ruleBrain, type RobotBrain } from '../../shared/robot/brain.ts'
+import type { RobotBid } from '../../shared/robot/robots.ts'
 import {
   DEAL_COUNTDOWN_MS,
   LAST_TRICK_MS,
@@ -59,7 +60,7 @@ let club: ClubService
 let queue: { run: () => void; ms: number; kind: ScheduleKind }[]
 let time: number
 
-async function setup(config: { maxUsers?: number; inviteCode?: string; brain?: RobotBrain } = {}) {
+async function setup(config: { maxUsers?: number; inviteCode?: string; brain?: RobotBrain; thinkLimitMs?: number } = {}) {
   store = memoryStore()
   connections = new FakeConnections()
   queue = []
@@ -70,6 +71,7 @@ async function setup(config: { maxUsers?: number; inviteCode?: string; brain?: R
     now: () => time,
     schedule: (run, ms, kind) => queue.push({ run, ms, kind }),
     brain: config.brain,
+    thinkLimitMs: config.thinkLimitMs,
   })
   await club.load()
 }
@@ -1348,6 +1350,99 @@ describe('robot levels (e6-t20)', () => {
     expect(history).toHaveLength(1)
     const robots = SEATS.map((s) => history[0].players[s]).filter((p) => p.robot)
     expect(robots.map((p) => p.robotLevel).sort()).toEqual(['beginner', 'college', 'open'])
+  })
+})
+
+describe('robots that think asynchronously (e6-t11)', () => {
+  /** A brain whose calls for `slowSeat` are answered by `answer`; everything else is the rule robot */
+  function brainWith(answer: () => RobotBid | Promise<RobotBid>, slowSeat: Seat) {
+    const ruled: string[] = []
+    const brain: RobotBrain = {
+      bid: (kind, state, seat, level, seed) => {
+        if (seat !== slowSeat) return ruleBrain.bid(kind, state, seat, level, seed)
+        ruled.push((ruleBrain.bid(kind, state, seat, level, seed) as RobotBid).call)
+        return answer()
+      },
+      play: (kind, state, seat, level, seed) => ruleBrain.play(kind, state, seat, level, seed),
+      acceptsClaim: (kind, state, seat, level) => ruleBrain.acceptsClaim(kind, state, seat, level),
+    }
+    return { brain, ruled }
+  }
+
+  /** Gene sits South with three robots; board 1, North deals */
+  async function robotTable() {
+    const gene = await member('gene')
+    await send(gene, { type: 'createTable' })
+    for (const seat of ['N', 'E', 'W'] as const) await send(gene, { type: 'addRobot', seat })
+    return gene
+  }
+
+  const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
+  it('let the rule robot answer when the brain takes longer than the think limit, and ignore its late answer', async () => {
+    let late: ((bid: RobotBid) => void) | undefined
+    const { brain, ruled } = brainWith(() => new Promise((resolve) => (late = resolve)), 'N')
+    await setup({ brain, thinkLimitMs: 20 })
+    const gene = await robotTable()
+    queue.splice(queue.findIndex((job) => !isDeal(job)), 1)[0].run()
+    await wait(5)
+    // Still thinking: nothing happened yet, and nothing else is scheduled for the table
+    expect(tableFor(gene).board!.auction).toHaveLength(0)
+    expect(queue.filter((job) => !isDeal(job))).toHaveLength(0)
+    await wait(40)
+    expect(tableFor(gene).board!.auction.map((a) => a.call)).toEqual([ruled[0]])
+    // The answer that comes after the limit changes nothing
+    late!({ call: '7N' })
+    await wait(0)
+    expect(tableFor(gene).board!.auction).toHaveLength(1)
+    // The table goes on: East's call is scheduled
+    await runRobots()
+    expect(tableFor(gene).board!.auction).toHaveLength(2)
+  })
+
+  it('let the rule robot answer when the brain fails', async () => {
+    for (const fail of [
+      () => {
+        throw new Error('brain crashed')
+      },
+      () => Promise.reject(new Error('brain unreachable')),
+    ]) {
+      const { brain, ruled } = brainWith(fail, 'N')
+      await setup({ brain })
+      const gene = await robotTable()
+      await runRobots()
+      const calls = tableFor(gene).board!.auction.map((a) => a.call)
+      // North, then East called; now it is Gene's turn
+      expect(calls).toHaveLength(2)
+      expect(calls[0]).toBe(ruled[0])
+    }
+  })
+
+  it('drop an answer that arrives after the table moved on, and ask again', async () => {
+    let answer: ((bid: RobotBid) => void) | undefined
+    let asked = 0
+    const { brain } = brainWith(() => (asked++ === 0 ? new Promise((resolve) => (answer = resolve)) : { call: 'P' }), 'W')
+    await setup({ brain, thinkLimitMs: 60_000 })
+    const gene = await robotTable()
+    await runRobots()
+    expect(tableFor(gene).board!.auction).toHaveLength(2)
+    await send(gene, { type: 'call', call: 'P' })
+    // West thinks; meanwhile Gene takes his pass back
+    await runRobots()
+    expect(answer).toBeDefined()
+    await send(gene, { type: 'undoRequest' })
+    answer!({ call: '7N' })
+    await wait(0)
+    expect(tableFor(gene).board!.auction.map((a) => a.call)).not.toContain('7N')
+    // A robot opponent agrees to the undo, and it is Gene's turn again
+    await runRobots()
+    expect(tableFor(gene).board!.auction).toHaveLength(2)
+    expect(tableFor(gene).board!.legalCalls.length).toBeGreaterThan(0)
+    // West is asked again after Gene's new call
+    await send(gene, { type: 'call', call: 'P' })
+    await runRobots()
+    expect(asked).toBe(2)
+    expect(tableFor(gene).board!.auction.map((a) => a.call)).not.toContain('7N')
   })
 })
 

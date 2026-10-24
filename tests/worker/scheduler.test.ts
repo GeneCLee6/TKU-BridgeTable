@@ -56,6 +56,21 @@ describe('the alarm queue', () => {
     expect(ran).toEqual(['move', 'next move'])
   })
 
+  it('runs the due jobs side by side, so a robot that thinks holds up no other table', async () => {
+    let answer: (() => void) | undefined
+    queue.add('robot:t1', 'robot', 0, async () => {
+      await new Promise<void>((resolve) => (answer = resolve))
+      ran.push('slow table')
+    })
+    queue.add('robot:t2', 'robot', 0, job('other table'))
+    const running = queue.runDue()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(ran).toEqual(['other table'])
+    answer!()
+    await running
+    expect(ran).toEqual(['other table', 'slow table'])
+  })
+
   it('goes on after a job fails', async () => {
     queue.add('robot:t1', 'robot', 0, async () => {
       throw new Error('boom')

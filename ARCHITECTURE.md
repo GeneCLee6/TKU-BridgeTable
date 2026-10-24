@@ -193,7 +193,7 @@ challenge（challenges 一列）
 
 **挑戰牌桌**（`e7-t08`）：牌桌模式 `challenge`（`worker/modes.ts`），`modeState` 記挑戰 id、參與者與打到第幾副；`Table.dealSource` 是 `dealSourceOf(deals)`（`fixed`，整組牌只在伺服器的 `Table` 裡，§4）。一人一桌：真人坐南，北東西是設定裡同種類、同等級的機器人；不能觀看、不能撤回、不能換座位、大廳不列出。真人離開不關桌（「中途斷線視同暫停」，`e7-t12`），回來從下一副繼續。`boardFinished` 寫 `challenge_results`（同一副第二次寫入會被主鍵擋下，「每副只打一次」由資料庫保證）；`record` 加上 `mode=challenge`、`eventId`＝挑戰 id、`revealAt`。牌號、發牌者與身價照 `DealSetBoard.boardNo`（隨機牌組就是 1…N，照 16 副循環；「用這副牌挑戰」保留原牌號），C4 讓挑戰模式的發牌用它，不用 `boardsPlayed + 1`。
 
-**公平與確定性**（`e7-t09`）：機器人失誤的亂數種子不能用牌局 id（每個人的牌局 id 都不同），要用「挑戰 id＋第幾副＋動作序號」，兩個人做一樣的事才會遇到一樣的反應。機器人種類與等級在建立時鎖進 `settings`。
+**公平與確定性**（`e7-t09`）：機器人失誤的亂數種子不能用牌局 id（每個人的牌局 id 都不同），要用「挑戰 id＋第幾副＋動作序號」，兩個人做一樣的事才會遇到一樣的反應。`e6-t21` 已經讓種子由呼叫的人給（`RobotBrain` 的 `seed`，動作序號由大腦自己加上，§5.1）：挑戰牌桌給「挑戰 id＋第幾副」就好。機器人種類與等級在建立時鎖進 `settings`。
 
 **可見性**（伺服器把關，§4）：
 - 牌：`deals` 只在伺服器；第 k 副的四手牌只有在參與者的挑戰牌桌發到第 k 副時才進 `BoardState`，之後照一般規則。
@@ -322,7 +322,11 @@ SQL 由 `worker/history-index.ts` 的 `searchBoards` 組：只有固定的 SQL �
 
 **真人不當機器人的夢家**：叫牌結束時若莊家是機器人、夢家是真人，`swapForDeclarer` 把兩人的座位對調（同 BBO），真人坐到莊家的位子主打，機器人帶著它的種類坐到原本的位子當夢家；對調記在 `Table.swapped`。若撤回最後一個 Pass 讓叫牌重新開始，`unswap` 換回來；下一副發牌時清掉記錄（座位維持對調後的樣子）。叫牌與出牌規則見 `ROBOT.md`。
 
-**機器人的大腦**（`shared/robot/brain.ts`）：`ClubService` 只透過 `RobotBrain`（`bid`、`play`、`acceptsClaim`，都帶機器人的種類與等級）問機器人，預設是規則機器人 `ruleBrain`，測試或之後更強的大腦從 `ClubConfig.brain` 換進來。排程時只決定「哪個機器人、多久後動」（`robotMove`），輪到它時才問大腦（`decide`），所以每一步只想一次。現在的回答是同步的；`e6-t11` 改成非同步，2 秒沒回來或出錯就用規則機器人。
+**機器人的大腦**（`shared/robot/brain.ts`）：`ClubService` 只透過 `RobotBrain`（`bid`、`play`、`acceptsClaim`，都帶機器人的種類與等級）問機器人，預設是規則機器人 `ruleBrain`，測試或之後更強的大腦從 `ClubConfig.brain` 換進來。排程時只決定「哪個機器人、多久後動」（`robotMove`），輪到它時才問大腦（`decide`），所以每一步只想一次。
+
+**非同步思考**（`e6-t11`）：大腦的回答可以是 `Promise`（`Answer<T>`）。`runRobot` 問之前先記下局面（`positionOf`：座位、撤回請求、第幾副、階段、叫品數、出牌數、攤牌），等回答時不擋別的訊息（Durable Object 等的不是儲存，其他請求照常進來）；這段時間這張桌子不再排別的機器人工作（`thinking`），排程器同時到期的工作也並排跑（`AlarmQueue.runDue` 用 `Promise.all`），一張桌子的機器人在想不會拖到別桌。回答回來時局面若已經變了（真人出了牌、撤回、有人換座位），這個回答**丟掉**，照新局面重新排程。**思考上限 2 秒**（`THINK_LIMIT_MS`，測試用 `ClubConfig.thinkLimitMs` 縮短）：大腦逾時、丟出錯誤或回傳失敗的 `Promise`，就改問規則機器人 `ruleBrain`，牌桌不會卡住；逾時後才到的回答不理會。預設的大腦就是規則機器人時不設計時器。等級參數裡的 `thinkMs` 留給之後的 DDS／模擬大腦決定自己要想多久；機器人行動前的節奏仍是上面的延遲。物件被回收時正在想的回答跟著消失，重新載入後照常重新排程。
+
+**刻意失誤**（`e6-t21`，`ROBOT.md` §8）：`bid`、`play` 多帶一個 `seed`，規則機器人依等級的失誤率與「種子＋動作序號」的亂數決定要不要改選第二選擇，所以可重現。一般牌桌的種子是「牌桌 id＋第幾副」（`mistakeSeed`）；挑戰的種子是「挑戰 id＋第幾副」（§5.5），由挑戰牌桌給。
 
 ### 5.1.1 決策紀錄：機器人運算放哪裡（`e6-t09`，2026-10-24）
 
