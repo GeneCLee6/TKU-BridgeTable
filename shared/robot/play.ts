@@ -6,6 +6,7 @@ import {
   rankValue,
   RANKS,
   sameSide,
+  SEATS,
   SUITS,
   suitOf,
   type Card,
@@ -15,6 +16,7 @@ import {
 import { dummyOf, legalCards, remainingCards, tricksOf, type BoardState, type PlayedCard } from '../game.ts'
 import type { RobotKind } from '../protocol.ts'
 import { suitCards } from './hand.ts'
+import { TableReading } from './reading.ts'
 
 /**
  * A robot's card play from what it can legitimately see: its own hand, dummy once exposed (the
@@ -23,6 +25,9 @@ import { suitCards } from './hand.ts'
  * high, win as cheaply as possible, don't overtake partner, ruff when the opponents are winning,
  * discard from length. The declaring side draws trumps and cashes sure winners. The club's robot
  * defends with the club's signals; the 2/1 robot with GIB's published methods (ROBOT.md §3.2).
+ * Both read the auction and count the cards (`reading.ts`): the declaring side finesses through
+ * the opponent who showed the missing honour, and nobody cashes a winner into a known ruff or
+ * leads a suit the opponents bid when there is a choice.
  */
 export function chooseCard(state: BoardState, seat: Seat, kind: RobotKind = 'tku'): Card {
   const gib = kind === 'gib'
@@ -33,7 +38,7 @@ export function chooseCard(state: BoardState, seat: Seat, kind: RobotKind = 'tku
   const tricks = tricksOf(state)
   const current = tricks.at(-1)
   const trick = current && !current.winner ? current.cards : []
-  const view = new View(state, seat)
+  const view = new View(state, seat, kind)
 
   if (trick.length === 0) return lead(state, seat, view, legal, trump, gib)
 
@@ -52,6 +57,10 @@ export function chooseCard(state: BoardState, seat: Seat, kind: RobotKind = 'tku
 
   if (following.length) {
     if (partnerWinning && (lastToPlay || view.isMaster(best.card))) return signal(following)
+    if (!defending && trick.length === 2) {
+      const card = declarerThird(view, seat, following, best, led)
+      if (card) return card
+    }
     if (partnerWinning) {
       // Third hand high: protect partner's lead from the last player
       const top = [...following].sort(byRank).at(-1)!
@@ -90,43 +99,93 @@ function lead(state: BoardState, seat: Seat, view: View, legal: Card[], trump: S
 
   if (state.play.length === 0) return gib ? gibOpeningLead(state, seat, hand, trump) : openingLead(state, seat, hand, trump)
 
+  // Counting the cards: an opponent known to be void in a suit, with a trump left, ruffs it
+  const opponents = SEATS.filter((s) => !sameSide(s, seat))
+  const ruffed = (s: Suit) => opponents.some((o) => view.reading.mayRuff(o, s, trump))
+
   if (declaring) {
-    // Draw trumps with a master trump while the opponents may still hold some
+    // Draw trumps with a master trump while the opponents still hold some (the count is exact:
+    // every card the declaring side cannot see is a defender's)
     if (trump && view.outstanding(trump) > 0) {
       const top = suitCards(hand, trump)[0]
       if (top && view.isMaster(top)) return top
     }
+    // Cash sure winners, but not into a ruff
     for (const s of nonTrump) {
       const top = suitCards(hand, s)[0]
-      if (view.isMaster(top)) return top
+      if (view.isMaster(top) && !ruffed(s)) return top
     }
+    const trumpsOut = trump && view.outstanding(trump) > 0 ? [trump] : []
+    const finesse = finesseLead(view, seat, hand, [...trumpsOut, ...nonTrump.filter((s) => !ruffed(s))])
+    if (finesse) return finesse
     // Lead towards partner's winner
     const partnerHand = view.partnerCards()
     for (const s of nonTrump) {
       const theirTop = suitCards(partnerHand, s)[0]
-      if (theirTop && view.isMaster(theirTop)) return suitCards(hand, s).at(-1)!
+      if (theirTop && view.isMaster(theirTop) && !ruffed(s)) return suitCards(hand, s).at(-1)!
     }
   } else {
     for (const s of nonTrump) {
       const top = suitCards(hand, s)[0]
-      if (view.isMaster(top) && state.play.length >= 4) return top
+      if (view.isMaster(top) && state.play.length >= 4 && !ruffed(s)) return top
     }
     // Lead the suit partner asked for with a discard (GIB's discards carry no signal)
     const wanted = gib ? null : partnerSignal(state, seat, trump)
-    if (wanted && suitCards(hand, wanted).length) {
+    if (wanted && suitCards(hand, wanted).length && !ruffed(wanted)) {
       const cards = suitCards(hand, wanted)
       return cards.length === 2 ? cards[0] : cards.at(-1)!
     }
-    // Return partner's opening lead
+    // Return partner's opening lead, unless it gives the declaring side a ruff
     const first = state.play[0]
-    if (first && first.seat === partnerOf(seat)) {
+    if (first && first.seat === partnerOf(seat) && !ruffed(suitOf(first.card))) {
       const cards = suitCards(hand, suitOf(first.card))
       if (cards.length) return cards.length === 2 ? cards[0] : cards.at(-1)!
     }
   }
+  // From length, keeping out of the opponents' suits (bid in the auction, or to be ruffed) when we can
   const pool = nonTrump.length ? nonTrump : SUITS.filter((s) => suitCards(hand, s).length)
-  const longestSuit = [...pool].sort((a, b) => suitCards(hand, b).length - suitCards(hand, a).length)[0]
+  const theirs = (s: Suit) => ruffed(s) || opponents.some((o) => view.reading.bid(o, s))
+  const safe = pool.filter((s) => !theirs(s))
+  const longestSuit = [...(safe.length ? safe : pool)].sort((a, b) => suitCards(hand, b).length - suitCards(hand, a).length)[0]
   return fourthBest(suitCards(hand, longestSuit))
+}
+
+/**
+ * Lead low towards partner's tenace (AQ against the king, Kx against the ace): partner has a card
+ * that loses only to one outstanding card, and the auction places that card with the next player,
+ * who must play before partner. Partner then plays the tenace card (`declarerThird`).
+ */
+function finesseLead(view: View, seat: Seat, hand: Card[], suits: Suit[]): Card | null {
+  const partnerHand = view.partnerCards()
+  for (const s of suits) {
+    const low = suitCards(hand, s).at(-1)
+    const tenace = suitCards(partnerHand, s).find((c) => view.higherOut(c).length === 1)
+    if (!low || !tenace || value(low) > value(tenace)) continue
+    if (view.reading.holder(view.higherOut(tenace)[0]) === nextSeat(seat)) return low
+  }
+  return null
+}
+
+/**
+ * Third hand on the declaring side, after partner led and second hand played. Partner's honour
+ * that loses only to one outstanding card runs, unless the auction places that card behind us.
+ * Otherwise take the finesse: the cheapest card that loses only to one outstanding card, unless
+ * the auction places it with the last player; then go up with a winner. Null leaves it to the
+ * usual third-hand play.
+ */
+function declarerThird(view: View, seat: Seat, following: Card[], best: PlayedCard, led: Suit): Card | null {
+  if (suitOf(best.card) !== led) return null
+  const last = nextSeat(seat)
+  const behind = (card: Card) => {
+    const over = view.higherOut(card)
+    return over.length !== 1 || view.reading.holder(over[0]) === last
+  }
+  const low = [...following].sort(byRank)[0]
+  if (best.seat === partnerOf(seat) && value(best.card) >= 10 && !behind(best.card)) return low
+  const beaters = following.filter((c) => value(c) > value(best.card)).sort(byRank)
+  const winner = beaters.find((c) => view.isMaster(c))
+  if (!beaters.length || winner === beaters[0]) return winner ?? null
+  return beaters.find((c) => !behind(c)) ?? winner ?? null
 }
 
 function openingLead(state: BoardState, seat: Seat, hand: Card[], trump: Suit | null): Card {
@@ -379,12 +438,15 @@ function partnerSignal(state: BoardState, seat: Seat, trump: Suit | null): Suit 
 class View {
   private readonly state: BoardState
   private readonly seat: Seat
+  private readonly kind: RobotKind
   private readonly played: Set<Card>
   private readonly known: Set<Card>
+  private table: TableReading | null = null
 
-  constructor(state: BoardState, seat: Seat) {
+  constructor(state: BoardState, seat: Seat, kind: RobotKind) {
     this.state = state
     this.seat = seat
+    this.kind = kind
     this.played = new Set(state.play.map((p) => p.card))
     this.known = new Set([...remainingCards(state, seat), ...this.partnerCards()])
   }
@@ -418,6 +480,23 @@ class View {
       else if (!this.played.has(next)) break
     }
     return lowest
+  }
+
+  /** The other hands as the auction and the count describe them (worked out when first asked) */
+  get reading(): TableReading {
+    this.table ??= new TableReading(this.state, this.seat, this.kind)
+    return this.table
+  }
+
+  /** Cards of the suit above `card` still out (neither played nor on our side) */
+  higherOut(card: Card): Card[] {
+    const suit = suitOf(card)
+    const out: Card[] = []
+    for (const rank of RANKS.slice(0, RANKS.indexOf(rankOf(card)))) {
+      const higher = suit + rank
+      if (!this.played.has(higher) && !this.known.has(higher)) out.push(higher)
+    }
+    return out
   }
 
   /** Cards of a suit neither played nor visible to this robot */
