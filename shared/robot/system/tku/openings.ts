@@ -1,6 +1,6 @@
 import type { Suit } from '../../../cards.ts'
 import type { Book, Rule } from '../spec.ts'
-import { bid, length, pass, plus, reads, rule } from './util.ts'
+import { bid, convention, length, pass, plus, reads, rule } from './util.ts'
 
 /**
  * Openings (淡江橋譜「1NT的答叫」「2D 開叫（一高弱二）」, 5542 自然制 for the rest): 1NT 15–17
@@ -33,7 +33,7 @@ export const openings: Book = {
     ...(['S', 'H', 'D', 'C'] as const).map((s) =>
       rule(bid(3, s), { name: 'preempt', len: length(s, 7), hcp: [5, 10] }, (h) => h.hcp >= 5 && h.hcp <= 10 && h.len[s] >= 7),
     ),
-    rule('2D', { name: 'oneMajorWeakTwo', hcp: [6, 10] }, (h) => h.hcp >= 5 && h.hcp <= 10 && (h.len.S === 6 || h.len.H === 6)),
+    convention(rule('2D', { name: 'oneMajorWeakTwo', hcp: [6, 10] }, (h) => h.hcp >= 5 && h.hcp <= 10 && (h.len.S === 6 || h.len.H === 6))),
     ...otherPreempts,
     reads('3N', { hcp: [5, 10] }),
     pass({ hcp: [0, 11] }),

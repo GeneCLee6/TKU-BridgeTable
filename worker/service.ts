@@ -30,6 +30,9 @@ import {
   isRobotKind,
   robotId,
   robotKindOf,
+  robotLevelOf,
+  DEFAULT_ROBOT_LEVEL,
+  isOfferedRobotLevel,
   summarize,
   USERNAME_PATTERN,
   type AdminUser,
@@ -716,7 +719,7 @@ export class ClubService {
       case 'kick':
         return this.kick(userId, message.seat)
       case 'addRobot':
-        return this.addRobot(userId, message.seat, message.kind)
+        return this.addRobot(userId, message.seat, message.kind, message.level)
       case 'removeRobot':
         return this.removeRobot(userId, message.seat)
       case 'chat':
@@ -911,13 +914,18 @@ export class ClubService {
     await this.save(table)
   }
 
-  /** Seats a robot: the club's (淡江機器人) unless the host chose another kind */
-  private async addRobot(userId: string, seat: unknown, kind: unknown = 'tku') {
+  /**
+   * Seats a robot: the club's (淡江機器人) unless the host chose another kind, at the table's robot
+   * level unless the host chose another one (only the levels offered now, `OFFERED_ROBOT_LEVELS`)
+   */
+  private async addRobot(userId: string, seat: unknown, kind: unknown = 'tku', level?: unknown) {
     const table = this.hostTable(userId)
     if (!isSeat(seat)) throw new ClubError('badSeat')
     if (!isRobotKind(kind)) throw new ClubError('unknownRobot')
+    const chosen = level ?? settingsOf(table).robotLevel ?? DEFAULT_ROBOT_LEVEL
+    if (!isOfferedRobotLevel(chosen)) throw new ClubError('badRobotLevel')
     if (table.seats[seat]) throw new ClubError('seatTaken')
-    table.seats[seat] = robotId(kind, seat)
+    table.seats[seat] = robotId(kind, seat, chosen)
     this.startBoardIfReady(table)
     await this.save(table)
   }
@@ -993,10 +1001,10 @@ export class ClubService {
     const dummy = partnerOf(declarer)
     const person = table.seats[dummy]
     if (!isRobotId(table.seats[declarer]) || !person || isRobotId(person)) return
-    // The robot keeps its kind in its new seat
-    const kind = robotKindOf(table.seats[declarer]!)
+    // The robot keeps its kind and level in its new seat
+    const robot = table.seats[declarer]!
     table.seats[declarer] = person
-    table.seats[dummy] = robotId(kind, dummy)
+    table.seats[dummy] = robotId(robotKindOf(robot), dummy, robotLevelOf(robot))
     table.swapped = [declarer, dummy]
   }
 
@@ -1011,9 +1019,9 @@ export class ClubService {
     const [declarer, dummy] = table.swapped
     const person = table.seats[declarer]
     if (person && !isRobotId(person) && isRobotId(table.seats[dummy])) {
-      const kind = robotKindOf(table.seats[dummy]!)
+      const robot = table.seats[dummy]!
       table.seats[dummy] = person
-      table.seats[declarer] = robotId(kind, declarer)
+      table.seats[declarer] = robotId(robotKindOf(robot), declarer, robotLevelOf(robot))
     }
     table.swapped = undefined
   }
@@ -1161,6 +1169,7 @@ export class ClubService {
     if (!board || board.phase === 'finished' || this.humansSeated(table) === 0) return null
     const robot = (seat: Seat | null | undefined): seat is Seat => !!seat && isRobotId(table.seats[seat])
     const kindAt = (seat: Seat) => robotKindOf(table.seats[seat]!)
+    const levelAt = (seat: Seat) => robotLevelOf(table.seats[seat]!)
 
     // Robots agree to undo requests, and accept a claim only if the cards make it good
     if (table.undo) {
@@ -1171,7 +1180,7 @@ export class ClubService {
     if (board.claim) {
       const answer = claimApprovers(board, board.claim.seat).find((s) => robot(s) && !board.claim!.accepted.includes(s))
       if (!answer) return null
-      const accept = () => this.brain.acceptsClaim(kindAt(answer), board, answer)
+      const accept = () => this.brain.acceptsClaim(kindAt(answer), board, answer, levelAt(answer))
       return { seat: answer, delay: ROBOT_DELAY.answer, decide: () => ({ message: { type: 'claimRespond', accept: accept() } }) }
     }
     const turn = turnOf(board)
@@ -1179,7 +1188,7 @@ export class ClubService {
     if (board.phase === 'auction') {
       if (!robot(turn)) return null
       const decide = () => {
-        const bid = this.brain.bid(kindAt(turn), board, turn)
+        const bid = this.brain.bid(kindAt(turn), board, turn, levelAt(turn))
         return { message: { type: 'call', call: bid.call, alert: bid.alert } as ClientMessage, meaning: bid.meaning }
       }
       return { seat: turn, delay: ROBOT_DELAY.call, decide }
@@ -1190,7 +1199,7 @@ export class ClubService {
     return {
       seat: controller,
       delay: trickJustEnded ? ROBOT_DELAY.afterTrick : ROBOT_DELAY.card,
-      decide: () => ({ message: { type: 'play', card: this.brain.play(kindAt(controller), board, turn) } }),
+      decide: () => ({ message: { type: 'play', card: this.brain.play(kindAt(controller), board, turn, levelAt(controller)) } }),
     }
   }
 
@@ -1348,7 +1357,7 @@ export class ClubService {
   }
 
   private publicUserById(id: string): PublicUser | undefined {
-    if (isRobotId(id)) return { id, username: ROBOT_NAME, robot: true, robotKind: robotKindOf(id) }
+    if (isRobotId(id)) return { id, username: ROBOT_NAME, robot: true, robotKind: robotKindOf(id), robotLevel: robotLevelOf(id) }
     const user = this.users.get(id)
     return user && { id: user.id, username: user.username }
   }

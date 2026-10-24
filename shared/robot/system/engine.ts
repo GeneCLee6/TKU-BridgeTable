@@ -1,6 +1,7 @@
 import { seatToCall, type AuctionCall, type Call } from '../../auction.ts'
 import type { Vulnerability } from '../../board.ts'
 import type { Card, Seat } from '../../cards.ts'
+import { usesRule, type SystemDepth } from '../levels.ts'
 import { evaluate, fits } from './evaluate.ts'
 import { contextFor } from './infer.ts'
 import { callOf, meanings, resolve, rulesFor } from './rules.ts'
@@ -17,7 +18,10 @@ export interface Choice {
   shows?: Spec
 }
 
-/** A robot's call: the first rule for the auction that the hand fits; pass when none does */
+/**
+ * A robot's call: the first rule for the auction that the hand fits; pass when none does. A robot
+ * bidding at `depth` leaves out the rules marked for a higher level (`minLevel`)
+ */
 export function choose(
   system: System,
   cards: readonly Card[],
@@ -25,10 +29,12 @@ export function choose(
   auction: readonly AuctionCall[],
   dealer: Seat,
   vul: Vulnerability = 'None',
+  depth: SystemDepth = 'master',
 ): Choice {
   const ctx = contextFor(system, seat, auction, dealer, vul)
   const hand = evaluate(cards)
   for (const rule of rulesFor(system, ctx)) {
+    if (!usesRule(depth, rule.minLevel)) continue
     const call = system.firstFit ? (resolve(rule.call, ctx) ?? null) : callOf(rule, ctx)
     if (!call) continue
     const needs = resolve(rule.needs ?? rule.shows, ctx)

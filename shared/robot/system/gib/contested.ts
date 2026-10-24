@@ -41,7 +41,7 @@ const raiseRules = (y: Suit, cueFor: (ctx: Ctx) => Call | null): Rule[] => {
     const level = levelOf(base) + extra
     return level <= 4 ? bid(level, y) : null
   }
-  const rules: Rule[] = [{ call: cueFor, shows: { name: 'cueRaise', len: { [y]: [n, 13] }, tp: plus(10), forcing: 'oneRound', artificial: true } }]
+  const rules: Rule[] = [{ minLevel: 'college', call: cueFor, shows: { name: 'cueRaise', len: { [y]: [n, 13] }, tp: plus(10), forcing: 'oneRound', artificial: true } }]
   if (isMajor(y))
     rules.push(
       { call: bid(4, y), shows: { name: 'preemptiveRaise', len: { [y]: [5, 13] }, hcp: [0, 9] }, when: (h) => h.shape[3] <= 1 || h.len[y] >= 6 },
@@ -80,6 +80,7 @@ function afterOvercall(y: Suit): Rule[] {
       const theirs = z(ctx)
       return theirs && bidIndex(theirs.call) <= bidIndex('3S') ? 'X' : null
     },
+    minLevel: 'college',
     shows: (ctx) => {
       const theirs = z(ctx)!
       return negativeShows(y, theirs.suit, theirs.level)
@@ -105,7 +106,7 @@ function afterDouble(y: Suit): Rule[] {
   const n = supportFor(y)
   const rules: Rule[] = [
     { call: 'XX', shows: { hcp: plus(10), len: { [y]: [0, n - 1] } } },
-    { call: '2N', shows: { name: 'truscott', len: { [y]: [n, 13] }, tp: plus(10), forcing: 'oneRound', artificial: true } },
+    { minLevel: 'college', call: '2N', shows: { name: 'truscott', len: { [y]: [n, 13] }, tp: plus(10), forcing: 'oneRound', artificial: true } },
   ]
   if (isMajor(y))
     rules.push({ call: bid(4, y), shows: { name: 'preemptiveRaise', len: { [y]: [5, 13] }, hcp: [0, 9] }, when: (h) => h.shape[3] <= 1 || h.len[y] >= 6 })
@@ -132,8 +133,8 @@ function unusualVsUnusual(y: Suit): Rule[] {
   const fourth = UP.find((s) => s !== y && s !== low && s !== high)!
   const n = supportFor(y)
   const rules: Rule[] = [
-    { call: bid(3, low), shows: { name: 'unusualVsUnusual', len: { [y]: [n, 13] }, tp: plus(10), forcing: 'oneRound', artificial: true } },
-    { call: bid(3, high), shows: { name: 'unusualVsUnusual', len: { [fourth]: [5, 13] }, hcp: plus(12), forcing: 'game', artificial: true } },
+    { minLevel: 'college', call: bid(3, low), shows: { name: 'unusualVsUnusual', len: { [y]: [n, 13] }, tp: plus(10), forcing: 'oneRound', artificial: true } },
+    { minLevel: 'college', call: bid(3, high), shows: { name: 'unusualVsUnusual', len: { [fourth]: [5, 13] }, hcp: plus(12), forcing: 'game', artificial: true } },
   ]
   if (isMajor(y))
     rules.push(

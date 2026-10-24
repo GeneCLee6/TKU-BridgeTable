@@ -10,6 +10,7 @@ import {
   cheapestIn,
   cheapestOr,
   contested,
+  convention,
   fiveCard,
   iOpened,
   isMajor,
@@ -92,13 +93,15 @@ const contestedResponses: Book = {
         },
       ),
     ),
-    rule(
-      'X',
-      (ctx) => {
-        const majors = unbidMajors(ctx)
-        return { name: 'negative', hcp: plus(7), ...(majors.length === 1 ? { len: length(majors[0], 4) } : {}) }
-      },
-      (h, ctx) => unbidMajors(ctx).some((s) => h.len[s] >= 4) && h.hcp >= 7 && levelOf(ctx.last!.call) <= 2 && ctx.legal.has('X'),
+    convention(
+      rule(
+        'X',
+        (ctx) => {
+          const majors = unbidMajors(ctx)
+          return { name: 'negative', hcp: plus(7), ...(majors.length === 1 ? { len: length(majors[0], 4) } : {}) }
+        },
+        (h, ctx) => unbidMajors(ctx).some((s) => h.len[s] >= 4) && h.hcp >= 7 && levelOf(ctx.last!.call) <= 2 && ctx.legal.has('X'),
+      ),
     ),
     // Notrump with a stopper in their suit
     rule(
@@ -173,13 +176,15 @@ const overcalls: Book = {
   only: silent,
   rules: [
     // Unusual 2NT: both minors 5-5 over a major, 8–10 vulnerable, 6–8 not
-    rule(
-      onlyIf((ctx) => (opened(ctx) === '1H' || opened(ctx) === '1S') && ctx.last === ctx.opening, '2N'),
-      (ctx) => ({ name: 'unusual2N', len: { D: [5, 13], C: [5, 13] }, hcp: ctx.weVul ? [8, 10] : [6, 8], notes: [{ key: 'bothMinors' }] }),
-      (h, ctx) => {
-        const [lo, hi] = ctx.weVul ? [8, 10] : [6, 8]
-        return h.len.C >= 5 && h.len.D >= 5 && h.hcp >= lo && h.hcp <= hi
-      },
+    convention(
+      rule(
+        onlyIf((ctx) => (opened(ctx) === '1H' || opened(ctx) === '1S') && ctx.last === ctx.opening, '2N'),
+        (ctx) => ({ name: 'unusual2N', len: { D: [5, 13], C: [5, 13] }, hcp: ctx.weVul ? [8, 10] : [6, 8], notes: [{ key: 'bothMinors' }] }),
+        (h, ctx) => {
+          const [lo, hi] = ctx.weVul ? [8, 10] : [6, 8]
+          return h.len.C >= 5 && h.len.D >= 5 && h.hcp >= lo && h.hcp <= hi
+        },
+      ),
     ),
     rule(
       onlyIf((ctx) => lastLevel(ctx) === 1 && isSuit(theirOpening(ctx)), '1N'),
@@ -318,13 +323,15 @@ function responsiveShape(h: Hand, ctx: Ctx): boolean {
 const responsive: Book = {
   only: (ctx) => theyOpened(ctx) && responsiveHere(ctx),
   rules: [
-    rule(
-      'X',
-      (ctx) => {
-        const o = strainOf(theirBids(ctx)[0])
-        return { name: 'responsive', hcp: [6, 11], notes: [{ key: isMajor(o) ? 'bothMinors' : 'bothMajors' }] }
-      },
-      responsiveShape,
+    convention(
+      rule(
+        'X',
+        (ctx) => {
+          const o = strainOf(theirBids(ctx)[0])
+          return { name: 'responsive', hcp: [6, 11], notes: [{ key: isMajor(o) ? 'bothMinors' : 'bothMajors' }] }
+        },
+        responsiveShape,
+      ),
     ),
     ...advances,
   ],

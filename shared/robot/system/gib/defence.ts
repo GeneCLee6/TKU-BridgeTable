@@ -41,9 +41,10 @@ function overcalls(x: Suit, balancing: boolean): Rule[] {
   // Michaels: both majors over a minor, the other major and a minor over a major
   rules.push(
     isMinor(x)
-      ? { call: bid(2, x), shows: { name: 'michaels', len: { H: [5, 13], S: [5, 13] }, hcp: plus(8), notes: [{ key: 'bothMajors' }], forcing: 'oneRound', artificial: true } }
+      ? { minLevel: 'college', call: bid(2, x), shows: { name: 'michaels', len: { H: [5, 13], S: [5, 13] }, hcp: plus(8), notes: [{ key: 'bothMajors' }], forcing: 'oneRound', artificial: true } }
       : {
           call: bid(2, x),
+          minLevel: 'college',
           shows: { name: 'michaels', len: { [other(x)]: [5, 13] }, hcp: plus(8), notes: [{ key: 'withMinor' }], forcing: 'oneRound', artificial: true },
           when: (h) => h.len.C >= 5 || h.len.D >= 5,
         },
@@ -52,6 +53,7 @@ function overcalls(x: Suit, balancing: boolean): Rule[] {
   const [a, b] = lowestTwo(x)
   rules.push({
     call: '2N',
+    minLevel: 'college',
     shows: (ctx: Ctx) => ({
       name: 'unusual2N',
       len: { [a]: [5, 13], [b]: [5, 13] },
@@ -98,6 +100,7 @@ function sandwich(x: Suit, y: Suit): Rule[] {
   const rules: Rule[] = [
     {
       call: '1N',
+      minLevel: 'college',
       shows: { name: 'sandwich', len: { [two[0]]: [4, 13], [two[1]]: [4, 13] }, hcp: [8, 11] },
       when: (h, ctx) => ctx.passed && h.len[two[0]] + h.len[two[1]] >= 9,
     },
@@ -123,12 +126,13 @@ function overWeakTwo(x: Suit): Rule[] {
       { call: '4N', shows: { len: { C: [5, 13], D: [5, 13] }, hcp: [10, 14], notes: [{ key: 'bothMinors' }], artificial: true } },
       {
         call: bid(3, x),
+        minLevel: 'college',
         shows: { name: 'michaels', len: { [other(x)]: [5, 13] }, hcp: plus(12), notes: [{ key: 'withMinor' }], forcing: 'oneRound', artificial: true },
         when: (h) => h.len.C >= 5 || h.len.D >= 5,
       },
     )
   } else {
-    rules.push({ call: '3D', shows: { name: 'michaels', len: { H: [5, 13], S: [5, 13] }, hcp: plus(12), notes: [{ key: 'bothMajors' }], forcing: 'oneRound', artificial: true } })
+    rules.push({ minLevel: 'college', call: '3D', shows: { name: 'michaels', len: { H: [5, 13], S: [5, 13] }, hcp: plus(12), notes: [{ key: 'bothMajors' }], forcing: 'oneRound', artificial: true } })
   }
   rules.push(
     { call: '3N', shows: { hcp: [19, 21], stop: { [x]: 'stop' }, notes: [{ key: 'toPlay' }] } },
@@ -166,16 +170,17 @@ function cappelletti(balancing: boolean): Rule[] {
   const minorWith = (h: Hand) => h.len.C >= 4 || h.len.D >= 4
   return [
     { call: 'X', shows: { name: 'penalty', hcp: plus(15) } },
-    { call: '2N', shows: { name: 'cappelletti', len: { C: [5, 13], D: [5, 13] }, hcp, notes: [{ key: 'bothMinors' }], artificial: true } },
-    { call: '2D', shows: { name: 'cappelletti', len: { H: [4, 13], S: [4, 13] }, hcp, notes: [{ key: 'bothMajors' }], artificial: true }, when: (h) => h.len.H + h.len.S >= 9 },
+    { minLevel: 'college', call: '2N', shows: { name: 'cappelletti', len: { C: [5, 13], D: [5, 13] }, hcp, notes: [{ key: 'bothMinors' }], artificial: true } },
+    { minLevel: 'college', call: '2D', shows: { name: 'cappelletti', len: { H: [4, 13], S: [4, 13] }, hcp, notes: [{ key: 'bothMajors' }], artificial: true }, when: (h) => h.len.H + h.len.S >= 9 },
     ...MAJORS.map(
       (M): Rule => ({
         call: bid(2, M),
+        minLevel: 'college',
         shows: { name: 'cappelletti', len: { [M]: [5, 13] }, hcp, notes: [{ key: 'withMinor' }] },
         when: (h) => minorWith(h) && h.len[other(M)] < 4,
       }),
     ),
-    { call: '2C', shows: { name: 'cappelletti', hcp, notes: [{ key: 'oneSuiter' }], artificial: true }, when: (h) => h.shape[0] >= 6 },
+    { minLevel: 'college', call: '2C', shows: { name: 'cappelletti', hcp, notes: [{ key: 'oneSuiter' }], artificial: true }, when: (h) => h.shape[0] >= 6 },
     { call: 'P', shows: {} },
   ]
 }
@@ -223,6 +228,7 @@ function advanceWeakTwoDouble(x: Suit): Rule[] {
     rules.push({ call: bid(2, y), shows: { len: { [y]: [4, 13] }, hcp: [0, 7] }, when: (h) => bestSuit(h, unbid) === y })
   rules.push({
     call: '2N',
+    minLevel: 'college',
     shows: { name: 'lebensohl', hcp: [0, 7], notes: [{ key: 'relayTo', calls: ['3C'] }], forcing: 'oneRound', artificial: true },
   })
   return rules
@@ -244,6 +250,7 @@ function responsive(theirs: Suit, partner: Suit | null): Rule[] {
   return [
     {
       call: 'X',
+      minLevel: 'college',
       shows: { name: 'responsive', len: { [shown[0]]: [4, 13], [shown[1]]: [4, 13] }, hcp: plus(7), forcing: 'oneRound' },
       when: (h) => !partner || h.len[partner] <= 2,
     },
@@ -270,7 +277,7 @@ const cheapestIn = (ctx: Ctx, s: Suit) => {
 function advanceOvercall(x: Suit, y: Suit, level: number): Rule[] {
   const rules: Rule[] = []
   const cue = bid(levelOver(x, y, level), x)
-  rules.push({ call: cue, shows: { name: 'cueRaise', len: { [y]: [3, 13] }, tp: plus(10), forcing: 'oneRound', artificial: true } })
+  rules.push({ minLevel: 'college', call: cue, shows: { name: 'cueRaise', len: { [y]: [3, 13] }, tp: plus(10), forcing: 'oneRound', artificial: true } })
   if (isMajor(y) && level < 4)
     rules.push(
       { call: bid(4, y), shows: { len: { [y]: [4, 13] }, tp: plus(4), notes: [{ key: 'toPlay' }] }, when: (h) => h.len[y] >= 4 && h.hcp <= 9 },

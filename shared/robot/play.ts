@@ -16,6 +16,7 @@ import {
 import { dummyOf, legalCards, remainingCards, tricksOf, type BoardState, type PlayedCard } from '../game.ts'
 import type { RobotKind } from '../protocol.ts'
 import { suitCards } from './hand.ts'
+import { LEVEL_PARAMS, type RobotParams } from './levels.ts'
 import { TableReading } from './reading.ts'
 
 /**
@@ -28,9 +29,14 @@ import { TableReading } from './reading.ts'
  * Both read the auction and count the cards (`reading.ts`): the declaring side finesses through
  * the opponent who showed the missing honour, and nobody cashes a winner into a known ruff or
  * leads a suit the opponents bid when there is a choice.
+ *
+ * The level (`params`, ROBOT.md §7) can turn the reading and the signals off: without the reading
+ * the robot plays from its own cards and what is in view; without signals it follows low,
+ * discards from length and does not read partner's discards.
  */
-export function chooseCard(state: BoardState, seat: Seat, kind: RobotKind = 'tku'): Card {
+export function chooseCard(state: BoardState, seat: Seat, kind: RobotKind = 'tku', params: RobotParams = LEVEL_PARAMS.college): Card {
   const gib = kind === 'gib'
+  const signals = params.signals
   const legal = legalCards(state, seat)
   if (legal.length <= 1) return legal[0]
   const contract = state.contract!
@@ -38,9 +44,9 @@ export function chooseCard(state: BoardState, seat: Seat, kind: RobotKind = 'tku
   const tricks = tricksOf(state)
   const current = tricks.at(-1)
   const trick = current && !current.winner ? current.cards : []
-  const view = new View(state, seat, kind)
+  const view = new View(state, seat, kind, params.inference)
 
-  if (trick.length === 0) return lead(state, seat, view, legal, trump, gib)
+  if (trick.length === 0) return lead(state, seat, view, legal, trump, gib, signals)
 
   const led = suitOf(trick[0].card)
   const best = winningCard(trick, trump)
@@ -53,7 +59,7 @@ export function chooseCard(state: BoardState, seat: Seat, kind: RobotKind = 'tku
   const defending = !sameSide(seat, contract.declarer)
   // A card that signals rather than wins, from the club's methods (橋牌防守信號) or GIB's
   const signal = (cards: Card[]) =>
-    !defending ? lowest(cards) : gib ? gibFollow(state, seat, trick, cards) : signalFollow(state, seat, trick, cards, trump)
+    !defending || !signals ? lowest(cards) : gib ? gibFollow(state, seat, trick, cards) : signalFollow(state, seat, trick, cards, trump)
 
   if (following.length) {
     if (partnerWinning && (lastToPlay || view.isMaster(best.card))) return signal(following)
@@ -88,10 +94,12 @@ export function chooseCard(state: BoardState, seat: Seat, kind: RobotKind = 'tku
     if (over.length) return lowest(over)
   }
   if (!defending) return discard(view, legal, trump)
-  return gib ? gibDiscard(view, legal, trump) : signalDiscard(view, legal, trump, led)
+  // GIB's discards carry no signal anyway; the club's robot without signals discards from length
+  if (gib) return gibDiscard(view, legal, trump)
+  return signals ? signalDiscard(view, legal, trump, led) : discard(view, legal, trump)
 }
 
-function lead(state: BoardState, seat: Seat, view: View, legal: Card[], trump: Suit | null, gib: boolean): Card {
+function lead(state: BoardState, seat: Seat, view: View, legal: Card[], trump: Suit | null, gib: boolean, signals: boolean): Card {
   const declarer = state.contract!.declarer
   const declaring = sameSide(seat, declarer)
   const hand = legal
@@ -130,7 +138,7 @@ function lead(state: BoardState, seat: Seat, view: View, legal: Card[], trump: S
       if (view.isMaster(top) && state.play.length >= 4 && !ruffed(s)) return top
     }
     // Lead the suit partner asked for with a discard (GIB's discards carry no signal)
-    const wanted = gib ? null : partnerSignal(state, seat, trump)
+    const wanted = gib || !signals ? null : partnerSignal(state, seat, trump)
     if (wanted && suitCards(hand, wanted).length && !ruffed(wanted)) {
       const cards = suitCards(hand, wanted)
       return cards.length === 2 ? cards[0] : cards.at(-1)!
@@ -439,14 +447,16 @@ class View {
   private readonly state: BoardState
   private readonly seat: Seat
   private readonly kind: RobotKind
+  private readonly inference: boolean
   private readonly played: Set<Card>
   private readonly known: Set<Card>
   private table: TableReading | null = null
 
-  constructor(state: BoardState, seat: Seat, kind: RobotKind) {
+  constructor(state: BoardState, seat: Seat, kind: RobotKind, inference: boolean) {
     this.state = state
     this.seat = seat
     this.kind = kind
+    this.inference = inference
     this.played = new Set(state.play.map((p) => p.card))
     this.known = new Set([...remainingCards(state, seat), ...this.partnerCards()])
   }
@@ -484,7 +494,7 @@ class View {
 
   /** The other hands as the auction and the count describe them (worked out when first asked) */
   get reading(): TableReading {
-    this.table ??= new TableReading(this.state, this.seat, this.kind)
+    this.table ??= new TableReading(this.state, this.seat, this.kind, this.inference)
     return this.table
   }
 
