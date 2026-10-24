@@ -118,7 +118,6 @@ describe('creating a challenge (e7-t05)', () => {
     expect(c.deadline).toBe(time + 7 * DAY)
     expect(c.settings).toEqual({
       scoring: 'crossImp',
-      unfinished: 'worst',
       robotKind: 'tku',
       robotLevel: 'beginner',
       bestHand: true,
@@ -191,7 +190,8 @@ describe('creating a challenge (e7-t05)', () => {
     expect(await bad({ scoring: 'mp' })).toBe('scoring')
     expect(await bad({ scoring: 'crossImp' })).toBe('scoring')
     expect(await bad({ scoring: 'imp' }, [ben, cat])).toBe('scoring')
-    expect(await bad({ unfinished: 'avgMinus' })).toBe('unfinished')
+    // Unplayed boards are not scored at all: only those who play every board are ranked
+    expect(await bad({ unfinished: 'worst' })).toBe('unfinished')
     expect(await bad({ robotKind: 'deep' })).toBe('robotKind')
     expect(await bad({ robotLevel: 'master' })).toBe('robotLevel')
     expect(await bad({ robotLevel: 'custom' })).toBe('robotLevel')
@@ -379,6 +379,5 @@ describe('challenge-flow', () => {
     expect(parseChallengeSettings(undefined, 3)).toEqual({ settings: defaultChallengeSettings(3) })
     expect(parseChallengeSettings({ scoring: 'total' }, 1)).toMatchObject({ settings: { scoring: 'total' } })
     expect(parseChallengeSettings({ scoring: 'total' }, 5)).toMatchObject({ settings: { scoring: 'total' } })
-    expect(parseChallengeSettings({ unfinished: 'worst' }, 1)).toMatchObject({ settings: { unfinished: 'worst' } })
   })
 })

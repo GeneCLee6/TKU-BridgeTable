@@ -985,6 +985,14 @@ export class ClubService {
     return nextSeq(challenge, state.userId) === null && (!table.board || table.board.phase === 'finished')
   }
 
+  /** A challenge table whose challenge is gone, closed or past its deadline: nothing more is played there */
+  private challengeClosedAt(table: Table): boolean {
+    const state = challengeStateOf(table)
+    if (!state) return false
+    const challenge = this.challenges.get(state.challengeId)
+    return !challenge || !challengeTakesPart(challenge, this.now())
+  }
+
   /** At a challenge table nobody watches or takes back a call or card, and seats and settings stay */
   private checkNotChallenge(table: Table) {
     if (table.mode === 'challenge') throw new ClubError('challengeTableFixed')
@@ -1309,6 +1317,8 @@ export class ClubService {
   ) {
     const board = table.board
     if (!board) throw new ClubError('noBoard')
+    // At the deadline play stops, as on BBO: a board still going is dropped, not finished
+    if (this.challengeClosedAt(table)) throw new ClubError('challengeClosed')
 
     let next: BoardState
     switch (message.type) {
@@ -1415,6 +1425,7 @@ export class ClubService {
   private robotMove(table: Table): { seat: Seat; delay: number; decide: (brain: RobotBrain) => Promise<RobotAnswer> } | null {
     const board = table.board
     if (!board || board.phase === 'finished' || this.humansSeated(table) === 0) return null
+    if (this.challengeClosedAt(table)) return null
     const robot = (seat: Seat | null | undefined): seat is Seat => !!seat && isRobotId(table.seats[seat])
     const kindAt = (seat: Seat) => robotKindOf(table.seats[seat]!)
     const levelAt = (seat: Seat) => robotLevelOf(table.seats[seat]!)

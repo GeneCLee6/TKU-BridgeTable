@@ -244,6 +244,25 @@ describe('starting a challenge (e7-t08)', () => {
   })
 })
 
+describe('the deadline (社長, 2026-10-24)', () => {
+  it('stops play at once, as on BBO: the board being played is dropped and nothing is scored', async () => {
+    const { ben, id } = await challenge()
+    await play(ben, id)
+    await runRobots()
+    const before = view(ben)!.board!
+    expect(before.phase).toBe('auction')
+    expect(before.legalCalls.length).toBeGreaterThan(0)
+
+    time = club.challenges.get(id)!.deadline
+    expect(await refused(ben, { type: 'call', call: 'P' })).toBe('challengeClosed')
+    // The robots stop too: nothing moves on the table
+    await runRobots()
+    expect(view(ben)?.board?.auction.length ?? before.auction.length).toBe(before.auction.length)
+    expect(club.challenges.get(id)!.results).toHaveLength(0)
+    expect(await refused(ben, { type: 'playChallenge', challengeId: id })).toBe('challengeClosed')
+  })
+})
+
 describe('a challenge table is fixed (AC-7.3)', () => {
   it('has no undo, no kibitzers, no seat or robot changes', async () => {
     const { amy, ben, id } = await challenge()
