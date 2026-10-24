@@ -12,7 +12,7 @@
 - **A3 完成**（#34）：紀錄的 SQL 索引（`worker/history-index.ts`：`boards_index`、`board_players`），新紀錄同時寫 KV 與 SQL、舊紀錄載入時回填（`meta:schema` 3）。決策紀錄在 `ARCHITECTURE.md` §5.3。
 - **A4 完成**（#35）：搜尋 API `GET /api/history/search`（`shared/history-query.ts`，條件見 `ARCHITECTURE.md` §5.3），紀錄列表也改從 SQL 讀；未公開的牌局（`revealAt`）只有打那一副的人看得到（`views.ts` 的 `recordVisible`）。篩選的介面在 Phase E。
 - **下一批：ROADMAP 第 A5 批**（`e1-t22` `e1-t23` 通知中心）。B1 另一個 session 在做。
-- 淡江機器人仍用舊程式 `shared/robot/bidding.ts`，還沒搬進引擎（下面第 2 點第一項）。
+- **B1 完成**（#36）：淡江機器人搬進制度引擎（`shared/robot/system/tku/`，`System.firstFit`），`bidding.ts` 與 `inferShown` 已刪；兩種機器人都有叫牌盒提示、Alert 依觀看者的語言顯示。規則書的叫品跟舊程式完全一樣，後備改用引擎的推論（差異見 `ROBOT.md` §2）。
 
 ## 2. 建議順序
 
@@ -63,7 +63,7 @@ Token 吃掉的是**對話上下文**，不是程式碼。原則：**一個 sess
 
 | 項目 | 狀態 | 處理 |
 | --- | --- | --- |
-| 淡江機器人仍是手寫規則＋另一套推論（`inferShown`） | 技術債 | 第 2 點第 1 項 |
+| 淡江機器人仍是手寫規則＋另一套推論（`inferShown`） | 已解決（B1，#36） | — |
 | 後備書（`fallback.ts`）用 25 條「第 n 個叫品」的規則讓說明在叫之前就算得出來 | 可接受 | 補完 2/1 細節後用到的機會會變少 |
 | 推論每次從第一個叫品重讀（O(n²)） | 現在無感（300 副 0.4 秒） | M2 做模擬前改成增量（把 `Reading` 存進 `BoardState`） |
 | 300 副隨機牌只驗「合法、會停、有說明」 | 不驗「叫得對」 | 題庫（第 2 點第 4 項）＋社團幹部到 BBO 核對 `docs/BBO GIB/README.md` 的待核對清單 |
