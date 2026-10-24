@@ -3,7 +3,7 @@ import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
 import styled, { css, keyframes } from 'styled-components'
 import type { Seat } from '../../shared/cards.ts'
-import type { SeatOccupant } from '../../shared/protocol.ts'
+import { DEFAULT_ROBOT_LEVEL, type SeatOccupant } from '../../shared/protocol.ts'
 import { useT } from '../state/PreferencesContext.tsx'
 import { playerName, seatLetter } from '../strings.ts'
 
@@ -18,8 +18,23 @@ import { playerName, seatLetter } from '../strings.ts'
 
 export interface SeatAction {
   label: string
-  onSelect: () => void
+  /** Not needed when the action is a choice among `options` */
+  onSelect?: () => void
   tone?: 'danger'
+  /** A row of choices under the label, e.g. the robot levels; the label is then a heading */
+  options?: SeatOption[]
+}
+
+export interface SeatOption {
+  label: string
+  /** The whole choice, for screen readers (e.g. "放淡江機器人：初學者") */
+  name: string
+  onSelect: () => void
+  /** The table's default: shown stronger */
+  current?: boolean
+  /** Shown but not available yet; `hint` says why */
+  disabled?: boolean
+  hint?: string
 }
 
 const pulse = keyframes`
@@ -117,7 +132,7 @@ const Tag = styled.span`
   white-space: nowrap;
 `
 
-const MENU_WIDTH = 190
+const MENU_WIDTH = 220
 
 const Menu = styled.div`
   position: fixed;
@@ -142,6 +157,38 @@ const MenuItem = styled.button<{ $tone?: 'danger' }>`
   text-align: left;
   white-space: nowrap;
   &:hover, &:focus-visible { background: ${({ theme }) => theme.table.panelBorder}; }
+`
+
+const MenuGroup = styled.div`
+  display: grid;
+  gap: 4px;
+  padding: 6px 8px 8px;
+
+  & > span {
+    color: ${({ theme }) => theme.table.panelMuted};
+    font-size: 13px;
+    font-weight: 700;
+  }
+`
+
+const Options = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+`
+
+const OptionButton = styled.button<{ $current: boolean }>`
+  min-height: 32px;
+  padding: 0 9px;
+  border: 1px solid ${({ theme }) => theme.table.panelBorder};
+  border-radius: 999px;
+  background: ${({ theme, $current }) => ($current ? theme.table.panelBorder : 'none')};
+  color: ${({ theme }) => theme.table.panelText};
+  font-size: 14px;
+  font-weight: ${({ $current }) => ($current ? 800 : 600)};
+  white-space: nowrap;
+  &:hover:not(:disabled), &:focus-visible { background: ${({ theme }) => theme.table.panelBorder}; }
+  &:disabled { color: ${({ theme }) => theme.table.panelMuted}; border-style: dashed; cursor: not-allowed; }
 `
 
 export function SeatPlate({
@@ -237,8 +284,13 @@ export function SeatPlate({
       >
         <Letter data-letter>{seatLetter[seat]}</Letter>
         {name}
-        {(role || offline || clickable) && (
+        {(role || offline || clickable || occupant?.robot) && (
           <Tags>
+            {occupant?.robot && (
+              <Tag data-tag data-level={occupant.robotLevel ?? DEFAULT_ROBOT_LEVEL} title={t.robotLevel}>
+                {t.robotLevels[occupant.robotLevel ?? DEFAULT_ROBOT_LEVEL]}
+              </Tag>
+            )}
             {role && <Tag data-tag>{role === 'declarer' ? t.declarer : t.dummy}</Tag>}
             {offline && <Tag data-tag>{t.offline}</Tag>}
             {clickable && <ChevronDown size={compact ? 13 : 16} aria-hidden />}
@@ -249,7 +301,31 @@ export function SeatPlate({
       {open &&
         createPortal(
           <Menu ref={menu} role="menu" aria-label={t.seatOptions(seatLetter[seat])} style={open}>
-            {actions.map((action) => (
+            {actions.map((action) =>
+              action.options ? (
+                <MenuGroup key={action.label} role="group" aria-label={action.label}>
+                  <span aria-hidden>{action.label}</span>
+                  <Options>
+                    {action.options.map((option) => (
+                      <OptionButton
+                        key={option.label}
+                        type="button"
+                        role="menuitem"
+                        aria-label={option.hint ? `${option.name} · ${option.hint}` : option.name}
+                        title={option.hint}
+                        disabled={option.disabled}
+                        $current={!!option.current}
+                        onClick={() => {
+                          setOpen(null)
+                          option.onSelect()
+                        }}
+                      >
+                        {option.label}
+                      </OptionButton>
+                    ))}
+                  </Options>
+                </MenuGroup>
+              ) : (
               <MenuItem
                 key={action.label}
                 type="button"
@@ -257,12 +333,13 @@ export function SeatPlate({
                 $tone={action.tone}
                 onClick={() => {
                   setOpen(null)
-                  action.onSelect()
+                  action.onSelect?.()
                 }}
               >
                 {action.label}
               </MenuItem>
-            ))}
+              ),
+            )}
           </Menu>,
           document.body,
         )}
