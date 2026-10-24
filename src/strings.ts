@@ -1448,7 +1448,7 @@ const ja: Strings = {
 const ko: Strings = {
   appNameEn: 'TKU BridgeTable',
   appNameZh: '淡江牌桌',
-  tagline: '단장대학교 브리지 동아리의 온라인 테이블',
+  tagline: '담강대학교 브리지 동아리의 온라인 테이블',
 
   navLobby: '로비',
   navHistory: '기록',
@@ -1545,15 +1545,15 @@ const ko: Strings = {
   you: '나',
   youTag: ' (나)',
   robotName: 'TKB',
-  robotSystems: { tku: '단장 시스템', gib: '2/1' },
-  robots: { tku: 'TKB (단장 시스템)', gib: 'TKB (2/1)' },
+  robotSystems: { tku: 'TKU 시스템', gib: '2/1' },
+  robots: { tku: 'TKB (TKU 시스템)', gib: 'TKB (2/1)' },
 
   kick: '자리에서 내보내기',
   swappedToDeclare: '로봇 파트너가 계약을 땄습니다: 자리를 바꿔 당신이 플레이합니다',
   seatOptions: (seat) => `${seat} 자리 메뉴`,
   emptySeat: '빈자리',
   takeSeat: (seat) => `${seat}에 앉기`,
-  addRobots: { tku: 'TKB (단장 시스템) 넣기', gib: 'TKB (2/1) 넣기' },
+  addRobots: { tku: 'TKB (TKU 시스템) 넣기', gib: 'TKB (2/1) 넣기' },
   robotReads: (name: string) => `${name}의 해석`,
   noRobotMeaning: '로봇에게 특별한 의미는 없습니다',
   removeRobot: '로봇 빼기',
