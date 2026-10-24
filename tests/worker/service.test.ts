@@ -1296,7 +1296,9 @@ describe('TKB in two systems, and robots saved when they had levels', () => {
     expect(tableFor(gene).board?.phase).toBe('finished')
     const history = (await club.history(gene, false)).boards
     expect(history).toHaveLength(1)
-    expect(history[0].players.N).toMatchObject({ robot: true, robotKind: 'gib' })
+    // North's robot may have swapped into South's seat to let gene declare: look at whichever has it
+    const { N, S } = history[0].players
+    expect(N.robot ? N : S).toMatchObject({ robot: true, robotKind: 'gib' })
   })
 })
 
