@@ -1,5 +1,6 @@
 import { DurableObject } from 'cloudflare:workers'
 import { AppError } from '../shared/messages.ts'
+import { parseHistoryQuery } from '../shared/history-query.ts'
 import type { ClientMessage, Me, ServerMessage } from '../shared/protocol.ts'
 import { readCookie, SESSION_COOKIE, sessionCookie } from './auth.ts'
 import { BookService, importRequestFrom } from './book.ts'
@@ -196,9 +197,10 @@ export class Club extends DurableObject<Env> implements Connections {
       const all = query.get('scope') === 'all'
       return json(await this.service.history(user.id, all, Number(query.get('page') ?? 1), Number(query.get('size') ?? 0) || undefined))
     }
+    if (route === 'GET /api/history/search') return json(await this.service.search(user.id, parseHistoryQuery(url.searchParams)))
     const record = url.pathname.match(/^\/api\/history\/([\w-]+)$/)
     if (request.method === 'GET' && record) {
-      const found = await this.service.record(record[1])
+      const found = await this.service.record(record[1], user.id)
       if (!found) throw new ClubError('boardGone', {}, 404)
       return json({ record: found })
     }

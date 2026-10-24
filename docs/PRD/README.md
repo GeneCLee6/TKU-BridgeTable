@@ -24,7 +24,7 @@
 | [E1](e1-accounts-identity-community.md) | 帳號、身分與社群 | 14／34 | 4／9 | 13 | in-progress |
 | [E2](e2-table-engine-realtime.md) | 牌桌引擎與即時連線 | 24／35 | 8／14 | 12 | in-progress |
 | [E3](e3-table-ui-experience.md) | 牌桌介面與體驗 | 27／44 | 7／12 | 13 | in-progress |
-| [E4](e4-records-favorites-search.md) | 牌局紀錄、收藏與搜尋 | 13／39 | 3／13 | 24 | in-progress |
+| [E4](e4-records-favorites-search.md) | 牌局紀錄、收藏與搜尋 | 15／39 | 3／13 | 24 | in-progress |
 | [E5](e5-robot-bidding-brain.md) | 智慧機器人（一）：叫牌制度引擎、2/1 機器人與完整 5542 | 27／63 | 4／14 | 45 | in-progress |
 | [E6](e6-robot-play-levels-evaluation.md) | 智慧機器人（二）：打牌大腦、等級與評測 | 8／38 | 3／13 | 15 | in-progress |
 | [E7](e7-challenges.md) | 挑戰（單挑與多人） | 0／30 | 0／9 | 25 | planned |

@@ -106,8 +106,8 @@ SQL curations           board_id, title, category, body_md, trick_notes(json), c
 - [x] `e4-t11` 建表 migration 與寫入：新紀錄同時寫 KV 與 SQL，寫入失敗時整個動作失敗（不留半套）· AC-4.6 · #34
 - [x] `e4-t12` 回填：既有 `board:` 分批寫進 SQL，可續跑、冪等，`meta:schema` 升版；測試舊資料 · AC-4.6 · #34
 - [x] `e4-t13` `board_players` 寫入與索引，支援「誰打的」「搭檔是誰」· AC-4.6 · #34
-- [ ] `e4-t14` 搜尋 API `GET /api/history/search`：`shared/history-query.ts` 條件型別與驗證、參數化 SQL、分頁與總數 · AC-4.6, AC-4.7 · M · ← e4-t11, e4-t13
-- [ ] `e4-t15` 資訊隔離過濾：`reveal_at` 與 `event_id`，搜尋、列表、側欄、`recent` 一律過濾未公開的牌局；`tests/worker` 測試 · AC-4.9 · S · ← e4-t14
+- [x] `e4-t14` 搜尋 API `GET /api/history/search`：`shared/history-query.ts` 條件型別與驗證、參數化 SQL、分頁與總數 · AC-4.6, AC-4.7 · #35
+- [x] `e4-t15` 資訊隔離過濾：`reveal_at` 與 `event_id`，搜尋、列表、側欄、`recent` 一律過濾未公開的牌局；`tests/worker` 測試 · AC-4.9 · #35
 
 **M1 · 篩選與排序**
 

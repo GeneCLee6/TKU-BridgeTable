@@ -1,6 +1,7 @@
 import { SEATS, sideOf } from '../shared/cards.ts'
+import { taiwanDayEnd, taiwanDayStart, type HistoryQuery, type HistorySort } from '../shared/history-query.ts'
 import { isRobotId, type BoardRecord } from '../shared/protocol.ts'
-import type { Sql } from './store.ts'
+import type { Sql, SqlValue } from './store.ts'
 
 /**
  * The history index in the Durable Object's SQLite database (ARCHITECTURE.md §5.3): one row per
@@ -68,7 +69,7 @@ export function indexRecord(sql: Sql, record: BoardRecord) {
       record.tableNumber,
       // Every board so far is from a casual table; other modes will record theirs
       'casual',
-      null,
+      record.eventId ?? null,
       board.boardNo,
       board.dealer,
       board.vul,
@@ -80,7 +81,7 @@ export function indexRecord(sql: Sql, record: BoardRecord) {
       contract ? (board.result?.declarerTricks ?? null) : null,
       board.result?.scoreNS ?? 0,
       board.result?.claimed ? 1 : 0,
-      null,
+      record.revealAt ?? null,
     )
     sql.exec('DELETE FROM board_players WHERE board_id = ?', record.id)
     for (const seat of SEATS)
@@ -131,4 +132,103 @@ export function boardsPlayedWith(sql: Sql, userId: string, otherId: string, part
       partners ? 1 : 0,
     ),
   )
+}
+
+// ── Search ─────────────────────────────────────────────────────────────────────────────────────
+
+/** The declarer's side, for "my partner declared" and "the opponents declared" */
+const DECLARER_SIDE = "CASE WHEN b.declarer_seat IN ('N', 'S') THEN 'NS' ELSE 'EW' END"
+const GAME = "((b.strain = 'N' AND b.level >= 3) OR (b.strain IN ('H', 'S') AND b.level >= 4) OR b.level >= 5)"
+const SEATED = (who: string) => `EXISTS (SELECT 1 FROM board_players ${who} WHERE ${who}.board_id = b.board_id AND ${who}.user_id = ?)`
+
+const ORDER: Record<HistorySort, string> = {
+  date_desc: 'b.played_at DESC, b.board_id DESC',
+  date_asc: 'b.played_at ASC, b.board_id ASC',
+  score_desc: 'b.score_ns DESC, b.played_at DESC, b.board_id DESC',
+  score_asc: 'b.score_ns ASC, b.played_at DESC, b.board_id DESC',
+  // Passed-out boards have no tricks: they go last either way
+  tricks_desc: 'b.tricks IS NULL, b.tricks DESC, b.played_at DESC, b.board_id DESC',
+  tricks_asc: 'b.tricks IS NULL, b.tricks ASC, b.played_at DESC, b.board_id DESC',
+}
+
+/**
+ * The WHERE clause of a search and its parameters. Every value goes in as a `?` parameter; only
+ * fixed pieces of SQL are joined into the text. Boards still kept back (`reveal_at` in the future)
+ * are left out unless the member asking played them, whatever the search (AC-4.9)
+ */
+function where(query: HistoryQuery, viewer: string, now: number): [string, SqlValue[]] {
+  const parts: string[] = [`(b.reveal_at IS NULL OR b.reveal_at <= ? OR ${SEATED('v')})`]
+  const params: SqlValue[] = [now, viewer]
+  const add = (part: string, ...values: SqlValue[]) => {
+    parts.push(part)
+    params.push(...values)
+  }
+  if (query.scope === 'mine') add(SEATED('m'), viewer)
+  if (query.level !== undefined) add('b.level = ?', query.level)
+  if (query.strain) add('b.strain = ?', query.strain)
+  if (query.doubled === 'undoubled') add('b.level IS NOT NULL AND b.doubled = 0')
+  if (query.doubled === 'X') add('b.doubled = 1')
+  if (query.doubled === 'XX') add('b.doubled = 2')
+  if (query.doubled === 'doubled') add('b.doubled > 0')
+  if (query.bracket === 'passout') add('b.level IS NULL')
+  if (query.bracket === 'partial') add(`b.level IS NOT NULL AND NOT ${GAME}`)
+  if (query.bracket === 'game') add(`${GAME} AND b.level < 6`)
+  if (query.bracket === 'slam') add('b.level = 6')
+  if (query.bracket === 'grand') add('b.level = 7')
+  if (query.declarer) add('b.declarer_user = ?', query.declarer)
+  if (query.declarerSeat) add('b.declarer_seat = ?', query.declarerSeat)
+  if (query.declarerSide === 'me') add('b.declarer_user = ?', viewer)
+  if (query.declarerSide === 'partner')
+    add(
+      `b.declarer_seat IS NOT NULL AND EXISTS (SELECT 1 FROM board_players p WHERE p.board_id = b.board_id
+        AND p.user_id = ? AND p.side = ${DECLARER_SIDE} AND p.seat <> b.declarer_seat)`,
+      viewer,
+    )
+  if (query.declarerSide === 'opponents')
+    add(
+      `b.declarer_seat IS NOT NULL AND EXISTS (SELECT 1 FROM board_players p WHERE p.board_id = b.board_id
+        AND p.user_id = ? AND p.side <> ${DECLARER_SIDE})`,
+      viewer,
+    )
+  if (query.player) add(SEATED('x'), query.player)
+  if (query.partner)
+    add(
+      `EXISTS (SELECT 1 FROM board_players me JOIN board_players other
+        ON other.board_id = me.board_id AND other.side = me.side AND other.seat <> me.seat
+        WHERE me.board_id = b.board_id AND me.user_id = ? AND other.user_id = ?)`,
+      viewer,
+      query.partner,
+    )
+  if (query.from) add('b.played_at >= ?', taiwanDayStart(query.from))
+  if (query.to) add('b.played_at < ?', taiwanDayEnd(query.to))
+  if (query.result === 'made') add('b.level IS NOT NULL AND b.tricks >= b.level + 6')
+  if (query.result === 'down') add('b.level IS NOT NULL AND b.tricks < b.level + 6')
+  if (query.result === 'overtricks') add('b.level IS NOT NULL AND b.tricks > b.level + 6')
+  if (query.vul) add('b.vul = ?', query.vul)
+  if (query.boardNo !== undefined) add('b.board_no = ?', query.boardNo)
+  if (query.table !== undefined) add('b.table_no = ?', query.table)
+  if (query.mode) add('b.mode = ?', query.mode)
+  return [parts.join(' AND '), params]
+}
+
+/**
+ * One page of a search: the board ids in order, how many boards match, and the page shown (a page
+ * past the end shows the last one)
+ */
+export function searchBoards(
+  sql: Sql,
+  query: HistoryQuery,
+  viewer: string,
+  now: number,
+): { ids: string[]; total: number; page: number } {
+  const [condition, params] = where(query, viewer, now)
+  const total = sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM boards_index b WHERE ${condition}`, ...params)[0].n
+  const page = Math.min(query.page, Math.max(1, Math.ceil(total / query.size)))
+  const rows = sql.exec<{ board_id: string }>(
+    `SELECT b.board_id FROM boards_index b WHERE ${condition} ORDER BY ${ORDER[query.sort]} LIMIT ? OFFSET ?`,
+    ...params,
+    query.size,
+    (page - 1) * query.size,
+  )
+  return { ids: ids(rows), total, page }
 }

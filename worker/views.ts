@@ -47,6 +47,21 @@ export interface Table {
   settings?: TableSettings
 }
 
+/**
+ * Whether a member may see a finished board in any list, search, side panel or detail page
+ * (AC-4.9): a board kept back until `revealAt` (a challenge or match still being played) is seen
+ * only by its own players until then. The history search applies the same rule in SQL
+ * (`worker/history-index.ts`)
+ */
+export function recordVisible(
+  record: Pick<BoardSummary, 'players' | 'revealAt'>,
+  userId: string,
+  now: number,
+): boolean {
+  if (record.revealAt === undefined || record.revealAt <= now) return true
+  return SEATS.some((seat) => record.players[seat]?.id === userId)
+}
+
 export function seatOccupants(
   table: Table,
   user: (id: string) => PublicUser | undefined,
