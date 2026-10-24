@@ -57,6 +57,7 @@ import { hashPassword, randomId, SESSION_DAYS, verifyPassword } from './auth.ts'
 import { DEFAULT_HISTORY_QUERY, type HistoryQuery } from '../shared/history-query.ts'
 import { createHistoryIndex, indexRecord, searchBoards, unindexRecord } from './history-index.ts'
 import { modeOf } from './modes.ts'
+import { NotificationService } from './notifications.ts'
 import { AlarmQueue, manualScheduler, type JobKind, type Scheduler } from './scheduler.ts'
 import type { Store } from './store.ts'
 import { boardView, recordVisible, seatOccupants, type Table } from './views.ts'
@@ -162,7 +163,12 @@ export class ClubService {
    * What each member was last sent (as JSON), so an update that changes nothing for them is not
    * sent at all, and the chat and recent boards only go out when they change
    */
-  private readonly sent = new Map<string, { lobby?: string; table?: string; chat?: string; recent?: string }>()
+  private readonly sent = new Map<
+    string,
+    { lobby?: string; table?: string; chat?: string; recent?: string; notifications?: string }
+  >()
+  /** The notification centre; other parts of the club call `notifications.notify` */
+  readonly notifications: NotificationService
 
   constructor(store: Store, connections: Connections, config: ClubConfig) {
     this.store = store
@@ -170,6 +176,7 @@ export class ClubService {
     this.config = config
     this.now = config.now ?? Date.now
     this.random = config.random ?? secureRandomInt
+    this.notifications = new NotificationService(store, this.now, (userId) => void this.pushNotifications(userId))
     if (config.schedule) {
       this.scheduler = manualScheduler(config.schedule)
     } else {
@@ -284,6 +291,9 @@ export class ClubService {
     }
     this.applications.set(application.id, application)
     await this.store.put(`app:${application.id}`, application)
+    // Admins hear about it at once, even if they are not on the admin page
+    for (const admin of [...this.users.values()].filter((u) => u.admin))
+      await this.notifications.notify(admin.id, 'application', { username: name })
     return { pending: true, username: name }
   }
 
@@ -538,6 +548,7 @@ export class ClubService {
     this.users.delete(user.id)
     await this.store.delete(`user:${user.id}`)
     await this.revokeSessions(user.id)
+    await this.notifications.forget(user.id)
     this.connections.disconnect(user.id)
     this.broadcast()
   }
@@ -625,6 +636,19 @@ export class ClubService {
     this.sent.delete(userId)
     this.connections.send(userId, { type: 'welcome', me: this.me(user) })
     this.broadcast()
+    void this.pushNotifications(userId)
+  }
+
+  /** Sends a member their notifications if they are online and something changed since the last send */
+  private async pushNotifications(userId: string) {
+    if (!this.connections.onlineUserIds().includes(userId)) return
+    const view = await this.notifications.view(userId)
+    const json = JSON.stringify(view)
+    const sent = this.sent.get(userId) ?? {}
+    if (sent.notifications === json) return
+    sent.notifications = json
+    this.sent.set(userId, sent)
+    this.connections.send(userId, { type: 'notifications', notifications: view })
   }
 
   /**
@@ -684,6 +708,12 @@ export class ClubService {
         return this.removeRobot(userId, message.seat)
       case 'chat':
         return this.chat(userId, message.text)
+      case 'readNotifications': {
+        const ids = message.ids
+        if (ids !== undefined && !(Array.isArray(ids) && ids.every((id) => typeof id === 'string')))
+          throw new ClubError('unknownCommand')
+        return this.notifications.markRead(userId, ids)
+      }
       case 'call':
       case 'play':
       case 'claim':

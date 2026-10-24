@@ -11,7 +11,8 @@
 - **A2 完成**（#33）：牌桌設定 `TableSettings`（`visibility` public／invite、`allowKibitz`），開桌對話框與房主的設定按鈕。設定目前只存、只顯示；受邀名單與「不允許觀看」的實際限制在 F1（`e2-t25`、`e2-t26`）。
 - **A3 完成**（#34）：紀錄的 SQL 索引（`worker/history-index.ts`：`boards_index`、`board_players`），新紀錄同時寫 KV 與 SQL、舊紀錄載入時回填（`meta:schema` 3）。決策紀錄在 `ARCHITECTURE.md` §5.3。
 - **A4 完成**（#35）：搜尋 API `GET /api/history/search`（`shared/history-query.ts`，條件見 `ARCHITECTURE.md` §5.3），紀錄列表也改從 SQL 讀；未公開的牌局（`revealAt`）只有打那一副的人看得到（`views.ts` 的 `recordVisible`）。篩選的介面在 Phase E。
-- **下一批：ROADMAP 第 A5 批**（`e1-t22` `e1-t23` 通知中心）。B1 另一個 session 在做。
+- **A5 完成**（#37）：通知中心（`worker/notifications.ts`，`ARCHITECTURE.md` §5.4）與頁首鈴鐺；第一種通知是「有人申請註冊」給管理員。之後的挑戰、受邀桌直接呼叫 `notifications.notify`。
+- **下一批：ROADMAP 第 A6 批**（`e7-t04` `e10-t01` `e10-t02` 計分純函式、條件發牌器）。
 - 淡江機器人仍用舊程式 `shared/robot/bidding.ts`，還沒搬進引擎（下面第 2 點第一項）。
 
 ## 2. 建議順序
