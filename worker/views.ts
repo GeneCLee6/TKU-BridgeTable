@@ -12,7 +12,7 @@ import {
   turnOf,
   type BoardState,
 } from '../shared/game.ts'
-import type { BoardSummary, BoardView, ChatMessage, PublicUser, SeatOccupant } from '../shared/protocol.ts'
+import type { BoardSummary, BoardView, ChatMessage, PublicUser, SeatOccupant, TableSettings } from '../shared/protocol.ts'
 import type { DealSource } from '../shared/deal-source.ts'
 import type { TableMode } from './modes.ts'
 
@@ -43,6 +43,8 @@ export interface Table {
   modeState?: unknown
   /** Where the boards come from; random when absent. Fixed hands never leave the server */
   dealSource?: DealSource
+  /** How the host runs the table; tables saved before settings use DEFAULT_TABLE_SETTINGS */
+  settings?: TableSettings
 }
 
 export function seatOccupants(

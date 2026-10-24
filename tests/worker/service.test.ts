@@ -465,6 +465,51 @@ describe('robots at the table', () => {
     }
   })
 
+  it('opens with the settings chosen, and only the host may change them', async () => {
+    const gene = await member('gene')
+    const amy = await member('amy')
+    await send(gene, { type: 'createTable' })
+    expect(tableFor(gene).settings).toEqual({ visibility: 'public', allowKibitz: true })
+    await send(gene, { type: 'leaveTable' })
+
+    await send(gene, { type: 'createTable', settings: { visibility: 'invite' } })
+    const tableId = tableFor(gene).id
+    expect(tableFor(gene).settings).toEqual({ visibility: 'invite', allowKibitz: true })
+    expect(connections.last(amy, 'lobby')!.lobby.tables[0].settings.visibility).toBe('invite')
+
+    await send(amy, { type: 'joinTable', tableId })
+    await send(amy, { type: 'updateTableSettings', settings: { allowKibitz: false } })
+    expect(connections.last(amy, 'error')?.code).toBe('hostOnly')
+    await send(gene, { type: 'updateTableSettings', settings: { allowKibitz: false } })
+    expect(tableFor(amy).settings).toEqual({ visibility: 'invite', allowKibitz: false })
+    await send(gene, { type: 'updateTableSettings', settings: { visibility: 'public' } })
+    expect(tableFor(amy).settings).toEqual({ visibility: 'public', allowKibitz: false })
+  })
+
+  it('turn down settings they do not know', async () => {
+    const gene = await member('gene')
+    await send(gene, { type: 'createTable', settings: { visibility: 'secret' } as never })
+    expect(connections.last(gene, 'error')?.code).toBe('badTableSettings')
+    expect(connections.last(gene, 'lobby')?.lobby.tables ?? []).toHaveLength(0)
+    await send(gene, { type: 'createTable' })
+    for (const settings of [{ allowKibitz: 'yes' }, { colour: 'red' }, null, []])
+      await send(gene, { type: 'updateTableSettings', settings: settings as never })
+    expect(connections.inbox.get(gene)!.filter((m) => m.type === 'error' && m.code === 'badTableSettings')).toHaveLength(5)
+    expect(tableFor(gene).settings).toEqual({ visibility: 'public', allowKibitz: true })
+  })
+
+  it('keep the default settings for tables saved before settings', async () => {
+    const gene = await member('gene')
+    await send(gene, { type: 'createTable' })
+    const tableId = tableFor(gene).id
+    const saved = (await store.get<Table>(`table:${tableId}`))!
+    delete saved.settings
+    await store.put(`table:${tableId}`, saved)
+    const reloaded = new ClubService(store, connections, { maxUsers: 10 })
+    await reloaded.load()
+    expect(reloaded.lobbyView(gene).tables[0].settings).toEqual({ visibility: 'public', allowKibitz: true })
+  })
+
   it('only the host may add robots, and only to empty seats', async () => {
     const { tableId, bySeat } = await fullTable()
     const watcher = await member('watcher')

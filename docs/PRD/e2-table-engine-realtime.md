@@ -97,8 +97,8 @@ M0 的核心：`shared/` 的純函式橋牌引擎（發牌、叫牌、出牌、�
 - [x] `e2-t20` `TableMode` 抽象：`Table.mode`／`modeState`、`TableModeHooks`（發新一副、一副結束、寫紀錄），`casual` 實作等於現狀，所有現有測試不改就通過 · AC-2.12 · #32
 - [x] `e2-t21` `DealSource` 介面（`shared/deal-source.ts`）：`random`（現狀）與 `fixed`（指定牌組，只在發到那一副時才放進 `BoardState`）· AC-2.12 · #32
 - [x] `e2-t22` 統一排程器：機器人排程、自動發牌、之後的計時都走同一個 alarm 佇列；測試用手動佇列（沿用 `runRobots`）· AC-2.12, AC-2.10 · #32
-- [ ] `e2-t23` 牌桌設定資料模型：`visibility`（public／invite）、`allowKibitz`；`createTable` 帶設定、房主 `updateTableSettings` 動作與權限測試 · AC-2.9 · S
-- [ ] `e2-t24` 開桌對話框與房主的「牌桌設定」選單（六種語言）· AC-2.9 · S · ← e2-t23
+- [x] `e2-t23` 牌桌設定資料模型：`visibility`（public／invite）、`allowKibitz`；`createTable` 帶設定、房主 `updateTableSettings` 動作與權限測試 · AC-2.9 · #33
+- [x] `e2-t24` 開桌對話框與房主的「牌桌設定」選單（六種語言）· AC-2.9 · #33
 - [ ] `e2-t25` 受邀桌：邀請名單、非受邀者可在大廳看到但不能入座或觀看、受邀通知 · AC-2.9 · M · ← e2-t23, e1-t22
 - [ ] `e2-t26` 不允許觀看的桌：`joinTable` 只能入座，views 測試 · AC-2.9 · S · ← e2-t23
 - [ ] `e2-t27` 每副時間上限：設定、伺服器計時、名牌倒數顯示 · AC-2.10 · M · ← e2-t22

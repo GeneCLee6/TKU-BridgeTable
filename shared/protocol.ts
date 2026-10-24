@@ -77,10 +77,37 @@ export interface ChatMessage {
   text: string
 }
 
+/**
+ * How a host runs their table (AC-2.9): open to every member or to invited ones only, and whether
+ * people who are not seated may watch. Tables saved before settings use the defaults
+ */
+export const TABLE_VISIBILITIES = ['public', 'invite'] as const
+export type TableVisibility = (typeof TABLE_VISIBILITIES)[number]
+export interface TableSettings {
+  visibility: TableVisibility
+  allowKibitz: boolean
+}
+export const DEFAULT_TABLE_SETTINGS: TableSettings = { visibility: 'public', allowKibitz: true }
+
+/** Checks settings from the browser: every field optional, nothing else allowed; null when invalid */
+export function parseTableSettings(value: unknown): Partial<TableSettings> | null {
+  if (value === undefined) return {}
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const { visibility, allowKibitz, ...rest } = value as Record<string, unknown>
+  if (Object.keys(rest).length) return null
+  if (visibility !== undefined && !TABLE_VISIBILITIES.includes(visibility as TableVisibility)) return null
+  if (allowKibitz !== undefined && typeof allowKibitz !== 'boolean') return null
+  return {
+    ...(visibility !== undefined && { visibility: visibility as TableVisibility }),
+    ...(allowKibitz !== undefined && { allowKibitz }),
+  }
+}
+
 export interface TableSummary {
   id: string
   number: number
   hostName: string
+  settings: TableSettings
   seats: Record<Seat, SeatOccupant | null>
   spectators: number
   boardsPlayed: number
@@ -125,6 +152,7 @@ export interface TableView {
   id: string
   number: number
   hostId: string
+  settings: TableSettings
   seats: Record<Seat, SeatOccupant | null>
   spectators: PublicUser[]
   mySeat: Seat | null
@@ -170,7 +198,9 @@ export interface LobbyView {
 }
 
 export type ClientMessage =
-  | { type: 'createTable' }
+  | { type: 'createTable'; settings?: Partial<TableSettings> }
+  /** The host changes how the table is run */
+  | { type: 'updateTableSettings'; settings: Partial<TableSettings> }
   | { type: 'joinTable'; tableId: string }
   | { type: 'sit'; tableId: string; seat: Seat }
   | { type: 'stand' }

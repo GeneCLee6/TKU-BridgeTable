@@ -1,10 +1,11 @@
-import { Eye, Plus } from 'lucide-react'
+import { Eye, EyeOff, Lock, Plus } from 'lucide-react'
 import { useState } from 'react'
 import { Link, Navigate, useNavigate } from 'react-router-dom'
 import styled from 'styled-components'
 import type { Seat } from '../../shared/cards.ts'
 import type { TableSummary } from '../../shared/protocol.ts'
 import { SidePanel } from '../components/SidePanel.tsx'
+import { TableSettingsDialog } from '../components/TableSettingsDialog.tsx'
 import { Button, Card, Muted, PageMain, PageTitle } from '../components/ui.tsx'
 import { useClub } from '../state/ClubContext.tsx'
 import { mobile } from '../styles/tokens.ts'
@@ -111,6 +112,25 @@ const SeatButton = styled.button<{ $area: Seat; $taken: boolean }>`
 
 
 
+const Tags = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+`
+
+const Tag = styled.span`
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: ${({ theme }) => theme.radius.sm};
+  background: ${({ theme }) => theme.colors.primarySoft};
+  color: ${({ theme }) => theme.colors.primaryStrong};
+  font-size: 13px;
+  font-weight: 600;
+`
+
 const SEAT_ORDER: Seat[] = ['N', 'W', 'E', 'S']
 
 function TableTile({ table, onSit, onWatch }: { table: TableSummary; onSit: (seat: Seat) => void; onWatch: () => void }) {
@@ -123,6 +143,22 @@ function TableTile({ table, onSit, onWatch }: { table: TableSummary; onSit: (sea
           {t.host}：{table.hostName}
         </Muted>
       </TileHead>
+      {(table.settings.visibility === 'invite' || !table.settings.allowKibitz) && (
+        <Tags>
+          {table.settings.visibility === 'invite' && (
+            <Tag>
+              <Lock size={14} aria-hidden />
+              {t.inviteOnly}
+            </Tag>
+          )}
+          {!table.settings.allowKibitz && (
+            <Tag>
+              <EyeOff size={14} aria-hidden />
+              {t.noKibitz}
+            </Tag>
+          )}
+        </Tags>
+      )}
       <MiniTable>
         {SEAT_ORDER.map((seat) => {
           const occupant = table.seats[seat]
@@ -161,6 +197,7 @@ export function LobbyPage() {
   const navigate = useNavigate()
   // After creating a table or taking a seat, follow the server to the table it puts us at
   const [follow, setFollow] = useState<{ to?: string; from: string | null } | null>(null)
+  const [opening, setOpening] = useState(false)
 
   if (!lobby) return <PageMain>{status === 'open' ? t.loading : t.connecting}</PageMain>
   const here = lobby.myTableId
@@ -175,15 +212,24 @@ export function LobbyPage() {
           <Button
             type="button"
             $variant="primary"
-            onClick={() => {
-              setFollow({ from: lobby.myTableId })
-              send({ type: 'createTable' })
-            }}
+            onClick={() => setOpening(true)}
           >
             <Plus size={18} aria-hidden />
             {t.newTable}
           </Button>
         </Toolbar>
+        {opening && (
+          <TableSettingsDialog
+            title={t.newTable}
+            submitLabel={t.openTable}
+            onClose={() => setOpening(false)}
+            onSubmit={(settings) => {
+              setOpening(false)
+              setFollow({ from: lobby.myTableId })
+              send({ type: 'createTable', settings })
+            }}
+          />
+        )}
         {lobby.myTableId && (
           <Banner>
             <span>{t.tableName(lobby.tables.find((x) => x.id === lobby.myTableId)?.number ?? 0)}</span>

@@ -9,11 +9,44 @@ import { HandView } from '../../src/components/HandView.tsx'
 import { SeatPlate } from '../../src/components/SeatPlate.tsx'
 import { MemoryRouter } from 'react-router-dom'
 import { SidePanel } from '../../src/components/SidePanel.tsx'
+import { TableSettingsDialog } from '../../src/components/TableSettingsDialog.tsx'
 import { AuthProvider } from '../../src/state/AuthContext.tsx'
 import { ClubProvider } from '../../src/state/ClubContext.tsx'
 import { PreferencesProvider } from '../../src/state/PreferencesContext.tsx'
 
 const wrap = (ui: ReactNode) => render(<PreferencesProvider>{ui}</PreferencesProvider>)
+
+describe('TableSettingsDialog', () => {
+  it('opens public with watching allowed, and sends what the host chose', async () => {
+    const onSubmit = vi.fn()
+    wrap(<TableSettingsDialog title="開新桌" submitLabel="開桌" onSubmit={onSubmit} onClose={() => {}} />)
+    const dialog = screen.getByRole('dialog', { name: '開新桌' })
+    expect(within(dialog).getByRole('radio', { name: /公開/ })).toBeChecked()
+    expect(within(dialog).getByRole('checkbox', { name: /允許觀看/ })).toBeChecked()
+
+    await userEvent.click(within(dialog).getByRole('radio', { name: /只限受邀/ }))
+    await userEvent.click(within(dialog).getByRole('checkbox', { name: /允許觀看/ }))
+    await userEvent.click(within(dialog).getByRole('button', { name: '開桌' }))
+    expect(onSubmit).toHaveBeenCalledWith({ visibility: 'invite', allowKibitz: false })
+  })
+
+  it('starts from the table’s settings and closes with Escape', async () => {
+    const onClose = vi.fn()
+    wrap(
+      <TableSettingsDialog
+        title="牌桌設定"
+        submitLabel="儲存"
+        initial={{ visibility: 'invite', allowKibitz: false }}
+        onSubmit={() => {}}
+        onClose={onClose}
+      />,
+    )
+    expect(screen.getByRole('radio', { name: /只限受邀/ })).toBeChecked()
+    expect(screen.getByRole('checkbox', { name: /允許觀看/ })).not.toBeChecked()
+    await userEvent.keyboard('{Escape}')
+    expect(onClose).toHaveBeenCalled()
+  })
+})
 
 describe('BiddingBox', () => {
   it('bids a level then a strain, and only offers legal calls', async () => {

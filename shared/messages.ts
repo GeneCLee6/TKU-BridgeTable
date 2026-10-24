@@ -247,6 +247,14 @@ export const MESSAGES = {
     ja: 'そのロボットはありません',
     ko: '그런 로봇은 없습니다',
   },
+  badTableSettings: {
+    zh: '牌桌設定不正確',
+    'zh-Hans': '牌桌设置不正确',
+    en: 'Those table settings are not valid',
+    vi: 'Cài đặt bàn không hợp lệ',
+    ja: 'テーブルの設定が正しくありません',
+    ko: '테이블 설정이 올바르지 않습니다',
+  },
   seatNotRobot: {
     zh: '這個位子不是機器人',
     'zh-Hans': '这个位子不是机器人',
