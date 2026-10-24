@@ -13,6 +13,8 @@ import {
   type BoardState,
 } from '../shared/game.ts'
 import type { BoardSummary, BoardView, ChatMessage, PublicUser, SeatOccupant } from '../shared/protocol.ts'
+import type { DealSource } from '../shared/deal-source.ts'
+import type { TableMode } from './modes.ts'
 
 /** A table as the Worker keeps it */
 export interface Table {
@@ -35,6 +37,12 @@ export interface Table {
   /** Boards finished here, newest first (older tables may not have it) */
   recent?: BoardSummary[]
   createdAt: number
+  /** What the table is for (`worker/modes.ts`); tables saved before modes are casual */
+  mode?: TableMode
+  /** The mode's own progress, e.g. which challenge boards are done */
+  modeState?: unknown
+  /** Where the boards come from; random when absent. Fixed hands never leave the server */
+  dealSource?: DealSource
 }
 
 export function seatOccupants(

@@ -1,9 +1,11 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it } from 'vitest'
+import { deal } from '../../shared/board.ts'
 import { SEATS, type Seat } from '../../shared/cards.ts'
 import { DEAL_COUNTDOWN_MS, LAST_TRICK_MS, type ClientMessage, type ServerMessage, type TableView } from '../../shared/protocol.ts'
 import { ClubError, ClubService, type Connections, type ScheduleKind } from '../../worker/service.ts'
 import { MemoryStore } from '../../worker/store.ts'
+import type { Table } from '../../worker/views.ts'
 
 class FakeConnections implements Connections {
   online = new Set<string>()
@@ -826,5 +828,90 @@ describe('a robot partner as declarer', () => {
       return
     }
     throw new Error('no deal where the robot opens')
+  })
+})
+
+describe('table modes and deal sources', () => {
+  /** Starts the club again from the same store, as after the Durable Object was evicted */
+  async function reload(online: string[]) {
+    club = new ClubService(store, connections, {
+      maxUsers: 10,
+      now: () => time,
+      schedule: (run, ms, kind) => queue.push({ run, ms, kind }),
+    })
+    await club.load()
+    for (const id of online) club.connected(id)
+  }
+
+  it('deals a fixed set board by board, shows each hand only to its seat, and stops after the last', async () => {
+    const people = await Promise.all(['north', 'east', 'south', 'west'].map(member))
+    const bySeat = Object.fromEntries(SEATS.map((s, i) => [s, people[i]])) as Record<Seat, string>
+    const deals = [deal(), deal()]
+    const table: Table = {
+      id: 'fixed',
+      number: 1,
+      hostId: bySeat.S,
+      seats: { N: null, E: null, S: null, W: null },
+      spectators: [],
+      boardsPlayed: 0,
+      board: null,
+      chat: [],
+      createdAt: time,
+      mode: 'casual',
+      dealSource: { kind: 'fixed', deals },
+    }
+    await store.put('table:fixed', table)
+    await reload(people)
+    for (const seat of SEATS) await send(bySeat[seat], { type: 'sit', tableId: 'fixed', seat })
+
+    const first = tableFor(bySeat.S).board!
+    expect(first.boardNo).toBe(1)
+    expect(first.hands.S).toEqual(deals[0].S)
+    expect(Object.keys(tableFor(bySeat.E).board!.hands)).toEqual(['E'])
+    for (const seat of SEATS) await send(bySeat[seat], { type: 'call', call: 'P' })
+    await dealNext()
+    expect(tableFor(bySeat.S).board!.boardNo).toBe(2)
+    expect(tableFor(bySeat.W).board!.hands.W).toEqual(deals[1].W)
+
+    // East deals board 2
+    for (const seat of ['E', 'S', 'W', 'N'] as const) await send(bySeat[seat], { type: 'call', call: 'P' })
+    await dealNext()
+    const last = tableFor(bySeat.S)
+    expect(last.board!.boardNo).toBe(2)
+    expect(last.board!.phase).toBe('finished')
+    expect(last.boardsPlayed).toBe(2)
+    expect(queue.filter(isDeal)).toHaveLength(0)
+  })
+
+  it('treats a table saved before modes existed as a casual table', async () => {
+    const { tableId, bySeat } = await fullTable()
+    const saved = (await store.get<Table>(`table:${tableId}`))!
+    expect(saved.mode).toBe('casual')
+    delete saved.mode
+    saved.board = null
+    await store.put(`table:${tableId}`, saved)
+    await reload(Object.values(bySeat))
+    await send(bySeat.S, { type: 'stand' })
+    await send(bySeat.S, { type: 'sit', tableId, seat: 'S' })
+    expect(tableFor(bySeat.N).board!.boardNo).toBe(1)
+  })
+})
+
+describe('the alarm queue in the club', () => {
+  it('wakes the club for robot moves, which run only once they are due', async () => {
+    const wakes: number[] = []
+    club = new ClubService(store, connections, { maxUsers: 10, now: () => time, wake: (at) => wakes.push(at) })
+    await club.load()
+    const gene = await member('gene')
+    await send(gene, { type: 'createTable' })
+    for (const seat of ['N', 'E', 'W'] as const) await send(gene, { type: 'addRobot', seat })
+    // Board 1 is North's deal: the robot there calls first, after a pause
+    expect(wakes).toHaveLength(1)
+    expect(wakes[0]).toBeGreaterThan(time)
+    await club.runDue()
+    expect(tableFor(gene).board!.auction).toHaveLength(0)
+    time = wakes.at(-1)!
+    await club.runDue()
+    expect(tableFor(gene).board!.auction.length).toBeGreaterThan(0)
   })
 })

@@ -1,5 +1,5 @@
 import { isCall } from '../shared/auction.ts'
-import { deal, secureRandomInt, type RandomInt } from '../shared/board.ts'
+import { secureRandomInt, type RandomInt } from '../shared/board.ts'
 import { isCard, isSeat, partnerOf, sameSide, SEATS, type Seat } from '../shared/cards.ts'
 import {
   claimApprovers,
@@ -52,6 +52,8 @@ import { acceptsClaim } from '../shared/robot/claim.ts'
 import { chooseCard } from '../shared/robot/play.ts'
 import { robotCall, type RobotBid } from '../shared/robot/robots.ts'
 import { hashPassword, randomId, SESSION_DAYS, verifyPassword } from './auth.ts'
+import { modeOf } from './modes.ts'
+import { AlarmQueue, manualScheduler, type JobKind, type Scheduler } from './scheduler.ts'
 import type { Store } from './store.ts'
 import { boardView, seatOccupants, type Table } from './views.ts'
 
@@ -103,11 +105,16 @@ export interface ClubConfig {
   inviteCode?: string
   now?: () => number
   random?: RandomInt
-  /** Runs robot moves and the next deal after a pause; tests pass a manual queue */
+  /**
+   * Asks to be woken at `at` (ms) to run the jobs that are due (`runDue`); the Durable Object sets
+   * its storage alarm. Without it a timer is used
+   */
+  wake?: (at: number) => void
+  /** Runs robot moves and the next deal after a pause instead of the alarm queue; tests pass a manual queue */
   schedule?: (run: () => void, ms: number, kind: ScheduleKind) => void
 }
 
-export type ScheduleKind = 'robot' | 'deal'
+export type ScheduleKind = JobKind
 
 const CHAT_KEEP = 100
 /** Boards a table keeps for its History panel */
@@ -138,11 +145,10 @@ export class ClubService {
   private readonly config: ClubConfig
   private readonly now: () => number
   private readonly random: RandomInt
-  private readonly schedule: (run: () => void, ms: number, kind: ScheduleKind) => void
-  /** Tables with a robot move already scheduled */
-  private readonly robotTimers = new Set<string>()
-  /** Tables with the next deal already scheduled */
-  private readonly dealTimers = new Set<string>()
+  /** Robot moves and the next deal of every table, keyed `robot:<tableId>` and `deal:<tableId>` */
+  private readonly scheduler: Scheduler
+  /** The scheduler, when it is the alarm queue (not the tests' manual one) */
+  private readonly queue?: AlarmQueue
   /**
    * What each member was last sent (as JSON), so an update that changes nothing for them is not
    * sent at all, and the chat and recent boards only go out when they change
@@ -155,7 +161,17 @@ export class ClubService {
     this.config = config
     this.now = config.now ?? Date.now
     this.random = config.random ?? secureRandomInt
-    this.schedule = config.schedule ?? ((run, ms) => void setTimeout(run, ms))
+    if (config.schedule) {
+      this.scheduler = manualScheduler(config.schedule)
+    } else {
+      const wake = config.wake ?? ((at: number) => void setTimeout(() => void this.runDue(), Math.max(0, at - this.now())))
+      this.scheduler = this.queue = new AlarmQueue(this.now, wake)
+    }
+  }
+
+  /** Runs the robot moves and deals that are due (the Durable Object's alarm) */
+  async runDue() {
+    await this.queue?.runDue()
   }
 
   async load() {
@@ -678,6 +694,7 @@ export class ClubService {
       board: null,
       chat: [],
       createdAt: this.now(),
+      mode: 'casual',
     }
     this.tables.set(table.id, table)
     await this.save(table)
@@ -817,7 +834,13 @@ export class ClubService {
   }
 
   private dealBoard(table: Table) {
-    table.board = newBoard(table.boardsPlayed + 1, deal(this.random))
+    const hands = modeOf(table).deal(table, this.random)
+    // The mode has no more boards: the last one stays on the table
+    if (!hands) {
+      table.dealAt = undefined
+      return
+    }
+    table.board = newBoard(table.boardsPlayed + 1, hands)
     table.undo = undefined
     table.rejectedClaim = undefined
     table.recordId = undefined
@@ -863,13 +886,12 @@ export class ClubService {
   }
 
   private scheduleDeal(table: Table) {
-    if (this.dealTimers.has(table.id) || !table.board || !this.canDeal(table)) return
-    this.dealTimers.add(table.id)
-    this.schedule(() => void this.dealNext(table.id), Math.max(0, (table.dealAt ?? 0) - this.now()), 'deal')
+    if (!table.board || !this.canDeal(table)) return
+    const ms = Math.max(0, (table.dealAt ?? 0) - this.now())
+    this.scheduler.add(`deal:${table.id}`, 'deal', ms, () => this.dealNext(table.id))
   }
 
   private async dealNext(tableId: string) {
-    this.dealTimers.delete(tableId)
     const table = this.tables.get(tableId)
     // Someone may have stood up while the result was showing; sitting down deals again
     if (!table || !this.canDeal(table)) return
@@ -967,6 +989,7 @@ export class ClubService {
     table.board = next
     if (board.phase === 'auction' && next.phase === 'play') this.swapForDeclarer(table)
     if (next.phase === 'finished' && board.phase !== 'finished') {
+      modeOf(table).boardFinished(table, next)
       await this.recordBoard(table, next)
       // A board played to the last card leaves that trick on the table for a moment first
       const playedOut = next.play.length === 52
@@ -979,7 +1002,13 @@ export class ClubService {
   private async recordBoard(table: Table, board: BoardState) {
     const players = {} as BoardRecord['players']
     for (const seat of SEATS) players[seat] = this.publicUserById(table.seats[seat] ?? '') ?? { id: '', username: '—' }
-    const record: BoardRecord = { id: randomId(8), tableNumber: table.number, finishedAt: this.now(), players, board }
+    const record = modeOf(table).record(table, {
+      id: randomId(8),
+      tableNumber: table.number,
+      finishedAt: this.now(),
+      players,
+      board,
+    })
     await this.saveRecord(record)
     table.recordId = record.id
     table.recent = [summarize(record), ...(table.recent ?? [])].slice(0, RECENT_KEEP)
@@ -1033,15 +1062,14 @@ export class ClubService {
 
   /** Schedules the next robot move at a table; each move schedules the one after it */
   scheduleRobots(table: Table) {
-    if (this.robotTimers.has(table.id)) return
+    const key = `robot:${table.id}`
+    if (this.scheduler.pending(key)) return
     const move = this.robotMove(table)
     if (!move) return
-    this.robotTimers.add(table.id)
-    this.schedule(() => void this.runRobot(table.id), move.delay, 'robot')
+    this.scheduler.add(key, 'robot', move.delay, () => this.runRobot(table.id))
   }
 
   private async runRobot(tableId: string) {
-    this.robotTimers.delete(tableId)
     const table = this.tables.get(tableId)
     if (!table) return
     const move = this.robotMove(table)

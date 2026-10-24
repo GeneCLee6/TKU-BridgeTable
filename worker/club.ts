@@ -57,12 +57,18 @@ export class Club extends DurableObject<Env> implements Connections {
     this.service = new ClubService(store, this, {
       maxUsers: Number(env.MAX_USERS ?? 10),
       inviteCode: env.INVITE_CODE || undefined,
+      // One alarm wakes the object for every robot move and deal, so it can hibernate in between
+      wake: (at) => void storage.setAlarm(at),
     })
     this.book = new BookService(store)
     // Browsers send "ping" every few seconds to keep phone connections alive and to notice a dead
     // one quickly; the runtime answers without waking the object
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair('ping', 'pong'))
     ctx.blockConcurrencyWhile(() => this.service.load())
+  }
+
+  async alarm() {
+    await this.service.runDue()
   }
 
   onlineUserIds(): string[] {
