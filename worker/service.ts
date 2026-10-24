@@ -1132,7 +1132,7 @@ export class ClubService {
     }
     const controller = controllerOf(board, turn)
     if (!robot(controller)) return null
-    const card = chooseCard(board, turn)
+    const card = chooseCard(board, turn, robotKindOf(table.seats[controller]!))
     const trickJustEnded = board.play.length > 0 && board.play.length % 4 === 0
     return {
       seat: controller,
