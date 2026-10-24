@@ -1,8 +1,13 @@
 # ROBOT — 機器人的叫牌與防守
 
-牌桌上的空位可以「放機器人」，一到三位社員也能開打。機器人的叫牌與出牌規則寫在 `shared/robot/`，依據的是 [TKU BridgeBook 淡江橋譜](https://tku-bridge-book.vercel.app/) 收錄的社團制度與特約（原始資料：`TKU-BridgeBook/src/content/conventions/`）。
+牌桌上的空位可以「放機器人」，一到三位社員也能開打。機器人的叫牌與出牌規則寫在 `shared/robot/`。有兩種機器人：
 
-機器人遠比 BBO 的 GIB 簡單：它不做雙明手分析、不猜測對手的牌，只依照下面的規則與一般坐莊／防守原則行動。好處是它叫的牌社員看得懂，可以當作練習社團制度的搭檔。
+| 機器人 | 叫牌制度 | 規則 |
+| --- | --- | --- |
+| **淡江機器人** | [TKU BridgeBook 淡江橋譜](https://tku-bridge-book.vercel.app/) 收錄的社團制度與特約（原始資料：`TKU-BridgeBook/src/content/conventions/`），橋譜沒寫到的照 5542 自然制 | §1–§5，`shared/robot/bidding.ts` |
+| **2/1 機器人（GIB 相容）** | BBO 的 GIB 公開的 2/1 迫叫成局制度（[`docs/BBO GIB`](docs/BBO%20GIB/README.md)），叫法與說明跟 BBO 的 GIB 一致 | §6，`shared/robot/system/` |
+
+兩種機器人都不做雙明手分析、不猜測對手的牌，只依照規則與一般坐莊／防守原則行動，所以叫的牌社員看得懂。淡江機器人是練習社團制度的搭檔；2/1 機器人讓社員練 BBO 上通用的 2/1。
 
 ## 1. 公平性
 
@@ -81,3 +86,70 @@
 1. 改 `shared/robot/bidding.ts`（叫牌）或 `play.ts`（出牌）；Alert 說明盡量沿用淡江橋譜的原文。
 2. 在 `tests/engine/robot.test.ts` 加一個「這手牌在這個叫牌過程應該叫什麼」的測試。
 3. 更新本文件的表格。淡江橋譜有新的特約時，先在這裡記下要不要讓機器人使用。
+
+## 6. 制度引擎與 2/1 機器人（`shared/robot/system/`）
+
+2/1 機器人用「制度即資料」的引擎：制度寫成一本本**規則書**，引擎只負責找出適用的規則、比對手牌。做法照 BBO 公開的 GIB 叫牌資料庫（[GIB Bid Descriptions](https://www.bridgebase.com/doc/gib_descriptions.php)）：每條規則同時寫「手牌要符合什麼」（GIB 叫 criteria）和「這個叫品表示什麼」（specification）。制度內容見 [`docs/BBO GIB/gib-2over1.md`](docs/BBO%20GIB/gib-2over1.md)。淡江機器人（§2）之後照 E5 的計畫搬進同一個引擎（`e5-t15`～`e5-t18`）。
+
+### 6.1 同一份規則做三件事
+
+| 用途 | 函式 | 做法 |
+| --- | --- | --- |
+| 機器人叫牌 | `engine.ts` 的 `choose` | 依序看這個叫牌過程的規則，選第一條手牌符合 `needs`（沒寫就用 `shows`）且 `when` 成立、叫品合法的；都不符合就 Pass。GIB 稱這個為「book bid」 |
+| 叫品說明 | `explain`、`rules.ts` 的 `meanings` | 這個叫牌過程下會叫出這個叫品的**所有**規則，把它們的 `shows` 用 `union` 合併。叫牌盒的提示、機器人的 Alert 都用它 |
+| 推論 | `infer.ts` 的 `read`、`contextFor` | 從第一個叫品讀起，每個叫品的說明併入那一家已表示的牌（`intersect`）；規則從 `ctx.shown` 看同伴與對手已表示的點力與張數 |
+
+說明和行為出自同一條規則，所以 GIB 偶爾出現的「說明跟實際叫法不一致」在結構上不會發生；唯一的例外是 GIB 自己也有的：同一個叫品由好幾條規則產生時，說明只能寫它們共同的部分。
+
+### 6.2 規則的格式（`spec.ts`）
+
+```ts
+const book: Book = {
+  after: '1N (P)',          // 叫牌過程：從開叫那一叫起，我方的叫品直接寫、對方的加括號
+  rules: [
+    { call: '2C', shows: { name: 'stayman', hcp: [8, ANY], forcing: 'oneRound', artificial: true },
+      when: (h) => h.len.H >= 4 || h.len.S >= 4 },
+    { call: '3N', shows: { hcp: [10, 15], notes: [{ key: 'signoff' }] } },
+  ],
+}
+```
+
+| 欄位 | 意思 |
+| --- | --- |
+| `after` | 適用的叫牌過程，可以給好幾個。從最後一個往前數：最後一個是右手對手、前一個是同伴、再前一個是左手對手，所以括號一定隔一個出現（`patternProblem` 會檢查）。`''` 是還沒有人開叫；`*`、`(*)` 是任何叫品，`(+)` 是對手 Pass 以外的任何叫品。開叫前的 Pass 不寫，用 `ctx.position`（開叫者是第幾家）與 `ctx.passed`（我已經 Pass 過）判斷 |
+| `only` | 叫牌過程的其他條件，例如「對手的爭叫在二線」 |
+| `more` | 預設一本書符合就不再往下找；`more: true` 讓後面符合的書也加進來（迫叫成局之後的一般叫法常用） |
+| `call` | 叫品，或由叫牌過程算出叫品的函式（例如「最便宜的♠」）；算不出或不合法就跳過這條 |
+| `shows` | 叫品表示什麼（`Spec`）：`hcp` 大牌點、`tp` 總點、`len` 各門張數、`quality` 花色品質、`stop` 擋張、`balanced`、`controls` 控制數、`keycards`／`trumpQueen` 關鍵張、`forcing`（`oneRound`／`game`）、`artificial`、`name` 約定名稱、`notes` 附註 |
+| `needs` | 手牌要符合的條件，預設等於 `shows`；人工叫品（例如 Stayman）常常要的跟表示的不一樣 |
+| `when` | 其他手牌條件，可以看 `ctx.shown`（例如「同伴表示 5 張♥、我有 3 張」） |
+
+牌力的定義（總點、花色品質、擋張）在 `evaluate.ts`，照 GIB 的定義（`gib-2over1.md` §0）。
+
+### 6.3 合併說明（`combine.ts` 的 `union`、`infer.ts` 的 `intersect`）
+
+照 GIB Bid Descriptions 的兩條規則：
+
+- **同一個叫品、好幾條規則**：每一項取最寬的範圍，只要有一條規則沒寫那一項，那一項就不寫。GIB 的例子：同伴開弱二後加到成局，可能是弱牌 4 張支持（4+ 總點、4+ 張），也可能是強牌 2 張支持（16+ 總點、2+ 張），合併成「4+ 總點、2+ 張」。
+- **同一家、好幾個叫品**：每一項取最嚴的範圍（叫過 5+ 張♥，之後的叫品只表示 4 張，仍然是 5+ 張）。兩個範圍完全不重疊時用新的那個。只合併牌力特徵，約定名稱與附註只屬於當下那個叫品。
+
+### 6.4 迫叫
+
+`read` 記下每一家最後一個叫品的 `forcing`。輪到我叫、對手都 Pass 的時候：同伴最後一個叫品是迫叫，或我方已經迫叫成局（任何一個 `forcing: 'game'` 的叫品）而合約還沒到成局，`ctx.forced` 就是 true，`callOf` 會跳過所有 Pass 規則，說明裡也不會出現 Pass。對手叫牌或賭倍之後就不再強迫。
+
+### 6.5 說明文字（`describe.ts`）
+
+`describe(spec, lang)` 依 GIB 的順序寫出特徵：約定名稱、附註、各門張數、花色品質、大牌點、總點、牌型、擋張、控制、關鍵張、迫叫；六種語言都有，例如：
+
+| `Spec` | 繁中 | 英文 |
+| --- | --- | --- |
+| `{ len: { S: [5, 13] }, hcp: [11, 21], tp: [12, 22] }` | 5+ 張♠，11–21 大牌點，12–22 總點 | 5+ ♠; 11–21 HCP; 12–22 total points |
+| `{ name: 'stayman', hcp: [8, ANY], notes: [{ key: 'asksMajor' }], forcing: 'oneRound' }` | Stayman：詢問 4 張高花，8+ 大牌點，迫叫一圈 | Stayman: asks for a 4-card major; 8+ HCP; forcing |
+
+所有文字都是我們自己寫的，不複製 BBO 的英文說明。新增約定名稱或附註時，`spec.ts` 的 `CONVENTIONS`／`NOTES` 和 `describe.ts` 的六種語言要一起加（型別會檢查）。
+
+### 6.6 修改 2/1 機器人的規則
+
+1. 先改 [`docs/BBO GIB/gib-2over1.md`](docs/BBO%20GIB/gib-2over1.md)，寫清楚出處（官方或一般）；一般作法同時加進 [`README.md`](docs/BBO%20GIB/README.md) 的「待在 BBO 上核對」。
+2. 改 `shared/robot/system/gib/` 裡對應的規則書。
+3. 在 `tests/engine/gib.test.ts` 加「這手牌在這個叫牌過程叫什麼」與「這個叫品的說明是什麼」的測試；所有 `after` 都要通過 `patternProblem` 的檢查。

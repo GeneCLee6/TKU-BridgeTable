@@ -14,7 +14,7 @@
 | 改介面、顏色、牌桌元件 | `DESIGN.md` |
 | 部署、管理員、邀請碼、人數上限、AI 金鑰 | `DEPLOY.md` |
 | 帳號申請、權限、淡江橋譜的 API | `ARCHITECTURE.md` §5.2 |
-| 機器人的叫牌與防守 | `ROBOT.md` |
+| 機器人的叫牌與防守 | `ROBOT.md`；2/1 機器人（GIB 相容）的制度與來源：`docs/BBO GIB/` |
 | 產品範圍與 Roadmap | `docs/PRD/00-prd.md`（總 PRD）、`docs/PRD/01-bbo-competitive-analysis.md`（BBO 競品分析） |
 | 開工一個 task | `docs/PRD/README.md`（task 格式、一個 task 一個 PR）與該 task 所在的 epic（`docs/PRD/e*.md`） |
 
@@ -25,7 +25,7 @@
 3. **`shared/` 保持純函式**，不 import React、DOM 或 `cloudflare:workers`。
 4. **`ClubService` 不碰 Cloudflare API**，只透過 `Store` 與 `Connections`。
 5. **顏色只來自 `styles/tokens.ts`**，介面文字只來自 `strings.ts`（繁中、簡中、英、越、日、韓六份都要加，`shared/messages.ts` 也一樣）；伺服器的錯誤只丟 `ClubError`／`GameError` 加 `shared/messages.ts` 的代碼。只用於樣式的 prop 加 `$` 前綴。
-6. **機器人只能用它看得到的牌**（`shared/robot/play.ts` 的 `View`），不能讀 `state.hands` 裡別人的牌。叫牌規則以淡江橋譜為準，改了要更新 `ROBOT.md`。
+6. **機器人只能用它看得到的牌**（`shared/robot/play.ts` 的 `View`），不能讀 `state.hands` 裡別人的牌。淡江機器人的叫牌以淡江橋譜為準；2/1 機器人照 `docs/BBO GIB/gib-2over1.md`（BBO GIB 公開的制度，不複製 BBO 的程式或原文）；改了要更新 `ROBOT.md`。
 7. **不要直接推送到 `main`，也不要 force-push。** 功能走分支＋PR。
 8. 程式碼、註解、commit 用英文；文件與介面用繁體中文（台灣用語）。
 

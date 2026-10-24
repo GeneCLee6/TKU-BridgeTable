@@ -39,7 +39,8 @@ BBO（Bridge Base Online）要開桌和朋友打牌得買 premium 會員。淡�
 | [`docs/PRD/`](docs/PRD/README.md) | 產品需求：總 PRD（願景、功能需求、里程碑）、BBO 競品分析、12 個 epic 的驗收條件與 task 拆分 |
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | 資料夾結構、遊戲引擎、伺服器、通訊協定、可見性規則、儲存 |
 | [`DESIGN.md`](DESIGN.md) | 設計系統：色彩、BBO 牌桌、元件、版面、Logo |
-| [`ROBOT.md`](ROBOT.md) | 機器人的叫牌制度、防守信號，與淡江橋譜的對照 |
+| [`ROBOT.md`](ROBOT.md) | 機器人的叫牌制度、防守信號，與淡江橋譜的對照；制度引擎 |
+| [`docs/BBO GIB/`](docs/BBO%20GIB/README.md) | 2/1 機器人（GIB 相容）的依據：BBO 公開資料的來源、我們整理的制度表、待核對清單 |
 | [`DEPLOY.md`](DEPLOY.md) | 部署到 Cloudflare、管理員、邀請碼、人數上限、資料存在哪 |
 | [`RULES.md`](RULES.md) | 工程慣例與 commit 格式 |
 | [`CLAUDE.md`](CLAUDE.md) | 給 AI 協作者的專案說明 |
