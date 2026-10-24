@@ -3,7 +3,10 @@ import type { Contract } from '../../shared/auction.ts'
 import { SEATS } from '../../shared/cards.ts'
 import { EVAL_SEED, evalBoard, evalBoards, fingerprint, FULL_SET_SIZE, QUICK_SET_SIZE } from '../../eval/deals.ts'
 import { playMatch, type RobotConfig } from '../../eval/match.ts'
+import { parseConfig } from '../../eval/config.ts'
+import { brainWithErrorRate } from '../../eval/rates.ts'
 import { matchReport } from '../../eval/report.ts'
+import { paramsOf } from '../../shared/robot/levels.ts'
 import { boardImps, meanAndError, regressed, summarize, type BoardOutcome, type TableResult } from '../../eval/stats.ts'
 
 const contract = (text: string, declarer: Contract['declarer'], doubled: Contract['doubled'] = ''): Contract => ({
@@ -125,5 +128,23 @@ describe('evaluation: robot matches', () => {
     const swapped = await playMatch({ a: b, b: a, boards })
     expect(swapped.map((o) => o.table1)).toEqual(first.map((o) => o.table2))
     expect(swapped.map(boardImps)).toEqual(first.map((o) => -boardImps(o) || 0))
+  })
+
+  it('overrides a level error rate for the calibration (err=), the level rate unchanged', async () => {
+    const boards = evalBoards(12)
+    // The level's own rate through the override plays exactly like the level
+    const beginner = config('gib', 'beginner')
+    const same = await playMatch({ a: beginner, b: { ...beginner, brain: brainWithErrorRate(0.15) }, boards })
+    expect(same.map(boardImps)).toEqual(Array(12).fill(0))
+    // 大專 at another rate is another robot; at 0 it is 大專 itself
+    const college = config('tku', 'college')
+    const erring = await playMatch({ a: college, b: { ...college, brain: brainWithErrorRate(0.3) }, boards })
+    expect(erring.some((o) => o.table1.scoreNS !== o.table2.scoreNS)).toBe(true)
+    const zero = await playMatch({ a: college, b: { ...college, brain: brainWithErrorRate(0) }, boards })
+    expect(zero.map(boardImps)).toEqual(Array(12).fill(0))
+    expect(paramsOf('college').errorRate).toBe(0)
+    expect(() => brainWithErrorRate(1.5)).toThrow()
+    expect((await parseConfig('tku:college,err=0.05')).brain).toBeDefined()
+    await expect(parseConfig('tku:college,err=x')).rejects.toThrow()
   })
 })

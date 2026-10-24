@@ -11,7 +11,7 @@ import { summarize } from './stats.ts'
  *   npm run eval -- --a tku:college --b tku:beginner [--set quick|full|N] [--from 1] [--seed s] [--json out.json]
  */
 
-const USAGE = 'usage: npm run eval -- --a <kind:level[@dir][,play=dir]> --b <…> [--set quick|full|N] [--from N] [--seed s] [--json file]'
+const USAGE = 'usage: npm run eval -- --a <kind:level[@dir][,play=dir][,err=rate]> --b <…> [--set quick|full|N] [--from N] [--seed s] [--json file]'
 
 async function main() {
   const args = readArgs(process.argv.slice(2))

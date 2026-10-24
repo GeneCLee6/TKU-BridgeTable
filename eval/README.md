@@ -11,6 +11,7 @@ npm run eval -- --a tku:college --b tku:beginner              # 快速版 200 �
 npm run eval -- --a gib:college --b gib:beginner --set full   # 全部 5,000 副（約 20 秒）
 npm run eval -- --a tku:college --b tku:college@../main       # 這份程式的機器人對另一份 checkout 的
 npm run eval -- --a tku:college --b tku:college,play=../main  # 叫牌相同、只換出牌（ROBOT.md §3.3 那種比較）
+npm run eval -- --a tku:open --b tku:college,err=0.03 --set full  # 假設大專失誤 3%（等級校準，ROBOT.md §7.1）
 npm run eval:gate -- --base ../main                           # CI 門檻（見下）
 ```
 
@@ -19,6 +20,7 @@ npm run eval:gate -- --base ../main                           # CI 門檻（見�
 | `--a`、`--b` | 機器人設定 `種類:等級`：`tku`／`gib`，`beginner`／`college`／`open`／`master`；預設 `tku:college` |
 | `@目錄` | 機器人用那個目錄的 `shared/robot/brain.ts`（`ruleBrain`），例如 main 的 checkout；叫牌與出牌都換 |
 | `,play=目錄` | 只換出牌與攤牌的回應，叫牌照這份程式：兩桌合約一樣，差別只在出牌 |
+| `,err=失誤率` | 這份程式的機器人，但刻意失誤（ROBOT.md §8）改用這個失誤率（0–1）而不是等級的；只在評測裡用，給等級校準比較假設的失誤率（`rates.ts`，ROBOT.md §7.1），例如 `tku:college,err=0.03` |
 | `--set` | `quick`（200 副，預設）、`full`（5,000 副）或副數 |
 | `--from` | 從第幾副開始（預設 1），例如 `--from 4001 --set 1000` |
 | `--seed` | 換一組牌（預設 `tku-eval-v1`）；不同種子的結果不能互相比較 |
@@ -73,4 +75,5 @@ npm run eval:gate -- --base ../main                           # CI 門檻（見�
 | `match.ts` | 一桌打完一副（`playTable`）、兩桌換位的對抗（`playMatch`）；`RobotConfig` 可以帶別的 `RobotBrain` |
 | `stats.ts` | IMP／副、標準誤、MP、合約統計（`summarize`）與門檻（`regressed`） |
 | `report.ts` | Markdown 報告 |
+| `rates.ts` | 換掉失誤率的規則機器人（`brainWithErrorRate`，`,err=` 用，`e6-t22`） |
 | `config.ts`、`cli.ts`、`gate.ts` | 指令列（只在 Node 跑；`tsconfig.node.json` 檢查型別） |

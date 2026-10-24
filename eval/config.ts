@@ -4,6 +4,7 @@ import { isRobotKind, isRobotLevel } from '../shared/protocol.ts'
 import type { RobotBrain } from '../shared/robot/brain.ts'
 import { FULL_SET_SIZE, QUICK_SET_SIZE } from './deals.ts'
 import type { RobotConfig } from './match.ts'
+import { brainWithErrorRate } from './rates.ts'
 
 /**
  * Reading the command line's robot configurations (Node only). A configuration is written
@@ -13,6 +14,7 @@ import type { RobotConfig } from './match.ts'
  *   tku:college            this checkout's 淡江 robot at 大專
  *   gib:beginner@base      the 2/1 robot at 初學者 from the checkout in ./base
  *   tku:college,play=base  this checkout's auction, the play of ./base (same contracts, only the play differs)
+ *   tku:college,err=0.05   this checkout's 大專 robot erring at 0.05 instead of its level's rate (e6-t22)
  */
 
 const brains = new Map<string, Promise<RobotBrain>>()
@@ -41,8 +43,11 @@ export async function parseConfig(spec: string): Promise<RobotConfig> {
   if (dir) config.brain = await brainFrom(dir)
   for (const option of options) {
     const [key, value] = option.split('=')
-    if (key !== 'play' || !value) throw new Error(`unknown option "${option}" in "${spec}" (play=dir)`)
-    config.play = await brainFrom(value)
+    if (key === 'play' && value) config.play = await brainFrom(value)
+    else if (key === 'err' && value) {
+      if (dir) throw new Error(`err= uses this checkout's robot, not "@${dir}" in "${spec}"`)
+      config.brain = brainWithErrorRate(Number(value))
+    } else throw new Error(`unknown option "${option}" in "${spec}" (play=dir or err=rate)`)
   }
   return config
 }
