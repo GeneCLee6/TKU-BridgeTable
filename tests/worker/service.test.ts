@@ -113,6 +113,8 @@ async function member(name: string) {
   const user = await join(name)
   connections.online.add(user.id)
   club.connected(user.id)
+  // Notifications go out once they are read from the store
+  await new Promise((resolve) => setTimeout(resolve, 0))
   return user.id
 }
 
@@ -739,6 +741,77 @@ describe('forgotten passwords', () => {
     await expect(club.login('amy', 'newpass1')).rejects.toThrow('等管理員核准')
     await club.adminApprove(club.adminApplications()[0].id)
     await club.login('amy', 'newpass1')
+  })
+})
+
+describe('notifications', () => {
+  const tick = () => new Promise((resolve) => setTimeout(resolve, 0))
+  const bell = (userId: string) => connections.last(userId, 'notifications')?.notifications
+
+  it('tell admins about a new registration, at once and again when they come back', async () => {
+    const admin = (await founder('admin')).user.id
+    connections.online.add(admin)
+    club.connected(admin)
+    await tick()
+    expect(bell(admin)).toEqual({ items: [], unread: 0 })
+
+    time++
+    await club.register('newbie', 'secret1', '', '大二')
+    expect(bell(admin)).toMatchObject({ unread: 1, items: [{ kind: 'application', params: { username: 'newbie' }, read: false }] })
+
+    // Kept for an admin who was away, also after the object reloads
+    time++
+    const other = await join('other')
+    await club.adminSetAdmin(admin, other.id, true)
+    const reloaded = new ClubService(store, connections, { maxUsers: 10 })
+    await reloaded.load()
+    connections.online.add(other.id)
+    reloaded.connected(other.id)
+    await tick()
+    expect(bell(other.id)?.unread).toBe(0)
+    time++
+    await reloaded.register('second', 'secret1', '')
+    expect(bell(other.id)?.items.map((n) => n.params.username)).toEqual(['second'])
+    expect(bell(admin)?.items.map((n) => n.params.username)).toEqual(['second', 'other', 'newbie'])
+  })
+
+  it('are marked read one by one or all at once, only by their owner', async () => {
+    await founder('admin')
+    const amy = await member('amy')
+    const ben = await member('ben')
+    const first = await club.notifications.notify(amy, 'application', { username: 'x' })
+    await club.notifications.notify(amy, 'application', { username: 'y' })
+    await send(ben, { type: 'readNotifications' })
+    expect(bell(amy)?.unread).toBe(2)
+    await send(amy, { type: 'readNotifications', ids: [first.id, 'nope'] })
+    expect(bell(amy)).toMatchObject({ unread: 1, items: [{ read: false }, { read: true }] })
+    await send(amy, { type: 'readNotifications' })
+    expect(bell(amy)?.unread).toBe(0)
+
+    // Nothing new to say: nothing is sent
+    const before = connections.inbox.get(amy)!.length
+    await send(amy, { type: 'readNotifications' })
+    expect(connections.inbox.get(amy)!.slice(before).some((m) => m.type === 'notifications')).toBe(false)
+
+    await send(amy, { type: 'readNotifications', ids: 'all' as never })
+    expect(connections.last(amy, 'error')?.code).toBe('unknownCommand')
+  })
+
+  it('keep the newest 500 a member has, show the newest 30, and go with a deleted account', async () => {
+    const admin = (await founder('admin')).user.id
+    const amy = await member('amy')
+    for (let i = 0; i < 505; i++) {
+      time++
+      await club.notifications.notify(amy, 'application', { username: `u${i}` })
+    }
+    expect((await store.list(`notif:${amy}:`)).size).toBe(500)
+    const view = await club.notifications.view(amy)
+    expect(view.unread).toBe(500)
+    expect(view.items).toHaveLength(30)
+    expect(view.items[0].params.username).toBe('u504')
+
+    await club.adminDeleteUser(admin, amy)
+    expect((await store.list(`notif:${amy}:`)).size).toBe(0)
   })
 })
 

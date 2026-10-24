@@ -11,6 +11,7 @@ import {
 import type {
   ClientMessage,
   LobbyView,
+  NotificationsView,
   ServerMessage,
   TableView,
   TableWire,
@@ -35,6 +36,8 @@ interface Club {
   status: ConnectionStatus
   lobby: LobbyView | null
   table: TableView | null
+  /** The bell in the header: the newest notifications and the unread count */
+  notifications: NotificationsView | null
   error: { code: string; params: MessageParams; message: string; at: number } | null
   send: (message: ClientMessage) => void
   dismissError: () => void
@@ -67,6 +70,7 @@ export function ClubProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<ConnectionStatus>('connecting')
   const [lobby, setLobby] = useState<LobbyView | null>(null)
   const [table, setTable] = useState<TableView | null>(null)
+  const [notifications, setNotifications] = useState<NotificationsView | null>(null)
   const [error, setError] = useState<Club['error']>(null)
   const socket = useRef<WebSocket | null>(null)
   const waiting = useRef<{ message: ClientMessage; at: number }[]>([])
@@ -102,6 +106,7 @@ export function ClubProvider({ children }: { children: ReactNode }) {
         const message = JSON.parse(event.data) as ServerMessage
         if (message.type === 'lobby') setLobby(message.lobby)
         else if (message.type === 'table') setTable((previous) => mergeTable(previous, message.table, message.now))
+        else if (message.type === 'notifications') setNotifications(message.notifications)
         else if (message.type === 'error')
           setError({ code: message.code, params: message.params, message: message.message, at: Date.now() })
       }
@@ -172,6 +177,7 @@ export function ClubProvider({ children }: { children: ReactNode }) {
       ws?.close()
       setLobby(null)
       setTable(null)
+      setNotifications(null)
     }
   }, [user, logout])
 
@@ -184,8 +190,8 @@ export function ClubProvider({ children }: { children: ReactNode }) {
   const dismissError = useCallback(() => setError(null), [])
 
   const value = useMemo(
-    () => ({ status, lobby, table, error, send, dismissError }),
-    [status, lobby, table, error, send, dismissError],
+    () => ({ status, lobby, table, notifications, error, send, dismissError }),
+    [status, lobby, table, notifications, error, send, dismissError],
   )
   return <ClubContext.Provider value={value}>{children}</ClubContext.Provider>
 }

@@ -197,6 +197,33 @@ export interface LobbyView {
   myTableId: string | null
 }
 
+/**
+ * Something a member should know about, kept for them until they read it (AC-1.8). The browser
+ * writes the text in the viewer's language from `kind` and `params`, and knows where each kind
+ * leads (`src/lib/notifications.ts`). Challenges, match invitations and messages add their kinds
+ */
+export const NOTIFICATION_KINDS = ['application'] as const
+export type NotificationKind = (typeof NOTIFICATION_KINDS)[number]
+
+export interface Notification {
+  id: string
+  at: number
+  kind: NotificationKind
+  /** `application`: { username } of the person who registered */
+  params: Record<string, string | number>
+  read: boolean
+}
+
+/** The newest notifications (up to NOTIFICATIONS_SHOWN) and how many of all kept are unread */
+export interface NotificationsView {
+  items: Notification[]
+  unread: number
+}
+
+/** How many notifications a member keeps, and how many the bell shows */
+export const NOTIFICATIONS_KEPT = 500
+export const NOTIFICATIONS_SHOWN = 30
+
 export type ClientMessage =
   | { type: 'createTable'; settings?: Partial<TableSettings> }
   /** The host changes how the table is run */
@@ -217,6 +244,8 @@ export type ClientMessage =
   | { type: 'undoRequest' }
   | { type: 'undoRespond'; accept: boolean }
   | { type: 'chat'; text: string }
+  /** Marks these notifications read, or all of them when `ids` is left out */
+  | { type: 'readNotifications'; ids?: string[] }
 
 export type ServerMessage =
   | { type: 'welcome'; me: Me }
@@ -224,6 +253,8 @@ export type ServerMessage =
   /** `now` is the server's clock when sent, so the browser can turn `dealAt` into its own time */
   | { type: 'table'; table: TableWire | null; now: number }
   | { type: 'error'; code: MessageCode; params: MessageParams; message: string }
+  /** On connecting, and whenever the member's notifications change */
+  | { type: 'notifications'; notifications: NotificationsView }
 
 /** A finished board kept in the history */
 export interface BoardRecord {
