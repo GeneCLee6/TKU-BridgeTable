@@ -25,6 +25,7 @@ import { usePreferences } from '../state/PreferencesContext.tsx'
 import { LANG_NAMES } from '../strings.ts'
 import { mobile } from '../styles/tokens.ts'
 import { LogoMark, LogoWordmark } from './Logo.tsx'
+import { NotificationBell } from './NotificationBell.tsx'
 
 const Bar = styled.header`
   position: sticky;
@@ -256,7 +257,7 @@ function LanguageMenu() {
 
 export function AppHeader() {
   const { user, logout } = useAuth()
-  const { status } = useClub()
+  const { status, notifications, send } = useClub()
   const { mode, deck, cardStyle, sound, t, toggleMode, toggleDeck, toggleCardStyle, toggleSound } = usePreferences()
 
   return (
@@ -326,6 +327,9 @@ export function AppHeader() {
         </IconButton>
         {user && (
           <>
+            {notifications && (
+              <NotificationBell notifications={notifications} onRead={(ids) => send({ type: 'readNotifications', ids })} />
+            )}
             <Dot
               $ok={status === 'open'}
               role="status"
