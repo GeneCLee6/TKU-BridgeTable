@@ -15,7 +15,8 @@
 - **B1 完成**（#36）：淡江機器人搬進制度引擎（`shared/robot/system/tku/`，`System.firstFit`），`bidding.ts` 與 `inferShown` 已刪；兩種機器人都有叫牌盒提示、Alert 依觀看者的語言顯示。規則書的叫品跟舊程式完全一樣，後備改用引擎的推論（差異見 `ROBOT.md` §2）。
 - **A6 完成**（#38）：`shared/imp.ts`（WBF IMP 表）、`shared/challenge-scoring.ts`（IMP、總分、MP、Cross-IMP、沒打完的副、同分名次）、`shared/dealer.ts` 條件發牌與 `deal-presets.ts`。**Phase A 地基全部完成。**
 - **B2 完成**（#39）：2/1 機器人防守改用 GIB 公開的出牌慣例（`play.ts` 的 `gib*`，`ROBOT.md` §3.2）：被動首攻、AK 攻 K、王牌合約攻短門、態度正、標準張數、第三家相等牌出最小、墊牌不打信號；淡江機器人不變。`chooseCard` 多一個 `kind` 參數。
-- **下一批：ROADMAP 第 B3 批**（`e6-t09` `e6-t10` `e6-t12` 運算環境決策、`RobotBrain`、DDS spike）；C1（好友）也沒有前提，可以交錯做。
+- **B3 完成**（#40）：`RobotBrain` 介面（`shared/robot/brain.ts`，`ClubConfig.brain`，執行時才問大腦）；決策紀錄 `ARCHITECTURE.md` §5.1.1：機器人運算選 Workers 付費方案＋WASM 版 DDS（`bridge-dds`），**付費要在 B4 開工前由社團確認**；DDS spike 的數字也在那裡。
+- **下一批：ROADMAP 第 B4 批**（`e6-t13` `e6-t14` DDS 整合與對拍），**先確認付費方案**；不付費就先做 B5（等級）或 C1（好友）。
 
 ## 2. 建議順序
 

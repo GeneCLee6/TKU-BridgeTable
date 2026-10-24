@@ -50,9 +50,8 @@ import {
   type TableView,
   type TableWire,
 } from '../shared/protocol.ts'
-import { acceptsClaim } from '../shared/robot/claim.ts'
-import { chooseCard } from '../shared/robot/play.ts'
-import { robotCall, type RobotBid } from '../shared/robot/robots.ts'
+import { ruleBrain, type RobotBrain } from '../shared/robot/brain.ts'
+import type { RobotBid } from '../shared/robot/robots.ts'
 import { hashPassword, randomId, SESSION_DAYS, verifyPassword } from './auth.ts'
 import { DEFAULT_HISTORY_QUERY, type HistoryQuery } from '../shared/history-query.ts'
 import { createHistoryIndex, indexRecord, searchBoards, unindexRecord } from './history-index.ts'
@@ -117,6 +116,8 @@ export interface ClubConfig {
   wake?: (at: number) => void
   /** Runs robot moves and the next deal after a pause instead of the alarm queue; tests pass a manual queue */
   schedule?: (run: () => void, ms: number, kind: ScheduleKind) => void
+  /** What the robots think with; the rule robot unless a stronger brain is given */
+  brain?: RobotBrain
 }
 
 export type ScheduleKind = JobKind
@@ -155,6 +156,7 @@ export class ClubService {
   private readonly config: ClubConfig
   private readonly now: () => number
   private readonly random: RandomInt
+  private readonly brain: RobotBrain
   /** Robot moves and the next deal of every table, keyed `robot:<tableId>` and `deal:<tableId>` */
   private readonly scheduler: Scheduler
   /** The scheduler, when it is the alarm queue (not the tests' manual one) */
@@ -176,6 +178,7 @@ export class ClubService {
     this.config = config
     this.now = config.now ?? Date.now
     this.random = config.random ?? secureRandomInt
+    this.brain = config.brain ?? ruleBrain
     this.notifications = new NotificationService(store, this.now, (userId) => void this.pushNotifications(userId))
     if (config.schedule) {
       this.scheduler = manualScheduler(config.schedule)
@@ -1098,46 +1101,47 @@ export class ClubService {
 
   // ── Robots ──────────────────────────────────────────────────────────────────────────────────
 
-  /** What a robot at this table should do next, if anything */
+  /**
+   * Which robot at this table acts next and after what pause, if any. What it does is asked of the
+   * brain only when the move runs (`decide`), so a slow brain thinks once per move
+   */
   private robotMove(
     table: Table,
-  ): { seat: Seat; message: ClientMessage; delay: number; meaning?: RobotBid['meaning'] } | null {
+  ): { seat: Seat; delay: number; decide: () => { message: ClientMessage; meaning?: RobotBid['meaning'] } } | null {
     const board = table.board
     if (!board || board.phase === 'finished' || this.humansSeated(table) === 0) return null
     const robot = (seat: Seat | null | undefined): seat is Seat => !!seat && isRobotId(table.seats[seat])
+    const kindAt = (seat: Seat) => robotKindOf(table.seats[seat]!)
 
     // Robots agree to undo requests, and accept a claim only if the cards make it good
     if (table.undo) {
       const answer = SEATS.find((s) => robot(s) && !sameSide(s, table.undo!.seat))
-      if (answer) return { seat: answer, message: { type: 'undoRespond', accept: true }, delay: ROBOT_DELAY.answer }
-      return null
+      if (!answer) return null
+      return { seat: answer, delay: ROBOT_DELAY.answer, decide: () => ({ message: { type: 'undoRespond', accept: true } }) }
     }
     if (board.claim) {
       const answer = claimApprovers(board, board.claim.seat).find((s) => robot(s) && !board.claim!.accepted.includes(s))
       if (!answer) return null
-      return { seat: answer, message: { type: 'claimRespond', accept: acceptsClaim(board, answer) }, delay: ROBOT_DELAY.answer }
+      const accept = () => this.brain.acceptsClaim(kindAt(answer), board, answer)
+      return { seat: answer, delay: ROBOT_DELAY.answer, decide: () => ({ message: { type: 'claimRespond', accept: accept() } }) }
     }
     const turn = turnOf(board)
     if (!turn) return null
     if (board.phase === 'auction') {
       if (!robot(turn)) return null
-      const kind = robotKindOf(table.seats[turn]!)
-      const bid = robotCall(kind, board.hands[turn], turn, board.auction, board.dealer, board.vul)
-      return {
-        seat: turn,
-        message: { type: 'call', call: bid.call, alert: bid.alert },
-        delay: ROBOT_DELAY.call,
-        meaning: bid.meaning,
+      const decide = () => {
+        const bid = this.brain.bid(kindAt(turn), board, turn)
+        return { message: { type: 'call', call: bid.call, alert: bid.alert } as ClientMessage, meaning: bid.meaning }
       }
+      return { seat: turn, delay: ROBOT_DELAY.call, decide }
     }
     const controller = controllerOf(board, turn)
     if (!robot(controller)) return null
-    const card = chooseCard(board, turn, robotKindOf(table.seats[controller]!))
     const trickJustEnded = board.play.length > 0 && board.play.length % 4 === 0
     return {
       seat: controller,
-      message: { type: 'play', card },
       delay: trickJustEnded ? ROBOT_DELAY.afterTrick : ROBOT_DELAY.card,
+      decide: () => ({ message: { type: 'play', card: this.brain.play(kindAt(controller), board, turn) } }),
     }
   }
 
@@ -1155,12 +1159,13 @@ export class ClubService {
     if (!table) return
     const move = this.robotMove(table)
     if (!move) return
+    const { message, meaning } = move.decide()
     try {
-      await this.act(table, move.seat, move.message, true, move.meaning)
+      await this.act(table, move.seat, message, true, meaning)
     } catch (error) {
       // A robot move that turns out illegal must not stall the table: pass or play any legal card
       if (!(error instanceof AppError)) throw error
-      console.error('robot move rejected', error.code, move)
+      console.error('robot move rejected', error.code, move.seat, message)
       const board = table.board!
       const turn = turnOf(board)
       const fallback: ClientMessage | null =

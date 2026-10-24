@@ -116,10 +116,10 @@ eval/                      評測指令列：固定牌組、對抗、報告；CI
 
 **M1 · 運算環境與 DDS**
 
-- [ ] `e6-t09` 決策紀錄：機器人運算放哪裡——A. Workers 付費方案（每月 5 美元起，CPU 上限可調）、B. Cloudflare Containers 跑原生 DDS、C. 外部主機；比較成本、延遲、維運，寫進 `ARCHITECTURE.md` §5.1 · AC-6.5 · S
-- [ ] `e6-t10` `RobotBrain` 介面：`ClubService` 只透過介面呼叫機器人，規則機器人是第一個實作，行為不變 · AC-6.5 · S · ← e6-t09
+- [x] `e6-t09` 決策紀錄：機器人運算放哪裡——A. Workers 付費方案（每月 5 美元起，CPU 上限可調）、B. Cloudflare Containers 跑原生 DDS、C. 外部主機；比較成本、延遲、維運，寫進 `ARCHITECTURE.md` §5.1 · AC-6.5 · S
+- [x] `e6-t10` `RobotBrain` 介面：`ClubService` 只透過介面呼叫機器人，規則機器人是第一個實作，行為不變 · AC-6.5 · S · ← e6-t09
 - [ ] `e6-t11` 非同步機器人動作：送出請求後不擋其他訊息，回來時驗證局面沒變才套用；2 秒逾時改用規則機器人；測試 · AC-6.5 · M · ← e6-t10, e2-t22
-- [ ] `e6-t12` DDS 選型 spike：Bo Haglund DDS 原生／WASM vs 自寫 TypeScript，量測 DD 表與單一局面的時間，結論貼在 PR · AC-6.4 · S · ← e6-t09
+- [x] `e6-t12` DDS 選型 spike：Bo Haglund DDS 原生／WASM vs 自寫 TypeScript，量測 DD 表與單一局面的時間，結論貼在 PR · AC-6.4 · S · ← e6-t09
 - [ ] `e6-t13` DDS 整合：`solveBoard`（每張牌的墩數）、`calcDDTable`（DD 表）、`par`，在機器人運算環境提供 API · AC-6.4 · M · ← e6-t12
 - [ ] `e6-t14` DDS 對拍：與 `dd.ts` 在 1,000 個殘局一致；攤牌判斷改用 DDS（拿掉 3 萬局面上限，`dd.ts` 留作後備）· AC-6.4, AC-6.2 · S · ← e6-t13
 
