@@ -23,7 +23,7 @@
 | --- | --- | --- | --- | --- | --- |
 | [E1](e1-accounts-identity-community.md) | 帳號、身分與社群 | 14／34 | 4／9 | 13 | in-progress |
 | [E2](e2-table-engine-realtime.md) | 牌桌引擎與即時連線 | 19／35 | 8／14 | 12 | in-progress |
-| [E3](e3-table-ui-experience.md) | 牌桌介面與體驗 | 27／38 | 7／11 | 7 | in-progress |
+| [E3](e3-table-ui-experience.md) | 牌桌介面與體驗 | 27／44 | 7／12 | 13 | in-progress |
 | [E4](e4-records-favorites-search.md) | 牌局紀錄、收藏與搜尋 | 9／39 | 3／13 | 24 | in-progress |
 | [E5](e5-robot-bidding-brain.md) | 智慧機器人（一）：叫牌制度引擎、2/1 機器人與完整 5542 | 27／63 | 4／14 | 45 | in-progress |
 | [E6](e6-robot-play-levels-evaluation.md) | 智慧機器人（二）：打牌大腦、等級與評測 | 8／38 | 3／13 | 15 | in-progress |
@@ -33,9 +33,10 @@
 | [E10](e10-practice-teaching.md) | 練習與教學 | 0／14 | 0／9 | 6 | planned |
 | [E11](e11-platform-ops-scale.md) | 平台、維運、安全與規模 | 7／27 | 3／10 | 8 | in-progress |
 | [E12](e12-commercialization.md) | 多社團與商業化 | 0／19 | 0／9 | 0 | planned |
-| | **合計** | **111／376** | **32／128** | **172** | |
+| [E13](e13-community-forum.md) | 社群與論壇 | 0／13 | 0／7 | 0 | planned |
+| | **合計** | **111／395** | **32／136** | **178** | |
 
-里程碑分布：M0 95 個（全部完成）、M1 172 個、M2 86 個、M3 23 個。作廢的 task（刪除線）不計入。
+里程碑分布：M0 95 個（全部完成）、M1 178 個、M2 97 個、M3 25 個。作廢的 task（刪除線）不計入。
 
 ## Task 格式
 
@@ -55,7 +56,7 @@
 
 規則：
 
-1. **一個 task 一個 PR。** 分支名帶 task 編號（例如 `feat/e4-t16-contract-filter`），PR 標題結尾加上編號（例如 `feat(records): filter by contract [e4-t16]`），PR 本文寫對應的 AC。
+1. **一組相關的 task 一個 PR**（一個 task 一個 PR 是最小單位；相鄰、同一條線的 task 可以合成一個，例如 `e5-t15`～`t18`）。分支名帶第一個 task 編號（例如 `feat/e4-t16-contract-filter`），PR 標題結尾列出全部編號（例如 `feat(records): filter by contract [e4-t16, t17]`），PR 本文寫對應的 AC。
 2. **在同一個 PR 勾選**：把自己的 task 從 `[ ]` 改成 `[x]`，大小與依賴換成 PR 號，並更新上面的進度表。
 3. **AC 什麼時候勾**：這條 AC 的 task 全部完成，而且有人照 AC 文字實際驗證過（測試或實測寫在 PR）。
 4. **發現新工作就加 task**：接在該 epic 最後一個編號之後，放到正確的里程碑區段，不要塞進正在做的 PR。
