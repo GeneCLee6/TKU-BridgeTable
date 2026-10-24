@@ -1,4 +1,4 @@
-import type { ChallengeScoring, UnfinishedRule } from './challenge-scoring.ts'
+import type { ChallengeScoring } from './challenge-scoring.ts'
 import { isOfferedRobotLevel, isRobotKind, type PublicUser, type RobotKind } from './protocol.ts'
 
 /**
@@ -14,9 +14,11 @@ import { isOfferedRobotLevel, isRobotKind, type PublicUser, type RobotKind } fro
  * - `expired`: the deadline passed and nobody but the creator accepted
  *
  * One deadline, counted from when the challenge is created, is for answering and for playing
- * alike. Only friends are invited (`e1-t19`), and the deals are always dealt at random, with Best
- * Hand or Just Declare as the only options, unless the creator challenges with boards they already
- * played (「用這副牌挑戰」), whose own results then count (社長, 2026-10-24).
+ * alike: at the deadline play stops, as on BBO, and a board still being played is dropped. Only
+ * those who played every board are ranked; nobody is scored for boards they did not play. Only
+ * friends are invited (`e1-t19`), and the deals are always dealt at random, with Best Hand or Just
+ * Declare as the only options, unless the creator challenges with boards they already played
+ * (「用這副牌挑戰」), whose own results then count (社長, 2026-10-24).
  */
 export const CHALLENGE_STATUSES = ['pending', 'active', 'finished', 'cancelled', 'expired'] as const
 export type ChallengeStatus = (typeof CHALLENGE_STATUSES)[number]
@@ -34,7 +36,6 @@ export type RankingVisibility = (typeof RANKING_VISIBILITIES)[number]
 
 export interface ChallengeSettings {
   scoring: ChallengeScoring
-  unfinished: UnfinishedRule
   /** Every robot in the challenge is the same kind and level, locked when it is created */
   robotKind: RobotKind
   /** A robot level from E6 (`e6-t21`); checked when a challenge is created (`e7-t05`) */
@@ -62,11 +63,10 @@ export const CHALLENGE_LIMITS = {
 
 const DAY_MS = 86_400_000
 
-/** The defaults of AC-7.1: IMPs one on one, matchpoints with more; an unplayed board scores worst */
+/** The defaults of AC-7.1: IMPs one on one, matchpoints with more */
 export function defaultChallengeSettings(invited: number): ChallengeSettings {
   return {
     scoring: invited > 1 ? 'mp' : 'imp',
-    unfinished: 'worst',
     robotKind: 'gib',
     robotLevel: 'open',
     bestHand: false,
@@ -86,8 +86,8 @@ export const scoringsFor = (invited: number): readonly ChallengeScoring[] =>
 
 /**
  * Checks the settings a creator sent (`e7-t05`): every field optional, falling back on
- * `defaultChallengeSettings`, nothing else allowed. An unplayed board always scores worst, so
- * `unfinished` may only be `worst`; the robot level must be one offered now. Returns the settings,
+ * `defaultChallengeSettings`, nothing else allowed. There is no rule for unplayed boards: only
+ * those who play every board are ranked; the robot level must be one offered now. Returns the settings,
  * or the first field that is wrong
  */
 export function parseChallengeSettings(
@@ -97,14 +97,13 @@ export function parseChallengeSettings(
   const settings = defaultChallengeSettings(invited)
   if (value === undefined) return { settings }
   if (!value || typeof value !== 'object' || Array.isArray(value)) return { field: 'settings' }
-  const { scoring, unfinished, robotKind, robotLevel, bestHand, justDeclare, days, ranking, ...rest } = value as Record<
+  const { scoring, robotKind, robotLevel, bestHand, justDeclare, days, ranking, ...rest } = value as Record<
     string,
     unknown
   >
   const extra = Object.keys(rest)[0]
   if (extra !== undefined) return { field: extra }
   if (scoring !== undefined && !scoringsFor(invited).includes(scoring as ChallengeScoring)) return { field: 'scoring' }
-  if (unfinished !== undefined && unfinished !== 'worst') return { field: 'unfinished' }
   if (robotKind !== undefined && !isRobotKind(robotKind)) return { field: 'robotKind' }
   if (robotLevel !== undefined && !isOfferedRobotLevel(robotLevel)) return { field: 'robotLevel' }
   if (bestHand !== undefined && typeof bestHand !== 'boolean') return { field: 'bestHand' }
