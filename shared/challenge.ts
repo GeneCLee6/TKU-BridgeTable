@@ -1,5 +1,5 @@
 import type { ChallengeScoring, UnfinishedRule } from './challenge-scoring.ts'
-import type { RobotKind } from './protocol.ts'
+import { isOfferedRobotLevel, isRobotKind, type PublicUser, type RobotKind } from './protocol.ts'
 
 /**
  * A challenge's lifecycle and settings (docs/PRD/e7-challenges.md, ARCHITECTURE.md §5.5).
@@ -79,3 +79,82 @@ export function defaultChallengeSettings(invited: number): ChallengeSettings {
 /** The one deadline: everyone answers and plays every board by then */
 export const challengeDeadline = (createdAt: number, settings: ChallengeSettings) =>
   createdAt + settings.days * DAY_MS
+
+/** Head to head: IMPs or total points; with more: matchpoints, cross-IMPs or total points (AC-7.1) */
+export const scoringsFor = (invited: number): readonly ChallengeScoring[] =>
+  invited > 1 ? ['mp', 'crossImp', 'total'] : ['imp', 'total']
+
+/**
+ * Checks the settings a creator sent (`e7-t05`): every field optional, falling back on
+ * `defaultChallengeSettings`, nothing else allowed. An unplayed board always scores worst, so
+ * `unfinished` may only be `worst`; the robot level must be one offered now. Returns the settings,
+ * or the first field that is wrong
+ */
+export function parseChallengeSettings(
+  value: unknown,
+  invited: number,
+): { settings: ChallengeSettings } | { field: string } {
+  const settings = defaultChallengeSettings(invited)
+  if (value === undefined) return { settings }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return { field: 'settings' }
+  const { scoring, unfinished, robotKind, robotLevel, bestHand, justDeclare, days, ranking, ...rest } = value as Record<
+    string,
+    unknown
+  >
+  const extra = Object.keys(rest)[0]
+  if (extra !== undefined) return { field: extra }
+  if (scoring !== undefined && !scoringsFor(invited).includes(scoring as ChallengeScoring)) return { field: 'scoring' }
+  if (unfinished !== undefined && unfinished !== 'worst') return { field: 'unfinished' }
+  if (robotKind !== undefined && !isRobotKind(robotKind)) return { field: 'robotKind' }
+  if (robotLevel !== undefined && !isOfferedRobotLevel(robotLevel)) return { field: 'robotLevel' }
+  if (bestHand !== undefined && typeof bestHand !== 'boolean') return { field: 'bestHand' }
+  if (justDeclare !== undefined && typeof justDeclare !== 'boolean') return { field: 'justDeclare' }
+  const { daysMin, daysMax } = CHALLENGE_LIMITS
+  if (days !== undefined && !(Number.isInteger(days) && (days as number) >= daysMin && (days as number) <= daysMax))
+    return { field: 'days' }
+  if (ranking !== undefined && !RANKING_VISIBILITIES.includes(ranking as RankingVisibility)) return { field: 'ranking' }
+  return {
+    settings: {
+      ...settings,
+      ...(scoring !== undefined && { scoring: scoring as ChallengeScoring }),
+      ...(robotKind !== undefined && { robotKind }),
+      ...(robotLevel !== undefined && { robotLevel }),
+      ...(bestHand !== undefined && { bestHand }),
+      ...(justDeclare !== undefined && { justDeclare }),
+      ...(days !== undefined && { days: days as number }),
+      ...(ranking !== undefined && { ranking: ranking as RankingVisibility }),
+    },
+  }
+}
+
+/** One participant as other participants see them: how far they got, never what they scored */
+export interface ChallengePlayerView {
+  /** Absent for an account deleted after the challenge ended */
+  user?: PublicUser
+  userId: string
+  status: PlayerStatus
+  answeredAt?: number
+  startedAt?: number
+  finishedAt?: number
+  /** Boards played so far */
+  played: number
+  knownDeals: boolean
+}
+
+/**
+ * A challenge as one of its participants sees it (`worker/views.ts` `challengeView`): settings,
+ * state and everyone's progress. Never the deals or anyone's results; the standings and travellers
+ * come with C5 (`e7-t14`)
+ */
+export interface ChallengeView {
+  id: string
+  creatorId: string
+  createdAt: number
+  status: ChallengeStatus
+  deadline: number
+  startedAt?: number
+  endedAt?: number
+  settings: ChallengeSettings
+  boards: number
+  players: ChallengePlayerView[]
+}

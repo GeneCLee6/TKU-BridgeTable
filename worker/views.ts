@@ -13,7 +13,9 @@ import {
   type BoardState,
 } from '../shared/game.ts'
 import type { BoardSummary, BoardView, ChatMessage, PublicUser, SeatOccupant, TableSettings } from '../shared/protocol.ts'
+import type { ChallengeView } from '../shared/challenge.ts'
 import type { DealSource } from '../shared/deal-source.ts'
+import type { Challenge } from './challenges.ts'
 import type { TableMode } from './modes.ts'
 
 /** A table as the Worker keeps it */
@@ -168,4 +170,45 @@ export function boardView(
   if (board.result) view.result = board.result
   if (extras.recordId && finished) view.recordId = extras.recordId
   return view
+}
+
+/**
+ * A challenge as a member may see it (§4, §5.5), or null. Only its participants (invited, accepted
+ * or declined) see it at all; they get the settings, the state and how many boards each person
+ * has played. The deals and everyone's results never go out here: the standings and travellers
+ * have their own rules (`e7-t14`), and non-participants see a finished `club` ranking only then
+ */
+export function challengeView(
+  challenge: Challenge,
+  userId: string,
+  userById: (id: string) => PublicUser | undefined,
+): ChallengeView | null {
+  if (!challenge.players.some((p) => p.userId === userId)) return null
+  const played = new Map<string, number>()
+  for (const r of challenge.results) played.set(r.userId, (played.get(r.userId) ?? 0) + 1)
+  const c = challenge
+  return {
+    id: c.id,
+    creatorId: c.creatorId,
+    createdAt: c.createdAt,
+    status: c.status,
+    deadline: c.deadline,
+    ...(c.startedAt !== undefined && { startedAt: c.startedAt }),
+    ...(c.endedAt !== undefined && { endedAt: c.endedAt }),
+    settings: c.settings,
+    boards: c.deals.boards.length,
+    players: c.players.map((p) => {
+      const user = userById(p.userId)
+      return {
+        ...(user && { user }),
+        userId: p.userId,
+        status: p.status,
+        ...(p.answeredAt !== undefined && { answeredAt: p.answeredAt }),
+        ...(p.startedAt !== undefined && { startedAt: p.startedAt }),
+        ...(p.finishedAt !== undefined && { finishedAt: p.finishedAt }),
+        played: played.get(p.userId) ?? 0,
+        knownDeals: p.knownDeals,
+      }
+    }),
+  }
 }

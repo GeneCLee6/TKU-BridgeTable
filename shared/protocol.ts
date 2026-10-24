@@ -1,6 +1,7 @@
 import type { AuctionCall, Call, Contract } from './auction.ts'
 import type { Vulnerability } from './board.ts'
 import type { Card, Seat, Side } from './cards.ts'
+import type { ChallengeSettings } from './challenge.ts'
 import type { BoardResult, BoardState, Phase, Trick } from './game.ts'
 import type { MessageCode, MessageParams } from './messages.ts'
 
@@ -239,14 +240,27 @@ export interface LobbyView {
  * writes the text in the viewer's language from `kind` and `params`, and knows where each kind
  * leads (`src/lib/notifications.ts`). Challenges, match invitations and messages add their kinds
  */
-export const NOTIFICATION_KINDS = ['application'] as const
+export const NOTIFICATION_KINDS = [
+  'application',
+  'challengeInvited',
+  'challengeAccepted',
+  'challengeDeclined',
+  'challengeCancelled',
+  'challengeReminder',
+  'challengeResults',
+] as const
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number]
 
 export interface Notification {
   id: string
   at: number
   kind: NotificationKind
-  /** `application`: { username } of the person who registered */
+  /**
+   * `application`: { username } of the person who registered. The challenge kinds (§5.5):
+   * { challengeId, username } of who invited, accepted, declined or cancelled; the reminder 12 hours
+   * before the deadline and the results (`challengeReminder`, `challengeResults`) carry
+   * { challengeId } and are sent by the deadline job (`e7-t13`)
+   */
   params: Record<string, string | number>
   read: boolean
 }
@@ -287,6 +301,12 @@ export type ClientMessage =
   | { type: 'setFriend'; userId: string; friend: boolean }
   /** Blocks or unblocks another member; blocking also stops following them */
   | { type: 'setBlocked'; userId: string; blocked: boolean }
+  /** Challenges 1–20 friends (§5.5): `boards` 4–16 (8 when left out), settings over the defaults */
+  | { type: 'createChallenge'; invitees: string[]; boards?: number; settings?: Partial<ChallengeSettings> }
+  /** An invitee accepts or declines, once, before the deadline */
+  | { type: 'answerChallenge'; challengeId: string; accept: boolean }
+  /** The creator calls a challenge off while nobody else has started */
+  | { type: 'cancelChallenge'; challengeId: string }
 
 export type ServerMessage =
   | { type: 'welcome'; me: Me }
