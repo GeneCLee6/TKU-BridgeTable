@@ -232,6 +232,13 @@ export interface BoardRecord {
   finishedAt: number
   players: Record<Seat, PublicUser>
   board: BoardState
+  /** The challenge or match the board belongs to, if any */
+  eventId?: string
+  /**
+   * Until when only the board's own players may see it (a challenge still being played); shown to
+   * everyone when absent. `worker/views.ts` has the rule
+   */
+  revealAt?: number
 }
 
 export interface BoardSummary {
@@ -244,6 +251,8 @@ export interface BoardSummary {
   vul: Vulnerability
   contract: Contract | null
   result: BoardResult
+  eventId?: string
+  revealAt?: number
 }
 
 export function summarize(record: BoardRecord): BoardSummary {
@@ -258,6 +267,8 @@ export function summarize(record: BoardRecord): BoardSummary {
     vul: board.vul,
     contract: board.contract,
     result: board.result!,
+    ...(record.eventId !== undefined && { eventId: record.eventId }),
+    ...(record.revealAt !== undefined && { revealAt: record.revealAt }),
   }
 }
 

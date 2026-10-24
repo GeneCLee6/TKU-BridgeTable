@@ -2,10 +2,19 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { deal } from '../../shared/board.ts'
 import { SEATS, type Seat } from '../../shared/cards.ts'
-import { DEAL_COUNTDOWN_MS, LAST_TRICK_MS, type ClientMessage, type ServerMessage, type TableView } from '../../shared/protocol.ts'
+import { DEFAULT_HISTORY_QUERY } from '../../shared/history-query.ts'
+import {
+  DEAL_COUNTDOWN_MS,
+  LAST_TRICK_MS,
+  type BoardRecord,
+  type ClientMessage,
+  type ServerMessage,
+  type TableView,
+} from '../../shared/protocol.ts'
 import { ClubError, ClubService, type Connections, type ScheduleKind } from '../../worker/service.ts'
 import type { MemoryStore } from '../../worker/store.ts'
 import { memoryStore } from './sqlite.ts'
+import { indexRecord } from '../../worker/history-index.ts'
 import type { Table } from '../../worker/views.ts'
 
 class FakeConnections implements Connections {
@@ -297,7 +306,7 @@ describe('finishing boards', () => {
     const history = (await club.history(bySeat.E, false)).boards
     expect(history).toHaveLength(1)
     expect(history[0].players.S.username).toBe('south')
-    const record = await club.record(history[0].id)
+    const record = await club.record(history[0].id, bySeat.E)
     expect(record?.board.hands.N).toHaveLength(13)
     expect((await club.history(await member('other'), false)).boards).toHaveLength(0)
     expect((await club.history('other', true)).boards).toHaveLength(1)
@@ -786,9 +795,48 @@ describe('history pages', () => {
     await store.put('board:00000000000005-old1', old)
     club = new ClubService(store, new FakeConnections(), { maxUsers: 10 })
     await club.load()
-    expect((await club.record('old1'))?.id).toBe('old1')
+    expect((await club.record('old1', 'u1'))?.id).toBe('old1')
     expect((await club.history('u1', false)).boards.map((b) => b.id)).toEqual(['old1'])
     expect(await store.get('board:00000000000005-old1')).toBeUndefined()
+  })
+})
+
+describe('boards kept back (AC-4.9)', () => {
+  it('stay out of every list, search, detail page and side panel but their players’ until revealed', async () => {
+    const { bySeat, tableId } = await fullTable()
+    const outsider = await member('outsider')
+    const players = Object.fromEntries(SEATS.map((seat) => [seat, { id: bySeat[seat], username: seat }])) as BoardRecord['players']
+    const held: BoardRecord = {
+      id: 'held1',
+      tableNumber: 9,
+      finishedAt: time,
+      players,
+      board: { boardNo: 1, dealer: 'N', vul: 'None', contract: null, result: { declarerTricks: 0, scoreNS: 0, claimed: false } } as never,
+      eventId: 'challenge1',
+      revealAt: time + 60_000,
+    }
+    await store.put('board:held1', held)
+    indexRecord(store.sql, held)
+
+    const listed = async (userId: string) => (await club.history(userId, true)).boards.map((b) => b.id)
+    expect(await listed(outsider)).toEqual([])
+    expect(await listed(bySeat.N)).toEqual(['held1'])
+    expect((await club.search(outsider, { ...DEFAULT_HISTORY_QUERY, scope: 'all', player: bySeat.N })).total).toBe(0)
+    expect(await club.record('held1', outsider)).toBeNull()
+    expect((await club.record('held1', bySeat.E))?.eventId).toBe('challenge1')
+
+    // A table's recent boards are filtered the same way for whoever watches it
+    const saved = (await store.get<Table>(`table:${tableId}`))!
+    await store.put(`table:${tableId}`, { ...saved, recent: [{ ...held, ...held.board, result: held.board.result! }] })
+    const reloaded = new ClubService(store, connections, { maxUsers: 10, now: () => time })
+    await reloaded.load()
+    expect(reloaded.tableView(reloaded['tables'].get(tableId)!, outsider).recent).toEqual([])
+    expect(reloaded.tableView(reloaded['tables'].get(tableId)!, bySeat.S).recent).toHaveLength(1)
+
+    time += 60_000
+    expect(await listed(outsider)).toEqual(['held1'])
+    expect(await club.record('held1', outsider)).not.toBeNull()
+    expect(reloaded.tableView(reloaded['tables'].get(tableId)!, outsider).recent).toHaveLength(1)
   })
 })
 
@@ -884,7 +932,7 @@ describe('side panel data', () => {
     }
     const recent = tableFor(bySeat.W).recent
     expect(recent.map((b) => b.boardNo)).toEqual([2, 1])
-    expect(await club.record(recent[0].id)).not.toBeNull()
+    expect(await club.record(recent[0].id, bySeat.W)).not.toBeNull()
   })
 })
 

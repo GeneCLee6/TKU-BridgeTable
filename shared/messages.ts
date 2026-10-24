@@ -511,6 +511,14 @@ export const MESSAGES = {
     ja: 'そのボードはありません',
     ko: '그런 보드가 없습니다',
   },
+  badHistoryQuery: {
+    zh: '紀錄的搜尋條件不正確：{field}',
+    'zh-Hans': '记录的搜索条件不正确：{field}',
+    en: 'That history search is not valid: {field}',
+    vi: 'Điều kiện tìm ván không hợp lệ: {field}',
+    ja: '記録の検索条件が正しくありません：{field}',
+    ko: '기록 검색 조건이 올바르지 않습니다: {field}',
+  },
   noSuchApi: {
     zh: '找不到這個 API',
     'zh-Hans': '找不到这个 API',

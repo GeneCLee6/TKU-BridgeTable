@@ -1,3 +1,4 @@
+import { historyQueryString, type HistoryQuery } from '../../shared/history-query.ts'
 import type { MessageParams } from '../../shared/messages.ts'
 import type {
   AdminUser,
@@ -56,6 +57,8 @@ export const api = {
     if (all) query.set('scope', 'all')
     return request<HistoryPage>(`/api/history?${query}`)
   },
+  /** One page of a history search (`shared/history-query.ts`) */
+  searchHistory: (query: Partial<HistoryQuery>) => request<HistoryPage>(`/api/history/search?${historyQueryString(query)}`),
   record: (id: string) => request<{ record: BoardRecord }>(`/api/history/${encodeURIComponent(id)}`),
 
   admin: {

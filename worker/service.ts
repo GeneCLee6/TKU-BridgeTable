@@ -35,7 +35,6 @@ import {
   type AdminUser,
   type Application,
   type BoardRecord,
-  type BoardSummary,
   type ClientMessage,
   type ClubSettings,
   type HistoryPage,
@@ -55,11 +54,12 @@ import { acceptsClaim } from '../shared/robot/claim.ts'
 import { chooseCard } from '../shared/robot/play.ts'
 import { robotCall, type RobotBid } from '../shared/robot/robots.ts'
 import { hashPassword, randomId, SESSION_DAYS, verifyPassword } from './auth.ts'
-import { createHistoryIndex, indexRecord, unindexRecord } from './history-index.ts'
+import { DEFAULT_HISTORY_QUERY, type HistoryQuery } from '../shared/history-query.ts'
+import { createHistoryIndex, indexRecord, searchBoards, unindexRecord } from './history-index.ts'
 import { modeOf } from './modes.ts'
 import { AlarmQueue, manualScheduler, type JobKind, type Scheduler } from './scheduler.ts'
 import type { Store } from './store.ts'
-import { boardView, seatOccupants, type Table } from './views.ts'
+import { boardView, recordVisible, seatOccupants, type Table } from './views.ts'
 
 /** An error shown to the user; the code is translated in the browser */
 export class ClubError extends AppError {
@@ -567,36 +567,32 @@ export class ClubService {
 
   /** Newest first, one page at a time; `page` counts from 1 and `size` is one of HISTORY_PAGE_SIZES */
   async history(userId: string, all: boolean, page = 1, size: number = LIMITS.historyPageDefault): Promise<HistoryPage> {
-    const prefix = all ? 'hist:' : `uhist:${userId}:`
     if (!(HISTORY_PAGE_SIZES as readonly number[]).includes(size)) size = LIMITS.historyPageDefault
-    const total = await this.countOf(prefix)
-    const last = Math.max(1, Math.ceil(total / size))
-    page = Math.min(Math.max(1, Math.floor(page) || 1), last)
-    const offset = (page - 1) * size
-    const entries = await this.store.list<BoardSummary>(prefix, { reverse: true, limit: offset + size })
-    return { boards: [...entries.values()].slice(offset), total, page, size }
+    return this.search(userId, {
+      ...DEFAULT_HISTORY_QUERY,
+      scope: all ? 'all' : 'mine',
+      page: Math.max(1, Math.floor(page) || 1),
+      size,
+    })
   }
 
-  /** How many entries an index holds; counted once, then kept up to date as boards are saved */
-  private async countOf(prefix: string) {
-    const key = `meta:count:${prefix}`
-    const stored = await this.store.get<number>(key)
-    if (stored !== undefined) return stored
-    const counted = (await this.store.list(prefix)).size
-    await this.store.put(key, counted)
-    return counted
+  /** One page of a history search (`shared/history-query.ts`), from the SQL index; boards kept back are left out */
+  async search(userId: string, query: HistoryQuery): Promise<HistoryPage> {
+    const found = searchBoards(this.store.sql, query, userId, this.now())
+    const records = await Promise.all(found.ids.map((id) => this.store.get<BoardRecord>(`board:${id}`)))
+    return {
+      boards: records.flatMap((record) => (record ? [summarize(record)] : [])),
+      total: found.total,
+      page: found.page,
+      size: query.size,
+    }
   }
 
-  private async bumpCount(prefix: string) {
-    const key = `meta:count:${prefix}`
-    const stored = await this.store.get<number>(key)
-    // Not counted yet: counting now includes the entry just written
-    await this.store.put(key, stored === undefined ? (await this.store.list(prefix)).size : stored + 1)
-  }
-
-  async record(id: string): Promise<BoardRecord | null> {
+  /** A board's full record, if the member may see it (a board kept back only to its players) */
+  async record(id: string, userId: string): Promise<BoardRecord | null> {
     if (!/^[\w-]+$/.test(id)) return null
-    return (await this.store.get<BoardRecord>(`board:${id}`)) ?? null
+    const record = await this.store.get<BoardRecord>(`board:${id}`)
+    return record && recordVisible(record, userId, this.now()) ? record : null
   }
 
   private async saveRecord(record: BoardRecord) {
@@ -609,11 +605,9 @@ export class ClubService {
     try {
       await this.store.put(`board:${record.id}`, record)
       await this.store.put(`hist:${order}`, summary)
-      await this.bumpCount('hist:')
       for (const id of new Set(SEATS.map((seat) => record.players[seat].id))) {
         if (!id || isRobotId(id)) continue
         await this.store.put(`uhist:${id}:${order}`, summary)
-        await this.bumpCount(`uhist:${id}:`)
       }
     } catch (error) {
       unindexRecord(this.store.sql, record.id)
@@ -1257,7 +1251,7 @@ export class ClubService {
       boardsPlayed: table.boardsPlayed,
       dealAt: table.board?.phase === 'finished' && this.canDeal(table) ? (table.dealAt ?? null) : null,
       chat: table.chat,
-      recent: table.recent ?? [],
+      recent: (table.recent ?? []).filter((summary) => recordVisible(summary, userId, this.now())),
     }
   }
 
