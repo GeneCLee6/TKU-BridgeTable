@@ -13,7 +13,8 @@
 - **A4 完成**（#35）：搜尋 API `GET /api/history/search`（`shared/history-query.ts`，條件見 `ARCHITECTURE.md` §5.3），紀錄列表也改從 SQL 讀；未公開的牌局（`revealAt`）只有打那一副的人看得到（`views.ts` 的 `recordVisible`）。篩選的介面在 Phase E。
 - **A5 完成**（#37）：通知中心（`worker/notifications.ts`，`ARCHITECTURE.md` §5.4）與頁首鈴鐺；第一種通知是「有人申請註冊」給管理員。之後的挑戰、受邀桌直接呼叫 `notifications.notify`。
 - **B1 完成**（#36）：淡江機器人搬進制度引擎（`shared/robot/system/tku/`，`System.firstFit`），`bidding.ts` 與 `inferShown` 已刪；兩種機器人都有叫牌盒提示、Alert 依觀看者的語言顯示。規則書的叫品跟舊程式完全一樣，後備改用引擎的推論（差異見 `ROBOT.md` §2）。
-- **下一批：ROADMAP 第 A6 批**（`e7-t04` `e10-t01` `e10-t02` 計分純函式、條件發牌器）。
+- **A6 完成**（#38）：`shared/imp.ts`（WBF IMP 表）、`shared/challenge-scoring.ts`（IMP、總分、MP、Cross-IMP、沒打完的副、同分名次）、`shared/dealer.ts` 條件發牌與 `deal-presets.ts`。**Phase A 地基全部完成。**
+- **下一批：ROADMAP 第 B2 批**（`e6-t38` 2/1 機器人的 GIB 出牌慣例）；C1（好友）也沒有前提，可以交錯做。
 
 ## 2. 建議順序
 
