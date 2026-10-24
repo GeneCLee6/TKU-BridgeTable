@@ -462,7 +462,7 @@ describe('robots at the table', () => {
     expect(view.seats.N).toMatchObject({ robot: true, robotKind: 'gib' })
     expect(view.seats.E).toMatchObject({ robot: true, robotKind: 'tku' })
 
-    // The 2/1 robots' calls carry what they show; the club's robot has its own words only
+    // Both robots' calls carry what they show, for the alert in each viewer's language
     for (let i = 0; i < 200 && tableFor(gene).board?.phase === 'auction'; i++) {
       await runRobots()
       if (tableFor(gene).board!.legalCalls.length) await send(gene, { type: 'call', call: 'P' })
@@ -470,8 +470,7 @@ describe('robots at the table', () => {
     const auction = tableFor(gene).board!.auction
     for (const entry of auction) {
       if (entry.call === 'P' || !entry.robot) continue
-      if (entry.seat === 'E') expect(entry.meaning).toBeUndefined()
-      else if (entry.seat === 'N' || entry.seat === 'W') expect(entry.meaning).toBeDefined()
+      expect(entry.meaning, `${entry.seat} ${entry.call}`).toBeDefined()
     }
   })
 

@@ -64,11 +64,10 @@ describe('the robots a host can seat', () => {
     expect(robotCall('gib', hand('932 843 J54 5432'), 'N', [], 'N', 'None')).toEqual({ call: 'P' })
   })
 
-  it('the club’s robot still bids the club’s system, with its own words', () => {
+  it('the club’s robot bids the club’s system with the same engine, keeping what the call shows', () => {
     const bid = robotCall('tku', hand('AKJ32 K43 Q54 32'), 'N', [], 'N', 'None')
-    expect(bid.call).toBe('1S')
-    expect(bid.alert).toBe('5+ 張♠，12–21 點')
-    expect(bid.meaning).toBeUndefined()
+    expect(bid).toEqual({ call: '1S', alert: '5+ 張♠，12–21 大牌點', meaning: { len: { S: [5, 13] }, hcp: [12, 21] } })
+    expect(robotCall('tku', hand('932 843 J54 5432'), 'N', [], 'N', 'None')).toEqual({ call: 'P' })
   })
 })
 

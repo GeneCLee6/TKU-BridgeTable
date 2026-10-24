@@ -554,13 +554,13 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
   }
   const missing = SEATS.filter((s) => !table.seats[s]).length
 
-  // A 2/1 robot partner: the bidding box tells how it will read each call, as GIB does on BBO
+  // A robot partner: the bidding box tells how it will read each call, as GIB does on BBO
   const partner = me ? table.seats[partnerOf(me)] : null
-  const hinting = !!board && board.legalCalls.length > 0 && !!partner?.robot && partner.robotKind === 'gib'
+  const hinting = !!board && board.legalCalls.length > 0 && !!partner?.robot
   const rules = useRobotRules(hinting)
   const hints = useMemo((): BiddingHints | null => {
     if (!hinting || !rules || !board || !partner) return null
-    const meanings = rules.explain(rules.GIB, board.auction, board.dealer, board.vul)
+    const meanings = rules.explain(rules.ROBOT_SYSTEMS[partner.robotKind ?? 'tku'], board.auction, board.dealer, board.vul)
     return {
       title: t.robotReads(playerName(t, partner)),
       text: (call) => {
