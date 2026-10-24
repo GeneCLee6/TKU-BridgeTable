@@ -35,3 +35,6 @@ tmp/
 
 # Local Claude Code session data; never committed
 .claude/
+
+# The base branch checked out for the robot evaluation gate (eval/README.md)
+/base/
