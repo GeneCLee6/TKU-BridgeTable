@@ -93,6 +93,21 @@ describe('challenge store', () => {
     expect(new ChallengeStore(sql).get('c1')?.players).toHaveLength(2)
   })
 
+  it('adds the reminder column to a table made before it, and keeps when the reminder went out', () => {
+    const sql = memorySql()
+    // The table as C2 made it, without `reminded_at`
+    sql.exec(`CREATE TABLE challenges (challenge_id TEXT PRIMARY KEY, creator_id TEXT NOT NULL, created_at INTEGER NOT NULL,
+      status TEXT NOT NULL, accept_by INTEGER NOT NULL, started_at INTEGER, ended_at INTEGER, settings TEXT NOT NULL,
+      deals TEXT NOT NULL)`)
+    const store = new ChallengeStore(sql)
+    store.createTables()
+    store.create(challenge('c1', 'amy', ['ben']))
+    expect(store.get('c1')!.remindedAt).toBeUndefined()
+    store.setReminded('c1', T0 + DAY)
+    store.createTables()
+    expect(store.get('c1')!.remindedAt).toBe(T0 + DAY)
+  })
+
   it('takes a deleted account out of open challenges and cancels those left with one player', () => {
     const store = fresh()
     store.create(challenge('duel', 'amy', ['ben']))

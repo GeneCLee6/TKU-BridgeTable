@@ -307,7 +307,7 @@ describe('answering and cancelling (e7-t06)', () => {
 })
 
 describe('reading challenges', () => {
-  it('shows a challenge only to its participants, with progress but no results or deals', async () => {
+  it('shows a challenge only to its participants, with progress but no one else’s results or deals', async () => {
     const [amy, ben, cat] = await friends('amy', 'ben', 'cat')
     const zoe = await member('zoe')
     const c = await create(amy, [ben, cat])
@@ -318,10 +318,13 @@ describe('reading challenges', () => {
     for (const id of [amy, ben, cat]) {
       const seen = view(c.id, id)!
       expect(seen.players.map((p) => p.played)).toEqual([2, 0, 0])
+      expect(seen.standings).toBeUndefined()
+      expect(club.challengeList(id).map((x) => x.id)).toEqual([c.id])
       const json = JSON.stringify(seen)
       for (const hidden of ['4321', 'secretBoard', 'hands', 'scoreNS', 'results']) expect(json).not.toContain(hidden)
-      expect(club.challengeList(id).map((x) => x.id)).toEqual([c.id])
     }
+    // amy has not played every board yet: no travellers, not even for the boards she played
+    expect(view(c.id, amy)!.travellers).toBeUndefined()
     expect(view(c.id, zoe)).toBeNull()
     expect(club.challengeList(zoe)).toEqual([])
     expect(view('nope', amy)).toBeNull()

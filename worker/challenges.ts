@@ -47,6 +47,8 @@ export interface Challenge {
   startedAt?: number
   /** When it was finished, cancelled or expired */
   endedAt?: number
+  /** When the reminder 12 hours before the deadline went out (`e7-t13`), so it goes out once */
+  remindedAt?: number
   settings: ChallengeSettings
   deals: DealSet
   /** In the order they were invited, the creator first */
@@ -65,7 +67,8 @@ const SCHEMA = [
     started_at INTEGER,
     ended_at INTEGER,
     settings TEXT NOT NULL,
-    deals TEXT NOT NULL
+    deals TEXT NOT NULL,
+    reminded_at INTEGER
   )`,
   'CREATE INDEX IF NOT EXISTS challenges_by_status ON challenges (status, accept_by)',
   `CREATE TABLE IF NOT EXISTS challenge_players (
@@ -103,6 +106,7 @@ interface ChallengeRow extends Record<string, SqlValue> {
   ended_at: number | null
   settings: string
   deals: string
+  reminded_at: number | null
 }
 
 interface PlayerRow extends Record<string, SqlValue> {
@@ -141,6 +145,9 @@ export class ChallengeStore {
   createTables() {
     this.sql.transaction(() => {
       for (const statement of SCHEMA) this.sql.exec(statement)
+      // C5 added `reminded_at`; tables made before it get the column here (nothing to fill in)
+      const columns = this.sql.exec<{ name: string }>('PRAGMA table_info(challenges)').map((c) => c.name)
+      if (!columns.includes('reminded_at')) this.sql.exec('ALTER TABLE challenges ADD COLUMN reminded_at INTEGER')
     })
   }
 
@@ -228,6 +235,7 @@ export class ChallengeStore {
       deadline: row.accept_by,
       ...optional('startedAt', row.started_at),
       ...optional('endedAt', row.ended_at),
+      ...optional('remindedAt', row.reminded_at),
       settings: JSON.parse(row.settings) as ChallengeSettings,
       deals,
       players,
@@ -264,6 +272,11 @@ export class ChallengeStore {
       )
     else if (status === 'pending') this.sql.exec('UPDATE challenges SET status = ? WHERE challenge_id = ?', status, id)
     else this.sql.exec('UPDATE challenges SET status = ?, ended_at = ? WHERE challenge_id = ?', status, at, id)
+  }
+
+  /** Notes that the reminder before the deadline went out */
+  setReminded(id: string, at: number) {
+    this.sql.exec('UPDATE challenges SET reminded_at = ? WHERE challenge_id = ?', at, id)
   }
 
   /** Writes a participant's answer, start or finish */

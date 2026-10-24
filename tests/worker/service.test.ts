@@ -81,7 +81,7 @@ const isDeal = (job: { kind: ScheduleKind }) => job.kind === 'deal'
 /** Runs scheduled robot moves until none are left (or a person has to act) */
 async function runRobots(limit = 400) {
   for (let i = 0; i < limit; i++) {
-    const index = queue.findIndex((job) => !isDeal(job))
+    const index = queue.findIndex((job) => job.kind === 'robot')
     if (index < 0) return
     queue.splice(index, 1)[0].run()
     // Each move is async; let it finish before the next

@@ -89,7 +89,7 @@ const tick = () => new Promise((resolve) => setTimeout(resolve, 0))
 
 async function runRobots(limit = 400) {
   for (let i = 0; i < limit; i++) {
-    const index = queue.findIndex((job) => job.kind !== 'deal')
+    const index = queue.findIndex((job) => job.kind === 'robot')
     if (index < 0) return
     queue.splice(index, 1)[0].run()
     await tick()
