@@ -442,6 +442,9 @@ describe('the boards in the history (e7-t20)', () => {
 })
 
 describe('who sees which results (e7-t14, §4)', () => {
+  // A score on its own, not the same digits inside a random id or a timestamp
+  const number = (n: number) => new RegExp(`(?<![\\w.])${n}(?![\\w.])`)
+
   async function started(settings: Record<string, unknown> = {}) {
     const ids = await setup(['ben', 'cat'], { accept: ['ben'], settings })
     const zoe = await member('zoe')
@@ -458,7 +461,8 @@ describe('who sees which results (e7-t14, §4)', () => {
     // Knowing whether they are ahead would change how they play the rest
     expect(view.travellers).toBeUndefined()
     const json = JSON.stringify(view)
-    for (const hidden of ['b-' + amy + '-1', '420', '170', '600', 'hands']) expect(json).not.toContain(hidden)
+    for (const hidden of ['b-' + amy + '-1', 'hands']) expect(json).not.toContain(hidden)
+    for (const score of [420, 170, 600]) expect(json).not.toMatch(number(score))
   })
 
   it('a participant who has not played sees statuses and progress only', async () => {
@@ -466,7 +470,7 @@ describe('who sees which results (e7-t14, §4)', () => {
     const view = seen(id, cat)!
     expect(view.standings).toBeUndefined()
     expect(view.travellers).toBeUndefined()
-    expect(JSON.stringify(view)).not.toContain('420')
+    expect(JSON.stringify(view)).not.toMatch(number(420))
   })
 
   it('a participant who finished sees the live standings of those finished, the matrix and every traveller', async () => {
