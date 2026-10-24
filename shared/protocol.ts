@@ -13,6 +13,8 @@ export interface PublicUser {
   robot?: boolean
   /** Which robot: the club's (淡江機器人) or the GIB-compatible 2/1 one; older records have none (the club's) */
   robotKind?: RobotKind
+  /** How strong the robot plays (e6-t20); older records have none */
+  robotLevel?: RobotLevel
 }
 
 /**
@@ -63,10 +65,37 @@ export const isRobotId = (id: string | null | undefined) => !!id && id.startsWit
 export const ROBOT_KINDS = ['tku', 'gib'] as const
 export type RobotKind = (typeof ROBOT_KINDS)[number]
 export const isRobotKind = (value: unknown): value is RobotKind => ROBOT_KINDS.includes(value as RobotKind)
-export const robotId = (kind: RobotKind, seat: Seat) => `${ROBOT_PREFIX}${kind}:${seat}`
+
+/**
+ * How strong a robot plays (e6-t18, ROBOT.md §7): 初學者, 大專, 公開組, 橋士組, or the teacher's own
+ * mix. `shared/robot/levels.ts` has what each level does.
+ */
+export const ROBOT_LEVELS = ['beginner', 'college', 'open', 'master', 'custom'] as const
+export type RobotLevel = (typeof ROBOT_LEVELS)[number]
+export const isRobotLevel = (value: unknown): value is RobotLevel => ROBOT_LEVELS.includes(value as RobotLevel)
+/** The level of every robot seated before levels existed, and of a robot id without one */
+export const DEFAULT_ROBOT_LEVEL: RobotLevel = 'college'
+/**
+ * The levels a host can choose now. 橋士組 needs DDS on the server, which waits for the paid plan
+ * (ARCHITECTURE.md §5.1.1); 自訂 waits for a screen to set its parameters.
+ */
+export const OFFERED_ROBOT_LEVELS: readonly RobotLevel[] = ['beginner', 'college', 'open']
+export const isOfferedRobotLevel = (value: unknown): value is RobotLevel => OFFERED_ROBOT_LEVELS.includes(value as RobotLevel)
+
+/**
+ * A robot's id carries its kind and level, so both move with it when seats are swapped and survive
+ * a reload: 'robot:gib:N' (大專, the default, has no level in the id, as before levels existed),
+ * 'robot:gib:beginner:N'
+ */
+export const robotId = (kind: RobotKind, seat: Seat, level: RobotLevel = DEFAULT_ROBOT_LEVEL) =>
+  level === DEFAULT_ROBOT_LEVEL ? `${ROBOT_PREFIX}${kind}:${seat}` : `${ROBOT_PREFIX}${kind}:${level}:${seat}`
 export function robotKindOf(id: string): RobotKind {
   const kind = id.slice(ROBOT_PREFIX.length).split(':')[0]
   return isRobotKind(kind) ? kind : 'tku'
+}
+export function robotLevelOf(id: string): RobotLevel {
+  const parts = id.slice(ROBOT_PREFIX.length).split(':')
+  return parts.length === 3 && isRobotLevel(parts[1]) ? parts[1] : DEFAULT_ROBOT_LEVEL
 }
 
 export interface ChatMessage {
@@ -86,6 +115,8 @@ export type TableVisibility = (typeof TABLE_VISIBILITIES)[number]
 export interface TableSettings {
   visibility: TableVisibility
   allowKibitz: boolean
+  /** The level robots get when the host seats one without choosing; 大專 when not set */
+  robotLevel?: RobotLevel
 }
 export const DEFAULT_TABLE_SETTINGS: TableSettings = { visibility: 'public', allowKibitz: true }
 
@@ -93,13 +124,15 @@ export const DEFAULT_TABLE_SETTINGS: TableSettings = { visibility: 'public', all
 export function parseTableSettings(value: unknown): Partial<TableSettings> | null {
   if (value === undefined) return {}
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
-  const { visibility, allowKibitz, ...rest } = value as Record<string, unknown>
+  const { visibility, allowKibitz, robotLevel, ...rest } = value as Record<string, unknown>
   if (Object.keys(rest).length) return null
   if (visibility !== undefined && !TABLE_VISIBILITIES.includes(visibility as TableVisibility)) return null
   if (allowKibitz !== undefined && typeof allowKibitz !== 'boolean') return null
+  if (robotLevel !== undefined && !isOfferedRobotLevel(robotLevel)) return null
   return {
     ...(visibility !== undefined && { visibility: visibility as TableVisibility }),
     ...(allowKibitz !== undefined && { allowKibitz }),
+    ...(robotLevel !== undefined && { robotLevel }),
   }
 }
 
@@ -238,8 +271,8 @@ export type ClientMessage =
   | { type: 'leaveTable' }
   /** The host asks a person to leave a seat; they stay at the table, watching */
   | { type: 'kick'; seat: Seat }
-  /** The club's robot unless `kind` says otherwise */
-  | { type: 'addRobot'; seat: Seat; kind?: RobotKind }
+  /** The club's robot unless `kind` says otherwise, at the table's robot level unless `level` does */
+  | { type: 'addRobot'; seat: Seat; kind?: RobotKind; level?: RobotLevel }
   | { type: 'removeRobot'; seat: Seat }
   | { type: 'call'; call: Call; alert?: string }
   | { type: 'play'; card: Card }

@@ -3,7 +3,7 @@ import { rankOf, SUITS, type Strain, type Suit } from '../../../cards.ts'
 import { stopper as holds, suitCards } from '../../hand.ts'
 import { cheapest, type Ctx } from '../context.ts'
 import type { Hand } from '../evaluate.ts'
-import { ANY, type Dynamic, type Note, type Range, type Rule, type Spec } from '../spec.ts'
+import { ANY, fromLevel, type Dynamic, type Note, type Range, type Rule, type Spec } from '../spec.ts'
 
 /**
  * Helpers the club's books share. The club's system is a first-fit system (`System.firstFit`): in
@@ -34,6 +34,9 @@ export const reads = (call: Call, shows: Spec): Rule => ({ call, shows, needs: {
 
 /** Pass, whatever the hand */
 export const pass = (shows?: Spec): Rule => rule('P', shows)
+
+/** A convention the beginner robot leaves out (from 大專 up, ROBOT.md §7) */
+export const convention = (r: Rule): Rule => fromLevel('college', r)
 
 // ── The hand ─────────────────────────────────────────────────────────────────────────────────
 

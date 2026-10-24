@@ -46,6 +46,7 @@ function responses(m: Suit, passed: boolean): Rule[] {
     for (const y of MAJORS)
       rules.push({
         call: bid(2, y),
+        minLevel: 'college',
         shows: { name: 'fitJump', len: { [y]: [5, 13], [m]: [4, 13] }, hcp: [9, 11] },
         when: (h) => h.len[m] >= 4 && majorToBid(h) === y,
       })
@@ -55,6 +56,7 @@ function responses(m: Suit, passed: boolean): Rule[] {
   rules.push(
     {
       call: bid(2, m),
+      minLevel: 'college',
       shows: { name: 'invertedMinor', len: { [m]: [support, 13], ...fewMajors }, hcp: plus(10), forcing: 'oneRound' },
     },
     { call: '3N', shows: { hcp: [13, 15], balanced: true, len: fewMajors } },
@@ -84,6 +86,7 @@ function afterNotrumpRebid(m: Suit, M: Suit): Rule[] {
     { call: '3N', shows: { hcp: [13, 15], notes: [{ key: 'signoff' }] }, when: (h) => h.len[M] <= 4 && (M === 'S' || h.len.S < 4) },
     {
       call: bid(2, nm),
+      minLevel: 'college',
       shows: { name: 'newMinorForcing', hcp: plus(11), forcing: 'oneRound', artificial: true },
       when: (h) => h.len[M] >= 5 || (M === 'H' && h.len.S >= 4),
     },
@@ -118,6 +121,7 @@ function fourthSuit(fourth: Suit, level: number, second: Suit): Rule[] {
   return [
     {
       call: bid(level, fourth),
+      minLevel: 'college',
       shows: { name: 'fourthSuit', hcp: plus(12), forcing: 'game', artificial: true },
       when: (h) => h.len[second] < 4 && !stopped(h),
     },
@@ -129,6 +133,7 @@ function fourthSuit(fourth: Suit, level: number, second: Suit): Rule[] {
 /** After opener's reverse: 2NT is a weak relay to 3♣ (Lebensohl); anything else is forcing */
 const reverseRelay: Rule = {
   call: '2N',
+  minLevel: 'college',
   shows: { name: 'lebensohl', hcp: [5, 8], notes: [{ key: 'relayTo', calls: ['3C'] }], artificial: true, forcing: 'oneRound' },
   when: (h) => h.hcp <= 8,
 }

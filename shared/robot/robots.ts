@@ -1,7 +1,8 @@
 import type { AuctionCall, Call } from '../auction.ts'
 import type { Vulnerability } from '../board.ts'
 import type { Card, Seat } from '../cards.ts'
-import type { RobotKind } from '../protocol.ts'
+import type { RobotKind, RobotLevel } from '../protocol.ts'
+import { paramsOf } from './levels.ts'
 import { describe } from './system/describe.ts'
 import { choose } from './system/engine.ts'
 import { GIB } from './system/gib/index.ts'
@@ -31,8 +32,9 @@ export function robotCall(
   auction: AuctionCall[],
   dealer: Seat,
   vul: Vulnerability,
+  level: RobotLevel = 'college',
 ): RobotBid {
-  const { call, shows } = choose(ROBOT_SYSTEMS[kind], hand, seat, auction, dealer, vul)
+  const { call, shows } = choose(ROBOT_SYSTEMS[kind], hand, seat, auction, dealer, vul, paramsOf(level).system)
   // Like GIB, every call but pass is alerted with its explanation
   if (call === 'P') return { call }
   return shows ? { call, alert: describe(shows, 'zh'), meaning: shows } : { call, alert: '' }

@@ -29,6 +29,7 @@ function jumpShifts(o: Suit): Rule[] {
   return UP.filter((x) => above(x, o)).map(
     (x): Rule => ({
       call: bid(2, x),
+      minLevel: 'college',
       shows: { name: 'soloway', quality: { [x]: 'rebiddable' }, tp: [17, ANY], controls: [4, ANY], forcing: 'game' },
       when: (h) => solowayType(h, o, x) > 0 && UP.every((s) => s === x || solowayType(h, o, s) === 0 || h.len[s] <= h.len[x]),
     }),

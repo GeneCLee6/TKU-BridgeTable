@@ -216,6 +216,55 @@ describe('viewer perspective and robots', () => {
     expect(screen.queryByRole('menu')).toBeNull()
   })
 
+  it('offers each robot at a level, with 橋士組 shown but not yet available (e6-t20)', async () => {
+    const onPick = vi.fn()
+    const option = (label: string, extra = {}) => ({ label, name: `放淡江機器人：${label}`, onSelect: () => onPick(label), ...extra })
+    wrap(
+      <SeatPlate
+        seat="N"
+        occupant={null}
+        vulnerable={false}
+        turn={false}
+        isMe={false}
+        actions={[
+          {
+            label: '放淡江機器人',
+            options: [option('初學者'), option('大專', { current: true }), option('公開組'), option('橋士組', { disabled: true, hint: '付費後開放' })],
+          },
+        ]}
+      />,
+    )
+    await userEvent.click(screen.getByRole('button', { name: /空位/ }))
+    const group = screen.getByRole('group', { name: '放淡江機器人' })
+    expect(within(group).getAllByRole('menuitem').map((i) => i.textContent)).toEqual(['初學者', '大專', '公開組', '橋士組'])
+    expect(within(group).getByRole('menuitem', { name: '放淡江機器人：橋士組 · 付費後開放' })).toBeDisabled()
+    await userEvent.click(within(group).getByRole('menuitem', { name: '放淡江機器人：初學者' }))
+    expect(onPick).toHaveBeenCalledWith('初學者')
+    expect(screen.queryByRole('menu')).toBeNull()
+  })
+
+  it('shows a robot’s level on its name plate; robots from before levels are 大專', () => {
+    wrap(
+      <>
+        <SeatPlate seat="N" occupant={{ id: 'robot:gib:beginner:N', username: 'Robot', robot: true, robotKind: 'gib', robotLevel: 'beginner', online: true }} vulnerable={false} turn={false} isMe={false} />
+        <SeatPlate seat="E" occupant={{ id: 'robot:E', username: 'Robot', robot: true, online: true }} vulnerable={false} turn={false} isMe={false} />
+      </>,
+    )
+    expect(screen.getByText('2/1 機器人').closest('[data-seat]')?.querySelector('[data-level]')?.textContent).toBe('初學者')
+    expect(screen.getByText('淡江機器人').closest('[data-seat]')?.querySelector('[data-level]')?.textContent).toBe('大專')
+  })
+
+  it('lets the host choose the table’s default robot level, not 橋士組 yet', async () => {
+    const onSubmit = vi.fn()
+    wrap(<TableSettingsDialog title="開新桌" submitLabel="開桌" onSubmit={onSubmit} onClose={() => {}} />)
+    const select = screen.getByRole('combobox', { name: '機器人等級' })
+    expect(select).toHaveValue('college')
+    expect(within(select).getByRole('option', { name: /橋士組/ })).toBeDisabled()
+    await userEvent.selectOptions(select, 'beginner')
+    await userEvent.click(screen.getByRole('button', { name: '開桌' }))
+    expect(onSubmit).toHaveBeenCalledWith({ visibility: 'public', allowKibitz: true, robotLevel: 'beginner' })
+  })
+
   it('crowns the host, puts declarer and dummy at the right end, and has no menu without actions', () => {
     wrap(
       <SeatPlate

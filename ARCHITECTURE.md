@@ -316,11 +316,11 @@ SQL 由 `worker/history-index.ts` 的 `searchBoards` 組：只有固定的 SQL �
 
 ## 5.1 機器人
 
-座位裡的 id 若是 `robot:<種類>:<座位>` 這種格式就是機器人：`robot:gib:N` 是 2/1 機器人（GIB 相容），`robot:tku:N` 是淡江機器人，舊資料的 `robot:N` 一律當淡江機器人（`shared/protocol.ts` 的 `robotId`、`robotKindOf`）。房主放機器人時選種類（`addRobot` 的 `kind`，沒寫就是淡江機器人），機器人照自己的種類叫牌（`shared/robot/robots.ts` 的 `robotCall`）；2/1 機器人的叫品除了繁中說明還存著叫品的意義（`AuctionCall.meaning`），瀏覽器依觀看者的語言顯示，規則檔需要時才載入。名牌與紀錄裡的機器人帶 `robotKind`，畫面依語言顯示名字（`strings.ts` 的 `playerName`）。每次狀態改變後，`ClubService.scheduleRobots` 檢查是否輪到機器人（叫牌、出牌，或回應攤牌／撤回），經排程器（§5）排一個短暫延遲（叫牌 0.8 秒、出牌 1.4 秒、一墩結束後 3 秒，配合牌 1.3 秒的滑動）再執行，執行完再排下一個；每張桌子同時最多一個機器人工作。機器人同意撤回；攤牌由對手方的機器人用雙明手分析判斷（`shared/robot/claim.ts`，見 `ROBOT.md` §3.1）。物件重新載入時也會重新排程。至少要有一位真人在座，機器人才會行動；最後一位真人離開，桌子就關閉。
+座位裡的 id 若是 `robot:<種類>:<座位>` 這種格式就是機器人：`robot:gib:N` 是 2/1 機器人（GIB 相容），`robot:tku:N` 是淡江機器人，舊資料的 `robot:N` 一律當淡江機器人（`shared/protocol.ts` 的 `robotId`、`robotKindOf`）。**等級也寫在 id 裡**（`e6-t20` 的決定）：`robot:<種類>:<等級>:<座位>`，例如 `robot:tku:beginner:E`；大專（預設）不寫等級，所以加等級前的 id 不變，舊的 `robot:N`、`robot:gib:N` 都讀成大專（`robotLevelOf`）。放在 id 裡而不是牌桌狀態，是因為座位對調（`swapForDeclarer`／`unswap`）時 id 跟著機器人走、物件重新載入時跟著牌桌存檔回來、紀錄的玩家（`publicUserById`）也直接從 id 帶出 `robotLevel`，不用另外同步一份以座位為鍵的資料。房主放機器人時可以指定等級（`addRobot` 的 `level`），沒指定就用牌桌設定的 `robotLevel`（開桌或牌桌設定選，沒設就是大專）；只接受現在開放的等級（`OFFERED_ROBOT_LEVELS`：初學者、大專、公開組），其他丟 `badRobotLevel`。等級做什麼見 `ROBOT.md` §7。房主放機器人時選種類（`addRobot` 的 `kind`，沒寫就是淡江機器人），機器人照自己的種類叫牌（`shared/robot/robots.ts` 的 `robotCall`）；2/1 機器人的叫品除了繁中說明還存著叫品的意義（`AuctionCall.meaning`），瀏覽器依觀看者的語言顯示，規則檔需要時才載入。名牌與紀錄裡的機器人帶 `robotKind` 與 `robotLevel`，畫面依語言顯示名字（`strings.ts` 的 `playerName`），名牌另外顯示等級。每次狀態改變後，`ClubService.scheduleRobots` 檢查是否輪到機器人（叫牌、出牌，或回應攤牌／撤回），經排程器（§5）排一個短暫延遲（叫牌 0.8 秒、出牌 1.4 秒、一墩結束後 3 秒，配合牌 1.3 秒的滑動）再執行，執行完再排下一個；每張桌子同時最多一個機器人工作。機器人同意撤回；攤牌由對手方的機器人用雙明手分析判斷（`shared/robot/claim.ts`，見 `ROBOT.md` §3.1）。物件重新載入時也會重新排程。至少要有一位真人在座，機器人才會行動；最後一位真人離開，桌子就關閉。
 
 **真人不當機器人的夢家**：叫牌結束時若莊家是機器人、夢家是真人，`swapForDeclarer` 把兩人的座位對調（同 BBO），真人坐到莊家的位子主打，機器人帶著它的種類坐到原本的位子當夢家；對調記在 `Table.swapped`。若撤回最後一個 Pass 讓叫牌重新開始，`unswap` 換回來；下一副發牌時清掉記錄（座位維持對調後的樣子）。叫牌與出牌規則見 `ROBOT.md`。
 
-**機器人的大腦**（`shared/robot/brain.ts`）：`ClubService` 只透過 `RobotBrain`（`bid`、`play`、`acceptsClaim`）問機器人，預設是規則機器人 `ruleBrain`，測試或之後更強的大腦從 `ClubConfig.brain` 換進來。排程時只決定「哪個機器人、多久後動」（`robotMove`），輪到它時才問大腦（`decide`），所以每一步只想一次。現在的回答是同步的；`e6-t11` 改成非同步，2 秒沒回來或出錯就用規則機器人。
+**機器人的大腦**（`shared/robot/brain.ts`）：`ClubService` 只透過 `RobotBrain`（`bid`、`play`、`acceptsClaim`，都帶機器人的種類與等級）問機器人，預設是規則機器人 `ruleBrain`，測試或之後更強的大腦從 `ClubConfig.brain` 換進來。排程時只決定「哪個機器人、多久後動」（`robotMove`），輪到它時才問大腦（`decide`），所以每一步只想一次。現在的回答是同步的；`e6-t11` 改成非同步，2 秒沒回來或出錯就用規則機器人。
 
 ### 5.1.1 決策紀錄：機器人運算放哪裡（`e6-t09`，2026-10-24）
 

@@ -42,6 +42,7 @@ const askRkcb: Book = {
   rules: [
     {
       call: '4N',
+      minLevel: 'college',
       shows: (ctx) => ({ name: 'rkcb', trump: trumpOf(ctx)!, notes: [{ key: 'slamInterest' }], forcing: 'oneRound', artificial: true }),
       when: wantsSlam,
     },

@@ -3,7 +3,7 @@ import type { Suit } from '../../../cards.ts'
 import type { Ctx } from '../context.ts'
 import type { Hand } from '../evaluate.ts'
 import type { Book, Rule } from '../spec.ts'
-import { answer, answerIs, bid, contested, fiveCard, iOpened, isMajor, length, onlyIf, ORDER, other, ours, overcallOf, overcallSuit, partnerOpened, pass, plus, reads, rule, stopper } from './util.ts'
+import { answer, answerIs, bid, contested, convention, fiveCard, iOpened, isMajor, length, onlyIf, ORDER, other, ours, overcallOf, overcallSuit, partnerOpened, pass, plus, reads, rule, stopper } from './util.ts'
 
 /**
  * 1NT (淡江橋譜「1NT的答叫」「雷本索特約」): 2♣ Stayman, 2♦/2♥ transfers, 2♠ minor ask, 2NT
@@ -21,14 +21,14 @@ const stayman = { name: 'stayman', hcp: plus(9), artificial: true, forcing: 'one
 const responses: Book = {
   after: '1N (P)',
   rules: [
-    rule('4D', { name: 'texas', len: length('H', 6), hcp: [10, 15], notes: [{ key: 'transferTo', strain: 'H' }] }, (h) => longMajor(h) === 'H' && h.len.H >= 6 && h.hcp >= 10 && h.hcp <= 15),
-    rule('4H', { name: 'texas', len: length('S', 6), hcp: [10, 15], notes: [{ key: 'transferTo', strain: 'S' }] }, (h) => longMajor(h) === 'S' && h.len.S >= 6 && h.hcp >= 10 && h.hcp <= 15),
+    convention(rule('4D', { name: 'texas', len: length('H', 6), hcp: [10, 15], notes: [{ key: 'transferTo', strain: 'H' }] }, (h) => longMajor(h) === 'H' && h.len.H >= 6 && h.hcp >= 10 && h.hcp <= 15)),
+    convention(rule('4H', { name: 'texas', len: length('S', 6), hcp: [10, 15], notes: [{ key: 'transferTo', strain: 'S' }] }, (h) => longMajor(h) === 'S' && h.len.S >= 6 && h.hcp >= 10 && h.hcp <= 15)),
     // Five of one major and four of the other: Stayman with invitational values
-    rule('2C', stayman, (h) => !!longMajor(h) && h.len[other(longMajor(h)!)] === 4 && h.hcp >= 9),
-    rule('2D', { name: 'transfer', len: length('H', 5), artificial: true, notes: [{ key: 'transferTo', strain: 'H' }] }, (h) => longMajor(h) === 'H'),
-    rule('2H', { name: 'transfer', len: length('S', 5), artificial: true, notes: [{ key: 'transferTo', strain: 'S' }] }, (h) => longMajor(h) === 'S'),
-    rule('2C', stayman, (h) => fourMajor(h) && h.hcp >= 9),
-    rule('2S', { name: 'minorAsk', hcp: [0, 7], artificial: true }, (h) => h.hcp < 8 && (h.len.C >= 6 || h.len.D >= 6)),
+    convention(rule('2C', stayman, (h) => !!longMajor(h) && h.len[other(longMajor(h)!)] === 4 && h.hcp >= 9)),
+    convention(rule('2D', { name: 'transfer', len: length('H', 5), artificial: true, notes: [{ key: 'transferTo', strain: 'H' }] }, (h) => longMajor(h) === 'H')),
+    convention(rule('2H', { name: 'transfer', len: length('S', 5), artificial: true, notes: [{ key: 'transferTo', strain: 'S' }] }, (h) => longMajor(h) === 'S')),
+    convention(rule('2C', stayman, (h) => fourMajor(h) && h.hcp >= 9)),
+    convention(rule('2S', { name: 'minorAsk', hcp: [0, 7], artificial: true }, (h) => h.hcp < 8 && (h.len.C >= 6 || h.len.D >= 6))),
     rule('6N', { hcp: [17, 19], notes: [{ key: 'smallSlam' }] }, (h) => h.hcp >= 17 && h.hcp <= 19),
     rule('4N', { name: 'quantitative', hcp: [16, 16], notes: [{ key: 'noMajor' }] }, (h) => h.hcp === 16),
     rule('3N', { hcp: [10, 15], notes: [{ key: 'noMajor' }, { key: 'toPlay' }] }, (h) => h.hcp >= 10),
@@ -142,15 +142,17 @@ const lebensohl: Book = {
     ...ORDER.map((s) =>
       rule(bid(3, s), { len: length(s, 5), hcp: plus(10), forcing: 'game' }, (h, ctx) => fiveCard(h, [theirs(ctx)]) === s && h.hcp >= 10),
     ),
-    rule('2N', (ctx) => ({ name: 'lebensohl', hcp: plus(10), stop: { [theirs(ctx)]: 'stop' }, notes: [{ key: 'relayTo', calls: ['3C'] }], artificial: true }), (h, ctx) => h.hcp >= 10 && stopper(h, theirs(ctx))),
+    convention(rule('2N', (ctx) => ({ name: 'lebensohl', hcp: plus(10), stop: { [theirs(ctx)]: 'stop' }, notes: [{ key: 'relayTo', calls: ['3C'] }], artificial: true }), (h, ctx) => h.hcp >= 10 && stopper(h, theirs(ctx)))),
     rule('3N', { hcp: plus(10), notes: [{ key: 'toPlay' }] }, (h) => h.hcp >= 10),
     ...ORDER.map((s) =>
       rule(bid(2, s), { len: length(s, 5), hcp: [5, 8], notes: [{ key: 'signoff' }] }, (h, ctx) => fiveCard(h, [theirs(ctx)]) === s && h.hcp >= 5 && ctx.legal.has(bid(2, s))),
     ),
-    rule('2N', { name: 'lebensohl', hcp: [5, 9], notes: [{ key: 'relayTo', calls: ['3C'] }], artificial: true }, (h, ctx) => {
-      const five = fiveCard(h, [theirs(ctx)])
-      return !!five && h.hcp >= 5 && h.len[five] >= 6
-    }),
+    convention(
+      rule('2N', { name: 'lebensohl', hcp: [5, 9], notes: [{ key: 'relayTo', calls: ['3C'] }], artificial: true }, (h, ctx) => {
+        const five = fiveCard(h, [theirs(ctx)])
+        return !!five && h.hcp >= 5 && h.len[five] >= 6
+      }),
+    ),
     pass(),
   ],
 }
