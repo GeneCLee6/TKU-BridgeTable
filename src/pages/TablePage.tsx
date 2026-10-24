@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { EyeOff, Lock, Settings } from 'lucide-react'
 import { Link, useParams } from 'react-router-dom'
 import styled, { css, keyframes } from 'styled-components'
 import { isVulnerable } from '../../shared/board.ts'
@@ -13,6 +14,7 @@ import { DEAL_MS, DealAnimation } from '../components/DealAnimation.tsx'
 import { SidePanel } from '../components/SidePanel.tsx'
 import { HandView } from '../components/HandView.tsx'
 import { SeatPlate, type SeatAction } from '../components/SeatPlate.tsx'
+import { TableSettingsDialog } from '../components/TableSettingsDialog.tsx'
 import { ContractLabel } from '../components/Suit.tsx'
 import { ClaimPicker, FeltButton, FeltPanel, Prompt, ResultPanel } from '../components/TablePanels.tsx'
 import { COLLECT_MS, TrickArea, TrickSpace, type CardOrigin, type Position } from '../components/TrickArea.tsx'
@@ -249,8 +251,28 @@ const InfoRow = styled.div`
 `
 
 const TableTitle = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
   font-size: 14px;
   font-weight: 700;
+  color: ${({ theme }) => theme.table.feltText};
+
+  & > svg { color: ${({ theme }) => theme.table.feltMuted}; }
+`
+
+/** The host's settings button, a small round one on the felt */
+const SettingsButton = styled.button`
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: ${({ theme }) => theme.table.shade};
   color: ${({ theme }) => theme.table.feltText};
 `
 
@@ -515,6 +537,7 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
   const [auctionFor, setAuctionFor] = useState(0)
   const [lastTrickFor, setLastTrickFor] = useState(0)
   const [claimingFor, setClaimingFor] = useState(0)
+  const [editingSettings, setEditingSettings] = useState(false)
   const showAuction = auctionFor === boardNo
   const showLast = lastTrickFor === boardNo
   const claiming = claimingFor === boardNo
@@ -865,7 +888,24 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
           <InfoRow>
             {board && <BoardInfo boardNo={board.boardNo} dealer={board.dealer} vul={board.vul} positions={at} size={infoSize} />}
             <TableTitle>
-              {t.tableName(table.number)} · {t.boardsPlayed(table.boardsPlayed)}
+              <span>
+                {t.tableName(table.number)} · {t.boardsPlayed(table.boardsPlayed)}
+              </span>
+              {table.settings.visibility === 'invite' && <Lock size={15} aria-label={t.inviteOnly} role="img" />}
+              {!table.settings.allowKibitz && <EyeOff size={15} aria-label={t.noKibitz} role="img" />}
+              {iAmHost && (
+                <SettingsButton
+                  type="button"
+                  aria-label={t.tableSettings}
+                  title={t.tableSettings}
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    setEditingSettings(true)
+                  }}
+                >
+                  <Settings size={16} aria-hidden />
+                </SettingsButton>
+              )}
             </TableTitle>
           </InfoRow>
         </Area>
@@ -945,6 +985,18 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
           </Actions>
         </Area>
       </Felt>
+      {editingSettings && iAmHost && (
+        <TableSettingsDialog
+          title={t.tableSettings}
+          submitLabel={t.save}
+          initial={table.settings}
+          onClose={() => setEditingSettings(false)}
+          onSubmit={(settings) => {
+            setEditingSettings(false)
+            send({ type: 'updateTableSettings', settings })
+          }}
+        />
+      )}
       <SidePanel
         tabs={['chat', 'people', 'history']}
         recent={table.recent}

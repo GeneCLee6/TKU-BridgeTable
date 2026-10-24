@@ -19,11 +19,13 @@ import {
 import { AppError, type MessageCode, type MessageParams } from '../shared/messages.ts'
 import {
   DEAL_COUNTDOWN_MS,
+  DEFAULT_TABLE_SETTINGS,
   HISTORY_PAGE_SIZES,
   isPermission,
   isRobotId,
   LAST_TRICK_MS,
   LIMITS,
+  parseTableSettings,
   PERMISSIONS,
   isRobotKind,
   robotId,
@@ -44,6 +46,7 @@ import {
   type PublicUser,
   type ServerMessage,
   type Site,
+  type TableSettings,
   type TableSummary,
   type TableView,
   type TableWire,
@@ -126,6 +129,8 @@ const SCHEMA = 2
  */
 const ROBOT_DELAY = { call: 800, card: 1400, afterTrick: 3000, answer: 400 }
 const ROBOT_NAME = 'Robot'
+
+const settingsOf = (table: Table): TableSettings => ({ ...DEFAULT_TABLE_SETTINGS, ...table.settings })
 
 /**
  * Accounts, tables and boards for one bridge club. All state lives in memory and every change is
@@ -627,7 +632,9 @@ export class ClubService {
     if (!this.users.has(userId)) throw new ClubError('signInAgain', {}, 401)
     switch (message?.type) {
       case 'createTable':
-        return this.createTable(userId)
+        return this.createTable(userId, message.settings)
+      case 'updateTableSettings':
+        return this.updateTableSettings(userId, message.settings)
       case 'joinTable':
         return this.joinTable(userId, this.requireTable(message.tableId))
       case 'sit':
@@ -679,7 +686,9 @@ export class ClubService {
     return table
   }
 
-  private async createTable(userId: string) {
+  private async createTable(userId: string, wanted?: unknown) {
+    const settings = parseTableSettings(wanted)
+    if (!settings) throw new ClubError('badTableSettings')
     await this.leave(userId)
     const used = new Set([...this.tables.values()].map((t) => t.number))
     let number = 1
@@ -695,6 +704,7 @@ export class ClubService {
       chat: [],
       createdAt: this.now(),
       mode: 'casual',
+      settings: { ...DEFAULT_TABLE_SETTINGS, ...settings },
     }
     this.tables.set(table.id, table)
     await this.save(table)
@@ -764,6 +774,15 @@ export class ClubService {
     if (people.includes(table.hostId) && online.includes(table.hostId)) return
     const next = people.find((id) => online.includes(id))
     if (next) table.hostId = next
+  }
+
+  /** The host changes how the table is run; only the fields sent change */
+  private async updateTableSettings(userId: string, wanted: unknown) {
+    const table = this.hostTable(userId)
+    const settings = parseTableSettings(wanted)
+    if (!settings) throw new ClubError('badTableSettings')
+    table.settings = { ...settingsOf(table), ...settings }
+    await this.save(table)
   }
 
   /** The host may ask anyone else to leave their seat; they stay at the table, watching */
@@ -1152,6 +1171,7 @@ export class ClubService {
         id: t.id,
         number: t.number,
         hostName: this.users.get(t.hostId)?.username ?? '—',
+        settings: settingsOf(t),
         seats: seatOccupants(t, (id) => this.publicUserById(id), isOnline),
         spectators: t.spectators.length,
         boardsPlayed: t.boardsPlayed,
@@ -1184,6 +1204,7 @@ export class ClubService {
       id: table.id,
       number: table.number,
       hostId: table.hostId,
+      settings: settingsOf(table),
       seats: seatOccupants(table, (id) => this.publicUserById(id), (id) => isRobotId(id) || online.includes(id)),
       spectators: table.spectators.flatMap((id) => this.publicUserById(id) ?? []),
       mySeat,
