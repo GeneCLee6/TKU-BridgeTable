@@ -57,9 +57,10 @@ import { DEFAULT_HISTORY_QUERY, type HistoryQuery } from '../shared/history-quer
 import { createHistoryIndex, indexRecord, searchBoards, unindexRecord } from './history-index.ts'
 import { modeOf } from './modes.ts'
 import { NotificationService } from './notifications.ts'
+import { Relations } from './relations.ts'
 import { AlarmQueue, manualScheduler, type JobKind, type Scheduler } from './scheduler.ts'
 import type { Store } from './store.ts'
-import { boardView, recordVisible, seatOccupants, type Table } from './views.ts'
+import { boardView, chatFor, recordVisible, seatOccupants, type Table } from './views.ts'
 
 /** An error shown to the user; the code is translated in the browser */
 export class ClubError extends AppError {
@@ -171,6 +172,9 @@ export class ClubService {
   >()
   /** The notification centre; other parts of the club call `notifications.notify` */
   readonly notifications: NotificationService
+  /** Whom each member follows (好友) and whom they blocked (AC-1.6) */
+  private readonly friends: Relations
+  private readonly blocks: Relations
 
   constructor(store: Store, connections: Connections, config: ClubConfig) {
     this.store = store
@@ -180,6 +184,8 @@ export class ClubService {
     this.random = config.random ?? secureRandomInt
     this.brain = config.brain ?? ruleBrain
     this.notifications = new NotificationService(store, this.now, (userId) => void this.pushNotifications(userId))
+    this.friends = new Relations(store, 'friend', this.now)
+    this.blocks = new Relations(store, 'block', this.now)
     if (config.schedule) {
       this.scheduler = manualScheduler(config.schedule)
     } else {
@@ -198,6 +204,8 @@ export class ClubService {
     for (const application of (await this.store.list<StoredApplication>('app:')).values())
       this.applications.set(application.id, application)
     for (const table of (await this.store.list<Table>('table:')).values()) this.tables.set(table.id, table)
+    await this.friends.load()
+    await this.blocks.load()
     this.settings = (await this.store.get<Partial<ClubSettings>>('meta:settings')) ?? {}
     createHistoryIndex(this.store.sql)
     const schema = (await this.store.get<number>('meta:schema')) ?? 1
@@ -552,6 +560,8 @@ export class ClubService {
     await this.store.delete(`user:${user.id}`)
     await this.revokeSessions(user.id)
     await this.notifications.forget(user.id)
+    await this.friends.forget(user.id)
+    await this.blocks.forget(user.id)
     this.connections.disconnect(user.id)
     this.broadcast()
   }
@@ -717,6 +727,10 @@ export class ClubService {
           throw new ClubError('unknownCommand')
         return this.notifications.markRead(userId, ids)
       }
+      case 'setFriend':
+        return this.setFriend(userId, message.userId, message.friend)
+      case 'setBlocked':
+        return this.setBlocked(userId, message.userId, message.blocked)
       case 'call':
       case 'play':
       case 'claim':
@@ -727,6 +741,39 @@ export class ClubService {
       default:
         throw new ClubError('unknownCommand')
     }
+  }
+
+  // ── Friends and blocks ──────────────────────────────────────────────────────────────────────
+
+  /** Another member's account, for a friend or block action; never oneself, never a robot */
+  private otherMember(userId: string, otherId: unknown): string {
+    if (otherId === userId) throw new ClubError('notSelf')
+    if (typeof otherId !== 'string' || !this.users.has(otherId)) throw new ClubError('userGone', {}, 404)
+    return otherId
+  }
+
+  /** Following is one-way and asks nobody; a member one has blocked must be unblocked first */
+  private async setFriend(userId: string, otherId: unknown, friend: unknown) {
+    const other = this.otherMember(userId, otherId)
+    if (typeof friend !== 'boolean') throw new ClubError('unknownCommand')
+    if (friend && this.blocks.has(userId, other)) throw new ClubError('unblockFirst')
+    await this.friends.set(userId, other, friend)
+  }
+
+  /**
+   * Blocking hides the other member's chat from the blocker and keeps them away from any table the
+   * blocker hosts; it also stops following them. They are not told
+   */
+  private async setBlocked(userId: string, otherId: unknown, blocked: unknown) {
+    const other = this.otherMember(userId, otherId)
+    if (typeof blocked !== 'boolean') throw new ClubError('unknownCommand')
+    await this.blocks.set(userId, other, blocked)
+    if (blocked) await this.friends.set(userId, other, false)
+  }
+
+  /** A member the host blocked may not join the table, to sit or to watch */
+  private checkWelcome(userId: string, table: Table) {
+    if (this.blocks.has(table.hostId, userId)) throw new ClubError('blockedByHost', {}, 403)
   }
 
   // ── Tables ──────────────────────────────────────────────────────────────────────────────────
@@ -777,6 +824,7 @@ export class ClubService {
 
   private async joinTable(userId: string, table: Table) {
     if (this.tableOf(userId) === table) return
+    this.checkWelcome(userId, table)
     await this.leave(userId)
     table.spectators.push(userId)
     await this.save(table)
@@ -786,6 +834,7 @@ export class ClubService {
     const current = this.tableOf(userId)
     const currentSeat = current === table ? this.seatOf(table, userId) : null
     if (currentSeat === seat) return
+    if (current !== table) this.checkWelcome(userId, table)
     // A person may take a robot's seat at any time, as on BBO
     const occupant = table.seats[seat]
     if (occupant && !isRobotId(occupant)) throw new ClubError('seatTaken')
@@ -1255,12 +1304,20 @@ export class ClubService {
           seat: table ? this.seatOf(table, u.id) : null,
         }
       })
-      .sort((a, b) => Number(b.online) - Number(a.online) || a.username.localeCompare(b.username))
+      // Online first; within each, the viewer's friends on top (好友置頂)
+      .sort(
+        (a, b) =>
+          Number(b.online) - Number(a.online) ||
+          Number(this.friends.has(userId, b.id)) - Number(this.friends.has(userId, a.id)) ||
+          a.username.localeCompare(b.username),
+      )
     return {
       online: online.flatMap((id) => this.publicUserById(id) ?? []),
       members,
       tables,
       myTableId: this.tableOf(userId)?.id ?? null,
+      friends: this.friends.of(userId),
+      blocked: this.blocks.of(userId),
     }
   }
 
@@ -1285,7 +1342,7 @@ export class ClubService {
         : null,
       boardsPlayed: table.boardsPlayed,
       dealAt: table.board?.phase === 'finished' && this.canDeal(table) ? (table.dealAt ?? null) : null,
-      chat: table.chat,
+      chat: chatFor(table.chat, (authorId) => this.blocks.has(userId, authorId)),
       recent: (table.recent ?? []).filter((summary) => recordVisible(summary, userId, this.now())),
     }
   }

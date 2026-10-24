@@ -62,6 +62,14 @@ export function recordVisible(
   return SEATS.some((seat) => record.players[seat]?.id === userId)
 }
 
+/**
+ * The table chat as one viewer sees it (AC-1.6): what members they blocked say is left out, for
+ * them only; everyone else still sees it. Unblocking brings the kept messages back
+ */
+export function chatFor(chat: ChatMessage[], blocked: (authorId: string) => boolean): ChatMessage[] {
+  return chat.filter((message) => !blocked(message.userId))
+}
+
 export function seatOccupants(
   table: Table,
   user: (id: string) => PublicUser | undefined,

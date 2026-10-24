@@ -3,7 +3,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import styled, { css } from 'styled-components'
 import { handviewerUrl } from '../../shared/lin.ts'
-import type { BoardRecord, BoardSummary, MemberStatus, PublicUser } from '../../shared/protocol.ts'
+import type { BoardRecord, BoardSummary, PublicUser } from '../../shared/protocol.ts'
 import { api } from '../lib/api.ts'
 import { formatDateTime, signed } from '../lib/format.ts'
 import { useTrickReplay } from '../lib/useTrickReplay.ts'
@@ -11,8 +11,9 @@ import { useAuth } from '../state/AuthContext.tsx'
 import { useClub } from '../state/ClubContext.tsx'
 import { usePreferences } from '../state/PreferencesContext.tsx'
 import { mobile } from '../styles/tokens.ts'
-import { playerName, seatLetter } from '../strings.ts'
+import { playerName } from '../strings.ts'
 import { AuctionBox } from './AuctionBox.tsx'
+import { PeopleList } from './PeopleList.tsx'
 import { PlayedCardsSwitch, RecordDiagram } from './RecordDiagram.tsx'
 import { ContractResult } from './Suit.tsx'
 
@@ -194,7 +195,7 @@ export function SidePanel({
           </ContentHead>
           <Body>
             {open === 'chat' && chat}
-            {open === 'people' && <PeopleList />}
+            {open === 'people' && <People />}
             {open === 'history' && <HistoryList recent={recent} board={board} onBoard={setBoard} newTab={page === 'table'} />}
           </Body>
         </Content>
@@ -224,83 +225,10 @@ export function SidePanel({
 
 // ── People ────────────────────────────────────────────────────────────────────────────────────
 
-const Group = styled.h3`
-  margin: 0;
-  padding: 10px 14px 4px;
-  color: ${({ theme }) => theme.colors.textMuted};
-  font-size: 13px;
-  font-weight: 700;
-`
-
-const Person = styled.li<{ $online: boolean }>`
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 7px 14px;
-  border-bottom: 1px solid ${({ theme }) => theme.colors.surfaceAlt};
-  opacity: ${({ $online }) => ($online ? 1 : 0.6)};
-`
-
-const Dot = styled.span<{ $online: boolean }>`
-  flex: none;
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: ${({ theme, $online }) => ($online ? theme.colors.success : theme.colors.border)};
-`
-
-const PersonName = styled.span`
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-weight: 600;
-`
-
-const Where = styled.span`
-  color: ${({ theme }) => theme.colors.textMuted};
-  font-size: 13px;
-  white-space: nowrap;
-`
-
-const List = styled.ul`
-  margin: 0;
-  padding: 0;
-  list-style: none;
-`
-
-function PeopleList() {
-  const { t } = usePreferences()
-  const { lobby } = useClub()
+function People() {
+  const { lobby, send } = useClub()
   const { user } = useAuth()
-  const members = lobby?.members ?? []
-  const online = members.filter((m) => m.online)
-  const offline = members.filter((m) => !m.online)
-  const where = (m: MemberStatus) => {
-    if (m.tableNumber === null) return m.online ? t.inLobby : ''
-    const table = lobby?.tables.find((x) => x.number === m.tableNumber)
-    const text = t.atTable(m.tableNumber, m.seat ? seatLetter[m.seat] : null)
-    return table && m.id !== user?.id ? <Link to={`/table/${table.id}`}>{text}</Link> : text
-  }
-  const row = (m: MemberStatus) => (
-    <Person key={m.id} $online={m.online}>
-      <Dot $online={m.online} aria-label={m.online ? t.online : t.offline} />
-      <PersonName>
-        {m.username}
-        {m.id === user?.id && t.youTag}
-      </PersonName>
-      <Where>{where(m)}</Where>
-    </Person>
-  )
-  return (
-    <div>
-      <Group>{t.onlineCount(online.length)}</Group>
-      <List>{online.map(row)}</List>
-      <Group>{t.offlineCount(offline.length)}</Group>
-      <List>{offline.map(row)}</List>
-    </div>
-  )
+  return <PeopleList lobby={lobby} userId={user?.id} send={send} />
 }
 
 // ── History ───────────────────────────────────────────────────────────────────────────────────
