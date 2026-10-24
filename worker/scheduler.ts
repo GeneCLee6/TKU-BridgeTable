@@ -37,21 +37,27 @@ export class AlarmQueue implements Scheduler {
     return this.jobs.has(key)
   }
 
-  /** Runs every job that is due, earliest first, then asks to be woken for the next one */
+  /**
+   * Runs every job that is due, starting them earliest first, then asks to be woken for the next
+   * one. The due jobs run side by side, so a robot that thinks (`e6-t11`) holds up no other table
+   */
   async runDue() {
     this.armedAt = undefined
     for (;;) {
       const now = this.now()
-      let due: [string, { at: number; run: () => Promise<void> }] | undefined
-      for (const entry of this.jobs) if (entry[1].at <= now && (!due || entry[1].at < due[1].at)) due = entry
-      if (!due) break
-      this.jobs.delete(due[0])
-      try {
-        await due[1].run()
-      } catch (error) {
-        // One failing job must not stop the others
-        console.error('scheduled job failed', due[0], error)
-      }
+      const due = [...this.jobs].filter(([, job]) => job.at <= now).sort((a, b) => a[1].at - b[1].at)
+      if (!due.length) break
+      for (const [key] of due) this.jobs.delete(key)
+      await Promise.all(
+        due.map(async ([key, job]) => {
+          try {
+            await job.run()
+          } catch (error) {
+            // One failing job must not stop the others
+            console.error('scheduled job failed', key, error)
+          }
+        }),
+      )
     }
     this.arm()
   }

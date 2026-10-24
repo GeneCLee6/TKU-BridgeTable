@@ -4,7 +4,7 @@ import type { Card, Seat } from '../cards.ts'
 import type { RobotKind, RobotLevel } from '../protocol.ts'
 import { paramsOf } from './levels.ts'
 import { describe } from './system/describe.ts'
-import { choose } from './system/engine.ts'
+import { alternative, choose } from './system/engine.ts'
 import { GIB } from './system/gib/index.ts'
 import { TKU } from './system/tku/index.ts'
 import type { Spec, System } from './system/spec.ts'
@@ -33,8 +33,13 @@ export function robotCall(
   dealer: Seat,
   vul: Vulnerability,
   level: RobotLevel = 'college',
+  /** Make the deliberate mistake (e6-t21): the next rule that fits, when there is one */
+  mistake = false,
 ): RobotBid {
-  const { call, shows } = choose(ROBOT_SYSTEMS[kind], hand, seat, auction, dealer, vul, paramsOf(level).system)
+  const depth = paramsOf(level).system
+  const system = ROBOT_SYSTEMS[kind]
+  const { call, shows } =
+    (mistake && alternative(system, hand, seat, auction, dealer, vul, depth)) || choose(system, hand, seat, auction, dealer, vul, depth)
   // Like GIB, every call but pass is alerted with its explanation
   if (call === 'P') return { call }
   return shows ? { call, alert: describe(shows, 'zh'), meaning: shows } : { call, alert: '' }

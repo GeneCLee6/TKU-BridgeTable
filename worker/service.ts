@@ -126,6 +126,8 @@ export interface ClubConfig {
   schedule?: (run: () => void, ms: number, kind: ScheduleKind) => void
   /** What the robots think with; the rule robot unless a stronger brain is given */
   brain?: RobotBrain
+  /** How long the brain may think before the rule robot answers instead (ms); THINK_LIMIT_MS unless a test sets it */
+  thinkLimitMs?: number
 }
 
 export type ScheduleKind = JobKind
@@ -143,6 +145,14 @@ const BACKFILL_BATCH = 100
  */
 const ROBOT_DELAY = { call: 800, card: 1400, afterTrick: 3000, answer: 400 }
 const ROBOT_NAME = 'Robot'
+/** The most a robot brain may think per action before the rule robot answers instead (AC-6.5) */
+const THINK_LIMIT_MS = 2000
+
+/** A robot's move, once its brain has answered */
+interface RobotAnswer {
+  message: ClientMessage
+  meaning?: RobotBid['meaning']
+}
 
 const settingsOf = (table: Table): TableSettings => ({ ...DEFAULT_TABLE_SETTINGS, ...table.settings })
 
@@ -165,6 +175,8 @@ export class ClubService {
   private readonly now: () => number
   private readonly random: RandomInt
   private readonly brain: RobotBrain
+  /** Tables whose robot is thinking; nothing else is scheduled for them until it answers */
+  private readonly thinking = new Set<string>()
   /** Robot moves and the next deal of every table, keyed `robot:<tableId>` and `deal:<tableId>` */
   private readonly scheduler: Scheduler
   /** The scheduler, when it is the alarm queue (not the tests' manual one) */
@@ -1270,37 +1282,39 @@ export class ClubService {
   // ── Robots ──────────────────────────────────────────────────────────────────────────────────
 
   /**
-   * Which robot at this table acts next and after what pause, if any. What it does is asked of the
-   * brain only when the move runs (`decide`), so a slow brain thinks once per move
+   * Which robot at this table acts next and after what pause, if any. What it does is asked of a
+   * brain only when the move runs (`decide`), so a slow brain thinks once per move; `decide` takes
+   * the brain so the rule robot can answer the same question when the club's brain is late
    */
-  private robotMove(
-    table: Table,
-  ): { seat: Seat; delay: number; decide: () => { message: ClientMessage; meaning?: RobotBid['meaning'] } } | null {
+  private robotMove(table: Table): { seat: Seat; delay: number; decide: (brain: RobotBrain) => Promise<RobotAnswer> } | null {
     const board = table.board
     if (!board || board.phase === 'finished' || this.humansSeated(table) === 0) return null
     const robot = (seat: Seat | null | undefined): seat is Seat => !!seat && isRobotId(table.seats[seat])
     const kindAt = (seat: Seat) => robotKindOf(table.seats[seat]!)
     const levelAt = (seat: Seat) => robotLevelOf(table.seats[seat]!)
+    const seed = this.mistakeSeed(table, board)
 
     // Robots agree to undo requests, and accept a claim only if the cards make it good
     if (table.undo) {
       const answer = SEATS.find((s) => robot(s) && !sameSide(s, table.undo!.seat))
       if (!answer) return null
-      return { seat: answer, delay: ROBOT_DELAY.answer, decide: () => ({ message: { type: 'undoRespond', accept: true } }) }
+      return { seat: answer, delay: ROBOT_DELAY.answer, decide: async () => ({ message: { type: 'undoRespond', accept: true } }) }
     }
     if (board.claim) {
       const answer = claimApprovers(board, board.claim.seat).find((s) => robot(s) && !board.claim!.accepted.includes(s))
       if (!answer) return null
-      const accept = () => this.brain.acceptsClaim(kindAt(answer), board, answer, levelAt(answer))
-      return { seat: answer, delay: ROBOT_DELAY.answer, decide: () => ({ message: { type: 'claimRespond', accept: accept() } }) }
+      const decide = async (brain: RobotBrain): Promise<RobotAnswer> => ({
+        message: { type: 'claimRespond', accept: await brain.acceptsClaim(kindAt(answer), board, answer, levelAt(answer)) },
+      })
+      return { seat: answer, delay: ROBOT_DELAY.answer, decide }
     }
     const turn = turnOf(board)
     if (!turn) return null
     if (board.phase === 'auction') {
       if (!robot(turn)) return null
-      const decide = () => {
-        const bid = this.brain.bid(kindAt(turn), board, turn, levelAt(turn))
-        return { message: { type: 'call', call: bid.call, alert: bid.alert } as ClientMessage, meaning: bid.meaning }
+      const decide = async (brain: RobotBrain): Promise<RobotAnswer> => {
+        const bid = await brain.bid(kindAt(turn), board, turn, levelAt(turn), seed)
+        return { message: { type: 'call', call: bid.call, alert: bid.alert }, meaning: bid.meaning }
       }
       return { seat: turn, delay: ROBOT_DELAY.call, decide }
     }
@@ -1310,17 +1324,56 @@ export class ClubService {
     return {
       seat: controller,
       delay: trickJustEnded ? ROBOT_DELAY.afterTrick : ROBOT_DELAY.card,
-      decide: () => ({ message: { type: 'play', card: this.brain.play(kindAt(controller), board, turn, levelAt(controller)) } }),
+      decide: async (brain) => ({ message: { type: 'play', card: await brain.play(kindAt(controller), board, turn, levelAt(controller), seed) } }),
     }
+  }
+
+  /**
+   * The key for the robots' deliberate mistakes on this board (ROBOT.md §8): the table and the
+   * board number, which stay the same when the board is undone or the object reloaded. A challenge
+   * table will key them by the challenge and the board's place in the set instead (§5.5)
+   */
+  private mistakeSeed(table: Table, board: BoardState) {
+    return `${table.id}:${board.boardNo}`
+  }
+
+  /** What a robot's answer depends on; an answer given for another position is dropped */
+  private positionOf(table: Table) {
+    const board = table.board
+    return JSON.stringify([
+      table.seats,
+      table.undo ?? null,
+      board && [board.boardNo, board.phase, board.auction.length, board.play.length, board.claim ?? null],
+    ])
   }
 
   /** Schedules the next robot move at a table; each move schedules the one after it */
   scheduleRobots(table: Table) {
     const key = `robot:${table.id}`
-    if (this.scheduler.pending(key)) return
+    if (this.scheduler.pending(key) || this.thinking.has(table.id)) return
     const move = this.robotMove(table)
     if (!move) return
     this.scheduler.add(key, 'robot', move.delay, () => this.runRobot(table.id))
+  }
+
+  /**
+   * Asks the club's brain, giving it at most the think limit; when it is late or fails the rule
+   * robot answers instead, so the table never stalls (AC-6.5). A late answer is ignored
+   */
+  private async think(decide: (brain: RobotBrain) => Promise<RobotAnswer>): Promise<RobotAnswer> {
+    if (this.brain === ruleBrain) return decide(ruleBrain)
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const late = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error('robot brain too slow')), this.config.thinkLimitMs ?? THINK_LIMIT_MS)
+    })
+    try {
+      return await Promise.race([decide(this.brain), late])
+    } catch (error) {
+      console.warn('robot brain failed, the rule robot answers', error)
+      return decide(ruleBrain)
+    } finally {
+      clearTimeout(timer)
+    }
   }
 
   private async runRobot(tableId: string) {
@@ -1328,7 +1381,20 @@ export class ClubService {
     if (!table) return
     const move = this.robotMove(table)
     if (!move) return
-    const { message, meaning } = move.decide()
+    // The brain may answer later: other messages go on meanwhile, and nothing else is scheduled
+    // for this table until it does
+    const position = this.positionOf(table)
+    this.thinking.add(tableId)
+    let answer: RobotAnswer
+    try {
+      answer = await this.think(move.decide)
+    } finally {
+      this.thinking.delete(tableId)
+    }
+    if (this.tables.get(tableId) !== table) return
+    // The table moved on while the robot thought (a person played, an undo, a seat changed): ask again
+    if (this.positionOf(table) !== position) return this.scheduleRobots(table)
+    const { message, meaning } = answer
     try {
       await this.act(table, move.seat, message, true, meaning)
     } catch (error) {

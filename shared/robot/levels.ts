@@ -3,8 +3,8 @@ import { DEFAULT_ROBOT_LEVEL, type RobotLevel } from '../protocol.ts'
 /**
  * What each robot level does (e6-t18, ROBOT.md §7, docs/PRD/e6-robot-play-levels-evaluation.md
  * 「等級設計」). Pure data: the system engine reads `system`, the card play `inference` and
- * `signals`; `play`, `errorRate` and `thinkMs` are kept for the tasks that use them (DDS endgames
- * and simulations after the paid plan, mistakes in `e6-t21`, the asynchronous brain in `e6-t11`).
+ * `signals`, the rule brain `errorRate` (`mistakes.ts`); `play` and `thinkMs` are kept for the
+ * stronger brains after the paid plan (DDS endgames, simulations; the service's think limit is 2 s).
  */
 
 /** How much of the system a robot bids: rules with a `minLevel` above it are left out */
@@ -35,8 +35,10 @@ export interface RobotParams {
  */
 export const LEVEL_PARAMS: Record<Exclude<RobotLevel, 'custom'>, RobotParams> = {
   beginner: { system: 'beginner', inference: false, signals: false, play: 'rules', errorRate: 0.15, thinkMs: 0 },
-  college: { system: 'college', inference: true, signals: true, play: 'rules', errorRate: 0.08, thinkMs: 0 },
-  open: { system: 'open', inference: true, signals: true, play: 'rulesEndgame', errorRate: 0.03, thinkMs: 1000 },
+  // 大專 and 公開組 make no deliberate mistakes until the calibration (e6-t22) says how many they
+  // need: 大專 stays the robot it was, and 公開組 must not err more than 大專
+  college: { system: 'college', inference: true, signals: true, play: 'rules', errorRate: 0, thinkMs: 0 },
+  open: { system: 'open', inference: true, signals: true, play: 'rulesEndgame', errorRate: 0, thinkMs: 1000 },
   master: { system: 'master', inference: true, signals: true, play: 'simulation', errorRate: 0, thinkMs: 2000 },
 }
 
