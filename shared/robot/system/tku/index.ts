@@ -1,4 +1,5 @@
 import type { System } from '../spec.ts'
+import { majors, unusual } from './majors.ts'
 import { minors, strong } from './minors.ts'
 import { notrump } from './notrump.ts'
 import { openings } from './openings.ts'
@@ -12,5 +13,5 @@ import { target } from './target.ts'
 export const TKU: System = {
   id: 'tku',
   firstFit: true,
-  books: [openings, ...notrump, ...strong, ...minors, target],
+  books: [openings, ...notrump, ...strong, ...majors, ...minors, ...unusual, target],
 }
