@@ -15,9 +15,11 @@
 - **B1 完成**（#36）：淡江機器人搬進制度引擎（`shared/robot/system/tku/`，`System.firstFit`），`bidding.ts` 與 `inferShown` 已刪；兩種機器人都有叫牌盒提示、Alert 依觀看者的語言顯示。規則書的叫品跟舊程式完全一樣，後備改用引擎的推論（差異見 `ROBOT.md` §2）。
 - **A6 完成**（#38）：`shared/imp.ts`（WBF IMP 表）、`shared/challenge-scoring.ts`（IMP、總分、MP、Cross-IMP、沒打完的副、同分名次）、`shared/dealer.ts` 條件發牌與 `deal-presets.ts`。**Phase A 地基全部完成。**
 - **B2 完成**（#39）：2/1 機器人防守改用 GIB 公開的出牌慣例（`play.ts` 的 `gib*`，`ROBOT.md` §3.2）：被動首攻、AK 攻 K、王牌合約攻短門、態度正、標準張數、第三家相等牌出最小、墊牌不打信號；淡江機器人不變。`chooseCard` 多一個 `kind` 參數。
-- **B3 完成**（#40）：`RobotBrain` 介面（`shared/robot/brain.ts`，`ClubConfig.brain`，執行時才問大腦）；決策紀錄 `ARCHITECTURE.md` §5.1.1：機器人運算選 Workers 付費方案＋WASM 版 DDS（`bridge-dds`），**付費要在 B4 開工前由社團確認**；DDS spike 的數字也在那裡。
+- **B3 完成**（#40）：`RobotBrain` 介面（`shared/robot/brain.ts`，`ClubConfig.brain`，執行時才問大腦）；決策紀錄 `ARCHITECTURE.md` §5.1.1：機器人運算選 Workers 付費方案＋WASM 版 DDS（`bridge-dds`），DDS spike 的數字也在那裡。
 - **暫不付費**（2026-10-24 社團決定，`ARCHITECTURE.md` §5.1.1）：先把規則機器人做強（新的 B4、B10），DDS 只用在殘局（`dd.ts`）與牌打完後的瀏覽器分析（B11）；伺服器 DDS 移到 ROADMAP Phase P，等需要等級 4 或使用者多了再付。
-- **下一批：ROADMAP 第 B4 批**（`e6-t39` `e6-t40` 出牌時讀叫牌推論、數牌）；B5（等級）、C1（好友）也沒有前提，可以交錯做。
+- **B4 完成**（#42）：出牌時讀叫牌與數牌（`shared/robot/reading.ts` 的 `TableReading`，`ROBOT.md` §3.3）：依推論決定飛牌方向、不往已知缺門又有王牌的對手兌現、避開對手叫過的花色。1,000 副同合約比較，莊家每副多拿 0.08（淡江）／0.11 墩（2/1）；AC-6.14 要等 B7、B10 才能正式驗收。
+- **C1 完成**（#41）：好友（單向、置頂、只看好友）與封鎖（伺服器不送被封鎖者的聊天、不能加入封鎖者當房主的桌），`worker/relations.ts`。AC-1.6 還差好友上線提示（`e1-t24`）、封鎖擋私訊（`e1-t27`）與挑戰邀請（`e7-t05`）。
+- **下一批：ROADMAP 第 B5 批**（`e6-t18`～`e6-t20` 機器人等級）與 **C2 批**（`e7-t01`～`e7-t03` 挑戰設計文件、`DealSet`、儲存），兩批沒有互相依賴，可以平行做。
 
 ## 2. 建議順序
 
@@ -58,7 +60,7 @@ Token 吃掉的是**對話上下文**，不是程式碼。原則：**一個 sess
 其他：
 - **effort 用 medium**。照規格寫規則與測試不需要 xhigh；只有設計決策（新 epic、資料模型）開 high。
 - **不要在一個 session 做超過一組 task。** 上下文會自動壓縮，但壓縮後品質下降，不如重開。
-- **subagent 只用來搜尋和讀大檔**，不要用來寫程式碼（它看不到你的決策，容易重做）。
+- **subagent 只用來搜尋和讀大檔**，不要用來寫程式碼（它看不到你的決策，容易重做）。例外：兩批**互不依賴**時可以各開一個 subagent 平行做（B4＋C1 就是這樣做的），每個在自己的 worktree、開自己的 PR，**都不改 `docs/NEXT.md`**，由主 session 審過 PR、合併後統一更新。
 - 一個 session 想連續做多項時，可以在指令裡寫「做完第 N 項後，用 `/clear` 等價的方式：把結論寫進 NEXT.md，然後從乾淨的上下文開始第 N+1 項」——但目前 Claude Code 的 session 不能自己清上下文，**最可靠的做法是你每項開一個新 session**（或用 `claude -p "<上面的範本>"` 寫成腳本依序跑）。
 - 多個 task 合成一個 PR 是允許的（PRD README 的「一個 task 一個 PR」改成「一組相關 task 一個 PR，標題列出編號」）。
 
