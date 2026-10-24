@@ -54,6 +54,7 @@ import { ruleBrain, type RobotBrain } from '../shared/robot/brain.ts'
 import type { RobotBid } from '../shared/robot/robots.ts'
 import { hashPassword, randomId, SESSION_DAYS, verifyPassword } from './auth.ts'
 import { DEFAULT_HISTORY_QUERY, type HistoryQuery } from '../shared/history-query.ts'
+import { ChallengeStore } from './challenges.ts'
 import { createHistoryIndex, indexRecord, searchBoards, unindexRecord } from './history-index.ts'
 import { modeOf } from './modes.ts'
 import { NotificationService } from './notifications.ts'
@@ -175,6 +176,8 @@ export class ClubService {
   /** Whom each member follows (好友) and whom they blocked (AC-1.6) */
   private readonly friends: Relations
   private readonly blocks: Relations
+  /** Challenges, kept in SQL (§5.5); creating and playing them come in later batches */
+  readonly challenges: ChallengeStore
 
   constructor(store: Store, connections: Connections, config: ClubConfig) {
     this.store = store
@@ -186,6 +189,7 @@ export class ClubService {
     this.notifications = new NotificationService(store, this.now, (userId) => void this.pushNotifications(userId))
     this.friends = new Relations(store, 'friend', this.now)
     this.blocks = new Relations(store, 'block', this.now)
+    this.challenges = new ChallengeStore(store.sql)
     if (config.schedule) {
       this.scheduler = manualScheduler(config.schedule)
     } else {
@@ -208,6 +212,7 @@ export class ClubService {
     await this.blocks.load()
     this.settings = (await this.store.get<Partial<ClubSettings>>('meta:settings')) ?? {}
     createHistoryIndex(this.store.sql)
+    this.challenges.createTables()
     const schema = (await this.store.get<number>('meta:schema')) ?? 1
     if (schema < 2) await this.migrate()
     if (schema < 3) await this.backfillIndex()
@@ -562,6 +567,7 @@ export class ClubService {
     await this.notifications.forget(user.id)
     await this.friends.forget(user.id)
     await this.blocks.forget(user.id)
+    this.challenges.forget(user.id, this.now())
     this.connections.disconnect(user.id)
     this.broadcast()
   }

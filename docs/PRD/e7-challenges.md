@@ -95,9 +95,9 @@ challenge（pending → active → finished｜cancelled｜expired）
 
 **M1 · 規則、資料與計分**
 
-- [ ] `e7-t01` 設計文件：資料模型、狀態機、計分定義、公平規則、可見性，寫進 `ARCHITECTURE.md`（新章節「挑戰」）與 §4 · AC-7.1, AC-7.2, AC-7.3, AC-7.4, AC-7.5 · S
-- [ ] `e7-t02` `DealSet`：伺服器以密碼學亂數產生 N 副並保存；牌號與身價照 16 副循環；只在參與者開打那一副時揭露 · AC-7.3 · S · ← e2-t21
-- [ ] `e7-t03` 儲存：`challenges`、`challenge_players`、`challenge_results` SQL 表與 repository · AC-7.1 · S · ← e7-t01, e4-t10
+- [x] `e7-t01` 設計文件：資料模型、狀態機、計分定義、公平規則、可見性，寫進 `ARCHITECTURE.md`（新章節「挑戰」）與 §4 · AC-7.1, AC-7.2, AC-7.3, AC-7.4, AC-7.5 · #PR
+- [x] `e7-t02` `DealSet`：伺服器以密碼學亂數產生 N 副並保存；牌號與身價照 16 副循環；只在參與者開打那一副時揭露 · AC-7.3 · #PR
+- [x] `e7-t03` 儲存：`challenges`、`challenge_players`、`challenge_results` SQL 表與 repository · AC-7.1 · #PR
 - [x] `e7-t04` `shared/imp.ts`（WBF IMP 表，E8 共用）與 `shared/challenge-scoring.ts`：IMP、總分、MP 百分比、Cross-IMP、Avg-／最差分、同分名次；手算範例單元測試 · AC-7.5 · #38
 - [ ] `e7-t05` 建立挑戰 API 與驗證（人數、副數、設定、封鎖檢查）· AC-7.1 · S · ← e7-t03, e1-t21
 - [ ] `e7-t06` 邀請、接受、拒絕、取消 API 與狀態轉移測試（含「沒人開打才能取消」「至少 2 人接受」）· AC-7.2 · S · ← e7-t05
@@ -149,4 +149,10 @@ challenge（pending → active → finished｜cancelled｜expired）
 - [ ] **Q:** 沒打完的副預設計 Avg-（MP 40%、IMP −3）還是最差分？
       **A:** _(unanswered)_
 - [ ] **Q:** 多人挑戰人數上限 20 是否足夠？（全社每週挑戰可能需要更多，那就和 E9 的每日賽合併）
+      **A:** _(unanswered)_
+- [ ] **Q:** 發起者可以在對手接受之前先打嗎（BBO 是建立就先打）？`e7-t01` 的設計是至少 2 人接受、挑戰變 `active` 才能開打（ARCHITECTURE.md §5.5）。
+      **A:** _(unanswered)_
+- [ ] **Q:** 完成期限從每個人自己接受的時間算（目前的設計，最晚結束＝接受期限＋完成天數），還是從挑戰開始算、所有人同一個期限？
+      **A:** _(unanswered)_
+- [ ] **Q:** 「已知牌」的發起者要不要放進別人的 MP／IMP 比較？目前的設計是不放，只另外顯示他的分數。
       **A:** _(unanswered)_
