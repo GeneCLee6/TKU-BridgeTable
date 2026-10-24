@@ -30,10 +30,6 @@ import {
   isRobotKind,
   robotId,
   robotKindOf,
-  robotLevelOf,
-  DEFAULT_ROBOT_LEVEL,
-  isOfferedRobotLevel,
-  isRobotLevel,
   summarize,
   USERNAME_PATTERN,
   type AdminUser,
@@ -175,7 +171,11 @@ interface RobotAnswer {
   meaning?: RobotBid['meaning']
 }
 
-const settingsOf = (table: Table): TableSettings => ({ ...DEFAULT_TABLE_SETTINGS, ...table.settings })
+/** A table's settings; a field saved by an older version (a robot level) is dropped */
+function settingsOf(table: Table): TableSettings {
+  const { visibility, allowKibitz } = { ...DEFAULT_TABLE_SETTINGS, ...table.settings }
+  return { visibility, allowKibitz }
+}
 
 /**
  * Accounts, tables and boards for one bridge club. All state lives in memory and every change is
@@ -778,7 +778,7 @@ export class ClubService {
       case 'kick':
         return this.kick(userId, message.seat)
       case 'addRobot':
-        return this.addRobot(userId, message.seat, message.kind, message.level)
+        return this.addRobot(userId, message.seat, message.kind)
       case 'removeRobot':
         return this.removeRobot(userId, message.seat)
       case 'chat':
@@ -1052,8 +1052,8 @@ export class ClubService {
   /**
    * Starts a challenge or goes back to it (e7-t08, e7-t12). Only an accepted participant, while
    * the challenge is open and before the deadline: the creator at once, the others after accepting.
-   * The first time it opens their own table: they sit South, the other three seats are robots of the
-   * challenge's kind and level, and the first board of the set is dealt. Coming back seats them
+   * The first time it opens their own table: they sit South, the other three seats are TKB in the
+   * challenge's system, and the first board of the set is dealt. Coming back seats them
    * where they were: a board in progress goes on exactly as it was, a finished one is followed by
    * the next board of the set. Whatever table they were at they leave first
    */
@@ -1079,15 +1079,14 @@ export class ClubService {
       await this.save(existing)
       return
     }
-    const { robotKind: kind, robotLevel } = challenge.settings
-    const level = isRobotLevel(robotLevel) ? robotLevel : DEFAULT_ROBOT_LEVEL
+    const kind = challenge.settings.robotKind
     const state: ChallengeTableState = { challengeId: challenge.id, userId, seq: 0 }
     const table: Table = {
       id: randomId(6),
       // Challenge tables are not in the lobby and take no number from it
       number: 0,
       hostId: userId,
-      seats: { N: robotId(kind, 'N', level), E: robotId(kind, 'E', level), S: userId, W: robotId(kind, 'W', level) },
+      seats: { N: robotId(kind, 'N'), E: robotId(kind, 'E'), S: userId, W: robotId(kind, 'W') },
       spectators: [],
       boardsPlayed: playedSeqs(challenge, userId).size,
       board: null,
@@ -1096,7 +1095,7 @@ export class ClubService {
       mode: 'challenge',
       modeState: state,
       dealSource: dealSourceOf(challenge.deals),
-      settings: { visibility: 'invite', allowKibitz: false, robotLevel: level },
+      settings: { visibility: 'invite', allowKibitz: false },
     }
     this.tables.set(table.id, table)
     this.startBoardIfReady(table)
@@ -1296,18 +1295,13 @@ export class ClubService {
     await this.save(table)
   }
 
-  /**
-   * Seats a robot: the club's (淡江機器人) unless the host chose another kind, at the table's robot
-   * level unless the host chose another one (only the levels offered now, `OFFERED_ROBOT_LEVELS`)
-   */
-  private async addRobot(userId: string, seat: unknown, kind: unknown = 'tku', level?: unknown) {
+  /** Seats TKB: in the club's system unless the host chose 2/1 */
+  private async addRobot(userId: string, seat: unknown, kind: unknown = 'tku') {
     const table = this.hostTable(userId)
     if (!isSeat(seat)) throw new ClubError('badSeat')
     if (!isRobotKind(kind)) throw new ClubError('unknownRobot')
-    const chosen = level ?? settingsOf(table).robotLevel ?? DEFAULT_ROBOT_LEVEL
-    if (!isOfferedRobotLevel(chosen)) throw new ClubError('badRobotLevel')
     if (table.seats[seat]) throw new ClubError('seatTaken')
-    table.seats[seat] = robotId(kind, seat, chosen)
+    table.seats[seat] = robotId(kind, seat)
     this.startBoardIfReady(table)
     await this.save(table)
   }
@@ -1383,10 +1377,10 @@ export class ClubService {
     const dummy = partnerOf(declarer)
     const person = table.seats[dummy]
     if (!isRobotId(table.seats[declarer]) || !person || isRobotId(person)) return
-    // The robot keeps its kind and level in its new seat
+    // The robot keeps its system in its new seat
     const robot = table.seats[declarer]!
     table.seats[declarer] = person
-    table.seats[dummy] = robotId(robotKindOf(robot), dummy, robotLevelOf(robot))
+    table.seats[dummy] = robotId(robotKindOf(robot), dummy)
     table.swapped = [declarer, dummy]
   }
 
@@ -1403,7 +1397,7 @@ export class ClubService {
     if (person && !isRobotId(person) && isRobotId(table.seats[dummy])) {
       const robot = table.seats[dummy]!
       table.seats[dummy] = person
-      table.seats[declarer] = robotId(robotKindOf(robot), declarer, robotLevelOf(robot))
+      table.seats[declarer] = robotId(robotKindOf(robot), declarer)
     }
     table.swapped = undefined
   }
@@ -1562,8 +1556,6 @@ export class ClubService {
     if (this.challengeClosedAt(table)) return null
     const robot = (seat: Seat | null | undefined): seat is Seat => !!seat && isRobotId(table.seats[seat])
     const kindAt = (seat: Seat) => robotKindOf(table.seats[seat]!)
-    const levelAt = (seat: Seat) => robotLevelOf(table.seats[seat]!)
-    const seed = this.mistakeSeed(table, board)
 
     // Robots agree to undo requests, and accept a claim only if the cards make it good
     if (table.undo) {
@@ -1575,7 +1567,7 @@ export class ClubService {
       const answer = claimApprovers(board, board.claim.seat).find((s) => robot(s) && !board.claim!.accepted.includes(s))
       if (!answer) return null
       const decide = async (brain: RobotBrain): Promise<RobotAnswer> => ({
-        message: { type: 'claimRespond', accept: await brain.acceptsClaim(kindAt(answer), board, answer, levelAt(answer)) },
+        message: { type: 'claimRespond', accept: await brain.acceptsClaim(kindAt(answer), board, answer) },
       })
       return { seat: answer, delay: ROBOT_DELAY.answer, decide }
     }
@@ -1584,7 +1576,7 @@ export class ClubService {
     if (board.phase === 'auction') {
       if (!robot(turn)) return null
       const decide = async (brain: RobotBrain): Promise<RobotAnswer> => {
-        const bid = await brain.bid(kindAt(turn), board, turn, levelAt(turn), seed)
+        const bid = await brain.bid(kindAt(turn), board, turn)
         return { message: { type: 'call', call: bid.call, alert: bid.alert }, meaning: bid.meaning }
       }
       return { seat: turn, delay: ROBOT_DELAY.call, decide }
@@ -1595,20 +1587,8 @@ export class ClubService {
     return {
       seat: controller,
       delay: trickJustEnded ? ROBOT_DELAY.afterTrick : ROBOT_DELAY.card,
-      decide: async (brain) => ({ message: { type: 'play', card: await brain.play(kindAt(controller), board, turn, levelAt(controller), seed) } }),
+      decide: async (brain) => ({ message: { type: 'play', card: await brain.play(kindAt(controller), board, turn) } }),
     }
-  }
-
-  /**
-   * The key for the robots' deliberate mistakes on this board (ROBOT.md §8): the table and the
-   * board number, which stay the same when the board is undone or the object reloaded. A challenge
-   * table keys them by the challenge and the board's place in the set instead, so every participant
-   * who does the same meets the same robots (§5.5, e7-t09); the brain adds the action number
-   */
-  private mistakeSeed(table: Table, board: BoardState) {
-    const challenge = challengeStateOf(table)
-    if (challenge) return `challenge:${challenge.challengeId}:${challenge.seq}`
-    return `${table.id}:${board.boardNo}`
   }
 
   /** What a robot's answer depends on; an answer given for another position is dropped */
@@ -1817,7 +1797,7 @@ export class ClubService {
   }
 
   private publicUserById(id: string): PublicUser | undefined {
-    if (isRobotId(id)) return { id, username: ROBOT_NAME, robot: true, robotKind: robotKindOf(id), robotLevel: robotLevelOf(id) }
+    if (isRobotId(id)) return { id, username: ROBOT_NAME, robot: true, robotKind: robotKindOf(id) }
     const user = this.users.get(id)
     return user && { id: user.id, username: user.username }
   }

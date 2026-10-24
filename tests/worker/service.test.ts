@@ -1243,97 +1243,49 @@ describe('a robot partner as declarer', () => {
     }
     throw new Error('no deal where the robot opens')
   })
-  it('keeps the robot’s level when the seats are swapped and swapped back (e6-t20)', async () => {
-    for (let seed = 1; seed < 300; seed++) {
-      store = memoryStore()
-      connections = new FakeConnections()
-      queue = []
-      club = new ClubService(store, connections, {
-        maxUsers: 10,
-        now: () => time,
-        random: seeded(seed),
-        schedule: (run, ms, kind) => queue.push({ run, ms, kind }),
-      })
-      await club.load()
-      const gene = await member('gene')
-      const east = await member('east')
-      const west = await member('west')
-      await send(gene, { type: 'createTable' })
-      const tableId = tableFor(gene).id
-      await send(gene, { type: 'addRobot', seat: 'N', kind: 'gib', level: 'open' })
-      await send(east, { type: 'sit', tableId, seat: 'E' })
-      await send(west, { type: 'sit', tableId, seat: 'W' })
-      await runRobots()
-      if (tableFor(gene).board!.auction[0]?.call === 'P') continue
-      for (const person of [east, gene, west]) await send(person, { type: 'call', call: 'P' })
-      expect(tableFor(gene).mySeat).toBe('N')
-      expect(tableFor(gene).seats.S).toMatchObject({ robot: true, robotKind: 'gib', robotLevel: 'open' })
-
-      await send(west, { type: 'undoRequest' })
-      await runRobots()
-      if (tableFor(gene).board!.undo) await send(gene, { type: 'undoRespond', accept: true })
-      expect(tableFor(gene).mySeat).toBe('S')
-      expect(tableFor(gene).seats.N).toMatchObject({ robot: true, robotKind: 'gib', robotLevel: 'open' })
-      return
-    }
-    throw new Error('no deal where the robot opens')
-  })
 })
 
-describe('robot levels (e6-t20)', () => {
-  it('seat robots at the level chosen, else the table’s, else 大專', async () => {
+describe('TKB in two systems, and robots saved when they had levels', () => {
+  it('seat TKB in the system chosen; a level sent by an older page is ignored', async () => {
     const gene = await member('gene')
     await send(gene, { type: 'createTable' })
     await send(gene, { type: 'addRobot', seat: 'N' })
-    await send(gene, { type: 'addRobot', seat: 'E', kind: 'gib', level: 'beginner' })
-    expect(tableFor(gene).seats.N).toMatchObject({ robotKind: 'tku', robotLevel: 'college' })
-    expect(tableFor(gene).seats.E).toMatchObject({ robotKind: 'gib', robotLevel: 'beginner' })
-    await send(gene, { type: 'updateTableSettings', settings: { robotLevel: 'open' } })
-    expect(tableFor(gene).settings.robotLevel).toBe('open')
-    await send(gene, { type: 'addRobot', seat: 'W' })
-    expect(tableFor(gene).seats.W).toMatchObject({ robotKind: 'tku', robotLevel: 'open' })
+    await send(gene, { type: 'addRobot', seat: 'E', kind: 'gib', level: 'beginner' } as never)
+    expect(connections.last(gene, 'error')).toBeUndefined()
+    expect(tableFor(gene).seats.N).toMatchObject({ id: 'robot:tku:N', robot: true, robotKind: 'tku' })
+    expect(tableFor(gene).seats.E).toMatchObject({ id: 'robot:gib:E', robot: true, robotKind: 'gib' })
+    expect(tableFor(gene).seats.E).not.toHaveProperty('robotLevel')
   })
 
-  it('open a table with a default robot level', async () => {
+  it('turn down a robot level in the table settings, like any other unknown field', async () => {
     const gene = await member('gene')
-    await send(gene, { type: 'createTable', settings: { robotLevel: 'beginner' } })
-    await send(gene, { type: 'addRobot', seat: 'N', kind: 'gib' })
-    expect(tableFor(gene).seats.N).toMatchObject({ robotKind: 'gib', robotLevel: 'beginner' })
+    await send(gene, { type: 'createTable', settings: { robotLevel: 'open' } as never })
+    expect(connections.last(gene, 'error')?.code).toBe('badTableSettings')
+    await send(gene, { type: 'createTable' })
+    await send(gene, { type: 'updateTableSettings', settings: { robotLevel: 'college' } as never })
+    expect(connections.last(gene, 'error')?.code).toBe('badTableSettings')
+    expect(tableFor(gene).settings).toEqual({ visibility: 'public', allowKibitz: true })
   })
 
-  it('turn down levels that do not exist or are not offered yet (橋士組 needs DDS, 自訂 a screen)', async () => {
+  it('read robot ids and table settings saved before, with or without a level, and play on', async () => {
     const gene = await member('gene')
     await send(gene, { type: 'createTable' })
-    for (const level of ['grandmaster', 'master', 'custom', 3])
-      await send(gene, { type: 'addRobot', seat: 'N', level: level as never })
-    expect(connections.inbox.get(gene)!.filter((m) => m.type === 'error' && m.code === 'badRobotLevel')).toHaveLength(4)
-    expect(tableFor(gene).seats.N).toBeNull()
-    for (const robotLevel of ['master', 'custom', 'nobody'])
-      await send(gene, { type: 'updateTableSettings', settings: { robotLevel } as never })
-    expect(connections.inbox.get(gene)!.filter((m) => m.type === 'error' && m.code === 'badTableSettings')).toHaveLength(3)
-    expect(tableFor(gene).settings.robotLevel).toBeUndefined()
-  })
+    const tableId = tableFor(gene).id
+    for (const seat of ['N', 'E', 'W'] as const) await send(gene, { type: 'addRobot', seat })
+    const saved = (await store.get<Table>(`table:${tableId}`))!
+    const settings = { ...saved.settings, robotLevel: 'beginner' }
+    await store.put(`table:${tableId}`, {
+      ...saved,
+      seats: { ...saved.seats, N: 'robot:gib:beginner:N', E: 'robot:tku:open:E', W: 'robot:W' },
+      settings,
+    })
 
-  it('think at each robot’s level, also after the club is reloaded', async () => {
-    /** Who was asked for a call, at which level */
-    const asked: string[] = []
-    const brain: RobotBrain = {
-      bid: (kind, state, seat, level) => (asked.push(`${seat} ${level}`), ruleBrain.bid(kind, state, seat, level)),
-      play: (kind, state, seat, level) => ruleBrain.play(kind, state, seat, level),
-      acceptsClaim: (kind, state, seat, level) => ruleBrain.acceptsClaim(kind, state, seat, level),
-    }
-    await setup({ brain })
-    const gene = await member('gene')
-    await send(gene, { type: 'createTable' })
-    await send(gene, { type: 'addRobot', seat: 'N', level: 'beginner' })
-    await send(gene, { type: 'addRobot', seat: 'E', level: 'open' })
-    await send(gene, { type: 'addRobot', seat: 'W' })
-
-    // The Durable Object is evicted before the robots act and loads the table again from the store
     queue = []
-    club = new ClubService(store, connections, { maxUsers: 10, now: () => time, schedule: (run, ms, kind) => queue.push({ run, ms, kind }), brain })
+    club = new ClubService(store, connections, { maxUsers: 10, now: () => time, schedule: (run, ms, kind) => queue.push({ run, ms, kind }) })
     await club.load()
     club.connected(gene)
+    expect(tableFor(gene).settings).toEqual({ visibility: 'public', allowKibitz: true })
+    expect(SEATS.filter((s) => s !== 'S').map((s) => tableFor(gene).seats[s]?.robotKind)).toEqual(['gib', 'tku', 'tku'])
     for (let i = 0; i < 200 && tableFor(gene).board?.phase !== 'finished'; i++) {
       await runRobots()
       const board = tableFor(gene).board!
@@ -1342,14 +1294,11 @@ describe('robot levels (e6-t20)', () => {
       else if (board.claim || board.phase === 'finished') break
     }
     expect(tableFor(gene).board?.phase).toBe('finished')
-    // Every robot called at its own level
-    expect(new Set(asked)).toEqual(new Set(['N beginner', 'E open', 'W college']))
-
-    // The history keeps each robot's level
     const history = (await club.history(gene, false)).boards
     expect(history).toHaveLength(1)
-    const robots = SEATS.map((s) => history[0].players[s]).filter((p) => p.robot)
-    expect(robots.map((p) => p.robotLevel).sort()).toEqual(['beginner', 'college', 'open'])
+    // North's robot may have swapped into South's seat to let gene declare: look at whichever has it
+    const { N, S } = history[0].players
+    expect(N.robot ? N : S).toMatchObject({ robot: true, robotKind: 'gib' })
   })
 })
 
@@ -1358,13 +1307,13 @@ describe('robots that think asynchronously (e6-t11)', () => {
   function brainWith(answer: () => RobotBid | Promise<RobotBid>, slowSeat: Seat) {
     const ruled: string[] = []
     const brain: RobotBrain = {
-      bid: (kind, state, seat, level, seed) => {
-        if (seat !== slowSeat) return ruleBrain.bid(kind, state, seat, level, seed)
-        ruled.push((ruleBrain.bid(kind, state, seat, level, seed) as RobotBid).call)
+      bid: (kind, state, seat) => {
+        if (seat !== slowSeat) return ruleBrain.bid(kind, state, seat)
+        ruled.push((ruleBrain.bid(kind, state, seat) as RobotBid).call)
         return answer()
       },
-      play: (kind, state, seat, level, seed) => ruleBrain.play(kind, state, seat, level, seed),
-      acceptsClaim: (kind, state, seat, level) => ruleBrain.acceptsClaim(kind, state, seat, level),
+      play: (kind, state, seat) => ruleBrain.play(kind, state, seat),
+      acceptsClaim: (kind, state, seat) => ruleBrain.acceptsClaim(kind, state, seat),
     }
     return { brain, ruled }
   }

@@ -1,13 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import styled from 'styled-components'
-import {
-  DEFAULT_ROBOT_LEVEL,
-  DEFAULT_TABLE_SETTINGS,
-  isOfferedRobotLevel,
-  TABLE_VISIBILITIES,
-  type RobotLevel,
-  type TableSettings,
-} from '../../shared/protocol.ts'
+import { DEFAULT_TABLE_SETTINGS, TABLE_VISIBILITIES, type TableSettings } from '../../shared/protocol.ts'
 import { useT } from '../state/PreferencesContext.tsx'
 import { Button, Card, Muted } from './ui.tsx'
 
@@ -52,19 +45,6 @@ const Group = styled.fieldset`
   }
 `
 
-/** The levels a table can default to, and 橋士組 shown as coming later (it needs DDS on the server) */
-const SETTING_LEVELS: readonly RobotLevel[] = ['beginner', 'college', 'open', 'master']
-
-const Select = styled.select`
-  min-height: 40px;
-  padding: 0 10px;
-  border-radius: ${({ theme }) => theme.radius.sm};
-  border: 1px solid ${({ theme }) => theme.colors.border};
-  background: ${({ theme }) => theme.colors.surfaceAlt};
-  color: ${({ theme }) => theme.colors.text};
-  font: inherit;
-`
-
 const Choice = styled.label`
   display: grid;
   grid-template-columns: auto 1fr;
@@ -103,7 +83,6 @@ export function TableSettingsDialog({
   const t = useT()
   const titleId = useId()
   const [settings, setSettings] = useState(initial)
-  const level = settings.robotLevel ?? DEFAULT_ROBOT_LEVEL
   const first = useRef<HTMLInputElement>(null)
 
   // Focus once on opening; the table re-renders on every move and must not steal it back
@@ -154,22 +133,6 @@ export function TableSettingsDialog({
               <span>{t.allowKibitz}</span>
               <Muted>{t.allowKibitzHint}</Muted>
             </Choice>
-          </Group>
-          <Group>
-            <legend>{t.robotLevel}</legend>
-            <Select
-              aria-label={t.robotLevel}
-              value={level}
-              onChange={(event) => setSettings({ ...settings, robotLevel: event.target.value as RobotLevel })}
-            >
-              {SETTING_LEVELS.map((option) => (
-                <option key={option} value={option} disabled={!isOfferedRobotLevel(option)}>
-                  {isOfferedRobotLevel(option) ? t.robotLevels[option] : `${t.robotLevels[option]} · ${t.robotLevelLater}`}
-                </option>
-              ))}
-            </Select>
-            <Muted>{t.robotLevelHints[level]}</Muted>
-            <Muted>{t.robotLevelDefault}</Muted>
           </Group>
           <Buttons>
             <Button type="button" onClick={onClose}>

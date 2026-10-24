@@ -11,9 +11,6 @@ import type { Range, Spec } from './system/spec.ts'
  * narrowed by counting the cards already played and the seats that did not follow suit. It uses
  * only the auction, the cards played and the hands this robot sees (its own, dummy once exposed,
  * the declarer's when playing dummy, a claimer's): never `state.hands` of another seat.
- *
- * A robot whose level does not read (`inference` off, the beginner) gets a blind reading: nothing
- * from the auction and no counting, only which cards are out of its view.
  */
 
 const HCP: Record<string, number> = { A: 4, K: 3, Q: 2, J: 1 }
@@ -44,12 +41,9 @@ export class TableReading {
   private readonly lengths = {} as Record<Seat, Record<Suit, Range>>
   private readonly points = {} as Record<Seat, Range>
   private readonly unseenCards = new Set<Card>()
-  /** Reads nothing: no auction, no count (a robot level without inference) */
-  private readonly blind: boolean
 
-  constructor(state: BoardState, seat: Seat, kind: RobotKind, inference = true) {
+  constructor(state: BoardState, seat: Seat, kind: RobotKind) {
     this.state = state
-    this.blind = !inference
     const dummy = dummyOf(state)
     this.visible = new Set<Seat>([seat, ...(state.claimed ?? [])])
     if (dummy && state.play.length > 0) {
@@ -57,9 +51,9 @@ export class TableReading {
       if (seat === dummy) this.visible.add(state.contract!.declarer)
     }
     this.unseen = SEATS.filter((s) => !this.visible.has(s))
-    this.shown = inference ? shownIn(state, kind) : { N: {}, E: {}, S: {}, W: {} }
+    this.shown = shownIn(state, kind)
     this.voids = { N: new Set(), E: new Set(), S: new Set(), W: new Set() }
-    for (const trick of inference ? tricksOf(state) : []) {
+    for (const trick of tricksOf(state)) {
       const led = suitOf(trick.cards[0].card)
       for (const p of trick.cards) if (suitOf(p.card) !== led) this.voids[p.seat].add(led)
     }
@@ -68,8 +62,8 @@ export class TableReading {
     for (const s of this.visible) for (const card of remainingCards(state, s)) seen.add(card)
     for (const card of fullDeck()) if (!seen.has(card)) this.unseenCards.add(card)
     for (const s of SEATS) if (this.visible.has(s)) this.lengths[s] = exactLengths(remainingCards(state, s))
-    this.estimateLengths(inference)
-    this.estimatePoints(inference)
+    this.estimateLengths()
+    this.estimatePoints()
   }
 
   /** Cards of a suit this robot cannot see (still held by the unseen seats) */
@@ -110,7 +104,7 @@ export class TableReading {
    * auction; else the one with clearly more cards in the suit; null when the reading cannot tell
    */
   holder(card: Card): Seat | null {
-    if (this.blind || !this.unseenCards.has(card)) return null
+    if (!this.unseenCards.has(card)) return null
     const suit = suitOf(card)
     const can = this.unseen.filter((s) => this.len(s, suit)[1] > 0 && this.hcp(s)[1] >= hcpOf(card))
     if (can.length <= 1) return can[0] ?? null
@@ -126,7 +120,7 @@ export class TableReading {
   }
 
   /** Each unseen seat's suit lengths: shown in the auction, less what it played, fitted to the count */
-  private estimateLengths(count: boolean) {
+  private estimateLengths() {
     for (const seat of this.unseen) {
       const left = 13 - this.state.play.filter((p) => p.seat === seat).length
       const row = {} as Record<Suit, Range>
@@ -141,12 +135,11 @@ export class TableReading {
       }
       this.lengths[seat] = row
     }
-    if (!count) return
     for (const suit of SUITS) this.share(this.out(suit), (s) => this.lengths[s][suit], (s, r) => (this.lengths[s][suit] = r))
   }
 
   /** Each unseen seat's points: shown in the auction less the honours it played, fitted to the count */
-  private estimatePoints(count: boolean) {
+  private estimatePoints() {
     for (const seat of this.visible) this.points[seat] = exactPoints(remainingCards(this.state, seat))
     let total = 0
     for (const card of this.unseenCards) total += hcpOf(card)
@@ -156,7 +149,7 @@ export class TableReading {
       const range: Range = [Math.max(0, shown[0] - played), Math.min(total, shown[1] - played)]
       this.points[seat] = range[0] > range[1] ? [0, total] : range
     }
-    if (count) this.share(total, (s) => this.points[s], (s, r) => (this.points[s] = r))
+    this.share(total, (s) => this.points[s], (s, r) => (this.points[s] = r))
   }
 
   /**

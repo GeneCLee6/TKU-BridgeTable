@@ -42,7 +42,7 @@ const STRONG_NT: Ranges = { up: 1, weak: [0, 1], invite: null, game: [2, 8], sla
 function weakTwoResponses(s: Suit): Rule[] {
   const game = isMajor(s) ? bid(4, s) : '5D'
   return [
-    { minLevel: 'college', call: '2N', shows: { name: 'featureAsk', hcp: plus(15), forcing: 'oneRound', artificial: true } },
+    { call: '2N', shows: { name: 'featureAsk', hcp: plus(15), forcing: 'oneRound', artificial: true } },
     // Game: a weak hand with four trumps (Law of Total Tricks) or a strong one with two (GIB's own example)
     { call: game, shows: { len: { [s]: [4, 13] }, tp: plus(4), notes: [{ key: 'toPlay' }] }, when: (h) => h.len[s] >= 4 && h.hcp <= 11 },
     { call: game, shows: { len: { [s]: [2, 13] }, tp: plus(16), notes: [{ key: 'toPlay' }] }, when: (h) => h.len[s] >= 2 },

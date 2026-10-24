@@ -172,13 +172,13 @@ interface BoardState {
 
 ## 5.5 挑戰（決策紀錄，`e7-t01`，2026-10-24）
 
-挑戰（E7）：發起者邀請 1–20 位好友，每個人各自坐南、和三個同等級的機器人打同一組牌，打完比名次。這一節是 C2 定下的設計，後面的批次（C3–C9）照這裡做；要改設計先改這裡。
+挑戰（E7）：發起者邀請 1–20 位好友，每個人各自坐南、和三個用同一種制度的 TKB 打同一組牌，打完比名次。這一節是 C2 定下的設計，後面的批次（C3–C9）照這裡做；要改設計先改這裡。
 
 **資料模型**（`worker/challenges.ts` 的 `Challenge`，型別與狀態在 `shared/challenge.ts`）：
 
 ```
 challenge（challenges 一列）
-  ├─ settings  計分、機器人種類與等級、Best Hand、Just Declare、截止天數、排名公開範圍（JSON）
+  ├─ settings  計分、機器人的制度（TKB 用淡江制度或 2/1）、Best Hand、Just Declare、截止天數、排名公開範圍（JSON）
   ├─ deals     DealSet：N 副的牌號與四手牌（shared/deal-set.ts，一副一行 PBN）
   ├─ players   challenge_players：invited → accepted｜declined；開打、完成時間、已知牌
   └─ results   challenge_results：人 × 副：牌局 id、南北分數、時間
@@ -209,7 +209,7 @@ challenge（challenges 一列）
 - **通知**：`finished` 時送 `challengeResults` 給每位接受的人（含沒打完的）；`expired` 不送通知（發起者在挑戰列表看得到狀態）。
 
 **建立與回覆**（C3，`worker/challenge-flow.ts` 的純函式，`ClubService` 檢查身分、在一個 transaction 裡寫回 `ChallengeStore`、送通知）：
-- `createChallenge { invitees, boards?, settings? }`：`invitees` 是 1–20 個不重複的社員 id（`challengeInvitees`、`badChallengeSettings`），每位都要是發起者關注的好友（`notFriend`；封鎖對方時已取消關注，所以也是這個），不能是自己（`notSelf`）、不存在的帳號或機器人（`userGone`）；對方封鎖了發起者時回 `cannotInvite`，不說是被封鎖。`boards` 4–16，預設 8（`challengeBoards`）。`settings` 由 `parseChallengeSettings`（`shared/challenge.ts`）檢查：每欄可省略、套 `defaultChallengeSettings`，不能有其他欄位；計分單挑只能 `imp`／`total`，多人 `mp`／`crossImp`／`total`；`unfinished` 只能是 `worst`；機器人種類 `tku`／`gib`，等級只收現在開放的（`OFFERED_ROBOT_LEVELS`，橋士組、自訂不行）；`days` 1–7 的整數；錯了回 `badChallengeSettings { field }`。牌組用 `makeDealSet({ kind: 'random', count })`、社團的亂數。
+- `createChallenge { invitees, boards?, settings? }`：`invitees` 是 1–20 個不重複的社員 id（`challengeInvitees`、`badChallengeSettings`），每位都要是發起者關注的好友（`notFriend`；封鎖對方時已取消關注，所以也是這個），不能是自己（`notSelf`）、不存在的帳號或機器人（`userGone`）；對方封鎖了發起者時回 `cannotInvite`，不說是被封鎖。`boards` 4–16，預設 8（`challengeBoards`）。`settings` 由 `parseChallengeSettings`（`shared/challenge.ts`）檢查：每欄可省略、套 `defaultChallengeSettings`，不能有其他欄位；計分單挑只能 `imp`／`total`，多人 `mp`／`crossImp`／`total`；`unfinished` 只能是 `worst`；機器人的制度 `tku`／`gib`（機器人沒有等級，`robotLevel` 跟其他不認得的欄位一樣被拒絕）；`days` 1–7 的整數；錯了回 `badChallengeSettings { field }`。牌組用 `makeDealSet({ kind: 'random', count })`、社團的亂數。
 - `answerChallenge { challengeId, accept }`：只有受邀、還沒回覆的人（發起者已經是 `accepted`，所以回 `alreadyAnswered`）；挑戰要是 `pending`／`active` 而且還沒到截止時間（`challengeClosed`）。不是參與者的一律 `challengeGone`，不透露挑戰存在。
 - `cancelChallenge { challengeId }`：只有發起者（`challengeCreatorOnly`），只在 `pending`／`active`，而且除了他以外沒人有 `started_at`（`challengeStarted`；發起者自己先打了不影響）。
 - 截止時間的處理寫成 `deadlineOutcome`（沒回覆的改 `declined`，除了發起者沒人接受就 `expired`，否則 `finished`），C5 的期限工作呼叫它並結算（見上面的「期限工作與結算」）。
@@ -223,11 +223,11 @@ C4 的實作（2026-10-24）：
 - **離開＝暫停**（`e7-t12`）：`leaveTable`、開新桌、坐到別桌都會呼叫 `leave`；挑戰牌桌不關，只把他從座位拿下來、記住位子（他可能因為當莊換到北），桌子留在 `table:` 裡（物件回收後照樣載入）。座位空了就不發牌、機器人也不動。再送 `playChallenge` 就坐回原位：**打到一半的那一副原封不動接著打**（叫牌、出牌都在，不重發，也不能換一副重來，否則可以先看牌再重打），已經打完的那一副就倒數發下一副。斷線（沒送 `leaveTable`）時座位照舊保留，跟一般牌桌一樣，重連就回到桌上。牌桌頁卸載時照樣送 `leaveTable`，伺服器把它當暫停。打完最後一副後離開，或挑戰已經結束，桌子才關掉。
 - **固定的桌子**：撤回 `challengeNoUndo`（`BoardView.canUndo` 一律是 false）；`stand`、換座位、`kick`、`addRobot`、`removeRobot`、`updateTableSettings` 是 `challengeTableFixed`；攤牌照舊由機器人判斷。桌子設定是 `invite`、不允許觀看。
 - **結果**：`boardFinished` 在一個 transaction 裡寫 `challenge_results`（南北分數就是他的分數，換到北當莊也一樣）；最後一副寫 `finished_at`。**截止時間一到就停止**（同 BBO）：之後送來的叫牌、出牌一律回 `challengeClosed`，機器人也不再動（`challengeClosedAt`），打到一半的那一副作廢、不寫結果，還沒打的副也不再發。挑戰變 `finished`、結算與通知見上面的「期限工作與結算」（C5）。
-- **確定性**（`e7-t09`）：`mistakeSeed` 在挑戰牌桌是 `challenge:<挑戰 id>:<seq>`，大腦再加上動作序號；所以兩個人做一樣的叫牌與出牌，機器人的反應（含初學者的失誤）完全一樣（`tests/worker/challenge-table.test.ts`）。
+- **確定性**（`e7-t09`）：TKB 沒有亂數、不刻意失誤，所以兩個人做一樣的叫牌與出牌，機器人的反應完全一樣，不需要種子（`tests/worker/challenge-table.test.ts`）。
 - **紀錄**：`BoardRecord.mode = 'challenge'`、`eventId`、`revealAt` ＝截止時間；`boards_index.mode` 照 `record.mode` 寫。紀錄、側欄與牌局頁把挑戰的牌顯示成「挑戰」而不是桌號。
 - **畫面**（`e7-t15`）：`TableView.challenge`（`TableChallenge`：第幾副、共幾副、打完幾副、截止時間）；牌桌頁首顯示「挑戰 · 第 3／8 副」與截止時間（`ChallengeBanner`），沒有房主設定、座位選單，撤回鍵停用並說明原因，打完全部顯示提示與回大廳的連結。大廳的「我的挑戰」列出現在能打的挑戰（開始打／繼續打），挑戰頁是 C6。
 
-**公平與確定性**（`e7-t09`）：機器人失誤的亂數種子不能用牌局 id（每個人的牌局 id 都不同），要用「挑戰 id＋第幾副＋動作序號」，兩個人做一樣的事才會遇到一樣的反應。`e6-t21` 已經讓種子由呼叫的人給（`RobotBrain` 的 `seed`，動作序號由大腦自己加上，§5.1）：挑戰牌桌給「挑戰 id＋第幾副」就好。機器人種類與等級在建立時鎖進 `settings`。
+**公平與確定性**（`e7-t09`）：機器人是確定的（§5.1），兩個人做一樣的事就遇到一樣的反應。機器人的制度（`robotKind`）在建立時鎖進 `settings`；機器人沒有等級（社長 2026-10-24），`settings` 帶 `robotLevel` 會被拒絕，以前存下來的挑戰帶著的 `robotLevel` 載入時丟掉。以後若 TKB Adv 要用亂數（模擬），種子要用「挑戰 id＋第幾副＋動作序號」，不能用牌局 id。
 
 **可見性**（伺服器把關，§4）：
 - 牌：`deals` 只在伺服器；第 k 副的四手牌只有在參與者的挑戰牌桌發到第 k 副時才進 `BoardState`，之後照一般規則。
@@ -353,15 +353,15 @@ SQL 由 `worker/history-index.ts` 的 `searchBoards` 組：只有固定的 SQL �
 
 ## 5.1 機器人
 
-座位裡的 id 若是 `robot:<種類>:<座位>` 這種格式就是機器人：`robot:gib:N` 是 2/1 機器人（GIB 相容），`robot:tku:N` 是淡江機器人，舊資料的 `robot:N` 一律當淡江機器人（`shared/protocol.ts` 的 `robotId`、`robotKindOf`）。**等級也寫在 id 裡**（`e6-t20` 的決定）：`robot:<種類>:<等級>:<座位>`，例如 `robot:tku:beginner:E`；大專（預設）不寫等級，所以加等級前的 id 不變，舊的 `robot:N`、`robot:gib:N` 都讀成大專（`robotLevelOf`）。放在 id 裡而不是牌桌狀態，是因為座位對調（`swapForDeclarer`／`unswap`）時 id 跟著機器人走、物件重新載入時跟著牌桌存檔回來、紀錄的玩家（`publicUserById`）也直接從 id 帶出 `robotLevel`，不用另外同步一份以座位為鍵的資料。房主放機器人時可以指定等級（`addRobot` 的 `level`），沒指定就用牌桌設定的 `robotLevel`（開桌或牌桌設定選，沒設就是大專）；只接受現在開放的等級（`OFFERED_ROBOT_LEVELS`：初學者、大專、公開組），其他丟 `badRobotLevel`。等級做什麼見 `ROBOT.md` §7。房主放機器人時選種類（`addRobot` 的 `kind`，沒寫就是淡江機器人），機器人照自己的種類叫牌（`shared/robot/robots.ts` 的 `robotCall`）；2/1 機器人的叫品除了繁中說明還存著叫品的意義（`AuctionCall.meaning`），瀏覽器依觀看者的語言顯示，規則檔需要時才載入。名牌與紀錄裡的機器人帶 `robotKind` 與 `robotLevel`，畫面依語言顯示名字（`strings.ts` 的 `playerName`），名牌另外顯示等級。每次狀態改變後，`ClubService.scheduleRobots` 檢查是否輪到機器人（叫牌、出牌，或回應攤牌／撤回），經排程器（§5）排一個短暫延遲（叫牌 0.8 秒、出牌 1.4 秒、一墩結束後 3 秒，配合牌 1.3 秒的滑動）再執行，執行完再排下一個；每張桌子同時最多一個機器人工作。機器人同意撤回；攤牌由對手方的機器人用雙明手分析判斷（`shared/robot/claim.ts`，見 `ROBOT.md` §3.1）。物件重新載入時也會重新排程。至少要有一位真人在座，機器人才會行動；最後一位真人離開，桌子就關閉。
+機器人只有一個，叫 **TKB**，用淡江制度或 2/1（GIB 相容）叫牌；**沒有等級**（社長 2026-10-24，`ROBOT.md` §7）。座位裡的 id 若是 `robot:<制度>:<座位>` 這種格式就是機器人：`robot:gib:N` 是用 2/1 的 TKB，`robot:tku:N` 是用淡江制度的 TKB（`shared/protocol.ts` 的 `robotId`、`robotKindOf`）。制度放在 id 裡而不是牌桌狀態，是因為座位對調（`swapForDeclarer`／`unswap`）時 id 跟著機器人走、物件重新載入時跟著牌桌存檔回來、紀錄的玩家（`publicUserById`）也直接從 id 帶出 `robotKind`。**舊的 id 照讀**：`robot:N`（2/1 之前）讀成淡江制度；有等級時的 `robot:<制度>:<等級>:<座位>`（例如 `robot:tku:beginner:E`）只看制度，等級不管。存下來的牌桌設定（`TableSettings.robotLevel`）、挑戰設定（`settings.robotLevel`）與紀錄玩家的 `robotLevel` 載入時忽略（`settingsOf`、`ChallengeStore` 讀設定時丟掉）；新的訊息裡牌桌設定與挑戰設定帶 `robotLevel` 會像其他不認得的欄位一樣被拒絕（`badTableSettings`、`badChallengeSettings`），`addRobot` 多帶的 `level` 則跟其他訊息多帶的欄位一樣不理會。房主放機器人時選制度（`addRobot` 的 `kind`，沒寫就是淡江制度），機器人照自己的種類叫牌（`shared/robot/robots.ts` 的 `robotCall`）；2/1 機器人的叫品除了繁中說明還存著叫品的意義（`AuctionCall.meaning`），瀏覽器依觀看者的語言顯示，規則檔需要時才載入。名牌與紀錄裡的機器人帶 `robotKind`：名牌顯示「TKB」加上制度的小標籤（淡江制度／2/1），紀錄顯示「TKB（2/1）」這樣的名字（`strings.ts` 的 `robotName`、`robotSystems`、`playerName`）。每次狀態改變後，`ClubService.scheduleRobots` 檢查是否輪到機器人（叫牌、出牌，或回應攤牌／撤回），經排程器（§5）排一個短暫延遲（叫牌 0.8 秒、出牌 1.4 秒、一墩結束後 3 秒，配合牌 1.3 秒的滑動）再執行，執行完再排下一個；每張桌子同時最多一個機器人工作。機器人同意撤回；攤牌由對手方的機器人用雙明手分析判斷（`shared/robot/claim.ts`，見 `ROBOT.md` §3.1）。物件重新載入時也會重新排程。至少要有一位真人在座，機器人才會行動；最後一位真人離開，桌子就關閉。
 
 **真人不當機器人的夢家**：叫牌結束時若莊家是機器人、夢家是真人，`swapForDeclarer` 把兩人的座位對調（同 BBO），真人坐到莊家的位子主打，機器人帶著它的種類坐到原本的位子當夢家；對調記在 `Table.swapped`。若撤回最後一個 Pass 讓叫牌重新開始，`unswap` 換回來；下一副發牌時清掉記錄（座位維持對調後的樣子）。叫牌與出牌規則見 `ROBOT.md`。
 
-**機器人的大腦**（`shared/robot/brain.ts`）：`ClubService` 只透過 `RobotBrain`（`bid`、`play`、`acceptsClaim`，都帶機器人的種類與等級）問機器人，預設是規則機器人 `ruleBrain`，測試或之後更強的大腦從 `ClubConfig.brain` 換進來。排程時只決定「哪個機器人、多久後動」（`robotMove`），輪到它時才問大腦（`decide`），所以每一步只想一次。
+**機器人的大腦**（`shared/robot/brain.ts`）：`ClubService` 只透過 `RobotBrain`（`bid`、`play`、`acceptsClaim`，都帶機器人用的制度）問機器人，預設是規則機器人 `ruleBrain`（TKB），測試或之後的 TKB Adv（伺服器 DDS）從 `ClubConfig.brain` 換進來。排程時只決定「哪個機器人、多久後動」（`robotMove`），輪到它時才問大腦（`decide`），所以每一步只想一次。
 
-**非同步思考**（`e6-t11`）：大腦的回答可以是 `Promise`（`Answer<T>`）。`runRobot` 問之前先記下局面（`positionOf`：座位、撤回請求、第幾副、階段、叫品數、出牌數、攤牌），等回答時不擋別的訊息（Durable Object 等的不是儲存，其他請求照常進來）；這段時間這張桌子不再排別的機器人工作（`thinking`），排程器同時到期的工作也並排跑（`AlarmQueue.runDue` 用 `Promise.all`），一張桌子的機器人在想不會拖到別桌。回答回來時局面若已經變了（真人出了牌、撤回、有人換座位），這個回答**丟掉**，照新局面重新排程。**思考上限 2 秒**（`THINK_LIMIT_MS`，測試用 `ClubConfig.thinkLimitMs` 縮短）：大腦逾時、丟出錯誤或回傳失敗的 `Promise`，就改問規則機器人 `ruleBrain`，牌桌不會卡住；逾時後才到的回答不理會。預設的大腦就是規則機器人時不設計時器。等級參數裡的 `thinkMs` 留給之後的 DDS／模擬大腦決定自己要想多久；機器人行動前的節奏仍是上面的延遲。物件被回收時正在想的回答跟著消失，重新載入後照常重新排程。
+**非同步思考**（`e6-t11`）：大腦的回答可以是 `Promise`（`Answer<T>`）。`runRobot` 問之前先記下局面（`positionOf`：座位、撤回請求、第幾副、階段、叫品數、出牌數、攤牌），等回答時不擋別的訊息（Durable Object 等的不是儲存，其他請求照常進來）；這段時間這張桌子不再排別的機器人工作（`thinking`），排程器同時到期的工作也並排跑（`AlarmQueue.runDue` 用 `Promise.all`），一張桌子的機器人在想不會拖到別桌。回答回來時局面若已經變了（真人出了牌、撤回、有人換座位），這個回答**丟掉**，照新局面重新排程。**思考上限 2 秒**（`THINK_LIMIT_MS`，測試用 `ClubConfig.thinkLimitMs` 縮短）：大腦逾時、丟出錯誤或回傳失敗的 `Promise`，就改問規則機器人 `ruleBrain`，牌桌不會卡住；逾時後才到的回答不理會。預設的大腦就是規則機器人時不設計時器。機器人行動前的節奏仍是上面的延遲。物件被回收時正在想的回答跟著消失，重新載入後照常重新排程。
 
-**刻意失誤**（`e6-t21`，`ROBOT.md` §8）：`bid`、`play` 多帶一個 `seed`，規則機器人依等級的失誤率與「種子＋動作序號」的亂數決定要不要改選第二選擇，所以可重現。一般牌桌的種子是「牌桌 id＋第幾副」（`mistakeSeed`）；挑戰的種子是「挑戰 id＋第幾副」（§5.5），由挑戰牌桌給。
+**確定性**：TKB 沒有亂數，也不刻意失誤，同一個局面一定做同一件事，所以不需要種子（B6 的刻意失誤與 `mistakeSeed` 已依社長 2026-10-24 的決定拿掉）。
 
 ### 5.1.1 決策紀錄：機器人運算放哪裡（`e6-t09`，2026-10-24）
 
@@ -380,9 +380,9 @@ SQL 由 `worker/history-index.ts` 的 `searchBoards` 組：只有固定的 SQL �
 
 **付費：暫不付（社團決定，2026-10-24）**。現階段的做法：
 
-1. **先把規則機器人做強**，不用 DDS：出牌時讀叫牌推論、數牌、坐莊計畫、防守推論（ROADMAP 新的 B4、B10）。等級 1–3 都不需要伺服器 DDS。
+1. **先把規則機器人做強**，不用 DDS：出牌時讀叫牌推論、數牌、坐莊計畫、防守推論（ROADMAP 新的 B4、B10）。這就是 TKB，不需要伺服器 DDS。
 2. **DDS 只用在不花錢的地方**：殘局與攤牌判斷用 `dd.ts`（已經在做）；牌打完、四家公開以後，紀錄頁在**瀏覽器**裡用 WASM 版 DDS 算 DD 表與 par（`e6-t43`，B11）。機器人打牌時的思考不能放在瀏覽器，因為那需要別人的牌（`CLAUDE.md` 硬性規則 2）。
-3. **之後再付**：有人要等級 4（橋士組，模擬出牌），或同時在線的人多到規則機器人不夠用時，再升級付費方案。升級只是在 Cloudflare 後台切換方案，不用搬家；`RobotBrain` 讓 DDS 大腦直接換進來（ROADMAP Phase P）。
+3. **之後再付**：要做 TKB Adv（DDS 殘局、模擬出牌），或同時在線的人多到規則機器人不夠用時，再升級付費方案。升級只是在 Cloudflare 後台切換方案，不用搬家；`RobotBrain` 讓 DDS 大腦直接換進來（ROADMAP Phase P）。
 
 **規模估算**（全台灣使用時參考，2026-10 的官方價格）：最壞的情況是 300 人同時在線、每人一桌配 3 個 GIB 式機器人，尖峰每天 4 小時，每月約 43 萬副。每次出牌模擬 50 副牌、每副機器人約用 10–20 秒 CPU：
 

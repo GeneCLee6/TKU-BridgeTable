@@ -1,18 +1,18 @@
 import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { isRobotKind, isRobotLevel } from '../shared/protocol.ts'
+import { isRobotKind } from '../shared/protocol.ts'
 import type { RobotBrain } from '../shared/robot/brain.ts'
 import { FULL_SET_SIZE, QUICK_SET_SIZE } from './deals.ts'
 import type { RobotConfig } from './match.ts'
 
 /**
- * Reading the command line's robot configurations (Node only). A configuration is written
- * `kind:level`, such as `tku:college`; `@dir` takes the rule robot from another checkout's
- * `shared/robot` (such as main's, checked out in `base/`), and `,play=dir` only its card play:
+ * Reading the command line's robot configurations (Node only). A configuration is the system TKB
+ * bids, `tku` or `gib`; `@dir` takes the rule robot from another checkout's `shared/robot` (such
+ * as main's, checked out in `base/`), and `,play=dir` only its card play:
  *
- *   tku:college            this checkout's 淡江 robot at 大專
- *   gib:beginner@base      the 2/1 robot at 初學者 from the checkout in ./base
- *   tku:college,play=base  this checkout's auction, the play of ./base (same contracts, only the play differs)
+ *   tku            this checkout's TKB in the club's system
+ *   gib@base       TKB in 2/1 from the checkout in ./base
+ *   tku,play=base  this checkout's auction, the play of ./base (same contracts, only the play differs)
  */
 
 const brains = new Map<string, Promise<RobotBrain>>()
@@ -34,10 +34,8 @@ export function brainFrom(dir: string): Promise<RobotBrain> {
 export async function parseConfig(spec: string): Promise<RobotConfig> {
   const [main, ...options] = spec.split(',')
   const [robot, dir] = main.split('@')
-  const [kind, level = 'college'] = robot.split(':')
-  if (!isRobotKind(kind)) throw new Error(`unknown robot kind "${kind}" in "${spec}" (tku or gib)`)
-  if (!isRobotLevel(level)) throw new Error(`unknown robot level "${level}" in "${spec}"`)
-  const config: RobotConfig = { name: spec, kind, level }
+  if (!isRobotKind(robot)) throw new Error(`unknown robot "${robot}" in "${spec}" (tku or gib)`)
+  const config: RobotConfig = { name: spec, kind: robot }
   if (dir) config.brain = await brainFrom(dir)
   for (const option of options) {
     const [key, value] = option.split('=')

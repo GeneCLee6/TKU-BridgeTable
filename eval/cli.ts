@@ -8,10 +8,10 @@ import { summarize } from './stats.ts'
 /**
  * The evaluation command line (e6-t15, eval/README.md):
  *
- *   npm run eval -- --a tku:college --b tku:beginner [--set quick|full|N] [--from 1] [--seed s] [--json out.json]
+ *   npm run eval -- --a tku --b gib [--set quick|full|N] [--from 1] [--seed s] [--json out.json]
  */
 
-const USAGE = 'usage: npm run eval -- --a <kind:level[@dir][,play=dir]> --b <…> [--set quick|full|N] [--from N] [--seed s] [--json file]'
+const USAGE = 'usage: npm run eval -- --a <tku|gib[@dir][,play=dir]> --b <…> [--set quick|full|N] [--from N] [--seed s] [--json file]'
 
 async function main() {
   const args = readArgs(process.argv.slice(2))
@@ -19,8 +19,8 @@ async function main() {
     console.log(USAGE)
     return
   }
-  const a = await parseConfig(args.get('a') ?? 'tku:college')
-  const b = await parseConfig(args.get('b') ?? 'tku:college')
+  const a = await parseConfig(args.get('a') ?? 'tku')
+  const b = await parseConfig(args.get('b') ?? 'tku')
   const seed = args.get('seed') ?? EVAL_SEED
   const from = Number(args.get('from') ?? 1)
   const count = setSize(args.get('set') ?? 'quick')
@@ -31,7 +31,6 @@ async function main() {
     a,
     b,
     boards,
-    seed,
     onBoard: (_, done) => {
       if (process.stderr.isTTY && done % 50 === 0) process.stderr.write(`\r${done}/${count} boards`)
     },

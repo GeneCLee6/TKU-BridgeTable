@@ -52,7 +52,6 @@ function responses(r: Ranges, stayman: Call, runout = false): Rule[] {
   for (const M of MAJORS)
     rules.push({
       call: bid(4, M === 'H' ? 'D' : 'H'),
-      minLevel: 'college',
       shows: { name: 'texas', len: { [M]: [6, 13] }, hcp: r.game, notes: [{ key: 'transferTo', strain: M }], artificial: true, forcing: 'oneRound' },
       when: (h) => h.len[M] >= 6 && h.len[M] > h.len[other(M)],
     })
@@ -66,7 +65,6 @@ function responses(r: Ranges, stayman: Call, runout = false): Rule[] {
       })
   rules.push({
     call: bid(2 + r.up, 'S'),
-    minLevel: 'college',
     shows: { name: 'minorStayman', hcp: plus(r.game[0]), forcing: 'game', artificial: true },
     when: (h) => !fourMajor(h) && h.len.H < 5 && h.len.S < 5 && Math.min(h.len.C, h.len.D) >= 4 && h.len.C + h.len.D >= 9,
   })
@@ -74,7 +72,6 @@ function responses(r: Ranges, stayman: Call, runout = false): Rule[] {
   const asks = { name: 'stayman' as const, notes: [{ key: 'asksMajor' as const }], forcing: 'oneRound' as const, artificial: true }
   rules.push({
     call: stayman,
-    minLevel: 'college',
     shows: { ...asks, hcp: plus(r.invite ? r.invite[0] : r.game[0]) },
     when: (h) => fourMajor(h) && !(h.len.H >= 5 && h.len.S >= 5) && h.len.H + h.len.S <= 9,
   })
@@ -82,7 +79,6 @@ function responses(r: Ranges, stayman: Call, runout = false): Rule[] {
   for (const M of MAJORS)
     rules.push({
       call: bid(2 + r.up, M === 'H' ? 'D' : 'H'),
-      minLevel: 'college',
       shows: { name: 'transfer', len: { [M]: [5, 13] }, notes: [{ key: 'transferTo', strain: M }], forcing: 'oneRound', artificial: true },
       when: (h) => (fiveFive(h) ? M === (within(h.hcp, r.game) ? 'S' : 'H') : fiveMajor(h) === M),
     })
@@ -95,7 +91,6 @@ function responses(r: Ranges, stayman: Call, runout = false): Rule[] {
     ] as const)
       rules.push({
         call,
-        minLevel: 'college',
         shows: { name: 'transfer', len: { [m]: [6, 13] }, notes: [{ key: 'transferTo', strain: m }], forcing: 'oneRound', artificial: true },
         when: (h) => minorTransfer(h, m),
       })
@@ -108,7 +103,7 @@ function responses(r: Ranges, stayman: Call, runout = false): Rule[] {
     // GIB does not like Gerber, but knows what it means
     { call: '4C', shows: { name: 'gerber', artificial: true }, when: () => false },
   )
-  if (r.invite) rules.push({ minLevel: 'college', call: stayman, shows: { ...asks, hcp: r.invite } })
+  if (r.invite) rules.push({ call: stayman, shows: { ...asks, hcp: r.invite } })
   rules.push({ call: 'P', shows: { hcp: r.weak } })
   return rules
 }
@@ -292,7 +287,6 @@ function lebensohl(theirs: Suit): Rule[] {
     // Fast denies: the cue bid or 3NT at once have no stopper
     {
       call: bid(3, theirs),
-      minLevel: 'college',
       shows: { name: 'stayman', hcp: plus(10), notes: [{ key: 'asksMajor' }], forcing: 'game', artificial: true },
       when: (h) => !stopped(h, theirs) && unbidMajor(h),
     },
@@ -303,7 +297,6 @@ function lebensohl(theirs: Suit): Rule[] {
     ...UP.filter((s) => above(s, theirs)).map((x): Rule => ({ call: bid(2, x), shows: { len: { [x]: [5, 13] }, hcp: [0, 9], notes: [{ key: 'toPlay' }] } })),
     {
       call: '2N',
-      minLevel: 'college',
       shows: { name: 'lebensohl', notes: [{ key: 'relayTo', calls: ['3C'] }], forcing: 'oneRound', artificial: true },
       when: (h) => (h.hcp >= 10 && stopped(h, theirs)) || (h.hcp <= 9 && UP.some((s) => !above(s, theirs) && s !== theirs && h.len[s] >= 6)),
     },
@@ -317,7 +310,6 @@ function afterLebensohlRelay(theirs: Suit): Rule[] {
     // Slow shows: the cue bid or 3NT after the relay promise a stopper
     {
       call: bid(3, theirs),
-      minLevel: 'college',
       shows: { name: 'stayman', hcp: plus(10), stop: { [theirs]: 'stop' }, forcing: 'game', artificial: true },
       when: (h) => h.hcp >= 10 && MAJORS.some((M) => M !== theirs && h.len[M] >= 4),
     },
