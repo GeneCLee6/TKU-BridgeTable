@@ -141,7 +141,7 @@ SQL curations           board_id, title, category, body_md, trick_notes(json), c
 
 **M2 · 分析、匯出、匯入**
 
-- [ ] `e4-t34` DD 表與 par 分數：紀錄頁顯示（用 E6 的 DDS，結果快取在紀錄裡）· AC-4.10 · S · ← e6-t13
+- [ ] `e4-t34` DD 表與 par 分數：紀錄頁顯示（用瀏覽器端的 DDS `e6-t43`，在瀏覽器算，不經過伺服器）· AC-4.10 · S · ← e6-t43
 - [ ] `e4-t35` 重播每一步顯示 DD 最佳牌與「這張牌少了幾墩」· AC-4.10 · M · ← e4-t34
 - [ ] `e4-t36` PBN 匯出：單副與篩選結果整批下載 · AC-4.11 · S · ← e4-t14
 - [ ] `e4-t37` 整場 LIN：同一張桌連續打的所有副合成一份 · AC-4.11 · S
