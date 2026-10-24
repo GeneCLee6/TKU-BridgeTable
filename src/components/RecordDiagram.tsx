@@ -5,7 +5,7 @@ import type { BoardRecord, PublicUser } from '../../shared/protocol.ts'
 import { suitOrder } from '../lib/cards.ts'
 import type { Orientation } from '../lib/measure.ts'
 import { usePreferences, type CardStyle } from '../state/PreferencesContext.tsx'
-import { seatLetter } from '../strings.ts'
+import { playerName, seatLetter } from '../strings.ts'
 import { BoardInfo } from './BoardInfo.tsx'
 import { HandView } from './HandView.tsx'
 import { TrickArea, TrickSpace, type Position } from './TrickArea.tsx'
@@ -93,7 +93,7 @@ export function RecordDiagram({
   const { board, players } = record
   const shown = { ...board, play: board.play.slice(0, step) }
   const current = tricksOf(shown).at(-1)
-  const name = (u: PublicUser) => (u.robot ? t.robot : u.username)
+  const name = (u: PublicUser) => playerName(t, u)
 
   return (
     <Diagram $compact={compact}>

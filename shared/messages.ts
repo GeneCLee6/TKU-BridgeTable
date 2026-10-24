@@ -239,6 +239,14 @@ export const MESSAGES = {
     ja: 'まだ配られていません',
     ko: '아직 카드를 돌리지 않았습니다',
   },
+  unknownRobot: {
+    zh: '沒有這種機器人',
+    'zh-Hans': '没有这种机器人',
+    en: 'There is no such robot',
+    vi: 'Không có loại robot này',
+    ja: 'そのロボットはありません',
+    ko: '그런 로봇은 없습니다',
+  },
   seatNotRobot: {
     zh: '這個位子不是機器人',
     'zh-Hans': '这个位子不是机器人',

@@ -17,7 +17,7 @@ import { useMediaQuery } from '../lib/useMediaQuery.ts'
 import { useTrickReplay } from '../lib/useTrickReplay.ts'
 import { usePreferences } from '../state/PreferencesContext.tsx'
 import { mobileQuery } from '../styles/tokens.ts'
-import { seatLetter } from '../strings.ts'
+import { playerName, seatLetter } from '../strings.ts'
 
 /**
  * One finished board: the deal as a hand diagram (RecordDiagram, BBO's Handviewer), the auction,
@@ -117,7 +117,7 @@ export function BoardRecordView({ record, embedded = false }: { record: BoardRec
   const allTricks = tricksOf(board)
   const contract = board.contract
   const result = board.result!
-  const name = (u: PublicUser) => (u.robot ? t.robot : u.username)
+  const name = (u: PublicUser) => playerName(t, u)
   // North and South fan out across the full width; East and West go in rows by suit beside the trick
   const width = phone ? 40 : 72
   const side = (seat: string) => seat === 'E' || seat === 'W'

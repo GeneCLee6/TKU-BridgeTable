@@ -11,6 +11,8 @@ export interface PublicUser {
   username: string
   /** Set for a robot player in a seat or a history record */
   robot?: boolean
+  /** Which robot: the club's (淡江機器人) or the GIB-compatible 2/1 one; older records have none (the club's) */
+  robotKind?: RobotKind
 }
 
 /**
@@ -50,9 +52,22 @@ export interface SeatOccupant extends PublicUser {
   online: boolean
 }
 
-/** Robots sit in seats under ids like 'robot:N' */
+/** Robots sit in seats under ids like 'robot:gib:N'; older tables have 'robot:N', the club's robot */
 export const ROBOT_PREFIX = 'robot:'
 export const isRobotId = (id: string | null | undefined) => !!id && id.startsWith(ROBOT_PREFIX)
+
+/**
+ * The robots a host can seat: the club's robot (淡江機器人, the club's system in TKU BridgeBook)
+ * and the 2/1 robot (GIB-compatible, docs/BBO GIB). ROBOT.md has both.
+ */
+export const ROBOT_KINDS = ['tku', 'gib'] as const
+export type RobotKind = (typeof ROBOT_KINDS)[number]
+export const isRobotKind = (value: unknown): value is RobotKind => ROBOT_KINDS.includes(value as RobotKind)
+export const robotId = (kind: RobotKind, seat: Seat) => `${ROBOT_PREFIX}${kind}:${seat}`
+export function robotKindOf(id: string): RobotKind {
+  const kind = id.slice(ROBOT_PREFIX.length).split(':')[0]
+  return isRobotKind(kind) ? kind : 'tku'
+}
 
 export interface ChatMessage {
   id: string
@@ -162,7 +177,8 @@ export type ClientMessage =
   | { type: 'leaveTable' }
   /** The host asks a person to leave a seat; they stay at the table, watching */
   | { type: 'kick'; seat: Seat }
-  | { type: 'addRobot'; seat: Seat }
+  /** The club's robot unless `kind` says otherwise */
+  | { type: 'addRobot'; seat: Seat; kind?: RobotKind }
   | { type: 'removeRobot'; seat: Seat }
   | { type: 'call'; call: Call; alert?: string }
   | { type: 'play'; card: Card }

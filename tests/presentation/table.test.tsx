@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { ReactNode } from 'react'
 import { describe, expect, it, vi } from 'vitest'
@@ -30,6 +30,61 @@ describe('BiddingBox', () => {
     expect(within(box).getByRole('button', { name: '紅心' })).toBeDisabled()
     await userEvent.click(within(box).getByRole('button', { name: '黑桃' }))
     expect(onCall).toHaveBeenCalledWith('1S', undefined)
+  })
+
+  describe('with a 2/1 robot partner', () => {
+    const hints = {
+      title: '2/1 機器人的理解',
+      text: (call: string) => ({ P: '0–5 大牌點', '1S': '4+ 張♠，6+ 大牌點，迫叫一圈', X: '負性賭倍' })[call] ?? '機器人沒有特別的理解',
+    }
+    const legal = [...legalCalls([{ seat: 'N', call: '1C' }, { seat: 'E', call: '1D' }], 'N')]
+
+    it('shows how the robot reads a call under the mouse, without making it', async () => {
+      const onCall = vi.fn()
+      wrap(<BiddingBox legal={legal} onCall={onCall} hints={hints} />)
+      await userEvent.hover(screen.getByRole('button', { name: 'Pass' }))
+      expect(screen.getByRole('status')).toHaveTextContent('2/1 機器人的理解0–5 大牌點')
+      await userEvent.click(screen.getByRole('button', { name: '1' }))
+      await userEvent.hover(screen.getByRole('button', { name: '黑桃' }))
+      expect(screen.getByRole('status')).toHaveTextContent('4+ 張♠，6+ 大牌點，迫叫一圈')
+      await userEvent.hover(screen.getByRole('button', { name: '紅心' }))
+      expect(screen.getByRole('status')).toHaveTextContent('機器人沒有特別的理解')
+      expect(onCall).not.toHaveBeenCalled()
+    })
+
+    it('shows it on keyboard focus too', async () => {
+      wrap(<BiddingBox legal={legal} onCall={vi.fn()} hints={hints} />)
+      screen.getByRole('button', { name: 'X' }).focus()
+      expect(await screen.findByRole('status')).toHaveTextContent('負性賭倍')
+    })
+
+    it('shows it on a long press on a phone, and that press makes no call', async () => {
+      vi.useFakeTimers()
+      try {
+        const onCall = vi.fn()
+        wrap(<BiddingBox legal={legal} onCall={onCall} hints={hints} />)
+        const pass = screen.getByRole('button', { name: 'Pass' })
+        fireEvent.pointerDown(pass, { pointerType: 'touch' })
+        act(() => void vi.advanceTimersByTime(500))
+        fireEvent.pointerUp(pass, { pointerType: 'touch' })
+        fireEvent.click(pass)
+        expect(screen.getByRole('status')).toHaveTextContent('0–5 大牌點')
+        expect(onCall).not.toHaveBeenCalled()
+        // A quick tap still makes the call
+        fireEvent.pointerDown(pass, { pointerType: 'touch' })
+        fireEvent.pointerUp(pass, { pointerType: 'touch' })
+        fireEvent.click(pass)
+        expect(onCall).toHaveBeenCalledWith('P', undefined)
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it('shows nothing without hints', async () => {
+      wrap(<BiddingBox legal={legal} onCall={vi.fn()} />)
+      await userEvent.hover(screen.getByRole('button', { name: 'Pass' }))
+      expect(screen.queryByRole('status')).toBeNull()
+    })
   })
 
   it('attaches an alert explanation', async () => {
@@ -71,6 +126,14 @@ describe('AuctionBox', () => {
     expect(popup).toHaveTextContent('E Robot')
     await userEvent.click(within(popup).getByRole('button', { name: '關閉' }))
     expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('explains a 2/1 robot’s call from what it shows, in the viewer’s language', async () => {
+    const meaning = { len: { S: [5, 13] as const }, hcp: [11, 21] as const, tp: [12, 22] as const }
+    wrap(<AuctionBox auction={[{ seat: 'E', call: '1S', alert: 'stored text', robot: true, meaning }]} dealer="E" vul="None" />)
+    await userEvent.click(screen.getByRole('button', { name: /Alert/ }))
+    // The rules load on their own; until then the stored words show
+    await waitFor(() => expect(screen.getByRole('dialog', { name: 'Alert' })).toHaveTextContent('5+ 張♠，11–21 大牌點，12–22 總點'))
   })
 })
 

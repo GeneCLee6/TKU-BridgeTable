@@ -25,7 +25,9 @@ import {
   LAST_TRICK_MS,
   LIMITS,
   PERMISSIONS,
-  ROBOT_PREFIX,
+  isRobotKind,
+  robotId,
+  robotKindOf,
   summarize,
   USERNAME_PATTERN,
   type AdminUser,
@@ -46,9 +48,9 @@ import {
   type TableView,
   type TableWire,
 } from '../shared/protocol.ts'
-import { chooseCall } from '../shared/robot/bidding.ts'
 import { acceptsClaim } from '../shared/robot/claim.ts'
 import { chooseCard } from '../shared/robot/play.ts'
+import { robotCall, type RobotBid } from '../shared/robot/robots.ts'
 import { hashPassword, randomId, SESSION_DAYS, verifyPassword } from './auth.ts'
 import type { Store } from './store.ts'
 import { boardView, seatOccupants, type Table } from './views.ts'
@@ -622,7 +624,7 @@ export class ClubService {
       case 'kick':
         return this.kick(userId, message.seat)
       case 'addRobot':
-        return this.addRobot(userId, message.seat)
+        return this.addRobot(userId, message.seat, message.kind)
       case 'removeRobot':
         return this.removeRobot(userId, message.seat)
       case 'chat':
@@ -759,11 +761,13 @@ export class ClubService {
     await this.save(table)
   }
 
-  private async addRobot(userId: string, seat: unknown) {
+  /** Seats a robot: the club's (淡江機器人) unless the host chose another kind */
+  private async addRobot(userId: string, seat: unknown, kind: unknown = 'tku') {
     const table = this.hostTable(userId)
     if (!isSeat(seat)) throw new ClubError('badSeat')
+    if (!isRobotKind(kind)) throw new ClubError('unknownRobot')
     if (table.seats[seat]) throw new ClubError('seatTaken')
-    table.seats[seat] = ROBOT_PREFIX + seat
+    table.seats[seat] = robotId(kind, seat)
     this.startBoardIfReady(table)
     await this.save(table)
   }
@@ -833,8 +837,10 @@ export class ClubService {
     const dummy = partnerOf(declarer)
     const person = table.seats[dummy]
     if (!isRobotId(table.seats[declarer]) || !person || isRobotId(person)) return
+    // The robot keeps its kind in its new seat
+    const kind = robotKindOf(table.seats[declarer]!)
     table.seats[declarer] = person
-    table.seats[dummy] = ROBOT_PREFIX + dummy
+    table.seats[dummy] = robotId(kind, dummy)
     table.swapped = [declarer, dummy]
   }
 
@@ -849,8 +855,9 @@ export class ClubService {
     const [declarer, dummy] = table.swapped
     const person = table.seats[declarer]
     if (person && !isRobotId(person) && isRobotId(table.seats[dummy])) {
+      const kind = robotKindOf(table.seats[dummy]!)
       table.seats[dummy] = person
-      table.seats[declarer] = ROBOT_PREFIX + declarer
+      table.seats[declarer] = robotId(kind, declarer)
     }
     table.swapped = undefined
   }
@@ -884,7 +891,13 @@ export class ClubService {
   }
 
   /** Applies one board action for a seat, from a person or a robot */
-  private async act(table: Table, seat: Seat, message: ClientMessage, byRobot = false) {
+  private async act(
+    table: Table,
+    seat: Seat,
+    message: ClientMessage,
+    byRobot = false,
+    meaning?: RobotBid['meaning'],
+  ) {
     const board = table.board
     if (!board) throw new ClubError('noBoard')
 
@@ -899,7 +912,11 @@ export class ClubService {
           message.alert === undefined ? undefined : String(message.alert).slice(0, LIMITS.alertMax),
         )
         // A robot's explanations are for everyone, its partner too, as GIB's are on BBO
-        if (byRobot) next = { ...next, auction: [...board.auction, { ...next.auction.at(-1)!, robot: true }] }
+        // A 2/1 robot's call also carries what it shows, explained in each viewer's language
+        if (byRobot) {
+          const made = { ...next.auction.at(-1)!, robot: true, ...(meaning ? { meaning } : {}) }
+          next = { ...next, auction: [...board.auction, made] }
+        }
         break
       case 'play': {
         if (!isCard(message.card)) throw new ClubError('unknownCard')
@@ -972,7 +989,9 @@ export class ClubService {
   // ── Robots ──────────────────────────────────────────────────────────────────────────────────
 
   /** What a robot at this table should do next, if anything */
-  private robotMove(table: Table): { seat: Seat; message: ClientMessage; delay: number } | null {
+  private robotMove(
+    table: Table,
+  ): { seat: Seat; message: ClientMessage; delay: number; meaning?: RobotBid['meaning'] } | null {
     const board = table.board
     if (!board || board.phase === 'finished' || this.humansSeated(table) === 0) return null
     const robot = (seat: Seat | null | undefined): seat is Seat => !!seat && isRobotId(table.seats[seat])
@@ -992,8 +1011,14 @@ export class ClubService {
     if (!turn) return null
     if (board.phase === 'auction') {
       if (!robot(turn)) return null
-      const { call, alert } = chooseCall(board.hands[turn], turn, board.auction, board.dealer, board.vul)
-      return { seat: turn, message: { type: 'call', call, alert }, delay: ROBOT_DELAY.call }
+      const kind = robotKindOf(table.seats[turn]!)
+      const bid = robotCall(kind, board.hands[turn], turn, board.auction, board.dealer, board.vul)
+      return {
+        seat: turn,
+        message: { type: 'call', call: bid.call, alert: bid.alert },
+        delay: ROBOT_DELAY.call,
+        meaning: bid.meaning,
+      }
     }
     const controller = controllerOf(board, turn)
     if (!robot(controller)) return null
@@ -1022,7 +1047,7 @@ export class ClubService {
     const move = this.robotMove(table)
     if (!move) return
     try {
-      await this.act(table, move.seat, move.message, true)
+      await this.act(table, move.seat, move.message, true, move.meaning)
     } catch (error) {
       // A robot move that turns out illegal must not stall the table: pass or play any legal card
       if (!(error instanceof AppError)) throw error
@@ -1150,7 +1175,7 @@ export class ClubService {
   }
 
   private publicUserById(id: string): PublicUser | undefined {
-    if (isRobotId(id)) return { id, username: ROBOT_NAME, robot: true }
+    if (isRobotId(id)) return { id, username: ROBOT_NAME, robot: true, robotKind: robotKindOf(id) }
     const user = this.users.get(id)
     return user && { id: user.id, username: user.username }
   }
