@@ -16,7 +16,7 @@
 | 帳號申請、權限、淡江橋譜的 API | `ARCHITECTURE.md` §5.2 |
 | 機器人的叫牌與防守 | `ROBOT.md`；2/1 機器人（GIB 相容）的制度與來源：`docs/BBO GIB/` |
 | 產品範圍與 Roadmap | `docs/PRD/00-prd.md`（總 PRD）、`docs/PRD/01-bbo-competitive-analysis.md`（BBO 競品分析） |
-| **開工前** | `docs/NEXT.md`（現在的位置、建議順序、省 token 的做法、開工指令範本）|
+| **開工前** | `docs/NEXT.md`（現在的位置、工作方式、開工指令範本）、`docs/ROADMAP.md`（全部批次的順序，一批一個 PR）|
 | 開工一個 task | `docs/PRD/README.md`（task 格式、一組 task 一個 PR）與該 task 所在的 epic（`docs/PRD/e*.md`） |
 
 ## 硬性規則

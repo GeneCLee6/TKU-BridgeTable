@@ -36,6 +36,7 @@ BBO（Bridge Base Online）要開桌和朋友打牌得買 premium 會員。淡�
 
 | 文件 | 內容 |
 | --- | --- |
+| [`docs/ROADMAP.md`](docs/ROADMAP.md) | 開發路線圖：從現在到 M1、M2 完成的每一批 PR |
 | [`docs/PRD/`](docs/PRD/README.md) | 產品需求：總 PRD（願景、功能需求、里程碑）、BBO 競品分析、12 個 epic 的驗收條件與 task 拆分 |
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | 資料夾結構、遊戲引擎、伺服器、通訊協定、可見性規則、儲存 |
 | [`DESIGN.md`](DESIGN.md) | 設計系統：色彩、BBO 牌桌、元件、版面、Logo |
