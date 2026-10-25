@@ -3,7 +3,7 @@ import { nextSeat, partnerOf, rankOf, rankValue, sameSide, SEATS, SUITS, suitOf,
 import { dummyOf, legalCards, remainingCards, tricksOf, type BoardState, type PlayedCard } from '../game.ts'
 import type { RobotKind } from '../protocol.ts'
 import { declarerLead, holdUp } from './declarer.ts'
-import { coverLastHonour, defenceLead, holdUpAgainstDummy } from './defence.ts'
+import { coverLastHonour, defenceLead, holdUpAgainstDummy, riseOverBareHonour, thirdHand } from './defence.ts'
 import { suitCards } from './hand.ts'
 import { byRank, honours, value, View } from './view.ts'
 
@@ -47,6 +47,8 @@ export function chooseCard(state: BoardState, seat: Seat, kind: RobotKind = 'tku
     !defending ? lowest(cards) : gib ? gibFollow(state, seat, trick, cards) : signalFollow(state, seat, trick, cards, trump)
 
   if (following.length) {
+    // A defender after partner's lead: third hand high, with its exceptions (defence.ts)
+    if (defending && trick.length === 2) return thirdHand(view, trick, following, best, led, trump) ?? signal(following)
     if (partnerWinning && (lastToPlay || view.isMaster(best.card))) return signal(following)
     if (!defending) {
       const card = holdUp(view, trick, following, led, trump)
@@ -57,19 +59,20 @@ export function chooseCard(state: BoardState, seat: Seat, kind: RobotKind = 'tku
       if (card) return card
     }
     if (partnerWinning) {
-      // Third hand high: protect partner's lead from the last player
+      // Third hand high: protect partner's lead from the last player, with the lowest of equal cards
       const top = [...following].sort(byRank).at(-1)!
       if (rankValue(rankOf(top)) <= rankValue(rankOf(best.card))) return signal(following)
-      // GIB plays the lowest of equal cards (KQ: the queen)
-      return gib ? view.lowestEqual(top, following) : top
+      return view.lowestEqual(top, following)
     }
     const trumped = trump !== null && suitOf(best.card) === trump && led !== trump
     if (trumped) return signal(following)
     const beaters = following.filter((c) => suitOf(best.card) === led && rankValue(rankOf(c)) > rankValue(rankOf(best.card)))
     if (trick.length === 1) {
-      // Second hand low, but cover an honour (the last of dummy's touching honours)
+      // Second hand low, but cover an honour (the last of dummy's touching honours), and rise
+      // over a bare honour in dummy
       const honour = rankValue(rankOf(trick[0].card)) >= 11 && (!defending || coverLastHonour(view, trick))
-      return honour && beaters.length ? lowest(beaters) : signal(following)
+      if (honour && beaters.length) return lowest(beaters)
+      return (defending && riseOverBareHonour(view, trick, following, led)) || signal(following)
     }
     if (defending && beaters.length) {
       const card = holdUpAgainstDummy(view, trick, following, led, trump)

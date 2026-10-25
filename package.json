@@ -15,6 +15,7 @@
     "eval": "node --experimental-strip-types --disable-warning=ExperimentalWarning eval/cli.ts",
     "eval:gate": "node --experimental-strip-types --disable-warning=ExperimentalWarning eval/gate.ts",
     "quiz": "node --experimental-strip-types --disable-warning=ExperimentalWarning eval/quiz-cli.ts",
+    "quiz:play": "node --experimental-strip-types --disable-warning=ExperimentalWarning eval/play-quiz-cli.ts",
     "sim": "node --experimental-strip-types --disable-warning=ExperimentalWarning eval/sim/cli.ts",
     "seed": "node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/seed-cli.ts",
     "deploy": "npm run build && wrangler deploy"
