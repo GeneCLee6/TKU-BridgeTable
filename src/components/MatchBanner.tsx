@@ -11,7 +11,8 @@ import { ScoreLine } from './MatchParts.tsx'
  * The title of a team match table (`e8-t10`): the room and which board of how many, and the
  * match's score above the table. The score is the match's own (`useTeamMatch`, pushed live), so it
  * only counts boards both rooms played: nothing here tells the players how the other room did on
- * a board they have still to play. A room that played every board waits for the other (`e8-t08`)
+ * a board they have still to play. A room that played every board waits for the other (`e8-t08`);
+ * while the host has the match paused it says so (`e8-t16`)
  */
 
 const Wrap = styled.span`
@@ -49,8 +50,10 @@ export function MatchBanner({ match, watching = false }: { match: TableMatch; wa
           <ScoreLine match={view} />
         </small>
       )}
-      {match.over && playing && (
-        <small role="status">{t.teamMatch.waitingOther}</small>
+      {match.paused ? (
+        <small role="status">{t.teamMatch.pausedHint}</small>
+      ) : (
+        match.over && playing && <small role="status">{t.teamMatch.waitingOther}</small>
       )}
     </Wrap>
   )

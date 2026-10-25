@@ -131,7 +131,7 @@ export function goalFor(h: Hand, ctx: Ctx): Goal | null {
   const pointsIn = (st: Strain) => (st === 'N' ? h.hcp : h.tp) + partnerPoints(ctx, st === 'N')
   let points = pointsIn(strain)
   // A minor-suit game takes more: with 25–27 prefer 3NT when it can be played
-  if (isMinor(strain) && points >= 25 && points < 28 && notrumpOk(h, ctx)) {
+  if (isMinor(strain) && points >= 25 && points < 33 && notrumpOk(h, ctx)) {
     strain = 'N'
     points = pointsIn('N')
   }

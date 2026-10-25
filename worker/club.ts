@@ -19,7 +19,7 @@ import type { EventReport } from './modes.ts'
 import type { Store } from './store.ts'
 import type { TableObject } from './table-object.ts'
 import { RemoteTables, type TableEntry, type TableRpc } from './tables.ts'
-import type { MatchAction } from './team-match-service.ts'
+import type { MatchAction, MatchPlayAction } from './team-match-service.ts'
 
 export interface Env {
   CLUB: DurableObjectNamespace<Club>
@@ -376,9 +376,17 @@ export class Club extends DurableObject<Env> implements Connections {
       const b = await body()
       return json({ match: this.service.matches.create(user.id, { settings: b.settings, seat: b.seat }) })
     }
-    const matchAction = url.pathname.match(/^\/api\/matches\/([\w-]+)\/(settings|cancel|start|invite|answer|move|leave|clear|robot)$/)
+    const matchAction = url.pathname.match(
+      /^\/api\/matches\/([\w-]+)\/(settings|cancel|start|invite|answer|move|leave|clear|robot|rule|pause|abandon|replace|sitin)$/,
+    )
     if (request.method === 'POST' && matchAction) {
       const [, matchId, action] = matchAction
+      // While it is played (e8-t14–e8-t16): rulings, the pause, abandoning, substitutes, robots sitting in
+      const play = { rule: 'matchRule', pause: 'matchPause', abandon: 'matchAbandon', replace: 'matchReplace', sitin: 'matchSitIn' } as const
+      if (action in play) {
+        const message = { ...(await body()), type: play[action as keyof typeof play], matchId } as MatchPlayAction
+        return json({ match: await this.service.matchPlayRequest(user.id, message) })
+      }
       if (action === 'settings') return json({ match: this.service.matches.update(user.id, matchId, (await body()).settings) })
       if (action === 'cancel') return json({ match: await this.service.matches.cancel(user.id, matchId) })
       if (action === 'start') return json({ match: await this.service.startMatchRequest(user.id, matchId) })

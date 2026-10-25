@@ -29,6 +29,7 @@ import type {
   TablePractice,
   TableSettings,
 } from '../shared/protocol.ts'
+import { TABLE_REQUEST_MS } from '../shared/protocol.ts'
 import type { EventReport, PracticeTableState } from './modes.ts'
 import { isOpenChallenge, type ChallengeTraveller, type ChallengeView } from '../shared/challenge.ts'
 import type { DealSource } from '../shared/deal-source.ts'
@@ -37,10 +38,10 @@ import { challengeStandings, hasFinished } from './challenge-flow.ts'
 import type { Challenge } from './challenges.ts'
 import type { Traveller } from '../shared/traveller.ts'
 import type { EventBoard } from './history-index.ts'
-import { teamAt, type MatchBoardView, type TeamMatchView } from '../shared/team-match.ts'
+import { teamAt, type MatchBoardView, type MatchRoomView, type TeamMatchView } from '../shared/team-match.ts'
 import { scoreTeamMatch } from '../shared/team-scoring.ts'
 import { isMatchPlayer } from './team-match-flow.ts'
-import { boardScores, type TeamMatch } from './team-matches.ts'
+import { boardScores, type RoomResult, type TeamMatch } from './team-matches.ts'
 
 /** A table as the Worker keeps it */
 export interface Table {
@@ -71,8 +72,17 @@ export interface Table {
   dealSource?: DealSource
   /** How the host runs the table; tables saved before settings use DEFAULT_TABLE_SETTINGS */
   settings?: TableSettings
-  /** Members the host invited (`e2-t25`); at an invite table only they (and whoever is at it) may sit */
+  /** Members the host invited (`e2-t25`); at a hidden or request table they come in without asking */
   invited?: string[]
+  /** Members the host let in after they asked (a `request` table); kept while the table is open */
+  approved?: string[]
+  /**
+   * Members waiting for the host to answer their request to join, oldest first; gone after
+   * TABLE_REQUEST_MS. `muted`: the host blocked them, so the host never sees it (they are not told)
+   */
+  requests?: TableRequest[]
+  /** When the host last declined each member, for the cooldown before they may ask again */
+  declined?: Record<string, number>
   /** When the board on the table was dealt, for its time limit (`TableSettings.boardMinutes`) */
   boardStartedAt?: number
   /** When the table started waiting on the current call or card, for the reminder (SLOW_TURN_MS) */
@@ -90,6 +100,67 @@ export interface Table {
   blocks?: Record<string, string[]>
   /** Finished boards whose record the club has not taken yet; offered again until it does (§5.10) */
   outbox?: { record: BoardRecord; event: EventReport | null }[]
+}
+
+/** A member's request to join a table (`Table.requests`) */
+export interface TableRequest {
+  userId: string
+  at: number
+  muted?: boolean
+}
+
+/** Requests still waiting at `now` (TABLE_REQUEST_MS) */
+export const liveRequests = <R extends { at: number }>(requests: R[] | undefined, now: number): R[] =>
+  (requests ?? []).filter((r) => now - r.at < TABLE_REQUEST_MS)
+
+/** What the access rules need to know about a table: from the table itself or from the club's directory */
+export interface AccessFacts {
+  mode?: TableMode
+  hostId: string
+  settings: TableSettings
+  invited?: string[]
+  approved?: string[]
+}
+
+/**
+ * Whether the lobby lists a table for a member (the four access modes, ARCHITECTURE.md §5): never
+ * a challenge table (someone's own) nor a team match's (listed with the match); a hidden table
+ * only for its host, the invited and whoever is at it; every other table for everyone. `at`: the
+ * member is seated at it or watching
+ */
+export function tableListed(table: AccessFacts, userId: string, at: boolean): boolean {
+  // A team match's tables are listed with their match (`LobbyView.matches`, §5.8)
+  if (table.mode === 'challenge' || table.mode === 'team') return false
+  if (at || table.hostId === userId) return true
+  return table.settings.access !== 'hidden' || !!table.invited?.includes(userId)
+}
+
+/**
+ * Whether a member may come to a table (sit in an empty seat, or watch where watching is allowed)
+ * without asking: anyone at a public table; the invited and the approved at a request table; the
+ * invited at a hidden table; nobody new at a closed table. The host and whoever is already at the
+ * table always may. A host's block is checked by the club (it knows the blocks)
+ */
+export function mayEnter(table: AccessFacts, userId: string, at: boolean): boolean {
+  if (table.mode === 'challenge') return false
+  if (at || table.hostId === userId) return true
+  const invited = !!table.invited?.includes(userId)
+  switch (table.settings.access) {
+    case 'public':
+      return true
+    case 'request':
+      return invited || !!table.approved?.includes(userId)
+    case 'hidden':
+      return invited
+    case 'closed':
+      return false
+  }
+}
+
+/** Why a member may not come in (`mayEnter` is false): the error they get */
+export function refusal(table: AccessFacts, userId: string): 'tableGone' | 'requestFirst' | 'tableClosed' {
+  if (!tableListed(table, userId, false)) return 'tableGone'
+  return table.settings.access === 'request' ? 'requestFirst' : 'tableClosed'
 }
 
 /**
@@ -399,12 +470,14 @@ export function challengeView(
  * kibitzers may watch both tables) or over, never while it is set up or after it was cancelled.
  * The deals are never sent. A board is shown only once it has a result (both rooms played it, or
  * the host ruled on it): one room's score alone would tell the other room's players how the board
- * went before they play it
+ * went before they play it. Each room's result carries the contract and the declarer's tricks from
+ * the history index (`details`, the match's rows) and its opening lead, for the result page (`e8-t12`)
  */
 export function teamMatchView(
   match: TeamMatch,
   userId: string,
   userById: (id: string) => PublicUser | undefined,
+  details?: Map<string, EventBoard>,
 ): TeamMatchView | null {
   const m = match
   const outsiderMaySee = m.status === 'playing' || m.status === 'finished' || m.status === 'abandoned'
@@ -417,10 +490,19 @@ export function teamMatchView(
   for (const [i, result] of score.boards.entries()) {
     if (!result) continue
     const board = m.boards.find((b) => b.seq === i + 1)
+    const room = (r: RoomResult): MatchRoomView => {
+      const found = details?.get(r.boardId)
+      return {
+        boardId: r.boardId,
+        scoreNS: r.scoreNS,
+        ...(found && { contract: found.contract, declarerTricks: found.declarerTricks }),
+        ...(r.lead && { lead: r.lead }),
+      }
+    }
     boards.push({
       seq: i + 1,
-      ...(board?.open && { open: { boardId: board.open.boardId, scoreNS: board.open.scoreNS } }),
-      ...(board?.closed && { closed: { boardId: board.closed.boardId, scoreNS: board.closed.scoreNS } }),
+      ...(board?.open && { open: room(board.open) }),
+      ...(board?.closed && { closed: room(board.closed) }),
       ...(board?.ruling && { ruling: { kind: board.ruling.kind, team: board.ruling.team, reason: board.ruling.reason } }),
       result,
     })
@@ -435,6 +517,7 @@ export function teamMatchView(
     settings: m.settings,
     captains: m.captains,
     ...(m.status === 'playing' && m.tables && { tables: m.tables }),
+    ...(m.status === 'playing' && m.pausedAt !== undefined && { pausedAt: m.pausedAt }),
     seats: m.seats.map((s) => {
       const user = s.userId === undefined ? undefined : userById(s.userId)
       return {
