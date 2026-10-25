@@ -1,0 +1,9 @@
+{
+  "category": "slam",
+  "title": "滿貫（2/1）",
+  "questions": [
+    {"id": "gib-slam-001", "system": "gib", "dealer": "N", "vul": "None", "hand": "KQ2.AJ3.KQ32.Q32", "auction": ["1N", "P", "4H", "P", "4S", "P", "4N", "P"], "answer": "5S", "source": "docs/BBO GIB/gib-2over1.md §10 滿貫", "reviewer": null, "status": "pending", "note": "RKCB 0314：♠K、♥A 兩張關鍵張、有♠Q：5♠"},
+    {"id": "gib-slam-002", "system": "gib", "dealer": "N", "vul": "None", "hand": "Q32.AJ3.KQ32.KQ2", "auction": ["1N", "P", "4H", "P", "4S", "P", "4N", "P"], "answer": "5D", "source": "docs/BBO GIB/gib-2over1.md §10 滿貫", "reviewer": null, "status": "pending", "note": "RKCB 0314：一張關鍵張：5♦"},
+    {"id": "gib-slam-003", "system": "gib", "dealer": "N", "vul": "None", "hand": "Q32.KQ3.KQ32.KQ2", "auction": ["1N", "P", "4H", "P", "4S", "P", "4N", "P"], "answer": "5C", "source": "docs/BBO GIB/gib-2over1.md §10 滿貫", "reviewer": null, "status": "pending", "note": "RKCB 0314：沒有關鍵張：5♣（0 或 3）"}
+  ]
+}

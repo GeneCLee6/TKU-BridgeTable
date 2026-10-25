@@ -331,6 +331,69 @@ describe('after 1NT / 2NT (§4, §5)', () => {
   })
 })
 
+describe('the 2/1 audit: forcing calls and the notrump structure (ROBOT.md §6.7)', () => {
+  it('a six-card major with slam interest transfers and bids four; Texas is game without it, or a slam drive', () => {
+    // 13 HCP and six spades opposite 15–17: a mild slam try, not Texas
+    expect(bidOver('AKJ932 K32 Q2 32', '1N P')).toBe('2H')
+    expect(bidOver('AKJ932 K32 Q2 32', '1N P 2H P 2S P')).toBe('4S')
+    expect(bidOver('32 AKJ932 Q2 K32', '1N P')).toBe('2D')
+    expect(bidOver('32 AKJ932 Q2 K32', '1N P 2D P 2H P')).toBe('4H')
+    expect(bidOver('AQJ932 K32 KQ2 2', '1N P 2H P 2S P')).toBe('4C')
+    // Texas: game and no slam interest, or enough to ask for keycards at once
+    expect(bidOver('KQJ932 K32 Q2 32', '1N P')).toBe('4H')
+    expect(bidOver('AKJ932 AK2 Q2 32', '1N P')).toBe('4H')
+    expect(bidOver('AKJ932 AK2 Q2 32', '1N P 4H P 4S P')).toBe('4N')
+    // The same over 2NT
+    expect(bidOver('QJ9832 K32 Q2 32', '2N P')).toBe('3H')
+    expect(bidOver('QJ9832 K32 Q2 32', '2N P 3H P 3S P')).toBe('4S')
+    expect(bidOver('QJ9832 32 Q32 32', '2N P')).toBe('4H')
+  })
+
+  it('opener accepts the mild slam try with a maximum, and declines without', () => {
+    expect(bidOver('K54 Q32 AK32 KJ2', '1N P 2H P 2S P 4S P')).toBe('4N')
+    expect(bidOver('Q54 Q32 AK32 KJ2', '1N P 2H P 2S P 4S P')).toBe('P')
+  })
+
+  it('opener answers the shortness after a minor transfer: 3NT with a stopper, else game in the minor', () => {
+    expect(bidOver('AQ2 KJ3 KQ4 J432', '1N P 2N P 3C P 3D P')).toBe('3N')
+    expect(bidOver('AQ2 KJ32 54 AK32', '1N P 2N P 3C P 3D P')).toBe('5C')
+  })
+
+  it('new minor forcing: responder places the contract, and 1♥–1♠–1NT–2♣ is new minor forcing too', () => {
+    expect(bidOver('K2 AQ432 Q32 Q32', '1D P 1H P 1N P 2C P 2H P')).toBe('4H')
+    expect(bidOver('K2 AQ432 J32 J32', '1D P 1H P 1N P 2C P 2H P')).toBe('P')
+    expect(bidOver('K2 AQ432 J32 Q32', '1D P 1H P 1N P 2C P 2N P')).toBe('P')
+    expect(bidOver('AQ432 32 K32 K32', '1H P 1S P 1N P')).toBe('2C')
+    expect(bidOver('K32 AQ432 Q32 K2', '1H P 1S P 1N P 2C P')).toBe('3S')
+    expect(bidOver('AQ43 K32 K32 Q32', '1H P 1S P 1N P')).toBe('4H')
+  })
+
+  it('fourth suit forcing: opener shows support, a stopper or shape; also after 1♥–1♠–2♣', () => {
+    expect(bidOver('AQ32 K32 4 KJ432', '1C P 1H P 1S P 2D P')).toBe('2H')
+    expect(bidOver('AQ32 32 KJ4 KJ32', '1C P 1H P 1S P 2D P')).toBe('2N')
+    expect(bidOver('A 75 KQ532 KT765', '1D P 1S P 2C P 2H P')).toBe('3C')
+    expect(bidOver('AJ532 Q2 432 AK2', '1H P 1S P 2C P')).toBe('2D')
+  })
+
+  it('opener rebids after an inverted raise and after 1♦–2♣', () => {
+    expect(bidOver('K32 AQ3 K32 J432', '1C P 2C P')).toBe('2N')
+    expect(bidOver('A2 KQ32 AJ432 32', '1D P 2D P')).toBe('2H')
+    expect(bidOver('K32 AJ3 KJ32 J32', '1D P 2C P')).toBe('2N')
+    expect(bidOver('AT4 AJ7 AJT2 KJ8', '1D P 2C P')).toBe('3N')
+  })
+
+  it('after a 2/1 responder raises slowly with extras and jumps to game with a minimum', () => {
+    expect(bidOver('KQ3 A2 J32 AKJ32', '1S P 2C P 2S P')).toBe('3S')
+    expect(bidOver('K53 A2 J32 KQJ32', '1S P 2C P 2S P')).toBe('4S')
+  })
+
+  it('explains these calls the way GIB does', () => {
+    expect(meaning('1N P', '4H')).toBe('Texas 轉換：轉到♠，6+ 張♠，10+ 大牌點，迫叫一圈')
+    expect(meaning('1N P 2H P 2S P', '4S')).toBe('沒有單張或缺門，有滿貫興趣，6+ 張♠，13–15 大牌點')
+    expect(meaning('1C P 1H P 1S P 2D P', '2H')).toBe('支持同伴的♥，3+ 張♥，迫叫成局')
+  })
+})
+
 describe('after 2♣, weak twos and preempts (§6)', () => {
   it('answers 2♣ with a positive in a good suit, 2NT, or the 2♦ waiting bid', () => {
     expect(bidOver('32 KQJ32 K32 432', '2C P')).toBe('2H')

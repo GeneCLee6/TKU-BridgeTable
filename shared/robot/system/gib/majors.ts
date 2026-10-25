@@ -1,5 +1,6 @@
+import { levelOf } from '../../../auction.ts'
 import type { Suit } from '../../../cards.ts'
-import type { Ctx } from '../context.ts'
+import { cheapest, type Ctx } from '../context.ts'
 import type { Hand } from '../evaluate.ts'
 import type { Book, Rule } from '../spec.ts'
 import { openerRebids } from './rebids.ts'
@@ -254,6 +255,31 @@ function afterTwoOverOne(M: Suit, x: Suit): Rule[] {
   return rules
 }
 
+/**
+ * Responder's second call after a 2/1 (一般: the principle of fast arrival). With three or more
+ * of opener's major, game at once is a minimum; the cheapest raise below game is forcing (the
+ * auction is a game force) and shows extra values with slam interest. Everything else is the
+ * fallback's
+ */
+function afterTwoOverOneRebid(M: Suit): Rule[] {
+  const slow = (ctx: Ctx) => {
+    const call = cheapest(ctx, M)
+    return call && levelOf(call) <= 3 ? call : null
+  }
+  return [
+    {
+      call: slow,
+      shows: { len: { [M]: [3, 13] }, hcp: plus(15), notes: [{ key: 'support', strain: M }, { key: 'slamInterest' }], forcing: 'game' },
+      when: (h) => h.len[M] >= 3,
+    },
+    {
+      call: bid(4, M),
+      shows: { len: { [M]: [3, 13] }, hcp: [12, 14], notes: [{ key: 'support', strain: M }, { key: 'minimum' }] },
+      when: (h) => h.len[M] >= 3,
+    },
+  ]
+}
+
 // ── The books ─────────────────────────────────────────────────────────────────────────────────
 
 const notPassed = (ctx: Ctx) => !ctx.partnerPassed
@@ -285,7 +311,10 @@ for (const M of MAJORS) {
     books.push({ after: `1${M} (P) 1N (P) 2${x} (P)`, rules: afterNotrumpRebid(M, x), more: true })
   // After a 2/1 by an unpassed hand
   for (const x of M === 'S' ? (['C', 'D', 'H'] as Suit[]) : (['C', 'D'] as Suit[]))
-    books.push({ after: `1${M} (P) 2${x} (P)`, only: notPassed, rules: afterTwoOverOne(M, x), more: true })
+    books.push(
+      { after: `1${M} (P) 2${x} (P)`, only: notPassed, rules: afterTwoOverOne(M, x), more: true },
+      { after: `1${M} (P) 2${x} (P) * (P)`, only: (ctx) => !ctx.passed, rules: afterTwoOverOneRebid(M), more: true },
+    )
 }
 books.push({ after: '1H (P) 1S (P)', rules: openerRebids('H', 'S'), more: true })
 
