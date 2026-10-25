@@ -85,6 +85,27 @@ export class View {
     return out
   }
 
+  /**
+   * Cards of the suit above `card` this robot cannot see: neither played, nor on our side, nor in
+   * dummy. For a defender these are the declarer's or partner's; for the declaring side the same
+   * as `higherOut`
+   */
+  unseenAbove(card: Card): Card[] {
+    const dummy = new Set(this.dummyCards())
+    return this.higherOut(card).filter((c) => !dummy.has(c))
+  }
+
+  /** Every unplayed card of the suit above `card` is in this robot's own hand (it sits over the card) */
+  coveredByMe(card: Card): boolean {
+    const own = new Set(this.ownCards())
+    const suit = suitOf(card)
+    for (const rank of RANKS.slice(0, RANKS.indexOf(rankOf(card)))) {
+      const higher = suit + rank
+      if (!this.played.has(higher) && !own.has(higher)) return false
+    }
+    return true
+  }
+
   /** Cards of a suit neither played nor visible to this robot */
   outstanding(suit: Suit): number {
     let n = 0

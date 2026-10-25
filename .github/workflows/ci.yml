@@ -137,3 +137,8 @@ jobs:
 
       - name: Bidding question bank, this branch against the base
         run: npm run quiz -- --base base
+
+      # The card-play question bank (tests/play-quiz): the same ratchet for the play, by system and
+      # category (eval/README.md)
+      - name: Card-play question bank, this branch against the base
+        run: npm run quiz:play -- --base base

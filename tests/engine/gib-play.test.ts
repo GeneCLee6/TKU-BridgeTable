@@ -80,10 +80,10 @@ describe('the 2/1 robot signals as GIB does', () => {
     expect(chooseCard(state, 'E', 'gib')).toBe('S7')
   })
 
-  it('plays the lowest of equal cards as third hand', () => {
+  it('plays the lowest of equal cards as third hand (the club robot too)', () => {
     const state = board(layout({ W: 'T96 Q742 A54 432', N: 'A53 AK3 K763 AK5', E: 'KQ4 9853 T98 765' }), NOTRUMP, ['ST', 'S3'])
     expect(chooseCard(state, 'E', 'gib')).toBe('SQ')
-    expect(chooseCard(state, 'E', 'tku')).toBe('SK')
+    expect(chooseCard(state, 'E', 'tku')).toBe('SQ')
   })
 
   it('discards from the shortest side suit with trumps left, without a signal', () => {

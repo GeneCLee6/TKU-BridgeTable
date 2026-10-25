@@ -79,9 +79,76 @@ export function coverLastHonour(view: View, trick: PlayedCard[]): boolean {
 }
 
 /**
+ * Second hand rises with the ace when the declarer leads low towards a bare honour in dummy (a
+ * singleton king or queen): low would let it score, and the ace takes nothing else later
+ */
+export function riseOverBareHonour(view: View, trick: PlayedCard[], following: Card[], led: Suit): Card | null {
+  const state = view.state
+  const dummy = dummyOf(state)!
+  if (trick.length !== 1 || trick[0].seat === dummy || value(trick[0].card) >= 10) return null
+  const theirs = suitCards(view.dummyCards(), led)
+  if (theirs.length !== 1 || value(theirs[0]) < 12) return null
+  const ace = following.find((c) => rankOf(c) === 'A')
+  return ace && view.unseenAbove(theirs[0]).length === 0 ? ace : null
+}
+
+/**
+ * Third hand after partner's lead (ROBOT.md §3): high, with the lowest of touching cards, so the
+ * declarer does not win cheaply; but not over a card of partner's that nobody can beat, nor over
+ * partner's honour (except a doubleton honour in notrump, which overtakes so the suit does not
+ * block), and only as high as dummy makes necessary: a tenace over an honour dummy keeps finesses
+ * against it, and nothing is spent on a trick dummy, still to play, wins anyway. The rule of
+ * eleven on a low opening lead (partner holds the rest of the cards above it) says when the lead
+ * is already winning. Null leaves the card to the signals.
+ */
+export function thirdHand(view: View, trick: PlayedCard[], following: Card[], best: PlayedCard, led: Suit, trump: Suit | null): Card | null {
+  if (trick.length !== 2 || suitOf(best.card) !== led) return null
+  const state = view.state
+  const dummy = dummyOf(state)!
+  const partnerCard = trick[0].card
+  const partnerWinning = best.seat === trick[0].seat
+  const beaters = following.filter((c) => value(c) > value(best.card)).sort(byRank)
+  if (!beaters.length) return null
+  const top = beaters.at(-1)!
+  const dummyLeft = suitCards(view.dummyCards(), led)
+
+  if (partnerWinning) {
+    const honourLed = value(partnerCard) >= 11
+    // Unblock in notrump: a doubleton honour over partner's honour
+    if (honourLed) return trump === null && following.length === 2 && value(top) > value(partnerCard) ? top : null
+    // Nobody can beat partner's card: the cards above it are all in view
+    const hidden = view.unseenAbove(best.card).length
+    if (hidden === 0) return null
+    // The rule of eleven on a low opening lead: fourth best leaves partner exactly three cards
+    // above the one led, so when exactly three are out of view declarer has none (fewer, and the
+    // lead was not fourth best: a high spot from nothing, which declarer may well beat)
+    if (state.play.length < 4 && value(partnerCard) <= 7 && hidden === 3) return null
+  }
+
+  if (trick[1].seat !== dummy) {
+    // Dummy plays last: nothing we have beats its top card, keep ours; else the cheapest that does
+    const dummyTop = dummyLeft[0]
+    const over = dummyTop ? beaters.filter((c) => value(c) > value(dummyTop)) : beaters
+    return over.length ? view.lowestEqual(over[0], following) : null
+  }
+  // Dummy played second and keeps an honour above the trick: with a card over that honour, finesse
+  // against it with the highest card below it (the lowest of touching cards)
+  const kept = dummyLeft.filter((c) => value(c) > value(best.card) && value(c) >= 10)
+  if (kept.length) {
+    const over = beaters.some((c) => value(c) > value(kept[0]))
+    const under = beaters.filter((c) => value(c) < value(kept.at(-1)!))
+    if (over && under.length && value(under.at(-1)!) >= 9) return view.lowestEqual(under.at(-1)!, following)
+  }
+  // Third hand high
+  return view.lowestEqual(top, following)
+}
+
+/**
  * Hold up the stopper in notrump against dummy's long suit with no other way in: while the
  * count (auction and partner's count signal) says the declarer still has a card of the suit
- * to lead again, duck; take it when the declarer's last one is played
+ * to lead again, duck; take it when the declarer's last one is played. Only when dummy's suit
+ * is worth shutting out (its top card would be good once our stopper is gone) and dummy has no
+ * entry: no outside winner, and no outside honour we do not sit over with every higher card
  */
 export function holdUpAgainstDummy(view: View, trick: PlayedCard[], following: Card[], led: Suit, trump: Suit | null): Card | null {
   const state = view.state
@@ -89,14 +156,19 @@ export function holdUpAgainstDummy(view: View, trick: PlayedCard[], following: C
   const dummy = dummyOf(state)!
   if (trump !== null || trick[0].seat !== declarer) return null
   const dummyCards = view.dummyCards()
+  const dummySuit = suitCards(dummyCards, led)
   const dummyPlayed = trick.some((p) => p.seat === dummy)
-  const dummyLeft = suitCards(dummyCards, led).length - (dummyPlayed ? 0 : 1)
+  const dummyLeft = dummySuit.length - (dummyPlayed ? 0 : 1)
   if (dummyLeft < 2) return null
-  // Dummy has a winner outside the suit to get back in: no point holding up
-  if (dummyCards.some((c) => suitOf(c) !== led && value(c) >= 13)) return null
-  if (dummyCards.some((c) => suitOf(c) !== led && aboveAllOut(view, c))) return null
   const masters = following.filter((c) => view.isMaster(c) || aboveAllOut(view, c))
   if (masters.length !== 1) return null
+  // Dummy's suit is not worth shutting out: its top card (after this trick) would not be good
+  // even once our master is gone
+  const dummyTop = dummySuit[0]
+  if (!dummyTop || view.higherOut(dummyTop).length) return null
+  // Dummy has a way back in outside the suit: a winner, or an honour that may be one
+  const entry = (c: Card) => suitOf(c) !== led && (aboveAllOut(view, c) || (value(c) >= 11 && !view.coveredByMe(c)))
+  if (dummyCards.some(entry)) return null
   const declarerPlayed = trick.some((p) => p.seat === declarer)
   const left = view.reading.len(declarer, led)[0] - (declarerPlayed ? 0 : 1)
   return left >= 1 ? [...following].sort(byRank)[0] : null

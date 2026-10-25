@@ -16,6 +16,7 @@ import type { Range, Spec } from './system/spec.ts'
 const HCP: Record<string, number> = { A: 4, K: 3, Q: 2, J: 1 }
 const hcpOf = (card: Card) => HCP[rankOf(card)] ?? 0
 const ALL: Range = [0, 13]
+const BALANCED: Range = [2, 5]
 
 /** The auction read once per board and system: the play does not change it */
 const auctions = new WeakMap<object, Partial<Record<RobotKind, Record<Seat, Spec>>>>()
@@ -131,7 +132,8 @@ export class TableReading {
       const row = {} as Record<Suit, Range>
       for (const suit of SUITS) {
         const played = this.state.play.filter((p) => p.seat === seat && suitOf(p.card) === suit).length
-        const shown = this.shown[seat].len?.[suit] ?? ALL
+        // A balanced hand (1NT, 2NT…) holds two to five of every suit even when the rule says no lengths
+        const shown = this.shown[seat].len?.[suit] ?? (this.shown[seat].balanced ? BALANCED : ALL)
         const cap = Math.min(left, this.out(suit))
         let range: Range = [Math.max(0, shown[0] - played), Math.min(cap, shown[1] - played)]
         // The auction was wrong about this suit (a misbid or a psych): go by the count alone
