@@ -203,6 +203,9 @@ function settingsOf(table: Table): TableSettings {
  * summaries (`hist:` for everyone, `uhist:<userId>:` per member), so listing a page of history
  * reads only that page no matter how many boards the club has played.
  */
+/** The challenge actions the pages send over HTTP (`ClubService.challengeRequest`) */
+export type ChallengeRequest = Extract<ClientMessage, { type: 'createChallenge' | 'answerChallenge' | 'cancelChallenge' }>
+
 export class ClubService {
   private users = new Map<string, StoredUser>()
   private applications = new Map<string, StoredApplication>()
@@ -943,7 +946,8 @@ export class ClubService {
    * blocking the other; 4–16 boards dealt at random now; settings checked by
    * `parseChallengeSettings`. The creator has accepted and may play at once; the invitees are told
    */
-  private async createChallenge(userId: string, invitees: unknown, boards: unknown, wanted: unknown) {
+  /** Challenges friends (`e7-t05`); returns the new challenge's id */
+  private async createChallenge(userId: string, invitees: unknown, boards: unknown, wanted: unknown): Promise<string> {
     const { invitedMin, invitedMax, boardsMin, boardsMax, boardsDefault } = CHALLENGE_LIMITS
     if (!Array.isArray(invitees)) throw new ClubError('badChallengeSettings', { field: 'invitees' })
     if (invitees.length < invitedMin || invitees.length > invitedMax)
@@ -977,6 +981,7 @@ export class ClubService {
     const username = this.users.get(userId)!.username
     for (const id of invitees as string[])
       await this.notifications.notify(id, 'challengeInvited', { challengeId: challenge.id, username })
+    return challenge.id
   }
 
   private requireChallenge(id: unknown): Challenge {
@@ -1019,6 +1024,29 @@ export class ClubService {
       if (p.userId !== userId && p.status !== 'declined')
         await this.notifications.notify(p.userId, 'challengeCancelled', { challengeId: challenge.id, username })
     await this.challengeChanged(challenge.id)
+  }
+
+  /**
+   * Creates, answers or cancels a challenge over HTTP (`POST /api/challenges…`, `e7-t16`, `e7-t17`):
+   * the same checks as the socket messages, but the page hears back at once with the challenge as
+   * the member now sees it. Errors are thrown as `ClubError`
+   */
+  async challengeRequest(userId: string, request: ChallengeRequest): Promise<ChallengeView | null> {
+    // The same shape checks and rate limit as a socket message (`handleRaw`)
+    const parsed = parseClientMessage(JSON.stringify(request))
+    if ('error' in parsed) throw new ClubError(parsed.error)
+    if (!this.actionLimit.take(userId)) throw new ClubError('slowDown', {}, 429)
+    const message = parsed.message as ChallengeRequest
+    let id: string
+    if (message.type === 'createChallenge') {
+      id = await this.createChallenge(userId, message.invitees, message.boards, message.settings)
+    } else {
+      await this.dispatch(userId, message)
+      id = message.challengeId
+    }
+    // Cancelling closes the challenge's tables
+    this.broadcast()
+    return this.challengeFor(id, userId)
   }
 
   /**

@@ -65,7 +65,7 @@ TKU-BridgeTable/
 │  └─ store.ts             儲存介面與測試用 MemoryStore
 ├─ src/                    React app
 │  ├─ components/          牌、手牌、叫牌盒、叫牌過程、牌號、名牌、墩、面板、頁首、聊天
-│  ├─ pages/               Login、Lobby、Table、History、Board、Account、Admin
+│  ├─ pages/               Login、Lobby、Table、History、Board、Challenges、Challenge、Account、Admin
 │  ├─ state/               AuthContext、ClubContext（WebSocket）、PreferencesContext
 │  ├─ lib/                 api（fetch）、cards（尺寸、名稱）、format、useMediaQuery、robotRules（2/1 機器人的規則，
 │                          需要時才載入，`useRobotRules`）
@@ -131,7 +131,7 @@ interface BoardState {
 
 ## 5. 通訊與儲存
 
-**HTTP**：`GET /api/challenges`（我參與的挑戰，新的在前）、`/api/challenges/:id`（§5.5）、`POST /api/register`（第一個帳號直接登入，之後回 202 `{ pending }`）、`/api/login`、`/api/logout`、`/api/password/reset`（忘記密碼）、`/api/account/password`；`GET /api/me`（含 `permissions`，管理員另有 `applications` 待審核數）、`/api/history?scope=all&page=<n>&size=<10|20|50|100>`（回傳該頁與總數）、`/api/history/search?<條件>`（§5.3）、`/api/history/:id`。維運：`GET /api/health`、`POST /api/client-errors`（§5.6，都不需登入）。管理員：`GET/POST /api/admin/users`、`POST /api/admin/users/:id/password`、`POST /api/admin/users/:id/admin`、`POST /api/admin/users/:id/permissions`、`DELETE /api/admin/users/:id`、`GET /api/admin/applications`、`POST /api/admin/applications/:id/approve`、`DELETE /api/admin/applications/:id`、`GET/POST /api/admin/settings`、`DELETE /api/admin/tables/:id`。淡江橋譜的 `/api/book/*` 見 §5.2。session 放在 HttpOnly、SameSite=Lax 的 cookie（`tbt_session`）。錯誤回應帶 `code` 與 `params`（`shared/messages.ts`），瀏覽器依語言顯示。
+**HTTP**：`GET /api/challenges`（我參與的挑戰，新的在前）、`/api/challenges/:id`、`POST /api/challenges`（建立）、`POST /api/challenges/:id/answer`、`/cancel`（§5.5）、`POST /api/register`（第一個帳號直接登入，之後回 202 `{ pending }`）、`/api/login`、`/api/logout`、`/api/password/reset`（忘記密碼）、`/api/account/password`；`GET /api/me`（含 `permissions`，管理員另有 `applications` 待審核數）、`/api/history?scope=all&page=<n>&size=<10|20|50|100>`（回傳該頁與總數）、`/api/history/search?<條件>`（§5.3）、`/api/history/:id`。維運：`GET /api/health`、`POST /api/client-errors`（§5.6，都不需登入）。管理員：`GET/POST /api/admin/users`、`POST /api/admin/users/:id/password`、`POST /api/admin/users/:id/admin`、`POST /api/admin/users/:id/permissions`、`DELETE /api/admin/users/:id`、`GET /api/admin/applications`、`POST /api/admin/applications/:id/approve`、`DELETE /api/admin/applications/:id`、`GET/POST /api/admin/settings`、`DELETE /api/admin/tables/:id`。淡江橋譜的 `/api/book/*` 見 §5.2。session 放在 HttpOnly、SameSite=Lax 的 cookie（`tbt_session`）。錯誤回應帶 `code` 與 `params`（`shared/messages.ts`），瀏覽器依語言顯示。
 
 **WebSocket** `/ws`（同網域，帶 cookie 驗證）：
 
@@ -239,6 +239,12 @@ C4 的實作（2026-10-24）：
 - **確定性**（`e7-t09`）：TKB 沒有亂數、不刻意失誤，所以兩個人做一樣的叫牌與出牌，機器人的反應完全一樣，不需要種子（`tests/worker/challenge-table.test.ts`）。
 - **紀錄**：`BoardRecord.mode = 'challenge'`、`eventId`、`revealAt` ＝截止時間；`boards_index.mode` 照 `record.mode` 寫。紀錄、側欄與牌局頁把挑戰的牌顯示成「挑戰」而不是桌號。
 - **畫面**（`e7-t15`）：`TableView.challenge`（`TableChallenge`：第幾副、共幾副、打完幾副、截止時間）；牌桌頁首顯示「挑戰 · 第 3／8 副」與截止時間（`ChallengeBanner`），沒有房主設定、座位選單，撤回鍵停用並說明原因，打完全部顯示提示與回大廳的連結。大廳的「我的挑戰」列出現在能打的挑戰（開始打／繼續打），挑戰頁是 C6。
+
+**挑戰頁**（C6，`e7-t16`～`e7-t18`，2026-10-25）：
+- `/challenges`（`ChallengesPage`）：等待接受（受邀還沒回覆，或除了發起者還沒人接受）、進行中、已完成（結束了，或自己拒絕了）三個分頁（`src/lib/challenges.ts` 的 `challengeTab`）；每個挑戰列出對手的狀態與進度條、自己的進度、截止倒數，可以接受／拒絕、開始打／繼續打、取消（發起者，別人都還沒開打）。新通知進來就重新讀列表。
+- 發起挑戰對話框（`ChallengeDialog`）：選人只列好友（`LobbyView.friends`），點輸入框列出全部，打字 150 ms 防抖後篩選，可多選；副數、計分（依人數 `scoringsFor`）、機器人的制度、截止天數、排名公開範圍，下方預覽。Best Hand、Just Declare 等 C8 做好才放進來。
+- `/challenges/:id`（`ChallengePage`）：伺服器照 §4 給什麼就顯示什麼：名次、總成績、人 × 副矩陣（每格連到那一副的紀錄），自己那一列高亮，沒打完的列在下面標「未完成」與打了幾副；還沒打完全部的人只看到每個人的進度。
+- 建立、回覆、取消也走 HTTP（`POST /api/challenges`、`/api/challenges/:id/answer`、`/cancel`），讓頁面立刻拿到結果；伺服器是同一套檢查（`ClubService.challengeRequest` 呼叫 socket 訊息的同一個處理），錯誤一樣是 `ClubError` 的代碼。開始打仍用 socket 的 `playChallenge`（要跟著伺服器進牌桌）。通知點下去：邀請到 `/challenges`，其他到那個挑戰的頁面。
 
 **公平與確定性**（`e7-t09`）：機器人是確定的（§5.1），兩個人做一樣的事就遇到一樣的反應。機器人的制度（`robotKind`）在建立時鎖進 `settings`；機器人沒有等級（社長 2026-10-24），`settings` 帶 `robotLevel` 會被拒絕，以前存下來的挑戰帶著的 `robotLevel` 載入時丟掉。以後若 TKB Adv 要用亂數（模擬），種子要用「挑戰 id＋第幾副＋動作序號」，不能用牌局 id。
 
