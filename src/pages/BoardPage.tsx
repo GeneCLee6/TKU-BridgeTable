@@ -1,17 +1,20 @@
-import { ChevronFirst, ChevronLast, ChevronLeft, ChevronRight, ExternalLink, Swords } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { ExternalLink, Swords } from 'lucide-react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import styled from 'styled-components'
 import { rankLabel, rankOf, SEATS, suitOf } from '../../shared/cards.ts'
 import { tricksOf } from '../../shared/game.ts'
 import { handviewerUrl, toLin } from '../../shared/lin.ts'
 import type { BoardRecord, PublicUser } from '../../shared/protocol.ts'
+import type { Traveller } from '../../shared/traveller.ts'
 import { AuctionBox } from '../components/AuctionBox.tsx'
 import { ChallengeDialog } from '../components/ChallengeDialog.tsx'
 import { DoubleDummyPanel } from '../components/DoubleDummyPanel.tsx'
-import { PlayedCardsSwitch, RecordDiagram } from '../components/RecordDiagram.tsx'
+import { RecordDiagram } from '../components/RecordDiagram.tsx'
+import { ReplayControls } from '../components/ReplayControls.tsx'
 import { ContractLabel, ContractResult, SuitSymbol } from '../components/Suit.tsx'
-import { Button, Card, ErrorText, Muted, PageMain, PageTitle } from '../components/ui.tsx'
+import { TravellerTable } from '../components/Traveller.tsx'
+import { Button, Card, ErrorText, PageMain, PageTitle } from '../components/ui.tsx'
 import { api } from '../lib/api.ts'
 import { CARD_SCALE, cardName } from '../lib/cards.ts'
 import { challengeRobotsOf } from '../lib/challenges.ts'
@@ -36,15 +39,6 @@ const Columns = styled.div`
   grid-template-columns: minmax(0, 1fr);
   gap: 16px;
   max-width: 1000px;
-`
-
-const Controls = styled.div`
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  margin-top: 12px;
 `
 
 const Meta = styled.dl`
@@ -87,6 +81,8 @@ export function BoardPage() {
   const { t, message } = usePreferences()
   const [record, setRecord] = useState<BoardRecord | null>(null)
   const [error, setError] = useState('')
+  const [loaded, setLoaded] = useState<{ boardId: string; traveller: Traveller | null } | null>(null)
+  const { user } = useAuth()
 
   useEffect(() => {
     if (!recordId) return
@@ -95,6 +91,23 @@ export function BoardPage() {
       .then(({ record }) => setRecord(record))
       .catch((e) => setError(message(e.code, e.params, e.message)))
   }, [recordId, message])
+
+  // A challenge board's traveller, when the server lets this member see it (e4-t32)
+  const eventBoard = record?.id === recordId && !!record?.eventId
+  const traveller = loaded && loaded.boardId === recordId ? loaded.traveller : null
+  useEffect(() => {
+    if (!recordId || !eventBoard) return
+    let live = true
+    api
+      .traveller(recordId)
+      .then((r) => live && setLoaded({ boardId: recordId, traveller: r.traveller }))
+      .catch(() => {
+        // Without a traveller the record is still worth reading
+      })
+    return () => {
+      live = false
+    }
+  }, [recordId, eventBoard])
 
   if (error)
     return (
@@ -106,11 +119,38 @@ export function BoardPage() {
       </PageMain>
     )
   if (!record) return <PageMain>{t.loading}</PageMain>
-  return <BoardRecordView record={record} />
+  const own = traveller?.entries.find((e) => e.userId === user?.id)?.boardId
+  return (
+    <BoardRecordView
+      key={record.id}
+      record={record}
+      after={
+        traveller && (
+          <>
+            <Section>{t.travellerTitle}</Section>
+            <Card>
+              <TravellerTable traveller={traveller} current={record.id} compareFrom={own ?? record.id} viewerId={user?.id} />
+            </Card>
+          </>
+        )
+      }
+    />
+  )
 }
 
-/** One board's record; `embedded` drops the page frame for the table's history dialog */
-export function BoardRecordView({ record, embedded = false }: { record: BoardRecord; embedded?: boolean }) {
+/**
+ * One board's record; `embedded` drops the page frame for the table's history dialog, `after`
+ * goes below the diagram and the details (the traveller)
+ */
+export function BoardRecordView({
+  record,
+  embedded = false,
+  after,
+}: {
+  record: BoardRecord
+  embedded?: boolean
+  after?: ReactNode
+}) {
   const { t, lang, cardStyle, cardSize } = usePreferences()
   const scale = CARD_SCALE[cardSize]
   const phone = useMediaQuery(mobileQuery)
@@ -133,15 +173,6 @@ export function BoardRecordView({ record, embedded = false }: { record: BoardRec
   // North and South fan out across the full width; East and West go in rows by suit beside the trick
   const width = Math.round((phone ? 40 : 72) * scale)
   const side = (seat: string) => seat === 'E' || seat === 'W'
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'ArrowRight') replay.next()
-      if (e.key === 'ArrowLeft') replay.prev()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [replay])
 
   const copyLin = async () => {
     try {
@@ -169,26 +200,7 @@ export function BoardRecordView({ record, embedded = false }: { record: BoardRec
             styleFor={(seat) => (phone && side(seat) ? 'text' : cardStyle)}
             orientationFor={(seat) => (side(seat) && !phone ? 'rows' : 'horizontal')}
           />
-          {total > 0 && (
-            <Controls role="group" aria-label={t.replay}>
-              <Button type="button" $small onClick={replay.start} aria-label={t.start}>
-                <ChevronFirst size={18} aria-hidden />
-              </Button>
-              <Button type="button" $small onClick={replay.prev} disabled={replay.playing || step === 0} aria-label={t.prevTrick}>
-                <ChevronLeft size={18} aria-hidden />
-              </Button>
-              <Muted aria-label={t.trickProgress(replay.trick, replay.tricks)}>
-                {replay.trick}/{replay.tricks}
-              </Muted>
-              <Button type="button" $small onClick={replay.next} disabled={replay.playing || step >= total} aria-label={t.nextTrick}>
-                <ChevronRight size={18} aria-hidden />
-              </Button>
-              <Button type="button" $small onClick={replay.end} aria-label={t.end}>
-                <ChevronLast size={18} aria-hidden />
-              </Button>
-              <PlayedCardsSwitch />
-            </Controls>
-          )}
+          {total > 0 && <ReplayControls replay={replay} total={total} />}
         </div>
         <Card>
           <Meta>
@@ -230,6 +242,7 @@ export function BoardRecordView({ record, embedded = false }: { record: BoardRec
           </Links>
         </Card>
       </Columns>
+      {after}
 
       {canAnalyse(board) && (
         <>

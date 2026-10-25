@@ -12,6 +12,7 @@ import type {
   Permission,
   RegisterResult,
 } from '../../shared/protocol.ts'
+import type { Traveller } from '../../shared/traveller.ts'
 
 /** HTTP calls to the Worker. The session lives in an HttpOnly cookie, so no token is handled here. */
 
@@ -67,6 +68,8 @@ export const api = {
   /** One page of a history search (`shared/history-query.ts`) */
   searchHistory: (query: Partial<HistoryQuery>) => request<HistoryPage>(`/api/history/search?${historyQueryString(query)}`),
   record: (id: string) => request<{ record: BoardRecord }>(`/api/history/${encodeURIComponent(id)}`),
+  /** Everyone's result on the same board of its challenge, if the member may see it (e4-t32) */
+  traveller: (id: string) => request<{ traveller: Traveller | null }>(`/api/history/${encodeURIComponent(id)}/traveller`),
   /** The challenges the member is in, newest first (§5.5) */
   challenges: () => request<{ challenges: ChallengeView[] }>('/api/challenges'),
   /** One challenge as the member may see it, with the standings and travellers they are allowed */

@@ -1,3 +1,4 @@
+import type { ChallengeScoring } from '../../shared/challenge-scoring.ts'
 import { isOpenChallenge, type ChallengePlayerView, type ChallengeView } from '../../shared/challenge.ts'
 import { SEATS } from '../../shared/cards.ts'
 import type { BoardRecord, RobotKind } from '../../shared/protocol.ts'
@@ -83,3 +84,13 @@ export function challengeRobotsOf(record: BoardRecord, userId: string, now: numb
   const kinds = new Set(others.map((p) => p.robotKind ?? 'tku'))
   return kinds.size === 1 ? [...kinds][0] : null
 }
+
+/** A result in the scoring's unit: a percentage for matchpoints, signed IMPs, signed points */
+export function formatScore(value: number, scoring: ChallengeScoring) {
+  const n = Number.isInteger(value) ? String(value) : value.toFixed(scoring === 'mp' ? 1 : 2)
+  if (scoring === 'mp') return `${n}%`
+  return value > 0 ? `+${n}` : n
+}
+
+/** The colour of a result: above or below the average for matchpoints, its sign otherwise */
+export const tone = (value: number, scoring: ChallengeScoring) => (scoring === 'mp' ? value - 50 : value)

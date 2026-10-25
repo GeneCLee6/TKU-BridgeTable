@@ -548,4 +548,40 @@ describe('who sees which results (e7-t14, §4)', () => {
     expect(entry.declarerTricks).toBe(record.board.contract ? record.board.result!.declarerTricks : null)
     expect(entry.scoreNS).toBe(record.board.result!.scoreNS)
   })
+
+  it('gives a board’s traveller with leads and declarers only to those allowed (e4-t32)', async () => {
+    const { id, amy, ben, cat } = await setup(['ben', 'cat'], { accept: ['ben', 'cat'] })
+    const zoe = await member('zoe')
+    await playAll(amy, id)
+    const amyBoard = challengeOf(id).results.find((r) => r.userId === amy && r.seq === 1)!.boardId
+    expect(await club.traveller('no-such-board', amy)).toBeNull()
+
+    await send(ben, { type: 'playChallenge', challengeId: id })
+    await playBoard(ben)
+    const benBoard = challengeOf(id).results.find((r) => r.userId === ben && r.seq === 1)!.boardId
+    // ben played this board but not every board: no traveller, not even of his own board
+    expect(await club.traveller(amyBoard, ben)).toBeNull()
+    expect(await club.traveller(benBoard, ben)).toBeNull()
+    // amy finished: she sees both results of board 1, from her board or from ben's
+    const seen = (await club.traveller(benBoard, amy))!
+    expect(seen).toMatchObject({ kind: 'challenge', eventId: id, seq: 1 })
+    expect(seen.entries.map((e) => e.userId).sort()).toEqual([amy, ben].sort())
+    for (const entry of seen.entries) {
+      const record = (await club.record(entry.boardId, entry.userId))!
+      expect(entry.lead).toBe(record.board.play[0]?.card ?? null)
+      expect(entry.declarer).toEqual(record.board.contract ? record.players[record.board.contract.declarer] : null)
+      expect(entry.points).toBe(entry.userId === amy ? entry.scoreNS : undefined)
+    }
+    // Neither someone who has not played nor someone outside the challenge
+    expect(await club.traveller(amyBoard, cat)).toBeNull()
+    expect(await club.traveller(amyBoard, zoe)).toBeNull()
+
+    await dealNext()
+    await playAll(ben, id)
+    expect((await club.traveller(amyBoard, ben))!.entries).toHaveLength(2)
+    // After the end every participant sees it; outsiders still do not (§4: no traveller for them)
+    await toDeadline(id)
+    expect((await club.traveller(amyBoard, cat))!.entries).toHaveLength(2)
+    expect(await club.traveller(amyBoard, zoe)).toBeNull()
+  })
 })

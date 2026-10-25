@@ -26,6 +26,7 @@ const mocks = vi.hoisted(() => ({
     cancelChallenge: vi.fn(),
     challengeWithBoards: vi.fn(),
     rematchChallenge: vi.fn(),
+    traveller: vi.fn(),
   },
   send: vi.fn(),
 }))
@@ -269,6 +270,58 @@ describe('ChallengePage (e7-t18)', () => {
     expect(within(table).getByRole('link', { name: '0%' })).toHaveAttribute('href', '/history/b-amy-1')
     expect(screen.getByRole('heading', { name: '最終排名' })).toBeInTheDocument()
     expect(mocks.api.challenge).toHaveBeenCalledWith('c5')
+  })
+
+  it('opens a board’s traveller from the matrix, with “compare” against the viewer’s own board (e7-t19)', async () => {
+    mocks.api.challenge.mockResolvedValue({
+      challenge: challenge('c6', {
+        status: 'finished',
+        endedAt: NOW,
+        deadline: NOW,
+        boards: 1,
+        settings: defaultChallengeSettings(1),
+        players: [player('amy', 'accepted', 1), player('ben', 'accepted', 1)],
+        standings: {
+          final: true,
+          scoring: 'imp',
+          ranked: [
+            { userId: 'ben', rank: 1, total: 5, boards: [5] },
+            { userId: 'amy', rank: 2, total: -5, boards: [-5] },
+          ],
+          unfinished: [],
+        },
+        travellers: [
+          {
+            seq: 1,
+            boardNo: 1,
+            entries: [
+              { userId: 'ben', boardId: 'b-ben-1', scoreNS: 420, contract: null, declarerTricks: null },
+              { userId: 'amy', boardId: 'b-amy-1', scoreNS: 170, contract: null, declarerTricks: null },
+            ],
+          },
+        ],
+      }),
+    })
+    mocks.api.traveller.mockResolvedValue({
+      traveller: {
+        kind: 'challenge',
+        eventId: 'c6',
+        seq: 1,
+        boardNo: 1,
+        scoring: 'imp',
+        entries: [
+          { userId: 'ben', user: { id: 'ben', username: 'ben' }, boardId: 'b-ben-1', contract: { level: 4, strain: 'H', doubled: '', declarer: 'S' }, declarer: { id: 'ben', username: 'ben' }, lead: 'SA', declarerTricks: 10, scoreNS: 420, points: 5 },
+          { userId: 'amy', user: { id: 'amy', username: 'amy' }, boardId: 'b-amy-1', contract: { level: 2, strain: 'H', doubled: '', declarer: 'S' }, declarer: { id: 'amy', username: 'amy' }, lead: 'SA', declarerTricks: 10, scoreNS: 170, points: -5 },
+        ],
+      },
+    })
+    show('/challenges/c6', <ChallengePage />)
+    await userEvent.click(await screen.findByRole('button', { name: '#1' }))
+    expect(mocks.api.traveller).toHaveBeenCalledWith('b-ben-1')
+    const section = await screen.findByRole('region', { name: /Traveller/ })
+    const compare = await within(section).findByRole('link', { name: /和ben並排看/ })
+    expect(compare).toHaveAttribute('href', '/history/b-amy-1/vs/b-ben-1')
+    expect(within(section).getAllByRole('row')[2]).toHaveAttribute('aria-current', 'true')
   })
 
   it('tells someone still playing that the results come once they finish', async () => {
