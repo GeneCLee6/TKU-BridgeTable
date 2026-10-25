@@ -1,6 +1,7 @@
 import type { Seat } from '../shared/cards.ts'
 import { AppError, type MessageCode, type MessageParams } from '../shared/messages.ts'
 import type { BoardRecord, TableAction, TableMode, TableSettings } from '../shared/protocol.ts'
+import type { Room } from '../shared/team-match.ts'
 import { ClubError } from './errors.ts'
 import type { EventReport } from './modes.ts'
 import type { Table } from './views.ts'
@@ -32,6 +33,8 @@ export interface TableEntry {
   playing: boolean
   /** A challenge table: whose and for which challenge */
   challenge?: { challengeId: string; userId: string }
+  /** A team match room's table (§5.8): which match and room, and the teams' names for the lobby's list of matches */
+  match?: { matchId: string; room: Room; teamNames: [string, string]; ended?: boolean }
   /**
    * Grows with every report (`max(last + 1, now)`, so it never goes back after the table's object
    * is reloaded); the club drops a report older than the one it has
@@ -86,6 +89,8 @@ export interface TableApi {
   forget(userId: string): Promise<TableEntry | null>
   /** The table's challenge ended: it closes, unless its participant is still sitting after their last board */
   challengeEnded(): Promise<TableEntry | null>
+  /** The table's team match ended: nothing more is dealt, and it closes once nobody is left (a robots-only room at once) */
+  matchEnded(): Promise<TableEntry | null>
   /** Closes the table (an admin, or a challenge that ended) */
   close(): Promise<void>
   /** A table action from a member at the table (bidding, play, chat, the host's seat changes) */
@@ -204,6 +209,9 @@ class RemoteTable implements TableApi {
   }
   challengeEnded() {
     return this.call(this.rpc.challengeEnded())
+  }
+  matchEnded() {
+    return this.call(this.rpc.matchEnded())
   }
   close() {
     return this.call(this.rpc.close())

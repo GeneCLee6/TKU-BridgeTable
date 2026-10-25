@@ -130,10 +130,16 @@ export function memberProfileView(
 
 /**
  * The table chat as one viewer sees it (AC-1.6): what members they blocked say is left out, for
- * them only; everyone else still sees it. Unblocking brings the kept messages back
+ * them only; everyone else still sees it. Unblocking brings the kept messages back. A player at a
+ * team match table (`player`) never sees what the watchers say (`kibitz`, §5.8): watchers may be
+ * following the other room too
  */
-export function chatFor(chat: ChatMessage[], blocked: (authorId: string) => boolean): ChatMessage[] {
-  return chat.filter((message) => !blocked(message.userId))
+export function chatFor(
+  chat: ChatMessage[],
+  blocked: (authorId: string) => boolean,
+  { player = false }: { player?: boolean } = {},
+): ChatMessage[] {
+  return chat.filter((message) => !blocked(message.userId) && !(player && message.kibitz))
 }
 
 export function seatOccupants(
@@ -405,6 +411,7 @@ export function teamMatchView(
     ...(m.endedAt !== undefined && { endedAt: m.endedAt }),
     settings: m.settings,
     captains: m.captains,
+    ...(m.status === 'playing' && m.tables && { tables: m.tables }),
     seats: m.seats.map((s) => {
       const user = s.userId === undefined ? undefined : userById(s.userId)
       return {

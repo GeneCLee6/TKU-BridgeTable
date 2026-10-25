@@ -1109,6 +1109,56 @@ export const MESSAGES = {
     ko: '이 경기 설정은 로봇을 허용하지 않습니다',
   },
 
+  // Team match play (§5.8, e8-t07, e8-t09)
+  matchNotReady: {
+    zh: '還不能開始：8 個座位都要有人、真人都要在線，設定不允許機器人時不能有機器人',
+    'zh-Hans': '还不能开始：8 个座位都要有人、真人都要在线，设置不允许机器人时不能有机器人',
+    en: 'The match cannot start yet: all eight seats must be taken, everyone online, and no robots unless the settings allow them',
+    vi: 'Chưa thể bắt đầu: cả 8 chỗ phải có người, mọi người phải trực tuyến, và không có robot nếu thiết lập không cho phép',
+    ja: 'まだ開始できません：8 席すべてが埋まり、全員がオンラインで、設定で許可されていなければロボットがいないことが必要です',
+    ko: '아직 시작할 수 없습니다: 8자리가 모두 차고 모두 접속해 있어야 하며, 설정이 허용하지 않으면 로봇이 없어야 합니다',
+  },
+  matchPlayerBusy: {
+    zh: '{name} 正在另一場隊制賽中',
+    'zh-Hans': '{name} 正在另一场队制赛中',
+    en: '{name} is playing in another team match',
+    vi: '{name} đang thi đấu ở một trận đồng đội khác',
+    ja: '{name} さんは別のチーム戦の最中です',
+    ko: '{name} 님은 다른 팀전을 하고 있습니다',
+  },
+  inMatch: {
+    zh: '你正在打隊制賽，比賽結束前不能到別桌',
+    'zh-Hans': '你正在打队制赛，比赛结束前不能到别桌',
+    en: 'You are playing a team match and cannot go to another table until it ends',
+    vi: 'Bạn đang thi đấu đồng đội và không thể sang bàn khác cho đến khi trận kết thúc',
+    ja: 'チーム戦の最中です。終わるまでほかのテーブルには行けません',
+    ko: '팀전 중이라 경기가 끝날 때까지 다른 테이블로 갈 수 없습니다',
+  },
+  matchOtherRoom: {
+    zh: '比賽中不能進入或觀看另一室',
+    'zh-Hans': '比赛中不能进入或观看另一室',
+    en: 'During the match you cannot enter or watch the other room',
+    vi: 'Trong trận đấu bạn không thể vào hay xem phòng kia',
+    ja: '試合中はもう一方の部屋に入ったり観戦したりできません',
+    ko: '경기 중에는 다른 방에 들어가거나 관전할 수 없습니다',
+  },
+  matchTableFixed: {
+    zh: '隊制賽的座位由比賽安排，不能換座位、離座或加減機器人',
+    'zh-Hans': '队制赛的座位由比赛安排，不能换座位、离座或加减机器人',
+    en: 'Seats at a team match table are set by the match: no changing seats, standing up or adding robots',
+    vi: 'Chỗ ngồi ở bàn đấu đồng đội do trận đấu sắp xếp: không đổi chỗ, rời chỗ hay thêm bớt robot',
+    ja: 'チーム戦のテーブルの席は試合が決めます。席の変更、離席、ロボットの追加・削除はできません',
+    ko: '팀전 테이블의 자리는 경기가 정합니다. 자리 변경, 일어서기, 로봇 추가·제거는 할 수 없습니다',
+  },
+  matchNoUndo: {
+    zh: '隊制賽不能撤回',
+    'zh-Hans': '队制赛不能撤回',
+    en: 'There is no undo in a team match',
+    vi: 'Không được hoàn tác trong trận đấu đồng đội',
+    ja: 'チーム戦では取り消しできません',
+    ko: '팀전에서는 되돌릴 수 없습니다',
+  },
+
   serverError: {
     zh: '伺服器發生錯誤',
     'zh-Hans': '服务器发生错误',

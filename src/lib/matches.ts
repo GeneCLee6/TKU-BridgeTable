@@ -5,8 +5,19 @@ import type { Strings } from '../strings.ts'
 /** What the team match pages work out from a `TeamMatchView` (ARCHITECTURE.md §5.8) */
 
 /** A team's name, or 「A 隊」 in the viewer's language when the host left it empty */
-export const teamName = (t: Strings, m: TeamMatchView, team: Team) =>
-  m.settings.teamNames[team === 'A' ? 0 : 1] || t.teamMatch.team(team)
+export const teamName = (t: Strings, m: TeamMatchView, team: Team) => namedTeam(t, m.settings.teamNames, team)
+
+/** The same from the two names alone (the lobby's list of matches being played) */
+export const namedTeam = (t: Strings, names: [string, string], team: Team) => names[team === 'A' ? 0 : 1] || t.teamMatch.team(team)
+
+/** IMPs are whole; BAM has halves and tenths (a ruling) */
+export const points = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(1))
+
+/** The table of the room a member plays in, once the match started */
+export const myRoomTable = (m: TeamMatchView, userId: string): string | undefined => {
+  const seat = m.seats.find((s) => s.userId === userId && s.status === 'seated')
+  return seat ? m.tables?.[seat.room] : undefined
+}
 
 /** 開室南 */
 export const seatLabel = (t: Strings, s: MatchSeat) => t.teamMatch.seatLabel(t.teamMatch.rooms[s.room], t.seatNames[s.seat])
