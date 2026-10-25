@@ -2,7 +2,7 @@ import { DurableObject } from 'cloudflare:workers'
 import { secureRandomInt } from '../shared/board.ts'
 import type { Seat } from '../shared/cards.ts'
 import { MESSAGE_MAX_CHARS } from '../shared/message-guard.ts'
-import type { BoardRecord, ServerMessage, TableAction, TableSettings } from '../shared/protocol.ts'
+import { TABLE_SOCKET_REFUSED, type BoardRecord, type ServerMessage, type TableAction, type TableSettings } from '../shared/protocol.ts'
 import type { Env } from './club.ts'
 import { jsonLog } from './log.ts'
 import type { EventReport } from './modes.ts'
@@ -151,9 +151,16 @@ export class TableObject extends DurableObject<Env> implements TableRpc, TableSo
     const userId = request.headers.get(TABLE_USER_HEADER)
     if (!userId) return new Response('Unauthorized', { status: 401 })
     const { 0: client, 1: server } = new WebSocketPair()
+    // Someone not at this table (or a table that is not here) is let go with TABLE_SOCKET_REFUSED,
+    // so the browser stops trying. A plain accepted socket sends that close once the upgrade is
+    // done; a hibernatable one closed before the 101 goes out stays open in workerd
+    if (!this.host.admits(userId)) {
+      server.accept()
+      server.close(TABLE_SOCKET_REFUSED, 'not at this table')
+      return new Response(null, { status: 101, webSocket: client })
+    }
     this.ctx.acceptWebSocket(server, [userId])
     server.serializeAttachment({ userId } satisfies Attachment)
-    // Someone not at this table is let go with TABLE_SOCKET_REFUSED (the browser then stops trying)
     await this.host.connected(userId)
     return new Response(null, { status: 101, webSocket: client })
   }
