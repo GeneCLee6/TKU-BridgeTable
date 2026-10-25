@@ -11,6 +11,7 @@ import { ChallengePage } from './pages/ChallengePage.tsx'
 import { ChallengesPage } from './pages/ChallengesPage.tsx'
 import { ComparePage } from './pages/ComparePage.tsx'
 import { FeaturedPage } from './pages/FeaturedPage.tsx'
+import { FavoritesPage } from './pages/FavoritesPage.tsx'
 import { HistoryPage } from './pages/HistoryPage.tsx'
 import { LobbyPage } from './pages/LobbyPage.tsx'
 import { LoginPage } from './pages/LoginPage.tsx'
@@ -68,6 +69,7 @@ function Routed() {
         <Route path="/history/:recordId" element={<BoardPage />} />
         <Route path="/history/:recordId/vs/:otherId" element={<ComparePage />} />
         <Route path="/featured" element={<FeaturedPage />} />
+        <Route path="/favorites" element={<FavoritesPage />} />
         <Route path="/account" element={<AccountPage />} />
         {user.admin && <Route path="/admin" element={<AdminPage />} />}
         <Route path="*" element={<Navigate to="/" replace />} />

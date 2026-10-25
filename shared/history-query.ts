@@ -1,6 +1,7 @@
 import { STRAINS } from './auction.ts'
 import type { Vulnerability } from './board.ts'
 import { isSeat, type Seat, type Strain } from './cards.ts'
+import { cleanTag } from './favorites.ts'
 import { AppError } from './messages.ts'
 import { HISTORY_PAGE_SIZES, LIMITS } from './protocol.ts'
 
@@ -59,6 +60,8 @@ export interface HistoryQuery {
   boardNo?: number
   table?: number
   mode?: string
+  /** Boards I keep among my favorites with this tag (AC-4.4) */
+  tag?: string
   sort: HistorySort
   page: number
   size: number
@@ -110,6 +113,10 @@ const READERS: { [K in keyof HistoryQuery]-?: (value: string) => HistoryQuery[K]
   boardNo: integer(1, 9999),
   table: integer(1, 9999),
   mode: matching(MODE),
+  tag: (value) => {
+    const tag = cleanTag(value)
+    return tag && tag.length <= LIMITS.favoriteTagMax ? tag : undefined
+  },
   sort: oneOf(HISTORY_SORTS),
   page: integer(1, 1_000_000),
   size: (value) => HISTORY_PAGE_SIZES.find((size) => String(size) === value),

@@ -1,4 +1,5 @@
 import {
+  Award,
   Check,
   ChevronDown,
   Globe,
@@ -291,8 +292,12 @@ export function AppHeader() {
             <span>{t.navHistory}</span>
           </Link>
           <Link to="/featured" aria-label={t.navFeatured}>
-            <Star size={18} aria-hidden />
+            <Award size={18} aria-hidden />
             <span>{t.navFeatured}</span>
+          </Link>
+          <Link to="/favorites" aria-label={t.navFavorites}>
+            <Star size={18} aria-hidden />
+            <span>{t.navFavorites}</span>
           </Link>
           {user.admin && (
             <Link

@@ -473,6 +473,27 @@ export interface HistoryPage {
   size: number
 }
 
+/** A board a member keeps (AC-4.4): their own note and tags, seen by no one else */
+export interface Favorite {
+  boardId: string
+  note: string
+  tags: string[]
+  createdAt: number
+  updatedAt: number
+}
+
+/** A member's tag and how many of their favorites carry it, for the tag filter and autocomplete */
+export interface FavoriteTag {
+  tag: string
+  count: number
+}
+
+/** One page of 「我的收藏」: the boards as a history page, plus each one's note and tags */
+export interface FavoritesPage extends HistoryPage {
+  favorites: Favorite[]
+  tags: FavoriteTag[]
+}
+
 /** Page sizes the history list offers */
 export const HISTORY_PAGE_SIZES = [10, 20, 50, 100] as const
 
@@ -510,6 +531,10 @@ export const LIMITS = {
   maxUsersMax: 100,
   tableInvitesMax: 30,
   historyPageDefault: 20,
+  favoritesMax: 1000,
+  favoriteNoteMax: 500,
+  favoriteTagsMax: 8,
+  favoriteTagMax: 20,
 }
 
 export const USERNAME_PATTERN = /^[\p{L}\p{N}_.-]+$/u
