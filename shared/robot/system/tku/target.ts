@@ -1,7 +1,7 @@
 import { bidIndex, isBid, levelOf, strainOf, type Call } from '../../../auction.ts'
 import type { Strain, Suit } from '../../../cards.ts'
 import { cheapest, gameLevel, type Ctx } from '../context.ts'
-import type { Hand } from '../evaluate.ts'
+import { revalue, type Hand } from '../evaluate.ts'
 import type { Book, Rule } from '../spec.ts'
 import { bid, MAJORS, plain, rule, shownLength, topThree } from './util.ts'
 
@@ -21,8 +21,12 @@ function partnerPoints(ctx: Ctx) {
 function work(h: Hand, ctx: Ctx): Call {
   const { last } = ctx
   if (penaltyStands(ctx)) return 'P'
-  const combined = h.hcp + partnerPoints(ctx)
   const fits = (['S', 'H', 'D', 'C'] as Suit[]).filter((s) => h.len[s] + shownLength(ctx.shown.partner, s) >= 8)
+  // e5-t41: with a fit, short side suits count (`revalue`, the hand with fewer trumps counts more);
+  // competing over the opponents (sacrifices, penalty doubles) still goes by high cards
+  const fit = fits[0]
+  const points = h.hcp + partnerPoints(ctx)
+  const combined = points + (fit ? revalue(h, { trump: fit, partnerTrumps: shownLength(ctx.shown.partner, fit) }).shortness : 0)
   const majorFit = fits.find((s) => MAJORS.includes(s))
   const minorFit = fits.find((s) => !MAJORS.includes(s))
 
@@ -38,7 +42,7 @@ function work(h: Hand, ctx: Ctx): Call {
   } else if (majorFit || minorFit) {
     strain = (majorFit ?? minorFit)!
     level = combined >= 23 ? 3 : 2
-  } else return last && !last.ours ? compete(h, ctx, combined, fits) : 'P'
+  } else return last && !last.ours ? compete(h, ctx, points, fits) : 'P'
 
   const goal = bid(level, strain)
   if (!last) return 'P'
@@ -47,7 +51,7 @@ function work(h: Hand, ctx: Ctx): Call {
     if (level < 3 || (strainOf(last.call) === strain && levelOf(last.call) >= level - 1 && combined < 25)) return 'P'
     return goal
   }
-  if (bidIndex(last.call) >= bidIndex(goal)) return compete(h, ctx, combined, fits)
+  if (bidIndex(last.call) >= bidIndex(goal)) return compete(h, ctx, points, fits)
   return combined >= 25 ? goal : (cheapest(ctx, strain) ?? 'P')
 }
 
