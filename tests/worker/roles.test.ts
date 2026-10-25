@@ -20,6 +20,7 @@ const ADMIN_ROUTES: [string, string][] = [
   ['POST', '/users/u1/password'],
   ['POST', '/users/u1/admin'],
   ['POST', '/users/u1/permissions'],
+  ['POST', '/members'],
 ]
 const EDITOR_BOOK_ROUTES: [string, string][] = [
   ['PUT', '/conventions/stayman'],
