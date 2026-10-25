@@ -1,4 +1,4 @@
-﻿import { describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { buildReport } from '../../src/lib/errorReport.ts'
 
 describe('browser error reports (e11-t09)', () => {
