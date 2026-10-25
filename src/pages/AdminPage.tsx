@@ -188,6 +188,7 @@ export function AdminPage() {
   const permissionLabel: Record<Permission, string> = {
     bookEdit: t.permissionBookEdit,
     bookImport: t.permissionBookImport,
+    boardCurate: t.permissionBoardCurate,
   }
   const togglePermission = (u: AdminUser, permission: Permission, on: boolean) =>
     void run(() =>

@@ -16,6 +16,7 @@ import type {
   RegisterResult,
 } from '../../shared/protocol.ts'
 import type { Traveller } from '../../shared/traveller.ts'
+import type { FeaturedBoard, FeaturedInput } from '../../shared/featured.ts'
 
 /** HTTP calls to the Worker. The session lives in an HttpOnly cookie, so no token is handled here. */
 
@@ -73,6 +74,14 @@ export const api = {
   record: (id: string) => request<{ record: BoardRecord }>(`/api/history/${encodeURIComponent(id)}`),
   /** Everyone's result on the same board of its challenge, if the member may see it (e4-t32) */
   traveller: (id: string) => request<{ traveller: Traveller | null }>(`/api/history/${encodeURIComponent(id)}/traveller`),
+  /** Featured boards, newest first (e4-t30) */
+  featured: () => request<{ featured: FeaturedBoard[] }>('/api/featured'),
+  /** A board's feature, or null when it is not featured */
+  featuredBoard: (id: string) => request<{ featured: FeaturedBoard | null }>(`/api/featured/${encodeURIComponent(id)}`),
+  /** Features a board or edits its feature; needs the `boardCurate` permission */
+  saveFeatured: (id: string, input: FeaturedInput) =>
+    post<{ featured: FeaturedBoard }>(`/api/featured/${encodeURIComponent(id)}`, input),
+  unfeature: (id: string) => request<{ ok: true }>(`/api/featured/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   /** 「我的收藏」: one page of the member's favorites, filtered as history is plus `tag` (AC-4.4) */
   favorites: (query: Partial<HistoryQuery>) => request<FavoritesPage>(`/api/favorites?${historyQueryString(query)}`),
   /** Every board the member keeps, for the star buttons */
