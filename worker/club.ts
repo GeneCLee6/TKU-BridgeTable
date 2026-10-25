@@ -6,17 +6,20 @@ import { MESSAGE_MAX_CHARS } from '../shared/message-guard.ts'
 import type { BoardRecord, Me, ServerMessage } from '../shared/protocol.ts'
 import { TKU } from '../shared/robot/system/tku/index.ts'
 import { bookSync } from '../shared/robot/system/tku/sources.ts'
-import { readCookie, SESSION_COOKIE, sessionCookie } from './auth.ts'
+import { randomId, readCookie, SESSION_COOKIE, sessionCookie } from './auth.ts'
 import { backupAdmin, runBackup } from './backup.ts'
 import { BookService, importRequestFrom, publicBookResponse } from './book.ts'
 import { claudeImporter } from './importer.ts'
 import { anonymousProfileResponse, ProfileService } from './profiles.ts'
-import { adminRouteNeed, bookRouteNeed, requireNeed } from './roles.ts'
+import { adminRouteNeed, bookRouteNeed, clubRouteNeed, requireNeed } from './roles.ts'
 import { CLIENT_ERROR_MAX_CHARS } from './client-errors.ts'
+import { d1Replica } from './d1.ts'
+import { edgeSecret, mintPass, PASS_COOKIE, passCookie, passNeedsRefresh } from './edge-auth.ts'
 import { crashEntry, jsonLog } from './log.ts'
 import { type ChallengeRequest, ClubError, ClubService, type Connections } from './service.ts'
 import type { EventReport } from './modes.ts'
 import type { Store } from './store.ts'
+import { TeamService } from './teams.ts'
 import type { TableObject } from './table-object.ts'
 import { RemoteTables, type TableEntry, type TableRpc } from './tables.ts'
 import type { MatchAction, MatchPlayAction } from './team-match-service.ts'
@@ -37,6 +40,17 @@ export interface Env {
   ANTHROPIC_BASE_URL?: string
   /** Daily backups (worker/backup.ts); the bucket is created by hand before deploying (DEPLOY.md §4.4) */
   BACKUPS?: R2Bucket
+  /**
+   * The history index's D1 copy (ARCHITECTURE.md §5.12): its own database per environment, created
+   * by hand before deploying (DEPLOY.md §4.5); none in PR previews
+   */
+  HISTORY?: D1Database
+  /** "off" stops keeping and reading the D1 copy: the switch back (DEPLOY.md §4.5) */
+  HISTORY_D1?: string
+  /** Signs edge passes (wrangler secret put EDGE_AUTH_SECRET); without it the Worker asks the club every time */
+  EDGE_AUTH_SECRET?: string
+  /** "off" stops handing out and reading edge passes: the switch back (DEPLOY.md §4.5) */
+  EDGE_AUTH?: string
 }
 
 /** The import upload comes straight from TKU BridgeBook's page; its single-use pass is the check */
@@ -67,7 +81,11 @@ export class Club extends DurableObject<Env> implements Connections {
   /** Replaced after a backup is restored, so nothing they cached survives */
   private book: BookService
   private profiles: ProfileService
+  /** TKU BridgeBook's teams and partnerships (E2); keeps nothing in memory, so it outlives a restore */
+  private readonly teams: TeamService
   private readonly store: Store
+  /** Signs edge passes (§5.12); none when switched off */
+  private readonly edgeSecret: string | undefined
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env)
@@ -93,9 +111,20 @@ export class Club extends DurableObject<Env> implements Connections {
       // Each table in its own object (§5.10), unless switched back with TABLE_OBJECTS=off
       tableObjects: new RemoteTables((tableId) => env.TABLE.get(env.TABLE.idFromName(tableId)) as unknown as TableRpc),
       tablesInClub: env.TABLE_OBJECTS === 'off',
+      // The history pages' copy in D1, read by the Worker (§5.12)
+      historyReplica: env.HISTORY ? d1Replica(env.HISTORY) : undefined,
+      historyReplicaOff: env.HISTORY_D1 === 'off',
     })
+    this.edgeSecret = edgeSecret(env)
     this.book = new BookService(store)
     this.profiles = new ProfileService(store, Date.now, (id) => this.service.usernameOf(id))
+    this.teams = new TeamService(store, {
+      now: Date.now,
+      newId: () => randomId(6),
+      usernameOf: (id) => this.service.usernameOf(id),
+      notify: (id, kind, params) => this.service.notifications.notify(id, kind, params),
+      profiles: () => this.profiles,
+    })
     // Browsers send "ping" every few seconds to keep phone connections alive and to notice a dead
     // one quickly; the runtime answers without waking the object
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair('ping', 'pong'))
@@ -180,7 +209,40 @@ export class Club extends DurableObject<Env> implements Connections {
       response = errorResponse(error)
     }
     jsonLog({ event: 'http', method: request.method, path: url.pathname, status: response.status, ms: Date.now() - started, ...(code ? { code } : {}) })
+    await this.edgePass(request, url, response)
     return response
+  }
+
+  /**
+   * Hands out an edge pass (§5.12) with an API answer when the browser's is missing or more than
+   * half used, and clears it when its session is gone. Signing in and out set their own; answers a
+   * cache may keep (TKU BridgeBook's content, with an ETag) never carry one
+   */
+  private async edgePass(request: Request, url: URL, response: Response) {
+    const secret = this.edgeSecret
+    if (!secret || !url.pathname.startsWith('/api/') || url.pathname === '/api/book/import') return
+    if (response.headers.has('Set-Cookie') || response.headers.get('Cache-Control') !== 'no-store') return
+    const cookies = request.headers.get('Cookie')
+    const token = readCookie(cookies, SESSION_COOKIE)
+    const pass = readCookie(cookies, PASS_COOKIE)
+    if (!token && !pass) return
+    try {
+      if (!(await passNeedsRefresh(secret, pass, Date.now()))) return
+      const user = await this.service.userForToken(token)
+      const secure = url.protocol === 'https:'
+      if (user) response.headers.append('Set-Cookie', passCookie(await mintPass(secret, user.id, Date.now()), secure))
+      else if (pass) response.headers.append('Set-Cookie', passCookie('', secure))
+    } catch (error) {
+      // An answer whose headers cannot change (none of ours): the Worker asks the club instead
+      jsonLog(crashEntry('edgePass', error))
+    }
+  }
+
+  /** The cookies of a sign-in: the session, and its first edge pass when passes are on */
+  private async signedIn(token: string, userId: string, secure: boolean): Promise<string[]> {
+    const cookies = [sessionCookie(token, secure)]
+    if (this.edgeSecret) cookies.push(passCookie(await mintPass(this.edgeSecret, userId, Date.now()), secure))
+    return cookies
   }
 
   private async route(request: Request, url: URL): Promise<Response> {
@@ -249,7 +311,7 @@ export class Club extends DurableObject<Env> implements Connections {
         b.site === 'book' ? 'book' : 'table',
       )
       if ('pending' in result) return json(result, 202)
-      return json({ user: result.user }, 200, sessionCookie(result.token, secure))
+      return json({ user: result.user }, 200, ...(await this.signedIn(result.token, result.user.id, secure)))
     }
     if (route === 'POST /api/login') {
       const b = await body()
@@ -258,11 +320,11 @@ export class Club extends DurableObject<Env> implements Connections {
         text(b.password),
         request.headers.get('CF-Connecting-IP') ?? '',
       )
-      return json({ user }, 200, sessionCookie(newToken, secure))
+      return json({ user }, 200, ...(await this.signedIn(newToken, user.id, secure)))
     }
     if (route === 'POST /api/logout') {
       if (token) await this.service.logout(token)
-      return json({ ok: true }, 200, sessionCookie('', secure))
+      return json({ ok: true }, 200, sessionCookie('', secure), passCookie('', secure))
     }
     if (route === 'POST /api/password/reset') {
       const b = await body()
@@ -281,6 +343,7 @@ export class Club extends DurableObject<Env> implements Connections {
     }
     if (route === 'GET /api/me') return json({ user })
     if (url.pathname.startsWith('/api/book/')) return this.bookApi(request, url, user, body)
+    if (url.pathname.startsWith('/api/club/')) return this.clubApi(request, url, user, body)
     if (route === 'POST /api/account/password') {
       const b = await body()
       await this.service.changePassword(user.id, text(b.current), text(b.next))
@@ -288,7 +351,7 @@ export class Club extends DurableObject<Env> implements Connections {
     }
     if (route === 'POST /api/account/preferences') {
       const b = await body()
-      return json({ user: await this.service.setAccountPreferences(user.id, { friendOnlineNotice: b.friendOnlineNotice }) })
+      return json({ user: await this.service.setAccountPreferences(user.id, { friendOnlineNotice: b.friendOnlineNotice, bookProfile: b.bookProfile }) })
     }
     if (route === 'PATCH /api/account/profile') return json({ user: await this.service.setProfile(user.id, await body()) })
     // Another member's profile card (AC-1.5)
@@ -478,6 +541,47 @@ export class Club extends DurableObject<Env> implements Connections {
     throw new ClubError('noSuchApi', {}, 404)
   }
 
+  /** TKU BridgeBook's teams and partnerships (E2). Who may use each route is in roles.ts */
+  private async clubApi(request: Request, url: URL, user: Me, body: () => Promise<Body>) {
+    const path = url.pathname.slice('/api/club'.length)
+    const method = request.method
+    const need = clubRouteNeed(method, path)
+    if (!need) throw new ClubError('noSuchApi', {}, 404)
+    requireNeed(user, need)
+
+    if (path === '/teams') {
+      if (method === 'GET') return json({ teams: await this.teams.teams() })
+      return json({ team: await this.teams.createTeam(user, await body()) })
+    }
+    const member = path.match(/^\/teams\/([\w-]+)\/members(?:\/([\w-]+))?$/)
+    if (member) {
+      const [, teamId, userId] = member
+      if (userId) return json({ team: await this.teams.removeMember(user, teamId, userId) })
+      return json({ team: await this.teams.addMember(user, teamId, await body()) })
+    }
+    const team = path.match(/^\/teams\/([\w-]+)$/)
+    if (team) {
+      if (method === 'GET') return json(await this.teams.team(team[1]))
+      return json({ team: await this.teams.updateTeam(user, team[1], await body()) })
+    }
+    if (path === '/pairs') {
+      if (method === 'GET') return json({ pairs: await this.teams.pairsOf(user.id) })
+      return json({ pair: await this.teams.invite(user, await body()) })
+    }
+    const pair = path.match(/^\/pairs\/([\w-]+)(?:\/(accept|decline|end))?$/)
+    if (pair) {
+      const [, pairId, action] = pair
+      if (action === 'accept') return json({ pair: await this.teams.accept(user, pairId) })
+      if (action === 'decline') {
+        await this.teams.decline(user, pairId)
+        return json({ ok: true })
+      }
+      if (action === 'end') return json({ pair: await this.teams.end(user, pairId) })
+      return json({ pair: await this.teams.pair(pairId) })
+    }
+    throw new ClubError('noSuchApi', {}, 404)
+  }
+
   /**
    * TKU BridgeBook's online editing and system profiles; reading the content (publicBookResponse)
    * needs no sign-in. Who may use each route is in roles.ts.
@@ -558,9 +662,9 @@ export class Club extends DurableObject<Env> implements Connections {
   }
 }
 
-function json(data: unknown, status = 200, cookie?: string) {
+function json(data: unknown, status = 200, ...cookies: string[]) {
   const headers = new Headers({ 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' })
-  if (cookie) headers.set('Set-Cookie', cookie)
+  for (const cookie of cookies) headers.append('Set-Cookie', cookie)
   return new Response(JSON.stringify(data), { status, headers })
 }
 

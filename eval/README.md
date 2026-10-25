@@ -129,10 +129,15 @@ npm run quiz:play -- --base base   # CI 棘輪：base 的 TKB 答同樣的題目
 
 **出題與審核**：一開始的 50 題（`e5-t42` 的第一批）是 AI 依淡江橋譜與 5542 自然制寫的，全部標 `pending`；社團幹部逐題確認後把 `status` 改成 `reviewed`、`reviewer` 填名字，答案有錯就直接改，並補到 200 題（開叫、答叫、再叫）。機器人答錯的題目不用刪：它們是之後改規則的目標（例如 `tku-open-004` 第三家輕開、`tku-open-016` Rule of 15，等 `e5-t24`）。
 
+## 離線雙明手模擬（`sim/`）
+
+在社長的電腦上用多核心 DDS 算幾萬到幾百萬副牌，比較 TKB 的出牌跟單明手抽樣的最佳，和首攻研究：`npm run sim -- …`，見 [`sim/README.md`](sim/README.md)。
+
 ## 檔案
 
 | 檔案 | 內容 |
 | --- | --- |
+| `sim/` | 離線雙明手模擬：執行緒池、單明手抽樣、TKB 對照、首攻研究（`sim/README.md`） |
 | `quiz.ts`、`quiz-cli.ts` | 叫牌題庫：格式檢查、作答、各類正確率、棘輪與報告；`npm run quiz` |
 | `play-quiz.ts`、`play-quiz-cli.ts` | 出牌題庫：格式檢查、作答、各類正確率，棘輪與報告沿用叫牌題庫的；`npm run quiz:play` |
 | `deals.ts` | 固定牌組：`EVAL_SEED`、`evalBoard`、`evalBoards`、`fingerprint` |

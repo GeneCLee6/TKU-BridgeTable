@@ -43,6 +43,7 @@
 - **jsdom 的瀏覽器語言是英文**：`tests/setup.ts` 先把偏好設成中文，元件測試才能用中文名稱查詢。
 - **註冊不再直接建立帳號**：只有第一個帳號會；測試要用 `tests/worker/service.test.ts` 的 `join()`（註冊＋核准）或 `founder()`。
 - **`/api/book/*` 是淡江橋譜在用的介面**：型別在橋譜的 `src/lib/api.ts`，AI 匯入的扁平 schema 由橋譜的 `src/lib/importResult.ts` 解讀，改了要一起改橋譜。
+- **紀錄頁讀的是 D1 的副本**（ARCHITECTURE.md §5.12）：改了 `summarize`、`BoardSummary` 或索引的表，要把 `worker/history-replica.ts` 的 `REPLICA_VERSION` 加一，副本才會重填；搜尋條件只改 `history-index.ts` 的 `where()`，兩邊共用。
 - **免費方案每次請求只有 10 ms CPU**：AI 匯入的串流原封不動轉回瀏覽器（`asResponse()`），PDF 走 Files API，不要在 Worker 解析串流或做 base64。
 
 ## 指令

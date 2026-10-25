@@ -176,7 +176,10 @@ export function NotificationBell({
                 onClick={() => {
                   if (!n.read) onRead([n.id])
                   setOpen(false)
-                  navigate(notificationLink(n))
+                  const link = notificationLink(n)
+                  // Partnership news leads to TKU BridgeBook, another site
+                  if (/^https?:/.test(link)) window.location.assign(link)
+                  else navigate(link)
                 }}
               >
                 <span>{notificationText(t, n)}</span>

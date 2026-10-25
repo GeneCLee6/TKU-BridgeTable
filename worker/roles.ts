@@ -1,4 +1,4 @@
-import type { Me, Permission } from '../shared/protocol.ts'
+import type { ClubTeam, Me, Permission } from '../shared/protocol.ts'
 import { ClubError } from './service.ts'
 
 /**
@@ -10,6 +10,9 @@ import { ClubError } from './service.ts'
  * - **Editors** (`bookEdit`) manage everything else: TKU BridgeBook's conventions (saving,
  *   hiding, going back to the bundled one, versions), its categories and system profiles, and
  *   closing a stuck table.
+ *
+ * Teams and partnerships (TKU BridgeBook E2): editors make teams; a team's captain and the editors
+ * manage it (`managesTeam`); any member invites a partner, and only the two of them answer or end it.
  *
  * `bookImport` (AI import, which costs API credit) and `boardCurate` (featured boards) stay their
  * own permissions, granted one by one; admins have every permission.
@@ -59,3 +62,21 @@ export function bookRouteNeed(method: string, path: string): Need | null {
   if (/^\/drafts\/[\w-]+$/.test(path)) return method === 'GET' || method === 'DELETE' ? 'bookImport' : null
   return null
 }
+
+/**
+ * `/api/club/*` (`path` without that prefix): teams and partnerships; null when there is no such
+ * route. Which team or partnership a member may change is TeamService's check (worker/teams.ts).
+ */
+export function clubRouteNeed(method: string, path: string): Need | null {
+  if (path === '/teams') return method === 'GET' ? 'member' : method === 'POST' ? 'bookEdit' : null
+  if (/^\/teams\/[\w-]+$/.test(path)) return method === 'GET' || method === 'PATCH' ? 'member' : null
+  if (/^\/teams\/[\w-]+\/members$/.test(path)) return method === 'POST' ? 'member' : null
+  if (/^\/teams\/[\w-]+\/members\/[\w-]+$/.test(path)) return method === 'DELETE' ? 'member' : null
+  if (path === '/pairs') return method === 'GET' || method === 'POST' ? 'member' : null
+  if (/^\/pairs\/[\w-]+$/.test(path)) return method === 'GET' ? 'member' : null
+  if (/^\/pairs\/[\w-]+\/(accept|decline|end)$/.test(path)) return method === 'POST' ? 'member' : null
+  return null
+}
+
+/** Renaming a team, a new captain, its members, archiving: its captain's and the editors' */
+export const managesTeam = (me: Me, team: Pick<ClubTeam, 'captainId'>) => allows(me, 'bookEdit') || team.captainId === me.id

@@ -10,6 +10,7 @@ import type { Traveller } from '../../shared/traveller.ts'
 import { AuctionBox } from '../components/AuctionBox.tsx'
 import { ChallengeDialog } from '../components/ChallengeDialog.tsx'
 import { DoubleDummyPanel } from '../components/DoubleDummyPanel.tsx'
+import { DdReplayBar } from '../components/DoubleDummyReplay.tsx'
 import { FeaturedPanel } from '../components/FeaturedPanel.tsx'
 import { FavoriteButton } from '../components/FavoriteButton.tsx'
 import { RecordDiagram } from '../components/RecordDiagram.tsx'
@@ -24,6 +25,7 @@ import { challengeRobotsOf } from '../lib/challenges.ts'
 import { formatDateTime, signed } from '../lib/format.ts'
 import { useMediaQuery } from '../lib/useMediaQuery.ts'
 import { canAnalyse } from '../lib/useDoubleDummy.ts'
+import { useDoubleDummyReplay } from '../lib/useDoubleDummyReplay.ts'
 import { useTrickReplay } from '../lib/useTrickReplay.ts'
 import { useAuth } from '../state/AuthContext.tsx'
 import { usePreferences } from '../state/PreferencesContext.tsx'
@@ -169,6 +171,10 @@ export function BoardRecordView({
   const navigate = useNavigate()
   const [challenging, setChallenging] = useState(false)
   const [openedAt] = useState(() => Date.now())
+  // Double-dummy mode in the replay (BBO's "DD"): only a finished board with a contract
+  const analysable = canAnalyse(board) && !!board.contract
+  const [ddOn, setDdOn] = useState(false)
+  const dd = useDoubleDummyReplay(board, step, analysable && ddOn, replay.playing)
   // 「用這副牌挑戰」 (`e7-t22`): only a board the viewer played with three robots
   const robots = !embedded && user ? challengeRobotsOf(record, user.id, openedAt) : null
 
@@ -207,8 +213,10 @@ export function BoardRecordView({
             trickWidth={Math.round((phone ? 34 : 58) * scale)}
             styleFor={(seat) => (phone && side(seat) ? 'text' : cardStyle)}
             orientationFor={(seat) => (side(seat) && !phone ? 'rows' : 'horizontal')}
+            dd={dd}
           />
-          {total > 0 && <ReplayControls replay={replay} total={total} />}
+          {total > 0 && <ReplayControls replay={replay} total={total} dd={analysable ? { on: ddOn, onChange: setDdOn } : undefined} />}
+          <DdReplayBar dd={dd} />
         </div>
         <Card>
           <Meta>

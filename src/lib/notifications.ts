@@ -1,3 +1,4 @@
+import { BOOK_SITE } from '../../shared/book-site.ts'
 import type { Notification } from '../../shared/protocol.ts'
 import type { Strings } from '../strings.ts'
 
@@ -21,6 +22,10 @@ export function notificationText(t: Strings, n: Notification): string {
     case 'matchAbandoned':
     case 'matchSubIn':
     case 'boardFeatured':
+    case 'pairInvited':
+    case 'pairAccepted':
+    case 'pairDeclined':
+    case 'pairEnded':
       return t.notificationTexts[n.kind](name)
     case 'challengeReminder':
     case 'challengeResults':
@@ -40,7 +45,8 @@ export function notificationText(t: Strings, n: Notification): string {
  * answered (`e7-t16`); the other challenge news to that challenge's page (`e7-t18`); an invitation
  * to a table, a request to join one and its answer to that table; a featured board to its record, where the explanation is shown; team
  * match news to the match's prep room (`e8-t06`), except being taken off a seat, after which only
- * the list of one's matches is left
+ * the list of one's matches is left; partnership news to the partnership's page in TKU BridgeBook
+ * (an address on another site, which the bell opens as a page load)
  */
 export function notificationLink(n: Notification): string {
   switch (n.kind) {
@@ -76,5 +82,10 @@ export function notificationLink(n: Notification): string {
       return n.params.matchId ? `/matches/${encodeURIComponent(String(n.params.matchId))}` : '/matches'
     case 'boardFeatured':
       return n.params.boardId ? `/history/${encodeURIComponent(String(n.params.boardId))}` : '/featured'
+    case 'pairInvited':
+    case 'pairAccepted':
+    case 'pairDeclined':
+    case 'pairEnded':
+      return n.params.pairId ? `${BOOK_SITE}/pairs/${encodeURIComponent(String(n.params.pairId))}` : BOOK_SITE
   }
 }
