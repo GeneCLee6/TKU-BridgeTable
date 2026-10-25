@@ -202,6 +202,7 @@ export class ReplicaSync {
       if (this.state.state !== 'off' || !this.state.marked) await this.switchOff()
       return
     }
+    // Nothing here waits on D1: the club loads inside blockConcurrencyWhile, so D1 is only called from jobs
     // Filled by an older version: fill it again (marked not complete first, so the Worker waits)
     if (this.state.state !== 'off' && this.state.version !== REPLICA_VERSION) await this.save({ state: 'off' })
     if (this.state.state === 'ready') {
@@ -223,17 +224,27 @@ export class ReplicaSync {
     await this.store.put(STATE_KEY, state)
   }
 
+  /** Drops the queue at once; telling D1 is a job, so the club's load never waits on D1 */
   private async switchOff() {
     for (const key of (await this.store.list(QUEUE)).keys()) await this.store.delete(key)
     await this.save({ state: 'off', marked: false })
+    this.scheduleMark(0)
+  }
+
+  private scheduleMark(ms: number) {
+    this.config.scheduler.add('replica:off', 'replica', ms, () => this.markNotComplete())
+  }
+
+  /** Tells D1 the copy is not complete (so the Worker stops reading it), again and again until it hears */
+  private async markNotComplete() {
+    if (this.state.state !== 'off' || this.state.marked) return
     try {
       await this.config.db.batch([...REPLICA_SCHEMA.map((sql) => ({ sql, params: [] })), setReady(false)])
       await this.save({ state: 'off', marked: true })
+      this.wait = RETRY_MS
     } catch (error) {
       this.failed('off', error)
-      this.config.scheduler.add('replica:off', 'replica', this.backoff(), async () => {
-        if (this.state.state === 'off' && !this.state.marked) await this.switchOff()
-      })
+      this.scheduleMark(this.backoff())
     }
   }
 

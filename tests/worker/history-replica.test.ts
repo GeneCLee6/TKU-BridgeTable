@@ -271,8 +271,11 @@ describe('switching the copy off and on (HISTORY_D1=off)', () => {
     replica = sync()
     await replica.load(false)
     expect(replica.status).toBe('off')
-    expect(ready()).toBe('0')
     expect((await store.list('replq:')).size).toBe(0)
+    // D1 is told by a job: loading the club never waits on D1
+    expect(ready()).toBe('1')
+    await hand.drain()
+    expect(ready()).toBe('0')
     await write(replica, [record(2)])
     expect((await store.list('replq:')).size).toBe(0)
     expect(hand.jobs.size).toBe(0)
@@ -291,7 +294,10 @@ describe('switching the copy off and on (HISTORY_D1=off)', () => {
     await hand.drain()
     d1.fail = new Error('network')
     await sync().load(false)
+    await hand.next()
+    await hand.next()
     expect(ready()).toBe('1')
+    expect(logs.filter((entry) => entry.event === 'replica' && entry.step === 'off' && !entry.ok)).toHaveLength(2)
     expect(hand.jobs.has('replica:off')).toBe(true)
     d1.fail = null
     await hand.drain()

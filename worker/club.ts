@@ -205,11 +205,13 @@ export class Club extends DurableObject<Env> implements Connections {
 
   /**
    * Hands out an edge pass (§5.12) with an API answer when the browser's is missing or more than
-   * half used, and clears it when its session is gone. Signing in and out set their own
+   * half used, and clears it when its session is gone. Signing in and out set their own; answers a
+   * cache may keep (TKU BridgeBook's content, with an ETag) never carry one
    */
   private async edgePass(request: Request, url: URL, response: Response) {
     const secret = this.edgeSecret
-    if (!secret || !url.pathname.startsWith('/api/') || url.pathname === '/api/book/import' || response.headers.has('Set-Cookie')) return
+    if (!secret || !url.pathname.startsWith('/api/') || url.pathname === '/api/book/import') return
+    if (response.headers.has('Set-Cookie') || response.headers.get('Cache-Control') !== 'no-store') return
     const cookies = request.headers.get('Cookie')
     const token = readCookie(cookies, SESSION_COOKIE)
     const pass = readCookie(cookies, PASS_COOKIE)
