@@ -1,4 +1,4 @@
-import { Bot, ChevronDown, Crown } from 'lucide-react'
+import { Bot, ChevronDown, Crown, Timer } from 'lucide-react'
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
 import styled, { css, keyframes } from 'styled-components'
@@ -14,6 +14,10 @@ import { playerName, seatLetter } from '../strings.ts'
  * and for the host: add or remove a robot, ask a player to leave) when there is anything to do.
  * The menu floats above the page next to the plate, so it stays upright even when the seat is
  * turned on its side (the left and right seats on a phone).
+ *
+ * At a table with a time limit the plate of the player to act counts down the board's time (red
+ * once it is over, AC-2.10); a player who has kept the table waiting SLOW_TURN_MS blinks. A robot
+ * sitting in for someone who dropped offline says for whom (代打, AC-2.13).
  */
 
 export interface SeatAction {
@@ -27,6 +31,11 @@ const pulse = keyframes`
   50% { box-shadow: 0 0 0 6px rgba(255, 212, 59, 0.45); }
 `
 
+const blink = keyframes`
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+`
+
 const Wrap = styled.div`
   position: relative;
   display: flex;
@@ -34,7 +43,14 @@ const Wrap = styled.div`
   max-width: 100%;
 `
 
-const Plate = styled.div<{ $vul: boolean; $turn: boolean; $offline: boolean; $compact: boolean; $clickable: boolean }>`
+const Plate = styled.div<{
+  $vul: boolean
+  $turn: boolean
+  $slow: boolean
+  $offline: boolean
+  $compact: boolean
+  $clickable: boolean
+}>`
   display: flex;
   flex: 1 1 auto;
   align-items: center;
@@ -57,6 +73,11 @@ const Plate = styled.div<{ $vul: boolean; $turn: boolean; $offline: boolean; $co
     $turn &&
     css`
       animation: ${pulse} 1.6s ease-in-out infinite;
+    `}
+  ${({ $slow }) =>
+    $slow &&
+    css`
+      animation: ${pulse} 1.6s ease-in-out infinite, ${blink} 0.9s ease-in-out infinite;
     `}
   ${({ $offline }) => $offline && 'opacity: 0.7;'}
   ${({ $compact }) =>
@@ -108,6 +129,12 @@ const Tags = styled.span`
   margin-left: auto;
 `
 
+const Muted = styled.span`
+  font-size: 0.8em;
+  font-weight: 600;
+  opacity: 0.75;
+`
+
 const Tag = styled.span`
   padding: 0 7px;
   border-radius: 999px;
@@ -116,6 +143,49 @@ const Tag = styled.span`
   font-weight: 600;
   white-space: nowrap;
 `
+
+const ClockTag = styled(Tag)<{ $over: boolean }>`
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-variant-numeric: tabular-nums;
+  ${({ $over, theme }) => $over && `background: ${theme.table.bidDouble}; color: ${theme.table.plateVulText};`}
+`
+
+/** The time, kept current once a second while `active` */
+function useSecondClock(active: boolean) {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    if (!active) return
+    const tick = () => setNow(Date.now())
+    const first = setTimeout(tick, 0)
+    const timer = setInterval(tick, 1000)
+    return () => {
+      clearTimeout(first)
+      clearInterval(timer)
+    }
+  }, [active])
+  return now
+}
+
+const mmss = (ms: number) => {
+  const seconds = Math.max(0, Math.ceil(ms / 1000))
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
+}
+
+/** What is left of the board's time limit, on the plate of the player to act */
+function BoardClock({ endsAt }: { endsAt: number }) {
+  const t = useT()
+  const now = useSecondClock(true)
+  const left = endsAt - now
+  const over = left <= 0
+  return (
+    <ClockTag data-tag $over={over} role="timer" aria-label={over ? t.overtime : t.boardTimeLeft(mmss(left))}>
+      <Timer size={13} aria-hidden />
+      {over ? t.overtime : mmss(left)}
+    </ClockTag>
+  )
+}
 
 const MENU_WIDTH = 220
 
@@ -155,6 +225,8 @@ export function SeatPlate({
   actions = [],
   menuUp = false,
   compact = false,
+  endsAt = null,
+  slow = false,
 }: {
   seat: Seat
   occupant: SeatOccupant | null
@@ -170,6 +242,10 @@ export function SeatPlate({
   menuUp?: boolean
   /** Small, for the seats turned on their side on a phone */
   compact?: boolean
+  /** When the board's time limit runs out (this browser's clock); shown while it is this seat's turn */
+  endsAt?: number | null
+  /** This player has kept the table waiting SLOW_TURN_MS: the plate blinks */
+  slow?: boolean
 }) {
   const t = useT()
   const [open, setOpen] = useState<CSSProperties | null>(null)
@@ -215,6 +291,7 @@ export function SeatPlate({
       {occupant.robot && <Bot size={18} aria-hidden />}
       {occupant.robot ? t.robotName : playerName(t, occupant)}
       {isMe && t.youTag}
+      {occupant.substituteFor && <Muted>{t.substituteFor(occupant.substituteFor)}</Muted>}
     </Name>
   ) : (
     <Name $muted>{t.emptySeat}</Name>
@@ -230,6 +307,7 @@ export function SeatPlate({
         aria-expanded={clickable ? !!open : undefined}
         $vul={vulnerable}
         $turn={turn}
+        $slow={slow}
         $offline={offline}
         $compact={compact}
         $clickable={clickable}
@@ -237,8 +315,9 @@ export function SeatPlate({
       >
         <Letter data-letter>{seatLetter[seat]}</Letter>
         {name}
-        {(role || offline || clickable || occupant?.robot) && (
+        {(role || offline || clickable || occupant?.robot || (turn && endsAt !== null)) && (
           <Tags>
+            {turn && endsAt !== null && <BoardClock endsAt={endsAt} />}
             {occupant?.robot && (
               <Tag data-tag data-system={occupant.robotKind ?? 'tku'}>
                 {t.robotSystems[occupant.robotKind ?? 'tku']}
@@ -250,6 +329,7 @@ export function SeatPlate({
           </Tags>
         )}
         {turn && <span className="visually-hidden">{t.waitingFor(occupant?.username ?? seatLetter[seat])}</span>}
+        {slow && <span className="visually-hidden">{t.slowTurn}</span>}
       </Plate>
       {open &&
         createPortal(

@@ -28,7 +28,25 @@ describe('TableSettingsDialog', () => {
     await userEvent.click(within(dialog).getByRole('radio', { name: /只限受邀/ }))
     await userEvent.click(within(dialog).getByRole('checkbox', { name: /允許觀看/ }))
     await userEvent.click(within(dialog).getByRole('button', { name: '開桌' }))
-    expect(onSubmit).toHaveBeenCalledWith({ visibility: 'invite', allowKibitz: false })
+    expect(onSubmit).toHaveBeenCalledWith({ visibility: 'invite', allowKibitz: false, boardMinutes: 0 }, [])
+  })
+
+  it('lists the members to invite at an invite table, and sets a time limit per board', async () => {
+    const onSubmit = vi.fn()
+    const members = [
+      { id: 'a1', username: 'amy' },
+      { id: 'b2', username: 'bob' },
+    ]
+    wrap(
+      <TableSettingsDialog title="開新桌" submitLabel="開桌" members={members} onSubmit={onSubmit} onClose={() => {}} />,
+    )
+    // A public table asks nobody
+    expect(screen.queryByRole('checkbox', { name: 'amy' })).toBeNull()
+    await userEvent.click(screen.getByRole('radio', { name: /只限受邀/ }))
+    await userEvent.click(screen.getByRole('checkbox', { name: 'bob' }))
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: '每副時間上限' }), '7')
+    await userEvent.click(screen.getByRole('button', { name: '開桌' }))
+    expect(onSubmit).toHaveBeenCalledWith({ visibility: 'invite', allowKibitz: true, boardMinutes: 7 }, ['b2'])
   })
 
   it('starts from the table’s settings and closes with Escape', async () => {
@@ -37,7 +55,7 @@ describe('TableSettingsDialog', () => {
       <TableSettingsDialog
         title="牌桌設定"
         submitLabel="儲存"
-        initial={{ visibility: 'invite', allowKibitz: false }}
+        initial={{ visibility: 'invite', allowKibitz: false, boardMinutes: 0 }}
         onSubmit={() => {}}
         onClose={onClose}
       />,
@@ -324,7 +342,43 @@ describe('viewer perspective and robots', () => {
 
   it('asks only how the table is run: no robot level', () => {
     wrap(<TableSettingsDialog title="開新桌" submitLabel="開桌" onSubmit={() => {}} onClose={() => {}} />)
-    expect(screen.queryByRole('combobox')).toBeNull()
+    // The only list is the time limit
+    expect(screen.getAllByRole('combobox').map((c) => c.getAttribute('id') && c.closest('fieldset')?.querySelector('legend')?.textContent)).toEqual([
+      '每副時間上限',
+    ])
+  })
+
+  it('counts down the board’s time on the plate of the player to act, red once it is over', () => {
+    const { rerender } = wrap(
+      <SeatPlate seat="W" occupant={{ id: 'u1', username: 'amy', online: true }} vulnerable={false} turn isMe={false} endsAt={Date.now() + 125_000} />,
+    )
+    expect(screen.getByRole('timer')).toHaveTextContent('2:05')
+    rerender(
+      <PreferencesProvider>
+        <SeatPlate seat="W" occupant={{ id: 'u1', username: 'amy', online: true }} vulnerable={false} turn={false} isMe={false} endsAt={Date.now() + 125_000} />
+      </PreferencesProvider>,
+    )
+    expect(screen.queryByRole('timer')).toBeNull()
+    rerender(
+      <PreferencesProvider>
+        <SeatPlate seat="W" occupant={{ id: 'u1', username: 'amy', online: true }} vulnerable={false} turn isMe={false} endsAt={Date.now() - 1} slow />
+      </PreferencesProvider>,
+    )
+    expect(screen.getByRole('timer')).toHaveTextContent('超時')
+    expect(screen.getByText('已經等超過 1 分鐘')).toBeInTheDocument()
+  })
+
+  it('says whom a robot is sitting in for (代打)', () => {
+    wrap(
+      <SeatPlate
+        seat="E"
+        occupant={{ id: 'robot:tku:E', username: 'Robot', robot: true, robotKind: 'tku', online: true, substituteFor: 'amy' }}
+        vulnerable={false}
+        turn={false}
+        isMe={false}
+      />,
+    )
+    expect(screen.getByText('代打 amy')).toBeInTheDocument()
   })
 
   it('crowns the host, puts declarer and dummy at the right end, and has no menu without actions', () => {

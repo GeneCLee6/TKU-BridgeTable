@@ -1,7 +1,7 @@
 /** What a waiting job is for; tests run each kind on its own */
-export type JobKind = 'robot' | 'deal' | 'challenge'
+export type JobKind = 'robot' | 'deal' | 'challenge' | 'substitute'
 
-/** Everything done later (robot moves, the next deal, a challenge's reminder and deadline) goes through one scheduler */
+/** Everything done later (robot moves, the next deal, a challenge's reminder and deadline, a robot sitting in for someone offline) goes through one scheduler */
 export interface Scheduler {
   /** Runs `run` after `ms`, unless a job with the same key is still waiting */
   add(key: string, kind: JobKind, ms: number, run: () => Promise<void>): void
