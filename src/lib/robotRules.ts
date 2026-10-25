@@ -6,3 +6,5 @@
 export { describe } from '../../shared/robot/system/describe.ts'
 export { explain } from '../../shared/robot/system/engine.ts'
 export { ROBOT_SYSTEMS } from '../../shared/robot/robots.ts'
+export { bookTopics } from '../../shared/book-topics.ts'
+export { callText, conventionName } from '../../shared/robot/system/describe.ts'

@@ -28,7 +28,7 @@ import { useTrickReplay } from '../lib/useTrickReplay.ts'
 import { useAuth } from '../state/AuthContext.tsx'
 import { usePreferences } from '../state/PreferencesContext.tsx'
 import { mobileQuery } from '../styles/tokens.ts'
-import { playerName, seatLetter } from '../strings.ts'
+import { boardPlace, playerName, seatLetter } from '../strings.ts'
 
 /**
  * One finished board: the deal as a hand diagram (RecordDiagram, BBO's Handviewer), the auction,
@@ -191,7 +191,7 @@ export function BoardRecordView({
   return (
     <Frame>
       <PageTitle>
-        {record.mode === 'challenge' ? t.challenge : t.tableName(record.tableNumber)} · {t.boardNo(board.boardNo)}
+        {boardPlace(t, record)} · {t.boardNo(board.boardNo)}
       </PageTitle>
       <Columns>
         <div>

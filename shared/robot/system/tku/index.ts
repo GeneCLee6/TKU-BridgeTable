@@ -2,11 +2,13 @@ import type { System } from '../spec.ts'
 import { advancingBooks, supportDouble } from './advancing.ts'
 import { competition, responsiveBooks } from './competition.ts'
 import { overcalls } from './defence.ts'
+import { majorSlam } from './majorSlam.ts'
 import { majors, unusual } from './majors.ts'
 import { minors, strong } from './minors.ts'
 import { notrump } from './notrump.ts'
 import { openings } from './openings.ts'
 import { responder } from './responder.ts'
+import { slamAnswers, slamAsks } from './slam.ts'
 import { target } from './target.ts'
 
 /**
@@ -18,9 +20,11 @@ export const TKU: System = {
   id: 'tku',
   firstFit: true,
   books: [
+    ...slamAnswers,
     openings,
     ...notrump,
     ...strong,
+    ...majorSlam,
     ...majors,
     ...minors,
     ...responder,
@@ -30,6 +34,7 @@ export const TKU: System = {
     ...overcalls,
     ...responsiveBooks,
     ...advancingBooks,
+    slamAsks,
     target,
   ],
 }
