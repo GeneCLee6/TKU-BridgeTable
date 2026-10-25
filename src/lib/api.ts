@@ -17,7 +17,18 @@ import type {
   Permission,
   RegisterResult,
 } from '../../shared/protocol.ts'
+import type { MatchSeat, Room, TeamMatchSettings, TeamMatchView } from '../../shared/team-match.ts'
 import type { Traveller } from '../../shared/traveller.ts'
+import type { Seat } from '../../shared/cards.ts'
+
+/** The seat actions of a team match before the start; `action` is the last part of the path */
+export type MatchSeatAction =
+  | { action: 'invite'; room: Room; seat: Seat; userId: string }
+  | { action: 'answer'; accept: boolean }
+  | { action: 'move'; from: MatchSeat; to: MatchSeat }
+  | { action: 'leave' }
+  | { action: 'clear'; room: Room; seat: Seat }
+  | { action: 'robot'; room: Room; seat: Seat }
 import type { FeaturedBoard, FeaturedInput } from '../../shared/featured.ts'
 
 /** HTTP calls to the Worker. The session lives in an HttpOnly cookie, so no token is handled here. */
@@ -114,6 +125,20 @@ export const api = {
   answerChallenge: (id: string, accept: boolean) =>
     post<{ challenge: ChallengeView }>(`/api/challenges/${encodeURIComponent(id)}/answer`, { accept }),
   cancelChallenge: (id: string) => post<{ challenge: ChallengeView }>(`/api/challenges/${encodeURIComponent(id)}/cancel`),
+
+  /** The team matches the member hosts or has a seat in, newest first (§5.8) */
+  matches: () => request<{ matches: TeamMatchView[] }>('/api/matches'),
+  match: (id: string) => request<{ match: TeamMatchView }>(`/api/matches/${encodeURIComponent(id)}`),
+  createMatch: (settings?: Partial<TeamMatchSettings>) => post<{ match: TeamMatchView }>('/api/matches', { settings }),
+  matchSettings: (id: string, settings: Partial<TeamMatchSettings>) =>
+    post<{ match: TeamMatchView }>(`/api/matches/${encodeURIComponent(id)}/settings`, { settings }),
+  cancelMatch: (id: string) => post<{ match: TeamMatchView }>(`/api/matches/${encodeURIComponent(id)}/cancel`),
+  /**
+   * A seat action (`e8-t04`, `e8-t05`): answers with the match as the member now sees it, null once
+   * they may not (they declined or left)
+   */
+  matchSeat: (id: string, { action, ...body }: MatchSeatAction) =>
+    post<{ match: TeamMatchView | null }>(`/api/matches/${encodeURIComponent(id)}/${action}`, body),
 
   admin: {
     users: () => request<{ users: AdminUser[] }>('/api/admin/users'),
