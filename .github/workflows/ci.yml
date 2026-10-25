@@ -79,3 +79,27 @@ jobs:
       - name: This branch's robots against the base's (quick set)
         if: steps.changes.outputs.run == 'true'
         run: npm run eval:gate -- --base base
+
+  # e5-t23: on every pull request, this branch's TKB and the base branch's answer the bidding
+  # question bank (tests/bidding-quiz, this branch's questions); the job fails when any category has
+  # fewer correct answers than the base's (eval/README.md). The report is the job summary. Seconds,
+  # and like robot-eval it needs no npm packages.
+  bidding-quiz:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Check out the base branch into base/
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.base_ref }}
+          path: base
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+
+      - name: Bidding question bank, this branch against the base
+        run: npm run quiz -- --base base

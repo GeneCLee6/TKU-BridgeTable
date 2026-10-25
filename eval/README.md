@@ -64,10 +64,49 @@ npm run eval:gate -- --base ../main              # CI 門檻（見下）
 
 在本機跑門檻：`npm run eval:gate -- --base <main 的 checkout>`；失敗時結束碼是 1。
 
+## 叫牌題庫（`quiz.ts`，`e5-t23`）
+
+「這手牌、這個叫牌過程，該叫什麼？」附上書上的答案。題目在 `tests/bidding-quiz/`，一個分類一個檔（`opening.json` 開叫、`response.json` 答叫、`rebid.json` 再叫；之後的蓋叫、競叫、滿貫各開新檔）。
+
+```bash
+npm run quiz                  # 這份程式的 TKB 答全部題目，列出各類正確率與答錯的題
+npm run quiz -- --base base   # CI 棘輪：base 的 TKB 答同樣的題目，有任何一類比 base 少答對就失敗
+```
+
+**一題的格式**：
+
+```json
+{ "id": "tku-open-001", "system": "tku", "dealer": "N", "vul": "None",
+  "hand": "AK32.KQ4.J52.Q43", "auction": [], "answer": "1N", "accepted": [],
+  "source": "淡江橋譜：1NT的答叫", "reviewer": null, "status": "pending", "note": "15 點 4-3-3-3" }
+```
+
+| 欄位 | 意思 |
+| --- | --- |
+| `id` | 全題庫唯一，小寫英數與 `-`，例如 `tku-resp-012` |
+| `system` | 答案依哪套制度：`tku`（淡江制度）或 `gib`（2/1）；機器人用這套制度作答 |
+| `dealer`、`vul` | 發牌者（`N` `E` `S` `W`）與身價（`None` `NS` `EW` `Both`） |
+| `hand` | 輪到叫牌那一家的手牌，`♠.♥.♦.♣` 由大到小，10 寫 `T`，缺門留空（`AKQ32..5432.J43`） |
+| `auction` | 從發牌者開始的叫品：`1C`～`7N`、`P`、`X`、`XX`；空的就是開叫題。輪到誰由發牌者與叫品數決定 |
+| `answer` | 書上的叫品 |
+| `accepted` | 也算對的其他叫品（選填） |
+| `source` | 出處：淡江橋譜的哪一篇，或「5542 自然制（ROBOT.md §2）」 |
+| `reviewer`、`status` | `pending`（待審核，`reviewer` 是 `null`）或 `reviewed`（社團幹部審過，`reviewer` 寫名字） |
+| `note` | 一句話的理由：點力、牌型、哪條規則 |
+
+**怎麼算**：機器人只拿到這一家的手牌（其他 39 張依固定順序分給另外三家，叫牌時機器人不看，ROBOT.md §1）。叫出 `answer` 或 `accepted` 的叫品算答對。報告分制度、分類列出題數、待審核題數、答對率與「完全照書」的題數。
+
+**CI 棘輪**（`.github/workflows/ci.yml` 的 `bidding-quiz`）：每個 pull request 都跑，把目標分支（main）checkout 到 `base/`，**用這個分支的題目**讓兩邊的 TKB 作答；任何一個「制度／分類」這個分支答對的題數比 main 少就失敗。所以只加題目不會失敗（兩邊答同樣的題），改規則讓某類少答對一題就會被擋；新的分類（main 沒有的）不比較。報告在 job summary，答錯的題列在最後。
+
+`tests/eval/quiz.test.ts` 檢查每一題的格式（手牌 13 張不重複、叫牌過程合法、答案合法、出處、審核狀態）、id 不重複，以及 TKB 對每一題都叫出合法的叫品。
+
+**出題與審核**：目前 50 題（`e5-t42` 的第一批）是 AI 依淡江橋譜與 5542 自然制寫的，全部標 `pending`；社團幹部逐題確認後把 `status` 改成 `reviewed`、`reviewer` 填名字，答案有錯就直接改，並補到 200 題（開叫、答叫、再叫）。機器人答錯的題目不用刪：它們是之後改規則的目標（例如 `tku-open-004` 第三家輕開、`tku-open-016` Rule of 15，等 `e5-t24`）。
+
 ## 檔案
 
 | 檔案 | 內容 |
 | --- | --- |
+| `quiz.ts`、`quiz-cli.ts` | 叫牌題庫：格式檢查、作答、各類正確率、棘輪與報告；`npm run quiz` |
 | `deals.ts` | 固定牌組：`EVAL_SEED`、`evalBoard`、`evalBoards`、`fingerprint` |
 | `match.ts` | 一桌打完一副（`playTable`）、兩桌換位的對抗（`playMatch`）；`RobotConfig` 可以帶別的 `RobotBrain` |
 | `stats.ts` | IMP／副、標準誤、MP、合約統計（`summarize`）與門檻（`regressed`） |
