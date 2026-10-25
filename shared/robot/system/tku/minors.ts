@@ -4,7 +4,7 @@ import type { Ctx } from '../context.ts'
 import type { Hand } from '../evaluate.ts'
 import type { Book, Rule, Spec } from '../spec.ts'
 import { twoClubs } from './twoclubs.ts'
-import { aces, answer, answerIs, bid, contested, isMajor, isSuit, length, MAJORS, MAXIMUM, MEDIUM, MINIMUM, onlyIf, ORDER, opened, ours, partnerOpened, pass, plus, rule, topThree } from './util.ts'
+import { aces, answer, answerIs, bid, contested, isMajor, isSuit, length, MAJORS, MAXIMUM, MEDIUM, MINIMUM, onlyIf, ORDER, opened, ours, partnerOpened, pass, plus, reads, rule, topThree } from './util.ts'
 
 /**
  * 5542 自然制 (淡江橋譜「答叫：1♣ ?」「答叫：1♦ ?」 from the club's old handbook, 5542 where it says
@@ -240,6 +240,7 @@ const twoNotrumpResponses: Book = {
     rule('3H', { len: length('H', 5), hcp: plus(4), forcing: 'oneRound' }, (h) => h.hcp >= 4 && h.len.H >= 5),
     rule('6N', { hcp: plus(12), notes: [{ key: 'smallSlam' }] }, (h) => h.hcp >= 12),
     rule('3N', { hcp: [4, 11], notes: [{ key: 'toPlay' }] }, (h) => h.hcp >= 4),
+    reads('4C', { name: 'gerber', artificial: true, forcing: 'oneRound', notes: [{ key: 'slamInterest' }] }),
     pass({ hcp: [0, 3] }),
   ],
 }

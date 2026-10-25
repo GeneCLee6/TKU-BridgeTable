@@ -18,11 +18,13 @@ const fiveMajor = (len: Record<Suit, number>) => len.S >= 5 || len.H >= 5
 const goodFive = (h: Hand, s: Suit) => h.len[s] >= 5 && topThree(h, s) >= 2
 
 /**
- * Enough to open one of a suit: 12 points; in third seat 10 with a good five-card suit in the suit
+ * Enough to open one of a suit: 12 points, or a good 11; in third seat 10 with a good five-card suit in the suit
  * opened (輕開叫, to direct the lead); in fourth seat 10 when points plus spades make 15 (15定律)
  */
 function enough(h: Hand, ctx: Ctx, s: Suit): boolean {
   if (h.hcp >= 12) return true
+  // A good 11 (e5-t41, 牌值): Rule of 20 and two quick tricks, as a 12-point opening (not in fourth seat)
+  if (h.hcp === 11 && ctx.position <= 3 && h.rule20 >= 20 && h.quickTricks >= 2) return true
   if (h.hcp < 10) return false
   if (ctx.position === 3) return goodFive(h, s)
   if (ctx.position === 4) return h.hcp + h.len.S >= 15

@@ -20,6 +20,7 @@ import type {
 import type { MatchSeat, Room, TeamMatchSettings, TeamMatchView } from '../../shared/team-match.ts'
 import type { Traveller } from '../../shared/traveller.ts'
 import type { Seat } from '../../shared/cards.ts'
+import type { BookSyncRow } from '../../shared/robot/system/tku/sources.ts'
 
 /** The seat actions of a team match before the start; `action` is the last part of the path */
 export type MatchSeatAction =
@@ -156,6 +157,8 @@ export const api = {
     settings: () => request<{ settings: ClubSettings }>('/api/admin/settings'),
     saveSettings: (settings: Partial<ClubSettings>) => post<{ settings: ClubSettings }>('/api/admin/settings', settings),
     closeTable: (id: string) => request<{ ok: true }>(`/api/admin/tables/${id}`, { method: 'DELETE' }),
+    /** The club's robot against 淡江橋館: articles edited online since its rules were checked (e5-t45) */
+    bookSync: () => request<{ sync: BookSyncRow[] }>('/api/admin/book-sync'),
     /** The weekly club challenge's schedule (`e7-t23`) */
     weeklyChallenge: () => request<{ weekly: WeeklyChallengeView }>('/api/admin/weekly-challenge'),
     saveWeeklyChallenge: (schedule: Partial<WeeklyChallengeSchedule>) =>

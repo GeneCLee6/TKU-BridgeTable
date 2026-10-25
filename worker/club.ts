@@ -4,6 +4,8 @@ import type { ChallengeSettings } from '../shared/challenge.ts'
 import { parseHistoryQuery } from '../shared/history-query.ts'
 import { MESSAGE_MAX_CHARS } from '../shared/message-guard.ts'
 import type { BoardRecord, Me, ServerMessage } from '../shared/protocol.ts'
+import { TKU } from '../shared/robot/system/tku/index.ts'
+import { bookSync } from '../shared/robot/system/tku/sources.ts'
 import { readCookie, SESSION_COOKIE, sessionCookie } from './auth.ts'
 import { backupAdmin, runBackup } from './backup.ts'
 import { BookService, importRequestFrom, publicBookResponse } from './book.ts'
@@ -432,6 +434,8 @@ export class Club extends DurableObject<Env> implements Connections {
     if (method === 'POST' && path === '/weekly-challenge')
       return json({ weekly: await this.service.adminSetWeeklyChallenge(user.id, await body()) })
     if (method === 'GET' && path === '/settings') return json({ settings: this.service.clubSettings })
+    // The club's robot against 淡江橋館: articles edited online since its rules were checked (e5-t45)
+    if (method === 'GET' && path === '/book-sync') return json({ sync: bookSync(TKU.books, await this.book.onlineArticles()) })
     if (method === 'POST' && path === '/settings') {
       const b = await body()
       const settings = await this.service.adminUpdateSettings({

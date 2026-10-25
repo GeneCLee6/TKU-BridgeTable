@@ -27,6 +27,7 @@ import {
   robotId,
   robotKindOf,
   SLOW_TURN_MS,
+  soloTable,
   SUBSTITUTE_MS,
   summarize,
   type BoardRecord,
@@ -41,14 +42,14 @@ import {
   type TableWire,
 } from '../shared/protocol.ts'
 import { ruleBrain, type RobotBrain } from '../shared/robot/brain.ts'
-import type { RobotBid } from '../shared/robot/robots.ts'
+import { inferredMeaning, type RobotBid } from '../shared/robot/robots.ts'
 import { randomId } from './auth.ts'
 import { ClubError } from './errors.ts'
 import { challengeStateOf, challengeTableOpen, modeOf, nextTableSeq, type EventReport, type ModeContext } from './modes.ts'
 import type { Scheduler } from './scheduler.ts'
 import { tableMatch, teamStateOf, teamTableOver } from './team-mode.ts'
 import type { ClubLink, Named, Person, TableApi, TableEntry, Tables } from './tables.ts'
-import { boardView, chatFor, recordVisible, seatOccupants, type Table } from './views.ts'
+import { boardView, chatFor, practiceView, recordVisible, seatOccupants, type Table } from './views.ts'
 
 /** Who is connected to the table; in one process the club's connections, in production the table's own sockets */
 export interface TableConnections {
@@ -211,8 +212,8 @@ export class TableService implements TableApi {
   async join(person: Person): Promise<TableEntry> {
     const table = this.require()
     if (this.isAt(person.id)) return this.settled()!
-    // Someone else's challenge table is not there for anyone to see
-    if (table.mode === 'challenge') throw new ClubError('tableGone', {}, 404)
+    // Someone else's challenge or practice table is not there for anyone to see
+    if (soloTable(table.mode)) throw new ClubError('tableGone', {}, 404)
     // A team match's player never watches the other room (§5.8)
     if (this.otherRoom(person.id)) throw new ClubError('matchOtherRoom', {}, 403)
     if (!settingsOf(table).allowKibitz) throw new ClubError('noKibitzing', {}, 403)
@@ -228,8 +229,8 @@ export class TableService implements TableApi {
     const here = this.isAt(userId)
     const currentSeat = here ? this.seatOf(userId) : null
     if (currentSeat === seat) return this.settled()!
-    if (table.mode === 'challenge') {
-      if (here) throw new ClubError('challengeTableFixed')
+    if (soloTable(table.mode)) {
+      if (here) throw this.fixed()
       throw new ClubError('tableGone', {}, 404)
     }
     // The match seats its players; nobody else sits at its tables, nor moves (§5.8)
@@ -439,6 +440,9 @@ export class TableService implements TableApi {
       case 'chat':
         await this.chat(userId, message.text)
         break
+      case 'redeal':
+        await this.redeal(userId)
+        break
       case 'call':
       case 'play':
       case 'claim':
@@ -511,11 +515,19 @@ export class TableService implements TableApi {
     return table
   }
 
-  /** At a challenge or team match table seats and settings stay as the challenge or match set them */
+  /**
+   * At a challenge or practice table (`soloTable`) nobody else watches, and seats and settings stay
+   * as they were opened (at a challenge table nobody takes back a call or card either); at a team
+   * match table seats and settings are the match's (§5.8)
+   */
   private checkFixed() {
     const mode = this.table!.mode
-    if (mode === 'challenge') throw new ClubError('challengeTableFixed')
+    if (soloTable(mode)) throw this.fixed()
     if (mode === 'team') throw new ClubError('matchTableFixed')
+  }
+
+  private fixed() {
+    return new ClubError(this.table!.mode === 'practice' ? 'practiceTableFixed' : 'challengeTableFixed')
   }
 
   /**
@@ -805,6 +817,24 @@ export class TableService implements TableApi {
     this.settled()
   }
 
+  // ── Practice tables (§5.11) ──────────────────────────────────────────────────────────────────
+
+  /**
+   * 隨時重發 (`e10-t03`): the practice table's own member puts the board away, played or not, and
+   * gets a new one at once. Nothing is recorded for the board put away
+   */
+  private async redeal(userId: string) {
+    const table = this.table
+    if (!table || !this.isAt(userId)) throw new ClubError('notAtTable')
+    if (table.mode !== 'practice') throw new ClubError('practiceOnly')
+    if (table.hostId !== userId || !this.seatOf(userId)) throw new ClubError('hostOnly')
+    const before = table.board
+    this.dealBoard()
+    // The conditions could not be met this time: the board stays
+    if (table.board === before) throw new ClubError('dealTooStrict')
+    await this.save()
+  }
+
   // ── Challenge tables ────────────────────────────────────────────────────────────────────────
 
   /**
@@ -874,6 +904,13 @@ export class TableService implements TableApi {
         if (byRobot) {
           const made = { ...next.auction.at(-1)!, robot: true, ...(meaning ? { meaning } : {}) }
           next = { ...next, auction: [...board.auction, made] }
+        } else {
+          // A person's call carries what the engine reads it as, in their side's system: a robot
+          // partner's, or the club's (e5-t22); like a convention card, it is for everyone
+          const partner = table.seats[partnerOf(seat)]
+          const kind: RobotKind = partner && isRobotId(partner) ? robotKindOf(partner) : 'tku'
+          const inferred = inferredMeaning(kind, next.auction, next.dealer, next.vul)
+          if (inferred) next = { ...next, auction: [...board.auction, { ...next.auction.at(-1)!, meaning: inferred, inferred: kind }] }
         }
         break
       case 'play': {
@@ -1275,6 +1312,7 @@ export class TableService implements TableApi {
             auctionSeat: mySeat ? this.auctionSeat(table, mySeat) : undefined,
             undoAllowed: table.mode !== 'challenge' && table.mode !== 'team',
             kibitz: settings.allowKibitz,
+            robots: Object.fromEntries(SEATS.flatMap((s) => (table.seats[s] && isRobotId(table.seats[s]!) ? [[s, robotKindOf(table.seats[s]!)]] : []))),
           })
         : null,
       boardsPlayed: table.boardsPlayed,
@@ -1285,9 +1323,10 @@ export class TableService implements TableApi {
       chat: chatFor(table.chat, (authorId) => blocked.has(authorId), { player: table.mode === 'team' && mySeat !== null }),
       recent: (table.recent ?? []).filter((summary) => recordVisible(summary, userId, this.now())),
       ...(table.mode === 'challenge' && { challenge: this.tableChallenge(table) }),
+      ...practiceView(table),
       ...(table.mode === 'team' && { match: tableMatch(table) }),
       ...(table.hostId === userId &&
-        table.mode !== 'challenge' &&
+        !soloTable(table.mode) &&
         table.mode !== 'team' && { invited: (table.invited ?? []).flatMap((id) => this.publicUser(id) ?? []) }),
       boardEndsAt:
         playing && settings.boardMinutes > 0 ? (table.boardStartedAt ?? table.createdAt) + settings.boardMinutes * 60_000 : null,

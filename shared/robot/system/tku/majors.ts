@@ -3,6 +3,7 @@ import type { Suit } from '../../../cards.ts'
 import { cheapest, type Ctx } from '../context.ts'
 import type { Hand } from '../evaluate.ts'
 import type { Book, Rule, Spec } from '../spec.ts'
+import { fitValue } from './majorSlam.ts'
 import {
   aceKings,
   answer,
@@ -44,7 +45,6 @@ const BERGEN_POINTS: readonly (readonly [number, number])[] = [
   [6, 7],
   [3, 5],
 ]
-const BERGEN_GAME = [14, 15, 17, 19]
 const SUPPORT_POINTS = [10, 8, 6, 4]
 
 /** J2N: 1♠–2NT, 1♥–2♠ */
@@ -114,32 +114,27 @@ function openerRebids(m: Suit): Book {
   /** Answers with a meaning of their own (a new suit is anything else) */
   const special = [...bergen(m), j2n(m), ...splinters(m), game, bid(2, m), '1N']
 
-  // Bergen raises: game with enough, otherwise three (or pass the preemptive raise)
-  bergen(m).forEach((call, i) => {
-    rules.push(rule(is(call), { hcp: plus(BERGEN_GAME[i]), notes: [{ key: 'accept' }, { key: 'game' }] }, (h) => h.hcp >= BERGEN_GAME[i]))
-    rules.push(rule(onlyIf(answerIs(call), i === 3 ? 'P' : bid(3, m)), i === 3 ? undefined : { notes: [{ key: 'decline' }, { key: 'signoff' }] }))
-  })
-  // J2N: game, or slam when the hands are clearly strong enough
+  // The 3–5 Bergen raise: game with a maximum, otherwise pass. The other Bergen raises, J2N and the
+  // splinters go on to the slam auctions of `majorSlam.ts`
+  const weakest = bergen(m)[3]
   rules.push(
-    rule(onlyIf(answerIs(j2n(m)), bid(6, m)), { hcp: plus(19), notes: [{ key: 'smallSlam' }] }, (h) => h.hcp >= 19),
-    rule(is(j2n(m)), { notes: [{ key: 'game' }] }),
+    rule(is(weakest), { hcp: plus(19), notes: [{ key: 'accept' }, { key: 'game' }] }, (h) => fitValue(h, m) >= 19),
+    rule(onlyIf(answerIs(weakest), 'P')),
+    rule(onlyIf(answerIs(game), 'P')),
   )
-  for (const call of splinters(m))
-    rules.push(rule(onlyIf(answerIs(call), bid(6, m)), { hcp: plus(18), notes: [{ key: 'smallSlam' }] }, (h) => h.hcp >= 18), rule(is(call), { notes: [{ key: 'game' }] }))
-  rules.push(rule(onlyIf(answerIs(game), 'P')))
 
   // The single raise, 淡江用: game, a long-suit try, or the invitation
   const raised = answerIs(bid(2, m))
-  rules.push(rule(onlyIf(raised, game), { hcp: plus(19), notes: [{ key: 'game' }] }, (h) => h.hcp >= 19))
+  rules.push(rule(onlyIf(raised, game), { hcp: plus(19), notes: [{ key: 'game' }] }, (h) => fitValue(h, m, 3) >= 19))
   for (const x of ORDER.filter((s) => s !== m))
     rules.push(
       rule(
           onlyIf(raised, cheapestIn(x)),
           { name: 'longSuitTry', len: length(x, 3), hcp: [16, 18], notes: [{ key: 'tryIn', strain: x }], forcing: 'oneRound' },
-          (h, ctx) => h.hcp >= 16 && weakTry(h, m) === x && levelOf(cheapest(ctx, x)!) <= 3,
+          (h, ctx) => fitValue(h, m, 3) >= 16 && weakTry(h, m) === x && levelOf(cheapest(ctx, x)!) <= 3,
         ),
     )
-  rules.push(rule(onlyIf(raised, bid(3, m)), { hcp: [16, 18], notes: [{ key: 'invite' }] }, (h) => h.hcp >= 16), rule(onlyIf(raised, 'P')))
+  rules.push(rule(onlyIf(raised, bid(3, m)), { hcp: [16, 18], notes: [{ key: 'invite' }] }, (h) => fitValue(h, m, 3) >= 16), rule(onlyIf(raised, 'P')))
 
   // 1NT forcing one round, always rebid (淡江橋譜「1NT迫叫之後開叫者再叫」): 19–21 game, 3NT or a
   // jump shift; 16–18 the jump rebid, the reverse 2♠ or 2NT; 12–15 the six-card major or a minor

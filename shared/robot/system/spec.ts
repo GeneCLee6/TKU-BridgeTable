@@ -74,6 +74,10 @@ export const CONVENTIONS = [
   'cueRaise',
   'unusualVsUnusual',
   'rkcb',
+  'rkcb1430',
+  'ekb',
+  'blackwood',
+  'grandSlamForce',
   'keycards',
   'queenAsk',
   'kingAsk',
@@ -121,7 +125,9 @@ export const NOTES = [
   'honourIn',
   'noKing',
   'void',
+  'voidIn',
   'aces',
+  'kings',
   'control',
   'game',
   'smallSlam',
@@ -195,6 +201,8 @@ export interface Book {
    * default this book is the last word)
    */
   more?: boolean
+  /** The 淡江橋館 articles these rules follow, by slug (`tku/sources.ts`, e5-t45) */
+  bookSlugs?: readonly string[]
 }
 
 export type SystemId = 'gib' | 'tku'

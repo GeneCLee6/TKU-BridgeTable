@@ -108,6 +108,15 @@ describe('content edited online', () => {
     expect((await book.content()).version).toBe(4)
   })
 
+  it('tells the robot’s sync which articles changed online, and which are hidden (e5-t45)', async () => {
+    await book.save(amy, 'lebensohl', { convention: convention(), baseVersion: 0 })
+    await book.hide(ben, 'jacoby-2nt', { baseVersion: 0 })
+    const online = await book.onlineArticles()
+    expect(online.get('lebensohl')).toEqual({ version: 1, updatedAt: time, updatedBy: 'amy', hidden: false })
+    expect(online.get('jacoby-2nt')).toMatchObject({ updatedBy: 'ben', hidden: true })
+    expect(online.has('bergen-raises')).toBe(false)
+  })
+
   it('accepts only the shape of a convention', async () => {
     const save = (value: unknown, slug = 'lebensohl') => book.save(amy, slug, { convention: value, baseVersion: 0 })
     await expect(save(convention(), 'Bad Slug')).rejects.toThrow('小寫英數')

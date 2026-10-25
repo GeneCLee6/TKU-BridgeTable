@@ -210,11 +210,14 @@ async function robotTable(amy: string) {
 async function playOut(amy: string, tableId: string) {
   for (let i = 0; i < 400; i++) {
     await runRobots()
+    // A robot's move still under way (several hops between the objects) gets a turn to finish
+    await tick()
     const board = tableOf(amy)!.board!
     if (board.phase === 'finished') return
     if (board.legalCalls.length) await tableSend(amy, tableId, { type: 'call', call: 'P' })
     else if (board.legalCards.length) await tableSend(amy, tableId, { type: 'play', card: board.legalCards[0] })
   }
+  throw new Error(`the board did not finish: ${JSON.stringify(tableOf(amy)?.board?.phase)}`)
 }
 
 const clubKeys = (prefix: string) => [...store.data.keys()].filter((key) => key.startsWith(prefix))

@@ -1,6 +1,7 @@
+import { ALL_PASS } from '../lib/calls.ts'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { EyeOff, Lock, Settings } from 'lucide-react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import styled, { css, keyframes } from 'styled-components'
 import { isVulnerable } from '../../shared/board.ts'
 import { nextSeat, partnerOf, SEATS, sideOf, suitOf, type Card, type Seat, type Suit } from '../../shared/cards.ts'
@@ -14,7 +15,9 @@ import {
 import { AuctionBox } from '../components/AuctionBox.tsx'
 import { BiddingBox, type BiddingHints } from '../components/BiddingBox.tsx'
 import { BoardInfo } from '../components/BoardInfo.tsx'
+import { BookHints } from '../components/BookHints.tsx'
 import { ChallengeBanner } from '../components/ChallengeBanner.tsx'
+import { PracticeBanner } from '../components/PracticeBanner.tsx'
 import { ChatPanel } from '../components/ChatPanel.tsx'
 import { MatchBanner } from '../components/MatchBanner.tsx'
 import { DEAL_MS, DealAnimation } from '../components/DealAnimation.tsx'
@@ -606,6 +609,7 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
   const { cardStyle, sound, lang, confirmCalls, confirmPlays, cardSize, tableTourSeen, set: setPrefs } = usePreferences()
   const { user } = useAuth()
   const { error, lobby } = useClub()
+  const navigate = useNavigate()
   const [feltRef, feltSize] = useSize()
   // On a tablet the side panel floats over the table, so it starts closed there (e3-t36)
   const onTablet = useMediaQuery(tabletQuery)
@@ -624,8 +628,9 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
 
   const me = table.mySeat
   const challenge = table.challenge
-  // Nobody runs a challenge or team match table: its seats, robots and settings are fixed
-  const iAmHost = !!user && table.hostId === user.id && !challenge && !table.match
+  const practice = table.practice
+  // Nobody runs a challenge, practice or team match table: its seats, robots and settings are fixed
+  const iAmHost = !!user && table.hostId === user.id && !challenge && !practice && !table.match
   const viewer = me ?? 'S'
   const at = rotation(viewer)
   const positionOf = (seat: Seat) => (Object.keys(at) as Position[]).find((p) => at[p] === seat)!
@@ -637,21 +642,24 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
   /** 北 Alice: a seat as a screen reader says it */
   const spokenSeat = (seat: Seat) => `${t.seatNames[seat]} ${table.seats[seat] ? nameOf(seat) : ''}`.trim()
 
-  // A robot partner: the bidding box tells how it will read each call, as GIB does on BBO
-  const partner = me ? table.seats[partnerOf(me)] : null
-  const hinting = !!board && board.legalCalls.length > 0 && !!partner?.robot
-  const rules = useRobotRules(hinting)
+  // A robot at the table (the partner, else an opponent): the bidding box tells how it will read
+  // each call, as GIB does on BBO. The server works the meanings out (`callMeanings`); the page
+  // only puts them into words
+  const callMeanings = board?.callMeanings
+  // The practice hint card reads the book in a robot partner's system (BookHints)
+  const partnerSeat = me ? table.seats[partnerOf(me)] : null
+  const rules = useRobotRules(!!callMeanings)
   const hints = useMemo((): BiddingHints | null => {
-    if (!hinting || !rules || !board || !partner) return null
-    const meanings = rules.explain(rules.ROBOT_SYSTEMS[partner.robotKind ?? 'tku'], board.auction, board.dealer, board.vul)
+    if (!callMeanings || !rules) return null
+    const robot = table.seats[callMeanings.robot]
     return {
-      title: t.robotReads(playerName(t, partner)),
+      title: t.robotReads(robot ? playerName(t, robot) : t.robots[callMeanings.kind]),
       text: (call) => {
-        const spec = meanings.get(call)
+        const spec = callMeanings.meanings[call]
         return (spec && rules.describe(spec, lang)) || t.noRobotMeaning
       },
     }
-  }, [hinting, rules, board, partner, t, lang])
+  }, [callMeanings, rules, table.seats, t, lang])
   const trump = board?.contract && board.phase !== 'auction' ? board.contract.strain : null
 
   // The server moved me into my robot partner's declaring seat: say so until the first trick is done
@@ -767,7 +775,7 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
   const seatActions = (seat: Seat): SeatAction[] => {
     const occupant = table.seats[seat]
     const actions: SeatAction[] = []
-    if (challenge || table.match) return actions
+    if (challenge || practice || table.match) return actions
     const between = !board || board.phase === 'finished'
     // A free seat (or a robot's) can be taken; someone already seated moves only between boards
     if ((!occupant || (occupant.robot && !me)) && (!me || between))
@@ -995,6 +1003,8 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
             <TableTitle>
               {challenge ? (
                 <ChallengeBanner challenge={challenge} />
+              ) : practice ? (
+                <PracticeBanner practice={practice} />
               ) : table.match ? (
                 <MatchBanner match={table.match} />
               ) : (
@@ -1030,7 +1040,7 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
                 onClick={() => setAuctionFor(showAuction ? 0 : boardNo)}
                 aria-expanded={showAuction}
                 aria-label={t.srContractBox(
-                  board.contract ? `${spokenContract(board.contract, t)} ${t.seatNames[board.contract.declarer]}` : t.srPassedOut,
+                  board.contract ? `${spokenContract(board.contract, t)} ${t.seatNames[board.contract.declarer]}` : ALL_PASS,
                   board.tricksWon.NS,
                   board.tricksWon.EW,
                 )}
@@ -1088,6 +1098,16 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
                 {t.challengeAllDone} <Link to="/">{t.navLobby}</Link>
               </Note>
             )}
+            {practice && me && (
+              <>
+                <FeltButton type="button" $tone="plain" title={t.redealHint} onClick={() => send({ type: 'redeal' })}>
+                  {t.redeal}
+                </FeltButton>
+                <FeltButton type="button" $tone="plain" onClick={() => navigate('/')}>
+                  {t.endPractice}
+                </FeltButton>
+              </>
+            )}
             {board && me && board.phase !== 'finished' && (
               <>
                 <FeltButton
@@ -1133,11 +1153,12 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
       <TableAnnouncer board={board} me={me} who={spokenSeat} />
       {!tableTourSeen && <TableTour onClose={() => setPrefs({ tableTourSeen: true })} />}
       <SidePanel
-        tabs={['chat', 'people', 'messages', 'history']}
+        tabs={['chat', 'conventions', 'people', 'messages', 'history']}
         recent={table.recent}
         page="table"
         initial={onTablet ? null : 'chat'}
         chat={<ChatPanel messages={table.chat} onSend={(text) => send({ type: 'chat', text })} />}
+        conventions={<BookHints board={board} seat={me} robotKind={partnerSeat?.robot ? (partnerSeat.robotKind ?? 'tku') : 'tku'} />}
       />
     </Layout>
   )

@@ -46,6 +46,6 @@ describe('DoubleDummyPanel (e4-t34)', () => {
   it('says when the board passes out at par', () => {
     state = { status: 'done', analysis: toAnalysis({ resTable: [[6, 6, 6, 6], [6, 6, 6, 6], [6, 6, 6, 6], [6, 6, 6, 6], [6, 6, 6, 6]], par: { score: 0, contracts: [] } }) }
     show()
-    expect(screen.getByText(/四家都 Pass/)).toBeInTheDocument()
+    expect(screen.getByText(/All pass/)).toBeInTheDocument()
   })
 })

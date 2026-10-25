@@ -1,4 +1,4 @@
-import { ArrowLeft, ChevronFirst, ChevronLast, ChevronLeft, ChevronRight, History, Mail, MessageSquare, Users, X } from 'lucide-react'
+import { ArrowLeft, BookOpen, ChevronFirst, ChevronLast, ChevronLeft, ChevronRight, History, Mail, MessageSquare, Users, X } from 'lucide-react'
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import styled, { css } from 'styled-components'
@@ -26,7 +26,7 @@ import { ContractResult } from './Suit.tsx'
  * and look at an earlier board on the right. The open tab is remembered per page.
  */
 
-export type PanelTab = 'chat' | 'people' | 'messages' | 'history'
+export type PanelTab = 'chat' | 'people' | 'messages' | 'history' | 'conventions'
 
 const Dock = styled.div`
   position: relative;
@@ -187,6 +187,7 @@ export function SidePanel({
   page,
   initial = null,
   chat,
+  conventions,
   recent,
 }: {
   tabs: PanelTab[]
@@ -194,6 +195,8 @@ export function SidePanel({
   page: string
   initial?: PanelTab | null
   chat?: ReactNode
+  /** The 特約 tab at a table (`e10-t06`): the book's pages for the auction on it */
+  conventions?: ReactNode
   /** Boards finished at the current table; enables the "this table" history view */
   recent?: BoardSummary[]
 }) {
@@ -205,8 +208,14 @@ export function SidePanel({
   const [board, setBoard] = useState<string | null>(null)
   const [talkTo, setTalkTo] = useState<string | null>(null)
   const { directs } = useClub()
-  const icon = { chat: MessageSquare, people: Users, messages: Mail, history: History }
-  const label = { chat: t.tabChat, people: t.tabPeople, messages: t.tabMessages, history: t.tabHistory }
+  const icon = { chat: MessageSquare, people: Users, messages: Mail, history: History, conventions: BookOpen }
+  const label = {
+    chat: t.tabChat,
+    people: t.tabPeople,
+    messages: t.tabMessages,
+    history: t.tabHistory,
+    conventions: t.tabConventions,
+  }
   const unread = { messages: directs?.unread ?? 0 } as Partial<Record<PanelTab, number>>
 
   const toggle = (tab: PanelTab) => {
@@ -234,6 +243,7 @@ export function SidePanel({
           </ContentHead>
           <Body>
             {open === 'chat' && chat}
+            {open === 'conventions' && conventions}
             {open === 'people' && <People onMessage={tabs.includes('messages') ? message : undefined} newTab={page === 'table'} />}
             {open === 'messages' && <Messages talkTo={talkTo} onTalkTo={setTalkTo} />}
             {open === 'history' && <HistoryList recent={recent} board={board} onBoard={setBoard} newTab={page === 'table'} />}

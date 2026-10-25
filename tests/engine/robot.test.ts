@@ -293,7 +293,8 @@ describe('after 1♥ / 1♠', () => {
 
   it('opener judges Bergen and the single raise', () => {
     expect(bidOver(hand('AKJ32 K43 Q54 32'), '1S P 3C P')).toBe('3S')
-    expect(bidOver(hand('AKJ32 K43 AQ4 32'), '1S P 3C P')).toBe('4S')
+    // Game values ask where responder is short (e5-t37, Bergen加叫（松濤版）: 3♦ 14+)
+    expect(bidOver(hand('AKJ32 K43 AQ4 32'), '1S P 3C P')).toBe('3D')
     // 16 points after a single raise: the club's long-suit try
     expect(bidOver(hand('AKJ32 K43 Q54 A2'), '1S P 2S P')).toBe('3D')
     expect(bidOver(hand('AKJ32 K43 Q54 32'), '1S P 2S P')).toBe('P')

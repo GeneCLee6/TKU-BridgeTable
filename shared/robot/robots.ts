@@ -4,6 +4,8 @@ import type { Card, Seat } from '../cards.ts'
 import type { RobotKind } from '../protocol.ts'
 import { describe } from './system/describe.ts'
 import { choose } from './system/engine.ts'
+import { contextFor } from './system/infer.ts'
+import { meanings } from './system/rules.ts'
 import { GIB } from './system/gib/index.ts'
 import { TKU } from './system/tku/index.ts'
 import type { Spec, System } from './system/spec.ts'
@@ -36,4 +38,17 @@ export function robotCall(
   // Like GIB, every call but pass is alerted with its explanation
   if (call === 'P') return { call }
   return shows ? { call, alert: describe(shows, 'zh'), meaning: shows } : { call, alert: '' }
+}
+
+/**
+ * What the engine reads a person's call as (e5-t22, AC-5.7): the meaning the system's rules give
+ * that call in that auction, as the robots read it (`infer.ts`). `auction` ends with the call.
+ * Nothing when no rule makes the call or it shows nothing.
+ */
+export function inferredMeaning(kind: RobotKind, auction: readonly AuctionCall[], dealer: Seat, vul: Vulnerability): Spec | undefined {
+  const made = auction.at(-1)
+  if (!made) return undefined
+  const system = ROBOT_SYSTEMS[kind]
+  const spec = meanings(system, contextFor(system, made.seat, auction.slice(0, -1), dealer, vul)).get(made.call)
+  return spec && Object.keys(spec).length ? spec : undefined
 }

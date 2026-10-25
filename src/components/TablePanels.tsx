@@ -116,7 +116,7 @@ export function Countdown({ seconds }: { seconds: number }) {
 
 /**
  * The result of the board just finished, in bridge shorthand whatever the language (2♦ N +5,
- * AP), with the countdown to the next deal while it runs
+ * --), with the countdown to the next deal while it runs
  */
 export function ResultPanel({ board, declarerName, seconds }: { board: BoardView; declarerName?: string; seconds: number | null }) {
   const t = useT()

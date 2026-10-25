@@ -82,6 +82,8 @@
     { "id": "tku-rebid-078", "system": "tku", "dealer": "S", "vul": "Both", "hand": "943.85.Q32.Q5432", "auction": ["2C", "P", "2D", "P", "2S", "P"], "answer": "4S", "source": "淡江橋譜：開叫2♣、弱二與阻塞叫（開叫2♣）", "reviewer": null, "status": "pending", "note": "4 點三張♠：4♠ 束叫" },
     { "id": "tku-rebid-079", "system": "tku", "dealer": "W", "vul": "Both", "hand": "94.QJ853.Q32.J54", "auction": ["2C", "P", "2D", "P", "2S", "P"], "answer": "3H", "source": "淡江橋譜：開叫2♣、弱二與阻塞叫（開叫2♣）", "reviewer": null, "status": "pending", "note": "五張♥、♠ 不配合：3♥" },
     { "id": "tku-rebid-080", "system": "tku", "dealer": "N", "vul": "None", "hand": "94.Q853.Q32.J543", "auction": ["2C", "P", "2D", "P", "2S", "P"], "answer": "2N", "source": "淡江橋譜：開叫2♣、弱二與阻塞叫（開叫2♣）", "reviewer": null, "status": "pending", "note": "沒有♠ 配合：2NT" },
-    { "id": "tku-rebid-081", "system": "tku", "dealer": "E", "vul": "None", "hand": "J94.82.32.J75432", "auction": ["2C", "P", "2H", "P", "2S", "P"], "answer": "3S", "source": "淡江橋譜：開叫2♣、弱二與阻塞叫（開叫2♣）", "reviewer": null, "status": "pending", "note": "0–3 點三張♠：加叫 3♠" }
+    { "id": "tku-rebid-081", "system": "tku", "dealer": "E", "vul": "None", "hand": "J94.82.32.J75432", "auction": ["2C", "P", "2H", "P", "2S", "P"], "answer": "3S", "source": "淡江橋譜：開叫2♣、弱二與阻塞叫（開叫2♣）", "reviewer": null, "status": "pending", "note": "0–3 點三張♠：加叫 3♠" },
+    {"id": "tku-rebid-082", "system": "tku", "dealer": "N", "vul": "None", "hand": "AKJ32.K432.A54.2", "auction": ["1S", "P", "2S", "P"], "answer": "3D", "source": "淡江橋譜：1H 2H（淡江用）", "reviewer": null, "status": "pending", "note": "15 點、♣單張，配合後牌值 16：長門邀請 3♦（e5-t41）"},
+    {"id": "tku-rebid-083", "system": "tku", "dealer": "N", "vul": "None", "hand": "AKJ32.K43.A54.32", "auction": ["1S", "P", "2S", "P"], "answer": "P", "source": "淡江橋譜：1H 2H（淡江用）", "reviewer": null, "status": "pending", "note": "15 點 5332，配合後沒有升值：Pass"}
   ]
 }
