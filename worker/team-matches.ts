@@ -303,6 +303,20 @@ export class TeamMatchStore {
       .map((r) => r.match_id)
   }
 
+  /**
+   * The match being played that a member has a seat in, if any (§5.8): they play there and nowhere
+   * else until it ends. Starting a match checks no one in it is already playing another
+   */
+  playingIdOf(userId: string): string | null {
+    return (
+      this.sql.exec<{ match_id: string }>(
+        `SELECT m.match_id FROM matches m JOIN match_seats s ON s.match_id = m.match_id
+         WHERE s.user_id = ? AND s.status = 'seated' AND m.status = 'playing' LIMIT 1`,
+        userId,
+      )[0]?.match_id ?? null
+    )
+  }
+
   /** The open matches a member hosts (one at a time, §5.8) */
   openHostedBy(userId: string): string[] {
     return this.sql

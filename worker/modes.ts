@@ -5,8 +5,11 @@ import { robotAuction } from '../shared/challenge-deals.ts'
 import { dealFrom, RANDOM_DEALS } from '../shared/deal-source.ts'
 import type { BoardState } from '../shared/game.ts'
 import type { BoardRecord, RobotKind, TableMode } from '../shared/protocol.ts'
+import type { Room } from '../shared/team-match.ts'
 import { challengeTakesPart } from './challenge-flow.ts'
 import type { Challenge, ChallengeResult } from './challenges.ts'
+import { teamMode } from './team-mode.ts'
+import type { RoomResult } from './team-matches.ts'
 import type { Table } from './views.ts'
 
 export type { TableMode } from '../shared/protocol.ts'
@@ -36,7 +39,10 @@ export interface DealtBoard {
  * What a finished board means for the event its table belongs to; the club writes it
  * (`ClubLink.boardFinished`). `result` is null when the board does not count (played after the deadline)
  */
-export type EventReport = { kind: 'challenge'; challengeId: string; result: ChallengeResult | null }
+export type EventReport =
+  | { kind: 'challenge'; challengeId: string; result: ChallengeResult | null }
+  /** A team match room's board (§5.8): `seq` is its place in the match; null when it does not count (the match ended) */
+  | { kind: 'team'; matchId: string; room: Room; seq: number; result: RoomResult | null }
 
 /**
  * The three places where a mode changes what a table does; bidding, play, seating and visibility
@@ -171,7 +177,7 @@ const challenge: TableModeHooks = {
   },
 }
 
-const MODES: Record<TableMode, TableModeHooks> = { casual, challenge }
+const MODES: Record<TableMode, TableModeHooks> = { casual, challenge, team: teamMode }
 
 /** Tables saved before modes existed are casual */
 export function modeOf(table: Table): TableModeHooks {

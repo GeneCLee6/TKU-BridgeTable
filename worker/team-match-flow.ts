@@ -8,12 +8,12 @@ import {
   type NotReady,
   type TeamMatchSettings,
 } from '../shared/team-match.ts'
-import type { TeamMatch, TeamMatchSeat } from './team-matches.ts'
+import type { RoomResult, TeamMatch, TeamMatchBoard, TeamMatchSeat } from './team-matches.ts'
 
 /**
  * The steps of a team match before it starts (ARCHITECTURE.md §5.8, e8-t03), as pure functions:
  * `TeamMatchService` checks who is asking, calls these, and writes what they return. Seats and
- * captains are F3 (`e8-t04`, `e8-t05`); starting is F4.
+ * captains are F3 (`e8-t04`, `e8-t05`); starting and the rooms' results are F4 (`e8-t07`–`e8-t11`).
  */
 
 export type FlowError = { error: MessageCode; params?: Record<string, string | number> }
@@ -112,6 +112,47 @@ export const seatOf = (match: TeamMatch, userId: string): MatchSeat | null => {
 /** Someone the match is about: the host or anyone invited to or sitting in a seat */
 export const isMatchPlayer = (match: TeamMatch, userId: string) =>
   match.hostId === userId || match.seats.some((s) => s.userId === userId)
+
+/** The members with a seat in the match (not robots), in seat order */
+export const matchMembers = (match: TeamMatch): string[] =>
+  match.seats.flatMap((s) => (s.userId !== undefined && !s.robot ? [s.userId] : []))
+
+// ── Playing (e8-t07, e8-t08, e8-t10, e8-t11) ─────────────────────────────────────────────────
+
+/** The host starts the match (`e8-t07`): only the host, only while setting up, and only when it is ready (`matchReady`) */
+export function startMatch(match: TeamMatch, userId: string, online: (userId: string) => boolean): FlowError | { ok: true } {
+  const denied = hostBeforeStart(match, userId)
+  if (denied) return denied
+  if (!matchReady(match, online).ready) return { error: 'matchNotReady' }
+  return { ok: true }
+}
+
+/** Whether a board is done: both rooms played it, or the host ruled on it (the ruling counts, §5.8) */
+const boardDone = (board: TeamMatchBoard | undefined) => !!board && ((!!board.open && !!board.closed) || !!board.ruling)
+
+/**
+ * One room finished a board (`e8-t08`, `e8-t10`): null when it does not count — the match is not
+ * being played, the board is not one of it, or that room already has a result there (each room
+ * plays a board once; the same report sent again changes nothing). Otherwise what it means: whether
+ * the board now has both rooms' results (`complete`: its two records are shown to everyone), and
+ * whether every board of the match is done (`finished`, `e8-t11`)
+ */
+export function roomFinished(
+  match: TeamMatch,
+  seq: number,
+  room: 'open' | 'closed',
+  result: RoomResult,
+): { complete: boolean; finished: boolean } | null {
+  if (match.status !== 'playing' || !Number.isInteger(seq) || seq < 1 || seq > match.settings.boards) return null
+  const before = match.boards.find((b) => b.seq === seq)
+  if (before?.[room]) return null
+  const board: TeamMatchBoard = { ...before, seq, [room]: result }
+  const boards = match.boards.filter((b) => b.seq !== seq).concat(board)
+  const finished = Array.from({ length: match.settings.boards }, (_, i) => i + 1).every((n) =>
+    boardDone(boards.find((b) => b.seq === n)),
+  )
+  return { complete: !!board.open && !!board.closed, finished }
+}
 
 // ── Seats (e8-t04, e8-t05) ────────────────────────────────────────────────────────────────────
 

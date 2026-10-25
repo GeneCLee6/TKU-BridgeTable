@@ -36,8 +36,11 @@ export type DealSetSpec =
   /** Boards that already exist, such as one from the history (「用這副牌挑戰」) */
   | { kind: 'given'; boards: DealSetBoard[] }
 
-/** A challenge has at most 16 boards (AC-7.1), one full vulnerability cycle */
-export const DEAL_SET_MAX = 16
+/**
+ * The most boards a deal set holds: a team match's 32 (AC-8.1). A challenge stays within 16, one
+ * full vulnerability cycle (`CHALLENGE_LIMITS.boardsMax`, AC-7.1)
+ */
+export const DEAL_SET_MAX = 32
 
 /**
  * The deal set for a spec, or null when it cannot be made: a count out of range, given boards that

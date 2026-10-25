@@ -178,6 +178,9 @@ export class TableHost implements TableRpc {
   challengeEnded() {
     return this.ifTable(null, (table) => table.challengeEnded())
   }
+  matchEnded() {
+    return this.ifTable(null, (table) => table.matchEnded())
+  }
   blocked(userId: string, blocked: string[]) {
     return this.ifTable(undefined, (table) => table.blocked(userId, blocked))
   }
