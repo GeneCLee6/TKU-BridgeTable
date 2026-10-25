@@ -21,13 +21,15 @@ const strings = (v: unknown) => Array.isArray(v) && v.every(str)
  * new action works before it has a guard; the handler still checks values (seats, ranges, rights)
  */
 const GUARDS: Partial<Record<ClientMessage['type'], Guard>> = {
-  createTable: (m) => opt(obj)(m.settings),
-  updateTableSettings: (m) => obj(m.settings),
+  createTable: (m) => opt(obj)(m.settings) && opt(strings)(m.invitees),
+  updateTableSettings: (m) => obj(m.settings) && opt(strings)(m.invitees),
+  quickSeat: () => true,
   joinTable: (m) => str(m.tableId),
   sit: (m) => str(m.tableId) && str(m.seat),
   kick: (m) => str(m.seat),
   addRobot: (m) => str(m.seat) && opt(str)(m.kind),
   removeRobot: (m) => str(m.seat),
+  replaceWithRobot: (m) => str(m.seat) && opt(str)(m.kind),
   call: (m) => str(m.call) && opt(str)(m.alert),
   play: (m) => str(m.card),
   claim: (m) => Number.isInteger(m.tricks),

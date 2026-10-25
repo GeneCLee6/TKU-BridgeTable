@@ -7,6 +7,7 @@ import { nextSeat, partnerOf, SEATS, sideOf, suitOf, type Card, type Seat, type 
 import type { Trick } from '../../shared/game.ts'
 import {
   DEAL_COUNTDOWN_MS,
+  SLOW_TURN_MS,
   type BoardView,
   type TableView,
 } from '../../shared/protocol.ts'
@@ -358,6 +359,22 @@ function useClock(active: boolean) {
   return now
 }
 
+/**
+ * The seat that has kept the table waiting SLOW_TURN_MS (AC-2.10), once that time has passed: its
+ * plate blinks, its player hears a reminder, and the host may seat a robot there instead
+ */
+function useSlowSeat(waiting: TableView['waiting']): Seat | null {
+  const key = waiting ? `${waiting.seat}:${waiting.since}` : ''
+  const [slowKey, setSlowKey] = useState('')
+  const since = waiting?.since
+  useEffect(() => {
+    if (since === undefined) return
+    const timer = setTimeout(() => setSlowKey(key), Math.max(0, since + SLOW_TURN_MS - Date.now()))
+    return () => clearTimeout(timer)
+  }, [key, since])
+  return waiting && slowKey === key ? waiting.seat : null
+}
+
 /** Plays BBO's sounds: a soft riffle when a board is dealt, a soft knock for every card played */
 function useTableSounds(boardNo: number, played: number, on: boolean) {
   const last = useRef({ boardNo, played })
@@ -510,11 +527,15 @@ export function TablePage() {
   const { table, lobby, status, send } = useClub()
   const t = useT()
 
+  // An invite table takes only the invited, and a table without kibitzers takes people only into its seats
+  const summary = lobby?.tables.find((x) => x.id === tableId)
+  const closed = !!summary && lobby?.myTableId !== tableId && (!summary.welcome || !summary.settings.allowKibitz)
+
   useEffect(() => {
-    if (status !== 'open' || !lobby || !tableId) return
+    if (status !== 'open' || !lobby || !tableId || closed) return
     if (lobby.myTableId === tableId || !lobby.tables.some((x) => x.id === tableId)) return
     send({ type: 'joinTable', tableId })
-  }, [status, lobby, tableId, send])
+  }, [status, lobby, tableId, send, closed])
 
   // Going to any other page leaves the table (a reload does not: the seat is kept while offline).
   // A challenge table is not closed by it: the server keeps it, paused, until playChallenge
@@ -536,6 +557,15 @@ export function TablePage() {
         </p>
       </PageMain>
     )
+  if (closed)
+    return (
+      <PageMain>
+        <Muted>{summary.welcome ? t.noKibitzTable : t.notInvitedTable}</Muted>
+        <p>
+          <Link to="/">{t.navLobby}</Link>
+        </p>
+      </PageMain>
+    )
   if (!table || table.id !== tableId) return <PageMain>{t.loading}</PageMain>
 
   return <TableScreen table={table} send={send} />
@@ -545,7 +575,7 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
   const t = useT()
   const { cardStyle, sound, lang, confirmCalls, confirmPlays, cardSize } = usePreferences()
   const { user } = useAuth()
-  const { error } = useClub()
+  const { error, lobby } = useClub()
   const [feltRef, feltSize] = useSize()
   const sizes = tableSizes(feltSize.width, feltSize.height, CARD_SCALE[cardSize])
   const board = table.board
@@ -656,6 +686,11 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
         ? 'play'
         : null
   useTurnAlert(myTurn, myTurn === 'call' ? t.yourCall : myTurn === 'play' ? t.yourPlay : null, sound)
+  const slowSeat = useSlowSeat(table.waiting)
+  // A minute on one call or card: the player hears the chime again
+  useEffect(() => {
+    if (sound && slowSeat && slowSeat === me) turnSound()
+  }, [slowSeat, me, sound])
 
   // ── After the board: the last trick stays, then a countdown to the next deal ──
   const finished = board?.phase === 'finished'
@@ -708,6 +743,8 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
       for (const kind of ['tku', 'gib'] as const) actions.push({ label: t.addRobots[kind], onSelect: () => send({ type: 'addRobot', seat, kind }) })
     if (iAmHost && occupant?.robot)
       actions.push({ label: t.removeRobot, onSelect: () => send({ type: 'removeRobot', seat }), tone: 'danger' })
+    if (iAmHost && occupant && !occupant.robot && occupant.id !== user?.id && slowSeat === seat)
+      actions.push({ label: t.replaceWithRobot, onSelect: () => send({ type: 'replaceWithRobot', seat }), tone: 'danger' })
     if (iAmHost && occupant && !occupant.robot && occupant.id !== user?.id)
       actions.push({ label: t.kick, onSelect: () => send({ type: 'kick', seat }), tone: 'danger' })
     return actions
@@ -769,6 +806,8 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
             actions={seatActions(seat)}
             menuUp={position === 'bottom'}
             compact={side && sizes.phone}
+            endsAt={table.boardEndsAt}
+            slow={slowSeat === seat}
           />
         </div>
       </SeatBlock>
@@ -1039,10 +1078,13 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
           title={t.tableSettings}
           submitLabel={t.save}
           initial={table.settings}
+          members={(lobby?.members ?? []).filter((m) => m.id !== user?.id && !lobby?.blocked.includes(m.id))}
+          invited={table.invited?.map((u) => u.id) ?? []}
           onClose={() => setEditingSettings(false)}
-          onSubmit={(settings) => {
+          onSubmit={(settings, invitees) => {
             setEditingSettings(false)
-            send({ type: 'updateTableSettings', settings })
+            // A public table keeps its invitation list for when it is made invite only again
+            send({ type: 'updateTableSettings', settings, ...(settings.visibility === 'invite' && { invitees }) })
           }}
         />
       )}

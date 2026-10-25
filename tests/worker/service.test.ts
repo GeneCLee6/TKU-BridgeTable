@@ -512,21 +512,21 @@ describe('robots at the table', () => {
     const gene = await member('gene')
     const amy = await member('amy')
     await send(gene, { type: 'createTable' })
-    expect(tableFor(gene).settings).toEqual({ visibility: 'public', allowKibitz: true })
+    expect(tableFor(gene).settings).toEqual({ visibility: 'public', allowKibitz: true, boardMinutes: 0 })
     await send(gene, { type: 'leaveTable' })
 
-    await send(gene, { type: 'createTable', settings: { visibility: 'invite' } })
+    await send(gene, { type: 'createTable', settings: { visibility: 'invite' }, invitees: [amy] })
     const tableId = tableFor(gene).id
-    expect(tableFor(gene).settings).toEqual({ visibility: 'invite', allowKibitz: true })
+    expect(tableFor(gene).settings).toEqual({ visibility: 'invite', allowKibitz: true, boardMinutes: 0 })
     expect(connections.last(amy, 'lobby')!.lobby.tables[0].settings.visibility).toBe('invite')
 
     await send(amy, { type: 'joinTable', tableId })
     await send(amy, { type: 'updateTableSettings', settings: { allowKibitz: false } })
     expect(connections.last(amy, 'error')?.code).toBe('hostOnly')
     await send(gene, { type: 'updateTableSettings', settings: { allowKibitz: false } })
-    expect(tableFor(amy).settings).toEqual({ visibility: 'invite', allowKibitz: false })
+    expect(tableFor(amy).settings).toEqual({ visibility: 'invite', allowKibitz: false, boardMinutes: 0 })
     await send(gene, { type: 'updateTableSettings', settings: { visibility: 'public' } })
-    expect(tableFor(amy).settings).toEqual({ visibility: 'public', allowKibitz: false })
+    expect(tableFor(amy).settings).toEqual({ visibility: 'public', allowKibitz: false, boardMinutes: 0 })
   })
 
   it('turn down settings they do not know', async () => {
@@ -538,7 +538,7 @@ describe('robots at the table', () => {
     for (const settings of [{ allowKibitz: 'yes' }, { colour: 'red' }, null, []])
       await send(gene, { type: 'updateTableSettings', settings: settings as never })
     expect(connections.inbox.get(gene)!.filter((m) => m.type === 'error' && m.code === 'badTableSettings')).toHaveLength(5)
-    expect(tableFor(gene).settings).toEqual({ visibility: 'public', allowKibitz: true })
+    expect(tableFor(gene).settings).toEqual({ visibility: 'public', allowKibitz: true, boardMinutes: 0 })
   })
 
   it('keep the default settings for tables saved before settings', async () => {
@@ -550,7 +550,7 @@ describe('robots at the table', () => {
     await store.put(`table:${tableId}`, saved)
     const reloaded = new ClubService(store, connections, { maxUsers: 10 })
     await reloaded.load()
-    expect(reloaded.lobbyView(gene).tables[0].settings).toEqual({ visibility: 'public', allowKibitz: true })
+    expect(reloaded.lobbyView(gene).tables[0].settings).toEqual({ visibility: 'public', allowKibitz: true, boardMinutes: 0 })
   })
 
   it('only the host may add robots, and only to empty seats', async () => {
@@ -1264,7 +1264,7 @@ describe('TKB in two systems, and robots saved when they had levels', () => {
     await send(gene, { type: 'createTable' })
     await send(gene, { type: 'updateTableSettings', settings: { robotLevel: 'college' } as never })
     expect(connections.last(gene, 'error')?.code).toBe('badTableSettings')
-    expect(tableFor(gene).settings).toEqual({ visibility: 'public', allowKibitz: true })
+    expect(tableFor(gene).settings).toEqual({ visibility: 'public', allowKibitz: true, boardMinutes: 0 })
   })
 
   it('read robot ids and table settings saved before, with or without a level, and play on', async () => {
@@ -1284,7 +1284,7 @@ describe('TKB in two systems, and robots saved when they had levels', () => {
     club = new ClubService(store, connections, { maxUsers: 10, now: () => time, schedule: (run, ms, kind) => queue.push({ run, ms, kind }) })
     await club.load()
     club.connected(gene)
-    expect(tableFor(gene).settings).toEqual({ visibility: 'public', allowKibitz: true })
+    expect(tableFor(gene).settings).toEqual({ visibility: 'public', allowKibitz: true, boardMinutes: 0 })
     expect(SEATS.filter((s) => s !== 'S').map((s) => tableFor(gene).seats[s]?.robotKind)).toEqual(['gib', 'tku', 'tku'])
     for (let i = 0; i < 200 && tableFor(gene).board?.phase !== 'finished'; i++) {
       await runRobots()

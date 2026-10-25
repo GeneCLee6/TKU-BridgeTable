@@ -427,7 +427,7 @@ describe('progress and coming back (e7-t12)', () => {
     club.connected(amy)
     await tick()
     expect(club.challenges.get(id)!.settings).not.toHaveProperty('robotLevel')
-    expect(view(amy)!.settings).toEqual({ visibility: 'invite', allowKibitz: false })
+    expect(view(amy)!.settings).toEqual({ visibility: 'invite', allowKibitz: false, boardMinutes: 0 })
     for (const seat of ['N', 'E', 'W'] as const) expect(view(amy)!.seats[seat]).toMatchObject({ robot: true, robotKind: 'tku' })
     await playAll(amy)
     expect(club.challenges.get(id)!.results.filter((r) => r.userId === amy)).toHaveLength(4)

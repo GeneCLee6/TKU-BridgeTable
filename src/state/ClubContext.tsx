@@ -53,13 +53,21 @@ const WAKE_ANSWER = 4_000
 /** Actions made while reconnecting go out once the connection is back if they are this recent */
 const QUEUE_FOR = 8_000
 
-/** A pushed table as the page keeps it: the clock of `dealAt` turned into this browser's */
+/** A pushed table as the page keeps it: the server's times (`dealAt`, the board's time limit, the wait) turned into this browser's clock */
 function mergeTable(previous: TableView | null, wire: TableWire | null, serverNow: number): TableView | null {
   if (!wire) return null
   const keep = previous && previous.id === wire.id ? previous : null
+  const local = (at: number) => at - serverNow + Date.now()
   return {
     ...wire,
-    dealAt: wire.dealAt === null ? null : wire.dealAt - serverNow + Date.now(),
+    dealAt: wire.dealAt === null ? null : local(wire.dealAt),
+    boardEndsAt: wire.boardEndsAt == null ? null : local(wire.boardEndsAt),
+    // The same wait keeps the time first worked out, so it does not jitter with every message
+    waiting: !wire.waiting
+      ? null
+      : keep?.waiting?.seat === wire.waiting.seat && Math.abs(keep.waiting.since - local(wire.waiting.since)) < 1000
+        ? keep.waiting
+        : { ...wire.waiting, since: local(wire.waiting.since) },
     chat: wire.chat ?? keep?.chat ?? [],
     recent: wire.recent ?? keep?.recent ?? [],
   }
