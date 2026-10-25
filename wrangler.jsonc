@@ -21,6 +21,13 @@
     { "tag": "v1", "new_sqlite_classes": ["Club"] },
     { "tag": "v2", "new_sqlite_classes": ["TableObject"] }
   ],
+  // Daily backups (worker/backup.ts). Create the bucket once before the first deploy with it:
+  //   npx wrangler r2 bucket create tku-bridge-backups      (DEPLOY.md §4.4)
+  // Production only: the envs below have no BACKUPS binding and no cron, so staging and previews
+  // never write to (or restore from) production's bucket
+  "r2_buckets": [{ "binding": "BACKUPS", "bucket_name": "tku-bridge-backups" }],
+  // 19:00 UTC is 03:00 in Taiwan
+  "triggers": { "crons": ["0 19 * * *"] },
   "vars": {
     // Account cap for the club; INVITE_CODE is a secret (wrangler secret put INVITE_CODE)
     "MAX_USERS": "10"
@@ -40,7 +47,9 @@
           { "name": "TABLE", "class_name": "TableObject" }
         ]
       },
-      "vars": { "MAX_USERS": "30" }
+      "vars": { "MAX_USERS": "30" },
+      // No backups here (triggers are inherited, r2_buckets are not): see "r2_buckets" above
+      "triggers": { "crons": [] }
     },
     // Each pull request deploys its own Worker, tku-bridge-table-pr-<number> (`wrangler deploy --name`),
     // deleted when the pull request closes
@@ -52,7 +61,9 @@
           { "name": "TABLE", "class_name": "TableObject" }
         ]
       },
-      "vars": { "MAX_USERS": "30" }
+      "vars": { "MAX_USERS": "30" },
+      // No backups here (triggers are inherited, r2_buckets are not): see "r2_buckets" above
+      "triggers": { "crons": [] }
     }
   }
 }

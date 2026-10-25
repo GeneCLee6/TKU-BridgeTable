@@ -7,6 +7,7 @@ import type { BoardRecord, Me, ServerMessage } from '../shared/protocol.ts'
 import { TKU } from '../shared/robot/system/tku/index.ts'
 import { bookSync } from '../shared/robot/system/tku/sources.ts'
 import { readCookie, SESSION_COOKIE, sessionCookie } from './auth.ts'
+import { backupAdmin, runBackup } from './backup.ts'
 import { BookService, importRequestFrom, publicBookResponse } from './book.ts'
 import { claudeImporter } from './importer.ts'
 import { anonymousProfileResponse, ProfileService } from './profiles.ts'
@@ -34,6 +35,8 @@ export interface Env {
   IMPORT_MODEL?: string
   /** Only for tests or an API gateway */
   ANTHROPIC_BASE_URL?: string
+  /** Daily backups (worker/backup.ts); the bucket is created by hand before deploying (DEPLOY.md §4.4) */
+  BACKUPS?: R2Bucket
 }
 
 /** The import upload comes straight from TKU BridgeBook's page; its single-use pass is the check */
@@ -61,13 +64,15 @@ const text = (value: unknown) => String(value ?? '')
  */
 export class Club extends DurableObject<Env> implements Connections {
   private readonly service: ClubService
-  private readonly book: BookService
-  private readonly profiles: ProfileService
+  /** Replaced after a backup is restored, so nothing they cached survives */
+  private book: BookService
+  private profiles: ProfileService
+  private readonly store: Store
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env)
     const storage = ctx.storage
-    const store: Store = {
+    const store: Store = (this.store = {
       get: (key) => storage.get(key),
       put: (key, value) => storage.put(key, value),
       delete: async (key) => {
@@ -78,7 +83,7 @@ export class Club extends DurableObject<Env> implements Connections {
         exec: (query, ...params) => storage.sql.exec(query, ...params).toArray() as never,
         transaction: (fn) => storage.transactionSync(fn),
       },
-    }
+    })
     this.service = new ClubService(store, this, {
       maxUsers: Number(env.MAX_USERS ?? 10),
       inviteCode: env.INVITE_CODE || undefined,
@@ -99,6 +104,22 @@ export class Club extends DurableObject<Env> implements Connections {
 
   async alarm() {
     await this.service.runDue()
+  }
+
+  /** The daily backup to R2, called by the cron trigger (worker/index.ts `scheduled`) */
+  async backup() {
+    if (!this.env.BACKUPS) {
+      jsonLog({ event: 'backup', ok: false, error: 'no BACKUPS binding' })
+      return null
+    }
+    try {
+      const result = await runBackup(this.store, this.env.BACKUPS, Date.now())
+      jsonLog({ event: 'backup', ok: true, name: result.name, keys: result.keys, bytes: result.bytes, deleted: result.deleted.length })
+      return result
+    } catch (error) {
+      jsonLog({ event: 'backup', ok: false, error: error instanceof Error ? error.message : String(error) })
+      throw error
+    }
   }
 
   // ── What the tables and the Worker ask over RPC (ARCHITECTURE.md §5.10) ────────────────────
@@ -380,6 +401,18 @@ export class Club extends DurableObject<Env> implements Connections {
     // Accounts are admins'; the rest is editors' too (roles.ts)
     requireNeed(user, adminRouteNeed(method, path))
 
+    if (path === '/backups' || path.startsWith('/backups/'))
+      return json(
+        await backupAdmin(method, path, body, {
+          bucket: this.env.BACKUPS,
+          store: this.store,
+          now: Date.now(),
+          restored: () => {
+            this.book = new BookService(this.store)
+            this.profiles = new ProfileService(this.store, Date.now, (id) => this.service.usernameOf(id))
+          },
+        }),
+      )
     if (method === 'GET' && path === '/users') return json({ users: await this.service.adminUsers() })
     if (method === 'POST' && path === '/users') {
       const b = await body()
