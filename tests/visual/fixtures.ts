@@ -190,4 +190,6 @@ export async function serve(page: Page, { me = ME, table: tableWire = null, pref
     if (tableWire) ws.send(JSON.stringify({ type: 'table', table: tableWire, now: Date.now() }))
     ws.onMessage(() => undefined)
   })
+  // The table's own connection (ARCHITECTURE.md §5.10): open and quiet, the table came over the club's
+  await page.routeWebSocket('**/ws/table/**', (ws) => ws.onMessage(() => undefined))
 }

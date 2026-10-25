@@ -3,7 +3,7 @@ import { AppError } from '../shared/messages.ts'
 import type { ChallengeSettings } from '../shared/challenge.ts'
 import { parseHistoryQuery } from '../shared/history-query.ts'
 import { MESSAGE_MAX_CHARS } from '../shared/message-guard.ts'
-import type { Me, ServerMessage } from '../shared/protocol.ts'
+import type { BoardRecord, Me, ServerMessage } from '../shared/protocol.ts'
 import { readCookie, SESSION_COOKIE, sessionCookie } from './auth.ts'
 import { BookService, importRequestFrom, publicBookResponse } from './book.ts'
 import { claudeImporter } from './importer.ts'
@@ -12,11 +12,18 @@ import { adminRouteNeed, bookRouteNeed, requireNeed } from './roles.ts'
 import { CLIENT_ERROR_MAX_CHARS } from './client-errors.ts'
 import { crashEntry, jsonLog } from './log.ts'
 import { type ChallengeRequest, ClubError, ClubService, type Connections } from './service.ts'
+import type { EventReport } from './modes.ts'
 import type { Store } from './store.ts'
+import type { TableObject } from './table-object.ts'
+import { RemoteTables, type TableEntry, type TableRpc } from './tables.ts'
 import type { MatchAction } from './team-match-service.ts'
 
 export interface Env {
   CLUB: DurableObjectNamespace<Club>
+  /** Each table's own object (ARCHITECTURE.md §5.10) */
+  TABLE: DurableObjectNamespace<TableObject>
+  /** "off" keeps the tables in the club's object and brings back any moved out (DEPLOY.md, the switch back) */
+  TABLE_OBJECTS?: string
   ASSETS: Fetcher
   MAX_USERS?: string
   INVITE_CODE?: string
@@ -45,9 +52,10 @@ const BODY_MAX_BYTES = 2 * 1024 * 1024
 const text = (value: unknown) => String(value ?? '')
 
 /**
- * The whole club lives in one Durable Object: a handful of members and tables fit easily, and a
- * single object means every action is applied in order with no coordination. WebSockets use the
- * hibernation API, so an idle club costs nothing and wakes up with its sockets still attached.
+ * The club's Durable Object: accounts, the lobby and its table directory, history, challenges,
+ * matches and TKU BridgeBook. Each table runs in its own `TableObject` (ARCHITECTURE.md §5.10),
+ * which reports back through the RPC methods below. WebSockets use the hibernation API, so an idle
+ * club costs nothing and wakes up with its sockets still attached.
  */
 export class Club extends DurableObject<Env> implements Connections {
   private readonly service: ClubService
@@ -75,6 +83,9 @@ export class Club extends DurableObject<Env> implements Connections {
       // One alarm wakes the object for every robot move and deal, so it can hibernate in between
       wake: (at) => void storage.setAlarm(at),
       log: jsonLog,
+      // Each table in its own object (§5.10), unless switched back with TABLE_OBJECTS=off
+      tableObjects: new RemoteTables((tableId) => env.TABLE.get(env.TABLE.idFromName(tableId)) as unknown as TableRpc),
+      tablesInClub: env.TABLE_OBJECTS === 'off',
     })
     this.book = new BookService(store)
     this.profiles = new ProfileService(store, Date.now, (id) => this.service.usernameOf(id))
@@ -86,6 +97,28 @@ export class Club extends DurableObject<Env> implements Connections {
 
   async alarm() {
     await this.service.runDue()
+  }
+
+  // ── What the tables and the Worker ask over RPC (ARCHITECTURE.md §5.10) ────────────────────
+
+  /** A table's lobby entry changed (`ClubLink.changed`) */
+  async tableChanged(entry: TableEntry) {
+    await this.service.link.changed(entry)
+  }
+
+  /** A table closed (`ClubLink.closed`) */
+  async tableClosed(tableId: string) {
+    await this.service.link.closed(tableId)
+  }
+
+  /** A table finished a board (`ClubLink.boardFinished`); a failure makes the table offer it again */
+  async tableBoardFinished(record: BoardRecord, event: EventReport | null) {
+    await this.service.link.boardFinished(record, event)
+  }
+
+  /** Whose session this is, for a table's connection: the Worker asks once per connection */
+  async socketUser(token: string | null): Promise<string | null> {
+    return (await this.service.userForToken(token))?.id ?? null
   }
 
   onlineUserIds(): string[] {

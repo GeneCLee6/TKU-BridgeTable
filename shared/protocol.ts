@@ -381,6 +381,16 @@ export type TableAction = Extract<ClientMessage, { type: (typeof TABLE_ACTIONS)[
 export const isTableAction = (message: ClientMessage): message is TableAction =>
   (TABLE_ACTIONS as readonly string[]).includes(message.type)
 
+/** A table's own connection (ARCHITECTURE.md §5.10): `/ws/table/<id>`, next to the club's `/ws` */
+export const TABLE_SOCKET_PREFIX = '/ws/table/'
+/** A table id as the Worker routes it */
+export const TABLE_ID_PATTERN = /^[\w-]{1,32}$/
+/**
+ * The close code of a table connection from a member who is not at that table (or a table that is
+ * not there): the browser does not try that table again and sends through the club instead
+ */
+export const TABLE_SOCKET_REFUSED = 4004
+
 export type ClientMessage =
   /** `invitees`: the members invited to the table (they are told), at most LIMITS.tableInvitesMax */
   | { type: 'createTable'; settings?: Partial<TableSettings>; invitees?: string[] }

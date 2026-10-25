@@ -1,14 +1,26 @@
 import type { Env } from './club.ts'
+import { route } from './routing.ts'
 
 export { Club } from './club.ts'
+export { TableObject } from './table-object.ts'
 
-/** API and WebSocket requests go to the club's Durable Object; everything else is the React app */
+/**
+ * API and the club's WebSocket go to the club's Durable Object, a table's WebSocket to that
+ * table's own object (ARCHITECTURE.md §5.10); everything else is the React app
+ */
 export default {
   async fetch(request, env) {
-    const { pathname } = new URL(request.url)
-    if (pathname === '/ws' || pathname.startsWith('/api/')) {
-      return env.CLUB.get(env.CLUB.idFromName('club')).fetch(request)
-    }
-    return env.ASSETS.fetch(request)
+    const club = () => env.CLUB.get(env.CLUB.idFromName('club'))
+    return route(request, {
+      club: () => {
+        const stub = club()
+        return { fetch: (r) => stub.fetch(r), socketUser: (token) => stub.socketUser(token) }
+      },
+      table: (tableId) => {
+        const stub = env.TABLE.get(env.TABLE.idFromName(tableId))
+        return { fetch: (r) => stub.fetch(r) }
+      },
+      assets: env.ASSETS,
+    })
   },
 } satisfies ExportedHandler<Env>

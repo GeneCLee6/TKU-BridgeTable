@@ -1089,13 +1089,13 @@ describe('boards kept back (AC-4.9)', () => {
     await store.put(`table:${tableId}`, { ...saved, recent: [{ ...held, ...held.board, result: held.board.result! }] })
     const reloaded = new ClubService(store, connections, { maxUsers: 10, now: () => time })
     await reloaded.load()
-    expect(reloaded.tables.local(tableId)!.view(outsider)!.recent).toEqual([])
-    expect(reloaded.tables.local(tableId)!.view(bySeat.S)!.recent).toHaveLength(1)
+    expect(reloaded.localTable(tableId)!.view(outsider)!.recent).toEqual([])
+    expect(reloaded.localTable(tableId)!.view(bySeat.S)!.recent).toHaveLength(1)
 
     time += 60_000
     expect(await listed(outsider)).toEqual(['held1'])
     expect(await club.record('held1', outsider)).not.toBeNull()
-    expect(reloaded.tables.local(tableId)!.view(outsider)!.recent).toHaveLength(1)
+    expect(reloaded.localTable(tableId)!.view(outsider)!.recent).toHaveLength(1)
   })
 })
 
