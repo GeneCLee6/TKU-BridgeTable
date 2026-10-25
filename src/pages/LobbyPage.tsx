@@ -1,4 +1,4 @@
-import { Eye, EyeOff, LayoutGrid, Lock, Plus, Timer, UserPlus, Zap } from 'lucide-react'
+import { Dumbbell, Eye, EyeOff, LayoutGrid, Lock, Plus, Timer, UserPlus, Zap } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Link, Navigate, useNavigate } from 'react-router-dom'
 import styled from 'styled-components'
@@ -11,6 +11,7 @@ import { playable } from '../lib/challenges.ts'
 import { formatDateTime } from '../lib/format.ts'
 import { useAuth } from '../state/AuthContext.tsx'
 import { SidePanel } from '../components/SidePanel.tsx'
+import { PracticeDialog } from '../components/PracticeDialog.tsx'
 import { TableSettingsDialog } from '../components/TableSettingsDialog.tsx'
 import { Button, Card, CardFooter, Muted, PageMain, PageTitle } from '../components/ui.tsx'
 import { useClub } from '../state/ClubContext.tsx'
@@ -56,6 +57,27 @@ const Banner = styled.div`
   border-radius: ${({ theme }) => theme.radius.md};
   background: ${({ theme }) => theme.colors.primarySoft};
   font-weight: 600;
+`
+
+/** 和機器人練習 (`e10-t04`): one line on what practice is, and the button that opens it */
+const PracticeCard = styled(Card)`
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 16px;
+  margin-bottom: ${({ theme }) => theme.space(8)};
+  border-left: 4px solid ${({ theme }) => theme.colors.accent};
+
+  & h2 {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0 0 4px;
+    color: ${({ theme }) => theme.colors.text};
+    font-size: ${({ theme }) => theme.type.h3.size};
+  }
+  & > div { flex: 1 1 280px; }
 `
 
 /** A lobby area: an 18px heading with a link or hint on the right */
@@ -429,6 +451,7 @@ export function LobbyPage() {
   // After creating a table or taking a seat, follow the server to the table it puts us at
   const [follow, setFollow] = useState<{ to?: string; from: string | null } | null>(null)
   const [opening, setOpening] = useState(false)
+  const [practising, setPractising] = useState(false)
   // Still connecting after ten seconds: say so (DESIGN.md §7.6)
   const [slowConnect, setSlowConnect] = useState(false)
   useEffect(() => {
@@ -462,6 +485,10 @@ export function LobbyPage() {
               <Zap size={18} aria-hidden />
               {t.quickSeat}
             </Button>
+            <Button type="button" onClick={() => setPractising(true)}>
+              <Dumbbell size={18} aria-hidden />
+              {t.practiceStart}
+            </Button>
             <Button type="button" $variant="primary" onClick={() => setOpening(true)}>
               <Plus size={18} aria-hidden />
               {t.newTable}
@@ -481,16 +508,40 @@ export function LobbyPage() {
             }}
           />
         )}
+        {practising && (
+          <PracticeDialog
+            onClose={() => setPractising(false)}
+            onSubmit={(settings) => {
+              setPractising(false)
+              setFollow({ from: lobby.myTableId })
+              send({ type: 'createPractice', settings })
+            }}
+          />
+        )}
         {lobby.myTableId && (
           <Banner>
-            {/* A challenge table is not in the lobby's list */}
+            {/* A challenge or practice table is not in the lobby's list */}
             <span>
-              {myTable ? t.tableName(myTable.number) : t.challenge}
+              {myTable ? t.tableName(myTable.number) : lobby.myTableMode === 'practice' ? t.practiceTable : t.challenge}
             </span>
             <Button as={Link} to={`/table/${lobby.myTableId}`} $small $variant="primary">
-              {myTable ? t.backToTable : t.backToChallenge}
+              {myTable ? t.backToTable : lobby.myTableMode === 'practice' ? t.backToPractice : t.backToChallenge}
             </Button>
           </Banner>
+        )}
+        {lobby.myTableMode !== 'practice' && (
+          <PracticeCard>
+            <div>
+              <h2>
+                <Dumbbell size={20} aria-hidden />
+                {t.practiceTitle}
+              </h2>
+              <Muted>{t.practiceIntro}</Muted>
+            </div>
+            <Button type="button" $variant="primary" onClick={() => setPractising(true)}>
+              {t.practiceOpen}
+            </Button>
+          </PracticeCard>
         )}
         <MyChallenges
           refresh={lobby.myTableId}

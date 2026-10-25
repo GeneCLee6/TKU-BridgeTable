@@ -11,6 +11,7 @@ import {
   parseTableSettings,
   PERMISSIONS,
   robotId,
+  soloTable,
   summarize,
   USERNAME_PATTERN,
   type AdminUser,
@@ -33,8 +34,11 @@ import {
   type ServerMessage,
   type Site,
   type TableAction,
+  type TableMode,
   type TableSummary,
 } from '../shared/protocol.ts'
+import { dealWith } from '../shared/dealer.ts'
+import { parsePracticeSettings, PRACTICE_MAX_ATTEMPTS, practiceConditions, quickRandom } from '../shared/practice.ts'
 import type { RobotBrain } from '../shared/robot/brain.ts'
 import { hashPassword, randomId, SESSION_DAYS, verifyPassword } from './auth.ts'
 import { checkFavorite } from '../shared/favorites.ts'
@@ -81,6 +85,7 @@ import {
   playedSeqs,
   type ChallengeTableState,
   type EventReport,
+  type PracticeTableState,
 } from './modes.ts'
 import { DirectMessageStore } from './direct-messages.ts'
 import {
@@ -217,6 +222,10 @@ const BACKFILL_BATCH = 100
 const CLOSED_KEPT = 200
 /** The table actions only the host may take: outside any table they are `notAtTable`, not `notSeated` */
 const HOST_ACTIONS = new Set<string>(['kick', 'addRobot', 'removeRobot', 'replaceWithRobot'])
+
+/** The error for changing seats or settings at a table that is one member's alone (`soloTable`) */
+const fixedTable = (mode: TableMode | undefined) =>
+  new ClubError(mode === 'practice' ? 'practiceTableFixed' : 'challengeTableFixed')
 
 /**
  * Accounts, the lobby and boards for one bridge club. All state lives in memory and every change is
@@ -1319,6 +1328,8 @@ export class ClubService {
         return this.updateTableSettings(userId, message.settings, message.invitees)
       case 'quickSeat':
         return this.quickSeat(userId)
+      case 'createPractice':
+        return this.createPractice(userId, message.settings)
       case 'joinTable':
         return this.joinTable(userId, this.requireEntry(message.tableId))
       case 'sit':
@@ -1408,7 +1419,7 @@ export class ClubService {
 
   /** Whether a member may come to a table as far as invitations go: any public one, an invite one when invited or already there */
   private invitedTo(userId: string, table: TableEntry): boolean {
-    if (table.mode === 'challenge') return false
+    if (soloTable(table.mode)) return false
     if (table.settings.visibility === 'public' || table.hostId === userId) return true
     return table.invited.includes(userId) || this.entryOf(userId)?.id === table.id
   }
@@ -1507,6 +1518,8 @@ export class ClubService {
       if (!record || !seat || !result || (record.revealAt ?? 0) > this.now()) throw new ClubError('boardGone', {}, 404)
       const others = SEATS.filter((s) => s !== seat).map((s) => record.players[s])
       if (!others.every((p) => p?.robot)) throw new ClubError('challengeRobotsOnly')
+      // Practice boards were dealt to the member's own conditions and may have been dealt again
+      if (record.mode === 'practice') throw new ClubError('practiceNoChallenge')
       for (const p of others) kinds.add(p.robotKind ?? 'tku')
       // Declaring for a robot partner moved them to its seat: they bid from the other one
       const bidFrom = record.board.auction.find((c) => !c.robot)?.seat ?? seat
@@ -1930,6 +1943,42 @@ export class ClubService {
   }
 
   /**
+   * Opens the member's own practice table (§5.11, `e10-t03`): South, three TKB of the chosen system,
+   * boards dealt to a preset or the member's conditions, Just Declare if asked. Like a challenge
+   * table it is not in the lobby and nobody else comes to it; it closes when the member leaves.
+   * Conditions that cannot be met are turned down here, before the member leaves their table
+   */
+  private async createPractice(userId: string, wanted: unknown) {
+    const parsed = parsePracticeSettings(wanted)
+    if ('field' in parsed) throw new ClubError('badPracticeSettings', { field: parsed.field })
+    const { settings } = parsed
+    const conditions = practiceConditions(settings)
+    if (conditions && !dealWith(conditions, quickRandom(this.random), PRACTICE_MAX_ATTEMPTS).ok) throw new ClubError('dealTooStrict')
+    await this.leave(userId)
+    const kind = settings.robotKind
+    const state: PracticeTableState = { ...settings, dealt: 0 }
+    const table: Table = {
+      id: randomId(6),
+      // Practice tables are not in the lobby and take no number from it
+      number: 0,
+      hostId: userId,
+      seats: { N: robotId(kind, 'N'), E: robotId(kind, 'E'), S: userId, W: robotId(kind, 'W') },
+      spectators: [],
+      boardsPlayed: 0,
+      board: null,
+      chat: [],
+      createdAt: this.now(),
+      mode: 'practice',
+      modeState: state,
+      settings: { visibility: 'invite', allowKibitz: false, boardMinutes: 0 },
+      names: { [userId]: this.users.get(userId)!.username },
+      blocks: { [userId]: this.blocks.of(userId) },
+    }
+    // The table deals its first board as it opens
+    this.applyEntry(await this.tables.get(table.id).open(table))
+  }
+
+  /**
    * Checks an invitation list (`e2-t25`): other members, each once, at most LIMITS.tableInvitesMax;
    * not one the host blocked, nor one who blocked the host (they only hear the member cannot be invited)
    */
@@ -1956,7 +2005,7 @@ export class ClubService {
     const seated = !!here && !!this.seatIn(here, userId)
     const open = [...this.directory.values()].filter(
       (t) =>
-        t.mode !== 'challenge' && !(seated && t.id === here!.id) && this.invitedTo(userId, t) && !this.blocks.has(t.hostId, userId),
+        !soloTable(t.mode) && !(seated && t.id === here!.id) && this.invitedTo(userId, t) && !this.blocks.has(t.hostId, userId),
     )
     const choice = quickSeatChoice(open)
     if (choice) return this.sit(userId, choice.table, choice.seat)
@@ -1965,8 +2014,8 @@ export class ClubService {
 
   private async joinTable(userId: string, entry: TableEntry) {
     if (this.entryOf(userId)?.id === entry.id) return
-    // Someone else's challenge table is not there for anyone to see
-    if (entry.mode === 'challenge') throw new ClubError('tableGone', {}, 404)
+    // Someone else's challenge or practice table is not there for anyone to see
+    if (soloTable(entry.mode)) throw new ClubError('tableGone', {}, 404)
     this.checkWelcome(userId, entry)
     // A table without kibitzers takes people only into its seats (`e2-t26`)
     if (!entry.settings.allowKibitz) throw new ClubError('noKibitzing', {}, 403)
@@ -1983,8 +2032,8 @@ export class ClubService {
     const here = current?.id === entry.id
     const currentSeat = here ? this.seatIn(entry, userId) : null
     if (currentSeat === seat) return
-    if (entry.mode === 'challenge') {
-      if (here) throw new ClubError('challengeTableFixed')
+    if (soloTable(entry.mode)) {
+      if (here) throw fixedTable(entry.mode)
       throw new ClubError('tableGone', {}, 404)
     }
     if (!here) this.checkWelcome(userId, entry)
@@ -2007,7 +2056,7 @@ export class ClubService {
     const entry = this.entryOf(userId)
     if (!entry) throw new ClubError('notAtTable')
     if (entry.hostId !== userId) throw new ClubError('hostOnly')
-    if (entry.mode === 'challenge') throw new ClubError('challengeTableFixed')
+    if (soloTable(entry.mode)) throw fixedTable(entry.mode)
     const settings = parseTableSettings(wanted)
     if (!settings) throw new ClubError('badTableSettings')
     const invited = this.checkInvitees(userId, invitees)
@@ -2162,9 +2211,10 @@ export class ClubService {
 
   lobbyView(userId: string, online = this.connections.onlineUserIds()): LobbyView {
     const isOnline = (id: string) => isRobotId(id) || online.includes(id)
+    const mine = this.entryOf(userId)
     const tables: TableSummary[] = [...this.directory.values()]
-      // A challenge table is its player's alone and is not listed (§5.5)
-      .filter((t) => t.mode !== 'challenge')
+      // A challenge or practice table is its player's alone and is not listed (§5.5, §5.11)
+      .filter((t) => !soloTable(t.mode))
       // Tables short of players first, the closest to starting on top (AC-2.11)
       .sort(lobbyOrder)
       .map((t) => ({
@@ -2181,7 +2231,7 @@ export class ClubService {
     const members: MemberStatus[] = [...this.users.values()]
       .map((u) => {
         const found = this.entryOf(u.id)
-        const table = found?.mode === 'challenge' ? undefined : found
+        const table = soloTable(found?.mode) ? undefined : found
         return {
           id: u.id,
           username: u.username,
@@ -2201,7 +2251,8 @@ export class ClubService {
       online: online.flatMap((id) => this.publicUserById(id) ?? []),
       members,
       tables,
-      myTableId: this.entryOf(userId)?.id ?? null,
+      myTableId: mine?.id ?? null,
+      ...(mine && soloTable(mine.mode) && { myTableMode: mine.mode }),
       friends: this.friends.of(userId),
       blocked: this.blocks.of(userId),
     }

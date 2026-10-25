@@ -88,6 +88,8 @@ export class FeaturedService {
     if ('field' in parsed) throw new ClubError('badFeatured', { field: parsed.field })
     const record = /^[\w-]+$/.test(boardId) ? await this.store.get<BoardRecord>(`board:${boardId}`) : undefined
     if (!record) throw new ClubError('boardGone', {}, 404)
+    // A practice board (§5.11) was dealt to someone's conditions and may have been dealt again
+    if (record.mode === 'practice') throw new ClubError('practiceNotFeatured', {}, 403)
     const now = this.deps.now()
     if (record.revealAt !== undefined && record.revealAt > now) {
       // Not told apart from a missing board for someone who may not see it at all

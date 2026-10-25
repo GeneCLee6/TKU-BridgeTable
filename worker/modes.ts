@@ -1,8 +1,17 @@
 import type { RandomInt } from '../shared/board.ts'
 import type { Call } from '../shared/auction.ts'
 import type { Hands, Seat } from '../shared/cards.ts'
-import { robotAuction } from '../shared/challenge-deals.ts'
+import { deal } from '../shared/board.ts'
+import { JUST_DECLARE_TRIES, northSouthDeclares, robotAuction } from '../shared/challenge-deals.ts'
 import { dealFrom, RANDOM_DEALS } from '../shared/deal-source.ts'
+import { dealWith } from '../shared/dealer.ts'
+import {
+  PRACTICE_MAX_ATTEMPTS,
+  practiceBoardNo,
+  practiceConditions,
+  quickRandom,
+  type PracticeSettings,
+} from '../shared/practice.ts'
 import type { BoardState } from '../shared/game.ts'
 import type { BoardRecord, RobotKind, TableMode } from '../shared/protocol.ts'
 import { challengeTakesPart } from './challenge-flow.ts'
@@ -171,7 +180,55 @@ const challenge: TableModeHooks = {
   },
 }
 
-const MODES: Record<TableMode, TableModeHooks> = { casual, challenge }
+/** A practice table's settings and how many boards it has dealt (§5.11) */
+export interface PracticeTableState extends PracticeSettings {
+  dealt: number
+}
+
+export const practiceStateOf = (table: Table): PracticeTableState | null =>
+  table.mode === 'practice' ? (table.modeState as PracticeTableState) : null
+
+/**
+ * The next practice board (`e10-t03`, `e10-t05`): any deal, or one meeting the conditions, null
+ * when the conditions cannot be met in PRACTICE_MAX_ATTEMPTS. For Just Declare the robots bid it
+ * (all four seats, as for a Just Declare challenge board) and a deal North-South does not declare
+ * is dealt again, up to JUST_DECLARE_TRIES. Should none come out, the table never stops: the first
+ * one with a contract is played (defending), or else the last deal is bid by the member as usual
+ */
+export function practiceBoard(state: PracticeSettings, boardNo: number, random: RandomInt): DealtBoard | null {
+  const conditions = practiceConditions(state)
+  const quick = quickRandom(random)
+  let contested: DealtBoard | null = null
+  let last: DealtBoard | null = null
+  for (let tries = 0; tries < (state.justDeclare ? JUST_DECLARE_TRIES : 1); tries++) {
+    const dealt = conditions ? dealWith(conditions, quick, PRACTICE_MAX_ATTEMPTS) : { ok: true as const, hands: deal(random) }
+    if (!dealt.ok) break
+    last = { boardNo, hands: dealt.hands }
+    if (!state.justDeclare) return last
+    const board = robotAuction(state.robotKind, boardNo, dealt.hands)
+    if (northSouthDeclares(board)) return { ...last, board }
+    if (board.phase === 'play') contested ??= { ...last, board }
+  }
+  return contested ?? last
+}
+
+/**
+ * A member's own table with three robots (§5.11): boards to the member's conditions, numbered so
+ * South deals when there are conditions; records marked `practice`, which keeps them out of the
+ * club's history list unless asked for
+ */
+const practice: TableModeHooks = {
+  deal: (table, ctx) => {
+    const state = practiceStateOf(table)!
+    const dealt = practiceBoard(state, practiceBoardNo(state, state.dealt), ctx.random)
+    if (dealt) state.dealt++
+    return dealt
+  },
+  record: (_table, record) => ({ ...record, mode: 'practice' }),
+  boardFinished: () => null,
+}
+
+const MODES: Record<TableMode, TableModeHooks> = { casual, challenge, practice }
 
 /** Tables saved before modes existed are casual */
 export function modeOf(table: Table): TableModeHooks {
