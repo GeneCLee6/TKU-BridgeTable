@@ -2,12 +2,14 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 import { ThemeProvider } from 'styled-components'
 import { formatMessage, isLang, isMessageCode, type Lang, type MessageParams } from '../../shared/messages.ts'
 import { isCardSize, type CardSize } from '../lib/cards.ts'
+import { DEFAULT_SOUND_PREFS, SOUND_STYLES, SOUND_VOLUMES, type SoundPrefs, type SoundStyle, type SoundVolume } from '../lib/sound/events.ts'
 import { STRINGS, type Strings } from '../strings.ts'
 import { createTheme, type DeckColors, type ThemeMode } from '../styles/tokens.ts'
 
 /**
  * Per-viewer display preferences: language, light/dark, a two- or four-colour deck, whether hands
- * are drawn as card faces or as text (♠ A K Q, BBO's text style), table sounds, and whether a
+ * are drawn as card faces or as text (♠ A K Q, BBO's text style), table sounds (on or off, their
+ * style, volume, which kinds play and a phone's vibration; DESIGN.md §4「音效」), and whether a
  * board record's replay greys out the cards already played (BBO's Handviewer) or takes them out of
  * the hands, whether a call or a card must be confirmed before it is sent (BBO's "confirm bids" and
  * "confirm cards"), how large the cards are drawn, and whether the table tour has been seen. Remembered in localStorage when it is
@@ -18,12 +20,11 @@ export type CardStyle = 'cards' | 'text'
 export type PlayedCards = 'grey' | 'hide'
 export type { CardSize }
 
-interface Prefs {
+interface Prefs extends SoundPrefs {
   mode: ThemeMode
   deck: DeckColors
   lang: Lang
   cardStyle: CardStyle
-  sound: boolean
   playedCards: PlayedCards
   confirmCalls: boolean
   confirmPlays: boolean
@@ -88,7 +89,13 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
       deck: stored.deck ?? 'two',
       lang: isLang(stored.lang) ? stored.lang : systemLang(),
       cardStyle: stored.cardStyle ?? 'cards',
-      sound: stored.sound ?? true,
+      sound: stored.sound ?? DEFAULT_SOUND_PREFS.sound,
+      soundStyle: SOUND_STYLES.includes(stored.soundStyle as SoundStyle) ? stored.soundStyle! : DEFAULT_SOUND_PREFS.soundStyle,
+      soundVolume: SOUND_VOLUMES.includes(stored.soundVolume as SoundVolume) ? stored.soundVolume! : DEFAULT_SOUND_PREFS.soundVolume,
+      soundBids: typeof stored.soundBids === 'boolean' ? stored.soundBids : DEFAULT_SOUND_PREFS.soundBids,
+      soundChat: typeof stored.soundChat === 'boolean' ? stored.soundChat : DEFAULT_SOUND_PREFS.soundChat,
+      soundKibitz: typeof stored.soundKibitz === 'boolean' ? stored.soundKibitz : DEFAULT_SOUND_PREFS.soundKibitz,
+      vibrate: stored.vibrate === true,
       playedCards: stored.playedCards === 'hide' ? 'hide' : 'grey',
       confirmCalls: stored.confirmCalls === true,
       confirmPlays: stored.confirmPlays === true,
@@ -115,7 +122,11 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
       toggleMode: () => set({ mode: prefs.mode === 'light' ? 'dark' : 'light' }),
       toggleDeck: () => set({ deck: prefs.deck === 'two' ? 'four' : 'two' }),
       toggleCardStyle: () => set({ cardStyle: prefs.cardStyle === 'cards' ? 'text' : 'cards' }),
-      toggleSound: () => set({ sound: !prefs.sound }),
+      // The speaker button: off silences everything; on again also brings back a style turned off
+      toggleSound: () =>
+        prefs.sound && prefs.soundStyle !== 'off'
+          ? set({ sound: false })
+          : set({ sound: true, soundStyle: prefs.soundStyle === 'off' ? DEFAULT_SOUND_PREFS.soundStyle : prefs.soundStyle }),
       t,
       message: (code, params, fallback) =>
         isMessageCode(code) ? formatMessage(code, prefs.lang, params) : (fallback ?? t.genericError),

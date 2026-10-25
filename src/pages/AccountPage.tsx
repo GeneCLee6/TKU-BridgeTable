@@ -1,3 +1,4 @@
+import { Volume2 } from 'lucide-react'
 import { useId, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import styled from 'styled-components'
@@ -27,6 +28,8 @@ import {
 } from '../components/ui.tsx'
 import { api, ApiError } from '../lib/api.ts'
 import { isAppleMobile, isStandalone, useInstallOffer } from '../lib/pwa.ts'
+import { SOUND_STYLES, SOUND_VOLUMES } from '../lib/sound/events.ts'
+import { preview } from '../lib/sound/player.ts'
 import { useAuth } from '../state/AuthContext.tsx'
 import { usePreferences } from '../state/PreferencesContext.tsx'
 import { LANG_NAMES } from '../strings.ts'
@@ -354,6 +357,116 @@ function PasswordForm() {
   )
 }
 
+const StyleRow = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px 12px;
+
+  & small {
+    display: block;
+    color: ${({ theme }) => theme.colors.textMuted};
+    font-size: ${({ theme }) => theme.type.small.size};
+  }
+  & label { align-items: flex-start; }
+  & input { margin-top: 4px; }
+`
+
+const Check = styled.label`
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 15px;
+
+  & input { margin-top: 4px; }
+  & small {
+    display: block;
+    color: ${({ theme }) => theme.colors.textMuted};
+    font-size: ${({ theme }) => theme.type.small.size};
+  }
+`
+
+/**
+ * Table sounds (DESIGN.md §4「音效」): on or off (the header's speaker button), a style with a
+ * 試聽 button each, a volume, which kinds play, and a phone's vibration. Kept in this browser
+ */
+function SoundCard() {
+  const { t, sound, soundStyle, soundVolume, soundBids, soundChat, soundKibitz, vibrate, set } = usePreferences()
+  const s = t.sounds
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{s.title}</CardTitle>
+      </CardHeader>
+      <Muted>{s.intro}</Muted>
+      <Options
+        legend={s.master}
+        value={sound ? 'on' : 'off'}
+        options={[['on', t.soundOnShort], ['off', t.soundOffShort]]}
+        onChange={(v) => set({ sound: v === 'on' })}
+      />
+      <Choice>
+        <legend>{s.style}</legend>
+        {SOUND_STYLES.map((style) => (
+          <StyleRow key={style}>
+            <label>
+              <input type="radio" name="sound-style" checked={soundStyle === style} onChange={() => set({ soundStyle: style })} />
+              <span>
+                {s.styles[style]}
+                <small>{s.styleHints[style]}</small>
+              </span>
+            </label>
+            {style !== 'off' && (
+              <Button type="button" $size="sm" aria-label={s.previewOf(s.styles[style])} onClick={() => preview(style, soundVolume)}>
+                <Volume2 size={14} aria-hidden />
+                {s.preview}
+              </Button>
+            )}
+          </StyleRow>
+        ))}
+      </Choice>
+      <Options
+        legend={s.volume}
+        value={soundVolume}
+        options={SOUND_VOLUMES.map((v) => [v, s.volumes[v]])}
+        onChange={(v) => set({ soundVolume: v })}
+      />
+      <Choice>
+        <legend>{s.kinds}</legend>
+        <Check>
+          <input type="checkbox" checked={soundBids} onChange={(e) => set({ soundBids: e.target.checked })} />
+          <span>
+            {s.bids}
+            <small>{s.bidsHint}</small>
+          </span>
+        </Check>
+        <Check>
+          <input type="checkbox" checked={soundChat} onChange={(e) => set({ soundChat: e.target.checked })} />
+          <span>
+            {s.chat}
+            <small>{s.chatHint}</small>
+          </span>
+        </Check>
+        <Check>
+          <input type="checkbox" checked={soundKibitz} onChange={(e) => set({ soundKibitz: e.target.checked })} />
+          <span>
+            {s.kibitz}
+            <small>{s.kibitzHint}</small>
+          </span>
+        </Check>
+        <Check>
+          <input type="checkbox" checked={vibrate} onChange={(e) => set({ vibrate: e.target.checked })} />
+          <span>
+            {s.vibrate}
+            <small>{s.vibrateHint}</small>
+          </span>
+        </Check>
+      </Choice>
+    </Card>
+  )
+}
+
 /** Shows the table tour again the next time a table is opened (e3-t34, AC-3.10) */
 function TourCard() {
   const { t, tableTourSeen, set } = usePreferences()
@@ -381,7 +494,7 @@ function TourCard() {
 }
 
 export function AccountPage() {
-  const { t, lang, mode, deck, cardStyle, cardSize, sound, confirmCalls, confirmPlays, set } = usePreferences()
+  const { t, lang, mode, deck, cardStyle, cardSize, confirmCalls, confirmPlays, set } = usePreferences()
   const { user, refresh } = useAuth()
 
   /** Kept on the server, which decides whom to tell (e1-t24) */
@@ -423,12 +536,6 @@ export function AccountPage() {
           <Options legend={t.deckColors} value={deck} options={[['two', t.deckTwo], ['four', t.deckFour]]} onChange={(v) => set({ deck: v })} />
           <Options legend={t.theme} value={mode} options={[['light', t.themeLight], ['dark', t.themeDark]]} onChange={(v) => set({ mode: v })} />
           <Options
-            legend={t.sound}
-            value={sound ? 'on' : 'off'}
-            options={[['on', t.soundOnShort], ['off', t.soundOffShort]]}
-            onChange={(v) => set({ sound: v === 'on' })}
-          />
-          <Options
             legend={t.confirmCalls}
             value={confirmCalls ? 'on' : 'off'}
             options={[['on', t.soundOnShort], ['off', t.soundOffShort]]}
@@ -449,6 +556,7 @@ export function AccountPage() {
             />
           )}
         </Card>
+        <SoundCard />
         <TourCard />
         <Card>
           <CardHeader>
