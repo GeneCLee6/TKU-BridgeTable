@@ -1574,26 +1574,15 @@ export class ClubService {
       table.dealAt = undefined
       return
     }
-    // A challenge's participant plays every board from South, even after declaring one from North
-    const challenge = challengeStateOf(table)
-    if (challenge) this.seatSouth(table, challenge.userId)
+    // A person who declared from a robot partner's seat goes back to their own for the new board
+    this.unswap(table)
     table.board = dealt.board ?? newBoard(dealt.boardNo, dealt.hands)
     table.undo = undefined
     table.rejectedClaim = undefined
     table.recordId = undefined
     table.dealAt = undefined
-    table.swapped = undefined
     // A board dealt with its auction made (Just Declare) goes straight to the play
     if (table.board.phase === 'play') this.swapForDeclarer(table)
-  }
-
-  /** Moves a person back to South, the robot there taking their seat with its system */
-  private seatSouth(table: Table, userId: string) {
-    const seat = this.seatOf(table, userId)
-    const robot = table.seats.S
-    if (!seat || seat === 'S' || !robot || !isRobotId(robot)) return
-    table.seats.S = userId
-    table.seats[seat] = robotId(robotKindOf(robot), seat)
   }
 
   /**
@@ -1620,7 +1609,7 @@ export class ClubService {
     return table.swapped && seat === table.swapped[0] ? table.swapped[1] : seat
   }
 
-  /** Puts a swapped person back in their own seat (the auction was reopened by an undo) */
+  /** Puts a swapped person back in their own seat (the auction was reopened by an undo, or a new board is dealt) */
   private unswap(table: Table) {
     if (!table.swapped) return
     const [declarer, dummy] = table.swapped
