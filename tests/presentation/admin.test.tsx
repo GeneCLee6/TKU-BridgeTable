@@ -21,6 +21,7 @@ const mocks = vi.hoisted(() => ({
     createUser: vi.fn(),
     resetPassword: vi.fn(),
     setAdmin: vi.fn(),
+    updateMembers: vi.fn(),
     deleteUser: vi.fn(),
     closeTable: vi.fn(),
     bookSync: vi.fn(),
@@ -112,37 +113,148 @@ describe('AdminPage', () => {
     expect(await screen.findByText('1 篇文章都和機器人的規則同步。')).toBeInTheDocument()
   })
 
-  it('saves the settings with a toast, and reverts a draft', async () => {
-    mocks.api.saveSettings.mockResolvedValue({ settings: { maxUsers: 80, inviteCode: 'tku' } })
+  it('opens read-only: values as text, no inputs or checkboxes that save on their own', async () => {
+    mocks.api.users.mockResolvedValue({
+      users: [user('boss', { admin: true }), user('amy', { permissions: ['bookEdit'] }), user('ben')],
+    })
     page()
-    const code = await screen.findByLabelText('邀請碼')
-    expect(screen.getByRole('button', { name: '還原' })).toBeDisabled()
-    await userEvent.type(code, 'x')
-    await userEvent.click(screen.getByRole('button', { name: '還原' }))
-    expect(code).toHaveValue('tku')
+    const settings = await screen.findByRole('region', { name: '社團設定' })
+    expect(within(settings).queryByRole('textbox')).not.toBeInTheDocument()
+    expect(within(settings).queryByRole('spinbutton')).not.toBeInTheDocument()
+    expect(within(settings).getByLabelText('帳號上限')).toHaveTextContent('60')
+    expect(within(settings).getByLabelText('邀請碼')).toHaveTextContent('tku')
+    expect(within(settings).queryByRole('button', { name: '儲存' })).not.toBeInTheDocument()
 
-    const cap = screen.getByLabelText('帳號上限')
-    await userEvent.clear(cap)
-    await userEvent.type(cap, '80')
-    await userEvent.click(screen.getByRole('button', { name: '儲存' }))
-    expect(mocks.api.saveSettings).toHaveBeenCalledWith({ maxUsers: 80, inviteCode: 'tku' })
-    expect(await screen.findByRole('status')).toHaveTextContent('已儲存')
+    const members = screen.getByRole('region', { name: '社員' })
+    expect(within(members).queryByRole('checkbox')).not.toBeInTheDocument()
+    expect(within(members).queryByRole('combobox')).not.toBeInTheDocument()
+    const rows = within(members).getAllByRole('row')
+    expect(rows[2]).toHaveTextContent('線上編輯')
+    expect(rows[3]).toHaveTextContent('無')
+    // Destructive actions stay in read mode; approving stays one click
+    expect(within(members).getAllByRole('button', { name: '重設密碼' })).toHaveLength(3)
+    mocks.api.approve.mockResolvedValue({})
+    await userEvent.click(screen.getByRole('button', { name: '核准' }))
+    expect(mocks.api.approve).toHaveBeenCalledWith('app1')
   })
 
-  it('shows an error the server ties to a field under that field', async () => {
+  it('edits the settings: nothing is sent until 儲存, which sends one request and reads them again', async () => {
+    mocks.api.saveSettings.mockResolvedValue({ settings: { maxUsers: 80, inviteCode: 'tku2' } })
+    page()
+    await userEvent.click(await screen.findByRole('button', { name: '編輯社團設定' }))
+    const settings = screen.getByRole('region', { name: '社團設定' })
+    const cap = within(settings).getByLabelText('帳號上限')
+    await userEvent.clear(cap)
+    await userEvent.type(cap, '80')
+    await userEvent.type(within(settings).getByLabelText('邀請碼'), '2')
+    expect(within(settings).getByText('有尚未儲存的變更')).toBeInTheDocument()
+    expect(mocks.api.saveSettings).not.toHaveBeenCalled()
+
+    mocks.api.settings.mockResolvedValue({ settings: { maxUsers: 80, inviteCode: 'tku2' } })
+    const reads = mocks.api.settings.mock.calls.length
+    await userEvent.click(within(settings).getByRole('button', { name: '儲存' }))
+    expect(mocks.api.saveSettings).toHaveBeenCalledTimes(1)
+    expect(mocks.api.saveSettings).toHaveBeenCalledWith({ maxUsers: 80, inviteCode: 'tku2' })
+    expect(await screen.findByRole('status')).toHaveTextContent('已儲存')
+    // Back to read-only, showing what the server now has
+    expect(mocks.api.settings.mock.calls.length).toBeGreaterThan(reads)
+    expect(await within(settings).findByLabelText('邀請碼')).toHaveTextContent('tku2')
+    expect(within(settings).queryByRole('textbox')).not.toBeInTheDocument()
+  })
+
+  it('cancel discards the settings draft', async () => {
+    page()
+    await userEvent.click(await screen.findByRole('button', { name: '編輯社團設定' }))
+    const settings = screen.getByRole('region', { name: '社團設定' })
+    await userEvent.type(within(settings).getByLabelText('邀請碼'), 'xyz')
+    await userEvent.click(within(settings).getByRole('button', { name: '取消' }))
+    expect(within(settings).getByLabelText('邀請碼')).toHaveTextContent(/^tku$/)
+    expect(mocks.api.saveSettings).not.toHaveBeenCalled()
+    // Editing again starts from the server's values
+    await userEvent.click(screen.getByRole('button', { name: '編輯社團設定' }))
+    expect(within(settings).getByLabelText('邀請碼')).toHaveValue('tku')
+  })
+
+  it('shows an error the server ties to a field under that field, and stays editing', async () => {
     const { ApiError } = await import('../../src/lib/api.ts')
     mocks.api.saveSettings.mockRejectedValue(new ApiError('bad', 400, 'badCap', { min: 2, max: 100 }))
     page()
-    const cap = await screen.findByLabelText('帳號上限')
+    await userEvent.click(await screen.findByRole('button', { name: '編輯社團設定' }))
+    const cap = screen.getByLabelText('帳號上限')
     await userEvent.clear(cap)
     await userEvent.type(cap, '50')
     await userEvent.click(screen.getByRole('button', { name: '儲存' }))
     const error = await screen.findByRole('alert')
     expect(cap).toHaveAttribute('aria-invalid', 'true')
     expect(cap).toHaveAttribute('aria-describedby', error.id)
+    expect(cap).toHaveValue(50)
   })
 
-  it('puts make-admin and delete in the row menu; deleting asks first', async () => {
+  it('edits roles and permissions, then saves every change in one request', async () => {
+    mocks.api.users.mockResolvedValue({
+      users: [user('boss', { admin: true }), user('amy'), user('ben', { permissions: ['bookEdit'] }), user('cat')],
+    })
+    mocks.api.updateMembers.mockResolvedValue({ ok: true })
+    page()
+    await userEvent.click(await screen.findByRole('button', { name: '編輯社員' }))
+    const members = screen.getByRole('region', { name: '社員' })
+    // Nobody takes away their own admin role
+    expect(within(members).getByRole('combobox', { name: 'boss 的身分' })).toBeDisabled()
+    await userEvent.click(within(members).getByRole('checkbox', { name: 'amy：線上編輯' }))
+    await userEvent.click(within(members).getByRole('checkbox', { name: 'amy：匯入檔案' }))
+    await userEvent.click(within(members).getByRole('checkbox', { name: 'ben：線上編輯' }))
+    await userEvent.selectOptions(within(members).getByRole('combobox', { name: 'cat 的身分' }), '管理員')
+    expect(within(members).getAllByText('已修改')).toHaveLength(3)
+    expect(within(members).getByText('有尚未儲存的變更')).toBeInTheDocument()
+    expect(mocks.api.setPermissions).not.toHaveBeenCalled()
+    expect(mocks.api.setAdmin).not.toHaveBeenCalled()
+
+    await userEvent.click(within(members).getByRole('button', { name: '儲存' }))
+    expect(mocks.api.updateMembers).toHaveBeenCalledTimes(1)
+    expect(mocks.api.updateMembers).toHaveBeenCalledWith([
+      { id: 'amy', permissions: ['bookEdit', 'bookImport'] },
+      { id: 'ben', permissions: [] },
+      { id: 'cat', admin: true },
+    ])
+    expect(await screen.findByRole('status')).toHaveTextContent('已儲存')
+    expect(within(members).queryByRole('checkbox')).not.toBeInTheDocument()
+  })
+
+  it('cancel discards member edits; undoing a change leaves nothing to save', async () => {
+    page()
+    await userEvent.click(await screen.findByRole('button', { name: '編輯社員' }))
+    const members = screen.getByRole('region', { name: '社員' })
+    const box = within(members).getByRole('checkbox', { name: 'amy：線上編輯' })
+    await userEvent.click(box)
+    await userEvent.click(box)
+    expect(within(members).queryByText('有尚未儲存的變更')).not.toBeInTheDocument()
+    await userEvent.click(box)
+    await userEvent.click(within(members).getByRole('button', { name: '取消' }))
+    expect(within(members).queryByRole('checkbox')).not.toBeInTheDocument()
+    expect(within(members).getAllByRole('row')[2]).toHaveTextContent('無')
+    expect(mocks.api.updateMembers).not.toHaveBeenCalled()
+  })
+
+  it('asks before leaving the page with unsaved edits', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    page()
+    const away = document.createElement('a')
+    away.href = '/history'
+    document.body.append(away)
+    away.addEventListener('click', (e) => e.preventDefault())
+    await userEvent.click(await screen.findByRole('button', { name: '編輯社團設定' }))
+    away.click()
+    expect(confirm).not.toHaveBeenCalled()
+    await userEvent.type(screen.getByLabelText('邀請碼'), 'x')
+    const click = new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 })
+    away.dispatchEvent(click)
+    expect(confirm).toHaveBeenCalledWith('管理頁有尚未儲存的變更，確定要離開嗎？')
+    expect(click.defaultPrevented).toBe(true)
+    away.remove()
+    confirm.mockRestore()
+  })
+
+  it('puts delete in the row menu, and deleting asks first', async () => {
     mocks.api.deleteUser.mockResolvedValue({ ok: true })
     page()
     // My own row has no menu actions
@@ -151,7 +263,7 @@ describe('AdminPage', () => {
 
     await userEvent.click(screen.getByRole('button', { name: 'amy 的其他操作' }))
     const menu = screen.getByRole('menu', { name: 'amy 的其他操作' })
-    expect(within(menu).getAllByRole('menuitem').map((i) => i.textContent)).toEqual(['設為管理員', '刪除社員…'])
+    expect(within(menu).getAllByRole('menuitem').map((i) => i.textContent)).toEqual(['刪除社員…'])
     await userEvent.click(within(menu).getByRole('menuitem', { name: '刪除社員…' }))
     expect(screen.queryByRole('menu')).not.toBeInTheDocument()
     expect(mocks.api.deleteUser).not.toHaveBeenCalled()

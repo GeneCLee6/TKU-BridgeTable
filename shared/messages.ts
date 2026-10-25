@@ -460,6 +460,14 @@ export const MESSAGES = {
     ja: '不明な権限です',
     ko: '알 수 없는 권한입니다',
   },
+  badMemberChange: {
+    zh: '社員的變更格式不對，請重新整理再試一次',
+    'zh-Hans': '社员的变更格式不对，请刷新后再试一次',
+    en: 'The member changes are not valid; reload the page and try again',
+    vi: 'Thay đổi thành viên không hợp lệ; hãy tải lại trang và thử lại',
+    ja: 'メンバーの変更内容が正しくありません。ページを再読み込みしてもう一度お試しください',
+    ko: '회원 변경 내용이 올바르지 않습니다. 페이지를 새로 고친 뒤 다시 시도하세요',
+  },
 
   // TKU BridgeBook (淡江橋譜): online editing and import
   noPermission: {

@@ -12,6 +12,7 @@ import { choose, explain } from '../../shared/robot/system/engine.ts'
 import type { System } from '../../shared/robot/system/spec.ts'
 import { TKU } from '../../shared/robot/system/tku/index.ts'
 import { minorResponses } from '../../shared/robot/system/tku/minors.ts'
+import { openingBook } from '../../shared/robot/system/tku/openings.ts'
 import { supportDouble } from '../../shared/robot/system/tku/advancing.ts'
 
 function seeded(seed: number) {
@@ -106,6 +107,60 @@ describe('openings (淡江制度)', () => {
     expect(bidOver(hand('KQJ943 KJ32 54 2'), '')).toBe('P')
     expect(bidOver(hand('KQJ943 9832 54 2'), '')).toBe('2D')
   })
+
+  it('2♥ and 2♠ are two-suiters, 5-5 and 5–10 points (社長 2026-10-25)', () => {
+    // 2♥: hearts and any other suit; 2♠: spades and a minor
+    expect(bidOver(hand('4 KJ974 83 AQ852'), '')).toBe('2H')
+    expect(bidOver(hand('QJ932 QJ432 K2 2'), '')).toBe('2H')
+    expect(bidOver(hand('QJ985 7 KQ963 42'), '')).toBe('2S')
+    expect(robotCall('tku', hand('QJ985 7 KQ963 42'), 'N', [], 'N', 'None').alert).toBe('雙套：和一門低花，5+ 張♠，0–4 張♥，5–10 大牌點')
+    expect(robotCall('tku', hand('4 KJ974 83 AQ852'), 'N', [], 'N', 'None').alert).toContain('和另一門 5 張以上的花色')
+    // Not 5-4, not in fourth seat; a seven-card suit preempts
+    expect(bidOver(hand('QJ985 7 KQ96 432'), '')).toBe('P')
+    expect(bidOver(hand('4 KJ974 83 AQ852'), 'P P P', 'W')).toBe('P')
+    expect(bidOver(hand('4 KJ97432 - AQ852'), '')).toBe('3H')
+  })
+
+  it('answers the two-suiters (技光的答叫)', () => {
+    expect(bidOver(hand('8642 Q93 K852 73'), '2H P')).toBe('P')
+    expect(bidOver(hand('K843 5 QJ84 T972'), '2H P')).toBe('2S')
+    expect(bidOver(hand('KJ7 Q84 AJ63 T82'), '2H P')).toBe('3H')
+    expect(bidOver(hand('A84 K93 AQ52 K73'), '2H P')).toBe('4H')
+    expect(bidOver(hand('AKQJ75 4 A83 K92'), '2H P')).toBe('2N')
+    expect(bidOver(hand('7 K84 Q9632 J852'), '2S P')).toBe('2N')
+    expect(bidOver(hand('7 K84 Q9632 J852'), '2S P 2N P 3D P')).toBe('P')
+    // Opener: the second suit after 2NT and after the pass-or-correct 2♠
+    expect(bidOver(hand('5 QJ974 84 KJ963'), '2H P 2N P')).toBe('3C')
+    expect(bidOver(hand('KJ852 AQ974 83 6'), '2H P 2N P')).toBe('3H')
+    expect(bidOver(hand('Q9763 KJ852 7 43'), '2H P 2N P')).toBe('3S')
+    expect(bidOver(hand('QJ863 KT975 5 82'), '2H P 2S P')).toBe('P')
+    expect(bidOver(hand('6 KJ986 94 QT853'), '2H P 2S P')).toBe('3C')
+    expect(bidOver(hand('AJ987 5 Q8743 42'), '2S P 2N P')).toBe('3D')
+    expect(bidOver(hand('AKQJ75 4 A83 K92'), '2H P 2N P 3H P')).toBe('4S')
+  })
+
+  it('reads the two-suiters, not as weak twos', () => {
+    const shown = (calls: string) => {
+      const auction = calls.split(' ').map((call, i) => ({ seat: nextSeat('N', i), call }))
+      return explain(TKU, auction.slice(0, -1), 'N', 'None').get(auction.at(-1)!.call)
+    }
+    expect(shown('2H')).toMatchObject({ name: 'twoSuiter', hcp: [5, 10], len: { H: [5, 13] } })
+    expect(shown('2S')).toMatchObject({ name: 'twoSuiter', len: { S: [5, 13] } })
+    expect(shown('2H P 2N P 3D')).toMatchObject({ len: { H: [5, 13], D: [5, 13] } })
+  })
+
+  it('4-4 in the minors opens 1♣, 5-5 1♦ (社長 2026-10-25)', () => {
+    expect(bidOver(hand('K3 A52 KJ84 Q975'), '')).toBe('1C')
+    expect(bidOver(hand('K3 A5 KJ842 Q9752'), '')).toBe('1D')
+    expect(bidOver(hand('K3 A52 KJ842 Q97'), '')).toBe('1D')
+  })
+
+  it('no 1NT or 2NT with a five-card major unless the switch is on (社長 2026-10-25)', () => {
+    expect(bidOver(hand('AKJ93 KQ4 AJ5 Q2'), '')).toBe('1S')
+    expect(bidOver(hand('K4 AQ873 KJ5 Q62'), '')).toBe('1H')
+    const withFive: System = { ...TKU, books: [openingBook(true), ...TKU.books] }
+    expect(choose(withFive, hand('AKJ93 KQ4 AJ5 Q2'), 'N', [], 'N').call).toBe('2N')
+    expect(choose(withFive, hand('K4 AQ873 KJ5 Q62'), 'N', [], 'N').call).toBe('1N')  })
 
   it('opens light in third seat with a good suit and by the Rule of 15 in fourth seat', () => {
     // Third seat: dealer W, W and N pass, E is third
