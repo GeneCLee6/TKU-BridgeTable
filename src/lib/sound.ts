@@ -9,6 +9,8 @@
  * (tests, old browsers) nothing plays.
  */
 
+import { PACE } from './motion.ts'
+
 let context: AudioContext | null = null
 let output: AudioNode | null = null
 
@@ -83,8 +85,8 @@ function paper(
   source.start(at, Math.random() * (1 - length), length)
 }
 
-/** How long after the card leaves the hand it lands: the table's 1.3 s glide is all but done by then */
-const LANDS_AFTER = 0.95
+/** How long after the card leaves the hand it lands: the table's glide is all but done by then */
+const LANDS_AFTER = PACE.landsAfterS
 
 /** A short, soft knock: a low sine that drops in pitch as it dies away */
 function knock(ctx: AudioContext, at: number, frequency: number, peak: number, decay: number) {
