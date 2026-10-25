@@ -225,6 +225,10 @@ export class Club extends DurableObject<Env> implements Connections {
       const b = await body()
       return json({ user: await this.service.setAccountPreferences(user.id, { friendOnlineNotice: b.friendOnlineNotice }) })
     }
+    if (route === 'PATCH /api/account/profile') return json({ user: await this.service.setProfile(user.id, await body()) })
+    // Another member's profile card (AC-1.5)
+    const member = url.pathname.match(/^\/api\/members\/([\w-]+)$/)
+    if (request.method === 'GET' && member) return json({ member: await this.service.memberProfile(user.id, member[1]) })
     // A page of the member's own conversation with another member (AC-1.7); new messages come over the socket
     const conversation = url.pathname.match(/^\/api\/messages\/([\w-]+)$/)
     if (request.method === 'GET' && conversation) {
@@ -347,6 +351,9 @@ export class Club extends DurableObject<Env> implements Connections {
       }
       throw new ClubError('noSuchApi', {}, 404)
     }
+    if (method === 'GET' && path === '/weekly-challenge') return json({ weekly: this.service.weeklyChallenge() })
+    if (method === 'POST' && path === '/weekly-challenge')
+      return json({ weekly: await this.service.adminSetWeeklyChallenge(user.id, await body()) })
     if (method === 'GET' && path === '/settings') return json({ settings: this.service.clubSettings })
     if (method === 'POST' && path === '/settings') {
       const b = await body()

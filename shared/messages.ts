@@ -281,6 +281,31 @@ export const MESSAGES = {
     ja: 'ログインしてください',
     ko: '로그인해 주세요',
   },
+  // Profiles (AC-1.5)
+  profileNameTooLong: {
+    zh: '顯示名稱最多 {max} 個字',
+    'zh-Hans': '显示名称最多 {max} 个字',
+    en: 'The display name can be at most {max} characters',
+    vi: 'Tên hiển thị tối đa {max} ký tự',
+    ja: '表示名は {max} 文字までです',
+    ko: '표시 이름은 최대 {max}자입니다',
+  },
+  profileSystemTooLong: {
+    zh: '常用制度最多 {max} 個字',
+    'zh-Hans': '常用制度最多 {max} 个字',
+    en: 'The bidding system can be at most {max} characters',
+    vi: 'Hệ thống kể bài tối đa {max} ký tự',
+    ja: '使用システムは {max} 文字までです',
+    ko: '사용 시스템은 최대 {max}자입니다',
+  },
+  profileBioTooLong: {
+    zh: '自我介紹最多 {max} 個字',
+    'zh-Hans': '自我介绍最多 {max} 个字',
+    en: 'The introduction can be at most {max} characters',
+    vi: 'Phần giới thiệu tối đa {max} ký tự',
+    ja: '自己紹介は {max} 文字までです',
+    ko: '자기소개는 최대 {max}자입니다',
+  },
   signInAgain: {
     zh: '請重新登入',
     'zh-Hans': '请重新登录',
@@ -702,6 +727,14 @@ export const MESSAGES = {
     vi: 'Không có ai để đấu lại',
     ja: '再戦できる相手がいません',
     ko: '재대결할 상대가 없습니다',
+  },
+  weeklyNoRematch: {
+    zh: '每週社團挑戰不能再戰，下週會自動開新的一場',
+    'zh-Hans': '每周社团挑战不能再战，下周会自动开新的一场',
+    en: 'The weekly club challenge has no rematch: next week brings a new one',
+    vi: 'Thử thách hằng tuần không có đấu lại: tuần sau sẽ có thử thách mới',
+    ja: '週例クラブチャレンジは再戦できません。来週新しいチャレンジが始まります',
+    ko: '주간 클럽 도전은 재대결할 수 없습니다. 다음 주에 새 도전이 열립니다',
   },
 
   // HTTP

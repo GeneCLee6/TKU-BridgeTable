@@ -4,6 +4,8 @@ import { Link } from 'react-router-dom'
 import styled from 'styled-components'
 import type { ClientMessage, LobbyView, MemberStatus } from '../../shared/protocol.ts'
 import { usePreferences } from '../state/PreferencesContext.tsx'
+import { Avatar } from './Avatar.tsx'
+import { ProfileCard } from './ProfileCard.tsx'
 import { seatLetter } from '../strings.ts'
 
 /**
@@ -11,6 +13,7 @@ import { seatLetter } from '../strings.ts'
  * (the server sorts them). A star follows or unfollows someone, the ban button blocks them; both
  * are only asked of the server, which answers with a new lobby. "Friends only" hides everyone else.
  * Where the page has a Messages tab, an envelope opens the conversation with that member (AC-1.7).
+ * Each member has their default avatar (e1-t18); their name opens their profile card (e1-t17).
  */
 
 const Bar = styled.div`
@@ -57,13 +60,26 @@ const Dot = styled.span<{ $online: boolean }>`
   background: ${({ theme, $online }) => ($online ? theme.colors.success : theme.colors.border)};
 `
 
-const PersonName = styled.span`
+const PersonName = styled.button`
   flex: 1;
   min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
   overflow: hidden;
+  text-align: left;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-weight: 600;
+  cursor: pointer;
+
+  &:hover { text-decoration: underline; }
+  &:focus-visible {
+    outline: 2px solid ${({ theme }) => theme.colors.focus};
+    outline-offset: 2px;
+  }
 `
 
 const Where = styled.span`
@@ -115,6 +131,7 @@ export function PeopleList({
   userId,
   send,
   onMessage,
+  newTab = false,
 }: {
   lobby: LobbyView | null
   /** The signed-in member */
@@ -122,9 +139,12 @@ export function PeopleList({
   send: (message: ClientMessage) => void
   /** Opens the conversation with a member; no envelope buttons without it */
   onMessage?: (userId: string) => void
+  /** Links on the profile card open a new tab (at a table, where leaving the page leaves the table) */
+  newTab?: boolean
 }) {
   const { t } = usePreferences()
   const [onlyFriends, setOnlyFriends] = useState(false)
+  const [card, setCard] = useState<MemberStatus | null>(null)
   const friends = new Set(lobby?.friends ?? [])
   const blocked = new Set(lobby?.blocked ?? [])
   const members = (lobby?.members ?? []).filter((m) => !onlyFriends || friends.has(m.id))
@@ -147,7 +167,8 @@ export function PeopleList({
     return (
       <Person key={m.id} $online={m.online}>
         <Dot $online={m.online} aria-label={m.online ? t.online : t.offline} />
-        <PersonName>
+        <Avatar id={m.id} name={m.username} size={24} />
+        <PersonName type="button" title={t.openProfile(m.username)} onClick={() => setCard(m)}>
           {m.username}
           {me && t.youTag}
         </PersonName>
@@ -196,8 +217,30 @@ export function PeopleList({
     )
   }
 
+  const cardFriend = !!card && friends.has(card.id)
+  const cardBlocked = !!card && blocked.has(card.id)
   return (
     <div>
+      {card && (
+        <ProfileCard
+          userId={card.id}
+          name={card.username}
+          isMe={card.id === userId}
+          friend={cardFriend}
+          blocked={cardBlocked}
+          onFriend={(friend) => send({ type: 'setFriend', userId: card.id, friend })}
+          onBlock={(on) => send({ type: 'setBlocked', userId: card.id, blocked: on })}
+          onMessage={
+            onMessage &&
+            (() => {
+              setCard(null)
+              onMessage(card.id)
+            })
+          }
+          onClose={() => setCard(null)}
+          newTab={newTab}
+        />
+      )}
       <Bar>
         <FilterButton
           type="button"

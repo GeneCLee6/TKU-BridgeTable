@@ -5,6 +5,7 @@ import type { ChallengeSettings } from './challenge.ts'
 import type { BoardResult, BoardState, Phase, Trick } from './game.ts'
 import type { MessageCode, MessageParams } from './messages.ts'
 import type { MatchSeat, TeamMatchView } from './team-match.ts'
+import type { Profile } from './profile.ts'
 
 /** Messages and views exchanged between the browser and the Worker over HTTP and WebSocket */
 
@@ -38,6 +39,8 @@ export interface Me extends PublicUser {
   applications?: number
   /** Whether the bell says when a friend comes online (e1-t24); the server always sets it, on unless turned off */
   friendOnlineNotice?: boolean
+  /** The member's own profile (AC-1.5), to edit on "My account"; empty until they fill it in */
+  profile?: Profile
 }
 
 /** Where someone registered; both sites share the accounts */
@@ -275,6 +278,7 @@ export const NOTIFICATION_KINDS = [
   'challengeCancelled',
   'challengeReminder',
   'challengeResults',
+  'challengeWeekly',
   'friendOnline',
   'tableInvited',
   'matchInvited',
@@ -295,7 +299,8 @@ export interface Notification {
    * `application`: { username } of the person who registered. The challenge kinds (§5.5):
    * { challengeId, username } of who invited, accepted, declined or cancelled; the reminder 12 hours
    * before the deadline and the results (`challengeReminder`, `challengeResults`) carry
-   * { challengeId } and are sent by the deadline job (`e7-t13`). `friendOnline`: { username } of
+   * { challengeId } and are sent by the deadline job (`e7-t13`); `challengeWeekly` { challengeId }
+   * goes to every member when the weekly club challenge is created (`e7-t23`). `friendOnline`: { username } of
    * a member the viewer follows who just came online (e1-t24). `tableInvited`: { tableId, number,
    * username } of the table and the host who invited (`e2-t25`). `boardFeatured`: { boardId,
    * username } of a board the member played and who featured it (`e4-t29`). The team match kinds

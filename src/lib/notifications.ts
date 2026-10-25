@@ -21,6 +21,7 @@ export function notificationText(t: Strings, n: Notification): string {
       return t.notificationTexts[n.kind](name)
     case 'challengeReminder':
     case 'challengeResults':
+    case 'challengeWeekly':
       return t.notificationTexts[n.kind]()
     case 'tableInvited':
       return t.notificationTexts.tableInvited(name, Number(n.params.number ?? 0))
@@ -41,6 +42,7 @@ export function notificationLink(n: Notification): string {
     case 'friendOnline':
       return '/'
     case 'challengeInvited':
+    case 'challengeWeekly':
       return '/challenges'
     case 'challengeAccepted':
     case 'challengeDeclined':
