@@ -1936,7 +1936,8 @@ export class ClubService {
     if (failed) {
       for (const [i, result] of opened.entries())
         if (result.status === 'fulfilled') await this.closeTable(ids[ROOMS[i]]).catch(() => undefined)
-      throw failed.reason
+      // A table error the member should see keeps its code; anything else is the server's
+      throw failed.reason instanceof AppError ? failed.reason : new ClubError('serverError', {}, 500)
     }
     for (const result of opened) if (result.status === 'fulfilled') this.applyEntry(result.value)
     await this.matches.started(match.id, deals, ids)

@@ -51,6 +51,8 @@ let dismissed: { tableId: string; userId: string; code: number }[]
 /** Objects that fail every call (RPC down), and calls held until a gate opens */
 let failing: Set<string>
 let gates: Map<string, Promise<void>>
+/** A room whose table object fails to open (a match start halfway) */
+let failRoom: string | null
 let logs: LogEntry[]
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0))
@@ -106,6 +108,8 @@ function stub(tableId: string): TableRpc {
       async (...args: unknown[]) => {
         await gates.get(tableId)
         if (failing.has(tableId)) throw new Error('object unavailable')
+        if (name === 'open' && failRoom && (args[0] as { modeState?: { room?: string } }).modeState?.room === failRoom)
+          throw new Error('object unavailable')
         const host = object(tableId).host as unknown as Record<string, (...a: unknown[]) => Promise<unknown>>
         return clone(await host[name](...clone(args)))
       },
@@ -134,6 +138,7 @@ beforeEach(async () => {
   dismissed = []
   failing = new Set()
   gates = new Map()
+  failRoom = null
   logs = []
   await makeClub()
 })
@@ -445,5 +450,136 @@ describe('moving the tables (schema 3 ↔ 4)', () => {
     const saved = structuredClone(object(tableId).storage.get('table'))
     await runRobots()
     expect(object(tableId).storage.get('table')).toEqual(saved)
+  })
+})
+
+describe('a team match in two table objects (§5.8, §5.10)', () => {
+  /** Amy (open room South) and Ben (closed room South) with six robots, `boards` boards, ready to start */
+  async function ready(boards = 4) {
+    const [amy, ben] = [await member('amy'), await member('ben')]
+    const { id } = club.matches.create(amy, { settings: { boards } })
+    await club.matches.act(amy, { type: 'matchInvite', matchId: id, room: 'closed', seat: 'S', userId: ben })
+    await club.matches.act(ben, { type: 'matchAnswer', matchId: id, accept: true })
+    for (const room of ['open', 'closed'] as const)
+      for (const seat of ['N', 'E', 'W'] as const) await club.matches.act(amy, { type: 'matchRobot', matchId: id, room, seat })
+    return { amy, ben, id }
+  }
+
+  const tablesOf = (id: string) => club.matches.store.get(id)!.tables!
+
+  /** Each player passes or plays their first legal card over their table connection; robots move and boards are dealt */
+  async function playUntil(players: [string, string][], done: () => boolean) {
+    for (let i = 0; i < 6000; i++) {
+      if (done()) return
+      let acted = false
+      for (const [userId, tableId] of players) {
+        const board = tableOf(userId)?.board
+        if (!board || board.phase === 'finished') continue
+        if (board.legalCalls.length) await tableSend(userId, tableId, { type: 'call', call: 'P' })
+        else if (board.legalCards.length) await tableSend(userId, tableId, { type: 'play', card: board.legalCards[0] })
+        else continue
+        acted = true
+      }
+      if (acted) continue
+      const robot = queue.findIndex((job) => job.kind === 'robot')
+      if (robot >= 0) {
+        queue.splice(robot, 1)[0].run()
+        await tick()
+        continue
+      }
+      const deals = queue.filter((job) => job.kind === 'deal')
+      if (!deals.length) throw new Error('nothing left to run')
+      queue = queue.filter((job) => job.kind !== 'deal')
+      time += Math.max(0, ...deals.map((job) => job.ms))
+      for (const job of deals) job.run()
+      await tick()
+    }
+    throw new Error('did not get there')
+  }
+
+  const boardsPlayed = (tableId: string) => object(tableId).host.table?.boardsPlayed ?? 0
+
+  it('opens each room in its own object, dealing the same board, and keeps each player to their room', async () => {
+    const { amy, ben, id } = await ready()
+    await send(amy, { type: 'startMatch', matchId: id })
+    const { open, closed } = tablesOf(id)
+    expect(open).not.toBe(closed)
+    const [a, b] = [object(open).host.table!, object(closed).host.table!]
+    expect(a.board!.hands).toEqual(b.board!.hands)
+    expect([a.mode, b.mode]).toEqual(['team', 'team'])
+    expect(clubKeys('table:')).toEqual([])
+    expect(clubKeys('tabledir:').sort()).toEqual([`tabledir:${open}`, `tabledir:${closed}`].sort())
+    expect(lobby(amy).myTableId).toBe(open)
+    expect(lobby(ben).myTableId).toBe(closed)
+    // The other room's object turns a player away, and the club does too
+    await connectTable(ben, open)
+    expect(dismissed).toContainEqual({ tableId: open, userId: ben, code: TABLE_SOCKET_REFUSED })
+    await send(ben, { type: 'joinTable', tableId: open })
+    expect(last(ben, 'error')).toMatchObject({ code: 'matchOtherRoom' })
+    // Straight to the object, past the club: still no
+    expect(await object(open).host.join({ id: ben, username: 'ben', blocked: [] })).toMatchObject({ error: { code: 'matchOtherRoom' } })
+    // Their own rooms take them
+    await connectTable(amy, open)
+    await connectTable(ben, closed)
+    expect(tableOf(ben)!.match).toMatchObject({ id, room: 'closed', seq: 1, boards: 4 })
+    expect(Object.keys(tableOf(ben)!.board!.hands)).toEqual(['S'])
+    await tableSend(ben, closed, { type: 'undoRequest' })
+    expect(last(ben, 'error')).toMatchObject({ code: 'matchNoUndo' })
+  })
+
+  it('holds a board back until both rooms played it, then scores it, and finishes the match', async () => {
+    const { amy, ben, id } = await ready(4)
+    const cat = await member('cat')
+    await send(amy, { type: 'startMatch', matchId: id })
+    const { open, closed } = tablesOf(id)
+    await connectTable(amy, open)
+    await connectTable(ben, closed)
+
+    await playUntil([[amy, open]], () => boardsPlayed(open) === 1)
+    await tick()
+    const first = object(open).host.table!.recent![0]
+    expect(await club.record(first.id, ben)).toBeNull()
+    expect(await club.record(first.id, cat)).toBeNull()
+    expect(club.matches.get(id, amy)!.boards).toEqual([])
+    expect(object(open).host.table!.outbox).toBeUndefined()
+
+    await playUntil([[ben, closed]], () => boardsPlayed(closed) === 1)
+    await tick()
+    expect(await club.record(first.id, cat)).not.toBeNull()
+    expect(club.matches.get(id, cat)!.boards.map((b) => b.seq)).toEqual([1])
+    expect(last(ben, 'match')?.match?.boards).toHaveLength(1)
+
+    // Each room plays on at its own pace to the end; the room done first waits
+    await playUntil([[amy, open]], () => boardsPlayed(open) === 4)
+    await tick()
+    expect(tableOf(amy)!.match).toMatchObject({ played: 4, over: true })
+    expect(tableOf(amy)!.dealAt).toBeNull()
+    await playUntil([[ben, closed]], () => club.matches.get(id, amy)!.status === 'finished')
+    await tick()
+    const done = club.matches.get(id, cat)!
+    expect(done.boards).toHaveLength(4)
+    expect(lobby(cat).matches).toEqual([])
+    const team = await club.search(cat, { scope: 'all', sort: 'date_desc', page: 1, size: 50, mode: 'team' })
+    expect(team.boards).toHaveLength(8)
+    // The tables are ordinary now: a player leaving closes their room
+    await send(ben, { type: 'leaveTable' })
+    expect(object(closed).host.table).toBeNull()
+    expect(lobby(ben).myTableId).toBeNull()
+  })
+
+  it('closes the room that opened when the other cannot, and the match stays set up', async () => {
+    const { amy, id } = await ready()
+    failRoom = 'closed'
+    await send(amy, { type: 'startMatch', matchId: id })
+    expect(last(amy, 'error')).toMatchObject({ code: 'serverError' })
+    expect(club.matches.get(id, amy)!.status).toBe('setup')
+    expect(club.matches.store.get(id)!.tables).toBeUndefined()
+    expect(lobby(amy).myTableId).toBeNull()
+    expect(clubKeys('tabledir:')).toEqual([])
+    expect([...objects.values()].every((o) => o.host.table === null)).toBe(true)
+    // It starts once the object is back
+    failRoom = null
+    await send(amy, { type: 'startMatch', matchId: id })
+    expect(club.matches.get(id, amy)!.status).toBe('playing')
   })
 })
