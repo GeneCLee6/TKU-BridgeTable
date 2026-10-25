@@ -506,8 +506,8 @@ export class TableService implements TableApi {
   private hostTable(userId: string): Table {
     const table = this.table
     if (!table || !this.isAt(userId)) throw new ClubError('notAtTable')
-    if (table.hostId !== userId) throw new ClubError('hostOnly')
     this.checkFixed()
+    if (table.hostId !== userId) throw new ClubError('hostOnly')
     return table
   }
 

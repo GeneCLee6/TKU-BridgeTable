@@ -2148,6 +2148,7 @@ export class ClubService {
     if (!entry) throw new ClubError('notAtTable')
     if (entry.hostId !== userId) throw new ClubError('hostOnly')
     if (entry.mode === 'challenge') throw new ClubError('challengeTableFixed')
+    if (entry.mode === 'team') throw new ClubError('matchTableFixed')
     const settings = parseTableSettings(wanted)
     if (!settings) throw new ClubError('badTableSettings')
     const invited = this.checkInvitees(userId, invitees)
