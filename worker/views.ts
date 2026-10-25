@@ -29,6 +29,7 @@ import type {
   TablePractice,
   TableSettings,
 } from '../shared/protocol.ts'
+import { TABLE_REQUEST_MS } from '../shared/protocol.ts'
 import type { EventReport, PracticeTableState } from './modes.ts'
 import { isOpenChallenge, type ChallengeTraveller, type ChallengeView } from '../shared/challenge.ts'
 import type { DealSource } from '../shared/deal-source.ts'
@@ -71,8 +72,17 @@ export interface Table {
   dealSource?: DealSource
   /** How the host runs the table; tables saved before settings use DEFAULT_TABLE_SETTINGS */
   settings?: TableSettings
-  /** Members the host invited (`e2-t25`); at an invite table only they (and whoever is at it) may sit */
+  /** Members the host invited (`e2-t25`); at a hidden or request table they come in without asking */
   invited?: string[]
+  /** Members the host let in after they asked (a `request` table); kept while the table is open */
+  approved?: string[]
+  /**
+   * Members waiting for the host to answer their request to join, oldest first; gone after
+   * TABLE_REQUEST_MS. `muted`: the host blocked them, so the host never sees it (they are not told)
+   */
+  requests?: TableRequest[]
+  /** When the host last declined each member, for the cooldown before they may ask again */
+  declined?: Record<string, number>
   /** When the board on the table was dealt, for its time limit (`TableSettings.boardMinutes`) */
   boardStartedAt?: number
   /** When the table started waiting on the current call or card, for the reminder (SLOW_TURN_MS) */
@@ -90,6 +100,67 @@ export interface Table {
   blocks?: Record<string, string[]>
   /** Finished boards whose record the club has not taken yet; offered again until it does (§5.10) */
   outbox?: { record: BoardRecord; event: EventReport | null }[]
+}
+
+/** A member's request to join a table (`Table.requests`) */
+export interface TableRequest {
+  userId: string
+  at: number
+  muted?: boolean
+}
+
+/** Requests still waiting at `now` (TABLE_REQUEST_MS) */
+export const liveRequests = <R extends { at: number }>(requests: R[] | undefined, now: number): R[] =>
+  (requests ?? []).filter((r) => now - r.at < TABLE_REQUEST_MS)
+
+/** What the access rules need to know about a table: from the table itself or from the club's directory */
+export interface AccessFacts {
+  mode?: TableMode
+  hostId: string
+  settings: TableSettings
+  invited?: string[]
+  approved?: string[]
+}
+
+/**
+ * Whether the lobby lists a table for a member (the four access modes, ARCHITECTURE.md §5): never
+ * a challenge table (someone's own) nor a team match's (listed with the match); a hidden table
+ * only for its host, the invited and whoever is at it; every other table for everyone. `at`: the
+ * member is seated at it or watching
+ */
+export function tableListed(table: AccessFacts, userId: string, at: boolean): boolean {
+  // A team match's tables are listed with their match (`LobbyView.matches`, §5.8)
+  if (table.mode === 'challenge' || table.mode === 'team') return false
+  if (at || table.hostId === userId) return true
+  return table.settings.access !== 'hidden' || !!table.invited?.includes(userId)
+}
+
+/**
+ * Whether a member may come to a table (sit in an empty seat, or watch where watching is allowed)
+ * without asking: anyone at a public table; the invited and the approved at a request table; the
+ * invited at a hidden table; nobody new at a closed table. The host and whoever is already at the
+ * table always may. A host's block is checked by the club (it knows the blocks)
+ */
+export function mayEnter(table: AccessFacts, userId: string, at: boolean): boolean {
+  if (table.mode === 'challenge') return false
+  if (at || table.hostId === userId) return true
+  const invited = !!table.invited?.includes(userId)
+  switch (table.settings.access) {
+    case 'public':
+      return true
+    case 'request':
+      return invited || !!table.approved?.includes(userId)
+    case 'hidden':
+      return invited
+    case 'closed':
+      return false
+  }
+}
+
+/** Why a member may not come in (`mayEnter` is false): the error they get */
+export function refusal(table: AccessFacts, userId: string): 'tableGone' | 'requestFirst' | 'tableClosed' {
+  if (!tableListed(table, userId, false)) return 'tableGone'
+  return table.settings.access === 'request' ? 'requestFirst' : 'tableClosed'
 }
 
 /**

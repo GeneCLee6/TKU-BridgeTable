@@ -123,7 +123,8 @@ describe('practice tables', () => {
     expect(await t.refused(ben, { type: 'sit', tableId: practice, seat: 'N' })).toBe('tableGone')
     expect(t.club().lobbyView(ben).tables.map((x) => x.id)).not.toContain(practice)
     await t.playUntil([amy], () => t.played(practice) >= 1)
-    expect(noHiddenCards(amy)).toBeGreaterThan(5)
+    // A passed-out board sends only a few table messages; every one of them is still checked
+    expect(noHiddenCards(amy)).toBeGreaterThan(2)
     expect(JSON.stringify(inbox(ben))).not.toContain(practice)
     // Practice boards are never featured (they may have been dealt again)
     const board = t.tableState(practice)!.recent![0].id
@@ -145,7 +146,8 @@ describe('challenge tables', () => {
     // Nobody else comes near the table
     expect(await t.refused(ivy, { type: 'joinTable', tableId: table })).toBe('tableGone')
     await t.playUntil([gus], () => t.played(table) >= 1)
-    expect(noHiddenCards(gus)).toBeGreaterThan(5)
+    // A passed-out board sends only a few table messages; every one of them is still checked
+    expect(noHiddenCards(gus)).toBeGreaterThan(2)
     const board = t.tableState(table)!.recent![0].id
 
     expect(await exposure(gus, board, gus)).toMatchObject({ record: true, mine: true, favorite: true })

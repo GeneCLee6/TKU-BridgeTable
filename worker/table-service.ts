@@ -19,7 +19,7 @@ import {
 import { AppError } from '../shared/messages.ts'
 import {
   DEAL_COUNTDOWN_MS,
-  DEFAULT_TABLE_SETTINGS,
+  fixedSeats,
   isRobotId,
   isRobotKind,
   LAST_TRICK_MS,
@@ -30,6 +30,8 @@ import {
   soloTable,
   SUBSTITUTE_MS,
   summarize,
+  TABLE_REQUEST_COOLDOWN_MS,
+  tableSettingsFrom,
   type BoardRecord,
   type ClientMessage,
   type PublicUser,
@@ -49,7 +51,19 @@ import { challengeStateOf, challengeTableOpen, modeOf, nextTableSeq, type EventR
 import type { Scheduler } from './scheduler.ts'
 import { tableMatch, teamPaused, teamStateOf, teamTableOver } from './team-mode.ts'
 import type { ClubLink, MatchTableUpdate, Named, Person, TableApi, TableEntry, Tables } from './tables.ts'
-import { boardView, chatFor, practiceView, recordVisible, seatOccupants, type Table } from './views.ts'
+import {
+  boardView,
+  chatFor,
+  liveRequests,
+  mayEnter,
+  practiceView,
+  recordVisible,
+  refusal,
+  seatOccupants,
+  tableListed,
+  type AccessFacts,
+  type Table,
+} from './views.ts'
 
 /** Who is connected to the table; in one process the club's connections, in production the table's own sockets */
 export interface TableConnections {
@@ -96,11 +110,22 @@ interface RobotAnswer {
   meaning?: RobotBid['meaning']
 }
 
-/** A table's settings; a field saved by an older version (a robot level) is dropped */
+/**
+ * A table's settings, as saved by any version: an old `visibility` becomes its access mode
+ * (`public` stays, `invite` is hidden), a field since dropped (a robot level) goes (`tableSettingsFrom`)
+ */
 export function settingsOf(table: Pick<Table, 'settings'>): TableSettings {
-  const { visibility, allowKibitz, boardMinutes } = { ...DEFAULT_TABLE_SETTINGS, ...table.settings }
-  return { visibility, allowKibitz, boardMinutes }
+  return tableSettingsFrom(table.settings)
 }
+
+/** What the access rules (`mayEnter`, `tableListed`) need of a table */
+const accessFacts = (table: Table): AccessFacts => ({
+  mode: table.mode,
+  hostId: table.hostId,
+  settings: settingsOf(table),
+  invited: table.invited,
+  approved: table.approved,
+})
 
 export const robotUser = (id: string): PublicUser => ({ id, username: ROBOT_NAME, robot: true, robotKind: robotKindOf(id) })
 
@@ -191,6 +216,8 @@ export class TableService implements TableApi {
   }
 
   private load(table: Table) {
+    // Settings saved before the four access modes are brought up to date, and saved so with the next change
+    table.settings = settingsOf(table)
     this.table = table
     this.sent.clear()
     this.offlineSince.clear()
@@ -214,9 +241,9 @@ export class TableService implements TableApi {
   async join(person: Person): Promise<TableEntry> {
     const table = this.require()
     if (this.isAt(person.id)) return this.settled()!
-    // Someone else's challenge or practice table is not there for anyone to see
+    // Someone else's challenge table is not there for anyone to see
     if (soloTable(table.mode)) throw new ClubError('tableGone', {}, 404)
-    // A team match's player never watches the other room (§5.8)
+    // A team match's player never watches the other room (§5.8); anyone else may watch its tables
     if (this.otherRoom(person.id)) throw new ClubError('matchOtherRoom', {}, 403)
     const team = teamStateOf(table)
     if (team && !team.closed && team.players[team.room].includes(person.id)) {
@@ -228,7 +255,8 @@ export class TableService implements TableApi {
       }
       throw new ClubError('matchNoWatching', {}, 403)
     }
-    if (!settingsOf(table).allowKibitz) throw new ClubError('noKibitzing', {}, 403)
+    if (table.mode !== 'team') this.checkAccess(person.id)
+    if (!this.watchable(table)) throw new ClubError('noKibitzing', {}, 403)
     this.welcome(person)
     table.spectators.push(person.id)
     await this.save()
@@ -241,8 +269,9 @@ export class TableService implements TableApi {
     const here = this.isAt(userId)
     const currentSeat = here ? this.seatOf(userId) : null
     if (currentSeat === seat) return this.settled()!
-    if (soloTable(table.mode)) {
-      if (here) throw this.fixed()
+    if (fixedSeats(table.mode)) {
+      // Nobody else sits at a challenge or practice table; one they may not see is not there for them
+      if (here || (table.mode === 'practice' && tableListed(accessFacts(table), userId, false))) throw this.fixed()
       throw new ClubError('tableGone', {}, 404)
     }
     // The match seats its players; nobody else sits at its tables, nor moves (§5.8)
@@ -250,6 +279,7 @@ export class TableService implements TableApi {
       if (this.otherRoom(userId)) throw new ClubError('matchOtherRoom', {}, 403)
       throw new ClubError('matchTableFixed')
     }
+    if (!here) this.checkAccess(userId)
     // A person may take a robot's seat at any time, as on BBO
     const occupant = table.seats[seat]
     if (occupant && !isRobotId(occupant)) throw new ClubError('seatTaken')
@@ -297,11 +327,59 @@ export class TableService implements TableApi {
   }
 
   async configure(userId: string, settings: Partial<TableSettings>, invited?: Named[]): Promise<TableEntry> {
-    const table = this.hostTable(userId)
+    const table = this.table
+    if (!table || !this.isAt(userId)) throw new ClubError('notAtTable')
+    if (table.hostId !== userId) throw new ClubError('hostOnly')
+    if (soloTable(table.mode)) throw this.fixed()
+    if (table.mode === 'team') throw new ClubError('matchTableFixed')
+    // At a practice table only who may watch changes: it has no time limit, and watching is what coming in means
+    if (table.mode === 'practice' && (settings.allowKibitz !== undefined || settings.boardMinutes !== undefined))
+      throw this.fixed()
     table.settings = { ...settingsOf(table), ...settings }
+    // Requests wait only at a request table; whoever was let in before stays let in
+    if (table.settings.access !== 'request') table.requests = []
     if (invited) {
       table.invited = invited.map((member) => member.id)
       for (const member of invited) this.name(member)
+    }
+    await this.save()
+    return this.settled()!
+  }
+
+  async request(person: Person, muted: boolean): Promise<TableEntry> {
+    const table = this.require()
+    const userId = person.id
+    if (soloTable(table.mode) || table.mode === 'team') throw new ClubError('tableGone', {}, 404)
+    if (this.isAt(userId)) return this.settled()!
+    const facts = accessFacts(table)
+    if (!tableListed(facts, userId, false)) throw new ClubError('tableGone', {}, 404)
+    // Nothing to ask for: they may come in as it is
+    if (mayEnter(facts, userId, false)) return this.settled()!
+    if (facts.settings.access !== 'request') throw new ClubError('tableClosed', {}, 403)
+    const now = this.now()
+    const declined = table.declined?.[userId]
+    if (declined !== undefined && now - declined < TABLE_REQUEST_COOLDOWN_MS) throw new ClubError('requestCooldown', {}, 429)
+    const waiting = liveRequests(table.requests, now)
+    if (!waiting.some((r) => r.userId === userId)) waiting.push({ userId, at: now, ...(muted && { muted: true }) })
+    table.requests = waiting
+    this.name(person)
+    await this.save()
+    return this.settled()!
+  }
+
+  async answerRequest(hostId: string, userId: string, accept: boolean): Promise<TableEntry> {
+    const table = this.table
+    if (!table || !this.isAt(hostId)) throw new ClubError('notAtTable')
+    if (table.hostId !== hostId) throw new ClubError('hostOnly')
+    const now = this.now()
+    const waiting = liveRequests(table.requests, now)
+    if (!waiting.some((r) => r.userId === userId && !r.muted)) throw new ClubError('requestGone', {}, 404)
+    table.requests = waiting.filter((r) => r.userId !== userId)
+    if (accept) table.approved = [...(table.approved ?? []).filter((id) => id !== userId), userId]
+    else {
+      // Old refusals are forgotten once their cooldown is over
+      const kept = Object.entries(table.declined ?? {}).filter(([, at]) => now - at < TABLE_REQUEST_COOLDOWN_MS)
+      table.declined = { ...Object.fromEntries(kept), [userId]: now }
     }
     await this.save()
     return this.settled()!
@@ -386,6 +464,9 @@ export class TableService implements TableApi {
     // Invitations and robot substitutes for them are forgotten; the robot stays in the seat
     const seat = this.substituteSeat(userId)
     if (table.invited) table.invited = table.invited.filter((id) => id !== userId)
+    if (table.approved) table.approved = table.approved.filter((id) => id !== userId)
+    if (table.requests) table.requests = table.requests.filter((r) => r.userId !== userId)
+    if (table.declined) delete table.declined[userId]
     if (seat) delete table.substitutes![seat]
     if (table.names) delete table.names[userId]
     if (table.blocks) delete table.blocks[userId]
@@ -533,6 +614,22 @@ export class TableService implements TableApi {
     return SEATS.filter((s) => table.seats[s] && !isRobotId(table.seats[s])).length
   }
 
+  /**
+   * Whether a member may come to the table as its access mode says (`mayEnter`); the club has
+   * already checked the host's blocks. The same error as the club's when not
+   */
+  private checkAccess(userId: string) {
+    const facts = accessFacts(this.table!)
+    if (mayEnter(facts, userId, false)) return
+    const code = refusal(facts, userId)
+    throw new ClubError(code, {}, code === 'tableGone' ? 404 : 403)
+  }
+
+  /** Whether people without a seat may watch: as the host set it, and always at a practice table (watching is all there is to it) */
+  private watchable(table: Table): boolean {
+    return table.mode === 'practice' || settingsOf(table).allowKibitz
+  }
+
   /** Notes a member's name and blocks as they come to the table */
   private welcome(person: Person) {
     const table = this.table!
@@ -565,13 +662,13 @@ export class TableService implements TableApi {
   }
 
   /**
-   * At a challenge or practice table (`soloTable`) nobody else watches, and seats and settings stay
+   * At a challenge or practice table (`fixedSeats`) nobody else sits, and seats and settings stay
    * as they were opened (at a challenge table nobody takes back a call or card either); at a team
    * match table seats and settings are the match's (§5.8)
    */
   private checkFixed() {
     const mode = this.table!.mode
-    if (soloTable(mode)) throw this.fixed()
+    if (fixedSeats(mode)) throw this.fixed()
     if (mode === 'team') throw new ClubError('matchTableFixed')
   }
 
@@ -605,6 +702,8 @@ export class TableService implements TableApi {
    */
   private checkHost() {
     const table = this.table!
+    // A practice table stays its member's: it closes when they leave
+    if (table.mode === 'practice') return
     const online = this.connections.onlineUserIds()
     const people = [
       ...SEATS.map((s) => table.seats[s]).filter((id): id is string => !!id && !isRobotId(id)),
@@ -1106,7 +1205,8 @@ export class TableService implements TableApi {
       table,
       {
         id: randomId(8),
-        tableNumber: table.number,
+        // A practice board is named by its mode; its table's lobby number means nothing later
+        tableNumber: table.mode === 'practice' ? 0 : table.number,
         finishedAt: this.now(),
         players,
         board,
@@ -1282,10 +1382,13 @@ export class TableService implements TableApi {
     if (this.table) await this.store.save(this.table)
   }
 
-  /** Closes a table no person is sitting at or watching (robots do not keep it open) */
+  /**
+   * Closes a table no person is sitting at or watching (robots do not keep it open), and a practice
+   * table its member left (people watching it go with it)
+   */
   private async saveOrDrop(): Promise<TableEntry | null> {
     const table = this.table!
-    if (table.spectators.length === 0 && this.humansSeated() === 0 && !this.playsOn()) {
+    if ((table.spectators.length === 0 || table.mode === 'practice') && this.humansSeated() === 0 && !this.playsOn()) {
       await this.drop()
       return null
     }
@@ -1328,6 +1431,8 @@ export class TableService implements TableApi {
       mode: table.mode ?? 'casual',
       settings: settingsOf(table),
       invited: [...(table.invited ?? [])],
+      approved: [...(table.approved ?? [])],
+      requests: liveRequests(table.requests, this.now()).map(({ userId, at }) => ({ userId, at })),
       seats: { ...table.seats },
       spectators: [...table.spectators],
       substitutes: { ...table.substitutes },
@@ -1427,7 +1532,7 @@ export class TableService implements TableApi {
             rejectedClaim: table.rejectedClaim,
             auctionSeat: mySeat ? this.auctionSeat(table, mySeat) : undefined,
             undoAllowed: table.mode !== 'challenge' && table.mode !== 'team',
-            kibitz: settings.allowKibitz,
+            kibitz: this.watchable(table),
             robots: Object.fromEntries(SEATS.flatMap((s) => (table.seats[s] && isRobotId(table.seats[s]!) ? [[s, robotKindOf(table.seats[s]!)]] : []))),
           })
         : null,
@@ -1443,7 +1548,14 @@ export class TableService implements TableApi {
       ...(table.mode === 'team' && { match: tableMatch(table) }),
       ...(table.hostId === userId &&
         !soloTable(table.mode) &&
-        table.mode !== 'team' && { invited: (table.invited ?? []).flatMap((id) => this.publicUser(id) ?? []) }),
+        table.mode !== 'team' && {
+          invited: (table.invited ?? []).flatMap((id) => this.publicUser(id) ?? []),
+          // Requests from members the host blocked never reach them (`muted`)
+          requests: liveRequests(table.requests, this.now()).flatMap((r) => {
+            const user = !r.muted && this.publicUser(r.userId)
+            return user ? [{ user, at: r.at }] : []
+          }),
+        }),
       boardEndsAt:
         playing && settings.boardMinutes > 0 && !teamPaused(table)
           ? (table.boardStartedAt ?? table.createdAt) + settings.boardMinutes * 60_000
