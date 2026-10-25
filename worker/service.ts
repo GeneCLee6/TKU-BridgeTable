@@ -97,7 +97,7 @@ import { NotificationService } from './notifications.ts'
 import { Relations } from './relations.ts'
 import { AlarmQueue, manualScheduler, type JobKind, type Scheduler } from './scheduler.ts'
 import { LocalTables, ROBOT_NAME, robotUser, TableService, type TableConfig, type TableStore } from './table-service.ts'
-import type { ClubLink, Person, TableEntry } from './tables.ts'
+import type { ClubLink, Person, RemoteTables, TableEntry, Tables } from './tables.ts'
 import { nextWeeklyRun, WEEKLY_KEY, type WeeklyState } from './weekly-challenge.ts'
 import type { Store } from './store.ts'
 import { parseClientMessage } from '../shared/message-guard.ts'
@@ -191,12 +191,26 @@ export interface ClubConfig {
   thinkLimitMs?: number
   /** Where structured log entries go (`worker/log.ts`); nowhere unless given */
   log?: Logger
+  /**
+   * The tables in their own Durable Objects (`TableObject`, ARCHITECTURE.md §5.10). Without it they
+   * run in this object (`LocalTables`, kept as `table:<id>`), as in most tests
+   */
+  tableObjects?: RemoteTables
+  /**
+   * Keeps the tables in this object even though `tableObjects` is given, and brings back any that
+   * were moved out: the switch back (`TABLE_OBJECTS=off`, DEPLOY.md)
+   */
+  tablesInClub?: boolean
 }
 
 export type ScheduleKind = JobKind
 
 /** 2: history indexes in KV (`hist:`, `uhist:`); 3: the SQL history index as well */
 const SCHEMA = 3
+/** 4: every table in its own `TableObject`, the club keeping only its directory (`tabledir:`, §5.10) */
+const TABLES_SCHEMA = 4
+/** How soon a table that could not be moved is tried again */
+const MOVE_RETRY_MS = 60_000
 /** Boards indexed per step of the backfill; the position is saved after each step */
 const BACKFILL_BATCH = 100
 /** How many closed tables the club remembers, to drop their reports that arrive late (§5.10) */
@@ -228,8 +242,16 @@ export class ClubService {
   private readonly directory = new Map<string, TableEntry>()
   /** Tables that closed lately, so a report of theirs that arrives late is dropped */
   private readonly closedTables = new Set<string>()
-  /** The tables themselves, each running on its own (here in one process: `LocalTables`) */
-  readonly tables: LocalTables
+  /** The tables themselves, each running on its own: its own Durable Object, or `LocalTables` in this one */
+  readonly tables: Tables
+  /** The tables when they run in this object */
+  private readonly localTables?: LocalTables
+  /** The tables when each is its own Durable Object (§5.10); the directory is then kept as `tabledir:` */
+  private readonly remote?: RemoteTables
+  /** What the tables tell the club (`ClubLink`); a `TableObject` calls it over RPC through `Club` */
+  readonly link: ClubLink
+  /** Each member's actions, one at a time (§5.10): the end of the last one queued */
+  private readonly lanes = new Map<string, Promise<void>>()
   /** Club actions under way that may change several tables; the lobby goes out when they end */
   private busy = 0
   private settings: Partial<ClubSettings> = {}
@@ -316,12 +338,20 @@ export class ClubService {
       const wake = config.wake ?? ((at: number) => void setTimeout(() => void this.runDue(), Math.max(0, at - this.now())))
       this.scheduler = this.queue = new AlarmQueue(this.now, wake)
     }
-    // H1a (§5.10): the tables run in this same object, kept in its storage as `table:<id>`
     const link: ClubLink = {
       changed: (entry) => this.applyEntry(entry),
       closed: (tableId) => this.tableClosed(tableId),
       boardFinished: (record, event) => this.boardFinished(record, event),
     }
+    this.link = link
+    // Each table in its own Durable Object (H1b, §5.10), unless switched back into this one
+    if (config.tableObjects && !config.tablesInClub) {
+      this.tables = this.remote = config.tableObjects
+      // An object that answers it has no table: the directory had missed its closing
+      this.remote.onGone = (tableId) => this.tableClosed(tableId)
+      return
+    }
+    // In this same object, kept in its storage as `table:<id>` (H1a, and the tests)
     const tableStore: TableStore = {
       save: (table) => store.put(`table:${table.id}`, table),
       remove: (tableId) => store.delete(`table:${tableId}`),
@@ -333,7 +363,12 @@ export class ClubService {
       thinkLimitMs: config.thinkLimitMs,
       scheduler: this.scheduler,
     }
-    this.tables = new LocalTables((id) => new TableService(id, tableStore, connections, link, tableConfig))
+    this.tables = this.localTables = new LocalTables((id) => new TableService(id, tableStore, connections, link, tableConfig))
+  }
+
+  /** A table running in this object, while it is open (tests) */
+  localTable(tableId: string): TableService | undefined {
+    return this.localTables?.local(tableId)
   }
 
   /** Runs the robot moves and deals that are due (the Durable Object's alarm) */
@@ -356,18 +391,93 @@ export class ClubService {
     if (schema < 2) await this.migrate()
     if (schema < 3) await this.backfillIndex()
     await this.ensureAdmin()
-    // Each table takes its state back and schedules its own jobs (jobs are not stored)
     await this.batch(async () => {
-      for (const stored of (await this.store.list<Table>('table:')).values()) {
-        const table = this.upgradeTable(stored)
-        if (table !== stored) await this.store.put(`table:${table.id}`, table)
-        this.applyEntry(await this.tables.get(table.id).restore(table))
+      if (this.remote) {
+        // Each table runs in its own object and schedules its own jobs; the club only reads its directory
+        for (const entry of (await this.store.list<TableEntry>('tabledir:')).values()) this.directory.set(entry.id, entry)
+        await this.moveTablesOut()
+        return
       }
+      if (this.config.tableObjects) await this.bringTablesBack()
+      // Each table takes its state back and schedules its own jobs (jobs are not stored)
+      for (const stored of (await this.store.list<Table>('table:')).values()) await this.restoreLocal(stored)
     })
     // Jobs are not stored: each open challenge's reminder or deadline is scheduled again
     for (const id of this.challenges.openIds()) this.scheduleChallenge(id)
     this.weekly = (await this.store.get<WeeklyState>(WEEKLY_KEY)) ?? null
     this.scheduleWeekly()
+  }
+
+  /** A table kept in this object's storage takes its state back (brought up to date first) */
+  private async restoreLocal(stored: Table) {
+    const table = this.upgradeTable(stored)
+    if (table !== stored) await this.store.put(`table:${table.id}`, table)
+    this.applyEntry(await this.localTables!.get(table.id).restore(table))
+  }
+
+  /**
+   * Version 4 (H1b, ARCHITECTURE.md §5.10): every table kept in the club's storage (`table:<id>`)
+   * moves into its own `TableObject`. Per table: its object adopts it (saved there, its jobs
+   * scheduled), then its directory entry is written (`tabledir:<id>`), then `table:<id>` is
+   * deleted. So an object evicted halfway carries on where it stopped: a table adopted twice keeps
+   * what its object has, one that closed meanwhile is only dropped. A table whose object fails
+   * stays in `table:` and is tried again later; `meta:schema` becomes 4 once none is left
+   */
+  private async moveTablesOut() {
+    const remote = this.remote!
+    const stored = await this.store.list<Table>('table:')
+    let failed = 0
+    await Promise.all(
+      [...stored].map(async ([key, saved]) => {
+        try {
+          const table = this.upgradeTable(saved)
+          const entry = await remote.get(table.id).adopt(table)
+          if (entry) {
+            this.directory.set(entry.id, entry)
+            await this.store.put(`tabledir:${entry.id}`, entry)
+          }
+          await this.store.delete(key)
+        } catch (error) {
+          failed++
+          this.log(crashEntry('moveTablesOut', error))
+        }
+      }),
+    )
+    if (stored.size) this.log({ event: 'tablesMoved', to: 'objects', moved: stored.size - failed, failed })
+    if (failed) {
+      this.scheduler.add('migrate:tables', 'migrate', MOVE_RETRY_MS, async () => {
+        await this.batch(() => this.moveTablesOut())
+        this.broadcast()
+      })
+      return
+    }
+    if (((await this.store.get<number>('meta:schema')) ?? 1) < TABLES_SCHEMA) await this.store.put('meta:schema', TABLES_SCHEMA)
+  }
+
+  /**
+   * The switch back (`TABLE_OBJECTS=off`, DEPLOY.md): every table in its own object comes back to
+   * `table:<id>`, in the safe order the other way round: the object hands it over and keeps still,
+   * the club saves it (unless it already has its own copy, which is newer), the object forgets it,
+   * the directory entry goes. A table whose object fails stays there until the next load
+   */
+  private async bringTablesBack() {
+    const objects = this.config.tableObjects!
+    const entries = await this.store.list<TableEntry>('tabledir:')
+    let failed = 0
+    for (const key of entries.keys()) {
+      const tableId = key.slice('tabledir:'.length)
+      try {
+        const table = await objects.handOver(tableId)
+        if (table && !(await this.store.get(`table:${tableId}`))) await this.store.put(`table:${tableId}`, table)
+        await objects.release(tableId)
+        await this.store.delete(key)
+      } catch (error) {
+        failed++
+        this.log(crashEntry('bringTablesBack', error))
+      }
+    }
+    if (entries.size) this.log({ event: 'tablesMoved', to: 'club', moved: entries.size - failed, failed })
+    if (!failed && (await this.store.get<number>('meta:schema')) === TABLES_SCHEMA) await this.store.put('meta:schema', SCHEMA)
   }
 
   /** Version 1 kept history as `board:<time>-<id>` only; build the indexes from it */
@@ -987,9 +1097,10 @@ export class ClubService {
     // A new socket starts with nothing: send it everything
     this.sent.delete(userId)
     this.connections.send(userId, { type: 'welcome', me: this.me(user) })
-    // Their table sends them everything again, and stops waiting to seat a robot for them
+    // Their table sends them everything again, and stops waiting to seat a robot for them. A table
+    // in its own object hears it from its own connection instead (§5.10)
     const entry = this.entryOf(userId)
-    if (entry) void this.tables.get(entry.id).presence(userId, true)
+    if (entry && !this.remote) void this.tables.get(entry.id).presence(userId, true)
     void this.reclaimSeats(userId)
     this.broadcast()
     void this.pushNotifications(userId)
@@ -1088,9 +1199,10 @@ export class ClubService {
   async disconnected(userId: string) {
     this.sent.delete(userId)
     this.present.delete(userId)
-    // Their table decides: a spectator leaves, a seated player keeps the seat for a while (代打)
+    // Their table decides: a spectator leaves, a seated player keeps the seat for a while (代打).
+    // A table in its own object goes by its own connection instead (§5.10)
     const entry = this.entryOf(userId)
-    if (entry) {
+    if (entry && !this.remote) {
       const table = this.tables.get(entry.id)
       this.applyResult(entry.id, await this.batch(() => table.presence(userId, false)))
     }
@@ -1148,20 +1260,41 @@ export class ClubService {
   }
 
   async handle(userId: string, message: ClientMessage) {
-    const started = this.now()
-    const type = typeof message?.type === 'string' ? message.type : '?'
-    try {
-      await this.batch(() => this.dispatch(userId, message))
-    } catch (error) {
-      if (error instanceof AppError) {
-        this.log({ event: 'action', type, user: userId, ms: this.now() - started, code: error.code })
-        this.connections.send(userId, { type: 'error', code: error.code, params: error.params, message: error.message })
-        return
+    return this.inLane(userId, async () => {
+      const started = this.now()
+      const type = typeof message?.type === 'string' ? message.type : '?'
+      try {
+        await this.batch(() => this.dispatch(userId, message))
+      } catch (error) {
+        if (error instanceof AppError) {
+          this.log({ event: 'action', type, user: userId, ms: this.now() - started, code: error.code })
+          this.connections.send(userId, { type: 'error', code: error.code, params: error.params, message: error.message })
+          return
+        }
+        throw error
       }
-      throw error
-    }
-    this.broadcast()
-    this.log({ event: 'action', type, user: userId, ms: this.now() - started })
+      this.broadcast()
+      this.log({ event: 'action', type, user: userId, ms: this.now() - started })
+    })
+  }
+
+  /**
+   * Runs a member's actions one at a time (§5.10): while one waits on a table's answer (an RPC to
+   * its object), the next (from another tab, say) waits for it, so nobody sits at B while still
+   * being taken from A. A member with nothing under way starts at once
+   */
+  private inLane<T>(userId: string, run: () => Promise<T>): Promise<T> {
+    const previous = this.lanes.get(userId)
+    const result = previous ? previous.then(run) : run()
+    const done = result.then(
+      () => undefined,
+      () => undefined,
+    )
+    this.lanes.set(userId, done)
+    void done.then(() => {
+      if (this.lanes.get(userId) === done) this.lanes.delete(userId)
+    })
+    return result
   }
 
   /**
@@ -1464,7 +1597,11 @@ export class ClubService {
     const parsed = parseClientMessage(JSON.stringify(request))
     if ('error' in parsed) throw new ClubError(parsed.error)
     if (!this.actionLimit.take(userId)) throw new ClubError('slowDown', {}, 429)
-    const message = parsed.message as ChallengeRequest
+    // In the member's lane, as their socket messages are: cancelling closes tables
+    return this.inLane(userId, () => this.challengeAction(userId, parsed.message as ChallengeRequest))
+  }
+
+  private async challengeAction(userId: string, message: ChallengeRequest): Promise<ChallengeView | null> {
     let id: string
     if (message.type === 'createChallenge') {
       id = await this.createChallenge(userId, message.invitees, message.boards, message.settings, message.fromBoards)
@@ -1910,6 +2047,9 @@ export class ClubService {
     const known = this.directory.get(entry.id)
     if (known && known.rev >= entry.rev) return
     this.directory.set(entry.id, entry)
+    // Tables in their own objects: the directory is kept, so the lobby lists them after an eviction
+    // without waking every table
+    if (this.remote) void this.store.put(`tabledir:${entry.id}`, entry)
     if (!this.busy) this.broadcast()
   }
 
@@ -1924,6 +2064,7 @@ export class ClubService {
     this.closedTables.add(tableId)
     // Only the latest ids are needed to drop a late report
     if (this.closedTables.size > CLOSED_KEPT) this.closedTables.delete(this.closedTables.values().next().value!)
+    if (this.remote) void this.store.delete(`tabledir:${tableId}`)
     if (!this.directory.delete(tableId)) return
     if (!this.busy) this.broadcast()
   }

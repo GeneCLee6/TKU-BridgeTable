@@ -8,32 +8,36 @@ import {
   useState,
   type ReactNode,
 } from 'react'
-import type {
-  ClientMessage,
-  DirectMessage,
-  DirectsView,
-  LobbyView,
-  NotificationsView,
-  ServerMessage,
-  TableView,
-  TableWire,
+import {
+  isTableAction,
+  TABLE_SOCKET_PREFIX,
+  TABLE_SOCKET_REFUSED,
+  type ClientMessage,
+  type DirectMessage,
+  type DirectsView,
+  type LobbyView,
+  type NotificationsView,
+  type ServerMessage,
+  type TableView,
+  type TableWire,
 } from '../../shared/protocol.ts'
 import type { TeamMatchView } from '../../shared/team-match.ts'
 import type { MessageParams } from '../../shared/messages.ts'
+import { liveSocket, type ConnectionStatus, type LiveSocket } from '../lib/liveSocket.ts'
 import { useAuth } from './AuthContext.tsx'
 
 /**
- * The live connection to the club: one WebSocket per tab while signed in. The server pushes the
- * lobby and the viewer's table whenever they change for this viewer, so this context only stores
- * the latest of each (the table's chat and recent boards are kept when a push leaves them out).
- *
- * Phones drop idle connections without telling the page, and freeze tabs in the background. So
- * the page pings every few seconds and starts a new connection as soon as the old one has been
- * silent too long, when the tab comes back to the front, or when the network returns. Actions
- * made while it reconnects are sent once it is back, if they are still fresh.
+ * The live connections while signed in (ARCHITECTURE.md §5.10): one to the club (`/ws`: the lobby,
+ * notifications, messages, matches, and moving between tables) and, while the member is at a
+ * table, one to that table (`/ws/table/<id>`: its view, bidding, play and chat). The server pushes
+ * the lobby and the viewer's table whenever they change for this viewer, so this context only
+ * stores the latest of each (the table's chat and recent boards are kept when a push leaves them
+ * out). Both connections are kept alive alike (`src/lib/liveSocket.ts`). A table action goes over
+ * the table's connection when it is open, else over the club's, which hands it to the table.
+ * Actions made while reconnecting are sent once a connection is back, if they are still fresh.
  */
 
-export type ConnectionStatus = 'connecting' | 'open' | 'closed'
+export type { ConnectionStatus }
 
 interface Club {
   status: ConnectionStatus
@@ -54,11 +58,6 @@ interface Club {
 
 const ClubContext = createContext<Club | null>(null)
 
-/** How often the page checks the connection, and how long a silence means it is dead */
-const PING_EVERY = 15_000
-const SILENT_FOR = 40_000
-/** After the tab comes back, how long to wait for an answer to a ping */
-const WAKE_ANSWER = 4_000
 /** How many arrived direct messages the page keeps */
 const LIVE_KEPT = 200
 /** Actions made while reconnecting go out once the connection is back if they are this recent */
@@ -94,112 +93,44 @@ export function ClubProvider({ children }: { children: ReactNode }) {
   const [directLive, setDirectLive] = useState<DirectMessage[]>([])
   const [error, setError] = useState<Club['error']>(null)
   const [matchLive, setMatchLive] = useState<Club['matchLive']>(null)
-  const socket = useRef<WebSocket | null>(null)
+  const clubSocket = useRef<LiveSocket | null>(null)
+  const tableSocket = useRef<LiveSocket | null>(null)
   const waiting = useRef<{ message: ClientMessage; at: number }[]>([])
+  const myTableId = lobby?.myTableId ?? null
+
+  /** Every message from either connection */
+  const receive = useCallback((message: ServerMessage) => {
+    if (message.type === 'lobby') setLobby(message.lobby)
+    else if (message.type === 'table') setTable((previous) => mergeTable(previous, message.table, message.now))
+    else if (message.type === 'notifications') setNotifications(message.notifications)
+    else if (message.type === 'directs') setDirects(message.directs)
+    else if (message.type === 'direct') setDirectLive((live) => [...live, message.message].slice(-LIVE_KEPT))
+    else if (message.type === 'match') setMatchLive({ matchId: message.matchId, match: message.match })
+    else if (message.type === 'error') setError({ code: message.code, params: message.params, message: message.message, at: Date.now() })
+  }, [])
+
+  /** Sends what waited while reconnecting, if still fresh: the club takes everything, a table only its own actions */
+  const flush = useCallback((socket: LiveSocket, tableOnly: boolean) => {
+    const fresh = waiting.current.filter((w) => Date.now() - w.at < QUEUE_FOR)
+    waiting.current = fresh.filter(({ message }) => (tableOnly && !isTableAction(message)) || !socket.send(JSON.stringify(message)))
+  }, [])
 
   useEffect(() => {
     if (!user) return
-    let closed = false
-    let attempt = 0
-    let retry: ReturnType<typeof setTimeout> | undefined
-    let lastHeard = Date.now()
-
-    const flush = (ws: WebSocket) => {
-      const fresh = waiting.current.filter((w) => Date.now() - w.at < QUEUE_FOR)
-      waiting.current = []
-      for (const { message } of fresh) ws.send(JSON.stringify(message))
-    }
-
-    const connect = () => {
-      clearTimeout(retry)
-      setStatus('connecting')
-      const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
-      const ws = new WebSocket(`${protocol}//${location.host}/ws`)
-      socket.current = ws
-      ws.onopen = () => {
-        attempt = 0
-        lastHeard = Date.now()
-        setStatus('open')
-        flush(ws)
-      }
-      ws.onmessage = (event) => {
-        lastHeard = Date.now()
-        if (event.data === 'pong') return
-        const message = JSON.parse(event.data) as ServerMessage
-        if (message.type === 'lobby') setLobby(message.lobby)
-        else if (message.type === 'table') setTable((previous) => mergeTable(previous, message.table, message.now))
-        else if (message.type === 'notifications') setNotifications(message.notifications)
-        else if (message.type === 'directs') setDirects(message.directs)
-        else if (message.type === 'direct') setDirectLive((live) => [...live, message.message].slice(-LIVE_KEPT))
-        else if (message.type === 'match') setMatchLive({ matchId: message.matchId, match: message.match })
-        else if (message.type === 'error')
-          setError({ code: message.code, params: message.params, message: message.message, at: Date.now() })
-      }
-      ws.onclose = (event) => {
-        if (socket.current !== ws) return
-        socket.current = null
-        if (closed) return
-        setStatus('closed')
-        // A rejected upgrade means the session expired
-        if (event.code === 1006 && attempt > 3)
-          void fetch('/api/me').then((r) => {
-            if (r.status === 401) void logout()
-          })
-        retry = setTimeout(connect, Math.min(1000 * 2 ** attempt++, 10_000))
-      }
-    }
-
-    /** Gives up on the current socket (it has gone quiet) and connects again at once */
-    const reconnect = () => {
-      const old = socket.current
-      socket.current = null
-      if (old) {
-        old.onclose = null
-        old.onmessage = null
-        try {
-          old.close()
-        } catch {
-          // Already closed
-        }
-      }
-      attempt = 0
-      connect()
-    }
-
-    const heartbeat = setInterval(() => {
-      const ws = socket.current
-      if (!ws || ws.readyState !== WebSocket.OPEN) return
-      if (Date.now() - lastHeard > SILENT_FOR) return reconnect()
-      ws.send('ping')
-    }, PING_EVERY)
-
-    /** Back in front, or back online: make sure the connection still answers */
-    const wake = () => {
-      if (document.visibilityState === 'hidden' || closed) return
-      const ws = socket.current
-      if (!ws) return reconnect()
-      if (ws.readyState === WebSocket.CLOSING || ws.readyState === WebSocket.CLOSED) return reconnect()
-      if (ws.readyState !== WebSocket.OPEN) return
-      const asked = Date.now()
-      ws.send('ping')
-      setTimeout(() => {
-        if (socket.current === ws && lastHeard < asked) reconnect()
-      }, WAKE_ANSWER)
-    }
-    document.addEventListener('visibilitychange', wake)
-    window.addEventListener('online', wake)
-
-    connect()
-
+    const socket = liveSocket({
+      path: '/ws',
+      onMessage: receive,
+      onStatus: setStatus,
+      onOpen: () => flush(socket, false),
+      onRefused: () =>
+        void fetch('/api/me').then((r) => {
+          if (r.status === 401) void logout()
+        }),
+    })
+    clubSocket.current = socket
     return () => {
-      closed = true
-      clearTimeout(retry)
-      clearInterval(heartbeat)
-      document.removeEventListener('visibilitychange', wake)
-      window.removeEventListener('online', wake)
-      const ws = socket.current
-      socket.current = null
-      ws?.close()
+      clubSocket.current = null
+      socket.close()
       setLobby(null)
       setTable(null)
       setNotifications(null)
@@ -207,12 +138,30 @@ export function ClubProvider({ children }: { children: ReactNode }) {
       setDirectLive([])
       setMatchLive(null)
     }
-  }, [user, logout])
+  }, [user, logout, receive, flush])
+
+  // The table's own connection, while the lobby says the member is at a table; changing tables
+  // closes the old one. A table that turns the member away (they are not at it) is not tried again
+  useEffect(() => {
+    if (!user || !myTableId) return
+    const socket = liveSocket({
+      path: `${TABLE_SOCKET_PREFIX}${encodeURIComponent(myTableId)}`,
+      onMessage: receive,
+      onOpen: () => flush(socket, true),
+      stopOn: [TABLE_SOCKET_REFUSED],
+    })
+    tableSocket.current = socket
+    return () => {
+      if (tableSocket.current === socket) tableSocket.current = null
+      socket.close()
+    }
+  }, [user, myTableId, receive, flush])
 
   const send = useCallback((message: ClientMessage) => {
-    const ws = socket.current
-    if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify(message))
-    else waiting.current.push({ message, at: Date.now() })
+    const data = JSON.stringify(message)
+    if (isTableAction(message) && tableSocket.current?.send(data)) return
+    if (clubSocket.current?.send(data)) return
+    waiting.current.push({ message, at: Date.now() })
   }, [])
 
   const dismissError = useCallback(() => setError(null), [])

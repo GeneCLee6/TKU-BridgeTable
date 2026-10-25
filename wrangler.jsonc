@@ -6,13 +6,21 @@
   "observability": { "enabled": true },
   "assets": {
     "not_found_handling": "single-page-application",
-    "run_worker_first": ["/api/*", "/ws"]
+    "run_worker_first": ["/api/*", "/ws", "/ws/*"]
   },
   "durable_objects": {
-    "bindings": [{ "name": "CLUB", "class_name": "Club" }]
+    // The club, and one object per table (ARCHITECTURE.md §5.10)
+    "bindings": [
+      { "name": "CLUB", "class_name": "Club" },
+      { "name": "TABLE", "class_name": "TableObject" }
+    ]
   },
-  // The free plan only offers SQLite-backed Durable Objects
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Club"] }],
+  // The free plan only offers SQLite-backed Durable Objects. v2 adds the tables' objects (H1b);
+  // migrations only ever add: never edit or remove one that was deployed (DEPLOY.md)
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["Club"] },
+    { "tag": "v2", "new_sqlite_classes": ["TableObject"] }
+  ],
   "vars": {
     // Account cap for the club; INVITE_CODE is a secret (wrangler secret put INVITE_CODE)
     "MAX_USERS": "10"
@@ -27,7 +35,10 @@
     "staging": {
       "name": "tku-bridge-table-staging",
       "durable_objects": {
-        "bindings": [{ "name": "CLUB", "class_name": "Club" }]
+        "bindings": [
+          { "name": "CLUB", "class_name": "Club" },
+          { "name": "TABLE", "class_name": "TableObject" }
+        ]
       },
       "vars": { "MAX_USERS": "30" }
     },
@@ -36,7 +47,10 @@
     "preview": {
       "name": "tku-bridge-table-preview",
       "durable_objects": {
-        "bindings": [{ "name": "CLUB", "class_name": "Club" }]
+        "bindings": [
+          { "name": "CLUB", "class_name": "Club" },
+          { "name": "TABLE", "class_name": "TableObject" }
+        ]
       },
       "vars": { "MAX_USERS": "30" }
     }

@@ -149,7 +149,7 @@ PR 關閉時預覽會自動刪除。若有漏掉的（例如當時還沒設定 s
 
 - **日誌**：Cloudflare Dashboard → Workers & Pages → `tku-bridge-table` → Logs（`wrangler.jsonc` 已開 `observability`），或本機 `npx wrangler tail`。每行是一個 JSON 事件（`ARCHITECTURE.md` §5.6）：用 `event` 篩選，`action`／`http` 看動作與耗時、`code` 看錯誤代碼、`level = error` 看伺服器的例外（`crash`）與瀏覽器回報的錯誤（`clientError`）
 - **健康檢查**：`https://<網域>/api/health` 回 `{"ok":true,...}` 表示 Worker 與資料都正常，可以接外部監控
-- **速率限制**：密碼錯太多次（同一 IP 對同一帳號 5 次，或同一 IP 20 次）要等 15 分鐘；社員說「登不進去、說密碼錯誤太多次」時，等 15 分鐘或換網路即可，管理員也可以直接重設他的密碼。打牌動作每秒超過 10 個、聊天每 2 秒超過 1 句會被擋下並提示
+- **速率限制**：密碼錯太多次（同一 IP 對同一帳號 5 次，或同一 IP 20 次）要等 15 分鐘；社員說「登不進去、說密碼錯誤太多次」時，等 15 分鐘或換網路即可，管理員也可以直接重設他的密碼。打牌動作每秒超過 10 個、聊天每 2 秒超過 1 句會被擋下並提示（社團的連線與每一桌的連線各算各的）
 
 ## 4.1 部署順序（與淡江橋譜一起改版時）
 
@@ -160,6 +160,29 @@ AI 匯入的費用：每次分析用 `claude-opus-5-5`，一份幾頁的講義�
 ## 4.2 資料存在哪
 
 所有資料（帳號、待審核的申請、密碼雜湊、牌桌、牌局紀錄、淡江橋譜的線上內容與版本紀錄）都在 Cloudflare 上這個 Worker 的 Durable Object（SQLite 儲存），不在你的電腦或 GitHub。密碼只存 PBKDF2 雜湊，管理員也看不到原文。需要直接查看時：Cloudflare Dashboard → Workers & Pages → `tku-bridge-table` → Durable Objects。
+
+## 4.3 每桌一個 Durable Object（H1b，`e11-t17`）
+
+從這一版起，每張牌桌在自己的 Durable Object（`TableObject`）裡跑，社團的物件（`Club`）只留牌桌目錄（`ARCHITECTURE.md` §5.10）。`wrangler.jsonc` 多了 `TABLE` binding 與 migration `v2`（`new_sqlite_classes: ["TableObject"]`）；staging 與 PR 預覽的 `env` 也各加了 `TABLE` binding（binding 不會繼承，migration 共用）。
+
+**部署步驟**（照一般流程，不需要手動執行 migration）：
+
+1. 挑沒有人在打牌的時候合併 PR（打到一半也不會遺失，但每個人都會斷線重連一次）。合併後 CI 綠了自動部署；手動部署是 `npm run deploy`。`wrangler deploy` 會順便套用 migration `v2`。
+2. 部署完，社團的物件第一次載入時把舊的 `table:<id>` 一桌一桌搬進各自的物件（`meta:schema` 3 → 4），寫 `tabledir:<id>`、刪 `table:<id>`。中途被回收或某一桌失敗都沒關係：留在 `table:` 的下次（失敗的 60 秒後）再搬，重做不會重複。
+3. 檢查：
+   - `https://<網域>/api/health` 回 `{"ok":true,...}`，`tables` 是目前的桌數。
+   - `npx wrangler tail` 或 Dashboard 的 Logs 搜尋 `tablesMoved`：應該看到 `{"event":"tablesMoved","to":"objects","moved":N,"failed":0}`（沒有舊牌桌就不會有這一行）；`failed` 不是 0 時看同一時間的 `crash`（`where: "moveTablesOut"`）。
+   - Dashboard → Workers & Pages → `tku-bridge-table` → Durable Objects 應該多了 `TableObject`。
+   - 開一桌、放三個機器人打一副：瀏覽器開發者工具的 Network → WS 會有 `/ws` 與 `/ws/table/<桌 id>` 兩條連線；打完那副出現在紀錄裡。
+4. **部署前就開著的分頁請重新整理**：舊的頁面只有 `/ws` 一條連線，它的牌桌動作社團會轉給牌桌（照樣能叫牌出牌），但收不到牌桌的畫面更新。
+
+**出問題時（切回去）**：Durable Object 的 migration 部署後就不能撤銷，`wrangler rollback` 回 v2 之前的版本可能被 Cloudflare 拒絕，舊程式也看不到已經搬進 `TableObject` 的牌桌。所以這一版內建開關：
+
+```bash
+npx wrangler deploy --var TABLE_OBJECTS:off   # 牌桌搬回社團的物件，其他不變
+```
+
+社團的物件重新載入時，把每一桌從它的 `TableObject` 拿回來（那一桌先停住，不再存檔、推送或讓機器人出牌），存回 `table:<id>`、清掉那個物件、刪 `tabledir:<id>`，`meta:schema` 回到 3，之後的行為和 H1a 一樣（瀏覽器連 `/ws/table/<id>` 會被拒絕，自動改走 `/ws`）。要一直維持關閉，就把 `"TABLE_OBJECTS": "off"` 加進 `wrangler.jsonc` 的 `vars` 開 PR（否則下一次 CI 部署會再打開）；拿掉這個值再部署，牌桌會再搬出去。**不要**刪掉 `TableObject` 類別或 migration `v2`：Cloudflare 會拒絕部署，要刪得另外加一個 `deleted_classes` 的 migration（會連資料一起刪）。
 
 ## 5. 費用與限制
 
