@@ -61,14 +61,18 @@
   - **G9**（#92）螢幕閱讀器（牌桌 `aria-live`）、五步新手導覽、平板版面、視覺回歸（Playwright，CI 的 `visual` job，基準在 `tests/visual/__screenshots__/`）、六種語言校對；姊妹站介面名稱改「淡江橋館／TKU BridgeHall」。**E3 全部完成。** 待母語社員確認的翻譯列在 #92。
   - **G3**（#94）開叫者再叫、答叫者再叫（`tku/responder.ts`）、2♣ 體系（`tku/twoclubs.ts`）；題庫 139/139（main 94/139），淡江評測 +0.05 ± 0.03 IMP／副。範圍調整見 `ROBOT.md` §2「待社團確認」。
   - **H1a**（#93）多桌併發的第一步：決策紀錄 `ARCHITECTURE.md` §5.10、每桌邏輯抽成 `TableService`（`worker/table-service.ts`、`worker/tables.ts`），一副打完先進 `outbox` 再交給社團。行為不變、不用改部署。
+- **2026-10-25 第五輪**：
+  - **#96** 社長確認：CLAUDE.md 規則 4 加上 `TableService`；G2、G3 叫牌數字照現行；越日韓文沒有社員能校對，維持 AI 翻譯。
+  - **G11 部分**（#97）PR 預覽（每個 PR 一個獨立 Worker）與 staging（`env.staging`，main 的 CI 過了自動部署）；需要的 GitHub secret 見 `DEPLOY.md` §2.1。主 session 補了：staging 只在「推到本 repo main」的 CI 之後部署（fork 的 `main` 分支不能拿到金鑰）。
+  - **H1b**（#98）每桌一個 `TableObject`（`worker/table-object.ts`、`table-host.ts`、`routing.ts`、`RemoteTables`），`/ws/table/<id>` 第二條連線，`table:` 搬移 schema 3→4。**還沒部署到正式站**：部署時機由社長決定，步驟與檢查、退回開關 `TABLE_OBJECTS=off` 見 `DEPLOY.md` §4.3（migration v2 部署後不能撤銷）。
+  - **G4**（#99）蓋叫、平衡位置、對抗 1NT／阻擊、蓋叫與賭倍之後的答叫、競叫高度（總墩數、犧牲、處罰賭倍）；題庫新類別 `competitive` 50/50，淡江評測 +0.34 ± 0.05 IMP／副。模糊處寫在 `ROBOT.md` §2。
+  - **#89**（另一個 session 的淡江橋館每日備份到 R2）已跟上 main、CI 綠；合併前要先在 Cloudflare 建 R2 bucket `tku-bridge-backups`，否則下一次正式部署會失敗。staging／preview 不備份。
+  - 正式站的自動部署目前沒有在跑：GitHub 只有 `CLOUDFLARE_ACCOUNT_ID`，沒有 `CLOUDFLARE_API_TOKEN`，`deploy.yml` 一律跳過。
 - **下一步（從這裡接）**：
-  1. **H1b**（`e11-t17`）：真的把牌桌搬進 `TableObject` Durable Object——RPC、`DurableTables`、`tabledir:`、`table:` 搬移（schema 3→4）、`/ws/table/<id>`、前端第二條連線、桌連線的驗證與速率限制、`wrangler.jsonc` binding＋migration v2、每人跨桌動作排隊。清單在 §5.10 與 #93。**單獨做**，跟 F4 會撞。
-  2. **F4**（隊制賽開始、兩桌推進），建在 H1b 之上（§5.10 有寫兩桌怎麼開）。
-  3. 可以和 H1b 平行的：G4（蓋叫、競叫）、G10 已完成、G11 的備份另一個 session 在做（`feat/daily-backup`）。
+  1. **F4**（隊制賽開始、兩桌推進），建在 H1b 之上（§5.10 有寫兩桌怎麼開）；之後 F5、G11 的 `e11-t13`。
+  2. **G5**（滿貫、J2N 後報牌型、Bergen／splinter 後、規則改用調整牌值），可以和 F4 平行。
+  3. **H2**（`EventObject`、邊緣 session 驗證、紀錄索引搬 D1）、**H3**（負載測試 200 人 30 桌、儀表板），F4 之後。
   4. 已知：`service.test.ts` 的「think limit」測試整套一起跑時偶爾失敗（計時），單獨跑都過。
-  5. CLAUDE.md 硬性規則 4 已加上 `TableService`（社長 2026-10-25 同意）。
-  6. G2、G3 叫牌的點數調整，社長 2026-10-25 確認照現行版本。
-  7. 越、日、韓文沒有社員能校對：維持 AI 翻譯與 #92 的校對結果，不再列為待確認。
 
 ## 2. 建議順序
 
