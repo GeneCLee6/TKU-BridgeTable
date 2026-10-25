@@ -1,9 +1,10 @@
-import { Eye, EyeOff, Lock, Plus } from 'lucide-react'
+import { Eye, EyeOff, Lock, Plus, Timer, UserPlus, Zap } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Link, Navigate, useNavigate } from 'react-router-dom'
 import styled from 'styled-components'
 import type { Seat } from '../../shared/cards.ts'
 import type { ChallengeView } from '../../shared/challenge.ts'
+import { missingSeats } from '../../shared/lobby.ts'
 import type { TableSummary } from '../../shared/protocol.ts'
 import { api } from '../lib/api.ts'
 import { playable } from '../lib/challenges.ts'
@@ -138,8 +139,17 @@ const Tag = styled.span`
 
 const SEAT_ORDER: Seat[] = ['N', 'W', 'E', 'S']
 
+const Actions = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+`
+
 function TableTile({ table, onSit, onWatch }: { table: TableSummary; onSit: (seat: Seat) => void; onWatch: () => void }) {
   const t = useT()
+  const missing = missingSeats(table)
+  // An invite table is shown to everyone, but only the invited may sit or watch (AC-2.9)
+  const canWatch = table.welcome && table.settings.allowKibitz
   return (
     <Card>
       <TileHead>
@@ -148,8 +158,14 @@ function TableTile({ table, onSit, onWatch }: { table: TableSummary; onSit: (sea
           {t.host}：{table.hostName}
         </Muted>
       </TileHead>
-      {(table.settings.visibility === 'invite' || !table.settings.allowKibitz) && (
+      {(missing > 0 || table.settings.visibility === 'invite' || !table.settings.allowKibitz || table.settings.boardMinutes > 0) && (
         <Tags>
+          {missing > 0 && (
+            <Tag>
+              <UserPlus size={14} aria-hidden />
+              {t.missingSeats(missing)}
+            </Tag>
+          )}
           {table.settings.visibility === 'invite' && (
             <Tag>
               <Lock size={14} aria-hidden />
@@ -160,6 +176,12 @@ function TableTile({ table, onSit, onWatch }: { table: TableSummary; onSit: (sea
             <Tag>
               <EyeOff size={14} aria-hidden />
               {t.noKibitz}
+            </Tag>
+          )}
+          {table.settings.boardMinutes > 0 && (
+            <Tag>
+              <Timer size={14} aria-hidden />
+              {t.boardMinutesOption(table.settings.boardMinutes)}
             </Tag>
           )}
         </Tags>
@@ -173,7 +195,7 @@ function TableTile({ table, onSit, onWatch }: { table: TableSummary; onSit: (sea
               type="button"
               $area={seat}
               $taken={!!occupant}
-              disabled={!!occupant}
+              disabled={!!occupant || !table.welcome}
               onClick={() => onSit(seat)}
               aria-label={occupant ? `${seatLetter[seat]} ${playerName(t, occupant)}` : `${t.sit} ${seatLetter[seat]}`}
             >
@@ -187,7 +209,7 @@ function TableTile({ table, onSit, onWatch }: { table: TableSummary; onSit: (sea
         <Muted>
           {t.boardsPlayed(table.boardsPlayed)} · {t.spectators(table.spectators)}
         </Muted>
-        <Button type="button" $small onClick={onWatch}>
+        <Button type="button" $small onClick={onWatch} disabled={!canWatch}>
           <Eye size={16} aria-hidden />
           {t.watch}
         </Button>
@@ -278,6 +300,7 @@ function MyChallenges({ refresh, onPlay }: { refresh: unknown; onPlay: (id: stri
 export function LobbyPage() {
   const t = useT()
   const { lobby, send, status } = useClub()
+  const { user } = useAuth()
   const navigate = useNavigate()
   // After creating a table or taking a seat, follow the server to the table it puts us at
   const [follow, setFollow] = useState<{ to?: string; from: string | null } | null>(null)
@@ -294,24 +317,33 @@ export function LobbyPage() {
       <PageMain>
         <Toolbar>
           <PageTitle>{t.lobbyTitle}</PageTitle>
-          <Button
-            type="button"
-            $variant="primary"
-            onClick={() => setOpening(true)}
-          >
-            <Plus size={18} aria-hidden />
-            {t.newTable}
-          </Button>
+          <Actions>
+            <Button
+              type="button"
+              onClick={() => {
+                setFollow({ from: lobby.myTableId })
+                send({ type: 'quickSeat' })
+              }}
+            >
+              <Zap size={18} aria-hidden />
+              {t.quickSeat}
+            </Button>
+            <Button type="button" $variant="primary" onClick={() => setOpening(true)}>
+              <Plus size={18} aria-hidden />
+              {t.newTable}
+            </Button>
+          </Actions>
         </Toolbar>
         {opening && (
           <TableSettingsDialog
             title={t.newTable}
             submitLabel={t.openTable}
+            members={lobby.members.filter((m) => m.id !== user?.id && !lobby.blocked.includes(m.id))}
             onClose={() => setOpening(false)}
-            onSubmit={(settings) => {
+            onSubmit={(settings, invitees) => {
               setOpening(false)
               setFollow({ from: lobby.myTableId })
-              send({ type: 'createTable', settings })
+              send({ type: 'createTable', settings, ...(invitees.length > 0 && { invitees }) })
             }}
           />
         )}

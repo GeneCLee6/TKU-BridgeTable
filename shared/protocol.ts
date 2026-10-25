@@ -56,6 +56,8 @@ export type RegisterResult = { user: Me } | { pending: true; username: string }
 
 export interface SeatOccupant extends PublicUser {
   online: boolean
+  /** A robot sitting in for a member who dropped offline (代打, `e2-t31`): their name; they get the seat back on returning */
+  substituteFor?: string
 }
 
 /**
@@ -94,23 +96,34 @@ export interface ChatMessage {
  */
 export const TABLE_VISIBILITIES = ['public', 'invite'] as const
 export type TableVisibility = (typeof TABLE_VISIBILITIES)[number]
+/** The time limits a host may set for each board, in minutes (AC-2.10); 0 is none */
+export const BOARD_TIME_LIMITS = [0, 5, 7, 10, 15] as const
 export interface TableSettings {
   visibility: TableVisibility
   allowKibitz: boolean
+  /** Minutes each board may take, one of BOARD_TIME_LIMITS; 0 is no limit */
+  boardMinutes: number
 }
-export const DEFAULT_TABLE_SETTINGS: TableSettings = { visibility: 'public', allowKibitz: true }
+export const DEFAULT_TABLE_SETTINGS: TableSettings = { visibility: 'public', allowKibitz: true, boardMinutes: 0 }
+
+/** After this long on one call or card a player is reminded, and the host may seat a robot instead (AC-2.10) */
+export const SLOW_TURN_MS = 60_000
+/** A seated member offline this long is replaced by a robot until they come back (代打, AC-2.13) */
+export const SUBSTITUTE_MS = 3 * 60_000
 
 /** Checks settings from the browser: every field optional, nothing else allowed; null when invalid */
 export function parseTableSettings(value: unknown): Partial<TableSettings> | null {
   if (value === undefined) return {}
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
-  const { visibility, allowKibitz, ...rest } = value as Record<string, unknown>
+  const { visibility, allowKibitz, boardMinutes, ...rest } = value as Record<string, unknown>
   if (Object.keys(rest).length) return null
   if (visibility !== undefined && !TABLE_VISIBILITIES.includes(visibility as TableVisibility)) return null
   if (allowKibitz !== undefined && typeof allowKibitz !== 'boolean') return null
+  if (boardMinutes !== undefined && !(BOARD_TIME_LIMITS as readonly unknown[]).includes(boardMinutes)) return null
   return {
     ...(visibility !== undefined && { visibility: visibility as TableVisibility }),
     ...(allowKibitz !== undefined && { allowKibitz }),
+    ...(boardMinutes !== undefined && { boardMinutes: boardMinutes as number }),
   }
 }
 
@@ -138,6 +151,8 @@ export interface TableSummary {
   number: number
   hostName: string
   settings: TableSettings
+  /** Whether the viewer may sit here: every member at a public table, the invited ones at an invite table */
+  welcome: boolean
   seats: Record<Seat, SeatOccupant | null>
   spectators: number
   boardsPlayed: number
@@ -201,6 +216,15 @@ export interface TableView {
    * no undo, and seats and settings do not change there
    */
   challenge?: TableChallenge
+  /** The host only: the members invited to the table (`e2-t25`) */
+  invited?: PublicUser[]
+  /** When the board's time limit runs out (server clock, ms), while a board is played at a table with one */
+  boardEndsAt: number | null
+  /**
+   * The seat the table is waiting on (a call or card from a person) and since when (server clock),
+   * for the reminder after SLOW_TURN_MS; null when nobody is waited on
+   */
+  waiting: { seat: Seat; since: number } | null
 }
 
 /**
@@ -250,6 +274,7 @@ export const NOTIFICATION_KINDS = [
   'challengeReminder',
   'challengeResults',
   'friendOnline',
+  'tableInvited',
 ] as const
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number]
 
@@ -262,7 +287,8 @@ export interface Notification {
    * { challengeId, username } of who invited, accepted, declined or cancelled; the reminder 12 hours
    * before the deadline and the results (`challengeReminder`, `challengeResults`) carry
    * { challengeId } and are sent by the deadline job (`e7-t13`). `friendOnline`: { username } of
-   * a member the viewer follows who just came online (e1-t24)
+   * a member the viewer follows who just came online (e1-t24). `tableInvited`: { tableId, number,
+   * username } of the table and the host who invited (`e2-t25`)
    */
   params: Record<string, string | number>
   read: boolean
@@ -315,9 +341,12 @@ export const DIRECT_PAGE_SIZE = 30
 export const DIRECT_CONVERSATIONS_SHOWN = 50
 
 export type ClientMessage =
-  | { type: 'createTable'; settings?: Partial<TableSettings> }
-  /** The host changes how the table is run */
-  | { type: 'updateTableSettings'; settings: Partial<TableSettings> }
+  /** `invitees`: the members invited to the table (they are told), at most LIMITS.tableInvitesMax */
+  | { type: 'createTable'; settings?: Partial<TableSettings>; invitees?: string[] }
+  /** The host changes how the table is run; `invitees`, when sent, replaces the invitation list */
+  | { type: 'updateTableSettings'; settings: Partial<TableSettings>; invitees?: string[] }
+  /** Sits at the public table that most needs a player, or opens one when none does (快速入座) */
+  | { type: 'quickSeat' }
   | { type: 'joinTable'; tableId: string }
   | { type: 'sit'; tableId: string; seat: Seat }
   | { type: 'stand' }
@@ -327,6 +356,8 @@ export type ClientMessage =
   /** TKB in the club's system unless `kind` says otherwise */
   | { type: 'addRobot'; seat: Seat; kind?: RobotKind }
   | { type: 'removeRobot'; seat: Seat }
+  /** The host asks a player who has kept the table waiting SLOW_TURN_MS to leave, and seats TKB there */
+  | { type: 'replaceWithRobot'; seat: Seat; kind?: RobotKind }
   | { type: 'call'; call: Call; alert?: string }
   | { type: 'play'; card: Card }
   | { type: 'claim'; tricks: number }
@@ -382,6 +413,8 @@ export interface BoardRecord {
    * everyone when absent. `worker/views.ts` has the rule
    */
   revealAt?: number
+  /** Seats where a robot played for a member who was offline (代打) during the board, and for whom */
+  substitutes?: Partial<Record<Seat, PublicUser>>
 }
 
 export interface BoardSummary {
@@ -460,6 +493,7 @@ export const LIMITS = {
   alertMax: 200,
   maxUsersMin: 2,
   maxUsersMax: 100,
+  tableInvitesMax: 30,
   historyPageDefault: 20,
 }
 

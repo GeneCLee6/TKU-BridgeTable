@@ -1,10 +1,19 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import styled from 'styled-components'
-import { DEFAULT_TABLE_SETTINGS, TABLE_VISIBILITIES, type TableSettings } from '../../shared/protocol.ts'
+import {
+  BOARD_TIME_LIMITS,
+  DEFAULT_TABLE_SETTINGS,
+  TABLE_VISIBILITIES,
+  type PublicUser,
+  type TableSettings,
+} from '../../shared/protocol.ts'
 import { useT } from '../state/PreferencesContext.tsx'
 import { Button, Card, Muted } from './ui.tsx'
 
-/** How a table is run (AC-2.9): asked when opening a table, and again from the host's settings button */
+/**
+ * How a table is run (AC-2.9, AC-2.10): asked when opening a table, and again from the host's
+ * settings button. An invite table also lists the members to invite (`e2-t25`)
+ */
 
 const Backdrop = styled.div`
   position: fixed;
@@ -61,6 +70,35 @@ const Choice = styled.label`
   & > p { grid-column: 2; }
 `
 
+const Select = styled.select`
+  justify-self: start;
+  min-height: 36px;
+  padding: 0 10px;
+  border-radius: ${({ theme }) => theme.radius.sm};
+  border: 1px solid ${({ theme }) => theme.colors.border};
+  background: ${({ theme }) => theme.colors.surface};
+  color: ${({ theme }) => theme.colors.text};
+  font: inherit;
+`
+
+const Invitees = styled.ul`
+  display: grid;
+  gap: 4px;
+  max-height: 180px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+
+  & label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 2px;
+    cursor: pointer;
+  }
+`
+
 const Buttons = styled.div`
   display: flex;
   justify-content: flex-end;
@@ -71,18 +109,27 @@ export function TableSettingsDialog({
   title,
   submitLabel,
   initial = DEFAULT_TABLE_SETTINGS,
+  members = [],
+  invited = [],
   onSubmit,
   onClose,
 }: {
   title: string
   submitLabel: string
   initial?: TableSettings
-  onSubmit: (settings: TableSettings) => void
+  /** The members who may be invited (everyone but the host) */
+  members?: PublicUser[]
+  /** Who is invited already */
+  invited?: string[]
+  /** The settings, and the invitation list (empty unless the table is invite only) */
+  onSubmit: (settings: TableSettings, invitees: string[]) => void
   onClose: () => void
 }) {
   const t = useT()
   const titleId = useId()
+  const timeId = useId()
   const [settings, setSettings] = useState(initial)
+  const [invitees, setInvitees] = useState(invited)
   const first = useRef<HTMLInputElement>(null)
 
   // Focus once on opening; the table re-renders on every move and must not steal it back
@@ -103,7 +150,7 @@ export function TableSettingsDialog({
         <form
           onSubmit={(event) => {
             event.preventDefault()
-            onSubmit(settings)
+            onSubmit(settings, settings.visibility === 'invite' ? invitees : [])
           }}
         >
           <Group>
@@ -122,6 +169,32 @@ export function TableSettingsDialog({
               </Choice>
             ))}
           </Group>
+          {settings.visibility === 'invite' && (
+            <Group>
+              <legend>{t.invitees}</legend>
+              <Muted>{t.inviteesHint}</Muted>
+              {members.length ? (
+                <Invitees>
+                  {members.map((m) => (
+                    <li key={m.id}>
+                      <label>
+                        <input
+                          type="checkbox"
+                          checked={invitees.includes(m.id)}
+                          onChange={(event) =>
+                            setInvitees(event.target.checked ? [...invitees, m.id] : invitees.filter((id) => id !== m.id))
+                          }
+                        />
+                        {m.username}
+                      </label>
+                    </li>
+                  ))}
+                </Invitees>
+              ) : (
+                <Muted>{t.noMembersToInvite}</Muted>
+              )}
+            </Group>
+          )}
           <Group>
             <legend>{t.kibitzers}</legend>
             <Choice>
@@ -133,6 +206,23 @@ export function TableSettingsDialog({
               <span>{t.allowKibitz}</span>
               <Muted>{t.allowKibitzHint}</Muted>
             </Choice>
+          </Group>
+          <Group>
+            <legend>
+              <label htmlFor={timeId}>{t.boardTime}</label>
+            </legend>
+            <Select
+              id={timeId}
+              value={settings.boardMinutes}
+              onChange={(event) => setSettings({ ...settings, boardMinutes: Number(event.target.value) })}
+            >
+              {BOARD_TIME_LIMITS.map((m) => (
+                <option key={m} value={m}>
+                  {t.boardMinutesOption(m)}
+                </option>
+              ))}
+            </Select>
+            <Muted>{t.boardTimeHint}</Muted>
           </Group>
           <Buttons>
             <Button type="button" onClick={onClose}>

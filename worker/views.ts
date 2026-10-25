@@ -53,6 +53,16 @@ export interface Table {
   dealSource?: DealSource
   /** How the host runs the table; tables saved before settings use DEFAULT_TABLE_SETTINGS */
   settings?: TableSettings
+  /** Members the host invited (`e2-t25`); at an invite table only they (and whoever is at it) may sit */
+  invited?: string[]
+  /** When the board on the table was dealt, for its time limit (`TableSettings.boardMinutes`) */
+  boardStartedAt?: number
+  /** When the table started waiting on the current call or card, for the reminder (SLOW_TURN_MS) */
+  turnSince?: number
+  /** Robots sitting in for members who dropped offline (代打): seat → the member's id */
+  substitutes?: Partial<Record<Seat, string>>
+  /** Seats where a robot sat in for a member during the board on the table, for its record */
+  boardSubstitutes?: Partial<Record<Seat, string>>
 }
 
 /**
@@ -98,7 +108,10 @@ export function seatOccupants(
  * A claim lays the claimer's hand face up for good, even if it is rejected: once the declarer has
  * claimed, both defenders see all four hands (the declarer still sees only their own and dummy);
  * a defender who claimed shows their hand to everyone.
- * Spectators see all four hands, as kibitzers do on BBO. Partners never see each other's alerts
+ * Spectators see all four hands, as kibitzers do on BBO; at a table that allows no kibitzers
+ * (`kibitz: false`, `e2-t26`) someone there without a seat (a player who stood up or was asked to
+ * leave it) sees only what is face up for everyone: dummy after the lead and a defender's claim.
+ * Partners never see each other's alerts
  * until the board is over, except a robot's, which are for everyone (GIB's on BBO are too).
  * `auctionSeat` is where the viewer bid from, if a declarer swap has moved them since.
  * A challenge table's deal set (`Table.dealSource`) never goes out: only the board being played
@@ -114,6 +127,8 @@ export function boardView(
     auctionSeat?: Seat
     /** False at a table without undo (a challenge table) */
     undoAllowed?: boolean
+    /** False at a table that allows no kibitzers: someone without a seat sees no hidden hand */
+    kibitz?: boolean
   } = {},
 ): BoardView {
   const finished = board.phase === 'finished'
@@ -124,7 +139,7 @@ export function boardView(
   const defender = viewer !== null && viewer !== declarer && viewer !== dummy
   const canSee = (seat: Seat) =>
     finished ||
-    viewer === null ||
+    (viewer === null && extras.kibitz !== false) ||
     seat === viewer ||
     (dummyExposed && seat === dummy) ||
     (dummyExposed && viewer === dummy && seat === declarer) ||
