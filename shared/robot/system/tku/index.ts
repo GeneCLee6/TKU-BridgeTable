@@ -11,6 +11,7 @@ import { responder } from './responder.ts'
 import { slamAnswers, slamAsks } from './slam.ts'
 import { cite } from './sources.ts'
 import { target } from './target.ts'
+import { twoSuiters } from './twosuiters.ts'
 
 /**
  * The club's robot (淡江機器人): the club's system from TKU BridgeBook 淡江橋譜, 5542 自然制 where the
@@ -28,6 +29,7 @@ export const TKU: System = {
     ...cite(['system-strong-and-preempts'], strong),
     ...cite(['jacoby-2nt', 'bergen-raises', 'system-one-major'], majorSlam),
     ...cite(['system-one-major', 'bergen-raises', 'jacoby-2nt', 'single-raise-major'], majors),
+    ...cite(['system-competition', 'system-strong-and-preempts'], twoSuiters),
     ...cite(['system-one-club', 'system-one-diamond'], minors),
     ...cite(['system-one-club', 'system-one-diamond', 'system-one-major', 'new-minor-forcing'], responder),
     ...cite(['defense-vs-unusual-2nt'], unusual),

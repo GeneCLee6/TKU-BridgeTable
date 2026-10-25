@@ -1158,7 +1158,7 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
         page="table"
         initial={onTablet ? null : 'chat'}
         chat={<ChatPanel messages={table.chat} onSend={(text) => send({ type: 'chat', text })} />}
-        conventions={<BookHints board={board} seat={me} robotKind={partnerSeat?.robot ? (partnerSeat.robotKind ?? 'tku') : 'tku'} />}
+        conventions={<BookHints board={board} robotKind={partnerSeat?.robot ? (partnerSeat.robotKind ?? 'tku') : 'tku'} />}
       />
     </Layout>
   )
