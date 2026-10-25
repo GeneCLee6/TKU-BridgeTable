@@ -235,7 +235,7 @@ C4 的實作（2026-10-24）：
 - 非參與者：挑戰結束前什麼都看不到；結束後 `ranking = club` 才看得到排名。
 - 牌局紀錄：寫入時 `revealAt` ＝ 最晚可能的結束時間；挑戰結束時改成實際結束時間（KV 的紀錄與 `boards_index.reveal_at`，依 `event_id`）。在那之前搜尋只給打的人（AC-4.9 現有的規則），詳細頁另外給打過同一副的參與者（traveller 的重播）。結束後所有人都看得到牌局，不管 `ranking`；`ranking` 只管排名。
 - 這些判斷寫成 `worker/views.ts` 的純函式（`challengeView`、`challengeBoardVisible`，`e7-t14`），和 `recordVisible` 一樣在每個出口套用；誰看得到什麼的表在 §4。
-- 挑戰的牌局在 E4 的搜尋可以用 `mode=challenge` 篩選（`GET /api/history/search?mode=challenge`，`shared/history-query.ts` 的 `mode`，§5.3）；紀錄頁還沒有篩選的介面，等搜尋介面（E4）一起做。
+- 挑戰的牌局在 E4 的搜尋可以用 `mode=challenge` 篩選（`GET /api/history/search?mode=challenge`，`shared/history-query.ts` 的 `mode`，§5.3）；紀錄頁的「篩選」裡有「模式：挑戰」（E1）。
 
 **計分**：`scoreChallenge`（`shared/challenge-scoring.ts`）吃 `scores[參與者][副 − 1]`（南北分數，沒打是 null），**排名的人只有打完全部副數的參與者**（只有打完全部副數的人才排名，沒打完的人不排名、也不替他沒打的副算分（社長，2026-10-24））：例如 10 人的挑戰只有 8 人打完，就只排這 8 人，沒打完的 2 人列在排名下面、標「未完成」。所以 `scores` 裡沒有 null，`unfinished` 的規則用不到（設定裡也拿掉了，送來會被拒絕）。結束前的「目前排名」只排已經打完的人。已知牌的發起者（`knownDeals`）用他當時的結果，算打完，一起比、一起排名。只有一人打完時他就是唯一的名次，沒有對手可比，只顯示他的總分。實作是 `challengeStandings`（`worker/challenge-flow.ts`）：只把打完的人交給 `scoreChallenge`，只有一人時用 `total` 計分（`ChallengeStandingsView.scoring` 說明 `total` 與每副的單位），沒人打完就沒有名次；`unfinished` 列出接受了但沒打完的人和打了幾副。
 
@@ -319,6 +319,8 @@ C4 的實作（2026-10-24）：
 | `page`、`size` | 頁碼（超過最後一頁就給最後一頁）、每頁 10／20／50／100 |
 
 SQL 由 `worker/history-index.ts` 的 `searchBoards` 組：只有固定的 SQL 片段會拼進字串，所有值都用 `?` 參數。先數總數，再取那一頁的 id，摘要從 `board:<id>` 讀。
+
+**紀錄頁**（`e4-t16`～`t21`）：`/history` 的篩選與排序都寫在網址（`/history?scope=all&level=4&strain=S&sort=score_desc`），重新整理或分享連結都是同一份清單；頁面用 `readHistoryQuery` 讀網址（不認得的參數直接略過，不像 API 回錯誤）、用 `historyQueryString` 寫回，條件改了就回第 1 頁。日期的「今天／本週（從週一）／本月」由 `datePresetRange` 換成台灣日期的 `from`／`to`。篩選介面在 `src/components/HistoryFilters.tsx`。
 
 ## 5.2 與淡江橋譜共用帳號
 
