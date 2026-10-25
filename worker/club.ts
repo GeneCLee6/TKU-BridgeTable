@@ -277,6 +277,27 @@ export class Club extends DurableObject<Env> implements Connections {
       if (!found) throw new ClubError('challengeGone', {}, 404)
       return json({ challenge: found })
     }
+    // Team matches (§5.7, e8-t03): set up over HTTP; seats, start and play come in later batches
+    if (route === 'GET /api/matches') return json({ matches: this.service.matches.list(user.id) })
+    if (route === 'POST /api/matches') {
+      const b = await body()
+      return json({ match: this.service.matches.create(user.id, { settings: b.settings, seat: b.seat }) })
+    }
+    const matchAction = url.pathname.match(/^\/api\/matches\/([\w-]+)\/(settings|cancel)$/)
+    if (request.method === 'POST' && matchAction) {
+      const [, matchId, action] = matchAction
+      const match =
+        action === 'settings'
+          ? this.service.matches.update(user.id, matchId, (await body()).settings)
+          : this.service.matches.cancel(user.id, matchId)
+      return json({ match })
+    }
+    const match = url.pathname.match(/^\/api\/matches\/([\w-]+)$/)
+    if (request.method === 'GET' && match) {
+      const found = this.service.matches.get(match[1], user.id)
+      if (!found) throw new ClubError('matchGone', {}, 404)
+      return json({ match: found })
+    }
     if (url.pathname.startsWith('/api/admin/')) return this.admin(request, url, user, body)
     throw new ClubError('noSuchApi', {}, 404)
   }

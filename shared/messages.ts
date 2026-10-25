@@ -761,6 +761,48 @@ export const MESSAGES = {
     ja: 'パスワードの誤りが多すぎます。{minutes} 分後にもう一度お試しください',
     ko: '비밀번호를 너무 많이 틀렸습니다. {minutes}분 후에 다시 시도하세요',
   },
+  // Team matches (§5.7)
+  badMatchSettings: {
+    zh: '隊制賽的設定不正確：{field}',
+    'zh-Hans': '队制赛的设置不正确：{field}',
+    en: 'That team match setting is not valid: {field}',
+    vi: 'Thiết lập trận đấu đồng đội không hợp lệ: {field}',
+    ja: 'チーム戦の設定が正しくありません：{field}',
+    ko: '팀전 설정이 올바르지 않습니다: {field}',
+  },
+  matchGone: {
+    zh: '找不到這場隊制賽',
+    'zh-Hans': '找不到这场队制赛',
+    en: 'No such team match',
+    vi: 'Không tìm thấy trận đấu đồng đội này',
+    ja: 'そのチーム戦はありません',
+    ko: '그런 팀전이 없습니다',
+  },
+  matchHostOnly: {
+    zh: '只有房主能更改或取消隊制賽',
+    'zh-Hans': '只有房主能更改或取消队制赛',
+    en: 'Only the host can change or cancel the team match',
+    vi: 'Chỉ chủ phòng mới thay đổi hoặc hủy được trận đấu đồng đội',
+    ja: 'チーム戦を変更・取り消しできるのはホストだけです',
+    ko: '방장만 팀전을 바꾸거나 취소할 수 있습니다',
+  },
+  matchStarted: {
+    zh: '隊制賽已經開始或結束，不能再更改設定或取消',
+    'zh-Hans': '队制赛已经开始或结束，不能再更改设置或取消',
+    en: 'The team match has started or ended, so it can no longer be changed or cancelled',
+    vi: 'Trận đấu đồng đội đã bắt đầu hoặc kết thúc nên không thể thay đổi hay hủy nữa',
+    ja: 'チーム戦は開始済みか終了しているため、変更・取り消しはできません',
+    ko: '팀전이 이미 시작했거나 끝나서 바꾸거나 취소할 수 없습니다',
+  },
+  matchOpen: {
+    zh: '你已經有一場還沒結束的隊制賽',
+    'zh-Hans': '你已经有一场还没结束的队制赛',
+    en: 'You already host a team match that has not ended',
+    vi: 'Bạn đang làm chủ một trận đấu đồng đội chưa kết thúc',
+    ja: '終わっていないチーム戦をすでに主催しています',
+    ko: '아직 끝나지 않은 팀전을 이미 열었습니다',
+  },
+
   serverError: {
     zh: '伺服器發生錯誤',
     'zh-Hans': '服务器发生错误',

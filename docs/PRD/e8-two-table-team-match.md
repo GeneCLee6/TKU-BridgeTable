@@ -1,7 +1,7 @@
 ---
 title: E8 — 雙桌隊制賽（2 Table）
 date: 2026-10-23
-status: planned
+status: in-progress
 epic: E8
 owner: GeneCLee6
 milestones: [M1, M2]
@@ -86,9 +86,9 @@ match（setup → ready → playing → finished｜abandoned）
 
 **M1 · 規則與資料**
 
-- [ ] `e8-t01` 設計文件：資料模型、座位對應、狀態機、資訊隔離規則，寫進 `ARCHITECTURE.md`（新章節「隊制賽」）與 §4 · AC-8.1, AC-8.2, AC-8.3, AC-8.4 · S
-- [ ] `e8-t02` `shared/team-scoring.ts`：每副兩室分差 → IMP（用 `shared/imp.ts`）、BAM、Avg／Avg+／Avg- 換算；單元測試（含手算比賽）· AC-8.5, AC-8.6 · S · ← e7-t04
-- [ ] `e8-t03` 儲存與 API：建立、設定、取消（開始前）；SQL 表 `matches`、`match_seats`、`match_boards` · AC-8.1 · S · ← e8-t01, e4-t10
+- [x] `e8-t01` 設計文件：資料模型、座位對應、狀態機、資訊隔離規則，寫進 `ARCHITECTURE.md`（新章節「隊制賽」）與 §4 · AC-8.1, AC-8.2, AC-8.3, AC-8.4 · S
+- [x] `e8-t02` `shared/team-scoring.ts`：每副兩室分差 → IMP（用 `shared/imp.ts`）、BAM、Avg／Avg+／Avg- 換算；單元測試（含手算比賽）· AC-8.5, AC-8.6 · S · ← e7-t04
+- [x] `e8-t03` 儲存與 API：建立、設定、取消（開始前）；SQL 表 `matches`、`match_seats`、`match_boards` · AC-8.1 · S · ← e8-t01, e4-t10
 
 **M1 · 邀請與準備室**
 
@@ -130,6 +130,6 @@ match（setup → ready → playing → finished｜abandoned）
 ## 未決問題
 
 - [ ] **Q:** 機器人補位時，兩室的機器人要不要強制在「對應座位」（例如開室東西是機器人，閉室南北也是機器人）以維持公平？
-      **A:** _(unanswered)_
+      **A:** _(unanswered)_ — **建議預設**（F2，待社長確認）：不強制，湊人已經很難；整場的機器人用同一種制度（`robotKind`），準備室在兩室機器人不對稱時提醒（ARCHITECTURE.md §5.8）。
 - [ ] **Q:** 沒有坐下的人（觀看者）能不能看到兩桌的牌？預設可以（同 BBO Vugraph），但隊員觀看自己隊的另一桌要禁止。
-      **A:** _(unanswered)_
+      **A:** _(unanswered)_ — **建議預設**（F2，待社長確認）：照 PRD 的預設，非參賽者可以看兩桌；參賽者（含被邀請還沒回覆、替補）比賽中不能看另一室，自己隊的另一室也不行（ARCHITECTURE.md §4、§5.8）。
