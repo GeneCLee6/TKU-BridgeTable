@@ -21,6 +21,8 @@ const appVersion = (): Plugin => ({
 // it is left out of Vitest, which tests the Worker's logic directly.
 export default defineConfig({
   plugins: [react(), appVersion(), ...(process.env.VITEST ? [] : [cloudflare()])],
+  // The DDS worker (src/lib/dds.worker.ts) is an ES module: its WASM loader uses import.meta
+  worker: { format: 'es' },
   test: {
     environment: 'jsdom',
     globals: true,
@@ -29,5 +31,7 @@ export default defineConfig({
     // Several tests play hundreds of robot boards; with every file running at once they can take
     // longer than Vitest's default 5 s on a busy machine
     testTimeout: 15_000,
+    // bridge-dds ships ES modules with extensionless imports that Node cannot load on its own
+    server: { deps: { inline: ['bridge-dds'] } },
   },
 })
