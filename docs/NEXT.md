@@ -66,7 +66,9 @@
   2. **F4**（隊制賽開始、兩桌推進），建在 H1b 之上（§5.10 有寫兩桌怎麼開）。
   3. 可以和 H1b 平行的：G4（蓋叫、競叫）、G10 已完成、G11 的備份另一個 session 在做（`feat/daily-backup`）。
   4. 已知：`service.test.ts` 的「think limit」測試整套一起跑時偶爾失敗（計時），單獨跑都過。
-  5. CLAUDE.md 硬性規則 4 只寫 `ClubService` 不碰 Cloudflare API；H1a 建議把 `TableService` 也寫進去（待使用者同意再改）。
+  5. CLAUDE.md 硬性規則 4 已加上 `TableService`（社長 2026-10-25 同意）。
+  6. G2、G3 叫牌的點數調整，社長 2026-10-25 確認照現行版本。
+  7. 越、日、韓文沒有社員能校對：維持 AI 翻譯與 #92 的校對結果，不再列為待確認。
 
 ## 2. 建議順序
 
