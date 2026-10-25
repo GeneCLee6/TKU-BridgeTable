@@ -6,6 +6,7 @@ import type {
   Application,
   BoardRecord,
   ClubSettings,
+  DirectPage,
   HistoryPage,
   Me,
   Permission,
@@ -53,6 +54,11 @@ export const api = {
     post<{ ok: true }>('/api/password/reset', { username, inviteCode, password }),
   logout: () => post<{ ok: true }>('/api/logout'),
   changePassword: (current: string, next: string) => post<{ ok: true }>('/api/account/password', { current, next }),
+  /** The account settings the server keeps (e1-t24) */
+  setAccountPreferences: (preferences: { friendOnlineNotice: boolean }) => post<{ user: Me }>('/api/account/preferences', preferences),
+  /** One page of the conversation with another member, oldest first; `before` pages back (AC-1.7) */
+  directMessages: (userId: string, before?: number) =>
+    request<DirectPage>(`/api/messages/${encodeURIComponent(userId)}${before ? `?before=${before}` : ''}`),
   /** One page of history, newest first; `page` counts from 1 */
   history: (all: boolean, page = 1, size = 20) => {
     const query = new URLSearchParams({ page: String(page), size: String(size) })

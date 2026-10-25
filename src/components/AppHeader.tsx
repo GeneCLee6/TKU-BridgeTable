@@ -43,16 +43,15 @@ const Bar = styled.header`
     gap: 4px;
     padding: 0 8px;
   }
-  background: ${({ theme }) => theme.colors.surface};
-  border-bottom: 1px solid ${({ theme }) => theme.colors.border};
-  color: ${({ theme }) => theme.colors.primary};
+  background: ${({ theme }) => theme.colors.header};
+  color: ${({ theme }) => theme.colors.onHeader};
 `
 
 const Brand = styled(NavLink)`
   display: flex;
   align-items: center;
   gap: 9px;
-  color: ${({ theme }) => theme.colors.primaryStrong};
+  color: ${({ theme }) => theme.colors.onHeader};
   text-decoration: none;
   font-weight: 700;
   white-space: nowrap;
@@ -64,6 +63,7 @@ const Brand = styled(NavLink)`
 
 const Nav = styled.nav`
   display: flex;
+  align-self: stretch;
   gap: 4px;
   margin-left: 8px;
 `
@@ -75,21 +75,23 @@ const Count = styled.b`
   min-width: 18px;
   height: 18px;
   padding: 0 5px;
-  border-radius: 999px;
-  background: ${({ theme }) => theme.colors.danger};
-  color: ${({ theme }) => theme.colors.onPrimary};
+  border-radius: ${({ theme }) => theme.radius.pill};
+  background: ${({ theme }) => theme.colors.accent};
+  color: ${({ theme }) => theme.colors.header};
   font-size: 11px;
+  font-weight: 800;
   line-height: 1;
 `
 
+/** A page link: muted on navy; the current page is off-white with a lantern-gold rule under it */
 const Link = styled(NavLink)`
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  min-height: 36px;
-  padding: 0 10px;
-  border-radius: ${({ theme }) => theme.radius.sm};
-  color: ${({ theme }) => theme.colors.textMuted};
+  align-self: stretch;
+  padding: 3px 10px 0;
+  border-bottom: 3px solid transparent;
+  color: ${({ theme }) => theme.colors.headerMuted};
   text-decoration: none;
   font-size: 15px;
   font-weight: 600;
@@ -99,9 +101,11 @@ const Link = styled(NavLink)`
     & > span { display: none; }
   }
 
+  &:hover { color: ${({ theme }) => theme.colors.onHeader}; background: ${({ theme }) => theme.colors.headerHover}; }
+
   &.active {
-    background: ${({ theme }) => theme.colors.primarySoft};
-    color: ${({ theme }) => theme.colors.primary};
+    border-bottom-color: ${({ theme }) => theme.colors.accent};
+    color: ${({ theme }) => theme.colors.onHeader};
   }
 `
 
@@ -127,9 +131,12 @@ const IconButton = styled.button`
   border: 0;
   border-radius: ${({ theme }) => theme.radius.sm};
   background: transparent;
-  color: ${({ theme }) => theme.colors.textMuted};
+  color: ${({ theme }) => theme.colors.headerMuted};
 
-  &:hover { background: ${({ theme }) => theme.colors.surfaceAlt}; }
+  &:hover {
+    background: ${({ theme }) => theme.colors.headerHover};
+    color: ${({ theme }) => theme.colors.onHeader};
+  }
 `
 
 const Who = styled.span`
@@ -137,7 +144,7 @@ const Who = styled.span`
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: ${({ theme }) => theme.colors.text};
+  color: ${({ theme }) => theme.colors.onHeader};
   font-size: 14px;
   font-weight: 600;
 
@@ -178,7 +185,8 @@ const Menu = styled.div`
   border: 1px solid ${({ theme }) => theme.colors.border};
   border-radius: ${({ theme }) => theme.radius.md};
   background: ${({ theme }) => theme.colors.surface};
-  box-shadow: ${({ theme }) => theme.shadow};
+  color: ${({ theme }) => theme.colors.text};
+  box-shadow: ${({ theme }) => theme.shadowRaised};
 `
 
 const MenuItem = styled.button`
@@ -362,7 +370,7 @@ const AccountLink = styled(NavLink)`
   min-height: 36px;
   padding: 0 6px;
   border-radius: ${({ theme }) => theme.radius.sm};
-  color: ${({ theme }) => theme.colors.textMuted};
+  color: ${({ theme }) => theme.colors.headerMuted};
   text-decoration: none;
-  &.active { background: ${({ theme }) => theme.colors.primarySoft}; }
+  &:hover, &.active { background: ${({ theme }) => theme.colors.headerHover}; }
 `

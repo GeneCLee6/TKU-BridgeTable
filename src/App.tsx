@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
 import styled from 'styled-components'
 import { AppHeader } from './components/AppHeader.tsx'
+import { TOAST_TIMEOUT, ToastProvider, useToast } from './components/Toast.tsx'
 import { PageMain } from './components/ui.tsx'
 import { AccountPage } from './pages/AccountPage.tsx'
 import { AdminPage } from './pages/AdminPage.tsx'
@@ -18,43 +19,29 @@ import { ClubProvider, useClub } from './state/ClubContext.tsx'
 import { PreferencesProvider, usePreferences } from './state/PreferencesContext.tsx'
 import { GlobalStyle } from './styles/GlobalStyle.ts'
 
-const Toast = styled.div`
-  position: fixed;
-  left: 50%;
-  bottom: 24px;
-  z-index: 50;
-  transform: translateX(-50%);
-  max-width: calc(100% - 32px);
-  padding: 10px 16px;
-  border-radius: ${({ theme }) => theme.radius.md};
-  background: ${({ theme }) => theme.colors.danger};
-  color: #ffffff;
-  font-weight: 600;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
-`
-
 const Banner = styled.div`
   padding: 6px 16px;
-  background: ${({ theme }) => theme.colors.lantern};
-  color: #1a2233;
+  background: ${({ theme }) => theme.colors.accentSoft};
+  border-bottom: 1px solid ${({ theme }) => theme.colors.accent};
+  color: ${({ theme }) => theme.colors.text};
   font-size: 14px;
   text-align: center;
 `
 
-/** Server errors (an illegal call, a taken seat) appear briefly at the bottom, in the viewer's language */
-function ErrorToast() {
+/**
+ * Server errors (an illegal call, a taken seat) become an error toast in the viewer's language.
+ * They are about a move just tried, so unlike other errors they close themselves, as before.
+ */
+function ServerErrorToast() {
   const { error, dismissError } = useClub()
   const { message } = usePreferences()
+  const toast = useToast()
   useEffect(() => {
     if (!error) return
-    const timer = setTimeout(dismissError, 4000)
-    return () => clearTimeout(timer)
-  }, [error, dismissError])
-  return error ? (
-    <Toast role="alert" onClick={dismissError}>
-      {message(error.code, error.params, error.message)}
-    </Toast>
-  ) : null
+    toast.error(message(error.code, error.params, error.message), { timeout: TOAST_TIMEOUT })
+    dismissError()
+  }, [error, dismissError, message, toast])
+  return null
 }
 
 function ConnectionBanner() {
@@ -83,7 +70,7 @@ function Routed() {
         {user.admin && <Route path="/admin" element={<AdminPage />} />}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
-      <ErrorToast />
+      <ServerErrorToast />
     </>
   )
 }
@@ -92,12 +79,14 @@ export function App() {
   return (
     <PreferencesProvider>
       <GlobalStyle />
-      <AuthProvider>
-        <ClubProvider>
-          <AppHeader />
-          <Routed />
-        </ClubProvider>
-      </AuthProvider>
+      <ToastProvider>
+        <AuthProvider>
+          <ClubProvider>
+            <AppHeader />
+            <Routed />
+          </ClubProvider>
+        </AuthProvider>
+      </ToastProvider>
     </PreferencesProvider>
   )
 }
