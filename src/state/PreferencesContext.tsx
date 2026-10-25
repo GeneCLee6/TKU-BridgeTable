@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { ThemeProvider } from 'styled-components'
 import { formatMessage, isLang, isMessageCode, type Lang, type MessageParams } from '../../shared/messages.ts'
+import { isCardSize, type CardSize } from '../lib/cards.ts'
 import { STRINGS, type Strings } from '../strings.ts'
 import { createTheme, type DeckColors, type ThemeMode } from '../styles/tokens.ts'
 
@@ -8,11 +9,14 @@ import { createTheme, type DeckColors, type ThemeMode } from '../styles/tokens.t
  * Per-viewer display preferences: language, light/dark, a two- or four-colour deck, whether hands
  * are drawn as card faces or as text (♠ A K Q, BBO's text style), table sounds, and whether a
  * board record's replay greys out the cards already played (BBO's Handviewer) or takes them out of
- * the hands. Remembered in localStorage when it is available.
+ * the hands, whether a call or a card must be confirmed before it is sent (BBO's "confirm bids" and
+ * "confirm cards"), and how large the cards are drawn. Remembered in localStorage when it is
+ * available.
  */
 
 export type CardStyle = 'cards' | 'text'
 export type PlayedCards = 'grey' | 'hide'
+export type { CardSize }
 
 interface Prefs {
   mode: ThemeMode
@@ -21,6 +25,9 @@ interface Prefs {
   cardStyle: CardStyle
   sound: boolean
   playedCards: PlayedCards
+  confirmCalls: boolean
+  confirmPlays: boolean
+  cardSize: CardSize
 }
 
 interface Preferences extends Prefs {
@@ -81,6 +88,9 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
       cardStyle: stored.cardStyle ?? 'cards',
       sound: stored.sound ?? true,
       playedCards: stored.playedCards === 'hide' ? 'hide' : 'grey',
+      confirmCalls: stored.confirmCalls === true,
+      confirmPlays: stored.confirmPlays === true,
+      cardSize: isCardSize(stored.cardSize) ? stored.cardSize : 'medium',
     }
   })
 

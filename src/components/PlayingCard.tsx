@@ -1,6 +1,7 @@
 import styled, { css } from 'styled-components'
 import { rankLabel, rankOf, suitOf, SUIT_SYMBOL, type Card, type Suit } from '../../shared/cards.ts'
 import { CARD_RATIO, cardName } from '../lib/cards.ts'
+import { LIFT } from '../lib/measure.ts'
 import { useT } from '../state/PreferencesContext.tsx'
 
 /**
@@ -10,7 +11,7 @@ import { useT } from '../state/PreferencesContext.tsx'
  * hands fanned downwards.
  */
 
-const Face = styled.button<{ $w: number; $playable: boolean; $dim: boolean; $played: boolean; $highlight: boolean }>`
+const Face = styled.button<{ $w: number; $playable: boolean; $dim: boolean; $played: boolean; $highlight: boolean; $raised: boolean }>`
   position: relative;
   flex: none;
   width: ${({ $w }) => $w}px;
@@ -60,6 +61,12 @@ const Face = styled.button<{ $w: number; $playable: boolean; $dim: boolean; $pla
     css`
       box-shadow: 0 0 0 3px ${theme.table.winner};
     `}
+  ${({ $raised, $w, theme }) =>
+    $raised &&
+    css`
+      &, &:hover, &:focus-visible { transform: translateY(-${Math.round($w * LIFT)}px); }
+      box-shadow: 0 0 0 3px ${theme.table.turn};
+    `}
 `
 
 const Corner = styled.span<{ $w: number; $inline: boolean; $suit: Suit }>`
@@ -97,6 +104,7 @@ export function PlayingCard({
   dim = false,
   played = false,
   highlight = false,
+  raised = false,
   corner = 'stack',
   onPlay,
 }: {
@@ -107,6 +115,8 @@ export function PlayingCard({
   /** Already played: greyed out but left in the hand (a board record's replay) */
   played?: boolean
   highlight?: boolean
+  /** Lifted out of the hand: chosen, waiting for a second click or Enter */
+  raised?: boolean
   corner?: 'stack' | 'inline'
   onPlay?: (card: Card) => void
 }) {
@@ -121,6 +131,8 @@ export function PlayingCard({
       $dim={dim}
       $played={played}
       $highlight={highlight}
+      $raised={raised}
+      aria-current={raised || undefined}
       disabled={!playable}
       onClick={playable ? () => onPlay?.(card) : undefined}
       aria-label={cardName(card, t)}

@@ -25,9 +25,10 @@ import { ClaimPicker, FeltButton, FeltPanel, Prompt, ResultPanel } from '../comp
 import { COLLECT_MS, TrickArea, TrickSpace, type CardOrigin, type Position } from '../components/TrickArea.tsx'
 import { TrickPile } from '../components/TrickPile.tsx'
 import { Muted, PageMain } from '../components/ui.tsx'
-import { suitOrder } from '../lib/cards.ts'
+import { CARD_SCALE, sortForDisplay, suitOrder } from '../lib/cards.ts'
 import { auctionBoxHeight, biddingBoxHeight, handHeight, type Orientation } from '../lib/measure.ts'
 import { dealSound, playCardSound, turnSound, unlockSound } from '../lib/sound.ts'
+import { useCardChoice } from '../lib/useCardChoice.ts'
 import { useRobotRules } from '../lib/useRobotRules.ts'
 import { useAuth } from '../state/AuthContext.tsx'
 import { useClub } from '../state/ClubContext.tsx'
@@ -442,13 +443,17 @@ const AUCTION_ROWS = 5
  * width is the largest that lets the tallest moment, the auction (partner's hand, the auction
  * table, the bidding box, your own hand), fit the height, and lets your hand fit the middle
  * column; everything else scales from it.
+ *
+ * `scale` is the viewer's card size (CARD_SCALE). Small shrinks the cards that fit; large lets
+ * your hand squeeze closer and the auction show fewer rounds before it scrolls, so larger cards
+ * still fit the window.
  */
-function tableSizes(feltWidth: number, feltHeight: number) {
+function tableSizes(feltWidth: number, feltHeight: number, scale = 1) {
   const phone = feltWidth < 700
   if (phone) {
-    const bottom = clamp(44, feltWidth * 0.155, 84)
+    const bottom = clamp(40, feltWidth * 0.155 * scale, 84 * scale)
     // The side seats lie on their side: the card height sets their width, 13 cards their length
-    const side = clamp(26, feltWidth * 0.085, 40)
+    const side = clamp(24, feltWidth * 0.085 * scale, 40 * scale)
     return {
       phone,
       bottom,
@@ -466,22 +471,25 @@ function tableSizes(feltWidth: number, feltHeight: number) {
   // contentRect excludes the padding; the grid gaps come out of it
   const height = feltHeight - 2 * GAP.row
   const middleWidth = ((feltWidth - 2 * GAP.column) * 2) / 4
+  const rows = scale > 1 ? AUCTION_ROWS - 2 : AUCTION_ROWS
+  const squeeze = 6.3 / Math.max(1, scale)
   const parts = (w: number) => {
     const top = Math.round(w * 0.85)
     const side = Math.round(w * 0.8)
     const auction = Math.round(w * AUCTION_SCALE)
     const box = Math.round(w * BOX_SCALE)
-    const middle = Math.max(auctionBoxHeight(auction, AUCTION_ROWS) + STACK_GAP + biddingBoxHeight(box), handHeight(side, 'rows'))
+    const middle = Math.max(auctionBoxHeight(auction, rows) + STACK_GAP + biddingBoxHeight(box), handHeight(side, 'rows'))
     return { top, side, auction, box, tall: handHeight(top, 'horizontal') + middle + handHeight(w, 'horizontal') }
   }
   // Thirteen overlapped cards take about seven card widths, and still read well squeezed to 6.3
-  let bottom = 124
-  while (bottom > 56 && (parts(bottom).tall > height || bottom * 6.3 > middleWidth)) bottom--
+  let bottom = Math.round(124 * Math.max(1, scale))
+  while (bottom > 56 && (parts(bottom).tall > height || bottom * squeeze > middleWidth)) bottom--
+  if (scale < 1) bottom = Math.max(48, Math.round(bottom * scale))
   const { top, side, box } = parts(bottom)
   // If the width set the card size, the auction table takes up the height left over
   const middle = height - handHeight(top, 'horizontal') - handHeight(bottom, 'horizontal') - STACK_GAP - biddingBoxHeight(box)
   let auction = Math.round(bottom * AUCTION_SCALE)
-  while (auction < Math.min(bottom * AUCTION_MAX_SCALE, AUCTION_MAX) && auctionBoxHeight(auction + 1, AUCTION_ROWS) <= middle) auction++
+  while (auction < Math.min(bottom * AUCTION_MAX_SCALE, AUCTION_MAX) && auctionBoxHeight(auction + 1, rows) <= middle) auction++
   return {
     phone,
     bottom,
@@ -489,7 +497,7 @@ function tableSizes(feltWidth: number, feltHeight: number) {
     side,
     trick: Math.round(bottom * 0.88),
     auction,
-    auctionRows: AUCTION_ROWS,
+    auctionRows: rows,
     auctionWidth: Math.round(Math.min(middleWidth, auction * 5.2)),
     box,
     sideThick: 0,
@@ -535,11 +543,11 @@ export function TablePage() {
 
 function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeof useClub>['send'] }) {
   const t = useT()
-  const { cardStyle, sound, lang } = usePreferences()
+  const { cardStyle, sound, lang, confirmCalls, confirmPlays, cardSize } = usePreferences()
   const { user } = useAuth()
   const { error } = useClub()
   const [feltRef, feltSize] = useSize()
-  const sizes = tableSizes(feltSize.width, feltSize.height)
+  const sizes = tableSizes(feltSize.width, feltSize.height, CARD_SCALE[cardSize])
   const board = table.board
   // Toggles that belong to one board are stored with its number, so they reset on the next deal
   const boardNo = board?.boardNo ?? 0
@@ -673,6 +681,17 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
     return suitOrder(trump, held)
   }
 
+  // ── Choosing the card: a second click or Enter plays it (confirm cards), arrows move between legal cards ──
+  const turnSeat = board?.turn
+  const turnHand = myTurn === 'play' && !pendingShown && turnSeat ? board.hands[turnSeat] : undefined
+  const choosable = turnHand ? sortForDisplay(turnHand, orderFor(turnSeat!, turnHand)).filter((c) => board!.legalCards.includes(c)) : []
+  const { chosen, pick } = useCardChoice({
+    cards: choosable,
+    confirm: confirmPlays,
+    turn: `${boardNo}:${playedCount}`,
+    onPlay: (card) => turnSeat && play(turnSeat)(card),
+  })
+
   const turnedSides = sizes.phone && cardStyle === 'cards'
 
   /** What the viewer may do with a seat: sit there, and for the host: robots and asking people to leave */
@@ -724,7 +743,8 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
           orientation={orientation}
           order={cards ? orderFor(seat, cards) : undefined}
           playable={board.turn === seat && !pendingShown ? board.legalCards : []}
-          onPlay={play(seat)}
+          chosen={board.turn === seat ? chosen : null}
+          onPlay={pick}
           label={`${seatLetter[seat]} ${nameOf(seat)}`}
         />
       </div>
@@ -804,6 +824,7 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
               onCall={(call, alert) => send({ type: 'call', call, alert })}
               size={sizes.box}
               hints={hints}
+              confirm={confirmCalls}
             />
           )}
     </BoxSlot>
