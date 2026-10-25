@@ -27,7 +27,7 @@ import { useAuth } from '../state/AuthContext.tsx'
 import { useClub } from '../state/ClubContext.tsx'
 import { usePreferences } from '../state/PreferencesContext.tsx'
 import { LANG_NAMES } from '../strings.ts'
-import { mobile } from '../styles/tokens.ts'
+import { compactHeader, mobile, tablet } from '../styles/tokens.ts'
 import { LogoMark, LogoWordmark } from './Logo.tsx'
 import { NotificationBell } from './NotificationBell.tsx'
 
@@ -56,10 +56,11 @@ const Brand = styled(NavLink)`
   gap: 9px;
   color: ${({ theme }) => theme.colors.onHeader};
   text-decoration: none;
+  flex: none;
   font-weight: 700;
   white-space: nowrap;
 
-  ${mobile} {
+  ${compactHeader} {
     & > span { display: none; }
   }
 `
@@ -69,6 +70,16 @@ const Nav = styled.nav`
   align-self: stretch;
   gap: 4px;
   margin-left: 8px;
+
+  /* A phone has no room for every link: they scroll sideways instead of widening the page */
+  ${mobile} {
+    flex: 0 1 auto;
+    min-width: 0;
+    gap: 0;
+    margin-left: 0;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
 `
 
 /** Registrations waiting for approval, next to 管理 */
@@ -100,7 +111,14 @@ const Link = styled(NavLink)`
   font-weight: 600;
   white-space: nowrap;
 
+  /* On a tablet or a phone the links are icons, named by their aria-label and title */
+  ${tablet} {
+    padding: 3px 12px 0;
+    & > span { display: none; }
+  }
+
   ${mobile} {
+    padding: 3px 9px 0;
     & > span { display: none; }
   }
 
@@ -116,6 +134,7 @@ const Right = styled.div`
   display: flex;
   align-items: center;
   gap: 4px;
+  flex: none;
   margin-left: auto;
 
   /* Theme, deck colours and sound stay on the account page on a phone */
@@ -151,6 +170,7 @@ const Who = styled.span`
   font-size: 14px;
   font-weight: 600;
 
+  ${tablet} { display: none; }
   ${mobile} { display: none; }
 `
 
@@ -280,33 +300,34 @@ export function AppHeader() {
       </Brand>
       {user && (
         <Nav aria-label={t.navLobby}>
-          <Link to="/" end aria-label={t.navLobby}>
+          <Link to="/" end aria-label={t.navLobby} title={t.navLobby}>
             <Users size={18} aria-hidden />
             <span>{t.navLobby}</span>
           </Link>
-          <Link to="/challenges" aria-label={t.navChallenges}>
+          <Link to="/challenges" aria-label={t.navChallenges} title={t.navChallenges}>
             <Swords size={18} aria-hidden />
             <span>{t.navChallenges}</span>
           </Link>
-          <Link to="/matches" aria-label={t.navMatches}>
+          <Link to="/matches" aria-label={t.navMatches} title={t.navMatches}>
             <Trophy size={18} aria-hidden />
             <span>{t.navMatches}</span>
           </Link>
-          <Link to="/history" aria-label={t.navHistory}>
+          <Link to="/history" aria-label={t.navHistory} title={t.navHistory}>
             <History size={18} aria-hidden />
             <span>{t.navHistory}</span>
           </Link>
-          <Link to="/featured" aria-label={t.navFeatured}>
+          <Link to="/featured" aria-label={t.navFeatured} title={t.navFeatured}>
             <Award size={18} aria-hidden />
             <span>{t.navFeatured}</span>
           </Link>
-          <Link to="/favorites" aria-label={t.navFavorites}>
+          <Link to="/favorites" aria-label={t.navFavorites} title={t.navFavorites}>
             <Star size={18} aria-hidden />
             <span>{t.navFavorites}</span>
           </Link>
           {user.admin && (
             <Link
               to="/admin"
+              title={t.navAdmin}
               aria-label={user.applications ? `${t.navAdmin}（${t.navAdminPending(user.applications)}）` : t.navAdmin}
             >
               <Shield size={18} aria-hidden />

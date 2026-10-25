@@ -10,7 +10,7 @@ import { useTrickReplay } from '../lib/useTrickReplay.ts'
 import { useAuth } from '../state/AuthContext.tsx'
 import { useClub } from '../state/ClubContext.tsx'
 import { usePreferences } from '../state/PreferencesContext.tsx'
-import { mobile } from '../styles/tokens.ts'
+import { mobile, tablet } from '../styles/tokens.ts'
 import { playerName } from '../strings.ts'
 import { AuctionBox } from './AuctionBox.tsx'
 import { DirectMessages } from './DirectMessages.tsx'
@@ -29,6 +29,7 @@ import { ContractResult } from './Suit.tsx'
 export type PanelTab = 'chat' | 'people' | 'messages' | 'history'
 
 const Dock = styled.div`
+  position: relative;
   display: flex;
   min-height: 0;
   height: 100%;
@@ -109,6 +110,18 @@ const Content = styled.section<{ $wide: boolean }>`
   flex-direction: column;
   width: ${({ $wide }) => ($wide ? 420 : 320)}px;
   min-height: 0;
+
+  /* On a tablet the open panel floats over the page instead of narrowing it (e3-t36) */
+  ${tablet} {
+    position: absolute;
+    top: 0;
+    right: 100%;
+    bottom: 0;
+    z-index: 15;
+    border-left: 1px solid ${({ theme }) => theme.colors.border};
+    background: ${({ theme }) => theme.colors.surface};
+    box-shadow: ${({ theme }) => theme.shadowRaised};
+  }
 
   ${mobile} {
     width: 100%;

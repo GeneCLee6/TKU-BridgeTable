@@ -2,7 +2,7 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { TableTour, TABLE_TOUR } from '../../src/components/TableTour.tsx'
+import { TableTour } from '../../src/components/TableTour.tsx'
 import { ToastProvider } from '../../src/components/Toast.tsx'
 import { AccountPage } from '../../src/pages/AccountPage.tsx'
 import { AuthProvider } from '../../src/state/AuthContext.tsx'
@@ -45,7 +45,6 @@ describe('the table tour', () => {
       await user.click(screen.getByRole('button', { name: '下一步' }))
       expect(screen.getByRole('dialog', { name: title })).toBeInTheDocument()
     }
-    expect(TABLE_TOUR).toHaveLength(5)
     await user.click(screen.getByRole('button', { name: '上一步' }))
     expect(screen.getByRole('dialog', { name: '撤回' })).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: '下一步' }))

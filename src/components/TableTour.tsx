@@ -12,10 +12,10 @@ import { Button } from './ui.tsx'
  * light. Esc skips; the page behind cannot be used until the tour is closed.
  */
 
-export type TourStepId = 'bidding' | 'alert' | 'claim' | 'undo' | 'side'
+type TourStepId = 'bidding' | 'alert' | 'claim' | 'undo' | 'side'
 
 /** Each step and the parts of the page it may light up, best first */
-export const TABLE_TOUR: { id: TourStepId; targets: string[] }[] = [
+const TABLE_TOUR: { id: TourStepId; targets: string[] }[] = [
   { id: 'bidding', targets: ['bidding-box', 'center'] },
   { id: 'alert', targets: ['alert', 'bidding-box', 'center'] },
   { id: 'claim', targets: ['claim', 'actions'] },
@@ -113,16 +113,21 @@ export function TableTour({ onClose }: { onClose: () => void }) {
   const step = TABLE_TOUR[index]
   const last = index === TABLE_TOUR.length - 1
 
-  // Where the step's part is now, and again whenever the window changes
+  // Where the step's part is, followed every frame: the table resizes its parts as it settles
   useLayoutEffect(() => {
-    const measure = () => setRect(findTarget(step.targets))
-    measure()
-    window.addEventListener('resize', measure)
-    window.addEventListener('scroll', measure, true)
-    return () => {
-      window.removeEventListener('resize', measure)
-      window.removeEventListener('scroll', measure, true)
+    let frame = 0
+    let last = ''
+    const measure = () => {
+      const found = findTarget(step.targets)
+      const key = found ? `${found.top},${found.left},${found.width},${found.height}` : ''
+      if (key !== last) {
+        last = key
+        setRect(found)
+      }
+      frame = requestAnimationFrame(measure)
     }
+    measure()
+    return () => cancelAnimationFrame(frame)
   }, [step])
 
   useEffect(() => {

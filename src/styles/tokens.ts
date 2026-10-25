@@ -164,6 +164,10 @@ export const layout = {
   contentMax: '1080px',
   sidePanelWidth: '300px',
   mobileBreakpoint: '900px',
+  /** Tablets (e3-t36): above the phone layout, up to this width */
+  tabletBreakpoint: '1200px',
+  /** Below this the header leaves out the wordmark beside the logo, so the links fit */
+  compactHeaderBreakpoint: '1400px',
 }
 
 /** 4px spacing scale: space(2) === '8px'. The chrome uses 1, 2, 3, 4, 6, 8 and 12. */
@@ -220,3 +224,10 @@ export const mobileQuery = `(max-width: ${layout.mobileBreakpoint})`
 
 /** Media query helper: `${mobile} { ... }` */
 export const mobile = `@media ${mobileQuery}`
+
+/** Tablets, 901–1200px wide, either way up (e3-t36, DESIGN.md §5) */
+export const tabletQuery = `(min-width: 901px) and (max-width: ${layout.tabletBreakpoint})`
+export const tablet = `@media ${tabletQuery}`
+
+/** Computers and tablets too narrow for the full header */
+export const compactHeader = `@media (max-width: ${layout.compactHeaderBreakpoint})`
