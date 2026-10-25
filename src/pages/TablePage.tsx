@@ -16,6 +16,7 @@ import { BiddingBox, type BiddingHints } from '../components/BiddingBox.tsx'
 import { BoardInfo } from '../components/BoardInfo.tsx'
 import { ChallengeBanner } from '../components/ChallengeBanner.tsx'
 import { ChatPanel } from '../components/ChatPanel.tsx'
+import { MatchBanner } from '../components/MatchBanner.tsx'
 import { DEAL_MS, DealAnimation } from '../components/DealAnimation.tsx'
 import { SidePanel } from '../components/SidePanel.tsx'
 import { HandView } from '../components/HandView.tsx'
@@ -557,12 +558,14 @@ export function TablePage() {
   // An invite table takes only the invited, and a table without kibitzers takes people only into its seats
   const summary = lobby?.tables.find((x) => x.id === tableId)
   const closed = !!summary && lobby?.myTableId !== tableId && (!summary.welcome || !summary.settings.allowKibitz)
+  // A team match's tables are listed with their match, for anyone to watch (§5.8)
+  const listed = !!lobby && (!!summary || (lobby.matches ?? []).some((m) => !!tableId && Object.values(m.tables).includes(tableId)))
 
   useEffect(() => {
     if (status !== 'open' || !lobby || !tableId || closed) return
-    if (lobby.myTableId === tableId || !lobby.tables.some((x) => x.id === tableId)) return
+    if (lobby.myTableId === tableId || !listed) return
     send({ type: 'joinTable', tableId })
-  }, [status, lobby, tableId, send, closed])
+  }, [status, lobby, tableId, send, closed, listed])
 
   // Going to any other page leaves the table (a reload does not: the seat is kept while offline).
   // A challenge table is not closed by it: the server keeps it, paused, until playChallenge
@@ -575,7 +578,7 @@ export function TablePage() {
 
   if (!lobby) return <PageMain>{t.connecting}</PageMain>
   // A challenge table is not in the lobby: it is there only for its player
-  if (lobby.myTableId !== tableId && !lobby.tables.some((x) => x.id === tableId))
+  if (lobby.myTableId !== tableId && !listed)
     return (
       <PageMain>
         <Muted>{t.tableGone}</Muted>
@@ -621,8 +624,8 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
 
   const me = table.mySeat
   const challenge = table.challenge
-  // Nobody runs a challenge table: its seats, robots and settings are fixed
-  const iAmHost = !!user && table.hostId === user.id && !challenge
+  // Nobody runs a challenge or team match table: its seats, robots and settings are fixed
+  const iAmHost = !!user && table.hostId === user.id && !challenge && !table.match
   const viewer = me ?? 'S'
   const at = rotation(viewer)
   const positionOf = (seat: Seat) => (Object.keys(at) as Position[]).find((p) => at[p] === seat)!
@@ -764,7 +767,7 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
   const seatActions = (seat: Seat): SeatAction[] => {
     const occupant = table.seats[seat]
     const actions: SeatAction[] = []
-    if (challenge) return actions
+    if (challenge || table.match) return actions
     const between = !board || board.phase === 'finished'
     // A free seat (or a robot's) can be taken; someone already seated moves only between boards
     if ((!occupant || (occupant.robot && !me)) && (!me || between))
@@ -992,6 +995,8 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
             <TableTitle>
               {challenge ? (
                 <ChallengeBanner challenge={challenge} />
+              ) : table.match ? (
+                <MatchBanner match={table.match} />
               ) : (
                 <>
                   <span>
@@ -1089,7 +1094,7 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
                   type="button"
                   $tone="plain"
                   disabled={!canUndo}
-                  title={challenge ? t.challengeNoUndo : undefined}
+                  title={challenge ? t.challengeNoUndo : table.match ? t.teamMatch.noUndo : undefined}
                   data-tour="undo"
                   onClick={() => send({ type: 'undoRequest' })}
                 >

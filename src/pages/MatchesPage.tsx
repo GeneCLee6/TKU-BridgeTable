@@ -5,14 +5,15 @@ import { isOpenMatch, type TeamMatchView } from '../../shared/team-match.ts'
 import { Tag } from '../components/MatchParts.tsx'
 import { Button, Card, ErrorText, Muted, PageMain, PageTitle } from '../components/ui.tsx'
 import { ApiError, api } from '../lib/api.ts'
-import { matchSettingsLine, mySeat, teamName } from '../lib/matches.ts'
+import { matchSettingsLine, mySeat, namedTeam, points, teamName } from '../lib/matches.ts'
 import { useAuth } from '../state/AuthContext.tsx'
 import { useClub } from '../state/ClubContext.tsx'
 import { usePreferences } from '../state/PreferencesContext.tsx'
 
 /**
  * The member's team matches (§5.8): the ones they host or have a seat in, newest first, and a
- * button to set one up. Each leads to its prep room (`e8-t06`)
+ * button to set one up. Each leads to its prep room (`e8-t06`). Below, the matches being played
+ * now (the lobby's list), for anyone to follow and watch either room (AC-8.4)
  */
 
 const Head = styled.div`
@@ -52,10 +53,16 @@ const Row = styled(Link)`
   }
 `
 
+const Live = styled.h2`
+  margin: 24px 0 0;
+  font-size: 18px;
+  color: ${({ theme }) => theme.colors.primaryStrong};
+`
+
 export function MatchesPage() {
   const { t, message } = usePreferences()
   const { user } = useAuth()
-  const { notifications } = useClub()
+  const { notifications, lobby } = useClub()
   const navigate = useNavigate()
   const [matches, setMatches] = useState<TeamMatchView[] | null>(null)
   const [error, setError] = useState('')
@@ -117,10 +124,30 @@ export function MatchesPage() {
                     </Tag>
                   )}
                   <Muted as="span">{matchSettingsLine(t, m)}</Muted>
+                  {(m.status === 'playing' || m.status === 'finished' || m.status === 'abandoned') && (
+                    <span>
+                      {points(m.totals.A)} : {points(m.totals.B)}
+                    </span>
+                  )}
                 </Row>
               </li>
             )
           })}
+        </List>
+      )}
+      <Live>{t.teamMatch.live}</Live>
+      {!lobby?.matches?.length ? (
+        <Muted>{t.teamMatch.noLive}</Muted>
+      ) : (
+        <List>
+          {lobby.matches.map((m) => (
+            <li key={m.id}>
+              <Row to={`/matches/${m.id}`}>
+                <strong>{t.teamMatch.vs(namedTeam(t, m.teamNames, 'A'), namedTeam(t, m.teamNames, 'B'))}</strong>
+                <Tag $open>{t.teamMatch.statuses.playing}</Tag>
+              </Row>
+            </li>
+          ))}
         </List>
       )}
     </PageMain>

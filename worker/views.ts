@@ -383,6 +383,7 @@ export function teamMatchView(
     ...(m.endedAt !== undefined && { endedAt: m.endedAt }),
     settings: m.settings,
     captains: m.captains,
+    ...(m.status === 'playing' && m.tables && { tables: m.tables }),
     seats: m.seats.map((s) => {
       const user = s.userId === undefined ? undefined : userById(s.userId)
       return {

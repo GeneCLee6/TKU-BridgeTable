@@ -296,8 +296,8 @@ export interface LobbyView {
   friends: string[]
   /** Ids of the members the viewer blocked: their chat is hidden from the viewer, and they cannot join a table the viewer hosts */
   blocked: string[]
-  /** Team matches being played; their tables are not in `tables` (§5.8) */
-  matches: LiveMatch[]
+  /** Team matches being played; their tables are not in `tables` (§5.8). Always sent; optional for older pages' fixtures */
+  matches?: LiveMatch[]
 }
 
 /**
