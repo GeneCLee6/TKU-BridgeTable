@@ -10,7 +10,9 @@ import type { Traveller } from '../../shared/traveller.ts'
 import { AuctionBox } from '../components/AuctionBox.tsx'
 import { ChallengeDialog } from '../components/ChallengeDialog.tsx'
 import { DoubleDummyPanel } from '../components/DoubleDummyPanel.tsx'
+import { FeaturedPanel } from '../components/FeaturedPanel.tsx'
 import { RecordDiagram } from '../components/RecordDiagram.tsx'
+import { RecordSubstitutes } from '../components/RecordSubstitutes.tsx'
 import { ReplayControls } from '../components/ReplayControls.tsx'
 import { ContractLabel, ContractResult, SuitSymbol } from '../components/Suit.tsx'
 import { TravellerTable } from '../components/Traveller.tsx'
@@ -223,6 +225,7 @@ export function BoardRecordView({
             )}
             <dt>{t.scoreNS}</dt>
             <dd>NS {signed(result.scoreNS)}</dd>
+            <RecordSubstitutes record={record} />
           </Meta>
           <AuctionBox auction={board.auction} dealer={board.dealer} vul={board.vul} />
           <Links>
@@ -242,6 +245,7 @@ export function BoardRecordView({
           </Links>
         </Card>
       </Columns>
+      {!embedded && <FeaturedPanel record={record} trick={replay.trick} onTrick={(n) => replay.jump(Math.min(total, n * 4))} />}
       {after}
 
       {canAnalyse(board) && (

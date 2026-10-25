@@ -9,6 +9,7 @@ import {
   Moon,
   Palette,
   Shield,
+  Star,
   Sun,
   Swords,
   UserRound,
@@ -288,6 +289,10 @@ export function AppHeader() {
           <Link to="/history" aria-label={t.navHistory}>
             <History size={18} aria-hidden />
             <span>{t.navHistory}</span>
+          </Link>
+          <Link to="/featured" aria-label={t.navFeatured}>
+            <Star size={18} aria-hidden />
+            <span>{t.navFeatured}</span>
           </Link>
           {user.admin && (
             <Link

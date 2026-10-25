@@ -11,6 +11,7 @@ export function notificationText(t: Strings, n: Notification): string {
     case 'challengeDeclined':
     case 'challengeCancelled':
     case 'friendOnline':
+    case 'boardFeatured':
       return t.notificationTexts[n.kind](name)
     case 'challengeReminder':
     case 'challengeResults':
@@ -23,7 +24,7 @@ export function notificationText(t: Strings, n: Notification): string {
 /**
  * Where a notification leads when clicked: an invitation to the challenge lobby, where it is
  * answered (`e7-t16`); the other challenge news to that challenge's page (`e7-t18`); an invitation
- * to a table to that table
+ * to a table to that table; a featured board to its record, where the explanation is shown
  */
 export function notificationLink(n: Notification): string {
   switch (n.kind) {
@@ -41,5 +42,7 @@ export function notificationLink(n: Notification): string {
       return n.params.challengeId ? `/challenges/${encodeURIComponent(String(n.params.challengeId))}` : '/challenges'
     case 'tableInvited':
       return n.params.tableId ? `/table/${encodeURIComponent(String(n.params.tableId))}` : '/'
+    case 'boardFeatured':
+      return n.params.boardId ? `/history/${encodeURIComponent(String(n.params.boardId))}` : '/featured'
   }
 }
