@@ -4,6 +4,7 @@ import type { Card, Seat, Side } from './cards.ts'
 import type { ChallengeSettings } from './challenge.ts'
 import type { BoardResult, BoardState, Phase, Trick } from './game.ts'
 import type { MessageCode, MessageParams } from './messages.ts'
+import type { PracticeSettings } from './practice.ts'
 import type { MatchSeat, TeamMatchView } from './team-match.ts'
 import type { Profile } from './profile.ts'
 import type { Spec } from './robot/system/spec.ts'
@@ -135,10 +136,23 @@ export function parseTableSettings(value: unknown): Partial<TableSettings> | nul
 
 /**
  * What a table is for (`worker/modes.ts`): `casual` tables anyone opens, and a participant's own
- * `challenge` table (ARCHITECTURE.md §5.5). Team matches, practice and pairs events add theirs
+ * `challenge` table (ARCHITECTURE.md §5.5), and a member's own `practice` table with three robots
+ * (§5.11). Team matches and pairs events add theirs
  */
-export const TABLE_MODES = ['casual', 'challenge'] as const
+export const TABLE_MODES = ['casual', 'challenge', 'practice'] as const
 export type TableMode = (typeof TABLE_MODES)[number]
+
+/**
+ * A table that is one member's alone (a challenge or practice table): not in the lobby, nobody
+ * else joins or watches, and its seats, robots and settings stay as they were opened
+ */
+export const soloTable = (mode: TableMode | undefined) => mode === 'challenge' || mode === 'practice'
+
+/** A practice table as its player sees it (§5.11): how the boards are dealt and who bids with them */
+export interface TablePractice extends PracticeSettings {
+  /** Boards dealt at the table so far, finished or not (a new deal counts too) */
+  dealt: number
+}
 
 /** A challenge table as its player sees it: which challenge, which board of how many, until when */
 export interface TableChallenge {
@@ -228,6 +242,8 @@ export interface TableView {
    * no undo, and seats and settings do not change there
    */
   challenge?: TableChallenge
+  /** At a practice table (§5.11): its settings. Seats and settings do not change there; undo has no limit */
+  practice?: TablePractice
   /** The host only: the members invited to the table (`e2-t25`) */
   invited?: PublicUser[]
   /** When the board's time limit runs out (server clock, ms), while a board is played at a table with one */
@@ -266,6 +282,8 @@ export interface LobbyView {
   tables: TableSummary[]
   /** The table the current user is seated at or watching */
   myTableId: string | null
+  /** The mode of that table when it is not in `tables` (a challenge or practice table, `soloTable`) */
+  myTableMode?: TableMode
   /** Ids of the members the viewer follows (好友, one-way: nobody is asked); `members` lists them first */
   friends: string[]
   /** Ids of the members the viewer blocked: their chat is hidden from the viewer, and they cannot join a table the viewer hosts */
@@ -381,6 +399,7 @@ export const TABLE_ACTIONS = [
   'undoRequest',
   'undoRespond',
   'chat',
+  'redeal',
 ] as const
 
 export type TableAction = Extract<ClientMessage, { type: (typeof TABLE_ACTIONS)[number] }>
@@ -423,6 +442,13 @@ export type ClientMessage =
   | { type: 'undoRequest' }
   | { type: 'undoRespond'; accept: boolean }
   | { type: 'chat'; text: string }
+  /**
+   * Opens the member's own practice table (§5.11, `e10-t03`): South, with three TKB of
+   * `settings.robotKind`, boards dealt to `settings.deal`. Leaves any other table first
+   */
+  | { type: 'createPractice'; settings: PracticeSettings }
+  /** At a practice table only: the board on the table is put away unplayed and a new one dealt */
+  | { type: 'redeal' }
   /** Marks these notifications read, or all of them when `ids` is left out */
   | { type: 'readNotifications'; ids?: string[] }
   /** Follows another member (好友) or stops following them; one-way, they are not asked */

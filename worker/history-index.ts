@@ -295,6 +295,8 @@ function where(query: HistoryQuery, viewer: string, now: number, favorites: bool
   if (query.boardNo !== undefined) add('b.board_no = ?', query.boardNo)
   if (query.table !== undefined) add('b.table_no = ?', query.table)
   if (query.mode) add('b.mode = ?', query.mode)
+  // Practice boards (§5.11) stay out of the club's list, and so of profile cards, unless asked for
+  else if (query.scope === 'all' && !favorites) add("b.mode <> 'practice'")
   return [parts.join(' AND '), params]
 }
 

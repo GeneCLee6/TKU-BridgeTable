@@ -1,10 +1,10 @@
 import { ALL_PASS } from '../lib/calls.ts'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { EyeOff, Lock, Settings } from 'lucide-react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import styled, { css, keyframes } from 'styled-components'
 import { isVulnerable } from '../../shared/board.ts'
-import { nextSeat, SEATS, sideOf, suitOf, type Card, type Seat, type Suit } from '../../shared/cards.ts'
+import { nextSeat, partnerOf, SEATS, sideOf, suitOf, type Card, type Seat, type Suit } from '../../shared/cards.ts'
 import type { Trick } from '../../shared/game.ts'
 import {
   DEAL_COUNTDOWN_MS,
@@ -15,7 +15,9 @@ import {
 import { AuctionBox } from '../components/AuctionBox.tsx'
 import { BiddingBox, type BiddingHints } from '../components/BiddingBox.tsx'
 import { BoardInfo } from '../components/BoardInfo.tsx'
+import { BookHints } from '../components/BookHints.tsx'
 import { ChallengeBanner } from '../components/ChallengeBanner.tsx'
+import { PracticeBanner } from '../components/PracticeBanner.tsx'
 import { ChatPanel } from '../components/ChatPanel.tsx'
 import { DEAL_MS, DealAnimation } from '../components/DealAnimation.tsx'
 import { SidePanel } from '../components/SidePanel.tsx'
@@ -604,6 +606,7 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
   const { cardStyle, sound, lang, confirmCalls, confirmPlays, cardSize, tableTourSeen, set: setPrefs } = usePreferences()
   const { user } = useAuth()
   const { error, lobby } = useClub()
+  const navigate = useNavigate()
   const [feltRef, feltSize] = useSize()
   // On a tablet the side panel floats over the table, so it starts closed there (e3-t36)
   const onTablet = useMediaQuery(tabletQuery)
@@ -622,8 +625,9 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
 
   const me = table.mySeat
   const challenge = table.challenge
-  // Nobody runs a challenge table: its seats, robots and settings are fixed
-  const iAmHost = !!user && table.hostId === user.id && !challenge
+  const practice = table.practice
+  // Nobody runs a challenge or practice table: its seats, robots and settings are fixed
+  const iAmHost = !!user && table.hostId === user.id && !challenge && !practice
   const viewer = me ?? 'S'
   const at = rotation(viewer)
   const positionOf = (seat: Seat) => (Object.keys(at) as Position[]).find((p) => at[p] === seat)!
@@ -639,6 +643,8 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
   // each call, as GIB does on BBO. The server works the meanings out (`callMeanings`); the page
   // only puts them into words
   const callMeanings = board?.callMeanings
+  // The practice hint card reads the book in a robot partner's system (BookHints)
+  const partnerSeat = me ? table.seats[partnerOf(me)] : null
   const rules = useRobotRules(!!callMeanings)
   const hints = useMemo((): BiddingHints | null => {
     if (!callMeanings || !rules) return null
@@ -766,7 +772,7 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
   const seatActions = (seat: Seat): SeatAction[] => {
     const occupant = table.seats[seat]
     const actions: SeatAction[] = []
-    if (challenge) return actions
+    if (challenge || practice) return actions
     const between = !board || board.phase === 'finished'
     // A free seat (or a robot's) can be taken; someone already seated moves only between boards
     if ((!occupant || (occupant.robot && !me)) && (!me || between))
@@ -994,6 +1000,8 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
             <TableTitle>
               {challenge ? (
                 <ChallengeBanner challenge={challenge} />
+              ) : practice ? (
+                <PracticeBanner practice={practice} />
               ) : (
                 <>
                   <span>
@@ -1085,6 +1093,16 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
                 {t.challengeAllDone} <Link to="/">{t.navLobby}</Link>
               </Note>
             )}
+            {practice && me && (
+              <>
+                <FeltButton type="button" $tone="plain" title={t.redealHint} onClick={() => send({ type: 'redeal' })}>
+                  {t.redeal}
+                </FeltButton>
+                <FeltButton type="button" $tone="plain" onClick={() => navigate('/')}>
+                  {t.endPractice}
+                </FeltButton>
+              </>
+            )}
             {board && me && board.phase !== 'finished' && (
               <>
                 <FeltButton
@@ -1130,11 +1148,12 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
       <TableAnnouncer board={board} me={me} who={spokenSeat} />
       {!tableTourSeen && <TableTour onClose={() => setPrefs({ tableTourSeen: true })} />}
       <SidePanel
-        tabs={['chat', 'people', 'messages', 'history']}
+        tabs={['chat', 'conventions', 'people', 'messages', 'history']}
         recent={table.recent}
         page="table"
         initial={onTablet ? null : 'chat'}
         chat={<ChatPanel messages={table.chat} onSend={(text) => send({ type: 'chat', text })} />}
+        conventions={<BookHints board={board} seat={me} robotKind={partnerSeat?.robot ? (partnerSeat.robotKind ?? 'tku') : 'tku'} />}
       />
     </Layout>
   )

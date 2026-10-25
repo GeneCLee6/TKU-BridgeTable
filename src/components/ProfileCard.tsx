@@ -10,6 +10,7 @@ import { usePreferences } from '../state/PreferencesContext.tsx'
 import { Avatar } from './Avatar.tsx'
 import { ContractLabel } from './Suit.tsx'
 import { Button, Card, ErrorText, Muted } from './ui.tsx'
+import { boardPlace } from '../strings.ts'
 
 /**
  * A member's profile (AC-1.5): avatar, display name, level, system, introduction and their latest
@@ -153,7 +154,7 @@ export function ProfileDetails({
             <li key={b.id}>
               <Link to={`/history/${b.id}`} {...target}>
                 <span>
-                  {formatDateTime(b.finishedAt, lang)} · {b.mode === 'challenge' ? t.challenge : t.tableName(b.tableNumber)}{' '}
+                  {formatDateTime(b.finishedAt, lang)} · {boardPlace(t, b)}{' '}
                   {t.boardNo(b.boardNo)}
                 </span>
                 <span>
