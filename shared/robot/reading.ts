@@ -1,4 +1,4 @@
-import { fullDeck, rankOf, SEATS, SUITS, suitOf, type Card, type Seat, type Suit } from '../cards.ts'
+import { fullDeck, partnerOf, rankOf, rankValue, sameSide, SEATS, SUITS, suitOf, type Card, type Seat, type Suit } from '../cards.ts'
 import { dummyOf, remainingCards, tricksOf, type BoardState } from '../game.ts'
 import type { RobotKind } from '../protocol.ts'
 import { ROBOT_SYSTEMS } from './robots.ts'
@@ -42,8 +42,13 @@ export class TableReading {
   private readonly points = {} as Record<Seat, Range>
   private readonly unseenCards = new Set<Card>()
 
+  private readonly seat: Seat
+  private readonly kind: RobotKind
+
   constructor(state: BoardState, seat: Seat, kind: RobotKind) {
     this.state = state
+    this.seat = seat
+    this.kind = kind
     const dummy = dummyOf(state)
     this.visible = new Set<Seat>([seat, ...(state.claimed ?? [])])
     if (dummy && state.play.length > 0) {
@@ -131,11 +136,33 @@ export class TableReading {
         let range: Range = [Math.max(0, shown[0] - played), Math.min(cap, shown[1] - played)]
         // The auction was wrong about this suit (a misbid or a psych): go by the count alone
         if (range[0] > range[1]) range = [0, cap]
-        row[suit] = this.voids[seat].has(suit) ? [0, 0] : range
+        row[suit] = this.voids[seat].has(suit) ? [0, 0] : parity(range, this.countSignal(seat, suit), played)
       }
       this.lengths[seat] = row
     }
     for (const suit of SUITS) this.share(this.out(suit), (s) => this.lengths[s][suit], (s, r) => (this.lengths[s][suit] = r))
+  }
+
+  /**
+   * A defender's count signal, read by partner (e6-t42): following the declaring side's lead
+   * without trying to win, high then low shows an even number, low then high an odd number (the
+   * club's count and GIB's are both standard). 'even' or 'odd' for the original length, null
+   * when partner has not shown it yet. The club's Smith Echo trick in notrump is not a count.
+   */
+  countSignal(seat: Seat, suit: Suit): 'even' | 'odd' | null {
+    const contract = this.state.contract
+    if (!contract || seat !== partnerOf(this.seat) || sameSide(seat, contract.declarer)) return null
+    const tricks = tricksOf(this.state)
+    const smith = this.kind === 'tku' && contract.strain === 'N' ? tricks.slice(1).find((t) => sameSide(t.leader, contract.declarer)) : undefined
+    const cards: Card[] = []
+    for (const trick of tricks) {
+      if (trick === smith || !sameSide(trick.leader, contract.declarer) || suitOf(trick.cards[0].card) !== suit) continue
+      const theirs = trick.cards.find((p) => p.seat === seat)
+      if (!theirs || suitOf(theirs.card) !== suit || trick.winner === seat) continue
+      cards.push(theirs.card)
+    }
+    if (cards.length < 2) return null
+    return rankValue(rankOf(cards[0])) > rankValue(rankOf(cards[1])) ? 'even' : 'odd'
   }
 
   /** Each unseen seat's points: shown in the auction less the honours it played, fitted to the count */
@@ -171,6 +198,16 @@ export class TableReading {
 }
 
 const mid = (r: Range) => (r[0] + r[1]) / 2
+
+/** Narrow the cards left in a suit to those that fit the length partner signalled */
+function parity(range: Range, signal: 'even' | 'odd' | null, played: number): Range {
+  if (!signal) return range
+  const want = signal === 'even' ? 0 : 1
+  const fits = (n: number) => (n + played) % 2 === want
+  const lo = fits(range[0]) ? range[0] : range[0] + 1
+  const hi = fits(range[1]) ? range[1] : range[1] - 1
+  return lo <= hi ? [lo, hi] : range
+}
 
 function exactLengths(cards: Card[]): Record<Suit, Range> {
   const row = {} as Record<Suit, Range>

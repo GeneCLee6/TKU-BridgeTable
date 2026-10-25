@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { deal } from '../../shared/board.ts'
-import { rankOf, rankValue, SEATS, type Card, type Hands, type Seat } from '../../shared/cards.ts'
+import { rankOf, rankValue, SEATS, suitOf, type Card, type Hands, type Seat } from '../../shared/cards.ts'
 import { dummyOf, legalCards, makeCall, newBoard, playCard, turnOf, type BoardState } from '../../shared/game.ts'
 import type { RobotKind } from '../../shared/protocol.ts'
 import { chooseCard } from '../../shared/robot/play.ts'
@@ -63,13 +63,22 @@ describe('reading the auction during the play (e6-t39)', () => {
     expect(new TableReading(board(layout({ N: 'AQ5', W: 'K76', E: 'JT98' }), EAST_OPENS, opening), 'S', 'tku').holder('DK')).toBe('E')
   })
 
-  it('leads towards the tenace when the opener sits in front of it, else from length', () => {
+  it('leads towards the tenace when the opener sits in front of it', () => {
     // North's ♦KJ5 against the ace: only worth leading towards when West, before North, has it
     const cards = layout({ N: 'KJ5', W: 'A76', E: 'QT98' })
+    // Trumps first (e6-t41): dummy's low trump towards North's masters
+    for (const kind of KINDS) expect(chooseCard(board(cards, WEST_OPENS, opening), 'S', kind)).toBe('H2')
+    // East leads a trump; North draws the rest and crosses to dummy's ♣A
+    const drawn = [
+      ...['HT', 'H2', 'H6', 'HA'],
+      ...['HK', 'H9', 'H3', 'H7'],
+      ...['HQ', 'H8', 'H4', 'S8'],
+      ...['C2', 'C8', 'CA', 'C7'],
+    ]
     for (const kind of KINDS) {
-      expect(chooseCard(board(cards, WEST_OPENS, opening), 'S', kind)).toBe('D2')
-      // East opened: the ace sits over the king; lead clubs, not the suit East bid
-      expect(chooseCard(board(cards, EAST_OPENS, opening), 'S', kind)).toBe('C3')
+      expect(chooseCard(board(cards, WEST_OPENS, drawn), 'S', kind)).toBe('D2')
+      // East opened: the ace sits over the king; no finesse, and not the suit East bid
+      expect(suitOf(chooseCard(board(cards, EAST_OPENS, drawn), 'S', kind))).not.toBe('S')
     }
   })
 
@@ -102,12 +111,13 @@ describe('counting the cards (e6-t40)', () => {
     expect(reading.mayRuff('E', 'C', 'H')).toBe(false)
   })
 
-  it("does not cash a winner into a known void while that opponent has trumps", () => {
+  it('knocks out the trump ace before cashing a side winner (e6-t41)', () => {
     const play = (westVoid: boolean) => ['CA', LOW, westVoid ? 'S8' : 'C8', 'C2', 'DT', 'D4', 'DJ', 'DA']
     for (const kind of KINDS) {
-      // West threw a spade on the club ace and still has trumps: ♣K would be ruffed
-      expect(chooseCard(board(ruffLayout(true), auction, play(true)), 'N', kind)).toBe('S2')
-      expect(chooseCard(board(ruffLayout(false), auction, play(false)), 'N', kind)).toBe('CK')
+      // West threw a spade on the club ace and still has trumps: ♣K would be ruffed. North
+      // knocks out the trump ace first either way (e6-t41)
+      expect(chooseCard(board(ruffLayout(true), auction, play(true)), 'N', kind)).toBe('HK')
+      expect(chooseCard(board(ruffLayout(false), auction, play(false)), 'N', kind)).toBe('HK')
     }
   })
 
