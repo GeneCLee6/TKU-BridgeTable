@@ -1,3 +1,4 @@
+import { X } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
 import styled, { css } from 'styled-components'
 import { STRAINS } from '../../shared/auction.ts'
@@ -17,10 +18,12 @@ import {
 } from '../../shared/history-query.ts'
 import type { PublicUser } from '../../shared/protocol.ts'
 import { usePreferences } from '../state/PreferencesContext.tsx'
+import { clearAllFilters, type FilterChip } from '../lib/historyChips.ts'
 import { playerName } from '../strings.ts'
+import { Button } from './ui.tsx'
 
 /**
- * The history list's filters (e4-t16…t20): contract, declarer, players, dates, and result,
+ * The history list's filters (e4-t16…t20) and the chips naming the ones in use (e4-t22): contract, declarer, players, dates, and result,
  * vulnerability, board, table and mode. Every change goes straight to `onChange`, which writes it
  * into the address; a field left on "any" is left out of the search.
  */
@@ -303,5 +306,80 @@ export function HistoryFilters({ query, members, onChange, now: nowProp }: Props
         </Fields>
       </Section>
     </div>
+  )
+}
+
+// ── Chips (e4-t22) ───────────────────────────────────────────────────────────────────────────────
+
+const ChipRow = styled.ul`
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 16px;
+  padding: 0;
+  list-style: none;
+`
+
+const Tag = styled.li`
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-height: 30px;
+  max-width: 100%;
+  padding: 0 4px 0 12px;
+  border: 1px solid ${({ theme }) => theme.colors.primary};
+  border-radius: ${({ theme }) => theme.radius.pill};
+  background: ${({ theme }) => theme.colors.primarySoft};
+  color: ${({ theme }) => theme.colors.text};
+  font-size: 14px;
+  font-weight: 600;
+
+  & > span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+`
+
+const Remove = styled.button`
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: ${({ theme }) => theme.radius.pill};
+  background: transparent;
+  color: ${({ theme }) => theme.colors.textMuted};
+
+  &:hover {
+    background: ${({ theme }) => theme.colors.surfaceAlt};
+    color: ${({ theme }) => theme.colors.text};
+  }
+`
+
+/** The conditions in use as chips, each with its own remove button, and "clear all" */
+export function FilterChips({ chips, onChange }: { chips: FilterChip[]; onChange: (patch: Patch) => void }) {
+  const { t } = usePreferences()
+  if (chips.length === 0) return null
+  return (
+    <ChipRow aria-label={t.activeFilters}>
+      {chips.map((chip) => (
+        <Tag key={chip.key}>
+          <span>{chip.text}</span>
+          <Remove type="button" aria-label={t.removeFilter(chip.text)} title={t.removeFilter(chip.text)} onClick={() => onChange(chip.clear)}>
+            <X size={14} aria-hidden />
+          </Remove>
+        </Tag>
+      ))}
+      <li>
+        <Button type="button" $variant="ghost" $small onClick={() => onChange(clearAllFilters(chips))}>
+          {t.clearFilters}
+        </Button>
+      </li>
+    </ChipRow>
   )
 }
