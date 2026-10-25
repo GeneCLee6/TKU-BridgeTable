@@ -109,7 +109,9 @@ describe('casual tables', () => {
     for (const seat of ['E', 'W'] as const) await t.send(cat, { type: 'addRobot', seat })
     expect(await t.refused(eve, { type: 'joinTable', tableId: closed })).toBe('noKibitzing')
 
-    await t.playUntil([amy, cat, dan], () => t.played(open) >= 2 && t.played(closed) >= 2)
+    // Four boards each: the members only pass, so a board the robots pass out too sends just a few
+    // table messages, and two such boards were sometimes too few to count past 10
+    await t.playUntil([amy, cat, dan], () => t.played(open) >= 4 && t.played(closed) >= 4)
     expect(noHiddenCards(amy)).toBeGreaterThan(10)
     expect(noHiddenCards(cat)).toBeGreaterThan(10)
     expect(noHiddenCards(dan)).toBeGreaterThan(10)
