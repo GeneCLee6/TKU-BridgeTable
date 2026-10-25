@@ -5,7 +5,7 @@ import { parseHistoryQuery } from '../shared/history-query.ts'
 import { MESSAGE_MAX_CHARS } from '../shared/message-guard.ts'
 import type { Me, ServerMessage } from '../shared/protocol.ts'
 import { readCookie, SESSION_COOKIE, sessionCookie } from './auth.ts'
-import { BookService, importRequestFrom } from './book.ts'
+import { BookService, importRequestFrom, publicBookResponse } from './book.ts'
 import { claudeImporter } from './importer.ts'
 import { CLIENT_ERROR_MAX_CHARS } from './client-errors.ts'
 import { crashEntry, jsonLog } from './log.ts'
@@ -208,13 +208,8 @@ export class Club extends DurableObject<Env> implements Connections {
       await this.service.resetForgottenPassword(text(b.username), text(b.inviteCode), text(b.password))
       return json({ ok: true })
     }
-    if (route === 'GET /api/book/content') {
-      const { json: content, version } = await this.book.content()
-      const etag = `W/"book-${version}"`
-      const headers = { ETag: etag, 'Cache-Control': 'no-cache' }
-      if (request.headers.get('If-None-Match') === etag) return new Response(null, { status: 304, headers })
-      return new Response(content, { headers: { ...headers, 'Content-Type': 'application/json; charset=utf-8' } })
-    }
+    const open = await publicBookResponse(this.book, request, url.pathname)
+    if (open) return open
 
     const user = await this.service.userForToken(token)
     if (!user) throw new ClubError('signInFirst', {}, 401)
@@ -320,7 +315,7 @@ export class Club extends DurableObject<Env> implements Connections {
     throw new ClubError('noSuchApi', {}, 404)
   }
 
-  /** TKU BridgeBook's online editing; reading the content (GET /api/book/content) needs no sign-in */
+  /** TKU BridgeBook's online editing; reading it (publicBookResponse) needs no sign-in */
   private async bookApi(request: Request, url: URL, user: Me, body: () => Promise<Body>) {
     const path = url.pathname.slice('/api/book'.length)
     const method = request.method
