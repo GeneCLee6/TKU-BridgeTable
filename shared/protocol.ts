@@ -5,7 +5,7 @@ import type { ChallengeSettings } from './challenge.ts'
 import type { BoardResult, BoardState, Phase, Trick } from './game.ts'
 import type { MessageCode, MessageParams } from './messages.ts'
 import type { PracticeSettings } from './practice.ts'
-import type { MatchSeat, TeamMatchView } from './team-match.ts'
+import type { MatchSeat, Room, TeamMatchView } from './team-match.ts'
 import type { Profile } from './profile.ts'
 import type { Spec } from './robot/system/spec.ts'
 
@@ -95,6 +95,11 @@ export interface ChatMessage {
   userId: string
   username: string
   text: string
+  /**
+   * Said by someone watching a team match table (§5.8): only the other watchers see it, never the
+   * players (`chatFor` in `worker/views.ts`)
+   */
+  kibitz?: true
 }
 
 /**
@@ -176,11 +181,11 @@ export function parseTableSettings(value: unknown): Partial<TableSettings> | nul
 }
 
 /**
- * What a table is for (`worker/modes.ts`): `casual` tables anyone opens, and a participant's own
- * `challenge` table (ARCHITECTURE.md §5.5), and a member's own `practice` table with three robots
- * (§5.11). Team matches and pairs events add theirs
+ * What a table is for (`worker/modes.ts`): `casual` tables anyone opens, a participant's own
+ * `challenge` table (ARCHITECTURE.md §5.5), a member's own `practice` table with three robots
+ * (§5.11), and the two rooms of a `team` match (§5.8). Pairs events add theirs
  */
-export const TABLE_MODES = ['casual', 'challenge', 'practice'] as const
+export const TABLE_MODES = ['casual', 'challenge', 'practice', 'team'] as const
 export type TableMode = (typeof TABLE_MODES)[number]
 
 /**
@@ -211,6 +216,31 @@ export interface TableChallenge {
   /** Boards the player has finished */
   played: number
   deadline: number
+}
+
+/**
+ * A team match table (§5.8) as everyone at it sees it: which match and room, which board of how
+ * many. The score is not here: it comes from the match itself (`TeamMatchView`), which only counts
+ * boards both rooms finished
+ */
+export interface TableMatch {
+  id: string
+  room: Room
+  /** The board on the table: its place in the match, 1-based (0 before the first) */
+  seq: number
+  boards: number
+  /** Boards this room has finished */
+  played: number
+  /** This room played every board: its last result stays on the table while the other room finishes */
+  over: boolean
+}
+
+/** A team match being played, as the lobby lists it for anyone to watch (§5.8, AC-8.4) */
+export interface LiveMatch {
+  id: string
+  teamNames: [string, string]
+  /** The two rooms' tables */
+  tables: Partial<Record<Room, string>>
 }
 
 export interface TableSummary {
@@ -296,6 +326,8 @@ export interface TableView {
    * no undo, and seats and settings do not change there
    */
   challenge?: TableChallenge
+  /** At a team match table (§5.8): no undo, and seats and settings are the match's */
+  match?: TableMatch
   /** At a practice table (§5.11): its settings. Seats and settings do not change there; undo has no limit */
   practice?: TablePractice
   /** The host only: the members invited to the table (`e2-t25`) */
@@ -344,6 +376,8 @@ export interface LobbyView {
   friends: string[]
   /** Ids of the members the viewer blocked: their chat is hidden from the viewer, and they cannot join a table the viewer hosts */
   blocked: string[]
+  /** Team matches being played; their tables are not in `tables` (§5.8). Always sent; optional for older pages' fixtures */
+  matches?: LiveMatch[]
 }
 
 /**
@@ -371,6 +405,8 @@ export const NOTIFICATION_KINDS = [
   'matchLeft',
   'matchRemoved',
   'matchCancelled',
+  'matchStarted',
+  'matchFinished',
   'boardFeatured',
 ] as const
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number]
@@ -391,7 +427,8 @@ export interface Notification {
    * `tableRequestDeclined`: { tableId, number, username } of the host who answered. `boardFeatured`: { boardId,
    * username } of a board the member played and who featured it (`e4-t29`). The team match kinds
    * (§5.8, `e8-t04`): { matchId, username } of who invited, accepted, declined, left, took the
-   * member off a seat or called the match off
+   * member off a seat or called the match off; `matchStarted` { matchId, username } of the host who
+   * started it, `matchFinished` { matchId } when both rooms played every board (`e8-t07`, `e8-t11`)
    */
   params: Record<string, string | number>
   read: boolean
@@ -552,6 +589,8 @@ export type ClientMessage =
   | { type: 'matchLeave'; matchId: string }
   | { type: 'matchClear'; matchId: string; room: MatchSeat['room']; seat: Seat }
   | { type: 'matchRobot'; matchId: string; room: MatchSeat['room']; seat: Seat }
+  /** The host starts the match (`e8-t07`): both rooms open and deal board 1. Also `POST /api/matches/:id/start` */
+  | { type: 'startMatch'; matchId: string }
   /** Sends a direct message (AC-1.7): not to oneself, a robot, or between members where either blocked the other */
   | { type: 'sendDirect'; to: string; text: string }
   /** Marks the conversation with this member read */
@@ -586,9 +625,11 @@ export interface BoardRecord {
   mode?: TableMode
   /** The challenge or match the board belongs to, if any */
   eventId?: string
+  /** A team match board: which room it was played in (§5.8) */
+  room?: Room
   /**
-   * Until when only the board's own players may see it (a challenge still being played); shown to
-   * everyone when absent. `worker/views.ts` has the rule
+   * Until when only the board's own players may see it (a challenge or a team match board one room
+   * has not played yet); shown to everyone when absent. `worker/views.ts` has the rule
    */
   revealAt?: number
   /** Seats where a robot played for a member who was offline (代打) during the board, and for whom */
@@ -607,6 +648,7 @@ export interface BoardSummary {
   result: BoardResult
   mode?: TableMode
   eventId?: string
+  room?: Room
   revealAt?: number
 }
 
@@ -624,6 +666,7 @@ export function summarize(record: BoardRecord): BoardSummary {
     result: board.result!,
     ...(record.mode !== undefined && { mode: record.mode }),
     ...(record.eventId !== undefined && { eventId: record.eventId }),
+    ...(record.room !== undefined && { room: record.room }),
     ...(record.revealAt !== undefined && { revealAt: record.revealAt }),
   }
 }

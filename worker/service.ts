@@ -29,6 +29,7 @@ import {
   type FavoritesPage,
   type FavoriteTag,
   type HistoryPage,
+  type LiveMatch,
   type LobbyView,
   type Me,
   type MemberStatus,
@@ -63,7 +64,7 @@ import {
   parseWeeklySchedule,
   type WeeklyChallengeView,
 } from '../shared/weekly-challenge.ts'
-import { DEAL_SET_MAX, dealSourceOf, makeDealSet, type DealSet, type DealSetBoard } from '../shared/deal-set.ts'
+import { dealSourceOf, makeDealSet, type DealSet, type DealSetBoard } from '../shared/deal-set.ts'
 import { openingLead, type Traveller } from '../shared/traveller.ts'
 import {
   answer,
@@ -82,7 +83,17 @@ import { ClubError } from './errors.ts'
 import { FeaturedService } from './featured.ts'
 import { TeamMatchService } from './team-match-service.ts'
 import { TeamMatchStore } from './team-matches.ts'
-import { createHistoryIndex, eventBoards, indexRecord, revealEvent, searchBoards, unindexRecord } from './history-index.ts'
+import { teamTable } from './team-mode.ts'
+import { ROOMS, type Room, type TeamMatchView } from '../shared/team-match.ts'
+import {
+  createHistoryIndex,
+  eventBoards,
+  indexRecord,
+  revealBoards,
+  revealEvent,
+  searchBoards,
+  unindexRecord,
+} from './history-index.ts'
 import {
   challengeSnapshot,
   challengeStateOf,
@@ -354,6 +365,7 @@ export class ClubService {
       online: () => this.connections.onlineUserIds(),
       send: (id, message) => this.connections.send(id, message),
       notify: (id, kind, params) => this.notifications.notify(id, kind, params),
+      watchers: (matchId) => this.matchWatchers(matchId),
     })
     this.featured = new FeaturedService(store, {
       now: this.now,
@@ -924,7 +936,9 @@ export class ClubService {
         const involved =
           entry.challenge?.userId === user.id ||
           entry.invited.includes(user.id) ||
-          Object.values(entry.substitutes).includes(user.id)
+          Object.values(entry.substitutes).includes(user.id) ||
+          // A team match plays on: a robot takes their seat (§5.8)
+          (!!entry.match && SEATS.some((s) => entry.seats[s] === user.id))
         if (involved) this.applyResult(entry.id, await this.tables.get(entry.id).forget(user.id))
       }
       await this.dropMember(user)
@@ -1399,6 +1413,8 @@ export class ClubService {
       case 'matchRobot':
         await this.matches.act(userId, message)
         return
+      case 'startMatch':
+        return this.startMatch(userId, message.matchId)
       default:
         // Bidding, play, chat and the host's seat changes belong to the member's table (§5.10)
         if (isTableAction(message)) return this.tableAction(userId, message)
@@ -1445,7 +1461,8 @@ export class ClubService {
    */
   private checkWelcome(userId: string, table: TableEntry) {
     const at = this.entryOf(userId)?.id === table.id
-    if (at) return
+    // A team match's tables follow the match's rules (`checkNotInMatch`, §5.8), not an access mode
+    if (at || table.mode === 'team') return
     if (!tableListed(table, userId, false)) throw new ClubError('tableGone', {}, 404)
     if (this.blocks.has(table.hostId, userId)) {
       if (table.settings.access === 'public') throw new ClubError('blockedByHost', {}, 403)
@@ -1547,7 +1564,7 @@ export class ClubService {
     userId: string,
     ids: unknown,
   ): Promise<{ robotKind: RobotKind; boards: (DealSetBoard & { id: string; scoreNS: number; playedAt: number })[] }> {
-    if (!Array.isArray(ids) || ids.length < 1 || ids.length > DEAL_SET_MAX || new Set(ids).size !== ids.length)
+    if (!Array.isArray(ids) || ids.length < 1 || ids.length > CHALLENGE_LIMITS.boardsMax || new Set(ids).size !== ids.length)
       throw new ClubError('badChallengeSettings', { field: 'fromBoards' })
     const kinds = new Set<RobotKind>()
     const boards = []
@@ -1898,6 +1915,7 @@ export class ClubService {
     }
     if (player.status !== 'accepted') throw new ClubError('challengeNotAccepted')
     if (atIt) return
+    this.checkNotInMatch(userId)
     if (player.knownDeals || (!existing && nextSeq(challenge, userId) === null)) throw new ClubError('challengeDone')
     await this.leave(userId)
     if (existing) {
@@ -1929,6 +1947,117 @@ export class ClubService {
     this.applyEntry(await this.tables.get(table.id).open(table))
   }
 
+  // ── Team matches being played (§5.8, e8-t07–e8-t11, e8-t13) ─────────────────────────────────
+
+  /**
+   * The host starts a match over HTTP (`POST /api/matches/:id/start`): the same as the socket's
+   * `startMatch`, rate-limited, in the host's lane; answers the match as the host now sees it
+   */
+  async startMatchRequest(userId: string, matchId: string): Promise<TeamMatchView | null> {
+    if (!this.actionLimit.take(userId)) throw new ClubError('slowDown', {}, 429)
+    await this.inLane(userId, () => this.batch(() => this.startMatch(userId, matchId)))
+    this.broadcast()
+    return this.matches.get(matchId, userId)
+  }
+
+  /**
+   * Starts a match (`e8-t07`, AC-8.2): the host's, set up, every seat taken and everyone online.
+   * Nobody in it may be playing another match. Each member leaves the table they are at (a
+   * challenge table only pauses), then both rooms open at once (§5.10: two independent tables, in
+   * production two `TableObject`s) on the same new deal set and deal board 1. If either cannot
+   * open, the other is closed too and the match stays set up
+   */
+  private async startMatch(userId: string, matchId: unknown) {
+    const match = this.matches.startable(userId, matchId)
+    const members = match.seats.flatMap((s) => (s.userId !== undefined && !s.robot ? [s.userId] : []))
+    for (const id of members)
+      if (this.matches.store.playingIdOf(id))
+        throw new ClubError('matchPlayerBusy', { name: this.users.get(id)?.username ?? '' })
+    const deals = makeDealSet({ kind: 'random', count: match.settings.boards }, this.random)
+    if (!deals) throw new ClubError('serverError', {}, 500)
+    const people = Object.fromEntries(
+      members.flatMap((id) => {
+        const user = this.users.get(id)
+        return user ? [[id, { username: user.username, blocked: this.blocks.of(id) }]] : []
+      }),
+    )
+    const ids = { open: randomId(6), closed: randomId(6) } satisfies Record<Room, string>
+    for (const id of members) await this.leave(id)
+    const now = this.now()
+    const opened = await Promise.allSettled(
+      ROOMS.map((room) => this.tables.get(ids[room]).open(teamTable({ id: ids[room], match, room, deals, now, people }))),
+    )
+    const failed = opened.find((r): r is PromiseRejectedResult => r.status === 'rejected')
+    if (failed) {
+      for (const [i, result] of opened.entries())
+        if (result.status === 'fulfilled') await this.closeTable(ids[ROOMS[i]]).catch(() => undefined)
+      // A table error the member should see keeps its code; anything else is the server's
+      throw failed.reason instanceof AppError ? failed.reason : new ClubError('serverError', {}, 500)
+    }
+    for (const result of opened) if (result.status === 'fulfilled') this.applyEntry(result.value)
+    await this.matches.started(match.id, deals, ids)
+  }
+
+  /**
+   * A member playing a team match plays there and nowhere else until it ends (§5.8, AC-8.4):
+   * `inMatch` for any other table, `matchOtherRoom` for the other room of their own match. The
+   * table checks the other room again with its own state
+   */
+  private checkNotInMatch(userId: string, target?: TableEntry) {
+    const match = this.matches.playingOf(userId)
+    if (!match) return
+    if (target?.match?.matchId !== match.id) throw new ClubError('inMatch')
+    const mine = match.seats.find((s) => s.userId === userId)
+    if (mine && mine.room !== target.match.room) throw new ClubError('matchOtherRoom', {}, 403)
+  }
+
+  /** Everyone at a match's tables, seated or watching: they see its score as it changes */
+  private matchWatchers(matchId: string): string[] {
+    const people = new Set<string>()
+    for (const entry of this.directory.values()) {
+      if (entry.match?.matchId !== matchId) continue
+      for (const seat of SEATS) if (entry.seats[seat] && !isRobotId(entry.seats[seat])) people.add(entry.seats[seat]!)
+      for (const id of entry.spectators) people.add(id)
+    }
+    return [...people]
+  }
+
+  /**
+   * A room finished a board of its match (`e8-t08`, `e8-t10`): the result is written once; once
+   * both rooms played the board its two records are shown to everyone (until then only its own
+   * four players see each, §4), the new score goes to everyone in the match and at its tables, and
+   * the last board finishes the match (`e8-t11`)
+   */
+  private async teamBoardFinished(event: Extract<EventReport, { kind: 'team' }>) {
+    if (!event.result) return
+    const outcome = this.matches.addResult(event.matchId, event.seq, event.room, event.result)
+    if (!outcome) return
+    await this.revealRecords(revealBoards(this.store.sql, outcome.reveal, this.now()))
+    if (outcome.finished) await this.endMatch(event.matchId)
+    this.matches.push(event.matchId)
+  }
+
+  /**
+   * A match whose every board is done (`e8-t11`): finished, its tables told (nothing more is dealt;
+   * each closes once its people leave), any board still kept back shown to everyone, and everyone
+   * in it told
+   */
+  private async endMatch(matchId: string) {
+    await this.matches.finish(matchId)
+    for (const entry of [...this.directory.values()])
+      if (entry.match?.matchId === matchId) this.applyResult(entry.id, await this.tables.get(entry.id).matchEnded())
+    await this.revealRecords(revealEvent(this.store.sql, matchId, this.now()))
+  }
+
+  /** Rewrites the records whose index rows were just brought forward, so they read as shown from now */
+  private async revealRecords(boardIds: string[]) {
+    const now = this.now()
+    for (const boardId of boardIds) {
+      const record = await this.store.get<BoardRecord>(`board:${boardId}`)
+      if (record) await this.writeRecord({ ...record, revealAt: now })
+    }
+  }
+
   // ── Tables (the directory, ARCHITECTURE.md §5.10) ───────────────────────────────────────────
 
   /** The table a member is at (seated or watching), from the directory */
@@ -1955,6 +2084,7 @@ export class ClubService {
     const settings = parseTableSettings(wanted)
     if (!settings) throw new ClubError('badTableSettings')
     const invited = this.checkInvitees(userId, invitees)
+    this.checkNotInMatch(userId)
     await this.leave(userId)
     const number = this.freeNumber()
     const username = this.users.get(userId)!.username
@@ -2003,6 +2133,7 @@ export class ClubService {
     const { settings } = parsed
     const conditions = practiceConditions(settings)
     if (conditions && !dealWith(conditions, quickRandom(this.random), PRACTICE_MAX_ATTEMPTS).ok) throw new ClubError('dealTooStrict')
+    this.checkNotInMatch(userId)
     await this.leave(userId)
     const kind = settings.robotKind
     const state: PracticeTableState = { ...settings, dealt: 0 }
@@ -2050,11 +2181,13 @@ export class ClubService {
    * opens. A member already seated somewhere keeps that seat if nothing else needs them
    */
   private async quickSeat(userId: string) {
+    this.checkNotInMatch(userId)
     const here = this.entryOf(userId)
     const seated = !!here && !!this.seatIn(here, userId)
     const open = [...this.directory.values()].filter(
       (t) =>
         !fixedSeats(t.mode) &&
+        t.mode !== 'team' &&
         !(seated && t.id === here!.id) &&
         mayEnter(t, userId, false) &&
         !this.blocks.has(t.hostId, userId),
@@ -2068,6 +2201,7 @@ export class ClubService {
     if (this.entryOf(userId)?.id === entry.id) return
     // Someone else's challenge table is not there for anyone to see
     if (soloTable(entry.mode)) throw new ClubError('tableGone', {}, 404)
+    this.checkNotInMatch(userId, entry)
     this.checkWelcome(userId, entry)
     // A table without kibitzers takes people only into its seats (`e2-t26`); a practice table only has watchers
     if (!entry.settings.allowKibitz && entry.mode !== 'practice') throw new ClubError('noKibitzing', {}, 403)
@@ -2088,6 +2222,12 @@ export class ClubService {
       if (here || (entry.mode === 'practice' && tableListed(entry, userId, false))) throw fixedTable(entry.mode)
       throw new ClubError('tableGone', {}, 404)
     }
+    // The match seats its players; nobody sits down at its tables or moves there (§5.8)
+    if (entry.mode === 'team') {
+      this.checkNotInMatch(userId, entry)
+      throw new ClubError('matchTableFixed')
+    }
+    this.checkNotInMatch(userId)
     if (!here) this.checkWelcome(userId, entry)
     // A person may take a robot's seat at any time, as on BBO
     const occupant = entry.seats[seat]
@@ -2109,6 +2249,7 @@ export class ClubService {
     if (!entry) throw new ClubError('notAtTable')
     if (entry.hostId !== userId) throw new ClubError('hostOnly')
     if (soloTable(entry.mode)) throw fixedTable(entry.mode)
+    if (entry.mode === 'team') throw new ClubError('matchTableFixed')
     const settings = parseTableSettings(wanted)
     if (!settings) throw new ClubError('badTableSettings')
     const invited = this.checkInvitees(userId, invitees)
@@ -2212,6 +2353,7 @@ export class ClubService {
    */
   private async boardFinished(record: BoardRecord, event: EventReport | null) {
     await this.saveRecord(record)
+    if (event?.kind === 'team') return this.teamBoardFinished(event)
     if (event?.kind !== 'challenge') return
     if (event.result) this.addChallengeResult(event.challengeId, event.result)
     await this.challengeChanged(event.challengeId)
@@ -2348,7 +2490,20 @@ export class ClubService {
       ...(mine && (soloTable(mine.mode) || (mine.mode === 'practice' && this.seatIn(mine, userId))) && { myTableMode: mine.mode }),
       friends: this.friends.of(userId),
       blocked: this.blocks.of(userId),
+      matches: this.liveMatches(),
     }
+  }
+
+  /** The team matches being played, from the directory (their tables say which match and room), oldest first */
+  private liveMatches(): LiveMatch[] {
+    const found = new Map<string, LiveMatch>()
+    for (const entry of this.directory.values()) {
+      if (!entry.match || entry.match.ended) continue
+      const live = found.get(entry.match.matchId) ?? { id: entry.match.matchId, teamNames: entry.match.teamNames, tables: {} }
+      live.tables[entry.match.room] = entry.id
+      found.set(live.id, live)
+    }
+    return [...found.values()]
   }
 
   /** The seats as everyone sees them, a robot sitting in for someone marked with their name (代打) */

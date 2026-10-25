@@ -122,11 +122,13 @@ export interface AccessFacts {
 
 /**
  * Whether the lobby lists a table for a member (the four access modes, ARCHITECTURE.md §5): never
- * a challenge table (someone's own); a hidden table only for its host, the invited and whoever is
- * at it; every other table for everyone. `at`: the member is seated at it or watching
+ * a challenge table (someone's own) nor a team match's (listed with the match); a hidden table
+ * only for its host, the invited and whoever is at it; every other table for everyone. `at`: the
+ * member is seated at it or watching
  */
 export function tableListed(table: AccessFacts, userId: string, at: boolean): boolean {
-  if (table.mode === 'challenge') return false
+  // A team match's tables are listed with their match (`LobbyView.matches`, §5.8)
+  if (table.mode === 'challenge' || table.mode === 'team') return false
   if (at || table.hostId === userId) return true
   return table.settings.access !== 'hidden' || !!table.invited?.includes(userId)
 }
@@ -199,10 +201,16 @@ export function memberProfileView(
 
 /**
  * The table chat as one viewer sees it (AC-1.6): what members they blocked say is left out, for
- * them only; everyone else still sees it. Unblocking brings the kept messages back
+ * them only; everyone else still sees it. Unblocking brings the kept messages back. A player at a
+ * team match table (`player`) never sees what the watchers say (`kibitz`, §5.8): watchers may be
+ * following the other room too
  */
-export function chatFor(chat: ChatMessage[], blocked: (authorId: string) => boolean): ChatMessage[] {
-  return chat.filter((message) => !blocked(message.userId))
+export function chatFor(
+  chat: ChatMessage[],
+  blocked: (authorId: string) => boolean,
+  { player = false }: { player?: boolean } = {},
+): ChatMessage[] {
+  return chat.filter((message) => !blocked(message.userId) && !(player && message.kibitz))
 }
 
 export function seatOccupants(
@@ -474,6 +482,7 @@ export function teamMatchView(
     ...(m.endedAt !== undefined && { endedAt: m.endedAt }),
     settings: m.settings,
     captains: m.captains,
+    ...(m.status === 'playing' && m.tables && { tables: m.tables }),
     seats: m.seats.map((s) => {
       const user = s.userId === undefined ? undefined : userById(s.userId)
       return {

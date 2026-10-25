@@ -4,11 +4,15 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { LobbyView, MemberStatus } from '../../shared/protocol.ts'
 import { defaultTeamMatchSettings, MATCH_SEATS, teamAt, type MatchSeatView, type TeamMatchView } from '../../shared/team-match.ts'
+import { MatchBanner } from '../../src/components/MatchBanner.tsx'
 import { MatchesPage } from '../../src/pages/MatchesPage.tsx'
 import { MatchPage } from '../../src/pages/MatchPage.tsx'
 import { PreferencesProvider } from '../../src/state/PreferencesContext.tsx'
 
-/** The team match pages (F3): the list of one's matches and the prep room (e8-t06) */
+/**
+ * The team match pages (F3, F4): the list of one's matches, the prep room (e8-t06), starting it and
+ * the score (e8-t07, e8-t10, e8-t11)
+ */
 
 const navigated = vi.hoisted(() => vi.fn())
 vi.mock('react-router-dom', async (original) => ({
@@ -24,6 +28,7 @@ const mocks = vi.hoisted(() => ({
     matchSettings: vi.fn(),
     cancelMatch: vi.fn(),
     matchSeat: vi.fn(),
+    startMatch: vi.fn(),
   },
   me: 'amy',
 }))
@@ -161,5 +166,99 @@ describe('MatchPage (e8-t06)', () => {
     await userEvent.selectOptions(screen.getByLabelText('邀請方式'), 'captains')
     await userEvent.click(screen.getByRole('button', { name: '儲存' }))
     expect(mocks.api.matchSettings).toHaveBeenCalledWith('m1', expect.objectContaining({ boards: 12, invite: 'captains' }))
+  })
+})
+
+/** The match being played: amy and ben seated, the rest robots, board 1 scored */
+function playing(extra: Partial<TeamMatchView> = {}): TeamMatchView {
+  const base = prepRoom()
+  return {
+    ...base,
+    status: 'playing',
+    startedAt: 1,
+    ready: undefined,
+    tables: { open: 't-open', closed: 't-closed' },
+    seats: base.seats.map((s) =>
+      s.userId === 'ben' ? { ...s, status: 'seated' } : s.status === 'empty' ? { ...s, status: 'seated', robot: true } : s,
+    ),
+    boards: [
+      {
+        seq: 1,
+        open: { boardId: 'r1', scoreNS: 420 },
+        closed: { boardId: 'r2', scoreNS: -50 },
+        result: { A: 10, B: 0, net: 470, ruled: false },
+      },
+    ],
+    totals: { A: 10, B: 0 },
+    leader: 'A',
+    ...extra,
+  }
+}
+
+describe('MatchPage while the match is played (F4)', () => {
+  it('lets the host start once everyone is there, and takes them to their table', async () => {
+    mocks.api.match.mockResolvedValue({ match: prepRoom({ ready: { ready: true } }) })
+    mocks.api.startMatch.mockResolvedValue({ match: playing() })
+    show('/matches/m1')
+    expect(await screen.findByText('人都到齊了，可以開始比賽。兩室會同時發第 1 副。')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: '開始比賽' }))
+    expect(mocks.api.startMatch).toHaveBeenCalledWith('m1')
+    await waitFor(() => expect(navigated).toHaveBeenCalledWith('/table/t-open'))
+  })
+
+  it('shows a player the score of boards both rooms played and the way back to their own table only', async () => {
+    mocks.me = 'ben'
+    mocks.api.match.mockResolvedValue({ match: playing() })
+    show('/matches/m1')
+    expect(await screen.findByRole('heading', { name: '比分' })).toBeInTheDocument()
+    expect(screen.getByRole('group', { name: '比分' })).toHaveTextContent('淡江10 : 0B 隊已計分 1 / 8 副')
+    expect(screen.getByRole('link', { name: '回到我的牌桌' })).toHaveAttribute('href', '/table/t-closed')
+    expect(screen.queryByRole('link', { name: '觀看開室' })).toBeNull()
+    expect(screen.getByRole('link', { name: '420' })).toHaveAttribute('href', '/history/r1')
+    // Nothing of the setup is left
+    expect(screen.queryByRole('button', { name: '開始比賽' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '離開比賽' })).toBeNull()
+  })
+
+  it('offers anyone else both rooms to watch', async () => {
+    mocks.me = 'zed'
+    mocks.api.match.mockResolvedValue({ match: playing() })
+    show('/matches/m1')
+    expect(await screen.findByRole('link', { name: '觀看開室' })).toHaveAttribute('href', '/table/t-open')
+    expect(screen.getByRole('link', { name: '觀看閉室' })).toHaveAttribute('href', '/table/t-closed')
+  })
+
+  it('names the winner once the match is over', async () => {
+    mocks.api.match.mockResolvedValue({ match: playing({ status: 'finished', tables: undefined, endedAt: 2 }) })
+    show('/matches/m1')
+    expect(await screen.findByRole('heading', { name: '比賽結束' })).toBeInTheDocument()
+    expect(screen.getByText('淡江 獲勝')).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: '回到我的牌桌' })).toBeNull()
+  })
+})
+
+describe('MatchBanner (e8-t10)', () => {
+  it('shows the room, the board and the score over the table, and waits for the other room at the end', async () => {
+    mocks.api.match.mockResolvedValue({ match: playing() })
+    render(
+      <PreferencesProvider>
+        <MemoryRouter>
+          <MatchBanner match={{ id: 'm1', room: 'open', seq: 8, boards: 8, played: 8, over: true }} />
+        </MemoryRouter>
+      </PreferencesProvider>,
+    )
+    expect(screen.getByRole('link', { name: '開室 · 第 8 / 8 副' })).toHaveAttribute('target', '_blank')
+    expect(await screen.findByRole('group', { name: '比分' })).toHaveTextContent('10 : 0')
+    expect(screen.getByRole('status')).toHaveTextContent('這一室打完了，等待另一室')
+  })
+})
+
+describe('MatchesPage with matches being played', () => {
+  it('lists the matches being played for anyone to follow', async () => {
+    mocks.api.matches.mockResolvedValue({ matches: [] })
+    LOBBY.matches = [{ id: 'm9', teamNames: ['', '資管'], tables: { open: 'a', closed: 'b' } }]
+    show('/matches')
+    expect(await screen.findByRole('link', { name: /A 隊 對 資管/ })).toHaveAttribute('href', '/matches/m9')
+    LOBBY.matches = undefined
   })
 })

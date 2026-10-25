@@ -10,7 +10,13 @@ import type { BoardView, LobbyView, Me, SeatOccupant, TableWire } from '../../sh
 export const ME: Me = { id: 'amy', username: 'Amy', admin: true, permissions: [], friendOnlineNotice: true, profile: {} }
 
 const person = (id: string, username: string): SeatOccupant => ({ id, username, online: true })
-const robot = (seat: Seat): SeatOccupant => ({ id: `robot:gib:${seat}`, username: 'TKB', robot: true, robotKind: 'gib', online: true })
+const robot = (seat: Seat, robotKind: 'tku' | 'gib' = 'gib'): SeatOccupant => ({
+  id: `robot:${robotKind}:${seat}`,
+  username: 'TKB',
+  robot: true,
+  robotKind,
+  online: true,
+})
 
 const SEATS = { N: robot('N'), E: person('ben', 'Ben'), S: person('amy', 'Amy'), W: person('dan', 'Dan') }
 
@@ -147,7 +153,8 @@ export function lobby(atTable: boolean): LobbyView {
         hostName: 'Eve',
         settings: { access: 'public', allowKibitz: true, boardMinutes: 0 },
         welcome: true,
-        seats: { N: null, E: robot('E'), S: null, W: robot('W') },
+        // A long member name and both robot systems: the seat cells keep their size (lobby seat names)
+        seats: { N: person('chris', 'Christopher Wellington'), E: robot('E'), S: null, W: robot('W', 'tku') },
         spectators: 0,
         boardsPlayed: 0,
         boardNo: null,

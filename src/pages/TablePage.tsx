@@ -20,6 +20,7 @@ import { BookHints } from '../components/BookHints.tsx'
 import { ChallengeBanner } from '../components/ChallengeBanner.tsx'
 import { PracticeBanner } from '../components/PracticeBanner.tsx'
 import { ChatPanel } from '../components/ChatPanel.tsx'
+import { MatchBanner } from '../components/MatchBanner.tsx'
 import { DEAL_MS, DealAnimation } from '../components/DealAnimation.tsx'
 import { SidePanel } from '../components/SidePanel.tsx'
 import { HandView } from '../components/HandView.tsx'
@@ -565,12 +566,14 @@ export function TablePage() {
     !!summary &&
     lobby?.myTableId !== tableId &&
     (!summary.welcome || (!summary.settings.allowKibitz && !summary.practice))
+  // A team match's tables are listed with their match, for anyone to watch (§5.8)
+  const listed = !!lobby && (!!summary || (lobby.matches ?? []).some((m) => !!tableId && Object.values(m.tables).includes(tableId)))
 
   useEffect(() => {
     if (status !== 'open' || !lobby || !tableId || closed) return
-    if (lobby.myTableId === tableId || !lobby.tables.some((x) => x.id === tableId)) return
+    if (lobby.myTableId === tableId || !listed) return
     send({ type: 'joinTable', tableId })
-  }, [status, lobby, tableId, send, closed])
+  }, [status, lobby, tableId, send, closed, listed])
 
   // Going to any other page leaves the table (a reload does not: the seat is kept while offline).
   // A challenge table is not closed by it: the server keeps it, paused, until playChallenge
@@ -583,7 +586,7 @@ export function TablePage() {
 
   if (!lobby) return <PageMain>{t.connecting}</PageMain>
   // A challenge table is not in the lobby: it is there only for its player
-  if (lobby.myTableId !== tableId && !lobby.tables.some((x) => x.id === tableId))
+  if (lobby.myTableId !== tableId && !listed)
     return (
       <PageMain>
         <Muted>{t.tableGone}</Muted>
@@ -646,10 +649,10 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
   const me = table.mySeat
   const challenge = table.challenge
   const practice = table.practice
-  // Nobody runs a challenge or practice table: its seats, robots and settings are fixed; only who
-  // may watch a practice table changes (its member's settings button)
-  const iAmHost = !!user && table.hostId === user.id && !challenge && !practice
-  const canConfigure = !!user && table.hostId === user.id && !challenge
+  // Nobody runs a challenge, practice or team match table: its seats, robots and settings are
+  // fixed; only who may watch a practice table changes (its member's settings button)
+  const iAmHost = !!user && table.hostId === user.id && !challenge && !practice && !table.match
+  const canConfigure = !!user && table.hostId === user.id && !challenge && !table.match
   const AccessIcon = { public: null, request: Hand, hidden: Lock, closed: Ban }[table.settings.access]
   const viewer = me ?? 'S'
   const at = rotation(viewer)
@@ -795,7 +798,7 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
   const seatActions = (seat: Seat): SeatAction[] => {
     const occupant = table.seats[seat]
     const actions: SeatAction[] = []
-    if (challenge || practice) return actions
+    if (challenge || practice || table.match) return actions
     const between = !board || board.phase === 'finished'
     // A free seat (or a robot's) can be taken; someone already seated moves only between boards
     if ((!occupant || (occupant.robot && !me)) && (!me || between))
@@ -1028,6 +1031,8 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
                 <ChallengeBanner challenge={challenge} />
               ) : practice ? (
                 <PracticeBanner practice={practice} />
+              ) : table.match ? (
+                <MatchBanner match={table.match} />
               ) : (
                 <>
                   <span>
@@ -1137,7 +1142,7 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
                   type="button"
                   $tone="plain"
                   disabled={!canUndo}
-                  title={challenge ? t.challengeNoUndo : undefined}
+                  title={challenge ? t.challengeNoUndo : table.match ? t.teamMatch.noUndo : undefined}
                   data-tour="undo"
                   onClick={() => send({ type: 'undoRequest' })}
                 >

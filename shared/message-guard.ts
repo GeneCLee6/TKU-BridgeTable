@@ -55,6 +55,7 @@ const GUARDS: Partial<Record<ClientMessage['type'], Guard>> = {
   matchLeave: (m) => str(m.matchId),
   matchClear: (m) => str(m.matchId) && str(m.room) && str(m.seat),
   matchRobot: (m) => str(m.matchId) && str(m.room) && str(m.seat),
+  startMatch: (m) => str(m.matchId),
   sendDirect: (m) => str(m.to) && str(m.text),
   readDirect: (m) => str(m.userId),
 }
