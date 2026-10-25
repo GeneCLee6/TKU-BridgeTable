@@ -1475,12 +1475,13 @@ export class ClubService {
       table.dealAt = undefined
       return
     }
+    // A person who declared from a robot partner's seat goes back to their own for the new board
+    this.unswap(table)
     table.board = newBoard(dealt.boardNo, dealt.hands)
     table.undo = undefined
     table.rejectedClaim = undefined
     table.recordId = undefined
     table.dealAt = undefined
-    table.swapped = undefined
   }
 
   /**
@@ -1507,7 +1508,7 @@ export class ClubService {
     return table.swapped && seat === table.swapped[0] ? table.swapped[1] : seat
   }
 
-  /** Puts a swapped person back in their own seat (the auction was reopened by an undo) */
+  /** Puts a swapped person back in their own seat (the auction was reopened by an undo, or a new board is dealt) */
   private unswap(table: Table) {
     if (!table.swapped) return
     const [declarer, dummy] = table.swapped
