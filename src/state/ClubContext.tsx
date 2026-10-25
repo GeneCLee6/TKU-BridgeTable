@@ -202,3 +202,9 @@ export function useClub(): Club {
   if (!ctx) throw new Error('useClub must be used inside ClubProvider')
   return ctx
 }
+
+/** The lobby, or null outside a ClubProvider or before it arrives; for pages that only need the member list */
+// oxlint-disable-next-line react/only-export-components
+export function useLobby(): LobbyView | null {
+  return useContext(ClubContext)?.lobby ?? null
+}
