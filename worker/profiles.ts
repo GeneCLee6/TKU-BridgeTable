@@ -42,7 +42,7 @@ const PARENT_SCOPES: Record<Exclude<ProfileScope, 'club'>, ProfileScope[]> = {
   partnership: ['club', 'team'],
 }
 
-const PROFILE_ID = /^[\w-]{1,40}$/
+export const PROFILE_ID = /^[\w-]{1,40}$/
 const REVISIONS_LISTED = 100
 const SCOPE_ORDER: ProfileScope[] = ['club', 'team', 'partnership']
 

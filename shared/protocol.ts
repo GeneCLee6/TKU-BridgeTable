@@ -45,6 +45,11 @@ export interface Me extends PublicUser {
   friendOnlineNotice?: boolean
   /** The member's own profile (AC-1.5), to edit on "My account"; empty until they fill it in */
   profile?: Profile
+  /**
+   * The handbook's system profile (制度集, TKU-BridgeBook e1-t16) the member reads with, the same on
+   * every device; absent for the club's own
+   */
+  bookProfile?: string
 }
 
 /** Where someone registered; both sites share the accounts */

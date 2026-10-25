@@ -2,6 +2,7 @@ import { secureRandomInt, type RandomInt } from '../shared/board.ts'
 import { isSeat, SEATS, type Seat } from '../shared/cards.ts'
 import { AppError, type MessageCode } from '../shared/messages.ts'
 import {
+  CLUB_PROFILE_ID,
   DEFAULT_TABLE_SETTINGS,
   fixedSeats,
   HISTORY_PAGE_SIZES,
@@ -81,6 +82,7 @@ import {
 } from './challenge-flow.ts'
 import { ChallengeStore, type Challenge, type ChallengeResult } from './challenges.ts'
 import { ClubError } from './errors.ts'
+import { PROFILE_ID } from './profiles.ts'
 import { FeaturedService } from './featured.ts'
 import { TeamMatchService, type MatchPlayAction } from './team-match-service.ts'
 import type { RoomClock } from './team-match-flow.ts'
@@ -174,6 +176,8 @@ interface StoredUser {
   passwordResetAt?: number
   /** False when the member turned off the notice that a friend came online (e1-t24) */
   friendOnlineNotice?: boolean
+  /** The handbook's system profile the member chose (TKU-BridgeBook e1-t16); absent for the club's */
+  bookProfile?: string
   /** What the member tells the club about themselves (AC-1.5); others see it through `memberProfileView` */
   profile?: Profile
 }
@@ -725,13 +729,23 @@ export class ClubService {
     await this.setPassword(user, String(next ?? ''))
   }
 
-  /** `POST /api/account/preferences`: the member's own settings the server needs (e1-t24) */
-  async setAccountPreferences(userId: string, preferences: { friendOnlineNotice?: unknown }): Promise<Me> {
+  /**
+   * `POST /api/account/preferences`: the member's own settings the server needs. Each field is
+   * optional, but at least one must be there: the friend-online notice (e1-t24) and the handbook's
+   * system profile (TKU-BridgeBook e1-t16; the club's id or '' goes back to the club's). The profile
+   * is not looked up: one deleted later simply shows the club's.
+   */
+  async setAccountPreferences(userId: string, preferences: { friendOnlineNotice?: unknown; bookProfile?: unknown }): Promise<Me> {
     const user = this.requireUser(userId)
-    const { friendOnlineNotice } = preferences
-    if (typeof friendOnlineNotice !== 'boolean') throw new ClubError('unknownCommand')
-    if (friendOnlineNotice) delete user.friendOnlineNotice
-    else user.friendOnlineNotice = false
+    const { friendOnlineNotice, bookProfile } = preferences
+    if (friendOnlineNotice === undefined && bookProfile === undefined) throw new ClubError('unknownCommand')
+    if (friendOnlineNotice !== undefined && typeof friendOnlineNotice !== 'boolean') throw new ClubError('unknownCommand')
+    if (bookProfile !== undefined && (typeof bookProfile !== 'string' || (bookProfile !== '' && !PROFILE_ID.test(bookProfile))))
+      throw new ClubError('unknownCommand')
+    if (friendOnlineNotice === true) delete user.friendOnlineNotice
+    else if (friendOnlineNotice === false) user.friendOnlineNotice = false
+    if (bookProfile === '' || bookProfile === CLUB_PROFILE_ID) delete user.bookProfile
+    else if (bookProfile !== undefined) user.bookProfile = bookProfile
     await this.store.put(`user:${user.id}`, user)
     return this.me(user)
   }
@@ -810,6 +824,7 @@ export class ClubService {
       friendOnlineNotice: user.friendOnlineNotice !== false,
     }
     if (user.profile) me.profile = user.profile
+    if (user.bookProfile) me.bookProfile = user.bookProfile
     if (user.admin) me.applications = this.applications.size
     return me
   }
