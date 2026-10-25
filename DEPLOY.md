@@ -260,7 +260,7 @@ await call('POST', '/backups/restore', { name: 'daily/2026-10-25.jsonl', dryRun:
 
 ### 合併**之前**要做的（只做一次）
 
-`wrangler.jsonc` 裡 D1 的 `database_id` 現在是 `PASTE-PRODUCTION-D1-ID-HERE`／`PASTE-STAGING-D1-ID-HERE`。**沒換成真的 id 就合併，正式站的自動部署會失敗**（舊版照常運作，不會壞，但新版上不去），所以先建資料庫：
+`wrangler.jsonc` 裡已經填好 2026-10-26 建立的兩個 D1：正式站 `tku-bridge-history`（`0ffccba3-…`）與 staging `tku-bridge-history-staging`（`0f2e0cc8-…`）。之後要重建時（id 換了就要更新 `wrangler.jsonc`，否則部署會失敗）：
 
 1. 在專案資料夾建兩個資料庫（免費方案最多 10 個）：
 
