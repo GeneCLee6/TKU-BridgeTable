@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+<head>
+<meta charset="utf-8">
+<title>01 登入頁 · 現在 vs 提案</title>
+<link rel="stylesheet" href="mockup.css">
+<style>
+  .frame { --h: 760px; }
+  .wrap { display: grid; place-items: center; height: calc(100% - 56px); padding: 24px 16px; }
+
+  .v-before .panel { width: 380px; display: grid; gap: 16px; }
+  .v-before .brandbox { display: grid; justify-items: center; gap: 4px; text-align: center; color: var(--primary); }
+  .v-before .brandbox h1 { margin: 0; font-size: 22px; color: var(--primaryStrong); }
+  .v-before form { display: grid; gap: 12px; }
+  .v-before .switch { margin: 0; text-align: center; font-size: 14px; }
+  .v-before .foot { margin: 0; text-align: center; font-size: 13px; color: var(--muted); }
+
+  .v-after .wrap { align-content: center; gap: 16px; }
+  .v-after .panel { width: 420px; padding: 32px; display: grid; gap: 20px; border-top: 3px solid var(--accent); }
+  .v-after .brandbox { display: flex; align-items: center; gap: 12px; }
+  .v-after .brandbox img { width: 48px; height: 48px; }
+  .v-after .brandbox b { display: block; font-size: 16px; line-height: 1.2; }
+  .v-after .brandbox small { display: block; color: var(--muted); font-size: 12px; }
+  .v-after .heading h1 { margin: 0; font-size: 24px; line-height: 32px; }
+  .v-after .heading p { margin: 4px 0 0; color: var(--muted); font-size: 14px; }
+  .v-after form { display: grid; gap: 16px; }
+  .v-after .switch { margin: 0; padding-top: 16px; border-top: 1px solid var(--border); text-align: center; font-size: 14px; color: var(--muted); }
+  .v-after .foot { margin: 0; text-align: center; font-size: 13px; color: var(--muted); }
+</style>
+</head>
+<body class="cmp">
+<header class="cmp-head">
+  <h1>01 登入頁（未登入）· 現在 vs 提案</h1>
+  <p>同一個狀態：輸入錯誤的帳號或密碼後。桌機 1280×760，縮成 60%。</p>
+</header>
+<div class="pair">
+  <figure>
+    <figcaption><span class="chip">現在</span> tokens.ts／LoginPage.tsx 的樣子</figcaption>
+    <div class="frame v-before">
+      <div class="hdr">
+        <span class="brand"><img src="../../../public/logo-mark.svg" alt=""><span><b>TKU BridgeTable</b><small>淡江牌桌 ♠♥♦♣ 橋藝社線上牌桌</small></span></span>
+        <span class="right"><span class="ico">🌐</span><span class="me">繁中 ▾</span><span class="ico">☾</span></span>
+      </div>
+      <div class="wrap">
+        <section class="card panel">
+          <div class="brandbox">
+            <img src="../../../public/logo-mark.svg" alt="" width="56" height="56">
+            <h1>TKU BridgeTable · 淡江牌桌</h1>
+            <span class="muted">社員專用：登入後開桌、找人一起打牌。</span>
+          </div>
+          <form>
+            <label class="field">帳號<span class="input">wang</span></label>
+            <label class="field">密碼<span class="input">••••••<span class="eye">👁</span></span></label>
+            <p class="errbox">帳號或密碼不正確</p>
+            <span class="btn primary">登入</span>
+            <span class="btn ghost sm">忘記密碼？</span>
+          </form>
+          <p class="switch">還沒有帳號？ <span class="btn ghost sm">註冊</span></p>
+          <p class="foot">淡江牌桌和淡江橋譜用同一組帳號。</p>
+        </section>
+      </div>
+    </div>
+  </figure>
+  <figure>
+    <figcaption><span class="chip new">提案</span> 藏青頁首、米白底、宮燈金強調線</figcaption>
+    <div class="frame v-after">
+      <div class="hdr">
+        <span class="brand"><img src="../../../public/logo-mark.svg" alt=""><span><b>TKU BridgeTable</b><small>淡江牌桌 ♠♥♦♣ 橋藝社線上牌桌</small></span></span>
+        <span class="right"><span class="ico">🌐</span><span class="me">繁中 ▾</span><span class="ico">☾</span></span>
+      </div>
+      <div class="wrap">
+        <section class="card panel">
+          <div class="brandbox">
+            <img src="../../../public/logo-mark.svg" alt="">
+            <span><b>淡江牌桌</b><small>TKU BridgeTable · 淡江橋藝社</small></span>
+          </div>
+          <div class="heading">
+            <h1>登入</h1>
+            <p>社員專用：登入後開桌、找人一起打牌。</p>
+          </div>
+          <form>
+            <p class="errbox" role="alert"><span>⚠</span><span>帳號或密碼不正確，請再試一次。</span></p>
+            <label class="field"><span class="lab">帳號</span><span class="input lg">wang</span></label>
+            <label class="field"><span class="lab">密碼<a class="link" style="font-size:13px">忘記密碼？</a></span><span class="input lg focus">••••••<span class="eye">👁</span></span></label>
+            <span class="btn primary lg block">登入</span>
+          </form>
+          <p class="switch">還沒有帳號？ <a class="link">申請加入</a></p>
+        </section>
+        <p class="foot">淡江牌桌和淡江橋譜用同一組帳號。</p>
+      </div>
+    </div>
+  </figure>
+</div>
+<ol class="notes">
+  <li>頁首改成藏青底、米白字；頁面底色從冷灰藍改成米白，卡片是暖白。</li>
+  <li>卡片上緣一條 3px 宮燈金：全站唯一的強調色，只用在線條、標記、徽章，不當文字色。</li>
+  <li>標題分兩層：小字標（社團名）＋大標「登入」（24px），一眼知道在哪一頁、要做什麼。</li>
+  <li>表單整體錯誤放在欄位上方（左側紅條＋圖示，<code>role="alert"</code>）；欄位錯誤放在該欄下方（見管理頁）。</li>
+  <li>登入頁的輸入框與主按鈕用大尺寸（48px），手機好按；「忘記密碼？」移到密碼標籤右側，是連結不是按鈕。</li>
+  <li>「註冊」改叫「申請加入」，符合現在要管理員核准的流程（文字改動要六種語言一起改，在 D3 做）。</li>
+</ol>
+</body>
+</html>

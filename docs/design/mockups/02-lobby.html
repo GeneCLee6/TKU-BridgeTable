@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+<head>
+<meta charset="utf-8">
+<title>02 大廳 · 現在 vs 提案</title>
+<link rel="stylesheet" href="mockup.css">
+<style>
+  .frame { --h: 820px; }
+  .layout { display: grid; grid-template-columns: minmax(0, 1fr) auto; height: calc(100% - 56px); }
+  .layout > .page { width: 100%; }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; }
+  .tilehead { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+  .tilehead h3 { margin: 0; font-size: 18px; }
+  .tags { display: flex; gap: 6px; margin-bottom: 8px; }
+  .tag { display: inline-flex; gap: 4px; padding: 2px 8px; border-radius: 6px; background: var(--primarySoft); color: var(--primaryStrong, var(--primary)); font-size: 13px; font-weight: 600; }
+  .mini { display: grid; grid-template-columns: 1fr 1fr 1fr; grid-template-areas: '. N .' 'W felt E' '. S .'; gap: 6px; align-items: center; justify-items: center; margin: 8px 0 12px; }
+  .felt { grid-area: felt; width: 64px; height: 44px; border-radius: 8px; background: #1f6b43; color: #f1f7f2; font-size: 13px; display: flex; align-items: center; justify-content: center; }
+  .seat { width: 100%; min-height: 34px; padding: 0 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border-radius: 6px; font-size: 14px; font-weight: 600; text-align: center; line-height: 32px; }
+  .N { grid-area: N; } .S { grid-area: S; } .E { grid-area: E; } .W { grid-area: W; }
+
+  .v-before .tilehead h3 { color: var(--primaryStrong); }
+  .v-before .seat { border: 1px solid var(--border); background: var(--surfaceAlt); }
+  .v-before .seat.free { border-color: #2f9e44; background: var(--surface); color: var(--success); }
+  .v-before .chal li { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; }
+  .v-before .chal ul { list-style: none; margin: 0; padding: 0; }
+
+  .v-after .page { padding: 28px 24px 48px; max-width: 980px; }
+  .v-after .section { margin-bottom: 28px; }
+  .v-after .sechead { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 12px; }
+  .v-after .sechead .h2 { margin: 0; }
+  .v-after .chal { padding: 0; }
+  .v-after .chal ul { list-style: none; margin: 0; padding: 0; }
+  .v-after .chal li { display: grid; grid-template-columns: 4px 1fr auto; gap: 16px; align-items: center; padding: 14px 20px 14px 0; border-bottom: 1px solid var(--border); }
+  .v-after .chal li:last-child { border-bottom: none; }
+  .v-after .chal li::before { content: ''; align-self: stretch; background: var(--accent); border-radius: 0 2px 2px 0; }
+  .v-after .chal b { display: block; font-size: 15px; }
+  .v-after .chal .meta { color: var(--muted); font-size: 13px; }
+  .v-after .progress { display: inline-block; width: 80px; height: 6px; margin: 0 6px 1px 0; border-radius: 3px; background: var(--surfaceAlt); vertical-align: middle; overflow: hidden; }
+  .v-after .progress i { display: block; height: 100%; background: var(--primary); }
+  .v-after .grid { gap: 20px; }
+  .v-after .tile { padding: 0; display: grid; }
+  .v-after .tile .top { padding: 16px 20px 0; }
+  .v-after .tilehead { margin-bottom: 4px; align-items: center; }
+  .v-after .tilehead h3 { font-size: 16px; line-height: 24px; }
+  .v-after .pill { padding: 1px 8px; border-radius: 4px; background: var(--primarySoft); color: var(--primary); font-size: 12px; font-weight: 700; }
+  .v-after .host { color: var(--muted); font-size: 13px; }
+  .v-after .tag { background: var(--surfaceAlt); color: var(--muted); border-radius: 4px; font-size: 12px; margin-top: 8px; }
+  .v-after .mini { margin: 12px 0 16px; }
+  .v-after .felt { width: 72px; height: 48px; border-radius: 6px; box-shadow: inset 0 0 0 2px rgba(0,0,0,.12); font-weight: 700; }
+  .v-after .seat { border: 1px solid var(--border); background: var(--surfaceAlt); color: var(--text); font-weight: 500; }
+  .v-after .seat em { font-style: normal; color: var(--muted); font-weight: 700; margin-right: 4px; }
+  .v-after .seat.free { border: 1.5px dashed var(--borderStrong); background: var(--surface); color: var(--primary); font-weight: 700; }
+  .v-after .tilefoot { display: flex; align-items: center; justify-content: space-between; padding: 10px 20px; border-top: 1px solid var(--border); color: var(--muted); font-size: 13px; }
+</style>
+</head>
+<body class="cmp">
+<header class="cmp-head">
+  <h1>02 大廳 · 現在 vs 提案</h1>
+  <p>同一個狀態：三桌進行中、一個進行中的挑戰、右側欄開著「社員」。桌機 1280×820，縮成 60%。</p>
+</header>
+<div class="pair">
+  <figure>
+    <figcaption><span class="chip">現在</span> LobbyPage.tsx 的樣子</figcaption>
+    <div class="frame v-before">
+      <div class="hdr">
+        <span class="brand"><img src="../../../public/logo-mark.svg" alt=""><span><b>TKU BridgeTable</b><small>淡江牌桌 ♠♥♦♣ 橋藝社線上牌桌</small></span></span>
+        <nav><a class="on">大廳</a><a>牌局紀錄</a><a>管理 <b class="count">1</b></a></nav>
+        <span class="right"><span class="ico">🔔</span><span class="ico">🌐</span><span class="ico">🔊</span><span class="ico">🂠</span><span class="ico">☾</span><span class="me">王小明</span><span class="btn ghost sm">登出</span></span>
+      </div>
+      <div class="layout">
+        <main class="page">
+          <div class="tilehead" style="margin-bottom:16px;align-items:center"><h1 class="title" style="margin:0">大廳</h1><span class="btn primary">＋ 開新桌</span></div>
+          <section class="card chal" style="margin-bottom:16px">
+            <strong>我的挑戰</strong>
+            <ul><li><span>陳怡君 發起的挑戰 · 已打 3／8 副 · <span class="muted">截止 10/27 22:00</span></span><span class="btn primary sm">繼續</span></li></ul>
+          </section>
+          <div class="grid">
+            <section class="card">
+              <div class="tilehead"><h3>第 1 桌</h3><span class="muted">房主：陳怡君</span></div>
+              <div class="mini"><span class="seat N">N 林大偉</span><span class="seat W">W TKB</span><span class="seat E">E 張雅婷</span><span class="seat S">S 陳怡君</span><span class="felt">#6</span></div>
+              <div class="tilehead"><span class="muted">已打 5 副 · 2 人觀看</span><span class="btn sm">👁 觀看</span></div>
+            </section>
+            <section class="card">
+              <div class="tilehead"><h3>第 2 桌</h3><span class="muted">房主：黃志明</span></div>
+              <div class="tags"><span class="tag">🔒 只限受邀</span></div>
+              <div class="mini"><span class="seat N">N 黃志明</span><span class="seat free W">W 坐下</span><span class="seat E">E TKB</span><span class="seat free S">S 坐下</span><span class="felt">#2</span></div>
+              <div class="tilehead"><span class="muted">已打 1 副 · 0 人觀看</span><span class="btn sm">👁 觀看</span></div>
+            </section>
+            <section class="card">
+              <div class="tilehead"><h3>第 3 桌</h3><span class="muted">房主：吳佳蓉</span></div>
+              <div class="mini"><span class="seat free N">N 坐下</span><span class="seat free W">W 坐下</span><span class="seat free E">E 坐下</span><span class="seat S">S 吳佳蓉</span><span class="felt">—</span></div>
+              <div class="tilehead"><span class="muted">已打 0 副 · 0 人觀看</span><span class="btn sm">👁 觀看</span></div>
+            </section>
+          </div>
+        </main>
+        <aside class="dock">
+          <div class="panel">
+            <div class="tilehead"><strong>社員</strong><span class="muted">×</span></div>
+            <div class="grp">線上 4 人</div>
+            <div class="person"><span class="on-dot"></span>陳怡君<span class="where">第 1 桌 · S</span><span class="star on">★</span></div>
+            <div class="person"><span class="on-dot"></span>林大偉<span class="where">第 1 桌 · N</span><span class="star">☆</span></div>
+            <div class="person"><span class="on-dot"></span>黃志明<span class="where">第 2 桌 · N</span><span class="star">☆</span></div>
+            <div class="person"><span class="on-dot"></span>王小明<span class="where">大廳</span></div>
+            <div class="grp">離線 2 人</div>
+            <div class="person"><span class="off-dot"></span>李宗翰<span class="where"></span><span class="star">☆</span></div>
+            <div class="person"><span class="off-dot"></span>蔡佩珊<span class="where"></span><span class="star">☆</span></div>
+          </div>
+          <div class="rail"><span><i>💬</i>聊天</span><span class="on"><i>👥</i>社員</span><span><i>🗂</i>紀錄</span></div>
+        </aside>
+      </div>
+    </div>
+  </figure>
+  <figure>
+    <figcaption><span class="chip new">提案</span> 分區標題、卡片頁腳、空位虛線</figcaption>
+    <div class="frame v-after">
+      <div class="hdr">
+        <span class="brand"><img src="../../../public/logo-mark.svg" alt=""><span><b>TKU BridgeTable</b><small>淡江牌桌 ♠♥♦♣ 橋藝社線上牌桌</small></span></span>
+        <nav><a class="on">大廳</a><a>牌局紀錄</a><a>管理 <b class="count">1</b></a></nav>
+        <span class="right"><span class="ico">🔔</span><span class="ico">🌐</span><span class="ico">🔊</span><span class="ico">🂠</span><span class="ico">☾</span><span class="me">王小明 ▾</span></span>
+      </div>
+      <div class="layout">
+        <main class="page">
+          <div class="pagehead">
+            <div><h1 class="title">大廳</h1><p class="sub">3 桌進行中 · 4 人在線</p></div>
+            <span class="btn primary">＋ 開新桌</span>
+          </div>
+          <section class="section">
+            <div class="sechead"><h2 class="h2">我的挑戰</h2><a class="link" style="font-size:13px">全部挑戰</a></div>
+            <div class="card chal"><ul>
+              <li><span><b>陳怡君 發起的挑戰</b><span class="meta"><span class="progress"><i style="width:37%"></i></span>已打 3／8 副 · 截止 10/27（一）22:00</span></span><span class="btn primary sm">繼續</span></li>
+            </ul></div>
+          </section>
+          <section class="section">
+            <div class="sechead"><h2 class="h2">牌桌</h2><span class="muted">點空位坐下，或觀看</span></div>
+            <div class="grid">
+              <section class="card tile">
+                <div class="top">
+                  <div class="tilehead"><h3>第 1 桌</h3><span class="pill">第 6 副</span></div>
+                  <span class="host">房主 陳怡君</span>
+                  <div class="mini"><span class="seat N"><em>N</em>林大偉</span><span class="seat W"><em>W</em>TKB</span><span class="seat E"><em>E</em>張雅婷</span><span class="seat S"><em>S</em>陳怡君</span><span class="felt">6</span></div>
+                </div>
+                <div class="tilefoot"><span>已打 5 副 · 2 人觀看</span><span class="btn sm">觀看</span></div>
+              </section>
+              <section class="card tile">
+                <div class="top">
+                  <div class="tilehead"><h3>第 2 桌</h3><span class="pill">第 2 副</span></div>
+                  <span class="host">房主 黃志明</span><br><span class="tag">🔒 只限受邀</span>
+                  <div class="mini"><span class="seat N"><em>N</em>黃志明</span><span class="seat free W">＋ 坐 W</span><span class="seat E"><em>E</em>TKB</span><span class="seat free S">＋ 坐 S</span><span class="felt">2</span></div>
+                </div>
+                <div class="tilefoot"><span>已打 1 副 · 0 人觀看</span><span class="btn sm">觀看</span></div>
+              </section>
+              <section class="card tile">
+                <div class="top">
+                  <div class="tilehead"><h3>第 3 桌</h3><span class="pill" style="background:var(--accentSoft);color:var(--accentStrong)">等人中</span></div>
+                  <span class="host">房主 吳佳蓉</span>
+                  <div class="mini"><span class="seat free N">＋ 坐 N</span><span class="seat free W">＋ 坐 W</span><span class="seat free E">＋ 坐 E</span><span class="seat S"><em>S</em>吳佳蓉</span><span class="felt">—</span></div>
+                </div>
+                <div class="tilefoot"><span>已打 0 副 · 0 人觀看</span><span class="btn sm">觀看</span></div>
+              </section>
+            </div>
+          </section>
+        </main>
+        <aside class="dock">
+          <div class="panel">
+            <div class="tilehead"><strong>社員</strong><span class="muted">×</span></div>
+            <div class="grp">線上 4 人</div>
+            <div class="person"><span class="on-dot"></span>陳怡君<span class="where">第 1 桌 · S</span><span class="star on">★</span></div>
+            <div class="person"><span class="on-dot"></span>林大偉<span class="where">第 1 桌 · N</span><span class="star">☆</span></div>
+            <div class="person"><span class="on-dot"></span>黃志明<span class="where">第 2 桌 · N</span><span class="star">☆</span></div>
+            <div class="person"><span class="on-dot"></span>王小明<span class="where">大廳</span></div>
+            <div class="grp">離線 2 人</div>
+            <div class="person"><span class="off-dot"></span>李宗翰<span class="where"></span><span class="star">☆</span></div>
+            <div class="person"><span class="off-dot"></span>蔡佩珊<span class="where"></span><span class="star">☆</span></div>
+          </div>
+          <div class="rail"><span><i>💬</i>聊天</span><span class="on"><i>👥</i>社員</span><span><i>🗂</i>紀錄</span></div>
+        </aside>
+      </div>
+    </div>
+  </figure>
+</div>
+<ol class="notes">
+  <li>頁面標題下加一行摘要（幾桌、幾人在線），「開新桌」是這一頁唯一的主按鈕。</li>
+  <li>分兩區：「我的挑戰」「牌桌」，各有 18px 區標題；挑戰列左邊一條宮燈金、加進度條。</li>
+  <li>牌桌卡片分「內容」與「頁腳」兩層：頁腳放副數、觀看人數與次要按鈕「觀看」。</li>
+  <li>空位改成虛線框「＋ 坐 W」，有人的座位是實底；不再用綠色字區分（綠色留給牌桌與成功）。</li>
+  <li>右上角的牌號（#6）改成「第 6 副」標記；還沒開打的桌顯示「等人中」（金色標記，不只靠顏色，有文字）。</li>
+  <li>右側停靠欄的結構不變（BBO），只換配色：選中的分頁左邊一條金線。空狀態與載入中的樣子見 DESIGN-proposal.md §5.6。</li>
+</ol>
+</body>
+</html>

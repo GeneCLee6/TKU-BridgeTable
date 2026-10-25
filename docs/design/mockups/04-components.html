@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+<head>
+<meta charset="utf-8">
+<title>04 調色盤與元件規格</title>
+<link rel="stylesheet" href="mockup.css">
+<style>
+  .sheet { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+  .sheet .frame { zoom: 1; width: auto; height: auto; padding: 20px 24px; border-radius: 12px; }
+  .sheet .h2 { margin: 0 0 10px; font-size: 16px; }
+  .blk { margin-bottom: 20px; }
+  .sw { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; }
+  .sw div { border-radius: 8px; border: 1px solid var(--border); overflow: hidden; font-size: 12px; background: var(--surface); }
+  .sw i { display: block; height: 44px; }
+  .sw span { display: block; padding: 4px 6px; line-height: 1.35; }
+  .sw code { color: var(--muted); font-size: 11px; }
+  .types div { display: flex; align-items: baseline; gap: 16px; padding: 3px 0; border-bottom: 1px dashed var(--border); }
+  .types code { width: 150px; flex: none; color: var(--muted); font-size: 12px; }
+  .space { display: flex; align-items: flex-end; gap: 14px; font-size: 12px; color: var(--muted); }
+  .space i { display: block; background: var(--accent); height: 12px; margin-bottom: 4px; }
+  .btns { display: grid; grid-template-columns: 70px repeat(4, auto); gap: 10px 12px; align-items: center; justify-content: start; font-size: 13px; color: var(--muted); }
+  .states { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+  .toasts { display: grid; gap: 10px; }
+  .felt-note { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 8px; background: #1f6b43; color: #f1f7f2; font-size: 13px; }
+</style>
+</head>
+<body class="cmp" style="width:1640px">
+<header class="cmp-head">
+  <h1>04 調色盤與元件規格（提案）</h1>
+  <p>左：淺色；右：深色。數值見 DESIGN-proposal.md。牌桌（綠桌布、牌、叫牌盒）不在這次範圍，完全不變。</p>
+</header>
+<div class="sheet">
+  <div class="frame v-after" id="light">
+    <div class="blk">
+      <h2 class="h2">調色盤</h2>
+      <div class="sw">
+        <div><i style="background:var(--header)"></i><span>頁首 藏青<br><code>header</code></span></div>
+        <div><i style="background:var(--primary)"></i><span>主色 藏青<br><code>primary</code></span></div>
+        <div><i style="background:var(--accent)"></i><span>強調 宮燈金<br><code>accent</code></span></div>
+        <div><i style="background:var(--bg)"></i><span>頁面 米白<br><code>bg</code></span></div>
+        <div><i style="background:var(--surface)"></i><span>卡片<br><code>surface</code></span></div>
+        <div><i style="background:var(--surfaceAlt)"></i><span>次要底<br><code>surfaceAlt</code></span></div>
+        <div><i style="background:var(--text)"></i><span>文字<br><code>text</code></span></div>
+        <div><i style="background:var(--muted)"></i><span>次要文字<br><code>textMuted</code></span></div>
+        <div><i style="background:var(--borderStrong)"></i><span>輸入框框線<br><code>borderStrong</code></span></div>
+        <div><i style="background:var(--danger)"></i><span>錯誤<br><code>danger</code></span></div>
+        <div><i style="background:var(--success)"></i><span>成功<br><code>success</code></span></div>
+        <div><i style="background:#1f6b43"></i><span>桌布（不變）<br><code>table.felt</code></span></div>
+      </div>
+    </div>
+    <div class="blk types">
+      <h2 class="h2">字級（Noto Sans TC）</h2>
+      <div><code>title 24/32 700</code><span style="font-size:24px;font-weight:700">社團管理</span></div>
+      <div><code>h2 18/26 700</code><span style="font-size:18px;font-weight:700">待審核的申請</span></div>
+      <div><code>h3 16/24 700</code><span style="font-size:16px;font-weight:700">第 1 桌</span></div>
+      <div><code>body 15/24 400</code><span style="font-size:15px">點空位坐下，或觀看別人打牌。</span></div>
+      <div><code>small 13/20 400</code><span style="font-size:13px;color:var(--muted)">留空表示不需要邀請碼。</span></div>
+      <div><code>caption 12/16 600</code><span style="font-size:12px;font-weight:600;color:var(--muted)">表頭、徽章、時間</span></div>
+    </div>
+    <div class="blk">
+      <h2 class="h2">間距（4px 為單位）與圓角</h2>
+      <div class="space">
+        <span><i style="width:4px"></i>1 · 4</span><span><i style="width:8px"></i>2 · 8</span><span><i style="width:12px"></i>3 · 12</span><span><i style="width:16px"></i>4 · 16</span><span><i style="width:24px"></i>6 · 24</span><span><i style="width:32px"></i>8 · 32</span><span><i style="width:48px"></i>12 · 48</span>
+        <span style="margin-left:24px">圓角 sm 6 · md 8 · lg 12（卡片，原本 14）</span>
+      </div>
+    </div>
+    <div class="blk">
+      <h2 class="h2">按鈕：三種尺寸 × 四種樣式</h2>
+      <div class="btns">
+        <span>lg 48</span><span class="btn lg primary">登入</span><span class="btn lg">取消</span><span class="btn lg ghost">還原</span><span class="btn lg danger">刪除</span>
+        <span>md 40</span><span class="btn primary">儲存</span><span class="btn">取消</span><span class="btn ghost">還原</span><span class="btn danger">刪除</span>
+        <span>sm 32</span><span class="btn sm primary">核准</span><span class="btn sm">觀看</span><span class="btn sm ghost">全部</span><span class="btn sm danger">確定刪除</span>
+        <span>狀態</span><span class="btn primary hover">滑過</span><span class="btn focus">鍵盤焦點</span><span class="btn primary disabled">停用</span><span class="btn primary">⟳ 儲存中…</span>
+      </div>
+    </div>
+    <div class="blk">
+      <h2 class="h2">輸入框狀態</h2>
+      <div class="states">
+        <label class="field"><span class="lab">預設</span><span class="input">tku2026</span><span class="help">說明文字</span></label>
+        <label class="field"><span class="lab">焦點</span><span class="input focus">tku2026</span><span class="help">藏青框＋藍色光暈</span></label>
+        <label class="field"><span class="lab">錯誤</span><span class="input err">chen</span><span class="errmsg">⚠ 這個帳號已經有人用了</span></label>
+        <label class="field"><span class="lab">停用</span><span class="input dis">60</span><span class="help">不能改時</span></label>
+      </div>
+    </div>
+    <div class="blk toasts">
+      <h2 class="h2">Toast（右下角；手機在下方置中）</h2>
+      <div class="toast static"><span class="ok">✓</span><span><b>已儲存</b>　社團設定已更新</span><span class="x">×</span></div>
+      <div class="toast static err"><span class="ok">!</span><span><b>沒有儲存</b>　連線中斷，請再試一次</span><span class="x">×</span></div>
+      <div class="toast static info"><span class="ok">i</span><span>陳怡君 邀請你參加挑戰</span><span class="x">×</span></div>
+    </div>
+  </div>
+
+  <div class="frame v-after dark" id="dark">
+    <div class="blk">
+      <h2 class="h2">調色盤（深色）</h2>
+      <div class="sw">
+        <div><i style="background:var(--header)"></i><span>頁首<br><code>header</code></span></div>
+        <div><i style="background:var(--primary)"></i><span>主色<br><code>primary</code></span></div>
+        <div><i style="background:var(--accent)"></i><span>強調 宮燈金<br><code>accent</code></span></div>
+        <div><i style="background:var(--bg)"></i><span>頁面<br><code>bg</code></span></div>
+        <div><i style="background:var(--surface)"></i><span>卡片<br><code>surface</code></span></div>
+        <div><i style="background:var(--surfaceAlt)"></i><span>次要底<br><code>surfaceAlt</code></span></div>
+        <div><i style="background:var(--text)"></i><span>文字<br><code>text</code></span></div>
+        <div><i style="background:var(--muted)"></i><span>次要文字<br><code>textMuted</code></span></div>
+        <div><i style="background:var(--borderStrong)"></i><span>輸入框框線<br><code>borderStrong</code></span></div>
+        <div><i style="background:var(--danger)"></i><span>錯誤<br><code>danger</code></span></div>
+        <div><i style="background:var(--success)"></i><span>成功<br><code>success</code></span></div>
+        <div><i style="background:#1f6b43"></i><span>桌布（不變）<br><code>table.felt</code></span></div>
+      </div>
+    </div>
+    <div class="blk">
+      <h2 class="h2">按鈕（深色）</h2>
+      <div class="btns">
+        <span>lg 48</span><span class="btn lg primary">登入</span><span class="btn lg">取消</span><span class="btn lg ghost">還原</span><span class="btn lg danger">刪除</span>
+        <span>md 40</span><span class="btn primary">儲存</span><span class="btn">取消</span><span class="btn ghost">還原</span><span class="btn danger">刪除</span>
+        <span>sm 32</span><span class="btn sm primary">核准</span><span class="btn sm">觀看</span><span class="btn sm ghost">全部</span><span class="btn sm danger">確定刪除</span>
+        <span>狀態</span><span class="btn primary hover">滑過</span><span class="btn focus">鍵盤焦點</span><span class="btn primary disabled">停用</span><span class="btn primary">⟳ 儲存中…</span>
+      </div>
+    </div>
+    <div class="blk">
+      <h2 class="h2">輸入框狀態（深色）</h2>
+      <div class="states">
+        <label class="field"><span class="lab">預設</span><span class="input">tku2026</span><span class="help">說明文字</span></label>
+        <label class="field"><span class="lab">焦點</span><span class="input focus">tku2026</span><span class="help">主色框＋光暈</span></label>
+        <label class="field"><span class="lab">錯誤</span><span class="input err">chen</span><span class="errmsg">⚠ 這個帳號已經有人用了</span></label>
+        <label class="field"><span class="lab">停用</span><span class="input dis">60</span><span class="help">不能改時</span></label>
+      </div>
+    </div>
+    <div class="blk">
+      <h2 class="h2">卡片（標題列／內容／頁腳）</h2>
+      <section class="card flush">
+        <div class="cardhead"><h2 class="h2">社團設定</h2></div>
+        <div class="cardbody"><span class="muted">內容 24px 內距</span></div>
+        <div class="cardfoot"><span class="btn ghost">還原</span><span class="btn primary">儲存</span></div>
+      </section>
+    </div>
+    <div class="blk toasts">
+      <h2 class="h2">Toast（深色）</h2>
+      <div class="toast static"><span class="ok">✓</span><span><b>已儲存</b>　社團設定已更新</span><span class="x">×</span></div>
+      <div class="toast static err"><span class="ok">!</span><span><b>沒有儲存</b>　連線中斷，請再試一次</span><span class="x">×</span></div>
+    </div>
+    <div class="felt-note">♠ 牌桌（桌布、牌、叫牌盒、名牌）照 BBO，淺色深色都一樣，這次不動。</div>
+  </div>
+</div>
+</body>
+</html>
