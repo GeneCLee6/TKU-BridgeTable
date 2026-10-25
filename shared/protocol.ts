@@ -611,8 +611,11 @@ export const PROFILE_SCOPES = ['club', 'team', 'partnership'] as const
 export type ProfileScope = (typeof PROFILE_SCOPES)[number]
 export const isProfileScope = (value: unknown): value is ProfileScope => PROFILE_SCOPES.includes(value as ProfileScope)
 
-/** Size limits on a saved profile: its JSON in bytes, and how many overrides it may hold */
-export const PROFILE_LIMITS = { bytesMax: 200_000, overridesMax: 500 } as const
+/**
+ * Limits the Worker checks on a saved profile: its JSON in UTF-8 bytes, how many overrides it may
+ * hold, how many profiles the club may have besides its own, the name's length and a note's length
+ */
+export const PROFILE_LIMITS = { bytesMax: 200_000, overridesMax: 500, profilesMax: 100, nameMax: 40, noteMax: 2_000 } as const
 
 /** Whether a profile plays a convention; a convention it does not list follows the parent profile */
 export type Adoption = 'on' | 'off'
@@ -658,3 +661,29 @@ export interface SystemProfile {
   /** The user id that saved this version */
   updatedBy: string
 }
+
+/** GET /api/book/profiles: a profile without its adoptions, overrides and notes, which it counts instead */
+export interface ProfileSummary {
+  id: string
+  name: string
+  scope: ProfileScope
+  parentId?: string
+  version: number
+  updatedAt: number
+  updatedBy: string
+  counts: { adopted: number; overrides: number; notes: number }
+}
+
+/** A saved version of a profile, newest first in the list, which leaves out `profile` */
+export interface ProfileRevision {
+  profileId: string
+  version: number
+  at: number
+  /** The user id that saved it */
+  by: string
+  note: string
+  profile?: SystemProfile
+}
+
+/** What an editor sends to create or save a profile; the Worker sets the id, version and who saved it */
+export type ProfileInput = Pick<SystemProfile, 'name' | 'scope' | 'parentId' | 'adopted' | 'overrides' | 'notes'>
