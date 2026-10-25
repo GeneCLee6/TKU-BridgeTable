@@ -133,6 +133,10 @@ const table = {
   bidSelected: '#ffd43b',
   bidDisabled: '#c9cfc6',
   winner: '#ffd43b',
+  /** Double-dummy mode in a replay: a card that makes the contract, one that goes down; white text on both */
+  ddMake: '#1b7a33',
+  ddDown: '#c62828',
+  ddMarkText: '#ffffff',
   /** The crown before the host's name */
   crown: '#e0a100',
   /** The countdown ring before the next deal */
