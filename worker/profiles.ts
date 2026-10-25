@@ -42,7 +42,7 @@ const PARENT_SCOPES: Record<Exclude<ProfileScope, 'club'>, ProfileScope[]> = {
   partnership: ['club', 'team'],
 }
 
-const PROFILE_ID = /^[\w-]{1,40}$/
+export const PROFILE_ID = /^[\w-]{1,40}$/
 const REVISIONS_LISTED = 100
 const SCOPE_ORDER: ProfileScope[] = ['club', 'team', 'partnership']
 
@@ -194,13 +194,8 @@ export class ProfileService {
   /** Adds a team's or partnership's profile at version 1 */
   async create(actor: Me, body: { profile?: unknown; note?: unknown }): Promise<SystemProfile> {
     const input = checkProfileInput(body.profile)
-    const summaries = await this.load()
     if (input.scope === 'club') fail('社團預設的制度集只有一個')
-    const others = [...summaries.keys()].filter((id) => id !== CLUB_PROFILE_ID).length
-    if (others >= PROFILE_LIMITS.profilesMax) fail(`制度集最多 ${PROFILE_LIMITS.profilesMax} 個`)
-    let id = randomId(6)
-    while (summaries.has(id)) id = randomId(6)
-    return this.write(actor, id, input, 0, noteOf(body.note))
+    return this.write(actor.id, await this.newId(), input, 0, noteOf(body.note))
   }
 
   /**
@@ -219,7 +214,7 @@ export class ProfileService {
       const child = this.children(id)[0]
       if (child) throw new ClubError('profileInUse', { name: child.name }, 409)
     }
-    return this.write(actor, id, input, current?.version ?? 0, noteOf(body.note))
+    return this.write(actor.id, id, input, current?.version ?? 0, noteOf(body.note))
   }
 
   /** Deletes a profile and its versions; never the club's, nor one others still inherit */
@@ -266,9 +261,28 @@ export class ProfileService {
     }
   }
 
-  private async write(actor: Me, id: string, input: ProfileInput, version: number, note: string): Promise<SystemProfile> {
+  /**
+   * A team's or partnership's own profile, empty and at version 1, made with the team or when a
+   * partnership is accepted (worker/teams.ts). Counts toward PROFILE_LIMITS.profilesMax like any other.
+   */
+  async createOwned(by: string, name: string, scope: Exclude<ProfileScope, 'club'>, parentId: string, note: string): Promise<SystemProfile> {
+    const input: ProfileInput = { name: name.trim().slice(0, PROFILE_LIMITS.nameMax), scope, parentId, adopted: {}, overrides: [], notes: [] }
+    return this.write(by, await this.newId(), input, 0, noteOf(note))
+  }
+
+  /** A free id for a new profile; throws when the club has as many as it may */
+  private async newId() {
     const summaries = await this.load()
-    const profile: SystemProfile = { id, ...input, version: version + 1, updatedAt: this.now(), updatedBy: actor.id }
+    const others = [...summaries.keys()].filter((id) => id !== CLUB_PROFILE_ID).length
+    if (others >= PROFILE_LIMITS.profilesMax) fail(`制度集最多 ${PROFILE_LIMITS.profilesMax} 個`)
+    let id = randomId(6)
+    while (summaries.has(id)) id = randomId(6)
+    return id
+  }
+
+  private async write(by: string, id: string, input: ProfileInput, version: number, note: string): Promise<SystemProfile> {
+    const summaries = await this.load()
+    const profile: SystemProfile = { id, ...input, version: version + 1, updatedAt: this.now(), updatedBy: by }
     if (id === CLUB_PROFILE_ID) delete profile.parentId
     else {
       const parentId = profile.parentId ?? CLUB_PROFILE_ID
@@ -293,7 +307,7 @@ export class ProfileService {
       profileId: id,
       version: profile.version,
       at: profile.updatedAt,
-      by: actor.id,
+      by,
       note,
       parts: revisionParts,
     })

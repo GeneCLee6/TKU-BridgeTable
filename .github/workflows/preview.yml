@@ -72,8 +72,10 @@ jobs:
         run: |
           npm ci
           CLOUDFLARE_ENV=preview APP_VERSION="$HEAD_SHA" npm run build
-          # The invite code goes up with the first version, so the site is never open without one
-          node -e 'console.log(JSON.stringify({ INVITE_CODE: process.env.PREVIEW_INVITE_CODE }))' > "$RUNNER_TEMP/secrets.json"
+          # The invite code goes up with the first version, so the site is never open without one.
+          # A fresh random EDGE_AUTH_SECRET per deploy turns edge passes on (ARCHITECTURE.md §5.12);
+          # previews have no D1 copy of the history, so their history pages stay with the club
+          node -e 'console.log(JSON.stringify({ INVITE_CODE: process.env.PREVIEW_INVITE_CODE, EDGE_AUTH_SECRET: require("crypto").randomBytes(32).toString("base64") }))' > "$RUNNER_TEMP/secrets.json"
           npx wrangler deploy --name "$WORKER" --secrets-file "$RUNNER_TEMP/secrets.json" --message "PR #$PR $HEAD_SHA" | tee deploy.log
           rm "$RUNNER_TEMP/secrets.json"
           echo "url=$(grep -o 'https://[^ ]*workers.dev' deploy.log | head -1)" >> "$GITHUB_OUTPUT"

@@ -278,4 +278,23 @@ describe('friend online notice (e1-t24)', () => {
     expect((await club.setAccountPreferences(amy, { friendOnlineNotice: true })).friendOnlineNotice).toBe(true)
     await expect(club.setAccountPreferences(amy, { friendOnlineNotice: 'yes' })).rejects.toThrow()
   })
+
+  it("keeps the handbook's system profile with the account, apart from the notice (TKU-BridgeBook e1-t16)", async () => {
+    const amy = await member('amy')
+    expect((await club.setAccountPreferences(amy, { friendOnlineNotice: false })).bookProfile).toBeUndefined()
+
+    const me = await club.setAccountPreferences(amy, { bookProfile: 'a1b2c3' })
+    expect(me.bookProfile).toBe('a1b2c3')
+    expect(me.friendOnlineNotice).toBe(false)
+    // Signing in on another device gets the same choice
+    expect((await club.login('amy', 'secret1')).user.bookProfile).toBe('a1b2c3')
+
+    expect((await club.setAccountPreferences(amy, { bookProfile: 'club' })).bookProfile).toBeUndefined()
+    await club.setAccountPreferences(amy, { bookProfile: 'a1b2c3' })
+    expect((await club.setAccountPreferences(amy, { bookProfile: '' })).bookProfile).toBeUndefined()
+
+    for (const bad of ['../x', 'x'.repeat(41), 7, null])
+      await expect(club.setAccountPreferences(amy, { bookProfile: bad })).rejects.toThrow()
+    await expect(club.setAccountPreferences(amy, {})).rejects.toThrow()
+  })
 })

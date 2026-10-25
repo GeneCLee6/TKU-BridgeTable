@@ -3,18 +3,23 @@ import { hcp, SEATS, suitOf, type Seat, type Suit } from '../../shared/cards.ts'
 import { remainingCards, tricksOf } from '../../shared/game.ts'
 import type { BoardRecord, PublicUser } from '../../shared/protocol.ts'
 import { suitOrder } from '../lib/cards.ts'
+import { outcomeLabel } from '../lib/doubleDummy.ts'
+import type { DdReplay } from '../lib/useDoubleDummyReplay.ts'
 import type { Orientation } from '../lib/measure.ts'
 import { usePreferences, type CardStyle } from '../state/PreferencesContext.tsx'
 import { playerName, seatLetter } from '../strings.ts'
 import { BoardInfo } from './BoardInfo.tsx'
 import { HandView } from './HandView.tsx'
+import type { CardMark } from './PlayingCard.tsx'
 import { TrickArea, TrickSpace, type Position } from './TrickArea.tsx'
 
 /**
  * A finished board drawn as BBO's Handviewer does: North at the top, the board marker tucked into
  * the top-left corner so the hands get the room, the suits in ♠ ♥ ♣ ♦ order so the colours
  * alternate, and the trick being replayed in the middle. The cards played so far stay in their
- * hands greyed out, or leave them, as the viewer chooses (`playedCards`, PlayedCardsSwitch).
+ * hands greyed out, or leave them, as the viewer chooses (`playedCards`, PlayedCardsSwitch). In
+ * double-dummy mode (`dd`) the hand to play shows what each of its cards leads to, and a card can be
+ * clicked to try it out.
  */
 
 const POSITIONS: Record<Position, Seat> = { top: 'N', right: 'E', bottom: 'S', left: 'W' }
@@ -77,6 +82,7 @@ export function RecordDiagram({
   styleFor,
   orientationFor,
   compact = false,
+  dd,
 }: {
   record: BoardRecord
   /** Cards of the replay shown so far */
@@ -88,10 +94,22 @@ export function RecordDiagram({
   orientationFor?: (seat: Seat) => Orientation
   /** The side panel's smaller version: names only, tighter spacing */
   compact?: boolean
+  /** Double-dummy mode, when the viewer has turned it on */
+  dd?: DdReplay
 }) {
   const { t, playedCards } = usePreferences()
   const { board, players } = record
-  const shown = { ...board, play: board.play.slice(0, step) }
+  const ddOn = !!dd?.on
+  const shown = { ...board, play: ddOn ? dd!.play : board.play.slice(0, step) }
+  const turn = ddOn ? dd!.position?.turn : undefined
+  const marks = new Map<string, CardMark>()
+  for (const [card, outcome] of dd?.outcomes ?? [])
+    marks.set(card, {
+      text: outcomeLabel(outcome.diff),
+      makes: outcome.diff >= 0,
+      best: outcome.best,
+      label: outcome.best ? `${t.ddOutcome(outcome.tricks, outcome.diff)} · ${t.ddBestCard}` : t.ddOutcome(outcome.tricks, outcome.diff),
+    })
   const current = tricksOf(shown).at(-1)
   const name = (u: PublicUser) => playerName(t, u)
 
@@ -121,12 +139,13 @@ export function RecordDiagram({
               orientation={orientationFor?.(seat)}
               order={style === 'text' ? RECORD_SUITS : suitOrder(null, held)}
               label={`${seatLetter[seat]} ${name(players[seat])}`}
+              {...(seat === turn && { playable: dd!.position!.legal, marks, onPlay: dd!.playCard })}
             />
           </Spot>
         )
       })}
       <Spot $area="center">
-        {current && step > 0 ? (
+        {current && shown.play.length > 0 ? (
           <TrickArea cards={current.cards} positionOf={positionOf} winner={current.winner} width={trickWidth} label={t.thisTrick} />
         ) : (
           <TrickSpace $w={trickWidth} />
@@ -136,7 +155,7 @@ export function RecordDiagram({
   )
 }
 
-const Switch = styled.label`
+export const Switch = styled.label`
   display: inline-flex;
   align-items: center;
   gap: 8px;

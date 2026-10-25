@@ -83,7 +83,7 @@ export const api = {
   logout: () => post<{ ok: true }>('/api/logout'),
   changePassword: (current: string, next: string) => post<{ ok: true }>('/api/account/password', { current, next }),
   /** The account settings the server keeps (e1-t24) */
-  setAccountPreferences: (preferences: { friendOnlineNotice: boolean }) => post<{ user: Me }>('/api/account/preferences', preferences),
+  setAccountPreferences: (preferences: { friendOnlineNotice?: boolean; bookProfile?: string }) => post<{ user: Me }>('/api/account/preferences', preferences),
   /** Replaces the member's own profile (AC-1.5); empty fields clear it */
   setProfile: (profile: Profile) =>
     request<{ user: Me }>('/api/account/profile', { method: 'PATCH', body: JSON.stringify(profile) }),
