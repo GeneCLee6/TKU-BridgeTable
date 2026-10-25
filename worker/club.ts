@@ -13,6 +13,7 @@ import { CLIENT_ERROR_MAX_CHARS } from './client-errors.ts'
 import { crashEntry, jsonLog } from './log.ts'
 import { type ChallengeRequest, ClubError, ClubService, type Connections } from './service.ts'
 import type { Store } from './store.ts'
+import type { MatchAction } from './team-match-service.ts'
 
 export interface Env {
   CLUB: DurableObjectNamespace<Club>
@@ -233,6 +234,10 @@ export class Club extends DurableObject<Env> implements Connections {
       const b = await body()
       return json({ user: await this.service.setAccountPreferences(user.id, { friendOnlineNotice: b.friendOnlineNotice }) })
     }
+    if (route === 'PATCH /api/account/profile') return json({ user: await this.service.setProfile(user.id, await body()) })
+    // Another member's profile card (AC-1.5)
+    const member = url.pathname.match(/^\/api\/members\/([\w-]+)$/)
+    if (request.method === 'GET' && member) return json({ member: await this.service.memberProfile(user.id, member[1]) })
     // A page of the member's own conversation with another member (AC-1.7); new messages come over the socket
     const conversation = url.pathname.match(/^\/api\/messages\/([\w-]+)$/)
     if (request.method === 'GET' && conversation) {
@@ -309,20 +314,20 @@ export class Club extends DurableObject<Env> implements Connections {
       if (!found) throw new ClubError('challengeGone', {}, 404)
       return json({ challenge: found })
     }
-    // Team matches (§5.7, e8-t03): set up over HTTP; seats, start and play come in later batches
+    // Team matches (§5.8): set up (e8-t03) and seated (e8-t04, e8-t05) over HTTP; start and play come in F4
     if (route === 'GET /api/matches') return json({ matches: this.service.matches.list(user.id) })
     if (route === 'POST /api/matches') {
       const b = await body()
       return json({ match: this.service.matches.create(user.id, { settings: b.settings, seat: b.seat }) })
     }
-    const matchAction = url.pathname.match(/^\/api\/matches\/([\w-]+)\/(settings|cancel)$/)
+    const matchAction = url.pathname.match(/^\/api\/matches\/([\w-]+)\/(settings|cancel|invite|answer|move|leave|clear|robot)$/)
     if (request.method === 'POST' && matchAction) {
       const [, matchId, action] = matchAction
-      const match =
-        action === 'settings'
-          ? this.service.matches.update(user.id, matchId, (await body()).settings)
-          : this.service.matches.cancel(user.id, matchId)
-      return json({ match })
+      if (action === 'settings') return json({ match: this.service.matches.update(user.id, matchId, (await body()).settings) })
+      if (action === 'cancel') return json({ match: await this.service.matches.cancel(user.id, matchId) })
+      const type = `match${action[0].toUpperCase()}${action.slice(1)}`
+      const message = { ...(await body()), type, matchId } as MatchAction
+      return json({ match: await this.service.matches.request(user.id, message) })
     }
     const match = url.pathname.match(/^\/api\/matches\/([\w-]+)$/)
     if (request.method === 'GET' && match) {
@@ -356,6 +361,9 @@ export class Club extends DurableObject<Env> implements Connections {
       }
       throw new ClubError('noSuchApi', {}, 404)
     }
+    if (method === 'GET' && path === '/weekly-challenge') return json({ weekly: this.service.weeklyChallenge() })
+    if (method === 'POST' && path === '/weekly-challenge')
+      return json({ weekly: await this.service.adminSetWeeklyChallenge(user.id, await body()) })
     if (method === 'GET' && path === '/settings') return json({ settings: this.service.clubSettings })
     if (method === 'POST' && path === '/settings') {
       const b = await body()

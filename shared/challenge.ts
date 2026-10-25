@@ -49,6 +49,11 @@ export interface ChallengeSettings {
   /** Days from creation until the one deadline, for answering and for playing */
   days: number
   ranking: RankingVisibility
+  /**
+   * The weekly club challenge (`e7-t23`): created by the club's schedule and open to every member.
+   * Only the server sets it; a member sending it is refused like any unknown field
+   */
+  weekly?: boolean
 }
 
 export const CHALLENGE_LIMITS = {

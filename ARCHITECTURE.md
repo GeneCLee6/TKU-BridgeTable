@@ -67,8 +67,8 @@ TKU-BridgeTable/
 │  ├─ challenges.ts        挑戰的 SQL 表與 ChallengeStore（§5.5）
 │  ├─ challenge-flow.ts    挑戰的狀態轉移（建立、回覆、取消、截止）：純函式，ClubService 寫回（§5.5）
 │  ├─ team-matches.ts      隊制賽的 SQL 表與 TeamMatchStore（§5.8）
-│  ├─ team-match-flow.ts   隊制賽開始前的步驟（建立、改設定、取消、能不能開始）：純函式（§5.8）
-│  ├─ team-match-service.ts 隊制賽的 HTTP 動作，ClubService 建好交給 Durable Object（§5.8）
+│  ├─ team-match-flow.ts   隊制賽開始前的步驟（建立、改設定、取消、座位與隊長、能不能開始）：純函式（§5.8）
+│  ├─ team-match-service.ts 隊制賽的動作（HTTP 與 socket）、通知與推送，ClubService 建好交給 Durable Object（§5.8）
 │  ├─ modes.ts             牌桌模式（casual、challenge）與三個掛勾（發新一副、寫紀錄、一副結束）
 │  ├─ scheduler.ts         統一排程器：機器人、自動發牌、挑戰的提醒與截止都走同一個 alarm 佇列
 │  ├─ auth.ts              PBKDF2 密碼雜湊、session cookie
@@ -134,14 +134,14 @@ interface BoardState {
 
 `GET /api/challenges` 的列表不帶 traveller（給大廳用），單一挑戰才帶。這些判斷都在 `worker/views.ts`（`challengeView`、`challengeBoardVisible`），測試在 `tests/worker/challenge-settlement.test.ts`。
 
-**隊制賽**（§5.8，`teamMatchView`，`GET /api/matches`、`/api/matches/:id`）：牌組永遠不送；比賽中的牌桌只是兩張一般牌桌，看得到的牌和一般牌桌一樣，額外的限制在牌桌層（F4 的 `e8-t09`）。
+**隊制賽**（§5.8，`teamMatchView`，`GET /api/matches`、`/api/matches/:id`、socket 的 `match`）：牌組永遠不送；準備中的比賽只給房主與有座位（受邀或已入座）的人，被移出、拒絕或離開後就看不到（推送 `match: null`）；畫面另附每位座位上的社員在不在線（`online`，和大廳的社員列表同一份資訊）與房主能不能開始（`ready`）；比賽中的牌桌只是兩張一般牌桌，看得到的牌和一般牌桌一樣，額外的限制在牌桌層（F4 的 `e8-t09`）。
 
 | 誰 | 準備中（`setup`） | 比賽中（`playing`） | 結束（`finished`／`abandoned`） | 取消（`cancelled`） |
 | --- | --- | --- | --- | --- |
 | 房主、被邀請或已入座的人（「參賽者」） | 設定、8 個座位與狀態 | 同左，加**兩室都打完（或已裁定）**的每一副：兩室的南北分數、牌局 id、各隊得分與總分；只打完一室的那一副不顯示 | 全部 | 設定與座位 |
 | 其他社員 | 404 | 同參賽者（觀看者本來就能看兩桌） | 全部 | 404 |
 
-牌桌層（`e8-t09`，**建議預設**）：參賽者不能 `joinTable`／`sit` 另一室的牌桌，也不能觀看自己這一室以外的桌（隊友在另一室也不行），錯誤 `matchOtherRoom`；比賽中的牌桌不列在大廳的一般牌桌裡，改列在「隊制賽」；非參賽者可以觀看兩桌（同 BBO Vugraph），觀看者的聊天只給觀看者，參賽者的聊天只在本桌（`chatFor` 依角色過濾）。比賽牌局的紀錄帶 `eventId`＝比賽 id 與 `revealAt`：**某一副兩室都打完就公開那一副**（兩室各一筆紀錄一起改），比賽結束或中止時其餘的一起公開；在那之前只有打那一副的四位看得到（`recordVisible`）。
+牌桌層（`e8-t09`）：參賽者不能 `joinTable`／`sit` 另一室的牌桌，也不能觀看自己這一室以外的桌（隊友在另一室也不行），錯誤 `matchOtherRoom`；比賽中的牌桌不列在大廳的一般牌桌裡，改列在「隊制賽」；非參賽者可以觀看兩桌（同 BBO Vugraph），觀看者的聊天只給觀看者，參賽者的聊天只在本桌（`chatFor` 依角色過濾）。比賽牌局的紀錄帶 `eventId`＝比賽 id 與 `revealAt`：**某一副兩室都打完就公開那一副**（兩室各一筆紀錄一起改），比賽結束或中止時其餘的一起公開；在那之前只有打那一副的四位看得到（`recordVisible`）。
 
 單副的 traveller（C7，`GET /api/history/:id/traveller`，`challengeTraveller`）：就是 `challengeView` 給這個人的那一副 traveller，不多給——打完全部副數的參與者、或挑戰結束後的參與者才拿得到，其他人（還沒打完的、非參與者）一律 `null`；伺服器再從那幾副的紀錄補上莊家是誰與首攻，以及排名矩陣裡那一副的分數。並排重播（`/history/:id/vs/:other`）兩邊都走 `/api/history/:id`，所以照樣由 `recordVisible`／`challengeBoardVisible` 把關。
 
@@ -151,16 +151,18 @@ interface BoardState {
 
 **私訊**（AC-1.7，§5.7）：一則私訊只送給它的兩位成員（雙方所有分頁的 `direct`），對話列表 `directs` 只送自己的；`GET /api/messages/:userId` 只讀「自己與對方」這一對的訊息，SQL 以兩人 id 組成的 `pair` 查詢，拿不到別人之間的對話。被對方封鎖的人只會收到「不能傳私訊給他」（`cannotMessage`），不會知道被封鎖。
 
+**個人檔案**（AC-1.5，`memberProfileView`，`GET /api/members/:id`）：別人只拿得到 id、帳號名稱與四個欄位（顯示名稱、自評等級、常用制度、自我介紹），一個一個挑出來，帳號的其他東西（密碼雜湊、管理員、權限、登入時間、好友上線提示）不會送出；`recent` 是這位社員最近 10 副**看的人看得到**的牌（走紀錄搜尋，同一條 `revealAt` 規則）。自己的個人檔案在 `/api/me` 的 `profile`。頭像目前是瀏覽器依 id 與名字畫的預設頭像，不存任何東西（`e1-t18`；上傳在 `e1-t34`）。
+
 瀏覽器拿到的 `BoardView` 只包含它能看的牌，以及伺服器算好的 `legalCalls`／`legalCards`／`canUndo`／`canClaim`，畫面不需要自己判斷規則。攤牌被拒絕後，`rejectedClaim` 記下誰拒絕，直到下一個動作。
 
 ## 5. 通訊與儲存
 
-**HTTP**：`GET /api/challenges`（我參與的挑戰，新的在前）、`/api/challenges/:id`、`POST /api/challenges`（建立）、`POST /api/challenges/:id/answer`、`/cancel`（§5.5）、`GET /api/matches`（我主辦或有座位的隊制賽，新的在前）、`/api/matches/:id`、`POST /api/matches`（建立）、`POST /api/matches/:id/settings`、`/cancel`（§5.8）、`GET /api/featured`（全部精選，新的在前）、`GET /api/featured/:boardId`（那副的精選或 `null`）、`POST /api/featured/:boardId`（設為精選或編輯，要 `boardCurate`）、`DELETE /api/featured/:boardId`（取消精選，§5.9）、`POST /api/register`（第一個帳號直接登入，之後回 202 `{ pending }`）、`/api/login`、`/api/logout`、`/api/password/reset`（忘記密碼）、`/api/account/password`、`/api/account/preferences`（`friendOnlineNotice`：好友上線提示開關，`e1-t24`）；`GET /api/messages/:userId?before=<id>`（與某位社員的私訊，一頁 30 則，§5.7）；`GET /api/me`（含 `permissions`，管理員另有 `applications` 待審核數）、`/api/history?scope=all&page=<n>&size=<10|20|50|100>`（回傳該頁與總數）、`/api/history/search?<條件>`（§5.3）、`/api/history/:id`。維運：`GET /api/health`、`POST /api/client-errors`（§5.6，都不需登入）。管理員：`GET/POST /api/admin/users`、`POST /api/admin/users/:id/password`、`POST /api/admin/users/:id/admin`、`POST /api/admin/users/:id/permissions`、`DELETE /api/admin/users/:id`、`GET /api/admin/applications`、`POST /api/admin/applications/:id/approve`、`DELETE /api/admin/applications/:id`、`GET/POST /api/admin/settings`、`DELETE /api/admin/tables/:id`。淡江橋譜的 `/api/book/*` 見 §5.2。session 放在 HttpOnly、SameSite=Lax 的 cookie（`tbt_session`）。錯誤回應帶 `code` 與 `params`（`shared/messages.ts`），瀏覽器依語言顯示。
+**HTTP**：`GET /api/challenges`（我參與的挑戰，新的在前）、`/api/challenges/:id`、`POST /api/challenges`（建立）、`POST /api/challenges/:id/answer`、`/cancel`（§5.5）、`GET /api/matches`（我主辦或有座位的隊制賽，新的在前）、`/api/matches/:id`、`POST /api/matches`（建立）、`POST /api/matches/:id/settings`、`/cancel`、`/invite`、`/answer`、`/move`、`/leave`、`/clear`、`/robot`（§5.8）、`GET /api/featured`（全部精選，新的在前）、`GET /api/featured/:boardId`（那副的精選或 `null`）、`POST /api/featured/:boardId`（設為精選或編輯，要 `boardCurate`）、`DELETE /api/featured/:boardId`（取消精選，§5.9）、`POST /api/register`（第一個帳號直接登入，之後回 202 `{ pending }`）、`/api/login`、`/api/logout`、`/api/password/reset`（忘記密碼）、`/api/account/password`、`/api/account/preferences`（`friendOnlineNotice`：好友上線提示開關，`e1-t24`）、`PATCH /api/account/profile`（自己的個人檔案，`shared/profile.ts` 的 `parseProfile` 檢查：只收四個欄位、長度上限、等級只能是 `PROFILE_LEVELS`，空的欄位清掉）；`GET /api/members/:id`（別人的個人檔案卡，§4）；`GET /api/messages/:userId?before=<id>`（與某位社員的私訊，一頁 30 則，§5.7）；`GET /api/me`（含 `permissions`，管理員另有 `applications` 待審核數）、`/api/history?scope=all&page=<n>&size=<10|20|50|100>`（回傳該頁與總數）、`/api/history/search?<條件>`（§5.3）、`/api/history/:id`。維運：`GET /api/health`、`POST /api/client-errors`（§5.6，都不需登入）。管理員：`GET/POST /api/admin/users`、`POST /api/admin/users/:id/password`、`POST /api/admin/users/:id/admin`、`POST /api/admin/users/:id/permissions`、`DELETE /api/admin/users/:id`、`GET /api/admin/applications`、`POST /api/admin/applications/:id/approve`、`DELETE /api/admin/applications/:id`、`GET/POST /api/admin/settings`、`DELETE /api/admin/tables/:id`。淡江橋譜的 `/api/book/*` 見 §5.2。session 放在 HttpOnly、SameSite=Lax 的 cookie（`tbt_session`）。錯誤回應帶 `code` 與 `params`（`shared/messages.ts`），瀏覽器依語言顯示。
 
 **WebSocket** `/ws`（同網域，帶 cookie 驗證）：
 
-- 瀏覽器 → 伺服器：`createTable`（可帶 `settings`、`invitees`）、`updateTableSettings`（可帶 `invitees`）、`quickSeat`、`joinTable`、`sit`、`stand`、`leaveTable`、`kick`、`addRobot`、`removeRobot`、`replaceWithRobot`、`call`、`play`、`claim`、`claimRespond`、`undoRequest`、`undoRespond`、`chat`、`readNotifications`（不給 `ids` 就是全部標為已讀）、`setFriend`、`setBlocked`、`createChallenge`、`answerChallenge`、`cancelChallenge`、`playChallenge`（§5.5）、`sendDirect`、`readDirect`（§5.7）。`kick`、`addRobot`、`removeRobot`、`replaceWithRobot`、`updateTableSettings` 只有房主能用；房主離開或斷線時，桌上第一位在線的真人（先入座者、再觀看者）接手
-- 伺服器 → 瀏覽器：`welcome`、`lobby`（牌桌列表與 `members`：每位社員是否在線、在哪一桌哪個座位，線上在前、各組裡自己的好友置頂；`friends`、`blocked` 是自己的名單）、`table`、`error`、`notifications`（連線時一次，之後內容有變才送：最新 30 則與未讀數）、`directs`（自己的對話列表與私訊未讀數，同樣只送有變的）、`direct`（一則新私訊，只給它的兩位成員）
+- 瀏覽器 → 伺服器：`createTable`（可帶 `settings`、`invitees`）、`updateTableSettings`（可帶 `invitees`）、`quickSeat`、`joinTable`、`sit`、`stand`、`leaveTable`、`kick`、`addRobot`、`removeRobot`、`replaceWithRobot`、`call`、`play`、`claim`、`claimRespond`、`undoRequest`、`undoRespond`、`chat`、`readNotifications`（不給 `ids` 就是全部標為已讀）、`setFriend`、`setBlocked`、`createChallenge`、`answerChallenge`、`cancelChallenge`、`playChallenge`（§5.5）、`sendDirect`、`readDirect`（§5.7）、`matchInvite`、`matchAnswer`、`matchMove`、`matchLeave`、`matchClear`、`matchRobot`（§5.8）。`kick`、`addRobot`、`removeRobot`、`replaceWithRobot`、`updateTableSettings` 只有房主能用；房主離開或斷線時，桌上第一位在線的真人（先入座者、再觀看者）接手
+- 伺服器 → 瀏覽器：`welcome`、`lobby`（牌桌列表與 `members`：每位社員是否在線、在哪一桌哪個座位，線上在前、各組裡自己的好友置頂；`friends`、`blocked` 是自己的名單）、`table`、`error`、`notifications`（連線時一次，之後內容有變才送：最新 30 則與未讀數）、`directs`（自己的對話列表與私訊未讀數，同樣只送有變的）、`direct`（一則新私訊，只給它的兩位成員）、`match`（隊制賽有變時推給這場比賽在線的人：`{ matchId, match }`，看不到了是 `null`，§5.8）
 - **只送有變的部分**：伺服器記住每位社員上次收到的大廳與牌桌（JSON），沒變就不送；牌桌的 `chat` 與 `recent`（本桌最近 30 副的摘要）只在改變時才附上，瀏覽器沿用手上那份（`TableWire`）。所以某桌出一張牌，大廳裡的人什麼都收不到，桌上的人只收到小小一份。新連線一律收完整資料
 - **沒有「下一副」**：一副結束後伺服器設定 `dealAt`（打到最後一張多等 `LAST_TRICK_MS` 3.5 秒，再加 `DEAL_COUNTDOWN_MS` 3 秒倒數），時間到自動發牌；`table` 訊息附上伺服器時間 `now`，瀏覽器據此換算成自己的時鐘來倒數
 - **牌桌設定**：`Table.settings`（`shared/protocol.ts` 的 `TableSettings`）：`visibility`（`public` 所有社員可入座／`invite` 只限受邀）與 `allowKibitz`（是否允許觀看）與 `boardMinutes`（每副時間上限，`BOARD_TIME_LIMITS` 0／5／7／10／15 分鐘，0 是不限）；舊資料缺的欄位用 `DEFAULT_TABLE_SETTINGS`（公開、允許觀看、不限時）。伺服器用 `parseTableSettings` 檢查，只接受這三欄，錯了丟 `badTableSettings`。挑戰牌桌固定是只限受邀、不允許觀看、不限時，不能改
@@ -194,6 +196,7 @@ interface BoardState {
 | SQL `matches`、`match_seats`、`match_boards` | 隊制賽的正本（不是索引），見 §5.8 |
 | SQL `direct_messages`、`direct_threads` | 私訊的正本，見 §5.7 |
 | `meta:settings` | 管理員改過的人數上限與邀請碼（沒改過就用環境變數） |
+| `meta:weekly` | 每週社團挑戰的排程、誰存的、上一場的時間與 id（`worker/weekly-challenge.ts`，§5.5） |
 | `meta:schema` | 資料版本（現在是 3）：1→2 把舊版 `board:<時間>-<id>` 搬到新索引；2→3 把所有 `board:` 回填進 SQL 紀錄索引（§5.3） |
 | `meta:backfill` | 回填 SQL 索引時做到哪一個 `board:` key；做完就刪掉，物件中途被回收時從這裡接著做 |
 | `book:entry:<slug>` | 淡江橋譜線上修改的特約（版本、誰在何時改；`convention: null` 表示隱藏），內容在 `bookpart:` |
@@ -236,7 +239,7 @@ interface BoardState {
 
 ## 5.8 隊制賽（決策紀錄，`e8-t01`，2026-10-25）
 
-隊制賽（E8，雙桌隊制賽，Teams of Four）：房主找齊 8 個人（不夠可補機器人），兩隊在開室與閉室打同一組牌，依兩室的南北分差計 IMP 或 BAM。這一節是 F2 定下的設計，後面的批次（F3–F5、M2）照這裡做；要改設計先改這裡。標「**建議預設**」的是 PRD 沒有定、F2 先選的做法，社長確認或改了之後拿掉這個標記。
+隊制賽（E8，雙桌隊制賽，Teams of Four）：房主找齊 8 個人（不夠可補機器人），兩隊在開室與閉室打同一組牌，依兩室的南北分差計 IMP 或 BAM。這一節是 F2 定下的設計，後面的批次（F3–F5、M2）照這裡做；要改設計先改這裡。PRD 沒有定、F2 先選的做法（原本標「建議預設」）社長 2026-10-25 全部確認。
 
 **座位對應**（`shared/team-match.ts` 的 `teamAt`、`MATCH_SEATS`）：
 
@@ -269,7 +272,7 @@ match（matches 一列）
 | `setup` | `playing` | 房主按開始（`e8-t07`），而且 `matchReady`：8 個座位都 `seated`（真人接受了或機器人）、設定允許才有機器人、每位真人都在線。開始時發 `DealSet`、開兩張牌桌、寫 `started_at` |
 | `setup` | `cancelled` | 房主取消（開始前才能）；或房主的帳號被刪除 |
 | `playing` | `finished` | 每一副兩室都打完或已裁定（`e8-t11`） |
-| `playing` | `abandoned` | 房主中止（**建議預設**：中止前要先暫停，`e8-t16`）；已有結果的副照算，結果頁標「中止」 |
+| `playing` | `abandoned` | 房主中止（中止前要先暫停，`e8-t16`）；已有結果的副照算，結果頁標「中止」 |
 
 PRD 的 `ready` **不存**：能不能開始由座位與「誰在線」算出（`matchReady`，回傳不能開始的原因 `seats`／`robots`／`offline` 給準備室的按鈕，`e8-t06`），因為在線狀態不存。`finished`、`cancelled`、`abandoned` 之後不再改動（`isOpenMatch`）。
 
@@ -277,10 +280,10 @@ PRD 的 `ready` **不存**：能不能開始由座位與「誰在線」算出（
 
 | 欄 | 範圍 | 預設 |
 | --- | --- | --- |
-| `teamNames` | 兩個字串，去頭尾空白後 0–20 字、不含控制字元 | `['', '']`：空的由瀏覽器顯示成該語言的「A 隊」「B 隊」（**建議預設**，伺服器不存介面文字） |
-| `boards` | 4–32 | 8（**建議預設**） |
+| `teamNames` | 兩個字串，去頭尾空白後 0–20 字、不含控制字元 | `['', '']`：空的由瀏覽器顯示成該語言的「A 隊」「B 隊」（伺服器不存介面文字） |
+| `boards` | 4–32 | 8 |
 | `scoring` | `imp`／`bam` | `imp` |
-| `boardMinutes` | 0（不限）或 3–30 分鐘 | 10（PRD；下限 3、上限 30 是**建議預設**） |
+| `boardMinutes` | 0（不限）或 3–30 分鐘 | 10（PRD；下限 3、上限 30） |
 | `robots` | 是否允許機器人補位；關掉時已經坐著的機器人離座 | `true` |
 | `robotKind` | `tku`／`gib`：整場所有機器人用同一種制度，兩室面對同一個機器人 | `gib`（同挑戰） |
 | `invite` | `direct`（房主邀請到指定座位）／`captains`（隊長制） | `direct` |
@@ -289,17 +292,29 @@ PRD 寫的「機器人等級」不做：機器人只有一個 TKB、沒有等級
 
 **建立、改設定、取消**（F2，`e8-t03`）：都走 HTTP，`worker/team-match-service.ts` 的 `TeamMatchService`（`ClubService.matches`）。`ClubService` 只建它、在載入時建表、刪帳號時呼叫 `forget`，給它時鐘、id、`publicUserById` 與每位社員的速率限制（§5.6）；步驟是 `worker/team-match-flow.ts` 的純函式，錯誤一律是 `ClubError` 加 `shared/messages.ts` 的代碼。
 
-- `POST /api/matches { settings?, seat? }` → `{ match }`：任何社員都能建立；`seat` 是 A 隊的座位 `{ room, seat }`（不是就 `badMatchSettings { field: 'seat' }`）。**一個人同時只能主辦一場還沒結束的比賽**（`setup`／`playing`，`matchOpen`，**建議預設**，避免準備室亂開）。
+- `POST /api/matches { settings?, seat? }` → `{ match }`：任何社員都能建立；`seat` 是 A 隊的座位 `{ room, seat }`（不是就 `badMatchSettings { field: 'seat' }`）。**一個人同時只能主辦一場還沒結束的比賽**（`setup`／`playing`，`matchOpen`，避免準備室亂開）。
 - `POST /api/matches/:id/settings { settings }` → `{ match }`：只有房主（`matchHostOnly`，403），只在 `setup`（`matchStarted`）。
 - `POST /api/matches/:id/cancel` → `{ match }`：只有房主，只在 `setup`；寫 `ended_at`。開始之後要停只能中止（`abandoned`，F5）。
 - `GET /api/matches` → `{ matches }`（我主辦或有座位的，新的在前）、`GET /api/matches/:id` → `{ match }`。看不到的比賽一律 `matchGone`（404），不透露比賽存在。
-- F3 起加 WebSocket 推送（邀請、入座有變時推給這場比賽的人），F2 只有 HTTP。邀請要檢查封鎖（`blocks`，同挑戰的 `cannotInvite`）；**邀請對象不限好友**（**建議預設**：湊 8 人比挑戰難，任何社員都能邀請，被封鎖的除外）。
+- 改設定與取消之後推送（`match`，見下）；取消時通知座位上的每個人（`matchCancelled`）。
+
+**座位、邀請與隊長制**（F3，`e8-t04`、`e8-t05`，2026-10-25）：步驟是 `team-match-flow.ts` 的純函式（`inviteToSeat`、`answerSeat`、`moveSeat`、`leaveSeat`、`clearSeat`、`robotSeat`，回傳要寫的座位與 B 隊隊長），`TeamMatchService.act` 檢查封鎖、寫入（一個 transaction）、送通知、推送。同一組動作有 socket 訊息（`matchInvite { matchId, room, seat, userId }`、`matchAnswer { matchId, accept }`、`matchMove { matchId, from, to }`、`matchLeave`、`matchClear { matchId, room, seat }`、`matchRobot { matchId, room, seat }`，`GUARDS` 先檢查欄位型別）與 HTTP（`POST /api/matches/:id/invite|answer|move|leave|clear|robot`，同一套檢查與速率限制，回 `{ match }`，自己看不到了是 `null`）。都只在 `setup`（否則 `matchStarted`）。
+
+- **誰安排哪一隊**（`arrangerOf`，`shared/team-match.ts`）：A 隊永遠是房主。`direct` 時 B 隊也是房主；`captains` 時 B 隊在有隊長之後歸 B 隊隊長，之前歸房主——但房主只能邀請**一位**到 B 隊（那位就是隊長；B 隊已經有人受邀或入座時回 `matchCaptainPending`），可以先放機器人。受邀到 B 隊、在 B 隊沒有隊長時接受的人成為 B 隊隊長（`captains.B`）。房主在有人入座 B 隊之後改成隊長制，第一位坐 B 隊的真人成為隊長。
+- **邀請**：安排這一隊的人邀請一位社員到這隊的空位（`matchNotCaptain`、`matchSeatTaken`；不能邀自己 `notSelf`、已在比賽裡的人 `matchAlreadyIn`、不存在的帳號或機器人 `userGone`）。**邀請對象不限好友**（湊 8 人比挑戰難），但受邀者和邀請者、受邀者和房主之間任一方封鎖另一方都回中性的 `cannotInvite { name }`（不透露誰封鎖誰）。受邀者收到 `matchInvited`。一人在一場比賽只有一個座位；同時參加幾場比賽不限（開始時的衝突是 F4 的事）。
+- **回覆**：受邀者接受（座位變 `seated`）或拒絕（變空位）；安排那一隊的人收到 `matchAccepted`／`matchDeclined`（是自己時改通知房主）。沒有邀請 `matchNoInvite`。
+- **換座位**：只在同一隊的座位之間（隊伍由房間與方位決定，`matchOtherTeam`）。入座的人可以自己換到同隊的空位；安排這一隊的人可以交換同隊任兩個座位（連同受邀中、機器人）。
+- **離開**：房主以外的人都能離開（受邀中就等於拒絕，`matchDeclined`；已入座 `matchLeft`，通知安排那一隊的人）；房主不能離座（`matchHostStays`，要不比就取消）。B 隊隊長離開或被移出時，B 隊第一位入座的真人接任隊長；沒有人就沒有隊長，由房主再邀請一位。
+- **移出、補機器人**：安排這一隊的人（以及房主，任何座位）可以清空座位——撤回邀請、移出社員（對方收到 `matchRemoved`）或拿掉機器人——但不能清房主的座位。補機器人只能放在空位、要設定允許（`matchNoRobots`）；機器人的制度是整場的 `robotKind`，沒有等級（CLAUDE.md 規則 6）。
+- **推送**：每次改動（含改設定、取消）把比賽依各人能看到的樣子推給這場比賽在線的人，改動前在比賽裡、之後看不到的人收到 `match: null`；社員上線或離線時推給他所在、還在準備的比賽（`presence`），因為「能不能開始」看誰在線。畫面的 `ready` 就是 `matchReady`，`online` 只標在真人座位上。
+
+**準備室**（`e8-t06`，`/matches/:id`，`MatchPage`；比賽列表 `/matches`，`MatchesPage`，頁首的「隊制賽」）：兩室各四個座位（隊伍顏色、空位／等待回覆／入座、在線點、隊長標記），自己能做的動作按鈕（邀請時從大廳的社員列表選人，排除已在比賽裡與自己封鎖的人）；兩隊名單；受邀時的接受／拒絕；隊長制的說明；兩室機器人座位不對稱時的提醒（`robotsUneven`）；房主的設定表單、取消比賽；其他人的「離開比賽」。開始按鈕只給房主，F3 一律停用並寫出原因（`ready.reason`：座位沒滿、設定不允許機器人、有人不在線），都滿足時說明開始功能即將開放——按下去開始比賽是 F4（`e8-t07`）。
 
 **計分**（`e8-t02`，`shared/team-scoring.ts`）：A 隊每副的淨分＝開室南北分數 − 閉室南北分數（A 在開室坐南北，閉室的南北是 B）。
 
 - `imp`：淨分照 WBF IMP 表（`shared/imp.ts`）換算，IMP 給贏的那一隊（兩隊的數字都 ≥ 0，例如「A 23 : B 15」）。
 - `bam`：淨分 > 0 得 1、= 0 各 ½、< 0 得 0。
-- **裁定**（AC-8.6，`Ruling`：`avg`、`avgPlus`、`avgMinus` 加「給哪一隊」）：IMP 時 Avg 是 0、Avg+ 給那一隊 +3、Avg- 是 −3（也就是對方 +3）；BAM 時 Avg 各 ½、Avg+ 是那一隊 0.6／對方 0.4、Avg- 反過來（**建議預設**：比照 MP 的 60%／40%）。每副的結果都是零和。有裁定的那一副**以裁定為準**，就算兩室後來都打完了也一樣（裁定可以撤回，`setRuling(…, null)`）。
+- **裁定**（AC-8.6，`Ruling`：`avg`、`avgPlus`、`avgMinus` 加「給哪一隊」）：IMP 時 Avg 是 0、Avg+ 給那一隊 +3、Avg- 是 −3（也就是對方 +3）；BAM 時 Avg 各 ½、Avg+ 是那一隊 0.6／對方 0.4、Avg- 反過來（比照 MP 的 60%／40%）。每副的結果都是零和。有裁定的那一副**以裁定為準**，就算兩室後來都打完了也一樣（裁定可以撤回，`setRuling(…, null)`）。
 - 一副只有一室打完、又沒有裁定時不算分（`null`）；`scoreTeamMatch` 回傳每副結果、兩隊總分、已完成副數與領先的隊（同分是 `null`）。測試含手算的四副比賽（`tests/engine/team-scoring.test.ts`）。
 - M2 的 VP（`e8-t22`）用總 IMP 差換算，也放在這個檔。
 
@@ -307,12 +322,12 @@ PRD 寫的「機器人等級」不做：機器人只有一個 TKB、沒有等級
 - 牌桌模式 `team`（`TABLE_MODES` 加 `team`，`worker/modes.ts` 的掛勾），`modeState` 記比賽 id、房間與桌上這一副是第幾副（`seq`）；`Table.dealSource` 是 `dealSourceOf(deals)`，兩桌共用同一個 `DealSet`，牌號、發牌者與身價照 `DealSetBoard.boardNo`（1…N）。`DEAL_SET_MAX` 要從 16 提高到 32（挑戰仍由 `CHALLENGE_LIMITS.boardsMax` 限 16）。
 - 開始時一次建好兩桌、依座位入座（機器人用 `settings.robotKind`）、同時發第 1 副；之後兩桌各自推進，不互等。最後一副打完停在結果，顯示「等待另一桌」。
 - `boardFinished` 在一個 transaction 裡 `addResult(id, seq, room, …)`：同一室同一副第二次寫入會被擋（「每室每副只打一次」由程式保證，見 `TeamMatchStore.addResult`）；兩室都有結果時推比分（`e8-t10`），全部完成就 `finished`（`e8-t11`），通知 8 位參賽者。
-- 兩桌都是 `invite`、只有座位上的人能坐；**不能撤回**（**建議預設**，同挑戰：比賽不撤回，`BoardView.canUndo` 一律 false）；`stand`、換座位、`kick`、`addRobot`、`removeRobot`、`updateTableSettings` 在比賽桌上不能用，改由比賽層處理（代打、替補）。
+- 兩桌都是 `invite`、只有座位上的人能坐；**不能撤回**（同挑戰：比賽不撤回，`BoardView.canUndo` 一律 false）；`stand`、換座位、`kick`、`addRobot`、`removeRobot`、`updateTableSettings` 在比賽桌上不能用，改由比賽層處理（代打、替補）。
 - 每副時間上限（`boardMinutes`）沿用 F1 的每副時間上限（`e2-t27`）；超時只提示，由房主裁定（`e8-t15`）。斷線代打沿用 F1 的 `e2-t31`。
 
 **資訊隔離與可見性**：誰看得到什麼的表在 §4（「隊制賽」），判斷寫成 `worker/views.ts` 的 `teamMatchView`（F2 已實作，測試在 `tests/worker/team-matches.test.ts`）；牌桌層的限制（參賽者進不了另一室、觀看者聊天隔開、紀錄的 `revealAt`）是 F4 的 `e8-t09`，E11 的資訊隔離回歸測試（`e11-t13`）要涵蓋。比分條只用兩室都完成的副，所以快的一桌看不到慢的一桌在同一副的結果。
 
-**未決問題的建議預設**（PRD 的兩題）：
+**未決問題的決定**（PRD 的兩題，社長 2026-10-25 確認）：
 - 機器人補位**不強制**兩室在對應座位（湊人已經很難）；但整場的機器人用同一種制度（`robotKind`）。準備室在兩室機器人不對稱時顯示提醒（`e8-t06`）。
 - 觀看者（不是參賽者的社員）**可以看兩桌**的牌（同 BBO Vugraph）；參賽者（含被邀請還沒回覆、替補）在比賽中不能看另一室，自己隊的另一室也不行。
 
@@ -338,7 +353,7 @@ PRD 寫的「機器人等級」不做：機器人只有一個 TKB、沒有等級
 | 批 | 做什麼 |
 | --- | --- |
 | F2（本批） | 這份設計、`shared/team-scoring.ts`、`shared/team-match.ts`、三張表與 `TeamMatchStore`、建立／改設定／取消／讀取的 HTTP 與 `teamMatchView` |
-| F3 | 座位邀請（接受、拒絕、換座位、離開、通知）、隊長制、準備室頁、補機器人、WebSocket 推送 |
+| F3（已完成） | 座位邀請（接受、拒絕、換座位、離開、通知）、隊長制、準備室頁、補機器人、WebSocket 推送 |
 | F4 | 開始（`team` 牌桌、共用 `DealSet`）、兩桌推進、牌桌層的資訊隔離、即時比分、結束與通知、比賽牌局進紀錄（`mode=team`、`event_id`、E4 篩選「隊制賽」） |
 | F5 | 結果頁、斷線代打、超時裁定、暫停／繼續／同隊替補、中止、端對端測試 |
 | M2 | 觀賽頁（Vugraph）、觀看延遲、賽後整場重播、分段與換位、VP |
@@ -414,6 +429,20 @@ C4 的實作（2026-10-24）：
 - **用這副牌挑戰**（`createChallenge` 加 `fromBoards: string[]`，1–16 副不重複的紀錄 id；不能同時給 `boards`）：每副都要是他打的（不是就 `boardGone`，不透露存在）、已經公開（`revealAt` 沒過的挑戰牌局也是 `boardGone`）、另外三家都是機器人（`challengeRobotsOnly`）、而且是同一種制度（`challengeRobotKinds`）。設定的機器人制度鎖成那一種（送了別的回 `badChallengeSettings { field: 'robotKind' }`），Best Hand、Just Declare 不能開（`badChallengeSettings`）。他叫牌的座位（替機器人當莊而換過座位的，看叫品裡沒標機器人的那一家）轉成南（`boardAsSouth`）：發牌者與身價跟著轉，牌號換成 16 副循環裡同樣發牌者與身價的那一號（坐南就是原牌號；`boardNoFor`），他的分數換成他那一方的角度（坐東西就變號）。建立時就寫進他的 `challenge_results`（`board_id` 是原本的紀錄、`played_at` 是當時打完的時間）、`known_deals = 1`、`started_at`／`finished_at` 是建立時間（`newChallenge` 的 `known`）。紀錄頁的「用這副牌挑戰」只在他和三個同制度的機器人打、已公開的牌出現（`challengeRobotsOf`），對話框不給選副數、Best Hand、Just Declare，機器人鎖住；排名上他的名字後面標「已知牌」。
   - 已知的限制：traveller 裡他那一列的合約與莊家照原本紀錄的方位（沒有轉），分數是轉過的。
 
+**每週社團挑戰、分享卡與端對端測試**（C9，`e7-t23`～`e7-t25`，2026-10-25）：
+- **排程**（`shared/weekly-challenge.ts`、`worker/weekly-challenge.ts`）：管理員在挑戰頁（`/challenges` 的「每週社團挑戰」，只有管理員看得到）設定開關、星期幾、幾點、副數、計分（`mp`／`crossImp`／`total`，全社人多，不給 `imp`）、機器人的制度、截止天數。API 是 `GET`／`POST /api/admin/weekly-challenge`（`ClubService.weeklyChallenge`、`adminSetWeeklyChallenge`，設定錯了回 `badChallengeSettings { field }`）。存在 KV 的 `meta:weekly`（`WeeklyState`：排程、存的人、存的時間、上一場的排定時間與 id）。
+- **時間一律是台灣時間**（UTC+8，台灣沒有日光節約），不跟著伺服器或管理員的瀏覽器走（`latestWeeklySlot`、`weeklySlotAfter`）。
+- **工作**：統一排程器的 `weekly:<存的時間>` 工作（`JobKind` 的 `weekly`），排在「存檔之後、上一場之後」的第一個排定時間（`nextWeeklyRun`），所以存檔不會立刻開一場。改了排程就是新的 key，舊的工作醒來發現存的時間不同就什麼都不做。到時先把 `lastRunAt` 寫成這次的排定時間（失敗也不會開兩場）再建立挑戰；物件睡過好幾週，醒來只補開一場，下一場照排程。工作不存，`load()` 從 `meta:weekly` 重排。
+- **建立**（`createWeeklyChallenge`）：`settings.weekly = true`（只有伺服器設；社員送這個欄位跟其他不認得的欄位一樣被拒絕）、`ranking = club`、不開 Best Hand／Just Declare、隨機牌。邀請**全社每一位社員**，不限好友、不看封鎖（是社團邀請，不是某個社員），也不受 20 人上限。發起者是存排程的那位管理員（照一般挑戰的規則自動接受、可以打）；他已經不是管理員或帳號刪了，就用最早的管理員。全社只有他一人時不開。每個人（含發起者）收到 `challengeWeekly` 通知，點了到挑戰大廳接受。接受、拒絕**不通知**發起者（不然管理員每週收幾十則）。之後的回覆、截止、結算、可見性都和一般挑戰一樣。
+- **不能再戰**（`weeklyNoRematch`）：下週自動有新的一場。頁面標題顯示「每週社團挑戰」（`challengeTitle`），不顯示「某某發起」。
+- **建議預設**（PRD 沒定，待社長確認）：
+  - 預設關閉；開啟後預設 **星期一 20:00（台灣時間）、8 副、MP、TKB 淡江制度、7 天**（截止時間剛好是下一場開始的時間）。
+  - 發起者＝存排程的管理員，自動接受；他不打就列在「未完成」（和一般挑戰的發起者一樣）。
+  - 邀請全社、不看封鎖、不限人數；後來才加入的社員不會被補邀（等下一場）。
+  - 全社只有兩人時 MP 改用 IMP（`scoringsFor` 的規則）。
+- **分享卡**（`e7-t24`，`src/lib/shareCard.ts`、`ShareCardDialog`）：排名頁上**有名次的人**看得到「成績分享卡」，在瀏覽器用 canvas 畫一張 1200 × 630 的 PNG（連結預覽的尺寸）：網站名、挑戰名稱、名次（共幾人排名）、總成績、最精彩的一副（合約與結果、那一副的分數），顏色取自頁首的 token。可以下載；手機瀏覽器支援分享檔案時（`navigator.canShare`）多一個「分享」叫出系統的分享面板。只用伺服器已經給他的 `ChallengeView`，所以不會露出他還不能看的東西。**建議預設**：「最精彩的一副」＝他在挑戰計分裡分數最高的那一副，同分取前面的；結束前（他已打完、看得到即時排名）也能產生，卡下註明「目前排名」。
+- **端對端測試**（`e7-t25`，`tests/worker/challenge-e2e.test.ts`）：三位真人經由真的挑戰牌桌與 TKB 打 4 副 MP 挑戰，其中兩人分兩次打完、一人打兩副就離開；截止時間到時結算，名次、總成績、每副分數與用他們實際的南北分數手算的 MP 一致，沒打完的人列在「未完成」（打了 2 副），三人都收到結果通知，停著的桌子收掉。
+
 **Traveller 與並排重播**（C7，`e4-t32`、`e4-t33`、`e7-t19`，2026-10-25）：
 - 型別在 `shared/traveller.ts`（`Traveller`、`TravellerEntry`：社員、合約、莊家、首攻、結果、南北分數、這一副在挑戰計分裡的分數），之後隊制賽、雙人賽用同一個型別（`kind`）。
 - `GET /api/history/:id/traveller`：用這一副的任何一份紀錄都能問；可見性見 §4。
@@ -470,7 +499,7 @@ C4 的實作（2026-10-24）：
 
 `NotificationService`（`worker/notifications.ts`）是 `ClubService.notifications`；其他功能呼叫 `notify(userId, kind, params)`。伺服器只存種類（`NOTIFICATION_KINDS`）和參數，文字由瀏覽器依語言組出來、點了到哪一頁也由瀏覽器決定（`src/lib/notifications.ts`），所以加新種類時要一起加 `strings.ts` 六種語言與連結。某位社員的通知第一次用到時才從儲存讀出、之後留在記憶體；有變就推 `notifications` 給在線的他（同樣只送有變的部分）。頁首鈴鐺（`NotificationBell`）顯示未讀數與列表，點一則標為已讀並跳到對應頁。
 
-現有的種類：`application`（有人申請註冊，通知每位管理員，連到管理頁）；挑戰（§5.5）：`challengeInvited`（給受邀者）、`challengeAccepted`／`challengeDeclined`（給發起者）、`challengeCancelled`（給沒拒絕的人），參數是 `challengeId` 與對方的 `username`；`challengeReminder`（截止前 12 小時，給接受了還沒打完的人）與 `challengeResults`（挑戰 `finished` 時給每位接受的人），參數是 `challengeId`，由期限工作與結算送出（§5.5，`e7-t13`）；`friendOnline`（關注的人上線了，參數 `username`，連到大廳，§5.7）。受邀桌（`e2-t25`）：`tableInvited`，參數 `tableId`、`number`（桌號）與房主的 `username`，連到那一桌。精選（`e4-t29`）：`boardFeatured`，第一次設為精選時給打那副的社員（不含機器人與設精選的人自己；之後編輯不再通知），參數 `boardId` 與設的人的 `username`，連到那副的紀錄頁。挑戰頁出來前（C6）挑戰的通知連到大廳。受邀桌等之後各自加；私訊不進通知中心（§5.7）。PWA 推播是 `e1-t28`（M2）。
+現有的種類：`application`（有人申請註冊，通知每位管理員，連到管理頁）；挑戰（§5.5）：`challengeInvited`（給受邀者）、`challengeAccepted`／`challengeDeclined`（給發起者）、`challengeCancelled`（給沒拒絕的人），參數是 `challengeId` 與對方的 `username`；`challengeReminder`（截止前 12 小時，給接受了還沒打完的人）與 `challengeResults`（挑戰 `finished` 時給每位接受的人），參數是 `challengeId`，由期限工作與結算送出（§5.5，`e7-t13`）；`friendOnline`（關注的人上線了，參數 `username`，連到大廳，§5.7）。受邀桌（`e2-t25`）：`tableInvited`，參數 `tableId`、`number`（桌號）與房主的 `username`，連到那一桌。隊制賽（§5.8，`e8-t04`）：`matchInvited`（給受邀者）、`matchAccepted`／`matchDeclined`／`matchLeft`（給安排那一隊的人）、`matchRemoved`（給被移出的人，連到 `/matches`）、`matchCancelled`（給座位上的人），參數是 `matchId` 與做這件事的人的 `username`，其餘連到那場比賽的準備室。精選（`e4-t29`）：`boardFeatured`，第一次設為精選時給打那副的社員（不含機器人與設精選的人自己；之後編輯不再通知），參數 `boardId` 與設的人的 `username`，連到那副的紀錄頁。挑戰頁出來前（C6）挑戰的通知連到大廳。受邀桌等之後各自加；私訊不進通知中心（§5.7）。PWA 推播是 `e1-t28`（M2）。
 
 ## 5.3 紀錄的 SQL 索引（決策紀錄，`e4-t10`）
 

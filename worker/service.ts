@@ -73,6 +73,12 @@ import {
   type ChallengeView,
 } from '../shared/challenge.ts'
 import { boardAsSouth, challengeDeals } from '../shared/challenge-deals.ts'
+import {
+  DEFAULT_WEEKLY_SCHEDULE,
+  latestWeeklySlot,
+  parseWeeklySchedule,
+  type WeeklyChallengeView,
+} from '../shared/weekly-challenge.ts'
 import { DEAL_SET_MAX, dealSourceOf, makeDealSet, type DealSet, type DealSetBoard } from '../shared/deal-set.ts'
 import { openingLead, type Traveller } from '../shared/traveller.ts'
 import {
@@ -107,8 +113,10 @@ import {
 import { NotificationService } from './notifications.ts'
 import { Relations } from './relations.ts'
 import { AlarmQueue, manualScheduler, type JobKind, type Scheduler } from './scheduler.ts'
+import { nextWeeklyRun, WEEKLY_KEY, type WeeklyState } from './weekly-challenge.ts'
 import type { Store } from './store.ts'
 import { parseClientMessage } from '../shared/message-guard.ts'
+import { parseProfile, PROFILE_RECENT, type MemberProfile, type Profile } from '../shared/profile.ts'
 import { lobbyOrder, quickSeatChoice } from '../shared/lobby.ts'
 import { parseClientError } from './client-errors.ts'
 import { crashEntry, noLog, type Logger } from './log.ts'
@@ -134,6 +142,7 @@ import {
   challengeTraveller,
   challengeView,
   chatFor,
+  memberProfileView,
   recordVisible,
   seatOccupants,
   type Table,
@@ -158,6 +167,8 @@ interface StoredUser {
   passwordResetAt?: number
   /** False when the member turned off the notice that a friend came online (e1-t24) */
   friendOnlineNotice?: boolean
+  /** What the member tells the club about themselves (AC-1.5); others see it through `memberProfileView` */
+  profile?: Profile
 }
 
 /** A registration waiting for approval: the account it becomes once an admin approves it */
@@ -287,6 +298,8 @@ export class ClubService {
   private readonly announced = new Map<string, number>()
   /** Challenges, kept in SQL (§5.5); created and answered here, played in later batches */
   readonly challenges: ChallengeStore
+  /** The weekly club challenge's schedule (`e7-t23`), null until an admin sets one */
+  private weekly: WeeklyState | null = null
   /** Two-table team matches, kept in SQL (§5.7); set up over HTTP, played in later batches */
   readonly matches: TeamMatchService
   /** Featured boards (精選牌局, AC-4.5, §5.9) */
@@ -323,6 +336,11 @@ export class ClubService {
       newId: () => randomId(8),
       userById: (id) => this.publicUserById(id),
       takeAction: (id) => this.actionLimit.take(id),
+      isMember: (id) => this.users.has(id),
+      blocked: (by, other) => this.blocks.has(by, other),
+      online: () => this.connections.onlineUserIds(),
+      send: (id, message) => this.connections.send(id, message),
+      notify: (id, kind, params) => this.notifications.notify(id, kind, params),
     })
     this.featured = new FeaturedService(store, {
       now: this.now,
@@ -373,6 +391,8 @@ export class ClubService {
     }
     // Jobs are not stored: each open challenge's reminder or deadline is scheduled again
     for (const id of this.challenges.openIds()) this.scheduleChallenge(id)
+    this.weekly = (await this.store.get<WeeklyState>(WEEKLY_KEY)) ?? null
+    this.scheduleWeekly()
   }
 
   /** Version 1 kept history as `board:<time>-<id>` only; build the indexes from it */
@@ -575,6 +595,34 @@ export class ClubService {
     return this.me(user)
   }
 
+  /** `PATCH /api/account/profile`: replaces the member's own profile (AC-1.5); empty fields are cleared */
+  async setProfile(userId: string, input: unknown): Promise<Me> {
+    const user = this.requireUser(userId)
+    const parsed = parseProfile(input)
+    if ('error' in parsed) throw new ClubError(parsed.error, parsed.params)
+    if (Object.keys(parsed.profile).length) user.profile = parsed.profile
+    else delete user.profile
+    await this.store.put(`user:${user.id}`, user)
+    return this.me(user)
+  }
+
+  /**
+   * `GET /api/members/:id`: another member's profile card (AC-1.5) with their latest boards the
+   * viewer may see (the history search's own visibility rule). Only `memberProfileView`'s fields leave
+   */
+  async memberProfile(viewerId: string, memberId: string): Promise<MemberProfile> {
+    this.requireUser(viewerId)
+    const member = this.users.get(String(memberId ?? ''))
+    if (!member) throw new ClubError('userGone', {}, 404)
+    const recent = await this.search(viewerId, {
+      ...DEFAULT_HISTORY_QUERY,
+      scope: 'all',
+      player: member.id,
+      size: PROFILE_RECENT,
+    })
+    return memberProfileView(member, recent.boards)
+  }
+
   /**
    * 忘記密碼: whoever knows the club's invite code can give a member account a new password by name.
    * There is no e-mail check yet, so admin accounts are left out (another admin resets them on the
@@ -620,6 +668,7 @@ export class ClubService {
       permissions: this.permissionsOf(user),
       friendOnlineNotice: user.friendOnlineNotice !== false,
     }
+    if (user.profile) me.profile = user.profile
     if (user.admin) me.applications = this.applications.size
     return me
   }
@@ -969,6 +1018,8 @@ export class ClubService {
     this.broadcast()
     void this.pushNotifications(userId)
     this.pushDirects(userId)
+    // Whether the host can start a match they are in depends on who is online (e8-t06)
+    this.matches.presence(userId)
     if (!this.present.has(userId)) {
       this.present.add(userId)
       void this.announceOnline(userId)
@@ -1073,6 +1124,7 @@ export class ClubService {
       if (table.mode !== 'challenge') this.awayFrom(userId, this.now())
     }
     this.broadcast()
+    this.matches.presence(userId)
   }
 
   /**
@@ -1188,6 +1240,14 @@ export class ClubService {
         return this.cancelChallenge(userId, message.challengeId)
       case 'playChallenge':
         return this.playChallenge(userId, message.challengeId)
+      case 'matchInvite':
+      case 'matchAnswer':
+      case 'matchMove':
+      case 'matchLeave':
+      case 'matchClear':
+      case 'matchRobot':
+        await this.matches.act(userId, message)
+        return
       case 'call':
       case 'play':
       case 'claim':
@@ -1360,6 +1420,8 @@ export class ClubService {
     if (!me) throw new ClubError('challengeGone', {}, 404)
     if (isOpenChallenge(c.status)) throw new ClubError('challengeNotOver')
     if (me.status !== 'accepted') throw new ClubError('challengeNotAccepted')
+    // Next week's club challenge comes by itself
+    if (c.settings.weekly) throw new ClubError('weeklyNoRematch')
     const others = c.players
       .filter((p) => p.userId !== userId && p.status !== 'declined' && this.users.has(p.userId))
       .map((p) => p.userId)
@@ -1393,10 +1455,12 @@ export class ClubService {
     const step = answer(challenge, userId, accept, this.now())
     if ('error' in step) throw new ClubError(step.error, {}, step.error === 'challengeGone' ? 404 : 400)
     this.applyChallenge(challenge, step)
-    await this.notifications.notify(challenge.creatorId, accept ? 'challengeAccepted' : 'challengeDeclined', {
-      challengeId: challenge.id,
-      username: this.users.get(userId)!.username,
-    })
+    // The weekly club challenge's creator is the club: no admin hears every member's answer
+    if (!challenge.settings.weekly)
+      await this.notifications.notify(challenge.creatorId, accept ? 'challengeAccepted' : 'challengeDeclined', {
+        challengeId: challenge.id,
+        username: this.users.get(userId)!.username,
+      })
     // The last decline may expire it, or leave only people who are done
     await this.challengeChanged(challenge.id)
   }
@@ -1545,6 +1609,102 @@ export class ClubService {
       const record = await this.store.get<BoardRecord>(`board:${boardId}`)
       if (record) await this.writeRecord({ ...record, revealAt: now })
     }
+  }
+
+  // ── The weekly club challenge (§5.5, e7-t23) ────────────────────────────────────────────────
+
+  /** The schedule as an admin sees it, with when the next challenge is created */
+  weeklyChallenge(): WeeklyChallengeView {
+    const state = this.weekly
+    if (!state) return { schedule: DEFAULT_WEEKLY_SCHEDULE, next: null }
+    return {
+      schedule: state.schedule,
+      next: nextWeeklyRun(state),
+      ...(state.lastRunAt !== undefined && { lastRunAt: state.lastRunAt }),
+      ...(state.lastChallengeId !== undefined && { lastChallengeId: state.lastChallengeId }),
+    }
+  }
+
+  /**
+   * An admin sets the schedule (`parseWeeklySchedule`). The next challenge is the first time the
+   * schedule names after now (or after the last one created), so saving never creates one at once
+   */
+  async adminSetWeeklyChallenge(adminId: string, value: unknown): Promise<WeeklyChallengeView> {
+    const parsed = parseWeeklySchedule(value, this.weekly?.schedule)
+    if ('field' in parsed) throw new ClubError('badChallengeSettings', { field: parsed.field })
+    this.weekly = { ...this.weekly, schedule: parsed.schedule, adminId, savedAt: this.now() }
+    await this.store.put(WEEKLY_KEY, this.weekly)
+    this.scheduleWeekly()
+    return this.weeklyChallenge()
+  }
+
+  /**
+   * One job, keyed by when the schedule was saved: a job left from an older schedule finds it
+   * changed and does nothing. Not stored; `load()` schedules it again
+   */
+  private scheduleWeekly() {
+    const state = this.weekly
+    const at = state && nextWeeklyRun(state)
+    if (!state || at === null || at === undefined) return
+    const savedAt = state.savedAt
+    this.scheduler.add(`weekly:${savedAt}`, 'weekly', Math.max(0, at - this.now()), () => this.weeklyDue(savedAt))
+  }
+
+  /**
+   * The weekly job: once the time comes, the time is noted first (so a failure halfway never
+   * creates two), then the challenge is created and the job waits for the next week. An object
+   * that slept through several weeks creates one challenge, not one for each week missed
+   */
+  private async weeklyDue(savedAt: number) {
+    const state = this.weekly
+    if (!state || state.savedAt !== savedAt) return
+    const at = nextWeeklyRun(state)
+    if (at === null) return
+    const now = this.now()
+    if (now >= at) {
+      state.lastRunAt = latestWeeklySlot(state.schedule, now)
+      await this.store.put(WEEKLY_KEY, state)
+      const id = await this.createWeeklyChallenge(state)
+      if (id) {
+        state.lastChallengeId = id
+        await this.store.put(WEEKLY_KEY, state)
+        this.broadcast()
+      }
+    }
+    this.scheduleWeekly()
+  }
+
+  /**
+   * Creates the week's club challenge: every member is invited, not only friends, and no block
+   * stops it (the club invites, not a member). The admin who saved the schedule is its creator
+   * (accepted, as every creator is); if they are no longer an admin, the oldest admin. Everyone is
+   * told, the creator too. Null when there is nobody to invite
+   */
+  private async createWeeklyChallenge(state: WeeklyState): Promise<string | null> {
+    const members = [...this.users.values()].sort((a, b) => a.createdAt - b.createdAt)
+    const creator = members.find((u) => u.admin && u.id === state.adminId) ?? members.find((u) => u.admin)
+    if (!creator) return null
+    const invitees = members.filter((u) => u.id !== creator.id).map((u) => u.id)
+    if (!invitees.length) return null
+    const { boards, scoring, robotKind, days } = state.schedule
+    const settings: ChallengeSettings = {
+      // Head to head (a club of two) matchpoints mean little: IMPs instead
+      scoring: invitees.length > 1 || scoring === 'total' ? scoring : 'imp',
+      robotKind,
+      bestHand: false,
+      justDeclare: false,
+      days,
+      ranking: 'club',
+      weekly: true,
+    }
+    const deals = challengeDeals({ count: boards, bestHand: false, justDeclare: false, robotKind }, this.random)
+    if (!deals) return null
+    const challenge = newChallenge({ id: randomId(8), creatorId: creator.id, invitees, settings, deals, now: this.now() })
+    this.challenges.create(challenge)
+    this.scheduleChallenge(challenge.id)
+    for (const p of challenge.players)
+      await this.notifications.notify(p.userId, 'challengeWeekly', { challengeId: challenge.id })
+    return challenge.id
   }
 
   // ── Challenge tables (§5.5, e7-t08, e7-t12) ─────────────────────────────────────────────────

@@ -140,6 +140,13 @@ const table = {
   ringTrack: '#d9ded6',
 } as const
 
+/**
+ * Default avatars (e1-t18): the initial on one of these, picked from the member's id so it never
+ * changes. All carry `onAvatar` text at 4.5:1 or better, and look the same in both themes
+ */
+const avatars = ['#1c2e4f', '#7a3b12', '#1f6b43', '#5b2c7a', '#a0302a', '#2a5d8f', '#6e5410', '#3d5a40', '#7a2a55', '#3f4a5c'] as const
+const onAvatar = '#ffffff'
+
 /** Suit colours printed on the cards: two-colour like BBO's default, or four-colour */
 const cardSuits = {
   two: { S: '#111111', H: '#d10f1f', D: '#d10f1f', C: '#111111' },
@@ -183,6 +190,8 @@ export function createTheme(mode: ThemeMode, deck: DeckColors) {
     suits: suits[mode],
     table,
     cardSuits: cardSuits[deck],
+    avatars,
+    onAvatar,
     fonts,
     layout,
     space,

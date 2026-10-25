@@ -1,180 +1,144 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it } from 'vitest'
-import { type Me, PROFILE_LIMITS, type ProfileInput } from '../../shared/protocol.ts'
-import { anonymousProfileResponse, checkProfileInput, emptyClubProfile, ProfileService } from '../../worker/profiles.ts'
-import { MemoryStore } from '../../worker/store.ts'
+import type { BoardState } from '../../shared/game.ts'
+import { parseProfile, PROFILE_LIMITS, PROFILE_RECENT } from '../../shared/profile.ts'
+import type { BoardRecord } from '../../shared/protocol.ts'
+import { indexRecord } from '../../worker/history-index.ts'
+import { ClubService, type Connections } from '../../worker/service.ts'
+import type { MemoryStore } from '../../worker/store.ts'
+import { memoryStore } from './sqlite.ts'
 
-const amy: Me = { id: 'u1', username: 'amy', admin: false, permissions: ['bookEdit'] }
-const ben: Me = { id: 'u2', username: 'ben', admin: false, permissions: ['bookEdit'] }
-const NAMES: Record<string, string> = { u1: 'amy', u2: 'ben' }
-
-const input = (extra: Partial<ProfileInput> = {}): ProfileInput => ({
-  name: 'A 隊',
-  scope: 'team',
-  adopted: { lebensohl: 'off' },
-  overrides: [{ kind: 'row', slug: 'stayman', sectionId: 'responses', blockIndex: 0, rowIndex: 1, meaning: '4♥' }],
-  notes: [{ slug: 'stayman', text: '記得問', by: 'u1', at: 1 }],
-  ...extra,
-})
+const connections: Connections = { onlineUserIds: () => [], send: () => undefined, disconnect: () => undefined }
 
 let store: MemoryStore
-let profiles: ProfileService
+let club: ClubService
 let time: number
+let admin: string
 
-beforeEach(() => {
-  store = new MemoryStore()
+beforeEach(async () => {
+  store = memoryStore()
   time = 1_000_000
-  profiles = new ProfileService(store, () => time, (id) => NAMES[id])
+  club = new ClubService(store, connections, { maxUsers: 20, now: () => time, schedule: () => undefined })
+  await club.load()
+  const founder = await club.register('admin', 'secret1', '')
+  if (!('user' in founder)) throw new Error('the first account should sign in at once')
+  admin = founder.user.id
 })
 
-describe('system profile storage', () => {
-  it("always has the club's profile, empty at version 0 until it is saved", async () => {
-    expect(await profiles.list()).toEqual([
-      { id: 'club', name: '社團預設', scope: 'club', version: 0, updatedAt: 0, updatedBy: '', counts: { adopted: 0, overrides: 0, notes: 0 } },
-    ])
-    expect(await profiles.get('club')).toEqual(emptyClubProfile())
-    const saved = await profiles.save(amy, 'club', { profile: input({ name: '社團預設', scope: 'club' }), baseVersion: 0 })
-    expect(saved).toMatchObject({ id: 'club', scope: 'club', version: 1, updatedBy: 'u1', updatedAt: time })
-    expect(saved).not.toHaveProperty('parentId')
-    expect((await profiles.list())[0].counts).toEqual({ adopted: 1, overrides: 1, notes: 1 })
-  })
+async function member(name: string) {
+  const result = await club.register(name, 'secret1', '')
+  if ('user' in result) return result.user.id
+  return (await club.adminApprove(club.adminApplications().find((a) => a.username === name)!.id)).id
+}
 
-  it('creates, saves with baseVersion and refuses a save made from an old version (409)', async () => {
-    const team = await profiles.create(amy, { profile: input(), note: '開隊' })
-    expect(team).toMatchObject({ name: 'A 隊', scope: 'team', parentId: 'club', version: 1, updatedBy: 'u1' })
-    expect(team.id).toMatch(/^[0-9a-f]{12}$/)
-
-    time += 1000
-    const changed = input({ name: 'A 隊（新）' })
-    await expect(profiles.save(ben, team.id, { profile: changed, baseVersion: 0 })).rejects.toMatchObject({
-      code: 'profileConflict',
-      status: 409,
-      params: { name: 'amy' },
-    })
-    const second = await profiles.save(ben, team.id, { profile: changed, baseVersion: 1 })
-    expect(second).toMatchObject({ version: 2, updatedBy: 'u2', name: 'A 隊（新）' })
-    await expect(profiles.save(amy, team.id, { profile: changed, baseVersion: 1 })).rejects.toMatchObject({ params: { name: 'ben' } })
-
-    // Read back after a reload, from storage
-    const reloaded = new ProfileService(store, () => time)
-    expect(await reloaded.get(team.id)).toEqual(second)
-    expect((await reloaded.list()).map((p) => p.id)).toEqual(['club', team.id])
-  })
-
-  it('keeps every version and loads an old one', async () => {
-    const team = await profiles.create(amy, { profile: input(), note: '開隊' })
-    await profiles.save(ben, team.id, { profile: input({ adopted: {} }), baseVersion: 1, note: '全採用' })
-    const revisions = await profiles.revisions(team.id)
-    expect(revisions.map((r) => [r.version, r.by, r.note])).toEqual([
-      [2, 'u2', '全採用'],
-      [1, 'u1', '開隊'],
-    ])
-    expect(revisions[0]).not.toHaveProperty('profile')
-    expect((await profiles.revision(team.id, 1)).profile).toMatchObject({ version: 1, adopted: { lebensohl: 'off' } })
-    await expect(profiles.revision(team.id, 9)).rejects.toMatchObject({ code: 'profileGone', status: 404 })
-    expect(await profiles.revisions('club')).toEqual([])
-  })
-
-  it('keeps large profiles in parts', async () => {
-    const section = { id: 'big', title: '大段落', blocks: [{ kind: 'paragraph', text: '字'.repeat(50_000) }] }
-    const big = input({ overrides: [{ kind: 'section', slug: 'stayman', sectionId: 'big', section }] })
-    const team = await profiles.create(amy, { profile: big })
-    expect([...(await store.list('bookpart:book:profile:')).keys()].length).toBeGreaterThan(1)
-    expect(await new ProfileService(store).get(team.id)).toEqual(team)
-  })
-
-  it('never deletes the club, nor a profile another one inherits', async () => {
-    await expect(profiles.remove('club', { baseVersion: 0 })).rejects.toMatchObject({ code: 'profileProtected', status: 403 })
-    const team = await profiles.create(amy, { profile: input() })
-    const pair = await profiles.create(amy, { profile: input({ name: '小明＋小華', scope: 'partnership', parentId: team.id }) })
-    await expect(profiles.remove(team.id, { baseVersion: 1 })).rejects.toMatchObject({ code: 'profileInUse', status: 409, params: { name: '小明＋小華' } })
-    // Nor turn a team with partnerships into a partnership
-    await expect(profiles.save(amy, team.id, { profile: input({ scope: 'partnership' }), baseVersion: 1 })).rejects.toMatchObject({ code: 'profileInUse' })
-
-    await expect(profiles.remove(pair.id, { baseVersion: 0 })).rejects.toMatchObject({ code: 'profileConflict' })
-    await profiles.remove(pair.id, { baseVersion: 1 })
-    await profiles.remove(team.id, { baseVersion: 1 })
-    expect((await profiles.list()).map((p) => p.id)).toEqual(['club'])
-    expect([...(await store.list('book:profile')).keys()]).toEqual([])
-    expect([...(await store.list('bookpart:book:profile')).keys()]).toEqual([])
-    await expect(profiles.get(team.id)).rejects.toMatchObject({ code: 'profileGone', status: 404 })
-    await expect(profiles.remove(team.id, { baseVersion: 1 })).rejects.toMatchObject({ code: 'profileGone' })
-  })
-
-  it('keeps the layers: a team under the club, a partnership under the club or a team', async () => {
-    const team = await profiles.create(amy, { profile: input() })
-    const pair = await profiles.create(amy, { profile: input({ scope: 'partnership', parentId: team.id }) })
-    await profiles.create(amy, { profile: input({ scope: 'partnership' }) })
-    const bad = (profile: ProfileInput) => expect(profiles.create(amy, { profile })).rejects.toMatchObject({ code: 'badContent' })
-    await bad(input({ parentId: team.id }))
-    await bad(input({ scope: 'partnership', parentId: pair.id }))
-    await bad(input({ parentId: 'nobody' }))
-    await bad(input({ scope: 'club' }))
-    await expect(profiles.save(amy, 'club', { profile: input(), baseVersion: 0 })).rejects.toMatchObject({ code: 'badContent' })
-    await expect(profiles.save(amy, team.id, { profile: input({ scope: 'club' }), baseVersion: 1 })).rejects.toMatchObject({ code: 'badContent' })
-    await expect(profiles.save(amy, 'nobody', { profile: input(), baseVersion: 0 })).rejects.toMatchObject({ code: 'profileGone' })
-  })
-
-  it('enforces the size and count limits', async () => {
-    const row = { kind: 'row' as const, slug: 'stayman', sectionId: 'r', blockIndex: 0, rowIndex: 0, meaning: 'x' }
-    const tooMany = input({ overrides: Array.from({ length: PROFILE_LIMITS.overridesMax + 1 }, () => row) })
-    await expect(profiles.create(amy, { profile: tooMany })).rejects.toMatchObject({ code: 'badContent' })
-    await profiles.create(amy, { profile: input({ overrides: Array.from({ length: PROFILE_LIMITS.overridesMax }, () => row) }) })
-
-    // 200 kB of UTF-8: a Chinese character is 3 bytes
-    const huge = input({ notes: [{ slug: 'a', text: '字'.repeat(1_900), by: 'u1', at: 1 }] })
-    huge.notes = Array.from({ length: 40 }, () => huge.notes[0])
-    await expect(profiles.create(amy, { profile: huge })).rejects.toMatchObject({ code: 'contentTooLarge', status: 413 })
-
-    for (let i = 1; i < PROFILE_LIMITS.profilesMax; i++) await profiles.create(amy, { profile: input({ overrides: [] }) })
-    await expect(profiles.create(amy, { profile: input() })).rejects.toMatchObject({ code: 'badContent', params: { reason: `制度集最多 ${PROFILE_LIMITS.profilesMax} 個` } })
-  })
-})
-
-describe('checkProfileInput', () => {
-  const reason = (value: unknown) => {
-    try {
-      checkProfileInput(value)
-      return ''
-    } catch (error) {
-      return (error as { params: { reason: string } }).params.reason
-    }
+/** A finished board with these four players, saved and indexed as the service does */
+async function finished(id: string, at: number, ids: [string, string, string, string], revealAt?: number) {
+  const [N, E, S, W] = ids.map((x) => ({ id: x, username: x }))
+  const record: BoardRecord = {
+    id,
+    tableNumber: 1,
+    finishedAt: at,
+    players: { N, E, S, W },
+    board: {
+      boardNo: 1,
+      dealer: 'N',
+      vul: 'None',
+      contract: null,
+      result: { declarerTricks: 0, scoreNS: 0, claimed: false },
+    } as unknown as BoardState,
+    ...(revealAt !== undefined && { revealAt }),
   }
+  await store.put(`board:${id}`, record)
+  indexRecord(store.sql, record)
+}
 
-  it('keeps only the editable fields', () => {
-    const value = { ...input(), id: 'sneaky', version: 99, updatedBy: 'x', extra: 1 }
-    expect(checkProfileInput(value)).toEqual(input())
+describe('parseProfile', () => {
+  it('keeps the four fields, trimmed, and drops empty ones', () => {
+    expect(parseProfile({ displayName: '  王 小明 ', level: 'open', system: ' 2/1 ', bio: 'line one\n\n\n\nline  two ' })).toEqual({
+      profile: { displayName: '王 小明', level: 'open', system: '2/1', bio: 'line one\n\nline two' },
+    })
+    expect(parseProfile({ displayName: '', level: '', system: '   ', bio: '' })).toEqual({ profile: {} })
+    expect(parseProfile({})).toEqual({ profile: {} })
   })
 
-  it('checks every field', () => {
-    expect(reason(null)).toBe('不是一個制度集')
-    expect(reason(input({ name: ' ' }))).toMatch('名稱')
-    expect(reason(input({ name: '字'.repeat(PROFILE_LIMITS.nameMax + 1) }))).toMatch('名稱')
-    expect(reason({ ...input(), scope: 'pair' })).toMatch('scope')
-    expect(reason({ ...input(), adopted: { Lebensohl: 'on' } })).toMatch('採用')
-    expect(reason({ ...input(), adopted: { lebensohl: true } })).toMatch('採用')
-    expect(reason({ ...input(), overrides: [{ kind: 'row', slug: 's', sectionId: 'r', blockIndex: -1, rowIndex: 0, meaning: '' }] })).toMatch('位置')
-    expect(reason({ ...input(), overrides: [{ kind: 'section', slug: 's', sectionId: 'a', section: { id: 'b', title: 'x' } }] })).toMatch('sectionId')
-    expect(reason({ ...input(), overrides: [{ kind: 'section', slug: 's', sectionId: 'a', section: { id: 'a', title: 'x', blocks: [{ kind: 'video' }] } }] })).toBe('不明的內容區塊')
-    expect(reason({ ...input(), overrides: [{ kind: 'meta', slug: 's', tags: 'x' }] })).toMatch('標籤')
-    expect(reason({ ...input(), overrides: [{ kind: 'other', slug: 's' }] })).toBe('不明的覆寫種類')
-    expect(reason({ ...input(), notes: [{ slug: 's', text: '', by: 'u1', at: 1 }] })).toMatch('文字')
-    expect(reason({ ...input(), notes: [{ slug: 's', text: '字'.repeat(PROFILE_LIMITS.noteMax + 1), by: 'u1', at: 1 }] })).toMatch('最多')
-    expect(reason({ ...input(), notes: [{ slug: 's', text: 'x' }] })).toMatch('作者')
-    expect(reason(input({ overrides: [{ kind: 'meta', slug: 's', summary: '新摘要' }] }))).toBe('')
+  it('turns away unknown fields, wrong types, unknown levels and long text', () => {
+    expect(parseProfile(null)).toMatchObject({ error: 'badMessage' })
+    expect(parseProfile([])).toMatchObject({ error: 'badMessage' })
+    expect(parseProfile({ admin: true })).toMatchObject({ error: 'badMessage' })
+    expect(parseProfile({ level: 'grandmaster' })).toMatchObject({ error: 'badMessage' })
+    expect(parseProfile({ displayName: 5 })).toMatchObject({ error: 'profileNameTooLong' })
+    expect(parseProfile({ displayName: '字'.repeat(PROFILE_LIMITS.displayNameMax + 1) })).toMatchObject({
+      error: 'profileNameTooLong',
+      params: { max: PROFILE_LIMITS.displayNameMax },
+    })
+    expect(parseProfile({ displayName: '字'.repeat(PROFILE_LIMITS.displayNameMax) })).toHaveProperty('profile')
+    expect(parseProfile({ system: 'x'.repeat(PROFILE_LIMITS.systemMax + 1) })).toMatchObject({ error: 'profileSystemTooLong' })
+    expect(parseProfile({ bio: 'x'.repeat(PROFILE_LIMITS.bioMax + 1) })).toMatchObject({ error: 'profileBioTooLong' })
+  })
+
+  it('removes control characters and keeps line breaks only in the bio', () => {
+    expect(parseProfile({ displayName: 'a\nb\u0007c', bio: 'a\r\nb\u0000' })).toEqual({ profile: { displayName: 'a bc', bio: 'a\nb' } })
   })
 })
 
-describe('reading without signing in', () => {
-  const get = (path: string) => anonymousProfileResponse(profiles, new Request(`https://x${path}`), path)
+describe('profiles (AC-1.5)', () => {
+  it('saves the member’s own profile, returns it with /api/me and keeps it after a reload', async () => {
+    const amy = await member('amy')
+    const me = await club.setProfile(amy, { displayName: '陳怡君', level: 'college', system: '淡江制度', bio: '大三，打了兩年' })
+    expect(me.profile).toEqual({ displayName: '陳怡君', level: 'college', system: '淡江制度', bio: '大三，打了兩年' })
 
-  it("gets the club's profile only, without its private notes", async () => {
-    await profiles.save(amy, 'club', { profile: input({ name: '社團預設', scope: 'club' }), baseVersion: 0 })
-    const team = await profiles.create(amy, { profile: input() })
-    expect(await get('/api/book/profiles')).toEqual([expect.objectContaining({ id: 'club', counts: { adopted: 1, overrides: 1, notes: 0 } })])
-    expect(await get('/api/book/profiles/club')).toMatchObject({ id: 'club', notes: [], overrides: [expect.anything()] })
-    expect(await get(`/api/book/profiles/${team.id}`)).toBeNull()
-    expect(await get('/api/book/profiles/club/revisions')).toBeNull()
-    expect(await anonymousProfileResponse(profiles, new Request('https://x/api/book/profiles', { method: 'POST' }), '/api/book/profiles')).toBeNull()
+    const again = new ClubService(store, connections, { maxUsers: 20, now: () => time, schedule: () => undefined })
+    await again.load()
+    expect((await again.memberProfile(admin, amy)).profile.displayName).toBe('陳怡君')
+
+    // Saving empty fields clears them
+    expect((await club.setProfile(amy, { displayName: '' })).profile).toBeUndefined()
+  })
+
+  it('rejects a bad profile without changing the saved one', async () => {
+    const amy = await member('amy')
+    await club.setProfile(amy, { displayName: 'Amy' })
+    await expect(club.setProfile(amy, { bio: 'x'.repeat(PROFILE_LIMITS.bioMax + 1) })).rejects.toMatchObject({
+      code: 'profileBioTooLong',
+    })
+    await expect(club.setProfile(amy, { username: 'root' })).rejects.toMatchObject({ code: 'badMessage' })
+    expect((await club.memberProfile(admin, amy)).profile).toEqual({ displayName: 'Amy' })
+  })
+
+  it('shows another member only the public fields', async () => {
+    const amy = await member('amy')
+    await club.setProfile(amy, { displayName: 'Amy', level: 'master' })
+    const card = await club.memberProfile(admin, amy)
+    expect(Object.keys(card).sort()).toEqual(['id', 'profile', 'recent', 'username'])
+    expect(card).toMatchObject({ id: amy, username: 'amy', profile: { displayName: 'Amy', level: 'master' }, recent: [] })
+    // The admin's own card has no admin flag, permissions or settings either
+    const adminCard = await club.memberProfile(amy, admin)
+    expect(Object.keys(adminCard).sort()).toEqual(['id', 'profile', 'recent', 'username'])
+    expect(JSON.stringify(adminCard)).not.toMatch(/passwordHash|admin":|permissions|friendOnlineNotice|lastLoginAt/)
+  })
+
+  it('lists the member’s latest ten boards the viewer may see, newest first', async () => {
+    const amy = await member('amy')
+    const ben = await member('ben')
+    const cat = await member('cat')
+    for (let i = 0; i < 12; i++) await finished(`b${i}`, 100 + i, [amy, ben, cat, 'robot:gib:W'])
+    await finished('other', 200, [ben, cat, admin, 'robot:gib:W'])
+    // A board kept back until later: only its players see it
+    await finished('kept', 300, [amy, cat, 'robot:gib:E', 'robot:gib:W'], time + 60_000)
+
+    const seenByBen = await club.memberProfile(ben, amy)
+    expect(seenByBen.recent).toHaveLength(PROFILE_RECENT)
+    expect(seenByBen.recent.map((b) => b.id)).toEqual(['b11', 'b10', 'b9', 'b8', 'b7', 'b6', 'b5', 'b4', 'b3', 'b2'])
+    expect((await club.memberProfile(cat, amy)).recent[0].id).toBe('kept')
+
+    time += 120_000
+    expect((await club.memberProfile(ben, amy)).recent[0].id).toBe('kept')
+  })
+
+  it('turns away unknown members and robots, and asks for a sign-in', async () => {
+    await expect(club.memberProfile(admin, 'nobody')).rejects.toMatchObject({ code: 'userGone' })
+    await expect(club.memberProfile(admin, 'robot:gib:N')).rejects.toMatchObject({ code: 'userGone' })
+    await expect(club.memberProfile('nobody', admin)).rejects.toThrow()
+    await expect(club.setProfile('nobody', {})).rejects.toThrow()
   })
 })

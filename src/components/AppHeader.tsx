@@ -13,6 +13,7 @@ import {
   Star,
   Sun,
   Swords,
+  Trophy,
   UserRound,
   Users,
   Volume2,
@@ -286,6 +287,10 @@ export function AppHeader() {
           <Link to="/challenges" aria-label={t.navChallenges}>
             <Swords size={18} aria-hidden />
             <span>{t.navChallenges}</span>
+          </Link>
+          <Link to="/matches" aria-label={t.navMatches}>
+            <Trophy size={18} aria-hidden />
+            <span>{t.navMatches}</span>
           </Link>
           <Link to="/history" aria-label={t.navHistory}>
             <History size={18} aria-hidden />

@@ -221,7 +221,7 @@ export function SidePanel({
           </ContentHead>
           <Body>
             {open === 'chat' && chat}
-            {open === 'people' && <People onMessage={tabs.includes('messages') ? message : undefined} />}
+            {open === 'people' && <People onMessage={tabs.includes('messages') ? message : undefined} newTab={page === 'table'} />}
             {open === 'messages' && <Messages talkTo={talkTo} onTalkTo={setTalkTo} />}
             {open === 'history' && <HistoryList recent={recent} board={board} onBoard={setBoard} newTab={page === 'table'} />}
           </Body>
@@ -254,10 +254,10 @@ export function SidePanel({
 
 // ── People ────────────────────────────────────────────────────────────────────────────────────
 
-function People({ onMessage }: { onMessage?: (userId: string) => void }) {
+function People({ onMessage, newTab }: { onMessage?: (userId: string) => void; newTab: boolean }) {
   const { lobby, send } = useClub()
   const { user } = useAuth()
-  return <PeopleList lobby={lobby} userId={user?.id} send={send} onMessage={onMessage} />
+  return <PeopleList lobby={lobby} userId={user?.id} send={send} onMessage={onMessage} newTab={newTab} />
 }
 
 // ── Messages ──────────────────────────────────────────────────────────────────────────────────

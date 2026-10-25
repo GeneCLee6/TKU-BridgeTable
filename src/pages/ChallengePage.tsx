@@ -1,15 +1,26 @@
-import { ChevronLeft } from 'lucide-react'
+import { ChevronLeft, Image as ImageIcon } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import styled from 'styled-components'
 import type { ChallengeView } from '../../shared/challenge.ts'
 import type { Traveller } from '../../shared/traveller.ts'
 import { Progress, StatusTag } from '../components/ChallengeParts.tsx'
+import { ShareCardDialog } from '../components/ShareCardDialog.tsx'
 import { TravellerTable } from '../components/Traveller.tsx'
 import { Button, Card, ErrorText, Muted, PageMain, PageTitle } from '../components/ui.tsx'
 import { ApiError, api } from '../lib/api.ts'
-import { formatScore, participantName, playerOf, rematchable, settingsLine, timeLeft, tone } from '../lib/challenges.ts'
+import {
+  challengeTitle,
+  formatScore,
+  participantName,
+  playerOf,
+  rematchable,
+  settingsLine,
+  timeLeft,
+  tone,
+} from '../lib/challenges.ts'
 import { formatDateTime } from '../lib/format.ts'
+import { shareCardData } from '../lib/shareCard.ts'
 import { useAuth } from '../state/AuthContext.tsx'
 import { useClub } from '../state/ClubContext.tsx'
 import { usePreferences } from '../state/PreferencesContext.tsx'
@@ -123,6 +134,7 @@ export function ChallengePage() {
   const [error, setError] = useState('')
   const [now, setNow] = useState(() => Date.now())
   const [rematching, setRematching] = useState(false)
+  const [sharing, setSharing] = useState(false)
   const navigate = useNavigate()
   // The board whose traveller is open below the standings (e7-t19), and that traveller
   const [shownSeq, setShownSeq] = useState<number | null>(null)
@@ -184,7 +196,7 @@ export function ChallengePage() {
     return <PageMain>{error ? <ErrorText role="alert">{error}</ErrorText> : <Muted>{t.loading}</Muted>}</PageMain>
 
   const c = challenge
-  const creator = participantName(t, playerOf(c, c.creatorId))
+  const card = shareCardData(c, user.id)
   const open = c.status === 'pending' || c.status === 'active'
   const standings = c.standings
   const seqs = Array.from({ length: c.boards }, (_, i) => i + 1)
@@ -211,7 +223,7 @@ export function ChallengePage() {
   return (
     <PageMain>
       {back}
-      <PageTitle>{t.challengeBy(creator)}</PageTitle>
+      <PageTitle>{challengeTitle(t, c)}</PageTitle>
       <Meta>
         <StatusTag status={c.status} />
         <Muted as="span">{settingsLine(t, c)}</Muted>
@@ -225,7 +237,14 @@ export function ChallengePage() {
             {t.rematch}
           </Button>
         )}
+        {card && (
+          <Button type="button" $small onClick={() => setSharing(true)}>
+            <ImageIcon size={16} aria-hidden />
+            {t.shareCard}
+          </Button>
+        )}
       </Meta>
+      {sharing && card && <ShareCardDialog challenge={c} data={card} onClose={() => setSharing(false)} />}
       {error && <ErrorText role="alert">{error}</ErrorText>}
 
       <Section aria-labelledby="standings-title">

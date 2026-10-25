@@ -142,6 +142,21 @@ export interface MatchSeatView extends MatchSeat {
   user?: PublicUser
   userId?: string
   robot: boolean
+  /** Whether the member in the seat is online now; absent for an empty seat or a robot */
+  online?: boolean
+}
+
+/** Why the host cannot start yet (AC-8.2), shown on the start button (`e8-t06`) */
+export type NotReady = 'seats' | 'offline' | 'robots'
+
+/**
+ * Who arranges a team's seats (`e8-t05`): team A's captain is the host. Team B's is the host too
+ * when the host invites everyone (`direct`); with captains it is team B's captain once one
+ * accepted, and the host until then (who may invite only that captain, and add robots)
+ */
+export function arrangerOf(match: { hostId: string; settings: TeamMatchSettings; captains: { A: string; B?: string } }, team: Team): string {
+  if (team === 'A' || match.settings.invite === 'direct') return match.hostId
+  return match.captains.B ?? match.hostId
 }
 
 /** A board both rooms finished (or the host ruled on), as everyone allowed to see the score sees it */
@@ -168,4 +183,6 @@ export interface TeamMatchView {
   boards: MatchBoardView[]
   totals: Record<Team, number>
   leader: Team | null
+  /** While setting up: whether the host can start, or why not (`matchReady`, worked out each time) */
+  ready?: { ready: true } | { ready: false; reason: NotReady }
 }

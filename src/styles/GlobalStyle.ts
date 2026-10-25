@@ -24,8 +24,10 @@ export const GlobalStyle = createGlobalStyle`
   }
 
   button, input, textarea, select { font: inherit; color: inherit; }
-  /* A password field looks like any other: no spaced-out or enlarged dots */
+  /* A password field looks like any other: no spaced-out or enlarged dots. The CJK body font draws
+     the browser's mask dot full width, so the dots of a password come from a Latin font */
   input { letter-spacing: normal; }
+  input[type='password'] { font-family: system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif; }
   button { cursor: pointer; }
   button:disabled { cursor: default; }
 

@@ -43,7 +43,8 @@ describe('PeopleList', () => {
     const lee = screen.getAllByRole('listitem').find((li) => li.textContent?.startsWith('lee'))!
     expect(within(lee).getByText('已封鎖')).toBeInTheDocument()
     const me = screen.getAllByRole('listitem').find((li) => li.textContent?.startsWith('amy'))!
-    expect(within(me).queryByRole('button')).toBeNull()
+    // Only the name, which opens the profile card
+    expect(within(me).getAllByRole('button').map((b) => b.textContent)).toEqual(['amy（你）'])
   })
 
   it('asks the server to follow, unfollow, block and unblock', async () => {
