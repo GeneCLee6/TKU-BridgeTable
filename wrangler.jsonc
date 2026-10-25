@@ -35,7 +35,10 @@
     "staging": {
       "name": "tku-bridge-table-staging",
       "durable_objects": {
-        "bindings": [{ "name": "CLUB", "class_name": "Club" }]
+        "bindings": [
+          { "name": "CLUB", "class_name": "Club" },
+          { "name": "TABLE", "class_name": "TableObject" }
+        ]
       },
       "vars": { "MAX_USERS": "30" }
     },
@@ -44,7 +47,10 @@
     "preview": {
       "name": "tku-bridge-table-preview",
       "durable_objects": {
-        "bindings": [{ "name": "CLUB", "class_name": "Club" }]
+        "bindings": [
+          { "name": "CLUB", "class_name": "Club" },
+          { "name": "TABLE", "class_name": "TableObject" }
+        ]
       },
       "vars": { "MAX_USERS": "30" }
     }
