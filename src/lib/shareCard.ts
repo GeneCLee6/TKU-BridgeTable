@@ -52,9 +52,9 @@ export function shareCardData(c: ChallengeView, userId: string): ShareCardData |
 
 const STRAIN_TEXT = { C: '♣', D: '♦', H: '♥', S: '♠', N: 'NT' } as const
 
-/** 4♠X S +1, or AP: bridge shorthand, the same in every language */
+/** 4♠X S +1, or -- when passed out: bridge shorthand, the same in every language */
 export function contractText(contract: Contract | null, tricks?: number | null) {
-  if (!contract) return 'AP'
+  if (!contract) return '--'
   const result = tricks === null || tricks === undefined ? '' : ` ${resultLabel(contract, tricks)}`
   return `${contract.level}${STRAIN_TEXT[contract.strain]}${contract.doubled} ${contract.declarer}${result}`
 }

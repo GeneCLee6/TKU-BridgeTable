@@ -74,7 +74,7 @@ describe('shareCardData', () => {
 describe('the card', () => {
   it('writes contracts in bridge shorthand', () => {
     expect(contractText({ level: 3, strain: 'N', doubled: 'X', declarer: 'E' }, 8)).toBe('3NTX E -1')
-    expect(contractText(null)).toBe('AP')
+    expect(contractText(null)).toBe('--')
   })
 
   it('says it in the viewer’s language and draws every line', () => {

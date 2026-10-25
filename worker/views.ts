@@ -1,5 +1,8 @@
-import { legalCalls } from '../shared/auction.ts'
-import { partnerOf, SEATS, type Seat } from '../shared/cards.ts'
+import { legalCalls, type Call } from '../shared/auction.ts'
+import { nextSeat, partnerOf, SEATS, type Seat } from '../shared/cards.ts'
+import { ROBOT_SYSTEMS } from '../shared/robot/robots.ts'
+import { explain } from '../shared/robot/system/engine.ts'
+import type { Spec } from '../shared/robot/system/spec.ts'
 import {
   canUndoFor,
   claimApprovers,
@@ -18,6 +21,7 @@ import type {
   BoardView,
   ChatMessage,
   PublicUser,
+  RobotKind,
   SeatOccupant,
   TableMode,
   TableSettings,
@@ -174,6 +178,8 @@ export function boardView(
     undoAllowed?: boolean
     /** False at a table that allows no kibitzers: someone without a seat sees no hidden hand */
     kibitz?: boolean
+    /** The robots at the table, by seat: on the viewer's turn the bidding box hints come from one */
+    robots?: Partial<Record<Seat, RobotKind>>
   } = {},
 ): BoardView {
   const finished = board.phase === 'finished'
@@ -239,7 +245,26 @@ export function boardView(
   if (extras.rejectedClaim && board.phase === 'play') view.rejectedClaim = extras.rejectedClaim
   if (board.result) view.result = board.result
   if (extras.recordId && finished) view.recordId = extras.recordId
+  if (view.legalCalls.length && viewer) {
+    const hints = callMeaningsFor(board, viewer, extras.robots ?? {})
+    if (hints) view.callMeanings = hints
+  }
   return view
+}
+
+/**
+ * The bidding box hints (e5-t22): what each of the viewer's legal calls would show in a robot's
+ * system, the partner's when the partner is a robot, else an opponent's. Worked out by the engine
+ * from the auction alone (`explain`), as GIB explains a call before it is made: nothing about any
+ * hand, so rule 6 holds. None at a table without robots.
+ */
+export function callMeaningsFor(board: BoardState, viewer: Seat, robots: Partial<Record<Seat, RobotKind>>): BoardView['callMeanings'] {
+  const robot = [partnerOf(viewer), nextSeat(viewer), nextSeat(viewer, 3)].find((seat) => robots[seat])
+  if (!robot) return undefined
+  const kind = robots[robot]!
+  const meanings: Partial<Record<Call, Spec>> = {}
+  for (const [call, spec] of explain(ROBOT_SYSTEMS[kind], board.auction, board.dealer, board.vul)) meanings[call] = spec
+  return { robot, kind, meanings }
 }
 
 /** What a challenge's viewer is to it, for the rules below */

@@ -189,7 +189,7 @@ describe('the history list', () => {
     expect(await screen.findByText('第 1–45 副，共 45 副')).toBeInTheDocument()
     expect(asked.at(-1)?.get('size')).toBe('50')
     expect(asked.at(-1)?.get('page') ?? '1').toBe('1')
-    // All on one page: AP for every passed-out board
-    expect(screen.getAllByText('AP')).toHaveLength(45)
+    // All on one page: -- for every passed-out board
+    expect(screen.getAllByText('--')).toHaveLength(45)
   })
 })

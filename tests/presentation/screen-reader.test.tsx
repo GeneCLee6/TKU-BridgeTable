@@ -53,7 +53,7 @@ describe('announcements', () => {
       turn: 'S',
       legalCalls: ['P', '1S'],
     })
-    expect(announcements(before, after, ctx)).toEqual(['東 Ben 叫 賭倍', '輪到你叫牌'])
+    expect(announcements(before, after, ctx)).toEqual(['東 Ben 叫 Double', '輪到你叫牌'])
   })
 
   it('says the contract when the auction ends, then each card and who won the trick', () => {
@@ -116,7 +116,7 @@ describe('announcements', () => {
   it('says a passed-out board', () => {
     const before = board({ auction: ['N', 'E', 'S'].map((seat) => ({ seat: seat as Seat, call: 'P' })), turn: 'W' })
     const after = board({ auction: [...before.auction, { seat: 'W', call: 'P' }], phase: 'finished', turn: null })
-    expect(announcements(before, after, ctx)).toEqual(['西 Dan 叫 Pass', '四家都 Pass'])
+    expect(announcements(before, after, ctx)).toEqual(['西 Dan 叫 Pass', 'All pass'])
   })
 
   it('speaks every language', () => {

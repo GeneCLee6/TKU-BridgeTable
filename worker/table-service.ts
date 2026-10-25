@@ -1214,6 +1214,7 @@ export class TableService implements TableApi {
             auctionSeat: mySeat ? this.auctionSeat(table, mySeat) : undefined,
             undoAllowed: table.mode !== 'challenge',
             kibitz: settings.allowKibitz,
+            robots: Object.fromEntries(SEATS.flatMap((s) => (table.seats[s] && isRobotId(table.seats[s]!) ? [[s, robotKindOf(table.seats[s]!)]] : []))),
           })
         : null,
       boardsPlayed: table.boardsPlayed,

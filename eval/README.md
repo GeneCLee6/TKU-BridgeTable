@@ -66,7 +66,7 @@ npm run eval:gate -- --base ../main              # CI 門檻（見下）
 
 ## 叫牌題庫（`quiz.ts`，`e5-t23`）
 
-「這手牌、這個叫牌過程，該叫什麼？」附上書上的答案。題目在 `tests/bidding-quiz/`，一個分類一個檔（`opening.json` 開叫、`response.json` 答叫、`rebid.json` 再叫；之後的蓋叫、競叫、滿貫各開新檔）。
+「這手牌、這個叫牌過程，該叫什麼？」附上書上的答案。題目在 `tests/bidding-quiz/`，檔案裡的 `category` 決定分類（`opening` 開叫、`response` 答叫、`rebid` 再叫、`competitive` 競叫、`preempt` 阻擊與對抗阻擊…）。一個分類可以分好幾個檔：檔名用分類開頭（`competitive.json`、`competitive.more.json`），新題目放新檔，不用改別人正在改的檔。
 
 ```bash
 npm run quiz                  # 這份程式的 TKB 答全部題目，列出各類正確率與答錯的題
@@ -100,7 +100,9 @@ npm run quiz -- --base base   # CI 棘輪：base 的 TKB 答同樣的題目，�
 
 `tests/eval/quiz.test.ts` 檢查每一題的格式（手牌 13 張不重複、叫牌過程合法、答案合法、出處、審核狀態）、id 不重複，以及 TKB 對每一題都叫出合法的叫品。
 
-**出題與審核**：目前 50 題（`e5-t42` 的第一批）是 AI 依淡江橋譜與 5542 自然制寫的，全部標 `pending`；社團幹部逐題確認後把 `status` 改成 `reviewed`、`reviewer` 填名字，答案有錯就直接改，並補到 200 題（開叫、答叫、再叫）。機器人答錯的題目不用刪：它們是之後改規則的目標（例如 `tku-open-004` 第三家輕開、`tku-open-016` Rule of 15，等 `e5-t24`）。
+**推論題庫**（`inference.ts`，`e5-t21`）：「這個叫牌過程之後，每一家表示了什麼？」題目在 `tests/inference-quiz/`，每題是叫牌過程加上書上說的範圍（`expect`：每一家的 `hcp`、各門 `len`、`balanced`，只寫書上講清楚的），`tests/eval/inference.test.ts` 用 `infer.ts` 的 `read` 逐題比對。引擎讀錯的題目寫 `miss`（為什麼不同）：測試期待它仍然不同，修好之後會提醒拿掉 `miss`。其他欄位（`source`、`reviewer`、`status`、`note`）跟叫牌題庫一樣。
+
+**出題與審核**：一開始的 50 題（`e5-t42` 的第一批）是 AI 依淡江橋譜與 5542 自然制寫的，全部標 `pending`；社團幹部逐題確認後把 `status` 改成 `reviewed`、`reviewer` 填名字，答案有錯就直接改，並補到 200 題（開叫、答叫、再叫）。機器人答錯的題目不用刪：它們是之後改規則的目標（例如 `tku-open-004` 第三家輕開、`tku-open-016` Rule of 15，等 `e5-t24`）。
 
 ## 檔案
 

@@ -29,3 +29,33 @@ describe('a person’s call', () => {
     expect(boardView(board, 'E').auction[0]).toMatchObject({ alert: '強無王', inferred: 'tku' })
   })
 })
+
+describe('the bidding box hints', () => {
+  // North dealt and opened 1NT, East passed: South to call
+  const board = {
+    ...newBoard(1, deal()),
+    dealer: 'N' as const,
+    auction: [
+      { seat: 'N' as const, call: '1N' },
+      { seat: 'E' as const, call: 'P' },
+    ],
+  }
+
+  it('come on the viewer’s turn, in the robot partner’s system before an opponent’s', () => {
+    const view = boardView(board, 'S', { robots: { N: 'gib', E: 'tku' } })
+    expect(view.callMeanings).toMatchObject({ robot: 'N', kind: 'gib' })
+    expect(view.callMeanings!.meanings['2C']).toMatchObject({ artificial: true })
+    // Only the calls the viewer may make
+    for (const call of Object.keys(view.callMeanings!.meanings)) expect(view.legalCalls).toContain(call)
+    // No robot partner: an opponent's system
+    expect(boardView(board, 'S', { robots: { W: 'tku' } }).callMeanings).toMatchObject({ robot: 'W', kind: 'tku' })
+  })
+
+  it('are only the auction’s: the same whatever the hands, and none without robots or off turn', () => {
+    const other = { ...board, hands: newBoard(1, deal()).hands }
+    expect(boardView(other, 'S', { robots: { N: 'gib' } }).callMeanings).toEqual(boardView(board, 'S', { robots: { N: 'gib' } }).callMeanings)
+    expect(boardView(board, 'S').callMeanings).toBeUndefined()
+    expect(boardView(board, 'W', { robots: { N: 'gib' } }).callMeanings).toBeUndefined()
+    expect(boardView(board, null, { robots: { N: 'gib' } }).callMeanings).toBeUndefined()
+  })
+})

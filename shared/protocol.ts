@@ -6,6 +6,7 @@ import type { BoardResult, BoardState, Phase, Trick } from './game.ts'
 import type { MessageCode, MessageParams } from './messages.ts'
 import type { MatchSeat, TeamMatchView } from './team-match.ts'
 import type { Profile } from './profile.ts'
+import type { Spec } from './robot/system/spec.ts'
 
 /** Messages and views exchanged between the browser and the Worker over HTTP and WebSocket */
 
@@ -185,6 +186,12 @@ export interface BoardView {
   legalCards: Card[]
   /** Calls the viewer may make, if it is their turn to call */
   legalCalls: Call[]
+  /**
+   * On the viewer's turn at a table with a robot: what each legal call would show in the robot's
+   * system, so the bidding box tells how the robot will read it (`robot` is the robot whose system
+   * it is: the partner, else an opponent). From the auction and the system only, never the cards
+   */
+  callMeanings?: { robot: Seat; kind: RobotKind; meanings: Partial<Record<Call, Spec>> }
   claim?: { seat: Seat; tricks: number; accepted: Seat[]; approvers: Seat[] }
   /** The last claim, turned down by `by`; shown until the next card */
   rejectedClaim?: { seat: Seat; tricks: number; by: Seat }

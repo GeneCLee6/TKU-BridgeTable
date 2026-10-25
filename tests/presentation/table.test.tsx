@@ -263,25 +263,44 @@ describe('AuctionBox', () => {
     expect(within(rows[2]).getAllByRole('cell')[0]).toHaveTextContent('?')
   })
 
-  it('opens an alerted call’s explanation in a small window, and closes it', async () => {
+  it('shows an alerted call’s explanation while the mouse is on it', async () => {
     wrap(<AuctionBox auction={[{ seat: 'E', call: '1C', alert: '2+ 張♣，12–21 點' }]} dealer="E" vul="None" names={{ E: 'Robot' }} />)
-    await userEvent.click(screen.getByRole('button', { name: /Alert/ }))
-    const popup = screen.getByRole('dialog', { name: 'Alert' })
-    expect(popup).toHaveTextContent('2+ 張♣，12–21 點')
-    expect(popup).toHaveTextContent('E Robot')
-    await userEvent.click(within(popup).getByRole('button', { name: '關閉' }))
-    expect(screen.queryByRole('dialog')).toBeNull()
+    const call = screen.getByRole('button', { name: /Alert/ })
+    await userEvent.hover(call)
+    const tip = screen.getByRole('tooltip', { name: 'Alert' })
+    expect(tip).toHaveTextContent('2+ 張♣，12–21 點')
+    expect(tip).toHaveTextContent('E Robot')
+    expect(call).toHaveAttribute('aria-describedby', tip.id)
+    await userEvent.unhover(call)
+    expect(screen.queryByRole('tooltip')).toBeNull()
+  })
+
+  it('shows a call’s meaning on keyboard focus, and toggles it with a tap', async () => {
+    wrap(<AuctionBox auction={[{ seat: 'E', call: '1C', alert: '2+' }, { seat: 'S', call: 'P' }]} dealer="E" vul="None" />)
+    await userEvent.tab()
+    expect(screen.getByRole('tooltip')).toHaveTextContent('2+')
+    await userEvent.tab()
+    expect(screen.getByRole('tooltip', { name: '叫品意義' })).toHaveTextContent('沒有說明')
+    await userEvent.tab()
+    expect(screen.queryByRole('tooltip')).toBeNull()
+
+    const pass = screen.getByRole('button', { name: 'Pass' })
+    const tap = [{ keys: '[TouchA]', target: pass }]
+    await userEvent.pointer(tap)
+    expect(screen.getByRole('tooltip', { name: '叫品意義' })).toBeInTheDocument()
+    await userEvent.pointer(tap)
+    expect(screen.queryByRole('tooltip')).toBeNull()
   })
 
   it('explains a 2/1 robot’s call from what it shows, in the viewer’s language', async () => {
     const meaning = { len: { S: [5, 13] as const }, hcp: [11, 21] as const, tp: [12, 22] as const }
     wrap(<AuctionBox auction={[{ seat: 'E', call: '1S', alert: 'stored text', robot: true, meaning }]} dealer="E" vul="None" />)
-    await userEvent.click(screen.getByRole('button', { name: /Alert/ }))
+    await userEvent.hover(screen.getByRole('button', { name: /Alert/ }))
     // The rules load on their own; until then the stored words show
-    await waitFor(() => expect(screen.getByRole('dialog', { name: 'Alert' })).toHaveTextContent('5+ 張♠，11–21 大牌點，12–22 總點'))
+    await waitFor(() => expect(screen.getByRole('tooltip', { name: 'Alert' })).toHaveTextContent('5+ 張♠，11–21 大牌點，12–22 總點'))
   })
 
-  it('opens any call, and marks what the engine reads a person’s call as inferred (e5-t22)', async () => {
+  it('shows any call, and marks what the engine reads a person’s call as inferred (e5-t22)', async () => {
     const meaning = { hcp: [15, 17] as const, balanced: true }
     wrap(
       <AuctionBox
@@ -294,14 +313,12 @@ describe('AuctionBox', () => {
         vul="None"
       />,
     )
-    await userEvent.click(screen.getByRole('button', { name: '1NT' }))
-    const popup = await screen.findByRole('dialog', { name: '叫品意義' })
-    expect(popup).toHaveTextContent('依淡江制度推論')
-    await waitFor(() => expect(popup).toHaveTextContent('15–17'))
-    await userEvent.click(screen.getByRole('button', { name: 'Pass' }))
-    expect(screen.getByRole('dialog', { name: '叫品意義' })).toHaveTextContent('沒有說明')
-    await userEvent.click(screen.getByRole('button', { name: /Alert/ }))
-    const alerted = screen.getByRole('dialog', { name: 'Alert' })
+    await userEvent.hover(screen.getByRole('button', { name: '1NT' }))
+    const tip = await screen.findByRole('tooltip', { name: '叫品意義' })
+    expect(tip).toHaveTextContent('依淡江制度推論')
+    await waitFor(() => expect(tip).toHaveTextContent('15–17'))
+    await userEvent.hover(screen.getByRole('button', { name: /Alert/ }))
+    const alerted = screen.getByRole('tooltip', { name: 'Alert' })
     expect(alerted).toHaveTextContent('玩家的說明Stayman')
     expect(alerted).toHaveTextContent('依2/1推論')
   })
