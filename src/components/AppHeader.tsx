@@ -290,7 +290,9 @@ function LanguageMenu() {
 export function AppHeader() {
   const { user, logout } = useAuth()
   const { status, notifications, send } = useClub()
-  const { mode, deck, cardStyle, sound, t, toggleMode, toggleDeck, toggleCardStyle, toggleSound } = usePreferences()
+  const { mode, deck, cardStyle, sound: soundOn, soundStyle, t, toggleMode, toggleDeck, toggleCardStyle, toggleSound } = usePreferences()
+  // A style set to 關閉 on the account page shows as off here too
+  const sound = soundOn && soundStyle !== 'off'
 
   return (
     <Bar>

@@ -355,6 +355,56 @@ describe('a table’s own connection', () => {
   })
 })
 
+describe('access modes at a table in its own object', () => {
+  it('runs requests to join through the object: the host sees them on the table connection', async () => {
+    const [amy, bob, cleo] = [await member('amy'), await member('bob'), await member('cleo')]
+    await send(amy, { type: 'createTable', settings: { access: 'request' } })
+    const tableId = lobby(amy).myTableId!
+    await connectTable(amy, tableId)
+    await send(bob, { type: 'requestJoin', tableId })
+    await tick()
+    expect(tableOf(amy)!.requests).toEqual([{ user: { id: bob, username: 'bob' }, at: time }])
+    expect(lobby(bob).tables[0].requested).toBe(true)
+    await send(amy, { type: 'answerRequest', userId: bob, accept: true })
+    await tick()
+    expect(tableOf(amy)!.requests).toEqual([])
+    expect(store.data.get(`tabledir:${tableId}`)).toMatchObject({ approved: [bob], requests: [] })
+    await send(bob, { type: 'joinTable', tableId })
+    expect(lobby(bob).myTableId).toBe(tableId)
+
+    // The object checks on its own too, with the same codes as the club
+    const host = object(tableId).host
+    expect(await host.join({ id: cleo, username: 'cleo', blocked: [] })).toMatchObject({ error: { code: 'requestFirst' } })
+    await send(amy, { type: 'updateTableSettings', settings: { access: 'closed' } })
+    expect(await host.sit({ id: cleo, username: 'cleo', blocked: [] }, 'N')).toMatchObject({ error: { code: 'tableClosed' } })
+    expect(await host.request({ id: cleo, username: 'cleo', blocked: [] }, false)).toMatchObject({ error: { code: 'tableClosed' } })
+    await send(amy, { type: 'updateTableSettings', settings: { access: 'hidden' } })
+    expect(await host.join({ id: cleo, username: 'cleo', blocked: [] })).toMatchObject({ error: { code: 'tableGone' } })
+  })
+
+  it('reads a directory entry and a table saved before the access modes', async () => {
+    const [amy, bob, cleo] = [await member('amy'), await member('bob'), await member('cleo')]
+    await send(amy, { type: 'createTable', settings: { access: 'hidden' }, invitees: [bob] })
+    const tableId = lobby(amy).myTableId!
+    // As saved by the version before: `visibility: 'invite'`, no request lists
+    const entry = store.data.get(`tabledir:${tableId}`) as Record<string, unknown>
+    const { approved: _a, requests: _r, ...rest } = entry
+    store.data.set(`tabledir:${tableId}`, { ...rest, settings: { visibility: 'invite', allowKibitz: true, boardMinutes: 0 } })
+    const saved = object(tableId).storage.get('table') as Table
+    object(tableId).storage.set('table', { ...saved, settings: { visibility: 'invite', allowKibitz: true, boardMinutes: 0 } })
+    await evict(tableId)
+    await makeClub()
+
+    expect(lobby(cleo).tables).toEqual([])
+    expect(lobby(bob).tables[0]).toMatchObject({ id: tableId, welcome: true, settings: { access: 'hidden' } })
+    await send(cleo, { type: 'joinTable', tableId })
+    expect(last(cleo, 'error')).toMatchObject({ code: 'tableGone' })
+    await send(bob, { type: 'joinTable', tableId })
+    expect(lobby(bob).myTableId).toBe(tableId)
+    expect((object(tableId).storage.get('table') as Table).settings).toEqual({ access: 'hidden', allowKibitz: true, boardMinutes: 0 })
+  })
+})
+
 describe('moving the tables (schema 3 ↔ 4)', () => {
   /** A club as deployed before H1b: tables kept as `table:<id>` in its own storage */
   async function oldClub() {
@@ -568,6 +618,34 @@ describe('a team match in two table objects (§5.8, §5.10)', () => {
     await send(ben, { type: 'leaveTable' })
     expect(object(closed).host.table).toBeNull()
     expect(lobby(ben).myTableId).toBeNull()
+  })
+
+  it('pauses, rules, sits a robot in and takes a substitute across the objects (F5)', async () => {
+    const { amy, ben, id } = await ready(4)
+    const dan = await member('dan')
+    await send(amy, { type: 'startMatch', matchId: id })
+    const { open, closed } = tablesOf(id)
+    await connectTable(amy, open)
+    await connectTable(ben, closed)
+    await send(amy, { type: 'matchPause', matchId: id, paused: true })
+    expect(tableOf(ben)!.match?.paused).toBe(true)
+    await tableSend(ben, closed, { type: 'call', call: 'P' })
+    if (object(closed).host.table!.board!.dealer === 'S') expect(last(ben, 'error')).toMatchObject({ code: 'matchPaused' })
+    // A substitute comes in for Ben: his connection to the room is closed, Dan's room is the closed one
+    await send(amy, { type: 'matchReplace', matchId: id, room: 'closed', seat: 'S', userId: dan })
+    expect(object(closed).host.table!.seats.S).toBe(dan)
+    expect(dismissed).toContainEqual({ tableId: closed, userId: ben, code: TABLE_SOCKET_REFUSED })
+    expect(lobby(dan).myTableId).toBe(closed)
+    expect(await object(open).host.join({ id: dan, username: 'dan', blocked: [] })).toMatchObject({ error: { code: 'matchOtherRoom' } })
+    await send(amy, { type: 'matchPause', matchId: id, paused: false })
+    // The host has a robot sit in for Dan, and rules on board 1 once the closed room is over the limit
+    await send(amy, { type: 'matchSitIn', matchId: id, room: 'closed', seat: 'S' })
+    expect(object(closed).host.table!.substitutes).toEqual({ S: dan })
+    expect(club.matches.get(id, amy)!.seats.find((s) => s.userId === dan)?.substitute).toBe(true)
+    time += 10 * 60_000
+    await send(amy, { type: 'matchRule', matchId: id, seq: 1, ruling: 'avgMinus', team: 'B', reason: 'slow' })
+    expect(object(closed).host.table!.board?.boardNo).toBe(2)
+    expect(club.matches.get(id, amy)!.boards[0].result).toMatchObject({ A: 3, B: 0, ruled: true })
   })
 
   it('closes the room that opened when the other cannot, and the match stays set up', async () => {

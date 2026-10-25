@@ -34,6 +34,16 @@ const within = (n: number, [lo, hi]: Range) => n >= lo && n <= hi
 const stopped = (h: Hand, s: Suit) => h.stop[s] === 'stop' || h.stop[s] === 'double'
 const quantitative = (hcp: Range, slam: 'smallSlam' | 'grandSlam') => ({ name: 'quantitative' as const, hcp, notes: [{ key: 'invite' as const }, { key: slam }] })
 
+/**
+ * Six cards in a major count a point or so more: the mild slam try (transfer, then four of the
+ * major or a splinter) starts a point below the slam try with a 4-4 fit and runs up to the
+ * quantitative range. Texas is for game without slam interest below it, or for a hand that drives
+ * to slam and asks for keycards after the transfer (GIB System Notes: after Texas 4NT is RKCB)
+ */
+export const sixSlamTry = (r: Ranges): Range => [r.slamTry[0] - 1, r.quant[0] - 1]
+const texasGame = (r: Ranges): Range => [r.game[0], r.slamTry[0] - 2]
+const texasSlam = (r: Ranges): Range => plus(r.quant[0])
+
 // ── Responses ─────────────────────────────────────────────────────────────────────────────────
 
 /**
@@ -48,13 +58,19 @@ function responses(r: Ranges, stayman: Call, runout = false): Rule[] {
       shows: { hcp: r.weak, notes: [{ key: 'relayTo', calls: ['2C'] }], artificial: true, forcing: 'oneRound' },
       when: (h) => (h.len.C >= 5 || h.len.D >= 5) && !fiveMajor(h) && !fiveFive(h),
     })
-  // Texas: six or more in a major with game values (4♦/4♥ over both openings)
+  // Texas: six or more in a major with game values and no slam interest, or with enough to drive
+  // to slam (4NT after the transfer is RKCB). A mild slam try transfers at the two (three) level
+  // and bids four of the major or a splinter instead (4♦/4♥ over both openings)
   for (const M of MAJORS)
-    rules.push({
-      call: bid(4, M === 'H' ? 'D' : 'H'),
-      shows: { name: 'texas', len: { [M]: [6, 13] }, hcp: r.game, notes: [{ key: 'transferTo', strain: M }], artificial: true, forcing: 'oneRound' },
-      when: (h) => h.len[M] >= 6 && h.len[M] > h.len[other(M)],
-    })
+    for (const [hcp, extra] of [
+      [texasGame(r), []],
+      [texasSlam(r), [{ key: 'slamInterest' as const }]],
+    ] as const)
+      rules.push({
+        call: bid(4, M === 'H' ? 'D' : 'H'),
+        shows: { name: 'texas', len: { [M]: [6, 13] }, hcp, notes: [{ key: 'transferTo', strain: M }, ...extra], artificial: true, forcing: 'oneRound' },
+        when: (h) => h.len[M] >= 6 && h.len[M] > h.len[other(M)],
+      })
   // 3♦/3♥/3♠ over 1NT: short there, four or more in each other suit, no five-card major
   if (r.up === 0)
     for (const x of ['D', 'H', 'S'] as Suit[])
@@ -207,13 +223,14 @@ function afterTransfer(r: Ranges, M: Suit): Rule[] {
     for (const x of UP.filter((s) => s !== M))
       rules.push({
         call: M === 'H' && x === 'S' ? '3S' : bid(4, x),
-        shows: { name: 'splinter', len: { [M]: [6, 13], [x]: [0, 1] }, hcp: r.slamTry, notes: [{ key: 'shortIn', strain: x }, { key: 'slamInterest' }], forcing: 'game' },
+        shows: { name: 'splinter', len: { [M]: [6, 13], [x]: [0, 1] }, hcp: sixSlamTry(r), notes: [{ key: 'shortIn', strain: x }, { key: 'slamInterest' }], forcing: 'game' },
         when: (h) => h.len[x] <= 1,
       })
   rules.push(
     { call: '5N', shows: { hcp: r.slam, notes: [{ key: 'choiceOf', calls: [bid(6, M), '6N'] }] } },
     { call: '4N', shows: { ...quantitative(r.quant, 'smallSlam'), len: { [M]: [5, 5] } }, when: (h) => h.len[M] === 5 },
-    { call: bid(4, M), shows: { len: { [M]: [6, 13] }, hcp: r.slamTry, notes: [{ key: 'noShortness' }, { key: 'slamInterest' }] } },
+    // Six cards and a mild slam try: game in Texas would have denied slam interest
+    { call: bid(4, M), shows: { len: { [M]: [6, 13] }, hcp: sixSlamTry(r), notes: [{ key: 'noShortness' }, { key: 'slamInterest' }] } },
     // A second suit, game forcing (3♣/3♦ over 1NT, 4♣/4♦ over 2NT)
     ...(['C', 'D'] as Suit[]).map(
       (x): Rule => ({ call: bid(3 + r.up, x), shows: { len: { [M]: [5, 13], [x]: [4, 13] }, hcp: plus(r.game[0]), forcing: 'game' } }),
@@ -228,6 +245,21 @@ function afterTransfer(r: Ranges, M: Suit): Rule[] {
   // Game with six trumps and no slam interest went through Texas; a weak hand passes
   rules.push({ call: 'P', shows: { hcp: r.weak } })
   return rules
+}
+
+/**
+ * Opener answers the mild slam try (transfer, then four of the major with six): keycards with a
+ * maximum and three trumps or a trump honour, otherwise pass (一般: GIB documents only the try)
+ */
+function afterSlamTry(r: Ranges, M: Suit): Rule[] {
+  return [
+    {
+      call: '4N',
+      shows: { name: 'rkcb', trump: M, notes: [{ key: 'slamInterest' }], forcing: 'oneRound', artificial: true },
+      when: (h) => h.hcp >= r.top - 1 && h.len[M] >= 3 && (h.hcp >= r.top || /[AKQ]/.test(h.ranks[M])),
+    },
+    { call: 'P', shows: { notes: [{ key: 'signoff' }] } },
+  ]
 }
 
 /** Opener answers a choice of games, or an invitation, with five trumps opposite */
@@ -272,9 +304,34 @@ function afterMinorTransfer(m: Suit): Rule[] {
   return [
     { call: 'P', shows: { hcp: [0, 7], notes: [{ key: 'signoff' }] }, when: (h) => h.hcp <= 7 },
     ...UP.filter((s) => s !== m && s !== 'C').map(
-      (x): Rule => ({ call: bid(3, x), shows: { len: { [m]: [6, 13], [x]: [0, 1] }, notes: [{ key: 'shortIn', strain: x }], forcing: 'game' } }),
+      (x): Rule => ({
+        call: bid(3, x),
+        shows: { len: { [m]: [6, 13], [x]: [0, 1] }, hcp: plus(10), notes: [{ key: 'shortIn', strain: x }], forcing: 'game' },
+      }),
     ),
     { call: '3N', shows: { len: { [m]: [6, 13] }, hcp: [14, 15], notes: [{ key: 'slamTry' }] } },
+  ]
+}
+
+/**
+ * Opener after the shortness (一般): 3NT with that suit stopped, otherwise game in the minor; after
+ * the mild slam try 3NT, keycards with a maximum and a fitting honour, otherwise pass
+ */
+function afterMinorShortness(m: Suit, x: Suit): Rule[] {
+  return [
+    { call: '3N', shows: { stop: { [x]: 'stop' }, notes: [{ key: 'toPlay' }] }, when: (h) => h.stop[x] === 'stop' || h.stop[x] === 'double' },
+    { call: bid(5, m), shows: { notes: [{ key: 'toPlay' }] } },
+  ]
+}
+
+function afterMinorSlamTry(m: Suit): Rule[] {
+  return [
+    {
+      call: '4N',
+      shows: { name: 'rkcb', trump: m, notes: [{ key: 'slamInterest' }], forcing: 'oneRound', artificial: true },
+      when: (h) => h.hcp >= 16 && /[AKQ]/.test(h.ranks[m]),
+    },
+    { call: 'P', shows: { notes: [{ key: 'toPlay' }] } },
   ]
 }
 
@@ -347,7 +404,9 @@ export function notrumpBooks(r: Ranges, open: string): Book[] {
       { after: `${open} (P) ${transfer} (P)`, rules: transferAnswers(r, M), more: true },
       { after: `${open} (P) ${transfer} (P) ${done} (P)`, rules: afterTransfer(r, M), more: true },
       { after: `${open} (P) ${transfer} (P) ${done} (P) 3N (P)`, rules: choiceAnswers(r, M, false), more: true },
-      { after: `${open} (P) 4${M === 'H' ? 'D' : 'H'} (P)`, rules: completes(bid(4, M)), more: true },
+      { after: `${open} (P) ${transfer} (P) ${done} (P) 4${M} (P)`, rules: afterSlamTry(r, M), more: true },
+      // Texas: a notrump opener has two or more in the major, so the fit is known for keycards
+      { after: `${open} (P) 4${M === 'H' ? 'D' : 'H'} (P)`, rules: [{ call: bid(4, M), shows: { len: { [M]: [2, 5] }, notes: [{ key: 'completes' }] } }], more: true },
     )
     if (r.invite)
       books.push(
@@ -376,6 +435,13 @@ books.push(
   { after: '1N (P) 2N (P) 3C (P)', rules: afterMinorTransfer('C'), more: true },
   { after: '1N (P) 3C (P) 3D (P)', rules: afterMinorTransfer('D'), more: true },
 )
+for (const [start, m] of [
+  ['1N (P) 2N (P) 3C (P)', 'C'],
+  ['1N (P) 3C (P) 3D (P)', 'D'],
+] as const) {
+  for (const x of UP.filter((s) => s !== m && s !== 'C')) books.push({ after: `${start} 3${x} (P)`, rules: afterMinorShortness(m, x), more: true })
+  books.push({ after: `${start} 3N (P)`, rules: afterMinorSlamTry(m), more: true })
+}
 // Interference: over a 2♣ overcall (one-suited) double is Stayman and the rest stays on; over a
 // double the system stays on and redouble rescues into a minor; other two-level overcalls: Lebensohl
 books.push(

@@ -1,6 +1,6 @@
-import type { Seat } from '../shared/cards.ts'
+import type { Card, Seat } from '../shared/cards.ts'
 import { decodeDealSet, encodeDealSet, type DealSet } from '../shared/deal-set.ts'
-import { MATCH_SEATS, type MatchStatus, type Room, type SeatStatus, type TeamMatchSettings } from '../shared/team-match.ts'
+import { MATCH_SEATS, teamAt, type MatchStatus, type Room, type SeatStatus, type TeamMatchSettings } from '../shared/team-match.ts'
 import type { Ruling, RulingKind, Team, TeamBoardScores } from '../shared/team-scoring.ts'
 import type { Sql, SqlValue } from './store.ts'
 
@@ -27,6 +27,8 @@ export interface RoomResult {
   boardId: string
   scoreNS: number
   playedAt: number
+  /** The opening lead, for the result page (`e8-t12`); absent when nobody led (passed out) */
+  lead?: Card
 }
 
 export interface MatchRuling extends Ruling {
@@ -58,6 +60,8 @@ export interface TeamMatch {
   deals?: DealSet
   /** The two tables, once started */
   tables?: Record<Room, string>
+  /** The host paused it (`e8-t16`): since when; absent while it runs */
+  pausedAt?: number
   /** Always all eight, in `MATCH_SEATS` order */
   seats: TeamMatchSeat[]
   /** Only boards at least one room has finished or the host ruled on, by `seq` */
@@ -77,7 +81,8 @@ const SCHEMA = [
     captain_b TEXT,
     deals TEXT,
     open_table TEXT,
-    closed_table TEXT
+    closed_table TEXT,
+    paused_at INTEGER
   )`,
   'CREATE INDEX IF NOT EXISTS matches_by_status ON matches (status, created_at)',
   `CREATE TABLE IF NOT EXISTS match_seats (
@@ -101,6 +106,8 @@ const SCHEMA = [
     closed_board_id TEXT,
     closed_score_ns INTEGER,
     closed_at INTEGER,
+    open_lead TEXT,
+    closed_lead TEXT,
     ruling TEXT,
     ruling_team TEXT,
     ruling_reason TEXT,
@@ -123,6 +130,7 @@ interface MatchRow extends Record<string, SqlValue> {
   deals: string | null
   open_table: string | null
   closed_table: string | null
+  paused_at: number | null
 }
 
 interface SeatRow extends Record<string, SqlValue> {
@@ -143,6 +151,8 @@ interface BoardRow extends Record<string, SqlValue> {
   closed_board_id: string | null
   closed_score_ns: number | null
   closed_at: number | null
+  open_lead: string | null
+  closed_lead: string | null
   ruling: string | null
   ruling_team: string | null
   ruling_reason: string | null
@@ -158,9 +168,17 @@ const OPEN = "('setup', 'playing')"
 
 const seatOrder = (room: string, seat: string) => MATCH_SEATS.findIndex((s) => s.room === room && s.seat === seat)
 
-function roomResult(boardId: string | null, scoreNS: number | null, at: number | null): RoomResult | undefined {
-  return boardId === null || scoreNS === null || at === null ? undefined : { boardId, scoreNS, playedAt: at }
+function roomResult(boardId: string | null, scoreNS: number | null, at: number | null, lead: string | null): RoomResult | undefined {
+  if (boardId === null || scoreNS === null || at === null) return undefined
+  return { boardId, scoreNS, playedAt: at, ...(lead !== null && { lead: lead as Card }) }
 }
+
+/** Columns added after the tables were first made (F5): tables made before get them on load */
+const ADDED_COLUMNS: { table: string; column: string; type: string }[] = [
+  { table: 'matches', column: 'paused_at', type: 'INTEGER' },
+  { table: 'match_boards', column: 'open_lead', type: 'TEXT' },
+  { table: 'match_boards', column: 'closed_lead', type: 'TEXT' },
+]
 
 /** A board's two scores for `scoreTeamMatch` */
 export const boardScores = (board: TeamMatchBoard | undefined): TeamBoardScores => ({
@@ -180,6 +198,10 @@ export class TeamMatchStore {
   createTables() {
     this.sql.transaction(() => {
       for (const statement of SCHEMA) this.sql.exec(statement)
+      for (const { table, column, type } of ADDED_COLUMNS) {
+        const columns = this.sql.exec<{ name: string }>(`PRAGMA table_info(${table})`).map((c) => c.name)
+        if (!columns.includes(column)) this.sql.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`)
+      }
     })
   }
 
@@ -250,8 +272,8 @@ export class TeamMatchStore {
     const boards = this.sql
       .exec<BoardRow>('SELECT * FROM match_boards WHERE match_id = ? ORDER BY seq', id)
       .map((b): TeamMatchBoard => {
-        const open = roomResult(b.open_board_id, b.open_score_ns, b.open_at)
-        const closed = roomResult(b.closed_board_id, b.closed_score_ns, b.closed_at)
+        const open = roomResult(b.open_board_id, b.open_score_ns, b.open_at, b.open_lead)
+        const closed = roomResult(b.closed_board_id, b.closed_score_ns, b.closed_at, b.closed_lead)
         return {
           seq: b.seq,
           ...(open && { open }),
@@ -278,6 +300,7 @@ export class TeamMatchStore {
       captains: { A: row.captain_a, ...optional('B', row.captain_b) },
       ...(deals && { deals }),
       ...(row.open_table !== null && row.closed_table !== null && { tables: { open: row.open_table, closed: row.closed_table } }),
+      ...optional('pausedAt', row.paused_at),
       seats,
       boards,
     }
@@ -332,6 +355,16 @@ export class TeamMatchStore {
     else this.sql.exec('UPDATE matches SET status = ?, ended_at = ? WHERE match_id = ?', status, at, id)
   }
 
+  /** Pauses (`at`) or resumes (null) a match being played (`e8-t16`) */
+  setPaused(id: string, at: number | null) {
+    this.sql.exec('UPDATE matches SET paused_at = ? WHERE match_id = ?', at, id)
+  }
+
+  /** The host changes (`e8-t16`: the host's account was deleted while the match is played) */
+  setHost(id: string, userId: string) {
+    this.sql.exec('UPDATE matches SET host_id = ?, captain_a = ? WHERE match_id = ?', userId, userId, id)
+  }
+
   setSettings(id: string, settings: TeamMatchSettings) {
     this.sql.exec('UPDATE matches SET settings = ? WHERE match_id = ?', JSON.stringify(settings), id)
   }
@@ -380,10 +413,12 @@ export class TeamMatchStore {
       )[0]
       if (taken.board_id !== null) throw new Error(`match ${id} board ${seq} already has a result in the ${room} room`)
       this.sql.exec(
-        `UPDATE match_boards SET ${room}_board_id = ?, ${room}_score_ns = ?, ${room}_at = ? WHERE match_id = ? AND seq = ?`,
+        `UPDATE match_boards SET ${room}_board_id = ?, ${room}_score_ns = ?, ${room}_at = ?, ${room}_lead = ?
+         WHERE match_id = ? AND seq = ?`,
         result.boardId,
         result.scoreNS,
         result.playedAt,
+        result.lead ?? null,
         id,
         seq,
       )
@@ -431,6 +466,16 @@ export class TeamMatchStore {
           continue
         }
         if (match.captains.B === userId) this.setCaptainB(id, null)
+        // A match being played goes on under a new host: team A's first member, else team B's
+        // captain, else anyone still seated; with nobody left the robots finish it hostless
+        if (match.status === 'playing' && match.hostId === userId) {
+          const people = match.seats.filter((s) => s.userId !== undefined && s.userId !== userId && !s.robot && s.status === 'seated')
+          const next =
+            people.find((s) => teamAt(s.room, s.seat) === 'A')?.userId ??
+            (match.captains.B !== userId ? match.captains.B : undefined) ??
+            people[0]?.userId
+          if (next !== undefined) this.setHost(id, next)
+        }
         for (const seat of match.seats.filter((s) => s.userId === userId))
           this.updateSeat(
             id,

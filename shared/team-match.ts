@@ -1,4 +1,5 @@
-import type { Seat } from './cards.ts'
+import type { Contract } from './auction.ts'
+import type { Card, Seat } from './cards.ts'
 import { isRobotKind, type PublicUser, type RobotKind } from './protocol.ts'
 import { MATCH_SCORINGS, type MatchScoring, type Ruling, type Team, type TeamBoardResult } from './team-scoring.ts'
 
@@ -69,6 +70,8 @@ export const TEAM_MATCH_LIMITS = {
   minutesMax: 30,
   minutesDefault: 10,
   nameMax: 20,
+  /** A ruling's reason (`e8-t15`) */
+  reasonMax: 200,
 } as const
 
 export function defaultTeamMatchSettings(): TeamMatchSettings {
@@ -144,6 +147,8 @@ export interface MatchSeatView extends MatchSeat {
   robot: boolean
   /** Whether the member in the seat is online now; absent for an empty seat or a robot */
   online?: boolean
+  /** While it is played: a robot sits in for the member until they come back (代打, `e8-t14`) */
+  substitute?: boolean
 }
 
 /** Why the host cannot start yet (AC-8.2), shown on the start button (`e8-t06`) */
@@ -159,14 +164,39 @@ export function arrangerOf(match: { hostId: string; settings: TeamMatchSettings;
   return match.captains.B ?? match.hostId
 }
 
+/**
+ * One room's result on a board of the result page (`e8-t12`, AC-8.7): its record (the replay), the
+ * North-South score, and from the history index the contract and the declarer's tricks; the opening
+ * lead as the room reported it (absent for boards played before it was kept)
+ */
+export interface MatchRoomView {
+  boardId: string
+  scoreNS: number
+  /** Null for a passed-out board; absent when the index has no row for it */
+  contract?: Contract | null
+  declarerTricks?: number | null
+  lead?: Card
+}
+
 /** A board both rooms finished (or the host ruled on), as everyone allowed to see the score sees it */
 export interface MatchBoardView {
   /** The board's place in the match, 1-based */
   seq: number
-  open?: { boardId: string; scoreNS: number }
-  closed?: { boardId: string; scoreNS: number }
+  open?: MatchRoomView
+  closed?: MatchRoomView
   ruling?: Ruling & { reason: string }
   result: TeamBoardResult
+}
+
+/**
+ * Where a room is (`e8-t15`), for the host only, who rules on a board over the time limit: the
+ * board on its table (its place in the match), whether it is being played and when its time is up
+ * (absent without a limit)
+ */
+export interface MatchRoomClock {
+  seq: number | null
+  playing: boolean
+  endsAt?: number
 }
 
 export interface TeamMatchView {
@@ -190,4 +220,16 @@ export interface TeamMatchView {
   leader: Team | null
   /** While setting up: whether the host can start, or why not (`matchReady`, worked out each time) */
   ready?: { ready: true } | { ready: false; reason: NotReady }
+  /** The host paused it (`e8-t16`): since when */
+  pausedAt?: number
+  /** While it is played, to the host only: each room's board and clock, for rulings (`e8-t15`) */
+  rooms?: Record<Room, MatchRoomClock>
+}
+
+/** Reads a ruling's reason: trimmed, 1–200 characters, no control characters; null when it is not one */
+export function parseRulingReason(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const reason = value.trim()
+  if (!reason || reason.length > TEAM_MATCH_LIMITS.reasonMax || /[\p{Cc}]/u.test(reason)) return null
+  return reason
 }

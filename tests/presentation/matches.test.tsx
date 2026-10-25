@@ -10,8 +10,9 @@ import { MatchPage } from '../../src/pages/MatchPage.tsx'
 import { PreferencesProvider } from '../../src/state/PreferencesContext.tsx'
 
 /**
- * The team match pages (F3, F4): the list of one's matches, the prep room (e8-t06), starting it and
- * the score (e8-t07, e8-t10, e8-t11)
+ * The team match pages (F3, F4, F5): the list of one's matches, the prep room (e8-t06), starting it and
+ * the score (e8-t07, e8-t10, e8-t11), the result page (e8-t12) and the host's controls while it is
+ * played (e8-t14–e8-t16)
  */
 
 const navigated = vi.hoisted(() => vi.fn())
@@ -29,6 +30,7 @@ const mocks = vi.hoisted(() => ({
     cancelMatch: vi.fn(),
     matchSeat: vi.fn(),
     startMatch: vi.fn(),
+    matchPlay: vi.fn(),
   },
   me: 'amy',
 }))
@@ -260,5 +262,82 @@ describe('MatchesPage with matches being played', () => {
     show('/matches')
     expect(await screen.findByRole('link', { name: /A 隊 對 資管/ })).toHaveAttribute('href', '/matches/m9')
     LOBBY.matches = undefined
+  })
+})
+
+describe('the result page and the host’s controls (F5)', () => {
+  const details = {
+    open: { boardId: 'r1', scoreNS: 420, contract: { level: 4, strain: 'S', doubled: '', declarer: 'S' }, declarerTricks: 10, lead: 'HK' },
+    closed: { boardId: 'r2', scoreNS: -50, contract: { level: 4, strain: 'S', doubled: '', declarer: 'N' }, declarerTricks: 9, lead: 'D2' },
+  } as const
+
+  it('compares the rooms board by board, with the running score, a replay and the host’s rulings', async () => {
+    mocks.me = 'zed'
+    const ruled = { seq: 2, open: { boardId: 'r3', scoreNS: 100 }, ruling: { kind: 'avgPlus', team: 'B', reason: '閉室超時' }, result: { A: 0, B: 3, ruled: true } } as const
+    mocks.api.match.mockResolvedValue({
+      match: playing({ status: 'finished', tables: undefined, endedAt: 2, boards: [{ seq: 1, ...details, result: { A: 10, B: 0, net: 470, ruled: false } }, ruled], totals: { A: 10, B: 3 } }),
+    })
+    show('/matches/m1')
+    const table = await screen.findByRole('table')
+    const rows = within(table).getAllByRole('row')
+    expect(rows[2]).toHaveTextContent('4♠ S')
+    expect(rows[2]).toHaveTextContent('=')
+    expect(rows[2]).toHaveTextContent('4♠ N')
+    expect(rows[2]).toHaveTextContent('-1')
+    expect(rows[2]).toHaveTextContent('10 : 0')
+    expect(within(rows[2]).getByRole('link', { name: '並排重播 1' })).toHaveAttribute('href', '/history/r1/vs/r2')
+    expect(rows[3]).toHaveTextContent('10 : 3')
+    expect(within(table).getByText('裁定 Avg+（B 隊）：閉室超時')).toBeInTheDocument()
+  })
+
+  it('lets the host pause, rule on a room over the time limit, and have a robot sit in', async () => {
+    const now = Date.now()
+    mocks.api.match.mockResolvedValue({
+      match: playing({ rooms: { open: { seq: 3, playing: true, endsAt: now + 4 * 60_000 }, closed: { seq: 2, playing: true, endsAt: now - 1000 } } }),
+    })
+    mocks.api.matchPlay.mockResolvedValue({ match: playing() })
+    show('/matches/m1')
+    expect(await screen.findByRole('heading', { name: '比賽管理' })).toBeInTheDocument()
+    expect(screen.getByText('開室：第 3 副')).toBeInTheDocument()
+    expect(screen.getByText('剩 4 分鐘')).toBeInTheDocument()
+    expect(screen.getByText('已超時')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '中止比賽' })).toBeDisabled()
+    await userEvent.selectOptions(screen.getByLabelText('裁定第 2 副'), 'avgMinus')
+    await userEvent.selectOptions(screen.getByLabelText('給哪一隊'), 'B')
+    await userEvent.type(screen.getByLabelText('理由'), '慢')
+    await userEvent.click(screen.getByRole('button', { name: '送出裁定' }))
+    expect(mocks.api.matchPlay).toHaveBeenCalledWith('m1', { action: 'rule', seq: 2, ruling: 'avgMinus', team: 'B', reason: '慢' })
+    await userEvent.click(screen.getAllByRole('button', { name: '改由機器人代打' })[0])
+    expect(mocks.api.matchPlay).toHaveBeenCalledWith('m1', { action: 'sitin', room: 'open', seat: 'S' })
+    mocks.api.matchPlay.mockResolvedValue({ match: playing({ pausedAt: now }) })
+    await userEvent.click(screen.getByRole('button', { name: '暫停比賽' }))
+    expect(mocks.api.matchPlay).toHaveBeenCalledWith('m1', { action: 'pause', paused: true })
+    expect(await screen.findByRole('button', { name: '繼續比賽' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '中止比賽' })).toBeEnabled()
+  })
+
+  it('lets the host bring in a substitute while paused, and marks a robot sitting in', async () => {
+    const match = playing({ pausedAt: 1 })
+    match.seats = match.seats.map((s) => (s.userId === 'ben' ? { ...s, substitute: true } : s))
+    mocks.api.match.mockResolvedValue({ match })
+    mocks.api.matchPlay.mockResolvedValue({ match })
+    show('/matches/m1')
+    const ben = await screen.findByLabelText('閉室北')
+    expect(within(ben).getByText('機器人代打中')).toBeInTheDocument()
+    await userEvent.click(within(ben).getByRole('button', { name: '替補' }))
+    await userEvent.selectOptions(screen.getByLabelText('選擇替補閉室北的社員'), 'cat')
+    await userEvent.click(within(ben).getAllByRole('button', { name: '替補' })[1])
+    expect(mocks.api.matchPlay).toHaveBeenCalledWith('m1', { action: 'replace', room: 'closed', seat: 'N', userId: 'cat' })
+  })
+
+  it('tells everyone at the table the match is paused', () => {
+    render(
+      <PreferencesProvider>
+        <MemoryRouter>
+          <MatchBanner match={{ id: 'm1', room: 'open', seq: 2, boards: 8, played: 1, over: false, paused: true }} />
+        </MemoryRouter>
+      </PreferencesProvider>,
+    )
+    expect(screen.getByRole('status')).toHaveTextContent('房主暫停了比賽')
   })
 })

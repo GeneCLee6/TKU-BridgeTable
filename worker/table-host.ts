@@ -6,7 +6,7 @@ import { ClubError } from './errors.ts'
 import { crashEntry, type Logger } from './log.ts'
 import { ACTION_BURST, ACTIONS_PER_SECOND, CHAT_BURST, CHATS_PER_SECOND, TokenBuckets } from './rate-limit.ts'
 import { TableService, type TableConfig, type TableConnections } from './table-service.ts'
-import { toWire, type ClubLink, type Named, type Person, type TableEntry, type TableRpc, type Wire } from './tables.ts'
+import { toWire, type ClubLink, type MatchTableUpdate, type Named, type Person, type TableEntry, type TableRpc, type Wire } from './tables.ts'
 import type { Table } from './views.ts'
 
 /** The part of a Durable Object's storage a table uses (`worker/table-object.ts`; a Map in the tests) */
@@ -157,6 +157,12 @@ export class TableHost implements TableRpc {
   configure(userId: string, settings: Partial<TableSettings>, invited?: Named[]) {
     return this.atTable((table) => table.configure(userId, settings, invited))
   }
+  request(person: Person, muted: boolean) {
+    return this.atTable((table) => table.request(person, muted))
+  }
+  answerRequest(hostId: string, userId: string, accept: boolean) {
+    return this.atTable((table) => table.answerRequest(hostId, userId, accept))
+  }
   resume(person: Person) {
     return this.atTable((table) => table.resume(person))
   }
@@ -180,6 +186,9 @@ export class TableHost implements TableRpc {
   }
   matchEnded() {
     return this.ifTable(null, (table) => table.matchEnded())
+  }
+  matchUpdate(update: MatchTableUpdate) {
+    return this.ifTable(null, (table) => table.matchUpdate(update))
   }
   blocked(userId: string, blocked: string[]) {
     return this.ifTable(undefined, (table) => table.blocked(userId, blocked))

@@ -103,5 +103,8 @@ export const CLIENT_ERRORS_PER_SECOND = 1
 /** Direct messages per member (e1-t27): 10 at once, then 20 a minute */
 export const DIRECT_BURST = 10
 export const DIRECTS_PER_SECOND = 20 / 60
+/** Requests to join a table per member: 3 at once, then one every 30 seconds (a declined one also waits TABLE_REQUEST_COOLDOWN_MS) */
+export const REQUEST_BURST = 3
+export const REQUESTS_PER_SECOND = 1 / 30
 /** A friend coming online is announced at most once in this long, so reconnects stay quiet (e1-t24) */
 export const FRIEND_ONLINE_QUIET_MS = 30 * 60_000

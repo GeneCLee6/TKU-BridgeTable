@@ -2,12 +2,16 @@ import type { MessageCode } from '../shared/messages.ts'
 import {
   arrangerOf,
   MATCH_SEATS,
+  parseRulingReason,
   parseTeamMatchSettings,
+  TEAM_MATCH_LIMITS,
   teamAt,
   type MatchSeat,
   type NotReady,
+  type Room,
   type TeamMatchSettings,
 } from '../shared/team-match.ts'
+import { RULINGS, TEAMS, type Ruling, type RulingKind, type Team } from '../shared/team-scoring.ts'
 import type { RoomResult, TeamMatch, TeamMatchBoard, TeamMatchSeat } from './team-matches.ts'
 
 /**
@@ -152,6 +156,97 @@ export function roomFinished(
     boardDone(boards.find((b) => b.seq === n)),
   )
   return { complete: !!board.open && !!board.closed, finished }
+}
+
+// ── Exceptions while playing (e8-t14–e8-t16) ─────────────────────────────────────────────────
+
+/** Only the host, only while the match is played */
+function hostWhilePlaying(match: TeamMatch, userId: string): FlowError | null {
+  if (match.hostId !== userId) return { error: 'matchHostOnly' }
+  if (match.status !== 'playing') return { error: 'matchNotPlaying' }
+  return null
+}
+
+/** Where a room is, as the host's ruling needs it: the board on its table, whether it is being played, and since when */
+export interface RoomClock {
+  seq: number | null
+  playing: boolean
+  startedAt?: number
+}
+
+/**
+ * The host rules on a board (`e8-t15`, AC-8.6): Avg, Avg+ or Avg- for a team, with a reason.
+ * Only a board being played in a room past the time limit (as of the pause, while paused), or one
+ * ruled on already (the host changes the ruling). The ruling stands for the board whatever the
+ * rooms do after (§5.8): a room still playing it puts it away and goes on
+ */
+export function ruleBoard(
+  match: TeamMatch,
+  userId: string,
+  input: { seq: unknown; ruling: unknown; team: unknown; reason: unknown },
+  rooms: Partial<Record<Room, RoomClock>>,
+  now: number,
+): FlowError | { seq: number; ruling: Ruling; reason: string } {
+  const denied = hostWhilePlaying(match, userId)
+  if (denied) return denied
+  const seq = input.seq
+  const reason = parseRulingReason(input.reason)
+  const bad: FlowError = { error: 'badRuling', params: { max: TEAM_MATCH_LIMITS.reasonMax } }
+  if (typeof seq !== 'number' || !Number.isInteger(seq) || seq < 1 || seq > match.settings.boards) return bad
+  if (!RULINGS.includes(input.ruling as RulingKind) || !TEAMS.includes(input.team as Team) || reason === null) return bad
+  const ruled = !!match.boards.find((b) => b.seq === seq)?.ruling
+  const limit = match.settings.boardMinutes * 60_000
+  const clockNow = match.pausedAt ?? now
+  const overTime = Object.values(rooms).some(
+    (r) => !!r && r.seq === seq && r.playing && limit > 0 && r.startedAt !== undefined && clockNow - r.startedAt >= limit,
+  )
+  if (!ruled && !overTime) return { error: 'matchNotOverTime' }
+  return { seq, ruling: { kind: input.ruling as RulingKind, team: input.team as Team }, reason }
+}
+
+/** Whether every board of the match is done once `seq` is ruled on (`e8-t11`) */
+export function finishedWithRuling(match: TeamMatch, seq: number): boolean {
+  return Array.from({ length: match.settings.boards }, (_, i) => i + 1).every(
+    (n) => n === seq || boardDone(match.boards.find((b) => b.seq === n)),
+  )
+}
+
+/** The host pauses or resumes both rooms (`e8-t16`); `changed` is false when it already is that way */
+export function pauseMatch(match: TeamMatch, userId: string, paused: boolean): FlowError | { changed: boolean } {
+  return hostWhilePlaying(match, userId) ?? { changed: paused !== (match.pausedAt !== undefined) }
+}
+
+/** The host stops a match for good (`abandoned`, §5.8): it has to be paused first */
+export function abandonMatch(match: TeamMatch, userId: string): FlowError | { ok: true } {
+  const denied = hostWhilePlaying(match, userId)
+  if (denied) return denied
+  if (match.pausedAt === undefined) return { error: 'matchPauseFirst' }
+  return { ok: true }
+}
+
+/**
+ * A member of the club takes a seat as a substitute (替補, `e8-t16`): the host, or the captain who
+ * arranges that team, while the match is paused. The seat's team is fixed by its room and
+ * direction, so the substitute plays for that team. Not the host's own seat, and not someone
+ * already in the match. Whether the member exists, is free and is not watching is the service's
+ */
+export function replaceSeat(match: TeamMatch, userId: string, at: MatchSeat, newcomer: string, now: number): FlowError | SeatChange {
+  if (match.status !== 'playing') return { error: 'matchNotPlaying' }
+  if (arrangerOf(match, teamOf(at)) !== userId && match.hostId !== userId) return { error: 'matchNotCaptain' }
+  if (match.pausedAt === undefined) return { error: 'matchPauseFirst' }
+  if (seatAt(match, at).userId === match.hostId) return { error: 'matchHostStays' }
+  if (newcomer === userId) return { error: 'notSelf' }
+  if (isMatchPlayer(match, newcomer)) return { error: 'matchAlreadyIn' }
+  return { seats: [{ ...at, status: 'seated', userId: newcomer, robot: false, invitedAt: now, answeredAt: now }] }
+}
+
+/** The host has a robot sit in for the member in a seat (代打, `e8-t14`) until they come back */
+export function sitInFor(match: TeamMatch, userId: string, at: MatchSeat): FlowError | { memberId: string } {
+  const denied = hostWhilePlaying(match, userId)
+  if (denied) return denied
+  const target = seatAt(match, at)
+  if (target.robot || target.userId === undefined) return { error: 'matchNotMember' }
+  return { memberId: target.userId }
 }
 
 // ── Seats (e8-t04, e8-t05) ────────────────────────────────────────────────────────────────────

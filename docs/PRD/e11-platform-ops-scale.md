@@ -66,7 +66,7 @@ M0 跑在 Cloudflare 免費方案：一個 Worker 加一個 SQLite 後端的 Dur
 - [x] `e11-t10` WebSocket 訊息驗證：`shared/protocol.ts` 的型別守衛、訊息大小上限，不合法直接回 `error` · AC-11.7 · S
 - [x] `e11-t11` 速率限制：每連線每秒動作數、聊天洪水、登入失敗次數 · AC-11.7 · S · ← e11-t10
 - [ ] `e11-t12` 每日備份：Durable Object 匯出 JSON Lines 到 R2（保留 30 天）、還原指令、第一次還原演練紀錄 · AC-11.6 · M
-- [ ] `e11-t13` 資訊隔離回歸測試套件：`tests/worker/visibility/` 集中測試每種模式 × 每種角色看得到什麼（一般、挑戰、隊制賽、練習）· AC-11.8 · M · ← e7-t14, e8-t09
+- [x] `e11-t13` 資訊隔離回歸測試套件：`tests/worker/visibility/` 集中測試每種模式 × 每種角色看得到什麼（一般、挑戰、隊制賽、練習）· AC-11.8 · M · ← e7-t14, e8-t09
 - [x] `e11-t14` PR 預覽部署：每個 PR 一個獨立的 Worker（不用 `wrangler versions upload`，它共用正式站的 Durable Object，見 DEPLOY.md §2.1）＋預覽網址留言在 PR、PR 關閉時刪除 · AC-11.9 · S
 - [x] `e11-t15` staging 環境：獨立的 Worker 與 Durable Object、測試資料種子指令 · AC-11.9 · S
 

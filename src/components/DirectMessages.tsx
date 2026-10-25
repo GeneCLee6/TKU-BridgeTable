@@ -10,6 +10,7 @@ import {
   type PublicUser,
 } from '../../shared/protocol.ts'
 import { formatDateTime } from '../lib/format.ts'
+import { openConversation } from '../lib/sound/player.ts'
 import { usePreferences } from '../state/PreferencesContext.tsx'
 
 /**
@@ -231,6 +232,9 @@ function Conversation({ me, directs, live, members, blocked, talkTo, onTalkTo, s
       cancelled = true
     }
   }, [talkTo, load])
+
+  // A message in the conversation one is reading makes no sound
+  useEffect(() => openConversation(talkTo), [talkTo])
 
   // Reading the conversation marks it read, also when a message arrives while it is open
   useEffect(() => {

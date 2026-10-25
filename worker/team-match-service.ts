@@ -2,9 +2,20 @@ import { parseClientMessage } from '../shared/message-guard.ts'
 import type { MessageCode } from '../shared/messages.ts'
 import type { ClientMessage, NotificationKind, PublicUser, ServerMessage } from '../shared/protocol.ts'
 import type { DealSet } from '../shared/deal-set.ts'
-import { arrangerOf, parseTeamMatchSettings, teamAt, type MatchSeat, type Room, type TeamMatchView } from '../shared/team-match.ts'
+import {
+  arrangerOf,
+  parseTeamMatchSettings,
+  ROOMS,
+  teamAt,
+  type MatchRoomClock,
+  type MatchSeat,
+  type Room,
+  type TeamMatchView,
+} from '../shared/team-match.ts'
+import type { EventBoard } from './history-index.ts'
 import { ClubError } from './service.ts'
 import {
+  abandonMatch,
   answerSeat,
   cancelMatch,
   changeSettings,
@@ -14,13 +25,19 @@ import {
   matchMembers,
   matchReady,
   moveSeat,
+  finishedWithRuling,
   newTeamMatch,
   parseHostSeat,
   parseMatchSeat,
+  pauseMatch,
+  replaceSeat,
   robotSeat,
   roomFinished,
+  ruleBoard,
+  sitInFor,
   startMatch,
   type FlowError,
+  type RoomClock,
   type SeatChange,
 } from './team-match-flow.ts'
 import { TeamMatchStore, type RoomResult, type TeamMatch } from './team-matches.ts'
@@ -54,7 +71,31 @@ export interface TeamMatchDeps {
   send: (userId: string, message: ServerMessage) => void
   /** Everyone at the match's two tables (seated or watching), who see its score too */
   watchers: (matchId: string) => string[]
+  /**
+   * The match's two tables as the club's directory has them: where each room is (the host's
+   * rulings, `e8-t15`) and the members a robot sits in for (代打, `e8-t14`)
+   */
+  live: (matchId: string) => { rooms: Partial<Record<Room, RoomClock>>; sittingIn: string[] }
+  /** The match's boards in the history index: contract and tricks for the result page (`e8-t12`) */
+  boardDetails: (matchId: string) => Map<string, EventBoard>
   notify: (userId: string, kind: NotificationKind, params: Record<string, string | number>) => Promise<unknown>
+}
+
+/** What the host (替補 also a captain) does while the match is played (`e8-t14`–`e8-t16`) */
+export type MatchPlayAction = Extract<
+  ClientMessage,
+  { type: 'matchRule' | 'matchPause' | 'matchAbandon' | 'matchReplace' | 'matchSitIn' }
+>
+
+/** What the board's seat was before a substitute came in, and who is in the match now (`e8-t16`) */
+export interface Replaced {
+  matchId: string
+  room: Room
+  seat: MatchSeat['seat']
+  newcomer: string
+  /** The member who sat there, if any (not a robot) */
+  before?: string
+  players: Record<Room, string[]>
 }
 
 /** The seat actions, over the socket or `POST /api/matches/:id/<action>` */
@@ -69,6 +110,14 @@ const STATUS: Partial<Record<MessageCode, number>> = {
   cannotInvite: 403,
   matchGone: 404,
   userGone: 404,
+  matchNoWatching: 403,
+}
+
+/** What views of a match need from the club: who is online, the boards' rows in the index, the tables */
+interface ViewContext {
+  online: Set<string>
+  details?: Map<string, EventBoard>
+  live?: ReturnType<TeamMatchDeps['live']>
 }
 
 export class TeamMatchService {
@@ -99,17 +148,43 @@ export class TeamMatchService {
     return new Set(this.deps.online())
   }
 
+  /** What every member's view of a match needs from the club, worked out once for all of them */
+  private context(match: TeamMatch, online = this.online()): ViewContext {
+    return {
+      online,
+      ...(match.boards.length > 0 && { details: this.deps.boardDetails(match.id) }),
+      ...(match.status === 'playing' && { live: this.deps.live(match.id) }),
+    }
+  }
+
   /**
    * The match as the member may see it, with who is online in each seat and, while it is set up,
-   * whether the host can start (`matchReady`); null if they may not see it
+   * whether the host can start (`matchReady`); while it is played, who a robot sits in for (代打)
+   * and, for the host, where each room is and when its board's time is up (`e8-t15`). Null if they
+   * may not see it
    */
-  private viewOf(match: TeamMatch, userId: string, online = this.online()): TeamMatchView | null {
-    const view = teamMatchView(match, userId, this.deps.userById)
+  private viewOf(match: TeamMatch, userId: string, ctx = this.context(match)): TeamMatchView | null {
+    const view = teamMatchView(match, userId, this.deps.userById, ctx.details)
     if (!view) return null
+    const { online, live } = ctx
+    const limit = match.settings.boardMinutes * 60_000
+    const clock = (room: Room): MatchRoomClock => {
+      const r = live?.rooms[room]
+      return {
+        seq: r?.seq ?? null,
+        playing: !!r?.playing,
+        ...(r?.playing && limit > 0 && r.startedAt !== undefined && { endsAt: r.startedAt + limit }),
+      }
+    }
     return {
       ...view,
-      seats: view.seats.map((s) => (s.userId !== undefined && !s.robot ? { ...s, online: online.has(s.userId) } : s)),
+      seats: view.seats.map((s) =>
+        s.userId !== undefined && !s.robot
+          ? { ...s, online: online.has(s.userId), ...(live?.sittingIn.includes(s.userId) && { substitute: true }) }
+          : s,
+      ),
       ...(match.status === 'setup' && { ready: matchReady(match, (id) => online.has(id)) }),
+      ...(live && match.hostId === userId && { rooms: Object.fromEntries(ROOMS.map((room) => [room, clock(room)])) as Record<Room, MatchRoomClock> }),
     }
   }
 
@@ -131,10 +206,10 @@ export class TeamMatchService {
     const { send } = this.deps
     const match = this.store.get(id)
     if (!match) return
-    const online = this.online()
+    const ctx = this.context(match)
     const watching = match.status === 'setup' || match.status === 'cancelled' ? [] : this.deps.watchers(id)
     for (const userId of new Set([...before, ...this.players(match), ...watching]))
-      if (online.has(userId)) send(userId, { type: 'match', matchId: id, match: this.viewOf(match, userId, online) })
+      if (ctx.online.has(userId)) send(userId, { type: 'match', matchId: id, match: this.viewOf(match, userId, ctx) })
   }
 
   /** A member came online or went away: their open matches being set up change readiness */
@@ -234,6 +309,90 @@ export class TeamMatchService {
     if (match?.status !== 'playing') return
     this.store.setStatus(id, 'finished', this.deps.now())
     for (const userId of matchMembers(match)) await this.deps.notify(userId, 'matchFinished', { matchId: id })
+  }
+
+  // ── While it is played (e8-t14–e8-t16): the club tells the tables ────────────────────────────
+
+  /**
+   * The host rules on a board (`e8-t15`): checked against where the rooms are (`ruleBoard`) and
+   * kept with its reason. Answers the board, the records of it to show to everyone now (the board
+   * is done) and whether that was the match's last board
+   */
+  rule(userId: string, message: Extract<MatchPlayAction, { type: 'matchRule' }>): { seq: number; reveal: string[]; finished: boolean } {
+    const match = this.require(message.matchId, userId)
+    const step = ruleBoard(match, userId, message, this.deps.live(match.id).rooms, this.deps.now())
+    if ('error' in step) this.fail(step)
+    const finished = finishedWithRuling(match, step.seq)
+    this.store.setRuling(match.id, step.seq, { ...step.ruling, reason: step.reason, by: userId, at: this.deps.now() })
+    const board = this.store.get(match.id)!.boards.find((b) => b.seq === step.seq)
+    const reveal = [board?.open?.boardId, board?.closed?.boardId].filter((id): id is string => id !== undefined)
+    return { seq: step.seq, reveal, finished }
+  }
+
+  /** The host pauses or resumes (`e8-t16`); answers whether that changed anything */
+  pause(userId: string, matchId: unknown, paused: boolean): { matchId: string; changed: boolean } {
+    const match = this.require(matchId, userId)
+    const step = pauseMatch(match, userId, paused)
+    if ('error' in step) this.fail(step)
+    if (step.changed) this.store.setPaused(match.id, paused ? this.deps.now() : null)
+    return { matchId: match.id, changed: step.changed }
+  }
+
+  /** The host abandons a paused match (`e8-t16`): it ends here, its scored boards kept; everyone in it is told */
+  async abandon(userId: string, matchId: unknown): Promise<string> {
+    const match = this.require(matchId, userId)
+    const step = abandonMatch(match, userId)
+    if ('error' in step) this.fail(step)
+    this.store.transaction(() => {
+      this.store.setPaused(match.id, null)
+      this.store.setStatus(match.id, 'abandoned', this.deps.now())
+    })
+    for (const other of matchMembers(match)) if (other !== userId) await this.notify(other, 'matchAbandoned', match.id, userId)
+    return match.id
+  }
+
+  /**
+   * A substitute takes a seat (替補, `e8-t16`): the host or the team's captain, while paused; the
+   * newcomer must be a member, not in the match, not playing another, and neither they nor the
+   * one arranging (or the host) blocked the other. The club has already checked they are not
+   * watching the match. They and whoever left the seat are told
+   */
+  async replace(userId: string, message: Extract<MatchPlayAction, { type: 'matchReplace' }>): Promise<Replaced> {
+    const match = this.require(message.matchId, userId)
+    const at = parseMatchSeat({ room: message.room, seat: message.seat })
+    if (!at) throw new ClubError('badSeat')
+    const newcomer = message.userId
+    if (typeof newcomer !== 'string' || (newcomer !== userId && !this.deps.isMember(newcomer))) throw new ClubError('userGone', {}, 404)
+    const step = replaceSeat(match, userId, at, newcomer, this.deps.now())
+    if ('error' in step) this.fail(step)
+    const { blocked } = this.deps
+    if ([userId, match.hostId].some((id) => blocked(newcomer, id) || blocked(id, newcomer)))
+      throw new ClubError('cannotInvite', { name: this.deps.userById(newcomer)?.username ?? '' }, 403)
+    if (this.store.playingIdOf(newcomer))
+      throw new ClubError('matchPlayerBusy', { name: this.deps.userById(newcomer)?.username ?? '' })
+    const target = match.seats.find((s) => s.room === at.room && s.seat === at.seat)!
+    const before = !target.robot ? target.userId : undefined
+    this.store.transaction(() => {
+      for (const seat of step.seats) this.store.updateSeat(match.id, seat)
+      if (before !== undefined && match.captains.B === before) this.store.setCaptainB(match.id, newcomer)
+    })
+    await this.notify(newcomer, 'matchSubIn', match.id, userId)
+    if (before !== undefined && before !== userId) await this.notify(before, 'matchRemoved', match.id, userId)
+    const now = this.store.get(match.id)!
+    const players = Object.fromEntries(
+      ROOMS.map((room) => [room, now.seats.flatMap((s) => (s.room === room && !s.robot && s.userId !== undefined ? [s.userId] : []))]),
+    ) as Record<Room, string[]>
+    return { matchId: match.id, room: at.room, seat: at.seat, newcomer, ...(before !== undefined && { before }), players }
+  }
+
+  /** The host has a robot sit in for a member (代打, `e8-t14`); answers the seat */
+  sitIn(userId: string, message: Extract<MatchPlayAction, { type: 'matchSitIn' }>): { matchId: string; at: MatchSeat } {
+    const match = this.require(message.matchId, userId)
+    const at = parseMatchSeat({ room: message.room, seat: message.seat })
+    if (!at) throw new ClubError('badSeat')
+    const step = sitInFor(match, userId, at)
+    if ('error' in step) this.fail(step)
+    return { matchId: match.id, at }
   }
 
   /** The match a member is playing now, if any (§5.8) */
@@ -337,7 +496,7 @@ export class TeamMatchService {
     const online = this.online()
     return this.store.idsOf(userId).flatMap((id) => {
       const match = this.store.get(id)
-      const view = match && this.viewOf(match, userId, online)
+      const view = match && this.viewOf(match, userId, { online })
       return view ? [view] : []
     })
   }
