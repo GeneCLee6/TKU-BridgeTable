@@ -11,4 +11,8 @@ export default {
     }
     return env.ASSETS.fetch(request)
   },
+  /** The cron trigger in wrangler.jsonc: the daily backup to R2 (worker/backup.ts) */
+  async scheduled(_controller, env, ctx) {
+    ctx.waitUntil(env.CLUB.get(env.CLUB.idFromName('club')).backup())
+  },
 } satisfies ExportedHandler<Env>

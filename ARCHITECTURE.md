@@ -203,6 +203,8 @@ interface BoardState {
 | `book:version` | 橋譜線上內容的版本號，`GET /api/book/content` 與 `/api/book/manifest` 的 ETag；分類改了也會加一 |
 | `bookpart:<key>:<n>` | 大內容的分段（Durable Object 單筆值上限 128 KiB，以 4 萬字一段儲存） |
 
+**備份**（`worker/backup.ts`，淡江橋譜 e10-t08）：cron trigger（每天台灣 03:00）呼叫 `Club.backup()`，把 `book*`、`profile*`、`article*` 開頭的 key 匯出成一份 JSON Lines 存到 R2 bucket `tku-bridge-backups`（binding `BACKUPS`）的 `daily/<台灣日期>.jsonl`，保留 30 天；`GET/POST /api/admin/backups`、`POST /api/admin/backups/restore`（預設預演，真的還原要 `confirm`）。還原後 `Club` 換一個新的 `BookService`，記憶體裡的快取不會留下。步驟見 DEPLOY.md §4.3。
+
 每個動作處理完立即寫回，物件隨時被回收都不會遺失牌局。紀錄列表一次只讀到那一頁為止（每頁 10／20／50／100 筆摘要）。
 
 **容量**：免費方案每個帳號 5 GB；一副牌的紀錄連同兩筆索引約 4 KB，大約可存一百萬副以上。

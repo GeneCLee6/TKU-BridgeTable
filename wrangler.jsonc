@@ -13,6 +13,11 @@
   },
   // The free plan only offers SQLite-backed Durable Objects
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Club"] }],
+  // Daily backups (worker/backup.ts). Create the bucket once before the first deploy with it:
+  //   npx wrangler r2 bucket create tku-bridge-backups      (DEPLOY.md §4.3)
+  "r2_buckets": [{ "binding": "BACKUPS", "bucket_name": "tku-bridge-backups" }],
+  // 19:00 UTC is 03:00 in Taiwan
+  "triggers": { "crons": ["0 19 * * *"] },
   "vars": {
     // Account cap for the club; INVITE_CODE is a secret (wrangler secret put INVITE_CODE)
     "MAX_USERS": "10"
