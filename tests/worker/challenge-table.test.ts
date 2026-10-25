@@ -349,10 +349,9 @@ describe('playing it through (e7-t08)', () => {
 describe('progress and coming back (e7-t12)', () => {
   it('leaving pauses the table; coming back goes on with the same board, then the next', async () => {
     const { amy, id } = await challenge()
-    // Board 2 must still be in the auction after one pass, so East (its dealer, always a robot:
-    // amy sits South or, after declaring from North on board 1, North) holds the top 13 cards and opens
+    // Board 2 must still be in the auction after one pass, so North holds the top 13 cards and opens
     const byRank = fullDeck().sort((a, b) => rankValue(rankOf(b)) - rankValue(rankOf(a)))
-    const strong: Hands = { E: byRank.slice(0, 13), N: byRank.slice(13, 26), S: byRank.slice(26, 39), W: byRank.slice(39) }
+    const strong: Hands = { N: byRank.slice(0, 13), E: byRank.slice(13, 26), S: byRank.slice(26, 39), W: byRank.slice(39) }
     const set: DealSet = { boards: [1, 2, 3, 4].map((boardNo) => ({ boardNo, hands: boardNo === 2 ? strong : deal() })) }
     store.sql.exec('UPDATE challenges SET deals = ? WHERE challenge_id = ?', encodeDealSet(set), id)
     await play(amy, id)
