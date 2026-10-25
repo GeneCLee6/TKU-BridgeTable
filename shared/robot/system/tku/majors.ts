@@ -59,6 +59,8 @@ function responses(m: Suit): Book {
   const splinterHand = (h: Hand) => four(h) && h.hcp >= 12 && h.hcp <= 13 && !!shortSuit(h, m)
   const P = { hcp: [0, 5] } as const satisfies Spec
   const rules: Rule[] = [
+    // 4♥/4♠ to play: five trumps, a singleton or void and a weak hand (束叫，10點以下)
+    rule(bid(4, m), { name: 'preemptiveRaise', len: length(m, 5), hcp: [3, 7] }, (h) => h.len[m] >= 5 && h.hcp <= 7 && h.hcp >= 3 && h.shape[3] <= 1),
     rule(voidSplinter(m), { name: 'splinter', len: length(m, 4), hcp: [12, 13], notes: [{ key: 'void' }] }, (h) => splinterHand(h) && h.len[shortSuit(h, m)!] === 0),
     ...ORDER.filter((x) => x !== m).map((x) =>
       rule(splinter(m, x), { name: 'splinter', len: length(m, 4), hcp: [12, 13], notes: [{ key: 'shortIn', strain: x }] }, (h) => splinterHand(h) && shortSuit(h, m) === x),
@@ -73,10 +75,12 @@ function responses(m: Suit): Book {
     rule('P', P, (h) => h.hcp < 6),
   ]
   if (!spades) rules.push(rule('1S', { len: length('S', 4), hcp: plus(6), forcing: 'oneRound' }, (h) => h.len.S >= 4 && (h.len.H < 3 || h.hcp < 8)))
+  // The old handbook's 3NT (13–15 balanced) is a splinter in the club's Bergen (以特約為準): such hands bid 2/1.
+  // 2/1 is a game force (現行制度, 淡江自然制總覽): 12 points, four cards in a minor, five hearts over 1♠
   const gameForce = (h: Hand) => h.hcp >= 12 && h.len[m] < 3
   if (spades) rules.push(rule('2H', { len: length('H', 5), hcp: plus(12), forcing: 'game' }, (h) => gameForce(h) && h.len.H >= 5))
   rules.push(
-    rule('2D', { len: length('D', spades ? 4 : 5), hcp: plus(12), forcing: 'game' }, (h) => gameForce(h) && h.len.D >= (spades ? 4 : 5) && h.len.D > h.len.C),
+    rule('2D', { len: length('D', 4), hcp: plus(12), forcing: 'game' }, (h) => gameForce(h) && h.len.D >= 4 && h.len.D > h.len.C),
     rule('2C', { len: length('C', 4), hcp: plus(12), forcing: 'game' }, gameForce),
     rule('1N', { hcp: [6, 12], forcing: 'oneRound' }),
   )

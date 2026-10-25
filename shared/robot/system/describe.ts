@@ -44,6 +44,7 @@ const NAMES: Record<Convention, Words> = {
   preempt: { zh: '阻擊', 'zh-Hans': '阻击', en: 'Preempt', vi: 'Chặn', ja: 'プリエンプト', ko: '선제' },
   overcall: { zh: '爭叫', 'zh-Hans': '争叫', en: 'Overcall', vi: 'Tranh kêu', ja: 'オーバーコール', ko: '오버콜' },
   weakJumpOvercall: { zh: '弱跳爭叫', 'zh-Hans': '弱跳争叫', en: 'Weak jump overcall', vi: 'Tranh kêu nhảy yếu', ja: 'ウィーク・ジャンプ・オーバーコール', ko: '위크 점프 오버콜' },
+  weakJumpShift: { zh: '弱跳叫新花', 'zh-Hans': '弱跳叫新花', en: 'Weak jump shift', vi: 'Nhảy hoa mới yếu', ja: 'ウィーク・ジャンプ・シフト', ko: '위크 점프 시프트' },
   takeout: { zh: '技術性賭倍', 'zh-Hans': '技术性加倍', en: 'Takeout double', vi: 'Phạt kỹ thuật', ja: 'テイクアウト・ダブル', ko: '테이크아웃 더블' },
   negative: { zh: '負性賭倍', 'zh-Hans': '否定性加倍', en: 'Negative double', vi: 'Phạt phủ định', ja: 'ネガティブ・ダブル', ko: '네거티브 더블' },
   responsive: { zh: '回答性賭倍', 'zh-Hans': '应答性加倍', en: 'Responsive double', vi: 'Phạt đáp', ja: 'レスポンシブ・ダブル', ko: '리스판시브 더블' },
