@@ -50,6 +50,7 @@ export function filterChips(query: HistoryQuery, t: Strings, members: PublicUser
     const known = HISTORY_MODES.find((m) => m === query.mode)
     add('mode', t.filterMode, known ? t.modeNames[known] : query.mode, { mode: undefined })
   }
+  if (query.tag) add('tag', t.filterTag, query.tag, { tag: undefined })
   return chips
 }
 

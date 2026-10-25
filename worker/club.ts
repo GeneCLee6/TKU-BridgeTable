@@ -246,6 +246,19 @@ export class Club extends DurableObject<Env> implements Connections {
     // A board's traveller (e4-t32): null when it has none the member may see
     const traveller = url.pathname.match(/^\/api\/history\/([\w-]+)\/traveller$/)
     if (request.method === 'GET' && traveller) return json({ traveller: await this.service.traveller(traveller[1], user.id) })
+    // Favorites (AC-4.4): the list filters as history does, plus `tag`; one board's note and tags
+    if (route === 'GET /api/favorites') return json(await this.service.favorites(user.id, parseHistoryQuery(url.searchParams)))
+    if (route === 'GET /api/favorites/ids') return json({ ids: this.service.favoriteIds(user.id) })
+    const favorite = url.pathname.match(/^\/api\/favorites\/([\w-]+)$/)
+    if (favorite && request.method === 'GET') return json(await this.service.favorite(user.id, favorite[1]))
+    if (favorite && request.method === 'PUT') {
+      const b = await body()
+      return json({ favorite: await this.service.saveFavorite(user.id, favorite[1], { note: b.note, tags: b.tags }) })
+    }
+    if (favorite && request.method === 'DELETE') {
+      this.service.removeFavorite(user.id, favorite[1])
+      return json({ ok: true })
+    }
     if (route === 'GET /api/challenges') return json({ challenges: this.service.challengeList(user.id) })
     // The challenge pages create, answer and cancel over HTTP to hear back at once (e7-t16, e7-t17)
     if (route === 'POST /api/challenges') {

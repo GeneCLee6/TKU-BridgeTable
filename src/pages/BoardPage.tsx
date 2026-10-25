@@ -10,6 +10,7 @@ import type { Traveller } from '../../shared/traveller.ts'
 import { AuctionBox } from '../components/AuctionBox.tsx'
 import { ChallengeDialog } from '../components/ChallengeDialog.tsx'
 import { DoubleDummyPanel } from '../components/DoubleDummyPanel.tsx'
+import { FavoriteButton } from '../components/FavoriteButton.tsx'
 import { RecordDiagram } from '../components/RecordDiagram.tsx'
 import { ReplayControls } from '../components/ReplayControls.tsx'
 import { ContractLabel, ContractResult, SuitSymbol } from '../components/Suit.tsx'
@@ -226,6 +227,7 @@ export function BoardRecordView({
           </Meta>
           <AuctionBox auction={board.auction} dealer={board.dealer} vul={board.vul} />
           <Links>
+            <FavoriteButton boardId={record.id} />
             <Button as="a" href={handviewerUrl(record)} target="_blank" rel="noopener" $small>
               <ExternalLink size={16} aria-hidden />
               {t.openHandviewer}

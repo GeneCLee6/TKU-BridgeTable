@@ -7,6 +7,9 @@ import type {
   BoardRecord,
   ClubSettings,
   DirectPage,
+  Favorite,
+  FavoritesPage,
+  FavoriteTag,
   HistoryPage,
   Me,
   Permission,
@@ -81,6 +84,16 @@ export const api = {
   record: (id: string) => request<{ record: BoardRecord }>(`/api/history/${encodeURIComponent(id)}`),
   /** Everyone's result on the same board of its challenge, if the member may see it (e4-t32) */
   traveller: (id: string) => request<{ traveller: Traveller | null }>(`/api/history/${encodeURIComponent(id)}/traveller`),
+  /** 「我的收藏」: one page of the member's favorites, filtered as history is plus `tag` (AC-4.4) */
+  favorites: (query: Partial<HistoryQuery>) => request<FavoritesPage>(`/api/favorites?${historyQueryString(query)}`),
+  /** Every board the member keeps, for the star buttons */
+  favoriteIds: () => request<{ ids: string[] }>('/api/favorites/ids'),
+  /** The member's favorite of one board (null if not kept) and their tags */
+  favorite: (id: string) => request<{ favorite: Favorite | null; tags: FavoriteTag[] }>(`/api/favorites/${encodeURIComponent(id)}`),
+  /** Keeps a board or changes its note and tags; what is left out stays as it was */
+  saveFavorite: (id: string, change: { note?: string; tags?: string[] } = {}) =>
+    request<{ favorite: Favorite }>(`/api/favorites/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(change) }),
+  removeFavorite: (id: string) => request<{ ok: true }>(`/api/favorites/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   /** The challenges the member is in, newest first (§5.5) */
   challenges: () => request<{ challenges: ChallengeView[] }>('/api/challenges'),
   /** One challenge as the member may see it, with the standings and travellers they are allowed */

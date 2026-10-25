@@ -38,6 +38,7 @@ TKU-BridgeTable/
 │  ├─ team-match.ts        隊制賽的狀態、兩室八個座位與隊伍對應、設定與預設值、畫面型別（§5.8）
 │  ├─ team-scoring.ts      隊制賽的計分：每副兩室分差 → IMP 或 BAM、Avg／Avg+／Avg- 裁定、總分（§5.8）
 │  ├─ history-query.ts     紀錄搜尋的條件型別、解析與網址字串
+│  ├─ favorites.ts         收藏的筆記與標籤規則（§5.3）
 │  ├─ lin.ts               BBO LIN 匯出與 Handviewer 連結
 │  ├─ messages.ts          錯誤代碼與六種語言的訊息
 │  ├─ protocol.ts          HTTP／WebSocket 的訊息與畫面型別
@@ -54,6 +55,7 @@ TKU-BridgeTable/
 │  ├─ importer.ts          淡江橋譜的 AI 匯入：Claude 的提示、回覆 schema、串流
 │  ├─ views.ts             每位觀看者可見的牌桌畫面（可見性規則）
 │  ├─ history-index.ts     紀錄的 SQL 索引：建表、寫入、搜尋（§5.3）
+│  ├─ favorites.ts         收藏的 SQL 讀寫（§5.3）
 │  ├─ notifications.ts     通知中心（§5.4）
 │  ├─ relations.ts         好友與封鎖名單（§5）
 │  ├─ direct-messages.ts   私訊的 SQL 表與 DirectMessageStore（§5.7）
@@ -71,7 +73,7 @@ TKU-BridgeTable/
 │  └─ store.ts             儲存介面與測試用 MemoryStore
 ├─ src/                    React app
 │  ├─ components/          牌、手牌、叫牌盒、叫牌過程、牌號、名牌、墩、面板、頁首、聊天
-│  ├─ pages/               Login、Lobby、Table、History、Board、Challenges、Challenge、Account、Admin
+│  ├─ pages/               Login、Lobby、Table、History、Favorites、Board、Challenges、Challenge、Account、Admin
 │  ├─ state/               AuthContext、ClubContext（WebSocket）、PreferencesContext
 │  ├─ lib/                 api（fetch）、cards（尺寸、名稱）、format、useMediaQuery、robotRules（2/1 機器人的規則，
 │                          需要時才載入，`useRobotRules`）
@@ -141,7 +143,7 @@ interface BoardState {
 
 單副的 traveller（C7，`GET /api/history/:id/traveller`，`challengeTraveller`）：就是 `challengeView` 給這個人的那一副 traveller，不多給——打完全部副數的參與者、或挑戰結束後的參與者才拿得到，其他人（還沒打完的、非參與者）一律 `null`；伺服器再從那幾副的紀錄補上莊家是誰與首攻，以及排名矩陣裡那一副的分數。並排重播（`/history/:id/vs/:other`）兩邊都走 `/api/history/:id`，所以照樣由 `recordVisible`／`challengeBoardVisible` 把關。
 
-**打完的牌局什麼時候公開**（AC-4.9，`recordVisible`）：紀錄可以帶 `revealAt`（挑戰、隊制賽還在進行時）。在那之前，只有打那一副的四位看得到；其他人在紀錄列表、搜尋、詳細頁、牌桌側欄的 `recent` 都看不到（之後的收藏、精選也要套用）。搜尋在 SQL 裡套同一條規則（`reveal_at IS NULL OR reveal_at <= 現在 OR 我打過`），而且不管搜尋什麼條件都會套用，前端無法關掉。
+**打完的牌局什麼時候公開**（AC-4.9，`recordVisible`）：紀錄可以帶 `revealAt`（挑戰、隊制賽還在進行時）。在那之前，只有打那一副的四位看得到；其他人在紀錄列表、搜尋、詳細頁、牌桌側欄的 `recent`、收藏都看不到（之後的精選也要套用）。**收藏**（§5.3）：只能收藏 `recordVisible` 看得到的牌——還沒公開的挑戰／隊制賽牌局只有打的四位能收藏，別人收藏或查詢都拿到跟不存在一樣的 `boardGone`（404），連「打完全部副數、可以看 traveller」的參與者也要等公開；「我的收藏」列表走同一個 `searchBoards`，照樣套用 `reveal_at` 的規則。筆記與標籤只有收藏的人自己讀得到：每個查詢都以自己的 id 為條件，沒有讀別人收藏的 API。搜尋在 SQL 裡套同一條規則（`reveal_at IS NULL OR reveal_at <= 現在 OR 我打過`），而且不管搜尋什麼條件都會套用，前端無法關掉。
 
 **封鎖與聊天**（AC-1.6，`chatFor`）：牌桌聊天照每位觀看者過濾，他封鎖的社員說的話不會送到他的瀏覽器；其他人照常看得到，解除封鎖後保留的訊息會再出現。大廳的 `friends`／`blocked` 只送社員自己的名單，別人封鎖或加了誰不會送出。
 
@@ -511,6 +513,25 @@ C4 的實作（2026-10-24）：
 SQL 由 `worker/history-index.ts` 的 `searchBoards` 組：只有固定的 SQL 片段會拼進字串，所有值都用 `?` 參數。先數總數，再取那一頁的 id，摘要從 `board:<id>` 讀。
 
 **效能**（`e4-t23`，AC-4.8）：`tests/worker/history-perf.test.ts` 建一萬副假資料（40 位社員、約兩成座位是機器人、一成是挑戰，最新的挑戰牌還沒公開），跑 31 種篩選與排序組合（單一條件、搭檔／同桌的 join、全部疊在一起、第 50 頁），量「數總數＋取第一頁＋讀那頁的 `board:`」三次取最慢，每種都要 < 300 ms，並檢查沒公開的牌不會出現在別人的結果裡。本機最慢一種約 15 ms；數字印在測試輸出。
+
+**收藏**（`e4-t24`～`t27`，AC-4.4）：跟索引同一個 SQLite，表也在 `createHistoryIndex` 一起建；程式在 `worker/favorites.ts`，筆記與標籤的規則在 `shared/favorites.ts`（前後端共用）。
+
+| 表 | 欄位 | 索引 |
+| --- | --- | --- |
+| `favorites` | `user_id`、`board_id`（主鍵兩欄）、`note`、`tags`（JSON 陣列，保留順序）、`created_at`、`updated_at` | 主鍵 |
+| `favorite_tags` | `user_id`、`tag`（`COLLATE NOCASE`）、`board_id`（主鍵三欄） | 主鍵（篩選與數標籤都用它的前綴） |
+
+| API | 做什麼 |
+| --- | --- |
+| `GET /api/favorites?<搜尋條件>` | 「我的收藏」的一頁：條件與 `/api/history/search` 相同（`parseHistoryQuery`），另加 `tag`；`scope` 不作用（收藏不管是誰打的）。回 `FavoritesPage`：`boards`、`total`、`page`、`size`，加上這一頁的 `favorites`（筆記與標籤）與自己全部的 `tags`（標籤與次數，給標籤篩選與自動完成） |
+| `GET /api/favorites/ids` | 自己收藏的所有牌局 id（星號按鈕整頁共用一次讀取，`src/lib/favorites.ts`） |
+| `GET /api/favorites/:id` | 這副的收藏（沒收藏是 `null`）與自己的標籤；看不到這副是 404 |
+| `PUT /api/favorites/:id` | 收藏，或改筆記／標籤（`{ note?, tags? }`，沒給的保持原樣）；看不到這副是 404 |
+| `DELETE /api/favorites/:id` | 取消收藏（本來就沒收藏也回成功） |
+
+規則：筆記最多 500 字（`favoriteNoteTooLong`）；標籤最多 8 個、每個 20 字（`favoriteTagsBad`），去頭尾空白、連續空白合成一個、逗號與控制字元換成空白，大小寫不同算同一個標籤；每人最多收藏 1,000 副（`favoritesFull`）。`tag` 也是一般搜尋的條件（「我收藏且標了這個標籤的」），所以紀錄頁的篩選標籤也會顯示它。帳號刪除時連收藏一起刪。一頁的筆記逐筆讀（Durable Object 一個查詢最多 100 個參數，一頁可能有 100 副）。
+
+介面：星號（`FavoriteButton`）在紀錄列表每一列、紀錄頁、牌桌側欄的紀錄、牌桌的結果面板；按了立刻變色，伺服器拒絕就變回來並顯示錯誤。「我的收藏」在 `/favorites`（`FavoritesPage`）：沿用紀錄頁的篩選、條件標籤與排序，另有一排標籤按鈕；每副的筆記與標籤在原地編輯（`FavoriteNotes`：Enter 或逗號加入標籤，打字時列出自己用過的相符標籤）。
 
 **紀錄頁**（`e4-t16`～`t21`）：`/history` 的篩選與排序都寫在網址（`/history?scope=all&level=4&strain=S&sort=score_desc`），重新整理或分享連結都是同一份清單；頁面用 `readHistoryQuery` 讀網址（不認得的參數直接略過，不像 API 回錯誤）、用 `historyQueryString` 寫回，條件改了就回第 1 頁。日期的「今天／本週（從週一）／本月」由 `datePresetRange` 換成台灣日期的 `from`／`to`。篩選介面在 `src/components/HistoryFilters.tsx`。用到的條件在清單上方顯示成標籤（`src/lib/historyChips.ts` 的 `filterChips`：階數＋花色合成一個「合約」、起訖日期合成一個「日期」），每個可單獨移除，「清除全部」只清條件、保留範圍、排序與每頁筆數（e4-t22）。手機版篩選收合在「篩選（n）」按鈕裡，按了才展開，展開後有「完成」收回；寬螢幕開啟帶條件的連結時直接展開。
 
