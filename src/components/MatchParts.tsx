@@ -153,8 +153,10 @@ export function BoardScores({ match }: { match: TeamMatchView }) {
   const { t } = usePreferences()
   const a = teamName(t, match, 'A')
   const b = teamName(t, match, 'B')
-  let runA = 0
-  let runB = 0
+  // The running score after each board
+  const running = match.boards.map((_, i) =>
+    match.boards.slice(0, i + 1).reduce((sum, board) => ({ A: sum.A + board.result.A, B: sum.B + board.result.B }), { A: 0, B: 0 }),
+  )
   return (
     <Scroll>
       <Grid>
@@ -191,9 +193,7 @@ export function BoardScores({ match }: { match: TeamMatchView }) {
           </tr>
         </thead>
         <tbody>
-          {match.boards.map((board) => {
-            runA += board.result.A
-            runB += board.result.B
+          {match.boards.map((board, i) => {
             const ruling = board.ruling
             return (
               <Fragment key={board.seq}>
@@ -207,7 +207,7 @@ export function BoardScores({ match }: { match: TeamMatchView }) {
                   <td>{points(board.result.A)}</td>
                   <td>{points(board.result.B)}</td>
                   <td>
-                    {points(runA)} : {points(runB)}
+                    {points(running[i].A)} : {points(running[i].B)}
                   </td>
                   <td>
                     {board.open && board.closed && (
