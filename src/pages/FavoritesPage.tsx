@@ -15,6 +15,7 @@ import { filterChips } from '../lib/historyChips.ts'
 import { formatDateTime, signed } from '../lib/format.ts'
 import { useLobby } from '../state/ClubContext.tsx'
 import { usePreferences } from '../state/PreferencesContext.tsx'
+import { boardPlace } from '../strings.ts'
 
 /**
  * 「我的收藏」 (e4-t26, AC-4.4): the boards the member keeps, whoever played them, with the same
@@ -228,7 +229,7 @@ export function FavoritesPage() {
                   <Head>
                     <FavoriteButton boardId={b.id} />
                     <Link to={`/history/${b.id}`}>
-                      {b.mode === 'challenge' ? t.challenge : t.tableName(b.tableNumber)} #{b.boardNo}
+                      {boardPlace(t, b)} #{b.boardNo}
                     </Link>
                     <ContractResult contract={b.contract} tricks={b.result.declarerTricks} />
                     <Score $value={b.result.scoreNS}>NS {signed(b.result.scoreNS)}</Score>

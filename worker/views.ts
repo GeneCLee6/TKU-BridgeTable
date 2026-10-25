@@ -20,9 +20,10 @@ import type {
   PublicUser,
   SeatOccupant,
   TableMode,
+  TablePractice,
   TableSettings,
 } from '../shared/protocol.ts'
-import type { EventReport } from './modes.ts'
+import type { EventReport, PracticeTableState } from './modes.ts'
 import { isOpenChallenge, type ChallengeTraveller, type ChallengeView } from '../shared/challenge.ts'
 import type { DealSource } from '../shared/deal-source.ts'
 import type { MemberProfile, Profile } from '../shared/profile.ts'
@@ -435,4 +436,15 @@ export function challengeTraveller(
       }
     }),
   }
+}
+
+/**
+ * What a practice table's player sees of its settings (§5.11): only their own choices, so nothing
+ * of the deal leaves with it. The hands themselves follow the usual rules (`boardView`); a Just
+ * Declare board's auction was made by robots and is public like any other
+ */
+export function practiceView(table: Pick<Table, 'mode' | 'modeState'>): { practice?: TablePractice } {
+  if (table.mode !== 'practice') return {}
+  const { deal, conditions, robotKind, justDeclare, dealt } = table.modeState as PracticeTableState
+  return { practice: { deal, ...(conditions && { conditions }), robotKind, justDeclare, dealt } }
 }

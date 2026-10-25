@@ -15,7 +15,7 @@ import { Button, Card, Muted } from './ui.tsx'
  * settings button. An invite table also lists the members to invite (`e2-t25`)
  */
 
-const Backdrop = styled.div`
+export const Backdrop = styled.div`
   position: fixed;
   inset: 0;
   z-index: 50;
@@ -26,7 +26,7 @@ const Backdrop = styled.div`
   background: ${({ theme }) => theme.colors.overlay};
 `
 
-const Panel = styled(Card)`
+export const Panel = styled(Card)`
   width: 100%;
   max-width: 420px;
   max-height: calc(100vh - 32px);
@@ -40,7 +40,7 @@ const Panel = styled(Card)`
   }
 `
 
-const Group = styled.fieldset`
+export const Group = styled.fieldset`
   display: grid;
   gap: 8px;
   margin: 0 0 ${({ theme }) => theme.space(4)};
@@ -54,7 +54,7 @@ const Group = styled.fieldset`
   }
 `
 
-const Choice = styled.label`
+export const Choice = styled.label`
   display: grid;
   grid-template-columns: auto 1fr;
   column-gap: 10px;
@@ -70,7 +70,7 @@ const Choice = styled.label`
   & > p { grid-column: 2; }
 `
 
-const Select = styled.select`
+export const Select = styled.select`
   justify-self: start;
   min-height: 36px;
   padding: 0 10px;
@@ -99,7 +99,7 @@ const Invitees = styled.ul`
   }
 `
 
-const Buttons = styled.div`
+export const Buttons = styled.div`
   display: flex;
   justify-content: flex-end;
   gap: 8px;
