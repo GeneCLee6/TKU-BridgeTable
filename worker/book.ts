@@ -28,6 +28,47 @@ export interface BookEntry {
   bundledUpdated?: string
 }
 
+/** A section's place in the outline, without its content */
+export interface SectionOutline {
+  id: string
+  title: string
+  children?: SectionOutline[]
+}
+
+/** A 待確認 note's position; the same as the handbook's PendingNote (src/lib/sections.ts) */
+export interface PendingNoteRef {
+  sectionId: string
+  /** Position among the notes that belong directly to this section, in page order */
+  index: number
+  /** Section titles from the top level down to this section */
+  trail: string[]
+  text: string
+}
+
+/** Everything about a convention except its content: the Convention fields minus `sections` */
+export interface ConventionMeta {
+  slug: string
+  nameZh: string
+  nameEn: string
+  aliases?: string[]
+  category: string
+  tags: string[]
+  summary: string
+  source: { title: string; note?: string }
+  updated: string
+  outline: SectionOutline[]
+  pending: PendingNoteRef[]
+}
+
+/** A manifest entry: the online entry without its content; `meta` is null when hidden */
+export type BookEntrySummary = Omit<BookEntry, 'convention'> & { meta: ConventionMeta | null }
+
+/** GET /api/book/manifest */
+export interface BookManifest {
+  version: number
+  entries: BookEntrySummary[]
+}
+
 export type RevisionAction = 'save' | 'hide' | 'reset'
 
 /** A saved version; the list leaves out `convention` */
@@ -155,6 +196,94 @@ export function checkConvention(value: unknown, slug: string): Record<string, un
   return value
 }
 
+interface SectionLike {
+  id: string
+  title: string
+  pending?: string
+  blocks?: { kind: string; pending?: string; rows?: { pending?: string }[]; items?: RuleLike[] }[]
+  children?: SectionLike[]
+}
+interface RuleLike {
+  pending?: string
+  children?: RuleLike[]
+}
+
+function outlineOf(sections: SectionLike[]): SectionOutline[] {
+  return sections.map((s) => {
+    const item: SectionOutline = { id: s.id, title: s.title }
+    if (s.children?.length) item.children = outlineOf(s.children)
+    return item
+  })
+}
+
+const flattenRules = (items: RuleLike[]): RuleLike[] => items.flatMap((i) => [i, ...flattenRules(i.children ?? [])])
+
+/** Every 待確認 note in page order; a faithful copy of the handbook's pendingNotes() */
+function pendingOf(sections: SectionLike[]): PendingNoteRef[] {
+  const notes: PendingNoteRef[] = []
+  const walk = (list: SectionLike[], ancestors: SectionLike[]) => {
+    for (const section of list) {
+      let index = 0
+      const trail = [...ancestors, section].map((s) => s.title)
+      const add = (text?: string) => {
+        if (text) notes.push({ sectionId: section.id, index: index++, trail, text })
+      }
+      add(section.pending)
+      for (const block of section.blocks ?? []) {
+        if (block.kind === 'paragraph') add(block.pending)
+        if (block.kind === 'responses') (block.rows ?? []).forEach((r) => add(r.pending))
+        if (block.kind === 'rules') flattenRules(block.items ?? []).forEach((i) => add(i.pending))
+      }
+      if (section.children) walk(section.children, [...ancestors, section])
+    }
+  }
+  walk(sections, [])
+  return notes
+}
+
+/** A convention's manifest data: everything but `sections`, plus its outline and 待確認 notes */
+export function conventionMeta(convention: Record<string, unknown>): ConventionMeta {
+  const { sections, ...rest } = convention
+  const list = (Array.isArray(sections) ? sections : []) as SectionLike[]
+  return { ...(rest as Omit<ConventionMeta, 'outline' | 'pending'>), outline: outlineOf(list), pending: pendingOf(list) }
+}
+
+export function entrySummary({ convention, ...rest }: BookEntry): BookEntrySummary {
+  return { ...rest, meta: convention ? conventionMeta(convention) : null }
+}
+
+/** JSON with a weak ETag; 304 when the browser already has it */
+function cachedJson(request: Request, etag: string, body: () => string) {
+  const headers = { ETag: etag, 'Cache-Control': 'no-cache' }
+  if (request.headers.get('If-None-Match') === etag) return new Response(null, { status: 304, headers })
+  return new Response(body(), { headers: { ...headers, 'Content-Type': 'application/json; charset=utf-8' } })
+}
+
+/**
+ * The handbook routes anyone may read, without signing in: every online entry
+ * (`/api/book/content`, kept for older handbooks), the manifest, and one entry by slug.
+ * Returns null for any other request.
+ */
+export async function publicBookResponse(book: BookService, request: Request, pathname: string): Promise<Response | null> {
+  if (request.method !== 'GET') return null
+  if (pathname === '/api/book/content') {
+    const { json, version } = await book.content()
+    return cachedJson(request, `W/"book-${version}"`, () => json)
+  }
+  if (pathname === '/api/book/manifest') {
+    const { json, version } = await book.manifest()
+    return cachedJson(request, `W/"book-manifest-${version}"`, () => json)
+  }
+  const one = pathname.match(/^\/api\/book\/content\/([^/]+)$/)
+  if (one) {
+    const slug = one[1]
+    const entry = isSlug(slug) ? await book.entry(slug) : undefined
+    if (!entry) throw new ClubError('conventionGone', {}, 404)
+    return cachedJson(request, `W/"book-${slug}-${entry.version}"`, () => JSON.stringify({ entry }))
+  }
+  return null
+}
+
 export class BookService {
   private readonly store: Store
   private readonly now: () => number
@@ -162,6 +291,8 @@ export class BookService {
   private version = 0
   /** GET /api/book/content as sent last time; cleared on every change */
   private contentJson: string | null = null
+  /** GET /api/book/manifest as sent last time; cleared on every change */
+  private manifestJson: string | null = null
   private lastStamp = 0
 
   constructor(store: Store, now: () => number = Date.now) {
@@ -217,9 +348,22 @@ export class BookService {
     return { json: this.contentJson, version: this.version }
   }
 
+  /** Every online entry without its content, as one JSON text; same `version` as content() */
+  async manifest(): Promise<{ json: string; version: number }> {
+    const entries = await this.load()
+    this.manifestJson ??= JSON.stringify({ version: this.version, entries: [...entries.values()].map(entrySummary) } satisfies BookManifest)
+    return { json: this.manifestJson, version: this.version }
+  }
+
+  /** One online entry; undefined when the convention has none (the handbook shows its bundled copy) */
+  async entry(slug: string): Promise<BookEntry | undefined> {
+    return (await this.load()).get(slug)
+  }
+
   private async changed() {
     this.version++
     this.contentJson = null
+    this.manifestJson = null
     await this.store.put('book:version', this.version)
   }
 

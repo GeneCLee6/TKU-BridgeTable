@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { Me } from '../../shared/protocol.ts'
-import { BOOK_LIMITS, BookService, checkConvention, importRequestFrom } from '../../worker/book.ts'
+import { BOOK_LIMITS, BookService, checkConvention, importRequestFrom, publicBookResponse } from '../../worker/book.ts'
 import { importSchema } from '../../worker/importer.ts'
 import { MemoryStore } from '../../worker/store.ts'
 
@@ -128,6 +128,133 @@ describe('content edited online', () => {
     await expect(save(convention('lebensohl', { summary: 'x'.repeat(BOOK_LIMITS.conventionMax) }))).rejects.toThrow('內容太大')
     expect(checkConvention(convention(), 'lebensohl')).toBeTruthy()
     expect(await book.revisions('lebensohl')).toEqual([])
+  })
+})
+
+/** A convention with 待確認 notes in every place the handbook looks for them */
+function pendingConvention() {
+  return convention('lebensohl', {
+    aliases: ['Lebensohl 2NT'],
+    sections: [
+      {
+        id: 'a',
+        title: '甲',
+        pending: 'a0',
+        blocks: [
+          { kind: 'rules', items: [{ text: '1', pending: 'a2', children: [{ text: '1.1', pending: 'a3' }] }, { text: '2', pending: 'a4' }] },
+          { kind: 'note', tone: 'info', text: '不算' },
+          { kind: 'responses', rows: [{ call: '2C', meaning: 'x', pending: 'a5' }, { call: '2D', meaning: 'y' }, { call: '2H', meaning: 'z', pending: 'a6' }] },
+          { kind: 'paragraph', text: 'p', pending: 'a7' },
+        ],
+        children: [
+          { id: 'a-1', title: '甲一', blocks: [{ kind: 'paragraph', text: 'q', pending: 'b0' }], children: [] },
+          { id: 'a-2', title: '甲二', children: [{ id: 'a-2-x', title: '甲二X', pending: 'c0' }] },
+        ],
+      },
+      { id: 'b', title: '乙', blocks: [{ kind: 'paragraph', text: 'r', pending: '' }] },
+    ],
+  })
+}
+
+const get = (path: string, etag?: string) =>
+  publicBookResponse(book, new Request(`https://table.example${path}`, { headers: etag ? { 'If-None-Match': etag } : {} }), path)
+
+describe('reading the handbook one convention at a time', () => {
+  it('lists every entry without its content, with the outline and 待確認 notes in page order', async () => {
+    expect(JSON.parse((await book.manifest()).json)).toEqual({ version: 0, entries: [] })
+    await book.save(amy, 'lebensohl', { convention: pendingConvention(), baseVersion: 0, bundledUpdated: '2026-10-21' })
+    const manifest = JSON.parse((await book.manifest()).json)
+    expect(manifest.version).toBe(1)
+    const [entry] = manifest.entries
+    expect(entry).not.toHaveProperty('convention')
+    expect(entry).toMatchObject({ slug: 'lebensohl', version: 1, updatedBy: 'amy', bundledUpdated: '2026-10-21' })
+    expect(entry.meta).not.toHaveProperty('sections')
+    expect(entry.meta).toMatchObject({
+      slug: 'lebensohl',
+      nameZh: '雷本索',
+      nameEn: 'Lebensohl',
+      aliases: ['Lebensohl 2NT'],
+      category: 'competitive',
+      tags: ['2NT'],
+      summary: '敵方插叫後的 2NT 接力。',
+      source: { title: 'Lebensohl' },
+      updated: '2026-10-23',
+    })
+    expect(entry.meta.outline).toEqual([
+      {
+        id: 'a',
+        title: '甲',
+        children: [
+          { id: 'a-1', title: '甲一' },
+          { id: 'a-2', title: '甲二', children: [{ id: 'a-2-x', title: '甲二X' }] },
+        ],
+      },
+      { id: 'b', title: '乙' },
+    ])
+    expect(entry.meta.pending).toEqual([
+      { sectionId: 'a', index: 0, trail: ['甲'], text: 'a0' },
+      { sectionId: 'a', index: 1, trail: ['甲'], text: 'a2' },
+      { sectionId: 'a', index: 2, trail: ['甲'], text: 'a3' },
+      { sectionId: 'a', index: 3, trail: ['甲'], text: 'a4' },
+      { sectionId: 'a', index: 4, trail: ['甲'], text: 'a5' },
+      { sectionId: 'a', index: 5, trail: ['甲'], text: 'a6' },
+      { sectionId: 'a', index: 6, trail: ['甲'], text: 'a7' },
+      { sectionId: 'a-1', index: 0, trail: ['甲', '甲一'], text: 'b0' },
+      { sectionId: 'a-2-x', index: 0, trail: ['甲', '甲二', '甲二X'], text: 'c0' },
+    ])
+  })
+
+  it('gives a hidden convention no meta, and refreshes the manifest after every change', async () => {
+    const first = await book.manifest()
+    await book.save(amy, 'lebensohl', { convention: convention(), baseVersion: 0 })
+    const saved = await book.manifest()
+    expect(saved.json).not.toBe(first.json)
+    expect(JSON.parse(saved.json).entries[0].meta.summary).toBe('敵方插叫後的 2NT 接力。')
+    await book.save(amy, 'lebensohl', { convention: convention('lebensohl', { summary: '新摘要' }), baseVersion: 1 })
+    expect(JSON.parse((await book.manifest()).json).entries[0].meta.summary).toBe('新摘要')
+    await book.hide(ben, 'lebensohl', { baseVersion: 2 })
+    const hidden = JSON.parse((await book.manifest()).json)
+    expect(hidden.version).toBe(3)
+    expect(hidden.entries[0]).toMatchObject({ slug: 'lebensohl', version: 3, meta: null })
+    await book.reset(amy, 'lebensohl', { baseVersion: 3 })
+    expect(JSON.parse((await book.manifest()).json)).toEqual({ version: 4, entries: [] })
+  })
+
+  it('answers the manifest and one convention with ETags, and 404 when there is no online entry', async () => {
+    await book.save(amy, 'lebensohl', { convention: convention(), baseVersion: 0 })
+
+    const manifest = (await get('/api/book/manifest'))!
+    expect(manifest.status).toBe(200)
+    expect(manifest.headers.get('ETag')).toBe('W/"book-manifest-1"')
+    expect(manifest.headers.get('Content-Type')).toContain('application/json')
+    expect((await manifest.json()).entries[0].slug).toBe('lebensohl')
+    expect((await get('/api/book/manifest', 'W/"book-manifest-1"'))!.status).toBe(304)
+    expect((await get('/api/book/manifest', 'W/"book-manifest-0"'))!.status).toBe(200)
+
+    const one = (await get('/api/book/content/lebensohl'))!
+    expect(one.status).toBe(200)
+    expect(one.headers.get('ETag')).toBe('W/"book-lebensohl-1"')
+    const { entry } = await one.json()
+    expect(entry).toMatchObject({ slug: 'lebensohl', version: 1, convention: { summary: '敵方插叫後的 2NT 接力。' } })
+    expect(entry.convention.sections[0].blocks).toHaveLength(5)
+    expect((await get('/api/book/content/lebensohl', 'W/"book-lebensohl-1"'))!.status).toBe(304)
+
+    await book.hide(ben, 'lebensohl', { baseVersion: 1 })
+    expect((await get('/api/book/content/lebensohl', 'W/"book-lebensohl-1"'))!.status).toBe(200)
+    expect((await (await get('/api/book/content/lebensohl'))!.json()).entry).toMatchObject({ version: 2, convention: null })
+    expect((await get('/api/book/manifest', 'W/"book-manifest-1"'))!.status).toBe(200)
+
+    await expect(get('/api/book/content/jacoby-2nt')).rejects.toThrow('找不到這個特約')
+    await expect(get('/api/book/content/Bad_Slug')).rejects.toMatchObject({ status: 404 })
+
+    // The whole-content route is unchanged
+    const all = (await get('/api/book/content'))!
+    expect(all.headers.get('ETag')).toBe('W/"book-2"')
+    expect((await all.json()).entries[0].convention).toBeNull()
+    expect((await get('/api/book/content', 'W/"book-2"'))!.status).toBe(304)
+    expect(await get('/api/book/other')).toBeNull()
+    const post = new Request('https://table.example/api/book/manifest', { method: 'POST' })
+    expect(await publicBookResponse(book, post, '/api/book/manifest')).toBeNull()
   })
 })
 
