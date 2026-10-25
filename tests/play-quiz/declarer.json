@@ -1,0 +1,28 @@
+{
+  "category": "declarer",
+  "title": "坐莊",
+  "questions": [
+    {"id": "play-decl-001", "system": "both", "board": 3,
+     "hands": {"W": "A32.K62.T964.876", "E": "K84.AJ43.QJ.J942", "N": "QJT9.Q75.A873.KQ", "S": "765.T98.K52.AT53"},
+     "auction": ["P", "1D", "P", "3D", "P", "P", "P"], "play": ["D3", "DJ", "DK", "D4", "S7", "SA", "S9", "S4"],
+     "answer": "DT", "accepted": ["D9", "D6"], "source": "雙明手稽核（評測牌組第 15 副的型）", "reviewer": null, "status": "pending",
+     "note": "3♦，王牌 T964 對 QJ，K 已出、只剩 A 在外面：先把 A 逼出來清王，不必等到合計 7 張"},
+    {"id": "play-decl-002", "system": "both", "board": 3,
+     "hands": {"S": "AKQJT9.K9.J86.52", "N": "876.T63.T52.QJ84", "W": "543.AJ85.Q93.K97", "E": "2.Q742.AK74.AT63"},
+     "auction": ["1S", "P", "4S", "P", "P", "P"],
+     "play": ["C7", "CJ", "CA", "C2", "DA", "D6", "D3", "D2", "DK", "D8", "D9", "D5", "C6", "C5", "CK", "C4", "S3", "S6", "S2", "S9", "SA", "S4", "S7", "H2", "SK", "S5", "S8", "H4"],
+     "answer": "H9", "accepted": ["DJ", "SQ", "SJ", "ST"], "source": "雙明手稽核（評測牌組第 6 副的型）", "reviewer": null, "status": "pending",
+     "note": "王牌清完、沒有計畫可用時的領出：不要從 K9 領 K（送進對手的 A），領小牌或王牌"},
+    {"id": "play-decl-003", "system": "both", "board": 3,
+     "hands": {"N": "J873.5432.9865.K", "S": "AQ2.AK6.A2.AQ654", "E": "T964.QJT9.QJ3.32", "W": "K5.87.KT74.JT987"},
+     "auction": ["2N", "P", "3N", "P", "P", "P"], "play": ["D4", "D5", "DJ", "DA", "S2", "S5", "SJ", "S4", "CK", "C2"],
+     "answer": "CA", "source": "雙明手稽核（評測牌組第 144 副的型）", "reviewer": null, "status": "pending",
+     "note": "夢家單張♣K 贏了之後沒有進手張，自己 AQ654 會卡住：用 A 超吃，從手上跑♣"},
+    {"id": "play-decl-004", "system": "both", "board": 3,
+     "hands": {"W": "A954.QJ7.K72.A65", "E": "QT73.K54.963.KT4", "N": "KJ862.3.QJ5.J983", "S": ".AT9862.AT84.Q72"},
+     "auction": ["P", "1S", "P", "2S", "P", "P", "P"],
+     "play": ["H3", "H4", "HA", "H7", "D4", "DK", "D5", "D3", "S4", "S2", "ST", "H2", "C4", "C2", "CA", "C3", "S5", "S6"],
+     "answer": "S7", "source": "雙明手稽核（評測牌組第 71、148 副的型）", "reviewer": null, "status": "pending",
+     "note": "南已經墊牌表示♠缺門，北出 6：夢家出 7 就贏，不必用 Q"}
+  ]
+}

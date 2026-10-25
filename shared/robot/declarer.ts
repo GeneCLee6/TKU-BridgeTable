@@ -38,10 +38,11 @@ export function declarerLead(
     if (top && view.isMaster(top)) return top
     const partnerTop = theirs(trump)[0]
     if (top && mine(trump).length + theirs(trump).length >= 7) {
-      // Towards partner's master trump, or knock out the one trump above a sequence
+      // Towards partner's master trump
       if (partnerTop && view.isMaster(partnerTop)) return mine(trump).at(-1)!
-      if (view.higherOut(top).length === 1 && touching(view, top, [...hand, ...partner])) return top
     }
+    // Knock out the one trump above our sequence, whatever the count: the rest are then ours
+    if (top && view.higherOut(top).length === 1 && touching(view, top, [...hand, ...partner])) return top
   }
 
   const cashing = cash(view, hand, partner, sides, ruffed)
@@ -114,7 +115,8 @@ function touching(view: View, card: Card, ours: Card[]): boolean {
 /**
  * Ruff a loser in the hand with fewer trumps: partner (or this hand) is void in a side suit and
  * has trumps, the other hand holds a card that would lose, and the opponent playing after the
- * ruff is not known to overruff
+ * ruff is not known to overruff. (Leading the suit first when partner has a singleton of it, to
+ * ruff the next round, was tried: −0.04 IMP/board.)
  */
 function ruffInShortHand(view: View, hand: Card[], partner: Card[], trump: Suit, ruffed: (s: Suit) => boolean): Card | null {
   const myTrumps = suitCards(hand, trump).length
@@ -129,6 +131,43 @@ function ruffInShortHand(view: View, hand: Card[], partner: Card[], trump: Suit,
     return mine.at(-1)!
   }
   return null
+}
+
+/**
+ * Nothing in the plan applies: a lead that gives the least away. Towards an honour of partner's
+ * that a low card could promote; from a suit with no honour to lose; not an honour led bare from
+ * a short holding, not away from a lone honour towards nothing, not into a known ruff and, when
+ * there is a choice, not a suit the opponents bid. Low, or the top of a sequence.
+ */
+export function exitLead(view: View, hand: Card[], trump: Suit | null, ruffed: (s: Suit) => boolean, theirs: (s: Suit) => boolean): Card | null {
+  const partner = view.partnerCards()
+  const suits = SUITS.filter((s) => s !== trump && suitCards(hand, s).length)
+  if (!suits.length) return null
+  const honour = (c: Card) => value(c) >= 11 && !view.isMaster(c)
+  const score = (s: Suit) => {
+    const mine = suitCards(hand, s)
+    const partners = suitCards(partner, s)
+    let n = 0
+    if (ruffed(s)) n -= 10
+    if (theirs(s)) n -= 2
+    const low = mine.at(-1)!
+    const towards = partners.some((c) => honour(c) && value(c) > value(low) && view.higherOut(c).length <= 2)
+    if (towards) n += 3
+    if (!mine.some(honour) && !partners.some(honour)) n += 1
+    const lead = sequenceTop(view, mine) ?? (mine.length <= 2 ? mine[0] : low)
+    if (honour(lead) && !sequenceTop(view, mine)) n -= 3
+    else if (mine.some(honour) && !towards) n -= 1
+    return n
+  }
+  const s = [...suits].sort((a, b) => score(b) - score(a) || suitCards(hand, b).length - suitCards(hand, a).length)[0]
+  const mine = suitCards(hand, s)
+  return sequenceTop(view, mine) ?? mine.at(-1)!
+}
+
+/** The top of two touching cards (KQ, QJ, JT) at the head of a holding of two or more */
+function sequenceTop(view: View, cards: Card[]): Card | null {
+  if (cards.length < 2 || value(cards[0]) < 11) return null
+  return view.lowestEqual(cards[0], cards) !== cards[0] ? cards[0] : null
 }
 
 /**
