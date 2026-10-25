@@ -18,9 +18,10 @@ const appVersion = (): Plugin => ({
 
 // https://vite.dev/config/
 // The Cloudflare plugin runs the Worker (API, WebSocket, Durable Object) inside `vite dev`;
-// it is left out of Vitest, which tests the Worker's logic directly.
+// it is left out of Vitest, which tests the Worker's logic directly, and of the visual tests
+// (playwright.config.ts), which answer the API and WebSocket from fixtures.
 export default defineConfig({
-  plugins: [react(), appVersion(), ...(process.env.VITEST ? [] : [cloudflare()])],
+  plugins: [react(), appVersion(), ...(process.env.VITEST || process.env.VISUAL_TEST ? [] : [cloudflare()])],
   // The DDS worker (src/lib/dds.worker.ts) is an ES module: its WASM loader uses import.meta
   worker: { format: 'es' },
   test: {

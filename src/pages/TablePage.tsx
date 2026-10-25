@@ -20,21 +20,25 @@ import { DEAL_MS, DealAnimation } from '../components/DealAnimation.tsx'
 import { SidePanel } from '../components/SidePanel.tsx'
 import { HandView } from '../components/HandView.tsx'
 import { SeatPlate, type SeatAction } from '../components/SeatPlate.tsx'
+import { TableAnnouncer } from '../components/TableAnnouncer.tsx'
 import { TableSettingsDialog } from '../components/TableSettingsDialog.tsx'
+import { TableTour } from '../components/TableTour.tsx'
 import { ContractLabel } from '../components/Suit.tsx'
 import { ClaimPicker, FeltButton, FeltPanel, Prompt, ResultPanel } from '../components/TablePanels.tsx'
 import { COLLECT_MS, TrickArea, TrickSpace, type CardOrigin, type Position } from '../components/TrickArea.tsx'
 import { TrickPile } from '../components/TrickPile.tsx'
 import { Muted, PageMain } from '../components/ui.tsx'
+import { spokenContract } from '../lib/announce.ts'
 import { CARD_SCALE, sortForDisplay, suitOrder } from '../lib/cards.ts'
 import { auctionBoxHeight, biddingBoxHeight, handHeight, type Orientation } from '../lib/measure.ts'
 import { dealSound, playCardSound, turnSound, unlockSound } from '../lib/sound.ts'
 import { useCardChoice } from '../lib/useCardChoice.ts'
+import { useMediaQuery } from '../lib/useMediaQuery.ts'
 import { useRobotRules } from '../lib/useRobotRules.ts'
 import { useAuth } from '../state/AuthContext.tsx'
 import { useClub } from '../state/ClubContext.tsx'
 import { usePreferences, useT } from '../state/PreferencesContext.tsx'
-import { mobile } from '../styles/tokens.ts'
+import { mobile, tabletQuery } from '../styles/tokens.ts'
 import { playerName, seatLetter } from '../strings.ts'
 
 /** The levels in the seat menu: the ones offered now, and 橋士組 shown as coming later */
@@ -78,7 +82,7 @@ const PHONE_COVER = 10
 /** A card you clicked is shown on the table at once; if the server has not taken it by then, it goes back */
 const PENDING_MS = 4000
 
-const Felt = styled.div<{ $phone: boolean; $sides?: number }>`
+const Felt = styled.div<{ $phone: boolean; $portrait: boolean; $sides?: number }>`
   position: relative;
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) minmax(0, 1fr);
@@ -93,6 +97,19 @@ const Felt = styled.div<{ $phone: boolean; $sides?: number }>`
   padding: ${PAD.top}px ${PAD.side}px ${PAD.bottom}px;
   background: radial-gradient(ellipse at center, ${({ theme }) => theme.table.felt} 55%, ${({ theme }) => theme.table.feltEdge});
   color: ${({ theme }) => theme.table.feltText};
+
+  /* A tablet held upright (e3-t36): partner's hand and yours run the full width, so the cards can be larger */
+  ${({ $portrait }) =>
+    $portrait &&
+    css`
+      grid-template-rows: auto auto minmax(0, 1fr) auto auto;
+      grid-template-areas:
+        'info . status'
+        'top top top'
+        'left center right'
+        'bottom bottom bottom'
+        'tricks . actions';
+    `}
 
   ${({ $phone, $sides }) =>
     $phone &&
@@ -452,6 +469,8 @@ const AUCTION_SCALE = 0.95
 const AUCTION_MAX_SCALE = 1.3
 const AUCTION_MAX = 130
 const BOX_SCALE = 0.58
+/** Upright, the height of the rows of the corners above and below the hands */
+const PORTRAIT_CORNERS = 190
 /** Rounds the auction table shows before it scrolls */
 const AUCTION_ROWS = 5
 
@@ -483,16 +502,23 @@ function tableSizes(feltWidth: number, feltHeight: number, scale = 1) {
       auctionRows: 4,
       auctionWidth: undefined,
       box: 46,
+      portrait: false,
     }
   }
+  // Upright (a tablet held portrait): the hands at the top and bottom have the full width, and
+  // the corners (board, contract, tricks, undo and claim) have rows of their own
+  const portrait = feltHeight > feltWidth * 1.15
   // contentRect excludes the padding; the grid gaps come out of it
-  const height = feltHeight - 2 * GAP.row
+  const height = portrait ? feltHeight - 4 * GAP.row - PORTRAIT_CORNERS : feltHeight - 2 * GAP.row
   const middleWidth = ((feltWidth - 2 * GAP.column) * 2) / 4
+  const handRoom = portrait ? feltWidth : middleWidth
+  const sideColumn = (feltWidth - 2 * GAP.column) / 4
   const rows = scale > 1 ? AUCTION_ROWS - 2 : AUCTION_ROWS
   const squeeze = 6.3 / Math.max(1, scale)
   const parts = (w: number) => {
     const top = Math.round(w * 0.85)
-    const side = Math.round(w * 0.8)
+    // Upright, the side columns are narrow: their cards are no wider than a quarter of the column
+    const side = portrait ? Math.min(Math.round(w * 0.8), Math.round(sideColumn / 3.4)) : Math.round(w * 0.8)
     const auction = Math.round(w * AUCTION_SCALE)
     const box = Math.round(w * BOX_SCALE)
     const middle = Math.max(auctionBoxHeight(auction, rows) + STACK_GAP + biddingBoxHeight(box), handHeight(side, 'rows'))
@@ -500,7 +526,7 @@ function tableSizes(feltWidth: number, feltHeight: number, scale = 1) {
   }
   // Thirteen overlapped cards take about seven card widths, and still read well squeezed to 6.3
   let bottom = Math.round(124 * Math.max(1, scale))
-  while (bottom > 56 && (parts(bottom).tall > height || bottom * squeeze > middleWidth)) bottom--
+  while (bottom > 56 && (parts(bottom).tall > height || bottom * squeeze > handRoom)) bottom--
   if (scale < 1) bottom = Math.max(48, Math.round(bottom * scale))
   const { top, side, box } = parts(bottom)
   // If the width set the card size, the auction table takes up the height left over
@@ -519,6 +545,7 @@ function tableSizes(feltWidth: number, feltHeight: number, scale = 1) {
     box,
     sideThick: 0,
     sideLength: 0,
+    portrait,
   }
 }
 
@@ -573,10 +600,12 @@ export function TablePage() {
 
 function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeof useClub>['send'] }) {
   const t = useT()
-  const { cardStyle, sound, lang, confirmCalls, confirmPlays, cardSize } = usePreferences()
+  const { cardStyle, sound, lang, confirmCalls, confirmPlays, cardSize, tableTourSeen, set: setPrefs } = usePreferences()
   const { user } = useAuth()
   const { error, lobby } = useClub()
   const [feltRef, feltSize] = useSize()
+  // On a tablet the side panel floats over the table, so it starts closed there (e3-t36)
+  const onTablet = useMediaQuery(tabletQuery)
   const sizes = tableSizes(feltSize.width, feltSize.height, CARD_SCALE[cardSize])
   const board = table.board
   // Toggles that belong to one board are stored with its number, so they reset on the next deal
@@ -602,6 +631,8 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
     return o ? (o.robot ? `${playerName(t, o)} ${seatLetter[seat]}` : o.username) : seatLetter[seat]
   }
   const missing = SEATS.filter((s) => !table.seats[s]).length
+  /** 北 Alice: a seat as a screen reader says it */
+  const spokenSeat = (seat: Seat) => `${t.seatNames[seat]} ${table.seats[seat] ? nameOf(seat) : ''}`.trim()
 
   // A robot partner: the bidding box tells how it will read each call, as GIB does on BBO
   const partner = me ? table.seats[partnerOf(me)] : null
@@ -854,7 +885,7 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
 
   /** The bidding box when it is your call, an undo question while one is open, otherwise empty room */
   const biddingSlot = (b: BoardView): ReactNode => (
-    <BoxSlot $h={biddingBoxHeight(sizes.box)}>
+    <BoxSlot $h={biddingBoxHeight(sizes.box)} data-tour="bidding-box">
       {b.undo
         ? undoPrompt()
         : b.legalCalls.length > 0 && (
@@ -951,7 +982,7 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
 
   return (
     <Layout>
-      <Felt ref={feltRef} $phone={sizes.phone} $sides={turnedSides ? sizes.sideThick : undefined} onClick={trickTable.collect}>
+      <Felt ref={feltRef} $phone={sizes.phone} $portrait={sizes.portrait} $sides={turnedSides ? sizes.sideThick : undefined} onClick={trickTable.collect}>
         {dealing > 0 && dealing === boardNo && (
           <DealAnimation key={dealing} felt={feltRef} width={Math.round(sizes.side * 0.8)} />
         )}
@@ -993,7 +1024,11 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
                 type="button"
                 onClick={() => setAuctionFor(showAuction ? 0 : boardNo)}
                 aria-expanded={showAuction}
-                aria-label={t.showAuction}
+                aria-label={t.srContractBox(
+                  board.contract ? `${spokenContract(board.contract, t)} ${t.seatNames[board.contract.declarer]}` : t.srPassedOut,
+                  board.tricksWon.NS,
+                  board.tricksWon.EW,
+                )}
               >
                 <strong>
                   <ContractLabel contract={board.contract} onCard />
@@ -1019,7 +1054,7 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
         </Area>
         <Area $area="top">{seatBlock('top')}</Area>
         <Area $area="left">{seatBlock('left')}</Area>
-        <Center $area="center" data-center>
+        <Center $area="center" data-center data-tour="center">
           {center()}
         </Center>
         <Area $area="right">{seatBlock('right')}</Area>
@@ -1039,7 +1074,7 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
             />
           )}
         </Area>
-        <Area $area="actions" $align="end" $justify="end">
+        <Area $area="actions" $align="end" $justify="end" data-tour="actions">
           <Actions>
             {!me && <Note>{t.kibitzing}</Note>}
             {swapNotice && <Note role="status">{t.swappedToDeclare}</Note>}
@@ -1055,6 +1090,7 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
                   $tone="plain"
                   disabled={!canUndo}
                   title={challenge ? t.challengeNoUndo : undefined}
+                  data-tour="undo"
                   onClick={() => send({ type: 'undoRequest' })}
                 >
                   {t.undo}
@@ -1064,6 +1100,7 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
                   $tone="plain"
                   disabled={!canClaim}
                   aria-expanded={claiming && canClaim}
+                  data-tour="claim"
                   onClick={() => setClaimingFor(claiming ? 0 : boardNo)}
                 >
                   {t.claim}
@@ -1088,11 +1125,13 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
           }}
         />
       )}
+      <TableAnnouncer board={board} me={me} who={spokenSeat} />
+      {!tableTourSeen && <TableTour onClose={() => setPrefs({ tableTourSeen: true })} />}
       <SidePanel
         tabs={['chat', 'people', 'messages', 'history']}
         recent={table.recent}
         page="table"
-        initial="chat"
+        initial={onTablet ? null : 'chat'}
         chat={<ChatPanel messages={table.chat} onSend={(text) => send({ type: 'chat', text })} />}
       />
     </Layout>

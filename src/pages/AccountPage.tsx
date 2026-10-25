@@ -354,6 +354,32 @@ function PasswordForm() {
   )
 }
 
+/** Shows the table tour again the next time a table is opened (e3-t34, AC-3.10) */
+function TourCard() {
+  const { t, tableTourSeen, set } = usePreferences()
+  const toast = useToast()
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{t.tourLabel}</CardTitle>
+      </CardHeader>
+      <Muted>{t.tourReplayHint}</Muted>
+      <CardFooter>
+        <Button
+          type="button"
+          disabled={!tableTourSeen}
+          onClick={() => {
+            set({ tableTourSeen: false })
+            toast.success(t.tourReplayDone)
+          }}
+        >
+          {t.tourReplay}
+        </Button>
+      </CardFooter>
+    </Card>
+  )
+}
+
 export function AccountPage() {
   const { t, lang, mode, deck, cardStyle, cardSize, sound, confirmCalls, confirmPlays, set } = usePreferences()
   const { user, refresh } = useAuth()
@@ -423,6 +449,7 @@ export function AccountPage() {
             />
           )}
         </Card>
+        <TourCard />
         <Card>
           <CardHeader>
             <CardTitle>{t.installTitle}</CardTitle>

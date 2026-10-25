@@ -294,7 +294,7 @@ export const MESSAGES = {
     zh: '常用制度最多 {max} 個字',
     'zh-Hans': '常用制度最多 {max} 个字',
     en: 'The bidding system can be at most {max} characters',
-    vi: 'Hệ thống kể bài tối đa {max} ký tự',
+    vi: 'Hệ thống kêu bài tối đa {max} ký tự',
     ja: '使用システムは {max} 文字までです',
     ko: '사용 시스템은 최대 {max}자입니다',
   },
@@ -417,7 +417,7 @@ export const MESSAGES = {
     'zh-Hans': '请先解除屏蔽，才能加为好友',
     en: 'Unblock this member before adding them as a friend',
     vi: 'Hãy bỏ chặn thành viên này trước khi kết bạn',
-    ja: 'フレンドに追加する前にブロックを解除してください',
+    ja: '友達に追加する前にブロックを解除してください',
     ko: '친구로 추가하려면 먼저 차단을 해제하세요',
   },
   blockedByHost: {
@@ -605,7 +605,7 @@ export const MESSAGES = {
     'zh-Hans': '挑战要邀请 {min}–{max} 位好友',
     en: 'Invite {min}–{max} friends to a challenge',
     vi: 'Thử thách cần mời {min}–{max} người bạn',
-    ja: 'チャレンジには友達を {min}～{max} 人招待してください',
+    ja: 'チャレンジには友達を {min}〜{max} 人招待してください',
     ko: '도전에는 친구를 {min}–{max}명 초대해야 합니다',
   },
   challengeBoards: {
@@ -613,7 +613,7 @@ export const MESSAGES = {
     'zh-Hans': '挑战要 {min}–{max} 副牌',
     en: 'A challenge has {min}–{max} boards',
     vi: 'Thử thách có {min}–{max} ván',
-    ja: 'チャレンジのボード数は {min}～{max} です',
+    ja: 'チャレンジのボード数は {min}〜{max} です',
     ko: '도전은 {min}–{max}보드입니다',
   },
   notFriend: {
@@ -669,7 +669,7 @@ export const MESSAGES = {
     'zh-Hans': '已经有人开打，不能取消',
     en: 'Someone has started playing, so it cannot be cancelled',
     vi: 'Đã có người bắt đầu chơi nên không thể hủy',
-    ja: 'もう誰かがプレーを始めたので取り消せません',
+    ja: 'もう誰かがプレイを始めたので取り消せません',
     ko: '이미 누군가 플레이를 시작해서 취소할 수 없습니다',
   },
   challengeNotAccepted: {
@@ -677,7 +677,7 @@ export const MESSAGES = {
     'zh-Hans': '先接受挑战才能开打',
     en: 'Accept the challenge before you play it',
     vi: 'Hãy nhận thử thách trước khi chơi',
-    ja: 'プレーする前にチャレンジを受けてください',
+    ja: 'プレイする前にチャレンジを受けてください',
     ko: '도전을 수락해야 플레이할 수 있습니다',
   },
   challengeDone: {
@@ -685,7 +685,7 @@ export const MESSAGES = {
     'zh-Hans': '这个挑战你已经打完了',
     en: 'You have played every board of this challenge',
     vi: 'Bạn đã chơi hết các ván của thử thách này',
-    ja: 'このチャレンジのボードはすべてプレーしました',
+    ja: 'このチャレンジのボードはすべてプレイしました',
     ko: '이 도전의 보드를 모두 플레이했습니다',
   },
   challengeTableFixed: {
@@ -717,7 +717,7 @@ export const MESSAGES = {
     'zh-Hans': '只有轮到他超过 1 分钟时才能请他离座并放机器人',
     en: 'You can replace a player with a robot only after they have kept the table waiting a minute',
     vi: 'Chỉ có thể thay người chơi bằng robot khi họ đã để bàn chờ quá 1 phút',
-    ja: '1 分以上待たせているプレーヤーだけをロボットに交代できます',
+    ja: '1 分以上待たせているプレイヤーだけをロボットに交代できます',
     ko: '1분 넘게 차례를 끌고 있는 플레이어만 로봇으로 바꿀 수 있습니다',
   },
   challengeNoUndo: {
@@ -733,7 +733,7 @@ export const MESSAGES = {
     'zh-Hans': '只能用你和三个机器人打的牌发起挑战',
     en: 'Only boards you played with three robots can be used for a challenge',
     vi: 'Chỉ dùng được những ván bạn chơi cùng ba robot để thách đấu',
-    ja: 'チャレンジに使えるのは、あなたと 3 台のロボットでプレーしたボードだけです',
+    ja: 'チャレンジに使えるのは、あなたと 3 体のロボットでプレイしたボードだけです',
     ko: '나와 로봇 세 명이 플레이한 보드만 도전에 쓸 수 있습니다',
   },
   challengeRobotKinds: {
