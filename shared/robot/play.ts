@@ -1,22 +1,11 @@
 import { isBid, strainOf } from '../auction.ts'
-import {
-  nextSeat,
-  partnerOf,
-  rankOf,
-  rankValue,
-  RANKS,
-  sameSide,
-  SEATS,
-  SUITS,
-  suitOf,
-  type Card,
-  type Seat,
-  type Suit,
-} from '../cards.ts'
+import { nextSeat, partnerOf, rankOf, rankValue, sameSide, SEATS, SUITS, suitOf, type Card, type Seat, type Suit } from '../cards.ts'
 import { dummyOf, legalCards, remainingCards, tricksOf, type BoardState, type PlayedCard } from '../game.ts'
 import type { RobotKind } from '../protocol.ts'
+import { declarerLead, holdUp } from './declarer.ts'
+import { coverLastHonour, defenceLead, holdUpAgainstDummy } from './defence.ts'
 import { suitCards } from './hand.ts'
-import { TableReading } from './reading.ts'
+import { byRank, honours, value, View } from './view.ts'
 
 /**
  * A robot's card play from what it can legitimately see: its own hand, dummy once exposed (the
@@ -27,8 +16,10 @@ import { TableReading } from './reading.ts'
  * defends with the club's signals; the 2/1 robot with GIB's published methods (ROBOT.md §3.2).
  * Both read the auction and count the cards (`reading.ts`): the declaring side finesses through
  * the opponent who showed the missing honour, and nobody cashes a winner into a known ruff or
- * leads a suit the opponents bid when there is a choice.
+ * leads a suit the opponents bid when there is a choice. The declaring side plays to a plan
+ * (`declarer.ts`), the defenders from their inferences (`defence.ts`).
  */
+
 export function chooseCard(state: BoardState, seat: Seat, kind: RobotKind = 'tku'): Card {
   const gib = kind === 'gib'
   const legal = legalCards(state, seat)
@@ -57,6 +48,10 @@ export function chooseCard(state: BoardState, seat: Seat, kind: RobotKind = 'tku
 
   if (following.length) {
     if (partnerWinning && (lastToPlay || view.isMaster(best.card))) return signal(following)
+    if (!defending) {
+      const card = holdUp(view, trick, following, led, trump)
+      if (card) return card
+    }
     if (!defending && trick.length === 2) {
       const card = declarerThird(view, seat, following, best, led)
       if (card) return card
@@ -72,9 +67,13 @@ export function chooseCard(state: BoardState, seat: Seat, kind: RobotKind = 'tku
     if (trumped) return signal(following)
     const beaters = following.filter((c) => suitOf(best.card) === led && rankValue(rankOf(c)) > rankValue(rankOf(best.card)))
     if (trick.length === 1) {
-      // Second hand low, but cover an honour
-      const honour = rankValue(rankOf(trick[0].card)) >= 11
+      // Second hand low, but cover an honour (the last of dummy's touching honours)
+      const honour = rankValue(rankOf(trick[0].card)) >= 11 && (!defending || coverLastHonour(view, trick))
       return honour && beaters.length ? lowest(beaters) : signal(following)
+    }
+    if (defending && beaters.length) {
+      const card = holdUpAgainstDummy(view, trick, following, led, trump)
+      if (card) return card
     }
     return beaters.length ? lowest(beaters) : signal(following)
   }
@@ -106,20 +105,10 @@ function lead(state: BoardState, seat: Seat, view: View, legal: Card[], trump: S
   const ruffed = (s: Suit) => opponents.some((o) => view.reading.mayRuff(o, s, trump))
 
   if (declaring) {
-    // Draw trumps with a master trump while the opponents still hold some (the count is exact:
-    // every card the declaring side cannot see is a defender's)
-    if (trump && view.outstanding(trump) > 0) {
-      const top = suitCards(hand, trump)[0]
-      if (top && view.isMaster(top)) return top
-    }
-    // Cash sure winners, but not into a ruff
-    for (const s of nonTrump) {
-      const top = suitCards(hand, s)[0]
-      if (view.isMaster(top) && !ruffed(s)) return top
-    }
-    const trumpsOut = trump && view.outstanding(trump) > 0 ? [trump] : []
-    const finesse = finesseLead(view, seat, hand, [...trumpsOut, ...nonTrump.filter((s) => !ruffed(s))])
-    if (finesse) return finesse
+    // The declarer's plan (declarer.ts); the count of the trumps out is exact: every card the
+    // declaring side cannot see is a defender's
+    const planned = declarerLead(view, hand, trump, ruffed, (suits) => finesseLead(view, seat, hand, suits))
+    if (planned) return planned
     // Lead towards partner's winner
     const partnerHand = view.partnerCards()
     for (const s of nonTrump) {
@@ -127,6 +116,7 @@ function lead(state: BoardState, seat: Seat, view: View, legal: Card[], trump: S
       if (theirTop && view.isMaster(theirTop) && !ruffed(s)) return suitCards(hand, s).at(-1)!
     }
   } else {
+    // Cash winners while they last (holding them back for later costs more than it saves)
     for (const s of nonTrump) {
       const top = suitCards(hand, s)[0]
       if (view.isMaster(top) && state.play.length >= 4 && !ruffed(s)) return top
@@ -137,12 +127,9 @@ function lead(state: BoardState, seat: Seat, view: View, legal: Card[], trump: S
       const cards = suitCards(hand, wanted)
       return cards.length === 2 ? cards[0] : cards.at(-1)!
     }
-    // Return partner's opening lead, unless it gives the declaring side a ruff
-    const first = state.play[0]
-    if (first && first.seat === partnerOf(seat) && !ruffed(suitOf(first.card))) {
-      const cards = suitCards(hand, suitOf(first.card))
-      if (cards.length) return cards.length === 2 ? cards[0] : cards.at(-1)!
-    }
+    // Attack or sit tight (defence.ts): partner's opening lead, through dummy's honours, a sequence…
+    const card = defenceLead(view, hand, trump, ruffed)
+    if (card) return card
   }
   // From length, keeping out of the opponents' suits (bid in the auction, or to be ruffed) when we can
   const pool = nonTrump.length ? nonTrump : SUITS.filter((s) => suitCards(hand, s).length)
@@ -187,7 +174,23 @@ function declarerThird(view: View, seat: Seat, following: Card[], best: PlayedCa
   const beaters = following.filter((c) => value(c) > value(best.card)).sort(byRank)
   const winner = beaters.find((c) => view.isMaster(c))
   if (!beaters.length || winner === beaters[0]) return winner ?? null
-  return beaters.find((c) => !behind(c)) ?? winner ?? null
+  const finesse = beaters.find((c) => !behind(c))
+  if (finesse && winner && dropBetter(view, seat, led, finesse)) return winner
+  return finesse ?? winner ?? null
+}
+
+/**
+ * Eight ever, nine never (e6-t41): with nine cards or more between the hands and two masters to
+ * cash, play for the missing card to drop rather than finesse, unless the auction places it with
+ * the opponent who has already played
+ */
+function dropBetter(view: View, seat: Seat, led: Suit, finesse: Card): boolean {
+  const second = partnerOf(nextSeat(seat))
+  const followed = view.state.play.length % 4 >= 2 && suitOf(view.state.play.at(-1)!.card) === led
+  if (view.outstanding(led) + (followed ? 1 : 0) > 4) return false
+  const ours = [...suitCards(view.ownCards(), led), ...suitCards(view.partnerCards(), led)]
+  if (ours.filter((c) => view.isMaster(c)).length < 2) return false
+  return view.reading.holder(view.higherOut(finesse)[0]) !== second
 }
 
 function openingLead(state: BoardState, seat: Seat, hand: Card[], trump: Suit | null): Card {
@@ -312,10 +315,6 @@ function winningCard(trick: { seat: Seat; card: Card }[], trump: Suit | null) {
   return best
 }
 
-const byRank = (a: Card, b: Card) => rankValue(rankOf(a)) - rankValue(rankOf(b))
-const value = (card: Card) => rankValue(rankOf(card))
-const HONOUR_POINTS: Record<string, number> = { A: 4, K: 3, Q: 2, J: 1 }
-const honours = (cards: Card[]) => cards.reduce((sum, c) => sum + (HONOUR_POINTS[rankOf(c)] ?? 0), 0)
 /** The highest card below the jack, so a signal never wastes an honour */
 const highSpot = (cards: Card[]) => [...cards].sort(byRank).filter((c) => value(c) < 11).at(-1) ?? [...cards].sort(byRank)[0]
 
@@ -436,78 +435,3 @@ function partnerSignal(state: BoardState, seat: Seat, trump: Suit | null): Suit 
   return null
 }
 
-/** The cards a robot may take into account */
-class View {
-  private readonly state: BoardState
-  private readonly seat: Seat
-  private readonly kind: RobotKind
-  private readonly played: Set<Card>
-  private readonly known: Set<Card>
-  private table: TableReading | null = null
-
-  constructor(state: BoardState, seat: Seat, kind: RobotKind) {
-    this.state = state
-    this.seat = seat
-    this.kind = kind
-    this.played = new Set(state.play.map((p) => p.card))
-    this.known = new Set([...remainingCards(state, seat), ...this.partnerCards()])
-  }
-
-  /** Partner's cards if visible: dummy once exposed, or the declarer's hand when playing dummy */
-  partnerCards(): Card[] {
-    const dummy = dummyOf(this.state)
-    const partner = partnerOf(this.seat)
-    const visible = this.state.play.length > 0 && (partner === dummy || this.seat === dummy)
-    return visible ? remainingCards(this.state, partner) : []
-  }
-
-  /** No higher card of the suit is still out among cards this robot cannot see */
-  isMaster(card: Card): boolean {
-    const suit = suitOf(card)
-    for (const rank of RANKS) {
-      if (rank === rankOf(card)) return true
-      const higher = suit + rank
-      if (!this.played.has(higher) && !this.known.has(higher)) return false
-    }
-    return true
-  }
-
-  /** The lowest of `own` cards equal to `card`: every rank between them is already played */
-  lowestEqual(card: Card, own: Card[]): Card {
-    const suit = suitOf(card)
-    let lowest = card
-    for (const rank of RANKS.slice(RANKS.indexOf(rankOf(card)) + 1)) {
-      const next = suit + rank
-      if (own.includes(next)) lowest = next
-      else if (!this.played.has(next)) break
-    }
-    return lowest
-  }
-
-  /** The other hands as the auction and the count describe them (worked out when first asked) */
-  get reading(): TableReading {
-    this.table ??= new TableReading(this.state, this.seat, this.kind)
-    return this.table
-  }
-
-  /** Cards of the suit above `card` still out (neither played nor on our side) */
-  higherOut(card: Card): Card[] {
-    const suit = suitOf(card)
-    const out: Card[] = []
-    for (const rank of RANKS.slice(0, RANKS.indexOf(rankOf(card)))) {
-      const higher = suit + rank
-      if (!this.played.has(higher) && !this.known.has(higher)) out.push(higher)
-    }
-    return out
-  }
-
-  /** Cards of a suit neither played nor visible to this robot */
-  outstanding(suit: Suit): number {
-    let n = 0
-    for (const rank of RANKS) {
-      const card = suit + rank
-      if (!this.played.has(card) && !this.known.has(card)) n++
-    }
-    return n
-  }
-}
