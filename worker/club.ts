@@ -1,11 +1,12 @@
 import { DurableObject } from 'cloudflare:workers'
 import { AppError } from '../shared/messages.ts'
+import type { ChallengeSettings } from '../shared/challenge.ts'
 import { parseHistoryQuery } from '../shared/history-query.ts'
 import type { ClientMessage, Me, ServerMessage } from '../shared/protocol.ts'
 import { readCookie, SESSION_COOKIE, sessionCookie } from './auth.ts'
 import { BookService, importRequestFrom } from './book.ts'
 import { claudeImporter } from './importer.ts'
-import { ClubError, ClubService, type Connections } from './service.ts'
+import { type ChallengeRequest, ClubError, ClubService, type Connections } from './service.ts'
 import type { Store } from './store.ts'
 
 export interface Env {
@@ -205,6 +206,27 @@ export class Club extends DurableObject<Env> implements Connections {
       return json({ record: found })
     }
     if (route === 'GET /api/challenges') return json({ challenges: this.service.challengeList(user.id) })
+    // The challenge pages create, answer and cancel over HTTP to hear back at once (e7-t16, e7-t17)
+    if (route === 'POST /api/challenges') {
+      const b = await body()
+      return json({
+        challenge: await this.service.challengeRequest(user.id, {
+          type: 'createChallenge',
+          invitees: b.invitees as string[],
+          boards: b.boards as number | undefined,
+          settings: b.settings as Partial<ChallengeSettings> | undefined,
+        }),
+      })
+    }
+    const challengeAction = url.pathname.match(/^\/api\/challenges\/([\w-]+)\/(answer|cancel)$/)
+    if (request.method === 'POST' && challengeAction) {
+      const [, challengeId, action] = challengeAction
+      const message: ChallengeRequest =
+        action === 'answer'
+          ? { type: 'answerChallenge', challengeId, accept: (await body()).accept as boolean }
+          : { type: 'cancelChallenge', challengeId }
+      return json({ challenge: await this.service.challengeRequest(user.id, message) })
+    }
     const challenge = url.pathname.match(/^\/api\/challenges\/([\w-]+)$/)
     if (request.method === 'GET' && challenge) {
       const found = this.service.challengeFor(challenge[1], user.id)

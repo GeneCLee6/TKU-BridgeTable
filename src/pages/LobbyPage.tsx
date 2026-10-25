@@ -6,6 +6,7 @@ import type { Seat } from '../../shared/cards.ts'
 import type { ChallengeView } from '../../shared/challenge.ts'
 import type { TableSummary } from '../../shared/protocol.ts'
 import { api } from '../lib/api.ts'
+import { playable } from '../lib/challenges.ts'
 import { formatDateTime } from '../lib/format.ts'
 import { useAuth } from '../state/AuthContext.tsx'
 import { SidePanel } from '../components/SidePanel.tsx'
@@ -210,28 +211,23 @@ const ChallengeCard = styled(Card)`
   margin-bottom: 16px;
 `
 
+const ChallengeHead = styled.div`
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+
+  & > a { color: ${({ theme }) => theme.colors.primary}; font-weight: 600; }
+`
+
 const ChallengeRows = styled.ul`
   list-style: none;
   margin: 0;
   padding: 0;
 `
 
-/** Whether the member can play the challenge now: accepted, still open, boards left */
-function playable(c: ChallengeView, userId: string, now: number) {
-  const me = c.players.find((p) => p.userId === userId)
-  return (
-    !!me &&
-    me.status === 'accepted' &&
-    !me.knownDeals &&
-    me.played < c.boards &&
-    (c.status === 'pending' || c.status === 'active') &&
-    now < c.deadline
-  )
-}
-
 /**
- * The challenges the member can play now, to start or carry on (`e7-t15`). The challenge pages,
- * with answering, standings and the rest, come with C6 (`e7-t16`)
+ * The challenges the member can play now, to start or carry on (`e7-t15`); answering, starting a
+ * challenge and the standings are on the challenge pages (`e7-t16`)
  */
 function MyChallenges({ refresh, onPlay }: { refresh: unknown; onPlay: (id: string) => void }) {
   const t = useT()
@@ -254,7 +250,10 @@ function MyChallenges({ refresh, onPlay }: { refresh: unknown; onPlay: (id: stri
   if (!open.length) return null
   return (
     <ChallengeCard as="section" aria-label={t.myChallenges}>
-      <strong>{t.myChallenges}</strong>
+      <ChallengeHead>
+        <strong>{t.myChallenges}</strong>
+        <Link to="/challenges">{t.allChallenges}</Link>
+      </ChallengeHead>
       <ChallengeRows>
         {open.map((c) => {
           const me = c.players.find((p) => p.userId === user.id)!

@@ -1,4 +1,4 @@
-import type { ChallengeView } from '../../shared/challenge.ts'
+import type { ChallengeSettings, ChallengeView } from '../../shared/challenge.ts'
 import { historyQueryString, type HistoryQuery } from '../../shared/history-query.ts'
 import type { MessageParams } from '../../shared/messages.ts'
 import type {
@@ -63,6 +63,14 @@ export const api = {
   record: (id: string) => request<{ record: BoardRecord }>(`/api/history/${encodeURIComponent(id)}`),
   /** The challenges the member is in, newest first (§5.5) */
   challenges: () => request<{ challenges: ChallengeView[] }>('/api/challenges'),
+  /** One challenge as the member may see it, with the standings and travellers they are allowed */
+  challenge: (id: string) => request<{ challenge: ChallengeView }>(`/api/challenges/${encodeURIComponent(id)}`),
+  /** Challenges friends (`e7-t17`); the server checks everything and answers with the new challenge */
+  createChallenge: (invitees: string[], boards: number, settings: Partial<ChallengeSettings>) =>
+    post<{ challenge: ChallengeView }>('/api/challenges', { invitees, boards, settings }),
+  answerChallenge: (id: string, accept: boolean) =>
+    post<{ challenge: ChallengeView }>(`/api/challenges/${encodeURIComponent(id)}/answer`, { accept }),
+  cancelChallenge: (id: string) => post<{ challenge: ChallengeView }>(`/api/challenges/${encodeURIComponent(id)}/cancel`),
 
   admin: {
     users: () => request<{ users: AdminUser[] }>('/api/admin/users'),

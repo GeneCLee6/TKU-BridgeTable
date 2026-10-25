@@ -10,6 +10,7 @@ import {
   Palette,
   Shield,
   Sun,
+  Swords,
   UserRound,
   Users,
   Volume2,
@@ -271,6 +272,10 @@ export function AppHeader() {
           <Link to="/" end aria-label={t.navLobby}>
             <Users size={18} aria-hidden />
             <span>{t.navLobby}</span>
+          </Link>
+          <Link to="/challenges" aria-label={t.navChallenges}>
+            <Swords size={18} aria-hidden />
+            <span>{t.navChallenges}</span>
           </Link>
           <Link to="/history" aria-label={t.navHistory}>
             <History size={18} aria-hidden />

@@ -351,6 +351,40 @@ describe('reading challenges', () => {
   })
 })
 
+describe('challenge requests over HTTP (e7-t16, e7-t17)', () => {
+  it('creates, answers and cancels with the socket’s checks, and hands back the challenge as the member sees it', async () => {
+    const [amy, ben, cat] = await friends('amy', 'ben', 'cat')
+    time += 1
+    const made = await club.challengeRequest(amy, {
+      type: 'createChallenge',
+      invitees: [ben, cat],
+      boards: 6,
+      settings: { scoring: 'crossImp', days: 5 },
+    })
+    expect(made).toMatchObject({ creatorId: amy, status: 'pending', boards: 6, deadline: time + 5 * DAY })
+    expect(made!.settings.scoring).toBe('crossImp')
+    expect(bell(ben)?.items[0]).toMatchObject({ kind: 'challengeInvited', params: { challengeId: made!.id } })
+
+    const answered = await club.challengeRequest(ben, { type: 'answerChallenge', challengeId: made!.id, accept: true })
+    expect(answered?.status).toBe('active')
+    expect(statusOf(answered!, ben)).toBe('accepted')
+
+    // Errors are thrown with the same codes the socket sends
+    await expect(
+      club.challengeRequest(ben, { type: 'cancelChallenge', challengeId: made!.id }),
+    ).rejects.toMatchObject({ code: 'challengeCreatorOnly' })
+    await expect(
+      club.challengeRequest(amy, { type: 'createChallenge', invitees: [await member('zoe')] }),
+    ).rejects.toMatchObject({ code: 'notFriend' })
+    await expect(
+      club.challengeRequest(cat, { type: 'answerChallenge', challengeId: made!.id, accept: 'yes' as unknown as boolean }),
+    ).rejects.toMatchObject({ code: 'unknownCommand' })
+
+    const cancelled = await club.challengeRequest(amy, { type: 'cancelChallenge', challengeId: made!.id })
+    expect(cancelled?.status).toBe('cancelled')
+  })
+})
+
 describe('challenge-flow', () => {
   const deals = makeDealSet({ kind: 'random', count: 4 })!
   const fresh = (invitees = ['b', 'c']) =>
