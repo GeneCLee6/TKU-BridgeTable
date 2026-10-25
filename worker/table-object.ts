@@ -100,6 +100,9 @@ export class TableObject extends DurableObject<Env> implements TableRpc, TableSo
   challengeEnded() {
     return this.host.challengeEnded()
   }
+  matchEnded() {
+    return this.host.matchEnded()
+  }
   close() {
     return this.host.close()
   }

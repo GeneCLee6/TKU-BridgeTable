@@ -370,17 +370,18 @@ export class Club extends DurableObject<Env> implements Connections {
       if (!found) throw new ClubError('challengeGone', {}, 404)
       return json({ challenge: found })
     }
-    // Team matches (§5.8): set up (e8-t03) and seated (e8-t04, e8-t05) over HTTP; start and play come in F4
+    // Team matches (§5.8): set up (e8-t03), seated (e8-t04, e8-t05) and started (e8-t07) over HTTP
     if (route === 'GET /api/matches') return json({ matches: this.service.matches.list(user.id) })
     if (route === 'POST /api/matches') {
       const b = await body()
       return json({ match: this.service.matches.create(user.id, { settings: b.settings, seat: b.seat }) })
     }
-    const matchAction = url.pathname.match(/^\/api\/matches\/([\w-]+)\/(settings|cancel|invite|answer|move|leave|clear|robot)$/)
+    const matchAction = url.pathname.match(/^\/api\/matches\/([\w-]+)\/(settings|cancel|start|invite|answer|move|leave|clear|robot)$/)
     if (request.method === 'POST' && matchAction) {
       const [, matchId, action] = matchAction
       if (action === 'settings') return json({ match: this.service.matches.update(user.id, matchId, (await body()).settings) })
       if (action === 'cancel') return json({ match: await this.service.matches.cancel(user.id, matchId) })
+      if (action === 'start') return json({ match: await this.service.startMatchRequest(user.id, matchId) })
       const type = `match${action[0].toUpperCase()}${action.slice(1)}`
       const message = { ...(await body()), type, matchId } as MatchAction
       return json({ match: await this.service.matches.request(user.id, message) })
@@ -442,6 +443,11 @@ export class Club extends DurableObject<Env> implements Connections {
         inviteCode: b.inviteCode === undefined ? undefined : text(b.inviteCode),
       })
       return json({ settings })
+    }
+    // Every role and permission change from the admin page's members section, in one request
+    if (method === 'POST' && path === '/members') {
+      await this.service.adminUpdateMembers(user.id, (await body()).changes)
+      return json({ ok: true })
     }
     const member = path.match(/^\/users\/(\w+)(\/password|\/admin|\/permissions)?$/)
     if (member) {

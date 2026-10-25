@@ -47,6 +47,7 @@ import { randomId } from './auth.ts'
 import { ClubError } from './errors.ts'
 import { challengeStateOf, challengeTableOpen, modeOf, nextTableSeq, type EventReport, type ModeContext } from './modes.ts'
 import type { Scheduler } from './scheduler.ts'
+import { tableMatch, teamStateOf, teamTableOver } from './team-mode.ts'
 import type { ClubLink, Named, Person, TableApi, TableEntry, Tables } from './tables.ts'
 import { boardView, chatFor, practiceView, recordVisible, seatOccupants, type Table } from './views.ts'
 
@@ -213,6 +214,8 @@ export class TableService implements TableApi {
     if (this.isAt(person.id)) return this.settled()!
     // Someone else's challenge or practice table is not there for anyone to see
     if (soloTable(table.mode)) throw new ClubError('tableGone', {}, 404)
+    // A team match's player never watches the other room (§5.8)
+    if (this.otherRoom(person.id)) throw new ClubError('matchOtherRoom', {}, 403)
     if (!settingsOf(table).allowKibitz) throw new ClubError('noKibitzing', {}, 403)
     this.welcome(person)
     table.spectators.push(person.id)
@@ -229,6 +232,11 @@ export class TableService implements TableApi {
     if (soloTable(table.mode)) {
       if (here) throw this.fixed()
       throw new ClubError('tableGone', {}, 404)
+    }
+    // The match seats its players; nobody else sits at its tables, nor moves (§5.8)
+    if (table.mode === 'team') {
+      if (this.otherRoom(userId)) throw new ClubError('matchOtherRoom', {}, 403)
+      throw new ClubError('matchTableFixed')
     }
     // A person may take a robot's seat at any time, as on BBO
     const occupant = table.seats[seat]
@@ -267,6 +275,9 @@ export class TableService implements TableApi {
       await this.save()
       return this.settled()
     }
+    // A team match player keeps their seat while the match is on: going to another page only
+    // leaves the page (§5.8); the table goes on, and a robot sits in if they drop offline
+    if (seat && this.playsOn()) return this.settled()
     if (seat) this.vacate(seat)
     table.spectators = table.spectators.filter((id) => id !== userId)
     this.checkHost()
@@ -352,6 +363,14 @@ export class TableService implements TableApi {
       await this.drop()
       return null
     }
+    // A team match plays on: a robot of the match's system takes the deleted member's seat (§5.8)
+    const team = teamStateOf(table)
+    const kept = team && !team.closed ? this.seatOf(userId) : null
+    if (kept) {
+      this.vacate(kept)
+      table.seats[kept] = robotId(team!.robotKind, kept)
+      this.touchTurn()
+    }
     // Invitations and robot substitutes for them are forgotten; the robot stays in the seat
     const seat = this.substituteSeat(userId)
     if (table.invited) table.invited = table.invited.filter((id) => id !== userId)
@@ -381,6 +400,20 @@ export class TableService implements TableApi {
     }
     await this.drop()
     return null
+  }
+
+  /**
+   * The table's team match ended (finished, or abandoned): nothing more is dealt, and from now on
+   * the table is like any other - people leave when they like, and it closes once nobody is left.
+   * A room of robots alone closes at once
+   */
+  async matchEnded(): Promise<TableEntry | null> {
+    const table = this.table
+    const state = table && teamStateOf(table)
+    if (!table || !state) return this.settled()
+    state.closed = true
+    table.dealAt = undefined
+    return this.saveOrDrop()
   }
 
   async close(): Promise<void> {
@@ -467,7 +500,7 @@ export class TableService implements TableApi {
     const table = this.table
     const seat = table && this.isAt(userId) ? this.seatOf(userId) : null
     if (!table || !seat) return
-    this.checkNotChallenge()
+    this.checkFixed()
     this.vacate(seat)
     table.spectators.push(userId)
     await this.save()
@@ -477,21 +510,44 @@ export class TableService implements TableApi {
   private hostTable(userId: string): Table {
     const table = this.table
     if (!table || !this.isAt(userId)) throw new ClubError('notAtTable')
+    this.checkFixed()
     if (table.hostId !== userId) throw new ClubError('hostOnly')
-    this.checkNotChallenge()
     return table
   }
 
   /**
    * At a challenge or practice table (`soloTable`) nobody else watches, and seats and settings stay
-   * as they were opened; at a challenge table nobody takes back a call or card either
+   * as they were opened (at a challenge table nobody takes back a call or card either); at a team
+   * match table seats and settings are the match's (§5.8)
    */
-  private checkNotChallenge() {
-    if (soloTable(this.table!.mode)) throw this.fixed()
+  private checkFixed() {
+    const mode = this.table!.mode
+    if (soloTable(mode)) throw this.fixed()
+    if (mode === 'team') throw new ClubError('matchTableFixed')
   }
 
   private fixed() {
     return new ClubError(this.table!.mode === 'practice' ? 'practiceTableFixed' : 'challengeTableFixed')
+  }
+
+  /**
+   * Whether a member has a seat in the other room of this table's team match: they may neither
+   * watch nor sit here while the match is on (§5.8, AC-8.4)
+   */
+  private otherRoom(userId: string): boolean {
+    const state = teamStateOf(this.table!)
+    if (!state || state.closed) return false
+    const other = state.room === 'open' ? 'closed' : 'open'
+    return state.players[other].includes(userId)
+  }
+
+  /**
+   * A team match room plays on by itself while the match is on, even with robots alone (two
+   * people and six robots may leave one room to the robots) and when everyone at it leaves
+   */
+  private playsOn(): boolean {
+    const state = teamStateOf(this.table!)
+    return !!state && !state.closed
   }
 
   /**
@@ -591,7 +647,10 @@ export class TableService implements TableApi {
     const clean = String(text ?? '').trim().slice(0, LIMITS.chatMax)
     if (!table || !this.isAt(userId) || !clean) return
     const username = table.names?.[userId] ?? '—'
-    table.chat = [...table.chat, { id: randomId(6), at: this.now(), userId, username, text: clean }].slice(-CHAT_KEEP)
+    // At a team match table the watchers talk among themselves (§5.8): the players never see it
+    const kibitz = table.mode === 'team' && !this.seatOf(userId)
+    const message = { id: randomId(6), at: this.now(), userId, username, text: clean, ...(kibitz && { kibitz: true as const }) }
+    table.chat = [...table.chat, message].slice(-CHAT_KEEP)
     await this.save()
   }
 
@@ -656,7 +715,11 @@ export class TableService implements TableApi {
 
   private canDeal() {
     const table = this.table!
-    return SEATS.every((s) => table.seats[s]) && this.humansSeated() > 0 && (!table.board || table.board.phase === 'finished')
+    return (
+      SEATS.every((s) => table.seats[s]) &&
+      (this.humansSeated() > 0 || this.playsOn()) &&
+      (!table.board || table.board.phase === 'finished')
+    )
   }
 
   private dealBoard() {
@@ -811,8 +874,10 @@ export class TableService implements TableApi {
     const table = this.table
     const seat = table && this.isAt(userId) ? this.seatOf(userId) : null
     if (!table || !seat) throw new ClubError('notSeated')
-    if (table.mode === 'challenge' && (message.type === 'undoRequest' || message.type === 'undoRespond'))
-      throw new ClubError('challengeNoUndo')
+    if (message.type === 'undoRequest' || message.type === 'undoRespond') {
+      if (table.mode === 'challenge') throw new ClubError('challengeNoUndo')
+      if (table.mode === 'team') throw new ClubError('matchNoUndo')
+    }
     await this.applyAction(seat, message)
   }
 
@@ -987,7 +1052,7 @@ export class TableService implements TableApi {
   private robotMove(): { seat: Seat; delay: number; decide: (brain: RobotBrain) => Promise<RobotAnswer> } | null {
     const table = this.table
     const board = table?.board
-    if (!table || !board || board.phase === 'finished' || this.humansSeated() === 0) return null
+    if (!table || !board || board.phase === 'finished' || (this.humansSeated() === 0 && !this.playsOn())) return null
     if (this.challengeClosed()) return null
     const robot = (seat: Seat | null | undefined): seat is Seat => !!seat && isRobotId(table.seats[seat])
     const kindAt = (seat: Seat) => robotKindOf(table.seats[seat]!)
@@ -1110,7 +1175,7 @@ export class TableService implements TableApi {
   /** Closes a table no person is sitting at or watching (robots do not keep it open) */
   private async saveOrDrop(): Promise<TableEntry | null> {
     const table = this.table!
-    if (table.spectators.length === 0 && this.humansSeated() === 0) {
+    if (table.spectators.length === 0 && this.humansSeated() === 0 && !this.playsOn()) {
       await this.drop()
       return null
     }
@@ -1145,6 +1210,7 @@ export class TableService implements TableApi {
   /** What the club keeps of the table (`TableEntry`), without `rev` */
   private describe(table: Table): Omit<TableEntry, 'rev'> {
     const state = challengeStateOf(table)
+    const team = teamStateOf(table)
     return {
       id: table.id,
       number: table.number,
@@ -1159,6 +1225,9 @@ export class TableService implements TableApi {
       boardNo: table.board ? table.board.boardNo : null,
       playing: !!table.board && table.board.phase !== 'finished',
       ...(state && { challenge: { challengeId: state.challengeId, userId: state.userId } }),
+      ...(team && {
+        match: { matchId: team.matchId, room: team.room, teamNames: team.teamNames, ...(team.closed && { ended: true }) },
+      }),
     }
   }
 
@@ -1241,19 +1310,24 @@ export class TableService implements TableApi {
             recordId: table.recordId,
             rejectedClaim: table.rejectedClaim,
             auctionSeat: mySeat ? this.auctionSeat(table, mySeat) : undefined,
-            undoAllowed: table.mode !== 'challenge',
+            undoAllowed: table.mode !== 'challenge' && table.mode !== 'team',
             kibitz: settings.allowKibitz,
             robots: Object.fromEntries(SEATS.flatMap((s) => (table.seats[s] && isRobotId(table.seats[s]!) ? [[s, robotKindOf(table.seats[s]!)]] : []))),
           })
         : null,
       boardsPlayed: table.boardsPlayed,
-      dealAt: table.board?.phase === 'finished' && this.canDeal() && !this.challengeTableOver() ? (table.dealAt ?? null) : null,
-      chat: chatFor(table.chat, (authorId) => blocked.has(authorId)),
+      dealAt:
+        table.board?.phase === 'finished' && this.canDeal() && !this.challengeTableOver() && !teamTableOver(table)
+          ? (table.dealAt ?? null)
+          : null,
+      chat: chatFor(table.chat, (authorId) => blocked.has(authorId), { player: table.mode === 'team' && mySeat !== null }),
       recent: (table.recent ?? []).filter((summary) => recordVisible(summary, userId, this.now())),
       ...(table.mode === 'challenge' && { challenge: this.tableChallenge(table) }),
       ...practiceView(table),
+      ...(table.mode === 'team' && { match: tableMatch(table) }),
       ...(table.hostId === userId &&
-        !soloTable(table.mode) && { invited: (table.invited ?? []).flatMap((id) => this.publicUser(id) ?? []) }),
+        !soloTable(table.mode) &&
+        table.mode !== 'team' && { invited: (table.invited ?? []).flatMap((id) => this.publicUser(id) ?? []) }),
       boardEndsAt:
         playing && settings.boardMinutes > 0 ? (table.boardStartedAt ?? table.createdAt) + settings.boardMinutes * 60_000 : null,
       waiting: waiting && { seat: waiting, since: table.turnSince ?? table.createdAt },

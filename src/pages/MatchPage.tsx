@@ -1,6 +1,6 @@
 import { ChevronLeft } from 'lucide-react'
 import { useEffect, useRef, useState, type FormEvent } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import styled from 'styled-components'
 import { ROBOT_KINDS } from '../../shared/protocol.ts'
 import {
@@ -14,10 +14,11 @@ import {
   type TeamMatchView,
 } from '../../shared/team-match.ts'
 import { MATCH_SCORINGS, type Team } from '../../shared/team-scoring.ts'
-import { Tag } from '../components/MatchParts.tsx'
+import { BoardScores, ScoreLine, Tag } from '../components/MatchParts.tsx'
 import { Button, Card, ErrorText, Field, FieldLabel, Input, Muted, PageMain, PageTitle, Select } from '../components/ui.tsx'
 import { ApiError, api, type MatchSeatAction } from '../lib/api.ts'
-import { arranges, matchSettingsLine, mySeat, robotsUneven, sameSeat, seatLabel, teamName } from '../lib/matches.ts'
+import { arranges, matchSettingsLine, myRoomTable, mySeat, robotsUneven, sameSeat, seatLabel, teamName } from '../lib/matches.ts'
+import { useTeamMatch } from '../lib/useTeamMatch.ts'
 import { useAuth } from '../state/AuthContext.tsx'
 import { useClub } from '../state/ClubContext.tsx'
 import { usePreferences } from '../state/PreferencesContext.tsx'
@@ -27,8 +28,11 @@ import { usePreferences } from '../state/PreferencesContext.tsx'
  * who is in each (invited, seated, a robot, online or not), and what the viewer may do there —
  * answer an invitation; as a team's captain invite, add a robot, clear or swap seats (`e8-t05`);
  * move to an empty seat of their team; leave. The host also changes the settings, cancels, and
- * sees whether the match can start and why not. Starting it is the next batch (F4, `e8-t07`).
- * The server pushes every change (`match`), so the page stays live without polling.
+ * sees whether the match can start and why not, and starts it (`e8-t07`): both rooms open at once and
+ * the players are taken to their tables. While it is played and after, the page shows the score of
+ * the boards both rooms played (`e8-t10`, `e8-t11`), a way back to the player's own table, and the
+ * two rooms for everyone else to watch. The server pushes every change (`match`), so the page
+ * stays live without polling.
  */
 
 const Back = styled(Link)`
@@ -169,9 +173,10 @@ export function MatchPage() {
   const { matchId = '' } = useParams()
   const { t, message } = usePreferences()
   const { user } = useAuth()
-  const { matchLive, lobby } = useClub()
-  const [match, setMatch] = useState<TeamMatchView | null | undefined>(undefined)
-  const [error, setError] = useState('')
+  const { lobby } = useClub()
+  const navigate = useNavigate()
+  const { match, setMatch, error: loadError } = useTeamMatch(matchId)
+  const [actionError, setError] = useState('')
   const [busy, setBusy] = useState(false)
   /** The seat a captain picked to swap (換位), waiting for the other seat */
   const [moving, setMoving] = useState<MatchSeat | null>(null)
@@ -179,27 +184,18 @@ export function MatchPage() {
   const [inviting, setInviting] = useState<MatchSeat | null>(null)
   const [invitee, setInvitee] = useState('')
 
-  useEffect(() => {
-    let live = true
-    api
-      .match(matchId)
-      .then((r) => live && setMatch(r.match))
-      .catch((e) => {
-        if (!live) return
-        if (e instanceof ApiError && e.status === 404) setMatch(null)
-        else setError(e instanceof ApiError ? message(e.code, e.params, e.message) : String(e))
-      })
-    return () => {
-      live = false
-    }
-  }, [matchId, message])
+  const error =
+    actionError ||
+    (loadError ? (loadError instanceof ApiError ? message(loadError.code, loadError.params, loadError.message) : String(loadError)) : '')
 
-  // Pushed changes; the one held when the page opened may be older than what the page loads
-  const first = useRef(matchLive)
+  // The match starts while the page is open: a player goes straight to their table
+  const status = useRef(match?.status)
+  const myTable = match && user ? myRoomTable(match, user.id) : undefined
   useEffect(() => {
-    if (!matchLive || matchLive === first.current || matchLive.matchId !== matchId) return
-    setMatch(matchLive.match)
-  }, [matchLive, matchId])
+    const before = status.current
+    status.current = match?.status
+    if (before === 'setup' && match?.status === 'playing' && myTable) navigate(`/table/${myTable}`)
+  }, [match?.status, myTable, navigate])
 
   const fail = (e: unknown) => setError(e instanceof ApiError ? message(e.code, e.params, e.message) : String(e))
 
@@ -426,7 +422,34 @@ export function MatchPage() {
         </Rosters>
       </Section>
 
-      {setup && isHost && <StartBar match={m} />}
+      {!setup && m.status !== 'cancelled' && (
+        <Section aria-labelledby="score-title">
+          <h2 id="score-title">{m.status === 'playing' ? t.teamMatch.score : t.teamMatch.ended}</h2>
+          <Bar>
+            <ScoreLine match={m} />
+          </Bar>
+          {m.status === 'playing' && <Muted>{t.teamMatch.playingHint}</Muted>}
+          {m.status === 'playing' && m.tables && (
+            <Bar>
+              {myTable ? (
+                <Button as={Link} to={`/table/${myTable}`} $variant="primary">
+                  {t.teamMatch.toTable}
+                </Button>
+              ) : (
+                !mine &&
+                ROOMS.map((room) => (
+                  <Button key={room} as={Link} to={`/table/${m.tables![room]}`}>
+                    {t.teamMatch.watchRoom(t.teamMatch.rooms[room])}
+                  </Button>
+                ))
+              )}
+            </Bar>
+          )}
+          {m.boards.length > 0 && <BoardScores match={m} />}
+        </Section>
+      )}
+
+      {setup && isHost && <StartBar match={m} busy={busy} onStart={() => void run(() => api.startMatch(m.id))} />}
       {setup && isHost && <SettingsForm key={JSON.stringify(m.settings)} match={m} busy={busy} onSave={(settings) => void run(() => api.matchSettings(m.id, settings))} />}
       {setup && (
         <Bar>
@@ -452,19 +475,19 @@ export function MatchPage() {
   )
 }
 
-/** The host's start button (AC-8.2): why it cannot start yet; starting itself comes with F4 */
-function StartBar({ match }: { match: TeamMatchView }) {
+/** The host's start button (AC-8.2): why it cannot start yet, or ready to start both rooms at once (`e8-t07`) */
+function StartBar({ match, busy, onStart }: { match: TeamMatchView; busy: boolean; onStart: () => void }) {
   const { t } = usePreferences()
   const ready = match.ready
   return (
     <Section aria-labelledby="start-title">
       <h2 id="start-title">{t.teamMatch.start}</h2>
       <Bar>
-        <Button type="button" $variant="primary" disabled aria-describedby="start-why">
+        <Button type="button" $variant="primary" disabled={!ready?.ready || busy} aria-describedby="start-why" onClick={onStart}>
           {t.teamMatch.start}
         </Button>
         <Muted as="span" id="start-why">
-          {ready && !ready.ready ? t.teamMatch.notReady[ready.reason] : t.teamMatch.readySoon}
+          {ready && !ready.ready ? t.teamMatch.notReady[ready.reason] : t.teamMatch.readyToStart}
         </Muted>
       </Bar>
     </Section>

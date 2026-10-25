@@ -1,7 +1,8 @@
 import { parseClientMessage } from '../shared/message-guard.ts'
 import type { MessageCode } from '../shared/messages.ts'
 import type { ClientMessage, NotificationKind, PublicUser, ServerMessage } from '../shared/protocol.ts'
-import { arrangerOf, parseTeamMatchSettings, teamAt, type MatchSeat, type TeamMatchView } from '../shared/team-match.ts'
+import type { DealSet } from '../shared/deal-set.ts'
+import { arrangerOf, parseTeamMatchSettings, teamAt, type MatchSeat, type Room, type TeamMatchView } from '../shared/team-match.ts'
 import { ClubError } from './service.ts'
 import {
   answerSeat,
@@ -10,22 +11,26 @@ import {
   clearSeat,
   inviteToSeat,
   leaveSeat,
+  matchMembers,
   matchReady,
   moveSeat,
   newTeamMatch,
   parseHostSeat,
   parseMatchSeat,
   robotSeat,
+  roomFinished,
+  startMatch,
   type FlowError,
   type SeatChange,
 } from './team-match-flow.ts'
-import { TeamMatchStore, type TeamMatch } from './team-matches.ts'
+import { TeamMatchStore, type RoomResult, type TeamMatch } from './team-matches.ts'
 import { teamMatchView } from './views.ts'
 
 /**
  * Team matches (ARCHITECTURE.md §5.8): creating one, changing its settings and cancelling it
  * before it starts (e8-t03), its seats — invitations, answers, moving, leaving, robots and the
- * captains (e8-t04, e8-t05) — and reading them back as each member may see them. It is kept out of
+ * captains (e8-t04, e8-t05) — starting it and the rooms' results as they come in (e8-t07–e8-t11),
+ * and reading them back as each member may see them. It is kept out of
  * `ClubService`, which only builds it and hands it what it needs from the club: the clock, ids,
  * who members are, blocks, who is online, notifications, the socket and the per-member rate limit.
  * Like `ClubService` it never touches a Cloudflare API: the matches are in `Store.sql` through
@@ -47,6 +52,8 @@ export interface TeamMatchDeps {
   online: () => string[]
   /** Sends a socket message to a member who is online */
   send: (userId: string, message: ServerMessage) => void
+  /** Everyone at the match's two tables (seated or watching), who see its score too */
+  watchers: (matchId: string) => string[]
   notify: (userId: string, kind: NotificationKind, params: Record<string, string | number>) => Promise<unknown>
 }
 
@@ -117,14 +124,16 @@ export class TeamMatchService {
 
   /**
    * Pushes the match as each of its members now sees it to those online, and `null` to those in
-   * `before` who may no longer see it (they left, declined or were taken off)
+   * `before` who may no longer see it (they left, declined or were taken off). While it is played,
+   * everyone watching one of its tables gets it too: the score bar above the table (`e8-t10`)
    */
-  private push(id: string, before: string[] = []) {
+  push(id: string, before: string[] = []) {
     const { send } = this.deps
     const match = this.store.get(id)
     if (!match) return
     const online = this.online()
-    for (const userId of new Set([...before, ...this.players(match)]))
+    const watching = match.status === 'setup' || match.status === 'cancelled' ? [] : this.deps.watchers(id)
+    for (const userId of new Set([...before, ...this.players(match), ...watching]))
       if (online.has(userId)) send(userId, { type: 'match', matchId: id, match: this.viewOf(match, userId, online) })
   }
 
@@ -180,6 +189,57 @@ export class TeamMatchService {
     for (const other of this.players(match)) if (other !== userId) await this.notify(other, 'matchCancelled', id, userId)
     this.push(id)
     return this.view(id, userId)
+  }
+
+  /**
+   * The match the host may start now (`e8-t07`): theirs, being set up, every seat taken and every
+   * member online (`matchReady`); otherwise the reason it cannot start. The club opens the tables
+   */
+  startable(userId: string, id: unknown): TeamMatch {
+    const match = this.require(id, userId)
+    const online = this.online()
+    const step = startMatch(match, userId, (member) => online.has(member))
+    if ('error' in step) this.fail(step)
+    return match
+  }
+
+  /** The match's two tables are open: it is being played. Everyone in it but the host is told, and sees it */
+  async started(id: string, deals: DealSet, tables: Record<Room, string>) {
+    const match = this.store.get(id)!
+    this.store.setStarted(id, deals, tables, this.deps.now())
+    for (const userId of matchMembers(match))
+      if (userId !== match.hostId) await this.notify(userId, 'matchStarted', id, match.hostId)
+    this.push(id)
+  }
+
+  /**
+   * A room finished a board (`e8-t08`, `e8-t10`): its result is written once (the same report
+   * again, or one for a match no longer played, changes nothing and answers null). Answers the
+   * board's two records once both rooms played it (to be shown to everyone), and whether that was
+   * the match's last board
+   */
+  addResult(id: string, seq: number, room: Room, result: RoomResult): { reveal: string[]; finished: boolean } | null {
+    const match = this.store.get(id)
+    const outcome = match && roomFinished(match, seq, room, result)
+    if (!outcome) return null
+    this.store.addResult(id, seq, room, result)
+    const board = this.store.get(id)!.boards.find((b) => b.seq === seq)
+    const reveal = outcome.complete && board?.open && board.closed ? [board.open.boardId, board.closed.boardId] : []
+    return { reveal, finished: outcome.finished }
+  }
+
+  /** Every board of the match is done (`e8-t11`): it is finished, and everyone in it is told to come and see the result */
+  async finish(id: string) {
+    const match = this.store.get(id)
+    if (match?.status !== 'playing') return
+    this.store.setStatus(id, 'finished', this.deps.now())
+    for (const userId of matchMembers(match)) await this.deps.notify(userId, 'matchFinished', { matchId: id })
+  }
+
+  /** The match a member is playing now, if any (§5.8) */
+  playingOf(userId: string): TeamMatch | null {
+    const id = this.store.playingIdOf(userId)
+    return id ? this.store.get(id) : null
   }
 
   /**

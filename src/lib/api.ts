@@ -14,6 +14,7 @@ import type {
   FavoriteTag,
   HistoryPage,
   Me,
+  MemberChange,
   Permission,
   RegisterResult,
 } from '../../shared/protocol.ts'
@@ -134,6 +135,8 @@ export const api = {
   matchSettings: (id: string, settings: Partial<TeamMatchSettings>) =>
     post<{ match: TeamMatchView }>(`/api/matches/${encodeURIComponent(id)}/settings`, { settings }),
   cancelMatch: (id: string) => post<{ match: TeamMatchView }>(`/api/matches/${encodeURIComponent(id)}/cancel`),
+  /** The host starts the match (`e8-t07`): both rooms open and deal board 1 */
+  startMatch: (id: string) => post<{ match: TeamMatchView | null }>(`/api/matches/${encodeURIComponent(id)}/start`),
   /**
    * A seat action (`e8-t04`, `e8-t05`): answers with the match as the member now sees it, null once
    * they may not (they declined or left)
@@ -150,6 +153,8 @@ export const api = {
       post<{ ok: true }>(`/api/admin/users/${id}/permissions`, { permissions }),
     createUser: (username: string, password: string) => post<{ user: Me }>('/api/admin/users', { username, password }),
     resetPassword: (id: string, password: string) => post<{ ok: true }>(`/api/admin/users/${id}/password`, { password }),
+    /** Every role and permission change from the members section, in one request */
+    updateMembers: (changes: MemberChange[]) => post<{ ok: true }>('/api/admin/members', { changes }),
     setAdmin: (id: string, admin: boolean) => post<{ ok: true }>(`/api/admin/users/${id}/admin`, { admin }),
     deleteUser: (id: string) => request<{ ok: true }>(`/api/admin/users/${id}`, { method: 'DELETE' }),
     settings: () => request<{ settings: ClubSettings }>('/api/admin/settings'),
