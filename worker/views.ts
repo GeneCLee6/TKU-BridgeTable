@@ -12,7 +12,17 @@ import {
   turnOf,
   type BoardState,
 } from '../shared/game.ts'
-import type { BoardSummary, BoardView, ChatMessage, PublicUser, SeatOccupant, TableMode, TableSettings } from '../shared/protocol.ts'
+import type {
+  BoardRecord,
+  BoardSummary,
+  BoardView,
+  ChatMessage,
+  PublicUser,
+  SeatOccupant,
+  TableMode,
+  TableSettings,
+} from '../shared/protocol.ts'
+import type { EventReport } from './modes.ts'
 import { isOpenChallenge, type ChallengeTraveller, type ChallengeView } from '../shared/challenge.ts'
 import type { DealSource } from '../shared/deal-source.ts'
 import type { MemberProfile, Profile } from '../shared/profile.ts'
@@ -64,6 +74,15 @@ export interface Table {
   substitutes?: Partial<Record<Seat, string>>
   /** Seats where a robot sat in for a member during the board on the table, for its record */
   boardSubstitutes?: Partial<Record<Seat, string>>
+  /**
+   * The names of the members the table shows (seated, watching, invited, sat in for), given by the
+   * club with each action, so the table never has to ask it (ARCHITECTURE.md §5.10)
+   */
+  names?: Record<string, string>
+  /** Whom each member at the table blocked, for the chat each of them sees (`chatFor`) */
+  blocks?: Record<string, string[]>
+  /** Finished boards whose record the club has not taken yet; offered again until it does (§5.10) */
+  outbox?: { record: BoardRecord; event: EventReport | null }[]
 }
 
 /**
@@ -113,7 +132,7 @@ export function chatFor(chat: ChatMessage[], blocked: (authorId: string) => bool
 }
 
 export function seatOccupants(
-  table: Table,
+  table: Pick<Table, 'seats'>,
   user: (id: string) => PublicUser | undefined,
   isOnline: (id: string) => boolean,
 ): Record<Seat, SeatOccupant | null> {

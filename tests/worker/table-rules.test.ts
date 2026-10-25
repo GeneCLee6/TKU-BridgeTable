@@ -425,7 +425,7 @@ describe('robot substitutes (e2-t31)', () => {
     await goOffline(gene)
     time += SUBSTITUTE_MS
     await run('substitute')
-    expect(club.tableView(club['tables'].values().next().value!, gene).seats.N).toMatchObject({ id: amy })
+    expect(club.tables.local(club.lobbyView(gene).tables[0].id)!.view(gene)!.seats.N).toMatchObject({ id: amy })
   })
 
   it('give the seat up for good when a person takes it', async () => {

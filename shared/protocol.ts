@@ -357,6 +357,30 @@ export const DIRECT_KEPT = 1000
 export const DIRECT_PAGE_SIZE = 30
 export const DIRECT_CONVERSATIONS_SHOWN = 50
 
+/**
+ * The messages a table handles by itself (ARCHITECTURE.md §5.10): nothing outside the table
+ * changes, so they go over the table's own connection. Everything else goes to the club
+ */
+export const TABLE_ACTIONS = [
+  'stand',
+  'kick',
+  'addRobot',
+  'removeRobot',
+  'replaceWithRobot',
+  'call',
+  'play',
+  'claim',
+  'claimRespond',
+  'undoRequest',
+  'undoRespond',
+  'chat',
+] as const
+
+export type TableAction = Extract<ClientMessage, { type: (typeof TABLE_ACTIONS)[number] }>
+
+export const isTableAction = (message: ClientMessage): message is TableAction =>
+  (TABLE_ACTIONS as readonly string[]).includes(message.type)
+
 export type ClientMessage =
   /** `invitees`: the members invited to the table (they are told), at most LIMITS.tableInvitesMax */
   | { type: 'createTable'; settings?: Partial<TableSettings>; invitees?: string[] }

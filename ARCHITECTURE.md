@@ -14,7 +14,7 @@
                                        └────────────────────────────────────────┘
 ```
 
-- 整個社團是**一個 Durable Object**：所有帳號、牌桌、牌局紀錄與 WebSocket 都在同一個物件裡，每個動作依序處理，不需要鎖或分散協調。10 人的社團遠低於單一物件的負載。
+- 整個社團是**一個 Durable Object**：所有帳號、牌桌、牌局紀錄與 WebSocket 都在同一個物件裡，每個動作依序處理，不需要鎖或分散協調。10 人的社團遠低於單一物件的負載。為了多人多桌，牌桌正在拆成每桌一個物件（§5.10）：H1a 先把每一桌的邏輯抽成 `TableService`，社團只透過介面與牌桌目錄跟它溝通，仍在同一個物件裡；H1b 再搬進各自的 `TableObject`。
 - 伺服器是唯一的真相：瀏覽器送「我要叫 1♠」「我要出 ♥K」，伺服器用 `shared/game.ts` 驗證後更新狀態，再推送每個人**可以看到的**畫面。
 - 推送策略刻意簡單：任何變動後，對每位線上使用者送一份完整的大廳與他所在的牌桌。資料量小（一張桌幾 KB），不需要差異更新。
 
@@ -50,7 +50,10 @@ TKU-BridgeTable/
 ├─ worker/
 │  ├─ index.ts             Worker 入口：/api/* 與 /ws 轉給 Durable Object，其他交給靜態檔案
 │  ├─ club.ts              Durable Object：HTTP 路由、WebSocket（hibernation）、儲存轉接
-│  ├─ service.ts           ClubService：帳號、申請、session、牌桌、權限、牌局紀錄（可單獨測試）
+│  ├─ service.ts           ClubService：帳號、申請、session、牌桌目錄、權限、牌局紀錄（可單獨測試）
+│  ├─ table-service.ts     TableService：一張牌桌的一切（座位、叫牌出牌、機器人、發牌、代打、聊天、畫面），LocalTables（§5.10）
+│  ├─ tables.ts            社團與牌桌之間的介面：TableEntry（牌桌目錄）、TableApi、ClubLink（§5.10）
+│  ├─ errors.ts            ClubError
 │  ├─ book.ts              BookService：淡江橋譜的線上內容、版本、匯入草稿與憑證
 │  ├─ importer.ts          淡江橋譜的 AI 匯入：Claude 的提示、回覆 schema、串流
 │  ├─ views.ts             每位觀看者可見的牌桌畫面（可見性規則）
@@ -170,7 +173,7 @@ interface BoardState {
 - **大廳排序與快速入座**（`e2-t29`、`e2-t30`，`shared/lobby.ts`）：缺人的桌在前，缺越少越前面（最快能開打），滿的桌在後，同組照桌號；大廳卡片標「缺 N 家」。`quickSeat` 選第一張缺人、可以入座（公開或受邀、房主沒封鎖他）的桌，坐第一個空位（南、北、東、西）；都滿就開新桌（預設設定）。已經坐在別桌的人會換過去
 - **斷線代打**（`e2-t31`）：一般牌桌上入座的真人斷線（最後一個 socket 關閉）滿 `SUBSTITUTE_MS`（3 分鐘），排程器的 `substitute:<社員>` 工作讓 TKB 坐進他的座位（同伴是機器人就用同伴的制度），`Table.substitutes` 記座位 → 本人，名牌顯示「代打 某某」（`SeatOccupant.substituteFor`）；只在桌上還有別的入座真人在線時才代打。本人重新連線（`connected`）立刻換回原座位（機器人換座位時記號跟著走）；別人坐進代打的座位、房主移走它，代打就結束。這一副有代打過，紀錄的 `BoardRecord.substitutes` 記座位與本人，單副紀錄頁的明細列出「北 · 代打 某某」（`RecordSubstitutes`）。斷線時間在記憶體（`offlineSince`），物件被回收後 `load()` 把離線的入座者從現在重新起算
 - **牌桌模式**：`Table.mode`（`casual` 或挑戰的 `challenge`，舊資料沒有這欄也當 `casual`）與 `modeState`；`ClubService` 只在三個地方問模式（`worker/modes.ts` 的 `TableModeHooks`，都拿到 `ModeContext`：社團的亂數、現在時間、`ChallengeStore`）：發新一副（`deal`，回傳牌號與四手牌，`null` 表示沒有下一副，最後一副留在桌上）、寫紀錄（`record`）、一副結束（`boardFinished`，在紀錄存好之後，所以拿得到牌局 id）。叫牌、出牌、入座與可見性在每種模式都一樣。牌從 `Table.dealSource` 來（`shared/deal-source.ts`；沒有就是每副重洗）
-- **排程**：機器人的下一步與自動發牌都交給同一個排程器（`worker/scheduler.ts`），每桌每種工作一個 key（`robot:<桌>`、`deal:<桌>`），每個進行中的挑戰一個 `challenge:<挑戰>`（§5.5），每位斷線的入座者一個 `substitute:<社員>`（代打），同一個 key 還在等就不重排。Durable Object 用 `AlarmQueue`：工作放在記憶體，只把最早的一個設成物件唯一的 storage alarm（`alarm()` → `ClubService.runDue()`），所以不會互相覆蓋 alarm，物件在兩步之間也能休眠；工作不寫進儲存，物件被回收後由 `load()` 依牌桌狀態與進行中的挑戰重新排程。測試傳 `schedule` 換成手動佇列
+- **排程**：機器人的下一步與自動發牌都交給同一個排程器（`worker/scheduler.ts`），每桌每種工作一個 key（`robot:<桌>`、`deal:<桌>`），每個進行中的挑戰一個 `challenge:<挑戰>`（§5.5），每位斷線的入座者一個 `substitute:<桌>:<社員>`（代打），一副的紀錄社團還沒收下時每桌一個 `outbox:<桌>`（§5.10），同一個 key 還在等就不重排。Durable Object 用 `AlarmQueue`：工作放在記憶體，只把最早的一個設成物件唯一的 storage alarm（`alarm()` → `ClubService.runDue()`），所以不會互相覆蓋 alarm，物件在兩步之間也能休眠；工作不寫進儲存，物件被回收後由 `load()` 依牌桌狀態與進行中的挑戰重新排程。測試傳 `schedule` 換成手動佇列
 - **心跳**：瀏覽器每 15 秒送 `ping`，由 `setWebSocketAutoResponse` 直接回 `pong`（不必喚醒物件）。40 秒沒收到任何訊息、分頁回到前景或網路恢復時，瀏覽器立刻重新連線；重連期間的動作暫存 8 秒內補送
 - **好友與封鎖**（AC-1.6，`worker/relations.ts`）：好友是單向關注，不需對方同意、也不通知對方（同 BBO）；`setFriend`／`setBlocked` 帶對方的 id 與 `true`／`false`，不能對自己（`notSelf`）、不存在的帳號或機器人（`userGone`）。封鎖會同時取消關注，封鎖中不能加好友（`unblockFirst`）。封鎖的效果都在伺服器：被封鎖者的聊天對封鎖者隱藏（§4），封鎖者當房主時被封鎖者不能 `joinTable` 或 `sit` 進那一桌（`blockedByHost`；已經在桌上的不會被請走）。私訊（`e1-t27`，§5.7）與挑戰邀請（`e7-t05`）也檢查 `blocks`，之後的隊制賽邀請也要。帳號刪除時雙方名單裡的他都會刪掉
 - 使用 Durable Object 的 hibernation API：沒人打牌時物件可以休眠，WebSocket 不會斷，醒來時從儲存重新載入。
@@ -182,7 +185,7 @@ interface BoardState {
 | `user:<id>` | 帳號、密碼雜湊、是否管理員、橋譜權限、最後登入時間、自行重設密碼的時間、關掉好友上線提示（`friendOnlineNotice: false`） |
 | `app:<id>` | 待審核的註冊申請：帳號名稱、密碼雜湊、自我介紹、從哪個網站申請 |
 | `session:<token>` | userId、到期時間 |
-| `table:<id>` | 牌桌：座位、觀看者、目前這副、聊天、撤回請求 |
+| `table:<id>` | 牌桌：座位、觀看者、目前這副、聊天、撤回請求；它顯示的社員名字（`names`）、各人的封鎖名單（`blocks`，聊天用）、還沒交給社團的牌局紀錄（`outbox`）；挑戰桌的 `modeState` 帶挑戰的快照（§5.10）。由 `TableService` 讀寫 |
 | `board:<id>` | 一副牌的完整紀錄（原始四手牌、叫牌、出牌、結果） |
 | `hist:<時間>-<id>` | 全社團的紀錄索引（摘要，補零的時間讓列表依時間排序） |
 | `uhist:<userId>:<時間>-<id>` | 每位社員自己的紀錄索引 |
@@ -232,6 +235,71 @@ interface BoardState {
 - **資料**（`shared/featured.ts`、`worker/featured.ts` 的 `FeaturedService`，`ClubService.featured`）：一副牌最多一筆精選，存在 `featured:<boardId>`：標題（≤ 60 字）、分類（`bidding` 叫牌、`declarer` 坐莊、`defence` 防守、`other` 其他）、講解（≤ 4000 字）、逐墩講解（第 1–13 墩各 ≤ 1000 字，空的不存）、第一次設精選的人與時間、最後編輯時間，以及那副牌的摘要（列表不必讀紀錄）。輸入由 `parseFeaturedInput` 檢查，錯誤 `badFeatured { field }`。全部精選在第一次用到時讀進記憶體。
 - **規則**：只有公開的牌才能設（§4）；別的策展人可以編輯或取消，編輯保留原本設的人；第一次設精選時通知打那副的社員（`boardFeatured`，§5.4）。寫入算一次動作（速率限制，§5.6）。
 - **介面**：頁首「精選牌局」→ `/featured`（`FeaturedPage`）：「全部」與四個分類的分頁、卡片（標題、合約與結果、分類、桌號與牌號、誰精選與日期），點了到 `/history/:id`。單副紀錄頁的 `FeaturedPanel`：標題、分類、講解；重播到第 N 墩時顯示那一墩的講解（`useTrickReplay` 的 `trick`），另有「第 N 墩」按鈕直接跳過去；有 `boardCurate` 的人在這裡設為精選、編輯（每一墩一個欄位）、取消。牌桌裡的紀錄對話框不顯示。
+
+## 5.10 拆分 Durable Object：每桌一個 `TableObject`（決策紀錄，`e11-t16`，2026-10-25）
+
+社長要先找一小群人做「很多人、很多桌同時打」的測試（H1–H3），所以先把牌桌從社團的物件拆出來。這一節是 H1 的設計；H2（`EventObject`、邊緣 session、紀錄索引搬 D1）照這裡的做法延伸，要改設計先改這裡。
+
+**為什麼要拆**：現在整個社團是一個 Durable Object（§1），所有事情依序處理。社團小的時候這是優點，桌數多了就是瓶頸：
+- 一個物件同時只跑一件事。一桌三個機器人每秒出好幾張牌，每一張都要排在別桌的叫牌、大廳、私訊後面。
+- 排程器（§5「排程」）在同一次 alarm 裡把**所有到期的工作**並排跑完：30 桌的機器人同時到期，就是一次喚醒裡跑 30 次機器人思考。免費方案每次呼叫的 CPU 很少（CLAUDE.md「已知陷阱」），一次跑太多會被中止，而且一桌出錯會拖到別桌。
+- 廣播每次都替每位在線的人算一次大廳**和**他的牌桌；牌桌畫面（`boardView`）是最貴的那一份。
+
+**拆成什麼**（全台灣規模的完整版是 E11 的 `Directory`／`Table`／`Event` 三種；H1 只拆 `Table`）：
+
+| 物件 | 幾個 | 負責 | 程式 |
+| --- | --- | --- | --- |
+| `Club`（就是 `Directory`，類別名稱不改，免得 Durable Object 要搬資料） | 一個 | 帳號、申請、session、好友與封鎖、通知、私訊、大廳（**牌桌目錄**）、紀錄與索引、收藏、精選、挑戰與每週挑戰、隊制賽、淡江橋譜 | `worker/club.ts`、`ClubService`（`worker/service.ts`） |
+| `TableObject` | 每桌一個（`idFromName(<桌 id>)`） | 這一桌的一切：座位與觀看者、叫牌出牌與撤回攤牌、機器人、自動發牌、時間上限與太久提醒、斷線代打、聊天、這桌最近 30 副、每位觀看者的牌桌畫面與「只送有變的」、這一桌的 WebSocket | `worker/table-object.ts`、`TableService`（`worker/table-service.ts`） |
+| `EventObject`（H2，`e11-t18`） | 每場挑戰／隊制賽一個 | 挑戰與隊制賽的狀態、期限工作與結算 | 之後 |
+
+**誰負責什麼規則**：跨桌的規則留在 `Club`，因為只有它知道每個人在哪裡：一人同時只在一桌、開桌與桌號、加入與入座前的封鎖與受邀檢查（`checkWelcome`）、快速入座、受邀名單的檢查與通知、開始／繼續挑戰。只跟一桌有關的規則在 `TableService`：座位有沒有人、這一副打到一半不能換座位、房主才能做的事、所有叫牌出牌（`shared/game.ts`）、機器人（只看自己的 `View`，§5.1）、可見性（仍然只在 `worker/views.ts`，§4）。`Club` 先用目錄做一次檢查（錯誤和現在一樣，在離開舊桌**之前**丟），`TableService` 再用自己的狀態做最後的檢查，兩邊的錯誤代碼相同。
+
+**兩者怎麼溝通**：Durable Object 的 JS RPC（stub 上直接呼叫方法；相容日期 2026-09-01 已支援）。方法只收、只回結構化可複製的資料。
+- `Club` → 桌（`TableApi`，`worker/tables.ts`）：`open`（開桌或搬進來）、`join`（觀看）、`sit`、`leave`、`configure`（房主改設定與受邀名單）、`resume`（回到停著的挑戰桌）、`reclaim`（斷線代打的人回來）、`presence`（社團連線的上下線）、`blocked`（某人的封鎖名單變了，聊天跟著變）、`forget`（帳號刪除）、`challengeEnded`、`close`（管理員關桌、挑戰收桌）、`act`（舊的瀏覽器或桌的連線還沒接上時，從社團的連線轉過來的牌桌動作）。都回傳這一桌最新的目錄資料（`TableEntry`），桌子關了是 `null`。
+- 桌 → `Club`（`ClubLink`）：`changed(entry)`（大廳看得到的東西變了）、`closed(id)`、`boardFinished(record, event)`（一副打完：`Club` 寫 `board:`、`hist:`、`uhist:`、SQL 索引；挑戰的話寫 `challenge_results` 並檢查挑戰是否結束）。
+- **錯誤**：RPC 只保留錯誤訊息、不保留類別，所以 `TableObject` 把 `ClubError`／`GameError` 包成 `{ error: { code, params, status } }` 回傳，`Club` 那一側還原成 `ClubError`。瀏覽器看到的錯誤代碼不變。
+- 桌子需要知道的社員資料**跟著動作傳過去**，不回頭問 `Club`：坐下或觀看的人的名字與他封鎖的人（`Person`）、受邀者的名字；挑戰桌開桌時帶挑戰的快照（截止時間、牌組每一副的牌號與 Just Declare 的叫牌、已經打完哪幾副、機器人的制度）。存在 `Table.names`、`Table.blocks`、`ChallengeTableState`，只有伺服器看得到。
+- **測試**：`ClubService` 與 `TableService` 都不碰 Cloudflare API。正式環境用 `DurableTables`（stub），測試與 H1a 用 `LocalTables`（同一個程序裡的 `TableService`，共用測試的 `FakeConnections` 與手動排程佇列），所以 `tests/worker` 照樣在 Node 裡跑、照樣用 `runRobots`。
+
+**大廳怎麼知道每桌的狀態**：`Club` 在記憶體裡有一份**牌桌目錄**（`TableEntry`：桌號、房主、模式、設定、受邀名單、座位、觀看者、代打、打了幾副、桌上的牌號、這一副是否進行中、挑戰桌屬於誰），大廳、成員列表的「在哪一桌」、快速入座、受邀檢查都只讀目錄。桌子在**大廳看得到的欄位變了**才回報（入座、離座、發新一副、打完一副、改設定），出一張牌、叫一個品不回報，所以 `Club` 不會被每張牌喚醒。每份回報帶遞增的 `rev`（`max(上一個＋1, 現在的毫秒)`，物件被回收後也不會變小），晚到的舊回報直接丟掉。`Club` 把目錄存在 `tabledir:<id>`，物件被回收後不必叫醒每一桌就能列出大廳。
+
+**WebSocket 怎麼走**：
+- `/ws` → `Club`：大廳、通知、私訊、隊制賽，以及會跨桌的動作（`createTable`、`joinTable`、`sit`、`leaveTable`、`quickSeat`、`updateTableSettings`、`playChallenge`）。
+- `/ws/table/<id>` → `TableObject`：Worker 先用 cookie 問 `Club` 這是誰（`userForToken`，每次連線一次，不是每則訊息），再把請求加上 `X-TBT-User` 轉給那一桌；Durable Object 不能從外部直接連，所以這個標頭只有 Worker 給得了。桌子只接受在桌上的人（入座、觀看、停著的挑戰桌的主人），否則用 4004 關掉。牌桌的動作（叫牌、出牌、攤牌、撤回、聊天、站起、房主的請離座與機器人）走這條，桌子直接推 `table` 給在桌上的人。
+- 瀏覽器（`ClubContext`）看大廳的 `myTableId` 決定要不要開第二條連線、連哪一桌；換桌就關掉舊的開新的。桌的連線還沒接上時，牌桌動作先從 `/ws` 送，`Club` 轉給那一桌（`act`），所以部署當下還開著的舊頁面也能繼續打。
+- **上線**：桌上的「在線」看的是**桌的連線**。桌的最後一條連線關掉：觀看者離開、房主交給在線的人、入座者開始算斷線代打（同現在，只是改由那一桌自己判斷）。
+
+**Hibernation**：兩種物件都用 hibernation API 與 `setWebSocketAutoResponse('ping','pong')`；連線的 attachment 記社員 id。沒有人在打的桌子整個睡著不花錢；只剩機器人的桌子（真人都走了）會關掉，和現在一樣。
+
+**排程：每桌自己的 alarm**：每個 `TableObject` 有自己的 `AlarmQueue`（`robot:<桌>`、`deal:<桌>`、`substitute:<桌>:<社員>`），用自己唯一的 storage alarm，所以一次喚醒只跑**這一桌**到期的工作。`Club` 的佇列只剩挑戰（`challenge:<id>`）與每週挑戰（`weekly:…`）。工作照樣不存：`TableObject` 載入時依自己的狀態重排。
+
+**搬移舊資料**（`meta:schema` 3 → 4）：部署後 `Club` 第一次載入時，把每個 `table:<id>` 補上新欄位（名字、封鎖名單、挑戰快照；挑戰已經不在的桌子標成已結束），呼叫那一桌的 `open`，成功後寫 `tabledir:<id>`、刪掉 `table:<id>`；全部搬完才把 `meta:schema` 寫成 4。中途失敗的桌子留在 `table:`，下次載入再搬（`open` 重做一次沒有影響）。部署會換掉 Durable Object 的程式，所有連線本來就會斷，瀏覽器自動重連（§5「心跳」）。`wrangler.jsonc` 加一個 binding 與 migration `v2`（`new_sqlite_classes: ["TableObject"]`，免費方案只能用 SQLite 後端），見 `DEPLOY.md`。
+
+**失敗時**：
+- **桌子的 RPC 失敗**（物件重啟、網路）：`Club` 回 `serverError`，目錄不變，使用者重試即可；`open` 失敗的新桌不寫目錄。
+- **回報掉了**（`changed` 沒送到）：目錄會暫時是舊的；`Club` 每次呼叫那一桌都拿回最新的 `TableEntry` 蓋過去，桌子每次回報也帶完整的一份，下一次就修正。目錄說某人在 A 桌、A 桌卻說不在時，以桌子的回答為準（`leave` 回傳的 entry）。
+- **一副打完時 `Club` 沒收到**（`boardFinished` 失敗）：桌子把紀錄放進自己的 `outbox:`，下一次 alarm 重送，`Club` 用牌局 id 判斷重複（SQL 索引本來就可以重寫；`challenge_results` 改成重複就略過）。所以一副牌最多晚一點進紀錄，不會不見或算兩次。
+- **同一人同時兩個動作**（兩個分頁）：`Club` 對跨桌動作依社員排隊（同一人一次一個），避免在等 A 桌回覆時又坐進 B 桌。
+- **挑戰已經結束、`challengeEnded` 沒送到**：桌子自己也看截止時間，過了就不再發牌、不收動作；`Club` 收到結果時再用挑戰的實際狀態檢查一次，不算數就不寫。
+- **使用者連到不在的桌子**：`TableObject` 沒有狀態就回 404，不建任何資料。
+
+**CPU 與費用（免費方案）**：每次呼叫的 CPU 上限沒變，但現在一次呼叫只做一桌的事：一個機器人動作、一則動作加這一桌四到八個人的畫面。`Club` 只在大廳看得到的事情變了才被叫醒，而且不再算牌桌畫面。請求數會多一點：每副多兩三個跨物件 RPC（打完一副的紀錄、目錄回報），以一副約 50–60 個機器人動作（每個一次 alarm）來說多不到一成。實際數字在 `e11-t21` 的負載測試（200 人、30 桌）量。
+
+**隊制賽（F4）會怎麼用這個結構**：一場比賽的開室與閉室是**兩個獨立的 `TableObject`**（模式 `team`，`modeState` 記比賽 id、房間、`seq`，開桌時帶比賽的快照：共用的 `DealSet`、座位、截止或時間上限），兩桌各自推進、各自排程，一桌的機器人不會拖慢另一桌。開始比賽時 `Club`（H2 之後是那場比賽的 `EventObject`）用 `Promise.all` 同時 `open` 兩桌，其中一桌失敗就把另一桌也 `close`、比賽留在 `setup`。每副打完由那一桌 `boardFinished(record, { kind: 'team', matchId, room, seq })` 回報，比分只在 `Club` 用兩室都完成的副計算（§5.8），所以快的一桌看不到慢的一桌的結果。房間隔離靠桌的連線：參賽者只能連自己那一桌（`TableObject` 只接受在桌上的人），觀看者兩桌都能觀看（各開一條桌的連線，或之後的 Vugraph 頁）。比賽層的代打、替補走 `TableApi` 新增的方法，不讓桌子直接改比賽的資料。
+
+**拆成兩個 PR**（ROADMAP 規則 2）：
+- **H1a**（`e11-t16`）：這份決策紀錄；`TableService` 從 `ClubService` 抽出來，`Club` 只透過 `TableApi`／`ClubLink` 與牌桌溝通、只讀牌桌目錄；全部仍在同一個物件裡（`LocalTables`），`table:<id>` 照舊，行為不變，不必改部署。
+- **H1b**（`e11-t17`）：`TableObject`、`DurableTables`、`/ws/table/<id>`、瀏覽器的第二條連線、搬移舊資料、`wrangler.jsonc` 的 migration、`DEPLOY.md`。
+
+**H1a 的實作**（2026-10-25）：
+- `worker/tables.ts`（`TableEntry`、`Person`、`TableApi`、`ClubLink`）、`worker/table-service.ts`（`TableService`、`LocalTables`）。`ClubService.tables` 是 `LocalTables`：每桌一個 `TableService`，共用社團的儲存（仍是 `table:<id>`）、連線與排程器。`ClubService` 不再讀 `Table`，只讀目錄；`lobbyView`、`health().tables` 都從目錄算。
+- 挑戰模式的三個掛勾只讀桌上的快照（`worker/modes.ts` 的 `challengeSnapshot`、`nextTableSeq`、`challengeTableOpen`）；`boardFinished` 回傳要寫給挑戰的結果（`EventReport`），由社團用挑戰的實際狀態再檢查一次後寫進 `challenge_results`（同一副第二次直接略過）。`started_at` 改在社團開挑戰桌時寫（開桌就發第一副，時間相同）。
+- 一副打完先放進 `Table.outbox`、跟著牌桌存好，再交給社團（`ClubLink.boardFinished`）。社團寫紀錄失敗時，這個動作不再回錯誤：牌桌照常往下打，30 秒後由 `outbox:<桌>` 工作重送（`tests/worker/service.test.ts` 的「never keeps half a board」改成驗證不會只存一半、恢復後重送成功）。
+- 社團載入時把舊的 `table:` 補上名字、封鎖名單與挑戰快照（`upgradeTable`，挑戰已經不在的標成已結束），有變才寫回（`tests/worker/challenge-table.test.ts`）。
+- 代打的排程 key 改成 `substitute:<桌>:<社員>`，換桌後舊桌的工作不會擋住新桌。
+- 一個會動到好幾桌的社團動作（`handle`、刪除帳號、關桌、斷線、載入）進行中，牌桌的回報只更新目錄，動作結束時才送一次大廳（`batch`），所以瀏覽器收到的訊息跟拆分前一樣。
+- `tests/worker/table-service.test.ts`：單獨一桌只在大廳看得到的事變了才回報、`rev` 遞增、紀錄交不出去時留在 `outbox` 重送、最後一人離開就關桌、聊天依各人的封鎖名單。
 
 ## 5.8 隊制賽（決策紀錄，`e8-t01`，2026-10-25）
 
