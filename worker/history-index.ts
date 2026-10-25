@@ -1,5 +1,5 @@
 import type { Contract } from '../shared/auction.ts'
-import { SEATS, sideOf, type Seat, type Strain } from '../shared/cards.ts'
+import { SEATS, sideOf, type Card, type Seat, type Strain } from '../shared/cards.ts'
 import { taiwanDayEnd, taiwanDayStart, type HistoryQuery, type HistorySort } from '../shared/history-query.ts'
 import { isRobotId, type BoardRecord } from '../shared/protocol.ts'
 import type { Sql, SqlValue } from './store.ts'
@@ -127,6 +127,11 @@ const ids = (rows: { board_id: string }[]) => rows.map((row) => row.board_id)
 export interface EventBoard {
   contract: Contract | null
   declarerTricks: number | null
+  /**
+   * The opening lead, which the index does not keep: read from the record when the results page
+   * asks for it (`ClubService.challengeDetail`), absent otherwise
+   */
+  lead?: Card | null
 }
 
 interface EventRow extends Record<string, SqlValue> {

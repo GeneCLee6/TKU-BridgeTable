@@ -1597,6 +1597,7 @@ export class ClubService {
       .filter((p) => p.userId !== userId && p.status !== 'declined' && this.users.has(p.userId))
       .map((p) => p.userId)
     if (!others.length) throw new ClubError('rematchNobody')
+    // As many boards as before, a 「用這副牌挑戰」 of one board too (社長, 2026-10-25)
     const { boardsMin, boardsMax } = CHALLENGE_LIMITS
     const boards = Math.min(boardsMax, Math.max(boardsMin, c.deals.boards.length))
     const { scoring, robotKind, bestHand, justDeclare, days, ranking } = c.settings
@@ -1701,6 +1702,29 @@ export class ClubService {
     if (!challenge) return null
     const boards = eventBoards(this.store.sql, id)
     return challengeView(challenge, userId, (other) => this.publicUserById(other), (boardId) => boards.get(boardId))
+  }
+
+  /**
+   * One challenge for its results page (`GET /api/challenges/:id`): `challengeFor`, with each
+   * board's opening lead on the traveller entries it shows (the index does not keep leads, so they
+   * are read from the records). Only the records of entries this member may already see are read:
+   * `challengeView` decides that, as for everything else in it (§4)
+   */
+  async challengeDetail(id: string, userId: string): Promise<ChallengeView | null> {
+    const challenge = this.challenges.get(id)
+    if (!challenge) return null
+    const boards = eventBoards(this.store.sql, id)
+    const user = (other: string) => this.publicUserById(other)
+    const view = challengeView(challenge, userId, user, (boardId) => boards.get(boardId))
+    const shown = view?.travellers?.flatMap((x) => x.entries.map((e) => e.boardId)) ?? []
+    if (!shown.length) return view
+    const records = await Promise.all(shown.map((boardId) => this.store.get<BoardRecord>(`board:${boardId}`)))
+    shown.forEach((boardId, i) => {
+      const found = boards.get(boardId)
+      const board = records[i]?.board
+      if (found && board) boards.set(boardId, { ...found, lead: openingLead(board) })
+    })
+    return challengeView(challenge, userId, user, (boardId) => boards.get(boardId))
   }
 
   // ── Challenge deadlines and settlement (§5.5, e7-t13) ───────────────────────────────────────

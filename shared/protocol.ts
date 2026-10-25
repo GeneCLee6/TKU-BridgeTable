@@ -505,7 +505,7 @@ export type ClientMessage =
   /** Starts a challenge, or goes back to it: the player's own table, from the next board (§5.5) */
   | { type: 'playChallenge'; challengeId: string }
   /**
-   * Challenges 1–20 friends (§5.5): `boards` 4–16 (8 when left out), settings over the defaults.
+   * Challenges 1–20 friends (§5.5): `boards` 1–16 (8 when left out), settings over the defaults.
    * With `fromBoards` (history ids, 1–16) the boards are ones the creator played with three robots
    * (「用這副牌挑戰」, `e7-t22`): their results count and they do not play again
    */

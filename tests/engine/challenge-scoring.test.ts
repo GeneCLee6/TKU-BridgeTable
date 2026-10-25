@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { scoreChallenge, type ChallengeScores } from '../../shared/challenge-scoring.ts'
+import {
+  headToHead,
+  headToHeadTotal,
+  pairResult,
+  scoreChallenge,
+  type ChallengeScores,
+} from '../../shared/challenge-scoring.ts'
 
 const score = (
   scoring: ChallengeScores['scoring'],
@@ -95,5 +101,69 @@ describe('challenge scoring', () => {
 
   it('counts the boards each player has played', () => {
     expect(score('mp', { amy: [1, null, 3], ben: [null, null, null] }).map((s) => s.played)).toEqual([2, 0])
+  })
+})
+
+describe('head to head (the results page)', () => {
+  it('gives the IMPs against each opponent, board by board, only where both played', () => {
+    // amy v ben: 420−170 = 250 → +6; 100−600 = −500 → −11; −50 v −50 → 0: −5 over 3 boards
+    // amy v cat: 420−450 = −30 → −1; board 2 cat did not play; −50+100 = 50 → +2: +1 over 2 boards
+    const versus = headToHead('imp', { amy: [420, 100, -50], ben: [170, 600, -50], cat: [450, null, -100] }, 'amy')
+    expect(versus).toEqual([
+      { opponent: 'ben', boards: [6, -11, 0], compared: 3, total: -5 },
+      { opponent: 'cat', boards: [-1, null, 2], compared: 2, total: 1 },
+    ])
+    expect(headToHeadTotal('imp', versus)).toBe(-4)
+    // Cross-IMP challenges compare pairs the same way
+    expect(headToHead('crossImp', { amy: [420], ben: [170] }, 'amy')[0].total).toBe(6)
+  })
+
+  it('gives each pair’s matchpoints as 100, 50 or 0%, averaged', () => {
+    // amy v ben: 420 > 170 → 100, 0 < 50 → 0: 50%; amy v cat: tie 50, 0 > −100 → 100: 75%
+    const versus = headToHead('mp', { amy: [420, 0], ben: [170, 50], cat: [420, -100] }, 'amy')
+    expect(versus.map((v) => [v.opponent, v.boards, v.total])).toEqual([
+      ['ben', [100, 0], 50],
+      ['cat', [50, 100], 75],
+    ])
+    // Over all four comparisons: (100 + 0 + 50 + 100) / 4
+    expect(headToHeadTotal('mp', versus)).toBe(62.5)
+  })
+
+  it('gives the difference in points for total-points challenges', () => {
+    // 420−170 = +250, −100−110 = −210
+    const versus = headToHead('total', { amy: [420, -100], ben: [170, 110] }, 'amy')
+    expect(versus[0]).toEqual({ opponent: 'ben', boards: [250, -210], compared: 2, total: 40 })
+    expect(pairResult('total', -100, 110)).toBe(-210)
+  })
+
+  it('has nothing to compare with someone who played none of my boards', () => {
+    const versus = headToHead('imp', { amy: [420, null], ben: [null, 100] }, 'amy')
+    expect(versus).toEqual([{ opponent: 'ben', boards: [null, null], compared: 0, total: null }])
+    expect(headToHeadTotal('imp', versus)).toBeNull()
+    expect(headToHeadTotal('mp', [])).toBeNull()
+  })
+})
+
+describe('a challenge of one board', () => {
+  it('ranks two players by matchpoints: 100% and 0%, or 50% each on a tie', () => {
+    expect(brief(score('mp', { amy: [100], ben: [-50] }))).toEqual([
+      ['amy', 100, 1],
+      ['ben', 0, 2],
+    ])
+    expect(brief(score('mp', { amy: [-50], ben: [-50] }))).toEqual([
+      ['amy', 50, 1],
+      ['ben', 50, 1],
+    ])
+    expect(headToHead('mp', { amy: [-50], ben: [-50] }, 'ben')[0]).toEqual({ opponent: 'amy', boards: [50], compared: 1, total: 50 })
+  })
+
+  it('gives Cross-IMPs, IMPs and total points on the one board', () => {
+    // 620 v 170: +10; v −100: +12 → 11
+    expect(brief(score('crossImp', { amy: [620], ben: [170], cat: [-100] }))[0]).toEqual(['amy', 11, 1])
+    expect(brief(score('imp', { amy: [620], ben: [170] }))).toEqual([
+      ['amy', 10, 1],
+      ['ben', -10, 2],
+    ])
+    expect(brief(score('total', { amy: [620], ben: [170] }))[0]).toEqual(['amy', 620, 1])
   })
 })

@@ -1,4 +1,5 @@
 import type { Contract } from './auction.ts'
+import type { Card } from './cards.ts'
 import type { ChallengeScoring } from './challenge-scoring.ts'
 import { isRobotKind, type PublicUser, type RobotKind } from './protocol.ts'
 
@@ -60,7 +61,8 @@ export const CHALLENGE_LIMITS = {
   /** People invited besides the creator */
   invitedMin: 1,
   invitedMax: 20,
-  boardsMin: 4,
+  /** One board is enough for a quick head to head (社長, 2026-10-25) */
+  boardsMin: 1,
   boardsMax: 16,
   boardsDefault: 8,
   daysMin: 1,
@@ -181,6 +183,8 @@ export interface ChallengeTravellerEntry {
   /** Null for a passed-out board */
   contract: Contract | null
   declarerTricks: number | null
+  /** The opening lead, null when nobody led; only on one challenge's page (`GET /api/challenges/:id`) */
+  lead?: Card | null
 }
 
 /** Everyone's result on one board of the challenge */
