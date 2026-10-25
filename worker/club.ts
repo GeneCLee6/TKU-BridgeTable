@@ -396,6 +396,7 @@ export class Club extends DurableObject<Env> implements Connections {
       }
       throw new ClubError('noSuchApi', {}, 404)
     }
+    if (method === 'PUT' && path === '/categories') return json(await this.book.saveCategories(editor(), await body()))
     if (method === 'POST' && path === '/import/ticket') {
       const ticket = await this.book.createTicket(importer())
       return json({ ticket, url: `${url.origin}/api/book/import`, ready: !!this.env.ANTHROPIC_API_KEY })

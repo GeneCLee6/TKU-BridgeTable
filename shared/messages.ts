@@ -453,6 +453,22 @@ export const MESSAGES = {
     ja: '{name} さんがこの約束事を変更しました。再読み込みしてから編集してください',
     ko: '{name} 님이 방금 이 컨벤션을 수정했습니다. 다시 불러온 뒤 수정하세요',
   },
+  categoryConflict: {
+    zh: '{name} 剛剛修改了分類，請重新載入後再改',
+    'zh-Hans': '{name} 刚刚修改了分类，请重新载入后再改',
+    en: '{name} just changed the categories; reload them and edit again',
+    vi: '{name} vừa sửa danh mục; hãy tải lại rồi sửa tiếp',
+    ja: '{name} さんがカテゴリを変更しました。再読み込みしてから編集してください',
+    ko: '{name} 님이 방금 분류를 수정했습니다. 다시 불러온 뒤 수정하세요',
+  },
+  categoryInUse: {
+    zh: '「{name}」裡還有特約（{convention}），請先把它們移到別的分類',
+    'zh-Hans': '「{name}」里还有特约（{convention}），请先把它们移到别的分类',
+    en: '"{name}" still has conventions ({convention}); move them to another category first',
+    vi: '"{name}" vẫn còn quy ước ({convention}); hãy chuyển chúng sang danh mục khác trước',
+    ja: '「{name}」にはまだ約束事があります（{convention}）。先に別のカテゴリへ移してください',
+    ko: '"{name}"에 아직 컨벤션이 있습니다({convention}). 먼저 다른 분류로 옮기세요',
+  },
   badContent: {
     zh: '內容格式不正確：{reason}',
     'zh-Hans': '内容格式不正确：{reason}',
