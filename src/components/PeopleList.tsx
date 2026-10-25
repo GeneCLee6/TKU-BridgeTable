@@ -1,4 +1,4 @@
-import { Ban, Star } from 'lucide-react'
+import { Ban, Mail, Star } from 'lucide-react'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import styled from 'styled-components'
@@ -10,6 +10,7 @@ import { seatLetter } from '../strings.ts'
  * The People tab (社員): every member, online first, with the viewer's friends on top of each group
  * (the server sorts them). A star follows or unfollows someone, the ban button blocks them; both
  * are only asked of the server, which answers with a new lobby. "Friends only" hides everyone else.
+ * Where the page has a Messages tab, an envelope opens the conversation with that member (AC-1.7).
  */
 
 const Bar = styled.div`
@@ -113,11 +114,14 @@ export function PeopleList({
   lobby,
   userId,
   send,
+  onMessage,
 }: {
   lobby: LobbyView | null
   /** The signed-in member */
   userId: string | undefined
   send: (message: ClientMessage) => void
+  /** Opens the conversation with a member; no envelope buttons without it */
+  onMessage?: (userId: string) => void
 }) {
   const { t } = usePreferences()
   const [onlyFriends, setOnlyFriends] = useState(false)
@@ -151,6 +155,18 @@ export function PeopleList({
         <Where>{where(m)}</Where>
         {!me && (
           <>
+            {onMessage && (
+              <RowButton
+                type="button"
+                $on={false}
+                $tone="friend"
+                aria-label={t.messageMember(m.username)}
+                title={t.messageMember(m.username)}
+                onClick={() => onMessage(m.id)}
+              >
+                <Mail size={17} aria-hidden />
+              </RowButton>
+            )}
             <RowButton
               type="button"
               $on={friend}
