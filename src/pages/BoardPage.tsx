@@ -7,6 +7,7 @@ import { tricksOf } from '../../shared/game.ts'
 import { handviewerUrl, toLin } from '../../shared/lin.ts'
 import type { BoardRecord, PublicUser } from '../../shared/protocol.ts'
 import { AuctionBox } from '../components/AuctionBox.tsx'
+import { DoubleDummyPanel } from '../components/DoubleDummyPanel.tsx'
 import { PlayedCardsSwitch, RecordDiagram } from '../components/RecordDiagram.tsx'
 import { ContractLabel, ContractResult, SuitSymbol } from '../components/Suit.tsx'
 import { Button, Card, ErrorText, Muted, PageMain, PageTitle } from '../components/ui.tsx'
@@ -14,6 +15,7 @@ import { api } from '../lib/api.ts'
 import { cardName } from '../lib/cards.ts'
 import { formatDateTime, signed } from '../lib/format.ts'
 import { useMediaQuery } from '../lib/useMediaQuery.ts'
+import { canAnalyse } from '../lib/useDoubleDummy.ts'
 import { useTrickReplay } from '../lib/useTrickReplay.ts'
 import { usePreferences } from '../state/PreferencesContext.tsx'
 import { mobileQuery } from '../styles/tokens.ts'
@@ -212,6 +214,15 @@ export function BoardRecordView({ record, embedded = false }: { record: BoardRec
           </Links>
         </Card>
       </Columns>
+
+      {canAnalyse(board) && (
+        <>
+          <Section>{t.ddTitle}</Section>
+          <Card>
+            <DoubleDummyPanel board={board} />
+          </Card>
+        </>
+      )}
 
       {allTricks.length > 0 && (
         <>
