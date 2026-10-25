@@ -2,12 +2,13 @@ import { ChevronLeft } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import styled from 'styled-components'
-import type { ChallengeScoring } from '../../shared/challenge-scoring.ts'
 import type { ChallengeView } from '../../shared/challenge.ts'
+import type { Traveller } from '../../shared/traveller.ts'
 import { Progress, StatusTag } from '../components/ChallengeParts.tsx'
+import { TravellerTable } from '../components/Traveller.tsx'
 import { Card, ErrorText, Muted, PageMain, PageTitle } from '../components/ui.tsx'
 import { ApiError, api } from '../lib/api.ts'
-import { participantName, playerOf, settingsLine, timeLeft } from '../lib/challenges.ts'
+import { formatScore, participantName, playerOf, settingsLine, timeLeft, tone } from '../lib/challenges.ts'
 import { formatDateTime } from '../lib/format.ts'
 import { useAuth } from '../state/AuthContext.tsx'
 import { useClub } from '../state/ClubContext.tsx'
@@ -98,15 +99,20 @@ const NumHead = styled.th`
   text-align: right !important;
 `
 
-/** A result in the scoring's unit: a percentage for matchpoints, signed IMPs, signed points */
-function formatScore(value: number, scoring: ChallengeScoring) {
-  const n = Number.isInteger(value) ? String(value) : value.toFixed(scoring === 'mp' ? 1 : 2)
-  if (scoring === 'mp') return `${n}%`
-  return value > 0 ? `+${n}` : n
-}
+/** A board number in the matrix's head that opens its traveller (e7-t19) */
+const BoardButton = styled.button`
+  padding: 0;
+  border: 0;
+  background: none;
+  color: ${({ theme }) => theme.colors.primary};
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
 
-/** The colour of a result: above or below the average for matchpoints, its sign otherwise */
-const tone = (value: number, scoring: ChallengeScoring) => (scoring === 'mp' ? value - 50 : value)
+  &[aria-pressed='true'] {
+    font-weight: 800;
+  }
+`
 
 export function ChallengePage() {
   const { challengeId = '' } = useParams()
@@ -116,6 +122,9 @@ export function ChallengePage() {
   const [challenge, setChallenge] = useState<ChallengeView | null | undefined>(undefined)
   const [error, setError] = useState('')
   const [now, setNow] = useState(() => Date.now())
+  // The board whose traveller is open below the standings (e7-t19), and that traveller
+  const [shownSeq, setShownSeq] = useState<number | null>(null)
+  const [loaded, setLoaded] = useState<{ boardId: string; traveller: Traveller | null } | null>(null)
 
   // Someone finishing sends no notification to the others, but answers and the results do
   const latest = notifications?.items[0]?.id
@@ -137,6 +146,22 @@ export function ChallengePage() {
       live = false
     }
   }, [challengeId, latest, message])
+
+  // Any record of the board will do: the server answers with the traveller this member may see
+  const travelBoard =
+    shownSeq === null ? undefined : challenge?.travellers?.find((x) => x.seq === shownSeq)?.entries[0]?.boardId
+  const traveller = loaded && loaded.boardId === travelBoard ? loaded.traveller : null
+  useEffect(() => {
+    if (!travelBoard) return
+    let live = true
+    api
+      .traveller(travelBoard)
+      .then((r) => live && setLoaded({ boardId: travelBoard, traveller: r.traveller }))
+      .catch((e) => live && setError(e instanceof ApiError ? message(e.code, e.params, e.message) : String(e)))
+    return () => {
+      live = false
+    }
+  }, [travelBoard, message])
 
   const back = (
     <Back to="/challenges">
@@ -202,7 +227,17 @@ export function ChallengePage() {
                     {withMatrix &&
                       seqs.map((seq) => (
                         <NumHead key={seq} scope="col">
-                          #{boardNo(seq)}
+                          {c.travellers?.some((x) => x.seq === seq && x.entries.length) ? (
+                            <BoardButton
+                              type="button"
+                              aria-pressed={shownSeq === seq}
+                              onClick={() => setShownSeq(shownSeq === seq ? null : seq)}
+                            >
+                              #{boardNo(seq)}
+                            </BoardButton>
+                          ) : (
+                            `#${boardNo(seq)}`
+                          )}
                         </NumHead>
                       ))}
                   </tr>
@@ -241,9 +276,29 @@ export function ChallengePage() {
                 </tbody>
               </Table>
             </Scroll>
+            {withMatrix && c.travellers && <Muted>{t.travellerHint}</Muted>}
           </>
         )}
       </Section>
+
+      {shownSeq !== null && (
+        <Section aria-labelledby="traveller-title">
+          <h2 id="traveller-title">
+            {t.boardNo(boardNo(shownSeq))} · {t.travellerTitle}
+          </h2>
+          {error && <ErrorText role="alert">{error}</ErrorText>}
+          {traveller ? (
+            <TravellerTable
+              traveller={traveller}
+              current={recordOf(user.id, shownSeq)}
+              compareFrom={recordOf(user.id, shownSeq) ?? traveller.entries[0]?.boardId}
+              viewerId={user.id}
+            />
+          ) : (
+            !error && <Muted>{t.loading}</Muted>
+          )}
+        </Section>
+      )}
 
       <Section aria-labelledby="players-title">
         <h2 id="players-title">{t.challengePlayers}</h2>

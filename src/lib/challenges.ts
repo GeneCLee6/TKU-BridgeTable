@@ -1,3 +1,4 @@
+import type { ChallengeScoring } from '../../shared/challenge-scoring.ts'
 import { isOpenChallenge, type ChallengePlayerView, type ChallengeView } from '../../shared/challenge.ts'
 import type { Strings } from '../strings.ts'
 
@@ -53,3 +54,13 @@ export const participantName = (t: Strings, p: ChallengePlayerView | undefined) 
 /** 8 副 · IMP · TKB（2/1） */
 export const settingsLine = (t: Strings, c: ChallengeView) =>
   t.challengeSettingsLine(c.boards, t.scorings[c.settings.scoring], t.robots[c.settings.robotKind])
+
+/** A result in the scoring's unit: a percentage for matchpoints, signed IMPs, signed points */
+export function formatScore(value: number, scoring: ChallengeScoring) {
+  const n = Number.isInteger(value) ? String(value) : value.toFixed(scoring === 'mp' ? 1 : 2)
+  if (scoring === 'mp') return `${n}%`
+  return value > 0 ? `+${n}` : n
+}
+
+/** The colour of a result: above or below the average for matchpoints, its sign otherwise */
+export const tone = (value: number, scoring: ChallengeScoring) => (scoring === 'mp' ? value - 50 : value)

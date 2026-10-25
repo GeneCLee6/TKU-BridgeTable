@@ -58,6 +58,7 @@ import type { RobotBid } from '../shared/robot/robots.ts'
 import { hashPassword, randomId, SESSION_DAYS, verifyPassword } from './auth.ts'
 import { DEFAULT_HISTORY_QUERY, type HistoryQuery } from '../shared/history-query.ts'
 import { CHALLENGE_LIMITS, isOpenChallenge, parseChallengeSettings, type ChallengeView } from '../shared/challenge.ts'
+import { openingLead, type Traveller } from '../shared/traveller.ts'
 import { dealSourceOf, makeDealSet } from '../shared/deal-set.ts'
 import {
   answer,
@@ -101,6 +102,7 @@ import {
 import {
   boardView,
   challengeBoardVisible,
+  challengeTraveller,
   challengeView,
   chatFor,
   recordVisible,
@@ -762,6 +764,36 @@ export class ClubService {
     if (recordVisible(record, userId, this.now())) return record
     const challenge = record.mode === 'challenge' && record.eventId ? this.challenges.get(record.eventId) : null
     return challenge && challengeBoardVisible(challenge, record.id, userId) ? record : null
+  }
+
+  /**
+   * The traveller of a board (`e4-t32`, AC-4.12): everyone's result on the same board of its
+   * challenge, as the member may see it (`challengeTraveller`, §4); null for a board that belongs
+   * to no event or that they may not compare yet. The leads and declarers are read from the records
+   */
+  async traveller(id: string, userId: string): Promise<Traveller | null> {
+    if (!/^[\w-]+$/.test(id)) return null
+    const record = await this.store.get<BoardRecord>(`board:${id}`)
+    if (record?.mode !== 'challenge' || !record.eventId) return null
+    const challenge = this.challenges.get(record.eventId)
+    if (!challenge) return null
+    const boards = eventBoards(this.store.sql, challenge.id)
+    const traveller = challengeTraveller(
+      challenge,
+      id,
+      userId,
+      (other) => this.publicUserById(other),
+      (boardId) => boards.get(boardId),
+    )
+    if (!traveller) return null
+    const records = await Promise.all(traveller.entries.map((e) => this.store.get<BoardRecord>(`board:${e.boardId}`)))
+    traveller.entries.forEach((entry, i) => {
+      const board = records[i]?.board
+      if (!board) return
+      entry.lead = openingLead(board)
+      if (board.contract) entry.declarer = records[i]!.players[board.contract.declarer] ?? null
+    })
+    return traveller
   }
 
   private async saveRecord(record: BoardRecord) {
