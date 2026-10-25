@@ -23,7 +23,8 @@ export interface PublicUser {
  * What an admin can let a member do beyond playing: edit TKU BridgeBook (淡江橋譜) online, and
  * import Word or PDF files into it. Admins can do both.
  */
-export const PERMISSIONS = ['bookEdit', 'bookImport'] as const
+/** TKU BridgeBook editing and import (§5.2), and featuring finished boards (`boardCurate`, e4-t28) */
+export const PERMISSIONS = ['bookEdit', 'bookImport', 'boardCurate'] as const
 export type Permission = (typeof PERMISSIONS)[number]
 export const isPermission = (value: unknown): value is Permission => PERMISSIONS.includes(value as Permission)
 
@@ -276,6 +277,7 @@ export const NOTIFICATION_KINDS = [
   'challengeWeekly',
   'friendOnline',
   'tableInvited',
+  'boardFeatured',
 ] as const
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number]
 
@@ -290,7 +292,8 @@ export interface Notification {
    * { challengeId } and are sent by the deadline job (`e7-t13`); `challengeWeekly` { challengeId }
    * goes to every member when the weekly club challenge is created (`e7-t23`). `friendOnline`: { username } of
    * a member the viewer follows who just came online (e1-t24). `tableInvited`: { tableId, number,
-   * username } of the table and the host who invited (`e2-t25`)
+   * username } of the table and the host who invited (`e2-t25`). `boardFeatured`: { boardId,
+   * username } of a board the member played and who featured it (`e4-t29`)
    */
   params: Record<string, string | number>
   read: boolean

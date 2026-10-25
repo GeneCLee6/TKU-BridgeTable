@@ -993,9 +993,9 @@ describe('friends and blocks (AC-1.6)', () => {
 })
 
 describe('permissions', () => {
-  it('lets admins grant TKU BridgeBook editing and import; admins have both', async () => {
+  it('lets admins grant TKU BridgeBook editing and import and featuring boards; admins have them all', async () => {
     const admin = (await founder('admin')).user
-    expect(admin.permissions).toEqual(['bookEdit', 'bookImport'])
+    expect(admin.permissions).toEqual(['bookEdit', 'bookImport', 'boardCurate'])
     const amy = await join('amy')
     expect(() => club.requirePermission(amy.id, 'bookEdit')).toThrow('沒有這項權限')
     await club.adminSetPermissions(amy.id, ['bookImport', 'bookEdit', 'bookEdit'])
@@ -1004,10 +1004,20 @@ describe('permissions', () => {
     expect(() => club.requirePermission(amy.id, 'bookImport')).toThrow(ClubError)
     await expect(club.adminSetPermissions(amy.id, ['everything'])).rejects.toThrow('不明的權限')
     expect((await club.adminUsers()).map((u) => [u.username, u.permissions])).toEqual([
-      ['admin', ['bookEdit', 'bookImport']],
+      ['admin', ['bookEdit', 'bookImport', 'boardCurate']],
       ['amy', ['bookEdit']],
     ])
     expect(() => club.requirePermission(admin.id, 'bookImport')).not.toThrow()
+  })
+
+  it('features boards only for members given boardCurate (e4-t28)', async () => {
+    const admin = (await founder('admin')).user
+    const amy = await join('amy')
+    await expect(club.featured.set(amy.id, 'nope', {})).rejects.toThrow('沒有這項權限')
+    await club.adminSetPermissions(amy.id, ['boardCurate'])
+    expect(club.requirePermission(amy.id, 'boardCurate').permissions).toEqual(['boardCurate'])
+    await expect(club.featured.set(amy.id, 'nope', { title: 'x', category: 'other' })).rejects.toThrow('找不到這副牌')
+    await expect(club.featured.remove(admin.id, 'nope')).rejects.toThrow('這副牌不是精選牌局')
   })
 })
 

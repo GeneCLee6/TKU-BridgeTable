@@ -1,15 +1,16 @@
 import {
+  Award,
   Check,
   ChevronDown,
   Globe,
   History,
-  Star,
   Layers,
   List,
   LogOut,
   Moon,
   Palette,
   Shield,
+  Star,
   Sun,
   Swords,
   UserRound,
@@ -289,6 +290,10 @@ export function AppHeader() {
           <Link to="/history" aria-label={t.navHistory}>
             <History size={18} aria-hidden />
             <span>{t.navHistory}</span>
+          </Link>
+          <Link to="/featured" aria-label={t.navFeatured}>
+            <Award size={18} aria-hidden />
+            <span>{t.navFeatured}</span>
           </Link>
           <Link to="/favorites" aria-label={t.navFavorites}>
             <Star size={18} aria-hidden />

@@ -8,7 +8,8 @@ import type { Store } from './store.ts'
  * TKU BridgeBook (淡江橋譜) content edited on the site. The handbook ships its conventions in its own
  * bundle; this keeps what members change online: one entry per convention that replaces the
  * bundled one with the same slug, adds a new one, or hides one (`convention: null`), plus every
- * saved version, the drafts made by AI import and the short-lived passes the import page uses.
+ * saved version, the handbook's categories once they are edited online (`book:category:<id>`), the
+ * drafts made by AI import and the short-lived passes the import page uses.
  * The handbook merges the entries over its bundle when it loads (TKU-BridgeBook ARCHITECTURE.md).
  *
  * Conventions are checked here only for shape (so a bad save cannot break the handbook); what they
@@ -76,10 +77,33 @@ export interface ConventionMeta {
 /** A manifest entry: the online entry without its content; `meta` is null when hidden */
 export type BookEntrySummary = Omit<BookEntry, 'convention'> & { meta: ConventionMeta | null }
 
-/** GET /api/book/manifest */
+/**
+ * A group in the handbook's catalogue (TKU-BridgeBook src/types/convention.ts Category). Conventions
+ * point at it by `id`, which never changes; `order` is its place in the list, from 0.
+ */
+export interface BookCategory {
+  id: string
+  label: string
+  description: string
+  order: number
+}
+
+/**
+ * GET /api/book/categories. An empty list means the categories were never edited online, so the
+ * handbook uses the ones it ships with. `version` counts the saves, for `baseVersion`.
+ */
+export interface BookCategories {
+  version: number
+  categories: BookCategory[]
+  updatedAt?: number
+  updatedBy?: string
+}
+
+/** GET /api/book/manifest; `categories` is the same list as GET /api/book/categories */
 export interface BookManifest {
   version: number
   entries: BookEntrySummary[]
+  categories: BookCategory[]
 }
 
 export type RevisionAction = 'save' | 'hide' | 'reset'
@@ -128,6 +152,10 @@ export const BOOK_LIMITS = {
   ticketMs: 10 * 60_000,
   sectionDepthMax: 8,
 }
+
+/** Category limits; the import sends at most `max` categories to Claude (importRequestFrom) */
+export const CATEGORY_LIMITS = { max: 20, idMax: 40, labelMax: 40, descriptionMax: 200 }
+const CATEGORY_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 
 const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 const SECTION_ID = /^[a-z0-9][a-z0-9-]*$/
@@ -279,8 +307,33 @@ function cachedJson(request: Request, etag: string, body: () => string) {
 }
 
 /**
+ * Throws `badContent` unless `value` is a list of categories: ids in lower-case letters, digits and
+ * hyphens, each once, with a label. Their `order` is their place in the list.
+ */
+export function checkCategories(value: unknown): BookCategory[] {
+  const fail = (reason: string): never => {
+    throw new ClubError('badContent', { reason })
+  }
+  if (!Array.isArray(value) || !value.length) return fail('至少要有一個分類')
+  if (value.length > CATEGORY_LIMITS.max) fail(`分類最多 ${CATEGORY_LIMITS.max} 個`)
+  const ids = new Set<string>()
+  return value.map((c, order) => {
+    if (!isObject(c) || !isString(c.id) || c.id.length > CATEGORY_LIMITS.idMax || !CATEGORY_ID.test(c.id))
+      return fail('分類代號只能用小寫英數與連字號')
+    if (ids.has(c.id)) fail(`分類代號重複：${c.id}`)
+    ids.add(c.id)
+    const label = isString(c.label) ? c.label.trim() : ''
+    if (!label || label.length > CATEGORY_LIMITS.labelMax) fail(`分類名稱要有 1 到 ${CATEGORY_LIMITS.labelMax} 個字`)
+    if (!isOptionalString(c.description)) fail('分類說明要是文字')
+    const description = String(c.description ?? '').trim()
+    if (description.length > CATEGORY_LIMITS.descriptionMax) fail(`分類說明最多 ${CATEGORY_LIMITS.descriptionMax} 個字`)
+    return { id: c.id, label, description, order }
+  })
+}
+
+/**
  * The handbook routes anyone may read, without signing in: every online entry
- * (`/api/book/content`, kept for older handbooks), the manifest, and one entry by slug.
+ * (`/api/book/content`, kept for older handbooks), the manifest, the categories and one entry by slug.
  * Returns null for any other request.
  */
 export async function publicBookResponse(book: BookService, request: Request, pathname: string): Promise<Response | null> {
@@ -292,6 +345,10 @@ export async function publicBookResponse(book: BookService, request: Request, pa
   if (pathname === '/api/book/manifest') {
     const { json, version } = await book.manifest()
     return cachedJson(request, `W/"book-manifest-${version}"`, () => json)
+  }
+  if (pathname === '/api/book/categories') {
+    const categories = await book.categories()
+    return cachedJson(request, `W/"book-categories-${categories.version}"`, () => JSON.stringify(categories))
   }
   const one = pathname.match(/^\/api\/book\/content\/([^/]+)$/)
   if (one) {
@@ -307,6 +364,9 @@ export class BookService {
   private readonly store: Store
   private readonly now: () => number
   private entries: Map<string, BookEntry> | null = null
+  /** Sorted by `order`; empty until someone edits them online */
+  private categoryList: BookCategory[] = []
+  private categoryInfo: Omit<BookCategories, 'categories'> = { version: 0 }
   private version = 0
   /** GET /api/book/content as sent last time; cleared on every change */
   private contentJson: string | null = null
@@ -356,6 +416,9 @@ export class BookService {
       entries.set(meta.slug, { ...meta, convention: await this.getBody(key, parts) })
     }
     this.version = (await this.store.get<number>('book:version')) ?? 0
+    const categories = await this.store.list<BookCategory>('book:category:')
+    this.categoryList = [...categories.values()].sort((a, b) => a.order - b.order)
+    this.categoryInfo = (await this.store.get<Omit<BookCategories, 'categories'>>('book:categoryInfo')) ?? { version: 0 }
     this.entries = entries
     return entries
   }
@@ -370,13 +433,51 @@ export class BookService {
   /** Every online entry without its content, as one JSON text; same `version` as content() */
   async manifest(): Promise<{ json: string; version: number }> {
     const entries = await this.load()
-    this.manifestJson ??= JSON.stringify({ version: this.version, entries: [...entries.values()].map(entrySummary) } satisfies BookManifest)
+    this.manifestJson ??= JSON.stringify({
+      version: this.version,
+      entries: [...entries.values()].map(entrySummary),
+      categories: this.categoryList,
+    } satisfies BookManifest)
     return { json: this.manifestJson, version: this.version }
   }
 
   /** One online entry; undefined when the convention has none (the handbook shows its bundled copy) */
   async entry(slug: string): Promise<BookEntry | undefined> {
     return (await this.load()).get(slug)
+  }
+
+  /** The categories as edited online; an empty list when they never were */
+  async categories(): Promise<BookCategories> {
+    await this.load()
+    return { ...this.categoryInfo, categories: this.categoryList }
+  }
+
+  /**
+   * Replaces the whole list of categories: adding, renaming, reordering and removing are one save.
+   * `baseVersion` is the categories' version the editor started from (0 for the bundled ones). A
+   * category cannot be removed while a convention edited online is still in it; the handbook checks
+   * its bundled conventions itself, since only it knows them.
+   */
+  async saveCategories(actor: Me, body: { categories?: unknown; baseVersion?: unknown }): Promise<BookCategories> {
+    const next = checkCategories(body.categories)
+    const entries = await this.load()
+    if (Number(body.baseVersion) !== this.categoryInfo.version)
+      throw new ClubError('categoryConflict', { name: this.categoryInfo.updatedBy ?? '別人' }, 409)
+    const kept = new Set(next.map((c) => c.id))
+    for (const entry of entries.values()) {
+      const category = entry.convention?.category
+      if (isString(category) && !kept.has(category)) {
+        const name = this.categoryList.find((c) => c.id === category)?.label ?? category
+        throw new ClubError('categoryInUse', { name, convention: String(entry.convention?.nameZh ?? entry.slug) }, 409)
+      }
+    }
+    for (const old of this.categoryList) if (!kept.has(old.id)) await this.store.delete(`book:category:${old.id}`)
+    for (const category of next) await this.store.put(`book:category:${category.id}`, category)
+    this.categoryInfo = { version: this.categoryInfo.version + 1, updatedAt: this.now(), updatedBy: actor.username }
+    await this.store.put('book:categoryInfo', this.categoryInfo)
+    this.categoryList = next
+    await this.changed()
+    return this.categories()
   }
 
   private async changed() {

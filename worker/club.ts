@@ -245,6 +245,16 @@ export class Club extends DurableObject<Env> implements Connections {
     // A board's traveller (e4-t32): null when it has none the member may see
     const traveller = url.pathname.match(/^\/api\/history\/([\w-]+)\/traveller$/)
     if (request.method === 'GET' && traveller) return json({ traveller: await this.service.traveller(traveller[1], user.id) })
+    // Featured boards (e4-t29): everyone reads them, members with `boardCurate` feature, edit and remove
+    if (route === 'GET /api/featured') return json({ featured: await this.service.featured.list(user.id) })
+    const featured = url.pathname.match(/^\/api\/featured\/([\w-]+)$/)
+    if (featured && request.method === 'GET') return json({ featured: await this.service.featured.get(featured[1], user.id) })
+    if (featured && request.method === 'POST')
+      return json({ featured: await this.service.featured.set(user.id, featured[1], await body()) })
+    if (featured && request.method === 'DELETE') {
+      await this.service.featured.remove(user.id, featured[1])
+      return json({ ok: true })
+    }
     // Favorites (AC-4.4): the list filters as history does, plus `tag`; one board's note and tags
     if (route === 'GET /api/favorites') return json(await this.service.favorites(user.id, parseHistoryQuery(url.searchParams)))
     if (route === 'GET /api/favorites/ids') return json({ ids: this.service.favoriteIds(user.id) })
@@ -398,6 +408,7 @@ export class Club extends DurableObject<Env> implements Connections {
       }
       throw new ClubError('noSuchApi', {}, 404)
     }
+    if (method === 'PUT' && path === '/categories') return json(await this.book.saveCategories(editor(), await body()))
     if (method === 'POST' && path === '/import/ticket') {
       const ticket = await this.book.createTicket(importer())
       return json({ ticket, url: `${url.origin}/api/book/import`, ready: !!this.env.ANTHROPIC_API_KEY })
