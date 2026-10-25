@@ -88,6 +88,43 @@ const CornerSuit = styled.span<{ $w: number; $inline: boolean }>`
   line-height: 1.05;
 `
 
+/** Double-dummy mode: what playing this card leads to ('=', '+1', '−1'), green when it makes, red when it goes down */
+export interface CardMark {
+  text: string
+  makes: boolean
+  best: boolean
+  /** Read out with the card's name */
+  label: string
+}
+
+const Mark = styled.span<{ $w: number; $makes: boolean; $best: boolean; $inCorner: boolean }>`
+  ${({ $inCorner, $w }) =>
+    $inCorner
+      ? css`
+          margin-top: 1px;
+        `
+      : css`
+          position: absolute;
+          top: ${Math.round($w * 0.76)}px;
+          left: ${Math.round($w * 0.04)}px;
+        `}
+  padding: 1px 2px;
+  border-radius: 3px;
+  font-family: ${({ theme }) => theme.fonts.cards};
+  font-size: ${({ $w }) => Math.max(11, Math.round($w * 0.24))}px;
+  font-weight: 800;
+  line-height: 1.1;
+  letter-spacing: 0;
+  white-space: nowrap;
+  background: ${({ theme, $makes }) => ($makes ? theme.table.ddMake : theme.table.ddDown)};
+  color: ${({ theme }) => theme.table.ddMarkText};
+  ${({ $best, theme }) =>
+    $best &&
+    css`
+      box-shadow: 0 0 0 2px ${theme.table.winner};
+    `}
+`
+
 const Pip = styled.span<{ $w: number; $suit: Suit }>`
   position: absolute;
   right: ${({ $w }) => Math.round($w * 0.08)}px;
@@ -106,6 +143,8 @@ export function PlayingCard({
   highlight = false,
   raised = false,
   corner = 'stack',
+  mark,
+  markInCorner = false,
   onPlay,
 }: {
   card: Card
@@ -118,6 +157,10 @@ export function PlayingCard({
   /** Lifted out of the hand: chosen, waiting for a second click or Enter */
   raised?: boolean
   corner?: 'stack' | 'inline'
+  /** Double-dummy mode's result for this card */
+  mark?: CardMark
+  /** Put the mark in the corner in place of the suit (a row of one suit shows only the corner) */
+  markInCorner?: boolean
   onPlay?: (card: Card) => void
 }) {
   const t = useT()
@@ -135,15 +178,26 @@ export function PlayingCard({
       aria-current={raised || undefined}
       disabled={!playable}
       onClick={playable ? () => onPlay?.(card) : undefined}
-      aria-label={cardName(card, t)}
+      aria-label={mark ? `${cardName(card, t)} · ${mark.label}` : cardName(card, t)}
       data-card={card}
     >
       <Corner $w={width} $inline={inline} $suit={suit} aria-hidden>
         <span>{rankLabel(rankOf(card))}</span>
-        <CornerSuit $w={width} $inline={inline}>
-          {SUIT_SYMBOL[suit]}
-        </CornerSuit>
+        {mark && markInCorner ? (
+          <Mark $w={width} $makes={mark.makes} $best={mark.best} $inCorner data-dd-mark>
+            {mark.text}
+          </Mark>
+        ) : (
+          <CornerSuit $w={width} $inline={inline}>
+            {SUIT_SYMBOL[suit]}
+          </CornerSuit>
+        )}
       </Corner>
+      {mark && !markInCorner && (
+        <Mark $w={width} $makes={mark.makes} $best={mark.best} $inCorner={false} aria-hidden data-dd-mark>
+          {mark.text}
+        </Mark>
+      )}
       <Pip $w={width} $suit={suit} aria-hidden>
         {SUIT_SYMBOL[suit]}
       </Pip>
