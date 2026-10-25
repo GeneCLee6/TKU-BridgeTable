@@ -93,9 +93,11 @@ const CHAT_KEEP = 100
 const RECENT_KEEP = 30
 /**
  * How long robots wait before acting, so people can follow the play: a card glides to the middle
- * for 1.3 s, and a finished trick stays on the table until its winner leads again
+ * for 1 s (PACE in src/lib/motion.ts), and a finished trick stays on the table until its winner
+ * leads again. Tuned 1.3x faster at the club president's request (was call 800, card 1400,
+ * afterTrick 3000, answer 400).
  */
-const ROBOT_DELAY = { call: 800, card: 1400, afterTrick: 3000, answer: 400 }
+const ROBOT_DELAY = { call: 600, card: 1050, afterTrick: 2300, answer: 300 }
 export const ROBOT_NAME = 'Robot'
 /** The most a robot brain may think per action before the rule robot answers instead (AC-6.5) */
 const THINK_LIMIT_MS = 2000

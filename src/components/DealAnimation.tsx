@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef, type RefObject } from 'react'
 import styled from 'styled-components'
 import { CARD_RATIO } from '../lib/cards.ts'
-import { prefersReducedMotion } from '../lib/motion.ts'
+import { PACE, prefersReducedMotion } from '../lib/motion.ts'
 import type { Position } from './TrickArea.tsx'
 
 /**
@@ -10,7 +10,7 @@ import type { Position } from './TrickArea.tsx'
  * felt marks the middle with `data-center` and each hand with `data-hand-at="top"` and so on.
  */
 
-export const DEAL_MS = 520
+export const DEAL_MS = PACE.dealMs
 
 const POSITIONS: Position[] = ['top', 'right', 'bottom', 'left']
 

@@ -3,7 +3,7 @@ import styled from 'styled-components'
 import type { Card, Seat } from '../../shared/cards.ts'
 import type { PlayedCard } from '../../shared/game.ts'
 import { CARD_RATIO } from '../lib/cards.ts'
-import { prefersReducedMotion } from '../lib/motion.ts'
+import { PACE, prefersReducedMotion } from '../lib/motion.ts'
 import { PlayingCard } from './PlayingCard.tsx'
 
 /**
@@ -20,9 +20,9 @@ export type Position = 'top' | 'right' | 'bottom' | 'left'
 export type CardOrigin = (card: Card, seat: Seat) => DOMRect | undefined
 
 /** A card takes this long to reach the middle, easing in gently and settling softly */
-export const GLIDE_MS = 1300
+export const GLIDE_MS = PACE.glideMs
 /** A finished trick takes as long to go to its winner */
-export const COLLECT_MS = 1300
+export const COLLECT_MS = PACE.collectMs
 const GLIDE_EASING = 'cubic-bezier(0.33, 0.1, 0.2, 1)'
 
 const Area = styled.div<{ $w: number }>`

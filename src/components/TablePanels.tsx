@@ -1,7 +1,9 @@
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import styled, { keyframes } from 'styled-components'
+import styled, { css, keyframes } from 'styled-components'
 import type { BoardView, PublicUser } from '../../shared/protocol.ts'
 import { signed } from '../lib/format.ts'
+import { typingIn } from '../lib/useCardChoice.ts'
 import { useT } from '../state/PreferencesContext.tsx'
 import { seatLetter } from '../strings.ts'
 import { FavoriteButton } from './FavoriteButton.tsx'
@@ -23,7 +25,7 @@ export const FeltPanel = styled.div`
   font-size: 16px;
 `
 
-export const FeltButton = styled.button<{ $tone?: 'go' | 'stop' | 'plain' }>`
+export const FeltButton = styled.button<{ $tone?: 'go' | 'stop' | 'plain'; $selected?: boolean }>`
   min-height: 38px;
   padding: 0 16px;
   border: 0;
@@ -33,6 +35,13 @@ export const FeltButton = styled.button<{ $tone?: 'go' | 'stop' | 'plain' }>`
   color: #ffffff;
   font-size: 15px;
   font-weight: 700;
+  ${({ $selected, theme }) =>
+    $selected &&
+    css`
+      background: ${theme.table.bidSelected};
+      box-shadow: inset 0 0 0 2px ${theme.table.panelText};
+      color: ${theme.table.bidButtonText};
+    `}
   &:disabled { opacity: 0.55; }
 `
 
@@ -147,6 +156,10 @@ export function ResultPanel({ board, declarerName, seconds }: { board: BoardView
   )
 }
 
+/**
+ * Choosing how many more tricks to claim. A number only chooses (and is highlighted); the claim is
+ * sent from 確定, so a slip of the finger does not claim. Enter confirms, Escape cancels.
+ */
 export function ClaimPicker({
   remaining,
   onClaim,
@@ -157,19 +170,59 @@ export function ClaimPicker({
   onCancel: () => void
 }) {
   const t = useT()
+  const [chosen, setChosen] = useState<number | null>(null)
+
+  // Captured on window so the card keys (Enter plays a lifted card, Escape drops it) do not also act
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.altKey || e.ctrlKey || e.metaKey || typingIn(e.target)) return
+      if (e.key === 'Enter') {
+        // Also keeps a focused button from being clicked by the same key
+        e.preventDefault()
+        e.stopPropagation()
+        if (chosen !== null) onClaim(chosen)
+      } else if (e.key === 'Escape') {
+        e.stopPropagation()
+        onCancel()
+      }
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [chosen, onClaim, onCancel])
+
   return (
-    <FeltPanel>
+    <FeltPanel role="group" aria-label={t.claimTitle}>
       <div>{t.claimTitle}</div>
       <Buttons>
         {Array.from({ length: remaining + 1 }, (_, n) => (
-          <FeltButton key={n} type="button" $tone="plain" onClick={() => onClaim(n)} aria-label={t.claimTricks(n)}>
+          <FeltButton
+            key={n}
+            type="button"
+            $tone="plain"
+            $selected={chosen === n}
+            aria-pressed={chosen === n}
+            onClick={() => setChosen(n)}
+            aria-label={t.claimTricks(n)}
+          >
             {n}
           </FeltButton>
         ))}
       </Buttons>
-      <FeltButton type="button" $tone="stop" onClick={onCancel}>
-        {t.cancel}
-      </FeltButton>
+      <div>{chosen === null ? t.claimPick : t.claimChosen(chosen)}</div>
+      <Buttons>
+        <FeltButton
+          type="button"
+          $tone="go"
+          disabled={chosen === null}
+          aria-keyshortcuts="Enter"
+          onClick={() => chosen !== null && onClaim(chosen)}
+        >
+          {t.confirm}
+        </FeltButton>
+        <FeltButton type="button" $tone="stop" aria-keyshortcuts="Escape" onClick={onCancel}>
+          {t.cancel}
+        </FeltButton>
+      </Buttons>
     </FeltPanel>
   )
 }

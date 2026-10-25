@@ -356,10 +356,13 @@ export interface TableView {
  */
 export type TableWire = Omit<TableView, 'chat' | 'recent'> & { chat?: ChatMessage[]; recent?: BoardSummary[] }
 
-/** After the last card the trick stays on the table this long before the countdown starts */
-export const LAST_TRICK_MS = 3500
+/**
+ * After the last card the trick stays on the table this long before the countdown starts.
+ * This and the countdown were tuned 1.3x faster at the club president's request (were 3500 and 3000).
+ */
+export const LAST_TRICK_MS = 2700
 /** The countdown before the next deal */
-export const DEAL_COUNTDOWN_MS = 3000
+export const DEAL_COUNTDOWN_MS = 2300
 
 /** A club member as the People panel lists them */
 export interface MemberStatus extends PublicUser {

@@ -1,0 +1,556 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>淡江牌桌 音效試聽</title>
+<style>
+  :root {
+    --bg: #f6f3ec; --surface: #fffdf9; --surface-alt: #efeae0; --border: #e2dbcd; --border-strong: #9c9282;
+    --text: #1b2333; --muted: #5a6170; --primary: #1c2e4f; --primary-hover: #26406b; --primary-soft: #e6eaf1;
+    --on-primary: #fdfaf3; --header: #16243f; --on-header: #f3efe6; --accent: #c9972e; --accent-soft: #f6ebd2;
+    --accent-strong: #8a6414; --focus: #3b6fd1; --felt: #1f6b43; --felt-edge: #154d30; --turn: #ffd43b;
+    --success: #1f7a3d; --success-soft: #e6f2e9;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.6 "Noto Sans TC", "Microsoft JhengHei", "PingFang TC", system-ui, sans-serif; }
+  header.top { background: var(--header); color: var(--on-header); padding: 18px 16px; border-bottom: 3px solid var(--accent); }
+  header.top h1 { margin: 0; font-size: 22px; line-height: 1.3; }
+  header.top p { margin: 4px 0 0; color: #aab4c8; font-size: 14px; }
+  main { max-width: 1120px; margin: 0 auto; padding: 20px 16px 48px; }
+  h2 { font-size: 19px; margin: 32px 0 10px; color: var(--primary); }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; }
+  .notice { background: var(--accent-soft); border-left: 4px solid var(--accent); padding: 10px 14px; border-radius: 8px; margin: 0 0 16px; }
+  .controls { display: flex; flex-wrap: wrap; gap: 18px 28px; align-items: center; }
+  fieldset { border: 0; margin: 0; padding: 0; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  legend { float: left; margin-right: 8px; font-weight: 600; }
+  .seg label { display: inline-flex; align-items: center; gap: 4px; padding: 4px 12px; border: 1px solid var(--border-strong); border-radius: 999px; cursor: pointer; background: var(--surface); }
+  .seg input { accent-color: var(--primary); }
+  .seg label:has(input:checked) { background: var(--primary); color: var(--on-primary); border-color: var(--primary); }
+  .check { display: inline-flex; gap: 8px; align-items: center; font-weight: 600; cursor: pointer; }
+  .check input { width: 18px; height: 18px; accent-color: var(--primary); }
+  button { font: inherit; cursor: pointer; border-radius: 8px; }
+  button.play { min-height: 40px; padding: 6px 12px; border: 1px solid var(--border-strong); background: var(--surface); color: var(--primary); font-size: 14px; font-weight: 600; width: 100%; }
+  button.play:hover { background: var(--primary-soft); }
+  button.play.c { color: var(--accent-strong); }
+  button.primary { min-height: 44px; padding: 8px 16px; border: 1px solid var(--primary); background: var(--primary); color: var(--on-primary); font-weight: 600; }
+  button.primary:hover { background: var(--primary-hover); }
+  button.secondary { min-height: 44px; padding: 8px 16px; border: 1px solid var(--border-strong); background: var(--surface); color: var(--text); font-weight: 600; }
+  button:focus-visible, input:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+  .status { margin-top: 14px; padding: 10px 14px; border-radius: 8px; background: var(--surface-alt); min-height: 46px; display: flex; gap: 12px; align-items: center; }
+  .status .buzz { flex: none; padding: 2px 10px; border-radius: 999px; background: var(--accent-soft); color: var(--accent-strong); font-weight: 700; font-size: 13px; visibility: hidden; }
+  .status .buzz.on { visibility: visible; animation: buzz 0.12s linear 4; }
+  @keyframes buzz { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-2px); } 75% { transform: translateX(2px); } }
+  .styles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .styles .card h3 { margin: 0 0 4px; font-size: 16px; }
+  .styles .card p { margin: 0; font-size: 14px; color: var(--muted); }
+  .badge { display: inline-block; margin-left: 6px; padding: 0 8px; border-radius: 999px; background: var(--success-soft); color: var(--success); font-size: 12px; font-weight: 700; vertical-align: 2px; }
+  .table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+  table { border-collapse: collapse; width: 100%; min-width: 760px; }
+  th, td { padding: 10px 12px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; }
+  thead th { background: var(--surface-alt); font-size: 14px; position: sticky; top: 0; }
+  tbody tr:last-child td, tbody tr:last-child th { border-bottom: 0; }
+  tbody th { font-weight: 700; width: 200px; }
+  tbody th small, td small { display: block; font-weight: 400; color: var(--muted); font-size: 13px; line-height: 1.5; }
+  td.btn { width: 150px; }
+  .group td { background: var(--primary-soft); font-weight: 700; color: var(--primary); font-size: 14px; padding: 6px 12px; }
+  .lvl { display: inline-block; font-variant-numeric: tabular-nums; color: var(--muted); font-size: 13px; }
+  .demo-grid { display: grid; grid-template-columns: 300px 1fr; gap: 18px; align-items: start; }
+  .felt { position: relative; aspect-ratio: 1; border-radius: 14px; background: radial-gradient(circle, var(--felt) 55%, var(--felt-edge)); }
+  .seat { position: absolute; padding: 2px 10px; border-radius: 6px; background: #f7f8f4; color: #1b2333; font-size: 14px; font-weight: 700; border: 3px solid transparent; }
+  .seat.turn { border-color: var(--turn); }
+  .seat.n { top: 8px; left: 50%; transform: translateX(-50%); }
+  .seat.s { bottom: 8px; left: 50%; transform: translateX(-50%); }
+  .seat.w { left: 8px; top: 50%; transform: translateY(-50%); }
+  .seat.e { right: 8px; top: 50%; transform: translateY(-50%); }
+  .pc { position: absolute; width: 40px; height: 56px; border-radius: 5px; background: #fff; border: 1px solid #c8c8c8; display: flex; align-items: center; justify-content: center; font: 700 17px "Segoe UI", Helvetica, Arial, sans-serif; color: #111; opacity: 0; transition: opacity 0.2s; }
+  .pc.red { color: #c62828; }
+  .pc.show { opacity: 1; }
+  .pc.won { outline: 3px solid var(--turn); }
+  .pc.n { top: 26%; left: 50%; transform: translateX(-50%); }
+  .pc.s { bottom: 26%; left: 50%; transform: translateX(-50%); }
+  .pc.w { left: 28%; top: 50%; transform: translateY(-50%); }
+  .pc.e { right: 28%; top: 50%; transform: translateY(-50%); }
+  .felt-msg { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); color: #f1f7f2; font-size: 14px; text-align: center; width: 70%; }
+  ol.timeline { margin: 0; padding-left: 22px; font-size: 14px; font-variant-numeric: tabular-nums; }
+  ol.timeline li { padding: 2px 6px; border-radius: 6px; }
+  ol.timeline li.now { background: var(--accent-soft); font-weight: 700; }
+  .seq-buttons { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+  footer { margin-top: 40px; color: var(--muted); font-size: 13px; }
+  @media (max-width: 760px) {
+    .styles { grid-template-columns: 1fr; }
+    .demo-grid { grid-template-columns: 1fr; }
+    .felt { max-width: 300px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .status .buzz.on { animation: none; }
+    .pc { transition: none; }
+  }
+</style>
+</head>
+<body>
+<header class="top">
+  <h1>淡江牌桌 音效試聽</h1>
+  <p>音效提案（等社長決定）· 所有聲音都在這一頁用 Web Audio 即時合成，沒有任何音檔</p>
+</header>
+<main>
+  <p class="notice"><strong>先點一下頁面</strong>：瀏覽器規定使用者點過之後才能出聲。建議戴耳機或用筆電喇叭、音量開在平常打牌的大小。說明見同資料夾的 <code>SOUND-proposal.md</code>。</p>
+
+  <section class="card" aria-labelledby="ctl-title">
+    <h2 id="ctl-title" style="margin-top:0">播放設定（模擬提案中的音量設定）</h2>
+    <div class="controls">
+      <fieldset class="seg">
+        <legend>音量</legend>
+        <label><input type="radio" name="vol" value="-12"> 輕</label>
+        <label><input type="radio" name="vol" value="-6" checked> 中</label>
+        <label><input type="radio" name="vol" value="0"> 大</label>
+      </fieldset>
+      <label class="check"><input type="checkbox" id="mute"> 靜音（等於頁首的喇叭按鈕關掉）</label>
+    </div>
+    <div class="status" role="status" aria-live="polite">
+      <span class="buzz" id="buzz" aria-hidden="true">震動</span>
+      <span id="status-text">還沒有播放。每個聲音播放時，這裡會用文字寫出是什麼事件：聲音永遠不是唯一的提示。</span>
+    </div>
+  </section>
+
+  <h2>三種風格</h2>
+  <div class="styles">
+    <div class="card"><h3>A 實體牌桌 <span class="badge">建議</span></h3><p>紙牌落在絨布上、木頭叫牌盒、木琴。出牌、發牌、輪到你就是現在的聲音，最像 BBO。</p></div>
+    <div class="card"><h3>B 簡潔電子</h3><p>柔和的電子點擊與鈴聲，像手機 App。乾淨，在吵雜的地方比較聽得清楚。</p></div>
+    <div class="card"><h3>C 無聲＋震動</h3><p>不出聲；Android 手機震一下，電腦與 iPhone 只有畫面提示（iPhone 的 Safari 不支援網頁震動）。出牌等頻繁的事件不震。</p></div>
+  </div>
+
+  <h2 id="seq-title">示範一墩（照提案的速度）</h2>
+  <div class="card demo-grid">
+    <div class="felt" id="felt" role="img" aria-label="示範牌桌：你坐南家">
+      <span class="seat n" id="seat-n">北</span>
+      <span class="seat w" id="seat-w">西</span>
+      <span class="seat e" id="seat-e">東</span>
+      <span class="seat s" id="seat-s">南（你）</span>
+      <span class="pc w" id="pc-w"></span>
+      <span class="pc n" id="pc-n"></span>
+      <span class="pc e" id="pc-e"></span>
+      <span class="pc s" id="pc-s"></span>
+      <span class="felt-msg" id="felt-msg"></span>
+    </div>
+    <div>
+      <div class="seq-buttons">
+        <button class="primary" data-seq="trick" data-style="A">A 示範一墩</button>
+        <button class="secondary" data-seq="trick" data-style="B">B 示範一墩</button>
+        <button class="secondary" data-seq="trick" data-style="C">C 示範一墩</button>
+        <button class="primary" data-seq="end" data-style="A">A 一副的結尾</button>
+        <button class="secondary" data-seq="end" data-style="B">B 一副的結尾</button>
+        <button class="secondary" data-seq="stop">停止</button>
+      </div>
+      <ol class="timeline" id="timeline" aria-label="時間表"></ol>
+    </div>
+  </div>
+
+  <h2 id="ev-title">每個事件</h2>
+  <p style="margin-top:0;color:var(--muted);font-size:14px">響度是相對「輪到你叫牌」的 dB（0 dB 最大），完整的「什麼時候不播」見提案 §4。</p>
+  <div class="table-wrap">
+    <table aria-labelledby="ev-title">
+      <thead>
+        <tr><th scope="col">事件</th><th scope="col">響度</th><th scope="col">A 實體牌桌</th><th scope="col">B 簡潔電子</th><th scope="col">C 無聲＋震動</th></tr>
+      </thead>
+      <tbody id="events"></tbody>
+    </table>
+  </div>
+
+  <footer>淡江橋藝社 · TKU BridgeTable 音效提案。本頁的聲音全部由程式即時產生，沒有使用任何人的音檔，可以自由使用。</footer>
+</main>
+
+<script>
+'use strict'
+
+/* ---------- Audio graph: everything -> master gain (volume / mute) -> compressor -> speakers ---------- */
+let ctx = null
+let master = null
+let noiseBuf = null
+
+function audio() {
+  if (!ctx) {
+    const C = window.AudioContext || window.webkitAudioContext
+    if (!C) return null
+    ctx = new C()
+    const comp = ctx.createDynamicsCompressor()
+    comp.threshold.value = -20
+    comp.ratio.value = 4
+    master = ctx.createGain()
+    master.connect(comp).connect(ctx.destination)
+    applyVolume()
+  }
+  if (ctx.state === 'suspended') ctx.resume()
+  return ctx
+}
+
+const db = (d) => Math.pow(10, d / 20)
+
+function applyVolume() {
+  if (!master) return
+  const muted = document.getElementById('mute').checked
+  const vol = Number(document.querySelector('input[name=vol]:checked').value)
+  master.gain.setTargetAtTime(muted ? 0 : db(vol), ctx.currentTime, 0.01)
+}
+document.querySelectorAll('input[name=vol], #mute').forEach((el) => el.addEventListener('change', () => { audio(); applyVolume() }))
+window.addEventListener('pointerdown', () => audio(), { once: true })
+window.addEventListener('keydown', () => audio(), { once: true })
+
+function noise() {
+  if (noiseBuf && noiseBuf.sampleRate === ctx.sampleRate) return noiseBuf
+  noiseBuf = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate)
+  const d = noiseBuf.getChannelData(0)
+  for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1
+  return noiseBuf
+}
+
+/* ---------- Building blocks ---------- */
+
+/** Band-passed noise with an attack / hold / decay envelope: paper, felt, a sweep */
+function paper(at, s) {
+  const { low, high, peak, attack, hold = 0, decay } = s
+  const src = ctx.createBufferSource()
+  src.buffer = noise()
+  const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = low
+  const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = high
+  const g = ctx.createGain()
+  g.gain.setValueAtTime(0.0001, at)
+  g.gain.exponentialRampToValueAtTime(Math.max(peak, 0.0002), at + attack)
+  g.gain.setValueAtTime(Math.max(peak, 0.0002), at + attack + hold)
+  g.gain.exponentialRampToValueAtTime(0.0001, at + attack + hold + decay)
+  src.connect(hp).connect(lp).connect(g).connect(master)
+  const len = attack + hold + decay + 0.05
+  src.start(at, Math.random() * (1 - len), len)
+}
+
+/** A low sine that drops in pitch: the felt under a card, a knock on wood */
+function knock(at, f, peak, decay) {
+  const o = ctx.createOscillator(); o.type = 'sine'
+  o.frequency.setValueAtTime(f, at)
+  o.frequency.exponentialRampToValueAtTime(f * 0.6, at + decay)
+  const g = ctx.createGain()
+  g.gain.setValueAtTime(0.0001, at)
+  g.gain.exponentialRampToValueAtTime(peak, at + 0.003)
+  g.gain.exponentialRampToValueAtTime(0.0001, at + decay)
+  o.connect(g).connect(master)
+  o.start(at); o.stop(at + decay + 0.02)
+}
+
+/** A partial that rings and dies away; `tau` is the time constant in seconds */
+function partial(at, f, peak, tau, type = 'sine', rise = 0.005) {
+  const o = ctx.createOscillator(); o.type = type; o.frequency.value = f
+  const g = ctx.createGain()
+  g.gain.setValueAtTime(0, at)
+  g.gain.linearRampToValueAtTime(peak, at + rise)
+  g.gain.setTargetAtTime(0, at + rise, tau)
+  o.connect(g).connect(master)
+  o.start(at); o.stop(at + rise + tau * 8)
+}
+
+/** A marimba bar: the fundamental, its strong 4th-ish overtone dying fast, a mallet tick */
+function marimba(at, f, peak) {
+  partial(at, f, peak, 0.16)
+  partial(at, f * 3.93, peak * 0.22, 0.03)
+  partial(at, f * 9.2, peak * 0.05, 0.012)
+  paper(at, { low: 1500, high: 5000, peak: peak * 0.15, attack: 0.001, decay: 0.012 })
+}
+
+/** A hollow wood block: short, pitched, with a little noise */
+function woodblock(at, f, peak) {
+  partial(at, f, peak, 0.025)
+  partial(at, f * 2.6, peak * 0.3, 0.012)
+  paper(at, { low: f, high: f * 4, peak: peak * 0.25, attack: 0.001, decay: 0.015 })
+}
+
+/** A soft electronic bell: a few harmonic partials with a gentle decay */
+function chime(at, f, peak, tau = 0.22) {
+  partial(at, f, peak, tau, 'sine', 0.008)
+  partial(at, f * 2, peak * 0.25, tau * 0.6, 'sine', 0.008)
+  partial(at, f * 3, peak * 0.08, tau * 0.4, 'sine', 0.008)
+}
+
+/** A short electronic click */
+function click(at, f, peak, len = 0.012) {
+  const o = ctx.createOscillator(); o.type = 'triangle'; o.frequency.value = f
+  const g = ctx.createGain()
+  g.gain.setValueAtTime(0.0001, at)
+  g.gain.exponentialRampToValueAtTime(peak, at + 0.002)
+  g.gain.exponentialRampToValueAtTime(0.0001, at + len)
+  o.connect(g).connect(master)
+  o.start(at); o.stop(at + len + 0.02)
+}
+
+/** A pitch glide: a bubble, a blip */
+function glide(at, f1, f2, peak, len) {
+  const o = ctx.createOscillator(); o.type = 'sine'
+  o.frequency.setValueAtTime(f1, at)
+  o.frequency.exponentialRampToValueAtTime(f2, at + len)
+  const g = ctx.createGain()
+  g.gain.setValueAtTime(0.0001, at)
+  g.gain.exponentialRampToValueAtTime(peak, at + 0.008)
+  g.gain.exponentialRampToValueAtTime(0.0001, at + len)
+  o.connect(g).connect(master)
+  o.start(at); o.stop(at + len + 0.02)
+}
+
+const vary = () => 0.9 + Math.random() * 0.2
+
+/* ---------- Style A: 實體牌桌 ---------- */
+const A = {
+  deal(at, k) {
+    const n = 48, span = 0.62
+    for (let i = 0; i < n; i++) {
+      const p = i / n
+      const lvl = Math.min(1, p * 6) * (1 - 0.35 * p)
+      paper(at + p * span + (Math.random() - 0.5) * 0.006, { low: 1800 + Math.random() * 1500, high: 7000, peak: k * (0.02 + 0.07 * lvl), attack: 0.001, decay: 0.006 + Math.random() * 0.006 })
+    }
+    paper(at, { low: 1500, high: 5000, peak: k * 0.02, attack: 0.15, hold: 0.3, decay: 0.2 })
+    A.square(at + span + 0.1, k)
+  },
+  square(at, k) {
+    paper(at, { low: 400, high: 3000, peak: k * 0.25, attack: 0.002, decay: 0.05 })
+    paper(at + 0.09, { low: 400, high: 3000, peak: k * 0.16, attack: 0.002, decay: 0.05 })
+  },
+  card(at, k, other) {
+    const v = vary() * k
+    const top = other ? 8000 : 10000
+    paper(at - 0.06, { low: 3000, high: top - 1000, peak: 0.1 * v, attack: 0.058, decay: 0.004 })
+    paper(at, { low: 3500, high: top, peak: 0.55 * v, attack: 0.001, decay: 0.014 })
+    paper(at, { low: 1200, high: 4000, peak: 0.16 * v, attack: 0.001, decay: 0.022 })
+    paper(at + 0.012, { low: 4000, high: 9000, peak: 0.03 * v, attack: 0.002, decay: 0.03 })
+    knock(at, 190 * vary(), 0.06 * v, 0.03)
+  },
+  trick(at, k) {
+    paper(at, { low: 500, high: 2800, peak: k * 0.14, attack: 0.12, decay: 0.16 })
+    paper(at + 0.05, { low: 2500, high: 6000, peak: k * 0.04, attack: 0.08, decay: 0.1 })
+    knock(at + 0.26, 160, k * 0.08, 0.05)
+  },
+  turn(at, k) {
+    const end = at + 1.3
+    const tone = ctx.createOscillator(); tone.frequency.value = 247
+    const lfo = ctx.createOscillator(); lfo.frequency.value = 40
+    const depth = ctx.createGain(); depth.gain.value = 27
+    lfo.connect(depth).connect(tone.frequency)
+    const body = ctx.createGain()
+    body.gain.setValueAtTime(0, at)
+    body.gain.linearRampToValueAtTime(0.3 * k, at + 0.012)
+    body.gain.setTargetAtTime(0, at + 0.012, 0.1)
+    const tail = ctx.createGain()
+    tail.gain.setValueAtTime(0, at)
+    tail.gain.linearRampToValueAtTime(0.011 * k, at + 0.05)
+    tail.gain.setTargetAtTime(0, at + 0.05, 0.35)
+    tone.connect(body).connect(master)
+    tone.connect(tail).connect(master)
+    for (const o of [tone, lfo]) { o.start(at); o.stop(end) }
+    partial(at, 546, 0.09 * k, 0.07, 'sine', 0.01)
+    partial(at, 848, 0.035 * k, 0.09, 'sine', 0.01)
+    knock(at, 60, 0.16 * k, 0.14)
+  },
+  bid(at, k, pass) {
+    const v = vary() * k * (pass ? 0.6 : 1)
+    paper(at, { low: 900, high: 4000, peak: 0.3 * v, attack: 0.001, decay: 0.02 })
+    knock(at, 320, 0.08 * v, 0.025)
+  },
+  attention(at, k) { marimba(at, 392, 0.35 * k); marimba(at + 0.15, 523, 0.35 * k) },
+  made(at, k) { marimba(at, 392, 0.32 * k); marimba(at + 0.16, 587, 0.32 * k) },
+  down(at, k) { marimba(at, 294, 0.32 * k) },
+  passout(at, k) { A.square(at, k) },
+  slow(at, k) { A.turn(at, k); A.turn(at + 0.32, k * 0.8) },
+  chat(at, k) { woodblock(at, 950, 0.3 * k) },
+  notify(at, k) { marimba(at, 659, 0.28 * k); marimba(at + 0.14, 659, 0.22 * k) },
+  seat(at, k) { woodblock(at, 700, 0.3 * k) },
+  full(at, k) { woodblock(at, 700, 0.3 * k); woodblock(at + 0.12, 880, 0.3 * k) },
+  challengeResult(at, k) { marimba(at, 440, 0.3 * k); marimba(at + 0.16, 659, 0.3 * k) },
+  matchStart(at, k) { marimba(at, 523, 0.3 * k); marimba(at + 0.13, 659, 0.3 * k); marimba(at + 0.26, 784, 0.3 * k); A.deal(at + 0.7, k) },
+  score(at, k) { marimba(at, 880, 0.25 * k) },
+  matchEnd(at, k) { marimba(at, 523, 0.3 * k); marimba(at + 0.16, 659, 0.3 * k); marimba(at + 0.32, 587, 0.3 * k); marimba(at + 0.52, 784, 0.34 * k) },
+}
+
+/* ---------- Style B: 簡潔電子 ---------- */
+const B = {
+  deal(at, k) { for (let i = 0; i < 8; i++) click(at + i * 0.055, 700 + i * 70, k * (0.08 + i * 0.01), 0.02) },
+  square(at, k) { click(at, 600, k * 0.12); click(at + 0.09, 600, k * 0.09) },
+  card(at, k, other) { click(at, other ? 1000 : 1400, vary() * k * (other ? 0.16 : 0.2), 0.014) },
+  trick(at, k) { glide(at, 880, 820, k * 0.08, 0.06); glide(at + 0.07, 660, 620, k * 0.08, 0.07) },
+  turn(at, k) { chime(at, 880, 0.3 * k, 0.25) },
+  bid(at, k, pass) { click(at, pass ? 1600 : 2000, k * (pass ? 0.07 : 0.11), 0.008) },
+  attention(at, k) { chime(at, 880, 0.28 * k); chime(at + 0.16, 1175, 0.28 * k) },
+  made(at, k) { chime(at, 784, 0.25 * k); chime(at + 0.16, 1175, 0.25 * k) },
+  down(at, k) { chime(at, 587, 0.25 * k, 0.28) },
+  passout(at, k) { B.square(at, k) },
+  slow(at, k) { chime(at, 880, 0.3 * k); chime(at + 0.3, 880, 0.24 * k) },
+  chat(at, k) { glide(at, 500, 900, 0.14 * k, 0.07) },
+  notify(at, k) { chime(at, 1319, 0.2 * k, 0.15); chime(at + 0.14, 1319, 0.16 * k, 0.15) },
+  seat(at, k) { glide(at, 660, 700, 0.12 * k, 0.06) },
+  full(at, k) { glide(at, 660, 700, 0.12 * k, 0.06); glide(at + 0.1, 880, 930, 0.12 * k, 0.06) },
+  challengeResult(at, k) { chime(at, 880, 0.24 * k); chime(at + 0.16, 1319, 0.24 * k) },
+  matchStart(at, k) { chime(at, 523, 0.24 * k); chime(at + 0.13, 659, 0.24 * k); chime(at + 0.26, 784, 0.24 * k); B.deal(at + 0.7, k) },
+  score(at, k) { chime(at, 1760, 0.12 * k, 0.12) },
+  matchEnd(at, k) { chime(at, 523, 0.24 * k); chime(at + 0.16, 659, 0.24 * k); chime(at + 0.32, 587, 0.24 * k); chime(at + 0.52, 784, 0.28 * k, 0.35) },
+}
+
+/* ---------- Style C: vibration patterns (ms); null = no vibration, only the screen ---------- */
+const C = {
+  deal: null, card: null, other: null, trick: null, turn: [40], turnPlay: [40], bid: null, pass: null,
+  attention: [30, 60, 30], made: [60], down: [30], passout: null, slow: [40, 80, 40], chat: null,
+  notify: [20, 80, 20], seat: null, full: [20, 60, 20], challengeResult: [20, 80, 20], matchStart: [50, 100, 50],
+  score: null, matchEnd: [80, 80, 80],
+}
+
+/* ---------- Events (mirrors SOUND-proposal.md §4) ---------- */
+const GROUPS = [
+  ['牌桌：每一副', [
+    { id: 'deal', n: 1, name: '發牌', note: '新的一副', db: -6, a: (t, k) => A.deal(t, k), b: (t, k) => B.deal(t, k) },
+    { id: 'card', n: 2, name: '自己出牌', note: '牌滑到桌心時落下', db: -8, a: (t, k) => A.card(t, k, false), b: (t, k) => B.card(t, k, false) },
+    { id: 'other', n: 3, name: '別人出牌', note: '含夢家、機器人；比自己的輕', db: -12, a: (t, k) => A.card(t, k, true), b: (t, k) => B.card(t, k, true) },
+    { id: 'trick', n: 4, name: '一墩收走', note: '最後一墩不播', db: -16, a: (t, k) => A.trick(t, k), b: (t, k) => B.trick(t, k) },
+    { id: 'bid', n: 7, name: '叫品', note: '別人的叫品；建議預設關', db: -18, a: (t, k) => A.bid(t, k, false), b: (t, k) => B.bid(t, k, false) },
+    { id: 'pass', n: 7, name: '叫品：Pass', note: '比一般叫品更輕', db: -22, a: (t, k) => A.bid(t, k, true), b: (t, k) => B.bid(t, k, true) },
+  ]],
+  ['牌桌：需要你', [
+    { id: 'turn', n: 5, name: '輪到你叫牌', note: '最大聲的基準', db: 0, a: (t, k) => A.turn(t, k), b: (t, k) => B.turn(t, k) },
+    { id: 'turnPlay', n: 6, name: '輪到你出牌', note: '只在分頁在背景時', db: 0, a: (t, k) => A.turn(t, k), b: (t, k) => B.turn(t, k) },
+    { id: 'attention', n: 8, name: '攤牌／撤回：等你回應', note: '別人提出、你要回答', db: 0, a: (t, k) => A.attention(t, k), b: (t, k) => B.attention(t, k) },
+    { id: 'slow', n: 10, name: '慢出提醒', note: '輪到你很久了；只響一次', db: -4, a: (t, k) => A.slow(t, k), b: (t, k) => B.slow(t, k) },
+  ]],
+  ['牌桌：這副結束', [
+    { id: 'made', n: '9a', name: '合約做成', note: '不分我方對方', db: -6, a: (t, k) => A.made(t, k), b: (t, k) => B.made(t, k) },
+    { id: 'down', n: '9b', name: '合約倒約', note: '中性，不是「哀」聲', db: -8, a: (t, k) => A.down(t, k), b: (t, k) => B.down(t, k) },
+    { id: 'passout', n: '9c', name: '四家 Pass', note: '流局', db: -10, a: (t, k) => A.passout(t, k), b: (t, k) => B.passout(t, k) },
+  ]],
+  ['聊天與通知', [
+    { id: 'chat', n: 11, name: '牌桌聊天', note: '聊天面板收起或分頁在背景時', db: -18, a: (t, k) => A.chat(t, k), b: (t, k) => B.chat(t, k) },
+    { id: 'notify', n: 12, name: '私訊、通知鈴', note: '出牌中延後到收墩', db: -8, a: (t, k) => A.notify(t, k), b: (t, k) => B.notify(t, k) },
+    { id: 'seat', n: 13, name: '有人入座', note: '你是桌主；機器人不播', db: -12, a: (t, k) => A.seat(t, k), b: (t, k) => B.seat(t, k) },
+    { id: 'full', n: 13, name: '牌桌坐滿', note: '可以開始了', db: -12, a: (t, k) => A.full(t, k), b: (t, k) => B.full(t, k) },
+  ]],
+  ['挑戰與隊制賽', [
+    { id: 'challengeResult', n: 14, name: '挑戰結果出爐', note: '邀請、本週挑戰開始用「通知」聲', db: -8, a: (t, k) => A.challengeResult(t, k), b: (t, k) => B.challengeResult(t, k) },
+    { id: 'matchStart', n: 15, name: '隊制賽開始', note: '兩室同時發第 1 副', db: -6, a: (t, k) => A.matchStart(t, k), b: (t, k) => B.matchStart(t, k) },
+    { id: 'score', n: 16, name: '另一室成績進來', note: '建議只有觀看者聽得到', db: -16, a: (t, k) => A.score(t, k), b: (t, k) => B.score(t, k) },
+    { id: 'matchEnd', n: 17, name: '隊制賽結束', note: '勝負同一聲', db: -6, a: (t, k) => A.matchEnd(t, k), b: (t, k) => B.matchEnd(t, k) },
+  ]],
+]
+const EVENTS = Object.fromEntries(GROUPS.flatMap(([, list]) => list).map((e) => [e.id, e]))
+const STYLE_NAME = { A: 'A 實體牌桌', B: 'B 簡潔電子', C: 'C 無聲＋震動' }
+
+/* ---------- Playing one event ---------- */
+const statusText = document.getElementById('status-text')
+const buzz = document.getElementById('buzz')
+
+function vibrate(pattern) {
+  buzz.classList.remove('on'); void buzz.offsetWidth; buzz.classList.add('on')
+  if (navigator.vibrate) { try { return navigator.vibrate(pattern) } catch { return false } }
+  return false
+}
+
+/** Plays event `id` in `style` after `delay` seconds; returns what it did, in words */
+function play(style, id, delay = 0) {
+  const e = EVENTS[id]
+  if (style === 'C') {
+    const p = C[id]
+    if (!p) return `${STYLE_NAME.C}・${e.name}：不震，只有畫面提示`
+    const ok = vibrate(p)
+    return `${STYLE_NAME.C}・${e.name}：震動 ${p.join('／')} 毫秒${ok ? '' : '（這個裝置或瀏覽器不支援震動，只有畫面提示）'}`
+  }
+  if (!audio()) return '這個瀏覽器不支援 Web Audio'
+  const at = ctx.currentTime + 0.08 + delay
+  ;(style === 'A' ? e.a : e.b)(at, db(e.db))
+  const muted = document.getElementById('mute').checked
+  return `${STYLE_NAME[style]}・${e.name}（${e.db} dB）${muted ? '：靜音中，不出聲' : ''}`
+}
+
+/* ---------- Event table ---------- */
+const tbody = document.getElementById('events')
+for (const [group, list] of GROUPS) {
+  const g = document.createElement('tr'); g.className = 'group'
+  g.innerHTML = `<td colspan="5">${group}</td>`
+  tbody.append(g)
+  for (const e of list) {
+    const tr = document.createElement('tr')
+    const th = document.createElement('th'); th.scope = 'row'
+    th.innerHTML = `#${e.n} ${e.name}<small>${e.note}</small>`
+    const lvl = document.createElement('td'); lvl.innerHTML = `<span class="lvl">${e.db} dB</span>`
+    tr.append(th, lvl)
+    for (const s of ['A', 'B', 'C']) {
+      const td = document.createElement('td'); td.className = 'btn'
+      const b = document.createElement('button')
+      b.className = 'play' + (s === 'C' ? ' c' : '')
+      b.type = 'button'
+      b.textContent = s === 'C' ? (C[e.id] ? '震動' : '只有畫面') : '播放'
+      b.setAttribute('aria-label', `${STYLE_NAME[s]}：${e.name}`)
+      b.addEventListener('click', () => { statusText.textContent = '▶ ' + play(s, e.id) })
+      td.append(b); tr.append(td)
+    }
+    tbody.append(tr)
+  }
+}
+
+/* ---------- Sequences ---------- */
+const LAND = 0.95 // the card sound lands as the 1.3 s glide settles
+const SEQS = {
+  trick: [
+    { t: 0, label: '西家（機器人）出牌，牌開始滑動', seat: 'w' },
+    { t: LAND, label: '「啪」別人出牌', ev: 'other', card: ['w', '♠5', false] },
+    { t: 1.4, label: '北家出牌', seat: 'n' },
+    { t: 1.4 + LAND, label: '「啪」別人出牌', ev: 'other', card: ['n', '♠K', false] },
+    { t: 2.8, label: '東家出牌', seat: 'e' },
+    { t: 2.8 + LAND, label: '「啪」別人出牌', ev: 'other', card: ['e', '♠2', false] },
+    { t: 2.8 + LAND + 0.01, label: '輪到你：黃框；分頁在前景時不出聲', seat: 's' },
+    { t: 4.6, label: '你出牌（想了約 0.8 秒）', seat: null },
+    { t: 4.6 + LAND, label: '「啪」自己出牌', ev: 'card', card: ['s', '♠A', false] },
+    { t: 6.6, label: '你贏這一墩，牌被收走「唰」', ev: 'trick', win: 's' },
+  ],
+  end: [
+    { t: 0, label: '最後一墩：東家出牌', seat: 'e' },
+    { t: LAND, label: '「啪」別人出牌', ev: 'other', card: ['e', '♥3', true] },
+    { t: 1.4, label: '你出牌', seat: null },
+    { t: 1.4 + LAND, label: '「啪」自己出牌', ev: 'card', card: ['s', '♥A', true] },
+    { t: 2.8, label: '西家出牌', seat: 'w' },
+    { t: 2.8 + LAND, label: '「啪」別人出牌', ev: 'other', card: ['w', '♥4', true] },
+    { t: 4.2, label: '北家出牌', seat: 'n' },
+    { t: 4.2 + LAND, label: '「啪」別人出牌', ev: 'other', card: ['n', '♥6', true] },
+    { t: 5.6, label: '最後一墩不播收墩聲；結果面板出現：4♠ 做成', ev: 'made', win: 's', msg: '4♠ 南 做成 +420' },
+  ],
+}
+
+let timers = []
+function stop() {
+  timers.forEach(clearTimeout); timers = []
+  for (const s of 'nswe') { document.getElementById('seat-' + s).classList.remove('turn'); const c = document.getElementById('pc-' + s); c.className = 'pc ' + s; c.textContent = '' }
+  document.getElementById('felt-msg').textContent = ''
+  document.querySelectorAll('#timeline li').forEach((li) => li.classList.remove('now'))
+}
+
+function runSeq(kind, style) {
+  stop()
+  if (style !== 'C' && !audio()) return
+  const steps = SEQS[kind]
+  const ol = document.getElementById('timeline')
+  ol.innerHTML = ''
+  steps.forEach((s) => {
+    const li = document.createElement('li')
+    li.textContent = `${s.t.toFixed(2)} 秒　${s.label}`
+    ol.append(li)
+  })
+  statusText.textContent = `▶ ${STYLE_NAME[style]}・${kind === 'trick' ? '示範一墩' : '一副的結尾'}${style === 'C' ? '：出牌、收墩都不震，只有畫面' : ''}`
+  steps.forEach((s, i) => {
+    timers.push(setTimeout(() => {
+      ol.querySelectorAll('li').forEach((li, j) => li.classList.toggle('now', i === j))
+      if ('seat' in s) for (const x of 'nswe') document.getElementById('seat-' + x).classList.toggle('turn', s.seat === x)
+      if (s.card) { const [seat, txt, red] = s.card; const c = document.getElementById('pc-' + seat); c.textContent = txt; c.className = `pc ${seat} show${red ? ' red' : ''}` }
+      if (s.win) { document.getElementById('pc-' + s.win).classList.add('won'); for (const x of 'nswe') document.getElementById('seat-' + x).classList.remove('turn') }
+      if (s.msg) document.getElementById('felt-msg').textContent = s.msg
+      if (s.ev) play(style, s.ev)
+    }, s.t * 1000))
+  })
+  timers.push(setTimeout(() => { statusText.textContent = '示範結束' }, (steps[steps.length - 1].t + 1.5) * 1000))
+}
+
+document.querySelectorAll('[data-seq]').forEach((b) => b.addEventListener('click', () => {
+  if (b.dataset.seq === 'stop') { stop(); statusText.textContent = '已停止'; return }
+  runSeq(b.dataset.seq, b.dataset.style)
+}))
+</script>
+</body>
+</html>
