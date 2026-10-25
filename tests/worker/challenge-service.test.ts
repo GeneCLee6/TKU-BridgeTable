@@ -171,11 +171,13 @@ describe('creating a challenge (e7-t05)', () => {
     expect(c.players).toHaveLength(21)
   })
 
-  it('deals 4 to 16 boards', async () => {
+  it('deals 1 to 16 boards', async () => {
     const [amy, ben] = await friends('amy', 'ben')
-    for (const boards of [3, 17, 8.5, '8' as never]) {
+    for (const boards of [0, -1, 17, 8.5, '8' as never]) {
       expect(await refused(amy, { type: 'createChallenge', invitees: [ben], boards })).toBe('challengeBoards')
     }
+    expect(error(amy)?.params).toEqual({ min: 1, max: 16 })
+    expect((await create(amy, [ben], { boards: 1 })).boards).toBe(1)
     expect((await create(amy, [ben], { boards: 4 })).boards).toBe(4)
     expect((await create(amy, [ben], { boards: 16 })).boards).toBe(16)
   })

@@ -5,6 +5,7 @@ import { robotAuction } from '../../shared/challenge-deals.ts'
 import { encodeDealSet } from '../../shared/deal-set.ts'
 import { ruleBrain, type RobotBrain } from '../../shared/robot/brain.ts'
 import type { BoardRecord, ClientMessage, ServerMessage, TableView } from '../../shared/protocol.ts'
+import { openingLead } from '../../shared/traveller.ts'
 import { ClubService, type Connections, type ScheduleKind } from '../../worker/service.ts'
 import type { MemoryStore } from '../../worker/store.ts'
 import { memoryStore } from './sqlite.ts'
@@ -358,5 +359,96 @@ describe('「用這副牌挑戰」 (e7-t22)', () => {
       }
     }
     expect(await create([view(amy)!.board!.recordId!])).toBe('challengeRobotsOnly')
+  })
+})
+
+/** Runs the challenge's deadline job, as the scheduler would at the deadline */
+async function reachDeadline(id: string) {
+  time = club.challenges.get(id)!.deadline
+  const jobs = queue.filter((job) => job.kind === 'challenge')
+  queue = queue.filter((job) => job.kind !== 'challenge')
+  for (const job of jobs) job.run()
+  for (let i = 0; i < 10; i++) await tick()
+}
+
+describe('one-board challenges (社長, 2026-10-25)', () => {
+  it('plays a single board and ranks by matchpoints the two of three who played it', async () => {
+    const { amy, ben, more, id } = await challenge({ scoring: 'mp' }, { boards: 1, others: ['cat'] })
+    const [cat] = more
+    await send(cat, { type: 'answerChallenge', challengeId: id, accept: true })
+    await play(amy, id)
+    await playBoard(amy)
+    // Alone so far: first, with her total score only
+    expect(club.challengeFor(id, amy)!.standings).toMatchObject({ final: false, scoring: 'total', ranked: [{ userId: amy, rank: 1 }] })
+    expect(club.challengeFor(id, ben)!.standings).toBeUndefined()
+    await play(ben, id)
+    await playBoard(ben)
+    await reachDeadline(id)
+    const done = club.challengeFor(id, cat)!
+    expect(done.status).toBe('finished')
+    // Both played the board the same way against the same robots: the same score, 50% each
+    expect(done.standings).toMatchObject({ final: true, scoring: 'mp', unfinished: [{ userId: cat, played: 0 }] })
+    expect(done.standings!.ranked.map((r) => [r.userId, r.total, r.rank, r.boards])).toEqual([
+      [amy, 50, 1, [50]],
+      [ben, 50, 1, [50]],
+    ])
+    expect(done.travellers?.map((x) => [x.seq, x.entries.map((e) => e.userId)])).toEqual([[1, [amy, ben]]])
+  })
+
+  it('rematches with as many boards as before, even one', async () => {
+    const { amy, ben, id } = await challenge({}, { boards: 1, accept: false })
+    await send(amy, { type: 'cancelChallenge', challengeId: id })
+    time += 1
+    const again = await club.challengeRequest(amy, { type: 'rematchChallenge', challengeId: id })
+    expect(again!.boards).toBe(1)
+    expect(again!.players.map((p) => p.userId)).toEqual([amy, ben])
+  })
+
+  it('rematches a 「用這副牌挑戰」 of one board with one new board', async () => {
+    const amy = await member('amy')
+    const ben = await member('ben')
+    await send(amy, { type: 'setFriend', userId: ben, friend: true })
+    const record = await robotBoard(amy)
+    const made = await club.challengeRequest(amy, { type: 'createChallenge', invitees: [ben], fromBoards: [record.id] })
+    await send(amy, { type: 'cancelChallenge', challengeId: made!.id })
+    time += 1
+    const again = await club.challengeRequest(amy, { type: 'rematchChallenge', challengeId: made!.id })
+    expect(again!.boards).toBe(1)
+    expect(again!.players[0].knownDeals).toBe(false)
+  })
+})
+
+describe('the results page: each board’s lead (社長, 2026-10-25)', () => {
+  it('reads the leads only for travellers the member may see, as §4 says', async () => {
+    const { amy, ben, id } = await challenge({ ranking: 'club' }, { boards: 2 })
+    const zoe = await member('zoe')
+    await play(amy, id)
+    await playAll(amy)
+    await play(ben, id)
+    await playBoard(ben)
+    await send(ben, { type: 'leaveTable' })
+    const leadOf = async (boardId: string) => openingLead((await club.record(boardId, amy))!.board)
+
+    // amy played every board: the travellers with everyone's lead
+    const amyView = (await club.challengeDetail(id, amy))!
+    expect(amyView.travellers!.map((x) => x.entries.map((e) => e.userId))).toEqual([[amy, ben], [amy]])
+    for (const x of amyView.travellers!) for (const e of x.entries) expect(e.lead).toEqual(await leadOf(e.boardId))
+    expect(amyView.travellers!.some((x) => x.entries.some((e) => e.lead))).toBe(true)
+    // The lobby's list and the plain view do not read the records
+    expect('lead' in club.challengeFor(id, amy)!.travellers![0].entries[0]).toBe(false)
+    // ben is still playing: nobody's results, not even his own board's lead; zoe is not in it
+    const benView = (await club.challengeDetail(id, ben))!
+    expect(benView.travellers).toBeUndefined()
+    expect(benView.standings).toBeUndefined()
+    expect(await club.challengeDetail(id, zoe)).toBeNull()
+
+    await reachDeadline(id)
+    // Once it ended every participant sees it all; the club sees the standings without the boards
+    expect((await club.challengeDetail(id, ben))!.travellers![0].entries.map((e) => e.lead)).toEqual(
+      amyView.travellers![0].entries.map((e) => e.lead),
+    )
+    const zoeView = (await club.challengeDetail(id, zoe))!
+    expect(zoeView.travellers).toBeUndefined()
+    expect(zoeView.standings!.ranked.every((r) => r.boards === undefined)).toBe(true)
   })
 })

@@ -145,10 +145,10 @@ interface BoardState {
 | 誰 | 挑戰進行中 | 挑戰結束後 |
 | --- | --- | --- |
 | 參與者（受邀、接受、拒絕都算） | 設定、狀態、每個人的回覆與打了幾副；**沒打完全部的人只有這些**，打過的副也看不到別人的結果 | 同左，再加下面全部 |
-| 打完全部的參與者 | 再加每一副的 traveller（每個人的合約、莊家、墩數、南北分數、牌局 id）、目前排名（只排已經打完的人）與人 × 副矩陣 | 最終排名與矩陣（`finished` 才有排名；`expired`、`cancelled` 沒有） |
+| 打完全部的參與者 | 再加每一副的 traveller（每個人的合約、莊家、墩數、南北分數、牌局 id；單一挑戰另帶首攻）、目前排名（只排已經打完的人）與人 × 副矩陣 | 最終排名與矩陣（`finished` 才有排名；`expired`、`cancelled` 沒有） |
 | 非參與者 | 404 | `ranking = club` 且 `finished`：排名（名次與總成績，不含每副分數、traveller）；否則 404 |
 
-`GET /api/challenges` 的列表不帶 traveller（給大廳用），單一挑戰才帶。這些判斷都在 `worker/views.ts`（`challengeView`、`challengeBoardVisible`），測試在 `tests/worker/challenge-settlement.test.ts`。
+`GET /api/challenges` 的列表不帶 traveller（給大廳用），單一挑戰才帶。單一挑戰的 traveller 另帶每一列的首攻（結果頁用，2026-10-25）：索引沒有首攻，`ClubService.challengeDetail` 先用 `challengeView` 算出這個人看得到哪幾列，**只讀那幾列**的紀錄，把首攻放進 `EventBoard.lead` 再交給 `challengeView` 重算一次，所以首攻跟著同一條規則出去，還沒打完的人與非參與者一副紀錄都不會被讀。這些判斷都在 `worker/views.ts`（`challengeView`、`challengeBoardVisible`），測試在 `tests/worker/challenge-settlement.test.ts` 與 `challenge-options.test.ts`（首攻）。
 
 **隊制賽**（§5.8，`teamMatchView`，`GET /api/matches`、`/api/matches/:id`、socket 的 `match`）：牌組永遠不送；準備中的比賽只給房主與有座位（受邀或已入座）的人，被移出、拒絕或離開後就看不到（推送 `match: null`）；畫面另附每位座位上的社員在不在線（`online`，和大廳的社員列表同一份資訊）與房主能不能開始（`ready`）；比賽中另附兩室牌桌的 id（`tables`，參賽者回到自己那一桌、其他人觀看用；能不能進去由牌桌決定）；比賽中的牌桌只是兩張一般牌桌，看得到的牌和一般牌桌一樣，額外的限制在牌桌層（F4 的 `e8-t09`，見下）。比賽的畫面推給參賽者，比賽中也推給兩桌上的每一個人（入座與觀看），牌桌上方的比分條就是用它（`e8-t10`）。
 
@@ -542,7 +542,7 @@ challenge（challenges 一列）
 - **通知**：`finished` 時送 `challengeResults` 給每位接受的人（含沒打完的）；`expired` 不送通知（發起者在挑戰列表看得到狀態）。
 
 **建立與回覆**（C3，`worker/challenge-flow.ts` 的純函式，`ClubService` 檢查身分、在一個 transaction 裡寫回 `ChallengeStore`、送通知）：
-- `createChallenge { invitees, boards?, settings? }`：`invitees` 是 1–20 個不重複的社員 id（`challengeInvitees`、`badChallengeSettings`），每位都要是發起者關注的好友（`notFriend`；封鎖對方時已取消關注，所以也是這個），不能是自己（`notSelf`）、不存在的帳號或機器人（`userGone`）；對方封鎖了發起者時回 `cannotInvite`，不說是被封鎖。`boards` 4–16，預設 8（`challengeBoards`）。`settings` 由 `parseChallengeSettings`（`shared/challenge.ts`）檢查：每欄可省略、套 `defaultChallengeSettings`，不能有其他欄位；計分單挑只能 `imp`／`total`，多人 `mp`／`crossImp`／`total`；`unfinished` 只能是 `worst`；機器人的制度 `tku`／`gib`（機器人沒有等級，`robotLevel` 跟其他不認得的欄位一樣被拒絕）；`days` 1–7 的整數；錯了回 `badChallengeSettings { field }`。牌組用 `makeDealSet({ kind: 'random', count })`、社團的亂數。
+- `createChallenge { invitees, boards?, settings? }`：`invitees` 是 1–20 個不重複的社員 id（`challengeInvitees`、`badChallengeSettings`），每位都要是發起者關注的好友（`notFriend`；封鎖對方時已取消關注，所以也是這個），不能是自己（`notSelf`）、不存在的帳號或機器人（`userGone`）；對方封鎖了發起者時回 `cannotInvite`，不說是被封鎖。`boards` 1–16，預設 8（`challengeBoards`；BBO 是 4–16，社長 2026-10-25 開放 1 副）。`settings` 由 `parseChallengeSettings`（`shared/challenge.ts`）檢查：每欄可省略、套 `defaultChallengeSettings`，不能有其他欄位；計分單挑只能 `imp`／`total`，多人 `mp`／`crossImp`／`total`；`unfinished` 只能是 `worst`；機器人的制度 `tku`／`gib`（機器人沒有等級，`robotLevel` 跟其他不認得的欄位一樣被拒絕）；`days` 1–7 的整數；錯了回 `badChallengeSettings { field }`。牌組用 `makeDealSet({ kind: 'random', count })`、社團的亂數。
 - `answerChallenge { challengeId, accept }`：只有受邀、還沒回覆的人（發起者已經是 `accepted`，所以回 `alreadyAnswered`）；挑戰要是 `pending`／`active` 而且還沒到截止時間（`challengeClosed`）。不是參與者的一律 `challengeGone`，不透露挑戰存在。
 - `cancelChallenge { challengeId }`：只有發起者（`challengeCreatorOnly`），只在 `pending`／`active`，而且除了他以外沒人有 `started_at`（`challengeStarted`；發起者自己先打了不影響）。
 - 截止時間的處理寫成 `deadlineOutcome`（沒回覆的改 `declined`，除了發起者沒人接受就 `expired`，否則 `finished`），C5 的期限工作呼叫它並結算（見上面的「期限工作與結算」）。
@@ -563,14 +563,14 @@ C4 的實作（2026-10-24）：
 **挑戰頁**（C6，`e7-t16`～`e7-t18`，2026-10-25）：
 - `/challenges`（`ChallengesPage`）：等待接受（受邀還沒回覆，或除了發起者還沒人接受）、進行中、已完成（結束了，或自己拒絕了）三個分頁（`src/lib/challenges.ts` 的 `challengeTab`）；每個挑戰列出對手的狀態與進度條、自己的進度、截止倒數，可以接受／拒絕、開始打／繼續打、取消（發起者，別人都還沒開打）。新通知進來就重新讀列表。
 - 發起挑戰對話框（`ChallengeDialog`）：選人只列好友（`LobbyView.friends`），點輸入框列出全部，打字 150 ms 防抖後篩選，可多選；副數、計分（依人數 `scoringsFor`）、機器人的制度、截止天數、排名公開範圍，Best Hand、Just Declare 兩個勾選（C8），下方預覽。
-- `/challenges/:id`（`ChallengePage`）：伺服器照 §4 給什麼就顯示什麼：名次、總成績、人 × 副矩陣（每格連到那一副的紀錄），自己那一列高亮，沒打完的列在下面標「未完成」與打了幾副；還沒打完全部的人只看到每個人的進度。
+- `/challenges/:id`（`ChallengePage`）：伺服器照 §4 給什麼就顯示什麼：名次、總成績，自己那一列高亮，沒打完的列在下面標「未完成」與打了幾副；接著是 BBO 式的每一副結果（見下面的「結果頁」）；還沒打完全部的人只看到每個人的進度。
 - 建立、回覆、取消也走 HTTP（`POST /api/challenges`、`/api/challenges/:id/answer`、`/cancel`），讓頁面立刻拿到結果；伺服器是同一套檢查（`ClubService.challengeRequest` 呼叫 socket 訊息的同一個處理），錯誤一樣是 `ClubError` 的代碼。開始打仍用 socket 的 `playChallenge`（要跟著伺服器進牌桌）。通知點下去：邀請到 `/challenges`，其他到那個挑戰的頁面。
 
 **牌組的選項、再戰與「用這副牌挑戰」**（C8，`e7-t10`、`e7-t11`、`e7-t21`、`e7-t22`，2026-10-25）：全部在**建立時**決定、存進 `deals`，所以每位參與者拿到的完全一樣（純函式在 `shared/challenge-deals.ts`）。
 - **Best Hand**（`bestHand`）：每副發好後轉一下，讓南拿四家點力（HCP）最高的一手；同點力時依 南、北、西、東 的順序取第一個（`BEST_HAND_ORDER`，南已經是最高就不轉）。轉牌是整副一起轉（`rotateHands`），發牌者與身價照牌號不變。
 - **Just Declare**（`justDeclare`）：四個 TKB（設定裡的制度）先叫牌（`robotAuction`），南北當莊才留下，否則重發（每副最多 60 次，`JUST_DECLARE_TRIES`；做不到回 `serverError`，實際上不會發生）；可以和 Best Hand 一起用。叫牌存在牌組裡（`DealSetBoard.auction`，`encodeDealSet` 在那一行後面加 ` | 1C P 1H …`，載入時檢查要合法、要有合約），不靠「機器人每次都叫一樣」，部署新版機器人也不會讓莊家換邊。發牌時（`modes.ts` 的 `deal`）照存下的叫品重演一次（每個叫品都標機器人；機器人現在還是叫這個時帶上它的說明），桌子直接進入打牌；北當莊時照常由 `swapForDeclarer` 讓真人坐到北主打。首攻由莊家左手的機器人出，參與者從首攻之後開始。
 - **每副都坐南**：發下一副前，替機器人當莊而換過座位的真人先換回自己的位子（`unswap`，#74），所以挑戰的參與者每副都從南開始；Just Declare 的叫牌重演完才照新合約換座位。
-- **一鍵再戰**（`rematchChallenge { challengeId }`，HTTP `POST /api/challenges/:id/rematch`）：挑戰結束後（`finished`／`expired`／`cancelled`；還開著回 `challengeNotOver`），接受過的參與者（不是參與者 `challengeGone`、沒接受 `challengeNotAccepted`）邀請其他沒拒絕、帳號還在的人（沒人 `rematchNobody`），同樣的設定與副數、新牌組；走 `createChallenge` 的同一套檢查，所以他要關注每一位（`notFriend`），發起者是按再戰的人。人數變了、原本的計分不適用時用預設。「已知牌」的挑戰副數不到 4，再戰用 4 副。
+- **一鍵再戰**（`rematchChallenge { challengeId }`，HTTP `POST /api/challenges/:id/rematch`）：挑戰結束後（`finished`／`expired`／`cancelled`；還開著回 `challengeNotOver`），接受過的參與者（不是參與者 `challengeGone`、沒接受 `challengeNotAccepted`）邀請其他沒拒絕、帳號還在的人（沒人 `rematchNobody`），同樣的設定與副數、新牌組；走 `createChallenge` 的同一套檢查，所以他要關注每一位（`notFriend`），發起者是按再戰的人。人數變了、原本的計分不適用時用預設。副數照原本的（最少 1 副，2026-10-25 起；之前「已知牌」的挑戰副數不到 4 時再戰用 4 副）。
 - **用這副牌挑戰**（`createChallenge` 加 `fromBoards: string[]`，1–16 副不重複的紀錄 id；不能同時給 `boards`）：每副都要是他打的（不是就 `boardGone`，不透露存在）、已經公開（`revealAt` 沒過的挑戰牌局也是 `boardGone`）、另外三家都是機器人（`challengeRobotsOnly`）、而且是同一種制度（`challengeRobotKinds`）。設定的機器人制度鎖成那一種（送了別的回 `badChallengeSettings { field: 'robotKind' }`），Best Hand、Just Declare 不能開（`badChallengeSettings`）。他叫牌的座位（替機器人當莊而換過座位的，看叫品裡沒標機器人的那一家）轉成南（`boardAsSouth`）：發牌者與身價跟著轉，牌號換成 16 副循環裡同樣發牌者與身價的那一號（坐南就是原牌號；`boardNoFor`），他的分數換成他那一方的角度（坐東西就變號）。建立時就寫進他的 `challenge_results`（`board_id` 是原本的紀錄、`played_at` 是當時打完的時間）、`known_deals = 1`、`started_at`／`finished_at` 是建立時間（`newChallenge` 的 `known`）。紀錄頁的「用這副牌挑戰」只在他和三個同制度的機器人打、已公開的牌出現（`challengeRobotsOf`），對話框不給選副數、Best Hand、Just Declare，機器人鎖住；排名上他的名字後面標「已知牌」。
   - 已知的限制：traveller 裡他那一列的合約與莊家照原本紀錄的方位（沒有轉），分數是轉過的。
 
@@ -592,8 +592,16 @@ C4 的實作（2026-10-24）：
 - 型別在 `shared/traveller.ts`（`Traveller`、`TravellerEntry`：社員、合約、莊家、首攻、結果、南北分數、這一副在挑戰計分裡的分數），之後隊制賽、雙人賽用同一個型別（`kind`）。
 - `GET /api/history/:id/traveller`：用這一副的任何一份紀錄都能問；可見性見 §4。
 - 紀錄頁（`BoardPage`）在挑戰的牌下面顯示 traveller（`TravellerTable`），每一列可以「和他並排看」：和自己打的那一副比，自己沒打就和頁面上那一副比。
-- 排名頁的人 × 副矩陣，點副號在下面打開那一副的 traveller，同樣可以並排看。
+- 結果頁的每一副連到那一副的頁面（`/challenges/:id/boards/:seq`），上面是 traveller，同樣可以並排看（見下面的「結果頁」）。
 - 並排重播 `/history/:id/vs/:other`（`ComparePage`）：一組控制鍵同時逐墩播放兩邊，步數以較長的那一副為準（先攤牌的那一邊停在攤牌時）。
+
+**結果頁**（社長 2026-10-25，照 BBO 的挑戰結果）：社員打完挑戰最想看的是每一副，不是矩陣。
+- `ChallengePage` 在名次下面放 `ChallengeResults`：
+  - **你對每位的成績**：我對每一位、只算兩人都打過的副，加上「對全部」。單位照挑戰的計分（`shared/challenge-scoring.ts` 的 `pairResult`／`headToHead`／`headToHeadTotal`，純函式、手算範例測試）：`imp`、`crossImp` 是兩人分數差換成的 IMP（正數是我贏）；`mp` 是兩人比較的 100／50／0%，合計取平均（「對全部」是所有比較的平均）；`total` 是分數差，合計相加。Cross-IMP 挑戰裡兩人比較用的是一般 IMP，所以標題寫 IMP。
+  - **每一副的結果**：每一副一張卡（牌號、發牌、身價，連到那一副的頁面），每個人一列：合約與莊家方位、首攻、結果、南北分數、這一副的成績（挑戰計分，手機上收起來）、**你對他**（我在這一副對他的勝負，贏綠輸紅）。我在第一列，其他人照名次、再照邀請順序；點名字到那一副的頁面、打開他的分頁。
+  - 全部只用伺服器給的 `ChallengeView`（traveller 與排名），瀏覽器只做算術，不判斷誰看得到什麼：還沒打完的人沒有 traveller，什麼都不顯示；沒打過某一副的人（沒打完、或拒絕了的參與者在結束後）在那一副沒有「你對他」。
+- `/challenges/:id/boards/:seq`（`ChallengeBoardPage`）：那一副的 traveller（`TravellerTable`，莊家名字、每副成績、「和他並排看」到 `ComparePage`，和自己的那一副比），上一副／下一副，以及**每個人一個分頁**：分頁顯示我對他的勝負，內容是 `BoardRecordView`（不帶標題）：牌、重播、叫牌、雙明手、出牌紀錄。網址的 `?p=社員 id` 記住選的人，預設是自己。伺服器沒給這一副的 traveller 時只說「現在還看不到」，不讀任何紀錄；每份紀錄照樣走 `/api/history/:id`（`recordVisible`、`challengeBoardVisible`）。
+- **1 副的挑戰**：計分不用改，只是每個人只有一副：MP 兩人打完是 100%／0%，同分各 50% 並列第一；只有一人打完照舊用 `total`、只顯示總分；Cross-IMP 兩人時就是 IMP。再戰維持 1 副。測試在 `tests/engine/challenge-scoring.test.ts`（「a challenge of one board」）與 `tests/worker/challenge-options.test.ts`（「one-board challenges」：三人 MP、兩人打完、一人未完成）。
 
 **公平與確定性**（`e7-t09`）：機器人是確定的（§5.1），兩個人做一樣的事就遇到一樣的反應。機器人的制度（`robotKind`）在建立時鎖進 `settings`；機器人沒有等級（社長 2026-10-24），`settings` 帶 `robotLevel` 會被拒絕，以前存下來的挑戰帶著的 `robotLevel` 載入時丟掉。以後若 TKB Adv 要用亂數（模擬），種子要用「挑戰 id＋第幾副＋動作序號」，不能用牌局 id。
 

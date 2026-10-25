@@ -99,3 +99,26 @@ export function formatScore(value: number, scoring: ChallengeScoring) {
 
 /** The colour of a result: above or below the average for matchpoints, its sign otherwise */
 export const tone = (value: number, scoring: ChallengeScoring) => (scoring === 'mp' ? value - 50 : value)
+
+/**
+ * Each participant's North-South score on every board, from the travellers the server sent (null
+ * where they did not play it or it is not shown), in the order they were invited. For the head to
+ * head of the results page (`headToHead`); the server already left out what the member may not see
+ */
+export function travellerScores(c: ChallengeView): Record<string, (number | null)[]> {
+  const scores: Record<string, (number | null)[]> = {}
+  for (const x of c.travellers ?? [])
+    for (const e of x.entries) (scores[e.userId] ??= new Array<number | null>(c.boards).fill(null))[x.seq - 1] = e.scoreNS
+  return Object.fromEntries(c.players.filter((p) => scores[p.userId]).map((p) => [p.userId, scores[p.userId]]))
+}
+
+/** The order of the results page: the member first, then by place, then the others as invited */
+export function resultOrder(c: ChallengeView, userId: string): string[] {
+  const ids = [
+    userId,
+    ...(c.standings?.ranked.map((r) => r.userId) ?? []),
+    ...(c.standings?.unfinished.map((u) => u.userId) ?? []),
+    ...c.players.map((p) => p.userId),
+  ]
+  return [...new Set(ids)]
+}

@@ -93,3 +93,68 @@ export function scoreChallenge({ scoring, unfinished, scores }: ChallengeScores)
   // Best first; equal places keep the order the players were given in
   return standings.sort((a, b) => a.rank - b.rank)
 }
+
+/**
+ * Head to head (the results page, 社長 2026-10-25): how one participant did against each other
+ * participant, board by board, as BBO's challenge results show it. The unit follows the challenge's
+ * scoring:
+ * - `imp`, `crossImp`: the IMPs of the difference between the two scores (positive: I won)
+ * - `mp`: the matchpoints of that pair as a percentage: 100 beaten, 50 tied, 0 lost
+ * - `total`: the difference in points
+ */
+export function pairResult(scoring: ChallengeScoring, mine: number, theirs: number): number {
+  if (scoring === 'total') return mine - theirs
+  if (scoring === 'mp') return mine > theirs ? 100 : mine === theirs ? 50 : 0
+  return imps(mine - theirs)
+}
+
+/** One opponent: my result against them on each board, and over the boards we both played */
+export interface Versus {
+  opponent: string
+  /** In board order; null where one of us did not play the board */
+  boards: (number | null)[]
+  /** Boards we both played */
+  compared: number
+  /** The sum for IMPs and points, the average percentage for `mp`; null when nothing was compared */
+  total: number | null
+}
+
+/**
+ * `me` against every other participant in `scores` (North-South scores by board, null when not
+ * played), in the order they were given. Only boards both played are compared, so it works for
+ * those who did not finish and for a challenge of one board
+ */
+export function headToHead(
+  scoring: ChallengeScoring,
+  scores: Record<string, (number | null)[]>,
+  me: string,
+): Versus[] {
+  const mine = scores[me] ?? []
+  return Object.keys(scores)
+    .filter((p) => p !== me)
+    .map((opponent) => {
+      const boards = mine.map((score, b) => {
+        const theirs = scores[opponent][b]
+        return typeof score === 'number' && typeof theirs === 'number' ? pairResult(scoring, score, theirs) : null
+      })
+      const played = boards.filter((r): r is number => r !== null)
+      const sum = played.reduce((a, b) => a + b, 0)
+      return {
+        opponent,
+        boards,
+        compared: played.length,
+        total: played.length ? (scoring === 'mp' ? sum / played.length : sum) : null,
+      }
+    })
+}
+
+/**
+ * Against everyone together: the sum of the totals for IMPs and points, the average over every
+ * board compared for `mp`; null when nothing was compared
+ */
+export function headToHeadTotal(scoring: ChallengeScoring, versus: Versus[]): number | null {
+  const compared = versus.reduce((n, v) => n + v.compared, 0)
+  if (!compared) return null
+  if (scoring !== 'mp') return versus.reduce((sum, v) => sum + (v.total ?? 0), 0)
+  return versus.reduce((sum, v) => sum + (v.total ?? 0) * v.compared, 0) / compared
+}

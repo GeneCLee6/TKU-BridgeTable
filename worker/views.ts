@@ -454,6 +454,7 @@ export function challengeView(
           scoreNS: r.scoreNS,
           contract: found?.contract ?? null,
           declarerTricks: found?.declarerTricks ?? null,
+          ...(found?.lead !== undefined && { lead: found.lead }),
         }
       })
     if (entries.length) travellers.push({ seq, boardNo: board.boardNo, entries })
@@ -569,7 +570,7 @@ export function challengeTraveller(
         boardId: e.boardId,
         contract: e.contract,
         declarer: null,
-        lead: null,
+        lead: e.lead ?? null,
         declarerTricks: e.declarerTricks,
         scoreNS: e.scoreNS,
         ...(points !== undefined && { points }),

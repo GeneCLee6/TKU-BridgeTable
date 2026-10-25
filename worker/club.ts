@@ -366,7 +366,7 @@ export class Club extends DurableObject<Env> implements Connections {
     }
     const challenge = url.pathname.match(/^\/api\/challenges\/([\w-]+)$/)
     if (request.method === 'GET' && challenge) {
-      const found = this.service.challengeFor(challenge[1], user.id)
+      const found = await this.service.challengeDetail(challenge[1], user.id)
       if (!found) throw new ClubError('challengeGone', {}, 404)
       return json({ challenge: found })
     }

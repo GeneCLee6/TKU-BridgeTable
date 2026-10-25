@@ -2,9 +2,17 @@ import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { defaultChallengeSettings, type ChallengePlayerView, type ChallengeView } from '../../shared/challenge.ts'
-import type { LobbyView, MemberStatus } from '../../shared/protocol.ts'
+import {
+  defaultChallengeSettings,
+  type ChallengePlayerView,
+  type ChallengeTravellerEntry,
+  type ChallengeView,
+} from '../../shared/challenge.ts'
+import { fullDeck } from '../../shared/cards.ts'
+import { makeCall, newBoard, turnOf, type BoardState } from '../../shared/game.ts'
+import type { BoardRecord, LobbyView, MemberStatus } from '../../shared/protocol.ts'
 import { ChallengeDialog } from '../../src/components/ChallengeDialog.tsx'
+import { ChallengeBoardPage } from '../../src/pages/ChallengeBoardPage.tsx'
 import { ChallengePage } from '../../src/pages/ChallengePage.tsx'
 import { ChallengesPage } from '../../src/pages/ChallengesPage.tsx'
 import { PreferencesProvider } from '../../src/state/PreferencesContext.tsx'
@@ -27,6 +35,7 @@ const mocks = vi.hoisted(() => ({
     challengeWithBoards: vi.fn(),
     rematchChallenge: vi.fn(),
     traveller: vi.fn(),
+    record: vi.fn(),
   },
   send: vi.fn(),
 }))
@@ -232,7 +241,7 @@ describe('ChallengeDialog (e7-t17)', () => {
 })
 
 describe('ChallengePage (e7-t18)', () => {
-  it('shows places, totals and the person × board matrix, the viewer’s row highlighted, the unfinished below', async () => {
+  it('shows places and totals, the viewer’s row highlighted, the unfinished below', async () => {
     const settings = defaultChallengeSettings(2)
     mocks.api.challenge.mockResolvedValue({
       challenge: challenge('c5', {
@@ -251,77 +260,95 @@ describe('ChallengePage (e7-t18)', () => {
           ],
           unfinished: [{ userId: 'cat', played: 1 }],
         },
-        travellers: [
-          { seq: 1, boardNo: 1, entries: [{ userId: 'amy', boardId: 'b-amy-1', scoreNS: -50, contract: null, declarerTricks: null }] },
-          { seq: 2, boardNo: 2, entries: [] },
-        ],
       }),
     })
     show('/challenges/c5', <ChallengePage />)
-    const table = await screen.findByRole('table')
+    const table = within(await screen.findByRole('region', { name: '最終排名' })).getByRole('table')
     const rows = within(table).getAllByRole('row').map((r) => r.textContent)
-    expect(rows).toEqual([
-      '名次社員總成績 · 比賽分（MP）#1#2',
-      '1ben75%100%50%',
-      '2amy25%0%50%',
-      '—cat未完成 · 已打 1／2 副',
-    ])
+    expect(rows).toEqual(['名次社員總成績 · 比賽分（MP）', '1ben75%', '2amy25%', '—cat未完成 · 已打 1／2 副'])
     expect(within(table).getAllByRole('row')[2]).toHaveAttribute('aria-current', 'true')
-    expect(within(table).getByRole('link', { name: '0%' })).toHaveAttribute('href', '/history/b-amy-1')
-    expect(screen.getByRole('heading', { name: '最終排名' })).toBeInTheDocument()
     expect(mocks.api.challenge).toHaveBeenCalledWith('c5')
+    // No travellers from the server, no boards
+    expect(screen.queryByRole('region', { name: '每一副的結果' })).toBeNull()
   })
 
-  it('opens a board’s traveller from the matrix, with “compare” against the viewer’s own board (e7-t19)', async () => {
+  it('lists every board with each player’s row and the viewer’s matchpoints against each of them', async () => {
+    const entry = (userId: string, scoreNS: number, contract: ChallengeTravellerEntry['contract'], tricks: number, lead: string | null) => ({
+      userId,
+      boardId: `b-${userId}-${scoreNS}`,
+      scoreNS,
+      contract,
+      declarerTricks: tricks,
+      lead,
+    })
     mocks.api.challenge.mockResolvedValue({
-      challenge: challenge('c6', {
+      challenge: challenge('c7', {
         status: 'finished',
         endedAt: NOW,
         deadline: NOW,
-        boards: 1,
-        settings: defaultChallengeSettings(1),
-        players: [player('amy', 'accepted', 1), player('ben', 'accepted', 1)],
+        boards: 2,
+        settings: defaultChallengeSettings(2),
+        players: [player('amy', 'accepted', 2), player('ben', 'accepted', 2), player('cat', 'accepted', 2)],
         standings: {
           final: true,
-          scoring: 'imp',
+          scoring: 'mp',
           ranked: [
-            { userId: 'ben', rank: 1, total: 5, boards: [5] },
-            { userId: 'amy', rank: 2, total: -5, boards: [-5] },
+            { userId: 'amy', rank: 1, total: 62.5, boards: [75, 50] },
+            { userId: 'cat', rank: 2, total: 50, boards: [75, 25] },
+            { userId: 'ben', rank: 3, total: 37.5, boards: [0, 75] },
           ],
           unfinished: [],
         },
+        // amy 420 and 0, ben 170 and 50, cat 420 and −100
         travellers: [
           {
             seq: 1,
             boardNo: 1,
             entries: [
-              { userId: 'ben', boardId: 'b-ben-1', scoreNS: 420, contract: null, declarerTricks: null },
-              { userId: 'amy', boardId: 'b-amy-1', scoreNS: 170, contract: null, declarerTricks: null },
+              entry('ben', 170, { level: 2, strain: 'S', doubled: '', declarer: 'S' }, 9, 'HK'),
+              entry('amy', 420, { level: 4, strain: 'S', doubled: '', declarer: 'S' }, 10, 'HK'),
+              entry('cat', 420, { level: 4, strain: 'S', doubled: '', declarer: 'N' }, 10, 'DA'),
+            ],
+          },
+          {
+            seq: 2,
+            boardNo: 2,
+            entries: [
+              entry('amy', 0, null, 0, null),
+              entry('ben', 50, { level: 3, strain: 'N', doubled: '', declarer: 'E' }, 8, 'S2'),
+              entry('cat', -100, { level: 3, strain: 'N', doubled: '', declarer: 'E' }, 10, 'S2'),
             ],
           },
         ],
       }),
     })
-    mocks.api.traveller.mockResolvedValue({
-      traveller: {
-        kind: 'challenge',
-        eventId: 'c6',
-        seq: 1,
-        boardNo: 1,
-        scoring: 'imp',
-        entries: [
-          { userId: 'ben', user: { id: 'ben', username: 'ben' }, boardId: 'b-ben-1', contract: { level: 4, strain: 'H', doubled: '', declarer: 'S' }, declarer: { id: 'ben', username: 'ben' }, lead: 'SA', declarerTricks: 10, scoreNS: 420, points: 5 },
-          { userId: 'amy', user: { id: 'amy', username: 'amy' }, boardId: 'b-amy-1', contract: { level: 2, strain: 'H', doubled: '', declarer: 'S' }, declarer: { id: 'amy', username: 'amy' }, lead: 'SA', declarerTricks: 10, scoreNS: 170, points: -5 },
-        ],
-      },
-    })
-    show('/challenges/c6', <ChallengePage />)
-    await userEvent.click(await screen.findByRole('button', { name: '#1' }))
-    expect(mocks.api.traveller).toHaveBeenCalledWith('b-ben-1')
-    const section = await screen.findByRole('region', { name: /Traveller/ })
-    const compare = await within(section).findByRole('link', { name: /和ben並排看/ })
-    expect(compare).toHaveAttribute('href', '/history/b-amy-1/vs/b-ben-1')
-    expect(within(section).getAllByRole('row')[2]).toHaveAttribute('aria-current', 'true')
+    show('/challenges/c7', <ChallengePage />)
+    // Against ben: won board 1, lost board 2: 50%; against cat: tied, then won: 75%; all four: 62.5%
+    const versus = within(await screen.findByRole('region', { name: '你對每位的成績' })).getByRole('table')
+    expect(within(versus).getAllByRole('row').map((r) => r.textContent)).toEqual([
+      '社員比賽分（MP）',
+      'cat比了 2 副75%',
+      'ben比了 2 副50%',
+      '對全部62.5%',
+    ])
+    const boards = screen.getByRole('region', { name: '每一副的結果' })
+    const first = within(boards).getByRole('article', { name: '第 1 副' })
+    expect(within(first).getAllByRole('row').map((r) => r.textContent)).toEqual([
+      '社員合約首攻結果南北比賽分（MP）你對他',
+      '你4♠ S♥K=+42075%—',
+      'cat4♠ N♦A=+42075%50%',
+      'ben2♠ S♥K+1+1700%100%',
+    ])
+    expect(within(first).getAllByRole('row')[1]).toHaveAttribute('aria-current', 'true')
+    expect(within(first).getByRole('link', { name: '第 1 副' })).toHaveAttribute('href', '/challenges/c7/boards/1')
+    expect(within(first).getByRole('link', { name: 'cat' })).toHaveAttribute('href', '/challenges/c7/boards/1?p=cat')
+    const second = within(boards).getByRole('article', { name: '第 2 副' })
+    expect(within(second).getAllByRole('row').map((r) => r.textContent)).toEqual([
+      '社員合約首攻結果南北比賽分（MP）你對他',
+      '你--——050%—',
+      'cat3NT E♠2+1-10025%100%',
+      'ben3NT E♠2-1+5075%0%',
+    ])
   })
 
   it('tells someone still playing that the results come once they finish', async () => {
@@ -405,5 +432,111 @@ describe('the weekly club challenge and the share card (e7-t23, e7-t24)', () => 
     show('/challenges/c2', <ChallengePage />)
     await screen.findByText('打完全部副數，或挑戰結束後，才看得到別人的成績')
     expect(screen.queryByRole('button', { name: '成績分享卡' })).toBeNull()
+  })
+})
+
+describe('a challenge board’s page (社長, 2026-10-25)', () => {
+  const hands = {
+    N: fullDeck().filter((c) => c[0] === 'S'),
+    E: fullDeck().filter((c) => c[0] === 'H'),
+    S: fullDeck().filter((c) => c[0] === 'D'),
+    W: fullDeck().filter((c) => c[0] === 'C'),
+  }
+  /** A board South declared at `contract`, finished as claimed */
+  function record(id: string, userId: string, contract: string, scoreNS: number): BoardRecord {
+    let board: BoardState = newBoard(1, hands)
+    for (const call of [contract, 'P', 'P', 'P']) board = makeCall(board, turnOf(board)!, call)
+    board = { ...board, phase: 'finished', result: { declarerTricks: 13, scoreNS, claimed: true } }
+    const robot = (seat: string) => ({ id: `robot:gib:${seat}`, username: `TKB ${seat}`, robot: true })
+    return {
+      id,
+      tableNumber: 0,
+      finishedAt: 0,
+      mode: 'challenge',
+      eventId: 'c8',
+      players: { N: robot('N'), E: robot('E'), S: { id: userId, username: userId }, W: robot('W') },
+      board,
+    }
+  }
+  const contract = (level: number) => ({ level, strain: 'D' as const, doubled: '' as const, declarer: 'S' as const })
+  const showBoard = (path: string) =>
+    render(
+      <PreferencesProvider>
+        <MemoryRouter initialEntries={[path]}>
+          <Routes>
+            <Route path="/challenges/:challengeId/boards/:seq" element={<ChallengeBoardPage />} />
+          </Routes>
+        </MemoryRouter>
+      </PreferencesProvider>,
+    )
+
+  it('shows the traveller and a tab per player with their auction and play, the viewer’s first', async () => {
+    mocks.api.challenge.mockResolvedValue({
+      challenge: challenge('c8', {
+        status: 'finished',
+        endedAt: NOW,
+        deadline: NOW,
+        boards: 1,
+        players: [player('amy', 'accepted', 1), player('ben', 'accepted', 1)],
+        standings: {
+          final: true,
+          scoring: 'imp',
+          ranked: [
+            { userId: 'ben', rank: 1, total: 13, boards: [13] },
+            { userId: 'amy', rank: 2, total: -13, boards: [-13] },
+          ],
+          unfinished: [],
+        },
+        travellers: [
+          {
+            seq: 1,
+            boardNo: 1,
+            entries: [
+              { userId: 'ben', boardId: 'b-ben', scoreNS: 1440, contract: contract(6), declarerTricks: 13, lead: 'HA' },
+              { userId: 'amy', boardId: 'b-amy', scoreNS: 640, contract: contract(5), declarerTricks: 13, lead: 'HA' },
+            ],
+          },
+        ],
+      }),
+    })
+    mocks.api.traveller.mockResolvedValue({
+      traveller: {
+        kind: 'challenge',
+        eventId: 'c8',
+        seq: 1,
+        boardNo: 1,
+        scoring: 'imp',
+        entries: [
+          { userId: 'ben', user: { id: 'ben', username: 'ben' }, boardId: 'b-ben', contract: contract(6), declarer: { id: 'ben', username: 'ben' }, lead: 'HA', declarerTricks: 13, scoreNS: 1440, points: 13 },
+          { userId: 'amy', user: { id: 'amy', username: 'amy' }, boardId: 'b-amy', contract: contract(5), declarer: { id: 'amy', username: 'amy' }, lead: 'HA', declarerTricks: 13, scoreNS: 640, points: -13 },
+        ],
+      },
+    })
+    mocks.api.record.mockImplementation(async (id: string) => ({
+      record: id === 'b-amy' ? record('b-amy', 'amy', '5D', 640) : record('b-ben', 'ben', '6D', 1440),
+    }))
+    showBoard('/challenges/c8/boards/1')
+    const tabs = await screen.findAllByRole('tab')
+    // 640 − 1440 = −800: amy lost 13 IMPs to ben
+    expect(tabs.map((tab) => tab.textContent)).toEqual(['你', 'ben-13'])
+    expect(tabs[0]).toHaveAttribute('aria-selected', 'true')
+    expect(mocks.api.traveller).toHaveBeenCalledWith('b-amy')
+    await waitFor(() => expect(mocks.api.record).toHaveBeenCalledWith('b-amy'))
+    expect(await within(screen.getByRole('tabpanel', { name: '你' })).findByText('NS +640')).toBeInTheDocument()
+    // The side-by-side replay from the traveller, against the viewer's own board
+    const traveller = screen.getByRole('region', { name: /Traveller/ })
+    expect(await within(traveller).findByRole('link', { name: /和ben並排看/ })).toHaveAttribute('href', '/history/b-amy/vs/b-ben')
+
+    await userEvent.click(tabs[1])
+    expect(await within(screen.getByRole('tabpanel', { name: 'ben' })).findByText('NS +1440')).toBeInTheDocument()
+    expect(mocks.api.record).toHaveBeenCalledWith('b-ben')
+  })
+
+  it('says a board is not shown when the server sent no results for it', async () => {
+    mocks.api.challenge.mockResolvedValue({ challenge: ACTIVE })
+    showBoard('/challenges/c2/boards/1')
+    expect(await screen.findByText('這一副現在還看不到別人的結果')).toBeInTheDocument()
+    expect(mocks.api.record).not.toHaveBeenCalled()
+    expect(mocks.api.traveller).not.toHaveBeenCalled()
   })
 })
