@@ -473,6 +473,27 @@ export interface HistoryPage {
   size: number
 }
 
+/** A board a member keeps (AC-4.4): their own note and tags, seen by no one else */
+export interface Favorite {
+  boardId: string
+  note: string
+  tags: string[]
+  createdAt: number
+  updatedAt: number
+}
+
+/** A member's tag and how many of their favorites carry it, for the tag filter and autocomplete */
+export interface FavoriteTag {
+  tag: string
+  count: number
+}
+
+/** One page of 「我的收藏」: the boards as a history page, plus each one's note and tags */
+export interface FavoritesPage extends HistoryPage {
+  favorites: Favorite[]
+  tags: FavoriteTag[]
+}
+
 /** Page sizes the history list offers */
 export const HISTORY_PAGE_SIZES = [10, 20, 50, 100] as const
 
@@ -510,6 +531,75 @@ export const LIMITS = {
   maxUsersMax: 100,
   tableInvitesMax: 30,
   historyPageDefault: 20,
+  favoritesMax: 1000,
+  favoriteNoteMax: 500,
+  favoriteTagsMax: 8,
+  favoriteTagMax: 20,
 }
 
 export const USERNAME_PATTERN = /^[\p{L}\p{N}_.-]+$/u
+
+// ---------------------------------------------------------------------------------------------
+// System profiles (制度集, TKU BridgeBook E1 e1-t07)
+//
+// A profile is a layer over the club's handbook: which conventions a team or partnership plays,
+// and where its agreements differ from the club's. The handbook resolves the layers into the
+// conventions a reader sees (TKU-BridgeBook src/lib/profiles.ts). TKU-BridgeBook src/lib/api.ts
+// mirrors these types; change them together.
+// ---------------------------------------------------------------------------------------------
+
+/** The club's own profile: always there, never deleted, the root every other profile inherits */
+export const CLUB_PROFILE_ID = 'club'
+
+/** Who a profile belongs to: the club, a team, or a partnership */
+export const PROFILE_SCOPES = ['club', 'team', 'partnership'] as const
+export type ProfileScope = (typeof PROFILE_SCOPES)[number]
+export const isProfileScope = (value: unknown): value is ProfileScope => PROFILE_SCOPES.includes(value as ProfileScope)
+
+/** Size limits on a saved profile: its JSON in bytes, and how many overrides it may hold */
+export const PROFILE_LIMITS = { bytesMax: 200_000, overridesMax: 500 } as const
+
+/** Whether a profile plays a convention; a convention it does not list follows the parent profile */
+export type Adoption = 'on' | 'off'
+
+/**
+ * One place where a profile differs from its parent. Rows are found by position, the same as the
+ * handbook's editor: `blockIndex` within the section's own blocks, `rowIndex` within that
+ * `responses` block. `section` is a handbook Section (TKU-BridgeBook src/types/convention.ts),
+ * checked here only for shape, like BookEntry.convention
+ */
+export type ProfileOverride =
+  /** A response row means something else; `note`, when present, replaces the row's note ('' clears it) */
+  | { kind: 'row'; slug: string; sectionId: string; blockIndex: number; rowIndex: number; meaning: string; note?: string }
+  /** The whole section is replaced (it keeps `sectionId` as its id) */
+  | { kind: 'section'; slug: string; sectionId: string; section: Record<string, unknown> }
+  /** The convention's summary or tags, whichever is present */
+  | { kind: 'meta'; slug: string; summary?: string; tags?: string[] }
+
+/** A private note on a convention or one of its sections, shown only to the profile's members */
+export interface ProfileNote {
+  slug: string
+  sectionId?: string
+  text: string
+  /** The user id that wrote it */
+  by: string
+  at: number
+}
+
+export interface SystemProfile {
+  /** CLUB_PROFILE_ID for the club; a random id for the others */
+  id: string
+  /** 「社團預設」「A 隊」「小明＋小華」 */
+  name: string
+  scope: ProfileScope
+  /** The profile this one inherits; absent for the club, and taken as the club when absent on any other */
+  parentId?: string
+  /** slug -> plays it or not; a slug left out follows the parent */
+  adopted: Record<string, Adoption>
+  overrides: ProfileOverride[]
+  notes: ProfileNote[]
+  version: number
+  updatedAt: number
+  /** The user id that saved this version */
+  updatedBy: string
+}

@@ -14,6 +14,7 @@ import { mobile } from '../styles/tokens.ts'
 import { playerName } from '../strings.ts'
 import { AuctionBox } from './AuctionBox.tsx'
 import { DirectMessages } from './DirectMessages.tsx'
+import { FavoriteButton } from './FavoriteButton.tsx'
 import { PeopleList } from './PeopleList.tsx'
 import { PlayedCardsSwitch, RecordDiagram } from './RecordDiagram.tsx'
 import { ContractResult } from './Suit.tsx'
@@ -555,6 +556,7 @@ function BoardInPanel({ id, onBack, newTab }: { id: string; onBack: () => void; 
         </strong>
         <AuctionBox auction={board.auction} dealer={board.dealer} vul={board.vul} size={44} />
         <span>
+          <FavoriteButton boardId={id} />
           <Link to={`/history/${id}`} {...(newTab ? NEW_TAB : {})}>
             {t.openFullPage}
           </Link>{' '}

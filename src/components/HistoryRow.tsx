@@ -4,6 +4,7 @@ import { resultLabel } from '../../shared/scoring.ts'
 import { formatDateTime, signed } from '../lib/format.ts'
 import { usePreferences } from '../state/PreferencesContext.tsx'
 import { playerName } from '../strings.ts'
+import { FavoriteButton } from './FavoriteButton.tsx'
 import { ContractLabel } from './Suit.tsx'
 
 /**
@@ -63,6 +64,7 @@ export function HistoryHead() {
   return (
     <thead>
       <tr>
+        <th aria-label={t.navFavorites} />
         <th>{t.date}</th>
         <th>{t.board}</th>
         <th>{t.ns}</th>
@@ -90,6 +92,9 @@ export function HistoryRow({ board: b, onOpen }: { board: BoardSummary; onOpen: 
         }
       }}
     >
+      <td>
+        <FavoriteButton boardId={b.id} />
+      </td>
       <td>{formatDateTime(b.finishedAt, lang)}</td>
       <td>
         {b.mode === 'challenge' ? t.challenge : t.tableName(b.tableNumber)} #{b.boardNo}
@@ -122,7 +127,7 @@ export function HistorySkeleton({ rows }: { rows: number }) {
     <tbody aria-hidden>
       {Array.from({ length: rows }, (_, i) => (
         <tr key={i}>
-          {[120, 70, 110, 110, 50, 40, 50].map((width, j) => (
+          {[20, 120, 70, 110, 110, 50, 40, 50].map((width, j) => (
             <td key={j}>
               <SkeletonBar style={{ width }} />
             </td>

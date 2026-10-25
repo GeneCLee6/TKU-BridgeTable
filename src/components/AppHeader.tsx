@@ -3,6 +3,7 @@ import {
   ChevronDown,
   Globe,
   History,
+  Star,
   Layers,
   List,
   LogOut,
@@ -288,6 +289,10 @@ export function AppHeader() {
           <Link to="/history" aria-label={t.navHistory}>
             <History size={18} aria-hidden />
             <span>{t.navHistory}</span>
+          </Link>
+          <Link to="/favorites" aria-label={t.navFavorites}>
+            <Star size={18} aria-hidden />
+            <span>{t.navFavorites}</span>
           </Link>
           {user.admin && (
             <Link
