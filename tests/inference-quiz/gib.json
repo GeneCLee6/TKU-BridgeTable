@@ -1,0 +1,14 @@
+{
+  "title": "叫牌推論（2/1）",
+  "questions": [
+    {"id":"gib-inf-001","system":"gib","dealer":"N","vul":"None","auction":["1N"],"expect":{"N":{"hcp":[15,17],"balanced":true}},"source":"docs/BBO GIB/gib-2over1.md（開叫）","reviewer":null,"status":"pending","note":"1NT 15–17 平均牌型，可以有五張高花"},
+    {"id":"gib-inf-002","system":"gib","dealer":"E","vul":"None","auction":["1D","P","2C"],"expect":{"E":{"len":{"D":[3,13]}},"W":{"hcp":[12,40],"len":{"C":[4,13]}}},"source":"docs/BBO GIB/gib-2over1.md（1♣／1♦ 的答叫）","reviewer":null,"status":"pending","note":"1♦ 四張以上，只有 4432 會是三張；1♦–2♣ 2/1 迫叫成局 12+、四張以上♣"},
+    {"id":"gib-inf-003","system":"gib","dealer":"S","vul":"None","auction":["1C","P","1N"],"expect":{"S":{"hcp":[11,21],"len":{"C":[3,13]}},"N":{"hcp":[6,10],"len":{"S":[0,3],"H":[0,3]}}},"source":"docs/BBO GIB/gib-2over1.md（1♣／1♦ 的答叫）","reviewer":null,"status":"pending","note":"1♣ 三張以上、11–21；1m–1NT 6–10 沒有四張高花"},
+    {"id":"gib-inf-004","system":"gib","dealer":"W","vul":"None","auction":["1C","P","1H","P","1N"],"expect":{"W":{"hcp":[11,14],"balanced":true}},"source":"docs/BBO GIB/gib-2over1.md（開叫者再叫）","reviewer":null,"status":"pending","note":"1m–1 新花–1NT：11–14 平均"},
+    {"id":"gib-inf-005","system":"gib","dealer":"N","vul":"None","auction":["1S","P","1N"],"expect":{"S":{"hcp":[6,12]}},"source":"docs/BBO GIB/gib-2over1.md（1♥／1♠ 的答叫）","reviewer":null,"status":"pending","note":"1M–1NT 迫叫一圈：6–12"},
+    {"id":"gib-inf-006","system":"gib","dealer":"E","vul":"None","auction":["1S","P","1N","P","2N"],"expect":{"E":{"hcp":[18,19],"balanced":true}},"source":"docs/BBO GIB/gib-2over1.md（1M–1NT 之後開叫者的再叫）","reviewer":null,"status":"pending","note":"2NT：18–19 平均"},
+    {"id":"gib-inf-007","system":"gib","dealer":"S","vul":"None","auction":["1S","P","1N","P","3S"],"expect":{"S":{"hcp":[15,17],"len":{"S":[6,13]}}},"source":"docs/BBO GIB/gib-2over1.md（1M–1NT 之後開叫者的再叫）","reviewer":null,"status":"pending","note":"3M：六張以上，15–17"},
+    {"id":"gib-inf-008","system":"gib","dealer":"W","vul":"None","auction":["1N","P","2C","P","2S"],"expect":{"W":{"len":{"S":[4,5],"H":[0,3]}}},"source":"docs/BBO GIB/gib-2over1.md（1NT 之後）","reviewer":null,"status":"pending","note":"1NT–2♣–2♠：四張♠、沒有四張♥（1NT 可以有五張高花）"},
+    {"id":"gib-inf-009","system":"gib","dealer":"N","vul":"None","auction":["1N","2D"],"expect":{"E":{"len":{"S":[4,13],"H":[4,13]}}},"source":"docs/BBO GIB/gib-2over1.md（競叫）","reviewer":null,"status":"pending","note":"Cappelletti 2♦：兩門高花"}
+  ]
+}

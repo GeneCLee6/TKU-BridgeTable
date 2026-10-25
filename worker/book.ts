@@ -1,4 +1,5 @@
 import type { Me } from '../shared/protocol.ts'
+import type { OnlineArticle } from '../shared/robot/system/tku/sources.ts'
 import { randomId } from './auth.ts'
 import type { ImportCategory, ImportRequest } from './importer.ts'
 import { ClubError } from './service.ts'
@@ -470,6 +471,14 @@ export class BookService {
   /** One online entry; undefined when the convention has none (the handbook shows its bundled copy) */
   async entry(slug: string): Promise<BookEntry | undefined> {
     return (await this.load()).get(slug)
+  }
+
+  /** Each article edited online: its version and who changed it last, for the robot's sync (e5-t45) */
+  async onlineArticles(): Promise<Map<string, OnlineArticle>> {
+    const entries = await this.load()
+    return new Map(
+      [...entries.values()].map(({ slug, version, updatedAt, updatedBy, convention }) => [slug, { version, updatedAt, updatedBy, hidden: convention === null }]),
+    )
   }
 
   /** The categories as edited online; an empty list when they never were */

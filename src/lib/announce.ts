@@ -1,3 +1,4 @@
+import { ALL_PASS } from './calls.ts'
 import { isBid, levelOf, strainOf, type Call, type Contract } from '../../shared/auction.ts'
 import type { Seat } from '../../shared/cards.ts'
 import type { BoardView } from '../../shared/protocol.ts'
@@ -11,15 +12,18 @@ import { cardName } from './cards.ts'
  * it never says anything the viewer cannot already see.
  */
 
-/** 1 紅心, Pass, 賭倍: a call as it is spoken */
+/** Pass, double and redouble are said in English in every language, as calls are shown (社長, 2026-10-25) */
+const SPOKEN = { P: 'Pass', X: 'Double', XX: 'Redouble' } as Record<string, string>
+
+/** 1 紅心, Pass, Double: a call as it is spoken */
 export function spokenCall(call: Call, t: Strings): string {
   if (isBid(call)) return `${levelOf(call)} ${t.suitNames[strainOf(call)]}`
-  return call === 'P' ? t.pass : call === 'X' ? t.srDouble : t.srRedouble
+  return SPOKEN[call]
 }
 
-/** 4 黑桃 賭倍: a contract as it is spoken (without the declarer) */
+/** 4 黑桃 Double: a contract as it is spoken (without the declarer) */
 export function spokenContract(contract: Contract, t: Strings): string {
-  const doubled = contract.doubled === 'X' ? ` ${t.srDouble}` : contract.doubled === 'XX' ? ` ${t.srRedouble}` : ''
+  const doubled = contract.doubled ? ` ${SPOKEN[contract.doubled]}` : ''
   return `${contract.level} ${t.suitNames[contract.strain]}${doubled}`
 }
 
@@ -48,7 +52,7 @@ export function announcements(before: BoardView | null, after: BoardView | null,
   // The auction is over
   if (after.phase !== 'auction' && (arriving ? after.phase === 'play' : !sameBoard || before.phase === 'auction')) {
     if (after.contract) out.push(t.srContract(spokenContract(after.contract, t), who(after.contract.declarer)))
-    else if (after.phase === 'finished') out.push(t.srPassedOut)
+    else if (after.phase === 'finished') out.push(ALL_PASS)
   }
 
   // New cards, and who won each trick they finished

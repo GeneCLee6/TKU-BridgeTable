@@ -110,7 +110,11 @@ export function questionProblems(q: QuizQuestion): string[] {
   return problems
 }
 
-/** Every file of the bank in `dir`, by file name */
+/**
+ * Every file of the bank in `dir`, by file name. A category may span several files: the file
+ * names its category (`competitive.json`, `competitive.more.json`), so new questions can go in a
+ * new file without touching anyone else's.
+ */
 export function loadBank(dir = QUIZ_DIR): QuizFile[] {
   return readdirSync(dir)
     .filter((name) => name.endsWith('.json'))
@@ -122,14 +126,11 @@ export function loadBank(dir = QUIZ_DIR): QuizFile[] {
 export function bankProblems(files: readonly QuizFile[]): string[] {
   const problems: string[] = []
   const ids = new Set<string>()
-  const categories = new Set<string>()
   for (const file of files) {
     if (!file.category || !file.title || !Array.isArray(file.questions)) {
       problems.push('a file needs category, title and questions')
       continue
     }
-    if (categories.has(file.category)) problems.push(`category "${file.category}" is in two files`)
-    categories.add(file.category)
     for (const q of file.questions) {
       if (ids.has(q.id)) problems.push(`${q.id}: the id is used twice`)
       ids.add(q.id)

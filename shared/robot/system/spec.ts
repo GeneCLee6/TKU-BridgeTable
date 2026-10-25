@@ -201,6 +201,8 @@ export interface Book {
    * default this book is the last word)
    */
   more?: boolean
+  /** The 淡江橋館 articles these rules follow, by slug (`tku/sources.ts`, e5-t45) */
+  bookSlugs?: readonly string[]
 }
 
 export type SystemId = 'gib' | 'tku'

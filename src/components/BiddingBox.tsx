@@ -370,7 +370,7 @@ export function BiddingBox({
           aria-keyshortcuts="P"
           {...hintFor('P')}
         >
-          {t.pass}
+          Pass
           <KeyCap $size={size} aria-hidden>
             P
           </KeyCap>

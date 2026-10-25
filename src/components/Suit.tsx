@@ -1,3 +1,4 @@
+import { callText, PASSED_OUT } from '../lib/calls.ts'
 import styled from 'styled-components'
 import { isBid, levelOf, strainOf, type Call, type Contract } from '../../shared/auction.ts'
 import { SUIT_SYMBOL, type Strain, type Suit } from '../../shared/cards.ts'
@@ -27,7 +28,7 @@ export function SuitSymbol({ suit, onCard }: { suit: Strain; onCard?: boolean })
 
 /** '1S' → 1♠, 'P' → Pass, 'X' → X */
 export function CallLabel({ call, onCard }: { call: Call; onCard?: boolean }) {
-  if (!isBid(call)) return <span>{call === 'P' ? 'Pass' : call}</span>
+  if (!isBid(call)) return <span>{callText(call)}</span>
   return (
     <span>
       {levelOf(call)}
@@ -36,9 +37,9 @@ export function CallLabel({ call, onCard }: { call: Call; onCard?: boolean }) {
   )
 }
 
-/** 4♠X S, or AP when all four passed: bridge shorthand, the same in every language */
+/** 4♠X S, or -- when all four passed: bridge shorthand, the same in every language */
 export function ContractLabel({ contract, onCard }: { contract: Contract | null; onCard?: boolean }) {
-  if (!contract) return <span>AP</span>
+  if (!contract) return <span>{PASSED_OUT}</span>
   return (
     <span>
       {contract.level}
@@ -48,9 +49,9 @@ export function ContractLabel({ contract, onCard }: { contract: Contract | null;
   )
 }
 
-/** The contract and how it went: 4♥ S +1, 3NT N =, 2♠ E -2, AP */
+/** The contract and how it went: 4♥ S +1, 3NT N =, 2♠ E -2, -- (passed out) */
 export function ContractResult({ contract, tricks, onCard }: { contract: Contract | null; tricks: number; onCard?: boolean }) {
-  if (!contract) return <span>AP</span>
+  if (!contract) return <span>{PASSED_OUT}</span>
   return (
     <span>
       <ContractLabel contract={contract} onCard={onCard} /> {resultLabel(contract, tricks)}
