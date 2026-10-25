@@ -19,6 +19,10 @@ import { challengeStandings, hasFinished } from './challenge-flow.ts'
 import type { Challenge } from './challenges.ts'
 import type { Traveller } from '../shared/traveller.ts'
 import type { EventBoard } from './history-index.ts'
+import { teamAt, type MatchBoardView, type TeamMatchView } from '../shared/team-match.ts'
+import { scoreTeamMatch } from '../shared/team-scoring.ts'
+import { isMatchPlayer } from './team-match-flow.ts'
+import { boardScores, type TeamMatch } from './team-matches.ts'
 
 /** A table as the Worker keeps it */
 export interface Table {
@@ -270,6 +274,67 @@ export function challengeView(
   }
   if (travellers.length) view.travellers = travellers
   return view
+}
+
+// ── Team matches (§5.8) ─────────────────────────────────────────────────────────────────────
+
+/**
+ * A team match as one member may see it (`GET /api/matches…`, §4): the host and everyone invited
+ * to or sitting in a seat see it from the start; other members only once it is being played (as
+ * kibitzers may watch both tables) or over, never while it is set up or after it was cancelled.
+ * The deals are never sent. A board is shown only once it has a result (both rooms played it, or
+ * the host ruled on it): one room's score alone would tell the other room's players how the board
+ * went before they play it
+ */
+export function teamMatchView(
+  match: TeamMatch,
+  userId: string,
+  userById: (id: string) => PublicUser | undefined,
+): TeamMatchView | null {
+  const m = match
+  const outsiderMaySee = m.status === 'playing' || m.status === 'finished' || m.status === 'abandoned'
+  if (!isMatchPlayer(m, userId) && !outsiderMaySee) return null
+  const score = scoreTeamMatch(
+    m.settings.scoring,
+    Array.from({ length: m.settings.boards }, (_, i) => boardScores(m.boards.find((b) => b.seq === i + 1))),
+  )
+  const boards: MatchBoardView[] = []
+  for (const [i, result] of score.boards.entries()) {
+    if (!result) continue
+    const board = m.boards.find((b) => b.seq === i + 1)
+    boards.push({
+      seq: i + 1,
+      ...(board?.open && { open: { boardId: board.open.boardId, scoreNS: board.open.scoreNS } }),
+      ...(board?.closed && { closed: { boardId: board.closed.boardId, scoreNS: board.closed.scoreNS } }),
+      ...(board?.ruling && { ruling: { kind: board.ruling.kind, team: board.ruling.team, reason: board.ruling.reason } }),
+      result,
+    })
+  }
+  return {
+    id: m.id,
+    hostId: m.hostId,
+    createdAt: m.createdAt,
+    status: m.status,
+    ...(m.startedAt !== undefined && { startedAt: m.startedAt }),
+    ...(m.endedAt !== undefined && { endedAt: m.endedAt }),
+    settings: m.settings,
+    captains: m.captains,
+    seats: m.seats.map((s) => {
+      const user = s.userId === undefined ? undefined : userById(s.userId)
+      return {
+        room: s.room,
+        seat: s.seat,
+        team: teamAt(s.room, s.seat),
+        status: s.status,
+        ...(s.userId !== undefined && { userId: s.userId }),
+        ...(user && { user }),
+        robot: s.robot,
+      }
+    }),
+    boards,
+    totals: score.totals,
+    leader: score.leader,
+  }
 }
 
 /**
