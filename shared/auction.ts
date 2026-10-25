@@ -1,5 +1,5 @@
 import { nextSeat, sameSide, type Seat, type Strain } from './cards.ts'
-import type { Spec } from './robot/system/spec.ts'
+import type { Spec, SystemId } from './robot/system/spec.ts'
 
 /**
  * A call: a bid such as '1C' '3N' '7S', or 'P' (pass), 'X' (double), 'XX' (redouble).
@@ -14,8 +14,13 @@ export interface AuctionCall {
   alert?: string
   /** Made by a robot: it alerts every call but pass, and its explanations are for everyone */
   robot?: boolean
-  /** A 2/1 robot's call: what it shows, so each viewer reads the explanation in their own language */
+  /**
+   * A robot's call: what it shows, so each viewer reads the explanation in their own language. A
+   * person's call: what the engine reads it as in the system named by `inferred`
+   */
   meaning?: Spec
+  /** Set on a person's call whose `meaning` is the engine's reading, in this system (`tku`, `gib`) */
+  inferred?: SystemId
 }
 
 export interface Contract {

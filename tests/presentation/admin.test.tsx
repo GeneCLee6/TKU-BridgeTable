@@ -23,6 +23,7 @@ const mocks = vi.hoisted(() => ({
     setAdmin: vi.fn(),
     deleteUser: vi.fn(),
     closeTable: vi.fn(),
+    bookSync: vi.fn(),
   },
 }))
 
@@ -66,6 +67,7 @@ beforeEach(() => {
   mocks.api.users.mockResolvedValue({ users: [user('boss', { admin: true, boards: 412 }), user('amy')] })
   mocks.api.applications.mockResolvedValue({ applications: [application] })
   mocks.api.settings.mockResolvedValue({ settings: { maxUsers: 60, inviteCode: 'tku' } })
+  mocks.api.bookSync.mockResolvedValue({ sync: [] })
 })
 
 describe('AdminPage', () => {
@@ -73,8 +75,41 @@ describe('AdminPage', () => {
     page()
     const nav = await screen.findByRole('navigation', { name: '管理頁的區塊' })
     const links = within(nav).getAllByRole('link')
-    expect(links.map((l) => l.textContent)).toEqual(['待審核的申請1', '社團設定', '社員2', '新增社員', '牌桌0'])
+    expect(links.map((l) => l.textContent)).toEqual(['待審核的申請1', '社團設定', '社員2', '新增社員', '牌桌0', '機器人與橋館同步'])
     expect(links[0]).toHaveAttribute('aria-current', 'location')
+  })
+
+  it('lists the 淡江橋館 articles edited online since the robot’s rules were checked (e5-t45)', async () => {
+    const row = (slug: string, synced: boolean, extra = {}) => ({
+      slug,
+      nameZh: slug === 'new-minor-forcing' ? '新低花迫叫' : slug,
+      checked: { version: 0, updated: '2026-10-21' },
+      version: synced ? 0 : 2,
+      hidden: false,
+      synced,
+      rules: 12,
+      auctions: ['1C 1H 1N', ''],
+      ...extra,
+    })
+    mocks.api.bookSync.mockResolvedValue({
+      sync: [row('new-minor-forcing', false, { updatedBy: 'joey', updatedAt: NOW }), row('lebensohl', true)],
+    })
+    page()
+    const section = await screen.findByRole('region', { name: '機器人與橋館同步' })
+    const rows = await within(section).findAllByRole('row')
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toHaveTextContent('新低花迫叫')
+    expect(rows[0]).toHaveTextContent('線上第 2 版（規則依第 0 版）')
+    expect(rows[0]).toHaveTextContent('joey')
+    expect(rows[0]).toHaveTextContent('12 條規則')
+    const nav = screen.getByRole('navigation', { name: '管理頁的區塊' })
+    expect(within(nav).getAllByRole('link').at(-1)).toHaveTextContent('機器人與橋館同步1')
+  })
+
+  it('says when every article is in step', async () => {
+    mocks.api.bookSync.mockResolvedValue({ sync: [{ slug: 'lebensohl', nameZh: '雷本索特約', checked: { version: 0, updated: '' }, version: 0, hidden: false, synced: true, rules: 3, auctions: [] }] })
+    page()
+    expect(await screen.findByText('1 篇文章都和機器人的規則同步。')).toBeInTheDocument()
   })
 
   it('saves the settings with a toast, and reverts a draft', async () => {

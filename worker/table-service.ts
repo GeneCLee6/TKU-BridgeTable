@@ -42,7 +42,7 @@ import {
   type TableWire,
 } from '../shared/protocol.ts'
 import { ruleBrain, type RobotBrain } from '../shared/robot/brain.ts'
-import type { RobotBid } from '../shared/robot/robots.ts'
+import { inferredMeaning, type RobotBid } from '../shared/robot/robots.ts'
 import { randomId } from './auth.ts'
 import { ClubError } from './errors.ts'
 import { challengeStateOf, challengeTableOpen, modeOf, nextTableSeq, type EventReport, type ModeContext } from './modes.ts'
@@ -839,6 +839,13 @@ export class TableService implements TableApi {
         if (byRobot) {
           const made = { ...next.auction.at(-1)!, robot: true, ...(meaning ? { meaning } : {}) }
           next = { ...next, auction: [...board.auction, made] }
+        } else {
+          // A person's call carries what the engine reads it as, in their side's system: a robot
+          // partner's, or the club's (e5-t22); like a convention card, it is for everyone
+          const partner = table.seats[partnerOf(seat)]
+          const kind: RobotKind = partner && isRobotId(partner) ? robotKindOf(partner) : 'tku'
+          const inferred = inferredMeaning(kind, next.auction, next.dealer, next.vul)
+          if (inferred) next = { ...next, auction: [...board.auction, { ...next.auction.at(-1)!, meaning: inferred, inferred: kind }] }
         }
         break
       case 'play': {
@@ -1236,6 +1243,7 @@ export class TableService implements TableApi {
             auctionSeat: mySeat ? this.auctionSeat(table, mySeat) : undefined,
             undoAllowed: table.mode !== 'challenge',
             kibitz: settings.allowKibitz,
+            robots: Object.fromEntries(SEATS.flatMap((s) => (table.seats[s] && isRobotId(table.seats[s]!) ? [[s, robotKindOf(table.seats[s]!)]] : []))),
           })
         : null,
       boardsPlayed: table.boardsPlayed,

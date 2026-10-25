@@ -104,7 +104,7 @@ TKU-BridgeTable/
 interface BoardState {
   boardNo: number; dealer: Seat; vul: Vulnerability
   hands: Hands              // 原始 52 張，永不修改
-  auction: AuctionCall[]    // { seat, call, alert? }
+  auction: AuctionCall[]    // { seat, call, alert?, robot?, meaning?, inferred? }
   contract: Contract | null // 叫牌結束時決定
   play: PlayedCard[]        // 依序出的牌
   phase: 'auction' | 'play' | 'finished'
@@ -129,6 +129,8 @@ interface BoardState {
 | 不允許觀看的桌上沒有座位的人（站起來或被請離座的玩家，`e2-t26`） | 只看得到所有人都看得到的：首攻後的夢家、防家攤過的牌；打完後四家（`boardView` 的 `kibitz: false`） |
 | 所有人，打完後 | 四家原始牌與所有 Alert 說明 |
 | Alert 說明 | 叫牌者的同伴在打完前看不到；機器人的說明除外（`AuctionCall.robot`），所有人都看得到，同 BBO 的 GIB |
+| 叫品的推論意義 | 真人的叫品帶引擎依那一方制度讀出的意義（`AuctionCall.meaning`＋`inferred`：機器人同伴的制度，沒有就用淡江制度），所有人都看得到，同伴也是：只由公開的叫牌過程與制度算出，等於制度卡（`e5-t22`）|
+| 叫牌盒提示 | 輪到自己叫、桌上有機器人時，`BoardView.callMeanings` 帶每個合法叫品在機器人制度裡的意義（同伴是機器人用同伴的，否則用對手機器人的）；伺服器用引擎的 `explain` 只依叫牌過程算出，不看任何一手牌（`views.ts` 的 `callMeaningsFor`，`e5-t22`）|
 
 指定牌組（`Table.dealSource` 的 `fixed`）整份只存在伺服器的 `Table` 裡，發到哪一副才放進 `BoardState.hands`，之後照上表的規則送出；`Table` 本身從不整份送到瀏覽器。
 

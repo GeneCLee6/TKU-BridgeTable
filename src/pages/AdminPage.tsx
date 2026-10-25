@@ -2,6 +2,7 @@ import { MoreHorizontal, Search } from 'lucide-react'
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react'
 import styled, { css } from 'styled-components'
 import { LIMITS, PERMISSIONS, type AdminUser, type Application, type ClubSettings, type Permission } from '../../shared/protocol.ts'
+import type { BookSyncRow } from '../../shared/robot/system/tku/sources.ts'
 import { PasswordInput } from '../components/PasswordInput.tsx'
 import { useToast } from '../components/Toast.tsx'
 import {
@@ -30,14 +31,15 @@ import { mobile } from '../styles/tokens.ts'
 /**
  * The club admin page (DESIGN.md §7.8, docs/design/03-admin.png): registrations waiting for
  * approval, settings (account limit, invite code), members (TKU BridgeBook permissions, reset
- * password, admin role, delete), adding a member directly, and closing stuck tables. A section nav
+ * password, admin role, delete), adding a member directly, closing stuck tables, and the 淡江橋館
+ * articles edited online since the robot's rules were checked against them (e5-t45). A section nav
  * on the left (a dropdown on a phone), one card per section; saving shows a toast, and an error
  * the server ties to a field shows under that field. Only admins reach it. The accounts are shared
  * with TKU BridgeBook, which has the same approvals and permissions on its own admin page.
  */
 
-type SectionId = 'applications' | 'settings' | 'members' | 'add' | 'tables'
-const SECTIONS: SectionId[] = ['applications', 'settings', 'members', 'add', 'tables']
+type SectionId = 'applications' | 'settings' | 'members' | 'add' | 'tables' | 'bookSync'
+const SECTIONS: SectionId[] = ['applications', 'settings', 'members', 'add', 'tables', 'bookSync']
 const anchor = (section: SectionId) => `admin-${section}`
 
 /** Fields a server error can belong to */
@@ -63,6 +65,7 @@ export function AdminPage() {
   const [member, setMember] = useState({ username: '', password: '' })
   const [query, setQuery] = useState('')
   const [active, setActive] = useState<SectionId>('applications')
+  const [sync, setSync] = useState<BookSyncRow[] | null>(null)
 
   const text = useCallback(
     (e: unknown) => (e instanceof ApiError ? message(e.code, e.params, e.message) : t.genericError),
@@ -88,6 +91,18 @@ export function AdminPage() {
   useEffect(() => {
     void reload()
   }, [reload])
+
+  // The robot's sync with 淡江橋館 loads on its own: the rest of the page does not wait for it
+  useEffect(() => {
+    let live = true
+    api.admin
+      .bookSync()
+      .then(({ sync }) => live && setSync(sync))
+      .catch(() => live && setSync([]))
+    return () => {
+      live = false
+    }
+  }, [])
 
   /** Runs one admin action: a toast when it worked; an error under its field, or an error toast */
   const run = async (key: string, work: () => Promise<unknown>, fields: Partial<Record<string, FieldKey>> = {}) => {
@@ -194,13 +209,16 @@ export function AdminPage() {
     members: t.membersTitle,
     add: t.addMember,
     tables: t.tablesTitle,
+    bookSync: t.bookSyncTitle,
   }
+  const outOfStep = sync?.filter((row) => !row.synced) ?? []
   const count: Record<SectionId, number | null> = {
     applications: applications.length,
     settings: null,
     members: users.length,
     add: null,
     tables: tables.length,
+    bookSync: outOfStep.length || null,
   }
   const words = { today: t.timeToday, yesterday: t.timeYesterday }
   const relative = (at: number) => formatRelative(at, lang, words)
@@ -250,7 +268,7 @@ export function AdminPage() {
                   }}
                 >
                   <span>{label[s]}</span>
-                  {s === 'applications'
+                  {s === 'applications' || s === 'bookSync'
                     ? count[s]! > 0 && <GoldBadge>{count[s]}</GoldBadge>
                     : count[s] !== null && <NavCount>{count[s]}</NavCount>}
                 </NavLink>
@@ -636,6 +654,46 @@ export function AdminPage() {
                             </Button>
                           )}
                         </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </Table>
+              </Flush>
+            )}
+          </Section>
+
+          <Section id={anchor('bookSync')} aria-labelledby={`${id}-h-bookSync`}>
+            <CardHeader>
+              <TitleRow>
+                <CardTitle id={`${id}-h-bookSync`}>{t.bookSyncTitle}</CardTitle>
+                {outOfStep.length > 0 && <GoldBadge>{outOfStep.length}</GoldBadge>}
+              </TitleRow>
+              <Muted>{t.bookSyncIntro}</Muted>
+            </CardHeader>
+            {!sync ? (
+              <Skeleton $h={80} aria-busy="true" aria-label={t.loading} />
+            ) : !outOfStep.length ? (
+              <Empty>{t.bookSyncAllSynced(sync.length)}</Empty>
+            ) : (
+              <Flush>
+                <Table aria-label={t.bookSyncTitle}>
+                  <tbody>
+                    {outOfStep.map((row) => (
+                      <tr key={row.slug}>
+                        <td>
+                          <Name>{row.nameZh}</Name>
+                          <Muted>{row.auctions.filter(Boolean).slice(0, 6).join('、')}</Muted>
+                        </td>
+                        <td>
+                          {row.hidden ? t.bookSyncHidden : t.bookSyncChanged(row.version, row.checked.version)}
+                          {row.updatedBy && (
+                            <Muted>
+                              {row.updatedBy}
+                              {row.updatedAt !== undefined && ` · ${relative(row.updatedAt)}`}
+                            </Muted>
+                          )}
+                        </td>
+                        <td className="num">{t.bookSyncRules(row.rules)}</td>
                       </tr>
                     ))}
                   </tbody>

@@ -1,3 +1,4 @@
+import { ALL_PASS } from '../lib/calls.ts'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { EyeOff, Lock, Settings } from 'lucide-react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
@@ -638,21 +639,24 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
   /** 北 Alice: a seat as a screen reader says it */
   const spokenSeat = (seat: Seat) => `${t.seatNames[seat]} ${table.seats[seat] ? nameOf(seat) : ''}`.trim()
 
-  // A robot partner: the bidding box tells how it will read each call, as GIB does on BBO
-  const partner = me ? table.seats[partnerOf(me)] : null
-  const hinting = !!board && board.legalCalls.length > 0 && !!partner?.robot
-  const rules = useRobotRules(hinting)
+  // A robot at the table (the partner, else an opponent): the bidding box tells how it will read
+  // each call, as GIB does on BBO. The server works the meanings out (`callMeanings`); the page
+  // only puts them into words
+  const callMeanings = board?.callMeanings
+  // The practice hint card reads the book in a robot partner's system (BookHints)
+  const partnerSeat = me ? table.seats[partnerOf(me)] : null
+  const rules = useRobotRules(!!callMeanings)
   const hints = useMemo((): BiddingHints | null => {
-    if (!hinting || !rules || !board || !partner) return null
-    const meanings = rules.explain(rules.ROBOT_SYSTEMS[partner.robotKind ?? 'tku'], board.auction, board.dealer, board.vul)
+    if (!callMeanings || !rules) return null
+    const robot = table.seats[callMeanings.robot]
     return {
-      title: t.robotReads(playerName(t, partner)),
+      title: t.robotReads(robot ? playerName(t, robot) : t.robots[callMeanings.kind]),
       text: (call) => {
-        const spec = meanings.get(call)
+        const spec = callMeanings.meanings[call]
         return (spec && rules.describe(spec, lang)) || t.noRobotMeaning
       },
     }
-  }, [hinting, rules, board, partner, t, lang])
+  }, [callMeanings, rules, table.seats, t, lang])
   const trump = board?.contract && board.phase !== 'auction' ? board.contract.strain : null
 
   // The server moved me into my robot partner's declaring seat: say so until the first trick is done
@@ -1031,7 +1035,7 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
                 onClick={() => setAuctionFor(showAuction ? 0 : boardNo)}
                 aria-expanded={showAuction}
                 aria-label={t.srContractBox(
-                  board.contract ? `${spokenContract(board.contract, t)} ${t.seatNames[board.contract.declarer]}` : t.srPassedOut,
+                  board.contract ? `${spokenContract(board.contract, t)} ${t.seatNames[board.contract.declarer]}` : ALL_PASS,
                   board.tricksWon.NS,
                   board.tricksWon.EW,
                 )}
@@ -1149,7 +1153,7 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
         page="table"
         initial={onTablet ? null : 'chat'}
         chat={<ChatPanel messages={table.chat} onSend={(text) => send({ type: 'chat', text })} />}
-        conventions={<BookHints board={board} seat={me} robotKind={partner?.robot ? (partner.robotKind ?? 'tku') : 'tku'} />}
+        conventions={<BookHints board={board} seat={me} robotKind={partnerSeat?.robot ? (partnerSeat.robotKind ?? 'tku') : 'tku'} />}
       />
     </Layout>
   )

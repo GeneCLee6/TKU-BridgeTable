@@ -1,5 +1,4 @@
-import { X } from 'lucide-react'
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import styled, { css } from 'styled-components'
 import type { AuctionCall } from '../../shared/auction.ts'
@@ -15,7 +14,10 @@ import { CallLabel } from './Suit.tsx'
  * The auction as a table, BBO style: four columns from the viewer's point of view (left-hand
  * opponent, partner, right-hand opponent, the viewer last), vulnerable seats with a red header,
  * the dealer's first call in the dealer's column and '?' where the next call goes. Alerted calls
- * are yellow; click one and its explanation opens in a small window next to it. With `maxRows` the
+ * are yellow. Point at any call and what it means shows in a tooltip next to it until the pointer
+ * leaves (社長, 2026-10-25): a robot's explanation, a person's own alert, and for a person's call
+ * what the engine reads it as in their side's system (marked as inferred, e5-t22); the server
+ * sends all of it. A tap toggles it on a touch screen, keyboard focus shows it. With `maxRows` the
  * table keeps one fixed height from the first call to the last, as on BBO: a long auction scrolls
  * inside it (the header stays put, the latest round in view).
  */
@@ -76,8 +78,8 @@ const Cell = styled.td<{ $alert?: boolean; $call?: string; $size: number }>`
     `}
 `
 
-/** An alerted call: the whole cell is a button that opens the explanation */
-const AlertButton = styled.button`
+/** A call: the whole cell is a button that opens what it means */
+const CallButton = styled.button`
   width: 100%;
   height: 100%;
   padding: 0;
@@ -100,10 +102,11 @@ const HeadName = styled.span`
   opacity: 0.85;
 `
 
-/** The explanation of an alerted call, in a small window by the call, over everything else */
+/** What a call means, in a tooltip by the call, over everything else */
 const Popup = styled.div`
   position: fixed;
   z-index: 50;
+  pointer-events: none;
   width: max-content;
   max-width: min(300px, calc(100vw - 16px));
   border: 1px solid ${({ theme }) => theme.table.panelBorder};
@@ -119,26 +122,12 @@ const PopupHead = styled.div`
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 6px 6px 12px;
+  padding: 6px 12px;
   background: ${({ theme }) => theme.table.alert};
   font-weight: 700;
 
   & > strong { font-family: ${({ theme }) => theme.fonts.cards}; font-size: 18px; }
   & > span { flex: 1; font-size: 13px; opacity: 0.8; }
-`
-
-const PopupClose = styled.button`
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  border: 0;
-  border-radius: 6px;
-  background: none;
-  color: inherit;
-  &:hover { background: ${({ theme }) => theme.table.shade}; }
 `
 
 const PopupText = styled.p`
@@ -147,16 +136,30 @@ const PopupText = styled.p`
   font-size: 15px;
   line-height: 1.5;
   white-space: pre-wrap;
+
+  & + & { padding-top: 0; }
+  & > strong { display: block; font-size: 12px; font-weight: 700; opacity: 0.75; }
 `
 
-/** The explanation window, placed under the call (above it when there is no room below) */
-function AlertPopup({ call, anchor, who, onClose }: { call: AuctionCall; anchor: HTMLElement; who: string; onClose: () => void }) {
+/** The meaning tooltip, placed under the call (above it when there is no room below) */
+function MeaningTip({ id, call, anchor, who, onClose }: { id: string; call: AuctionCall; anchor: HTMLElement; who: string; onClose: () => void }) {
   const t = useT()
   const { lang } = usePreferences()
-  // A 2/1 robot's call carries what it shows: explain it in the viewer's language (the stored
-  // Traditional Chinese words until the rules have loaded)
+  // A robot's call carries what it shows: explain it in the viewer's language (the stored
+  // Traditional Chinese words until the rules have loaded). So does a person's call, read by the
+  // engine in their side's system (`inferred`), next to their own alert if they made one
   const rules = useRobotRules(!!call.meaning)
-  const text = (call.meaning && rules ? rules.describe(call.meaning, lang) : call.alert) || t.noExplanation
+  const described = call.meaning && rules ? rules.describe(call.meaning, lang) : undefined
+  const alerted = call.alert !== undefined
+  const parts: { label?: string; text: string }[] = []
+  if (call.robot || !call.inferred) {
+    if (alerted || call.robot) parts.push({ text: (described ?? call.alert) || t.noExplanation })
+  } else {
+    if (alerted) parts.push({ label: t.playerExplanation, text: call.alert || t.noExplanation })
+    parts.push({ label: t.inferredBy(t.robotSystems[call.inferred]), text: described ?? '…' })
+  }
+  if (!parts.length) parts.push({ text: t.noExplanation })
+  const title = alerted ? t.alert : t.callMeaning
   const ref = useRef<HTMLDivElement>(null)
   const [place, setPlace] = useState<{ left: number; top: number } | null>(null)
 
@@ -173,10 +176,8 @@ function AlertPopup({ call, anchor, who, onClose }: { call: AuctionCall; anchor:
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
-    const onDown = (e: PointerEvent) => {
-      const target = e.target as Node
-      if (!ref.current?.contains(target) && !anchor.contains(target)) onClose()
-    }
+    // A tap elsewhere closes what a tap opened
+    const onDown = (e: PointerEvent) => !anchor.contains(e.target as Node) && onClose()
     window.addEventListener('keydown', onKey)
     window.addEventListener('pointerdown', onDown)
     return () => {
@@ -188,8 +189,9 @@ function AlertPopup({ call, anchor, who, onClose }: { call: AuctionCall; anchor:
   return createPortal(
     <Popup
       ref={ref}
-      role="dialog"
-      aria-label={t.alert}
+      id={id}
+      role="tooltip"
+      aria-label={title}
       style={place ? { left: place.left, top: place.top } : { left: 0, top: 0, visibility: 'hidden' }}
     >
       <PopupHead>
@@ -197,13 +199,15 @@ function AlertPopup({ call, anchor, who, onClose }: { call: AuctionCall; anchor:
           <CallLabel call={call.call} onCard />
         </strong>
         <span>
-          {t.alert} · {who}
+          {title} · {who}
         </span>
-        <PopupClose type="button" onClick={onClose} aria-label={t.close}>
-          <X size={18} aria-hidden />
-        </PopupClose>
       </PopupHead>
-      <PopupText>{text}</PopupText>
+      {parts.map((part, i) => (
+        <PopupText key={i}>
+          {part.label && <strong>{part.label}</strong>}
+          {part.text}
+        </PopupText>
+      ))}
     </Popup>,
     document.body,
   )
@@ -245,6 +249,12 @@ export function AuctionBox({
   const rows = Array.from({ length: Math.max(1, Math.ceil(cells.length / 4)) }, (_, r) => cells.slice(r * 4, r * 4 + 4))
   const explained = open ? auction[open.index] : undefined
   const closePopup = useCallback(() => setOpen(null), [])
+  const tipId = useId()
+  // How the pointer last went down on a call: a touch toggles the meaning on tap, a mouse shows it
+  // on hover; focus that comes from either is not keyboard focus
+  const pointer = useRef<string | null>(null)
+  const show = (index: number, anchor: HTMLElement) => setOpen({ index, anchor })
+  const hide = (index: number) => setOpen((o) => (o?.index === index ? null : o))
   const cellSize = auctionCell(size)
   const scroller = useRef<HTMLDivElement>(null)
 
@@ -284,19 +294,25 @@ export function AuctionBox({
                   const alerted = cell.alert !== undefined
                   return (
                     <Cell key={c} $size={cellSize} $call={cell.call} $alert={alerted}>
-                      {alerted ? (
-                        <AlertButton
-                          type="button"
-                          aria-haspopup="dialog"
-                          aria-expanded={open?.index === index}
-                          onClick={(e) => setOpen(open?.index === index ? null : { index, anchor: e.currentTarget })}
-                        >
-                          <CallLabel call={cell.call} onCard />
-                          <span className="visually-hidden">（{t.alert}）</span>
-                        </AlertButton>
-                      ) : (
+                      <CallButton
+                        type="button"
+                        aria-describedby={open?.index === index ? tipId : undefined}
+                        onPointerEnter={(e) => e.pointerType !== 'touch' && show(index, e.currentTarget)}
+                        onPointerLeave={(e) => e.pointerType !== 'touch' && hide(index)}
+                        onPointerDown={(e) => (pointer.current = e.pointerType)}
+                        onFocus={(e) => !pointer.current && show(index, e.currentTarget)}
+                        onBlur={() => !pointer.current && hide(index)}
+                        onClick={(e) => {
+                          if (pointer.current === 'touch') {
+                            if (open?.index === index) hide(index)
+                            else show(index, e.currentTarget)
+                          }
+                          pointer.current = null
+                        }}
+                      >
                         <CallLabel call={cell.call} onCard />
-                      )}
+                        {alerted && <span className="visually-hidden">（{t.alert}）</span>}
+                      </CallButton>
                     </Cell>
                   )
                 })}
@@ -306,7 +322,8 @@ export function AuctionBox({
         </Table>
       </Scroll>
       {explained && open && (
-        <AlertPopup
+        <MeaningTip
+          id={tipId}
           call={explained}
           anchor={open.anchor}
           who={`${seatLetter[explained.seat]}${names?.[explained.seat] ? ` ${names[explained.seat]}` : ''}`}
