@@ -5,21 +5,26 @@ import styled, { css } from 'styled-components'
 import { HISTORY_SORTS, historyQueryString, readHistoryQuery, type HistoryQuery } from '../../shared/history-query.ts'
 import { HISTORY_PAGE_SIZES, LIMITS, type HistoryPage as Page, type PublicUser } from '../../shared/protocol.ts'
 import { resultLabel } from '../../shared/scoring.ts'
-import { HistoryFilters } from '../components/HistoryFilters.tsx'
+import { FilterChips, HistoryFilters } from '../components/HistoryFilters.tsx'
 import { ContractLabel } from '../components/Suit.tsx'
-import { Card, ErrorText, Muted, PageMain, PageTitle } from '../components/ui.tsx'
+import { Button, Card, ErrorText, Muted, PageMain, PageTitle } from '../components/ui.tsx'
 import { api } from '../lib/api.ts'
+import { filterChips } from '../lib/historyChips.ts'
 import { formatDateTime, signed } from '../lib/format.ts'
+import { useMediaQuery } from '../lib/useMediaQuery.ts'
 import { useLobby } from '../state/ClubContext.tsx'
 import { usePreferences } from '../state/PreferencesContext.tsx'
 import { playerName } from '../strings.ts'
+import { mobile, mobileQuery } from '../styles/tokens.ts'
 
 /**
  * BBO's history list: every finished board, newest first, a page at a time; the viewer picks how
  * many boards a page shows (remembered in the browser) and moves between numbered pages. Click a
  * board to open it. Filters and sorting (e4-t16…t21) live in the address, so reloading or sharing
  * the link shows the same list; the address is read with `readHistoryQuery` and written with
- * `historyQueryString`, the same rules the server checks.
+ * `historyQueryString`, the same rules the server checks. The conditions in use show as chips
+ * above the list, each removable, with "clear all" (e4-t22); on a phone the filters fold into the
+ * one "Filters" button and open only when asked for.
  */
 
 const Toolbar = styled.div`
@@ -47,6 +52,15 @@ const FilterToggle = styled.button<{ $active: boolean }>`
 
 const FilterCard = styled(Card)`
   margin-bottom: 16px;
+
+  ${mobile} {
+    padding: 14px;
+  }
+`
+
+const Done = styled.div`
+  display: flex;
+  justify-content: flex-end;
 `
 
 const Toggle = styled.div`
@@ -178,10 +192,6 @@ interface Loaded extends Page {
   key: string
 }
 
-/** Filters set in a search, not counting scope, sorting and paging */
-const filterCount = (query: HistoryQuery) =>
-  Object.keys(query).filter((key) => !['scope', 'sort', 'page', 'size'].includes(key)).length
-
 export function HistoryPage() {
   const { t, lang, message } = usePreferences()
   const [params, setParams] = useSearchParams()
@@ -193,12 +203,17 @@ export function HistoryPage() {
   const all = query.scope === 'all'
   const { page, size } = query
   const key = historyQueryString(query)
-  const [showFilters, setShowFilters] = useState(() => filterCount(query) > 0)
+  const phone = useMediaQuery(mobileQuery)
+  // "Today" for the date chip is the day the page opened, as in the filters
+  const [openedAt] = useState(Date.now)
+  const members = useLobby()?.members ?? []
+  const chips = filterChips(query, t, members, openedAt)
+  // A link with filters opens them on a wide screen; a phone keeps them folded
+  const [showFilters, setShowFilters] = useState(() => !phone && chips.length > 0)
   // The list is tagged with what it was loaded for, so changing it shows "loading"
   const [loaded, setLoaded] = useState<Loaded | null>(null)
   const [error, setError] = useState('')
   const navigate = useNavigate()
-  const members = useLobby()?.members ?? []
   const current = loaded?.key === key ? loaded : null
   const last = loaded ? Math.max(1, Math.ceil(loaded.total / loaded.size)) : 1
 
@@ -259,7 +274,7 @@ export function HistoryPage() {
         >
           <SlidersHorizontal size={16} aria-hidden />
           {t.filters}
-          {filterCount(query) > 0 && ` (${filterCount(query)})`}
+          {chips.length > 0 && ` (${chips.length})`}
         </FilterToggle>
         <SizeLabel>
           {t.sortBy}
@@ -274,9 +289,17 @@ export function HistoryPage() {
       </Toolbar>
       {showFilters && (
         <FilterCard id="history-filters" aria-label={t.filters}>
-          <HistoryFilters query={query} members={members} onChange={update} />
+          <HistoryFilters query={query} members={members} onChange={update} now={openedAt} />
+          {phone && (
+            <Done>
+              <Button type="button" $small onClick={() => setShowFilters(false)}>
+                {t.filtersDone}
+              </Button>
+            </Done>
+          )}
         </FilterCard>
       )}
+      <FilterChips chips={chips} onChange={update} />
       {error && <ErrorText role="alert">{error}</ErrorText>}
       <Card>
         {!current ? (
