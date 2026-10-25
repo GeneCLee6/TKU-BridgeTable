@@ -1,6 +1,7 @@
 import type { ChallengeSettings, ChallengeView } from '../../shared/challenge.ts'
 import { historyQueryString, type HistoryQuery } from '../../shared/history-query.ts'
 import type { MessageParams } from '../../shared/messages.ts'
+import type { MemberProfile, Profile } from '../../shared/profile.ts'
 import type {
   AdminUser,
   Application,
@@ -60,6 +61,11 @@ export const api = {
   changePassword: (current: string, next: string) => post<{ ok: true }>('/api/account/password', { current, next }),
   /** The account settings the server keeps (e1-t24) */
   setAccountPreferences: (preferences: { friendOnlineNotice: boolean }) => post<{ user: Me }>('/api/account/preferences', preferences),
+  /** Replaces the member's own profile (AC-1.5); empty fields clear it */
+  setProfile: (profile: Profile) =>
+    request<{ user: Me }>('/api/account/profile', { method: 'PATCH', body: JSON.stringify(profile) }),
+  /** Another member's profile card with their latest boards the viewer may see */
+  member: (id: string) => request<{ member: MemberProfile }>(`/api/members/${encodeURIComponent(id)}`),
   /** One page of the conversation with another member, oldest first; `before` pages back (AC-1.7) */
   directMessages: (userId: string, before?: number) =>
     request<DirectPage>(`/api/messages/${encodeURIComponent(userId)}${before ? `?before=${before}` : ''}`),

@@ -15,6 +15,7 @@ import { FavoritesPage } from './pages/FavoritesPage.tsx'
 import { HistoryPage } from './pages/HistoryPage.tsx'
 import { LobbyPage } from './pages/LobbyPage.tsx'
 import { LoginPage } from './pages/LoginPage.tsx'
+import { ProfilePage } from './pages/ProfilePage.tsx'
 import { TablePage } from './pages/TablePage.tsx'
 import { AuthProvider, useAuth } from './state/AuthContext.tsx'
 import { ClubProvider, useClub } from './state/ClubContext.tsx'
@@ -71,6 +72,7 @@ function Routed() {
         <Route path="/featured" element={<FeaturedPage />} />
         <Route path="/favorites" element={<FavoritesPage />} />
         <Route path="/account" element={<AccountPage />} />
+        <Route path="/members/:userId" element={<ProfilePage />} />
         {user.admin && <Route path="/admin" element={<AdminPage />} />}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
