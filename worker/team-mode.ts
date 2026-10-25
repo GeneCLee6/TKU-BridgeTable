@@ -148,7 +148,7 @@ export function teamTable(input: {
     mode: 'team',
     modeState: state,
     dealSource: dealSourceOf(deals),
-    settings: { visibility: 'public', allowKibitz: true, boardMinutes: match.settings.boardMinutes },
+    settings: { access: 'public', allowKibitz: true, boardMinutes: match.settings.boardMinutes },
     names: Object.fromEntries(Object.entries(people).map(([userId, p]) => [userId, p.username])),
     blocks: Object.fromEntries(here.flatMap((userId) => (people[userId] ? [[userId, people[userId].blocked]] : []))),
   }

@@ -1,6 +1,6 @@
 import { ALL_PASS } from '../lib/calls.ts'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { EyeOff, Lock, Settings } from 'lucide-react'
+import { Ban, EyeOff, Hand, Lock, Settings } from 'lucide-react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import styled, { css, keyframes } from 'styled-components'
 import { isVulnerable } from '../../shared/board.ts'
@@ -9,6 +9,7 @@ import type { Trick } from '../../shared/game.ts'
 import {
   DEAL_COUNTDOWN_MS,
   SLOW_TURN_MS,
+  takesInvitees,
   type BoardView,
   type TableView,
 } from '../../shared/protocol.ts'
@@ -28,10 +29,10 @@ import { TableAnnouncer } from '../components/TableAnnouncer.tsx'
 import { TableSettingsDialog } from '../components/TableSettingsDialog.tsx'
 import { TableTour } from '../components/TableTour.tsx'
 import { ContractLabel } from '../components/Suit.tsx'
-import { ClaimPicker, FeltButton, FeltPanel, Prompt, ResultPanel } from '../components/TablePanels.tsx'
+import { ClaimPicker, FeltButton, FeltPanel, JoinRequests, Prompt, ResultPanel } from '../components/TablePanels.tsx'
 import { COLLECT_MS, TrickArea, TrickSpace, type CardOrigin, type Position } from '../components/TrickArea.tsx'
 import { TrickPile } from '../components/TrickPile.tsx'
-import { Muted, PageMain } from '../components/ui.tsx'
+import { Button, Muted, PageMain } from '../components/ui.tsx'
 import { spokenContract } from '../lib/announce.ts'
 import { CARD_SCALE, sortForDisplay, suitOrder } from '../lib/cards.ts'
 import { auctionBoxHeight, biddingBoxHeight, handHeight, type Orientation } from '../lib/measure.ts'
@@ -559,9 +560,13 @@ export function TablePage() {
   const { table, lobby, status, send } = useClub()
   const t = useT()
 
-  // An invite table takes only the invited, and a table without kibitzers takes people only into its seats
+  // Only those the access mode lets in come to the table (others may ask at a request table), and a
+  // table without kibitzers takes people only into its seats (a practice table only has watchers)
   const summary = lobby?.tables.find((x) => x.id === tableId)
-  const closed = !!summary && lobby?.myTableId !== tableId && (!summary.welcome || !summary.settings.allowKibitz)
+  const closed =
+    !!summary &&
+    lobby?.myTableId !== tableId &&
+    (!summary.welcome || (!summary.settings.allowKibitz && !summary.practice))
   // A team match's tables are listed with their match, for anyone to watch (§5.8)
   const listed = !!lobby && (!!summary || (lobby.matches ?? []).some((m) => !!tableId && Object.values(m.tables).includes(tableId)))
 
@@ -591,15 +596,30 @@ export function TablePage() {
         </p>
       </PageMain>
     )
-  if (closed)
+  if (closed) {
+    const asking = !summary.welcome && summary.settings.access === 'request'
     return (
       <PageMain>
-        <Muted>{summary.welcome ? t.noKibitzTable : t.notInvitedTable}</Muted>
+        <Muted>{summary.welcome ? t.noKibitzTable : asking ? t.requestTable : t.closedTable}</Muted>
+        {asking && (
+          <p>
+            <Button
+              type="button"
+              $variant="primary"
+              disabled={!!summary.requested}
+              onClick={() => send({ type: 'requestJoin', tableId: summary.id })}
+            >
+              <Hand size={16} aria-hidden />
+              {summary.requested ? t.requestSent : t.askToJoin}
+            </Button>
+          </p>
+        )}
         <p>
           <Link to="/">{t.navLobby}</Link>
         </p>
       </PageMain>
     )
+  }
   if (!table || table.id !== tableId) return <PageMain>{t.loading}</PageMain>
 
   return <TableScreen table={table} send={send} />
@@ -630,8 +650,11 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
   const me = table.mySeat
   const challenge = table.challenge
   const practice = table.practice
-  // Nobody runs a challenge, practice or team match table: its seats, robots and settings are fixed
+  // Nobody runs a challenge, practice or team match table: its seats, robots and settings are
+  // fixed; only who may watch a practice table changes (its member's settings button)
   const iAmHost = !!user && table.hostId === user.id && !challenge && !practice && !table.match
+  const canConfigure = !!user && table.hostId === user.id && !challenge && !table.match
+  const AccessIcon = { public: null, request: Hand, hidden: Lock, closed: Ban }[table.settings.access]
   const viewer = me ?? 'S'
   const at = rotation(viewer)
   const positionOf = (seat: Seat) => (Object.keys(at) as Position[]).find((p) => at[p] === seat)!
@@ -998,6 +1021,9 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
         {dealing > 0 && dealing === boardNo && (
           <DealAnimation key={dealing} felt={feltRef} width={Math.round(sizes.side * 0.8)} />
         )}
+        {canConfigure && table.requests && (
+          <JoinRequests requests={table.requests} onAnswer={(userId, accept) => send({ type: 'answerRequest', userId, accept })} />
+        )}
         <Area $area="info" $align="start" $justify="start">
           <InfoRow>
             {board && <BoardInfo boardNo={board.boardNo} dealer={board.dealer} vul={board.vul} positions={at} size={infoSize} />}
@@ -1013,11 +1039,13 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
                   <span>
                     {t.tableName(table.number)} · {t.boardsPlayed(table.boardsPlayed)}
                   </span>
-                  {table.settings.visibility === 'invite' && <Lock size={15} aria-label={t.inviteOnly} role="img" />}
+                  {AccessIcon && table.settings.access !== 'public' && (
+                    <AccessIcon size={15} aria-label={t.accessBadge[table.settings.access]} role="img" />
+                  )}
                   {!table.settings.allowKibitz && <EyeOff size={15} aria-label={t.noKibitz} role="img" />}
                 </>
               )}
-              {iAmHost && (
+              {canConfigure && (
                 <SettingsButton
                   type="button"
                   aria-label={t.tableSettings}
@@ -1136,18 +1164,24 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
           </Actions>
         </Area>
       </Felt>
-      {editingSettings && iAmHost && (
+      {editingSettings && canConfigure && (
         <TableSettingsDialog
           title={t.tableSettings}
           submitLabel={t.save}
           initial={table.settings}
+          practice={!!practice}
           members={(lobby?.members ?? []).filter((m) => m.id !== user?.id && !lobby?.blocked.includes(m.id))}
           invited={table.invited?.map((u) => u.id) ?? []}
           onClose={() => setEditingSettings(false)}
           onSubmit={(settings, invitees) => {
             setEditingSettings(false)
-            // A public table keeps its invitation list for when it is made invite only again
-            send({ type: 'updateTableSettings', settings, ...(settings.visibility === 'invite' && { invitees }) })
+            // A public or closed table keeps its invitation list for when invitations count again;
+            // at a practice table only who may watch changes
+            send({
+              type: 'updateTableSettings',
+              settings: practice ? { access: settings.access } : settings,
+              ...(takesInvitees(settings.access) && { invitees }),
+            })
           }}
         />
       )}

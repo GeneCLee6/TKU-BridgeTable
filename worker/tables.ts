@@ -23,6 +23,10 @@ export interface TableEntry {
   mode: TableMode
   settings: TableSettings
   invited: string[]
+  /** Members the host let in after they asked (a `request` table) */
+  approved: string[]
+  /** Members waiting for an answer to their request to join (`muted` ones too: they see theirs as waiting) */
+  requests: { userId: string; at: number }[]
   seats: Record<Seat, string | null>
   spectators: string[]
   /** Robots sitting in for members who dropped offline (代打): seat → the member's id */
@@ -77,6 +81,13 @@ export interface TableApi {
   leave(userId: string): Promise<TableEntry | null>
   /** The host changes the settings, and the invitation list when given */
   configure(userId: string, settings: Partial<TableSettings>, invited?: Named[]): Promise<TableEntry>
+  /**
+   * A member asks to join a `request` table; `muted` when the host blocked them (kept, so they see
+   * it waiting as anyone would, but never shown to the host). Asking again while waiting changes nothing
+   */
+  request(person: Person, muted: boolean): Promise<TableEntry>
+  /** The host lets a member who asked in (`approved`), or turns them down (they may ask again after a cooldown) */
+  answerRequest(hostId: string, userId: string, accept: boolean): Promise<TableEntry>
   /** A challenge's participant comes back to their parked table */
   resume(person: Person): Promise<TableEntry>
   /** A member back online takes back the seat a robot kept for them (代打) when `reseat`, else forgets it */
@@ -191,6 +202,12 @@ class RemoteTable implements TableApi {
   }
   configure(userId: string, settings: Partial<TableSettings>, invited?: Named[]) {
     return this.call(this.rpc.configure(userId, settings, invited))
+  }
+  request(person: Person, muted: boolean) {
+    return this.call(this.rpc.request(person, muted))
+  }
+  answerRequest(hostId: string, userId: string, accept: boolean) {
+    return this.call(this.rpc.answerRequest(hostId, userId, accept))
   }
   resume(person: Person) {
     return this.call(this.rpc.resume(person))

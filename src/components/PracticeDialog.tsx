@@ -3,9 +3,9 @@ import styled from 'styled-components'
 import { SUIT_SYMBOL, SUITS, type Suit } from '../../shared/cards.ts'
 import type { DealConditions, Range, SeatConditions } from '../../shared/dealer.ts'
 import { DEFAULT_PRACTICE_SETTINGS, PRACTICE_DEALS, type PracticeSettings } from '../../shared/practice.ts'
-import { ROBOT_KINDS } from '../../shared/protocol.ts'
+import { PRACTICE_TABLE_SETTINGS, ROBOT_KINDS, type TableAccess } from '../../shared/protocol.ts'
 import { useT } from '../state/PreferencesContext.tsx'
-import { Backdrop, Buttons, Choice, Group, Panel } from './TableSettingsDialog.tsx'
+import { AccessChoices, Backdrop, Buttons, Choice, Group, Panel } from './TableSettingsDialog.tsx'
 import { Button, Input, Muted } from './ui.tsx'
 
 /**
@@ -93,7 +93,8 @@ export function PracticeDialog({
   onSubmit,
   onClose,
 }: {
-  onSubmit: (settings: PracticeSettings) => void
+  /** The practice settings, and who may watch (hidden unless changed: only the invited) */
+  onSubmit: (settings: PracticeSettings, access: TableAccess) => void
   onClose: () => void
 }) {
   const t = useT()
@@ -101,6 +102,7 @@ export function PracticeDialog({
   const [settings, setSettings] = useState<PracticeSettings>(DEFAULT_PRACTICE_SETTINGS)
   const [south, setSouth] = useState<SeatForm>(() => emptySeat([12, 37]))
   const [north, setNorth] = useState<SeatForm>(() => emptySeat())
+  const [access, setAccess] = useState<TableAccess>(PRACTICE_TABLE_SETTINGS.access)
   const first = useRef<HTMLInputElement>(null)
 
   useEffect(() => first.current?.focus(), [])
@@ -145,7 +147,7 @@ export function PracticeDialog({
         <form
           onSubmit={(event) => {
             event.preventDefault()
-            onSubmit(settings.deal === 'custom' ? { ...settings, conditions: conditionsOf(south, north) } : settings)
+            onSubmit(settings.deal === 'custom' ? { ...settings, conditions: conditionsOf(south, north) } : settings, access)
           }}
         >
           <Group>
@@ -219,6 +221,7 @@ export function PracticeDialog({
               <Muted>{t.justDeclareHint}</Muted>
             </Choice>
           </Group>
+          <AccessChoices value={access} onChange={setAccess} legend={t.practiceAccess} />
           <Buttons>
             <Button type="button" onClick={onClose}>
               {t.cancel}

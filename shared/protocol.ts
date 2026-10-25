@@ -104,37 +104,78 @@ export interface ChatMessage {
 }
 
 /**
- * How a host runs their table (AC-2.9): open to every member or to invited ones only, and whether
- * people who are not seated may watch. Tables saved before settings use the defaults
+ * Who may come to a table (AC-2.9; the four access modes, 2026-10-25): `public` listed in the lobby,
+ * anyone may sit or watch; `request` listed, a member asks and the host approves or declines;
+ * `hidden` not listed, only invited members find it (their invitation or a link); `closed` listed,
+ * nobody new comes, the people already there stay. Invited members come in without asking at a
+ * `request` table too. Tables saved before settings use the defaults
  */
-export const TABLE_VISIBILITIES = ['public', 'invite'] as const
-export type TableVisibility = (typeof TABLE_VISIBILITIES)[number]
+export const TABLE_ACCESS = ['public', 'request', 'hidden', 'closed'] as const
+export type TableAccess = (typeof TABLE_ACCESS)[number]
 /** The time limits a host may set for each board, in minutes (AC-2.10); 0 is none */
 export const BOARD_TIME_LIMITS = [0, 5, 7, 10, 15] as const
 export interface TableSettings {
-  visibility: TableVisibility
+  access: TableAccess
+  /** Whether people who are not seated may watch (whoever the access mode lets in) */
   allowKibitz: boolean
   /** Minutes each board may take, one of BOARD_TIME_LIMITS; 0 is no limit */
   boardMinutes: number
 }
-export const DEFAULT_TABLE_SETTINGS: TableSettings = { visibility: 'public', allowKibitz: true, boardMinutes: 0 }
+export const DEFAULT_TABLE_SETTINGS: TableSettings = { access: 'public', allowKibitz: true, boardMinutes: 0 }
+/**
+ * A practice table (§5.11) starts hidden: it is the member's own, and only someone they invite (a
+ * coach, a friend) may watch; nobody else ever sits there, so watching is always allowed
+ */
+export const PRACTICE_TABLE_SETTINGS: TableSettings = { access: 'hidden', allowKibitz: true, boardMinutes: 0 }
+
+/** What the access was called before the four modes: `public` stays, `invite` (listed, invited only) became `hidden` */
+const LEGACY_VISIBILITY: Record<string, TableAccess> = { public: 'public', invite: 'hidden' }
+
+/**
+ * A table's settings as stored by any version (`visibility` before the four access modes, fields
+ * missing before settings, a robot level since dropped): brought to today's three fields
+ */
+export function tableSettingsFrom(stored: unknown): TableSettings {
+  const saved = (stored && typeof stored === 'object' ? stored : {}) as Record<string, unknown>
+  const access = TABLE_ACCESS.includes(saved.access as TableAccess)
+    ? (saved.access as TableAccess)
+    : (LEGACY_VISIBILITY[String(saved.visibility)] ?? DEFAULT_TABLE_SETTINGS.access)
+  const allowKibitz = typeof saved.allowKibitz === 'boolean' ? saved.allowKibitz : DEFAULT_TABLE_SETTINGS.allowKibitz
+  const boardMinutes = (BOARD_TIME_LIMITS as readonly unknown[]).includes(saved.boardMinutes)
+    ? (saved.boardMinutes as number)
+    : DEFAULT_TABLE_SETTINGS.boardMinutes
+  return { access, allowKibitz, boardMinutes }
+}
+
+/** Request and hidden tables take their invited members without asking, so the host keeps a list for them */
+export const takesInvitees = (access: TableAccess) => access === 'request' || access === 'hidden'
+
+/** A request to join a table waits this long for the host; then it is gone and may be sent again */
+export const TABLE_REQUEST_MS = 10 * 60_000
+/** After the host declines, the same member may not ask that table again for this long */
+export const TABLE_REQUEST_COOLDOWN_MS = 10 * 60_000
 
 /** After this long on one call or card a player is reminded, and the host may seat a robot instead (AC-2.10) */
 export const SLOW_TURN_MS = 60_000
 /** A seated member offline this long is replaced by a robot until they come back (代打, AC-2.13) */
 export const SUBSTITUTE_MS = 3 * 60_000
 
-/** Checks settings from the browser: every field optional, nothing else allowed; null when invalid */
+/**
+ * Checks settings from the browser: every field optional, nothing else allowed; null when invalid.
+ * A page loaded before the four access modes may still send `visibility` (`invite` means hidden)
+ */
 export function parseTableSettings(value: unknown): Partial<TableSettings> | null {
   if (value === undefined) return {}
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
-  const { visibility, allowKibitz, boardMinutes, ...rest } = value as Record<string, unknown>
+  const { access, visibility, allowKibitz, boardMinutes, ...rest } = value as Record<string, unknown>
   if (Object.keys(rest).length) return null
-  if (visibility !== undefined && !TABLE_VISIBILITIES.includes(visibility as TableVisibility)) return null
+  if (access !== undefined && !TABLE_ACCESS.includes(access as TableAccess)) return null
+  if (visibility !== undefined && (access !== undefined || !Object.hasOwn(LEGACY_VISIBILITY, String(visibility)))) return null
   if (allowKibitz !== undefined && typeof allowKibitz !== 'boolean') return null
   if (boardMinutes !== undefined && !(BOARD_TIME_LIMITS as readonly unknown[]).includes(boardMinutes)) return null
+  const wanted = access ?? (visibility === undefined ? undefined : LEGACY_VISIBILITY[String(visibility)])
   return {
-    ...(visibility !== undefined && { visibility: visibility as TableVisibility }),
+    ...(wanted !== undefined && { access: wanted as TableAccess }),
     ...(allowKibitz !== undefined && { allowKibitz }),
     ...(boardMinutes !== undefined && { boardMinutes: boardMinutes as number }),
   }
@@ -149,10 +190,16 @@ export const TABLE_MODES = ['casual', 'challenge', 'practice', 'team'] as const
 export type TableMode = (typeof TABLE_MODES)[number]
 
 /**
- * A table that is one member's alone (a challenge or practice table): not in the lobby, nobody
- * else joins or watches, and its seats, robots and settings stay as they were opened
+ * A table that is one member's alone (a challenge table): not in the lobby, nobody else joins or
+ * watches, and its seats, robots and settings stay as they were opened
  */
-export const soloTable = (mode: TableMode | undefined) => mode === 'challenge' || mode === 'practice'
+export const soloTable = (mode: TableMode | undefined) => mode === 'challenge'
+
+/**
+ * A table whose seats and robots stay as they were opened (a challenge or practice table): nobody
+ * else sits there. A practice table may still be watched, as its access mode allows (§5.11)
+ */
+export const fixedSeats = (mode: TableMode | undefined) => mode === 'challenge' || mode === 'practice'
 
 /** A practice table as its player sees it (§5.11): how the boards are dealt and who bids with them */
 export interface TablePractice extends PracticeSettings {
@@ -202,8 +249,15 @@ export interface TableSummary {
   number: number
   hostName: string
   settings: TableSettings
-  /** Whether the viewer may sit here: every member at a public table, the invited ones at an invite table */
+  /**
+   * Whether the viewer may come in without asking: every member at a public table, the invited and
+   * approved ones at a request table, the invited ones at a hidden table, nobody new at a closed one
+   */
   welcome: boolean
+  /** The viewer asked to join this table and the host has not answered yet */
+  requested?: boolean
+  /** A member's practice table (§5.11): its seats are taken by the member and three robots */
+  practice?: boolean
   seats: Record<Seat, SeatOccupant | null>
   spectators: number
   boardsPlayed: number
@@ -285,6 +339,8 @@ export interface TableView {
   practice?: TablePractice
   /** The host only: the members invited to the table (`e2-t25`) */
   invited?: PublicUser[]
+  /** The host only: members waiting for an answer to their request to join (oldest first, `at` server clock) */
+  requests?: { user: PublicUser; at: number }[]
   /** When the board's time limit runs out (server clock, ms), while a board is played at a table with one */
   boardEndsAt: number | null
   /**
@@ -350,6 +406,9 @@ export const NOTIFICATION_KINDS = [
   'challengeWeekly',
   'friendOnline',
   'tableInvited',
+  'tableRequest',
+  'tableRequestApproved',
+  'tableRequestDeclined',
   'matchInvited',
   'matchAccepted',
   'matchDeclined',
@@ -373,7 +432,9 @@ export interface Notification {
    * { challengeId } and are sent by the deadline job (`e7-t13`); `challengeWeekly` { challengeId }
    * goes to every member when the weekly club challenge is created (`e7-t23`). `friendOnline`: { username } of
    * a member the viewer follows who just came online (e1-t24). `tableInvited`: { tableId, number,
-   * username } of the table and the host who invited (`e2-t25`). `boardFeatured`: { boardId,
+   * username } of the table and the host who invited (`e2-t25`). `tableRequest`: { tableId, number,
+   * username } of the member asking to join, to a host who is offline; `tableRequestApproved`,
+   * `tableRequestDeclined`: { tableId, number, username } of the host who answered. `boardFeatured`: { boardId,
    * username } of a board the member played and who featured it (`e4-t29`). The team match kinds
    * (§5.8, `e8-t04`): { matchId, username } of who invited, accepted, declined, left, took the
    * member off a seat or called the match off; `matchStarted` { matchId, username } of the host who
@@ -469,6 +530,10 @@ export type ClientMessage =
   | { type: 'createTable'; settings?: Partial<TableSettings>; invitees?: string[] }
   /** The host changes how the table is run; `invitees`, when sent, replaces the invitation list */
   | { type: 'updateTableSettings'; settings: Partial<TableSettings>; invitees?: string[] }
+  /** Asks the host of a `request` table to let the member in (to sit or watch) */
+  | { type: 'requestJoin'; tableId: string }
+  /** The host lets a member who asked in, or turns them down */
+  | { type: 'answerRequest'; userId: string; accept: boolean }
   /** Sits at the public table that most needs a player, or opens one when none does (快速入座) */
   | { type: 'quickSeat' }
   | { type: 'joinTable'; tableId: string }
@@ -493,7 +558,7 @@ export type ClientMessage =
    * Opens the member's own practice table (§5.11, `e10-t03`): South, with three TKB of
    * `settings.robotKind`, boards dealt to `settings.deal`. Leaves any other table first
    */
-  | { type: 'createPractice'; settings: PracticeSettings }
+  | { type: 'createPractice'; settings: PracticeSettings; access?: TableAccess }
   /** At a practice table only: the board on the table is put away unplayed and a new one dealt */
   | { type: 'redeal' }
   /** Marks these notifications read, or all of them when `ids` is left out */

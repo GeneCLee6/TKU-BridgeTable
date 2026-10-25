@@ -25,13 +25,13 @@ describe('TableSettingsDialog', () => {
     expect(within(dialog).getByRole('radio', { name: /公開/ })).toBeChecked()
     expect(within(dialog).getByRole('checkbox', { name: /允許觀看/ })).toBeChecked()
 
-    await userEvent.click(within(dialog).getByRole('radio', { name: /只限受邀/ }))
+    await userEvent.click(within(dialog).getByRole('radio', { name: /隱藏/ }))
     await userEvent.click(within(dialog).getByRole('checkbox', { name: /允許觀看/ }))
     await userEvent.click(within(dialog).getByRole('button', { name: '開桌' }))
-    expect(onSubmit).toHaveBeenCalledWith({ visibility: 'invite', allowKibitz: false, boardMinutes: 0 }, [])
+    expect(onSubmit).toHaveBeenCalledWith({ access: 'hidden', allowKibitz: false, boardMinutes: 0 }, [])
   })
 
-  it('lists the members to invite at an invite table, and sets a time limit per board', async () => {
+  it('lists the members to invite at a hidden table, and sets a time limit per board', async () => {
     const onSubmit = vi.fn()
     const members = [
       { id: 'a1', username: 'amy' },
@@ -42,11 +42,47 @@ describe('TableSettingsDialog', () => {
     )
     // A public table asks nobody
     expect(screen.queryByRole('checkbox', { name: 'amy' })).toBeNull()
-    await userEvent.click(screen.getByRole('radio', { name: /只限受邀/ }))
+    await userEvent.click(screen.getByRole('radio', { name: /隱藏/ }))
     await userEvent.click(screen.getByRole('checkbox', { name: 'bob' }))
     await userEvent.selectOptions(screen.getByRole('combobox', { name: '每副時間上限' }), '7')
     await userEvent.click(screen.getByRole('button', { name: '開桌' }))
-    expect(onSubmit).toHaveBeenCalledWith({ visibility: 'invite', allowKibitz: true, boardMinutes: 7 }, ['b2'])
+    expect(onSubmit).toHaveBeenCalledWith({ access: 'hidden', allowKibitz: true, boardMinutes: 7 }, ['b2'])
+  })
+
+  it('offers the four access modes, each with its one-line explanation', async () => {
+    const onSubmit = vi.fn()
+    const members = [{ id: 'a1', username: 'amy' }]
+    wrap(<TableSettingsDialog title="開新桌" submitLabel="開桌" members={members} onSubmit={onSubmit} onClose={() => {}} />)
+    const radios = screen.getAllByRole('radio')
+    expect(radios.map((r) => (r as HTMLInputElement).value)).toEqual(['public', 'request', 'hidden', 'closed'])
+    expect(screen.getByRole('radio', { name: /申請加入.*你同意後才能入座或觀看/ })).toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: /拒絕所有人.*已經在桌上的人不受影響/ })).toBeInTheDocument()
+    // A request table takes invited members without asking, so it has the list too
+    await userEvent.click(screen.getByRole('radio', { name: /申請加入/ }))
+    await userEvent.click(screen.getByRole('checkbox', { name: 'amy' }))
+    await userEvent.click(screen.getByRole('button', { name: '開桌' }))
+    expect(onSubmit).toHaveBeenLastCalledWith({ access: 'request', allowKibitz: true, boardMinutes: 0 }, ['a1'])
+  })
+
+  it('asks only who may watch at a practice table, hidden to begin with', async () => {
+    const onSubmit = vi.fn()
+    wrap(
+      <TableSettingsDialog
+        title="牌桌設定"
+        submitLabel="儲存"
+        practice
+        initial={{ access: 'hidden', allowKibitz: true, boardMinutes: 0 }}
+        onSubmit={onSubmit}
+        onClose={() => {}}
+      />,
+    )
+    expect(screen.getByRole('group', { name: '誰可以觀看' })).toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: /隱藏/ })).toBeChecked()
+    expect(screen.queryByRole('checkbox', { name: /允許觀看/ })).toBeNull()
+    expect(screen.queryByRole('combobox', { name: '每副時間上限' })).toBeNull()
+    await userEvent.click(screen.getByRole('radio', { name: /公開/ }))
+    await userEvent.click(screen.getByRole('button', { name: '儲存' }))
+    expect(onSubmit).toHaveBeenCalledWith({ access: 'public', allowKibitz: true, boardMinutes: 0 }, [])
   })
 
   it('starts from the table’s settings and closes with Escape', async () => {
@@ -55,12 +91,12 @@ describe('TableSettingsDialog', () => {
       <TableSettingsDialog
         title="牌桌設定"
         submitLabel="儲存"
-        initial={{ visibility: 'invite', allowKibitz: false, boardMinutes: 0 }}
+        initial={{ access: 'hidden', allowKibitz: false, boardMinutes: 0 }}
         onSubmit={() => {}}
         onClose={onClose}
       />,
     )
-    expect(screen.getByRole('radio', { name: /只限受邀/ })).toBeChecked()
+    expect(screen.getByRole('radio', { name: /隱藏/ })).toBeChecked()
     expect(screen.getByRole('checkbox', { name: /允許觀看/ })).not.toBeChecked()
     await userEvent.keyboard('{Escape}')
     expect(onClose).toHaveBeenCalled()

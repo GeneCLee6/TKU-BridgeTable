@@ -157,6 +157,12 @@ export class TableHost implements TableRpc {
   configure(userId: string, settings: Partial<TableSettings>, invited?: Named[]) {
     return this.atTable((table) => table.configure(userId, settings, invited))
   }
+  request(person: Person, muted: boolean) {
+    return this.atTable((table) => table.request(person, muted))
+  }
+  answerRequest(hostId: string, userId: string, accept: boolean) {
+    return this.atTable((table) => table.answerRequest(hostId, userId, accept))
+  }
   resume(person: Person) {
     return this.atTable((table) => table.resume(person))
   }

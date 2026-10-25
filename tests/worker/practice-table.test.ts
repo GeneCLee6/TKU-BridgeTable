@@ -150,7 +150,7 @@ describe('practice settings', () => {
 })
 
 describe('the practice table (e10-t03)', () => {
-  it('seats the member South with three TKB of the chosen system, out of the lobby and closed to others', async () => {
+  it('seats the member South with three TKB of the chosen system, hidden from others (only the invited may watch)', async () => {
     const amy = await member('amy')
     const ben = await member('ben')
     await practice(amy, { robotKind: 'gib' })
@@ -159,7 +159,8 @@ describe('the practice table (e10-t03)', () => {
     expect(table.practice).toEqual({ deal: 'random', robotKind: 'gib', justDeclare: false, dealt: 1 })
     for (const seat of ['N', 'E', 'W'] as const) expect(table.seats[seat]).toMatchObject({ id: `robot:gib:${seat}`, robot: true })
     expect(table.board?.boardNo).toBe(1)
-    expect(club.lobbyView(amy).tables).toEqual([])
+    expect(club.lobbyView(amy).tables).toMatchObject([{ id: table.id, practice: true, settings: { access: 'hidden' } }])
+    expect(club.lobbyView(ben).tables).toEqual([])
     expect(club.lobbyView(amy)).toMatchObject({ myTableId: table.id, myTableMode: 'practice' })
     expect(club.lobbyView(ben).myTableMode).toBeUndefined()
     expect(club.lobbyView(ben).members.find((m) => m.id === amy)?.tableNumber).toBeNull()
@@ -249,6 +250,63 @@ describe('the practice table (e10-t03)', () => {
     await practice(amy)
     await send(amy, { type: 'leaveTable' })
     expect(club.lobbyView(amy).myTableId).toBeNull()
+  })
+})
+
+describe('watching a practice table (the four access modes)', () => {
+  it('lets the member open it up: watchers see what a kibitzer sees, never take a seat, and go when the member leaves', async () => {
+    const amy = await member('amy')
+    const ben = await member('ben')
+    const cleo = await member('cleo')
+    await practice(amy)
+    const tableId = view(amy)!.id
+    // Hidden: invited members find it and watch
+    await send(amy, { type: 'updateTableSettings', settings: { access: 'hidden' }, invitees: [cleo] })
+    expect(connections.last(cleo, 'notifications')!.notifications.items[0]).toMatchObject({ kind: 'tableInvited' })
+    expect(club.lobbyView(cleo).tables.map((t) => t.id)).toEqual([tableId])
+    expect((await refused(ben, { type: 'joinTable', tableId }))?.code).toBe('tableGone')
+    await send(cleo, { type: 'joinTable', tableId })
+    expect(view(cleo)!.mySeat).toBeNull()
+
+    // Public: anyone may watch, nobody may sit; only who may watch changes
+    await send(amy, { type: 'updateTableSettings', settings: { access: 'public' } })
+    expect(view(amy)!.settings.access).toBe('public')
+    expect(club.lobbyView(ben).tables[0]).toMatchObject({ id: tableId, practice: true, welcome: true })
+    expect((await refused(ben, { type: 'sit', tableId, seat: 'N' }))?.code).toBe('practiceTableFixed')
+    await send(ben, { type: 'joinTable', tableId })
+    const watched = view(ben)!
+    expect(watched.mySeat).toBeNull()
+    expect(Object.keys(watched.board!.hands).sort()).toEqual(['E', 'N', 'S', 'W'])
+    expect(watched.board!.legalCalls).toEqual([])
+    expect((await refused(ben, { type: 'redeal' }))?.code).toBe('hostOnly')
+    expect((await refused(amy, { type: 'updateTableSettings', settings: { boardMinutes: 5 } }))?.code).toBe('practiceTableFixed')
+    // The member stays the host even while offline; watchers cannot take the table over
+    connections.disconnect(amy)
+    await club.disconnected(amy)
+    expect((await refused(ben, { type: 'updateTableSettings', settings: { access: 'closed' } }))?.code).toBe('hostOnly')
+    connections.online.add(amy)
+    club.connected(amy)
+    await tick()
+
+    await send(amy, { type: 'leaveTable' })
+    expect(view(ben)).toBeNull()
+    expect(club.lobbyView(ben).tables).toEqual([])
+  })
+
+  it('opens with the access the member chose', async () => {
+    const amy = await member('amy')
+    const ben = await member('ben')
+    await send(amy, { type: 'createPractice', settings: {}, access: 'request' } as unknown as ClientMessage)
+    const tableId = view(amy)!.id
+    expect(view(amy)!.settings).toEqual({ access: 'request', allowKibitz: true, boardMinutes: 0 })
+    expect(club.lobbyView(ben).tables[0]).toMatchObject({ id: tableId, welcome: false, settings: { access: 'request' } })
+    await send(ben, { type: 'requestJoin', tableId })
+    await send(amy, { type: 'answerRequest', userId: ben, accept: true })
+    await send(ben, { type: 'joinTable', tableId })
+    expect(view(ben)!.id).toBe(tableId)
+    expect((await refused(amy, { type: 'createPractice', settings: {}, access: 'secret' } as unknown as ClientMessage))?.code).toBe(
+      'badTableSettings',
+    )
   })
 })
 

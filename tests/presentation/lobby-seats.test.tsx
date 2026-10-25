@@ -13,7 +13,7 @@ const TABLE: TableSummary = {
   id: 't1',
   number: 4,
   hostName: 'Eve',
-  settings: { visibility: 'public', allowKibitz: true, boardMinutes: 0 },
+  settings: { access: 'public', allowKibitz: true, boardMinutes: 0 },
   welcome: true,
   seats: {
     N: { id: 'chris', username: LONG, online: true },

@@ -26,14 +26,17 @@ export function notificationText(t: Strings, n: Notification): string {
     case 'matchFinished':
       return t.notificationTexts[n.kind]()
     case 'tableInvited':
-      return t.notificationTexts.tableInvited(name, Number(n.params.number ?? 0))
+    case 'tableRequest':
+    case 'tableRequestApproved':
+    case 'tableRequestDeclined':
+      return t.notificationTexts[n.kind](name, Number(n.params.number ?? 0))
   }
 }
 
 /**
  * Where a notification leads when clicked: an invitation to the challenge lobby, where it is
  * answered (`e7-t16`); the other challenge news to that challenge's page (`e7-t18`); an invitation
- * to a table to that table; a featured board to its record, where the explanation is shown; team
+ * to a table, a request to join one and its answer to that table; a featured board to its record, where the explanation is shown; team
  * match news to the match's prep room (`e8-t06`), except being taken off a seat, after which only
  * the list of one's matches is left
  */
@@ -53,6 +56,9 @@ export function notificationLink(n: Notification): string {
     case 'challengeResults':
       return n.params.challengeId ? `/challenges/${encodeURIComponent(String(n.params.challengeId))}` : '/challenges'
     case 'tableInvited':
+    case 'tableRequest':
+    case 'tableRequestApproved':
+    case 'tableRequestDeclined':
       return n.params.tableId ? `/table/${encodeURIComponent(String(n.params.tableId))}` : '/'
     case 'matchRemoved':
       return '/matches'
