@@ -442,6 +442,7 @@ export function BiddingBox({
           $wide
           $selected={alerting}
           aria-pressed={alerting}
+          data-tour="alert"
           onClick={() => setAlerting(!alerting)}
         >
           {t.alert}

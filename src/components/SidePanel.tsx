@@ -210,7 +210,7 @@ export function SidePanel({
   }
 
   return (
-    <Dock aria-label={t.sidePanel}>
+    <Dock aria-label={t.sidePanel} data-tour="side">
       {open && (
         <Content $wide={open === 'history' && board !== null} role="tabpanel" aria-label={label[open]}>
           <ContentHead>

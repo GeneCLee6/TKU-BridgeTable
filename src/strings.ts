@@ -256,6 +256,54 @@ const zh = {
   waitingFor: (name: string) => `等待 ${name}`,
   yourCall: '輪到你叫牌',
   yourPlay: '輪到你出牌',
+  // Screen reader (e3-t33)
+  srLog: '牌桌動態',
+  srDouble: '賭倍',
+  srRedouble: '再賭倍',
+  srNewBoard: (n: number, dealer: string, vul: string) => `第 ${n} 副，${dealer}家發牌，${vul}`,
+  srCall: (who: string, call: string) => `${who} 叫 ${call}`,
+  srContract: (contract: string, who: string) => `叫牌結束：合約 ${contract}，莊家 ${who}`,
+  srPassedOut: '四家都 Pass',
+  srPlayed: (who: string, card: string) => `${who} 出 ${card}`,
+  srTrickWon: (who: string, ns: number, ew: number) => `${who} 贏這一墩；南北 ${ns} 墩、東西 ${ew} 墩`,
+  srResult: (diff: number, scoreNS: number) =>
+    `結果：${diff === 0 ? '剛好做成' : diff > 0 ? `超 ${diff} 墩` : `倒 ${-diff} 墩`}，南北 ${scoreNS > 0 ? '+' : ''}${scoreNS} 分`,
+  srTurn: (who: string, auction: boolean) => `輪到 ${who} ${auction ? '叫牌' : '出牌'}`,
+  srYourDummyPlay: '輪到你出夢家的牌',
+  srContractBox: (contract: string, ns: number, ew: number) => `合約 ${contract}，南北 ${ns} 墩、東西 ${ew} 墩；按下顯示叫牌過程`,
+
+  // Table tour (e3-t34)
+  tourLabel: '牌桌導覽',
+  tourStepOf: (n: number, total: number) => `第 ${n} 步，共 ${total} 步`,
+  tourNext: '下一步',
+  tourBack: '上一步',
+  tourSkip: '跳過導覽',
+  tourDone: '開始打牌',
+  tourSteps: {
+    bidding: {
+      title: '叫牌盒',
+      text: '輪到你叫牌時，叫牌盒出現在叫牌表下方：先按階數 1–7，再按花色就叫出；Pass、X、XX 在兩旁。也可以用鍵盤：1–7 加 c d h s n、p、x，Enter 送出。',
+    },
+    alert: {
+      title: 'Alert',
+      text: '叫約定叫品前先按叫牌盒的 Alert 並寫下說明，只有對手看得到。對手 Alert 的叫品在叫牌表是黃底，點一下看說明。',
+    },
+    claim: {
+      title: '攤牌',
+      text: '出牌時確定剩下能拿幾墩，就按右下角的「攤牌」選你這方再拿幾墩；對手都接受，這副就結束。',
+    },
+    undo: {
+      title: '撤回',
+      text: '按錯了可以按「撤回」收回你上一個叫品或出的牌，要等對手同意。',
+    },
+    side: {
+      title: '側欄',
+      text: '右邊的側欄有聊天、社員、私訊和紀錄：點一個展開，再點一次收起。',
+    },
+  } as Record<'bidding' | 'alert' | 'claim' | 'undo' | 'side', { title: string; text: string }>,
+  tourReplay: '重看牌桌導覽',
+  tourReplayHint: '下次進入牌桌時會再顯示一次導覽。',
+  tourReplayDone: '好的，下次進入牌桌時會顯示導覽',
   claim: '攤牌',
   claimTitle: '攤牌：你這方再拿幾墩？',
   claimTricks: (n: number) => `${n} 墩`,
@@ -868,6 +916,54 @@ const en: Strings = {
   waitingFor: (name) => `Waiting for ${name}`,
   yourCall: 'Your call',
   yourPlay: 'Your play',
+  // Screen reader (e3-t33)
+  srLog: 'Table events',
+  srDouble: 'double',
+  srRedouble: 'redouble',
+  srNewBoard: (n, dealer, vul) => `Board ${n}, ${dealer} deals, ${vul}`,
+  srCall: (who, call) => `${who} calls ${call}`,
+  srContract: (contract, who) => `Auction over: contract ${contract}, declarer ${who}`,
+  srPassedOut: 'Passed out',
+  srPlayed: (who, card) => `${who} plays ${card}`,
+  srTrickWon: (who, ns, ew) => `${who} wins the trick; N-S ${ns}, E-W ${ew}`,
+  srResult: (diff, scoreNS) =>
+    `Result: ${diff === 0 ? 'made exactly' : diff > 0 ? `made with ${diff} overtrick${diff > 1 ? 's' : ''}` : `down ${-diff}`}, N-S ${scoreNS > 0 ? '+' : ''}${scoreNS}`,
+  srTurn: (who, auction) => `${who} to ${auction ? 'call' : 'play'}`,
+  srYourDummyPlay: 'Your play from dummy',
+  srContractBox: (contract, ns, ew) => `Contract ${contract}, N-S ${ns} tricks, E-W ${ew}; press to show the auction`,
+
+  // Table tour (e3-t34)
+  tourLabel: 'Table tour',
+  tourStepOf: (n, total) => `Step ${n} of ${total}`,
+  tourNext: 'Next',
+  tourBack: 'Back',
+  tourSkip: 'Skip the tour',
+  tourDone: 'Start playing',
+  tourSteps: {
+    bidding: {
+      title: 'Bidding box',
+      text: 'When it is your call the bidding box appears under the auction: press a level 1–7, then a strain, and the bid is made; Pass, X and XX are at the sides. On a keyboard: 1–7 with c d h s n, p, x, and Enter to send.',
+    },
+    alert: {
+      title: 'Alert',
+      text: 'Before a conventional call, press Alert in the bidding box and write the explanation; only the opponents see it. Calls the opponents alerted are yellow in the auction: click one to read it.',
+    },
+    claim: {
+      title: 'Claim',
+      text: 'When the rest of the play is clear, press Claim at the bottom right and choose how many more tricks your side takes; when the opponents accept, the board is over.',
+    },
+    undo: {
+      title: 'Undo',
+      text: 'Pressed the wrong one? Undo takes back your last call or card, once the opponents agree.',
+    },
+    side: {
+      title: 'Side panel',
+      text: 'The panel on the right holds chat, members, messages and history: click one to open it, again to close it.',
+    },
+  },
+  tourReplay: 'Show the table tour again',
+  tourReplayHint: 'The tour is shown again the next time you go to a table.',
+  tourReplayDone: 'The tour will show the next time you go to a table',
   claim: 'Claim',
   claimTitle: 'Claim: how many more tricks for your side?',
   claimTricks: (n) => `${n} tricks`,
@@ -1469,6 +1565,54 @@ const zhHans: Strings = {
   waitingFor: (name) => `等待 ${name}`,
   yourCall: '轮到你叫牌',
   yourPlay: '轮到你出牌',
+  // Screen reader (e3-t33)
+  srLog: '牌桌动态',
+  srDouble: '加倍',
+  srRedouble: '再加倍',
+  srNewBoard: (n, dealer, vul) => `第 ${n} 副，${dealer}家发牌，${vul}`,
+  srCall: (who, call) => `${who} 叫 ${call}`,
+  srContract: (contract, who) => `叫牌结束：定约 ${contract}，庄家 ${who}`,
+  srPassedOut: '四家都 Pass',
+  srPlayed: (who, card) => `${who} 出 ${card}`,
+  srTrickWon: (who, ns, ew) => `${who} 赢这一墩；南北 ${ns} 墩、东西 ${ew} 墩`,
+  srResult: (diff, scoreNS) =>
+    `结果：${diff === 0 ? '刚好完成' : diff > 0 ? `超 ${diff} 墩` : `宕 ${-diff} 墩`}，南北 ${scoreNS > 0 ? '+' : ''}${scoreNS} 分`,
+  srTurn: (who, auction) => `轮到 ${who} ${auction ? '叫牌' : '出牌'}`,
+  srYourDummyPlay: '轮到你出明手的牌',
+  srContractBox: (contract, ns, ew) => `定约 ${contract}，南北 ${ns} 墩、东西 ${ew} 墩；按下显示叫牌过程`,
+
+  // Table tour (e3-t34)
+  tourLabel: '牌桌导览',
+  tourStepOf: (n, total) => `第 ${n} 步，共 ${total} 步`,
+  tourNext: '下一步',
+  tourBack: '上一步',
+  tourSkip: '跳过导览',
+  tourDone: '开始打牌',
+  tourSteps: {
+    bidding: {
+      title: '叫牌盒',
+      text: '轮到你叫牌时，叫牌盒出现在叫牌表下方：先按阶数 1–7，再按花色就叫出；Pass、X、XX 在两旁。也可以用键盘：1–7 加 c d h s n、p、x，Enter 送出。',
+    },
+    alert: {
+      title: 'Alert',
+      text: '叫约定叫品前先按叫牌盒的 Alert 并写下说明，只有对手看得到。对手 Alert 的叫品在叫牌表是黄底，点一下看说明。',
+    },
+    claim: {
+      title: '摊牌',
+      text: '出牌时确定剩下能拿几墩，就按右下角的“摊牌”选你这方再拿几墩；对手都接受，这副就结束。',
+    },
+    undo: {
+      title: '撤回',
+      text: '按错了可以按“撤回”收回你上一个叫品或出的牌，要等对手同意。',
+    },
+    side: {
+      title: '侧栏',
+      text: '右边的侧栏有聊天、社员、私信和记录：点一个展开，再点一次收起。',
+    },
+  },
+  tourReplay: '重看牌桌导览',
+  tourReplayHint: '下次进入牌桌时会再显示一次导览。',
+  tourReplayDone: '好的，下次进入牌桌时会显示导览',
   claim: '摊牌',
   claimTitle: '摊牌：你方还要拿几墩？',
   claimTricks: (n) => `${n} 墩`,
@@ -2071,6 +2215,54 @@ const vi: Strings = {
   waitingFor: (name) => `Đang chờ ${name}`,
   yourCall: 'Đến lượt bạn kêu',
   yourPlay: 'Đến lượt bạn đánh',
+  // Screen reader (e3-t33)
+  srLog: 'Diễn biến bàn chơi',
+  srDouble: 'Double',
+  srRedouble: 'Redouble',
+  srNewBoard: (n, dealer, vul) => `Ván ${n}, ${dealer} chia bài, ${vul}`,
+  srCall: (who, call) => `${who} kêu ${call}`,
+  srContract: (contract, who) => `Kết thúc kêu bài: hợp đồng ${contract}, người chơi chính ${who}`,
+  srPassedOut: 'Cả bốn Pass',
+  srPlayed: (who, card) => `${who} đánh ${card}`,
+  srTrickWon: (who, ns, ew) => `${who} ăn nước này; Bắc-Nam ${ns}, Đông-Tây ${ew}`,
+  srResult: (diff, scoreNS) =>
+    `Kết quả: ${diff === 0 ? 'vừa đủ' : diff > 0 ? `dư ${diff} nước` : `thiếu ${-diff} nước`}, Bắc-Nam ${scoreNS > 0 ? '+' : ''}${scoreNS}`,
+  srTurn: (who, auction) => `Đến lượt ${who} ${auction ? 'kêu bài' : 'đánh'}`,
+  srYourDummyPlay: 'Đến lượt bạn đánh bài của Dummy',
+  srContractBox: (contract, ns, ew) => `Hợp đồng ${contract}, Bắc-Nam ${ns} nước, Đông-Tây ${ew}; bấm để xem quá trình kêu bài`,
+
+  // Table tour (e3-t34)
+  tourLabel: 'Hướng dẫn bàn chơi',
+  tourStepOf: (n, total) => `Bước ${n}/${total}`,
+  tourNext: 'Tiếp',
+  tourBack: 'Quay lại',
+  tourSkip: 'Bỏ qua hướng dẫn',
+  tourDone: 'Bắt đầu chơi',
+  tourSteps: {
+    bidding: {
+      title: 'Hộp kêu bài',
+      text: 'Khi đến lượt bạn kêu, hộp kêu bài hiện dưới bảng kêu bài: bấm mức 1–7 rồi bấm chất là kêu; Pass, X, XX ở hai bên. Dùng bàn phím: 1–7 với c d h s n, p, x, Enter để gửi.',
+    },
+    alert: {
+      title: 'Alert',
+      text: 'Trước khi kêu một quy ước, bấm Alert trong hộp kêu bài và ghi giải thích; chỉ đối thủ thấy. Lượt kêu đối thủ Alert có nền vàng trong bảng kêu bài, bấm để xem.',
+    },
+    claim: {
+      title: 'Claim',
+      text: 'Khi đã chắc số nước còn lại, bấm Claim ở góc dưới bên phải và chọn phe bạn ăn thêm bao nhiêu nước; đối thủ đồng ý thì ván kết thúc.',
+    },
+    undo: {
+      title: 'Hoàn tác',
+      text: 'Bấm nhầm? Hoàn tác lấy lại lượt kêu hoặc lá bài vừa đánh, khi đối thủ đồng ý.',
+    },
+    side: {
+      title: 'Thanh bên',
+      text: 'Thanh bên phải có trò chuyện, thành viên, tin nhắn và lịch sử: bấm để mở, bấm lần nữa để đóng.',
+    },
+  },
+  tourReplay: 'Xem lại hướng dẫn bàn chơi',
+  tourReplayHint: 'Hướng dẫn sẽ hiện lại lần tới bạn vào bàn chơi.',
+  tourReplayDone: 'Hướng dẫn sẽ hiện lần tới bạn vào bàn chơi',
   claim: 'Claim',
   claimTitle: 'Claim: bên bạn lấy thêm bao nhiêu nước?',
   claimTricks: (n) => `${n} nước`,
@@ -2673,6 +2865,54 @@ const ja: Strings = {
   waitingFor: (name) => `${name} を待っています`,
   yourCall: 'あなたのビッドです',
   yourPlay: 'あなたのプレイです',
+  // Screen reader (e3-t33)
+  srLog: 'テーブルの動き',
+  srDouble: 'ダブル',
+  srRedouble: 'リダブル',
+  srNewBoard: (n, dealer, vul) => `ボード ${n}、ディーラー ${dealer}、${vul}`,
+  srCall: (who, call) => `${who}：${call}`,
+  srContract: (contract, who) => `オークション終了：コントラクト ${contract}、ディクレアラー ${who}`,
+  srPassedOut: '4 人ともパス',
+  srPlayed: (who, card) => `${who} が ${card} をプレイ`,
+  srTrickWon: (who, ns, ew) => `${who} がトリックを取りました。NS ${ns}、EW ${ew}`,
+  srResult: (diff, scoreNS) =>
+    `結果：${diff === 0 ? 'ちょうどメイク' : diff > 0 ? `${diff} オーバートリック` : `${-diff} ダウン`}、NS ${scoreNS > 0 ? '+' : ''}${scoreNS}`,
+  srTurn: (who, auction) => `${who} の${auction ? 'ビッド' : 'プレイ'}の番`,
+  srYourDummyPlay: 'ダミーからプレイする番です',
+  srContractBox: (contract, ns, ew) => `コントラクト ${contract}、NS ${ns} トリック、EW ${ew} トリック。押すとオークションを表示`,
+
+  // Table tour (e3-t34)
+  tourLabel: 'テーブルの案内',
+  tourStepOf: (n, total) => `${n} / ${total}`,
+  tourNext: '次へ',
+  tourBack: '戻る',
+  tourSkip: '案内をスキップ',
+  tourDone: 'プレイを始める',
+  tourSteps: {
+    bidding: {
+      title: 'ビッディングボックス',
+      text: '自分のビッドの番になると、オークション表の下にビッディングボックスが出ます。レベル 1–7 を押してからスートを押すとビッドします。パス・X・XX は両側です。キーボードでは 1–7 と c d h s n、p、x、Enter で送信。',
+    },
+    alert: {
+      title: 'Alert',
+      text: 'コンベンションのビッドをする前に、ビッディングボックスの Alert を押して説明を書きます。説明は相手にだけ見えます。相手が Alert したビッドはオークション表で黄色になり、押すと説明が見られます。',
+    },
+    claim: {
+      title: 'クレーム',
+      text: '残りのトリックがはっきりしたら、右下の「クレーム」で自分の側があと何トリック取るかを選びます。相手が承認すればボード終了です。',
+    },
+    undo: {
+      title: '取り消し',
+      text: '押し間違えたら「取り消し」で直前のビッドやカードを戻せます。相手の同意が必要です。',
+    },
+    side: {
+      title: 'サイドパネル',
+      text: '右側のサイドパネルにはチャット、会員、メッセージ、記録があります。押すと開き、もう一度押すと閉じます。',
+    },
+  },
+  tourReplay: 'テーブルの案内をもう一度見る',
+  tourReplayHint: '次にテーブルに入ったとき、案内がもう一度表示されます。',
+  tourReplayDone: '次にテーブルに入ったとき案内を表示します',
   claim: 'クレーム',
   claimTitle: 'クレーム：あと何トリック取りますか？',
   claimTricks: (n) => `${n} トリック`,
@@ -3275,6 +3515,54 @@ const ko: Strings = {
   waitingFor: (name) => `${name} 기다리는 중`,
   yourCall: '당신이 비딩할 차례',
   yourPlay: '당신이 낼 차례',
+  // Screen reader (e3-t33)
+  srLog: '테이블 진행',
+  srDouble: '더블',
+  srRedouble: '리더블',
+  srNewBoard: (n, dealer, vul) => `보드 ${n}, 딜러 ${dealer}, ${vul}`,
+  srCall: (who, call) => `${who}: ${call}`,
+  srContract: (contract, who) => `비딩 종료: 컨트랙트 ${contract}, 디클레어러 ${who}`,
+  srPassedOut: '네 명 모두 패스',
+  srPlayed: (who, card) => `${who}: ${card}`,
+  srTrickWon: (who, ns, ew) => `${who} 트릭 획득. NS ${ns}, EW ${ew}`,
+  srResult: (diff, scoreNS) =>
+    `결과: ${diff === 0 ? '정확히 메이크' : diff > 0 ? `${diff} 오버트릭` : `${-diff} 다운`}, NS ${scoreNS > 0 ? '+' : ''}${scoreNS}`,
+  srTurn: (who, auction) => `${who} ${auction ? '비드' : '플레이'} 차례`,
+  srYourDummyPlay: '더미의 카드를 낼 차례',
+  srContractBox: (contract, ns, ew) => `컨트랙트 ${contract}, NS ${ns} 트릭, EW ${ew} 트릭. 누르면 비딩 표시`,
+
+  // Table tour (e3-t34)
+  tourLabel: '테이블 안내',
+  tourStepOf: (n, total) => `${n} / ${total} 단계`,
+  tourNext: '다음',
+  tourBack: '이전',
+  tourSkip: '안내 건너뛰기',
+  tourDone: '플레이 시작',
+  tourSteps: {
+    bidding: {
+      title: '비딩 박스',
+      text: '비드할 차례가 되면 비딩 표 아래에 비딩 박스가 나타납니다. 레벨 1–7을 누른 뒤 슈트를 누르면 비드됩니다. 패스, X, XX는 양옆에 있습니다. 키보드: 1–7과 c d h s n, p, x, Enter로 보내기.',
+    },
+    alert: {
+      title: 'Alert',
+      text: '약속된 비드를 하기 전에 비딩 박스의 Alert를 누르고 설명을 쓰세요. 설명은 상대만 봅니다. 상대가 Alert한 비드는 비딩 표에서 노란색이며, 누르면 설명이 보입니다.',
+    },
+    claim: {
+      title: '클레임',
+      text: '남은 트릭이 확실하면 오른쪽 아래의 "클레임"을 눌러 우리 편이 몇 트릭을 더 가져갈지 고르세요. 상대가 모두 받아들이면 보드가 끝납니다.',
+    },
+    undo: {
+      title: '되돌리기',
+      text: '잘못 눌렀다면 "되돌리기"로 마지막 비드나 카드를 되돌릴 수 있습니다. 상대의 동의가 필요합니다.',
+    },
+    side: {
+      title: '사이드 패널',
+      text: '오른쪽 사이드 패널에는 채팅, 회원, 메시지, 기록이 있습니다. 누르면 열리고 다시 누르면 닫힙니다.',
+    },
+  },
+  tourReplay: '테이블 안내 다시 보기',
+  tourReplayHint: '다음에 테이블에 들어갈 때 안내가 다시 표시됩니다.',
+  tourReplayDone: '다음에 테이블에 들어갈 때 안내를 표시합니다',
   claim: '클레임',
   claimTitle: '클레임: 우리 편이 몇 트릭을 더 가져가나요?',
   claimTricks: (n) => `${n}트릭`,

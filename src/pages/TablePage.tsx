@@ -20,12 +20,15 @@ import { DEAL_MS, DealAnimation } from '../components/DealAnimation.tsx'
 import { SidePanel } from '../components/SidePanel.tsx'
 import { HandView } from '../components/HandView.tsx'
 import { SeatPlate, type SeatAction } from '../components/SeatPlate.tsx'
+import { TableAnnouncer } from '../components/TableAnnouncer.tsx'
 import { TableSettingsDialog } from '../components/TableSettingsDialog.tsx'
+import { TableTour } from '../components/TableTour.tsx'
 import { ContractLabel } from '../components/Suit.tsx'
 import { ClaimPicker, FeltButton, FeltPanel, Prompt, ResultPanel } from '../components/TablePanels.tsx'
 import { COLLECT_MS, TrickArea, TrickSpace, type CardOrigin, type Position } from '../components/TrickArea.tsx'
 import { TrickPile } from '../components/TrickPile.tsx'
 import { Muted, PageMain } from '../components/ui.tsx'
+import { spokenContract } from '../lib/announce.ts'
 import { CARD_SCALE, sortForDisplay, suitOrder } from '../lib/cards.ts'
 import { auctionBoxHeight, biddingBoxHeight, handHeight, type Orientation } from '../lib/measure.ts'
 import { dealSound, playCardSound, turnSound, unlockSound } from '../lib/sound.ts'
@@ -573,7 +576,7 @@ export function TablePage() {
 
 function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeof useClub>['send'] }) {
   const t = useT()
-  const { cardStyle, sound, lang, confirmCalls, confirmPlays, cardSize } = usePreferences()
+  const { cardStyle, sound, lang, confirmCalls, confirmPlays, cardSize, tableTourSeen, set: setPrefs } = usePreferences()
   const { user } = useAuth()
   const { error, lobby } = useClub()
   const [feltRef, feltSize] = useSize()
@@ -602,6 +605,8 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
     return o ? (o.robot ? `${playerName(t, o)} ${seatLetter[seat]}` : o.username) : seatLetter[seat]
   }
   const missing = SEATS.filter((s) => !table.seats[s]).length
+  /** 北 Alice: a seat as a screen reader says it */
+  const spokenSeat = (seat: Seat) => `${t.seatNames[seat]} ${table.seats[seat] ? nameOf(seat) : ''}`.trim()
 
   // A robot partner: the bidding box tells how it will read each call, as GIB does on BBO
   const partner = me ? table.seats[partnerOf(me)] : null
@@ -854,7 +859,7 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
 
   /** The bidding box when it is your call, an undo question while one is open, otherwise empty room */
   const biddingSlot = (b: BoardView): ReactNode => (
-    <BoxSlot $h={biddingBoxHeight(sizes.box)}>
+    <BoxSlot $h={biddingBoxHeight(sizes.box)} data-tour="bidding-box">
       {b.undo
         ? undoPrompt()
         : b.legalCalls.length > 0 && (
@@ -993,7 +998,11 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
                 type="button"
                 onClick={() => setAuctionFor(showAuction ? 0 : boardNo)}
                 aria-expanded={showAuction}
-                aria-label={t.showAuction}
+                aria-label={t.srContractBox(
+                  board.contract ? `${spokenContract(board.contract, t)} ${t.seatNames[board.contract.declarer]}` : t.srPassedOut,
+                  board.tricksWon.NS,
+                  board.tricksWon.EW,
+                )}
               >
                 <strong>
                   <ContractLabel contract={board.contract} onCard />
@@ -1019,7 +1028,7 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
         </Area>
         <Area $area="top">{seatBlock('top')}</Area>
         <Area $area="left">{seatBlock('left')}</Area>
-        <Center $area="center" data-center>
+        <Center $area="center" data-center data-tour="center">
           {center()}
         </Center>
         <Area $area="right">{seatBlock('right')}</Area>
@@ -1039,7 +1048,7 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
             />
           )}
         </Area>
-        <Area $area="actions" $align="end" $justify="end">
+        <Area $area="actions" $align="end" $justify="end" data-tour="actions">
           <Actions>
             {!me && <Note>{t.kibitzing}</Note>}
             {swapNotice && <Note role="status">{t.swappedToDeclare}</Note>}
@@ -1055,6 +1064,7 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
                   $tone="plain"
                   disabled={!canUndo}
                   title={challenge ? t.challengeNoUndo : undefined}
+                  data-tour="undo"
                   onClick={() => send({ type: 'undoRequest' })}
                 >
                   {t.undo}
@@ -1064,6 +1074,7 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
                   $tone="plain"
                   disabled={!canClaim}
                   aria-expanded={claiming && canClaim}
+                  data-tour="claim"
                   onClick={() => setClaimingFor(claiming ? 0 : boardNo)}
                 >
                   {t.claim}
@@ -1088,6 +1099,8 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
           }}
         />
       )}
+      <TableAnnouncer board={board} me={me} who={spokenSeat} />
+      {!tableTourSeen && <TableTour onClose={() => setPrefs({ tableTourSeen: true })} />}
       <SidePanel
         tabs={['chat', 'people', 'messages', 'history']}
         recent={table.recent}
