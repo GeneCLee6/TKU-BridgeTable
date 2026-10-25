@@ -8,7 +8,7 @@ import {
 import { scoreChallenge } from '../shared/challenge-scoring.ts'
 import type { DealSet } from '../shared/deal-set.ts'
 import type { MessageCode } from '../shared/messages.ts'
-import type { Challenge, ChallengePlayer } from './challenges.ts'
+import type { Challenge, ChallengePlayer, ChallengeResult } from './challenges.ts'
 
 /**
  * How a challenge moves from state to state (ARCHITECTURE.md §5.5, e7-t05, e7-t06). Pure
@@ -33,7 +33,13 @@ export function newChallenge(c: {
   settings: ChallengeSettings
   deals: DealSet
   now: number
+  /**
+   * 「用這副牌挑戰」 (`e7-t22`): the creator's results from when they played these boards. They do
+   * not play again: they count as having played every board, with these results
+   */
+  known?: ChallengeResult[]
 }): Challenge {
+  const known = !!c.known
   return {
     id: c.id,
     creatorId: c.creatorId,
@@ -43,10 +49,17 @@ export function newChallenge(c: {
     settings: c.settings,
     deals: c.deals,
     players: [
-      { userId: c.creatorId, status: 'accepted', invitedAt: c.now, answeredAt: c.now, knownDeals: false },
+      {
+        userId: c.creatorId,
+        status: 'accepted',
+        invitedAt: c.now,
+        answeredAt: c.now,
+        ...(known && { startedAt: c.now, finishedAt: c.now }),
+        knownDeals: known,
+      },
       ...c.invitees.map((userId): ChallengePlayer => ({ userId, status: 'invited', invitedAt: c.now, knownDeals: false })),
     ],
-    results: [],
+    results: c.known ?? [],
   }
 }
 

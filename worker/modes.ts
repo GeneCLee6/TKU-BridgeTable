@@ -1,6 +1,8 @@
 import type { RandomInt } from '../shared/board.ts'
 import type { Hands, Seat } from '../shared/cards.ts'
+import { robotAuction } from '../shared/challenge-deals.ts'
 import { dealFrom, RANDOM_DEALS } from '../shared/deal-source.ts'
+import type { BoardState } from '../shared/game.ts'
 import type { BoardRecord, TableMode } from '../shared/protocol.ts'
 import { challengeTakesPart } from './challenge-flow.ts'
 import type { Challenge, ChallengeStore } from './challenges.ts'
@@ -19,6 +21,11 @@ export interface ModeContext {
 export interface DealtBoard {
   boardNo: number
   hands: Hands
+  /**
+   * The board to start from instead of a fresh one: a Just Declare challenge board (`e7-t11`)
+   * comes with the robots' auction already made, so its participant takes over at the play
+   */
+  board?: BoardState
 }
 
 /**
@@ -93,6 +100,8 @@ const challenge: TableModeHooks = {
     state.seq = seq!
     const player = c.players.find((p) => p.userId === state.userId)
     if (player && player.startedAt === undefined) ctx.challenges.updatePlayer(c.id, { ...player, startedAt: ctx.now })
+    // Just Declare: the robots bid as they did when the challenge was made, and the play starts
+    if (board.auction) return { boardNo: board.boardNo, hands, board: robotAuction(c.settings.robotKind, board.boardNo, hands, board.auction) }
     return { boardNo: board.boardNo, hands }
   },
   record: (table, record, ctx) => {

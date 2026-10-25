@@ -1,22 +1,25 @@
-import { ChevronFirst, ChevronLast, ChevronLeft, ChevronRight, ExternalLink } from 'lucide-react'
+import { ChevronFirst, ChevronLast, ChevronLeft, ChevronRight, ExternalLink, Swords } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import styled from 'styled-components'
 import { rankLabel, rankOf, SEATS, suitOf } from '../../shared/cards.ts'
 import { tricksOf } from '../../shared/game.ts'
 import { handviewerUrl, toLin } from '../../shared/lin.ts'
 import type { BoardRecord, PublicUser } from '../../shared/protocol.ts'
 import { AuctionBox } from '../components/AuctionBox.tsx'
+import { ChallengeDialog } from '../components/ChallengeDialog.tsx'
 import { DoubleDummyPanel } from '../components/DoubleDummyPanel.tsx'
 import { PlayedCardsSwitch, RecordDiagram } from '../components/RecordDiagram.tsx'
 import { ContractLabel, ContractResult, SuitSymbol } from '../components/Suit.tsx'
 import { Button, Card, ErrorText, Muted, PageMain, PageTitle } from '../components/ui.tsx'
 import { api } from '../lib/api.ts'
 import { CARD_SCALE, cardName } from '../lib/cards.ts'
+import { challengeRobotsOf } from '../lib/challenges.ts'
 import { formatDateTime, signed } from '../lib/format.ts'
 import { useMediaQuery } from '../lib/useMediaQuery.ts'
 import { canAnalyse } from '../lib/useDoubleDummy.ts'
 import { useTrickReplay } from '../lib/useTrickReplay.ts'
+import { useAuth } from '../state/AuthContext.tsx'
 import { usePreferences } from '../state/PreferencesContext.tsx'
 import { mobileQuery } from '../styles/tokens.ts'
 import { playerName, seatLetter } from '../strings.ts'
@@ -116,6 +119,12 @@ export function BoardRecordView({ record, embedded = false }: { record: BoardRec
   const replay = useTrickReplay(total)
   const { step } = replay
   const [copied, setCopied] = useState(false)
+  const { user } = useAuth()
+  const navigate = useNavigate()
+  const [challenging, setChallenging] = useState(false)
+  const [openedAt] = useState(() => Date.now())
+  // 「用這副牌挑戰」 (`e7-t22`): only a board the viewer played with three robots
+  const robots = !embedded && user ? challengeRobotsOf(record, user.id, openedAt) : null
 
   const allTricks = tricksOf(board)
   const contract = board.contract
@@ -212,6 +221,12 @@ export function BoardRecordView({ record, embedded = false }: { record: BoardRec
             <Button type="button" $small onClick={copyLin}>
               {copied ? t.copiedLin : t.copyLin}
             </Button>
+            {robots && (
+              <Button type="button" $small onClick={() => setChallenging(true)}>
+                <Swords size={16} aria-hidden />
+                {t.challengeWithBoard}
+              </Button>
+            )}
           </Links>
         </Card>
       </Columns>
@@ -271,6 +286,13 @@ export function BoardRecordView({ record, embedded = false }: { record: BoardRec
         <p>
           <Link to="/history">{t.backToHistory}</Link>
         </p>
+      )}
+      {challenging && robots && (
+        <ChallengeDialog
+          fromBoards={{ ids: [record.id], robotKind: robots }}
+          onClose={() => setChallenging(false)}
+          onCreated={(c) => navigate(`/challenges/${c.id}`)}
+        />
       )}
     </Frame>
   )

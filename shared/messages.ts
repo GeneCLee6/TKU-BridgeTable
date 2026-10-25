@@ -631,6 +631,38 @@ export const MESSAGES = {
     ja: 'チャレンジでは取り消しはできません',
     ko: '도전에서는 되돌리기를 할 수 없습니다',
   },
+  challengeRobotsOnly: {
+    zh: '只能用你和三個機器人打的牌發起挑戰',
+    'zh-Hans': '只能用你和三个机器人打的牌发起挑战',
+    en: 'Only boards you played with three robots can be used for a challenge',
+    vi: 'Chỉ dùng được những ván bạn chơi cùng ba robot để thách đấu',
+    ja: 'チャレンジに使えるのは、あなたと 3 台のロボットでプレーしたボードだけです',
+    ko: '나와 로봇 세 명이 플레이한 보드만 도전에 쓸 수 있습니다',
+  },
+  challengeRobotKinds: {
+    zh: '這幾副的機器人制度不一樣，不能放在同一個挑戰',
+    'zh-Hans': '这几副的机器人制度不一样，不能放在同一个挑战',
+    en: 'These boards were played with robots of different systems and cannot share a challenge',
+    vi: 'Các ván này chơi với robot khác hệ thống, không thể chung một thử thách',
+    ja: 'これらのボードはロボットのシステムが異なるため、同じチャレンジにできません',
+    ko: '이 보드들은 로봇의 시스템이 달라 한 도전에 넣을 수 없습니다',
+  },
+  challengeNotOver: {
+    zh: '挑戰結束後才能再戰',
+    'zh-Hans': '挑战结束后才能再战',
+    en: 'A rematch can only follow a challenge that has ended',
+    vi: 'Chỉ có thể đấu lại sau khi thử thách kết thúc',
+    ja: '再戦はチャレンジが終わってからです',
+    ko: '도전이 끝난 뒤에 재대결할 수 있습니다',
+  },
+  rematchNobody: {
+    zh: '沒有可以再戰的對手',
+    'zh-Hans': '没有可以再战的对手',
+    en: 'There is nobody to rematch',
+    vi: 'Không có ai để đấu lại',
+    ja: '再戦できる相手がいません',
+    ko: '재대결할 상대가 없습니다',
+  },
 
   // HTTP
   boardGone: {
