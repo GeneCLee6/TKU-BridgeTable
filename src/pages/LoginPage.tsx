@@ -1,90 +1,151 @@
-import { useState, type FormEvent } from 'react'
+import { useId, useState, type FormEvent, type ReactNode } from 'react'
 import styled from 'styled-components'
 import { LIMITS } from '../../shared/protocol.ts'
 import { LogoMark } from '../components/Logo.tsx'
 import { PasswordInput } from '../components/PasswordInput.tsx'
-import { Button, Card, ErrorText, Muted } from '../components/ui.tsx'
-import { inputStyles } from '../styles/controls.ts'
-import type { ControlSize } from '../styles/tokens.ts'
+import { Button, Card, ErrorText, Field, FieldError, FieldHint, FieldLabel, Input, Muted } from '../components/ui.tsx'
 import { useAuth } from '../state/AuthContext.tsx'
 import { api, ApiError } from '../lib/api.ts'
 import { usePreferences, useT } from '../state/PreferencesContext.tsx'
+import { mobile } from '../styles/tokens.ts'
 
 const Wrap = styled.main`
   display: grid;
-  place-items: center;
+  align-content: center;
+  justify-items: center;
+  gap: ${({ theme }) => theme.space(4)};
   min-height: calc(100vh - ${({ theme }) => theme.layout.headerHeight});
-  padding: 24px 16px;
+  padding: ${({ theme }) => theme.space(8)} 16px;
 `
 
+/** DESIGN.md §7.8: 420 wide, 32 inside, a 3px lantern-gold rule along the top */
 const Panel = styled(Card)`
-  width: min(100%, 380px);
+  --card-pad: ${({ theme }) => theme.space(8)};
+  width: min(100%, 420px);
   display: grid;
-  gap: 16px;
+  gap: ${({ theme }) => theme.space(5)};
+  border-top: 3px solid ${({ theme }) => theme.colors.accent};
+
+  ${mobile} {
+    --card-pad: ${({ theme }) => theme.space(5)};
+  }
 `
 
 const Brand = styled.div`
-  display: grid;
-  justify-items: center;
-  gap: 4px;
-  color: ${({ theme }) => theme.colors.primary};
-  text-align: center;
+  display: flex;
+  align-items: center;
+  gap: ${({ theme }) => theme.space(3)};
 
-  & > h1 { margin: 0; font-size: 22px; color: ${({ theme }) => theme.colors.primaryStrong}; }
+  & strong {
+    display: block;
+    color: ${({ theme }) => theme.colors.text};
+    font-size: 15px;
+    line-height: 20px;
+  }
+  & small {
+    display: block;
+    color: ${({ theme }) => theme.colors.textMuted};
+    font-size: ${({ theme }) => theme.type.caption.size};
+    line-height: ${({ theme }) => theme.type.caption.line};
+    font-weight: 400;
+  }
+`
+
+const Heading = styled.div`
+  display: grid;
+  gap: ${({ theme }) => theme.space(1)};
+
+  & > h1 {
+    margin: 0;
+    color: ${({ theme }) => theme.colors.text};
+    font-size: ${({ theme }) => theme.type.title.size};
+    line-height: ${({ theme }) => theme.type.title.line};
+    font-weight: ${({ theme }) => theme.type.title.weight};
+  }
 `
 
 const Form = styled.form`
   display: grid;
-  gap: 12px;
+  gap: ${({ theme }) => theme.space(4)};
 `
 
-const Field = styled.label<{ $size?: ControlSize }>`
-  display: grid;
-  gap: 4px;
-  font-size: 14px;
-  font-weight: 600;
+/** The password label with 忘記密碼？ on its right */
+const LabelRow = styled.div`
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: ${({ theme }) => theme.space(2)};
+`
 
-  /* The same look as PasswordInput, so the username and password fields match */
-  & > input {
-    ${inputStyles}
+/** A button that reads as a link: it switches the form, it doesn't leave the page */
+const LinkButton = styled.button`
+  padding: 0;
+  border: 0;
+  background: none;
+  color: ${({ theme }) => theme.colors.primary};
+  font: inherit;
+  font-size: ${({ theme }) => theme.type.small.size};
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+
+  &:hover {
+    color: ${({ theme }) => theme.colors.primaryHover};
   }
-  & > small {
-    color: ${({ theme }) => theme.colors.textMuted};
-    font-weight: 400;
+  &:focus-visible {
+    outline: 2px solid ${({ theme }) => theme.colors.focus};
+    outline-offset: 2px;
+    border-radius: 2px;
   }
 `
 
 const Switch = styled.p`
   margin: 0;
+  padding-top: ${({ theme }) => theme.space(4)};
+  border-top: 1px solid ${({ theme }) => theme.colors.border};
+  color: ${({ theme }) => theme.colors.textMuted};
   text-align: center;
   font-size: 14px;
 `
 
 const Done = styled.p`
   margin: 0;
-  padding: 12px;
+  padding: 10px 12px;
+  border-left: 4px solid ${({ theme }) => theme.colors.success};
   border-radius: ${({ theme }) => theme.radius.sm};
-  background: ${({ theme }) => theme.colors.primarySoft};
+  background: ${({ theme }) => theme.colors.successSoft};
+  color: ${({ theme }) => theme.colors.text};
+  font-size: 14px;
   line-height: 1.6;
 `
 
 const Footnote = styled(Muted)`
-  margin: 0;
   text-align: center;
   font-size: 13px;
 `
 
 type Mode = 'login' | 'register' | 'reset'
+type FieldName = 'username' | 'password' | 'repeat' | 'inviteCode'
+
+/** Server error codes that belong to one field; the rest show above the form */
+const FIELD_OF: Record<string, FieldName> = {
+  badUsername: 'username',
+  usernameTaken: 'username',
+  shortPassword: 'password',
+  badInvite: 'inviteCode',
+}
 
 /**
- * Sign in, register and 忘記密碼. Registering sends an application that an admin approves on the
- * admin page (only the club's first account signs in at once); the account then works on both
- * TKU BridgeTable and TKU BridgeBook.
+ * Sign in, 申請加入 and 忘記密碼 (DESIGN.md §7.8, docs/design/01-login.png). Applying sends an
+ * application that an admin approves on the admin page (only the club's first account signs in at
+ * once); the account then works on both TKU BridgeTable and TKU BridgeBook.
  */
 export function LoginPage() {
   const t = useT()
   const { message } = usePreferences()
   const { login, register } = useAuth()
+  const id = useId()
   const [mode, setMode] = useState<Mode>('login')
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
@@ -92,15 +153,18 @@ export function LoginPage() {
   const [inviteCode, setInviteCode] = useState('')
   const [note, setNote] = useState('')
   const [error, setError] = useState('')
+  const [fieldError, setFieldError] = useState<{ field: FieldName; text: string } | null>(null)
   const [done, setDone] = useState('')
   const [busy, setBusy] = useState(false)
   const registering = mode === 'register'
   const resetting = mode === 'reset'
   const title = registering ? t.register : resetting ? t.resetTitle : t.login
+  const intro = registering ? t.registerIntro : resetting ? t.resetIntro : t.loginIntro
 
   const switchTo = (next: Mode) => {
     setMode(next)
     setError('')
+    setFieldError(null)
     setDone('')
     setPassword('')
     setRepeat('')
@@ -109,8 +173,9 @@ export function LoginPage() {
   const submit = async (event: FormEvent) => {
     event.preventDefault()
     setError('')
+    setFieldError(null)
     if (resetting && password !== repeat) {
-      setError(t.passwordMismatch)
+      setFieldError({ field: 'repeat', text: t.passwordMismatch })
       return
     }
     setBusy(true)
@@ -124,35 +189,60 @@ export function LoginPage() {
         setDone(t.resetDone)
       } else await login(username, password)
     } catch (e) {
-      setError(e instanceof ApiError ? message(e.code, e.params, e.message) : t.genericError)
+      const text = e instanceof ApiError ? message(e.code, e.params, e.message) : t.genericError
+      const field = e instanceof ApiError && mode !== 'login' ? FIELD_OF[e.code] : undefined
+      if (field) setFieldError({ field, text })
+      else setError(text)
     } finally {
       setBusy(false)
     }
   }
 
+  /** The ids and ARIA that tie one input to its hint or error */
+  const describe = (field: FieldName, hint: boolean) => {
+    const invalid = fieldError?.field === field
+    const describedBy = invalid ? `${id}-${field}-error` : hint ? `${id}-${field}-hint` : undefined
+    return { id: `${id}-${field}`, 'aria-invalid': invalid || undefined, 'aria-describedby': describedBy }
+  }
+  const below = (field: FieldName, hint?: ReactNode) =>
+    fieldError?.field === field ? (
+      <FieldError id={`${id}-${field}-error`} role="alert">
+        {fieldError.text}
+      </FieldError>
+    ) : hint ? (
+      <FieldHint id={`${id}-${field}-hint`}>{hint}</FieldHint>
+    ) : null
+
   return (
     <Wrap>
       <Panel>
         <Brand>
-          <LogoMark size={56} />
-          <h1>
-            {t.appNameEn} · {t.appNameZh}
-          </h1>
-          <Muted>{resetting ? t.resetIntro : t.loginIntro}</Muted>
+          <LogoMark size={40} />
+          <span>
+            <strong>{t.appNameZh}</strong>
+            <small>{t.loginBrandSub}</small>
+          </span>
         </Brand>
+        <Heading>
+          <h1>{title}</h1>
+          <Muted>{intro}</Muted>
+        </Heading>
         {done && registering ? (
           <>
             <Done role="status">{done}</Done>
-            <Button type="button" $variant="primary" onClick={() => switchTo('login')}>
+            <Button type="button" $variant="primary" $size="lg" onClick={() => switchTo('login')}>
               {t.backToLogin}
             </Button>
           </>
         ) : (
           <Form onSubmit={submit} aria-label={title}>
+            {error && <ErrorText role="alert">{error}</ErrorText>}
             {done && <Done role="status">{done}</Done>}
             <Field>
-              {t.username}
-              <input
+              <FieldLabel htmlFor={`${id}-username`}>{t.username}</FieldLabel>
+              <Input
+                {...describe('username', registering)}
+                $size="lg"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 autoComplete="username"
@@ -160,76 +250,91 @@ export function LoginPage() {
                 minLength={LIMITS.usernameMin}
                 maxLength={LIMITS.usernameMax}
               />
-              {registering && <small>{t.usernameHint(LIMITS.usernameMin, LIMITS.usernameMax)}</small>}
+              {below('username', registering && t.usernameHint(LIMITS.usernameMin, LIMITS.usernameMax))}
             </Field>
             <Field>
-              {resetting ? t.newPassword : t.password}
+              <LabelRow>
+                <FieldLabel htmlFor={`${id}-password`}>{resetting ? t.newPassword : t.password}</FieldLabel>
+                {mode === 'login' && (
+                  <LinkButton type="button" onClick={() => switchTo('reset')}>
+                    {t.forgotPassword}
+                  </LinkButton>
+                )}
+              </LabelRow>
               <PasswordInput
+                {...describe('password', mode !== 'login')}
+                $size="lg"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
                 required
                 minLength={mode === 'login' ? undefined : LIMITS.passwordMin}
               />
-              {mode !== 'login' && <small>{t.passwordHint(LIMITS.passwordMin)}</small>}
+              {below('password', mode !== 'login' && t.passwordHint(LIMITS.passwordMin))}
             </Field>
             {resetting && (
               <Field>
-                {t.confirmPassword}
+                <FieldLabel htmlFor={`${id}-repeat`}>{t.confirmPassword}</FieldLabel>
                 <PasswordInput
+                  {...describe('repeat', false)}
+                  $size="lg"
                   value={repeat}
                   onChange={(e) => setRepeat(e.target.value)}
                   autoComplete="new-password"
                   required
                 />
+                {below('repeat')}
               </Field>
             )}
             {mode !== 'login' && (
               <Field>
-                {t.inviteCode}
-                <input value={inviteCode} onChange={(e) => setInviteCode(e.target.value)} autoComplete="off" />
-                <small>{t.inviteHint}</small>
+                <FieldLabel htmlFor={`${id}-inviteCode`}>{t.inviteCode}</FieldLabel>
+                <Input
+                  {...describe('inviteCode', true)}
+                  $size="lg"
+                  value={inviteCode}
+                  onChange={(e) => setInviteCode(e.target.value)}
+                  autoComplete="off"
+                />
+                {below('inviteCode', t.inviteHint)}
               </Field>
             )}
             {registering && (
               <Field>
-                {t.applicationNote}
-                <input
+                <FieldLabel htmlFor={`${id}-note`}>{t.applicationNote}</FieldLabel>
+                <Input
+                  id={`${id}-note`}
+                  aria-describedby={`${id}-note-hint`}
+                  $size="lg"
                   value={note}
                   onChange={(e) => setNote(e.target.value)}
                   maxLength={LIMITS.applicationNoteMax}
                   autoComplete="off"
                 />
-                <small>{t.applicationNoteHint}</small>
+                <FieldHint id={`${id}-note-hint`}>{t.applicationNoteHint}</FieldHint>
               </Field>
             )}
-            {error && <ErrorText role="alert">{error}</ErrorText>}
-            <Button type="submit" $variant="primary" disabled={busy}>
+            <Button type="submit" $variant="primary" $size="lg" $busy={busy}>
               {title}
             </Button>
-            {mode === 'login' && (
-              <Button type="button" $variant="ghost" $small onClick={() => switchTo('reset')}>
-                {t.forgotPassword}
-              </Button>
-            )}
           </Form>
         )}
         <Switch>
           {resetting ? (
-            <Button type="button" $variant="ghost" $small onClick={() => switchTo('login')}>
+            <LinkButton type="button" onClick={() => switchTo('login')}>
               {t.backToLogin}
-            </Button>
+            </LinkButton>
           ) : (
             <>
               {registering ? t.haveAccount : t.noAccount}{' '}
-              <Button type="button" $variant="ghost" $small onClick={() => switchTo(registering ? 'login' : 'register')}>
+              <LinkButton type="button" onClick={() => switchTo(registering ? 'login' : 'register')}>
                 {registering ? t.login : t.register}
-              </Button>
+              </LinkButton>
             </>
           )}
         </Switch>
-        <Footnote>{t.sharedAccountHint}</Footnote>
       </Panel>
+      <Footnote>{t.sharedAccountHint}</Footnote>
     </Wrap>
   )
 }
