@@ -1,4 +1,5 @@
 import type { ChallengeSettings, ChallengeView } from '../../shared/challenge.ts'
+import type { WeeklyChallengeSchedule, WeeklyChallengeView } from '../../shared/weekly-challenge.ts'
 import { historyQueryString, type HistoryQuery } from '../../shared/history-query.ts'
 import type { MessageParams } from '../../shared/messages.ts'
 import type { MemberProfile, Profile } from '../../shared/profile.ts'
@@ -128,5 +129,9 @@ export const api = {
     settings: () => request<{ settings: ClubSettings }>('/api/admin/settings'),
     saveSettings: (settings: Partial<ClubSettings>) => post<{ settings: ClubSettings }>('/api/admin/settings', settings),
     closeTable: (id: string) => request<{ ok: true }>(`/api/admin/tables/${id}`, { method: 'DELETE' }),
+    /** The weekly club challenge's schedule (`e7-t23`) */
+    weeklyChallenge: () => request<{ weekly: WeeklyChallengeView }>('/api/admin/weekly-challenge'),
+    saveWeeklyChallenge: (schedule: Partial<WeeklyChallengeSchedule>) =>
+      post<{ weekly: WeeklyChallengeView }>('/api/admin/weekly-challenge', schedule),
   },
 }

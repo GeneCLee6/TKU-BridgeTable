@@ -1,16 +1,18 @@
-import { Plus, Swords } from 'lucide-react'
+import { CalendarClock, Plus, Swords } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Link, Navigate } from 'react-router-dom'
 import styled, { css } from 'styled-components'
 import type { ChallengeView } from '../../shared/challenge.ts'
 import { ChallengeDialog } from '../components/ChallengeDialog.tsx'
 import { Progress, StatusTag } from '../components/ChallengeParts.tsx'
+import { WeeklyChallengeDialog } from '../components/WeeklyChallengeDialog.tsx'
 import { Button, Card, ErrorText, Muted, PageMain, PageTitle } from '../components/ui.tsx'
 import { ApiError, api } from '../lib/api.ts'
 import {
   answerable,
   cancellable,
   CHALLENGE_TABS,
+  challengeTitle,
   challengeTab,
   participantName,
   playable,
@@ -128,15 +130,15 @@ function ChallengeCard({
 }) {
   const { t, lang } = usePreferences()
   const me = playerOf(c, userId)
-  const creator = participantName(t, playerOf(c, c.creatorId))
+  const title = challengeTitle(t, c)
   const others = c.players.filter((p) => p.userId !== userId)
   const open = c.status === 'pending' || c.status === 'active'
   return (
-    <Card as="li" aria-label={t.challengeBy(creator)}>
+    <Card as="li" aria-label={title}>
       <Head>
         <div>
           <StatusTag status={c.status} />
-          <strong>{t.challengeBy(creator)}</strong>
+          <strong>{title}</strong>
           <Muted as="span">{settingsLine(t, c)}</Muted>
         </div>
         <Muted as="span" title={t.challengeDeadline(formatDateTime(c.deadline, lang))}>
@@ -206,6 +208,7 @@ export function ChallengesPage() {
   const [error, setError] = useState('')
   const [chosen, setChosen] = useState<ChallengeTab | null>(null)
   const [creating, setCreating] = useState(false)
+  const [scheduling, setScheduling] = useState(false)
   const [now, setNow] = useState(() => Date.now())
   // After 開始打, follow the server to the challenge table it puts us at
   const [following, setFollowing] = useState<{ from: string | null } | null>(null)
@@ -253,11 +256,20 @@ export function ChallengesPage() {
     <PageMain>
       <Toolbar>
         <PageTitle>{t.navChallenges}</PageTitle>
-        <Button type="button" $variant="primary" onClick={() => setCreating(true)}>
-          <Plus size={18} aria-hidden />
-          {t.newChallenge}
-        </Button>
+        <Actions>
+          {user.admin && (
+            <Button type="button" onClick={() => setScheduling(true)}>
+              <CalendarClock size={18} aria-hidden />
+              {t.weeklyChallengeTitle}
+            </Button>
+          )}
+          <Button type="button" $variant="primary" onClick={() => setCreating(true)}>
+            <Plus size={18} aria-hidden />
+            {t.newChallenge}
+          </Button>
+        </Actions>
       </Toolbar>
+      {scheduling && <WeeklyChallengeDialog onClose={() => setScheduling(false)} />}
       {creating && (
         <ChallengeDialog
           onClose={() => setCreating(false)}

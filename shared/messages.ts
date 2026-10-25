@@ -728,6 +728,14 @@ export const MESSAGES = {
     ja: '再戦できる相手がいません',
     ko: '재대결할 상대가 없습니다',
   },
+  weeklyNoRematch: {
+    zh: '每週社團挑戰不能再戰，下週會自動開新的一場',
+    'zh-Hans': '每周社团挑战不能再战，下周会自动开新的一场',
+    en: 'The weekly club challenge has no rematch: next week brings a new one',
+    vi: 'Thử thách hằng tuần không có đấu lại: tuần sau sẽ có thử thách mới',
+    ja: '週例クラブチャレンジは再戦できません。来週新しいチャレンジが始まります',
+    ko: '주간 클럽 도전은 재대결할 수 없습니다. 다음 주에 새 도전이 열립니다',
+  },
 
   // HTTP
   boardGone: {
