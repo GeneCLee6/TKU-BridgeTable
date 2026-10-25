@@ -14,6 +14,7 @@ import type {
   FavoriteTag,
   HistoryPage,
   Me,
+  MemberChange,
   Permission,
   RegisterResult,
 } from '../../shared/protocol.ts'
@@ -150,6 +151,8 @@ export const api = {
       post<{ ok: true }>(`/api/admin/users/${id}/permissions`, { permissions }),
     createUser: (username: string, password: string) => post<{ user: Me }>('/api/admin/users', { username, password }),
     resetPassword: (id: string, password: string) => post<{ ok: true }>(`/api/admin/users/${id}/password`, { password }),
+    /** Every role and permission change from the members section, in one request */
+    updateMembers: (changes: MemberChange[]) => post<{ ok: true }>('/api/admin/members', { changes }),
     setAdmin: (id: string, admin: boolean) => post<{ ok: true }>(`/api/admin/users/${id}/admin`, { admin }),
     deleteUser: (id: string) => request<{ ok: true }>(`/api/admin/users/${id}`, { method: 'DELETE' }),
     settings: () => request<{ settings: ClubSettings }>('/api/admin/settings'),

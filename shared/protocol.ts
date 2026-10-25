@@ -609,6 +609,16 @@ export interface AdminUser {
   passwordResetAt: number | null
 }
 
+/**
+ * One member's changes in the admin page's members section, saved together with the others in one
+ * request (POST /api/admin/members). A field left out stays as it is.
+ */
+export interface MemberChange {
+  id: string
+  admin?: boolean
+  permissions?: Permission[]
+}
+
 /** Club settings an admin can change; they override the Worker's environment defaults */
 export interface ClubSettings {
   maxUsers: number

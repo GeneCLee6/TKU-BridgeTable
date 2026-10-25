@@ -443,6 +443,11 @@ export class Club extends DurableObject<Env> implements Connections {
       })
       return json({ settings })
     }
+    // Every role and permission change from the admin page's members section, in one request
+    if (method === 'POST' && path === '/members') {
+      await this.service.adminUpdateMembers(user.id, (await body()).changes)
+      return json({ ok: true })
+    }
     const member = path.match(/^\/users\/(\w+)(\/password|\/admin|\/permissions)?$/)
     if (member) {
       const [, id, action] = member
