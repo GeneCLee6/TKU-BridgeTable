@@ -232,6 +232,9 @@ export class Club extends DurableObject<Env> implements Connections {
       if (!found) throw new ClubError('boardGone', {}, 404)
       return json({ record: found })
     }
+    // A board's traveller (e4-t32): null when it has none the member may see
+    const traveller = url.pathname.match(/^\/api\/history\/([\w-]+)\/traveller$/)
+    if (request.method === 'GET' && traveller) return json({ traveller: await this.service.traveller(traveller[1], user.id) })
     if (route === 'GET /api/challenges') return json({ challenges: this.service.challengeList(user.id) })
     // The challenge pages create, answer and cancel over HTTP to hear back at once (e7-t16, e7-t17)
     if (route === 'POST /api/challenges') {
