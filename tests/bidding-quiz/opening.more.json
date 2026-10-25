@@ -41,6 +41,8 @@
     { "id": "tku-open-137", "system": "tku", "dealer": "N", "vul": "EW", "hand": "AK.AKQJ5.KQ4.Q73", "auction": [], "answer": "2C", "source": "淡江橋譜：開叫2♣、弱二與阻塞叫（自然制講義）（開叫2♣）", "reviewer": null, "status": "pending", "note": "24 點：22 點以上開 2♣（有五張高花也一樣）" },
     { "id": "tku-open-138", "system": "tku", "dealer": "E", "vul": "NS", "hand": "KQ84.5.AQJ863.K4", "auction": [], "answer": "1D", "source": "淡江橋譜：淡江自然制總覽（自然制開叫總表）", "reviewer": null, "status": "pending", "note": "15 點 4-1-6-2：不平均，開六張的 1♦" },
     { "id": "tku-open-139", "system": "tku", "dealer": "S", "vul": "Both", "hand": "K5.AQ73.QJ4.K952", "auction": [], "answer": "1N", "source": "淡江橋譜：1NT的答叫（開叫1NT）", "reviewer": null, "status": "pending", "note": "15 點 2-4-3-4 平均牌型：1NT 15–17" },
-    { "id": "tku-open-140", "system": "tku", "dealer": "W", "vul": "None", "hand": "A73.KJ5.Q84.KJ52", "auction": [], "answer": "1C", "source": "淡江橋譜：淡江自然制總覽（自然制開叫總表）", "reviewer": null, "status": "pending", "note": "14 點 3-3-3-4：不到 1NT 的 15 點，開 1♣" }
+    { "id": "tku-open-140", "system": "tku", "dealer": "W", "vul": "None", "hand": "A73.KJ5.Q84.KJ52", "auction": [], "answer": "1C", "source": "淡江橋譜：淡江自然制總覽（自然制開叫總表）", "reviewer": null, "status": "pending", "note": "14 點 3-3-3-4：不到 1NT 的 15 點，開 1♣" },
+    { "id": "tku-open-141", "system": "tku", "dealer": "W", "vul": "None", "hand": "AKJ93.KQ4.AJ5.Q2", "auction": [], "answer": "1S", "source": "5542 自然制（ROBOT.md §2）", "reviewer": null, "status": "pending", "note": "20 點 5-3-3-2、五張♠：五張高花不開 2NT，開 1♠（社長 2026-10-25；ROBOT.md §2 的選項 NOTRUMP_WITH_FIVE_MAJOR）" },
+    { "id": "tku-open-142", "system": "tku", "dealer": "N", "vul": "NS", "hand": "K4.AQ873.KJ5.Q62", "auction": [], "answer": "1H", "source": "淡江橋譜：1NT的答叫（開叫1NT）", "reviewer": null, "status": "pending", "note": "15 點 5-3-3-2、五張♥：五張高花不開 1NT，開 1♥（社長 2026-10-25）" }
   ]
 }

@@ -78,14 +78,22 @@ describe('the bidding hint card (e10-t06)', () => {
     expect(topics.next).toEqual([])
   })
 
-  it('opens the book in a new tab, and says the book is the club’s system at a 2/1 table', async () => {
-    const board = { auction: [call('N', '1N')], dealer: 'N', vul: 'None', phase: 'auction' } as unknown as BoardView
-    const { unmount } = wrap(<BookHints board={board} seat="S" robotKind="tku" />)
+  it('renders the server’s pages, opening the book in a new tab, and says the book is the club’s system at a 2/1 table', async () => {
+    const auction = [call('N', '1N')]
+    const board = { auction, dealer: 'N', vul: 'None', phase: 'auction', bookTopics: bookTopics(ROBOT_SYSTEMS.tku, auction, 'N', 'None', 'NS') } as unknown as BoardView
+    const { unmount } = wrap(<BookHints board={board} robotKind="tku" />)
     const link = await screen.findByRole('link', { name: /1NT 開叫與答叫/ })
     expect(link).toHaveAttribute('href', 'https://tku-bridge-book.vercel.app/c/system-notrump')
     expect(link).toHaveAttribute('target', '_blank')
     unmount()
-    wrap(<BookHints board={board} seat="S" robotKind="gib" />)
+    wrap(<BookHints board={board} robotKind="gib" />)
     expect(screen.getByText(/2\/1 制度/)).toBeInTheDocument()
+  })
+
+  it('lists nothing without the server’s pages: the browser never runs the engine', async () => {
+    const board = { auction: [call('N', '1N')], dealer: 'N', vul: 'None', phase: 'auction' } as unknown as BoardView
+    wrap(<BookHints board={board} robotKind="tku" />)
+    expect(await screen.findByText(/叫牌開始後/)).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /1NT 開叫與答叫/ })).toBeNull()
   })
 })

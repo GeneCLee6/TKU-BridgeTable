@@ -1,8 +1,10 @@
-import { legalCalls, type Call } from '../shared/auction.ts'
-import { nextSeat, partnerOf, SEATS, type Seat } from '../shared/cards.ts'
+import { legalCalls, type AuctionCall, type Call } from '../shared/auction.ts'
+import type { Vulnerability } from '../shared/board.ts'
+import { bookTopics } from '../shared/book-topics.ts'
+import { nextSeat, partnerOf, SEATS, sideOf, type Seat } from '../shared/cards.ts'
 import { ROBOT_SYSTEMS } from '../shared/robot/robots.ts'
 import { explain } from '../shared/robot/system/engine.ts'
-import type { Spec } from '../shared/robot/system/spec.ts'
+import type { Spec, System } from '../shared/robot/system/spec.ts'
 import {
   canUndoFor,
   claimApprovers,
@@ -327,7 +329,28 @@ export function boardView(
     const hints = callMeaningsFor(board, viewer, extras.robots ?? {})
     if (hints) view.callMeanings = hints
   }
+  // The hint card (`e10-t06`): the club's book, so not when the viewer's partner is TKB playing 2/1
+  if (!viewer || extras.robots?.[partnerOf(viewer)] !== 'gib')
+    view.bookTopics = bookTopics(ROBOT_SYSTEMS.tku, board.auction, board.dealer, board.vul, sideOf(viewer ?? 'S'), board.phase !== 'auction', explained)
   return view
+}
+
+/**
+ * The engine's meanings of the next call after an auction (`explain`), remembered for the last few
+ * auctions: every view of a table on each change asks for the same ones, and the hint card asks for
+ * every call made so far. From the auction alone, so sharing them between viewers shows nothing
+ */
+const EXPLAINED = new Map<string, Map<Call, Spec>>()
+
+function explained(system: System, auction: readonly AuctionCall[], dealer: Seat, vul: Vulnerability): Map<Call, Spec> {
+  const key = `${system.id}|${dealer}|${vul}|${auction.map((c) => c.call).join(' ')}`
+  let meanings = EXPLAINED.get(key)
+  if (!meanings) {
+    meanings = explain(system, auction, dealer, vul)
+    EXPLAINED.set(key, meanings)
+    if (EXPLAINED.size > 256) EXPLAINED.delete(EXPLAINED.keys().next().value!)
+  }
+  return meanings
 }
 
 /**
@@ -341,7 +364,7 @@ export function callMeaningsFor(board: BoardState, viewer: Seat, robots: Partial
   if (!robot) return undefined
   const kind = robots[robot]!
   const meanings: Partial<Record<Call, Spec>> = {}
-  for (const [call, spec] of explain(ROBOT_SYSTEMS[kind], board.auction, board.dealer, board.vul)) meanings[call] = spec
+  for (const [call, spec] of explained(ROBOT_SYSTEMS[kind], board.auction, board.dealer, board.vul)) meanings[call] = spec
   return { robot, kind, meanings }
 }
 
