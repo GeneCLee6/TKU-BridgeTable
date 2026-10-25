@@ -79,17 +79,47 @@ export function coverLastHonour(view: View, trick: PlayedCard[]): boolean {
 }
 
 /**
- * Second hand rises with the ace when the declarer leads low towards a bare honour in dummy (a
- * singleton king or queen): low would let it score, and the ace takes nothing else later
+ * Second hand, when low is not the answer:
+ * - the declarer leads low towards a bare honour in dummy (a singleton king or queen): rise with
+ *   the ace, low would let it score and the ace takes nothing else later
+ * - the declarer leads and dummy, playing next, has nothing above our cheapest card over the lead
+ *   (and cannot ruff): win cheaply rather than let the lead win, it costs nothing
+ * - dummy leads a ten or higher and we have a sure winner over it: take it with the cheapest
+ * Null for second hand low (the signal).
  */
-export function riseOverBareHonour(view: View, trick: PlayedCard[], following: Card[], led: Suit): Card | null {
+export function secondHand(view: View, trick: PlayedCard[], following: Card[], led: Suit, trump: Suit | null): Card | null {
   const state = view.state
   const dummy = dummyOf(state)!
-  if (trick.length !== 1 || trick[0].seat === dummy || value(trick[0].card) >= 10) return null
-  const theirs = suitCards(view.dummyCards(), led)
-  if (theirs.length !== 1 || value(theirs[0]) < 12) return null
-  const ace = following.find((c) => rankOf(c) === 'A')
-  return ace && view.unseenAbove(theirs[0]).length === 0 ? ace : null
+  if (trick.length !== 1) return null
+  const lead = trick[0]
+  const dummyLed = lead.seat === dummy
+  const dummyCards = view.dummyCards()
+  const dummySuit = suitCards(dummyCards, led)
+  const beaters = following.filter((c) => value(c) > value(lead.card)).sort(byRank)
+  if (!beaters.length) return null
+  if (!dummyLed) {
+    if (value(lead.card) < 10 && dummySuit.length === 1 && value(dummySuit[0]) >= 12 && view.unseenAbove(dummySuit[0]).length === 0) {
+      const ace = following.find((c) => rankOf(c) === 'A')
+      if (ace) return ace
+    }
+    const dummyRuffs = trump !== null && led !== trump && dummySuit.length === 0 && suitCards(dummyCards, trump).length > 0
+    if (!dummyRuffs && !dummySuit.some((c) => value(c) > value(beaters[0]))) return beaters[0]
+    return null
+  }
+  if (value(lead.card) < 10) return null
+  return beaters.find((c) => view.unseenAbove(c).length === 0) ?? null
+}
+
+/**
+ * Whether dummy, still to play after us, would overruff: it has no card of the suit led and a
+ * trump above the one we would ruff with (so ruffing just throws a trump away)
+ */
+export function dummyOverruffs(view: View, trick: PlayedCard[], led: Suit, ruff: Card, trump: Suit): boolean {
+  const dummy = dummyOf(view.state)!
+  if (trick.some((p) => p.seat === dummy) || trick[0].seat === dummy) return false
+  const dummyCards = view.dummyCards()
+  if (suitCards(dummyCards, led).length) return false
+  return suitCards(dummyCards, trump).some((c) => value(c) > value(ruff))
 }
 
 /**

@@ -1,0 +1,11 @@
+{
+  "category": "ruff",
+  "title": "王吃與否",
+  "questions": [
+    {"id": "play-ruff-001", "system": "both", "board": 3,
+     "hands": {"N": "AQ4.KQ43..KQJT98", "E": "3.2.AKQJT98765.7", "S": "KT876.A5.432.A32", "W": "J952.JT9876..654"},
+     "auction": ["1S", "P", "4S", "P", "P", "P"], "play": ["HJ", "HQ", "H2", "HA", "D2"],
+     "answer": "H6", "accepted": ["H7", "H8", "H9", "HT", "C4", "C5", "C6"], "source": "雙明手稽核（評測牌組第 88、123 副的型）", "reviewer": null, "status": "pending",
+     "note": "莊家領♦，自己缺門但夢家也缺門而且♠AQ4 一定超吃：王吃只是浪費王牌，墊牌"}
+  ]
+}

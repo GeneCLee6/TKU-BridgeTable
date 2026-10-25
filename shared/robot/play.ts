@@ -3,7 +3,7 @@ import { nextSeat, partnerOf, rankOf, rankValue, sameSide, SEATS, SUITS, suitOf,
 import { dummyOf, legalCards, remainingCards, tricksOf, type BoardState, type PlayedCard } from '../game.ts'
 import type { RobotKind } from '../protocol.ts'
 import { declarerLead, holdUp } from './declarer.ts'
-import { coverLastHonour, defenceLead, holdUpAgainstDummy, riseOverBareHonour, thirdHand } from './defence.ts'
+import { coverLastHonour, defenceLead, dummyOverruffs, holdUpAgainstDummy, secondHand, thirdHand } from './defence.ts'
 import { suitCards } from './hand.ts'
 import { byRank, honours, value, View } from './view.ts'
 
@@ -72,7 +72,7 @@ export function chooseCard(state: BoardState, seat: Seat, kind: RobotKind = 'tku
       // over a bare honour in dummy
       const honour = rankValue(rankOf(trick[0].card)) >= 11 && (!defending || coverLastHonour(view, trick))
       if (honour && beaters.length) return lowest(beaters)
-      return (defending && riseOverBareHonour(view, trick, following, led)) || signal(following)
+      return (defending && secondHand(view, trick, following, led, trump)) || signal(following)
     }
     if (defending && beaters.length) {
       const card = holdUpAgainstDummy(view, trick, following, led, trump)
@@ -87,7 +87,8 @@ export function chooseCard(state: BoardState, seat: Seat, kind: RobotKind = 'tku
   if (trumps.length && !partnerSafe) {
     const highestTrump = trick.filter((p) => suitOf(p.card) === trump).map((p) => rankValue(rankOf(p.card)))
     const over = trumps.filter((c) => rankValue(rankOf(c)) > Math.max(0, ...highestTrump))
-    if (over.length) return lowest(over)
+    // Not when dummy, still to play, is seen to overruff (defence.ts)
+    if (over.length && !(defending && dummyOverruffs(view, trick, led, lowest(over), trump!))) return lowest(over)
   }
   if (!defending) return discard(view, legal, trump)
   // GIB's discards carry no signal
@@ -305,7 +306,39 @@ function discard(view: View, legal: Card[], trump: Suit | null): Card {
   const pool = candidates.length ? candidates : legal.filter((c) => suitOf(c) !== trump)
   const from = pool.length ? pool : legal
   const length = (s: Suit) => from.filter((c) => suitOf(c) === s).length
-  return [...from].sort((a, b) => length(suitOf(b)) - length(suitOf(a)) || byRank(a, b))[0]
+  const cost = discardCosts(view, legal, trump)
+  return [...from].sort((a, b) => cost[suitOf(a)] - cost[suitOf(b)] || length(suitOf(b)) - length(suitOf(a)) || byRank(a, b))[0]
+}
+
+/**
+ * What a discard from each suit gives away (the lowest card of the suit goes): a master, an
+ * honour left without the guards it needs (a king needs one small card, a queen two…, as many as
+ * the cards above it we cannot see), or, for a defender, the length that keeps dummy's long suit
+ * from running (dummy holds a card above our second best). 0 when nothing.
+ */
+function discardCosts(view: View, legal: Card[], trump: Suit | null): Record<Suit, number> {
+  const costs = {} as Record<Suit, number>
+  const defending = !sameSide(view.seat, view.state.contract!.declarer)
+  const dummyCards = defending ? view.dummyCards() : []
+  for (const s of SUITS) {
+    const mine = suitCards(legal, s)
+    let cost = 0
+    if (mine.length) {
+      if (s === trump) cost += 2
+      const low = mine.at(-1)!
+      if (view.isMaster(low)) cost += 10
+      for (const c of mine) {
+        if (value(c) < 11 || view.isMaster(c)) continue
+        // An honour and the cards below it in hand; it needs as many as the unseen cards above it
+        const below = mine.filter((d) => value(d) < value(c)).length
+        if (below <= view.unseenAbove(c).length) cost += 4
+      }
+      const theirs = suitCards(dummyCards, s)
+      if (theirs.length >= mine.length && theirs.length >= 2 && mine[1] && theirs.some((c) => value(c) > value(mine[1]))) cost += 2
+    }
+    costs[s] = cost
+  }
+  return costs
 }
 
 function winningCard(trick: { seat: Seat; card: Card }[], trump: Suit | null) {
@@ -383,7 +416,8 @@ function gibDiscard(view: View, legal: Card[], trump: Suit | null): Card {
   const candidates = legal.filter((c) => suitOf(c) !== trump && !view.isMaster(c))
   if (!candidates.length) return discard(view, legal, trump)
   const length = (s: Suit) => legal.filter((c) => suitOf(c) === s).length
-  return [...candidates].sort((a, b) => length(suitOf(a)) - length(suitOf(b)) || byRank(a, b))[0]
+  const cost = discardCosts(view, legal, trump)
+  return [...candidates].sort((a, b) => cost[suitOf(a)] - cost[suitOf(b)] || length(suitOf(a)) - length(suitOf(b)) || byRank(a, b))[0]
 }
 
 /**
@@ -404,11 +438,14 @@ function signalDiscard(view: View, legal: Card[], trump: Suit | null, led: Suit)
     const odd = spare(want).filter((c) => value(c) % 2 === 1 && value(c) < 11)
     if (odd.length && legal.filter((c) => suitOf(c) === want).length >= 3) return odd.sort(byRank)[0]
   }
+  // Throw from the suit that costs least (never a master, no honour unguarded, no length dummy
+  // needs), then the weakest
+  const cost = discardCosts(view, legal, trump)
   const throwFrom = sideSuits
-    .filter((s) => s !== want)
-    .sort((a, b) => strength(a) - strength(b) || spare(b).length - spare(a).length)[0]
+    .filter((s) => s !== want && spare(s).length)
+    .sort((a, b) => cost[a] - cost[b] || strength(a) - strength(b) || spare(b).length - spare(a).length)[0]
   if (!throwFrom) return discard(view, legal, trump)
-  const pool = spare(throwFrom).length ? spare(throwFrom) : legal.filter((c) => suitOf(c) === throwFrom)
+  const pool = spare(throwFrom)
   // The two suits a high or low card points to: not the discard suit, not trumps (or, in
   // notrump, not the suit led)
   const pointsTo = SUITS.filter((s) => s !== throwFrom && s !== (trump ?? led))

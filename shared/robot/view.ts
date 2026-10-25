@@ -16,6 +16,8 @@ export class View {
   private readonly kind: RobotKind
   private readonly played: Set<Card>
   private readonly known: Set<Card>
+  /** The cards of the trick in progress: played, but still to be beaten */
+  private readonly onTable: Set<Card>
   private table: TableReading | null = null
 
   constructor(state: BoardState, seat: Seat, kind: RobotKind) {
@@ -23,6 +25,7 @@ export class View {
     this.seat = seat
     this.kind = kind
     this.played = new Set(state.play.map((p) => p.card))
+    this.onTable = new Set(state.play.slice(state.play.length - (state.play.length % 4)).map((p) => p.card))
     this.known = new Set([...remainingCards(state, seat), ...this.partnerCards()])
   }
 
@@ -56,14 +59,17 @@ export class View {
     return true
   }
 
-  /** The lowest of `own` cards equal to `card`: every rank between them is already played */
+  /**
+   * The lowest of `own` cards equal to `card`: every rank between them is already played (a card
+   * on the table in the trick being played still counts, it is yet to be beaten)
+   */
   lowestEqual(card: Card, own: Card[]): Card {
     const suit = suitOf(card)
     let lowest = card
     for (const rank of RANKS.slice(RANKS.indexOf(rankOf(card)) + 1)) {
       const next = suit + rank
       if (own.includes(next)) lowest = next
-      else if (!this.played.has(next)) break
+      else if (!this.played.has(next) || this.onTable.has(next)) break
     }
     return lowest
   }
