@@ -1,0 +1,21 @@
+{
+  "category": "rebid",
+  "title": "再叫",
+  "questions": [
+    { "id": "tku-rebid-001", "system": "tku", "dealer": "N", "vul": "None", "hand": "AKJ74.KQ3.A82.K5", "auction": ["1S", "P", "2S", "P"], "answer": "4S", "source": "淡江橋譜：1H 2H（淡江用）", "reviewer": null, "status": "pending", "note": "20 點：單加叫之後 19+ 直接成局" },
+    { "id": "tku-rebid-002", "system": "tku", "dealer": "E", "vul": "NS", "hand": "KQJ74.A3.K82.954", "auction": ["1S", "P", "2S", "P"], "answer": "P", "source": "淡江橋譜：1H 2H（淡江用）", "reviewer": null, "status": "pending", "note": "13 點低限：同伴單加叫 8–10，沒有成局" },
+    { "id": "tku-rebid-003", "system": "tku", "dealer": "S", "vul": "EW", "hand": "K842.AQJ74.K3.95", "auction": ["1H", "P", "1S", "P"], "answer": "2S", "source": "5542 自然制（ROBOT.md §2）", "reviewer": null, "status": "pending", "note": "13 點四張♠：低限加叫同伴的♠" },
+    { "id": "tku-rebid-004", "system": "tku", "dealer": "W", "vul": "Both", "hand": "A3.KQJ984.K82.95", "auction": ["1H", "P", "1N", "P"], "answer": "2H", "source": "5542 自然制（ROBOT.md §2）", "reviewer": null, "status": "pending", "note": "13 點六張♥：1NT 迫叫之後再叫自己的六張高花" },
+    { "id": "tku-rebid-005", "system": "tku", "dealer": "N", "vul": "NS", "hand": "AKJ74.832.K82.Q9", "auction": ["1S", "P", "1N", "P"], "answer": "2D", "source": "5542 自然制（ROBOT.md §2）", "reviewer": null, "status": "pending", "note": "13 點 5-3-3-2：1NT 迫叫之後沒有四張♥，叫三張的低花♦" },
+    { "id": "tku-rebid-006", "system": "tku", "dealer": "E", "vul": "None", "hand": "AKJ74.Q832.K8.95", "auction": ["1S", "P", "1N", "P"], "answer": "2H", "source": "5542 自然制（ROBOT.md §2）", "reviewer": null, "status": "pending", "note": "13 點 5-4 高花：1NT 迫叫之後叫 2♥" },
+    { "id": "tku-rebid-007", "system": "tku", "dealer": "S", "vul": "Both", "hand": "K5.Q973.A84.KJ63", "auction": ["1C", "P", "1H", "P"], "answer": "2H", "source": "5542 自然制（ROBOT.md §2）", "reviewer": null, "status": "pending", "note": "13 點四張♥：低限加叫同伴的♥" },
+    { "id": "tku-rebid-008", "system": "tku", "dealer": "W", "vul": "None", "hand": "K5.Q97.A84.KJ632", "auction": ["1C", "P", "1S", "P"], "answer": "1N", "source": "5542 自然制（ROBOT.md §2）", "reviewer": null, "status": "pending", "note": "13 點 2-3-3-5 平均牌型：1NT 12–14" },
+    { "id": "tku-rebid-009", "system": "tku", "dealer": "N", "vul": "EW", "hand": "K952.73.AQ84.KJ6", "auction": ["1D", "P", "1H", "P"], "answer": "1S", "source": "5542 自然制（ROBOT.md §2）", "reviewer": null, "status": "pending", "note": "13 點四張♠：一線叫出四張♠" },
+    { "id": "tku-rebid-010", "system": "tku", "dealer": "E", "vul": "Both", "hand": "K5.A3.KQJ874.953", "auction": ["1D", "P", "1S", "P"], "answer": "2D", "source": "5542 自然制（ROBOT.md §2）", "reviewer": null, "status": "pending", "note": "13 點六張♦：低限再叫自己的♦" },
+    { "id": "tku-rebid-011", "system": "tku", "dealer": "S", "vul": "None", "hand": "KQ5.AJ84.K93.Q72", "auction": ["1N", "P", "2C", "P"], "answer": "2H", "source": "淡江橋譜：1NT的答叫", "reviewer": null, "status": "pending", "note": "15 點四張♥：Stayman 回答 2♥" },
+    { "id": "tku-rebid-012", "system": "tku", "dealer": "W", "vul": "NS", "hand": "KQ5.AJ8.K932.Q72", "auction": ["1N", "P", "2C", "P"], "answer": "2D", "source": "淡江橋譜：1NT的答叫", "reviewer": null, "status": "pending", "note": "15 點沒有四張高花：Stayman 回答 2♦" },
+    { "id": "tku-rebid-013", "system": "tku", "dealer": "N", "vul": "Both", "hand": "KQ54.A3.KJ82.Q72", "auction": ["1N", "P", "2D", "P"], "answer": "2H", "source": "淡江橋譜：1NT的答叫", "reviewer": null, "status": "pending", "note": "15 點♥只有兩張：接受轉換叫 2♥" },
+    { "id": "tku-rebid-014", "system": "tku", "dealer": "E", "vul": "NS", "hand": "AQ54.K3.KJ82.A72", "auction": ["1N", "P", "2H", "P"], "answer": "3S", "source": "淡江橋譜：1NT的答叫", "reviewer": null, "status": "pending", "note": "17 點四張♠：轉換之後 4 張王＋17 點跳叫 3♠" },
+    { "id": "tku-rebid-015", "system": "tku", "dealer": "S", "vul": "EW", "hand": "AQ5.KJ8.K93.KJ72", "auction": ["1N", "P", "2N", "P"], "answer": "3N", "source": "淡江橋譜：1NT的答叫", "reviewer": null, "status": "pending", "note": "17 點高限：接受 2NT 邀請" }
+  ]
+}

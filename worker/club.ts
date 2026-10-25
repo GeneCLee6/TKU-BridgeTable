@@ -1,11 +1,15 @@
 import { DurableObject } from 'cloudflare:workers'
 import { AppError } from '../shared/messages.ts'
+import type { ChallengeSettings } from '../shared/challenge.ts'
 import { parseHistoryQuery } from '../shared/history-query.ts'
-import type { ClientMessage, Me, ServerMessage } from '../shared/protocol.ts'
+import { MESSAGE_MAX_CHARS } from '../shared/message-guard.ts'
+import type { Me, ServerMessage } from '../shared/protocol.ts'
 import { readCookie, SESSION_COOKIE, sessionCookie } from './auth.ts'
 import { BookService, importRequestFrom } from './book.ts'
 import { claudeImporter } from './importer.ts'
-import { ClubError, ClubService, type Connections } from './service.ts'
+import { CLIENT_ERROR_MAX_CHARS } from './client-errors.ts'
+import { crashEntry, jsonLog } from './log.ts'
+import { type ChallengeRequest, ClubError, ClubService, type Connections } from './service.ts'
 import type { Store } from './store.ts'
 
 export interface Env {
@@ -33,6 +37,8 @@ interface Attachment {
 }
 
 type Body = Record<string, unknown>
+/** The largest JSON body an API reads (TKU BridgeBook's convention saves are the big ones) */
+const BODY_MAX_BYTES = 2 * 1024 * 1024
 const text = (value: unknown) => String(value ?? '')
 
 /**
@@ -64,6 +70,7 @@ export class Club extends DurableObject<Env> implements Connections {
       inviteCode: env.INVITE_CODE || undefined,
       // One alarm wakes the object for every robot move and deal, so it can hibernate in between
       wake: (at) => void storage.setAlarm(at),
+      log: jsonLog,
     })
     this.book = new BookService(store)
     // Browsers send "ping" every few seconds to keep phone connections alive and to notice a dead
@@ -99,16 +106,27 @@ export class Club extends DurableObject<Env> implements Connections {
     for (const ws of this.ctx.getWebSockets(userId)) ws.close(4001, 'signed out')
   }
 
+  /** Every request is logged as one `http` entry: method, path (no query), status, time, error code */
   async fetch(request: Request): Promise<Response> {
+    const started = Date.now()
     const url = new URL(request.url)
+    let response: Response
+    let code: string | undefined
+    try {
+      response = await this.route(request, url)
+    } catch (error) {
+      code = error instanceof AppError ? error.code : 'serverError'
+      response = errorResponse(error)
+    }
+    jsonLog({ event: 'http', method: request.method, path: url.pathname, status: response.status, ms: Date.now() - started, ...(code ? { code } : {}) })
+    return response
+  }
+
+  private async route(request: Request, url: URL): Promise<Response> {
     const token = readCookie(request.headers.get('Cookie'), SESSION_COOKIE)
     if (url.pathname === '/api/book/import') return this.importUpload(request)
-    try {
-      if (url.pathname === '/ws') return await this.upgrade(request, token)
-      return await this.api(request, url, token)
-    } catch (error) {
-      return errorResponse(error)
-    }
+    if (url.pathname === '/ws') return this.upgrade(request, token)
+    return this.api(request, url, token)
   }
 
   /** TKU BridgeBook's AI import: streams Claude's reply straight back to the page */
@@ -147,8 +165,19 @@ export class Club extends DurableObject<Env> implements Connections {
   private async api(request: Request, url: URL, token: string | null) {
     const secure = url.protocol === 'https:'
     const route = `${request.method} ${url.pathname}`
-    const body = async () => (await request.json().catch(() => ({}))) as Body
+    const body = async () => {
+      if (Number(request.headers.get('Content-Length') ?? 0) > BODY_MAX_BYTES) throw new ClubError('messageTooLarge', {}, 413)
+      return (await request.json().catch(() => ({}))) as Body
+    }
 
+    if (route === 'GET /api/health') return json(this.service.health())
+    if (route === 'POST /api/client-errors') {
+      // Reports come before sign-in too, so this needs none; the service cleans and rate-limits them
+      if (Number(request.headers.get('Content-Length') ?? 0) > CLIENT_ERROR_MAX_CHARS * 4)
+        throw new ClubError('messageTooLarge', {}, 413)
+      if (!this.service.reportClientError(await request.text())) throw new ClubError('badMessage')
+      return new Response(null, { status: 204 })
+    }
     if (route === 'POST /api/register') {
       const b = await body()
       const result = await this.service.register(
@@ -163,7 +192,11 @@ export class Club extends DurableObject<Env> implements Connections {
     }
     if (route === 'POST /api/login') {
       const b = await body()
-      const { user, token: newToken } = await this.service.login(text(b.username), text(b.password))
+      const { user, token: newToken } = await this.service.login(
+        text(b.username),
+        text(b.password),
+        request.headers.get('CF-Connecting-IP') ?? '',
+      )
       return json({ user }, 200, sessionCookie(newToken, secure))
     }
     if (route === 'POST /api/logout') {
@@ -205,6 +238,27 @@ export class Club extends DurableObject<Env> implements Connections {
       return json({ record: found })
     }
     if (route === 'GET /api/challenges') return json({ challenges: this.service.challengeList(user.id) })
+    // The challenge pages create, answer and cancel over HTTP to hear back at once (e7-t16, e7-t17)
+    if (route === 'POST /api/challenges') {
+      const b = await body()
+      return json({
+        challenge: await this.service.challengeRequest(user.id, {
+          type: 'createChallenge',
+          invitees: b.invitees as string[],
+          boards: b.boards as number | undefined,
+          settings: b.settings as Partial<ChallengeSettings> | undefined,
+        }),
+      })
+    }
+    const challengeAction = url.pathname.match(/^\/api\/challenges\/([\w-]+)\/(answer|cancel)$/)
+    if (request.method === 'POST' && challengeAction) {
+      const [, challengeId, action] = challengeAction
+      const message: ChallengeRequest =
+        action === 'answer'
+          ? { type: 'answerChallenge', challengeId, accept: (await body()).accept as boolean }
+          : { type: 'cancelChallenge', challengeId }
+      return json({ challenge: await this.service.challengeRequest(user.id, message) })
+    }
     const challenge = url.pathname.match(/^\/api\/challenges\/([\w-]+)$/)
     if (request.method === 'GET' && challenge) {
       const found = this.service.challengeFor(challenge[1], user.id)
@@ -319,13 +373,10 @@ export class Club extends DurableObject<Env> implements Connections {
 
   async webSocketMessage(ws: WebSocket, data: string | ArrayBuffer) {
     const { userId } = ws.deserializeAttachment() as Attachment
-    let message: ClientMessage
-    try {
-      message = JSON.parse(typeof data === 'string' ? data : new TextDecoder().decode(data))
-    } catch {
-      return
-    }
-    await this.service.handle(userId, message)
+    // Binary frames are decoded only up to 3 bytes per allowed character (UTF-8 never takes more per
+    // UTF-16 unit), so a huge frame still decodes to an over-long string at little cost
+    const raw = typeof data === 'string' ? data : new TextDecoder().decode(data.slice(0, MESSAGE_MAX_CHARS * 3 + 3))
+    await this.service.handleRaw(userId, raw)
   }
 
   async webSocketClose(ws: WebSocket) {
@@ -351,6 +402,6 @@ function json(data: unknown, status = 200, cookie?: string) {
 
 function errorResponse(error: unknown) {
   if (error instanceof AppError) return json({ error: error.message, code: error.code, params: error.params }, error.status)
-  console.error(error)
+  jsonLog(crashEntry('http', error))
   return json({ error: '伺服器發生錯誤', code: 'serverError', params: {} }, 500)
 }

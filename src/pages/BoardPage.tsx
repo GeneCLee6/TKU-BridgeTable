@@ -7,13 +7,15 @@ import { tricksOf } from '../../shared/game.ts'
 import { handviewerUrl, toLin } from '../../shared/lin.ts'
 import type { BoardRecord, PublicUser } from '../../shared/protocol.ts'
 import { AuctionBox } from '../components/AuctionBox.tsx'
+import { DoubleDummyPanel } from '../components/DoubleDummyPanel.tsx'
 import { PlayedCardsSwitch, RecordDiagram } from '../components/RecordDiagram.tsx'
 import { ContractLabel, ContractResult, SuitSymbol } from '../components/Suit.tsx'
 import { Button, Card, ErrorText, Muted, PageMain, PageTitle } from '../components/ui.tsx'
 import { api } from '../lib/api.ts'
-import { cardName } from '../lib/cards.ts'
+import { CARD_SCALE, cardName } from '../lib/cards.ts'
 import { formatDateTime, signed } from '../lib/format.ts'
 import { useMediaQuery } from '../lib/useMediaQuery.ts'
+import { canAnalyse } from '../lib/useDoubleDummy.ts'
 import { useTrickReplay } from '../lib/useTrickReplay.ts'
 import { usePreferences } from '../state/PreferencesContext.tsx'
 import { mobileQuery } from '../styles/tokens.ts'
@@ -106,7 +108,8 @@ export function BoardPage() {
 
 /** One board's record; `embedded` drops the page frame for the table's history dialog */
 export function BoardRecordView({ record, embedded = false }: { record: BoardRecord; embedded?: boolean }) {
-  const { t, lang, cardStyle } = usePreferences()
+  const { t, lang, cardStyle, cardSize } = usePreferences()
+  const scale = CARD_SCALE[cardSize]
   const phone = useMediaQuery(mobileQuery)
   const { board, players } = record
   const total = board.play.length
@@ -119,7 +122,7 @@ export function BoardRecordView({ record, embedded = false }: { record: BoardRec
   const result = board.result!
   const name = (u: PublicUser) => playerName(t, u)
   // North and South fan out across the full width; East and West go in rows by suit beside the trick
-  const width = phone ? 40 : 72
+  const width = Math.round((phone ? 40 : 72) * scale)
   const side = (seat: string) => seat === 'E' || seat === 'W'
 
   useEffect(() => {
@@ -153,7 +156,7 @@ export function BoardRecordView({ record, embedded = false }: { record: BoardRec
             record={record}
             step={step}
             width={width}
-            trickWidth={phone ? 34 : 58}
+            trickWidth={Math.round((phone ? 34 : 58) * scale)}
             styleFor={(seat) => (phone && side(seat) ? 'text' : cardStyle)}
             orientationFor={(seat) => (side(seat) && !phone ? 'rows' : 'horizontal')}
           />
@@ -212,6 +215,15 @@ export function BoardRecordView({ record, embedded = false }: { record: BoardRec
           </Links>
         </Card>
       </Columns>
+
+      {canAnalyse(board) && (
+        <>
+          <Section>{t.ddTitle}</Section>
+          <Card>
+            <DoubleDummyPanel board={board} />
+          </Card>
+        </>
+      )}
 
       {allTricks.length > 0 && (
         <>

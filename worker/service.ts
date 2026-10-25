@@ -76,6 +76,22 @@ import { NotificationService } from './notifications.ts'
 import { Relations } from './relations.ts'
 import { AlarmQueue, manualScheduler, type JobKind, type Scheduler } from './scheduler.ts'
 import type { Store } from './store.ts'
+import { parseClientMessage } from '../shared/message-guard.ts'
+import { parseClientError } from './client-errors.ts'
+import { crashEntry, noLog, type Logger } from './log.ts'
+import {
+  ACTION_BURST,
+  ACTIONS_PER_SECOND,
+  CHAT_BURST,
+  CHATS_PER_SECOND,
+  CLIENT_ERROR_BURST,
+  CLIENT_ERRORS_PER_SECOND,
+  FailureWindow,
+  LOGIN_FAILURES_PER_ADDRESS,
+  LOGIN_FAILURES_PER_NAME,
+  LOGIN_WINDOW_MS,
+  TokenBuckets,
+} from './rate-limit.ts'
 import {
   boardView,
   challengeBoardVisible,
@@ -145,6 +161,8 @@ export interface ClubConfig {
   brain?: RobotBrain
   /** How long the brain may think before the rule robot answers instead (ms); THINK_LIMIT_MS unless a test sets it */
   thinkLimitMs?: number
+  /** Where structured log entries go (`worker/log.ts`); nowhere unless given */
+  log?: Logger
 }
 
 export type ScheduleKind = JobKind
@@ -185,6 +203,9 @@ function settingsOf(table: Table): TableSettings {
  * summaries (`hist:` for everyone, `uhist:<userId>:` per member), so listing a page of history
  * reads only that page no matter how many boards the club has played.
  */
+/** The challenge actions the pages send over HTTP (`ClubService.challengeRequest`) */
+export type ChallengeRequest = Extract<ClientMessage, { type: 'createChallenge' | 'answerChallenge' | 'cancelChallenge' }>
+
 export class ClubService {
   private users = new Map<string, StoredUser>()
   private applications = new Map<string, StoredApplication>()
@@ -217,12 +238,25 @@ export class ClubService {
   private readonly blocks: Relations
   /** Challenges, kept in SQL (§5.5); created and answered here, played in later batches */
   readonly challenges: ChallengeStore
+  private readonly log: Logger
+  /** Rate limits (AC-11.7): messages and chat lines per member, wrong passwords, browser error reports */
+  private readonly actionLimit: TokenBuckets
+  private readonly chatLimit: TokenBuckets
+  private readonly loginByName: FailureWindow
+  private readonly loginByAddress: FailureWindow
+  private readonly clientErrorLimit: TokenBuckets
 
   constructor(store: Store, connections: Connections, config: ClubConfig) {
     this.store = store
     this.connections = connections
     this.config = config
     this.now = config.now ?? Date.now
+    this.log = config.log ?? noLog
+    this.actionLimit = new TokenBuckets(ACTION_BURST, ACTIONS_PER_SECOND, this.now)
+    this.chatLimit = new TokenBuckets(CHAT_BURST, CHATS_PER_SECOND, this.now)
+    this.loginByName = new FailureWindow(LOGIN_FAILURES_PER_NAME, LOGIN_WINDOW_MS, this.now)
+    this.loginByAddress = new FailureWindow(LOGIN_FAILURES_PER_ADDRESS, LOGIN_WINDOW_MS, this.now)
+    this.clientErrorLimit = new TokenBuckets(CLIENT_ERROR_BURST, CLIENT_ERRORS_PER_SECOND, this.now)
     this.random = config.random ?? secureRandomInt
     this.brain = config.brain ?? ruleBrain
     this.notifications = new NotificationService(store, this.now, (userId) => void this.pushNotifications(userId))
@@ -399,17 +433,33 @@ export class ClubService {
     if (password.length < LIMITS.passwordMin) throw new ClubError('shortPassword', { min: LIMITS.passwordMin })
   }
 
-  async login(username: string, password: string) {
+  /**
+   * Signs in. `address` is where the request came from (the Worker passes CF-Connecting-IP): wrong
+   * passwords are counted per username from that address and per address, so guessing is slowed
+   * without letting a stranger lock a member out from everywhere
+   */
+  async login(username: string, password: string, address = '') {
     const name = String(username ?? '').trim()
+    const nameKey = `${address}|${name.toLowerCase()}`
+    if (this.loginByName.blocked(nameKey) || this.loginByAddress.blocked(address)) {
+      this.log({ event: 'loginLocked', username: name.slice(0, LIMITS.usernameMax) })
+      throw new ClubError('tooManyLogins', { minutes: LOGIN_WINDOW_MS / 60_000 }, 429)
+    }
+    const failed = () => {
+      this.loginByName.fail(nameKey)
+      this.loginByAddress.fail(address)
+      return new ClubError('badLogin', {}, 401)
+    }
     const user = this.findUser(name)
     if (!user) {
       // Someone still waiting for approval learns that, but only with their own password
       const application = this.findApplication(name)
       if (application && (await verifyPassword(String(password ?? ''), application.passwordHash)))
         throw new ClubError('awaitingApproval', {}, 403)
-      throw new ClubError('badLogin', {}, 401)
+      throw failed()
     }
-    if (!(await verifyPassword(String(password ?? ''), user.passwordHash))) throw new ClubError('badLogin', {}, 401)
+    if (!(await verifyPassword(String(password ?? ''), user.passwordHash))) throw failed()
+    this.loginByName.clear(nameKey)
     user.lastLoginAt = this.now()
     await this.store.put(`user:${user.id}`, user)
     return { user: this.me(user), token: await this.createSession(user.id) }
@@ -744,11 +794,53 @@ export class ClubService {
     this.broadcast()
   }
 
+  /**
+   * A WebSocket message as it arrived (AC-11.7): checked for size, shape and field types
+   * (`shared/message-guard.ts`) and rate-limited per member before it reaches `handle`; a rejected
+   * one is answered with an `error`. A bug in a handler is logged and answered with `serverError`
+   */
+  async handleRaw(userId: string, raw: string) {
+    const parsed = parseClientMessage(raw)
+    if ('error' in parsed) return this.reject(userId, parsed.error)
+    const { message } = parsed
+    if (!this.actionLimit.take(userId)) return this.reject(userId, 'slowDown', message.type)
+    if (message.type === 'chat' && !this.chatLimit.take(userId)) return this.reject(userId, 'chatTooFast', message.type)
+    try {
+      await this.handle(userId, message)
+    } catch (error) {
+      this.log(crashEntry(message.type, error))
+      const failure = new ClubError('serverError', {}, 500)
+      this.connections.send(userId, { type: 'error', code: failure.code, params: {}, message: failure.message })
+    }
+  }
+
+  private reject(userId: string, code: MessageCode, type?: string) {
+    this.log({ event: 'rejected', user: userId, code, ...(type ? { type } : {}) })
+    const error = new ClubError(code)
+    this.connections.send(userId, { type: 'error', code, params: {}, message: error.message })
+  }
+
+  /** A browser's error report (`POST /api/client-errors`): cleaned and logged, a few a second at most */
+  reportClientError(raw: string): boolean {
+    const entry = parseClientError(raw)
+    if (!entry) return false
+    if (this.clientErrorLimit.take('club')) this.log(entry)
+    return true
+  }
+
+  /** `GET /api/health`: the club loaded and answers; counts only, nothing about who */
+  health() {
+    return { ok: true, now: this.now(), tables: this.tables.size, online: this.connections.onlineUserIds().length }
+  }
+
   async handle(userId: string, message: ClientMessage) {
+    const started = this.now()
+    const type = typeof message?.type === 'string' ? message.type : '?'
     try {
       await this.dispatch(userId, message)
     } catch (error) {
       if (error instanceof AppError) {
+        this.log({ event: 'action', type, user: userId, ms: this.now() - started, code: error.code })
         this.connections.send(userId, { type: 'error', code: error.code, params: error.params, message: error.message })
         return
       }
@@ -757,6 +849,7 @@ export class ClubService {
     this.broadcast()
     const table = this.tableOf(userId)
     if (table) this.scheduleRobots(table)
+    this.log({ event: 'action', type, user: userId, ms: this.now() - started })
   }
 
   private async dispatch(userId: string, message: ClientMessage) {
@@ -853,7 +946,8 @@ export class ClubService {
    * blocking the other; 4–16 boards dealt at random now; settings checked by
    * `parseChallengeSettings`. The creator has accepted and may play at once; the invitees are told
    */
-  private async createChallenge(userId: string, invitees: unknown, boards: unknown, wanted: unknown) {
+  /** Challenges friends (`e7-t05`); returns the new challenge's id */
+  private async createChallenge(userId: string, invitees: unknown, boards: unknown, wanted: unknown): Promise<string> {
     const { invitedMin, invitedMax, boardsMin, boardsMax, boardsDefault } = CHALLENGE_LIMITS
     if (!Array.isArray(invitees)) throw new ClubError('badChallengeSettings', { field: 'invitees' })
     if (invitees.length < invitedMin || invitees.length > invitedMax)
@@ -887,6 +981,7 @@ export class ClubService {
     const username = this.users.get(userId)!.username
     for (const id of invitees as string[])
       await this.notifications.notify(id, 'challengeInvited', { challengeId: challenge.id, username })
+    return challenge.id
   }
 
   private requireChallenge(id: unknown): Challenge {
@@ -929,6 +1024,29 @@ export class ClubService {
       if (p.userId !== userId && p.status !== 'declined')
         await this.notifications.notify(p.userId, 'challengeCancelled', { challengeId: challenge.id, username })
     await this.challengeChanged(challenge.id)
+  }
+
+  /**
+   * Creates, answers or cancels a challenge over HTTP (`POST /api/challenges…`, `e7-t16`, `e7-t17`):
+   * the same checks as the socket messages, but the page hears back at once with the challenge as
+   * the member now sees it. Errors are thrown as `ClubError`
+   */
+  async challengeRequest(userId: string, request: ChallengeRequest): Promise<ChallengeView | null> {
+    // The same shape checks and rate limit as a socket message (`handleRaw`)
+    const parsed = parseClientMessage(JSON.stringify(request))
+    if ('error' in parsed) throw new ClubError(parsed.error)
+    if (!this.actionLimit.take(userId)) throw new ClubError('slowDown', {}, 429)
+    const message = parsed.message as ChallengeRequest
+    let id: string
+    if (message.type === 'createChallenge') {
+      id = await this.createChallenge(userId, message.invitees, message.boards, message.settings)
+    } else {
+      await this.dispatch(userId, message)
+      id = message.challengeId
+    }
+    // Cancelling closes the challenge's tables
+    this.broadcast()
+    return this.challengeFor(id, userId)
   }
 
   /**

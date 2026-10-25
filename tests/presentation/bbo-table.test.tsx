@@ -155,8 +155,8 @@ describe('the history list', () => {
       vi.fn(async (input: string) => {
         const query = new URL(input, 'http://x').searchParams
         asked.push(query)
-        const size = Number(query.get('size'))
-        const page = Number(query.get('page'))
+        const size = Number(query.get('size') ?? 20)
+        const page = Number(query.get('page') ?? 1)
         const board = (n: number) => ({
           id: `b${n}`,
           tableNumber: 1,
@@ -185,10 +185,10 @@ describe('the history list', () => {
     expect(await screen.findByText('第 41–45 副，共 45 副')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '下一頁' })).toBeDisabled()
 
-    await userEvent.selectOptions(screen.getByRole('combobox'), '50')
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: /每頁/ }), '50')
     expect(await screen.findByText('第 1–45 副，共 45 副')).toBeInTheDocument()
     expect(asked.at(-1)?.get('size')).toBe('50')
-    expect(asked.at(-1)?.get('page')).toBe('1')
+    expect(asked.at(-1)?.get('page') ?? '1').toBe('1')
     // All on one page: AP for every passed-out board
     expect(screen.getAllByText('AP')).toHaveLength(45)
   })

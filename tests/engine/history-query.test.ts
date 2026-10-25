@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
   DEFAULT_HISTORY_QUERY,
+  datePresetOf,
+  datePresetRange,
+  readHistoryQuery,
+  taiwanDate,
   historyQueryString,
   parseHistoryQuery,
   taiwanDayEnd,
@@ -80,5 +84,41 @@ describe('history queries', () => {
   it('count days in Taiwan time', () => {
     expect(new Date(taiwanDayStart('2026-10-24')).toISOString()).toBe('2026-10-23T16:00:00.000Z')
     expect(taiwanDayEnd('2026-10-24') - taiwanDayStart('2026-10-24')).toBe(86_400_000)
+  })
+})
+
+describe('the history page address', () => {
+  it('keeps what it understands and drops the rest', () => {
+    const query = readHistoryQuery(new URLSearchParams('level=4&strain=Z&colour=red&sort=score_desc&from=2026-10-20&to=2026-10-01'))
+    expect(query).toEqual({ ...DEFAULT_HISTORY_QUERY, level: 4, sort: 'score_desc', from: '2026-10-20' })
+  })
+
+  it('round-trips through the query string', () => {
+    const query = { ...DEFAULT_HISTORY_QUERY, scope: 'all' as const, declarerSide: 'partner' as const, partner: 'u1', vul: 'NS' as const, page: 3 }
+    expect(readHistoryQuery(new URLSearchParams(historyQueryString(query)))).toEqual(query)
+  })
+})
+
+describe('quick date ranges (Taiwan time)', () => {
+  // Wednesday 2026-10-21 at 01:00 in Taiwan is still Tuesday in UTC
+  const now = Date.parse('2026-10-20T17:00:00Z')
+
+  it('know the Taiwan date', () => {
+    expect(taiwanDate(now)).toBe('2026-10-21')
+    expect(taiwanDate(Date.parse('2026-10-20T15:59:59Z'))).toBe('2026-10-20')
+  })
+
+  it('give today, this week from Monday and this month', () => {
+    expect(datePresetRange('today', now)).toEqual({ from: '2026-10-21', to: '2026-10-21' })
+    expect(datePresetRange('week', now)).toEqual({ from: '2026-10-19', to: '2026-10-21' })
+    expect(datePresetRange('month', now)).toEqual({ from: '2026-10-01', to: '2026-10-21' })
+    // A Sunday belongs to the week that started the Monday before
+    expect(datePresetRange('week', Date.parse('2026-10-25T04:00:00Z'))).toEqual({ from: '2026-10-19', to: '2026-10-25' })
+  })
+
+  it('recognise a range that is one of them', () => {
+    expect(datePresetOf({ from: '2026-10-19', to: '2026-10-21' }, now)).toBe('week')
+    expect(datePresetOf({ from: '2026-10-18', to: '2026-10-21' }, now)).toBeUndefined()
+    expect(datePresetOf({ from: '2026-10-19' }, now)).toBeUndefined()
   })
 })

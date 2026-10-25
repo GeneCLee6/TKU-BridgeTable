@@ -92,7 +92,7 @@ const TextRow = styled.div`
   & > :first-child { flex: none; width: 1.15em; }
 `
 
-const RankButton = styled.button<{ $playable: boolean; $played: boolean }>`
+const RankButton = styled.button<{ $playable: boolean; $played: boolean; $raised: boolean }>`
   min-width: 0;
   padding: 0 0.05em;
   border: 0;
@@ -115,6 +115,12 @@ const RankButton = styled.button<{ $playable: boolean; $played: boolean }>`
     $played &&
     css`
       &, &:disabled { color: ${theme.table.playedText}; }
+    `}
+  ${({ $raised, theme }) =>
+    $raised &&
+    css`
+      outline: 3px solid ${theme.table.panelText};
+      outline-offset: 1px;
     `}
 `
 
@@ -141,6 +147,7 @@ export function HandView({
   order = SUITS,
   playable = [],
   played = [],
+  chosen = null,
   onPlay,
   label,
 }: {
@@ -156,6 +163,8 @@ export function HandView({
   playable?: Card[]
   /** Cards already played that are still drawn, greyed out */
   played?: Card[]
+  /** The card lifted out of the hand, waiting to be played */
+  chosen?: Card | null
   onPlay?: (card: Card) => void
   label: string
 }) {
@@ -163,6 +172,8 @@ export function HandView({
   const canPlay = new Set(playable)
   const gone = new Set(played)
   const anyPlayable = canPlay.size > 0
+  // A hand you play from can be played with the keyboard (useCardChoice); the tooltip says how
+  const keys = anyPlayable && onPlay ? { title: t.playKeysHint, 'aria-keyshortcuts': 'ArrowLeft ArrowRight Enter' } : {}
   const sorted = cards && sortForDisplay(cards, order)
   const suitStart = (list: Card[], i: number) => i > 0 && suitOf(list[i - 1]) !== suitOf(list[i])
   const groups = (list: Card[]) => order.map((suit) => list.filter((card) => suitOf(card) === suit))
@@ -175,7 +186,7 @@ export function HandView({
         </Hidden>
       )
     return (
-      <Text $w={width} role="group" aria-label={label}>
+      <Text $w={width} role="group" aria-label={label} {...keys}>
         {groups(sorted).map((suitCards, i) => (
           <TextRow key={order[i]}>
             <SuitSymbol suit={order[i]} onCard />
@@ -186,6 +197,8 @@ export function HandView({
                 type="button"
                 $playable={canPlay.has(card)}
                 $played={gone.has(card)}
+                $raised={card === chosen}
+                aria-current={card === chosen || undefined}
                 disabled={!canPlay.has(card)}
                 onClick={() => onPlay?.(card)}
                 aria-label={gone.has(card) ? t.playedCard(cardName(card, t)) : cardName(card, t)}
@@ -208,6 +221,7 @@ export function HandView({
         playable={canPlay.has(card)}
         dim={anyPlayable && !canPlay.has(card)}
         played={gone.has(card)}
+        raised={card === chosen}
         corner={orientation === 'vertical' ? 'inline' : 'stack'}
         onPlay={onPlay}
       />
@@ -217,7 +231,7 @@ export function HandView({
 
   if (orientation === 'rows' && sorted)
     return (
-      <Rows $w={width} role="group" aria-label={label}>
+      <Rows $w={width} role="group" aria-label={label} {...keys}>
         {groups(sorted)
           .filter((suitCards) => suitCards.length)
           .map((suitCards) => (
@@ -234,7 +248,7 @@ export function HandView({
 
   if (orientation === 'vertical')
     return (
-      <Column role="group" aria-label={label}>
+      <Column role="group" aria-label={label} {...keys}>
         {list.map((card, i) => (
           <Down key={card ?? i} $w={width} $gap={!!sorted && suitStart(sorted, i)}>
             {face(card, i)}
@@ -244,7 +258,7 @@ export function HandView({
     )
 
   return (
-    <Fan $w={width} role="group" aria-label={label}>
+    <Fan $w={width} role="group" aria-label={label} {...keys}>
       {list.map((card, i) => (
         <Slot key={card ?? i} $w={width} $gap={!!sorted && suitStart(sorted, i)}>
           {face(card, i)}

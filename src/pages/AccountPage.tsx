@@ -115,7 +115,7 @@ function InstallApp() {
 }
 
 export function AccountPage() {
-  const { t, message, lang, mode, deck, cardStyle, sound, set } = usePreferences()
+  const { t, message, lang, mode, deck, cardStyle, cardSize, sound, confirmCalls, confirmPlays, set } = usePreferences()
   const { user } = useAuth()
   const [current, setCurrent] = useState('')
   const [next, setNext] = useState('')
@@ -156,6 +156,12 @@ export function AccountPage() {
             options={[['cards', t.cardStyleCards], ['text', t.cardStyleText]]}
             onChange={(v) => set({ cardStyle: v })}
           />
+          <Options
+            legend={t.cardSize}
+            value={cardSize}
+            options={[['small', t.cardSizes.small], ['medium', t.cardSizes.medium], ['large', t.cardSizes.large]]}
+            onChange={(v) => set({ cardSize: v })}
+          />
           <Options legend={t.deckColors} value={deck} options={[['two', t.deckTwo], ['four', t.deckFour]]} onChange={(v) => set({ deck: v })} />
           <Options legend={t.theme} value={mode} options={[['light', t.themeLight], ['dark', t.themeDark]]} onChange={(v) => set({ mode: v })} />
           <Options
@@ -163,6 +169,18 @@ export function AccountPage() {
             value={sound ? 'on' : 'off'}
             options={[['on', t.soundOnShort], ['off', t.soundOffShort]]}
             onChange={(v) => set({ sound: v === 'on' })}
+          />
+          <Options
+            legend={t.confirmCalls}
+            value={confirmCalls ? 'on' : 'off'}
+            options={[['on', t.soundOnShort], ['off', t.soundOffShort]]}
+            onChange={(v) => set({ confirmCalls: v === 'on' })}
+          />
+          <Options
+            legend={t.confirmPlays}
+            value={confirmPlays ? 'on' : 'off'}
+            options={[['on', t.soundOnShort], ['off', t.soundOffShort]]}
+            onChange={(v) => set({ confirmPlays: v === 'on' })}
           />
         </Card>
         <Card>
