@@ -323,6 +323,27 @@ describe('playing it through (e7-t08)', () => {
     expect(view(amy)).toBeNull()
     expect(await refused(amy, { type: 'playChallenge', challengeId: id })).toBe('challengeDone')
   })
+  it('puts the player back in South after declaring from North, so each board is played with South’s cards', async () => {
+    const { amy, id } = await challenge()
+    // North holds the top 13 cards on board 1 and declares; amy moves into North's seat to play it
+    const byRank = fullDeck().sort((a, b) => rankValue(rankOf(b)) - rankValue(rankOf(a)))
+    const strong: Hands = { N: byRank.slice(0, 13), E: byRank.slice(13, 26), S: byRank.slice(26, 39), W: byRank.slice(39) }
+    const set: DealSet = { boards: [1, 2, 3, 4].map((boardNo) => ({ boardNo, hands: boardNo === 1 ? strong : deal() })) }
+    store.sql.exec('UPDATE challenges SET deals = ? WHERE challenge_id = ?', encodeDealSet(set), id)
+
+    await play(amy, id)
+    for (let i = 0; i < 50 && view(amy)!.board!.phase === 'auction'; i++) {
+      await runRobots()
+      if (view(amy)!.board!.legalCalls.length) await send(amy, { type: 'call', call: 'P' })
+    }
+    expect(view(amy)!.board!.contract?.declarer).toBe('N')
+    expect(view(amy)!.mySeat).toBe('N')
+    await playBoard(amy)
+    await dealNext()
+    expect(view(amy)!.mySeat).toBe('S')
+    expect(view(amy)!.seats.N).toMatchObject({ robot: true })
+    expect(view(amy)!.board!.hands.S).toEqual(set.boards[1].hands.S)
+  })
 })
 
 describe('progress and coming back (e7-t12)', () => {
