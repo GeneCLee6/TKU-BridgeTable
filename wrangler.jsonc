@@ -16,5 +16,29 @@
   "vars": {
     // Account cap for the club; INVITE_CODE is a secret (wrangler secret put INVITE_CODE)
     "MAX_USERS": "10"
+  },
+  // Staging and PR previews (DEPLOY.md §2.1): separate Workers, so each has its own Durable Object
+  // namespace and storage and never touches production data. Pick one at build time with
+  // CLOUDFLARE_ENV=staging|preview (the Vite plugin bakes it into dist/); `wrangler deploy` then
+  // deploys the built config. Bindings and vars are not inherited from the top level: every
+  // Durable Object binding above must be repeated in each env below (migrations are shared).
+  // Secrets are per Worker too: these never get production's INVITE_CODE or ANTHROPIC_API_KEY.
+  "env": {
+    "staging": {
+      "name": "tku-bridge-table-staging",
+      "durable_objects": {
+        "bindings": [{ "name": "CLUB", "class_name": "Club" }]
+      },
+      "vars": { "MAX_USERS": "30" }
+    },
+    // Each pull request deploys its own Worker, tku-bridge-table-pr-<number> (`wrangler deploy --name`),
+    // deleted when the pull request closes
+    "preview": {
+      "name": "tku-bridge-table-preview",
+      "durable_objects": {
+        "bindings": [{ "name": "CLUB", "class_name": "Club" }]
+      },
+      "vars": { "MAX_USERS": "30" }
+    }
   }
 }
