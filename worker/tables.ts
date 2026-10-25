@@ -34,7 +34,14 @@ export interface TableEntry {
   /** A challenge table: whose and for which challenge */
   challenge?: { challengeId: string; userId: string }
   /** A team match room's table (§5.8): which match and room, and the teams' names for the lobby's list of matches */
-  match?: { matchId: string; room: Room; teamNames: [string, string]; ended?: boolean }
+  match?: {
+    matchId: string
+    room: Room
+    teamNames: [string, string]
+    ended?: boolean
+    /** When the board on the table was dealt, for the host's rulings on boards over the time limit (`e8-t15`) */
+    startedAt?: number
+  }
   /**
    * Grows with every report (`max(last + 1, now)`, so it never goes back after the table's object
    * is reloaded); the club drops a report older than the one it has
@@ -53,6 +60,23 @@ export interface Person {
 export interface Named {
   id: string
   username: string
+}
+
+/**
+ * What a team match's host changes at its tables while it is played (§5.8, `e8-t14`–`e8-t16`);
+ * each field optional, applied in this order
+ */
+export interface MatchTableUpdate {
+  /** Who has a seat in the match, by room, now (a substitute came in): kept out of the other room */
+  players?: Record<Room, string[]>
+  /** 替補: this member takes the seat; whoever sat there leaves the table */
+  replace?: { seat: Seat; person: Person }
+  /** 代打: a robot of the match's system sits in for the member in this seat until they come back */
+  sitIn?: Seat
+  /** The host ruled on this board: the room skips it, and puts it away if it is being played */
+  ruled?: number
+  /** Paused (true) or going on (false) */
+  paused?: boolean
 }
 
 /**
@@ -89,8 +113,13 @@ export interface TableApi {
   forget(userId: string): Promise<TableEntry | null>
   /** The table's challenge ended: it closes, unless its participant is still sitting after their last board */
   challengeEnded(): Promise<TableEntry | null>
-  /** The table's team match ended: nothing more is dealt, and it closes once nobody is left (a robots-only room at once) */
+  /**
+   * The table's team match ended: nothing more is dealt (a board being played is put away, when the
+   * match was abandoned), and it closes once nobody is left (a robots-only room at once)
+   */
   matchEnded(): Promise<TableEntry | null>
+  /** The match's host changed something at the table while the match is played */
+  matchUpdate(update: MatchTableUpdate): Promise<TableEntry | null>
   /** Closes the table (an admin, or a challenge that ended) */
   close(): Promise<void>
   /** A table action from a member at the table (bidding, play, chat, the host's seat changes) */
@@ -212,6 +241,9 @@ class RemoteTable implements TableApi {
   }
   matchEnded() {
     return this.call(this.rpc.matchEnded())
+  }
+  matchUpdate(update: MatchTableUpdate) {
+    return this.call(this.rpc.matchUpdate(update))
   }
   close() {
     return this.call(this.rpc.close())

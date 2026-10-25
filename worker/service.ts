@@ -76,7 +76,8 @@ import {
 import { ChallengeStore, type Challenge, type ChallengeResult } from './challenges.ts'
 import { ClubError } from './errors.ts'
 import { FeaturedService } from './featured.ts'
-import { TeamMatchService } from './team-match-service.ts'
+import { TeamMatchService, type MatchPlayAction } from './team-match-service.ts'
+import type { RoomClock } from './team-match-flow.ts'
 import { TeamMatchStore } from './team-matches.ts'
 import { teamTable } from './team-mode.ts'
 import { ROOMS, type Room, type TeamMatchView } from '../shared/team-match.ts'
@@ -249,6 +250,14 @@ const fixedTable = (mode: TableMode | undefined) =>
  * summaries (`hist:` for everyone, `uhist:<userId>:` per member), so listing a page of history
  * reads only that page no matter how many boards the club has played.
  */
+/** Whether a match table's room moved on in a way the match page shows: its board, or whom robots sit in for */
+const matchMoved = (before: TableEntry | undefined, after: TableEntry) =>
+  !before ||
+  before.boardNo !== after.boardNo ||
+  before.playing !== after.playing ||
+  before.match?.startedAt !== after.match?.startedAt ||
+  JSON.stringify(before.substitutes) !== JSON.stringify(after.substitutes)
+
 /** The challenge actions the pages send over HTTP (`ClubService.challengeRequest`) */
 export type ChallengeRequest = Extract<
   ClientMessage,
@@ -344,6 +353,8 @@ export class ClubService {
       send: (id, message) => this.connections.send(id, message),
       notify: (id, kind, params) => this.notifications.notify(id, kind, params),
       watchers: (matchId) => this.matchWatchers(matchId),
+      live: (matchId) => this.matchLive(matchId),
+      boardDetails: (matchId) => eventBoards(this.store.sql, matchId),
     })
     this.featured = new FeaturedService(store, {
       now: this.now,
@@ -1386,6 +1397,12 @@ export class ClubService {
         return
       case 'startMatch':
         return this.startMatch(userId, message.matchId)
+      case 'matchRule':
+      case 'matchPause':
+      case 'matchAbandon':
+      case 'matchReplace':
+      case 'matchSitIn':
+        return this.matchPlay(userId, message)
       default:
         // Bidding, play, chat and the host's seat changes belong to the member's table (§5.10)
         if (isTableAction(message)) return this.tableAction(userId, message)
@@ -2002,9 +2019,104 @@ export class ClubService {
    */
   private async endMatch(matchId: string) {
     await this.matches.finish(matchId)
+    await this.matchTablesEnded(matchId)
+  }
+
+  /** The match ended (finished or abandoned): its tables are told, and every board of it is shown to everyone */
+  private async matchTablesEnded(matchId: string) {
     for (const entry of [...this.directory.values()])
       if (entry.match?.matchId === matchId) this.applyResult(entry.id, await this.tables.get(entry.id).matchEnded())
     await this.revealRecords(revealEvent(this.store.sql, matchId, this.now()))
+  }
+
+  /** A match's tables in the directory, by room */
+  private matchTables(matchId: string): Partial<Record<Room, TableEntry>> {
+    const found: Partial<Record<Room, TableEntry>> = {}
+    for (const entry of this.directory.values()) if (entry.match?.matchId === matchId) found[entry.match.room] = entry
+    return found
+  }
+
+  /** Where each room of a match is and whom robots sit in for (代打), from the directory (§5.8) */
+  private matchLive(matchId: string): { rooms: Partial<Record<Room, RoomClock>>; sittingIn: string[] } {
+    const rooms: Partial<Record<Room, RoomClock>> = {}
+    const sittingIn: string[] = []
+    for (const [room, entry] of Object.entries(this.matchTables(matchId)) as [Room, TableEntry][]) {
+      const startedAt = entry.match?.startedAt
+      rooms[room] = { seq: entry.boardNo, playing: entry.playing, ...(startedAt !== undefined && { startedAt }) }
+      sittingIn.push(...Object.values(entry.substitutes).filter((id): id is string => !!id))
+    }
+    return { rooms, sittingIn }
+  }
+
+  /**
+   * What the host does while a match is played over HTTP (`POST /api/matches/:id/rule|pause|…`):
+   * the same shape checks and rate limit as the socket, in the member's lane; answers the match
+   * as they now see it
+   */
+  async matchPlayRequest(userId: string, message: MatchPlayAction): Promise<TeamMatchView | null> {
+    const parsed = parseClientMessage(JSON.stringify(message))
+    if ('error' in parsed) throw new ClubError(parsed.error)
+    if (!this.actionLimit.take(userId)) throw new ClubError('slowDown', {}, 429)
+    await this.inLane(userId, () => this.batch(() => this.matchPlay(userId, parsed.message as MatchPlayAction)))
+    this.broadcast()
+    return this.matches.get(String(message.matchId), userId)
+  }
+
+  /**
+   * The exceptions while a match is played (§5.8, `e8-t14`–`e8-t16`): the match's rules are checked
+   * and written by `TeamMatchService`; the club tells the tables (`matchUpdate`) and pushes the match
+   */
+  private async matchPlay(userId: string, message: MatchPlayAction) {
+    const matchId = String(message.matchId)
+    switch (message.type) {
+      case 'matchRule': {
+        // e8-t15: the room playing the board puts it away; the board is done, so its records are shown
+        const { seq, reveal, finished } = this.matches.rule(userId, message)
+        for (const entry of Object.values(this.matchTables(matchId)))
+          this.applyResult(entry.id, await this.tables.get(entry.id).matchUpdate({ ruled: seq }))
+        await this.revealRecords(revealBoards(this.store.sql, reveal, this.now()))
+        if (finished) await this.endMatch(matchId)
+        break
+      }
+      case 'matchPause': {
+        const { changed } = this.matches.pause(userId, matchId, message.paused)
+        if (changed)
+          for (const entry of Object.values(this.matchTables(matchId)))
+            this.applyResult(entry.id, await this.tables.get(entry.id).matchUpdate({ paused: message.paused }))
+        break
+      }
+      case 'matchAbandon':
+        await this.matches.abandon(userId, matchId)
+        await this.matchTablesEnded(matchId)
+        break
+      case 'matchReplace': {
+        // Someone watching the match has seen its boards: they may not come in (e11-t13)
+        const newcomer = message.userId
+        const watching = typeof newcomer === 'string' ? this.entryOf(newcomer) : undefined
+        if (watching?.match?.matchId === matchId && watching.spectators.includes(newcomer) && this.matches.get(matchId, userId))
+          throw new ClubError('matchWatching', { name: this.users.get(newcomer)?.username ?? '' })
+        const replaced = await this.matches.replace(userId, message)
+        await this.leave(replaced.newcomer)
+        const user = this.users.get(replaced.newcomer)!
+        const person = { id: user.id, username: user.username, blocked: this.blocks.of(user.id) }
+        for (const [room, entry] of Object.entries(this.matchTables(matchId)) as [Room, TableEntry][])
+          this.applyResult(
+            entry.id,
+            await this.tables.get(entry.id).matchUpdate({
+              players: replaced.players,
+              ...(room === replaced.room && { replace: { seat: replaced.seat, person } }),
+            }),
+          )
+        break
+      }
+      case 'matchSitIn': {
+        const { at } = this.matches.sitIn(userId, message)
+        const entry = this.matchTables(matchId)[at.room]
+        if (entry) this.applyResult(entry.id, await this.tables.get(entry.id).matchUpdate({ sitIn: at.seat }))
+        break
+      }
+    }
+    this.matches.push(matchId)
   }
 
   /** Rewrites the records whose index rows were just brought forward, so they read as shown from now */
@@ -2242,6 +2354,8 @@ export class ClubService {
     // Tables in their own objects: the directory is kept, so the lobby lists them after an eviction
     // without waking every table
     if (this.remote) void this.store.put(`tabledir:${entry.id}`, entry)
+    // A match room dealt a board or a robot sat in for someone: the match page shows it (§5.8)
+    if (entry.match && !entry.match.ended && matchMoved(known, entry)) this.matches.push(entry.match.matchId)
     if (!this.busy) this.broadcast()
   }
 

@@ -35,10 +35,10 @@ import { challengeStandings, hasFinished } from './challenge-flow.ts'
 import type { Challenge } from './challenges.ts'
 import type { Traveller } from '../shared/traveller.ts'
 import type { EventBoard } from './history-index.ts'
-import { teamAt, type MatchBoardView, type TeamMatchView } from '../shared/team-match.ts'
+import { teamAt, type MatchBoardView, type MatchRoomView, type TeamMatchView } from '../shared/team-match.ts'
 import { scoreTeamMatch } from '../shared/team-scoring.ts'
 import { isMatchPlayer } from './team-match-flow.ts'
-import { boardScores, type TeamMatch } from './team-matches.ts'
+import { boardScores, type RoomResult, type TeamMatch } from './team-matches.ts'
 
 /** A table as the Worker keeps it */
 export interface Table {
@@ -376,12 +376,14 @@ export function challengeView(
  * kibitzers may watch both tables) or over, never while it is set up or after it was cancelled.
  * The deals are never sent. A board is shown only once it has a result (both rooms played it, or
  * the host ruled on it): one room's score alone would tell the other room's players how the board
- * went before they play it
+ * went before they play it. Each room's result carries the contract and the declarer's tricks from
+ * the history index (`details`, the match's rows) and its opening lead, for the result page (`e8-t12`)
  */
 export function teamMatchView(
   match: TeamMatch,
   userId: string,
   userById: (id: string) => PublicUser | undefined,
+  details?: Map<string, EventBoard>,
 ): TeamMatchView | null {
   const m = match
   const outsiderMaySee = m.status === 'playing' || m.status === 'finished' || m.status === 'abandoned'
@@ -394,10 +396,19 @@ export function teamMatchView(
   for (const [i, result] of score.boards.entries()) {
     if (!result) continue
     const board = m.boards.find((b) => b.seq === i + 1)
+    const room = (r: RoomResult): MatchRoomView => {
+      const found = details?.get(r.boardId)
+      return {
+        boardId: r.boardId,
+        scoreNS: r.scoreNS,
+        ...(found && { contract: found.contract, declarerTricks: found.declarerTricks }),
+        ...(r.lead && { lead: r.lead }),
+      }
+    }
     boards.push({
       seq: i + 1,
-      ...(board?.open && { open: { boardId: board.open.boardId, scoreNS: board.open.scoreNS } }),
-      ...(board?.closed && { closed: { boardId: board.closed.boardId, scoreNS: board.closed.scoreNS } }),
+      ...(board?.open && { open: room(board.open) }),
+      ...(board?.closed && { closed: room(board.closed) }),
       ...(board?.ruling && { ruling: { kind: board.ruling.kind, team: board.ruling.team, reason: board.ruling.reason } }),
       result,
     })
@@ -412,6 +423,7 @@ export function teamMatchView(
     settings: m.settings,
     captains: m.captains,
     ...(m.status === 'playing' && m.tables && { tables: m.tables }),
+    ...(m.status === 'playing' && m.pausedAt !== undefined && { pausedAt: m.pausedAt }),
     seats: m.seats.map((s) => {
       const user = s.userId === undefined ? undefined : userById(s.userId)
       return {
