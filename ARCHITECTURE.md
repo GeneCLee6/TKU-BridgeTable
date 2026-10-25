@@ -39,6 +39,8 @@ TKU-BridgeTable/
 │  ├─ lin.ts               BBO LIN 匯出與 Handviewer 連結
 │  ├─ messages.ts          錯誤代碼與六種語言的訊息
 │  ├─ protocol.ts          HTTP／WebSocket 的訊息與畫面型別
+│  ├─ message-guard.ts     WebSocket 訊息的大小上限與型別守衛（§5.6）
+│  ├─ scrub.ts             錯誤回報去除個資（§5.6）
 │  └─ robot/               機器人：robots（兩種機器人與各自的叫牌）、hand（牌型分析）、
 │                          play（坐莊、防守信號）、system/（制度引擎與 2/1 制度：規則書、GIB 的牌力、說明、推論，
 │                          `ROBOT.md` §6）
@@ -52,6 +54,9 @@ TKU-BridgeTable/
 │  ├─ history-index.ts     紀錄的 SQL 索引：建表、寫入、搜尋（§5.3）
 │  ├─ notifications.ts     通知中心（§5.4）
 │  ├─ relations.ts         好友與封鎖名單（§5）
+│  ├─ log.ts               結構化日誌（§5.6）
+│  ├─ rate-limit.ts        速率限制（§5.6）
+│  ├─ client-errors.ts     瀏覽器錯誤回報的檢查（§5.6）
 │  ├─ challenges.ts        挑戰的 SQL 表與 ChallengeStore（§5.5）
 │  ├─ challenge-flow.ts    挑戰的狀態轉移（建立、回覆、取消、截止）：純函式，ClubService 寫回（§5.5）
 │  ├─ modes.ts             牌桌模式（casual、challenge）與三個掛勾（發新一副、寫紀錄、一副結束）
@@ -126,7 +131,7 @@ interface BoardState {
 
 ## 5. 通訊與儲存
 
-**HTTP**：`GET /api/challenges`（我參與的挑戰，新的在前）、`/api/challenges/:id`（§5.5）、`POST /api/register`（第一個帳號直接登入，之後回 202 `{ pending }`）、`/api/login`、`/api/logout`、`/api/password/reset`（忘記密碼）、`/api/account/password`；`GET /api/me`（含 `permissions`，管理員另有 `applications` 待審核數）、`/api/history?scope=all&page=<n>&size=<10|20|50|100>`（回傳該頁與總數）、`/api/history/search?<條件>`（§5.3）、`/api/history/:id`。管理員：`GET/POST /api/admin/users`、`POST /api/admin/users/:id/password`、`POST /api/admin/users/:id/admin`、`POST /api/admin/users/:id/permissions`、`DELETE /api/admin/users/:id`、`GET /api/admin/applications`、`POST /api/admin/applications/:id/approve`、`DELETE /api/admin/applications/:id`、`GET/POST /api/admin/settings`、`DELETE /api/admin/tables/:id`。淡江橋譜的 `/api/book/*` 見 §5.2。session 放在 HttpOnly、SameSite=Lax 的 cookie（`tbt_session`）。錯誤回應帶 `code` 與 `params`（`shared/messages.ts`），瀏覽器依語言顯示。
+**HTTP**：`GET /api/challenges`（我參與的挑戰，新的在前）、`/api/challenges/:id`（§5.5）、`POST /api/register`（第一個帳號直接登入，之後回 202 `{ pending }`）、`/api/login`、`/api/logout`、`/api/password/reset`（忘記密碼）、`/api/account/password`；`GET /api/me`（含 `permissions`，管理員另有 `applications` 待審核數）、`/api/history?scope=all&page=<n>&size=<10|20|50|100>`（回傳該頁與總數）、`/api/history/search?<條件>`（§5.3）、`/api/history/:id`。維運：`GET /api/health`、`POST /api/client-errors`（§5.6，都不需登入）。管理員：`GET/POST /api/admin/users`、`POST /api/admin/users/:id/password`、`POST /api/admin/users/:id/admin`、`POST /api/admin/users/:id/permissions`、`DELETE /api/admin/users/:id`、`GET /api/admin/applications`、`POST /api/admin/applications/:id/approve`、`DELETE /api/admin/applications/:id`、`GET/POST /api/admin/settings`、`DELETE /api/admin/tables/:id`。淡江橋譜的 `/api/book/*` 見 §5.2。session 放在 HttpOnly、SameSite=Lax 的 cookie（`tbt_session`）。錯誤回應帶 `code` 與 `params`（`shared/messages.ts`），瀏覽器依語言顯示。
 
 **WebSocket** `/ws`（同網域，帶 cookie 驗證）：
 
@@ -169,6 +174,14 @@ interface BoardState {
 每個動作處理完立即寫回，物件隨時被回收都不會遺失牌局。紀錄列表一次只讀到那一頁為止（每頁 10／20／50／100 筆摘要）。
 
 **容量**：免費方案每個帳號 5 GB；一副牌的紀錄連同兩筆索引約 4 KB，大約可存一百萬副以上。
+
+### 5.6 可觀測性與輸入防護（`e11-t08`～`e11-t11`）
+
+- **結構化日誌**（`worker/log.ts`）：每個事件一行 JSON，Workers Logs（`wrangler.jsonc` 的 `observability`）依欄位索引。`action`：WebSocket 動作的種類、userId、耗時（ms，含廣播）、失敗時的錯誤代碼；`rejected`：沒進到處理函式的訊息（格式、大小、速率）；`http`：每個請求的方法、路徑（不含 query）、狀態、耗時、錯誤代碼；`loginLocked`；`clientError`；`crash`（不是 `ClubError`／`GameError` 的例外，層級 error）。**不記密碼、token、cookie、聊天內容。** `ClubService` 只拿到 `ClubConfig.log` 這個函式，不碰 Cloudflare API；測試傳陣列收集
+- **健康檢查** `GET /api/health`（不需登入）：`{ ok, now, tables, online }`，只有數量；回得來表示 Worker 與 Durable Object 都載入了
+- **前端錯誤回報**（`src/lib/errorReport.ts`）：`window` 的 `error` 與 `unhandledrejection` → `POST /api/client-errors`（`sendBeacon`，不需登入）。瀏覽器送之前去除個資（`shared/scrub.ts`：URL 的 query 與 fragment、e-mail、6 位以上的數字；只送路徑不送網址參數；不帶 userId），同一個錯誤只送一次、每頁最多 5 則、取樣比例 `REPORT_SAMPLE_RATE`（社團小，目前 100%）。伺服器（`worker/client-errors.ts`）只留已知欄位、截斷長度、再去除一次個資，全社團每秒最多約 1 則（突發 20 則）寫進日誌，不存資料庫
+- **訊息驗證**（`shared/message-guard.ts` 的 `parseClientMessage`）：WebSocket 訊息在 `ClubService.handleRaw` 入口檢查：最多 `MESSAGE_MAX_CHARS`（8,192 字元，二進位訊息只解碼到超過上限為止）、是 JSON 物件、`type` 是 1–40 個英文字母、已知種類的欄位型別對（型別守衛）。不合法就回 `error`（`messageTooLarge`／`badMessage`），不會進到處理函式。**沒有列在守衛裡的新種類只做形狀檢查**，所以新動作不必先改守衛；值的檢查（座位、範圍、權限）仍在各處理函式。HTTP 的 JSON 本文上限 2 MiB（`Content-Length`），超過回 413 `messageTooLarge`
+- **速率限制**（`worker/rate-limit.ts`，記在記憶體，物件被回收就重算）：每位社員（所有分頁合計）的訊息 token bucket，突發 30、每秒 10（重連時補送的動作要過得去），超過回 `slowDown` 並丟掉；聊天另外突發 5、每 2 秒 1 句，超過回 `chatTooFast`；密碼錯誤以「來源 IP（`CF-Connecting-IP`）＋帳號」計 5 次、單一 IP 計 20 次，15 分鐘內再登入回 429 `tooManyLogins`（連密碼對了也一樣），密碼對了就清掉該帳號的次數。不鎖整個帳號，避免陌生人從別處把社員鎖在外面。速率只在 socket 入口（`handleRaw`）檢查，`handle` 本身不限，測試與機器人照常
 
 ## 5.5 挑戰（決策紀錄，`e7-t01`，2026-10-24）
 

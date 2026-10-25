@@ -61,10 +61,10 @@ M0 跑在 Cloudflare 免費方案：一個 Worker 加一個 SQLite 後端的 Dur
 
 **M1 · 可觀測、備份、防濫用、環境**
 
-- [ ] `e11-t08` 結構化日誌（動作、錯誤代碼、耗時）、`/api/health` · AC-11.5 · S
-- [ ] `e11-t09` 前端錯誤回報：`window.onerror`／未處理的 Promise → `/api/client-errors`（取樣、去除個資）· AC-11.5 · S
-- [ ] `e11-t10` WebSocket 訊息驗證：`shared/protocol.ts` 的型別守衛、訊息大小上限，不合法直接回 `error` · AC-11.7 · S
-- [ ] `e11-t11` 速率限制：每連線每秒動作數、聊天洪水、登入失敗次數 · AC-11.7 · S · ← e11-t10
+- [x] `e11-t08` 結構化日誌（動作、錯誤代碼、耗時）、`/api/health` · AC-11.5 · S
+- [x] `e11-t09` 前端錯誤回報：`window.onerror`／未處理的 Promise → `/api/client-errors`（取樣、去除個資）· AC-11.5 · S
+- [x] `e11-t10` WebSocket 訊息驗證：`shared/protocol.ts` 的型別守衛、訊息大小上限，不合法直接回 `error` · AC-11.7 · S
+- [x] `e11-t11` 速率限制：每連線每秒動作數、聊天洪水、登入失敗次數 · AC-11.7 · S · ← e11-t10
 - [ ] `e11-t12` 每日備份：Durable Object 匯出 JSON Lines 到 R2（保留 30 天）、還原指令、第一次還原演練紀錄 · AC-11.6 · M
 - [ ] `e11-t13` 資訊隔離回歸測試套件：`tests/worker/visibility/` 集中測試每種模式 × 每種角色看得到什麼（一般、挑戰、隊制賽、練習）· AC-11.8 · M · ← e7-t14, e8-t09
 - [ ] `e11-t14` PR 預覽部署：`wrangler versions upload`＋預覽網址留言在 PR · AC-11.9 · S
