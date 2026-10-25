@@ -23,6 +23,11 @@ export const isMajor = (s: Strain | undefined): s is Suit => s === 'S' || s === 
 export const other = (major: Suit): Suit => (major === 'S' ? 'H' : 'S')
 
 export const plus = (min: number): Range => [min, ANY]
+
+/** Opener's strength (淡江自然制總覽「牌力範圍」13–15／16–18／19–21, from 12 points: 待社團確認) */
+export const MINIMUM: Range = [12, 15]
+export const MEDIUM: Range = [16, 18]
+export const MAXIMUM: Range = [19, 21]
 export const length = (s: Suit, min: number, max = 13): Partial<Record<Suit, Range>> => ({ [s]: [min, max] })
 
 /** A rule: `when` decides (the specification only describes); no `when` always fits */

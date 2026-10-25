@@ -3,12 +3,13 @@ import type { Suit } from '../../../cards.ts'
 import type { Ctx } from '../context.ts'
 import type { Hand } from '../evaluate.ts'
 import type { Book, Rule, Spec } from '../spec.ts'
-import { aces, answer, bid, cheapestOr, contested, isMajor, isSuit, length, longest, MAJORS, onlyIf, ORDER, opened, ours, partnerOpened, pass, plus, rule, topThree } from './util.ts'
+import { twoClubs } from './twoclubs.ts'
+import { aces, answer, answerIs, bid, contested, isMajor, isSuit, length, MAJORS, MAXIMUM, MEDIUM, MINIMUM, onlyIf, ORDER, opened, ours, partnerOpened, pass, plus, rule, topThree } from './util.ts'
 
 /**
  * 5542 自然制 (淡江橋譜「答叫：1♣ ?」「答叫：1♦ ?」 from the club's old handbook, 5542 where it says
- * nothing): the answers to 1♣/1♦ and opener's rebid, 2♣ strong with the 2♦ waiting bid, the
- * answers to 2NT and to a preempt.
+ * nothing): the answers to 1♣/1♦ and opener's rebid, the answers to 2NT and to a preempt; 2♣ strong
+ * is in `twoclubs.ts`.
  */
 
 // ── 1♣ / 1♦ ──────────────────────────────────────────────────────────────────────────────────
@@ -97,15 +98,27 @@ const weakJump = (mine: Suit, call: Call) => {
   return isSuit(t) && t !== mine && levelOf(call) > newSuitLevel(mine, t)
 }
 
-/** Opener's rebid after partner's answer to 1♣/1♦ */
+/** The first side suit (not `a` or `b`) with at most one card, from ♣ up */
+const shortBesides = (h: Hand, a: Suit, b: Suit): Suit | undefined => ORDER.find((x) => x !== a && x !== b && h.len[x] <= 1)
+
+/** The cheapest level for suit `x` over a one-level answer in `s` */
+const levelOver = (s: Suit, x: Suit) => (ORDER.indexOf(x) > ORDER.indexOf(s) ? 1 : 2)
+
+/**
+ * Opener's rebid after partner's answer to 1♣/1♦ (淡江橋譜「開叫1♣之後續發展」「開叫1♦之後續發展」):
+ * 12–15 minimum, 16–18 invitational (the reverse, the jump rebid, the jump raise), 19–21 game
+ * forcing (the jump shift, splinter, the raise to game, 3NT).
+ */
 function minorRebids(mine: Suit, inverted = INVERTED_MINORS): Book {
   const level = (ctx: Ctx) => levelOf(answer(ctx))
   const strain = (ctx: Ctx) => strainOf(answer(ctx))
   const raised = (ctx: Ctx) => strain(ctx) === mine
   const notrump = (ctx: Ctx) => strain(ctx) === 'N'
-  const newSuit = (ctx: Ctx) => isSuit(strain(ctx)) && strain(ctx) !== mine
   const at = (test: (ctx: Ctx) => boolean, call: Call | ((ctx: Ctx) => Call | null)) => onlyIf(test, call)
   const invertedRaise = (ctx: Ctx) => inverted && answer(ctx) === bid(2, mine)
+  const clubs = mine === 'C'
+  const higher = ORDER.filter((x) => ORDER.indexOf(x) > ORDER.indexOf(mine))
+  const five = (h: Hand) => h.len[mine] >= 5
   const rules: Rule[] = [
     // A weak jump shift: partner has five points at most, so opener passes
     rule(at((ctx) => weakJump(mine, answer(ctx)), 'P')),
@@ -114,9 +127,7 @@ function minorRebids(mine: Suit, inverted = INVERTED_MINORS): Book {
       ? [
           rule(at(invertedRaise, '3N'), { hcp: [18, 19], balanced: true }, (h) => h.balanced && h.hcp >= 18),
           rule(at(invertedRaise, '2N'), { hcp: [12, 14], balanced: true, notes: [{ key: 'minimum' }] }, (h) => h.balanced && h.hcp <= 14),
-          ...ORDER.filter((x) => ORDER.indexOf(x) > ORDER.indexOf(mine)).map((x) =>
-            rule(at(invertedRaise, bid(2, x)), { len: length(x, 4), hcp: plus(15) }, (h) => h.hcp >= 15 && h.len[x] >= 4),
-          ),
+          ...higher.map((x) => rule(at(invertedRaise, bid(2, x)), { len: length(x, 4), hcp: plus(15) }, (h) => h.hcp >= 15 && h.len[x] >= 4)),
           rule(at(invertedRaise, bid(3, mine)), { notes: [{ key: 'minimum' }] }),
         ]
       : []),
@@ -126,66 +137,98 @@ function minorRebids(mine: Suit, inverted = INVERTED_MINORS): Book {
     rule(at(raised, '3N'), { hcp: plus(18) }, (h) => h.hcp >= 18),
     rule(at(raised, bid(3, mine)), { hcp: [16, 17], notes: [{ key: 'invite' }] }, (h) => h.hcp >= 16),
     rule(at(raised, 'P')),
-    // Partner bid notrump
-    rule(at((ctx) => notrump(ctx) && level(ctx) >= 3, 'P')),
-    rule(at((ctx) => notrump(ctx) && level(ctx) === 2, '3N'), { hcp: plus(13), notes: [{ key: 'accept' }] }, (h) => h.hcp >= 13),
-    rule(at((ctx) => notrump(ctx) && level(ctx) === 2, 'P')),
-    rule(at(notrump, '3N'), { hcp: plus(18) }, (h) => h.hcp >= 18),
-    rule(at(notrump, '2N'), { hcp: [16, 17], balanced: true, notes: [{ key: 'invite' }] }, (h) => h.hcp >= 16 && h.balanced),
-    rule(at(notrump, bid(2, mine)), { len: length(mine, 6), notes: [{ key: 'minimum' }] }, (h) => h.len[mine] >= 6),
-    rule(at(notrump, 'P')),
   ]
-  // Partner bid a new suit: raise with four
-  for (const s of ORDER.filter((x) => x !== mine)) {
-    const isS = (ctx: Ctx) => strain(ctx) === s
-    const four = (h: Hand) => h.len[s] >= 4
-    if (isMajor(s)) rules.push(rule(at(isS, bid(4, s)), { len: length(s, 4), hcp: [18, 21] }, (h) => four(h) && h.hcp >= 18))
+
+  // 1NT (6–9) and 2NT (10–12): 「1♣ 1NT ?」「1♦ 1NT ?」「1♣ 2NT ?」
+  const isN = (n: number) => (ctx: Ctx) => notrump(ctx) && level(ctx) === n
+  rules.push(rule(at((ctx) => notrump(ctx) && level(ctx) >= 3, 'P')))
+  for (const x of ORDER.filter((y) => y !== mine))
     rules.push(
-      rule(at(isS, (ctx) => bid(level(ctx) + 1, s)), { len: length(s, 4), hcp: [15, 17], notes: [{ key: 'invite' }] }, (h) => four(h) && h.hcp >= 15),
-      // After a two-level answer this is partner's own call: the robot passes (it is not legal)
-      rule(at(isS, (ctx) => bid(level(ctx) === 1 ? 2 : level(ctx), s)), { len: length(s, 4), hcp: [12, 14] }, four),
+      rule(at(isN(2), bid(3, x)), { len: { [mine]: [5, 13], [x]: [4, 13] }, hcp: plus(16), notes: [{ key: 'slamInterest' }] }, (h) => !h.balanced && five(h) && h.len[x] >= 4 && h.hcp >= 16),
+    )
+  rules.push(
+    rule(at(isN(2), '3N'), { hcp: plus(13), notes: [{ key: 'accept' }] }, (h) => h.hcp >= 14 || (h.hcp >= 13 && h.balanced)),
+    rule(at(isN(2), bid(3, mine)), { len: length(mine, 5), notes: [{ key: 'minimum' }] }, (h) => !h.balanced && five(h)),
+    rule(at(isN(2), 'P')),
+    // Over 1NT: 3NT and jump shifts 19–21, reverses and 2NT 16–18
+    ...ORDER.filter((x) => x !== mine && (clubs || x === 'C')).map((x) =>
+      rule(at(isN(1), bid(3, x)), { len: length(x, 4), hcp: MAXIMUM, forcing: 'game' }, (h) => h.hcp >= 19 && five(h) && h.len[x] >= 4),
+    ),
+    rule(at(isN(1), '3N'), { hcp: MAXIMUM }, (h) => h.hcp >= 19),
+    ...higher.map((x) => rule(at(isN(1), bid(2, x)), { name: 'reverse', len: { [mine]: [5, 13], [x]: [4, 13] }, hcp: clubs ? MEDIUM : [16, 21], forcing: 'oneRound' }, (h) => h.hcp >= 16 && five(h) && h.len[x] >= 4)),
+    rule(at(isN(1), '2N'), { hcp: MEDIUM, balanced: true, notes: [{ key: 'invite' }] }, (h) => h.hcp >= 16 && h.balanced),
+    rule(at(isN(1), bid(3, mine)), { len: length(mine, 6), hcp: MEDIUM, notes: [{ key: 'invite' }] }, (h) => h.hcp >= 16 && h.len[mine] >= 6),
+  )
+  if (!clubs) rules.push(rule(at(isN(1), '2C'), { len: { D: [5, 13], C: [4, 13] }, hcp: [12, 18] }, (h) => five(h) && h.len.C >= 4))
+  rules.push(
+    rule(at(isN(1), bid(2, mine)), { len: length(mine, clubs ? 5 : 6), hcp: MINIMUM }, (h) => !h.balanced && h.len[mine] >= (clubs ? 5 : 6)),
+    rule(at(isN(1), 'P')),
+  )
+
+  // 1♦–2♣, a 2/1 game force: 「1♦ 2♣ ?」
+  if (!clubs) {
+    const gf = answerIs('2C')
+    rules.push(
+      ...MAJORS.map((x) => rule(at(gf, bid(2, x)), { name: 'reverse', len: { D: [5, 13], [x]: [4, 13] }, hcp: [16, 21] }, (h) => h.hcp >= 16 && five(h) && h.len[x] >= 4)),
+      rule(at(gf, '3D'), { len: length('D', 6), hcp: plus(16) }, (h) => h.hcp >= 16 && h.len.D >= 6),
+      rule(at(gf, '3C'), { len: length('C', 4), hcp: plus(16), notes: [{ key: 'support', strain: 'C' }] }, (h) => h.hcp >= 16 && h.len.C >= 4),
+      rule(at(gf, '2N'), { hcp: MINIMUM, balanced: true }, (h) => h.balanced && h.hcp <= 15),
+      rule(at(gf, '2D'), { len: length('D', 4), notes: [{ key: 'minimum' }] }),
     )
   }
-  rules.push(
-    rule(at((ctx) => strain(ctx) === 'H', '1S'), { len: { H: [0, 3], S: [4, 13] } }, (h) => h.len.S >= 4),
-    rule(at(newSuit, '2N'), { hcp: [18, 19], balanced: true }, (h) => h.balanced && h.hcp >= 18),
-    rule(at((ctx) => newSuit(ctx) && level(ctx) === 1, '1N'), { hcp: [12, 14], balanced: true }, (h) => h.balanced),
-    rule(at((ctx) => newSuit(ctx) && level(ctx) !== 1, '2N'), { balanced: true }, (h) => h.balanced),
-    rule(at(newSuit, (ctx) => cheapestOr(ctx, mine)), { len: length(mine, 6) }, (h) => h.len[mine] >= 6),
-  )
-  // A lower four-card suit (clubs after 1♦)
-  for (const x of ORDER.filter((y) => ORDER.indexOf(y) < ORDER.indexOf(mine)))
-    rules.push(
-      rule(at((ctx) => newSuit(ctx) && strain(ctx) !== x, (ctx) => cheapestOr(ctx, x)), { len: length(x, 4) }, (h, ctx) =>
-        ORDER.find((y) => y !== mine && y !== strain(ctx) && h.len[y] >= 4 && ORDER.indexOf(y) < ORDER.indexOf(mine)) === x,
-      ),
+
+  // A new suit at the one level: 「1♣ 1♦／1♥／1♠ ?」「1♦ 1♥／1♠ ?」
+  for (const s of higher) {
+    const here = (ctx: Ctx) => strain(ctx) === s && level(ctx) === 1
+    const four = (h: Hand) => h.len[s] >= 4
+    const support: Rule[] = []
+    // Raises: splinter or game 19–21, the jump raise 16–18, the single raise 12–15
+    for (const x of ORDER.filter((y) => y !== s && y !== mine))
+      support.push(
+        rule(
+          at(here, bid(levelOver(s, x) + 2, x)),
+          { name: 'splinter', len: length(s, 4), hcp: MAXIMUM, notes: [{ key: 'shortIn', strain: x }] },
+          (h) => four(h) && h.hcp >= 19 && shortBesides(h, s, mine) === x,
+        ),
+      )
+    if (isMajor(s)) support.push(rule(at(here, bid(4, s)), { len: length(s, 4), hcp: MAXIMUM, notes: [{ key: 'noShortness' }, { key: 'game' }] }, (h) => four(h) && h.hcp >= 19))
+    support.push(
+      rule(at(here, bid(3, s)), { len: length(s, 4), hcp: isMajor(s) ? MEDIUM : plus(16), notes: [{ key: 'invite' }] }, (h) => four(h) && h.hcp >= 16),
+      rule(at(here, bid(2, s)), { len: length(s, 4), hcp: MINIMUM }, four),
     )
-  rules.push(rule(at(newSuit, (ctx) => cheapestOr(ctx, mine, '1N')), { len: length(mine, 4) }))
+    const majors: Rule[] = []
+    for (const x of higher.filter((y) => isMajor(y) && ORDER.indexOf(y) > ORDER.indexOf(s))) {
+      // The jump shift 19–21 (five of our minor), otherwise the major at the one level (4-4: hearts)
+      const first = (h: Hand) => (h.len.H >= 4 && s !== 'H' && x === 'S' ? false : h.len[x] >= 4)
+      majors.push(
+        rule(at(here, bid(2, x)), { len: { [mine]: [5, 13], [x]: [4, 13] }, hcp: MAXIMUM, forcing: 'game' }, (h) => h.hcp >= 19 && five(h) && first(h)),
+        rule(at(here, bid(1, x)), { len: length(x, 4), hcp: [12, 18], forcing: 'oneRound' }, first),
+      )
+    }
+    // Over a major the raise comes first; over 1♦ (1♣ 1♦) the majors at the one level do
+    rules.push(...(isMajor(s) ? [...support, ...majors] : [...majors, ...support]))
+    rules.push(rule(at(here, '2N'), { hcp: [18, 19], balanced: true }, (h) => h.balanced && h.hcp >= 18))
+    // 1♣: 3NT with a solid six-card club suit
+    if (clubs) rules.push(rule(at(here, '3N'), { len: length('C', 6), quality: { C: 'solid' }, hcp: [12, 18] }, (h) => h.len.C >= 6 && topThree(h, 'C') === 3 && h.hcp <= 18))
+    // Jump shifts at the three level (19–21) and reverses (16+)
+    for (const x of ORDER.filter((y) => y !== s && y !== mine && levelOver(s, y) === 2)) {
+      if (clubs || x === 'C')
+        rules.push(rule(at(here, bid(3, x)), { len: { [mine]: [5, 13], [x]: [4, 13] }, hcp: MAXIMUM, forcing: 'game' }, (h) => h.hcp >= 19 && five(h) && h.len[x] >= 4))
+      if (ORDER.indexOf(x) > ORDER.indexOf(mine))
+        rules.push(
+          rule(at(here, bid(2, x)), { name: 'reverse', len: { [mine]: [5, 13], [x]: [4, 13] }, hcp: clubs ? MEDIUM : [16, 21], forcing: 'oneRound' }, (h) => h.hcp >= 16 && five(h) && h.len[x] >= 4),
+        )
+    }
+    rules.push(rule(at(here, bid(3, mine)), { len: length(mine, 6), hcp: MEDIUM, notes: [{ key: 'invite' }] }, (h) => h.hcp >= 16 && h.len[mine] >= 6))
+    if (!clubs) rules.push(rule(at(here, '2C'), { len: length('C', 4), hcp: [12, 18] }, (h) => h.len.C >= 4 && h.hcp <= 18))
+    rules.push(
+      rule(at(here, '1N'), { hcp: [12, 14], balanced: true }, (h) => h.balanced && h.hcp <= 14),
+      rule(at(here, '3N'), { hcp: MAXIMUM, notes: [{ key: 'toPlay' }] }, (h) => h.hcp >= 19),
+      rule(at(here, bid(2, mine)), { len: length(mine, clubs ? 5 : 6), hcp: MINIMUM }, (h) => h.len[mine] >= (clubs ? 5 : 6)),
+      rule(at(here, '1N'), { hcp: [12, 15] }),
+    )
+  }
   return { after: `1${mine} (P) * (P)`, only: (ctx) => answer(ctx) !== 'P', rules }
-}
-
-// ── 2♣ strong ────────────────────────────────────────────────────────────────────────────────
-
-const twoClubResponses: Book = {
-  after: '2C (P)',
-  rules: [
-    ...(['S', 'H', 'D', 'C'] as const).map((s) =>
-      rule(isMajor(s) ? bid(2, s) : bid(3, s), { len: length(s, 5), hcp: plus(8), notes: [{ key: 'positive' }] }, (h) => h.hcp >= 8 && longest(h) === s && h.len[s] >= 5),
-    ),
-    rule('2N', { hcp: plus(8), notes: [{ key: 'positive' }] }, (h) => h.hcp >= 8),
-    rule('2D', { name: 'waiting', hcp: [0, 7], artificial: true }),
-  ],
-}
-
-const twoClubRebids: Book = {
-  after: '2C (P) 2D (P)',
-  rules: [
-    rule('3N', { hcp: plus(25), balanced: true }, (h) => h.balanced && h.hcp >= 25),
-    rule('2N', { hcp: [22, 24], balanced: true }, (h) => h.balanced),
-    ...(['S', 'H', 'D', 'C'] as const).map((s) =>
-      rule(isMajor(s) ? bid(2, s) : bid(3, s), { len: length(s, 5), hcp: plus(22), forcing: 'oneRound' }, (h) => longest(h) === s),
-    ),
-  ],
 }
 
 // ── 2NT ──────────────────────────────────────────────────────────────────────────────────────
@@ -220,5 +263,5 @@ const preemptResponses: Book = {
 }
 
 export const minors: Book[] = [minorResponses('C'), minorResponses('D'), minorRebids('C'), minorRebids('D')]
-export const strong: Book[] = [twoClubResponses, twoClubRebids, twoNotrumpResponses, preemptResponses]
+export const strong: Book[] = [...twoClubs, twoNotrumpResponses, preemptResponses]
 

@@ -13,6 +13,9 @@ import {
   isSuit,
   length,
   MAJORS,
+  MAXIMUM,
+  MEDIUM,
+  MINIMUM,
   onlyIf,
   ORDER,
   other,
@@ -138,48 +141,71 @@ function openerRebids(m: Suit): Book {
     )
   rules.push(rule(onlyIf(raised, bid(3, m)), { hcp: [16, 18], notes: [{ key: 'invite' }] }, (h) => h.hcp >= 16), rule(onlyIf(raised, 'P')))
 
-  // 1NT forcing one round: always rebid
+  // 1NT forcing one round, always rebid (淡江橋譜「1NT迫叫之後開叫者再叫」): 19–21 game, 3NT or a
+  // jump shift; 16–18 the jump rebid, the reverse 2♠ or 2NT; 12–15 the six-card major or a minor
   const forcing = answerIs('1N')
   rules.push(
-    rule(onlyIf(forcing, bid(3, m)), { len: length(m, 6), hcp: [16, 18] }, (h) => h.len[m] >= 6 && h.hcp >= 16),
-    rule(onlyIf(forcing, bid(2, m)), { len: length(m, 6), hcp: [12, 15] }, (h) => h.len[m] >= 6),
+    rule(onlyIf(forcing, game), { len: length(m, 6), hcp: MAXIMUM, notes: [{ key: 'game' }] }, (h) => h.len[m] >= 6 && h.hcp >= 19),
+    rule(onlyIf(forcing, bid(3, m)), { len: length(m, 6), hcp: MEDIUM, notes: [{ key: 'invite' }] }, (h) => h.len[m] >= 6 && h.hcp >= 16),
+    rule(onlyIf(forcing, '3N'), { hcp: MAXIMUM, balanced: true }, (h) => h.balanced && h.hcp >= 19),
+    ...ORDER.filter((x) => x !== m && x !== 'S').map((x) =>
+      rule(onlyIf(forcing, bid(3, x)), { len: length(x, 4), hcp: MAXIMUM, forcing: 'game' }, (h) => h.len[x] >= 4 && h.hcp >= 19),
+    ),
   )
-  if (spades) rules.push(rule(onlyIf(forcing, '2H'), { len: length('H', 4), hcp: [12, 17] }, (h) => h.len.H >= 4))
+  if (spades) rules.push(rule(onlyIf(forcing, '2H'), { len: length('H', 4), hcp: [12, 18] }, (h) => h.len.H >= 4))
+  else rules.push(rule(onlyIf(forcing, '2S'), { name: 'reverse', len: length('S', 4), hcp: [16, 21], forcing: 'oneRound' }, (h) => h.len.S >= 4 && h.hcp >= 16))
   rules.push(
-    rule(onlyIf(forcing, '2N'), { hcp: [18, 19], balanced: true }, (h) => h.balanced && h.hcp >= 18),
+    rule(onlyIf(forcing, '2N'), { hcp: MEDIUM, balanced: true, notes: [{ key: 'invite' }] }, (h) => h.balanced && h.hcp >= 16),
+    rule(onlyIf(forcing, bid(2, m)), { len: length(m, 6), hcp: MINIMUM }, (h) => h.len[m] >= 6),
     rule(onlyIf(forcing, '2C'), { len: length('C', 3) }, (h) => minorRebid(h) === 'C'),
     rule(onlyIf(forcing, '2D'), { len: length('D', 3) }),
   )
 
-  // Responder's new suit: 1♠ over 1♥, or a 2/1 game force
+  // Responder's new suit: 1♠ over 1♥ (「開叫者之再叫」), or a 2/1 game force (2M 12–15 with five,
+  // 2NT 16–21 balanced, the raise of a minor 16–21, a new suit 12–18, 3M 16–18 with six)
   for (const s of ORDER.filter((x) => x !== m)) {
     for (const two of [false, true]) {
       const here = (ctx: Ctx) => strainOf(answer(ctx)) === s && (levelOf(answer(ctx)) === 2) === two && !special.includes(answer(ctx))
       const at = (call: Call | ((ctx: Ctx) => Call | null)) => onlyIf(here, call)
-      const fit = (h: Hand) => h.len[s] >= 4 || (s === 'H' && h.len.H >= 3 && two)
-      if (!two)
+      const sideSuit = (h: Hand, ctx: Ctx, x: Suit, max: number) => {
+        const side = ORDER.find((y) => y !== m && y !== s && h.len[y] >= 4)
+        const call = cheapest(ctx, x)
+        return side === x && !!call && levelOf(call) <= max
+      }
+      if (!two) {
+        const fit = (h: Hand) => h.len[s] >= 4
         rules.push(
-          rule(at(bid(4, s)), { len: length(s, 4), hcp: [18, 21] }, (h) => fit(h) && h.hcp >= 18),
-          rule(at(bid(3, s)), { len: length(s, 4), hcp: [15, 17], notes: [{ key: 'invite' }] }, (h) => fit(h) && h.hcp >= 15),
-          rule(at(bid(2, s)), { len: length(s, 4), hcp: [12, 14] }, fit),
+          rule(at(bid(4, s)), { len: length(s, 4), hcp: MAXIMUM }, (h) => fit(h) && h.hcp >= 19),
+          rule(at(bid(3, s)), { len: length(s, 4), hcp: MEDIUM, notes: [{ key: 'invite' }] }, (h) => fit(h) && h.hcp >= 16),
+          rule(at(bid(2, s)), { len: length(s, 4), hcp: MINIMUM }, fit),
+          rule(at(bid(3, m)), { len: length(m, 6), hcp: MEDIUM, notes: [{ key: 'invite' }] }, (h) => h.len[m] >= 6 && h.hcp >= 16 && h.hcp <= 18),
+          rule(at(bid(2, m)), { len: length(m, 6) }, (h) => h.len[m] >= 6),
         )
-      else rules.push(rule(at(bid(3, s)), { len: length(s, s === 'H' ? 3 : 4), notes: [{ key: 'support', strain: s }], forcing: 'game' }, fit))
-      rules.push(rule(at((ctx) => cheapestOr(ctx, m)), { len: length(m, 6) }, (h) => h.len[m] >= 6))
-      for (const x of ORDER.filter((y) => y !== m && y !== s))
+        for (const x of ORDER.filter((y) => y !== m && y !== s))
+          rules.push(
+            rule(at(bid(3, x)), { len: length(x, 4), hcp: MAXIMUM, forcing: 'game' }, (h, ctx) => h.hcp >= 19 && sideSuit(h, ctx, x, 2)),
+            rule(at(cheapestIn(x)), { len: length(x, 4), hcp: [12, 18] }, (h, ctx) => sideSuit(h, ctx, x, 2)),
+          )
         rules.push(
-          rule(at(cheapestIn(x)), { len: length(x, 4) }, (h, ctx) => {
-            const side = ORDER.find((y) => y !== m && y !== s && h.len[y] >= 4)
-            const call = cheapest(ctx, x)
-            return side === x && !!call && levelOf(call) <= (two ? 3 : 2)
-          }),
+          rule(at('3N'), { hcp: MAXIMUM, balanced: true }, (h) => h.balanced && h.hcp >= 19),
+          rule(at('2N'), { hcp: MEDIUM, balanced: true, notes: [{ key: 'invite' }] }, (h) => h.balanced && h.hcp >= 16),
+          rule(at('1N'), { hcp: MINIMUM, balanced: true }, (h) => h.balanced),
         )
-      if (two) rules.push(rule(at('2N'), { balanced: true, forcing: 'game' }, (h) => h.balanced))
-      else
+      } else {
+        // 1♠–2♥ shows five hearts, so three is a fit; a minor needs four and extras
+        const heart = s === 'H'
         rules.push(
-          rule(at('2N'), { hcp: [18, 19], balanced: true }, (h) => h.balanced && h.hcp >= 18),
-          rule(at('1N'), { hcp: [12, 14], balanced: true }, (h) => h.balanced),
+          rule(at(bid(3, s)), { len: length(s, heart ? 3 : 4), ...(heart ? {} : { hcp: plus(16) }), notes: [{ key: 'support', strain: s }], forcing: 'game' }, (h) =>
+            heart ? h.len.H >= 3 : h.len[s] >= 4 && h.hcp >= 16,
+          ),
+          rule(at(bid(3, m)), { len: length(m, 6), hcp: MEDIUM }, (h) => h.len[m] >= 6 && h.hcp >= 16 && h.hcp <= 18),
+          rule(at(bid(2, m)), { len: length(m, 6) }, (h) => h.len[m] >= 6),
         )
-      rules.push(rule(at((ctx) => cheapestOr(ctx, m)), { len: length(m, 5) }))
+        for (const x of ORDER.filter((y) => y !== m && y !== s))
+          rules.push(rule(at(cheapestIn(x)), { len: length(x, 4) }, (h, ctx) => sideSuit(h, ctx, x, h.hcp >= 16 ? 3 : 2)))
+        rules.push(rule(at('2N'), { hcp: [16, 21], balanced: true, forcing: 'game' }, (h) => h.balanced && h.hcp >= 16))
+      }
+      rules.push(rule(at((ctx) => cheapestOr(ctx, m)), { len: length(m, 5), ...(two ? { notes: [{ key: 'minimum' as const }] } : {}) }))
     }
   }
   return {
@@ -220,6 +246,23 @@ function afterForcingNotrump(m: Suit): Book {
     // When the hand fits none of these, the fallback decides
     more: true,
     rules: [
+      // 淡江橋譜「對1♥／1♠答叫1NT者之再叫」: correct to a six-card suit with one card or none in
+      // opener's major, keep opener's minor with four (8–9), otherwise preference
+      ...(['D', 'H'] as const)
+        .filter((s) => s !== m)
+        .map((s) =>
+          rule(
+            onlyIf((ctx) => ORDER.indexOf(rebidSuit(ctx) as Suit) < ORDER.indexOf(s) && levelOf(ours(ctx)[2]) === 2, bid(2, s)),
+            { len: length(s, 6), hcp: [6, 9], notes: [{ key: 'signoff' }] },
+            (h) => h.len[s] >= 6 && h.len[m] <= 1 && h.hcp <= 9,
+          ),
+        ),
+      ...(['C', 'D'] as const).map((s) =>
+        rule(onlyIf((ctx) => ours(ctx)[2] === '2H' && m === 'S', bid(3, s)), { len: length(s, 6), hcp: [6, 9], notes: [{ key: 'signoff' }] }, (h) => h.len[s] >= 6 && h.len.S <= 1 && h.hcp <= 9),
+      ),
+      ...(['C', 'D'] as const).map((s) =>
+        rule(onlyIf((ctx) => ours(ctx)[2] === bid(2, s), bid(3, s)), { len: length(s, 4), hcp: [8, 9] }, (h) => h.len[s] >= 4 && h.len[m] < 3 && h.hcp >= 8 && h.hcp <= 9),
+      ),
       rule(bid(3, m), { len: length(m, 3, 3), hcp: [10, 12], notes: [{ key: 'invite' }] }, (h) => h.len[m] >= 3 && h.hcp >= 10),
       rule(bid(2, m), { len: length(m, 3, 3), hcp: [6, 9] }, (h) => h.len[m] >= 3),
       rule(bid(2, m), { len: length(m, 2, 2), notes: [{ key: 'preference', strain: m }] }, (h, ctx) => {
