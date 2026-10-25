@@ -299,7 +299,7 @@ export class Club extends DurableObject<Env> implements Connections {
     }
     if (route === 'POST /api/account/preferences') {
       const b = await body()
-      return json({ user: await this.service.setAccountPreferences(user.id, { friendOnlineNotice: b.friendOnlineNotice }) })
+      return json({ user: await this.service.setAccountPreferences(user.id, { friendOnlineNotice: b.friendOnlineNotice, bookProfile: b.bookProfile }) })
     }
     if (route === 'PATCH /api/account/profile') return json({ user: await this.service.setProfile(user.id, await body()) })
     // Another member's profile card (AC-1.5)
