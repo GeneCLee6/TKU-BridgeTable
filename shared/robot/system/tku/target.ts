@@ -1,9 +1,9 @@
-import { bidIndex, levelOf, strainOf, type Call } from '../../../auction.ts'
+import { bidIndex, isBid, levelOf, strainOf, type Call } from '../../../auction.ts'
 import type { Strain, Suit } from '../../../cards.ts'
-import { cheapest, type Ctx } from '../context.ts'
+import { cheapest, gameLevel, type Ctx } from '../context.ts'
 import type { Hand } from '../evaluate.ts'
 import type { Book, Rule } from '../spec.ts'
-import { bid, MAJORS, plain, rule, shownLength } from './util.ts'
+import { bid, MAJORS, plain, rule, shownLength, topThree } from './util.ts'
 
 /**
  * Everything the other books leave out: pick the contract the partnership should reach from this
@@ -20,6 +20,7 @@ function partnerPoints(ctx: Ctx) {
 
 function work(h: Hand, ctx: Ctx): Call {
   const { last } = ctx
+  if (penaltyStands(ctx)) return 'P'
   const combined = h.hcp + partnerPoints(ctx)
   const fits = (['S', 'H', 'D', 'C'] as Suit[]).filter((s) => h.len[s] + shownLength(ctx.shown.partner, s) >= 8)
   const majorFit = fits.find((s) => MAJORS.includes(s))
@@ -37,7 +38,7 @@ function work(h: Hand, ctx: Ctx): Call {
   } else if (majorFit || minorFit) {
     strain = (majorFit ?? minorFit)!
     level = combined >= 23 ? 3 : 2
-  } else return 'P'
+  } else return last && !last.ours ? compete(h, ctx, combined, fits) : 'P'
 
   const goal = bid(level, strain)
   if (!last) return 'P'
@@ -46,13 +47,48 @@ function work(h: Hand, ctx: Ctx): Call {
     if (level < 3 || (strainOf(last.call) === strain && levelOf(last.call) >= level - 1 && combined < 25)) return 'P'
     return goal
   }
-  if (bidIndex(last.call) >= bidIndex(goal)) {
-    if (!fits.length || combined < 20) return 'P'
-    const compete = cheapest(ctx, strain)
-    return compete && levelOf(compete) <= 3 ? compete : 'P'
-  }
+  if (bidIndex(last.call) >= bidIndex(goal)) return compete(h, ctx, combined, fits)
   return combined >= 25 ? goal : (cheapest(ctx, strain) ?? 'P')
 }
+
+const isGame = (call: Call) => levelOf(call) >= gameLevel(strainOf(call))
+
+/**
+ * The opponents have bid past the contract we were aiming for (e5-t33, 競叫篇「再平衡理論」): double
+ * them when our side has most of the points and I hold their trumps; otherwise compete in our fit
+ * up to the level of our trumps (總墩數定律: eight trumps the two level, nine the three level, ten the
+ * four level), and over their game sacrifice by vulnerability (favourable: down three at most,
+ * neither side vulnerable: down two).
+ */
+function compete(h: Hand, ctx: Ctx, combined: number, fits: Suit[]): Call {
+  const last = ctx.last!
+  const theirs = strainOf(last.call)
+  const trumps = (s: Suit) => h.len[s] + shownLength(ctx.shown.partner, s)
+  const best = [...fits].sort((a, b) => trumps(b) - trumps(a) || (MAJORS.includes(b) ? 1 : 0) - (MAJORS.includes(a) ? 1 : 0))[0]
+  const total = best ? trumps(best) : 0
+
+  if (
+    theirs !== 'N' &&
+    levelOf(last.call) >= 2 &&
+    combined >= 23 &&
+    total <= 8 &&
+    ctx.legal.has('X') &&
+    ((h.len[theirs] >= 4 && h.points[theirs] >= 3) || (h.len[theirs] >= 3 && topThree(h, theirs) >= 2))
+  )
+    return 'X'
+  const call = best ? cheapest(ctx, best) : null
+  if (!call) return 'P'
+  const level = levelOf(call)
+  if (level <= Math.min(total - 6, 4)) return call
+  // A sacrifice over their game, when they have most of the points
+  const already = ctx.turns.some((t) => t.ours && isBid(t.call) && levelOf(t.call) >= 4)
+  if (!isGame(last.call) || combined > 20 || already || level > 5 || ctx.weVul) return 'P'
+  return level <= total - (ctx.theyVul ? 4 : 5) ? call : 'P'
+}
+
+/** Partner doubled their contract for penalty and the opponent on our right passed: leave it in */
+const penaltyStands = (ctx: Ctx) =>
+  ctx.said.partner?.name === 'penalty' && ctx.turns.findLast((t) => t.role === 'partner')?.call === 'X' && ctx.auction.at(-1)?.call === 'P'
 
 const decisions = new WeakMap<Ctx, WeakMap<Hand, Call>>()
 
@@ -70,5 +106,5 @@ const BIDS: Call[] = [1, 2, 3, 4, 5, 6, 7].flatMap((level) => STRAINS.map((s) =>
 
 export const target: Book = {
   only: (ctx) => !!ctx.opening,
-  rules: [...BIDS.map((call): Rule => plain(call, (h, ctx) => aim(h, ctx) === call)), rule('P')],
+  rules: [...BIDS.map((call): Rule => plain(call, (h, ctx) => aim(h, ctx) === call)), plain('X', (h, ctx) => aim(h, ctx) === 'X'), rule('P')],
 }

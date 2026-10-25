@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { contractOf, type AuctionCall } from '../../shared/auction.ts'
-import { deal } from '../../shared/board.ts'
+import { deal, type Vulnerability } from '../../shared/board.ts'
 import { fullDeck, nextSeat, type Card, type Hands, type Seat } from '../../shared/cards.ts'
 import { makeCall, newBoard, playCard, turnOf, type BoardState } from '../../shared/game.ts'
 import { robotCall } from '../../shared/robot/robots.ts'
@@ -12,6 +12,7 @@ import { choose, explain } from '../../shared/robot/system/engine.ts'
 import type { System } from '../../shared/robot/system/spec.ts'
 import { TKU } from '../../shared/robot/system/tku/index.ts'
 import { minorResponses } from '../../shared/robot/system/tku/minors.ts'
+import { supportDouble } from '../../shared/robot/system/tku/advancing.ts'
 
 function seeded(seed: number) {
   return (n: number) => {
@@ -329,6 +330,155 @@ describe('competition', () => {
     expect(bidOver(hand('32 KQJ943 54 432'), '2D P 2N P')).toBe('3C')
     expect(bidOver(hand('KQJ943 32 A4 432'), '2D P 2N P')).toBe('3H')
     expect(bidOver(hand('KQJ943 32 54 432'), '2D P 2H P')).toBe('2S')
+  })
+})
+
+describe('competitive bidding (競叫篇與技光、賭倍性叫品、CAPP)', () => {
+  const at = (cards: Card[], calls: string, dealer: Seat, vul: Vulnerability) => {
+    const auction: AuctionCall[] = calls
+      .split(' ')
+      .filter(Boolean)
+      .map((call, i) => ({ seat: nextSeat(dealer, i), call }))
+    return robotCall('tku', cards, nextSeat(dealer, auction.length), auction, dealer, vul)
+  }
+  const meaning = (calls: string, call: string, dealer: Seat = 'N') => {
+    const auction: AuctionCall[] = calls
+      .split(' ')
+      .filter(Boolean)
+      .map((c, i) => ({ seat: nextSeat(dealer, i), call: c }))
+    return words(explain(TKU, auction, dealer).get(call)!, 'zh')
+  }
+
+  it('overcalls by level, jumps weak, cue-bids Michaels and overcalls 1NT (e5-t30)', () => {
+    expect(bidOver(hand('KQJ85 A73 84 932'), '1D')).toBe('1S')
+    // Two levels need 10 and a good suit
+    expect(bidOver(hand('A2 85 KQJ84 A932'), '1H')).toBe('2D')
+    expect(bidOver(hand('A2 85 J9842 K932'), '1H')).toBe('P')
+    expect(bidOver(hand('KJT854 K3 84 932'), '1D')).toBe('2S')
+    expect(bidOver(hand('AQJ85 KQT74 84 9'), '1C')).toBe('2C')
+    expect(bidOver(hand('KQJ85 3 84 AJ932'), '1H')).toBe('2H')
+    expect(bidOver(hand('KQ8 A73 K84 KJ32'), '1D')).toBe('1N')
+    // 16+ doubles first whatever the shape (強力型)
+    expect(bidOver(hand('8 AKJ73 KQJ3 Q92'), '1S')).toBe('X')
+    expect(meaning('1C', '2C')).toMatch(/^Michaels 扣叫：兩門高花/)
+    expect(meaning('1D', '2S')).toMatch(/^弱跳爭叫/)
+  })
+
+  it('balances in the pass-out seat (平衡叫)', () => {
+    expect(bidOver(hand('AQ85 73 K843 Q92'), '1H P P')).toBe('X')
+    expect(bidOver(hand('KJ94 73 Q843 J92'), '1H P P')).toBe('1S')
+    expect(bidOver(hand('KQ8 K73 A84 J932'), '1H P P')).toBe('1N')
+    expect(bidOver(hand('AQJ984 84 K3 K32'), '1H P P')).toBe('2S')
+    // Long in their suit: no balancing (敵花長，不應平衡)
+    expect(bidOver(hand('A2 KJ953 Q84 932'), '1H P P')).toBe('P')
+    expect(bidOver(hand('KQ874 42 A82 T76'), '1H P 2H P P')).toBe('2S')
+    expect(bidOver(hand('KQ87 42 A82 T765'), '1H P 2H P P')).toBe('X')
+  })
+
+  it('advances partner’s overcall and the overcaller answers the cue bid (e5-t31)', () => {
+    expect(bidOver(hand('K98 Q73 K843 J92'), '1D 1S P')).toBe('2S')
+    expect(bidOver(hand('K985 Q73 K843 A2'), '1D 1S P')).toBe('3D')
+    expect(bidOver(hand('AQ8 K73 A843 J92'), '1D 1S P')).toBe('2D')
+    expect(bidOver(hand('98 Q73 KJ84 A932'), '1D 1S P')).toBe('1N')
+    expect(bidOver(hand('Q9842 73 84 9532'), '1D 1S P')).toBe('4S')
+    expect(bidOver(hand('Q984 73 842 9532'), '1D 1S P')).toBe('3S')
+    expect(meaning('1D 1S P', '2D')).toMatch(/^扣叫：13\+ 大牌點，迫叫一圈/)
+    // The overcaller: minimum rebids the suit, more jumps, six cards and 12+ bid game
+    expect(bidOver(hand('KQJ72 J4 83 Q962'), '1D 1S P 2D P')).toBe('2S')
+    expect(bidOver(hand('AKQ72 J4 83 K962'), '1D 1S P 2D P')).toBe('3S')
+    expect(bidOver(hand('AKQ972 J4 83 K96'), '1D 1S P 2D P')).toBe('4S')
+    expect(bidOver(hand('AKQ72 QJ4 83 K96'), '1D 1S P 3D P')).toBe('4S')
+    expect(bidOver(hand('KQ972 J4 83 Q96'), '1D 1S P 3D P')).toBe('3S')
+  })
+
+  it('answers a takeout double and the doubler bids again (e5-t32)', () => {
+    expect(bidOver(hand('T4 9863 9762 753'), '1D X P')).toBe('1H')
+    expect(bidOver(hand('QT97 64 764 9763'), '1S X P')).toBe('2C')
+    expect(bidOver(hand('94 KJT8 7542 AQ9'), '1D X P')).toBe('2H')
+    expect(bidOver(hand('Q2 K832 AT72 A92'), '1D X P')).toBe('2D')
+    expect(bidOver(hand('Q32 Q5 KJ74 9742'), '1D X P')).toBe('1N')
+    // Leaving the double in: five good trumps (處罰性 Pass)
+    expect(bidOver(hand('32 K4 KQJ94 9732'), '1D X P')).toBe('P')
+    // A free bid after their bid needs 7 at the one level
+    expect(bidOver(hand('T4 Q863 9762 753'), '1D X 1S')).toBe('P')
+    expect(bidOver(hand('T4 KQ63 Q762 J53'), '1D X 1S')).toBe('2H')
+    // The doubler: 16–18 raises once, 19–21 jumps, a strong double names its suit
+    expect(bidOver(hand('AQ8 KJ73 KJ84 Q2'), '1D X P 1H P')).toBe('2H')
+    expect(bidOver(hand('AK8 KQ73 KJ84 A2'), '1D X P 1H P')).toBe('3H')
+    expect(bidOver(hand('8 AKJ73 KQJ3 Q92'), '1S X P 2C P')).toBe('2H')
+    expect(bidOver(hand('AQ8 K73 AJ84 KQ2'), '1D X P 1H P')).toBe('1N')
+    expect(bidOver(hand('AQ8 K73 A984 K32'), '1D X P 1H P')).toBe('P')
+    // After the cue bid: a four-card major
+    expect(bidOver(hand('AQ85 KJ73 4 Q932'), '1D X P 2D P')).toBe('2H')
+  })
+
+  it('has the support double as an option (the handbook does not have it)', () => {
+    const auction: AuctionCall[] = [
+      { seat: 'N', call: '1C' },
+      { seat: 'E', call: 'P' },
+      { seat: 'S', call: '1H' },
+      { seat: 'W', call: '1S' },
+    ]
+    const withIt: System = { ...TKU, books: [supportDouble(true), ...TKU.books] }
+    expect(choose(withIt, hand('K2 Q73 A84 KJ932'), 'N', auction, 'N').call).toBe('X')
+    expect(words(explain(withIt, auction, 'N').get('X')!, 'zh')).toMatch(/^支持性賭倍/)
+    expect(choose(TKU, hand('K2 Q73 A84 KJ932'), 'N', auction, 'N').call).not.toBe('X')
+  })
+
+  it('competes to the level of its trumps, sacrifices by vulnerability and doubles for penalty (e5-t33)', () => {
+    expect(bidOver(hand('AQJ984 K2 84 Q32'), '1S P 2S 3H')).toBe('3S')
+    expect(bidOver(hand('AQJ98 K32 84 Q32'), '1S P 2S 3H')).toBe('P')
+    expect(at(hand('74 QJ842 K8732 5'), '1S 2H 4S', 'E', 'EW').call).toBe('5H')
+    expect(at(hand('74 QJ842 K8732 5'), '1S 2H 4S', 'E', 'None').call).toBe('5H')
+    expect(at(hand('74 QJ842 K8732 5'), '1S 2H 4S', 'E', 'NS').call).toBe('P')
+    expect(at(hand('74 QJ842 K8732 5'), '1S 2H 4S', 'E', 'Both').call).toBe('P')
+    expect(bidOver(hand('KJ94 A2 AJ984 82'), '1D 1S 1N 2S')).toBe('X')
+    expect(meaning('1D 1S 1N 2S', 'X')).toMatch(/^處罰性賭倍/)
+    // Partner's penalty double stands
+    expect(bidOver(hand('Q3 KJ8762 Q3 J32'), '1D 1S 1N 2S X P')).toBe('P')
+  })
+
+  it('defends against weak twos and preempts, with Lebensohl (e5-t34)', () => {
+    expect(bidOver(hand('AQ8 KJ3 KJ84 Q32'), '2H')).toBe('2N')
+    expect(bidOver(hand('AKQ874 A3 K84 32'), '2H')).toBe('3S')
+    expect(bidOver(hand('AJ85 3 KQ84 K932'), '2H')).toBe('X')
+    expect(bidOver(hand('A2 K3 KQJ84 9532'), '2S')).toBe('3D')
+    expect(bidOver(hand('AK8 73 Q83 KQJ62'), '3H')).toBe('X')
+    expect(bidOver(hand('AK3 AQ84 KJ3 Q92'), '4S')).toBe('X')
+    expect(meaning('4S', 'X')).toMatch(/^處罰性賭倍/)
+    // Lebensohl: 2NT relays to 3♣, then the suit (pass with clubs)
+    expect(bidOver(hand('985 73 Q8432 J32'), '2H X P')).toBe('2N')
+    expect(bidOver(hand('AQ85 K2 KQ84 932'), '2H X P 2N P')).toBe('3C')
+    expect(bidOver(hand('985 73 Q8432 J32'), '2H X P 2N P 3C P')).toBe('3D')
+    expect(bidOver(hand('985 73 J32 Q8432'), '2H X P 2N P 3C P')).toBe('P')
+    expect(bidOver(hand('A985 73 Q8432 Q2'), '2H X P')).toBe('2S')
+    expect(bidOver(hand('A985 73 K8432 K2'), '2H X P')).toBe('3S')
+    expect(bidOver(hand('AK85 73 K8432 K2'), '2H X P')).toBe('4S')
+    // 一高弱二: 12–15 balanced doubles
+    expect(bidOver(hand('AQ8 K73 Q984 K32'), '2D')).toBe('X')
+  })
+
+  it('uses Cappelletti over 1NT (e5-t38)', () => {
+    expect(bidOver(hand('T8 K75 AKJ832 74'), '1N')).toBe('2C')
+    expect(bidOver(hand('AQJ7 AKQ74 75 Q8'), '1N')).toBe('X')
+    expect(bidOver(hand('QJT97 AKQ74 5 82'), '1N')).toBe('2D')
+    expect(bidOver(hand('AQJ85 73 84 KQ93'), '1N')).toBe('2S')
+    expect(bidOver(hand('K5 3 QJ984 KJ932'), '1N')).toBe('2N')
+    expect(meaning('1N', '2C')).toMatch(/^Cappelletti：一門長套/)
+    expect(meaning('1N', '2D')).toMatch(/^Cappelletti：兩門高花/)
+    // Advancing: relay to 2♦, the better major, pass or correct
+    expect(bidOver(hand('T84 Q73 K843 932'), '1N 2C P')).toBe('2D')
+    expect(bidOver(hand('9854 Q73 K843 92'), '1N 2D P')).toBe('2S')
+    expect(bidOver(hand('KQJ5 Q32 84 9532'), '1N 2H P')).toBe('P')
+    expect(bidOver(hand('KQ5 3 Q8432 9543'), '1N 2H P')).toBe('3C')
+    // The Cappelletti bidder: names the suit, passes 2♦ with diamonds, corrects 3♣ to 3♦
+    expect(bidOver(hand('K8 AQJ984 Q2 974'), '1N 2C P 2D P')).toBe('2H')
+    expect(bidOver(hand('T8 K75 AKJ832 74'), '1N 2C P 2D P')).toBe('P')
+    expect(bidOver(hand('3 AQJ84 KJ932 K5'), '1N 2H P 3C P')).toBe('3D')
+    // Michaels and its 2NT ask
+    expect(bidOver(hand('K93 72 QJ84 9532'), '1H 2H P')).toBe('2S')
+    expect(bidOver(hand('93 Q72 QJ84 K532'), '1H 2H P')).toBe('2N')
+    expect(bidOver(hand('KQJ85 3 AJ932 84'), '1H 2H P 2N P')).toBe('3D')
   })
 })
 

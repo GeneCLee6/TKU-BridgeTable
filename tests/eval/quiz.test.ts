@@ -92,7 +92,7 @@ describe('bidding question bank: tests/bidding-quiz', () => {
 
   it('has no problems: legal auctions and answers, unique ids, sources, review status', () => {
     expect(bankProblems(files)).toEqual([])
-    expect(files.map((f) => f.category)).toEqual(['opening', 'rebid', 'response'])
+    expect(files.map((f) => f.category)).toEqual(['competitive', 'opening', 'rebid', 'response'])
     expect(files.flatMap((f) => f.questions).length).toBeGreaterThanOrEqual(50)
   })
 
@@ -100,6 +100,6 @@ describe('bidding question bank: tests/bidding-quiz', () => {
     const results = await runQuiz(ruleBrain, files)
     for (const { question: q, call } of results) expect(questionProblems({ ...q, answer: call, accepted: [] })).toEqual([])
     const scores = scoreQuiz(results)
-    expect(scores.map((s) => s.category)).toEqual(['opening', 'rebid', 'response'])
+    expect(scores.map((s) => s.category)).toEqual(['competitive', 'opening', 'rebid', 'response'])
   })
 })
