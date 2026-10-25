@@ -1,20 +1,17 @@
-import { ChevronLeft, ChevronRight, SlidersHorizontal } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Inbox, SearchX, SlidersHorizontal } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import styled, { css } from 'styled-components'
 import { HISTORY_SORTS, historyQueryString, readHistoryQuery, type HistoryQuery } from '../../shared/history-query.ts'
-import { HISTORY_PAGE_SIZES, LIMITS, type HistoryPage as Page, type PublicUser } from '../../shared/protocol.ts'
-import { resultLabel } from '../../shared/scoring.ts'
+import { HISTORY_PAGE_SIZES, LIMITS, type HistoryPage as Page } from '../../shared/protocol.ts'
 import { FilterChips, HistoryFilters } from '../components/HistoryFilters.tsx'
-import { ContractLabel } from '../components/Suit.tsx'
+import { HistoryHead, HistoryRow, HistorySkeleton, HistoryTable } from '../components/HistoryRow.tsx'
 import { Button, Card, ErrorText, Muted, PageMain, PageTitle } from '../components/ui.tsx'
 import { api } from '../lib/api.ts'
 import { filterChips } from '../lib/historyChips.ts'
-import { formatDateTime, signed } from '../lib/format.ts'
 import { useMediaQuery } from '../lib/useMediaQuery.ts'
 import { useLobby } from '../state/ClubContext.tsx'
 import { usePreferences } from '../state/PreferencesContext.tsx'
-import { playerName } from '../strings.ts'
 import { mobile, mobileQuery } from '../styles/tokens.ts'
 
 /**
@@ -85,39 +82,30 @@ const ToggleButton = styled.button<{ $active: boolean }>`
     `}
 `
 
+const ListCard = styled(Card)`
+  padding: 0;
+  overflow: hidden;
+`
+
 const Scroll = styled.div`
   overflow-x: auto;
 `
 
-const Table = styled.table`
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 15px;
-  white-space: nowrap;
+/** An empty or failed list: centred, a faint icon, one sentence and (where there is one) an action */
+const Empty = styled.div`
+  display: grid;
+  justify-items: center;
+  gap: ${({ theme }) => theme.space(3)};
+  padding: ${({ theme }) => theme.space(12)} ${({ theme }) => theme.space(4)};
+  color: ${({ theme }) => theme.colors.textMuted};
+  text-align: center;
 
-  th, td {
-    padding: 8px 10px;
-    border-bottom: 1px solid ${({ theme }) => theme.colors.border};
-    text-align: left;
-  }
-  th {
-    color: ${({ theme }) => theme.colors.textMuted};
-    font-size: 13px;
-    font-weight: 600;
-  }
-  tbody tr {
-    cursor: pointer;
-    &:hover { background: ${({ theme }) => theme.colors.surfaceAlt}; }
-  }
+  & > svg { color: ${({ theme }) => theme.colors.borderStrong}; }
+  & > p { margin: 0; }
 `
 
-const Num = styled.td<{ $value?: number }>`
-  text-align: right !important;
-  font-variant-numeric: tabular-nums;
-  font-weight: 600;
-  color: ${({ $value, theme }) =>
-    $value === undefined || $value === 0 ? 'inherit' : $value > 0 ? theme.colors.success : theme.colors.danger};
-`
+/** How long the list may take before the page says so and offers to try again (DESIGN.md §7.6) */
+const SLOW_MS = 10_000
 
 const Pager = styled.nav`
   display: flex;
@@ -125,7 +113,9 @@ const Pager = styled.nav`
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  margin-top: 14px;
+  padding: ${({ theme }) => theme.space(3)} ${({ theme }) => theme.space(4)};
+  border-top: 1px solid ${({ theme }) => theme.colors.border};
+  background: ${({ theme }) => theme.colors.surfaceAlt};
   font-size: 14px;
 `
 
@@ -193,7 +183,7 @@ interface Loaded extends Page {
 }
 
 export function HistoryPage() {
-  const { t, lang, message } = usePreferences()
+  const { t, message } = usePreferences()
   const [params, setParams] = useSearchParams()
   const paramsKey = params.toString()
   const query = useMemo(() => {
@@ -222,6 +212,15 @@ export function HistoryPage() {
     setParams(historyQueryString({ ...query, page: 1, ...patch }), { replace: true })
   const setPage = (next: number) => update({ page: next })
 
+  // Asked again from the "taking a while" message
+  const [attempt, setAttempt] = useState(0)
+  const [slowKey, setSlowKey] = useState<string | null>(null)
+  const slow = slowKey === `${key}#${attempt}`
+  useEffect(() => {
+    const timer = setTimeout(() => setSlowKey(`${key}#${attempt}`), SLOW_MS)
+    return () => clearTimeout(timer)
+  }, [key, attempt])
+
   useEffect(() => {
     let cancelled = false
     api
@@ -235,7 +234,7 @@ export function HistoryPage() {
     return () => {
       cancelled = true
     }
-  }, [key, message])
+  }, [key, message, attempt])
 
   // Past the end (the list got shorter): the server sent the last page instead
   useEffect(() => {
@@ -250,8 +249,6 @@ export function HistoryPage() {
       // Not remembered; the list still changes
     }
   }
-
-  const name = (u: PublicUser) => playerName(t, u)
 
   return (
     <PageMain>
@@ -301,47 +298,44 @@ export function HistoryPage() {
       )}
       <FilterChips chips={chips} onChange={update} />
       {error && <ErrorText role="alert">{error}</ErrorText>}
-      <Card>
-        {!current ? (
-          <Muted>{t.loading}</Muted>
-        ) : current.boards.length === 0 ? (
-          <Muted>{t.historyEmpty}</Muted>
+      <ListCard as="section" aria-label={t.historyTitle} aria-busy={!current}>
+        {current && current.boards.length === 0 ? (
+          chips.length > 0 ? (
+            <Empty>
+              <SearchX size={40} aria-hidden />
+              {/* "Clear all" is right above, with the chips */}
+              <p>{t.historyNoMatch}</p>
+            </Empty>
+          ) : (
+            <Empty>
+              <Inbox size={40} aria-hidden />
+              <p>{t.historyEmpty}</p>
+              <Button as={Link} to="/" $size="sm" $variant="primary">
+                {t.goToLobby}
+              </Button>
+            </Empty>
+          )
+        ) : !current && slow ? (
+          <Empty role="status">
+            <p>{t.slowLoading}</p>
+            <Button type="button" $size="sm" onClick={() => setAttempt((n) => n + 1)}>
+              {t.retry}
+            </Button>
+          </Empty>
         ) : (
           <Scroll>
-            <Table>
-              <thead>
-                <tr>
-                  <th>{t.date}</th>
-                  <th>{t.board}</th>
-                  <th>{t.ns}</th>
-                  <th>{t.ew}</th>
-                  <th>{t.contract}</th>
-                  <th>{t.result}</th>
-                  <th style={{ textAlign: 'right' }}>{t.scoreNS}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {current.boards.map((b) => (
-                  <tr key={b.id} onClick={() => navigate(`/history/${b.id}`)}>
-                    <td>{formatDateTime(b.finishedAt, lang)}</td>
-                    <td>
-                      {b.mode === 'challenge' ? t.challenge : t.tableName(b.tableNumber)} #{b.boardNo}
-                    </td>
-                    <td>
-                      {name(b.players.N)}–{name(b.players.S)}
-                    </td>
-                    <td>
-                      {name(b.players.E)}–{name(b.players.W)}
-                    </td>
-                    <td>
-                      <ContractLabel contract={b.contract} />
-                    </td>
-                    <td>{b.contract ? resultLabel(b.contract, b.result.declarerTricks) : '—'}</td>
-                    <Num $value={b.result.scoreNS}>{signed(b.result.scoreNS)}</Num>
-                  </tr>
-                ))}
-              </tbody>
-            </Table>
+            <HistoryTable>
+              <HistoryHead />
+              {current ? (
+                <tbody>
+                  {current.boards.map((b) => (
+                    <HistoryRow key={b.id} board={b} onOpen={(id) => navigate(`/history/${id}`)} />
+                  ))}
+                </tbody>
+              ) : (
+                <HistorySkeleton rows={Math.min(size, 10)} />
+              )}
+            </HistoryTable>
           </Scroll>
         )}
         {loaded && loaded.total > 0 && (
@@ -386,7 +380,7 @@ export function HistoryPage() {
             </SizeLabel>
           </Pager>
         )}
-      </Card>
+      </ListCard>
     </PageMain>
   )
 }

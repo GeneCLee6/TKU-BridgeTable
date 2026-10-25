@@ -94,6 +94,7 @@ import { Relations } from './relations.ts'
 import { AlarmQueue, manualScheduler, type JobKind, type Scheduler } from './scheduler.ts'
 import type { Store } from './store.ts'
 import { parseClientMessage } from '../shared/message-guard.ts'
+import { parseProfile, PROFILE_RECENT, type MemberProfile, type Profile } from '../shared/profile.ts'
 import { lobbyOrder, quickSeatChoice } from '../shared/lobby.ts'
 import { parseClientError } from './client-errors.ts'
 import { crashEntry, noLog, type Logger } from './log.ts'
@@ -119,6 +120,7 @@ import {
   challengeTraveller,
   challengeView,
   chatFor,
+  memberProfileView,
   recordVisible,
   seatOccupants,
   type Table,
@@ -143,6 +145,8 @@ interface StoredUser {
   passwordResetAt?: number
   /** False when the member turned off the notice that a friend came online (e1-t24) */
   friendOnlineNotice?: boolean
+  /** What the member tells the club about themselves (AC-1.5); others see it through `memberProfileView` */
+  profile?: Profile
 }
 
 /** A registration waiting for approval: the account it becomes once an admin approves it */
@@ -551,6 +555,34 @@ export class ClubService {
     return this.me(user)
   }
 
+  /** `PATCH /api/account/profile`: replaces the member's own profile (AC-1.5); empty fields are cleared */
+  async setProfile(userId: string, input: unknown): Promise<Me> {
+    const user = this.requireUser(userId)
+    const parsed = parseProfile(input)
+    if ('error' in parsed) throw new ClubError(parsed.error, parsed.params)
+    if (Object.keys(parsed.profile).length) user.profile = parsed.profile
+    else delete user.profile
+    await this.store.put(`user:${user.id}`, user)
+    return this.me(user)
+  }
+
+  /**
+   * `GET /api/members/:id`: another member's profile card (AC-1.5) with their latest boards the
+   * viewer may see (the history search's own visibility rule). Only `memberProfileView`'s fields leave
+   */
+  async memberProfile(viewerId: string, memberId: string): Promise<MemberProfile> {
+    this.requireUser(viewerId)
+    const member = this.users.get(String(memberId ?? ''))
+    if (!member) throw new ClubError('userGone', {}, 404)
+    const recent = await this.search(viewerId, {
+      ...DEFAULT_HISTORY_QUERY,
+      scope: 'all',
+      player: member.id,
+      size: PROFILE_RECENT,
+    })
+    return memberProfileView(member, recent.boards)
+  }
+
   /**
    * 忘記密碼: whoever knows the club's invite code can give a member account a new password by name.
    * There is no e-mail check yet, so admin accounts are left out (another admin resets them on the
@@ -596,6 +628,7 @@ export class ClubService {
       permissions: this.permissionsOf(user),
       friendOnlineNotice: user.friendOnlineNotice !== false,
     }
+    if (user.profile) me.profile = user.profile
     if (user.admin) me.applications = this.applications.size
     return me
   }

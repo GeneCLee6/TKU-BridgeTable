@@ -6,6 +6,7 @@ import type { Seat } from '../../shared/cards.ts'
 import type { SeatOccupant } from '../../shared/protocol.ts'
 import { useT } from '../state/PreferencesContext.tsx'
 import { playerName, seatLetter } from '../strings.ts'
+import { Avatar } from './Avatar.tsx'
 
 /**
  * A player's name plate, as on BBO: the seat letter and name on the left, declarer / dummy /
@@ -17,7 +18,8 @@ import { playerName, seatLetter } from '../strings.ts'
  *
  * At a table with a time limit the plate of the player to act counts down the board's time (red
  * once it is over, AC-2.10); a player who has kept the table waiting SLOW_TURN_MS blinks. A robot
- * sitting in for someone who dropped offline says for whom (代打, AC-2.13).
+ * sitting in for someone who dropped offline says for whom (代打, AC-2.13). A member has their
+ * default avatar after the seat letter (e1-t18), except on the small side plates of a phone.
  */
 
 export interface SeatAction {
@@ -314,6 +316,7 @@ export function SeatPlate({
         data-seat={seat}
       >
         <Letter data-letter>{seatLetter[seat]}</Letter>
+        {occupant && !occupant.robot && !compact && <Avatar id={occupant.id} name={occupant.username} size={24} />}
         {name}
         {(role || offline || clickable || occupant?.robot || (turn && endsAt !== null)) && (
           <Tags>

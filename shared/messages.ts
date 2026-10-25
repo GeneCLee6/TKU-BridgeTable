@@ -281,6 +281,31 @@ export const MESSAGES = {
     ja: 'ログインしてください',
     ko: '로그인해 주세요',
   },
+  // Profiles (AC-1.5)
+  profileNameTooLong: {
+    zh: '顯示名稱最多 {max} 個字',
+    'zh-Hans': '显示名称最多 {max} 个字',
+    en: 'The display name can be at most {max} characters',
+    vi: 'Tên hiển thị tối đa {max} ký tự',
+    ja: '表示名は {max} 文字までです',
+    ko: '표시 이름은 최대 {max}자입니다',
+  },
+  profileSystemTooLong: {
+    zh: '常用制度最多 {max} 個字',
+    'zh-Hans': '常用制度最多 {max} 个字',
+    en: 'The bidding system can be at most {max} characters',
+    vi: 'Hệ thống kể bài tối đa {max} ký tự',
+    ja: '使用システムは {max} 文字までです',
+    ko: '사용 시스템은 최대 {max}자입니다',
+  },
+  profileBioTooLong: {
+    zh: '自我介紹最多 {max} 個字',
+    'zh-Hans': '自我介绍最多 {max} 个字',
+    en: 'The introduction can be at most {max} characters',
+    vi: 'Phần giới thiệu tối đa {max} ký tự',
+    ja: '自己紹介は {max} 文字までです',
+    ko: '자기소개는 최대 {max}자입니다',
+  },
   signInAgain: {
     zh: '請重新登入',
     'zh-Hans': '请重新登录',

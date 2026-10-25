@@ -4,6 +4,7 @@ import type { Card, Seat, Side } from './cards.ts'
 import type { ChallengeSettings } from './challenge.ts'
 import type { BoardResult, BoardState, Phase, Trick } from './game.ts'
 import type { MessageCode, MessageParams } from './messages.ts'
+import type { Profile } from './profile.ts'
 
 /** Messages and views exchanged between the browser and the Worker over HTTP and WebSocket */
 
@@ -36,6 +37,8 @@ export interface Me extends PublicUser {
   applications?: number
   /** Whether the bell says when a friend comes online (e1-t24); the server always sets it, on unless turned off */
   friendOnlineNotice?: boolean
+  /** The member's own profile (AC-1.5), to edit on "My account"; empty until they fill it in */
+  profile?: Profile
 }
 
 /** Where someone registered; both sites share the accounts */

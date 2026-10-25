@@ -13,6 +13,7 @@ import { ComparePage } from './pages/ComparePage.tsx'
 import { HistoryPage } from './pages/HistoryPage.tsx'
 import { LobbyPage } from './pages/LobbyPage.tsx'
 import { LoginPage } from './pages/LoginPage.tsx'
+import { ProfilePage } from './pages/ProfilePage.tsx'
 import { TablePage } from './pages/TablePage.tsx'
 import { AuthProvider, useAuth } from './state/AuthContext.tsx'
 import { ClubProvider, useClub } from './state/ClubContext.tsx'
@@ -67,6 +68,7 @@ function Routed() {
         <Route path="/history/:recordId" element={<BoardPage />} />
         <Route path="/history/:recordId/vs/:otherId" element={<ComparePage />} />
         <Route path="/account" element={<AccountPage />} />
+        <Route path="/members/:userId" element={<ProfilePage />} />
         {user.admin && <Route path="/admin" element={<AdminPage />} />}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

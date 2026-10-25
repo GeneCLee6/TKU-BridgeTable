@@ -15,6 +15,7 @@ import {
 import type { BoardSummary, BoardView, ChatMessage, PublicUser, SeatOccupant, TableMode, TableSettings } from '../shared/protocol.ts'
 import { isOpenChallenge, type ChallengeTraveller, type ChallengeView } from '../shared/challenge.ts'
 import type { DealSource } from '../shared/deal-source.ts'
+import type { MemberProfile, Profile } from '../shared/profile.ts'
 import { challengeStandings, hasFinished } from './challenge-flow.ts'
 import type { Challenge } from './challenges.ts'
 import type { Traveller } from '../shared/traveller.ts'
@@ -78,6 +79,29 @@ export function recordVisible(
 ): boolean {
   if (record.revealAt === undefined || record.revealAt <= now) return true
   return SEATS.some((seat) => record.players[seat]?.id === userId)
+}
+
+/**
+ * Another member's profile as anyone in the club may see it (AC-1.5): the id, the username and the
+ * four profile fields, picked one by one so nothing else on the account (password hash, admin
+ * flags, sign-in times, settings) can leak. `recent` must already be filtered by `recordVisible`
+ */
+export function memberProfileView(
+  user: { id: string; username: string; profile?: Profile },
+  recent: BoardSummary[],
+): MemberProfile {
+  const { displayName, level, system, bio } = user.profile ?? {}
+  return {
+    id: user.id,
+    username: user.username,
+    profile: {
+      ...(displayName && { displayName }),
+      ...(level && { level }),
+      ...(system && { system }),
+      ...(bio && { bio }),
+    },
+    recent,
+  }
 }
 
 /**
