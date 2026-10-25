@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useEffect } from 'react'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
@@ -119,5 +119,51 @@ describe('history filters and sorting (e4-t16…t21)', () => {
     await user.type(screen.getByRole('spinbutton', { name: '牌號' }), '7')
     await user.type(screen.getByRole('spinbutton', { name: '桌號' }), '2')
     expect(address.search).toBe('?boardNo=7&table=2')
+  })
+
+  it('shows each condition as a chip that can be taken off on its own, or all at once (e4-t22)', async () => {
+    const user = userEvent.setup()
+    open('/history?scope=all&level=4&strain=S&partner=u-ben&vul=Both&boardNo=7&sort=score_desc&size=50')
+    const chips = await screen.findByRole('list', { name: '目前的篩選條件' })
+    expect(within(chips).getAllByRole('listitem').map((li) => li.textContent)).toEqual([
+      '合約：4 黑桃',
+      '我的搭檔：ben',
+      '雙方有身價',
+      '牌號：7',
+      '清除全部',
+    ])
+    expect(screen.getByRole('button', { name: '篩選 (4)' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '移除「合約：4 黑桃」' }))
+    expect(address.search).toBe('?scope=all&partner=u-ben&vul=Both&boardNo=7&sort=score_desc&size=50')
+    // Clearing keeps the scope, the sorting and the page size: they are not conditions
+    await user.click(screen.getByRole('button', { name: '清除全部' }))
+    expect(address.search).toBe('?scope=all&sort=score_desc&size=50')
+    expect(screen.queryByRole('list', { name: '目前的篩選條件' })).not.toBeInTheDocument()
+    await waitFor(() => expect(lastQuery()).toEqual({ scope: 'all', sort: 'score_desc', page: 1, size: 50 }))
+  })
+
+  it('names a date range by its preset, or by its dates', async () => {
+    open('/history?from=2026-01-02&to=2026-01-31')
+    expect(await screen.findByText('日期：2026-01-02 – 2026-01-31')).toBeInTheDocument()
+  })
+
+  it('folds the filters into one button on a phone', async () => {
+    const user = userEvent.setup()
+    const matchMedia = vi.fn((query: string) => ({ matches: true, media: query, addEventListener: () => {}, removeEventListener: () => {} }))
+    vi.stubGlobal('matchMedia', matchMedia)
+    try {
+      open('/history?bracket=game&result=down')
+      // The chips show what is set; the filters themselves stay folded until asked for
+      expect(await screen.findByText('成局')).toBeInTheDocument()
+      expect(screen.queryByRole('combobox', { name: '結果' })).not.toBeInTheDocument()
+      const toggle = screen.getByRole('button', { name: '篩選 (2)' })
+      expect(toggle).toHaveAttribute('aria-expanded', 'false')
+      await user.click(toggle)
+      expect(screen.getByRole('combobox', { name: '結果' })).toHaveValue('down')
+      await user.click(screen.getByRole('button', { name: '完成' }))
+      expect(screen.queryByRole('combobox', { name: '結果' })).not.toBeInTheDocument()
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 })

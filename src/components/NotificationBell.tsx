@@ -24,9 +24,13 @@ const BellButton = styled.button`
   border: 0;
   border-radius: ${({ theme }) => theme.radius.sm};
   background: transparent;
-  color: ${({ theme }) => theme.colors.textMuted};
+  /* It sits in the navy header */
+  color: ${({ theme }) => theme.colors.headerMuted};
 
-  &:hover { background: ${({ theme }) => theme.colors.surfaceAlt}; }
+  &:hover {
+    background: ${({ theme }) => theme.colors.headerHover};
+    color: ${({ theme }) => theme.colors.onHeader};
+  }
 
   & > b {
     position: absolute;
@@ -38,8 +42,9 @@ const BellButton = styled.button`
     height: 17px;
     padding: 0 4px;
     border-radius: 999px;
-    background: ${({ theme }) => theme.colors.danger};
-    color: ${({ theme }) => theme.colors.onPrimary};
+    background: ${({ theme }) => theme.colors.accent};
+    color: ${({ theme }) => theme.colors.header};
+    font-weight: 800;
     font-size: 11px;
     line-height: 1;
   }
@@ -56,7 +61,8 @@ const Panel = styled.div`
   border: 1px solid ${({ theme }) => theme.colors.border};
   border-radius: ${({ theme }) => theme.radius.md};
   background: ${({ theme }) => theme.colors.surface};
-  box-shadow: ${({ theme }) => theme.shadow};
+  color: ${({ theme }) => theme.colors.text};
+  box-shadow: ${({ theme }) => theme.shadowRaised};
 
   ${mobile} {
     position: fixed;

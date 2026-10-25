@@ -46,7 +46,7 @@ const Wordmark = styled.span`
   display: grid;
   gap: 2px;
   line-height: 1.1;
-  color: ${({ theme }) => theme.colors.primaryStrong};
+  color: ${({ theme }) => theme.colors.onHeader};
 `
 
 const Line = styled.span`
@@ -55,13 +55,13 @@ const Line = styled.span`
   gap: 7px;
 `
 
-/** The TKU badge: navy with a gold bar under it, as in logo.svg */
+/** The TKU badge with a gold bar under it, as in logo.svg; off-white on the navy header */
 const Badge = styled.span`
   padding: 1px 5px 0;
-  border-bottom: 2px solid ${({ theme }) => theme.colors.lantern};
+  border-bottom: 2px solid ${({ theme }) => theme.colors.accent};
   border-radius: 4px 4px 2px 2px;
-  background: ${({ theme }) => theme.colors.primaryStrong};
-  color: ${({ theme }) => theme.colors.onPrimary};
+  background: ${({ theme }) => theme.colors.onHeader};
+  color: ${({ theme }) => theme.colors.header};
   font-family: 'Arial Black', 'Segoe UI', Arial, sans-serif;
   font-size: 12px;
   font-weight: 900;
@@ -82,19 +82,19 @@ const Chinese = styled.span`
 
 /** The suits and the club's line; left out when the header is short of room */
 const Tagline = styled.span`
-  color: ${({ theme }) => theme.colors.textMuted};
+  color: ${({ theme }) => theme.colors.headerMuted};
   font-size: 11px;
   font-weight: 500;
   letter-spacing: 1px;
 
-  & > [data-red] { color: ${({ theme }) => theme.suits.H}; }
+  & > [data-red] { color: ${({ theme }) => theme.colors.headerSuitRed}; }
   @media (max-width: 1180px) { display: none; }
 `
 
 /**
  * The wordmark of public/logo.svg, laid out the same way for the page header: the TKU badge and
  * BridgeTable on the first line, 淡江牌桌 and the club's line under it. It is the club's name, so
- * it reads the same in every language (like the logo itself); its colours follow the theme.
+ * it reads the same in every language (like the logo itself); its colours are the header's.
  */
 export function LogoWordmark() {
   return (
