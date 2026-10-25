@@ -661,6 +661,11 @@ export class ClubService {
 
   // ── Admin ───────────────────────────────────────────────────────────────────────────────────
 
+  /** A member's name, for messages such as who saved a system profile first */
+  usernameOf(userId: string): string | undefined {
+    return this.users.get(userId)?.username
+  }
+
   requireAdmin(userId: string) {
     if (!this.users.get(userId)?.admin) throw new ClubError('adminOnly', {}, 403)
   }
