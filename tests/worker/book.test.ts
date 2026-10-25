@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { Me } from '../../shared/protocol.ts'
-import { BOOK_LIMITS, BookService, checkConvention, importRequestFrom, publicBookResponse } from '../../worker/book.ts'
+import { BOOK_LIMITS, BookService, CATEGORY_LIMITS, checkCategories, checkConvention, importRequestFrom, publicBookResponse } from '../../worker/book.ts'
 import { importSchema } from '../../worker/importer.ts'
 import { MemoryStore } from '../../worker/store.ts'
 
@@ -169,7 +169,7 @@ const get = (path: string, etag?: string) =>
 
 describe('reading the handbook one convention at a time', () => {
   it('lists every entry without its content, with the outline and 待確認 notes in page order', async () => {
-    expect(JSON.parse((await book.manifest()).json)).toEqual({ version: 0, entries: [] })
+    expect(JSON.parse((await book.manifest()).json)).toEqual({ version: 0, entries: [], categories: [] })
     await book.save(amy, 'lebensohl', { convention: pendingConvention(), baseVersion: 0, bundledUpdated: '2026-10-21' })
     const manifest = JSON.parse((await book.manifest()).json)
     expect(manifest.version).toBe(1)
@@ -228,7 +228,7 @@ describe('reading the handbook one convention at a time', () => {
     expect(hidden.version).toBe(3)
     expect(hidden.entries[0]).toMatchObject({ slug: 'lebensohl', version: 3, meta: null })
     await book.reset(amy, 'lebensohl', { baseVersion: 3 })
-    expect(JSON.parse((await book.manifest()).json)).toEqual({ version: 4, entries: [] })
+    expect(JSON.parse((await book.manifest()).json)).toEqual({ version: 4, entries: [], categories: [] })
   })
 
   it('answers the manifest and one convention with ETags, and 404 when there is no online entry', async () => {
@@ -266,6 +266,95 @@ describe('reading the handbook one convention at a time', () => {
     expect(await get('/api/book/other')).toBeNull()
     const post = new Request('https://table.example/api/book/manifest', { method: 'POST' })
     expect(await publicBookResponse(book, post, '/api/book/manifest')).toBeNull()
+  })
+})
+
+describe('categories edited online', () => {
+  const bundled = [
+    { id: 'notrump', label: '無王開叫後續', description: '1NT 之後' },
+    { id: 'competitive', label: '競叫與防守', description: '' },
+  ]
+
+  it('starts empty, so the handbook keeps its own, and saves the whole list in order', async () => {
+    expect(await book.categories()).toEqual({ version: 0, categories: [] })
+    const first = await book.saveCategories(amy, { categories: bundled, baseVersion: 0 })
+    expect(first).toMatchObject({ version: 1, updatedBy: 'amy', updatedAt: time })
+    expect(first.categories).toEqual([
+      { id: 'notrump', label: '無王開叫後續', description: '1NT 之後', order: 0 },
+      { id: 'competitive', label: '競叫與防守', description: '', order: 1 },
+    ])
+    expect(store.data.get('book:category:notrump')).toMatchObject({ label: '無王開叫後續', order: 0 })
+
+    // Rename, reorder and add in one save; the manifest carries the same list and a new version
+    time += 1000
+    const next = await book.saveCategories(ben, {
+      baseVersion: 1,
+      categories: [{ id: 'competitive', label: '競叫', description: ' 敵方插叫 ' }, bundled[0], { id: 'slam', label: '滿貫' }],
+    })
+    expect(next.categories.map((c) => [c.id, c.label, c.order])).toEqual([
+      ['competitive', '競叫', 0],
+      ['notrump', '無王開叫後續', 1],
+      ['slam', '滿貫', 2],
+    ])
+    expect(next.categories[0].description).toBe('敵方插叫')
+    const manifest = JSON.parse((await book.manifest()).json)
+    expect(manifest).toMatchObject({ version: 2, categories: next.categories })
+
+    // Loaded again from storage, in order
+    const again = new BookService(store, () => time)
+    expect(await again.categories()).toEqual(next)
+  })
+
+  it('refuses a save made from an old version and removing a category an online convention is in', async () => {
+    await book.saveCategories(amy, { categories: bundled, baseVersion: 0 })
+    await expect(book.saveCategories(ben, { categories: bundled, baseVersion: 0 })).rejects.toMatchObject({
+      code: 'categoryConflict',
+      status: 409,
+      params: { name: 'amy' },
+    })
+
+    await book.save(amy, 'lebensohl', { convention: convention(), baseVersion: 0 })
+    await expect(book.saveCategories(amy, { categories: [bundled[0]], baseVersion: 1 })).rejects.toMatchObject({
+      code: 'categoryInUse',
+      status: 409,
+      params: { name: '競叫與防守', convention: '雷本索' },
+    })
+    expect((await book.categories()).categories).toHaveLength(2)
+
+    // A hidden convention is in no category, so it does not keep one alive; removed keys go
+    await book.hide(amy, 'lebensohl', { baseVersion: 1 })
+    const saved = await book.saveCategories(amy, { categories: [bundled[0]], baseVersion: 1 })
+    expect(saved.categories.map((c) => c.id)).toEqual(['notrump'])
+    expect(store.data.has('book:category:competitive')).toBe(false)
+  })
+
+  it('checks the shape of the list', () => {
+    const reason = (value: unknown) => {
+      try {
+        checkCategories(value)
+        return ''
+      } catch (error) {
+        return (error as { params: { reason: string } }).params.reason
+      }
+    }
+    expect(reason([])).toBe('至少要有一個分類')
+    expect(reason('notrump')).toBe('至少要有一個分類')
+    expect(reason([{ id: 'Bad Id', label: 'x' }])).toBe('分類代號只能用小寫英數與連字號')
+    expect(reason([{ id: 'a', label: 'x' }, { id: 'a', label: 'y' }])).toBe('分類代號重複：a')
+    expect(reason([{ id: 'a', label: '  ' }])).toMatch(/分類名稱/)
+    expect(reason([{ id: 'a', label: 'x'.repeat(CATEGORY_LIMITS.labelMax + 1) }])).toMatch(/分類名稱/)
+    expect(reason([{ id: 'a', label: 'x', description: 3 }])).toBe('分類說明要是文字')
+    expect(reason(Array.from({ length: CATEGORY_LIMITS.max + 1 }, (_, i) => ({ id: `c${i}`, label: 'x' })))).toMatch(/最多/)
+    expect(checkCategories([{ id: 'a', label: ' 甲 ', extra: true }])).toEqual([{ id: 'a', label: '甲', description: '', order: 0 }])
+  })
+
+  it('lets anyone read them, with an ETag', async () => {
+    const empty = (await get('/api/book/categories'))!
+    expect(empty.headers.get('ETag')).toBe('W/"book-categories-0"')
+    expect(await empty.json()).toEqual({ version: 0, categories: [] })
+    await book.saveCategories(amy, { categories: bundled, baseVersion: 0 })
+    expect((await get('/api/book/categories', 'W/"book-categories-0"'))!.status).toBe(200)
+    expect((await get('/api/book/categories', 'W/"book-categories-1"'))!.status).toBe(304)
   })
 })
 
