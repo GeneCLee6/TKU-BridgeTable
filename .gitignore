@@ -42,3 +42,6 @@ playwright-report/
 
 # The base branch checked out for the robot evaluation gate (eval/README.md)
 /base/
+
+# Offline double-dummy simulation results (eval/sim/README.md): large, reproducible from the seed
+/eval/sim/data/
