@@ -162,13 +162,14 @@ const SECTION_ID = /^[a-z0-9][a-z0-9-]*$/
 const BLOCK_KINDS = ['paragraph', 'rules', 'responses', 'note', 'hand']
 const TEXT_FIELDS = ['nameZh', 'nameEn', 'category', 'summary', 'updated']
 
-const isObject = (value: unknown): value is Record<string, unknown> =>
+export const isObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
-const isString = (value: unknown): value is string => typeof value === 'string'
+export const isString = (value: unknown): value is string => typeof value === 'string'
 const isOptionalString = (value: unknown) => value === undefined || isString(value)
-const isStrings = (value: unknown) => Array.isArray(value) && value.every(isString)
+export const isStrings = (value: unknown) => Array.isArray(value) && value.every(isString)
 const isOptionalLevel = (value: unknown) => value === undefined || LEVELS.includes(value as string)
 
+export const isSectionId = (value: unknown): value is string => isString(value) && value.length <= 80 && SECTION_ID.test(value)
 export const isSlug = (value: unknown): value is string => isString(value) && value.length <= 60 && SLUG.test(value)
 
 /** Throws `badContent` with a short reason unless `value` has the shape of a Convention */
@@ -189,7 +190,18 @@ export function checkConvention(value: unknown, slug: string): Record<string, un
   if (!isObject(value.source) || !isString(value.source.title) || !isOptionalString(value.source.note))
     fail('缺少來源（source.title）')
   if (!Array.isArray(value.sections)) fail('缺少段落（sections）')
+  checkSections(value.sections as unknown[])
+  return value
+}
 
+/**
+ * Throws `badContent` unless `sections` is a list of handbook Sections, with ids that are unique
+ * among them and their children. Also used for a system profile's replaced sections (profiles.ts)
+ */
+export function checkSections(sections: unknown[]) {
+  const fail = (reason: string): never => {
+    throw new ClubError('badContent', { reason })
+  }
   const ids = new Set<string>()
   const rules = (items: unknown): void => {
     if (!Array.isArray(items)) return fail('條列要是清單')
@@ -239,8 +251,7 @@ export function checkConvention(value: unknown, slug: string): Record<string, un
       for (const child of s.children as unknown[]) section(child, depth + 1)
     }
   }
-  for (const s of value.sections as unknown[]) section(s, 1)
-  return value
+  for (const s of sections) section(s, 1)
 }
 
 interface SectionLike {
@@ -360,6 +371,29 @@ export async function publicBookResponse(book: BookService, request: Request, pa
   return null
 }
 
+// ── Large values ──────────────────────────────────────────────────────────────────────────────
+// Storage values are limited to 128 KiB, so a large JSON body is kept in parts (`bookpart:<key>:<i>`)
+// next to a small header that says how many there are.
+
+/** Writes `value` in parts and removes any parts a longer previous value left behind; returns the count */
+export async function putParts(store: Store, key: string, value: unknown, previousParts = 0) {
+  const text = JSON.stringify(value)
+  const parts = Math.max(1, Math.ceil(text.length / CHUNK))
+  for (let i = 0; i < parts; i++) await store.put(`bookpart:${key}:${i}`, text.slice(i * CHUNK, (i + 1) * CHUNK))
+  for (let i = parts; i < previousParts; i++) await store.delete(`bookpart:${key}:${i}`)
+  return parts
+}
+
+export async function getParts<T>(store: Store, key: string, parts: number): Promise<T> {
+  let text = ''
+  for (let i = 0; i < parts; i++) text += (await store.get<string>(`bookpart:${key}:${i}`)) ?? ''
+  return JSON.parse(text) as T
+}
+
+export async function dropParts(store: Store, key: string, parts: number) {
+  for (let i = 0; i < parts; i++) await store.delete(`bookpart:${key}:${i}`)
+}
+
 export class BookService {
   private readonly store: Store
   private readonly now: () => number
@@ -385,24 +419,16 @@ export class BookService {
     return `${String(this.lastStamp).padStart(14, '0')}-${randomId(3)}`
   }
 
-  // ── Large values ────────────────────────────────────────────────────────────────────────────
-
-  private async putBody(key: string, value: unknown, previousParts = 0) {
-    const text = JSON.stringify(value)
-    const parts = Math.max(1, Math.ceil(text.length / CHUNK))
-    for (let i = 0; i < parts; i++) await this.store.put(`bookpart:${key}:${i}`, text.slice(i * CHUNK, (i + 1) * CHUNK))
-    for (let i = parts; i < previousParts; i++) await this.store.delete(`bookpart:${key}:${i}`)
-    return parts
+  private putBody(key: string, value: unknown, previousParts = 0) {
+    return putParts(this.store, key, value, previousParts)
   }
 
-  private async getBody<T>(key: string, parts: number): Promise<T> {
-    let text = ''
-    for (let i = 0; i < parts; i++) text += (await this.store.get<string>(`bookpart:${key}:${i}`)) ?? ''
-    return JSON.parse(text) as T
+  private getBody<T>(key: string, parts: number): Promise<T> {
+    return getParts<T>(this.store, key, parts)
   }
 
-  private async dropBody(key: string, parts: number) {
-    for (let i = 0; i < parts; i++) await this.store.delete(`bookpart:${key}:${i}`)
+  private dropBody(key: string, parts: number) {
+    return dropParts(this.store, key, parts)
   }
 
   // ── Content ─────────────────────────────────────────────────────────────────────────────────
