@@ -18,6 +18,7 @@ import type {
   RegisterResult,
 } from '../../shared/protocol.ts'
 import type { MatchSeat, Room, TeamMatchSettings, TeamMatchView } from '../../shared/team-match.ts'
+import type { RulingKind, Team } from '../../shared/team-scoring.ts'
 import type { Traveller } from '../../shared/traveller.ts'
 import type { Seat } from '../../shared/cards.ts'
 import type { BookSyncRow } from '../../shared/robot/system/tku/sources.ts'
@@ -30,6 +31,14 @@ export type MatchSeatAction =
   | { action: 'leave' }
   | { action: 'clear'; room: Room; seat: Seat }
   | { action: 'robot'; room: Room; seat: Seat }
+
+/** What the host (替補 also a captain) does while a match is played (§5.8, `e8-t14`–`e8-t16`) */
+export type MatchPlayAction =
+  | { action: 'rule'; seq: number; ruling: RulingKind; team: Team; reason: string }
+  | { action: 'pause'; paused: boolean }
+  | { action: 'abandon' }
+  | { action: 'replace'; room: Room; seat: Seat; userId: string }
+  | { action: 'sitin'; room: Room; seat: Seat }
 import type { FeaturedBoard, FeaturedInput } from '../../shared/featured.ts'
 
 /** HTTP calls to the Worker. The session lives in an HttpOnly cookie, so no token is handled here. */
@@ -141,6 +150,9 @@ export const api = {
    * they may not (they declined or left)
    */
   matchSeat: (id: string, { action, ...body }: MatchSeatAction) =>
+    post<{ match: TeamMatchView | null }>(`/api/matches/${encodeURIComponent(id)}/${action}`, body),
+  /** Rulings, the pause, abandoning, substitutes and robots sitting in, while the match is played */
+  matchPlay: (id: string, { action, ...body }: MatchPlayAction) =>
     post<{ match: TeamMatchView | null }>(`/api/matches/${encodeURIComponent(id)}/${action}`, body),
 
   admin: {

@@ -4,19 +4,21 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import styled from 'styled-components'
 import { ROBOT_KINDS } from '../../shared/protocol.ts'
 import {
+  arrangerOf,
   INVITE_MODES,
   isOpenMatch,
   ROOMS,
   TEAM_MATCH_LIMITS,
   type MatchSeat,
   type MatchSeatView,
+  type Room,
   type TeamMatchSettings,
   type TeamMatchView,
 } from '../../shared/team-match.ts'
-import { MATCH_SCORINGS, type Team } from '../../shared/team-scoring.ts'
+import { MATCH_SCORINGS, RULINGS, TEAMS, type RulingKind, type Team } from '../../shared/team-scoring.ts'
 import { BoardScores, ScoreLine, Tag } from '../components/MatchParts.tsx'
 import { Button, Card, ErrorText, Field, FieldLabel, Input, Muted, PageMain, PageTitle, Select } from '../components/ui.tsx'
-import { ApiError, api, type MatchSeatAction } from '../lib/api.ts'
+import { ApiError, api, type MatchPlayAction, type MatchSeatAction } from '../lib/api.ts'
 import { arranges, matchSettingsLine, myRoomTable, mySeat, robotsUneven, sameSeat, seatLabel, teamName } from '../lib/matches.ts'
 import { useTeamMatch } from '../lib/useTeamMatch.ts'
 import { useAuth } from '../state/AuthContext.tsx'
@@ -30,9 +32,12 @@ import { usePreferences } from '../state/PreferencesContext.tsx'
  * move to an empty seat of their team; leave. The host also changes the settings, cancels, and
  * sees whether the match can start and why not, and starts it (`e8-t07`): both rooms open at once and
  * the players are taken to their tables. While it is played and after, the page shows the score of
- * the boards both rooms played (`e8-t10`, `e8-t11`), a way back to the player's own table, and the
- * two rooms for everyone else to watch. The server pushes every change (`match`), so the page
- * stays live without polling.
+ * the boards both rooms played (`e8-t10`, `e8-t11`) board by board with each room's contract, lead
+ * and result and a side-by-side replay (the result page, `e8-t12`), a way back to the player's own
+ * table, and the two rooms for everyone else to watch. While it is played the host pauses, resumes
+ * or abandons it, rules on boards over the time limit, has a robot sit in for a player, and with a
+ * team's captain brings in a substitute (`e8-t14`–`e8-t16`). The server pushes every change
+ * (`match`), so the page stays live without polling.
  */
 
 const Back = styled(Link)`
@@ -215,6 +220,7 @@ export function MatchPage() {
     }
   }
   const seatAction = (action: MatchSeatAction) => run(() => api.matchSeat(matchId, action))
+  const playAction = (action: MatchPlayAction) => run(() => api.matchPlay(matchId, action))
 
   const back = (
     <Back to="/matches">
@@ -249,7 +255,28 @@ export function MatchPage() {
     (u) => !u.robot && u.id !== me && !inMatch.has(u.id) && !lobby?.blocked.includes(u.id),
   )
 
+  const playing = m.status === 'playing'
+  const paused = playing && m.pausedAt !== undefined
+  /** While it is played: the host has a robot sit in (代打); paused, the host or the team's captain brings in a substitute (替補) */
+  const playActions = (s: MatchSeatView) => {
+    const buttons = []
+    if (isHost && s.status === 'seated' && !s.robot && s.userId !== undefined && !s.substitute)
+      buttons.push(
+        <Button key="sitin" type="button" $size="sm" $variant="ghost" disabled={busy} onClick={() => void playAction({ action: 'sitin', room: s.room, seat: s.seat })}>
+          {t.teamMatch.sitIn}
+        </Button>,
+      )
+    if (paused && s.userId !== m.hostId && (isHost || arrangerOf(m, s.team) === me))
+      buttons.push(
+        <Button key="replace" type="button" $size="sm" $variant="ghost" disabled={busy} onClick={() => setInviting(inviting && sameSeat(inviting, s) ? null : s)}>
+          {t.teamMatch.replace}
+        </Button>,
+      )
+    return buttons.length ? <Actions>{buttons}</Actions> : null
+  }
+
   const seatActions = (s: MatchSeatView) => {
+    if (playing) return playActions(s)
     if (!setup) return null
     const captain = arranges(m, me, s)
     const buttons = []
@@ -307,7 +334,12 @@ export function MatchPage() {
   const invitePicker = (s: MatchSeatView) =>
     inviting && sameSeat(inviting, s) ? (
       <Picker>
-        <Select $size="sm" aria-label={t.teamMatch.inviteWho(seatLabel(t, s))} value={invitee} onChange={(e) => setInvitee(e.target.value)}>
+        <Select
+          $size="sm"
+          aria-label={playing ? t.teamMatch.replaceWho(seatLabel(t, s)) : t.teamMatch.inviteWho(seatLabel(t, s))}
+          value={invitee}
+          onChange={(e) => setInvitee(e.target.value)}
+        >
           <option value="">{t.teamMatch.pickMember}</option>
           {candidates.map((u) => (
             <option key={u.id} value={u.id}>
@@ -321,9 +353,13 @@ export function MatchPage() {
           $size="sm"
           $variant="primary"
           disabled={!invitee || busy}
-          onClick={() => void seatAction({ action: 'invite', room: s.room, seat: s.seat, userId: invitee })}
+          onClick={() =>
+            void (playing
+              ? playAction({ action: 'replace', room: s.room, seat: s.seat, userId: invitee })
+              : seatAction({ action: 'invite', room: s.room, seat: s.seat, userId: invitee }))
+          }
         >
-          {t.teamMatch.invite}
+          {playing ? t.teamMatch.replace : t.teamMatch.invite}
         </Button>
       </Picker>
     ) : null
@@ -338,6 +374,11 @@ export function MatchPage() {
       <PageTitle>{t.teamMatch.vs(teamName(t, m, 'A'), teamName(t, m, 'B'))}</PageTitle>
       <Meta>
         <Tag $open={isOpenMatch(m.status)}>{t.teamMatch.statuses[m.status]}</Tag>
+        {paused && (
+          <Tag $open $accent>
+            {t.teamMatch.paused}
+          </Tag>
+        )}
         <Muted as="span">{matchSettingsLine(t, m)}</Muted>
         <Muted as="span">{t.teamMatch.host(hostName)}</Muted>
       </Meta>
@@ -357,6 +398,7 @@ export function MatchPage() {
         </Section>
       )}
 
+      {paused && <Warning role="status">{t.teamMatch.pausedHint}</Warning>}
       {setup && m.settings.invite === 'captains' && <Muted>{t.teamMatch.captainsHint}</Muted>}
       {robotsUneven(m) && <Warning role="note">{t.teamMatch.robotsUneven}</Warning>}
 
@@ -382,6 +424,11 @@ export function MatchPage() {
                           <strong>{nameOf(s)}</strong>
                           {s.userId !== undefined && s.userId === captainOf(s.team) && <Tag $open>{t.teamMatch.captain}</Tag>}
                           {s.status === 'invited' && <Tag $open={false}>{t.teamMatch.invited}</Tag>}
+                          {s.substitute && (
+                            <Tag $open $accent>
+                              {t.teamMatch.sittingIn}
+                            </Tag>
+                          )}
                         </>
                       )}
                     </Line>
@@ -429,6 +476,7 @@ export function MatchPage() {
             <ScoreLine match={m} />
           </Bar>
           {m.status === 'playing' && <Muted>{t.teamMatch.playingHint}</Muted>}
+          {m.status === 'abandoned' && <Muted>{t.teamMatch.abandonedNote}</Muted>}
           {m.status === 'playing' && m.tables && (
             <Bar>
               {myTable ? (
@@ -449,6 +497,7 @@ export function MatchPage() {
         </Section>
       )}
 
+      {playing && isHost && <ManageMatch match={m} busy={busy} onAction={(action) => void playAction(action)} />}
       {setup && isHost && <StartBar match={m} busy={busy} onStart={() => void run(() => api.startMatch(m.id))} />}
       {setup && isHost && <SettingsForm key={JSON.stringify(m.settings)} match={m} busy={busy} onSave={(settings) => void run(() => api.matchSettings(m.id, settings))} />}
       {setup && (
@@ -472,6 +521,135 @@ export function MatchPage() {
         </Bar>
       )}
     </PageMain>
+  )
+}
+
+/** The time now, again every 15 seconds: whether a room is over its time limit changes with it */
+function useNow(): number {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 15_000)
+    return () => window.clearInterval(timer)
+  }, [])
+  return now
+}
+
+/**
+ * What the host does while the match is played (`e8-t14`–`e8-t16`, AC-8.6): pause and resume both
+ * rooms, abandon a paused match, and rule on a board a room is still playing past the time limit
+ * (Avg, Avg+ or Avg- for a team, with a reason). Where each room is comes only to the host
+ * (`TeamMatchView.rooms`); the server checks everything again
+ */
+function ManageMatch({ match, busy, onAction }: { match: TeamMatchView; busy: boolean; onAction: (action: MatchPlayAction) => void }) {
+  const { t } = usePreferences()
+  const now = useNow()
+  const paused = match.pausedAt !== undefined
+  const clockNow = match.pausedAt ?? now
+  const over = (room: Room) => {
+    const clock = match.rooms?.[room]
+    return !!clock?.playing && clock.endsAt !== undefined && clockNow >= clock.endsAt
+  }
+  return (
+    <Section aria-labelledby="manage-title">
+      <h2 id="manage-title">{t.teamMatch.manage}</h2>
+      <Bar>
+        <Button type="button" $variant={paused ? 'primary' : 'secondary'} disabled={busy} onClick={() => onAction({ action: 'pause', paused: !paused })}>
+          {paused ? t.teamMatch.resume : t.teamMatch.pause}
+        </Button>
+        <Button
+          type="button"
+          $variant="danger"
+          disabled={busy || !paused}
+          aria-describedby="abandon-why"
+          onClick={() => window.confirm(t.teamMatch.confirmAbandon) && onAction({ action: 'abandon' })}
+        >
+          {t.teamMatch.abandon}
+        </Button>
+        <Muted as="span" id="abandon-why">
+          {t.teamMatch.pauseFirst}
+        </Muted>
+      </Bar>
+      <Seats>
+        {ROOMS.map((room) => {
+          const clock = match.rooms?.[room]
+          const roomName = t.teamMatch.rooms[room]
+          return (
+            <li key={room}>
+              <Line>
+                <strong>{clock?.playing && clock.seq !== null ? t.teamMatch.roomNow(roomName, clock.seq) : t.teamMatch.roomIdle(roomName)}</strong>
+                {over(room) ? (
+                  <Tag $open $accent>
+                    {t.teamMatch.overTime}
+                  </Tag>
+                ) : (
+                  clock?.endsAt !== undefined &&
+                  clock.playing && <Muted as="span">{t.teamMatch.timeLeft(Math.max(0, Math.ceil((clock.endsAt - clockNow) / 60_000)))}</Muted>
+                )}
+              </Line>
+              {over(room) && clock?.seq != null && (
+                <RuleForm key={clock.seq} match={match} seq={clock.seq} busy={busy} onRule={(ruling) => onAction({ action: 'rule', seq: clock.seq!, ...ruling })} />
+              )}
+            </li>
+          )
+        })}
+      </Seats>
+    </Section>
+  )
+}
+
+/** The host's ruling on one board (`e8-t15`): Avg, Avg+ or Avg- for a team, and why */
+function RuleForm({
+  match,
+  seq,
+  busy,
+  onRule,
+}: {
+  match: TeamMatchView
+  seq: number
+  busy: boolean
+  onRule: (ruling: { ruling: RulingKind; team: Team; reason: string }) => void
+}) {
+  const { t } = usePreferences()
+  const [ruling, setRuling] = useState<RulingKind>('avg')
+  const [team, setTeam] = useState<Team>('A')
+  const [reason, setReason] = useState('')
+  const submit = (e: FormEvent) => {
+    e.preventDefault()
+    onRule({ ruling, team, reason })
+  }
+  const id = `rule-${seq}`
+  return (
+    <Form onSubmit={submit}>
+      <Field>
+        <FieldLabel htmlFor={`${id}-kind`}>{t.teamMatch.ruleBoard(seq)}</FieldLabel>
+        <Select id={`${id}-kind`} $size="sm" value={ruling} onChange={(e) => setRuling(e.target.value as RulingKind)}>
+          {RULINGS.map((k) => (
+            <option key={k} value={k}>
+              {t.teamMatch.rulings[k]}
+            </option>
+          ))}
+        </Select>
+      </Field>
+      <Field>
+        <FieldLabel htmlFor={`${id}-team`}>{t.teamMatch.rulingTeam}</FieldLabel>
+        <Select id={`${id}-team`} $size="sm" value={team} onChange={(e) => setTeam(e.target.value as Team)}>
+          {TEAMS.map((k) => (
+            <option key={k} value={k}>
+              {teamName(t, match, k)}
+            </option>
+          ))}
+        </Select>
+      </Field>
+      <Field>
+        <FieldLabel htmlFor={`${id}-reason`}>{t.teamMatch.reason}</FieldLabel>
+        <Input id={`${id}-reason`} $size="sm" maxLength={TEAM_MATCH_LIMITS.reasonMax} value={reason} onChange={(e) => setReason(e.target.value)} />
+      </Field>
+      <div>
+        <Button type="submit" $size="sm" $variant="primary" disabled={busy || !reason.trim()}>
+          {t.teamMatch.submitRuling}
+        </Button>
+      </div>
+    </Form>
   )
 }
 

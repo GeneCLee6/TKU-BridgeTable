@@ -83,7 +83,7 @@ describe('rulings on boards over the time limit (e8-t15)', () => {
     // The open room plays board 1; Ben sits on it in the closed room
     await t.playUntil([amy], () => t.played(open) === 1)
     const openRecord = t.tableState(open)!.recent![0].id
-    const rule = { type: 'matchRule', matchId: id, seq: 1, ruling: 'avgPlus', team: 'A', reason: '閉室超時' } as ClientMessage
+    const rule: Extract<ClientMessage, { type: 'matchRule' }> = { type: 'matchRule', matchId: id, seq: 1, ruling: 'avgPlus', team: 'A', reason: '閉室超時' }
     expect(await t.refused(ben, rule)).toBe('matchHostOnly')
     expect(await t.refused(amy, rule)).toBe('matchNotOverTime')
     expect(matchOf(id, amy).rooms?.closed).toMatchObject({ seq: 1, playing: true, endsAt: t.tableState(closed)!.boardStartedAt! + 10 * MIN })
@@ -92,7 +92,7 @@ describe('rulings on boards over the time limit (e8-t15)', () => {
 
     t.h.time += 10 * MIN
     expect(await t.refused(amy, { ...rule, reason: ' ' } as ClientMessage)).toBe('badRuling')
-    expect(await t.refused(amy, { ...rule, ruling: 'avgPlenty' } as ClientMessage)).toBe('badRuling')
+    expect(await t.refused(amy, { ...rule, ruling: 'avgPlenty' } as unknown as ClientMessage)).toBe('badRuling')
     expect(await t.refused(amy, { ...rule, seq: 9 } as ClientMessage)).toBe('badRuling')
     expect(await t.refused(amy, rule)).toBeUndefined()
 
@@ -195,7 +195,7 @@ describe('pausing, abandoning and substitutes (e8-t16)', () => {
     const cat = await t.member('cat')
     const dan = await t.member('dan')
     await t.send(cat, { type: 'joinTable', tableId: open })
-    const replace = { type: 'matchReplace', matchId: id, room: 'closed', seat: 'S', userId: dan } as ClientMessage
+    const replace: Extract<ClientMessage, { type: 'matchReplace' }> = { type: 'matchReplace', matchId: id, room: 'closed', seat: 'S', userId: dan }
     expect(await t.refused(amy, replace)).toBe('matchPauseFirst')
     await t.send(amy, { type: 'matchPause', matchId: id, paused: true })
     // Ben's team is B: Bea (team A) does not arrange it

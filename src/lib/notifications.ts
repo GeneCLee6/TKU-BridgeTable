@@ -18,6 +18,8 @@ export function notificationText(t: Strings, n: Notification): string {
     case 'matchRemoved':
     case 'matchCancelled':
     case 'matchStarted':
+    case 'matchAbandoned':
+    case 'matchSubIn':
     case 'boardFeatured':
       return t.notificationTexts[n.kind](name)
     case 'challengeReminder':
@@ -63,6 +65,8 @@ export function notificationLink(n: Notification): string {
     case 'matchCancelled':
     case 'matchStarted':
     case 'matchFinished':
+    case 'matchAbandoned':
+    case 'matchSubIn':
       return n.params.matchId ? `/matches/${encodeURIComponent(String(n.params.matchId))}` : '/matches'
     case 'boardFeatured':
       return n.params.boardId ? `/history/${encodeURIComponent(String(n.params.boardId))}` : '/featured'
