@@ -107,7 +107,7 @@ npx wrangler secret put ANTHROPIC_API_KEY --name tku-bridge-table-staging
 
 ### 新增 Durable Object 或其他綁定時
 
-`wrangler.jsonc` 最上層的 `durable_objects`、`vars` 等綁定**不會**被環境繼承：在最上層加了綁定，`env.staging` 與 `env.preview` 也要各加一份；`migrations` 只寫在最上層，三個環境共用。例外是只屬於正式站的東西：R2 bucket `BACKUPS` 不加到環境裡，環境的 `triggers.crons` 設成空的（§4.4）。
+`wrangler.jsonc` 最上層的 `durable_objects`、`vars` 等綁定**不會**被環境繼承：在最上層加了綁定，`env.staging` 與 `env.preview` 也要各加一份；`migrations` 只寫在最上層，三個環境共用。例外是只屬於正式站的東西：R2 bucket `BACKUPS` 不加到環境裡，環境的 `triggers.crons` 設成空的（§4.4）。D1（§4.5）每個環境用**自己的**資料庫：正式站與 staging 的 `database_id` 不同，PR 預覽沒有 D1（一個資料庫會被所有預覽共用）。
 
 ### 手動清理
 
@@ -121,6 +121,9 @@ PR 關閉時預覽會自動刪除。若有漏掉的（例如當時還沒設定 s
 | `INVITE_CODE` | `wrangler secret put INVITE_CODE` | 無 | 註冊與「忘記密碼」時必須輸入；沒設定時任何人都能送出申請 |
 | `ANTHROPIC_API_KEY` | `wrangler secret put ANTHROPIC_API_KEY` | 無 | 淡江橋譜「匯入檔案」用的 Claude API 金鑰；沒設定時匯入頁會說明尚未設定，其他功能不受影響 |
 | `IMPORT_MODEL` | `wrangler.jsonc` 的 `vars` | `claude-opus-5-5` | 匯入用的模型，通常不用改 |
+| `EDGE_AUTH_SECRET` | `wrangler secret put EDGE_AUTH_SECRET` | 無 | 簽邊緣通行證（§4.5）；沒設定時不發通行證，Worker 什麼都問社團 |
+| `EDGE_AUTH` | `wrangler.jsonc` 的 `vars` 或 `--var` | 開 | `off` 關掉通行證（§4.5） |
+| `HISTORY_D1` | `wrangler.jsonc` 的 `vars` 或 `--var` | 開 | `off` 讓紀錄頁改回社團回答、停止寫 D1（§4.5）；沒有 `HISTORY` binding（PR 預覽）時本來就沒有 |
 | `ANTHROPIC_BASE_URL` | `.dev.vars` | 無 | 只給測試或 API 閘道用（本機可以指向假的 API），正式環境不要設定 |
 
 本機開發的值放在 `.dev.vars`（從 `.dev.vars.example` 複製，不會 commit）。
@@ -159,7 +162,7 @@ AI 匯入的費用：每次分析用 `claude-opus-5-5`，一份幾頁的講義�
 
 ## 4.2 資料存在哪
 
-所有資料（帳號、待審核的申請、密碼雜湊、牌桌、牌局紀錄、淡江橋譜的線上內容與版本紀錄）都在 Cloudflare 上這個 Worker 的 Durable Object（SQLite 儲存），不在你的電腦或 GitHub。淡江橋譜的資料每天另外備份到 R2（§4.4）。密碼只存 PBKDF2 雜湊，管理員也看不到原文。需要直接查看時：Cloudflare Dashboard → Workers & Pages → `tku-bridge-table` → Durable Objects。
+所有資料（帳號、待審核的申請、密碼雜湊、牌桌、牌局紀錄、淡江橋譜的線上內容與版本紀錄）都在 Cloudflare 上這個 Worker 的 Durable Object（SQLite 儲存），不在你的電腦或 GitHub。淡江橋譜的資料每天另外備份到 R2（§4.4）。紀錄索引另有一份副本在 D1（`tku-bridge-history`，§4.5），只給紀錄頁讀，隨時可以從社團的紀錄重建。密碼只存 PBKDF2 雜湊，管理員也看不到原文。需要直接查看時：Cloudflare Dashboard → Workers & Pages → `tku-bridge-table` → Durable Objects。
 
 ## 4.3 每桌一個 Durable Object（H1b，`e11-t17`）
 
@@ -251,8 +254,72 @@ await call('POST', '/backups/restore', { name: 'daily/2026-10-25.jsonl', dryRun:
 | --- | --- | --- | --- | --- |
 | （待部署後執行） | | | | |
 
+## 4.5 紀錄頁由 Worker 從 D1 回答、邊緣通行證（H2a，`e11-t19`、`e11-t20`）
+
+從這一版起，紀錄列表與搜尋由 Worker 直接從 **D1 的副本**回答，牌桌的連線用**簽章的通行證**確認是誰，兩者都不必叫醒社團的物件（`ARCHITECTURE.md` §5.12）。正本仍在社團的物件裡，副本或通行證不能用時一律照舊交給社團。
+
+### 合併**之前**要做的（只做一次）
+
+`wrangler.jsonc` 裡 D1 的 `database_id` 現在是 `PASTE-PRODUCTION-D1-ID-HERE`／`PASTE-STAGING-D1-ID-HERE`。**沒換成真的 id 就合併，正式站的自動部署會失敗**（舊版照常運作，不會壞，但新版上不去），所以先建資料庫：
+
+1. 在專案資料夾建兩個資料庫（免費方案最多 10 個）：
+
+   ```bash
+   npx wrangler d1 create tku-bridge-history
+   npx wrangler d1 create tku-bridge-history-staging
+   ```
+
+   每個指令會印出 `database_id`（一串 UUID）。**兩個 id 不要搞混**：正式站的貼到 `wrangler.jsonc` 最上層 `d1_databases` 的 `database_id`，staging 的貼到 `env.staging.d1_databases`。PR 預覽沒有 D1，不用建。貼好 commit 到這個 PR 的分支（或把兩個 id 貼在 PR 留言，由 AI 協作者幫你改）。
+
+   表不用自己建：社團的物件第一次載入時會建（`CREATE TABLE IF NOT EXISTS`），也不需要 `wrangler d1 migrations`。
+
+2. 設定通行證的 secret（正式站與 staging 各一個、**不要相同**；值是一串隨機字，不必記住，換掉只是讓所有通行證失效、自動改問社團）：
+
+   ```bash
+   node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"   # 產生一串，複製
+   npx wrangler secret put EDGE_AUTH_SECRET                                      # 貼上（正式站）
+   node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"   # 再產生一串
+   npx wrangler secret put EDGE_AUTH_SECRET --name tku-bridge-table-staging      # 貼上（staging）
+   ```
+
+   `secret put` 會立刻讓目前的版本拿到這個值；舊程式不認得它，沒有影響。沒設也可以合併：只是不發通行證，Worker 什麼都問社團（跟 H1 一樣）。PR 預覽每次部署自動產生一個（`.github/workflows/preview.yml`）。
+
+### 部署與檢查
+
+1. 合併後 CI 綠了自動部署。不用挑時間：沒有新的 Durable Object migration，部署本身跟平常一樣只會讓連線斷一下再自動接回。
+2. 社團的物件載入後開始填副本：每秒 20 副，一萬副約 8–10 分鐘。填完之前紀錄頁照舊由社團回答。
+3. 檢查：
+   - Logs 搜尋 `event = replica`：應該看到 `{"event":"replica","step":"fill","ok":true}`；`ok: false` 的話看 `error`（常見：id 貼錯）。
+   - 副本完整、筆數對：
+
+     ```bash
+     npx wrangler d1 execute tku-bridge-history --remote --command "SELECT value FROM index_meta WHERE key = 'ready'"
+     npx wrangler d1 execute tku-bridge-history --remote --command "SELECT COUNT(*) FROM boards_index"
+     ```
+
+     `ready` 是 `1`；筆數等於社團的紀錄數（管理頁、或任一社員紀錄頁「全部」的總數，加上沒公開的挑戰／隊制賽牌局）。
+   - 登入後打開紀錄頁，Logs 搜尋 `event = edge`：有 `status: 200` 就是 Worker 從 D1 回答的；`fallback: notReady` 表示還在填，`fallback: error` 表示 D1 出錯（交給社團了，使用者看不出來）。
+   - 瀏覽器開發者工具 → Application → Cookies 有 `tbt_pass`（設了 secret 才會有）。開一桌，Logs 裡不應該每次連上桌都出現社團的 `http` 紀錄。
+4. 打一副，十秒內出現在紀錄頁（副本約晚 1–2 秒）。
+
+### 出問題時（切回去）
+
+```bash
+npx wrangler deploy --var HISTORY_D1:off   # 紀錄頁改回社團回答，社團停止寫 D1，並告訴 D1「副本不完整」
+npx wrangler deploy --var EDGE_AUTH:off    # 不發也不認通行證，Worker 什麼都問社團
+```
+
+兩個互不影響，資料都不會掉（正本在社團）。要一直維持關閉，就把 `"HISTORY_D1": "off"` 或 `"EDGE_AUTH": "off"` 加進 `wrangler.jsonc` 的 `vars` 開 PR（否則下一次 CI 部署會再打開）。拿掉再部署：副本從頭重填，填完才讓 Worker 讀。
+
+要整個拿掉 D1：先照上面關掉、部署，再從 `wrangler.jsonc` 刪掉 `d1_databases`、部署，最後 `npx wrangler d1 delete tku-bridge-history`。**不要直接刪資料庫而不先關掉**：Worker 會一直讀不到而改問社團（不會壞，但日誌會一直有 `fallback: error`）。
+
+### 額度
+
+D1 免費額度（每天讀 500 萬列、寫 10 萬列、5 GB）的估算在 `ARCHITECTURE.md` §5.12「免費方案」：社團現在的量遠低於上限。Dashboard → Storage & Databases → D1 → `tku-bridge-history` → Metrics 可以看每天讀寫的列數。超過時紀錄頁自動改由社團回答，寫入隔天補上。
+
 ## 5. 費用與限制
 
 - Workers 免費方案：每天 10 萬次請求；WebSocket 訊息以 20:1 計算，一個晚上打牌遠低於上限。
 - SQLite Durable Object 免費方案：5 GB 儲存；一副牌的紀錄連同索引約 4 KB，約可存一百萬副以上。紀錄列表一次只讀 50 筆，資料再多也不會變慢。
 - 免費方案每次請求的 CPU 時間有限，因此密碼雜湊使用 50,000 次 PBKDF2（`worker/auth.ts`）。
+- D1 免費方案：每天讀 500 萬列、寫 10 萬列，全部 5 GB。紀錄索引的副本每副約寫 14 列，一天約 7,000 副才到上限（§4.5、`ARCHITECTURE.md` §5.12）。
