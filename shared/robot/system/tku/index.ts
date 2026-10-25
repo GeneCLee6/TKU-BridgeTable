@@ -1,5 +1,7 @@
 import type { System } from '../spec.ts'
-import { competition, defence } from './competition.ts'
+import { advancingBooks, supportDouble } from './advancing.ts'
+import { competition, responsiveBooks } from './competition.ts'
+import { overcalls } from './defence.ts'
 import { majors, unusual } from './majors.ts'
 import { minors, strong } from './minors.ts'
 import { notrump } from './notrump.ts'
@@ -15,5 +17,19 @@ import { target } from './target.ts'
 export const TKU: System = {
   id: 'tku',
   firstFit: true,
-  books: [openings, ...notrump, ...strong, ...majors, ...minors, ...responder, ...unusual, ...competition, ...defence, target],
+  books: [
+    openings,
+    ...notrump,
+    ...strong,
+    ...majors,
+    ...minors,
+    ...responder,
+    ...unusual,
+    supportDouble(),
+    ...competition,
+    ...overcalls,
+    ...responsiveBooks,
+    ...advancingBooks,
+    target,
+  ],
 }
