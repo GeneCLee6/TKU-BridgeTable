@@ -2,14 +2,23 @@ import { Eye, EyeOff } from 'lucide-react'
 import { useState, type InputHTMLAttributes } from 'react'
 import styled from 'styled-components'
 import { useT } from '../state/PreferencesContext.tsx'
+import { inputStyles } from '../styles/controls.ts'
+import type { ControlSize } from '../styles/tokens.ts'
 
-/** A password field with a button that shows or hides what was typed */
-export function PasswordInput(props: Omit<InputHTMLAttributes<HTMLInputElement>, 'type'>) {
+/**
+ * A password field with a button that shows or hides what was typed. The field itself is the
+ * browser's own `type="password"` with the shared input look: the same font size as every other
+ * field, no letter-spacing, no enlarged dots.
+ */
+export function PasswordInput({
+  $size,
+  ...props
+}: Omit<InputHTMLAttributes<HTMLInputElement>, 'type'> & { $size?: ControlSize }) {
   const t = useT()
   const [shown, setShown] = useState(false)
   return (
     <Wrap>
-      <input {...props} type={shown ? 'text' : 'password'} />
+      <Field {...props} $size={$size} type={shown ? 'text' : 'password'} />
       <Toggle
         type="button"
         onClick={() => setShown((s) => !s)}
@@ -26,17 +35,11 @@ export function PasswordInput(props: Omit<InputHTMLAttributes<HTMLInputElement>,
 const Wrap = styled.span`
   position: relative;
   display: grid;
+`
 
-  & > input {
-    min-height: 42px;
-    padding: 0 44px 0 12px;
-    border: 1px solid ${({ theme }) => theme.colors.border};
-    border-radius: ${({ theme }) => theme.radius.sm};
-    background: ${({ theme }) => theme.colors.bg};
-    color: inherit;
-    font-size: 16px;
-    font-weight: 400;
-  }
+const Field = styled.input<{ $size?: ControlSize }>`
+  ${inputStyles}
+  padding-right: 44px;
 `
 
 const Toggle = styled.button`
@@ -45,8 +48,8 @@ const Toggle = styled.button`
   right: 4px;
   display: inline-grid;
   place-items: center;
-  width: 36px;
-  height: 36px;
+  width: 32px;
+  height: 32px;
   transform: translateY(-50%);
   border: 0;
   border-radius: ${({ theme }) => theme.radius.sm};
