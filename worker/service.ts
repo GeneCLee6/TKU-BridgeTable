@@ -60,9 +60,17 @@ import { ruleBrain, type RobotBrain } from '../shared/robot/brain.ts'
 import type { RobotBid } from '../shared/robot/robots.ts'
 import { hashPassword, randomId, SESSION_DAYS, verifyPassword } from './auth.ts'
 import { DEFAULT_HISTORY_QUERY, type HistoryQuery } from '../shared/history-query.ts'
-import { CHALLENGE_LIMITS, isOpenChallenge, parseChallengeSettings, type ChallengeView } from '../shared/challenge.ts'
+import {
+  CHALLENGE_LIMITS,
+  isOpenChallenge,
+  parseChallengeSettings,
+  scoringsFor,
+  type ChallengeSettings,
+  type ChallengeView,
+} from '../shared/challenge.ts'
+import { boardAsSouth, challengeDeals } from '../shared/challenge-deals.ts'
+import { DEAL_SET_MAX, dealSourceOf, makeDealSet, type DealSet, type DealSetBoard } from '../shared/deal-set.ts'
 import { openingLead, type Traveller } from '../shared/traveller.ts'
-import { dealSourceOf, makeDealSet } from '../shared/deal-set.ts'
 import {
   answer,
   cancel,
@@ -75,7 +83,7 @@ import {
   remindWhom,
   type ChallengeChange,
 } from './challenge-flow.ts'
-import { ChallengeStore, type Challenge } from './challenges.ts'
+import { ChallengeStore, type Challenge, type ChallengeResult } from './challenges.ts'
 import { TeamMatchService } from './team-match-service.ts'
 import { TeamMatchStore } from './team-matches.ts'
 import { createHistoryIndex, eventBoards, indexRecord, revealEvent, searchBoards, unindexRecord } from './history-index.ts'
@@ -220,7 +228,10 @@ function settingsOf(table: Table): TableSettings {
  * reads only that page no matter how many boards the club has played.
  */
 /** The challenge actions the pages send over HTTP (`ClubService.challengeRequest`) */
-export type ChallengeRequest = Extract<ClientMessage, { type: 'createChallenge' | 'answerChallenge' | 'cancelChallenge' }>
+export type ChallengeRequest = Extract<
+  ClientMessage,
+  { type: 'createChallenge' | 'answerChallenge' | 'cancelChallenge' | 'rematchChallenge' }
+>
 
 export class ClubService {
   private users = new Map<string, StoredUser>()
@@ -1082,7 +1093,9 @@ export class ClubService {
         if (this.directs.markRead(userId, this.otherMember(userId, message.userId))) this.pushDirects(userId)
         return
       case 'createChallenge':
-        return this.createChallenge(userId, message.invitees, message.boards, message.settings)
+        return this.createChallenge(userId, message.invitees, message.boards, message.settings, message.fromBoards)
+      case 'rematchChallenge':
+        return this.rematchChallenge(userId, message.challengeId)
       case 'answerChallenge':
         return this.answerChallenge(userId, message.challengeId, message.accept)
       case 'cancelChallenge':
@@ -1149,11 +1162,19 @@ export class ClubService {
 
   /**
    * Creates a challenge (e7-t05): 1–20 different members the creator follows, neither side
-   * blocking the other; 4–16 boards dealt at random now; settings checked by
-   * `parseChallengeSettings`. The creator has accepted and may play at once; the invitees are told
+   * blocking the other; settings checked by `parseChallengeSettings`. The boards are 4–16 dealt at
+   * random now, turned for Best Hand and bid by the robots for Just Declare (`e7-t10`, `e7-t11`);
+   * or, with `fromBoards`, boards the creator already played (`e7-t22`). The creator has accepted
+   * and may play at once (unless their results are already in); the invitees are told. Returns the
+   * new challenge's id
    */
-  /** Challenges friends (`e7-t05`); returns the new challenge's id */
-  private async createChallenge(userId: string, invitees: unknown, boards: unknown, wanted: unknown): Promise<string> {
+  private async createChallenge(
+    userId: string,
+    invitees: unknown,
+    boards: unknown,
+    wanted: unknown,
+    fromBoards?: unknown,
+  ): Promise<string> {
     const { invitedMin, invitedMax, boardsMin, boardsMax, boardsDefault } = CHALLENGE_LIMITS
     if (!Array.isArray(invitees)) throw new ClubError('badChallengeSettings', { field: 'invitees' })
     if (invitees.length < invitedMin || invitees.length > invitedMax)
@@ -1167,20 +1188,39 @@ export class ClubService {
       // Whether they blocked the creator stays private: the creator only hears they cannot be invited
       if (this.blocks.has(other, userId)) throw new ClubError('cannotInvite', { name }, 403)
     }
-    const count = boards ?? boardsDefault
-    if (!Number.isInteger(count) || (count as number) < boardsMin || (count as number) > boardsMax)
-      throw new ClubError('challengeBoards', { min: boardsMin, max: boardsMax })
     const parsed = parseChallengeSettings(wanted, invitees.length)
     if ('field' in parsed) throw new ClubError('badChallengeSettings', { field: parsed.field })
-    const deals = makeDealSet({ kind: 'random', count: count as number }, this.random)
+    let settings = parsed.settings
+    let deals: DealSet | null
+    let known: ChallengeResult[] | undefined
+    if (fromBoards !== undefined) {
+      if (boards !== undefined) throw new ClubError('badChallengeSettings', { field: 'boards' })
+      const given = await this.boardsToChallengeWith(userId, fromBoards)
+      // Their own boards are dealt as they were: no Best Hand, no Just Declare, and the same robots
+      if (settings.bestHand) throw new ClubError('badChallengeSettings', { field: 'bestHand' })
+      if (settings.justDeclare) throw new ClubError('badChallengeSettings', { field: 'justDeclare' })
+      const askedKind = (wanted as Partial<ChallengeSettings> | undefined)?.robotKind
+      if (askedKind !== undefined && askedKind !== given.robotKind)
+        throw new ClubError('badChallengeSettings', { field: 'robotKind' })
+      settings = { ...settings, robotKind: given.robotKind }
+      deals = makeDealSet({ kind: 'given', boards: given.boards.map(({ boardNo, hands }) => ({ boardNo, hands })) })
+      known = given.boards.map((b, i) => ({ userId, seq: i + 1, boardId: b.id, scoreNS: b.scoreNS, playedAt: b.playedAt }))
+    } else {
+      const count = boards ?? boardsDefault
+      if (!Number.isInteger(count) || (count as number) < boardsMin || (count as number) > boardsMax)
+        throw new ClubError('challengeBoards', { min: boardsMin, max: boardsMax })
+      const { bestHand, justDeclare, robotKind } = settings
+      deals = challengeDeals({ count: count as number, bestHand, justDeclare, robotKind }, this.random)
+    }
     if (!deals) throw new ClubError('serverError', {}, 500)
     const challenge = newChallenge({
       id: randomId(8),
       creatorId: userId,
       invitees: invitees as string[],
-      settings: parsed.settings,
+      settings,
       deals,
       now: this.now(),
+      known,
     })
     this.challenges.create(challenge)
     this.scheduleChallenge(challenge.id)
@@ -1188,6 +1228,62 @@ export class ClubService {
     for (const id of invitees as string[])
       await this.notifications.notify(id, 'challengeInvited', { challengeId: challenge.id, username })
     return challenge.id
+  }
+
+  /**
+   * The boards of 「用這副牌挑戰」 (`e7-t22`): 1–16 different boards from the history that the member
+   * played with three robots of one system and that anyone may see by now, each turned so the seat
+   * they bid from is South, with their result from their side. A board they did not play is
+   * `boardGone`, as if it did not exist
+   */
+  private async boardsToChallengeWith(
+    userId: string,
+    ids: unknown,
+  ): Promise<{ robotKind: RobotKind; boards: (DealSetBoard & { id: string; scoreNS: number; playedAt: number })[] }> {
+    if (!Array.isArray(ids) || ids.length < 1 || ids.length > DEAL_SET_MAX || new Set(ids).size !== ids.length)
+      throw new ClubError('badChallengeSettings', { field: 'fromBoards' })
+    const kinds = new Set<RobotKind>()
+    const boards = []
+    for (const id of ids) {
+      const record = typeof id === 'string' ? await this.store.get<BoardRecord>(`board:${id}`) : null
+      const seat = record ? SEATS.find((s) => record.players[s]?.id === userId) : undefined
+      const result = record?.board.result
+      // A board still kept back (a challenge going on) is not there to give away
+      if (!record || !seat || !result || (record.revealAt ?? 0) > this.now()) throw new ClubError('boardGone', {}, 404)
+      const others = SEATS.filter((s) => s !== seat).map((s) => record.players[s])
+      if (!others.every((p) => p?.robot)) throw new ClubError('challengeRobotsOnly')
+      for (const p of others) kinds.add(p.robotKind ?? 'tku')
+      // Declaring for a robot partner moved them to its seat: they bid from the other one
+      const bidFrom = record.board.auction.find((c) => !c.robot)?.seat ?? seat
+      const { boardNo, hands } = record.board
+      const south = boardAsSouth({ boardNo, hands, scoreNS: result.scoreNS }, bidFrom)
+      boards.push({ ...south, id: record.id, playedAt: record.finishedAt })
+    }
+    if (kinds.size !== 1) throw new ClubError('challengeRobotKinds')
+    return { robotKind: [...kinds][0], boards }
+  }
+
+  /**
+   * One-click rematch (`e7-t21`): a participant of a challenge that ended challenges the same
+   * people again (everyone who did not decline) with the same settings and number of boards, on
+   * new boards. The usual checks of `createChallenge` apply: they must still be friends
+   */
+  private async rematchChallenge(userId: string, challengeId: unknown): Promise<string> {
+    const c = this.requireChallenge(challengeId)
+    const me = c.players.find((p) => p.userId === userId)
+    if (!me) throw new ClubError('challengeGone', {}, 404)
+    if (isOpenChallenge(c.status)) throw new ClubError('challengeNotOver')
+    if (me.status !== 'accepted') throw new ClubError('challengeNotAccepted')
+    const others = c.players
+      .filter((p) => p.userId !== userId && p.status !== 'declined' && this.users.has(p.userId))
+      .map((p) => p.userId)
+    if (!others.length) throw new ClubError('rematchNobody')
+    const { boardsMin, boardsMax } = CHALLENGE_LIMITS
+    const boards = Math.min(boardsMax, Math.max(boardsMin, c.deals.boards.length))
+    const { scoring, robotKind, bestHand, justDeclare, days, ranking } = c.settings
+    // With someone gone the number of people may no longer fit the scoring: then the default
+    const fits = scoringsFor(others.length).includes(scoring)
+    return this.createChallenge(userId, others, boards, { robotKind, bestHand, justDeclare, days, ranking, ...(fits && { scoring }) })
   }
 
   private requireChallenge(id: unknown): Challenge {
@@ -1245,7 +1341,9 @@ export class ClubService {
     const message = parsed.message as ChallengeRequest
     let id: string
     if (message.type === 'createChallenge') {
-      id = await this.createChallenge(userId, message.invitees, message.boards, message.settings)
+      id = await this.createChallenge(userId, message.invitees, message.boards, message.settings, message.fromBoards)
+    } else if (message.type === 'rematchChallenge') {
+      id = await this.rematchChallenge(userId, message.challengeId)
     } else {
       await this.dispatch(userId, message)
       id = message.challengeId
@@ -1834,7 +1932,7 @@ export class ClubService {
     }
     // A person who declared from a robot partner's seat goes back to their own for the new board
     this.unswap(table)
-    table.board = newBoard(dealt.boardNo, dealt.hands)
+    table.board = dealt.board ?? newBoard(dealt.boardNo, dealt.hands)
     table.undo = undefined
     table.rejectedClaim = undefined
     table.recordId = undefined
@@ -1842,6 +1940,8 @@ export class ClubService {
     table.boardStartedAt = this.now()
     // A robot still sitting in for someone plays this board for them too
     table.boardSubstitutes = table.substitutes && { ...table.substitutes }
+    // A board dealt with its auction made (Just Declare) goes straight to the play
+    if (table.board.phase === 'play') this.swapForDeclarer(table)
     this.touchTurn(table)
   }
 

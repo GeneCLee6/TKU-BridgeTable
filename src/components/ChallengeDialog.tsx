@@ -9,7 +9,7 @@ import {
   type ChallengeSettings,
   type ChallengeView,
 } from '../../shared/challenge.ts'
-import { ROBOT_KINDS, type PublicUser } from '../../shared/protocol.ts'
+import { ROBOT_KINDS, type PublicUser, type RobotKind } from '../../shared/protocol.ts'
 import { ApiError, api } from '../lib/api.ts'
 import { formatDateTime } from '../lib/format.ts'
 import { useClub } from '../state/ClubContext.tsx'
@@ -19,8 +19,9 @@ import { Button, Card, ErrorText, Muted } from './ui.tsx'
 /**
  * 發起挑戰 (`e7-t17`, AC-7.1): pick friends from a searchable box (a click lists them all, typing
  * filters after a short pause), choose the settings, see a preview, send. Only friends can be
- * picked, and the deals are always random (ARCHITECTURE.md §5.5); the server checks it all again.
- * Best Hand and Just Declare come with C8 (`e7-t10`, `e7-t11`).
+ * picked, and the deals are random, with Best Hand and Just Declare as options (`e7-t10`, `e7-t11`);
+ * the server checks it all again (ARCHITECTURE.md §5.5). Opened from a board's record with
+ * `fromBoards` it is 「用這副牌挑戰」 (`e7-t22`): those boards, the robots of then, no deal options.
  */
 
 const Backdrop = styled.div`
@@ -142,6 +143,23 @@ const Option = styled.li<{ $active: boolean }>`
   cursor: pointer;
 `
 
+const Choice = styled.label`
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 10px;
+  align-items: start;
+  margin-bottom: ${({ theme }) => theme.space(2)};
+  padding: 10px 12px;
+  border-radius: ${({ theme }) => theme.radius.sm};
+  border: 1px solid ${({ theme }) => theme.colors.border};
+  background: ${({ theme }) => theme.colors.surfaceAlt};
+  cursor: pointer;
+
+  & > input { margin: 3px 0 0; }
+  & > span { font-weight: 600; }
+  & > p { grid-column: 2; margin: 0; }
+`
+
 const Preview = styled.div`
   display: grid;
   gap: 6px;
@@ -172,7 +190,16 @@ function useDebounced<T>(value: T, ms: number): T {
 
 const range = (from: number, to: number) => Array.from({ length: to - from + 1 }, (_, i) => from + i)
 
-export function ChallengeDialog({ onClose, onCreated }: { onClose: () => void; onCreated: (c: ChallengeView) => void }) {
+export function ChallengeDialog({
+  onClose,
+  onCreated,
+  fromBoards,
+}: {
+  onClose: () => void
+  onCreated: (c: ChallengeView) => void
+  /** 「用這副牌挑戰」: the boards from the history and the robots they were played with */
+  fromBoards?: { ids: string[]; robotKind: RobotKind }
+}) {
   const { t, lang, message } = usePreferences()
   const { lobby } = useClub()
   const titleId = useId()
@@ -232,11 +259,11 @@ export function ChallengeDialog({ onClose, onCreated }: { onClose: () => void; o
     setSending(true)
     setError('')
     try {
-      const { challenge } = await api.createChallenge(
-        picked.map((p) => p.id),
-        boards,
-        { scoring, robotKind: settings.robotKind, days: settings.days, ranking: settings.ranking },
-      )
+      const ids = picked.map((p) => p.id)
+      const { robotKind: kind, bestHand, justDeclare, days, ranking } = settings
+      const { challenge } = fromBoards
+        ? await api.challengeWithBoards(ids, fromBoards.ids, { scoring, days, ranking })
+        : await api.createChallenge(ids, boards, { scoring, robotKind: kind, bestHand, justDeclare, days, ranking })
       onCreated(challenge)
     } catch (e) {
       setError(e instanceof ApiError ? message(e.code, e.params, e.message) : String(e))
@@ -245,11 +272,13 @@ export function ChallengeDialog({ onClose, onCreated }: { onClose: () => void; o
   }
 
   const deadline = formatDateTime(openedAt + settings.days * 86_400_000, lang)
+  const boardCount = fromBoards ? fromBoards.ids.length : boards
+  const robotKind = fromBoards?.robotKind ?? settings.robotKind
 
   return (
     <Backdrop onClick={(event) => event.target === event.currentTarget && onClose()}>
       <Panel role="dialog" aria-modal="true" aria-labelledby={titleId}>
-        <h2 id={titleId}>{t.newChallenge}</h2>
+        <h2 id={titleId}>{fromBoards ? t.challengeWithBoard : t.newChallenge}</h2>
         <form
           onSubmit={(event) => {
             event.preventDefault()
@@ -337,16 +366,18 @@ export function ChallengeDialog({ onClose, onCreated }: { onClose: () => void; o
           </Field>
 
           <Row>
-            <Field>
-              <label htmlFor={`${listId}-boards`}>{t.challengeBoardsLabel}</label>
-              <Select id={`${listId}-boards`} value={boards} onChange={(e) => setBoards(Number(e.target.value))}>
-                {range(CHALLENGE_LIMITS.boardsMin, CHALLENGE_LIMITS.boardsMax).map((n) => (
-                  <option key={n} value={n}>
-                    {n}
-                  </option>
-                ))}
-              </Select>
-            </Field>
+            {!fromBoards && (
+              <Field>
+                <label htmlFor={`${listId}-boards`}>{t.challengeBoardsLabel}</label>
+                <Select id={`${listId}-boards`} value={boards} onChange={(e) => setBoards(Number(e.target.value))}>
+                  {range(CHALLENGE_LIMITS.boardsMin, CHALLENGE_LIMITS.boardsMax).map((n) => (
+                    <option key={n} value={n}>
+                      {n}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+            )}
             <Field>
               <label htmlFor={`${listId}-scoring`}>{t.challengeScoring}</label>
               <Select
@@ -365,7 +396,9 @@ export function ChallengeDialog({ onClose, onCreated }: { onClose: () => void; o
               <label htmlFor={`${listId}-robots`}>{t.challengeRobots}</label>
               <Select
                 id={`${listId}-robots`}
-                value={settings.robotKind}
+                value={robotKind}
+                // 「用這副牌挑戰」 keeps the robots the boards were played with
+                disabled={!!fromBoards}
                 onChange={(e) => setSettings({ ...settings, robotKind: e.target.value as ChallengeSettings['robotKind'] })}
               >
                 {ROBOT_KINDS.map((k) => (
@@ -405,12 +438,41 @@ export function ChallengeDialog({ onClose, onCreated }: { onClose: () => void; o
             </Select>
           </Field>
 
+          {!fromBoards && (
+            <>
+              <Choice>
+                <input
+                  type="checkbox"
+                  checked={settings.bestHand}
+                  onChange={(e) => setSettings({ ...settings, bestHand: e.target.checked })}
+                />
+                <span>{t.bestHand}</span>
+                <Muted>{t.bestHandHint}</Muted>
+              </Choice>
+              <Choice>
+                <input
+                  type="checkbox"
+                  checked={settings.justDeclare}
+                  onChange={(e) => setSettings({ ...settings, justDeclare: e.target.checked })}
+                />
+                <span>{t.justDeclare}</span>
+                <Muted>{t.justDeclareHint}</Muted>
+              </Choice>
+            </>
+          )}
+
           <Preview aria-label={t.challengePreview}>
             <strong>{t.challengePreview}</strong>
             <span data-testid="challenge-preview">
-              {t.challengePreviewText(picked.length, boards, t.scorings[scoring], t.robots[settings.robotKind], deadline)}
+              {[
+                t.challengePreviewText(picked.length, boardCount, t.scorings[scoring], t.robots[robotKind], deadline),
+                !fromBoards && settings.bestHand && t.bestHand,
+                !fromBoards && settings.justDeclare && t.justDeclare,
+              ]
+                .filter(Boolean)
+                .join(' · ')}
             </span>
-            <Muted>{t.challengeRules}</Muted>
+            <Muted>{fromBoards ? t.challengeWithBoardHint(t.robots[robotKind]) : t.challengeRules}</Muted>
           </Preview>
 
           {error && <ErrorText role="alert">{error}</ErrorText>}

@@ -373,12 +373,24 @@ export type ClientMessage =
   | { type: 'setBlocked'; userId: string; blocked: boolean }
   /** Starts a challenge, or goes back to it: the player's own table, from the next board (§5.5) */
   | { type: 'playChallenge'; challengeId: string }
-  /** Challenges 1–20 friends (§5.5): `boards` 4–16 (8 when left out), settings over the defaults */
-  | { type: 'createChallenge'; invitees: string[]; boards?: number; settings?: Partial<ChallengeSettings> }
+  /**
+   * Challenges 1–20 friends (§5.5): `boards` 4–16 (8 when left out), settings over the defaults.
+   * With `fromBoards` (history ids, 1–16) the boards are ones the creator played with three robots
+   * (「用這副牌挑戰」, `e7-t22`): their results count and they do not play again
+   */
+  | {
+      type: 'createChallenge'
+      invitees: string[]
+      boards?: number
+      settings?: Partial<ChallengeSettings>
+      fromBoards?: string[]
+    }
   /** An invitee accepts or declines, once, before the deadline */
   | { type: 'answerChallenge'; challengeId: string; accept: boolean }
   /** The creator calls a challenge off while nobody else has started */
   | { type: 'cancelChallenge'; challengeId: string }
+  /** One-click rematch (`e7-t21`): the same people and settings, new boards, once a challenge ended */
+  | { type: 'rematchChallenge'; challengeId: string }
   /** Sends a direct message (AC-1.7): not to oneself, a robot, or between members where either blocked the other */
   | { type: 'sendDirect'; to: string; text: string }
   /** Marks the conversation with this member read */

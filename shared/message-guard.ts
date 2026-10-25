@@ -40,9 +40,11 @@ const GUARDS: Partial<Record<ClientMessage['type'], Guard>> = {
   setFriend: (m) => str(m.userId) && bool(m.friend),
   setBlocked: (m) => str(m.userId) && bool(m.blocked),
   playChallenge: (m) => str(m.challengeId),
-  createChallenge: (m) => strings(m.invitees) && opt((v) => typeof v === 'number')(m.boards) && opt(obj)(m.settings),
+  createChallenge: (m) =>
+    strings(m.invitees) && opt((v) => typeof v === 'number')(m.boards) && opt(obj)(m.settings) && opt(strings)(m.fromBoards),
   answerChallenge: (m) => str(m.challengeId) && bool(m.accept),
   cancelChallenge: (m) => str(m.challengeId),
+  rematchChallenge: (m) => str(m.challengeId),
   sendDirect: (m) => str(m.to) && str(m.text),
   readDirect: (m) => str(m.userId),
 }

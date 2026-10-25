@@ -156,7 +156,7 @@ export class ChallengeStore {
     return this.sql.transaction(fn)
   }
 
-  /** Saves a new challenge with its participants; it has no results yet */
+  /** Saves a new challenge with its participants, and the creator's results when they are known already (`e7-t22`) */
   create(challenge: Challenge) {
     const c = challenge
     this.sql.transaction(() => {
@@ -182,6 +182,7 @@ export class ChallengeStore {
           position,
           ...this.playerValues(player),
         )
+      for (const result of c.results) this.addResult(c.id, result)
     })
   }
 

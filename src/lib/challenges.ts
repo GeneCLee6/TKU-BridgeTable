@@ -1,5 +1,7 @@
 import type { ChallengeScoring } from '../../shared/challenge-scoring.ts'
 import { isOpenChallenge, type ChallengePlayerView, type ChallengeView } from '../../shared/challenge.ts'
+import { SEATS } from '../../shared/cards.ts'
+import type { BoardRecord, RobotKind } from '../../shared/protocol.ts'
 import type { Strings } from '../strings.ts'
 
 /** What the challenge pages work out from a `ChallengeView` (ARCHITECTURE.md §5.5) */
@@ -51,9 +53,37 @@ export function timeLeft(t: Strings, ms: number) {
 /** A participant's name; accounts deleted after the challenge ended have none */
 export const participantName = (t: Strings, p: ChallengePlayerView | undefined) => p?.user?.username ?? t.deletedMember
 
-/** 8 副 · IMP · TKB（2/1） */
+/** 8 副 · IMP · TKB（2/1）, with Best Hand and Just Declare when they are on */
 export const settingsLine = (t: Strings, c: ChallengeView) =>
-  t.challengeSettingsLine(c.boards, t.scorings[c.settings.scoring], t.robots[c.settings.robotKind])
+  [
+    t.challengeSettingsLine(c.boards, t.scorings[c.settings.scoring], t.robots[c.settings.robotKind]),
+    c.settings.bestHand && t.bestHand,
+    c.settings.justDeclare && t.justDeclare,
+  ]
+    .filter(Boolean)
+    .join(' · ')
+
+/**
+ * One-click rematch (`e7-t21`): once it ended, a participant who accepted can challenge the others
+ * who did not decline again; the server checks it all again
+ */
+export function rematchable(c: ChallengeView, userId: string) {
+  if (isOpenChallenge(c.status) || playerOf(c, userId)?.status !== 'accepted') return false
+  return c.players.some((p) => p.userId !== userId && p.status !== 'declined' && p.user)
+}
+
+/**
+ * 「用這副牌挑戰」 (`e7-t22`): the robots' system when the member played this board with three
+ * robots of one system and anyone may see it by now, otherwise null. The server checks it again
+ */
+export function challengeRobotsOf(record: BoardRecord, userId: string, now: number): RobotKind | null {
+  const seat = SEATS.find((s) => record.players[s]?.id === userId)
+  if (!seat || !record.board.result || (record.revealAt ?? 0) > now) return null
+  const others = SEATS.filter((s) => s !== seat).map((s) => record.players[s])
+  if (!others.every((p) => p?.robot)) return null
+  const kinds = new Set(others.map((p) => p.robotKind ?? 'tku'))
+  return kinds.size === 1 ? [...kinds][0] : null
+}
 
 /** A result in the scoring's unit: a percentage for matchpoints, signed IMPs, signed points */
 export function formatScore(value: number, scoring: ChallengeScoring) {

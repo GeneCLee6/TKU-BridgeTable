@@ -77,6 +77,11 @@ export const api = {
   /** Challenges friends (`e7-t17`); the server checks everything and answers with the new challenge */
   createChallenge: (invitees: string[], boards: number, settings: Partial<ChallengeSettings>) =>
     post<{ challenge: ChallengeView }>('/api/challenges', { invitees, boards, settings }),
+  /** 「用這副牌挑戰」 (`e7-t22`): boards the member played with robots; their results count */
+  challengeWithBoards: (invitees: string[], fromBoards: string[], settings: Partial<ChallengeSettings>) =>
+    post<{ challenge: ChallengeView }>('/api/challenges', { invitees, fromBoards, settings }),
+  /** One-click rematch (`e7-t21`): answers with the new challenge */
+  rematchChallenge: (id: string) => post<{ challenge: ChallengeView }>(`/api/challenges/${encodeURIComponent(id)}/rematch`),
   answerChallenge: (id: string, accept: boolean) =>
     post<{ challenge: ChallengeView }>(`/api/challenges/${encodeURIComponent(id)}/answer`, { accept }),
   cancelChallenge: (id: string) => post<{ challenge: ChallengeView }>(`/api/challenges/${encodeURIComponent(id)}/cancel`),

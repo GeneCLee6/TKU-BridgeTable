@@ -11,6 +11,12 @@ import { PreferencesProvider } from '../../src/state/PreferencesContext.tsx'
 
 /** The challenge pages (C6): the challenge lobby, the dialog that starts one, the standings */
 
+const navigated = vi.hoisted(() => vi.fn())
+vi.mock('react-router-dom', async (original) => ({
+  ...(await original<typeof import('react-router-dom')>()),
+  useNavigate: () => navigated,
+}))
+
 const mocks = vi.hoisted(() => ({
   api: {
     challenges: vi.fn(),
@@ -18,6 +24,8 @@ const mocks = vi.hoisted(() => ({
     createChallenge: vi.fn(),
     answerChallenge: vi.fn(),
     cancelChallenge: vi.fn(),
+    challengeWithBoards: vi.fn(),
+    rematchChallenge: vi.fn(),
     traveller: vi.fn(),
   },
   send: vi.fn(),
@@ -176,16 +184,39 @@ describe('ChallengeDialog (e7-t17)', () => {
     await userEvent.selectOptions(screen.getByLabelText('副數'), '12')
     await userEvent.selectOptions(screen.getByLabelText('機器人'), 'tku')
     await userEvent.selectOptions(screen.getByLabelText('截止時間'), '5')
-    expect(screen.getByTestId('challenge-preview')).toHaveTextContent(/^邀請 2 位好友 · 12 副 · 比賽分（MP） · TKB（淡江制度） · 截止 /)
+    await userEvent.click(screen.getByRole('checkbox', { name: /Best Hand/ }))
+    expect(screen.getByTestId('challenge-preview')).toHaveTextContent(/^邀請 2 位好友 · 12 副 · 比賽分（MP） · TKB（淡江制度） · 截止 .* · 最好的牌（Best Hand）$/)
 
     await userEvent.click(screen.getByRole('button', { name: '發出挑戰' }))
     expect(mocks.api.createChallenge).toHaveBeenCalledWith(['bea', 'cat'], 12, {
       scoring: 'mp',
       robotKind: 'tku',
+      bestHand: true,
+      justDeclare: false,
       days: 5,
       ranking: 'players',
     })
     await waitFor(() => expect(onCreated).toHaveBeenCalled())
+  })
+
+  it('challenges with a board from the history: its robots, no board count or deal options (e7-t22)', async () => {
+    mocks.api.challengeWithBoards.mockResolvedValue({ challenge: challenge('new', {}) })
+    render(
+      <PreferencesProvider>
+        <ChallengeDialog onClose={() => {}} onCreated={() => {}} fromBoards={{ ids: ['rec1'], robotKind: 'tku' }} />
+      </PreferencesProvider>,
+    )
+    expect(screen.getByRole('heading', { name: '用這副牌挑戰' })).toBeInTheDocument()
+    expect(screen.queryByLabelText('副數')).toBeNull()
+    expect(screen.queryByRole('checkbox')).toBeNull()
+    expect(screen.getByLabelText('機器人')).toBeDisabled()
+    expect(screen.getByLabelText('機器人')).toHaveValue('tku')
+    const box = screen.getByRole('combobox', { name: '邀請好友' })
+    await userEvent.click(box)
+    await userEvent.click(screen.getByRole('option', { name: 'ben' }))
+    expect(screen.getByTestId('challenge-preview')).toHaveTextContent(/^邀請 1 位好友 · 1 副 · /)
+    await userEvent.click(screen.getByRole('button', { name: '發出挑戰' }))
+    expect(mocks.api.challengeWithBoards).toHaveBeenCalledWith(['ben'], ['rec1'], { scoring: 'imp', days: 3, ranking: 'players' })
   })
 
   it('asks for a friend before sending', async () => {
@@ -299,5 +330,41 @@ describe('ChallengePage (e7-t18)', () => {
     expect(await screen.findByText('打完全部副數，或挑戰結束後，才看得到別人的成績')).toBeInTheDocument()
     expect(screen.queryByRole('table')).toBeNull()
     expect(screen.getByRole('progressbar', { name: 'cat · 已打 5／8 副' })).toBeInTheDocument()
+  })
+})
+
+describe('rematch and known deals (e7-t21, e7-t22)', () => {
+  it('offers a rematch once it ended and marks the creator’s known deals', async () => {
+    const ended = challenge('c6', {
+      status: 'finished',
+      endedAt: NOW,
+      deadline: NOW,
+      boards: 1,
+      players: [player('amy', 'accepted', 1, { knownDeals: true }), player('ben', 'accepted', 1)],
+      standings: {
+        final: true,
+        scoring: 'imp',
+        ranked: [
+          { userId: 'amy', rank: 1, total: 3 },
+          { userId: 'ben', rank: 2, total: -3 },
+        ],
+        unfinished: [],
+      },
+    })
+    mocks.api.challenge.mockResolvedValue({ challenge: ended })
+    mocks.api.rematchChallenge.mockResolvedValue({ challenge: challenge('c7', {}) })
+    show('/challenges/c6', <ChallengePage />)
+    const table = await screen.findByRole('table')
+    expect(within(table).getAllByRole('row')[1]).toHaveTextContent('amy · 已知牌')
+    await userEvent.click(screen.getByRole('button', { name: '再戰' }))
+    expect(mocks.api.rematchChallenge).toHaveBeenCalledWith('c6')
+    await waitFor(() => expect(navigated).toHaveBeenCalledWith('/challenges/c7'))
+  })
+
+  it('has no rematch while it is going on', async () => {
+    mocks.api.challenge.mockResolvedValue({ challenge: ACTIVE })
+    show('/challenges/c2', <ChallengePage />)
+    await screen.findByText('打完全部副數，或挑戰結束後，才看得到別人的成績')
+    expect(screen.queryByRole('button', { name: '再戰' })).toBeNull()
   })
 })

@@ -255,16 +255,20 @@ export class Club extends DurableObject<Env> implements Connections {
           invitees: b.invitees as string[],
           boards: b.boards as number | undefined,
           settings: b.settings as Partial<ChallengeSettings> | undefined,
+          fromBoards: b.fromBoards as string[] | undefined,
         }),
       })
     }
-    const challengeAction = url.pathname.match(/^\/api\/challenges\/([\w-]+)\/(answer|cancel)$/)
+    const challengeAction = url.pathname.match(/^\/api\/challenges\/([\w-]+)\/(answer|cancel|rematch)$/)
     if (request.method === 'POST' && challengeAction) {
       const [, challengeId, action] = challengeAction
+      // A rematch answers with the new challenge
       const message: ChallengeRequest =
         action === 'answer'
           ? { type: 'answerChallenge', challengeId, accept: (await body()).accept as boolean }
-          : { type: 'cancelChallenge', challengeId }
+          : action === 'cancel'
+            ? { type: 'cancelChallenge', challengeId }
+            : { type: 'rematchChallenge', challengeId }
       return json({ challenge: await this.service.challengeRequest(user.id, message) })
     }
     const challenge = url.pathname.match(/^\/api\/challenges\/([\w-]+)$/)

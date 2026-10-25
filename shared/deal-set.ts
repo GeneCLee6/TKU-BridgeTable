@@ -1,8 +1,10 @@
+import type { Call } from './auction.ts'
 import { deal, dealerOf, secureRandomInt, vulnerabilityOf, type RandomInt, type Vulnerability } from './board.ts'
-import { bySuit, isCard, rankOf, SEATS, sortHand, SUITS, type Hands, type Seat } from './cards.ts'
+import { bySuit, isCard, nextSeat, rankOf, SEATS, sortHand, SUITS, type Hands, type Seat } from './cards.ts'
 import { DEAL_PRESETS, type DealPreset } from './deal-presets.ts'
 import type { DealSource } from './deal-source.ts'
 import { dealWith } from './dealer.ts'
+import { makeCall, newBoard } from './game.ts'
 
 /**
  * The fixed boards of a challenge (e7-t02, ARCHITECTURE.md §5.5): made once on the server when
@@ -15,6 +17,11 @@ export interface DealSetBoard {
   /** The board's number: dealer and vulnerability come from it */
   boardNo: number
   hands: Hands
+  /**
+   * Just Declare (`e7-t11`): the robots' auction, made when the challenge was created and ending
+   * with North-South declaring; the participant takes over after it
+   */
+  auction?: Call[]
 }
 
 export interface DealSet {
@@ -71,8 +78,20 @@ export function dealSetProblem(set: DealSet): string | null {
       for (const card of hand) seen.add(card)
     }
     if (seen.size !== 52) return `boards.${i}.cards`
+    if (board.auction !== undefined && !auctionWithContract(board)) return `boards.${i}.auction`
   }
   return null
+}
+
+/** Whether a kept auction is legal and ends with a contract */
+function auctionWithContract(board: DealSetBoard): boolean {
+  try {
+    let state = newBoard(board.boardNo, board.hands)
+    for (const call of board.auction ?? []) state = makeCall(state, nextSeat(state.dealer, state.auction.length), call)
+    return state.phase === 'play' && state.auction.length === board.auction!.length
+  } catch {
+    return false
+  }
 }
 
 /** Board `seq` (1-based) of the set with its dealer and vulnerability, or null past the end */
@@ -99,12 +118,12 @@ export function dealSourceOf(set: DealSet): DealSource {
  */
 export function encodeDealSet(set: DealSet): string {
   return set.boards
-    .map(({ boardNo, hands }) => {
+    .map(({ boardNo, hands, auction }) => {
       const pbn = SEATS.map((seat) => {
         const groups = bySuit(hands[seat])
         return SUITS.map((suit) => groups[suit].map(rankOf).join('')).join('.')
       })
-      return `${boardNo} N:${pbn.join(' ')}`
+      return `${boardNo} N:${pbn.join(' ')}${auction ? ` | ${auction.join(' ')}` : ''}`
     })
     .join('\n')
 }
@@ -113,7 +132,7 @@ export function encodeDealSet(set: DealSet): string {
 export function decodeDealSet(text: string): DealSet | null {
   const boards: DealSetBoard[] = []
   for (const line of String(text ?? '').split('\n')) {
-    const match = /^(\d+) N:(\S+) (\S+) (\S+) (\S+)$/.exec(line)
+    const match = /^(\d+) N:(\S+) (\S+) (\S+) (\S+)(?: \| (\S+(?: \S+)*))?$/.exec(line)
     if (!match) return null
     const hands = {} as Hands
     for (const [i, seat] of SEATS.entries()) {
@@ -121,7 +140,7 @@ export function decodeDealSet(text: string): DealSet | null {
       if (suits.length !== 4) return null
       hands[seat] = sortHand(SUITS.flatMap((suit, s) => [...suits[s]].map((rank) => suit + rank)))
     }
-    boards.push({ boardNo: Number(match[1]), hands })
+    boards.push({ boardNo: Number(match[1]), hands, ...(match[6] ? { auction: match[6].split(' ') } : {}) })
   }
   const set = { boards }
   return dealSetProblem(set) === null ? set : null

@@ -1,14 +1,14 @@
 import { ChevronLeft } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import styled from 'styled-components'
 import type { ChallengeView } from '../../shared/challenge.ts'
 import type { Traveller } from '../../shared/traveller.ts'
 import { Progress, StatusTag } from '../components/ChallengeParts.tsx'
 import { TravellerTable } from '../components/Traveller.tsx'
-import { Card, ErrorText, Muted, PageMain, PageTitle } from '../components/ui.tsx'
+import { Button, Card, ErrorText, Muted, PageMain, PageTitle } from '../components/ui.tsx'
 import { ApiError, api } from '../lib/api.ts'
-import { formatScore, participantName, playerOf, settingsLine, timeLeft, tone } from '../lib/challenges.ts'
+import { formatScore, participantName, playerOf, rematchable, settingsLine, timeLeft, tone } from '../lib/challenges.ts'
 import { formatDateTime } from '../lib/format.ts'
 import { useAuth } from '../state/AuthContext.tsx'
 import { useClub } from '../state/ClubContext.tsx'
@@ -122,6 +122,8 @@ export function ChallengePage() {
   const [challenge, setChallenge] = useState<ChallengeView | null | undefined>(undefined)
   const [error, setError] = useState('')
   const [now, setNow] = useState(() => Date.now())
+  const [rematching, setRematching] = useState(false)
+  const navigate = useNavigate()
   // The board whose traveller is open below the standings (e7-t19), and that traveller
   const [shownSeq, setShownSeq] = useState<number | null>(null)
   const [loaded, setLoaded] = useState<{ boardId: string; traveller: Traveller | null } | null>(null)
@@ -192,6 +194,20 @@ export function ChallengePage() {
   const nameOf = (userId: string) => participantName(t, playerOf(c, userId))
   const withMatrix = !!standings?.ranked.some((r) => r.boards)
 
+  // One-click rematch (`e7-t21`): the same people and settings, new boards
+  const rematch = async () => {
+    setRematching(true)
+    setError('')
+    try {
+      const { challenge: next } = await api.rematchChallenge(c.id)
+      navigate(`/challenges/${next.id}`)
+    } catch (e) {
+      setError(e instanceof ApiError ? message(e.code, e.params, e.message) : String(e))
+    } finally {
+      setRematching(false)
+    }
+  }
+
   return (
     <PageMain>
       {back}
@@ -204,7 +220,13 @@ export function ChallengePage() {
             ? `${t.challengeDeadline(formatDateTime(c.deadline, lang))} · ${timeLeft(t, c.deadline - now)}`
             : t.challengeEndedAt(formatDateTime(c.endedAt ?? c.deadline, lang))}
         </Muted>
+        {rematchable(c, user.id) && (
+          <Button type="button" $small $variant="primary" disabled={rematching} onClick={() => void rematch()}>
+            {t.rematch}
+          </Button>
+        )}
       </Meta>
+      {error && <ErrorText role="alert">{error}</ErrorText>}
 
       <Section aria-labelledby="standings-title">
         <h2 id="standings-title">{standings?.final ? t.standingsFinal : t.viewStandings}</h2>
@@ -246,7 +268,10 @@ export function ChallengePage() {
                   {standings.ranked.map((r) => (
                     <tr key={r.userId} aria-current={r.userId === user.id ? 'true' : undefined}>
                       <td>{r.rank}</td>
-                      <td>{nameOf(r.userId)}</td>
+                      <td>
+                        {nameOf(r.userId)}
+                        {playerOf(c, r.userId)?.knownDeals && <Muted as="span"> · {t.knownDeals}</Muted>}
+                      </td>
                       <Num $value={tone(r.total, standings.scoring)}>{formatScore(r.total, standings.scoring)}</Num>
                       {withMatrix &&
                         seqs.map((seq, i) => {
