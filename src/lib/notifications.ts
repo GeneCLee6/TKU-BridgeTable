@@ -10,6 +10,7 @@ export function notificationText(t: Strings, n: Notification): string {
     case 'challengeAccepted':
     case 'challengeDeclined':
     case 'challengeCancelled':
+    case 'friendOnline':
       return t.notificationTexts[n.kind](name)
     case 'challengeReminder':
     case 'challengeResults':
@@ -28,6 +29,8 @@ export function notificationLink(n: Notification): string {
   switch (n.kind) {
     case 'application':
       return '/admin'
+    case 'friendOnline':
+      return '/'
     case 'challengeInvited':
       return '/challenges'
     case 'challengeAccepted':

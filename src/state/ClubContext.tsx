@@ -10,6 +10,8 @@ import {
 } from 'react'
 import type {
   ClientMessage,
+  DirectMessage,
+  DirectsView,
   LobbyView,
   NotificationsView,
   ServerMessage,
@@ -38,6 +40,10 @@ interface Club {
   table: TableView | null
   /** The bell in the header: the newest notifications and the unread count */
   notifications: NotificationsView | null
+  /** The viewer's conversations and unread direct messages (AC-1.7) */
+  directs: DirectsView | null
+  /** Direct messages that arrived over this connection, oldest first; a conversation adds them to the page it loaded */
+  directLive: DirectMessage[]
   error: { code: string; params: MessageParams; message: string; at: number } | null
   send: (message: ClientMessage) => void
   dismissError: () => void
@@ -50,6 +56,8 @@ const PING_EVERY = 15_000
 const SILENT_FOR = 40_000
 /** After the tab comes back, how long to wait for an answer to a ping */
 const WAKE_ANSWER = 4_000
+/** How many arrived direct messages the page keeps */
+const LIVE_KEPT = 200
 /** Actions made while reconnecting go out once the connection is back if they are this recent */
 const QUEUE_FOR = 8_000
 
@@ -79,6 +87,8 @@ export function ClubProvider({ children }: { children: ReactNode }) {
   const [lobby, setLobby] = useState<LobbyView | null>(null)
   const [table, setTable] = useState<TableView | null>(null)
   const [notifications, setNotifications] = useState<NotificationsView | null>(null)
+  const [directs, setDirects] = useState<DirectsView | null>(null)
+  const [directLive, setDirectLive] = useState<DirectMessage[]>([])
   const [error, setError] = useState<Club['error']>(null)
   const socket = useRef<WebSocket | null>(null)
   const waiting = useRef<{ message: ClientMessage; at: number }[]>([])
@@ -115,6 +125,8 @@ export function ClubProvider({ children }: { children: ReactNode }) {
         if (message.type === 'lobby') setLobby(message.lobby)
         else if (message.type === 'table') setTable((previous) => mergeTable(previous, message.table, message.now))
         else if (message.type === 'notifications') setNotifications(message.notifications)
+        else if (message.type === 'directs') setDirects(message.directs)
+        else if (message.type === 'direct') setDirectLive((live) => [...live, message.message].slice(-LIVE_KEPT))
         else if (message.type === 'error')
           setError({ code: message.code, params: message.params, message: message.message, at: Date.now() })
       }
@@ -186,6 +198,8 @@ export function ClubProvider({ children }: { children: ReactNode }) {
       setLobby(null)
       setTable(null)
       setNotifications(null)
+      setDirects(null)
+      setDirectLive([])
     }
   }, [user, logout])
 
@@ -198,8 +212,8 @@ export function ClubProvider({ children }: { children: ReactNode }) {
   const dismissError = useCallback(() => setError(null), [])
 
   const value = useMemo(
-    () => ({ status, lobby, table, notifications, error, send, dismissError }),
-    [status, lobby, table, notifications, error, send, dismissError],
+    () => ({ status, lobby, table, notifications, directs, directLive, error, send, dismissError }),
+    [status, lobby, table, notifications, directs, directLive, error, send, dismissError],
   )
   return <ClubContext.Provider value={value}>{children}</ClubContext.Provider>
 }
