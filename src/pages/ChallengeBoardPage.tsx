@@ -67,6 +67,12 @@ const Section = styled(Card)`
   }
 `
 
+const Heading = styled.h2`
+  margin: 0 0 10px;
+  font-size: 18px;
+  color: ${({ theme }) => theme.colors.primaryStrong};
+`
+
 const Tabs = styled.div`
   display: flex;
   gap: 6px;
@@ -253,8 +259,9 @@ export function ChallengeBoardPage() {
         )}
       </Section>
 
-      <Section aria-labelledby="played-by-title">
-        <h2 id="played-by-title">{t.boardPlayedBy}</h2>
+      {/* Not in a card: the hand diagram needs the page's full width on a phone */}
+      <section aria-labelledby="played-by-title">
+        <Heading id="played-by-title">{t.boardPlayedBy}</Heading>
         <Tabs role="tablist" aria-labelledby="played-by-title">
           {entries.map((e) => {
             const value = e.userId === user.id ? null : versus.get(e.userId)
@@ -284,7 +291,7 @@ export function ChallengeBoardPage() {
             <Muted>{t.loading}</Muted>
           )}
         </div>
-      </Section>
+      </section>
     </PageMain>
   )
 }

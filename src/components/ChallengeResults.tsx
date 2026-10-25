@@ -157,6 +157,8 @@ export function ChallengeResults({ challenge: c, userId }: { challenge: Challeng
   const withPoints = [...points.values()].some((b) => b !== undefined)
   const nameOf = (id: string) => (id === userId ? t.you : participantName(t, playerOf(c, id)))
   const all = headToHeadTotal(scoring, versus)
+  // Cross-IMP challenges compare each pair in plain IMPs
+  const pairUnit = scoring === 'crossImp' ? 'imp' : scoring
   const compared = versus.filter((v) => v.compared > 0).sort((a, b) => place(a.opponent) - place(b.opponent))
 
   return (
@@ -171,7 +173,7 @@ export function ChallengeResults({ challenge: c, userId }: { challenge: Challeng
                 <tr>
                   <th scope="col">{t.memberCol}</th>
                   <td data-wide />
-                  <NumHead scope="col">{t.scorings[scoring]}</NumHead>
+                  <NumHead scope="col">{t.scorings[pairUnit]}</NumHead>
                 </tr>
               </thead>
               <tbody>
