@@ -45,6 +45,12 @@ const GUARDS: Partial<Record<ClientMessage['type'], Guard>> = {
   answerChallenge: (m) => str(m.challengeId) && bool(m.accept),
   cancelChallenge: (m) => str(m.challengeId),
   rematchChallenge: (m) => str(m.challengeId),
+  matchInvite: (m) => str(m.matchId) && str(m.room) && str(m.seat) && str(m.userId),
+  matchAnswer: (m) => str(m.matchId) && bool(m.accept),
+  matchMove: (m) => str(m.matchId) && obj(m.from) && obj(m.to),
+  matchLeave: (m) => str(m.matchId),
+  matchClear: (m) => str(m.matchId) && str(m.room) && str(m.seat),
+  matchRobot: (m) => str(m.matchId) && str(m.room) && str(m.seat),
   sendDirect: (m) => str(m.to) && str(m.text),
   readDirect: (m) => str(m.userId),
 }

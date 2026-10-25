@@ -11,6 +11,7 @@ import { CLIENT_ERROR_MAX_CHARS } from './client-errors.ts'
 import { crashEntry, jsonLog } from './log.ts'
 import { type ChallengeRequest, ClubError, ClubService, type Connections } from './service.ts'
 import type { Store } from './store.ts'
+import type { MatchAction } from './team-match-service.ts'
 
 export interface Env {
   CLUB: DurableObjectNamespace<Club>
@@ -277,20 +278,20 @@ export class Club extends DurableObject<Env> implements Connections {
       if (!found) throw new ClubError('challengeGone', {}, 404)
       return json({ challenge: found })
     }
-    // Team matches (§5.7, e8-t03): set up over HTTP; seats, start and play come in later batches
+    // Team matches (§5.8): set up (e8-t03) and seated (e8-t04, e8-t05) over HTTP; start and play come in F4
     if (route === 'GET /api/matches') return json({ matches: this.service.matches.list(user.id) })
     if (route === 'POST /api/matches') {
       const b = await body()
       return json({ match: this.service.matches.create(user.id, { settings: b.settings, seat: b.seat }) })
     }
-    const matchAction = url.pathname.match(/^\/api\/matches\/([\w-]+)\/(settings|cancel)$/)
+    const matchAction = url.pathname.match(/^\/api\/matches\/([\w-]+)\/(settings|cancel|invite|answer|move|leave|clear|robot)$/)
     if (request.method === 'POST' && matchAction) {
       const [, matchId, action] = matchAction
-      const match =
-        action === 'settings'
-          ? this.service.matches.update(user.id, matchId, (await body()).settings)
-          : this.service.matches.cancel(user.id, matchId)
-      return json({ match })
+      if (action === 'settings') return json({ match: this.service.matches.update(user.id, matchId, (await body()).settings) })
+      if (action === 'cancel') return json({ match: await this.service.matches.cancel(user.id, matchId) })
+      const type = `match${action[0].toUpperCase()}${action.slice(1)}`
+      const message = { ...(await body()), type, matchId } as MatchAction
+      return json({ match: await this.service.matches.request(user.id, message) })
     }
     const match = url.pathname.match(/^\/api\/matches\/([\w-]+)$/)
     if (request.method === 'GET' && match) {

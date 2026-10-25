@@ -4,6 +4,7 @@ import type { Card, Seat, Side } from './cards.ts'
 import type { ChallengeSettings } from './challenge.ts'
 import type { BoardResult, BoardState, Phase, Trick } from './game.ts'
 import type { MessageCode, MessageParams } from './messages.ts'
+import type { MatchSeat, TeamMatchView } from './team-match.ts'
 
 /** Messages and views exchanged between the browser and the Worker over HTTP and WebSocket */
 
@@ -275,6 +276,12 @@ export const NOTIFICATION_KINDS = [
   'challengeResults',
   'friendOnline',
   'tableInvited',
+  'matchInvited',
+  'matchAccepted',
+  'matchDeclined',
+  'matchLeft',
+  'matchRemoved',
+  'matchCancelled',
 ] as const
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number]
 
@@ -288,7 +295,9 @@ export interface Notification {
    * before the deadline and the results (`challengeReminder`, `challengeResults`) carry
    * { challengeId } and are sent by the deadline job (`e7-t13`). `friendOnline`: { username } of
    * a member the viewer follows who just came online (e1-t24). `tableInvited`: { tableId, number,
-   * username } of the table and the host who invited (`e2-t25`)
+   * username } of the table and the host who invited (`e2-t25`). The team match kinds (§5.8,
+   * `e8-t04`): { matchId, username } of who invited, accepted, declined, left, took the member off
+   * a seat or called the match off
    */
   params: Record<string, string | number>
   read: boolean
@@ -391,6 +400,18 @@ export type ClientMessage =
   | { type: 'cancelChallenge'; challengeId: string }
   /** One-click rematch (`e7-t21`): the same people and settings, new boards, once a challenge ended */
   | { type: 'rematchChallenge'; challengeId: string }
+  /**
+   * Team match seats before the start (§5.8, `e8-t04`, `e8-t05`): a captain invites a member to an
+   * empty seat of their team, puts a robot there or clears it; the invited answer; a seated member
+   * moves to an empty seat of their team, or a captain swaps two seats of their team; anyone but
+   * the host leaves. Also over HTTP (`POST /api/matches/:id/<action>`)
+   */
+  | { type: 'matchInvite'; matchId: string; room: MatchSeat['room']; seat: Seat; userId: string }
+  | { type: 'matchAnswer'; matchId: string; accept: boolean }
+  | { type: 'matchMove'; matchId: string; from: MatchSeat; to: MatchSeat }
+  | { type: 'matchLeave'; matchId: string }
+  | { type: 'matchClear'; matchId: string; room: MatchSeat['room']; seat: Seat }
+  | { type: 'matchRobot'; matchId: string; room: MatchSeat['room']; seat: Seat }
   /** Sends a direct message (AC-1.7): not to oneself, a robot, or between members where either blocked the other */
   | { type: 'sendDirect'; to: string; text: string }
   /** Marks the conversation with this member read */
@@ -408,6 +429,11 @@ export type ServerMessage =
   | { type: 'directs'; directs: DirectsView }
   /** A new direct message, sent only to its two members (all their tabs) */
   | { type: 'direct'; message: DirectMessage }
+  /**
+   * A team match the member is in changed (§5.8): as they now see it, or null once they may no
+   * longer see it (they left, declined or were taken off their seat before the start)
+   */
+  | { type: 'match'; matchId: string; match: TeamMatchView | null }
 
 /** A finished board kept in the history */
 export interface BoardRecord {

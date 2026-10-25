@@ -18,6 +18,7 @@ import type {
   TableView,
   TableWire,
 } from '../../shared/protocol.ts'
+import type { TeamMatchView } from '../../shared/team-match.ts'
 import type { MessageParams } from '../../shared/messages.ts'
 import { useAuth } from './AuthContext.tsx'
 
@@ -45,6 +46,8 @@ interface Club {
   /** Direct messages that arrived over this connection, oldest first; a conversation adds them to the page it loaded */
   directLive: DirectMessage[]
   error: { code: string; params: MessageParams; message: string; at: number } | null
+  /** The latest team match pushed to the viewer (§5.8); the prep room takes it when it is the one shown */
+  matchLive: { matchId: string; match: TeamMatchView | null } | null
   send: (message: ClientMessage) => void
   dismissError: () => void
 }
@@ -90,6 +93,7 @@ export function ClubProvider({ children }: { children: ReactNode }) {
   const [directs, setDirects] = useState<DirectsView | null>(null)
   const [directLive, setDirectLive] = useState<DirectMessage[]>([])
   const [error, setError] = useState<Club['error']>(null)
+  const [matchLive, setMatchLive] = useState<Club['matchLive']>(null)
   const socket = useRef<WebSocket | null>(null)
   const waiting = useRef<{ message: ClientMessage; at: number }[]>([])
 
@@ -127,6 +131,7 @@ export function ClubProvider({ children }: { children: ReactNode }) {
         else if (message.type === 'notifications') setNotifications(message.notifications)
         else if (message.type === 'directs') setDirects(message.directs)
         else if (message.type === 'direct') setDirectLive((live) => [...live, message.message].slice(-LIVE_KEPT))
+        else if (message.type === 'match') setMatchLive({ matchId: message.matchId, match: message.match })
         else if (message.type === 'error')
           setError({ code: message.code, params: message.params, message: message.message, at: Date.now() })
       }
@@ -200,6 +205,7 @@ export function ClubProvider({ children }: { children: ReactNode }) {
       setNotifications(null)
       setDirects(null)
       setDirectLive([])
+      setMatchLive(null)
     }
   }, [user, logout])
 
@@ -212,8 +218,8 @@ export function ClubProvider({ children }: { children: ReactNode }) {
   const dismissError = useCallback(() => setError(null), [])
 
   const value = useMemo(
-    () => ({ status, lobby, table, notifications, directs, directLive, error, send, dismissError }),
-    [status, lobby, table, notifications, directs, directLive, error, send, dismissError],
+    () => ({ status, lobby, table, notifications, directs, directLive, error, matchLive, send, dismissError }),
+    [status, lobby, table, notifications, directs, directLive, error, matchLive, send, dismissError],
   )
   return <ClubContext.Provider value={value}>{children}</ClubContext.Provider>
 }

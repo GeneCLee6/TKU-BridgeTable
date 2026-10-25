@@ -306,6 +306,11 @@ export class ClubService {
       newId: () => randomId(8),
       userById: (id) => this.publicUserById(id),
       takeAction: (id) => this.actionLimit.take(id),
+      isMember: (id) => this.users.has(id),
+      blocked: (by, other) => this.blocks.has(by, other),
+      online: () => this.connections.onlineUserIds(),
+      send: (id, message) => this.connections.send(id, message),
+      notify: (id, kind, params) => this.notifications.notify(id, kind, params),
     })
     this.directs = new DirectMessageStore(store.sql)
     if (config.schedule) {
@@ -883,6 +888,8 @@ export class ClubService {
     this.broadcast()
     void this.pushNotifications(userId)
     this.pushDirects(userId)
+    // Whether the host can start a match they are in depends on who is online (e8-t06)
+    this.matches.presence(userId)
     if (!this.present.has(userId)) {
       this.present.add(userId)
       void this.announceOnline(userId)
@@ -987,6 +994,7 @@ export class ClubService {
       if (table.mode !== 'challenge') this.awayFrom(userId, this.now())
     }
     this.broadcast()
+    this.matches.presence(userId)
   }
 
   /**
@@ -1102,6 +1110,14 @@ export class ClubService {
         return this.cancelChallenge(userId, message.challengeId)
       case 'playChallenge':
         return this.playChallenge(userId, message.challengeId)
+      case 'matchInvite':
+      case 'matchAnswer':
+      case 'matchMove':
+      case 'matchLeave':
+      case 'matchClear':
+      case 'matchRobot':
+        await this.matches.act(userId, message)
+        return
       case 'call':
       case 'play':
       case 'claim':
