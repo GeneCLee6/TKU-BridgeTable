@@ -1,5 +1,6 @@
 import type { AuctionCall, Call, Contract } from './auction.ts'
 import type { Vulnerability } from './board.ts'
+import type { BookTopics } from './book-topics.ts'
 import type { Card, Seat, Side } from './cards.ts'
 import type { ChallengeSettings } from './challenge.ts'
 import type { BoardResult, BoardState, Phase, Trick } from './game.ts'
@@ -236,6 +237,12 @@ export interface BoardView {
    * it is: the partner, else an opponent). From the auction and the system only, never the cards
    */
   callMeanings?: { robot: Seat; kind: RobotKind; meanings: Partial<Record<Call, Spec>> }
+  /**
+   * The bidding hint card (`BookHints`, `e10-t06`): the TKU BridgeBook pages for the auction so far and
+   * the calls that could come next, worked out on the server (`views.ts`) from the auction alone; none
+   * when the viewer's partner is TKB playing 2/1, whose system the book does not describe
+   */
+  bookTopics?: BookTopics
   claim?: { seat: Seat; tricks: number; accepted: Seat[]; approvers: Seat[] }
   /** The last claim, turned down by `by`; shown until the next card */
   rejectedClaim?: { seat: Seat; tricks: number; by: Seat }
@@ -293,10 +300,13 @@ export interface TableView {
  */
 export type TableWire = Omit<TableView, 'chat' | 'recent'> & { chat?: ChatMessage[]; recent?: BoardSummary[] }
 
-/** After the last card the trick stays on the table this long before the countdown starts */
-export const LAST_TRICK_MS = 3500
+/**
+ * After the last card the trick stays on the table this long before the countdown starts.
+ * This and the countdown were tuned 1.3x faster at the club president's request (were 3500 and 3000).
+ */
+export const LAST_TRICK_MS = 2700
 /** The countdown before the next deal */
-export const DEAL_COUNTDOWN_MS = 3000
+export const DEAL_COUNTDOWN_MS = 2300
 
 /** A club member as the People panel lists them */
 export interface MemberStatus extends PublicUser {
@@ -650,6 +660,16 @@ export interface AdminUser {
   permissions: Permission[]
   /** When they last reset a forgotten password themselves */
   passwordResetAt: number | null
+}
+
+/**
+ * One member's changes in the admin page's members section, saved together with the others in one
+ * request (POST /api/admin/members). A field left out stays as it is.
+ */
+export interface MemberChange {
+  id: string
+  admin?: boolean
+  permissions?: Permission[]
 }
 
 /** Club settings an admin can change; they override the Worker's environment defaults */

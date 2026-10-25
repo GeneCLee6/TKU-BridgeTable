@@ -211,7 +211,9 @@ describe('the robot asks RKCB itself in an agreed major', () => {
 describe('adjusted hand values (e5-t41)', () => {
   it('opens a good 11 by the Rule of 20 with two quick tricks', () => {
     expect(bidOver(hand('AK932 KJ432 32 2'), '')).toBe('1S')
-    expect(bidOver(hand('QJ932 QJ432 K2 2'), '')).toBe('P')
+    // Too weak for one of a suit; 5-5 in the majors opens the two-suiter 2♥ (社長 2026-10-25)
+    expect(bidOver(hand('QJ932 QJ432 K2 2'), '')).toBe('2H')
+    expect(bidOver(hand('QJ932 QJ43 K32 2'), '')).toBe('P')
     // Not in fourth seat, where the Rule of 15 decides
     expect(bidOver(hand('2 AK932 KJ432 32'), '')).toBe('1H')
     expect(bidOver(hand('2 AK932 KJ432 32'), 'P P P')).toBe('P')
