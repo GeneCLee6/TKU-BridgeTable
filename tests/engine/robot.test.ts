@@ -164,6 +164,68 @@ describe('answers to 1♣ / 1♦ (5542)', () => {
   })
 })
 
+describe('opener’s rebid (開叫1♣／1♦之後續發展、1NT迫叫之後)', () => {
+  it('shows minimum, invitational and game-forcing hands after 1♣ / 1♦', () => {
+    expect(bidOver(hand('K5 AJ84 Q3 K9432'), '1C P 1H P')).toBe('2H')
+    expect(bidOver(hand('K5 AJ84 Q3 AQ432'), '1C P 1H P')).toBe('3H')
+    expect(bidOver(hand('AK54 KJ 5 AKJ432'), '1C P 1S P')).toBe('4D')
+    expect(bidOver(hand('A5 K3 AQ54 KJ432'), '1C P 1S P')).toBe('2D')
+    expect(bidOver(hand('A5 K3 AQ54 AKJ32'), '1C P 1S P')).toBe('3D')
+    expect(bidOver(hand('A54 KQ3 AJ5 KQ43'), '1C P 1S P')).toBe('2N')
+    expect(bidOver(hand('A4 AQ32 KQJ54 32'), '1D P 1S P')).toBe('2H')
+    expect(bidOver(hand('Q4 K3 AKJ54 Q543'), '1D P 1S P')).toBe('2C')
+    expect(bidOver(hand('A54 AQ3 KJ654 43'), '1D P 2C P')).toBe('2N')
+    // The reverse is explained as one
+    const auction: AuctionCall[] = ['1D', 'P', '1S', 'P'].map((call, i) => ({ seat: nextSeat('N', i), call }))
+    expect(robotCall('tku', hand('A4 AQ32 KQJ54 32'), 'N', auction, 'N', 'None').alert).toContain('反序')
+  })
+
+  it('after 1NT forcing: 2NT and 3♠ invite, 2♠ is a reverse, 3NT 19–21', () => {
+    expect(bidOver(hand('AQ543 K3 AJ5 K43'), '1S P 1N P')).toBe('2N')
+    expect(bidOver(hand('AQ5432 K3 AJ5 K4'), '1S P 1N P')).toBe('3S')
+    expect(bidOver(hand('AK53 AQ543 A5 43'), '1H P 1N P')).toBe('2S')
+    expect(bidOver(hand('K3 AQ543 AJ5 KQ4'), '1H P 1N P')).toBe('3N')
+    expect(bidOver(hand('AQ543 K3 Q5 K432'), '1S P 2D P')).toBe('2S')
+  })
+})
+
+describe('responder’s rebid (新低花迫叫、第四門新花、倒叫之後)', () => {
+  it('new minor forcing and the answers', () => {
+    expect(bidOver(hand('KQ953 A84 Q52 J3'), '1C P 1S P 1N P')).toBe('2D')
+    expect(bidOver(hand('KQ953 A84 Q52 J3'), '1D P 1S P 1N P')).toBe('2C')
+    expect(bidOver(hand('KQ953 Q84 J52 43'), '1C P 1S P 1N P')).toBe('2S')
+    expect(bidOver(hand('A84 KQ3 KJ5 Q543'), '1C P 1S P 1N P 2D P')).toBe('2S')
+    expect(bidOver(hand('A8 KQ43 J54 Q543'), '1C P 1S P 1N P 2D P')).toBe('2H')
+    expect(bidOver(hand('KQ953 A84 J52 43'), '1C P 1S P 1N P 2D P 2S P')).toBe('3S')
+  })
+
+  it('fourth suit forcing, preference, and the 2NT relay after a reverse', () => {
+    expect(bidOver(hand('853 AQ953 KQ5 J3'), '1D P 1H P 1S P')).toBe('2C')
+    expect(bidOver(hand('AQ8 KJ5 AK654 3'), '1D P 1S P 2C P 2H P')).toBe('2S')
+    expect(bidOver(hand('KQ953 Q84 J52 43'), '1D P 1S P 2C P')).toBe('2D')
+    expect(bidOver(hand('KQ53 84 J52 Q432'), '1D P 1S P 2H P')).toBe('2N')
+    expect(bidOver(hand('AQ8 KJ5 AK654 3'), '1D P 1S P 2H P 2N P')).toBe('3C')
+    expect(bidOver(hand('KQ53 84 J52 Q432'), '1D P 1S P 2H P 2N P 3C P')).toBe('3D')
+  })
+})
+
+describe('2♣ strong (開叫2♣)', () => {
+  it('2♥ is 0–3 points, 2♦ waiting otherwise; opener shows notrump by strength', () => {
+    expect(bidOver(hand('8642 973 T852 J4'), '2C P')).toBe('2H')
+    expect(bidOver(hand('KQ642 A73 T85 J4'), '2C P')).toBe('2D')
+    expect(bidOver(hand('AK5 AQ3 AKJ5 Q43'), '2C P 2D P')).toBe('2N')
+    expect(bidOver(hand('AKQ32 KQ5 AK5 A3'), '2C P 2D P')).toBe('3N')
+  })
+
+  it('responder after opener’s major: fit with values, sign-off, splinter, own suit, 2NT', () => {
+    expect(bidOver(hand('J9432 85 Q32 K43'), '2C P 2D P 2S P')).toBe('3S')
+    expect(bidOver(hand('943 85 Q32 Q5432'), '2C P 2D P 2S P')).toBe('4S')
+    expect(bidOver(hand('J943 8 Q32 K5432'), '2C P 2D P 2S P')).toBe('4H')
+    expect(bidOver(hand('94 QJ853 Q32 J54'), '2C P 2D P 2S P')).toBe('3H')
+    expect(bidOver(hand('94 Q853 Q32 J543'), '2C P 2D P 2S P')).toBe('2N')
+  })
+})
+
 describe('after 1NT', () => {
   it('Stayman, transfers, Texas, minor ask and invitations', () => {
     expect(bidOver(hand('KJ32 Q43 Q54 Q32'), '1N P')).toBe('2C')

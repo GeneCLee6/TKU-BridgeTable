@@ -38,6 +38,7 @@ const NAMES: Record<Convention, Words> = {
   reverse: { zh: '反序', 'zh-Hans': '逆序', en: 'Reverse', vi: 'Kêu đảo', ja: 'リバース', ko: '리버스' },
   strong2C: { zh: '強 2♣', 'zh-Hans': '强 2♣', en: 'Strong 2♣', vi: '2♣ mạnh', ja: '強い2♣', ko: '강한 2♣' },
   waiting: { zh: '等待叫', 'zh-Hans': '等待叫', en: 'Waiting', vi: 'Chờ', ja: 'ウェイティング', ko: '웨이팅' },
+  doubleNegative: { zh: '二次否定', 'zh-Hans': '二次否定', en: 'Double negative', vi: 'Phủ định kép', ja: 'ダブル・ネガティブ', ko: '더블 네거티브' },
   weakTwo: { zh: '弱二', 'zh-Hans': '弱二', en: 'Weak two', vi: 'Weak two', ja: 'ウィークツー', ko: '위크 투' },
   featureAsk: { zh: '詢問特徵', 'zh-Hans': '询问特征', en: 'Feature ask', vi: 'Hỏi đặc điểm', ja: 'フィーチャー・アスク', ko: '피처 질문' },
   feature: { zh: '特徵', 'zh-Hans': '特征', en: 'Feature', vi: 'Đặc điểm', ja: 'フィーチャー', ko: '피처' },

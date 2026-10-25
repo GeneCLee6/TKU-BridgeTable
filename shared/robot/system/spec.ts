@@ -52,6 +52,7 @@ export const CONVENTIONS = [
   'reverse',
   'strong2C',
   'waiting',
+  'doubleNegative',
   'weakTwo',
   'featureAsk',
   'feature',
