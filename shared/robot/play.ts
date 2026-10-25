@@ -2,7 +2,7 @@ import { isBid, strainOf } from '../auction.ts'
 import { nextSeat, partnerOf, rankOf, rankValue, sameSide, SEATS, SUITS, suitOf, type Card, type Seat, type Suit } from '../cards.ts'
 import { dummyOf, legalCards, remainingCards, tricksOf, type BoardState, type PlayedCard } from '../game.ts'
 import type { RobotKind } from '../protocol.ts'
-import { declarerLead, holdUp } from './declarer.ts'
+import { declarerLead, exitLead, holdUp } from './declarer.ts'
 import { coverLastHonour, defenceLead, dummyOverruffs, holdUpAgainstDummy, secondHand, thirdHand } from './defence.ts'
 import { suitCards } from './hand.ts'
 import { byRank, honours, value, View } from './view.ts'
@@ -49,13 +49,17 @@ export function chooseCard(state: BoardState, seat: Seat, kind: RobotKind = 'tku
   if (following.length) {
     // A defender after partner's lead: third hand high, with its exceptions (defence.ts)
     if (defending && trick.length === 2) return thirdHand(view, trick, following, best, led, trump) ?? signal(following)
+    if (!defending && trick.length === 2) {
+      const card = unblock(view, following, best, led)
+      if (card) return card
+    }
     if (partnerWinning && (lastToPlay || view.isMaster(best.card))) return signal(following)
     if (!defending) {
       const card = holdUp(view, trick, following, led, trump)
       if (card) return card
     }
     if (!defending && trick.length === 2) {
-      const card = declarerThird(view, seat, following, best, led)
+      const card = declarerThird(view, seat, following, best, led, trump)
       if (card) return card
     }
     if (partnerWinning) {
@@ -119,6 +123,9 @@ function lead(state: BoardState, seat: Seat, view: View, legal: Card[], trump: S
       const theirTop = suitCards(partnerHand, s)[0]
       if (theirTop && view.isMaster(theirTop) && !ruffed(s)) return suitCards(hand, s).at(-1)!
     }
+    // Nothing better: the lead that gives the least away (declarer.ts)
+    const exit = exitLead(view, hand, trump, ruffed, (s) => opponents.some((o) => view.reading.bid(o, s)))
+    if (exit) return exit
   } else {
     // Cash winners while they last (holding them back for later costs more than it saves)
     for (const s of nonTrump) {
@@ -160,13 +167,27 @@ function finesseLead(view: View, seat: Seat, hand: Card[], suits: Suit[]): Card 
 }
 
 /**
+ * Unblocking on the declaring side: partner's winning card is partner's last of the suit, we
+ * hold the rest of the winners and partner has no winner outside to come back with, so overtake
+ * (with the lowest winner) and run the suit from this hand
+ */
+function unblock(view: View, following: Card[], best: PlayedCard, led: Suit): Card | null {
+  if (best.seat !== partnerOf(view.seat) || suitOf(best.card) !== led || !view.isMaster(best.card)) return null
+  const partner = view.partnerCards()
+  if (suitCards(partner, led).length || following.length < 2) return null
+  const winners = following.filter((c) => value(c) > value(best.card) && view.isMaster(c)).sort(byRank)
+  if (!winners.length || partner.some((c) => view.isMaster(c))) return null
+  return winners[0]
+}
+
+/**
  * Third hand on the declaring side, after partner led and second hand played. Partner's honour
  * that loses only to one outstanding card runs, unless the auction places that card behind us.
  * Otherwise take the finesse: the cheapest card that loses only to one outstanding card, unless
  * the auction places it with the last player; then go up with a winner. Null leaves it to the
  * usual third-hand play.
  */
-function declarerThird(view: View, seat: Seat, following: Card[], best: PlayedCard, led: Suit): Card | null {
+function declarerThird(view: View, seat: Seat, following: Card[], best: PlayedCard, led: Suit, trump: Suit | null): Card | null {
   if (suitOf(best.card) !== led) return null
   const last = nextSeat(seat)
   const behind = (card: Card) => {
@@ -176,6 +197,8 @@ function declarerThird(view: View, seat: Seat, following: Card[], best: PlayedCa
   const low = [...following].sort(byRank)[0]
   if (best.seat === partnerOf(seat) && value(best.card) >= 10 && !behind(best.card)) return low
   const beaters = following.filter((c) => value(c) > value(best.card)).sort(byRank)
+  // The last player showed out of the suit (and cannot ruff): the cheapest card over the trick wins it
+  if (beaters.length && best.seat !== partnerOf(seat) && view.reading.isVoid(last, led) && !view.reading.mayRuff(last, led, trump)) return beaters[0]
   const winner = beaters.find((c) => view.isMaster(c))
   if (!beaters.length || winner === beaters[0]) return winner ?? null
   const finesse = beaters.find((c) => !behind(c))
