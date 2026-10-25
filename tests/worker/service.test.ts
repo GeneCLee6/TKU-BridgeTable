@@ -294,6 +294,18 @@ describe('what each player sees', () => {
     expect(tableFor(bySeat.E).board!.auction[0].alert).toBe('強牌')
     expect(tableFor(bySeat.S).board!.auction[0].alert).toBeUndefined()
   })
+
+  it('gives a person’s call what the engine reads it as, for everyone, partner too (e5-t22)', async () => {
+    const { bySeat } = await fullTable()
+    await send(bySeat.N, { type: 'call', call: '1N', alert: '15–17' })
+    for (const seat of ['S', 'E'] as const) {
+      const made = tableFor(bySeat[seat]).board!.auction[0]
+      // No robot partner: the club's system
+      expect(made).toMatchObject({ inferred: 'tku', meaning: { hcp: [15, 17], balanced: true } })
+      expect(made.robot).toBeUndefined()
+    }
+    expect(tableFor(bySeat.S).board!.auction[0].alert).toBeUndefined()
+  })
 })
 
 describe('finishing boards', () => {

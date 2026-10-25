@@ -15,7 +15,9 @@ import { CallLabel } from './Suit.tsx'
  * The auction as a table, BBO style: four columns from the viewer's point of view (left-hand
  * opponent, partner, right-hand opponent, the viewer last), vulnerable seats with a red header,
  * the dealer's first call in the dealer's column and '?' where the next call goes. Alerted calls
- * are yellow; click one and its explanation opens in a small window next to it. With `maxRows` the
+ * are yellow. Click any call and what it means opens in a small window next to it: a robot's
+ * explanation, a person's own alert, and for a person's call what the engine reads it as in their
+ * side's system (marked as inferred, e5-t22); the server sends all of it. With `maxRows` the
  * table keeps one fixed height from the first call to the last, as on BBO: a long auction scrolls
  * inside it (the header stays put, the latest round in view).
  */
@@ -76,8 +78,8 @@ const Cell = styled.td<{ $alert?: boolean; $call?: string; $size: number }>`
     `}
 `
 
-/** An alerted call: the whole cell is a button that opens the explanation */
-const AlertButton = styled.button`
+/** A call: the whole cell is a button that opens what it means */
+const CallButton = styled.button`
   width: 100%;
   height: 100%;
   padding: 0;
@@ -147,16 +149,30 @@ const PopupText = styled.p`
   font-size: 15px;
   line-height: 1.5;
   white-space: pre-wrap;
+
+  & + & { padding-top: 0; }
+  & > strong { display: block; font-size: 12px; font-weight: 700; opacity: 0.75; }
 `
 
 /** The explanation window, placed under the call (above it when there is no room below) */
 function AlertPopup({ call, anchor, who, onClose }: { call: AuctionCall; anchor: HTMLElement; who: string; onClose: () => void }) {
   const t = useT()
   const { lang } = usePreferences()
-  // A 2/1 robot's call carries what it shows: explain it in the viewer's language (the stored
-  // Traditional Chinese words until the rules have loaded)
+  // A robot's call carries what it shows: explain it in the viewer's language (the stored
+  // Traditional Chinese words until the rules have loaded). So does a person's call, read by the
+  // engine in their side's system (`inferred`), next to their own alert if they made one
   const rules = useRobotRules(!!call.meaning)
-  const text = (call.meaning && rules ? rules.describe(call.meaning, lang) : call.alert) || t.noExplanation
+  const described = call.meaning && rules ? rules.describe(call.meaning, lang) : undefined
+  const alerted = call.alert !== undefined
+  const parts: { label?: string; text: string }[] = []
+  if (call.robot || !call.inferred) {
+    if (alerted || call.robot) parts.push({ text: (described ?? call.alert) || t.noExplanation })
+  } else {
+    if (alerted) parts.push({ label: t.playerExplanation, text: call.alert || t.noExplanation })
+    parts.push({ label: t.inferredBy(t.robotSystems[call.inferred]), text: described ?? '…' })
+  }
+  if (!parts.length) parts.push({ text: t.noExplanation })
+  const title = alerted ? t.alert : t.callMeaning
   const ref = useRef<HTMLDivElement>(null)
   const [place, setPlace] = useState<{ left: number; top: number } | null>(null)
 
@@ -189,7 +205,7 @@ function AlertPopup({ call, anchor, who, onClose }: { call: AuctionCall; anchor:
     <Popup
       ref={ref}
       role="dialog"
-      aria-label={t.alert}
+      aria-label={title}
       style={place ? { left: place.left, top: place.top } : { left: 0, top: 0, visibility: 'hidden' }}
     >
       <PopupHead>
@@ -197,13 +213,18 @@ function AlertPopup({ call, anchor, who, onClose }: { call: AuctionCall; anchor:
           <CallLabel call={call.call} onCard />
         </strong>
         <span>
-          {t.alert} · {who}
+          {title} · {who}
         </span>
         <PopupClose type="button" onClick={onClose} aria-label={t.close}>
           <X size={18} aria-hidden />
         </PopupClose>
       </PopupHead>
-      <PopupText>{text}</PopupText>
+      {parts.map((part, i) => (
+        <PopupText key={i}>
+          {part.label && <strong>{part.label}</strong>}
+          {part.text}
+        </PopupText>
+      ))}
     </Popup>,
     document.body,
   )
@@ -284,19 +305,15 @@ export function AuctionBox({
                   const alerted = cell.alert !== undefined
                   return (
                     <Cell key={c} $size={cellSize} $call={cell.call} $alert={alerted}>
-                      {alerted ? (
-                        <AlertButton
-                          type="button"
-                          aria-haspopup="dialog"
-                          aria-expanded={open?.index === index}
-                          onClick={(e) => setOpen(open?.index === index ? null : { index, anchor: e.currentTarget })}
-                        >
-                          <CallLabel call={cell.call} onCard />
-                          <span className="visually-hidden">（{t.alert}）</span>
-                        </AlertButton>
-                      ) : (
+                      <CallButton
+                        type="button"
+                        aria-haspopup="dialog"
+                        aria-expanded={open?.index === index}
+                        onClick={(e) => setOpen(open?.index === index ? null : { index, anchor: e.currentTarget })}
+                      >
                         <CallLabel call={cell.call} onCard />
-                      )}
+                        {alerted && <span className="visually-hidden">（{t.alert}）</span>}
+                      </CallButton>
                     </Cell>
                   )
                 })}

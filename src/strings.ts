@@ -369,6 +369,9 @@ const zh = {
   alert: 'Alert',
   alertExplain: 'Alert 說明（只有對手看得到）',
   noExplanation: '沒有說明',
+  callMeaning: '叫品意義',
+  inferredBy: (system: string) => `依${system}推論`,
+  playerExplanation: '玩家的說明',
   playedCard: (card: string) => `${card}（已出）`,
   playedCardsGrey: '出過的牌反灰留著',
 
@@ -1028,6 +1031,9 @@ const en: Strings = {
   alert: 'Alert',
   alertExplain: 'Alert explanation (opponents only)',
   noExplanation: 'No explanation given',
+  callMeaning: 'Call meaning',
+  inferredBy: (system: string) => `Inferred (${system})`,
+  playerExplanation: "Player's explanation",
   playedCard: (card) => `${card} (played)`,
   playedCardsGrey: 'Grey out played cards',
 
@@ -1677,6 +1683,9 @@ const zhHans: Strings = {
   alert: 'Alert',
   alertExplain: 'Alert 说明（只有对手看得到）',
   noExplanation: '没有说明',
+  callMeaning: '叫品意义',
+  inferredBy: (system: string) => `依${system}推断`,
+  playerExplanation: '玩家的说明',
   playedCard: (card) => `${card}（已出）`,
   playedCardsGrey: '出过的牌反灰留着',
 
@@ -2327,6 +2336,9 @@ const vi: Strings = {
   alert: 'Alert',
   alertExplain: 'Giải thích Alert (chỉ đối thủ thấy)',
   noExplanation: 'Không có giải thích',
+  callMeaning: 'Ý nghĩa của tiếng gọi',
+  inferredBy: (system: string) => `Suy luận theo ${system}`,
+  playerExplanation: 'Giải thích của người chơi',
   playedCard: (card) => `${card} (đã đánh)`,
   playedCardsGrey: 'Làm mờ lá đã đánh',
 
@@ -2977,6 +2989,9 @@ const ja: Strings = {
   alert: 'Alert',
   alertExplain: 'アラートの説明（相手にだけ見えます）',
   noExplanation: '説明はありません',
+  callMeaning: 'ビッドの意味',
+  inferredBy: (system: string) => `${system}による推論`,
+  playerExplanation: 'プレイヤーの説明',
   playedCard: (card) => `${card}（プレイ済み）`,
   playedCardsGrey: 'プレイ済みのカードを灰色で残す',
 
@@ -3627,6 +3642,9 @@ const ko: Strings = {
   alert: 'Alert',
   alertExplain: '알럿 설명 (상대만 볼 수 있음)',
   noExplanation: '설명이 없습니다',
+  callMeaning: '비드의 의미',
+  inferredBy: (system: string) => `${system} 기준 추론`,
+  playerExplanation: '플레이어의 설명',
   playedCard: (card) => `${card} (낸 카드)`,
   playedCardsGrey: '낸 카드를 회색으로 남기기',
 

@@ -280,6 +280,31 @@ describe('AuctionBox', () => {
     // The rules load on their own; until then the stored words show
     await waitFor(() => expect(screen.getByRole('dialog', { name: 'Alert' })).toHaveTextContent('5+ 張♠，11–21 大牌點，12–22 總點'))
   })
+
+  it('opens any call, and marks what the engine reads a person’s call as inferred (e5-t22)', async () => {
+    const meaning = { hcp: [15, 17] as const, balanced: true }
+    wrap(
+      <AuctionBox
+        auction={[
+          { seat: 'E', call: '1N', meaning, inferred: 'tku' },
+          { seat: 'S', call: 'P' },
+          { seat: 'W', call: '2C', alert: 'Stayman', meaning: { hcp: [8, 40] as const }, inferred: 'gib' },
+        ]}
+        dealer="E"
+        vul="None"
+      />,
+    )
+    await userEvent.click(screen.getByRole('button', { name: '1NT' }))
+    const popup = await screen.findByRole('dialog', { name: '叫品意義' })
+    expect(popup).toHaveTextContent('依淡江制度推論')
+    await waitFor(() => expect(popup).toHaveTextContent('15–17'))
+    await userEvent.click(screen.getByRole('button', { name: 'Pass' }))
+    expect(screen.getByRole('dialog', { name: '叫品意義' })).toHaveTextContent('沒有說明')
+    await userEvent.click(screen.getByRole('button', { name: /Alert/ }))
+    const alerted = screen.getByRole('dialog', { name: 'Alert' })
+    expect(alerted).toHaveTextContent('玩家的說明Stayman')
+    expect(alerted).toHaveTextContent('依2/1推論')
+  })
 })
 
 describe('HandView', () => {

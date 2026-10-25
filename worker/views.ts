@@ -155,7 +155,9 @@ export function seatOccupants(
  * (`kibitz: false`, `e2-t26`) someone there without a seat (a player who stood up or was asked to
  * leave it) sees only what is face up for everyone: dummy after the lead and a defender's claim.
  * Partners never see each other's alerts
- * until the board is over, except a robot's, which are for everyone (GIB's on BBO are too).
+ * until the board is over, except a robot's, which are for everyone (GIB's on BBO are too). What
+ * the engine reads a person's call as (`meaning` with `inferred`, e5-t22) is for everyone too:
+ * it comes only from the public auction and the side's system, like a convention card.
  * `auctionSeat` is where the viewer bid from, if a declarer swap has moved them since.
  * A challenge table's deal set (`Table.dealSource`) never goes out: only the board being played
  * is in `board`, and this function only ever sees that one.
