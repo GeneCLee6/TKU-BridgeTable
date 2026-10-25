@@ -88,6 +88,7 @@ import {
   type ChallengeChange,
 } from './challenge-flow.ts'
 import { ChallengeStore, type Challenge, type ChallengeResult } from './challenges.ts'
+import { FeaturedService } from './featured.ts'
 import { TeamMatchService } from './team-match-service.ts'
 import { TeamMatchStore } from './team-matches.ts'
 import { createHistoryIndex, eventBoards, indexRecord, revealEvent, searchBoards, unindexRecord } from './history-index.ts'
@@ -288,6 +289,8 @@ export class ClubService {
   readonly challenges: ChallengeStore
   /** Two-table team matches, kept in SQL (§5.7); set up over HTTP, played in later batches */
   readonly matches: TeamMatchService
+  /** Featured boards (精選牌局, AC-4.5, §5.9) */
+  readonly featured: FeaturedService
   private readonly log: Logger
   /** Rate limits (AC-11.7): messages and chat lines per member, wrong passwords, browser error reports */
   private readonly actionLimit: TokenBuckets
@@ -325,6 +328,13 @@ export class ClubService {
       online: () => this.connections.onlineUserIds(),
       send: (id, message) => this.connections.send(id, message),
       notify: (id, kind, params) => this.notifications.notify(id, kind, params),
+    })
+    this.featured = new FeaturedService(store, {
+      now: this.now,
+      userById: (id) => this.publicUserById(id),
+      requireCurator: (id) => void this.requirePermission(id, 'boardCurate'),
+      notify: (id, kind, params) => this.notifications.notify(id, kind, params),
+      takeAction: (id) => this.actionLimit.take(id),
     })
     this.directs = new DirectMessageStore(store.sql)
     if (config.schedule) {

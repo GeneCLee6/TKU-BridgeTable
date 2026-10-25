@@ -8,8 +8,10 @@ import { chooseCard } from '../../shared/robot/play.ts'
 import { LIMITS, robotId, robotKindOf } from '../../shared/protocol.ts'
 import { patternProblem } from '../../shared/robot/system/context.ts'
 import { describe as words } from '../../shared/robot/system/describe.ts'
-import { explain } from '../../shared/robot/system/engine.ts'
+import { choose, explain } from '../../shared/robot/system/engine.ts'
+import type { System } from '../../shared/robot/system/spec.ts'
 import { TKU } from '../../shared/robot/system/tku/index.ts'
+import { minorResponses } from '../../shared/robot/system/tku/minors.ts'
 
 function seeded(seed: number) {
   return (n: number) => {
@@ -99,6 +101,66 @@ describe('openings (淡江制度)', () => {
   it('2♦ is a weak two in one major (一高弱二)', () => {
     expect(bidOver(hand('32 KQJ943 54 432'), '')).toBe('2D')
     expect(bidOver(hand('KQJ943 32 54 432'), '')).toBe('2D')
+    // Not with a good four-card other major; a poor one is fine
+    expect(bidOver(hand('KQJ943 KJ32 54 2'), '')).toBe('P')
+    expect(bidOver(hand('KQJ943 9832 54 2'), '')).toBe('2D')
+  })
+
+  it('opens light in third seat with a good suit and by the Rule of 15 in fourth seat', () => {
+    // Third seat: dealer W, W and N pass, E is third
+    expect(bidOver(hand('AKJ94 873 Q52 94'), 'P P', 'W')).toBe('1S')
+    expect(robotCall('tku', hand('AKJ94 873 Q52 94'), 'E', [{ seat: 'W', call: 'P' }, { seat: 'N', call: 'P' }], 'W', 'None').alert).toContain('10–21')
+    expect(bidOver(hand('KJ942 Q73 Q52 Q4'), 'P P', 'W')).toBe('P')
+    // Fourth seat: 10 points and five spades make 15; two spades do not
+    expect(bidOver(hand('AQJ84 K73 952 95'), 'P P P', 'W')).toBe('1S')
+    expect(bidOver(hand('95 K73 AQJ84 952'), 'P P P', 'W')).toBe('P')
+    // First seat: 10 points do not open
+    expect(bidOver(hand('AKJ94 873 Q52 94'), '')).toBe('P')
+  })
+
+  it('preempts by vulnerability, never in fourth seat', () => {
+    expect(bidOver(hand('3 KQJ8642 832 T9'), '')).toBe('3H')
+    expect(bidOver(hand('3 KQJ8642 832 T9'), 'P P P', 'W')).toBe('P')
+    expect(bidOver(hand('KQJ943 32 54 432'), 'P P P', 'W')).toBe('P')
+    expect(bidOver(hand('3 KQJ86432 83 T9'), '')).toBe('4H')
+    // Vulnerable, the suit needs an honour; never two aces
+    expect(bidOver(hand('3 JT98654 AT3 75'), '')).toBe('3H')
+    expect(bidOver(hand('3 JT98654 AT3 75'), '', 'N', 'Both')).toBe('P')
+    expect(bidOver(hand('A3 JT98654 A3 32'), '')).toBe('P')
+  })
+})
+
+describe('answers to 1♣ / 1♦ (5542)', () => {
+  it('weak jump shifts, new suits up the line, notrump by strength', () => {
+    expect(bidOver(hand('KJ9843 32 543 32'), '1C P')).toBe('2S')
+    expect(bidOver(hand('KJ98432 32 54 32'), '1C P')).toBe('3S')
+    expect(bidOver(hand('KJ98432 32 54 32'), '1D P')).toBe('2S')
+    expect(bidOver(hand('KJ32 QT43 54 Q32'), '1D P')).toBe('1H')
+    expect(bidOver(hand('K32 Q43 KJ54 Q32'), '1C P')).toBe('1D')
+    expect(bidOver(hand('K32 Q43 KJ5 Q432'), '1C P')).toBe('2N')
+    expect(bidOver(hand('K32 A43 KJ5 Q432'), '1D P')).toBe('3N')
+    expect(bidOver(hand('Q93 Q4 J54 K8432'), '1D P')).toBe('1N')
+  })
+
+  it('raises, 1♦–2♣ game forcing and 1♦–4♦', () => {
+    expect(bidOver(hand('K3 Q43 A5 KQJ432'), '1D P')).toBe('2C')
+    expect(bidOver(hand('K3 Q4 KJ543 Q432'), '1D P')).toBe('3D')
+    expect(bidOver(hand('93 Q4 KJ543 8432'), '1D P')).toBe('2D')
+    expect(bidOver(hand('3 Q4 KJ6543 8432'), '1D P')).toBe('4D')
+    expect(bidOver(hand('93 Q4 J54 KJ8432'), '1C P')).toBe('2C')
+    expect(bidOver(hand('93 A4 J54 KQ8432'), '1C P')).toBe('3C')
+    // Opener passes a weak jump shift
+    expect(bidOver(hand('AK2 KQ3 Q54 5432'), '1C P 2S P')).toBe('P')
+  })
+
+  it('has inverted minor raises as an option', () => {
+    const inverted: System = { id: 'tku', firstFit: true, books: [minorResponses('C', true)] }
+    const auction: AuctionCall[] = [
+      { seat: 'N', call: '1C' },
+      { seat: 'E', call: 'P' },
+    ]
+    expect(choose(inverted, hand('93 A4 J54 KQ8432'), 'S', auction, 'N').call).toBe('2C')
+    expect(choose(inverted, hand('93 Q4 J54 KJ8432'), 'S', auction, 'N').call).toBe('3C')
   })
 })
 
@@ -161,6 +223,9 @@ describe('after 1♥ / 1♠', () => {
     expect(bidOver(hand('32 KQ43 J54 Q432'), '1S P')).toBe('1N')
     expect(bidOver(hand('32 KQ4 AJ543 Q32'), '1S P')).toBe('2D')
     expect(bidOver(hand('KQ43 32 J54 Q432'), '1H P')).toBe('1S')
+    // 2/1 is a game force; 4♥ to play with five trumps, a singleton and a weak hand
+    expect(robotCall('tku', hand('32 KQ4 AJ543 Q32'), 'S', [{ seat: 'N', call: '1S' }, { seat: 'E', call: 'P' }], 'N', 'None').alert).toContain('迫叫成局')
+    expect(bidOver(hand('3 Q8432 K8432 32'), '1H P')).toBe('4H')
   })
 
   it('opener judges Bergen and the single raise', () => {

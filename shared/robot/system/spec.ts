@@ -58,6 +58,7 @@ export const CONVENTIONS = [
   'preempt',
   'overcall',
   'weakJumpOvercall',
+  'weakJumpShift',
   'takeout',
   'negative',
   'responsive',

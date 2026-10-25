@@ -17,6 +17,7 @@ export function notificationText(t: Strings, n: Notification): string {
     case 'matchLeft':
     case 'matchRemoved':
     case 'matchCancelled':
+    case 'boardFeatured':
       return t.notificationTexts[n.kind](name)
     case 'challengeReminder':
     case 'challengeResults':
@@ -29,8 +30,9 @@ export function notificationText(t: Strings, n: Notification): string {
 /**
  * Where a notification leads when clicked: an invitation to the challenge lobby, where it is
  * answered (`e7-t16`); the other challenge news to that challenge's page (`e7-t18`); an invitation
- * to a table to that table; team match news to the match's prep room (`e8-t06`), except being
- * taken off a seat, after which only the list of one's matches is left
+ * to a table to that table; a featured board to its record, where the explanation is shown; team
+ * match news to the match's prep room (`e8-t06`), except being taken off a seat, after which only
+ * the list of one's matches is left
  */
 export function notificationLink(n: Notification): string {
   switch (n.kind) {
@@ -56,5 +58,7 @@ export function notificationLink(n: Notification): string {
     case 'matchLeft':
     case 'matchCancelled':
       return n.params.matchId ? `/matches/${encodeURIComponent(String(n.params.matchId))}` : '/matches'
+    case 'boardFeatured':
+      return n.params.boardId ? `/history/${encodeURIComponent(String(n.params.boardId))}` : '/featured'
   }
 }
