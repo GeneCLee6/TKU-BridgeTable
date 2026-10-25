@@ -5,6 +5,7 @@ import styled, { css } from 'styled-components'
 import { HISTORY_SORTS, historyQueryString, readHistoryQuery, type HistoryQuery } from '../../shared/history-query.ts'
 import { HISTORY_PAGE_SIZES, LIMITS, type HistoryPage as Page, type PublicUser } from '../../shared/protocol.ts'
 import { resultLabel } from '../../shared/scoring.ts'
+import { FavoriteButton } from '../components/FavoriteButton.tsx'
 import { FilterChips, HistoryFilters } from '../components/HistoryFilters.tsx'
 import { ContractLabel } from '../components/Suit.tsx'
 import { Button, Card, ErrorText, Muted, PageMain, PageTitle } from '../components/ui.tsx'
@@ -311,6 +312,7 @@ export function HistoryPage() {
             <Table>
               <thead>
                 <tr>
+                  <th aria-label={t.navFavorites} />
                   <th>{t.date}</th>
                   <th>{t.board}</th>
                   <th>{t.ns}</th>
@@ -323,6 +325,9 @@ export function HistoryPage() {
               <tbody>
                 {current.boards.map((b) => (
                   <tr key={b.id} onClick={() => navigate(`/history/${b.id}`)}>
+                    <td>
+                      <FavoriteButton boardId={b.id} />
+                    </td>
                     <td>{formatDateTime(b.finishedAt, lang)}</td>
                     <td>
                       {b.mode === 'challenge' ? t.challenge : t.tableName(b.tableNumber)} #{b.boardNo}
