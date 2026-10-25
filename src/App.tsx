@@ -7,6 +7,7 @@ import { PageMain } from './components/ui.tsx'
 import { AccountPage } from './pages/AccountPage.tsx'
 import { AdminPage } from './pages/AdminPage.tsx'
 import { BoardPage } from './pages/BoardPage.tsx'
+import { ChallengeBoardPage } from './pages/ChallengeBoardPage.tsx'
 import { ChallengePage } from './pages/ChallengePage.tsx'
 import { ChallengesPage } from './pages/ChallengesPage.tsx'
 import { ComparePage } from './pages/ComparePage.tsx'
@@ -68,6 +69,7 @@ function Routed() {
         <Route path="/table/:tableId" element={<TablePage />} />
         <Route path="/challenges" element={<ChallengesPage />} />
         <Route path="/challenges/:challengeId" element={<ChallengePage />} />
+        <Route path="/challenges/:challengeId/boards/:seq" element={<ChallengeBoardPage />} />
         <Route path="/matches" element={<MatchesPage />} />
         <Route path="/matches/:matchId" element={<MatchPage />} />
         <Route path="/history" element={<HistoryPage />} />

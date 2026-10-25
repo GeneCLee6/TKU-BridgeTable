@@ -142,16 +142,19 @@ export function BoardPage() {
 }
 
 /**
- * One board's record; `embedded` drops the page frame for the table's history dialog, `after`
- * goes below the diagram and the details (the traveller)
+ * One board's record; `embedded` drops the page frame for the table's history dialog and a
+ * challenge board's page, `titled` false drops the title (the page has its own), `after` goes below
+ * the diagram and the details (the traveller)
  */
 export function BoardRecordView({
   record,
   embedded = false,
+  titled = true,
   after,
 }: {
   record: BoardRecord
   embedded?: boolean
+  titled?: boolean
   after?: ReactNode
 }) {
   const { t, lang, cardStyle, cardSize } = usePreferences()
@@ -190,9 +193,11 @@ export function BoardRecordView({
   const Frame = embedded ? EmbeddedFrame : PageMain
   return (
     <Frame>
-      <PageTitle>
-        {boardPlace(t, record)} · {t.boardNo(board.boardNo)}
-      </PageTitle>
+      {titled && (
+        <PageTitle>
+          {boardPlace(t, record)} · {t.boardNo(board.boardNo)}
+        </PageTitle>
+      )}
       <Columns>
         <div>
           <RecordDiagram
