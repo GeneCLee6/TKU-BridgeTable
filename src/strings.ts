@@ -227,6 +227,8 @@ const zh = {
   /** The robot's name (not translated) and the two systems it bids, the way a seat or a record shows it */
   robotName: 'TKB',
   robotSystems: { tku: '淡江制度', gib: '2/1' },
+  /** The system as a small tag where there is little room (the lobby's seat cells) */
+  robotSystemsShort: { tku: '淡江', gib: '2/1' },
   robots: { tku: 'TKB（淡江制度）', gib: 'TKB（2/1）' },
 
   // Table
@@ -888,6 +890,7 @@ const en: Strings = {
   youTag: ' (you)',
   robotName: 'TKB',
   robotSystems: { tku: 'TKU system', gib: '2/1' },
+  robotSystemsShort: { tku: 'TKU', gib: '2/1' },
   robots: { tku: 'TKB (TKU system)', gib: 'TKB (2/1)' },
 
   kick: 'Ask to leave the seat',
@@ -1537,6 +1540,7 @@ const zhHans: Strings = {
   youTag: '（你）',
   robotName: 'TKB',
   robotSystems: { tku: '淡江制度', gib: '2/1' },
+  robotSystemsShort: { tku: '淡江', gib: '2/1' },
   robots: { tku: 'TKB（淡江制度）', gib: 'TKB（2/1）' },
 
   kick: '请他离座',
@@ -2187,6 +2191,7 @@ const vi: Strings = {
   youTag: ' (bạn)',
   robotName: 'TKB',
   robotSystems: { tku: 'Hệ thống TKU', gib: '2/1' },
+  robotSystemsShort: { tku: 'TKU', gib: '2/1' },
   robots: { tku: 'TKB (Hệ thống TKU)', gib: 'TKB (2/1)' },
 
   kick: 'Mời rời chỗ',
@@ -2837,6 +2842,7 @@ const ja: Strings = {
   youTag: '（あなた）',
   robotName: 'TKB',
   robotSystems: { tku: '淡江システム', gib: '2/1' },
+  robotSystemsShort: { tku: '淡江', gib: '2/1' },
   robots: { tku: 'TKB（淡江システム）', gib: 'TKB（2/1）' },
 
   kick: '席を空けてもらう',
@@ -3487,6 +3493,7 @@ const ko: Strings = {
   youTag: ' (나)',
   robotName: 'TKB',
   robotSystems: { tku: 'TKU 시스템', gib: '2/1' },
+  robotSystemsShort: { tku: 'TKU', gib: '2/1' },
   robots: { tku: 'TKB (TKU 시스템)', gib: 'TKB (2/1)' },
 
   kick: '자리에서 내보내기',

@@ -1,21 +1,22 @@
-import { Eye, EyeOff, LayoutGrid, Lock, Plus, Timer, UserPlus, Zap } from 'lucide-react'
+import { Bot, Eye, EyeOff, LayoutGrid, Lock, Plus, Timer, UserPlus, Zap } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Link, Navigate, useNavigate } from 'react-router-dom'
 import styled from 'styled-components'
 import type { Seat } from '../../shared/cards.ts'
 import type { ChallengeView } from '../../shared/challenge.ts'
 import { missingSeats } from '../../shared/lobby.ts'
-import type { TableSummary } from '../../shared/protocol.ts'
+import type { SeatOccupant, TableSummary } from '../../shared/protocol.ts'
 import { api } from '../lib/api.ts'
 import { playable } from '../lib/challenges.ts'
 import { formatDateTime } from '../lib/format.ts'
 import { useAuth } from '../state/AuthContext.tsx'
+import { Avatar } from '../components/Avatar.tsx'
 import { SidePanel } from '../components/SidePanel.tsx'
 import { TableSettingsDialog } from '../components/TableSettingsDialog.tsx'
 import { Button, Card, CardFooter, Muted, PageMain, PageTitle } from '../components/ui.tsx'
 import { useClub } from '../state/ClubContext.tsx'
 import { mobile } from '../styles/tokens.ts'
-import { playerName, seatLetter } from '../strings.ts'
+import { playerName, seatLetter, type Strings } from '../strings.ts'
 import { usePreferences, useT } from '../state/PreferencesContext.tsx'
 
 /** BBO's casual lobby, reduced to what a club needs: start a table, take a seat, or watch */
@@ -82,7 +83,8 @@ const SectionHead = styled.div`
 
 const Grid = styled.div`
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  /* Wide enough for a seat cell to hold an avatar and a short name, or TKB and its system */
+  grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr));
   gap: 16px;
 `
 
@@ -112,14 +114,22 @@ const StateTag = styled.span<{ $waiting: boolean }>`
   white-space: nowrap;
 `
 
+/**
+ * The four seats around a small felt, as a compass. Every seat cell is as wide as the side columns
+ * (N and S centred over the felt) and has a fixed height: a long name is cut with an ellipsis and
+ * never makes the cell, or the card, grow; the full name is in `title`
+ */
+const FELT = 48
+const SEAT_GAP = 8
+
 const MiniTable = styled.div`
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
+  grid-template-columns: minmax(0, 1fr) ${FELT}px minmax(0, 1fr);
   grid-template-areas:
-    '. N .'
+    'N N N'
     'W felt E'
-    '. S .';
-  gap: 6px;
+    'S S S';
+  gap: ${SEAT_GAP}px;
   align-items: center;
   justify-items: center;
   margin: 12px 0 0;
@@ -127,7 +137,7 @@ const MiniTable = styled.div`
 
 const MiniFelt = styled.div`
   grid-area: felt;
-  width: 64px;
+  width: ${FELT}px;
   height: 44px;
   border-radius: 8px;
   background: ${({ theme }) => theme.table.felt};
@@ -142,24 +152,26 @@ const MiniFelt = styled.div`
 /** A taken seat is solid; an empty one a dashed "+ 坐 W" outline (green stays for the felt) */
 const SeatButton = styled.button<{ $area: Seat; $taken: boolean }>`
   grid-area: ${({ $area }) => $area};
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: ${({ $taken }) => ($taken ? 'flex-start' : 'center')};
   gap: 4px;
-  width: 100%;
-  min-height: 34px;
+  /* N and S span the row but are as wide as W and E */
+  width: ${({ $area }) => ($area === 'N' || $area === 'S' ? `calc(50% - ${FELT / 2 + SEAT_GAP}px)` : '100%')};
+  min-width: 0;
+  height: 36px;
   padding: 0 6px;
   overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
   border-radius: ${({ theme }) => theme.radius.sm};
   border: 1px ${({ $taken }) => ($taken ? 'solid' : 'dashed')}
     ${({ theme, $taken }) => ($taken ? theme.colors.border : theme.colors.borderStrong)};
   background: ${({ theme, $taken }) => ($taken ? theme.colors.surfaceAlt : theme.colors.surface)};
   color: ${({ theme, $taken }) => ($taken ? theme.colors.text : theme.colors.primary)};
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
 
+  & > svg { flex: none; }
   &:hover:not(:disabled) { background: ${({ theme }) => theme.colors.primarySoft}; }
   &:disabled { cursor: default; }
   &:disabled:not([data-taken]) { opacity: 0.45; }
@@ -168,6 +180,65 @@ const SeatButton = styled.button<{ $area: Seat; $taken: boolean }>`
     outline-offset: 2px;
   }
 `
+
+const SeatLetter = styled.span`
+  flex: none;
+  width: 12px;
+  color: ${({ theme }) => theme.colors.textMuted};
+  font-family: ${({ theme }) => theme.fonts.cards};
+  font-size: 12px;
+  font-weight: 800;
+  text-align: center;
+`
+
+/** The name gives way first: cut with an ellipsis, never wrapped */
+const SeatName = styled.span`
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+`
+
+const SystemTag = styled.span`
+  flex: none;
+  margin-left: auto;
+  padding: 0 4px;
+  border-radius: ${({ theme }) => theme.radius.sm};
+  background: ${({ theme }) => theme.colors.primarySoft};
+  color: ${({ theme }) => theme.colors.text};
+  font-size: 11px;
+  line-height: 16px;
+  font-weight: 700;
+`
+
+/** Who sits there: a robot as a robot icon, "TKB" and its system as a tag; a member as their avatar and name */
+function SeatOccupantLabel({ seat, occupant }: { seat: Seat; occupant: SeatOccupant }) {
+  const t = useT()
+  const kind = occupant.robotKind ?? 'tku'
+  return (
+    <>
+      <SeatLetter aria-hidden>{seatLetter[seat]}</SeatLetter>
+      {occupant.robot ? (
+        <>
+          <Bot size={15} aria-hidden />
+          <SeatName>{t.robotName}</SeatName>
+          <SystemTag data-system={kind}>{t.robotSystemsShort[kind]}</SystemTag>
+        </>
+      ) : (
+        <>
+          <Avatar id={occupant.id} name={occupant.username} size={20} />
+          <SeatName>{occupant.username}</SeatName>
+        </>
+      )}
+    </>
+  )
+}
+
+/** The full name, for `title` and the accessible name: "TKB（淡江制度）", and for whom a robot sits in */
+function occupantTitle(t: Strings, occupant: SeatOccupant) {
+  const name = playerName(t, occupant)
+  return occupant.substituteFor ? `${name} · ${t.substituteFor(occupant.substituteFor)}` : name
+}
 
 const Tags = styled.div`
   display: flex;
@@ -189,6 +260,13 @@ const Tag = styled.span`
   font-weight: 600;
 `
 
+/** One line, however long the host's name */
+const HostLine = styled(Muted)`
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+`
+
 const TileFooter = styled(CardFooter)`
   justify-content: space-between;
 `
@@ -201,7 +279,7 @@ const Actions = styled.div`
   gap: 8px;
 `
 
-function TableTile({ table, onSit, onWatch }: { table: TableSummary; onSit: (seat: Seat) => void; onWatch: () => void }) {
+export function TableTile({ table, onSit, onWatch }: { table: TableSummary; onSit: (seat: Seat) => void; onWatch: () => void }) {
   const t = useT()
   const missing = missingSeats(table)
   // An invite table is shown to everyone, but only the invited may sit or watch (AC-2.9)
@@ -213,7 +291,7 @@ function TableTile({ table, onSit, onWatch }: { table: TableSummary; onSit: (sea
         <h3>{t.tableName(table.number)}</h3>
         <StateTag $waiting={waiting}>{waiting ? t.waitingTag : t.boardNo(table.boardNo!)}</StateTag>
       </TileHead>
-      <Muted>{t.hostIs(table.hostName)}</Muted>
+      <HostLine title={table.hostName}>{t.hostIs(table.hostName)}</HostLine>
       {(missing > 0 || table.settings.visibility === 'invite' || !table.settings.allowKibitz || table.settings.boardMinutes > 0) && (
         <Tags>
           {missing > 0 && (
@@ -254,10 +332,11 @@ function TableTile({ table, onSit, onWatch }: { table: TableSummary; onSit: (sea
               data-taken={occupant ? '' : undefined}
               disabled={!!occupant || !table.welcome}
               onClick={() => onSit(seat)}
-              aria-label={occupant ? `${seatLetter[seat]} ${playerName(t, occupant)}` : `${t.sit} ${seatLetter[seat]}`}
+              title={occupant ? occupantTitle(t, occupant) : undefined}
+              aria-label={occupant ? `${seatLetter[seat]} ${occupantTitle(t, occupant)}` : `${t.sit} ${seatLetter[seat]}`}
             >
               {occupant ? (
-                `${seatLetter[seat]} ${playerName(t, occupant)}`
+                <SeatOccupantLabel seat={seat} occupant={occupant} />
               ) : (
                 <>
                   <Plus size={14} aria-hidden />
