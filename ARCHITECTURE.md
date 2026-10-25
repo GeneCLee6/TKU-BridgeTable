@@ -461,6 +461,12 @@ H1 把牌桌拆出去之後（§5.10），社團的物件（`Club`）仍然是**
 - **留在 `Club`**：建立前的檢查（好友、封鎖、人數）、通知（`EventObject` 呼叫 `Club` 的 RPC）、每人「我的挑戰／隊制賽」的目錄（`eventdir:`，像 `tabledir:`，列表不必叫醒每一場）、紀錄 `board:` 與索引。桌子打完一副照樣交給 `Club`，`Club` 寫好紀錄後以 outbox（`evout:<牌局 id>`）把結果（`EventReport`）交給那一場；`challenge_results` 本來就是「重複就略過」。`EventObject` 回報目錄時帶遞增的 `rev`（同 `TableEntry`）。
 - **搬移**：`meta:schema` 4→5，一場一場搬（`adopt` → 寫 `eventdir:` → 刪 `Club` 的列），失敗的下次再搬；開關 `EVENT_OBJECTS=off` 反方向搬回。結構與測試照 H1b（`tests/worker/table-objects.test.ts` 的做法：每個物件在 Node 裡是一個 host，經 structured clone）。
 - **買到什麼**：結算與比分不再佔 `Club` 的執行緒（每週挑戰截止時幾十人的結算、兩室同時打完的比分）。以 30 桌的社團來說它比 H2a 次要；J 階段（很多場比賽同時）才真的需要，所以排在 H2a 之後。
+- **為什麼沒有跟 H2a 一起做**：挑戰與隊制賽跟 `Club` 的資料纏得很深（好友與封鎖、通知、牌桌目錄與開桌、紀錄與索引的公開），拆出去之後 `EventObject` 每一步都要回頭呼叫 `Club`；正式站上有進行中的挑戰與比賽，搬移要跟 H1b 一樣可中斷、可退回。這是一個完整的 PR，不適合塞在 H2a 後面。
+- **步驟**（每一步 `tests/worker` 全過）：
+  1. **H2b-1 挑戰，同一個物件裡**（跟 H1a 一樣先不改部署）：`worker/events.ts`（`EventEntry`：id、種類、狀態、截止、參與者、`rev`；`EventApi`：`Club` → 那一場的 `create`（帶 `Club` 檢查過的快照）、`answer`、`cancel`、`result`（`EventReport`）、`detail`／`travellers`（帶觀看者）、`due`；`EventLink`：那一場 → `Club` 的 `changed(entry)`、`notify`、`closeTables`、`reveal(eventId, at)`），`worker/event-service.ts`（從 `ClubService` 搬出挑戰的流程、期限、結算、排名，自己的 `ChallengeStore`），`LocalEvents`。`Club` 只讀 `eventdir`（大廳的「我的挑戰」、`GET /api/challenges`），`boardFinished` 經 `evout:` outbox 交結果。
+  2. **H2b-2 每場一個物件**：`worker/event-object.ts`（只有接線）、`event-host.ts`（Node 可測）、`RemoteEvents`、`wrangler.jsonc` 的 `EVENT` binding（三個環境各一份）與 migration `v3`；`meta:schema` 4→5 一場一場搬、`EVENT_OBJECTS=off` 搬回；`tests/worker/event-objects.test.ts` 照 `table-objects.test.ts`（structured clone、回收後接著做、搬移失敗重試、切回去）。
+  3. **H2c 隊制賽**：`matches`、`match_seats`、`match_boards` 與 `TeamMatchService` 照同樣的方式搬；兩室的牌桌仍由 `Club` 開（它知道每個人在哪），比賽物件只發出要求；比分只在比賽物件裡用兩室都完成的副計算（§5.8 不變）。
+  4. 資訊隔離套件（`tests/worker/visibility/`）每一步都要過；`challengeTraveller`、`challengeBoardVisible` 仍在 `worker/views.ts`。
 
 ### 實作與測試（H2a，`e11-t19`、`e11-t20`）
 
