@@ -333,6 +333,9 @@ describe('「用這副牌挑戰」 (e7-t22)', () => {
     expect(await create(['nope'])).toBe('boardGone')
     expect(await create([])).toBe('badChallengeSettings')
     expect(await create([gib.id, gib.id])).toBe('badChallengeSettings')
+    // A challenge keeps to 16 boards, though a deal set may hold a team match's 32
+    expect(await create(Array.from({ length: 17 }, (_, i) => `b${i}`))).toBe('badChallengeSettings')
+    expect(await refused(amy, { type: 'createChallenge', invitees: [ben], boards: 17 })).toBe('challengeBoards')
     expect(await create([gib.id], { boards: 4 })).toBe('badChallengeSettings')
     expect(await create([gib.id], { settings: { bestHand: true } })).toBe('badChallengeSettings')
     expect(await create([gib.id], { settings: { justDeclare: true } })).toBe('badChallengeSettings')

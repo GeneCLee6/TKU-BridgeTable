@@ -32,7 +32,7 @@ export const RESULT_FILTERS = ['made', 'down', 'overtricks'] as const
 export type ResultFilter = (typeof RESULT_FILTERS)[number]
 
 /** The table modes the history page offers (`mode` takes any word, for modes still to come) */
-export const HISTORY_MODES = ['casual', 'challenge', 'practice'] as const
+export const HISTORY_MODES = ['casual', 'challenge', 'practice', 'team'] as const
 export type HistoryMode = (typeof HISTORY_MODES)[number]
 
 export const VULNERABILITIES =['None', 'NS', 'EW', 'Both'] as const satisfies readonly Vulnerability[]

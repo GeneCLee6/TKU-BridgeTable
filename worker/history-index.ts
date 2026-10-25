@@ -166,6 +166,22 @@ export function eventBoards(sql: Sql, eventId: string): Map<string, EventBoard> 
 }
 
 /**
+ * Shows some boards from `at` on (a team match board once both rooms played it, §5.8): each of
+ * them still kept back later than that is brought forward. Returns the ids changed, for their
+ * records to follow
+ */
+export function revealBoards(sql: Sql, boardIds: string[], at: number): string[] {
+  return sql.transaction(() =>
+    boardIds.filter((id) => {
+      const held = sql.exec<{ board_id: string }>('SELECT board_id FROM boards_index WHERE board_id = ? AND reveal_at > ?', id, at)
+      if (!held.length) return false
+      sql.exec('UPDATE boards_index SET reveal_at = ? WHERE board_id = ?', at, id)
+      return true
+    }),
+  )
+}
+
+/**
  * Shows an event's boards from `at` on, once it ended (§5.5): every board of it still kept back
  * later than that is brought forward. Returns the ids changed, for their records to follow
  */

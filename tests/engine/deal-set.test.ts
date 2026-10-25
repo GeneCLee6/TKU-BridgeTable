@@ -48,9 +48,13 @@ describe('deal set', () => {
     expect(set && dealSetProblem(set)).toBeNull()
   })
 
-  it('refuses a count out of range', () => {
-    for (const count of [0, 17, 2.5]) expect(makeDealSet({ kind: 'random', count }, seeded(1))).toBeNull()
-    expect(make(16).boards).toHaveLength(16)
+  it('refuses a count out of range: up to 32, as a team match may have (a challenge keeps to 16 itself)', () => {
+    for (const count of [0, 33, 2.5]) expect(makeDealSet({ kind: 'random', count }, seeded(1))).toBeNull()
+    const set = make(32)
+    expect(set.boards).toHaveLength(32)
+    expect(set.boards.map((b) => b.boardNo)).toEqual(Array.from({ length: 32 }, (_, i) => i + 1))
+    expect(dealSetProblem(set)).toBeNull()
+    expect(decodeDealSet(encodeDealSet(set))).toEqual(set)
   })
 
   it('meets a preset on every board', () => {

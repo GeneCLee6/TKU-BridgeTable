@@ -179,6 +179,11 @@ export interface TeamMatchView {
   settings: TeamMatchSettings
   captains: { A: string; B?: string }
   seats: MatchSeatView[]
+  /**
+   * The two rooms' tables while it is played (`e8-t07`): players go back to theirs, others may
+   * watch either; the tables themselves keep a player out of the other room (§4)
+   */
+  tables?: Record<Room, string>
   /** Only boards with a result: a board one room has played and the other has not is never shown */
   boards: MatchBoardView[]
   totals: Record<Team, number>

@@ -135,6 +135,8 @@ export const api = {
   matchSettings: (id: string, settings: Partial<TeamMatchSettings>) =>
     post<{ match: TeamMatchView }>(`/api/matches/${encodeURIComponent(id)}/settings`, { settings }),
   cancelMatch: (id: string) => post<{ match: TeamMatchView }>(`/api/matches/${encodeURIComponent(id)}/cancel`),
+  /** The host starts the match (`e8-t07`): both rooms open and deal board 1 */
+  startMatch: (id: string) => post<{ match: TeamMatchView | null }>(`/api/matches/${encodeURIComponent(id)}/start`),
   /**
    * A seat action (`e8-t04`, `e8-t05`): answers with the match as the member now sees it, null once
    * they may not (they declined or left)
