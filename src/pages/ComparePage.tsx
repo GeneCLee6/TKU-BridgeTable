@@ -5,6 +5,7 @@ import styled from 'styled-components'
 import { SEATS } from '../../shared/cards.ts'
 import type { BoardRecord } from '../../shared/protocol.ts'
 import { AuctionBox } from '../components/AuctionBox.tsx'
+import { DdReplayBar } from '../components/DoubleDummyReplay.tsx'
 import { RecordDiagram } from '../components/RecordDiagram.tsx'
 import { ReplayControls } from '../components/ReplayControls.tsx'
 import { ContractResult } from '../components/Suit.tsx'
@@ -12,6 +13,8 @@ import { Card, ErrorText, Muted, PageMain, PageTitle } from '../components/ui.ts
 import { api } from '../lib/api.ts'
 import { CARD_SCALE } from '../lib/cards.ts'
 import { signed } from '../lib/format.ts'
+import { canAnalyse } from '../lib/useDoubleDummy.ts'
+import { useDoubleDummyReplay } from '../lib/useDoubleDummyReplay.ts'
 import { useMediaQuery } from '../lib/useMediaQuery.ts'
 import { useTrickReplay } from '../lib/useTrickReplay.ts'
 import { usePreferences } from '../state/PreferencesContext.tsx'
@@ -112,14 +115,13 @@ export function ComparePage() {
 }
 
 function SideBySide({ records }: { records: [BoardRecord, BoardRecord] }) {
-  const { t, cardStyle, cardSize } = usePreferences()
-  const phone = useMediaQuery(mobileQuery)
-  const scale = CARD_SCALE[cardSize]
+  const { t } = usePreferences()
   // One replay for both: each side shows as many of its own cards as it has (a claim ends early)
   const total = Math.max(...records.map((r) => r.board.play.length))
   const replay = useTrickReplay(total)
-  const width = Math.round((phone ? 40 : 44) * scale)
-  const side = (seat: string) => seat === 'E' || seat === 'W'
+  // One double-dummy switch for both; each side tries out its own cards
+  const analysable = records.some((r) => canAnalyse(r.board) && !!r.board.contract)
+  const [ddOn, setDdOn] = useState(false)
 
   return (
     <>
@@ -128,33 +130,48 @@ function SideBySide({ records }: { records: [BoardRecord, BoardRecord] }) {
       </PageTitle>
       <Head>
         <Muted>{t.compareNote}</Muted>
-        {total > 0 && <ReplayControls replay={replay} total={total} />}
+        {total > 0 && <ReplayControls replay={replay} total={total} dd={analysable ? { on: ddOn, onChange: setDdOn } : undefined} />}
       </Head>
       <Pair>
-        {records.map((record, i) => {
-          const { board } = record
-          const result = board.result!
-          return (
-            <Side key={i} aria-label={playerName(t, playerOf(record))}>
-              <h2>{playerName(t, playerOf(record))}</h2>
-              <Line>
-                <ContractResult contract={board.contract} tricks={result.declarerTricks} />
-                {result.claimed && t.claimed} · NS {signed(result.scoreNS)}
-              </Line>
-              <RecordDiagram
-                record={record}
-                step={Math.min(replay.step, board.play.length)}
-                width={width}
-                trickWidth={Math.round((phone ? 34 : 40) * scale)}
-                styleFor={(seat) => (phone && side(seat) ? 'text' : cardStyle)}
-                orientationFor={(seat) => (side(seat) && !phone ? 'rows' : 'horizontal')}
-              />
-              <AuctionBox auction={board.auction} dealer={board.dealer} vul={board.vul} size={44} />
-              <Link to={`/history/${record.id}`}>{t.openBoard}</Link>
-            </Side>
-          )
-        })}
+        {records.map((record, i) => (
+          <CompareSide key={i} record={record} step={Math.min(replay.step, record.board.play.length)} playing={replay.playing} ddOn={ddOn} />
+        ))}
       </Pair>
     </>
+  )
+}
+
+function CompareSide({ record, step, playing, ddOn }: { record: BoardRecord; step: number; playing: boolean; ddOn: boolean }) {
+  const { t, cardStyle, cardSize } = usePreferences()
+  const phone = useMediaQuery(mobileQuery)
+  const scale = CARD_SCALE[cardSize]
+  const width = Math.round((phone ? 40 : 44) * scale)
+  const side = (seat: string) => seat === 'E' || seat === 'W'
+  const { board } = record
+  const result = board.result!
+  const dd = useDoubleDummyReplay(board, step, ddOn && canAnalyse(board) && !!board.contract, playing)
+
+  return (
+    <Side aria-label={playerName(t, playerOf(record))}>
+      <h2>{playerName(t, playerOf(record))}</h2>
+      <Line>
+        <ContractResult contract={board.contract} tricks={result.declarerTricks} />
+        {result.claimed && t.claimed} · NS {signed(result.scoreNS)}
+      </Line>
+      <div>
+        <RecordDiagram
+          record={record}
+          step={step}
+          width={width}
+          trickWidth={Math.round((phone ? 34 : 40) * scale)}
+          styleFor={(seat) => (phone && side(seat) ? 'text' : cardStyle)}
+          orientationFor={(seat) => (side(seat) && !phone ? 'rows' : 'horizontal')}
+          dd={dd}
+        />
+        <DdReplayBar dd={dd} />
+      </div>
+      <AuctionBox auction={board.auction} dealer={board.dealer} vul={board.vul} size={44} />
+      <Link to={`/history/${record.id}`}>{t.openBoard}</Link>
+    </Side>
   )
 }
