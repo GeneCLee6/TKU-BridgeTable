@@ -4,7 +4,7 @@ import { MATCH_SCORINGS, type MatchScoring, type Ruling, type Team, type TeamBoa
 
 /**
  * A two-table team match's states, seats and settings (docs/PRD/e8-two-table-team-match.md,
- * ARCHITECTURE.md §5.7). Storage is `worker/team-matches.ts`, the steps `worker/team-match-flow.ts`.
+ * ARCHITECTURE.md §5.8). Storage is `worker/team-matches.ts`, the steps `worker/team-match-flow.ts`.
  *
  * - `setup`: the host is gathering eight players; settings can change, the host can cancel. Being
  *   ready to start (`matchReady` in the flow) is worked out from the seats and who is online, not

@@ -5,7 +5,7 @@ import type { Ruling, RulingKind, Team, TeamBoardScores } from '../shared/team-s
 import type { Sql, SqlValue } from './store.ts'
 
 /**
- * Two-table team matches in the Durable Object's SQLite database (ARCHITECTURE.md §5.7, e8-t03).
+ * Two-table team matches in the Durable Object's SQLite database (ARCHITECTURE.md §5.8, e8-t03).
  * Like challenges these tables are where matches live, not an index: every read goes to SQL, so
  * nothing is cached and an eviction loses nothing; a change to several rows runs in a transaction.
  */
@@ -303,7 +303,7 @@ export class TeamMatchStore {
       .map((r) => r.match_id)
   }
 
-  /** The open matches a member hosts (one at a time, §5.7) */
+  /** The open matches a member hosts (one at a time, §5.8) */
   openHostedBy(userId: string): string[] {
     return this.sql
       .exec<{ match_id: string }>(`SELECT match_id FROM matches WHERE host_id = ? AND status IN ${OPEN}`, userId)

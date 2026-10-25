@@ -34,6 +34,8 @@ export interface Me extends PublicUser {
   permissions: Permission[]
   /** Admins only: registrations waiting for approval */
   applications?: number
+  /** Whether the bell says when a friend comes online (e1-t24); the server always sets it, on unless turned off */
+  friendOnlineNotice?: boolean
 }
 
 /** Where someone registered; both sites share the accounts */
@@ -247,6 +249,7 @@ export const NOTIFICATION_KINDS = [
   'challengeCancelled',
   'challengeReminder',
   'challengeResults',
+  'friendOnline',
 ] as const
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number]
 
@@ -258,7 +261,8 @@ export interface Notification {
    * `application`: { username } of the person who registered. The challenge kinds (§5.5):
    * { challengeId, username } of who invited, accepted, declined or cancelled; the reminder 12 hours
    * before the deadline and the results (`challengeReminder`, `challengeResults`) carry
-   * { challengeId } and are sent by the deadline job (`e7-t13`)
+   * { challengeId } and are sent by the deadline job (`e7-t13`). `friendOnline`: { username } of
+   * a member the viewer follows who just came online (e1-t24)
    */
   params: Record<string, string | number>
   read: boolean
@@ -273,6 +277,42 @@ export interface NotificationsView {
 /** How many notifications a member keeps, and how many the bell shows */
 export const NOTIFICATIONS_KEPT = 500
 export const NOTIFICATIONS_SHOWN = 30
+
+/**
+ * A direct message (私訊, AC-1.7) between two members. Only those two are ever sent it; ids grow
+ * with time across the whole club, so they order a conversation and page it (`before`)
+ */
+export interface DirectMessage {
+  id: number
+  from: string
+  to: string
+  text: string
+  at: number
+}
+
+/** One conversation as the viewer's list shows it: the other member, the newest message, unread count */
+export interface Conversation {
+  user: PublicUser
+  last: DirectMessage
+  unread: number
+}
+
+/** The viewer's conversations, newest first (up to DIRECT_CONVERSATIONS_SHOWN), and all their unread messages */
+export interface DirectsView {
+  conversations: Conversation[]
+  unread: number
+}
+
+/** `GET /api/messages/:userId?before=<id>`: one page of a conversation, oldest first; `more` when older ones exist */
+export interface DirectPage {
+  messages: DirectMessage[]
+  more: boolean
+}
+
+/** Messages kept per conversation, messages per page, and conversations in the list */
+export const DIRECT_KEPT = 1000
+export const DIRECT_PAGE_SIZE = 30
+export const DIRECT_CONVERSATIONS_SHOWN = 50
 
 export type ClientMessage =
   | { type: 'createTable'; settings?: Partial<TableSettings> }
@@ -308,6 +348,10 @@ export type ClientMessage =
   | { type: 'answerChallenge'; challengeId: string; accept: boolean }
   /** The creator calls a challenge off while nobody else has started */
   | { type: 'cancelChallenge'; challengeId: string }
+  /** Sends a direct message (AC-1.7): not to oneself, a robot, or between members where either blocked the other */
+  | { type: 'sendDirect'; to: string; text: string }
+  /** Marks the conversation with this member read */
+  | { type: 'readDirect'; userId: string }
 
 export type ServerMessage =
   | { type: 'welcome'; me: Me }
@@ -317,6 +361,10 @@ export type ServerMessage =
   | { type: 'error'; code: MessageCode; params: MessageParams; message: string }
   /** On connecting, and whenever the member's notifications change */
   | { type: 'notifications'; notifications: NotificationsView }
+  /** On connecting, and whenever the member's conversations or unread counts change */
+  | { type: 'directs'; directs: DirectsView }
+  /** A new direct message, sent only to its two members (all their tabs) */
+  | { type: 'direct'; message: DirectMessage }
 
 /** A finished board kept in the history */
 export interface BoardRecord {
@@ -408,6 +456,7 @@ export const LIMITS = {
   passwordMin: 6,
   applicationNoteMax: 60,
   chatMax: 300,
+  directMax: 500,
   alertMax: 200,
   maxUsersMin: 2,
   maxUsersMax: 100,

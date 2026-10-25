@@ -6,11 +6,13 @@ import type {
   Application,
   BoardRecord,
   ClubSettings,
+  DirectPage,
   HistoryPage,
   Me,
   Permission,
   RegisterResult,
 } from '../../shared/protocol.ts'
+import type { Traveller } from '../../shared/traveller.ts'
 
 /** HTTP calls to the Worker. The session lives in an HttpOnly cookie, so no token is handled here. */
 
@@ -52,6 +54,11 @@ export const api = {
     post<{ ok: true }>('/api/password/reset', { username, inviteCode, password }),
   logout: () => post<{ ok: true }>('/api/logout'),
   changePassword: (current: string, next: string) => post<{ ok: true }>('/api/account/password', { current, next }),
+  /** The account settings the server keeps (e1-t24) */
+  setAccountPreferences: (preferences: { friendOnlineNotice: boolean }) => post<{ user: Me }>('/api/account/preferences', preferences),
+  /** One page of the conversation with another member, oldest first; `before` pages back (AC-1.7) */
+  directMessages: (userId: string, before?: number) =>
+    request<DirectPage>(`/api/messages/${encodeURIComponent(userId)}${before ? `?before=${before}` : ''}`),
   /** One page of history, newest first; `page` counts from 1 */
   history: (all: boolean, page = 1, size = 20) => {
     const query = new URLSearchParams({ page: String(page), size: String(size) })
@@ -61,6 +68,8 @@ export const api = {
   /** One page of a history search (`shared/history-query.ts`) */
   searchHistory: (query: Partial<HistoryQuery>) => request<HistoryPage>(`/api/history/search?${historyQueryString(query)}`),
   record: (id: string) => request<{ record: BoardRecord }>(`/api/history/${encodeURIComponent(id)}`),
+  /** Everyone's result on the same board of its challenge, if the member may see it (e4-t32) */
+  traveller: (id: string) => request<{ traveller: Traveller | null }>(`/api/history/${encodeURIComponent(id)}/traveller`),
   /** The challenges the member is in, newest first (§5.5) */
   challenges: () => request<{ challenges: ChallengeView[] }>('/api/challenges'),
   /** One challenge as the member may see it, with the standings and travellers they are allowed */

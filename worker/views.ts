@@ -17,6 +17,7 @@ import { isOpenChallenge, type ChallengeTraveller, type ChallengeView } from '..
 import type { DealSource } from '../shared/deal-source.ts'
 import { challengeStandings, hasFinished } from './challenge-flow.ts'
 import type { Challenge } from './challenges.ts'
+import type { Traveller } from '../shared/traveller.ts'
 import type { EventBoard } from './history-index.ts'
 import { teamAt, type MatchBoardView, type TeamMatchView } from '../shared/team-match.ts'
 import { scoreTeamMatch } from '../shared/team-scoring.ts'
@@ -275,7 +276,7 @@ export function challengeView(
   return view
 }
 
-// ── Team matches (§5.7) ─────────────────────────────────────────────────────────────────────
+// ── Team matches (§5.8) ─────────────────────────────────────────────────────────────────────
 
 /**
  * A team match as one member may see it (`GET /api/matches…`, §4): the host and everyone invited
@@ -333,5 +334,47 @@ export function teamMatchView(
     boards,
     totals: score.totals,
     leader: score.leader,
+  }
+}
+
+/**
+ * The traveller of the challenge board `boardId` (`e4-t32`, §4): exactly the traveller
+ * `challengeView` gives this member for that board (those who played every board, or everyone in
+ * it once it ended), with each entry's board result in the challenge's scoring when the matrix is
+ * shown. Null when they may not see it. The opening lead and the declarer come from the records,
+ * which the caller reads (`ClubService.traveller`), so they are left empty here
+ */
+export function challengeTraveller(
+  challenge: Challenge,
+  boardId: string,
+  userId: string,
+  userById: (id: string) => PublicUser | undefined,
+  boards: (boardId: string) => EventBoard | undefined = () => undefined,
+): Traveller | null {
+  const view = challengeView(challenge, userId, userById, boards)
+  const found = view?.travellers?.find((x) => x.entries.some((e) => e.boardId === boardId))
+  if (!view || !found) return null
+  const ranked = new Map(view.standings?.ranked.map((r) => [r.userId, r.boards]) ?? [])
+  return {
+    kind: 'challenge',
+    eventId: challenge.id,
+    seq: found.seq,
+    boardNo: found.boardNo,
+    scoring: view.standings?.scoring ?? challenge.settings.scoring,
+    entries: found.entries.map((e) => {
+      const user = userById(e.userId)
+      const points = ranked.get(e.userId)?.[found.seq - 1]
+      return {
+        userId: e.userId,
+        ...(user && { user }),
+        boardId: e.boardId,
+        contract: e.contract,
+        declarer: null,
+        lead: null,
+        declarerTricks: e.declarerTricks,
+        scoreNS: e.scoreNS,
+        ...(points !== undefined && { points }),
+      }
+    }),
   }
 }

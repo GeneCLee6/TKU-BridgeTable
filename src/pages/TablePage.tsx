@@ -1047,7 +1047,7 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
         />
       )}
       <SidePanel
-        tabs={['chat', 'people', 'history']}
+        tabs={['chat', 'people', 'messages', 'history']}
         recent={table.recent}
         page="table"
         initial="chat"

@@ -1,5 +1,5 @@
-import { ArrowLeft, ChevronFirst, ChevronLast, ChevronLeft, ChevronRight, History, MessageSquare, Users, X } from 'lucide-react'
-import { useEffect, useState, type ReactNode } from 'react'
+import { ArrowLeft, ChevronFirst, ChevronLast, ChevronLeft, ChevronRight, History, Mail, MessageSquare, Users, X } from 'lucide-react'
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import styled, { css } from 'styled-components'
 import { handviewerUrl } from '../../shared/lin.ts'
@@ -13,18 +13,19 @@ import { usePreferences } from '../state/PreferencesContext.tsx'
 import { mobile } from '../styles/tokens.ts'
 import { playerName } from '../strings.ts'
 import { AuctionBox } from './AuctionBox.tsx'
+import { DirectMessages } from './DirectMessages.tsx'
 import { PeopleList } from './PeopleList.tsx'
 import { PlayedCardsSwitch, RecordDiagram } from './RecordDiagram.tsx'
 import { ContractResult } from './Suit.tsx'
 
 /**
- * BBO's right-hand dock: a narrow strip of tabs on the far right (chat, people, history). Clicking
+ * BBO's right-hand dock: a narrow strip of tabs on the far right (chat, people, messages, history). Clicking
  * a tab opens its panel beside the strip; clicking it again closes the panel, so the table gets
  * the space back. History opens a board right in the panel, so you can keep playing on the left
  * and look at an earlier board on the right. The open tab is remembered per page.
  */
 
-export type PanelTab = 'chat' | 'people' | 'history'
+export type PanelTab = 'chat' | 'people' | 'messages' | 'history'
 
 const Dock = styled.div`
   display: flex;
@@ -62,6 +63,7 @@ const RailButton = styled.button<{ $active: boolean }>`
   align-items: center;
   justify-content: center;
   gap: 4px;
+  position: relative;
   min-height: 68px;
   padding: 6px 2px;
   border: 0;
@@ -86,6 +88,19 @@ const RailButton = styled.button<{ $active: boolean }>`
     border-left: 0;
     border-top: 3px solid ${({ $active, theme }) => ($active ? theme.colors.primary : 'transparent')};
   }
+`
+
+const RailBadge = styled.span`
+  position: absolute;
+  top: 6px;
+  right: 10px;
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: ${({ theme }) => theme.radius.pill};
+  background: ${({ theme }) => theme.colors.danger};
+  color: ${({ theme }) => theme.colors.onPrimary};
+  font-size: 11px;
+  line-height: 18px;
 `
 
 const Content = styled.section<{ $wide: boolean }>`
@@ -174,13 +189,23 @@ export function SidePanel({
     return stored && tabs.includes(stored) ? stored : null
   })
   const [board, setBoard] = useState<string | null>(null)
-  const icon = { chat: MessageSquare, people: Users, history: History }
-  const label = { chat: t.tabChat, people: t.tabPeople, history: t.tabHistory }
+  const [talkTo, setTalkTo] = useState<string | null>(null)
+  const { directs } = useClub()
+  const icon = { chat: MessageSquare, people: Users, messages: Mail, history: History }
+  const label = { chat: t.tabChat, people: t.tabPeople, messages: t.tabMessages, history: t.tabHistory }
+  const unread = { messages: directs?.unread ?? 0 } as Partial<Record<PanelTab, number>>
 
   const toggle = (tab: PanelTab) => {
     const next = open === tab ? null : tab
     setOpen(next)
     writeOpen(page, next)
+  }
+
+  /** The People tab's envelope: opens that conversation in the Messages tab */
+  const message = (userId: string) => {
+    setTalkTo(userId)
+    setOpen('messages')
+    writeOpen(page, 'messages')
   }
 
   return (
@@ -195,7 +220,8 @@ export function SidePanel({
           </ContentHead>
           <Body>
             {open === 'chat' && chat}
-            {open === 'people' && <People />}
+            {open === 'people' && <People onMessage={tabs.includes('messages') ? message : undefined} />}
+            {open === 'messages' && <Messages talkTo={talkTo} onTalkTo={setTalkTo} />}
             {open === 'history' && <HistoryList recent={recent} board={board} onBoard={setBoard} newTab={page === 'table'} />}
           </Body>
         </Content>
@@ -212,9 +238,11 @@ export function SidePanel({
               $active={open === name}
               onClick={() => toggle(name)}
               title={label[name]}
+              aria-label={unread[name] ? `${label[name]} · ${t.tabUnread(unread[name])}` : undefined}
             >
               <Icon size={22} aria-hidden />
               {label[name]}
+              {!!unread[name] && <RailBadge aria-hidden>{unread[name]}</RailBadge>}
             </RailButton>
           )
         })}
@@ -225,10 +253,31 @@ export function SidePanel({
 
 // ── People ────────────────────────────────────────────────────────────────────────────────────
 
-function People() {
+function People({ onMessage }: { onMessage?: (userId: string) => void }) {
   const { lobby, send } = useClub()
   const { user } = useAuth()
-  return <PeopleList lobby={lobby} userId={user?.id} send={send} />
+  return <PeopleList lobby={lobby} userId={user?.id} send={send} onMessage={onMessage} />
+}
+
+// ── Messages ──────────────────────────────────────────────────────────────────────────────────
+
+function Messages({ talkTo, onTalkTo }: { talkTo: string | null; onTalkTo: (userId: string | null) => void }) {
+  const { lobby, directs, directLive, send } = useClub()
+  const { user } = useAuth()
+  const load = useCallback((userId: string, before?: number) => api.directMessages(userId, before), [])
+  return (
+    <DirectMessages
+      me={user?.id}
+      directs={directs}
+      live={directLive}
+      members={lobby?.members ?? []}
+      blocked={lobby?.blocked ?? []}
+      talkTo={talkTo}
+      onTalkTo={onTalkTo}
+      send={send}
+      load={load}
+    />
+  )
 }
 
 // ── History ───────────────────────────────────────────────────────────────────────────────────

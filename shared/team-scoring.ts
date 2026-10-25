@@ -1,7 +1,7 @@
 import { imps } from './imp.ts'
 
 /**
- * How a two-table team match is scored (docs/PRD/e8-two-table-team-match.md, ARCHITECTURE.md §5.7).
+ * How a two-table team match is scored (docs/PRD/e8-two-table-team-match.md, ARCHITECTURE.md §5.8).
  * Team A sits North-South in the open room and East-West in the closed room, team B the other way
  * round, so on every board team A's net score is the open room's North-South score minus the
  * closed room's: A won those points at the open table and B won the closed room's North-South

@@ -37,6 +37,8 @@ import {
   type BoardRecord,
   type ClientMessage,
   type ClubSettings,
+  type DirectPage,
+  type DirectsView,
   type HistoryPage,
   type LobbyView,
   type Me,
@@ -56,6 +58,7 @@ import type { RobotBid } from '../shared/robot/robots.ts'
 import { hashPassword, randomId, SESSION_DAYS, verifyPassword } from './auth.ts'
 import { DEFAULT_HISTORY_QUERY, type HistoryQuery } from '../shared/history-query.ts'
 import { CHALLENGE_LIMITS, isOpenChallenge, parseChallengeSettings, type ChallengeView } from '../shared/challenge.ts'
+import { openingLead, type Traveller } from '../shared/traveller.ts'
 import { dealSourceOf, makeDealSet } from '../shared/deal-set.ts'
 import {
   answer,
@@ -74,6 +77,7 @@ import { TeamMatchService } from './team-match-service.ts'
 import { TeamMatchStore } from './team-matches.ts'
 import { createHistoryIndex, eventBoards, indexRecord, revealEvent, searchBoards, unindexRecord } from './history-index.ts'
 import { challengeStateOf, modeOf, nextSeq, playedSeqs, type ChallengeTableState, type ModeContext } from './modes.ts'
+import { DirectMessageStore } from './direct-messages.ts'
 import { NotificationService } from './notifications.ts'
 import { Relations } from './relations.ts'
 import { AlarmQueue, manualScheduler, type JobKind, type Scheduler } from './scheduler.ts'
@@ -88,7 +92,10 @@ import {
   CHATS_PER_SECOND,
   CLIENT_ERROR_BURST,
   CLIENT_ERRORS_PER_SECOND,
+  DIRECT_BURST,
+  DIRECTS_PER_SECOND,
   FailureWindow,
+  FRIEND_ONLINE_QUIET_MS,
   LOGIN_FAILURES_PER_ADDRESS,
   LOGIN_FAILURES_PER_NAME,
   LOGIN_WINDOW_MS,
@@ -97,6 +104,7 @@ import {
 import {
   boardView,
   challengeBoardVisible,
+  challengeTraveller,
   challengeView,
   chatFor,
   recordVisible,
@@ -121,6 +129,8 @@ interface StoredUser {
   permissions?: Permission[]
   /** Set when the member reset a forgotten password themselves, so admins can see it */
   passwordResetAt?: number
+  /** False when the member turned off the notice that a friend came online (e1-t24) */
+  friendOnlineNotice?: boolean
 }
 
 /** A registration waiting for approval: the account it becomes once an admin approves it */
@@ -231,13 +241,18 @@ export class ClubService {
    */
   private readonly sent = new Map<
     string,
-    { lobby?: string; table?: string; chat?: string; recent?: string; notifications?: string }
+    { lobby?: string; table?: string; chat?: string; recent?: string; notifications?: string; directs?: string }
   >()
   /** The notification centre; other parts of the club call `notifications.notify` */
   readonly notifications: NotificationService
   /** Whom each member follows (好友) and whom they blocked (AC-1.6) */
   private readonly friends: Relations
   private readonly blocks: Relations
+  /** Direct messages (AC-1.7), kept in SQL (§5.7) */
+  private readonly directs: DirectMessageStore
+  /** Members with an open socket as far as this object has seen, and when each was last announced to friends (e1-t24) */
+  private readonly present = new Set<string>()
+  private readonly announced = new Map<string, number>()
   /** Challenges, kept in SQL (§5.5); created and answered here, played in later batches */
   readonly challenges: ChallengeStore
   /** Two-table team matches, kept in SQL (§5.7); set up over HTTP, played in later batches */
@@ -246,6 +261,7 @@ export class ClubService {
   /** Rate limits (AC-11.7): messages and chat lines per member, wrong passwords, browser error reports */
   private readonly actionLimit: TokenBuckets
   private readonly chatLimit: TokenBuckets
+  private readonly directLimit: TokenBuckets
   private readonly loginByName: FailureWindow
   private readonly loginByAddress: FailureWindow
   private readonly clientErrorLimit: TokenBuckets
@@ -258,6 +274,7 @@ export class ClubService {
     this.log = config.log ?? noLog
     this.actionLimit = new TokenBuckets(ACTION_BURST, ACTIONS_PER_SECOND, this.now)
     this.chatLimit = new TokenBuckets(CHAT_BURST, CHATS_PER_SECOND, this.now)
+    this.directLimit = new TokenBuckets(DIRECT_BURST, DIRECTS_PER_SECOND, this.now)
     this.loginByName = new FailureWindow(LOGIN_FAILURES_PER_NAME, LOGIN_WINDOW_MS, this.now)
     this.loginByAddress = new FailureWindow(LOGIN_FAILURES_PER_ADDRESS, LOGIN_WINDOW_MS, this.now)
     this.clientErrorLimit = new TokenBuckets(CLIENT_ERROR_BURST, CLIENT_ERRORS_PER_SECOND, this.now)
@@ -273,6 +290,7 @@ export class ClubService {
       userById: (id) => this.publicUserById(id),
       takeAction: (id) => this.actionLimit.take(id),
     })
+    this.directs = new DirectMessageStore(store.sql)
     if (config.schedule) {
       this.scheduler = manualScheduler(config.schedule)
     } else {
@@ -297,6 +315,7 @@ export class ClubService {
     createHistoryIndex(this.store.sql)
     this.challenges.createTables()
     this.matches.store.createTables()
+    this.directs.createTables()
     const schema = (await this.store.get<number>('meta:schema')) ?? 1
     if (schema < 2) await this.migrate()
     if (schema < 3) await this.backfillIndex()
@@ -498,6 +517,17 @@ export class ClubService {
     await this.setPassword(user, String(next ?? ''))
   }
 
+  /** `POST /api/account/preferences`: the member's own settings the server needs (e1-t24) */
+  async setAccountPreferences(userId: string, preferences: { friendOnlineNotice?: unknown }): Promise<Me> {
+    const user = this.requireUser(userId)
+    const { friendOnlineNotice } = preferences
+    if (typeof friendOnlineNotice !== 'boolean') throw new ClubError('unknownCommand')
+    if (friendOnlineNotice) delete user.friendOnlineNotice
+    else user.friendOnlineNotice = false
+    await this.store.put(`user:${user.id}`, user)
+    return this.me(user)
+  }
+
   /**
    * 忘記密碼: whoever knows the club's invite code can give a member account a new password by name.
    * There is no e-mail check yet, so admin accounts are left out (another admin resets them on the
@@ -536,7 +566,13 @@ export class ClubService {
   }
 
   private me(user: StoredUser): Me {
-    const me: Me = { id: user.id, username: user.username, admin: !!user.admin, permissions: this.permissionsOf(user) }
+    const me: Me = {
+      id: user.id,
+      username: user.username,
+      admin: !!user.admin,
+      permissions: this.permissionsOf(user),
+      friendOnlineNotice: user.friendOnlineNotice !== false,
+    }
     if (user.admin) me.applications = this.applications.size
     return me
   }
@@ -672,6 +708,10 @@ export class ClubService {
     await this.notifications.forget(user.id)
     await this.friends.forget(user.id)
     await this.blocks.forget(user.id)
+    this.present.delete(user.id)
+    this.announced.delete(user.id)
+    const correspondents = this.directs.forget(user.id)
+    for (const id of correspondents) this.pushDirects(id)
     // A challenge left with too few people is cancelled; one where everyone left is done finishes
     for (const id of this.challenges.forget(user.id, this.now())) await this.challengeChanged(id)
     // A match they host that has not started is cancelled; their seats are emptied (§5.7)
@@ -739,6 +779,36 @@ export class ClubService {
     return challenge && challengeBoardVisible(challenge, record.id, userId) ? record : null
   }
 
+  /**
+   * The traveller of a board (`e4-t32`, AC-4.12): everyone's result on the same board of its
+   * challenge, as the member may see it (`challengeTraveller`, §4); null for a board that belongs
+   * to no event or that they may not compare yet. The leads and declarers are read from the records
+   */
+  async traveller(id: string, userId: string): Promise<Traveller | null> {
+    if (!/^[\w-]+$/.test(id)) return null
+    const record = await this.store.get<BoardRecord>(`board:${id}`)
+    if (record?.mode !== 'challenge' || !record.eventId) return null
+    const challenge = this.challenges.get(record.eventId)
+    if (!challenge) return null
+    const boards = eventBoards(this.store.sql, challenge.id)
+    const traveller = challengeTraveller(
+      challenge,
+      id,
+      userId,
+      (other) => this.publicUserById(other),
+      (boardId) => boards.get(boardId),
+    )
+    if (!traveller) return null
+    const records = await Promise.all(traveller.entries.map((e) => this.store.get<BoardRecord>(`board:${e.boardId}`)))
+    traveller.entries.forEach((entry, i) => {
+      const board = records[i]?.board
+      if (!board) return
+      entry.lead = openingLead(board)
+      if (board.contract) entry.declarer = records[i]!.players[board.contract.declarer] ?? null
+    })
+    return traveller
+  }
+
   private async saveRecord(record: BoardRecord) {
     // The SQL index first, in one transaction: if it fails nothing is written. If a key-value
     // write fails after it, the index rows are taken back out, so a board is never half saved
@@ -775,6 +845,78 @@ export class ClubService {
     this.connections.send(userId, { type: 'welcome', me: this.me(user) })
     this.broadcast()
     void this.pushNotifications(userId)
+    this.pushDirects(userId)
+    if (!this.present.has(userId)) {
+      this.present.add(userId)
+      void this.announceOnline(userId)
+    }
+  }
+
+  /**
+   * Tells the online members who follow someone that they just came online (e1-t24), through the
+   * notification centre. Not for followers who turned it off or whom the newcomer blocked, and not
+   * again within FRIEND_ONLINE_QUIET_MS, so a phone that keeps reconnecting stays quiet
+   */
+  private async announceOnline(userId: string) {
+    const user = this.users.get(userId)
+    if (!user) return
+    const last = this.announced.get(userId)
+    if (last !== undefined && this.now() - last < FRIEND_ONLINE_QUIET_MS) return
+    this.announced.set(userId, this.now())
+    for (const followerId of this.connections.onlineUserIds()) {
+      if (followerId === userId || !this.friends.has(followerId, userId) || this.blocks.has(userId, followerId)) continue
+      if (this.users.get(followerId)?.friendOnlineNotice === false) continue
+      await this.notifications.notify(followerId, 'friendOnline', { username: user.username })
+    }
+  }
+
+  /** Sends a member their conversation list if they are online and it changed since the last send */
+  private pushDirects(userId: string) {
+    if (!this.connections.onlineUserIds().includes(userId)) return
+    const view = this.directsView(userId)
+    const json = JSON.stringify(view)
+    const sent = this.sent.get(userId) ?? {}
+    if (sent.directs === json) return
+    sent.directs = json
+    this.sent.set(userId, sent)
+    this.connections.send(userId, { type: 'directs', directs: view })
+  }
+
+  directsView(userId: string): DirectsView {
+    return {
+      conversations: this.directs.conversations(userId).flatMap(({ otherId, last, unread }) => {
+        const user = this.publicUserById(otherId)
+        return user ? [{ user, last, unread }] : []
+      }),
+      unread: this.directs.unread(userId),
+    }
+  }
+
+  /** `GET /api/messages/:userId`: a page of the member's own conversation with another member, never anyone else's */
+  directPage(userId: string, otherId: string, before?: number): DirectPage {
+    const other = this.otherMember(userId, otherId)
+    return this.directs.page(userId, other, before !== undefined && Number.isInteger(before) && before > 0 ? before : undefined)
+  }
+
+  /**
+   * Sends a direct message (AC-1.7, e1-t27): to another member (not oneself or a robot), at most
+   * LIMITS.directMax characters, and not when either has blocked the other. The sender hears
+   * `unblockToMessage`; a member blocked by the recipient only hears they cannot write to them, as with
+   * invitations. The message goes to the two members' sockets and nobody else's
+   */
+  private sendDirect(userId: string, to: unknown, text: unknown) {
+    const other = this.otherMember(userId, to)
+    const clean = String(text ?? '').trim()
+    if (!clean) return
+    if (clean.length > LIMITS.directMax) throw new ClubError('directTooLong', { max: LIMITS.directMax })
+    if (this.blocks.has(userId, other)) throw new ClubError('unblockToMessage')
+    if (this.blocks.has(other, userId)) throw new ClubError('cannotMessage', { name: this.users.get(other)!.username }, 403)
+    const message = this.directs.add(userId, other, clean, this.now())
+    for (const id of [userId, other]) {
+      if (!this.connections.onlineUserIds().includes(id)) continue
+      this.connections.send(id, { type: 'direct', message })
+      this.pushDirects(id)
+    }
   }
 
   /** Sends a member their notifications if they are online and something changed since the last send */
@@ -795,6 +937,7 @@ export class ClubService {
    */
   async disconnected(userId: string) {
     this.sent.delete(userId)
+    this.present.delete(userId)
     const table = this.tableOf(userId)
     if (table && table.spectators.includes(userId)) {
       table.spectators = table.spectators.filter((id) => id !== userId)
@@ -818,6 +961,8 @@ export class ClubService {
     const { message } = parsed
     if (!this.actionLimit.take(userId)) return this.reject(userId, 'slowDown', message.type)
     if (message.type === 'chat' && !this.chatLimit.take(userId)) return this.reject(userId, 'chatTooFast', message.type)
+    if (message.type === 'sendDirect' && !this.directLimit.take(userId))
+      return this.reject(userId, 'directTooFast', message.type)
     try {
       await this.handle(userId, message)
     } catch (error) {
@@ -899,6 +1044,11 @@ export class ClubService {
         return this.setFriend(userId, message.userId, message.friend)
       case 'setBlocked':
         return this.setBlocked(userId, message.userId, message.blocked)
+      case 'sendDirect':
+        return this.sendDirect(userId, message.to, message.text)
+      case 'readDirect':
+        if (this.directs.markRead(userId, this.otherMember(userId, message.userId))) this.pushDirects(userId)
+        return
       case 'createChallenge':
         return this.createChallenge(userId, message.invitees, message.boards, message.settings)
       case 'answerChallenge':

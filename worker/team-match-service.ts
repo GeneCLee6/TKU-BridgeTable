@@ -6,7 +6,7 @@ import { TeamMatchStore, type TeamMatch } from './team-matches.ts'
 import { teamMatchView } from './views.ts'
 
 /**
- * Team matches over HTTP (ARCHITECTURE.md §5.7, e8-t03): creating one, changing its settings and
+ * Team matches over HTTP (ARCHITECTURE.md §5.8, e8-t03): creating one, changing its settings and
  * cancelling it before it starts, and reading them back as each member may see them. It is kept
  * out of `ClubService`, which only builds it and hands it what it needs from the club: the clock,
  * ids, who members are and the per-member rate limit. Like `ClubService` it never touches a

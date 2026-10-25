@@ -220,6 +220,16 @@ export class Club extends DurableObject<Env> implements Connections {
       await this.service.changePassword(user.id, text(b.current), text(b.next))
       return json({ ok: true })
     }
+    if (route === 'POST /api/account/preferences') {
+      const b = await body()
+      return json({ user: await this.service.setAccountPreferences(user.id, { friendOnlineNotice: b.friendOnlineNotice }) })
+    }
+    // A page of the member's own conversation with another member (AC-1.7); new messages come over the socket
+    const conversation = url.pathname.match(/^\/api\/messages\/([\w-]+)$/)
+    if (request.method === 'GET' && conversation) {
+      const before = url.searchParams.get('before')
+      return json(this.service.directPage(user.id, conversation[1], before === null ? undefined : Number(before)))
+    }
     if (route === 'GET /api/history') {
       const query = url.searchParams
       const all = query.get('scope') === 'all'
@@ -232,6 +242,9 @@ export class Club extends DurableObject<Env> implements Connections {
       if (!found) throw new ClubError('boardGone', {}, 404)
       return json({ record: found })
     }
+    // A board's traveller (e4-t32): null when it has none the member may see
+    const traveller = url.pathname.match(/^\/api\/history\/([\w-]+)\/traveller$/)
+    if (request.method === 'GET' && traveller) return json({ traveller: await this.service.traveller(traveller[1], user.id) })
     if (route === 'GET /api/challenges') return json({ challenges: this.service.challengeList(user.id) })
     // The challenge pages create, answer and cancel over HTTP to hear back at once (e7-t16, e7-t17)
     if (route === 'POST /api/challenges') {

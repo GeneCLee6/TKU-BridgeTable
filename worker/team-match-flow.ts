@@ -9,7 +9,7 @@ import {
 import type { TeamMatch } from './team-matches.ts'
 
 /**
- * The steps of a team match before it starts (ARCHITECTURE.md §5.7, e8-t03), as pure functions:
+ * The steps of a team match before it starts (ARCHITECTURE.md §5.8, e8-t03), as pure functions:
  * `TeamMatchService` checks who is asking, calls these, and writes what they return. Inviting,
  * captains and starting are later batches (F3, F4).
  */
