@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import type { Me, RegisterResult } from '../../shared/protocol.ts'
 import { api } from '../lib/api.ts'
+import { resetFavorites } from '../lib/favorites.ts'
 
 /** The signed-in member. `undefined` while the session is being checked, `null` when signed out. */
 interface Auth {
@@ -33,6 +34,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = useCallback(async (username: string, password: string) => {
     setUser((await api.login(username, password)).user)
+    resetFavorites()
   }, [])
 
   const register = useCallback(async (username: string, password: string, inviteCode: string, note: string) => {
@@ -43,6 +45,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(async () => {
     await api.logout().catch(() => undefined)
+    resetFavorites()
     setUser(null)
   }, [])
 

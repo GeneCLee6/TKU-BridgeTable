@@ -44,6 +44,23 @@ const SCHEMA = [
     PRIMARY KEY (board_id, seat)
   ) WITHOUT ROWID`,
   'CREATE INDEX IF NOT EXISTS players_by_user ON board_players (user_id, board_id)',
+  // Favorites (AC-4.4, `worker/favorites.ts`): one row per member and board, the tags again one
+  // row each so searches can filter by them
+  `CREATE TABLE IF NOT EXISTS favorites (
+    user_id TEXT NOT NULL,
+    board_id TEXT NOT NULL,
+    note TEXT NOT NULL,
+    tags TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, board_id)
+  ) WITHOUT ROWID`,
+  `CREATE TABLE IF NOT EXISTS favorite_tags (
+    user_id TEXT NOT NULL,
+    tag TEXT NOT NULL COLLATE NOCASE,
+    board_id TEXT NOT NULL,
+    PRIMARY KEY (user_id, tag, board_id)
+  ) WITHOUT ROWID`,
 ]
 
 /** Creates the tables and indexes if they are missing; safe to run on every load */
@@ -218,14 +235,22 @@ const ORDER: Record<HistorySort, string> = {
  * fixed pieces of SQL are joined into the text. Boards still kept back (`reveal_at` in the future)
  * are left out unless the member asking played them, whatever the search (AC-4.9)
  */
-function where(query: HistoryQuery, viewer: string, now: number): [string, SqlValue[]] {
+function where(query: HistoryQuery, viewer: string, now: number, favorites: boolean): [string, SqlValue[]] {
   const parts: string[] = [`(b.reveal_at IS NULL OR b.reveal_at <= ? OR ${SEATED('v')})`]
   const params: SqlValue[] = [now, viewer]
   const add = (part: string, ...values: SqlValue[]) => {
     parts.push(part)
     params.push(...values)
   }
-  if (query.scope === 'mine') add(SEATED('m'), viewer)
+  if (favorites)
+    add('EXISTS (SELECT 1 FROM favorites f WHERE f.user_id = ? AND f.board_id = b.board_id)', viewer)
+  else if (query.scope === 'mine') add(SEATED('m'), viewer)
+  if (query.tag)
+    add(
+      'EXISTS (SELECT 1 FROM favorite_tags ft WHERE ft.user_id = ? AND ft.tag = ? AND ft.board_id = b.board_id)',
+      viewer,
+      query.tag,
+    )
   if (query.level !== undefined) add('b.level = ?', query.level)
   if (query.strain) add('b.strain = ?', query.strain)
   if (query.doubled === 'undoubled') add('b.level IS NOT NULL AND b.doubled = 0')
@@ -275,15 +300,17 @@ function where(query: HistoryQuery, viewer: string, now: number): [string, SqlVa
 
 /**
  * One page of a search: the board ids in order, how many boards match, and the page shown (a page
- * past the end shows the last one)
+ * past the end shows the last one). With `favorites`, only the viewer's favorites, whoever played
+ * them (`scope` is then ignored); boards kept back stay out all the same
  */
 export function searchBoards(
   sql: Sql,
   query: HistoryQuery,
   viewer: string,
   now: number,
+  favorites = false,
 ): { ids: string[]; total: number; page: number } {
-  const [condition, params] = where(query, viewer, now)
+  const [condition, params] = where(query, viewer, now, favorites)
   const total = sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM boards_index b WHERE ${condition}`, ...params)[0].n
   const page = Math.min(query.page, Math.max(1, Math.ceil(total / query.size)))
   const rows = sql.exec<{ board_id: string }>(

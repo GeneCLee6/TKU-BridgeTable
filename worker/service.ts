@@ -41,6 +41,9 @@ import {
   type ClubSettings,
   type DirectPage,
   type DirectsView,
+  type Favorite,
+  type FavoritesPage,
+  type FavoriteTag,
   type HistoryPage,
   type LobbyView,
   type Me,
@@ -59,6 +62,7 @@ import {
 import { ruleBrain, type RobotBrain } from '../shared/robot/brain.ts'
 import type { RobotBid } from '../shared/robot/robots.ts'
 import { hashPassword, randomId, SESSION_DAYS, verifyPassword } from './auth.ts'
+import { checkFavorite } from '../shared/favorites.ts'
 import { DEFAULT_HISTORY_QUERY, type HistoryQuery } from '../shared/history-query.ts'
 import {
   CHALLENGE_LIMITS,
@@ -89,6 +93,16 @@ import { TeamMatchStore } from './team-matches.ts'
 import { createHistoryIndex, eventBoards, indexRecord, revealEvent, searchBoards, unindexRecord } from './history-index.ts'
 import { challengeStateOf, modeOf, nextSeq, playedSeqs, type ChallengeTableState, type ModeContext } from './modes.ts'
 import { DirectMessageStore } from './direct-messages.ts'
+import {
+  countFavorites,
+  favoriteIds,
+  favoritesAmong,
+  favoriteTags,
+  getFavorite,
+  removeFavorite,
+  removeFavoritesOf,
+  saveFavorite,
+} from './favorites.ts'
 import { NotificationService } from './notifications.ts'
 import { Relations } from './relations.ts'
 import { AlarmQueue, manualScheduler, type JobKind, type Scheduler } from './scheduler.ts'
@@ -743,6 +757,7 @@ export class ClubService {
     await this.notifications.forget(user.id)
     await this.friends.forget(user.id)
     await this.blocks.forget(user.id)
+    removeFavoritesOf(this.store.sql, user.id)
     this.present.delete(user.id)
     this.announced.delete(user.id)
     const correspondents = this.directs.forget(user.id)
@@ -799,6 +814,62 @@ export class ClubService {
       page: found.page,
       size: query.size,
     }
+  }
+
+  // ── Favorites (AC-4.4) ──────────────────────────────────────────────────────────────────────
+
+  /**
+   * A board a member may keep: one they may see in every list (`recordVisible`). A challenge or
+   * match board not revealed yet can be kept only by its own players, as the lists show it; the
+   * same error as a missing board, so asking tells nothing about it
+   */
+  private async favoritable(boardId: string, userId: string): Promise<BoardRecord> {
+    const record = /^[\w-]+$/.test(boardId) ? await this.store.get<BoardRecord>(`board:${boardId}`) : undefined
+    if (!record || !recordVisible(record, userId, this.now())) throw new ClubError('boardGone', {}, 404)
+    return record
+  }
+
+  /** One page of the member's favorites, filtered as history is (and by `tag`), with their notes and tags */
+  async favorites(userId: string, query: HistoryQuery): Promise<FavoritesPage> {
+    const found = searchBoards(this.store.sql, query, userId, this.now(), true)
+    const records = await Promise.all(found.ids.map((id) => this.store.get<BoardRecord>(`board:${id}`)))
+    const boards = records.flatMap((record) => (record ? [summarize(record)] : []))
+    const kept = favoritesAmong(this.store.sql, userId, boards.map((b) => b.id))
+    return {
+      boards,
+      total: found.total,
+      page: found.page,
+      size: query.size,
+      favorites: boards.flatMap((b) => kept.get(b.id) ?? []),
+      tags: favoriteTags(this.store.sql, userId),
+    }
+  }
+
+  /** Every board the member keeps, for the star buttons */
+  favoriteIds(userId: string): string[] {
+    return favoriteIds(this.store.sql, userId)
+  }
+
+  /** The member's favorite of one board (null if not kept) and their tags, for editing */
+  async favorite(userId: string, boardId: string): Promise<{ favorite: Favorite | null; tags: FavoriteTag[] }> {
+    await this.favoritable(boardId, userId)
+    return { favorite: getFavorite(this.store.sql, userId, boardId), tags: favoriteTags(this.store.sql, userId) }
+  }
+
+  /** Keeps a board, or changes the note and tags of one kept; what is left out stays as it was */
+  async saveFavorite(userId: string, boardId: string, change: { note?: unknown; tags?: unknown }): Promise<Favorite> {
+    await this.favoritable(boardId, userId)
+    const sql = this.store.sql
+    const before = getFavorite(sql, userId, boardId)
+    if (!before && countFavorites(sql, userId) >= LIMITS.favoritesMax)
+      throw new ClubError('favoritesFull', { max: LIMITS.favoritesMax })
+    const { note, tags } = checkFavorite(change.note ?? before?.note ?? '', change.tags ?? before?.tags ?? [])
+    return saveFavorite(sql, userId, boardId, note, tags, this.now())
+  }
+
+  /** Stops keeping a board; nothing happens if it was not kept */
+  removeFavorite(userId: string, boardId: string) {
+    removeFavorite(this.store.sql, userId, boardId)
   }
 
   /**

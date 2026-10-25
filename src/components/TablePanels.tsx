@@ -4,6 +4,7 @@ import type { BoardView } from '../../shared/protocol.ts'
 import { signed } from '../lib/format.ts'
 import { useT } from '../state/PreferencesContext.tsx'
 import { seatLetter } from '../strings.ts'
+import { FavoriteButton } from './FavoriteButton.tsx'
 import { ContractResult } from './Suit.tsx'
 
 /** Panels in the middle of the felt: claim and undo prompts, the result */
@@ -135,9 +136,12 @@ export function ResultPanel({ board, declarerName, seconds }: { board: BoardView
       <Score $positive={result.scoreNS >= 0}>NS {signed(result.scoreNS)}</Score>
       {seconds !== null && <Countdown seconds={seconds} />}
       {board.recordId && (
-        <SmallLink to={`/history/${board.recordId}`} target="_blank" rel="noopener">
-          {t.viewRecord}
-        </SmallLink>
+        <div>
+          <FavoriteButton boardId={board.recordId} onFelt />
+          <SmallLink to={`/history/${board.recordId}`} target="_blank" rel="noopener">
+            {t.viewRecord}
+          </SmallLink>
+        </div>
       )}
     </FeltPanel>
   )
