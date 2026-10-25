@@ -233,6 +233,7 @@ describe('the two rooms (e8-t08) and what nobody may see of the other (e8-t09)',
     expect(await refused(ben, { type: 'sit', tableId: open, seat: 'N' })).toBe('matchOtherRoom')
     expect(await refused(ben, { type: 'createTable' })).toBe('inMatch')
     expect(await refused(ben, { type: 'quickSeat' })).toBe('inMatch')
+    expect(await refused(ben, { type: 'createPractice', settings: {} } as unknown as ClientMessage)).toBe('inMatch')
     // The table checks it again on its own, whatever the club let through
     await expect(club.localTable(open)!.join({ id: ben, username: 'ben', blocked: [] })).rejects.toMatchObject({ code: 'matchOtherRoom' })
     await expect(club.localTable(open)!.sit({ id: bea, username: 'bea', blocked: [] }, 'N')).rejects.toMatchObject({

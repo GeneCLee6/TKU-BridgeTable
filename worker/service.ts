@@ -2083,6 +2083,7 @@ export class ClubService {
     const { settings } = parsed
     const conditions = practiceConditions(settings)
     if (conditions && !dealWith(conditions, quickRandom(this.random), PRACTICE_MAX_ATTEMPTS).ok) throw new ClubError('dealTooStrict')
+    this.checkNotInMatch(userId)
     await this.leave(userId)
     const kind = settings.robotKind
     const state: PracticeTableState = { ...settings, dealt: 0 }
