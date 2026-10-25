@@ -169,7 +169,7 @@ const tableSend = (userId: string, tableId: string, message: ClientMessage | str
 
 /** The table as the browser holds it, from every `table` message on either connection */
 function tableOf(userId: string): TableView | null {
-  let view: TableView | null = null
+  let view = null as TableView | null
   for (const m of inbox.get(userId) ?? []) {
     if (m.type !== 'table') continue
     const wire = m.table
@@ -177,7 +177,7 @@ function tableOf(userId: string): TableView | null {
       view = null
       continue
     }
-    const keep = view?.id === wire.id ? view : null
+    const keep: TableView | null = view?.id === wire.id ? view : null
     view = { ...wire, chat: wire.chat ?? keep?.chat ?? [], recent: wire.recent ?? keep?.recent ?? [] }
   }
   return view

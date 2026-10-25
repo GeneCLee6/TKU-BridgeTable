@@ -263,11 +263,9 @@ export class TableHost implements TableRpc {
       await this.service!.act(userId, message)
       log({ event: 'action', type: message.type, user: userId, ms: config.now() - started })
     } catch (error) {
-      if (!(error instanceof AppError)) {
-        log(crashEntry(message.type, error))
-        error = new ClubError('serverError', {}, 500)
-      }
-      const failure = error as AppError
+      // A bug is logged and answered as `serverError`
+      if (!(error instanceof AppError)) log(crashEntry(message.type, error))
+      const failure = error instanceof AppError ? error : new ClubError('serverError', {}, 500)
       log({ event: 'action', type: message.type, user: userId, ms: config.now() - started, code: failure.code })
       sockets.send(userId, { type: 'error', code: failure.code, params: failure.params, message: failure.message })
     } finally {
