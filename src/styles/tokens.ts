@@ -2,8 +2,8 @@
  * Design tokens. Every colour in the app comes from here (DESIGN.md §2 explains each one).
  * Components read them through the styled-components theme, never as raw hex values.
  *
- * The chrome (header, lobby, history) follows the light/dark theme and the TKU palette shared
- * with TKU BridgeBook. The table itself follows BBO: green felt, white cards, the bidding box
+ * The chrome (header, lobby, history, forms) follows the light/dark theme: navy, off-white and a
+ * single lantern-gold accent (DESIGN.md §2.1), shared with TKU BridgeBook. The table itself follows BBO: green felt, white cards, the bidding box
  * colours and red name plates for the vulnerable side. Those stay the same in both themes.
  */
 
@@ -12,41 +12,80 @@ export type DeckColors = 'two' | 'four'
 
 const palette = {
   light: {
-    bg: '#f4f6fa',
-    surface: '#ffffff',
-    surfaceAlt: '#eef2f8',
-    border: '#d5dce8',
-    text: '#1a2233',
-    textMuted: '#4f5a70',
-    primary: '#0f3d7a',
-    primaryStrong: '#0a2b57',
-    primarySoft: '#e3ecf8',
-    onPrimary: '#ffffff',
-    lantern: '#d9a330',
+    /** Off-white page background */
+    bg: '#f6f3ec',
+    /** Cards, inputs */
+    surface: '#fffdf9',
+    /** Table heads, card footers, disabled inputs, skeletons */
+    surfaceAlt: '#efeae0',
+    /** Card edges and dividers (decorative) */
+    border: '#e2dbcd',
+    /** Input and secondary-button outlines: 3:1 on surface */
+    borderStrong: '#9c9282',
+    text: '#1b2333',
+    textMuted: '#5a6170',
+    /** Navy: primary buttons, links */
+    primary: '#1c2e4f',
+    /** The primary button on hover */
+    primaryHover: '#26406b',
+    /** @deprecated Headings use `text`; the primary button's hover uses `primaryHover`. Kept for older components. */
+    primaryStrong: '#1c2e4f',
+    primarySoft: '#e6eaf1',
+    onPrimary: '#fdfaf3',
+    /** The page header: navy with off-white text */
+    header: '#16243f',
+    onHeader: '#f3efe6',
+    headerMuted: '#aab4c8',
+    /** A hovered link or icon in the header */
+    headerHover: 'rgba(243, 239, 230, 0.1)',
+    /** ♥♦ in the header's tagline, readable on navy */
+    headerSuitRed: '#ff8f80',
+    /** Lantern gold: rules, the selected tab's underline, badge backgrounds. Not a text colour on light. */
+    accent: '#c9972e',
+    /** Gold when it has to be text (badge labels) */
+    accentStrong: '#8a6414',
+    accentSoft: '#f6ebd2',
+    /** @deprecated Same as `accent` */
+    lantern: '#c9972e',
     vermilion: '#b8321f',
-    focus: '#2f6fd6',
+    focus: '#3b6fd1',
     danger: '#b3261e',
-    dangerSoft: '#fdeceb',
-    success: '#1b7a33',
+    dangerSoft: '#fbeceb',
+    /** Text on a solid danger button */
+    onDanger: '#ffffff',
+    success: '#1f7a3d',
+    successSoft: '#e6f2e9',
     overlay: 'rgba(10, 20, 40, 0.45)',
   },
   dark: {
-    bg: '#0d1320',
-    surface: '#151d2c',
-    surfaceAlt: '#1c2637',
-    border: '#2c3850',
-    text: '#e6ebf3',
-    textMuted: '#a3afc4',
-    primary: '#8db8ff',
-    primaryStrong: '#b5d0ff',
-    primarySoft: '#1b2c4a',
-    onPrimary: '#0d1320',
-    lantern: '#e7b850',
+    bg: '#0e1420',
+    surface: '#161e2d',
+    surfaceAlt: '#1d2738',
+    border: '#2d3a50',
+    borderStrong: '#627089',
+    text: '#ece7dc',
+    textMuted: '#a6afbf',
+    primary: '#a9c0e6',
+    primaryHover: '#c3d4f0',
+    primaryStrong: '#ece7dc',
+    primarySoft: '#1f2d45',
+    onPrimary: '#0e1420',
+    header: '#0a101b',
+    onHeader: '#ece7dc',
+    headerMuted: '#8f9ab0',
+    headerHover: 'rgba(236, 231, 220, 0.08)',
+    headerSuitRed: '#ff8f80',
+    accent: '#e0b255',
+    accentStrong: '#e0b255',
+    accentSoft: '#3a2f17',
+    lantern: '#e0b255',
     vermilion: '#ff8a70',
     focus: '#8db8ff',
     danger: '#ff8a80',
     dangerSoft: '#3b1d1d',
-    success: '#5fd27a',
+    onDanger: '#0e1420',
+    success: '#6fd18a',
+    successSoft: '#17301f',
     overlay: 'rgba(0, 0, 0, 0.6)',
   },
 } as const
@@ -120,8 +159,22 @@ export const layout = {
   mobileBreakpoint: '900px',
 }
 
-/** 4px spacing scale: space(2) === '8px' */
+/** 4px spacing scale: space(2) === '8px'. The chrome uses 1, 2, 3, 4, 6, 8 and 12. */
 export const space = (n: number) => `${n * 4}px`
+
+/** The chrome's type scale (DESIGN.md §3): components use only these */
+export const type = {
+  title: { size: '24px', line: '32px', weight: 700 },
+  h2: { size: '18px', line: '26px', weight: 700 },
+  h3: { size: '16px', line: '24px', weight: 700 },
+  body: { size: '15px', line: '24px', weight: 400 },
+  small: { size: '13px', line: '20px', weight: 400 },
+  caption: { size: '12px', line: '16px', weight: 600 },
+} as const
+
+/** Heights shared by buttons and inputs, so a field and its button line up */
+export const controlHeight = { sm: '32px', md: '40px', lg: '48px' } as const
+export type ControlSize = keyof typeof controlHeight
 
 export function createTheme(mode: ThemeMode, deck: DeckColors) {
   return {
@@ -133,11 +186,20 @@ export function createTheme(mode: ThemeMode, deck: DeckColors) {
     fonts,
     layout,
     space,
-    radius: { sm: '6px', md: '10px', lg: '14px', pill: '999px' },
+    type,
+    controlHeight,
+    /** sm: buttons, inputs · md: menus, toasts · lg: cards · pill: count badges only */
+    radius: { sm: '6px', md: '8px', lg: '12px', pill: '999px' },
+    /** Cards: one faint layer */
     shadow:
       mode === 'light'
-        ? '0 1px 2px rgba(15, 40, 80, 0.06), 0 2px 8px rgba(15, 40, 80, 0.06)'
+        ? '0 1px 2px rgba(27, 35, 51, 0.05), 0 2px 6px rgba(27, 35, 51, 0.04)'
         : '0 1px 2px rgba(0, 0, 0, 0.4)',
+    /** Floating layers: menus, toasts, dialogs */
+    shadowRaised:
+      mode === 'light'
+        ? '0 4px 12px rgba(27, 35, 51, 0.12), 0 12px 32px rgba(27, 35, 51, 0.1)'
+        : '0 4px 12px rgba(0, 0, 0, 0.5), 0 12px 32px rgba(0, 0, 0, 0.4)',
     cardShadow: '0 1px 3px rgba(0, 0, 0, 0.35)',
   }
 }
