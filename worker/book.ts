@@ -45,6 +45,12 @@ export interface PendingNoteRef {
   text: string
 }
 
+/** The handbook's ConventionKind and Level (TKU-BridgeBook src/types/convention.ts) */
+export type ConventionKind = 'system' | 'convention' | 'signal' | 'defense'
+export type ConventionLevel = 'basic' | 'intermediate' | 'advanced'
+const KINDS: readonly string[] = ['system', 'convention', 'signal', 'defense']
+const LEVELS: readonly string[] = ['basic', 'intermediate', 'advanced']
+
 /** Everything about a convention except its content: the Convention fields minus `sections` */
 export interface ConventionMeta {
   slug: string
@@ -52,6 +58,13 @@ export interface ConventionMeta {
   nameEn: string
   aliases?: string[]
   category: string
+  /** The handbook's Convention.kind; absent means 'convention' */
+  kind?: ConventionKind
+  level?: ConventionLevel
+  /** Slugs of the conventions to read first */
+  prerequisites?: string[]
+  /** Convention card slots (handbook E3) */
+  cardSlots?: string[]
   tags: string[]
   summary: string
   source: { title: string; note?: string }
@@ -126,6 +139,7 @@ const isObject = (value: unknown): value is Record<string, unknown> =>
 const isString = (value: unknown): value is string => typeof value === 'string'
 const isOptionalString = (value: unknown) => value === undefined || isString(value)
 const isStrings = (value: unknown) => Array.isArray(value) && value.every(isString)
+const isOptionalLevel = (value: unknown) => value === undefined || LEVELS.includes(value as string)
 
 export const isSlug = (value: unknown): value is string => isString(value) && value.length <= 60 && SLUG.test(value)
 
@@ -140,6 +154,10 @@ export function checkConvention(value: unknown, slug: string): Record<string, un
   if (!String(value.nameZh).trim()) fail('缺少中文名稱')
   if (!isStrings(value.tags)) fail('標籤（tags）要是文字清單')
   if (value.aliases !== undefined && !isStrings(value.aliases)) fail('別名（aliases）要是文字清單')
+  if (value.kind !== undefined && !KINDS.includes(value.kind as string)) fail('種類（kind）不存在')
+  if (!isOptionalLevel(value.level)) fail('程度（level）不存在')
+  if (value.prerequisites !== undefined && !isStrings(value.prerequisites)) fail('前置特約（prerequisites）要是文字清單')
+  if (value.cardSlots !== undefined && !isStrings(value.cardSlots)) fail('制度卡位置（cardSlots）要是文字清單')
   if (!isObject(value.source) || !isString(value.source.title) || !isOptionalString(value.source.note))
     fail('缺少來源（source.title）')
   if (!Array.isArray(value.sections)) fail('缺少段落（sections）')
@@ -183,6 +201,7 @@ export function checkConvention(value: unknown, slug: string): Record<string, un
     if (ids.has(s.id)) fail(`段落 id 重複：${s.id}`)
     ids.add(s.id)
     for (const key of ['originalTitle', 'summary', 'pending']) if (!isOptionalString(s[key])) fail(`段落的 ${key} 要是文字`)
+    if (!isOptionalLevel(s.level)) fail('段落的程度（level）不存在')
     if (s.blocks !== undefined) {
       if (!Array.isArray(s.blocks)) fail('段落的內容要是清單')
       for (const b of s.blocks as unknown[]) block(b)

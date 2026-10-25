@@ -126,7 +126,12 @@ describe('content edited online', () => {
     for (let i = 8; i > 0; i--) deep = { id: `d${i}`, title: 'deep', children: [deep] }
     await expect(save(convention('lebensohl', { sections: [deep] }))).rejects.toThrow('層數太多')
     await expect(save(convention('lebensohl', { summary: 'x'.repeat(BOOK_LIMITS.conventionMax) }))).rejects.toThrow('內容太大')
+    await expect(save(convention('lebensohl', { kind: 'gadget' }))).rejects.toThrow('種類（kind）不存在')
+    await expect(save(convention('lebensohl', { level: 'expert' }))).rejects.toThrow('程度（level）不存在')
+    await expect(save(convention('lebensohl', { prerequisites: 'jacoby-2nt' }))).rejects.toThrow('前置特約')
+    await expect(save(convention('lebensohl', { sections: [{ id: 'a', title: 'A', level: 'hard' }] }))).rejects.toThrow('段落的程度')
     expect(checkConvention(convention(), 'lebensohl')).toBeTruthy()
+    expect(checkConvention(convention('lebensohl', { kind: 'defense', level: 'basic', prerequisites: ['jacoby-2nt'], cardSlots: [] }), 'lebensohl')).toBeTruthy()
     expect(await book.revisions('lebensohl')).toEqual([])
   })
 })
@@ -135,6 +140,9 @@ describe('content edited online', () => {
 function pendingConvention() {
   return convention('lebensohl', {
     aliases: ['Lebensohl 2NT'],
+    kind: 'convention',
+    level: 'intermediate',
+    prerequisites: ['notrump-responses'],
     sections: [
       {
         id: 'a',
@@ -175,6 +183,9 @@ describe('reading the handbook one convention at a time', () => {
       nameEn: 'Lebensohl',
       aliases: ['Lebensohl 2NT'],
       category: 'competitive',
+      kind: 'convention',
+      level: 'intermediate',
+      prerequisites: ['notrump-responses'],
       tags: ['2NT'],
       summary: '敵方插叫後的 2NT 接力。',
       source: { title: 'Lebensohl' },
