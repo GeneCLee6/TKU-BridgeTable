@@ -430,6 +430,10 @@ export const NOTIFICATION_KINDS = [
   'matchAbandoned',
   'matchSubIn',
   'boardFeatured',
+  'pairInvited',
+  'pairAccepted',
+  'pairDeclined',
+  'pairEnded',
 ] as const
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number]
 
@@ -452,7 +456,9 @@ export interface Notification {
    * member off a seat or called the match off; `matchStarted` { matchId, username } of the host who
    * started it, `matchFinished` { matchId } when both rooms played every board (`e8-t07`, `e8-t11`);
    * `matchAbandoned` { matchId, username } of the host who stopped it, `matchSubIn` { matchId,
-   * username } of who put the member in a seat as a substitute (替補, `e8-t16`)
+   * username } of who put the member in a seat as a substitute (替補, `e8-t16`). The partnership
+   * kinds (TKU BridgeBook E2, `e2-t03`): { pairId, username } of who invited the member to be
+   * partners, accepted, declined or cancelled the invitation, or ended the partnership
    */
   params: Record<string, string | number>
   read: boolean
@@ -884,3 +890,66 @@ export interface ProfileRevision {
 
 /** What an editor sends to create or save a profile; the Worker sets the id, version and who saved it */
 export type ProfileInput = Pick<SystemProfile, 'name' | 'scope' | 'parentId' | 'adopted' | 'overrides' | 'notes'>
+
+// Teams and partnerships (隊伍與搭檔, TKU BridgeBook E2 e2-t01)
+//
+// Each team and each active partnership owns a system profile (above): a team's inherits the
+// club's, a partnership's its team's or the club's. The handbook mirrors these types in
+// TKU-BridgeBook src/lib/api.ts; change them together. The table's team matches (E8) may use the
+// same teams later (`Team` there is a match's side, A or B), so the shape of ClubTeam stays put until then.
+// ---------------------------------------------------------------------------------------------
+
+/** Most members a team may have (its captain included); most partnerships, pending or active, one member may be in */
+export const TEAM_LIMITS = { membersMax: 8, pairsMax: 10, nameMax: 40 } as const
+
+export interface ClubTeam {
+  id: string
+  name: string
+  /** A member of the team; manages it with the editors */
+  captainId: string
+  /** User ids, the captain's among them, in the order they joined */
+  memberIds: string[]
+  /** The team's system profile, made with the team */
+  profileId: string
+  createdAt: number
+  /** Archived teams keep their members and profile but are left off the lists by the handbook */
+  archived?: boolean
+}
+
+export const PAIR_STATUSES = ['pending', 'active', 'ended'] as const
+export type PairStatus = (typeof PAIR_STATUSES)[number]
+
+export interface Partnership {
+  id: string
+  /** [who invited, who was invited] */
+  userIds: [string, string]
+  /** The team the two play for, when they do; both are its members */
+  teamId?: string
+  /** The partnership's system profile, made when the invitation is accepted: '' while pending */
+  profileId: string
+  createdAt: number
+  status: PairStatus
+  /** When the invitation was accepted, and when the partnership ended */
+  acceptedAt?: number
+  endedAt?: number
+}
+
+/** POST /api/club/teams: the captain is added to the members when left out */
+export interface TeamInput {
+  name: string
+  captainId: string
+  memberIds?: string[]
+}
+
+/** PATCH /api/club/teams/:id: whichever fields are present */
+export interface TeamPatch {
+  name?: string
+  captainId?: string
+  archived?: boolean
+}
+
+/** POST /api/club/pairs: invite `partnerId`, optionally as partners in a team both belong to */
+export interface PairInvite {
+  partnerId: string
+  teamId?: string
+}

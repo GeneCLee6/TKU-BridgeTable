@@ -6,17 +6,18 @@ import { MESSAGE_MAX_CHARS } from '../shared/message-guard.ts'
 import type { BoardRecord, Me, ServerMessage } from '../shared/protocol.ts'
 import { TKU } from '../shared/robot/system/tku/index.ts'
 import { bookSync } from '../shared/robot/system/tku/sources.ts'
-import { readCookie, SESSION_COOKIE, sessionCookie } from './auth.ts'
+import { randomId, readCookie, SESSION_COOKIE, sessionCookie } from './auth.ts'
 import { backupAdmin, runBackup } from './backup.ts'
 import { BookService, importRequestFrom, publicBookResponse } from './book.ts'
 import { claudeImporter } from './importer.ts'
 import { anonymousProfileResponse, ProfileService } from './profiles.ts'
-import { adminRouteNeed, bookRouteNeed, requireNeed } from './roles.ts'
+import { adminRouteNeed, bookRouteNeed, clubRouteNeed, requireNeed } from './roles.ts'
 import { CLIENT_ERROR_MAX_CHARS } from './client-errors.ts'
 import { crashEntry, jsonLog } from './log.ts'
 import { type ChallengeRequest, ClubError, ClubService, type Connections } from './service.ts'
 import type { EventReport } from './modes.ts'
 import type { Store } from './store.ts'
+import { TeamService } from './teams.ts'
 import type { TableObject } from './table-object.ts'
 import { RemoteTables, type TableEntry, type TableRpc } from './tables.ts'
 import type { MatchAction, MatchPlayAction } from './team-match-service.ts'
@@ -67,6 +68,8 @@ export class Club extends DurableObject<Env> implements Connections {
   /** Replaced after a backup is restored, so nothing they cached survives */
   private book: BookService
   private profiles: ProfileService
+  /** TKU BridgeBook's teams and partnerships (E2); keeps nothing in memory, so it outlives a restore */
+  private readonly teams: TeamService
   private readonly store: Store
 
   constructor(ctx: DurableObjectState, env: Env) {
@@ -96,6 +99,13 @@ export class Club extends DurableObject<Env> implements Connections {
     })
     this.book = new BookService(store)
     this.profiles = new ProfileService(store, Date.now, (id) => this.service.usernameOf(id))
+    this.teams = new TeamService(store, {
+      now: Date.now,
+      newId: () => randomId(6),
+      usernameOf: (id) => this.service.usernameOf(id),
+      notify: (id, kind, params) => this.service.notifications.notify(id, kind, params),
+      profiles: () => this.profiles,
+    })
     // Browsers send "ping" every few seconds to keep phone connections alive and to notice a dead
     // one quickly; the runtime answers without waking the object
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair('ping', 'pong'))
@@ -281,6 +291,7 @@ export class Club extends DurableObject<Env> implements Connections {
     }
     if (route === 'GET /api/me') return json({ user })
     if (url.pathname.startsWith('/api/book/')) return this.bookApi(request, url, user, body)
+    if (url.pathname.startsWith('/api/club/')) return this.clubApi(request, url, user, body)
     if (route === 'POST /api/account/password') {
       const b = await body()
       await this.service.changePassword(user.id, text(b.current), text(b.next))
@@ -474,6 +485,47 @@ export class Club extends DurableObject<Env> implements Connections {
     if (method === 'DELETE' && table) {
       await this.service.adminCloseTable(table[1])
       return json({ ok: true })
+    }
+    throw new ClubError('noSuchApi', {}, 404)
+  }
+
+  /** TKU BridgeBook's teams and partnerships (E2). Who may use each route is in roles.ts */
+  private async clubApi(request: Request, url: URL, user: Me, body: () => Promise<Body>) {
+    const path = url.pathname.slice('/api/club'.length)
+    const method = request.method
+    const need = clubRouteNeed(method, path)
+    if (!need) throw new ClubError('noSuchApi', {}, 404)
+    requireNeed(user, need)
+
+    if (path === '/teams') {
+      if (method === 'GET') return json({ teams: await this.teams.teams() })
+      return json({ team: await this.teams.createTeam(user, await body()) })
+    }
+    const member = path.match(/^\/teams\/([\w-]+)\/members(?:\/([\w-]+))?$/)
+    if (member) {
+      const [, teamId, userId] = member
+      if (userId) return json({ team: await this.teams.removeMember(user, teamId, userId) })
+      return json({ team: await this.teams.addMember(user, teamId, await body()) })
+    }
+    const team = path.match(/^\/teams\/([\w-]+)$/)
+    if (team) {
+      if (method === 'GET') return json(await this.teams.team(team[1]))
+      return json({ team: await this.teams.updateTeam(user, team[1], await body()) })
+    }
+    if (path === '/pairs') {
+      if (method === 'GET') return json({ pairs: await this.teams.pairsOf(user.id) })
+      return json({ pair: await this.teams.invite(user, await body()) })
+    }
+    const pair = path.match(/^\/pairs\/([\w-]+)(?:\/(accept|decline|end))?$/)
+    if (pair) {
+      const [, pairId, action] = pair
+      if (action === 'accept') return json({ pair: await this.teams.accept(user, pairId) })
+      if (action === 'decline') {
+        await this.teams.decline(user, pairId)
+        return json({ ok: true })
+      }
+      if (action === 'end') return json({ pair: await this.teams.end(user, pairId) })
+      return json({ pair: await this.teams.pair(pairId) })
     }
     throw new ClubError('noSuchApi', {}, 404)
   }
