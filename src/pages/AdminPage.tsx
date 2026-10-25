@@ -1,7 +1,15 @@
-import { MoreHorizontal, Search } from 'lucide-react'
+import { MoreHorizontal, Pencil, Search } from 'lucide-react'
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react'
 import styled, { css } from 'styled-components'
-import { LIMITS, PERMISSIONS, type AdminUser, type Application, type ClubSettings, type Permission } from '../../shared/protocol.ts'
+import {
+  LIMITS,
+  PERMISSIONS,
+  type AdminUser,
+  type Application,
+  type ClubSettings,
+  type MemberChange,
+  type Permission,
+} from '../../shared/protocol.ts'
 import type { BookSyncRow } from '../../shared/robot/system/tku/sources.ts'
 import { PasswordInput } from '../components/PasswordInput.tsx'
 import { useToast } from '../components/Toast.tsx'
@@ -33,8 +41,10 @@ import { mobile } from '../styles/tokens.ts'
  * approval, settings (account limit, invite code), members (TKU BridgeBook permissions, reset
  * password, admin role, delete), adding a member directly, closing stuck tables, and the 淡江橋館
  * articles edited online since the robot's rules were checked against them (e5-t45). A section nav
- * on the left (a dropdown on a phone), one card per section; saving shows a toast, and an error
- * the server ties to a field shows under that field. Only admins reach it. The accounts are shared
+ * on the left (a dropdown on a phone), one card per section. Everything opens read-only; the
+ * settings and the members' roles and permissions change only after 「編輯」, and 「儲存」 sends the
+ * section's changes in one request (DESIGN.md §7.9). Saving shows a toast, and an error the
+ * server ties to a field shows under that field. Only admins reach it. The accounts are shared
  * with TKU BridgeBook, which has the same approvals and permissions on its own admin page.
  */
 
@@ -47,6 +57,30 @@ type FieldKey = 'maxUsers' | 'inviteCode' | 'username' | 'password' | 'reset'
 
 type Pending = { id: string; action: 'password' | 'delete' | 'reject' | 'close' } | null
 
+/** A member's role and permissions, as the members section edits them */
+type Role = { admin: boolean; permissions: Permission[] }
+
+const samePermissions = (a: Permission[], b: Permission[]) => PERMISSIONS.every((p) => a.includes(p) === b.includes(p))
+
+/**
+ * What saving the members section sends: the members whose draft differs from the server's. A
+ * member made admin sends only that; anyone left a member sends their permissions too when the role
+ * changed, so taking away the admin role leaves exactly the permissions ticked on screen.
+ */
+function changesOf(users: AdminUser[], draft: Record<string, Role>): MemberChange[] {
+  const changes: MemberChange[] = []
+  for (const u of users) {
+    const next = draft[u.id]
+    if (!next) continue
+    const change: MemberChange = { id: u.id }
+    if (next.admin !== u.admin) change.admin = next.admin
+    if (!next.admin && (next.admin !== u.admin || !samePermissions(next.permissions, u.permissions)))
+      change.permissions = PERMISSIONS.filter((p) => next.permissions.includes(p))
+    if (Object.keys(change).length > 1) changes.push(change)
+  }
+  return changes
+}
+
 export function AdminPage() {
   const { t, lang, message } = usePreferences()
   const { user: me, refresh } = useAuth()
@@ -56,7 +90,9 @@ export function AdminPage() {
   const [users, setUsers] = useState<AdminUser[] | null>(null)
   const [applications, setApplications] = useState<Application[]>([])
   const [settings, setSettings] = useState<ClubSettings | null>(null)
-  const [draft, setDraft] = useState({ maxUsers: '', inviteCode: '' })
+  // Sections open for editing, each with its draft; nothing is sent until 「儲存」
+  const [draft, setDraft] = useState<{ maxUsers: string; inviteCode: string } | null>(null)
+  const [memberDraft, setMemberDraft] = useState<Record<string, Role> | null>(null)
   const [loadError, setLoadError] = useState('')
   const [errors, setErrors] = useState<Partial<Record<FieldKey, string>>>({})
   const [busy, setBusy] = useState<string | null>(null)
@@ -79,7 +115,6 @@ export function AdminPage() {
           setUsers(users)
           setSettings(settings)
           setApplications(applications)
-          setDraft({ maxUsers: String(settings.maxUsers), inviteCode: settings.inviteCode })
           setLoadError('')
           // The header shows how many applications are waiting
           void refresh()
@@ -104,7 +139,10 @@ export function AdminPage() {
     }
   }, [])
 
-  /** Runs one admin action: a toast when it worked; an error under its field, or an error toast */
+  /**
+   * Runs one admin action: a toast when it worked, then the page reads everything again from the
+   * server; an error under its field, or an error toast. Says whether it worked.
+   */
   const run = async (key: string, work: () => Promise<unknown>, fields: Partial<Record<string, FieldKey>> = {}) => {
     setErrors({})
     setBusy(key)
@@ -114,22 +152,68 @@ export function AdminPage() {
       setPending(null)
       setNewPassword('')
       await reload()
+      return true
     } catch (e) {
       const field = e instanceof ApiError ? fields[e.code] : undefined
       if (field) setErrors({ [field]: text(e) })
       else toast.error(text(e))
+      return false
     } finally {
       setBusy(null)
     }
   }
 
-  const saveSettings = (e: FormEvent) => {
+  // What the open sections would change (DESIGN.md §7.9): the settings, and one entry per member
+  const settingsDirty =
+    !!draft && !!settings && (draft.maxUsers !== String(settings.maxUsers) || draft.inviteCode !== settings.inviteCode)
+  const memberChanges = memberDraft && users ? changesOf(users, memberDraft) : []
+  const dirty = settingsDirty || memberChanges.length > 0
+
+  // Leaving the page with unsaved edits asks first: closing or reloading the tab, and links in the app
+  useEffect(() => {
+    if (!dirty) return
+    const onUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault()
+      e.returnValue = ''
+    }
+    // Capture phase, before React Router's link handler, which skips a click already prevented
+    const onClick = (e: MouseEvent) => {
+      if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
+      const link = (e.target as Element | null)?.closest?.('a[href]') as HTMLAnchorElement | null
+      if (!link || link.target === '_blank') return
+      const to = new URL(link.href, window.location.href)
+      if (to.origin === window.location.origin && to.pathname === window.location.pathname) return
+      if (window.confirm(t.adminLeaveConfirm)) return
+      e.preventDefault()
+      e.stopPropagation()
+    }
+    window.addEventListener('beforeunload', onUnload)
+    document.addEventListener('click', onClick, true)
+    return () => {
+      window.removeEventListener('beforeunload', onUnload)
+      document.removeEventListener('click', onClick, true)
+    }
+  }, [dirty, t])
+
+  const editSettings = () => {
+    if (!settings) return
+    setErrors({})
+    setDraft({ maxUsers: String(settings.maxUsers), inviteCode: settings.inviteCode })
+  }
+  const cancelSettings = () => {
+    setErrors({})
+    setDraft(null)
+  }
+  const saveSettings = async (e: FormEvent) => {
     e.preventDefault()
-    void run(
+    if (!draft) return
+    if (!settingsDirty) return cancelSettings()
+    const ok = await run(
       'settings',
       () => api.admin.saveSettings({ maxUsers: Number(draft.maxUsers), inviteCode: draft.inviteCode }),
       { badCap: 'maxUsers' },
     )
+    if (ok) setDraft(null)
   }
 
   const permissionLabel: Record<Permission, string> = {
@@ -137,13 +221,24 @@ export function AdminPage() {
     bookImport: t.permissionBookImport,
     boardCurate: t.permissionBoardCurate,
   }
-  const togglePermission = (u: AdminUser, permission: Permission, on: boolean) =>
-    void run(`perm-${u.id}`, () =>
-      api.admin.setPermissions(
-        u.id,
-        PERMISSIONS.filter((p) => (p === permission ? on : u.permissions.includes(p))),
-      ),
-    )
+  const editMembers = () => {
+    if (!users) return
+    setMemberDraft(Object.fromEntries(users.map((u) => [u.id, { admin: u.admin, permissions: u.permissions }])))
+  }
+  const cancelMembers = () => setMemberDraft(null)
+  const setRole = (u: AdminUser, change: Partial<Role>) =>
+    setMemberDraft((all) => {
+      const was = all?.[u.id] ?? { admin: u.admin, permissions: u.permissions }
+      return { ...all, [u.id]: { ...was, ...change } }
+    })
+  const togglePermission = (u: AdminUser, permission: Permission, on: boolean) => {
+    const was = memberDraft?.[u.id]?.permissions ?? u.permissions
+    setRole(u, { permissions: PERMISSIONS.filter((p) => (p === permission ? on : was.includes(p))) })
+  }
+  const saveMembers = async () => {
+    if (!memberChanges.length) return cancelMembers()
+    if (await run('members', () => api.admin.updateMembers(memberChanges))) setMemberDraft(null)
+  }
 
   const addMember = (e: FormEvent) => {
     e.preventDefault()
@@ -223,7 +318,13 @@ export function AdminPage() {
   const words = { today: t.timeToday, yesterday: t.timeYesterday }
   const relative = (at: number) => formatRelative(at, lang, words)
   const shown = query.trim() ? users.filter((u) => u.username.toLowerCase().includes(query.trim().toLowerCase())) : users
-  const dirty = draft.maxUsers !== String(settings.maxUsers) || draft.inviteCode !== settings.inviteCode
+  const changed = new Set(memberChanges.map((c) => c.id))
+  const unsaved = (
+    <Unsaved>
+      <Dot aria-hidden />
+      {t.adminUnsaved}
+    </Unsaved>
+  )
   const fieldIds = (field: FieldKey, hint: boolean) => ({
     id: `${id}-${field}`,
     'aria-invalid': errors[field] ? true : undefined,
@@ -349,65 +450,96 @@ export function AdminPage() {
             )}
           </Section>
 
-          <Section id={anchor('settings')} aria-labelledby={`${id}-h-settings`}>
+          <Section id={anchor('settings')} aria-labelledby={`${id}-h-settings`} $editing={!!draft}>
             <CardHeader>
               <CardTitle id={`${id}-h-settings`}>{t.settingsTitle}</CardTitle>
+              {!draft && (
+                <Button type="button" $size="sm" aria-label={t.adminEditSection(t.settingsTitle)} onClick={editSettings}>
+                  <Pencil size={14} aria-hidden />
+                  {t.adminEdit}
+                </Button>
+              )}
             </CardHeader>
-            <form onSubmit={saveSettings} aria-label={t.settingsTitle}>
+            {!draft ? (
               <FormGrid>
                 <GridRow>
-                  <FieldLabel htmlFor={`${id}-maxUsers`}>{t.maxUsers}</FieldLabel>
+                  <FieldLabel as="span" id={`${id}-maxUsers-label`}>
+                    {t.maxUsers}
+                  </FieldLabel>
                   <Control>
-                    <Input
-                      {...fieldIds('maxUsers', true)}
-                      type="number"
-                      inputMode="numeric"
-                      min={LIMITS.maxUsersMin}
-                      max={LIMITS.maxUsersMax}
-                      value={draft.maxUsers}
-                      onChange={(e) => setDraft({ ...draft, maxUsers: e.target.value })}
-                    />
-                    {below('maxUsers', t.maxUsersHint(users.length, LIMITS.maxUsersMin, LIMITS.maxUsersMax))}
+                    <ReadValue aria-labelledby={`${id}-maxUsers-label`}>{settings.maxUsers}</ReadValue>
+                    <FieldHint>{t.maxUsersHint(users.length, LIMITS.maxUsersMin, LIMITS.maxUsersMax)}</FieldHint>
                   </Control>
                 </GridRow>
                 <GridRow>
-                  <FieldLabel htmlFor={`${id}-inviteCode`}>{t.inviteCode}</FieldLabel>
+                  <FieldLabel as="span" id={`${id}-inviteCode-label`}>
+                    {t.inviteCode}
+                  </FieldLabel>
                   <Control>
-                    <Input
-                      {...fieldIds('inviteCode', true)}
-                      value={draft.inviteCode}
-                      autoComplete="off"
-                      onChange={(e) => setDraft({ ...draft, inviteCode: e.target.value })}
-                    />
-                    {below('inviteCode', t.inviteCodeHint)}
+                    <ReadValue aria-labelledby={`${id}-inviteCode-label`}>
+                      {settings.inviteCode || <Muted as="span">{t.adminNoInviteCode}</Muted>}
+                    </ReadValue>
                   </Control>
                 </GridRow>
               </FormGrid>
-              <CardFooter>
-                <Button
-                  type="button"
-                  $variant="ghost"
-                  disabled={!dirty}
-                  onClick={() => {
-                    setErrors({})
-                    setDraft({ maxUsers: String(settings.maxUsers), inviteCode: settings.inviteCode })
-                  }}
-                >
-                  {t.adminRevert}
-                </Button>
-                <Button type="submit" $variant="primary" $busy={busy === 'settings'}>
-                  {t.save}
-                </Button>
-              </CardFooter>
-            </form>
+            ) : (
+              <form onSubmit={(e) => void saveSettings(e)} aria-label={t.settingsTitle}>
+                <FormGrid>
+                  <GridRow>
+                    <FieldLabel htmlFor={`${id}-maxUsers`}>{t.maxUsers}</FieldLabel>
+                    <Control>
+                      <Input
+                        {...fieldIds('maxUsers', true)}
+                        type="number"
+                        inputMode="numeric"
+                        autoFocus
+                        min={LIMITS.maxUsersMin}
+                        max={LIMITS.maxUsersMax}
+                        value={draft.maxUsers}
+                        onChange={(e) => setDraft({ ...draft, maxUsers: e.target.value })}
+                      />
+                      {below('maxUsers', t.maxUsersHint(users.length, LIMITS.maxUsersMin, LIMITS.maxUsersMax))}
+                    </Control>
+                  </GridRow>
+                  <GridRow>
+                    <FieldLabel htmlFor={`${id}-inviteCode`}>{t.inviteCode}</FieldLabel>
+                    <Control>
+                      <Input
+                        {...fieldIds('inviteCode', true)}
+                        value={draft.inviteCode}
+                        autoComplete="off"
+                        onChange={(e) => setDraft({ ...draft, inviteCode: e.target.value })}
+                      />
+                      {below('inviteCode', t.inviteCodeHint)}
+                    </Control>
+                  </GridRow>
+                </FormGrid>
+                <CardFooter>
+                  {settingsDirty && unsaved}
+                  <Button type="button" onClick={cancelSettings} disabled={busy === 'settings'}>
+                    {t.cancel}
+                  </Button>
+                  <Button type="submit" $variant="primary" $busy={busy === 'settings'}>
+                    {busy === 'settings' ? t.saving : t.save}
+                  </Button>
+                </CardFooter>
+              </form>
+            )}
           </Section>
 
-          <Section id={anchor('members')} aria-labelledby={`${id}-h-members`}>
+          <Section id={anchor('members')} aria-labelledby={`${id}-h-members`} $editing={!!memberDraft}>
             <CardHeader>
               <TitleRow>
                 <CardTitle id={`${id}-h-members`}>{t.membersTitle}</CardTitle>
                 <Muted>{t.memberCount(users.length, settings.maxUsers)}</Muted>
               </TitleRow>
+              <HeaderTools>
+              {!memberDraft && (
+                <Button type="button" $size="sm" aria-label={t.adminEditSection(t.membersTitle)} onClick={editMembers}>
+                  <Pencil size={14} aria-hidden />
+                  {t.adminEdit}
+                </Button>
+              )}
               <SearchBox>
                 <Search size={16} aria-hidden />
                 <Input
@@ -419,6 +551,7 @@ export function AdminPage() {
                   aria-label={t.adminSearchMembers}
                 />
               </SearchBox>
+              </HeaderTools>
             </CardHeader>
             {!shown.length ? (
               <Empty>{t.adminNoMatch}</Empty>
@@ -439,38 +572,65 @@ export function AdminPage() {
                     {shown.map((u) => {
                       const self = u.id === me?.id
                       const editing = pending?.id === u.id ? pending.action : null
+                      const role = memberDraft?.[u.id] ?? { admin: u.admin, permissions: u.permissions }
                       return (
-                        <tr key={u.id}>
+                        <tr key={u.id} data-changed={changed.has(u.id) || undefined}>
                           <td>
                             <Name>
                               {u.username}
                               {u.online && <Online role="img" aria-label={t.online} />}
                             </Name>
-                            <Sub>
-                              {u.passwordResetAt
-                                ? t.selfReset(relative(u.passwordResetAt))
-                                : t.adminJoinedOn(formatDate(u.createdAt, lang))}
-                            </Sub>
-                          </td>
-                          <td>
-                            <Badge $on={u.admin}>{u.admin ? t.admin : t.member}</Badge>
-                          </td>
-                          <td>
-                            {u.admin ? (
-                              <Sub as="span">{t.adminAllPermissions}</Sub>
+                            {changed.has(u.id) ? (
+                              <Changed>{t.adminChanged}</Changed>
                             ) : (
+                              <Sub>
+                                {u.passwordResetAt
+                                  ? t.selfReset(relative(u.passwordResetAt))
+                                  : t.adminJoinedOn(formatDate(u.createdAt, lang))}
+                              </Sub>
+                            )}
+                          </td>
+                          <td>
+                            {memberDraft ? (
+                              <RoleSelect
+                                $size="sm"
+                                value={role.admin ? 'admin' : 'member'}
+                                // Nobody takes away their own admin role
+                                disabled={self || busy === 'members'}
+                                onChange={(e) => setRole(u, { admin: e.target.value === 'admin' })}
+                                aria-label={t.adminRoleOf(u.username)}
+                              >
+                                <option value="member">{t.member}</option>
+                                <option value="admin">{t.admin}</option>
+                              </RoleSelect>
+                            ) : (
+                              <Badge $on={u.admin}>{u.admin ? t.admin : t.member}</Badge>
+                            )}
+                          </td>
+                          <td>
+                            {role.admin ? (
+                              <Sub as="span">{t.adminAllPermissions}</Sub>
+                            ) : memberDraft ? (
                               PERMISSIONS.map((permission) => (
                                 <Check key={permission}>
                                   <input
                                     type="checkbox"
-                                    checked={u.permissions.includes(permission)}
-                                    disabled={busy === `perm-${u.id}`}
+                                    checked={role.permissions.includes(permission)}
+                                    disabled={busy === 'members'}
                                     onChange={(e) => togglePermission(u, permission, e.target.checked)}
                                     aria-label={`${u.username}：${permissionLabel[permission]}`}
                                   />
                                   {permissionLabel[permission]}
                                 </Check>
                               ))
+                            ) : u.permissions.length ? (
+                              <PermissionList>
+                                {u.permissions.map((p) => (
+                                  <span key={p}>{permissionLabel[p]}</span>
+                                ))}
+                              </PermissionList>
+                            ) : (
+                              <Sub as="span">{t.adminNoPermissions}</Sub>
                             )}
                           </td>
                           <td className="time">{u.lastLoginAt ? relative(u.lastLoginAt) : t.never}</td>
@@ -533,29 +693,18 @@ export function AdminPage() {
                                 </Button>
                                 <RowMenu label={t.adminMoreActions(u.username)} disabled={self}>
                                   {(close) => (
-                                    <>
-                                      <MenuItem
-                                        type="button"
-                                        role="menuitem"
-                                        onClick={() => {
-                                          close()
-                                          void run(`admin-${u.id}`, () => api.admin.setAdmin(u.id, !u.admin))
-                                        }}
-                                      >
-                                        {u.admin ? t.removeAdmin : t.makeAdmin}
-                                      </MenuItem>
-                                      <MenuItem
-                                        type="button"
-                                        role="menuitem"
-                                        $danger
-                                        onClick={() => {
-                                          close()
-                                          editPending({ id: u.id, action: 'delete' })
-                                        }}
-                                      >
-                                        {t.adminDeleteMember}
-                                      </MenuItem>
-                                    </>
+                                    // The role is edited with the permissions (「編輯」); deleting is not an edit
+                                    <MenuItem
+                                      type="button"
+                                      role="menuitem"
+                                      $danger
+                                      onClick={() => {
+                                        close()
+                                        editPending({ id: u.id, action: 'delete' })
+                                      }}
+                                    >
+                                      {t.adminDeleteMember}
+                                    </MenuItem>
                                   )}
                                 </RowMenu>
                               </Actions>
@@ -567,6 +716,17 @@ export function AdminPage() {
                   </tbody>
                 </Table>
               </Flush>
+            )}
+            {memberDraft && (
+              <CardFooter>
+                {memberChanges.length > 0 && unsaved}
+                <Button type="button" onClick={cancelMembers} disabled={busy === 'members'}>
+                  {t.cancel}
+                </Button>
+                <Button type="button" $variant="primary" $busy={busy === 'members'} onClick={() => void saveMembers()}>
+                  {busy === 'members' ? t.saving : t.save}
+                </Button>
+              </CardFooter>
             )}
           </Section>
 
@@ -884,8 +1044,15 @@ const Stack = styled.div`
   gap: ${({ theme }) => theme.space(5)};
 `
 
-const Section = styled(Card)`
+/** A section card; while it is being edited its frame turns primary, so it is clear what 「儲存」 covers */
+const Section = styled(Card)<{ $editing?: boolean }>`
   scroll-margin-top: calc(${({ theme }) => theme.layout.headerHeight} + ${({ theme }) => theme.space(4)});
+  ${({ $editing, theme }) =>
+    $editing &&
+    css`
+      border-color: ${theme.colors.primary};
+      box-shadow: 0 0 0 1px ${theme.colors.primary}, ${theme.shadow};
+    `}
 
   ${mobile} {
     /* Below the sticky section dropdown */
@@ -933,6 +1100,9 @@ const Table = styled.table`
   }
   tbody tr:last-child td {
     border-bottom: 0;
+  }
+  tbody tr[data-changed] td {
+    background: ${({ theme }) => theme.colors.accentSoft};
   }
   .num {
     text-align: right;
@@ -1026,18 +1196,72 @@ const GridRow = styled.div`
   column-gap: ${({ theme }) => theme.space(6)};
   align-items: start;
 
-  & > label {
-    /* Level with the first line of a 40px input */
+  & > :first-child {
+    /* Level with the first line of a 40px input (or a value shown read-only) */
     padding-top: 10px;
   }
 
   ${mobile} {
     grid-template-columns: minmax(0, 1fr);
     row-gap: 6px;
-    & > label {
+    & > :first-child {
       padding-top: 0;
     }
   }
+`
+
+/** A setting shown read-only: as tall as an input, so 「編輯」 doesn't move the rows */
+const ReadValue = styled.div`
+  display: flex;
+  align-items: center;
+  min-height: 40px;
+  color: ${({ theme }) => theme.colors.text};
+  font-size: 15px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+`
+
+/** 「有尚未儲存的變更」 at the left of an editing section's footer */
+const Unsaved = styled.span`
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: auto;
+  color: ${({ theme }) => theme.colors.accentStrong};
+  font-size: ${({ theme }) => theme.type.small.size};
+  font-weight: 600;
+`
+
+const Dot = styled.span`
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: ${({ theme }) => theme.colors.accent};
+`
+
+/** 「已修改」 under a member's name while their row has unsaved changes */
+const Changed = styled(Sub)`
+  color: ${({ theme }) => theme.colors.accentStrong};
+  font-weight: 600;
+`
+
+const RoleSelect = styled(Select)`
+  width: auto;
+  min-width: 96px;
+`
+
+const PermissionList = styled.span`
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  white-space: nowrap;
+`
+
+const HeaderTools = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: ${({ theme }) => theme.space(2)};
 `
 
 const Control = styled.div`

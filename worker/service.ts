@@ -28,6 +28,7 @@ import {
   type LiveMatch,
   type LobbyView,
   type Me,
+  type MemberChange,
   type MemberStatus,
   type Permission,
   type PublicUser,
@@ -884,6 +885,38 @@ export class ClubService {
     if (!Array.isArray(permissions) || !permissions.every(isPermission)) throw new ClubError('badPermission')
     user.permissions = PERMISSIONS.filter((p) => permissions.includes(p))
     await this.store.put(`user:${user.id}`, user)
+  }
+
+  /**
+   * The admin page's members section saves every role and permission change at once. All of them
+   * are checked first, so either every change is stored or none is; the rules are the same as one
+   * at a time: no taking away your own admin role, and the club keeps at least one admin.
+   */
+  async adminUpdateMembers(actorId: string, changes: unknown) {
+    if (!Array.isArray(changes) || changes.length > this.users.size) throw new ClubError('badMemberChange')
+    const next = new Map<string, { admin: boolean; permissions: Permission[] }>()
+    for (const change of changes as Partial<Record<keyof MemberChange, unknown>>[]) {
+      if (!change || typeof change !== 'object' || typeof change.id !== 'string' || next.has(change.id))
+        throw new ClubError('badMemberChange')
+      if (change.admin !== undefined && typeof change.admin !== 'boolean') throw new ClubError('badMemberChange')
+      const user = this.requireUser(change.id)
+      const permissions = change.permissions
+      if (permissions !== undefined && (!Array.isArray(permissions) || !permissions.every(isPermission)))
+        throw new ClubError('badPermission')
+      const admin = change.admin ?? !!user.admin
+      if (!admin && user.admin && user.id === actorId) throw new ClubError('notSelf')
+      next.set(user.id, {
+        admin,
+        permissions: permissions ? PERMISSIONS.filter((p) => permissions.includes(p)) : (user.permissions ?? []),
+      })
+    }
+    if (![...this.users.values()].some((u) => next.get(u.id)?.admin ?? u.admin)) throw new ClubError('lastAdmin')
+    for (const [id, { admin, permissions }] of next) {
+      const user = this.requireUser(id)
+      user.admin = admin
+      user.permissions = permissions
+      await this.store.put(`user:${user.id}`, user)
+    }
   }
 
   async adminResetPassword(userId: string, password: string) {

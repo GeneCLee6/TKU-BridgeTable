@@ -691,6 +691,41 @@ describe('admin', () => {
     expect((await club.adminUsers()).map((u) => u.username)).toEqual(['admin'])
   })
 
+  it('saves several members’ roles and permissions in one batch, all or nothing', async () => {
+    const admin = (await founder('admin')).user
+    const amy = await join('amy')
+    const ben = await join('ben')
+    const listed = async () => (await club.adminUsers()).map((u) => [u.username, u.admin, u.permissions])
+    await club.adminUpdateMembers(admin.id, [
+      { id: amy.id, permissions: ['bookImport', 'bookEdit'] },
+      { id: ben.id, admin: true },
+    ])
+    expect(await listed()).toEqual([
+      ['admin', true, ['bookEdit', 'bookImport', 'boardCurate']],
+      ['amy', false, ['bookEdit', 'bookImport']],
+      ['ben', true, ['bookEdit', 'bookImport', 'boardCurate']],
+    ])
+    // One bad change stores nothing
+    const before = await listed()
+    await expect(
+      club.adminUpdateMembers(admin.id, [{ id: amy.id, permissions: [] }, { id: ben.id, permissions: ['fly'] }]),
+    ).rejects.toMatchObject({ code: 'badPermission' })
+    await expect(club.adminUpdateMembers(admin.id, [{ id: amy.id, admin: true }, { id: 'nobody' }])).rejects.toMatchObject({
+      code: 'userGone',
+    })
+    await expect(club.adminUpdateMembers(admin.id, [{ id: amy.id }, { id: amy.id }])).rejects.toMatchObject({ code: 'badMemberChange' })
+    await expect(club.adminUpdateMembers(admin.id, [{ id: amy.id, admin: 'yes' }])).rejects.toMatchObject({ code: 'badMemberChange' })
+    await expect(club.adminUpdateMembers(admin.id, { id: amy.id })).rejects.toMatchObject({ code: 'badMemberChange' })
+    // Not your own admin role, and someone stays admin
+    await expect(club.adminUpdateMembers(admin.id, [{ id: admin.id, admin: false }])).rejects.toMatchObject({ code: 'notSelf' })
+    await expect(
+      club.adminUpdateMembers(ben.id, [{ id: admin.id, admin: false }, { id: ben.id, admin: false }]),
+    ).rejects.toMatchObject({ code: 'notSelf' })
+    expect(await listed()).toEqual(before)
+    await club.adminUpdateMembers(admin.id, [{ id: ben.id, admin: false }])
+    expect((await club.adminUsers()).filter((u) => u.admin).map((u) => u.username)).toEqual(['admin'])
+  })
+
   it('changes the member limit and invite code at run time', async () => {
     await setup({ maxUsers: 10, inviteCode: 'env-code' })
     await founder('admin', 'env-code')
