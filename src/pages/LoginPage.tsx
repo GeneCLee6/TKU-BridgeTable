@@ -4,6 +4,8 @@ import { LIMITS } from '../../shared/protocol.ts'
 import { LogoMark } from '../components/Logo.tsx'
 import { PasswordInput } from '../components/PasswordInput.tsx'
 import { Button, Card, ErrorText, Muted } from '../components/ui.tsx'
+import { inputStyles } from '../styles/controls.ts'
+import type { ControlSize } from '../styles/tokens.ts'
 import { useAuth } from '../state/AuthContext.tsx'
 import { api, ApiError } from '../lib/api.ts'
 import { usePreferences, useT } from '../state/PreferencesContext.tsx'
@@ -36,20 +38,15 @@ const Form = styled.form`
   gap: 12px;
 `
 
-const Field = styled.label`
+const Field = styled.label<{ $size?: ControlSize }>`
   display: grid;
   gap: 4px;
   font-size: 14px;
   font-weight: 600;
 
+  /* The same look as PasswordInput, so the username and password fields match */
   & > input {
-    min-height: 42px;
-    padding: 0 12px;
-    border: 1px solid ${({ theme }) => theme.colors.border};
-    border-radius: ${({ theme }) => theme.radius.sm};
-    background: ${({ theme }) => theme.colors.bg};
-    font-size: 16px;
-    font-weight: 400;
+    ${inputStyles}
   }
   & > small {
     color: ${({ theme }) => theme.colors.textMuted};

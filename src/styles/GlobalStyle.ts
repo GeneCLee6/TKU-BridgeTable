@@ -18,12 +18,14 @@ export const GlobalStyle = createGlobalStyle`
   a { color: ${({ theme }) => theme.colors.primary}; }
 
   :focus-visible {
-    outline: 3px solid ${({ theme }) => theme.colors.focus};
+    outline: 2px solid ${({ theme }) => theme.colors.focus};
     outline-offset: 2px;
     border-radius: 4px;
   }
 
   button, input, textarea, select { font: inherit; color: inherit; }
+  /* A password field looks like any other: no spaced-out or enlarged dots */
+  input { letter-spacing: normal; }
   button { cursor: pointer; }
   button:disabled { cursor: default; }
 
