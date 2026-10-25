@@ -1,0 +1,16 @@
+{
+  "category": "second-hand",
+  "title": "第二家：便宜贏墩、蓋夢家的 T",
+  "questions": [
+    {"id": "play-second-007", "system": "both", "board": 3,
+     "hands": {"N": "K53.6.QJT98.KQJ4", "E": "876.A95.K6543.T7", "S": "A42.JT74.A2.A532", "W": "QJT9.KQ832.7.986"},
+     "auction": ["1N", "P", "3N", "P", "P", "P"], "play": ["SQ", "S3", "S6", "SA", "H4"],
+     "answer": "H8", "source": "雙明手稽核（評測牌組第 22 副的型）", "reviewer": null, "status": "pending",
+     "note": "莊家從手上領♥4，夢家只剩單張♥6 贏不了 8：第二家出 8 便宜贏墩，出小就讓 4 偷一墩"},
+    {"id": "play-second-008", "system": "both", "board": 3,
+     "hands": {"N": "T86.AQ4.AQ9.K432", "E": "AK54.T98.764.T98", "S": "Q97.KJ3.KJT8.AQJ", "W": "J32.7652.532.765"},
+     "auction": ["1N", "P", "3N", "P", "P", "P"], "play": ["D2", "D9", "D4", "D8", "ST"],
+     "answer": "SK", "accepted": ["SA"], "source": "雙明手稽核（評測牌組第 51 副的型）", "reviewer": null, "status": "pending",
+     "note": "夢家領♠T，自己 AK 都是大牌：用 K 拿，不要第二家小讓 T 跑掉"}
+  ]
+}
