@@ -57,7 +57,16 @@
   - **C9**（#83）每週社團挑戰（管理員在 `/challenges` 設，預設關）、成績分享卡、端對端測試。**Phase C 完成。**
   - **F3**（#87）隊制賽的座位邀請、隊長制、準備室 `/matches/:id`；開始比賽是 F4。
   - 已知：`service.test.ts` 的「think limit」測試在整套一起跑時偶爾失敗（計時），單獨跑都過。
-- **下一批**：F4（開始比賽、兩桌推進）、G3（開叫者／答叫者再叫、2♣）、G9（D3、D4 已完成）、H1（拆出 `TableObject`，會大改 `worker/service.ts`，**單獨做**）。另一個 session 在做 `feat/daily-backup`（G11 的備份）與 `feat/system-profile-storage`，不要重複。
+- **2026-10-25 第四輪**（之後社長要求暫停，使用量快到上限）：
+  - **G9**（#92）螢幕閱讀器（牌桌 `aria-live`）、五步新手導覽、平板版面、視覺回歸（Playwright，CI 的 `visual` job，基準在 `tests/visual/__screenshots__/`）、六種語言校對；姊妹站介面名稱改「淡江橋館／TKU BridgeHall」。**E3 全部完成。** 待母語社員確認的翻譯列在 #92。
+  - **G3**（#94）開叫者再叫、答叫者再叫（`tku/responder.ts`）、2♣ 體系（`tku/twoclubs.ts`）；題庫 139/139（main 94/139），淡江評測 +0.05 ± 0.03 IMP／副。範圍調整見 `ROBOT.md` §2「待社團確認」。
+  - **H1a**（#93）多桌併發的第一步：決策紀錄 `ARCHITECTURE.md` §5.10、每桌邏輯抽成 `TableService`（`worker/table-service.ts`、`worker/tables.ts`），一副打完先進 `outbox` 再交給社團。行為不變、不用改部署。
+- **下一步（從這裡接）**：
+  1. **H1b**（`e11-t17`）：真的把牌桌搬進 `TableObject` Durable Object——RPC、`DurableTables`、`tabledir:`、`table:` 搬移（schema 3→4）、`/ws/table/<id>`、前端第二條連線、桌連線的驗證與速率限制、`wrangler.jsonc` binding＋migration v2、每人跨桌動作排隊。清單在 §5.10 與 #93。**單獨做**，跟 F4 會撞。
+  2. **F4**（隊制賽開始、兩桌推進），建在 H1b 之上（§5.10 有寫兩桌怎麼開）。
+  3. 可以和 H1b 平行的：G4（蓋叫、競叫）、G10 已完成、G11 的備份另一個 session 在做（`feat/daily-backup`）。
+  4. 已知：`service.test.ts` 的「think limit」測試整套一起跑時偶爾失敗（計時），單獨跑都過。
+  5. CLAUDE.md 硬性規則 4 只寫 `ClubService` 不碰 Cloudflare API；H1a 建議把 `TableService` 也寫進去（待使用者同意再改）。
 
 ## 2. 建議順序
 
