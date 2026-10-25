@@ -122,6 +122,13 @@ const Name = styled.span<{ $muted?: boolean }>`
   & > [data-crown] { color: ${({ theme }) => theme.table.crown}; }
 `
 
+/** The name itself, cut with an ellipsis when the plate is narrow (a flex box cannot do that for its text) */
+const NameText = styled.span`
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+`
+
 /** Declarer / dummy / offline, pushed to the right end of the plate */
 const Tags = styled.span`
   display: inline-flex;
@@ -288,11 +295,13 @@ export function SeatPlate({
   }
 
   const name = occupant ? (
-    <Name>
+    <Name title={playerName(t, occupant)}>
       {isHost && <Crown size={16} aria-label={t.host} data-crown />}
       {occupant.robot && <Bot size={18} aria-hidden />}
-      {occupant.robot ? t.robotName : playerName(t, occupant)}
-      {isMe && t.youTag}
+      <NameText>
+        {occupant.robot ? t.robotName : playerName(t, occupant)}
+        {isMe && t.youTag}
+      </NameText>
       {occupant.substituteFor && <Muted>{t.substituteFor(occupant.substituteFor)}</Muted>}
     </Name>
   ) : (
