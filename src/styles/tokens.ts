@@ -140,6 +140,13 @@ const table = {
   ringTrack: '#d9ded6',
 } as const
 
+/**
+ * Default avatars (e1-t18): the initial on one of these, picked from the member's id so it never
+ * changes. All carry `onAvatar` text at 4.5:1 or better, and look the same in both themes
+ */
+const avatars = ['#1c2e4f', '#7a3b12', '#1f6b43', '#5b2c7a', '#a0302a', '#2a5d8f', '#6e5410', '#3d5a40', '#7a2a55', '#3f4a5c'] as const
+const onAvatar = '#ffffff'
+
 /** Suit colours printed on the cards: two-colour like BBO's default, or four-colour */
 const cardSuits = {
   two: { S: '#111111', H: '#d10f1f', D: '#d10f1f', C: '#111111' },
@@ -157,6 +164,10 @@ export const layout = {
   contentMax: '1080px',
   sidePanelWidth: '300px',
   mobileBreakpoint: '900px',
+  /** Tablets (e3-t36): above the phone layout, up to this width */
+  tabletBreakpoint: '1200px',
+  /** Below this the header leaves out the wordmark beside the logo, so the links fit */
+  compactHeaderBreakpoint: '1400px',
 }
 
 /** 4px spacing scale: space(2) === '8px'. The chrome uses 1, 2, 3, 4, 6, 8 and 12. */
@@ -183,6 +194,8 @@ export function createTheme(mode: ThemeMode, deck: DeckColors) {
     suits: suits[mode],
     table,
     cardSuits: cardSuits[deck],
+    avatars,
+    onAvatar,
     fonts,
     layout,
     space,
@@ -211,3 +224,10 @@ export const mobileQuery = `(max-width: ${layout.mobileBreakpoint})`
 
 /** Media query helper: `${mobile} { ... }` */
 export const mobile = `@media ${mobileQuery}`
+
+/** Tablets, 901–1200px wide, either way up (e3-t36, DESIGN.md §5) */
+export const tabletQuery = `(min-width: 901px) and (max-width: ${layout.tabletBreakpoint})`
+export const tablet = `@media ${tabletQuery}`
+
+/** Computers and tablets too narrow for the full header */
+export const compactHeader = `@media (max-width: ${layout.compactHeaderBreakpoint})`

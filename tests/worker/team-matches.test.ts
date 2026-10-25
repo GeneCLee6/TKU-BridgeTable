@@ -244,6 +244,16 @@ function refused(fn: () => unknown) {
   throw new Error('it was not turned down')
 }
 
+async function refusedAsync(fn: () => Promise<unknown>) {
+  try {
+    await fn()
+  } catch (error) {
+    if (error instanceof ClubError) return error.code
+    throw error
+  }
+  throw new Error('it was not turned down')
+}
+
 describe('team matches through the club', () => {
   it('creates a match with settings and a seat, changes it, cancels it, and lists it', async () => {
     const amy = await member('amy')
@@ -258,8 +268,8 @@ describe('team matches through the club', () => {
     expect(club.matches.get(created.id, amy)?.settings.scoring).toBe('bam')
 
     time += 5
-    expect(club.matches.cancel(amy, created.id)).toMatchObject({ status: 'cancelled', endedAt: T0 + 5 })
-    expect(refused(() => club.matches.cancel(amy, created.id))).toBe('matchStarted')
+    expect(await club.matches.cancel(amy, created.id)).toMatchObject({ status: 'cancelled', endedAt: T0 + 5 })
+    expect(await refusedAsync(() => club.matches.cancel(amy, created.id))).toBe('matchStarted')
     expect(refused(() => club.matches.update(amy, created.id, { boards: 8 }))).toBe('matchStarted')
     // Survives the object being evicted
     const again = new ClubService(store, new FakeConnections(), { maxUsers: 40, now: () => time, schedule: () => {} })
@@ -277,10 +287,10 @@ describe('team matches through the club', () => {
     // Others do not even learn it exists while it is set up
     expect(club.matches.get(id, ben)).toBeNull()
     expect(refused(() => club.matches.update(ben, id, { boards: 12 }))).toBe('matchGone')
-    expect(refused(() => club.matches.cancel(ben, 'nope'))).toBe('matchGone')
+    expect(await refusedAsync(() => club.matches.cancel(ben, 'nope'))).toBe('matchGone')
     expect(club.matches.list(ben)).toEqual([])
     // Once it ended the host may open another
-    club.matches.cancel(amy, id)
+    await club.matches.cancel(amy, id)
     expect(club.matches.create(amy, {}).status).toBe('setup')
   })
 

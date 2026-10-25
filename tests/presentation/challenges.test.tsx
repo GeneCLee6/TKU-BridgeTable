@@ -368,3 +368,42 @@ describe('rematch and known deals (e7-t21, e7-t22)', () => {
     expect(screen.queryByRole('button', { name: '再戰' })).toBeNull()
   })
 })
+
+describe('the weekly club challenge and the share card (e7-t23, e7-t24)', () => {
+  it('names the club’s weekly challenge, has no rematch, and opens the share card for a ranked member', async () => {
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null)
+    const weekly = challenge('c8', {
+      status: 'finished',
+      endedAt: NOW,
+      deadline: NOW,
+      boards: 1,
+      settings: { ...defaultChallengeSettings(2), ranking: 'club', days: 7, weekly: true },
+      players: [player('amy', 'accepted', 1), player('ben', 'accepted', 1)],
+      standings: {
+        final: true,
+        scoring: 'mp',
+        ranked: [
+          { userId: 'amy', rank: 1, total: 100, boards: [100] },
+          { userId: 'ben', rank: 2, total: 0, boards: [0] },
+        ],
+        unfinished: [],
+      },
+    })
+    mocks.api.challenge.mockResolvedValue({ challenge: weekly })
+    show('/challenges/c8', <ChallengePage />)
+    expect(await screen.findByRole('heading', { level: 1, name: '每週社團挑戰' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '再戰' })).toBeNull()
+    await userEvent.click(screen.getByRole('button', { name: '成績分享卡' }))
+    const dialog = screen.getByRole('dialog', { name: '成績分享卡' })
+    expect(within(dialog).getByRole('img', { name: '我在「每週社團挑戰」拿到第 1 名（共 2 人）' })).toBeInTheDocument()
+    await userEvent.click(within(dialog).getByRole('button', { name: '關閉' }))
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('has no share card for someone still playing', async () => {
+    mocks.api.challenge.mockResolvedValue({ challenge: ACTIVE })
+    show('/challenges/c2', <ChallengePage />)
+    await screen.findByText('打完全部副數，或挑戰結束後，才看得到別人的成績')
+    expect(screen.queryByRole('button', { name: '成績分享卡' })).toBeNull()
+  })
+})

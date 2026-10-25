@@ -1089,18 +1089,26 @@ describe('boards kept back (AC-4.9)', () => {
     await store.put(`table:${tableId}`, { ...saved, recent: [{ ...held, ...held.board, result: held.board.result! }] })
     const reloaded = new ClubService(store, connections, { maxUsers: 10, now: () => time })
     await reloaded.load()
-    expect(reloaded.tableView(reloaded['tables'].get(tableId)!, outsider).recent).toEqual([])
-    expect(reloaded.tableView(reloaded['tables'].get(tableId)!, bySeat.S).recent).toHaveLength(1)
+    expect(reloaded.localTable(tableId)!.view(outsider)!.recent).toEqual([])
+    expect(reloaded.localTable(tableId)!.view(bySeat.S)!.recent).toHaveLength(1)
 
     time += 60_000
     expect(await listed(outsider)).toEqual(['held1'])
     expect(await club.record('held1', outsider)).not.toBeNull()
-    expect(reloaded.tableView(reloaded['tables'].get(tableId)!, outsider).recent).toHaveLength(1)
+    expect(reloaded.localTable(tableId)!.view(outsider)!.recent).toHaveLength(1)
   })
 })
 
 describe('the SQL history index', () => {
   const count = (table: string) => store.sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM ${table}`)[0].n
+
+  /** Runs the job that offers a table's waiting boards to the club again */
+  async function retryOutbox() {
+    const jobs = queue.filter((job) => job.kind === 'outbox')
+    queue = queue.filter((job) => job.kind !== 'outbox')
+    for (const job of jobs) job.run()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  }
 
   async function passOut(bySeat: Record<Seat, string>) {
     for (let i = 0; i < 4; i++) {
@@ -1151,9 +1159,14 @@ describe('the SQL history index', () => {
       if (query.startsWith('INSERT OR REPLACE INTO boards_index')) throw new Error('SQL down')
       return exec(query, ...params)
     }
-    await expect(passOut(bySeat)).rejects.toThrow('SQL down')
+    // The table moves on; the board waits in its outbox until the club can keep it (§5.10)
+    await passOut(bySeat)
     expect((await store.list('board:')).size).toBe(0)
     expect((await store.list('hist:')).size).toBe(0)
+    sql.exec = exec
+    await retryOutbox()
+    expect((await store.list('board:')).size).toBe(1)
+    expect(count('boards_index')).toBe(1)
   })
 
   it('never keeps half a board when a key-value write fails after the index', async () => {
@@ -1163,10 +1176,14 @@ describe('the SQL history index', () => {
       if (key.startsWith('hist:')) throw new Error('KV down')
       return put(key, value)
     }
-    await expect(passOut(bySeat)).rejects.toThrow('KV down')
+    await passOut(bySeat)
     expect(count('boards_index')).toBe(0)
     expect(count('board_players')).toBe(0)
     expect((await store.list('board:')).size).toBe(0)
+    store.put = put
+    await retryOutbox()
+    expect(count('boards_index')).toBe(1)
+    expect((await store.list('hist:')).size).toBe(1)
   })
 })
 

@@ -1,20 +1,24 @@
 import type { RandomInt } from '../shared/board.ts'
+import type { Call } from '../shared/auction.ts'
 import type { Hands, Seat } from '../shared/cards.ts'
 import { robotAuction } from '../shared/challenge-deals.ts'
 import { dealFrom, RANDOM_DEALS } from '../shared/deal-source.ts'
 import type { BoardState } from '../shared/game.ts'
-import type { BoardRecord, TableMode } from '../shared/protocol.ts'
+import type { BoardRecord, RobotKind, TableMode } from '../shared/protocol.ts'
 import { challengeTakesPart } from './challenge-flow.ts'
-import type { Challenge, ChallengeStore } from './challenges.ts'
+import type { Challenge, ChallengeResult } from './challenges.ts'
 import type { Table } from './views.ts'
 
 export type { TableMode } from '../shared/protocol.ts'
 
-/** What a mode may use besides the table: the club's random numbers, the time and the challenges */
+/**
+ * What a mode may use besides the table: the random numbers and the time. A table runs on its
+ * own (ARCHITECTURE.md §5.10): everything a mode needs of its event is in the table's
+ * `modeState`, so no hook reads the club's data
+ */
 export interface ModeContext {
   random: RandomInt
   now: number
-  challenges: ChallengeStore
 }
 
 /** The next board of a table: its number (dealer and vulnerability follow it) and the hands */
@@ -29,6 +33,12 @@ export interface DealtBoard {
 }
 
 /**
+ * What a finished board means for the event its table belongs to; the club writes it
+ * (`ClubLink.boardFinished`). `result` is null when the board does not count (played after the deadline)
+ */
+export type EventReport = { kind: 'challenge'; challengeId: string; result: ChallengeResult | null }
+
+/**
  * The three places where a mode changes what a table does; bidding, play, seating and visibility
  * stay the same in every mode. A new mode that needs a fourth hook has to say why in its PR.
  */
@@ -37,8 +47,11 @@ export interface TableModeHooks {
   deal(table: Table, ctx: ModeContext): DealtBoard | null
   /** The record kept for a finished board */
   record(table: Table, record: BoardRecord, ctx: ModeContext): BoardRecord
-  /** A board was just finished and its record saved (`record.id` is the board's history id) */
-  boardFinished(table: Table, record: BoardRecord, ctx: ModeContext): void
+  /**
+   * A board was just finished and its record made (`record.id` is the board's history id): what
+   * the table's event has to write, or null for a table that belongs to none
+   */
+  boardFinished(table: Table, record: BoardRecord, ctx: ModeContext): EventReport | null
 }
 
 /** A table anyone can open: boards are dealt one after another for as long as people play */
@@ -49,12 +62,13 @@ const casual: TableModeHooks = {
     return hands && { boardNo, hands }
   },
   record: (_table, record) => record,
-  boardFinished: () => {},
+  boardFinished: () => null,
 }
 
 /**
  * A participant's own table for a challenge (`e7-t08`, ARCHITECTURE.md §5.5): what it is playing
- * and where the participant sat when they left it
+ * and where the participant sat when they left it, with what the table needs of the challenge to
+ * run on its own (§5.10). The club gives it when the table opens and tells it when the challenge ends
  */
 export interface ChallengeTableState {
   challengeId: string
@@ -66,6 +80,16 @@ export interface ChallengeTableState {
    * table waits, parked, until `playChallenge` seats them there again
    */
   parkedSeat?: Seat
+  /** The challenge's deadline: play stops there */
+  deadline: number
+  /** Each board of the set: its number, and the robots' auction for Just Declare (the hands are in `Table.dealSource`) */
+  boards: { boardNo: number; auction?: Call[] }[]
+  /** The places in the deal set the participant has a result for */
+  played: number[]
+  /** The robots' system */
+  robotKind: RobotKind
+  /** The challenge ended (finished, expired or cancelled): nothing more is played */
+  closed?: boolean
 }
 
 export const challengeStateOf = (table: Table): ChallengeTableState | null =>
@@ -82,52 +106,68 @@ export function nextSeq(challenge: Challenge, userId: string): number | null {
   return null
 }
 
+/** The same as `nextSeq`, from what the table knows */
+export function nextTableSeq(state: ChallengeTableState): number | null {
+  for (let seq = 1; seq <= state.boards.length; seq++) if (!state.played.includes(seq)) return seq
+  return null
+}
+
+/** Whether a challenge table still takes play: the challenge is open and its deadline not reached */
+export const challengeTableOpen = (state: ChallengeTableState, now: number) => !state.closed && now < state.deadline
+
+/** What a challenge table needs of its challenge (§5.10), for one participant */
+export function challengeSnapshot(
+  challenge: Challenge,
+  userId: string,
+  now: number,
+): Pick<ChallengeTableState, 'deadline' | 'boards' | 'played' | 'robotKind' | 'closed'> {
+  return {
+    deadline: challenge.deadline,
+    boards: challenge.deals.boards.map(({ boardNo, auction }) => ({ boardNo, ...(auction && { auction }) })),
+    played: [...playedSeqs(challenge, userId)].sort((a, b) => a - b),
+    robotKind: challenge.settings.robotKind,
+    ...(!challengeTakesPart(challenge, now) && { closed: true }),
+  }
+}
+
 /**
- * One person in the South seat and three robots of the challenge's kind and level. Boards come
- * from the deal set in order, numbered as in the set; each result is written once (the primary key
- * of `challenge_results` turns down a second one). Nothing is dealt or counted once the challenge
- * is closed or past its deadline
+ * One person in the South seat and three robots of the challenge's kind. Boards come from the
+ * deal set in order, numbered as in the set; each result is written once (the club skips a second
+ * one). Nothing is dealt or counted once the challenge is closed or past its deadline
  */
 const challenge: TableModeHooks = {
   deal: (table, ctx) => {
     const state = challengeStateOf(table)!
-    const c = ctx.challenges.get(state.challengeId)
-    if (!c || !challengeTakesPart(c, ctx.now)) return null
-    const seq = nextSeq(c, state.userId)
-    const board = seq === null ? undefined : c.deals.boards[seq - 1]
+    if (!challengeTableOpen(state, ctx.now)) return null
+    const seq = nextTableSeq(state)
+    const board = seq === null ? undefined : state.boards[seq - 1]
     const hands = seq === null ? null : dealFrom(table.dealSource!, seq, ctx.random)
     if (!board || !hands) return null
     state.seq = seq!
-    const player = c.players.find((p) => p.userId === state.userId)
-    if (player && player.startedAt === undefined) ctx.challenges.updatePlayer(c.id, { ...player, startedAt: ctx.now })
     // Just Declare: the robots bid as they did when the challenge was made, and the play starts
-    if (board.auction) return { boardNo: board.boardNo, hands, board: robotAuction(c.settings.robotKind, board.boardNo, hands, board.auction) }
+    if (board.auction)
+      return { boardNo: board.boardNo, hands, board: robotAuction(state.robotKind, board.boardNo, hands, board.auction) }
     return { boardNo: board.boardNo, hands }
   },
-  record: (table, record, ctx) => {
+  record: (table, record) => {
     const state = challengeStateOf(table)!
-    const c = ctx.challenges.get(state.challengeId)
     // Kept back until the latest the challenge can end; C5 brings it forward when it really ends
-    return { ...record, mode: 'challenge', eventId: state.challengeId, ...(c && { revealAt: c.deadline }) }
+    return { ...record, mode: 'challenge', eventId: state.challengeId, revealAt: state.deadline }
   },
   boardFinished: (table, record, ctx) => {
     const state = challengeStateOf(table)!
-    const c = ctx.challenges.get(state.challengeId)
+    const report: EventReport = { kind: 'challenge', challengeId: state.challengeId, result: null }
     // A board finished after the deadline does not count, like one not played
-    if (!c || !challengeTakesPart(c, ctx.now) || state.seq < 1) return
-    const player = c.players.find((p) => p.userId === state.userId)
-    if (!player) return
-    ctx.challenges.transaction(() => {
-      ctx.challenges.addResult(c.id, {
-        userId: state.userId,
-        seq: state.seq,
-        boardId: record.id,
-        scoreNS: record.board.result?.scoreNS ?? 0,
-        playedAt: ctx.now,
-      })
-      if (playedSeqs(c, state.userId).size + 1 >= c.deals.boards.length)
-        ctx.challenges.updatePlayer(c.id, { ...player, finishedAt: ctx.now })
-    })
+    if (!challengeTableOpen(state, ctx.now) || state.seq < 1 || state.played.includes(state.seq)) return report
+    state.played = [...state.played, state.seq].sort((a, b) => a - b)
+    report.result = {
+      userId: state.userId,
+      seq: state.seq,
+      boardId: record.id,
+      scoreNS: record.board.result?.scoreNS ?? 0,
+      playedAt: ctx.now,
+    }
+    return report
   },
 }
 

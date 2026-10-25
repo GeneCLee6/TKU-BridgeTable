@@ -4,6 +4,8 @@ import type { Card, Seat, Side } from './cards.ts'
 import type { ChallengeSettings } from './challenge.ts'
 import type { BoardResult, BoardState, Phase, Trick } from './game.ts'
 import type { MessageCode, MessageParams } from './messages.ts'
+import type { MatchSeat, TeamMatchView } from './team-match.ts'
+import type { Profile } from './profile.ts'
 
 /** Messages and views exchanged between the browser and the Worker over HTTP and WebSocket */
 
@@ -37,6 +39,8 @@ export interface Me extends PublicUser {
   applications?: number
   /** Whether the bell says when a friend comes online (e1-t24); the server always sets it, on unless turned off */
   friendOnlineNotice?: boolean
+  /** The member's own profile (AC-1.5), to edit on "My account"; empty until they fill it in */
+  profile?: Profile
 }
 
 /** Where someone registered; both sites share the accounts */
@@ -274,8 +278,15 @@ export const NOTIFICATION_KINDS = [
   'challengeCancelled',
   'challengeReminder',
   'challengeResults',
+  'challengeWeekly',
   'friendOnline',
   'tableInvited',
+  'matchInvited',
+  'matchAccepted',
+  'matchDeclined',
+  'matchLeft',
+  'matchRemoved',
+  'matchCancelled',
   'boardFeatured',
 ] as const
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number]
@@ -288,10 +299,13 @@ export interface Notification {
    * `application`: { username } of the person who registered. The challenge kinds (§5.5):
    * { challengeId, username } of who invited, accepted, declined or cancelled; the reminder 12 hours
    * before the deadline and the results (`challengeReminder`, `challengeResults`) carry
-   * { challengeId } and are sent by the deadline job (`e7-t13`). `friendOnline`: { username } of
+   * { challengeId } and are sent by the deadline job (`e7-t13`); `challengeWeekly` { challengeId }
+   * goes to every member when the weekly club challenge is created (`e7-t23`). `friendOnline`: { username } of
    * a member the viewer follows who just came online (e1-t24). `tableInvited`: { tableId, number,
    * username } of the table and the host who invited (`e2-t25`). `boardFeatured`: { boardId,
-   * username } of a board the member played and who featured it (`e4-t29`)
+   * username } of a board the member played and who featured it (`e4-t29`). The team match kinds
+   * (§5.8, `e8-t04`): { matchId, username } of who invited, accepted, declined, left, took the
+   * member off a seat or called the match off
    */
   params: Record<string, string | number>
   read: boolean
@@ -342,6 +356,40 @@ export interface DirectPage {
 export const DIRECT_KEPT = 1000
 export const DIRECT_PAGE_SIZE = 30
 export const DIRECT_CONVERSATIONS_SHOWN = 50
+
+/**
+ * The messages a table handles by itself (ARCHITECTURE.md §5.10): nothing outside the table
+ * changes, so they go over the table's own connection. Everything else goes to the club
+ */
+export const TABLE_ACTIONS = [
+  'stand',
+  'kick',
+  'addRobot',
+  'removeRobot',
+  'replaceWithRobot',
+  'call',
+  'play',
+  'claim',
+  'claimRespond',
+  'undoRequest',
+  'undoRespond',
+  'chat',
+] as const
+
+export type TableAction = Extract<ClientMessage, { type: (typeof TABLE_ACTIONS)[number] }>
+
+export const isTableAction = (message: ClientMessage): message is TableAction =>
+  (TABLE_ACTIONS as readonly string[]).includes(message.type)
+
+/** A table's own connection (ARCHITECTURE.md §5.10): `/ws/table/<id>`, next to the club's `/ws` */
+export const TABLE_SOCKET_PREFIX = '/ws/table/'
+/** A table id as the Worker routes it */
+export const TABLE_ID_PATTERN = /^[\w-]{1,32}$/
+/**
+ * The close code of a table connection from a member who is not at that table (or a table that is
+ * not there): the browser does not try that table again and sends through the club instead
+ */
+export const TABLE_SOCKET_REFUSED = 4004
 
 export type ClientMessage =
   /** `invitees`: the members invited to the table (they are told), at most LIMITS.tableInvitesMax */
@@ -394,6 +442,18 @@ export type ClientMessage =
   | { type: 'cancelChallenge'; challengeId: string }
   /** One-click rematch (`e7-t21`): the same people and settings, new boards, once a challenge ended */
   | { type: 'rematchChallenge'; challengeId: string }
+  /**
+   * Team match seats before the start (§5.8, `e8-t04`, `e8-t05`): a captain invites a member to an
+   * empty seat of their team, puts a robot there or clears it; the invited answer; a seated member
+   * moves to an empty seat of their team, or a captain swaps two seats of their team; anyone but
+   * the host leaves. Also over HTTP (`POST /api/matches/:id/<action>`)
+   */
+  | { type: 'matchInvite'; matchId: string; room: MatchSeat['room']; seat: Seat; userId: string }
+  | { type: 'matchAnswer'; matchId: string; accept: boolean }
+  | { type: 'matchMove'; matchId: string; from: MatchSeat; to: MatchSeat }
+  | { type: 'matchLeave'; matchId: string }
+  | { type: 'matchClear'; matchId: string; room: MatchSeat['room']; seat: Seat }
+  | { type: 'matchRobot'; matchId: string; room: MatchSeat['room']; seat: Seat }
   /** Sends a direct message (AC-1.7): not to oneself, a robot, or between members where either blocked the other */
   | { type: 'sendDirect'; to: string; text: string }
   /** Marks the conversation with this member read */
@@ -411,6 +471,11 @@ export type ServerMessage =
   | { type: 'directs'; directs: DirectsView }
   /** A new direct message, sent only to its two members (all their tabs) */
   | { type: 'direct'; message: DirectMessage }
+  /**
+   * A team match the member is in changed (§5.8): as they now see it, or null once they may no
+   * longer see it (they left, declined or were taken off their seat before the start)
+   */
+  | { type: 'match'; matchId: string; match: TeamMatchView | null }
 
 /** A finished board kept in the history */
 export interface BoardRecord {
@@ -556,8 +621,11 @@ export const PROFILE_SCOPES = ['club', 'team', 'partnership'] as const
 export type ProfileScope = (typeof PROFILE_SCOPES)[number]
 export const isProfileScope = (value: unknown): value is ProfileScope => PROFILE_SCOPES.includes(value as ProfileScope)
 
-/** Size limits on a saved profile: its JSON in bytes, and how many overrides it may hold */
-export const PROFILE_LIMITS = { bytesMax: 200_000, overridesMax: 500 } as const
+/**
+ * Limits the Worker checks on a saved profile: its JSON in UTF-8 bytes, how many overrides it may
+ * hold, how many profiles the club may have besides its own, the name's length and a note's length
+ */
+export const PROFILE_LIMITS = { bytesMax: 200_000, overridesMax: 500, profilesMax: 100, nameMax: 40, noteMax: 2_000 } as const
 
 /** Whether a profile plays a convention; a convention it does not list follows the parent profile */
 export type Adoption = 'on' | 'off'
@@ -603,3 +671,29 @@ export interface SystemProfile {
   /** The user id that saved this version */
   updatedBy: string
 }
+
+/** GET /api/book/profiles: a profile without its adoptions, overrides and notes, which it counts instead */
+export interface ProfileSummary {
+  id: string
+  name: string
+  scope: ProfileScope
+  parentId?: string
+  version: number
+  updatedAt: number
+  updatedBy: string
+  counts: { adopted: number; overrides: number; notes: number }
+}
+
+/** A saved version of a profile, newest first in the list, which leaves out `profile` */
+export interface ProfileRevision {
+  profileId: string
+  version: number
+  at: number
+  /** The user id that saved it */
+  by: string
+  note: string
+  profile?: SystemProfile
+}
+
+/** What an editor sends to create or save a profile; the Worker sets the id, version and who saved it */
+export type ProfileInput = Pick<SystemProfile, 'name' | 'scope' | 'parentId' | 'adopted' | 'overrides' | 'notes'>

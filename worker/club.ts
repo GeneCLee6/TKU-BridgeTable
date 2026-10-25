@@ -3,18 +3,28 @@ import { AppError } from '../shared/messages.ts'
 import type { ChallengeSettings } from '../shared/challenge.ts'
 import { parseHistoryQuery } from '../shared/history-query.ts'
 import { MESSAGE_MAX_CHARS } from '../shared/message-guard.ts'
-import type { Me, ServerMessage } from '../shared/protocol.ts'
+import type { BoardRecord, Me, ServerMessage } from '../shared/protocol.ts'
 import { readCookie, SESSION_COOKIE, sessionCookie } from './auth.ts'
 import { backupAdmin, runBackup } from './backup.ts'
 import { BookService, importRequestFrom, publicBookResponse } from './book.ts'
 import { claudeImporter } from './importer.ts'
+import { anonymousProfileResponse, ProfileService } from './profiles.ts'
+import { adminRouteNeed, bookRouteNeed, requireNeed } from './roles.ts'
 import { CLIENT_ERROR_MAX_CHARS } from './client-errors.ts'
 import { crashEntry, jsonLog } from './log.ts'
 import { type ChallengeRequest, ClubError, ClubService, type Connections } from './service.ts'
+import type { EventReport } from './modes.ts'
 import type { Store } from './store.ts'
+import type { TableObject } from './table-object.ts'
+import { RemoteTables, type TableEntry, type TableRpc } from './tables.ts'
+import type { MatchAction } from './team-match-service.ts'
 
 export interface Env {
   CLUB: DurableObjectNamespace<Club>
+  /** Each table's own object (ARCHITECTURE.md §5.10) */
+  TABLE: DurableObjectNamespace<TableObject>
+  /** "off" keeps the tables in the club's object and brings back any moved out (DEPLOY.md, the switch back) */
+  TABLE_OBJECTS?: string
   ASSETS: Fetcher
   MAX_USERS?: string
   INVITE_CODE?: string
@@ -23,7 +33,7 @@ export interface Env {
   IMPORT_MODEL?: string
   /** Only for tests or an API gateway */
   ANTHROPIC_BASE_URL?: string
-  /** Daily backups (worker/backup.ts); the bucket is created by hand before deploying (DEPLOY.md §4.3) */
+  /** Daily backups (worker/backup.ts); the bucket is created by hand before deploying (DEPLOY.md §4.4) */
   BACKUPS?: R2Bucket
 }
 
@@ -45,14 +55,16 @@ const BODY_MAX_BYTES = 2 * 1024 * 1024
 const text = (value: unknown) => String(value ?? '')
 
 /**
- * The whole club lives in one Durable Object: a handful of members and tables fit easily, and a
- * single object means every action is applied in order with no coordination. WebSockets use the
- * hibernation API, so an idle club costs nothing and wakes up with its sockets still attached.
+ * The club's Durable Object: accounts, the lobby and its table directory, history, challenges,
+ * matches and TKU BridgeBook. Each table runs in its own `TableObject` (ARCHITECTURE.md §5.10),
+ * which reports back through the RPC methods below. WebSockets use the hibernation API, so an idle
+ * club costs nothing and wakes up with its sockets still attached.
  */
 export class Club extends DurableObject<Env> implements Connections {
   private readonly service: ClubService
-  /** Replaced after a backup is restored, so nothing it cached survives */
+  /** Replaced after a backup is restored, so nothing they cached survives */
   private book: BookService
+  private profiles: ProfileService
   private readonly store: Store
 
   constructor(ctx: DurableObjectState, env: Env) {
@@ -76,8 +88,12 @@ export class Club extends DurableObject<Env> implements Connections {
       // One alarm wakes the object for every robot move and deal, so it can hibernate in between
       wake: (at) => void storage.setAlarm(at),
       log: jsonLog,
+      // Each table in its own object (§5.10), unless switched back with TABLE_OBJECTS=off
+      tableObjects: new RemoteTables((tableId) => env.TABLE.get(env.TABLE.idFromName(tableId)) as unknown as TableRpc),
+      tablesInClub: env.TABLE_OBJECTS === 'off',
     })
     this.book = new BookService(store)
+    this.profiles = new ProfileService(store, Date.now, (id) => this.service.usernameOf(id))
     // Browsers send "ping" every few seconds to keep phone connections alive and to notice a dead
     // one quickly; the runtime answers without waking the object
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair('ping', 'pong'))
@@ -102,6 +118,28 @@ export class Club extends DurableObject<Env> implements Connections {
       jsonLog({ event: 'backup', ok: false, error: error instanceof Error ? error.message : String(error) })
       throw error
     }
+  }
+
+  // ── What the tables and the Worker ask over RPC (ARCHITECTURE.md §5.10) ────────────────────
+
+  /** A table's lobby entry changed (`ClubLink.changed`) */
+  async tableChanged(entry: TableEntry) {
+    await this.service.link.changed(entry)
+  }
+
+  /** A table closed (`ClubLink.closed`) */
+  async tableClosed(tableId: string) {
+    await this.service.link.closed(tableId)
+  }
+
+  /** A table finished a board (`ClubLink.boardFinished`); a failure makes the table offer it again */
+  async tableBoardFinished(record: BoardRecord, event: EventReport | null) {
+    await this.service.link.boardFinished(record, event)
+  }
+
+  /** Whose session this is, for a table's connection: the Worker asks once per connection */
+  async socketUser(token: string | null): Promise<string | null> {
+    return (await this.service.userForToken(token))?.id ?? null
   }
 
   onlineUserIds(): string[] {
@@ -233,7 +271,12 @@ export class Club extends DurableObject<Env> implements Connections {
     if (open) return open
 
     const user = await this.service.userForToken(token)
-    if (!user) throw new ClubError('signInFirst', {}, 401)
+    if (!user) {
+      // Without signing in, only the club's own system profile
+      const profiles = await anonymousProfileResponse(this.profiles, request, url.pathname)
+      if (profiles) return json(Array.isArray(profiles) ? { profiles } : { profile: profiles })
+      throw new ClubError('signInFirst', {}, 401)
+    }
     if (route === 'GET /api/me') return json({ user })
     if (url.pathname.startsWith('/api/book/')) return this.bookApi(request, url, user, body)
     if (route === 'POST /api/account/password') {
@@ -245,6 +288,10 @@ export class Club extends DurableObject<Env> implements Connections {
       const b = await body()
       return json({ user: await this.service.setAccountPreferences(user.id, { friendOnlineNotice: b.friendOnlineNotice }) })
     }
+    if (route === 'PATCH /api/account/profile') return json({ user: await this.service.setProfile(user.id, await body()) })
+    // Another member's profile card (AC-1.5)
+    const member = url.pathname.match(/^\/api\/members\/([\w-]+)$/)
+    if (request.method === 'GET' && member) return json({ member: await this.service.memberProfile(user.id, member[1]) })
     // A page of the member's own conversation with another member (AC-1.7); new messages come over the socket
     const conversation = url.pathname.match(/^\/api\/messages\/([\w-]+)$/)
     if (request.method === 'GET' && conversation) {
@@ -321,20 +368,20 @@ export class Club extends DurableObject<Env> implements Connections {
       if (!found) throw new ClubError('challengeGone', {}, 404)
       return json({ challenge: found })
     }
-    // Team matches (§5.7, e8-t03): set up over HTTP; seats, start and play come in later batches
+    // Team matches (§5.8): set up (e8-t03) and seated (e8-t04, e8-t05) over HTTP; start and play come in F4
     if (route === 'GET /api/matches') return json({ matches: this.service.matches.list(user.id) })
     if (route === 'POST /api/matches') {
       const b = await body()
       return json({ match: this.service.matches.create(user.id, { settings: b.settings, seat: b.seat }) })
     }
-    const matchAction = url.pathname.match(/^\/api\/matches\/([\w-]+)\/(settings|cancel)$/)
+    const matchAction = url.pathname.match(/^\/api\/matches\/([\w-]+)\/(settings|cancel|invite|answer|move|leave|clear|robot)$/)
     if (request.method === 'POST' && matchAction) {
       const [, matchId, action] = matchAction
-      const match =
-        action === 'settings'
-          ? this.service.matches.update(user.id, matchId, (await body()).settings)
-          : this.service.matches.cancel(user.id, matchId)
-      return json({ match })
+      if (action === 'settings') return json({ match: this.service.matches.update(user.id, matchId, (await body()).settings) })
+      if (action === 'cancel') return json({ match: await this.service.matches.cancel(user.id, matchId) })
+      const type = `match${action[0].toUpperCase()}${action.slice(1)}`
+      const message = { ...(await body()), type, matchId } as MatchAction
+      return json({ match: await this.service.matches.request(user.id, message) })
     }
     const match = url.pathname.match(/^\/api\/matches\/([\w-]+)$/)
     if (request.method === 'GET' && match) {
@@ -347,9 +394,10 @@ export class Club extends DurableObject<Env> implements Connections {
   }
 
   private async admin(request: Request, url: URL, user: Me, body: () => Promise<Body>) {
-    this.service.requireAdmin(user.id)
     const path = url.pathname.slice('/api/admin'.length)
     const method = request.method
+    // Accounts are admins'; the rest is editors' too (roles.ts)
+    requireNeed(user, adminRouteNeed(method, path))
 
     if (path === '/backups' || path.startsWith('/backups/'))
       return json(
@@ -359,6 +407,7 @@ export class Club extends DurableObject<Env> implements Connections {
           now: Date.now(),
           restored: () => {
             this.book = new BookService(this.store)
+            this.profiles = new ProfileService(this.store, Date.now, (id) => this.service.usernameOf(id))
           },
         }),
       )
@@ -378,6 +427,9 @@ export class Club extends DurableObject<Env> implements Connections {
       }
       throw new ClubError('noSuchApi', {}, 404)
     }
+    if (method === 'GET' && path === '/weekly-challenge') return json({ weekly: this.service.weeklyChallenge() })
+    if (method === 'POST' && path === '/weekly-challenge')
+      return json({ weekly: await this.service.adminSetWeeklyChallenge(user.id, await body()) })
     if (method === 'GET' && path === '/settings') return json({ settings: this.service.clubSettings })
     if (method === 'POST' && path === '/settings') {
       const b = await body()
@@ -408,52 +460,57 @@ export class Club extends DurableObject<Env> implements Connections {
     throw new ClubError('noSuchApi', {}, 404)
   }
 
-  /** TKU BridgeBook's online editing; reading it (publicBookResponse) needs no sign-in */
+  /**
+   * TKU BridgeBook's online editing and system profiles; reading the content (publicBookResponse)
+   * needs no sign-in. Who may use each route is in roles.ts.
+   */
   private async bookApi(request: Request, url: URL, user: Me, body: () => Promise<Body>) {
     const path = url.pathname.slice('/api/book'.length)
     const method = request.method
-    const editor = () => this.service.requirePermission(user.id, 'bookEdit')
-    const importer = () => this.service.requirePermission(user.id, 'bookImport')
+    const need = bookRouteNeed(method, path)
+    if (!need) throw new ClubError('noSuchApi', {}, 404)
+    requireNeed(user, need)
 
     const convention = path.match(/^\/conventions\/([\w-]+)(?:\/(hide|reset|revisions)(?:\/([\w-]+))?)?$/)
     if (convention) {
       const [, slug, action, revisionId] = convention
-      if (method === 'PUT' && !action) return json({ entry: await this.book.save(editor(), slug, await body()) })
-      if (method === 'POST' && action === 'hide') {
-        this.service.requireAdmin(user.id)
-        return json({ entry: await this.book.hide(user, slug, await body()) })
-      }
-      if (method === 'POST' && action === 'reset') {
-        await this.book.reset(editor(), slug, await body())
+      if (method === 'PUT') return json({ entry: await this.book.save(user, slug, await body()) })
+      if (action === 'hide') return json({ entry: await this.book.hide(user, slug, await body()) })
+      if (action === 'reset') {
+        await this.book.reset(user, slug, await body())
         return json({ ok: true })
       }
-      if (method === 'GET' && action === 'revisions' && revisionId) {
-        editor()
-        return json({ revision: await this.book.revision(slug, revisionId) })
-      }
-      if (method === 'GET' && action === 'revisions') {
-        editor()
-        return json({ revisions: await this.book.revisions(slug) })
-      }
-      throw new ClubError('noSuchApi', {}, 404)
+      if (revisionId) return json({ revision: await this.book.revision(slug, revisionId) })
+      return json({ revisions: await this.book.revisions(slug) })
     }
-    if (method === 'PUT' && path === '/categories') return json(await this.book.saveCategories(editor(), await body()))
-    if (method === 'POST' && path === '/import/ticket') {
-      const ticket = await this.book.createTicket(importer())
+    if (path === '/categories') return json(await this.book.saveCategories(user, await body()))
+
+    if (path === '/profiles') {
+      if (method === 'GET') return json({ profiles: await this.profiles.list() })
+      return json({ profile: await this.profiles.create(user, await body()) })
+    }
+    const profile = path.match(/^\/profiles\/([\w-]+)(\/revisions(?:\/(\d+))?)?$/)
+    if (profile) {
+      const [, id, revisions, version] = profile
+      if (revisions && version) return json({ revision: await this.profiles.revision(id, Number(version)) })
+      if (revisions) return json({ revisions: await this.profiles.revisions(id) })
+      if (method === 'GET') return json({ profile: await this.profiles.get(id) })
+      if (method === 'PUT') return json({ profile: await this.profiles.save(user, id, await body()) })
+      await this.profiles.remove(id, await body())
+      return json({ ok: true })
+    }
+
+    if (path === '/import/ticket') {
+      const ticket = await this.book.createTicket(user)
       return json({ ticket, url: `${url.origin}/api/book/import`, ready: !!this.env.ANTHROPIC_API_KEY })
     }
-    if (method === 'GET' && path === '/drafts') {
-      importer()
-      return json({ drafts: await this.book.drafts() })
+    if (path === '/drafts') {
+      if (method === 'GET') return json({ drafts: await this.book.drafts() })
+      return json({ draft: await this.book.saveDraft(user, await body()) })
     }
-    if (method === 'POST' && path === '/drafts') return json({ draft: await this.book.saveDraft(importer(), await body()) })
     const draft = path.match(/^\/drafts\/([\w-]+)$/)
-    if (draft && method === 'GET') {
-      importer()
-      return json({ draft: await this.book.draft(draft[1]) })
-    }
-    if (draft && method === 'DELETE') {
-      importer()
+    if (draft && method === 'GET') return json({ draft: await this.book.draft(draft[1]) })
+    if (draft) {
       await this.book.deleteDraft(draft[1])
       return json({ ok: true })
     }

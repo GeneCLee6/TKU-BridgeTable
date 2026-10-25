@@ -50,6 +50,10 @@ export function timeLeft(t: Strings, ms: number) {
   return t.timeLeft(Math.floor(minutes / 1440), Math.floor((minutes % 1440) / 60), minutes % 60)
 }
 
+/** 每週社團挑戰 for the club's weekly challenge (`e7-t23`), otherwise 某某的挑戰 */
+export const challengeTitle = (t: Strings, c: ChallengeView) =>
+  c.settings.weekly ? t.weeklyChallengeTitle : t.challengeBy(participantName(t, playerOf(c, c.creatorId)))
+
 /** A participant's name; accounts deleted after the challenge ended have none */
 export const participantName = (t: Strings, p: ChallengePlayerView | undefined) => p?.user?.username ?? t.deletedMember
 
@@ -68,7 +72,8 @@ export const settingsLine = (t: Strings, c: ChallengeView) =>
  * who did not decline again; the server checks it all again
  */
 export function rematchable(c: ChallengeView, userId: string) {
-  if (isOpenChallenge(c.status) || playerOf(c, userId)?.status !== 'accepted') return false
+  // Next week's club challenge comes by itself (`e7-t23`)
+  if (c.settings.weekly || isOpenChallenge(c.status) || playerOf(c, userId)?.status !== 'accepted') return false
   return c.players.some((p) => p.userId !== userId && p.status !== 'declined' && p.user)
 }
 

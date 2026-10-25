@@ -1,58 +1,83 @@
-import { useState, type FormEvent } from 'react'
+import { useId, useState, type FormEvent } from 'react'
+import { Link } from 'react-router-dom'
 import styled from 'styled-components'
 import { LANGS } from '../../shared/messages.ts'
+import { PROFILE_LEVELS, PROFILE_LIMITS, type Profile, type ProfileLevel } from '../../shared/profile.ts'
 import { LIMITS } from '../../shared/protocol.ts'
-import { Button, Card, ErrorText, PageMain, PageTitle } from '../components/ui.tsx'
+import { Avatar } from '../components/Avatar.tsx'
+import { PasswordInput } from '../components/PasswordInput.tsx'
+import { useToast } from '../components/Toast.tsx'
+import {
+  Button,
+  Card,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+  ErrorText,
+  Field,
+  FieldError,
+  FieldHint,
+  FieldLabel,
+  Input,
+  Muted,
+  PageMain,
+  PageTitle,
+  Select,
+  Textarea,
+} from '../components/ui.tsx'
 import { api, ApiError } from '../lib/api.ts'
 import { isAppleMobile, isStandalone, useInstallOffer } from '../lib/pwa.ts'
 import { useAuth } from '../state/AuthContext.tsx'
 import { usePreferences } from '../state/PreferencesContext.tsx'
 import { LANG_NAMES } from '../strings.ts'
 
-/** A member's own page: display preferences and changing the password */
+/**
+ * A member's own page (我的帳號): their profile (AC-1.5, e1-t16), display preferences, installing
+ * the app and changing the password. Each part is a three-part card (DESIGN.md §7.3); saving says
+ * so in a toast, and a field's error sits under the field (§7.2).
+ */
 
 const Stack = styled.div`
   display: grid;
-  gap: 20px;
-  max-width: 560px;
-`
-
-const SectionTitle = styled.h2`
-  margin: 0 0 12px;
-  font-size: 18px;
-  color: ${({ theme }) => theme.colors.primaryStrong};
+  gap: ${({ theme }) => theme.space(6)};
+  max-width: 640px;
 `
 
 const Form = styled.form`
   display: grid;
-  gap: 12px;
+  gap: ${({ theme }) => theme.space(4)};
 `
 
-const Field = styled.label`
-  display: grid;
-  gap: 4px;
-  font-size: 14px;
-  font-weight: 600;
+const Who = styled.div`
+  display: flex;
+  align-items: center;
+  gap: ${({ theme }) => theme.space(3)};
 
-  & > input {
-    min-height: 40px;
-    padding: 0 10px;
-    border: 1px solid ${({ theme }) => theme.colors.border};
-    border-radius: ${({ theme }) => theme.radius.sm};
-    background: ${({ theme }) => theme.colors.bg};
-    font-size: 15px;
-    font-weight: 400;
-  }
+  & a { color: ${({ theme }) => theme.colors.primary}; font-size: 14px; font-weight: 600; }
+`
+
+const LabelRow = styled.div`
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+`
+
+const Count = styled.span`
+  color: ${({ theme }) => theme.colors.textMuted};
+  font-size: ${({ theme }) => theme.type.small.size};
+  font-variant-numeric: tabular-nums;
 `
 
 const Choice = styled.fieldset`
   display: grid;
   gap: 6px;
-  margin: 0 0 12px;
+  margin: 0 0 ${({ theme }) => theme.space(4)};
   padding: 0;
   border: 0;
 
-  & > legend { margin-bottom: 4px; font-size: 14px; font-weight: 700; }
+  &:last-child { margin-bottom: 0; }
+  & > legend { margin-bottom: 4px; padding: 0; font-size: 14px; font-weight: 600; }
   & label { display: flex; align-items: center; gap: 8px; font-size: 15px; }
 `
 
@@ -114,13 +139,250 @@ function InstallApp() {
   )
 }
 
-export function AccountPage() {
-  const { t, message, lang, mode, deck, cardStyle, cardSize, sound, confirmCalls, confirmPlays, set } = usePreferences()
+type ProfileField = 'displayName' | 'system' | 'bio'
+
+/** Which field a server error belongs under */
+const FIELD_OF: Record<string, ProfileField> = {
+  profileNameTooLong: 'displayName',
+  profileSystemTooLong: 'system',
+  profileBioTooLong: 'bio',
+}
+
+interface Draft {
+  displayName: string
+  level: ProfileLevel | ''
+  system: string
+  bio: string
+}
+
+const draftOf = (profile: Profile | undefined): Draft => ({
+  displayName: profile?.displayName ?? '',
+  level: profile?.level ?? '',
+  system: profile?.system ?? '',
+  bio: profile?.bio ?? '',
+})
+
+const length = (text: string) => [...text].length
+
+/** The member's own profile: what others see on the profile card (e1-t16) */
+function ProfileForm() {
+  const { t, message } = usePreferences()
   const { user, refresh } = useAuth()
+  const toast = useToast()
+  const saved = draftOf(user?.profile)
+  const [draft, setDraft] = useState<Draft | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [errors, setErrors] = useState<{ field?: ProfileField; text: string } | null>(null)
+  const id = useId()
+  const value = draft ?? saved
+  const changed = JSON.stringify(value) !== JSON.stringify(saved)
+
+  const edit = (patch: Partial<Draft>) => {
+    setDraft({ ...value, ...patch })
+    setErrors(null)
+  }
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault()
+    setBusy(true)
+    setErrors(null)
+    try {
+      await api.setProfile({ ...value, level: value.level || undefined })
+      await refresh()
+      setDraft(null)
+      toast.success(t.profileSaved)
+    } catch (err) {
+      const text = err instanceof ApiError ? message(err.code, err.params, err.message) : t.genericError
+      const field = err instanceof ApiError ? FIELD_OF[err.code] : undefined
+      setErrors({ field, text })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const errorFor = (field: ProfileField) =>
+    errors?.field === field ? (
+      <FieldError id={`${id}-${field}-error`}>{errors.text}</FieldError>
+    ) : null
+  const invalid = (field: ProfileField) =>
+    errors?.field === field ? { 'aria-invalid': true, 'aria-describedby': `${id}-${field}-error` } : {}
+
+  return (
+    <Card as="form" onSubmit={submit} aria-labelledby={`${id}-title`}>
+      <CardHeader>
+        <CardTitle id={`${id}-title`}>{t.profileTitle}</CardTitle>
+      </CardHeader>
+      <Form as="div">
+        {user && (
+          <Who>
+            <Avatar id={user.id} name={value.displayName || user.username} size={48} />
+            <div>
+              <Muted>{t.profileIntro}</Muted>
+              <Link to={`/members/${user.id}`}>{t.fullProfile}</Link>
+            </div>
+          </Who>
+        )}
+        {errors && !errors.field && <ErrorText role="alert">{errors.text}</ErrorText>}
+        <Field>
+          <FieldLabel htmlFor={`${id}-name`}>{t.displayName}</FieldLabel>
+          <Input
+            id={`${id}-name`}
+            value={value.displayName}
+            maxLength={PROFILE_LIMITS.displayNameMax}
+            placeholder={user?.username}
+            onChange={(e) => edit({ displayName: e.target.value })}
+            {...invalid('displayName')}
+          />
+          {errorFor('displayName') ?? <FieldHint>{t.displayNameHint(PROFILE_LIMITS.displayNameMax)}</FieldHint>}
+        </Field>
+        <Field>
+          <FieldLabel htmlFor={`${id}-level`}>{t.profileLevel}</FieldLabel>
+          <Select id={`${id}-level`} value={value.level} onChange={(e) => edit({ level: e.target.value as ProfileLevel | '' })}>
+            <option value="">{t.levelUnset}</option>
+            {PROFILE_LEVELS.map((level) => (
+              <option key={level} value={level}>
+                {t.levelNames[level]}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <Field>
+          <FieldLabel htmlFor={`${id}-system`}>{t.profileSystem}</FieldLabel>
+          <Input
+            id={`${id}-system`}
+            value={value.system}
+            maxLength={PROFILE_LIMITS.systemMax}
+            placeholder={t.profileSystemHint}
+            onChange={(e) => edit({ system: e.target.value })}
+            {...invalid('system')}
+          />
+          {errorFor('system')}
+        </Field>
+        <Field>
+          <LabelRow>
+            <FieldLabel htmlFor={`${id}-bio`}>{t.profileBio}</FieldLabel>
+            <Count aria-hidden>{t.charCount(length(value.bio), PROFILE_LIMITS.bioMax)}</Count>
+          </LabelRow>
+          <Textarea
+            id={`${id}-bio`}
+            value={value.bio}
+            rows={4}
+            onChange={(e) => edit({ bio: e.target.value })}
+            {...(length(value.bio) > PROFILE_LIMITS.bioMax || errors?.field === 'bio'
+              ? { 'aria-invalid': true, 'aria-describedby': `${id}-bio-error` }
+              : {})}
+          />
+          {length(value.bio) > PROFILE_LIMITS.bioMax ? (
+            <FieldError id={`${id}-bio-error`}>{message('profileBioTooLong', { max: PROFILE_LIMITS.bioMax }, '')}</FieldError>
+          ) : (
+            errorFor('bio')
+          )}
+        </Field>
+      </Form>
+      <CardFooter>
+        <Button type="button" $variant="ghost" disabled={!changed || busy} onClick={() => setDraft(null)}>
+          {t.revert}
+        </Button>
+        <Button type="submit" $variant="primary" $busy={busy} disabled={!changed || length(value.bio) > PROFILE_LIMITS.bioMax}>
+          {busy ? t.saving : t.save}
+        </Button>
+      </CardFooter>
+    </Card>
+  )
+}
+
+function PasswordForm() {
+  const { t, message } = usePreferences()
+  const toast = useToast()
   const [current, setCurrent] = useState('')
   const [next, setNext] = useState('')
   const [error, setError] = useState('')
-  const [done, setDone] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const id = useId()
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault()
+    setError('')
+    setBusy(true)
+    try {
+      await api.changePassword(current, next)
+      setCurrent('')
+      setNext('')
+      toast.success(t.passwordChanged)
+    } catch (err) {
+      setError(err instanceof ApiError ? message(err.code, err.params, err.message) : t.genericError)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Card as="form" onSubmit={submit} aria-label={t.changePassword}>
+      <CardHeader>
+        <CardTitle>{t.changePassword}</CardTitle>
+      </CardHeader>
+      <Form as="div">
+        {error && <ErrorText role="alert">{error}</ErrorText>}
+        <Field>
+          <FieldLabel htmlFor={`${id}-current`}>{t.currentPassword}</FieldLabel>
+          <PasswordInput
+            id={`${id}-current`}
+            value={current}
+            autoComplete="current-password"
+            onChange={(e) => setCurrent(e.target.value)}
+            required
+          />
+        </Field>
+        <Field>
+          <FieldLabel htmlFor={`${id}-next`}>{t.newPassword}</FieldLabel>
+          <PasswordInput
+            id={`${id}-next`}
+            value={next}
+            autoComplete="new-password"
+            minLength={LIMITS.passwordMin}
+            onChange={(e) => setNext(e.target.value)}
+            required
+          />
+        </Field>
+      </Form>
+      <CardFooter>
+        <Button type="submit" $variant="primary" $busy={busy}>
+          {busy ? t.saving : t.save}
+        </Button>
+      </CardFooter>
+    </Card>
+  )
+}
+
+/** Shows the table tour again the next time a table is opened (e3-t34, AC-3.10) */
+function TourCard() {
+  const { t, tableTourSeen, set } = usePreferences()
+  const toast = useToast()
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{t.tourLabel}</CardTitle>
+      </CardHeader>
+      <Muted>{t.tourReplayHint}</Muted>
+      <CardFooter>
+        <Button
+          type="button"
+          disabled={!tableTourSeen}
+          onClick={() => {
+            set({ tableTourSeen: false })
+            toast.success(t.tourReplayDone)
+          }}
+        >
+          {t.tourReplay}
+        </Button>
+      </CardFooter>
+    </Card>
+  )
+}
+
+export function AccountPage() {
+  const { t, lang, mode, deck, cardStyle, cardSize, sound, confirmCalls, confirmPlays, set } = usePreferences()
+  const { user, refresh } = useAuth()
 
   /** Kept on the server, which decides whom to tell (e1-t24) */
   const setFriendOnlineNotice = (on: boolean) =>
@@ -129,28 +391,17 @@ export function AccountPage() {
       .then(refresh)
       .catch(() => undefined)
 
-  const submit = async (e: FormEvent) => {
-    e.preventDefault()
-    setError('')
-    setDone(false)
-    try {
-      await api.changePassword(current, next)
-      setDone(true)
-      setCurrent('')
-      setNext('')
-    } catch (err) {
-      setError(err instanceof ApiError ? message(err.code, err.params, err.message) : t.genericError)
-    }
-  }
-
   return (
     <PageMain>
       <PageTitle>
         {t.accountTitle}：{user?.username}
       </PageTitle>
       <Stack>
+        <ProfileForm />
         <Card>
-          <SectionTitle>{t.preferences}</SectionTitle>
+          <CardHeader>
+            <CardTitle>{t.preferences}</CardTitle>
+          </CardHeader>
           <Options
             legend={t.languageName}
             value={lang}
@@ -198,35 +449,14 @@ export function AccountPage() {
             />
           )}
         </Card>
+        <TourCard />
         <Card>
-          <SectionTitle>{t.installTitle}</SectionTitle>
+          <CardHeader>
+            <CardTitle>{t.installTitle}</CardTitle>
+          </CardHeader>
           <InstallApp />
         </Card>
-        <Card>
-          <SectionTitle>{t.changePassword}</SectionTitle>
-          <Form onSubmit={submit} aria-label={t.changePassword}>
-            <Field>
-              {t.currentPassword}
-              <input type="password" value={current} autoComplete="current-password" onChange={(e) => setCurrent(e.target.value)} required />
-            </Field>
-            <Field>
-              {t.newPassword}
-              <input
-                type="password"
-                value={next}
-                autoComplete="new-password"
-                minLength={LIMITS.passwordMin}
-                onChange={(e) => setNext(e.target.value)}
-                required
-              />
-            </Field>
-            {error && <ErrorText role="alert">{error}</ErrorText>}
-            {done && <Success role="status">{t.saved}</Success>}
-            <Button type="submit" $variant="primary">
-              {t.save}
-            </Button>
-          </Form>
-        </Card>
+        <PasswordForm />
       </Stack>
     </PageMain>
   )

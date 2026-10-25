@@ -10,7 +10,7 @@ import { useTrickReplay } from '../lib/useTrickReplay.ts'
 import { useAuth } from '../state/AuthContext.tsx'
 import { useClub } from '../state/ClubContext.tsx'
 import { usePreferences } from '../state/PreferencesContext.tsx'
-import { mobile } from '../styles/tokens.ts'
+import { mobile, tablet } from '../styles/tokens.ts'
 import { playerName } from '../strings.ts'
 import { AuctionBox } from './AuctionBox.tsx'
 import { DirectMessages } from './DirectMessages.tsx'
@@ -29,6 +29,7 @@ import { ContractResult } from './Suit.tsx'
 export type PanelTab = 'chat' | 'people' | 'messages' | 'history'
 
 const Dock = styled.div`
+  position: relative;
   display: flex;
   min-height: 0;
   height: 100%;
@@ -109,6 +110,18 @@ const Content = styled.section<{ $wide: boolean }>`
   flex-direction: column;
   width: ${({ $wide }) => ($wide ? 420 : 320)}px;
   min-height: 0;
+
+  /* On a tablet the open panel floats over the page instead of narrowing it (e3-t36) */
+  ${tablet} {
+    position: absolute;
+    top: 0;
+    right: 100%;
+    bottom: 0;
+    z-index: 15;
+    border-left: 1px solid ${({ theme }) => theme.colors.border};
+    background: ${({ theme }) => theme.colors.surface};
+    box-shadow: ${({ theme }) => theme.shadowRaised};
+  }
 
   ${mobile} {
     width: 100%;
@@ -210,7 +223,7 @@ export function SidePanel({
   }
 
   return (
-    <Dock aria-label={t.sidePanel}>
+    <Dock aria-label={t.sidePanel} data-tour="side">
       {open && (
         <Content $wide={open === 'history' && board !== null} role="tabpanel" aria-label={label[open]}>
           <ContentHead>
@@ -221,7 +234,7 @@ export function SidePanel({
           </ContentHead>
           <Body>
             {open === 'chat' && chat}
-            {open === 'people' && <People onMessage={tabs.includes('messages') ? message : undefined} />}
+            {open === 'people' && <People onMessage={tabs.includes('messages') ? message : undefined} newTab={page === 'table'} />}
             {open === 'messages' && <Messages talkTo={talkTo} onTalkTo={setTalkTo} />}
             {open === 'history' && <HistoryList recent={recent} board={board} onBoard={setBoard} newTab={page === 'table'} />}
           </Body>
@@ -254,10 +267,10 @@ export function SidePanel({
 
 // ── People ────────────────────────────────────────────────────────────────────────────────────
 
-function People({ onMessage }: { onMessage?: (userId: string) => void }) {
+function People({ onMessage, newTab }: { onMessage?: (userId: string) => void; newTab: boolean }) {
   const { lobby, send } = useClub()
   const { user } = useAuth()
-  return <PeopleList lobby={lobby} userId={user?.id} send={send} onMessage={onMessage} />
+  return <PeopleList lobby={lobby} userId={user?.id} send={send} onMessage={onMessage} newTab={newTab} />
 }
 
 // ── Messages ──────────────────────────────────────────────────────────────────────────────────

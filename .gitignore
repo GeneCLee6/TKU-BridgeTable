@@ -25,6 +25,10 @@ coverage
 
 tmp/
 
+# Playwright visual tests: results and reports (the baselines in tests/visual/__screenshots__ are kept)
+test-results/
+playwright-report/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

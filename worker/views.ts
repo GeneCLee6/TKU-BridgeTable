@@ -12,9 +12,20 @@ import {
   turnOf,
   type BoardState,
 } from '../shared/game.ts'
-import type { BoardSummary, BoardView, ChatMessage, PublicUser, SeatOccupant, TableMode, TableSettings } from '../shared/protocol.ts'
+import type {
+  BoardRecord,
+  BoardSummary,
+  BoardView,
+  ChatMessage,
+  PublicUser,
+  SeatOccupant,
+  TableMode,
+  TableSettings,
+} from '../shared/protocol.ts'
+import type { EventReport } from './modes.ts'
 import { isOpenChallenge, type ChallengeTraveller, type ChallengeView } from '../shared/challenge.ts'
 import type { DealSource } from '../shared/deal-source.ts'
+import type { MemberProfile, Profile } from '../shared/profile.ts'
 import { challengeStandings, hasFinished } from './challenge-flow.ts'
 import type { Challenge } from './challenges.ts'
 import type { Traveller } from '../shared/traveller.ts'
@@ -63,6 +74,15 @@ export interface Table {
   substitutes?: Partial<Record<Seat, string>>
   /** Seats where a robot sat in for a member during the board on the table, for its record */
   boardSubstitutes?: Partial<Record<Seat, string>>
+  /**
+   * The names of the members the table shows (seated, watching, invited, sat in for), given by the
+   * club with each action, so the table never has to ask it (ARCHITECTURE.md §5.10)
+   */
+  names?: Record<string, string>
+  /** Whom each member at the table blocked, for the chat each of them sees (`chatFor`) */
+  blocks?: Record<string, string[]>
+  /** Finished boards whose record the club has not taken yet; offered again until it does (§5.10) */
+  outbox?: { record: BoardRecord; event: EventReport | null }[]
 }
 
 /**
@@ -81,6 +101,29 @@ export function recordVisible(
 }
 
 /**
+ * Another member's profile as anyone in the club may see it (AC-1.5): the id, the username and the
+ * four profile fields, picked one by one so nothing else on the account (password hash, admin
+ * flags, sign-in times, settings) can leak. `recent` must already be filtered by `recordVisible`
+ */
+export function memberProfileView(
+  user: { id: string; username: string; profile?: Profile },
+  recent: BoardSummary[],
+): MemberProfile {
+  const { displayName, level, system, bio } = user.profile ?? {}
+  return {
+    id: user.id,
+    username: user.username,
+    profile: {
+      ...(displayName && { displayName }),
+      ...(level && { level }),
+      ...(system && { system }),
+      ...(bio && { bio }),
+    },
+    recent,
+  }
+}
+
+/**
  * The table chat as one viewer sees it (AC-1.6): what members they blocked say is left out, for
  * them only; everyone else still sees it. Unblocking brings the kept messages back
  */
@@ -89,7 +132,7 @@ export function chatFor(chat: ChatMessage[], blocked: (authorId: string) => bool
 }
 
 export function seatOccupants(
-  table: Table,
+  table: Pick<Table, 'seats'>,
   user: (id: string) => PublicUser | undefined,
   isOnline: (id: string) => boolean,
 ): Record<Seat, SeatOccupant | null> {

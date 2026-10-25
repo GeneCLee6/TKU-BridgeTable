@@ -1,4 +1,4 @@
-import { Eye, EyeOff, Lock, Plus, Timer, UserPlus, Zap } from 'lucide-react'
+import { Eye, EyeOff, LayoutGrid, Lock, Plus, Timer, UserPlus, Zap } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Link, Navigate, useNavigate } from 'react-router-dom'
 import styled from 'styled-components'
@@ -12,7 +12,7 @@ import { formatDateTime } from '../lib/format.ts'
 import { useAuth } from '../state/AuthContext.tsx'
 import { SidePanel } from '../components/SidePanel.tsx'
 import { TableSettingsDialog } from '../components/TableSettingsDialog.tsx'
-import { Button, Card, Muted, PageMain, PageTitle } from '../components/ui.tsx'
+import { Button, Card, CardFooter, Muted, PageMain, PageTitle } from '../components/ui.tsx'
 import { useClub } from '../state/ClubContext.tsx'
 import { mobile } from '../styles/tokens.ts'
 import { playerName, seatLetter } from '../strings.ts'
@@ -37,12 +37,12 @@ const Layout = styled.div`
 const Toolbar = styled.div`
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 16px;
+  margin-bottom: ${({ theme }) => theme.space(6)};
 
-  & > h1 { margin: 0; }
+  & h1 { margin: 0; }
 `
 
 const Banner = styled.div`
@@ -51,11 +51,33 @@ const Banner = styled.div`
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  margin-bottom: 16px;
+  margin-bottom: ${({ theme }) => theme.space(6)};
   padding: 10px 14px;
   border-radius: ${({ theme }) => theme.radius.md};
   background: ${({ theme }) => theme.colors.primarySoft};
   font-weight: 600;
+`
+
+/** A lobby area: an 18px heading with a link or hint on the right */
+const Section = styled.section`
+  margin-bottom: ${({ theme }) => theme.space(8)};
+`
+
+const SectionHead = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 12px;
+  margin-bottom: ${({ theme }) => theme.space(3)};
+
+  & > h2 {
+    margin: 0;
+    color: ${({ theme }) => theme.colors.text};
+    font-size: ${({ theme }) => theme.type.h2.size};
+    line-height: ${({ theme }) => theme.type.h2.line};
+  }
+  & > a { color: ${({ theme }) => theme.colors.primary}; font-size: 14px; font-weight: 600; }
 `
 
 const Grid = styled.div`
@@ -66,12 +88,28 @@ const Grid = styled.div`
 
 const TileHead = styled.div`
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: 8px;
-  margin-bottom: 8px;
 
-  & > h2 { margin: 0; font-size: 18px; color: ${({ theme }) => theme.colors.primaryStrong}; }
+  & > h3 {
+    margin: 0;
+    color: ${({ theme }) => theme.colors.text};
+    font-size: ${({ theme }) => theme.type.h3.size};
+    line-height: ${({ theme }) => theme.type.h3.line};
+  }
+`
+
+/** "第 6 副" on a table in play, "等人中" in gold on one that has not started: a word, not only a colour */
+const StateTag = styled.span<{ $waiting: boolean }>`
+  padding: 2px 8px;
+  border-radius: ${({ theme }) => theme.radius.sm};
+  background: ${({ theme, $waiting }) => ($waiting ? theme.colors.accentSoft : theme.colors.primarySoft)};
+  color: ${({ theme, $waiting }) => ($waiting ? theme.colors.accentStrong : theme.colors.text)};
+  font-size: ${({ theme }) => theme.type.caption.size};
+  line-height: ${({ theme }) => theme.type.caption.line};
+  font-weight: 700;
+  white-space: nowrap;
 `
 
 const MiniTable = styled.div`
@@ -84,7 +122,7 @@ const MiniTable = styled.div`
   gap: 6px;
   align-items: center;
   justify-items: center;
-  margin: 8px 0 12px;
+  margin: 12px 0 0;
 `
 
 const MiniFelt = styled.div`
@@ -94,14 +132,20 @@ const MiniFelt = styled.div`
   border-radius: 8px;
   background: ${({ theme }) => theme.table.felt};
   color: ${({ theme }) => theme.table.feltText};
-  font-size: 13px;
+  font-size: 15px;
+  font-weight: 700;
   display: flex;
   align-items: center;
   justify-content: center;
 `
 
+/** A taken seat is solid; an empty one a dashed "+ 坐 W" outline (green stays for the felt) */
 const SeatButton = styled.button<{ $area: Seat; $taken: boolean }>`
   grid-area: ${({ $area }) => $area};
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
   width: 100%;
   min-height: 34px;
   padding: 0 6px;
@@ -109,20 +153,27 @@ const SeatButton = styled.button<{ $area: Seat; $taken: boolean }>`
   text-overflow: ellipsis;
   white-space: nowrap;
   border-radius: ${({ theme }) => theme.radius.sm};
-  border: 1px solid ${({ theme, $taken }) => ($taken ? theme.colors.border : theme.table.bidPass)};
+  border: 1px ${({ $taken }) => ($taken ? 'solid' : 'dashed')}
+    ${({ theme, $taken }) => ($taken ? theme.colors.border : theme.colors.borderStrong)};
   background: ${({ theme, $taken }) => ($taken ? theme.colors.surfaceAlt : theme.colors.surface)};
-  color: ${({ theme, $taken }) => ($taken ? theme.colors.text : theme.colors.success)};
+  color: ${({ theme, $taken }) => ($taken ? theme.colors.text : theme.colors.primary)};
   font-size: 14px;
   font-weight: 600;
+
+  &:hover:not(:disabled) { background: ${({ theme }) => theme.colors.primarySoft}; }
+  &:disabled { cursor: default; }
+  &:disabled:not([data-taken]) { opacity: 0.45; }
+  &:focus-visible {
+    outline: 2px solid ${({ theme }) => theme.colors.focus};
+    outline-offset: 2px;
+  }
 `
-
-
 
 const Tags = styled.div`
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin-bottom: 8px;
+  margin-top: 8px;
 `
 
 const Tag = styled.span`
@@ -131,10 +182,15 @@ const Tag = styled.span`
   gap: 4px;
   padding: 2px 8px;
   border-radius: ${({ theme }) => theme.radius.sm};
-  background: ${({ theme }) => theme.colors.primarySoft};
-  color: ${({ theme }) => theme.colors.primaryStrong};
-  font-size: 13px;
+  background: ${({ theme }) => theme.colors.accentSoft};
+  color: ${({ theme }) => theme.colors.accentStrong};
+  font-size: ${({ theme }) => theme.type.caption.size};
+  line-height: ${({ theme }) => theme.type.caption.line};
   font-weight: 600;
+`
+
+const TileFooter = styled(CardFooter)`
+  justify-content: space-between;
 `
 
 const SEAT_ORDER: Seat[] = ['N', 'W', 'E', 'S']
@@ -150,14 +206,14 @@ function TableTile({ table, onSit, onWatch }: { table: TableSummary; onSit: (sea
   const missing = missingSeats(table)
   // An invite table is shown to everyone, but only the invited may sit or watch (AC-2.9)
   const canWatch = table.welcome && table.settings.allowKibitz
+  const waiting = !table.boardNo
   return (
-    <Card>
+    <Card aria-label={t.tableName(table.number)}>
       <TileHead>
-        <h2>{t.tableName(table.number)}</h2>
-        <Muted>
-          {t.host}：{table.hostName}
-        </Muted>
+        <h3>{t.tableName(table.number)}</h3>
+        <StateTag $waiting={waiting}>{waiting ? t.waitingTag : t.boardNo(table.boardNo!)}</StateTag>
       </TileHead>
+      <Muted>{t.hostIs(table.hostName)}</Muted>
       {(missing > 0 || table.settings.visibility === 'invite' || !table.settings.allowKibitz || table.settings.boardMinutes > 0) && (
         <Tags>
           {missing > 0 && (
@@ -195,53 +251,83 @@ function TableTile({ table, onSit, onWatch }: { table: TableSummary; onSit: (sea
               type="button"
               $area={seat}
               $taken={!!occupant}
+              data-taken={occupant ? '' : undefined}
               disabled={!!occupant || !table.welcome}
               onClick={() => onSit(seat)}
               aria-label={occupant ? `${seatLetter[seat]} ${playerName(t, occupant)}` : `${t.sit} ${seatLetter[seat]}`}
             >
-              {seatLetter[seat]} {occupant ? playerName(t, occupant) : t.sit}
+              {occupant ? (
+                `${seatLetter[seat]} ${playerName(t, occupant)}`
+              ) : (
+                <>
+                  <Plus size={14} aria-hidden />
+                  {t.sitSeat(seatLetter[seat])}
+                </>
+              )}
             </SeatButton>
           )
         })}
-        <MiniFelt>{table.boardNo ? `#${table.boardNo}` : '—'}</MiniFelt>
+        <MiniFelt aria-hidden>{table.boardNo ?? '—'}</MiniFelt>
       </MiniTable>
-      <TileHead>
+      <TileFooter>
         <Muted>
           {t.boardsPlayed(table.boardsPlayed)} · {t.spectators(table.spectators)}
         </Muted>
-        <Button type="button" $small onClick={onWatch} disabled={!canWatch}>
+        <Button type="button" $size="sm" onClick={onWatch} disabled={!canWatch}>
           <Eye size={16} aria-hidden />
           {t.watch}
         </Button>
-      </TileHead>
+      </TileFooter>
     </Card>
   )
 }
 
+/** One challenge to carry on: a lantern-gold bar on the left and how far the member got */
 const ChallengeRow = styled.li`
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 8px 12px;
-  padding: 8px 0;
-
-  & + & { border-top: 1px solid ${({ theme }) => theme.colors.border}; }
+  padding: ${({ theme }) => theme.space(3)} ${({ theme }) => theme.space(4)};
+  border: 1px solid ${({ theme }) => theme.colors.border};
+  border-left: 3px solid ${({ theme }) => theme.colors.accent};
+  border-radius: ${({ theme }) => theme.radius.md};
+  background: ${({ theme }) => theme.colors.surface};
+  box-shadow: ${({ theme }) => theme.shadow};
 `
 
-const ChallengeCard = styled(Card)`
-  margin-bottom: 16px;
+const ChallengeText = styled.div`
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+
+  & > strong { font-size: 15px; }
 `
 
-const ChallengeHead = styled.div`
+const ChallengeMeta = styled.div`
   display: flex;
-  justify-content: space-between;
-  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  color: ${({ theme }) => theme.colors.textMuted};
+  font-size: ${({ theme }) => theme.type.small.size};
+`
 
-  & > a { color: ${({ theme }) => theme.colors.primary}; font-weight: 600; }
+const Progress = styled.span`
+  display: inline-block;
+  width: 72px;
+  height: 4px;
+  overflow: hidden;
+  border-radius: ${({ theme }) => theme.radius.pill};
+  background: ${({ theme }) => theme.colors.surfaceAlt};
+
+  & > span { display: block; height: 100%; background: ${({ theme }) => theme.colors.primary}; }
 `
 
 const ChallengeRows = styled.ul`
+  display: grid;
+  gap: ${({ theme }) => theme.space(2)};
   list-style: none;
   margin: 0;
   padding: 0;
@@ -271,29 +357,67 @@ function MyChallenges({ refresh, onPlay }: { refresh: unknown; onPlay: (id: stri
   const open = fetched.challenges.filter((c) => playable(c, user.id, fetched.at))
   if (!open.length) return null
   return (
-    <ChallengeCard as="section" aria-label={t.myChallenges}>
-      <ChallengeHead>
-        <strong>{t.myChallenges}</strong>
+    <Section aria-labelledby="lobby-challenges">
+      <SectionHead>
+        <h2 id="lobby-challenges">{t.myChallenges}</h2>
         <Link to="/challenges">{t.allChallenges}</Link>
-      </ChallengeHead>
+      </SectionHead>
       <ChallengeRows>
         {open.map((c) => {
           const me = c.players.find((p) => p.userId === user.id)!
           const creator = c.players.find((p) => p.userId === c.creatorId)?.user?.username ?? '—'
           return (
             <ChallengeRow key={c.id}>
-              <span>
-                {t.challengeBy(creator)} · {t.challengeProgress(me.played, c.boards)} ·{' '}
-                <Muted as="span">{t.challengeDeadline(formatDateTime(c.deadline, lang))}</Muted>
-              </span>
-              <Button type="button" $small $variant="primary" onClick={() => onPlay(c.id)}>
+              <ChallengeText>
+                <strong>{t.challengeBy(creator)}</strong>
+                <ChallengeMeta>
+                  <Progress aria-hidden>
+                    <span style={{ width: `${Math.round((100 * me.played) / Math.max(1, c.boards))}%` }} />
+                  </Progress>
+                  <span>{t.challengeProgress(me.played, c.boards)}</span>
+                  <span>{t.challengeDeadline(formatDateTime(c.deadline, lang))}</span>
+                </ChallengeMeta>
+              </ChallengeText>
+              <Button type="button" $size="sm" onClick={() => onPlay(c.id)}>
                 {me.startedAt !== undefined ? t.resumeChallenge : t.startChallenge}
               </Button>
             </ChallengeRow>
           )
         })}
       </ChallengeRows>
-    </ChallengeCard>
+    </Section>
+  )
+}
+
+const EmptyCard = styled(Card)`
+  display: grid;
+  justify-items: center;
+  gap: ${({ theme }) => theme.space(3)};
+  padding: ${({ theme }) => theme.space(12)} ${({ theme }) => theme.space(4)};
+  text-align: center;
+
+  & > svg { color: ${({ theme }) => theme.colors.borderStrong}; }
+`
+
+const SkeletonTile = styled.div`
+  height: 260px;
+  border-radius: ${({ theme }) => theme.radius.lg};
+  background: ${({ theme }) => theme.colors.surfaceAlt};
+`
+
+/** Before the lobby arrives: grey blocks the size of the real page; after ten seconds, a word (DESIGN.md §7.6) */
+function LobbySkeleton({ slow }: { slow: boolean }) {
+  const t = useT()
+  return (
+    <PageMain aria-busy="true" aria-label={t.loading}>
+      <PageTitle>{t.lobbyTitle}</PageTitle>
+      {slow && <Muted role="status">{t.slowLoading}</Muted>}
+      <Grid style={{ marginTop: 24 }}>
+        <SkeletonTile />
+        <SkeletonTile />
+        <SkeletonTile />
+      </Grid>
+    </PageMain>
   )
 }
 
@@ -305,8 +429,15 @@ export function LobbyPage() {
   // After creating a table or taking a seat, follow the server to the table it puts us at
   const [follow, setFollow] = useState<{ to?: string; from: string | null } | null>(null)
   const [opening, setOpening] = useState(false)
+  // Still connecting after ten seconds: say so (DESIGN.md §7.6)
+  const [slowConnect, setSlowConnect] = useState(false)
+  useEffect(() => {
+    if (lobby) return
+    const timer = setTimeout(() => setSlowConnect(true), 10_000)
+    return () => clearTimeout(timer)
+  }, [lobby])
 
-  if (!lobby) return <PageMain>{status === 'open' ? t.loading : t.connecting}</PageMain>
+  if (!lobby) return <LobbySkeleton slow={status !== 'open' && slowConnect} />
   const here = lobby.myTableId
   const myTable = lobby.tables.find((x) => x.id === here)
   if (follow && here && (follow.to ? here === follow.to : here !== follow.from))
@@ -316,7 +447,10 @@ export function LobbyPage() {
     <Layout>
       <PageMain>
         <Toolbar>
-          <PageTitle>{t.lobbyTitle}</PageTitle>
+          <div>
+            <PageTitle>{t.lobbyTitle}</PageTitle>
+            <Muted>{t.lobbySummary(lobby.tables.length, lobby.members.filter((m) => m.online).length)}</Muted>
+          </div>
           <Actions>
             <Button
               type="button"
@@ -365,11 +499,20 @@ export function LobbyPage() {
             send({ type: 'playChallenge', challengeId })
           }}
         />
-        <section aria-label={t.tables}>
+        <Section aria-labelledby="lobby-tables">
+          <SectionHead>
+            <h2 id="lobby-tables">{t.tables}</h2>
+            {lobby.tables.length > 0 && <Muted as="span">{t.lobbyTablesHint}</Muted>}
+          </SectionHead>
           {lobby.tables.length === 0 ? (
-            <Card>
-              <Muted>{t.noTables}</Muted>
-            </Card>
+            <EmptyCard>
+              <LayoutGrid size={40} aria-hidden />
+              <Muted>{t.noTablesShort}</Muted>
+              <Button type="button" $size="sm" onClick={() => setOpening(true)}>
+                <Plus size={16} aria-hidden />
+                {t.newTable}
+              </Button>
+            </EmptyCard>
           ) : (
             <Grid>
               {lobby.tables.map((table) => (
@@ -385,7 +528,7 @@ export function LobbyPage() {
               ))}
             </Grid>
           )}
-        </section>
+        </Section>
       </PageMain>
       <SidePanel tabs={['people', 'messages', 'history']} page="lobby" initial="people" />
     </Layout>

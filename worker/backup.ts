@@ -6,7 +6,7 @@ import type { Store } from './store.ts'
  * repo's e11-t12). A cron trigger (wrangler.jsonc `triggers.crons`) calls `Club.backup()`, which
  * exports every key under BACKUP_PREFIXES as one JSON Lines object `daily/<date>.jsonl` and then
  * deletes the daily objects older than BACKUP_KEEP_DAYS. Admins list, run and restore backups at
- * /api/admin/backups (DEPLOY.md §4.3 has the restore steps and the drill).
+ * /api/admin/backups (DEPLOY.md §4.4 has the restore steps and the drill).
  *
  * Format: the first line is the header (`BackupHeader`), then one `{"k": key, "v": value}` line per
  * key, sorted by key. Values are stored exactly as the Durable Object holds them, so `bookpart:`

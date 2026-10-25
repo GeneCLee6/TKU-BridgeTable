@@ -10,7 +10,7 @@ import { createTheme, type DeckColors, type ThemeMode } from '../styles/tokens.t
  * are drawn as card faces or as text (♠ A K Q, BBO's text style), table sounds, and whether a
  * board record's replay greys out the cards already played (BBO's Handviewer) or takes them out of
  * the hands, whether a call or a card must be confirmed before it is sent (BBO's "confirm bids" and
- * "confirm cards"), and how large the cards are drawn. Remembered in localStorage when it is
+ * "confirm cards"), how large the cards are drawn, and whether the table tour has been seen. Remembered in localStorage when it is
  * available.
  */
 
@@ -28,6 +28,8 @@ interface Prefs {
   confirmCalls: boolean
   confirmPlays: boolean
   cardSize: CardSize
+  /** The table tour has been seen (or skipped); "My account" can show it again (e3-t34) */
+  tableTourSeen: boolean
 }
 
 interface Preferences extends Prefs {
@@ -91,6 +93,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
       confirmCalls: stored.confirmCalls === true,
       confirmPlays: stored.confirmPlays === true,
       cardSize: isCardSize(stored.cardSize) ? stored.cardSize : 'medium',
+      tableTourSeen: stored.tableTourSeen === true,
     }
   })
 
