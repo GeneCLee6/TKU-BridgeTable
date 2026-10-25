@@ -453,6 +453,30 @@ describe('progress and coming back (e7-t12)', () => {
     await playAll(amy)
     expect(club.challenges.get(id)!.results.filter((r) => r.userId === amy)).toHaveLength(4)
   })
+
+  it('a challenge table saved before tables ran on their own (§5.10) loads and plays on', async () => {
+    const { amy, id } = await challenge({ robotKind: 'gib' })
+    await play(amy, id)
+    await playBoard(amy)
+    const tableId = view(amy)!.id
+    // What the earlier version saved: no names or blocks, and only the challenge's id in the mode state
+    const saved = (await store.get<Record<string, unknown> & { modeState: Record<string, unknown> }>(`table:${tableId}`))!
+    const { names: _names, blocks: _blocks, ...rest } = saved
+    const { challengeId, userId, seq, parkedSeat } = saved.modeState
+    await store.put(`table:${tableId}`, { ...rest, modeState: { challengeId, userId, seq, parkedSeat } })
+    queue = []
+    club = newClub()
+    await club.load()
+    const upgraded = (await store.get<{ modeState: Record<string, unknown>; names: Record<string, string> }>(`table:${tableId}`))!
+    expect(upgraded.modeState).toMatchObject({ deadline: club.challenges.get(id)!.deadline, played: [1], robotKind: 'gib' })
+    expect(upgraded.names[amy]).toBe('amy')
+    connections.inbox.set(amy, [])
+    club.connected(amy)
+    await tick()
+    expect(view(amy)!.challenge).toMatchObject({ seq: 1, played: 1 })
+    await playAll(amy)
+    expect(club.challenges.get(id)!.results.filter((r) => r.userId === amy)).toHaveLength(4)
+  })
 })
 
 describe('the same robots for everyone (e7-t09)', () => {

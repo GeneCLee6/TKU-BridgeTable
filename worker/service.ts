@@ -1,37 +1,16 @@
-import { isCall } from '../shared/auction.ts'
 import { secureRandomInt, type RandomInt } from '../shared/board.ts'
-import { isCard, isSeat, partnerOf, sameSide, SEATS, type Seat } from '../shared/cards.ts'
+import { isSeat, SEATS, type Seat } from '../shared/cards.ts'
+import { AppError, type MessageCode } from '../shared/messages.ts'
 import {
-  claimApprovers,
-  controllerOf,
-  dummyOf,
-  legalCards,
-  makeCall,
-  makeClaim,
-  newBoard,
-  playCard,
-  remainingCards,
-  respondToClaim,
-  turnOf,
-  undoFor,
-  type BoardState,
-} from '../shared/game.ts'
-import { AppError, type MessageCode, type MessageParams } from '../shared/messages.ts'
-import {
-  DEAL_COUNTDOWN_MS,
   DEFAULT_TABLE_SETTINGS,
   HISTORY_PAGE_SIZES,
   isPermission,
   isRobotId,
-  LAST_TRICK_MS,
+  isTableAction,
   LIMITS,
   parseTableSettings,
   PERMISSIONS,
-  isRobotKind,
   robotId,
-  robotKindOf,
-  SLOW_TURN_MS,
-  SUBSTITUTE_MS,
   summarize,
   USERNAME_PATTERN,
   type AdminUser,
@@ -53,14 +32,10 @@ import {
   type RobotKind,
   type ServerMessage,
   type Site,
-  type TableSettings,
-  type TableChallenge,
+  type TableAction,
   type TableSummary,
-  type TableView,
-  type TableWire,
 } from '../shared/protocol.ts'
-import { ruleBrain, type RobotBrain } from '../shared/robot/brain.ts'
-import type { RobotBid } from '../shared/robot/robots.ts'
+import type { RobotBrain } from '../shared/robot/brain.ts'
 import { hashPassword, randomId, SESSION_DAYS, verifyPassword } from './auth.ts'
 import { checkFavorite } from '../shared/favorites.ts'
 import { DEFAULT_HISTORY_QUERY, type HistoryQuery } from '../shared/history-query.ts'
@@ -94,11 +69,19 @@ import {
   type ChallengeChange,
 } from './challenge-flow.ts'
 import { ChallengeStore, type Challenge, type ChallengeResult } from './challenges.ts'
+import { ClubError } from './errors.ts'
 import { FeaturedService } from './featured.ts'
 import { TeamMatchService } from './team-match-service.ts'
 import { TeamMatchStore } from './team-matches.ts'
 import { createHistoryIndex, eventBoards, indexRecord, revealEvent, searchBoards, unindexRecord } from './history-index.ts'
-import { challengeStateOf, modeOf, nextSeq, playedSeqs, type ChallengeTableState, type ModeContext } from './modes.ts'
+import {
+  challengeSnapshot,
+  challengeStateOf,
+  nextSeq,
+  playedSeqs,
+  type ChallengeTableState,
+  type EventReport,
+} from './modes.ts'
 import { DirectMessageStore } from './direct-messages.ts'
 import {
   countFavorites,
@@ -113,6 +96,8 @@ import {
 import { NotificationService } from './notifications.ts'
 import { Relations } from './relations.ts'
 import { AlarmQueue, manualScheduler, type JobKind, type Scheduler } from './scheduler.ts'
+import { LocalTables, ROBOT_NAME, robotUser, TableService, type TableConfig, type TableStore } from './table-service.ts'
+import type { ClubLink, Person, TableEntry } from './tables.ts'
 import { nextWeeklyRun, WEEKLY_KEY, type WeeklyState } from './weekly-challenge.ts'
 import type { Store } from './store.ts'
 import { parseClientMessage } from '../shared/message-guard.ts'
@@ -137,23 +122,16 @@ import {
   TokenBuckets,
 } from './rate-limit.ts'
 import {
-  boardView,
   challengeBoardVisible,
   challengeTraveller,
   challengeView,
-  chatFor,
   memberProfileView,
   recordVisible,
   seatOccupants,
   type Table,
 } from './views.ts'
 
-/** An error shown to the user; the code is translated in the browser */
-export class ClubError extends AppError {
-  constructor(code: MessageCode, params: MessageParams = {}, status = 400) {
-    super(code, params, status)
-  }
-}
+export { ClubError } from './errors.ts'
 
 interface StoredUser {
   id: string
@@ -217,37 +195,21 @@ export interface ClubConfig {
 
 export type ScheduleKind = JobKind
 
-const CHAT_KEEP = 100
-/** Boards a table keeps for its History panel */
-const RECENT_KEEP = 30
 /** 2: history indexes in KV (`hist:`, `uhist:`); 3: the SQL history index as well */
 const SCHEMA = 3
 /** Boards indexed per step of the backfill; the position is saved after each step */
 const BACKFILL_BATCH = 100
-/**
- * How long robots wait before acting, so people can follow the play: a card glides to the middle
- * for 1.3 s, and a finished trick stays on the table until its winner leads again
- */
-const ROBOT_DELAY = { call: 800, card: 1400, afterTrick: 3000, answer: 400 }
-const ROBOT_NAME = 'Robot'
-/** The most a robot brain may think per action before the rule robot answers instead (AC-6.5) */
-const THINK_LIMIT_MS = 2000
-
-/** A robot's move, once its brain has answered */
-interface RobotAnswer {
-  message: ClientMessage
-  meaning?: RobotBid['meaning']
-}
-
-/** A table's settings; a field saved by an older version (a robot level) is dropped */
-function settingsOf(table: Table): TableSettings {
-  const { visibility, allowKibitz, boardMinutes } = { ...DEFAULT_TABLE_SETTINGS, ...table.settings }
-  return { visibility, allowKibitz, boardMinutes }
-}
+/** How many closed tables the club remembers, to drop their reports that arrive late (§5.10) */
+const CLOSED_KEPT = 200
+/** The table actions only the host may take: outside any table they are `notAtTable`, not `notSeated` */
+const HOST_ACTIONS = new Set<string>(['kick', 'addRobot', 'removeRobot', 'replaceWithRobot'])
 
 /**
- * Accounts, tables and boards for one bridge club. All state lives in memory and every change is
+ * Accounts, the lobby and boards for one bridge club. All state lives in memory and every change is
  * written through to the store, so the Durable Object can be evicted and reloaded at any time.
+ *
+ * Each table runs on its own (`TableService`, ARCHITECTURE.md §5.10): the club keeps a directory of
+ * them (`TableEntry`), moves people between them and keeps the boards they finish.
  *
  * History is kept as one key per board (`board:<id>`) plus two small, time-ordered indexes of
  * summaries (`hist:` for everyone, `uhist:<userId>:` per member), so listing a page of history
@@ -262,30 +224,29 @@ export type ChallengeRequest = Extract<
 export class ClubService {
   private users = new Map<string, StoredUser>()
   private applications = new Map<string, StoredApplication>()
-  private tables = new Map<string, Table>()
+  /** Every table as it last reported (§5.10): the lobby and moving between tables read only this */
+  private readonly directory = new Map<string, TableEntry>()
+  /** Tables that closed lately, so a report of theirs that arrives late is dropped */
+  private readonly closedTables = new Set<string>()
+  /** The tables themselves, each running on its own (here in one process: `LocalTables`) */
+  readonly tables: LocalTables
+  /** Club actions under way that may change several tables; the lobby goes out when they end */
+  private busy = 0
   private settings: Partial<ClubSettings> = {}
   private readonly store: Store
   private readonly connections: Connections
   private readonly config: ClubConfig
   private readonly now: () => number
   private readonly random: RandomInt
-  private readonly brain: RobotBrain
-  /** Tables whose robot is thinking; nothing else is scheduled for them until it answers */
-  private readonly thinking = new Set<string>()
-  /** Since when each seated member who dropped offline has been away, for their robot substitute (代打) */
-  private readonly offlineSince = new Map<string, number>()
-  /** Robot moves and the next deal of every table, keyed `robot:<tableId>` and `deal:<tableId>` */
+  /** Jobs: every table's robot moves, deals and substitutes, challenge deadlines, the weekly challenge */
   private readonly scheduler: Scheduler
   /** The scheduler, when it is the alarm queue (not the tests' manual one) */
   private readonly queue?: AlarmQueue
   /**
    * What each member was last sent (as JSON), so an update that changes nothing for them is not
-   * sent at all, and the chat and recent boards only go out when they change
+   * sent at all. `table` is the id of the table they were last at, or `null` once told they are at none
    */
-  private readonly sent = new Map<
-    string,
-    { lobby?: string; table?: string; chat?: string; recent?: string; notifications?: string; directs?: string }
-  >()
+  private readonly sent = new Map<string, { lobby?: string; table?: string; notifications?: string; directs?: string }>()
   /** The notification centre; other parts of the club call `notifications.notify` */
   readonly notifications: NotificationService
   /** Whom each member follows (好友) and whom they blocked (AC-1.6) */
@@ -326,7 +287,6 @@ export class ClubService {
     this.loginByAddress = new FailureWindow(LOGIN_FAILURES_PER_ADDRESS, LOGIN_WINDOW_MS, this.now)
     this.clientErrorLimit = new TokenBuckets(CLIENT_ERROR_BURST, CLIENT_ERRORS_PER_SECOND, this.now)
     this.random = config.random ?? secureRandomInt
-    this.brain = config.brain ?? ruleBrain
     this.notifications = new NotificationService(store, this.now, (userId) => void this.pushNotifications(userId))
     this.friends = new Relations(store, 'friend', this.now)
     this.blocks = new Relations(store, 'block', this.now)
@@ -356,6 +316,24 @@ export class ClubService {
       const wake = config.wake ?? ((at: number) => void setTimeout(() => void this.runDue(), Math.max(0, at - this.now())))
       this.scheduler = this.queue = new AlarmQueue(this.now, wake)
     }
+    // H1a (§5.10): the tables run in this same object, kept in its storage as `table:<id>`
+    const link: ClubLink = {
+      changed: (entry) => this.applyEntry(entry),
+      closed: (tableId) => this.tableClosed(tableId),
+      boardFinished: (record, event) => this.boardFinished(record, event),
+    }
+    const tableStore: TableStore = {
+      save: (table) => store.put(`table:${table.id}`, table),
+      remove: (tableId) => store.delete(`table:${tableId}`),
+    }
+    const tableConfig: TableConfig = {
+      now: this.now,
+      random: this.random,
+      brain: config.brain,
+      thinkLimitMs: config.thinkLimitMs,
+      scheduler: this.scheduler,
+    }
+    this.tables = new LocalTables((id) => new TableService(id, tableStore, connections, link, tableConfig))
   }
 
   /** Runs the robot moves and deals that are due (the Durable Object's alarm) */
@@ -367,7 +345,6 @@ export class ClubService {
     for (const user of (await this.store.list<StoredUser>('user:')).values()) this.users.set(user.id, user)
     for (const application of (await this.store.list<StoredApplication>('app:')).values())
       this.applications.set(application.id, application)
-    for (const table of (await this.store.list<Table>('table:')).values()) this.tables.set(table.id, table)
     await this.friends.load()
     await this.blocks.load()
     this.settings = (await this.store.get<Partial<ClubSettings>>('meta:settings')) ?? {}
@@ -379,16 +356,14 @@ export class ClubService {
     if (schema < 2) await this.migrate()
     if (schema < 3) await this.backfillIndex()
     await this.ensureAdmin()
-    const online = this.connections.onlineUserIds()
-    for (const table of this.tables.values()) {
-      this.scheduleRobots(table)
-      this.scheduleDeal(table)
-      // Who was away before the object was evicted is counted as away from now
-      for (const seat of SEATS) {
-        const id = table.seats[seat]
-        if (id && !isRobotId(id) && !online.includes(id) && table.mode !== 'challenge') this.awayFrom(id, this.now())
+    // Each table takes its state back and schedules its own jobs (jobs are not stored)
+    await this.batch(async () => {
+      for (const stored of (await this.store.list<Table>('table:')).values()) {
+        const table = this.upgradeTable(stored)
+        if (table !== stored) await this.store.put(`table:${table.id}`, table)
+        this.applyEntry(await this.tables.get(table.id).restore(table))
       }
-    }
+    })
     // Jobs are not stored: each open challenge's reminder or deadline is scheduled again
     for (const id of this.challenges.openIds()) this.scheduleChallenge(id)
     this.weekly = (await this.store.get<WeeklyState>(WEEKLY_KEY)) ?? null
@@ -799,22 +774,23 @@ export class ClubService {
   async adminDeleteUser(actorId: string, userId: string) {
     if (actorId === userId) throw new ClubError('notSelf')
     const user = this.requireUser(userId)
-    await this.leave(user.id)
-    // Their challenges forget them, so their parked challenge tables go too
-    for (const table of [...this.tables.values()]) {
-      if (challengeStateOf(table)?.userId === user.id) {
-        await this.dropTable(table)
-        continue
+    await this.batch(async () => {
+      await this.leave(user.id)
+      // Their challenges forget them, so their parked challenge tables go too; invitations and
+      // robot substitutes for them are forgotten (the robot stays in the seat)
+      for (const entry of [...this.directory.values()]) {
+        const involved =
+          entry.challenge?.userId === user.id ||
+          entry.invited.includes(user.id) ||
+          Object.values(entry.substitutes).includes(user.id)
+        if (involved) this.applyResult(entry.id, await this.tables.get(entry.id).forget(user.id))
       }
-      // Invitations and robot substitutes for them are forgotten; the robot stays in the seat
-      const invited = table.invited?.filter((id) => id !== user.id)
-      const seat = this.substituteSeat(table, user.id)
-      if (invited?.length === table.invited?.length && !seat) continue
-      if (table.invited) table.invited = invited
-      if (seat) delete table.substitutes![seat]
-      await this.save(table)
-    }
-    this.offlineSince.delete(user.id)
+      await this.dropMember(user)
+    })
+    this.broadcast()
+  }
+
+  private async dropMember(user: StoredUser) {
     this.users.delete(user.id)
     await this.store.delete(`user:${user.id}`)
     await this.revokeSessions(user.id)
@@ -831,7 +807,6 @@ export class ClubService {
     // A match they host that has not started is cancelled; their seats are emptied (§5.7)
     this.matches.store.forget(user.id, this.now())
     this.connections.disconnect(user.id)
-    this.broadcast()
   }
 
   async adminUpdateSettings(update: Partial<ClubSettings>) {
@@ -849,9 +824,8 @@ export class ClubService {
   }
 
   async adminCloseTable(tableId: string) {
-    const table = this.requireTable(tableId)
-    this.tables.delete(table.id)
-    await this.store.delete(`table:${table.id}`)
+    const entry = this.requireEntry(tableId)
+    await this.batch(() => this.closeTable(entry.id))
     this.broadcast()
   }
 
@@ -1013,8 +987,10 @@ export class ClubService {
     // A new socket starts with nothing: send it everything
     this.sent.delete(userId)
     this.connections.send(userId, { type: 'welcome', me: this.me(user) })
-    this.offlineSince.delete(userId)
-    void this.takeBackSeat(userId)
+    // Their table sends them everything again, and stops waiting to seat a robot for them
+    const entry = this.entryOf(userId)
+    if (entry) void this.tables.get(entry.id).presence(userId, true)
+    void this.reclaimSeats(userId)
     this.broadcast()
     void this.pushNotifications(userId)
     this.pushDirects(userId)
@@ -1112,19 +1088,22 @@ export class ClubService {
   async disconnected(userId: string) {
     this.sent.delete(userId)
     this.present.delete(userId)
-    const table = this.tableOf(userId)
-    if (table && table.spectators.includes(userId)) {
-      table.spectators = table.spectators.filter((id) => id !== userId)
-      this.checkHost(table)
-      await this.saveOrDrop(table)
-    } else if (table) {
-      this.checkHost(table)
-      await this.save(table)
-      // Away for SUBSTITUTE_MS, TKB plays for them until they come back (代打)
-      if (table.mode !== 'challenge') this.awayFrom(userId, this.now())
+    // Their table decides: a spectator leaves, a seated player keeps the seat for a while (代打)
+    const entry = this.entryOf(userId)
+    if (entry) {
+      const table = this.tables.get(entry.id)
+      this.applyResult(entry.id, await this.batch(() => table.presence(userId, false)))
     }
     this.broadcast()
     this.matches.presence(userId)
+  }
+
+  /** A member back online takes their seat back from the robot sitting in for them (代打) */
+  private async reclaimSeats(userId: string) {
+    for (const entry of [...this.directory.values()]) {
+      if (!Object.values(entry.substitutes).includes(userId)) continue
+      this.applyResult(entry.id, await this.tables.get(entry.id).reclaim(userId, !this.entryOf(userId)))
+    }
   }
 
   /**
@@ -1165,14 +1144,14 @@ export class ClubService {
 
   /** `GET /api/health`: the club loaded and answers; counts only, nothing about who */
   health() {
-    return { ok: true, now: this.now(), tables: this.tables.size, online: this.connections.onlineUserIds().length }
+    return { ok: true, now: this.now(), tables: this.directory.size, online: this.connections.onlineUserIds().length }
   }
 
   async handle(userId: string, message: ClientMessage) {
     const started = this.now()
     const type = typeof message?.type === 'string' ? message.type : '?'
     try {
-      await this.dispatch(userId, message)
+      await this.batch(() => this.dispatch(userId, message))
     } catch (error) {
       if (error instanceof AppError) {
         this.log({ event: 'action', type, user: userId, ms: this.now() - started, code: error.code })
@@ -1182,9 +1161,20 @@ export class ClubService {
       throw error
     }
     this.broadcast()
-    const table = this.tableOf(userId)
-    if (table) this.scheduleRobots(table)
     this.log({ event: 'action', type, user: userId, ms: this.now() - started })
+  }
+
+  /**
+   * Runs a club action that may change several tables: the lobby goes out once, when it ends (the
+   * caller broadcasts), not after every table's report
+   */
+  private async batch<T>(run: () => Promise<T>): Promise<T> {
+    this.busy++
+    try {
+      return await run()
+    } finally {
+      this.busy--
+    }
   }
 
   private async dispatch(userId: string, message: ClientMessage) {
@@ -1197,24 +1187,12 @@ export class ClubService {
       case 'quickSeat':
         return this.quickSeat(userId)
       case 'joinTable':
-        return this.joinTable(userId, this.requireTable(message.tableId))
+        return this.joinTable(userId, this.requireEntry(message.tableId))
       case 'sit':
         if (!isSeat(message.seat)) throw new ClubError('badSeat')
-        return this.sit(userId, this.requireTable(message.tableId), message.seat)
-      case 'stand':
-        return this.stand(userId)
+        return this.sit(userId, this.requireEntry(message.tableId), message.seat)
       case 'leaveTable':
         return this.leave(userId)
-      case 'kick':
-        return this.kick(userId, message.seat)
-      case 'addRobot':
-        return this.addRobot(userId, message.seat, message.kind)
-      case 'removeRobot':
-        return this.removeRobot(userId, message.seat)
-      case 'replaceWithRobot':
-        return this.replaceWithRobot(userId, message.seat, message.kind)
-      case 'chat':
-        return this.chat(userId, message.text)
       case 'readNotifications': {
         const ids = message.ids
         if (ids !== undefined && !(Array.isArray(ids) && ids.every((id) => typeof id === 'string')))
@@ -1248,14 +1226,9 @@ export class ClubService {
       case 'matchRobot':
         await this.matches.act(userId, message)
         return
-      case 'call':
-      case 'play':
-      case 'claim':
-      case 'claimRespond':
-      case 'undoRequest':
-      case 'undoRespond':
-        return this.boardAction(userId, message)
       default:
+        // Bidding, play, chat and the host's seat changes belong to the member's table (§5.10)
+        if (isTableAction(message)) return this.tableAction(userId, message)
         throw new ClubError('unknownCommand')
     }
   }
@@ -1286,22 +1259,25 @@ export class ClubService {
     if (typeof blocked !== 'boolean') throw new ClubError('unknownCommand')
     await this.blocks.set(userId, other, blocked)
     if (blocked) await this.friends.set(userId, other, false)
+    // The chat they see at their table changes at once
+    const entry = this.entryOf(userId)
+    if (entry) await this.tables.get(entry.id).blocked(userId, this.blocks.of(userId))
   }
 
   /**
    * A member the host blocked may not join the table, to sit or to watch; at an invite table only
    * the invited may (`e2-t25`)
    */
-  private checkWelcome(userId: string, table: Table) {
+  private checkWelcome(userId: string, table: TableEntry) {
     if (this.blocks.has(table.hostId, userId)) throw new ClubError('blockedByHost', {}, 403)
     if (!this.invitedTo(userId, table)) throw new ClubError('notInvited', {}, 403)
   }
 
   /** Whether a member may come to a table as far as invitations go: any public one, an invite one when invited or already there */
-  private invitedTo(userId: string, table: Table): boolean {
+  private invitedTo(userId: string, table: TableEntry): boolean {
     if (table.mode === 'challenge') return false
-    if (settingsOf(table).visibility === 'public' || table.hostId === userId) return true
-    return !!table.invited?.includes(userId) || this.tableOf(userId) === table
+    if (table.settings.visibility === 'public' || table.hostId === userId) return true
+    return table.invited.includes(userId) || this.entryOf(userId)?.id === table.id
   }
 
   // ── Challenges (§5.5) ───────────────────────────────────────────────────────────────────────
@@ -1597,12 +1573,9 @@ export class ClubService {
    * records' `revealAt` and `boards_index.reveal_at` are brought forward to the end
    */
   private async challengeEnded(challenge: Challenge) {
-    for (const table of [...this.tables.values()]) {
-      const state = challengeStateOf(table)
-      if (state?.challengeId !== challenge.id) continue
-      const done = nextSeq(challenge, state.userId) === null && table.board?.phase === 'finished'
-      if (done && this.humansSeated(table) > 0) continue
-      await this.dropTable(table)
+    for (const entry of [...this.directory.values()]) {
+      if (entry.challenge?.challengeId !== challenge.id) continue
+      this.applyResult(entry.id, await this.tables.get(entry.id).challengeEnded())
     }
     const now = this.now()
     for (const boardId of revealEvent(this.store.sql, challenge.id, now)) {
@@ -1710,11 +1683,8 @@ export class ClubService {
   // ── Challenge tables (§5.5, e7-t08, e7-t12) ─────────────────────────────────────────────────
 
   /** A participant's table for a challenge, at it or parked */
-  private challengeTable(challengeId: string, userId: string): Table | undefined {
-    return [...this.tables.values()].find((t) => {
-      const state = challengeStateOf(t)
-      return state?.challengeId === challengeId && state.userId === userId
-    })
+  private challengeEntry(challengeId: string, userId: string): TableEntry | undefined {
+    return [...this.directory.values()].find((t) => t.challenge?.challengeId === challengeId && t.challenge.userId === userId)
   }
 
   /**
@@ -1729,26 +1699,22 @@ export class ClubService {
     const challenge = this.requireChallenge(challengeId)
     const player = challenge.players.find((p) => p.userId === userId)
     if (!player) throw new ClubError('challengeGone', {}, 404)
-    const existing = this.challengeTable(challenge.id, userId)
+    const existing = this.challengeEntry(challenge.id, userId)
+    const atIt = !!existing && this.entryOf(userId)?.id === existing.id
     if (!challengeTakesPart(challenge, this.now())) {
-      if (existing && this.tableOf(userId) !== existing) await this.dropTable(existing)
+      if (existing && !atIt) await this.closeTable(existing.id)
       throw new ClubError('challengeClosed')
     }
     if (player.status !== 'accepted') throw new ClubError('challengeNotAccepted')
-    if (existing && this.tableOf(userId) === existing) return
+    if (atIt) return
     if (player.knownDeals || (!existing && nextSeq(challenge, userId) === null)) throw new ClubError('challengeDone')
     await this.leave(userId)
     if (existing) {
-      const state = challengeStateOf(existing)!
-      existing.seats[state.parkedSeat ?? 'S'] = userId
-      state.parkedSeat = undefined
-      existing.hostId = userId
-      this.startBoardIfReady(existing)
-      await this.save(existing)
+      this.applyResult(existing.id, await this.tables.get(existing.id).resume(this.person(userId)))
       return
     }
     const kind = challenge.settings.robotKind
-    const state: ChallengeTableState = { challengeId: challenge.id, userId, seq: 0 }
+    const state: ChallengeTableState = { challengeId: challenge.id, userId, seq: 0, ...challengeSnapshot(challenge, userId, this.now()) }
     const table: Table = {
       id: randomId(6),
       // Challenge tables are not in the lobby and take no number from it
@@ -1756,7 +1722,7 @@ export class ClubService {
       hostId: userId,
       seats: { N: robotId(kind, 'N'), E: robotId(kind, 'E'), S: userId, W: robotId(kind, 'W') },
       spectators: [],
-      boardsPlayed: playedSeqs(challenge, userId).size,
+      boardsPlayed: state.played.length,
       board: null,
       chat: [],
       createdAt: this.now(),
@@ -1764,71 +1730,34 @@ export class ClubService {
       modeState: state,
       dealSource: dealSourceOf(challenge.deals),
       settings: { visibility: 'invite', allowKibitz: false, boardMinutes: 0 },
+      names: { [userId]: this.users.get(userId)!.username },
+      blocks: { [userId]: this.blocks.of(userId) },
     }
-    this.tables.set(table.id, table)
-    this.startBoardIfReady(table)
-    await this.save(table)
+    // The table deals its first board as it opens
+    if (player.startedAt === undefined) this.challenges.updatePlayer(challenge.id, { ...player, startedAt: this.now() })
+    this.applyEntry(await this.tables.get(table.id).open(table))
   }
 
-  /**
-   * Whether a challenge table has nothing left to play: the challenge is gone, closed or past its
-   * deadline, or the participant finished every board and the last one is over
-   */
-  private challengeTableOver(table: Table): boolean {
-    const state = challengeStateOf(table)
-    if (!state) return false
-    const challenge = this.challenges.get(state.challengeId)
-    if (!challenge || !challengeTakesPart(challenge, this.now())) return true
-    return nextSeq(challenge, state.userId) === null && (!table.board || table.board.phase === 'finished')
+  // ── Tables (the directory, ARCHITECTURE.md §5.10) ───────────────────────────────────────────
+
+  /** The table a member is at (seated or watching), from the directory */
+  private entryOf(userId: string): TableEntry | undefined {
+    return [...this.directory.values()].find((t) => t.spectators.includes(userId) || SEATS.some((s) => t.seats[s] === userId))
   }
 
-  /** A challenge table whose challenge is gone, closed or past its deadline: nothing more is played there */
-  private challengeClosedAt(table: Table): boolean {
-    const state = challengeStateOf(table)
-    if (!state) return false
-    const challenge = this.challenges.get(state.challengeId)
-    return !challenge || !challengeTakesPart(challenge, this.now())
+  private seatIn(entry: TableEntry, userId: string): Seat | null {
+    return SEATS.find((s) => entry.seats[s] === userId) ?? null
   }
 
-  /** At a challenge table nobody watches or takes back a call or card, and seats and settings stay */
-  private checkNotChallenge(table: Table) {
-    if (table.mode === 'challenge') throw new ClubError('challengeTableFixed')
+  private requireEntry(tableId: unknown): TableEntry {
+    const entry = typeof tableId === 'string' ? this.directory.get(tableId) : undefined
+    if (!entry) throw new ClubError('tableGone', {}, 404)
+    return entry
   }
 
-  /** What a challenge table's player sees of the challenge: which board of how many, until when */
-  private tableChallenge(table: Table): TableChallenge | undefined {
-    const state = challengeStateOf(table)
-    const challenge = state && this.challenges.get(state.challengeId)
-    if (!state || !challenge) return undefined
-    return {
-      id: challenge.id,
-      seq: state.seq,
-      boards: challenge.deals.boards.length,
-      played: playedSeqs(challenge, state.userId).size,
-      deadline: challenge.deadline,
-    }
-  }
-
-  // ── Tables ──────────────────────────────────────────────────────────────────────────────────
-
-  private tableOf(userId: string): Table | undefined {
-    return [...this.tables.values()].find(
-      (t) => t.spectators.includes(userId) || SEATS.some((s) => t.seats[s] === userId),
-    )
-  }
-
-  private seatOf(table: Table, userId: string): Seat | null {
-    return SEATS.find((s) => table.seats[s] === userId) ?? null
-  }
-
-  private humansSeated(table: Table) {
-    return SEATS.filter((s) => table.seats[s] && !isRobotId(table.seats[s])).length
-  }
-
-  private requireTable(tableId: unknown): Table {
-    const table = typeof tableId === 'string' ? this.tables.get(tableId) : undefined
-    if (!table) throw new ClubError('tableGone', {}, 404)
-    return table
+  /** A member as a table needs them: name and blocks (§5.10) */
+  private person(userId: string): Person {
+    return { id: userId, username: this.users.get(userId)!.username, blocked: this.blocks.of(userId) }
   }
 
   private async createTable(userId: string, wanted?: unknown, invitees?: unknown) {
@@ -1836,9 +1765,10 @@ export class ClubService {
     if (!settings) throw new ClubError('badTableSettings')
     const invited = this.checkInvitees(userId, invitees)
     await this.leave(userId)
-    const used = new Set([...this.tables.values()].map((t) => t.number))
+    const used = new Set([...this.directory.values()].map((t) => t.number))
     let number = 1
     while (used.has(number)) number++
+    const username = this.users.get(userId)!.username
     const table: Table = {
       id: randomId(6),
       number,
@@ -1851,10 +1781,15 @@ export class ClubService {
       createdAt: this.now(),
       mode: 'casual',
       settings: { ...DEFAULT_TABLE_SETTINGS, ...settings },
+      names: { [userId]: username },
+      blocks: { [userId]: this.blocks.of(userId) },
     }
-    this.tables.set(table.id, table)
-    if (invited) await this.invite(table, userId, invited)
-    await this.save(table)
+    if (invited) {
+      table.invited = invited
+      for (const id of invited) table.names![id] = this.users.get(id)!.username
+    }
+    this.applyEntry(await this.tables.get(table.id).open(table))
+    for (const id of invited ?? []) await this.notifications.notify(id, 'tableInvited', { tableId: table.id, number, username })
   }
 
   /**
@@ -1874,675 +1809,192 @@ export class ClubService {
     return invitees as string[]
   }
 
-  /** Replaces the table's invitation list; the members newly on it are told */
-  private async invite(table: Table, hostId: string, invitees: string[]) {
-    const before = new Set(table.invited ?? [])
-    table.invited = invitees
-    const username = this.users.get(hostId)!.username
-    for (const id of invitees)
-      if (!before.has(id))
-        await this.notifications.notify(id, 'tableInvited', { tableId: table.id, number: table.number, username })
-  }
-
   /**
    * 快速入座 (`e2-t30`): the public table (or one the member is invited to) that is closest to
    * starting, in the lobby's order (`shared/lobby.ts`); when none is short of players a new table
    * opens. A member already seated somewhere keeps that seat if nothing else needs them
    */
   private async quickSeat(userId: string) {
-    const here = this.tableOf(userId)
-    const seated = !!here && !!this.seatOf(here, userId)
-    const open = [...this.tables.values()].filter(
-      (t) => t.mode !== 'challenge' && !(seated && t === here) && this.invitedTo(userId, t) && !this.blocks.has(t.hostId, userId),
+    const here = this.entryOf(userId)
+    const seated = !!here && !!this.seatIn(here, userId)
+    const open = [...this.directory.values()].filter(
+      (t) =>
+        t.mode !== 'challenge' && !(seated && t.id === here!.id) && this.invitedTo(userId, t) && !this.blocks.has(t.hostId, userId),
     )
     const choice = quickSeatChoice(open)
     if (choice) return this.sit(userId, choice.table, choice.seat)
     if (!seated) return this.createTable(userId)
   }
 
-  private async joinTable(userId: string, table: Table) {
-    if (this.tableOf(userId) === table) return
+  private async joinTable(userId: string, entry: TableEntry) {
+    if (this.entryOf(userId)?.id === entry.id) return
     // Someone else's challenge table is not there for anyone to see
-    if (table.mode === 'challenge') throw new ClubError('tableGone', {}, 404)
-    this.checkWelcome(userId, table)
+    if (entry.mode === 'challenge') throw new ClubError('tableGone', {}, 404)
+    this.checkWelcome(userId, entry)
     // A table without kibitzers takes people only into its seats (`e2-t26`)
-    if (!settingsOf(table).allowKibitz) throw new ClubError('noKibitzing', {}, 403)
+    if (!entry.settings.allowKibitz) throw new ClubError('noKibitzing', {}, 403)
     await this.leave(userId)
-    table.spectators.push(userId)
-    await this.save(table)
-  }
-
-  private async sit(userId: string, table: Table, seat: Seat) {
-    const current = this.tableOf(userId)
-    const currentSeat = current === table ? this.seatOf(table, userId) : null
-    if (currentSeat === seat) return
-    if (table.mode === 'challenge') {
-      if (current === table) this.checkNotChallenge(table)
-      throw new ClubError('tableGone', {}, 404)
-    }
-    if (current !== table) this.checkWelcome(userId, table)
-    // A person may take a robot's seat at any time, as on BBO
-    const occupant = table.seats[seat]
-    if (occupant && !isRobotId(occupant)) throw new ClubError('seatTaken')
-    if (currentSeat && table.board && table.board.phase !== 'finished') throw new ClubError('noSeatChange')
-    if (current !== table) await this.leave(userId)
-
-    table.spectators = table.spectators.filter((id) => id !== userId)
-    if (currentSeat) this.vacate(table, currentSeat)
-    // A robot sitting in for someone offline gives the seat up for good
-    if (table.substitutes?.[seat]) delete table.substitutes[seat]
-    table.seats[seat] = userId
-    this.touchTurn(table)
-    this.startBoardIfReady(table)
-    await this.save(table)
-  }
-
-  private async stand(userId: string) {
-    const table = this.tableOf(userId)
-    const seat = table && this.seatOf(table, userId)
-    if (!table || !seat) return
-    this.checkNotChallenge(table)
-    this.vacate(table, seat)
-    table.spectators.push(userId)
-    await this.save(table)
-  }
-
-  private async leave(userId: string) {
-    const table = this.tableOf(userId)
-    if (!table) return
-    const seat = this.seatOf(table, userId)
-    const challenge = challengeStateOf(table)
-    if (challenge) {
-      // Leaving a challenge table only pauses it (中途斷線視同暫停): it waits with the board as it
-      // was until they come back. One with nothing left to play closes
-      if (this.challengeTableOver(table)) return this.dropTable(table)
-      if (seat) {
-        challenge.parkedSeat = seat
-        this.vacate(table, seat)
-      }
-      return this.save(table)
-    }
-    if (seat) this.vacate(table, seat)
-    table.spectators = table.spectators.filter((id) => id !== userId)
-    this.checkHost(table)
-    await this.saveOrDrop(table)
-  }
-
-  /** Only the host runs the table: asking people to leave a seat, adding and removing robots */
-  private hostTable(userId: string) {
-    const table = this.tableOf(userId)
-    if (!table) throw new ClubError('notAtTable')
-    if (table.hostId !== userId) throw new ClubError('hostOnly')
-    this.checkNotChallenge(table)
-    return table
+    this.applyEntry(await this.tables.get(entry.id).join(this.person(userId)))
   }
 
   /**
-   * The host is whoever opened the table; when they leave or drop offline, the first person still
-   * at the table and online takes over (a seated player before a spectator)
+   * Takes a seat. What the directory shows is checked here, before the member leaves any other
+   * table; the table checks again with its own state (§5.10)
    */
-  private checkHost(table: Table) {
-    const online = this.connections.onlineUserIds()
-    const people = [
-      ...SEATS.map((s) => table.seats[s]).filter((id): id is string => !!id && !isRobotId(id)),
-      ...table.spectators,
-    ]
-    if (people.includes(table.hostId) && online.includes(table.hostId)) return
-    const next = people.find((id) => online.includes(id))
-    if (next) table.hostId = next
+  private async sit(userId: string, entry: TableEntry, seat: Seat) {
+    const current = this.entryOf(userId)
+    const here = current?.id === entry.id
+    const currentSeat = here ? this.seatIn(entry, userId) : null
+    if (currentSeat === seat) return
+    if (entry.mode === 'challenge') {
+      if (here) throw new ClubError('challengeTableFixed')
+      throw new ClubError('tableGone', {}, 404)
+    }
+    if (!here) this.checkWelcome(userId, entry)
+    // A person may take a robot's seat at any time, as on BBO
+    const occupant = entry.seats[seat]
+    if (occupant && !isRobotId(occupant)) throw new ClubError('seatTaken')
+    if (currentSeat && entry.playing) throw new ClubError('noSeatChange')
+    if (!here) await this.leave(userId)
+    this.applyEntry(await this.tables.get(entry.id).sit(this.person(userId), seat))
+  }
+
+  private async leave(userId: string) {
+    const entry = this.entryOf(userId)
+    if (!entry) return
+    this.applyResult(entry.id, await this.tables.get(entry.id).leave(userId))
   }
 
   /** The host changes how the table is run; only the fields sent change, and the invitation list when sent */
   private async updateTableSettings(userId: string, wanted: unknown, invitees?: unknown) {
-    const table = this.hostTable(userId)
+    const entry = this.entryOf(userId)
+    if (!entry) throw new ClubError('notAtTable')
+    if (entry.hostId !== userId) throw new ClubError('hostOnly')
+    if (entry.mode === 'challenge') throw new ClubError('challengeTableFixed')
     const settings = parseTableSettings(wanted)
     if (!settings) throw new ClubError('badTableSettings')
     const invited = this.checkInvitees(userId, invitees)
-    table.settings = { ...settingsOf(table), ...settings }
-    if (invited) await this.invite(table, userId, invited)
-    await this.save(table)
+    const before = new Set(entry.invited)
+    const named = invited?.map((id) => ({ id, username: this.users.get(id)!.username }))
+    this.applyEntry(await this.tables.get(entry.id).configure(userId, settings, named))
+    const username = this.users.get(userId)!.username
+    for (const id of invited ?? [])
+      if (!before.has(id))
+        await this.notifications.notify(id, 'tableInvited', { tableId: entry.id, number: entry.number, username })
   }
 
-  /** The host may ask anyone else to leave their seat; they stay at the table, watching */
-  private async kick(userId: string, seat: unknown) {
-    const table = this.hostTable(userId)
-    if (!isSeat(seat)) throw new ClubError('badSeat')
-    const occupant = table.seats[seat]
-    if (!occupant || isRobotId(occupant)) return
-    if (occupant === userId) throw new ClubError('notSelf')
-    this.vacate(table, seat)
-    table.spectators.push(occupant)
-    await this.save(table)
+  /** A table action (bidding, play, chat, the host's seat changes): the member's own table handles it */
+  private async tableAction(userId: string, message: TableAction) {
+    const entry = this.entryOf(userId)
+    if (!entry) {
+      if (message.type === 'stand' || message.type === 'chat') return
+      if (HOST_ACTIONS.has(message.type)) throw new ClubError('notAtTable')
+      throw new ClubError('notSeated')
+    }
+    this.applyResult(entry.id, await this.tables.get(entry.id).act(userId, message))
   }
 
-  /** Seats TKB: in the club's system unless the host chose 2/1 */
-  private async addRobot(userId: string, seat: unknown, kind: unknown = 'tku') {
-    const table = this.hostTable(userId)
-    if (!isSeat(seat)) throw new ClubError('badSeat')
-    if (!isRobotKind(kind)) throw new ClubError('unknownRobot')
-    if (table.seats[seat]) throw new ClubError('seatTaken')
-    table.seats[seat] = robotId(kind, seat)
-    this.startBoardIfReady(table)
-    await this.save(table)
-  }
-
-  private async removeRobot(userId: string, seat: unknown) {
-    const table = this.hostTable(userId)
-    if (!isSeat(seat)) throw new ClubError('badSeat')
-    if (!isRobotId(table.seats[seat])) throw new ClubError('seatNotRobot')
-    this.vacate(table, seat)
-    await this.save(table)
+  /** Closes a table (an admin, a challenge closed) */
+  private async closeTable(tableId: string) {
+    await this.tables.get(tableId).close()
+    this.tableClosed(tableId)
   }
 
   /**
-   * The host asks a player who has kept the table waiting for SLOW_TURN_MS to leave their seat
-   * and seats TKB there (`e2-t28`); the player stays at the table without a seat, as after `kick`
+   * A table's report (`ClubLink.changed`, or the answer to a call): kept unless an older one than
+   * what the directory has. The lobby goes out at once, unless a club action is under way (it
+   * sends everything when it ends)
    */
-  private async replaceWithRobot(userId: string, seat: unknown, kind: unknown = 'tku') {
-    const table = this.hostTable(userId)
-    if (!isSeat(seat)) throw new ClubError('badSeat')
-    if (!isRobotKind(kind)) throw new ClubError('unknownRobot')
-    const occupant = table.seats[seat]
-    if (occupant === userId) throw new ClubError('notSelf')
-    if (!occupant || isRobotId(occupant) || this.waitingOn(table) !== seat) throw new ClubError('notSlow')
-    if (this.now() - (table.turnSince ?? 0) < SLOW_TURN_MS) throw new ClubError('notSlow')
-    this.vacate(table, seat)
-    table.seats[seat] = robotId(kind, seat)
-    table.spectators.push(occupant)
-    this.touchTurn(table)
-    await this.save(table)
+  private applyEntry(entry: TableEntry) {
+    if (this.closedTables.has(entry.id)) return
+    const known = this.directory.get(entry.id)
+    if (known && known.rev >= entry.rev) return
+    this.directory.set(entry.id, entry)
+    if (!this.busy) this.broadcast()
   }
 
-  private vacate(table: Table, seat: Seat) {
-    table.seats[seat] = null
-    if (table.undo?.seat === seat) table.undo = undefined
-    if (table.substitutes?.[seat]) delete table.substitutes[seat]
+  /** A table's answer: its entry, or null when it closed */
+  private applyResult(tableId: string, entry: TableEntry | null) {
+    if (entry) this.applyEntry(entry)
+    else this.tableClosed(tableId)
   }
 
-  /** The table starts waiting on someone anew: the reminder clock (SLOW_TURN_MS) restarts */
-  private touchTurn(table: Table) {
-    table.turnSince = this.now()
+  /** A table closed (`ClubLink.closed`) */
+  private tableClosed(tableId: string) {
+    this.closedTables.add(tableId)
+    // Only the latest ids are needed to drop a late report
+    if (this.closedTables.size > CLOSED_KEPT) this.closedTables.delete(this.closedTables.values().next().value!)
+    if (!this.directory.delete(tableId)) return
+    if (!this.busy) this.broadcast()
   }
 
   /**
-   * The seat whose person the table is waiting on for a call or card, if any: not while a claim or
-   * an undo is being answered, and never a robot's
+   * A board finished at a table (`ClubLink.boardFinished`): its record goes into the history, and
+   * a challenge board's result into the challenge (once: the same record twice changes nothing).
+   * The last board of the last participant finishes the challenge before its deadline
    */
-  private waitingOn(table: Table): Seat | null {
-    const board = table.board
-    if (!board || board.phase === 'finished' || board.claim || table.undo) return null
-    const turn = turnOf(board)
-    if (!turn) return null
-    const seat = board.phase === 'auction' ? turn : controllerOf(board, turn)
-    const id = table.seats[seat]
-    return id && !isRobotId(id) ? seat : null
-  }
-
-  // ── Robot substitutes (代打, e2-t31) ─────────────────────────────────────────────────────────
-
-  /** The seat where a robot sits in for this member at the table, if any */
-  private substituteSeat(table: Table, userId: string): Seat | undefined {
-    return SEATS.find((seat) => table.substitutes?.[seat] === userId)
-  }
-
-  /** Notes that a seated member went offline at `since` and queues the job that seats their substitute */
-  private awayFrom(userId: string, since: number) {
-    if (!this.offlineSince.has(userId)) this.offlineSince.set(userId, since)
-    const left = SUBSTITUTE_MS - (this.now() - this.offlineSince.get(userId)!)
-    this.scheduler.add(`substitute:${userId}`, 'substitute', Math.max(0, left), () => this.substituteDue(userId))
-  }
-
-  /**
-   * A member seated at a casual table has been offline SUBSTITUTE_MS: TKB takes their seat (marked
-   * 代打) so the others can play on, but only while someone else seated is online. A job left from
-   * an earlier time away only puts itself back for the rest of the wait
-   */
-  private async substituteDue(userId: string) {
-    const since = this.offlineSince.get(userId)
-    if (since === undefined || this.connections.onlineUserIds().includes(userId)) return
-    if (this.now() - since < SUBSTITUTE_MS) return this.awayFrom(userId, since)
-    const table = this.tableOf(userId)
-    const seat = table && this.seatOf(table, userId)
-    if (!table || !seat || table.mode === 'challenge') return
-    const online = this.connections.onlineUserIds()
-    if (!SEATS.some((s) => s !== seat && online.includes(table.seats[s] ?? ''))) return
-    // TKB plays the system of a robot partner, if there is one
-    const partner = table.seats[partnerOf(seat)]
-    const kind: RobotKind = partner && isRobotId(partner) ? robotKindOf(partner) : 'tku'
-    if (table.undo?.seat === seat) table.undo = undefined
-    table.seats[seat] = robotId(kind, seat)
-    table.substitutes = { ...table.substitutes, [seat]: userId }
-    if (table.board && table.board.phase !== 'finished')
-      table.boardSubstitutes = { ...table.boardSubstitutes, [seat]: userId }
-    this.offlineSince.delete(userId)
-    this.checkHost(table)
-    this.touchTurn(table)
-    await this.save(table)
-    this.broadcast()
-    this.scheduleRobots(table)
-  }
-
-  /** A member back online takes their seat back from the robot sitting in for them */
-  private async takeBackSeat(userId: string) {
-    for (const table of [...this.tables.values()]) {
-      const seat = this.substituteSeat(table, userId)
-      if (!seat) continue
-      delete table.substitutes![seat]
-      if (isRobotId(table.seats[seat]) && !this.tableOf(userId)) {
-        table.seats[seat] = userId
-        this.touchTurn(table)
-      }
-      await this.save(table)
-      this.broadcast()
-      this.scheduleRobots(table)
-    }
-  }
-
-  private async chat(userId: string, text: unknown) {
-    const table = this.tableOf(userId)
-    const clean = String(text ?? '').trim().slice(0, LIMITS.chatMax)
-    if (!table || !clean) return
-    table.chat = [
-      ...table.chat,
-      { id: randomId(6), at: this.now(), userId, username: this.users.get(userId)!.username, text: clean },
-    ].slice(-CHAT_KEEP)
-    await this.save(table)
-  }
-
-  /**
-   * Deals the first board as soon as all four seats are taken (by people or robots) and at least
-   * one person is seated. After that every board is dealt by itself, as on BBO: nobody has to
-   * press "next board". The browsers count down the last DEAL_COUNTDOWN_MS from `dealAt`.
-   */
-  private startBoardIfReady(table: Table) {
-    if (!this.canDeal(table)) return
-    if (!table.board) return this.dealBoard(table)
-    table.dealAt = Math.max(table.dealAt ?? 0, this.now() + DEAL_COUNTDOWN_MS)
-    this.scheduleDeal(table)
-  }
-
-  private canDeal(table: Table) {
-    return (
-      SEATS.every((s) => table.seats[s]) &&
-      this.humansSeated(table) > 0 &&
-      (!table.board || table.board.phase === 'finished')
-    )
-  }
-
-  private dealBoard(table: Table) {
-    const dealt = modeOf(table).deal(table, this.modeContext())
-    // The mode has no more boards: the last one stays on the table
-    if (!dealt) {
-      table.dealAt = undefined
-      return
-    }
-    // A person who declared from a robot partner's seat goes back to their own for the new board
-    this.unswap(table)
-    table.board = dealt.board ?? newBoard(dealt.boardNo, dealt.hands)
-    table.undo = undefined
-    table.rejectedClaim = undefined
-    table.recordId = undefined
-    table.dealAt = undefined
-    table.boardStartedAt = this.now()
-    // A robot still sitting in for someone plays this board for them too
-    table.boardSubstitutes = table.substitutes && { ...table.substitutes }
-    // A board dealt with its auction made (Just Declare) goes straight to the play
-    if (table.board.phase === 'play') this.swapForDeclarer(table)
-    this.touchTurn(table)
-  }
-
-  /**
-   * A person never sits out a board as dummy for a robot: when a robot partner becomes declarer,
-   * the person moves into the declarer's seat and plays the hand from there, as on BBO (the robot
-   * takes the person's seat, which is now dummy)
-   */
-  private swapForDeclarer(table: Table) {
-    const contract = table.board?.contract
-    if (!contract) return
-    const declarer = contract.declarer
-    const dummy = partnerOf(declarer)
-    const person = table.seats[dummy]
-    if (!isRobotId(table.seats[declarer]) || !person || isRobotId(person)) return
-    // The robot keeps its system in its new seat
-    const robot = table.seats[declarer]!
-    table.seats[declarer] = person
-    table.seats[dummy] = robotId(robotKindOf(robot), dummy)
-    table.swapped = [declarer, dummy]
-    this.moveSubstitute(table, declarer, dummy)
-  }
-
-  /** A robot sitting in for someone (代打) moved seats: the note goes with it */
-  private moveSubstitute(table: Table, from: Seat, to: Seat) {
-    const forWhom = table.substitutes?.[from]
-    if (!forWhom) return
-    delete table.substitutes![from]
-    table.substitutes![to] = forWhom
-    if (table.boardSubstitutes?.[from] === forWhom) {
-      delete table.boardSubstitutes[from]
-      table.boardSubstitutes[to] = forWhom
-    }
-  }
-
-  /** The seat a player bid from: a person moved into a robot partner's declaring seat bid from dummy's */
-  private auctionSeat(table: Table, seat: Seat): Seat {
-    return table.swapped && seat === table.swapped[0] ? table.swapped[1] : seat
-  }
-
-  /** Puts a swapped person back in their own seat (the auction was reopened by an undo, or a new board is dealt) */
-  private unswap(table: Table) {
-    if (!table.swapped) return
-    const [declarer, dummy] = table.swapped
-    const person = table.seats[declarer]
-    if (person && !isRobotId(person) && isRobotId(table.seats[dummy])) {
-      const robot = table.seats[dummy]!
-      table.seats[dummy] = person
-      table.seats[declarer] = robotId(robotKindOf(robot), declarer)
-      this.moveSubstitute(table, dummy, declarer)
-    }
-    table.swapped = undefined
-  }
-
-  private scheduleDeal(table: Table) {
-    if (!table.board || !this.canDeal(table)) return
-    const ms = Math.max(0, (table.dealAt ?? 0) - this.now())
-    this.scheduler.add(`deal:${table.id}`, 'deal', ms, () => this.dealNext(table.id))
-  }
-
-  private async dealNext(tableId: string) {
-    const table = this.tables.get(tableId)
-    // Someone may have stood up while the result was showing; sitting down deals again
-    if (!table || !this.canDeal(table)) return
-    // The countdown was restarted (a seat was filled again): wait for it
-    if ((table.dealAt ?? 0) > this.now() + 50) return this.scheduleDeal(table)
-    this.dealBoard(table)
-    await this.save(table)
-    this.broadcast()
-    this.scheduleRobots(table)
-  }
-
-  // ── Bidding and play ────────────────────────────────────────────────────────────────────────
-
-  private async boardAction(userId: string, message: ClientMessage) {
-    const table = this.tableOf(userId)
-    const seat = table && this.seatOf(table, userId)
-    if (!table || !seat) throw new ClubError('notSeated')
-    if (table.mode === 'challenge' && (message.type === 'undoRequest' || message.type === 'undoRespond'))
-      throw new ClubError('challengeNoUndo')
-    await this.act(table, seat, message)
-  }
-
-  /** Applies one board action for a seat, from a person or a robot */
-  private async act(
-    table: Table,
-    seat: Seat,
-    message: ClientMessage,
-    byRobot = false,
-    meaning?: RobotBid['meaning'],
-  ) {
-    const board = table.board
-    if (!board) throw new ClubError('noBoard')
-    // At the deadline play stops, as on BBO: a board still going is dropped, not finished
-    if (this.challengeClosedAt(table)) throw new ClubError('challengeClosed')
-
-    let next: BoardState
-    switch (message.type) {
-      case 'call':
-        if (!isCall(message.call)) throw new ClubError('illegalCall')
-        next = makeCall(
-          board,
-          seat,
-          message.call,
-          message.alert === undefined ? undefined : String(message.alert).slice(0, LIMITS.alertMax),
-        )
-        // A robot's explanations are for everyone, its partner too, as GIB's are on BBO
-        // A 2/1 robot's call also carries what it shows, explained in each viewer's language
-        if (byRobot) {
-          const made = { ...next.auction.at(-1)!, robot: true, ...(meaning ? { meaning } : {}) }
-          next = { ...next, auction: [...board.auction, made] }
-        }
-        break
-      case 'play': {
-        if (!isCard(message.card)) throw new ClubError('unknownCard')
-        const dummy = dummyOf(board)
-        const hand = dummy && remainingCards(board, dummy).includes(message.card) ? dummy : seat
-        if (controllerOf(board, hand) !== seat) throw new ClubError('notYourCard')
-        next = playCard(board, hand, message.card)
-        break
-      }
-      case 'claim':
-        next = makeClaim(board, seat, Number(message.tricks))
-        break
-      case 'claimRespond': {
-        const claim = board.claim
-        next = respondToClaim(board, seat, Boolean(message.accept))
-        if (claim && !next.claim && next.phase !== 'finished') table.rejectedClaim = { seat: claim.seat, tricks: claim.tricks, by: seat }
-        break
-      }
-      case 'undoRequest': {
-        // Anyone may take back their own last call or card (and everything since), as on BBO;
-        // during the play the declarer's cards include dummy's
-        if (table.undo) return
-        undoFor(board, seat, this.auctionSeat(table, seat))
-        table.undo = { seat }
-        await this.save(table)
-        return
-      }
-      case 'undoRespond': {
-        const undo = table.undo
-        if (!undo) return
-        if (sameSide(undo.seat, seat)) throw new ClubError('undoByOpponent')
-        table.undo = undefined
-        if (message.accept) {
-          table.board = undoFor(board, undo.seat, this.auctionSeat(table, undo.seat))
-          table.rejectedClaim = undefined
-          if (table.board.phase === 'auction') this.unswap(table)
-        }
-        this.touchTurn(table)
-        await this.save(table)
-        return
-      }
-      default:
-        return
-    }
-
-    // Any new action supersedes a pending undo request and the note about a rejected claim
-    table.undo = undefined
-    if (message.type !== 'claimRespond') table.rejectedClaim = undefined
-    table.board = next
-    this.touchTurn(table)
-    if (board.phase === 'auction' && next.phase === 'play') this.swapForDeclarer(table)
-    const finished = next.phase === 'finished' && board.phase !== 'finished'
-    if (finished) {
-      const record = await this.recordBoard(table, next)
-      modeOf(table).boardFinished(table, record, this.modeContext())
-      // A board played to the last card leaves that trick on the table for a moment first
-      const playedOut = next.play.length === 52
-      table.dealAt = this.now() + (playedOut ? LAST_TRICK_MS : 0) + DEAL_COUNTDOWN_MS
-      this.startBoardIfReady(table)
-    }
-    await this.save(table)
-    // The last board of the last participant finishes the challenge before its deadline
-    const challenge = challengeStateOf(table)
-    if (finished && challenge) await this.challengeChanged(challenge.challengeId)
-  }
-
-  private async recordBoard(table: Table, board: BoardState) {
-    const players = {} as BoardRecord['players']
-    for (const seat of SEATS) players[seat] = this.publicUserById(table.seats[seat] ?? '') ?? { id: '', username: '—' }
-    // Seats where a robot played for someone offline during the board (代打), and for whom
-    const substitutes: NonNullable<BoardRecord['substitutes']> = {}
-    for (const seat of SEATS) {
-      const forWhom = table.boardSubstitutes?.[seat]
-      const user = forWhom && this.publicUserById(forWhom)
-      if (user) substitutes[seat] = user
-    }
-    const record = modeOf(table).record(
-      table,
-      {
-        id: randomId(8),
-        tableNumber: table.number,
-        finishedAt: this.now(),
-        players,
-        board,
-        ...(Object.keys(substitutes).length > 0 && { substitutes }),
-      },
-      this.modeContext(),
-    )
+  private async boardFinished(record: BoardRecord, event: EventReport | null) {
     await this.saveRecord(record)
-    table.recordId = record.id
-    table.recent = [summarize(record), ...(table.recent ?? [])].slice(0, RECENT_KEEP)
-    table.boardsPlayed++
-    return record
+    if (event?.kind !== 'challenge') return
+    if (event.result) this.addChallengeResult(event.challengeId, event.result)
+    await this.challengeChanged(event.challengeId)
   }
 
-  private modeContext(): ModeContext {
-    return { random: this.random, now: this.now(), challenges: this.challenges }
-  }
-
-  // ── Robots ──────────────────────────────────────────────────────────────────────────────────
-
-  /**
-   * Which robot at this table acts next and after what pause, if any. What it does is asked of a
-   * brain only when the move runs (`decide`), so a slow brain thinks once per move; `decide` takes
-   * the brain so the rule robot can answer the same question when the club's brain is late
-   */
-  private robotMove(table: Table): { seat: Seat; delay: number; decide: (brain: RobotBrain) => Promise<RobotAnswer> } | null {
-    const board = table.board
-    if (!board || board.phase === 'finished' || this.humansSeated(table) === 0) return null
-    if (this.challengeClosedAt(table)) return null
-    const robot = (seat: Seat | null | undefined): seat is Seat => !!seat && isRobotId(table.seats[seat])
-    const kindAt = (seat: Seat) => robotKindOf(table.seats[seat]!)
-
-    // Robots agree to undo requests, and accept a claim only if the cards make it good
-    if (table.undo) {
-      const answer = SEATS.find((s) => robot(s) && !sameSide(s, table.undo!.seat))
-      if (!answer) return null
-      return { seat: answer, delay: ROBOT_DELAY.answer, decide: async () => ({ message: { type: 'undoRespond', accept: true } }) }
-    }
-    if (board.claim) {
-      const answer = claimApprovers(board, board.claim.seat).find((s) => robot(s) && !board.claim!.accepted.includes(s))
-      if (!answer) return null
-      const decide = async (brain: RobotBrain): Promise<RobotAnswer> => ({
-        message: { type: 'claimRespond', accept: await brain.acceptsClaim(kindAt(answer), board, answer) },
-      })
-      return { seat: answer, delay: ROBOT_DELAY.answer, decide }
-    }
-    const turn = turnOf(board)
-    if (!turn) return null
-    if (board.phase === 'auction') {
-      if (!robot(turn)) return null
-      const decide = async (brain: RobotBrain): Promise<RobotAnswer> => {
-        const bid = await brain.bid(kindAt(turn), board, turn)
-        return { message: { type: 'call', call: bid.call, alert: bid.alert }, meaning: bid.meaning }
-      }
-      return { seat: turn, delay: ROBOT_DELAY.call, decide }
-    }
-    const controller = controllerOf(board, turn)
-    if (!robot(controller)) return null
-    const trickJustEnded = board.play.length > 0 && board.play.length % 4 === 0
-    return {
-      seat: controller,
-      delay: trickJustEnded ? ROBOT_DELAY.afterTrick : ROBOT_DELAY.card,
-      decide: async (brain) => ({ message: { type: 'play', card: await brain.play(kindAt(controller), board, turn) } }),
-    }
-  }
-
-  /** What a robot's answer depends on; an answer given for another position is dropped */
-  private positionOf(table: Table) {
-    const board = table.board
-    return JSON.stringify([
-      table.seats,
-      table.undo ?? null,
-      board && [board.boardNo, board.phase, board.auction.length, board.play.length, board.claim ?? null],
-    ])
-  }
-
-  /** Schedules the next robot move at a table; each move schedules the one after it */
-  scheduleRobots(table: Table) {
-    const key = `robot:${table.id}`
-    if (this.scheduler.pending(key) || this.thinking.has(table.id)) return
-    const move = this.robotMove(table)
-    if (!move) return
-    this.scheduler.add(key, 'robot', move.delay, () => this.runRobot(table.id))
-  }
-
-  /**
-   * Asks the club's brain, giving it at most the think limit; when it is late or fails the rule
-   * robot answers instead, so the table never stalls (AC-6.5). A late answer is ignored
-   */
-  private async think(decide: (brain: RobotBrain) => Promise<RobotAnswer>): Promise<RobotAnswer> {
-    if (this.brain === ruleBrain) return decide(ruleBrain)
-    let timer: ReturnType<typeof setTimeout> | undefined
-    const late = new Promise<never>((_, reject) => {
-      timer = setTimeout(() => reject(new Error('robot brain too slow')), this.config.thinkLimitMs ?? THINK_LIMIT_MS)
+  /** Writes a challenge board's result, checked against the challenge as it is now; the last one marks the participant finished */
+  private addChallengeResult(challengeId: string, result: ChallengeResult) {
+    const c = this.challenges.get(challengeId)
+    // A board finished after the deadline does not count, like one not played
+    if (!c || !challengeTakesPart(c, this.now())) return
+    const player = c.players.find((p) => p.userId === result.userId)
+    if (!player || c.results.some((r) => r.userId === result.userId && r.seq === result.seq)) return
+    this.challenges.transaction(() => {
+      this.challenges.addResult(c.id, result)
+      if (playedSeqs(c, result.userId).size + 1 >= c.deals.boards.length)
+        this.challenges.updatePlayer(c.id, { ...player, finishedAt: this.now() })
     })
-    try {
-      return await Promise.race([decide(this.brain), late])
-    } catch (error) {
-      console.warn('robot brain failed, the rule robot answers', error)
-      return decide(ruleBrain)
-    } finally {
-      clearTimeout(timer)
-    }
-  }
-
-  private async runRobot(tableId: string) {
-    const table = this.tables.get(tableId)
-    if (!table) return
-    const move = this.robotMove(table)
-    if (!move) return
-    // The brain may answer later: other messages go on meanwhile, and nothing else is scheduled
-    // for this table until it does
-    const position = this.positionOf(table)
-    this.thinking.add(tableId)
-    let answer: RobotAnswer
-    try {
-      answer = await this.think(move.decide)
-    } finally {
-      this.thinking.delete(tableId)
-    }
-    if (this.tables.get(tableId) !== table) return
-    // The table moved on while the robot thought (a person played, an undo, a seat changed): ask again
-    if (this.positionOf(table) !== position) return this.scheduleRobots(table)
-    const { message, meaning } = answer
-    try {
-      await this.act(table, move.seat, message, true, meaning)
-    } catch (error) {
-      // A robot move that turns out illegal must not stall the table: pass or play any legal card
-      if (!(error instanceof AppError)) throw error
-      console.error('robot move rejected', error.code, move.seat, message)
-      const board = table.board!
-      const turn = turnOf(board)
-      const fallback: ClientMessage | null =
-        board.phase === 'auction' ? { type: 'call', call: 'P' } : turn ? { type: 'play', card: legalCards(board, turn)[0] } : null
-      if (!fallback) return
-      await this.act(table, move.seat, fallback, true)
-    }
-    this.broadcast()
-    this.scheduleRobots(table)
-  }
-
-  // ── Persistence and broadcasting ────────────────────────────────────────────────────────────
-
-  private async save(table: Table) {
-    await this.store.put(`table:${table.id}`, table)
-  }
-
-  /** Closes a table no person is sitting at or watching (robots do not keep it open) */
-  private async saveOrDrop(table: Table) {
-    if (table.spectators.length === 0 && this.humansSeated(table) === 0) await this.dropTable(table)
-    else await this.save(table)
-  }
-
-  private async dropTable(table: Table) {
-    this.tables.delete(table.id)
-    await this.store.delete(`table:${table.id}`)
   }
 
   /**
-   * Sends every online member the lobby and the table they are at, but only what changed for them:
-   * a card played at one table sends nothing to people in the lobby, and the chat and recent boards
-   * only travel when they change. That keeps each update small on a phone connection.
+   * Brings an older table up to what a table keeps now (§5.10): the names and blocks it shows, and
+   * a challenge table's snapshot of its challenge. Returns the same object when nothing changed
+   */
+  private upgradeTable(table: Table): Table {
+    const people = new Set<string>([
+      ...SEATS.map((s) => table.seats[s]).filter((id): id is string => !!id && !isRobotId(id)),
+      ...table.spectators,
+      ...(table.invited ?? []),
+      ...Object.values(table.substitutes ?? {}),
+      table.hostId,
+    ])
+    const state = challengeStateOf(table)
+    if (state) people.add(state.userId)
+    const names: Record<string, string> = { ...table.names }
+    for (const id of people) {
+      const user = this.users.get(id)
+      if (user) names[id] = user.username
+    }
+    const blocks: Record<string, string[]> = {}
+    for (const id of people) if (this.users.has(id)) blocks[id] = this.blocks.of(id)
+    let modeState = table.modeState
+    if (state && state.deadline === undefined) {
+      const challenge = this.challenges.get(state.challengeId)
+      modeState = {
+        ...state,
+        ...(challenge
+          ? challengeSnapshot(challenge, state.userId, this.now())
+          : { deadline: 0, boards: [], played: [], robotKind: 'tku', closed: true }),
+      } satisfies ChallengeTableState
+    }
+    const upgraded: Table = { ...table, names, blocks, modeState }
+    return JSON.stringify(upgraded) === JSON.stringify(table) ? table : upgraded
+  }
+
+  // ── Broadcasting ────────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Sends every online member the lobby, but only when it changed for them: a card played at one
+   * table sends nothing to people in the lobby. Each table sends its own view to the people at it;
+   * the club only tells a member who is at no table any more (`table: null`)
    */
   broadcast() {
     const online = this.connections.onlineUserIds()
@@ -2557,28 +2009,19 @@ export class ClubService {
         this.connections.send(userId, { type: 'lobby', lobby })
       }
 
-      const table = this.tableOf(userId)
-      if (!table) {
-        if (sent.table !== 'null') this.connections.send(userId, { type: 'table', table: null, now: this.now() })
-        Object.assign(sent, { table: 'null', chat: undefined, recent: undefined })
+      const at = this.entryOf(userId)
+      if (at) {
+        sent.table = at.id
         continue
       }
-      const { chat, recent, ...rest } = this.tableView(table, userId)
-      const restJson = JSON.stringify(rest)
-      const chatJson = JSON.stringify(chat)
-      const recentJson = JSON.stringify(recent)
-      if (restJson === sent.table && chatJson === sent.chat && recentJson === sent.recent) continue
-      const wire: TableWire = { ...rest }
-      if (chatJson !== sent.chat) wire.chat = chat
-      if (recentJson !== sent.recent) wire.recent = recent
-      Object.assign(sent, { table: restJson, chat: chatJson, recent: recentJson })
-      this.connections.send(userId, { type: 'table', table: wire, now: this.now() })
+      if (sent.table !== 'null') this.connections.send(userId, { type: 'table', table: null, now: this.now() })
+      sent.table = 'null'
     }
   }
 
   lobbyView(userId: string, online = this.connections.onlineUserIds()): LobbyView {
     const isOnline = (id: string) => isRobotId(id) || online.includes(id)
-    const tables: TableSummary[] = [...this.tables.values()]
+    const tables: TableSummary[] = [...this.directory.values()]
       // A challenge table is its player's alone and is not listed (§5.5)
       .filter((t) => t.mode !== 'challenge')
       // Tables short of players first, the closest to starting on top (AC-2.11)
@@ -2587,23 +2030,23 @@ export class ClubService {
         id: t.id,
         number: t.number,
         hostName: this.users.get(t.hostId)?.username ?? '—',
-        settings: settingsOf(t),
+        settings: t.settings,
         welcome: this.invitedTo(userId, t),
         seats: this.occupants(t, isOnline),
         spectators: t.spectators.length,
         boardsPlayed: t.boardsPlayed,
-        boardNo: t.board ? t.board.boardNo : null,
+        boardNo: t.boardNo,
       }))
     const members: MemberStatus[] = [...this.users.values()]
       .map((u) => {
-        const found = this.tableOf(u.id)
+        const found = this.entryOf(u.id)
         const table = found?.mode === 'challenge' ? undefined : found
         return {
           id: u.id,
           username: u.username,
           online: online.includes(u.id),
           tableNumber: table?.number ?? null,
-          seat: table ? this.seatOf(table, u.id) : null,
+          seat: table ? this.seatIn(table, u.id) : null,
         }
       })
       // Online first; within each, the viewer's friends on top (好友置頂)
@@ -2617,69 +2060,26 @@ export class ClubService {
       online: online.flatMap((id) => this.publicUserById(id) ?? []),
       members,
       tables,
-      myTableId: this.tableOf(userId)?.id ?? null,
+      myTableId: this.entryOf(userId)?.id ?? null,
       friends: this.friends.of(userId),
       blocked: this.blocks.of(userId),
     }
   }
 
   /** The seats as everyone sees them, a robot sitting in for someone marked with their name (代打) */
-  private occupants(table: Table, isOnline: (id: string) => boolean) {
-    const seats = seatOccupants(table, (id) => this.publicUserById(id), isOnline)
+  private occupants(entry: TableEntry, isOnline: (id: string) => boolean) {
+    const seats = seatOccupants(entry, (id) => this.publicUserById(id), isOnline)
     for (const seat of SEATS) {
-      const forWhom = table.substitutes?.[seat]
+      const forWhom = entry.substitutes[seat]
       const name = forWhom && this.users.get(forWhom)?.username
       if (seats[seat]?.robot && name) seats[seat] = { ...seats[seat], substituteFor: name }
     }
     return seats
   }
 
-  tableView(table: Table, userId: string): TableView {
-    const online = this.connections.onlineUserIds()
-    const mySeat = this.seatOf(table, userId)
-    const settings = settingsOf(table)
-    const playing = !!table.board && table.board.phase !== 'finished'
-    const waiting = this.waitingOn(table)
-    return {
-      id: table.id,
-      number: table.number,
-      hostId: table.hostId,
-      settings,
-      seats: this.occupants(table, (id) => isRobotId(id) || online.includes(id)),
-      spectators: table.spectators.flatMap((id) => this.publicUserById(id) ?? []),
-      mySeat,
-      board: table.board
-        ? boardView(table.board, mySeat, {
-            undo: table.undo,
-            recordId: table.recordId,
-            rejectedClaim: table.rejectedClaim,
-            auctionSeat: mySeat ? this.auctionSeat(table, mySeat) : undefined,
-            undoAllowed: table.mode !== 'challenge',
-            kibitz: settings.allowKibitz,
-          })
-        : null,
-      boardsPlayed: table.boardsPlayed,
-      dealAt:
-        table.board?.phase === 'finished' && this.canDeal(table) && !this.challengeTableOver(table)
-          ? (table.dealAt ?? null)
-          : null,
-      chat: chatFor(table.chat, (authorId) => this.blocks.has(userId, authorId)),
-      recent: (table.recent ?? []).filter((summary) => recordVisible(summary, userId, this.now())),
-      ...(table.mode === 'challenge' && { challenge: this.tableChallenge(table) }),
-      ...(table.hostId === userId &&
-        table.mode !== 'challenge' && { invited: (table.invited ?? []).flatMap((id) => this.publicUserById(id) ?? []) }),
-      boardEndsAt:
-        playing && settings.boardMinutes > 0
-          ? (table.boardStartedAt ?? table.createdAt) + settings.boardMinutes * 60_000
-          : null,
-      waiting: waiting && { seat: waiting, since: table.turnSince ?? table.createdAt },
-    }
-  }
-
   private publicUserById(id: string): PublicUser | undefined {
-    if (isRobotId(id)) return { id, username: ROBOT_NAME, robot: true, robotKind: robotKindOf(id) }
+    if (isRobotId(id)) return robotUser(id)
     const user = this.users.get(id)
     return user && { id: user.id, username: user.username }
   }
 }
-
