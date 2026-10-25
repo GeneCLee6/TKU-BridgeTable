@@ -143,7 +143,7 @@ interface BoardState {
 
 單副的 traveller（C7，`GET /api/history/:id/traveller`，`challengeTraveller`）：就是 `challengeView` 給這個人的那一副 traveller，不多給——打完全部副數的參與者、或挑戰結束後的參與者才拿得到，其他人（還沒打完的、非參與者）一律 `null`；伺服器再從那幾副的紀錄補上莊家是誰與首攻，以及排名矩陣裡那一副的分數。並排重播（`/history/:id/vs/:other`）兩邊都走 `/api/history/:id`，所以照樣由 `recordVisible`／`challengeBoardVisible` 把關。
 
-**打完的牌局什麼時候公開**（AC-4.9，`recordVisible`）：紀錄可以帶 `revealAt`（挑戰、隊制賽還在進行時）。在那之前，只有打那一副的四位看得到；其他人在紀錄列表、搜尋、詳細頁、牌桌側欄的 `recent`、收藏都看不到（之後的精選也要套用）。**收藏**（§5.3）：只能收藏 `recordVisible` 看得到的牌——還沒公開的挑戰／隊制賽牌局只有打的四位能收藏，別人收藏或查詢都拿到跟不存在一樣的 `boardGone`（404），連「打完全部副數、可以看 traveller」的參與者也要等公開；「我的收藏」列表走同一個 `searchBoards`，照樣套用 `reveal_at` 的規則。筆記與標籤只有收藏的人自己讀得到：每個查詢都以自己的 id 為條件，沒有讀別人收藏的 API。搜尋在 SQL 裡套同一條規則（`reveal_at IS NULL OR reveal_at <= 現在 OR 我打過`），而且不管搜尋什麼條件都會套用，前端無法關掉。
+**打完的牌局什麼時候公開**（AC-4.9，`recordVisible`）：紀錄可以帶 `revealAt`（挑戰、隊制賽還在進行時）。在那之前，只有打那一副的四位看得到；其他人在紀錄列表、搜尋、詳細頁、牌桌側欄的 `recent`、收藏、精選都看不到。**收藏**（§5.3）：只能收藏 `recordVisible` 看得到的牌——還沒公開的挑戰／隊制賽牌局只有打的四位能收藏，別人收藏或查詢都拿到跟不存在一樣的 `boardGone`（404），連「打完全部副數、可以看 traveller」的參與者也要等公開；「我的收藏」列表走同一個 `searchBoards`，照樣套用 `reveal_at` 的規則。筆記與標籤只有收藏的人自己讀得到：每個查詢都以自己的 id 為條件，沒有讀別人收藏的 API。**精選**（§5.9）：只有已經公開的牌（沒有 `revealAt` 或已經過了）才能設為精選——打過那副的策展人拿到 `featuredNotRevealed`，沒打過的拿到 `boardGone`，不透露那副牌存在；精選的列表與單副讀取也再套一次 `recordVisible`。搜尋在 SQL 裡套同一條規則（`reveal_at IS NULL OR reveal_at <= 現在 OR 我打過`），而且不管搜尋什麼條件都會套用，前端無法關掉。
 
 **封鎖與聊天**（AC-1.6，`chatFor`）：牌桌聊天照每位觀看者過濾，他封鎖的社員說的話不會送到他的瀏覽器；其他人照常看得到，解除封鎖後保留的訊息會再出現。大廳的 `friends`／`blocked` 只送社員自己的名單，別人封鎖或加了誰不會送出。
 
@@ -155,7 +155,7 @@ interface BoardState {
 
 ## 5. 通訊與儲存
 
-**HTTP**：`GET /api/challenges`（我參與的挑戰，新的在前）、`/api/challenges/:id`、`POST /api/challenges`（建立）、`POST /api/challenges/:id/answer`、`/cancel`（§5.5）、`GET /api/matches`（我主辦或有座位的隊制賽，新的在前）、`/api/matches/:id`、`POST /api/matches`（建立）、`POST /api/matches/:id/settings`、`/cancel`（§5.8）、`POST /api/register`（第一個帳號直接登入，之後回 202 `{ pending }`）、`/api/login`、`/api/logout`、`/api/password/reset`（忘記密碼）、`/api/account/password`、`/api/account/preferences`（`friendOnlineNotice`：好友上線提示開關，`e1-t24`）、`PATCH /api/account/profile`（自己的個人檔案，`shared/profile.ts` 的 `parseProfile` 檢查：只收四個欄位、長度上限、等級只能是 `PROFILE_LEVELS`，空的欄位清掉）；`GET /api/members/:id`（別人的個人檔案卡，§4）；`GET /api/messages/:userId?before=<id>`（與某位社員的私訊，一頁 30 則，§5.7）；`GET /api/me`（含 `permissions`，管理員另有 `applications` 待審核數）、`/api/history?scope=all&page=<n>&size=<10|20|50|100>`（回傳該頁與總數）、`/api/history/search?<條件>`（§5.3）、`/api/history/:id`。維運：`GET /api/health`、`POST /api/client-errors`（§5.6，都不需登入）。管理員：`GET/POST /api/admin/users`、`POST /api/admin/users/:id/password`、`POST /api/admin/users/:id/admin`、`POST /api/admin/users/:id/permissions`、`DELETE /api/admin/users/:id`、`GET /api/admin/applications`、`POST /api/admin/applications/:id/approve`、`DELETE /api/admin/applications/:id`、`GET/POST /api/admin/settings`、`DELETE /api/admin/tables/:id`。淡江橋譜的 `/api/book/*` 見 §5.2。session 放在 HttpOnly、SameSite=Lax 的 cookie（`tbt_session`）。錯誤回應帶 `code` 與 `params`（`shared/messages.ts`），瀏覽器依語言顯示。
+**HTTP**：`GET /api/challenges`（我參與的挑戰，新的在前）、`/api/challenges/:id`、`POST /api/challenges`（建立）、`POST /api/challenges/:id/answer`、`/cancel`（§5.5）、`GET /api/matches`（我主辦或有座位的隊制賽，新的在前）、`/api/matches/:id`、`POST /api/matches`（建立）、`POST /api/matches/:id/settings`、`/cancel`（§5.8）、`GET /api/featured`（全部精選，新的在前）、`GET /api/featured/:boardId`（那副的精選或 `null`）、`POST /api/featured/:boardId`（設為精選或編輯，要 `boardCurate`）、`DELETE /api/featured/:boardId`（取消精選，§5.9）、`POST /api/register`（第一個帳號直接登入，之後回 202 `{ pending }`）、`/api/login`、`/api/logout`、`/api/password/reset`（忘記密碼）、`/api/account/password`、`/api/account/preferences`（`friendOnlineNotice`：好友上線提示開關，`e1-t24`）、`PATCH /api/account/profile`（自己的個人檔案，`shared/profile.ts` 的 `parseProfile` 檢查：只收四個欄位、長度上限、等級只能是 `PROFILE_LEVELS`，空的欄位清掉）；`GET /api/members/:id`（別人的個人檔案卡，§4）；`GET /api/messages/:userId?before=<id>`（與某位社員的私訊，一頁 30 則，§5.7）；`GET /api/me`（含 `permissions`，管理員另有 `applications` 待審核數）、`/api/history?scope=all&page=<n>&size=<10|20|50|100>`（回傳該頁與總數）、`/api/history/search?<條件>`（§5.3）、`/api/history/:id`。維運：`GET /api/health`、`POST /api/client-errors`（§5.6，都不需登入）。管理員：`GET/POST /api/admin/users`、`POST /api/admin/users/:id/password`、`POST /api/admin/users/:id/admin`、`POST /api/admin/users/:id/permissions`、`DELETE /api/admin/users/:id`、`GET /api/admin/applications`、`POST /api/admin/applications/:id/approve`、`DELETE /api/admin/applications/:id`、`GET/POST /api/admin/settings`、`DELETE /api/admin/tables/:id`。淡江橋譜的 `/api/book/*` 見 §5.2。session 放在 HttpOnly、SameSite=Lax 的 cookie（`tbt_session`）。錯誤回應帶 `code` 與 `params`（`shared/messages.ts`），瀏覽器依語言顯示。
 
 **WebSocket** `/ws`（同網域，帶 cookie 驗證）：
 
@@ -168,7 +168,7 @@ interface BoardState {
 - **不允許觀看**（`e2-t26`）：`joinTable` 回 `noKibitzing`，只能 `sit`；桌上沒有座位的人（站起來、被請離座）照 §4 只看得到公開的牌
 - **計時**（`e2-t27`、`e2-t28`）：發牌時記 `Table.boardStartedAt`，有時間上限時 `TableView.boardEndsAt`＝發牌時間＋上限（伺服器時鐘，瀏覽器用 `now` 換算），輪到的人名牌上倒數，時間到變紅「超時」；**時間到不強制結束**，超時裁定留給隊制賽（`e8-t15`）。`TableView.waiting` 是桌子在等哪一位真人（叫牌或出牌的控制者；攤牌、撤回待回覆時不算）與從什麼時候開始（`Table.turnSince`，每個動作、入座、換人都重算）。等超過 `SLOW_TURN_MS`（60 秒）名牌閃爍、本人再聽到一次提示音，房主可以 `replaceWithRobot`（伺服器檢查真的在等他且滿 60 秒，否則 `notSlow`）：他留在桌上沒有座位，座位換成 TKB
 - **大廳排序與快速入座**（`e2-t29`、`e2-t30`，`shared/lobby.ts`）：缺人的桌在前，缺越少越前面（最快能開打），滿的桌在後，同組照桌號；大廳卡片標「缺 N 家」。`quickSeat` 選第一張缺人、可以入座（公開或受邀、房主沒封鎖他）的桌，坐第一個空位（南、北、東、西）；都滿就開新桌（預設設定）。已經坐在別桌的人會換過去
-- **斷線代打**（`e2-t31`）：一般牌桌上入座的真人斷線（最後一個 socket 關閉）滿 `SUBSTITUTE_MS`（3 分鐘），排程器的 `substitute:<社員>` 工作讓 TKB 坐進他的座位（同伴是機器人就用同伴的制度），`Table.substitutes` 記座位 → 本人，名牌顯示「代打 某某」（`SeatOccupant.substituteFor`）；只在桌上還有別的入座真人在線時才代打。本人重新連線（`connected`）立刻換回原座位（機器人換座位時記號跟著走）；別人坐進代打的座位、房主移走它，代打就結束。這一副有代打過，紀錄的 `BoardRecord.substitutes` 記座位與本人。斷線時間在記憶體（`offlineSince`），物件被回收後 `load()` 把離線的入座者從現在重新起算
+- **斷線代打**（`e2-t31`）：一般牌桌上入座的真人斷線（最後一個 socket 關閉）滿 `SUBSTITUTE_MS`（3 分鐘），排程器的 `substitute:<社員>` 工作讓 TKB 坐進他的座位（同伴是機器人就用同伴的制度），`Table.substitutes` 記座位 → 本人，名牌顯示「代打 某某」（`SeatOccupant.substituteFor`）；只在桌上還有別的入座真人在線時才代打。本人重新連線（`connected`）立刻換回原座位（機器人換座位時記號跟著走）；別人坐進代打的座位、房主移走它，代打就結束。這一副有代打過，紀錄的 `BoardRecord.substitutes` 記座位與本人，單副紀錄頁的明細列出「北 · 代打 某某」（`RecordSubstitutes`）。斷線時間在記憶體（`offlineSince`），物件被回收後 `load()` 把離線的入座者從現在重新起算
 - **牌桌模式**：`Table.mode`（`casual` 或挑戰的 `challenge`，舊資料沒有這欄也當 `casual`）與 `modeState`；`ClubService` 只在三個地方問模式（`worker/modes.ts` 的 `TableModeHooks`，都拿到 `ModeContext`：社團的亂數、現在時間、`ChallengeStore`）：發新一副（`deal`，回傳牌號與四手牌，`null` 表示沒有下一副，最後一副留在桌上）、寫紀錄（`record`）、一副結束（`boardFinished`，在紀錄存好之後，所以拿得到牌局 id）。叫牌、出牌、入座與可見性在每種模式都一樣。牌從 `Table.dealSource` 來（`shared/deal-source.ts`；沒有就是每副重洗）
 - **排程**：機器人的下一步與自動發牌都交給同一個排程器（`worker/scheduler.ts`），每桌每種工作一個 key（`robot:<桌>`、`deal:<桌>`），每個進行中的挑戰一個 `challenge:<挑戰>`（§5.5），每位斷線的入座者一個 `substitute:<社員>`（代打），同一個 key 還在等就不重排。Durable Object 用 `AlarmQueue`：工作放在記憶體，只把最早的一個設成物件唯一的 storage alarm（`alarm()` → `ClubService.runDue()`），所以不會互相覆蓋 alarm，物件在兩步之間也能休眠；工作不寫進儲存，物件被回收後由 `load()` 依牌桌狀態與進行中的挑戰重新排程。測試傳 `schedule` 換成手動佇列
 - **心跳**：瀏覽器每 15 秒送 `ping`，由 `setWebSocketAutoResponse` 直接回 `pong`（不必喚醒物件）。40 秒沒收到任何訊息、分頁回到前景或網路恢復時，瀏覽器立刻重新連線；重連期間的動作暫存 8 秒內補送
@@ -186,6 +186,7 @@ interface BoardState {
 | `board:<id>` | 一副牌的完整紀錄（原始四手牌、叫牌、出牌、結果） |
 | `hist:<時間>-<id>` | 全社團的紀錄索引（摘要，補零的時間讓列表依時間排序） |
 | `uhist:<userId>:<時間>-<id>` | 每位社員自己的紀錄索引 |
+| `featured:<boardId>` | 精選牌局（§5.9）：標題、分類、講解、逐墩講解、誰先設的與時間、那副牌設精選時的摘要（`BoardSummary`）；帳號刪除時保留，設的人顯示「—」 |
 | `notif:<userId>:<時間>-<id>` | 通知（`worker/notifications.ts`）：種類、參數、時間、是否已讀；每人只留最新 500 則，帳號刪除時一起刪 |
 | `friend:<userId>:<friendId>` | 社員關注的好友（單向），值是 `{ at }`；載入時全部讀進記憶體 |
 | `block:<userId>:<otherId>` | 社員封鎖的對象，值是 `{ at }`；載入時全部讀進記憶體 |
@@ -223,6 +224,13 @@ interface BoardState {
 - **讀取**：連線時送 `directs`（最新 50 個對話，每個帶對方、最新一則與未讀數，另有全部未讀數）；`GET /api/messages/:userId?before=<id>` 從最新往回一頁 30 則（舊的在前，`more` 表示還有更早的）。打開對話就送 `readDirect { userId }`，把對方寄來的都標為已讀
 - **介面**：側欄（大廳、牌桌）的「訊息」分頁（`DirectMessages`）：對話列表與單一對話，分頁按鈕上有未讀數；社員分頁每一列的信封直接開啟與他的對話（個人檔案卡做好後也從那裡開）。私訊不另外進通知中心，未讀數就在「訊息」分頁上
 - **好友上線提示**（`e1-t24`）：某位社員第一個分頁連上時，通知中心送 `friendOnline` 給**在線**、關注他、沒關掉提示、也沒被他封鎖的社員；同一個人 30 分鐘（`FRIEND_ONLINE_QUIET_MS`）內只提示一次，手機斷線重連不會一直跳。開關在「我的帳號」，存在伺服器的 `user:<id>`（`POST /api/account/preferences`）
+
+### 5.9 精選牌局（`e4-t28`～`e4-t31`）
+
+- **權限**：`boardCurate`（§5.2 的 `permissions`），管理員在管理頁開給社員；管理員本來就有。
+- **資料**（`shared/featured.ts`、`worker/featured.ts` 的 `FeaturedService`，`ClubService.featured`）：一副牌最多一筆精選，存在 `featured:<boardId>`：標題（≤ 60 字）、分類（`bidding` 叫牌、`declarer` 坐莊、`defence` 防守、`other` 其他）、講解（≤ 4000 字）、逐墩講解（第 1–13 墩各 ≤ 1000 字，空的不存）、第一次設精選的人與時間、最後編輯時間，以及那副牌的摘要（列表不必讀紀錄）。輸入由 `parseFeaturedInput` 檢查，錯誤 `badFeatured { field }`。全部精選在第一次用到時讀進記憶體。
+- **規則**：只有公開的牌才能設（§4）；別的策展人可以編輯或取消，編輯保留原本設的人；第一次設精選時通知打那副的社員（`boardFeatured`，§5.4）。寫入算一次動作（速率限制，§5.6）。
+- **介面**：頁首「精選牌局」→ `/featured`（`FeaturedPage`）：「全部」與四個分類的分頁、卡片（標題、合約與結果、分類、桌號與牌號、誰精選與日期），點了到 `/history/:id`。單副紀錄頁的 `FeaturedPanel`：標題、分類、講解；重播到第 N 墩時顯示那一墩的講解（`useTrickReplay` 的 `trick`），另有「第 N 墩」按鈕直接跳過去；有 `boardCurate` 的人在這裡設為精選、編輯（每一墩一個欄位）、取消。牌桌裡的紀錄對話框不顯示。
 
 ## 5.8 隊制賽（決策紀錄，`e8-t01`，2026-10-25）
 
@@ -460,7 +468,7 @@ C4 的實作（2026-10-24）：
 
 `NotificationService`（`worker/notifications.ts`）是 `ClubService.notifications`；其他功能呼叫 `notify(userId, kind, params)`。伺服器只存種類（`NOTIFICATION_KINDS`）和參數，文字由瀏覽器依語言組出來、點了到哪一頁也由瀏覽器決定（`src/lib/notifications.ts`），所以加新種類時要一起加 `strings.ts` 六種語言與連結。某位社員的通知第一次用到時才從儲存讀出、之後留在記憶體；有變就推 `notifications` 給在線的他（同樣只送有變的部分）。頁首鈴鐺（`NotificationBell`）顯示未讀數與列表，點一則標為已讀並跳到對應頁。
 
-現有的種類：`application`（有人申請註冊，通知每位管理員，連到管理頁）；挑戰（§5.5）：`challengeInvited`（給受邀者）、`challengeAccepted`／`challengeDeclined`（給發起者）、`challengeCancelled`（給沒拒絕的人），參數是 `challengeId` 與對方的 `username`；`challengeReminder`（截止前 12 小時，給接受了還沒打完的人）與 `challengeResults`（挑戰 `finished` 時給每位接受的人），參數是 `challengeId`，由期限工作與結算送出（§5.5，`e7-t13`）；`friendOnline`（關注的人上線了，參數 `username`，連到大廳，§5.7）。受邀桌（`e2-t25`）：`tableInvited`，參數 `tableId`、`number`（桌號）與房主的 `username`，連到那一桌。挑戰頁出來前（C6）挑戰的通知連到大廳。受邀桌等之後各自加；私訊不進通知中心（§5.7）。PWA 推播是 `e1-t28`（M2）。
+現有的種類：`application`（有人申請註冊，通知每位管理員，連到管理頁）；挑戰（§5.5）：`challengeInvited`（給受邀者）、`challengeAccepted`／`challengeDeclined`（給發起者）、`challengeCancelled`（給沒拒絕的人），參數是 `challengeId` 與對方的 `username`；`challengeReminder`（截止前 12 小時，給接受了還沒打完的人）與 `challengeResults`（挑戰 `finished` 時給每位接受的人），參數是 `challengeId`，由期限工作與結算送出（§5.5，`e7-t13`）；`friendOnline`（關注的人上線了，參數 `username`，連到大廳，§5.7）。受邀桌（`e2-t25`）：`tableInvited`，參數 `tableId`、`number`（桌號）與房主的 `username`，連到那一桌。精選（`e4-t29`）：`boardFeatured`，第一次設為精選時給打那副的社員（不含機器人與設精選的人自己；之後編輯不再通知），參數 `boardId` 與設的人的 `username`，連到那副的紀錄頁。挑戰頁出來前（C6）挑戰的通知連到大廳。受邀桌等之後各自加；私訊不進通知中心（§5.7）。PWA 推播是 `e1-t28`（M2）。
 
 ## 5.3 紀錄的 SQL 索引（決策紀錄，`e4-t10`）
 
@@ -539,7 +547,7 @@ SQL 由 `worker/history-index.ts` 的 `searchBoards` 組：只有固定的 SQL �
 - **同一批帳號、各自的登入**：橋譜的 `/api/*` 由 Vercel 轉發，`tbt_session` cookie（沒有 Domain 屬性）因此屬於橋譜自己的網域。兩站用同一組帳號密碼，但要各自登入一次。`/ws` 不經過橋譜。
 - **申請與核准**：`ClubService.register` 第一個帳號直接建立（管理員），之後一律存成 `app:<id>`，`adminApprove` 才建立帳號（受人數上限限制）。申請中的名稱不能被別人註冊；用申請時的密碼登入會得到 `awaitingApproval`。
 - **忘記密碼**：`resetForgottenPassword(username, inviteCode, password)`，管理員帳號不行（`adminNoSelfReset`）；重設後登出所有 session 並記下 `passwordResetAt`。
-- **權限**：`StoredUser.permissions`：`bookEdit`（線上編輯）、`bookImport`（匯入檔案）；管理員兩者都有。`requirePermission` 在 `/api/book/*` 檢查。
+- **權限**：`StoredUser.permissions`：`bookEdit`（線上編輯）、`bookImport`（匯入檔案）、`boardCurate`（設精選牌局，牌桌用，§5.9）；管理員全部都有，管理頁的「權限」欄逐項勾選。`requirePermission` 在 `/api/book/*` 與 `/api/featured/*` 的寫入檢查。淡江橋譜的 `/api/me` 也會看到 `boardCurate`，橋譜不用它。
 
 **橋譜 API**（`worker/book.ts` 的 `BookService`；不用登入的讀取路由在 `book.ts` 的 `publicBookResponse`，其他在 `club.ts` 的 `bookApi`）：
 

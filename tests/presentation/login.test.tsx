@@ -46,12 +46,12 @@ describe('LoginPage', () => {
   it('sends a registration for approval and says so', async () => {
     const sent = stubApi({ '/api/register': { status: 202, body: { pending: true, username: 'amy' } } })
     page()
-    await userEvent.click(screen.getByRole('button', { name: '註冊' }))
+    await userEvent.click(screen.getByRole('button', { name: '申請加入' }))
     await userEvent.type(screen.getByLabelText(/^帳號/), 'amy')
     await userEvent.type(screen.getByLabelText(/^密碼/), 'secret1')
     await userEvent.type(screen.getByLabelText(/^邀請碼/), 'tku')
     await userEvent.type(screen.getByLabelText(/^自我介紹/), '王小美')
-    await userEvent.click(screen.getByRole('button', { name: '註冊' }))
+    await userEvent.click(screen.getByRole('button', { name: '申請加入' }))
     expect(await screen.findByRole('status')).toHaveTextContent('已送出 amy 的申請')
     expect(sent.find((s) => s.path === '/api/register')!.body).toEqual({
       username: 'amy',

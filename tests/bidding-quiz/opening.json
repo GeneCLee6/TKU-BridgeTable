@@ -20,6 +20,15 @@
     { "id": "tku-open-016", "system": "tku", "dealer": "W", "vul": "Both", "hand": "AQJ84.K73.952.95", "auction": ["P", "P", "P"], "answer": "1S", "source": "5542 自然制：第四家 Rule of 15（e5-t24）", "reviewer": null, "status": "pending", "note": "第四家 10 點＋5 張♠＝15：開叫" },
     { "id": "tku-open-017", "system": "tku", "dealer": "N", "vul": "Both", "hand": "J842.Q73.K52.J43", "auction": [], "answer": "P", "source": "5542 自然制（ROBOT.md §2）", "reviewer": null, "status": "pending", "note": "7 點平均牌型，不夠開叫" },
     { "id": "tku-open-018", "system": "tku", "dealer": "E", "vul": "None", "hand": "AQ874.KJ963.5.K2", "auction": [], "answer": "1S", "source": "5542 自然制（ROBOT.md §2）", "reviewer": null, "status": "pending", "note": "13 點 5-5 高花，先開高的♠" },
-    { "id": "tku-open-019", "system": "tku", "dealer": "N", "vul": "NS", "hand": "K5.AQJ64.T83.Q72", "auction": ["P", "P"], "answer": "1H", "source": "5542 自然制（ROBOT.md §2）", "reviewer": null, "status": "pending", "note": "第三家 12 點五張♥" }
+    { "id": "tku-open-019", "system": "tku", "dealer": "N", "vul": "NS", "hand": "K5.AQJ64.T83.Q72", "auction": ["P", "P"], "answer": "1H", "source": "5542 自然制（ROBOT.md §2）", "reviewer": null, "status": "pending", "note": "第三家 12 點五張♥" },
+    {"id": "tku-open-020", "system": "tku", "dealer": "E", "vul": "None", "hand": "KJ942.Q73.Q52.Q4", "auction": ["P", "P"], "answer": "P", "source": "淡江橋譜：競叫（輕開叫）", "reviewer": null, "status": "pending", "note": "第三家 10 點但♠只有一張大牌：不輕開（輕開要強度夠的花色）"},
+    {"id": "tku-open-021", "system": "tku", "dealer": "S", "vul": "None", "hand": "95.K73.AQJ84.952", "auction": ["P", "P", "P"], "answer": "P", "source": "淡江橋譜：淡江自然制總覽（15定律）", "reviewer": null, "status": "pending", "note": "第四家 10 點＋2 張♠＝12，不到 15：Pass"},
+    {"id": "tku-open-022", "system": "tku", "dealer": "W", "vul": "None", "hand": "3.KQJ8642.832.T9", "auction": ["P", "P", "P"], "answer": "P", "source": "淡江橋譜：開叫2♣、弱二與阻擊", "reviewer": null, "status": "pending", "note": "第四家不得弱叫：七張♥ 6 點 Pass"},
+    {"id": "tku-open-023", "system": "tku", "dealer": "N", "vul": "None", "hand": "3.KQJ86432.83.T9", "auction": [], "answer": "4H", "source": "淡江橋譜：開叫2♣、弱二與阻擊", "reviewer": null, "status": "pending", "note": "八張♥ 6 點：四線阻擊"},
+    {"id": "tku-open-024", "system": "tku", "dealer": "S", "vul": "Both", "hand": "3.JT98654.AT3.75", "auction": [], "answer": "P", "source": "淡江橋譜：開叫2♣、弱二與阻擊（二三定律）", "reviewer": null, "status": "pending", "note": "有身價、♥沒有 A／K／Q：不阻擊"},
+    {"id": "tku-open-025", "system": "tku", "dealer": "E", "vul": "None", "hand": "A3.JT98654.A3.32", "auction": [], "answer": "P", "source": "淡江橋譜：開叫2♣、弱二與阻擊", "reviewer": null, "status": "pending", "note": "三線阻擊不可以有兩張 A"},
+    {"id": "tku-open-026", "system": "tku", "dealer": "N", "vul": "None", "hand": "KQJ943.KJ32.54.2", "auction": [], "answer": "P", "source": "淡江橋譜：開叫2♣、弱二與阻擊", "reviewer": null, "status": "pending", "note": "弱二不能另有一門好的四張高花"},
+    {"id": "tku-open-027", "system": "tku", "dealer": "W", "vul": "None", "hand": "KQJ943.32.54.432", "auction": ["P", "P", "P"], "answer": "P", "source": "淡江橋譜：開叫2♣、弱二與阻擊", "reviewer": null, "status": "pending", "note": "第四家不得弱叫：不開 2♦"},
+    {"id": "tku-open-028", "system": "tku", "dealer": "S", "vul": "NS", "hand": "KQJ98643.3.83.T9", "auction": [], "answer": "4S", "source": "淡江橋譜：開叫2♣、弱二與阻擊", "reviewer": null, "status": "pending", "note": "八張♠ 6 點、♠有大牌：有身價也可四線阻擊"}
   ]
 }

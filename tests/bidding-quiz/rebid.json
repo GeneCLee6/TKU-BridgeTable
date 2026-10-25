@@ -16,6 +16,7 @@
     { "id": "tku-rebid-012", "system": "tku", "dealer": "W", "vul": "NS", "hand": "KQ5.AJ8.K932.Q72", "auction": ["1N", "P", "2C", "P"], "answer": "2D", "source": "淡江橋譜：1NT的答叫", "reviewer": null, "status": "pending", "note": "15 點沒有四張高花：Stayman 回答 2♦" },
     { "id": "tku-rebid-013", "system": "tku", "dealer": "N", "vul": "Both", "hand": "KQ54.A3.KJ82.Q72", "auction": ["1N", "P", "2D", "P"], "answer": "2H", "source": "淡江橋譜：1NT的答叫", "reviewer": null, "status": "pending", "note": "15 點♥只有兩張：接受轉換叫 2♥" },
     { "id": "tku-rebid-014", "system": "tku", "dealer": "E", "vul": "NS", "hand": "AQ54.K3.KJ82.A72", "auction": ["1N", "P", "2H", "P"], "answer": "3S", "source": "淡江橋譜：1NT的答叫", "reviewer": null, "status": "pending", "note": "17 點四張♠：轉換之後 4 張王＋17 點跳叫 3♠" },
-    { "id": "tku-rebid-015", "system": "tku", "dealer": "S", "vul": "EW", "hand": "AQ5.KJ8.K93.KJ72", "auction": ["1N", "P", "2N", "P"], "answer": "3N", "source": "淡江橋譜：1NT的答叫", "reviewer": null, "status": "pending", "note": "17 點高限：接受 2NT 邀請" }
+    { "id": "tku-rebid-015", "system": "tku", "dealer": "S", "vul": "EW", "hand": "AQ5.KJ8.K93.KJ72", "auction": ["1N", "P", "2N", "P"], "answer": "3N", "source": "淡江橋譜：1NT的答叫", "reviewer": null, "status": "pending", "note": "17 點高限：接受 2NT 邀請" },
+    {"id": "tku-rebid-016", "system": "tku", "dealer": "N", "vul": "None", "hand": "AK2.KQ3.Q54.5432", "auction": ["1C", "P", "2S", "P"], "answer": "P", "source": "淡江橋譜：開叫1♣（答叫：1♣ ?）", "reviewer": null, "status": "pending", "note": "同伴弱跳叫新花（5 點以下），開叫者 Pass"}
   ]
 }

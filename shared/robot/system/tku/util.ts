@@ -57,6 +57,12 @@ export const shortSuit = (h: Hand, trump: Suit): Suit | null => ORDER.find((s) =
 /** Whether one of the top two cards of a suit is the ace, king or queen */
 export const topHonour = (h: Hand, s: Suit) => suitCards(h.cards, s).slice(0, 2).some((c) => 'AKQ'.includes(rankOf(c)))
 
+/** How many of the ace, king and queen of a suit the hand holds */
+export const topThree = (h: Hand, s: Suit) => suitCards(h.cards, s).filter((c) => 'AKQ'.includes(rankOf(c))).length
+
+/** Aces in the hand */
+export const aces = (h: Hand) => h.cards.filter((c) => rankOf(c) === 'A').length
+
 /** Aces and kings in a suit */
 export const aceKings = (h: Hand, s: Suit) => suitCards(h.cards, s).filter((c) => 'AK'.includes(rankOf(c))).length
 
