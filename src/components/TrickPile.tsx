@@ -3,6 +3,7 @@ import styled from 'styled-components'
 import { sideOf, type Seat, type Side } from '../../shared/cards.ts'
 import type { Trick } from '../../shared/game.ts'
 import { CARD_RATIO } from '../lib/cards.ts'
+import { PACE } from '../lib/motion.ts'
 import { useT } from '../state/PreferencesContext.tsx'
 import { TrickArea, type Position } from './TrickArea.tsx'
 
@@ -14,7 +15,7 @@ import { TrickArea, type Position } from './TrickArea.tsx'
  */
 
 /** Pause between the cards when the last trick is played again */
-export const LAST_TRICK_STEP_MS = 450
+export const LAST_TRICK_STEP_MS = PACE.lastTrickStepMs
 
 const Wrap = styled.div`
   position: relative;

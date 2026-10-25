@@ -35,6 +35,7 @@ import { Muted, PageMain } from '../components/ui.tsx'
 import { spokenContract } from '../lib/announce.ts'
 import { CARD_SCALE, sortForDisplay, suitOrder } from '../lib/cards.ts'
 import { auctionBoxHeight, biddingBoxHeight, handHeight, type Orientation } from '../lib/measure.ts'
+import { PACE } from '../lib/motion.ts'
 import { dealSound, playCardSound, turnSound, unlockSound } from '../lib/sound.ts'
 import { useCardChoice } from '../lib/useCardChoice.ts'
 import { useMediaQuery } from '../lib/useMediaQuery.ts'
@@ -717,7 +718,7 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
   }
   useEffect(() => {
     if (!dealing) return
-    const timer = setTimeout(() => setDealing(0), DEAL_MS + 450)
+    const timer = setTimeout(() => setDealing(0), DEAL_MS + PACE.dealHoldMs)
     return () => clearTimeout(timer)
   }, [dealing])
   useTableSounds(boardNo, playedCount, sound)
