@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+<head>
+<meta charset="utf-8">
+<title>03 管理頁 · 現在 vs 提案</title>
+<link rel="stylesheet" href="mockup.css">
+<style>
+  .frame { --h: 1180px; }
+  .stack { display: grid; gap: 20px; }
+  .v-before .form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; }
+  .v-before .field .input { min-height: 38px; font-size: 15px; padding: 0 10px; }
+  .v-before .ok { color: var(--success); font-weight: 600; }
+
+  .v-after .shell { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 32px; max-width: 1180px; margin: 0 auto; padding: 32px 24px 48px; }
+  .v-after .side { position: sticky; top: 24px; align-self: start; display: grid; gap: 2px; padding-top: 56px; font-size: 14px; }
+  .v-after .side a { display: flex; justify-content: space-between; padding: 8px 12px; border-radius: 6px; color: var(--muted); font-weight: 600; text-decoration: none; }
+  .v-after .side a.on { background: var(--surface); color: var(--text); box-shadow: inset 3px 0 0 var(--accent); }
+  .v-after .stack { gap: 24px; }
+  .v-after .formgrid { display: grid; grid-template-columns: 180px 320px 1fr; gap: 16px 24px; align-items: start; }
+  .v-after .formgrid > .lab { padding-top: 9px; font-size: 14px; font-weight: 600; }
+  .v-after .formgrid > .ctl { display: grid; gap: 6px; }
+  .v-after .menuwrap { position: relative; display: inline-block; }
+  .v-after .menu { position: absolute; right: 0; top: 36px; z-index: 2; width: 160px; padding: 4px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); box-shadow: 0 6px 24px rgba(22,36,63,.16); text-align: left; }
+  .v-after .menu span { display: block; padding: 7px 10px; border-radius: 4px; font-size: 14px; }
+  .v-after .menu span.hl { background: var(--surfaceAlt); }
+  .v-after .menu span.d { color: var(--danger); border-top: 1px solid var(--border); margin-top: 4px; padding-top: 9px; border-radius: 0; }
+  .v-after .search { width: 220px; }
+</style>
+</head>
+<body class="cmp">
+<header class="cmp-head">
+  <h1>03 社團管理頁 · 現在 vs 提案</h1>
+  <p>同一個狀態：剛按完「社團設定」的儲存；一筆待審核的申請。桌機 1280×1180，縮成 60%（現在的頁面下方還有「新增社員」「牌桌」兩張卡，沒入鏡）。</p>
+</header>
+<div class="pair">
+  <figure>
+    <figcaption><span class="chip">現在</span> AdminPage.tsx 的樣子</figcaption>
+    <div class="frame v-before">
+      <div class="hdr">
+        <span class="brand"><img src="../../../public/logo-mark.svg" alt=""><span><b>TKU BridgeTable</b><small>淡江牌桌 ♠♥♦♣ 橋藝社線上牌桌</small></span></span>
+        <nav><a>大廳</a><a>牌局紀錄</a><a class="on">管理 <b class="count">1</b></a></nav>
+        <span class="right"><span class="ico">🔔</span><span class="ico">🌐</span><span class="ico">☾</span><span class="me">王小明</span><span class="btn ghost sm">登出</span></span>
+      </div>
+      <main class="page">
+        <h1 class="title">社團管理</h1>
+        <div class="stack">
+          <span class="ok">已儲存</span>
+          <section class="card">
+            <h2 class="h2">待審核的申請（1）</h2>
+            <table class="tbl"><thead><tr><th>帳號</th><th>自我介紹</th><th>申請時間</th><th>操作</th></tr></thead>
+              <tbody><tr><td>lin0921<span class="small">從淡江橋譜申請</span></td><td>資管二，高中打過橋牌</td><td>2026/10/24 21:13</td><td><div class="row"><span class="btn sm primary">核准</span><span class="btn sm danger">拒絕</span></div></td></tr></tbody>
+            </table>
+          </section>
+          <section class="card">
+            <h2 class="h2">社團設定</h2>
+            <div class="form">
+              <label class="field">帳號上限<span class="input" style="width:180px">60</span></label>
+              <label class="field">邀請碼<span class="input" style="width:180px">tku2026</span><small class="help">留空表示不需要邀請碼</small></label>
+              <span class="btn primary">儲存</span>
+            </div>
+          </section>
+          <section class="card">
+            <h2 class="h2">社員（24 / 60 人）</h2>
+            <table class="tbl"><thead><tr><th>帳號</th><th>身分</th><th>橋譜權限</th><th>加入</th><th>最後登入</th><th>牌局</th><th>操作</th></tr></thead>
+              <tbody>
+                <tr><td>王小明<span class="dot"></span></td><td><span class="badge on">管理員</span></td><td><span class="check"><span class="box on dis"></span>線上編輯</span><span class="check"><span class="box on dis"></span>匯入檔案</span></td><td>2026/3/2 10:05</td><td>2026/10/25 08:12</td><td>412</td><td><div class="row"><span class="btn sm">重設密碼</span></div></td></tr>
+                <tr><td>陳怡君<span class="dot"></span></td><td><span class="badge off">社員</span></td><td><span class="check"><span class="box on"></span>線上編輯</span><span class="check"><span class="box"></span>匯入檔案</span></td><td>2026/3/4 19:40</td><td>2026/10/25 07:55</td><td>268</td><td><div class="row"><span class="btn sm">重設密碼</span><span class="btn sm">設為管理員</span><span class="btn sm danger">刪除</span></div></td></tr>
+                <tr><td>林大偉</td><td><span class="badge off">社員</span></td><td><span class="check"><span class="box"></span>線上編輯</span><span class="check"><span class="box"></span>匯入檔案</span></td><td>2026/4/11 12:00</td><td>2026/10/23 22:31</td><td>97</td><td><div class="row"><span class="btn sm">重設密碼</span><span class="btn sm">設為管理員</span><span class="btn sm danger">刪除</span></div></td></tr>
+                <tr><td>黃志明<span class="small">10/20 自己重設過密碼</span></td><td><span class="badge off">社員</span></td><td><span class="check"><span class="box"></span>線上編輯</span><span class="check"><span class="box"></span>匯入檔案</span></td><td>2026/9/15 18:22</td><td>從未</td><td>0</td><td><div class="row"><span class="btn sm">重設密碼</span><span class="btn sm">設為管理員</span><span class="btn sm danger">刪除</span></div></td></tr>
+              </tbody>
+            </table>
+          </section>
+          <section class="card">
+            <h2 class="h2">新增社員</h2>
+            <div class="form">
+              <label class="field">帳號<span class="input" style="width:180px">chen</span></label>
+              <label class="field">密碼<span class="input" style="width:180px"><span class="pw">••••••••</span></span></label>
+              <span class="btn primary">新增</span>
+            </div>
+            <p class="errbox" style="margin-top:12px">這個帳號已經有人用了</p>
+          </section>
+        </div>
+      </main>
+    </div>
+  </figure>
+  <figure>
+    <figcaption><span class="chip new">提案</span> 左側分區導覽、表單格線、toast</figcaption>
+    <div class="frame v-after">
+      <div class="hdr">
+        <span class="brand"><img src="../../../public/logo-mark.svg" alt=""><span><b>TKU BridgeTable</b><small>淡江牌桌 ♠♥♦♣ 橋藝社線上牌桌</small></span></span>
+        <nav><a>大廳</a><a>牌局紀錄</a><a class="on">管理 <b class="count">1</b></a></nav>
+        <span class="right"><span class="ico">🔔</span><span class="ico">🌐</span><span class="ico">☾</span><span class="me">王小明 ▾</span></span>
+      </div>
+      <div class="shell">
+        <nav class="side">
+          <a>待審核的申請 <span class="badge gold">1</span></a>
+          <a class="on">社團設定</a>
+          <a>社員 <span class="muted" style="font-size:12px">24</span></a>
+          <a>新增社員</a>
+          <a>牌桌 <span class="muted" style="font-size:12px">3</span></a>
+        </nav>
+        <main>
+          <div class="pagehead"><div><h1 class="title">社團管理</h1><p class="sub">帳號與淡江橋譜共用；這裡的改動兩個網站都生效。</p></div></div>
+          <div class="stack">
+            <section class="card flush">
+              <div class="cardhead"><h2 class="h2">待審核的申請 <span class="badge gold">1</span></h2></div>
+              <table class="tbl"><thead><tr><th>帳號</th><th>自我介紹</th><th>申請時間</th><th class="num">操作</th></tr></thead>
+                <tbody><tr><td><b>lin0921</b><span class="small">從淡江橋譜申請</span></td><td>資管二，高中打過橋牌</td><td>10/24（五）21:13</td><td class="act"><div class="row end"><span class="btn sm primary">核准</span><span class="btn sm">拒絕</span></div></td></tr></tbody>
+              </table>
+            </section>
+            <section class="card flush">
+              <div class="cardhead"><h2 class="h2">社團設定</h2></div>
+              <div class="cardbody formgrid">
+                <span class="lab">帳號上限</span>
+                <span class="ctl"><span class="input">60</span><span class="help">目前 24 人；可設 2–100。</span></span><span></span>
+                <span class="lab">邀請碼</span>
+                <span class="ctl"><span class="input">tku2026</span><span class="help">留空表示不需要邀請碼。</span></span><span></span>
+              </div>
+              <div class="cardfoot"><span class="btn ghost">還原</span><span class="btn primary">儲存</span></div>
+            </section>
+            <section class="card flush">
+              <div class="cardhead"><h2 class="h2">社員 <span class="muted" style="font-weight:500">24 / 60 人</span></h2><span class="input sm search">🔍 搜尋帳號</span></div>
+              <table class="tbl"><thead><tr><th>帳號</th><th>身分</th><th>橋譜權限</th><th>最後登入</th><th class="num">牌局</th><th class="num">操作</th></tr></thead>
+                <tbody>
+                  <tr><td><b>王小明</b><span class="dot"></span><span class="small">加入 2026/3/2</span></td><td><span class="badge on">管理員</span></td><td><span class="muted" style="font-size:13px">全部（管理員）</span></td><td>今天 08:12</td><td class="num">412</td><td class="act"><div class="row end"><span class="btn sm">重設密碼</span><span class="btn sm icon disabled">⋯</span></div></td></tr>
+                  <tr><td><b>陳怡君</b><span class="dot"></span><span class="small">加入 2026/3/4</span></td><td><span class="badge off">社員</span></td><td><span class="check"><span class="box on"></span>線上編輯</span><span class="check"><span class="box"></span>匯入檔案</span></td><td>今天 07:55</td><td class="num">268</td><td class="act"><div class="row end"><span class="btn sm">重設密碼</span><span class="menuwrap"><span class="btn sm icon focus">⋯</span><span class="menu"><span class="hl">設為管理員</span><span class="d">刪除社員…</span></span></span></div></td></tr>
+                  <tr><td><b>林大偉</b><span class="small">加入 2026/4/11</span></td><td><span class="badge off">社員</span></td><td><span class="check"><span class="box"></span>線上編輯</span><span class="check"><span class="box"></span>匯入檔案</span></td><td>10/23 22:31</td><td class="num">97</td><td class="act"><div class="row end"><span class="btn sm">重設密碼</span><span class="btn sm icon">⋯</span></div></td></tr>
+                  <tr><td><b>黃志明</b><span class="small">10/20 自己重設過密碼</span></td><td><span class="badge off">社員</span></td><td><span class="check"><span class="box"></span>線上編輯</span><span class="check"><span class="box"></span>匯入檔案</span></td><td>從未</td><td class="num">0</td><td class="act"><div class="row end"><span class="btn sm">重設密碼</span><span class="btn sm icon">⋯</span></div></td></tr>
+                </tbody>
+              </table>
+            </section>
+            <section class="card flush">
+              <div class="cardhead"><h2 class="h2">新增社員</h2></div>
+              <div class="cardbody formgrid">
+                <span class="lab">帳號</span>
+                <span class="ctl"><span class="input err">chen</span><span class="errmsg">⚠ 這個帳號已經有人用了</span></span><span></span>
+                <span class="lab">密碼</span>
+                <span class="ctl"><span class="input"><span class="pw">••••••••</span></span><span class="help">至少 6 個字。</span></span><span></span>
+              </div>
+              <div class="cardfoot"><span class="btn primary">新增社員</span></div>
+            </section>
+          </div>
+        </main>
+      </div>
+      <div class="toast" role="status" style="position:absolute"><span class="ok">✓</span><span><b>已儲存</b>　社團設定已更新</span><span class="x">×</span></div>
+    </div>
+  </figure>
+</div>
+<ol class="notes">
+  <li>左側分區導覽（桌機，可捲到該區、標出所在的區），手機版收成頁面頂端的下拉選單；待審核數用金色徽章。</li>
+  <li>每張卡片分「標題列／內容／頁腳」三層；儲存、新增等送出按鈕一律放在卡片頁腳右側。</li>
+  <li>表單用固定格線：標籤欄 180px、輸入欄 320px，說明文字在輸入框正下方；手機版標籤改在上方。</li>
+  <li>「已儲存」不再是頁首一行綠字，改成右下角 toast（4 秒自動消失、可關閉、螢幕閱讀器會念）。</li>
+  <li>欄位錯誤顯示在該欄下方，輸入框框線變紅並加圖示與文字，不只靠顏色。</li>
+  <li>社員表的列操作統一成「重設密碼」＋「⋯」選單（設為管理員、刪除社員…）；危險動作只在確認那一步才用實心紅按鈕。數字欄靠右對齊、日期改成相對時間。</li>
+</ol>
+</body>
+</html>
