@@ -13,6 +13,7 @@
     "test:watch": "vitest",
     "eval": "node --experimental-strip-types --disable-warning=ExperimentalWarning eval/cli.ts",
     "eval:gate": "node --experimental-strip-types --disable-warning=ExperimentalWarning eval/gate.ts",
+    "quiz": "node --experimental-strip-types --disable-warning=ExperimentalWarning eval/quiz-cli.ts",
     "deploy": "npm run build && wrangler deploy"
   },
   "dependencies": {
