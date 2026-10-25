@@ -3,7 +3,7 @@ import { rankLabel, rankOf, SUITS, suitOf, type Card, type Suit } from '../../sh
 import { CARD_RATIO, cardName, sortForDisplay } from '../lib/cards.ts'
 import { LIFT, ROW_STEP, type Orientation } from '../lib/measure.ts'
 import { useT, type CardStyle } from '../state/PreferencesContext.tsx'
-import { CardBack, PlayingCard } from './PlayingCard.tsx'
+import { CardBack, PlayingCard, type CardMark } from './PlayingCard.tsx'
 import { SuitSymbol } from './Suit.tsx'
 
 /**
@@ -92,8 +92,16 @@ const TextRow = styled.div`
   & > :first-child { flex: none; width: 1.15em; }
 `
 
-const RankButton = styled.button<{ $playable: boolean; $played: boolean; $raised: boolean }>`
+const RankButton = styled.button<{ $playable: boolean; $played: boolean; $raised: boolean; $marked?: boolean }>`
   min-width: 0;
+  ${({ $marked }) =>
+    $marked &&
+    css`
+      display: inline-flex;
+      flex-direction: column;
+      align-items: center;
+      margin: 0 1px;
+    `}
   padding: 0 0.05em;
   border: 0;
   border-radius: 4px;
@@ -124,6 +132,25 @@ const RankButton = styled.button<{ $playable: boolean; $played: boolean; $raised
     `}
 `
 
+/** Double-dummy mode's result under a rank in a text hand, so the line grows no wider */
+const TextMark = styled.span<{ $makes: boolean; $best: boolean }>`
+  display: block;
+  margin: 1px 0 2px;
+  padding: 0 0.2em;
+  border-radius: 3px;
+  font-size: max(11px, 0.72em);
+  font-weight: 800;
+  line-height: 1.2;
+  white-space: nowrap;
+  background: ${({ theme, $makes }) => ($makes ? theme.table.ddMake : theme.table.ddDown)};
+  color: ${({ theme }) => theme.table.ddMarkText};
+  ${({ $best, theme }) =>
+    $best &&
+    css`
+      box-shadow: 0 0 0 2px ${theme.table.winner};
+    `}
+`
+
 /** A void: a dash on the same line and baseline as the ranks would be */
 const Void = styled.span`
   padding: 0 0.05em;
@@ -148,6 +175,7 @@ export function HandView({
   playable = [],
   played = [],
   chosen = null,
+  marks,
   onPlay,
   label,
 }: {
@@ -165,6 +193,8 @@ export function HandView({
   played?: Card[]
   /** The card lifted out of the hand, waiting to be played */
   chosen?: Card | null
+  /** Double-dummy mode in a replay: what each playable card leads to */
+  marks?: ReadonlyMap<Card, CardMark>
   onPlay?: (card: Card) => void
   label: string
 }) {
@@ -198,12 +228,20 @@ export function HandView({
                 $playable={canPlay.has(card)}
                 $played={gone.has(card)}
                 $raised={card === chosen}
+                $marked={marks?.has(card)}
                 aria-current={card === chosen || undefined}
                 disabled={!canPlay.has(card)}
                 onClick={() => onPlay?.(card)}
-                aria-label={gone.has(card) ? t.playedCard(cardName(card, t)) : cardName(card, t)}
+                aria-label={
+                  gone.has(card) ? t.playedCard(cardName(card, t)) : marks?.has(card) ? `${cardName(card, t)} · ${marks.get(card)!.label}` : cardName(card, t)
+                }
               >
                 {rankLabel(rankOf(card))}
+                {marks?.has(card) && (
+                  <TextMark $makes={marks.get(card)!.makes} $best={marks.get(card)!.best} aria-hidden data-dd-mark>
+                    {marks.get(card)!.text}
+                  </TextMark>
+                )}
               </RankButton>
             ))}
           </TextRow>
@@ -223,6 +261,8 @@ export function HandView({
         played={gone.has(card)}
         raised={card === chosen}
         corner={orientation === 'vertical' ? 'inline' : 'stack'}
+        mark={marks?.get(card)}
+        markInCorner={orientation !== 'horizontal'}
         onPlay={onPlay}
       />
     ) : (

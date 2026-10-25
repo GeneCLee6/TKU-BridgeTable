@@ -4,6 +4,7 @@ import type { Me } from '../../shared/protocol.ts'
 import {
   BACKUP_FORMAT,
   BACKUP_FORMAT_VERSION,
+  BACKUP_PREFIXES,
   BACKUP_KEEP_DAYS,
   type BackupBucket,
   backupAdmin,
@@ -116,7 +117,7 @@ describe('export', () => {
       format: BACKUP_FORMAT,
       version: BACKUP_FORMAT_VERSION,
       createdAt: '2026-10-24T19:00:00.000Z',
-      prefixes: ['book', 'profile', 'article'],
+      prefixes: [...BACKUP_PREFIXES],
       keys: 3,
     })
     expect(parseBackup(text).entries).toEqual(entries)

@@ -63,6 +63,7 @@ TKU-BridgeTable/
 │  ├─ errors.ts            ClubError
 │  ├─ book.ts              BookService：淡江橋譜的線上內容、版本、匯入草稿與憑證
 │  ├─ profiles.ts          ProfileService：淡江橋譜的制度集、版本、上限與 club 保護
+│  ├─ teams.ts             TeamService：淡江橋譜的隊伍與搭檔（建立、隊長、隊員、封存、邀請、接受、結束），各自開制度集
 │  ├─ roles.ts             每條 HTTP 路由要的角色（管理員／編輯者／個別權限）
 │  ├─ importer.ts          淡江橋譜的 AI 匯入：Claude 的提示、回覆 schema、串流
 │  ├─ views.ts             每位觀看者可見的牌桌畫面（可見性規則）
@@ -247,6 +248,9 @@ interface BoardState {
 | `book:categoryInfo` | 分類的版本號（`baseVersion` 用）與最後修改的人、時間 |
 | `book:profile:<id>` | 淡江橋譜的制度集（`ProfileSummary` 加上內容的分段數；`adopted`、`overrides`、`notes` 在 `bookpart:`）；`club` 沒存過時視為空的、版本 0 |
 | `book:profilerev:<id>:<版本，8 位數>` | 制度集每次儲存的完整內容（在 `bookpart:`）；刪掉制度集時一起刪 |
+| `team:<id>` | 淡江橋譜的隊伍（`ClubTeam`：名稱、隊長、隊員、制度集 id、封存） |
+| `pair:<id>` | 淡江橋譜的搭檔（`Partnership`：兩人 `[邀請者, 受邀者]`、所屬隊伍、制度集 id（接受前是空字串）、狀態 `pending`／`active`／`ended`）；婉拒或收回的邀請直接刪掉 |
+| `userteam:<userId>:<teamId>`、`userpair:<userId>:<pairId>` | 某人在哪些隊伍、有哪些搭檔（值是 `true`） |
 | `book:draft:<時間>-<id>` | AI 匯入產生的草稿（只留最新 30 份） |
 | `book:ticket:<token>` | 匯入上傳用的一次性憑證（10 分鐘） |
 | `book:version` | 橋譜線上內容的版本號，`GET /api/book/content` 與 `/api/book/manifest` 的 ETag；分類改了也會加一 |
@@ -600,7 +604,7 @@ C4 的實作（2026-10-24）：
   - **你對每位的成績**：我對每一位、只算兩人都打過的副，加上「對全部」。單位照挑戰的計分（`shared/challenge-scoring.ts` 的 `pairResult`／`headToHead`／`headToHeadTotal`，純函式、手算範例測試）：`imp`、`crossImp` 是兩人分數差換成的 IMP（正數是我贏）；`mp` 是兩人比較的 100／50／0%，合計取平均（「對全部」是所有比較的平均）；`total` 是分數差，合計相加。Cross-IMP 挑戰裡兩人比較用的是一般 IMP，所以標題寫 IMP。
   - **每一副的結果**：每一副一張卡（牌號、發牌、身價，連到那一副的頁面），每個人一列：合約與莊家方位、首攻、結果、南北分數、這一副的成績（挑戰計分，手機上收起來）、**你對他**（我在這一副對他的勝負，贏綠輸紅）。我在第一列，其他人照名次、再照邀請順序；點名字到那一副的頁面、打開他的分頁。
   - 全部只用伺服器給的 `ChallengeView`（traveller 與排名），瀏覽器只做算術，不判斷誰看得到什麼：還沒打完的人沒有 traveller，什麼都不顯示；沒打過某一副的人（沒打完、或拒絕了的參與者在結束後）在那一副沒有「你對他」。
-- `/challenges/:id/boards/:seq`（`ChallengeBoardPage`）：那一副的 traveller（`TravellerTable`，莊家名字、每副成績、「和他並排看」到 `ComparePage`，和自己的那一副比），上一副／下一副，以及**每個人一個分頁**：分頁顯示我對他的勝負，內容是 `BoardRecordView`（不帶標題）：牌、重播、叫牌、雙明手、出牌紀錄。網址的 `?p=社員 id` 記住選的人，預設是自己。伺服器沒給這一副的 traveller 時只說「現在還看不到」，不讀任何紀錄；每份紀錄照樣走 `/api/history/:id`（`recordVisible`、`challengeBoardVisible`）。
+- `/challenges/:id/boards/:seq`（`ChallengeBoardPage`）：那一副的 traveller（`TravellerTable`，莊家名字、每副成績、「和他並排看」到 `ComparePage`，和自己的那一副比），上一副／下一副，以及**每個人一個分頁**：分頁顯示我對他的勝負，內容是 `BoardRecordView`（不帶標題）：牌、重播、叫牌、雙夢家、出牌紀錄。網址的 `?p=社員 id` 記住選的人，預設是自己。伺服器沒給這一副的 traveller 時只說「現在還看不到」，不讀任何紀錄；每份紀錄照樣走 `/api/history/:id`（`recordVisible`、`challengeBoardVisible`）。
 - **1 副的挑戰**：計分不用改，只是每個人只有一副：MP 兩人打完是 100%／0%，同分各 50% 並列第一；只有一人打完照舊用 `total`、只顯示總分；Cross-IMP 兩人時就是 IMP。再戰維持 1 副。測試在 `tests/engine/challenge-scoring.test.ts`（「a challenge of one board」）與 `tests/worker/challenge-options.test.ts`（「one-board challenges」：三人 MP、兩人打完、一人未完成）。
 
 **公平與確定性**（`e7-t09`）：機器人是確定的（§5.1），兩個人做一樣的事就遇到一樣的反應。機器人的制度（`robotKind`）在建立時鎖進 `settings`；機器人沒有等級（社長 2026-10-24），`settings` 帶 `robotLevel` 會被拒絕，以前存下來的挑戰帶著的 `robotLevel` 載入時丟掉。以後若 TKB Adv 要用亂數（模擬），種子要用「挑戰 id＋第幾副＋動作序號」，不能用牌局 id。
@@ -652,7 +656,7 @@ C4 的實作（2026-10-24）：
 
 `NotificationService`（`worker/notifications.ts`）是 `ClubService.notifications`；其他功能呼叫 `notify(userId, kind, params)`。伺服器只存種類（`NOTIFICATION_KINDS`）和參數，文字由瀏覽器依語言組出來、點了到哪一頁也由瀏覽器決定（`src/lib/notifications.ts`），所以加新種類時要一起加 `strings.ts` 六種語言與連結。某位社員的通知第一次用到時才從儲存讀出、之後留在記憶體；有變就推 `notifications` 給在線的他（同樣只送有變的部分）。頁首鈴鐺（`NotificationBell`）顯示未讀數與列表，點一則標為已讀並跳到對應頁。
 
-現有的種類：`application`（有人申請註冊，通知每位管理員，連到管理頁）；挑戰（§5.5）：`challengeInvited`（給受邀者）、`challengeAccepted`／`challengeDeclined`（給發起者）、`challengeCancelled`（給沒拒絕的人），參數是 `challengeId` 與對方的 `username`；`challengeReminder`（截止前 12 小時，給接受了還沒打完的人）與 `challengeResults`（挑戰 `finished` 時給每位接受的人），參數是 `challengeId`，由期限工作與結算送出（§5.5，`e7-t13`）；`friendOnline`（關注的人上線了，參數 `username`，連到大廳，§5.7）。受邀桌（`e2-t25`）：`tableInvited`，參數 `tableId`、`number`（桌號）與房主的 `username`，連到那一桌。隊制賽（§5.8，`e8-t04`）：`matchInvited`（給受邀者）、`matchAccepted`／`matchDeclined`／`matchLeft`（給安排那一隊的人）、`matchRemoved`（給被移出的人，連到 `/matches`）、`matchCancelled`（給座位上的人），參數是 `matchId` 與做這件事的人的 `username`，其餘連到那場比賽的準備室。精選（`e4-t29`）：`boardFeatured`，第一次設為精選時給打那副的社員（不含機器人與設精選的人自己；之後編輯不再通知），參數 `boardId` 與設的人的 `username`，連到那副的紀錄頁。挑戰頁出來前（C6）挑戰的通知連到大廳。受邀桌等之後各自加；私訊不進通知中心（§5.7）。PWA 推播是 `e1-t28`（M2）。
+現有的種類：`application`（有人申請註冊，通知每位管理員，連到管理頁）；挑戰（§5.5）：`challengeInvited`（給受邀者）、`challengeAccepted`／`challengeDeclined`（給發起者）、`challengeCancelled`（給沒拒絕的人），參數是 `challengeId` 與對方的 `username`；`challengeReminder`（截止前 12 小時，給接受了還沒打完的人）與 `challengeResults`（挑戰 `finished` 時給每位接受的人），參數是 `challengeId`，由期限工作與結算送出（§5.5，`e7-t13`）；`friendOnline`（關注的人上線了，參數 `username`，連到大廳，§5.7）。受邀桌（`e2-t25`）：`tableInvited`，參數 `tableId`、`number`（桌號）與房主的 `username`，連到那一桌。隊制賽（§5.8，`e8-t04`）：`matchInvited`（給受邀者）、`matchAccepted`／`matchDeclined`／`matchLeft`（給安排那一隊的人）、`matchRemoved`（給被移出的人，連到 `/matches`）、`matchCancelled`（給座位上的人），參數是 `matchId` 與做這件事的人的 `username`，其餘連到那場比賽的準備室。搭檔（淡江橋譜 E2，`e2-t03`）：`pairInvited`（給受邀者）、`pairAccepted`／`pairDeclined`（給邀請者）、`pairEnded`（給另一位），參數 `pairId` 與做這件事的人的 `username`，連到淡江橋譜的搭檔頁（`/pairs/:id`，橋譜 C4 做；鈴鐺用整頁開啟另一個網站）。精選（`e4-t29`）：`boardFeatured`，第一次設為精選時給打那副的社員（不含機器人與設精選的人自己；之後編輯不再通知），參數 `boardId` 與設的人的 `username`，連到那副的紀錄頁。挑戰頁出來前（C6）挑戰的通知連到大廳。受邀桌等之後各自加；私訊不進通知中心（§5.7）。PWA 推播是 `e1-t28`（M2）。
 
 ## 5.3 紀錄的 SQL 索引（決策紀錄，`e4-t10`）
 
@@ -753,11 +757,24 @@ SQL 由 `worker/history-index.ts` 的 `searchBoards` 組：只有固定的 SQL �
 | `PUT /api/book/profiles/:id` | bookEdit | `{ profile: ProfileInput, baseVersion, note? }`；`baseVersion` 不符回 409 `profileConflict`。`club` 第一次存時 `baseVersion` 是 0 |
 | `DELETE /api/book/profiles/:id` | bookEdit | `{ baseVersion }`；`club` 回 403 `profileProtected`，還有別的制度集繼承它時回 409 `profileInUse`；版本紀錄一起刪 |
 | `GET /api/book/profiles/:id/revisions[/:version]` | bookEdit | 版本紀錄（新的在前，最多 100 筆，不含內容）與某一版的完整制度集 |
+| `GET /api/club/teams` | 社員 | `{ teams: ClubTeam[] }`，封存的在後，各依名稱 |
+| `POST /api/club/teams` | bookEdit | `TeamInput`（`name`、`captainId`、`memberIds?`，隊長自動算隊員）；同時開隊伍的制度集（繼承 `club`）。最多 8 人（409 `teamFull`）；制度集已達上限時整個不建立 |
+| `GET /api/club/teams/:id` | 社員 | `{ team, pairs }`：隊伍與它現役的搭檔；不存在回 404 `teamGone` |
+| `PATCH /api/club/teams/:id` | 隊長／bookEdit | `TeamPatch`：改名、換隊長（要是隊員）、封存（`archived`）；封存後只能取消封存（409 `teamArchived`） |
+| `POST /api/club/teams/:id/members`、`DELETE …/members/:userId` | 隊長／bookEdit；本人可退出 | `{ userId }` 加隊員；拿掉隊員（隊長要先換人才能離隊） |
+| `GET /api/club/pairs` | 社員 | `{ pairs: Partnership[] }`：自己的搭檔與邀請（含已結束），新的在前 |
+| `POST /api/club/pairs` | 社員 | `PairInvite`（`partnerId`、`teamId?`，兩人都要是那隊的隊員）邀請，通知對方 `pairInvited`。同兩人同隊伍已有邀請或現役搭檔時 409 `pairExists`；任一方等回覆加現役已有 10 個時 409 `pairLimit` |
+| `GET /api/club/pairs/:id` | 社員 | `{ pair }`；不存在回 404 `pairGone` |
+| `POST /api/club/pairs/:id/accept` | 受邀者 | 成立搭檔並開制度集（名稱「邀請者＋受邀者」，繼承隊伍的或 `club`），通知邀請者 `pairAccepted` |
+| `POST /api/club/pairs/:id/decline` | 受邀者 | 刪掉邀請，通知邀請者 `pairDeclined` |
+| `POST /api/club/pairs/:id/end` | 兩人之一 | 現役 → `ended`（制度集保留），通知另一位 `pairEnded`；等回覆時邀請者是收回（不通知）、受邀者是婉拒。已處理過的回 409 `pairAnswered` |
 | `POST /api/book/import/ticket` | bookImport | 一次性憑證與上傳網址 |
 | `POST /api/book/import` | 憑證 | multipart：`ticket`、`meta`、`file`（PDF）或 `text`；回應是 Claude 的 SSE 串流，CORS `*` |
 | `GET/POST /api/book/drafts`、`GET/DELETE /api/book/drafts/:id` | bookImport | 匯入草稿 |
 
-**制度集**（`worker/profiles.ts` 的 `ProfileService`，型別在 `shared/protocol.ts` 的 System profiles 區段，橋譜 `src/lib/api.ts` 對拍）：`checkProfileInput` 只留可編輯的欄位（`name`、`scope`、`parentId`、`adopted`、`overrides`、`notes`），id、版本、`updatedAt`、`updatedBy`（使用者 id）由伺服器填。層次固定：`club` 只有一個、不能改種類；隊伍繼承 `club`；搭檔繼承 `club` 或隊伍（沒給 `parentId` 就是 `club`），所以不會繞圈；有搭檔繼承的隊伍不能改成搭檔。上限 `PROFILE_LIMITS`：整份 JSON 200,000 bytes（UTF-8，超過 413 `contentTooLarge`）、覆寫 500 條、`club` 以外 100 個、名稱 40 字、每則備忘 2,000 字。整段覆寫的 `section` 用和特約一樣的 `checkSections` 檢查，且 `section.id` 要等於 `sectionId`；覆寫指到的段落、列存不存在由橋譜的 `resolveProfile` 回報。讀取暫時是登入的社員都能看全部（E2 改成依成員過濾），寫入暫時都要 `bookEdit`（e1-t10，E2 改成成員權限）。
+**制度集**（`worker/profiles.ts` 的 `ProfileService`，型別在 `shared/protocol.ts` 的 System profiles 區段，橋譜 `src/lib/api.ts` 對拍）：`checkProfileInput` 只留可編輯的欄位（`name`、`scope`、`parentId`、`adopted`、`overrides`、`notes`），id、版本、`updatedAt`、`updatedBy`（使用者 id）由伺服器填。層次固定：`club` 只有一個、不能改種類；隊伍繼承 `club`；搭檔繼承 `club` 或隊伍（沒給 `parentId` 就是 `club`），所以不會繞圈；有搭檔繼承的隊伍不能改成搭檔。上限 `PROFILE_LIMITS`：整份 JSON 200,000 bytes（UTF-8，超過 413 `contentTooLarge`）、覆寫 500 條、`club` 以外 100 個、名稱 40 字、每則備忘 2,000 字。整段覆寫的 `section` 用和特約一樣的 `checkSections` 檢查，且 `section.id` 要等於 `sectionId`；覆寫指到的段落、列存不存在由橋譜的 `resolveProfile` 回報。讀取暫時是登入的社員都能看全部（E2 改成依成員過濾），寫入暫時都要 `bookEdit`（e1-t10，E2 的 e2-t04 改成成員權限）。
+
+**隊伍與搭檔**（`worker/teams.ts` 的 `TeamService`，型別在 `shared/protocol.ts` 的 Teams and partnerships 區段，橋譜 `src/lib/api.ts` 對拍；隊伍型別叫 `ClubTeam`，因為 `Team` 已是隊制賽的 A／B 兩邊）：隊伍由編輯者建立，隊長與編輯者管（`roles.ts` 的 `managesTeam`）；搭檔由任一社員邀請，只有兩人能回覆或結束。隊伍建立時、搭檔接受時用 `ProfileService.createOwned` 開空的制度集（算在 100 個上限裡）。上限 `TEAM_LIMITS`：一隊 8 人、每人等回覆加現役的搭檔 10 個、隊名 40 字。不放在記憶體，備份還原後不用重載；四種鍵都在每日備份裡。還沒處理：帳號刪除時的隊伍與搭檔、成員制的制度集權限與可見範圍（e2-t04）。
 
 伺服器只檢查特約的**形狀**（`checkConvention`：必填欄位、段落 id 唯一、區塊種類），不管內容；橋譜載入時也會再檢查一次，壞掉的內容不會讓網站掛掉。
 
@@ -765,7 +782,7 @@ SQL 由 `worker/history-index.ts` 的 `searchBoards` 組：只有固定的 SQL �
 
 ## 5.1 機器人
 
-機器人只有一個，叫 **TKB**，用淡江制度或 2/1（GIB 相容）叫牌；**沒有等級**（社長 2026-10-24，`ROBOT.md` §7）。座位裡的 id 若是 `robot:<制度>:<座位>` 這種格式就是機器人：`robot:gib:N` 是用 2/1 的 TKB，`robot:tku:N` 是用淡江制度的 TKB（`shared/protocol.ts` 的 `robotId`、`robotKindOf`）。制度放在 id 裡而不是牌桌狀態，是因為座位對調（`swapForDeclarer`／`unswap`）時 id 跟著機器人走、物件重新載入時跟著牌桌存檔回來、紀錄的玩家（`publicUserById`）也直接從 id 帶出 `robotKind`。**舊的 id 照讀**：`robot:N`（2/1 之前）讀成淡江制度；有等級時的 `robot:<制度>:<等級>:<座位>`（例如 `robot:tku:beginner:E`）只看制度，等級不管。存下來的牌桌設定（`TableSettings.robotLevel`）、挑戰設定（`settings.robotLevel`）與紀錄玩家的 `robotLevel` 載入時忽略（`settingsOf`、`ChallengeStore` 讀設定時丟掉）；新的訊息裡牌桌設定與挑戰設定帶 `robotLevel` 會像其他不認得的欄位一樣被拒絕（`badTableSettings`、`badChallengeSettings`），`addRobot` 多帶的 `level` 則跟其他訊息多帶的欄位一樣不理會。房主放機器人時選制度（`addRobot` 的 `kind`，沒寫就是淡江制度），機器人照自己的種類叫牌（`shared/robot/robots.ts` 的 `robotCall`）；2/1 機器人的叫品除了繁中說明還存著叫品的意義（`AuctionCall.meaning`），瀏覽器依觀看者的語言顯示，規則檔需要時才載入。名牌與紀錄裡的機器人帶 `robotKind`：名牌顯示「TKB」加上制度的小標籤（淡江制度／2/1），紀錄顯示「TKB（2/1）」這樣的名字（`strings.ts` 的 `robotName`、`robotSystems`、`playerName`）。每次狀態改變後，`ClubService.scheduleRobots` 檢查是否輪到機器人（叫牌、出牌，或回應攤牌／撤回），經排程器（§5）排一個短暫延遲（叫牌 0.6 秒、出牌 1.05 秒、一墩結束後 2.3 秒、回答 0.3 秒，配合牌 1 秒的滑動；社長 2026-10-25 要求整體快 1.3 倍）再執行，執行完再排下一個；每張桌子同時最多一個機器人工作。機器人同意撤回；攤牌由對手方的機器人用雙明手分析判斷（`shared/robot/claim.ts`，見 `ROBOT.md` §3.1）。物件重新載入時也會重新排程。至少要有一位真人在座，機器人才會行動；最後一位真人離開，桌子就關閉。
+機器人只有一個，叫 **TKB**，用淡江制度或 2/1（GIB 相容）叫牌；**沒有等級**（社長 2026-10-24，`ROBOT.md` §7）。座位裡的 id 若是 `robot:<制度>:<座位>` 這種格式就是機器人：`robot:gib:N` 是用 2/1 的 TKB，`robot:tku:N` 是用淡江制度的 TKB（`shared/protocol.ts` 的 `robotId`、`robotKindOf`）。制度放在 id 裡而不是牌桌狀態，是因為座位對調（`swapForDeclarer`／`unswap`）時 id 跟著機器人走、物件重新載入時跟著牌桌存檔回來、紀錄的玩家（`publicUserById`）也直接從 id 帶出 `robotKind`。**舊的 id 照讀**：`robot:N`（2/1 之前）讀成淡江制度；有等級時的 `robot:<制度>:<等級>:<座位>`（例如 `robot:tku:beginner:E`）只看制度，等級不管。存下來的牌桌設定（`TableSettings.robotLevel`）、挑戰設定（`settings.robotLevel`）與紀錄玩家的 `robotLevel` 載入時忽略（`settingsOf`、`ChallengeStore` 讀設定時丟掉）；新的訊息裡牌桌設定與挑戰設定帶 `robotLevel` 會像其他不認得的欄位一樣被拒絕（`badTableSettings`、`badChallengeSettings`），`addRobot` 多帶的 `level` 則跟其他訊息多帶的欄位一樣不理會。房主放機器人時選制度（`addRobot` 的 `kind`，沒寫就是淡江制度），機器人照自己的種類叫牌（`shared/robot/robots.ts` 的 `robotCall`）；2/1 機器人的叫品除了繁中說明還存著叫品的意義（`AuctionCall.meaning`），瀏覽器依觀看者的語言顯示，規則檔需要時才載入。名牌與紀錄裡的機器人帶 `robotKind`：名牌顯示「TKB」加上制度的小標籤（淡江制度／2/1），紀錄顯示「TKB（2/1）」這樣的名字（`strings.ts` 的 `robotName`、`robotSystems`、`playerName`）。每次狀態改變後，`ClubService.scheduleRobots` 檢查是否輪到機器人（叫牌、出牌，或回應攤牌／撤回），經排程器（§5）排一個短暫延遲（叫牌 0.6 秒、出牌 1.05 秒、一墩結束後 2.3 秒、回答 0.3 秒，配合牌 1 秒的滑動；社長 2026-10-25 要求整體快 1.3 倍）再執行，執行完再排下一個；每張桌子同時最多一個機器人工作。機器人同意撤回；攤牌由對手方的機器人用雙夢家分析判斷（`shared/robot/claim.ts`，見 `ROBOT.md` §3.1）。物件重新載入時也會重新排程。至少要有一位真人在座，機器人才會行動；最後一位真人離開，桌子就關閉。
 
 **真人不當機器人的夢家**：叫牌結束時若莊家是機器人、夢家是真人，`swapForDeclarer` 把兩人的座位對調（同 BBO），真人坐到莊家的位子主打，機器人帶著它的種類坐到原本的位子當夢家；對調記在 `Table.swapped`。若撤回最後一個 Pass 讓叫牌重新開始，`unswap` 換回來；下一副發牌時清掉記錄（座位維持對調後的樣子）。叫牌與出牌規則見 `ROBOT.md`。
 
@@ -793,7 +810,7 @@ SQL 由 `worker/history-index.ts` 的 `searchBoards` 組：只有固定的 SQL �
 **付費：暫不付（社團決定，2026-10-24）**。現階段的做法：
 
 1. **先把規則機器人做強**，不用 DDS：出牌時讀叫牌推論、數牌、坐莊計畫、防守推論（ROADMAP 新的 B4、B10）。這就是 TKB，不需要伺服器 DDS。
-2. **DDS 只用在不花錢的地方**：殘局與攤牌判斷用 `dd.ts`（已經在做）；牌打完、四家公開以後，紀錄頁在**瀏覽器**裡用 WASM 版 DDS 算 DD 表與 par（`e6-t43`，B11，已完成：`src/lib/dds.worker.ts` 是延遲載入的 Web Worker，`bridge-dds` 只打包進它，Worker 端的程式碼不含 DDS；授權聲明在 `public/licenses/dds-apache-2.0.txt`，紀錄頁的 DD 表下方有連結）。機器人打牌時的思考不能放在瀏覽器，因為那需要別人的牌（`CLAUDE.md` 硬性規則 2）。
+2. **DDS 只用在不花錢的地方**：殘局與攤牌判斷用 `dd.ts`（已經在做）；牌打完、四家公開以後，紀錄頁在**瀏覽器**裡用 WASM 版 DDS 算 DD 表與 par（`e6-t43`，B11，已完成：`src/lib/dds.worker.ts` 是延遲載入的 Web Worker，`bridge-dds` 只打包進它，Worker 端的程式碼不含 DDS；授權聲明在 `public/licenses/dds-apache-2.0.txt`，紀錄頁的 DD 表下方有連結）。重播的**雙夢家模式**也用同一個 Web Worker：`doubleDummy.ts` 的 `ddPosition` 把重播到的那一點（實際出過的牌加上假設出的牌）換成 DDS 的 `SolveBoardPBN` 輸入（還在手上的牌、這一墩已經出的牌與首家），`ddsSolve.ts` 的 `solvePosition` 要每張可出的牌的墩數，`cardOutcomes` 換算成莊家對合約的結果。每個局面在頁面載入期間只算一次；同時只送一個局面給 Worker，還在排隊的局面在觀看者移開後就撤回（`useDoubleDummy.ts` 的 `solvePosition`），重播一張張出牌時也先不算。只有打完的牌才有，四家牌紀錄本來就看得到，不需要伺服器的新資料。機器人打牌時的思考不能放在瀏覽器，因為那需要別人的牌（`CLAUDE.md` 硬性規則 2）。
 3. **之後再付**：要做 TKB Adv（DDS 殘局、模擬出牌），或同時在線的人多到規則機器人不夠用時，再升級付費方案。升級只是在 Cloudflare 後台切換方案，不用搬家；`RobotBrain` 讓 DDS 大腦直接換進來（ROADMAP Phase P）。
 
 **規模估算**（全台灣使用時參考，2026-10 的官方價格）：最壞的情況是 300 人同時在線、每人一桌配 3 個 GIB 式機器人，尖峰每天 4 小時，每月約 43 萬副。每次出牌模擬 50 副牌、每副機器人約用 10–20 秒 CPU：

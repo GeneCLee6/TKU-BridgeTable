@@ -1,5 +1,6 @@
-import { RANKS, SEATS, SUITS, rankOf, suitOf, type Hands, type Seat, type Strain } from '../../shared/cards.ts'
+import { RANKS, SEATS, SUITS, rankOf, rankValue, sideOf, suitOf, type Card, type Hands, type Seat, type Strain, type Suit } from '../../shared/cards.ts'
 import type { Vulnerability } from '../../shared/board.ts'
+import { legalCards, tricksOf, tricksWon, turnOf, type BoardState, type PlayedCard } from '../../shared/game.ts'
 
 /**
  * Double-dummy analysis of a finished board, worked out in the browser (`e6-t43`). The solver is
@@ -103,3 +104,127 @@ export function toAnalysis(raw: DdRawResult): DdAnalysis {
   const contracts = raw.par.contracts.map(parseParContract).filter((c): c is ParContract => c !== null)
   return { table, par: { scoreNS: raw.par.score, contracts } }
 }
+
+/*
+ * Double-dummy mode during a replay (BBO's "DD" in the movie): at any point of the play, what each
+ * card the hand to play may play is worth. DDS's SolveBoard takes the cards still held, the cards
+ * already on the table in the trick being played, and who led it; it answers, for every legal card,
+ * how many of the remaining tricks the side to play takes after playing it.
+ */
+
+/** DDS's dealPBN: trump and suits numbered ♠ 0 ♥ 1 ♦ 2 ♣ 3 (NT 4), seats N 0 … W 3, ranks 2 … 14 */
+export interface DdPositionRequest {
+  trump: number
+  /** The seat that led the trick being played (or leads the next one) */
+  first: number
+  /** The cards already played to that trick, in order (unused entries 0) */
+  currentTrickSuit: number[]
+  currentTrickRank: number[]
+  /** The cards still held, in PBN, North first */
+  remainCards: string
+}
+
+/** DDS's futureTricks: one entry per card (lower equivalent cards folded into `equals`) */
+export interface DdPositionRaw {
+  suit: number[]
+  rank: number[]
+  /** Bit r set: the card of rank r in the same suit is worth the same */
+  equals: number[]
+  /** Remaining tricks (the current one included) the side to play takes */
+  score: number[]
+}
+
+/** What one card is worth, seen from the declaring side as BBO shows it */
+export interface CardOutcome {
+  /** Tricks declarer's side ends the board with */
+  tricks: number
+  /** Against the contract: 0 just made, +1 one overtrick, -1 one down */
+  diff: number
+  /** One of the best cards for the side to play */
+  best: boolean
+}
+
+/** A point of the play: who is to play, what they may play, and what DDS needs to know */
+export interface DdPosition {
+  turn: Seat
+  legal: Card[]
+  request: DdPositionRequest
+  /** Tricks declarer's side has already won (completed tricks only) */
+  declarerTricks: number
+  /** Tricks still to be played, the current one included */
+  tricksLeft: number
+  /** The hand to play is declarer or dummy */
+  declarerSide: boolean
+}
+
+const DDS_SUITS: readonly Suit[] = ['S', 'H', 'D', 'C']
+const rankAt = (value: number) => RANKS[14 - value]
+
+/**
+ * The point of the play after `play` (the record's cards so far, plus any tried out), or null when
+ * there is nothing left to play or no contract
+ */
+export function ddPosition(board: BoardState, play: readonly PlayedCard[]): DdPosition | null {
+  const contract = board.contract
+  if (!contract || play.length >= 52) return null
+  const state: BoardState = { ...board, phase: 'play', play: [...play], claim: undefined }
+  const turn = turnOf(state)
+  if (!turn) return null
+  const current = tricksOf(state).at(-1)
+  const open = current && !current.winner ? current.cards : []
+  const first = current && open.length ? current.leader : turn
+  const played = new Set(play.map((p) => p.card))
+  const remaining = Object.fromEntries(SEATS.map((seat) => [seat, board.hands[seat].filter((c) => !played.has(c))])) as Hands
+  const trickSuit = [0, 0, 0]
+  const trickRank = [0, 0, 0]
+  open.forEach(({ card }, i) => {
+    trickSuit[i] = DDS_SUITS.indexOf(suitOf(card))
+    trickRank[i] = rankValue(rankOf(card))
+  })
+  const side = sideOf(contract.declarer)
+  return {
+    turn,
+    legal: legalCards(state, turn),
+    request: {
+      trump: DDS_STRAINS.indexOf(contract.strain),
+      first: SEATS.indexOf(first),
+      currentTrickSuit: trickSuit,
+      currentTrickRank: trickRank,
+      remainCards: pbnDeal(remaining),
+    },
+    declarerTricks: tricksWon(state)[side],
+    tricksLeft: 13 - Math.floor(play.length / 4),
+    declarerSide: sideOf(turn) === side,
+  }
+}
+
+/** The same position always gives the same answer, so each is solved once */
+export const positionKey = (request: DdPositionRequest) =>
+  [request.trump, request.first, request.currentTrickSuit.join(','), request.currentTrickRank.join(','), request.remainCards].join('|')
+
+/** DDS's answer per card: remaining tricks for the side to play, the equivalent cards spelled out */
+export function cardScores(raw: DdPositionRaw): Map<Card, number> {
+  const scores = new Map<Card, number>()
+  raw.suit.forEach((suitNo, i) => {
+    const suit = DDS_SUITS[suitNo]
+    scores.set(suit + rankAt(raw.rank[i]), raw.score[i])
+    for (let r = 2; r <= 14; r++) if (raw.equals[i] & (1 << r)) scores.set(suit + rankAt(r), raw.score[i])
+  })
+  return scores
+}
+
+/** Each legal card's outcome for declarer's side against a contract of `level`; the best ones for the side to play marked */
+export function cardOutcomes(position: DdPosition, scores: Map<Card, number>, level: number): Map<Card, CardOutcome> {
+  const outcomes = new Map<Card, CardOutcome>()
+  const known = position.legal.filter((card) => scores.has(card))
+  const top = Math.max(...known.map((card) => scores.get(card)!))
+  for (const card of known) {
+    const score = scores.get(card)!
+    const tricks = position.declarerTricks + (position.declarerSide ? score : position.tricksLeft - score)
+    outcomes.set(card, { tricks, diff: tricks - (level + 6), best: score === top })
+  }
+  return outcomes
+}
+
+/** '=', '+1', '−2' as BBO writes it on the card */
+export const outcomeLabel = (diff: number) => (diff === 0 ? '=' : diff > 0 ? `+${diff}` : `−${-diff}`)
