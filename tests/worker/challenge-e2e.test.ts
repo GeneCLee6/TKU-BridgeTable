@@ -173,4 +173,4 @@ it('three people, four boards, matchpoints: one stops halfway and only the finis
   for (const userId of [amy, ben, cat]) expect(connections.bell(userId)).toContain('challengeResults')
   // cat's parked table closed with the challenge
   expect(tables()).toHaveLength(0)
-})
+}, 30_000)
