@@ -6,6 +6,14 @@ import type { Strings } from '../strings.ts'
 /** Height divided by width: a little longer than a poker card, like the bridge-size cards on BBO */
 export const CARD_RATIO = 1.5
 
+/** The viewer's card size preference */
+export type CardSize = 'small' | 'medium' | 'large'
+
+/** How much each card size scales the cards against the medium size */
+export const CARD_SCALE: Record<CardSize, number> = { small: 0.85, medium: 1, large: 1.18 }
+
+export const isCardSize = (value: unknown): value is CardSize => value === 'small' || value === 'medium' || value === 'large'
+
 /** 黑桃A, 紅心10 / "A of spades": the accessible name of a card */
 export function cardName(card: Card, t: Strings) {
   return t.cardName(t.suitNames[suitOf(card)], rankLabel(rankOf(card)))
