@@ -2,6 +2,7 @@ import { Trophy } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import styled from 'styled-components'
 import type { TableMatch } from '../../shared/protocol.ts'
+import { useMatchScoreSound } from '../lib/sound/hooks.ts'
 import { useTeamMatch } from '../lib/useTeamMatch.ts'
 import { useT } from '../state/PreferencesContext.tsx'
 import { ScoreLine } from './MatchParts.tsx'
@@ -29,9 +30,11 @@ const Wrap = styled.span`
   }
 `
 
-export function MatchBanner({ match }: { match: TableMatch }) {
+export function MatchBanner({ match, watching = false }: { match: TableMatch; watching?: boolean }) {
   const t = useT()
   const { match: view } = useTeamMatch(match.id)
+  // People watching hear the other room's result come in; the players do not (DESIGN.md §4)
+  useMatchScoreSound(view, watching)
   // Before the first deal the next board is the one after those played
   const seq = match.seq || Math.min(match.played + 1, match.boards)
   const playing = !view || view.status === 'playing'

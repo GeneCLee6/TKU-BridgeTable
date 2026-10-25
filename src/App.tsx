@@ -4,6 +4,7 @@ import styled from 'styled-components'
 import { AppHeader } from './components/AppHeader.tsx'
 import { TOAST_TIMEOUT, ToastProvider, useToast } from './components/Toast.tsx'
 import { PageMain } from './components/ui.tsx'
+import { useClubSounds } from './lib/sound/hooks.ts'
 import { AccountPage } from './pages/AccountPage.tsx'
 import { AdminPage } from './pages/AdminPage.tsx'
 import { BoardPage } from './pages/BoardPage.tsx'
@@ -49,6 +50,14 @@ function ServerErrorToast() {
   return null
 }
 
+/** The sounds outside a table: notifications, direct messages, and unlocking audio on the first gesture */
+function ClubSounds() {
+  const { user } = useAuth()
+  const { notifications, directLive } = useClub()
+  useClubSounds({ userId: user?.id, notifications, directs: directLive })
+  return null
+}
+
 function ConnectionBanner() {
   const { status, lobby } = useClub()
   const { t } = usePreferences()
@@ -81,6 +90,7 @@ function Routed() {
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
       <ServerErrorToast />
+      <ClubSounds />
     </>
   )
 }

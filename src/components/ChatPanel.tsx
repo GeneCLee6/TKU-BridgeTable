@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import styled from 'styled-components'
 import { LIMITS, type ChatMessage } from '../../shared/protocol.ts'
+import { showChat } from '../lib/sound/player.ts'
 import { useT } from '../state/PreferencesContext.tsx'
 
 const Panel = styled.div`
@@ -75,6 +76,9 @@ export function ChatPanel({ messages, onSend }: { messages: ChatMessage[]; onSen
   useEffect(() => {
     log.current?.scrollTo?.({ top: log.current.scrollHeight })
   }, [messages.length])
+
+  // Chat one can see makes no sound
+  useEffect(() => showChat(), [])
 
   return (
     <Panel>

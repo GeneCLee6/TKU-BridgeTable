@@ -37,7 +37,7 @@ import { spokenContract } from '../lib/announce.ts'
 import { CARD_SCALE, sortForDisplay, suitOrder } from '../lib/cards.ts'
 import { auctionBoxHeight, biddingBoxHeight, handHeight, type Orientation } from '../lib/measure.ts'
 import { PACE } from '../lib/motion.ts'
-import { dealSound, playCardSound, turnSound, unlockSound } from '../lib/sound.ts'
+import { useTableSounds } from '../lib/sound/hooks.ts'
 import { useCardChoice } from '../lib/useCardChoice.ts'
 import { useMediaQuery } from '../lib/useMediaQuery.ts'
 import { useRobotRules } from '../lib/useRobotRules.ts'
@@ -398,43 +398,12 @@ function useSlowSeat(waiting: TableView['waiting']): Seat | null {
   return waiting && slowKey === key ? waiting.seat : null
 }
 
-/** Plays BBO's sounds: a soft riffle when a board is dealt, a soft knock for every card played */
-function useTableSounds(boardNo: number, played: number, on: boolean) {
-  const last = useRef({ boardNo, played })
-
-  useEffect(() => {
-    // Browsers only allow sound after the page has been used
-    window.addEventListener('pointerdown', unlockSound)
-    window.addEventListener('keydown', unlockSound)
-    return () => {
-      window.removeEventListener('pointerdown', unlockSound)
-      window.removeEventListener('keydown', unlockSound)
-    }
-  }, [])
-
-  useEffect(() => {
-    const before = last.current
-    last.current = { boardNo, played }
-    if (!on) return
-    if (boardNo && boardNo !== before.boardNo) dealSound()
-    else if (played > before.played) playCardSound()
-  }, [boardNo, played, on])
-}
-
 /**
- * Tells you it is your turn when you are looking elsewhere: a chime when your call comes round (and
- * when your card is due while this tab is in the background), and the tab's title says so too
+ * Tells you it is your turn when you are looking elsewhere: the tab's title says so (the sound is
+ * in `useTableSounds`)
  */
-function useTurnAlert(turn: 'call' | 'play' | null, label: string | null, on: boolean) {
-  const last = useRef(turn)
+function useTurnAlert(label: string | null) {
   const baseTitle = useRef(document.title)
-
-  useEffect(() => {
-    const before = last.current
-    last.current = turn
-    if (!on || !turn || turn === before) return
-    if (turn === 'call' || document.hidden) turnSound()
-  }, [turn, on])
 
   useEffect(() => {
     const base = baseTitle.current
@@ -627,7 +596,7 @@ export function TablePage() {
 
 function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeof useClub>['send'] }) {
   const t = useT()
-  const { cardStyle, sound, lang, confirmCalls, confirmPlays, cardSize, tableTourSeen, set: setPrefs } = usePreferences()
+  const { cardStyle, lang, confirmCalls, confirmPlays, cardSize, tableTourSeen, set: setPrefs } = usePreferences()
   const { user } = useAuth()
   const { error, lobby } = useClub()
   const navigate = useNavigate()
@@ -744,19 +713,14 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
     const timer = setTimeout(() => setDealing(0), DEAL_MS + PACE.dealHoldMs)
     return () => clearTimeout(timer)
   }, [dealing])
-  useTableSounds(boardNo, playedCount, sound)
   const myTurn =
     board?.phase === 'auction' && board.legalCalls.length > 0 && !board.undo
       ? 'call'
       : board?.phase === 'play' && board.legalCards.length > 0 && !board.claim
         ? 'play'
         : null
-  useTurnAlert(myTurn, myTurn === 'call' ? t.yourCall : myTurn === 'play' ? t.yourPlay : null, sound)
+  useTurnAlert(myTurn === 'call' ? t.yourCall : myTurn === 'play' ? t.yourPlay : null)
   const slowSeat = useSlowSeat(table.waiting)
-  // A minute on one call or card: the player hears the chime again
-  useEffect(() => {
-    if (sound && slowSeat && slowSeat === me) turnSound()
-  }, [slowSeat, me, sound])
 
   // ── After the board: the last trick stays, then a countdown to the next deal ──
   const finished = board?.phase === 'finished'
@@ -768,6 +732,17 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
 
   const leadingNow = !!pendingShown && (!board?.tricks.length || !!board.tricks.at(-1)!.winner)
   const trickTable = useTrickTable(board, holdLast, leadingNow)
+  // Every sound at the table; a minute on one call or card brings the reminder (slowSeat)
+  useTableSounds({
+    table,
+    userId: user?.id,
+    host: iAmHost,
+    playedCount,
+    lastPlayer: pendingShown?.seat ?? board?.tricks.at(-1)?.cards.at(-1)?.seat ?? null,
+    collecting: trickTable.leaving?.key,
+    myTurn,
+    slow: !!me && slowSeat === me,
+  })
   let shownTrick: Trick | null = trickTable.shown
   if (pendingShown && board?.phase === 'play') {
     const current = board.tricks.at(-1)
@@ -1033,7 +1008,7 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
               ) : practice ? (
                 <PracticeBanner practice={practice} />
               ) : table.match ? (
-                <MatchBanner match={table.match} />
+                <MatchBanner match={table.match} watching={!me} />
               ) : (
                 <>
                   <span>
