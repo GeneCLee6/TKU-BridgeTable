@@ -70,6 +70,8 @@ import {
   type ChallengeChange,
 } from './challenge-flow.ts'
 import { ChallengeStore, type Challenge } from './challenges.ts'
+import { TeamMatchService } from './team-match-service.ts'
+import { TeamMatchStore } from './team-matches.ts'
 import { createHistoryIndex, eventBoards, indexRecord, revealEvent, searchBoards, unindexRecord } from './history-index.ts'
 import { challengeStateOf, modeOf, nextSeq, playedSeqs, type ChallengeTableState, type ModeContext } from './modes.ts'
 import { NotificationService } from './notifications.ts'
@@ -238,6 +240,8 @@ export class ClubService {
   private readonly blocks: Relations
   /** Challenges, kept in SQL (§5.5); created and answered here, played in later batches */
   readonly challenges: ChallengeStore
+  /** Two-table team matches, kept in SQL (§5.7); set up over HTTP, played in later batches */
+  readonly matches: TeamMatchService
   private readonly log: Logger
   /** Rate limits (AC-11.7): messages and chat lines per member, wrong passwords, browser error reports */
   private readonly actionLimit: TokenBuckets
@@ -263,6 +267,12 @@ export class ClubService {
     this.friends = new Relations(store, 'friend', this.now)
     this.blocks = new Relations(store, 'block', this.now)
     this.challenges = new ChallengeStore(store.sql)
+    this.matches = new TeamMatchService(new TeamMatchStore(store.sql), {
+      now: this.now,
+      newId: () => randomId(8),
+      userById: (id) => this.publicUserById(id),
+      takeAction: (id) => this.actionLimit.take(id),
+    })
     if (config.schedule) {
       this.scheduler = manualScheduler(config.schedule)
     } else {
@@ -286,6 +296,7 @@ export class ClubService {
     this.settings = (await this.store.get<Partial<ClubSettings>>('meta:settings')) ?? {}
     createHistoryIndex(this.store.sql)
     this.challenges.createTables()
+    this.matches.store.createTables()
     const schema = (await this.store.get<number>('meta:schema')) ?? 1
     if (schema < 2) await this.migrate()
     if (schema < 3) await this.backfillIndex()
@@ -663,6 +674,8 @@ export class ClubService {
     await this.blocks.forget(user.id)
     // A challenge left with too few people is cancelled; one where everyone left is done finishes
     for (const id of this.challenges.forget(user.id, this.now())) await this.challengeChanged(id)
+    // A match they host that has not started is cancelled; their seats are emptied (§5.7)
+    this.matches.store.forget(user.id, this.now())
     this.connections.disconnect(user.id)
     this.broadcast()
   }
