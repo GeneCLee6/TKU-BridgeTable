@@ -44,6 +44,75 @@ gh secret set CLOUDFLARE_API_TOKEN
 
 每次部署都會在 Cloudflare 的版本紀錄留下 commit 編號（`npx wrangler deployments list` 的 Message 欄位）。
 
+## 2.1 PR 預覽與 staging
+
+除了正式站，還有兩種**和正式站完全分開**的環境。它們是不同的 Worker，各有自己的 Durable Object 與資料庫，不會讀寫正式站的帳號與紀錄；邀請碼各自設定，也**不會**有 `ANTHROPIC_API_KEY`（除非你自己幫它設）。
+
+| 環境 | Worker 名稱 | 什麼時候部署 | 資料 |
+| --- | --- | --- | --- |
+| PR 預覽 | `tku-bridge-table-pr-<PR 號>` | 每個 PR 開啟、每次 push（`.github/workflows/preview.yml`） | 每個 PR 一份，**PR 關閉或合併時連同 Worker 一起刪除** |
+| staging | `tku-bridge-table-staging` | `main` 的 CI 通過後自動部署；也可以手動部署任一分支 | 一直保留 |
+
+PR 預覽部署好後，機器人會在 PR 留一則留言貼預覽網址（之後每次 push 更新同一則）。網址是 `https://tku-bridge-table-pr-<號>.<你的子網域>.workers.dev`，staging 是 `https://tku-bridge-table-staging.<你的子網域>.workers.dev`。
+
+**為什麼不用 `wrangler versions upload` 的預覽網址**：版本是同一個 Worker，綁的是同一個 Durable Object，預覽會直接讀寫正式站的資料；而且 Cloudflare 不替有 Durable Object 的 Worker 產生版本預覽網址。所以預覽和 staging 都是獨立的 Worker（`wrangler.jsonc` 的 `env.preview`、`env.staging`），免費方案可以有 100 個 Worker，足夠。
+
+### 要設定的 GitHub secret
+
+除了 §2 的 `CLOUDFLARE_API_TOKEN`、`CLOUDFLARE_ACCOUNT_ID`（同一個 token 就有權限建立與刪除預覽 Worker），再加：
+
+| Secret | 給誰用 | 沒設定時 |
+| --- | --- | --- |
+| `PREVIEW_INVITE_CODE` | 所有 PR 預覽的註冊邀請碼 | 不部署預覽（工作流程顯示提示，不會失敗） |
+| `STAGING_INVITE_CODE` | staging 的註冊邀請碼 | 不部署 staging |
+| `SEED_PASSWORD` | 測試帳號的密碼（預覽與 staging 共用，至少 6 個字） | 不建立測試帳號，第一個註冊的人就是管理員 |
+
+在專案資料夾逐一執行（貼上值後按 Enter，不會顯示在畫面上），邀請碼請不要和正式站相同：
+
+```bash
+gh secret set PREVIEW_INVITE_CODE
+gh secret set STAGING_INVITE_CODE
+gh secret set SEED_PASSWORD
+```
+
+從 fork 來的 PR 與 Dependabot 的 PR 拿不到 secret，一律不部署預覽（這是 GitHub 的規則，也是刻意的：外人的程式碼不能拿到 Cloudflare 金鑰）。
+
+### 測試資料
+
+設了 `SEED_PASSWORD` 時，每次部署後會自動執行種子指令，建立（已經有的就略過）：
+
+- `admin`：管理員（空的網站第一個帳號）
+- `tester1`–`tester8`：已核准的社員
+- `applicant1`：一筆等待核准的申請
+
+密碼都是 `SEED_PASSWORD`。也可以自己對 staging、預覽或本機執行（指令會拒絕正式站）：
+
+```bash
+SEED_PASSWORD=... SEED_INVITE_CODE=... npm run seed -- --url https://tku-bridge-table-staging.<子網域>.workers.dev
+```
+
+若在管理頁改了那個環境的邀請碼，種子會失敗（部署不受影響），把 `SEED_INVITE_CODE` 換成新的再手動執行即可。
+
+### 手動部署某個分支到 staging
+
+GitHub → Actions → Staging → **Run workflow**，在 `ref` 填分支名稱（或 `gh workflow run Staging -f ref=<分支>`）。下一次合併到 `main` 時，staging 會換回 `main`。適合在合併前用真的 Cloudflare 試有風險的改動（例如 Durable Object 拆分、migration）。
+
+### 需要 AI 匯入時
+
+預覽與 staging 預設沒有 Claude API 金鑰，匯入頁會顯示尚未設定。真的要測時，只對那個 Worker 設定（會用到你的 API 額度）：
+
+```bash
+npx wrangler secret put ANTHROPIC_API_KEY --name tku-bridge-table-staging
+```
+
+### 新增 Durable Object 或其他綁定時
+
+`wrangler.jsonc` 最上層的 `durable_objects`、`vars` 等綁定**不會**被環境繼承：在最上層加了綁定，`env.staging` 與 `env.preview` 也要各加一份；`migrations` 只寫在最上層，三個環境共用。
+
+### 手動清理
+
+PR 關閉時預覽會自動刪除。若有漏掉的（例如當時還沒設定 secret），在 Cloudflare Dashboard → Workers & Pages 刪除 `tku-bridge-table-pr-<號>`，或執行 `npx wrangler delete --name tku-bridge-table-pr-<號>`。刪除 Worker 會一併刪除它的 Durable Object 資料。**不要刪 `tku-bridge-table`（正式站）。**
+
 ## 3. 設定
 
 | 設定 | 位置 | 預設 | 說明 |

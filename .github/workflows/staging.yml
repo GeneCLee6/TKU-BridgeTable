@@ -1,0 +1,99 @@
+name: Staging
+
+# e11-t15: the staging Worker, tku-bridge-table-staging (wrangler.jsonc env.staging). Its own Durable
+# Object storage, invite code and no ANTHROPIC_API_KEY, so it never touches production's data.
+# Follows main after CI passes; "Run workflow" deploys any branch or commit there instead (until the
+# next merge to main), to try a risky change on real Cloudflare before merging. Seeded with test
+# accounts when SEED_PASSWORD is set. Skipped with a notice when the secrets are not set (DEPLOY.md §2.1).
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch, tag or commit to deploy to staging
+        default: main
+        required: true
+
+concurrency:
+  group: staging
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      STAGING_INVITE_CODE: ${{ secrets.STAGING_INVITE_CODE }}
+      SEED_PASSWORD: ${{ secrets.SEED_PASSWORD }}
+      DEPLOY_REF: ${{ github.event.inputs.ref || github.event.workflow_run.head_sha }}
+    steps:
+      - name: Check for Cloudflare credentials
+        id: creds
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ] || [ -z "$STAGING_INVITE_CODE" ]; then
+            echo "::notice::CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID or STAGING_INVITE_CODE is not set; skipping staging (see DEPLOY.md §2.1)"
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v7
+        if: steps.creds.outputs.ready == 'true'
+        with:
+          ref: ${{ env.DEPLOY_REF }}
+
+      - uses: actions/setup-node@v7
+        if: steps.creds.outputs.ready == 'true'
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Build and deploy to staging
+        if: steps.creds.outputs.ready == 'true'
+        id: deploy
+        run: |
+          sha=$(git rev-parse HEAD)
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          npm ci
+          CLOUDFLARE_ENV=staging APP_VERSION="$sha" npm run build
+          # The invite code goes up with the version, so the site is never open without one
+          node -e 'console.log(JSON.stringify({ INVITE_CODE: process.env.STAGING_INVITE_CODE }))' > "$RUNNER_TEMP/secrets.json"
+          npx wrangler deploy --secrets-file "$RUNNER_TEMP/secrets.json" --message "staging $DEPLOY_REF $sha" | tee deploy.log
+          rm "$RUNNER_TEMP/secrets.json"
+          url=$(grep -o 'https://[^ ]*workers.dev' deploy.log | head -1)
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          echo "Staging: $url ($DEPLOY_REF, \`$sha\`)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Smoke test
+        if: steps.creds.outputs.ready == 'true' && steps.deploy.outputs.url != ''
+        env:
+          SITE_URL: ${{ steps.deploy.outputs.url }}
+          SHA: ${{ steps.deploy.outputs.sha }}
+        run: |
+          for i in $(seq 1 20); do
+            live=$(curl -fsS "$SITE_URL/" | grep -o 'name="app-version" content="[^"]*"' | cut -d'"' -f4 || true)
+            echo "attempt $i: live=$live expected=$SHA"
+            [ "$live" = "$SHA" ] && break
+            sleep 6
+          done
+          [ "$live" = "$SHA" ] || { echo "::error::Staging is not serving $SHA"; exit 1; }
+          code=$(curl -s -o /dev/null -w '%{http_code}' "$SITE_URL/api/me")
+          echo "/api/me -> $code"; [ "$code" = "401" ] || exit 1
+
+      - name: Seed test accounts
+        # A failed seed (say, the invite code was changed on the admin page) leaves the deploy standing
+        continue-on-error: true
+        if: steps.creds.outputs.ready == 'true' && steps.deploy.outputs.url != '' && env.SEED_PASSWORD != ''
+        env:
+          SITE_URL: ${{ steps.deploy.outputs.url }}
+          SEED_INVITE_CODE: ${{ secrets.STAGING_INVITE_CODE }}
+        run: npm run seed -- --url "$SITE_URL"
