@@ -1,0 +1,22 @@
+{
+  "category": "response",
+  "title": "答叫",
+  "questions": [
+    { "id": "tku-resp-001", "system": "tku", "dealer": "N", "vul": "None", "hand": "KJ84.Q72.A63.952", "auction": ["1N", "P"], "answer": "2C", "source": "淡江橋譜：1NT的答叫", "reviewer": null, "status": "pending", "note": "10 點有四張♠：2♣ Stayman" },
+    { "id": "tku-resp-002", "system": "tku", "dealer": "E", "vul": "NS", "hand": "852.QJ974.63.T84", "auction": ["1N", "P"], "answer": "2D", "source": "淡江橋譜：1NT的答叫", "reviewer": null, "status": "pending", "note": "3 點五張♥：2♦ 轉換" },
+    { "id": "tku-resp-003", "system": "tku", "dealer": "S", "vul": "EW", "hand": "KT853.72.Q84.J63", "auction": ["1N", "P"], "answer": "2H", "source": "淡江橋譜：1NT的答叫", "reviewer": null, "status": "pending", "note": "6 點五張♠：2♥ 轉換" },
+    { "id": "tku-resp-004", "system": "tku", "dealer": "W", "vul": "Both", "hand": "AJ3.K72.Q963.K84", "auction": ["1N", "P"], "answer": "3N", "source": "淡江橋譜：1NT的答叫", "reviewer": null, "status": "pending", "note": "13 點平均牌型、沒有四張高花：3NT 10–15" },
+    { "id": "tku-resp-005", "system": "tku", "dealer": "N", "vul": "EW", "hand": "4.KQJ985.A72.983", "auction": ["1N", "P"], "answer": "4D", "source": "淡江橋譜：1NT的答叫", "reviewer": null, "status": "pending", "note": "10 點六張♥：4♦ Texas 轉換" },
+    { "id": "tku-resp-006", "system": "tku", "dealer": "E", "vul": "None", "hand": "72.84.QJ9763.952", "auction": ["1N", "P"], "answer": "2S", "source": "淡江橋譜：1NT的答叫", "reviewer": null, "status": "pending", "note": "3 點六張♦：2♠ 低花詢問，之後停在 3♦" },
+    { "id": "tku-resp-007", "system": "tku", "dealer": "S", "vul": "None", "hand": "KJ3.QT64.A82.T43", "auction": ["1H", "P"], "answer": "2N", "source": "淡江橋譜：Bergen加叫（松濤版）", "reviewer": null, "status": "pending", "note": "10 點四張♥、沒有短門：1♥ 之後 2NT 是 Bergen 10–11" },
+    { "id": "tku-resp-008", "system": "tku", "dealer": "W", "vul": "NS", "hand": "Q974.854.K63.963", "auction": ["1S", "P"], "answer": "3S", "source": "淡江橋譜：Bergen加叫（松濤版）", "reviewer": null, "status": "pending", "note": "5 點四張♠：1♠ 之後 3♠ 是 Bergen 4–5" },
+    { "id": "tku-resp-009", "system": "tku", "dealer": "N", "vul": "Both", "hand": "Q974.K54.K63.963", "auction": ["1S", "P"], "answer": "3D", "source": "淡江橋譜：Bergen加叫（松濤版）", "reviewer": null, "status": "pending", "note": "8 點四張♠：1♠ 之後 3♦ 是 Bergen 8–9" },
+    { "id": "tku-resp-010", "system": "tku", "dealer": "E", "vul": "EW", "hand": "Q94.K542.K63.963", "auction": ["1S", "P"], "answer": "2S", "source": "淡江橋譜：1H 2H（淡江用）", "reviewer": null, "status": "pending", "note": "8 點三張♠：單加叫 8–10" },
+    { "id": "tku-resp-011", "system": "tku", "dealer": "S", "vul": "NS", "hand": "K94.AQ42.K63.Q63", "auction": ["1S", "P"], "answer": "2N", "source": "淡江橋譜：開叫高花之滿貫詢問叫（J2N）", "reviewer": null, "status": "pending", "note": "14 點三張♠：J2N 迫叫成局的支持" },
+    { "id": "tku-resp-012", "system": "tku", "dealer": "W", "vul": "None", "hand": "Q74.J5.K8632.T95", "auction": ["1H", "P"], "answer": "1N", "source": "5542 自然制（ROBOT.md §2）", "reviewer": null, "status": "pending", "note": "6 點、♥只有兩張、沒有四張♠：1NT 迫叫一圈" },
+    { "id": "tku-resp-013", "system": "tku", "dealer": "N", "vul": "NS", "hand": "A72.KJ84.5.KQ853", "auction": ["1H", "P"], "answer": "4D", "source": "淡江橋譜：Bergen加叫（松濤版）", "reviewer": null, "status": "pending", "note": "13 點四張♥、♦單張：1♥ 之後 4♦ 是 splinter" },
+    { "id": "tku-resp-014", "system": "tku", "dealer": "E", "vul": "Both", "hand": "73.KJ84.Q96.J852", "auction": ["1C", "P"], "answer": "1H", "source": "5542 自然制（ROBOT.md §2）", "reviewer": null, "status": "pending", "note": "7 點四張♥：一線叫出新花色" },
+    { "id": "tku-resp-015", "system": "tku", "dealer": "S", "vul": "None", "hand": "8642.973.T852.J4", "auction": ["2C", "P"], "answer": "2D", "source": "5542 自然制（ROBOT.md §2）", "reviewer": null, "status": "pending", "note": "1 點：2♣ 強開叫之後 2♦ 等待" },
+    { "id": "tku-resp-016", "system": "tku", "dealer": "W", "vul": "EW", "hand": "852.Q73.K864.J52", "auction": ["2D", "P"], "answer": "2H", "source": "淡江橋譜：2D 開叫（一高弱二）", "reviewer": null, "status": "pending", "note": "6 點：2♥ P/C（♥是王就 Pass、♠是王就改叫 2♠）" }
+  ]
+}

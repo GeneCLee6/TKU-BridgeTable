@@ -139,6 +139,8 @@
 
 **評測平台**（`eval/`，[`eval/README.md`](eval/README.md)，`e6-t15`～`e6-t17`）：兩組機器人設定在固定牌組（種子 `tku-eval-v1`，5,000 副，快速版是前 200 副）上兩桌換位對打，報告 IMP／副、標準誤、MP 與合約統計，例如 `npm run eval -- --a tku --b gib`；`@目錄` 用另一份 checkout 的機器人，`,play=目錄` 只換出牌（§3.3 那種「同一個合約只換出牌」的比較）。改到 `shared/` 或 `eval/` 的 PR，CI 的 `robot-eval` 讓這個分支的 TKB 對 main 的打快速版（淡江制度、2/1 兩場），差超過 2 個標準誤且超過 0.25 IMP／副就失敗，報告在 job summary。`tests/eval/eval.test.ts` 檢查 IMP、標準誤、MP 的算法、牌組可重現與指紋、同一設定對自己每副 0 IMP。
 
+**叫牌題庫**（`tests/bidding-quiz/`，`e5-t23`，[`eval/README.md`](eval/README.md#叫牌題庫quiztse5-t23)）：「這手牌、這個叫牌過程該叫什麼」附書上的答案，分開叫、答叫、再叫；`npm run quiz` 列出各類正確率與答錯的題。每個 PR 的 CI `bidding-quiz` 讓這個分支與 main 的 TKB 答同樣的題目，任何一類少答對就失敗。目前 50 題是 AI 出的、待社團幹部審核；TKB 答對 48 題，錯的是第三家輕開與第四家 Rule of 15（`e5-t24`）。
+
 以前有等級時量過（快速版 200 副，A 大專對 B 初學者）：淡江 **+0.99 ± 0.36** IMP／副、2/1 **+1.10 ± 0.33**；全部 5,000 副都是 +1.26 ± 0.07（§7）。
 
 ## 5. 修改規則

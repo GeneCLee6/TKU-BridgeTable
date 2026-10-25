@@ -378,7 +378,7 @@ describe('challenge requests over HTTP (e7-t16, e7-t17)', () => {
     ).rejects.toMatchObject({ code: 'notFriend' })
     await expect(
       club.challengeRequest(cat, { type: 'answerChallenge', challengeId: made!.id, accept: 'yes' as unknown as boolean }),
-    ).rejects.toMatchObject({ code: 'unknownCommand' })
+    ).rejects.toMatchObject({ code: 'badMessage' })
 
     const cancelled = await club.challengeRequest(amy, { type: 'cancelChallenge', challengeId: made!.id })
     expect(cancelled?.status).toBe('cancelled')

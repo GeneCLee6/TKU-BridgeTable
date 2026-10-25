@@ -1,0 +1,25 @@
+{
+  "category": "opening",
+  "title": "開叫",
+  "questions": [
+    { "id": "tku-open-001", "system": "tku", "dealer": "N", "vul": "None", "hand": "AK32.KQ4.J52.Q43", "auction": [], "answer": "1N", "source": "淡江橋譜：1NT的答叫（1NT 開叫 15–17）", "reviewer": null, "status": "pending", "note": "15 點 4-3-3-3 平均牌型" },
+    { "id": "tku-open-002", "system": "tku", "dealer": "E", "vul": "NS", "hand": "AQ.KJ5.Q9872.K43", "auction": [], "answer": "1N", "source": "淡江橋譜：1NT的答叫（1NT 開叫 15–17）", "reviewer": null, "status": "pending", "note": "15 點 5-3-3-2，五張是低花可以開 1NT" },
+    { "id": "tku-open-003", "system": "tku", "dealer": "S", "vul": "EW", "hand": "KQJ74.A3.K82.954", "auction": [], "answer": "1S", "source": "5542 自然制（ROBOT.md §2）", "reviewer": null, "status": "pending", "note": "13 點五張♠" },
+    { "id": "tku-open-004", "system": "tku", "dealer": "W", "vul": "None", "hand": "AKJ94.873.Q52.94", "auction": ["P", "P"], "answer": "1S", "source": "5542 自然制：第三家輕開（e5-t24）", "reviewer": null, "status": "pending", "note": "第三家 10 點、好的五張♠：輕開，同時指示首攻" },
+    { "id": "tku-open-005", "system": "tku", "dealer": "N", "vul": "NS", "hand": "KQJ74.AQ3.K82.Q5", "auction": [], "answer": "1S", "source": "5542 自然制（ROBOT.md §2）", "reviewer": null, "status": "pending", "note": "17 點 5-3-3-2，但五張是高花：開高花不開 1NT" },
+    { "id": "tku-open-006", "system": "tku", "dealer": "E", "vul": "None", "hand": "KQ54.AJ32.K87.42", "auction": [], "answer": "1C", "source": "5542 自然制（ROBOT.md §2）", "reviewer": null, "status": "pending", "note": "13 點 4-4-3-2，沒有五張高花也沒有四張♦：開 1♣" },
+    { "id": "tku-open-007", "system": "tku", "dealer": "S", "vul": "Both", "hand": "K3.A52.KJ84.Q975", "auction": [], "answer": "1D", "source": "5542 自然制（ROBOT.md §2）", "reviewer": null, "status": "pending", "note": "13 點 4-4 低花開 1♦" },
+    { "id": "tku-open-008", "system": "tku", "dealer": "W", "vul": "None", "hand": "AQ43.K82.Q75.J63", "auction": [], "answer": "1C", "source": "5542 自然制（ROBOT.md §2）", "reviewer": null, "status": "pending", "note": "12 點 4-3-3-3，♦只有三張：開 1♣" },
+    { "id": "tku-open-009", "system": "tku", "dealer": "N", "vul": "EW", "hand": "KJ43.AQ52.KT84.5", "auction": [], "answer": "1D", "source": "5542 自然制（ROBOT.md §2）", "reviewer": null, "status": "pending", "note": "13 點 4-4-4-1 缺♣，四張♦開 1♦" },
+    { "id": "tku-open-010", "system": "tku", "dealer": "E", "vul": "Both", "hand": "AK4.AQ3.KQ52.K97", "auction": [], "answer": "2N", "source": "5542 自然制（ROBOT.md §2）", "reviewer": null, "status": "pending", "note": "21 點平均牌型：2NT 20–21" },
+    { "id": "tku-open-011", "system": "tku", "dealer": "S", "vul": "None", "hand": "KQ.KQ5.AK874.KJ3", "auction": [], "answer": "2N", "source": "5542 自然制（ROBOT.md §2）", "reviewer": null, "status": "pending", "note": "21 點 2-3-5-3，五張低花的平均牌型" },
+    { "id": "tku-open-012", "system": "tku", "dealer": "W", "vul": "NS", "hand": "AKQ4.AK3.AQ52.K9", "auction": [], "answer": "2C", "source": "5542 自然制（ROBOT.md §2）", "reviewer": null, "status": "pending", "note": "25 點：2♣ 22+ 強開叫（人工）" },
+    { "id": "tku-open-013", "system": "tku", "dealer": "N", "vul": "None", "hand": "KQJ984.73.852.94", "auction": [], "answer": "2D", "source": "淡江橋譜：2D 開叫（一高弱二）", "reviewer": null, "status": "pending", "note": "6 點六張♠：2♦ 一高弱二 6–10" },
+    { "id": "tku-open-014", "system": "tku", "dealer": "E", "vul": "EW", "hand": "72.KQJ853.T64.83", "auction": [], "answer": "2D", "source": "淡江橋譜：2D 開叫（一高弱二）", "reviewer": null, "status": "pending", "note": "6 點六張♥：2♦ 一高弱二 6–10" },
+    { "id": "tku-open-015", "system": "tku", "dealer": "S", "vul": "None", "hand": "3.KQJ8642.832.T9", "auction": [], "answer": "3H", "source": "5542 自然制（ROBOT.md §2）", "reviewer": null, "status": "pending", "note": "6 點七張♥：三線阻擊 5–10" },
+    { "id": "tku-open-016", "system": "tku", "dealer": "W", "vul": "Both", "hand": "AQJ84.K73.952.95", "auction": ["P", "P", "P"], "answer": "1S", "source": "5542 自然制：第四家 Rule of 15（e5-t24）", "reviewer": null, "status": "pending", "note": "第四家 10 點＋5 張♠＝15：開叫" },
+    { "id": "tku-open-017", "system": "tku", "dealer": "N", "vul": "Both", "hand": "J842.Q73.K52.J43", "auction": [], "answer": "P", "source": "5542 自然制（ROBOT.md §2）", "reviewer": null, "status": "pending", "note": "7 點平均牌型，不夠開叫" },
+    { "id": "tku-open-018", "system": "tku", "dealer": "E", "vul": "None", "hand": "AQ874.KJ963.5.K2", "auction": [], "answer": "1S", "source": "5542 自然制（ROBOT.md §2）", "reviewer": null, "status": "pending", "note": "13 點 5-5 高花，先開高的♠" },
+    { "id": "tku-open-019", "system": "tku", "dealer": "N", "vul": "NS", "hand": "K5.AQJ64.T83.Q72", "auction": ["P", "P"], "answer": "1H", "source": "5542 自然制（ROBOT.md §2）", "reviewer": null, "status": "pending", "note": "第三家 12 點五張♥" }
+  ]
+}

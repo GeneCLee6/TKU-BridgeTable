@@ -10,6 +10,7 @@ import { SeatPlate } from '../../src/components/SeatPlate.tsx'
 import { MemoryRouter } from 'react-router-dom'
 import { SidePanel } from '../../src/components/SidePanel.tsx'
 import { TableSettingsDialog } from '../../src/components/TableSettingsDialog.tsx'
+import { useCardChoice } from '../../src/lib/useCardChoice.ts'
 import { AuthProvider } from '../../src/state/AuthContext.tsx'
 import { ClubProvider } from '../../src/state/ClubContext.tsx'
 import { PreferencesProvider } from '../../src/state/PreferencesContext.tsx'
@@ -128,6 +129,99 @@ describe('BiddingBox', () => {
     await userEvent.click(screen.getByRole('button', { name: '1' }))
     await userEvent.click(screen.getByRole('button', { name: 'NT' }))
     expect(onCall).toHaveBeenCalledWith('1N', '15-17')
+  })
+
+  it('with confirmation on, waits for the confirm button before making the call', async () => {
+    const onCall = vi.fn()
+    wrap(<BiddingBox legal={[...legalCalls([], 'N')]} onCall={onCall} confirm />)
+    await userEvent.click(screen.getByRole('button', { name: '1' }))
+    await userEvent.click(screen.getByRole('button', { name: '黑桃' }))
+    expect(onCall).not.toHaveBeenCalled()
+    const bar = screen.getByRole('group', { name: '確定' })
+    // Changing the mind: cancel, then choose Pass and confirm it
+    await userEvent.click(within(bar).getByRole('button', { name: '取消' }))
+    expect(screen.queryByRole('group', { name: '確定' })).toBeNull()
+    await userEvent.click(screen.getByRole('button', { name: 'Pass' }))
+    await userEvent.click(within(screen.getByRole('group', { name: '確定' })).getByRole('button', { name: '確定' }))
+    expect(onCall).toHaveBeenCalledWith('P', undefined)
+  })
+
+  it('bids from the keyboard: a level, a strain, then Enter', async () => {
+    const onCall = vi.fn()
+    // After 1♥: 1♠ is legal, 1♣ is not; X is legal
+    wrap(<BiddingBox legal={[...legalCalls([{ seat: 'N', call: '1H' }], 'N')]} onCall={onCall} />)
+    await userEvent.keyboard('1c')
+    expect(screen.queryByRole('group', { name: '確定' })).toBeNull()
+    await userEvent.keyboard('s')
+    expect(screen.getByRole('group', { name: '確定' })).toHaveTextContent('1♠')
+    expect(onCall).not.toHaveBeenCalled()
+    await userEvent.keyboard('{Enter}')
+    expect(onCall).toHaveBeenCalledWith('1S', undefined)
+  })
+
+  it('takes P and X from the keyboard, Escape cancels, and typing an alert is left alone', async () => {
+    const onCall = vi.fn()
+    wrap(<BiddingBox legal={[...legalCalls([{ seat: 'N', call: '1H' }], 'N')]} onCall={onCall} />)
+    await userEvent.keyboard('x{Escape}{Enter}')
+    expect(onCall).not.toHaveBeenCalled()
+    await userEvent.click(screen.getByRole('button', { name: 'Alert' }))
+    await userEvent.type(screen.getByRole('textbox'), 'px')
+    expect(screen.queryByRole('group', { name: '確定' })).toBeNull()
+    await userEvent.click(screen.getByRole('button', { name: 'X' }))
+    expect(onCall).toHaveBeenCalledWith('X', 'px')
+    await userEvent.keyboard('p{Enter}')
+    expect(onCall).toHaveBeenLastCalledWith('P', undefined)
+  })
+
+  it('prints the keys on the box for keyboard users, hidden from the key names', () => {
+    wrap(<BiddingBox legal={[...legalCalls([], 'N')]} onCall={() => {}} />)
+    const box = screen.getByRole('group', { name: '叫牌盒' })
+    expect(box).toHaveAccessibleDescription(/Enter/)
+    expect(within(box).getByRole('button', { name: 'Pass' })).toHaveAttribute('aria-keyshortcuts', 'P')
+  })
+})
+
+describe('choosing a card (confirm cards, keyboard play)', () => {
+  function Hand({ confirm, onPlay }: { confirm: boolean; onPlay: (card: string) => void }) {
+    const playable = ['SA', 'SK', 'H2']
+    const { chosen, pick } = useCardChoice({ cards: playable, confirm, turn: '1:0', onPlay })
+    return <HandView cards={['SA', 'SK', 'H2', 'D3']} count={4} width={60} playable={playable} chosen={chosen} onPlay={pick} label="S" />
+  }
+
+  it('lifts the card on the first click and plays it on the second', async () => {
+    const onPlay = vi.fn()
+    wrap(<Hand confirm onPlay={onPlay} />)
+    await userEvent.click(screen.getByRole('button', { name: '黑桃K' }))
+    expect(onPlay).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: '黑桃K' })).toHaveAttribute('aria-current', 'true')
+    // Another card takes its place
+    await userEvent.click(screen.getByRole('button', { name: '紅心2' }))
+    expect(screen.getByRole('button', { name: '黑桃K' })).not.toHaveAttribute('aria-current')
+    await userEvent.click(screen.getByRole('button', { name: '紅心2' }))
+    expect(onPlay).toHaveBeenCalledWith('H2')
+  })
+
+  it('plays at once without confirmation', async () => {
+    const onPlay = vi.fn()
+    wrap(<Hand confirm={false} onPlay={onPlay} />)
+    await userEvent.click(screen.getByRole('button', { name: '黑桃A' }))
+    expect(onPlay).toHaveBeenCalledWith('SA')
+  })
+
+  it('moves between the legal cards with the arrow keys and plays with Enter', async () => {
+    const onPlay = vi.fn()
+    wrap(<Hand confirm={false} onPlay={onPlay} />)
+    expect(screen.getByRole('group', { name: 'S' })).toHaveAttribute('aria-keyshortcuts', 'ArrowLeft ArrowRight Enter')
+    await userEvent.keyboard('{ArrowRight}')
+    expect(screen.getByRole('button', { name: '黑桃A' })).toHaveAttribute('aria-current', 'true')
+    // ♦3 cannot be played: from ♥2 the arrow wraps round to ♠A
+    await userEvent.keyboard('{ArrowRight}{ArrowRight}')
+    expect(screen.getByRole('button', { name: '紅心2' })).toHaveAttribute('aria-current', 'true')
+    await userEvent.keyboard('{ArrowRight}{ArrowLeft}')
+    expect(screen.getByRole('button', { name: '紅心2' })).toHaveAttribute('aria-current', 'true')
+    await userEvent.keyboard('{Enter}')
+    expect(onPlay).toHaveBeenCalledWith('H2')
+    expect(onPlay).toHaveBeenCalledTimes(1)
   })
 })
 

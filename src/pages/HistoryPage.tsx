@@ -1,21 +1,53 @@
-import { ChevronLeft, ChevronRight } from 'lucide-react'
-import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { ChevronLeft, ChevronRight, SlidersHorizontal } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import styled, { css } from 'styled-components'
+import { HISTORY_SORTS, historyQueryString, readHistoryQuery, type HistoryQuery } from '../../shared/history-query.ts'
 import { HISTORY_PAGE_SIZES, LIMITS, type HistoryPage as Page, type PublicUser } from '../../shared/protocol.ts'
 import { resultLabel } from '../../shared/scoring.ts'
+import { HistoryFilters } from '../components/HistoryFilters.tsx'
 import { ContractLabel } from '../components/Suit.tsx'
 import { Card, ErrorText, Muted, PageMain, PageTitle } from '../components/ui.tsx'
 import { api } from '../lib/api.ts'
 import { formatDateTime, signed } from '../lib/format.ts'
+import { useLobby } from '../state/ClubContext.tsx'
 import { usePreferences } from '../state/PreferencesContext.tsx'
 import { playerName } from '../strings.ts'
 
 /**
  * BBO's history list: every finished board, newest first, a page at a time; the viewer picks how
  * many boards a page shows (remembered in the browser) and moves between numbered pages. Click a
- * board to open it.
+ * board to open it. Filters and sorting (e4-t16…t21) live in the address, so reloading or sharing
+ * the link shows the same list; the address is read with `readHistoryQuery` and written with
+ * `historyQueryString`, the same rules the server checks.
  */
+
+const Toolbar = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  margin-bottom: 16px;
+
+  & > div:first-child { margin-bottom: 0; }
+`
+
+const FilterToggle = styled.button<{ $active: boolean }>`
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 0 14px;
+  border: 1px solid ${({ theme }) => theme.colors.border};
+  border-radius: ${({ theme }) => theme.radius.pill};
+  background: ${({ theme, $active }) => ($active ? theme.colors.surfaceAlt : theme.colors.surface)};
+  color: ${({ theme }) => theme.colors.text};
+  font-weight: 600;
+`
+
+const FilterCard = styled(Card)`
+  margin-bottom: 16px;
+`
 
 const Toggle = styled.div`
   display: inline-flex;
@@ -142,40 +174,61 @@ function pageNumbers(page: number, last: number): (number | null)[] {
 }
 
 interface Loaded extends Page {
-  all: boolean
+  /** The query string the page was loaded for */
+  key: string
 }
+
+/** Filters set in a search, not counting scope, sorting and paging */
+const filterCount = (query: HistoryQuery) =>
+  Object.keys(query).filter((key) => !['scope', 'sort', 'page', 'size'].includes(key)).length
 
 export function HistoryPage() {
   const { t, lang, message } = usePreferences()
-  const [all, setAll] = useState(false)
-  const [page, setPage] = useState(1)
-  const [size, setSize] = useState(readSize)
+  const [params, setParams] = useSearchParams()
+  const paramsKey = params.toString()
+  const query = useMemo(() => {
+    const read = readHistoryQuery(new URLSearchParams(paramsKey))
+    return new URLSearchParams(paramsKey).has('size') ? read : { ...read, size: readSize() }
+  }, [paramsKey])
+  const all = query.scope === 'all'
+  const { page, size } = query
+  const key = historyQueryString(query)
+  const [showFilters, setShowFilters] = useState(() => filterCount(query) > 0)
   // The list is tagged with what it was loaded for, so changing it shows "loading"
   const [loaded, setLoaded] = useState<Loaded | null>(null)
   const [error, setError] = useState('')
   const navigate = useNavigate()
-  const current = loaded?.all === all && loaded.page === page && loaded.size === size ? loaded : null
+  const members = useLobby()?.members ?? []
+  const current = loaded?.key === key ? loaded : null
   const last = loaded ? Math.max(1, Math.ceil(loaded.total / loaded.size)) : 1
+
+  /** Changes the search in the address; anything but paging starts again from the first page */
+  const update = (patch: Partial<HistoryQuery>) =>
+    setParams(historyQueryString({ ...query, page: 1, ...patch }), { replace: true })
+  const setPage = (next: number) => update({ page: next })
 
   useEffect(() => {
     let cancelled = false
     api
-      .history(all, page, size)
+      .searchHistory(readHistoryQuery(new URLSearchParams(key)))
       .then((result) => {
         if (cancelled) return
-        setLoaded({ all, ...result })
-        // Past the end (the list got shorter): the server sent the last page instead
-        if (result.page !== page) setPage(result.page)
+        setError('')
+        setLoaded({ key, ...result })
       })
       .catch((e) => !cancelled && setError(message(e.code, e.params, e.message)))
     return () => {
       cancelled = true
     }
-  }, [all, page, size, message])
+  }, [key, message])
+
+  // Past the end (the list got shorter): the server sent the last page instead
+  useEffect(() => {
+    if (current && current.page !== page) setParams(historyQueryString({ ...query, page: current.page }), { replace: true })
+  }, [current, page, query, setParams])
 
   const chooseSize = (next: number) => {
-    setSize(next)
-    setPage(1)
+    update({ size: next })
     try {
       window.localStorage.setItem(SIZE_KEY, String(next))
     } catch {
@@ -188,30 +241,42 @@ export function HistoryPage() {
   return (
     <PageMain>
       <PageTitle>{t.historyTitle}</PageTitle>
-      <Toggle role="group" aria-label={t.historyTitle}>
-        <ToggleButton
+      <Toolbar>
+        <Toggle role="group" aria-label={t.historyTitle}>
+          <ToggleButton type="button" $active={!all} aria-pressed={!all} onClick={() => update({ scope: 'mine' })}>
+            {t.historyMine}
+          </ToggleButton>
+          <ToggleButton type="button" $active={all} aria-pressed={all} onClick={() => update({ scope: 'all' })}>
+            {t.historyAll}
+          </ToggleButton>
+        </Toggle>
+        <FilterToggle
           type="button"
-          $active={!all}
-          aria-pressed={!all}
-          onClick={() => {
-            setAll(false)
-            setPage(1)
-          }}
+          $active={showFilters}
+          aria-expanded={showFilters}
+          aria-controls="history-filters"
+          onClick={() => setShowFilters(!showFilters)}
         >
-          {t.historyMine}
-        </ToggleButton>
-        <ToggleButton
-          type="button"
-          $active={all}
-          aria-pressed={all}
-          onClick={() => {
-            setAll(true)
-            setPage(1)
-          }}
-        >
-          {t.historyAll}
-        </ToggleButton>
-      </Toggle>
+          <SlidersHorizontal size={16} aria-hidden />
+          {t.filters}
+          {filterCount(query) > 0 && ` (${filterCount(query)})`}
+        </FilterToggle>
+        <SizeLabel>
+          {t.sortBy}
+          <select value={query.sort} onChange={(e) => update({ sort: HISTORY_SORTS.find((s) => s === e.target.value) })}>
+            {HISTORY_SORTS.map((sort) => (
+              <option key={sort} value={sort}>
+                {t.sortNames[sort]}
+              </option>
+            ))}
+          </select>
+        </SizeLabel>
+      </Toolbar>
+      {showFilters && (
+        <FilterCard id="history-filters" aria-label={t.filters}>
+          <HistoryFilters query={query} members={members} onChange={update} />
+        </FilterCard>
+      )}
       {error && <ErrorText role="alert">{error}</ErrorText>}
       <Card>
         {!current ? (

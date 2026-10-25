@@ -30,7 +30,11 @@ export type DeclarerSide = (typeof DECLARER_SIDES)[number]
 export const RESULT_FILTERS = ['made', 'down', 'overtricks'] as const
 export type ResultFilter = (typeof RESULT_FILTERS)[number]
 
-export const VULNERABILITIES = ['None', 'NS', 'EW', 'Both'] as const satisfies readonly Vulnerability[]
+/** The table modes the history page offers (`mode` takes any word, for modes still to come) */
+export const HISTORY_MODES = ['casual', 'challenge'] as const
+export type HistoryMode = (typeof HISTORY_MODES)[number]
+
+export const VULNERABILITIES =['None', 'NS', 'EW', 'Both'] as const satisfies readonly Vulnerability[]
 
 export interface HistoryQuery {
   /** Boards the member played, or every board in the club */
@@ -135,4 +139,44 @@ export function historyQueryString(query: Partial<HistoryQuery>): string {
     params.set(key, String(value))
   }
   return params.toString()
+}
+
+/**
+ * Reads a search from the history page's address, keeping what it understands and dropping the
+ * rest, so an old or hand-edited link still opens the list instead of an error
+ */
+export function readHistoryQuery(params: URLSearchParams): HistoryQuery {
+  const query: Record<string, unknown> = { ...DEFAULT_HISTORY_QUERY }
+  for (const [key, value] of params) {
+    const parsed = isKey(key) ? READERS[key](value) : undefined
+    if (parsed !== undefined) query[key] = parsed
+  }
+  const result = query as unknown as HistoryQuery
+  if (result.from && result.to && result.from > result.to) delete result.to
+  return result
+}
+
+/** Quick date ranges on the history page; anything else is a custom range */
+export const DATE_PRESETS = ['today', 'week', 'month'] as const
+export type DatePreset = (typeof DATE_PRESETS)[number]
+
+/** The Taiwan date of a moment, YYYY-MM-DD */
+export const taiwanDate = (at: number) => new Date(at + TAIWAN_OFFSET_MS).toISOString().slice(0, 10)
+
+/** Today, this week (from Monday) or this month so far, as Taiwan dates */
+export function datePresetRange(preset: DatePreset, now: number): { from: string; to: string } {
+  const to = taiwanDate(now)
+  if (preset === 'today') return { from: to, to }
+  if (preset === 'month') return { from: `${to.slice(0, 8)}01`, to }
+  const weekday = (new Date(`${to}T00:00:00Z`).getUTCDay() + 6) % 7
+  return { from: taiwanDate(taiwanDayStart(to) - weekday * 24 * 3600_000), to }
+}
+
+/** Which quick range `from`–`to` is now, if any */
+export function datePresetOf(query: Pick<HistoryQuery, 'from' | 'to'>, now: number): DatePreset | undefined {
+  if (!query.from || !query.to) return undefined
+  return DATE_PRESETS.find((preset) => {
+    const range = datePresetRange(preset, now)
+    return range.from === query.from && range.to === query.to
+  })
 }

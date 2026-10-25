@@ -164,6 +164,18 @@ describe('history search', () => {
       searchBoards(sql, { ...DEFAULT_HISTORY_QUERY, scope: 'all', ...query }, viewer, now)
     expect(all('dan', DAY + 50)).toMatchObject({ ids: ['open'], total: 1 })
     expect(all('dan', DAY + 50, { strain: undefined, player: 'amy' }).ids).toEqual(['open'])
+    // Every filter the history page offers still leaves the held board out for others
+    const filters: Partial<HistoryQuery>[] = [
+      { bracket: 'passout' },
+      { declarerSide: 'opponents' },
+      { player: 'amy' },
+      { partner: 'cat' },
+      { from: '2026-10-20', to: '2026-10-20' },
+      { vul: 'None', boardNo: 1, table: 1, mode: 'casual' },
+      { sort: 'score_desc' },
+      { sort: 'tricks_asc' },
+    ]
+    for (const filter of filters) expect(all('dan', DAY + 50, filter).ids).not.toContain('held')
     expect(all('amy', DAY + 50).ids).toEqual(['held', 'open'])
     expect(all('dan', DAY + 100).ids).toEqual(['held', 'open'])
   })
