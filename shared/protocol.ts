@@ -273,6 +273,7 @@ export const NOTIFICATION_KINDS = [
   'challengeCancelled',
   'challengeReminder',
   'challengeResults',
+  'challengeWeekly',
   'friendOnline',
   'tableInvited',
 ] as const
@@ -286,7 +287,8 @@ export interface Notification {
    * `application`: { username } of the person who registered. The challenge kinds (§5.5):
    * { challengeId, username } of who invited, accepted, declined or cancelled; the reminder 12 hours
    * before the deadline and the results (`challengeReminder`, `challengeResults`) carry
-   * { challengeId } and are sent by the deadline job (`e7-t13`). `friendOnline`: { username } of
+   * { challengeId } and are sent by the deadline job (`e7-t13`); `challengeWeekly` { challengeId }
+   * goes to every member when the weekly club challenge is created (`e7-t23`). `friendOnline`: { username } of
    * a member the viewer follows who just came online (e1-t24). `tableInvited`: { tableId, number,
    * username } of the table and the host who invited (`e2-t25`)
    */

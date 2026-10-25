@@ -323,6 +323,9 @@ export class Club extends DurableObject<Env> implements Connections {
       }
       throw new ClubError('noSuchApi', {}, 404)
     }
+    if (method === 'GET' && path === '/weekly-challenge') return json({ weekly: this.service.weeklyChallenge() })
+    if (method === 'POST' && path === '/weekly-challenge')
+      return json({ weekly: await this.service.adminSetWeeklyChallenge(user.id, await body()) })
     if (method === 'GET' && path === '/settings') return json({ settings: this.service.clubSettings })
     if (method === 'POST' && path === '/settings') {
       const b = await body()
