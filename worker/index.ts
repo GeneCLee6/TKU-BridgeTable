@@ -1,4 +1,7 @@
 import type { Env } from './club.ts'
+import { d1Replica } from './d1.ts'
+import { edgeSecret } from './edge-auth.ts'
+import { jsonLog } from './log.ts'
 import { route } from './routing.ts'
 
 export { Club } from './club.ts'
@@ -6,7 +9,8 @@ export { TableObject } from './table-object.ts'
 
 /**
  * API and the club's WebSocket go to the club's Durable Object, a table's WebSocket to that
- * table's own object (ARCHITECTURE.md §5.10); everything else is the React app
+ * table's own object (ARCHITECTURE.md §5.10); the history pages are answered here from D1 when the
+ * edge pass and the copy allow it (§5.12); everything else is the React app
  */
 export default {
   async fetch(request, env) {
@@ -21,6 +25,11 @@ export default {
         return { fetch: (r) => stub.fetch(r) }
       },
       assets: env.ASSETS,
+      edge: {
+        secret: edgeSecret(env),
+        history: env.HISTORY && env.HISTORY_D1 !== 'off' ? d1Replica(env.HISTORY) : undefined,
+        log: jsonLog,
+      },
     })
   },
   /** The cron trigger in wrangler.jsonc: the daily backup to R2 (worker/backup.ts) */
@@ -28,3 +37,4 @@ export default {
     ctx.waitUntil(env.CLUB.get(env.CLUB.idFromName('club')).backup())
   },
 } satisfies ExportedHandler<Env>
+
