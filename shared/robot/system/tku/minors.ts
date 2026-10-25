@@ -2,49 +2,124 @@ import { levelOf, strainOf, type Call } from '../../../auction.ts'
 import type { Suit } from '../../../cards.ts'
 import type { Ctx } from '../context.ts'
 import type { Hand } from '../evaluate.ts'
-import type { Book, Rule } from '../spec.ts'
-import { answer, bid, cheapestOr, contested, isMajor, isSuit, length, longest, MAJORS, onlyIf, ORDER, opened, ours, partnerOpened, pass, plus, rule } from './util.ts'
+import type { Book, Rule, Spec } from '../spec.ts'
+import { aces, answer, bid, cheapestOr, contested, isMajor, isSuit, length, longest, MAJORS, onlyIf, ORDER, opened, ours, partnerOpened, pass, plus, rule, topThree } from './util.ts'
 
 /**
- * 5542 自然制 where the handbook says nothing: the answers to 1♣/1♦ and opener's rebid, 2♣ strong
- * with the 2♦ waiting bid, the answers to 2NT and to a preempt.
+ * 5542 自然制 (淡江橋譜「答叫：1♣ ?」「答叫：1♦ ?」 from the club's old handbook, 5542 where it says
+ * nothing): the answers to 1♣/1♦ and opener's rebid, 2♣ strong with the 2♦ waiting bid, the
+ * answers to 2NT and to a preempt.
  */
 
 // ── 1♣ / 1♦ ──────────────────────────────────────────────────────────────────────────────────
 
-function minorResponses(s: Suit): Book {
+/**
+ * 低花反序 (inverted minor raises): the handbook has them as an option (新生請先忽略這段). The club's
+ * robot does not use them until the club decides (docs/PRD/e5-robot-bidding-brain.md, 未決問題);
+ * `minorResponses(s, true)` is the book with them.
+ */
+export const INVERTED_MINORS = false
+
+/**
+ * A weak jump shift (答叫 2♦/♥/♠、3♣ 等「5點以下，6或7張牌組之弱叫」): five points or less, a
+ * six-card suit (over 1♣ seven cards jump to the three level), one of the top three honours, and
+ * no ace with five points
+ */
+const weakSuit = (h: Hand, t: Suit, min: number, max: number) =>
+  h.hcp <= 5 && h.len[t] >= min && h.len[t] <= max && topThree(h, t) >= 1 && !(h.hcp === 5 && aces(h) > 0)
+
+/** The cheapest level for a new suit after one of a minor */
+const newSuitLevel = (mine: Suit, t: Suit) => (ORDER.indexOf(t) > ORDER.indexOf(mine) ? 1 : 2)
+
+/** A four-card major: 4-4 bids hearts first (up the line), otherwise the longer, 5-5 spades */
+const majorFirst = (h: Hand): Suit | null => {
+  if (h.len.H < 4 && h.len.S < 4) return null
+  return h.len.S > h.len.H || (h.len.S === h.len.H && h.len.S >= 5) ? 'S' : 'H'
+}
+
+/**
+ * The answers to 1♣/1♦ (淡江橋譜「答叫：1♣ ?」「答叫：1♦ ?」): weak jump shifts, a new major at the
+ * one level (up the line with 4-4), 1♦ over 1♣, 2NT 10–12 and 3NT 13–15 balanced without a major,
+ * 2♣ over 1♦ a game force (2 蓋 1), the raise 6–9 and the limit raise 10–12 (or inverted), 1NT 6–9.
+ */
+export function minorResponses(s: Suit, inverted = INVERTED_MINORS): Book {
   // 1♣ may be two cards, so raising it takes five
   const need = s === 'C' ? 5 : 4
   const support = (h: Hand) => h.len[s] >= need
-  const newMajor = (t: Suit, when: (h: Hand) => boolean) => rule(bid(1, t), { len: length(t, 4), hcp: plus(6), forcing: 'oneRound' }, when)
-  const rules: Rule[] = [
-    rule('P', { hcp: [0, 5] }, (h) => h.hcp < 6),
-    newMajor('H', (h) => h.len.H >= 4 && h.len.H >= h.len.S),
-    newMajor('S', (h) => h.len.S >= 4),
-  ]
-  if (s === 'C') rules.push(rule('1D', { len: { H: [0, 3], S: [0, 3], D: [4, 13] }, hcp: plus(6), forcing: 'oneRound' }, (h) => h.len.D >= 4))
-  if (s === 'D') rules.push(rule('2C', { len: length('C', 4), hcp: plus(11), forcing: 'oneRound' }, (h) => h.hcp >= 11 && h.len.C >= 4))
+  const noMajor = (h: Hand) => h.len.H < 4 && h.len.S < 4
+  const rules: Rule[] = []
+
+  // Weak jump shifts: over 1♣ six cards at the two level and seven at the three level; over 1♦ six or seven
+  for (const t of ORDER.filter((x) => x !== s)) {
+    const level = newSuitLevel(s, t) + 1
+    const max = s === 'C' && level === 2 ? 6 : 7
+    rules.push(rule(bid(level, t), { name: 'weakJumpShift', len: length(t, 6, max), hcp: [0, 5] }, (h) => weakSuit(h, t, 6, max)))
+    if (s === 'C' && level === 2) rules.push(rule(bid(3, t), { name: 'weakJumpShift', len: length(t, 7), hcp: [0, 5] }, (h) => weakSuit(h, t, 7, 13)))
+  }
+  // 1♦–4♦: six diamonds, 9 points or less, to obstruct (with game values elsewhere it would bid more slowly)
+  if (s === 'D')
+    rules.push(rule('4D', { name: 'preemptiveRaise', len: length('D', 6), hcp: [0, 9] }, (h) => h.len.D >= 6 && h.hcp <= 9 && noMajor(h) && (h.hcp <= 5 || h.shape[3] <= 1)))
+
   rules.push(
-    rule(bid(3, s), { len: length(s, need), hcp: [10, 10], notes: [{ key: 'invite' }] }, (h) => support(h) && h.hcp === 10),
-    rule(bid(2, s), { len: length(s, need), hcp: [6, 9] }, (h) => support(h) && h.hcp <= 9),
-    rule('3N', { hcp: plus(13), balanced: true, notes: [{ key: 'noMajor' }] }, (h) => h.balanced && h.hcp >= 13),
-    rule('2N', { hcp: [11, 12], balanced: true, notes: [{ key: 'noMajor' }, { key: 'invite' }] }, (h) => h.balanced && h.hcp >= 11),
-    rule(bid(3, s), { len: length(s, need), hcp: plus(11) }, (h) => support(h) && h.hcp >= 11),
-    rule(bid(3, s), { hcp: plus(11), notes: [{ key: 'noMajor' }] }, (h) => h.hcp >= 11),
-    rule('1N', { hcp: [6, 10], notes: [{ key: 'noMajor' }] }),
+    rule('P', { hcp: [0, 5] }, (h) => h.hcp < 6),
+    rule('1H', { len: length('H', 4), hcp: plus(6), forcing: 'oneRound' }, (h) => majorFirst(h) === 'H'),
+    rule('1S', { len: length('S', 4), hcp: plus(6), forcing: 'oneRound' }, (h) => majorFirst(h) === 'S'),
   )
+  const oneDiamond = rule('1D', { len: { H: [0, 3], S: [0, 3], D: [4, 13] }, hcp: plus(6), forcing: 'oneRound' }, (h) => h.len.D >= 4)
+  const twoClubs = rule('2C', { len: length('C', 4), hcp: plus(12), forcing: 'game' }, (h) => h.hcp >= 12 && h.len.C >= 4)
+  // Over 1♣ four diamonds come first (up the line)
+  if (s === 'C') rules.push(oneDiamond)
+  rules.push(
+    rule('3N', { hcp: [13, 15], balanced: true, notes: [{ key: 'noMajor' }] }, (h) => h.balanced && h.hcp >= 13 && h.hcp <= 15),
+    rule('2N', { hcp: [10, 12], balanced: true, notes: [{ key: 'noMajor' }, { key: 'invite' }] }, (h) => h.balanced && h.hcp >= 10 && h.hcp <= 12),
+  )
+  if (s === 'D') rules.push(twoClubs)
+  if (inverted)
+    rules.push(
+      rule(bid(2, s), { name: 'invertedMinor', len: length(s, need), hcp: plus(10), notes: [{ key: 'noMajor' }], forcing: 'oneRound' }, (h) => support(h) && h.hcp >= 10),
+      rule(bid(3, s), { name: 'preemptiveRaise', len: length(s, 5), hcp: [6, 9] }, (h) => h.len[s] >= 5 && h.hcp <= 9),
+    )
+  else
+    rules.push(
+      rule(bid(3, s), { name: 'limitRaise', len: length(s, need), hcp: [10, 12], notes: [{ key: 'invite' }] }, (h) => support(h) && h.hcp >= 10 && h.hcp <= 12),
+      rule(bid(2, s), { len: length(s, need), hcp: [6, 9] }, (h) => support(h) && h.hcp <= 9),
+    )
+  const oneNotrump = { hcp: [6, 9], notes: [{ key: 'noMajor' }] } as const satisfies Spec
+  rules.push(rule('1N', oneNotrump, (h) => h.hcp <= 9))
+  // Anything else: the forcing new suit with game values (1♦ over 1♣, 2♣ over 1♦), else 1NT
+  rules.push(s === 'C' ? { ...oneDiamond, when: (h) => h.hcp >= 10 } : { ...twoClubs, when: (h) => h.hcp >= 12 }, rule('1N', oneNotrump))
   return { after: `1${s} (P)`, rules }
 }
 
+/** The answer to our minor was a weak jump shift */
+const weakJump = (mine: Suit, call: Call) => {
+  const t = strainOf(call)
+  return isSuit(t) && t !== mine && levelOf(call) > newSuitLevel(mine, t)
+}
+
 /** Opener's rebid after partner's answer to 1♣/1♦ */
-function minorRebids(mine: Suit): Book {
+function minorRebids(mine: Suit, inverted = INVERTED_MINORS): Book {
   const level = (ctx: Ctx) => levelOf(answer(ctx))
   const strain = (ctx: Ctx) => strainOf(answer(ctx))
   const raised = (ctx: Ctx) => strain(ctx) === mine
   const notrump = (ctx: Ctx) => strain(ctx) === 'N'
   const newSuit = (ctx: Ctx) => isSuit(strain(ctx)) && strain(ctx) !== mine
   const at = (test: (ctx: Ctx) => boolean, call: Call | ((ctx: Ctx) => Call | null)) => onlyIf(test, call)
+  const invertedRaise = (ctx: Ctx) => inverted && answer(ctx) === bid(2, mine)
   const rules: Rule[] = [
+    // A weak jump shift: partner has five points at most, so opener passes
+    rule(at((ctx) => weakJump(mine, answer(ctx)), 'P')),
+    // 低花反序 (1♣ 2♣ ?): 3NT 18–19 balanced, 2NT 12–14 balanced, a four-card suit with extras, 3♣ minimum
+    ...(inverted
+      ? [
+          rule(at(invertedRaise, '3N'), { hcp: [18, 19], balanced: true }, (h) => h.balanced && h.hcp >= 18),
+          rule(at(invertedRaise, '2N'), { hcp: [12, 14], balanced: true, notes: [{ key: 'minimum' }] }, (h) => h.balanced && h.hcp <= 14),
+          ...ORDER.filter((x) => ORDER.indexOf(x) > ORDER.indexOf(mine)).map((x) =>
+            rule(at(invertedRaise, bid(2, x)), { len: length(x, 4), hcp: plus(15) }, (h) => h.hcp >= 15 && h.len[x] >= 4),
+          ),
+          rule(at(invertedRaise, bid(3, mine)), { notes: [{ key: 'minimum' }] }),
+        ]
+      : []),
     // Partner raised
     rule(at((ctx) => raised(ctx) && level(ctx) >= 3, '3N'), { hcp: plus(15), balanced: true }, (h) => h.hcp >= 15 && h.balanced),
     rule(at((ctx) => raised(ctx) && level(ctx) >= 3, 'P')),
