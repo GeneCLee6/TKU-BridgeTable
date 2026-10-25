@@ -1,7 +1,7 @@
 import type { Contract } from '../shared/auction.ts'
 import { SEATS, sideOf, type Card, type Seat, type Strain } from '../shared/cards.ts'
-import { taiwanDayEnd, taiwanDayStart, type HistoryQuery, type HistorySort } from '../shared/history-query.ts'
-import { isRobotId, type BoardRecord } from '../shared/protocol.ts'
+import { DEFAULT_HISTORY_QUERY, taiwanDayEnd, taiwanDayStart, type HistoryQuery, type HistorySort } from '../shared/history-query.ts'
+import { HISTORY_PAGE_SIZES, isRobotId, LIMITS, type BoardRecord } from '../shared/protocol.ts'
 import type { Sql, SqlValue } from './store.ts'
 
 /**
@@ -11,7 +11,8 @@ import type { Sql, SqlValue } from './store.ts'
  * hold only what queries need and can always be rebuilt from the records.
  */
 
-const SCHEMA = [
+/** The index tables themselves: the same in the club's SQLite and in the D1 copy (§5.12) */
+export const INDEX_SCHEMA = [
   `CREATE TABLE IF NOT EXISTS boards_index (
     board_id TEXT PRIMARY KEY,
     played_at INTEGER NOT NULL,
@@ -44,6 +45,10 @@ const SCHEMA = [
     PRIMARY KEY (board_id, seat)
   ) WITHOUT ROWID`,
   'CREATE INDEX IF NOT EXISTS players_by_user ON board_players (user_id, board_id)',
+]
+
+const SCHEMA = [
+  ...INDEX_SCHEMA,
   // Favorites (AC-4.4, `worker/favorites.ts`): one row per member and board, the tags again one
   // row each so searches can filter by them
   `CREATE TABLE IF NOT EXISTS favorites (
@@ -75,15 +80,39 @@ const memberId = (id: string | undefined) => (id && !isRobotId(id) ? id : null)
 
 const DOUBLED = { '': 0, X: 1, XX: 2 } as const
 
-/** Writes (or rewrites) one board's rows in one transaction; running it twice changes nothing */
-export function indexRecord(sql: Sql, record: BoardRecord) {
+/** The columns of `boards_index`, in the order `indexRow` gives their values */
+export const INDEX_COLUMNS = [
+  'board_id',
+  'played_at',
+  'table_no',
+  'mode',
+  'event_id',
+  'board_no',
+  'dealer',
+  'vul',
+  'level',
+  'strain',
+  'doubled',
+  'declarer_seat',
+  'declarer_user',
+  'tricks',
+  'score_ns',
+  'claimed',
+  'reveal_at',
+] as const
+
+/** One `board_players` row: board id, seat, side, member id (null for a robot or an empty seat) */
+export type PlayerRow = [string, string, string, string | null]
+
+/**
+ * One board's rows: its `boards_index` values (in INDEX_COLUMNS order) and one `board_players` row
+ * per seat. The club's own index and the D1 copy (`worker/history-replica.ts`) write the same rows
+ */
+export function indexRow(record: BoardRecord): { board: SqlValue[]; players: PlayerRow[] } {
   const { board } = record
   const contract = board.contract
-  sql.transaction(() => {
-    sql.exec(
-      `INSERT OR REPLACE INTO boards_index (board_id, played_at, table_no, mode, event_id, board_no, dealer, vul,
-        level, strain, doubled, declarer_seat, declarer_user, tricks, score_ns, claimed, reveal_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  return {
+    board: [
       record.id,
       record.finishedAt,
       record.tableNumber,
@@ -101,16 +130,21 @@ export function indexRecord(sql: Sql, record: BoardRecord) {
       board.result?.scoreNS ?? 0,
       board.result?.claimed ? 1 : 0,
       record.revealAt ?? null,
+    ],
+    players: SEATS.map((seat): PlayerRow => [record.id, seat, sideOf(seat), memberId(record.players[seat]?.id)]),
+  }
+}
+
+/** Writes (or rewrites) one board's rows in one transaction; running it twice changes nothing */
+export function indexRecord(sql: Sql, record: BoardRecord) {
+  const { board, players } = indexRow(record)
+  sql.transaction(() => {
+    sql.exec(
+      `INSERT OR REPLACE INTO boards_index (${INDEX_COLUMNS.join(', ')}) VALUES (${INDEX_COLUMNS.map(() => '?').join(', ')})`,
+      ...board,
     )
     sql.exec('DELETE FROM board_players WHERE board_id = ?', record.id)
-    for (const seat of SEATS)
-      sql.exec(
-        'INSERT INTO board_players (board_id, seat, side, user_id) VALUES (?, ?, ?, ?)',
-        record.id,
-        seat,
-        sideOf(seat),
-        memberId(record.players[seat]?.id),
-      )
+    for (const row of players) sql.exec('INSERT INTO board_players (board_id, seat, side, user_id) VALUES (?, ?, ?, ?)', ...row)
   })
 }
 
@@ -321,6 +355,36 @@ function where(query: HistoryQuery, viewer: string, now: number, favorites: bool
   return [parts.join(' AND '), params]
 }
 
+/** A statement and its `?` parameters */
+export interface Statement {
+  sql: string
+  params: SqlValue[]
+}
+
+/**
+ * The two statements of a search: how many boards match, and one page of them (`columns` of
+ * `boards_index b`, in order). The club's index and the D1 copy run the same SQL
+ */
+export function searchStatements(
+  query: HistoryQuery,
+  viewer: string,
+  now: number,
+  favorites: boolean,
+  columns = 'b.board_id',
+): { count: Statement; page: (page: number) => Statement } {
+  const [condition, params] = where(query, viewer, now, favorites)
+  return {
+    count: { sql: `SELECT COUNT(*) AS n FROM boards_index b WHERE ${condition}`, params },
+    page: (page) => ({
+      sql: `SELECT ${columns} FROM boards_index b WHERE ${condition} ORDER BY ${ORDER[query.sort]} LIMIT ? OFFSET ?`,
+      params: [...params, query.size, (page - 1) * query.size],
+    }),
+  }
+}
+
+/** The page shown for a search with `total` matches: a page past the end shows the last one */
+export const shownPage = (query: HistoryQuery, total: number) => Math.min(query.page, Math.max(1, Math.ceil(total / query.size)))
+
 /**
  * One page of a search: the board ids in order, how many boards match, and the page shown (a page
  * past the end shows the last one). With `favorites`, only the viewer's favorites, whoever played
@@ -333,14 +397,22 @@ export function searchBoards(
   now: number,
   favorites = false,
 ): { ids: string[]; total: number; page: number } {
-  const [condition, params] = where(query, viewer, now, favorites)
-  const total = sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM boards_index b WHERE ${condition}`, ...params)[0].n
-  const page = Math.min(query.page, Math.max(1, Math.ceil(total / query.size)))
-  const rows = sql.exec<{ board_id: string }>(
-    `SELECT b.board_id FROM boards_index b WHERE ${condition} ORDER BY ${ORDER[query.sort]} LIMIT ? OFFSET ?`,
-    ...params,
-    query.size,
-    (page - 1) * query.size,
-  )
-  return { ids: ids(rows), total, page }
+  const statements = searchStatements(query, viewer, now, favorites)
+  const total = sql.exec<{ n: number }>(statements.count.sql, ...statements.count.params)[0].n
+  const page = shownPage(query, total)
+  const { sql: text, params } = statements.page(page)
+  return { ids: ids(sql.exec<{ board_id: string }>(text, ...params)), total, page }
+}
+
+/**
+ * The query of the plain history list (`GET /api/history`): everyone's boards or the member's own,
+ * newest first, one page of `size` (one of HISTORY_PAGE_SIZES, else the default)
+ */
+export function listQuery(all: boolean, page: number, size: number): HistoryQuery {
+  return {
+    ...DEFAULT_HISTORY_QUERY,
+    scope: all ? 'all' : 'mine',
+    page: Math.max(1, Math.floor(page) || 1),
+    size: (HISTORY_PAGE_SIZES as readonly number[]).includes(size) ? size : LIMITS.historyPageDefault,
+  }
 }

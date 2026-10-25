@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { SEATS, type Seat } from '../../../shared/cards.ts'
 import { DEFAULT_HISTORY_QUERY } from '../../../shared/history-query.ts'
 import type { ServerMessage } from '../../../shared/protocol.ts'
+import { listQuery } from '../../../worker/history-index.ts'
+import { searchReplica } from '../../../worker/history-replica.ts'
 import { at, teamHarness } from '../team-match-harness.ts'
 
 /**
@@ -59,6 +61,10 @@ async function exposure(viewer: string, boardId: string, player: string) {
   const club = t.club()
   const has = (page: { boards: { id: string }[] }) => page.boards.some((b) => b.id === boardId)
   const all = { ...DEFAULT_HISTORY_QUERY, scope: 'all' as const }
+  // The history pages the Worker answers from D1 at the edge (§5.12) answer exactly as the club does
+  await t.copyToD1()
+  for (const query of [listQuery(true, 1, 20), DEFAULT_HISTORY_QUERY, all, { ...all, mode: 'team' as const }, { ...all, player }])
+    expect(await searchReplica(t.d1, query, viewer, t.h.time), `the edge, ${JSON.stringify(query)}`).toEqual(await club.search(viewer, query))
   return {
     record: (await club.record(boardId, viewer)) !== null,
     history: has(await club.history(viewer, true)),
@@ -103,7 +109,9 @@ describe('casual tables', () => {
     for (const seat of ['E', 'W'] as const) await t.send(cat, { type: 'addRobot', seat })
     expect(await t.refused(eve, { type: 'joinTable', tableId: closed })).toBe('noKibitzing')
 
-    await t.playUntil([amy, cat, dan], () => t.played(open) >= 2 && t.played(closed) >= 2)
+    // Four boards each: the members only pass, so a board the robots pass out too sends just a few
+    // table messages, and two such boards were sometimes too few to count past 10
+    await t.playUntil([amy, cat, dan], () => t.played(open) >= 4 && t.played(closed) >= 4)
     expect(noHiddenCards(amy)).toBeGreaterThan(10)
     expect(noHiddenCards(cat)).toBeGreaterThan(10)
     expect(noHiddenCards(dan)).toBeGreaterThan(10)

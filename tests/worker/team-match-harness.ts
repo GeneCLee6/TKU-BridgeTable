@@ -2,6 +2,7 @@ import type { ClientMessage, ServerMessage, TableView } from '../../shared/proto
 import { MATCH_SEATS, type MatchSeat, type Room } from '../../shared/team-match.ts'
 import { ClubService, type Connections, type ScheduleKind } from '../../worker/service.ts'
 import type { MemoryStore } from '../../worker/store.ts'
+import { memoryD1 } from './d1.ts'
 import { memoryStore } from './sqlite.ts'
 
 /**
@@ -62,10 +63,13 @@ export async function teamHarness() {
     club: null as unknown as ClubService,
     boss: '',
   }
+  // The history pages' D1 copy (§5.12), so the visibility suite checks what the Worker answers too
+  const d1 = memoryD1()
   h.club = new ClubService(store, connections, {
     maxUsers: 40,
     now: () => h.time,
     schedule: (run, ms, kind) => h.queue.push({ run, ms, kind }),
+    historyReplica: d1,
   })
   await h.club.load()
   const founder = await h.club.register('boss', 'secret1', '')
@@ -157,5 +161,14 @@ export async function teamHarness() {
     throw new Error('did not get there')
   }
 
-  return { h, club, send, member, refused, match, tableIdOf, tableState, played, view, run, playUntil }
+  /** Copies what the club queued to the D1 copy (each job of kind `replica` until none is left) */
+  async function copyToD1() {
+    for (let i = 0; i < 50 && h.queue.some((job) => job.kind === 'replica'); i++) {
+      await run('replica')
+      // A write is a few awaits deep
+      for (let j = 0; j < 5; j++) await tick()
+    }
+  }
+
+  return { h, d1, club, send, member, refused, match, tableIdOf, tableState, played, view, run, playUntil, copyToD1 }
 }
