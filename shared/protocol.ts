@@ -7,6 +7,7 @@ import type { BoardResult, BoardState, Phase, Trick } from './game.ts'
 import type { MessageCode, MessageParams } from './messages.ts'
 import type { PracticeSettings } from './practice.ts'
 import type { MatchSeat, Room, TeamMatchView } from './team-match.ts'
+import type { RulingKind, Team } from './team-scoring.ts'
 import type { Profile } from './profile.ts'
 import type { Spec } from './robot/system/spec.ts'
 
@@ -234,6 +235,10 @@ export interface TableMatch {
   played: number
   /** This room played every board: its last result stays on the table while the other room finishes */
   over: boolean
+  /** The host paused the match (`e8-t16`): nobody calls or plays, and the clock stands still */
+  paused?: boolean
+  /** Boards the host ruled on that this room skipped or will skip (`e8-t15`) */
+  ruled?: number[]
 }
 
 /** A team match being played, as the lobby lists it for anyone to watch (§5.8, AC-8.4) */
@@ -417,6 +422,8 @@ export const NOTIFICATION_KINDS = [
   'matchCancelled',
   'matchStarted',
   'matchFinished',
+  'matchAbandoned',
+  'matchSubIn',
   'boardFeatured',
 ] as const
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number]
@@ -438,7 +445,9 @@ export interface Notification {
    * username } of a board the member played and who featured it (`e4-t29`). The team match kinds
    * (§5.8, `e8-t04`): { matchId, username } of who invited, accepted, declined, left, took the
    * member off a seat or called the match off; `matchStarted` { matchId, username } of the host who
-   * started it, `matchFinished` { matchId } when both rooms played every board (`e8-t07`, `e8-t11`)
+   * started it, `matchFinished` { matchId } when both rooms played every board (`e8-t07`, `e8-t11`);
+   * `matchAbandoned` { matchId, username } of the host who stopped it, `matchSubIn` { matchId,
+   * username } of who put the member in a seat as a substitute (替補, `e8-t16`)
    */
   params: Record<string, string | number>
   read: boolean
@@ -601,6 +610,18 @@ export type ClientMessage =
   | { type: 'matchRobot'; matchId: string; room: MatchSeat['room']; seat: Seat }
   /** The host starts the match (`e8-t07`): both rooms open and deal board 1. Also `POST /api/matches/:id/start` */
   | { type: 'startMatch'; matchId: string }
+  /**
+   * While a team match is played (§5.8, `e8-t14`–`e8-t16`), all the host's (替補 also a team's
+   * captain's), also over HTTP (`POST /api/matches/:id/rule|pause|abandon|replace|sitin`): a ruling
+   * on a board over the time limit, with its reason; pausing and resuming both rooms; abandoning a
+   * paused match; a member of the club taking a seat as a substitute (paused only); a robot sitting
+   * in for a member (代打) until they come back
+   */
+  | { type: 'matchRule'; matchId: string; seq: number; ruling: RulingKind; team: Team; reason: string }
+  | { type: 'matchPause'; matchId: string; paused: boolean }
+  | { type: 'matchAbandon'; matchId: string }
+  | { type: 'matchReplace'; matchId: string; room: MatchSeat['room']; seat: Seat; userId: string }
+  | { type: 'matchSitIn'; matchId: string; room: MatchSeat['room']; seat: Seat }
   /** Sends a direct message (AC-1.7): not to oneself, a robot, or between members where either blocked the other */
   | { type: 'sendDirect'; to: string; text: string }
   /** Marks the conversation with this member read */

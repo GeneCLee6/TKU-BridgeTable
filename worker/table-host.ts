@@ -6,7 +6,7 @@ import { ClubError } from './errors.ts'
 import { crashEntry, type Logger } from './log.ts'
 import { ACTION_BURST, ACTIONS_PER_SECOND, CHAT_BURST, CHATS_PER_SECOND, TokenBuckets } from './rate-limit.ts'
 import { TableService, type TableConfig, type TableConnections } from './table-service.ts'
-import { toWire, type ClubLink, type Named, type Person, type TableEntry, type TableRpc, type Wire } from './tables.ts'
+import { toWire, type ClubLink, type MatchTableUpdate, type Named, type Person, type TableEntry, type TableRpc, type Wire } from './tables.ts'
 import type { Table } from './views.ts'
 
 /** The part of a Durable Object's storage a table uses (`worker/table-object.ts`; a Map in the tests) */
@@ -186,6 +186,9 @@ export class TableHost implements TableRpc {
   }
   matchEnded() {
     return this.ifTable(null, (table) => table.matchEnded())
+  }
+  matchUpdate(update: MatchTableUpdate) {
+    return this.ifTable(null, (table) => table.matchUpdate(update))
   }
   blocked(userId: string, blocked: string[]) {
     return this.ifTable(undefined, (table) => table.blocked(userId, blocked))

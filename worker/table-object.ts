@@ -8,7 +8,7 @@ import { jsonLog } from './log.ts'
 import type { EventReport } from './modes.ts'
 import { AlarmQueue } from './scheduler.ts'
 import { TableHost, type TableSockets } from './table-host.ts'
-import type { ClubLink, Named, Person, TableRpc } from './tables.ts'
+import type { ClubLink, MatchTableUpdate, Named, Person, TableRpc } from './tables.ts'
 import type { Table } from './views.ts'
 import { TABLE_USER_HEADER } from './routing.ts'
 
@@ -108,6 +108,9 @@ export class TableObject extends DurableObject<Env> implements TableRpc, TableSo
   }
   matchEnded() {
     return this.host.matchEnded()
+  }
+  matchUpdate(update: MatchTableUpdate) {
+    return this.host.matchUpdate(update)
   }
   close() {
     return this.host.close()

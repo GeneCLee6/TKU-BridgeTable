@@ -2,6 +2,7 @@ import { dealSourceOf, type DealSet } from '../shared/deal-set.ts'
 import { dealFrom } from '../shared/deal-source.ts'
 import { robotId, type RobotKind, type TableMatch } from '../shared/protocol.ts'
 import { ROOMS, type Room } from '../shared/team-match.ts'
+import { openingLead } from '../shared/traveller.ts'
 import type { EventReport, TableModeHooks } from './modes.ts'
 import type { TeamMatch } from './team-matches.ts'
 import type { Table } from './views.ts'
@@ -32,6 +33,10 @@ export interface TeamTableState {
   robotKind: RobotKind
   /** The match ended (finished or abandoned): nothing more is dealt, and the table closes once its people leave */
   closed?: boolean
+  /** Boards the host ruled on (`e8-t15`): this room skips them, and puts one away if it is being played */
+  ruled?: number[]
+  /** The host paused the match (`e8-t16`): since when. Nobody calls or plays, robots wait, nothing is dealt */
+  pausedAt?: number
 }
 
 export const teamStateOf = (table: Table): TeamTableState | null =>
@@ -44,11 +49,14 @@ export const teamStateOf = (table: Table): TeamTableState | null =>
  */
 export const HELD_BACK = 8_640_000_000_000_000
 
-/** The next place in the match this room has not played, or null once it played them all */
+/** The next place in the match this room has not played (nor the host ruled on), or null once there is none */
 export function nextTeamSeq(state: TeamTableState): number | null {
-  for (let seq = 1; seq <= state.boards; seq++) if (!state.played.includes(seq)) return seq
+  for (let seq = 1; seq <= state.boards; seq++) if (!state.played.includes(seq) && !state.ruled?.includes(seq)) return seq
   return null
 }
+
+/** Whether the table's team match is paused (`e8-t16`) */
+export const teamPaused = (table: Table): boolean => teamStateOf(table)?.pausedAt !== undefined
 
 /** Whether a room has nothing left to play: the match ended, or it played every board and the last one is over */
 export function teamTableOver(table: Table): boolean {
@@ -69,6 +77,8 @@ export function tableMatch(table: Table): TableMatch | undefined {
     boards: state.boards,
     played: state.played.length,
     over: teamTableOver(table),
+    ...(state.pausedAt !== undefined && { paused: true }),
+    ...(state.ruled?.length && { ruled: [...state.ruled] }),
   }
 }
 
@@ -91,14 +101,16 @@ export const teamMode: TableModeHooks = {
   },
   record: (table, record) => {
     const state = teamStateOf(table)!
-    return { ...record, mode: 'team', eventId: state.matchId, room: state.room, revealAt: HELD_BACK }
+    // A board finished after the match ended is not kept back (nothing would bring it forward)
+    return { ...record, mode: 'team', eventId: state.matchId, room: state.room, ...(!state.closed && { revealAt: HELD_BACK }) }
   },
   boardFinished: (table, record, ctx): EventReport => {
     const state = teamStateOf(table)!
     const report: EventReport = { kind: 'team', matchId: state.matchId, room: state.room, seq: state.seq, result: null }
     if (state.closed || state.seq < 1 || state.played.includes(state.seq)) return report
     state.played = [...state.played, state.seq].sort((a, b) => a - b)
-    report.result = { boardId: record.id, scoreNS: record.board.result?.scoreNS ?? 0, playedAt: ctx.now }
+    const lead = openingLead(record.board)
+    report.result = { boardId: record.id, scoreNS: record.board.result?.scoreNS ?? 0, playedAt: ctx.now, ...(lead && { lead }) }
     return report
   },
 }

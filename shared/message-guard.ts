@@ -56,6 +56,11 @@ const GUARDS: Partial<Record<ClientMessage['type'], Guard>> = {
   matchClear: (m) => str(m.matchId) && str(m.room) && str(m.seat),
   matchRobot: (m) => str(m.matchId) && str(m.room) && str(m.seat),
   startMatch: (m) => str(m.matchId),
+  matchRule: (m) => str(m.matchId) && Number.isInteger(m.seq) && str(m.ruling) && str(m.team) && str(m.reason),
+  matchPause: (m) => str(m.matchId) && bool(m.paused),
+  matchAbandon: (m) => str(m.matchId),
+  matchReplace: (m) => str(m.matchId) && str(m.room) && str(m.seat) && str(m.userId),
+  matchSitIn: (m) => str(m.matchId) && str(m.room) && str(m.seat),
   sendDirect: (m) => str(m.to) && str(m.text),
   readDirect: (m) => str(m.userId),
 }
