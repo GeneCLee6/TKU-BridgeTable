@@ -107,7 +107,7 @@ npx wrangler secret put ANTHROPIC_API_KEY --name tku-bridge-table-staging
 
 ### 新增 Durable Object 或其他綁定時
 
-`wrangler.jsonc` 最上層的 `durable_objects`、`vars` 等綁定**不會**被環境繼承：在最上層加了綁定，`env.staging` 與 `env.preview` 也要各加一份；`migrations` 只寫在最上層，三個環境共用。
+`wrangler.jsonc` 最上層的 `durable_objects`、`vars` 等綁定**不會**被環境繼承：在最上層加了綁定，`env.staging` 與 `env.preview` 也要各加一份；`migrations` 只寫在最上層，三個環境共用。例外是只屬於正式站的東西：R2 bucket `BACKUPS` 不加到環境裡，環境的 `triggers.crons` 設成空的（§4.4）。
 
 ### 手動清理
 
@@ -159,7 +159,7 @@ AI 匯入的費用：每次分析用 `claude-opus-5-5`，一份幾頁的講義�
 
 ## 4.2 資料存在哪
 
-所有資料（帳號、待審核的申請、密碼雜湊、牌桌、牌局紀錄、淡江橋譜的線上內容與版本紀錄）都在 Cloudflare 上這個 Worker 的 Durable Object（SQLite 儲存），不在你的電腦或 GitHub。密碼只存 PBKDF2 雜湊，管理員也看不到原文。需要直接查看時：Cloudflare Dashboard → Workers & Pages → `tku-bridge-table` → Durable Objects。
+所有資料（帳號、待審核的申請、密碼雜湊、牌桌、牌局紀錄、淡江橋譜的線上內容與版本紀錄）都在 Cloudflare 上這個 Worker 的 Durable Object（SQLite 儲存），不在你的電腦或 GitHub。淡江橋譜的資料每天另外備份到 R2（§4.4）。密碼只存 PBKDF2 雜湊，管理員也看不到原文。需要直接查看時：Cloudflare Dashboard → Workers & Pages → `tku-bridge-table` → Durable Objects。
 
 ## 4.3 每桌一個 Durable Object（H1b，`e11-t17`）
 
@@ -183,6 +183,73 @@ npx wrangler deploy --var TABLE_OBJECTS:off   # 牌桌搬回社團的物件，�
 ```
 
 社團的物件重新載入時，把每一桌從它的 `TableObject` 拿回來（那一桌先停住，不再存檔、推送或讓機器人出牌），存回 `table:<id>`、清掉那個物件、刪 `tabledir:<id>`，`meta:schema` 回到 3，之後的行為和 H1a 一樣（瀏覽器連 `/ws/table/<id>` 會被拒絕，自動改走 `/ws`）。要一直維持關閉，就把 `"TABLE_OBJECTS": "off"` 加進 `wrangler.jsonc` 的 `vars` 開 PR（否則下一次 CI 部署會再打開）；拿掉這個值再部署，牌桌會再搬出去。**不要**刪掉 `TableObject` 類別或 migration `v2`：Cloudflare 會拒絕部署，要刪得另外加一個 `deleted_classes` 的 migration（會連資料一起刪）。
+
+## 4.4 每日備份與還原（淡江橋譜 e10-t08）
+
+每天台灣時間 03:00（`wrangler.jsonc` 的 `triggers.crons`：`0 19 * * *` UTC），Worker 把淡江橋譜的資料匯出到 R2 bucket `tku-bridge-backups`，檔名 `daily/<台灣日期>.jsonl`，保留 **30 天**（每次備份成功後刪掉更舊的；最新的一份永遠保留，名稱不是 `daily/YYYY-MM-DD.jsonl` 的物件不會被刪）。程式在 `worker/backup.ts`。
+
+- **範圍**：key 開頭是 `book`（線上特約、`bookpart:` 分段、版本紀錄、分類、匯入草稿）、`profile`（制度集）、`article`（文章）的全部資料。**帳號、牌局紀錄與 SQL 表不在裡面**（之後的 e11-t12）。
+- **格式**：JSON Lines。第一行是 `{"format":"tku-bridge-backup","version":1,"createdAt":…,"prefixes":[…],"keys":N}`，之後每個 key 一行 `{"k":"<key>","v":<值>}`，值與 Durable Object 裡存的一模一樣。
+- **只有正式站**：staging 與 PR 預覽（§2.1）沒有 `BACKUPS` binding、cron 也關掉（`wrangler.jsonc` 的 `env.*.triggers`），不會寫到正式站的 bucket；在那裡呼叫管理 API 會回 503（`backupUnavailable`）。
+- **日誌**：每次備份記一筆 `event = backup`（`ok`、`name`、`keys`、`bytes`、`deleted`；失敗時 `error`）。
+
+### 第一次啟用（部署這個版本**之前**）
+
+R2 bucket 不存在時 `wrangler deploy` 會失敗，而 PR 合併到 `main` 就會自動部署，所以**先建 bucket 再合併**：
+
+1. Cloudflare Dashboard → R2：第一次使用要先啟用 R2（免費額度 10 GB；Cloudflare 可能要求綁定付款方式，免費額度內不收費）。
+2. 在專案資料夾：
+
+   ```bash
+   npx wrangler r2 bucket create tku-bridge-backups
+   npx wrangler r2 bucket list         # 確認有 tku-bridge-backups
+   ```
+
+3. 合併、部署後：Dashboard → Workers & Pages → `tku-bridge-table` → Settings → Triggers，確認 Cron Triggers 有 `0 19 * * *`。
+4. 不等到半夜，先手動備份一次（見下面的管理 API），確認 R2 裡出現當天的檔案。
+
+### 管理 API（只有管理員）
+
+先用管理員帳號登入淡江牌桌，在瀏覽器的開發者工具 Console（同一個網域，cookie 會自動帶上）執行：
+
+```js
+const call = (method, path, body) =>
+  fetch('/api/admin' + path, { method, headers: { 'Content-Type': 'application/json' }, body: body && JSON.stringify(body) }).then((r) => r.json())
+
+await call('GET', '/backups')                     // 列出備份（新的在前）與保留天數
+await call('POST', '/backups')                    // 立刻備份一次（同一天再跑會覆蓋當天的檔）
+await call('POST', '/backups/restore', { name: 'daily/2026-10-25.jsonl' })   // 預演：只回報會寫入幾筆、刪除幾筆
+await call('POST', '/backups/restore', { name: 'daily/2026-10-25.jsonl', dryRun: false, confirm: 'daily/2026-10-25.jsonl' })  // 真的還原
+```
+
+沒有綁定 bucket 時這些 API 回 503（`backupUnavailable`）。
+
+### 還原
+
+還原會讓**備份範圍內**（`book*`、`profile*`、`article*`）的資料變回備份當時的樣子：備份之後新增的特約、版本紀錄、草稿都會被刪掉；帳號、牌局不受影響。`book:ticket:`（匯入用的一次性憑證）不還原。`book:version` 會設成比現在和備份都大的數字，讓所有瀏覽器重新下載內容。
+
+1. 決定要還原到哪一天：`GET /backups`。
+2. **先備份現況**：`POST /backups`（還原錯了還能回來；注意同一天會覆蓋當天的檔，要保留今天稍早的版本就先下載：`npx wrangler r2 object get tku-bridge-backups/daily/<日期>.jsonl --remote --file before-restore.jsonl`）。
+3. 預演：`POST /backups/restore { name }`，看 `puts`、`deletes` 合不合理。
+4. 還原：`POST /backups/restore { name, dryRun: false, confirm: name }`。
+5. 到淡江橋譜重新整理，確認特約內容與分類是備份那天的樣子。
+
+要看備份內容：`npx wrangler r2 object get tku-bridge-backups/daily/<日期>.jsonl --remote --file backup.jsonl`，用文字編輯器打開（每行一個 key）。
+
+### 還原演練（上線後做一次，AC-10.5）
+
+演練要真實環境，部署後由人執行一次，結果記在這裡：
+
+1. [ ] 啟用後隔天確認 R2 有自動產生的 `daily/<日期>.jsonl`，日誌有 `event = backup`、`ok = true`。
+2. [ ] 用編輯帳號在橋譜改一個特約的摘要（例如加上「演練」兩字）並儲存，記下 `GET /api/book/manifest` 的版本號。
+3. [ ] 預演還原前一天的備份：`puts`、`deletes` 數量合理（`deletes` 應該包含剛剛那筆版本紀錄）。
+4. [ ] 真的還原；`GET /api/book/manifest` 的版本號變大，橋譜重新整理後那個特約的摘要回到改之前，版本紀錄裡沒有剛剛那一筆。
+5. [ ] 社員登入、牌局紀錄都不受影響。
+6. [ ] 記錄日期、執行人、備份大小與花的時間：
+
+| 日期 | 執行人 | 備份檔 | keys／大小 | 結果 |
+| --- | --- | --- | --- | --- |
+| （待部署後執行） | | | | |
 
 ## 5. 費用與限制
 
