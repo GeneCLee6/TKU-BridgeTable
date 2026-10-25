@@ -355,7 +355,7 @@ export function LobbyPage() {
           )}
         </section>
       </PageMain>
-      <SidePanel tabs={['people', 'history']} page="lobby" initial="people" />
+      <SidePanel tabs={['people', 'messages', 'history']} page="lobby" initial="people" />
     </Layout>
   )
 }

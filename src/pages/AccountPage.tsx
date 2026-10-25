@@ -116,11 +116,18 @@ function InstallApp() {
 
 export function AccountPage() {
   const { t, message, lang, mode, deck, cardStyle, cardSize, sound, confirmCalls, confirmPlays, set } = usePreferences()
-  const { user } = useAuth()
+  const { user, refresh } = useAuth()
   const [current, setCurrent] = useState('')
   const [next, setNext] = useState('')
   const [error, setError] = useState('')
   const [done, setDone] = useState(false)
+
+  /** Kept on the server, which decides whom to tell (e1-t24) */
+  const setFriendOnlineNotice = (on: boolean) =>
+    void api
+      .setAccountPreferences({ friendOnlineNotice: on })
+      .then(refresh)
+      .catch(() => undefined)
 
   const submit = async (e: FormEvent) => {
     e.preventDefault()
@@ -182,6 +189,14 @@ export function AccountPage() {
             options={[['on', t.soundOnShort], ['off', t.soundOffShort]]}
             onChange={(v) => set({ confirmPlays: v === 'on' })}
           />
+          {user && (
+            <Options
+              legend={t.friendOnlineNotice}
+              value={user.friendOnlineNotice === false ? 'off' : 'on'}
+              options={[['on', t.soundOnShort], ['off', t.soundOffShort]]}
+              onChange={(v) => setFriendOnlineNotice(v === 'on')}
+            />
+          )}
         </Card>
         <Card>
           <SectionTitle>{t.installTitle}</SectionTitle>

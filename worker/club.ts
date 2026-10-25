@@ -220,6 +220,16 @@ export class Club extends DurableObject<Env> implements Connections {
       await this.service.changePassword(user.id, text(b.current), text(b.next))
       return json({ ok: true })
     }
+    if (route === 'POST /api/account/preferences') {
+      const b = await body()
+      return json({ user: await this.service.setAccountPreferences(user.id, { friendOnlineNotice: b.friendOnlineNotice }) })
+    }
+    // A page of the member's own conversation with another member (AC-1.7); new messages come over the socket
+    const conversation = url.pathname.match(/^\/api\/messages\/([\w-]+)$/)
+    if (request.method === 'GET' && conversation) {
+      const before = url.searchParams.get('before')
+      return json(this.service.directPage(user.id, conversation[1], before === null ? undefined : Number(before)))
+    }
     if (route === 'GET /api/history') {
       const query = url.searchParams
       const all = query.get('scope') === 'all'

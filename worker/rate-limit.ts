@@ -100,3 +100,8 @@ export const LOGIN_WINDOW_MS = 15 * 60_000
 /** Error reports from browsers, for the whole club */
 export const CLIENT_ERROR_BURST = 20
 export const CLIENT_ERRORS_PER_SECOND = 1
+/** Direct messages per member (e1-t27): 10 at once, then 20 a minute */
+export const DIRECT_BURST = 10
+export const DIRECTS_PER_SECOND = 20 / 60
+/** A friend coming online is announced at most once in this long, so reconnects stay quiet (e1-t24) */
+export const FRIEND_ONLINE_QUIET_MS = 30 * 60_000
