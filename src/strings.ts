@@ -11,7 +11,7 @@ import type {
 } from '../shared/history-query.ts'
 import type { FeaturedCategory } from '../shared/featured.ts'
 import type { Lang } from '../shared/messages.ts'
-import type { PublicUser } from '../shared/protocol.ts'
+import type { PublicUser, TableMode } from '../shared/protocol.ts'
 
 /**
  * All user-facing UI copy: 繁體中文 (zh, the original), 简体中文, English, Tiếng Việt, 日本語 and
@@ -4057,3 +4057,11 @@ export const seatLetter: Record<Seat, string> = { N: 'N', E: 'E', S: 'S', W: 'W'
 /** A player's name as shown: a robot by its kind in the viewer's language */
 export const playerName = (t: Strings, user: PublicUser) =>
   user.robot ? t.robots[user.robotKind ?? 'tku'] : user.username
+
+/** Where a board was played, as its record shows: a challenge, a team match's room (隊制賽開室), or the table's number */
+export const boardPlace = (t: Strings, b: { mode?: TableMode; tableNumber: number; room?: 'open' | 'closed' }) =>
+  b.mode === 'challenge'
+    ? t.challenge
+    : b.mode === 'team'
+      ? `${t.modeNames.team} ${b.room ? t.teamMatch.rooms[b.room] : ''}`.trim()
+      : t.tableName(b.tableNumber)

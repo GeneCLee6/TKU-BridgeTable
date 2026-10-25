@@ -3,7 +3,7 @@ import type { BoardSummary, PublicUser } from '../../shared/protocol.ts'
 import { resultLabel } from '../../shared/scoring.ts'
 import { formatDateTime, signed } from '../lib/format.ts'
 import { usePreferences } from '../state/PreferencesContext.tsx'
-import { playerName } from '../strings.ts'
+import { boardPlace, playerName } from '../strings.ts'
 import { FavoriteButton } from './FavoriteButton.tsx'
 import { ContractLabel } from './Suit.tsx'
 
@@ -97,7 +97,7 @@ export function HistoryRow({ board: b, onOpen }: { board: BoardSummary; onOpen: 
       </td>
       <td>{formatDateTime(b.finishedAt, lang)}</td>
       <td>
-        {b.mode === 'challenge' ? t.challenge : t.tableName(b.tableNumber)} #{b.boardNo}
+        {boardPlace(t, b)} #{b.boardNo}
       </td>
       <td>
         {name(b.players.N)}–{name(b.players.S)}

@@ -268,6 +268,8 @@ describe('the two rooms (e8-t08) and what nobody may see of the other (e8-t09)',
     expect(view(amy)!.chat.map((c) => c.text)).toEqual(['good luck'])
     expect(view(dan)!.chat.map((c) => c.text)).toEqual(['they went down in the other room', 'good luck'])
     expect(view(dan)!.chat[0].kibitz).toBe(true)
+    // Not filtered in the browser: the players' sockets never carry it
+    expect(JSON.stringify(connections.inbox.get(amy))).not.toContain('they went down')
     // A watcher may follow the other room too
     await send(cat, { type: 'joinTable', tableId: tableIdOf(id, 'closed') })
     expect(club.lobbyView(cat).myTableId).toBe(tableIdOf(id, 'closed'))
@@ -328,6 +330,27 @@ describe('the two rooms (e8-t08) and what nobody may see of the other (e8-t09)',
     // Pushed live to both players and to whoever watches a table
     expect(connections.last(amy, 'match')?.match?.boards).toHaveLength(1)
     expect(connections.last(ben, 'match')?.match?.boards).toHaveLength(1)
+  })
+
+  it('keeps a board one room played out of favourites and profiles, and its traveller from everyone', async () => {
+    const { id, amy, people } = await match({ boards: 4, seats: { ben: at('closed', 'S') } })
+    const { ben } = people
+    const cat = await member('cat')
+    await send(amy, { type: 'startMatch', matchId: id })
+    const open = tableIdOf(id, 'open')
+    await playUntil([amy], () => played(open) === 1)
+    const held = tableState(open)!.recent![0].id
+    for (const userId of [ben, cat]) {
+      await expect(club.favorite(userId, held)).rejects.toMatchObject({ code: 'boardGone' })
+      expect((await club.memberProfile(userId, amy)).recent.map((b) => b.id)).not.toContain(held)
+      expect(await club.traveller(held, userId)).toBeNull()
+    }
+    // Its own player may keep it
+    expect((await club.favorite(amy, held)).favorite).toBeNull()
+    // The other room's table never lists it, to its player or its watchers
+    await send(cat, { type: 'joinTable', tableId: tableIdOf(id, 'closed') })
+    for (const userId of [ben, cat]) expect(view(userId)!.recent).toEqual([])
+    expect(JSON.stringify(connections.inbox.get(ben))).not.toContain(held)
   })
 
   it('pushes the score to the watchers of either room', async () => {

@@ -11,7 +11,7 @@ import { useAuth } from '../state/AuthContext.tsx'
 import { useClub } from '../state/ClubContext.tsx'
 import { usePreferences } from '../state/PreferencesContext.tsx'
 import { mobile, tablet } from '../styles/tokens.ts'
-import { playerName } from '../strings.ts'
+import { boardPlace, playerName } from '../strings.ts'
 import { AuctionBox } from './AuctionBox.tsx'
 import { DirectMessages } from './DirectMessages.tsx'
 import { FavoriteButton } from './FavoriteButton.tsx'
@@ -533,7 +533,7 @@ function BoardInPanel({ id, onBack, newTab }: { id: string; onBack: () => void; 
           {t.tabHistory}
         </BackButton>
         <span>
-          {record.mode === 'challenge' ? t.challenge : t.tableName(record.tableNumber)} #{board.boardNo}
+          {boardPlace(t, record)} #{board.boardNo}
         </span>
       </BoardBar>
       <PanelDiagram>
