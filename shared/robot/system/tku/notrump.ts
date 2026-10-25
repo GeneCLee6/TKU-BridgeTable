@@ -29,8 +29,12 @@ const responses: Book = {
     rule('2H', { name: 'transfer', len: length('S', 5), artificial: true, notes: [{ key: 'transferTo', strain: 'S' }] }, (h) => longMajor(h) === 'S'),
     rule('2C', stayman, (h) => fourMajor(h) && h.hcp >= 9),
     rule('2S', { name: 'minorAsk', hcp: [0, 7], artificial: true }, (h) => h.hcp < 8 && (h.len.C >= 6 || h.len.D >= 6)),
-    rule('6N', { hcp: [17, 19], notes: [{ key: 'smallSlam' }] }, (h) => h.hcp >= 17 && h.hcp <= 19),
-    rule('4N', { name: 'quantitative', hcp: [16, 16], notes: [{ key: 'noMajor' }] }, (h) => h.hcp === 16),
+    // Slams by points (「1NT的答叫」): 4NT 15–16 and 5NT 19–20 invite, 6NT 17–18, 7NT 21+
+    rule('7N', { hcp: plus(21), notes: [{ key: 'grandSlam' }] }, (h) => h.hcp >= 21),
+    rule('5N', { name: 'quantitative', hcp: [19, 20], notes: [{ key: 'noMajor' }, { key: 'invite' }, { key: 'grandSlam' }] }, (h) => h.hcp >= 19 && !fourMajor(h)),
+    rule('6N', { hcp: [17, 20], notes: [{ key: 'smallSlam' }] }, (h) => h.hcp >= 17),
+    rule('4N', { name: 'quantitative', hcp: [15, 16], notes: [{ key: 'noMajor' }] }, (h) => h.hcp >= 15 && !fourMajor(h)),
+    reads('4C', { name: 'gerber', artificial: true, forcing: 'oneRound', notes: [{ key: 'slamInterest' }] }),
     rule('3N', { hcp: [10, 15], notes: [{ key: 'noMajor' }, { key: 'toPlay' }] }, (h) => h.hcp >= 10),
     rule('2N', { hcp: [8, 9], notes: [{ key: 'noMajor' }, { key: 'invite' }] }, (h) => h.hcp >= 8),
     // Three of a suit is not in the handbook: read as five cards and game values
@@ -69,7 +73,23 @@ const openerRebids: Book[] = [
     ],
   },
   { after: '1N (P) 2N (P)', rules: [rule('3N', { hcp: [16, 17], notes: [{ key: 'accept' }] }, (h) => h.hcp >= 16), pass()] },
-  { after: '1N (P) 4N (P)', rules: [rule('6N', { hcp: [16, 17], notes: [{ key: 'accept' }] }, (h) => h.hcp >= 16), pass()] },
+  // Accepting 4NT or 5NT: the cheapest four-card minor (looking for a 4-4 fit), else notrump
+  ...(
+    [
+      ['4N', 5, 16],
+      ['5N', 6, 17],
+    ] as const
+  ).map(
+    ([asked, level, min]): Book => ({
+      after: `1N (P) ${asked} (P)`,
+      rules: [
+        rule(bid(level, 'C'), { len: length('C', 4), hcp: [min, 17], notes: [{ key: 'accept' }] }, (h) => h.hcp >= min && h.len.C >= 4),
+        rule(bid(level, 'D'), { len: length('D', 4), hcp: [min, 17], notes: [{ key: 'accept' }] }, (h) => h.hcp >= min && h.len.D >= 4),
+        rule(bid(level + 1, 'N'), { hcp: [min, 17], notes: [{ key: 'accept' }, { key: level === 5 ? 'smallSlam' : 'grandSlam' }] }, (h) => h.hcp >= min),
+        level === 5 ? pass() : rule('6N', { notes: [{ key: 'decline' }, { key: 'smallSlam' }] }),
+      ],
+    }),
+  ),
   {
     after: ORDER.map((s) => `1N (P) 3${s} (P)`),
     rules: [
@@ -195,5 +215,18 @@ const theirStop = (ctx: Ctx) => (overcallSuit(ctx) ? { stop: { [overcallSuit(ctx
 
 const opened1N = (ctx: Ctx) => ctx.opening?.call === '1N'
 
-export const notrump: Book[] = [responses, ...openerRebids, afterTransfer('H'), afterTransfer('S'), afterStayman, afterMinorAsk, lebensohl, lebensohlRebid, openerContested]
+/** Opener accepted the slam invitation in a minor: play it with four cards, otherwise notrump */
+const afterQuantitative: Book = {
+  after: ['1N (P) 4N (P) 5C (P)', '1N (P) 4N (P) 5D (P)', '1N (P) 5N (P) 6C (P)', '1N (P) 5N (P) 6D (P)'],
+  rules: (['C', 'D'] as const).flatMap((s): Rule[] => {
+    const here = (ctx: Ctx) => strainOf(ours(ctx)[2]) === s
+    const level = (ctx: Ctx) => levelOf(ours(ctx)[2]) + 1
+    return [
+      rule(onlyIf(here, (ctx) => bid(level(ctx), s)), { len: length(s, 4), notes: [{ key: 'support', strain: s }] }, (h) => h.len[s] >= 4),
+      rule(onlyIf(here, (ctx) => bid(level(ctx), 'N')), { notes: [{ key: 'notrump' }] }),
+    ]
+  }),
+}
+
+export const notrump: Book[] = [responses, ...openerRebids, afterTransfer('H'), afterTransfer('S'), afterStayman, afterMinorAsk, afterQuantitative, lebensohl, lebensohlRebid, openerContested]
 

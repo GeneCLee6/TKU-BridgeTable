@@ -2,11 +2,13 @@ import type { System } from '../spec.ts'
 import { advancingBooks, supportDouble } from './advancing.ts'
 import { competition, responsiveBooks } from './competition.ts'
 import { overcalls } from './defence.ts'
+import { majorSlam } from './majorSlam.ts'
 import { majors, unusual } from './majors.ts'
 import { minors, strong } from './minors.ts'
 import { notrump } from './notrump.ts'
 import { openings } from './openings.ts'
 import { responder } from './responder.ts'
+import { slamAnswers, slamAsks } from './slam.ts'
 import { cite } from './sources.ts'
 import { target } from './target.ts'
 
@@ -20,9 +22,11 @@ export const TKU: System = {
   firstFit: true,
   // Each group names the 淡江橋館 articles it follows, for keeping in step with them (`sources.ts`)
   books: [
+    ...cite(['jacoby-2nt', 'system-one-major', 'system-notrump', 'notrump-responses'], slamAnswers),
     ...cite(['system-overview', 'system-one-club', 'system-one-diamond', 'system-one-major', 'system-notrump', 'system-strong-and-preempts', 'two-diamond-opening'], [openings]),
     ...cite(['system-notrump', 'notrump-responses', 'two-notrump-opening', 'lebensohl'], notrump),
     ...cite(['system-strong-and-preempts'], strong),
+    ...cite(['jacoby-2nt', 'bergen-raises', 'system-one-major'], majorSlam),
     ...cite(['system-one-major', 'bergen-raises', 'jacoby-2nt', 'single-raise-major'], majors),
     ...cite(['system-one-club', 'system-one-diamond'], minors),
     ...cite(['system-one-club', 'system-one-diamond', 'system-one-major', 'new-minor-forcing'], responder),
@@ -32,6 +36,7 @@ export const TKU: System = {
     ...cite(['system-competition', 'system-doubles', 'system-notrump'], overcalls),
     ...cite(['responsive-double'], responsiveBooks),
     ...cite(['system-competition', 'system-doubles', 'system-notrump', 'lebensohl'], advancingBooks),
+    ...cite(['jacoby-2nt', 'system-one-major', 'system-notrump', 'notrump-responses'], [slamAsks]),
     ...cite(['system-competition'], [target]),
   ],
 }
