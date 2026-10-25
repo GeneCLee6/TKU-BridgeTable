@@ -16,10 +16,11 @@ import type { Store } from './store.ts'
 /**
  * What a backup holds: `book*` is TKU BridgeBook's online content, revisions, categories, drafts
  * and the `bookpart:` chunks; `profile*` and `article*` are its system profiles and articles once
- * they are stored (BridgeBook PRD E10). Accounts, games and the SQL tables are not in it yet
+ * they are stored (BridgeBook PRD E10); `team:`, `pair:`, `userteam:` and `userpair:` are its teams
+ * and partnerships (BridgeBook E2), which own profiles. Accounts, games and the SQL tables are not in it yet
  * (e11-t12).
  */
-export const BACKUP_PREFIXES = ['book', 'profile', 'article'] as const
+export const BACKUP_PREFIXES = ['book', 'profile', 'article', 'team:', 'pair:', 'userteam:', 'userpair:'] as const
 /** Daily objects kept; older ones are deleted after each successful backup */
 export const BACKUP_KEEP_DAYS = 30
 export const BACKUP_FORMAT = 'tku-bridge-backup'
