@@ -155,14 +155,35 @@ export class TableService implements TableApi {
   /**
    * Takes a table back after its object was evicted (or the club was): its jobs are scheduled
    * again from its state (jobs are not stored), and whoever is seated but offline counts as away
-   * from now. Nothing is sent
+   * from now. Nothing is sent, and the club is not told: it has the entry from before (in its
+   * directory), and an object waking from hibernation should not call it each time
    */
   async restore(table: Table): Promise<TableEntry> {
     this.load(table)
     this.scheduleRobots()
-    this.report()
+    this.report(false)
     if (table.outbox?.length) this.retryOutbox(0)
     return this.entry!
+  }
+
+  /**
+   * Takes over a table kept somewhere else until now (`TableApi.adopt`): saved here as it is. When
+   * this table already has its state (the move is being done again), that state wins
+   */
+  async adopt(table: Table): Promise<TableEntry | null> {
+    if (this.table) return this.entry ?? this.settled()
+    const entry = await this.restore(table)
+    await this.save()
+    return entry
+  }
+
+  /**
+   * Whether a member may hold a connection to this table (ARCHITECTURE.md §5.10): seated, watching,
+   * or the player of a parked challenge table
+   */
+  admits(userId: string): boolean {
+    const table = this.table
+    return !!table && (this.isAt(userId) || challengeStateOf(table)?.userId === userId)
   }
 
   private load(table: Table) {
@@ -1105,8 +1126,11 @@ export class TableService implements TableApi {
     }
   }
 
-  /** Tells the club when anything the lobby shows changed; a card played changes nothing there */
-  private report() {
+  /**
+   * Tells the club when anything the lobby shows changed; a card played changes nothing there.
+   * `tell = false` only notes the entry (the caller hands it to the club itself, or need not)
+   */
+  private report(tell = true) {
     const table = this.table
     if (!table) return
     const entry = this.describe(table)
@@ -1115,7 +1139,7 @@ export class TableService implements TableApi {
     this.reported = json
     this.rev = Math.max(this.rev + 1, this.now())
     this.entry = { ...entry, rev: this.rev }
-    void this.link.changed(this.entry)
+    if (tell) void this.link.changed(this.entry)
   }
 
   /**
