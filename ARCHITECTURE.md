@@ -131,6 +131,7 @@ interface BoardState {
 | Alert 說明 | 叫牌者的同伴在打完前看不到；機器人的說明除外（`AuctionCall.robot`），所有人都看得到，同 BBO 的 GIB |
 | 叫品的推論意義 | 真人的叫品帶引擎依那一方制度讀出的意義（`AuctionCall.meaning`＋`inferred`：機器人同伴的制度，沒有就用淡江制度），所有人都看得到，同伴也是：只由公開的叫牌過程與制度算出，等於制度卡（`e5-t22`）|
 | 叫牌盒提示 | 輪到自己叫、桌上有機器人時，`BoardView.callMeanings` 帶每個合法叫品在機器人制度裡的意義（同伴是機器人用同伴的，否則用對手機器人的）；伺服器用引擎的 `explain` 只依叫牌過程算出，不看任何一手牌（`views.ts` 的 `callMeaningsFor`，`e5-t22`）|
+| 叫牌提示卡 | 每個看的人都有 `BoardView.bookTopics`：淡江橋譜裡跟目前叫牌有關的頁面，從叫牌過程與淡江制度的規則算出，不看任何一手牌；看的人的同伴是 2/1 的 TKB 時不送（`e10-t06`）|
 
 指定牌組（`Table.dealSource` 的 `fixed`）整份只存在伺服器的 `Table` 裡，發到哪一副才放進 `BoardState.hands`，之後照上表的規則送出；`Table` 本身從不整份送到瀏覽器。
 
@@ -339,7 +340,7 @@ interface BoardState {
 - **Just Declare 練習**（`e10-t05`）：每副先由四個 TKB 叫完（`challenge-deals.ts` 的 `robotAuction`，同 Just Declare 挑戰），南北沒當莊就重發，最多 `JUST_DECLARE_TRIES` 次；真的抽不到時先打一副有合約的（防守），再不行就讓社員自己叫。同伴當莊時社員換到莊家位（同一般牌桌的 `swapForDeclarer`）。
 - **紀錄**：`BoardRecord.mode = 'practice'`、桌號 0（列表顯示「練習」，`strings.ts` 的 `boardPlace`）。SQL 搜尋 `scope=all` 沒指定 `mode` 時排除練習（`history-index.ts` 的 `where`），所以「全部社員」、個人檔案卡的最近牌局都看不到；「我的」照常列出，篩選「練習」（`HISTORY_MODES`）兩邊都找得到。練習的牌不能設精選（`practiceNotFeatured`）、不能「用這副牌挑戰」（`practiceNoChallenge`）。
 - **畫面**：`TableView.practice`（`worker/views.ts` 的 `practiceView`：只有社員自己的設定與 `dealt`，不含任何牌）；牌桌標題 `PracticeBanner`，右下角「重發」「結束練習」。
-- **叫牌提示卡**（`e10-t06`，AC-10.4）：牌桌側欄的「特約」分頁（`BookHints`）。`shared/book-topics.ts` 的 `bookTopics` 依目前的叫牌列出淡江橋譜的頁面：我方開叫的那一頁（1♣、1♦、高花、1NT、2♣ 與阻擊、2♦、2NT），對方先開叫時是競叫那一頁，再加上目前為止與下一口可能用到的約定叫（社團規則的 `Spec.name`，經 `CONVENTION_PAGES` 對到橋譜的 slug），連到 `https://tku-bridge-book.vercel.app/c/<slug>`（新分頁）。規則還沒有自己的 `bookSlug`（`e5-t45`）之前先用約定叫名稱對照，之後改讀規則上的。只看淡江制度；同伴是 2/1 的 TKB 時只說明橋譜寫的是社團制度。規則只在分頁打開時才載入（`useRobotRules`）。
+- **叫牌提示卡**（`e10-t06`，AC-10.4）：牌桌側欄的「特約」分頁（`BookHints`）。伺服器在 `BoardView.bookTopics` 送來（`worker/views.ts`，只看叫牌過程；看的人的同伴是 2/1 的 TKB 時不送），瀏覽器只顯示，不跑引擎（硬性規則 1）。`shared/book-topics.ts` 的 `bookTopics` 依目前的叫牌列出淡江橋譜的頁面：我方開叫的那一頁（1♣、1♦、高花、1NT、2♣ 與阻擊、2♦、2NT），對方先開叫時是競叫那一頁，再加上目前為止與下一口可能用到的約定叫（社團規則的 `Spec.name`，經 `CONVENTION_PAGES` 對到橋譜的 slug），連到 `https://tku-bridge-book.vercel.app/c/<slug>`（新分頁）。規則還沒有自己的 `bookSlug`（`e5-t45`）之前先用約定叫名稱對照，之後改讀規則上的。只看淡江制度；同伴是 2/1 的 TKB 時只說明橋譜寫的是社團制度。名稱的文字（`describe.ts`）只在分頁打開時才載入（`useRobotRules`）。同一個叫牌過程的引擎意義在 `views.ts` 記住最近 256 個（每個看的人、每次更新都問一樣的），叫牌盒提示（`callMeanings`）也共用。
 
 ## 5.8 隊制賽（決策紀錄，`e8-t01`，2026-10-25）
 

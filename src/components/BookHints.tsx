@@ -1,9 +1,7 @@
 import { BookOpen, ExternalLink } from 'lucide-react'
-import { useMemo } from 'react'
 import styled from 'styled-components'
 import type { BookTopic } from '../../shared/book-topics.ts'
 import { BOOK_SITE, bookUrl } from '../../shared/book-site.ts'
-import { sideOf, type Seat } from '../../shared/cards.ts'
 import type { BoardView, RobotKind } from '../../shared/protocol.ts'
 import { useRobotRules } from '../lib/useRobotRules.ts'
 import { usePreferences } from '../state/PreferencesContext.tsx'
@@ -11,8 +9,9 @@ import { Muted } from './ui.tsx'
 
 /**
  * The side panel's 特約 tab (`e10-t06`, AC-10.4): the TKU BridgeBook pages that go with the auction
- * on the table (`shared/book-topics.ts`), each opening the book in a new tab. Read from the club's
- * rules, which load only when the tab is open
+ * on the table, each opening the book in a new tab. The server works the pages out from the auction
+ * (`BoardView.bookTopics`, `worker/views.ts`); the card only names them, with the robots' words
+ * (`useRobotRules`), which load only when the tab is open
  */
 
 const Wrap = styled.div`
@@ -61,14 +60,10 @@ const BookLink = styled.a`
   font-weight: 600;
 `
 
-export function BookHints({ board, seat, robotKind }: { board: BoardView | null; seat: Seat | null; robotKind: RobotKind }) {
+export function BookHints({ board, robotKind }: { board: BoardView | null; robotKind: RobotKind }) {
   const { t, lang } = usePreferences()
   const rules = useRobotRules(robotKind === 'tku')
-  const topics = useMemo(() => {
-    if (!rules || !board || robotKind !== 'tku') return null
-    const side = sideOf(seat ?? 'S')
-    return rules.bookTopics(rules.ROBOT_SYSTEMS.tku, board.auction, board.dealer, board.vul, side, board.phase !== 'auction')
-  }, [rules, board, seat, robotKind])
+  const topics = robotKind === 'tku' && rules ? board?.bookTopics : undefined
 
   const label = (topic: BookTopic) => {
     if (!rules) return topic.slug

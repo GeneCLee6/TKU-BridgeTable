@@ -8,7 +8,7 @@
     { "id": "tku-open-004", "system": "tku", "dealer": "W", "vul": "None", "hand": "AKJ94.873.Q52.94", "auction": ["P", "P"], "answer": "1S", "source": "5542 自然制：第三家輕開（e5-t24）", "reviewer": null, "status": "pending", "note": "第三家 10 點、好的五張♠：輕開，同時指示首攻" },
     { "id": "tku-open-005", "system": "tku", "dealer": "N", "vul": "NS", "hand": "KQJ74.AQ3.K82.Q5", "auction": [], "answer": "1S", "source": "5542 自然制（ROBOT.md §2）", "reviewer": null, "status": "pending", "note": "17 點 5-3-3-2，但五張是高花：開高花不開 1NT" },
     { "id": "tku-open-006", "system": "tku", "dealer": "E", "vul": "None", "hand": "KQ54.AJ32.K87.42", "auction": [], "answer": "1C", "source": "5542 自然制（ROBOT.md §2）", "reviewer": null, "status": "pending", "note": "13 點 4-4-3-2，沒有五張高花也沒有四張♦：開 1♣" },
-    { "id": "tku-open-007", "system": "tku", "dealer": "S", "vul": "Both", "hand": "K3.A52.KJ84.Q975", "auction": [], "answer": "1D", "source": "5542 自然制（ROBOT.md §2）", "reviewer": null, "status": "pending", "note": "13 點 4-4 低花開 1♦" },
+    { "id": "tku-open-007", "system": "tku", "dealer": "S", "vul": "Both", "hand": "K3.A52.KJ84.Q975", "auction": [], "answer": "1C", "source": "淡江橋譜：開叫1♣（自然制講義）", "reviewer": null, "status": "pending", "note": "13 點 4-4 低花開 1♣（書上「13-15點4-4低花時，開叫1♣」，社長 2026-10-25 確認）" },
     { "id": "tku-open-008", "system": "tku", "dealer": "W", "vul": "None", "hand": "AQ43.K82.Q75.J63", "auction": [], "answer": "1C", "source": "5542 自然制（ROBOT.md §2）", "reviewer": null, "status": "pending", "note": "12 點 4-3-3-3，♦只有三張：開 1♣" },
     { "id": "tku-open-009", "system": "tku", "dealer": "N", "vul": "EW", "hand": "KJ43.AQ52.KT84.5", "auction": [], "answer": "1D", "source": "5542 自然制（ROBOT.md §2）", "reviewer": null, "status": "pending", "note": "13 點 4-4-4-1 缺♣，四張♦開 1♦" },
     { "id": "tku-open-010", "system": "tku", "dealer": "E", "vul": "Both", "hand": "AK4.AQ3.KQ52.K97", "auction": [], "answer": "2N", "source": "5542 自然制（ROBOT.md §2）", "reviewer": null, "status": "pending", "note": "21 點平均牌型：2NT 20–21" },
@@ -31,7 +31,7 @@
     {"id": "tku-open-027", "system": "tku", "dealer": "W", "vul": "None", "hand": "KQJ943.32.54.432", "auction": ["P", "P", "P"], "answer": "P", "source": "淡江橋譜：開叫2♣、弱二與阻擊", "reviewer": null, "status": "pending", "note": "第四家不得弱叫：不開 2♦"},
     {"id": "tku-open-028", "system": "tku", "dealer": "S", "vul": "NS", "hand": "KQJ98643.3.83.T9", "auction": [], "answer": "4S", "source": "淡江橋譜：開叫2♣、弱二與阻擊", "reviewer": null, "status": "pending", "note": "八張♠ 6 點、♠有大牌：有身價也可四線阻擊"},
     {"id": "tku-open-029", "system": "tku", "dealer": "N", "vul": "None", "hand": "AK932.KJ432.32.2", "auction": [], "answer": "1S", "source": "淡江橋譜：淡江自然制總覽（開叫之基本原則）", "reviewer": null, "status": "pending", "note": "11 點、Rule of 20（11＋5＋5）、兩個快速贏墩：當 12 點開叫（e5-t41，AI 選擇）"},
-    {"id": "tku-open-030", "system": "tku", "dealer": "N", "vul": "None", "hand": "QJ932.QJ432.K2.2", "auction": [], "answer": "P", "source": "淡江橋譜：淡江自然制總覽（開叫之基本原則）", "reviewer": null, "status": "pending", "note": "11 點、Rule of 20 但快速贏墩只有半個：不開"},
+    { "id": "tku-open-030", "system": "tku", "dealer": "N", "vul": "None", "hand": "QJ932.QJ432.K2.2", "auction": [], "answer": "2H", "source": "淡江橋譜：競叫篇與技光（自然制講義）（何謂技光）", "reviewer": null, "status": "pending", "note": "9 點高花 5-5：不夠一線開叫，開 2♥（♥＋另一門 5-5，5–10 點，社長 2026-10-25）" },
     {"id": "tku-open-031", "system": "tku", "dealer": "N", "vul": "None", "hand": "2.AK932.KJ432.32", "auction": ["P", "P", "P"], "answer": "P", "source": "淡江橋譜：淡江自然制總覽（開叫之基本原則）", "reviewer": null, "status": "pending", "note": "第四家照 15 定律：11＋1 張♠ < 15，不開"}
   ]
 }
