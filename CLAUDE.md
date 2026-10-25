@@ -24,7 +24,7 @@
 1. **規則只在伺服器判斷。** 前端只用 `BoardView.legalCalls`／`legalCards`；新增動作要在 `ClubService` 驗證權限並加 `tests/worker` 測試。
 2. **不要把不該看的牌送到瀏覽器。** 可見性只在 `worker/views.ts`，改動時更新 `ARCHITECTURE.md` §4 與測試。
 3. **`shared/` 保持純函式**，不 import React、DOM 或 `cloudflare:workers`。
-4. **`ClubService` 不碰 Cloudflare API**，只透過 `Store` 與 `Connections`。
+4. **`ClubService` 與 `TableService` 不碰 Cloudflare API**，只透過 `Store`、`Connections` 與牌桌介面（`worker/tables.ts`）；Durable Object 的細節留在 `club.ts`（與之後的 `TableObject`）。
 5. **顏色只來自 `styles/tokens.ts`**，介面文字只來自 `strings.ts`（繁中、簡中、英、越、日、韓六份都要加，`shared/messages.ts` 也一樣）；伺服器的錯誤只丟 `ClubError`／`GameError` 加 `shared/messages.ts` 的代碼。只用於樣式的 prop 加 `$` 前綴。
 6. **機器人只能用它看得到的牌**（`shared/robot/play.ts` 的 `View`），不能讀 `state.hands` 裡別人的牌。機器人只有一個 TKB、沒有等級（之後有伺服器 DDS 才加 TKB Adv）；TKB 用淡江制度時叫牌以淡江橋譜為準，用 2/1 時照 `docs/BBO GIB/gib-2over1.md`（BBO GIB 公開的制度，不複製 BBO 的程式或原文）；改了要更新 `ROBOT.md`。
 7. **不要直接推送到 `main`，也不要 force-push。** 功能走分支＋PR。合併一律用 `gh pr merge <號> --squash --delete-branch`，遠端與本地分支一起刪；分支在 worktree 裡的話先 `git worktree remove` 再刪分支。GitHub 已開「合併後自動刪除分支」，但關掉不合併的 PR 不會自動刪，要手動 `git push origin --delete <分支>`。
