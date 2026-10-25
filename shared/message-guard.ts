@@ -23,6 +23,8 @@ const strings = (v: unknown) => Array.isArray(v) && v.every(str)
 const GUARDS: Partial<Record<ClientMessage['type'], Guard>> = {
   createTable: (m) => opt(obj)(m.settings) && opt(strings)(m.invitees),
   updateTableSettings: (m) => obj(m.settings) && opt(strings)(m.invitees),
+  requestJoin: (m) => str(m.tableId),
+  answerRequest: (m) => str(m.userId) && bool(m.accept),
   quickSeat: () => true,
   joinTable: (m) => str(m.tableId),
   sit: (m) => str(m.tableId) && str(m.seat),
@@ -36,7 +38,7 @@ const GUARDS: Partial<Record<ClientMessage['type'], Guard>> = {
   claimRespond: (m) => bool(m.accept),
   undoRespond: (m) => bool(m.accept),
   chat: (m) => str(m.text),
-  createPractice: (m) => obj(m.settings),
+  createPractice: (m) => obj(m.settings) && opt(str)(m.access),
   redeal: () => true,
   readNotifications: (m) => opt(strings)(m.ids),
   setFriend: (m) => str(m.userId) && bool(m.friend),

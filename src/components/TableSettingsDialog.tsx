@@ -1,10 +1,12 @@
-import { useEffect, useId, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState, type Ref } from 'react'
 import styled from 'styled-components'
 import {
   BOARD_TIME_LIMITS,
   DEFAULT_TABLE_SETTINGS,
-  TABLE_VISIBILITIES,
+  TABLE_ACCESS,
+  takesInvitees,
   type PublicUser,
+  type TableAccess,
   type TableSettings,
 } from '../../shared/protocol.ts'
 import { useT } from '../state/PreferencesContext.tsx'
@@ -12,7 +14,9 @@ import { Button, Card, Muted } from './ui.tsx'
 
 /**
  * How a table is run (AC-2.9, AC-2.10): asked when opening a table, and again from the host's
- * settings button. An invite table also lists the members to invite (`e2-t25`)
+ * settings button. Who may join is one of four access modes, each with a line saying what it
+ * means; a request or hidden table also lists the members to invite (`e2-t25`), who come in
+ * without asking. At a practice table only the access mode (who may watch) is asked
  */
 
 export const Backdrop = styled.div`
@@ -99,6 +103,41 @@ const Invitees = styled.ul`
   }
 `
 
+/** The four access modes, each with its one-line explanation (also in the practice dialog) */
+export function AccessChoices({
+  value,
+  onChange,
+  legend,
+  firstRef,
+}: {
+  value: TableAccess
+  onChange: (access: TableAccess) => void
+  legend: string
+  firstRef?: Ref<HTMLInputElement>
+}) {
+  const t = useT()
+  const name = useId()
+  return (
+    <Group>
+      <legend>{legend}</legend>
+      {TABLE_ACCESS.map((access, i) => (
+        <Choice key={access}>
+          <input
+            ref={i === 0 ? firstRef : undefined}
+            type="radio"
+            name={name}
+            value={access}
+            checked={value === access}
+            onChange={() => onChange(access)}
+          />
+          <span>{t.accesses[access].label}</span>
+          <Muted>{t.accesses[access].hint}</Muted>
+        </Choice>
+      ))}
+    </Group>
+  )
+}
+
 export const Buttons = styled.div`
   display: flex;
   justify-content: flex-end;
@@ -111,6 +150,7 @@ export function TableSettingsDialog({
   initial = DEFAULT_TABLE_SETTINGS,
   members = [],
   invited = [],
+  practice = false,
   onSubmit,
   onClose,
 }: {
@@ -121,7 +161,9 @@ export function TableSettingsDialog({
   members?: PublicUser[]
   /** Who is invited already */
   invited?: string[]
-  /** The settings, and the invitation list (empty unless the table is invite only) */
+  /** A practice table: only who may watch is asked (its seats, time and watching are fixed) */
+  practice?: boolean
+  /** The settings, and the invitation list (empty unless the table is a request or hidden one) */
   onSubmit: (settings: TableSettings, invitees: string[]) => void
   onClose: () => void
 }) {
@@ -150,26 +192,17 @@ export function TableSettingsDialog({
         <form
           onSubmit={(event) => {
             event.preventDefault()
-            onSubmit(settings, settings.visibility === 'invite' ? invitees : [])
+            onSubmit(settings, takesInvitees(settings.access) ? invitees : [])
           }}
         >
-          <Group>
-            <legend>{t.tableVisibility}</legend>
-            {TABLE_VISIBILITIES.map((visibility, i) => (
-              <Choice key={visibility}>
-                <input
-                  ref={i === 0 ? first : undefined}
-                  type="radio"
-                  name="visibility"
-                  checked={settings.visibility === visibility}
-                  onChange={() => setSettings({ ...settings, visibility })}
-                />
-                <span>{t.visibilities[visibility].label}</span>
-                <Muted>{t.visibilities[visibility].hint}</Muted>
-              </Choice>
-            ))}
-          </Group>
-          {settings.visibility === 'invite' && (
+          {practice && <Muted>{t.practiceAccessHint}</Muted>}
+          <AccessChoices
+            value={settings.access}
+            onChange={(access) => setSettings({ ...settings, access })}
+            legend={practice ? t.practiceAccess : t.tableAccess}
+            firstRef={first}
+          />
+          {takesInvitees(settings.access) && (
             <Group>
               <legend>{t.invitees}</legend>
               <Muted>{t.inviteesHint}</Muted>
@@ -195,35 +228,39 @@ export function TableSettingsDialog({
               )}
             </Group>
           )}
-          <Group>
-            <legend>{t.kibitzers}</legend>
-            <Choice>
-              <input
-                type="checkbox"
-                checked={settings.allowKibitz}
-                onChange={(event) => setSettings({ ...settings, allowKibitz: event.target.checked })}
-              />
-              <span>{t.allowKibitz}</span>
-              <Muted>{t.allowKibitzHint}</Muted>
-            </Choice>
-          </Group>
-          <Group>
-            <legend>
-              <label htmlFor={timeId}>{t.boardTime}</label>
-            </legend>
-            <Select
-              id={timeId}
-              value={settings.boardMinutes}
-              onChange={(event) => setSettings({ ...settings, boardMinutes: Number(event.target.value) })}
-            >
-              {BOARD_TIME_LIMITS.map((m) => (
-                <option key={m} value={m}>
-                  {t.boardMinutesOption(m)}
-                </option>
-              ))}
-            </Select>
-            <Muted>{t.boardTimeHint}</Muted>
-          </Group>
+          {!practice && (
+            <>
+              <Group>
+                <legend>{t.kibitzers}</legend>
+                <Choice>
+                  <input
+                    type="checkbox"
+                    checked={settings.allowKibitz}
+                    onChange={(event) => setSettings({ ...settings, allowKibitz: event.target.checked })}
+                  />
+                  <span>{t.allowKibitz}</span>
+                  <Muted>{t.allowKibitzHint}</Muted>
+                </Choice>
+              </Group>
+              <Group>
+                <legend>
+                  <label htmlFor={timeId}>{t.boardTime}</label>
+                </legend>
+                <Select
+                  id={timeId}
+                  value={settings.boardMinutes}
+                  onChange={(event) => setSettings({ ...settings, boardMinutes: Number(event.target.value) })}
+                >
+                  {BOARD_TIME_LIMITS.map((m) => (
+                    <option key={m} value={m}>
+                      {t.boardMinutesOption(m)}
+                    </option>
+                  ))}
+                </Select>
+                <Muted>{t.boardTimeHint}</Muted>
+              </Group>
+            </>
+          )}
           <Buttons>
             <Button type="button" onClick={onClose}>
               {t.cancel}

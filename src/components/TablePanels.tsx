@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom'
 import styled, { keyframes } from 'styled-components'
-import type { BoardView } from '../../shared/protocol.ts'
+import type { BoardView, PublicUser } from '../../shared/protocol.ts'
 import { signed } from '../lib/format.ts'
 import { useT } from '../state/PreferencesContext.tsx'
 import { seatLetter } from '../strings.ts'
@@ -203,5 +203,53 @@ export function Prompt({
         </Buttons>
       )}
     </FeltPanel>
+  )
+}
+
+/** The host's requests to join (a request table), at the top of the felt; clicks stay in it */
+const RequestsBox = styled(FeltPanel)`
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  z-index: 30;
+  width: min(calc(100% - 32px), 380px);
+  gap: 8px;
+  transform: translateX(-50%);
+  font-size: 14px;
+`
+
+const RequestRow = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+`
+
+/** Members waiting for the host's answer, each with 同意 / 拒絕; nothing when there are none */
+export function JoinRequests({
+  requests,
+  onAnswer,
+}: {
+  requests: { user: PublicUser; at: number }[]
+  onAnswer: (userId: string, accept: boolean) => void
+}) {
+  const t = useT()
+  if (!requests.length) return null
+  return (
+    <RequestsBox role="region" aria-label={t.joinRequests} onClick={(event) => event.stopPropagation()}>
+      <strong>{t.joinRequests}</strong>
+      {requests.map(({ user }) => (
+        <RequestRow key={user.id}>
+          <span>{t.requestFrom(user.username)}</span>
+          <FeltButton type="button" $tone="go" onClick={() => onAnswer(user.id, true)}>
+            {t.approveRequest}
+          </FeltButton>
+          <FeltButton type="button" $tone="stop" onClick={() => onAnswer(user.id, false)}>
+            {t.declineRequest}
+          </FeltButton>
+        </RequestRow>
+      ))}
+    </RequestsBox>
   )
 }

@@ -3,6 +3,7 @@ import { isSeat, SEATS, type Seat } from '../shared/cards.ts'
 import { AppError, type MessageCode } from '../shared/messages.ts'
 import {
   DEFAULT_TABLE_SETTINGS,
+  fixedSeats,
   HISTORY_PAGE_SIZES,
   isPermission,
   isRobotId,
@@ -10,8 +11,11 @@ import {
   LIMITS,
   parseTableSettings,
   PERMISSIONS,
+  PRACTICE_TABLE_SETTINGS,
   robotId,
   soloTable,
+  TABLE_ACCESS,
+  tableSettingsFrom,
   summarize,
   USERNAME_PATTERN,
   type AdminUser,
@@ -34,6 +38,7 @@ import {
   type ServerMessage,
   type Site,
   type TableAction,
+  type TableAccess,
   type TableMode,
   type TableSummary,
 } from '../shared/protocol.ts'
@@ -124,15 +129,21 @@ import {
   LOGIN_FAILURES_PER_ADDRESS,
   LOGIN_FAILURES_PER_NAME,
   LOGIN_WINDOW_MS,
+  REQUEST_BURST,
+  REQUESTS_PER_SECOND,
   TokenBuckets,
 } from './rate-limit.ts'
 import {
   challengeBoardVisible,
   challengeTraveller,
   challengeView,
+  liveRequests,
+  mayEnter,
   memberProfileView,
   recordVisible,
+  refusal,
   seatOccupants,
+  tableListed,
   type Table,
 } from './views.ts'
 
@@ -223,9 +234,18 @@ const CLOSED_KEPT = 200
 /** The table actions only the host may take: outside any table they are `notAtTable`, not `notSeated` */
 const HOST_ACTIONS = new Set<string>(['kick', 'addRobot', 'removeRobot', 'replaceWithRobot'])
 
-/** The error for changing seats or settings at a table that is one member's alone (`soloTable`) */
+/** The error for changing seats or settings at a challenge or practice table (`fixedSeats`) */
 const fixedTable = (mode: TableMode | undefined) =>
   new ClubError(mode === 'practice' ? 'practiceTableFixed' : 'challengeTableFixed')
+
+/**
+ * A directory entry as saved by any version (`tabledir:`): settings from before the four access
+ * modes become one (`invite` is hidden, with its invitation list), and the request lists are added.
+ * Written back with the table's next report
+ */
+export function upgradeEntry(entry: TableEntry): TableEntry {
+  return { ...entry, settings: tableSettingsFrom(entry.settings), approved: entry.approved ?? [], requests: entry.requests ?? [] }
+}
 
 /**
  * Accounts, the lobby and boards for one bridge club. All state lives in memory and every change is
@@ -301,6 +321,7 @@ export class ClubService {
   private readonly actionLimit: TokenBuckets
   private readonly chatLimit: TokenBuckets
   private readonly directLimit: TokenBuckets
+  private readonly requestLimit: TokenBuckets
   private readonly loginByName: FailureWindow
   private readonly loginByAddress: FailureWindow
   private readonly clientErrorLimit: TokenBuckets
@@ -314,6 +335,7 @@ export class ClubService {
     this.actionLimit = new TokenBuckets(ACTION_BURST, ACTIONS_PER_SECOND, this.now)
     this.chatLimit = new TokenBuckets(CHAT_BURST, CHATS_PER_SECOND, this.now)
     this.directLimit = new TokenBuckets(DIRECT_BURST, DIRECTS_PER_SECOND, this.now)
+    this.requestLimit = new TokenBuckets(REQUEST_BURST, REQUESTS_PER_SECOND, this.now)
     this.loginByName = new FailureWindow(LOGIN_FAILURES_PER_NAME, LOGIN_WINDOW_MS, this.now)
     this.loginByAddress = new FailureWindow(LOGIN_FAILURES_PER_ADDRESS, LOGIN_WINDOW_MS, this.now)
     this.clientErrorLimit = new TokenBuckets(CLIENT_ERROR_BURST, CLIENT_ERRORS_PER_SECOND, this.now)
@@ -403,7 +425,8 @@ export class ClubService {
     await this.batch(async () => {
       if (this.remote) {
         // Each table runs in its own object and schedules its own jobs; the club only reads its directory
-        for (const entry of (await this.store.list<TableEntry>('tabledir:')).values()) this.directory.set(entry.id, entry)
+        for (const entry of (await this.store.list<TableEntry>('tabledir:')).values())
+          this.directory.set(entry.id, upgradeEntry(entry))
         await this.moveTablesOut()
         return
       }
@@ -1240,6 +1263,8 @@ export class ClubService {
     if (message.type === 'chat' && !this.chatLimit.take(userId)) return this.reject(userId, 'chatTooFast', message.type)
     if (message.type === 'sendDirect' && !this.directLimit.take(userId))
       return this.reject(userId, 'directTooFast', message.type)
+    if (message.type === 'requestJoin' && !this.requestLimit.take(userId))
+      return this.reject(userId, 'requestTooFast', message.type)
     try {
       await this.handle(userId, message)
     } catch (error) {
@@ -1329,9 +1354,13 @@ export class ClubService {
       case 'quickSeat':
         return this.quickSeat(userId)
       case 'createPractice':
-        return this.createPractice(userId, message.settings)
+        return this.createPractice(userId, message.settings, message.access)
       case 'joinTable':
         return this.joinTable(userId, this.requireEntry(message.tableId))
+      case 'requestJoin':
+        return this.requestJoin(userId, this.requireEntry(message.tableId))
+      case 'answerRequest':
+        return this.answerRequest(userId, message.userId, message.accept)
       case 'sit':
         if (!isSeat(message.seat)) throw new ClubError('badSeat')
         return this.sit(userId, this.requireEntry(message.tableId), message.seat)
@@ -1409,19 +1438,31 @@ export class ClubService {
   }
 
   /**
-   * A member the host blocked may not join the table, to sit or to watch; at an invite table only
-   * the invited may (`e2-t25`)
+   * Whether a member may come to a table, to sit or to watch, as its access mode says (`mayEnter`,
+   * ARCHITECTURE.md §5): at a public table anyone, but a member the host blocked hears so
+   * (`blockedByHost`); at the other tables a blocked member gets the same answer as anyone not let
+   * in (`refusal`), so they cannot tell they are blocked
    */
   private checkWelcome(userId: string, table: TableEntry) {
-    if (this.blocks.has(table.hostId, userId)) throw new ClubError('blockedByHost', {}, 403)
-    if (!this.invitedTo(userId, table)) throw new ClubError('notInvited', {}, 403)
+    const at = this.entryOf(userId)?.id === table.id
+    if (at) return
+    if (!tableListed(table, userId, false)) throw new ClubError('tableGone', {}, 404)
+    if (this.blocks.has(table.hostId, userId)) {
+      if (table.settings.access === 'public') throw new ClubError('blockedByHost', {}, 403)
+      const code = refusal({ ...table, invited: [], approved: [] }, userId)
+      throw new ClubError(code, {}, code === 'tableGone' ? 404 : 403)
+    }
+    if (!mayEnter(table, userId, false)) {
+      const code = refusal(table, userId)
+      throw new ClubError(code, {}, code === 'tableGone' ? 404 : 403)
+    }
   }
 
-  /** Whether a member may come to a table as far as invitations go: any public one, an invite one when invited or already there */
-  private invitedTo(userId: string, table: TableEntry): boolean {
-    if (soloTable(table.mode)) return false
-    if (table.settings.visibility === 'public' || table.hostId === userId) return true
-    return table.invited.includes(userId) || this.entryOf(userId)?.id === table.id
+  /** Whether the lobby tells a member they may come in (`TableSummary.welcome`): a blocked one only at a public table */
+  private welcomeAt(userId: string, table: TableEntry): boolean {
+    const at = this.entryOf(userId)?.id === table.id
+    if (!mayEnter(table, userId, at)) return false
+    return at || table.settings.access === 'public' || !this.blocks.has(table.hostId, userId)
   }
 
   // ── Challenges (§5.5) ───────────────────────────────────────────────────────────────────────
@@ -1879,7 +1920,7 @@ export class ClubService {
       mode: 'challenge',
       modeState: state,
       dealSource: dealSourceOf(challenge.deals),
-      settings: { visibility: 'invite', allowKibitz: false, boardMinutes: 0 },
+      settings: { access: 'hidden', allowKibitz: false, boardMinutes: 0 },
       names: { [userId]: this.users.get(userId)!.username },
       blocks: { [userId]: this.blocks.of(userId) },
     }
@@ -1915,9 +1956,7 @@ export class ClubService {
     if (!settings) throw new ClubError('badTableSettings')
     const invited = this.checkInvitees(userId, invitees)
     await this.leave(userId)
-    const used = new Set([...this.directory.values()].map((t) => t.number))
-    let number = 1
-    while (used.has(number)) number++
+    const number = this.freeNumber()
     const username = this.users.get(userId)!.username
     const table: Table = {
       id: randomId(6),
@@ -1942,15 +1981,25 @@ export class ClubService {
     for (const id of invited ?? []) await this.notifications.notify(id, 'tableInvited', { tableId: table.id, number, username })
   }
 
+  /** The lowest table number not in use (challenge tables have none) */
+  private freeNumber(): number {
+    const used = new Set([...this.directory.values()].map((t) => t.number))
+    let number = 1
+    while (used.has(number)) number++
+    return number
+  }
+
   /**
    * Opens the member's own practice table (§5.11, `e10-t03`): South, three TKB of the chosen system,
-   * boards dealt to a preset or the member's conditions, Just Declare if asked. Like a challenge
-   * table it is not in the lobby and nobody else comes to it; it closes when the member leaves.
-   * Conditions that cannot be met are turned down here, before the member leaves their table
+   * boards dealt to a preset or the member's conditions, Just Declare if asked. Nobody else sits
+   * there; who may watch is its access mode (`access`, hidden unless chosen: only the invited). It
+   * closes when the member leaves. Conditions that cannot be met are turned down here, before the
+   * member leaves their table
    */
-  private async createPractice(userId: string, wanted: unknown) {
+  private async createPractice(userId: string, wanted: unknown, access?: unknown) {
     const parsed = parsePracticeSettings(wanted)
     if ('field' in parsed) throw new ClubError('badPracticeSettings', { field: parsed.field })
+    if (access !== undefined && !TABLE_ACCESS.includes(access as never)) throw new ClubError('badTableSettings')
     const { settings } = parsed
     const conditions = practiceConditions(settings)
     if (conditions && !dealWith(conditions, quickRandom(this.random), PRACTICE_MAX_ATTEMPTS).ok) throw new ClubError('dealTooStrict')
@@ -1959,8 +2008,8 @@ export class ClubService {
     const state: PracticeTableState = { ...settings, dealt: 0 }
     const table: Table = {
       id: randomId(6),
-      // Practice tables are not in the lobby and take no number from it
-      number: 0,
+      // Listed in the lobby when its access mode lets others watch
+      number: this.freeNumber(),
       hostId: userId,
       seats: { N: robotId(kind, 'N'), E: robotId(kind, 'E'), S: userId, W: robotId(kind, 'W') },
       spectators: [],
@@ -1970,7 +2019,7 @@ export class ClubService {
       createdAt: this.now(),
       mode: 'practice',
       modeState: state,
-      settings: { visibility: 'invite', allowKibitz: false, boardMinutes: 0 },
+      settings: { ...PRACTICE_TABLE_SETTINGS, ...(access !== undefined && { access: access as TableAccess }) },
       names: { [userId]: this.users.get(userId)!.username },
       blocks: { [userId]: this.blocks.of(userId) },
     }
@@ -2005,7 +2054,10 @@ export class ClubService {
     const seated = !!here && !!this.seatIn(here, userId)
     const open = [...this.directory.values()].filter(
       (t) =>
-        !soloTable(t.mode) && !(seated && t.id === here!.id) && this.invitedTo(userId, t) && !this.blocks.has(t.hostId, userId),
+        !fixedSeats(t.mode) &&
+        !(seated && t.id === here!.id) &&
+        mayEnter(t, userId, false) &&
+        !this.blocks.has(t.hostId, userId),
     )
     const choice = quickSeatChoice(open)
     if (choice) return this.sit(userId, choice.table, choice.seat)
@@ -2014,11 +2066,11 @@ export class ClubService {
 
   private async joinTable(userId: string, entry: TableEntry) {
     if (this.entryOf(userId)?.id === entry.id) return
-    // Someone else's challenge or practice table is not there for anyone to see
+    // Someone else's challenge table is not there for anyone to see
     if (soloTable(entry.mode)) throw new ClubError('tableGone', {}, 404)
     this.checkWelcome(userId, entry)
-    // A table without kibitzers takes people only into its seats (`e2-t26`)
-    if (!entry.settings.allowKibitz) throw new ClubError('noKibitzing', {}, 403)
+    // A table without kibitzers takes people only into its seats (`e2-t26`); a practice table only has watchers
+    if (!entry.settings.allowKibitz && entry.mode !== 'practice') throw new ClubError('noKibitzing', {}, 403)
     await this.leave(userId)
     this.applyEntry(await this.tables.get(entry.id).join(this.person(userId)))
   }
@@ -2032,8 +2084,8 @@ export class ClubService {
     const here = current?.id === entry.id
     const currentSeat = here ? this.seatIn(entry, userId) : null
     if (currentSeat === seat) return
-    if (soloTable(entry.mode)) {
-      if (here) throw fixedTable(entry.mode)
+    if (fixedSeats(entry.mode)) {
+      if (here || (entry.mode === 'practice' && tableListed(entry, userId, false))) throw fixedTable(entry.mode)
       throw new ClubError('tableGone', {}, 404)
     }
     if (!here) this.checkWelcome(userId, entry)
@@ -2067,6 +2119,41 @@ export class ClubService {
     for (const id of invited ?? [])
       if (!before.has(id))
         await this.notifications.notify(id, 'tableInvited', { tableId: entry.id, number: entry.number, username })
+  }
+
+  /**
+   * Asks the host of a `request` table to let the member in. A member the host blocked sees their
+   * request waiting like anyone's, but the host never gets it (`muted`). The host hears of it at the
+   * table, and by a notification when offline
+   */
+  private async requestJoin(userId: string, entry: TableEntry) {
+    if (this.entryOf(userId)?.id === entry.id) return
+    if (soloTable(entry.mode) || !tableListed(entry, userId, false)) throw new ClubError('tableGone', {}, 404)
+    const muted = this.blocks.has(entry.hostId, userId)
+    const asked = (e: TableEntry | undefined) => liveRequests(e?.requests, this.now()).some((r) => r.userId === userId)
+    const before = asked(entry)
+    this.applyEntry(await this.tables.get(entry.id).request(this.person(userId), muted))
+    const after = this.directory.get(entry.id)
+    if (muted || before || !after || !asked(after)) return
+    if (this.connections.onlineUserIds().includes(after.hostId)) return
+    const username = this.users.get(userId)!.username
+    await this.notifications.notify(after.hostId, 'tableRequest', { tableId: after.id, number: after.number, username })
+  }
+
+  /** The host lets a member who asked in, or turns them down; the member is told either way */
+  private async answerRequest(hostId: string, userId: string, accept: boolean) {
+    const entry = this.entryOf(hostId)
+    if (!entry) throw new ClubError('notAtTable')
+    if (entry.hostId !== hostId) throw new ClubError('hostOnly')
+    if (typeof accept !== 'boolean') throw new ClubError('unknownCommand')
+    this.applyEntry(await this.tables.get(entry.id).answerRequest(hostId, userId, accept))
+    if (!this.users.has(userId)) return
+    const username = this.users.get(hostId)!.username
+    await this.notifications.notify(userId, accept ? 'tableRequestApproved' : 'tableRequestDeclined', {
+      tableId: entry.id,
+      number: entry.number,
+      username,
+    })
   }
 
   /** A table action (bidding, play, chat, the host's seat changes): the member's own table handles it */
@@ -2212,9 +2299,11 @@ export class ClubService {
   lobbyView(userId: string, online = this.connections.onlineUserIds()): LobbyView {
     const isOnline = (id: string) => isRobotId(id) || online.includes(id)
     const mine = this.entryOf(userId)
+    const now = this.now()
+    // What the viewer may see listed (`tableListed`): no challenge table, a hidden one only for the invited
+    const listed = (t: TableEntry) => tableListed(t, userId, t.id === mine?.id)
     const tables: TableSummary[] = [...this.directory.values()]
-      // A challenge or practice table is its player's alone and is not listed (§5.5, §5.11)
-      .filter((t) => !soloTable(t.mode))
+      .filter(listed)
       // Tables short of players first, the closest to starting on top (AC-2.11)
       .sort(lobbyOrder)
       .map((t) => ({
@@ -2222,7 +2311,9 @@ export class ClubService {
         number: t.number,
         hostName: this.users.get(t.hostId)?.username ?? '—',
         settings: t.settings,
-        welcome: this.invitedTo(userId, t),
+        welcome: this.welcomeAt(userId, t),
+        ...(liveRequests(t.requests, now).some((r) => r.userId === userId) && { requested: true }),
+        ...(t.mode === 'practice' && { practice: true }),
         seats: this.occupants(t, isOnline),
         spectators: t.spectators.length,
         boardsPlayed: t.boardsPlayed,
@@ -2231,7 +2322,8 @@ export class ClubService {
     const members: MemberStatus[] = [...this.users.values()]
       .map((u) => {
         const found = this.entryOf(u.id)
-        const table = soloTable(found?.mode) ? undefined : found
+        // Where someone is shows only for a table the viewer would see listed
+        const table = found && listed(found) ? found : undefined
         return {
           id: u.id,
           username: u.username,
@@ -2252,7 +2344,8 @@ export class ClubService {
       members,
       tables,
       myTableId: mine?.id ?? null,
-      ...(mine && soloTable(mine.mode) && { myTableMode: mine.mode }),
+      // The member's own challenge or practice table, for the lobby's 「回到」 banner
+      ...(mine && (soloTable(mine.mode) || (mine.mode === 'practice' && this.seatIn(mine, userId))) && { myTableMode: mine.mode }),
       friends: this.friends.of(userId),
       blocked: this.blocks.of(userId),
     }

@@ -7,8 +7,11 @@ import { lobbyOrder, missingSeats, quickSeatChoice } from '../../shared/lobby.ts
 import { parseClientMessage } from '../../shared/message-guard.ts'
 import {
   LIMITS,
+  parseTableSettings,
   SLOW_TURN_MS,
   SUBSTITUTE_MS,
+  TABLE_REQUEST_COOLDOWN_MS,
+  TABLE_REQUEST_MS,
   type BoardRecord,
   type ClientMessage,
   type ServerMessage,
@@ -16,7 +19,7 @@ import {
 } from '../../shared/protocol.ts'
 import { ClubService, type Connections, type ScheduleKind } from '../../worker/service.ts'
 import type { MemoryStore } from '../../worker/store.ts'
-import { boardView } from '../../worker/views.ts'
+import { boardView, type Table } from '../../worker/views.ts'
 import { memoryStore } from './sqlite.ts'
 
 /** How hosts run their tables (F1): invitations, no kibitzers, time limits, slow players, the lobby's order, quick seat and robot substitutes */
@@ -122,23 +125,28 @@ async function playOut(person: string) {
   }
 }
 
-describe('invite-only tables (e2-t25)', () => {
-  it('are listed for everyone, but only the invited may sit or watch, and they are told', async () => {
+describe('hidden tables with an invitation list (e2-t25)', () => {
+  it('are listed only for the invited, who may sit or watch and are told; for anyone else they are not there', async () => {
     const gene = await member('gene')
     const amy = await member('amy')
     const bob = await member('bob')
-    await send(gene, { type: 'createTable', settings: { visibility: 'invite' }, invitees: [amy] })
+    await send(gene, { type: 'createTable', settings: { access: 'hidden' }, invitees: [amy] })
     const tableId = tableFor(gene).id
 
     const invitation = connections.last(amy, 'notifications')!.notifications.items[0]
     expect(invitation).toMatchObject({ kind: 'tableInvited', params: { tableId, number: 1, username: 'gene' } })
-    expect(lobbyOf(bob).tables[0]).toMatchObject({ id: tableId, welcome: false })
-    expect(lobbyOf(amy).tables[0].welcome).toBe(true)
+    expect(lobbyOf(bob).tables).toEqual([])
+    expect(lobbyOf(amy).tables[0]).toMatchObject({ id: tableId, welcome: true })
+    // Where gene is does not show to someone who cannot see the table
+    expect(lobbyOf(bob).members.find((m) => m.id === gene)?.tableNumber).toBeNull()
+    expect(lobbyOf(amy).members.find((m) => m.id === gene)?.tableNumber).toBe(1)
 
     await send(bob, { type: 'sit', tableId, seat: 'N' })
-    expect(lastError(bob)).toBe('notInvited')
+    expect(lastError(bob)).toBe('tableGone')
     await send(bob, { type: 'joinTable', tableId })
-    expect(lastError(bob)).toBe('notInvited')
+    expect(lastError(bob)).toBe('tableGone')
+    await send(bob, { type: 'requestJoin', tableId })
+    expect(lastError(bob)).toBe('tableGone')
     expect(lobbyOf(bob).myTableId).toBeNull()
 
     await send(amy, { type: 'sit', tableId, seat: 'N' })
@@ -176,29 +184,220 @@ describe('invite-only tables (e2-t25)', () => {
     const cleo = await member('cleo')
     // cleo blocked gene: gene only hears that cleo cannot be invited, the same words as for any refusal
     await send(cleo, { type: 'setBlocked', userId: gene, blocked: true })
-    await send(gene, { type: 'createTable', settings: { visibility: 'invite' }, invitees: [cleo] })
+    await send(gene, { type: 'createTable', settings: { access: 'hidden' }, invitees: [cleo] })
     expect(connections.last(gene, 'error')).toMatchObject({ code: 'cannotInvite', params: { name: 'cleo' } })
     expect(lobbyOf(gene).tables).toHaveLength(0)
     expect(connections.last(cleo, 'notifications')!.notifications.items.some((n) => n.kind === 'tableInvited')).toBe(false)
 
     // gene blocked amy: gene is asked to unblock first, also when changing the list later
     await send(gene, { type: 'setBlocked', userId: amy, blocked: true })
-    await send(gene, { type: 'createTable', settings: { visibility: 'invite' } })
+    await send(gene, { type: 'createTable', settings: { access: 'hidden' } })
     await send(gene, { type: 'updateTableSettings', settings: {}, invitees: [amy] })
     expect(lastError(gene)).toBe('unblockFirst')
     expect(tableFor(gene).invited).toEqual([])
     expect(connections.last(amy, 'notifications')!.notifications.items.some((n) => n.kind === 'tableInvited')).toBe(false)
   })
 
-  it('let in whoever is already at the table when it turns invite only', async () => {
+  it('let in whoever is already at the table when it turns hidden', async () => {
     const gene = await member('gene')
     const amy = await member('amy')
     await send(gene, { type: 'createTable' })
     const tableId = tableFor(gene).id
     await send(amy, { type: 'joinTable', tableId })
-    await send(gene, { type: 'updateTableSettings', settings: { visibility: 'invite' } })
+    await send(gene, { type: 'updateTableSettings', settings: { access: 'hidden' } })
     await send(amy, { type: 'sit', tableId, seat: 'E' })
     expect(tableFor(amy).mySeat).toBe('E')
+  })
+})
+
+describe('the four access modes (公開／申請加入／隱藏／拒絕所有人)', () => {
+  const notes = (userId: string) => connections.last(userId, 'notifications')?.notifications.items ?? []
+
+  it('request: listed, members ask, the host sees it live and lets them in or declines', async () => {
+    const gene = await member('gene')
+    const amy = await member('amy')
+    const bob = await member('bob')
+    const cleo = await member('cleo')
+    await send(gene, { type: 'createTable', settings: { access: 'request' }, invitees: [amy] })
+    const tableId = tableFor(gene).id
+    expect(lobbyOf(bob).tables[0]).toMatchObject({ id: tableId, welcome: false, settings: { access: 'request' } })
+    // An invited member comes in without asking
+    expect(lobbyOf(amy).tables[0].welcome).toBe(true)
+    await send(bob, { type: 'joinTable', tableId })
+    expect(lastError(bob)).toBe('requestFirst')
+    await send(bob, { type: 'sit', tableId, seat: 'N' })
+    expect(lastError(bob)).toBe('requestFirst')
+
+    await send(bob, { type: 'requestJoin', tableId })
+    await send(bob, { type: 'requestJoin', tableId })
+    expect(lobbyOf(bob).tables[0].requested).toBe(true)
+    expect(lobbyOf(cleo).tables[0].requested).toBeUndefined()
+    expect(tableFor(gene).requests).toEqual([{ user: { id: bob, username: 'bob' }, at: time }])
+    // Only the host sees requests; the host is online, so it comes to the table, not as a notification
+    expect(notes(gene).some((n) => n.kind === 'tableRequest')).toBe(false)
+    await send(amy, { type: 'joinTable', tableId })
+    expect(tableFor(amy).requests).toBeUndefined()
+    await send(amy, { type: 'answerRequest', userId: bob, accept: true })
+    expect(lastError(amy)).toBe('hostOnly')
+
+    await send(gene, { type: 'answerRequest', userId: bob, accept: true })
+    expect(tableFor(gene).requests).toEqual([])
+    expect(notes(bob)[0]).toMatchObject({ kind: 'tableRequestApproved', params: { tableId, number: 1, username: 'gene' } })
+    expect(lobbyOf(bob).tables[0]).toMatchObject({ welcome: true })
+    expect(lobbyOf(bob).tables[0].requested).toBeUndefined()
+    await send(bob, { type: 'sit', tableId, seat: 'N' })
+    expect(tableFor(bob).mySeat).toBe('N')
+
+    // Declined: told, and may not ask again until the cooldown is over
+    await send(cleo, { type: 'requestJoin', tableId })
+    await send(gene, { type: 'answerRequest', userId: cleo, accept: false })
+    expect(notes(cleo)[0]).toMatchObject({ kind: 'tableRequestDeclined', params: { tableId } })
+    await send(cleo, { type: 'joinTable', tableId })
+    expect(lastError(cleo)).toBe('requestFirst')
+    await send(cleo, { type: 'requestJoin', tableId })
+    expect(lastError(cleo)).toBe('requestCooldown')
+    expect(tableFor(gene).requests).toEqual([])
+    time += TABLE_REQUEST_COOLDOWN_MS
+    await send(cleo, { type: 'requestJoin', tableId })
+    expect(tableFor(gene).requests?.map((r) => r.user.id)).toEqual([cleo])
+    // An answer to nobody's request is refused
+    await send(gene, { type: 'answerRequest', userId: amy, accept: true })
+    expect(lastError(gene)).toBe('requestGone')
+  })
+
+  it('request: an offline host is notified, a request runs out, and asking too often is slowed down', async () => {
+    const gene = await member('gene')
+    const bob = await member('bob')
+    await send(gene, { type: 'createTable', settings: { access: 'request' } })
+    const tableId = tableFor(gene).id
+    connections.online.delete(gene)
+    await send(bob, { type: 'requestJoin', tableId })
+    const kept = await club.notifications.view(gene)
+    expect(kept.items[0]).toMatchObject({ kind: 'tableRequest', params: { tableId, number: 1, username: 'bob' } })
+    connections.online.add(gene)
+
+    time += TABLE_REQUEST_MS
+    expect(lobbyOf(bob).tables[0].requested).toBeUndefined()
+    await send(gene, { type: 'answerRequest', userId: bob, accept: true })
+    expect(lastError(gene)).toBe('requestGone')
+
+    // The socket's limit: a burst, then one every half minute
+    for (let i = 0; i < 4; i++) await club.handleRaw(bob, JSON.stringify({ type: 'requestJoin', tableId }))
+    expect(lastError(bob)).toBe('requestTooFast')
+  })
+
+  it('request: a member the host blocked sees their request waiting, but the host never gets it', async () => {
+    const gene = await member('gene')
+    const bob = await member('bob')
+    await send(gene, { type: 'createTable', settings: { access: 'request' } })
+    const tableId = tableFor(gene).id
+    await send(gene, { type: 'setBlocked', userId: bob, blocked: true })
+    connections.online.delete(gene)
+    await send(bob, { type: 'requestJoin', tableId })
+    connections.online.add(gene)
+    expect(lastError(bob)).toBeUndefined()
+    expect(lobbyOf(bob).tables[0]).toMatchObject({ welcome: false, requested: true })
+    expect(tableFor(gene).requests).toEqual([])
+    expect((await club.notifications.view(gene)).items.some((n) => n.kind === 'tableRequest')).toBe(false)
+    await send(gene, { type: 'answerRequest', userId: bob, accept: true })
+    expect(lastError(gene)).toBe('requestGone')
+    // The same answer as anyone not let in, not that they are blocked
+    await send(bob, { type: 'joinTable', tableId })
+    expect(lastError(bob)).toBe('requestFirst')
+  })
+
+  it('closed: listed, nobody new comes in, the people there stay; requests waiting are dropped', async () => {
+    const gene = await member('gene')
+    const amy = await member('amy')
+    const bob = await member('bob')
+    const cleo = await member('cleo')
+    await send(gene, { type: 'createTable', settings: { access: 'request' }, invitees: [cleo] })
+    const tableId = tableFor(gene).id
+    await send(amy, { type: 'joinTable', tableId }) // amy is not invited
+    expect(lastError(amy)).toBe('requestFirst')
+    await send(amy, { type: 'requestJoin', tableId })
+    await send(gene, { type: 'answerRequest', userId: amy, accept: true })
+    await send(amy, { type: 'joinTable', tableId })
+    await send(bob, { type: 'requestJoin', tableId })
+
+    await send(gene, { type: 'updateTableSettings', settings: { access: 'closed' } })
+    expect(tableFor(gene).requests).toEqual([])
+    expect(lobbyOf(bob).tables[0]).toMatchObject({ id: tableId, welcome: false, settings: { access: 'closed' } })
+    expect(lobbyOf(bob).tables[0].requested).toBeUndefined()
+    for (const message of [
+      { type: 'joinTable', tableId },
+      { type: 'sit', tableId, seat: 'N' },
+      { type: 'requestJoin', tableId },
+    ] as ClientMessage[]) {
+      await send(bob, message)
+      expect(lastError(bob)).toBe('tableClosed')
+    }
+    // Being invited does not open a closed table
+    await send(cleo, { type: 'joinTable', tableId })
+    expect(lastError(cleo)).toBe('tableClosed')
+    // Whoever is there stays and may take a seat
+    await send(amy, { type: 'sit', tableId, seat: 'E' })
+    expect(tableFor(amy).mySeat).toBe('E')
+    // Quick seat never picks it
+    await send(bob, { type: 'quickSeat' })
+    expect(tableFor(bob).id).not.toBe(tableId)
+  })
+
+  it('public: listed, anyone sits or watches without asking', async () => {
+    const gene = await member('gene')
+    const bob = await member('bob')
+    await send(gene, { type: 'createTable', settings: { access: 'public' } })
+    const tableId = tableFor(gene).id
+    expect(lobbyOf(bob).tables[0]).toMatchObject({ welcome: true, settings: { access: 'public' } })
+    await send(bob, { type: 'requestJoin', tableId })
+    expect(tableFor(gene).requests).toEqual([])
+    await send(bob, { type: 'joinTable', tableId })
+    expect(tableFor(bob).id).toBe(tableId)
+  })
+
+  it('turns old settings into an access mode: public stays public, invite becomes hidden with its list', async () => {
+    const gene = await member('gene')
+    const amy = await member('amy')
+    const bob = await member('bob')
+    await send(gene, { type: 'createTable', invitees: [amy] })
+    const hiddenId = tableFor(gene).id
+    await send(bob, { type: 'createTable' })
+    const publicId = tableFor(bob).id
+    const old = async (tableId: string, visibility: string) => {
+      const saved = (await store.get<Table>(`table:${tableId}`))!
+      await store.put(`table:${tableId}`, { ...saved, settings: { visibility, allowKibitz: true, boardMinutes: 5 } })
+    }
+    await old(hiddenId, 'invite')
+    await old(publicId, 'public')
+
+    club = new ClubService(store, connections, { maxUsers: 40, now: () => time, schedule: (run, ms, kind) => queue.push({ run, ms, kind }) })
+    await club.load()
+    const cleo = await member('cleo')
+    expect(lobbyOf(cleo).tables.map((t) => [t.id, t.settings])).toEqual([
+      [publicId, { access: 'public', allowKibitz: true, boardMinutes: 5 }],
+    ])
+    expect(lobbyOf(amy).tables.find((t) => t.id === hiddenId)).toMatchObject({
+      welcome: true,
+      settings: { access: 'hidden', allowKibitz: true, boardMinutes: 5 },
+    })
+    // Saved in today's form with the table's next change
+    await send(amy, { type: 'joinTable', tableId: hiddenId })
+    expect((await store.get<Table>(`table:${hiddenId}`))!.settings).toEqual({ access: 'hidden', allowKibitz: true, boardMinutes: 5 })
+    await send(cleo, { type: 'joinTable', tableId: hiddenId })
+    expect(lastError(cleo)).toBe('tableGone')
+    // A page loaded before the change may still send the old field
+    await send(gene, { type: 'updateTableSettings', settings: { visibility: 'public' } as never })
+    expect(tableFor(gene).settings.access).toBe('public')
+    expect(parseTableSettings({ visibility: 'invite', access: 'public' })).toBeNull()
+  })
+
+  it('guards the new socket messages', () => {
+    expect(parseClientMessage(JSON.stringify({ type: 'requestJoin', tableId: 'x' }))).toHaveProperty('message')
+    expect(parseClientMessage(JSON.stringify({ type: 'requestJoin', tableId: 3 }))).toEqual({ error: 'badMessage' })
+    expect(parseClientMessage(JSON.stringify({ type: 'answerRequest', userId: 'u', accept: true }))).toHaveProperty('message')
+    expect(parseClientMessage(JSON.stringify({ type: 'answerRequest', userId: 'u', accept: 'yes' }))).toEqual({ error: 'badMessage' })
+    expect(parseClientMessage(JSON.stringify({ type: 'answerRequest', accept: true }))).toEqual({ error: 'badMessage' })
+    expect(parseClientMessage(JSON.stringify({ type: 'createPractice', settings: {}, access: 1 }))).toEqual({ error: 'badMessage' })
   })
 })
 
@@ -347,8 +546,8 @@ describe('the lobby (e2-t29, e2-t30)', () => {
     const nearly = tableFor(amy).id
     await send(amy, { type: 'addRobot', seat: 'N' })
     await send(amy, { type: 'addRobot', seat: 'E' })
-    // An invite table never takes people who are not invited
-    await send(cleo, { type: 'createTable', settings: { visibility: 'invite' } })
+    // A hidden table never takes people who are not invited
+    await send(cleo, { type: 'createTable', settings: { access: 'hidden' } })
     await send(cleo, { type: 'addRobot', seat: 'N' })
     await send(cleo, { type: 'addRobot', seat: 'E' })
 

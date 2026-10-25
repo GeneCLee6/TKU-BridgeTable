@@ -125,12 +125,14 @@ interface BoardState {
 | --- | --- |
 | 入座者 | 自己的牌；首攻後的夢家；夢家在首攻後也看得到莊家的牌 |
 | 攤牌之後（被拒絕也一樣） | 攤過的牌不會再蓋回去：莊家攤牌後，兩位防家看得到四家的牌（莊家仍只看自己和夢家）；防家攤牌後，他的牌所有人都看得到。記在 `BoardState.claimed` |
-| 觀看者 | 四家（同 BBO kibitz） |
+| 觀看者 | 四家（同 BBO kibitz）；練習桌的觀看者也一樣（§5.11） |
 | 不允許觀看的桌上沒有座位的人（站起來或被請離座的玩家，`e2-t26`） | 只看得到所有人都看得到的：首攻後的夢家、防家攤過的牌；打完後四家（`boardView` 的 `kibitz: false`） |
 | 所有人，打完後 | 四家原始牌與所有 Alert 說明 |
 | Alert 說明 | 叫牌者的同伴在打完前看不到；機器人的說明除外（`AuctionCall.robot`），所有人都看得到，同 BBO 的 GIB |
 | 叫品的推論意義 | 真人的叫品帶引擎依那一方制度讀出的意義（`AuctionCall.meaning`＋`inferred`：機器人同伴的制度，沒有就用淡江制度），所有人都看得到，同伴也是：只由公開的叫牌過程與制度算出，等於制度卡（`e5-t22`）|
 | 叫牌盒提示 | 輪到自己叫、桌上有機器人時，`BoardView.callMeanings` 帶每個合法叫品在機器人制度裡的意義（同伴是機器人用同伴的，否則用對手機器人的）；伺服器用引擎的 `explain` 只依叫牌過程算出，不看任何一手牌（`views.ts` 的 `callMeaningsFor`，`e5-t22`）|
+
+**誰看得到哪一桌**（四種進入方式，§5「牌桌設定」，判斷在 `worker/views.ts` 的 `tableListed`／`mayEnter`）：大廳與成員列表的「在哪一桌」只列出觀看者看得到的桌：挑戰桌誰都不列；**隱藏**的桌只列給房主、受邀者與已經在桌上的人，其他人連桌號都看不到（成員列表的 `tableNumber` 是 `null`），`joinTable`／`sit`／`requestJoin` 都拿到 `tableGone`，跟不存在的桌一樣；公開、申請加入、拒絕所有人的桌列給所有人。**加入申請**只送給房主（`TableView.requests`），房主封鎖的人送出的申請房主看不到（`muted`），申請者也看不出差別；`TableSummary.requested` 只告訴觀看者自己有沒有申請在等。受邀名單同樣只送給房主（`TableView.invited`）。
 
 指定牌組（`Table.dealSource` 的 `fixed`）整份只存在伺服器的 `Table` 裡，發到哪一副才放進 `BoardState.hands`，之後照上表的規則送出；`Table` 本身從不整份送到瀏覽器。
 
@@ -175,20 +177,32 @@ interface BoardState {
 
 **WebSocket** `/ws`（同網域，帶 cookie 驗證）與在桌上時的第二條 `/ws/table/<桌 id>`（§5.10）：牌桌的動作（`TABLE_ACTIONS`：`stand`、`kick`、`addRobot`、`removeRobot`、`replaceWithRobot`、`call`、`play`、`claim`、`claimRespond`、`undoRequest`、`undoRespond`、`chat`、`redeal`）在桌的連線打開時走那一條，那一桌直接推 `table`；其他動作、與桌的連線還沒接上時的牌桌動作走 `/ws`（社團轉給那一桌）。桌的連線只收在桌上的人（入座、觀看、停著的挑戰桌的主人），其他人與離開的人用 4004（`TABLE_SOCKET_REFUSED`）關掉，瀏覽器不再重試那一桌：
 
-- 瀏覽器 → 伺服器：`createTable`（可帶 `settings`、`invitees`）、`updateTableSettings`（可帶 `invitees`）、`quickSeat`、`createPractice`（§5.11）、`joinTable`、`sit`、`stand`、`leaveTable`、`kick`、`addRobot`、`removeRobot`、`replaceWithRobot`、`call`、`play`、`claim`、`claimRespond`、`undoRequest`、`undoRespond`、`chat`、`redeal`（只有練習桌）、`readNotifications`（不給 `ids` 就是全部標為已讀）、`setFriend`、`setBlocked`、`createChallenge`、`answerChallenge`、`cancelChallenge`、`playChallenge`（§5.5）、`sendDirect`、`readDirect`（§5.7）、`matchInvite`、`matchAnswer`、`matchMove`、`matchLeave`、`matchClear`、`matchRobot`（§5.8）。`kick`、`addRobot`、`removeRobot`、`replaceWithRobot`、`updateTableSettings` 只有房主能用；房主離開或斷線時，桌上第一位在線的真人（先入座者、再觀看者）接手
+- 瀏覽器 → 伺服器：`createTable`（可帶 `settings`、`invitees`）、`updateTableSettings`（可帶 `invitees`）、`requestJoin`、`answerRequest`（申請加入，見下）、`quickSeat`、`createPractice`（§5.11，可帶 `access`）、`joinTable`、`sit`、`stand`、`leaveTable`、`kick`、`addRobot`、`removeRobot`、`replaceWithRobot`、`call`、`play`、`claim`、`claimRespond`、`undoRequest`、`undoRespond`、`chat`、`redeal`（只有練習桌）、`readNotifications`（不給 `ids` 就是全部標為已讀）、`setFriend`、`setBlocked`、`createChallenge`、`answerChallenge`、`cancelChallenge`、`playChallenge`（§5.5）、`sendDirect`、`readDirect`（§5.7）、`matchInvite`、`matchAnswer`、`matchMove`、`matchLeave`、`matchClear`、`matchRobot`（§5.8）。`kick`、`addRobot`、`removeRobot`、`replaceWithRobot`、`updateTableSettings`、`answerRequest` 只有房主能用；房主離開或斷線時，桌上第一位在線的真人（先入座者、再觀看者）接手
 - 伺服器 → 瀏覽器：`welcome`、`lobby`（牌桌列表與 `members`：每位社員是否在線、在哪一桌哪個座位，線上在前、各組裡自己的好友置頂；`friends`、`blocked` 是自己的名單）、`table`、`error`、`notifications`（連線時一次，之後內容有變才送：最新 30 則與未讀數）、`directs`（自己的對話列表與私訊未讀數，同樣只送有變的）、`direct`（一則新私訊，只給它的兩位成員）、`match`（隊制賽有變時推給這場比賽在線的人：`{ matchId, match }`，看不到了是 `null`，§5.8）
 - **只送有變的部分**：伺服器記住每位社員上次收到的大廳與牌桌（JSON），沒變就不送；牌桌的 `chat` 與 `recent`（本桌最近 30 副的摘要）只在改變時才附上，瀏覽器沿用手上那份（`TableWire`）。所以某桌出一張牌，大廳裡的人什麼都收不到，桌上的人只收到小小一份。新連線一律收完整資料
 - **沒有「下一副」**：一副結束後伺服器設定 `dealAt`（打到最後一張多等 `LAST_TRICK_MS` 3.5 秒，再加 `DEAL_COUNTDOWN_MS` 3 秒倒數），時間到自動發牌；`table` 訊息附上伺服器時間 `now`，瀏覽器據此換算成自己的時鐘來倒數
-- **牌桌設定**：`Table.settings`（`shared/protocol.ts` 的 `TableSettings`）：`visibility`（`public` 所有社員可入座／`invite` 只限受邀）與 `allowKibitz`（是否允許觀看）與 `boardMinutes`（每副時間上限，`BOARD_TIME_LIMITS` 0／5／7／10／15 分鐘，0 是不限）；舊資料缺的欄位用 `DEFAULT_TABLE_SETTINGS`（公開、允許觀看、不限時）。伺服器用 `parseTableSettings` 檢查，只接受這三欄，錯了丟 `badTableSettings`。挑戰牌桌固定是只限受邀、不允許觀看、不限時，不能改
-- **受邀桌**（`e2-t25`）：`createTable`／`updateTableSettings` 可帶 `invitees`（社員 id，最多 `LIMITS.tableInvitesMax` 30 位，給了就取代 `Table.invited`），新加入名單的人收到 `tableInvited` 通知。不能邀請自己（`notSelf`）、不存在的帳號（`userGone`）、自己封鎖的人（`unblockFirst`），對方封鎖了房主時只回中性的 `cannotInvite`（同挑戰，房主看不出被封鎖）。只限受邀的桌照樣列在大廳，`TableSummary.welcome` 告訴觀看者能不能來；不在名單上的人 `sit`、`joinTable` 都拿到 `notInvited`。房主、已經在桌上的人（改成受邀桌之前就在的）不受影響。名單只送給房主（`TableView.invited`）
+- **牌桌設定**：`Table.settings`（`shared/protocol.ts` 的 `TableSettings`）：`access`（誰可以加入，四種之一，見下）、`allowKibitz`（是否允許觀看）與 `boardMinutes`（每副時間上限，`BOARD_TIME_LIMITS` 0／5／7／10／15 分鐘，0 是不限）；預設 `DEFAULT_TABLE_SETTINGS`（公開、允許觀看、不限時）。伺服器用 `parseTableSettings` 檢查，只接受這三欄，錯了丟 `badTableSettings`（改版前載入的頁面送舊的 `visibility` 也照下面的對照接受）。挑戰牌桌固定是隱藏、不允許觀看、不限時，不能改（挑戰桌與之後的隊制賽桌照自己的規則，不受房主設定影響）
+- **四種進入方式**（社長 2026-10-25，`TABLE_ACCESS`；規則只在伺服器：`worker/views.ts` 的 `tableListed`、`mayEnter`、`refusal`，`ClubService.checkWelcome` 先用目錄檢查，`TableService` 再用自己的狀態檢查一次，錯誤代碼相同）。房主與已經在桌上的人（改設定之前就在的）一律不受影響，站起來、換座位照常：
+
+  | `access` | 大廳 | 誰可以入座或觀看 | 其他人拿到 |
+  | --- | --- | --- | --- |
+  | `public` 公開 | 列出 | 所有社員；房主封鎖的人回 `blockedByHost`（同 C1） | — |
+  | `request` 申請加入 | 列出，卡片標「申請加入」 | 受邀者，與送出申請、房主同意的人（`Table.approved`，這一桌開著就一直有效） | `requestFirst` |
+  | `hidden` 隱藏 | **不列**（只列給房主、受邀者、桌上的人） | 受邀者（從 `tableInvited` 通知或連結進來） | `tableGone`（看起來跟不存在一樣） |
+  | `closed` 拒絕所有人 | 列出，卡片標「已關閉」 | 沒有新的人；受邀、同意過的也不行 | `tableClosed` |
+
+  拒絕所有人的桌**照樣列在大廳**：成員列表本來就看得到誰在第幾桌，藏起來反而對不上；列出來並標「已關閉」，找朋友的人知道他在哪、也知道現在進不去。`allowKibitz` **保留成獨立的開關**：進入方式決定「誰」能來，`allowKibitz` 決定來的人能不能只看不坐；兩者正交（例如申請加入＋不允許觀看＝同意之後只能入座），合併會變成八種選項。練習桌只有觀看，`allowKibitz` 固定允許（§5.11）
+- **申請加入**（`request`）：社員在大廳卡片或牌桌頁按「申請加入」→ `requestJoin { tableId }`（`GUARDS` 檢查欄位；每人突發 3 次、之後每 30 秒 1 次，`requestTooFast`，只在 socket 入口）。伺服器把 `{ userId, at }` 記進 `Table.requests`，同一人重複申請不會多一筆；`TABLE_REQUEST_MS`（10 分鐘）沒回覆就失效，可以再申請。公開的桌或已經能進的人申請什麼都不做；拒絕所有人的桌回 `tableClosed`，隱藏的桌回 `tableGone`。房主在牌桌上馬上看到（`TableView.requests`，只給房主，牌桌上方的「加入申請」面板，同意／拒絕）；房主不在線時另外收到 `tableRequest` 通知。房主回覆 `answerRequest { userId, accept }`（只有房主，`hostOnly`；沒有這筆申請或已經失效 `requestGone`）：同意就加進 `Table.approved`，申請者收到 `tableRequestApproved`，大廳卡片變成可以入座、觀看；拒絕的話申請者收到 `tableRequestDeclined`，`TABLE_REQUEST_COOLDOWN_MS`（10 分鐘）內不能再申請這一桌（`requestCooldown`，記在 `Table.declined`）。**封鎖**：房主封鎖的人照樣能送出申請、看到「已送出申請」，但這筆申請標 `muted`，房主看不到、也不通知，十分鐘後自然失效；他直接 `joinTable`／`sit` 拿到的也是 `requestFirst`，跟任何沒被同意的人一樣，看不出被封鎖。房主改成別的進入方式時，等待中的申請全部清掉；已同意的名單保留
+- **邀請名單**（`e2-t25`）：`createTable`／`updateTableSettings` 可帶 `invitees`（社員 id，最多 `LIMITS.tableInvitesMax` 30 位，給了就取代 `Table.invited`），新加入名單的人收到 `tableInvited` 通知。隱藏的桌只有名單上的人能進，申請加入的桌名單上的人不必申請；公開、拒絕所有人時名單留著不用（設定視窗只在申請加入與隱藏時顯示名單，`takesInvitees`）。不能邀請自己（`notSelf`）、不存在的帳號（`userGone`）、自己封鎖的人（`unblockFirst`），對方封鎖了房主時只回中性的 `cannotInvite`（同挑戰，房主看不出被封鎖）。名單只送給房主（`TableView.invited`）
+- **舊資料**：改版前存的設定是 `visibility`（`public`／`invite`），讀取時一律經過 `tableSettingsFrom` 轉換：`public` → 公開，`invite`（列在大廳、只限受邀）→ **隱藏**，受邀名單原封不動，所以原本受邀的人照樣能進；缺的欄位用預設值。牌桌自己（`TableService.load`）載入時就換成新格式，下一次存檔寫回；社團的目錄（`tabledir:`）載入時經 `upgradeEntry` 換成新格式並補上 `approved`、`requests`，下一次回報寫回。測試在 `tests/worker/table-rules.test.ts`（牌桌在社團裡）與 `tests/worker/table-objects.test.ts`（每桌一個物件）
 - **不允許觀看**（`e2-t26`）：`joinTable` 回 `noKibitzing`，只能 `sit`；桌上沒有座位的人（站起來、被請離座）照 §4 只看得到公開的牌
 - **計時**（`e2-t27`、`e2-t28`）：發牌時記 `Table.boardStartedAt`，有時間上限時 `TableView.boardEndsAt`＝發牌時間＋上限（伺服器時鐘，瀏覽器用 `now` 換算），輪到的人名牌上倒數，時間到變紅「超時」；**時間到不強制結束**，超時裁定留給隊制賽（`e8-t15`）。`TableView.waiting` 是桌子在等哪一位真人（叫牌或出牌的控制者；攤牌、撤回待回覆時不算）與從什麼時候開始（`Table.turnSince`，每個動作、入座、換人都重算）。等超過 `SLOW_TURN_MS`（60 秒）名牌閃爍、本人再聽到一次提示音，房主可以 `replaceWithRobot`（伺服器檢查真的在等他且滿 60 秒，否則 `notSlow`）：他留在桌上沒有座位，座位換成 TKB
-- **大廳排序與快速入座**（`e2-t29`、`e2-t30`，`shared/lobby.ts`）：缺人的桌在前，缺越少越前面（最快能開打），滿的桌在後，同組照桌號；大廳卡片標「缺 N 家」。`quickSeat` 選第一張缺人、可以入座（公開或受邀、房主沒封鎖他）的桌，坐第一個空位（南、北、東、西）；都滿就開新桌（預設設定）。已經坐在別桌的人會換過去
+- **大廳排序與快速入座**（`e2-t29`、`e2-t30`，`shared/lobby.ts`）：缺人的桌在前，缺越少越前面（最快能開打），滿的桌在後，同組照桌號；大廳卡片標「缺 N 家」。`quickSeat` 選第一張缺人、可以直接入座（`mayEnter`：公開，或受邀、已同意；房主沒封鎖他；不選練習桌、拒絕所有人的桌）的桌，坐第一個空位（南、北、東、西）；都滿就開新桌（預設設定）。已經坐在別桌的人會換過去
 - **斷線代打**（`e2-t31`）：一般牌桌上入座的真人斷線（最後一個 socket 關閉）滿 `SUBSTITUTE_MS`（3 分鐘），排程器的 `substitute:<社員>` 工作讓 TKB 坐進他的座位（同伴是機器人就用同伴的制度），`Table.substitutes` 記座位 → 本人，名牌顯示「代打 某某」（`SeatOccupant.substituteFor`）；只在桌上還有別的入座真人在線時才代打。本人重新連線（`connected`）立刻換回原座位（機器人換座位時記號跟著走）；別人坐進代打的座位、房主移走它，代打就結束。這一副有代打過，紀錄的 `BoardRecord.substitutes` 記座位與本人，單副紀錄頁的明細列出「北 · 代打 某某」（`RecordSubstitutes`）。斷線時間在記憶體（`offlineSince`），物件被回收後 `load()` 把離線的入座者從現在重新起算
 - **牌桌模式**：`Table.mode`（`casual`、挑戰的 `challenge` 或練習的 `practice`（§5.11），舊資料沒有這欄也當 `casual`）與 `modeState`；`ClubService` 只在三個地方問模式（`worker/modes.ts` 的 `TableModeHooks`，都拿到 `ModeContext`：社團的亂數、現在時間、`ChallengeStore`）：發新一副（`deal`，回傳牌號與四手牌，`null` 表示沒有下一副，最後一副留在桌上）、寫紀錄（`record`）、一副結束（`boardFinished`，在紀錄存好之後，所以拿得到牌局 id）。叫牌、出牌、入座與可見性在每種模式都一樣。牌從 `Table.dealSource` 來（`shared/deal-source.ts`；沒有就是每副重洗）
 - **排程**：機器人的下一步與自動發牌都交給同一個排程器（`worker/scheduler.ts`），每桌每種工作一個 key（`robot:<桌>`、`deal:<桌>`），每個進行中的挑戰一個 `challenge:<挑戰>`（§5.5），每位斷線的入座者一個 `substitute:<桌>:<社員>`（代打），一副的紀錄社團還沒收下時每桌一個 `outbox:<桌>`（§5.10），沒搬完的舊牌桌一個 `migrate:tables`，同一個 key 還在等就不重排。Durable Object 用 `AlarmQueue`：工作放在記憶體，只把最早的一個設成物件唯一的 storage alarm（`alarm()` → `runDue()`），所以不會互相覆蓋 alarm，物件在兩步之間也能休眠；工作不寫進儲存，物件被回收後由 `load()` 依狀態重新排程。**每個 `TableObject` 有自己的佇列與 alarm**（牌桌的工作），社團的只剩挑戰、每週挑戰與搬移（§5.10）。測試傳 `schedule` 換成手動佇列
 - **心跳**：兩條連線都一樣（`src/lib/liveSocket.ts`）：瀏覽器每 15 秒送 `ping`，由 `setWebSocketAutoResponse` 直接回 `pong`（不必喚醒物件）。40 秒沒收到任何訊息、分頁回到前景或網路恢復時，瀏覽器立刻重新連線；重連期間的動作暫存 8 秒內補送（社團的連線補送全部，桌的連線只補牌桌動作）
-- **好友與封鎖**（AC-1.6，`worker/relations.ts`）：好友是單向關注，不需對方同意、也不通知對方（同 BBO）；`setFriend`／`setBlocked` 帶對方的 id 與 `true`／`false`，不能對自己（`notSelf`）、不存在的帳號或機器人（`userGone`）。封鎖會同時取消關注，封鎖中不能加好友（`unblockFirst`）。封鎖的效果都在伺服器：被封鎖者的聊天對封鎖者隱藏（§4），封鎖者當房主時被封鎖者不能 `joinTable` 或 `sit` 進那一桌（`blockedByHost`；已經在桌上的不會被請走）。私訊（`e1-t27`，§5.7）與挑戰邀請（`e7-t05`）也檢查 `blocks`，之後的隊制賽邀請也要。帳號刪除時雙方名單裡的他都會刪掉
+- **好友與封鎖**（AC-1.6，`worker/relations.ts`）：好友是單向關注，不需對方同意、也不通知對方（同 BBO）；`setFriend`／`setBlocked` 帶對方的 id 與 `true`／`false`，不能對自己（`notSelf`）、不存在的帳號或機器人（`userGone`）。封鎖會同時取消關注，封鎖中不能加好友（`unblockFirst`）。封鎖的效果都在伺服器：被封鎖者的聊天對封鎖者隱藏（§4），封鎖者當房主時被封鎖者不能 `joinTable` 或 `sit` 進那一桌（公開的桌回 `blockedByHost`，其他進入方式回跟任何沒被放行的人一樣的錯誤，申請也只是房主看不到，見「申請加入」；已經在桌上的不會被請走）。私訊（`e1-t27`，§5.7）與挑戰邀請（`e7-t05`）也檢查 `blocks`，之後的隊制賽邀請也要。帳號刪除時雙方名單裡的他都會刪掉
 - 使用 Durable Object 的 hibernation API：沒人打牌時物件可以休眠，WebSocket 不會斷，醒來時從儲存重新載入。
 
 **儲存**（Durable Object 的 key-value，SQLite 後端）：
@@ -274,13 +288,13 @@ interface BoardState {
 **誰負責什麼規則**：跨桌的規則留在 `Club`，因為只有它知道每個人在哪裡：一人同時只在一桌、開桌與桌號、加入與入座前的封鎖與受邀檢查（`checkWelcome`）、快速入座、受邀名單的檢查與通知、開始／繼續挑戰。只跟一桌有關的規則在 `TableService`：座位有沒有人、這一副打到一半不能換座位、房主才能做的事、所有叫牌出牌（`shared/game.ts`）、機器人（只看自己的 `View`，§5.1）、可見性（仍然只在 `worker/views.ts`，§4）。`Club` 先用目錄做一次檢查（錯誤和現在一樣，在離開舊桌**之前**丟），`TableService` 再用自己的狀態做最後的檢查，兩邊的錯誤代碼相同。
 
 **兩者怎麼溝通**：Durable Object 的 JS RPC（stub 上直接呼叫方法；相容日期 2026-09-01 已支援）。方法只收、只回結構化可複製的資料。
-- `Club` → 桌（`TableApi`，`worker/tables.ts`）：`open`（開桌或搬進來）、`join`（觀看）、`sit`、`leave`、`configure`（房主改設定與受邀名單）、`resume`（回到停著的挑戰桌）、`reclaim`（斷線代打的人回來）、`presence`（社團連線的上下線）、`blocked`（某人的封鎖名單變了，聊天跟著變）、`forget`（帳號刪除）、`challengeEnded`、`close`（管理員關桌、挑戰收桌）、`act`（舊的瀏覽器或桌的連線還沒接上時，從社團的連線轉過來的牌桌動作）。都回傳這一桌最新的目錄資料（`TableEntry`），桌子關了是 `null`。
+- `Club` → 桌（`TableApi`，`worker/tables.ts`）：`open`（開桌或搬進來）、`join`（觀看）、`sit`、`leave`、`configure`（房主改設定與受邀名單）、`request`（申請加入，帶 `muted`）、`answerRequest`（房主同意或拒絕）、`resume`（回到停著的挑戰桌）、`reclaim`（斷線代打的人回來）、`presence`（社團連線的上下線）、`blocked`（某人的封鎖名單變了，聊天跟著變）、`forget`（帳號刪除）、`challengeEnded`、`close`（管理員關桌、挑戰收桌）、`act`（舊的瀏覽器或桌的連線還沒接上時，從社團的連線轉過來的牌桌動作）。都回傳這一桌最新的目錄資料（`TableEntry`），桌子關了是 `null`。
 - 桌 → `Club`（`ClubLink`）：`changed(entry)`（大廳看得到的東西變了）、`closed(id)`、`boardFinished(record, event)`（一副打完：`Club` 寫 `board:`、`hist:`、`uhist:`、SQL 索引；挑戰的話寫 `challenge_results` 並檢查挑戰是否結束）。
 - **錯誤**：RPC 只保留錯誤訊息、不保留類別，所以 `TableObject` 把 `ClubError`／`GameError` 包成 `{ error: { code, params, status } }` 回傳，`Club` 那一側還原成 `ClubError`。瀏覽器看到的錯誤代碼不變。
 - 桌子需要知道的社員資料**跟著動作傳過去**，不回頭問 `Club`：坐下或觀看的人的名字與他封鎖的人（`Person`）、受邀者的名字；挑戰桌開桌時帶挑戰的快照（截止時間、牌組每一副的牌號與 Just Declare 的叫牌、已經打完哪幾副、機器人的制度）。存在 `Table.names`、`Table.blocks`、`ChallengeTableState`，只有伺服器看得到。
 - **測試**：`ClubService` 與 `TableService` 都不碰 Cloudflare API。正式環境用 `DurableTables`（stub），測試與 H1a 用 `LocalTables`（同一個程序裡的 `TableService`，共用測試的 `FakeConnections` 與手動排程佇列），所以 `tests/worker` 照樣在 Node 裡跑、照樣用 `runRobots`。
 
-**大廳怎麼知道每桌的狀態**：`Club` 在記憶體裡有一份**牌桌目錄**（`TableEntry`：桌號、房主、模式、設定、受邀名單、座位、觀看者、代打、打了幾副、桌上的牌號、這一副是否進行中、挑戰桌屬於誰），大廳、成員列表的「在哪一桌」、快速入座、受邀檢查都只讀目錄。桌子在**大廳看得到的欄位變了**才回報（入座、離座、發新一副、打完一副、改設定），出一張牌、叫一個品不回報，所以 `Club` 不會被每張牌喚醒。每份回報帶遞增的 `rev`（`max(上一個＋1, 現在的毫秒)`，物件被回收後也不會變小），晚到的舊回報直接丟掉。`Club` 把目錄存在 `tabledir:<id>`，物件被回收後不必叫醒每一桌就能列出大廳。
+**大廳怎麼知道每桌的狀態**：`Club` 在記憶體裡有一份**牌桌目錄**（`TableEntry`：桌號、房主、模式、設定、受邀名單、同意的名單與等待中的申請、座位、觀看者、代打、打了幾副、桌上的牌號、這一副是否進行中、挑戰桌屬於誰），大廳、成員列表的「在哪一桌」、快速入座、受邀檢查都只讀目錄。桌子在**大廳看得到的欄位變了**才回報（入座、離座、發新一副、打完一副、改設定），出一張牌、叫一個品不回報，所以 `Club` 不會被每張牌喚醒。每份回報帶遞增的 `rev`（`max(上一個＋1, 現在的毫秒)`，物件被回收後也不會變小），晚到的舊回報直接丟掉。`Club` 把目錄存在 `tabledir:<id>`，物件被回收後不必叫醒每一桌就能列出大廳。
 
 **WebSocket 怎麼走**：
 - `/ws` → `Club`：大廳、通知、私訊、隊制賽，以及會跨桌的動作（`createTable`、`joinTable`、`sit`、`leaveTable`、`quickSeat`、`updateTableSettings`、`playChallenge`）。
@@ -331,8 +345,9 @@ interface BoardState {
 
 ## 5.11 練習桌與叫牌提示卡（`e10-t03`～`e10-t06`）
 
-- **開桌**：大廳的「和機器人練習」卡片或工具列的「練習」→ `PracticeDialog` → `createPractice { settings }`。設定（`shared/practice.ts` 的 `PracticeSettings`，伺服器用 `parsePracticeSettings` 檢查，錯了丟 `badPracticeSettings { field }`）：`deal`（`random` 隨機、`deal-presets.ts` 的五種預設、或 `custom` 帶 `conditions`：任一家的點力、各門張數、平均牌型與一方的合計點力，`conditionsProblem` 不過就拒絕）、`robotKind`（TKB 淡江制度或 2/1；機器人沒有等級，社長 2026-10-24 決定）、`justDeclare`。條件在 `PRACTICE_MAX_ATTEMPTS`（5,000 次）內抽不到時回 `dealTooStrict`，在離開原本的牌桌**之前**就回。
-- **牌桌**：`mode: 'practice'`，`modeState` 是 `PracticeTableState`（設定加上 `dealt` 已發幾副）。社員坐南，北東西是三個同制度的 TKB；桌號 0、只限受邀、不允許觀看、不限時，不在大廳、成員列表也不顯示在哪一桌（`shared/protocol.ts` 的 `soloTable`：挑戰桌與練習桌一樣只屬於一個人，別人 `joinTable`／`sit` 都是 `tableGone`），座位、機器人、設定都不能改（`practiceTableFixed`）。大廳的 `myTableMode` 讓「回到練習桌」的橫幅認得出來。社員離開（離開牌桌頁）桌子就關掉，同一般牌桌。
+- **開桌**：大廳的「和機器人練習」卡片或工具列的「練習」→ `PracticeDialog` → `createPractice { settings, access? }`（`access` 是誰可以觀看，四種進入方式之一，預設隱藏；不認得回 `badTableSettings`）。設定（`shared/practice.ts` 的 `PracticeSettings`，伺服器用 `parsePracticeSettings` 檢查，錯了丟 `badPracticeSettings { field }`）：`deal`（`random` 隨機、`deal-presets.ts` 的五種預設、或 `custom` 帶 `conditions`：任一家的點力、各門張數、平均牌型與一方的合計點力，`conditionsProblem` 不過就拒絕）、`robotKind`（TKB 淡江制度或 2/1；機器人沒有等級，社長 2026-10-24 決定）、`justDeclare`。條件在 `PRACTICE_MAX_ATTEMPTS`（5,000 次）內抽不到時回 `dealTooStrict`，在離開原本的牌桌**之前**就回。
+- **牌桌**：`mode: 'practice'`，`modeState` 是 `PracticeTableState`（設定加上 `dealt` 已發幾副）。社員坐南，北東西是三個同制度的 TKB；座位、機器人、練習條件都不能改，別人也不能入座（`shared/protocol.ts` 的 `fixedSeats`；`sit` 回 `practiceTableFixed`，看不到這一桌的人回 `tableGone`）。開桌時從大廳的號碼裡拿一個桌號（列在大廳時要有號碼；紀錄仍記桌號 0）。社員離開（離開牌桌頁）桌子就關掉，觀看的人跟著離開；社員斷線時房主不交給觀看者。大廳的 `myTableMode` 讓「回到練習桌」的橫幅認得出來（只給坐著的社員）。
+- **誰可以觀看**（四種進入方式，§5「牌桌設定」）：練習桌也用 `access`，只是「加入」只有觀看。**預設隱藏**：練習是自己的事，不該一開就出現在大廳讓人圍觀；想讓教練或朋友看就從牌桌的設定按鈕（只問進入方式與邀請名單，`TableSettingsDialog` 的 `practice`）邀請他們，或改成公開、申請加入。`updateTableSettings` 在練習桌只接受 `access`（與 `invitees`），帶 `allowKibitz`、`boardMinutes` 回 `practiceTableFixed`；`allowKibitz` 固定允許、不限時。觀看者看到的跟一般牌桌的觀看者一樣（四家，§4），不能叫牌、出牌、重發；大廳卡片標「練習桌」（`TableSummary.practice`）。
 - **發牌**（`worker/modes.ts` 的 `practice`）：有條件時每副都由南家發牌（牌號 3、7、11、15…，局況輪流），隨機時照一般牌桌輪流。條件發牌用 `quickRandom`（每副用 CSPRNG 取一次種子的 mulberry32）：CSPRNG 每次嘗試約 1 ms，條件發牌要很多次嘗試，免費方案的 CPU 不夠；快速版每次約 10 µs，最難的滿貫牌平均約 350 次。
 - **隨時重發**（`redeal`，牌桌動作，只有練習桌的主人、要有座位）：這一副不管打到哪裡直接丟掉（不留紀錄、`boardsPlayed` 不變），立刻發下一副；這次抽不到時牌留著、回 `dealTooStrict`；不是練習桌回 `practiceOnly`。
 - **撤回不限**：練習桌的撤回跟一般牌桌一樣（機器人一律同意），沒有次數限制；挑戰桌才不能撤回。

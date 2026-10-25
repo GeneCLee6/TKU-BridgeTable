@@ -1,4 +1,4 @@
-import { Dumbbell, Eye, EyeOff, LayoutGrid, Lock, Plus, Timer, UserPlus, Zap } from 'lucide-react'
+import { Ban, Dumbbell, Eye, EyeOff, Hand, LayoutGrid, Lock, Plus, Timer, UserPlus, Zap } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Link, Navigate, useNavigate } from 'react-router-dom'
 import styled from 'styled-components'
@@ -223,11 +223,27 @@ const Actions = styled.div`
   gap: 8px;
 `
 
-function TableTile({ table, onSit, onWatch }: { table: TableSummary; onSit: (seat: Seat) => void; onWatch: () => void }) {
+/** The badge for a table's access mode (none for a public one) */
+const ACCESS_ICONS = { request: Hand, hidden: Lock, closed: Ban } as const
+
+function TableTile({
+  table,
+  onSit,
+  onWatch,
+  onRequest,
+}: {
+  table: TableSummary
+  onSit: (seat: Seat) => void
+  onWatch: () => void
+  onRequest: () => void
+}) {
   const t = useT()
   const missing = missingSeats(table)
-  // An invite table is shown to everyone, but only the invited may sit or watch (AC-2.9)
-  const canWatch = table.welcome && table.settings.allowKibitz
+  // Only those the access mode lets in may sit or watch (AC-2.9); at a request table others ask first
+  const canWatch = table.welcome && (table.settings.allowKibitz || !!table.practice)
+  const asking = !table.welcome && table.settings.access === 'request'
+  const access = table.settings.access
+  const AccessIcon = access === 'public' ? null : ACCESS_ICONS[access]
   const waiting = !table.boardNo
   return (
     <Card aria-label={t.tableName(table.number)}>
@@ -236,21 +252,27 @@ function TableTile({ table, onSit, onWatch }: { table: TableSummary; onSit: (sea
         <StateTag $waiting={waiting}>{waiting ? t.waitingTag : t.boardNo(table.boardNo!)}</StateTag>
       </TileHead>
       <Muted>{t.hostIs(table.hostName)}</Muted>
-      {(missing > 0 || table.settings.visibility === 'invite' || !table.settings.allowKibitz || table.settings.boardMinutes > 0) && (
+      {(missing > 0 || AccessIcon || table.practice || !table.settings.allowKibitz || table.settings.boardMinutes > 0) && (
         <Tags>
+          {table.practice && (
+            <Tag>
+              <Dumbbell size={14} aria-hidden />
+              {t.practiceTable}
+            </Tag>
+          )}
           {missing > 0 && (
             <Tag>
               <UserPlus size={14} aria-hidden />
               {t.missingSeats(missing)}
             </Tag>
           )}
-          {table.settings.visibility === 'invite' && (
+          {AccessIcon && access !== 'public' && (
             <Tag>
-              <Lock size={14} aria-hidden />
-              {t.inviteOnly}
+              <AccessIcon size={14} aria-hidden />
+              {t.accessBadge[access]}
             </Tag>
           )}
-          {!table.settings.allowKibitz && (
+          {!table.settings.allowKibitz && !table.practice && (
             <Tag>
               <EyeOff size={14} aria-hidden />
               {t.noKibitz}
@@ -295,10 +317,17 @@ function TableTile({ table, onSit, onWatch }: { table: TableSummary; onSit: (sea
         <Muted>
           {t.boardsPlayed(table.boardsPlayed)} · {t.spectators(table.spectators)}
         </Muted>
-        <Button type="button" $size="sm" onClick={onWatch} disabled={!canWatch}>
-          <Eye size={16} aria-hidden />
-          {t.watch}
-        </Button>
+        {asking ? (
+          <Button type="button" $size="sm" onClick={onRequest} disabled={!!table.requested}>
+            <Hand size={16} aria-hidden />
+            {table.requested ? t.requestSent : t.askToJoin}
+          </Button>
+        ) : (
+          <Button type="button" $size="sm" onClick={onWatch} disabled={!canWatch}>
+            <Eye size={16} aria-hidden />
+            {t.watch}
+          </Button>
+        )}
       </TileFooter>
     </Card>
   )
@@ -511,10 +540,10 @@ export function LobbyPage() {
         {practising && (
           <PracticeDialog
             onClose={() => setPractising(false)}
-            onSubmit={(settings) => {
+            onSubmit={(settings, access) => {
               setPractising(false)
               setFollow({ from: lobby.myTableId })
-              send({ type: 'createPractice', settings })
+              send({ type: 'createPractice', settings, access })
             }}
           />
         )}
@@ -522,10 +551,14 @@ export function LobbyPage() {
           <Banner>
             {/* A challenge or practice table is not in the lobby's list */}
             <span>
-              {myTable ? t.tableName(myTable.number) : lobby.myTableMode === 'practice' ? t.practiceTable : t.challenge}
+              {lobby.myTableMode === 'practice'
+                ? t.practiceTable
+                : myTable
+                  ? t.tableName(myTable.number)
+                  : t.challenge}
             </span>
             <Button as={Link} to={`/table/${lobby.myTableId}`} $small $variant="primary">
-              {myTable ? t.backToTable : lobby.myTableMode === 'practice' ? t.backToPractice : t.backToChallenge}
+              {lobby.myTableMode === 'practice' ? t.backToPractice : myTable ? t.backToTable : t.backToChallenge}
             </Button>
           </Banner>
         )}
@@ -575,6 +608,7 @@ export function LobbyPage() {
                     send({ type: 'sit', tableId: table.id, seat })
                   }}
                   onWatch={() => navigate(`/table/${table.id}`)}
+                  onRequest={() => send({ type: 'requestJoin', tableId: table.id })}
                 />
               ))}
             </Grid>

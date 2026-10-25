@@ -23,8 +23,12 @@ describe('PracticeDialog (e10-t04)', () => {
     await userEvent.click(within(dialog).getByRole('radio', { name: /1NT 開叫/ }))
     await userEvent.click(within(dialog).getByRole('radio', { name: 'TKB（2/1）' }))
     await userEvent.click(within(dialog).getByRole('checkbox', { name: /Just Declare/ }))
+    // Who may watch: hidden (only the invited) unless the member opens it up
+    expect(within(dialog).getByRole('group', { name: '誰可以觀看' })).toBeInTheDocument()
+    expect(within(dialog).getByRole('radio', { name: /隱藏/ })).toBeChecked()
+    await userEvent.click(within(dialog).getByRole('radio', { name: /申請加入/ }))
     await userEvent.click(within(dialog).getByRole('button', { name: '開始練習' }))
-    expect(onSubmit).toHaveBeenCalledWith({ deal: 'oneNotrump', robotKind: 'gib', justDeclare: true })
+    expect(onSubmit).toHaveBeenCalledWith({ deal: 'oneNotrump', robotKind: 'gib', justDeclare: true }, 'request')
   })
 
   it('sends only the conditions the member narrowed', async () => {
@@ -44,7 +48,7 @@ describe('PracticeDialog (e10-t04)', () => {
       robotKind: 'tku',
       justDeclare: false,
       conditions: { seats: { S: { hcp: [12, 14], lengths: { S: [5, 13] } }, N: { balanced: true } } },
-    })
+    }, 'hidden')
   })
 })
 
