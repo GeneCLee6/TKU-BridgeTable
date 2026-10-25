@@ -26,6 +26,13 @@
   // Production only: the envs below have no BACKUPS binding and no cron, so staging and previews
   // never write to (or restore from) production's bucket
   "r2_buckets": [{ "binding": "BACKUPS", "bucket_name": "tku-bridge-backups" }],
+  // The history pages' D1 copy (ARCHITECTURE.md §5.12), production's own database. Create it once
+  // before the first deploy with it and paste its id here (DEPLOY.md §4.5):
+  //   npx wrangler d1 create tku-bridge-history
+  // Never give staging or previews this id: each env below has its own database or none
+  "d1_databases": [
+    { "binding": "HISTORY", "database_name": "tku-bridge-history", "database_id": "0ffccba3-4f19-4fb0-8f4c-a4207d05d997" }
+  ],
   // 19:00 UTC is 03:00 in Taiwan
   "triggers": { "crons": ["0 19 * * *"] },
   "vars": {
@@ -48,11 +55,16 @@
         ]
       },
       "vars": { "MAX_USERS": "30" },
+      // Staging's own D1 copy of the history (never production's): npx wrangler d1 create tku-bridge-history-staging
+      "d1_databases": [
+        { "binding": "HISTORY", "database_name": "tku-bridge-history-staging", "database_id": "0f2e0cc8-339a-4f6b-817b-78d8a0048202" }
+      ],
       // No backups here (triggers are inherited, r2_buckets are not): see "r2_buckets" above
       "triggers": { "crons": [] }
     },
     // Each pull request deploys its own Worker, tku-bridge-table-pr-<number> (`wrangler deploy --name`),
-    // deleted when the pull request closes
+    // deleted when the pull request closes. No D1 here (d1_databases are not inherited): one database
+    // would be shared by every preview and mix their clubs' boards, so their history stays in the club
     "preview": {
       "name": "tku-bridge-table-preview",
       "durable_objects": {

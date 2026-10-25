@@ -75,8 +75,8 @@ M0 跑在 Cloudflare 免費方案：一個 Worker 加一個 SQLite 後端的 Dur
 - [x] `e11-t16` 決策紀錄：拆分 Durable Object——`Directory`（帳號、session、好友、通知、大廳目錄）、`Table`（每桌一個）、`Event`（每個挑戰／隊制賽／比賽一個）；跨物件通訊、一致性、成本估算 · AC-11.4 · S
 - [x] `e11-t17` 抽出 `TableObject`：牌桌狀態與 WebSocket 移到每桌一個物件，大廳摘要回報給 `Directory`；所有 `tests/worker` 通過 · AC-11.4 · M · ← e11-t16
 - [ ] `e11-t18` 抽出 `EventObject`：挑戰與隊制賽的狀態、排程與結算移到每個比賽一個物件 · AC-11.4 · M · ← e11-t17
-- [ ] `e11-t19` session 驗證在 Worker 邊緣處理（簽章 token 或快取），不必每次打到 `Directory` · AC-11.4 · M · ← e11-t16
-- [ ] `e11-t20` 紀錄索引搬到 D1（沿用 E4 的 schema），寫入改為非同步佇列並可重送 · AC-11.4 · M · ← e11-t16, e4-t11
+- [x] `e11-t19` session 驗證在 Worker 邊緣處理（簽章 token 或快取），不必每次打到 `Directory` · AC-11.4 · M · ← e11-t16
+- [x] `e11-t20` 紀錄索引搬到 D1（沿用 E4 的 schema），寫入改為非同步佇列並可重送 · AC-11.4 · M · ← e11-t16, e4-t11
 - [ ] `e11-t21` 負載測試：模擬 200 位使用者、30 桌的 WebSocket 機器人，報告延遲、CPU 與費用 · AC-11.4 · M · ← e11-t17
 - [ ] `e11-t22` 儀表板與告警：同時在線、桌數、機器人思考時間、重連率、錯誤率 · AC-11.5 · M · ← e11-t08
 

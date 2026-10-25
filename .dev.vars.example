@@ -1,3 +1,7 @@
 # Copy to .dev.vars for local development. Leave empty to allow registration without a code.
 # Never put the production invite code here: this file is public.
 INVITE_CODE=
+
+# Signs edge passes (ARCHITECTURE.md §5.12): set any long random string to try the history pages
+# answered from D1 by the Worker; leave empty and the club answers everything, as before
+EDGE_AUTH_SECRET=

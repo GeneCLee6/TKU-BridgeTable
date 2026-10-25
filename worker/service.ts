@@ -5,7 +5,6 @@ import {
   CLUB_PROFILE_ID,
   DEFAULT_TABLE_SETTINGS,
   fixedSeats,
-  HISTORY_PAGE_SIZES,
   isPermission,
   isRobotId,
   isTableAction,
@@ -85,6 +84,7 @@ import { ClubError } from './errors.ts'
 import { PROFILE_ID } from './profiles.ts'
 import { FeaturedService } from './featured.ts'
 import { TeamMatchService, type MatchPlayAction } from './team-match-service.ts'
+import { ReplicaSync, type ReplicaDb } from './history-replica.ts'
 import type { RoomClock } from './team-match-flow.ts'
 import { TeamMatchStore } from './team-matches.ts'
 import { teamTable } from './team-mode.ts'
@@ -93,6 +93,7 @@ import {
   createHistoryIndex,
   eventBoards,
   indexRecord,
+  listQuery,
   revealBoards,
   revealEvent,
   searchBoards,
@@ -234,6 +235,13 @@ export interface ClubConfig {
    * were moved out: the switch back (`TABLE_OBJECTS=off`, DEPLOY.md)
    */
   tablesInClub?: boolean
+  /**
+   * The history index's D1 copy, read by the Worker at the edge (ARCHITECTURE.md §5.12). Without it
+   * (tests, PR previews) the history pages are answered here only
+   */
+  historyReplica?: ReplicaDb
+  /** Stops keeping the D1 copy and tells the Worker not to read it: the switch back (`HISTORY_D1=off`) */
+  historyReplicaOff?: boolean
 }
 
 export type ScheduleKind = JobKind
@@ -341,6 +349,8 @@ export class ClubService {
   readonly matches: TeamMatchService
   /** Featured boards (精選牌局, AC-4.5, §5.9) */
   readonly featured: FeaturedService
+  /** Keeps the history index's D1 copy in step (§5.12), when there is one */
+  readonly replica?: ReplicaSync
   private readonly log: Logger
   /** Rate limits (AC-11.7): messages and chat lines per member, wrong passwords, browser error reports */
   private readonly actionLimit: TokenBuckets
@@ -397,6 +407,8 @@ export class ClubService {
       const wake = config.wake ?? ((at: number) => void setTimeout(() => void this.runDue(), Math.max(0, at - this.now())))
       this.scheduler = this.queue = new AlarmQueue(this.now, wake)
     }
+    if (config.historyReplica)
+      this.replica = new ReplicaSync({ store, db: config.historyReplica, scheduler: this.scheduler, now: this.now, log: this.log })
     const link: ClubLink = {
       changed: (entry) => this.applyEntry(entry),
       closed: (tableId) => this.tableClosed(tableId),
@@ -449,6 +461,7 @@ export class ClubService {
     const schema = (await this.store.get<number>('meta:schema')) ?? 1
     if (schema < 2) await this.migrate()
     if (schema < 3) await this.backfillIndex()
+    await this.replica?.load(!this.config.historyReplicaOff)
     await this.ensureAdmin()
     await this.batch(async () => {
       if (this.remote) {
@@ -1048,13 +1061,7 @@ export class ClubService {
 
   /** Newest first, one page at a time; `page` counts from 1 and `size` is one of HISTORY_PAGE_SIZES */
   async history(userId: string, all: boolean, page = 1, size: number = LIMITS.historyPageDefault): Promise<HistoryPage> {
-    if (!(HISTORY_PAGE_SIZES as readonly number[]).includes(size)) size = LIMITS.historyPageDefault
-    return this.search(userId, {
-      ...DEFAULT_HISTORY_QUERY,
-      scope: all ? 'all' : 'mine',
-      page: Math.max(1, Math.floor(page) || 1),
-      size,
-    })
+    return this.search(userId, listQuery(all, page, size))
   }
 
   /** One page of a history search (`shared/history-query.ts`), from the SQL index; boards kept back are left out */
@@ -1192,6 +1199,8 @@ export class ClubService {
       if (!id || isRobotId(id)) continue
       await this.store.put(`uhist:${id}:${order}`, summary)
     }
+    // Last, so a record whose writing failed is never copied to D1 (§5.12)
+    await this.replica?.queue(record.id)
   }
 
   // ── Connections ─────────────────────────────────────────────────────────────────────────────

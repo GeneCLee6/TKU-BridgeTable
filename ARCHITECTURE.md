@@ -17,6 +17,7 @@
 ```
 
 - 社團是**一個 Durable Object**（`Club`）：帳號、大廳與牌桌目錄、牌局紀錄、挑戰、隊制賽、淡江橋譜。**每張牌桌是自己的 Durable Object**（`TableObject`，§5.10）：座位、叫牌出牌、機器人、聊天與這一桌的 WebSocket。每個物件裡的動作依序處理；社團只在大廳看得到的事情變了才被牌桌叫醒。開關 `TABLE_OBJECTS=off` 可以把牌桌搬回社團的物件（`DEPLOY.md` §4.3）。
+- **不必經過社團的請求由 Worker 自己回答**（§5.12）：紀錄列表與搜尋從 D1 的副本讀（社團寫好紀錄後經 outbox 複製過去），牌桌連線用簽章的邊緣通行證確認是誰；通行證或副本不能用時一律照舊交給社團。開關 `HISTORY_D1=off`、`EDGE_AUTH=off`（`DEPLOY.md` §4.5）。
 - 伺服器是唯一的真相：瀏覽器送「我要叫 1♠」「我要出 ♥K」，伺服器用 `shared/game.ts` 驗證後更新狀態，再推送每個人**可以看到的**畫面。
 - 推送策略刻意簡單：任何變動後，對每位線上使用者送一份完整的大廳與他所在的牌桌。資料量小（一張桌幾 KB），不需要差異更新。
 
@@ -53,7 +54,10 @@ TKU-BridgeTable/
 │                          `ROBOT.md` §6）
 ├─ worker/
 │  ├─ index.ts             Worker 入口：綁上 Durable Object 交給 routing.ts
-│  ├─ routing.ts           Worker 的路由（不碰 Cloudflare API）：/api/* 與 /ws 給社團，/ws/table/<id> 問過 session 後加 X-TBT-User 給那一桌，其他給靜態檔案
+│  ├─ routing.ts           Worker 的路由（不碰 Cloudflare API）：/api/* 與 /ws 給社團，/ws/table/<id> 確認身分（通行證或問社團）後加 X-TBT-User 給那一桌，紀錄列表與搜尋可從 D1 回答（§5.12），其他給靜態檔案
+│  ├─ edge-auth.ts         邊緣通行證：簽發、驗證、cookie（§5.12）
+│  ├─ history-replica.ts   紀錄索引的 D1 副本：ReplicaSync（outbox、填副本、開關）、寫入與搜尋的 SQL（§5.12）
+│  ├─ d1.ts                把 D1 binding 包成 ReplicaDb（唯一碰 D1 的程式）
 │  ├─ club.ts              社團的 Durable Object：HTTP 路由、WebSocket（hibernation）、儲存轉接、牌桌回報的 RPC
 │  ├─ table-object.ts      每桌一個的 Durable Object：儲存、alarm、這一桌的 WebSocket、社團的 stub（只是接線，§5.10）
 │  ├─ table-host.ts        TableHost：一個 TableObject 做的事（RPC 包裝錯誤、桌的連線只收在桌上的人、訊息驗證與速率限制、搬移），可在 Node 測試
@@ -67,7 +71,7 @@ TKU-BridgeTable/
 │  ├─ roles.ts             每條 HTTP 路由要的角色（管理員／編輯者／個別權限）
 │  ├─ importer.ts          淡江橋譜的 AI 匯入：Claude 的提示、回覆 schema、串流
 │  ├─ views.ts             每位觀看者可見的牌桌畫面（可見性規則）
-│  ├─ history-index.ts     紀錄的 SQL 索引：建表、寫入、搜尋（§5.3）
+│  ├─ history-index.ts     紀錄的 SQL 索引：建表、寫入、搜尋（§5.3）；D1 副本共用同一段 SQL
 │  ├─ favorites.ts         收藏的 SQL 讀寫（§5.3）
 │  ├─ notifications.ts     通知中心（§5.4）
 │  ├─ relations.ts         好友與封鎖名單（§5）
@@ -173,7 +177,7 @@ interface BoardState {
 
 單副的 traveller（C7，`GET /api/history/:id/traveller`，`challengeTraveller`）：就是 `challengeView` 給這個人的那一副 traveller，不多給——打完全部副數的參與者、或挑戰結束後的參與者才拿得到，其他人（還沒打完的、非參與者）一律 `null`；伺服器再從那幾副的紀錄補上莊家是誰與首攻，以及排名矩陣裡那一副的分數。並排重播（`/history/:id/vs/:other`）兩邊都走 `/api/history/:id`，所以照樣由 `recordVisible`／`challengeBoardVisible` 把關。
 
-**打完的牌局什麼時候公開**（AC-4.9，`recordVisible`）：紀錄可以帶 `revealAt`（挑戰、隊制賽還在進行時）。在那之前，只有打那一副的四位看得到；其他人在紀錄列表、搜尋、詳細頁、牌桌側欄的 `recent`、收藏、精選都看不到。**收藏**（§5.3）：只能收藏 `recordVisible` 看得到的牌——還沒公開的挑戰／隊制賽牌局只有打的四位能收藏，別人收藏或查詢都拿到跟不存在一樣的 `boardGone`（404），連「打完全部副數、可以看 traveller」的參與者也要等公開；「我的收藏」列表走同一個 `searchBoards`，照樣套用 `reveal_at` 的規則。筆記與標籤只有收藏的人自己讀得到：每個查詢都以自己的 id 為條件，沒有讀別人收藏的 API。**精選**（§5.9）：只有已經公開的牌（沒有 `revealAt` 或已經過了）才能設為精選——打過那副的策展人拿到 `featuredNotRevealed`，沒打過的拿到 `boardGone`，不透露那副牌存在；精選的列表與單副讀取也再套一次 `recordVisible`。搜尋在 SQL 裡套同一條規則（`reveal_at IS NULL OR reveal_at <= 現在 OR 我打過`），而且不管搜尋什麼條件都會套用，前端無法關掉。
+**打完的牌局什麼時候公開**（AC-4.9，`recordVisible`）：紀錄可以帶 `revealAt`（挑戰、隊制賽還在進行時）。在那之前，只有打那一副的四位看得到；其他人在紀錄列表、搜尋、詳細頁、牌桌側欄的 `recent`、收藏、精選都看不到。**收藏**（§5.3）：只能收藏 `recordVisible` 看得到的牌——還沒公開的挑戰／隊制賽牌局只有打的四位能收藏，別人收藏或查詢都拿到跟不存在一樣的 `boardGone`（404），連「打完全部副數、可以看 traveller」的參與者也要等公開；「我的收藏」列表走同一個 `searchBoards`，照樣套用 `reveal_at` 的規則。筆記與標籤只有收藏的人自己讀得到：每個查詢都以自己的 id 為條件，沒有讀別人收藏的 API。**精選**（§5.9）：只有已經公開的牌（沒有 `revealAt` 或已經過了）才能設為精選——打過那副的策展人拿到 `featuredNotRevealed`，沒打過的拿到 `boardGone`，不透露那副牌存在；精選的列表與單副讀取也再套一次 `recordVisible`。搜尋在 SQL 裡套同一條規則（`reveal_at IS NULL OR reveal_at <= 現在 OR 我打過`），而且不管搜尋什麼條件都會套用，前端無法關掉。Worker 從 D1 副本回答的紀錄列表與搜尋（§5.12）跑的是同一段 SQL，規則一樣；資訊隔離套件比對兩邊的回答完全相同。
 
 **練習桌**（§5.11，`practiceView`）：牌照上表（社員只看到自己的牌，打完四家公開）；`TableView.practice` 只有社員自己選的設定與發了幾副，不含任何牌。Just Declare 練習的叫牌是機器人叫的，跟所有機器人的叫品一樣公開。練習的紀錄所有人仍看得到（`recordVisible` 不變），只是「全部社員」的列表預設不列（§5.11）。
 
@@ -241,6 +245,9 @@ interface BoardState {
 | `meta:settings` | 管理員改過的人數上限與邀請碼（沒改過就用環境變數） |
 | `meta:weekly` | 每週社團挑戰的排程、誰存的、上一場的時間與 id（`worker/weekly-challenge.ts`，§5.5） |
 | `meta:schema` | 資料版本（現在是 4）：1→2 把舊版 `board:<時間>-<id>` 搬到新索引；2→3 把所有 `board:` 回填進 SQL 紀錄索引（§5.3）；3→4 把每個 `table:` 搬進自己的 `TableObject`、改存 `tabledir:`（§5.10）；`TABLE_OBJECTS=off` 時搬回來、回到 3 |
+| `replq:<boardId>` | 還沒複製到 D1 的牌局（outbox，§5.12）：值是排進來的時間＋序號，寫進 D1 後刪掉（期間又被改的留著） |
+| `meta:replica` | D1 副本的狀態（§5.12）：`off`／`filling`（做到哪一個 `board:` key）／`ready`，與填它時的 `REPLICA_VERSION` |
+| D1 `boards_index`、`board_players`、`board_summaries`、`index_meta` | 不在 Durable Object 裡：紀錄索引在 D1 的副本，加上每副的摘要與 `ready`（§5.12）；可以隨時從 `board:` 重建 |
 | `meta:backfill` | 回填 SQL 索引時做到哪一個 `board:` key；做完就刪掉，物件中途被回收時從這裡接著做 |
 | `book:entry:<slug>` | 淡江橋譜線上修改的特約（版本、誰在何時改；`convention: null` 表示隱藏），內容在 `bookpart:` |
 | `book:rev:<slug>:<時間>-<id>` | 每次儲存、隱藏、還原的版本紀錄 |
@@ -264,7 +271,7 @@ interface BoardState {
 
 ### 5.6 可觀測性與輸入防護（`e11-t08`～`e11-t11`）
 
-- **結構化日誌**（`worker/log.ts`）：每個事件一行 JSON，Workers Logs（`wrangler.jsonc` 的 `observability`）依欄位索引。`action`：WebSocket 動作的種類、userId、耗時（ms，含廣播）、失敗時的錯誤代碼；`rejected`：沒進到處理函式的訊息（格式、大小、速率）；`http`：每個請求的方法、路徑（不含 query）、狀態、耗時、錯誤代碼；`loginLocked`；`clientError`；`crash`（不是 `ClubError`／`GameError` 的例外，層級 error）。**不記密碼、token、cookie、聊天內容。** `ClubService` 只拿到 `ClubConfig.log` 這個函式，不碰 Cloudflare API；測試傳陣列收集
+- **結構化日誌**（`worker/log.ts`）：每個事件一行 JSON，Workers Logs（`wrangler.jsonc` 的 `observability`）依欄位索引。`action`：WebSocket 動作的種類、userId、耗時（ms，含廣播）、失敗時的錯誤代碼；`rejected`：沒進到處理函式的訊息（格式、大小、速率）；`http`：每個請求的方法、路徑（不含 query）、狀態、耗時、錯誤代碼；`loginLocked`；`clientError`；`crash`（不是 `ClubError`／`GameError` 的例外，層級 error）；`replica`：D1 副本某一步失敗或填完（§5.12）；`edge`：Worker 從 D1 回答的紀錄頁（耗時），或為什麼交給社團（`fallback`）。**不記密碼、token、cookie、聊天內容。** `ClubService` 只拿到 `ClubConfig.log` 這個函式，不碰 Cloudflare API；測試傳陣列收集
 - **健康檢查** `GET /api/health`（不需登入）：`{ ok, now, tables, online }`，只有數量；回得來表示 Worker 與 Durable Object 都載入了
 - **前端錯誤回報**（`src/lib/errorReport.ts`）：`window` 的 `error` 與 `unhandledrejection` → `POST /api/client-errors`（`sendBeacon`，不需登入）。瀏覽器送之前去除個資（`shared/scrub.ts`：URL 的 query 與 fragment、e-mail、6 位以上的數字；只送路徑不送網址參數；不帶 userId），同一個錯誤只送一次、每頁最多 5 則、取樣比例 `REPORT_SAMPLE_RATE`（社團小，目前 100%）。伺服器（`worker/client-errors.ts`）只留已知欄位、截斷長度、再去除一次個資，全社團每秒最多約 1 則（突發 20 則）寫進日誌，不存資料庫
 - **訊息驗證**（`shared/message-guard.ts` 的 `parseClientMessage`）：WebSocket 訊息在 `ClubService.handleRaw` 入口檢查：最多 `MESSAGE_MAX_CHARS`（8,192 字元，二進位訊息只解碼到超過上限為止）、是 JSON 物件、`type` 是 1–40 個英文字母、已知種類的欄位型別對（型別守衛）。不合法就回 `error`（`messageTooLarge`／`badMessage`），不會進到處理函式。**沒有列在守衛裡的新種類只做形狀檢查**，所以新動作不必先改守衛；值的檢查（座位、範圍、權限）仍在各處理函式。HTTP 的 JSON 本文上限 2 MiB（`Content-Length`），超過回 413 `messageTooLarge`
@@ -287,7 +294,7 @@ interface BoardState {
 
 ## 5.10 拆分 Durable Object：每桌一個 `TableObject`（決策紀錄，`e11-t16`，2026-10-25）
 
-社長要先找一小群人做「很多人、很多桌同時打」的測試（H1–H3），所以先把牌桌從社團的物件拆出來。這一節是 H1 的設計；H2（`EventObject`、邊緣 session、紀錄索引搬 D1）照這裡的做法延伸，要改設計先改這裡。
+社長要先找一小群人做「很多人、很多桌同時打」的測試（H1–H3），所以先把牌桌從社團的物件拆出來。這一節是 H1 的設計；H2（`EventObject`、邊緣 session、紀錄索引搬 D1）照這裡的做法延伸，決策在 §5.12。
 
 **為什麼要拆**：現在整個社團是一個 Durable Object（§1），所有事情依序處理。社團小的時候這是優點，桌數多了就是瓶頸：
 - 一個物件同時只跑一件事。一桌三個機器人每秒出好幾張牌，每一張都要排在別桌的叫牌、大廳、私訊後面。
@@ -300,7 +307,7 @@ interface BoardState {
 | --- | --- | --- | --- |
 | `Club`（就是 `Directory`，類別名稱不改，免得 Durable Object 要搬資料） | 一個 | 帳號、申請、session、好友與封鎖、通知、私訊、大廳（**牌桌目錄**）、紀錄與索引、收藏、精選、挑戰與每週挑戰、隊制賽、淡江橋譜 | `worker/club.ts`、`ClubService`（`worker/service.ts`） |
 | `TableObject` | 每桌一個（`idFromName(<桌 id>)`） | 這一桌的一切：座位與觀看者、叫牌出牌與撤回攤牌、機器人、自動發牌、時間上限與太久提醒、斷線代打、聊天、這桌最近 30 副、每位觀看者的牌桌畫面與「只送有變的」、這一桌的 WebSocket | `worker/table-object.ts`、`TableService`（`worker/table-service.ts`） |
-| `EventObject`（H2，`e11-t18`） | 每場挑戰／隊制賽一個 | 挑戰與隊制賽的狀態、期限工作與結算 | 之後 |
+| `EventObject`（H2b，`e11-t18`） | 每場挑戰／隊制賽一個 | 挑戰與隊制賽的狀態、期限工作與結算 | 設計在 §5.12，下一個 PR |
 
 **誰負責什麼規則**：跨桌的規則留在 `Club`，因為只有它知道每個人在哪裡：一人同時只在一桌、開桌與桌號、加入與入座前的封鎖與受邀檢查（`checkWelcome`）、快速入座、受邀名單的檢查與通知、開始／繼續挑戰。只跟一桌有關的規則在 `TableService`：座位有沒有人、這一副打到一半不能換座位、房主才能做的事、所有叫牌出牌（`shared/game.ts`）、機器人（只看自己的 `View`，§5.1）、可見性（仍然只在 `worker/views.ts`，§4）。`Club` 先用目錄做一次檢查（錯誤和現在一樣，在離開舊桌**之前**丟），`TableService` 再用自己的狀態做最後的檢查，兩邊的錯誤代碼相同。
 
@@ -372,6 +379,104 @@ interface BoardState {
 - **紀錄**：`BoardRecord.mode = 'practice'`、桌號 0（列表顯示「練習」，`strings.ts` 的 `boardPlace`）。SQL 搜尋 `scope=all` 沒指定 `mode` 時排除練習（`history-index.ts` 的 `where`），所以「全部社員」、個人檔案卡的最近牌局都看不到；「我的」照常列出，篩選「練習」（`HISTORY_MODES`）兩邊都找得到。練習的牌不能設精選（`practiceNotFeatured`）、不能「用這副牌挑戰」（`practiceNoChallenge`）。
 - **畫面**：`TableView.practice`（`worker/views.ts` 的 `practiceView`：只有社員自己的設定與 `dealt`，不含任何牌）；牌桌標題 `PracticeBanner`，右下角「重發」「結束練習」。
 - **叫牌提示卡**（`e10-t06`，AC-10.4）：牌桌側欄的「特約」分頁（`BookHints`）。伺服器在 `BoardView.bookTopics` 送來（`worker/views.ts`，只看叫牌過程；看的人的同伴是 2/1 的 TKB 時不送），瀏覽器只顯示，不跑引擎（硬性規則 1）。`shared/book-topics.ts` 的 `bookTopics` 依目前的叫牌列出淡江橋譜的頁面：我方開叫的那一頁（1♣、1♦、高花、1NT、2♣ 與阻擊、2♦、2NT），對方先開叫時是競叫那一頁，再加上目前為止與下一口可能用到的約定叫（社團規則的 `Spec.name`，經 `CONVENTION_PAGES` 對到橋譜的 slug），連到 `https://tku-bridge-book.vercel.app/c/<slug>`（新分頁）。規則還沒有自己的 `bookSlug`（`e5-t45`）之前先用約定叫名稱對照，之後改讀規則上的。只看淡江制度；同伴是 2/1 的 TKB 時只說明橋譜寫的是社團制度。名稱的文字（`describe.ts`）只在分頁打開時才載入（`useRobotRules`）。同一個叫牌過程的引擎意義在 `views.ts` 記住最近 256 個（每個看的人、每次更新都問一樣的），叫牌盒提示（`callMeanings`）也共用。
+
+## 5.12 H2：紀錄索引搬到 D1、邊緣 session 驗證、`EventObject`（決策紀錄，`e11-t18`～`e11-t20`，2026-10-26）
+
+H1 把牌桌拆出去之後（§5.10），社團的物件（`Club`）仍然是**唯一一個所有人都要經過的地方**。社長要「很多人、很多桌同時打」先順，所以 H2 的問題是：還有什麼會叫醒、塞住 `Club`？哪些可以不經過它？
+
+**現況（H1 之後）量到的**：
+- **每一個 HTTP 請求都進 `Club`**，包括紀錄列表與搜尋。牌桌的第二條連線（`/ws/table/<id>`）每次連上、斷線重連，Worker 都要先問 `Club` 這是誰（`socketUser`）。
+- **紀錄搜尋在 `Club` 的執行緒裡跑**。一萬副時一頁要 0.7–10 ms CPU（`tests/worker/edge-cost.test.ts`、`history-perf.test.ts`：「全部、最新」0.7 ms，「我的」2.3 ms，「搭檔是某人」6 ms，搭檔＋同桌＋排序 9.7 ms）。免費方案一次呼叫只有 10 ms CPU；這段時間大廳、私訊、別人的跨桌動作都在排隊。
+- 挑戰的期限、結算與隊制賽的比分也在 `Club` 裡算（`EventObject` 要拿走的部分，見下面 H2b）。
+
+### 什麼搬到哪
+
+| 東西 | H1 之後 | H2 之後 | 正本 |
+| --- | --- | --- | --- |
+| 紀錄索引（`boards_index`、`board_players`） | `Club` 的 SQLite | `Club` 的 SQLite（**寫入端**：挑戰、隊制賽、收藏的 join 用）＋ **D1 的副本**（**讀取端**：紀錄頁） | `Club` 的 `board:` 紀錄；兩份索引都能從它重建 |
+| 每副的摘要（`BoardSummary`） | 讀那一頁時從 `board:` 算 | D1 另存一份（`board_summaries`） | 同上 |
+| `GET /api/history`、`GET /api/history/search` | `Club` | **Worker 直接從 D1 回答**（有效的通行證、副本完整、條件不含 `tag`）；其他情況照舊給 `Club` | — |
+| 收藏、單副紀錄、traveller、個人檔案卡的最近牌局 | `Club` | `Club`（不變） | — |
+| session | `Club` 的 `session:<token>` | 不變；另外發 10 分鐘的**簽章通行證**（cookie `tbt_pass`） | `Club` |
+| 牌桌連線是誰 | Worker 問 `Club` | Worker 看通行證；沒有、過期或不對才問 `Club` | — |
+| 挑戰、隊制賽的狀態、排程、結算 | `Club` 的 SQL | 每場一個 `EventObject`（**H2b**，下一個 PR） | — |
+
+**為什麼 D1 是「副本」而不是整個搬過去**：
+- 挑戰與隊制賽在 `Club` 的 transaction 裡**同步**讀寫索引（`eventBoards`、`revealEvent`、`revealBoards`），收藏搜尋 join `favorites`。全部改成跨網路、非同步的 D1，會把 D1 的延遲與失敗帶進結算與公開牌局的流程，風險比收穫大。
+- 副本隨時能從 `board:` 重建，所以搬移、退回都不會掉資料：D1 壞了，最壞情況是紀錄頁改回由 `Club` 回答（跟現在一樣）。
+- 代價：每副多寫一份索引（D1 的額度，見「免費方案」）。H2b 把挑戰、隊制賽搬進 `EventObject`、改用它們自己的結果表之後，再決定 `Club` 自己的索引能不能拿掉（每副省下約 20 列的 Durable Object 寫入）。
+
+### 一致性：outbox，跟 H1 的 `outbox:<桌>` 同一個做法
+
+- **先存好才送**：所有寫 `board:` 的地方都經過 `ClubService.writeRecord`（打完一副、挑戰結束或隊制賽兩室打完時改 `revealAt`）。它最後一步把 `replq:<牌局 id>` 寫進 `Club` 自己的儲存（值是時間＋序號）。寫紀錄失敗時這一步不會發生，所以沒存好的紀錄不會被複製。
+- **送**（`worker/history-replica.ts` 的 `ReplicaSync`）：`replica:flush` 工作（1 秒後，同一秒打完的幾副合成一批）一次取 20 副，**從 `board:` 重新讀出最新的紀錄**組 SQL，在一個 D1 `batch`（一次來回、一個 transaction）裡寫入：索引列與摘要 `INSERT OR REPLACE`、四列座位先刪再寫；紀錄已經不在的副從 D1 刪掉。**重做幾次結果都一樣**（idempotent），所以 outbox 只記「哪一副要同步」，不必管順序。
+- **寫完才刪**，而且只刪「值沒變」的：寫的時候同一副又被改（例如挑戰剛好結束），新的那筆留著，下一批再寫。
+- **D1 失敗**（斷線、超過每日額度）：留在 outbox，30 秒後重試，每次加倍，最多 10 分鐘一次；日誌 `event: replica, ok: false`。物件被回收：outbox 在儲存裡，`load()` 看到還有就重新排工作。D1 的表不見了（資料庫被換掉）：自動從頭重填。
+- **讀到舊資料的時間**：通常 1–2 秒（1 秒的合併＋一次 D1 寫入）。打完一副立刻打開紀錄頁，最多晚這麼久看到；牌桌側欄的紀錄來自那一桌，不受影響。
+- **可見性不變**：D1 跑的是同一段 SQL（`history-index.ts` 的 `searchStatements`，同一個 `where()`），還沒公開的牌（`reveal_at`）兩邊一樣只給打那一副的人（AC-4.9）。資訊隔離套件（`tests/worker/visibility/`）的每個情境都比對 D1 與 `Club` 的回答**完全相同**。
+
+### 搬移正式站的資料（可中斷、可重來）
+
+- 部署後 `Club` 第一次載入，若有 `HISTORY` binding 而 `meta:replica` 還不是 `ready`：先在 D1 建表（`CREATE TABLE IF NOT EXISTS`，表與 `Club` 的完全相同，另加 `board_summaries` 與 `index_meta`）並把 `index_meta.ready` 設成 `0`；然後每次 alarm 寫 20 副 `board:`（一步 1 秒，做到哪一個 key 存在 `meta:replica`，物件被回收就從那裡接著做）；全部寫完才把 `ready` 設成 `1`。填的期間打完的副照樣進 outbox，不會漏。
+- **Worker 每次讀 D1 都在同一個 batch 先看 `ready`**，不是 `1`（或表還不存在）就交給 `Club`。所以填到一半的副本永遠不會被讀到，也不需要部署順序上的配合。
+- 時間：一萬副 500 步，約 8–10 分鐘；正式站目前遠少於此。每步 11 個 statement，遠低於免費方案每次呼叫 50 個查詢。
+- `REPLICA_VERSION`：D1 的表或摘要的內容改了就加一，每個 `Club` 下次載入自動重填（期間 Worker 讀 `Club`）。
+
+### 開關（退回）
+
+- **`HISTORY_D1=off`**：Worker 不讀 D1；`Club` 不再寫 outbox、清掉 outbox、把 D1 的 `ready` 設成 `0`（D1 連不上就一直重試，直到設好）。拿掉這個值再部署，`Club` 從頭重填，填完才讓 Worker 讀。正本一直在 `Club`，怎麼切都不會掉紀錄。
+- **`EDGE_AUTH=off`**（或根本沒設 `EDGE_AUTH_SECRET`）：不發通行證，Worker 什麼都問 `Club`，跟 H1 一樣。沒有通行證時 D1 也不會被讀（Worker 不知道是誰）。
+- 兩個開關互不影響，都是 `wrangler deploy --var <名稱>:off`（`DEPLOY.md` §4.5）。
+
+### 邊緣通行證（`worker/edge-auth.ts`，`e11-t19`）
+
+- **格式**：`<社員 id>.<到期時間，36 進位>.<HMAC-SHA-256，base64url>`，用 secret `EDGE_AUTH_SECRET` 簽，有效 `EDGE_PASS_MS`（10 分鐘）。cookie `tbt_pass` 與 session 一樣 HttpOnly、SameSite=Lax、Path=/。只有 WebCrypto，Worker、Durable Object、Node 測試同一份程式。
+- **誰發**：`Club`。登入、註冊（第一個帳號）時跟 session 一起發；之後任何 `/api/*` 的回答，若瀏覽器沒有通行證或已經用掉一半，就附上新的（`Club.edgePass`）；session 已經失效就清掉；登出時清掉。只要有在用網站（打開頁面就會呼叫 `/api/me`），通行證就一直有效。
+- **誰看**：Worker（`worker/routing.ts`）。驗證只是一次 HMAC；不合法、過期、被改過、換了 secret，一律當作沒有，改問 `Club`，結果跟現在一樣。通行證裡**只有社員 id**，沒有管理員與權限，所以需要權限的 API（管理、橋譜、精選）一律照舊進 `Club`。
+- **撤銷的代價（取捨）**：改密碼、管理員重設密碼或刪除帳號時，**其他裝置**上還沒過期的通行證最多再有效 10 分鐘，期間只能：讀紀錄列表與搜尋（唯讀）；連到**自己所在那一桌**的連線（`TableObject` 只收在桌上的人；被刪的帳號已經被移出牌桌）。對照：H1 起，已經連著的桌的連線本來就不會因為改密碼而斷。`e11-t23`（session 列表、登出其他裝置）要把這個窗口關掉：通行證帶 session 的雜湊，`Club` 撤銷時通知那一桌。
+- **為什麼不用快取**：`workers.dev` 網域上 Cache API 不作用；KV 免費方案每天只能寫 1,000 次而且最終一致（登出後最多約 60 秒還有效），不比簽章好；把 session 也複製到 D1 則每個請求多一次 D1 讀取。
+
+### 買到什麼（量的）
+
+| | 之前 | 之後 |
+| --- | --- | --- |
+| 一頁紀錄（一萬副，`edge-cost.test.ts`） | `Club` 0.7–10 ms CPU，期間別的動作排隊 | Worker 約 0.25 ms CPU（驗通行證＋組回答），SQL 在 D1、不算 Worker 的 CPU；**`Club` 完全不醒** |
+| 牌桌連線連上、斷線重連 | 叫醒 `Club` 一次 | 通行證有效時 0 次 |
+| 打完一副 | `Club` 寫 KV 與 SQL 索引 | 同上，多一筆 outbox；1 秒後一次 D1 batch（20 副 11 個 statement） |
+
+**沒有改變的**：大廳廣播、跨桌動作（開桌、入座、離桌）、`/ws` 的訊息、私訊、通知仍然在 `Club`。H3（`e11-t21` 負載測試 200 人 30 桌）要量的就是這些；預期下一個瓶頸是**大廳廣播**（大廳看得到的事變了，就替每位在線的人各算一份大廳，200 人就是 200 份）。
+
+### 免費方案
+
+- **Workers**：每天 10 萬次請求；每次呼叫 10 ms CPU、最多 50 個 D1 查詢（一批 20 副約 11 個，讀一頁 3 個）。
+- **D1 免費額度**（以 Cloudflare 公布的為準）：每天讀 500 萬列、寫 10 萬列，全部 5 GB（每個資料庫 500 MB），最多 10 個資料庫。新的一副約寫 14 列（含索引；重寫約兩倍），一天約 7,000 副才到上限；一萬副約 10 MB。讀：「全部」列表要數總數，一萬副時一頁約掃 1–2 萬列，所以每天約 250–500 次「全部」翻頁；「我的」走索引，少得多。Durable Object 的 SQLite 免費額度算法相同（也是每天 500 萬／10 萬），這些讀取原本就算在 `Club`，現在改算在 D1。
+- **超過額度時**：D1 讀取失敗 → Worker 交給 `Club`（日誌 `event: edge, fallback: error`）；寫入失敗 → 留在 outbox，額度恢復後補上。期間紀錄頁仍可能從 D1 讀到少了最新幾副的列表；真的擔心就 `HISTORY_D1=off`。
+
+### 每個環境的資料庫
+
+- 正式站：`tku-bridge-history`；staging：`tku-bridge-history-staging`。**binding 不會繼承**，`wrangler.jsonc` 的 `env.staging` 有自己的 `d1_databases`，id 不同，staging 永遠碰不到正式站的資料庫。
+- PR 預覽：**沒有 D1**。一個資料庫會被所有預覽共用，各預覽的社團紀錄會混在一起；預覽的紀錄頁由 `Club` 回答。預覽每次部署產生一個隨機的 `EDGE_AUTH_SECRET`（`.github/workflows/preview.yml`），所以通行證與「桌的連線不問 `Club`」在預覽可以測。
+- 本機（`npm run dev`）：`wrangler.jsonc` 的 D1 binding 在本機是一個本機資料庫；`.dev.vars` 設 `EDGE_AUTH_SECRET` 才會發通行證。
+
+### H2b：`EventObject`（`e11-t18`，下一個 PR）
+
+- **每場挑戰、每場隊制賽一個 `EventObject`**（`idFromName('challenge:<id>')`、`idFromName('match:<id>')`），SQLite 後端，migration `v3`。
+- **搬進去**：那一場的 SQL 列（`challenges`／`challenge_players`／`challenge_results`、`matches`／`match_seats`／`match_boards`）、期限與提醒的 alarm（現在 `Club` 佇列裡的 `challenge:<id>`）、結算與名次、隊制賽的比分、裁定、暫停、替補；開關那一場的牌桌（同樣透過 `RemoteTables`）。
+- **留在 `Club`**：建立前的檢查（好友、封鎖、人數）、通知（`EventObject` 呼叫 `Club` 的 RPC）、每人「我的挑戰／隊制賽」的目錄（`eventdir:`，像 `tabledir:`，列表不必叫醒每一場）、紀錄 `board:` 與索引。桌子打完一副照樣交給 `Club`，`Club` 寫好紀錄後以 outbox（`evout:<牌局 id>`）把結果（`EventReport`）交給那一場；`challenge_results` 本來就是「重複就略過」。`EventObject` 回報目錄時帶遞增的 `rev`（同 `TableEntry`）。
+- **搬移**：`meta:schema` 4→5，一場一場搬（`adopt` → 寫 `eventdir:` → 刪 `Club` 的列），失敗的下次再搬；開關 `EVENT_OBJECTS=off` 反方向搬回。結構與測試照 H1b（`tests/worker/table-objects.test.ts` 的做法：每個物件在 Node 裡是一個 host，經 structured clone）。
+- **買到什麼**：結算與比分不再佔 `Club` 的執行緒（每週挑戰截止時幾十人的結算、兩室同時打完的比分）。以 30 桌的社團來說它比 H2a 次要；J 階段（很多場比賽同時）才真的需要，所以排在 H2a 之後。
+- **為什麼沒有跟 H2a 一起做**：挑戰與隊制賽跟 `Club` 的資料纏得很深（好友與封鎖、通知、牌桌目錄與開桌、紀錄與索引的公開），拆出去之後 `EventObject` 每一步都要回頭呼叫 `Club`；正式站上有進行中的挑戰與比賽，搬移要跟 H1b 一樣可中斷、可退回。這是一個完整的 PR，不適合塞在 H2a 後面。
+- **步驟**（每一步 `tests/worker` 全過）：
+  1. **H2b-1 挑戰，同一個物件裡**（跟 H1a 一樣先不改部署）：`worker/events.ts`（`EventEntry`：id、種類、狀態、截止、參與者、`rev`；`EventApi`：`Club` → 那一場的 `create`（帶 `Club` 檢查過的快照）、`answer`、`cancel`、`result`（`EventReport`）、`detail`／`travellers`（帶觀看者）、`due`；`EventLink`：那一場 → `Club` 的 `changed(entry)`、`notify`、`closeTables`、`reveal(eventId, at)`），`worker/event-service.ts`（從 `ClubService` 搬出挑戰的流程、期限、結算、排名，自己的 `ChallengeStore`），`LocalEvents`。`Club` 只讀 `eventdir`（大廳的「我的挑戰」、`GET /api/challenges`），`boardFinished` 經 `evout:` outbox 交結果。
+  2. **H2b-2 每場一個物件**：`worker/event-object.ts`（只有接線）、`event-host.ts`（Node 可測）、`RemoteEvents`、`wrangler.jsonc` 的 `EVENT` binding（三個環境各一份）與 migration `v3`；`meta:schema` 4→5 一場一場搬、`EVENT_OBJECTS=off` 搬回；`tests/worker/event-objects.test.ts` 照 `table-objects.test.ts`（structured clone、回收後接著做、搬移失敗重試、切回去）。
+  3. **H2c 隊制賽**：`matches`、`match_seats`、`match_boards` 與 `TeamMatchService` 照同樣的方式搬；兩室的牌桌仍由 `Club` 開（它知道每個人在哪），比賽物件只發出要求；比分只在比賽物件裡用兩室都完成的副計算（§5.8 不變）。
+  4. 資訊隔離套件（`tests/worker/visibility/`）每一步都要過；`challengeTraveller`、`challengeBoardVisible` 仍在 `worker/views.ts`。
+
+### 實作與測試（H2a，`e11-t19`、`e11-t20`）
+
+- `worker/edge-auth.ts`（通行證）、`worker/history-replica.ts`（`ReplicaSync`、`replicaWrites`、`searchReplica`、`ReplicaDb` 介面）、`worker/d1.ts`（唯一碰 D1 的程式，把 binding 包成 `ReplicaDb`）、`worker/routing.ts`（Worker 自己回答的部分）、`worker/history-index.ts`（`indexRow`、`searchStatements`、`listQuery` 讓兩邊共用同一段 SQL）。`ClubService` 只拿到 `ClubConfig.historyReplica`（`ReplicaDb`），不碰 Cloudflare API（CLAUDE.md 規則 4）。
+- 測試在 Node：`tests/worker/d1.ts` 是 D1 的替身（記憶體 SQLite，每個 batch 一個 transaction，可以讓它失敗、會數 batch 與 statement、超過 100 個參數就丟錯）。`history-replica.test.ts`（填副本、物件被回收接著填、outbox、重寫與刪除、D1 失敗重試、寫的時候又被改、開關、表不見與版本）、`routing.test.ts`（通行證、Worker 從 D1 回答、各種交給 `Club` 的情況、桌的連線不問 `Club`）、`edge-cost.test.ts`（上面的數字）、`tests/worker/visibility/`（D1 與 `Club` 的回答完全相同）。
+- 需要 workerd 才能測的只有接線（`d1.ts`、`club.ts` 的 `edgePass`、`index.ts`）：在 staging 照 `DEPLOY.md` §4.5 的檢查做一次。
 
 ## 5.8 隊制賽（決策紀錄，`e8-t01`，2026-10-25）
 
@@ -665,7 +770,7 @@ C4 的實作（2026-10-24）：
 **為什麼**：
 - `Club` 本來就是 SQLite 後端（`wrangler.jsonc` 的 `new_sqlite_classes`），不用新增 binding 或付費方案；查詢跟牌局在同一個物件裡，寫入和讀取都不必跨網路。
 - KV 索引只能依時間往前翻，做不到「4♠ 合約」「我和 X 是搭檔」這種條件；SQL 加上索引在一萬副時也很快（AC-4.8 的測試在 `e4-t23`）。
-- E11 把紀錄搬到 D1（AC-11.4）時，這份 schema 原樣搬過去。
+- E11 把紀錄搬到 D1（AC-11.4）時，這份 schema 原樣搬過去。**H2a 做了（§5.12）**：D1 有一份同樣 schema 的副本給紀錄頁讀，這裡的索引留著當寫入端與重建來源。
 
 **介面**：`ClubService` 只透過 `Store.sql`（`worker/store.ts` 的 `Sql`：同步的 `exec`、`transaction`）碰 SQL；Durable Object 接到 `storage.sql.exec` 與 `storage.transactionSync`，測試用 Node 內建的 `node:sqlite`（`tests/worker/sqlite.ts`）。所有查詢一律用 `?` 參數，不拼字串。程式在 `worker/history-index.ts`。
 
