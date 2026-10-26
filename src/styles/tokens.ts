@@ -109,6 +109,8 @@ const table = {
   panelText: '#1d2420',
   panelMuted: '#5b665e',
   panelBorder: '#c9cfc6',
+  /** A link hovered on the panel (ActionLink `onPanel`): a faint wash of `bidRedouble` */
+  panelHover: 'rgba(43, 111, 214, 0.1)',
   cardFace: '#ffffff',
   cardBorder: '#8d959c',
   cardBack: '#1d4f91',
