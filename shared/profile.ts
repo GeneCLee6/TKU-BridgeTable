@@ -5,7 +5,7 @@ import type { BoardSummary } from './protocol.ts'
  * A member's profile (個人檔案, AC-1.5): what they tell the club about themselves. Every field is
  * optional; the member edits it on "My account" (`PATCH /api/account/profile`) and other members
  * see it on the profile card and page (`GET /api/members/:id`). Avatars are generated in the
- * browser from the id and name (`e1-t18`) until uploads come (`e1-t34`).
+ * browser from the id and name (`e1-t18`) unless the member uploaded a picture (`e1-t34`, `shared/avatar.ts`).
  */
 
 /** Self-rated level, lowest first: 初學者, 大專, 公開組, 橋士組 */
@@ -29,6 +29,8 @@ export const PROFILE_LIMITS = { displayNameMax: 16, systemMax: 40, bioMax: 300 }
 export interface MemberProfile {
   id: string
   username: string
+  /** Their uploaded picture's version (`avatarUrl`), if any */
+  avatar?: number
   profile: Profile
   /** Their latest boards the viewer may see, newest first, at most PROFILE_RECENT */
   recent: BoardSummary[]

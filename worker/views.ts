@@ -185,18 +185,19 @@ export function recordVisible(
 }
 
 /**
- * Another member's profile as anyone in the club may see it (AC-1.5): the id, the username and the
- * four profile fields, picked one by one so nothing else on the account (password hash, admin
+ * Another member's profile as anyone in the club may see it (AC-1.5): the id, the username, the
+ * avatar's version and the four profile fields, picked one by one so nothing else on the account (password hash, admin
  * flags, sign-in times, settings) can leak. `recent` must already be filtered by `recordVisible`
  */
 export function memberProfileView(
-  user: { id: string; username: string; profile?: Profile },
+  user: { id: string; username: string; avatar?: number; profile?: Profile },
   recent: BoardSummary[],
 ): MemberProfile {
   const { displayName, level, system, bio } = user.profile ?? {}
   return {
     id: user.id,
     username: user.username,
+    ...(user.avatar && { avatar: user.avatar }),
     profile: {
       ...(displayName && { displayName }),
       ...(level && { level }),
