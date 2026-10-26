@@ -25,6 +25,7 @@ vi.mock('../../src/lib/api.ts', async (original) => ({
 }))
 vi.mock('../../src/state/ClubContext.tsx', () => ({
   useClub: () => ({ lobby, send: mocks.send, notifications: null, status: 'open', table: mocks.table, error: null }),
+  useLobby: () => lobby,
 }))
 vi.mock('../../src/state/AuthContext.tsx', () => ({
   useAuth: () => ({ user: { id: 'amy', username: 'amy', admin: false, permissions: [] } }),
