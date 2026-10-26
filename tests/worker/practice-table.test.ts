@@ -131,10 +131,11 @@ describe('practice settings', () => {
     expect(parsePracticeSettings({ justDeclare: 'yes' })).toEqual({ field: 'justDeclare' })
     expect(parsePracticeSettings({ deal: 'custom' })).toEqual({ field: 'conditions' })
     expect(parsePracticeSettings({ deal: 'slam', conditions })).toEqual({ field: 'conditions' })
-    expect(parsePracticeSettings({ deal: 'custom', conditions: { seats: { S: { hcp: [15, 12] } } } })).toEqual({ field: 'conditions' })
+    expect(parsePracticeSettings({ deal: 'custom', conditions: { seats: { S: { hcp: [15, 12] } } } })).toEqual({ field: 'conditions', problem: 'S.hcp' })
     expect(parsePracticeSettings({ deal: 'custom', conditions: { seats: { S: { points: [1, 2] } } } })).toEqual({ field: 'conditions' })
     expect(parsePracticeSettings({ deal: 'custom', conditions: { seats: { S: { lengths: { S: [7, 13], H: [7, 13] } } } } })).toEqual({
       field: 'conditions',
+      problem: 'S.lengths',
     })
     expect(parsePracticeSettings({ extra: 1 })).toEqual({ field: 'settings' })
   })

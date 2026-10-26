@@ -1,0 +1,26 @@
+[
+  {
+    "id": "sample-1",
+    "dealer": "S",
+    "vulnerability": "None",
+    "hands": "N:KQ84.J75.Q3.J863 T96.KT98.A976.K5 AJ5.AQ3.KJ84.Q92 732.642.T52.AT74",
+    "category": "notrump",
+    "note": "南家 17 點平均牌開叫 1NT；北家 9 點有四張黑桃，先用 2♣ Stayman 找高花配合，南家回 2♦ 否認四張高花後，北家叫 2NT 邀請，南家是上限就進 3NT。"
+  },
+  {
+    "id": "sample-2",
+    "dealer": "W",
+    "vulnerability": "NS",
+    "hands": "N:AQ963.T7.J95.A62 T82.Q953.T64.873 KJ74.62.AQ83.KT5 5.AKJ84.K72.QJ94",
+    "category": "competitive",
+    "note": "西家開叫 1♥，北家 1♠ 插叫，東家 Pass。南家 13 點、四張黑桃支持，用扣叫 2♥ 表示邀請以上的黑桃支持，比直接加叫更能說清楚牌力；雙方合力 24 點，最後停在 4♠。"
+  },
+  {
+    "id": "sample-3",
+    "dealer": "N",
+    "vulnerability": "All",
+    "hands": "N:AK5.KQ6.A84.QJ32 T98.T98.JT97.K98 QJ72.AJ7.KQ62.A4 643.5432.53.T765",
+    "category": "slam",
+    "note": "北家 19 點平均牌，開叫 1♣ 後跳叫 2NT（18–19）；南家 17 點，合計至少 35 點，滿貫有望。先用 4NT 量點邀請，北家是上限就叫 6NT。"
+  }
+]

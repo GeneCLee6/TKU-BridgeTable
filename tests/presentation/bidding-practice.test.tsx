@@ -21,7 +21,7 @@ const lobby: LobbyView = { online: [], members: [], tables: [], myTableId: 'p1',
 
 vi.mock('../../src/lib/api.ts', async (original) => ({
   ...(await original<typeof import('../../src/lib/api.ts')>()),
-  api: { challenges: () => Promise.resolve({ challenges: [] }) },
+  api: { challenges: () => Promise.resolve({ challenges: [] }), practicePresets: () => Promise.resolve({ presets: [] }) },
 }))
 vi.mock('../../src/state/ClubContext.tsx', () => ({
   useClub: () => ({ lobby, send: mocks.send, notifications: null, status: 'open', table: mocks.table, error: null }),

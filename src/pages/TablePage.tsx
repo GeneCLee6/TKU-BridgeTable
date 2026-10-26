@@ -213,6 +213,7 @@ const SeatBlock = styled.div<{ $overlap: number; $appear: boolean; $size?: { wid
       height: ${$size.height}px;
     `}
   & > [data-hand] {
+    position: relative;
     display: flex;
     justify-content: center;
     min-width: 0;
@@ -321,6 +322,23 @@ const SettingsButton = styled.button`
   border-radius: 50%;
   background: ${({ theme }) => theme.table.shade};
   color: ${({ theme }) => theme.table.feltText};
+`
+
+/** 顯示四家 (`e10-t16`): a hand the member sees only because they asked to see all four */
+const ShownTag = styled.span`
+  position: absolute;
+  top: -10px;
+  left: 50%;
+  z-index: 3;
+  transform: translateX(-50%);
+  padding: 1px 8px;
+  border-radius: ${({ theme }) => theme.radius.pill};
+  background: ${({ theme }) => theme.table.turn};
+  color: ${({ theme }) => theme.table.panelText};
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+  pointer-events: none;
 `
 
 const Note = styled.div`
@@ -832,8 +850,13 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
     const turned = side && turnedSides
     // Face-up hands on the left and right go in rows by suit (BBO's dummy), which is narrow
     const orientation: Orientation = !side || turned ? 'horizontal' : sizes.phone ? 'vertical' : cards ? 'rows' : 'horizontal'
+    // Seen only because the member turned on 顯示四家: marked, so it is never taken for their own
+    const exposedDummy = board?.dummy === seat && !!board?.tricks.some((trick) => trick.cards.length > 0)
+    const shownOnly =
+      !!practice?.showHands && !!me && !!cards && board?.phase !== 'finished' && !acts.includes(seat) && !exposedDummy
     const hand = board && (
-      <div data-hand={seat} data-hand-at={position}>
+      <div data-hand={seat} data-hand-at={position} data-shown={shownOnly || undefined}>
+        {shownOnly && <ShownTag>{t.handShown}</ShownTag>}
         <HandView
           cards={cards}
           count={holdLast ? 0 : board.handCounts[seat] - (pendingShown?.seat === seat ? 1 : 0)}
@@ -986,6 +1009,7 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
           board={board}
           declarerName={board.contract ? nameOf(board.contract.declarer) : undefined}
           seconds={seconds}
+          note={practice?.problem?.note}
         />
       )
     }
@@ -1152,6 +1176,15 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
                     {t.redeal}
                   </FeltButton>
                 )}
+                <FeltButton
+                  type="button"
+                  $tone="plain"
+                  aria-pressed={!!practice.showHands}
+                  title={t.showHandsHint}
+                  onClick={() => send({ type: 'showHands', show: !practice.showHands })}
+                >
+                  {practice.showHands ? t.hideHands : t.showHands}
+                </FeltButton>
                 <FeltButton type="button" $tone="plain" onClick={() => navigate('/')}>
                   {t.endPractice}
                 </FeltButton>

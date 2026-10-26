@@ -434,6 +434,12 @@ export class Club extends DurableObject<Env> implements Connections {
       this.service.removeFavorite(user.id, favorite[1])
       return json({ ok: true })
     }
+    // The practice dialog (e10-t16): the club's practice sets (no boards), and the member's own saved settings
+    if (route === 'GET /api/practice/sets') return json({ sets: this.service.practiceSets() })
+    if (route === 'GET /api/practice/presets') return json({ presets: await this.service.savedPractice(user.id) })
+    if (route === 'POST /api/practice/presets') return json({ presets: await this.service.savePractice(user.id, await body()) })
+    const preset = url.pathname.match(/^\/api\/practice\/presets\/([\w-]+)$/)
+    if (preset && request.method === 'DELETE') return json({ presets: await this.service.removeSavedPractice(user.id, preset[1]) })
     if (route === 'GET /api/challenges') return json({ challenges: this.service.challengeList(user.id) })
     // The challenge pages create, answer and cancel over HTTP to hear back at once (e7-t16, e7-t17)
     if (route === 'POST /api/challenges') {
