@@ -105,6 +105,7 @@ await pool(users.slice(1), 8, (user) => user.login())
 await pool(users, 16, (user) => user.connect())
 log(`${users.length} members connected`)
 
+const serverRobotMoves = (h: Record<string, unknown>) => (h.metrics as { robot?: { moves?: number } } | undefined)?.robot?.moves ?? 0
 const health = async () => (await admin.http<Record<string, unknown>>('GET', '/api/health', undefined, 'health')).data
 const healthBefore = await health()
 
@@ -239,7 +240,8 @@ const used = measured({
   tableUpgrades: recorder.get('upgrade:table'),
   sent: recorder.get('sent'),
   pings: recorder.get('ping'),
-  robotMoves: recorder.get('robotMoves'),
+  // The club's count (tables report it with each board) also has boards the members did not see finish
+  robotMoves: Math.max(recorder.get('robotMoves'), serverRobotMoves(healthAfter) - serverRobotMoves(healthBefore)),
   boards: recorder.get('boards'),
   seatChanges,
   minutes,

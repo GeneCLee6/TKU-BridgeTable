@@ -218,6 +218,15 @@ export interface Connections {
   disconnect(userId: string): void
 }
 
+/** What every viewer's lobby shares (`ClubService.lobbyBasis`) */
+interface LobbyBasis {
+  online: Set<string>
+  onlineUsers: PublicUser[]
+  matches: LiveMatch[]
+  where: Map<string, TableEntry>
+  order: StoredUser[]
+}
+
 export interface ClubConfig {
   /** Defaults from the Worker environment; an admin can override them (ClubSettings) */
   maxUsers: number
@@ -1822,8 +1831,7 @@ export class ClubService {
   }
 
   /** Whether the lobby tells a member they may come in (`TableSummary.welcome`): a blocked one only at a public table */
-  private welcomeAt(userId: string, table: TableEntry): boolean {
-    const at = this.entryOf(userId)?.id === table.id
+  private welcomeAt(userId: string, table: TableEntry, at = this.entryOf(userId)?.id === table.id): boolean {
     if (!mayEnter(table, userId, at)) return false
     return at || table.settings.access === 'public' || !this.blocks.has(table.hostId, userId)
   }
@@ -2913,6 +2921,35 @@ export class ClubService {
    */
   broadcast() {
     const online = this.connections.onlineUserIds()
+    // What every viewer's lobby shares, worked out once instead of once per viewer: with 200
+    // members online the per-viewer work grew with the square of the club (docs/LOAD.md)
+    this.lobbyShared = this.lobbyBasis(online)
+    try {
+      this.broadcastTo(online)
+    } finally {
+      this.lobbyShared = undefined
+    }
+  }
+
+  /** What every viewer's lobby shares while one broadcast runs (`lobbyBasis`) */
+  private lobbyShared?: LobbyBasis
+
+  /**
+   * The parts of the lobby that are the same for every viewer: who is online, where each member
+   * is (the first table that has them, as `entryOf`), and the members online first, then by name
+   */
+  private lobbyBasis(online: string[]): LobbyBasis {
+    const onlineSet = new Set(online)
+    const where = new Map<string, TableEntry>()
+    for (const entry of this.directory.values())
+      for (const id of [...SEATS.map((s) => entry.seats[s]), ...entry.spectators]) if (id && !where.has(id)) where.set(id, entry)
+    const order = [...this.users.values()].sort(
+      (a, b) => Number(onlineSet.has(b.id)) - Number(onlineSet.has(a.id)) || a.username.localeCompare(b.username),
+    )
+    return { online: onlineSet, onlineUsers: online.flatMap((id) => this.publicUserById(id) ?? []), where, order, matches: this.liveMatches() }
+  }
+
+  private broadcastTo(online: string[]) {
     for (const userId of online) {
       const sent = this.sent.get(userId) ?? {}
       this.sent.set(userId, sent)
@@ -2924,7 +2961,7 @@ export class ClubService {
         this.connections.send(userId, { type: 'lobby', lobby })
       }
 
-      const at = this.entryOf(userId)
+      const at = this.lobbyShared!.where.get(userId)
       if (at) {
         sent.table = at.id
         continue
@@ -2935,8 +2972,9 @@ export class ClubService {
   }
 
   lobbyView(userId: string, online = this.connections.onlineUserIds()): LobbyView {
-    const isOnline = (id: string) => isRobotId(id) || online.includes(id)
-    const mine = this.entryOf(userId)
+    const basis = this.lobbyShared ?? this.lobbyBasis(online)
+    const isOnline = (id: string) => isRobotId(id) || basis.online.has(id)
+    const mine = basis.where.get(userId)
     const now = this.now()
     // What the viewer may see listed (`tableListed`): no challenge table, a hidden one only for the invited
     const listed = (t: TableEntry) => tableListed(t, userId, t.id === mine?.id)
@@ -2949,7 +2987,7 @@ export class ClubService {
         number: t.number,
         hostName: this.users.get(t.hostId)?.username ?? '—',
         settings: t.settings,
-        welcome: this.welcomeAt(userId, t),
+        welcome: this.welcomeAt(userId, t, t.id === mine?.id),
         ...(liveRequests(t.requests, now).some((r) => r.userId === userId) && { requested: true }),
         ...(t.mode === 'practice' && { practice: true }),
         seats: this.occupants(t, isOnline),
@@ -2957,37 +2995,35 @@ export class ClubService {
         boardsPlayed: t.boardsPlayed,
         boardNo: t.boardNo,
       }))
-    const members: MemberStatus[] = [...this.users.values()]
-      .map((u) => {
-        const found = this.entryOf(u.id)
+    // Online first; within each, the viewer's friends on top (好友置頂), then by name (the basis's order; the sort is stable)
+    const friends = this.friends.of(userId)
+    const followed = new Set(friends)
+    const ranked = basis.order.map((u) => ({ u, rank: (basis.online.has(u.id) ? 0 : 2) + (followed.has(u.id) ? 0 : 1) }))
+    const members: MemberStatus[] = ranked
+      .sort((a, b) => a.rank - b.rank)
+      .map(({ u }) => {
+        const found = basis.where.get(u.id)
         // Where someone is shows only for a table the viewer would see listed
         const table = found && listed(found) ? found : undefined
         return {
           id: u.id,
           username: u.username,
           ...(u.avatar && { avatar: u.avatar }),
-          online: online.includes(u.id),
+          online: basis.online.has(u.id),
           tableNumber: table?.number ?? null,
           seat: table ? this.seatIn(table, u.id) : null,
         }
       })
-      // Online first; within each, the viewer's friends on top (好友置頂)
-      .sort(
-        (a, b) =>
-          Number(b.online) - Number(a.online) ||
-          Number(this.friends.has(userId, b.id)) - Number(this.friends.has(userId, a.id)) ||
-          a.username.localeCompare(b.username),
-      )
     return {
-      online: online.flatMap((id) => this.publicUserById(id) ?? []),
+      online: basis.onlineUsers,
       members,
       tables,
       myTableId: mine?.id ?? null,
       // The member's own challenge or practice table, for the lobby's 「回到」 banner
       ...(mine && (soloTable(mine.mode) || (mine.mode === 'practice' && this.seatIn(mine, userId))) && { myTableMode: mine.mode }),
-      friends: this.friends.of(userId),
+      friends,
       blocked: this.blocks.of(userId),
-      matches: this.liveMatches(),
+      matches: basis.matches,
     }
   }
 
