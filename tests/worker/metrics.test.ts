@@ -54,6 +54,27 @@ describe('metrics', () => {
     expect(metrics.view()).toMatchObject({ boards: 0, actions: 0, robot: { moves: 0, avgMs: null }, minutes: 60 })
   })
 
+  it('keeps its counts across a hibernation, written at most once a minute', async () => {
+    let time = 1_000_000
+    const saved: unknown[] = []
+    const first = new Metrics(() => time, (state) => saved.push(structuredClone(state)))
+    first.observe({ event: 'action', type: 'call', user: 'u', ms: 1 })
+    first.observe({ event: 'action', type: 'call', user: 'u', ms: 1 })
+    await Promise.resolve()
+    first.observe({ event: 'action', type: 'call', user: 'u', ms: 1 })
+    await Promise.resolve()
+    expect(saved).toHaveLength(1)
+    time += 61_000
+    first.observe({ event: 'action', type: 'call', user: 'u', ms: 1 })
+    await Promise.resolve()
+    expect(saved).toHaveLength(2)
+    time += 1000
+    const woken = new Metrics(() => time)
+    woken.observe({ event: 'action', type: 'play', user: 'u', ms: 1 })
+    woken.restore(saved.at(-1) as never)
+    expect(woken.view()).toMatchObject({ actions: 5 })
+  })
+
   it('warns about slow actions, slow robots and many reconnects only over enough of them', () => {
     const metrics = new Metrics(() => 0)
     for (let i = 0; i < 10; i++) metrics.observe({ event: 'action', type: 'call', user: 'u', ms: 3000 })

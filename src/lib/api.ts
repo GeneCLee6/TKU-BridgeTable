@@ -12,6 +12,7 @@ import type {
   Favorite,
   FavoritesPage,
   FavoriteTag,
+  HealthStatus,
   HistoryPage,
   Me,
   MemberChange,
@@ -73,6 +74,8 @@ const post = <T>(path: string, body: unknown = {}) => request<T>(path, { method:
 
 export const api = {
   me: () => request<{ user: Me }>('/api/me'),
+  /** The health check with the last hour's numbers, for the admin page's system status (e11-t22) */
+  health: () => request<HealthStatus>('/api/health'),
   login: (username: string, password: string) => post<{ user: Me }>('/api/login', { username, password }),
   /** The first account signs in at once; later ones wait for an admin to approve them */
   register: (username: string, password: string, inviteCode: string, note: string) =>

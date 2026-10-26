@@ -1,10 +1,14 @@
+import type { MetricAlert, MetricsView } from '../shared/protocol.ts'
 import type { LogEntry } from './log.ts'
+
+export type { MetricAlert, MetricsView }
 
 /**
  * The numbers behind the admin page's system status and `/api/health` (e11-t22, ARCHITECTURE.md
  * §5.13): counted in memory from the structured log entries the objects already write, in
- * five-minute slices over the last hour. Nothing is stored, so an evicted object starts over
- * (the page says since when). No Cloudflare API, no member ids kept: counts only.
+ * five-minute slices over the last hour. The club writes them to its storage at most once a minute
+ * (`meta:metrics`): its object hibernates whenever it is idle for a few seconds, even with sockets
+ * open, and would otherwise start over each time. No Cloudflare API, no member ids kept: counts only.
  *
  * Inside a Worker the clock only moves on I/O, so a time here is the waiting (an RPC, storage),
  * not the CPU; the CPU of every invocation is in Workers Logs (`$workers.cpuTimeMs`, DEPLOY.md §4.7)
@@ -16,6 +20,8 @@ export const METRICS_WINDOW_MS = 60 * 60_000
 const SLICE_MS = 5 * 60_000
 /** A connection within this long after the member's last one closed counts as a reconnect */
 export const RECONNECT_WINDOW_MS = 60_000
+/** How often the counts are written to storage, at most */
+export const METRICS_SAVE_MS = 60_000
 
 /** What a table object counted since its last report, sent along with a finished board */
 export interface TableStats {
@@ -32,7 +38,7 @@ export interface TableStats {
 
 export const noTableStats = (): TableStats => ({ actions: 0, refused: 0, crashes: 0, rejected: 0, robotMoves: 0, thinkMs: 0, thinkMaxMs: 0 })
 
-interface Slice extends TableStats {
+export interface Slice extends TableStats {
   start: number
   latency: number[]
   requests: number
@@ -42,32 +48,6 @@ interface Slice extends TableStats {
   boards: number
   peakOnline: number
 }
-
-/** What `/api/health` shows under `metrics`: the last hour (or since the object woke), counts only */
-export interface MetricsView {
-  /** Minutes the numbers cover */
-  minutes: number
-  actions: number
-  /** The 95th percentile of an action's time (the upper bound of its bucket), ms; null with no actions */
-  actionP95Ms: number | null
-  refused: number
-  rejected: number
-  crashes: number
-  requests: number
-  serverErrors: number
-  /** (crashes + 5xx answers) / (actions + requests) */
-  errorRate: number
-  connects: number
-  reconnects: number
-  /** reconnects / connects */
-  reconnectRate: number
-  boards: number
-  peakOnline: number
-  robot: { moves: number; avgMs: number | null; maxMs: number | null }
-}
-
-/** What the status page warns about, and when (`alertsOf`) */
-export type MetricAlert = 'errorRate' | 'reconnectRate' | 'actionSlow' | 'robotSlow'
 
 export const ALERT_LIMITS = {
   /** More than 1% of actions and requests failed with a bug, over at least 50 of them */
@@ -135,17 +115,65 @@ function addStats(a: TableStats, b: TableStats): TableStats {
   }
 }
 
+function mergeSlices(a: Slice, b: Slice): Slice {
+  return {
+    ...addStats(a, b),
+    start: a.start,
+    latency: a.latency.map((n, i) => n + (b.latency[i] ?? 0)),
+    requests: a.requests + b.requests,
+    serverErrors: a.serverErrors + b.serverErrors,
+    connects: a.connects + b.connects,
+    reconnects: a.reconnects + b.reconnects,
+    boards: a.boards + b.boards,
+    peakOnline: Math.max(a.peakOnline, b.peakOnline),
+  }
+}
+
+/** What is kept in storage between wakes */
+export interface MetricsState {
+  started: number
+  slices: Slice[]
+}
+
 /** The club's counts: its own log entries, its connections, and what the tables report */
 export class Metrics {
   private slices: Slice[] = []
   private readonly now: () => number
-  private readonly started: number
+  private started: number
+  private readonly save?: (state: MetricsState) => void
+  private savedAt = -Infinity
+  private saving = false
   /** When each member's last connection closed, for telling a reconnect from a new visit */
   private readonly gone = new Map<string, number>()
 
-  constructor(now: () => number) {
+  constructor(now: () => number, save?: (state: MetricsState) => void) {
     this.now = now
     this.started = now()
+    this.save = save
+  }
+
+  /** The counts as last written, after the object woke up again */
+  restore(state: MetricsState | undefined) {
+    if (!state?.slices) return
+    const now = this.now()
+    this.started = Math.min(this.started, state.started)
+    const kept = new Map(state.slices.filter((s) => s.start > now - METRICS_WINDOW_MS).map((s) => [s.start, s]))
+    for (const slice of this.slices) {
+      const old = kept.get(slice.start)
+      kept.set(slice.start, old ? mergeSlices(old, slice) : slice)
+    }
+    this.slices = [...kept.values()].sort((a, b) => a.start - b.start)
+  }
+
+  /** Writes the counts once the change under way is done, at most every METRICS_SAVE_MS */
+  private changed() {
+    if (!this.save || this.saving || this.now() - this.savedAt < METRICS_SAVE_MS) return
+    this.saving = true
+    queueMicrotask(() => {
+      this.saving = false
+      this.savedAt = this.now()
+      this.save!({ started: this.started, slices: this.slices })
+    })
   }
 
   private slice(): Slice {
@@ -157,6 +185,7 @@ export class Metrics {
       this.slices.push(last)
       this.slices = this.slices.filter((s) => s.start > now - METRICS_WINDOW_MS)
     }
+    this.changed()
     return last
   }
 

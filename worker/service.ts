@@ -43,6 +43,7 @@ import {
   type TableAccess,
   type TableMode,
   type TableSummary,
+  type HealthStatus,
 } from '../shared/protocol.ts'
 import { dealWith } from '../shared/dealer.ts'
 import {
@@ -131,7 +132,7 @@ import { parseProfile, PROFILE_RECENT, type MemberProfile, type Profile } from '
 import { lobbyOrder, quickSeatChoice } from '../shared/lobby.ts'
 import { parseClientError } from './client-errors.ts'
 import { crashEntry, noLog, type LogEntry, type Logger } from './log.ts'
-import { alertsOf, Metrics, type TableStats } from './metrics.ts'
+import { alertsOf, Metrics, type MetricsState, type TableStats } from './metrics.ts'
 import {
   ACTION_BURST,
   ACTIONS_PER_SECOND,
@@ -410,7 +411,8 @@ export class ClubService {
     this.config = config
     this.now = config.now ?? Date.now
     const write = config.log ?? noLog
-    this.metrics = new Metrics(this.now)
+    // Written to storage at most once a minute: the object hibernates whenever it is idle
+    this.metrics = new Metrics(this.now, (state) => void store.put('meta:metrics', state).catch(() => {}))
     this.log = (entry) => {
       this.metrics.observe(entry)
       write(entry)
@@ -521,6 +523,7 @@ export class ClubService {
     await this.friends.load()
     await this.blocks.load()
     this.settings = (await this.store.get<Partial<ClubSettings>>('meta:settings')) ?? {}
+    this.metrics.restore(await this.store.get<MetricsState>('meta:metrics'))
     createHistoryIndex(this.store.sql)
     this.challenges.createTables()
     this.homes.createTables()
@@ -1622,7 +1625,7 @@ export class ClubService {
    * The health check with the last hour's numbers and what they warn about (e11-t22, §5.13), for
    * `GET /api/health?metrics=1` and the admin page's system status. Counts only, nothing about who
    */
-  status() {
+  status(): HealthStatus {
     const metrics = this.metrics.view()
     const robots = [...this.directory.values()].reduce(
       (n, entry) => n + Object.values(entry.seats).filter((id) => typeof id === 'string' && isRobotId(id)).length,

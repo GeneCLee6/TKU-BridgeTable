@@ -18,6 +18,7 @@
     "quiz:play": "node --experimental-strip-types --disable-warning=ExperimentalWarning eval/play-quiz-cli.ts",
     "sim": "node --experimental-strip-types --disable-warning=ExperimentalWarning eval/sim/cli.ts",
     "seed": "node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/seed-cli.ts",
+    "load": "node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/load/cli.ts",
     "deploy": "npm run build && wrangler deploy"
   },
   "dependencies": {

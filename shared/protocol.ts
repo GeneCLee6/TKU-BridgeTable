@@ -406,6 +406,51 @@ export interface MemberStatus extends PublicUser {
   seat: Seat | null
 }
 
+/** What `/api/health` shows under `metrics`: the last hour (or since the object woke), counts only */
+export interface MetricsView {
+  /** Minutes the numbers cover */
+  minutes: number
+  actions: number
+  /** The 95th percentile of an action's time (the upper bound of its bucket), ms; null with no actions */
+  actionP95Ms: number | null
+  refused: number
+  rejected: number
+  crashes: number
+  requests: number
+  serverErrors: number
+  /** (crashes + 5xx answers) / (actions + requests) */
+  errorRate: number
+  connects: number
+  reconnects: number
+  /** reconnects / connects */
+  reconnectRate: number
+  boards: number
+  peakOnline: number
+  robot: { moves: number; avgMs: number | null; maxMs: number | null }
+}
+
+/** What the status page warns about, and when (`alertsOf`) */
+export type MetricAlert = 'errorRate' | 'reconnectRate' | 'actionSlow' | 'robotSlow'
+
+/**
+ * `GET /api/health` (no sign-in, counts only, nothing about who): the club loaded and answers, with
+ * the last hour's numbers (`worker/metrics.ts`) and what they warn about; the admin page's system
+ * status reads it (e11-t22)
+ */
+export interface HealthStatus {
+  ok: boolean
+  now: number
+  tables: number
+  online: number
+  /** Challenges in their own objects (H2b), when the club has them */
+  events?: { objects: number; unconfirmed: number }
+  /** Members seated at a table, and the robots seated */
+  playing: number
+  robots: number
+  metrics: MetricsView
+  alerts: MetricAlert[]
+}
+
 export interface LobbyView {
   online: PublicUser[]
   /** Every member, online first, for the People panel */
