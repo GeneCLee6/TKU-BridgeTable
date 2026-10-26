@@ -7,7 +7,7 @@
      "auction": ["1N", "P", "3N", "P", "P", "P"],
      "play": ["C7", "C9", "C4", "C2", "D7", "D3", "DA", "D2", "DK", "D4", "D8", "D5", "DQ", "DT", "CT", "D6", "C3", "C5", "CJ"],
      "answer": "H8", "accepted": ["H5", "H6", "S2", "S8"], "source": "雙明手稽核（評測牌組第 60、69 副的型）", "reviewer": null, "status": "pending",
-     "note": "♦J 已經是大牌（AKQ 都出過），不能為了打信號把它墊掉；淡江機器人從♥墊高張要♠，GIB 墊最沒用的小牌"},
+     "note": "♦J 已經是大牌（AKQ 都出過），不能為了打信號把它墊掉；機器人照社團的信號從♥墊（兩種機器人一樣）"},
     {"id": "play-discard-002", "system": "both", "board": 3,
      "hands": {"N": "J85.8765.T984.85", "E": "Q.432.76532.QT94", "S": "A32.AKQJT9..AK62", "W": "KT9764..AKQJ.J73"},
      "auction": ["2N", "P", "3N", "P", "P", "P"], "play": ["S7", "S5", "SQ", "SA", "HA"],
