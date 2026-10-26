@@ -156,7 +156,7 @@ describe('the weekly club challenge (e7-t23)', () => {
     expect(c.boards).toBe(4)
     expect(c.settings).toEqual({
       scoring: 'mp',
-      robotKind: 'tku',
+      robotKind: 'gib',
       bestHand: false,
       justDeclare: false,
       days: 7,
