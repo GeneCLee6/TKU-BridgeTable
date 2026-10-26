@@ -172,6 +172,20 @@ const BoxSlot = styled.div<{ $h: number }>`
   width: 100%;
   height: ${({ $h }) => $h}px;
   flex: none;
+  position: relative;
+`
+
+/** 「現在替 北 叫」 over the bidding box, when the member bids for more than their own seat (`e10-t15`) */
+const CallingFor = styled.div`
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  right: 0;
+  padding-bottom: 2px;
+  color: ${({ theme }) => theme.table.feltText};
+  font-size: 14px;
+  font-weight: 700;
+  text-align: center;
 `
 
 const appear = keyframes`
@@ -620,6 +634,8 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
   const me = table.mySeat
   const challenge = table.challenge
   const practice = table.practice
+  // The seats I make the calls for (seat control, `e10-t15`): my own, and any others the server gave me
+  const acts: Seat[] = table.acts ?? (me ? [me] : [])
   // Nobody runs a challenge, practice or team match table: its seats, robots and settings are
   // fixed; only who may watch a practice table changes (its member's settings button)
   const iAmHost = !!user && table.hostId === user.id && !challenge && !practice && !table.match
@@ -886,6 +902,8 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
   const undoPrompt = () => {
     const undo = board?.undo
     if (!undo) return null
+    // A call I took back for another of my seats is mine to wait on, not to answer
+    if (acts.includes(undo.seat)) return <Prompt text={t.undoRequested} />
     if (me && sideOf(me) !== sideOf(undo.seat))
       return (
         <Prompt
@@ -903,14 +921,19 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
     <BoxSlot $h={biddingBoxHeight(sizes.box)} data-tour="bidding-box">
       {b.undo
         ? undoPrompt()
-        : b.legalCalls.length > 0 && (
-            <BiddingBox
-              legal={b.legalCalls}
-              onCall={(call, alert) => send({ type: 'call', call, alert })}
-              size={sizes.box}
-              hints={hints}
-              confirm={confirmCalls}
-            />
+        : b.legalCalls.length > 0 &&
+          b.turn && (
+            <>
+              {/* Bidding for more than my own seat: say for which one this call is */}
+              {table.acts && <CallingFor role="status">{t.callingFor(t.seatNames[b.turn])}</CallingFor>}
+              <BiddingBox
+                legal={b.legalCalls}
+                onCall={(call, alert) => send({ type: 'call', call, alert, seat: b.turn! })}
+                size={sizes.box}
+                hints={hints}
+                confirm={confirmCalls}
+              />
+            </>
           )}
     </BoxSlot>
   )
@@ -1109,9 +1132,26 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
             )}
             {practice && me && (
               <>
-                <FeltButton type="button" $tone="plain" title={t.redealHint} onClick={() => send({ type: 'redeal' })}>
-                  {t.redeal}
-                </FeltButton>
+                {practice.biddingOnly ? (
+                  // A bidding practice waits for the member between boards: the next one, or this one again
+                  <>
+                    <FeltButton type="button" $tone="plain" title={t.rebidHint} onClick={() => send({ type: 'rebid' })}>
+                      {t.rebid}
+                    </FeltButton>
+                    <FeltButton
+                      type="button"
+                      $tone={finished ? 'go' : 'plain'}
+                      title={t.nextBoardHint}
+                      onClick={() => send({ type: 'redeal' })}
+                    >
+                      {t.nextBoard}
+                    </FeltButton>
+                  </>
+                ) : (
+                  <FeltButton type="button" $tone="plain" title={t.redealHint} onClick={() => send({ type: 'redeal' })}>
+                    {t.redeal}
+                  </FeltButton>
+                )}
                 <FeltButton type="button" $tone="plain" onClick={() => navigate('/')}>
                   {t.endPractice}
                 </FeltButton>

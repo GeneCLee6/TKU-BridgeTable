@@ -303,6 +303,7 @@ export function SeatPlate({
         {isMe && t.youTag}
       </NameText>
       {occupant.substituteFor && <Muted>{t.substituteFor(occupant.substituteFor)}</Muted>}
+      {occupant.controlledBy && <Muted>{t.controlledBy(occupant.controlledBy)}</Muted>}
     </Name>
   ) : (
     <Name $muted>{t.emptySeat}</Name>

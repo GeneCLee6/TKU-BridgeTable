@@ -856,6 +856,22 @@ export const MESSAGES = {
     ja: '配り直しは練習テーブルでのみできます',
     ko: '다시 돌리기는 연습 테이블에서만 할 수 있습니다',
   },
+  biddingOnlyRebid: {
+    zh: '只有只叫牌的練習桌可以重叫同一副',
+    'zh-Hans': '只有只叫牌的练习桌可以重叫同一副',
+    en: 'Only a bidding practice can bid the same board again',
+    vi: 'Chỉ bàn luyện kêu bài mới kêu lại được cùng ván',
+    ja: '同じボードのビッドのやり直しは、ビッドだけの練習テーブルでのみできます',
+    ko: '같은 보드를 다시 비딩하는 것은 비딩만 하는 연습 테이블에서만 할 수 있습니다',
+  },
+  notYourSeat: {
+    zh: '你不能替這一家叫牌',
+    'zh-Hans': '你不能替这一家叫牌',
+    en: 'You do not make the calls for that seat',
+    vi: 'Bạn không kêu bài cho chỗ này',
+    ja: 'その席のビッドはあなたがするものではありません',
+    ko: '그 자리의 비딩은 당신이 하는 것이 아닙니다',
+  },
   badPracticeSettings: {
     zh: '練習桌的設定不正確（{field}）',
     'zh-Hans': '练习桌的设置不正确（{field}）',
