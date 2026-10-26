@@ -130,7 +130,8 @@ import { parseClientMessage } from '../shared/message-guard.ts'
 import { parseProfile, PROFILE_RECENT, type MemberProfile, type Profile } from '../shared/profile.ts'
 import { lobbyOrder, quickSeatChoice } from '../shared/lobby.ts'
 import { parseClientError } from './client-errors.ts'
-import { crashEntry, noLog, type Logger } from './log.ts'
+import { crashEntry, noLog, type LogEntry, type Logger } from './log.ts'
+import { alertsOf, Metrics, type TableStats } from './metrics.ts'
 import {
   ACTION_BURST,
   ACTIONS_PER_SECOND,
@@ -391,6 +392,8 @@ export class ClubService {
   /** Keeps the history index's D1 copy in step (§5.12), when there is one */
   readonly replica?: ReplicaSync
   private readonly log: Logger
+  /** The status page's numbers (e11-t22, §5.13): counted from the log entries, the connections and the tables' reports */
+  readonly metrics: Metrics
   /** Rate limits (AC-11.7): messages and chat lines per member, wrong passwords, browser error reports */
   private readonly actionLimit: TokenBuckets
   private readonly chatLimit: TokenBuckets
@@ -406,7 +409,12 @@ export class ClubService {
     this.connections = connections
     this.config = config
     this.now = config.now ?? Date.now
-    this.log = config.log ?? noLog
+    const write = config.log ?? noLog
+    this.metrics = new Metrics(this.now)
+    this.log = (entry) => {
+      this.metrics.observe(entry)
+      write(entry)
+    }
     this.actionLimit = new TokenBuckets(ACTION_BURST, ACTIONS_PER_SECOND, this.now)
     this.chatLimit = new TokenBuckets(CHAT_BURST, CHATS_PER_SECOND, this.now)
     this.directLimit = new TokenBuckets(DIRECT_BURST, DIRECTS_PER_SECOND, this.now)
@@ -469,7 +477,7 @@ export class ClubService {
     const link: ClubLink = {
       changed: (entry) => this.applyEntry(entry),
       closed: (tableId) => this.tableClosed(tableId),
-      boardFinished: (record, event) => this.boardFinished(record, event),
+      boardFinished: (record, event, stats) => this.boardFinished(record, event, stats),
       mayUseTku: (userId) => this.mayUseTku(userId),
     }
     this.link = link
@@ -491,6 +499,7 @@ export class ClubService {
       brain: config.brain,
       thinkLimitMs: config.thinkLimitMs,
       scheduler: this.scheduler,
+      onThink: (ms) => this.metrics.think(ms),
     }
     this.tables = this.localTables = new LocalTables((id) => new TableService(id, tableStore, connections, link, tableConfig))
   }
@@ -1433,6 +1442,7 @@ export class ClubService {
   connected(userId: string) {
     const user = this.users.get(userId)
     if (!user) return
+    this.metrics.connected(userId, this.connections.onlineUserIds().length)
     // A new socket starts with nothing: send it everything
     this.sent.delete(userId)
     this.connections.send(userId, { type: 'welcome', me: this.me(user) })
@@ -1536,6 +1546,7 @@ export class ClubService {
    * a host who drops out hands the table to someone still there.
    */
   async disconnected(userId: string) {
+    this.metrics.disconnected(userId)
     this.sent.delete(userId)
     this.present.delete(userId)
     // Their table decides: a spectator leaves, a seated player keeps the seat for a while (代打).
@@ -1605,6 +1616,32 @@ export class ClubService {
       // How many challenges live in their own objects (H2b), when there are objects to live in
       ...(this.eventObjects && { events: this.homes.counts() }),
     }
+  }
+
+  /**
+   * The health check with the last hour's numbers and what they warn about (e11-t22, §5.13), for
+   * `GET /api/health?metrics=1` and the admin page's system status. Counts only, nothing about who
+   */
+  status() {
+    const metrics = this.metrics.view()
+    const robots = [...this.directory.values()].reduce(
+      (n, entry) => n + Object.values(entry.seats).filter((id) => typeof id === 'string' && isRobotId(id)).length,
+      0,
+    )
+    return { ...this.health(), playing: this.playingCount(), robots, metrics, alerts: alertsOf(metrics) }
+  }
+
+  /** Members seated at a table right now */
+  private playingCount() {
+    let n = 0
+    for (const entry of this.directory.values())
+      n += Object.values(entry.seats).filter((id) => typeof id === 'string' && !isRobotId(id)).length
+    return n
+  }
+
+  /** Writes a log entry and counts it (the club's `http` lines, `worker/club.ts`) */
+  logEntry(entry: LogEntry) {
+    this.log(entry)
   }
 
   async handle(userId: string, message: ClientMessage) {
@@ -2803,8 +2840,9 @@ export class ClubService {
    * a challenge board's result into the challenge (once: the same record twice changes nothing).
    * The last board of the last participant finishes the challenge before its deadline
    */
-  private async boardFinished(record: BoardRecord, event: EventReport | null) {
+  private async boardFinished(record: BoardRecord, event: EventReport | null, stats?: TableStats) {
     await this.saveRecord(record)
+    this.metrics.board(stats)
     if (event?.kind === 'team') return this.teamBoardFinished(event)
     if (event?.kind !== 'challenge') return
     if (!this.challenges.get(event.challengeId)) return

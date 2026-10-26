@@ -17,6 +17,7 @@ import { CLIENT_ERROR_MAX_CHARS } from './client-errors.ts'
 import { d1Replica } from './d1.ts'
 import { edgeSecret, mintPass, PASS_COOKIE, passCookie, passNeedsRefresh } from './edge-auth.ts'
 import { crashEntry, jsonLog } from './log.ts'
+import type { TableStats } from './metrics.ts'
 import { type ChallengeRequest, ClubError, ClubService, type Connections } from './service.ts'
 import type { EventReport } from './modes.ts'
 import type { Store } from './store.ts'
@@ -180,8 +181,8 @@ export class Club extends DurableObject<Env> implements Connections {
   }
 
   /** A table finished a board (`ClubLink.boardFinished`); a failure makes the table offer it again */
-  async tableBoardFinished(record: BoardRecord, event: EventReport | null) {
-    await this.service.link.boardFinished(record, event)
+  async tableBoardFinished(record: BoardRecord, event: EventReport | null, stats?: TableStats) {
+    await this.service.link.boardFinished(record, event, stats)
   }
 
   /** Whether a member may seat TKB in the club's system (`ClubLink.mayUseTku`) */
@@ -234,7 +235,7 @@ export class Club extends DurableObject<Env> implements Connections {
       code = error instanceof AppError ? error.code : 'serverError'
       response = errorResponse(error)
     }
-    jsonLog({ event: 'http', method: request.method, path: url.pathname, status: response.status, ms: Date.now() - started, ...(code ? { code } : {}) })
+    this.service.logEntry({ event: 'http', method: request.method, path: url.pathname, status: response.status, ms: Date.now() - started, ...(code ? { code } : {}) })
     await this.edgePass(request, url, response)
     return response
   }
@@ -319,7 +320,7 @@ export class Club extends DurableObject<Env> implements Connections {
       return (await request.json().catch(() => ({}))) as Body
     }
 
-    if (route === 'GET /api/health') return json(this.service.health())
+    if (route === 'GET /api/health') return json(this.service.status())
     if (route === 'POST /api/client-errors') {
       // Reports come before sign-in too, so this needs none; the service cleans and rate-limits them
       if (Number(request.headers.get('Content-Length') ?? 0) > CLIENT_ERROR_MAX_CHARS * 4)

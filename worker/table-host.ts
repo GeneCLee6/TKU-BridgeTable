@@ -4,6 +4,7 @@ import { isTableAction, TABLE_SOCKET_REFUSED, type TableAction, type TableSettin
 import type { Seat } from '../shared/cards.ts'
 import { ClubError } from './errors.ts'
 import { crashEntry, type Logger } from './log.ts'
+import { TableCounters } from './metrics.ts'
 import { ACTION_BURST, ACTIONS_PER_SECOND, CHAT_BURST, CHATS_PER_SECOND, TokenBuckets } from './rate-limit.ts'
 import { TableService, type TableConfig, type TableConnections } from './table-service.ts'
 import { toWire, type ClubLink, type MatchTableUpdate, type Named, type Person, type TableEntry, type TableRpc, type Wire } from './tables.ts'
@@ -52,10 +53,18 @@ export class TableHost implements TableRpc {
   /** Rate limits on the table's connection (§5.6); a member's limits at the club are separate */
   private readonly actionLimit: TokenBuckets
   private readonly chatLimit: TokenBuckets
+  /** What this table counted since its last report to the club (e11-t22): sent with the next finished board */
+  private readonly counters = new TableCounters()
+  /** The log, counting each entry */
+  private readonly log: Logger
 
   constructor(deps: TableHostDeps) {
     this.deps = deps
-    const { club, log } = deps
+    const { club } = deps
+    const log: Logger = (this.log = (entry) => {
+      this.counters.observe(entry)
+      deps.log(entry)
+    })
     this.actionLimit = new TokenBuckets(ACTION_BURST, ACTIONS_PER_SECOND, deps.config.now)
     this.chatLimit = new TokenBuckets(CHAT_BURST, CHATS_PER_SECOND, deps.config.now)
     // What the table tells the club; a report that does not get through is only logged (the next
@@ -76,7 +85,13 @@ export class TableHost implements TableRpc {
       },
       boardFinished: async (record, event) => {
         if (this.frozen) throw new Error('the table was handed back to the club')
-        await club.boardFinished(record, event)
+        const stats = this.counters.take()
+        try {
+          await club.boardFinished(record, event, stats)
+        } catch (error) {
+          this.counters.putBack(stats)
+          throw error
+        }
       },
       // Asked as a host seats a robot; when the club cannot be reached the action fails (serverError)
       mayUseTku: (userId) => club.mayUseTku(userId),
@@ -104,7 +119,8 @@ export class TableHost implements TableRpc {
   }
 
   private make(tableId: string): TableService {
-    const { storage, sockets, config } = this.deps
+    const { storage, sockets } = this.deps
+    const config = { ...this.deps.config, onThink: (ms: number) => this.counters.think(ms) }
     this.service = new TableService(
       tableId,
       {
@@ -270,7 +286,8 @@ export class TableHost implements TableRpc {
     if (!isTableAction(message)) return this.reject(userId, 'unknownCommand', message.type)
     if (!this.actionLimit.take(userId)) return this.reject(userId, 'slowDown', message.type)
     if (message.type === 'chat' && !this.chatLimit.take(userId)) return this.reject(userId, 'chatTooFast', message.type)
-    const { log, config, sockets } = this.deps
+    const { config, sockets } = this.deps
+    const { log } = this
     const started = config.now()
     try {
       if (!this.live) throw new ClubError('tableGone', {}, 404)
@@ -288,7 +305,7 @@ export class TableHost implements TableRpc {
   }
 
   private reject(userId: string, code: MessageCode, type?: string) {
-    this.deps.log({ event: 'rejected', user: userId, code, ...(type ? { type } : {}) })
+    this.log({ event: 'rejected', user: userId, code, ...(type ? { type } : {}) })
     const error = new ClubError(code)
     this.deps.sockets.send(userId, { type: 'error', code, params: {}, message: error.message })
   }
