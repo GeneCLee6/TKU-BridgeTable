@@ -15,6 +15,9 @@ npm run sim -- leads --deals 2000 --samples 30         # 每副另外加首攻�
 npm run sim -- compare --deals 60 --samples 30         # TKB 對單明手抽樣：每一張牌（§3），約 2 分鐘
 npm run sim -- compare --deals 500 --points lead       # 只比首攻
 npm run sim -- leads --deals 10000 --analyse           # 不算，只用檔案裡已有的紀錄重做報告
+npm run sim -- bidding --deals 20000 --system gib --threads 8   # 叫牌研究：每個叫品對替代叫品（§7），約 40 分鐘
+npm run sim -- compete --deals 10000 --system gib      # 同上，只看競叫的決策點
+npm run sim -- bidding --deals 20000 --system gib --analyse --practice shared/practice-sets  # 重做報告並寫出練習牌組
 ```
 
 | 參數 | 意思 |
@@ -176,15 +179,16 @@ npm run sim -- compare --deals 2000 --samples 50 --threads 18  # 2,000 副每張
 
 | 檔案 | 內容 |
 | --- | --- |
-| `cli.ts` | 指令列：`bench`、`tables`、`leads`、`compare` |
-| `dds.ts` | Node 用的 DDS 包裝：`loadSolver`、`Solver.table`（DD 表）、`Solver.solve`（一個局面每張牌的墩數）、`expandEquals` |
+| `cli.ts` | 指令列：`bench`、`tables`、`leads`、`compare`、`bidding`（`compete`） |
+| `dds.ts` | Node 用的 DDS 包裝：`loadSolver`、`Solver.table`（DD 表）、`Solver.solve`（一個局面每張牌的墩數）、`Solver.par`（`DealerPar`，南北的 par 分數）、`expandEquals` |
 | `pool.ts`、`worker.ts`、`jobs.ts` | 執行緒池與工作格式；`defaultThreads`、`chunked` |
 | `sampler.ts` | `knowledgeOf`（一家看得到的）、`sampleLayout`／`sampleLayouts`（拒絕抽樣）、`positionOf` |
 | `score.ts` | `scoreCards`（平均墩數、做成率、得分、`ddBias`）、`bestCard`、`objectiveValue` |
 | `board.ts` | 四個 TKB 叫完一副（`bidBoard`）、合約與叫牌的文字 |
 | `leads.ts` | 首攻紀錄（`leadRecord`）、慣例牌、首攻類型、社長的觀念（`CONCEPTS`）、統計（`LeadStudyBuilder`）與報告 |
 | `compare.ts` | 一副每個決策的對照（`compareBoard`）、情境、統計與報告 |
+| `bidding.ts` | 叫牌研究（§7）：決策點的分類（`classify`）、替代叫品（`alternativesFor`）、一副的紀錄（`biddingRecord`）、統計（`BiddingStudyBuilder`）、報告與練習牌組（`practiceDeals`） |
 | `store.ts`、`progress.ts`、`random.ts` | JSON Lines 續跑、進度與 ETA、種子亂數 |
 | `data/` | 結果與報告（不進 git） |
 
-測試在 `tests/eval/sim.test.ts`：抽樣器（每張看不到的牌剛好發一次、張數與點力在範圍內、放寬會記下、看不到的牌洗過結果不變、同種子同結果）、評分（平均、做成率、得分、偏差旋鈕、莊方）、DDS（首攻者最佳墩數＋DD 表的莊家墩數＝13）、首攻的慣例牌與類型、觀念的情境、統計與報告、對照的統計、執行緒池（兩個執行緒算出的 DD 表跟單一 solver 一樣）、JSON Lines 續跑。
+測試在 `tests/eval/sim.test.ts`：抽樣器（每張看不到的牌剛好發一次、張數與點力在範圍內、放寬會記下、看不到的牌洗過結果不變、同種子同結果）、評分（平均、做成率、得分、偏差旋鈕、莊方）、DDS（首攻者最佳墩數＋DD 表的莊家墩數＝13）、首攻的慣例牌與類型、觀念的情境、統計與報告、對照的統計、執行緒池（兩個執行緒算出的 DD 表跟單一 solver 一樣）、JSON Lines 續跑。叫牌研究的測試在 `tests/eval/bidding.test.ts`：決策點的分類、替代叫品（開叫、答叫、邀請與成局、滿貫、競叫；同伴迫叫與人工叫品之後不試 Pass）、替代叫品的種類與方向、DD 表上的得分與 IMP、par 的正負號、真實牌組上叫完替代叫品、統計與報告、練習牌組（挑選、說明、讀檔）、執行緒池與續跑。
