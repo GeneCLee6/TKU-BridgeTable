@@ -4,7 +4,7 @@ import { auctionBoard, playBoard, resultBoard, serve, table, type Club } from '.
 /**
  * The main screens, compared with the baselines in __screenshots__ (e3-t37, AC-3.11): the table
  * while bidding, playing and after the board, on a computer, a 390px phone, two tablets (e3-t36)
- * and in dark mode, plus the tour, the lobby and the sign-in page.
+ * and in dark mode, plus the tour, the lobby, the history list and the sign-in page.
  */
 
 const DESKTOP = { width: 1280, height: 800 }
@@ -94,4 +94,37 @@ test('sign in · desktop', async ({ page }) => {
   await open(page, '/', { me: null }, DESKTOP)
   await expect(page.getByRole('button', { name: '登入' })).toBeVisible()
   await shot(page, 'login-desktop')
+})
+
+/** The history list, once its rows are in */
+async function atHistory(page: Page, size: { width: number; height: number }) {
+  // The phone's cards write the date relative to today
+  await page.clock.setFixedTime(new Date('2026-10-20T20:00:00+08:00'))
+  await open(page, '/history', {}, size)
+  await expect(page.locator('tr[data-href]').first()).toBeVisible()
+}
+
+for (const [name, size] of [
+  ['desktop', DESKTOP],
+  ['phone', PHONE],
+] as const) {
+  test(`history · ${name}`, async ({ page }) => {
+    await atHistory(page, size)
+    await shot(page, `history-${name}`)
+  })
+}
+
+test('history never scrolls sideways, at any width (e3-t45)', async ({ page }) => {
+  for (const width of [390, 480, 600, 720, 820, 960, 1100, 1440]) {
+    await atHistory(page, { width, height: 800 })
+    const overflow = await page.evaluate(() => {
+      const table = document.querySelector('table')!
+      const frame = table.parentElement!
+      return {
+        page: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+        table: table.getBoundingClientRect().width - frame.getBoundingClientRect().width,
+      }
+    })
+    expect(overflow, `at ${width}px`).toEqual({ page: 0, table: 0 })
+  }
 })
