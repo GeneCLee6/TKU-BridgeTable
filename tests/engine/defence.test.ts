@@ -120,8 +120,8 @@ describe('third hand high', () => {
   it("does not overtake partner's honour, but unblocks a doubleton in notrump", () => {
     // West leads the ♥Q from QJT; East's ♥Kxx stays back
     const keep = layout({ N: 'A32 753 QJT9 K43', E: 'Q876 K92 A32 872', W: 'T94 QJT4 654 T95' })
-    // (the club's attitude is upside down: the two likes it; GIB's is standard: the nine)
-    expect(plays(board(keep, NOTRUMP, ['HQ', 'H3']))).toEqual(['H2', 'H9'])
+    // (the club's attitude is upside down: the two likes it; both robots play it)
+    expect(plays(board(keep, NOTRUMP, ['HQ', 'H3']))).toEqual(['H2', 'H2'])
     // West leads the ♥K from KQJ82 against 3NT; East's ♥A4 overtakes so the suit does not block
     const unblock = layout({ N: 'A32 753 QJT9 K43', E: 'Q876 A4 A32 9876', W: 'T94 KQJ82 654 T5' })
     expect(plays(board(unblock, NOTRUMP, ['HK', 'H3']))).toEqual(['HA', 'HA'])
