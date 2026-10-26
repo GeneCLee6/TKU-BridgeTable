@@ -81,6 +81,7 @@ TKU-BridgeTable/
 │  ├─ history-index.ts     紀錄的 SQL 索引：建表、寫入、搜尋（§5.3）；D1 副本共用同一段 SQL
 │  ├─ favorites.ts         收藏的 SQL 讀寫（§5.3）
 │  ├─ practice-presets.ts  社員存的練習設定（存成我的設定，§5.11）
+│  ├─ practice-review.ts   叫牌練習的檢討：每一口 TKB 會叫什麼、四家 TKB 從頭叫（只給那一家的牌，§5.11）
 │  ├─ notifications.ts     通知中心（§5.4）
 │  ├─ relations.ts         好友與封鎖名單（§5）
 │  ├─ direct-messages.ts   私訊的 SQL 表與 DirectMessageStore（§5.7）
@@ -146,6 +147,7 @@ interface BoardState {
 | Alert 說明 | 叫牌者的同伴在打完前看不到；機器人的說明除外（`AuctionCall.robot`），所有人都看得到，同 BBO 的 GIB |
 | 叫品的推論意義 | 真人的叫品帶引擎依那一方制度讀出的意義（`AuctionCall.meaning`＋`inferred`：機器人同伴的制度，沒有就用淡江制度），所有人都看得到，同伴也是：只由公開的叫牌過程與制度算出，等於制度卡（`e5-t22`）|
 | 叫牌盒提示 | 輪到自己叫、桌上有機器人時，`BoardView.callMeanings` 帶每個合法叫品在機器人制度裡的意義（同伴是機器人用同伴的，否則用對手機器人的）；伺服器用引擎的 `explain` 只依叫牌過程算出，不看任何一手牌（`views.ts` 的 `callMeaningsFor`，`e5-t22`）|
+| 叫牌練習的檢討（`e10-t07`） | 只叫牌的練習桌**這一副結束後**（四家已公開）才有 `TablePractice.review`：每一口 TKB 拿那一家的牌在那時會叫什麼（`steps`）、四家 TKB 從頭叫的過程與合約（`robot`）。它是從四家的牌算出來的，叫牌中送出就等於洩漏別家的牌，所以叫牌中、重叫、下一副時一律沒有（`practiceView`）；問機器人時只給那一家的牌（`practice-review.ts` 的 `askedState`）|
 | 叫牌提示卡 | 每個看的人都有 `BoardView.bookTopics`：淡江橋譜裡跟目前叫牌有關的頁面，從叫牌過程與淡江制度的規則算出，不看任何一手牌；看的人的同伴是 2/1 的 TKB 時不送（`e10-t06`）|
 
 **誰看得到哪一桌**（四種進入方式，§5「牌桌設定」，判斷在 `worker/views.ts` 的 `tableListed`／`mayEnter`）：大廳與成員列表的「在哪一桌」只列出觀看者看得到的桌：挑戰桌誰都不列；**隱藏**的桌只列給房主、受邀者與已經在桌上的人，其他人連桌號都看不到（成員列表的 `tableNumber` 是 `null`），`joinTable`／`sit`／`requestJoin` 都拿到 `tableGone`，跟不存在的桌一樣；公開、申請加入、拒絕所有人的桌列給所有人。**加入申請**只送給房主（`TableView.requests`），房主封鎖的人送出的申請房主看不到（`muted`），申請者也看不出差別；`TableSummary.requested` 只告訴觀看者自己有沒有申請在等。受邀名單同樣只送給房主（`TableView.invited`）。
@@ -401,7 +403,10 @@ interface BoardState {
   - **存成我的設定**：`practicePresets:<userId>` 一份清單（`worker/practice-presets.ts`，新的在前），每人最多 `PRACTICE_PRESETS_MAX` 20 組，名稱 1–30 字（`badPresetName`），同名覆蓋、超過回 `practicePresetsFull { max }`；設定照開桌的規則檢查（`parsePracticeSettings`），牌組只存選擇（哪一組、哪幾副的 id），不存牌。`GET /api/practice/presets`、`POST /api/practice/presets { name, settings }`（共用社員的動作速率限制）、`DELETE /api/practice/presets/:id`（`presetGone`），都回整份清單；只讀寫自己的。帳號刪除時一起刪。
   - **牌組**：`deal: 'set'` 帶 `set`：`{ source: 'practice', id }`（社團的練習牌組）或 `{ source: 'favorites' | 'featured', ids }`（自己的收藏或精選，最多 `PRACTICE_SET_BOARDS_MAX` 50 副）。開桌時 `ClubService.practiceProblems` 讀出牌放進 `PracticeTableState.problems`（找不到牌組 `practiceSetGone`；不是自己的收藏、沒被精選、看不到或還沒公開的牌一律 `boardGone`，§4），之後**依序出題**、發完一輪從頭（`modes.ts` 的 `practice.deal`），每副的牌號照那副的發牌人與局況（練習牌組用 `boardNoFor`，紀錄用原本的牌號）。牌組不能和 Just Declare 一起（`field: 'justDeclare'`）。精選的分類、標題與講解、練習牌組的分類與教學重點跟著題目，`TableView.practice.problem`（第幾題／共幾題，叫牌結束後才有 `note`），結果面板顯示「教學重點」。
   - **練習牌組的檔案**：`shared/practice-sets/*.json`，一個檔一組（檔名就是 id），格式是陣列 `{ id, dealer, vulnerability: 'None'|'NS'|'EW'|'All', hands: 'N:<北> <東> <南> <西>', category, note }`。`index.ts` 用 Vite 的 `import.meta.glob` 找檔案，所以新增一個 JSON 就會列出來，不必改程式（Worker 由 Vite 的 Cloudflare 外掛建置、Vitest 也走 Vite，兩邊都支援；選它而不是在 index 一個個註冊，是因為出題的人只要放檔案）。格式不對的檔案不列出，記在 `PRACTICE_SET_ERRORS`，測試要求它是空的。`GET /api/practice/sets` 只回 id、副數與分類，不含牌；名稱來自 `strings.ts` 的 `practiceSetNames`（沒有就顯示 id）。
-  - **留給 U2c（檢討）**：叫完的那一副（`biddingEnded`）四家已經公開，DD 表可以在瀏覽器用現有的 DDS（`src/lib/dds.worker.ts`）算；機器人每一步建議的叫法要在伺服器對同一個叫牌過程問 `RobotBrain.bid`（只看那一家的牌），差異跟 `AuctionCall.meaning` 一起送。題目的 `note` 已經在叫完才送。
+- **叫牌練習室（三）：檢討**（`e10-t07`，ROADMAP U2c）：只叫牌的練習桌叫完一副，結果面板多一個「檢討」，打開 `PracticeReview` 對話框：四家牌、逐步對照、TKB 會叫到哪裡、DD 表與 par、牌組的教學重點。
+  - **伺服器算、叫完才送**：叫牌結束（`endBidding`，四家 Pass 也算）時清掉舊的檢討，之後由 `TableService.scheduleReview` 用機器人排程（`robot` 類的工作，`review:<桌>`）分兩次算：先算每一口 TKB 會叫什麼（`reviewSteps`：對叫牌過程的每一口問 `RobotBrain.bid`，只給那一家的牌與那一口之前的叫牌，`askedState`），存好送出；下一個工作再讓四家 TKB 從頭叫同一副（`robotBidding`，每一家同樣只看自己的牌）。制度用桌子的 `robotKind`（淡江或 2/1）。結果存在 `PracticeTableState.review`，`practiceView` 只在這一副 `finished` 時送；重叫（`rebid`）、下一副（`dealBoard`）就丟掉。物件被回收時工作不會保存，`restore` → `scheduleRobots` 會把還缺的部分再排一次；機器人想太久或失敗時由規則機器人回答（同牌桌）。
+  - **為什麼分兩次、在排程裡**：免費方案每次請求只有 10 ms CPU。在忙碌的開發機上量（200 副隨機牌，叫牌過程平均 9.5 口）：每一口建議＋四家 TKB 從頭叫合計中位數約 3 ms、p95 約 7 ms、最多約 15–19 ms（淡江與 2/1 差不多）。放在叫最後一口的請求裡會跟那一口的處理加在一起，偶爾超過；拆成兩個排程工作，每次最多大約一個叫牌過程的量，也不拖慢叫最後一口的回應。
+  - **瀏覽器只顯示**：逐步對照把實際叫品與 TKB 的叫品並列，不同的標「不同」；點一口顯示兩邊的制度解釋（實際叫品的 `meaning`／`inferred`、TKB 的 `meaning`，用 `describe` 依觀看者的語言寫出點力與張數）。DD 表用紀錄頁的 `DoubleDummyPanel`（瀏覽器端 DDS，四家此時已公開）；兩個合約的 DD 墩數、南北分數與 IMP 差（`src/lib/practiceReview.ts`，`duplicateScore`＋`imps`）在瀏覽器算，只是顯示。還沒送到的部分顯示「計算中…」。
 - **Just Declare 練習**（`e10-t05`）：每副先由四個 TKB 叫完（`challenge-deals.ts` 的 `robotAuction`，同 Just Declare 挑戰），南北沒當莊就重發，最多 `JUST_DECLARE_TRIES` 次；真的抽不到時先打一副有合約的（防守），再不行就讓社員自己叫。同伴當莊時社員換到莊家位（同一般牌桌的 `swapForDeclarer`）。
 - **紀錄**：`BoardRecord.mode = 'practice'`、桌號 0（列表顯示「練習」，`strings.ts` 的 `boardPlace`）。SQL 搜尋 `scope=all` 沒指定 `mode` 時排除練習（`history-index.ts` 的 `where`），所以「全部社員」、個人檔案卡的最近牌局都看不到；「我的」照常列出，篩選「練習」（`HISTORY_MODES`）兩邊都找得到。練習的牌不能設精選（`practiceNotFeatured`）、不能「用這副牌挑戰」（`practiceNoChallenge`）。
 - **畫面**：`TableView.practice`（`worker/views.ts` 的 `practiceView`：只有社員自己的設定與 `dealt`，不含任何牌）；牌桌標題 `PracticeBanner`，右下角「重發」「結束練習」。

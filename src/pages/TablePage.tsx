@@ -31,6 +31,7 @@ import { TableSettingsDialog } from '../components/TableSettingsDialog.tsx'
 import { TableTour } from '../components/TableTour.tsx'
 import { ContractLabel } from '../components/Suit.tsx'
 import { ClaimPicker, FeltButton, FeltPanel, JoinRequests, Prompt, ResultPanel } from '../components/TablePanels.tsx'
+import { PracticeReview } from '../components/PracticeReview.tsx'
 import { COLLECT_MS, TrickArea, TrickSpace, type CardOrigin, type Position } from '../components/TrickArea.tsx'
 import { TrickPile } from '../components/TrickPile.tsx'
 import { Button, Muted, PageMain } from '../components/ui.tsx'
@@ -644,6 +645,10 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
   const [lastTrickFor, setLastTrickFor] = useState(0)
   const [claimingFor, setClaimingFor] = useState(0)
   const [editingSettings, setEditingSettings] = useState(false)
+  // 檢討 of a bidding practice's board (`e10-t07`): open only while that board stays finished
+  const [reviewing, setReviewing] = useState(false)
+  const reviewable = !!table.practice?.biddingOnly && board?.phase === 'finished'
+  if (reviewing && !reviewable) setReviewing(false)
   const showAuction = auctionFor === boardNo
   const showLast = lastTrickFor === boardNo
   const claiming = claimingFor === boardNo
@@ -1010,6 +1015,7 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
           declarerName={board.contract ? nameOf(board.contract.declarer) : undefined}
           seconds={seconds}
           note={practice?.problem?.note}
+          onReview={reviewable ? () => setReviewing(true) : undefined}
         />
       )
     }
@@ -1217,6 +1223,15 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
           </Actions>
         </Area>
       </Felt>
+      {reviewing && board && (
+        <PracticeReview
+          board={board}
+          review={practice?.review}
+          note={practice?.problem?.note}
+          names={Object.fromEntries(SEATS.map((seat) => [seat, nameOf(seat)]))}
+          onClose={() => setReviewing(false)}
+        />
+      )}
       {editingSettings && canConfigure && (
         <TableSettingsDialog
           title={t.tableSettings}

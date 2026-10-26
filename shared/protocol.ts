@@ -234,6 +234,29 @@ export interface TablePractice extends PracticeSettings {
    * practice set's note or a featured board's title and explanation). Never any cards
    */
   problem?: PracticeProblemView
+  /**
+   * 檢討 (`e10-t07`): at a bidding practice, once the auction is over (all four hands are open by
+   * then), what TKB would have called at each step and how four TKB bid the board. Worked out on
+   * the server after the auction, in turns (`TableService.review`), so a part may still be missing
+   */
+  review?: PracticeReview
+}
+
+/** The review of a bidding practice's board (`e10-t07`); never sent while the board is being bid */
+export interface PracticeReview {
+  /**
+   * For each call of the auction, in order: the call TKB (the table's system) would have made from
+   * that seat at that point, holding that seat's hand and knowing the auction before it, and what
+   * that call shows. Missing until worked out
+   */
+  steps?: PracticeReviewStep[]
+  /** Four TKB bidding the board from the start, and where they get to. Missing until worked out */
+  robot?: { auction: AuctionCall[]; contract: Contract | null }
+}
+
+export interface PracticeReviewStep {
+  call: Call
+  meaning?: Spec
 }
 
 export interface PracticeProblemView {
