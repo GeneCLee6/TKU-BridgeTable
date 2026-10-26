@@ -17,6 +17,7 @@ import {
 } from '../../worker/team-match-flow.ts'
 import type { TeamMatch } from '../../worker/team-matches.ts'
 import { memoryStore } from './sqlite.ts'
+import { clubService } from './event-mode.ts'
 
 /** Team match seats before the start: invitations, answers, moving, leaving, robots and captains (e8-t04, e8-t05) */
 
@@ -174,7 +175,7 @@ let connections: FakeConnections
 
 beforeEach(async () => {
   connections = new FakeConnections()
-  club = new ClubService(memoryStore(), connections, { maxUsers: 40, now: () => T0, schedule: () => {} })
+  club = clubService(memoryStore(), connections, { maxUsers: 40, now: () => T0, schedule: () => {} })
   await club.load()
   await club.register('boss', 'secret1', '')
 })

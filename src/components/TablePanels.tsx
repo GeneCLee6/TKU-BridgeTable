@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
 import styled, { css, keyframes } from 'styled-components'
 import type { BoardView, PublicUser } from '../../shared/protocol.ts'
 import { signed } from '../lib/format.ts'
@@ -7,7 +6,8 @@ import { typingIn } from '../lib/useCardChoice.ts'
 import { useT } from '../state/PreferencesContext.tsx'
 import { seatLetter } from '../strings.ts'
 import { FavoriteButton } from './FavoriteButton.tsx'
-import { ContractResult } from './Suit.tsx'
+import { ContractLabel, ContractResult } from './Suit.tsx'
+import { ActionLink } from './ui.tsx'
 
 /** Panels in the middle of the felt: claim and undo prompts, the result */
 
@@ -62,11 +62,6 @@ const Score = styled.div<{ $positive: boolean }>`
   font-size: 19px;
   font-weight: 800;
   color: ${({ $positive, theme }) => ($positive ? theme.table.bidPass : theme.table.bidDouble)};
-`
-
-const SmallLink = styled(Link)`
-  color: ${({ theme }) => theme.table.bidRedouble};
-  font-size: 14px;
 `
 
 const RING = 26
@@ -129,8 +124,19 @@ export function Countdown({ seconds }: { seconds: number }) {
  */
 export function ResultPanel({ board, declarerName, seconds }: { board: BoardView; declarerName?: string; seconds: number | null }) {
   const t = useT()
-  const result = board.result!
+  const result = board.result
   const contract = board.contract
+  // A bidding practice ends the board with the auction (`e10-t15`): the contract, nothing played
+  if (!result)
+    return (
+      <FeltPanel role="status" aria-label={t.biddingOver}>
+        <div>{t.biddingOver}</div>
+        <Big>
+          <ContractLabel contract={contract} onCard />
+        </Big>
+        {contract && <div>{declarerName ?? seatLetter[contract.declarer]}</div>}
+      </FeltPanel>
+    )
   return (
     <FeltPanel role="status" aria-label={t.result}>
       <Big>
@@ -147,9 +153,9 @@ export function ResultPanel({ board, declarerName, seconds }: { board: BoardView
       {board.recordId && (
         <div>
           <FavoriteButton boardId={board.recordId} onFelt />
-          <SmallLink to={`/history/${board.recordId}`} target="_blank" rel="noopener">
+          <ActionLink to={`/history/${board.recordId}`} target="_blank" rel="noopener" onPanel>
             {t.viewRecord}
-          </SmallLink>
+          </ActionLink>
         </div>
       )}
     </FeltPanel>

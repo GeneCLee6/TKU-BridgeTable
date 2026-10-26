@@ -1,5 +1,5 @@
 import type { RandomInt } from './board.ts'
-import { SEATS, SUITS } from './cards.ts'
+import { isSeat, SEATS, SUITS, type Seat } from './cards.ts'
 import { DEAL_PRESET_IDS, DEAL_PRESETS, type DealPreset } from './deal-presets.ts'
 import { conditionsProblem, type DealConditions, type Range, type SeatConditions } from './dealer.ts'
 import { isRobotKind, type RobotKind } from './protocol.ts'
@@ -23,10 +23,30 @@ export interface PracticeSettings {
   robotKind: RobotKind
   /** Just Declare (`e10-t05`): the robots bid every board and only those North-South declares are kept */
   justDeclare: boolean
+  /**
+   * The bidding practice (`e10-t15`): the end of the auction ends the board. The four hands are laid
+   * open with the final contract, nothing is played and nothing is recorded; the member deals the
+   * next board or bids this one again (`rebid`). Old tables have none: false
+   */
+  biddingOnly?: boolean
+  /**
+   * The seats the member bids for (`e10-t15`): South, where they sit, and any others they chose;
+   * TKB bids the rest. Seats besides South only with `biddingOnly` (nobody plays several hands yet).
+   * Kept on the table as `Table.controllers` (`worker/views.ts`), the general seat control. Old
+   * tables have none: South alone
+   */
+  seats?: Seat[]
 }
 
 /** A new practice table's settings; the dialog starts the robots in the member's system (`defaultRobotKind`) */
 export const DEFAULT_PRACTICE_SETTINGS: PracticeSettings = { deal: 'random', robotKind: 'gib', justDeclare: false }
+
+/** Where the member sits at a practice table */
+export const PRACTICE_SEAT: Seat = 'S'
+
+/** The seats besides South the member bids for at a practice table: TKB sits there, but the member bids for it */
+export const controlledSeats = (settings: Pick<PracticeSettings, 'seats'>): Seat[] =>
+  (settings.seats ?? []).filter((seat) => seat !== PRACTICE_SEAT)
 
 /**
  * How many tries a practice deal gets (`dealer.ts` attempts), so a deal never takes long on the
@@ -136,20 +156,39 @@ export function parsePracticeSettings(
   value: unknown,
   kind: RobotKind = 'gib',
 ): { settings: PracticeSettings } | { field: string } {
-  if (!isObject(value) || !onlyKeys(value, ['deal', 'conditions', 'robotKind', 'justDeclare'])) return { field: 'settings' }
+  if (!isObject(value) || !onlyKeys(value, ['deal', 'conditions', 'robotKind', 'justDeclare', 'biddingOnly', 'seats']))
+    return { field: 'settings' }
   const deal = value.deal ?? 'random'
   if (!PRACTICE_DEALS.includes(deal as PracticeDeal)) return { field: 'deal' }
   const robotKind = value.robotKind ?? kind
   if (!isRobotKind(robotKind)) return { field: 'robotKind' }
   const justDeclare = value.justDeclare ?? false
   if (typeof justDeclare !== 'boolean') return { field: 'justDeclare' }
+  // The robots bid a Just Declare board for everyone: a bidding practice would have nothing left to bid
+  const biddingOnly = value.biddingOnly ?? false
+  if (typeof biddingOnly !== 'boolean' || (biddingOnly && justDeclare)) return { field: 'biddingOnly' }
+  const seats = parseSeats(value.seats, biddingOnly)
+  if (!seats) return { field: 'seats' }
+  // Only what was chosen is kept, so a plain practice table's settings stay as they were
+  const extra = { ...(biddingOnly && { biddingOnly }), ...(seats.length > 1 && { seats }) }
   if (deal !== 'custom') {
     if (value.conditions !== undefined) return { field: 'conditions' }
-    return { settings: { deal: deal as PracticeDeal, robotKind, justDeclare } }
+    return { settings: { deal: deal as PracticeDeal, robotKind, justDeclare, ...extra } }
   }
   const conditions = parseConditions(value.conditions)
   if (!conditions) return { field: 'conditions' }
-  return { settings: { deal, conditions, robotKind, justDeclare } }
+  return { settings: { deal, conditions, robotKind, justDeclare, ...extra } }
+}
+
+/**
+ * The seats the member bids for, in table order, or null: each seat once, South among them, and
+ * others only at a bidding practice
+ */
+function parseSeats(value: unknown, biddingOnly: boolean): Seat[] | null {
+  if (value === undefined) return [PRACTICE_SEAT]
+  if (!Array.isArray(value) || !value.every(isSeat) || new Set(value).size !== value.length) return null
+  if (!value.includes(PRACTICE_SEAT) || (value.length > 1 && !biddingOnly)) return null
+  return SEATS.filter((seat) => value.includes(seat))
 }
 
 /**

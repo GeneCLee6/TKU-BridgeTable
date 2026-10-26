@@ -8,7 +8,7 @@ import type { ChallengeView } from '../../shared/challenge.ts'
 import type { BoardRecord } from '../../shared/protocol.ts'
 import type { Traveller } from '../../shared/traveller.ts'
 import { TravellerTable } from '../components/Traveller.tsx'
-import { Card, ErrorText, Muted, PageMain, PageTitle } from '../components/ui.tsx'
+import { ActionLink, Card, ErrorText, Muted, PageMain, PageTitle } from '../components/ui.tsx'
 import { ApiError, api } from '../lib/api.ts'
 import {
   challengeTitle,
@@ -31,14 +31,8 @@ import { BoardRecordView } from './BoardPage.tsx'
  * from `/api/history/:id` (`recordVisible`, `challengeBoardVisible`, §4).
  */
 
-const Back = styled(Link)`
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  margin-bottom: 8px;
-  color: ${({ theme }) => theme.colors.primary};
-  font-weight: 600;
-  text-decoration: none;
+const Back = styled(ActionLink)`
+  margin: 0 0 8px -4px;
 `
 
 const Nav = styled.nav`
@@ -175,16 +169,14 @@ export function ChallengeBoardPage() {
   }, [chosenId, message])
 
   const back = (
-    <Back to={`/challenges/${challengeId}`}>
-      <ChevronLeft size={18} aria-hidden />
+    <Back back to={`/challenges/${challengeId}`}>
       {t.backToChallenge}
     </Back>
   )
   if (c === null)
     return (
       <PageMain>
-        <Back to="/challenges">
-          <ChevronLeft size={18} aria-hidden />
+        <Back back to="/challenges">
           {t.allChallenges}
         </Back>
         <Card>

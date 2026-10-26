@@ -167,7 +167,7 @@ export function PeopleList({
     return (
       <Person key={m.id} $online={m.online}>
         <Dot $online={m.online} aria-label={m.online ? t.online : t.offline} />
-        <Avatar id={m.id} name={m.username} size={24} />
+        <Avatar id={m.id} name={m.username} size={24} avatar={m.avatar} />
         <PersonName type="button" title={t.openProfile(m.username)} onClick={() => setCard(m)}>
           {m.username}
           {me && t.youTag}

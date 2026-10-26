@@ -9,6 +9,7 @@ import {
   type DirectsView,
   type PublicUser,
 } from '../../shared/protocol.ts'
+import { Avatar } from './Avatar.tsx'
 import { formatDateTime } from '../lib/format.ts'
 import { openConversation } from '../lib/sound/player.ts'
 import { usePreferences } from '../state/PreferencesContext.tsx'
@@ -35,7 +36,9 @@ const List = styled.ul`
 
 const Row = styled.button`
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  & > [data-avatar] { grid-row: span 2; }
   gap: 2px 8px;
   width: 100%;
   padding: 8px 14px;
@@ -199,6 +202,7 @@ export function DirectMessages(props: DirectMessagesProps) {
             onClick={() => onTalkTo(c.user.id)}
             aria-label={c.unread ? `${c.user.username} · ${t.tabUnread(c.unread)}` : c.user.username}
           >
+            <Avatar id={c.user.id} name={c.user.username} size={32} avatar={c.user.avatar} />
             <Name $unread={c.unread > 0}>{c.user.username}</Name>
             <When>{formatDateTime(c.last.at, lang)}</When>
             <Preview>
@@ -271,6 +275,7 @@ function Conversation({ me, directs, live, members, blocked, talkTo, onTalkTo, s
           <ArrowLeft size={16} aria-hidden />
           {t.allConversations}
         </SmallButton>
+        {name && <Avatar id={talkTo} name={name} size={24} />}
         <span>{name}</span>
       </ThreadBar>
       <Log ref={log} aria-label={t.conversationWith(name)} aria-live="polite">

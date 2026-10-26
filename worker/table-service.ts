@@ -5,6 +5,7 @@ import {
   claimApprovers,
   controllerOf,
   dummyOf,
+  endBidding,
   legalCards,
   makeCall,
   makeClaim,
@@ -47,11 +48,20 @@ import { ruleBrain, type RobotBrain } from '../shared/robot/brain.ts'
 import { inferredMeaning, type RobotBid } from '../shared/robot/robots.ts'
 import { randomId } from './auth.ts'
 import { ClubError } from './errors.ts'
-import { challengeStateOf, challengeTableOpen, modeOf, nextTableSeq, type EventReport, type ModeContext } from './modes.ts'
+import {
+  biddingOnly,
+  challengeStateOf,
+  challengeTableOpen,
+  modeOf,
+  nextTableSeq,
+  type EventReport,
+  type ModeContext,
+} from './modes.ts'
 import type { Scheduler } from './scheduler.ts'
 import { tableMatch, teamPaused, teamStateOf, teamTableOver } from './team-mode.ts'
 import type { ClubLink, MatchTableUpdate, Named, Person, TableApi, TableEntry, Tables } from './tables.ts'
 import {
+  actorOf,
   boardView,
   chatFor,
   liveRequests,
@@ -60,6 +70,7 @@ import {
   recordVisible,
   refusal,
   seatOccupants,
+  seatsActedBy,
   tableListed,
   type AccessFacts,
   type Table,
@@ -468,6 +479,8 @@ export class TableService implements TableApi {
     if (table.requests) table.requests = table.requests.filter((r) => r.userId !== userId)
     if (table.declined) delete table.declined[userId]
     if (seat) delete table.substitutes![seat]
+    // The seats they bid for go back to whoever sits there
+    for (const s of SEATS) if (table.controllers?.[s] === userId) delete table.controllers[s]
     if (table.names) delete table.names[userId]
     if (table.blocks) delete table.blocks[userId]
     this.offlineSince.delete(userId)
@@ -572,6 +585,9 @@ export class TableService implements TableApi {
         break
       case 'redeal':
         await this.redeal(userId)
+        break
+      case 'rebid':
+        await this.rebid(userId)
         break
       case 'call':
       case 'play':
@@ -808,7 +824,7 @@ export class TableService implements TableApi {
     const turn = turnOf(board)
     if (!turn) return null
     const seat = board.phase === 'auction' ? turn : controllerOf(board, turn)
-    const id = table.seats[seat]
+    const id = actorOf(table, seat)
     return id && !isRobotId(id) ? seat : null
   }
 
@@ -938,8 +954,14 @@ export class TableService implements TableApi {
     const table = this.table!
     if (!this.canDeal()) return
     if (!table.board) return this.dealBoard()
+    if (!this.dealsByItself()) return
     table.dealAt = Math.max(table.dealAt ?? 0, this.now() + DEAL_COUNTDOWN_MS)
     this.scheduleDeal()
+  }
+
+  /** Whether the next board comes by itself after the countdown: not at a bidding practice, where the member asks for it */
+  private dealsByItself() {
+    return !biddingOnly(this.table!)
   }
 
   private canDeal() {
@@ -1031,7 +1053,7 @@ export class TableService implements TableApi {
 
   private scheduleDeal() {
     const table = this.table
-    if (!table?.board || !this.canDeal()) return
+    if (!table?.board || !this.canDeal() || !this.dealsByItself()) return
     const ms = Math.max(0, (table.dealAt ?? 0) - this.now())
     this.scheduler.add(`deal:${table.id}`, 'deal', ms, () => this.dealNext())
   }
@@ -1062,6 +1084,26 @@ export class TableService implements TableApi {
     this.dealBoard()
     // The conditions could not be met this time: the board stays
     if (table.board === before) throw new ClubError('dealTooStrict')
+    await this.save()
+  }
+
+  /**
+   * 重叫這一副 (`e10-t15`): at a bidding practice its member bids the board on the table again from
+   * the start, the same hands, finished or not. Nothing was recorded for it, nor is now
+   */
+  private async rebid(userId: string) {
+    const table = this.table
+    if (!table || !this.isAt(userId)) throw new ClubError('notAtTable')
+    if (!biddingOnly(table)) throw new ClubError('biddingOnlyRebid')
+    if (table.hostId !== userId || !this.seatOf(userId)) throw new ClubError('hostOnly')
+    const board = table.board
+    if (!board) throw new ClubError('noBoard')
+    table.board = newBoard(board.boardNo, board.hands)
+    table.undo = undefined
+    table.rejectedClaim = undefined
+    table.dealAt = undefined
+    table.boardStartedAt = this.now()
+    this.touchTurn()
     await this.save()
   }
 
@@ -1109,7 +1151,36 @@ export class TableService implements TableApi {
       if (table.mode === 'challenge') throw new ClubError('challengeNoUndo')
       if (table.mode === 'team') throw new ClubError('matchNoUndo')
     }
+    if (message.type === 'call') return this.applyAction(this.callingSeat(userId, seat, message.seat), message)
+    if (message.type === 'undoRequest') return this.applyAction(this.undoSeat(userId, seat), message)
+    // Nobody agrees to take back a call they made themselves, for whichever seat (seat control)
+    if (message.type === 'undoRespond' && table.undo && actorOf(table, table.undo.seat) === userId)
+      throw new ClubError('undoByOpponent')
     await this.applyAction(seat, message)
+  }
+
+  /**
+   * The seat a member calls for (seat control, `e10-t15`): the one the call names, which must be a
+   * seat they make the calls for (`actorOf`), else their own. Whose turn it is `makeCall` checks
+   */
+  private callingSeat(userId: string, own: Seat, asked: unknown): Seat {
+    if (asked === undefined) return own
+    if (!isSeat(asked)) throw new ClubError('badSeat')
+    if (actorOf(this.table!, asked) !== userId) throw new ClubError('notYourSeat', {}, 403)
+    return asked
+  }
+
+  /**
+   * Whose call an undo takes back: during the auction the last call the member made, for any seat
+   * they call for; otherwise their own seat's, as always
+   */
+  private undoSeat(userId: string, own: Seat): Seat {
+    const table = this.table!
+    const board = table.board
+    const acts = seatsActedBy(table, userId)
+    if (!board || board.phase !== 'auction' || acts.length < 2) return own
+    const last = board.auction.findLast((c) => acts.includes(c.seat))
+    return last && last.seat !== this.auctionSeat(table, own) ? last.seat : own
   }
 
   /** Applies one board action for a seat, from a person or a robot */
@@ -1138,8 +1209,11 @@ export class TableService implements TableApi {
         } else {
           // A person's call carries what the engine reads it as, in their side's system: a robot
           // partner's, or the club's (e5-t22); like a convention card, it is for everyone
+          // A member bidding for a robot's seat (seat control) bids in that robot's system
           const partner = table.seats[partnerOf(seat)]
-          const kind: RobotKind = partner && isRobotId(partner) ? robotKindOf(partner) : 'tku'
+          const own = table.seats[seat]
+          const kind: RobotKind =
+            partner && isRobotId(partner) ? robotKindOf(partner) : own && isRobotId(own) ? robotKindOf(own) : 'tku'
           const inferred = inferredMeaning(kind, next.auction, next.dealer, next.vul)
           if (inferred) next = { ...next, auction: [...board.auction, { ...next.auction.at(-1)!, meaning: inferred, inferred: kind }] }
         }
@@ -1191,6 +1265,14 @@ export class TableService implements TableApi {
     // Any new action supersedes a pending undo request and the note about a rejected claim
     table.undo = undefined
     if (message.type !== 'claimRespond') table.rejectedClaim = undefined
+    // A bidding practice ends the board with the auction: the hands are laid open, nothing is
+    // played or recorded, and the next board waits for the member (`redeal`, `rebid`)
+    if (board.phase === 'auction' && next.phase !== 'auction' && biddingOnly(table)) {
+      table.board = endBidding(next)
+      this.touchTurn()
+      await this.save()
+      return
+    }
     table.board = next
     this.touchTurn()
     if (board.phase === 'auction' && next.phase === 'play') this.swapForDeclarer()
@@ -1287,6 +1369,8 @@ export class TableService implements TableApi {
     if (!table || !board || board.phase === 'finished' || (this.humansSeated() === 0 && !this.playsOn())) return null
     if (this.challengeClosed() || teamPaused(table)) return null
     const robot = (seat: Seat | null | undefined): seat is Seat => !!seat && isRobotId(table.seats[seat])
+    // A robot whose calls a member makes (seat control) waits for them; it still answers undo and claims
+    const robotActs = (seat: Seat | null | undefined): seat is Seat => robot(seat) && isRobotId(actorOf(table, seat))
     const kindAt = (seat: Seat) => robotKindOf(table.seats[seat]!)
 
     // Robots agree to undo requests, and accept a claim only if the cards make it good
@@ -1306,7 +1390,7 @@ export class TableService implements TableApi {
     const turn = turnOf(board)
     if (!turn) return null
     if (board.phase === 'auction') {
-      if (!robot(turn)) return null
+      if (!robotActs(turn)) return null
       const decide = async (brain: RobotBrain): Promise<RobotAnswer> => {
         const bid = await brain.bid(kindAt(turn), board, turn)
         return { message: { type: 'call', call: bid.call, alert: bid.alert }, meaning: bid.meaning }
@@ -1314,7 +1398,7 @@ export class TableService implements TableApi {
       return { seat: turn, delay: ROBOT_DELAY.call, decide }
     }
     const controller = controllerOf(board, turn)
-    if (!robot(controller)) return null
+    if (!robotActs(controller)) return null
     const trickJustEnded = board.play.length > 0 && board.play.length % 4 === 0
     return {
       seat: controller,
@@ -1528,6 +1612,10 @@ export class TableService implements TableApi {
       const forWhom = table.substitutes?.[seat]
       const name = forWhom && table.names?.[forWhom]
       if (seats[seat]?.robot && name) seats[seat] = { ...seats[seat], substituteFor: name }
+      // Who bids for the seat instead of its occupant (seat control): for everyone, like the occupant
+      const controller = table.controllers?.[seat]
+      const controlledBy = controller && table.names?.[controller]
+      if (seats[seat] && controlledBy) seats[seat] = { ...seats[seat], controlledBy }
     }
     return seats
   }
@@ -1539,6 +1627,9 @@ export class TableService implements TableApi {
     const playing = !!table.board && table.board.phase !== 'finished'
     const waiting = this.waitingOn(table)
     const blocked = new Set(table.blocks?.[userId] ?? [])
+    // The seats the viewer calls for (seat control); only someone at the table calls for any
+    const acts = this.isAt(userId) ? seatsActedBy(table, userId) : []
+    const controls = acts.some((seat) => seat !== mySeat)
     return {
       id: table.id,
       number: table.number,
@@ -1547,8 +1638,10 @@ export class TableService implements TableApi {
       seats: this.occupants(table, (id) => isRobotId(id) || online.includes(id)),
       spectators: table.spectators.flatMap((id) => this.publicUser(id) ?? []),
       mySeat,
+      ...(controls && { acts }),
       board: table.board
         ? boardView(table.board, mySeat, {
+            acts,
             undo: table.undo,
             recordId: table.recordId,
             rejectedClaim: table.rejectedClaim,

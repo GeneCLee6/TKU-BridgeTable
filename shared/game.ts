@@ -182,6 +182,20 @@ export function makeCall(state: BoardState, seat: Seat, call: Call, alert?: stri
   return next
 }
 
+/**
+ * A board that is only bid (a bidding practice, `e10-t15`): once the auction is over the board is
+ * finished with its contract and no result, as nothing is played. A board passed out keeps its
+ * result (0); one still being bid is left as it is
+ */
+export function endBidding(state: BoardState): BoardState {
+  if (state.phase !== 'play' || state.play.length > 0) return state
+  return { ...state, phase: 'finished' }
+}
+
+/** Whether a finished board ended at the auction (`endBidding`): it has a contract and no result */
+export const biddingEnded = (state: Pick<BoardState, 'phase' | 'contract' | 'result'>) =>
+  state.phase === 'finished' && !!state.contract && !state.result
+
 export function playCard(state: BoardState, seat: Seat, card: Card): BoardState {
   if (state.phase !== 'play') throw new GameError('cannotPlayNow')
   if (state.claim) throw new GameError('claimPending')
