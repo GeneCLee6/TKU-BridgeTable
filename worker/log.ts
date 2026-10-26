@@ -4,7 +4,15 @@
  */
 export type LogEntry =
   /** A WebSocket message from a member: its type, how long it took, and the error code if it failed */
-  | { event: 'action'; type: string; user: string; ms: number; code?: string }
+  | {
+      event: 'action'
+      type: string
+      user: string
+      ms: number
+      code?: string
+      /** Logged as one of this many like it (`sampleActions`): count it that many times */
+      sample?: number
+    }
   /** A message that never reached a handler: too large, not valid, or over the rate limit */
   | { event: 'rejected'; user: string; code: string; type?: string }
   | { event: 'http'; method: string; path: string; status: number; ms: number; code?: string }
@@ -38,4 +46,23 @@ export function crashEntry(where: string, error: unknown): LogEntry {
   return error instanceof Error
     ? { event: 'crash', where, error: error.message, stack: error.stack?.slice(0, 2000) }
     : { event: 'crash', where, error: String(error) }
+}
+
+/**
+ * One in this many quick actions that worked is written to Workers Logs (H3b, docs/LOAD.md §5): at
+ * 200 members a line for every action is about 900 lines a minute, near the free plan's 200,000 a day
+ */
+export const ACTION_SAMPLE = 10
+/** An action at least this slow (ms) is always written */
+export const ACTION_SLOW_MS = 200
+
+/**
+ * Writes every entry but the `action` ones, of which one in `sample` (marked `sample`); an action
+ * that failed or was slow always. The status page counts every entry before this (`worker/metrics.ts`)
+ */
+export function sampleActions(write: Logger, sample = ACTION_SAMPLE, random: () => number = Math.random): Logger {
+  return (entry) => {
+    if (entry.event !== 'action' || entry.code || entry.ms >= ACTION_SLOW_MS) return write(entry)
+    if (random() * sample < 1) write({ ...entry, sample })
+  }
 }

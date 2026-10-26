@@ -9,6 +9,7 @@ import type { ServerMessage } from '../../../shared/protocol.ts'
 import { listQuery } from '../../../worker/history-index.ts'
 import { daysReplica, searchReplica } from '../../../worker/history-replica.ts'
 import { at, teamHarness } from '../team-match-harness.ts'
+import { lobbyFrom } from '../lobby-copy.ts'
 
 /**
  * The information-isolation regression suite (`e11-t13`, AC-11.8; ARCHITECTURE.md §4): in one place,
@@ -219,6 +220,63 @@ describe('practice tables', () => {
     expect(noHiddenCards(ben)).toBeGreaterThan(2)
     for (const other of [ben, cat]) expect(JSON.stringify(inbox(other))).not.toContain(practice)
     expect(t.view(ben)!.acts).toBeUndefined()
+  })
+})
+
+describe('the lobby in two parts (H3b)', () => {
+  it('shares only what every member sees alike; hidden tables, invitations, requests, friends and blocks go to their own members only', async () => {
+    const amy = await t.member('amy')
+    const ben = await t.member('ben')
+    const cat = await t.member('cat')
+    const dan = await t.member('dan')
+    const eve = await t.member('eve')
+    // Amy's hidden table, Ben invited to it and watching; Cat hosts a table one must ask to join, and Eve asks
+    await t.send(amy, { type: 'createTable', settings: { access: 'hidden' }, invitees: [ben] })
+    const hidden = t.club().lobbyView(amy).myTableId!
+    await t.send(ben, { type: 'joinTable', tableId: hidden })
+    await t.send(cat, { type: 'createTable', settings: { access: 'request' } })
+    const asking = t.club().lobbyView(cat).myTableId!
+    await t.send(eve, { type: 'requestJoin', tableId: asking })
+    await t.send(dan, { type: 'setFriend', userId: amy, friend: true })
+    await t.send(dan, { type: 'setBlocked', userId: eve, blocked: true })
+    await t.send(eve, { type: 'createTable' })
+    await t.send(eve, { type: 'leaveTable' })
+
+    const people = [amy, ben, cat, dan, eve]
+    // The shared part, by version: the very same message for everyone who got it
+    const versions = new Map<string, string>()
+    for (const id of people)
+      for (const message of inbox(id)) {
+        if (message.type !== 'lobbyShared' && message.type !== 'lobbyDelta') continue
+        const key = `${message.type}:${message.rev}`
+        const json = JSON.stringify(message)
+        expect(versions.get(key) ?? json, key).toBe(json)
+        versions.set(key, json)
+        // Nothing in it that depends on who looks
+        expect(json).not.toContain(hidden)
+        for (const field of ['"welcome"', '"requested"', '"invited"', '"approved"', '"requests"', '"friends"', '"blocked"', '"myTableId"'])
+          expect(json, `${key} has ${field}`).not.toContain(field)
+        // Where Amy and Ben are (the hidden table) is not in it either
+        const members = message.type === 'lobbyShared' ? message.lobby.members : (message.delta.members ?? [])
+        for (const m of members.filter((m) => m.id === amy || m.id === ben)) expect(m).toMatchObject({ tableNumber: null, seat: null })
+      }
+    expect(versions.size).toBeGreaterThan(3)
+
+    // Each browser puts together exactly the lobby the club would show that member
+    for (const id of people) expect(lobbyFrom(inbox(id)), id).toEqual(t.club().lobbyView(id))
+    // Only the host and the invited ever hear of the hidden table, or where its people are
+    for (const id of [cat, dan, eve]) expect(JSON.stringify(inbox(id)), id).not.toContain(hidden)
+    const seen = (id: string) => lobbyFrom(inbox(id))!
+    expect(seen(ben).tables.map((x) => x.id)).toContain(hidden)
+    expect(seen(ben).members.find((m) => m.id === amy)?.tableNumber).not.toBeNull()
+    expect(seen(cat).members.find((m) => m.id === amy)?.tableNumber).toBeNull()
+    // Eve's request is hers; Dan's friend and block are his
+    expect(seen(eve).tables.find((x) => x.id === asking)?.requested).toBe(true)
+    expect(seen(dan).tables.find((x) => x.id === asking)?.requested).toBeUndefined()
+    expect(seen(dan).friends).toEqual([amy])
+    expect(seen(dan).blocked).toEqual([eve])
+    expect(seen(amy).friends).toEqual([])
+    expect(seen(amy).blocked).toEqual([])
   })
 })
 

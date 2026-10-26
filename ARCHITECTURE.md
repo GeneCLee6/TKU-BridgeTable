@@ -153,6 +153,8 @@ interface BoardState {
 
 **誰看得到哪一桌**（四種進入方式，§5「牌桌設定」，判斷在 `worker/views.ts` 的 `tableListed`／`mayEnter`）：大廳與成員列表的「在哪一桌」只列出觀看者看得到的桌：挑戰桌誰都不列；**隱藏**的桌只列給房主、受邀者與已經在桌上的人，其他人連桌號都看不到（成員列表的 `tableNumber` 是 `null`），`joinTable`／`sit`／`requestJoin` 都拿到 `tableGone`，跟不存在的桌一樣；公開、申請加入、拒絕所有人的桌列給所有人。**加入申請**只送給房主（`TableView.requests`），房主封鎖的人送出的申請房主看不到（`muted`），申請者也看不出差別；`TableSummary.requested` 只告訴觀看者自己有沒有申請在等。受邀名單同樣只送給房主（`TableView.invited`）。
 
+**大廳分成「共用」與「自己的」兩份**（H3b，§5.13，判斷在 `worker/views.ts` 的 `listedForEveryone`）：共用的一份（`LobbyShared`：全部社員與在不在線、列給所有人的桌與座位、進行中的隊制賽）序列化一次、所有人收到同一個字串，所以裡面**不能有任何依人不同的資訊**：只放列給所有人的桌（不是挑戰、隊制賽、隱藏的桌），社員的「在哪一桌哪個座位」也只在那種桌時才填，在隱藏桌的人在共用的一份裡是 `null`。依人不同的都在只送給本人的一份（`LobbyMine`）：自己在哪一桌、好友、封鎖、每張共用桌能不能直接進（`welcome`，看房主有沒有封鎖他、受邀與同意名單）、自己有沒有申請在等（`requested`）、列給他但不是列給所有人的桌（他是房主、受邀或在桌上的隱藏桌，整張 `TableSummary`）與那些桌上的人在哪個座位（`places`）。瀏覽器把兩份合起來（`composeLobby`）就是原本的 `LobbyView`，看得到的跟之前一模一樣。受邀、同意、申請名單本身不在任何一份裡。回歸測試在 `tests/worker/visibility/visibility.test.ts` 的「the lobby in two parts」：每個版本的共用訊息對每個人完全相同、不含隱藏桌與任何依人的欄位，每位社員合起來的大廳等於伺服器給他的 `lobbyView`。
+
 指定牌組（`Table.dealSource` 的 `fixed`）整份只存在伺服器的 `Table` 裡，發到哪一副才放進 `BoardState.hands`，之後照上表的規則送出；`Table` 本身從不整份送到瀏覽器。
 
 **挑戰**（§5.5）：挑戰的牌組（`DealSet`）只存在伺服器，參與者的挑戰牌桌發到哪一副才放進 `BoardState`。別人的結果（每一副的 traveller、總排名）只給**打完全部副數**的參與者，或挑戰結束後；還沒打完全部的人，連自己打過的那幾副也看不到別人的結果，因為知道自己領先或落後會影響後面的打法（社長，2026-10-24）；非參與者在結束前什麼都看不到（`e7-t14`，規則見下面的「讀挑戰」）。挑戰牌桌（C4）只是一般的牌桌：整組牌在伺服器的 `Table.dealSource`，`boardView` 只看得到正在打的那一副，所以看得到的牌和一般牌桌完全一樣；大廳不列出挑戰牌桌，別人 `joinTable`／`sit` 拿到 `tableGone`，不能觀看。挑戰牌局的紀錄寫入時 `revealAt` ＝截止時間，挑戰一結束（完成、過期、取消）就提前到結束的那一刻，之後所有人都看得到（`recordVisible`）；在那之前只有打的人看得到，另外**打完全部副數的參與者**也能打開別人的紀錄（traveller 與重播，`challengeBoardVisible`，只在 `/api/history/:id`；搜尋仍只列自己打的）。
@@ -193,7 +195,7 @@ interface BoardState {
 
 **練習桌**（§5.11，`practiceView`）：牌照上表（社員只看到自己的牌，打完四家公開）；`TableView.practice` 只有社員自己選的設定與發了幾副，不含任何牌。**顯示四家**（`e10-t16`）：練習桌的主人（有座位）開了 `showHands`，`boardView` 另外帶 `shown`（四家）：只給他、只是看得到，叫牌盒與提示照舊（不是 `acts`）；觀看者照上表，沒有座位的人、別桌的人都不受影響，送不送牌由伺服器決定（`TableService.shownTo`）。**牌組**（`deal: 'set'`）：牌組的牌（`PracticeTableState.problems`）跟挑戰的牌組一樣只在伺服器，`practiceView` 只送正在打的那一副是第幾題、分類、精選的標題，**叫牌結束後**才送教學重點（`note`，叫牌前送會洩漏該怎麼叫）；收藏與精選的牌只能是看得到**而且已經公開**的（`revealAt` 已過或沒有）：還沒公開的挑戰、隊制賽牌，連打過的人也拿到 `boardGone`。練習牌組的 JSON 只有 Worker import，瀏覽器的 bundle 裡沒有（測試檢查 `src/` 沒有 import 它）。Just Declare 練習的叫牌是機器人叫的，跟所有機器人的叫品一樣公開。練習的紀錄所有人仍看得到（`recordVisible` 不變），只是「全部社員」的列表預設不列（§5.11）。
 
-**封鎖與聊天**（AC-1.6，`chatFor`）：牌桌聊天照每位觀看者過濾，他封鎖的社員說的話不會送到他的瀏覽器；其他人照常看得到，解除封鎖後保留的訊息會再出現。大廳的 `friends`／`blocked` 只送社員自己的名單，別人封鎖或加了誰不會送出。
+**封鎖與聊天**（AC-1.6，`chatFor`）：牌桌聊天照每位觀看者過濾，他封鎖的社員說的話不會送到他的瀏覽器；其他人照常看得到，解除封鎖後保留的訊息會再出現。大廳的 `friends`／`blocked` 只在社員自己的那一份（`LobbyMine`），別人封鎖或加了誰不會送出。
 
 **私訊**（AC-1.7，§5.7）：一則私訊只送給它的兩位成員（雙方所有分頁的 `direct`），對話列表 `directs` 只送自己的；`GET /api/messages/:userId` 只讀「自己與對方」這一對的訊息，SQL 以兩人 id 組成的 `pair` 查詢，拿不到別人之間的對話。被對方封鎖的人只會收到「不能傳私訊給他」（`cannotMessage`），不會知道被封鎖。
 
@@ -207,8 +209,8 @@ interface BoardState {
 
 **WebSocket** `/ws`（同網域，帶 cookie 驗證）與在桌上時的第二條 `/ws/table/<桌 id>`（§5.10）：牌桌的動作（`TABLE_ACTIONS`：`stand`、`kick`、`addRobot`、`removeRobot`、`replaceWithRobot`、`call`、`play`、`claim`、`claimRespond`、`undoRequest`、`undoRespond`、`chat`、`redeal`）在桌的連線打開時走那一條，那一桌直接推 `table`；其他動作、與桌的連線還沒接上時的牌桌動作走 `/ws`（社團轉給那一桌）。桌的連線只收在桌上的人（入座、觀看、停著的挑戰桌的主人），其他人與離開的人用 4004（`TABLE_SOCKET_REFUSED`）關掉，瀏覽器不再重試那一桌：
 
-- 瀏覽器 → 伺服器：`createTable`（可帶 `settings`、`invitees`）、`updateTableSettings`（可帶 `invitees`）、`requestJoin`、`answerRequest`（申請加入，見下）、`quickSeat`、`createPractice`（§5.11，可帶 `access`）、`joinTable`、`sit`、`stand`、`leaveTable`、`kick`、`addRobot`、`removeRobot`、`replaceWithRobot`、`call`、`play`、`claim`、`claimRespond`、`undoRequest`、`undoRespond`、`chat`、`redeal`（只有練習桌）、`rebid`（只有只叫牌的練習桌）、`showHands`（只有練習桌的主人，§5.11）、`readNotifications`（不給 `ids` 就是全部標為已讀）、`setFriend`、`setBlocked`、`createChallenge`、`answerChallenge`、`cancelChallenge`、`playChallenge`（§5.5）、`sendDirect`、`readDirect`（§5.7）、`matchInvite`、`matchAnswer`、`matchMove`、`matchLeave`、`matchClear`、`matchRobot`、`startMatch`、`matchRule`、`matchPause`、`matchAbandon`、`matchReplace`、`matchSitIn`（§5.8）。`kick`、`addRobot`、`removeRobot`、`replaceWithRobot`、`updateTableSettings`、`answerRequest` 只有房主能用；房主離開或斷線時，桌上第一位在線的真人（先入座者、再觀看者）接手
-- 伺服器 → 瀏覽器：`welcome`、`lobby`（牌桌列表與 `members`：每位社員是否在線、在哪一桌哪個座位，線上在前、各組裡自己的好友置頂；`friends`、`blocked` 是自己的名單）、`table`、`error`、`notifications`（連線時一次，之後內容有變才送：最新 30 則與未讀數）、`directs`（自己的對話列表與私訊未讀數，同樣只送有變的）、`direct`（一則新私訊，只給它的兩位成員）、`match`（隊制賽有變時推給這場比賽在線的人：`{ matchId, match }`，看不到了是 `null`，§5.8）
+- 瀏覽器 → 伺服器：`createTable`（可帶 `settings`、`invitees`）、`updateTableSettings`（可帶 `invitees`）、`requestJoin`、`answerRequest`（申請加入，見下）、`quickSeat`、`createPractice`（§5.11，可帶 `access`）、`joinTable`、`sit`、`stand`、`leaveTable`、`kick`、`addRobot`、`removeRobot`、`replaceWithRobot`、`call`、`play`、`claim`、`claimRespond`、`undoRequest`、`undoRespond`、`chat`、`redeal`（只有練習桌）、`rebid`（只有只叫牌的練習桌）、`showHands`（只有練習桌的主人，§5.11）、`readNotifications`（不給 `ids` 就是全部標為已讀）、`setFriend`、`setBlocked`、`createChallenge`、`answerChallenge`、`cancelChallenge`、`playChallenge`（§5.5）、`sendDirect`、`readDirect`（§5.7）、`matchInvite`、`matchAnswer`、`matchMove`、`matchLeave`、`matchClear`、`matchRobot`、`startMatch`、`matchRule`、`matchPause`、`matchAbandon`、`matchReplace`、`matchSitIn`（§5.8）、`lobbySync`（瀏覽器的大廳缺了一版，要社團重送整份，H3b）。`kick`、`addRobot`、`removeRobot`、`replaceWithRobot`、`updateTableSettings`、`answerRequest` 只有房主能用；房主離開或斷線時，桌上第一位在線的真人（先入座者、再觀看者）接手
+- 伺服器 → 瀏覽器：`welcome`、大廳三種（H3b，§5.13）：`lobbyShared`（大家共用的一份整份：牌桌列表與 `members`，每位社員是否在線、在哪一桌哪個座位；連線時、`lobbySync` 後、社團重啟後）、`lobbyDelta`（共用那份的差異，帶 `base`→`rev`）、`lobbyMine`（自己的一份：在哪一桌、`friends`、`blocked`、能不能進每張桌、自己的隱藏桌；有變才送）；排序（線上在前、各組裡自己的好友置頂）在瀏覽器做（`shared/lobby.ts` 的 `composeLobby`）、`table`、`error`、`notifications`（連線時一次，之後內容有變才送：最新 30 則與未讀數）、`directs`（自己的對話列表與私訊未讀數，同樣只送有變的）、`direct`（一則新私訊，只給它的兩位成員）、`match`（隊制賽有變時推給這場比賽在線的人：`{ matchId, match }`，看不到了是 `null`，§5.8）
 - **只送有變的部分**：伺服器記住每位社員上次收到的大廳與牌桌（JSON），沒變就不送；牌桌的 `chat` 與 `recent`（本桌最近 30 副的摘要）只在改變時才附上，瀏覽器沿用手上那份（`TableWire`）。所以某桌出一張牌，大廳裡的人什麼都收不到，桌上的人只收到小小一份。新連線一律收完整資料
 - **沒有「下一副」**：一副結束後伺服器設定 `dealAt`（打到最後一張多等 `LAST_TRICK_MS` 3.5 秒，再加 `DEAL_COUNTDOWN_MS` 3 秒倒數），時間到自動發牌；`table` 訊息附上伺服器時間 `now`，瀏覽器據此換算成自己的時鐘來倒數
 - **牌桌設定**：`Table.settings`（`shared/protocol.ts` 的 `TableSettings`）：`access`（誰可以加入，四種之一，見下）、`allowKibitz`（是否允許觀看）與 `boardMinutes`（每副時間上限，`BOARD_TIME_LIMITS` 0／5／7／10／15 分鐘，0 是不限）；預設 `DEFAULT_TABLE_SETTINGS`（公開、允許觀看、不限時）。伺服器用 `parseTableSettings` 檢查，只接受這三欄，錯了丟 `badTableSettings`（改版前載入的頁面送舊的 `visibility` 也照下面的對照接受）。挑戰牌桌固定是隱藏、不允許觀看、不限時，不能改；隊制賽的兩桌固定公開、可觀看（照比賽的規則：只列在大廳的「隊制賽」，參賽者不能看另一室，§5.8），都不受房主設定影響
@@ -559,7 +561,15 @@ H1 把牌桌拆出去之後（§5.10），社團的物件（`Club`）仍然是**
 
 **沒有用的**：Workers Analytics Engine（要新增 binding，查詢要另一把 API token）、Cloudflare Notifications 的自訂告警（免費方案沒有依日誌告警）。Workers Logs 已經開著（`observability`），免費方案每天 20 萬筆、保留 3 天，足夠事後查。
 
-**負載測試**（`scripts/load/`、`tests/worker/load-cpu.test.ts`）的方法、數字與瓶頸在 `docs/LOAD.md`。第一個撐不住的是**大廳廣播**（每次大廳有變，社團替每位在線的人算一次整份大廳）：200 人在線時一次約 1 秒，這一批先把每位觀看者共用的部分（誰在線、誰在哪一桌、社員的排序）改成每次廣播只算一次（`ClubService.lobbyBasis`，送出去的大廳完全不變），降到約 0.2 秒；剩下的大多是每人一份約 35 KB 的 JSON，要改通訊協定才省得掉（`docs/LOAD.md` §5）。
+**負載測試**（`scripts/load/`、`tests/worker/load-cpu.test.ts`）的方法、數字與瓶頸在 `docs/LOAD.md`。第一個撐不住的是**大廳廣播**（每次大廳有變，社團替每位在線的人算一次整份大廳）：200 人在線時一次約 1 秒，H3 先把每位觀看者共用的部分改成每次廣播只算一次（`ClubService.lobbyBasis`），降到約 0.2 秒；剩下的是每人一份約 35 KB 的 JSON。
+
+**H3b：共用一份、只送差異、合併廣播**（2026-10-26）：
+- **兩份**（可見性見 §4）：`LobbyShared` 是所有人一樣的；每次廣播社團把每位社員、每張共用桌各序列化一次（約 230 個小字串），跟上一版逐項比對，有變的組成 `LobbyDelta`（`members`／`gone`／`tables`／`closed`／`matches`，整筆換掉或刪掉），**序列化一次、同一個字串送給每一位**（`Connections.send` 多一個選填的 `data`）；沒有變就不送。整份（`lobbyShared`）只在有人需要時用各項的 JSON 拼起來，同一版只拼一次。`LobbyMine` 每人算一次、跟上次送的比，有變才送，通常幾百位元組。
+- **版本**：`epoch` 是這次社團物件醒來的時間，`rev` 從 1 起算；差異帶 `base`。瀏覽器（`receiveLobby`）：`base` 等於手上的版本就套用；舊的或重複的丟掉；跳號或來自新的 `epoch` 就先留著、送一次 `lobbySync`，社團回整份，留著的差異接得上的接著套。新連線（含重連）一律先拿整份；社團被回收再醒來（連線還開著）時 `epoch` 變了，第一次廣播就給每個人整份。
+- **排序**交給瀏覽器（`composeLobby`：桌子照 `lobbyOrder`、社員線上在前、好友置頂、再照名字），「只看好友」本來就在瀏覽器。
+- **合併廣播**（`ClubConfig.later`，Durable Object 用 `setTimeout`）：大廳最多每 `LOBBY_GAP_MS`（100 ms）送一次。上一次送出已經超過 100 ms 就立刻送（平常沒有延遲）；之內的變化只記下來，到 100 ms 時一起送一次。同時湧進的入座、觀看、離桌就不必每個都等一次完整的廣播。測試多半不給 `later`，每次變化立刻送，跟以前一樣。
+- **日誌取樣**（`worker/log.ts` 的 `sampleActions`）：`action` 每 10 筆寫 1 筆到 Workers Logs（帶 `sample: 10`，查詢時乘回來），有錯誤代碼或超過 200 ms（`ACTION_SLOW_MS`）的一律寫；其他種類照舊。指標在取樣**之前**數（`ClubService` 與 `TableHost` 的 `log` 先交給 `Metrics`／`TableCounters`），系統狀態頁的次數不受影響。
+- 數字（前後對照）在 `docs/LOAD.md` §3、§6。
 
 ## 5.8 隊制賽（決策紀錄，`e8-t01`，2026-10-25）
 

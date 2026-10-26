@@ -1,11 +1,12 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it } from 'vitest'
 import { AVATAR_BURST, AVATAR_MAX_BYTES, avatarUrl, sniffAvatar } from '../../shared/avatar.ts'
-import type { LobbyView, ServerMessage } from '../../shared/protocol.ts'
+import type { ServerMessage } from '../../shared/protocol.ts'
 import { AVATAR_CHECK_CACHE, AVATAR_LONG_CACHE, avatarResponse, readAvatarUpload } from '../../worker/avatars.ts'
 import { ClubService, type Connections } from '../../worker/service.ts'
 import type { MemoryStore } from '../../worker/store.ts'
 import { memoryStore } from './sqlite.ts'
+import { lobbyFrom } from './lobby-copy.ts'
 
 const WEBP = [0x52, 0x49, 0x46, 0x46, 0x10, 0, 0, 0, 0x57, 0x45, 0x42, 0x50, 0x56, 0x50, 0x38, 0x20]
 const JPEG = [0xff, 0xd8, 0xff, 0xe0, 0, 0x10, 0x4a, 0x46, 0x49, 0x46]
@@ -83,8 +84,8 @@ describe('uploading an avatar', () => {
     const amy = await member('amy')
     online = [admin]
     await club.setAvatar(amy, picture(JPEG))
-    const lobby = sent.findLast((s) => s.userId === admin && s.message.type === 'lobby')?.message as { lobby: LobbyView }
-    expect(lobby.lobby.members.find((m) => m.id === amy)?.avatar).toBe(time)
+    const lobby = lobbyFrom(sent.filter((s) => s.userId === admin).map((s) => s.message))!
+    expect(lobby.members.find((m) => m.id === amy)?.avatar).toBe(time)
   })
 
   it('takes a new version every time, even in the same millisecond', async () => {
