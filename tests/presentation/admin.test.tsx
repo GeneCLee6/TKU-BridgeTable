@@ -1,7 +1,7 @@
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { AdminUser, Application, LobbyView } from '../../shared/protocol.ts'
+import type { AdminUser, Application, HealthStatus, LobbyView } from '../../shared/protocol.ts'
 import { ToastProvider } from '../../src/components/Toast.tsx'
 import { formatRelative } from '../../src/lib/format.ts'
 import { AdminPage } from '../../src/pages/AdminPage.tsx'
@@ -26,11 +26,12 @@ const mocks = vi.hoisted(() => ({
     closeTable: vi.fn(),
     bookSync: vi.fn(),
   },
+  health: vi.fn(),
 }))
 
 vi.mock('../../src/lib/api.ts', async (original) => ({
   ...(await original<typeof import('../../src/lib/api.ts')>()),
-  api: { admin: mocks.api },
+  api: { admin: mocks.api, health: mocks.health },
 }))
 
 const LOBBY: LobbyView = { online: [], members: [], tables: [], myTableId: null, friends: [], blocked: [] }
@@ -54,6 +55,33 @@ const user = (id: string, extra: Partial<AdminUser> = {}): AdminUser => ({
 })
 const application: Application = { id: 'app1', username: 'lin', note: '資管二', site: 'book', createdAt: NOW }
 
+const HEALTH: HealthStatus = {
+  ok: true,
+  now: NOW,
+  tables: 3,
+  online: 14,
+  playing: 9,
+  robots: 3,
+  metrics: {
+    minutes: 60,
+    actions: 1200,
+    actionP95Ms: 25,
+    refused: 4,
+    rejected: 0,
+    crashes: 0,
+    requests: 300,
+    serverErrors: 0,
+    errorRate: 0,
+    connects: 40,
+    reconnects: 12,
+    reconnectRate: 0.3,
+    boards: 22,
+    peakOnline: 16,
+    robot: { moves: 400, avgMs: 1.5, maxMs: 9 },
+  },
+  alerts: ['reconnectRate'],
+}
+
 const page = () =>
   render(
     <PreferencesProvider>
@@ -69,6 +97,7 @@ beforeEach(() => {
   mocks.api.applications.mockResolvedValue({ applications: [application] })
   mocks.api.settings.mockResolvedValue({ settings: { maxUsers: 60, inviteCode: 'tku' } })
   mocks.api.bookSync.mockResolvedValue({ sync: [] })
+  mocks.health.mockResolvedValue(HEALTH)
 })
 
 describe('AdminPage', () => {
@@ -76,7 +105,7 @@ describe('AdminPage', () => {
     page()
     const nav = await screen.findByRole('navigation', { name: '管理頁的區塊' })
     const links = within(nav).getAllByRole('link')
-    expect(links.map((l) => l.textContent)).toEqual(['待審核的申請1', '社團設定', '社員2', '新增社員', '牌桌0', '機器人與橋館同步'])
+    expect(links.map((l) => l.textContent)).toEqual(['待審核的申請1', '社團設定', '社員2', '新增社員', '牌桌0', '機器人與橋館同步', '系統狀態'])
     expect(links[0]).toHaveAttribute('aria-current', 'location')
   })
 
@@ -104,7 +133,7 @@ describe('AdminPage', () => {
     expect(rows[0]).toHaveTextContent('joey')
     expect(rows[0]).toHaveTextContent('12 條規則')
     const nav = screen.getByRole('navigation', { name: '管理頁的區塊' })
-    expect(within(nav).getAllByRole('link').at(-1)).toHaveTextContent('機器人與橋館同步1')
+    expect(within(nav).getAllByRole('link').at(-2)).toHaveTextContent('機器人與橋館同步1')
   })
 
   it('says when every article is in step', async () => {
@@ -288,5 +317,22 @@ describe('formatRelative', () => {
     expect(formatRelative(new Date(2026, 9, 24, 22, 31).getTime(), 'zh', words, now)).toBe('昨天 22:31')
     expect(formatRelative(new Date(2026, 9, 23, 22, 31).getTime(), 'zh', words, now)).toBe('10/23 22:31')
     expect(formatRelative(new Date(2025, 11, 30, 9, 0).getTime(), 'zh', words, now)).toBe('2025/12/30')
+  })
+})
+
+describe('system status (e11-t22)', () => {
+  it('shows the health check’s numbers and what they warn about', async () => {
+    page()
+    const section = await screen.findByRole('region', { name: '系統狀態' })
+    expect(await within(section).findByText('重連偏多（超過 20%）：連線不穩或伺服器重啟')).toBeInTheDocument()
+    expect(within(section).getByText('30.0%')).toBeInTheDocument()
+    expect(within(section).getByText('1.5 ms / 9 ms')).toBeInTheDocument()
+    expect(within(section).getByText('最近 60 分鐘')).toBeInTheDocument()
+  })
+
+  it('says so when the health check cannot be read', async () => {
+    mocks.health.mockRejectedValue(new Error('down'))
+    page()
+    expect(await screen.findByText('讀不到系統狀態')).toBeInTheDocument()
   })
 })

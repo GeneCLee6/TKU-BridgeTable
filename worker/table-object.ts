@@ -5,6 +5,7 @@ import { MESSAGE_MAX_CHARS } from '../shared/message-guard.ts'
 import { TABLE_SOCKET_REFUSED, type BoardRecord, type ServerMessage, type TableAction, type TableSettings } from '../shared/protocol.ts'
 import type { Env } from './club.ts'
 import { jsonLog } from './log.ts'
+import type { TableStats } from './metrics.ts'
 import type { EventReport } from './modes.ts'
 import { AlarmQueue } from './scheduler.ts'
 import { TableHost, type TableSockets } from './table-host.ts'
@@ -38,7 +39,7 @@ export class TableObject extends DurableObject<Env> implements TableRpc, TableSo
     const link: ClubLink = {
       changed: (entry) => club.tableChanged(entry),
       closed: (tableId) => club.tableClosed(tableId),
-      boardFinished: (record: BoardRecord, event: EventReport | null) => club.tableBoardFinished(record, event),
+      boardFinished: (record: BoardRecord, event: EventReport | null, stats?: TableStats) => club.tableBoardFinished(record, event, stats),
       mayUseTku: (userId) => club.tableMayUseTku(userId),
     }
     this.host = new TableHost({

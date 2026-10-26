@@ -158,6 +158,19 @@ describe('structured logs and health (e11-t08)', () => {
     await send(gene, { type: 'createTable' })
     expect(club.health()).toEqual({ ok: true, now: time, tables: 1, online: 1 })
   })
+
+  it('adds the last hour’s numbers and alerts for the status page (e11-t22)', async () => {
+    const gene = await founder()
+    await send(gene, { type: 'createTable' })
+    await send(gene, { type: 'addRobot', seat: 'N' })
+    await send(gene, { type: 'sit', tableId: 'nope', seat: 'N' })
+    club.logEntry({ event: 'http', method: 'GET', path: '/api/health', status: 200, ms: 0 })
+    const status = club.status()
+    expect(status).toMatchObject({ ok: true, tables: 1, online: 1, playing: 1, robots: 1, alerts: [] })
+    expect(status.metrics).toMatchObject({ actions: 3, refused: 1, crashes: 0, requests: 1, connects: 1, reconnects: 0, peakOnline: 1 })
+    expect(JSON.stringify(status)).not.toContain(gene)
+    expect(logs.at(-1)).toMatchObject({ event: 'http', path: '/api/health' })
+  })
 })
 
 describe('browser error reports (e11-t09)', () => {
