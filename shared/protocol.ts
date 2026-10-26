@@ -26,11 +26,12 @@ export interface PublicUser {
 }
 
 /**
- * What an admin can let a member do beyond playing: edit TKU BridgeBook (淡江橋譜) online, and
- * import Word or PDF files into it. Admins can do both.
+ * What an admin can let a member do beyond playing (§5.2): edit TKU BridgeBook (淡江橋譜) online
+ * (`bookEdit`), import Word or PDF files into it (`bookImport`), feature finished boards
+ * (`boardCurate`, e4-t28), and seat TKB in the club's system (`tkuSystem`, 社長 2026-10-26: the
+ * club's robot is private; everyone else's TKB is the 2/1 one). Admins have every permission.
  */
-/** TKU BridgeBook editing and import (§5.2), and featuring finished boards (`boardCurate`, e4-t28) */
-export const PERMISSIONS = ['bookEdit', 'bookImport', 'boardCurate'] as const
+export const PERMISSIONS = ['bookEdit', 'bookImport', 'boardCurate', 'tkuSystem'] as const
 export type Permission = (typeof PERMISSIONS)[number]
 export const isPermission = (value: unknown): value is Permission => PERMISSIONS.includes(value as Permission)
 
@@ -83,11 +84,23 @@ export const isRobotId = (id: string | null | undefined) => !!id && id.startsWit
 
 /**
  * The robot is TKB (ROBOT.md), and a host seats it in either bidding system: the club's
- * (淡江制度, the club's system in TKU BridgeBook) or 2/1 (GIB-compatible, docs/BBO GIB)
+ * (淡江制度, the club's system in TKU BridgeBook; only with the `tkuSystem` permission) or 2/1
+ * (GIB-compatible, docs/BBO GIB)
  */
 export const ROBOT_KINDS = ['tku', 'gib'] as const
 export type RobotKind = (typeof ROBOT_KINDS)[number]
 export const isRobotKind = (value: unknown): value is RobotKind => ROBOT_KINDS.includes(value as RobotKind)
+
+/**
+ * Whether a member may seat TKB in the club's system (淡江制度): the `tkuSystem` permission, which
+ * admins have too (`Me.permissions` lists everything for them). The server checks it again
+ */
+export const mayUseTkuSystem = (me: Pick<Me, 'permissions'> | null | undefined) => !!me?.permissions.includes('tkuSystem')
+/** The systems a member may seat TKB in: both with `tkuSystem`, otherwise only 2/1 (there is one TKB for them) */
+export const robotKindsFor = (me: Pick<Me, 'permissions'> | null | undefined): readonly RobotKind[] =>
+  mayUseTkuSystem(me) ? ROBOT_KINDS : ['gib']
+/** The system TKB is seated in when a member does not say: the club's for those who may use it, otherwise 2/1 */
+export const defaultRobotKind = (me: Pick<Me, 'permissions'> | null | undefined): RobotKind => (mayUseTkuSystem(me) ? 'tku' : 'gib')
 
 /** A robot's id carries its system, so it moves with the robot when seats are swapped and survives a reload */
 export const robotId = (kind: RobotKind, seat: Seat) => `${ROBOT_PREFIX}${kind}:${seat}`

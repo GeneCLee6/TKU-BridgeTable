@@ -38,6 +38,8 @@ const mocks = vi.hoisted(() => ({
     record: vi.fn(),
   },
   send: vi.fn(),
+  /** amy's permissions: TKB in the club's system needs `tkuSystem` (ROBOT.md §7) */
+  permissions: [] as string[],
 }))
 
 vi.mock('../../src/lib/api.ts', async (original) => ({
@@ -59,7 +61,7 @@ vi.mock('../../src/state/ClubContext.tsx', () => ({
   useClub: () => ({ lobby: LOBBY, send: mocks.send, notifications: null, status: 'open', table: null, error: null }),
 }))
 vi.mock('../../src/state/AuthContext.tsx', () => ({
-  useAuth: () => ({ user: { id: 'amy', username: 'amy', admin: false, permissions: [] } }),
+  useAuth: () => ({ user: { id: 'amy', username: 'amy', admin: false, permissions: mocks.permissions } }),
 }))
 
 const HOUR = 3_600_000
@@ -115,6 +117,7 @@ function show(path: string, element: React.ReactNode) {
 beforeEach(() => {
   for (const fn of Object.values(mocks.api)) fn.mockReset()
   mocks.send.mockReset()
+  mocks.permissions = []
 })
 
 describe('ChallengesPage (e7-t16)', () => {
@@ -167,6 +170,7 @@ const friendsShown = () =>
 
 describe('ChallengeDialog (e7-t17)', () => {
   it('lists every friend on a click, filters as one types, and sends the chosen friends and settings', async () => {
+    mocks.permissions = ['tkuSystem']
     const onCreated = vi.fn()
     mocks.api.createChallenge.mockResolvedValue({ challenge: challenge('new', {}) })
     render(
@@ -208,7 +212,22 @@ describe('ChallengeDialog (e7-t17)', () => {
     await waitFor(() => expect(onCreated).toHaveBeenCalled())
   })
 
+  it('has no choice of robots for a member without tkuSystem: one TKB, the 2/1 one (ROBOT.md §7)', async () => {
+    mocks.api.createChallenge.mockResolvedValue({ challenge: challenge('new', {}) })
+    render(
+      <PreferencesProvider>
+        <ChallengeDialog onClose={() => {}} onCreated={() => {}} />
+      </PreferencesProvider>,
+    )
+    expect(screen.queryByLabelText('機器人')).toBeNull()
+    await userEvent.click(screen.getByRole('combobox', { name: '邀請好友' }))
+    await userEvent.click(screen.getByRole('option', { name: 'ben' }))
+    await userEvent.click(screen.getByRole('button', { name: '發出挑戰' }))
+    expect(mocks.api.createChallenge).toHaveBeenCalledWith(['ben'], 8, expect.objectContaining({ robotKind: 'gib' }))
+  })
+
   it('challenges with a board from the history: its robots, no board count or deal options (e7-t22)', async () => {
+    mocks.permissions = ['tkuSystem']
     mocks.api.challengeWithBoards.mockResolvedValue({ challenge: challenge('new', {}) })
     render(
       <PreferencesProvider>

@@ -453,9 +453,10 @@ const book: Book = {
 | 刻意失誤 | 沒有 | 沒有 |
 | 要做到 | — | 用評測平台量，要比 TKB 明顯強（AC-6.8） |
 
+- **淡江制度的 TKB 不公開**（社長 2026-10-26）：只有管理員在管理頁開了「淡江制度機器人」（`tkuSystem`）權限的社員能用，管理員本來就有；他們放機器人、開練習桌、建立挑戰或隊制賽時可以選淡江制度或 2/1，預設是淡江制度（挑戰與隊制賽的預設照舊是 2/1）。其他人只有一個 TKB、沒有制度可選，就是 2/1 的那個；伺服器也會擋（`tkuSystemOnly`）。看的是設定機器人的人：坐在有權限的房主桌上的其他人照常跟淡江制度的機器人同桌、對打，看得到它的說明。存下來的牌桌、挑戰、紀錄裡的淡江制度機器人照舊。細節見 ARCHITECTURE.md §5.1.2。
 - **兩種叫牌制度都留**：TKB 可以用淡江制度（`tku`）或 2/1（`gib`，GIB 相容）。制度寫在機器人的 id 裡（`robot:<制度>:<座位>`，例如 `robot:gib:N`），跟著座位對調（`swapForDeclarer`／`unswap`）走、物件重新載入後還在；名牌與紀錄的玩家帶 `robotKind`（ARCHITECTURE.md §5.1）。
 - **TKB 是確定的**：沒有亂數、不刻意失誤，同一個局面一定做同一件事；撤回重來、重新載入、兩個人打同一副挑戰牌都一樣。
 - **舊資料照讀**：B5、B6 做過四個等級（初學者、大專、公開組、橋士組）與刻意失誤，這次依社長的決定拿掉。TKB 就是當時的「大專」（公開組打得跟大專一樣；初學者只是把約定拿掉、不推論、不打信號，再加 15% 刻意失誤，評測量出它比較弱幾乎全是失誤造成的）。舊的 id（`robot:N`、`robot:gib:N`、有等級的 `robot:gib:beginner:N`）都讀成 TKB；存下來的牌桌設定、挑戰設定與紀錄裡的 `robotLevel` 載入時忽略。
 - **大腦介面**（`brain.ts` 的 `RobotBrain`）留給 TKB Adv：伺服器等它思考、兩秒沒答就改問規則機器人、局面已經變了就丟掉它的回答（ARCHITECTURE.md §5.1）。
 
-**測試**：`tests/engine/robot.test.ts`（id 的讀法）；`tests/worker/service.test.ts` 的「TKB in two systems」（放 TKB、舊頁面送來的等級忽略、牌桌設定的等級拒絕、舊的 id 與設定載入後照打）；`tests/worker/challenge-table.test.ts`（兩個人打一樣的牌得到一樣的機器人、有等級的舊挑戰照打）；`tests/presentation/table.test.tsx`（名牌的 TKB 與制度）。
+**測試**：`tests/engine/robot.test.ts`（id 的讀法）；`tests/worker/tku-system.test.ts`（誰能用淡江制度的 TKB）；`tests/worker/service.test.ts` 的「TKB in two systems」（放 TKB、舊頁面送來的等級忽略、牌桌設定的等級拒絕、舊的 id 與設定載入後照打）；`tests/worker/challenge-table.test.ts`（兩個人打一樣的牌得到一樣的機器人、有等級的舊挑戰照打）；`tests/presentation/table.test.tsx`（名牌的 TKB 與制度）。

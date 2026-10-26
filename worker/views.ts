@@ -100,6 +100,12 @@ export interface Table {
   blocks?: Record<string, string[]>
   /** Finished boards whose record the club has not taken yet; offered again until it does (§5.10) */
   outbox?: { record: BoardRecord; event: EventReport | null }[]
+  /**
+   * TKB's system when nobody chooses one (a robot sitting in, 代打, with no robot partner): its
+   * host's when the table opened, the club's only for one with `tkuSystem` (ROBOT.md §7). Tables
+   * saved before have none and keep the club's
+   */
+  robotKind?: RobotKind
 }
 
 /** A member's request to join a table (`Table.requests`) */

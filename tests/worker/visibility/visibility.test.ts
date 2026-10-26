@@ -125,7 +125,7 @@ describe('practice tables', () => {
   it('are their member’s alone: nobody else joins, sits or is sent anything of them', async () => {
     const amy = await t.member('amy')
     const ben = await t.member('ben')
-    await t.send(amy, { type: 'createPractice', settings: { deal: 'random', robotKind: 'tku', justDeclare: false } })
+    await t.send(amy, { type: 'createPractice', settings: { deal: 'random', robotKind: 'gib', justDeclare: false } })
     const practice = t.club().lobbyView(amy).myTableId!
     expect(await t.refused(ben, { type: 'joinTable', tableId: practice })).toBe('tableGone')
     expect(await t.refused(ben, { type: 'sit', tableId: practice, seat: 'N' })).toBe('tableGone')

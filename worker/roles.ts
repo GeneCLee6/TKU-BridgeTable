@@ -15,8 +15,9 @@ import { ClubError } from './service.ts'
  * manage it (`managesTeam`); any member invites a partner, and only the two of them answer or end it.
  * A team's or partnership's system profile is its members' (`profileAccess`, e2-t04).
  *
- * `bookImport` (AI import, which costs API credit) and `boardCurate` (featured boards) stay their
- * own permissions, granted one by one; admins have every permission.
+ * `bookImport` (AI import, which costs API credit), `boardCurate` (featured boards) and
+ * `tkuSystem` (TKB in the club's system, ROBOT.md §7) stay their own permissions, granted one by
+ * one; admins have every permission.
  * `Need` is what a route asks for: 'member' is anyone signed in.
  */
 export type Need = 'member' | 'admin' | Permission

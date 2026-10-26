@@ -392,6 +392,7 @@ export class ClubService {
       watchers: (matchId) => this.matchWatchers(matchId),
       live: (matchId) => this.matchLive(matchId),
       boardDetails: (matchId) => eventBoards(this.store.sql, matchId),
+      mayUseTku: (id) => this.mayUseTku(id),
     })
     this.featured = new FeaturedService(store, {
       now: this.now,
@@ -413,6 +414,7 @@ export class ClubService {
       changed: (entry) => this.applyEntry(entry),
       closed: (tableId) => this.tableClosed(tableId),
       boardFinished: (record, event) => this.boardFinished(record, event),
+      mayUseTku: (userId) => this.mayUseTku(userId),
     }
     this.link = link
     // Each table in its own Durable Object (H1b, §5.10), unless switched back into this one
@@ -848,6 +850,26 @@ export class ClubService {
     if (!user) throw new ClubError('signInAgain', {}, 401)
     if (!this.permissionsOf(user).includes(permission)) throw new ClubError('noPermission', {}, 403)
     return this.me(user)
+  }
+
+  /**
+   * TKB in the club's system is private (社長 2026-10-26): only members with `tkuSystem` (and
+   * admins) seat it or set it up, anywhere. Everyone else's TKB is the 2/1 one. Whoever sets the
+   * robots up counts; the others at that table or in that challenge play with them as usual
+   */
+  private mayUseTku(userId: string): boolean {
+    const user = this.users.get(userId)
+    return !!user && this.permissionsOf(user).includes('tkuSystem')
+  }
+
+  /** TKB's system when a member does not say: the club's for those who may use it, otherwise 2/1 (`defaultRobotKind`) */
+  private defaultKindOf(userId: string): RobotKind {
+    return this.mayUseTku(userId) ? 'tku' : 'gib'
+  }
+
+  /** Turns down a member asking for TKB in the club's system without `tkuSystem` */
+  private checkRobotKind(userId: string, asked: unknown) {
+    if (asked === 'tku' && !this.mayUseTku(userId)) throw new ClubError('tkuSystemOnly', {}, 403)
   }
 
   private findUser(username: string) {
@@ -1606,6 +1628,8 @@ export class ClubService {
       if (askedKind !== undefined && askedKind !== given.robotKind)
         throw new ClubError('badChallengeSettings', { field: 'robotKind' })
       settings = { ...settings, robotKind: given.robotKind }
+      // Boards played with the club's robots at someone else's table are not theirs to set up again
+      this.checkRobotKind(userId, settings.robotKind)
       deals = makeDealSet({ kind: 'given', boards: given.boards.map(({ boardNo, hands }) => ({ boardNo, hands })) })
       known = given.boards.map((b, i) => ({ userId, seq: i + 1, boardId: b.id, scoreNS: b.scoreNS, playedAt: b.playedAt }))
     } else {
@@ -1613,6 +1637,7 @@ export class ClubService {
       if (!Number.isInteger(count) || (count as number) < boardsMin || (count as number) > boardsMax)
         throw new ClubError('challengeBoards', { min: boardsMin, max: boardsMax })
       const { bestHand, justDeclare, robotKind } = settings
+      this.checkRobotKind(userId, robotKind)
       deals = challengeDeals({ count: count as number, bestHand, justDeclare, robotKind }, this.random)
     }
     if (!deals) throw new ClubError('serverError', {}, 500)
@@ -1688,7 +1713,10 @@ export class ClubService {
     // As many boards as before, a 「用這副牌挑戰」 of one board too (社長, 2026-10-25)
     const { boardsMin, boardsMax } = CHALLENGE_LIMITS
     const boards = Math.min(boardsMax, Math.max(boardsMin, c.deals.boards.length))
-    const { scoring, robotKind, bestHand, justDeclare, days, ranking } = c.settings
+    const { scoring, bestHand, justDeclare, days, ranking } = c.settings
+    // The boards are new, so the robots are the ones they may set up: a challenge someone else
+    // made with the club's robots comes back with the 2/1 TKB for a member without `tkuSystem`
+    const robotKind = c.settings.robotKind === 'tku' && !this.mayUseTku(userId) ? 'gib' : c.settings.robotKind
     // With someone gone the number of people may no longer fit the scoring: then the default
     const fits = scoringsFor(others.length).includes(scoring)
     return this.createChallenge(userId, others, boards, { robotKind, bestHand, justDeclare, days, ranking, ...(fits && { scoring }) })
@@ -2300,6 +2328,7 @@ export class ClubService {
       settings: { ...DEFAULT_TABLE_SETTINGS, ...settings },
       names: { [userId]: username },
       blocks: { [userId]: this.blocks.of(userId) },
+      robotKind: this.defaultKindOf(userId),
     }
     if (invited) {
       table.invited = invited
@@ -2325,8 +2354,9 @@ export class ClubService {
    * member leaves their table
    */
   private async createPractice(userId: string, wanted: unknown, access?: unknown) {
-    const parsed = parsePracticeSettings(wanted)
+    const parsed = parsePracticeSettings(wanted, this.defaultKindOf(userId))
     if ('field' in parsed) throw new ClubError('badPracticeSettings', { field: parsed.field })
+    this.checkRobotKind(userId, parsed.settings.robotKind)
     if (access !== undefined && !TABLE_ACCESS.includes(access as never)) throw new ClubError('badTableSettings')
     const { settings } = parsed
     const conditions = practiceConditions(settings)

@@ -108,6 +108,8 @@ async function member(name: string) {
   const result = await club.register(name, 'secret1', '')
   const user =
     'user' in result ? result.user : await club.adminApprove(club.adminApplications().find((a) => a.username === name)!.id)
+  // These challenges are set up with either TKB; the club's needs the permission (ROBOT.md §7)
+  await club.adminSetPermissions(user.id, ['tkuSystem'])
   connections.online.add(user.id)
   club.connected(user.id)
   await tick()
@@ -271,6 +273,21 @@ describe('one-click rematch (e7-t21)', () => {
     expect(club.challengeList(amy)[0].id).toBe(again!.id)
   })
 
+  it('comes back with the 2/1 TKB for a member without tkuSystem (ROBOT.md §7)', async () => {
+    const { amy, ben, id } = await challenge({ robotKind: 'tku' })
+    await send(amy, { type: 'cancelChallenge', challengeId: id })
+    await send(ben, { type: 'setFriend', userId: amy, friend: true })
+    await club.adminSetPermissions(ben, [])
+    time += 1
+    const again = await club.challengeRequest(ben, { type: 'rematchChallenge', challengeId: id })
+    expect(again!.settings.robotKind).toBe('gib')
+    // The one who may use the club's robots keeps them
+    await send(ben, { type: 'cancelChallenge', challengeId: again!.id })
+    time += 1
+    const amys = await club.challengeRequest(amy, { type: 'rematchChallenge', challengeId: id })
+    expect(amys!.settings.robotKind).toBe('tku')
+  })
+
   it('is only for a participant who accepted, and needs someone to play', async () => {
     const { amy, ben, id } = await challenge({}, { accept: false })
     const zoe = await member('zoe')
@@ -320,6 +337,17 @@ describe('「用這副牌挑戰」 (e7-t22)', () => {
     expect(done.status).toBe('finished')
     expect(done.standings!.ranked.map((r) => r.userId).sort()).toEqual([amy, ben].sort())
     expect(done.players.find((p) => p.userId === amy)!.knownDeals).toBe(true)
+  })
+
+  it('turns down boards played with the club’s robots from a member without tkuSystem (ROBOT.md §7)', async () => {
+    const amy = await member('amy')
+    const ben = await member('ben')
+    await send(amy, { type: 'setFriend', userId: ben, friend: true })
+    const tku = await robotBoard(amy, 'S', 'tku')
+    const gib = await robotBoard(amy, 'S', 'gib')
+    await club.adminSetPermissions(amy, [])
+    expect(await refused(amy, { type: 'createChallenge', invitees: [ben], fromBoards: [tku.id] })).toBe('tkuSystemOnly')
+    expect(await refused(amy, { type: 'createChallenge', invitees: [ben], fromBoards: [gib.id] })).toBeUndefined()
   })
 
   it('takes only the creator’s boards with three robots of one system, as they were dealt', async () => {

@@ -115,13 +115,15 @@ async function playBoard(userId: string) {
 
 describe('practice settings', () => {
   it('takes a preset, any deal or well-formed conditions, and names the field that is wrong', () => {
-    expect(parsePracticeSettings({})).toEqual({ settings: { deal: 'random', robotKind: 'tku', justDeclare: false } })
+    // The robots are the member's by default: 2/1 unless they may use the club's system (ROBOT.md §7)
+    expect(parsePracticeSettings({})).toEqual({ settings: { deal: 'random', robotKind: 'gib', justDeclare: false } })
+    expect(parsePracticeSettings({}, 'tku')).toEqual({ settings: { deal: 'random', robotKind: 'tku', justDeclare: false } })
     expect(parsePracticeSettings({ deal: 'oneNotrump', robotKind: 'gib', justDeclare: true })).toEqual({
       settings: { deal: 'oneNotrump', robotKind: 'gib', justDeclare: true },
     })
     const conditions = { seats: { S: { hcp: [12, 14], lengths: { S: [5, 13] } }, N: { balanced: true } }, sides: { NS: { hcp: [24, 40] } } }
     expect(parsePracticeSettings({ deal: 'custom', conditions })).toEqual({
-      settings: { deal: 'custom', conditions, robotKind: 'tku', justDeclare: false },
+      settings: { deal: 'custom', conditions, robotKind: 'gib', justDeclare: false },
     })
     expect(parsePracticeSettings({ deal: 'nope' })).toEqual({ field: 'deal' })
     expect(parsePracticeSettings({ robotKind: 'gib2' })).toEqual({ field: 'robotKind' })

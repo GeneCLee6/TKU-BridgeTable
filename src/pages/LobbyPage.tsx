@@ -5,7 +5,7 @@ import styled from 'styled-components'
 import type { Seat } from '../../shared/cards.ts'
 import type { ChallengeView } from '../../shared/challenge.ts'
 import { missingSeats } from '../../shared/lobby.ts'
-import type { SeatOccupant, TableSummary } from '../../shared/protocol.ts'
+import { robotKindsFor, type SeatOccupant, type TableSummary } from '../../shared/protocol.ts'
 import { api } from '../lib/api.ts'
 import { playable } from '../lib/challenges.ts'
 import { formatDateTime } from '../lib/format.ts'
@@ -619,6 +619,7 @@ export function LobbyPage() {
         )}
         {practising && (
           <PracticeDialog
+            robotKinds={robotKindsFor(user)}
             onClose={() => setPractising(false)}
             onSubmit={(settings, access) => {
               setPractising(false)

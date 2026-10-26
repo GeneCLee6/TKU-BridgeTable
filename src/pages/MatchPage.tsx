@@ -2,7 +2,7 @@ import { ChevronLeft } from 'lucide-react'
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import styled from 'styled-components'
-import { ROBOT_KINDS } from '../../shared/protocol.ts'
+import { robotKindsFor } from '../../shared/protocol.ts'
 import {
   arrangerOf,
   INVITE_MODES,
@@ -683,6 +683,8 @@ function SettingsForm({
   onSave: (settings: Partial<TeamMatchSettings>) => void
 }) {
   const { t } = usePreferences()
+  const { user } = useAuth()
+  const robotKinds = robotKindsFor(user)
   // A pushed change (or a save) gives the form a new key, so it starts again from the settings
   const [draft, setDraft] = useState<TeamMatchSettings>(match.settings)
   const set = <K extends keyof TeamMatchSettings>(key: K, value: TeamMatchSettings[K]) => setDraft((d) => ({ ...d, [key]: value }))
@@ -739,16 +741,19 @@ function SettingsForm({
             onChange={(e) => set('boardMinutes', Number(e.target.value))}
           />
         </Field>
-        <Field>
-          <FieldLabel htmlFor="match-robot-kind">{t.teamMatch.robotKind}</FieldLabel>
-          <Select id="match-robot-kind" value={draft.robotKind} onChange={(e) => set('robotKind', e.target.value as TeamMatchSettings['robotKind'])}>
-            {ROBOT_KINDS.map((k) => (
-              <option key={k} value={k}>
-                {t.robots[k]}
-              </option>
-            ))}
-          </Select>
-        </Field>
+        {/* Only a host who may use the club's system chooses the robots; one set up with them before keeps showing it */}
+        {(robotKinds.length > 1 || match.settings.robotKind !== 'gib') && (
+          <Field>
+            <FieldLabel htmlFor="match-robot-kind">{t.teamMatch.robotKind}</FieldLabel>
+            <Select id="match-robot-kind" value={draft.robotKind} onChange={(e) => set('robotKind', e.target.value as TeamMatchSettings['robotKind'])}>
+              {[...new Set([...robotKinds, match.settings.robotKind])].map((k) => (
+                <option key={k} value={k}>
+                  {t.robots[k]}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        )}
         <Field>
           <FieldLabel htmlFor="match-invite">{t.teamMatch.inviteMode}</FieldLabel>
           <Select id="match-invite" value={draft.invite} onChange={(e) => set('invite', e.target.value as TeamMatchSettings['invite'])}>

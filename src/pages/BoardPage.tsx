@@ -5,7 +5,7 @@ import styled from 'styled-components'
 import { rankLabel, rankOf, SEATS, suitOf } from '../../shared/cards.ts'
 import { tricksOf } from '../../shared/game.ts'
 import { handviewerUrl, toLin } from '../../shared/lin.ts'
-import type { BoardRecord, PublicUser } from '../../shared/protocol.ts'
+import { robotKindsFor, type BoardRecord, type PublicUser } from '../../shared/protocol.ts'
 import type { Traveller } from '../../shared/traveller.ts'
 import { AuctionBox } from '../components/AuctionBox.tsx'
 import { ChallengeDialog } from '../components/ChallengeDialog.tsx'
@@ -175,8 +175,10 @@ export function BoardRecordView({
   const analysable = canAnalyse(board) && !!board.contract
   const [ddOn, setDdOn] = useState(false)
   const dd = useDoubleDummyReplay(board, step, analysable && ddOn, replay.playing)
-  // 「用這副牌挑戰」 (`e7-t22`): only a board the viewer played with three robots
-  const robots = !embedded && user ? challengeRobotsOf(record, user.id, openedAt) : null
+  // 「用這副牌挑戰」 (`e7-t22`): only a board the viewer played with three robots, of a system they
+  // may set up (the club's needs `tkuSystem`, ROBOT.md §7)
+  const played = !embedded && user ? challengeRobotsOf(record, user.id, openedAt) : null
+  const robots = played && robotKindsFor(user).includes(played) ? played : null
 
   const allTricks = tricksOf(board)
   const contract = board.contract

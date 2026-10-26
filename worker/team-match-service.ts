@@ -79,6 +79,8 @@ export interface TeamMatchDeps {
   /** The match's boards in the history index: contract and tricks for the result page (`e8-t12`) */
   boardDetails: (matchId: string) => Map<string, EventBoard>
   notify: (userId: string, kind: NotificationKind, params: Record<string, string | number>) => Promise<unknown>
+  /** Whether the member may set TKB up in the club's system (`tkuSystem`, ROBOT.md §7) */
+  mayUseTku: (userId: string) => boolean
 }
 
 /** What the host (替補 also a captain) does while the match is played (`e8-t14`–`e8-t16`) */
@@ -231,6 +233,7 @@ export class TeamMatchService {
     this.limit(userId)
     const parsed = parseTeamMatchSettings(body.settings)
     if ('field' in parsed) throw new ClubError('badMatchSettings', { field: parsed.field })
+    if (parsed.settings.robotKind === 'tku' && !this.deps.mayUseTku(userId)) throw new ClubError('tkuSystemOnly', {}, 403)
     const seat = parseHostSeat(body.seat)
     if (!seat) throw new ClubError('badMatchSettings', { field: 'seat' })
     if (this.store.openHostedBy(userId).length) throw new ClubError('matchOpen')
@@ -245,6 +248,9 @@ export class TeamMatchService {
     const match = this.require(id, userId)
     const step = changeSettings(match, userId, settings)
     if ('error' in step) this.fail(step)
+    // A match set up with the club's robots keeps them; switching to them needs `tkuSystem`
+    if (step.settings.robotKind === 'tku' && match.settings.robotKind !== 'tku' && !this.deps.mayUseTku(userId))
+      throw new ClubError('tkuSystemOnly', {}, 403)
     this.store.transaction(() => {
       this.store.setSettings(id, step.settings)
       for (const seat of step.freed) this.store.updateSeat(id, { ...seat, status: 'empty', robot: false })

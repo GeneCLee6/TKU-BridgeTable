@@ -3,7 +3,7 @@ import styled from 'styled-components'
 import { SUIT_SYMBOL, SUITS, type Suit } from '../../shared/cards.ts'
 import type { DealConditions, Range, SeatConditions } from '../../shared/dealer.ts'
 import { DEFAULT_PRACTICE_SETTINGS, PRACTICE_DEALS, type PracticeSettings } from '../../shared/practice.ts'
-import { PRACTICE_TABLE_SETTINGS, ROBOT_KINDS, type TableAccess } from '../../shared/protocol.ts'
+import { PRACTICE_TABLE_SETTINGS, type RobotKind, type TableAccess } from '../../shared/protocol.ts'
 import { useT } from '../state/PreferencesContext.tsx'
 import { AccessChoices, Backdrop, Buttons, Choice, Group, Panel } from './TableSettingsDialog.tsx'
 import { Button, Input, Muted } from './ui.tsx'
@@ -11,7 +11,9 @@ import { Button, Input, Muted } from './ui.tsx'
 /**
  * Opening a practice table (`e10-t04`, AC-10.2): which hands to deal (a preset or the member's own
  * conditions for South and North), which TKB to play with, and Just Declare. The server checks it
- * all again (`parsePracticeSettings`) and says when the conditions cannot be met
+ * all again (`parsePracticeSettings`) and says when the conditions cannot be met. Only a member
+ * who may use the club's system (`tkuSystem`) chooses the robots' system; for anyone else there is
+ * one TKB, the 2/1 one (ROBOT.md §7)
  */
 
 const Wide = styled(Panel)`
@@ -92,14 +94,17 @@ function conditionsOf(south: SeatForm, north: SeatForm): DealConditions {
 export function PracticeDialog({
   onSubmit,
   onClose,
+  robotKinds = ['gib'],
 }: {
   /** The practice settings, and who may watch (hidden unless changed: only the invited) */
   onSubmit: (settings: PracticeSettings, access: TableAccess) => void
   onClose: () => void
+  /** The systems the member may seat TKB in (`robotKindsFor`), the first one chosen to begin with */
+  robotKinds?: readonly RobotKind[]
 }) {
   const t = useT()
   const titleId = useId()
-  const [settings, setSettings] = useState<PracticeSettings>(DEFAULT_PRACTICE_SETTINGS)
+  const [settings, setSettings] = useState<PracticeSettings>(() => ({ ...DEFAULT_PRACTICE_SETTINGS, robotKind: robotKinds[0] }))
   const [south, setSouth] = useState<SeatForm>(() => emptySeat([12, 37]))
   const [north, setNorth] = useState<SeatForm>(() => emptySeat())
   const [access, setAccess] = useState<TableAccess>(PRACTICE_TABLE_SETTINGS.access)
@@ -196,20 +201,22 @@ export function PracticeDialog({
               </Conditions>
             </Group>
           )}
-          <Group>
-            <legend>{t.practiceRobots}</legend>
-            {ROBOT_KINDS.map((kind) => (
-              <Choice key={kind}>
-                <input
-                  type="radio"
-                  name="robotKind"
-                  checked={settings.robotKind === kind}
-                  onChange={() => setSettings({ ...settings, robotKind: kind })}
-                />
-                <span>{t.robots[kind]}</span>
-              </Choice>
-            ))}
-          </Group>
+          {robotKinds.length > 1 && (
+            <Group>
+              <legend>{t.practiceRobots}</legend>
+              {robotKinds.map((kind) => (
+                <Choice key={kind}>
+                  <input
+                    type="radio"
+                    name="robotKind"
+                    checked={settings.robotKind === kind}
+                    onChange={() => setSettings({ ...settings, robotKind: kind })}
+                  />
+                  <span>{t.robots[kind]}</span>
+                </Choice>
+              ))}
+            </Group>
+          )}
           <Group>
             <Choice>
               <input
