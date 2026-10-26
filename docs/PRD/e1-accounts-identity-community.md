@@ -103,7 +103,7 @@ M0 已經有一套社團用的帳號系統：邀請碼＋管理員核准、PBKDF
 - [ ] `e1-t31` Google 登入（OAuth，與既有帳號綁定）· AC-1.9 · M
 - [ ] `e1-t32` LINE 登入 · AC-1.9 · M · ← e1-t31
 - [ ] `e1-t33` 註冊防濫用：Cloudflare Turnstile、同 IP 註冊速率限制 · AC-1.9 · S
-- [ ] `e1-t34` 上傳頭像：瀏覽器先裁切、縮成小圖再上傳（Worker 免費方案每次 10 ms CPU，不在伺服器處理圖片）、大小與格式限制；2026-10-26 提前到 ROADMAP U4，不等 Email 登入 · AC-1.5 · M · ← e1-t18
+- [x] `e1-t34` 上傳頭像：瀏覽器先裁切、縮成小圖再上傳（Worker 免費方案每次 10 ms CPU，不在伺服器處理圖片）、大小與格式限制；2026-10-26 提前到 ROADMAP U4，不等 Email 登入；存在社團的 Durable Object（`avatar:<id>`），不用 R2，PR #136 · AC-1.5 · M · ← e1-t18
 
 ## 風險與對策
 

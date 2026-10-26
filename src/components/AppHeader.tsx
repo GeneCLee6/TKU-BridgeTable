@@ -14,7 +14,6 @@ import {
   Sun,
   Swords,
   Trophy,
-  UserRound,
   Users,
   Volume2,
   VolumeX,
@@ -29,6 +28,7 @@ import { useInviteBanner } from '../state/InvitationsContext.tsx'
 import { usePreferences } from '../state/PreferencesContext.tsx'
 import { LANG_NAMES } from '../strings.ts'
 import { compactHeader, mobile, tablet } from '../styles/tokens.ts'
+import { Avatar } from './Avatar.tsx'
 import { LogoMark, LogoWordmark } from './Logo.tsx'
 import { NotificationBell } from './NotificationBell.tsx'
 
@@ -391,7 +391,7 @@ export function AppHeader() {
               title={status === 'open' ? t.connected : t.connecting}
             />
             <AccountLink to="/account" title={t.navAccount}>
-              <UserRound size={16} aria-hidden />
+              <Avatar id={user.id} name={user.profile?.displayName || user.username} size={24} avatar={user.avatar} />
               <Who>{user.username}</Who>
             </AccountLink>
             <IconButton type="button" onClick={() => void logout()} aria-label={t.logout} title={t.logout}>

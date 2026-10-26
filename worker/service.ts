@@ -155,6 +155,7 @@ import {
   REQUESTS_PER_SECOND,
   TokenBuckets,
 } from './rate-limit.ts'
+import { AVATAR_BURST, AVATAR_MAX_BYTES, AVATARS_PER_SECOND, sniffAvatar, type AvatarType } from '../shared/avatar.ts'
 import {
   challengeBoardVisible,
   challengeTraveller,
@@ -187,6 +188,15 @@ interface StoredUser {
   bookProfile?: string
   /** What the member tells the club about themselves (AC-1.5); others see it through `memberProfileView` */
   profile?: Profile
+  /** The version of their uploaded picture (e1-t34), kept in `avatar:<id>`; none means the default avatar */
+  avatar?: number
+}
+
+/** `avatar:<userId>`: the picture as the browser sent it, already cropped and shrunk (e1-t34) */
+export interface StoredAvatar {
+  version: number
+  type: AvatarType
+  bytes: Uint8Array<ArrayBuffer>
 }
 
 /** A registration waiting for approval: the account it becomes once an admin approves it */
@@ -366,6 +376,7 @@ export class ClubService {
   private readonly loginByName: FailureWindow
   private readonly loginByAddress: FailureWindow
   private readonly clientErrorLimit: TokenBuckets
+  private readonly avatarLimit: TokenBuckets
 
   constructor(store: Store, connections: Connections, config: ClubConfig) {
     this.store = store
@@ -380,6 +391,7 @@ export class ClubService {
     this.loginByName = new FailureWindow(LOGIN_FAILURES_PER_NAME, LOGIN_WINDOW_MS, this.now)
     this.loginByAddress = new FailureWindow(LOGIN_FAILURES_PER_ADDRESS, LOGIN_WINDOW_MS, this.now)
     this.clientErrorLimit = new TokenBuckets(CLIENT_ERROR_BURST, CLIENT_ERRORS_PER_SECOND, this.now)
+    this.avatarLimit = new TokenBuckets(AVATAR_BURST, AVATARS_PER_SECOND, this.now)
     this.random = config.random ?? secureRandomInt
     this.notifications = new NotificationService(store, this.now, (userId) => void this.pushNotifications(userId))
     this.friends = new Relations(store, 'friend', this.now)
@@ -800,6 +812,46 @@ export class ClubService {
   }
 
   /**
+   * `PUT /api/account/avatar` (e1-t34): the member's own picture, cropped and shrunk in the browser.
+   * Only the size and the first bytes are checked (the Worker never decodes it); the type comes
+   * from those bytes, not from what the browser said. Everyone's lobby gets the new version
+   */
+  async setAvatar(userId: string, bytes: Uint8Array<ArrayBuffer>): Promise<Me> {
+    const user = this.requireUser(userId)
+    if (!this.avatarLimit.take(userId)) throw new ClubError('slowDown', {}, 429)
+    if (bytes.length > AVATAR_MAX_BYTES) throw new ClubError('avatarTooLarge', { max: AVATAR_MAX_BYTES / 1024 }, 413)
+    const type = sniffAvatar(bytes)
+    if (!type) throw new ClubError('avatarBadFormat', {}, 415)
+    // Always a new version, so the old picture's cached address is never reused
+    const version = Math.max(this.now(), (user.avatar ?? 0) + 1)
+    await this.store.put<StoredAvatar>(`avatar:${user.id}`, { version, type, bytes })
+    user.avatar = version
+    await this.store.put(`user:${user.id}`, user)
+    this.broadcast()
+    return this.me(user)
+  }
+
+  /** `DELETE /api/account/avatar`: back to the default avatar */
+  async deleteAvatar(userId: string): Promise<Me> {
+    const user = this.requireUser(userId)
+    if (!this.avatarLimit.take(userId)) throw new ClubError('slowDown', {}, 429)
+    if (user.avatar) {
+      await this.store.delete(`avatar:${user.id}`)
+      delete user.avatar
+      await this.store.put(`user:${user.id}`, user)
+      this.broadcast()
+    }
+    return this.me(user)
+  }
+
+  /** `GET /api/avatar/:id`: a member's picture, or undefined when they have none */
+  async avatar(userId: string): Promise<StoredAvatar | undefined> {
+    const user = this.users.get(String(userId ?? ''))
+    if (!user?.avatar) return undefined
+    return this.store.get<StoredAvatar>(`avatar:${user.id}`)
+  }
+
+  /**
    * 忘記密碼: whoever knows the club's invite code can give a member account a new password by name.
    * There is no e-mail check yet, so admin accounts are left out (another admin resets them on the
    * admin page), the member is signed out everywhere, and the admin page shows when it happened.
@@ -845,6 +897,7 @@ export class ClubService {
       friendOnlineNotice: user.friendOnlineNotice !== false,
     }
     if (user.profile) me.profile = user.profile
+    if (user.avatar) me.avatar = user.avatar
     if (user.bookProfile) me.bookProfile = user.bookProfile
     if (user.admin) me.applications = this.applications.size
     return me
@@ -1054,6 +1107,7 @@ export class ClubService {
   private async dropMember(user: StoredUser) {
     this.users.delete(user.id)
     await this.store.delete(`user:${user.id}`)
+    await this.store.delete(`avatar:${user.id}`)
     await this.revokeSessions(user.id)
     await this.notifications.forget(user.id)
     await this.friends.forget(user.id)
@@ -2708,6 +2762,7 @@ export class ClubService {
         return {
           id: u.id,
           username: u.username,
+          ...(u.avatar && { avatar: u.avatar }),
           online: online.includes(u.id),
           tableNumber: table?.number ?? null,
           seat: table ? this.seatIn(table, u.id) : null,
@@ -2759,6 +2814,6 @@ export class ClubService {
   private publicUserById(id: string): PublicUser | undefined {
     if (isRobotId(id)) return robotUser(id)
     const user = this.users.get(id)
-    return user && { id: user.id, username: user.username }
+    return user && { id: user.id, username: user.username, ...(user.avatar && { avatar: user.avatar }) }
   }
 }

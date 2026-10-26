@@ -326,7 +326,7 @@ export function SeatPlate({
         data-seat={seat}
       >
         <Letter data-letter>{seatLetter[seat]}</Letter>
-        {occupant && !occupant.robot && !compact && <Avatar id={occupant.id} name={occupant.username} size={24} />}
+        {occupant && !occupant.robot && !compact && <Avatar id={occupant.id} name={occupant.username} size={24} avatar={occupant.avatar} />}
         {name}
         {(role || offline || clickable || occupant?.robot || (turn && endsAt !== null)) && (
           <Tags>
