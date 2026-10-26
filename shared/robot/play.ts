@@ -103,7 +103,7 @@ function lead(state: BoardState, seat: Seat, view: View, legal: Card[], trump: S
   const hand = legal
   const nonTrump = SUITS.filter((s) => s !== trump && suitCards(hand, s).length)
 
-  if (state.play.length === 0) return openingLead(state, seat, hand, trump)
+  if (state.play.length === 0) return openingLead(state, seat, view, hand, trump)
 
   // Counting the cards: an opponent known to be void in a suit, with a trump left, ruffs it
   const opponents = SEATS.filter((s) => !sameSide(s, seat))
@@ -217,12 +217,23 @@ function dropBetter(view: View, seat: Seat, led: Suit, finesse: Card): boolean {
   return view.reading.holder(view.higherOut(finesse)[0]) !== second
 }
 
-function openingLead(state: BoardState, seat: Seat, hand: Card[], trump: Suit | null): Card {
-  // Which card from a suit: the club's 01 fourth best (lead-card.ts)
+/**
+ * The opening lead (ROBOT.md §3). Which suit, in this order: partner's suit (not the trump suit,
+ * which partner bid artificially or as a cue bid); against a suit contract AK, a side singleton
+ * with a trump, and with trump control (the ace or four trumps) a small doubleton; a sequence;
+ * then the longest suit, with the declaring side's suits (shown four or more) after the others,
+ * and against a suit contract a suit headed by a lone honour (leading away from it) after the
+ * rest and one headed by the ace last. Neither a doubleton nor a sequence is led from their
+ * suits. The card from the suit is the club's 01 fourth best (lead-card.ts). From the
+ * million-deal study (eval/sim/README.md §7).
+ */
+function openingLead(state: BoardState, seat: Seat, view: View, hand: Card[], trump: Suit | null): Card {
   const lead = (s: Suit) => clubLeadCard(suitCards(hand, s), trump)
-  // Partner's suit first
-  const partnerBid = state.auction.find((c) => c.seat === partnerOf(seat) && isBid(c.call) && strainOf(c.call) !== 'N')
+  const partnerBid = state.auction.find((c) => c.seat === partnerOf(seat) && isBid(c.call) && strainOf(c.call) !== 'N' && strainOf(c.call) !== trump)
   if (partnerBid && suitCards(hand, strainOf(partnerBid.call) as Suit).length) return lead(strainOf(partnerBid.call) as Suit)
+  const declarer = state.contract!.declarer
+  const theirs = (s: Suit) => view.reading.bid(declarer, s) || view.reading.bid(partnerOf(declarer), s)
+  const top = (s: Suit) => rankOf(suitCards(hand, s)[0])
   const suits = SUITS.filter((s) => s !== trump && suitCards(hand, s).length)
   const pool = suits.length ? suits : SUITS.filter((s) => suitCards(hand, s).length)
 
@@ -231,20 +242,26 @@ function openingLead(state: BoardState, seat: Seat, hand: Card[], trump: Suit | 
       const cards = suitCards(hand, s)
       if (cards.length >= 2 && rankOf(cards[0]) === 'A' && rankOf(cards[1]) === 'K') return lead(s)
     }
-    const singleton = pool.find((s) => suitCards(hand, s).length === 1 && suitCards(hand, trump).length > 0)
+    const trumps = suitCards(hand, trump)
+    const singleton = pool.find((s) => suitCards(hand, s).length === 1 && trumps.length > 0)
     if (singleton) return suitCards(hand, singleton)[0]
+    const control = trumps.length >= 4 || (trumps.length > 0 && rankOf(trumps[0]) === 'A')
+    const doubleton = control && pool.find((s) => suitCards(hand, s).length === 2 && !'AKQJ'.includes(top(s)) && !theirs(s))
+    if (doubleton) return lead(doubleton)
   }
   for (const s of pool) {
-    const seq = sequenceLead(suitCards(hand, s), trump)
+    const seq = !theirs(s) && sequenceLead(suitCards(hand, s), trump)
     if (seq) return seq
   }
-  // Fourth best from the longest suit, keeping out of a suit headed by the ace against a suit
-  // contract (from there only the ace itself is led)
-  const ranked = [...pool].sort((a, b) => {
-    const aceA = trump && rankOf(suitCards(hand, a)[0]) === 'A' ? 1 : 0
-    const aceB = trump && rankOf(suitCards(hand, b)[0]) === 'A' ? 1 : 0
-    return aceA - aceB || suitCards(hand, b).length - suitCards(hand, a).length
-  })
+  // The longest suit, in tiers: against a suit contract a suit headed by the ace last (from there
+  // only the ace itself is led); then their suits; against a suit contract a suit headed by a
+  // lone honour (away from it) after the rest
+  const tier = (s: Suit) => {
+    if (trump && top(s) === 'A') return 3
+    if (theirs(s)) return 2
+    return trump && 'KQJ'.includes(top(s)) ? 1 : 0
+  }
+  const ranked = [...pool].sort((a, b) => tier(a) - tier(b) || suitCards(hand, b).length - suitCards(hand, a).length)
   return lead(ranked[0])
 }
 
