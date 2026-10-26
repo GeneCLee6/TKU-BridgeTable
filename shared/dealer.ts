@@ -73,8 +73,10 @@ export const isShape = (shape: unknown): shape is string => typeof shape === 'st
 function seatFits(c: SeatConditions, lengths: readonly number[]): boolean {
   if (c.balanced && !BALANCED.has(shapeKey([...lengths]))) return false
   if (c.shapes && !c.shapes.includes(shapeOf(lengths))) return false
-  if (!within(Math.max(...lengths), c.longest) || !within(Math.min(...lengths), c.shortest)) return false
-  return SUITS.every((suit, s) => within(lengths[s], c.lengths?.[suit]))
+  if (c.longest && !within(Math.max(...lengths), c.longest)) return false
+  if (c.shortest && !within(Math.min(...lengths), c.shortest)) return false
+  const wanted = c.lengths
+  return !wanted || SUITS.every((suit, s) => within(lengths[s], wanted[suit]))
 }
 
 /** Whether a seat could have this shape (in some order of the suits) and meet its conditions */
@@ -167,6 +169,8 @@ const NOTHING_GIVEN: readonly null[] = [null, null, null, null]
  * random deal of the cards no seat was given; a seat given its hand has that hand's lengths
  */
 function drawLengths(random: RandomInt, given: readonly (readonly Card[] | null)[] = NOTHING_GIVEN): number[][] {
+  // The usual case, every attempt: nobody was given a hand
+  if (given === NOTHING_GIVEN) return drawAllLengths(random)
   const fixed = given.map((hand) => (hand ? suitLengths(hand) : null))
   const room = fixed.map((f): number => (f ? 0 : 13))
   const lengths = fixed.map((f) => (f ? [...f] : [0, 0, 0, 0]))
@@ -176,6 +180,29 @@ function drawLengths(random: RandomInt, given: readonly (readonly Card[] | null)
     let places = room.reduce((a, b) => a + b, 0)
     for (const [k, seat] of free.entries()) {
       const got = k === free.length - 1 ? cards : hypergeometric(places, room[seat], cards, random)
+      lengths[seat][s] = got
+      cards -= got
+      places -= room[seat]
+      room[seat] -= got
+    }
+  }
+  return lengths
+}
+
+/** drawLengths when no seat was given its hand: the whole pack */
+function drawAllLengths(random: RandomInt): number[][] {
+  const room = [13, 13, 13, 13]
+  const lengths = [
+    [0, 0, 0, 0],
+    [0, 0, 0, 0],
+    [0, 0, 0, 0],
+    [0, 0, 0, 0],
+  ]
+  for (let s = 0; s < 4; s++) {
+    let cards = 13
+    let places = room[0] + room[1] + room[2] + room[3]
+    for (let seat = 0; seat < 4; seat++) {
+      const got = seat === 3 ? cards : hypergeometric(places, room[seat], cards, random)
       lengths[seat][s] = got
       cards -= got
       places -= room[seat]
@@ -204,9 +231,10 @@ function pointsFit(conditions: DealConditions, hands: Hands): boolean {
 /** Deals the cards of each suit no seat was given to the other seats, in the given lengths */
 function dealCards(lengths: number[][], random: RandomInt, given: readonly (readonly Card[] | null)[] = NOTHING_GIVEN): Hands {
   const hands: Hands = { N: [], E: [], S: [], W: [] }
-  const taken = new Set(given.flatMap((hand) => hand ?? []))
+  const taken = given === NOTHING_GIVEN ? null : new Set(given.flatMap((hand) => hand ?? []))
   SUITS.forEach((suit, s) => {
-    const cards = [...RANKS].map((rank) => suit + rank).filter((card) => !taken.has(card))
+    const all = [...RANKS].map((rank) => suit + rank)
+    const cards = taken ? all.filter((card) => !taken.has(card)) : all
     for (let i = cards.length - 1; i > 0; i--) {
       const j = random(i + 1)
       ;[cards[i], cards[j]] = [cards[j], cards[i]]
@@ -218,7 +246,9 @@ function dealCards(lengths: number[][], random: RandomInt, given: readonly (read
       next += lengths[i][s]
     })
   })
-  SEATS.forEach((seat, i) => (hands[seat] = sortHand(given[i] ?? hands[seat])))
+  SEATS.forEach((seat, i) => {
+    hands[seat] = sortHand(given[i] ?? hands[seat])
+  })
   return hands
 }
 
