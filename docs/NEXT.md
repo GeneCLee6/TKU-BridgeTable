@@ -84,7 +84,7 @@
   - 規模：H2b 挑戰的 EventObject（#140，開關關）；H3 負載測試（#142）：大廳廣播是第一個瓶頸，共用部分只算一次後 200 人每次 1 s → 0.2 s；系統狀態頁。
   - **社長要做的**：GitHub 補 `PREVIEW_INVITE_CODE`、`STAGING_INVITE_CODE`、`SEED_PASSWORD`（DEPLOY.md §2.1）——PR 預覽與 staging 從來沒部署過，EventObject 只在本機 workerd 跑過。200 人一小時約用掉 DO 時間每日額度一半，大活動前要估或升級付費。
 - **下一步（從這裡接）**：
-  1. H3b（進行中）：大廳拆共用＋個人、只送差異、`action` 日誌取樣。
+  1. H3b 完成（#150）：大廳拆 `LobbyShared`＋`LobbyMine`、只送差異（`lobbyDelta`）、100 ms 合併廣播、`action` 日誌 1/10 取樣；數字在 `docs/LOAD.md` §6。部署前開著的分頁要重新整理。本機 workerd 量測時社團物件中途重啟過一次（原因未查到，沒有動作失敗），遠端煙霧時留意。
   2. TKB 持續加強（模擬 → 改規則 → 評測）：2/1 叫牌補跑到 25,000 副、2/1 首攻的單明手校正、坐莊的 `compare`、滿貫附近的叫牌樣本。
   3. 秘密設好後：在任一 PR 預覽跑 `docs/LOAD.md` §6 的遠端煙霧測試，再決定正式站開 `EVENT_OBJECTS`。
   4. 已知：本機忙時長測試會逾時（以 CI 為準）。
