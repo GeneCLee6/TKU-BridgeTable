@@ -1,5 +1,6 @@
-import { TriangleAlert } from 'lucide-react'
+import { ChevronLeft, ChevronRight, TriangleAlert } from 'lucide-react'
 import type { HTMLAttributes } from 'react'
+import { Link, type LinkProps } from 'react-router-dom'
 import styled, { css, keyframes } from 'styled-components'
 import { inputStyles } from '../styles/controls.ts'
 import { mobile, type ControlSize } from '../styles/tokens.ts'
@@ -268,3 +269,61 @@ export const ErrorText = styled.p`
   font-size: 14px;
   font-weight: 600;
 `
+
+const ActionLinkBase = styled(Link)<{ $back?: boolean; $onPanel?: boolean }>`
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-height: ${({ theme }) => theme.controlHeight.sm};
+  padding: ${({ $back }) => ($back ? '0 10px 0 4px' : '0 4px 0 10px')};
+  border-radius: ${({ theme }) => theme.radius.sm};
+  color: ${({ theme, $onPanel }) => ($onPanel ? theme.table.bidRedouble : theme.colors.primary)};
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.2;
+  text-decoration: none;
+  transition: background 0.12s;
+
+  & > svg {
+    flex: none;
+    transition: transform 0.12s;
+  }
+
+  &:hover {
+    background: ${({ theme, $onPanel }) => ($onPanel ? theme.table.panelHover : theme.colors.primarySoft)};
+    text-decoration: none;
+  }
+  &:hover > svg {
+    transform: translateX(${({ $back }) => ($back ? '-2px' : '2px')});
+  }
+
+  &:focus-visible {
+    outline: 2px solid ${({ theme }) => theme.colors.focus};
+    outline-offset: 2px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    &:hover > svg { transform: none; }
+  }
+`
+
+export interface ActionLinkProps extends LinkProps {
+  /** A way back (to a list): the chevron points left, before the label */
+  back?: boolean
+  /** On the light result panel over the felt (`theme.table.panel`, light in both themes) */
+  onPanel?: boolean
+}
+
+/**
+ * A secondary action that goes somewhere: a ghost-button link with a chevron ("牌局紀錄 ›",
+ * "‹ 所有挑戰"), instead of text with an arrow in it (DESIGN.md §7.1). Not for links in running text.
+ */
+export function ActionLink({ back, onPanel, children, ...props }: ActionLinkProps) {
+  return (
+    <ActionLinkBase $back={back} $onPanel={onPanel} {...props}>
+      {back && <ChevronLeft size={16} aria-hidden />}
+      <span>{children}</span>
+      {!back && <ChevronRight size={16} aria-hidden />}
+    </ActionLinkBase>
+  )
+}

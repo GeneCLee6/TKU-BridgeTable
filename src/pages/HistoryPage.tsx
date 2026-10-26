@@ -1,11 +1,11 @@
 import { ChevronLeft, ChevronRight, Inbox, SearchX, SlidersHorizontal } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import styled, { css } from 'styled-components'
 import { HISTORY_SORTS, historyQueryString, readHistoryQuery, type HistoryQuery } from '../../shared/history-query.ts'
 import { HISTORY_PAGE_SIZES, LIMITS, type HistoryPage as Page } from '../../shared/protocol.ts'
 import { FilterChips, HistoryFilters } from '../components/HistoryFilters.tsx'
-import { HistoryHead, HistoryRow, HistorySkeleton, HistoryTable } from '../components/HistoryRow.tsx'
+import { HistoryFrame, HistoryHead, HistoryRow, HistorySkeleton, HistoryTable } from '../components/HistoryRow.tsx'
 import { Button, Card, ErrorText, Muted, PageMain, PageTitle } from '../components/ui.tsx'
 import { api } from '../lib/api.ts'
 import { filterChips } from '../lib/historyChips.ts'
@@ -22,6 +22,11 @@ import { mobile, mobileQuery } from '../styles/tokens.ts'
  * `historyQueryString`, the same rules the server checks. The conditions in use show as chips
  * above the list, each removable, with "clear all" (e4-t22); on a phone the filters fold into the
  * one "Filters" button and open only when asked for.
+ *
+ * Moving between pages does not blank the list (e3-t46): the page on screen stays (faintly, if the
+ * next one takes a moment) until the next one has come, pages already fetched for the same search
+ * are kept in memory, and pointing at a page button fetches that page before it is pressed. Only the
+ * very first load shows grey rows.
  */
 
 const Toolbar = styled.div`
@@ -87,8 +92,10 @@ const ListCard = styled(Card)`
   overflow: hidden;
 `
 
-const Scroll = styled.div`
-  overflow-x: auto;
+/** The list on screen while the next one loads: dimmed only if the wait is long enough to notice */
+const Rows = styled.div<{ $stale: boolean }>`
+  opacity: ${({ $stale }) => ($stale ? 0.6 : 1)};
+  transition: opacity 0.15s ${({ $stale }) => ($stale ? '0.15s' : '0s')};
 `
 
 /** An empty or failed list: centred, a faint icon, one sentence and (where there is one) an action */
@@ -182,6 +189,19 @@ interface Loaded extends Page {
   key: string
 }
 
+/** Pages kept for one search (everything but the page number); another search starts afresh */
+interface PageCache {
+  search: string
+  pages: Map<string, Promise<Page>>
+}
+
+/** The search a query string is for, leaving out which page */
+const searchOf = (key: string) => {
+  const params = new URLSearchParams(key)
+  params.delete('page')
+  return params.toString()
+}
+
 export function HistoryPage() {
   const { t, message } = usePreferences()
   const [params, setParams] = useSearchParams()
@@ -200,11 +220,14 @@ export function HistoryPage() {
   const chips = filterChips(query, t, members, openedAt)
   // A link with filters opens them on a wide screen; a phone keeps them folded
   const [showFilters, setShowFilters] = useState(() => !phone && chips.length > 0)
-  // The list is tagged with what it was loaded for, so changing it shows "loading"
+  // The list is tagged with what it was loaded for; until the next one comes, this one stays
   const [loaded, setLoaded] = useState<Loaded | null>(null)
+  const cache = useRef<PageCache>({ search: '', pages: new Map() })
   const [error, setError] = useState('')
   const navigate = useNavigate()
   const current = loaded?.key === key ? loaded : null
+  // What is on screen: this search's page once it has come, the one before it until then
+  const shown = current ?? loaded
   const last = loaded ? Math.max(1, Math.ceil(loaded.total / loaded.size)) : 1
 
   /** Changes the search in the address; anything but paging starts again from the first page */
@@ -221,10 +244,37 @@ export function HistoryPage() {
     return () => clearTimeout(timer)
   }, [key, attempt])
 
+  /** The page for a query string: from memory if this search already fetched it, else from the server */
+  const fetchPage = useCallback(
+    (pageKey: string) => {
+      const search = searchOf(pageKey)
+      const kept = cache.current
+      if (kept.search !== search) {
+        kept.search = search
+        kept.pages.clear()
+      }
+      let pending = kept.pages.get(pageKey)
+      if (!pending) {
+        const asked = api.searchHistory(readHistoryQuery(new URLSearchParams(pageKey)))
+        kept.pages.set(pageKey, asked)
+        // A failed page is asked again next time
+        asked.catch(() => kept.pages.get(pageKey) === asked && kept.pages.delete(pageKey))
+        pending = asked
+      }
+      return pending
+    },
+    [],
+  )
+
+  /** Fetches a page the pointer is on, so pressing it shows it at once */
+  const prefetch = (next: number) => {
+    if (next < 1 || next > last || next === page) return
+    fetchPage(historyQueryString({ ...query, page: next })).catch(() => {})
+  }
+
   useEffect(() => {
     let cancelled = false
-    api
-      .searchHistory(readHistoryQuery(new URLSearchParams(key)))
+    fetchPage(key)
       .then((result) => {
         if (cancelled) return
         setError('')
@@ -234,7 +284,7 @@ export function HistoryPage() {
     return () => {
       cancelled = true
     }
-  }, [key, message, attempt])
+  }, [key, message, attempt, fetchPage])
 
   // Past the end (the list got shorter): the server sent the last page instead
   useEffect(() => {
@@ -299,7 +349,7 @@ export function HistoryPage() {
       <FilterChips chips={chips} onChange={update} />
       {error && <ErrorText role="alert">{error}</ErrorText>}
       <ListCard as="section" aria-label={t.historyTitle} aria-busy={!current}>
-        {current && current.boards.length === 0 ? (
+        {shown && shown.boards.length === 0 ? (
           chips.length > 0 ? (
             <Empty>
               <SearchX size={40} aria-hidden />
@@ -318,25 +368,34 @@ export function HistoryPage() {
         ) : !current && slow ? (
           <Empty role="status">
             <p>{t.slowLoading}</p>
-            <Button type="button" $size="sm" onClick={() => setAttempt((n) => n + 1)}>
+            <Button
+              type="button"
+              $size="sm"
+              onClick={() => {
+                cache.current.pages.delete(key)
+                setAttempt((n) => n + 1)
+              }}
+            >
               {t.retry}
             </Button>
           </Empty>
         ) : (
-          <Scroll>
-            <HistoryTable>
-              <HistoryHead />
-              {current ? (
-                <tbody>
-                  {current.boards.map((b) => (
-                    <HistoryRow key={b.id} board={b} onOpen={(id) => navigate(`/history/${id}`)} />
-                  ))}
-                </tbody>
-              ) : (
-                <HistorySkeleton rows={Math.min(size, 10)} />
-              )}
-            </HistoryTable>
-          </Scroll>
+          <HistoryFrame>
+            <Rows $stale={!current}>
+              <HistoryTable>
+                <HistoryHead />
+                {shown ? (
+                  <tbody>
+                    {shown.boards.map((b) => (
+                      <HistoryRow key={b.id} board={b} onOpen={(id) => navigate(`/history/${id}`)} />
+                    ))}
+                  </tbody>
+                ) : (
+                  <HistorySkeleton rows={Math.min(size, 10)} />
+                )}
+              </HistoryTable>
+            </Rows>
+          </HistoryFrame>
         )}
         {loaded && loaded.total > 0 && (
           <Pager aria-label={t.historyTitle}>
@@ -344,7 +403,15 @@ export function HistoryPage() {
               {t.pageInfo(Math.min(loaded.total, (loaded.page - 1) * loaded.size + 1), Math.min(loaded.total, loaded.page * loaded.size), loaded.total)}
             </Muted>
             <Pages>
-              <PageButton type="button" onClick={() => setPage(page - 1)} disabled={page <= 1} aria-label={t.prevPage} title={t.prevPage}>
+              <PageButton
+                type="button"
+                onClick={() => setPage(page - 1)}
+                onPointerEnter={() => prefetch(page - 1)}
+                onFocus={() => prefetch(page - 1)}
+                disabled={page <= 1}
+                aria-label={t.prevPage}
+                title={t.prevPage}
+              >
                 <ChevronLeft size={16} aria-hidden />
               </PageButton>
               {pageNumbers(page, last).map((n, i) =>
@@ -359,12 +426,22 @@ export function HistoryPage() {
                     $current={n === page}
                     aria-current={n === page ? 'page' : undefined}
                     onClick={() => setPage(n)}
+                    onPointerEnter={() => prefetch(n)}
+                    onFocus={() => prefetch(n)}
                   >
                     {n}
                   </PageButton>
                 ),
               )}
-              <PageButton type="button" onClick={() => setPage(page + 1)} disabled={page >= last} aria-label={t.nextPage} title={t.nextPage}>
+              <PageButton
+                type="button"
+                onClick={() => setPage(page + 1)}
+                onPointerEnter={() => prefetch(page + 1)}
+                onFocus={() => prefetch(page + 1)}
+                disabled={page >= last}
+                aria-label={t.nextPage}
+                title={t.nextPage}
+              >
                 <ChevronRight size={16} aria-hidden />
               </PageButton>
             </Pages>

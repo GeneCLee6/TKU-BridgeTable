@@ -1,5 +1,5 @@
-import { ArrowLeft, BookOpen, ChevronFirst, ChevronLast, ChevronLeft, ChevronRight, History, Mail, MessageSquare, Users, X } from 'lucide-react'
-import { useCallback, useEffect, useState, type ReactNode } from 'react'
+import { ArrowLeft, BookOpen, ChevronFirst, ChevronLast, ChevronLeft, ChevronRight, History, Mail, MessageSquare, Users } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import styled, { css } from 'styled-components'
 import { handviewerUrl } from '../../shared/lin.ts'
@@ -17,13 +17,16 @@ import { DirectMessages } from './DirectMessages.tsx'
 import { FavoriteButton } from './FavoriteButton.tsx'
 import { PeopleList } from './PeopleList.tsx'
 import { PlayedCardsSwitch, RecordDiagram } from './RecordDiagram.tsx'
+import { ActionLink } from './ui.tsx'
 import { ContractResult } from './Suit.tsx'
 
 /**
  * BBO's right-hand dock: a narrow strip of tabs on the far right (chat, people, messages, history). Clicking
  * a tab opens its panel beside the strip; clicking it again closes the panel, so the table gets
  * the space back. History opens a board right in the panel, so you can keep playing on the left
- * and look at an earlier board on the right. The open tab is remembered per page.
+ * and look at an earlier board on the right. The open tab is remembered per page. There is no ✕ on
+ * the panel (e3-t47): the strip is always beside it (below it on a phone), and Esc inside the panel
+ * closes it too, handing the focus back to its tab.
  */
 
 export type PanelTab = 'chat' | 'people' | 'messages' | 'history' | 'conventions'
@@ -135,23 +138,10 @@ const ContentHead = styled.div`
   justify-content: space-between;
   gap: 8px;
   min-height: 46px;
-  padding: 0 8px 0 14px;
+  padding: 0 14px;
   border-bottom: 1px solid ${({ theme }) => theme.colors.border};
   font-weight: 800;
   color: ${({ theme }) => theme.colors.primaryStrong};
-`
-
-const IconButton = styled.button`
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 34px;
-  height: 34px;
-  border: 0;
-  border-radius: ${({ theme }) => theme.radius.sm};
-  background: none;
-  color: ${({ theme }) => theme.colors.textMuted};
-  &:hover { background: ${({ theme }) => theme.colors.surfaceAlt}; }
 `
 
 const Body = styled.div`
@@ -223,6 +213,15 @@ export function SidePanel({
     setOpen(next)
     writeOpen(page, next)
   }
+  const rail = useRef<HTMLElement>(null)
+
+  /** Esc inside the open panel closes it, unless something in it (a menu, a dialog) used the key */
+  const closeOnEscape = (e: KeyboardEvent) => {
+    if (e.key !== 'Escape' || e.defaultPrevented || !open) return
+    e.preventDefault()
+    rail.current?.querySelector<HTMLElement>(`[data-tab="${open}"]`)?.focus()
+    toggle(open)
+  }
 
   /** The People tab's envelope: opens that conversation in the Messages tab */
   const message = (userId: string) => {
@@ -234,12 +233,9 @@ export function SidePanel({
   return (
     <Dock aria-label={t.sidePanel} data-tour="side">
       {open && (
-        <Content $wide={open === 'history' && board !== null} role="tabpanel" aria-label={label[open]}>
+        <Content $wide={open === 'history' && board !== null} role="tabpanel" aria-label={label[open]} onKeyDown={closeOnEscape}>
           <ContentHead>
             <span>{label[open]}</span>
-            <IconButton type="button" onClick={() => toggle(open)} aria-label={t.close} title={t.close}>
-              <X size={18} aria-hidden />
-            </IconButton>
           </ContentHead>
           <Body>
             {open === 'chat' && chat}
@@ -250,13 +246,14 @@ export function SidePanel({
           </Body>
         </Content>
       )}
-      <Rail role="tablist" aria-orientation="vertical">
+      <Rail ref={rail} role="tablist" aria-orientation="vertical">
         {tabs.map((name) => {
           const Icon = icon[name]
           return (
             <RailButton
               key={name}
               type="button"
+              data-tab={name}
               role="tab"
               aria-selected={open === name}
               $active={open === name}
@@ -358,10 +355,8 @@ const Empty = styled.p`
   font-size: 14px;
 `
 
-const AllLink = styled(Link)`
-  display: block;
-  padding: 12px 14px;
-  font-size: 14px;
+const AllRow = styled.div`
+  padding: 8px 10px;
 `
 
 /** Links that would leave the table page open in a new tab there, since leaving the page leaves the table */
@@ -434,9 +429,11 @@ function HistoryList({
           ))}
         </div>
       )}
-      <AllLink to="/history" {...(newTab ? NEW_TAB : {})}>
-        {t.historyTitle} →
-      </AllLink>
+      <AllRow>
+        <ActionLink to="/history" {...(newTab ? NEW_TAB : {})}>
+          {t.historyTitle}
+        </ActionLink>
+      </AllRow>
     </>
   )
 }

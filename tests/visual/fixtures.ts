@@ -1,6 +1,6 @@
 import type { Page } from '@playwright/test'
 import type { Seat } from '../../shared/cards.ts'
-import type { BoardView, LobbyView, Me, SeatOccupant, TableWire } from '../../shared/protocol.ts'
+import type { BoardSummary, BoardView, HistoryPage, LobbyView, Me, SeatOccupant, TableWire } from '../../shared/protocol.ts'
 
 /**
  * A fixed club for the visual regression screenshots (e3-t37): the browser's API calls and its
@@ -166,6 +166,39 @@ export function lobby(atTable: boolean): LobbyView {
   }
 }
 
+const STRAINS = ['C', 'D', 'H', 'S', 'N'] as const
+const ORDER = ['N', 'E', 'S', 'W'] as const
+
+/**
+ * 45 finished boards, 20 a page, for the history list (e3-t45): one long name and every kind of
+ * contract and score, so the columns are seen at their fullest
+ */
+export function historyPage(page: number): HistoryPage {
+  const start = Date.UTC(2026, 9, 20, 12, 0)
+  const boards = Array.from({ length: page < 3 ? 20 : 5 }, (_, i): BoardSummary => {
+    const n = (page - 1) * 20 + i + 1
+    const level = (n % 7) + 1
+    const passed = n % 11 === 0
+    return {
+      id: `h${n}`,
+      tableNumber: (n % 3) + 1,
+      finishedAt: start - n * 7_200_000,
+      players: {
+        N: { id: 'amy', username: 'Amy' },
+        E: { id: 'chris', username: 'Christopher Wellington' },
+        S: { id: 'ben', username: 'Ben' },
+        W: { id: 'robot:gib:W', username: 'TKB', robot: true, robotKind: 'gib' },
+      },
+      boardNo: n,
+      dealer: ORDER[n % 4],
+      vul: 'None',
+      contract: passed ? null : { level, strain: STRAINS[n % 5], declarer: ORDER[n % 4], doubled: n % 5 === 0 ? 'X' : '' },
+      result: { declarerTricks: passed ? 0 : Math.min(13, level + 6 + ((n % 3) - 1)), scoreNS: passed ? 0 : (n % 2 ? 1 : -1) * (50 + n * 10), claimed: false },
+    } as BoardSummary
+  })
+  return { boards, total: 45, page, size: 20 }
+}
+
 export interface Club {
   /** Signed in (else /api/me answers 401) */
   me?: Me | null
@@ -187,6 +220,10 @@ export async function serve(page: Page, { me = ME, table: tableWire = null, pref
     if (path === '/api/me') return me ? route.fulfill({ json: { user: me } }) : route.fulfill({ status: 401, json: { error: 'notLoggedIn' } })
     if (path === '/api/challenges') return route.fulfill({ json: { challenges: [] } })
     if (path === '/api/featured') return route.fulfill({ json: { featured: [] } })
+    if (path === '/api/history/search') {
+      const page = Number(new URL(route.request().url()).searchParams.get('page') ?? 1)
+      return route.fulfill({ json: historyPage(page) })
+    }
     return route.fulfill({ json: {} })
   })
 
