@@ -3,6 +3,7 @@ import { partnerOf, SEATS, type Seat } from '../../../shared/cards.ts'
 import { ROBOT_PREFIX, type DirectMessage, type NotificationsView, type TableView } from '../../../shared/protocol.ts'
 import type { TeamMatchView } from '../../../shared/team-match.ts'
 import { usePreferences } from '../../state/PreferencesContext.tsx'
+import { INVITE_KINDS } from '../invites.ts'
 import { PACE } from '../motion.ts'
 import type { SoundEvent, SoundPrefs } from './events.ts'
 import { chatShowing, conversationShowing, cue, cueNews, setTableActivity, trickTaken, unlockAudio, type CueOptions } from './player.ts'
@@ -198,7 +199,7 @@ const NEWS: Partial<Record<string, SoundEvent>> = {
 
 /**
  * The sounds outside a table: notifications (a team match starting or ending, a challenge's
- * results, everything else the bell), direct messages from others in a conversation that is not
+ * results, everything else the bell, except invitations, which ring as they pop up), direct messages from others in a conversation that is not
  * open, and the first click or key press, which lets the browser play sound at all
  */
 export function useClubSounds(input: { userId: string | undefined; notifications: NotificationsView | null; directs: DirectMessage[] }) {
@@ -224,7 +225,8 @@ export function useClubSounds(input: { userId: string | undefined; notifications
       return
     }
     const known = seen.current
-    const fresh = notifications.items.filter((n) => !known.has(n.id))
+    // An invitation rings as it pops up, in one tab only (`InviteDialog`)
+    const fresh = notifications.items.filter((n) => !known.has(n.id) && !INVITE_KINDS.has(n.kind))
     for (const id of ids) known.add(id)
     // Several at once make one sound: the most telling one
     const events = fresh.map((n) => NEWS[n.kind] ?? 'notify')
