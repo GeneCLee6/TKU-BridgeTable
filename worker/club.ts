@@ -382,6 +382,7 @@ export class Club extends DurableObject<Env> implements Connections {
       return json(await this.service.history(user.id, all, Number(query.get('page') ?? 1), Number(query.get('size') ?? 0) || undefined))
     }
     if (route === 'GET /api/history/search') return json(await this.service.search(user.id, parseHistoryQuery(url.searchParams)))
+    if (route === 'GET /api/history/days') return json(this.service.historyDays(user.id, parseHistoryQuery(url.searchParams)))
     const record = url.pathname.match(/^\/api\/history\/([\w-]+)$/)
     if (request.method === 'GET' && record) {
       const found = await this.service.record(record[1], user.id)

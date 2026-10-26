@@ -12,6 +12,7 @@ import type {
   Favorite,
   FavoritesPage,
   FavoriteTag,
+  HistoryDays,
   HistoryPage,
   Me,
   MemberChange,
@@ -105,6 +106,8 @@ export const api = {
   },
   /** One page of a history search (`shared/history-query.ts`) */
   searchHistory: (query: Partial<HistoryQuery>) => request<HistoryPage>(`/api/history/search?${historyQueryString(query)}`),
+  /** How many boards a history search finds per Taiwan date, newest first (the side panel, e3-t48) */
+  historyDays: (query: Partial<HistoryQuery>) => request<HistoryDays>(`/api/history/days?${historyQueryString(query)}`),
   record: (id: string) => request<{ record: BoardRecord }>(`/api/history/${encodeURIComponent(id)}`),
   /** Everyone's result on the same board of its challenge, if the member may see it (e4-t32) */
   traveller: (id: string) => request<{ traveller: Traveller | null }>(`/api/history/${encodeURIComponent(id)}/traveller`),

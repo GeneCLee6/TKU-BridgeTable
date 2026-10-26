@@ -4,7 +4,7 @@ import { SEATS, type Seat } from '../../../shared/cards.ts'
 import { DEFAULT_HISTORY_QUERY } from '../../../shared/history-query.ts'
 import type { ServerMessage } from '../../../shared/protocol.ts'
 import { listQuery } from '../../../worker/history-index.ts'
-import { searchReplica } from '../../../worker/history-replica.ts'
+import { daysReplica, searchReplica } from '../../../worker/history-replica.ts'
 import { at, teamHarness } from '../team-match-harness.ts'
 
 /**
@@ -63,8 +63,14 @@ async function exposure(viewer: string, boardId: string, player: string) {
   const all = { ...DEFAULT_HISTORY_QUERY, scope: 'all' as const }
   // The history pages the Worker answers from D1 at the edge (§5.12) answer exactly as the club does
   await t.copyToD1()
-  for (const query of [listQuery(true, 1, 20), DEFAULT_HISTORY_QUERY, all, { ...all, mode: 'team' as const }, { ...all, player }])
+  for (const query of [listQuery(true, 1, 20), DEFAULT_HISTORY_QUERY, all, { ...all, mode: 'team' as const }, { ...all, player }]) {
     expect(await searchReplica(t.d1, query, viewer, t.h.time), `the edge, ${JSON.stringify(query)}`).toEqual(await club.search(viewer, query))
+    // The side panel's boards per day (e3-t48), from either side, count what the search lists
+    const days = club.historyDays(viewer, query).days
+    expect(await daysReplica(t.d1, query, viewer, t.h.time), `the edge's days, ${JSON.stringify(query)}`).toEqual(days)
+    const listed = await club.search(viewer, { ...query, page: 1, size: 100 })
+    expect(days.reduce((sum, day) => sum + day.count, 0)).toBe(listed.total)
+  }
   return {
     record: (await club.record(boardId, viewer)) !== null,
     history: has(await club.history(viewer, true)),

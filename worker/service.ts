@@ -28,6 +28,7 @@ import {
   type Favorite,
   type FavoritesPage,
   type FavoriteTag,
+  type HistoryDays,
   type HistoryPage,
   type LiveMatch,
   type LobbyView,
@@ -97,6 +98,7 @@ import {
   revealBoards,
   revealEvent,
   searchBoards,
+  searchDays,
   unindexRecord,
 } from './history-index.ts'
 import {
@@ -1155,6 +1157,11 @@ export class ClubService {
       page: found.page,
       size: query.size,
     }
+  }
+
+  /** How many boards a history search finds per Taiwan date, newest first (the side panel's list by day, e3-t48) */
+  historyDays(userId: string, query: HistoryQuery): HistoryDays {
+    return { days: searchDays(this.store.sql, query, userId, this.now()) }
   }
 
   // ── Favorites (AC-4.4) ──────────────────────────────────────────────────────────────────────

@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { taiwanDayStart } from '../../shared/history-query.ts'
 import type { BoardRecord } from '../../shared/protocol.ts'
 import { EDGE_PASS_MS, mintPass, PASS_COOKIE, passCookie, passNeedsRefresh, readPass } from '../../worker/edge-auth.ts'
-import { createHistoryIndex, indexRecord, listQuery, searchBoards } from '../../worker/history-index.ts'
+import { createHistoryIndex, indexRecord, listQuery, searchBoards, searchDays } from '../../worker/history-index.ts'
 import { REPLICA_SCHEMA, replicaWrites } from '../../worker/history-replica.ts'
 import type { LogEntry } from '../../worker/log.ts'
 import { route, TABLE_USER_HEADER, type Routes } from '../../worker/routing.ts'
@@ -157,6 +157,11 @@ describe('the Worker at the edge', () => {
     expect(await total('/api/history/search?scope=all', 'dan')).toBe(2)
     expect(await total('/api/history/search?scope=all', 'amy')).toBe(3)
     expect(await total('/api/history', 'amy')).toBe(3)
+    // Boards per day (e3-t48), from the copy too, the board kept back counted only for Amy
+    const days = async (viewer: string) => ((await (await get('/api/history/days?scope=all', viewer)).json()) as { days: unknown }).days
+    expect(await days('amy')).toEqual(searchDays(sql, { ...listQuery(true, 1, 20) }, 'amy', NOW))
+    expect(await days('dan')).toEqual(searchDays(sql, { ...listQuery(true, 1, 20) }, 'dan', NOW))
+    expect(((await days('amy')) as { count: number }[])[0].count).toBe(((await days('dan')) as { count: number }[])[0].count + 1)
     expect(seen).toEqual([])
     expect(logs.every((entry) => entry.event === 'edge' && entry.status === 200)).toBe(true)
   })
