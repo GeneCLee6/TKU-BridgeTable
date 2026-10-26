@@ -398,22 +398,22 @@ export function ChallengeDialog({
               </Select>
             </Field>
             {robotKinds.length > 1 && (
-            <Field>
-              <label htmlFor={`${listId}-robots`}>{t.challengeRobots}</label>
-              <Select
-                id={`${listId}-robots`}
-                value={robotKind}
-                // 「用這副牌挑戰」 keeps the robots the boards were played with
-                disabled={!!fromBoards}
-                onChange={(e) => setSettings({ ...settings, robotKind: e.target.value as ChallengeSettings['robotKind'] })}
-              >
-                {robotKinds.map((k) => (
-                  <option key={k} value={k}>
-                    {t.robots[k]}
-                  </option>
-                ))}
-              </Select>
-            </Field>
+              <Field>
+                <label htmlFor={`${listId}-robots`}>{t.challengeRobots}</label>
+                <Select
+                  id={`${listId}-robots`}
+                  value={robotKind}
+                  // 「用這副牌挑戰」 keeps the robots the boards were played with
+                  disabled={!!fromBoards}
+                  onChange={(e) => setSettings({ ...settings, robotKind: e.target.value as ChallengeSettings['robotKind'] })}
+                >
+                  {robotKinds.map((k) => (
+                    <option key={k} value={k}>
+                      {t.robots[k]}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
             )}
             <Field>
               <label htmlFor={`${listId}-days`}>{t.challengeDays}</label>

@@ -202,20 +202,20 @@ export function PracticeDialog({
             </Group>
           )}
           {robotKinds.length > 1 && (
-          <Group>
-            <legend>{t.practiceRobots}</legend>
-            {robotKinds.map((kind) => (
-              <Choice key={kind}>
-                <input
-                  type="radio"
-                  name="robotKind"
-                  checked={settings.robotKind === kind}
-                  onChange={() => setSettings({ ...settings, robotKind: kind })}
-                />
-                <span>{t.robots[kind]}</span>
-              </Choice>
-            ))}
-          </Group>
+            <Group>
+              <legend>{t.practiceRobots}</legend>
+              {robotKinds.map((kind) => (
+                <Choice key={kind}>
+                  <input
+                    type="radio"
+                    name="robotKind"
+                    checked={settings.robotKind === kind}
+                    onChange={() => setSettings({ ...settings, robotKind: kind })}
+                  />
+                  <span>{t.robots[kind]}</span>
+                </Choice>
+              ))}
+            </Group>
           )}
           <Group>
             <Choice>
