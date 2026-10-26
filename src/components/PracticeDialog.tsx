@@ -1,8 +1,8 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import styled from 'styled-components'
-import { SUIT_SYMBOL, SUITS, type Suit } from '../../shared/cards.ts'
+import { SEATS, SUIT_SYMBOL, SUITS, type Suit } from '../../shared/cards.ts'
 import type { DealConditions, Range, SeatConditions } from '../../shared/dealer.ts'
-import { DEFAULT_PRACTICE_SETTINGS, PRACTICE_DEALS, type PracticeSettings } from '../../shared/practice.ts'
+import { DEFAULT_PRACTICE_SETTINGS, PRACTICE_DEALS, PRACTICE_SEAT, type PracticeSettings } from '../../shared/practice.ts'
 import { PRACTICE_TABLE_SETTINGS, type RobotKind, type TableAccess } from '../../shared/protocol.ts'
 import { useT } from '../state/PreferencesContext.tsx'
 import { AccessChoices, Backdrop, Buttons, Choice, Group, Panel } from './TableSettingsDialog.tsx'
@@ -10,7 +10,8 @@ import { Button, Input, Muted } from './ui.tsx'
 
 /**
  * Opening a practice table (`e10-t04`, AC-10.2): which hands to deal (a preset or the member's own
- * conditions for South and North), which TKB to play with, and Just Declare. The server checks it
+ * conditions for South and North), which TKB to play with, Just Declare, and the bidding practice
+ * (`e10-t15`): bidding only, and which seats besides South the member bids for. The server checks it
  * all again (`parsePracticeSettings`) and says when the conditions cannot be met. Only a member
  * who may use the club's system (`tkuSystem`) chooses the robots' system; for anyone else there is
  * one TKB, the 2/1 one (ROBOT.md §7)
@@ -55,6 +56,12 @@ const Check = styled.label`
   align-items: center;
   gap: 8px;
   font-size: 14px;
+`
+
+const SeatChoices = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
 `
 
 /** What the custom form holds for one seat; lengths only for South */
@@ -109,6 +116,7 @@ export function PracticeDialog({
   const [north, setNorth] = useState<SeatForm>(() => emptySeat())
   const [access, setAccess] = useState<TableAccess>(PRACTICE_TABLE_SETTINGS.access)
   const first = useRef<HTMLInputElement>(null)
+  const seats = settings.seats ?? [PRACTICE_SEAT]
 
   useEffect(() => first.current?.focus(), [])
   useEffect(() => {
@@ -222,11 +230,51 @@ export function PracticeDialog({
               <input
                 type="checkbox"
                 checked={settings.justDeclare}
+                disabled={!!settings.biddingOnly}
                 onChange={(event) => setSettings({ ...settings, justDeclare: event.target.checked })}
               />
               <span>{t.justDeclare}</span>
               <Muted>{t.justDeclareHint}</Muted>
             </Choice>
+            <Choice>
+              <input
+                type="checkbox"
+                checked={!!settings.biddingOnly}
+                disabled={settings.justDeclare}
+                onChange={(event) =>
+                  // Bidding for other seats goes with bidding only (nobody plays several hands)
+                  setSettings(
+                    event.target.checked
+                      ? { ...settings, biddingOnly: true }
+                      : { ...settings, biddingOnly: false, seats: [PRACTICE_SEAT] },
+                  )
+                }
+              />
+              <span>{t.biddingOnly}</span>
+              <Muted>{t.biddingOnlyHint}</Muted>
+            </Choice>
+          </Group>
+          <Group>
+            <legend>{t.practiceSeatsLegend}</legend>
+            <SeatChoices>
+              {SEATS.map((seat) => (
+                <Check key={seat}>
+                  <input
+                    type="checkbox"
+                    checked={seats.includes(seat)}
+                    disabled={seat === PRACTICE_SEAT || !settings.biddingOnly}
+                    onChange={(event) =>
+                      setSettings({
+                        ...settings,
+                        seats: SEATS.filter((s) => (s === seat ? event.target.checked : seats.includes(s))),
+                      })
+                    }
+                  />
+                  {t.seatNames[seat]}
+                </Check>
+              ))}
+            </SeatChoices>
+            <Muted>{t.practiceSeatsHint}</Muted>
           </Group>
           <AccessChoices value={access} onChange={setAccess} legend={t.practiceAccess} />
           <Buttons>

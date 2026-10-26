@@ -17,6 +17,7 @@
 ```
 
 - 社團是**一個 Durable Object**（`Club`）：帳號、大廳與牌桌目錄、牌局紀錄、挑戰、隊制賽、淡江橋譜。**每張牌桌是自己的 Durable Object**（`TableObject`，§5.10）：座位、叫牌出牌、機器人、聊天與這一桌的 WebSocket。每個物件裡的動作依序處理；社團只在大廳看得到的事情變了才被牌桌叫醒。開關 `TABLE_OBJECTS=off` 可以把牌桌搬回社團的物件（`DEPLOY.md` §4.3）。
+- **挑戰可以各自一個 Durable Object**（`EventObject`，H2b，§5.12）：開關 `EVENT_OBJECTS=on` 才用，**預設關**（挑戰照舊在社團的物件裡）；正式站什麼時候開由社長決定（`DEPLOY.md` §4.6）。
 - **不必經過社團的請求由 Worker 自己回答**（§5.12）：紀錄列表與搜尋從 D1 的副本讀（社團寫好紀錄後經 outbox 複製過去），牌桌連線用簽章的邊緣通行證確認是誰；通行證或副本不能用時一律照舊交給社團。開關 `HISTORY_D1=off`、`EDGE_AUTH=off`（`DEPLOY.md` §4.5）。
 - 伺服器是唯一的真相：瀏覽器送「我要叫 1♠」「我要出 ♥K」，伺服器用 `shared/game.ts` 驗證後更新狀態，再推送每個人**可以看到的**畫面。
 - 推送策略刻意簡單：任何變動後，對每位線上使用者送一份完整的大廳與他所在的牌桌。資料量小（一張桌幾 KB），不需要差異更新。
@@ -61,6 +62,10 @@ TKU-BridgeTable/
 │  ├─ club.ts              社團的 Durable Object：HTTP 路由、WebSocket（hibernation）、儲存轉接、牌桌回報的 RPC
 │  ├─ table-object.ts      每桌一個的 Durable Object：儲存、alarm、這一桌的 WebSocket、社團的 stub（只是接線，§5.10）
 │  ├─ table-host.ts        TableHost：一個 TableObject 做的事（RPC 包裝錯誤、桌的連線只收在桌上的人、訊息驗證與速率限制、搬移），可在 Node 測試
+│  ├─ events.ts            社團與挑戰之間的介面（EventApi、EventLink、EventRpc、RemoteEvents）與社團自己的 event_homes、challenge_settled（§5.12 H2b）
+│  ├─ event-service.ts     ChallengeEvent：一場挑戰的規則、期限工作與結算（不碰 Cloudflare）；LocalEvents＝挑戰在社團的物件裡
+│  ├─ event-host.ts        EventHost：一個 EventObject 做的事（RPC 包裝、變更編號、回報與重送、搬移），可在 Node 測試
+│  ├─ event-object.ts      每場挑戰一個的 Durable Object：儲存、SQLite、alarm、社團的 stub（只是接線，EVENT_OBJECTS=on 才用）
 │  ├─ service.ts           ClubService：帳號、申請、session、牌桌目錄、權限、牌局紀錄（可單獨測試）
 │  ├─ table-service.ts     TableService：一張牌桌的一切（座位、叫牌出牌、機器人、發牌、代打、聊天、畫面），LocalTables（§5.10）
 │  ├─ tables.ts            社團與牌桌之間的介面：TableEntry（牌桌目錄）、TableApi、ClubLink、RPC 的 Wire 與 RemoteTables（§5.10）
@@ -130,6 +135,7 @@ interface BoardState {
 | 誰 | 看得到 |
 | --- | --- |
 | 入座者 | 自己的牌；首攻後的夢家；夢家在首攻後也看得到莊家的牌 |
+| 替別的座位叫牌的人（座位控制權，`e10-t15`） | 加上他控制的每個座位的牌（`Table.controllers`，`seatsActedBy` 算出他「替哪幾家叫」，`boardView` 的 `acts`）；輪到其中任何一家時 `legalCalls` 給他（就是 `turn` 那一家），叫牌盒提示用那一家算、不把他控制的機器人當成機器人。那個座位上坐的人（練習桌是 TKB）不會因此多看到什麼，也不能替它叫；觀看者照常（四家）。叫品的 Alert：他自己替兩家叫的，兩家的說明他都看得到。目前只有只叫牌的練習桌會設控制權 |
 | 攤牌之後（被拒絕也一樣） | 攤過的牌不會再蓋回去：莊家攤牌後，兩位防家看得到四家的牌（莊家仍只看自己和夢家）；防家攤牌後，他的牌所有人都看得到。記在 `BoardState.claimed` |
 | 觀看者 | 四家（同 BBO kibitz）；練習桌的觀看者也一樣（§5.11） |
 | 不允許觀看的桌上沒有座位的人（站起來或被請離座的玩家，`e2-t26`） | 只看得到所有人都看得到的：首攻後的夢家、防家攤過的牌；打完後四家（`boardView` 的 `kibitz: false`） |
@@ -218,7 +224,7 @@ interface BoardState {
 - **大廳排序與快速入座**（`e2-t29`、`e2-t30`，`shared/lobby.ts`）：缺人的桌在前，缺越少越前面（最快能開打），滿的桌在後，同組照桌號；大廳卡片標「缺 N 家」。`quickSeat` 選第一張缺人、可以直接入座（`mayEnter`：公開，或受邀、已同意；房主沒封鎖他；不選練習桌、拒絕所有人的桌）的桌，坐第一個空位（南、北、東、西）；都滿就開新桌（預設設定）。已經坐在別桌的人會換過去
 - **斷線代打**（`e2-t31`）：一般牌桌上入座的真人斷線（最後一個 socket 關閉）滿 `SUBSTITUTE_MS`（3 分鐘），排程器的 `substitute:<社員>` 工作讓 TKB 坐進他的座位（同伴是機器人就用同伴的制度），`Table.substitutes` 記座位 → 本人，名牌顯示「代打 某某」（`SeatOccupant.substituteFor`）；只在桌上還有別的入座真人在線時才代打。本人重新連線（`connected`）立刻換回原座位（機器人換座位時記號跟著走）；別人坐進代打的座位、房主移走它，代打就結束。這一副有代打過，紀錄的 `BoardRecord.substitutes` 記座位與本人，單副紀錄頁的明細列出「北 · 代打 某某」（`RecordSubstitutes`）。斷線時間在記憶體（`offlineSince`），物件被回收後 `load()` 把離線的入座者從現在重新起算
 - **牌桌模式**：`Table.mode`（`casual`、挑戰的 `challenge` 或練習的 `practice`（§5.11），舊資料沒有這欄也當 `casual`）與 `modeState`；`ClubService` 只在三個地方問模式（`worker/modes.ts` 的 `TableModeHooks`，都拿到 `ModeContext`：社團的亂數、現在時間、`ChallengeStore`）：發新一副（`deal`，回傳牌號與四手牌，`null` 表示沒有下一副，最後一副留在桌上）、寫紀錄（`record`）、一副結束（`boardFinished`，在紀錄存好之後，所以拿得到牌局 id）。叫牌、出牌、入座與可見性在每種模式都一樣。牌從 `Table.dealSource` 來（`shared/deal-source.ts`；沒有就是每副重洗）
-- **排程**：機器人的下一步與自動發牌都交給同一個排程器（`worker/scheduler.ts`），每桌每種工作一個 key（`robot:<桌>`、`deal:<桌>`），每個進行中的挑戰一個 `challenge:<挑戰>`（§5.5），每位斷線的入座者一個 `substitute:<桌>:<社員>`（代打），一副的紀錄社團還沒收下時每桌一個 `outbox:<桌>`（§5.10），沒搬完的舊牌桌一個 `migrate:tables`，同一個 key 還在等就不重排。Durable Object 用 `AlarmQueue`：工作放在記憶體，只把最早的一個設成物件唯一的 storage alarm（`alarm()` → `runDue()`），所以不會互相覆蓋 alarm，物件在兩步之間也能休眠；工作不寫進儲存，物件被回收後由 `load()` 依狀態重新排程。**每個 `TableObject` 有自己的佇列與 alarm**（牌桌的工作），社團的只剩挑戰、每週挑戰與搬移（§5.10）。測試傳 `schedule` 換成手動佇列
+- **排程**：機器人的下一步與自動發牌都交給同一個排程器（`worker/scheduler.ts`），每桌每種工作一個 key（`robot:<桌>`、`deal:<桌>`），每個進行中的挑戰一個 `challenge:<挑戰>`（§5.5），每位斷線的入座者一個 `substitute:<桌>:<社員>`（代打），一副的紀錄社團還沒收下時每桌一個 `outbox:<桌>`（§5.10），沒搬完的舊牌桌一個 `migrate:tables`，同一個 key 還在等就不重排。Durable Object 用 `AlarmQueue`：工作放在記憶體，只把最早的一個設成物件唯一的 storage alarm（`alarm()` → `runDue()`），所以不會互相覆蓋 alarm，物件在兩步之間也能休眠；工作不寫進儲存，物件被回收後由 `load()` 依狀態重新排程。**每個 `TableObject` 有自己的佇列與 alarm**（牌桌的工作），社團的只剩挑戰、每週挑戰與搬移（§5.10）；`EVENT_OBJECTS=on` 時挑戰的 `challenge:<挑戰>` 也在那一場自己的 `EventObject`，社團只剩每週挑戰與搬移（`migrate:events`，§5.12 H2b）。測試傳 `schedule` 換成手動佇列
 - **心跳**：兩條連線都一樣（`src/lib/liveSocket.ts`）：瀏覽器每 15 秒送 `ping`，由 `setWebSocketAutoResponse` 直接回 `pong`（不必喚醒物件）。40 秒沒收到任何訊息、分頁回到前景或網路恢復時，瀏覽器立刻重新連線；重連期間的動作暫存 8 秒內補送（社團的連線補送全部，桌的連線只補牌桌動作）
 - **好友與封鎖**（AC-1.6，`worker/relations.ts`）：好友是單向關注，不需對方同意、也不通知對方（同 BBO）；`setFriend`／`setBlocked` 帶對方的 id 與 `true`／`false`，不能對自己（`notSelf`）、不存在的帳號或機器人（`userGone`）。封鎖會同時取消關注，封鎖中不能加好友（`unblockFirst`）。封鎖的效果都在伺服器：被封鎖者的聊天對封鎖者隱藏（§4），封鎖者當房主時被封鎖者不能 `joinTable` 或 `sit` 進那一桌（公開的桌回 `blockedByHost`，其他進入方式回跟任何沒被放行的人一樣的錯誤，申請也只是房主看不到，見「申請加入」；已經在桌上的不會被請走）。私訊（`e1-t27`，§5.7）與挑戰邀請（`e7-t05`）也檢查 `blocks`，之後的隊制賽邀請也要。帳號刪除時雙方名單裡的他都會刪掉
 - 使用 Durable Object 的 hibernation API：沒人打牌時物件可以休眠，WebSocket 不會斷，醒來時從儲存重新載入。
@@ -240,7 +246,10 @@ interface BoardState {
 | `notif:<userId>:<時間>-<id>` | 通知（`worker/notifications.ts`）：種類、參數、時間、是否已讀；每人只留最新 500 則，帳號刪除時一起刪 |
 | `friend:<userId>:<friendId>` | 社員關注的好友（單向），值是 `{ at }`；載入時全部讀進記憶體 |
 | `block:<userId>:<otherId>` | 社員封鎖的對象，值是 `{ at }`；載入時全部讀進記憶體 |
-| SQL `challenges`、`challenge_players`、`challenge_results` | 挑戰的正本（不是索引），見 §5.5 |
+| SQL `challenges`、`challenge_players`、`challenge_results` | 挑戰的正本（不是索引），見 §5.5；`EVENT_OBJECTS=on` 時，住在自己 `EventObject` 的挑戰正本在那個物件，這裡是社團的副本（§5.12 H2b） |
+| SQL `event_homes` | 哪些挑戰住在自己的 `EventObject`，與社團寫進副本的最後一個變更編號（`rev`，-1＝物件還沒確認收下）；沒有這一列的挑戰住在社團（§5.12 H2b） |
+| SQL `challenge_settled` | 社團對每場挑戰已經做過的事：結束（收桌、公開牌、通知結果）、提醒；H2b 建表時把已經結束或已提醒的挑戰都標成做過 |
+| `meta:events` | 挑戰住哪裡的版本：1＝社團、2＝每場開著的挑戰都在自己的 `EventObject`（§5.12 H2b）；沒開過開關就沒有這個 key |
 | SQL `matches`、`match_seats`、`match_boards` | 隊制賽的正本（不是索引），見 §5.8 |
 | SQL `direct_messages`、`direct_threads` | 私訊的正本，見 §5.7 |
 | `meta:settings` | 管理員改過的人數上限與邀請碼（沒改過就用環境變數） |
@@ -308,7 +317,7 @@ interface BoardState {
 | --- | --- | --- | --- |
 | `Club`（就是 `Directory`，類別名稱不改，免得 Durable Object 要搬資料） | 一個 | 帳號、申請、session、好友與封鎖、通知、私訊、大廳（**牌桌目錄**）、紀錄與索引、收藏、精選、挑戰與每週挑戰、隊制賽、淡江橋譜 | `worker/club.ts`、`ClubService`（`worker/service.ts`） |
 | `TableObject` | 每桌一個（`idFromName(<桌 id>)`） | 這一桌的一切：座位與觀看者、叫牌出牌與撤回攤牌、機器人、自動發牌、時間上限與太久提醒、斷線代打、聊天、這桌最近 30 副、每位觀看者的牌桌畫面與「只送有變的」、這一桌的 WebSocket | `worker/table-object.ts`、`TableService`（`worker/table-service.ts`） |
-| `EventObject`（H2b，`e11-t18`） | 每場挑戰／隊制賽一個 | 挑戰與隊制賽的狀態、期限工作與結算 | 設計在 §5.12，下一個 PR |
+| `EventObject`（H2b，`e11-t18`） | 每場挑戰一個（`idFromName('challenge:<id>')`，`EVENT_OBJECTS=on` 才用）；隊制賽是 H2c | 挑戰的狀態、期限工作與結算 | `worker/event-object.ts`、`EventHost`、`ChallengeEvent`（§5.12「H2b」） |
 
 **誰負責什麼規則**：跨桌的規則留在 `Club`，因為只有它知道每個人在哪裡：一人同時只在一桌、開桌與桌號、加入與入座前的封鎖與受邀檢查（`checkWelcome`）、快速入座、受邀名單的檢查與通知、開始／繼續挑戰。只跟一桌有關的規則在 `TableService`：座位有沒有人、這一副打到一半不能換座位、房主才能做的事、所有叫牌出牌（`shared/game.ts`）、機器人（只看自己的 `View`，§5.1）、可見性（仍然只在 `worker/views.ts`，§4）。`Club` 先用目錄做一次檢查（錯誤和現在一樣，在離開舊桌**之前**丟），`TableService` 再用自己的狀態做最後的檢查，兩邊的錯誤代碼相同。
 
@@ -376,6 +385,12 @@ interface BoardState {
 - **發牌**（`worker/modes.ts` 的 `practice`）：有條件時每副都由南家發牌（牌號 3、7、11、15…，局況輪流），隨機時照一般牌桌輪流。條件發牌用 `quickRandom`（每副用 CSPRNG 取一次種子的 mulberry32）：CSPRNG 每次嘗試約 1 ms，條件發牌要很多次嘗試，免費方案的 CPU 不夠；快速版每次約 10 µs，最難的滿貫牌平均約 350 次。
 - **隨時重發**（`redeal`，牌桌動作，只有練習桌的主人、要有座位）：這一副不管打到哪裡直接丟掉（不留紀錄、`boardsPlayed` 不變），立刻發下一副；這次抽不到時牌留著、回 `dealTooStrict`；不是練習桌回 `practiceOnly`。
 - **撤回不限**：練習桌的撤回跟一般牌桌一樣（機器人一律同意），沒有次數限制；挑戰桌才不能撤回。
+- **叫牌練習室（一）：只叫牌、一人控制多家**（`e10-t15`，ROADMAP U2a）：`PracticeSettings.biddingOnly` 與 `seats`（社員替哪幾家叫，一定有南；南以外只在 `biddingOnly` 時可以，現在沒有人同時打好幾手牌；`biddingOnly` 不能和 `justDeclare` 一起，錯了是 `badPracticeSettings { field: 'biddingOnly' | 'seats' }`）。
+  - **座位控制權（通用）**：`Table.controllers: Partial<Record<Seat, userId>>`，「替這個座位叫牌的人」，沒列的座位就是坐在那裡的人（`views.ts` 的 `actorOf`）。座位上仍是原本的佔位者（練習桌是 TKB），所以座位、`fixedSeats`、代打、`swapForDeclarer`、大廳顯示都不用改；機器人輪到一個被控制的座位就不動（`robotMove` 的 `robotActs`），但撤回與攤牌照樣由坐著的機器人回答。之所以不把社員的 id 同時放進好幾個座位：`seatOf`、代打、入座離座、紀錄的 `players` 都假設一個人一個座位，改那個模型會動到每一種牌桌；控制權另外一張表，之後搭檔非同步叫牌（`e10-t08`，搭檔控制北）與教學桌（`e10-t10`，老師控制任一家）只要設這張表。
+  - **伺服器驗證**：`call` 可以帶 `seat`（`TableService.callingSeat`）：要是 `actorOf` 為這位社員的座位，否則 `notYourSeat`；不帶就是自己的座位；輪到誰由 `makeCall` 判斷（`notYourCall`）。撤回（`undoSeat`）在叫牌中撤回他替任何一家叫的最後一口；他自己不能同意自己替別家叫的撤回（`undoByOpponent`）。社員被刪除時他控制的座位還給佔位者。
+  - **叫完就結束**：叫牌結束（有合約）時 `endBidding` 把這一副設成 `finished`、沒有 `result`、不打牌（`biddingEnded`）；四家 Pass 時照常有 0 分的 `result`。兩種都**不做紀錄**（不進 outbox、不進 `recent`、`boardsPlayed` 不變，所以也不進 D1 副本），也不自動發下一副（`dealsByItself`，沒有 `dealAt`）。社員按「下一副」（`redeal`）或「重叫這一副」（`rebid`：同一副牌從頭再叫，不是只叫牌的練習桌回 `biddingOnlyRebid`，只有主人可以）。
+  - **畫面**：`TableView.acts`（他替哪幾家叫，多於自己的座位時才送）、`SeatOccupant.controlledBy`（座位牌上的「amy 叫」）；叫牌盒上方「現在替 北 叫」，送出時帶 `seat: board.turn`；結束時中間是「叫牌結束」與合約（`ResultPanel` 沒有 `result` 時）；右下角「重叫這一副」「下一副」。
+  - **留給 U2b**：四家顯示／隱藏與每家的牌型條件都還沒做；顯示另外加 `boardView` 的參數（看得到但不能叫），不要塞進 `acts`。
 - **Just Declare 練習**（`e10-t05`）：每副先由四個 TKB 叫完（`challenge-deals.ts` 的 `robotAuction`，同 Just Declare 挑戰），南北沒當莊就重發，最多 `JUST_DECLARE_TRIES` 次；真的抽不到時先打一副有合約的（防守），再不行就讓社員自己叫。同伴當莊時社員換到莊家位（同一般牌桌的 `swapForDeclarer`）。
 - **紀錄**：`BoardRecord.mode = 'practice'`、桌號 0（列表顯示「練習」，`strings.ts` 的 `boardPlace`）。SQL 搜尋 `scope=all` 沒指定 `mode` 時排除練習（`history-index.ts` 的 `where`），所以「全部社員」、個人檔案卡的最近牌局都看不到；「我的」照常列出，篩選「練習」（`HISTORY_MODES`）兩邊都找得到。練習的牌不能設精選（`practiceNotFeatured`）、不能「用這副牌挑戰」（`practiceNoChallenge`）。
 - **畫面**：`TableView.practice`（`worker/views.ts` 的 `practiceView`：只有社員自己的設定與 `dealt`，不含任何牌）；牌桌標題 `PracticeBanner`，右下角「重發」「結束練習」。
@@ -400,7 +415,8 @@ H1 把牌桌拆出去之後（§5.10），社團的物件（`Club`）仍然是**
 | 收藏、單副紀錄、traveller、個人檔案卡的最近牌局 | `Club` | `Club`（不變） | — |
 | session | `Club` 的 `session:<token>` | 不變；另外發 10 分鐘的**簽章通行證**（cookie `tbt_pass`） | `Club` |
 | 牌桌連線是誰 | Worker 問 `Club` | Worker 看通行證；沒有、過期或不對才問 `Club` | — |
-| 挑戰、隊制賽的狀態、排程、結算 | `Club` 的 SQL | 每場一個 `EventObject`（**H2b**，下一個 PR） | — |
+| 挑戰的狀態、排程、結算 | `Club` 的 SQL | 每場一個 `EventObject`（**H2b**，開關 `EVENT_OBJECTS=on`，預設關）；`Club` 留一份副本給所有讀取 | 那一場的 `EventObject` |
+| 隊制賽的狀態與比分 | `Club` 的 SQL | 不變（**H2c**，下一個 PR，見下面 H2b 的「隊制賽為什麼不在這一批」） | `Club` |
 
 **為什麼 D1 是「副本」而不是整個搬過去**：
 - 挑戰與隊制賽在 `Club` 的 transaction 裡**同步**讀寫索引（`eventBoards`、`revealEvent`、`revealBoards`），收藏搜尋 join `favorites`。全部改成跨網路、非同步的 D1，會把 D1 的延遲與失敗帶進結算與公開牌局的流程，風險比收穫大。
@@ -459,19 +475,49 @@ H1 把牌桌拆出去之後（§5.10），社團的物件（`Club`）仍然是**
 - PR 預覽：**沒有 D1**。一個資料庫會被所有預覽共用，各預覽的社團紀錄會混在一起；預覽的紀錄頁由 `Club` 回答。預覽每次部署產生一個隨機的 `EDGE_AUTH_SECRET`（`.github/workflows/preview.yml`），所以通行證與「桌的連線不問 `Club`」在預覽可以測。
 - 本機（`npm run dev`）：`wrangler.jsonc` 的 D1 binding 在本機是一個本機資料庫；`.dev.vars` 設 `EDGE_AUTH_SECRET` 才會發通行證。
 
-### H2b：`EventObject`（`e11-t18`，下一個 PR）
+### H2b：每場挑戰一個 `EventObject`（決策紀錄，`e11-t18`，2026-10-26，**狀態：已實作，開關預設關**）
 
-- **每場挑戰、每場隊制賽一個 `EventObject`**（`idFromName('challenge:<id>')`、`idFromName('match:<id>')`），SQLite 後端，migration `v3`。
-- **搬進去**：那一場的 SQL 列（`challenges`／`challenge_players`／`challenge_results`、`matches`／`match_seats`／`match_boards`）、期限與提醒的 alarm（現在 `Club` 佇列裡的 `challenge:<id>`）、結算與名次、隊制賽的比分、裁定、暫停、替補；開關那一場的牌桌（同樣透過 `RemoteTables`）。
-- **留在 `Club`**：建立前的檢查（好友、封鎖、人數）、通知（`EventObject` 呼叫 `Club` 的 RPC）、每人「我的挑戰／隊制賽」的目錄（`eventdir:`，像 `tabledir:`，列表不必叫醒每一場）、紀錄 `board:` 與索引。桌子打完一副照樣交給 `Club`，`Club` 寫好紀錄後以 outbox（`evout:<牌局 id>`）把結果（`EventReport`）交給那一場；`challenge_results` 本來就是「重複就略過」。`EventObject` 回報目錄時帶遞增的 `rev`（同 `TableEntry`）。
-- **搬移**：`meta:schema` 4→5，一場一場搬（`adopt` → 寫 `eventdir:` → 刪 `Club` 的列），失敗的下次再搬；開關 `EVENT_OBJECTS=off` 反方向搬回。結構與測試照 H1b（`tests/worker/table-objects.test.ts` 的做法：每個物件在 Node 裡是一個 host，經 structured clone）。
-- **買到什麼**：結算與比分不再佔 `Club` 的執行緒（每週挑戰截止時幾十人的結算、兩室同時打完的比分）。以 30 桌的社團來說它比 H2a 次要；J 階段（很多場比賽同時）才真的需要，所以排在 H2a 之後。
-- **為什麼沒有跟 H2a 一起做**：挑戰與隊制賽跟 `Club` 的資料纏得很深（好友與封鎖、通知、牌桌目錄與開桌、紀錄與索引的公開），拆出去之後 `EventObject` 每一步都要回頭呼叫 `Club`；正式站上有進行中的挑戰與比賽，搬移要跟 H1b 一樣可中斷、可退回。這是一個完整的 PR，不適合塞在 H2a 後面。
-- **步驟**（每一步 `tests/worker` 全過）：
-  1. **H2b-1 挑戰，同一個物件裡**（跟 H1a 一樣先不改部署）：`worker/events.ts`（`EventEntry`：id、種類、狀態、截止、參與者、`rev`；`EventApi`：`Club` → 那一場的 `create`（帶 `Club` 檢查過的快照）、`answer`、`cancel`、`result`（`EventReport`）、`detail`／`travellers`（帶觀看者）、`due`；`EventLink`：那一場 → `Club` 的 `changed(entry)`、`notify`、`closeTables`、`reveal(eventId, at)`），`worker/event-service.ts`（從 `ClubService` 搬出挑戰的流程、期限、結算、排名，自己的 `ChallengeStore`），`LocalEvents`。`Club` 只讀 `eventdir`（大廳的「我的挑戰」、`GET /api/challenges`），`boardFinished` 經 `evout:` outbox 交結果。
-  2. **H2b-2 每場一個物件**：`worker/event-object.ts`（只有接線）、`event-host.ts`（Node 可測）、`RemoteEvents`、`wrangler.jsonc` 的 `EVENT` binding（三個環境各一份）與 migration `v3`；`meta:schema` 4→5 一場一場搬、`EVENT_OBJECTS=off` 搬回；`tests/worker/event-objects.test.ts` 照 `table-objects.test.ts`（structured clone、回收後接著做、搬移失敗重試、切回去）。
-  3. **H2c 隊制賽**：`matches`、`match_seats`、`match_boards` 與 `TeamMatchService` 照同樣的方式搬；兩室的牌桌仍由 `Club` 開（它知道每個人在哪），比賽物件只發出要求；比分只在比賽物件裡用兩室都完成的副計算（§5.8 不變）。
-  4. 資訊隔離套件（`tests/worker/visibility/`）每一步都要過；`challengeTraveller`、`challengeBoardVisible` 仍在 `worker/views.ts`。
+**為什麼**：挑戰的期限工作（提醒、截止）與結算（每週挑戰截止時幾十人的名次、結果通知）都排在 `Club` 唯一的佇列與執行緒裡。拆出去之後，一場挑戰的工作只叫醒那一場的物件；`Club` 只在挑戰的狀態真的變了才被叫醒一次，寫副本、做「社團才做得到的事」。以 30 桌的社團來說它比 H2a 次要；J 階段（很多場比賽同時）才真的需要。
+
+**什麼搬、什麼留**：
+
+| | 在哪裡 | 說明 |
+| --- | --- | --- |
+| 一場挑戰的狀態（`challenges`／`challenge_players`／`challenge_results` 的那幾列） | 那一場的 `EventObject`（自己的 SQLite，**同一個** `ChallengeStore`） | 正本 |
+| 狀態怎麼變（回覆、取消、開始打、一副的結果、帳號刪除、提前結束、截止） | `ChallengeEvent`（`worker/event-service.ts`，呼叫 `challenge-flow.ts` 的純函式） | 不碰 Cloudflare；開關關時在 `Club` 裡跑同一份程式（`LocalEvents`） |
+| 期限工作（`challenge:<id>`：12 小時前提醒、截止結算） | 那一場物件自己的 `AlarmQueue` 與 storage alarm | 物件載入時依狀態重排 |
+| 建立前的檢查（好友、封鎖、人數、牌組、「用這副牌挑戰」讀紀錄） | `Club` | 只有 `Club` 有帳號與紀錄 |
+| 通知（邀請、回覆、取消、提醒、結果） | `Club` | 物件只說狀態，不送通知 |
+| 開關牌桌、公開牌（`revealAt`、`boards_index.reveal_at`） | `Club` | 只有 `Club` 有牌桌目錄與紀錄 |
+| 每場挑戰的**副本**（同樣三個表） | `Club` | 列表、挑戰頁、traveller、可見性（`challengeView`、`challengeBoardVisible`、`challengeTraveller` 仍在 `worker/views.ts`）、挑戰桌的快照、重賽，全部讀副本，跟以前一樣同步 |
+| 紀錄 `board:` 與索引 | `Club` | 不變 |
+
+副本用跟正本**同一個 schema**（不是另做一份 `eventdir:` 目錄），所以 `Club` 所有讀挑戰的程式一行都沒改；寫入則一律經過 `EventApi`。`event_homes` 記哪些挑戰住在自己的物件，沒有那一列的就住在社團（開關關、還沒搬、或搬回來的）。
+
+**兩者之間的訊息**（`worker/events.ts`，Durable Object RPC，只傳結構化可複製的資料）：
+- `Club` → 一場（`EventApi`）：`adopt`（新挑戰、搬出去；已經有就保留物件的）、`answer`、`cancel`、`started`（第一副發牌）、`result`（一副的結果）、`forget`（帳號刪除）。每個都回傳那一場現在的樣子（`EventSnapshot`：整場挑戰＋變更編號 `rev`），**拒絕的時候也帶**，所以 `Club` 的副本落後時（上一次的回答丟了）會跟著拒絕一起補上。錯誤以代碼傳回、在 `Club` 還原成 `ClubError`（瀏覽器看到的代碼不變）。
+- 一場 → `Club`（`EventLink.changed`，`Club` 的 RPC 方法 `eventChanged`）：工作自己改了狀態（提醒時間到、截止）。
+- `rev` 跟 `TableEntry` 一樣是 `max(上一個＋1, 現在的毫秒)`，物件被回收後也不會變小；`Club` 只寫比 `event_homes.rev` 新的，晚到或重複的回報直接丟掉。
+
+**一致性**：
+- **物件這一側（outbox）**：每次變更先存 `unreported`，工作造成的變更立刻回報；`Club` 呼叫造成的變更已經在回答裡，但 5 秒後**再回報一次**（萬一回答在路上丟了），失敗就 30 秒後重試、每次加倍、最多 10 分鐘。回報成功、而且這段時間沒有新的變更才清掉。物件被回收：`load()` 看到 `unreported` 就再送。
+- **`Club` 這一側（做過就記下來）**：結束後要做的事（收桌、公開牌、`finished` 時通知每位接受的人看結果）與提醒，都是**從挑戰的狀態推出來**、做之前先記在 `challenge_settled`，所以不管回報來幾次、晚多久、哪一條路先到，都只做一次。建表時把已經結束或已經提醒的舊挑戰都標成做過，部署當下不會重發通知。
+- **結算的重送**：一副打完時牌桌把紀錄交給 `Club`（H1 的 `boardFinished`），`Club` 寫好紀錄後把結果交給那一場（`result`）。那一場的物件連不上時錯誤傳回牌桌，**沿用牌桌的 `outbox:<桌>`** 30 秒後整副重送（寫紀錄本來就可以重做，結果重複就略過），不另做 `evout:`。結果算不算看的是牌桌打完的時間（`playedAt`），不是送到的時間，所以晚送到的結果照算；截止已經結算過的就不算（跟沒打一樣，同以前）。
+- **物件說它沒有這場挑戰**（第一次 `adopt` 失敗，或 `Club` 寫好副本後、呼叫前被回收）：`RemoteEvents` 拿 `Club` 的副本給它 `adopt`，再呼叫一次。所以新挑戰的順序是：先在同一個 transaction 寫副本與 `event_homes`（`rev` = -1），再 `adopt`；`adopt` 失敗不算建立失敗（邀請照發），之後第一次呼叫或 60 秒後的 `migrate:events` 會補。
+- **帳號刪除**時某一場的物件連不上：記 log，那一場留著這個名字直到結束（帳號本身照樣刪除）。
+
+**搬移（`meta:events` 1 → 2，可中斷、可重來）**：開關打開後 `Club` 載入時，每場**還開著**的挑戰先標成住在物件（`event_homes`，`rev` -1：從此 `Club` 都去物件找它，它在 `Club` 佇列裡的舊工作什麼都不做），再讓物件 `adopt` 副本、把回答寫回副本。失敗的 60 秒後再搬（`migrate:events`），中途被回收就再做一次（物件已經有的保留）。全部確認了才寫 `meta:events` = 2。**已經結束的挑戰不搬**：它們不會再變，留在 `Club`。
+
+**開關（退回）**：`EVENT_OBJECTS=on` 才用物件，**其他值或沒設（預設）都是關**。關的時候 `Club` 載入時把每場住在物件的挑戰搬回來：物件先 `handOver`（停住：不再改、不跑工作、不回報），`Club` 用它寫副本、刪 `event_homes` 那一列、在自己的佇列排工作，再 `release` 清掉物件；`release` 失敗也沒關係（物件停著，下次 `adopt` 時清掉）。搬不回來的那一場繼續在物件裡、照常從物件存取，稍後再試；全部搬完 `meta:events` 回到 1。從搬回來的物件晚到的回報直接丟掉。正式站合併當下沒有這個變數，所以行為跟以前一樣（只多建兩個空表、`challenge_settled` 補上舊挑戰）。staging 與 PR 預覽在 `wrangler.jsonc` 設成 `on`。步驟在 `DEPLOY.md` §4.6。
+
+**隊制賽為什麼不在這一批（H2c）**：隊制賽沒有自己的期限工作（每副的時間上限是牌桌的，已經在 `TableObject`），比分在讀的時候才由 `scoreTeamMatch` 算，所以搬出去幾乎省不到 `Club` 的時間；而它的每一個動作都要 `Club` 的資料：誰在線（能不能開始）、封鎖與是否社員（邀請、替補）、牌桌目錄（裁定看兩室到哪裡）、「同時只在一場比賽」與「一人只主辦一場」（要跨比賽查）、推送給每位參賽者與觀看者（`Club` 的連線）。搬過去等於每個動作都要先把這些算好跟著傳過去。做法照這一批：`TeamMatchService` 分成 `Club` 那一半（上面那些檢查、通知、畫面與推送，讀副本）與比賽那一半（`team-match-flow.ts` 的純函式＋寫入，`ChallengeEvent` 的同類），同一個 `EventObject` 類別依 id 前綴（`match:<id>`）分派、同樣的 `rev`／outbox／`settled`、兩室的牌桌仍由 `Club` 開；比分只在比賽物件裡用兩室都完成的副計算（§5.8 不變）。
+
+**實作與測試**：
+- 分層照 H1b：`worker/event-object.ts`（只有接線：儲存、`ctx.storage.sql`、alarm、社團的 stub）→ `worker/event-host.ts`（`EventHost`，Node 可測）→ `ChallengeEvent`。`Club` 那一側是 `RemoteEvents`（`worker/events.ts`）；`ClubService` 只拿到 `ClubConfig.eventObjects`／`eventObjectsOn`，不碰 Cloudflare API（CLAUDE.md 規則 4）。`wrangler.jsonc` 加 `EVENT` binding（三個環境各一份）與 migration `v3`（`new_sqlite_classes: ["EventObject"]`，只新增類別，可以安全部署）。`/api/health` 多一個 `events: { objects, unconfirmed }`。
+- **兩種模式都跑既有的測試**：`vite.config.ts` 有兩個 Vitest project，`default` 跑全部，`event-objects` 用 `TBT_EVENT_OBJECTS=on` 再跑一次所有挑戰、每週挑戰、隊制賽、TKB 權限與資訊隔離（`tests/worker/visibility/`）的測試。測試用 `tests/worker/event-mode.ts` 的 `clubService(...)` 建社團：開的時候每場挑戰是一個 `EventHost`（自己的儲存與記憶體 SQLite，經 structured clone），工作進同一個手動佇列；同一個 store 上重建社團時物件也一起被回收重載。
+- `tests/worker/event-objects.test.ts`：副本與物件一致、拒絕的代碼與跟著補上的副本、截止在物件裡結算而結果只通知一次、物件被回收後工作重排而提醒不重發、回報送不到時重試、物件一開始沒收下時用副本補、物件連不上時一副的結果由牌桌的 outbox 重送且只算一次、開關關時什麼都不搬、搬出去（已結束的留下）、搬移失敗重試與重做、搬回來再搬出去、搬不回來時繼續用物件與搬回後丟掉晚到的回報、舊挑戰的 `challenge_settled` 補值不重發通知。
+- 需要 workerd 才能測的只有接線（`event-object.ts`、`club.ts` 的 `eventChanged`、真正的 RPC）：在 staging（已預設開）照 `DEPLOY.md` §4.6 的檢查做一次。
+- **還沒做**：隊制賽（H2c）；`Club` 自己的紀錄索引還不能拿掉（挑戰頁的 traveller 仍 join 它）；一場挑戰每次回報整場（幾十人沒問題，全台灣規模的每週挑戰要改成只送變的部分）；負載數字等 `e11-t21`。
 
 ### 實作與測試（H2a，`e11-t19`、`e11-t20`）
 

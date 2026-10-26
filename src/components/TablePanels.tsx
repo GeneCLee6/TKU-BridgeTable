@@ -6,7 +6,7 @@ import { typingIn } from '../lib/useCardChoice.ts'
 import { useT } from '../state/PreferencesContext.tsx'
 import { seatLetter } from '../strings.ts'
 import { FavoriteButton } from './FavoriteButton.tsx'
-import { ContractResult } from './Suit.tsx'
+import { ContractLabel, ContractResult } from './Suit.tsx'
 import { ActionLink } from './ui.tsx'
 
 /** Panels in the middle of the felt: claim and undo prompts, the result */
@@ -124,8 +124,19 @@ export function Countdown({ seconds }: { seconds: number }) {
  */
 export function ResultPanel({ board, declarerName, seconds }: { board: BoardView; declarerName?: string; seconds: number | null }) {
   const t = useT()
-  const result = board.result!
+  const result = board.result
   const contract = board.contract
+  // A bidding practice ends the board with the auction (`e10-t15`): the contract, nothing played
+  if (!result)
+    return (
+      <FeltPanel role="status" aria-label={t.biddingOver}>
+        <div>{t.biddingOver}</div>
+        <Big>
+          <ContractLabel contract={contract} onCard />
+        </Big>
+        {contract && <div>{declarerName ?? seatLetter[contract.declarer]}</div>}
+      </FeltPanel>
+    )
   return (
     <FeltPanel role="status" aria-label={t.result}>
       <Big>

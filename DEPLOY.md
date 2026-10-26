@@ -317,6 +317,32 @@ npx wrangler deploy --var EDGE_AUTH:off    # 不發也不認通行證，Worker �
 
 D1 免費額度（每天讀 500 萬列、寫 10 萬列、5 GB）的估算在 `ARCHITECTURE.md` §5.12「免費方案」：社團現在的量遠低於上限。Dashboard → Storage & Databases → D1 → `tku-bridge-history` → Metrics 可以看每天讀寫的列數。超過時紀錄頁自動改由社團回答，寫入隔天補上。
 
+## 4.6 每場挑戰一個 Durable Object（H2b，`e11-t18`）
+
+從這一版起，每場挑戰**可以**在自己的 Durable Object（`EventObject`）裡跑：狀態、12 小時前的提醒、截止結算都在那一場的物件，社團的物件（`Club`）留一份副本給所有頁面讀，並負責通知、收桌與公開牌（`ARCHITECTURE.md` §5.12「H2b」）。`wrangler.jsonc` 多了 `EVENT` binding（三個環境各一份）與 migration `v3`（`new_sqlite_classes: ["EventObject"]`，只新增類別，部署時自動套用）。隊制賽還在社團裡（H2c）。
+
+**開關 `EVENT_OBJECTS`，預設關**：只有值是 `on` 才用 `EventObject`。正式站的 `vars` 沒有它，所以**合併、部署這一版之後正式站的行為不變**：挑戰照舊在社團的物件裡，社團第一次載入時只多建兩個表（`event_homes` 空的；`challenge_settled` 把已經結束或已經提醒的舊挑戰標成做過，不會重發通知）。staging 與 PR 預覽在 `wrangler.jsonc` 已經設成 `on`，可以先在那裡試。**正式站什麼時候打開由社長決定。**
+
+### 先在 staging 試（已預設開）
+
+1. `https://<staging 網域>/api/health` 的 `events` 是 `{"objects":N,"unconfirmed":0}`：N 是住在物件裡的挑戰數，`unconfirmed` 不是 0 表示有物件還沒收下（60 秒後重試，看 Logs 的 `crash`，`where` 是 `moveEventsOut` 或 `adoptChallenge`）。
+2. 建一場挑戰、對方接受、各打一副：挑戰頁的進度與名次正確；Dashboard → Durable Objects 出現 `EventObject`。
+3. 取消一場、或等一場到期（可以建 1 天的）：大家收到該收的通知、只收一次；挑戰的牌之後在紀錄頁對所有人公開。
+
+### 正式站打開（社長決定之後）
+
+1. 挑沒有挑戰快要截止的時候。開一個 PR，把 `"EVENT_OBJECTS": "on"` 加進 `wrangler.jsonc` 最上層的 `vars`，CI 綠了合併自動部署（只用 `npx wrangler deploy --var EVENT_OBJECTS:on` 也可以，但下一次 CI 部署會把它關回去）。
+2. 社團的物件重新載入時，把每場**還開著**的挑戰一場一場搬進各自的物件（`meta:events` 1 → 2），已經結束的留在社團。中途被回收或某一場失敗都沒關係：失敗的 60 秒後再搬，重做不會重複；搬到一半時那一場照樣能用（物件第一次被呼叫時會拿社團的副本）。
+3. 檢查：
+   - `/api/health` 的 `events.objects` 等於開著的挑戰數、`unconfirmed` 是 0。
+   - Logs 搜尋 `eventsMoved`：`{"event":"eventsMoved","to":"objects","moved":N,"failed":0}`（沒有開著的挑戰就沒有這一行）；`failed` 不是 0 時看同一時間的 `crash`（`where: "moveEventsOut"`）。
+   - 打開一場進行中的挑戰：進度、名次跟搬之前一樣；再打一副，結果有算進去。
+   - 等下一次提醒或截止（或在 staging 先試過）：通知只來一次。
+
+### 出問題時（切回去）
+
+把 `vars` 裡的 `EVENT_OBJECTS` 拿掉（或改成 `off`）再部署；急的話先 `npx wrangler deploy --var EVENT_OBJECTS:off`。社團的物件重新載入時把每場挑戰從它的物件拿回來（那一場先停住，不再改、不跑工作、不回報），寫回社團的表、刪掉 `event_homes` 那一列、在社團排好提醒與截止，再清掉那個物件；全部搬完 `meta:events` 回到 1，Logs 有 `{"event":"eventsMoved","to":"club",...}`。拿不回來的那一場繼續在物件裡照常運作，稍後再試。正本只會在一個地方（社團或那一場的物件），所以怎麼切都不會掉挑戰或結果。**不要**刪掉 `EventObject` 類別或 migration `v3`：Cloudflare 會拒絕部署，要刪得另外加一個 `deleted_classes` 的 migration（會連資料一起刪）。
+
 ## 5. 費用與限制
 
 - Workers 免費方案：每天 10 萬次請求；WebSocket 訊息以 20:1 計算，一個晚上打牌遠低於上限。

@@ -7,6 +7,7 @@ import { ChallengeStore, type Challenge } from '../../worker/challenges.ts'
 import { ClubService, type Connections } from '../../worker/service.ts'
 import type { MemoryStore } from '../../worker/store.ts'
 import { memoryStore, memorySql } from './sqlite.ts'
+import { clubService } from './event-mode.ts'
 
 const T0 = 1_000_000
 const DAY = 86_400_000
@@ -119,7 +120,8 @@ describe('challenge store', () => {
     store.setStatus('done', 'finished', T0 + 1)
     store.addResult('group', { userId: 'ben', seq: 1, boardId: 'y', scoreNS: 50, playedAt: T0 })
 
-    expect(store.forget('ben', T0 + 7).sort()).toEqual(['declined', 'duel', 'group'])
+    expect(store.openIdsOf('ben').sort()).toEqual(['declined', 'duel', 'group'])
+    for (const id of ['declined', 'done', 'duel', 'group']) store.forgetIn(id, 'ben', T0 + 7)
     expect(store.get('duel')).toMatchObject({ status: 'cancelled', endedAt: T0 + 7 })
     expect(store.get('group')).toMatchObject({ status: 'pending', results: [] })
     expect(store.get('group')!.players.map((p) => p.userId)).toEqual(['amy', 'cat'])
@@ -143,7 +145,7 @@ describe('challenges in the club', () => {
   let store: MemoryStore
   let club: ClubService
   const open = async () => {
-    club = new ClubService(store, new NoConnections(), { maxUsers: 10, now: () => T0, schedule: () => {} })
+    club = clubService(store, new NoConnections(), { maxUsers: 10, now: () => T0, schedule: () => {} })
     await club.load()
   }
   const join = async (name: string) => {

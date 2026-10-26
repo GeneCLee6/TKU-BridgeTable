@@ -195,6 +195,12 @@ export const practiceStateOf = (table: Table): PracticeTableState | null =>
   table.mode === 'practice' ? (table.modeState as PracticeTableState) : null
 
 /**
+ * Whether the table only bids its boards (a bidding practice, `e10-t15`): the end of the auction
+ * ends the board (`endBidding`), nothing is recorded, and the next board comes only when asked for
+ */
+export const biddingOnly = (table: Table): boolean => !!practiceStateOf(table)?.biddingOnly
+
+/**
  * The next practice board (`e10-t03`, `e10-t05`): any deal, or one meeting the conditions, null
  * when the conditions cannot be met in PRACTICE_MAX_ATTEMPTS. For Just Declare the robots bid it
  * (all four seats, as for a Just Declare challenge board) and a deal North-South does not declare

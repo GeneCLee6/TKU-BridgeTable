@@ -46,7 +46,13 @@ import {
   type TableSummary,
 } from '../shared/protocol.ts'
 import { dealWith } from '../shared/dealer.ts'
-import { parsePracticeSettings, PRACTICE_MAX_ATTEMPTS, practiceConditions, quickRandom } from '../shared/practice.ts'
+import {
+  controlledSeats,
+  parsePracticeSettings,
+  PRACTICE_MAX_ATTEMPTS,
+  practiceConditions,
+  quickRandom,
+} from '../shared/practice.ts'
 import type { RobotBrain } from '../shared/robot/brain.ts'
 import { hashPassword, randomId, SESSION_DAYS, verifyPassword } from './auth.ts'
 import { checkFavorite } from '../shared/favorites.ts'
@@ -69,18 +75,13 @@ import {
 import { dealSourceOf, makeDealSet, type DealSet, type DealSetBoard } from '../shared/deal-set.ts'
 import { openingLead, type Traveller } from '../shared/traveller.ts'
 import {
-  answer,
-  cancel,
   challengeTakesPart,
-  deadlineOutcome,
-  earlyFinish,
   newChallenge,
-  nextChallengeTime,
-  REMINDER_MS,
   remindWhom,
-  type ChallengeChange,
 } from './challenge-flow.ts'
 import { ChallengeStore, type Challenge, type ChallengeResult } from './challenges.ts'
+import { LocalEvents } from './event-service.ts'
+import { EventHomes, type EventApi, type EventLink, type EventSnapshot, type RemoteEvents } from './events.ts'
 import { ClubError } from './errors.ts'
 import { PROFILE_ID } from './profiles.ts'
 import { FeaturedService } from './featured.ts'
@@ -105,7 +106,6 @@ import {
   challengeSnapshot,
   challengeStateOf,
   nextSeq,
-  playedSeqs,
   type ChallengeTableState,
   type EventReport,
   type PracticeTableState,
@@ -254,6 +254,16 @@ export interface ClubConfig {
   historyReplica?: ReplicaDb
   /** Stops keeping the D1 copy and tells the Worker not to read it: the switch back (`HISTORY_D1=off`) */
   historyReplicaOff?: boolean
+  /**
+   * The challenges' own Durable Objects (`EventObject`, H2b, ARCHITECTURE.md §5.12). Without it
+   * (most tests) every challenge lives in this object (`LocalEvents`)
+   */
+  eventObjects?: RemoteEvents
+  /**
+   * Moves the challenges into `eventObjects` (`EVENT_OBJECTS=on`). Off (the default) keeps them in
+   * this object and brings back any that were moved out: the switch back (DEPLOY.md §4.6)
+   */
+  eventObjectsOn?: boolean
 }
 
 export type ScheduleKind = JobKind
@@ -264,6 +274,14 @@ const SCHEMA = 3
 const TABLES_SCHEMA = 4
 /** How soon a table that could not be moved is tried again */
 const MOVE_RETRY_MS = 60_000
+/**
+ * `meta:events`: 1 while the challenges live in the club; 2 once every open one lives in its own
+ * `EventObject` (H2b, §5.12), the club keeping a copy of each (schema of the move out, like
+ * `meta:schema` 3 → 4 for the tables)
+ */
+const EVENTS_KEY = 'meta:events'
+const EVENTS_IN_CLUB = 1
+const EVENTS_IN_OBJECTS = 2
 /** Boards indexed per step of the backfill; the position is saved after each step */
 const BACKFILL_BATCH = 100
 /** How many closed tables the club remembers, to drop their reports that arrive late (§5.10) */
@@ -353,8 +371,19 @@ export class ClubService {
   /** Members with an open socket as far as this object has seen, and when each was last announced to friends (e1-t24) */
   private readonly present = new Set<string>()
   private readonly announced = new Map<string, number>()
-  /** Challenges, kept in SQL (§5.5); created and answered here, played in later batches */
+  /**
+   * Challenges, kept in SQL (§5.5): the challenges that live in this object, and the club's copy of
+   * those that live in their own `EventObject` (H2b, §5.12). Every page and rule reads this
+   */
   readonly challenges: ChallengeStore
+  /** Which challenges live in their own object, and what the club already did about each one's state */
+  private readonly homes: EventHomes
+  /** The challenges that live in this object */
+  private readonly localEvents: LocalEvents
+  /** The challenges' own objects, when configured (even switched off: those not brought back yet are reached there) */
+  private readonly eventObjects?: RemoteEvents
+  /** What a challenge in its own object tells the club (`EventLink`); `EventObject` calls it over RPC through `Club` */
+  readonly eventLink: EventLink
   /** The weekly club challenge's schedule (`e7-t23`), null until an admin sets one */
   private weekly: WeeklyState | null = null
   /** Two-table team matches, kept in SQL (§5.7); set up over HTTP, played in later batches */
@@ -393,6 +422,7 @@ export class ClubService {
     this.friends = new Relations(store, 'friend', this.now)
     this.blocks = new Relations(store, 'block', this.now)
     this.challenges = new ChallengeStore(store.sql)
+    this.homes = new EventHomes(store.sql)
     this.matches = new TeamMatchService(new TeamMatchStore(store.sql), {
       now: this.now,
       newId: () => randomId(8),
@@ -424,6 +454,20 @@ export class ClubService {
     }
     if (config.historyReplica)
       this.replica = new ReplicaSync({ store, db: config.historyReplica, scheduler: this.scheduler, now: this.now, log: this.log })
+    this.eventLink = { changed: (snapshot) => this.eventChanged(snapshot) }
+    this.localEvents = new LocalEvents({
+      store: this.challenges,
+      scheduler: this.scheduler,
+      now: this.now,
+      here: (id) => this.homes.rev(id) === undefined,
+      changed: (challenge) => this.eventChanged({ challenge, rev: 0 }),
+    })
+    this.eventObjects = config.eventObjects
+    if (this.eventObjects)
+      this.eventObjects.attach = {
+        snapshot: (snapshot) => this.applySnapshot(snapshot),
+        copy: (id) => (this.homes.rev(id) === undefined ? null : this.challenges.get(id)),
+      }
     const link: ClubLink = {
       changed: (entry) => this.applyEntry(entry),
       closed: (tableId) => this.tableClosed(tableId),
@@ -472,6 +516,7 @@ export class ClubService {
     this.settings = (await this.store.get<Partial<ClubSettings>>('meta:settings')) ?? {}
     createHistoryIndex(this.store.sql)
     this.challenges.createTables()
+    this.homes.createTables()
     this.matches.store.createTables()
     this.directs.createTables()
     const schema = (await this.store.get<number>('meta:schema')) ?? 1
@@ -491,8 +536,7 @@ export class ClubService {
       // Each table takes its state back and schedules its own jobs (jobs are not stored)
       for (const stored of (await this.store.list<Table>('table:')).values()) await this.restoreLocal(stored)
     })
-    // Jobs are not stored: each open challenge's reminder or deadline is scheduled again
-    for (const id of this.challenges.openIds()) this.scheduleChallenge(id)
+    await this.batch(() => this.loadEvents())
     this.weekly = (await this.store.get<WeeklyState>(WEEKLY_KEY)) ?? null
     this.scheduleWeekly()
   }
@@ -567,6 +611,98 @@ export class ClubService {
     }
     if (entries.size) this.log({ event: 'tablesMoved', to: 'club', moved: entries.size - failed, failed })
     if (!failed && (await this.store.get<number>('meta:schema')) === TABLES_SCHEMA) await this.store.put('meta:schema', SCHEMA)
+  }
+
+  /**
+   * The challenges after a load (H2b, §5.12): moved out into their own objects, or brought back,
+   * as the switch says; then each open one that lives here has its reminder or deadline scheduled
+   * again (jobs are not stored). One in its own object schedules its own
+   */
+  private async loadEvents() {
+    if (this.eventObjects && this.config.eventObjectsOn) await this.moveEventsOut()
+    else if (this.eventObjects) await this.bringEventsBack()
+    for (const id of this.challenges.openIds())
+      if (this.homes.rev(id) === undefined) this.localEvents.event(id).schedule()
+  }
+
+  /**
+   * `meta:events` 1 → 2 (H2b, §5.12): every open challenge kept in the club moves into its own
+   * `EventObject`. Per challenge: it is marked as living there first (`event_homes`, not yet
+   * confirmed), so from then on the club reaches it there, and its job here does nothing; then the
+   * object adopts the club's copy and its answer is written back. An object that fails is tried
+   * again later (and adopts the copy anyway the first time the club calls it); one evicted halfway
+   * does it again, and an object that already has the challenge keeps what it has. Challenges that
+   * already ended never change and stay in the club
+   */
+  private async moveEventsOut() {
+    const objects = this.eventObjects!
+    for (const id of this.challenges.openIds()) if (this.homes.rev(id) === undefined) this.homes.setRev(id, -1)
+    const pending = this.homes.unconfirmed()
+    let failed = 0
+    await Promise.all(
+      pending.map(async (id) => {
+        const copy = this.challenges.get(id)
+        if (!copy) return this.homes.drop(id)
+        try {
+          this.applySnapshot(await objects.get(id).adopt(copy))
+          // The object may have moved on since (its job ran while the club was away)
+          await this.settleChallenge(id)
+        } catch (error) {
+          failed++
+          this.log(crashEntry('moveEventsOut', error))
+        }
+      }),
+    )
+    if (pending.length) this.log({ event: 'eventsMoved', to: 'objects', moved: pending.length - failed, failed })
+    if (failed) return this.retryEventMove()
+    if (((await this.store.get<number>(EVENTS_KEY)) ?? EVENTS_IN_CLUB) < EVENTS_IN_OBJECTS)
+      await this.store.put(EVENTS_KEY, EVENTS_IN_OBJECTS)
+  }
+
+  /** Moves the challenges whose object did not answer again in a minute (either way: the switch decides) */
+  private retryEventMove() {
+    this.scheduler.add('migrate:events', 'migrate', MOVE_RETRY_MS, async () => {
+      await this.batch(() => (this.config.eventObjectsOn ? this.moveEventsOut() : this.bringEventsBack()))
+      this.broadcast()
+    })
+  }
+
+  /**
+   * The switch back (`EVENT_OBJECTS` not `on`, DEPLOY.md §4.6): every challenge in its own object
+   * comes back, in the safe order: the object hands it over and keeps still (it changes, runs and
+   * tells nothing any more), the club writes it over its copy and forgets the object is its home
+   * (from then on it lives here, and its job is scheduled here), the object forgets it. One whose
+   * object fails stays there, reached there, and is tried again later; `meta:events` goes back to 1
+   * once none is left
+   */
+  private async bringEventsBack() {
+    const objects = this.eventObjects!
+    const ids = this.homes.ids()
+    let failed = 0
+    for (const id of ids) {
+      try {
+        const challenge = await objects.handOver(id)
+        this.store.sql.transaction(() => {
+          if (challenge) this.challenges.replace(challenge)
+          this.homes.drop(id)
+        })
+        this.localEvents.event(id).schedule()
+        await this.settleChallenge(id)
+      } catch (error) {
+        failed++
+        this.log(crashEntry('bringEventsBack', error))
+        continue
+      }
+      try {
+        await objects.release(id)
+      } catch (error) {
+        // It keeps still (frozen) and is wiped the next time it adopts
+        this.log(crashEntry('releaseEvent', error))
+      }
+    }
+    if (ids.length) this.log({ event: 'eventsMoved', to: 'club', moved: ids.length - failed, failed })
+    if (failed) return this.retryEventMove()
+    if ((await this.store.get<number>(EVENTS_KEY)) === EVENTS_IN_OBJECTS) await this.store.put(EVENTS_KEY, EVENTS_IN_CLUB)
   }
 
   /** Version 1 kept history as `board:<time>-<id>` only; build the indexes from it */
@@ -1114,7 +1250,15 @@ export class ClubService {
     const correspondents = this.directs.forget(user.id)
     for (const id of correspondents) this.pushDirects(id)
     // A challenge left with too few people is cancelled; one where everyone left is done finishes
-    for (const id of this.challenges.forget(user.id, this.now())) await this.challengeChanged(id)
+    for (const id of this.challenges.openIdsOf(user.id)) {
+      try {
+        this.applySnapshot(await this.eventFor(id).forget(user.id))
+        await this.settleChallenge(id)
+      } catch (error) {
+        // Their account is gone either way; the challenge only keeps their name until it ends
+        this.log(crashEntry('forgetInChallenge', error))
+      }
+    }
     // A match they host that has not started is cancelled; their seats are emptied (§5.7)
     this.matches.store.forget(user.id, this.now())
     this.connections.disconnect(user.id)
@@ -1460,7 +1604,14 @@ export class ClubService {
 
   /** `GET /api/health`: the club loaded and answers; counts only, nothing about who */
   health() {
-    return { ok: true, now: this.now(), tables: this.directory.size, online: this.connections.onlineUserIds().length }
+    return {
+      ok: true,
+      now: this.now(),
+      tables: this.directory.size,
+      online: this.connections.onlineUserIds().length,
+      // How many challenges live in their own objects (H2b), when there are objects to live in
+      ...(this.eventObjects && { events: this.homes.counts() }),
+    }
   }
 
   async handle(userId: string, message: ClientMessage) {
@@ -1711,8 +1862,7 @@ export class ClubService {
       now: this.now(),
       known,
     })
-    this.challenges.create(challenge)
-    this.scheduleChallenge(challenge.id)
+    await this.addChallenge(challenge)
     const username = this.users.get(userId)!.username
     for (const id of invitees as string[])
       await this.notifications.notify(id, 'challengeInvited', { challengeId: challenge.id, username })
@@ -1789,42 +1939,118 @@ export class ClubService {
     return challenge
   }
 
-  /** Writes a step of `challenge-flow.ts` in one transaction */
-  private applyChallenge(challenge: Challenge, change: ChallengeChange) {
+  // ── Where each challenge lives (H2b, §5.12) ─────────────────────────────────────────────────
+
+  /** The challenge, where it lives: its own object (`event_homes` has it), or this one */
+  private eventFor(id: string): EventApi {
+    return this.eventObjects && this.homes.rev(id) !== undefined ? this.eventObjects.get(id) : this.localEvents.get(id)
+  }
+
+  /**
+   * A new challenge goes where the switch says. Into its own object: the club's copy and its home
+   * are written first, so from then on the club reaches it there; if the object does not answer,
+   * it adopts the copy the next time it is called, or when the move is tried again
+   */
+  private async addChallenge(challenge: Challenge) {
+    if (!this.eventObjects || !this.config.eventObjectsOn) {
+      await this.localEvents.get(challenge.id).adopt(challenge)
+      return
+    }
     this.store.sql.transaction(() => {
-      for (const player of change.players) this.challenges.updatePlayer(challenge.id, player)
-      if (change.status) this.challenges.setStatus(challenge.id, change.status, this.now())
+      this.challenges.replace(challenge)
+      this.homes.setRev(challenge.id, -1)
     })
+    try {
+      this.applySnapshot(await this.eventObjects.get(challenge.id).adopt(challenge))
+    } catch (error) {
+      this.log(crashEntry('adoptChallenge', error))
+      this.retryEventMove()
+    }
+  }
+
+  /**
+   * A challenge in its own object as it reported or answered: written over the club's copy, unless
+   * the club already wrote a newer one (a late or repeated report). Nothing to write for one that
+   * lives here: the copy is the challenge
+   */
+  private applySnapshot({ challenge, rev }: EventSnapshot) {
+    const known = this.homes.rev(challenge.id)
+    if (known === undefined || rev <= known) return
+    this.store.sql.transaction(() => {
+      this.challenges.replace(challenge)
+      this.homes.setRev(challenge.id, rev)
+    })
+  }
+
+  /**
+   * A challenge changed on its own (`EventLink.changed`: its job reminded or settled it). From its
+   * own object only while it lives there (a report from one it was brought back from is dropped)
+   */
+  private async eventChanged(snapshot: EventSnapshot) {
+    const { challenge } = snapshot
+    const local = snapshot.rev === 0
+    if (local ? this.homes.rev(challenge.id) !== undefined : this.homes.rev(challenge.id) === undefined) return
+    this.applySnapshot(snapshot)
+    await this.batch(() => this.settleChallenge(challenge.id))
+    this.broadcast()
+  }
+
+  /**
+   * What the club does about a challenge's state, once (`challenge_settled`), however often or late
+   * it hears of it: one that ended closes up (its tables, its boards shown to everyone) and, when
+   * finished, everyone who accepted is told the results; one whose reminder went out has it sent
+   * to those who accepted and still have boards to play. Each is noted first, so a failure halfway
+   * never does it twice. `again` closes up a challenge that ended before once more (a table that
+   * finished a board after the end)
+   */
+  private async settleChallenge(id: string, again = false) {
+    const challenge = this.challenges.get(id)
+    if (!challenge) return
+    const done = this.homes.settled(id)
+    if (!isOpenChallenge(challenge.status)) {
+      if (done.ended) {
+        if (again) await this.challengeEnded(challenge)
+        return
+      }
+      this.homes.settle(id, 'ended')
+      await this.challengeEnded(challenge)
+      if (challenge.status !== 'finished') return
+      for (const p of challenge.players)
+        if (p.status === 'accepted')
+          await this.notifications.notify(p.userId, 'challengeResults', { challengeId: challenge.id })
+      return
+    }
+    if (challenge.remindedAt !== undefined && !done.reminded) {
+      this.homes.settle(id, 'reminded')
+      for (const userId of remindWhom(challenge))
+        await this.notifications.notify(userId, 'challengeReminder', { challengeId: id })
+    }
   }
 
   /** An invitee accepts or declines (e7-t06); the creator is told either way */
   private async answerChallenge(userId: string, challengeId: unknown, accept: unknown) {
     if (typeof accept !== 'boolean') throw new ClubError('unknownCommand')
     const challenge = this.requireChallenge(challengeId)
-    const step = answer(challenge, userId, accept, this.now())
-    if ('error' in step) throw new ClubError(step.error, {}, step.error === 'challengeGone' ? 404 : 400)
-    this.applyChallenge(challenge, step)
+    this.applySnapshot(await this.eventFor(challenge.id).answer(userId, accept))
     // The weekly club challenge's creator is the club: no admin hears every member's answer
     if (!challenge.settings.weekly)
       await this.notifications.notify(challenge.creatorId, accept ? 'challengeAccepted' : 'challengeDeclined', {
         challengeId: challenge.id,
         username: this.users.get(userId)!.username,
       })
-    // The last decline may expire it, or leave only people who are done
-    await this.challengeChanged(challenge.id)
+    // The last decline may have expired it, or left only people who are done
+    await this.settleChallenge(challenge.id)
   }
 
   /** The creator calls it off while nobody else has started; everyone who has not declined is told */
   private async cancelChallenge(userId: string, challengeId: unknown) {
     const challenge = this.requireChallenge(challengeId)
-    const step = cancel(challenge, userId)
-    if ('error' in step) throw new ClubError(step.error, {}, step.error === 'challengeGone' ? 404 : 400)
-    this.applyChallenge(challenge, step)
+    this.applySnapshot(await this.eventFor(challenge.id).cancel(userId))
     const username = this.users.get(userId)!.username
     for (const p of challenge.players)
       if (p.userId !== userId && p.status !== 'declined')
         await this.notifications.notify(p.userId, 'challengeCancelled', { challengeId: challenge.id, username })
-    await this.challengeChanged(challenge.id)
+    await this.settleChallenge(challenge.id)
   }
 
   /**
@@ -1904,67 +2130,7 @@ export class ClubService {
     return challengeView(challenge, userId, user, (boardId) => boards.get(boardId))
   }
 
-  // ── Challenge deadlines and settlement (§5.5, e7-t13) ───────────────────────────────────────
-
-  /**
-   * Puts an open challenge's one job (`challenge:<id>`) at its next time point: the reminder 12
-   * hours before the deadline until it went out, then the deadline. Jobs are not stored; `load()`
-   * schedules every open challenge again
-   */
-  private scheduleChallenge(id: string) {
-    const challenge = this.challenges.get(id)
-    const at = challenge ? nextChallengeTime(challenge) : null
-    if (at === null) return
-    this.scheduler.add(`challenge:${id}`, 'challenge', Math.max(0, at - this.now()), () => this.challengeDue(id))
-  }
-
-  /**
-   * The challenge's job. At the deadline it settles (`deadlineOutcome`); before it, from 12 hours
-   * out, it reminds those who accepted and still have boards to play, once. Either way the time is
-   * checked again here, so a job run early only puts itself back
-   */
-  private async challengeDue(id: string) {
-    const challenge = this.challenges.get(id)
-    if (!challenge || !isOpenChallenge(challenge.status)) return
-    const now = this.now()
-    if (now >= challenge.deadline) {
-      const change = deadlineOutcome(challenge, now)
-      if (change) await this.endChallenge(challenge, change)
-      this.broadcast()
-      return
-    }
-    if (challenge.remindedAt === undefined && now >= challenge.deadline - REMINDER_MS) {
-      // Noted first, so a failure halfway never sends it twice
-      this.challenges.setReminded(id, now)
-      for (const userId of remindWhom(challenge))
-        await this.notifications.notify(userId, 'challengeReminder', { challengeId: id })
-    }
-    this.scheduleChallenge(id)
-  }
-
-  /**
-   * After anything that may end a challenge (an answer, a cancel, a finished board, an account
-   * deleted): one that just ended closes up; one where every invitee answered and everyone who
-   * accepted played every board finishes now, before the deadline
-   */
-  private async challengeChanged(id: string) {
-    const challenge = this.challenges.get(id)
-    if (!challenge) return
-    if (!isOpenChallenge(challenge.status)) return this.challengeEnded(challenge)
-    const change = earlyFinish(challenge)
-    if (change) await this.endChallenge(challenge, change)
-  }
-
-  /** Moves a challenge to its end (`finished` or `expired`); a finished one tells everyone who accepted */
-  private async endChallenge(challenge: Challenge, change: ChallengeChange) {
-    this.applyChallenge(challenge, change)
-    const ended = this.challenges.get(challenge.id)!
-    await this.challengeEnded(ended)
-    if (ended.status !== 'finished') return
-    for (const p of ended.players)
-      if (p.status === 'accepted')
-        await this.notifications.notify(p.userId, 'challengeResults', { challengeId: ended.id })
-  }
+  // ── Challenge settlement (§5.5, e7-t13; the deadline job is the challenge's own, `ChallengeEvent`) ──
 
   /**
    * A challenge that ended (finished, expired or cancelled). Its tables close: a board still being
@@ -2073,8 +2239,7 @@ export class ClubService {
     const deals = challengeDeals({ count: boards, bestHand: false, justDeclare: false, robotKind }, this.random)
     if (!deals) return null
     const challenge = newChallenge({ id: randomId(8), creatorId: creator.id, invitees, settings, deals, now: this.now() })
-    this.challenges.create(challenge)
-    this.scheduleChallenge(challenge.id)
+    await this.addChallenge(challenge)
     for (const p of challenge.players)
       await this.notifications.notify(p.userId, 'challengeWeekly', { challengeId: challenge.id })
     return challenge.id
@@ -2135,7 +2300,7 @@ export class ClubService {
       blocks: { [userId]: this.blocks.of(userId) },
     }
     // The table deals its first board as it opens
-    if (player.startedAt === undefined) this.challenges.updatePlayer(challenge.id, { ...player, startedAt: this.now() })
+    if (player.startedAt === undefined) this.applySnapshot(await this.eventFor(challenge.id).started(userId))
     this.applyEntry(await this.tables.get(table.id).open(table))
   }
 
@@ -2426,6 +2591,8 @@ export class ClubService {
     await this.leave(userId)
     const kind = settings.robotKind
     const state: PracticeTableState = { ...settings, dealt: 0 }
+    // The seats besides South the member bids for (`e10-t15`): TKB sits there, the member calls
+    const controlled = controlledSeats(settings)
     const table: Table = {
       id: randomId(6),
       // Listed in the lobby when its access mode lets others watch
@@ -2442,6 +2609,7 @@ export class ClubService {
       settings: { ...PRACTICE_TABLE_SETTINGS, ...(access !== undefined && { access: access as TableAccess }) },
       names: { [userId]: this.users.get(userId)!.username },
       blocks: { [userId]: this.blocks.of(userId) },
+      ...(controlled.length > 0 && { controllers: Object.fromEntries(controlled.map((seat) => [seat, userId])) }),
     }
     // The table deals its first board as it opens
     this.applyEntry(await this.tables.get(table.id).open(table))
@@ -2646,22 +2814,25 @@ export class ClubService {
     await this.saveRecord(record)
     if (event?.kind === 'team') return this.teamBoardFinished(event)
     if (event?.kind !== 'challenge') return
-    if (event.result) this.addChallengeResult(event.challengeId, event.result)
-    await this.challengeChanged(event.challengeId)
+    if (!this.challenges.get(event.challengeId)) return
+    if (event.result) await this.addChallengeResult(event.challengeId, event.result)
+    // The last board may have finished it; a table of one that ended before closes up
+    await this.settleChallenge(event.challengeId, true)
   }
 
-  /** Writes a challenge board's result, checked against the challenge as it is now; the last one marks the participant finished */
-  private addChallengeResult(challengeId: string, result: ChallengeResult) {
-    const c = this.challenges.get(challengeId)
-    // A board finished after the deadline does not count, like one not played
-    if (!c || !challengeTakesPart(c, this.now())) return
-    const player = c.players.find((p) => p.userId === result.userId)
-    if (!player || c.results.some((r) => r.userId === result.userId && r.seq === result.seq)) return
-    this.challenges.transaction(() => {
-      this.challenges.addResult(c.id, result)
-      if (playedSeqs(c, result.userId).size + 1 >= c.deals.boards.length)
-        this.challenges.updatePlayer(c.id, { ...player, finishedAt: this.now() })
-    })
+  /**
+   * Hands a challenge board's result to its challenge, which checks it against itself and keeps it
+   * once (the last one marks the participant finished). A refused one does not count, like one not
+   * played; when the challenge's object cannot be reached the error goes back to the table, which
+   * keeps the board in its outbox and offers it again (`outbox:<table>`, §5.10): writing the record
+   * and the result again changes nothing
+   */
+  private async addChallengeResult(challengeId: string, result: ChallengeResult) {
+    try {
+      this.applySnapshot(await this.eventFor(challengeId).result(result))
+    } catch (error) {
+      if (!(error instanceof AppError)) throw error
+    }
   }
 
   /**
