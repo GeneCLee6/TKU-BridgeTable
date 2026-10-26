@@ -1,5 +1,5 @@
 import { isBid, strainOf } from '../auction.ts'
-import { nextSeat, partnerOf, rankOf, rankValue, sameSide, SEATS, SUITS, suitOf, type Card, type Seat, type Suit } from '../cards.ts'
+import { nextSeat, partnerOf, rankOf, rankValue, RANKS, sameSide, SEATS, SUITS, suitOf, type Card, type Seat, type Suit } from '../cards.ts'
 import { legalCards, remainingCards, tricksOf, type BoardState, type PlayedCard } from '../game.ts'
 import type { RobotKind } from '../protocol.ts'
 import { declarerLead, exitLead, holdUp } from './declarer.ts'
@@ -310,7 +310,7 @@ function winningCard(trick: { seat: Seat; card: Card }[], trump: Suit | null) {
 }
 
 /** The highest card below the jack, so a signal never wastes an honour */
-const highSpot = (cards: Card[]) => [...cards].sort(byRank).filter((c) => value(c) < 11).at(-1) ?? [...cards].sort(byRank)[0]
+const highSpotOf = (cards: Card[]) => [...cards].sort(byRank).filter((c) => value(c) < 11).at(-1) ?? [...cards].sort(byRank)[0]
 
 /**
  * Following suit without trying to win, as the club signals:
@@ -322,6 +322,17 @@ const highSpot = (cards: Card[]) => [...cards].sort(byRank).filter((c) => value(
 function signalFollow(state: BoardState, seat: Seat, trick: PlayedCard[], cards: Card[], trump: Suit | null): Card {
   const low = [...cards].sort(byRank)[0]
   if (cards.length === 1) return low
+  // A high signal from cards that cannot take a trick (ours below outnumber the cards out above):
+  // T976 after the QJ are gone signals with the 7, the T and 9 may still win once the AK fall; with
+  // fewer than two such cards (T93, the honours gone), the next card up from the lowest
+  const played = new Set(state.play.map((p) => p.card))
+  const couldWin = (c: Card) => {
+    const above = [...RANKS.slice(0, RANKS.indexOf(rankOf(c)))].map((r) => suitOf(c) + r).filter((h) => !played.has(h) && !cards.includes(h)).length
+    return above <= cards.filter((d) => value(d) < value(c)).length
+  }
+  const spare = cards.filter((c) => !couldWin(c))
+  const sorted = [...cards].sort(byRank)
+  const highSpot = (all: Card[]) => (spare.length >= 2 ? highSpotOf(spare) : couldWin(highSpotOf(all)) && value(sorted[1]) < 11 ? sorted[1] : highSpotOf(all))
   const leader = trick[0]
   const led = suitOf(leader.card)
   const hand = remainingCards(state, seat)

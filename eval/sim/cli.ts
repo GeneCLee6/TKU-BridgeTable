@@ -25,7 +25,7 @@ import { ruleBrain } from '../../shared/robot/brain.ts'
  *   npm run sim -- tables --deals N [--from 1] [--seed s] [--threads N] [--out file]
  *   npm run sim -- leads --deals N [--from 1] [--seed s] [--system tku|gib] [--samples 0] [--threads N] [--out file] [--report file] [--analyse]
  *   npm run sim -- compare --deals N [--from 1] [--seed s] [--system tku|gib] [--samples 30] [--objective score|tricks|contract]
- *                          [--dd-bias 0] [--points lead|all] [--threads N] [--out file] [--report file] [--analyse]
+ *                          [--dd-bias 0] [--points lead|all|defence] [--threads N] [--out file] [--report file] [--analyse]
  *
  * Results go to eval/sim/data/ (not committed) a line a board, and a run picks up where the file
  * left off.
@@ -37,7 +37,7 @@ const USAGE = [
   '  tables   --deals N [--from 1] [--seed s] [--threads N] [--out file]',
   '  leads    --deals N [--from 1] [--seed s] [--system tku|gib] [--samples 0] [--threads N] [--out file] [--report file] [--analyse]',
   '  compare  --deals N [--from 1] [--seed s] [--system tku|gib] [--samples 30] [--objective score|tricks|contract] [--dd-bias 0]',
-  '           [--points lead|all] [--threads N] [--out file] [--report file] [--analyse]',
+  '           [--points lead|all|defence] [--threads N] [--out file] [--report file] [--analyse]',
 ].join('\n')
 
 const DATA_DIR = resolve(fileURLToPath(new URL('./data/', import.meta.url)))

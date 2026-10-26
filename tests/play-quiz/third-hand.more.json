@@ -1,0 +1,31 @@
+{
+  "category": "third-hand",
+  "title": "第三家：夢家在後面、逼出大牌、對夢家飛牌",
+  "questions": [
+    {"id": "play-third-010", "system": "both", "board": 285,
+     "hands": {"N": "AJ542.Q96.QT5.Q3", "E": "9863.K.KJ.AT9854", "S": "QT7.A8743.9764.6", "W": "K.JT52.A832.KJ72"},
+     "auction": ["P", "P", "P", "1C", "1S", "3C", "P", "3N", "P", "P", "P"], "play": ["S4", "S3", "SQ", "SK", "H2", "H6", "HK", "HA", "ST", "D2", "S2", "S6", "S7", "C2"],
+     "answer": "SJ", "accepted": ["SA"], "source": "單明手抽樣對照（評測牌組第 285 副，e6-t45）", "reviewer": null, "status": "pending",
+     "note": "同伴領♠7、莊家墊牌，夢家在後面還有♠98：同伴的牌贏不了，用 J 拿（A 也可以，J 比較便宜）"},
+    {"id": "play-third-011", "system": "both", "board": 261,
+     "hands": {"N": "KJ.QJT7.Q983.AT3", "E": "T83.AK53.T2.Q974", "S": "754.92.AK764.K65", "W": "AQ962.864.J5.J82"},
+     "auction": ["1D", "P", "2N", "P", "3N", "P", "P", "P"], "play": ["S6", "SJ", "ST", "S4", "HQ", "HK", "H2", "H4", "HA", "H9", "H8", "H7", "S8", "S5"],
+     "answer": "SA", "source": "單明手抽樣對照（評測牌組第 261 副，e6-t45）", "reviewer": null, "status": "pending",
+     "note": "同伴回♠8，夢家在後面還有♠K：出 A 拿，出小就讓 K 贏"},
+    {"id": "play-third-012", "system": "both", "board": 87,
+     "hands": {"N": "A96.K532.85.9872", "E": "QJ42.JT6.K72.653", "S": "87.AQ4.AJT4.AKJT", "W": "KT53.987.Q963.Q4"},
+     "auction": ["1C", "P", "1H", "P", "2N", "P", "3N", "P", "P", "P"], "play": ["S3", "S6", "SJ", "S7", "S2", "S8"],
+     "answer": "ST", "source": "單明手抽樣對照（評測牌組第 87 副，e6-t45）", "reviewer": null, "status": "pending",
+     "note": "同伴回♠2，夢家在後面持 A9：出 T 逼出 A（K 就成大牌），出小讓 9 便宜贏"},
+    {"id": "play-third-013", "system": "both", "board": 114,
+     "hands": {"N": ".T95.JT8542.AQ95", "E": "A86.KJ874.Q9.J74", "S": "K97532.62.AK6.62", "W": "QJT4.AQ3.73.KT83"},
+     "auction": ["P", "2D", "X", "P", "4H", "P", "P", "P"], "play": ["DA", "D3", "DT", "D9", "DK", "D7", "D2", "DQ", "C6", "C3"],
+     "answer": "CQ", "source": "單明手抽樣對照（評測牌組第 114 副，e6-t45）", "reviewer": null, "status": "pending",
+     "note": "夢家出小、留著♣KT8：AQ95 對 K 飛牌出 Q（K 底下最大的牌），出 9 會讓莊家的 J 贏"},
+    {"id": "play-third-014", "system": "both", "board": 298,
+     "hands": {"N": "A96.J42.73.AJT85", "E": "K754.K3.KJ.KQ943", "S": "Q8.T9765.AQ984.6", "W": "JT32.AQ8.T652.72"},
+     "auction": ["1C", "1H", "X", "P", "2S", "P", "4S", "P", "P", "P"], "play": ["C6", "C2"],
+     "answer": "CA", "source": "單明手抽樣對照（評測牌組第 298 副，e6-t45）", "reviewer": null, "status": "pending",
+     "note": "王牌合約同伴攻♣6 常是單張或雙張，11 法則不適用：第三家大出 A"}
+  ]
+}

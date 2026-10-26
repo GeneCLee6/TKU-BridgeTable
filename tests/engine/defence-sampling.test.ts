@@ -116,6 +116,20 @@ describe('second hand', () => {
   })
 })
 
+describe('signals', () => {
+  it('signals count with a card that cannot take a trick', () => {
+    // Board 954, 6♠ by East. East leads the ♠J (the ♠Q is gone); South's T976 sit under dummy's
+    // AK84 and the T9 may still win a trick: high-low with the seven, not the ten
+    const state = position(
+      954,
+      { N: '.T864.J42.976543', E: 'QJ2.AQ3.Q7.AJT82', S: 'T9765.J752.AT83.', W: 'AK843.K9.K965.KQ' },
+      ['1N', 'P', '2H', 'P', '2S', 'P', '3N', 'P', '4S', 'P', '4N', 'P', '5S', 'P', '6S', 'P', 'P', 'P'],
+      ['H2', 'H9', 'HT', 'HQ', 'SQ', 'S5', 'S3', 'C4', 'SJ'],
+    )
+    expect(plays(state)).toEqual(['S7', 'S7'])
+  })
+})
+
 describe('notrump: setting up the opening lead first', () => {
   it('keeps at its own suit instead of cashing a side ace', () => {
     // Board 398, 3NT by North. East's ♥K holds; the ♠A is East's entry to the hearts once they

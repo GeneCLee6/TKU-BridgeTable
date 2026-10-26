@@ -11,6 +11,16 @@
      "hands": {"N": "T86.AQ4.AQ9.K432", "E": "AK54.T98.764.T98", "S": "Q97.KJ3.KJT8.AQJ", "W": "J32.7652.532.765"},
      "auction": ["1N", "P", "3N", "P", "P", "P"], "play": ["D2", "D9", "D4", "D8", "ST"],
      "answer": "SK", "accepted": ["SA"], "source": "雙明手稽核（評測牌組第 51 副的型）", "reviewer": null, "status": "pending",
-     "note": "夢家領♠T，自己 AK 都是大牌：用 K 拿，不要第二家小讓 T 跑掉"}
+     "note": "夢家領♠T，自己 AK 都是大牌：用 K 拿，不要第二家小讓 T 跑掉"},
+    {"id": "play-second-009", "system": "both", "board": 356,
+     "hands": {"N": "J982.KJ7.8765.32", "E": "K43.98.KT432.975", "S": "QT6.A654.AQ.AKQ8", "W": "A75.QT32.J9.JT64"},
+     "auction": ["P", "P", "P", "2N", "P", "3N", "P", "P", "P"], "play": ["H2", "H7", "H8", "HA", "SQ", "SA", "S2", "S3", "CJ", "C2", "C9", "CQ", "DA", "D9", "D5", "D2", "CA", "C4", "C3", "C7", "CK", "CT", "D6", "C5", "C8", "C6", "S8", "H9", "H4", "H3", "HK", "DT", "S9", "S4", "ST", "S7", "H5"],
+     "answer": "HQ", "source": "單明手抽樣對照（評測牌組第 356 副，e6-t45）", "reviewer": null, "status": "pending",
+     "note": "莊家朝夢家剩下的單張♥J 引牌：QT 出 Q 蓋過去，J 只能跟著掉"},
+    {"id": "play-second-010", "system": "both", "board": 1157,
+     "hands": {"N": "AKQ863.K74.T32.5", "E": "T2.J9862.A98.732", "S": "754.QT.KJ6.KQ864", "W": "J9.A53.Q754.AJT9"},
+     "auction": ["1S", "P", "1N", "X", "P", "2H", "4S", "P", "P", "P"], "play": ["H6", "HT", "HA", "H4", "CA", "C5", "C7", "C4", "H5", "H7", "H9", "HQ", "S4", "S9", "SQ", "ST", "SA", "S2", "S5", "SJ", "HK", "H2", "C6", "H3", "D2", "D8", "DJ", "DQ", "CJ", "S3", "C3", "C8", "D3"],
+     "answer": "DA", "source": "單明手抽樣對照（評測牌組第 1157 副，e6-t45）", "reviewer": null, "status": "pending",
+     "note": "防家已有 3 墩，♦A 就是倒約的那一墩：馬上拿，出小讓莊家有機會把它墊掉"}
   ]
 }

@@ -14,6 +14,7 @@ npm run sim -- leads --deals 1000000 --threads 18      # 過夜：1,000,000 副�
 npm run sim -- leads --deals 2000 --samples 30         # 每副另外加首攻者自己的單明手抽樣估計（慢 30 倍）
 npm run sim -- compare --deals 60 --samples 30         # TKB 對單明手抽樣：每一張牌（§3），約 2 分鐘
 npm run sim -- compare --deals 500 --points lead       # 只比首攻
+npm run sim -- compare --deals 5000 --points defence --threads 6   # 只比首攻之後的防守（§3.2），約 25 分鐘
 npm run sim -- leads --deals 10000 --analyse           # 不算，只用檔案裡已有的紀錄重做報告
 ```
 
@@ -26,7 +27,7 @@ npm run sim -- leads --deals 10000 --analyse           # 不算，只用檔案�
 | `--samples N` | `leads`：每副另外抽 N 個佈局做首攻者的單明手估計（預設 0）；`compare`：每個決策抽 N 個佈局（預設 30） |
 | `--objective score\|tricks\|contract` | `compare` 比哪個：平均得分（預設，兼顧做成與超墩）、平均墩數、做成／倒合約的機率 |
 | `--dd-bias t` | `compare`：雙明手偏差修正，每個佈局先把莊家扣 t 墩再判斷合約（§2） |
-| `--points lead\|all` | `compare`：只比首攻，或每一張牌（預設） |
+| `--points lead\|all\|defence` | `compare`：只比首攻、每一張牌（預設），或只比首攻之後防家的牌（§3.2） |
 | `--out 檔`、`--report 檔` | 結果（JSON Lines）與報告（Markdown）的位置；預設在 `eval/sim/data/`，檔名含種子、制度與參數 |
 | `--analyse` | 不算新的，只用檔案裡的紀錄重做報告 |
 
