@@ -1,5 +1,5 @@
 import { ChevronLeft, ChevronRight, TriangleAlert } from 'lucide-react'
-import type { HTMLAttributes } from 'react'
+import type { ButtonHTMLAttributes, HTMLAttributes } from 'react'
 import { Link, type LinkProps } from 'react-router-dom'
 import styled, { css, keyframes } from 'styled-components'
 import { inputStyles } from '../styles/controls.ts'
@@ -270,7 +270,7 @@ export const ErrorText = styled.p`
   font-weight: 600;
 `
 
-const ActionLinkBase = styled(Link)<{ $back?: boolean; $onPanel?: boolean }>`
+const actionLinkStyle = css<{ $back?: boolean; $onPanel?: boolean }>`
   display: inline-flex;
   align-items: center;
   gap: 2px;
@@ -307,6 +307,17 @@ const ActionLinkBase = styled(Link)<{ $back?: boolean; $onPanel?: boolean }>`
   }
 `
 
+const ActionLinkBase = styled(Link)<{ $back?: boolean; $onPanel?: boolean }>`
+  ${actionLinkStyle}
+`
+
+const ActionButtonBase = styled.button<{ $back?: boolean; $onPanel?: boolean }>`
+  ${actionLinkStyle}
+  border: 0;
+  background: none;
+  cursor: pointer;
+`
+
 export interface ActionLinkProps extends LinkProps {
   /** A way back (to a list): the chevron points left, before the label */
   back?: boolean
@@ -325,5 +336,24 @@ export function ActionLink({ back, onPanel, children, ...props }: ActionLinkProp
       <span>{children}</span>
       {!back && <ChevronRight size={16} aria-hidden />}
     </ActionLinkBase>
+  )
+}
+
+export interface ActionButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
+  back?: boolean
+  onPanel?: boolean
+}
+
+/**
+ * `ActionLink`'s look for a step inside the same view that is not an address of its own (the side
+ * panel's "‹ 返回日期", e3-t48): the same ghost link with a chevron, as a button
+ */
+export function ActionButton({ back, onPanel, children, type = 'button', ...props }: ActionButtonProps) {
+  return (
+    <ActionButtonBase type={type} $back={back} $onPanel={onPanel} {...props}>
+      {back && <ChevronLeft size={16} aria-hidden />}
+      <span>{children}</span>
+      {!back && <ChevronRight size={16} aria-hidden />}
+    </ActionButtonBase>
   )
 }

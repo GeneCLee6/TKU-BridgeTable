@@ -1,7 +1,15 @@
 import type { Contract } from '../shared/auction.ts'
 import { SEATS, sideOf, type Card, type Seat, type Strain } from '../shared/cards.ts'
-import { DEFAULT_HISTORY_QUERY, taiwanDayEnd, taiwanDayStart, type HistoryQuery, type HistorySort } from '../shared/history-query.ts'
-import { HISTORY_PAGE_SIZES, isRobotId, LIMITS, type BoardRecord } from '../shared/protocol.ts'
+import {
+  DAY_MS,
+  DEFAULT_HISTORY_QUERY,
+  TAIWAN_OFFSET_MS,
+  taiwanDayEnd,
+  taiwanDayStart,
+  type HistoryQuery,
+  type HistorySort,
+} from '../shared/history-query.ts'
+import { HISTORY_PAGE_SIZES, isRobotId, LIMITS, type BoardRecord, type HistoryDay } from '../shared/protocol.ts'
 import type { Sql, SqlValue } from './store.ts'
 
 /**
@@ -380,6 +388,30 @@ export function searchStatements(
       params: [...params, query.size, (page - 1) * query.size],
     }),
   }
+}
+
+/**
+ * How many boards a search finds per Taiwan date, newest day first, at most LIMITS.historyDaysMax
+ * days (`sort`, `page` and `size` play no part). The same WHERE as the search, so boards kept back
+ * count only for their own players. The club's index and the D1 copy run the same SQL
+ */
+export function dayStatement(query: HistoryQuery, viewer: string, now: number): Statement {
+  const [condition, params] = where(query, viewer, now, false)
+  return {
+    sql: `SELECT (b.played_at + ${TAIWAN_OFFSET_MS}) / ${DAY_MS} AS day, COUNT(*) AS n FROM boards_index b
+      WHERE ${condition} GROUP BY day ORDER BY day DESC LIMIT ?`,
+    params: [...params, LIMITS.historyDaysMax],
+  }
+}
+
+/** The rows of `dayStatement` as dates and counts */
+export const dayRows = (rows: Record<string, SqlValue>[]): HistoryDay[] =>
+  rows.map((row) => ({ date: new Date(Number(row.day) * DAY_MS).toISOString().slice(0, 10), count: Number(row.n) }))
+
+/** How many boards a search finds per Taiwan date, from the club's index (`dayStatement`) */
+export function searchDays(sql: Sql, query: HistoryQuery, viewer: string, now: number): HistoryDay[] {
+  const { sql: text, params } = dayStatement(query, viewer, now)
+  return dayRows(sql.exec(text, ...params))
 }
 
 /** The page shown for a search with `total` matches: a page past the end shows the last one */

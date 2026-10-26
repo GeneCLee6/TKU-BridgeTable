@@ -751,6 +751,20 @@ export interface HistoryPage {
   size: number
 }
 
+/**
+ * How many boards a history search finds on each Taiwan date (UTC+8, the dates `from`/`to` take),
+ * newest first: the side panel's list by day (`GET /api/history/days`, e3-t48)
+ */
+export interface HistoryDay {
+  /** YYYY-MM-DD */
+  date: string
+  count: number
+}
+
+export interface HistoryDays {
+  days: HistoryDay[]
+}
+
 /** A board a member keeps (AC-4.4): their own note and tags, seen by no one else */
 export interface Favorite {
   boardId: string
@@ -819,6 +833,8 @@ export const LIMITS = {
   maxUsersMax: 100,
   tableInvitesMax: 30,
   historyPageDefault: 20,
+  /** Days the list by day goes back at most (`GET /api/history/days`) */
+  historyDaysMax: 366,
   favoritesMax: 1000,
   favoriteNoteMax: 500,
   favoriteTagsMax: 8,
