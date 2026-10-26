@@ -163,6 +163,13 @@ describe('checkProfileInput', () => {
     expect(reason({ ...input(), notes: [{ slug: 's', text: 'x' }] })).toMatch('作者')
     expect(reason(input({ overrides: [{ kind: 'meta', slug: 's', summary: '新摘要' }] }))).toBe('')
   })
+
+  it('keeps who may read it: for its members only, or the whole club when absent (e2-t04)', () => {
+    expect(checkProfileInput(input({ visibility: 'members' }))).toEqual(input({ visibility: 'members' }))
+    expect(checkProfileInput(input({ visibility: 'club' }))).toEqual(input())
+    expect(reason({ ...input(), visibility: 'team' })).toMatch('visibility')
+    expect(reason(input({ scope: 'club', visibility: 'members' }))).toMatch('全社團')
+  })
 })
 
 describe('reading without signing in', () => {

@@ -29,6 +29,7 @@ beforeEach(() => {
     now: () => time,
     newId: () => `id${++ids}`,
     usernameOf: (id) => (USERS.has(id) ? `n${id}` : undefined),
+    members: () => ['cat', 'amy', 'ben'].map((id) => ({ id, username: `n${id}` })),
     notify: async (to, kind, params) => void sent.push({ to, kind, params }),
     profiles: () => profiles,
   })
@@ -183,5 +184,119 @@ describe('partnerships (e2-t01, e2-t03)', () => {
     expect(await profiles.get(active.profileId)).toMatchObject({ scope: 'partnership' })
     expect(await teams.pairsOf('amy')).toEqual([ended])
     await expect(teams.end(amy, pair.id)).rejects.toMatchObject({ code: 'pairAnswered' })
+  })
+})
+
+describe("the team's own settings (e2-t10) and the member directory", () => {
+  it('lets the captain open the team profile to its members, and close it again', async () => {
+    const team = await newTeam()
+    await expect(teams.updateTeam(ben, team.id, { membersEdit: true })).rejects.toMatchObject({ code: 'noPermission' })
+    await expect(teams.updateTeam(amy, team.id, { membersEdit: 'yes' })).rejects.toMatchObject({ code: 'badContent' })
+    expect(await teams.updateTeam(amy, team.id, { membersEdit: true })).toMatchObject({ membersEdit: true })
+    expect(await teams.updateTeam(editor, team.id, { membersEdit: false })).not.toHaveProperty('membersEdit')
+    await teams.updateTeam(amy, team.id, { archived: true })
+    await expect(teams.updateTeam(amy, team.id, { membersEdit: true })).rejects.toMatchObject({ code: 'teamArchived' })
+  })
+
+  it('lists the members by name', () => {
+    expect(teams.members().map((m) => m.username)).toEqual(['namy', 'nben', 'ncat'])
+  })
+})
+
+describe("profiles' member rights (e2-t04, AC-2.3)", () => {
+  const input = (profile: { name: string; scope: string; parentId?: string; visibility?: string }, extra: Record<string, unknown> = {}) => ({
+    ...profile,
+    adopted: { bergen: 'off' },
+    overrides: [],
+    notes: [{ slug: 'bergen', text: '記得', by: 'amy', at: 1 }],
+    ...extra,
+  })
+  const save = (who: Me, id: string, profile: Record<string, unknown>, baseVersion: number) => teams.saveProfile(who, id, { profile, baseVersion })
+
+  it("lets a team's captain save its profile, and its members only when the captain lets them", async () => {
+    const team = await newTeam()
+    const base = { name: 'A 隊', scope: 'team', parentId: 'club' }
+    await expect(save(ben, team.profileId, input(base), 1)).rejects.toMatchObject({ code: 'noPermission', status: 403 })
+    await expect(save(cat, team.profileId, input(base), 1)).rejects.toMatchObject({ code: 'noPermission', status: 403 })
+    expect(await save(amy, team.profileId, input(base), 1)).toMatchObject({ version: 2, updatedBy: 'amy' })
+    await teams.updateTeam(amy, team.id, { membersEdit: true })
+    expect(await save(ben, team.profileId, input(base), 2)).toMatchObject({ version: 3, updatedBy: 'ben' })
+    await expect(save(cat, team.profileId, input(base), 3)).rejects.toMatchObject({ code: 'noPermission' })
+    expect(await save(editor, team.profileId, input(base), 3)).toMatchObject({ version: 4 })
+  })
+
+  it("leaves who reads a team's profile to its captain, and what it is to the editors", async () => {
+    const team = await newTeam({ memberIds: ['ben'] })
+    await teams.updateTeam(amy, team.id, { membersEdit: true })
+    const base = { name: 'A 隊', scope: 'team', parentId: 'club' }
+    await expect(save(ben, team.profileId, input({ ...base, visibility: 'members' }), 1)).rejects.toMatchObject({ code: 'noPermission' })
+    expect(await save(amy, team.profileId, input({ ...base, visibility: 'members' }), 1)).toMatchObject({ visibility: 'members' })
+    // A member keeping the visibility as it is may save
+    expect(await save(ben, team.profileId, input({ ...base, visibility: 'members' }), 2)).toMatchObject({ version: 3 })
+    await expect(save(amy, team.profileId, input({ ...base, scope: 'partnership' }), 3)).rejects.toMatchObject({ code: 'noPermission' })
+    const other = await teams.createTeam(editor, { name: 'B 隊', captainId: 'cat' })
+    await expect(save(amy, team.profileId, input({ ...base, visibility: 'members', parentId: other.profileId }), 3)).rejects.toMatchObject({
+      code: 'noPermission',
+    })
+    expect(await save(editor, team.profileId, input({ ...base, name: '新名' }), 3)).toMatchObject({ name: '新名' })
+  })
+
+  it("lets both partners save their profile while the partnership lasts, read-only once it ends", async () => {
+    const pair = await teams.accept(ben, (await teams.invite(amy, { partnerId: 'ben' })).id)
+    const base = { name: 'namy＋nben', scope: 'partnership', parentId: 'club', visibility: 'members' }
+    expect(await save(amy, pair.profileId, input(base), 1)).toMatchObject({ version: 2, visibility: 'members' })
+    expect(await save(ben, pair.profileId, input(base), 2)).toMatchObject({ version: 3 })
+    await expect(save(cat, pair.profileId, input(base), 3)).rejects.toMatchObject({ code: 'noPermission' })
+    await teams.end(amy, pair.id)
+    await expect(save(ben, pair.profileId, input(base), 3)).rejects.toMatchObject({ code: 'noPermission' })
+    // Its versions stay theirs to look at
+    expect(await teams.profileRevisions(ben, pair.profileId)).toHaveLength(3)
+    await expect(teams.profileRevisions(cat, pair.profileId)).rejects.toMatchObject({ code: 'noPermission' })
+    expect((await teams.profileRevision(amy, pair.profileId, 2)).profile).toMatchObject({ version: 2 })
+    await expect(teams.profileRevision(cat, pair.profileId, 2)).rejects.toMatchObject({ code: 'noPermission' })
+  })
+
+  it("lets only the editors save the club's", async () => {
+    await expect(save(amy, 'club', input({ name: '社團預設', scope: 'club' }), 0)).rejects.toMatchObject({ code: 'noPermission' })
+    expect(await save(editor, 'club', input({ name: '社團預設', scope: 'club' }), 0)).toMatchObject({ version: 1 })
+    expect((await teams.readProfile(cat, 'club')).profile.notes).toHaveLength(1)
+    await expect(teams.profileRevisions(cat, 'club')).rejects.toMatchObject({ code: 'noPermission' })
+  })
+
+  it('hides the notes from those outside, and a members-only profile altogether', async () => {
+    const team = await newTeam()
+    await save(amy, team.profileId, input({ name: 'A 隊', scope: 'team', parentId: 'club' }), 1)
+    const outside = await teams.readProfile(cat, team.profileId)
+    expect(outside.profile.notes).toEqual([])
+    expect(outside.access).toEqual({ notes: false, edit: false, share: false })
+    expect(await teams.readProfile(ben, team.profileId)).toMatchObject({ access: { notes: true, edit: false, share: false } })
+    expect((await teams.readProfile(ben, team.profileId)).profile.notes).toHaveLength(1)
+    expect((await teams.readProfile(amy, team.profileId)).access).toEqual({ notes: true, edit: true, share: true })
+    const listed = (who: Me) => teams.readableProfiles(who).then((list) => list.find((p) => p.id === team.profileId))
+    expect((await listed(cat))?.counts.notes).toBe(0)
+    expect((await listed(ben))?.counts.notes).toBe(1)
+
+    await save(amy, team.profileId, input({ name: 'A 隊', scope: 'team', parentId: 'club', visibility: 'members' }), 2)
+    await expect(teams.readProfile(cat, team.profileId)).rejects.toMatchObject({ code: 'noPermission', status: 403 })
+    expect(await listed(cat)).toBeUndefined()
+    expect(await listed(ben)).toMatchObject({ visibility: 'members' })
+    expect(await listed(editor)).toMatchObject({ counts: { notes: 1 } })
+    expect((await teams.readProfile(editor, team.profileId)).profile.notes).toHaveLength(1)
+    await expect(teams.readProfile(cat, 'nothing')).rejects.toMatchObject({ code: 'profileGone', status: 404 })
+  })
+
+  it("hides a partnership's profile from those who may not read its team's", async () => {
+    const team = await newTeam()
+    await save(amy, team.profileId, input({ name: 'A 隊', scope: 'team', parentId: 'club', visibility: 'members' }), 1)
+    const pair = await teams.accept(ben, (await teams.invite(amy, { partnerId: 'ben', teamId: team.id })).id)
+    await expect(teams.readProfile(cat, pair.profileId)).rejects.toMatchObject({ code: 'noPermission' })
+    expect((await teams.readableProfiles(cat)).map((p) => p.id)).toEqual(['club'])
+    expect((await teams.readableProfiles(ben)).map((p) => p.id)).toEqual(['club', team.profileId, pair.profileId])
+  })
+
+  it('keeps a profile nobody owns to the editors', async () => {
+    const made = await profiles.create(editor, { profile: input({ name: '自由', scope: 'team' }) })
+    await expect(save(amy, made.id, input({ name: '自由', scope: 'team', parentId: 'club' }), 1)).rejects.toMatchObject({ code: 'noPermission' })
+    expect((await teams.readProfile(amy, made.id)).profile.notes).toEqual([])
   })
 })

@@ -1,6 +1,7 @@
 import {
   CLUB_PROFILE_ID,
   isProfileScope,
+  PROFILE_VISIBILITIES,
   type Me,
   PROFILE_LIMITS,
   type ProfileInput,
@@ -9,6 +10,7 @@ import {
   type ProfileRevision,
   type ProfileScope,
   type ProfileSummary,
+  type ProfileVisibility,
   type SystemProfile,
 } from '../shared/protocol.ts'
 import { randomId } from './auth.ts'
@@ -128,6 +130,9 @@ export function checkProfileInput(value: unknown): ProfileInput {
   if (!isProfileScope(value.scope)) fail('制度集種類（scope）要是 club、team 或 partnership')
   if (value.parentId !== undefined && (!isString(value.parentId) || !PROFILE_ID.test(value.parentId)))
     fail('母制度集（parentId）格式不正確')
+  if (value.visibility !== undefined && !PROFILE_VISIBILITIES.includes(value.visibility as ProfileVisibility))
+    fail('可見範圍（visibility）要是 club 或 members')
+  if (value.visibility === 'members' && value.scope === 'club') fail('社團預設的制度集全社團都看得到')
   if (!isObject(value.adopted)) fail('採用清單（adopted）格式不正確')
   const adopted: SystemProfile['adopted'] = {}
   for (const [slug, on] of Object.entries(value.adopted as Record<string, unknown>)) {
@@ -147,6 +152,8 @@ export function checkProfileInput(value: unknown): ProfileInput {
     notes: (value.notes as unknown[]).map(checkNote),
   }
   if (value.parentId !== undefined) input.parentId = value.parentId as string
+  // Absent is the whole club
+  if (value.visibility === 'members') input.visibility = 'members'
   return input
 }
 
