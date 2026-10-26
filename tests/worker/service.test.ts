@@ -16,6 +16,7 @@ import {
 import { ClubError, ClubService, type Connections, type ScheduleKind } from '../../worker/service.ts'
 import type { MemoryStore } from '../../worker/store.ts'
 import { memoryStore } from './sqlite.ts'
+import { lobbyFrom } from './lobby-copy.ts'
 import { indexRecord } from '../../worker/history-index.ts'
 import type { Table } from '../../worker/views.ts'
 
@@ -30,6 +31,10 @@ class FakeConnections implements Connections {
   }
   disconnect(userId: string) {
     this.online.delete(userId)
+  }
+  /** The lobby as this member's browser holds it (H3b) */
+  lobby(userId: string) {
+    return lobbyFrom(this.inbox.get(userId) ?? [])
   }
   last<T extends ServerMessage['type']>(userId: string, type: T) {
     return (this.inbox.get(userId) ?? []).findLast((m) => m.type === type) as
@@ -202,7 +207,7 @@ describe('tables', () => {
   it('shows lobby seats to everyone online', async () => {
     const { tableId } = await fullTable()
     const watcher = await member('watcher')
-    const lobby = connections.last(watcher, 'lobby')!.lobby
+    const lobby = connections.lobby(watcher)!
     expect(lobby.tables).toHaveLength(1)
     expect(lobby.tables[0].id).toBe(tableId)
     expect(SEATS.map((s) => lobby.tables[0].seats[s]?.username)).toEqual(['north', 'east', 'south', 'west'])
@@ -219,7 +224,7 @@ describe('tables', () => {
     const gene = await member('gene')
     await send(gene, { type: 'createTable' })
     await send(gene, { type: 'leaveTable' })
-    expect(connections.last(gene, 'lobby')!.lobby.tables).toHaveLength(0)
+    expect(connections.lobby(gene)!.tables).toHaveLength(0)
     expect([...store.data.keys()].some((k) => k.startsWith('table:'))).toBe(false)
   })
 
@@ -493,7 +498,7 @@ describe('robots at the table', () => {
     await send(gene, { type: 'addRobot', seat: 'E' })
     await send(amy, { type: 'leaveTable' })
     await send(gene, { type: 'leaveTable' })
-    expect(connections.last(gene, 'lobby')!.lobby.tables).toHaveLength(0)
+    expect(connections.lobby(gene)!.tables).toHaveLength(0)
   })
 
   it('come in two kinds: the club’s robot by default, or the 2/1 robot (GIB-compatible)', async () => {
@@ -530,7 +535,7 @@ describe('robots at the table', () => {
     await send(gene, { type: 'createTable', settings: { access: 'hidden' }, invitees: [amy] })
     const tableId = tableFor(gene).id
     expect(tableFor(gene).settings).toEqual({ access: 'hidden', allowKibitz: true, boardMinutes: 0 })
-    expect(connections.last(amy, 'lobby')!.lobby.tables[0].settings.access).toBe('hidden')
+    expect(connections.lobby(amy)!.tables[0].settings.access).toBe('hidden')
 
     await send(amy, { type: 'joinTable', tableId })
     await send(amy, { type: 'updateTableSettings', settings: { allowKibitz: false } })
@@ -545,7 +550,7 @@ describe('robots at the table', () => {
     const gene = await member('gene')
     await send(gene, { type: 'createTable', settings: { access: 'secret' } as never })
     expect(connections.last(gene, 'error')?.code).toBe('badTableSettings')
-    expect(connections.last(gene, 'lobby')?.lobby.tables ?? []).toHaveLength(0)
+    expect(connections.lobby(gene)?.tables ?? []).toHaveLength(0)
     await send(gene, { type: 'createTable' })
     for (const settings of [{ allowKibitz: 'yes' }, { colour: 'red' }, null, []])
       await send(gene, { type: 'updateTableSettings', settings: settings as never })
@@ -895,7 +900,7 @@ describe('notifications', () => {
 })
 
 describe('friends and blocks (AC-1.6)', () => {
-  const lobby = (userId: string) => connections.last(userId, 'lobby')!.lobby
+  const lobby = (userId: string) => connections.lobby(userId)!
   const error = (userId: string) => connections.last(userId, 'error')?.code
 
   it('follows one way, puts friends on top of the People list, and survives a reload', async () => {
@@ -1242,7 +1247,7 @@ describe('side panel data', () => {
     const { bySeat } = await fullTable()
     await join('away')
     club.broadcast()
-    const members = connections.last(bySeat.N, 'lobby')!.lobby.members
+    const members = connections.lobby(bySeat.N)!.members
     expect(members.at(-1)).toMatchObject({ username: 'away', online: false, tableNumber: null, seat: null })
     expect(members.find((m) => m.username === 'east')).toMatchObject({ online: true, tableNumber: 1, seat: 'E' })
   })

@@ -31,6 +31,9 @@ import {
   type HistoryDays,
   type HistoryPage,
   type LiveMatch,
+  type LobbyDelta,
+  type LobbyMine,
+  type LobbyShared,
   type LobbyView,
   type Me,
   type MemberChange,
@@ -44,6 +47,7 @@ import {
   type TableAccess,
   type TableMode,
   type TableSummary,
+  type SharedTable,
   type HealthStatus,
 } from '../shared/protocol.ts'
 import { dealWith } from '../shared/dealer.ts'
@@ -136,7 +140,7 @@ import { nextWeeklyRun, WEEKLY_KEY, type WeeklyState } from './weekly-challenge.
 import type { Store } from './store.ts'
 import { parseClientMessage } from '../shared/message-guard.ts'
 import { parseProfile, PROFILE_RECENT, type MemberProfile, type Profile } from '../shared/profile.ts'
-import { lobbyOrder, quickSeatChoice } from '../shared/lobby.ts'
+import { composeLobby, quickSeatChoice } from '../shared/lobby.ts'
 import { parseClientError } from './client-errors.ts'
 import { crashEntry, noLog, type LogEntry, type Logger } from './log.ts'
 import { alertsOf, Metrics, type MetricsState, type TableStats } from './metrics.ts'
@@ -169,6 +173,7 @@ import {
   recordVisible,
   refusal,
   seatOccupants,
+  listedForEveryone,
   tableListed,
   type Table,
 } from './views.ts'
@@ -220,19 +225,49 @@ interface Session {
 /** Who is connected; the Durable Object implements it with its hibernatable WebSockets */
 export interface Connections {
   onlineUserIds(): string[]
-  send(userId: string, message: ServerMessage): void
+  /** `data`: the message already serialized, when the same string goes to many members (the lobby, H3b) */
+  send(userId: string, message: ServerMessage, data?: string): void
   /** Closes every socket of a user (after their account is deleted) */
   disconnect(userId: string): void
 }
 
-/** What every viewer's lobby shares (`ClubService.lobbyBasis`) */
+/** What the lobby needs to know once per broadcast (`ClubService.lobbyBasis`) */
 interface LobbyBasis {
   online: Set<string>
-  onlineUsers: PublicUser[]
-  matches: LiveMatch[]
+  /** Where each member is: the first table that has them */
   where: Map<string, TableEntry>
-  order: StoredUser[]
+  /** Who asked to join each table, the host not having answered yet */
+  asked: Map<string, Set<string>>
+  /** Each table as the lobby shows it, worked out when first needed (`sharedTable`) */
+  tables: Map<string, SharedTable>
 }
+
+/** A shared lobby entry as last sent: its JSON, to tell whether it changed, and itself */
+interface Entry<T> {
+  json: string
+  value: T
+}
+
+/** The shared lobby as last sent (H3b): its version, every entry, and the whole of it serialized once when asked for */
+interface LobbyCopy {
+  rev: number
+  members: Map<string, Entry<MemberStatus>>
+  tables: Map<string, Entry<SharedTable>>
+  matches: Entry<LiveMatch[]>
+  whole?: Outgoing
+}
+
+/** A message for many members and its JSON, serialized once */
+interface Outgoing {
+  message: ServerMessage
+  data: string
+}
+
+/**
+ * The lobby goes out at most this often while things keep changing (`ClubService.broadcast`): a
+ * crowd acting at once waits for one broadcast instead of one each
+ */
+export const LOBBY_GAP_MS = 100
 
 export interface ClubConfig {
   /** Defaults from the Worker environment; an admin can override them (ClubSettings) */
@@ -253,6 +288,11 @@ export interface ClubConfig {
   thinkLimitMs?: number
   /** Where structured log entries go (`worker/log.ts`); nowhere unless given */
   log?: Logger
+  /**
+   * Runs `run` after `ms` (a timer in the Durable Object): the lobby then goes out at most every
+   * LOBBY_GAP_MS (`ClubService.broadcast`). Without it (most tests) every change goes out at once
+   */
+  later?: (run: () => void, ms: number) => void
   /**
    * The tables in their own Durable Objects (`TableObject`, ARCHITECTURE.md §5.10). Without it they
    * run in this object (`LocalTables`, kept as `table:<id>`), as in most tests
@@ -376,7 +416,18 @@ export class ClubService {
    * What each member was last sent (as JSON), so an update that changes nothing for them is not
    * sent at all. `table` is the id of the table they were last at, or `null` once told they are at none
    */
-  private readonly sent = new Map<string, { lobby?: string; table?: string; notifications?: string; directs?: string }>()
+  private readonly sent = new Map<
+    string,
+    {
+      /** They have the shared lobby (H3b): from now on they get its deltas */
+      shared?: boolean
+      /** Their own part of the lobby (`LobbyMine`) */
+      mine?: string
+      table?: string
+      notifications?: string
+      directs?: string
+    }
+  >()
   /** The notification centre; other parts of the club call `notifications.notify` */
   readonly notifications: NotificationService
   /** Whom each member follows (好友) and whom they blocked (AC-1.6) */
@@ -428,6 +479,7 @@ export class ClubService {
     this.connections = connections
     this.config = config
     this.now = config.now ?? Date.now
+    this.lobbyEpoch = this.now()
     const write = config.log ?? noLog
     // Written to storage at most once a minute: the object hibernates whenever it is idle
     this.metrics = new Metrics(this.now, (state) => void store.put('meta:metrics', state).catch(() => {}))
@@ -1757,6 +1809,8 @@ export class ClubService {
         return this.setBlocked(userId, message.userId, message.blocked)
       case 'sendDirect':
         return this.sendDirect(userId, message.to, message.text)
+      case 'lobbySync':
+        return this.resendLobby(userId)
       case 'readDirect':
         if (this.directs.markRead(userId, this.otherMember(userId, message.userId))) this.pushDirects(userId)
         return
@@ -2988,53 +3042,68 @@ export class ClubService {
   // ── Broadcasting ────────────────────────────────────────────────────────────────────────────
 
   /**
-   * Sends every online member the lobby, but only when it changed for them: a card played at one
-   * table sends nothing to people in the lobby. Each table sends its own view to the people at it;
-   * the club only tells a member who is at no table any more (`table: null`)
+   * Sends every online member what changed in the lobby (H3b, ARCHITECTURE.md §5.13): the part
+   * everyone shares as one delta, serialized once and sent as the same string to all, and each
+   * member's own part only when it changed for them; a card played at one table sends nothing to
+   * people in the lobby. Each table sends its own view to the people at it; the club only tells a
+   * member who is at no table any more (`table: null`).
+   *
+   * With `later` (the Durable Object) the lobby goes out at most once every LOBBY_GAP_MS: the first
+   * change at once, the changes that come right after it together when the gap is over, so a crowd
+   * sitting down or leaving at the same moment waits for one broadcast, not one each
    */
   broadcast() {
+    const later = this.config.later
+    if (!later) return this.broadcastNow()
+    if (this.lobbyWaiting) return
+    const wait = this.lobbySentAt + LOBBY_GAP_MS - this.now()
+    if (wait <= 0) return this.broadcastNow()
+    this.lobbyWaiting = true
+    later(() => {
+      this.lobbyWaiting = false
+      try {
+        this.broadcastNow()
+      } catch (error) {
+        this.log(crashEntry('broadcast', error))
+      }
+    }, wait)
+  }
+
+  /** A broadcast is waiting for the gap to end (`broadcast`) */
+  private lobbyWaiting = false
+  /** When the lobby last went out */
+  private lobbySentAt = -Infinity
+  /** This run of the club: the shared lobby's versions count from here (`LobbyShared`) */
+  private readonly lobbyEpoch: number
+  /** The shared lobby as last sent, each entry's JSON by id; none until the first broadcast */
+  private lobbyCopy?: LobbyCopy
+
+  private broadcastNow() {
     const online = this.connections.onlineUserIds()
+    this.lobbySentAt = this.now()
     // What every viewer's lobby shares, worked out once instead of once per viewer: with 200
     // members online the per-viewer work grew with the square of the club (docs/LOAD.md)
-    this.lobbyShared = this.lobbyBasis(online)
-    try {
-      this.broadcastTo(online)
-    } finally {
-      this.lobbyShared = undefined
-    }
-  }
-
-  /** What every viewer's lobby shares while one broadcast runs (`lobbyBasis`) */
-  private lobbyShared?: LobbyBasis
-
-  /**
-   * The parts of the lobby that are the same for every viewer: who is online, where each member
-   * is (the first table that has them, as `entryOf`), and the members online first, then by name
-   */
-  private lobbyBasis(online: string[]): LobbyBasis {
-    const onlineSet = new Set(online)
-    const where = new Map<string, TableEntry>()
-    for (const entry of this.directory.values())
-      for (const id of [...SEATS.map((s) => entry.seats[s]), ...entry.spectators]) if (id && !where.has(id)) where.set(id, entry)
-    const order = [...this.users.values()].sort(
-      (a, b) => Number(onlineSet.has(b.id)) - Number(onlineSet.has(a.id)) || a.username.localeCompare(b.username),
-    )
-    return { online: onlineSet, onlineUsers: online.flatMap((id) => this.publicUserById(id) ?? []), where, order, matches: this.liveMatches() }
-  }
-
-  private broadcastTo(online: string[]) {
+    const basis = this.lobbyBasis(online)
+    const delta = this.advanceLobby(basis)
+    let whole: Outgoing | undefined
     for (const userId of online) {
       const sent = this.sent.get(userId) ?? {}
       this.sent.set(userId, sent)
 
-      const lobby = this.lobbyView(userId, online)
-      const lobbyJson = JSON.stringify(lobby)
-      if (lobbyJson !== sent.lobby) {
-        sent.lobby = lobbyJson
-        this.connections.send(userId, { type: 'lobby', lobby })
+      if (!sent.shared) {
+        whole ??= this.wholeLobby()
+        this.connections.send(userId, whole.message, whole.data)
+        sent.shared = true
+      } else if (delta) this.connections.send(userId, delta.message, delta.data)
+
+      const mine = this.lobbyMine(userId, basis)
+      const mineJson = JSON.stringify(mine)
+      if (mineJson !== sent.mine) {
+        sent.mine = mineJson
+        this.connections.send(userId, { type: 'lobbyMine', mine }, `{"type":"lobbyMine","mine":${mineJson}}`)
       }
 
-      const at = this.lobbyShared!.where.get(userId)
+      const at = basis.where.get(userId)
       if (at) {
         sent.table = at.id
         continue
@@ -3044,60 +3113,182 @@ export class ClubService {
     }
   }
 
-  lobbyView(userId: string, online = this.connections.onlineUserIds()): LobbyView {
-    const basis = this.lobbyShared ?? this.lobbyBasis(online)
-    const isOnline = (id: string) => isRobotId(id) || basis.online.has(id)
-    const mine = basis.where.get(userId)
-    const now = this.now()
-    // What the viewer may see listed (`tableListed`): no challenge table, a hidden one only for the invited
-    const listed = (t: TableEntry) => tableListed(t, userId, t.id === mine?.id)
-    const tables: TableSummary[] = [...this.directory.values()]
-      .filter(listed)
-      // Tables short of players first, the closest to starting on top (AC-2.11)
-      .sort(lobbyOrder)
-      .map((t) => ({
-        id: t.id,
-        number: t.number,
-        hostName: this.users.get(t.hostId)?.username ?? '—',
-        settings: t.settings,
-        welcome: this.welcomeAt(userId, t, t.id === mine?.id),
-        ...(liveRequests(t.requests, now).some((r) => r.userId === userId) && { requested: true }),
-        ...(t.mode === 'practice' && { practice: true }),
-        seats: this.occupants(t, isOnline),
-        spectators: t.spectators.length,
-        boardsPlayed: t.boardsPlayed,
-        boardNo: t.boardNo,
-      }))
-    // Online first; within each, the viewer's friends on top (好友置頂), then by name (the basis's order; the sort is stable)
-    const friends = this.friends.of(userId)
-    const followed = new Set(friends)
-    const ranked = basis.order.map((u) => ({ u, rank: (basis.online.has(u.id) ? 0 : 2) + (followed.has(u.id) ? 0 : 1) }))
-    const members: MemberStatus[] = ranked
-      .sort((a, b) => a.rank - b.rank)
-      .map(({ u }) => {
-        const found = basis.where.get(u.id)
-        // Where someone is shows only for a table the viewer would see listed
-        const table = found && listed(found) ? found : undefined
-        return {
-          id: u.id,
-          username: u.username,
-          ...(u.avatar && { avatar: u.avatar }),
-          online: basis.online.has(u.id),
-          tableNumber: table?.number ?? null,
-          seat: table ? this.seatIn(table, u.id) : null,
+  /**
+   * Works out the shared lobby now and keeps it as the next version; returns what changed since the
+   * last one, or nothing when nothing did (or this is the first, which everyone gets whole)
+   */
+  private advanceLobby(basis: LobbyBasis): Outgoing | undefined {
+    const last = this.lobbyCopy
+    const entries = <T extends { id: string }>(values: T[], before: Map<string, Entry<T>> | undefined) => {
+      const now = new Map<string, Entry<T>>()
+      const changed: T[] = []
+      for (const value of values) {
+        const json = JSON.stringify(value)
+        const old = before?.get(value.id)
+        if (old?.json === json) now.set(value.id, old)
+        else {
+          now.set(value.id, { json, value })
+          changed.push(value)
         }
-      })
+      }
+      const removed = before ? [...before.keys()].filter((id) => !now.has(id)) : []
+      return { now, changed, removed }
+    }
+    const shared = this.sharedLobby(basis)
+    const members = entries(shared.members, last?.members)
+    const tables = entries(shared.tables, last?.tables)
+    const matchesJson = JSON.stringify(shared.matches)
+    const next: LobbyCopy = {
+      rev: (last?.rev ?? 0) + 1,
+      members: members.now,
+      tables: tables.now,
+      matches: { json: matchesJson, value: shared.matches },
+    }
+    if (!last) {
+      this.lobbyCopy = next
+      return undefined
+    }
+    const delta: LobbyDelta = {
+      ...(members.changed.length && { members: members.changed }),
+      ...(members.removed.length && { gone: members.removed }),
+      ...(tables.changed.length && { tables: tables.changed }),
+      ...(tables.removed.length && { closed: tables.removed }),
+      ...(matchesJson !== last.matches.json && { matches: shared.matches }),
+    }
+    if (!Object.keys(delta).length) return undefined
+    this.lobbyCopy = next
+    const message: ServerMessage = { type: 'lobbyDelta', epoch: this.lobbyEpoch, base: last.rev, rev: next.rev, delta }
+    return { message, data: JSON.stringify(message) }
+  }
+
+  /** The whole shared lobby as last worked out, serialized once for this version from its entries' JSON */
+  private wholeLobby(): Outgoing {
+    const copy = this.lobbyCopy!
+    if (copy.whole) return copy.whole
+    const values = <T>(map: Map<string, Entry<T>>) => [...map.values()]
+    const message: ServerMessage = {
+      type: 'lobbyShared',
+      epoch: this.lobbyEpoch,
+      rev: copy.rev,
+      lobby: { members: values(copy.members).map((e) => e.value), tables: values(copy.tables).map((e) => e.value), matches: copy.matches.value },
+    }
+    const json = (map: Map<string, Entry<unknown>>) => `[${values(map).map((e) => e.json).join(',')}]`
+    const data = `{"type":"lobbyShared","epoch":${this.lobbyEpoch},"rev":${copy.rev},"lobby":{"members":${json(copy.members)},"tables":${json(copy.tables)},"matches":${copy.matches.json}}}`
+    copy.whole = { message, data }
+    return copy.whole
+  }
+
+  /** Sends a member the whole shared lobby again (`lobbySync`): their copy is missing a version */
+  private resendLobby(userId: string) {
+    const sent = this.sent.get(userId)
+    if (!sent || !this.lobbyCopy) return
+    const whole = this.wholeLobby()
+    this.connections.send(userId, whole.message, whole.data)
+    sent.shared = true
+  }
+
+  /**
+   * What the lobby needs to know once per broadcast: who is online, where each member is (the
+   * first table that has them, as `entryOf`), who asked to join each table, and each table as the
+   * lobby shows it (worked out when first needed)
+   */
+  private lobbyBasis(online: string[]): LobbyBasis {
+    const onlineSet = new Set(online)
+    const where = new Map<string, TableEntry>()
+    const asked = new Map<string, Set<string>>()
+    const now = this.now()
+    for (const entry of this.directory.values()) {
+      for (const id of [...SEATS.map((s) => entry.seats[s]), ...entry.spectators]) if (id && !where.has(id)) where.set(id, entry)
+      const requests = liveRequests(entry.requests, now)
+      if (requests.length) asked.set(entry.id, new Set(requests.map((r) => r.userId)))
+    }
+    return { online: onlineSet, where, asked, tables: new Map() }
+  }
+
+  /** A table as everyone it is listed for sees it in the lobby, once per broadcast */
+  private sharedTable(t: TableEntry, basis: LobbyBasis): SharedTable {
+    const known = basis.tables.get(t.id)
+    if (known) return known
+    const isOnline = (id: string) => isRobotId(id) || basis.online.has(id)
+    const table: SharedTable = {
+      id: t.id,
+      number: t.number,
+      hostName: this.users.get(t.hostId)?.username ?? '—',
+      settings: t.settings,
+      ...(t.mode === 'practice' && { practice: true }),
+      seats: this.occupants(t, isOnline),
+      spectators: t.spectators.length,
+      boardsPlayed: t.boardsPlayed,
+      boardNo: t.boardNo,
+    }
+    basis.tables.set(t.id, table)
+    return table
+  }
+
+  /**
+   * The part of the lobby that is the same for every viewer (`LobbyShared`): every member, placed
+   * only at a table listed for everyone; those tables; the team matches. Nothing that depends on who
+   * looks (`listedForEveryone`, ARCHITECTURE.md §4)
+   */
+  private sharedLobby(basis: LobbyBasis): LobbyShared {
+    const members: MemberStatus[] = [...this.users.values()].map((u) => {
+      const found = basis.where.get(u.id)
+      const table = found && listedForEveryone(found) ? found : undefined
+      return {
+        id: u.id,
+        username: u.username,
+        ...(u.avatar && { avatar: u.avatar }),
+        online: basis.online.has(u.id),
+        tableNumber: table?.number ?? null,
+        seat: table ? this.seatIn(table, u.id) : null,
+      }
+    })
+    const tables = [...this.directory.values()].filter(listedForEveryone).map((t) => this.sharedTable(t, basis))
+    return { members, tables, matches: this.liveMatches() }
+  }
+
+  /**
+   * One viewer's own part of the lobby (`LobbyMine`): their table, friends and blocks, whether they
+   * may come in to each shared table and whether they asked to, and the tables listed for them but
+   * not for everyone (`tableListed`: a hidden one they host, are invited to or are at), with where
+   * members are at those
+   */
+  private lobbyMine(userId: string, basis: LobbyBasis): LobbyMine {
+    const mine = basis.where.get(userId)
+    const tables: TableSummary[] = []
+    const welcome: string[] = []
+    const requested: string[] = []
+    const places: LobbyMine['places'] = {}
+    for (const t of this.directory.values()) {
+      const at = t.id === mine?.id
+      const asked = !!basis.asked.get(t.id)?.has(userId)
+      if (listedForEveryone(t)) {
+        if (this.welcomeAt(userId, t, at)) welcome.push(t.id)
+        if (asked) requested.push(t.id)
+        continue
+      }
+      if (!tableListed(t, userId, at)) continue
+      tables.push({ ...this.sharedTable(t, basis), welcome: this.welcomeAt(userId, t, at), ...(asked && { requested: true }) })
+      for (const id of [...SEATS.map((s) => t.seats[s]), ...t.spectators])
+        if (id && this.users.has(id) && basis.where.get(id)?.id === t.id) places[id] = { tableNumber: t.number, seat: this.seatIn(t, id) }
+    }
     return {
-      online: basis.onlineUsers,
-      members,
-      tables,
       myTableId: mine?.id ?? null,
       // The member's own challenge or practice table, for the lobby's 「回到」 banner
       ...(mine && (soloTable(mine.mode) || (mine.mode === 'practice' && this.seatIn(mine, userId))) && { myTableMode: mine.mode }),
-      friends,
+      friends: this.friends.of(userId),
       blocked: this.blocks.of(userId),
-      matches: basis.matches,
+      tables,
+      welcome,
+      requested,
+      places,
     }
+  }
+
+  /** The lobby as one member sees it, put together from the shared part and theirs as the browser does (`composeLobby`) */
+  lobbyView(userId: string, online = this.connections.onlineUserIds()): LobbyView {
+    const basis = this.lobbyBasis(online)
+    return composeLobby(this.sharedLobby(basis), this.lobbyMine(userId, basis))
   }
 
   /** The team matches being played, from the directory (their tables say which match and room), oldest first */

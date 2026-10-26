@@ -15,6 +15,8 @@ import {
   type ClientMessage,
   type DirectMessage,
   type DirectsView,
+  type LobbyMine,
+  type LobbyShared,
   type LobbyView,
   type NotificationsView,
   type ServerMessage,
@@ -22,6 +24,7 @@ import {
   type TableWire,
 } from '../../shared/protocol.ts'
 import type { TeamMatchView } from '../../shared/team-match.ts'
+import { composeLobby, emptyReplica, receiveLobby } from '../../shared/lobby.ts'
 import type { MessageParams } from '../../shared/messages.ts'
 import { liveSocket, type ConnectionStatus, type LiveSocket } from '../lib/liveSocket.ts'
 import { useAuth } from './AuthContext.tsx'
@@ -32,7 +35,9 @@ import { useAuth } from './AuthContext.tsx'
  * table, one to that table (`/ws/table/<id>`: its view, bidding, play and chat). The server pushes
  * the lobby and the viewer's table whenever they change for this viewer, so this context only
  * stores the latest of each (the table's chat and recent boards are kept when a push leaves them
- * out). Both connections are kept alive alike (`src/lib/liveSocket.ts`). A table action goes over
+ * out). The lobby comes in two parts (H3b): the part everyone shares, whole and then as deltas
+ * (`receiveLobby` keeps the copy, asking for it whole when a version is missing), and the viewer's
+ * own; the page puts them together (`composeLobby`), sorting as the server used to. Both connections are kept alive alike (`src/lib/liveSocket.ts`). A table action goes over
  * the table's connection when it is open, else over the club's, which hands it to the table.
  * Actions made while reconnecting are sent once a connection is back, if they are still fresh.
  */
@@ -86,7 +91,10 @@ function mergeTable(previous: TableView | null, wire: TableWire | null, serverNo
 export function ClubProvider({ children }: { children: ReactNode }) {
   const { user, logout } = useAuth()
   const [status, setStatus] = useState<ConnectionStatus>('connecting')
-  const [lobby, setLobby] = useState<LobbyView | null>(null)
+  const [shared, setShared] = useState<LobbyShared | null>(null)
+  const [mine, setMine] = useState<LobbyMine | null>(null)
+  /** The copy of the shared lobby and the deltas that came early (`receiveLobby`) */
+  const replica = useRef(emptyReplica())
   const [table, setTable] = useState<TableView | null>(null)
   const [notifications, setNotifications] = useState<NotificationsView | null>(null)
   const [directs, setDirects] = useState<DirectsView | null>(null)
@@ -96,11 +104,17 @@ export function ClubProvider({ children }: { children: ReactNode }) {
   const clubSocket = useRef<LiveSocket | null>(null)
   const tableSocket = useRef<LiveSocket | null>(null)
   const waiting = useRef<{ message: ClientMessage; at: number }[]>([])
-  const myTableId = lobby?.myTableId ?? null
+  const lobby = useMemo(() => (shared && mine ? composeLobby(shared, mine) : null), [shared, mine])
+  const myTableId = mine?.myTableId ?? null
 
   /** Every message from either connection */
   const receive = useCallback((message: ServerMessage) => {
-    if (message.type === 'lobby') setLobby(message.lobby)
+    if (message.type === 'lobbyShared' || message.type === 'lobbyDelta') {
+      const { replica: next, sync } = receiveLobby(replica.current, message)
+      replica.current = next
+      setShared(next.copy?.lobby ?? null)
+      if (sync) clubSocket.current?.send(JSON.stringify({ type: 'lobbySync' } satisfies ClientMessage))
+    } else if (message.type === 'lobbyMine') setMine(message.mine)
     else if (message.type === 'table') setTable((previous) => mergeTable(previous, message.table, message.now))
     else if (message.type === 'notifications') setNotifications(message.notifications)
     else if (message.type === 'directs') setDirects(message.directs)
@@ -131,7 +145,9 @@ export function ClubProvider({ children }: { children: ReactNode }) {
     return () => {
       clubSocket.current = null
       socket.close()
-      setLobby(null)
+      replica.current = emptyReplica()
+      setShared(null)
+      setMine(null)
       setTable(null)
       setNotifications(null)
       setDirects(null)

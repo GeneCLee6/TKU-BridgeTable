@@ -16,7 +16,7 @@ import { adminRouteNeed, bookRouteNeed, clubRouteNeed, requireNeed } from './rol
 import { CLIENT_ERROR_MAX_CHARS } from './client-errors.ts'
 import { d1Replica } from './d1.ts'
 import { edgeSecret, mintPass, PASS_COOKIE, passCookie, passNeedsRefresh } from './edge-auth.ts'
-import { crashEntry, jsonLog } from './log.ts'
+import { crashEntry, jsonLog, sampleActions } from './log.ts'
 import type { TableStats } from './metrics.ts'
 import { type ChallengeRequest, ClubError, ClubService, type Connections } from './service.ts'
 import type { EventReport } from './modes.ts'
@@ -118,7 +118,10 @@ export class Club extends DurableObject<Env> implements Connections {
       inviteCode: env.INVITE_CODE || undefined,
       // One alarm wakes the object for every robot move and deal, so it can hibernate in between
       wake: (at) => void storage.setAlarm(at),
-      log: jsonLog,
+      // Actions sampled (H3b); the status page still counts every one
+      log: sampleActions(jsonLog),
+      // The lobby goes out at most every LOBBY_GAP_MS while it keeps changing (H3b)
+      later: (run, ms) => void setTimeout(run, ms),
       // Each table in its own object (§5.10), unless switched back with TABLE_OBJECTS=off
       tableObjects: new RemoteTables((tableId) => env.TABLE.get(env.TABLE.idFromName(tableId)) as unknown as TableRpc),
       tablesInClub: env.TABLE_OBJECTS === 'off',
@@ -208,8 +211,8 @@ export class Club extends DurableObject<Env> implements Connections {
     return [...new Set(ids)]
   }
 
-  send(userId: string, message: ServerMessage) {
-    const payload = JSON.stringify(message)
+  send(userId: string, message: ServerMessage, data?: string) {
+    const payload = data ?? JSON.stringify(message)
     for (const ws of this.ctx.getWebSockets(userId)) {
       try {
         ws.send(payload)

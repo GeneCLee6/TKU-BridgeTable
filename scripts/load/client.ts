@@ -1,5 +1,5 @@
 import type { Seat } from '../../shared/cards.ts'
-import { TABLE_SOCKET_PREFIX, TABLE_SOCKET_REFUSED, type ClientMessage, type LobbyView, type ServerMessage, type TableWire } from '../../shared/protocol.ts'
+import { TABLE_SOCKET_PREFIX, TABLE_SOCKET_REFUSED, type ClientMessage, type LobbyMine, type ServerMessage, type TableWire } from '../../shared/protocol.ts'
 import { decide, progressOf, type Random } from './player.ts'
 import type { Recorder } from './stats.ts'
 
@@ -45,7 +45,8 @@ export class SimUser {
   private stopped = false
   private thinkTimer: ReturnType<typeof setTimeout> | null = null
   private actedAt = -1
-  lobby: LobbyView | null = null
+  /** The member's own part of the lobby (H3b): where they are, their friends */
+  lobby: LobbyMine | null = null
   view: TableWire | null = null
   /** Plays its turns by itself */
   autoplay = false
@@ -117,7 +118,7 @@ export class SimUser {
         if (!message) return
         this.received('club', message)
         if (message.type === 'welcome') welcomed = true
-        if (welcomed && message.type === 'lobby') {
+        if (welcomed && message.type === 'lobbyMine') {
           clearTimeout(fail)
           resolve()
         }
@@ -209,9 +210,9 @@ export class SimUser {
 
   private received(socket: 'club' | 'table', message: ServerMessage) {
     this.rec.count(`in:${message.type}`)
-    if (message.type === 'lobby') {
-      this.lobby = message.lobby
-      const at = message.lobby.myTableId
+    if (message.type === 'lobbyMine') {
+      this.lobby = message.mine
+      const at = message.mine.myTableId
       if (at) this.openTable(at)
       else {
         this.closeTable()
@@ -277,16 +278,16 @@ export class SimUser {
   // ── Club actions the scenarios use ──────────────────────────────────────────────────────────
 
   async createTable(): Promise<string | null> {
-    await this.send({ type: 'createTable' }, (m) => m.type === 'lobby' && !!m.lobby.myTableId)
+    await this.send({ type: 'createTable' }, (m) => m.type === 'lobbyMine' && !!m.mine.myTableId)
     return this.lobby?.myTableId ?? null
   }
 
   sit(tableId: string, seat: Seat) {
-    return this.send({ type: 'sit', tableId, seat }, (m) => m.type === 'lobby' && m.lobby.myTableId === tableId)
+    return this.send({ type: 'sit', tableId, seat }, (m) => m.type === 'lobbyMine' && m.mine.myTableId === tableId)
   }
 
   watch(tableId: string) {
-    return this.send({ type: 'joinTable', tableId }, (m) => m.type === 'lobby' && m.lobby.myTableId === tableId)
+    return this.send({ type: 'joinTable', tableId }, (m) => m.type === 'lobbyMine' && m.mine.myTableId === tableId)
   }
 
   async addRobot(seat: Seat) {
@@ -296,7 +297,7 @@ export class SimUser {
 
   leave() {
     if (!this.lobby?.myTableId) return Promise.resolve(true)
-    return this.send({ type: 'leaveTable' }, (m) => m.type === 'lobby' && !m.lobby.myTableId)
+    return this.send({ type: 'leaveTable' }, (m) => m.type === 'lobbyMine' && !m.mine.myTableId)
   }
 
   chat(text: string) {
@@ -308,11 +309,11 @@ export class SimUser {
   }
 
   follow(userId: string) {
-    return this.send({ type: 'setFriend', userId, friend: true }, (m) => m.type === 'lobby' && m.lobby.friends.includes(userId))
+    return this.send({ type: 'setFriend', userId, friend: true }, (m) => m.type === 'lobbyMine' && m.mine.friends.includes(userId))
   }
 
   playChallenge(challengeId: string) {
-    return this.send({ type: 'playChallenge', challengeId }, (m) => m.type === 'lobby' && !!m.lobby.myTableId)
+    return this.send({ type: 'playChallenge', challengeId }, (m) => m.type === 'lobbyMine' && !!m.mine.myTableId)
   }
 
   /** Resolves when `test` holds, checking every 100 ms; false after `ms` */

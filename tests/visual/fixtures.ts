@@ -1,6 +1,17 @@
 import type { Page } from '@playwright/test'
 import type { Seat } from '../../shared/cards.ts'
-import type { BoardSummary, BoardView, HistoryPage, LobbyView, Me, SeatOccupant, TableWire } from '../../shared/protocol.ts'
+import type {
+  BoardSummary,
+  BoardView,
+  HistoryPage,
+  LobbyMine,
+  LobbyShared,
+  LobbyView,
+  Me,
+  SeatOccupant,
+  ServerMessage,
+  TableWire,
+} from '../../shared/protocol.ts'
 
 /**
  * A fixed club for the visual regression screenshots (e3-t37): the browser's API calls and its
@@ -166,6 +177,29 @@ export function lobby(atTable: boolean): LobbyView {
   }
 }
 
+/** A lobby as the club sends it (H3b): the part everyone shares, then the viewer's own */
+export function lobbyMessages(view: LobbyView): ServerMessage[] {
+  const shared: LobbyShared = {
+    members: view.members,
+    tables: view.tables.map(({ welcome: _welcome, requested: _requested, ...table }) => table),
+    matches: view.matches ?? [],
+  }
+  const mine: LobbyMine = {
+    myTableId: view.myTableId,
+    ...(view.myTableMode && { myTableMode: view.myTableMode }),
+    friends: view.friends,
+    blocked: view.blocked,
+    tables: [],
+    welcome: view.tables.filter((t) => t.welcome).map((t) => t.id),
+    requested: view.tables.filter((t) => t.requested).map((t) => t.id),
+    places: {},
+  }
+  return [
+    { type: 'lobbyShared', epoch: 1, rev: 1, lobby: shared },
+    { type: 'lobbyMine', mine },
+  ]
+}
+
 const STRAINS = ['C', 'D', 'H', 'S', 'N'] as const
 const ORDER = ['N', 'E', 'S', 'W'] as const
 
@@ -228,7 +262,7 @@ export async function serve(page: Page, { me = ME, table: tableWire = null, pref
   })
 
   await page.routeWebSocket('**/ws', (ws) => {
-    ws.send(JSON.stringify({ type: 'lobby', lobby: lobby(!!tableWire) }))
+    for (const message of lobbyMessages(lobby(!!tableWire))) ws.send(JSON.stringify(message))
     ws.send(JSON.stringify({ type: 'notifications', notifications: { items: [], unread: 0 } }))
     ws.send(JSON.stringify({ type: 'directs', directs: { conversations: [], unread: 0 } }))
     if (tableWire) ws.send(JSON.stringify({ type: 'table', table: tableWire, now: Date.now() }))

@@ -161,6 +161,16 @@ export function tableListed(table: AccessFacts, userId: string, at: boolean): bo
 }
 
 /**
+ * Whether the lobby lists a table for every member alike (`tableListed` for anyone): then it goes
+ * in the part of the lobby everyone shares (`LobbyShared`, H3b), and so does where each member sits
+ * or watches there. A hidden table, and where anyone is at one, only ever go in the own part
+ * (`LobbyMine`) of those it is listed for
+ */
+export function listedForEveryone(table: AccessFacts): boolean {
+  return table.mode !== 'challenge' && table.mode !== 'team' && table.settings.access !== 'hidden'
+}
+
+/**
  * Whether a member may come to a table (sit in an empty seat, or watch where watching is allowed)
  * without asking: anyone at a public table; the invited and the approved at a request table; the
  * invited at a hidden table; nobody new at a closed table. The host and whoever is already at the

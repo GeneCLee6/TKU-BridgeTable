@@ -4,7 +4,7 @@ import type { Seat } from '../shared/cards.ts'
 import { MESSAGE_MAX_CHARS } from '../shared/message-guard.ts'
 import { TABLE_SOCKET_REFUSED, type BoardRecord, type ServerMessage, type TableAction, type TableSettings } from '../shared/protocol.ts'
 import type { Env } from './club.ts'
-import { jsonLog } from './log.ts'
+import { jsonLog, sampleActions } from './log.ts'
 import type { TableStats } from './metrics.ts'
 import type { EventReport } from './modes.ts'
 import { AlarmQueue } from './scheduler.ts'
@@ -54,7 +54,8 @@ export class TableObject extends DurableObject<Env> implements TableRpc, TableSo
       sockets: this,
       club: link,
       config: { now: Date.now, random: secureRandomInt, scheduler: this.queue },
-      log: jsonLog,
+      // Actions sampled (H3b); the table's counts for the status page still count every one
+      log: sampleActions(jsonLog),
     })
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair('ping', 'pong'))
     ctx.blockConcurrencyWhile(() => this.host.load())

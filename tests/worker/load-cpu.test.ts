@@ -3,7 +3,7 @@ import { writeFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { secureRandomInt } from '../../shared/board.ts'
 import type { Seat } from '../../shared/cards.ts'
-import type { ClientMessage, LobbyView, ServerMessage, TableWire } from '../../shared/protocol.ts'
+import type { ClientMessage, LobbyMine, ServerMessage, TableWire } from '../../shared/protocol.ts'
 import { noLog } from '../../worker/log.ts'
 import { manualScheduler } from '../../worker/scheduler.ts'
 import { ClubService, type Connections } from '../../worker/service.ts'
@@ -72,7 +72,7 @@ async function run(plan: typeof PLAN, random: () => number) {
   }
 
   // ── Members as the browser holds them ──
-  const lobbies = new Map<string, LobbyView>()
+  const lobbies = new Map<string, LobbyMine>()
   const views = new Map<string, TableWire | null>()
   const atTable = new Map<string, string>()
   const autoplay = new Set<string>()
@@ -84,12 +84,13 @@ async function run(plan: typeof PLAN, random: () => number) {
     onlineUserIds() {
       return [...this.online]
     },
-    send(userId: string, message: ServerMessage) {
-      sentBytes.club += JSON.stringify(message).length
+    send(userId: string, message: ServerMessage, data?: string) {
+      // What the club serializes once for many members (the shared lobby, H3b) is counted for each who gets it
+      sentBytes.club += (data ?? JSON.stringify(message)).length
       sentBytes.messages++
-      if (message.type === 'lobby') {
-        lobbies.set(userId, message.lobby)
-        const next = message.lobby.myTableId
+      if (message.type === 'lobbyMine') {
+        lobbies.set(userId, message.mine)
+        const next = message.mine.myTableId
         const was = atTable.get(userId)
         if (next !== was) {
           if (was) {
@@ -208,6 +209,8 @@ async function run(plan: typeof PLAN, random: () => number) {
     })),
     log: noLog,
     tableObjects: new RemoteTables(stub),
+    // As the Durable Object: the lobby at most every LOBBY_GAP_MS while it keeps changing (H3b)
+    later: (job, ms) => at(ms, 'lobby', () => timed('club', 'club: lobby after the gap (timer)', job)),
   })
   await club.load()
 

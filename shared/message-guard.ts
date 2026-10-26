@@ -65,6 +65,7 @@ const GUARDS: Partial<Record<ClientMessage['type'], Guard>> = {
   matchSitIn: (m) => str(m.matchId) && str(m.room) && str(m.seat),
   sendDirect: (m) => str(m.to) && str(m.text),
   readDirect: (m) => str(m.userId),
+  lobbySync: () => true,
 }
 
 /**

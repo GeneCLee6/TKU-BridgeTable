@@ -506,6 +506,56 @@ export interface LobbyView {
 }
 
 /**
+ * The lobby goes out in two parts (H3b, ARCHITECTURE.md §4 and §5.13), which the browser puts
+ * together into a `LobbyView` (`composeLobby`, `shared/lobby.ts`). This is the part that is the
+ * same for every viewer: serialized once and sent as the same string to everyone, then kept up
+ * to date with `LobbyDelta`s. Nothing in it depends on who looks: a hidden table, and where
+ * anyone sits at one, are only in the viewers' own parts (`LobbyMine`). Lists are in no order;
+ * the browser sorts them
+ */
+export interface LobbyShared {
+  /** Every member; where they are (`tableNumber`, `seat`) only at a table listed for everyone */
+  members: MemberStatus[]
+  /** The tables listed for everyone (`listedForEveryone`), without what depends on the viewer */
+  tables: SharedTable[]
+  /** Team matches being played (§5.8) */
+  matches: LiveMatch[]
+}
+
+/** A table as everyone sees it in the lobby: a `TableSummary` without `welcome` and `requested` */
+export type SharedTable = Omit<TableSummary, 'welcome' | 'requested'>
+
+/** What changed in `LobbyShared` since the previous version: entries replaced whole, or removed */
+export interface LobbyDelta {
+  /** Members added or changed */
+  members?: MemberStatus[]
+  /** Members no longer in the club */
+  gone?: string[]
+  /** Tables listed for everyone, added or changed */
+  tables?: SharedTable[]
+  /** Tables no longer listed for everyone (closed, or hidden now) */
+  closed?: string[]
+  /** The team matches being played, whole, when they changed */
+  matches?: LiveMatch[]
+}
+
+/** The viewer's own part of the lobby: sent only to them, and only when it changed */
+export interface LobbyMine {
+  myTableId: string | null
+  myTableMode?: TableMode
+  friends: string[]
+  blocked: string[]
+  /** The tables listed for this viewer but not for everyone (a hidden table they host, are invited to or are at), whole */
+  tables: TableSummary[]
+  /** The shared tables the viewer may come in without asking (`TableSummary.welcome`) */
+  welcome: string[]
+  /** The shared tables the viewer asked to join, the host not having answered yet */
+  requested: string[]
+  /** Where members are when that is one of this viewer's own `tables`: the table's number and their seat */
+  places: Record<string, { tableNumber: number; seat: Seat | null }>
+}
+
+/**
  * Something a member should know about, kept for them until they read it (AC-1.8). The browser
  * writes the text in the viewer's language from `kind` and `params`, and knows where each kind
  * leads (`src/lib/notifications.ts`). Challenges, match invitations and messages add their kinds
@@ -752,10 +802,23 @@ export type ClientMessage =
   | { type: 'sendDirect'; to: string; text: string }
   /** Marks the conversation with this member read */
   | { type: 'readDirect'; userId: string }
+  /**
+   * The browser's copy of the shared lobby is missing a version (`LobbyDelta` out of order, or
+   * after the club restarted): the club sends the whole of it again
+   */
+  | { type: 'lobbySync' }
 
 export type ServerMessage =
   | { type: 'welcome'; me: Me }
-  | { type: 'lobby'; lobby: LobbyView }
+  /**
+   * The lobby (H3b): the shared part whole (on connecting, after `lobbySync`, after the club
+   * restarted) or what changed in it (`base` is the version it applies to), as one string for
+   * everyone; and the viewer's own part whenever it changed. `epoch` is when this run of the club
+   * started: versions count from there
+   */
+  | { type: 'lobbyShared'; epoch: number; rev: number; lobby: LobbyShared }
+  | { type: 'lobbyDelta'; epoch: number; base: number; rev: number; delta: LobbyDelta }
+  | { type: 'lobbyMine'; mine: LobbyMine }
   /** `now` is the server's clock when sent, so the browser can turn `dealAt` into its own time */
   | { type: 'table'; table: TableWire | null; now: number }
   | { type: 'error'; code: MessageCode; params: MessageParams; message: string }
