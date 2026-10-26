@@ -1,0 +1,16 @@
+{
+  "category": "defence-lead",
+  "title": "防家領出：無王先建立首攻的長門",
+  "questions": [
+    {"id": "play-defence-lead-001", "system": "both", "board": 398,
+     "hands": {"N": "K2.82.AK642.J643", "E": "AJ7.KQJT.3.AT852", "S": "QT9653.A94.Q5.KQ", "W": "84.7653.JT987.97"},
+     "auction": ["1C", "1S", "P", "1N", "P", "3N", "P", "P", "P"], "play": ["HK", "H4", "H7", "H2"],
+     "answer": "HQ", "accepted": ["HJ", "HT"], "source": "單明手抽樣對照（評測牌組第 398 副，e6-t45）", "reviewer": null, "status": "pending",
+     "note": "無王合約首攻♥K 贏了：繼續打♥建立長門，♠A 留著當進手張，不要先兌現"},
+    {"id": "play-defence-lead-002", "system": "both", "board": 311,
+     "hands": {"N": "K94.Q62.KQ64.A84", "E": "AJ8.84.T.KQJT653", "S": "7.AJ75.AJ8732.72", "W": "QT6532.KT93.95.9"},
+     "auction": ["P", "P", "1D", "2C", "3D", "P", "3N", "P", "P", "P"], "play": ["CK", "C2", "C9", "C4"],
+     "answer": "CQ", "accepted": ["CJ", "CT"], "source": "單明手抽樣對照（評測牌組第 311 副，e6-t45）", "reviewer": null, "status": "pending",
+     "note": "首攻♣K 贏了、莊家還有♣A：繼續 Q 把它逼出來，♠A 留著回到♣"}
+  ]
+}

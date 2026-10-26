@@ -20,6 +20,7 @@ export function defenceLead(view: View, hand: Card[], trump: Suit | null, ruffed
   const throughDummy = nextSeat(view.seat) === dummy
   const suits = SUITS.filter((s) => suitCards(hand, s).length && (s !== trump || trumpLead(view, hand, trump, dummyCards)))
   if (!suits.length) return null
+  const race = raceSuit(view, hand, trump)
 
   const score = (s: Suit) => {
     const mine = suitCards(hand, s)
@@ -37,9 +38,12 @@ export function defenceLead(view: View, hand: Card[], trump: Suit | null, ruffed
       // Dummy plays next: lead through its honours, partner sits over them
       if (dummyHonour) n += 2
     } else if (dummyHonour) n -= 2
-    else if (theirs.length && !theirs.some((c) => value(c) >= 10)) n += 1
+    // Nothing in dummy (in notrump a void too: the declarer's honours sit in front of partner's)
+    else if ((theirs.length || trump === null) && !theirs.some((c) => value(c) >= 10)) n += 1
     if (s === trump) n += 2
     if (state.play[0].seat === partner && suitOf(state.play[0].card) === s) n += 4
+    // Our own opening lead in notrump, still being set up: keep at it
+    if (s === race && state.play[0].seat === view.seat) n += 3
     return n
   }
   const best = [...suits].sort((a, b) => score(b) - score(a) || suitCards(hand, b).length - suitCards(hand, a).length)[0]
@@ -48,6 +52,23 @@ export function defenceLead(view: View, hand: Card[], trump: Suit | null, ruffed
   if (seq) return seq
   if (cards.length <= 2) return cards[0]
   return cards.some((c) => value(c) >= 11) ? (cards[3] ?? cards.at(-1)!) : cards[0]
+}
+
+/**
+ * In notrump, the suit of the opening lead (ours or partner's) while it is still being set up: we
+ * hold a card of it that is not yet a winner, a card of it is still out of view, and partner, if
+ * the leader, has not shown out
+ */
+export function raceSuit(view: View, hand: Card[], trump: Suit | null): Suit | null {
+  const state = view.state
+  if (trump !== null || !state.play.length) return null
+  const opening = state.play[0]
+  const suit = suitOf(opening.card)
+  if (opening.seat !== view.seat && opening.seat !== partnerOf(view.seat)) return null
+  const mine = suitCards(hand, suit)
+  if (!mine.length || view.isMaster(mine[0]) || !view.outstanding(suit)) return null
+  if (opening.seat !== view.seat && view.reading.isVoid(opening.seat, suit)) return null
+  return suit
 }
 
 /**
@@ -97,6 +118,8 @@ export function secondHand(view: View, trick: PlayedCard[], following: Card[], l
   const dummySuit = suitCards(dummyCards, led)
   const beaters = following.filter((c) => value(c) > value(lead.card)).sort(byRank)
   if (!beaters.length) return null
+  const master = beaters.find((c) => view.isMaster(c))
+  if (master && cashOut(view, led, trump)) return master
   if (!dummyLed) {
     if (value(lead.card) < 10 && dummySuit.length === 1 && value(dummySuit[0]) >= 12 && view.unseenAbove(dummySuit[0]).length === 0) {
       const ace = following.find((c) => rankOf(c) === 'A')
@@ -104,10 +127,23 @@ export function secondHand(view: View, trick: PlayedCard[], following: Card[], l
     }
     const dummyRuffs = trump !== null && led !== trump && dummySuit.length === 0 && suitCards(dummyCards, trump).length > 0
     if (!dummyRuffs && !dummySuit.some((c) => value(c) > value(beaters[0]))) return beaters[0]
+    // Dummy has one card left in the suit and must play it: cover it with the cheapest card over it
+    if (!dummyRuffs && dummySuit.length === 1) return beaters.find((c) => value(c) > value(dummySuit[0])) ?? null
     return null
   }
   if (value(lead.card) < 10) return null
   return beaters.find((c) => view.unseenAbove(c).length === 0) ?? null
+}
+
+/**
+ * The tricks to defeat the contract are in our hand: the sure winners of the suit led (and, in
+ * notrump, of the other suits) are as many as the tricks still needed, so take them now rather
+ * than give the declarer a chance to discard them or get in first
+ */
+export function cashOut(view: View, led: Suit, trump: Suit | null): boolean {
+  let sure = view.topTricks(led)
+  if (trump === null) for (const s of SUITS) if (s !== led) sure += view.topTricks(s)
+  return sure >= view.needed()
 }
 
 /**
@@ -141,8 +177,10 @@ export function thirdHand(view: View, trick: PlayedCard[], following: Card[], be
   if (!beaters.length) return null
   const top = beaters.at(-1)!
   const dummyLeft = suitCards(view.dummyCards(), led)
+  // Dummy, still to play, holds a card over partner's: partner's card is not winning after all
+  const dummyBeats = trick[1].seat !== dummy && dummyLeft.some((c) => value(c) > value(best.card))
 
-  if (partnerWinning) {
+  if (partnerWinning && !dummyBeats) {
     const honourLed = value(partnerCard) >= 11
     // Unblock in notrump: a doubleton honour over partner's honour
     if (honourLed) return trump === null && following.length === 2 && value(top) > value(partnerCard) ? top : null
@@ -152,21 +190,28 @@ export function thirdHand(view: View, trick: PlayedCard[], following: Card[], be
     // The rule of eleven on a low opening lead: fourth best leaves partner exactly three cards
     // above the one led, so when exactly three are out of view declarer has none (fewer, and the
     // lead was not fourth best: a high spot from nothing, which declarer may well beat)
-    if (state.play.length < 4 && value(partnerCard) <= 7 && hidden === 3) return null
+    // Only in notrump: against a suit contract a low lead is as often from a short suit
+    if (trump === null && state.play.length < 4 && value(partnerCard) <= 7 && hidden === 3) return null
   }
 
   if (trick[1].seat !== dummy) {
-    // Dummy plays last: nothing we have beats its top card, keep ours; else the cheapest that does
+    // Dummy plays last: the cheapest card over its top card; with none, force the top card out
+    // with the cheapest card over dummy's next one when we keep a higher card (KT5 against dummy's
+    // A9: the T, and the K is good); else keep ours
     const dummyTop = dummyLeft[0]
     const over = dummyTop ? beaters.filter((c) => value(c) > value(dummyTop)) : beaters
-    return over.length ? view.lowestEqual(over[0], following) : null
+    if (over.length) return view.lowestEqual(over[0], following)
+    const next = dummyLeft[1]
+    const force = next && value(next) > value(best.card) ? beaters.find((c) => value(c) > value(next) && value(c) >= 9) : undefined
+    if (force && following.some((c) => value(c) > value(force))) return view.lowestEqual(force, following)
+    return null
   }
   // Dummy played second and keeps an honour above the trick: with a card over that honour, finesse
   // against it with the highest card below it (the lowest of touching cards)
   const kept = dummyLeft.filter((c) => value(c) > value(best.card) && value(c) >= 10)
   if (kept.length) {
     const over = beaters.some((c) => value(c) > value(kept[0]))
-    const under = beaters.filter((c) => value(c) < value(kept.at(-1)!))
+    const under = beaters.filter((c) => value(c) < value(kept[0]))
     if (over && under.length && value(under.at(-1)!) >= 9) return view.lowestEqual(under.at(-1)!, following)
   }
   // Third hand high
