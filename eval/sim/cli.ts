@@ -27,7 +27,7 @@ import { ruleBrain } from '../../shared/robot/brain.ts'
  *   npm run sim -- tables --deals N [--from 1] [--seed s] [--threads N] [--out file]
  *   npm run sim -- leads --deals N [--from 1] [--seed s] [--system tku|gib] [--samples 0] [--threads N] [--out file] [--report file] [--analyse]
  *   npm run sim -- compare --deals N [--from 1] [--seed s] [--system tku|gib] [--samples 30] [--objective score|tricks|contract]
- *                          [--dd-bias 0] [--points lead|all] [--threads N] [--out file] [--report file] [--analyse]
+ *                          [--dd-bias 0] [--points lead|all|defence] [--threads N] [--out file] [--report file] [--analyse]
  *   npm run sim -- replay --out leads.jsonl [--from 1 --deals N | --boards file] [--report file] [--changed file]
  *   npm run sim -- bidding --deals N [--from 1] [--seed s] [--system tku|gib] [--threads N] [--out file] [--report file]
  *                          [--practice dir] [--analyse]
@@ -43,7 +43,7 @@ const USAGE = [
   '  tables   --deals N [--from 1] [--seed s] [--threads N] [--out file]',
   '  leads    --deals N [--from 1] [--seed s] [--system tku|gib] [--samples 0] [--threads N] [--out file] [--report file] [--analyse]',
   '  compare  --deals N [--from 1] [--seed s] [--system tku|gib] [--samples 30] [--objective score|tricks|contract] [--dd-bias 0]',
-  '           [--points lead|all] [--threads N] [--out file] [--report file] [--analyse]',
+  '           [--points lead|all|defence] [--threads N] [--out file] [--report file] [--analyse]',
   '  replay   --out leads.jsonl [--from 1 --deals N | --boards file] [--seed s] [--report file] [--changed file]',
   '  bidding  --deals N [--from 1] [--seed s] [--system tku|gib] [--threads N] [--out file] [--report file] [--practice dir] [--analyse]',
   '  compete  the same as bidding, only the competitive decisions',
@@ -213,7 +213,7 @@ async function compare(args: Map<string, string>) {
   const objective = (args.get('objective') ?? 'score') as Objective
   if (!['score', 'tricks', 'contract'].includes(objective)) throw new Error('--objective is score, tricks or contract')
   const points = (args.get('points') ?? 'all') as CompareOptions['points']
-  if (!['lead', 'all'].includes(points)) throw new Error('--points is lead or all')
+  if (!['lead', 'all', 'defence'].includes(points)) throw new Error('--points is lead, all or defence')
   const options: CompareOptions = { samples: Number(args.get('samples') ?? 30), seed: c.seed, objective, ddBias: Number(args.get('dd-bias') ?? 0), points }
   if (!Number.isInteger(options.samples) || options.samples < 1) throw new Error('--samples must be a number of layouts')
   if (!Number.isFinite(options.ddBias) || options.ddBias < 0) throw new Error('--dd-bias is a number of tricks, 0 or more')
@@ -223,7 +223,7 @@ async function compare(args: Map<string, string>) {
   if (!args.has('analyse')) seconds = await runStudy('TKB vs sampled DD', c, store, 1, (boards) => ({ kind: 'compare', seed: c.seed, boards, system: c.system, options }))
   const records: CompareRecord[] = []
   for await (const record of store.records()) if (covers(c, record.board)) records.push(record)
-  const report = compareReport(compareStudy(records, objective), `${c.system}，${c.seed} ${span(c)}，${points === 'lead' ? '只看首攻' : '每一張牌'}${seconds ? `，${clock(seconds)}` : ''}`, objective)
+  const report = compareReport(compareStudy(records, objective), `${c.system}，${c.seed} ${span(c)}，${points === 'lead' ? '只看首攻' : points === 'defence' ? '只看首攻之後的防守' : '每一張牌'}${seconds ? `，${clock(seconds)}` : ''}`, objective)
   const file = args.get('report') ?? resolve(DATA_DIR, `${name}.md`)
   writeFileSync(file, report)
   console.log(report)

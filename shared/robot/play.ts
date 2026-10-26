@@ -1,9 +1,9 @@
 import { isBid, strainOf } from '../auction.ts'
-import { nextSeat, partnerOf, rankOf, rankValue, sameSide, SEATS, SUITS, suitOf, type Card, type Seat, type Suit } from '../cards.ts'
+import { nextSeat, partnerOf, rankOf, rankValue, RANKS, sameSide, SEATS, SUITS, suitOf, type Card, type Seat, type Suit } from '../cards.ts'
 import { legalCards, remainingCards, tricksOf, type BoardState, type PlayedCard } from '../game.ts'
 import type { RobotKind } from '../protocol.ts'
 import { declarerLead, exitLead, holdUp } from './declarer.ts'
-import { coverLastHonour, defenceLead, dummyOverruffs, holdUpAgainstDummy, secondHand, thirdHand } from './defence.ts'
+import { cashOut, coverLastHonour, defenceLead, dummyOverruffs, holdUpAgainstDummy, raceSuit, secondHand, thirdHand } from './defence.ts'
 import { suitCards } from './hand.ts'
 import { clubLeadCard, sequenceLead } from './lead-card.ts'
 import { byRank, honours, value, View } from './view.ts'
@@ -124,9 +124,13 @@ function lead(state: BoardState, seat: Seat, view: View, legal: Card[], trump: S
     const exit = exitLead(view, hand, trump, ruffed, (s) => opponents.some((o) => view.reading.bid(o, s)))
     if (exit) return exit
   } else {
-    // Cash winners while they last (holding them back for later costs more than it saves)
+    // Cash winners while they last (holding them back for later costs more than it saves); in
+    // notrump not while the opening lead's suit is still being set up, unless they defeat the
+    // contract: a side winner is the entry to the long suit (defence.ts)
+    const race = raceSuit(view, hand, trump)
     for (const s of nonTrump) {
       const top = suitCards(hand, s)[0]
+      if (race && s !== race && !cashOut(view, s, trump)) continue
       if (view.isMaster(top) && state.play.length >= 4 && !ruffed(s)) return top
     }
     // Lead the suit partner asked for with a discard
@@ -323,7 +327,7 @@ function winningCard(trick: { seat: Seat; card: Card }[], trump: Suit | null) {
 }
 
 /** The highest card below the jack, so a signal never wastes an honour */
-const highSpot = (cards: Card[]) => [...cards].sort(byRank).filter((c) => value(c) < 11).at(-1) ?? [...cards].sort(byRank)[0]
+const highSpotOf = (cards: Card[]) => [...cards].sort(byRank).filter((c) => value(c) < 11).at(-1) ?? [...cards].sort(byRank)[0]
 
 /**
  * Following suit without trying to win, as the club signals:
@@ -335,6 +339,17 @@ const highSpot = (cards: Card[]) => [...cards].sort(byRank).filter((c) => value(
 function signalFollow(state: BoardState, seat: Seat, trick: PlayedCard[], cards: Card[], trump: Suit | null): Card {
   const low = [...cards].sort(byRank)[0]
   if (cards.length === 1) return low
+  // A high signal from cards that cannot take a trick (ours below outnumber the cards out above):
+  // T976 after the QJ are gone signals with the 7, the T and 9 may still win once the AK fall; with
+  // fewer than two such cards (T93, the honours gone), the next card up from the lowest
+  const played = new Set(state.play.map((p) => p.card))
+  const couldWin = (c: Card) => {
+    const above = [...RANKS.slice(0, RANKS.indexOf(rankOf(c)))].map((r) => suitOf(c) + r).filter((h) => !played.has(h) && !cards.includes(h)).length
+    return above <= cards.filter((d) => value(d) < value(c)).length
+  }
+  const spare = cards.filter((c) => !couldWin(c))
+  const sorted = [...cards].sort(byRank)
+  const highSpot = (all: Card[]) => (spare.length >= 2 ? highSpotOf(spare) : couldWin(highSpotOf(all)) && value(sorted[1]) < 11 ? sorted[1] : highSpotOf(all))
   const leader = trick[0]
   const led = suitOf(leader.card)
   const hand = remainingCards(state, seat)
