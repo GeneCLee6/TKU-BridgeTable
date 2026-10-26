@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { Call } from '../../shared/auction.ts'
-import { hcp, sideOf } from '../../shared/cards.ts'
+import { hcp, SEATS, sideOf, type Hands } from '../../shared/cards.ts'
 import { parseClientMessage } from '../../shared/message-guard.ts'
 import { secureRandomInt } from '../../shared/board.ts'
 import { DEAL_PRESETS } from '../../shared/deal-presets.ts'
@@ -9,6 +9,9 @@ import { meetsConditions } from '../../shared/dealer.ts'
 import { parsePracticeSettings, practiceBoardNo, quickRandom } from '../../shared/practice.ts'
 import { practiceBoard } from '../../worker/modes.ts'
 import type { BoardRecord, ClientMessage, ServerMessage, TableView } from '../../shared/protocol.ts'
+import { robotAuction } from '../../shared/challenge-deals.ts'
+import type { BoardState } from '../../shared/game.ts'
+import { ruleBrain, type RobotBrain } from '../../shared/robot/brain.ts'
 import { ClubService, type Connections, type ScheduleKind } from '../../worker/service.ts'
 import type { MemoryStore } from '../../worker/store.ts'
 import { memoryStore } from './sqlite.ts'
@@ -477,5 +480,78 @@ describe('bidding practice, one member bidding for several seats (e10-t15)', () 
     const cat = await member('cat')
     await practice(cat)
     expect((await refused(cat, { type: 'rebid' }))?.code).toBe('biddingOnlyRebid')
+  })
+
+  it('reviews the auction only once it is over: TKB at every step, and four TKB bidding the board (e10-t07)', async () => {
+    const amy = await member('amy')
+    await practice(amy, { biddingOnly: true, seats: ['S', 'N'], robotKind: 'gib' })
+    // Nothing while the board is being bid
+    await runRobots()
+    expect(view(amy)!.practice!.review).toBeUndefined()
+    await send(amy, { type: 'call', call: '1C', seat: view(amy)!.board!.turn! })
+    for (let n = 0; n < 60 && view(amy)!.board!.phase === 'auction'; n++) {
+      // The robots' turns are run one at a time, so the review job (also a robot job) waits for the end
+      const index = queue.findIndex((job) => job.kind === 'robot')
+      if (index >= 0) {
+        queue.splice(index, 1)[0].run()
+        await tick()
+      } else await send(amy, { type: 'call', call: 'P', seat: view(amy)!.board!.turn! })
+      if (view(amy)!.board!.phase === 'auction') expect(view(amy)!.practice!.review).toBeUndefined()
+    }
+    const board = view(amy)!.board!
+    expect(board.phase).toBe('finished')
+    // Worked out in jobs of their own after the call that ended the auction: the steps first, then TKB's auction
+    expect(view(amy)!.practice!.review).toBeUndefined()
+    queue.splice(queue.findIndex((job) => job.kind === 'robot'), 1)[0].run()
+    await tick()
+    expect(view(amy)!.practice!.review?.steps).toHaveLength(board.auction.length)
+    expect(view(amy)!.practice!.review?.robot).toBeUndefined()
+    await runRobots()
+    const review = view(amy)!.practice!.review!
+    // Where a robot made the call, TKB at that step is that same robot: the same call
+    board.auction.forEach((call, i) => {
+      if (call.robot) expect(review.steps![i].call, `${i} ${call.seat}`).toBe(call.call)
+    })
+    // The first call was North's 1♣; TKB holding North's hand would have opened as it opens
+    const tkb = robotAuction('gib', board.boardNo, board.hands as Hands)
+    expect(review.robot!.auction.map((c) => c.call)).toEqual(tkb.auction.map((c) => c.call))
+    expect(review.robot!.contract).toEqual(tkb.contract)
+    expect(review.robot!.auction.every((c) => c.robot)).toBe(true)
+    expect(review.steps![0].call).toBe(tkb.auction[0].call)
+    expect(queue.some((job) => job.kind === 'robot')).toBe(false)
+
+    // Bid again: the review goes with the auction
+    await send(amy, { type: 'rebid' })
+    expect(view(amy)!.practice!.review).toBeUndefined()
+  })
+
+  it('asks the robot about each step with only the hand of the seat it bids for', async () => {
+    const asked: BoardState[] = []
+    let reviewing = false
+    const spy: RobotBrain = {
+      bid: (kind, state, seat) => {
+        if (reviewing) asked.push(state)
+        return ruleBrain.bid(kind, state, seat)
+      },
+      play: ruleBrain.play,
+      acceptsClaim: ruleBrain.acceptsClaim,
+    }
+    club = new ClubService(store, connections, { maxUsers: 40, now: () => time, brain: spy, schedule: (run, ms, kind) => queue.push({ run, ms, kind }) })
+    await club.load()
+    const amy = await member('amy')
+    await practice(amy, { biddingOnly: true, seats: ['S', 'N', 'E', 'W'] })
+    for (let i = 0; i < 4; i++) await send(amy, { type: 'call', call: i === 0 ? '1S' : 'P', seat: view(amy)!.board!.turn! })
+    expect(view(amy)!.board!.phase).toBe('finished')
+    reviewing = true
+    await runRobots()
+    const review = view(amy)!.practice!.review!
+    expect(review.steps).toHaveLength(4)
+    expect(review.robot!.auction.length).toBeGreaterThanOrEqual(4)
+    expect(asked).toHaveLength(4 + review.robot!.auction.length)
+    for (const state of asked) {
+      const turn = SEATS[(SEATS.indexOf(state.dealer) + state.auction.length) % 4]
+      for (const seat of SEATS) expect(state.hands[seat], `${seat} asked for ${turn}`).toHaveLength(seat === turn ? 13 : 0)
+      expect(state.phase).toBe('auction')
+    }
   })
 })
