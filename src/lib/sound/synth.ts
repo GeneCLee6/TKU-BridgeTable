@@ -291,6 +291,11 @@ function tableVoices(b: ReturnType<typeof blocks>): Voices {
       marimba(at + 0.32, 587, 0.3 * k)
       marimba(at + 0.52, 784, 0.34 * k)
     },
+    invite(at, k) {
+      marimba(at, 659, 0.34 * k)
+      marimba(at + 0.14, 880, 0.34 * k)
+      marimba(at + 0.28, 1047, 0.3 * k)
+    },
   }
 }
 
@@ -355,6 +360,11 @@ function digitalVoices(b: ReturnType<typeof blocks>): Voices {
       chime(at + 0.16, 659, 0.24 * k)
       chime(at + 0.32, 587, 0.24 * k)
       chime(at + 0.52, 784, 0.28 * k, 0.35)
+    },
+    invite(at, k) {
+      chime(at, 988, 0.26 * k)
+      chime(at + 0.14, 1319, 0.26 * k)
+      chime(at + 0.28, 1568, 0.22 * k, 0.3)
     },
   }
 }

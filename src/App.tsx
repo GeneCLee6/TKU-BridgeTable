@@ -23,6 +23,7 @@ import { ProfilePage } from './pages/ProfilePage.tsx'
 import { TablePage } from './pages/TablePage.tsx'
 import { AuthProvider, useAuth } from './state/AuthContext.tsx'
 import { ClubProvider, useClub } from './state/ClubContext.tsx'
+import { InvitationsProvider } from './state/InvitationsContext.tsx'
 import { PreferencesProvider, usePreferences } from './state/PreferencesContext.tsx'
 import { GlobalStyle } from './styles/GlobalStyle.ts'
 
@@ -104,8 +105,10 @@ export function App() {
       <ToastProvider>
         <AuthProvider>
           <ClubProvider>
-            <AppHeader />
-            <Routed />
+            <InvitationsProvider>
+              <AppHeader />
+              <Routed />
+            </InvitationsProvider>
           </ClubProvider>
         </AuthProvider>
       </ToastProvider>
