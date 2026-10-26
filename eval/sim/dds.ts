@@ -1,4 +1,5 @@
 import createModule from 'bridge-dds/dist/lib/dds.js'
+import type { Vulnerability } from '../../shared/board.ts'
 import { RANKS, rankOf, rankValue, SEATS, SUITS, suitOf, type Card, type Hands, type Seat, type Strain, type Suit } from '../../shared/cards.ts'
 
 /**
@@ -17,6 +18,7 @@ interface DdsModule {
   getValue(pointer: number, type: 'i32'): number
   setValue(pointer: number, value: number, type: 'i32'): void
   stringToUTF8(text: string, pointer: number, maxBytes: number): void
+  UTF8ToString(pointer: number, maxBytes: number): string
 }
 
 /** Strains as DDS numbers them: the first index of a DD table and `trump` of a position */
@@ -62,6 +64,20 @@ const FUTURE_SIZE = 216
 // struct ddTableDealPBN { char cards[80]; }  struct ddTableResults { int resTable[5][4]; }
 const TABLE_DEAL_SIZE = 80
 const TABLE_RESULT_SIZE = 80
+// struct parResultsDealer { int number; int score; char contracts[10][10]; }
+const PAR_NUMBER = 0
+const PAR_SCORE = 4
+const PAR_CONTRACTS = 8
+const PAR_SIZE = 108
+/** DDS's vulnerability numbers for `DealerPar` */
+const DDS_VUL: Record<Vulnerability, number> = { None: 0, Both: 1, NS: 2, EW: 3 }
+
+/** The par result of a deal (DDS `DealerPar`): North–South's score and the par contracts as DDS writes them */
+export interface Par {
+  /** North–South's par score (negative when East–West make par) */
+  ns: number
+  contracts: string[]
+}
 
 /** A hand in PBN: ♠ ♥ ♦ ♣ high to low, dots between suits ('AKQ.JT9.876.5432') */
 export function pbnHand(cards: readonly Card[]): string {
@@ -108,6 +124,28 @@ export class Solver {
     } finally {
       m._free(deal)
       m._free(result)
+    }
+  }
+
+  /**
+   * The par of a deal from its DD table (DDS `DealerPar`: both sides bid their best double dummy,
+   * the dealer first, so a sacrifice that costs less than the opponents' contract is par).
+   */
+  par(table: DdTable, dealer: Seat, vul: Vulnerability): Par {
+    const m = this.module
+    const results = m._malloc(TABLE_RESULT_SIZE)
+    const par = m._malloc(PAR_SIZE)
+    try {
+      DDS_STRAINS.forEach((strain, s) => SEATS.forEach((seat, h) => m.setValue(results + (s * 4 + h) * 4, table[strain][seat], 'i32')))
+      const code = m.ccall('DealerPar', 'number', ['number', 'number', 'number', 'number'], [results, par, SEATS.indexOf(dealer), DDS_VUL[vul]])
+      if (code !== 1) throw new Error(`DDS DealerPar failed: ${code}`)
+      const contracts: string[] = []
+      for (let i = 0; i < m.getValue(par + PAR_NUMBER, 'i32'); i++) contracts.push(m.UTF8ToString(par + PAR_CONTRACTS + i * 10, 10))
+      // DDS gives North–South's score whoever deals (checked in tests/eval/compete.test.ts)
+      return { ns: m.getValue(par + PAR_SCORE, 'i32'), contracts }
+    } finally {
+      m._free(results)
+      m._free(par)
     }
   }
 
