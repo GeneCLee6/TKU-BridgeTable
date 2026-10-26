@@ -23,6 +23,8 @@ export interface PublicUser {
    * Records from when robots had levels may still carry a `robotLevel`, which nothing reads
    */
   robotKind?: RobotKind
+  /** The version of the member's uploaded picture (e1-t34, `avatarUrl`); none means the default avatar */
+  avatar?: number
 }
 
 /**

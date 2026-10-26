@@ -87,6 +87,11 @@ export const api = {
   /** Replaces the member's own profile (AC-1.5); empty fields clear it */
   setProfile: (profile: Profile) =>
     request<{ user: Me }>('/api/account/profile', { method: 'PATCH', body: JSON.stringify(profile) }),
+  /** The member's own picture (e1-t34), already cropped and shrunk (`src/lib/avatarImage.ts`) */
+  uploadAvatar: (picture: Blob) =>
+    request<{ user: Me }>('/api/account/avatar', { method: 'PUT', body: picture, headers: { 'Content-Type': picture.type } }),
+  /** Back to the default avatar */
+  removeAvatar: () => request<{ user: Me }>('/api/account/avatar', { method: 'DELETE' }),
   /** Another member's profile card with their latest boards the viewer may see */
   member: (id: string) => request<{ member: MemberProfile }>(`/api/members/${encodeURIComponent(id)}`),
   /** One page of the conversation with another member, oldest first; `before` pages back (AC-1.7) */
