@@ -1,6 +1,6 @@
 import type { HistoryQuery } from '../shared/history-query.ts'
-import { summarize, type BoardRecord, type BoardSummary, type HistoryPage } from '../shared/protocol.ts'
-import { INDEX_COLUMNS, INDEX_SCHEMA, indexRow, searchStatements, shownPage, type PlayerRow, type Statement } from './history-index.ts'
+import { summarize, type BoardRecord, type BoardSummary, type HistoryDay, type HistoryPage } from '../shared/protocol.ts'
+import { dayRows, dayStatement, INDEX_COLUMNS, INDEX_SCHEMA, indexRow, searchStatements, shownPage, type PlayerRow, type Statement } from './history-index.ts'
 import type { LogEntry } from './log.ts'
 import type { Scheduler } from './scheduler.ts'
 import type { SqlValue, Store } from './store.ts'
@@ -99,6 +99,29 @@ export function replicaWrites(records: BoardRecord[], gone: string[]): Statement
 }
 
 /**
+ * Runs some reads on the copy in one round trip, or gives null when the copy is not complete
+ * (being filled, switched off and back on, or never filled yet)
+ */
+async function readyBatch(db: ReplicaDb, statements: Statement[]): Promise<Record<string, SqlValue>[][] | null> {
+  let answers: Record<string, SqlValue>[][]
+  try {
+    answers = await db.batch([{ sql: "SELECT value FROM index_meta WHERE key = 'ready'", params: [] }, ...statements])
+  } catch (error) {
+    // Never filled yet (a new database): not complete, like one being filled
+    if (error instanceof Error && /no such table/i.test(error.message)) return null
+    throw error
+  }
+  const [ready, ...rest] = answers
+  return ready[0]?.value === '1' ? rest : null
+}
+
+/** How many boards a search finds per Taiwan date, from the copy (`dayStatement`), or null when it is not complete */
+export async function daysReplica(db: ReplicaDb, query: HistoryQuery, viewer: string, now: number): Promise<HistoryDay[] | null> {
+  const answers = await readyBatch(db, [dayStatement(query, viewer, now)])
+  return answers && dayRows(answers[0])
+}
+
+/**
  * One page of a history search from the copy, as the club answers it (`ClubService.search`), or
  * null when the copy is not complete (being filled, or switched off and back on): the caller then
  * asks the club. One round trip, two when the page asked for is past the end
@@ -111,20 +134,9 @@ export async function searchReplica(db: ReplicaDb, query: HistoryQuery, viewer: 
     false,
     'b.board_id, (SELECT s.summary FROM board_summaries s WHERE s.board_id = b.board_id) AS summary',
   )
-  let answers: Record<string, SqlValue>[][]
-  try {
-    answers = await db.batch([
-      { sql: "SELECT value FROM index_meta WHERE key = 'ready'", params: [] },
-      statements.count,
-      statements.page(query.page),
-    ])
-  } catch (error) {
-    // Never filled yet (a new database): not complete, like one being filled
-    if (error instanceof Error && /no such table/i.test(error.message)) return null
-    throw error
-  }
-  const [ready, count, rows] = answers
-  if (ready[0]?.value !== '1') return null
+  const answers = await readyBatch(db, [statements.count, statements.page(query.page)])
+  if (!answers) return null
+  const [count, rows] = answers
   const total = Number(count[0].n)
   const page = shownPage(query, total)
   const shown = page === query.page ? rows : (await db.batch([statements.page(page)]))[0]

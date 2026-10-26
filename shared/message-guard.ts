@@ -41,6 +41,7 @@ const GUARDS: Partial<Record<ClientMessage['type'], Guard>> = {
   createPractice: (m) => obj(m.settings) && opt(str)(m.access),
   redeal: () => true,
   rebid: () => true,
+  showHands: (m) => bool(m.show),
   readNotifications: (m) => opt(strings)(m.ids),
   setFriend: (m) => str(m.userId) && bool(m.friend),
   setBlocked: (m) => str(m.userId) && bool(m.blocked),
