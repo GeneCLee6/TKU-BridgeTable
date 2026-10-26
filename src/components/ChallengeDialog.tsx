@@ -9,9 +9,10 @@ import {
   type ChallengeSettings,
   type ChallengeView,
 } from '../../shared/challenge.ts'
-import { ROBOT_KINDS, type PublicUser, type RobotKind } from '../../shared/protocol.ts'
+import { robotKindsFor, type PublicUser, type RobotKind } from '../../shared/protocol.ts'
 import { ApiError, api } from '../lib/api.ts'
 import { formatDateTime } from '../lib/format.ts'
+import { useAuth } from '../state/AuthContext.tsx'
 import { useClub } from '../state/ClubContext.tsx'
 import { usePreferences } from '../state/PreferencesContext.tsx'
 import { Button, Card, ErrorText, Muted } from './ui.tsx'
@@ -22,6 +23,8 @@ import { Button, Card, ErrorText, Muted } from './ui.tsx'
  * picked, and the deals are random, with Best Hand and Just Declare as options (`e7-t10`, `e7-t11`);
  * the server checks it all again (ARCHITECTURE.md §5.5). Opened from a board's record with
  * `fromBoards` it is 「用這副牌挑戰」 (`e7-t22`): those boards, the robots of then, no deal options.
+ * Only a member who may use the club's system (`tkuSystem`) chooses the robots; for anyone else
+ * there is one TKB, the 2/1 one (ROBOT.md §7).
  */
 
 const Backdrop = styled.div`
@@ -202,6 +205,8 @@ export function ChallengeDialog({
 }) {
   const { t, lang, message } = usePreferences()
   const { lobby } = useClub()
+  const { user } = useAuth()
+  const robotKinds = robotKindsFor(user)
   const titleId = useId()
   const listId = useId()
   const input = useRef<HTMLInputElement>(null)
@@ -392,6 +397,7 @@ export function ChallengeDialog({
                 ))}
               </Select>
             </Field>
+            {robotKinds.length > 1 && (
             <Field>
               <label htmlFor={`${listId}-robots`}>{t.challengeRobots}</label>
               <Select
@@ -401,13 +407,14 @@ export function ChallengeDialog({
                 disabled={!!fromBoards}
                 onChange={(e) => setSettings({ ...settings, robotKind: e.target.value as ChallengeSettings['robotKind'] })}
               >
-                {ROBOT_KINDS.map((k) => (
+                {robotKinds.map((k) => (
                   <option key={k} value={k}>
                     {t.robots[k]}
                   </option>
                 ))}
               </Select>
             </Field>
+            )}
             <Field>
               <label htmlFor={`${listId}-days`}>{t.challengeDays}</label>
               <Select

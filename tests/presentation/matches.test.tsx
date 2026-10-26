@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -33,6 +33,8 @@ const mocks = vi.hoisted(() => ({
     matchPlay: vi.fn(),
   },
   me: 'amy',
+  /** The viewer's permissions: TKB in the club's system needs `tkuSystem` (ROBOT.md §7) */
+  permissions: [] as string[],
 }))
 
 vi.mock('../../src/lib/api.ts', async (original) => ({
@@ -54,7 +56,7 @@ vi.mock('../../src/state/ClubContext.tsx', () => ({
   useClub: () => ({ lobby: LOBBY, notifications: null, matchLive: null, status: 'open', table: null, error: null }),
 }))
 vi.mock('../../src/state/AuthContext.tsx', () => ({
-  useAuth: () => ({ user: { id: mocks.me, username: mocks.me, admin: false, permissions: [] } }),
+  useAuth: () => ({ user: { id: mocks.me, username: mocks.me, admin: false, permissions: mocks.permissions } }),
 }))
 
 /** A match amy hosts from the open room's South; ben is invited to the closed room's North */
@@ -168,6 +170,19 @@ describe('MatchPage (e8-t06)', () => {
     await userEvent.selectOptions(screen.getByLabelText('邀請方式'), 'captains')
     await userEvent.click(screen.getByRole('button', { name: '儲存' }))
     expect(mocks.api.matchSettings).toHaveBeenCalledWith('m1', expect.objectContaining({ boards: 12, invite: 'captains' }))
+  })
+
+  it('lets only a host with tkuSystem choose the robots’ system (ROBOT.md §7)', async () => {
+    mocks.api.match.mockResolvedValue({ match: prepRoom() })
+    show('/matches/m1')
+    await screen.findByLabelText('副數')
+    expect(screen.queryByLabelText('機器人的制度')).toBeNull()
+    cleanup()
+    mocks.permissions = ['tkuSystem']
+    show('/matches/m1')
+    const kind = await screen.findByLabelText('機器人的制度')
+    expect([...kind.querySelectorAll('option')].map((o) => o.value)).toEqual(['tku', 'gib'])
+    mocks.permissions = []
   })
 })
 

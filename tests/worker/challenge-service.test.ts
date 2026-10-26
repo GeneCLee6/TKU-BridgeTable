@@ -110,6 +110,12 @@ describe('creating a challenge (e7-t05)', () => {
 
   it('takes the boards and the settings the creator chose', async () => {
     const [amy, ben, cat] = await friends('amy', 'ben', 'cat')
+    // TKB in the club's system is only for members given `tkuSystem` (ROBOT.md §7)
+    const settings = { scoring: 'crossImp', robotKind: 'tku', bestHand: true, justDeclare: true, days: 7, ranking: 'club' } as const
+    await send(amy, { type: 'createChallenge', invitees: [ben, cat], boards: 12, settings })
+    expect(error(amy)?.code).toBe('tkuSystemOnly')
+    expect(club.challengeList(amy)).toEqual([])
+    await club.adminSetPermissions(amy, ['tkuSystem'])
     const c = await create(amy, [ben, cat], {
       boards: 12,
       settings: { scoring: 'crossImp', robotKind: 'tku', bestHand: true, justDeclare: true, days: 7, ranking: 'club' },

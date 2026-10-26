@@ -369,7 +369,7 @@ interface BoardState {
 
 ## 5.11 練習桌與叫牌提示卡（`e10-t03`～`e10-t06`）
 
-- **開桌**：大廳的「和機器人練習」卡片或工具列的「練習」→ `PracticeDialog` → `createPractice { settings, access? }`（`access` 是誰可以觀看，四種進入方式之一，預設隱藏；不認得回 `badTableSettings`）。設定（`shared/practice.ts` 的 `PracticeSettings`，伺服器用 `parsePracticeSettings` 檢查，錯了丟 `badPracticeSettings { field }`）：`deal`（`random` 隨機、`deal-presets.ts` 的五種預設、或 `custom` 帶 `conditions`：任一家的點力、各門張數、平均牌型與一方的合計點力，`conditionsProblem` 不過就拒絕）、`robotKind`（TKB 淡江制度或 2/1；機器人沒有等級，社長 2026-10-24 決定）、`justDeclare`。條件在 `PRACTICE_MAX_ATTEMPTS`（5,000 次）內抽不到時回 `dealTooStrict`，在離開原本的牌桌**之前**就回。
+- **開桌**：大廳的「和機器人練習」卡片或工具列的「練習」→ `PracticeDialog` → `createPractice { settings, access? }`（`access` 是誰可以觀看，四種進入方式之一，預設隱藏；不認得回 `badTableSettings`）。設定（`shared/practice.ts` 的 `PracticeSettings`，伺服器用 `parsePracticeSettings` 檢查，錯了丟 `badPracticeSettings { field }`）：`deal`（`random` 隨機、`deal-presets.ts` 的五種預設、或 `custom` 帶 `conditions`：任一家的點力、各門張數、平均牌型與一方的合計點力，`conditionsProblem` 不過就拒絕）、`robotKind`（TKB 淡江制度或 2/1，淡江制度要 `tkuSystem`，沒寫就是開桌者的預設，§5.1.2；機器人沒有等級，社長 2026-10-24 決定）、`justDeclare`。條件在 `PRACTICE_MAX_ATTEMPTS`（5,000 次）內抽不到時回 `dealTooStrict`，在離開原本的牌桌**之前**就回。
 - **牌桌**：`mode: 'practice'`，`modeState` 是 `PracticeTableState`（設定加上 `dealt` 已發幾副）。社員坐南，北東西是三個同制度的 TKB；座位、機器人、練習條件都不能改，別人也不能入座（`shared/protocol.ts` 的 `fixedSeats`；`sit` 回 `practiceTableFixed`，看不到這一桌的人回 `tableGone`）。開桌時從大廳的號碼裡拿一個桌號（列在大廳時要有號碼；紀錄仍記桌號 0）。社員離開（離開牌桌頁）桌子就關掉，觀看的人跟著離開；社員斷線時房主不交給觀看者。大廳的 `myTableMode` 讓「回到練習桌」的橫幅認得出來（只給坐著的社員）。
 - **誰可以觀看**（四種進入方式，§5「牌桌設定」）：練習桌也用 `access`，只是「加入」只有觀看。**預設隱藏**：練習是自己的事，不該一開就出現在大廳讓人圍觀；想讓教練或朋友看就從牌桌的設定按鈕（只問進入方式與邀請名單，`TableSettingsDialog` 的 `practice`）邀請他們，或改成公開、申請加入。`updateTableSettings` 在練習桌只接受 `access`（與 `invitees`），帶 `allowKibitz`、`boardMinutes` 回 `practiceTableFixed`；`allowKibitz` 固定允許、不限時。觀看者看到的跟一般牌桌的觀看者一樣（四家，§4），不能叫牌、出牌、重發；大廳卡片標「練習桌」（`TableSummary.practice`）。
 - **發牌**（`worker/modes.ts` 的 `practice`）：有條件時每副都由南家發牌（牌號 3、7、11、15…，局況輪流），隨機時照一般牌桌輪流。條件發牌用 `quickRandom`（每副用 CSPRNG 取一次種子的 mulberry32）：CSPRNG 每次嘗試約 1 ms，條件發牌要很多次嘗試，免費方案的 CPU 不夠；快速版每次約 10 µs，最難的滿貫牌平均約 350 次。
@@ -526,7 +526,7 @@ PRD 的 `ready` **不存**：能不能開始由座位與「誰在線」算出（
 | `scoring` | `imp`／`bam` | `imp` |
 | `boardMinutes` | 0（不限）或 3–30 分鐘 | 10（PRD；下限 3、上限 30） |
 | `robots` | 是否允許機器人補位；關掉時已經坐著的機器人離座 | `true` |
-| `robotKind` | `tku`／`gib`：整場所有機器人用同一種制度，兩室面對同一個機器人 | `gib`（同挑戰） |
+| `robotKind` | `tku`／`gib`：整場所有機器人用同一種制度，兩室面對同一個機器人；`tku` 要房主有 `tkuSystem`（§5.1.2） | `gib`（同挑戰） |
 | `invite` | `direct`（房主邀請到指定座位）／`captains`（隊長制） | `direct` |
 
 PRD 寫的「機器人等級」不做：機器人只有一個 TKB、沒有等級（CLAUDE.md 規則 6），送 `robotLevel` 會被當成不認得的欄位拒絕。
@@ -680,7 +680,7 @@ C4 的實作（2026-10-24）：
 - **Just Declare**（`justDeclare`）：四個 TKB（設定裡的制度）先叫牌（`robotAuction`），南北當莊才留下，否則重發（每副最多 60 次，`JUST_DECLARE_TRIES`；做不到回 `serverError`，實際上不會發生）；可以和 Best Hand 一起用。叫牌存在牌組裡（`DealSetBoard.auction`，`encodeDealSet` 在那一行後面加 ` | 1C P 1H …`，載入時檢查要合法、要有合約），不靠「機器人每次都叫一樣」，部署新版機器人也不會讓莊家換邊。發牌時（`modes.ts` 的 `deal`）照存下的叫品重演一次（每個叫品都標機器人；機器人現在還是叫這個時帶上它的說明），桌子直接進入打牌；北當莊時照常由 `swapForDeclarer` 讓真人坐到北主打。首攻由莊家左手的機器人出，參與者從首攻之後開始。
 - **每副都坐南**：發下一副前，替機器人當莊而換過座位的真人先換回自己的位子（`unswap`，#74），所以挑戰的參與者每副都從南開始；Just Declare 的叫牌重演完才照新合約換座位。
 - **一鍵再戰**（`rematchChallenge { challengeId }`，HTTP `POST /api/challenges/:id/rematch`）：挑戰結束後（`finished`／`expired`／`cancelled`；還開著回 `challengeNotOver`），接受過的參與者（不是參與者 `challengeGone`、沒接受 `challengeNotAccepted`）邀請其他沒拒絕、帳號還在的人（沒人 `rematchNobody`），同樣的設定與副數、新牌組；走 `createChallenge` 的同一套檢查，所以他要關注每一位（`notFriend`），發起者是按再戰的人。人數變了、原本的計分不適用時用預設。副數照原本的（最少 1 副，2026-10-25 起；之前「已知牌」的挑戰副數不到 4 時再戰用 4 副）。
-- **用這副牌挑戰**（`createChallenge` 加 `fromBoards: string[]`，1–16 副不重複的紀錄 id；不能同時給 `boards`）：每副都要是他打的（不是就 `boardGone`，不透露存在）、已經公開（`revealAt` 沒過的挑戰牌局也是 `boardGone`）、另外三家都是機器人（`challengeRobotsOnly`）、而且是同一種制度（`challengeRobotKinds`）。設定的機器人制度鎖成那一種（送了別的回 `badChallengeSettings { field: 'robotKind' }`），Best Hand、Just Declare 不能開（`badChallengeSettings`）。他叫牌的座位（替機器人當莊而換過座位的，看叫品裡沒標機器人的那一家）轉成南（`boardAsSouth`）：發牌者與身價跟著轉，牌號換成 16 副循環裡同樣發牌者與身價的那一號（坐南就是原牌號；`boardNoFor`），他的分數換成他那一方的角度（坐東西就變號）。建立時就寫進他的 `challenge_results`（`board_id` 是原本的紀錄、`played_at` 是當時打完的時間）、`known_deals = 1`、`started_at`／`finished_at` 是建立時間（`newChallenge` 的 `known`）。紀錄頁的「用這副牌挑戰」只在他和三個同制度的機器人打、已公開的牌出現（`challengeRobotsOf`），對話框不給選副數、Best Hand、Just Declare，機器人鎖住；排名上他的名字後面標「已知牌」。
+- **用這副牌挑戰**（`createChallenge` 加 `fromBoards: string[]`，1–16 副不重複的紀錄 id；不能同時給 `boards`）：每副都要是他打的（不是就 `boardGone`，不透露存在）、已經公開（`revealAt` 沒過的挑戰牌局也是 `boardGone`）、另外三家都是機器人（`challengeRobotsOnly`）、而且是同一種制度（`challengeRobotKinds`）；淡江制度的要有 `tkuSystem`（`tkuSystemOnly`，§5.1.2）。設定的機器人制度鎖成那一種（送了別的回 `badChallengeSettings { field: 'robotKind' }`），Best Hand、Just Declare 不能開（`badChallengeSettings`）。他叫牌的座位（替機器人當莊而換過座位的，看叫品裡沒標機器人的那一家）轉成南（`boardAsSouth`）：發牌者與身價跟著轉，牌號換成 16 副循環裡同樣發牌者與身價的那一號（坐南就是原牌號；`boardNoFor`），他的分數換成他那一方的角度（坐東西就變號）。建立時就寫進他的 `challenge_results`（`board_id` 是原本的紀錄、`played_at` 是當時打完的時間）、`known_deals = 1`、`started_at`／`finished_at` 是建立時間（`newChallenge` 的 `known`）。紀錄頁的「用這副牌挑戰」只在他和三個同制度的機器人打、已公開的牌出現（`challengeRobotsOf`），對話框不給選副數、Best Hand、Just Declare，機器人鎖住；排名上他的名字後面標「已知牌」。
   - 已知的限制：traveller 裡他那一列的合約與莊家照原本紀錄的方位（沒有轉），分數是轉過的。
 
 **每週社團挑戰、分享卡與端對端測試**（C9，`e7-t23`～`e7-t25`，2026-10-25）：
@@ -840,7 +840,7 @@ SQL 由 `worker/history-index.ts` 的 `searchBoards` 組：只有固定的 SQL �
 - **同一批帳號、各自的登入**：橋譜的 `/api/*` 由 Vercel 轉發，`tbt_session` cookie（沒有 Domain 屬性）因此屬於橋譜自己的網域。兩站用同一組帳號密碼，但要各自登入一次。`/ws` 不經過橋譜。
 - **申請與核准**：`ClubService.register` 第一個帳號直接建立（管理員），之後一律存成 `app:<id>`，`adminApprove` 才建立帳號（受人數上限限制）。申請中的名稱不能被別人註冊；用申請時的密碼登入會得到 `awaitingApproval`。
 - **忘記密碼**：`resetForgottenPassword(username, inviteCode, password)`，管理員帳號不行（`adminNoSelfReset`）；重設後登出所有 session 並記下 `passwordResetAt`。
-- **權限**：`StoredUser.permissions`：`bookEdit`（線上編輯）、`bookImport`（匯入檔案）、`boardCurate`（設精選牌局，牌桌用，§5.9）；管理員全部都有，管理頁的「權限」欄逐項勾選。淡江橋譜的 `/api/me` 也會看到 `boardCurate`，橋譜不用它。
+- **權限**：`StoredUser.permissions`：`bookEdit`（線上編輯）、`bookImport`（匯入檔案）、`boardCurate`（設精選牌局，牌桌用，§5.9）、`tkuSystem`（淡江制度機器人，牌桌用，§5.1.2）；管理員全部都有，管理頁的「權限」欄逐項勾選。淡江橋譜的 `/api/me` 也會看到 `boardCurate`、`tkuSystem`，橋譜不用它們。
 - **角色**（使用者決定，2026-10-25；名稱暫時沿用）：**管理員**什麼都能管，包括使用者帳號；**編輯者**（`bookEdit`）能管帳號以外的所有東西。帳號＝申請與核准、新增與刪除帳號、重設密碼、管理員身分、權限、社團設定（人數上限、邀請碼，管的是誰能加入），只限管理員；橋譜的特約（儲存、隱藏、還原、版本）、分類、制度集，以及關閉卡住的牌桌，編輯者都能做。`bookImport`（AI 匯入，花 API 額度）與 `boardCurate` 仍是各自勾選的權限，`bookEdit` 不包含它們。每條路由要什麼寫在 `worker/roles.ts`（`bookRouteNeed`、`adminRouteNeed`；`tests/worker/roles.test.ts` 列出每條路由），`club.ts` 先查表再分派。牌桌管理頁目前仍只給管理員開（編輯者能用 `DELETE /api/admin/tables/:id`，但畫面還沒開給他們）。
 
 **橋譜 API**（`worker/book.ts` 的 `BookService`；不用登入的讀取路由在 `book.ts` 的 `publicBookResponse`，其他在 `club.ts` 的 `bookApi`）：
@@ -887,7 +887,7 @@ SQL 由 `worker/history-index.ts` 的 `searchBoards` 組：只有固定的 SQL �
 
 ## 5.1 機器人
 
-機器人只有一個，叫 **TKB**，用淡江制度或 2/1（GIB 相容）叫牌；**沒有等級**（社長 2026-10-24，`ROBOT.md` §7）。座位裡的 id 若是 `robot:<制度>:<座位>` 這種格式就是機器人：`robot:gib:N` 是用 2/1 的 TKB，`robot:tku:N` 是用淡江制度的 TKB（`shared/protocol.ts` 的 `robotId`、`robotKindOf`）。制度放在 id 裡而不是牌桌狀態，是因為座位對調（`swapForDeclarer`／`unswap`）時 id 跟著機器人走、物件重新載入時跟著牌桌存檔回來、紀錄的玩家（`publicUserById`）也直接從 id 帶出 `robotKind`。**舊的 id 照讀**：`robot:N`（2/1 之前）讀成淡江制度；有等級時的 `robot:<制度>:<等級>:<座位>`（例如 `robot:tku:beginner:E`）只看制度，等級不管。存下來的牌桌設定（`TableSettings.robotLevel`）、挑戰設定（`settings.robotLevel`）與紀錄玩家的 `robotLevel` 載入時忽略（`settingsOf`、`ChallengeStore` 讀設定時丟掉）；新的訊息裡牌桌設定與挑戰設定帶 `robotLevel` 會像其他不認得的欄位一樣被拒絕（`badTableSettings`、`badChallengeSettings`），`addRobot` 多帶的 `level` 則跟其他訊息多帶的欄位一樣不理會。房主放機器人時選制度（`addRobot` 的 `kind`，沒寫就是淡江制度），機器人照自己的種類叫牌（`shared/robot/robots.ts` 的 `robotCall`）；2/1 機器人的叫品除了繁中說明還存著叫品的意義（`AuctionCall.meaning`），瀏覽器依觀看者的語言顯示，規則檔需要時才載入。名牌與紀錄裡的機器人帶 `robotKind`：名牌顯示「TKB」加上制度的小標籤（淡江制度／2/1），紀錄顯示「TKB（2/1）」這樣的名字（`strings.ts` 的 `robotName`、`robotSystems`、`playerName`）。每次狀態改變後，`ClubService.scheduleRobots` 檢查是否輪到機器人（叫牌、出牌，或回應攤牌／撤回），經排程器（§5）排一個短暫延遲（叫牌 0.6 秒、出牌 1.05 秒、一墩結束後 2.3 秒、回答 0.3 秒，配合牌 1 秒的滑動；社長 2026-10-25 要求整體快 1.3 倍）再執行，執行完再排下一個；每張桌子同時最多一個機器人工作。機器人同意撤回；攤牌由對手方的機器人用雙夢家分析判斷（`shared/robot/claim.ts`，見 `ROBOT.md` §3.1）。物件重新載入時也會重新排程。至少要有一位真人在座，機器人才會行動；最後一位真人離開，桌子就關閉。
+機器人只有一個，叫 **TKB**，用淡江制度或 2/1（GIB 相容）叫牌；**沒有等級**（社長 2026-10-24，`ROBOT.md` §7）。座位裡的 id 若是 `robot:<制度>:<座位>` 這種格式就是機器人：`robot:gib:N` 是用 2/1 的 TKB，`robot:tku:N` 是用淡江制度的 TKB（`shared/protocol.ts` 的 `robotId`、`robotKindOf`）。制度放在 id 裡而不是牌桌狀態，是因為座位對調（`swapForDeclarer`／`unswap`）時 id 跟著機器人走、物件重新載入時跟著牌桌存檔回來、紀錄的玩家（`publicUserById`）也直接從 id 帶出 `robotKind`。**舊的 id 照讀**：`robot:N`（2/1 之前）讀成淡江制度；有等級時的 `robot:<制度>:<等級>:<座位>`（例如 `robot:tku:beginner:E`）只看制度，等級不管。存下來的牌桌設定（`TableSettings.robotLevel`）、挑戰設定（`settings.robotLevel`）與紀錄玩家的 `robotLevel` 載入時忽略（`settingsOf`、`ChallengeStore` 讀設定時丟掉）；新的訊息裡牌桌設定與挑戰設定帶 `robotLevel` 會像其他不認得的欄位一樣被拒絕（`badTableSettings`、`badChallengeSettings`），`addRobot` 多帶的 `level` 則跟其他訊息多帶的欄位一樣不理會。房主放機器人時選制度（`addRobot` 的 `kind`，沒寫就看房主：有 `tkuSystem` 是淡江制度，沒有是 2/1；只有有權限的人能選，§5.1.2），機器人照自己的種類叫牌（`shared/robot/robots.ts` 的 `robotCall`）；2/1 機器人的叫品除了繁中說明還存著叫品的意義（`AuctionCall.meaning`），瀏覽器依觀看者的語言顯示，規則檔需要時才載入。名牌與紀錄裡的機器人帶 `robotKind`：名牌顯示「TKB」加上制度的小標籤（淡江制度／2/1），紀錄顯示「TKB（2/1）」這樣的名字（`strings.ts` 的 `robotName`、`robotSystems`、`playerName`）。每次狀態改變後，`ClubService.scheduleRobots` 檢查是否輪到機器人（叫牌、出牌，或回應攤牌／撤回），經排程器（§5）排一個短暫延遲（叫牌 0.6 秒、出牌 1.05 秒、一墩結束後 2.3 秒、回答 0.3 秒，配合牌 1 秒的滑動；社長 2026-10-25 要求整體快 1.3 倍）再執行，執行完再排下一個；每張桌子同時最多一個機器人工作。機器人同意撤回；攤牌由對手方的機器人用雙夢家分析判斷（`shared/robot/claim.ts`，見 `ROBOT.md` §3.1）。物件重新載入時也會重新排程。至少要有一位真人在座，機器人才會行動；最後一位真人離開，桌子就關閉。
 
 **真人不當機器人的夢家**：叫牌結束時若莊家是機器人、夢家是真人，`swapForDeclarer` 把兩人的座位對調（同 BBO），真人坐到莊家的位子主打，機器人帶著它的種類坐到原本的位子當夢家；對調記在 `Table.swapped`。若撤回最後一個 Pass 讓叫牌重新開始，`unswap` 換回來；下一副發牌時清掉記錄（座位維持對調後的樣子）。叫牌與出牌規則見 `ROBOT.md`。
 
@@ -896,6 +896,22 @@ SQL 由 `worker/history-index.ts` 的 `searchBoards` 組：只有固定的 SQL �
 **非同步思考**（`e6-t11`）：大腦的回答可以是 `Promise`（`Answer<T>`）。`runRobot` 問之前先記下局面（`positionOf`：座位、撤回請求、第幾副、階段、叫品數、出牌數、攤牌），等回答時不擋別的訊息（Durable Object 等的不是儲存，其他請求照常進來）；這段時間這張桌子不再排別的機器人工作（`thinking`），排程器同時到期的工作也並排跑（`AlarmQueue.runDue` 用 `Promise.all`），一張桌子的機器人在想不會拖到別桌。回答回來時局面若已經變了（真人出了牌、撤回、有人換座位），這個回答**丟掉**，照新局面重新排程。**思考上限 2 秒**（`THINK_LIMIT_MS`，測試用 `ClubConfig.thinkLimitMs` 縮短）：大腦逾時、丟出錯誤或回傳失敗的 `Promise`，就改問規則機器人 `ruleBrain`，牌桌不會卡住；逾時後才到的回答不理會。預設的大腦就是規則機器人時不設計時器。機器人行動前的節奏仍是上面的延遲。物件被回收時正在想的回答跟著消失，重新載入後照常重新排程。
 
 **確定性**：TKB 沒有亂數，也不刻意失誤，同一個局面一定做同一件事，所以不需要種子（B6 的刻意失誤與 `mistakeSeed` 已依社長 2026-10-24 的決定拿掉）。
+
+### 5.1.2 淡江制度的 TKB 只給有權限的社員（社長 2026-10-26）
+
+淡江制度的機器人（`RobotKind` 的 `tku`）不公開：只有管理員在管理頁勾了 **`tkuSystem`**（「淡江制度機器人」）的社員能用，管理員本來就有。其他人只有一個 TKB、沒有制度可選，就是 2/1（`gib`）的那個。**伺服器檢查**，不只是畫面藏起來：沒有權限卻要 `tku` 一律回 `tkuSystemOnly`（403）。
+
+- **看的是誰設定機器人**：放機器人的房主、建立挑戰或隊制賽的人、開練習桌的人。坐到有權限的房主桌上的其他人照常跟淡江制度的機器人同桌、對打，看得到它的說明（§4 的機器人叫品說明不變）；挑戰的受邀者照打挑戰的制度。
+- **每個選制度的地方**（`ClubService` 的 `mayUseTku`、`defaultKindOf`、`checkRobotKind`；瀏覽器用 `shared/protocol.ts` 的 `robotKindsFor`、`mayUseTkuSystem`）：
+  - 牌桌的 `addRobot`、`replaceWithRobot`：`ClubService.tableAction` 轉給牌桌之前先檢查，沒寫 `kind` 就補上房主的預設（有權限 `tku`，否則 `gib`）。座位選單有權限時有「放 TKB（淡江制度）」「放 TKB（2/1）」兩個，沒有時只有「放 TKB」。
+  - 代打（斷線 3 分鐘，`substituteDue`）：同伴是機器人就用同伴的制度，否則用牌桌的 `Table.robotKind`（開桌時記下房主的預設）。
+  - 練習桌：`parsePracticeSettings(value, 預設)`，沒寫 `robotKind` 就用開桌者的預設；`PracticeDialog` 只在有權限時顯示制度。
+  - 挑戰：`createChallenge` 檢查設定的 `robotKind`（預設本來就是 `gib`）；「用這副牌挑戰」的牌若是跟淡江制度的機器人打的（例如在別人桌上），沒有權限也回 `tkuSystemOnly`，紀錄頁不顯示那個按鈕。一鍵再戰是新的牌，所以沒有權限的人再戰淡江制度的挑戰時改成 2/1，不拒絕。`ChallengeDialog` 只在有權限時顯示「機器人」。
+  - 隊制賽：`TeamMatchService.create` 與 `update` 檢查（`TeamMatchDeps.mayUseTku`）；預設本來就是 `gib`。只有從別的制度**改成** `tku` 才要權限，已經是 `tku` 的比賽改其他設定照常。設定表只在有權限（或比賽已經是淡江制度）時顯示制度。
+  - 每週挑戰：只有管理員設定，管理員有權限，預設照舊是淡江制度。
+- **舊資料照舊**：存下來的牌桌、座位 id、挑戰、隊制賽、紀錄裡的 `tku` 都照讀照打，不改寫；沒有 `Table.robotKind` 的舊牌桌代打照舊用淡江制度。權限被收回時，已經開好的牌桌、挑戰、比賽也照舊，只是不能再新開或改成淡江制度。
+- **不受影響的**：真人叫品的推論意義（§4，同伴不是機器人時用淡江制度讀）與叫牌提示卡（`bookTopics`）是淡江橋譜的公開內容，不是機器人，照舊。
+- **測試**：`tests/worker/tku-system.test.ts`（權限、放機器人、混合的牌桌、代打與舊牌桌、練習桌、隊制賽）、`tests/worker/challenge-service.test.ts`、`challenge-options.test.ts`（挑戰、用這副牌挑戰、再戰）；畫面：`tests/presentation/practice.test.tsx`、`challenges.test.tsx`、`matches.test.tsx`。
 
 ### 5.1.1 決策紀錄：機器人運算放哪裡（`e6-t09`，2026-10-24）
 

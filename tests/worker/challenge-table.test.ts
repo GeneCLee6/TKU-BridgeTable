@@ -107,6 +107,8 @@ async function member(name: string) {
   const result = await club.register(name, 'secret1', '')
   const user =
     'user' in result ? result.user : await club.adminApprove(club.adminApplications().find((a) => a.username === name)!.id)
+  // These challenges are set up with either TKB; the club's needs the permission (ROBOT.md §7)
+  await club.adminSetPermissions(user.id, ['tkuSystem'])
   connections.online.add(user.id)
   club.connected(user.id)
   await tick()

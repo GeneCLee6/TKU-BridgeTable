@@ -9,14 +9,15 @@ import { BookHints } from '../../src/components/BookHints.tsx'
 import { PracticeBanner } from '../../src/components/PracticeBanner.tsx'
 import { PracticeDialog } from '../../src/components/PracticeDialog.tsx'
 import { PreferencesProvider } from '../../src/state/PreferencesContext.tsx'
-import type { BoardView } from '../../shared/protocol.ts'
+import { ROBOT_KINDS, type BoardView } from '../../shared/protocol.ts'
 
 const wrap = (ui: ReactNode) => render(<PreferencesProvider>{ui}</PreferencesProvider>)
 
 describe('PracticeDialog (e10-t04)', () => {
   it('opens with any deal and TKB in the club’s system, and sends a preset with the robots and Just Declare', async () => {
     const onSubmit = vi.fn()
-    wrap(<PracticeDialog onSubmit={onSubmit} onClose={() => {}} />)
+    // A member with `tkuSystem` chooses the robots' system (ROBOT.md §7)
+    wrap(<PracticeDialog onSubmit={onSubmit} onClose={() => {}} robotKinds={ROBOT_KINDS} />)
     const dialog = screen.getByRole('dialog', { name: '和機器人練習' })
     expect(within(dialog).getByRole('radio', { name: /隨機/ })).toBeChecked()
     expect(within(dialog).getByRole('radio', { name: 'TKB（淡江制度）' })).toBeChecked()
@@ -31,9 +32,18 @@ describe('PracticeDialog (e10-t04)', () => {
     expect(onSubmit).toHaveBeenCalledWith({ deal: 'oneNotrump', robotKind: 'gib', justDeclare: true }, 'request')
   })
 
+  it('has no choice of robots for a member without tkuSystem: one TKB, the 2/1 one (ROBOT.md §7)', async () => {
+    const onSubmit = vi.fn()
+    wrap(<PracticeDialog onSubmit={onSubmit} onClose={() => {}} robotKinds={['gib']} />)
+    expect(screen.queryByRole('group', { name: '機器人' })).toBeNull()
+    expect(screen.queryByRole('radio', { name: /TKB/ })).toBeNull()
+    await userEvent.click(screen.getByRole('button', { name: '開始練習' }))
+    expect(onSubmit).toHaveBeenCalledWith({ deal: 'random', robotKind: 'gib', justDeclare: false }, 'hidden')
+  })
+
   it('sends only the conditions the member narrowed', async () => {
     const onSubmit = vi.fn()
-    wrap(<PracticeDialog onSubmit={onSubmit} onClose={() => {}} />)
+    wrap(<PracticeDialog onSubmit={onSubmit} onClose={() => {}} robotKinds={ROBOT_KINDS} />)
     await userEvent.click(screen.getByRole('radio', { name: /自訂條件/ }))
     const southTo = screen.getAllByRole('spinbutton', { name: '點力 最多' })[0]
     await userEvent.clear(southTo)

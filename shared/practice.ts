@@ -25,7 +25,8 @@ export interface PracticeSettings {
   justDeclare: boolean
 }
 
-export const DEFAULT_PRACTICE_SETTINGS: PracticeSettings = { deal: 'random', robotKind: 'tku', justDeclare: false }
+/** A new practice table's settings; the dialog starts the robots in the member's system (`defaultRobotKind`) */
+export const DEFAULT_PRACTICE_SETTINGS: PracticeSettings = { deal: 'random', robotKind: 'gib', justDeclare: false }
 
 /**
  * How many tries a practice deal gets (`dealer.ts` attempts), so a deal never takes long on the
@@ -127,12 +128,18 @@ export function parseConditions(value: unknown): DealConditions | null {
   return conditionsProblem(conditions) === null ? conditions : null
 }
 
-/** The settings of a new practice table, or the field that is wrong */
-export function parsePracticeSettings(value: unknown): { settings: PracticeSettings } | { field: string } {
+/**
+ * The settings of a new practice table, or the field that is wrong; `robotKind` defaults to `kind`
+ * (the member's, `defaultRobotKind`: the club's system only with `tkuSystem`)
+ */
+export function parsePracticeSettings(
+  value: unknown,
+  kind: RobotKind = 'gib',
+): { settings: PracticeSettings } | { field: string } {
   if (!isObject(value) || !onlyKeys(value, ['deal', 'conditions', 'robotKind', 'justDeclare'])) return { field: 'settings' }
   const deal = value.deal ?? 'random'
   if (!PRACTICE_DEALS.includes(deal as PracticeDeal)) return { field: 'deal' }
-  const robotKind = value.robotKind ?? 'tku'
+  const robotKind = value.robotKind ?? kind
   if (!isRobotKind(robotKind)) return { field: 'robotKind' }
   const justDeclare = value.justDeclare ?? false
   if (typeof justDeclare !== 'boolean') return { field: 'justDeclare' }

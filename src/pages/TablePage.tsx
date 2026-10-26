@@ -8,6 +8,7 @@ import { nextSeat, partnerOf, SEATS, sideOf, suitOf, type Card, type Seat, type 
 import type { Trick } from '../../shared/game.ts'
 import {
   DEAL_COUNTDOWN_MS,
+  robotKindsFor,
   SLOW_TURN_MS,
   takesInvitees,
   type BoardView,
@@ -779,9 +780,13 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
     // A free seat (or a robot's) can be taken; someone already seated moves only between boards
     if ((!occupant || (occupant.robot && !me)) && (!me || between))
       actions.push({ label: t.takeSeat(seatLetter[seat]), onSelect: () => send({ type: 'sit', tableId: table.id, seat }) })
-    // The host seats TKB in the club's system or in 2/1 (GIB-compatible)
-    if (iAmHost && !occupant)
-      for (const kind of ['tku', 'gib'] as const) actions.push({ label: t.addRobots[kind], onSelect: () => send({ type: 'addRobot', seat, kind }) })
+    // The host seats TKB in the club's system or in 2/1 (GIB-compatible); a host without
+    // `tkuSystem` has one TKB, the 2/1 one, and no choice (ROBOT.md §7)
+    if (iAmHost && !occupant) {
+      const kinds = robotKindsFor(user)
+      for (const kind of kinds)
+        actions.push({ label: kinds.length > 1 ? t.addRobots[kind] : t.addRobot, onSelect: () => send({ type: 'addRobot', seat, kind }) })
+    }
     if (iAmHost && occupant?.robot)
       actions.push({ label: t.removeRobot, onSelect: () => send({ type: 'removeRobot', seat }), tone: 'danger' })
     if (iAmHost && occupant && !occupant.robot && occupant.id !== user?.id && slowSeat === seat)

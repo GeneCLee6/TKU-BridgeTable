@@ -726,9 +726,13 @@ export class TableService implements TableApi {
     await this.save()
   }
 
-  /** Seats TKB: in the club's system unless the host chose 2/1 */
-  private async addRobot(userId: string, seat: unknown, kind: unknown = 'tku') {
+  /**
+   * Seats TKB in the system the host chose; the club has already checked they may use it (`tkuSystem`)
+   * and fills it in when they did not say
+   */
+  private async addRobot(userId: string, seat: unknown, asked?: unknown) {
     const table = this.hostTable(userId)
+    const kind = asked ?? this.defaultKind()
     if (!isSeat(seat)) throw new ClubError('badSeat')
     if (!isRobotKind(kind)) throw new ClubError('unknownRobot')
     if (table.seats[seat]) throw new ClubError('seatTaken')
@@ -749,8 +753,9 @@ export class TableService implements TableApi {
    * The host asks a player who has kept the table waiting for SLOW_TURN_MS to leave their seat
    * and seats TKB there (`e2-t28`); the player stays at the table without a seat, as after `kick`
    */
-  private async replaceWithRobot(userId: string, seat: unknown, kind: unknown = 'tku') {
+  private async replaceWithRobot(userId: string, seat: unknown, asked?: unknown) {
     const table = this.hostTable(userId)
+    const kind = asked ?? this.defaultKind()
     if (!isSeat(seat)) throw new ClubError('badSeat')
     if (!isRobotKind(kind)) throw new ClubError('unknownRobot')
     const occupant = table.seats[seat]
@@ -762,6 +767,11 @@ export class TableService implements TableApi {
     table.spectators.push(occupant)
     this.touchTurn()
     await this.save()
+  }
+
+  /** TKB's system when nobody says: the one the club gave the table as it opened (`Table.robotKind`); older tables the club's */
+  private defaultKind(): RobotKind {
+    return this.table?.robotKind ?? 'tku'
   }
 
   private vacate(seat: Seat) {
@@ -832,9 +842,9 @@ export class TableService implements TableApi {
     const team = teamStateOf(table)
     const online = this.connections.onlineUserIds()
     if (!team && !SEATS.some((s) => s !== seat && online.includes(table.seats[s] ?? ''))) return
-    // TKB plays the system of a robot partner, if there is one
+    // TKB plays the system of a robot partner, if there is one, else the table's (its host's when it opened)
     const partner = table.seats[partnerOf(seat)]
-    const kind: RobotKind = team ? team.robotKind : partner && isRobotId(partner) ? robotKindOf(partner) : 'tku'
+    const kind: RobotKind = team ? team.robotKind : partner && isRobotId(partner) ? robotKindOf(partner) : this.defaultKind()
     this.sitIn(userId, seat, kind)
     await this.save()
     this.settled()

@@ -247,6 +247,14 @@ export const MESSAGES = {
     ja: 'そのロボットはありません',
     ko: '그런 로봇은 없습니다',
   },
+  tkuSystemOnly: {
+    zh: '淡江制度的 TKB 要管理員開權限才能用，請改用 2/1 的 TKB',
+    'zh-Hans': '淡江制度的 TKB 要管理员开权限才能用，请改用 2/1 的 TKB',
+    en: 'TKB in the TKU system needs a permission from an admin; use TKB in 2/1 instead',
+    vi: 'TKB theo hệ thống TKU cần quản trị viên cấp quyền; hãy dùng TKB 2/1',
+    ja: 'TKU システムの TKB は管理者の権限が必要です。2/1 の TKB を使ってください',
+    ko: 'TKU 시스템의 TKB는 관리자 권한이 필요합니다. 2/1 TKB를 사용하세요',
+  },
   badTableSettings: {
     zh: '牌桌設定不正確',
     'zh-Hans': '牌桌设置不正确',

@@ -220,6 +220,7 @@ export function AdminPage() {
     bookEdit: t.permissionBookEdit,
     bookImport: t.permissionBookImport,
     boardCurate: t.permissionBoardCurate,
+    tkuSystem: t.permissionTkuSystem,
   }
   const editMembers = () => {
     if (!users) return
