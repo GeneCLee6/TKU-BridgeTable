@@ -6,7 +6,7 @@ import type { Seat } from '../../shared/cards.ts'
 import type { BoardState } from '../../shared/game.ts'
 import { DEFAULT_HISTORY_QUERY, taiwanDayStart, type HistoryQuery } from '../../shared/history-query.ts'
 import type { BoardRecord } from '../../shared/protocol.ts'
-import { createHistoryIndex, indexRecord, searchBoards } from '../../worker/history-index.ts'
+import { createHistoryIndex, indexRecord, searchBoards, searchDays } from '../../worker/history-index.ts'
 import { memorySql } from './sqlite.ts'
 
 interface Fixture {
@@ -178,5 +178,51 @@ describe('history search', () => {
     for (const filter of filters) expect(all('dan', DAY + 50, filter).ids).not.toContain('held')
     expect(all('amy', DAY + 50).ids).toEqual(['held', 'open'])
     expect(all('dan', DAY + 100).ids).toEqual(['held', 'open'])
+  })
+
+  describe('boards per day (e3-t48)', () => {
+    const days = (query: Partial<HistoryQuery>, viewer = 'amy', now = DAY + 10 * 86_400_000, extra: Fixture[] = []) => {
+      const sql = memorySql()
+      createHistoryIndex(sql)
+      for (const board of [...BOARDS, ...extra]) indexRecord(sql, record(board))
+      return searchDays(sql, { ...DEFAULT_HISTORY_QUERY, scope: 'all', ...query }, viewer, now)
+    }
+
+    it('counts the boards a search finds on each Taiwan date, newest day first', () => {
+      expect(days({})).toEqual([
+        { date: '2026-10-21', count: 1 },
+        { date: '2026-10-20', count: 8 },
+      ])
+      expect(days({ scope: 'mine' })).toEqual([
+        { date: '2026-10-21', count: 1 },
+        { date: '2026-10-20', count: 7 },
+      ])
+      // The same conditions as the search, and its page and sort play no part
+      expect(days({ table: 2, page: 3, size: 10, sort: 'score_asc' })).toEqual([{ date: '2026-10-20', count: 1 }])
+      expect(days({ from: '2026-10-21' })).toEqual([{ date: '2026-10-21', count: 1 }])
+      expect(days({ scope: 'mine' }, 'zed')).toEqual([])
+    })
+
+    it('splits days at midnight in Taiwan (UTC+8), not in UTC', () => {
+      const lastMinute = DAY + 86_400_000 - 60_000
+      const extra: Fixture[] = [{ id: 'late', at: lastMinute }]
+      // 23:59 in Taiwan is 15:59 UTC the same date; it still counts on the 20th
+      expect(new Date(lastMinute).toISOString().slice(0, 10)).toBe('2026-10-20')
+      expect(days({}, 'amy', DAY + 10 * 86_400_000, extra)).toEqual([
+        { date: '2026-10-21', count: 1 },
+        { date: '2026-10-20', count: 9 },
+      ])
+      // Midnight before the 20th, in Taiwan, is still the 19th in UTC
+      expect(new Date(DAY).toISOString().slice(0, 10)).toBe('2026-10-19')
+    })
+
+    it('counts a board kept back only for its players until it is revealed (AC-4.9)', () => {
+      const held: Fixture[] = [{ id: 'held', at: DAY + 2 * 86_400_000, revealAt: DAY + 100 * 86_400_000 }]
+      const before = DAY + 10 * 86_400_000
+      expect(days({}, 'amy', before, held)[0]).toEqual({ date: '2026-10-22', count: 1 })
+      expect(days({}, 'dan', before, held).map((d) => d.date)).not.toContain('2026-10-22')
+      expect(days({ player: 'amy' }, 'dan', before, held).map((d) => d.date)).not.toContain('2026-10-22')
+      expect(days({}, 'dan', DAY + 100 * 86_400_000, held)[0]).toEqual({ date: '2026-10-22', count: 1 })
+    })
   })
 })

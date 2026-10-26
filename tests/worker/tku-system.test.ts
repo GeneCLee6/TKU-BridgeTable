@@ -5,6 +5,7 @@ import { ClubError, ClubService, type Connections, type ScheduleKind } from '../
 import type { MemoryStore } from '../../worker/store.ts'
 import type { Table } from '../../worker/views.ts'
 import { memoryStore } from './sqlite.ts'
+import { clubService } from './event-mode.ts'
 
 /**
  * TKB in the club's system is private (社長 2026-10-26, ROBOT.md §7): only members given
@@ -53,7 +54,7 @@ let time: number
 let boss: string
 
 const newClub = () =>
-  new ClubService(store, connections, { maxUsers: 40, now: () => time, schedule: (run, ms, kind) => queue.push({ run, ms, kind }) })
+  clubService(store, connections, { maxUsers: 40, now: () => time, schedule: (run, ms, kind) => queue.push({ run, ms, kind }) })
 
 beforeEach(async () => {
   store = memoryStore()

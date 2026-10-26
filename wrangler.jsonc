@@ -12,14 +12,17 @@
     // The club, and one object per table (ARCHITECTURE.md §5.10)
     "bindings": [
       { "name": "CLUB", "class_name": "Club" },
-      { "name": "TABLE", "class_name": "TableObject" }
+      { "name": "TABLE", "class_name": "TableObject" },
+      { "name": "EVENT", "class_name": "EventObject" }
     ]
   },
-  // The free plan only offers SQLite-backed Durable Objects. v2 adds the tables' objects (H1b);
-  // migrations only ever add: never edit or remove one that was deployed (DEPLOY.md)
+  // The free plan only offers SQLite-backed Durable Objects. v2 adds the tables' objects (H1b), v3
+  // the challenges' (H2b, used only with EVENT_OBJECTS=on); migrations only ever add: never edit
+  // or remove one that was deployed (DEPLOY.md)
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["Club"] },
-    { "tag": "v2", "new_sqlite_classes": ["TableObject"] }
+    { "tag": "v2", "new_sqlite_classes": ["TableObject"] },
+    { "tag": "v3", "new_sqlite_classes": ["EventObject"] }
   ],
   // Daily backups (worker/backup.ts). Create the bucket once before the first deploy with it:
   //   npx wrangler r2 bucket create tku-bridge-backups      (DEPLOY.md §4.4)
@@ -51,10 +54,13 @@
       "durable_objects": {
         "bindings": [
           { "name": "CLUB", "class_name": "Club" },
-          { "name": "TABLE", "class_name": "TableObject" }
+          { "name": "TABLE", "class_name": "TableObject" },
+          { "name": "EVENT", "class_name": "EventObject" }
         ]
       },
-      "vars": { "MAX_USERS": "30" },
+      // Staging tries each challenge in its own object (H2b); production keeps EVENT_OBJECTS off
+      // until the club's president switches it on (DEPLOY.md §4.6)
+      "vars": { "MAX_USERS": "30", "EVENT_OBJECTS": "on" },
       // Staging's own D1 copy of the history (never production's): npx wrangler d1 create tku-bridge-history-staging
       "d1_databases": [
         { "binding": "HISTORY", "database_name": "tku-bridge-history-staging", "database_id": "0f2e0cc8-339a-4f6b-817b-78d8a0048202" }
@@ -70,10 +76,12 @@
       "durable_objects": {
         "bindings": [
           { "name": "CLUB", "class_name": "Club" },
-          { "name": "TABLE", "class_name": "TableObject" }
+          { "name": "TABLE", "class_name": "TableObject" },
+          { "name": "EVENT", "class_name": "EventObject" }
         ]
       },
-      "vars": { "MAX_USERS": "30" },
+      // A pull request's preview tries the challenges' objects too (H2b), as staging does
+      "vars": { "MAX_USERS": "30", "EVENT_OBJECTS": "on" },
       // No backups here (triggers are inherited, r2_buckets are not): see "r2_buckets" above
       "triggers": { "crons": [] }
     }

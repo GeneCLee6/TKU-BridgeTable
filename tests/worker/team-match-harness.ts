@@ -4,6 +4,7 @@ import { ClubService, type Connections, type ScheduleKind } from '../../worker/s
 import type { MemoryStore } from '../../worker/store.ts'
 import { memoryD1 } from './d1.ts'
 import { memoryStore } from './sqlite.ts'
+import { clubService } from './event-mode.ts'
 
 /**
  * A club in Node for the team match tests (F5) and the visibility suite (`e11-t13`): the tables
@@ -65,7 +66,7 @@ export async function teamHarness() {
   }
   // The history pages' D1 copy (§5.12), so the visibility suite checks what the Worker answers too
   const d1 = memoryD1()
-  h.club = new ClubService(store, connections, {
+  h.club = clubService(store, connections, {
     maxUsers: 40,
     now: () => h.time,
     schedule: (run, ms, kind) => h.queue.push({ run, ms, kind }),

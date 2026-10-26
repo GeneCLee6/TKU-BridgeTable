@@ -11,6 +11,7 @@ export type LogEntry =
   | { event: 'loginLocked'; username: string }
   /** Tables moved between the club and their own objects (schema 3 ↔ 4, ARCHITECTURE.md §5.10) */
   | { event: 'tablesMoved'; to: 'objects' | 'club'; moved: number; failed: number }
+  | { event: 'eventsMoved'; to: 'objects' | 'club'; moved: number; failed: number }
   /** An error a browser reported (`/api/client-errors`), already cleaned */
   | { event: 'clientError'; kind: string; message: string; source?: string; stack?: string; page?: string; version?: string }
   /** A bug: an exception that is not a ClubError or GameError */
