@@ -168,6 +168,11 @@ export class Club extends DurableObject<Env> implements Connections {
     await this.service.link.boardFinished(record, event)
   }
 
+  /** Whether a member may seat TKB in the club's system (`ClubLink.mayUseTku`) */
+  async tableMayUseTku(userId: string): Promise<boolean> {
+    return this.service.link.mayUseTku(userId)
+  }
+
   /** Whose session this is, for a table's connection: the Worker asks once per connection */
   async socketUser(token: string | null): Promise<string | null> {
     return (await this.service.userForToken(token))?.id ?? null

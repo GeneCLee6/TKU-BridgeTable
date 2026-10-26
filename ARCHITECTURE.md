@@ -902,8 +902,8 @@ SQL 由 `worker/history-index.ts` 的 `searchBoards` 組：只有固定的 SQL �
 淡江制度的機器人（`RobotKind` 的 `tku`）不公開：只有管理員在管理頁勾了 **`tkuSystem`**（「淡江制度機器人」）的社員能用，管理員本來就有。其他人只有一個 TKB、沒有制度可選，就是 2/1（`gib`）的那個。**伺服器檢查**，不只是畫面藏起來：沒有權限卻要 `tku` 一律回 `tkuSystemOnly`（403）。
 
 - **看的是誰設定機器人**：放機器人的房主、建立挑戰或隊制賽的人、開練習桌的人。坐到有權限的房主桌上的其他人照常跟淡江制度的機器人同桌、對打，看得到它的說明（§4 的機器人叫品說明不變）；挑戰的受邀者照打挑戰的制度。
-- **每個選制度的地方**（`ClubService` 的 `mayUseTku`、`defaultKindOf`、`checkRobotKind`；瀏覽器用 `shared/protocol.ts` 的 `robotKindsFor`、`mayUseTkuSystem`）：
-  - 牌桌的 `addRobot`、`replaceWithRobot`：`ClubService.tableAction` 轉給牌桌之前先檢查，沒寫 `kind` 就補上房主的預設（有權限 `tku`，否則 `gib`）。座位選單有權限時有「放 TKB（淡江制度）」「放 TKB（2/1）」兩個，沒有時只有「放 TKB」。
+- **每個選制度的地方**（`ClubService` 的 `mayUseTku`、`defaultKindOf`、`checkRobotKind`，牌桌的 `TableService.robotKindFor`；瀏覽器用 `shared/protocol.ts` 的 `robotKindsFor`、`mayUseTkuSystem`）：
+  - 牌桌的 `addRobot`、`replaceWithRobot`：由牌桌自己檢查（`TableService.robotKindFor`），所以走大廳的連線或牌桌自己的連線（`/ws/table/<id>` → `TableHost.message`，不經過 `ClubService`）都一樣。牌桌透過 `ClubLink.mayUseTku` 問社團（Durable Object 之間是 RPC `Club.tableMayUseTku`），帳號只在社團，每次問到的都是現在的權限，房主換人或權限改了也不用通知牌桌；問不到就是 `serverError`，不會放錯。沒寫 `kind` 就用房主的預設（有權限 `tku`，否則 `gib`）。座位選單有權限時有「放 TKB（淡江制度）」「放 TKB（2/1）」兩個，沒有時只有「放 TKB」。
   - 代打（斷線 3 分鐘，`substituteDue`）：同伴是機器人就用同伴的制度，否則用牌桌的 `Table.robotKind`（開桌時記下房主的預設）。
   - 練習桌：`parsePracticeSettings(value, 預設)`，沒寫 `robotKind` 就用開桌者的預設；`PracticeDialog` 只在有權限時顯示制度。
   - 挑戰：`createChallenge` 檢查設定的 `robotKind`（預設本來就是 `gib`）；「用這副牌挑戰」的牌若是跟淡江制度的機器人打的（例如在別人桌上），沒有權限也回 `tkuSystemOnly`，紀錄頁不顯示那個按鈕。一鍵再戰是新的牌，所以沒有權限的人再戰淡江制度的挑戰時改成 2/1，不拒絕。`ChallengeDialog` 只在有權限時顯示「機器人」。
@@ -911,7 +911,7 @@ SQL 由 `worker/history-index.ts` 的 `searchBoards` 組：只有固定的 SQL �
   - 每週挑戰：只有管理員設定，管理員有權限，預設照舊是淡江制度。
 - **舊資料照舊**：存下來的牌桌、座位 id、挑戰、隊制賽、紀錄裡的 `tku` 都照讀照打，不改寫；沒有 `Table.robotKind` 的舊牌桌代打照舊用淡江制度。權限被收回時，已經開好的牌桌、挑戰、比賽也照舊，只是不能再新開或改成淡江制度。
 - **不受影響的**：真人叫品的推論意義（§4，同伴不是機器人時用淡江制度讀）與叫牌提示卡（`bookTopics`）是淡江橋譜的公開內容，不是機器人，照舊。
-- **測試**：`tests/worker/tku-system.test.ts`（權限、放機器人、混合的牌桌、代打與舊牌桌、練習桌、隊制賽）、`tests/worker/challenge-service.test.ts`、`challenge-options.test.ts`（挑戰、用這副牌挑戰、再戰）；畫面：`tests/presentation/practice.test.tsx`、`challenges.test.tsx`、`matches.test.tsx`。
+- **測試**：`tests/worker/tku-system.test.ts`（權限、放機器人、混合的牌桌、代打與舊牌桌、練習桌、隊制賽）、`tests/worker/table-objects.test.ts`（牌桌自己的連線上放機器人）、`tests/worker/challenge-service.test.ts`、`challenge-options.test.ts`（挑戰、用這副牌挑戰、再戰）；畫面：`tests/presentation/practice.test.tsx`、`challenges.test.tsx`、`matches.test.tsx`。
 
 ### 5.1.1 決策紀錄：機器人運算放哪裡（`e6-t09`，2026-10-24）
 

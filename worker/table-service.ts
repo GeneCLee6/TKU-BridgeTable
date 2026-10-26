@@ -727,12 +727,23 @@ export class TableService implements TableApi {
   }
 
   /**
-   * Seats TKB in the system the host chose; the club has already checked they may use it (`tkuSystem`)
-   * and fills it in when they did not say
+   * The system TKB is seated in for a host (ROBOT.md §7): the club's only for one the club says may
+   * use it (`ClubLink.mayUseTku`), else 2/1; asking for the club's without it is `tkuSystemOnly`.
+   * Checked here, so it holds on the table's own connection as through the club
    */
+  private async robotKindFor(userId: string, asked: unknown): Promise<unknown> {
+    if (asked !== undefined && asked !== 'tku') return asked
+    const may = await this.link.mayUseTku(userId)
+    if (asked === 'tku' && !may) throw new ClubError('tkuSystemOnly', {}, 403)
+    return asked ?? (may ? 'tku' : 'gib')
+  }
+
+  /** Seats TKB in the system the host chose, or theirs by default (`robotKindFor`) */
   private async addRobot(userId: string, seat: unknown, asked?: unknown) {
+    this.hostTable(userId)
+    const kind = await this.robotKindFor(userId, asked)
+    // Checked again after asking the club: something may have changed meanwhile
     const table = this.hostTable(userId)
-    const kind = asked ?? this.defaultKind()
     if (!isSeat(seat)) throw new ClubError('badSeat')
     if (!isRobotKind(kind)) throw new ClubError('unknownRobot')
     if (table.seats[seat]) throw new ClubError('seatTaken')
@@ -754,8 +765,9 @@ export class TableService implements TableApi {
    * and seats TKB there (`e2-t28`); the player stays at the table without a seat, as after `kick`
    */
   private async replaceWithRobot(userId: string, seat: unknown, asked?: unknown) {
+    this.hostTable(userId)
+    const kind = await this.robotKindFor(userId, asked)
     const table = this.hostTable(userId)
-    const kind = asked ?? this.defaultKind()
     if (!isSeat(seat)) throw new ClubError('badSeat')
     if (!isRobotKind(kind)) throw new ClubError('unknownRobot')
     const occupant = table.seats[seat]
@@ -769,7 +781,7 @@ export class TableService implements TableApi {
     await this.save()
   }
 
-  /** TKB's system when nobody says: the one the club gave the table as it opened (`Table.robotKind`); older tables the club's */
+  /** TKB's system for a robot sitting in (代打): the one the club gave the table as it opened (`Table.robotKind`); older tables the club's */
   private defaultKind(): RobotKind {
     return this.table?.robotKind ?? 'tku'
   }

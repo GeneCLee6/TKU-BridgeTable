@@ -81,6 +81,7 @@ beforeEach(async () => {
         if (refuse) throw new Error('club busy')
         finished.push({ record, event })
       },
+      mayUseTku: () => true,
     },
     { now: () => time, random: (n) => Math.floor(n / 2), scheduler: manualScheduler((run, ms, kind) => queue.push({ run, ms, kind })) },
   )

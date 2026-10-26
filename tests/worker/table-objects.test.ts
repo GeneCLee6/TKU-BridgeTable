@@ -77,6 +77,7 @@ function makeHost(tableId: string, object: Omit<FakeObject, 'host'>): TableHost 
       changed: (entry) => club.link.changed(clone(entry)),
       closed: (id) => club.link.closed(id),
       boardFinished: (record, event) => club.link.boardFinished(clone(record), clone(event)),
+      mayUseTku: (userId) => club.link.mayUseTku(userId),
     },
     config: { now: () => time, random: secureRandomInt, scheduler: manualScheduler((run, ms, kind) => queue.push({ run, ms, kind })) },
     log: noLog,
@@ -662,5 +663,40 @@ describe('a team match in two table objects (§5.8, §5.10)', () => {
     failRoom = null
     await send(amy, { type: 'startMatch', matchId: id })
     expect(club.matches.get(id, amy)!.status).toBe('playing')
+  })
+})
+
+describe('TKB in the club’s system over the table’s own connection (ROBOT.md §7)', () => {
+  /** The founder (an admin) first, then amy, a member without `tkuSystem`, at her own table, connected to it */
+  async function amysTable() {
+    await member('boss')
+    const amy = await member('amy')
+    await send(amy, { type: 'createTable' })
+    const tableId = lobby(amy).myTableId!
+    await connectTable(amy, tableId)
+    return { amy, tableId }
+  }
+  const errors = (userId: string) => (inbox.get(userId) ?? []).filter((m) => m.type === 'error').length
+
+  it('turns down the club’s system for a host without tkuSystem, and seats the 2/1 TKB by default', async () => {
+    const { amy, tableId } = await amysTable()
+    await tableSend(amy, tableId, { type: 'addRobot', seat: 'N', kind: 'tku' })
+    expect(last(amy, 'error')).toMatchObject({ code: 'tkuSystemOnly' })
+    expect(tableOf(amy)!.seats.N).toBeNull()
+    const before = errors(amy)
+    await tableSend(amy, tableId, { type: 'addRobot', seat: 'N' })
+    expect(errors(amy)).toBe(before)
+    expect(tableOf(amy)!.seats.N).toMatchObject({ id: 'robot:gib:N', robotKind: 'gib' })
+  })
+
+  it('seats the club’s system for a host with it, by default too', async () => {
+    const { amy, tableId } = await amysTable()
+    await club.adminSetPermissions(amy, ['tkuSystem'])
+    const before = errors(amy)
+    await tableSend(amy, tableId, { type: 'addRobot', seat: 'N', kind: 'tku' })
+    await tableSend(amy, tableId, { type: 'addRobot', seat: 'E' })
+    expect(errors(amy)).toBe(before)
+    expect(tableOf(amy)!.seats.N).toMatchObject({ id: 'robot:tku:N', robotKind: 'tku' })
+    expect(tableOf(amy)!.seats.E).toMatchObject({ id: 'robot:tku:E', robotKind: 'tku' })
   })
 })

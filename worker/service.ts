@@ -414,6 +414,7 @@ export class ClubService {
       changed: (entry) => this.applyEntry(entry),
       closed: (tableId) => this.tableClosed(tableId),
       boardFinished: (record, event) => this.boardFinished(record, event),
+      mayUseTku: (userId) => this.mayUseTku(userId),
     }
     this.link = link
     // Each table in its own Durable Object (H1b, §5.10), unless switched back into this one
@@ -2526,11 +2527,6 @@ export class ClubService {
       if (message.type === 'stand' || message.type === 'chat') return
       if (HOST_ACTIONS.has(message.type)) throw new ClubError('notAtTable')
       throw new ClubError('notSeated')
-    }
-    // The table seats the system it is given; which one the member may seat is the club's to say
-    if (message.type === 'addRobot' || message.type === 'replaceWithRobot') {
-      this.checkRobotKind(userId, message.kind)
-      message = { ...message, kind: message.kind ?? this.defaultKindOf(userId) }
     }
     this.applyResult(entry.id, await this.tables.get(entry.id).act(userId, message))
   }

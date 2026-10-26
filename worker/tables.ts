@@ -148,6 +148,11 @@ export interface ClubLink {
    * for the table's event. Saving the same record twice changes nothing
    */
   boardFinished(record: BoardRecord, event: EventReport | null): Promise<void>
+  /**
+   * Whether a member may seat TKB in the club's system (`tkuSystem`, ROBOT.md §7), asked when a
+   * host seats a robot: the club has the accounts, so the answer is always current
+   */
+  mayUseTku(userId: string): boolean | Promise<boolean>
 }
 
 /** The club's way to reach a table by id */

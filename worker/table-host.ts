@@ -78,6 +78,8 @@ export class TableHost implements TableRpc {
         if (this.frozen) throw new Error('the table was handed back to the club')
         await club.boardFinished(record, event)
       },
+      // Asked as a host seats a robot; when the club cannot be reached the action fails (serverError)
+      mayUseTku: (userId) => club.mayUseTku(userId),
     }
   }
 
