@@ -1,7 +1,7 @@
 /**
  * Default avatars (e1-t18): the member's initial on a colour chosen from their id, so the same
  * member always looks the same everywhere (name plates, the People tab, the profile card) without
- * storing anything. Uploaded pictures come later (e1-t34).
+ * storing anything. A member who uploaded a picture (e1-t34) shows it instead (`Avatar`).
  */
 
 /** Which of `count` colours belongs to this id: a small string hash (FNV-1a), stable across browsers */

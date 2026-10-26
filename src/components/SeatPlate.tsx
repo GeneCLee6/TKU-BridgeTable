@@ -303,6 +303,7 @@ export function SeatPlate({
         {isMe && t.youTag}
       </NameText>
       {occupant.substituteFor && <Muted>{t.substituteFor(occupant.substituteFor)}</Muted>}
+      {occupant.controlledBy && <Muted>{t.controlledBy(occupant.controlledBy)}</Muted>}
     </Name>
   ) : (
     <Name $muted>{t.emptySeat}</Name>
@@ -325,7 +326,7 @@ export function SeatPlate({
         data-seat={seat}
       >
         <Letter data-letter>{seatLetter[seat]}</Letter>
-        {occupant && !occupant.robot && !compact && <Avatar id={occupant.id} name={occupant.username} size={24} />}
+        {occupant && !occupant.robot && !compact && <Avatar id={occupant.id} name={occupant.username} size={24} avatar={occupant.avatar} />}
         {name}
         {(role || offline || clickable || occupant?.robot || (turn && endsAt !== null)) && (
           <Tags>

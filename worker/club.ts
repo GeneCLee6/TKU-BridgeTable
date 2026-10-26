@@ -11,6 +11,7 @@ import { backupAdmin, runBackup } from './backup.ts'
 import { BookService, importRequestFrom, publicBookResponse } from './book.ts'
 import { claudeImporter } from './importer.ts'
 import { anonymousProfileResponse, ProfileService } from './profiles.ts'
+import { avatarResponse, readAvatarUpload } from './avatars.ts'
 import { adminRouteNeed, bookRouteNeed, clubRouteNeed, requireNeed } from './roles.ts'
 import { CLIENT_ERROR_MAX_CHARS } from './client-errors.ts'
 import { d1Replica } from './d1.ts'
@@ -21,6 +22,8 @@ import type { EventReport } from './modes.ts'
 import type { Store } from './store.ts'
 import { TeamService } from './teams.ts'
 import type { TableObject } from './table-object.ts'
+import type { EventObject } from './event-object.ts'
+import { RemoteEvents, type EventRpc, type EventSnapshot } from './events.ts'
 import { RemoteTables, type TableEntry, type TableRpc } from './tables.ts'
 import type { MatchAction, MatchPlayAction } from './team-match-service.ts'
 
@@ -30,6 +33,13 @@ export interface Env {
   TABLE: DurableObjectNamespace<TableObject>
   /** "off" keeps the tables in the club's object and brings back any moved out (DEPLOY.md, the switch back) */
   TABLE_OBJECTS?: string
+  /** Each challenge's own object (H2b, ARCHITECTURE.md §5.12) */
+  EVENT: DurableObjectNamespace<EventObject>
+  /**
+   * "on" moves the challenges into their own objects; anything else (the default) keeps them in
+   * the club's object and brings back any moved out (DEPLOY.md §4.6, the switch back)
+   */
+  EVENT_OBJECTS?: string
   ASSETS: Fetcher
   MAX_USERS?: string
   INVITE_CODE?: string
@@ -111,6 +121,11 @@ export class Club extends DurableObject<Env> implements Connections {
       // Each table in its own object (§5.10), unless switched back with TABLE_OBJECTS=off
       tableObjects: new RemoteTables((tableId) => env.TABLE.get(env.TABLE.idFromName(tableId)) as unknown as TableRpc),
       tablesInClub: env.TABLE_OBJECTS === 'off',
+      // Each challenge in its own object (H2b, §5.12) only when switched on; off by default
+      eventObjects: new RemoteEvents(
+        (challengeId) => env.EVENT.get(env.EVENT.idFromName(`challenge:${challengeId}`)) as unknown as EventRpc,
+      ),
+      eventObjectsOn: env.EVENT_OBJECTS === 'on',
       // The history pages' copy in D1, read by the Worker (§5.12)
       historyReplica: env.HISTORY ? d1Replica(env.HISTORY) : undefined,
       historyReplicaOff: env.HISTORY_D1 === 'off',
@@ -172,6 +187,11 @@ export class Club extends DurableObject<Env> implements Connections {
   /** Whether a member may seat TKB in the club's system (`ClubLink.mayUseTku`) */
   async tableMayUseTku(userId: string): Promise<boolean> {
     return this.service.link.mayUseTku(userId)
+  }
+
+  /** A challenge in its own object changed on its own (`EventLink.changed`, H2b); a failure makes it tell again */
+  async eventChanged(snapshot: EventSnapshot) {
+    await this.service.eventLink.changed(snapshot)
   }
 
   /** Whose session this is, for a table's connection: the Worker asks once per connection */
@@ -360,6 +380,12 @@ export class Club extends DurableObject<Env> implements Connections {
       return json({ user: await this.service.setAccountPreferences(user.id, { friendOnlineNotice: b.friendOnlineNotice, bookProfile: b.bookProfile }) })
     }
     if (route === 'PATCH /api/account/profile') return json({ user: await this.service.setProfile(user.id, await body()) })
+    // The member's own picture (e1-t34): the bytes as the browser cropped and shrank them
+    if (route === 'PUT /api/account/avatar') return json({ user: await this.service.setAvatar(user.id, await readAvatarUpload(request)) })
+    if (route === 'DELETE /api/account/avatar') return json({ user: await this.service.deleteAvatar(user.id) })
+    // Any member's picture, for both sites; cached by its version (`?v=`)
+    const avatar = url.pathname.match(/^\/api\/avatar\/([\w-]+)$/)
+    if (request.method === 'GET' && avatar) return avatarResponse(await this.service.avatar(avatar[1]), request)
     // Another member's profile card (AC-1.5)
     const member = url.pathname.match(/^\/api\/members\/([\w-]+)$/)
     if (request.method === 'GET' && member) return json({ member: await this.service.memberProfile(user.id, member[1]) })
@@ -375,6 +401,7 @@ export class Club extends DurableObject<Env> implements Connections {
       return json(await this.service.history(user.id, all, Number(query.get('page') ?? 1), Number(query.get('size') ?? 0) || undefined))
     }
     if (route === 'GET /api/history/search') return json(await this.service.search(user.id, parseHistoryQuery(url.searchParams)))
+    if (route === 'GET /api/history/days') return json(this.service.historyDays(user.id, parseHistoryQuery(url.searchParams)))
     const record = url.pathname.match(/^\/api\/history\/([\w-]+)$/)
     if (request.method === 'GET' && record) {
       const found = await this.service.record(record[1], user.id)
@@ -407,6 +434,12 @@ export class Club extends DurableObject<Env> implements Connections {
       this.service.removeFavorite(user.id, favorite[1])
       return json({ ok: true })
     }
+    // The practice dialog (e10-t16): the club's practice sets (no boards), and the member's own saved settings
+    if (route === 'GET /api/practice/sets') return json({ sets: this.service.practiceSets() })
+    if (route === 'GET /api/practice/presets') return json({ presets: await this.service.savedPractice(user.id) })
+    if (route === 'POST /api/practice/presets') return json({ presets: await this.service.savePractice(user.id, await body()) })
+    const preset = url.pathname.match(/^\/api\/practice\/presets\/([\w-]+)$/)
+    if (preset && request.method === 'DELETE') return json({ presets: await this.service.removeSavedPractice(user.id, preset[1]) })
     if (route === 'GET /api/challenges') return json({ challenges: this.service.challengeList(user.id) })
     // The challenge pages create, answer and cancel over HTTP to hear back at once (e7-t16, e7-t17)
     if (route === 'POST /api/challenges') {

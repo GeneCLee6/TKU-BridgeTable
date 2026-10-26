@@ -1,8 +1,9 @@
 // @vitest-environment node
 import { expect, it } from 'vitest'
 import type { ClientMessage, ServerMessage, TableView } from '../../shared/protocol.ts'
-import { ClubService, type Connections, type ScheduleKind } from '../../worker/service.ts'
+import type { Connections, ScheduleKind } from '../../worker/service.ts'
 import { memoryStore } from './sqlite.ts'
+import { clubService } from './event-mode.ts'
 
 /**
  * End to end (C9, e7-t25, AC-7.4, AC-7.5): three people take a 4-board matchpoint challenge
@@ -51,7 +52,7 @@ it('three people, four boards, matchpoints: one stops halfway and only the finis
   const connections = new FakeConnections()
   let queue: { run: () => void; ms: number; kind: ScheduleKind }[] = []
   let time = 1_000_000
-  const club = new ClubService(store, connections, {
+  const club = clubService(store, connections, {
     maxUsers: 40,
     now: () => time,
     schedule: (run, ms, kind) => queue.push({ run, ms, kind }),

@@ -23,6 +23,8 @@ export interface PublicUser {
    * Records from when robots had levels may still carry a `robotLevel`, which nothing reads
    */
   robotKind?: RobotKind
+  /** The version of the member's uploaded picture (e1-t34, `avatarUrl`); none means the default avatar */
+  avatar?: number
 }
 
 /**
@@ -73,6 +75,8 @@ export interface SeatOccupant extends PublicUser {
   online: boolean
   /** A robot sitting in for a member who dropped offline (代打, `e2-t31`): their name; they get the seat back on returning */
   substituteFor?: string
+  /** Someone else makes the calls for this seat (seat control, `e10-t15`): their name */
+  controlledBy?: string
 }
 
 /**
@@ -224,6 +228,43 @@ export const fixedSeats = (mode: TableMode | undefined) => mode === 'challenge' 
 export interface TablePractice extends PracticeSettings {
   /** Boards dealt at the table so far, finished or not (a new deal counts too) */
   dealt: number
+  /**
+   * The board on the table when it comes from a deal set (`e10-t16`): its place in the set (1-based)
+   * and how many it has, its category, and what it teaches once the auction is over (`note`: a
+   * practice set's note or a featured board's title and explanation). Never any cards
+   */
+  problem?: PracticeProblemView
+  /**
+   * 檢討 (`e10-t07`): at a bidding practice, once the auction is over (all four hands are open by
+   * then), what TKB would have called at each step and how four TKB bid the board. Worked out on
+   * the server after the auction, in turns (`TableService.review`), so a part may still be missing
+   */
+  review?: PracticeReview
+}
+
+/** The review of a bidding practice's board (`e10-t07`); never sent while the board is being bid */
+export interface PracticeReview {
+  /**
+   * For each call of the auction, in order: the call TKB (the table's system) would have made from
+   * that seat at that point, holding that seat's hand and knowing the auction before it, and what
+   * that call shows. Missing until worked out
+   */
+  steps?: PracticeReviewStep[]
+  /** Four TKB bidding the board from the start, and where they get to. Missing until worked out */
+  robot?: { auction: AuctionCall[]; contract: Contract | null }
+}
+
+export interface PracticeReviewStep {
+  call: Call
+  meaning?: Spec
+}
+
+export interface PracticeProblemView {
+  seq: number
+  count: number
+  category?: string
+  title?: string
+  note?: string
 }
 
 /** A challenge table as its player sees it: which challenge, which board of how many, until when */
@@ -341,6 +382,12 @@ export interface TableView {
   seats: Record<Seat, SeatOccupant | null>
   spectators: PublicUser[]
   mySeat: Seat | null
+  /**
+   * The seats the viewer makes the calls for when that is more than their own (seat control,
+   * `e10-t15`): they see each of these hands, and the bidding box is theirs on any of their turns
+   * (`board.turn` says for which). Left out otherwise
+   */
+  acts?: Seat[]
   board: BoardView | null
   boardsPlayed: number
   /**
@@ -541,6 +588,8 @@ export const TABLE_ACTIONS = [
   'undoRespond',
   'chat',
   'redeal',
+  'rebid',
+  'showHands',
 ] as const
 
 export type TableAction = Extract<ClientMessage, { type: (typeof TABLE_ACTIONS)[number] }>
@@ -580,7 +629,11 @@ export type ClientMessage =
   | { type: 'removeRobot'; seat: Seat }
   /** The host asks a player who has kept the table waiting SLOW_TURN_MS to leave, and seats TKB there */
   | { type: 'replaceWithRobot'; seat: Seat; kind?: RobotKind }
-  | { type: 'call'; call: Call; alert?: string }
+  /**
+   * `seat`: the seat the call is made for (seat control, `e10-t15`), which the member must make the
+   * calls for (`notYourSeat`); their own seat when left out
+   */
+  | { type: 'call'; call: Call; alert?: string; seat?: Seat }
   | { type: 'play'; card: Card }
   | { type: 'claim'; tricks: number }
   | { type: 'claimRespond'; accept: boolean }
@@ -594,6 +647,10 @@ export type ClientMessage =
   | { type: 'createPractice'; settings: PracticeSettings; access?: TableAccess }
   /** At a practice table only: the board on the table is put away unplayed and a new one dealt */
   | { type: 'redeal' }
+  /** At a bidding practice only (`e10-t15`): the board on the table is bid again from the start, the same hands */
+  | { type: 'rebid' }
+  /** At a practice table only, its member (`e10-t16`): 顯示四家, all four hands shown to them alone, or hidden again */
+  | { type: 'showHands'; show: boolean }
   /** Marks these notifications read, or all of them when `ids` is left out */
   | { type: 'readNotifications'; ids?: string[] }
   /** Follows another member (好友) or stops following them; one-way, they are not asked */
@@ -734,6 +791,20 @@ export interface HistoryPage {
   size: number
 }
 
+/**
+ * How many boards a history search finds on each Taiwan date (UTC+8, the dates `from`/`to` take),
+ * newest first: the side panel's list by day (`GET /api/history/days`, e3-t48)
+ */
+export interface HistoryDay {
+  /** YYYY-MM-DD */
+  date: string
+  count: number
+}
+
+export interface HistoryDays {
+  days: HistoryDay[]
+}
+
 /** A board a member keeps (AC-4.4): their own note and tags, seen by no one else */
 export interface Favorite {
   boardId: string
@@ -802,6 +873,8 @@ export const LIMITS = {
   maxUsersMax: 100,
   tableInvitesMax: 30,
   historyPageDefault: 20,
+  /** Days the list by day goes back at most (`GET /api/history/days`) */
+  historyDaysMax: 366,
   favoritesMax: 1000,
   favoriteNoteMax: 500,
   favoriteTagsMax: 8,

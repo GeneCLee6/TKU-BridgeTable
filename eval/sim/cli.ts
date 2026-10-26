@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { isRobotKind, type RobotKind } from '../../shared/protocol.ts'
@@ -7,6 +7,7 @@ import { readArgs } from '../config.ts'
 import { EVAL_SEED, evalBoard } from '../deals.ts'
 import { bidBoard } from './board.ts'
 import { compareReport, compareStudy, type CompareOptions, type CompareRecord } from './compare.ts'
+import { BiddingStudyBuilder, biddingReport, CATEGORIES, COMPETE_CATEGORIES, CONSTRUCTIVE, practiceDeals, type BiddingCategory, type BiddingRecord, type Example, type PracticeDeal } from './bidding.ts'
 import { loadSolver } from './dds.ts'
 import type { Job, TableRecord } from './jobs.ts'
 import { LeadStudyBuilder, leadReport, type LeadRecord } from './leads.ts'
@@ -14,7 +15,7 @@ import { chunked, defaultThreads, Pool } from './pool.ts'
 import { clock, Progress } from './progress.ts'
 import type { Objective } from './score.ts'
 import { JsonlStore } from './store.ts'
-import { SEATS, type Card, type Seat } from '../../shared/cards.ts'
+import { hcp, SEATS, SUITS, type Card, type Seat } from '../../shared/cards.ts'
 import { legalCards, playCard, remainingCards, turnOf } from '../../shared/game.ts'
 import { ruleBrain } from '../../shared/robot/brain.ts'
 
@@ -26,6 +27,9 @@ import { ruleBrain } from '../../shared/robot/brain.ts'
  *   npm run sim -- leads --deals N [--from 1] [--seed s] [--system tku|gib] [--samples 0] [--threads N] [--out file] [--report file] [--analyse]
  *   npm run sim -- compare --deals N [--from 1] [--seed s] [--system tku|gib] [--samples 30] [--objective score|tricks|contract]
  *                          [--dd-bias 0] [--points lead|all|defence] [--threads N] [--out file] [--report file] [--analyse]
+ *   npm run sim -- bidding --deals N [--from 1] [--seed s] [--system tku|gib] [--threads N] [--out file] [--report file]
+ *                          [--practice dir] [--analyse]
+ *   npm run sim -- compete …   (the bidding study, only the competitive decisions)
  *
  * Results go to eval/sim/data/ (not committed) a line a board, and a run picks up where the file
  * left off.
@@ -38,6 +42,8 @@ const USAGE = [
   '  leads    --deals N [--from 1] [--seed s] [--system tku|gib] [--samples 0] [--threads N] [--out file] [--report file] [--analyse]',
   '  compare  --deals N [--from 1] [--seed s] [--system tku|gib] [--samples 30] [--objective score|tricks|contract] [--dd-bias 0]',
   '           [--points lead|all|defence] [--threads N] [--out file] [--report file] [--analyse]',
+  '  bidding  --deals N [--from 1] [--seed s] [--system tku|gib] [--threads N] [--out file] [--report file] [--practice dir] [--analyse]',
+  '  compete  the same as bidding, only the competitive decisions',
 ].join('\n')
 
 const DATA_DIR = resolve(fileURLToPath(new URL('./data/', import.meta.url)))
@@ -209,6 +215,61 @@ async function compare(args: Map<string, string>) {
   console.error(`${records.length} records → ${file}`)
 }
 
+/**
+ * A practice deal must not teach against the club's handbook: over a preempt it asks for a good
+ * suit and 12 points or more (「如何對抗技光」, ROBOT.md §6.8), so lighter overcalls the simulation
+ * likes are left out of the club's set
+ */
+function clubBook(system: string, e: Example): boolean {
+  if (system !== 'tku' || e.category !== 'preempt' || !/^[1-7][SHDC]$/.test(e.alternative)) return true
+  return hcp(e.hand.split('.').flatMap((ranks, i) => [...ranks].map((r) => SUITS[i] + r))) >= 12
+}
+
+/** The bidding study (§7), or with `competitive` only its competitive decisions (`compete`) */
+async function bidding(args: Map<string, string>, competitive = false) {
+  const c = common(args)
+  const competing: BiddingCategory[] = [...COMPETE_CATEGORIES, 'contested']
+  const categories = competitive ? competing : CATEGORIES
+  const name = `${competitive ? 'compete' : 'bidding'}-${c.seed}-${c.system}-r${rulesFingerprint()}`
+  const store = await JsonlStore.open<BiddingRecord>(args.get('out') ?? resolve(DATA_DIR, `${name}.jsonl`))
+  let seconds = 0
+  const options = competitive ? { categories } : {}
+  if (!args.has('analyse')) seconds = await runStudy('Bidding', c, store, 5, (boards) => ({ kind: 'bidding', seed: c.seed, boards, system: c.system, options }))
+  const inRange = async function* () {
+    for await (const record of store.records()) if (record.board >= c.from && record.board < c.from + c.deals) yield record
+  }
+  const builder = new BiddingStudyBuilder()
+  let records = 0
+  for await (const record of inRange()) {
+    builder.add(record)
+    records++
+  }
+  const study = builder.build()
+  const report = biddingReport(study, `${c.system}，${c.seed} 第 ${c.from}–${c.from + c.deals - 1} 副${seconds ? `，${clock(seconds)}` : ''}`, categories)
+  const file = args.get('report') ?? resolve(DATA_DIR, `${name}.md`)
+  writeFileSync(file, report)
+  console.log(report)
+  console.error(`${records} records → ${file}`)
+  // --practice dir: this system's deals into dir/bidding.json and dir/competitive.json, the other system's kept
+  const practice = args.get('practice')
+  if (practice) {
+    const all: BiddingRecord[] = []
+    for await (const record of inRange()) all.push(record)
+    const sets = [
+      { file: resolve(practice, 'bidding.json'), categories: CONSTRUCTIVE as readonly BiddingCategory[] },
+      { file: resolve(practice, 'competitive.json'), categories: competing },
+    ]
+    for (const set of sets) {
+      if (!set.categories.some((cat) => categories.includes(cat))) continue
+      const kept = existsSync(set.file) ? (JSON.parse(readFileSync(set.file, 'utf8')) as PracticeDeal[]).filter((d) => d.system !== c.system) : []
+      const deals = practiceDeals(all, (board) => evalBoard(board, c.seed).hands, study, set.categories, 40, 5, 20, (e) => clubBook(c.system, e))
+      if (!kept.length && !deals.length) continue
+      writeFileSync(set.file, JSON.stringify([...kept, ...deals], null, 2) + '\n')
+      console.error(`${deals.length} practice deals → ${set.file}`)
+    }
+  }
+}
+
 async function main() {
   const [command, ...rest] = process.argv.slice(2)
   const args = readArgs(rest)
@@ -216,7 +277,7 @@ async function main() {
     console.log(USAGE)
     return
   }
-  const commands: Record<string, (args: Map<string, string>) => Promise<void>> = { bench, tables, leads, compare }
+  const commands: Record<string, (args: Map<string, string>) => Promise<void>> = { bench, tables, leads, compare, bidding: (a) => bidding(a), compete: (a) => bidding(a, true) }
   const run = commands[command]
   if (!run) throw new Error(`unknown command "${command}"`)
   await run(args)

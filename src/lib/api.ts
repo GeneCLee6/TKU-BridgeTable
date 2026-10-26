@@ -12,6 +12,7 @@ import type {
   Favorite,
   FavoritesPage,
   FavoriteTag,
+  HistoryDays,
   HistoryPage,
   Me,
   MemberChange,
@@ -41,6 +42,8 @@ export type MatchPlayAction =
   | { action: 'replace'; room: Room; seat: Seat; userId: string }
   | { action: 'sitin'; room: Room; seat: Seat }
 import type { FeaturedBoard, FeaturedInput } from '../../shared/featured.ts'
+import type { PracticeSettings, SavedPractice } from '../../shared/practice.ts'
+import type { PracticeSetInfo } from '../../shared/practice-sets/types.ts'
 
 /** HTTP calls to the Worker. The session lives in an HttpOnly cookie, so no token is handled here. */
 
@@ -87,6 +90,11 @@ export const api = {
   /** Replaces the member's own profile (AC-1.5); empty fields clear it */
   setProfile: (profile: Profile) =>
     request<{ user: Me }>('/api/account/profile', { method: 'PATCH', body: JSON.stringify(profile) }),
+  /** The member's own picture (e1-t34), already cropped and shrunk (`src/lib/avatarImage.ts`) */
+  uploadAvatar: (picture: Blob) =>
+    request<{ user: Me }>('/api/account/avatar', { method: 'PUT', body: picture, headers: { 'Content-Type': picture.type } }),
+  /** Back to the default avatar */
+  removeAvatar: () => request<{ user: Me }>('/api/account/avatar', { method: 'DELETE' }),
   /** Another member's profile card with their latest boards the viewer may see */
   member: (id: string) => request<{ member: MemberProfile }>(`/api/members/${encodeURIComponent(id)}`),
   /** One page of the conversation with another member, oldest first; `before` pages back (AC-1.7) */
@@ -100,11 +108,21 @@ export const api = {
   },
   /** One page of a history search (`shared/history-query.ts`) */
   searchHistory: (query: Partial<HistoryQuery>) => request<HistoryPage>(`/api/history/search?${historyQueryString(query)}`),
+  /** How many boards a history search finds per Taiwan date, newest first (the side panel, e3-t48) */
+  historyDays: (query: Partial<HistoryQuery>) => request<HistoryDays>(`/api/history/days?${historyQueryString(query)}`),
   record: (id: string) => request<{ record: BoardRecord }>(`/api/history/${encodeURIComponent(id)}`),
   /** Everyone's result on the same board of its challenge, if the member may see it (e4-t32) */
   traveller: (id: string) => request<{ traveller: Traveller | null }>(`/api/history/${encodeURIComponent(id)}/traveller`),
   /** Featured boards, newest first (e4-t30) */
   featured: () => request<{ featured: FeaturedBoard[] }>('/api/featured'),
+  /** The club's practice sets, without their boards (e10-t16) */
+  practiceSets: () => request<{ sets: PracticeSetInfo[] }>('/api/practice/sets'),
+  /** The member's saved practice settings (存成我的設定, e10-t16) */
+  practicePresets: () => request<{ presets: SavedPractice[] }>('/api/practice/presets'),
+  savePracticePreset: (name: string, settings: PracticeSettings) =>
+    post<{ presets: SavedPractice[] }>('/api/practice/presets', { name, settings }),
+  removePracticePreset: (id: string) =>
+    request<{ presets: SavedPractice[] }>(`/api/practice/presets/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   /** A board's feature, or null when it is not featured */
   featuredBoard: (id: string) => request<{ featured: FeaturedBoard | null }>(`/api/featured/${encodeURIComponent(id)}`),
   /** Features a board or edits its feature; needs the `boardCurate` permission */

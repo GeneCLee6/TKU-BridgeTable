@@ -148,7 +148,8 @@ describe('the invitation dialog', () => {
     expect(within(dialog).getByText('8 副 · 比賽分（MP） · TKB（2/1）')).toBeInTheDocument()
     expect(within(dialog).getByText(/^截止 .* · 還剩 2 天 23 小時$/)).toBeInTheDocument()
     expect(within(dialog).getByText('一起打的人：ben、cat')).toBeInTheDocument()
-    expect(invites()).toBe(1)
+    // The ring is a passive effect: it may run just after the dialog is on the page
+    await waitFor(() => expect(invites()).toBe(1))
 
     await userEvent.click(within(dialog).getByRole('button', { name: '接受' }))
     expect(mocks.api.answerChallenge).toHaveBeenCalledWith('c1', true)
@@ -186,7 +187,7 @@ describe('the invitation dialog', () => {
     mocks.club.notifications = bell(note('n1', 'challengeInvited', { challengeId: 'c1', username: 'ben' }))
     show()
     await screen.findByRole('alertdialog')
-    expect(invites()).toBe(1)
+    await waitFor(() => expect(invites()).toBe(1))
     // Another tab opening the same page
     render(tree('/'))
     await waitFor(() => expect(screen.getAllByRole('alertdialog')).toHaveLength(2))
@@ -259,7 +260,7 @@ describe('the invitation dialog', () => {
     show('/table/t1')
     const banner = await within(screen.getByTestId('header')).findByRole('button', { name: 'ben 邀請你參加挑戰 · 查看' })
     expect(screen.queryByRole('alertdialog')).toBeNull()
-    expect(invites()).toBe(1)
+    await waitFor(() => expect(invites()).toBe(1))
 
     await userEvent.click(banner)
     const dialog = screen.getByRole('alertdialog')

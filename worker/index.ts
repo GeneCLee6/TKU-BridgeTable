@@ -6,6 +6,7 @@ import { route } from './routing.ts'
 
 export { Club } from './club.ts'
 export { TableObject } from './table-object.ts'
+export { EventObject } from './event-object.ts'
 
 /**
  * API and the club's WebSocket go to the club's Durable Object, a table's WebSocket to that

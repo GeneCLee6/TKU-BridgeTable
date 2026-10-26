@@ -106,7 +106,26 @@ export interface Table {
    * saved before have none and keep the club's
    */
   robotKind?: RobotKind
+  /**
+   * Seat control (`e10-t15`, §4): the member who makes the calls for a seat instead of whoever sits
+   * there. The seat keeps its occupant (TKB at a bidding practice), who neither calls nor sees
+   * anything more for it; the controller sees that hand and bids for it. A seat not listed is its
+   * occupant's. General on purpose: a partner bidding later (`e10-t08`) and a teacher at a teaching
+   * table (`e10-t10`) are controllers too. Only a practice table sets it for now, and only for calls
+   */
+  controllers?: Partial<Record<Seat, string>>
 }
+
+/** Who makes the calls for a seat: its controller, else whoever sits there (a member or a robot) */
+export const actorOf = (table: Pick<Table, 'seats' | 'controllers'>, seat: Seat): string | null =>
+  table.controllers?.[seat] ?? table.seats[seat]
+
+/**
+ * The seats a member calls for (`actorOf`), in table order: their own seat unless someone else
+ * controls it, and every seat they control. They see each of these hands (`boardView`'s `acts`)
+ */
+export const seatsActedBy = (table: Pick<Table, 'seats' | 'controllers'>, userId: string): Seat[] =>
+  SEATS.filter((seat) => actorOf(table, seat) === userId)
 
 /** A member's request to join a table (`Table.requests`) */
 export interface TableRequest {
@@ -185,18 +204,19 @@ export function recordVisible(
 }
 
 /**
- * Another member's profile as anyone in the club may see it (AC-1.5): the id, the username and the
- * four profile fields, picked one by one so nothing else on the account (password hash, admin
+ * Another member's profile as anyone in the club may see it (AC-1.5): the id, the username, the
+ * avatar's version and the four profile fields, picked one by one so nothing else on the account (password hash, admin
  * flags, sign-in times, settings) can leak. `recent` must already be filtered by `recordVisible`
  */
 export function memberProfileView(
-  user: { id: string; username: string; profile?: Profile },
+  user: { id: string; username: string; avatar?: number; profile?: Profile },
   recent: BoardSummary[],
 ): MemberProfile {
   const { displayName, level, system, bio } = user.profile ?? {}
   return {
     id: user.id,
     username: user.username,
+    ...(user.avatar && { avatar: user.avatar }),
     profile: {
       ...(displayName && { displayName }),
       ...(level && { level }),
@@ -249,6 +269,11 @@ export function seatOccupants(
  * the engine reads a person's call as (`meaning` with `inferred`, e5-t22) is for everyone too:
  * it comes only from the public auction and the side's system, like a convention card.
  * `auctionSeat` is where the viewer bid from, if a declarer swap has moved them since.
+ * `acts` are the seats the viewer calls for (`seatsActedBy`, seat control): they see each of those
+ * hands as their own, and get `legalCalls` when it is the turn of any of them (for that seat:
+ * `turn`). Nobody else sees any more for it; a seat someone else controls is still the viewer's own
+ * to look at, never to call for. `shown` are seats the viewer may look at but not call for (顯示四家,
+ * `e10-t16`): the table gives it only to a practice table's own member, when they turned it on.
  * A challenge table's deal set (`Table.dealSource`) never goes out: only the board being played
  * is in `board`, and this function only ever sees that one.
  */
@@ -266,6 +291,13 @@ export function boardView(
     kibitz?: boolean
     /** The robots at the table, by seat: on the viewer's turn the bidding box hints come from one */
     robots?: Partial<Record<Seat, RobotKind>>
+    /** The seats the viewer calls for (seat control); just their own seat when left out */
+    acts?: Seat[]
+    /**
+     * Seats whose hands the viewer is shown without calling for them: 顯示四家 at a practice table,
+     * for its member alone (`e10-t16`). Nothing else changes: no bidding box, no hints for them
+     */
+    shown?: Seat[]
   } = {},
 ): BoardView {
   const finished = board.phase === 'finished'
@@ -274,10 +306,13 @@ export function boardView(
   const declarer = board.contract?.declarer
   const claimed = board.claimed ?? []
   const defender = viewer !== null && viewer !== declarer && viewer !== dummy
+  const acts = viewer === null ? [] : (extras.acts ?? [viewer])
   const canSee = (seat: Seat) =>
     finished ||
     (viewer === null && extras.kibitz !== false) ||
     seat === viewer ||
+    acts.includes(seat) ||
+    (viewer !== null && !!extras.shown?.includes(seat)) ||
     (dummyExposed && seat === dummy) ||
     (dummyExposed && viewer === dummy && seat === declarer) ||
     (claimed.includes(seat) && seat !== declarer) ||
@@ -291,14 +326,17 @@ export function boardView(
     if (canSee(seat)) hands[seat] = cards
   }
 
+  // A partner's alert is hidden, unless the viewer made that call (they bid for both hands)
   const auction = board.auction.map((entry) => {
-    if (entry.alert === undefined || entry.robot || finished || viewer === null || viewer !== partnerOf(entry.seat))
-      return entry
+    if (entry.alert === undefined || entry.robot || finished || viewer === null || acts.includes(entry.seat)) return entry
+    if (viewer !== partnerOf(entry.seat) && !acts.includes(partnerOf(entry.seat))) return entry
     const { alert: _hidden, ...rest } = entry
     return rest
   })
 
   const turn = turnOf(board)
+  // The seat the viewer calls for now, if it is the turn of one of theirs
+  const calling = board.phase === 'auction' && turn && acts.includes(turn) ? turn : null
   const view: BoardView = {
     boardNo: board.boardNo,
     dealer: board.dealer,
@@ -316,11 +354,13 @@ export function boardView(
       viewer && turn && !board.claim && board.phase === 'play' && controllerOf(board, turn) === viewer
         ? legalCards(board, turn)
         : [],
-    legalCalls:
-      viewer && board.phase === 'auction' && turn === viewer
-        ? [...legalCalls(board.auction, board.dealer)]
-        : [],
-    canUndo: !!viewer && extras.undoAllowed !== false && !extras.undo && canUndoFor(board, viewer, extras.auctionSeat ?? viewer),
+    legalCalls: calling ? [...legalCalls(board.auction, board.dealer)] : [],
+    canUndo:
+      !!viewer &&
+      extras.undoAllowed !== false &&
+      !extras.undo &&
+      (canUndoFor(board, viewer, extras.auctionSeat ?? viewer) ||
+        (board.phase === 'auction' && acts.some((seat) => seat !== viewer && canUndoFor(board, seat)))),
     canClaim: !!viewer && board.phase === 'play' && viewer !== dummy && !board.claim,
   }
 
@@ -331,13 +371,16 @@ export function boardView(
   if (extras.rejectedClaim && board.phase === 'play') view.rejectedClaim = extras.rejectedClaim
   if (board.result) view.result = board.result
   if (extras.recordId && finished) view.recordId = extras.recordId
-  if (view.legalCalls.length && viewer) {
-    const hints = callMeaningsFor(board, viewer, extras.robots ?? {})
+  if (calling) {
+    // A robot whose seat the viewer bids for does not read the calls: it is the viewer's hand
+    const robots = Object.fromEntries(Object.entries(extras.robots ?? {}).filter(([seat]) => !acts.includes(seat as Seat)))
+    const hints = callMeaningsFor(board, calling, robots)
     if (hints) view.callMeanings = hints
   }
-  // The hint card (`e10-t06`): the club's book, so not when the viewer's partner is TKB playing 2/1
-  if (!viewer || extras.robots?.[partnerOf(viewer)] !== 'gib')
-    view.bookTopics = bookTopics(ROBOT_SYSTEMS.tku, board.auction, board.dealer, board.vul, sideOf(viewer ?? 'S'), board.phase !== 'auction', explained)
+  // The hint card (`e10-t06`): the club's book, so not when the partner of the seat bidding is TKB playing 2/1
+  const bidder = calling ?? viewer
+  if (!bidder || extras.robots?.[partnerOf(bidder)] !== 'gib')
+    view.bookTopics = bookTopics(ROBOT_SYSTEMS.tku, board.auction, board.dealer, board.vul, sideOf(bidder ?? 'S'), board.phase !== 'auction', explained)
   return view
 }
 
@@ -588,10 +631,42 @@ export function challengeTraveller(
 /**
  * What a practice table's player sees of its settings (§5.11): only their own choices, so nothing
  * of the deal leaves with it. The hands themselves follow the usual rules (`boardView`); a Just
- * Declare board's auction was made by robots and is public like any other
+ * Declare board's auction was made by robots and is public like any other. A deal set's boards
+ * (`problems`, `e10-t16`) never leave: only the place of the one on the table, its category and
+ * title, and its note once the auction is over (what it teaches gives the bidding away). A bidding
+ * practice's review (`review`, `e10-t07`: TKB's call at each step, TKB's own auction) only once the
+ * board is finished, when all four hands are open to everyone at the table: it was worked out
+ * from the hands, so sent any earlier it would tell what the others hold
  */
-export function practiceView(table: Pick<Table, 'mode' | 'modeState'>): { practice?: TablePractice } {
+export function practiceView(table: Pick<Table, 'mode' | 'modeState' | 'board'>): { practice?: TablePractice } {
   if (table.mode !== 'practice') return {}
-  const { deal, conditions, robotKind, justDeclare, dealt } = table.modeState as PracticeTableState
-  return { practice: { deal, ...(conditions && { conditions }), robotKind, justDeclare, dealt } }
+  const { deal, conditions, robotKind, justDeclare, biddingOnly, seats, set, showHands, dealt, problems, review } =
+    table.modeState as PracticeTableState
+  const index = problems?.length && dealt > 0 ? (dealt - 1) % problems.length : null
+  const problem = index === null ? null : problems![index]
+  const bid = !!table.board && table.board.phase !== 'auction'
+  const reviewed = biddingOnly && table.board?.phase === 'finished' && review
+  return {
+    practice: {
+      deal,
+      ...(conditions && { conditions }),
+      robotKind,
+      justDeclare,
+      ...(biddingOnly && { biddingOnly }),
+      ...(seats && { seats }),
+      ...(set && { set }),
+      ...(showHands && { showHands }),
+      dealt,
+      ...(problem && {
+        problem: {
+          seq: index! + 1,
+          count: problems!.length,
+          ...(problem.category && { category: problem.category }),
+          ...(problem.title && { title: problem.title }),
+          ...(bid && problem.note && { note: problem.note }),
+        },
+      }),
+      ...(reviewed && { review }),
+    },
+  }
 }

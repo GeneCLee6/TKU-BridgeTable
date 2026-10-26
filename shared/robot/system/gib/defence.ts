@@ -372,18 +372,20 @@ for (const x of UP) {
     if (above(y, x)) books.push({ after: `(1${x}) P (1${y})`, rules: sandwich(x, y), more: true })
   }
 }
+// Over a preempt the pass-out seat acts as the direct seat does (gib-2over1.md §7 has no separate
+// balancing table; without these books TKB passed there even with 16+, e5-t67)
 for (const x of ['D', 'H', 'S'] as Suit[])
   books.push(
-    { after: `(2${x})`, rules: overWeakTwo(x), more: true },
-    { after: `(2${x}) X (P)`, rules: advanceWeakTwoDouble(x), more: true },
-    { after: `(2${x}) X (P) 2N (P)`, rules: [{ call: '3C', shows: { notes: [{ key: 'completes' }], artificial: true } }], more: true },
-    { after: `(2${x}) X (P) 2N (P) 3C (P)`, rules: afterWeakTwoRelay(x), more: true },
+    { after: [`(2${x})`, `(2${x}) P (P)`], rules: overWeakTwo(x), more: true },
+    { after: [`(2${x}) X (P)`, `(2${x}) P (P) X (P)`], rules: advanceWeakTwoDouble(x), more: true },
+    { after: [`(2${x}) X (P) 2N (P)`, `(2${x}) P (P) X (P) 2N (P)`], rules: [{ call: '3C', shows: { notes: [{ key: 'completes' }], artificial: true } }], more: true },
+    { after: [`(2${x}) X (P) 2N (P) 3C (P)`, `(2${x}) P (P) X (P) 2N (P) 3C (P)`], rules: afterWeakTwoRelay(x), more: true },
   )
 for (const x of UP) {
-  books.push({ after: `(3${x})`, rules: overPreempt(x, 3), more: true })
-  if (isMinor(x)) books.push({ after: `(4${x})`, rules: overPreempt(x, 4), more: true })
+  books.push({ after: [`(3${x})`, `(3${x}) P (P)`], rules: overPreempt(x, 3), more: true })
+  if (isMinor(x)) books.push({ after: [`(4${x})`, `(4${x}) P (P)`], rules: overPreempt(x, 4), more: true })
 }
-for (const x of MAJORS) books.push({ after: `(4${x})`, rules: overPreempt(x, 4), more: true })
+for (const x of MAJORS) books.push({ after: [`(4${x})`, `(4${x}) P (P)`], rules: overPreempt(x, 4), more: true })
 books.push({ after: '(1N)', rules: cappelletti(false), more: true }, { after: '(1N) P (P)', rules: cappelletti(true), more: true })
 // Advancing Cappelletti, from the direct or the balancing seat
 for (const start of ['(1N)', '(1N) P (P)'])

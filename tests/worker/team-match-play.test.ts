@@ -8,6 +8,7 @@ import { ClubService, type Connections, type ScheduleKind } from '../../worker/s
 import type { MemoryStore } from '../../worker/store.ts'
 import { HELD_BACK } from '../../worker/team-mode.ts'
 import { memoryStore } from './sqlite.ts'
+import { clubService } from './event-mode.ts'
 
 /**
  * A team match being played (F4, ARCHITECTURE.md §5.8): starting it (e8-t07), the two rooms each at
@@ -69,7 +70,7 @@ beforeEach(async () => {
   connections = new FakeConnections()
   queue = []
   time = 1_000_000
-  club = new ClubService(store, connections, { maxUsers: 40, now: () => time, schedule: (run, ms, kind) => queue.push({ run, ms, kind }) })
+  club = clubService(store, connections, { maxUsers: 40, now: () => time, schedule: (run, ms, kind) => queue.push({ run, ms, kind }) })
   await club.load()
   const founder = await club.register('boss', 'secret1', '')
   boss = 'user' in founder ? founder.user.id : ''

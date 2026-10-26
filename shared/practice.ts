@@ -1,7 +1,7 @@
 import type { RandomInt } from './board.ts'
-import { SEATS, SUITS } from './cards.ts'
+import { isCard, isSeat, SEATS, sortHand, SUITS, type Card, type Seat } from './cards.ts'
 import { DEAL_PRESET_IDS, DEAL_PRESETS, type DealPreset } from './deal-presets.ts'
-import { conditionsProblem, type DealConditions, type Range, type SeatConditions } from './dealer.ts'
+import { conditionsProblem, isShape, type DealConditions, type Range, type SeatConditions } from './dealer.ts'
 import { isRobotKind, type RobotKind } from './protocol.ts'
 
 /**
@@ -11,9 +11,26 @@ import { isRobotKind, type RobotKind } from './protocol.ts'
  * `parsePracticeSettings` before it opens the table.
  */
 
-/** Where the boards come from: any deal, one of the club's presets (`deal-presets.ts`), or the member's own conditions */
-export type PracticeDeal = 'random' | DealPreset | 'custom'
-export const PRACTICE_DEALS: readonly PracticeDeal[] = ['random', ...DEAL_PRESET_IDS, 'custom']
+/**
+ * Where the boards come from: any deal, one of the club's presets (`deal-presets.ts`), the member's
+ * own conditions, or a deal set (`set`, `e10-t16`)
+ */
+export type PracticeDeal = 'random' | DealPreset | 'custom' | 'set'
+export const PRACTICE_DEALS: readonly PracticeDeal[] = ['random', ...DEAL_PRESET_IDS, 'custom', 'set']
+
+/**
+ * A deal set to practise (`e10-t16`), its boards one after the other: one of the club's practice
+ * sets (`shared/practice-sets/`, by id), or boards of the member's favourites or of the featured
+ * boards, by record id. The server deals them (only boards the member may see that are already
+ * public, §4) and keeps the hands to itself
+ */
+export type PracticeSetChoice =
+  | { source: 'practice'; id: string }
+  | { source: 'favorites' | 'featured'; ids: string[] }
+
+export const PRACTICE_SET_SOURCES = ['practice', 'favorites', 'featured'] as const
+/** Boards a set of favourites or featured boards may have */
+export const PRACTICE_SET_BOARDS_MAX = 50
 
 export interface PracticeSettings {
   deal: PracticeDeal
@@ -23,10 +40,49 @@ export interface PracticeSettings {
   robotKind: RobotKind
   /** Just Declare (`e10-t05`): the robots bid every board and only those North-South declares are kept */
   justDeclare: boolean
+  /**
+   * The bidding practice (`e10-t15`): the end of the auction ends the board. The four hands are laid
+   * open with the final contract, nothing is played and nothing is recorded; the member deals the
+   * next board or bids this one again (`rebid`). Old tables have none: false
+   */
+  biddingOnly?: boolean
+  /**
+   * The seats the member bids for (`e10-t15`): South, where they sit, and any others they chose;
+   * TKB bids the rest. Seats besides South only with `biddingOnly` (nobody plays several hands yet).
+   * Kept on the table as `Table.controllers` (`worker/views.ts`), the general seat control. Old
+   * tables have none: South alone
+   */
+  seats?: Seat[]
+  /** The deal set, with `deal: 'set'` only (`e10-t16`) */
+  set?: PracticeSetChoice
+  /**
+   * 顯示四家 (`e10-t16`): the member sees all four hands while bidding and playing; they can turn it
+   * on and off at the table (`showHands`). Only them: a watcher sees what any watcher does. Old
+   * tables have none: hidden
+   */
+  showHands?: boolean
 }
+
+/** A member's saved practice settings (存成我的設定, `e10-t16`), named, at most PRACTICE_PRESETS_MAX */
+export interface SavedPractice {
+  id: string
+  name: string
+  settings: PracticeSettings
+  savedAt: number
+}
+
+export const PRACTICE_PRESETS_MAX = 20
+export const PRACTICE_PRESET_NAME_MAX = 30
 
 /** A new practice table's settings; the dialog starts the robots in the member's system (`defaultRobotKind`) */
 export const DEFAULT_PRACTICE_SETTINGS: PracticeSettings = { deal: 'random', robotKind: 'gib', justDeclare: false }
+
+/** Where the member sits at a practice table */
+export const PRACTICE_SEAT: Seat = 'S'
+
+/** The seats besides South the member bids for at a practice table: TKB sits there, but the member bids for it */
+export const controlledSeats = (settings: Pick<PracticeSettings, 'seats'>): Seat[] =>
+  (settings.seats ?? []).filter((seat) => seat !== PRACTICE_SEAT)
 
 /**
  * How many tries a practice deal gets (`dealer.ts` attempts), so a deal never takes long on the
@@ -53,7 +109,8 @@ export function quickRandom(random: RandomInt): RandomInt {
 
 /** The conditions the boards are dealt to, as a list of alternatives; null for any deal */
 export function practiceConditions(settings: Pick<PracticeSettings, 'deal' | 'conditions'>): readonly DealConditions[] | null {
-  if (settings.deal === 'random') return null
+  // A deal set's boards are its own (`worker/modes.ts`)
+  if (settings.deal === 'random' || settings.deal === 'set') return null
   if (settings.deal === 'custom') return settings.conditions ? [settings.conditions] : null
   return DEAL_PRESETS[settings.deal]
 }
@@ -69,12 +126,23 @@ function parseRange(value: unknown): Range | null {
 }
 
 function parseSeat(value: unknown): SeatConditions | null {
-  if (!isObject(value) || !onlyKeys(value, ['hcp', 'lengths', 'balanced'])) return null
-  const seat: { hcp?: Range; lengths?: SeatConditions['lengths']; balanced?: boolean } = {}
-  if (value.hcp !== undefined) {
-    const hcp = parseRange(value.hcp)
-    if (!hcp) return null
-    seat.hcp = hcp
+  if (!isObject(value) || !onlyKeys(value, ['hcp', 'lengths', 'balanced', 'shapes', 'longest', 'shortest', 'hand'])) return null
+  const seat: { -readonly [K in keyof SeatConditions]: SeatConditions[K] } = {}
+  for (const key of ['hcp', 'longest', 'shortest'] as const) {
+    if (value[key] === undefined) continue
+    const range = parseRange(value[key])
+    if (!range) return null
+    seat[key] = range
+  }
+  if (value.shapes !== undefined) {
+    const shapes = value.shapes
+    if (!Array.isArray(shapes) || !shapes.length || shapes.length > 39 || !shapes.every(isShape)) return null
+    seat.shapes = [...new Set(shapes)]
+  }
+  if (value.hand !== undefined) {
+    const hand = value.hand
+    if (!Array.isArray(hand) || hand.length !== 13 || !hand.every(isCard) || new Set(hand).size !== 13) return null
+    seat.hand = sortHand(hand as Card[])
   }
   if (value.lengths !== undefined) {
     const lengths = value.lengths
@@ -95,8 +163,12 @@ function parseSeat(value: unknown): SeatConditions | null {
   return seat
 }
 
-/** A member's own deal conditions as sent from the browser, or null when they are not well formed or cannot be met */
-export function parseConditions(value: unknown): DealConditions | null {
+/**
+ * A member's own deal conditions as sent from the browser: the conditions, or `problem` when they
+ * are well formed but cannot be met (`conditionsProblem`: where they contradict each other), or
+ * null when they are not well formed
+ */
+export function parseConditions(value: unknown): { conditions: DealConditions } | { problem: string } | null {
   if (!isObject(value) || !onlyKeys(value, ['seats', 'sides'])) return null
   const conditions: { seats?: DealConditions['seats']; sides?: DealConditions['sides'] } = {}
   if (value.seats !== undefined) {
@@ -125,31 +197,84 @@ export function parseConditions(value: unknown): DealConditions | null {
     }
     conditions.sides = parsed
   }
-  return conditionsProblem(conditions) === null ? conditions : null
+  const problem = conditionsProblem(conditions)
+  return problem === null ? { conditions } : { problem }
+}
+
+const SET_ID = /^[\w-]{1,40}$/
+
+/** A deal set as sent from the browser, or null; whether the set or the boards exist is the server's to check */
+function parseSetChoice(value: unknown): PracticeSetChoice | null {
+  if (!isObject(value)) return null
+  if (value.source === 'practice') {
+    if (!onlyKeys(value, ['source', 'id']) || typeof value.id !== 'string' || !SET_ID.test(value.id)) return null
+    return { source: 'practice', id: value.id }
+  }
+  if (value.source !== 'favorites' && value.source !== 'featured') return null
+  const ids = value.ids
+  if (!onlyKeys(value, ['source', 'ids']) || !Array.isArray(ids) || ids.length === 0 || ids.length > PRACTICE_SET_BOARDS_MAX)
+    return null
+  if (!ids.every((id) => typeof id === 'string' && SET_ID.test(id)) || new Set(ids).size !== ids.length) return null
+  return { source: value.source, ids: [...(ids as string[])] }
 }
 
 /**
- * The settings of a new practice table, or the field that is wrong; `robotKind` defaults to `kind`
- * (the member's, `defaultRobotKind`: the club's system only with `tkuSystem`)
+ * The settings of a new practice table, or the field that is wrong (with `problem`, where the
+ * conditions contradict each other); `robotKind` defaults to `kind` (the member's,
+ * `defaultRobotKind`: the club's system only with `tkuSystem`)
  */
 export function parsePracticeSettings(
   value: unknown,
   kind: RobotKind = 'gib',
-): { settings: PracticeSettings } | { field: string } {
-  if (!isObject(value) || !onlyKeys(value, ['deal', 'conditions', 'robotKind', 'justDeclare'])) return { field: 'settings' }
+): { settings: PracticeSettings } | { field: string; problem?: string } {
+  const keys = ['deal', 'conditions', 'robotKind', 'justDeclare', 'biddingOnly', 'seats', 'set', 'showHands']
+  if (!isObject(value) || !onlyKeys(value, keys)) return { field: 'settings' }
   const deal = value.deal ?? 'random'
   if (!PRACTICE_DEALS.includes(deal as PracticeDeal)) return { field: 'deal' }
   const robotKind = value.robotKind ?? kind
   if (!isRobotKind(robotKind)) return { field: 'robotKind' }
   const justDeclare = value.justDeclare ?? false
-  if (typeof justDeclare !== 'boolean') return { field: 'justDeclare' }
-  if (deal !== 'custom') {
-    if (value.conditions !== undefined) return { field: 'conditions' }
-    return { settings: { deal: deal as PracticeDeal, robotKind, justDeclare } }
+  // A deal set's boards are dealt as they are: none could be dealt again for North-South to declare
+  if (typeof justDeclare !== 'boolean' || (justDeclare && deal === 'set')) return { field: 'justDeclare' }
+  // The robots bid a Just Declare board for everyone: a bidding practice would have nothing left to bid
+  const biddingOnly = value.biddingOnly ?? false
+  if (typeof biddingOnly !== 'boolean' || (biddingOnly && justDeclare)) return { field: 'biddingOnly' }
+  const seats = parseSeats(value.seats, biddingOnly)
+  if (!seats) return { field: 'seats' }
+  const showHands = value.showHands ?? false
+  if (typeof showHands !== 'boolean') return { field: 'showHands' }
+  // Only what was chosen is kept, so a plain practice table's settings stay as they were
+  const extra = { ...(biddingOnly && { biddingOnly }), ...(seats.length > 1 && { seats }), ...(showHands && { showHands }) }
+  if (deal !== 'custom' && value.conditions !== undefined) return { field: 'conditions' }
+  if (deal !== 'set' && value.set !== undefined) return { field: 'set' }
+  if (deal === 'set') {
+    const set = parseSetChoice(value.set)
+    if (!set) return { field: 'set' }
+    return { settings: { deal, set, robotKind, justDeclare, ...extra } }
   }
-  const conditions = parseConditions(value.conditions)
-  if (!conditions) return { field: 'conditions' }
-  return { settings: { deal, conditions, robotKind, justDeclare } }
+  if (deal !== 'custom') return { settings: { deal: deal as PracticeDeal, robotKind, justDeclare, ...extra } }
+  const parsed = parseConditions(value.conditions)
+  if (!parsed) return { field: 'conditions' }
+  if ('problem' in parsed) return { field: 'conditions', problem: parsed.problem }
+  return { settings: { deal, conditions: parsed.conditions, robotKind, justDeclare, ...extra } }
+}
+
+/** A name for saved settings (存成我的設定): trimmed, 1–PRACTICE_PRESET_NAME_MAX characters; null if not */
+export function parsePresetName(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const name = value.trim().replace(/\s+/g, ' ')
+  return name.length > 0 && [...name].length <= PRACTICE_PRESET_NAME_MAX ? name : null
+}
+
+/**
+ * The seats the member bids for, in table order, or null: each seat once, South among them, and
+ * others only at a bidding practice
+ */
+function parseSeats(value: unknown, biddingOnly: boolean): Seat[] | null {
+  if (value === undefined) return [PRACTICE_SEAT]
+  if (!Array.isArray(value) || !value.every(isSeat) || new Set(value).size !== value.length) return null
+  if (!value.includes(PRACTICE_SEAT) || (value.length > 1 && !biddingOnly)) return null
+  return SEATS.filter((seat) => value.includes(seat))
 }
 
 /**

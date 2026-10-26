@@ -9,6 +9,7 @@ import { openingLead } from '../../shared/traveller.ts'
 import { ClubService, type Connections, type ScheduleKind } from '../../worker/service.ts'
 import type { MemoryStore } from '../../worker/store.ts'
 import { memoryStore } from './sqlite.ts'
+import { clubService } from './event-mode.ts'
 
 /** Best Hand, Just Declare, rematch and 「用這副牌挑戰」 through the server (C8) */
 
@@ -67,7 +68,7 @@ const noting: RobotBrain = {
 }
 
 const newClub = () =>
-  new ClubService(store, connections, {
+  clubService(store, connections, {
     maxUsers: 40,
     now: () => time,
     schedule: (run, ms, kind) => queue.push({ run, ms, kind }),

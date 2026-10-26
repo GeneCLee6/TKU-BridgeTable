@@ -1,7 +1,7 @@
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { ReactNode } from 'react'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { bookTopics } from '../../shared/book-topics.ts'
 import type { AuctionCall } from '../../shared/auction.ts'
 import { ROBOT_SYSTEMS } from '../../shared/robot/robots.ts'
@@ -9,9 +9,15 @@ import { BookHints } from '../../src/components/BookHints.tsx'
 import { PracticeBanner } from '../../src/components/PracticeBanner.tsx'
 import { PracticeDialog } from '../../src/components/PracticeDialog.tsx'
 import { PreferencesProvider } from '../../src/state/PreferencesContext.tsx'
+import { api } from '../../src/lib/api.ts'
 import { ROBOT_KINDS, type BoardView } from '../../shared/protocol.ts'
 
 const wrap = (ui: ReactNode) => render(<PreferencesProvider>{ui}</PreferencesProvider>)
+
+// The dialog lists the member's saved settings (e10-t16)
+beforeEach(() => {
+  vi.spyOn(api, 'practicePresets').mockResolvedValue({ presets: [] })
+})
 
 describe('PracticeDialog (e10-t04)', () => {
   it('opens with any deal and TKB in the club’s system, and sends a preset with the robots and Just Declare', async () => {
@@ -45,13 +51,15 @@ describe('PracticeDialog (e10-t04)', () => {
     const onSubmit = vi.fn()
     wrap(<PracticeDialog onSubmit={onSubmit} onClose={() => {}} robotKinds={ROBOT_KINDS} />)
     await userEvent.click(screen.getByRole('radio', { name: /自訂條件/ }))
-    const southTo = screen.getAllByRole('spinbutton', { name: '點力 最多' })[0]
+    // South's tab first
+    const southTo = screen.getByRole('spinbutton', { name: '點力 最多' })
     await userEvent.clear(southTo)
     await userEvent.type(southTo, '14')
     const spadesFrom = screen.getByRole('spinbutton', { name: '♠ 張數 最少' })
     await userEvent.clear(spadesFrom)
     await userEvent.type(spadesFrom, '5')
-    await userEvent.click(screen.getAllByRole('checkbox', { name: '平均牌型' })[1])
+    await userEvent.click(screen.getByRole('tab', { name: /北/ }))
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: '牌型' }), '平均牌型')
     await userEvent.click(screen.getByRole('button', { name: '開始練習' }))
     expect(onSubmit).toHaveBeenCalledWith({
       deal: 'custom',

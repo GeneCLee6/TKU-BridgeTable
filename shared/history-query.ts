@@ -73,7 +73,8 @@ const DATE = /^\d{4}-\d{2}-\d{2}$/
 const ID = /^[\w:-]{1,64}$/
 const MODE = /^[a-z]{1,16}$/
 /** Taiwan has no daylight saving time: midnight there is 16:00 UTC the day before */
-const TAIWAN_OFFSET_MS = 8 * 3600_000
+export const TAIWAN_OFFSET_MS = 8 * 3600_000
+export const DAY_MS = 24 * 3600_000
 
 const isDate = (value: string) => DATE.test(value) && !Number.isNaN(Date.parse(`${value}T00:00:00Z`))
 
@@ -83,7 +84,7 @@ export function taiwanDayStart(date: string): number {
 }
 
 /** When a Taiwan date ends: the start of the next day */
-export const taiwanDayEnd = (date: string) => taiwanDayStart(date) + 24 * 3600_000
+export const taiwanDayEnd = (date: string) => taiwanDayStart(date) + DAY_MS
 
 function oneOf<T extends string>(list: readonly T[]) {
   return (value: string) => (list.includes(value as T) ? (value as T) : undefined)

@@ -5,8 +5,9 @@ import type { Seat } from '../../shared/cards.ts'
 import type { BoardState } from '../../shared/game.ts'
 import { DEFAULT_HISTORY_QUERY, taiwanDayStart, type HistoryQuery } from '../../shared/history-query.ts'
 import { summarize, type BoardRecord } from '../../shared/protocol.ts'
-import { createHistoryIndex, indexRecord, listQuery, searchBoards } from '../../worker/history-index.ts'
+import { createHistoryIndex, indexRecord, listQuery, searchBoards, searchDays } from '../../worker/history-index.ts'
 import {
+  daysReplica,
   REPLICA_BATCH,
   ReplicaSync,
   RETRY_MS,
@@ -127,6 +128,7 @@ describe('filling the D1 copy', () => {
     const replica = sync()
     await replica.load(true)
     expect(await searchReplica(d1, listQuery(true, 1, 20), 'amy', NOW)).toBeNull()
+    expect(await daysReplica(d1, listQuery(true, 1, 20), 'amy', NOW)).toBeNull()
     // Not complete until the last step: the Worker keeps asking the club
     await hand.next()
     await hand.next()
@@ -168,6 +170,15 @@ describe('filling the D1 copy', () => {
     const has = async (viewer: string) => (await searchReplica(d1, listQuery(true, 1, 100), viewer, NOW))!.boards.some((b) => b.id === kept)
     expect(await has('amy')).toBe(true)
     expect(await has('dan')).toBe(false)
+    // Boards per day (e3-t48): the same counts from either side, the held board only for its players
+    for (const viewer of ['amy', 'dan'])
+      for (const q of [{}, { scope: 'all' as const }, { scope: 'all' as const, table: 2 }]) {
+        const query = { ...DEFAULT_HISTORY_QUERY, ...q }
+        expect(await daysReplica(d1, query, viewer, NOW)).toEqual(searchDays(store.sql, query, viewer, NOW))
+      }
+    const total = async (viewer: string) =>
+      (await daysReplica(d1, listQuery(true, 1, 20), viewer, NOW))!.reduce((sum, day) => sum + day.count, 0)
+    expect(await total('amy')).toBe((await total('dan')) + 1)
   })
 
   it('carries on where it stopped after the club is evicted, and copies what was written meanwhile', async () => {

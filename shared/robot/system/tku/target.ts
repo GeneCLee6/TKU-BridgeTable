@@ -81,9 +81,12 @@ function compete(h: Hand, ctx: Ctx, combined: number, fits: Suit[]): Call {
   )
     return 'X'
   const call = best ? cheapest(ctx, best) : null
+  if (call && levelOf(call) <= Math.min(total - 6, 4)) return call
+  // 合作性賭倍（賭倍性叫品「處罰意味較濃」，判斷「處罰的時機」）: they bid to the four level or higher
+  // over our side's strength; double rather than bid on (e5-t67)
+  if (levelOf(last.call) >= 4 && combined >= 23 && ctx.legal.has('X')) return 'X'
   if (!call) return 'P'
   const level = levelOf(call)
-  if (level <= Math.min(total - 6, 4)) return call
   // A sacrifice over their game, when they have most of the points
   const already = ctx.turns.some((t) => t.ours && isBid(t.call) && levelOf(t.call) >= 4)
   if (!isGame(last.call) || combined > 20 || already || level > 5 || ctx.weVul) return 'P'

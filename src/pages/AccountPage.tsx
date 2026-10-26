@@ -1,11 +1,12 @@
 import { Volume2 } from 'lucide-react'
-import { useId, useState, type FormEvent } from 'react'
+import { useId, useRef, useState, type ChangeEvent, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import styled from 'styled-components'
 import { LANGS } from '../../shared/messages.ts'
 import { PROFILE_LEVELS, PROFILE_LIMITS, type Profile, type ProfileLevel } from '../../shared/profile.ts'
-import { LIMITS } from '../../shared/protocol.ts'
+import { LIMITS, type Me } from '../../shared/protocol.ts'
 import { Avatar } from '../components/Avatar.tsx'
+import { AvatarCropper } from '../components/AvatarCropper.tsx'
 import { PasswordInput } from '../components/PasswordInput.tsx'
 import { useToast } from '../components/Toast.tsx'
 import {
@@ -27,6 +28,7 @@ import {
   Textarea,
 } from '../components/ui.tsx'
 import { api, ApiError } from '../lib/api.ts'
+import { AVATAR_INPUT_TYPES } from '../lib/avatarImage.ts'
 import { isAppleMobile, isStandalone, useInstallOffer } from '../lib/pwa.ts'
 import { SOUND_STYLES, SOUND_VOLUMES } from '../lib/sound/events.ts'
 import { preview } from '../lib/sound/player.ts'
@@ -58,6 +60,72 @@ const Who = styled.div`
 
   & a { color: ${({ theme }) => theme.colors.primary}; font-size: 14px; font-weight: 600; }
 `
+
+const AvatarButtons = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 6px;
+`
+
+/**
+ * 上傳頭像 (e1-t34): pick a picture, crop it in `AvatarCropper`, or go back to the default avatar.
+ * Inside the profile form, so every button here is `type="button"`
+ */
+function AvatarControls({ user }: { user: Me }) {
+  const { t, message } = usePreferences()
+  const { refresh } = useAuth()
+  const toast = useToast()
+  const input = useRef<HTMLInputElement>(null)
+  const [file, setFile] = useState<File | null>(null)
+  const [removing, setRemoving] = useState(false)
+
+  const choose = (e: ChangeEvent<HTMLInputElement>) => {
+    const picked = e.target.files?.[0]
+    // The same file can be picked again after a cancel
+    e.target.value = ''
+    if (!picked) return
+    if (!(AVATAR_INPUT_TYPES as readonly string[]).includes(picked.type)) return toast.error(message('avatarBadFormat', {}, ''))
+    setFile(picked)
+  }
+
+  const saved = async (_user: Me) => {
+    setFile(null)
+    await refresh()
+    toast.success(t.avatarSaved)
+  }
+
+  const remove = async () => {
+    setRemoving(true)
+    try {
+      await api.removeAvatar()
+      await refresh()
+      toast.success(t.avatarRemoved)
+    } catch (err) {
+      toast.error(err instanceof ApiError && err.code ? message(err.code, err.params, err.message) : t.genericError)
+    } finally {
+      setRemoving(false)
+    }
+  }
+
+  return (
+    <>
+      <AvatarButtons>
+        <Button type="button" $size="sm" onClick={() => input.current?.click()}>
+          {user.avatar ? t.avatarChange : t.avatarUpload}
+        </Button>
+        {!!user.avatar && (
+          <Button type="button" $size="sm" $variant="ghost" $busy={removing} disabled={removing} onClick={() => void remove()}>
+            {t.avatarRemove}
+          </Button>
+        )}
+        <input ref={input} type="file" accept={AVATAR_INPUT_TYPES.join(',')} hidden aria-label={t.avatarUpload} onChange={choose} />
+      </AvatarButtons>
+      <FieldHint>{t.avatarHint}</FieldHint>
+      {file && <AvatarCropper file={file} onClose={() => setFile(null)} onSaved={(u) => void saved(u)} />}
+    </>
+  )
+}
 
 const LabelRow = styled.div`
   display: flex;
@@ -218,10 +286,11 @@ function ProfileForm() {
       <Form as="div">
         {user && (
           <Who>
-            <Avatar id={user.id} name={value.displayName || user.username} size={48} />
+            <Avatar id={user.id} name={value.displayName || user.username} size={64} avatar={user.avatar} />
             <div>
               <Muted>{t.profileIntro}</Muted>
               <Link to={`/members/${user.id}`}>{t.fullProfile}</Link>
+              <AvatarControls user={user} />
             </div>
           </Who>
         )}
