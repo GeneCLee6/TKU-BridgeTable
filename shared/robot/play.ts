@@ -3,7 +3,7 @@ import { nextSeat, partnerOf, rankOf, rankValue, sameSide, SEATS, SUITS, suitOf,
 import { legalCards, remainingCards, tricksOf, type BoardState, type PlayedCard } from '../game.ts'
 import type { RobotKind } from '../protocol.ts'
 import { declarerLead, exitLead, holdUp } from './declarer.ts'
-import { coverLastHonour, defenceLead, dummyOverruffs, holdUpAgainstDummy, secondHand, thirdHand } from './defence.ts'
+import { cashOut, coverLastHonour, defenceLead, dummyOverruffs, holdUpAgainstDummy, raceSuit, secondHand, thirdHand } from './defence.ts'
 import { suitCards } from './hand.ts'
 import { clubLeadCard, sequenceLead } from './lead-card.ts'
 import { byRank, honours, value, View } from './view.ts'
@@ -124,9 +124,13 @@ function lead(state: BoardState, seat: Seat, view: View, legal: Card[], trump: S
     const exit = exitLead(view, hand, trump, ruffed, (s) => opponents.some((o) => view.reading.bid(o, s)))
     if (exit) return exit
   } else {
-    // Cash winners while they last (holding them back for later costs more than it saves)
+    // Cash winners while they last (holding them back for later costs more than it saves); in
+    // notrump not while the opening lead's suit is still being set up, unless they defeat the
+    // contract: a side winner is the entry to the long suit (defence.ts)
+    const race = raceSuit(view, hand, trump)
     for (const s of nonTrump) {
       const top = suitCards(hand, s)[0]
+      if (race && s !== race && !cashOut(view, s, trump)) continue
       if (view.isMaster(top) && state.play.length >= 4 && !ruffed(s)) return top
     }
     // Lead the suit partner asked for with a discard

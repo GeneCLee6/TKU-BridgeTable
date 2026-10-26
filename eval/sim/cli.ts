@@ -192,7 +192,7 @@ async function compare(args: Map<string, string>) {
   const objective = (args.get('objective') ?? 'score') as Objective
   if (!['score', 'tricks', 'contract'].includes(objective)) throw new Error('--objective is score, tricks or contract')
   const points = (args.get('points') ?? 'all') as CompareOptions['points']
-  if (!['lead', 'all'].includes(points)) throw new Error('--points is lead or all')
+  if (!['lead', 'all', 'defence'].includes(points)) throw new Error('--points is lead, all or defence')
   const options: CompareOptions = { samples: Number(args.get('samples') ?? 30), seed: c.seed, objective, ddBias: Number(args.get('dd-bias') ?? 0), points }
   if (!Number.isInteger(options.samples) || options.samples < 1) throw new Error('--samples must be a number of layouts')
   if (!Number.isFinite(options.ddBias) || options.ddBias < 0) throw new Error('--dd-bias is a number of tricks, 0 or more')
@@ -202,7 +202,7 @@ async function compare(args: Map<string, string>) {
   if (!args.has('analyse')) seconds = await runStudy('TKB vs sampled DD', c, store, 1, (boards) => ({ kind: 'compare', seed: c.seed, boards, system: c.system, options }))
   const records: CompareRecord[] = []
   for await (const record of store.records()) if (record.board >= c.from && record.board < c.from + c.deals) records.push(record)
-  const report = compareReport(compareStudy(records, objective), `${c.system}，${c.seed} 第 ${c.from}–${c.from + c.deals - 1} 副，${points === 'lead' ? '只看首攻' : '每一張牌'}${seconds ? `，${clock(seconds)}` : ''}`, objective)
+  const report = compareReport(compareStudy(records, objective), `${c.system}，${c.seed} 第 ${c.from}–${c.from + c.deals - 1} 副，${points === 'lead' ? '只看首攻' : points === 'defence' ? '只看首攻之後的防守' : '每一張牌'}${seconds ? `，${clock(seconds)}` : ''}`, objective)
   const file = args.get('report') ?? resolve(DATA_DIR, `${name}.md`)
   writeFileSync(file, report)
   console.log(report)
