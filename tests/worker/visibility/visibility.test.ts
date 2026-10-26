@@ -1,10 +1,13 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it } from 'vitest'
+import { deal, secureRandomInt } from '../../../shared/board.ts'
 import { SEATS, type Seat } from '../../../shared/cards.ts'
+import { makeCall, newBoard } from '../../../shared/game.ts'
+import { boardView } from '../../../worker/views.ts'
 import { DEFAULT_HISTORY_QUERY } from '../../../shared/history-query.ts'
 import type { ServerMessage } from '../../../shared/protocol.ts'
 import { listQuery } from '../../../worker/history-index.ts'
-import { searchReplica } from '../../../worker/history-replica.ts'
+import { daysReplica, searchReplica } from '../../../worker/history-replica.ts'
 import { at, teamHarness } from '../team-match-harness.ts'
 
 /**
@@ -33,8 +36,11 @@ beforeEach(async () => {
 
 const inbox = (userId: string): ServerMessage[] => t.h.connections.inbox.get(userId) ?? []
 
-/** Fails on any card a member's browser was sent that they could not see then (see above) */
-function noHiddenCards(userId: string) {
+/**
+ * Fails on any card a member's browser was sent that they could not see then (see above). `bidsFor`:
+ * the other seats the test gave the member to bid for (seat control, `e10-t15`), whose hands they see too
+ */
+function noHiddenCards(userId: string, bidsFor: Seat[] = []) {
   let checked = 0
   for (const message of inbox(userId)) {
     if (message.type !== 'table' || !message.table?.board) continue
@@ -45,6 +51,7 @@ function noHiddenCards(userId: string) {
     const allowed = new Set<Seat>()
     if (view.mySeat) {
       allowed.add(view.mySeat)
+      for (const seat of bidsFor) allowed.add(seat)
       if (led && board.dummy) allowed.add(board.dummy)
       if (led && view.mySeat === board.dummy && board.contract) allowed.add(board.contract.declarer)
     } else if (view.settings.allowKibitz) for (const seat of SEATS) allowed.add(seat)
@@ -63,8 +70,14 @@ async function exposure(viewer: string, boardId: string, player: string) {
   const all = { ...DEFAULT_HISTORY_QUERY, scope: 'all' as const }
   // The history pages the Worker answers from D1 at the edge (§5.12) answer exactly as the club does
   await t.copyToD1()
-  for (const query of [listQuery(true, 1, 20), DEFAULT_HISTORY_QUERY, all, { ...all, mode: 'team' as const }, { ...all, player }])
+  for (const query of [listQuery(true, 1, 20), DEFAULT_HISTORY_QUERY, all, { ...all, mode: 'team' as const }, { ...all, player }]) {
     expect(await searchReplica(t.d1, query, viewer, t.h.time), `the edge, ${JSON.stringify(query)}`).toEqual(await club.search(viewer, query))
+    // The side panel's boards per day (e3-t48), from either side, count what the search lists
+    const days = club.historyDays(viewer, query).days
+    expect(await daysReplica(t.d1, query, viewer, t.h.time), `the edge's days, ${JSON.stringify(query)}`).toEqual(days)
+    const listed = await club.search(viewer, { ...query, page: 1, size: 100 })
+    expect(days.reduce((sum, day) => sum + day.count, 0)).toBe(listed.total)
+  }
   return {
     record: (await club.record(boardId, viewer)) !== null,
     history: has(await club.history(viewer, true)),
@@ -122,6 +135,25 @@ describe('casual tables', () => {
 })
 
 describe('practice tables', () => {
+  it('shows all four hands to the member who turned on 顯示四家, and nobody else any more than before (e10-t16)', async () => {
+    const amy = await t.member('amy')
+    const ben = await t.member('ben')
+    await t.send(amy, { type: 'createPractice', settings: { deal: 'random', robotKind: 'gib', justDeclare: false, biddingOnly: true } })
+    const practice = t.club().lobbyView(amy).myTableId!
+    expect(Object.keys(t.view(amy)!.board!.hands)).toEqual(['S'])
+    await t.send(amy, { type: 'showHands', show: true })
+    expect(Object.keys(t.view(amy)!.board!.hands)).toHaveLength(4)
+    expect(t.view(amy)!.board!.legalCalls.length > 0).toBe(t.view(amy)!.board!.turn === 'S')
+    // Ben at a casual table of his own: nothing of it, and he cannot turn it on there
+    await t.send(ben, { type: 'createTable' })
+    const casual = t.club().lobbyView(ben).myTableId!
+    for (const seat of ['N', 'E', 'W'] as const) await t.send(ben, { type: 'addRobot', seat })
+    expect(await t.refused(ben, { type: 'showHands', show: true })).toBe('practiceOnly')
+    await t.playUntil([ben], () => t.played(casual) >= 1)
+    expect(noHiddenCards(ben)).toBeGreaterThan(2)
+    expect(JSON.stringify(inbox(ben))).not.toContain(practice)
+  })
+
   it('are their member’s alone: nobody else joins, sits or is sent anything of them', async () => {
     const amy = await t.member('amy')
     const ben = await t.member('ben')
@@ -137,6 +169,86 @@ describe('practice tables', () => {
     // Practice boards are never featured (they may have been dealt again)
     const board = t.tableState(practice)!.recent![0].id
     expect(await featureCode(t.h.boss, board)).toBe('practiceNotFeatured')
+  })
+
+  it('at a bidding practice shows the member only the hands they bid for until the auction ends, and nobody else anything', async () => {
+    const amy = await t.member('amy')
+    const ben = await t.member('ben')
+    const cat = await t.member('cat')
+    await t.send(amy, { type: 'createPractice', settings: { deal: 'random', robotKind: 'gib', justDeclare: false, biddingOnly: true, seats: ['S', 'N'] } })
+    const practice = t.club().lobbyView(amy).myTableId!
+    // Ben sits at a casual table of his own next to it: what amy bids for is never his to see
+    await t.send(ben, { type: 'createTable' })
+    const casual = t.club().lobbyView(ben).myTableId!
+    for (const seat of ['N', 'E', 'W'] as const) await t.send(ben, { type: 'addRobot', seat })
+    expect(await t.refused(cat, { type: 'joinTable', tableId: practice })).toBe('tableGone')
+
+    // Four boards bid to the end, each bid again once: amy passes for both her seats
+    let boards = 0
+    for (let i = 0; i < 2000 && boards < 4; i++) {
+      const board = t.view(amy)!.board!
+      if (board.phase === 'finished') {
+        // Every hand is open now, and the board was not recorded
+        expect(Object.keys(board.hands).sort()).toEqual(['E', 'N', 'S', 'W'])
+        boards++
+        await t.send(amy, { type: boards % 2 ? 'rebid' : 'redeal' })
+        continue
+      }
+      if (board.legalCalls.length) {
+        // Never asked to bid for a seat that is not hers
+        expect(['N', 'S']).toContain(board.turn)
+        await t.send(amy, { type: 'call', call: 'P', seat: board.turn! })
+        continue
+      }
+      await t.run('robot')
+    }
+    expect(boards).toBe(4)
+    expect(noHiddenCards(amy, ['N'])).toBeGreaterThan(8)
+    expect(t.tableState(practice)!.recent ?? []).toEqual([])
+    // East and West's hands never went to amy before the end, and nothing of the table to anyone else
+    await t.playUntil([ben], () => t.played(casual) >= 1)
+    expect(noHiddenCards(ben)).toBeGreaterThan(2)
+    for (const other of [ben, cat]) expect(JSON.stringify(inbox(other))).not.toContain(practice)
+    expect(t.view(ben)!.acts).toBeUndefined()
+  })
+})
+
+describe('seat control in a board view (e10-t15)', () => {
+  const hands = deal(secureRandomInt)
+  // Board 1: North deals
+  const board = newBoard(1, hands)
+
+  it('gives the member the hands and the bidding box of every seat they bid for, and anyone else no more than before', () => {
+    const member = boardView(board, 'S', { acts: ['N', 'S'] })
+    expect(Object.keys(member.hands).sort()).toEqual(['N', 'S'])
+    expect(member.legalCalls.length).toBeGreaterThan(0)
+    // Someone seated whose seat another member bids for: their own hand, never the bidding box
+    const occupant = boardView(board, 'N', { acts: [] })
+    expect(Object.keys(occupant.hands)).toEqual(['N'])
+    expect(occupant.legalCalls).toEqual([])
+    // An opponent at the same table sees their own hand only
+    const east = boardView(board, 'E')
+    expect(Object.keys(east.hands)).toEqual(['E'])
+    expect(east.legalCalls).toEqual([])
+    // A watcher at a table without kibitzers sees no hand at all during the auction
+    expect(boardView(board, null, { kibitz: false, acts: ['N', 'S'] }).hands).toEqual({})
+  })
+
+  it('shows the hands of 顯示四家 to the member as hands to look at, never to bid for, and nothing to a watcher without a seat (e10-t16)', () => {
+    const shown = boardView(board, 'S', { shown: [...SEATS] })
+    expect(Object.keys(shown.hands).sort()).toEqual(['E', 'N', 'S', 'W'])
+    // North deals board 1: it is not South's turn, so no bidding box and no hints
+    expect(shown.legalCalls).toEqual([])
+    expect(shown.callMeanings).toBeUndefined()
+    expect(boardView(board, null, { kibitz: false, shown: [...SEATS] }).hands).toEqual({})
+  })
+
+  it('shows the member the alerts of every call they made, and hides a partner’s from someone who did not make it', () => {
+    let b = makeCall(board, 'N', '1C', 'could be short')
+    b = makeCall(b, 'E', 'P')
+    expect(boardView(b, 'S', { acts: ['N', 'S'] }).auction[0].alert).toBe('could be short')
+    expect(boardView(b, 'S').auction[0].alert).toBeUndefined()
+    expect(boardView(b, 'E').auction[0].alert).toBe('could be short')
   })
 })
 
@@ -165,6 +277,10 @@ describe('challenge tables', () => {
     expect(t.club().challengeFor(id, ivy)).toBeNull()
     expect(await featureCode(t.h.boss, board)).toBe('boardGone')
     for (const viewer of [hal, ivy]) expect(JSON.stringify(inbox(viewer))).not.toContain(board)
+    // Not even its own player practises it before the challenge is over (a deal set, e10-t16)
+    await t.club().saveFavorite(gus, board, { note: '', tags: [] })
+    const practise = { type: 'createPractice', settings: { deal: 'set', set: { source: 'favorites', ids: [board] } } } as const
+    expect(await t.refused(gus, practise as never)).toBe('boardGone')
   })
 })
 
@@ -210,6 +326,12 @@ describe('team match tables', () => {
 
     await t.playUntil([amy, ben, bea], () => t.club().matches.get(id, amy)!.status === 'finished')
     for (const userId of [amy, ben, bea]) expect(noHiddenCards(userId)).toBeGreaterThan(10)
+    expect(noHiddenCards(cat)).toBeGreaterThan(10)
+    // Public and featured now, so anyone may bid it at a practice table (a deal set, e10-t16); the
+    // hands go out by the usual rules: South's only, until the auction is over
+    const practise = { deal: 'set', set: { source: 'featured', ids: [first] }, biddingOnly: true }
+    expect(await t.refused(cat, { type: 'createPractice', settings: practise } as never)).toBeUndefined()
+    expect(Object.keys(t.view(cat)!.board!.hands)).toEqual(['S'])
     expect(noHiddenCards(cat)).toBeGreaterThan(10)
   })
 })

@@ -28,11 +28,30 @@ export default defineConfig({
     environment: 'jsdom',
     globals: true,
     setupFiles: ['./tests/setup.ts'],
-    include: ['tests/**/*.test.ts', 'tests/**/*.test.tsx'],
     // Several tests play hundreds of robot boards; with every file running at once they can take
     // longer than Vitest's default 5 s on a busy machine
     testTimeout: 15_000,
     // bridge-dds ships ES modules with extensionless imports that Node cannot load on its own
     server: { deps: { inline: ['bridge-dds'] } },
+    projects: [
+      // Each project has its own `include` (a project's list would be added to one given above)
+      { extends: true, test: { name: 'default', include: ['tests/**/*.test.ts', 'tests/**/*.test.tsx'] } },
+      // The challenge and team match tests again, each challenge in its own EventObject (H2b,
+      // ARCHITECTURE.md §5.12; tests/worker/event-mode.ts): the switch on as well as off
+      {
+        extends: true,
+        test: {
+          name: 'event-objects',
+          include: [
+            'tests/worker/challenge*.test.ts',
+            'tests/worker/weekly-challenge.test.ts',
+            'tests/worker/team-match*.test.ts',
+            'tests/worker/tku-system.test.ts',
+            'tests/worker/visibility/*.test.ts',
+          ],
+          env: { TBT_EVENT_OBJECTS: 'on' },
+        },
+      },
+    ],
   },
 })

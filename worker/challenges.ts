@@ -305,30 +305,60 @@ export class ChallengeStore {
     )
   }
 
+  /** The open challenges a member is in: a deleted account leaves them (`forgetIn`) */
+  openIdsOf(userId: string): string[] {
+    return this.sql
+      .exec<{ challenge_id: string }>(
+        `SELECT c.challenge_id FROM challenge_players p JOIN challenges c ON c.challenge_id = p.challenge_id
+         WHERE p.user_id = ? AND c.status IN ${OPEN} ORDER BY c.created_at, c.challenge_id`,
+        userId,
+      )
+      .map((r) => r.challenge_id)
+  }
+
   /**
-   * A deleted account leaves every challenge still going: their place and results are removed, and
-   * one left with fewer than two participants (who have not declined) is cancelled. Challenges that
-   * already ended keep them, so final standings never change. Returns the challenges it changed
+   * A deleted account leaves a challenge still going: their place and results are removed, and one
+   * left with fewer than two participants (who have not declined) is cancelled. A challenge that
+   * already ended keeps them, so final standings never change. False when there was nothing to do
    */
-  forget(userId: string, now: number): string[] {
+  forgetIn(id: string, userId: string, now: number): boolean {
     return this.sql.transaction(() => {
-      const ids = this.sql
-        .exec<{ challenge_id: string }>(
-          `SELECT c.challenge_id FROM challenge_players p JOIN challenges c ON c.challenge_id = p.challenge_id
-           WHERE p.user_id = ? AND c.status IN ${OPEN}`,
-          userId,
-        )
-        .map((r) => r.challenge_id)
-      for (const id of ids) {
-        this.sql.exec('DELETE FROM challenge_results WHERE challenge_id = ? AND user_id = ?', id, userId)
-        this.sql.exec('DELETE FROM challenge_players WHERE challenge_id = ? AND user_id = ?', id, userId)
-        const left = this.sql.exec<{ n: number }>(
-          "SELECT COUNT(*) AS n FROM challenge_players WHERE challenge_id = ? AND status <> 'declined'",
-          id,
-        )[0].n
-        if (left < 2) this.setStatus(id, 'cancelled', now)
-      }
-      return ids
+      const open = this.sql.exec<{ n: number }>(
+        `SELECT COUNT(*) AS n FROM challenge_players p JOIN challenges c ON c.challenge_id = p.challenge_id
+         WHERE c.challenge_id = ? AND p.user_id = ? AND c.status IN ${OPEN}`,
+        id,
+        userId,
+      )[0].n
+      if (!open) return false
+      this.sql.exec('DELETE FROM challenge_results WHERE challenge_id = ? AND user_id = ?', id, userId)
+      this.sql.exec('DELETE FROM challenge_players WHERE challenge_id = ? AND user_id = ?', id, userId)
+      const left = this.sql.exec<{ n: number }>(
+        "SELECT COUNT(*) AS n FROM challenge_players WHERE challenge_id = ? AND status <> 'declined'",
+        id,
+      )[0].n
+      if (left < 2) this.setStatus(id, 'cancelled', now)
+      return true
+    })
+  }
+
+  /** Removes a challenge and its rows */
+  remove(id: string) {
+    this.sql.transaction(() => {
+      for (const table of ['challenge_results', 'challenge_players', 'challenges'])
+        this.sql.exec(`DELETE FROM ${table} WHERE challenge_id = ?`, id)
+    })
+  }
+
+  /**
+   * Writes a challenge as it is somewhere else, whole, over what is kept of it here: the club's
+   * copy of a challenge whose own `EventObject` reported it (H2b, ARCHITECTURE.md §5.12), or a
+   * challenge coming back into the club. Its `reminded_at` comes along
+   */
+  replace(challenge: Challenge) {
+    this.sql.transaction(() => {
+      this.remove(challenge.id)
+      this.create(challenge)
+      if (challenge.remindedAt !== undefined) this.setReminded(challenge.id, challenge.remindedAt)
     })
   }
 }

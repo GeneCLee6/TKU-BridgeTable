@@ -1,4 +1,3 @@
-import { ChevronLeft } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import styled from 'styled-components'
@@ -9,7 +8,7 @@ import { DdReplayBar } from '../components/DoubleDummyReplay.tsx'
 import { RecordDiagram } from '../components/RecordDiagram.tsx'
 import { ReplayControls } from '../components/ReplayControls.tsx'
 import { ContractResult } from '../components/Suit.tsx'
-import { Card, ErrorText, Muted, PageMain, PageTitle } from '../components/ui.tsx'
+import { ActionLink, Card, ErrorText, Muted, PageMain, PageTitle } from '../components/ui.tsx'
 import { api } from '../lib/api.ts'
 import { CARD_SCALE } from '../lib/cards.ts'
 import { signed } from '../lib/format.ts'
@@ -28,14 +27,8 @@ import { playerName } from '../strings.ts'
  * the server decides whether the member may see it (§4).
  */
 
-const Back = styled(Link)`
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  margin-bottom: 8px;
-  color: ${({ theme }) => theme.colors.primary};
-  font-weight: 600;
-  text-decoration: none;
+const Back = styled(ActionLink)`
+  margin: 0 0 8px -4px;
 `
 
 const Pair = styled.div`
@@ -93,8 +86,7 @@ export function ComparePage() {
   }, [recordId, otherId, message])
 
   const back = (
-    <Back to={`/history/${recordId}`}>
-      <ChevronLeft size={18} aria-hidden />
+    <Back back to={`/history/${recordId}`}>
       {t.openBoard}
     </Back>
   )

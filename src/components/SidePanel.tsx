@@ -1,11 +1,12 @@
-import { ArrowLeft, BookOpen, ChevronFirst, ChevronLast, ChevronLeft, ChevronRight, History, Mail, MessageSquare, Users, X } from 'lucide-react'
-import { useCallback, useEffect, useState, type ReactNode } from 'react'
+import { ArrowLeft, BookOpen, ChevronFirst, ChevronLast, ChevronLeft, ChevronRight, History, Mail, MessageSquare, Users } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import styled, { css } from 'styled-components'
 import { handviewerUrl } from '../../shared/lin.ts'
-import type { BoardRecord, BoardSummary, PublicUser } from '../../shared/protocol.ts'
+import { taiwanDate } from '../../shared/history-query.ts'
+import type { BoardRecord, BoardSummary, HistoryDay, PublicUser } from '../../shared/protocol.ts'
 import { api } from '../lib/api.ts'
-import { formatDateTime, signed } from '../lib/format.ts'
+import { formatDay, signed } from '../lib/format.ts'
 import { useTrickReplay } from '../lib/useTrickReplay.ts'
 import { useAuth } from '../state/AuthContext.tsx'
 import { useClub } from '../state/ClubContext.tsx'
@@ -17,13 +18,16 @@ import { DirectMessages } from './DirectMessages.tsx'
 import { FavoriteButton } from './FavoriteButton.tsx'
 import { PeopleList } from './PeopleList.tsx'
 import { PlayedCardsSwitch, RecordDiagram } from './RecordDiagram.tsx'
+import { ActionButton, ActionLink, Button } from './ui.tsx'
 import { ContractResult } from './Suit.tsx'
 
 /**
  * BBO's right-hand dock: a narrow strip of tabs on the far right (chat, people, messages, history). Clicking
  * a tab opens its panel beside the strip; clicking it again closes the panel, so the table gets
  * the space back. History opens a board right in the panel, so you can keep playing on the left
- * and look at an earlier board on the right. The open tab is remembered per page.
+ * and look at an earlier board on the right. The open tab is remembered per page. There is no ✕ on
+ * the panel (e3-t47): the strip is always beside it (below it on a phone), and Esc inside the panel
+ * closes it too, handing the focus back to its tab.
  */
 
 export type PanelTab = 'chat' | 'people' | 'messages' | 'history' | 'conventions'
@@ -135,23 +139,10 @@ const ContentHead = styled.div`
   justify-content: space-between;
   gap: 8px;
   min-height: 46px;
-  padding: 0 8px 0 14px;
+  padding: 0 14px;
   border-bottom: 1px solid ${({ theme }) => theme.colors.border};
   font-weight: 800;
   color: ${({ theme }) => theme.colors.primaryStrong};
-`
-
-const IconButton = styled.button`
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 34px;
-  height: 34px;
-  border: 0;
-  border-radius: ${({ theme }) => theme.radius.sm};
-  background: none;
-  color: ${({ theme }) => theme.colors.textMuted};
-  &:hover { background: ${({ theme }) => theme.colors.surfaceAlt}; }
 `
 
 const Body = styled.div`
@@ -223,6 +214,15 @@ export function SidePanel({
     setOpen(next)
     writeOpen(page, next)
   }
+  const rail = useRef<HTMLElement>(null)
+
+  /** Esc inside the open panel closes it, unless something in it (a menu, a dialog) used the key */
+  const closeOnEscape = (e: KeyboardEvent) => {
+    if (e.key !== 'Escape' || e.defaultPrevented || !open) return
+    e.preventDefault()
+    rail.current?.querySelector<HTMLElement>(`[data-tab="${open}"]`)?.focus()
+    toggle(open)
+  }
 
   /** The People tab's envelope: opens that conversation in the Messages tab */
   const message = (userId: string) => {
@@ -234,12 +234,9 @@ export function SidePanel({
   return (
     <Dock aria-label={t.sidePanel} data-tour="side">
       {open && (
-        <Content $wide={open === 'history' && board !== null} role="tabpanel" aria-label={label[open]}>
+        <Content $wide={open === 'history' && board !== null} role="tabpanel" aria-label={label[open]} onKeyDown={closeOnEscape}>
           <ContentHead>
             <span>{label[open]}</span>
-            <IconButton type="button" onClick={() => toggle(open)} aria-label={t.close} title={t.close}>
-              <X size={18} aria-hidden />
-            </IconButton>
           </ContentHead>
           <Body>
             {open === 'chat' && chat}
@@ -250,13 +247,14 @@ export function SidePanel({
           </Body>
         </Content>
       )}
-      <Rail role="tablist" aria-orientation="vertical">
+      <Rail ref={rail} role="tablist" aria-orientation="vertical">
         {tabs.map((name) => {
           const Icon = icon[name]
           return (
             <RailButton
               key={name}
               type="button"
+              data-tab={name}
               role="tab"
               aria-selected={open === name}
               $active={open === name}
@@ -325,8 +323,8 @@ const ToggleButton = styled.button<{ $active: boolean }>`
 
 const Row = styled.button`
   display: grid;
-  grid-template-columns: auto 1fr auto;
-  align-items: center;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: baseline;
   gap: 2px 10px;
   width: 100%;
   padding: 8px 14px;
@@ -337,7 +335,24 @@ const Row = styled.button`
   font-size: 15px;
 
   &:hover { background: ${({ theme }) => theme.colors.surfaceAlt}; }
-  & > small { grid-column: 1 / -1; color: ${({ theme }) => theme.colors.textMuted}; font-size: 12px; }
+`
+
+/** One pair under a board's title, on a line of its own; a long name ends in an ellipsis */
+const Pair = styled.span`
+  grid-column: 1 / -1;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: ${({ theme }) => theme.colors.textMuted};
+  font-size: 12px;
+  line-height: 1.4;
+
+  & > b {
+    display: inline-block;
+    min-width: 22px;
+    margin-right: 4px;
+    font-weight: 700;
+  }
 `
 
 const BoardNo = styled.span`
@@ -351,6 +366,45 @@ const Score = styled.span<{ $value: number }>`
   color: ${({ theme, $value }) => ($value > 0 ? theme.colors.success : $value < 0 ? theme.colors.danger : 'inherit')};
 `
 
+const DayRow = styled.button`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 14px;
+  border: 0;
+  border-bottom: 1px solid ${({ theme }) => theme.colors.surfaceAlt};
+  background: none;
+  text-align: left;
+  font-size: 15px;
+  font-weight: 600;
+
+  &:hover { background: ${({ theme }) => theme.colors.surfaceAlt}; }
+  & > small {
+    color: ${({ theme }) => theme.colors.textMuted};
+    font-size: 13px;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+  }
+`
+
+/** Above one day's boards: the way back to the dates, and which day this is */
+const DayBar = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 4px 8px;
+  border-bottom: 1px solid ${({ theme }) => theme.colors.surfaceAlt};
+
+  & > strong {
+    padding-right: 6px;
+    font-size: 14px;
+  }
+`
+
 const Empty = styled.p`
   margin: 0;
   padding: 14px;
@@ -358,16 +412,76 @@ const Empty = styled.p`
   font-size: 14px;
 `
 
-const AllLink = styled(Link)`
-  display: block;
-  padding: 12px 14px;
-  font-size: 14px;
+const AllRow = styled.div`
+  padding: 8px 10px;
+`
+
+const MoreRow = styled.div`
+  display: flex;
+  justify-content: center;
+  padding: 8px 10px 0;
 `
 
 /** Links that would leave the table page open in a new tab there, since leaving the page leaves the table */
 const NEW_TAB = { target: '_blank', rel: 'noopener' } as const
 
-function HistoryList({
+/**
+ * 「本桌」 lists its boards straight when it has at most this many (the table keeps its latest 30),
+ * by day like 「我的」 when it has more (e3-t48)
+ */
+export const TABLE_FLAT_MAX = 20
+/** One day's boards come this many at a time */
+const DAY_PAGE = 20
+
+/** A board in the list: number, contract and result, the NS score on the right; then NS, then EW, a line each */
+function BoardRow({ board: b, onOpen }: { board: BoardSummary; onOpen: () => void }) {
+  const { t } = usePreferences()
+  const pair = (a: PublicUser, c: PublicUser) => `${playerName(t, a)} – ${playerName(t, c)}`
+  const ns = pair(b.players.N, b.players.S)
+  const ew = pair(b.players.E, b.players.W)
+  return (
+    <Row type="button" onClick={onOpen}>
+      <BoardNo>#{b.boardNo}</BoardNo>
+      <ContractResult contract={b.contract} tricks={b.result.declarerTricks} />
+      <Score $value={b.result.scoreNS}>{signed(b.result.scoreNS)}</Score>
+      <Pair title={ns}>
+        <b>NS</b>
+        {ns}
+      </Pair>
+      <Pair title={ew}>
+        <b>EW</b>
+        {ew}
+      </Pair>
+    </Row>
+  )
+}
+
+/** Boards grouped by Taiwan date, newest day first, as the server counts them */
+function daysOf(boards: BoardSummary[]): HistoryDay[] {
+  const days: HistoryDay[] = []
+  for (const b of [...boards].sort((x, y) => y.finishedAt - x.finishedAt)) {
+    const date = taiwanDate(b.finishedAt)
+    const last = days.at(-1)
+    if (last?.date === date) last.count++
+    else days.push({ date, count: 1 })
+  }
+  return days
+}
+
+/** One day's boards of 「我的」, as far as they were loaded */
+interface DayBoards {
+  date: string
+  boards: BoardSummary[]
+  total: number
+  page: number
+}
+
+/**
+ * The history tab (e3-t48): first the days, each with how many boards were played that day; a day
+ * opens its boards, a page at a time, with a way back to the days. 「本桌」 with few boards lists
+ * them straight. A board opens right in the panel.
+ */
+export function HistoryList({
   recent,
   board,
   onBoard,
@@ -380,63 +494,133 @@ function HistoryList({
 }) {
   const { t, lang } = usePreferences()
   const [scope, setScope] = useState<'table' | 'mine'>(recent ? 'table' : 'mine')
-  const [mine, setMine] = useState<BoardSummary[] | null>(null)
+  const [day, setDay] = useState<string | null>(null)
+  const [days, setDays] = useState<HistoryDay[] | null>(null)
+  const [dayBoards, setDayBoards] = useState<DayBoards | null>(null)
+  const [more, setMore] = useState(false)
   // Reload my boards whenever a board finishes here
-  const finished = recent?.length ?? 0
+  const latest = recent?.[0]?.id
 
   useEffect(() => {
     if (scope !== 'mine') return
     let cancelled = false
     api
-      .history(false)
-      .then((page) => !cancelled && setMine(page.boards.slice(0, 30)))
-      .catch(() => !cancelled && setMine([]))
+      .historyDays({ scope: 'mine' })
+      .then((answer) => !cancelled && setDays(answer.days))
+      .catch(() => !cancelled && setDays([]))
     return () => {
       cancelled = true
     }
-  }, [scope, finished])
+  }, [scope, latest])
+
+  useEffect(() => {
+    if (scope !== 'mine' || !day) return
+    let cancelled = false
+    api
+      .searchHistory({ scope: 'mine', from: day, to: day, size: DAY_PAGE })
+      .then((page) => !cancelled && setDayBoards({ date: day, boards: page.boards, total: page.total, page: page.page }))
+      .catch(() => !cancelled && setDayBoards({ date: day, boards: [], total: 0, page: 1 }))
+    return () => {
+      cancelled = true
+    }
+  }, [scope, day, latest])
 
   if (board) return <BoardInPanel id={board} onBack={() => onBoard(null)} newTab={newTab} />
 
-  const boards = scope === 'table' ? recent : mine
-  const name = (u: PublicUser) => playerName(t, u)
+  const choose = (next: 'table' | 'mine') => {
+    setScope(next)
+    setDay(null)
+  }
+  const loadMore = (loaded: DayBoards) => {
+    setMore(true)
+    api
+      .searchHistory({ scope: 'mine', from: loaded.date, to: loaded.date, size: DAY_PAGE, page: loaded.page + 1 })
+      .then((page) =>
+        setDayBoards((now) =>
+          now?.date === loaded.date
+            ? {
+                ...now,
+                boards: [...now.boards, ...page.boards.filter((b) => !now.boards.some((had) => had.id === b.id))],
+                total: page.total,
+                page: page.page,
+              }
+            : now,
+        ),
+      )
+      .catch(() => undefined)
+      .finally(() => setMore(false))
+  }
+
+  const byDay = scope === 'mine' || (recent?.length ?? 0) > TABLE_FLAT_MAX
+  const shownDays = scope === 'mine' ? days : daysOf(recent ?? [])
+  const shownDay = scope === 'mine' && dayBoards?.date === day ? dayBoards : null
+  const dayList = scope === 'mine' ? shownDay?.boards : recent?.filter((b) => taiwanDate(b.finishedAt) === day)
+  const dayName = (date: string) => formatDay(date, lang, { today: t.timeToday, yesterday: t.timeYesterday })
+  const boards = (list: BoardSummary[]) => (
+    <div>
+      {list.map((b) => (
+        <BoardRow key={b.id} board={b} onOpen={() => onBoard(b.id)} />
+      ))}
+    </div>
+  )
+
+  let body: ReactNode
+  if (!byDay) body = !recent?.length ? <Empty>{t.noBoardsHere}</Empty> : boards(recent)
+  else if (!day)
+    body = !shownDays ? (
+      <Empty>{t.loading}</Empty>
+    ) : shownDays.length === 0 ? (
+      <Empty>{scope === 'table' ? t.noBoardsHere : t.historyEmpty}</Empty>
+    ) : (
+      <div role="list" aria-label={t.historyByDay}>
+        {shownDays.map((d) => (
+          <div role="listitem" key={d.date}>
+            <DayRow type="button" onClick={() => setDay(d.date)}>
+              <span>{dayName(d.date)}</span>
+              <small>{t.dayBoards(d.count)}</small>
+            </DayRow>
+          </div>
+        ))}
+      </div>
+    )
+  else
+    body = (
+      <>
+        <DayBar>
+          <ActionButton back onClick={() => setDay(null)}>
+            {t.backToDays}
+          </ActionButton>
+          <strong>{dayName(day)}</strong>
+        </DayBar>
+        {!dayList ? <Empty>{t.loading}</Empty> : boards(dayList)}
+        {shownDay && shownDay.boards.length < shownDay.total && (
+          <MoreRow>
+            <Button type="button" $size="sm" $busy={more} disabled={more} onClick={() => loadMore(shownDay)}>
+              {t.historyMore}
+            </Button>
+          </MoreRow>
+        )}
+      </>
+    )
 
   return (
     <>
       {recent && (
         <Toggle role="group" aria-label={t.tabHistory}>
-          <ToggleButton type="button" $active={scope === 'table'} aria-pressed={scope === 'table'} onClick={() => setScope('table')}>
+          <ToggleButton type="button" $active={scope === 'table'} aria-pressed={scope === 'table'} onClick={() => choose('table')}>
             {t.thisTable}
           </ToggleButton>
-          <ToggleButton type="button" $active={scope === 'mine'} aria-pressed={scope === 'mine'} onClick={() => setScope('mine')}>
+          <ToggleButton type="button" $active={scope === 'mine'} aria-pressed={scope === 'mine'} onClick={() => choose('mine')}>
             {t.myBoards}
           </ToggleButton>
         </Toggle>
       )}
-      {!boards ? (
-        <Empty>{t.loading}</Empty>
-      ) : boards.length === 0 ? (
-        <Empty>{scope === 'table' ? t.noBoardsHere : t.historyEmpty}</Empty>
-      ) : (
-        <div>
-          {boards.map((b) => (
-            <Row key={b.id} type="button" onClick={() => onBoard(b.id)}>
-              <BoardNo>#{b.boardNo}</BoardNo>
-              <span>
-                <ContractResult contract={b.contract} tricks={b.result.declarerTricks} />
-              </span>
-              <Score $value={b.result.scoreNS}>{signed(b.result.scoreNS)}</Score>
-              <small>
-                {formatDateTime(b.finishedAt, lang)} · {name(b.players.N)}–{name(b.players.S)} / {name(b.players.E)}–
-                {name(b.players.W)}
-              </small>
-            </Row>
-          ))}
-        </div>
-      )}
-      <AllLink to="/history" {...(newTab ? NEW_TAB : {})}>
-        {t.historyTitle} →
-      </AllLink>
+      {body}
+      <AllRow>
+        <ActionLink to="/history" {...(newTab ? NEW_TAB : {})}>
+          {t.historyTitle}
+        </ActionLink>
+      </AllRow>
     </>
   )
 }

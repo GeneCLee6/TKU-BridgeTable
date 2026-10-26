@@ -318,6 +318,13 @@ describe('news', () => {
     expect(events()).toEqual(['notify'])
   })
 
+  it('leaves invitations to the invitation dialog, which rings in one tab only (e1-t35)', () => {
+    const next = inClub({ notifications: bell(), directs: [] })
+    next({ notifications: bell(note('a', 'challengeInvited')), directs: [] })
+    next({ notifications: bell(note('b', 'matchInvited'), note('a', 'challengeInvited')), directs: [] })
+    expect(events()).toEqual([])
+  })
+
   it('has its own sounds for a team match starting and ending (the same whoever won) and a challenge’s results', () => {
     const next = inClub({ notifications: bell(), directs: [] })
     next({ notifications: bell(note('a', 'matchStarted')), directs: [] })

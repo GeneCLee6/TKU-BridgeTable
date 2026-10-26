@@ -189,10 +189,41 @@ const challenge: TableModeHooks = {
 /** A practice table's settings and how many boards it has dealt (§5.11) */
 export interface PracticeTableState extends PracticeSettings {
   dealt: number
+  /**
+   * The deal set's boards (`deal: 'set'`, `e10-t16`), dealt in turn and round again: kept on the
+   * server like a challenge's deal set; `practiceView` sends only the place, the category and, once
+   * the auction is over, the note of the board on the table
+   */
+  problems?: PracticeTableProblem[]
+}
+
+/** A board of a practice table's deal set */
+export interface PracticeTableProblem {
+  boardNo: number
+  hands: Hands
+  category?: string
+  /** A featured board's title */
+  title?: string
+  /** What it teaches: a practice set's note, a featured board's explanation */
+  note?: string
+}
+
+/** The deal set's board on the table and its place (0-based), if the table deals a set */
+export function currentProblem(state: PracticeTableState): { problem: PracticeTableProblem; index: number } | null {
+  const problems = state.problems
+  if (!problems?.length || state.dealt === 0) return null
+  const index = (state.dealt - 1) % problems.length
+  return { problem: problems[index], index }
 }
 
 export const practiceStateOf = (table: Table): PracticeTableState | null =>
   table.mode === 'practice' ? (table.modeState as PracticeTableState) : null
+
+/**
+ * Whether the table only bids its boards (a bidding practice, `e10-t15`): the end of the auction
+ * ends the board (`endBidding`), nothing is recorded, and the next board comes only when asked for
+ */
+export const biddingOnly = (table: Table): boolean => !!practiceStateOf(table)?.biddingOnly
 
 /**
  * The next practice board (`e10-t03`, `e10-t05`): any deal, or one meeting the conditions, null
@@ -226,6 +257,12 @@ export function practiceBoard(state: PracticeSettings, boardNo: number, random: 
 const practice: TableModeHooks = {
   deal: (table, ctx) => {
     const state = practiceStateOf(table)!
+    // A deal set's boards one after the other, as they are
+    if (state.problems?.length) {
+      const problem = state.problems[state.dealt % state.problems.length]
+      state.dealt++
+      return { boardNo: problem.boardNo, hands: structuredClone(problem.hands) }
+    }
     const dealt = practiceBoard(state, practiceBoardNo(state, state.dealt), ctx.random)
     if (dealt) state.dealt++
     return dealt

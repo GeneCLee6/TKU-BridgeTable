@@ -8,6 +8,7 @@ import type { BoardRecord, ClientMessage, ServerMessage, TableView } from '../..
 import { ClubService, type Connections, type ScheduleKind } from '../../worker/service.ts'
 import type { MemoryStore } from '../../worker/store.ts'
 import { memoryStore } from './sqlite.ts'
+import { clubService } from './event-mode.ts'
 
 /** The challenge table (C4): playing a challenge, its fairness, and coming back to it */
 
@@ -66,7 +67,7 @@ const noting: RobotBrain = {
 }
 
 const newClub = () =>
-  new ClubService(store, connections, {
+  clubService(store, connections, {
     maxUsers: 40,
     now: () => time,
     schedule: (run, ms, kind) => queue.push({ run, ms, kind }),

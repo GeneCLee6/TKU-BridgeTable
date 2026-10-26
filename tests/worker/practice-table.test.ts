@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it } from 'vitest'
+import type { Call } from '../../shared/auction.ts'
 import { hcp, sideOf } from '../../shared/cards.ts'
 import { parseClientMessage } from '../../shared/message-guard.ts'
 import { secureRandomInt } from '../../shared/board.ts'
@@ -130,10 +131,11 @@ describe('practice settings', () => {
     expect(parsePracticeSettings({ justDeclare: 'yes' })).toEqual({ field: 'justDeclare' })
     expect(parsePracticeSettings({ deal: 'custom' })).toEqual({ field: 'conditions' })
     expect(parsePracticeSettings({ deal: 'slam', conditions })).toEqual({ field: 'conditions' })
-    expect(parsePracticeSettings({ deal: 'custom', conditions: { seats: { S: { hcp: [15, 12] } } } })).toEqual({ field: 'conditions' })
+    expect(parsePracticeSettings({ deal: 'custom', conditions: { seats: { S: { hcp: [15, 12] } } } })).toEqual({ field: 'conditions', problem: 'S.hcp' })
     expect(parsePracticeSettings({ deal: 'custom', conditions: { seats: { S: { points: [1, 2] } } } })).toEqual({ field: 'conditions' })
     expect(parsePracticeSettings({ deal: 'custom', conditions: { seats: { S: { lengths: { S: [7, 13], H: [7, 13] } } } } })).toEqual({
       field: 'conditions',
+      problem: 'S.lengths',
     })
     expect(parsePracticeSettings({ extra: 1 })).toEqual({ field: 'settings' })
   })
@@ -346,5 +348,134 @@ describe('Just Declare practice (e10-t05)', () => {
       expect(board.auction.every((c) => c.robot)).toBe(true)
       await send(amy, { type: 'redeal' })
     }
+  })
+})
+
+describe('bidding practice, one member bidding for several seats (e10-t15)', () => {
+  /** Makes the member's calls for whichever of their seats is to call, robots in between, until the auction is over */
+  async function bid(userId: string, calls: (n: number) => Call = () => 'P') {
+    for (let n = 0; n < 60; n++) {
+      await runRobots()
+      const board = view(userId)!.board!
+      if (board.phase !== 'auction') return
+      if (!board.legalCalls.length) throw new Error(`stuck at ${board.turn}`)
+      await send(userId, { type: 'call', call: calls(n), seat: board.turn! })
+    }
+    throw new Error('the auction did not end')
+  }
+
+  it('takes the bidding-only switch and the seats, South always among them and others only when bidding only', () => {
+    expect(parsePracticeSettings({ biddingOnly: true, seats: ['N', 'S'] })).toEqual({
+      settings: { deal: 'random', robotKind: 'gib', justDeclare: false, biddingOnly: true, seats: ['N', 'S'] },
+    })
+    // South alone is the default and is not kept
+    expect(parsePracticeSettings({ biddingOnly: true, seats: ['S'] })).toEqual({
+      settings: { deal: 'random', robotKind: 'gib', justDeclare: false, biddingOnly: true },
+    })
+    expect(parsePracticeSettings({ biddingOnly: false, seats: ['S'] })).toEqual({
+      settings: { deal: 'random', robotKind: 'gib', justDeclare: false },
+    })
+    expect(parsePracticeSettings({ seats: ['S', 'N'] })).toEqual({ field: 'seats' })
+    expect(parsePracticeSettings({ biddingOnly: true, seats: ['N'] })).toEqual({ field: 'seats' })
+    expect(parsePracticeSettings({ biddingOnly: true, seats: ['S', 'S'] })).toEqual({ field: 'seats' })
+    expect(parsePracticeSettings({ biddingOnly: true, seats: ['S', 'X'] })).toEqual({ field: 'seats' })
+    expect(parsePracticeSettings({ biddingOnly: true, seats: 'S' })).toEqual({ field: 'seats' })
+    expect(parsePracticeSettings({ biddingOnly: 'yes' })).toEqual({ field: 'biddingOnly' })
+    expect(parsePracticeSettings({ biddingOnly: true, justDeclare: true })).toEqual({ field: 'biddingOnly' })
+    expect(parseClientMessage('{"type":"call","call":"P","seat":3}')).toEqual({ error: 'badMessage' })
+    expect(parseClientMessage('{"type":"call","call":"P","seat":"N"}')).toEqual({ message: { type: 'call', call: 'P', seat: 'N' } })
+    expect(parseClientMessage('{"type":"rebid"}')).toEqual({ message: { type: 'rebid' } })
+  })
+
+  it('lets the member bid for South and North, shows them both hands, and ends the board with the auction: all four open, no play, no record', async () => {
+    const amy = await member('amy')
+    await practice(amy, { biddingOnly: true, seats: ['S', 'N'], robotKind: 'gib' })
+    const table = view(amy)!
+    expect(table.practice).toMatchObject({ biddingOnly: true, seats: ['N', 'S'] })
+    expect(table.mySeat).toBe('S')
+    expect(table.acts).toEqual(['N', 'S'])
+    expect(table.seats.N).toMatchObject({ robot: true, controlledBy: 'amy' })
+    expect(table.seats.E?.controlledBy).toBeUndefined()
+    const before = table.board!
+    expect(Object.keys(before.hands).sort()).toEqual(['N', 'S'])
+    // Board 1: North deals, and North is the member's to bid
+    expect(before.turn).toBe('N')
+    expect(before.legalCalls.length).toBeGreaterThan(0)
+
+    // The member opens and South (also the member) answers; the robots bid only East and West
+    await bid(amy, (n) => (n === 0 ? '1C' : 'P'))
+    const board = view(amy)!.board!
+    for (const call of board.auction) expect(!!call.robot, `${call.seat} ${call.call}`).toBe(call.seat === 'E' || call.seat === 'W')
+    expect(board.phase).toBe('finished')
+    expect(board.contract).not.toBeNull()
+    expect(board.result).toBeUndefined()
+    expect(board.tricks).toEqual([])
+    expect(Object.keys(board.hands).sort()).toEqual(['E', 'N', 'S', 'W'])
+    expect(view(amy)!.dealAt).toBeNull()
+    expect(view(amy)!.boardsPlayed).toBe(0)
+    expect(queue.some((job) => job.kind === 'deal')).toBe(false)
+    expect((await club.search(amy, { scope: 'mine', sort: 'date_desc', page: 1, size: 10 })).total).toBe(0)
+
+    // 重叫這一副: the same hands from the start; 下一副: a new board
+    await send(amy, { type: 'rebid' })
+    const again = view(amy)!.board!
+    expect(again).toMatchObject({ boardNo: before.boardNo, phase: 'auction', auction: [] })
+    expect(again.hands).toEqual(before.hands)
+    await send(amy, { type: 'redeal' })
+    expect(view(amy)!.board!.boardNo).toBe(before.boardNo + 1)
+  })
+
+  it('checks the seat a call is made for: one the member bids for, and its turn', async () => {
+    const amy = await member('amy')
+    await practice(amy, { biddingOnly: true, seats: ['S', 'N'] })
+    expect(view(amy)!.board!.turn).toBe('N')
+    expect((await refused(amy, { type: 'call', call: 'P', seat: 'X' } as unknown as ClientMessage))?.code).toBe('badSeat')
+    expect((await refused(amy, { type: 'call', call: 'P', seat: 'E' }))?.code).toBe('notYourSeat')
+    // Without a seat the call is South's, whose turn it is not
+    expect((await refused(amy, { type: 'call', call: 'P' }))?.code).toBe('notYourCall')
+    expect((await refused(amy, { type: 'call', call: 'P', seat: 'S' }))?.code).toBe('notYourCall')
+    expect(await refused(amy, { type: 'call', call: '1C', seat: 'N' })).toBeUndefined()
+    expect(view(amy)!.board!.auction).toMatchObject([{ seat: 'N', call: '1C' }])
+    // Now East's: the robot bids it, not the member
+    expect(view(amy)!.board!.legalCalls).toEqual([])
+    await runRobots()
+    expect(view(amy)!.board!.auction[1]).toMatchObject({ seat: 'E', robot: true })
+  })
+
+  it('takes back the last call the member made, for whichever seat', async () => {
+    const amy = await member('amy')
+    await practice(amy, { biddingOnly: true, seats: ['S', 'N', 'E', 'W'] })
+    // Nobody else bids: the member makes every call
+    await send(amy, { type: 'call', call: '1C', seat: view(amy)!.board!.turn! })
+    await send(amy, { type: 'call', call: '1D', seat: view(amy)!.board!.turn! })
+    const second = view(amy)!.board!.auction[1].seat
+    expect(view(amy)!.board!.canUndo).toBe(true)
+    await send(amy, { type: 'undoRequest' })
+    await runRobots()
+    expect(view(amy)!.board!.auction.map((c) => c.call)).toEqual(['1C'])
+    expect(view(amy)!.board!.turn).toBe(second)
+    // Passed out after 1♣: over at once, nothing recorded
+    for (let i = 0; i < 3; i++) await send(amy, { type: 'call', call: 'P', seat: view(amy)!.board!.turn! })
+    expect(view(amy)!.board!.phase).toBe('finished')
+    expect(view(amy)!.board!.contract).toMatchObject({ level: 1, strain: 'C' })
+    expect(view(amy)!.board!.auction.some((c) => c.robot)).toBe(false)
+    expect((await club.search(amy, { scope: 'mine', sort: 'date_desc', page: 1, size: 10 })).total).toBe(0)
+  })
+
+  it('shows a watcher what any watcher sees, and lets nobody else bid, rebid or bid for a controlled seat', async () => {
+    const amy = await member('amy')
+    const ben = await member('ben')
+    await send(amy, { type: 'createPractice', settings: { biddingOnly: true, seats: ['S', 'N'] }, access: 'public' } as unknown as ClientMessage)
+    const tableId = view(amy)!.id
+    await send(ben, { type: 'joinTable', tableId })
+    const watched = view(ben)!
+    expect(watched.acts).toBeUndefined()
+    expect(watched.board!.legalCalls).toEqual([])
+    expect((await refused(ben, { type: 'call', call: 'P', seat: 'N' }))?.code).toBe('notSeated')
+    expect((await refused(ben, { type: 'rebid' }))?.code).toBe('hostOnly')
+    // Rebidding is for a bidding practice only
+    const cat = await member('cat')
+    await practice(cat)
+    expect((await refused(cat, { type: 'rebid' }))?.code).toBe('biddingOnlyRebid')
   })
 })

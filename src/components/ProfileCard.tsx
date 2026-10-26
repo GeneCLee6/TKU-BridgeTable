@@ -120,7 +120,7 @@ export function ProfileDetails({
   return (
     <>
       <Head>
-        <Avatar id={member.id} name={title} size={56} />
+        <Avatar id={member.id} name={title} size={56} avatar={member.avatar} />
         <Names>
           <h2>{title}</h2>
           {profile.displayName && <Muted>{t.accountName(member.username)}</Muted>}

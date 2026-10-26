@@ -2,7 +2,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { deal } from '../../shared/board.ts'
 import { SEATS, type Seat } from '../../shared/cards.ts'
-import { DEFAULT_HISTORY_QUERY } from '../../shared/history-query.ts'
+import { DEFAULT_HISTORY_QUERY, taiwanDate } from '../../shared/history-query.ts'
 import { ruleBrain, type RobotBrain } from '../../shared/robot/brain.ts'
 import type { RobotBid } from '../../shared/robot/robots.ts'
 import {
@@ -1128,6 +1128,9 @@ describe('boards kept back (AC-4.9)', () => {
     expect(await listed(outsider)).toEqual([])
     expect(await listed(bySeat.N)).toEqual(['held1'])
     expect((await club.search(outsider, { ...DEFAULT_HISTORY_QUERY, scope: 'all', player: bySeat.N })).total).toBe(0)
+    // Nor in the side panel's boards per day (e3-t48)
+    expect(club.historyDays(outsider, { ...DEFAULT_HISTORY_QUERY, scope: 'all' }).days).toEqual([])
+    expect(club.historyDays(bySeat.N, { ...DEFAULT_HISTORY_QUERY, scope: 'mine' }).days).toEqual([{ date: taiwanDate(time), count: 1 }])
     expect(await club.record('held1', outsider)).toBeNull()
     expect((await club.record('held1', bySeat.E))?.eventId).toBe('challenge1')
 

@@ -14,7 +14,6 @@ import {
   Sun,
   Swords,
   Trophy,
-  UserRound,
   Users,
   Volume2,
   VolumeX,
@@ -25,9 +24,11 @@ import styled from 'styled-components'
 import { LANGS } from '../../shared/messages.ts'
 import { useAuth } from '../state/AuthContext.tsx'
 import { useClub } from '../state/ClubContext.tsx'
+import { useInviteBanner } from '../state/InvitationsContext.tsx'
 import { usePreferences } from '../state/PreferencesContext.tsx'
 import { LANG_NAMES } from '../strings.ts'
 import { compactHeader, mobile, tablet } from '../styles/tokens.ts'
+import { Avatar } from './Avatar.tsx'
 import { LogoMark, LogoWordmark } from './Logo.tsx'
 import { NotificationBell } from './NotificationBell.tsx'
 
@@ -290,6 +291,7 @@ function LanguageMenu() {
 export function AppHeader() {
   const { user, logout } = useAuth()
   const { status, notifications, send } = useClub()
+  const inviteBanner = useInviteBanner()
   const { mode, deck, cardStyle, sound: soundOn, soundStyle, t, toggleMode, toggleDeck, toggleCardStyle, toggleSound } = usePreferences()
   // A style set to 關閉 on the account page shows as off here too
   const sound = soundOn && soundStyle !== 'off'
@@ -378,6 +380,7 @@ export function AppHeader() {
         </IconButton>
         {user && (
           <>
+            {inviteBanner}
             {notifications && (
               <NotificationBell notifications={notifications} onRead={(ids) => send({ type: 'readNotifications', ids })} />
             )}
@@ -388,7 +391,7 @@ export function AppHeader() {
               title={status === 'open' ? t.connected : t.connecting}
             />
             <AccountLink to="/account" title={t.navAccount}>
-              <UserRound size={16} aria-hidden />
+              <Avatar id={user.id} name={user.profile?.displayName || user.username} size={24} avatar={user.avatar} />
               <Who>{user.username}</Who>
             </AccountLink>
             <IconButton type="button" onClick={() => void logout()} aria-label={t.logout} title={t.logout}>
