@@ -176,9 +176,10 @@ const isQuestion = (call: string) => /^[?？]+$/.test(call.trim())
 /**
  * A handbook auction diagram as `Book.after` patterns. The calls fill the four seats row by row and
  * '?' is the call being decided; counting back from it, every other seat is ours. Cells before the
- * opening bid are left out (the robot's auctions start there), and an empty cell where an
- * opponent calls is a pass. An empty cell of ours after the opening, a note on an empty cell and
- * '---' cannot be read and make the auction unresolved.
+ * opening bid are left out (the robot's auctions start there). The handouts write a pass as
+ * '---' or '--' (the club's answer, 2026-10-26), and an empty cell where an opponent calls is a
+ * pass too. An empty cell of ours after the opening and a note on an empty cell cannot be read and
+ * make the auction unresolved.
  */
 export function auctionPatterns(calls: readonly SpecInputCall[]): AuctionResult {
   const cells = calls.map((c) => (typeof c === 'string' ? { call: c, note: undefined } : c))
@@ -201,7 +202,7 @@ export function auctionPatterns(calls: readonly SpecInputCall[]): AuctionResult 
       if (ours) return { reason: 'auctionCell', detail: '' }
       options = ['P']
     } else {
-      const expanded = expandCall(raw)
+      const expanded = /^-{2,}$/.test(raw) ? ['P'] : expandCall(raw)
       if (!expanded) return { reason: 'auctionCell', detail: raw }
       if (!opened) {
         if (expanded.every((c) => c === 'P')) continue
@@ -280,19 +281,27 @@ interface Finding {
   span: [number, number]
 }
 
-type Extractor = [RegExp, (m: RegExpExecArray) => Array<[string, unknown]> | null]
+/**
+ * `exact`: the meaning names a shape (5431) or says 剛好／恰好／正好 right before the length, so
+ * "5張♥" is five exactly; otherwise "n張" is n or more (the club's answer, 2026-10-26)
+ */
+type Extractor = [RegExp, (m: RegExpExecArray, exact: boolean) => Array<[string, unknown]> | null]
 
-const top = (up: string | undefined, n: number) => (up ? SPEC_ANY : n)
+const EXACTLY = /(剛好|恰好|正好)\s*$/
+const top = (up: string | undefined, n: number, exact: boolean) => (up || !exact ? SPEC_ANY : n)
 
 /** Lengths, then shortness, then high cards, in this order; the first to claim a span keeps it */
 const EXTRACTORS: Extractor[] = [
-  // 5張♥, 6張↑♦, 5張♣↑, 3張↑♥支持, 6張黑桃↑; not "♦/♥" (which call has which suit?) nor 1張♣↓
+  // 5張♥ (5 or more), 6張↑♦, 5張♣↑, 3張↑♥支持, 6張黑桃↑; not "♦/♥" (which call has which suit?)
+  // nor 1張♣↓
   [
     new RegExp(
       `(?<![\\d\\-~～])(\\d{1,2})\\s*張\\s*${UP}?\\s*的?\\s*${SUIT}\\s*${UP}?(?!\\s*(?:[/／]|↓|以下))`,
       'g',
     ),
-    (m) => [[`len.${SUIT_OF[m[3]]}`, [Number(m[1]), top(m[2] ?? m[4], Number(m[1]))]]],
+    (m, exact) => [
+      [`len.${SUIT_OF[m[3]]}`, [Number(m[1]), top(m[2] ?? m[4], Number(m[1]), exact)]],
+    ],
   ],
   // 4+♠, 6+的紅心
   [
@@ -373,6 +382,7 @@ export interface MeaningReading {
 /** What a meaning says outright about the hand (docs/SYSTEM-SPEC.md §3) */
 export function readMeaning(text: string): MeaningReading {
   const masked = maskBrackets(text)
+  const exactShape = shapesOf(text).length > 0
   const taken = new Array<boolean>(text.length).fill(false)
   const findings: Finding[] = []
 
@@ -393,7 +403,7 @@ export function readMeaning(text: string): MeaningReading {
       for (let m = pattern.exec(clause); m; m = pattern.exec(clause)) {
         const span: [number, number] = [from + m.index, from + m.index + m[0].length]
         if (taken.slice(span[0], span[1]).some(Boolean)) continue
-        const values = read(m)
+        const values = read(m, exactShape || EXACTLY.test(clause.slice(0, m.index)))
         if (!values) continue
         for (let i = span[0]; i < span[1]; i++) taken[i] = true
         for (const [key, value] of values) findings.push({ key, value, span })
