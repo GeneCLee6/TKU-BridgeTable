@@ -21,7 +21,7 @@ npm run sim -- leads --deals 10000 --analyse           # 不算，只用檔案�
 | --- | --- |
 | `--deals N`、`--from N` | 固定牌組（`eval/deals.ts`，種子 `tku-eval-v1`）第 `from` 副起 N 副；牌組不存檔，第 n 副由種子直接發，所以 1,000,000 副不用先準備 |
 | `--seed s` | 換一組牌（跟 `npm run eval` 的 `--seed` 一樣） |
-| `--system tku\|gib` | 叫牌與首攻的四個 TKB 用哪套制度（預設 `tku`） |
+| `--system tku\|gib` | 四個 TKB 叫牌用哪套制度（預設 `tku`）；首攻與出牌的規則兩套一樣（`ROBOT.md` §3.2），差別只在叫牌過程與推論 |
 | `--threads N` | 執行緒數，預設是邏輯處理器數 − 2（這台 i5-14500 是 18） |
 | `--samples N` | `leads`：每副另外抽 N 個佈局做首攻者的單明手估計（預設 0）；`compare`：每個決策抽 N 個佈局（預設 30） |
 | `--objective score\|tricks\|contract` | `compare` 比哪個：平均得分（預設，兼顧做成與超墩）、平均墩數、做成／倒合約的機率 |

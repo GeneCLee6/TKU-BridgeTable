@@ -1,6 +1,6 @@
 import { isBid, strainOf } from '../auction.ts'
 import { nextSeat, partnerOf, rankOf, rankValue, sameSide, SEATS, SUITS, suitOf, type Card, type Seat, type Suit } from '../cards.ts'
-import { dummyOf, legalCards, remainingCards, tricksOf, type BoardState, type PlayedCard } from '../game.ts'
+import { legalCards, remainingCards, tricksOf, type BoardState, type PlayedCard } from '../game.ts'
 import type { RobotKind } from '../protocol.ts'
 import { declarerLead, exitLead, holdUp } from './declarer.ts'
 import { coverLastHonour, defenceLead, dummyOverruffs, holdUpAgainstDummy, secondHand, thirdHand } from './defence.ts'
@@ -13,16 +13,15 @@ import { byRank, honours, value, View } from './view.ts'
  * declarer also sees its own hand when playing dummy) and the cards already played. It follows
  * the usual club guidelines: lead top of a sequence or fourth best, second hand low, third hand
  * high, win as cheaply as possible, don't overtake partner, ruff when the opponents are winning,
- * discard from length. The declaring side draws trumps and cashes sure winners. The club's robot
- * defends with the club's signals; the 2/1 robot with GIB's published methods (ROBOT.md §3.2).
- * Both read the auction and count the cards (`reading.ts`): the declaring side finesses through
+ * discard from length. The declaring side draws trumps and cashes sure winners. Both robots (the
+ * club's and the 2/1 one) play the cards the club's way: its leads, signals and discards
+ * (ROBOT.md §3.2). Both read the auction and count the cards (`reading.ts`): the declaring side finesses through
  * the opponent who showed the missing honour, and nobody cashes a winner into a known ruff or
  * leads a suit the opponents bid when there is a choice. The declaring side plays to a plan
  * (`declarer.ts`), the defenders from their inferences (`defence.ts`).
  */
 
 export function chooseCard(state: BoardState, seat: Seat, kind: RobotKind = 'tku'): Card {
-  const gib = kind === 'gib'
   const legal = legalCards(state, seat)
   if (legal.length <= 1) return legal[0]
   const contract = state.contract!
@@ -32,7 +31,7 @@ export function chooseCard(state: BoardState, seat: Seat, kind: RobotKind = 'tku
   const trick = current && !current.winner ? current.cards : []
   const view = new View(state, seat, kind)
 
-  if (trick.length === 0) return lead(state, seat, view, legal, trump, gib)
+  if (trick.length === 0) return lead(state, seat, view, legal, trump)
 
   const led = suitOf(trick[0].card)
   const best = winningCard(trick, trump)
@@ -43,9 +42,8 @@ export function chooseCard(state: BoardState, seat: Seat, kind: RobotKind = 'tku
   const lowest = (cards: Card[]) => [...cards].sort(byRank)[0]
 
   const defending = !sameSide(seat, contract.declarer)
-  // A card that signals rather than wins, from the club's methods (橋牌防守信號) or GIB's
-  const signal = (cards: Card[]) =>
-    !defending ? lowest(cards) : gib ? gibFollow(state, seat, trick, cards) : signalFollow(state, seat, trick, cards, trump)
+  // A card that signals rather than wins, from the club's methods (橋牌防守信號)
+  const signal = (cards: Card[]) => (!defending ? lowest(cards) : signalFollow(state, seat, trick, cards, trump))
 
   if (following.length) {
     // A defender after partner's lead: third hand high, with its exceptions (defence.ts)
@@ -96,18 +94,16 @@ export function chooseCard(state: BoardState, seat: Seat, kind: RobotKind = 'tku
     if (over.length && !(defending && dummyOverruffs(view, trick, led, lowest(over), trump!))) return lowest(over)
   }
   if (!defending) return discard(view, legal, trump)
-  // GIB's discards carry no signal
-  if (gib) return gibDiscard(view, legal, trump)
   return signalDiscard(view, legal, trump, led)
 }
 
-function lead(state: BoardState, seat: Seat, view: View, legal: Card[], trump: Suit | null, gib: boolean): Card {
+function lead(state: BoardState, seat: Seat, view: View, legal: Card[], trump: Suit | null): Card {
   const declarer = state.contract!.declarer
   const declaring = sameSide(seat, declarer)
   const hand = legal
   const nonTrump = SUITS.filter((s) => s !== trump && suitCards(hand, s).length)
 
-  if (state.play.length === 0) return gib ? gibOpeningLead(state, seat, hand, trump) : openingLead(state, seat, hand, trump)
+  if (state.play.length === 0) return openingLead(state, seat, hand, trump)
 
   // Counting the cards: an opponent known to be void in a suit, with a trump left, ruffs it
   const opponents = SEATS.filter((s) => !sameSide(s, seat))
@@ -133,8 +129,8 @@ function lead(state: BoardState, seat: Seat, view: View, legal: Card[], trump: S
       const top = suitCards(hand, s)[0]
       if (view.isMaster(top) && state.play.length >= 4 && !ruffed(s)) return top
     }
-    // Lead the suit partner asked for with a discard (GIB's discards carry no signal)
-    const wanted = gib ? null : partnerSignal(state, seat, trump)
+    // Lead the suit partner asked for with a discard
+    const wanted = partnerSignal(state, seat, trump)
     if (wanted && suitCards(hand, wanted).length && !ruffed(wanted)) {
       const cards = suitCards(hand, wanted)
       return cards.length === 2 ? cards[0] : cards.at(-1)!
@@ -252,68 +248,6 @@ function openingLead(state: BoardState, seat: Seat, hand: Card[], trump: Suit | 
   return lead(ranked[0])
 }
 
-/**
- * GIB's opening leads: partner's suit; against a suit contract AK (the king, the ace from AK
- * doubleton), a side-suit singleton or a small doubleton to ruff; the top of a sequence; against
- * notrump a passive lead, from a five-card suit or else a suit without honours; low from three
- * small, fourth best from length
- */
-function gibOpeningLead(state: BoardState, seat: Seat, hand: Card[], trump: Suit | null): Card {
-  const partnerBid = state.auction.find((c) => c.seat === partnerOf(seat) && isBid(c.call) && strainOf(c.call) !== 'N')
-  if (partnerBid) {
-    const cards = suitCards(hand, strainOf(partnerBid.call) as Suit)
-    if (cards.length) return gibSequenceTop(cards) ?? fourthBest(cards)
-  }
-  const suits = SUITS.filter((s) => s !== trump && suitCards(hand, s).length)
-  const pool = suits.length ? suits : SUITS.filter((s) => suitCards(hand, s).length)
-  const holding = (s: Suit) => suitCards(hand, s)
-  const longest = (from: Suit[]) => [...from].sort((a, b) => holding(b).length - holding(a).length)[0]
-
-  if (trump) {
-    for (const s of pool) {
-      const cards = holding(s)
-      if (cards.length >= 2 && rankOf(cards[0]) === 'A' && rankOf(cards[1]) === 'K') return cards.length === 2 ? cards[0] : cards[1]
-    }
-    if (holding(trump).length) {
-      const singleton = pool.find((s) => holding(s).length === 1 && !'KQJ'.includes(rankOf(holding(s)[0])))
-      if (singleton) return holding(singleton)[0]
-    }
-  }
-  for (const s of pool) {
-    const seq = sequenceTop(holding(s))
-    if (seq) return rankOf(seq) === 'A' && rankOf(holding(s)[1]) === 'K' ? holding(s)[1] : seq
-  }
-  if (trump) {
-    const doubleton = pool.find((s) => holding(s).length === 2 && value(holding(s)[0]) < 11)
-    if (doubleton) return holding(doubleton)[0]
-  } else {
-    const five = pool.filter((s) => holding(s).length >= 5)
-    if (five.length) return fourthBest(holding(longest(five)))
-    const passive = pool.filter((s) => holding(s).length >= 3 && honours(holding(s)) === 0)
-    if (passive.length) return fourthBest(holding(longest(passive)))
-  }
-  const ranked = [...pool].sort((a, b) => {
-    const aceA = trump && rankOf(holding(a)[0]) === 'A' ? 1 : 0
-    const aceB = trump && rankOf(holding(b)[0]) === 'A' ? 1 : 0
-    return aceA - aceB || holding(b).length - holding(a).length
-  })
-  return fourthBest(holding(ranked[0]))
-}
-
-/** GIB's lead in partner's suit: the top of a doubleton or a sequence (the king from AK) */
-function gibSequenceTop(cards: Card[]): Card | null {
-  if (cards.length >= 2 && rankOf(cards[0]) === 'A' && rankOf(cards[1]) === 'K') return cards.length === 2 ? cards[0] : cards[1]
-  if (cards.length === 2) return cards[0]
-  return sequenceTop(cards)
-}
-
-/** KQ, QJ, JT or T9 at the top of a suit of three or more: lead the top card */
-function sequenceTop(cards: Card[]): Card | null {
-  if (cards.length < 3) return null
-  const [a, b] = cards.map((c) => rankValue(rankOf(c)))
-  return a - b === 1 && a >= 10 ? cards[0] : null
-}
-
 function fourthBest(cards: Card[]): Card {
   if (cards.length >= 4) return cards[3]
   if (cards.length === 2) return cards[0]
@@ -404,41 +338,6 @@ function signalFollow(state: BoardState, seat: Seat, trick: PlayedCard[], cards:
     }
   }
   return cards.length % 2 === 0 ? highSpot(cards) : low
-}
-
-/**
- * Following suit without trying to win, as GIB does:
- * - partner's lead: attitude, standard: a high spot with the ace or king, or with the queen
- *   sitting over dummy's ace or king; otherwise the lowest
- * - otherwise standard count: high then low with an even number
- */
-function gibFollow(state: BoardState, seat: Seat, trick: PlayedCard[], cards: Card[]): Card {
-  const low = [...cards].sort(byRank)[0]
-  if (cards.length === 1) return low
-  const leader = trick[0]
-  if (leader.seat === partnerOf(seat)) {
-    const dummy = dummyOf(state)
-    const overDummy =
-      dummy !== null &&
-      nextSeat(dummy) === seat &&
-      suitCards(remainingCards(state, dummy), suitOf(leader.card)).some((c) => 'AK'.includes(rankOf(c)))
-    const like = cards.some((c) => 'AK'.includes(rankOf(c))) || (overDummy && cards.some((c) => rankOf(c) === 'Q'))
-    return like ? highSpot(cards) : low
-  }
-  return cards.length % 2 === 0 ? highSpot(cards) : low
-}
-
-/**
- * GIB's discards carry no signal, they only keep the hand safe: with trumps left in a suit
- * contract, from the shortest side suit (to ruff later); otherwise from length
- */
-function gibDiscard(view: View, legal: Card[], trump: Suit | null): Card {
-  if (!trump || !legal.some((c) => suitOf(c) === trump)) return discard(view, legal, trump)
-  const candidates = legal.filter((c) => suitOf(c) !== trump && !view.isMaster(c))
-  if (!candidates.length) return discard(view, legal, trump)
-  const length = (s: Suit) => legal.filter((c) => suitOf(c) === s).length
-  const cost = discardCosts(view, legal, trump)
-  return [...candidates].sort((a, b) => cost[suitOf(a)] - cost[suitOf(b)] || length(suitOf(a)) - length(suitOf(b)) || byRank(a, b))[0]
 }
 
 /**
