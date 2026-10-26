@@ -45,7 +45,13 @@ import {
   type TableSummary,
 } from '../shared/protocol.ts'
 import { dealWith } from '../shared/dealer.ts'
-import { parsePracticeSettings, PRACTICE_MAX_ATTEMPTS, practiceConditions, quickRandom } from '../shared/practice.ts'
+import {
+  controlledSeats,
+  parsePracticeSettings,
+  PRACTICE_MAX_ATTEMPTS,
+  practiceConditions,
+  quickRandom,
+} from '../shared/practice.ts'
 import type { RobotBrain } from '../shared/robot/brain.ts'
 import { hashPassword, randomId, SESSION_DAYS, verifyPassword } from './auth.ts'
 import { checkFavorite } from '../shared/favorites.ts'
@@ -2419,6 +2425,8 @@ export class ClubService {
     await this.leave(userId)
     const kind = settings.robotKind
     const state: PracticeTableState = { ...settings, dealt: 0 }
+    // The seats besides South the member bids for (`e10-t15`): TKB sits there, the member calls
+    const controlled = controlledSeats(settings)
     const table: Table = {
       id: randomId(6),
       // Listed in the lobby when its access mode lets others watch
@@ -2435,6 +2443,7 @@ export class ClubService {
       settings: { ...PRACTICE_TABLE_SETTINGS, ...(access !== undefined && { access: access as TableAccess }) },
       names: { [userId]: this.users.get(userId)!.username },
       blocks: { [userId]: this.blocks.of(userId) },
+      ...(controlled.length > 0 && { controllers: Object.fromEntries(controlled.map((seat) => [seat, userId])) }),
     }
     // The table deals its first board as it opens
     this.applyEntry(await this.tables.get(table.id).open(table))

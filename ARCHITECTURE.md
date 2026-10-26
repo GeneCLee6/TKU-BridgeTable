@@ -130,6 +130,7 @@ interface BoardState {
 | 誰 | 看得到 |
 | --- | --- |
 | 入座者 | 自己的牌；首攻後的夢家；夢家在首攻後也看得到莊家的牌 |
+| 替別的座位叫牌的人（座位控制權，`e10-t15`） | 加上他控制的每個座位的牌（`Table.controllers`，`seatsActedBy` 算出他「替哪幾家叫」，`boardView` 的 `acts`）；輪到其中任何一家時 `legalCalls` 給他（就是 `turn` 那一家），叫牌盒提示用那一家算、不把他控制的機器人當成機器人。那個座位上坐的人（練習桌是 TKB）不會因此多看到什麼，也不能替它叫；觀看者照常（四家）。叫品的 Alert：他自己替兩家叫的，兩家的說明他都看得到。目前只有只叫牌的練習桌會設控制權 |
 | 攤牌之後（被拒絕也一樣） | 攤過的牌不會再蓋回去：莊家攤牌後，兩位防家看得到四家的牌（莊家仍只看自己和夢家）；防家攤牌後，他的牌所有人都看得到。記在 `BoardState.claimed` |
 | 觀看者 | 四家（同 BBO kibitz）；練習桌的觀看者也一樣（§5.11） |
 | 不允許觀看的桌上沒有座位的人（站起來或被請離座的玩家，`e2-t26`） | 只看得到所有人都看得到的：首攻後的夢家、防家攤過的牌；打完後四家（`boardView` 的 `kibitz: false`） |
@@ -376,6 +377,12 @@ interface BoardState {
 - **發牌**（`worker/modes.ts` 的 `practice`）：有條件時每副都由南家發牌（牌號 3、7、11、15…，局況輪流），隨機時照一般牌桌輪流。條件發牌用 `quickRandom`（每副用 CSPRNG 取一次種子的 mulberry32）：CSPRNG 每次嘗試約 1 ms，條件發牌要很多次嘗試，免費方案的 CPU 不夠；快速版每次約 10 µs，最難的滿貫牌平均約 350 次。
 - **隨時重發**（`redeal`，牌桌動作，只有練習桌的主人、要有座位）：這一副不管打到哪裡直接丟掉（不留紀錄、`boardsPlayed` 不變），立刻發下一副；這次抽不到時牌留著、回 `dealTooStrict`；不是練習桌回 `practiceOnly`。
 - **撤回不限**：練習桌的撤回跟一般牌桌一樣（機器人一律同意），沒有次數限制；挑戰桌才不能撤回。
+- **叫牌練習室（一）：只叫牌、一人控制多家**（`e10-t15`，ROADMAP U2a）：`PracticeSettings.biddingOnly` 與 `seats`（社員替哪幾家叫，一定有南；南以外只在 `biddingOnly` 時可以，現在沒有人同時打好幾手牌；`biddingOnly` 不能和 `justDeclare` 一起，錯了是 `badPracticeSettings { field: 'biddingOnly' | 'seats' }`）。
+  - **座位控制權（通用）**：`Table.controllers: Partial<Record<Seat, userId>>`，「替這個座位叫牌的人」，沒列的座位就是坐在那裡的人（`views.ts` 的 `actorOf`）。座位上仍是原本的佔位者（練習桌是 TKB），所以座位、`fixedSeats`、代打、`swapForDeclarer`、大廳顯示都不用改；機器人輪到一個被控制的座位就不動（`robotMove` 的 `robotActs`），但撤回與攤牌照樣由坐著的機器人回答。之所以不把社員的 id 同時放進好幾個座位：`seatOf`、代打、入座離座、紀錄的 `players` 都假設一個人一個座位，改那個模型會動到每一種牌桌；控制權另外一張表，之後搭檔非同步叫牌（`e10-t08`，搭檔控制北）與教學桌（`e10-t10`，老師控制任一家）只要設這張表。
+  - **伺服器驗證**：`call` 可以帶 `seat`（`TableService.callingSeat`）：要是 `actorOf` 為這位社員的座位，否則 `notYourSeat`；不帶就是自己的座位；輪到誰由 `makeCall` 判斷（`notYourCall`）。撤回（`undoSeat`）在叫牌中撤回他替任何一家叫的最後一口；他自己不能同意自己替別家叫的撤回（`undoByOpponent`）。社員被刪除時他控制的座位還給佔位者。
+  - **叫完就結束**：叫牌結束（有合約）時 `endBidding` 把這一副設成 `finished`、沒有 `result`、不打牌（`biddingEnded`）；四家 Pass 時照常有 0 分的 `result`。兩種都**不做紀錄**（不進 outbox、不進 `recent`、`boardsPlayed` 不變，所以也不進 D1 副本），也不自動發下一副（`dealsByItself`，沒有 `dealAt`）。社員按「下一副」（`redeal`）或「重叫這一副」（`rebid`：同一副牌從頭再叫，不是只叫牌的練習桌回 `biddingOnlyRebid`，只有主人可以）。
+  - **畫面**：`TableView.acts`（他替哪幾家叫，多於自己的座位時才送）、`SeatOccupant.controlledBy`（座位牌上的「amy 叫」）；叫牌盒上方「現在替 北 叫」，送出時帶 `seat: board.turn`；結束時中間是「叫牌結束」與合約（`ResultPanel` 沒有 `result` 時）；右下角「重叫這一副」「下一副」。
+  - **留給 U2b**：四家顯示／隱藏與每家的牌型條件都還沒做；顯示另外加 `boardView` 的參數（看得到但不能叫），不要塞進 `acts`。
 - **Just Declare 練習**（`e10-t05`）：每副先由四個 TKB 叫完（`challenge-deals.ts` 的 `robotAuction`，同 Just Declare 挑戰），南北沒當莊就重發，最多 `JUST_DECLARE_TRIES` 次；真的抽不到時先打一副有合約的（防守），再不行就讓社員自己叫。同伴當莊時社員換到莊家位（同一般牌桌的 `swapForDeclarer`）。
 - **紀錄**：`BoardRecord.mode = 'practice'`、桌號 0（列表顯示「練習」，`strings.ts` 的 `boardPlace`）。SQL 搜尋 `scope=all` 沒指定 `mode` 時排除練習（`history-index.ts` 的 `where`），所以「全部社員」、個人檔案卡的最近牌局都看不到；「我的」照常列出，篩選「練習」（`HISTORY_MODES`）兩邊都找得到。練習的牌不能設精選（`practiceNotFeatured`）、不能「用這副牌挑戰」（`practiceNoChallenge`）。
 - **畫面**：`TableView.practice`（`worker/views.ts` 的 `practiceView`：只有社員自己的設定與 `dealt`，不含任何牌）；牌桌標題 `PracticeBanner`，右下角「重發」「結束練習」。

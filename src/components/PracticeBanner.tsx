@@ -23,6 +23,7 @@ export function PracticeBanner({ practice }: { practice: TablePractice }) {
     t.practiceDeals[practice.deal].label,
     t.robots[practice.robotKind],
     ...(practice.justDeclare ? [t.justDeclare] : []),
+    ...(practice.biddingOnly ? [t.biddingOnly] : []),
   ]
   return (
     <Wrap>

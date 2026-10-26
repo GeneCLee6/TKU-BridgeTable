@@ -75,6 +75,8 @@ export interface SeatOccupant extends PublicUser {
   online: boolean
   /** A robot sitting in for a member who dropped offline (代打, `e2-t31`): their name; they get the seat back on returning */
   substituteFor?: string
+  /** Someone else makes the calls for this seat (seat control, `e10-t15`): their name */
+  controlledBy?: string
 }
 
 /**
@@ -343,6 +345,12 @@ export interface TableView {
   seats: Record<Seat, SeatOccupant | null>
   spectators: PublicUser[]
   mySeat: Seat | null
+  /**
+   * The seats the viewer makes the calls for when that is more than their own (seat control,
+   * `e10-t15`): they see each of these hands, and the bidding box is theirs on any of their turns
+   * (`board.turn` says for which). Left out otherwise
+   */
+  acts?: Seat[]
   board: BoardView | null
   boardsPlayed: number
   /**
@@ -543,6 +551,7 @@ export const TABLE_ACTIONS = [
   'undoRespond',
   'chat',
   'redeal',
+  'rebid',
 ] as const
 
 export type TableAction = Extract<ClientMessage, { type: (typeof TABLE_ACTIONS)[number] }>
@@ -582,7 +591,11 @@ export type ClientMessage =
   | { type: 'removeRobot'; seat: Seat }
   /** The host asks a player who has kept the table waiting SLOW_TURN_MS to leave, and seats TKB there */
   | { type: 'replaceWithRobot'; seat: Seat; kind?: RobotKind }
-  | { type: 'call'; call: Call; alert?: string }
+  /**
+   * `seat`: the seat the call is made for (seat control, `e10-t15`), which the member must make the
+   * calls for (`notYourSeat`); their own seat when left out
+   */
+  | { type: 'call'; call: Call; alert?: string; seat?: Seat }
   | { type: 'play'; card: Card }
   | { type: 'claim'; tricks: number }
   | { type: 'claimRespond'; accept: boolean }
@@ -596,6 +609,8 @@ export type ClientMessage =
   | { type: 'createPractice'; settings: PracticeSettings; access?: TableAccess }
   /** At a practice table only: the board on the table is put away unplayed and a new one dealt */
   | { type: 'redeal' }
+  /** At a bidding practice only (`e10-t15`): the board on the table is bid again from the start, the same hands */
+  | { type: 'rebid' }
   /** Marks these notifications read, or all of them when `ids` is left out */
   | { type: 'readNotifications'; ids?: string[] }
   /** Follows another member (好友) or stops following them; one-way, they are not asked */
