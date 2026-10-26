@@ -1,4 +1,3 @@
-import { ChevronLeft } from 'lucide-react'
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import styled from 'styled-components'
@@ -17,7 +16,7 @@ import {
 } from '../../shared/team-match.ts'
 import { MATCH_SCORINGS, RULINGS, TEAMS, type RulingKind, type Team } from '../../shared/team-scoring.ts'
 import { BoardScores, ScoreLine, Tag } from '../components/MatchParts.tsx'
-import { Button, Card, ErrorText, Field, FieldLabel, Input, Muted, PageMain, PageTitle, Select } from '../components/ui.tsx'
+import { ActionLink, Button, Card, ErrorText, Field, FieldLabel, Input, Muted, PageMain, PageTitle, Select } from '../components/ui.tsx'
 import { ApiError, api, type MatchPlayAction, type MatchSeatAction } from '../lib/api.ts'
 import { arranges, matchSettingsLine, myRoomTable, mySeat, robotsUneven, sameSeat, seatLabel, teamName } from '../lib/matches.ts'
 import { useTeamMatch } from '../lib/useTeamMatch.ts'
@@ -40,14 +39,8 @@ import { usePreferences } from '../state/PreferencesContext.tsx'
  * (`match`), so the page stays live without polling.
  */
 
-const Back = styled(Link)`
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  margin-bottom: 8px;
-  color: ${({ theme }) => theme.colors.primary};
-  font-weight: 600;
-  text-decoration: none;
+const Back = styled(ActionLink)`
+  margin: 0 0 8px -4px;
 `
 
 const Meta = styled.div`
@@ -223,8 +216,7 @@ export function MatchPage() {
   const playAction = (action: MatchPlayAction) => run(() => api.matchPlay(matchId, action))
 
   const back = (
-    <Back to="/matches">
-      <ChevronLeft size={18} aria-hidden />
+    <Back back to="/matches">
       {t.teamMatch.all}
     </Back>
   )

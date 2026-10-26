@@ -517,4 +517,25 @@ describe('long auctions and the dock', () => {
     await userEvent.click(screen.getByRole('tab', { name: '社員' }))
     expect(screen.queryByRole('tabpanel')).toBeNull()
   })
+
+  it('has no ✕ on the open panel: its tab or Esc closes it (e3-t47)', async () => {
+    render(
+      <PreferencesProvider>
+        <AuthProvider>
+          <ClubProvider>
+            <MemoryRouter>
+              <SidePanel tabs={['chat', 'people', 'history']} page="test-esc" chat={<button type="button">hello</button>} />
+            </MemoryRouter>
+          </ClubProvider>
+        </AuthProvider>
+      </PreferencesProvider>,
+    )
+    await userEvent.click(screen.getByRole('tab', { name: '聊天' }))
+    const panel = screen.getByRole('tabpanel', { name: '聊天' })
+    expect(within(panel).queryByRole('button', { name: '關閉' })).toBeNull()
+    screen.getByRole('button', { name: 'hello' }).focus()
+    await userEvent.keyboard('{Escape}')
+    expect(screen.queryByRole('tabpanel')).toBeNull()
+    expect(screen.getByRole('tab', { name: '聊天' })).toHaveFocus()
+  })
 })

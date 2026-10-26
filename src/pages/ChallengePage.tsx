@@ -1,12 +1,12 @@
-import { ChevronLeft, Image as ImageIcon } from 'lucide-react'
+import { Image as ImageIcon } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
 import styled from 'styled-components'
 import type { ChallengeView } from '../../shared/challenge.ts'
 import { Progress, StatusTag } from '../components/ChallengeParts.tsx'
 import { ChallengeResults } from '../components/ChallengeResults.tsx'
 import { ShareCardDialog } from '../components/ShareCardDialog.tsx'
-import { Button, Card, ErrorText, Muted, PageMain, PageTitle } from '../components/ui.tsx'
+import { ActionLink, Button, Card, ErrorText, Muted, PageMain, PageTitle } from '../components/ui.tsx'
 import { ApiError, api } from '../lib/api.ts'
 import {
   challengeTitle,
@@ -33,14 +33,8 @@ import { usePreferences } from '../state/PreferencesContext.tsx'
  * no boards, only everyone's progress.
  */
 
-const Back = styled(Link)`
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  margin-bottom: 8px;
-  color: ${({ theme }) => theme.colors.primary};
-  font-weight: 600;
-  text-decoration: none;
+const Back = styled(ActionLink)`
+  margin: 0 0 8px -4px;
 `
 
 const Meta = styled.div`
@@ -145,8 +139,7 @@ export function ChallengePage() {
   }, [challengeId, latest, message])
 
   const back = (
-    <Back to="/challenges">
-      <ChevronLeft size={18} aria-hidden />
+    <Back back to="/challenges">
       {t.allChallenges}
     </Back>
   )

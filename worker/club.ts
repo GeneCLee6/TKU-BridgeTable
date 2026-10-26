@@ -11,6 +11,7 @@ import { backupAdmin, runBackup } from './backup.ts'
 import { BookService, importRequestFrom, publicBookResponse } from './book.ts'
 import { claudeImporter } from './importer.ts'
 import { anonymousProfileResponse, ProfileService } from './profiles.ts'
+import { avatarResponse, readAvatarUpload } from './avatars.ts'
 import { adminRouteNeed, bookRouteNeed, clubRouteNeed, requireNeed } from './roles.ts'
 import { CLIENT_ERROR_MAX_CHARS } from './client-errors.ts'
 import { d1Replica } from './d1.ts'
@@ -379,6 +380,12 @@ export class Club extends DurableObject<Env> implements Connections {
       return json({ user: await this.service.setAccountPreferences(user.id, { friendOnlineNotice: b.friendOnlineNotice, bookProfile: b.bookProfile }) })
     }
     if (route === 'PATCH /api/account/profile') return json({ user: await this.service.setProfile(user.id, await body()) })
+    // The member's own picture (e1-t34): the bytes as the browser cropped and shrank them
+    if (route === 'PUT /api/account/avatar') return json({ user: await this.service.setAvatar(user.id, await readAvatarUpload(request)) })
+    if (route === 'DELETE /api/account/avatar') return json({ user: await this.service.deleteAvatar(user.id) })
+    // Any member's picture, for both sites; cached by its version (`?v=`)
+    const avatar = url.pathname.match(/^\/api\/avatar\/([\w-]+)$/)
+    if (request.method === 'GET' && avatar) return avatarResponse(await this.service.avatar(avatar[1]), request)
     // Another member's profile card (AC-1.5)
     const member = url.pathname.match(/^\/api\/members\/([\w-]+)$/)
     if (request.method === 'GET' && member) return json({ member: await this.service.memberProfile(user.id, member[1]) })

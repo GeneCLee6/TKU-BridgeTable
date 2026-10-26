@@ -248,7 +248,7 @@ function SeatOccupantLabel({ seat, occupant }: { seat: Seat; occupant: SeatOccup
         </>
       ) : (
         <>
-          <Avatar id={occupant.id} name={occupant.username} size={20} />
+          <Avatar id={occupant.id} name={occupant.username} size={20} avatar={occupant.avatar} />
           <SeatName>{occupant.username}</SeatName>
         </>
       )}

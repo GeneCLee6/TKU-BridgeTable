@@ -59,6 +59,8 @@ export const SOUND_EVENTS = {
   score: { db: -16, level: 'event' },
   /** #17 A team match is over: the same sound whoever won */
   matchEnd: { db: -6, level: 'event' },
+  /** #18 A challenge or a team match invitation pops up (`e1-t35`): it waits on your answer */
+  invite: { db: -2, level: 'call', vibrate: [30, 60, 30, 60, 30] },
 } as const satisfies Record<string, { db: number; level: SoundLevel; vibrate?: readonly number[] }>
 
 export type SoundEvent = keyof typeof SOUND_EVENTS
@@ -107,7 +109,7 @@ export interface SoundSituation {
 /** What watchers hear: what happens on the felt, and the other room's result in a team match */
 const KIBITZ_EVENTS: ReadonlySet<SoundEvent> = new Set(['deal', 'card', 'otherCard', 'trick', 'score'])
 /** What a background tab still plays: what needs you, and messages */
-const BACKGROUND_EVENTS: ReadonlySet<SoundEvent> = new Set(['turn', 'turnPlay', 'attention', 'slow', 'notify', 'chat'])
+const BACKGROUND_EVENTS: ReadonlySet<SoundEvent> = new Set(['turn', 'turnPlay', 'attention', 'slow', 'invite', 'notify', 'chat'])
 
 /** Whether the event makes a sound, and whether it buzzes the phone */
 export function soundDecision(event: SoundEvent, prefs: SoundPrefs, where: SoundSituation): { sound: boolean; vibrate: boolean } {

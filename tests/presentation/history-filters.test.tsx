@@ -2,14 +2,18 @@ import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useEffect } from 'react'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { HistoryQuery } from '../../shared/history-query.ts'
+import type { BoardSummary, HistoryPage as Page } from '../../shared/protocol.ts'
 import { HistoryPage } from '../../src/pages/HistoryPage.tsx'
 import { PreferencesProvider } from '../../src/state/PreferencesContext.tsx'
 
-const searchHistory = vi.fn(async (query: Partial<HistoryQuery>) => ({ boards: [], total: 0, page: query.page ?? 1, size: query.size ?? 20 }))
+const noBoards = async (query: Partial<HistoryQuery>): Promise<Page> => ({ boards: [], total: 0, page: query.page ?? 1, size: query.size ?? 20 })
+const searchHistory = vi.fn(noBoards)
 
-vi.mock('../../src/lib/api.ts', () => ({ api: { searchHistory: (query: Partial<HistoryQuery>) => searchHistory(query) } }))
+vi.mock('../../src/lib/api.ts', () => ({
+  api: { searchHistory: (query: Partial<HistoryQuery>) => searchHistory(query), favoriteIds: async () => ({ ids: [] }) },
+}))
 vi.mock('../../src/state/ClubContext.tsx', () => ({
   useLobby: () => ({
     members: [
@@ -165,5 +169,89 @@ describe('history filters and sorting (e4-t16…t21)', () => {
     } finally {
       vi.unstubAllGlobals()
     }
+  })
+})
+
+const board = (boardNo: number): BoardSummary =>
+  ({
+    id: `b${boardNo}`,
+    tableNumber: 1,
+    finishedAt: 0,
+    players: { N: { id: 'a', username: 'amy' }, E: { id: 'b', username: 'ben' }, S: { id: 'c', username: 'cat' }, W: { id: 'd', username: 'dan' } },
+    boardNo,
+    dealer: 'N',
+    vul: 'None',
+    contract: { level: 4, strain: 'S', declarer: 'N', doubled: '' },
+    result: { declarerTricks: 10, scoreNS: 420, claimed: false },
+  }) as BoardSummary
+
+/** 60 boards, 20 a page */
+const sixty = async (query: Partial<HistoryQuery>): Promise<Page> => {
+  const page = query.page ?? 1
+  return { boards: Array.from({ length: 20 }, (_, i) => board((page - 1) * 20 + i + 1)), total: 60, page, size: 20 }
+}
+
+/** The board numbers in the list, as shown in the board column */
+const shownBoards = (container: HTMLElement) =>
+  [...container.querySelectorAll('tr[data-href] td[data-col="board"]')].map((cell) => cell.textContent?.split('#')[1])
+
+describe('moving between pages (e3-t46)', () => {
+  beforeEach(() => {
+    searchHistory.mockClear()
+    window.localStorage.removeItem('tku-bridge-table:history-size')
+  })
+  afterEach(() => {
+    searchHistory.mockImplementation(noBoards)
+  })
+
+  it('keeps the page on screen, without grey rows, until the next one has come', async () => {
+    const user = userEvent.setup()
+    let release = () => {}
+    searchHistory.mockImplementation(async (query) => {
+      if (query.page === 2) await new Promise<void>((resolve) => (release = resolve))
+      return sixty(query)
+    })
+    const { container } = open('/history')
+    await waitFor(() => expect(shownBoards(container)).toHaveLength(20))
+    expect(shownBoards(container)[0]).toBe('1')
+    await user.click(screen.getByRole('button', { name: '2' }))
+    // Still the first page, no skeleton, the same 20 rows, while page 2 is on its way
+    expect(container.querySelector('[data-skeleton]')).toBeNull()
+    expect(shownBoards(container)).toHaveLength(20)
+    expect(shownBoards(container)[0]).toBe('1')
+    expect(screen.getByRole('region', { name: '牌局紀錄' })).toHaveAttribute('aria-busy', 'true')
+    release()
+    await waitFor(() => expect(shownBoards(container)[0]).toBe('21'))
+    expect(shownBoards(container)).toHaveLength(20)
+    expect(container.querySelector('[data-skeleton]')).toBeNull()
+  })
+
+  it('fetches a page when the pointer is on its button, and keeps the pages it has', async () => {
+    const user = userEvent.setup()
+    searchHistory.mockImplementation(sixty)
+    const { container } = open('/history')
+    await waitFor(() => expect(shownBoards(container)).toHaveLength(20))
+    await user.hover(screen.getByRole('button', { name: '3' }))
+    expect(lastQuery()).toMatchObject({ page: 3 })
+    const asked = searchHistory.mock.calls.length
+    await user.click(screen.getByRole('button', { name: '3' }))
+    await waitFor(() => expect(shownBoards(container)[0]).toBe('41'))
+    // Back to the first page: already fetched, so the server is not asked again
+    await user.click(screen.getByRole('button', { name: '1' }))
+    await waitFor(() => expect(shownBoards(container)[0]).toBe('1'))
+    expect(searchHistory.mock.calls.length).toBe(asked)
+    expect(container.querySelector('[data-skeleton]')).toBeNull()
+  })
+
+  it('shows grey rows only on the first load', async () => {
+    let release = () => {}
+    searchHistory.mockImplementation(async (query) => {
+      await new Promise<void>((resolve) => (release = resolve))
+      return sixty(query)
+    })
+    const { container } = open('/history')
+    expect(container.querySelector('[data-skeleton]')).not.toBeNull()
+    release()
+    await waitFor(() => expect(shownBoards(container)).toHaveLength(20))
   })
 })
