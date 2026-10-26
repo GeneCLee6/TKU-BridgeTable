@@ -7,6 +7,7 @@ import { REMINDER_MS } from '../../worker/challenge-flow.ts'
 import { ClubService, type Connections, type ScheduleKind } from '../../worker/service.ts'
 import type { MemoryStore } from '../../worker/store.ts'
 import { memoryStore } from './sqlite.ts'
+import { clubService, writeChallenge } from './event-mode.ts'
 
 /** Deadlines, settlement and who sees which results (C5: e7-t13, e7-t14, e7-t20) */
 
@@ -52,7 +53,7 @@ let queue: { run: () => void; ms: number; kind: ScheduleKind }[]
 let time: number
 
 const newClub = () =>
-  new ClubService(store, connections, {
+  clubService(store, connections, {
     maxUsers: 40,
     now: () => time,
     schedule: (run, ms, kind) => queue.push({ run, ms, kind }),
@@ -145,7 +146,7 @@ async function setup(
 /** Writes results straight into the store, as if the boards had been played */
 function results(id: string, userId: string, scores: number[]) {
   for (const [i, scoreNS] of scores.entries())
-    club.challenges.addResult(id, { userId, seq: i + 1, boardId: `b-${userId}-${i + 1}`, scoreNS, playedAt: time })
+    writeChallenge(club, id, (s) => s.addResult(id, { userId, seq: i + 1, boardId: `b-${userId}-${i + 1}`, scoreNS, playedAt: time }))
 }
 
 async function toDeadline(id: string) {

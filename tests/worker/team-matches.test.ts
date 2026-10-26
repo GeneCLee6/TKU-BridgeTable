@@ -9,6 +9,7 @@ import { changeSettings, matchReady, newTeamMatch, parseHostSeat, seatOf } from 
 import { TeamMatchStore, type TeamMatch } from '../../worker/team-matches.ts'
 import { teamMatchView } from '../../worker/views.ts'
 import { memorySql, memoryStore } from './sqlite.ts'
+import { clubService } from './event-mode.ts'
 
 /** Team matches: the SQL tables, the steps before the start and the HTTP service (e8-t03) */
 
@@ -220,7 +221,7 @@ let bossId: string
 beforeEach(async () => {
   store = memoryStore()
   time = T0
-  club = new ClubService(store, new FakeConnections(), { maxUsers: 40, now: () => time, schedule: () => {} })
+  club = clubService(store, new FakeConnections(), { maxUsers: 40, now: () => time, schedule: () => {} })
   await club.load()
   const boss = await club.register('boss', 'secret1', '')
   bossId = 'user' in boss ? boss.user.id : ''
@@ -272,7 +273,7 @@ describe('team matches through the club', () => {
     expect(await refusedAsync(() => club.matches.cancel(amy, created.id))).toBe('matchStarted')
     expect(refused(() => club.matches.update(amy, created.id, { boards: 8 }))).toBe('matchStarted')
     // Survives the object being evicted
-    const again = new ClubService(store, new FakeConnections(), { maxUsers: 40, now: () => time, schedule: () => {} })
+    const again = clubService(store, new FakeConnections(), { maxUsers: 40, now: () => time, schedule: () => {} })
     await again.load()
     expect(again.matches.get(created.id, amy)?.status).toBe('cancelled')
   })

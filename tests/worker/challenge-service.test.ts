@@ -8,6 +8,7 @@ import { defaultChallengeSettings } from '../../shared/challenge.ts'
 import { ClubService, type Connections } from '../../worker/service.ts'
 import type { MemoryStore } from '../../worker/store.ts'
 import { memoryStore } from './sqlite.ts'
+import { clubService, writeChallenge } from './event-mode.ts'
 
 /** Challenges through the server: create, answer, cancel, notifications and what members see (C3) */
 
@@ -38,7 +39,7 @@ let club: ClubService
 let time: number
 
 const makeClub = () =>
-  new ClubService(store, connections, { maxUsers: 40, now: () => time, schedule: () => {} })
+  clubService(store, connections, { maxUsers: 40, now: () => time, schedule: () => {} })
 
 beforeEach(async () => {
   store = memoryStore()
@@ -289,7 +290,7 @@ describe('answering and cancelling (e7-t06)', () => {
     await send(dan, { type: 'answerChallenge', challengeId: c.id, accept: false })
     // The creator has started: that does not stop them cancelling
     const stored = club.challenges.get(c.id)!
-    club.challenges.updatePlayer(c.id, { ...stored.players[0], startedAt: time })
+    writeChallenge(club, c.id, (s) => s.updatePlayer(c.id, { ...stored.players[0], startedAt: time }))
     time += 5000
     await send(amy, { type: 'cancelChallenge', challengeId: c.id })
     expect(view(c.id, amy)).toMatchObject({ status: 'cancelled', endedAt: time })
@@ -307,7 +308,7 @@ describe('answering and cancelling (e7-t06)', () => {
     expect(await refused(cat, { type: 'cancelChallenge', challengeId: c.id })).toBe('challengeGone')
     await send(ben, { type: 'answerChallenge', challengeId: c.id, accept: true })
     const stored = club.challenges.get(c.id)!
-    club.challenges.updatePlayer(c.id, { ...stored.players[1], startedAt: time })
+    writeChallenge(club, c.id, (s) => s.updatePlayer(c.id, { ...stored.players[1], startedAt: time }))
     expect(await refused(amy, { type: 'cancelChallenge', challengeId: c.id })).toBe('challengeStarted')
     expect(view(c.id, amy)?.status).toBe('active')
   })
@@ -320,8 +321,8 @@ describe('reading challenges', () => {
     const c = await create(amy, [ben, cat])
     await send(ben, { type: 'answerChallenge', challengeId: c.id, accept: true })
     await send(cat, { type: 'answerChallenge', challengeId: c.id, accept: false })
-    club.challenges.addResult(c.id, { userId: amy, seq: 1, boardId: 'secretBoardOne', scoreNS: 4321, playedAt: time })
-    club.challenges.addResult(c.id, { userId: amy, seq: 2, boardId: 'secretBoardTwo', scoreNS: -50, playedAt: time })
+    writeChallenge(club, c.id, (s) => s.addResult(c.id, { userId: amy, seq: 1, boardId: 'secretBoardOne', scoreNS: 4321, playedAt: time }))
+    writeChallenge(club, c.id, (s) => s.addResult(c.id, { userId: amy, seq: 2, boardId: 'secretBoardTwo', scoreNS: -50, playedAt: time }))
     for (const id of [amy, ben, cat]) {
       const seen = view(c.id, id)!
       expect(seen.players.map((p) => p.played)).toEqual([2, 0, 0])

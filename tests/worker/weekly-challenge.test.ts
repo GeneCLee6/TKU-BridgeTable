@@ -10,6 +10,7 @@ import {
 import { ClubService, type Connections, type ScheduleKind } from '../../worker/service.ts'
 import type { MemoryStore } from '../../worker/store.ts'
 import { memoryStore } from './sqlite.ts'
+import { clubService } from './event-mode.ts'
 
 /** The weekly club challenge (C9, e7-t23) */
 
@@ -45,7 +46,7 @@ let time: number
 let boss: string
 
 const newClub = () =>
-  new ClubService(store, connections, {
+  clubService(store, connections, {
     maxUsers: 40,
     now: () => time,
     schedule: (run, ms, kind) => queue.push({ run, ms, kind }),
