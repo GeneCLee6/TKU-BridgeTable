@@ -26,14 +26,14 @@ export interface WeeklyChallengeSchedule {
   days: number
 }
 
-/** 建議預設 (ARCHITECTURE.md §5.5): off until an admin turns it on; Monday 20:00, 8 boards, MP, 淡江制度, a week to play */
+/** 建議預設 (ARCHITECTURE.md §5.5): off until an admin turns it on; Monday 20:00, 8 boards, MP, 2/1 (the club's system is private, 社長 2026-10-26), a week to play */
 export const DEFAULT_WEEKLY_SCHEDULE: WeeklyChallengeSchedule = {
   enabled: false,
   weekday: 1,
   hour: 20,
   boards: 8,
   scoring: 'mp',
-  robotKind: 'tku',
+  robotKind: 'gib',
   days: 7,
 }
 
