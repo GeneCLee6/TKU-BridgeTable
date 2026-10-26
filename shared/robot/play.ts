@@ -5,6 +5,7 @@ import type { RobotKind } from '../protocol.ts'
 import { declarerLead, exitLead, holdUp } from './declarer.ts'
 import { coverLastHonour, defenceLead, dummyOverruffs, holdUpAgainstDummy, secondHand, thirdHand } from './defence.ts'
 import { suitCards } from './hand.ts'
+import { clubLeadCard, sequenceLead } from './lead-card.ts'
 import { byRank, honours, value, View } from './view.ts'
 
 /**
@@ -221,38 +222,34 @@ function dropBetter(view: View, seat: Seat, led: Suit, finesse: Card): boolean {
 }
 
 function openingLead(state: BoardState, seat: Seat, hand: Card[], trump: Suit | null): Card {
+  // Which card from a suit: the club's 01 fourth best (lead-card.ts)
+  const lead = (s: Suit) => clubLeadCard(suitCards(hand, s), trump)
   // Partner's suit first
   const partnerBid = state.auction.find((c) => c.seat === partnerOf(seat) && isBid(c.call) && strainOf(c.call) !== 'N')
-  if (partnerBid) {
-    const cards = suitCards(hand, strainOf(partnerBid.call) as Suit)
-    if (cards.length) {
-      if (cards.length <= 2) return cards[0]
-      const honour = cards.some((c) => 'AKQJ'.includes(rankOf(c)))
-      return honour ? cards.at(-1)! : cards[0]
-    }
-  }
+  if (partnerBid && suitCards(hand, strainOf(partnerBid.call) as Suit).length) return lead(strainOf(partnerBid.call) as Suit)
   const suits = SUITS.filter((s) => s !== trump && suitCards(hand, s).length)
   const pool = suits.length ? suits : SUITS.filter((s) => suitCards(hand, s).length)
 
   if (trump) {
     for (const s of pool) {
       const cards = suitCards(hand, s)
-      if (cards.length >= 2 && rankOf(cards[0]) === 'A' && rankOf(cards[1]) === 'K') return cards[0]
+      if (cards.length >= 2 && rankOf(cards[0]) === 'A' && rankOf(cards[1]) === 'K') return lead(s)
     }
     const singleton = pool.find((s) => suitCards(hand, s).length === 1 && suitCards(hand, trump).length > 0)
     if (singleton) return suitCards(hand, singleton)[0]
   }
   for (const s of pool) {
-    const seq = sequenceTop(suitCards(hand, s))
+    const seq = sequenceLead(suitCards(hand, s), trump)
     if (seq) return seq
   }
-  // Fourth best from the longest suit, avoiding leading away from an ace against a suit contract
+  // Fourth best from the longest suit, keeping out of a suit headed by the ace against a suit
+  // contract (from there only the ace itself is led)
   const ranked = [...pool].sort((a, b) => {
     const aceA = trump && rankOf(suitCards(hand, a)[0]) === 'A' ? 1 : 0
     const aceB = trump && rankOf(suitCards(hand, b)[0]) === 'A' ? 1 : 0
     return aceA - aceB || suitCards(hand, b).length - suitCards(hand, a).length
   })
-  return fourthBest(suitCards(hand, ranked[0]))
+  return lead(ranked[0])
 }
 
 /**
@@ -392,7 +389,8 @@ function signalFollow(state: BoardState, seat: Seat, trick: PlayedCard[], cards:
   const hand = remainingCards(state, seat)
   if (leader.seat === partnerOf(seat)) {
     if (rankOf(leader.card) === 'K') return cards.length % 2 === 0 ? highSpot(cards) : low
-    const like = cards.some((c) => 'AKQ'.includes(rankOf(c)))
+    // Partner's queen (KQ, QJ) asks attitude too: the jack likes it as well
+    const like = cards.some((c) => (rankOf(leader.card) === 'Q' ? 'AKJ' : 'AKQ').includes(rankOf(c)))
     return like ? low : highSpot(cards)
   }
   const tricks = tricksOf(state)

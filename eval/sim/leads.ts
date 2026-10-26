@@ -4,6 +4,7 @@ import { nextSeat, partnerOf, rankOf, rankValue, SUITS, suitOf, type Card, type 
 import type { RobotKind } from '../../shared/protocol.ts'
 import { ruleBrain } from '../../shared/robot/brain.ts'
 import { suitCards } from '../../shared/robot/hand.ts'
+import { clubLeadCard, sequenceLead } from '../../shared/robot/lead-card.ts'
 import { TableReading } from '../../shared/robot/reading.ts'
 import type { EvalBoard } from '../deals.ts'
 import { meanAndError } from '../stats.ts'
@@ -115,24 +116,8 @@ export function handOf(record: LeadRecord): Card[] {
 const isHonour = (card: Card) => 'AKQJ'.includes(rankOf(card))
 const top = (cards: Card[]) => cards[0]
 
-/** AK at the top, or two touching cards headed by the ten or better (KQ, QJ, JT, T9) */
-export function hasSequence(cards: Card[]): boolean {
-  if (cards.length < 2) return false
-  const [a, b] = cards.map((c) => rankValue(rankOf(c)))
-  return a - b === 1 && b >= 10
-}
-
-/**
- * The card the club leads from a holding: a singleton; the top of a doubleton; the ace from AK;
- * the top of a sequence; fourth best from four or more with an honour, the lowest from three with
- * an honour; the top of three small, fourth best from four or more small (ROBOT.md §3)
- */
-export function conventionalLead(cards: Card[]): Card {
-  if (cards.length <= 2) return top(cards)
-  if (hasSequence(cards)) return top(cards)
-  if (cards.some(isHonour)) return cards.length >= 4 ? cards[3] : cards.at(-1)!
-  return cards.length >= 4 ? cards[3] : top(cards)
-}
+/** The card the club leads from a holding (淡江「01 第 4」, `shared/robot/lead-card.ts`, ROBOT.md §3) */
+export const conventionalLead = (cards: Card[], trump: Suit | null): Card => clubLeadCard(cards, trump)
 
 /** What kind of lead a card is, for the report */
 export type LeadType = 'partner' | 'trump' | 'singleton' | 'doubleton' | 'aceKing' | 'sequence' | 'ace' | 'fromHonour' | 'topOfNothing' | 'smallFromNothing' | 'other'
@@ -160,7 +145,8 @@ export function leadType(hand: Card[], card: Card, trump: Suit | null, partnerSu
   if (cards.length === 2) return 'doubleton'
   const ak = rankOf(cards[0]) === 'A' && rankOf(cards[1]) === 'K'
   if (ak) return 'AK'.includes(rankOf(card)) ? 'aceKing' : 'other'
-  if (hasSequence(cards)) return card === cards[0] ? 'sequence' : 'other'
+  const sequence = sequenceLead(cards, trump)
+  if (sequence) return card === sequence ? 'sequence' : 'other'
   if (rankOf(card) === 'A') return 'ace'
   if (cards.some(isHonour)) return card === cards[0] ? 'other' : 'fromHonour'
   return card === cards[0] ? 'topOfNothing' : 'smallFromNothing'
@@ -201,7 +187,7 @@ export const CONCEPTS: ConceptDefinition[] = [
       const own = longest(hand, SUITS.filter((s) => !partnerSuits.includes(s)), 4)
       if (!own) return []
       const held = suitCards(hand, p).length
-      return [{ concept: this.id, split: `同伴花色 ${held >= 3 ? '3 張以上' : `${held} 張`}`, a: conventionalLead(suitCards(hand, p)), b: conventionalLead(suitCards(hand, own)) }]
+      return [{ concept: this.id, split: `同伴花色 ${held >= 3 ? '3 張以上' : `${held} 張`}`, a: conventionalLead(suitCards(hand, p), trump), b: conventionalLead(suitCards(hand, own), trump) }]
     },
   },
   {
@@ -210,15 +196,15 @@ export const CONCEPTS: ConceptDefinition[] = [
     question: 'A 攻連張的頂張，B 從另一門有大牌但不連的花色攻小牌',
     cases(record, hand, trump) {
       const side = SUITS.filter((s) => s !== trump && !record.partnerSuits.includes(s))
-      const seq = side.filter((s) => suitCards(hand, s).length >= 3 && hasSequence(suitCards(hand, s)))
+      const seq = side.filter((s) => sequenceLead(suitCards(hand, s), trump) !== null)
       const away = side.filter((s) => {
         const cards = suitCards(hand, s)
-        return cards.length >= 3 && cards.some(isHonour) && !hasSequence(cards)
+        return cards.length >= 3 && cards.some(isHonour) && !sequenceLead(cards, trump)
       })
       if (!seq.length || !away.length) return []
       const a = longest(hand, seq, 3)!
       const b = longest(hand, away, 3)!
-      return [{ concept: this.id, split: trump ? '王牌合約' : '無王', a: conventionalLead(suitCards(hand, a)), b: conventionalLead(suitCards(hand, b)) }]
+      return [{ concept: this.id, split: trump ? '王牌合約' : '無王', a: conventionalLead(suitCards(hand, a), trump), b: conventionalLead(suitCards(hand, b), trump) }]
     },
   },
   {
@@ -233,7 +219,7 @@ export const CONCEPTS: ConceptDefinition[] = [
       if (!side) return []
       const twoSuits = record.theirSuits.replace(trump, '').length >= 1
       const honour = trumps.some((c) => 'AKQ'.includes(rankOf(c)))
-      return [{ concept: this.id, split: `${twoSuits ? '敵方叫過旁門' : '敵方只叫王牌'}・${honour ? '王牌有 A/K/Q' : '王牌小牌'}`, a: trumps.at(-1)!, b: conventionalLead(suitCards(hand, side)) }]
+      return [{ concept: this.id, split: `${twoSuits ? '敵方叫過旁門' : '敵方只叫王牌'}・${honour ? '王牌有 A/K/Q' : '王牌小牌'}`, a: trumps.at(-1)!, b: conventionalLead(suitCards(hand, side), trump) }]
     },
   },
   {
@@ -254,7 +240,7 @@ export const CONCEPTS: ConceptDefinition[] = [
       if (!long) return []
       const control = trumps.length >= 4 || rankOf(trumps[0]) === 'A'
       const held = suitCards(hand, short)
-      return [{ concept: this.id, split: `${held.length === 1 ? '單張' : '小雙張'}・${control ? '有王牌控制' : '沒有王牌控制'}`, a: top(held), b: conventionalLead(suitCards(hand, long)) }]
+      return [{ concept: this.id, split: `${held.length === 1 ? '單張' : '小雙張'}・${control ? '有王牌控制' : '沒有王牌控制'}`, a: top(held), b: conventionalLead(suitCards(hand, long), trump) }]
     },
   },
 ]
