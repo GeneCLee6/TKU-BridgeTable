@@ -100,6 +100,13 @@ describe('auctionPatterns', () => {
     })
   })
 
+  it('reads --- and -- as pass', () => {
+    expect(auctionPatterns(['2D', '---', '?'])).toEqual({ after: ['2D (P)'] })
+    expect(auctionPatterns(['1NT', '--', '2D', 'X', '---', '---', '?'])).toEqual({
+      after: ['1N (P) 2D (X) P (P)'],
+    })
+  })
+
   it('reads every way a shared cell can go', () => {
     expect(auctionPatterns(['1C/D', '', '1H', '', '?'])).toEqual({
       after: ['1C (P) 1H (P)', '1D (P) 1H (P)'],
@@ -108,7 +115,6 @@ describe('auctionPatterns', () => {
 
   it('gives up on what it cannot read', () => {
     expect(auctionPatterns(['1H', 'X', '2H', 'X'])).toEqual({ reason: 'noQuestion' })
-    expect(auctionPatterns(['2D', '---', '?'])).toEqual({ reason: 'auctionCell', detail: '---' })
     expect(auctionPatterns(['1NT', { call: '', note: '2X' }, '?'])).toEqual({
       reason: 'auctionCell',
       detail: '{2X}',
@@ -149,14 +155,16 @@ describe('readMeaning', () => {
   })
 
   it('reads lengths', () => {
-    expect(readMeaning('5張♥').shows).toEqual({ len: { H: [5, 5] } })
+    expect(readMeaning('5張♥').shows).toEqual({ len: { H: [5, ANY] } })
+    expect(readMeaning('5張♥，16~18，5431').shows).toEqual({ len: { H: [5, 5] }, hcp: [16, 18] })
+    expect(readMeaning('剛好5張♥').shows).toEqual({ len: { H: [5, 5] } })
     expect(readMeaning('6張↑♦').shows).toEqual({ len: { D: [6, ANY] } })
     expect(readMeaning('5張♣↑').shows).toEqual({ len: { C: [5, ANY] } })
     expect(readMeaning('4+♠').shows).toEqual({ len: { S: [4, ANY] } })
     expect(readMeaning('6張黑桃↑').shows).toEqual({ len: { S: [6, ANY] } })
     expect(readMeaning('單張♦').shows).toEqual({ len: { D: [1, 1] } })
     expect(readMeaning('♠ void').shows).toEqual({ len: { S: [0, 0] } })
-    expect(readMeaning('3張♥＋♦短＋5張♠↑').shows).toEqual({ len: { H: [3, 3], S: [5, ANY] } })
+    expect(readMeaning('3張♥＋♦短＋5張♠↑').shows).toEqual({ len: { H: [3, ANY], S: [5, ANY] } })
   })
 
   it('leaves a suit shared between calls alone', () => {
@@ -185,11 +193,11 @@ describe('readMeaning', () => {
 
   it('skips negations, maybes, other players and brackets', () => {
     expect(readMeaning('3張♥，沒有4張♣或是4張♦(fit同伴叫過之高花)')).toEqual({
-      shows: { len: { H: [3, 3] } },
+      shows: { len: { H: [3, ANY] } },
       unparsed: '沒有4張♣或是4張♦(fit同伴叫過之高花)',
     })
     expect(readMeaning('5張♥的邀請6NT(可能有4張低花，後續答叫詳最前面)').shows).toEqual({
-      len: { H: [5, 5] },
+      len: { H: [5, ANY] },
     })
     expect(readMeaning('迫叫，通常是4張♥，短♠，17↑').shows).toEqual({
       forcing: 'oneRound',
@@ -217,7 +225,7 @@ describe('readMeaning', () => {
   })
 
   it('says when it read everything', () => {
-    expect(readMeaning('15-17，5張♥')).toEqual({ shows: { hcp: [15, 17], len: { H: [5, 5] } } })
+    expect(readMeaning('15-17，5張♥')).toEqual({ shows: { hcp: [15, 17], len: { H: [5, ANY] } } })
   })
 })
 
