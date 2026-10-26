@@ -213,6 +213,8 @@ async function playOut(amy: string, tableId: string) {
     await runRobots()
     // A robot's move still under way (several hops between the objects) gets a turn to finish
     await tick()
+    // Time moves on as Amy thinks, so a declarer's 26 cards stay under the table's rate limit
+    time += 200
     const board = tableOf(amy)!.board!
     if (board.phase === 'finished') return
     if (board.legalCalls.length) await tableSend(amy, tableId, { type: 'call', call: 'P' })
