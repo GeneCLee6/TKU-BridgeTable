@@ -1,11 +1,12 @@
 // @vitest-environment node
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { legalCalls, seatToCall, type AuctionCall, type Call } from '../../shared/auction.ts'
 import { SUITS, type Card, type Hands, type Seat } from '../../shared/cards.ts'
 import { imps } from '../../shared/imp.ts'
+import { parsePracticeSet } from '../../shared/practice-sets/index.ts'
 import { evalBoard } from '../../eval/deals.ts'
 import {
   alternativesFor,
@@ -37,7 +38,10 @@ const handsFromPbn = (pbn: string): Hands => {
 }
 
 /** A practice set in the repository */
-const practiceSet = (name: string): PracticeDeal[] => JSON.parse(readFileSync(new URL(`../../shared/practice-sets/${name}.json`, import.meta.url), 'utf8')) as PracticeDeal[]
+const practiceSet = (name: string): PracticeDeal[] => {
+  const file = new URL(`../../shared/practice-sets/${name}.json`, import.meta.url)
+  return existsSync(file) ? (JSON.parse(readFileSync(file, 'utf8')) as PracticeDeal[]) : []
+}
 
 const hand = (text: string): Card[] => text.split('.').flatMap((ranks, i) => [...ranks].map((r) => SUITS[i] + r))
 
@@ -285,6 +289,8 @@ describe('bidding: the study and the practice deals', () => {
     expect(deals[0]).toMatchObject({ category: 'takeout', seat: 'E', auction: ['1H'], answer: 'X', tkb: 'P', imps: 9 })
     expect(deals[0].note).toContain('13 點 4-1-4-4')
     expect(Object.keys(deals[0]).slice(0, 6)).toEqual(['id', 'dealer', 'vulnerability', 'hands', 'category', 'note'])
+    // The practice room reads it (shared/practice-sets, e10-t16)
+    expect(parsePracticeSet('competitive', deals)).toHaveProperty('set')
     const hands = handsFromPbn(deals[0].hands)
     for (const [seat, cards] of Object.entries(evalBoard(1).hands)) expect([...hands[seat as Seat]].sort()).toEqual([...cards].sort())
   })

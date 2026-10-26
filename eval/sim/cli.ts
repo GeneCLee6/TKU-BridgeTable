@@ -7,7 +7,7 @@ import { readArgs } from '../config.ts'
 import { EVAL_SEED, evalBoard } from '../deals.ts'
 import { bidBoard } from './board.ts'
 import { compareReport, compareStudy, type CompareOptions, type CompareRecord } from './compare.ts'
-import { BiddingStudyBuilder, biddingReport, CATEGORIES, COMPETE_CATEGORIES, CONSTRUCTIVE, practiceDeals, type BiddingCategory, type BiddingRecord, type PracticeDeal } from './bidding.ts'
+import { BiddingStudyBuilder, biddingReport, CATEGORIES, COMPETE_CATEGORIES, CONSTRUCTIVE, practiceDeals, type BiddingCategory, type BiddingRecord, type Example, type PracticeDeal } from './bidding.ts'
 import { loadSolver } from './dds.ts'
 import type { Job, TableRecord } from './jobs.ts'
 import { LeadStudyBuilder, leadReport, type LeadRecord } from './leads.ts'
@@ -15,7 +15,7 @@ import { chunked, defaultThreads, Pool } from './pool.ts'
 import { clock, Progress } from './progress.ts'
 import type { Objective } from './score.ts'
 import { JsonlStore } from './store.ts'
-import { SEATS, type Card, type Seat } from '../../shared/cards.ts'
+import { hcp, SEATS, SUITS, type Card, type Seat } from '../../shared/cards.ts'
 import { legalCards, playCard, remainingCards, turnOf } from '../../shared/game.ts'
 import { ruleBrain } from '../../shared/robot/brain.ts'
 
@@ -215,6 +215,16 @@ async function compare(args: Map<string, string>) {
   console.error(`${records.length} records → ${file}`)
 }
 
+/**
+ * A practice deal must not teach against the club's handbook: over a preempt it asks for a good
+ * suit and 12 points or more (「如何對抗技光」, ROBOT.md §6.8), so lighter overcalls the simulation
+ * likes are left out of the club's set
+ */
+function clubBook(system: string, e: Example): boolean {
+  if (system !== 'tku' || e.category !== 'preempt' || !/^[1-7][SHDC]$/.test(e.alternative)) return true
+  return hcp(e.hand.split('.').flatMap((ranks, i) => [...ranks].map((r) => SUITS[i] + r))) >= 12
+}
+
 /** The bidding study (§7), or with `competitive` only its competitive decisions (`compete`) */
 async function bidding(args: Map<string, string>, competitive = false) {
   const c = common(args)
@@ -252,7 +262,8 @@ async function bidding(args: Map<string, string>, competitive = false) {
     for (const set of sets) {
       if (!set.categories.some((cat) => categories.includes(cat))) continue
       const kept = existsSync(set.file) ? (JSON.parse(readFileSync(set.file, 'utf8')) as PracticeDeal[]).filter((d) => d.system !== c.system) : []
-      const deals = practiceDeals(all, (board) => evalBoard(board, c.seed).hands, study, set.categories)
+      const deals = practiceDeals(all, (board) => evalBoard(board, c.seed).hands, study, set.categories, 40, 5, 20, (e) => clubBook(c.system, e))
+      if (!kept.length && !deals.length) continue
       writeFileSync(set.file, JSON.stringify([...kept, ...deals], null, 2) + '\n')
       console.error(`${deals.length} practice deals → ${set.file}`)
     }

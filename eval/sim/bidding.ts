@@ -894,13 +894,13 @@ export function practiceNote(e: Example): string {
   const competitive = GROUP_OF(e.category) === 'competitive'
   const why: Record<AltKind, string> = {
     pass: competitive ? '這手牌不值得在這個高度出手，Pass 讓對方去打' : '牌力不夠再往上，停在這裡',
-    lower: '牌力不夠跳叫，叫低一線就好',
+    lower: '這副少叫一線就夠，不必叫到那麼高',
     higher: e.category === 'slam' ? '雙方牌力夠滿貫，再叫上去' : e.category === 'high' ? '我方配合夠長，再叫一線競叫或犧牲' : '牌力夠再叫一線（邀請或成局）',
     strain: '換一個王牌（或無王）比較好打',
     double: e.category === 'high' || e.category === 'notrump' ? '對方叫得太高，賭倍處罰' : e.category === 'contested' ? '用賭倍表示牌力，讓同伴決定' : '短門在對方的花色，該賭倍讓同伴選花色',
-    bid: e.category === 'opening' ? '這手牌值得開叫' : e.category === 'response' ? '有牌力就要答叫' : competitive || e.category === 'contested' ? '有好的長門或配合，該叫出來' : '牌力夠，該叫下去',
+    bid: e.category === 'opening' ? '這手牌值得開叫' : e.category === 'response' ? '有牌力就要答叫' : competitive || e.category === 'contested' ? '這手牌值得出手叫出來' : '牌力夠，該叫下去',
   }
-  return `${lead}：TKB 叫 ${callLabel(e.tkb)}，這副 ${callLabel(e.alternative)} 比較好（${-e.imps} IMP）。${why[kind]}。`
+  return `${lead}：TKB 叫 ${callLabel(e.tkb)}，這副 ${callLabel(e.alternative)} 比較好（${-e.imps} IMP，雙方合計 ${e.pairHcp} 點）。${why[kind]}。`
 }
 
 /**
@@ -916,9 +916,15 @@ export function practiceDeals(
   perCategory = 40,
   minImps = 5,
   minSupport = 20,
+  keep: (e: Example) => boolean = () => true,
 ): PracticeDeal[] {
+  // A kind of decision where that kind of alternative wins on average, overall or in the
+  // partnership's point range (a slam missed with 31 points teaches something, whatever the rest)
   const good = new Set<string>()
-  for (const c of study.categories) for (const t of c.transitions) if (t.mean < 0 && t.n >= minSupport) good.add(`${c.category}|${t.tkb}|${t.alt}`)
+  for (const c of study.categories) {
+    for (const t of c.transitions) if (t.mean < 0 && t.n >= minSupport) good.add(`${c.category}|${t.tkb}|${t.alt}`)
+    for (const t of c.fine) if (t.mean < 0 && t.n >= minSupport) good.add(`${c.category}|${t.tkb}|${t.alt}|${t.bucket}`)
+  }
   const picked = new Map<BiddingCategory, PracticeDeal[]>()
   for (const record of records) {
     const calls = record.auction.split('-')
@@ -926,7 +932,8 @@ export function practiceDeals(
       if (!categories.includes(p.category)) continue
       for (const a of p.alternatives) {
         const e = exampleOf(record, p, a)
-        if (-e.imps < minImps || !good.has(`${p.category}|${actionOf(p.tkb)}|${altKind(p.tkb, a.call)}`)) continue
+        const cell = `${p.category}|${actionOf(p.tkb)}|${altKind(p.tkb, a.call)}`
+        if (-e.imps < minImps || !(good.has(cell) || good.has(`${cell}|${hcpBucket(p.pairHcp)}`)) || !keep(e)) continue
         at(picked, p.category, () => []).push({
           id: `${GROUP_OF(p.category) === 'constructive' ? 'bid' : 'comp'}-${record.system}-${record.board}-${p.index + 1}`,
           dealer: record.dealer,
