@@ -22,6 +22,8 @@ import type { EventReport } from './modes.ts'
 import type { Store } from './store.ts'
 import { TeamService } from './teams.ts'
 import type { TableObject } from './table-object.ts'
+import type { EventObject } from './event-object.ts'
+import { RemoteEvents, type EventRpc, type EventSnapshot } from './events.ts'
 import { RemoteTables, type TableEntry, type TableRpc } from './tables.ts'
 import type { MatchAction, MatchPlayAction } from './team-match-service.ts'
 
@@ -31,6 +33,13 @@ export interface Env {
   TABLE: DurableObjectNamespace<TableObject>
   /** "off" keeps the tables in the club's object and brings back any moved out (DEPLOY.md, the switch back) */
   TABLE_OBJECTS?: string
+  /** Each challenge's own object (H2b, ARCHITECTURE.md §5.12) */
+  EVENT: DurableObjectNamespace<EventObject>
+  /**
+   * "on" moves the challenges into their own objects; anything else (the default) keeps them in
+   * the club's object and brings back any moved out (DEPLOY.md §4.6, the switch back)
+   */
+  EVENT_OBJECTS?: string
   ASSETS: Fetcher
   MAX_USERS?: string
   INVITE_CODE?: string
@@ -112,6 +121,11 @@ export class Club extends DurableObject<Env> implements Connections {
       // Each table in its own object (§5.10), unless switched back with TABLE_OBJECTS=off
       tableObjects: new RemoteTables((tableId) => env.TABLE.get(env.TABLE.idFromName(tableId)) as unknown as TableRpc),
       tablesInClub: env.TABLE_OBJECTS === 'off',
+      // Each challenge in its own object (H2b, §5.12) only when switched on; off by default
+      eventObjects: new RemoteEvents(
+        (challengeId) => env.EVENT.get(env.EVENT.idFromName(`challenge:${challengeId}`)) as unknown as EventRpc,
+      ),
+      eventObjectsOn: env.EVENT_OBJECTS === 'on',
       // The history pages' copy in D1, read by the Worker (§5.12)
       historyReplica: env.HISTORY ? d1Replica(env.HISTORY) : undefined,
       historyReplicaOff: env.HISTORY_D1 === 'off',
@@ -173,6 +187,11 @@ export class Club extends DurableObject<Env> implements Connections {
   /** Whether a member may seat TKB in the club's system (`ClubLink.mayUseTku`) */
   async tableMayUseTku(userId: string): Promise<boolean> {
     return this.service.link.mayUseTku(userId)
+  }
+
+  /** A challenge in its own object changed on its own (`EventLink.changed`, H2b); a failure makes it tell again */
+  async eventChanged(snapshot: EventSnapshot) {
+    await this.service.eventLink.changed(snapshot)
   }
 
   /** Whose session this is, for a table's connection: the Worker asks once per connection */
