@@ -58,7 +58,8 @@ describe('the 2/1 robot leads as GIB does', () => {
   it("leads low from three small in partner's suit", () => {
     const state = board(layout({ W: 'T32 852 Q543 K87' }), '1S P P 2H 4S P P P')
     expect(chooseCard(state, 'W', 'gib')).toBe('H2')
-    expect(chooseCard(state, 'W', 'tku')).toBe('H8')
+    // The club leads second highest from no honour (01 第 4)
+    expect(chooseCard(state, 'W', 'tku')).toBe('H5')
   })
 })
 

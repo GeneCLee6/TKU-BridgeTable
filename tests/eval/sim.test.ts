@@ -12,7 +12,7 @@ import { bidBoard } from '../../eval/sim/board.ts'
 import { compareBoard, compareReport, compareStudy, type CompareRecord } from '../../eval/sim/compare.ts'
 import { expandEquals, loadSolver, pbnOf, type Solver } from '../../eval/sim/dds.ts'
 import type { TableRecord } from '../../eval/sim/jobs.ts'
-import { CONCEPTS, conventionalLead, hasSequence, leadRecord, leadReport, leadStudy, leadType, type LeadRecord } from '../../eval/sim/leads.ts'
+import { CONCEPTS, conventionalLead, leadRecord, leadReport, leadStudy, leadType, type LeadRecord } from '../../eval/sim/leads.ts'
 import { chunked, Pool } from '../../eval/sim/pool.ts'
 import { seededRandom } from '../../eval/sim/random.ts'
 import { knowledgeOf, positionOf, sampleLayout, sampleLayouts, type SamplingProblem } from '../../eval/sim/sampler.ts'
@@ -233,22 +233,20 @@ describe('sim: opening leads', () => {
   const hand = (text: string) => text.split('.').flatMap((ranks, i) => [...ranks].map((r) => SUITS[i] + r))
 
   it('leads the club’s conventional card from a holding', () => {
-    expect(conventionalLead(['S5'])).toBe('S5')
-    expect(conventionalLead(['S9', 'S3'])).toBe('S9')
-    expect(conventionalLead(['SA', 'SK', 'S4'])).toBe('SA')
-    expect(conventionalLead(['SK', 'SQ', 'S7', 'S2'])).toBe('SK')
-    expect(conventionalLead(['SK', 'S8', 'S7', 'S2'])).toBe('S2')
-    expect(conventionalLead(['SQ', 'S8', 'S3'])).toBe('S3')
-    expect(conventionalLead(['S9', 'S6', 'S3'])).toBe('S9')
-    expect(conventionalLead(['S9', 'S7', 'S6', 'S3'])).toBe('S3')
-    expect(hasSequence(['SJ', 'ST', 'S2'])).toBe(true)
-    expect(hasSequence(['S9', 'S8', 'S2'])).toBe(false)
+    // The full table is in tests/engine/lead-card.test.ts; the concepts lead the same card as TKB
+    expect(conventionalLead(['S5'], 'H')).toBe('S5')
+    expect(conventionalLead(['SA', 'S8', 'S7', 'S2'], 'H')).toBe('SA')
+    expect(conventionalLead(['SA', 'S8', 'S7', 'S2'], null)).toBe('S2')
+    expect(conventionalLead(['SK', 'SQ', 'S7', 'S2'], 'H')).toBe('SQ')
+    expect(conventionalLead(['SK', 'SQ', 'S7', 'S2'], null)).toBe('S2')
+    expect(conventionalLead(['S9', 'S7', 'S6', 'S3'], null)).toBe('S7')
   })
 
   it('names the kind of lead', () => {
     const h = hand('AK4.KQ3.9.J8653')
     expect(leadType(h, 'SA', null, '')).toBe('aceKing')
-    expect(leadType(h, 'HK', null, '')).toBe('sequence')
+    expect(leadType(h, 'H3', null, '')).toBe('fromHonour') // KQx is no sequence against notrump
+    expect(leadType(h, 'HQ', 'S', '')).toBe('sequence')
     expect(leadType(h, 'D9', 'S', '')).toBe('singleton')
     expect(leadType(h, 'C5', null, '')).toBe('fromHonour')
     expect(leadType(h, 'C3', 'C', '')).toBe('trump')

@@ -1,4 +1,5 @@
-import { writeFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { isRobotKind, type RobotKind } from '../../shared/protocol.ts'
@@ -40,6 +41,20 @@ const USAGE = [
 ].join('\n')
 
 const DATA_DIR = resolve(fileURLToPath(new URL('./data/', import.meta.url)))
+
+/**
+ * A fingerprint of TKB's rules (every file under shared/robot/), in the names of the leads and
+ * compare files: a run resumes only boards played by the same rules, and changing a rule starts
+ * a new file instead of mixing the two
+ */
+function rulesFingerprint(): string {
+  const dir = resolve(fileURLToPath(new URL('../../shared/robot/', import.meta.url)))
+  const hash = createHash('sha256')
+  for (const file of readdirSync(dir, { recursive: true, encoding: 'utf8' }).filter((f) => f.endsWith('.ts')).sort()) {
+    hash.update(file.replaceAll('\\', '/')).update(readFileSync(resolve(dir, file)))
+  }
+  return hash.digest('hex').slice(0, 8)
+}
 
 interface Common {
   seed: string
@@ -153,7 +168,7 @@ async function leads(args: Map<string, string>) {
   const c = common(args)
   const samples = Number(args.get('samples') ?? 0)
   if (!Number.isInteger(samples) || samples < 0) throw new Error('--samples must be 0 or a number of layouts')
-  const name = `leads-${c.seed}-${c.system}${samples ? `-s${samples}` : ''}`
+  const name = `leads-${c.seed}-${c.system}${samples ? `-s${samples}` : ''}-r${rulesFingerprint()}`
   const store = await JsonlStore.open<LeadRecord>(args.get('out') ?? resolve(DATA_DIR, `${name}.jsonl`))
   let seconds = 0
   if (!args.has('analyse')) seconds = await runStudy('Opening leads', c, store, 10, (boards) => ({ kind: 'leads', seed: c.seed, boards, system: c.system, samples }))
@@ -181,7 +196,7 @@ async function compare(args: Map<string, string>) {
   const options: CompareOptions = { samples: Number(args.get('samples') ?? 30), seed: c.seed, objective, ddBias: Number(args.get('dd-bias') ?? 0), points }
   if (!Number.isInteger(options.samples) || options.samples < 1) throw new Error('--samples must be a number of layouts')
   if (!Number.isFinite(options.ddBias) || options.ddBias < 0) throw new Error('--dd-bias is a number of tricks, 0 or more')
-  const name = `compare-${c.seed}-${c.system}-${points}-s${options.samples}-${objective}${options.ddBias ? `-b${options.ddBias}` : ''}`
+  const name = `compare-${c.seed}-${c.system}-${points}-s${options.samples}-${objective}${options.ddBias ? `-b${options.ddBias}` : ''}-r${rulesFingerprint()}`
   const store = await JsonlStore.open<CompareRecord>(args.get('out') ?? resolve(DATA_DIR, `${name}.jsonl`))
   let seconds = 0
   if (!args.has('analyse')) seconds = await runStudy('TKB vs sampled DD', c, store, 1, (boards) => ({ kind: 'compare', seed: c.seed, boards, system: c.system, options }))
