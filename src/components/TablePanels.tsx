@@ -138,14 +138,22 @@ export function ResultPanel({
   declarerName,
   seconds,
   note,
+  onReview,
 }: {
   board: BoardView
   declarerName?: string
   seconds: number | null
   /** What a deal set's board teaches (`e10-t16`), once its auction is over */
   note?: string
+  /** At a bidding practice: opens its 檢討 (`e10-t07`) */
+  onReview?: () => void
 }) {
   const t = useT()
+  const review = onReview && (
+    <FeltButton type="button" $tone="go" title={t.practiceReview.openHint} onClick={onReview}>
+      {t.practiceReview.open}
+    </FeltButton>
+  )
   const teaches = note && (
     <Teaches>
       <strong>{t.practiceNote}</strong>
@@ -164,6 +172,7 @@ export function ResultPanel({
         </Big>
         {contract && <div>{declarerName ?? seatLetter[contract.declarer]}</div>}
         {teaches}
+        {review}
       </FeltPanel>
     )
   return (
@@ -179,6 +188,7 @@ export function ResultPanel({
       )}
       <Score $positive={result.scoreNS >= 0}>NS {signed(result.scoreNS)}</Score>
       {teaches}
+      {review}
       {seconds !== null && <Countdown seconds={seconds} />}
       {board.recordId && (
         <div>

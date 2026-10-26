@@ -13,7 +13,7 @@ import {
   type PracticeSettings,
 } from '../shared/practice.ts'
 import type { BoardState } from '../shared/game.ts'
-import type { BoardRecord, RobotKind, TableMode } from '../shared/protocol.ts'
+import type { BoardRecord, PracticeReview, RobotKind, TableMode } from '../shared/protocol.ts'
 import type { Room } from '../shared/team-match.ts'
 import { challengeTakesPart } from './challenge-flow.ts'
 import type { Challenge, ChallengeResult } from './challenges.ts'
@@ -195,6 +195,12 @@ export interface PracticeTableState extends PracticeSettings {
    * the auction is over, the note of the board on the table
    */
   problems?: PracticeTableProblem[]
+  /**
+   * 檢討 of the board on the table (`e10-t07`): only at a bidding practice, worked out after its
+   * auction ended and dropped as soon as the board is bid again or another dealt; `practiceView`
+   * sends it only while that board is finished
+   */
+  review?: PracticeReview
 }
 
 /** A board of a practice table's deal set */

@@ -47,6 +47,8 @@ function noHiddenCards(userId: string, bidsFor: Seat[] = []) {
     const view = message.table
     const board = view.board!
     if (board.phase === 'finished') continue
+    // A bidding practice's review (e10-t07) was worked out from all four hands: only once the board is over
+    expect(view.practice?.review, `${userId} got a review on board ${board.boardNo} (${board.phase})`).toBeUndefined()
     const led = board.tricks.some((trick) => trick.cards.length > 0)
     const allowed = new Set<Seat>()
     if (view.mySeat) {
@@ -190,6 +192,13 @@ describe('practice tables', () => {
       if (board.phase === 'finished') {
         // Every hand is open now, and the board was not recorded
         expect(Object.keys(board.hands).sort()).toEqual(['E', 'N', 'S', 'W'])
+        // Its review comes after the auction (e10-t07), in jobs of its own
+        const review = t.view(amy)!.practice!.review
+        if (!review?.robot) {
+          await t.run('robot')
+          continue
+        }
+        expect(review.steps).toHaveLength(board.auction.length)
         boards++
         await t.send(amy, { type: boards % 2 ? 'rebid' : 'redeal' })
         continue

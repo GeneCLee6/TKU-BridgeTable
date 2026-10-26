@@ -633,15 +633,19 @@ export function challengeTraveller(
  * of the deal leaves with it. The hands themselves follow the usual rules (`boardView`); a Just
  * Declare board's auction was made by robots and is public like any other. A deal set's boards
  * (`problems`, `e10-t16`) never leave: only the place of the one on the table, its category and
- * title, and its note once the auction is over (what it teaches gives the bidding away)
+ * title, and its note once the auction is over (what it teaches gives the bidding away). A bidding
+ * practice's review (`review`, `e10-t07`: TKB's call at each step, TKB's own auction) only once the
+ * board is finished, when all four hands are open to everyone at the table: it was worked out
+ * from the hands, so sent any earlier it would tell what the others hold
  */
 export function practiceView(table: Pick<Table, 'mode' | 'modeState' | 'board'>): { practice?: TablePractice } {
   if (table.mode !== 'practice') return {}
-  const { deal, conditions, robotKind, justDeclare, biddingOnly, seats, set, showHands, dealt, problems } =
+  const { deal, conditions, robotKind, justDeclare, biddingOnly, seats, set, showHands, dealt, problems, review } =
     table.modeState as PracticeTableState
   const index = problems?.length && dealt > 0 ? (dealt - 1) % problems.length : null
   const problem = index === null ? null : problems![index]
   const bid = !!table.board && table.board.phase !== 'auction'
+  const reviewed = biddingOnly && table.board?.phase === 'finished' && review
   return {
     practice: {
       deal,
@@ -662,6 +666,7 @@ export function practiceView(table: Pick<Table, 'mode' | 'modeState' | 'board'>)
           ...(bid && problem.note && { note: problem.note }),
         },
       }),
+      ...(reviewed && { review }),
     },
   }
 }
