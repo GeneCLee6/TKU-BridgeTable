@@ -54,6 +54,7 @@ import {
   challengeTableOpen,
   modeOf,
   nextTableSeq,
+  practiceStateOf,
   type EventReport,
   type ModeContext,
 } from './modes.ts'
@@ -589,6 +590,9 @@ export class TableService implements TableApi {
       case 'rebid':
         await this.rebid(userId)
         break
+      case 'showHands':
+        await this.showHands(userId, message.show)
+        break
       case 'call':
       case 'play':
       case 'claim':
@@ -1105,6 +1109,28 @@ export class TableService implements TableApi {
     table.boardStartedAt = this.now()
     this.touchTurn()
     await this.save()
+  }
+
+  /**
+   * 顯示四家 (`e10-t16`): a practice table's own member sees all four hands, or hides them again.
+   * Only them (`shownTo`): a watcher sees what any watcher sees, and the robots only their own
+   */
+  private async showHands(userId: string, show: unknown) {
+    const table = this.table
+    if (!table || !this.isAt(userId)) throw new ClubError('notAtTable')
+    const state = practiceStateOf(table)
+    if (!state) throw new ClubError('practiceOnly')
+    if (table.hostId !== userId || !this.seatOf(userId)) throw new ClubError('hostOnly')
+    if (typeof show !== 'boolean') throw new ClubError('badMessage')
+    if (show) state.showHands = true
+    else delete state.showHands
+    await this.save()
+  }
+
+  /** The hands a viewer is shown besides their own (`boardView`'s `shown`): all four for a practice table's member who asked */
+  private shownTo(table: Table, userId: string): Seat[] | undefined {
+    const state = practiceStateOf(table)
+    return state?.showHands && table.hostId === userId && this.seatOf(userId) ? [...SEATS] : undefined
   }
 
   // ── Challenge tables ────────────────────────────────────────────────────────────────────────
@@ -1642,6 +1668,7 @@ export class TableService implements TableApi {
       board: table.board
         ? boardView(table.board, mySeat, {
             acts,
+            shown: this.isAt(userId) ? this.shownTo(table, userId) : undefined,
             undo: table.undo,
             recordId: table.recordId,
             rejectedClaim: table.rejectedClaim,

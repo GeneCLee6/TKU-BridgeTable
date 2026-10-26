@@ -51,7 +51,11 @@ import {
   PRACTICE_MAX_ATTEMPTS,
   practiceConditions,
   quickRandom,
+  type PracticeSetChoice,
+  type SavedPractice,
 } from '../shared/practice.ts'
+import { PRACTICE_SETS, practiceSetInfos, type PracticeSetInfo } from '../shared/practice-sets/index.ts'
+import { PracticePresets } from './practice-presets.ts'
 import type { RobotBrain } from '../shared/robot/brain.ts'
 import { hashPassword, randomId, SESSION_DAYS, verifyPassword } from './auth.ts'
 import { checkFavorite } from '../shared/favorites.ts'
@@ -112,6 +116,7 @@ import {
   playedSeqs,
   type ChallengeTableState,
   type EventReport,
+  type PracticeTableProblem,
   type PracticeTableState,
 } from './modes.ts'
 import { DirectMessageStore } from './direct-messages.ts'
@@ -365,6 +370,8 @@ export class ClubService {
   readonly matches: TeamMatchService
   /** Featured boards (精選牌局, AC-4.5, §5.9) */
   readonly featured: FeaturedService
+  /** Members' saved practice settings (`e10-t16`, §5.11) */
+  private readonly practicePresets: PracticePresets
   /** Keeps the history index's D1 copy in step (§5.12), when there is one */
   readonly replica?: ReplicaSync
   private readonly log: Logger
@@ -420,6 +427,7 @@ export class ClubService {
       takeAction: (id) => this.actionLimit.take(id),
     })
     this.directs = new DirectMessageStore(store.sql)
+    this.practicePresets = new PracticePresets(store, this.now, () => randomId(8))
     if (config.schedule) {
       this.scheduler = manualScheduler(config.schedule)
     } else {
@@ -1113,6 +1121,7 @@ export class ClubService {
     await this.friends.forget(user.id)
     await this.blocks.forget(user.id)
     removeFavoritesOf(this.store.sql, user.id)
+    await this.practicePresets.removeAll(user.id)
     this.present.delete(user.id)
     this.announced.delete(user.id)
     const correspondents = this.directs.forget(user.id)
@@ -2415,16 +2424,21 @@ export class ClubService {
    */
   private async createPractice(userId: string, wanted: unknown, access?: unknown) {
     const parsed = parsePracticeSettings(wanted, this.defaultKindOf(userId))
-    if ('field' in parsed) throw new ClubError('badPracticeSettings', { field: parsed.field })
+    if ('field' in parsed)
+      throw parsed.problem
+        ? new ClubError('dealConflict', { where: parsed.problem })
+        : new ClubError('badPracticeSettings', { field: parsed.field })
     this.checkRobotKind(userId, parsed.settings.robotKind)
     if (access !== undefined && !TABLE_ACCESS.includes(access as never)) throw new ClubError('badTableSettings')
     const { settings } = parsed
     const conditions = practiceConditions(settings)
     if (conditions && !dealWith(conditions, quickRandom(this.random), PRACTICE_MAX_ATTEMPTS).ok) throw new ClubError('dealTooStrict')
+    // A deal set's boards are read now, and kept on the table, never sent (§4)
+    const problems = settings.set ? await this.practiceProblems(userId, settings.set) : undefined
     this.checkNotInMatch(userId)
     await this.leave(userId)
     const kind = settings.robotKind
-    const state: PracticeTableState = { ...settings, dealt: 0 }
+    const state: PracticeTableState = { ...settings, dealt: 0, ...(problems && { problems }) }
     // The seats besides South the member bids for (`e10-t15`): TKB sits there, the member calls
     const controlled = controlledSeats(settings)
     const table: Table = {
@@ -2447,6 +2461,58 @@ export class ClubService {
     }
     // The table deals its first board as it opens
     this.applyEntry(await this.tables.get(table.id).open(table))
+  }
+
+  /**
+   * The boards of a deal set to practise (`e10-t16`): a practice set of the club's, or boards of the
+   * member's favourites or of the featured list. A board must be one the member may see and already
+   * public (§4): a challenge or team match board still kept back is refused even to its players,
+   * answering `boardGone` as if it did not exist, like a board that is not a favourite of theirs or
+   * not featured
+   */
+  private async practiceProblems(userId: string, set: PracticeSetChoice): Promise<PracticeTableProblem[]> {
+    if (set.source === 'practice') {
+      const found = PRACTICE_SETS.get(set.id)
+      if (!found) throw new ClubError('practiceSetGone', {}, 404)
+      return found.problems.map((p) => ({ boardNo: p.boardNo, hands: p.hands, category: p.category, ...(p.note && { note: p.note }) }))
+    }
+    const favorites = set.source === 'favorites' ? new Set(favoriteIds(this.store.sql, userId)) : null
+    const problems: PracticeTableProblem[] = []
+    for (const id of set.ids) {
+      const featured = favorites ? null : await this.featured.get(id, userId)
+      if (favorites ? !favorites.has(id) : !featured) throw new ClubError('boardGone', {}, 404)
+      const record = await this.store.get<BoardRecord>(`board:${id}`)
+      const now = this.now()
+      if (!record || !recordVisible(record, userId, now) || (record.revealAt !== undefined && record.revealAt > now))
+        throw new ClubError('boardGone', {}, 404)
+      problems.push({
+        boardNo: record.board.boardNo,
+        hands: record.board.hands,
+        ...(featured && { category: featured.category, title: featured.title, ...(featured.explanation && { note: featured.explanation }) }),
+      })
+    }
+    return problems
+  }
+
+  /** The club's practice sets, without their boards (`GET /api/practice/sets`) */
+  practiceSets(): PracticeSetInfo[] {
+    return practiceSetInfos()
+  }
+
+  /** The member's saved practice settings (`GET /api/practice/presets`) */
+  savedPractice(userId: string): Promise<SavedPractice[]> {
+    return this.practicePresets.list(userId)
+  }
+
+  /** Saves practice settings under a name (`POST /api/practice/presets`); answers the whole list */
+  async savePractice(userId: string, body: unknown): Promise<SavedPractice[]> {
+    if (!this.actionLimit.take(userId)) throw new ClubError('slowDown', {}, 429)
+    return this.practicePresets.save(userId, body, this.defaultKindOf(userId))
+  }
+
+  /** Deletes saved practice settings (`DELETE /api/practice/presets/:id`) */
+  removeSavedPractice(userId: string, id: string): Promise<SavedPractice[]> {
+    return this.practicePresets.remove(userId, id)
   }
 
   /**

@@ -41,6 +41,8 @@ export type MatchPlayAction =
   | { action: 'replace'; room: Room; seat: Seat; userId: string }
   | { action: 'sitin'; room: Room; seat: Seat }
 import type { FeaturedBoard, FeaturedInput } from '../../shared/featured.ts'
+import type { PracticeSettings, SavedPractice } from '../../shared/practice.ts'
+import type { PracticeSetInfo } from '../../shared/practice-sets/types.ts'
 
 /** HTTP calls to the Worker. The session lives in an HttpOnly cookie, so no token is handled here. */
 
@@ -110,6 +112,14 @@ export const api = {
   traveller: (id: string) => request<{ traveller: Traveller | null }>(`/api/history/${encodeURIComponent(id)}/traveller`),
   /** Featured boards, newest first (e4-t30) */
   featured: () => request<{ featured: FeaturedBoard[] }>('/api/featured'),
+  /** The club's practice sets, without their boards (e10-t16) */
+  practiceSets: () => request<{ sets: PracticeSetInfo[] }>('/api/practice/sets'),
+  /** The member's saved practice settings (存成我的設定, e10-t16) */
+  practicePresets: () => request<{ presets: SavedPractice[] }>('/api/practice/presets'),
+  savePracticePreset: (name: string, settings: PracticeSettings) =>
+    post<{ presets: SavedPractice[] }>('/api/practice/presets', { name, settings }),
+  removePracticePreset: (id: string) =>
+    request<{ presets: SavedPractice[] }>(`/api/practice/presets/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   /** A board's feature, or null when it is not featured */
   featuredBoard: (id: string) => request<{ featured: FeaturedBoard | null }>(`/api/featured/${encodeURIComponent(id)}`),
   /** Features a board or edits its feature; needs the `boardCurate` permission */

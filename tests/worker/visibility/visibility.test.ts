@@ -129,6 +129,25 @@ describe('casual tables', () => {
 })
 
 describe('practice tables', () => {
+  it('shows all four hands to the member who turned on 顯示四家, and nobody else any more than before (e10-t16)', async () => {
+    const amy = await t.member('amy')
+    const ben = await t.member('ben')
+    await t.send(amy, { type: 'createPractice', settings: { deal: 'random', robotKind: 'gib', justDeclare: false, biddingOnly: true } })
+    const practice = t.club().lobbyView(amy).myTableId!
+    expect(Object.keys(t.view(amy)!.board!.hands)).toEqual(['S'])
+    await t.send(amy, { type: 'showHands', show: true })
+    expect(Object.keys(t.view(amy)!.board!.hands)).toHaveLength(4)
+    expect(t.view(amy)!.board!.legalCalls.length > 0).toBe(t.view(amy)!.board!.turn === 'S')
+    // Ben at a casual table of his own: nothing of it, and he cannot turn it on there
+    await t.send(ben, { type: 'createTable' })
+    const casual = t.club().lobbyView(ben).myTableId!
+    for (const seat of ['N', 'E', 'W'] as const) await t.send(ben, { type: 'addRobot', seat })
+    expect(await t.refused(ben, { type: 'showHands', show: true })).toBe('practiceOnly')
+    await t.playUntil([ben], () => t.played(casual) >= 1)
+    expect(noHiddenCards(ben)).toBeGreaterThan(2)
+    expect(JSON.stringify(inbox(ben))).not.toContain(practice)
+  })
+
   it('are their member’s alone: nobody else joins, sits or is sent anything of them', async () => {
     const amy = await t.member('amy')
     const ben = await t.member('ben')
@@ -209,6 +228,15 @@ describe('seat control in a board view (e10-t15)', () => {
     expect(boardView(board, null, { kibitz: false, acts: ['N', 'S'] }).hands).toEqual({})
   })
 
+  it('shows the hands of 顯示四家 to the member as hands to look at, never to bid for, and nothing to a watcher without a seat (e10-t16)', () => {
+    const shown = boardView(board, 'S', { shown: [...SEATS] })
+    expect(Object.keys(shown.hands).sort()).toEqual(['E', 'N', 'S', 'W'])
+    // North deals board 1: it is not South's turn, so no bidding box and no hints
+    expect(shown.legalCalls).toEqual([])
+    expect(shown.callMeanings).toBeUndefined()
+    expect(boardView(board, null, { kibitz: false, shown: [...SEATS] }).hands).toEqual({})
+  })
+
   it('shows the member the alerts of every call they made, and hides a partner’s from someone who did not make it', () => {
     let b = makeCall(board, 'N', '1C', 'could be short')
     b = makeCall(b, 'E', 'P')
@@ -243,6 +271,10 @@ describe('challenge tables', () => {
     expect(t.club().challengeFor(id, ivy)).toBeNull()
     expect(await featureCode(t.h.boss, board)).toBe('boardGone')
     for (const viewer of [hal, ivy]) expect(JSON.stringify(inbox(viewer))).not.toContain(board)
+    // Not even its own player practises it before the challenge is over (a deal set, e10-t16)
+    await t.club().saveFavorite(gus, board, { note: '', tags: [] })
+    const practise = { type: 'createPractice', settings: { deal: 'set', set: { source: 'favorites', ids: [board] } } } as const
+    expect(await t.refused(gus, practise as never)).toBe('boardGone')
   })
 })
 
@@ -288,6 +320,12 @@ describe('team match tables', () => {
 
     await t.playUntil([amy, ben, bea], () => t.club().matches.get(id, amy)!.status === 'finished')
     for (const userId of [amy, ben, bea]) expect(noHiddenCards(userId)).toBeGreaterThan(10)
+    expect(noHiddenCards(cat)).toBeGreaterThan(10)
+    // Public and featured now, so anyone may bid it at a practice table (a deal set, e10-t16); the
+    // hands go out by the usual rules: South's only, until the auction is over
+    const practise = { deal: 'set', set: { source: 'featured', ids: [first] }, biddingOnly: true }
+    expect(await t.refused(cat, { type: 'createPractice', settings: practise } as never)).toBeUndefined()
+    expect(Object.keys(t.view(cat)!.board!.hands)).toEqual(['S'])
     expect(noHiddenCards(cat)).toBeGreaterThan(10)
   })
 })
