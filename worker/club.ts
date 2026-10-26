@@ -122,6 +122,7 @@ export class Club extends DurableObject<Env> implements Connections {
       now: Date.now,
       newId: () => randomId(6),
       usernameOf: (id) => this.service.usernameOf(id),
+      members: () => this.service.memberDirectory(),
       notify: (id, kind, params) => this.service.notifications.notify(id, kind, params),
       profiles: () => this.profiles,
     })
@@ -554,6 +555,7 @@ export class Club extends DurableObject<Env> implements Connections {
     if (!need) throw new ClubError('noSuchApi', {}, 404)
     requireNeed(user, need)
 
+    if (path === '/members') return json({ members: this.teams.members() })
     if (path === '/teams') {
       if (method === 'GET') return json({ teams: await this.teams.teams() })
       return json({ team: await this.teams.createTeam(user, await body()) })
@@ -613,16 +615,17 @@ export class Club extends DurableObject<Env> implements Connections {
     if (path === '/categories') return json(await this.book.saveCategories(user, await body()))
 
     if (path === '/profiles') {
-      if (method === 'GET') return json({ profiles: await this.profiles.list() })
+      if (method === 'GET') return json({ profiles: await this.teams.readableProfiles(user) })
       return json({ profile: await this.profiles.create(user, await body()) })
     }
+    // Which member may read, save or see the versions of a team's or partnership's profile: TeamService (e2-t04)
     const profile = path.match(/^\/profiles\/([\w-]+)(\/revisions(?:\/(\d+))?)?$/)
     if (profile) {
       const [, id, revisions, version] = profile
-      if (revisions && version) return json({ revision: await this.profiles.revision(id, Number(version)) })
-      if (revisions) return json({ revisions: await this.profiles.revisions(id) })
-      if (method === 'GET') return json({ profile: await this.profiles.get(id) })
-      if (method === 'PUT') return json({ profile: await this.profiles.save(user, id, await body()) })
+      if (revisions && version) return json({ revision: await this.teams.profileRevision(user, id, Number(version)) })
+      if (revisions) return json({ revisions: await this.teams.profileRevisions(user, id) })
+      if (method === 'GET') return json(await this.teams.readProfile(user, id))
+      if (method === 'PUT') return json({ profile: await this.teams.saveProfile(user, id, await body()) })
       await this.profiles.remove(id, await body())
       return json({ ok: true })
     }

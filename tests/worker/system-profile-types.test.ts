@@ -4,6 +4,7 @@ import {
   isProfileScope,
   PROFILE_LIMITS,
   PROFILE_SCOPES,
+  PROFILE_VISIBILITIES,
   type ProfileInput,
   type ProfileNote,
   type ProfileOverride,
@@ -22,15 +23,15 @@ import {
 type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false
 const assertType = <T extends true>(value: T) => value
 
-const PROFILE_KEYS = ['id', 'name', 'scope', 'parentId', 'adopted', 'overrides', 'notes', 'version', 'updatedAt', 'updatedBy'] as const
+const PROFILE_KEYS = ['id', 'name', 'scope', 'parentId', 'visibility', 'adopted', 'overrides', 'notes', 'version', 'updatedAt', 'updatedBy'] as const
 const NOTE_KEYS = ['slug', 'sectionId', 'text', 'by', 'at'] as const
 const ROW_KEYS = ['kind', 'slug', 'sectionId', 'blockIndex', 'rowIndex', 'meaning', 'note'] as const
 const SECTION_KEYS = ['kind', 'slug', 'sectionId', 'section'] as const
 const META_KEYS = ['kind', 'slug', 'summary', 'tags'] as const
-const SUMMARY_KEYS = ['id', 'name', 'scope', 'parentId', 'version', 'updatedAt', 'updatedBy', 'counts'] as const
+const SUMMARY_KEYS = ['id', 'name', 'scope', 'parentId', 'visibility', 'version', 'updatedAt', 'updatedBy', 'counts'] as const
 const COUNT_KEYS = ['adopted', 'overrides', 'notes'] as const
 const REVISION_KEYS = ['profileId', 'version', 'at', 'by', 'note', 'profile'] as const
-const INPUT_KEYS = ['name', 'scope', 'parentId', 'adopted', 'overrides', 'notes'] as const
+const INPUT_KEYS = ['name', 'scope', 'parentId', 'visibility', 'adopted', 'overrides', 'notes'] as const
 
 type Kind<K extends ProfileOverride['kind']> = Extract<ProfileOverride, { kind: K }>
 
@@ -39,6 +40,7 @@ const SAMPLE = {
   name: '小明＋小華',
   scope: 'partnership',
   parentId: 'p-team',
+  visibility: 'members',
   adopted: { lebensohl: 'off', bergen: 'on' },
   overrides: [
     { kind: 'row', slug: 'stayman', sectionId: 'responses', blockIndex: 0, rowIndex: 1, meaning: '4♥', note: '' },
@@ -70,6 +72,7 @@ describe('system profile types (mirrored in TKU-BridgeBook)', () => {
   it('share the constants', () => {
     expect(CLUB_PROFILE_ID).toBe('club')
     expect(PROFILE_SCOPES).toEqual(['club', 'team', 'partnership'])
+    expect(PROFILE_VISIBILITIES).toEqual(['club', 'members'])
     expect(PROFILE_LIMITS).toEqual({ bytesMax: 200_000, overridesMax: 500, profilesMax: 100, nameMax: 40, noteMax: 2_000 })
     expect(PROFILE_SCOPES.every(isProfileScope)).toBe(true)
     expect(isProfileScope('pair')).toBe(false)

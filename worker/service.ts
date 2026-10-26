@@ -906,6 +906,11 @@ export class ClubService {
     return this.users.get(userId)?.username
   }
 
+  /** Every member's id and name, nothing else, for picking a team's members or a partner */
+  memberDirectory(): { id: string; username: string }[] {
+    return [...this.users.values()].map(({ id, username }) => ({ id, username }))
+  }
+
   requireAdmin(userId: string) {
     if (!this.users.get(userId)?.admin) throw new ClubError('adminOnly', {}, 403)
   }

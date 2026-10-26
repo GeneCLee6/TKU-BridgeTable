@@ -1,15 +1,20 @@
 import {
   CLUB_PROFILE_ID,
+  type ClubMember,
   type Me,
   type Notification,
   type NotificationKind,
   type Partnership,
+  type ProfileAccess,
+  type ProfileRevision,
+  type ProfileSummary,
+  type SystemProfile,
   TEAM_LIMITS,
   type ClubTeam,
 } from '../shared/protocol.ts'
 import { isObject, isString } from './book.ts'
-import type { ProfileService } from './profiles.ts'
-import { managesTeam } from './roles.ts'
+import { checkProfileInput, type ProfileService } from './profiles.ts'
+import { allows, managesTeam, profileAccess, type ProfileOwner, type ProfileRights } from './roles.ts'
 import { ClubError } from './service.ts'
 import type { Store } from './store.ts'
 
@@ -18,7 +23,10 @@ import type { Store } from './store.ts'
  * made by an editor with its own profile (inheriting the club's); its captain and the editors
  * manage it. A partnership starts as one member's invitation to another (a notification) and gets
  * its profile, inheriting its team's or the club's, when it is accepted. Ending it keeps the
- * profile, which E2's member rights (e2-t04) will make read-only.
+ * profile, read-only.
+ *
+ * Reading and saving one profile goes through here too (e2-t04): the profile's owner, found by
+ * the teams' and partnerships' `profileId`, decides what a member may do (roles.ts `profileAccess`).
  *
  * Keys: `team:<id>` and `pair:<id>` hold a ClubTeam and a Partnership; `userteam:<userId>:<teamId>`
  * and `userpair:<userId>:<pairId>` (value `true`) find a member's. Nothing is cached, so a backup
@@ -30,6 +38,8 @@ export interface TeamDeps {
   now: () => number
   newId: () => string
   usernameOf: (userId: string) => string | undefined
+  /** Every member, for picking a team's members or a partner */
+  members: () => ClubMember[]
   notify: (userId: string, kind: NotificationKind, params: Notification['params']) => Promise<unknown>
   /** The Club replaces its ProfileService after a backup is restored, so it is asked for each time */
   profiles: () => ProfileService
@@ -91,12 +101,20 @@ export class TeamService {
     return team
   }
 
-  /** Rename, a new captain (one of the members) or archiving; an archived team can only be brought back */
+  /**
+   * Rename, a new captain (one of the members), letting the members edit the team's profile
+   * (`membersEdit`, e2-t10) or archiving; an archived team can only be brought back
+   */
   async updateTeam(actor: Me, id: string, body: unknown): Promise<ClubTeam> {
     const team = await this.requireManaged(actor, id, true)
     if (!isObject(body)) return fail('不是一個隊伍')
-    if (team.archived && (body.archived !== false || body.name !== undefined || body.captainId !== undefined))
+    if (team.archived && (body.archived !== false || body.name !== undefined || body.captainId !== undefined || body.membersEdit !== undefined))
       throw new ClubError('teamArchived', {}, 409)
+    if (body.membersEdit !== undefined) {
+      if (typeof body.membersEdit !== 'boolean') fail('開放隊員編輯（membersEdit）要是 true 或 false')
+      if (body.membersEdit) team.membersEdit = true
+      else delete team.membersEdit
+    }
     if (body.name !== undefined) team.name = this.checkName(body.name)
     if (body.captainId !== undefined) {
       if (!isString(body.captainId) || !team.memberIds.includes(body.captainId)) fail('隊長要是這一隊的隊員')
@@ -232,7 +250,96 @@ export class TeamService {
     return ended
   }
 
+  /** Every member by username, for picking a team's members or a partner */
+  members(): ClubMember[] {
+    return this.deps.members().sort((a, b) => a.username.localeCompare(b.username, 'zh-Hant') || a.id.localeCompare(b.id))
+  }
+
+  // ── The profiles' member rights (e2-t04) ───────────────────────────────────────────────────
+
+  /** Which team or partnership owns each profile, by profile id */
+  async profileOwners(): Promise<Map<string, ProfileOwner>> {
+    const owners = new Map<string, ProfileOwner>()
+    for (const team of (await this.store.list<ClubTeam>('team:')).values()) owners.set(team.profileId, { team })
+    for (const pair of (await this.store.list<Partnership>('pair:')).values()) if (pair.profileId) owners.set(pair.profileId, { pair })
+    return owners
+  }
+
+  async profileRights(actor: Me, profile: Pick<ProfileSummary, 'id' | 'scope' | 'visibility'>): Promise<ProfileRights> {
+    return profileAccess(actor, profile, (await this.profileOwners()).get(profile.id))
+  }
+
+  /**
+   * The profiles `actor` may read, with their rights: those the profile's owner lets them read, and
+   * whose parents they may read too, since the handbook needs every layer to show one
+   */
+  private async readable(actor: Me): Promise<{ summaries: ProfileSummary[]; rights: Map<string, ProfileRights> }> {
+    const owners = await this.profileOwners()
+    const summaries = await this.deps.profiles().list()
+    const byId = new Map(summaries.map((p) => [p.id, p]))
+    const rights = new Map<string, ProfileRights>()
+    const readable = (profile: ProfileSummary, depth = 0): boolean => {
+      const own = profileAccess(actor, profile, owners.get(profile.id))
+      if (!own.read) return false
+      const parent = profile.scope === 'club' ? undefined : byId.get(profile.parentId ?? CLUB_PROFILE_ID)
+      if (parent && depth < 3 && !readable(parent, depth + 1)) return false
+      rights.set(profile.id, own)
+      return true
+    }
+    for (const profile of summaries) readable(profile)
+    return { summaries: summaries.filter((p) => rights.has(p.id)), rights }
+  }
+
+  /** GET /api/book/profiles: the ones `actor` may read, not counting the notes of those they may not see */
+  async readableProfiles(actor: Me): Promise<ProfileSummary[]> {
+    const { summaries, rights } = await this.readable(actor)
+    return summaries.map((p) => (rights.get(p.id)!.notes ? p : { ...p, counts: { ...p.counts, notes: 0 } }))
+  }
+
+  /** GET /api/book/profiles/:id: 403 when `actor` may not read it or its parent; without the notes unless they may see them */
+  async readProfile(actor: Me, id: string): Promise<{ profile: SystemProfile; access: ProfileAccess }> {
+    const profile = await this.deps.profiles().get(id)
+    const rights = (await this.readable(actor)).rights.get(id)
+    if (!rights) throw new ClubError('noPermission', {}, 403)
+    const { notes, edit, share } = rights
+    return { profile: notes ? profile : { ...profile, notes: [] }, access: { notes, edit, share } }
+  }
+
+  /**
+   * PUT /api/book/profiles/:id by whoever may edit it. Only editors change what a profile is (its
+   * scope and parent); a team's members who may edit it leave who reads it to the captain.
+   */
+  async saveProfile(actor: Me, id: string, body: { profile?: unknown; baseVersion?: unknown; note?: unknown }): Promise<SystemProfile> {
+    const profiles = this.deps.profiles()
+    const current = await profiles.get(id)
+    const rights = await this.profileRights(actor, current)
+    if (!rights.edit) throw new ClubError('noPermission', {}, 403)
+    if (!allows(actor, 'bookEdit')) {
+      const input = checkProfileInput(body.profile)
+      if (input.scope !== current.scope || (input.parentId ?? CLUB_PROFILE_ID) !== (current.parentId ?? CLUB_PROFILE_ID))
+        throw new ClubError('noPermission', {}, 403)
+      if ((input.visibility ?? 'club') !== (current.visibility ?? 'club') && !rights.share) throw new ClubError('noPermission', {}, 403)
+    }
+    return profiles.save(actor, id, body)
+  }
+
+  /** A profile's versions, newest first: the editors' and its members' */
+  async profileRevisions(actor: Me, id: string): Promise<ProfileRevision[]> {
+    await this.requireHistory(actor, id)
+    return this.deps.profiles().revisions(id)
+  }
+
+  async profileRevision(actor: Me, id: string, version: number): Promise<ProfileRevision> {
+    await this.requireHistory(actor, id)
+    return this.deps.profiles().revision(id, version)
+  }
+
   // ── Checks ─────────────────────────────────────────────────────────────────────────────────
+
+  private async requireHistory(actor: Me, id: string) {
+    const profile = await this.deps.profiles().get(id)
+    if (!(await this.profileRights(actor, profile)).history) throw new ClubError('noPermission', {}, 403)
+  }
 
   private async drop(pair: Partnership) {
     await this.store.delete(pairKey(pair.id))
