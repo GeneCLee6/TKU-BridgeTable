@@ -9,8 +9,9 @@ import { bidBoard } from './board.ts'
 import { compareReport, compareStudy, type CompareOptions, type CompareRecord } from './compare.ts'
 import { BiddingStudyBuilder, biddingReport, CATEGORIES, COMPETE_CATEGORIES, CONSTRUCTIVE, practiceDeals, type BiddingCategory, type BiddingRecord, type Example, type PracticeDeal } from './bidding.ts'
 import { loadSolver } from './dds.ts'
-import type { Job, TableRecord } from './jobs.ts'
+import type { Job, ReplayResult, TableRecord } from './jobs.ts'
 import { LeadStudyBuilder, leadReport, type LeadRecord } from './leads.ts'
+import { LeadReplayBuilder, replayReport } from './replay.ts'
 import { chunked, defaultThreads, Pool } from './pool.ts'
 import { clock, Progress } from './progress.ts'
 import type { Objective } from './score.ts'
@@ -27,6 +28,7 @@ import { ruleBrain } from '../../shared/robot/brain.ts'
  *   npm run sim -- leads --deals N [--from 1] [--seed s] [--system tku|gib] [--samples 0] [--threads N] [--out file] [--report file] [--analyse]
  *   npm run sim -- compare --deals N [--from 1] [--seed s] [--system tku|gib] [--samples 30] [--objective score|tricks|contract]
  *                          [--dd-bias 0] [--points lead|all] [--threads N] [--out file] [--report file] [--analyse]
+ *   npm run sim -- replay --out leads.jsonl [--from 1 --deals N | --boards file] [--report file] [--changed file]
  *   npm run sim -- bidding --deals N [--from 1] [--seed s] [--system tku|gib] [--threads N] [--out file] [--report file]
  *                          [--practice dir] [--analyse]
  *   npm run sim -- compete …   (the bidding study, only the competitive decisions)
@@ -36,14 +38,16 @@ import { ruleBrain } from '../../shared/robot/brain.ts'
  */
 
 const USAGE = [
-  'usage: npm run sim -- <bench|tables|leads|compare> [options]',
+  'usage: npm run sim -- <bench|tables|leads|compare|replay|bidding|compete> [options]',
   '  bench    [--deals 200] [--threads N]',
   '  tables   --deals N [--from 1] [--seed s] [--threads N] [--out file]',
   '  leads    --deals N [--from 1] [--seed s] [--system tku|gib] [--samples 0] [--threads N] [--out file] [--report file] [--analyse]',
   '  compare  --deals N [--from 1] [--seed s] [--system tku|gib] [--samples 30] [--objective score|tricks|contract] [--dd-bias 0]',
   '           [--points lead|all] [--threads N] [--out file] [--report file] [--analyse]',
+  '  replay   --out leads.jsonl [--from 1 --deals N | --boards file] [--seed s] [--report file] [--changed file]',
   '  bidding  --deals N [--from 1] [--seed s] [--system tku|gib] [--threads N] [--out file] [--report file] [--practice dir] [--analyse]',
   '  compete  the same as bidding, only the competitive decisions',
+  '  --boards file: only the board numbers in the file (leads, compare, replay)',
 ].join('\n')
 
 const DATA_DIR = resolve(fileURLToPath(new URL('./data/', import.meta.url)))
@@ -68,6 +72,8 @@ interface Common {
   deals: number
   threads: number
   system: RobotKind
+  /** `--boards file`: only these board numbers (one a line), instead of `from` to `from + deals - 1` */
+  only?: Set<number>
 }
 
 function common(args: Map<string, string>): Common {
@@ -79,14 +85,23 @@ function common(args: Map<string, string>): Common {
   if (!Number.isInteger(deals) || deals < 1) throw new Error('--deals must be a whole number of boards')
   if (!Number.isInteger(from) || from < 1) throw new Error('--from must be a board number')
   if (!Number.isInteger(threads) || threads < 1) throw new Error('--threads must be a whole number')
-  return { seed: args.get('seed') ?? EVAL_SEED, from, deals, threads, system }
+  const list = args.get('boards')
+  const only = list ? new Set(readFileSync(list, 'utf8').split(/\s+/).filter(Boolean).map(Number)) : undefined
+  if (only && [...only].some((n) => !Number.isInteger(n) || n < 1)) throw new Error('--boards is a file of board numbers, one a line')
+  return { seed: args.get('seed') ?? EVAL_SEED, from, deals, threads, system, only }
 }
+
+/** The boards of a run, for the report title */
+const span = (c: Common) => (c.only ? `${c.only.size} 副（清單）` : `第 ${c.from}–${c.from + c.deals - 1} 副`)
+
+/** The boards a run covers */
+const covers = (c: Common, board: number) => (c.only ? c.only.has(board) : board >= c.from && board < c.from + c.deals)
 
 /** Runs one kind of job over the boards not yet in the store, appending the results as they come */
 async function runStudy<T extends { board: number }>(label: string, c: Common, store: JsonlStore<T>, chunk: number, job: (boards: number[]) => Job): Promise<number> {
-  const boards: number[] = []
-  for (let n = c.from; n < c.from + c.deals; n++) if (!store.done.has(n)) boards.push(n)
-  console.error(`${label}: ${c.deals} boards from ${c.from} of ${c.seed}; ${c.deals - boards.length} already in ${store.path}`)
+  const all = c.only ? [...c.only].sort((a, b) => a - b) : Array.from({ length: c.deals }, (_, i) => c.from + i)
+  const boards = all.filter((n) => !store.done.has(n))
+  console.error(`${label}: ${all.length} boards ${c.only ? 'from the list' : `from ${c.from}`} of ${c.seed}; ${all.length - boards.length} already in ${store.path}`)
   if (!boards.length) return 0
   const pool = await Pool.start(Math.min(c.threads, boards.length))
   const progress = new Progress(boards.length, `${label} (${pool.size} threads)`)
@@ -181,12 +196,12 @@ async function leads(args: Map<string, string>) {
   const builder = new LeadStudyBuilder()
   let records = 0
   for await (const record of store.records()) {
-    if (record.board >= c.from && record.board < c.from + c.deals) {
+    if (covers(c, record.board)) {
       builder.add(record)
       records++
     }
   }
-  const report = leadReport(builder.build(), `${c.system}，${c.seed} 第 ${c.from}–${c.from + c.deals - 1} 副${samples ? `，每副抽 ${samples} 個佈局` : ''}${seconds ? `，${clock(seconds)}` : ''}`)
+  const report = leadReport(builder.build(), `${c.system}，${c.seed} ${span(c)}${samples ? `，每副抽 ${samples} 個佈局` : ''}${seconds ? `，${clock(seconds)}` : ''}`)
   const file = args.get('report') ?? resolve(DATA_DIR, `${name}.md`)
   writeFileSync(file, report)
   console.log(report)
@@ -207,12 +222,54 @@ async function compare(args: Map<string, string>) {
   let seconds = 0
   if (!args.has('analyse')) seconds = await runStudy('TKB vs sampled DD', c, store, 1, (boards) => ({ kind: 'compare', seed: c.seed, boards, system: c.system, options }))
   const records: CompareRecord[] = []
-  for await (const record of store.records()) if (record.board >= c.from && record.board < c.from + c.deals) records.push(record)
-  const report = compareReport(compareStudy(records, objective), `${c.system}，${c.seed} 第 ${c.from}–${c.from + c.deals - 1} 副，${points === 'lead' ? '只看首攻' : '每一張牌'}${seconds ? `，${clock(seconds)}` : ''}`, objective)
+  for await (const record of store.records()) if (covers(c, record.board)) records.push(record)
+  const report = compareReport(compareStudy(records, objective), `${c.system}，${c.seed} ${span(c)}，${points === 'lead' ? '只看首攻' : '每一張牌'}${seconds ? `，${clock(seconds)}` : ''}`, objective)
   const file = args.get('report') ?? resolve(DATA_DIR, `${name}.md`)
   writeFileSync(file, report)
   console.log(report)
   console.error(`${records.length} records → ${file}`)
+}
+
+async function replay(args: Map<string, string>) {
+  const c = common(args)
+  const file = args.get('out')
+  if (!file) throw new Error('replay needs --out, the leads file to replay')
+  const range = args.has('deals') || c.only ? c : { ...c, deals: Number.MAX_SAFE_INTEGER }
+  const store = await JsonlStore.open<LeadRecord>(file)
+  const builder = new LeadReplayBuilder()
+  const total = [...store.done].filter((n) => covers(range, n)).length
+  const pool = await Pool.start(Math.max(1, Math.min(c.threads, total)))
+  const progress = new Progress(total, `Replaying the leads (${pool.size} threads)`)
+  // A batch at a time, so a million records never sit in memory at once
+  const batch: LeadRecord[] = []
+  const flush = async () => {
+    const leads = new Map<number, Card>()
+    const jobs: Job[] = []
+    for (let i = 0; i < batch.length; i += 200) jobs.push({ kind: 'replay', seed: c.seed, records: batch.slice(i, i + 200) })
+    await pool.run(jobs, (results) => {
+      for (const r of results as ReplayResult[]) leads.set(r.board, r.lead)
+    }, (n) => progress.add(n))
+    for (const record of batch) builder.add(record, leads.get(record.board)!)
+    batch.length = 0
+  }
+  try {
+    for await (const record of store.records()) {
+      if (!covers(range, record.board)) continue
+      batch.push(record)
+      if (batch.length >= 20_000) await flush()
+    }
+    await flush()
+  } finally {
+    await pool.close()
+  }
+  const seconds = progress.finish()
+  const report = replayReport(builder.build(), `${store.path}，${range === c ? span(c) : '全部'}，${clock(seconds)}`)
+  const out = args.get('report') ?? file.replace(/\.jsonl$/, '') + '-replay.md'
+  writeFileSync(out, report)
+  const changed = args.get('changed')
+  if (changed) writeFileSync(changed, builder.changed.join('\n') + '\n')
+  console.log(report)
+  console.error(`${builder.changed.length} leads changed → ${out}`)
 }
 
 /**
@@ -277,7 +334,7 @@ async function main() {
     console.log(USAGE)
     return
   }
-  const commands: Record<string, (args: Map<string, string>) => Promise<void>> = { bench, tables, leads, compare, bidding: (a) => bidding(a), compete: (a) => bidding(a, true) }
+  const commands: Record<string, (args: Map<string, string>) => Promise<void>> = { bench, tables, leads, compare, replay, bidding: (a) => bidding(a), compete: (a) => bidding(a, true) }
   const run = commands[command]
   if (!run) throw new Error(`unknown command "${command}"`)
   await run(args)

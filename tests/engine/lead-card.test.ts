@@ -98,6 +98,28 @@ describe("TKB's opening lead and partner's answer", () => {
     expect(chooseCard(state, 'W', 'tku')[1]).toBe('A')
   })
 
+  it('does not lead partner’s suit when it is the trump suit', () => {
+    // East overcalled 1♠ and South plays in spades: the KQJ sequence instead of West's trump
+    const state = board(layout({ W: '8 9753 KQJ4 T862' }), 'P P P 1S 2S P 4S P P P')
+    expect(chooseCard(state, 'W', 'tku')).toBe('DK')
+  })
+
+  it('keeps out of the suits the declaring side showed against notrump', () => {
+    // South showed hearts, North spades: diamonds, not West's long hearts
+    const state = board(layout({ W: 'K94 Q8653 J72 T5' }), '1H P 1S P 1N P 3N P P P')
+    expect(chooseCard(state, 'W', 'tku')).toBe('D2')
+  })
+
+  it('leads a small doubleton with trump control against a suit contract', () => {
+    const state = board(layout({ W: 'A43 K962 Q85 73' }), '1S P 4S P P P')
+    expect(chooseCard(state, 'W', 'tku')).toBe('C7')
+  })
+
+  it('does not lead away from a lone honour against a suit contract when another suit will do', () => {
+    const state = board(layout({ W: '93 K962 875 Q843' }), '1S P 4S P P P')
+    expect(chooseCard(state, 'W', 'tku')).toBe('D7')
+  })
+
   it('leads fourth best from Axxxx against notrump', () => {
     const state = board(layout({ W: '942 J63 A8532 T4' }), '1N P 3N P P P')
     expect(chooseCard(state, 'W', 'tku')).toBe('D3')
