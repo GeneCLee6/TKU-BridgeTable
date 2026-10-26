@@ -100,6 +100,8 @@ export interface TableConfig {
   thinkLimitMs?: number
   /** Robot moves, the next deal and robot substitutes */
   scheduler: Scheduler
+  /** How long each robot move took to think (ms), for the status page (e11-t22) */
+  onThink?: (ms: number) => void
 }
 
 const CHAT_KEEP = 100
@@ -1534,11 +1536,13 @@ export class TableService implements TableApi {
     const position = this.positionOf()
     this.thinking = true
     let answer: RobotAnswer
+    const started = performance.now()
     try {
       answer = await this.think(move.decide)
     } finally {
       this.thinking = false
     }
+    this.config.onThink?.(performance.now() - started)
     if (this.table !== table || teamPaused(table)) return
     // The table moved on while the robot thought (a person played, an undo, a seat changed): ask again
     if (this.positionOf() !== position) return this.scheduleRobots()

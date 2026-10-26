@@ -1,3 +1,4 @@
+import type { TableStats } from './metrics.ts'
 import type { Seat } from '../shared/cards.ts'
 import { AppError, type MessageCode, type MessageParams } from '../shared/messages.ts'
 import type { BoardRecord, TableAction, TableMode, TableSettings } from '../shared/protocol.ts'
@@ -145,9 +146,10 @@ export interface ClubLink {
   closed(tableId: string): void | Promise<void>
   /**
    * A board was finished: the club keeps its record (history and index) and writes what it means
-   * for the table's event. Saving the same record twice changes nothing
+   * for the table's event. Saving the same record twice changes nothing. `stats`: what a table
+   * object counted since its last report, for the status page (e11-t22, `worker/metrics.ts`)
    */
-  boardFinished(record: BoardRecord, event: EventReport | null): Promise<void>
+  boardFinished(record: BoardRecord, event: EventReport | null, stats?: TableStats): Promise<void>
   /**
    * Whether a member may seat TKB in the club's system (`tkuSystem`, ROBOT.md §7), asked when a
    * host seats a robot: the club has the accounts, so the answer is always current

@@ -87,6 +87,7 @@ TKU-BridgeTable/
 │  ├─ direct-messages.ts   私訊的 SQL 表與 DirectMessageStore（§5.7）
 │  ├─ log.ts               結構化日誌（§5.6）
 │  ├─ rate-limit.ts        速率限制（§5.6）
+│  ├─ metrics.ts           指標與告警，`/api/health` 與管理頁「系統狀態」（§5.13）
 │  ├─ client-errors.ts     瀏覽器錯誤回報的檢查（§5.6）
 │  ├─ challenges.ts        挑戰的 SQL 表與 ChallengeStore（§5.5）
 │  ├─ challenge-flow.ts    挑戰的狀態轉移（建立、回覆、取消、截止）：純函式，ClubService 寫回（§5.5）
@@ -288,7 +289,7 @@ interface BoardState {
 ### 5.6 可觀測性與輸入防護（`e11-t08`～`e11-t11`）
 
 - **結構化日誌**（`worker/log.ts`）：每個事件一行 JSON，Workers Logs（`wrangler.jsonc` 的 `observability`）依欄位索引。`action`：WebSocket 動作的種類、userId、耗時（ms，含廣播）、失敗時的錯誤代碼；`rejected`：沒進到處理函式的訊息（格式、大小、速率）；`http`：每個請求的方法、路徑（不含 query）、狀態、耗時、錯誤代碼；`loginLocked`；`clientError`；`crash`（不是 `ClubError`／`GameError` 的例外，層級 error）；`replica`：D1 副本某一步失敗或填完（§5.12）；`edge`：Worker 從 D1 回答的紀錄頁（耗時），或為什麼交給社團（`fallback`）。**不記密碼、token、cookie、聊天內容。** `ClubService` 只拿到 `ClubConfig.log` 這個函式，不碰 Cloudflare API；測試傳陣列收集
-- **健康檢查** `GET /api/health`（不需登入）：`{ ok, now, tables, online }`，只有數量；回得來表示 Worker 與 Durable Object 都載入了
+- **健康檢查** `GET /api/health`（不需登入）：`{ ok, now, tables, online, events?, playing, robots, metrics, alerts }`（型別 `HealthStatus`，`shared/protocol.ts`），只有數量；回得來表示 Worker 與 Durable Object 都載入了。`metrics` 與 `alerts` 是最近一小時的指標與告警（§5.13）
 - **前端錯誤回報**（`src/lib/errorReport.ts`）：`window` 的 `error` 與 `unhandledrejection` → `POST /api/client-errors`（`sendBeacon`，不需登入）。瀏覽器送之前去除個資（`shared/scrub.ts`：URL 的 query 與 fragment、e-mail、6 位以上的數字；只送路徑不送網址參數；不帶 userId），同一個錯誤只送一次、每頁最多 5 則、取樣比例 `REPORT_SAMPLE_RATE`（社團小，目前 100%）。伺服器（`worker/client-errors.ts`）只留已知欄位、截斷長度、再去除一次個資，全社團每秒最多約 1 則（突發 20 則）寫進日誌，不存資料庫
 - **訊息驗證**（`shared/message-guard.ts` 的 `parseClientMessage`）：WebSocket 訊息在 `ClubService.handleRaw` 入口檢查：最多 `MESSAGE_MAX_CHARS`（8,192 字元，二進位訊息只解碼到超過上限為止）、是 JSON 物件、`type` 是 1–40 個英文字母、已知種類的欄位型別對（型別守衛）。不合法就回 `error`（`messageTooLarge`／`badMessage`），不會進到處理函式。**沒有列在守衛裡的新種類只做形狀檢查**，所以新動作不必先改守衛；值的檢查（座位、範圍、權限）仍在各處理函式。HTTP 的 JSON 本文上限 2 MiB（`Content-Length`），超過回 413 `messageTooLarge`
 - **速率限制**（`worker/rate-limit.ts`，記在記憶體，物件被回收就重算）：每位社員（所有分頁合計）的訊息 token bucket，突發 30、每秒 10（重連時補送的動作要過得去），超過回 `slowDown` 並丟掉；聊天另外突發 5、每 2 秒 1 句，超過回 `chatTooFast`；私訊另外突發 10、每分鐘 20 則，超過回 `directTooFast`；密碼錯誤以「來源 IP（`CF-Connecting-IP`）＋帳號」計 5 次、單一 IP 計 20 次，15 分鐘內再登入回 429 `tooManyLogins`（連密碼對了也一樣），密碼對了就清掉該帳號的次數。不鎖整個帳號，避免陌生人從別處把社員鎖在外面。速率只在 socket 入口（`handleRaw`）檢查，`handle` 本身不限，測試與機器人照常。**桌的連線**（§5.10）在 `TableHost.message` 做同樣的大小與型別檢查，只收牌桌動作（其他回 `unknownCommand`），動作與聊天的 bucket 另外算（每個 `TableObject` 自己記；所以同一人在社團與桌上的額度是分開的）
@@ -540,6 +541,25 @@ H1 把牌桌拆出去之後（§5.10），社團的物件（`Club`）仍然是**
 - `worker/edge-auth.ts`（通行證）、`worker/history-replica.ts`（`ReplicaSync`、`replicaWrites`、`searchReplica`、`ReplicaDb` 介面）、`worker/d1.ts`（唯一碰 D1 的程式，把 binding 包成 `ReplicaDb`）、`worker/routing.ts`（Worker 自己回答的部分）、`worker/history-index.ts`（`indexRow`、`searchStatements`、`listQuery` 讓兩邊共用同一段 SQL）。`ClubService` 只拿到 `ClubConfig.historyReplica`（`ReplicaDb`），不碰 Cloudflare API（CLAUDE.md 規則 4）。
 - 測試在 Node：`tests/worker/d1.ts` 是 D1 的替身（記憶體 SQLite，每個 batch 一個 transaction，可以讓它失敗、會數 batch 與 statement、超過 100 個參數就丟錯）。`history-replica.test.ts`（填副本、物件被回收接著填、outbox、重寫與刪除、D1 失敗重試、寫的時候又被改、開關、表不見與版本）、`routing.test.ts`（通行證、Worker 從 D1 回答、各種交給 `Club` 的情況、桌的連線不問 `Club`）、`edge-cost.test.ts`（上面的數字）、`tests/worker/visibility/`（D1 與 `Club` 的回答完全相同）。
 - 需要 workerd 才能測的只有接線（`d1.ts`、`club.ts` 的 `edgePass`、`index.ts`）：在 staging 照 `DEPLOY.md` §4.5 的檢查做一次。
+
+## 5.13 指標、系統狀態與負載測試（`e11-t21`、`e11-t22`，2026-10-26）
+
+**指標從既有的結構化日誌數**（`worker/metrics.ts`，不碰 Cloudflare API）：`ClubService` 的 `log` 先交給 `Metrics.observe` 再寫出去，所以 `action`（次數、耗時分桶、有錯誤代碼的算「被拒」）、`rejected`、`crash`、`http`（`Club.fetch` 的那一行改經 `ClubService.logEntry`，5xx 算伺服器錯誤）不必另外埋點。另外數三件事：
+- **連線與重連**：`connected` 時如果這個人上一條連線在 60 秒內（`RECONNECT_WINDOW_MS`）才斷，算一次重連；同時記最高在線人數。
+- **機器人思考時間**：`TableService.runRobot` 量 `think` 前後的 `performance.now()`，交給 `TableConfig.onThink`。
+- **牌桌物件自己的數字**（桌的連線上的動作、被拒、bug、機器人思考）：`TableHost` 用 `TableCounters` 累積，**跟著下一副的 `boardFinished` 一起送給社團**（`ClubLink.boardFinished` 多一個選填的 `stats`），沒送到就放回去下次再送；不多任何 RPC。牌桌物件被回收時沒送出去的會掉，最多一副的量。
+
+切成 5 分鐘一格、保留一小時。**社團的物件只要閒幾秒就會休眠（連線還開著也一樣）**，記憶體裡的數字會跟著不見，所以最多每分鐘把整份寫回 `meta:metrics` 一次（一列；只在有事的時候寫，一天最多 1,440 列），`load()` 時讀回來、同一格相加。不記任何人的 id：重連判斷用的「誰剛斷線」只在記憶體、60 秒後就清。
+
+**告警**（`alertsOf`，量夠才判斷，避免一兩次就亮）：伺服器錯誤率（`crash`＋5xx）÷（動作＋請求）超過 1%（至少 50 次）、重連率超過 20%（至少 20 次連線）、動作 p95 超過 1 秒（至少 50 次）、機器人平均思考超過 0.5 秒（至少 20 步）。`/api/health` 的 `alerts` 列出亮的，管理頁「系統狀態」用紅底顯示。
+
+**時間的限制**：Workers 裡 `Date.now()` 與 `performance.now()` 只在 I/O 之後才前進，所以這裡的耗時是「等」（RPC、儲存），不是 CPU；規則機器人的思考在正式環境會量成 0（之後有遠端的 TKB Adv 才有意義）。**每次呼叫的 CPU 在 Workers Logs 的 `$workers.cpuTimeMs`**（`DEPLOY.md` §4.7）。本機的 CPU 量法見 `docs/LOAD.md`。
+
+**系統狀態頁**（`src/components/SystemStatus.tsx`，管理頁最後一個區塊）：讀 `/api/health`，開著時每 30 秒（分頁看得見才讀）更新一次，一次是一個 Worker 請求＋一個社團請求。外部監控（例如 UptimeRobot 免費方案）可以直接監看同一個網址的 `"alerts":[]`，要不要接由社長決定（`DEPLOY.md` §4.7）。
+
+**沒有用的**：Workers Analytics Engine（要新增 binding，查詢要另一把 API token）、Cloudflare Notifications 的自訂告警（免費方案沒有依日誌告警）。Workers Logs 已經開著（`observability`），免費方案每天 20 萬筆、保留 3 天，足夠事後查。
+
+**負載測試**（`scripts/load/`、`tests/worker/load-cpu.test.ts`）的方法、數字與瓶頸在 `docs/LOAD.md`。第一個撐不住的是**大廳廣播**（每次大廳有變，社團替每位在線的人算一次整份大廳）：200 人在線時一次約 1 秒，這一批先把每位觀看者共用的部分（誰在線、誰在哪一桌、社員的排序）改成每次廣播只算一次（`ClubService.lobbyBasis`，送出去的大廳完全不變），降到約 0.2 秒；剩下的大多是每人一份約 35 KB 的 JSON，要改通訊協定才省得掉（`docs/LOAD.md` §5）。
 
 ## 5.8 隊制賽（決策紀錄，`e8-t01`，2026-10-25）
 

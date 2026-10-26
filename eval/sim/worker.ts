@@ -5,6 +5,7 @@ import { biddingRecord } from './bidding.ts'
 import { loadSolver } from './dds.ts'
 import type { Job, JobResult, WorkerMessage } from './jobs.ts'
 import { leadRecord } from './leads.ts'
+import { replayLead } from './replay.ts'
 
 /**
  * A worker thread of the pool (eval/sim/README.md §1): one DDS of its own (the WASM build is
@@ -19,6 +20,13 @@ const solver = await loadSolver()
 
 async function run(job: Job, id: number): Promise<JobResult[]> {
   const results: JobResult[] = []
+  if (job.kind === 'replay') {
+    for (const record of job.records) {
+      results.push({ board: record.board, lead: await replayLead(record, job.seed) })
+      post({ id, progress: 1 })
+    }
+    return results
+  }
   for (const boardNo of job.boards) {
     const board = evalBoard(boardNo, job.seed)
     let result: JobResult | null = null

@@ -12,6 +12,7 @@ import {
 } from '../../shared/protocol.ts'
 import type { BookSyncRow } from '../../shared/robot/system/tku/sources.ts'
 import { PasswordInput } from '../components/PasswordInput.tsx'
+import { SystemStatus } from '../components/SystemStatus.tsx'
 import { useToast } from '../components/Toast.tsx'
 import {
   Button,
@@ -48,8 +49,8 @@ import { mobile } from '../styles/tokens.ts'
  * with TKU BridgeBook, which has the same approvals and permissions on its own admin page.
  */
 
-type SectionId = 'applications' | 'settings' | 'members' | 'add' | 'tables' | 'bookSync'
-const SECTIONS: SectionId[] = ['applications', 'settings', 'members', 'add', 'tables', 'bookSync']
+type SectionId = 'applications' | 'settings' | 'members' | 'add' | 'tables' | 'bookSync' | 'status'
+const SECTIONS: SectionId[] = ['applications', 'settings', 'members', 'add', 'tables', 'bookSync', 'status']
 const anchor = (section: SectionId) => `admin-${section}`
 
 /** Fields a server error can belong to */
@@ -306,6 +307,7 @@ export function AdminPage() {
     add: t.addMember,
     tables: t.tablesTitle,
     bookSync: t.bookSyncTitle,
+    status: t.statusTitle,
   }
   const outOfStep = sync?.filter((row) => !row.synced) ?? []
   const count: Record<SectionId, number | null> = {
@@ -315,6 +317,7 @@ export function AdminPage() {
     add: null,
     tables: tables.length,
     bookSync: outOfStep.length || null,
+    status: null,
   }
   const words = { today: t.timeToday, yesterday: t.timeYesterday }
   const relative = (at: number) => formatRelative(at, lang, words)
@@ -861,6 +864,14 @@ export function AdminPage() {
                 </Table>
               </Flush>
             )}
+          </Section>
+
+          <Section id={anchor('status')} aria-labelledby={`${id}-h-status`}>
+            <CardHeader>
+              <CardTitle id={`${id}-h-status`}>{t.statusTitle}</CardTitle>
+              <Muted>{t.statusIntro}</Muted>
+            </CardHeader>
+            <SystemStatus />
           </Section>
         </Stack>
       </Layout>

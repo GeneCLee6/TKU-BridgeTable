@@ -56,8 +56,16 @@ export interface LeadRecord {
     tricks: Record<Card, number>
     /** How often the lead defeats the contract, 0 to 1 */
     defeat: Record<Card, number>
+    /**
+     * The defenders' average duplicate score with each lead, and the same with the declarer
+     * `SAMPLED_BIASES` tricks worse off (the double-dummy bias knob, README §2), keyed by the bias
+     */
+    biased?: Record<string, { defeat: Record<Card, number>; score: Record<Card, number> }>
   }
 }
+
+/** The double-dummy biases the sampled estimate is also scored with (eval/sim/README.md §2) */
+export const SAMPLED_BIASES = [0, 0.25, 0.5]
 
 export interface LeadOptions {
   /** Layouts the leader samples; 0 for the actual-deal result only */
@@ -96,13 +104,21 @@ export async function leadRecord(board: EvalBoard, kind: RobotKind, solver: Solv
     const knowledge = knowledgeOf(state, leader, kind)
     const sampling = sampleLayouts(knowledge.problem, options.samples, seededRandom(`${options.seed}:${board.boardNo}:lead`))
     const layouts = sampling.layouts.map((layout) => expandEquals(solver.solve(positionOf(knowledge, layout))))
-    const scores = scoreCards(layouts, { contract, declaring: false, vulnerable: isVulnerable(state.vul, contract.declarer), won: 0 })
+    const ctx = { contract, declaring: false, vulnerable: isVulnerable(state.vul, contract.declarer), won: 0 }
+    const scores = scoreCards(layouts, ctx)
+    const biased = Object.fromEntries(
+      SAMPLED_BIASES.map((bias) => {
+        const s = scoreCards(layouts, ctx, bias)
+        return [String(bias), { defeat: Object.fromEntries(s.map((c) => [c.card, c.pSuccess])), score: Object.fromEntries(s.map((c) => [c.card, c.meanScore])) }]
+      }),
+    )
     record.sampled = {
       n: sampling.layouts.length,
       attempts: sampling.attempts,
       relaxed: sampling.relaxed,
       tricks: Object.fromEntries(scores.map((s) => [s.card, s.meanTricks])),
       defeat: Object.fromEntries(scores.map((s) => [s.card, s.pSuccess])),
+      biased,
     }
   }
   return record

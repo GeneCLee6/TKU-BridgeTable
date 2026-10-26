@@ -151,7 +151,7 @@ PR 關閉時預覽會自動刪除。若有漏掉的（例如當時還沒設定 s
 ## 4.0 日誌、健康檢查與速率限制
 
 - **日誌**：Cloudflare Dashboard → Workers & Pages → `tku-bridge-table` → Logs（`wrangler.jsonc` 已開 `observability`），或本機 `npx wrangler tail`。每行是一個 JSON 事件（`ARCHITECTURE.md` §5.6）：用 `event` 篩選，`action`／`http` 看動作與耗時、`code` 看錯誤代碼、`level = error` 看伺服器的例外（`crash`）與瀏覽器回報的錯誤（`clientError`）
-- **健康檢查**：`https://<網域>/api/health` 回 `{"ok":true,...}` 表示 Worker 與資料都正常，可以接外部監控
+- **健康檢查**：`https://<網域>/api/health` 回 `{"ok":true,...}` 表示 Worker 與資料都正常，可以接外部監控；裡面的 `metrics`、`alerts` 是最近一小時的指標與告警（§4.7）
 - **速率限制**：密碼錯太多次（同一 IP 對同一帳號 5 次，或同一 IP 20 次）要等 15 分鐘；社員說「登不進去、說密碼錯誤太多次」時，等 15 分鐘或換網路即可，管理員也可以直接重設他的密碼。打牌動作每秒超過 10 個、聊天每 2 秒超過 1 句會被擋下並提示（社團的連線與每一桌的連線各算各的）
 
 ## 4.1 部署順序（與淡江橋譜一起改版時）
@@ -342,6 +342,22 @@ D1 免費額度（每天讀 500 萬列、寫 10 萬列、5 GB）的估算在 `AR
 ### 出問題時（切回去）
 
 把 `vars` 裡的 `EVENT_OBJECTS` 拿掉（或改成 `off`）再部署；急的話先 `npx wrangler deploy --var EVENT_OBJECTS:off`。社團的物件重新載入時把每場挑戰從它的物件拿回來（那一場先停住，不再改、不跑工作、不回報），寫回社團的表、刪掉 `event_homes` 那一列、在社團排好提醒與截止，再清掉那個物件；全部搬完 `meta:events` 回到 1，Logs 有 `{"event":"eventsMoved","to":"club",...}`。拿不回來的那一場繼續在物件裡照常運作，稍後再試。正本只會在一個地方（社團或那一場的物件），所以怎麼切都不會掉挑戰或結果。**不要**刪掉 `EventObject` 類別或 migration `v3`：Cloudflare 會拒絕部署，要刪得另外加一個 `deleted_classes` 的 migration（會連資料一起刪）。
+
+## 4.7 系統狀態、指標與負載測試（H3，`e11-t21`、`e11-t22`）
+
+- **系統狀態**：管理頁最後一個區塊「系統狀態」：在線人數、桌數、正在打牌的人、機器人座位、最近一小時的動作數與 p95 耗時、錯誤率、重連率、機器人思考時間、打完的牌、挑戰物件數。資料是 `/api/health`（不需登入、只有數量），開著時每 30 秒更新。社團的物件重新部署後從上一次寫回的數字接著算（最多差一分鐘）。
+- **告警**：有紅色的提示時：
+  - 「伺服器錯誤偏多」：Logs 用 `level = error` 或 `event = crash` 篩選，看 `where`。
+  - 「重連偏多」：剛部署過（每次部署所有人都會重連一次）就不用管；不然看 Logs 有沒有 `crash`，或 Dashboard 的 Durable Objects 有沒有錯誤。
+  - 「動作變慢」：多半是社團的物件太忙（大廳人很多，`docs/LOAD.md` §5）。
+  - 「機器人思考變慢」：機器人用的是遠端大腦時才會出現。
+- **CPU**：Dashboard → Workers & Pages → `tku-bridge-table` → Observability（Logs）→ 查詢 `$workers.cpuTimeMs`（每次呼叫的 CPU，含 Durable Object）；也可以按 `$workers.scriptName`、`$workers.entrypoint` 分組看 p99。
+- **外部監控**（沒有設定，要不要由社長決定）：UptimeRobot 之類的免費服務每 5 分鐘讀一次 `/api/health`、檢查內容有 `"alerts":[]`，一天約 288 個 Worker 請求＋288 個 Durable Object 請求（不到每日額度的 0.3%）。
+- **負載測試**：只對本機、staging 或 PR 預覽（指令會拒絕正式站），遠端一次不超過每日額度的 15%（指令會先估算，超過就拒絕）。做法與結果在 `docs/LOAD.md`：
+
+```bash
+LOAD_PASSWORD=... LOAD_INVITE_CODE=... npm run load -- --url https://tku-bridge-table-pr-<號>.<子網域>.workers.dev   --users 30 --tables 5 --robot-tables 2 --watchers 6 --minutes 5 --challenge 3 --dry-run   # 先看估算
+```
 
 ## 5. 費用與限制
 

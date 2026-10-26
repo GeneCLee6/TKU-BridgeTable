@@ -14,6 +14,7 @@ import { expandEquals, loadSolver, pbnOf, type Solver } from '../../eval/sim/dds
 import type { TableRecord } from '../../eval/sim/jobs.ts'
 import { CONCEPTS, conventionalLead, leadRecord, leadReport, leadStudy, leadType, type LeadRecord } from '../../eval/sim/leads.ts'
 import { chunked, Pool } from '../../eval/sim/pool.ts'
+import { LeadReplayBuilder, replayLead, replayReport, stateAtLead } from '../../eval/sim/replay.ts'
 import { seededRandom } from '../../eval/sim/random.ts'
 import { knowledgeOf, positionOf, sampleLayout, sampleLayouts, type SamplingProblem } from '../../eval/sim/sampler.ts'
 import { bestCard, scoreCards } from '../../eval/sim/score.ts'
@@ -321,6 +322,51 @@ describe('sim: opening leads', () => {
     expect(r.sampled!.n).toBe(3)
     expect(Object.keys(r.sampled!.tricks)).toHaveLength(13)
     for (const p of Object.values(r.sampled!.defeat)) expect(p).toBeGreaterThanOrEqual(0)
+    // The same estimate with the double-dummy bias taken off the declarer: never more contracts made
+    expect(Object.keys(r.sampled!.biased!)).toEqual(['0', '0.25', '0.5'])
+    expect(r.sampled!.biased!['0'].defeat).toEqual(r.sampled!.defeat)
+    for (const card of Object.keys(r.dd)) expect(r.sampled!.biased!['0.5'].defeat[card]).toBeGreaterThanOrEqual(r.sampled!.defeat[card])
+  })
+})
+
+describe('sim: replaying the leads with this checkout’s rules', () => {
+  const hand = (text: string) => text.split('.').flatMap((ranks, i) => [...ranks].map((r) => SUITS[i] + r))
+
+  it('bids the recorded board again and leads as TKB does', async () => {
+    const solver = await loadSolver()
+    const [state] = await playedBoards(1)
+    const r = (await leadRecord(evalBoard(state.boardNo), 'tku', solver, { samples: 0, seed: 'test' }))!
+    const again = stateAtLead(r, 'tku-eval-v1')
+    expect(again.auction.map((c) => c.call)).toEqual(state.auction.map((c) => c.call))
+    expect(again.contract).toEqual(state.contract)
+    expect(await replayLead(r, 'tku-eval-v1')).toBe(r.tkb)
+  })
+
+  it('adds up old against new leads, on the actual deal and the sampled estimate', () => {
+    const cards = hand('KQJ4.T8.K762.953')
+    const dd = Object.fromEntries(cards.map((c) => [c, 4]))
+    const base: LeadRecord = {
+      board: 1, system: 'tku', dealer: 'N', vul: 'None', contract: '3N', declarer: 'S', leader: 'W', hand: 'KQJ4.T8.K762.953',
+      auction: '1N-P-3N-P-P-P', partnerSuits: '', theirSuits: '', tkb: 'SK', dd,
+    }
+    const flat = Object.fromEntries(cards.map((c) => [c, 0]))
+    const builder = new LeadReplayBuilder()
+    // Board 1: the new lead (D2) beats 3NT by one where the old one (SK) let it make: 450 points, 10 IMPs
+    builder.add({ ...base, dd: { ...dd, SK: 4, D2: 5 }, sampled: { n: 2, attempts: 2, relaxed: 0, tricks: { ...flat, SK: 3, D2: 4 }, defeat: { ...flat, D2: 0.5 },
+      biased: { '0': { defeat: { ...flat, D2: 0.5 }, score: { ...flat, SK: -400, D2: 0 } } } } }, 'D2')
+    // Board 2: unchanged
+    builder.add({ ...base, board: 2 }, 'SK')
+    const study = builder.build()
+    expect(builder.changed).toEqual([1])
+    expect(study.groups.all).toMatchObject({ boards: 2, changed: 1, tricks: 0.5, imps: 5, defeatOld: 0, defeatNew: 0.5 })
+    expect(study.groups.notrump.boards).toBe(2)
+    expect(study.groups.major.boards).toBe(0)
+    expect(study.groups.all.sampled).toMatchObject({ n: 1, tricks: 1, byBias: [{ bias: 0, defeat: 0.5, score: 400 }] })
+    expect(study.transitions).toEqual([{ kind: 'notrump', from: 'sequence', to: 'fromHonour', n: 1, tricks: 1, imps: 10, sampledTricks: 1, sampledScore: 400 }])
+    const report = replayReport(study, 'test')
+    expect(report).toContain('## 首攻重播：test')
+    expect(report).toContain('| 無王 | 2 | 1（50.0%） | +0.5000')
+    expect(report).toContain('| 無王 | 連張頂張 | 大牌底下的小牌 | 1 |')
   })
 })
 
