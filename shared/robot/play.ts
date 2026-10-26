@@ -225,7 +225,7 @@ function dropBetter(view: View, seat: Seat, led: Suit, finesse: Card): boolean {
  * and against a suit contract a suit headed by a lone honour (leading away from it) after the
  * rest and one headed by the ace last. Neither a doubleton nor a sequence is led from their
  * suits. The card from the suit is the club's 01 fourth best (lead-card.ts). From the
- * million-deal study (eval/sim/README.md §7).
+ * million-deal study (eval/sim/README.md §8).
  */
 function openingLead(state: BoardState, seat: Seat, view: View, hand: Card[], trump: Suit | null): Card {
   const lead = (s: Suit) => clubLeadCard(suitCards(hand, s), trump)

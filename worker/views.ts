@@ -272,7 +272,8 @@ export function seatOccupants(
  * `acts` are the seats the viewer calls for (`seatsActedBy`, seat control): they see each of those
  * hands as their own, and get `legalCalls` when it is the turn of any of them (for that seat:
  * `turn`). Nobody else sees any more for it; a seat someone else controls is still the viewer's own
- * to look at, never to call for.
+ * to look at, never to call for. `shown` are seats the viewer may look at but not call for (顯示四家,
+ * `e10-t16`): the table gives it only to a practice table's own member, when they turned it on.
  * A challenge table's deal set (`Table.dealSource`) never goes out: only the board being played
  * is in `board`, and this function only ever sees that one.
  */
@@ -292,6 +293,11 @@ export function boardView(
     robots?: Partial<Record<Seat, RobotKind>>
     /** The seats the viewer calls for (seat control); just their own seat when left out */
     acts?: Seat[]
+    /**
+     * Seats whose hands the viewer is shown without calling for them: 顯示四家 at a practice table,
+     * for its member alone (`e10-t16`). Nothing else changes: no bidding box, no hints for them
+     */
+    shown?: Seat[]
   } = {},
 ): BoardView {
   const finished = board.phase === 'finished'
@@ -306,6 +312,7 @@ export function boardView(
     (viewer === null && extras.kibitz !== false) ||
     seat === viewer ||
     acts.includes(seat) ||
+    (viewer !== null && !!extras.shown?.includes(seat)) ||
     (dummyExposed && seat === dummy) ||
     (dummyExposed && viewer === dummy && seat === declarer) ||
     (claimed.includes(seat) && seat !== declarer) ||
@@ -624,11 +631,21 @@ export function challengeTraveller(
 /**
  * What a practice table's player sees of its settings (§5.11): only their own choices, so nothing
  * of the deal leaves with it. The hands themselves follow the usual rules (`boardView`); a Just
- * Declare board's auction was made by robots and is public like any other
+ * Declare board's auction was made by robots and is public like any other. A deal set's boards
+ * (`problems`, `e10-t16`) never leave: only the place of the one on the table, its category and
+ * title, and its note once the auction is over (what it teaches gives the bidding away). A bidding
+ * practice's review (`review`, `e10-t07`: TKB's call at each step, TKB's own auction) only once the
+ * board is finished, when all four hands are open to everyone at the table: it was worked out
+ * from the hands, so sent any earlier it would tell what the others hold
  */
-export function practiceView(table: Pick<Table, 'mode' | 'modeState'>): { practice?: TablePractice } {
+export function practiceView(table: Pick<Table, 'mode' | 'modeState' | 'board'>): { practice?: TablePractice } {
   if (table.mode !== 'practice') return {}
-  const { deal, conditions, robotKind, justDeclare, biddingOnly, seats, dealt } = table.modeState as PracticeTableState
+  const { deal, conditions, robotKind, justDeclare, biddingOnly, seats, set, showHands, dealt, problems, review } =
+    table.modeState as PracticeTableState
+  const index = problems?.length && dealt > 0 ? (dealt - 1) % problems.length : null
+  const problem = index === null ? null : problems![index]
+  const bid = !!table.board && table.board.phase !== 'auction'
+  const reviewed = biddingOnly && table.board?.phase === 'finished' && review
   return {
     practice: {
       deal,
@@ -637,7 +654,19 @@ export function practiceView(table: Pick<Table, 'mode' | 'modeState'>): { practi
       justDeclare,
       ...(biddingOnly && { biddingOnly }),
       ...(seats && { seats }),
+      ...(set && { set }),
+      ...(showHands && { showHands }),
       dealt,
+      ...(problem && {
+        problem: {
+          seq: index! + 1,
+          count: problems!.length,
+          ...(problem.category && { category: problem.category }),
+          ...(problem.title && { title: problem.title }),
+          ...(bid && problem.note && { note: problem.note }),
+        },
+      }),
+      ...(reviewed && { review }),
     },
   }
 }

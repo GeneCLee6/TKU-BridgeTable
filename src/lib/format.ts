@@ -1,3 +1,4 @@
+import { DAY_MS, taiwanDate, taiwanDayStart } from '../../shared/history-query.ts'
 import type { Lang } from '../../shared/messages.ts'
 
 /** Display formatting that is not a component */
@@ -42,4 +43,22 @@ export function formatRelative(
   if (date.getFullYear() === new Date(now).getFullYear())
     return `${date.toLocaleDateString(LOCALE[lang], { month: 'numeric', day: 'numeric' })} ${time}`
   return formatDate(at, lang)
+}
+
+/**
+ * A Taiwan date (YYYY-MM-DD, as history keeps days) for the side panel's list by day: 今天, 昨天,
+ * then 10/23（五） this year and 2025/12/30（二） before that, in the language's own order
+ */
+export function formatDay(date: string, lang: Lang, words: { today: string; yesterday: string }, now: number = Date.now()): string {
+  const today = taiwanDate(now)
+  if (date === today) return words.today
+  if (date === taiwanDate(taiwanDayStart(today) - DAY_MS)) return words.yesterday
+  // The date's own calendar day, whatever the browser's time zone
+  return new Date(`${date}T00:00:00Z`).toLocaleDateString(LOCALE[lang], {
+    ...(date.slice(0, 4) !== today.slice(0, 4) && { year: 'numeric' }),
+    month: 'numeric',
+    day: 'numeric',
+    weekday: 'short',
+    timeZone: 'UTC',
+  })
 }

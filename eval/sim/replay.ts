@@ -10,7 +10,7 @@ import { parseContract } from './board.ts'
 import { defeatNeeds, handOf, LEAD_TYPE_LABEL, leadType, SAMPLED_BIASES, type LeadRecord, type LeadType } from './leads.ts'
 
 /**
- * Replaying the opening leads of a leads file with this checkout's rules (eval/sim/README.md §7).
+ * Replaying the opening leads of a leads file with this checkout's rules (eval/sim/README.md §8).
  * Every record holds the double-dummy result of every lead on its board, so a new lead rule can
  * be judged on a million boards without solving anything again: the board is dealt from the
  * seed, the recorded auction is bid again, TKB (only its own `View`) chooses the lead, and the

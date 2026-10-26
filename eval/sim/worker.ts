@@ -1,6 +1,7 @@
 import { parentPort } from 'node:worker_threads'
 import { evalBoard } from '../deals.ts'
 import { compareBoard } from './compare.ts'
+import { biddingRecord } from './bidding.ts'
 import { loadSolver } from './dds.ts'
 import type { Job, JobResult, WorkerMessage } from './jobs.ts'
 import { leadRecord } from './leads.ts'
@@ -31,6 +32,7 @@ async function run(job: Job, id: number): Promise<JobResult[]> {
     let result: JobResult | null = null
     if (job.kind === 'tables') result = { board: boardNo, table: solver.table(board.hands) }
     else if (job.kind === 'leads') result = await leadRecord(board, job.system, solver, { samples: job.samples, seed: job.seed })
+    else if (job.kind === 'bidding') result = biddingRecord(board, job.system, solver, job.options)
     else result = await compareBoard(board, job.system, solver, job.options)
     if (result) results.push(result)
     post({ id, progress: 1 })

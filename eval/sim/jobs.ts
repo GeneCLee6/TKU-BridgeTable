@@ -1,6 +1,7 @@
 import type { Card } from '../../shared/cards.ts'
 import type { RobotKind } from '../../shared/protocol.ts'
 import type { CompareOptions, CompareRecord } from './compare.ts'
+import type { BiddingOptions, BiddingRecord } from './bidding.ts'
 import type { DdTable } from './dds.ts'
 import type { LeadRecord } from './leads.ts'
 
@@ -14,6 +15,7 @@ export type Job =
   | { kind: 'leads'; seed: string; boards: number[]; system: RobotKind; samples: number }
   | { kind: 'compare'; seed: string; boards: number[]; system: RobotKind; options: CompareOptions }
   | { kind: 'replay'; seed: string; records: LeadRecord[] }
+  | { kind: 'bidding'; seed: string; boards: number[]; system: RobotKind; options: BiddingOptions }
 
 export interface TableRecord {
   board: number
@@ -26,6 +28,6 @@ export interface ReplayResult {
   lead: Card
 }
 
-export type JobResult = TableRecord | LeadRecord | CompareRecord | ReplayResult
+export type JobResult = TableRecord | LeadRecord | CompareRecord | ReplayResult | BiddingRecord
 
 export type WorkerMessage = { id: number; progress: number } | { id: number; results: JobResult[] } | { id: number; error: string } | { ready: true }

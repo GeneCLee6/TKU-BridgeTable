@@ -31,6 +31,7 @@ import { TableSettingsDialog } from '../components/TableSettingsDialog.tsx'
 import { TableTour } from '../components/TableTour.tsx'
 import { ContractLabel } from '../components/Suit.tsx'
 import { ClaimPicker, FeltButton, FeltPanel, JoinRequests, Prompt, ResultPanel } from '../components/TablePanels.tsx'
+import { PracticeReview } from '../components/PracticeReview.tsx'
 import { COLLECT_MS, TrickArea, TrickSpace, type CardOrigin, type Position } from '../components/TrickArea.tsx'
 import { TrickPile } from '../components/TrickPile.tsx'
 import { Button, Muted, PageMain } from '../components/ui.tsx'
@@ -213,6 +214,7 @@ const SeatBlock = styled.div<{ $overlap: number; $appear: boolean; $size?: { wid
       height: ${$size.height}px;
     `}
   & > [data-hand] {
+    position: relative;
     display: flex;
     justify-content: center;
     min-width: 0;
@@ -321,6 +323,23 @@ const SettingsButton = styled.button`
   border-radius: 50%;
   background: ${({ theme }) => theme.table.shade};
   color: ${({ theme }) => theme.table.feltText};
+`
+
+/** 顯示四家 (`e10-t16`): a hand the member sees only because they asked to see all four */
+const ShownTag = styled.span`
+  position: absolute;
+  top: -10px;
+  left: 50%;
+  z-index: 3;
+  transform: translateX(-50%);
+  padding: 1px 8px;
+  border-radius: ${({ theme }) => theme.radius.pill};
+  background: ${({ theme }) => theme.table.turn};
+  color: ${({ theme }) => theme.table.panelText};
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+  pointer-events: none;
 `
 
 const Note = styled.div`
@@ -626,6 +645,10 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
   const [lastTrickFor, setLastTrickFor] = useState(0)
   const [claimingFor, setClaimingFor] = useState(0)
   const [editingSettings, setEditingSettings] = useState(false)
+  // 檢討 of a bidding practice's board (`e10-t07`): open only while that board stays finished
+  const [reviewing, setReviewing] = useState(false)
+  const reviewable = !!table.practice?.biddingOnly && board?.phase === 'finished'
+  if (reviewing && !reviewable) setReviewing(false)
   const showAuction = auctionFor === boardNo
   const showLast = lastTrickFor === boardNo
   const claiming = claimingFor === boardNo
@@ -832,8 +855,13 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
     const turned = side && turnedSides
     // Face-up hands on the left and right go in rows by suit (BBO's dummy), which is narrow
     const orientation: Orientation = !side || turned ? 'horizontal' : sizes.phone ? 'vertical' : cards ? 'rows' : 'horizontal'
+    // Seen only because the member turned on 顯示四家: marked, so it is never taken for their own
+    const exposedDummy = board?.dummy === seat && !!board?.tricks.some((trick) => trick.cards.length > 0)
+    const shownOnly =
+      !!practice?.showHands && !!me && !!cards && board?.phase !== 'finished' && !acts.includes(seat) && !exposedDummy
     const hand = board && (
-      <div data-hand={seat} data-hand-at={position}>
+      <div data-hand={seat} data-hand-at={position} data-shown={shownOnly || undefined}>
+        {shownOnly && <ShownTag>{t.handShown}</ShownTag>}
         <HandView
           cards={cards}
           count={holdLast ? 0 : board.handCounts[seat] - (pendingShown?.seat === seat ? 1 : 0)}
@@ -986,6 +1014,8 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
           board={board}
           declarerName={board.contract ? nameOf(board.contract.declarer) : undefined}
           seconds={seconds}
+          note={practice?.problem?.note}
+          onReview={reviewable ? () => setReviewing(true) : undefined}
         />
       )
     }
@@ -1152,6 +1182,15 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
                     {t.redeal}
                   </FeltButton>
                 )}
+                <FeltButton
+                  type="button"
+                  $tone="plain"
+                  aria-pressed={!!practice.showHands}
+                  title={t.showHandsHint}
+                  onClick={() => send({ type: 'showHands', show: !practice.showHands })}
+                >
+                  {practice.showHands ? t.hideHands : t.showHands}
+                </FeltButton>
                 <FeltButton type="button" $tone="plain" onClick={() => navigate('/')}>
                   {t.endPractice}
                 </FeltButton>
@@ -1184,6 +1223,15 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
           </Actions>
         </Area>
       </Felt>
+      {reviewing && board && (
+        <PracticeReview
+          board={board}
+          review={practice?.review}
+          note={practice?.problem?.note}
+          names={Object.fromEntries(SEATS.map((seat) => [seat, nameOf(seat)]))}
+          onClose={() => setReviewing(false)}
+        />
+      )}
       {editingSettings && canConfigure && (
         <TableSettingsDialog
           title={t.tableSettings}

@@ -118,12 +118,48 @@ export function Countdown({ seconds }: { seconds: number }) {
   )
 }
 
+const Teaches = styled.p`
+  display: grid;
+  gap: 2px;
+  max-width: 320px;
+  margin: 4px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  text-align: left;
+  white-space: pre-line;
+`
+
 /**
  * The result of the board just finished, in bridge shorthand whatever the language (2♦ N +5,
  * --), with the countdown to the next deal while it runs
  */
-export function ResultPanel({ board, declarerName, seconds }: { board: BoardView; declarerName?: string; seconds: number | null }) {
+export function ResultPanel({
+  board,
+  declarerName,
+  seconds,
+  note,
+  onReview,
+}: {
+  board: BoardView
+  declarerName?: string
+  seconds: number | null
+  /** What a deal set's board teaches (`e10-t16`), once its auction is over */
+  note?: string
+  /** At a bidding practice: opens its 檢討 (`e10-t07`) */
+  onReview?: () => void
+}) {
   const t = useT()
+  const review = onReview && (
+    <FeltButton type="button" $tone="go" title={t.practiceReview.openHint} onClick={onReview}>
+      {t.practiceReview.open}
+    </FeltButton>
+  )
+  const teaches = note && (
+    <Teaches>
+      <strong>{t.practiceNote}</strong>
+      {note}
+    </Teaches>
+  )
   const result = board.result
   const contract = board.contract
   // A bidding practice ends the board with the auction (`e10-t15`): the contract, nothing played
@@ -135,6 +171,8 @@ export function ResultPanel({ board, declarerName, seconds }: { board: BoardView
           <ContractLabel contract={contract} onCard />
         </Big>
         {contract && <div>{declarerName ?? seatLetter[contract.declarer]}</div>}
+        {teaches}
+        {review}
       </FeltPanel>
     )
   return (
@@ -149,6 +187,8 @@ export function ResultPanel({ board, declarerName, seconds }: { board: BoardView
         </div>
       )}
       <Score $positive={result.scoreNS >= 0}>NS {signed(result.scoreNS)}</Score>
+      {teaches}
+      {review}
       {seconds !== null && <Countdown seconds={seconds} />}
       {board.recordId && (
         <div>

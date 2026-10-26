@@ -31,7 +31,18 @@ export class JsonlStore<T extends { board: number }> {
 
   append(records: readonly T[]) {
     if (!records.length) return
-    appendFileSync(this.path, records.map((r) => JSON.stringify(r)).join('\n') + '\n')
+    const text = records.map((r) => JSON.stringify(r)).join('\n') + '\n'
+    // Windows refuses the write while another program has the file open (a look at the results
+    // mid-run): wait a little and try again rather than lose the run
+    for (let attempt = 1; ; attempt++) {
+      try {
+        appendFileSync(this.path, text)
+        break
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'EBUSY' || attempt === 50) throw error
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100)
+      }
+    }
     for (const r of records) this.done.add(r.board)
   }
 

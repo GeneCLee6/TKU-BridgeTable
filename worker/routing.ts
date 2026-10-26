@@ -3,7 +3,7 @@ import { TABLE_ID_PATTERN, TABLE_SOCKET_PREFIX } from '../shared/protocol.ts'
 import { readCookie, SESSION_COOKIE } from './auth.ts'
 import { PASS_COOKIE, readPass } from './edge-auth.ts'
 import { listQuery } from './history-index.ts'
-import { searchReplica, type ReplicaDb } from './history-replica.ts'
+import { daysReplica, searchReplica, type ReplicaDb } from './history-replica.ts'
 import { noLog, type Logger } from './log.ts'
 
 /** The header the Worker puts on a table connection: who it is (ARCHITECTURE.md §5.10) */
@@ -30,7 +30,7 @@ export interface Routes {
 }
 
 /** The history pages the Worker may answer from D1 */
-const EDGE_HISTORY = new Set(['/api/history', '/api/history/search'])
+const EDGE_HISTORY = new Set(['/api/history', '/api/history/search', '/api/history/days'])
 
 /**
  * The Worker's routing, without Cloudflare APIs: the API and the club's socket go to the club's
@@ -88,7 +88,10 @@ async function edgeHistory(url: URL, userId: string, db: ReplicaDb, now: () => n
   }
   if (query.tag) return null
   try {
-    const page = await searchReplica(db, query, userId, now())
+    const page =
+      url.pathname === '/api/history/days'
+        ? await daysReplica(db, query, userId, now()).then((days) => days && { days })
+        : await searchReplica(db, query, userId, now())
     if (!page) {
       log({ event: 'edge', path: url.pathname, ms: now() - started, fallback: 'notReady' })
       return null

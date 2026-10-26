@@ -35,6 +35,7 @@ import {
   tableSettingsFrom,
   type BoardRecord,
   type ClientMessage,
+  type PracticeReview,
   type PublicUser,
   type RobotKind,
   type ServerMessage,
@@ -47,6 +48,7 @@ import {
 import { ruleBrain, type RobotBrain } from '../shared/robot/brain.ts'
 import { inferredMeaning, type RobotBid } from '../shared/robot/robots.ts'
 import { randomId } from './auth.ts'
+import { reviewSteps, robotBidding } from './practice-review.ts'
 import { ClubError } from './errors.ts'
 import {
   biddingOnly,
@@ -54,6 +56,7 @@ import {
   challengeTableOpen,
   modeOf,
   nextTableSeq,
+  practiceStateOf,
   type EventReport,
   type ModeContext,
 } from './modes.ts'
@@ -589,6 +592,9 @@ export class TableService implements TableApi {
       case 'rebid':
         await this.rebid(userId)
         break
+      case 'showHands':
+        await this.showHands(userId, message.show)
+        break
       case 'call':
       case 'play':
       case 'claim':
@@ -985,6 +991,8 @@ export class TableService implements TableApi {
     // A person who declared from a robot partner's seat goes back to their own for the new board
     this.unswap()
     table.board = dealt.board ?? newBoard(dealt.boardNo, dealt.hands)
+    const practice = practiceStateOf(table)
+    if (practice) delete practice.review
     table.undo = undefined
     table.rejectedClaim = undefined
     table.recordId = undefined
@@ -1099,12 +1107,35 @@ export class TableService implements TableApi {
     const board = table.board
     if (!board) throw new ClubError('noBoard')
     table.board = newBoard(board.boardNo, board.hands)
+    delete practiceStateOf(table)!.review
     table.undo = undefined
     table.rejectedClaim = undefined
     table.dealAt = undefined
     table.boardStartedAt = this.now()
     this.touchTurn()
     await this.save()
+  }
+
+  /**
+   * 顯示四家 (`e10-t16`): a practice table's own member sees all four hands, or hides them again.
+   * Only them (`shownTo`): a watcher sees what any watcher sees, and the robots only their own
+   */
+  private async showHands(userId: string, show: unknown) {
+    const table = this.table
+    if (!table || !this.isAt(userId)) throw new ClubError('notAtTable')
+    const state = practiceStateOf(table)
+    if (!state) throw new ClubError('practiceOnly')
+    if (table.hostId !== userId || !this.seatOf(userId)) throw new ClubError('hostOnly')
+    if (typeof show !== 'boolean') throw new ClubError('badMessage')
+    if (show) state.showHands = true
+    else delete state.showHands
+    await this.save()
+  }
+
+  /** The hands a viewer is shown besides their own (`boardView`'s `shown`): all four for a practice table's member who asked */
+  private shownTo(table: Table, userId: string): Seat[] | undefined {
+    const state = practiceStateOf(table)
+    return state?.showHands && table.hostId === userId && this.seatOf(userId) ? [...SEATS] : undefined
   }
 
   // ── Challenge tables ────────────────────────────────────────────────────────────────────────
@@ -1269,6 +1300,8 @@ export class TableService implements TableApi {
     // played or recorded, and the next board waits for the member (`redeal`, `rebid`)
     if (board.phase === 'auction' && next.phase !== 'auction' && biddingOnly(table)) {
       table.board = endBidding(next)
+      // Its review is worked out from now on (`scheduleReview`)
+      delete practiceStateOf(table)!.review
       this.touchTurn()
       await this.save()
       return
@@ -1420,11 +1453,55 @@ export class TableService implements TableApi {
 
   /** Schedules the next robot move; each move schedules the one after it */
   private scheduleRobots() {
+    this.scheduleReview()
     const key = `robot:${this.id}`
     if (!this.table || this.scheduler.pending(key) || this.thinking) return
     const move = this.robotMove()
     if (!move) return
     this.scheduler.add(key, 'robot', move.delay, () => this.runRobot())
+  }
+
+  /**
+   * 檢討 (`e10-t07`): once a bidding practice's auction is over, TKB's call at each step, then four
+   * TKB bidding the board. Each part is a job of its own, after the call that ended the auction,
+   * so no request does more than about one auction's robot work (the free plan's 10 ms of CPU a
+   * request); after an eviction `restore` schedules what is still missing
+   */
+  private scheduleReview() {
+    const table = this.table
+    const state = table && practiceStateOf(table)
+    const board = table?.board
+    if (!state || !board || !biddingOnly(table) || board.phase !== 'finished') return
+    if (state.review?.steps && state.review.robot) return
+    const key = `review:${this.id}`
+    if (this.scheduler.pending(key)) return
+    this.scheduler.add(key, 'robot', 0, () => this.review(board))
+  }
+
+  /** Works out the next missing part of the review of `board`, if it is still the one on the table */
+  private async review(board: BoardState) {
+    const table = this.table
+    const state = table && practiceStateOf(table)
+    if (!state || table.board !== board) return
+    const kind = state.robotKind
+    // A brain that fails leaves the rule robot to answer, as at the table
+    const ask = async <T>(work: (brain: RobotBrain) => Promise<T>): Promise<T> => {
+      try {
+        return await work(this.brain)
+      } catch (error) {
+        if (this.brain === ruleBrain) throw error
+        console.warn('robot brain failed, the rule robot reviews', error)
+        return work(ruleBrain)
+      }
+    }
+    const part: PracticeReview = state.review?.steps
+      ? { robot: await ask((brain) => robotBidding(brain, kind, board)) }
+      : { steps: await ask((brain) => reviewSteps(brain, kind, board)) }
+    // The board was bid again or another dealt while the brain thought
+    if (this.table !== table || table.board !== board) return
+    state.review = { ...state.review, ...part }
+    await this.save()
+    this.settled()
   }
 
   /**
@@ -1642,6 +1719,7 @@ export class TableService implements TableApi {
       board: table.board
         ? boardView(table.board, mySeat, {
             acts,
+            shown: this.isAt(userId) ? this.shownTo(table, userId) : undefined,
             undo: table.undo,
             recordId: table.recordId,
             rejectedClaim: table.rejectedClaim,
