@@ -8,6 +8,8 @@ import { ApiError, api } from '../lib/api.ts'
 import { formatDateTime } from '../lib/format.ts'
 import { usePreferences } from '../state/PreferencesContext.tsx'
 import { Button, Card, ErrorText, Muted, Select } from './ui.tsx'
+import { panelScroll } from '../styles/controls.ts'
+import { Backdrop } from './Modal.tsx'
 
 /**
  * 每週社團挑戰 (`e7-t23`, AC-7.7): an admin sets the weekday, hour (Taiwan time), boards, scoring,
@@ -15,22 +17,10 @@ import { Button, Card, ErrorText, Muted, Select } from './ui.tsx'
  * every member (ARCHITECTURE.md §5.5). Opened from the challenge lobby, for admins only.
  */
 
-const Backdrop = styled.div`
-  position: fixed;
-  inset: 0;
-  z-index: 50;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 16px;
-  background: ${({ theme }) => theme.colors.overlay};
-`
-
 const Panel = styled(Card)`
   width: 100%;
   max-width: 480px;
-  max-height: calc(100vh - 32px);
-  overflow-y: auto;
+  ${panelScroll}
   color: ${({ theme }) => theme.colors.text};
 
   & > h2 {
