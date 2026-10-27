@@ -16,7 +16,7 @@ import { PracticeDialog } from '../components/PracticeDialog.tsx'
 import { TableSettingsDialog } from '../components/TableSettingsDialog.tsx'
 import { Button, Card, CardFooter, Muted, PageMain, PageTitle } from '../components/ui.tsx'
 import { useClub } from '../state/ClubContext.tsx'
-import { mobile } from '../styles/tokens.ts'
+import { dockHeight, mobile } from '../styles/tokens.ts'
 import { playerName, seatLetter, type Strings } from '../strings.ts'
 import { usePreferences, useT } from '../state/PreferencesContext.tsx'
 
@@ -33,6 +33,8 @@ const Layout = styled.div`
   ${mobile} {
     grid-template-columns: minmax(0, 1fr);
     height: auto;
+    /* The dock is a tab bar fixed to the foot of the screen: the page ends above it */
+    padding-bottom: ${dockHeight(false)};
   }
 `
 

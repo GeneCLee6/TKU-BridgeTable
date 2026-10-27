@@ -16,6 +16,8 @@ import {
 } from '../lib/avatarImage.ts'
 import { usePreferences } from '../state/PreferencesContext.tsx'
 import { Button, Card, ErrorText, Muted } from './ui.tsx'
+import { panelScroll } from '../styles/controls.ts'
+import { Backdrop } from './Modal.tsx'
 
 /**
  * 裁切頭像 (e1-t34): the chosen picture under a square frame, moved by dragging (or the arrow
@@ -25,22 +27,10 @@ import { Button, Card, ErrorText, Muted } from './ui.tsx'
 
 const FRAME = AVATAR_PIXELS
 
-const Backdrop = styled.div`
-  position: fixed;
-  inset: 0;
-  z-index: 50;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 16px;
-  background: ${({ theme }) => theme.colors.overlay};
-`
-
 const Panel = styled(Card)`
   width: 100%;
   max-width: 360px;
-  max-height: calc(100vh - 32px);
-  overflow-y: auto;
+  ${panelScroll}
   color: ${({ theme }) => theme.colors.text};
 
   & > h2 {

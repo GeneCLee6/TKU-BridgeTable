@@ -171,6 +171,10 @@ export const layout = {
   sidePanelWidth: '300px',
   /** The open panel of the right-hand dock (SidePanel), the same for every tab */
   dockPanelWidth: '420px',
+  /** On a phone the dock is a tab bar fixed to the foot of the screen (plus the iPhone's home bar) */
+  dockBar: '56px',
+  /** The same bar at a table, lower so the hand keeps its room */
+  dockBarCompact: '46px',
   mobileBreakpoint: '900px',
   /** Tablets (e3-t36): above the phone layout, up to this width */
   tabletBreakpoint: '1200px',
@@ -239,3 +243,7 @@ export const tablet = `@media ${tabletQuery}`
 
 /** Computers and tablets too narrow for the full header */
 export const compactHeader = `@media (max-width: ${layout.compactHeaderBreakpoint})`
+
+/** How much of the screen's foot the phone's dock (SidePanel's tab bar) takes, with the iPhone's home bar; pages keep their content above it */
+export const dockHeight = (compact: boolean) =>
+  `calc(${compact ? layout.dockBarCompact : layout.dockBar} + env(safe-area-inset-bottom, 0px))`

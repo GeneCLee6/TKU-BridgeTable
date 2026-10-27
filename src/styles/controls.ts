@@ -46,3 +46,15 @@ export const inputStyles = css<{ $size?: ControlSize }>`
     color: ${({ theme }) => theme.colors.textMuted};
   }
 `
+
+/**
+ * A dialog panel's height and scrolling: the visible window (dvh leaves out iOS's toolbar) less
+ * the backdrop's padding (`Modal.tsx`). A panel taller than that scrolls inside itself, and a swipe
+ * that reaches its end does not pass on to the page.
+ */
+export const panelScroll = css`
+  max-height: calc(100vh - 32px);
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+`

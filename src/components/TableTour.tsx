@@ -1,6 +1,7 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import styled from 'styled-components'
+import { useScrollLock } from '../lib/useScrollLock.ts'
 import { useT } from '../state/PreferencesContext.tsx'
 import { Button } from './ui.tsx'
 
@@ -30,6 +31,7 @@ const Mask = styled.div<{ $dim: boolean }>`
   inset: 0;
   z-index: 50;
   background: ${({ theme, $dim }) => ($dim ? theme.colors.overlay : 'transparent')};
+  overscroll-behavior: contain;
 `
 
 /** The lit part: a hole in the mask (its shadow is the mask) with an accent outline */
@@ -112,6 +114,7 @@ export function TableTour({ onClose }: { onClose: () => void }) {
   const next = useRef<HTMLButtonElement>(null)
   const step = TABLE_TOUR[index]
   const last = index === TABLE_TOUR.length - 1
+  useScrollLock()
 
   // Where the step's part is, followed every frame: the table resizes its parts as it settles
   useLayoutEffect(() => {

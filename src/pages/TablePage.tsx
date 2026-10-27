@@ -46,7 +46,7 @@ import { useRobotRules } from '../lib/useRobotRules.ts'
 import { useAuth } from '../state/AuthContext.tsx'
 import { useClub } from '../state/ClubContext.tsx'
 import { usePreferences, useT } from '../state/PreferencesContext.tsx'
-import { mobile, tabletQuery } from '../styles/tokens.ts'
+import { dockHeight, mobile, tabletQuery } from '../styles/tokens.ts'
 import { playerName, seatLetter } from '../strings.ts'
 
 /** The levels in the seat menu: the ones offered now, and 橋士組 shown as coming later */
@@ -74,6 +74,8 @@ const Layout = styled.div`
   ${mobile} {
     grid-template-columns: minmax(0, 1fr);
     height: auto;
+    /* The dock is a tab bar fixed to the foot of the screen: the table ends above it */
+    padding-bottom: ${dockHeight(true)};
   }
 `
 
@@ -134,7 +136,8 @@ const Felt = styled.div<{ $phone: boolean; $portrait: boolean; $sides?: number }
         'tricks tricks actions';
       gap: 6px;
       padding: 8px 8px 12px;
-      min-height: calc(100vh - ${({ theme }) => theme.layout.headerHeight});
+      min-height: calc(100vh - ${({ theme }) => theme.layout.headerHeight} - ${dockHeight(true)});
+      min-height: calc(100dvh - ${({ theme }) => theme.layout.headerHeight} - ${dockHeight(true)});
     `}
 `
 

@@ -7,28 +7,18 @@ import { formatDateTime } from '../lib/format.ts'
 import { drawShareCard, SHARE_CARD_SIZE, shareCardText, type ShareCardData } from '../lib/shareCard.ts'
 import { usePreferences } from '../state/PreferencesContext.tsx'
 import { Button, Card, Muted } from './ui.tsx'
+import { panelScroll } from '../styles/controls.ts'
+import { Backdrop } from './Modal.tsx'
 
 /**
  * 成績分享卡 (`e7-t24`): the member's place, total and best board of a challenge as a picture,
  * drawn in the browser (`drawShareCard`), to download or hand to the phone's share sheet.
  */
 
-const Backdrop = styled.div`
-  position: fixed;
-  inset: 0;
-  z-index: 50;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 16px;
-  background: ${({ theme }) => theme.colors.overlay};
-`
-
 const Panel = styled(Card)`
   width: 100%;
   max-width: 640px;
-  max-height: calc(100vh - 32px);
-  overflow-y: auto;
+  ${panelScroll}
   color: ${({ theme }) => theme.colors.text};
 
   & > h2 {
