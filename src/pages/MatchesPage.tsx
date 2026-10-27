@@ -12,6 +12,7 @@ import { useListParams } from '../lib/useListParams.ts'
 import { useAuth } from '../state/AuthContext.tsx'
 import { useClub } from '../state/ClubContext.tsx'
 import { usePreferences } from '../state/PreferencesContext.tsx'
+import { cardHover } from '../styles/controls.ts'
 
 /**
  * The member's team matches (§5.8): the ones they host or have a seat in, newest first, and a
@@ -61,10 +62,8 @@ const Row = styled(Link)`
   background: ${({ theme }) => theme.colors.surface};
   color: ${({ theme }) => theme.colors.text};
   text-decoration: none;
+  ${cardHover()}
 
-  &:hover {
-    background: ${({ theme }) => theme.colors.surfaceAlt};
-  }
   & > strong {
     font-size: 16px;
   }

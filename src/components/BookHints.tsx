@@ -5,6 +5,7 @@ import { BOOK_SITE, bookUrl } from '../../shared/book-site.ts'
 import type { BoardView, RobotKind } from '../../shared/protocol.ts'
 import { useRobotRules } from '../lib/useRobotRules.ts'
 import { usePreferences } from '../state/PreferencesContext.tsx'
+import { cardHover } from '../styles/controls.ts'
 import { Muted } from './ui.tsx'
 
 /**
@@ -47,7 +48,7 @@ const TopicLink = styled.a`
   font-weight: 600;
   text-decoration: none;
 
-  &:hover { border-color: ${({ theme }) => theme.colors.primary}; }
+  ${cardHover()}
   & > svg { flex: none; color: ${({ theme }) => theme.colors.textMuted}; }
 `
 
