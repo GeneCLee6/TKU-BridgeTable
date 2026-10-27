@@ -299,6 +299,25 @@ const Actions = styled.div`
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+
+  /*
+   * A phone: quick seat and practice side by side, the new table under them across the width, so
+   * the three line up the same in every language instead of wrapping wherever the words run out
+   */
+  ${mobile} {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+
+    & > button {
+      min-width: 0;
+      white-space: normal;
+      text-align: center;
+    }
+    & > button:last-child {
+      grid-column: 1 / -1;
+    }
+  }
 `
 
 /** The badge for a table's access mode (none for a public one) */

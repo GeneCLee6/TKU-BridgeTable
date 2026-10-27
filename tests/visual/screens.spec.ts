@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { STRINGS } from '../../src/strings.ts'
 import { auctionBoard, CHALLENGE_NOW, playBoard, resultBoard, serve, table, type Club } from './fixtures.ts'
 
 /**
@@ -150,6 +151,52 @@ for (const [name, size] of [
     await shot(page, `challenge-standings-${name}`)
   })
 }
+
+/**
+ * Vietnamese and English run longest (社長 2026-10-27: on a phone, pages broke when switching
+ * language): the dense screens at phone width in Vietnamese, and nothing scrolls sideways in either
+ */
+for (const [name, path, club] of [
+  ['lobby', '/', {}],
+  ['challenges', '/challenges', { challenges: true }],
+] as const) {
+  test(`${name} · phone vi`, async ({ page }) => {
+    await page.clock.setFixedTime(new Date(CHALLENGE_NOW))
+    await open(page, path, { ...club, prefs: { lang: 'vi' } }, PHONE)
+    await expect(page.getByRole('main')).toBeVisible()
+    await page.waitForLoadState('networkidle')
+    await shot(page, `${name}-phone-vi`)
+  })
+}
+
+test('table play · phone vi', async ({ page }) => {
+  await atTable(page, { table: table(playBoard), prefs: { lang: 'vi' } }, PHONE)
+  await shot(page, 'table-play-phone-vi')
+})
+
+test('long languages fit a phone: no sideways scroll, the table title clear of the contract', async ({ page }) => {
+  await page.clock.setFixedTime(new Date(CHALLENGE_NOW))
+  const narrow = { width: 360, height: 800 }
+  for (const lang of ['en', 'vi'] as const) {
+    for (const [path, club] of [
+      ['/', {}],
+      ['/history?group=none', {}],
+      ['/challenges', { challenges: true }],
+      ['/challenges/c9', {}],
+      ['/featured', {}],
+      ['/account', {}],
+    ] as const) {
+      await open(page, path, { ...club, prefs: { lang } }, narrow)
+      await page.waitForLoadState('networkidle')
+      const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
+      expect(overflow, `${lang} ${path}`).toBe(0)
+    }
+    await atTable(page, { table: table(playBoard), prefs: { lang } }, narrow)
+    const title = await page.getByText(STRINGS[lang].boardsPlayed(4), { exact: true }).boundingBox()
+    const contract = await page.locator('button[aria-expanded]').filter({ hasText: 'EW 1' }).boundingBox()
+    expect(title!.x + title!.width, `${lang}: the table title runs under the contract`).toBeLessThanOrEqual(contract!.x)
+  }
+})
 
 test('challenges never scroll sideways on a phone', async ({ page }) => {
   await page.clock.setFixedTime(new Date(CHALLENGE_NOW))

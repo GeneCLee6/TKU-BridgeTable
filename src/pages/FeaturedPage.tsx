@@ -34,24 +34,29 @@ const Toolbar = styled.div`
   margin-bottom: 16px;
 `
 
+/**
+ * Five categories do not fit one line on a phone in any language: each is a chip of its own, so a
+ * second line looks as tidy as the first (one joined pill broke in the middle)
+ */
 const Tabs = styled.div`
-  display: inline-flex;
+  display: flex;
   flex-wrap: wrap;
-  border: 1px solid ${({ theme }) => theme.colors.border};
-  border-radius: ${({ theme }) => theme.radius.pill};
-  overflow: hidden;
+  gap: 6px;
 `
 
 const TabButton = styled.button<{ $active: boolean }>`
   min-height: 36px;
-  padding: 0 16px;
-  border: 0;
+  padding: 0 14px;
+  border: 1px solid ${({ theme }) => theme.colors.border};
+  border-radius: ${({ theme }) => theme.radius.pill};
+  white-space: nowrap;
   background: ${({ theme }) => theme.colors.surface};
   color: ${({ theme }) => theme.colors.text};
   font-weight: 600;
   ${({ $active, theme }) =>
     $active &&
     css`
+      border-color: ${theme.colors.primary};
       background: ${theme.colors.primary};
       color: ${theme.colors.onPrimary};
     `}

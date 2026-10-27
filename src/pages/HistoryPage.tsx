@@ -60,6 +60,20 @@ const Toolbar = styled.div`
   & > div:first-child {
     margin-bottom: 0;
   }
+
+  /*
+   * A phone: mine/everyone and the filters button share the first line whatever the language, the
+   * sort and the grouping each take a line of their own
+   */
+  ${mobile} {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+
+    & > :nth-child(n + 3) {
+      grid-column: 1 / -1;
+      justify-self: start;
+    }
+  }
 `
 
 const FilterToggle = styled.button<{ $active: boolean }>`
@@ -94,12 +108,27 @@ const Toggle = styled.div`
   border: 1px solid ${({ theme }) => theme.colors.border};
   border-radius: ${({ theme }) => theme.radius.pill};
   overflow: hidden;
+
+  ${mobile} {
+    display: flex;
+    min-width: 0;
+    justify-self: start;
+    max-width: 100%;
+  }
 `
 
 const ToggleButton = styled.button<{ $active: boolean }>`
   min-height: 36px;
+  min-width: 0;
   padding: 0 16px;
   border: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+
+  ${mobile} {
+    padding: 0 12px;
+  }
   background: ${({ theme }) => theme.colors.surface};
   font-weight: 600;
   ${({ $active, theme }) =>

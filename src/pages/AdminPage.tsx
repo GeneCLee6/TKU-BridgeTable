@@ -622,7 +622,7 @@ export function AdminPage() {
                                     checked={role.permissions.includes(permission)}
                                     disabled={busy === 'members'}
                                     onChange={(e) => togglePermission(u, permission, e.target.checked)}
-                                    aria-label={`${u.username}：${permissionLabel[permission]}`}
+                                    aria-label={`${u.username}${t.colon}${permissionLabel[permission]}`}
                                   />
                                   {permissionLabel[permission]}
                                 </Check>
@@ -792,7 +792,7 @@ export function AdminPage() {
                           <Name>{t.tableName(table.number)}</Name>
                         </td>
                         <td>
-                          {t.host}：{table.hostName}
+                          {t.host}{t.colon}{table.hostName}
                         </td>
                         <td className="num">{t.boardsPlayed(table.boardsPlayed)}</td>
                         <td className="end">

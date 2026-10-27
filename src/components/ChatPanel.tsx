@@ -86,7 +86,7 @@ export function ChatPanel({ messages, onSend }: { messages: ChatMessage[]; onSen
         {messages.map((m) => (
           <Line key={m.id}>
             <Time>{time(m.at)}</Time>
-            <Author>{m.username}</Author>：{m.text}
+            <Author>{m.username}</Author>{t.colon}{m.text}
           </Line>
         ))}
       </Log>

@@ -92,6 +92,15 @@ const Boards = styled.ul`
     font-size: 14px;
   }
   & a:hover { background: ${({ theme }) => theme.colors.surfaceAlt}; }
+  /* When, then where: two lines that each stay whole, rather than breaking inside a word */
+  & a > span:first-child {
+    display: grid;
+  }
+  & a > span:first-child > span {
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
 `
 
 const Score = styled.span<{ $value: number }>`
@@ -155,8 +164,10 @@ export function ProfileDetails({
             <li key={b.id}>
               <Link to={`/history/${b.id}`} {...target}>
                 <span>
-                  {formatDateTime(b.finishedAt, lang)} · {boardPlace(t, b)}{' '}
-                  {t.boardNo(b.boardNo)}
+                  <span>{formatDateTime(b.finishedAt, lang)}</span>
+                  <span>
+                    {boardPlace(t, b)} {t.boardNo(b.boardNo)}
+                  </span>
                 </span>
                 <span>
                   <ContractLabel contract={b.contract} /> {b.contract ? resultLabel(b.contract, b.result.declarerTricks) : ''}

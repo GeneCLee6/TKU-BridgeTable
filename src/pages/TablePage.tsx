@@ -255,10 +255,13 @@ const Turned = styled.div<{ $thick: number; $length: number; $dir: 1 | -1 }>`
   }
 `
 
+/** The contract box's least width */
+const CONTRACT_BOX = 140
+
 const ContractBox = styled.button`
   display: grid;
   gap: 2px;
-  min-width: 140px;
+  min-width: ${CONTRACT_BOX}px;
   padding: 8px 12px;
   border: 0;
   border-radius: 8px;
@@ -293,17 +296,29 @@ const Actions = styled.div`
   min-width: 110px;
 `
 
-const InfoRow = styled.div`
+/**
+ * `$reserve`: on a phone the contract box is wider than its column and reaches over this row; the
+ * title keeps clear of it (and wraps) instead of running under it, however long it is in the language
+ */
+const InfoRow = styled.div<{ $reserve: number }>`
   display: flex;
   align-items: flex-start;
   gap: 10px;
+  min-width: 0;
+  max-width: ${({ $reserve }) => ($reserve ? `calc(100% - ${$reserve}px)` : '100%')};
+
+  /* The board's compass keeps its size; only the title gives way */
+  & > :not(:last-child) {
+    flex: none;
+  }
 `
 
 const TableTitle = styled.div`
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
+  gap: 2px 6px;
+  min-width: 0;
   font-size: 14px;
   font-weight: 700;
   color: ${({ theme }) => theme.table.feltText};
@@ -1061,7 +1076,7 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
           <JoinRequests requests={table.requests} onAnswer={(userId, accept) => send({ type: 'answerRequest', userId, accept })} />
         )}
         <Area $area="info" $align="start" $justify="start">
-          <InfoRow>
+          <InfoRow $reserve={turnedSides && board && board.phase !== 'auction' ? Math.max(0, CONTRACT_BOX + 6 - sizes.sideThick) : 0}>
             {board && <BoardInfo boardNo={board.boardNo} dealer={board.dealer} vul={board.vul} positions={at} size={infoSize} />}
             <TableTitle>
               {challenge ? (
@@ -1072,9 +1087,8 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
                 <MatchBanner match={table.match} watching={!me} />
               ) : (
                 <>
-                  <span>
-                    {t.tableName(table.number)} · {t.boardsPlayed(table.boardsPlayed)}
-                  </span>
+                  <span>{t.tableName(table.number)} ·</span>
+                  <span>{t.boardsPlayed(table.boardsPlayed)}</span>
                   {AccessIcon && table.settings.access !== 'public' && (
                     <AccessIcon size={15} aria-label={t.accessBadge[table.settings.access]} role="img" />
                   )}

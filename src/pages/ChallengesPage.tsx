@@ -24,6 +24,7 @@ import { useListParams } from '../lib/useListParams.ts'
 import { useAuth } from '../state/AuthContext.tsx'
 import { useClub } from '../state/ClubContext.tsx'
 import { usePreferences } from '../state/PreferencesContext.tsx'
+import { mobile } from '../styles/tokens.ts'
 
 /**
  * The challenge lobby (`e7-t16`, AC-7.7): 等待接受, 進行中 and 已完成, each challenge a small card
@@ -58,18 +59,29 @@ const ListTools = styled.div`
   margin-bottom: 16px;
 `
 
+/**
+ * One line of tabs in every language: they never break inside the pill; if a language is still too
+ * long for the screen, the pill scrolls sideways rather than cutting off the counts
+ */
 const Tabs = styled.div`
   display: inline-flex;
-  flex-wrap: wrap;
+  max-width: 100%;
   border: 1px solid ${({ theme }) => theme.colors.border};
   border-radius: ${({ theme }) => theme.radius.pill};
-  overflow: hidden;
+  overflow-x: auto;
+  scrollbar-width: none;
 `
 
 const TabButton = styled.button<{ $active: boolean }>`
+  flex: none;
   min-height: 36px;
   padding: 0 16px;
   border: 0;
+  white-space: nowrap;
+
+  ${mobile} {
+    padding: 0 12px;
+  }
   background: ${({ theme }) => theme.colors.surface};
   color: ${({ theme }) => theme.colors.text};
   font-weight: 600;
@@ -162,12 +174,31 @@ const Mine = styled.div`
   gap: 8px;
   font-size: 13px;
   font-weight: 600;
+
+  & > span:first-child {
+    flex: none;
+    white-space: nowrap;
+  }
 `
 
 const Actions = styled.div`
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+
+  /* A phone: the buttons share a line of their own under the title, in every language */
+  ${mobile} {
+    display: grid;
+    grid-auto-columns: minmax(0, 1fr);
+    grid-auto-flow: column;
+    width: 100%;
+
+    & > button {
+      min-width: 0;
+      white-space: normal;
+      text-align: center;
+    }
+  }
 `
 
 function ChallengeCard({ c, userId, now }: { c: ChallengeView; userId: string; now: number }) {

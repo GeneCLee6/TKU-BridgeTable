@@ -583,7 +583,7 @@ export function AccountPage() {
   return (
     <PageMain>
       <PageTitle>
-        {t.accountTitle}：{user?.username}
+        {t.accountTitle}{t.colon}{user?.username}
       </PageTitle>
       <Stack>
         <ProfileForm />
