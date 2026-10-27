@@ -7,7 +7,7 @@ import type { BoardRecord, Me, ServerMessage } from '../shared/protocol.ts'
 import { TKU } from '../shared/robot/system/tku/index.ts'
 import { bookSync } from '../shared/robot/system/tku/sources.ts'
 import { randomId, readCookie, SESSION_COOKIE, sessionCookie } from './auth.ts'
-import { backupAdmin, runBackup } from './backup.ts'
+import { ACCOUNT_PREFIXES, backupAdmin, runBackup } from './backup.ts'
 import { BookService, importRequestFrom, publicBookResponse } from './book.ts'
 import { claudeImporter } from './importer.ts'
 import { anonymousProfileResponse, ProfileService } from './profiles.ts'
@@ -522,9 +522,11 @@ export class Club extends DurableObject<Env> implements Connections {
           bucket: this.env.BACKUPS,
           store: this.store,
           now: Date.now(),
-          restored: () => {
+          restored: async (prefixes) => {
             this.book = new BookService(this.store)
             this.profiles = new ProfileService(this.store, Date.now, (id) => this.service.usernameOf(id))
+            // Members come back as of the backup and everyone signs in again (DEPLOY.md §4.4)
+            if (prefixes.some((p) => ACCOUNT_PREFIXES.includes(p))) await this.service.reloadAccounts()
           },
         }),
       )

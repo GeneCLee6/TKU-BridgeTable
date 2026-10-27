@@ -162,7 +162,7 @@ AI 匯入的費用：每次分析用 `claude-opus-5-5`，一份幾頁的講義�
 
 ## 4.2 資料存在哪
 
-所有資料（帳號、待審核的申請、密碼雜湊、牌桌、牌局紀錄、淡江橋譜的線上內容與版本紀錄）都在 Cloudflare 上這個 Worker 的 Durable Object（SQLite 儲存），不在你的電腦或 GitHub。淡江橋譜的資料每天另外備份到 R2（§4.4）。紀錄索引另有一份副本在 D1（`tku-bridge-history`，§4.5），只給紀錄頁讀，隨時可以從社團的紀錄重建。密碼只存 PBKDF2 雜湊，管理員也看不到原文。需要直接查看時：Cloudflare Dashboard → Workers & Pages → `tku-bridge-table` → Durable Objects。
+所有資料（帳號、待審核的申請、密碼雜湊、牌桌、牌局紀錄、淡江橋譜的線上內容與版本紀錄）都在 Cloudflare 上這個 Worker 的 Durable Object（SQLite 儲存），不在你的電腦或 GitHub。帳號、頭像與淡江橋譜的資料每天另外備份到 R2（§4.4）。紀錄索引另有一份副本在 D1（`tku-bridge-history`，§4.5），只給紀錄頁讀，隨時可以從社團的紀錄重建。密碼只存 PBKDF2 雜湊，管理員也看不到原文。需要直接查看時：Cloudflare Dashboard → Workers & Pages → `tku-bridge-table` → Durable Objects。
 
 ## 4.3 每桌一個 Durable Object（H1b，`e11-t17`）
 
@@ -187,12 +187,15 @@ npx wrangler deploy --var TABLE_OBJECTS:off   # 牌桌搬回社團的物件，�
 
 社團的物件重新載入時，把每一桌從它的 `TableObject` 拿回來（那一桌先停住，不再存檔、推送或讓機器人出牌），存回 `table:<id>`、清掉那個物件、刪 `tabledir:<id>`，`meta:schema` 回到 3，之後的行為和 H1a 一樣（瀏覽器連 `/ws/table/<id>` 會被拒絕，自動改走 `/ws`）。要一直維持關閉，就把 `"TABLE_OBJECTS": "off"` 加進 `wrangler.jsonc` 的 `vars` 開 PR（否則下一次 CI 部署會再打開）；拿掉這個值再部署，牌桌會再搬出去。**不要**刪掉 `TableObject` 類別或 migration `v2`：Cloudflare 會拒絕部署，要刪得另外加一個 `deleted_classes` 的 migration（會連資料一起刪）。
 
-## 4.4 每日備份與還原（淡江橋譜 e10-t08）
+## 4.4 每日備份與還原（淡江橋譜 e10-t08、e11-t12）
 
-每天台灣時間 03:00（`wrangler.jsonc` 的 `triggers.crons`：`0 19 * * *` UTC），Worker 把淡江橋譜的資料匯出到 R2 bucket `tku-bridge-backups`，檔名 `daily/<台灣日期>.jsonl`，保留 **30 天**（每次備份成功後刪掉更舊的；最新的一份永遠保留，名稱不是 `daily/YYYY-MM-DD.jsonl` 的物件不會被刪）。程式在 `worker/backup.ts`。
+每天台灣時間 03:00（`wrangler.jsonc` 的 `triggers.crons`：`0 19 * * *` UTC），Worker 把帳號與淡江橋譜的資料匯出到 R2 bucket `tku-bridge-backups`，檔名 `daily/<台灣日期>.jsonl`，保留 **30 天**（每次備份成功後刪掉更舊的；最新的一份永遠保留，名稱不是 `daily/YYYY-MM-DD.jsonl` 的物件不會被刪）。程式在 `worker/backup.ts`。
 
-- **範圍**：key 開頭是 `book`（線上特約、`bookpart:` 分段、版本紀錄、分類、匯入草稿）、`profile`（制度集）、`article`（文章）的全部資料。**帳號、牌局紀錄與 SQL 表不在裡面**（之後的 e11-t12）。
-- **格式**：JSON Lines。第一行是 `{"format":"tku-bridge-backup","version":1,"createdAt":…,"prefixes":[…],"keys":N}`，之後每個 key 一行 `{"k":"<key>","v":<值>}`，值與 Durable Object 裡存的一模一樣。
+- **範圍**：key 開頭是下面這些的全部資料：
+  - 淡江橋譜：`book`（線上特約、`bookpart:` 分段、版本紀錄、分類、匯入草稿）、`profile`（制度集）、`article`（文章）、`team:`／`pair:`／`userteam:`／`userpair:`（隊伍與搭檔）。
+  - 帳號（兩站共用）：`user:`（帳號、密碼雜湊、權限、頭像版本）、`app:`（等待核准的註冊申請）、`avatar:`（頭像圖片）。帳號與頭像在同一份備份、同一個時間點匯出，還原後每個人的頭像版本一定對得上圖片。
+  - **不在裡面**：`session:`（登入狀態，還原後大家重新登入）、`meta:settings`（邀請碼與人數上限：沒有時用 `wrangler.jsonc` 的值，而且還原不該把換掉的邀請碼帶回來；遺失的話在管理頁重新設定）、好友與封鎖、牌局紀錄與 SQL 表（之後的 e11-t12）。
+- **格式**：JSON Lines。第一行是 `{"format":"tku-bridge-backup","version":2,"createdAt":…,"prefixes":[…],"keys":N}`，之後每個 key 一行 `{"k":"<key>","v":<值>}`，值與 Durable Object 裡存的一樣；只有位元組（頭像圖片的 `Uint8Array`）寫成 `{"$bytes":"<base64>"}`，讀回來時還原成位元組（剛好叫 `$bytes` 的欄位名稱會多加一個 `$` 跳脫，讀回來一樣）。舊的 `version: 1` 備份（只有淡江橋譜）照樣可以還原，而且只還原它自己的範圍（`prefixes`），不會動到帳號。
 - **只有正式站**：staging 與 PR 預覽（§2.1）沒有 `BACKUPS` binding、cron 也關掉（`wrangler.jsonc` 的 `env.*.triggers`），不會寫到正式站的 bucket；在那裡呼叫管理 API 會回 503（`backupUnavailable`）。
 - **日誌**：每次備份記一筆 `event = backup`（`ok`、`name`、`keys`、`bytes`、`deleted`；失敗時 `error`）。
 
@@ -229,13 +232,19 @@ await call('POST', '/backups/restore', { name: 'daily/2026-10-25.jsonl', dryRun:
 
 ### 還原
 
-還原會讓**備份範圍內**（`book*`、`profile*`、`article*`）的資料變回備份當時的樣子：備份之後新增的特約、版本紀錄、草稿都會被刪掉；帳號、牌局不受影響。`book:ticket:`（匯入用的一次性憑證）不還原。`book:version` 會設成比現在和備份都大的數字，讓所有瀏覽器重新下載內容。
+還原會讓**備份範圍內**（那份備份標頭的 `prefixes`）的資料變回備份當時的樣子：備份之後新增的特約、版本紀錄、草稿都會被刪掉；牌局紀錄不受影響。`book:ticket:`（匯入用的一次性憑證）不還原。`book:version` 會設成比現在和備份都大的數字，讓所有瀏覽器重新下載內容。
+
+還原 `version: 2` 的備份時，帳號也回到那一天：
+
+- 備份之後註冊的帳號、送出的申請、上傳的頭像都會被刪掉；被刪掉的帳號照刪除帳號的方式處理（離開牌桌、從挑戰與邀請裡移除、好友與通知清掉）。備份之後才刪掉的帳號會回來；改過的密碼、權限、頭像回到備份那天。
+- **所有人都要重新登入**：登入狀態不在備份裡，還原後全部登入失效、所有連線斷開（包括執行還原的管理員自己）。社團的物件會重新讀取帳號，大廳不會顯示舊的社員。邊緣通行證（§4.5）最多還會再認得 10 分鐘，之後一律要登入。
+- 還原前先在社團公告，避免有人在牌桌中途被登出。
 
 1. 決定要還原到哪一天：`GET /backups`。
 2. **先備份現況**：`POST /backups`（還原錯了還能回來；注意同一天會覆蓋當天的檔，要保留今天稍早的版本就先下載：`npx wrangler r2 object get tku-bridge-backups/daily/<日期>.jsonl --remote --file before-restore.jsonl`）。
 3. 預演：`POST /backups/restore { name }`，看 `puts`、`deletes` 合不合理。
 4. 還原：`POST /backups/restore { name, dryRun: false, confirm: name }`。
-5. 到淡江橋譜重新整理，確認特約內容與分類是備份那天的樣子。
+5. 到淡江橋譜重新整理，確認特約內容與分類是備份那天的樣子；重新登入淡江牌桌，確認社員名單與頭像是備份那天的樣子。
 
 要看備份內容：`npx wrangler r2 object get tku-bridge-backups/daily/<日期>.jsonl --remote --file backup.jsonl`，用文字編輯器打開（每行一個 key）。
 
@@ -247,7 +256,7 @@ await call('POST', '/backups/restore', { name: 'daily/2026-10-25.jsonl', dryRun:
 2. [ ] 用編輯帳號在橋譜改一個特約的摘要（例如加上「演練」兩字）並儲存，記下 `GET /api/book/manifest` 的版本號。
 3. [ ] 預演還原前一天的備份：`puts`、`deletes` 數量合理（`deletes` 應該包含剛剛那筆版本紀錄）。
 4. [ ] 真的還原；`GET /api/book/manifest` 的版本號變大，橋譜重新整理後那個特約的摘要回到改之前，版本紀錄裡沒有剛剛那一筆。
-5. [ ] 社員登入、牌局紀錄都不受影響。
+5. [ ] 牌局紀錄不受影響；所有人被登出，重新登入後帳號與頭像是備份那天的樣子（演練前一天之後換的頭像會換回去）。
 6. [ ] 記錄日期、執行人、備份大小與花的時間：
 
 | 日期 | 執行人 | 備份檔 | keys／大小 | 結果 |
