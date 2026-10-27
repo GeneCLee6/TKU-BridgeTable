@@ -2,6 +2,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { Me } from '../../shared/protocol.ts'
 import {
+  ACCOUNT_PREFIXES,
   BACKUP_FORMAT,
   BACKUP_FORMAT_VERSION,
   BACKUP_PREFIXES,
@@ -9,6 +10,8 @@ import {
   type BackupBucket,
   backupAdmin,
   backupName,
+  decodeValue,
+  encodeValue,
   expiredBackups,
   exportEntries,
   listBackups,
@@ -19,7 +22,9 @@ import {
   serializeBackup,
 } from '../../worker/backup.ts'
 import { BookService } from '../../worker/book.ts'
+import { ClubService, type Connections } from '../../worker/service.ts'
 import { MemoryStore } from '../../worker/store.ts'
+import { memoryStore } from './sqlite.ts'
 
 const amy: Me = { id: 'u1', username: 'amy', admin: true, permissions: ['bookEdit'] }
 
@@ -79,9 +84,14 @@ beforeEach(() => {
 })
 
 describe('export', () => {
-  it('takes every key under book*, profile* and article*, sorted, and nothing else', async () => {
+  it('takes the book, the accounts and their pictures, sorted, and nothing else', async () => {
     await store.put('user:u1', { username: 'amy' })
+    await store.put('app:a1', { username: 'cat' })
+    await store.put('avatar:u1', { version: 5, type: 'image/webp', bytes: new Uint8Array([1, 2, 3]) })
+    await store.put('userteam:u1:t1', true)
     await store.put('session:t', { userId: 'u1' })
+    await store.put('meta:settings', { inviteCode: 'x' })
+    await store.put('friend:u1:u2', 1)
     await store.put('board:b1', {})
     await store.put('book:version', 3)
     await store.put('bookpart:book:entry:x:0', '{"a":1}')
@@ -89,11 +99,15 @@ describe('export', () => {
     await store.put('profile:club', { id: 'club' })
     await store.put('article:a', { id: 'a' })
     expect((await exportEntries(store)).map(([k]) => k)).toEqual([
+      'app:a1',
       'article:a',
+      'avatar:u1',
       'book:entry:x',
       'book:version',
       'bookpart:book:entry:x:0',
       'profile:club',
+      'user:u1',
+      'userteam:u1:t1',
     ])
   })
 
@@ -131,8 +145,54 @@ describe('export', () => {
     expect(() => parseBackup(`${header}\nnot json`)).toThrow()
     expect(() => parseBackup(`${header}\n${line}\n${line}`)).toThrow()
     expect(() => parseBackup(header)).toThrow()
-    expect(() => parseBackup(`${header}\n{"k":"user:u1","v":{}}`)).toThrow()
+    expect(() => parseBackup(`${header}\n{"k":"session:t","v":{}}`)).toThrow()
     expect(() => parseBackup(`${header}\n{"k":"book:version"}`)).toThrow()
+    expect(() => parseBackup(header.replace(`"version":${BACKUP_FORMAT_VERSION}`, '"version":9'))).toThrow()
+    expect(() => parseBackup(`${header}\n{"k":"avatar:u1","v":{"$bytes":"%%"}}`)).toThrow()
+  })
+
+  it('writes bytes as base64 and reads them back, with keys that look like the tag kept as they were', () => {
+    const big = new Uint8Array(64 * 1024).map((_, i) => (i * 7) & 0xff)
+    const entries: [string, unknown][] = [
+      ['avatar:u1', { version: 1_700_000_000_000, type: 'image/webp', bytes: big }],
+      ['avatar:u2', { version: 2, type: 'image/png', bytes: new Uint8Array() }],
+      ['book:entry:x', { $bytes: 'not bytes', note: { $$bytes: 1 }, list: [{ $bytes: 'alone' }, new Uint8Array([255])] }],
+      ['user:u1', { username: 'amy', avatar: 1_700_000_000_000 }],
+    ]
+    const text = serializeBackup(entries, new Date(NOW))
+    expect(text).toContain('{"$bytes":"')
+    const read = parseBackup(text).entries
+    expect(read).toEqual(entries)
+    const bytes = (read[0][1] as { bytes: Uint8Array }).bytes
+    expect(bytes).toBeInstanceOf(Uint8Array)
+    expect(bytes.length).toBe(64 * 1024)
+    // A value with no bytes in it is written as it is
+    const plain = { slug: 'x', sections: [{ id: 'a' }] }
+    expect(encodeValue(plain)).toBe(plain)
+    expect(decodeValue(encodeValue(entries[2][1]))).toEqual(entries[2][1])
+    expect(() => encodeValue({ x: new Uint16Array(2) })).toThrow()
+  })
+
+  it('still reads a version 1 backup (the book only) as it was written', () => {
+    const v1 = [
+      JSON.stringify({ format: BACKUP_FORMAT, version: 1, createdAt: '2026-10-20T19:00:00.000Z', prefixes: ['book', 'profile'], keys: 2 }),
+      JSON.stringify({ k: 'book:entry:a', v: { $bytes: 'kept as text in version 1' } }),
+      JSON.stringify({ k: 'book:version', v: 4 }),
+    ].join('\n')
+    const backup = parseBackup(v1)
+    expect(backup.header).toMatchObject({ version: 1, prefixes: ['book', 'profile'] })
+    expect(backup.entries).toEqual([
+      ['book:entry:a', { $bytes: 'kept as text in version 1' }],
+      ['book:version', 4],
+    ])
+    // A version 1 backup has no accounts: restoring it leaves them alone
+    const plan = planRestore(backup, [
+      ['book:entry:b', {}],
+      ['user:u1', {}],
+      ['avatar:u1', {}],
+    ])
+    expect(plan.deletes).toEqual(['book:entry:b'])
+    expect(plan.puts.map(([k]) => k)).toEqual(['book:entry:a', 'book:version'])
   })
 })
 
@@ -173,7 +233,7 @@ describe('restore plan', () => {
         ['book:entry:b', { v: 1 }],
         ['bookpart:book:entry:a:0', 'new'],
         ['bookpart:book:entry:a:1', 'more'],
-        ['user:u1', {}],
+        ['session:t', {}],
       ],
     )
     expect(plan.puts).toEqual([
@@ -189,6 +249,29 @@ describe('restore plan', () => {
     expect(planRestore(old, [['book:version', 9]]).puts).toEqual([['book:version', 10]])
     expect(planRestore(backup([['book:version', 12]]), [['book:version', 9]]).puts).toEqual([['book:version', 13]])
     expect(planRestore(old, []).puts).toEqual([['book:version', 5]])
+  })
+
+  it('deletes accounts, applications and pictures made after the backup', () => {
+    const plan = planRestore(
+      backup([
+        ['avatar:u1', { version: 5, type: 'image/webp', bytes: new Uint8Array([1]) }],
+        ['user:u1', { username: 'amy', avatar: 5 }],
+      ]),
+      [
+        ['app:a9', { username: 'late' }],
+        ['avatar:u1', { version: 9, type: 'image/png', bytes: new Uint8Array([2]) }],
+        ['avatar:u2', { version: 7, type: 'image/png', bytes: new Uint8Array([3]) }],
+        ['session:t', { userId: 'u2' }],
+        ['user:u1', { username: 'amy', avatar: 9 }],
+        ['user:u2', { username: 'ben', avatar: 7 }],
+      ],
+    )
+    expect(plan.deletes).toEqual(['app:a9', 'avatar:u2', 'user:u2'])
+    expect(plan.puts).toEqual([
+      ['avatar:u1', { version: 5, type: 'image/webp', bytes: new Uint8Array([1]) }],
+      ['user:u1', { username: 'amy', avatar: 5 }],
+      ['book:version', 1],
+    ])
   })
 
   it('leaves out one-time upload passes', () => {
@@ -212,6 +295,7 @@ describe('with the bucket', () => {
     await book.save(amy, 'lebensohl', { convention: convention('lebensohl', '改壞了'), baseVersion: 1 })
     await book.save(amy, 'stayman', { convention: convention('stayman'), baseVersion: 0 })
     await store.put('user:u2', { username: 'ben' })
+    await store.put('session:t', { userId: 'u1' })
     const versionBefore = (await book.content()).version
 
     const dry = await restoreBackup(store, bucket, day('2026-10-25'), true)
@@ -226,8 +310,10 @@ describe('with the bucket', () => {
     expect(entries.map((e: { slug: string }) => e.slug)).toEqual(['lebensohl'])
     expect(entries[0].convention.summary).toBe('敵方插叫後的 2NT 接力。')
     expect(content.version).toBeGreaterThan(versionBefore)
-    // Not in the backup's scope: untouched
-    expect(await store.get('user:u2')).toEqual({ username: 'ben' })
+    // The account made after the backup is gone; sessions are not in the backup's scope: untouched
+    expect(await store.get('user:u2')).toBeUndefined()
+    expect(await store.get('user:u1')).toEqual({ username: 'amy' })
+    expect(await store.get('session:t')).toEqual({ userId: 'u1' })
     // The revisions made after the backup are gone with it
     expect(await book.revisions('stayman')).toEqual([])
   })
@@ -281,5 +367,79 @@ describe('admin API', () => {
       status: 503,
     })
     await expect(call('DELETE', '/backups')).rejects.toMatchObject({ code: 'noSuchApi' })
+  })
+})
+
+describe('restoring the accounts into a running club', () => {
+  const WEBP = [0x52, 0x49, 0x46, 0x46, 0x10, 0, 0, 0, 0x57, 0x45, 0x42, 0x50, 0x56, 0x50, 0x38, 0x20]
+  const picture = (fill: number) => {
+    const bytes = new Uint8Array(3000).fill(fill)
+    bytes.set(WEBP)
+    return bytes
+  }
+
+  it('brings members and pictures back as of the backup and signs everyone out', async () => {
+    let time = NOW
+    const online = new Set<string>()
+    const disconnected: string[] = []
+    const connections: Connections = {
+      onlineUserIds: () => [...online],
+      send: () => undefined,
+      disconnect: (id) => void disconnected.push(id),
+    }
+    const sqlStore = memoryStore()
+    const club = new ClubService(sqlStore, connections, { maxUsers: 20, now: () => time, schedule: () => undefined })
+    await club.load()
+    const founder = await club.register('admin', 'secret1', '')
+    if (!('user' in founder)) throw new Error('the first account should sign in at once')
+    const member = async (name: string) => {
+      await club.register(name, 'secret1', '')
+      return (await club.adminApprove(club.adminApplications().find((a) => a.username === name)!.id)).id
+    }
+    const amy = await member('amy')
+    const first = (await club.setAvatar(amy, picture(1))).avatar
+    expect((await runBackup(sqlStore, bucket, NOW)).keys).toBeGreaterThanOrEqual(3)
+
+    // After the backup: a new picture, a new member with one, a registration waiting, sessions
+    time += 60_000
+    const second = (await club.setAvatar(amy, picture(2))).avatar
+    expect(second).not.toBe(first)
+    const ben = await member('ben')
+    await club.setAvatar(ben, picture(3))
+    await club.register('cat', 'secret1', '')
+    const { token } = await club.login('amy', 'secret1')
+    expect(await club.userForToken(token)).toMatchObject({ id: amy })
+    online.add(amy).add(ben)
+
+    const name = day('2026-10-25')
+    const result = (await backupAdmin('POST', '/backups/restore', async () => ({ name, dryRun: false, confirm: name }), {
+      bucket,
+      store: sqlStore,
+      now: time,
+      // As `Club` does it
+      restored: async (prefixes) => {
+        if (prefixes.some((p) => ACCOUNT_PREFIXES.includes(p))) await club.reloadAccounts()
+      },
+    })) as { restore: { deletes: number } }
+    expect(result.restore.deletes).toBeGreaterThanOrEqual(3)
+
+    // Ben joined after the backup: gone, picture and all
+    expect((await club.adminUsers()).map((u) => u.username).sort()).toEqual(['admin', 'amy'])
+    expect(club.usernameOf(ben)).toBeUndefined()
+    expect(await sqlStore.get(`avatar:${ben}`)).toBeUndefined()
+    // Amy's account and picture are the pair from the backup
+    const user = await sqlStore.get<{ avatar?: number }>(`user:${amy}`)
+    const avatar = await club.avatar(amy)
+    expect(user?.avatar).toBe(first)
+    expect(avatar?.version).toBe(first)
+    expect([...avatar!.bytes.slice(16, 20)]).toEqual([1, 1, 1, 1])
+    expect(club.lobbyView(founder.user.id, []).members.find((m) => m.id === amy)?.avatar).toBe(first)
+    // Cat's registration came after the backup
+    expect(club.adminApplications()).toEqual([])
+    // Sessions are not in the backup: everyone signs in again
+    expect(await club.userForToken(token)).toBeNull()
+    expect((await sqlStore.list('session:')).size).toBe(0)
+    expect(new Set(disconnected)).toEqual(new Set([amy, ben]))
+    expect((await club.login('amy', 'secret1')).user.avatar).toBe(first)
   })
 })

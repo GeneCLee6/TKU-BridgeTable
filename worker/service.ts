@@ -1299,22 +1299,48 @@ export class ClubService {
   async adminDeleteUser(actorId: string, userId: string) {
     if (actorId === userId) throw new ClubError('notSelf')
     const user = this.requireUser(userId)
-    await this.batch(async () => {
-      await this.leave(user.id)
-      // Their challenges forget them, so their parked challenge tables go too; invitations and
-      // robot substitutes for them are forgotten (the robot stays in the seat)
-      for (const entry of [...this.directory.values()]) {
-        const involved =
-          entry.challenge?.userId === user.id ||
-          entry.invited.includes(user.id) ||
-          Object.values(entry.substitutes).includes(user.id) ||
-          // A team match plays on: a robot takes their seat (§5.8)
-          (!!entry.match && SEATS.some((s) => entry.seats[s] === user.id))
-        if (involved) this.applyResult(entry.id, await this.tables.get(entry.id).forget(user.id))
-      }
-      await this.dropMember(user)
-    })
+    await this.batch(() => this.removeMember(user))
     this.broadcast()
+  }
+
+  /**
+   * After a backup with the accounts was restored (worker/backup.ts): members, applications and
+   * pictures are read again from storage. A member the backup does not have goes the way a deleted
+   * member goes (tables, challenges, friends, notifications), and since sessions are not backed up
+   * every session is ended and every socket closed, so everyone signs in again against the
+   * restored accounts and nobody keeps a page that shows the old ones.
+   */
+  async reloadAccounts() {
+    const users = await this.store.list<StoredUser>('user:')
+    const restored = new Set([...users.values()].map((u) => u.id))
+    await this.batch(async () => {
+      for (const user of [...this.users.values()]) if (!restored.has(user.id)) await this.removeMember(user)
+    })
+    this.users.clear()
+    for (const user of users.values()) this.users.set(user.id, user)
+    this.applications.clear()
+    for (const application of (await this.store.list<StoredApplication>('app:')).values())
+      this.applications.set(application.id, application)
+    for (const key of (await this.store.list('session:')).keys()) await this.store.delete(key)
+    for (const id of this.connections.onlineUserIds()) this.connections.disconnect(id)
+    this.broadcast()
+  }
+
+  /** Everything a member leaves behind, gone with their account */
+  private async removeMember(user: StoredUser) {
+    await this.leave(user.id)
+    // Their challenges forget them, so their parked challenge tables go too; invitations and
+    // robot substitutes for them are forgotten (the robot stays in the seat)
+    for (const entry of [...this.directory.values()]) {
+      const involved =
+        entry.challenge?.userId === user.id ||
+        entry.invited.includes(user.id) ||
+        Object.values(entry.substitutes).includes(user.id) ||
+        // A team match plays on: a robot takes their seat (§5.8)
+        (!!entry.match && SEATS.some((s) => entry.seats[s] === user.id))
+      if (involved) this.applyResult(entry.id, await this.tables.get(entry.id).forget(user.id))
+    }
+    await this.dropMember(user)
   }
 
   private async dropMember(user: StoredUser) {

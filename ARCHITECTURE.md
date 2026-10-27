@@ -242,7 +242,7 @@ interface BoardState {
 | Key | 內容 |
 | --- | --- |
 | `user:<id>` | 帳號、密碼雜湊、是否管理員、橋譜權限、最後登入時間、自行重設密碼的時間、關掉好友上線提示（`friendOnlineNotice: false`）、頭像版本（`avatar`，上傳時的時間，每次一定變大） |
-| `avatar:<userId>` | 上傳的頭像（`e1-t34`）：`{ version, type, bytes }`，瀏覽器裁好的 256×256 WebP（不支援就 JPEG），最多 64 KB，遠低於單筆值的上限；帳號刪除時一起刪。不放 R2：每個環境（正式站、staging、PR preview）不必先建 bucket 就能部署，一個社團幾百人、每人幾十 KB 也只有幾 MB |
+| `avatar:<userId>` | 上傳的頭像（`e1-t34`）：`{ version, type, bytes }`，瀏覽器裁好的 256×256 WebP（不支援就 JPEG），最多 64 KB，遠低於單筆值的上限；帳號刪除時一起刪，和 `user:` 一起在每日備份裡。不放 R2：每個環境（正式站、staging、PR preview）不必先建 bucket 就能部署，一個社團幾百人、每人幾十 KB 也只有幾 MB |
 | `app:<id>` | 待審核的註冊申請：帳號名稱、密碼雜湊、自我介紹、從哪個網站申請 |
 | `session:<token>` | userId、到期時間 |
 | `tabledir:<id>` | 牌桌目錄（`TableEntry`，§5.10）：大廳與跨桌動作只讀它；牌桌在自己的 `TableObject` 時才有 |
@@ -282,7 +282,7 @@ interface BoardState {
 | `book:version` | 橋譜線上內容的版本號，`GET /api/book/content` 與 `/api/book/manifest` 的 ETag；分類改了也會加一 |
 | `bookpart:<key>:<n>` | 大內容的分段（Durable Object 單筆值上限 128 KiB，以 4 萬字一段儲存） |
 
-**備份**（`worker/backup.ts`，淡江橋譜 e10-t08）：cron trigger（每天台灣 03:00）呼叫 `Club.backup()`，把 `book*`、`profile*`、`article*` 開頭的 key 匯出成一份 JSON Lines 存到 R2 bucket `tku-bridge-backups`（binding `BACKUPS`）的 `daily/<台灣日期>.jsonl`，保留 30 天；`GET/POST /api/admin/backups`、`POST /api/admin/backups/restore`（預設預演，真的還原要 `confirm`）。還原後 `Club` 換一個新的 `BookService`，記憶體裡的快取不會留下。步驟見 DEPLOY.md §4.4。
+**備份**（`worker/backup.ts`，淡江橋譜 e10-t08、e11-t12）：cron trigger（每天台灣 03:00）呼叫 `Club.backup()`，把 `BACKUP_PREFIXES` 開頭的 key 匯出成一份 JSON Lines 存到 R2 bucket `tku-bridge-backups`（binding `BACKUPS`）的 `daily/<台灣日期>.jsonl`，保留 30 天；`GET/POST /api/admin/backups`、`POST /api/admin/backups/restore`（預設預演，真的還原要 `confirm`）。範圍：淡江橋譜的 `book*`、`profile*`、`article*`、`team:`、`pair:`、`userteam:`、`userpair:`，加上帳號 `user:`、`app:`、`avatar:`（同一次匯出，頭像版本與圖片一定對得上）；`session:`、`meta:settings`、好友與封鎖、牌局紀錄與 SQL 表不在裡面。格式第 2 版把位元組寫成 `{"$bytes":"<base64>"}`（`encodeValue`／`decodeValue`），第 1 版（只有橋譜）照樣讀、只還原它自己的 `prefixes`。還原後 `Club` 換一個新的 `BookService`，記憶體裡的快取不會留下；有帳號時再呼叫 `ClubService.reloadAccounts()`：重讀帳號與申請、備份之後才有的帳號照刪除帳號的方式清掉、刪掉全部 `session:`、斷開所有連線，大家重新登入。步驟見 DEPLOY.md §4.4。
 
 每個動作處理完立即寫回，物件隨時被回收都不會遺失牌局。紀錄列表一次只讀到那一頁為止（每頁 10／20／50／100 筆摘要）。
 
