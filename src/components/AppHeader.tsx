@@ -4,11 +4,8 @@ import {
   ChevronDown,
   Globe,
   History,
-  Layers,
-  List,
   LogOut,
   Moon,
-  Palette,
   Shield,
   Star,
   Sun,
@@ -138,7 +135,7 @@ const Right = styled.div`
   flex: none;
   margin-left: auto;
 
-  /* Theme, deck colours and sound stay on the account page on a phone */
+  /* Theme and sound stay on the account page on a phone */
   ${mobile} {
     gap: 0;
     & > [data-wide-only] { display: none; }
@@ -292,7 +289,7 @@ export function AppHeader() {
   const { user, logout } = useAuth()
   const { status, notifications, send } = useClub()
   const inviteBanner = useInviteBanner()
-  const { mode, deck, cardStyle, sound: soundOn, soundStyle, t, toggleMode, toggleDeck, toggleCardStyle, toggleSound } = usePreferences()
+  const { mode, sound: soundOn, soundStyle, t, toggleMode, toggleSound } = usePreferences()
   // A style set to 關閉 on the account page shows as off here too
   const sound = soundOn && soundStyle !== 'off'
 
@@ -351,23 +348,6 @@ export function AppHeader() {
           title={sound ? t.soundOff : t.soundOn}
         >
           {sound ? <Volume2 size={18} aria-hidden /> : <VolumeX size={18} aria-hidden />}
-        </IconButton>
-        <IconButton
-          type="button"
-          onClick={toggleCardStyle}
-          aria-label={cardStyle === 'cards' ? t.styleToText : t.styleToCards}
-          title={cardStyle === 'cards' ? t.styleToText : t.styleToCards}
-        >
-          {cardStyle === 'cards' ? <List size={18} aria-hidden /> : <Layers size={18} aria-hidden />}
-        </IconButton>
-        <IconButton
-          type="button"
-          data-wide-only
-          onClick={toggleDeck}
-          aria-label={deck === 'two' ? t.deckToFour : t.deckToTwo}
-          title={deck === 'two' ? t.deckToFour : t.deckToTwo}
-        >
-          <Palette size={18} aria-hidden />
         </IconButton>
         <IconButton
           type="button"
