@@ -121,7 +121,7 @@ beforeEach(() => {
 })
 
 describe('ChallengesPage (e7-t16)', () => {
-  it('sorts challenges into 等待接受, 進行中 and 已完成 with opponents, progress and the time left', async () => {
+  it('sorts challenges into 等待接受, 進行中 and 已完成, each a card that opens its page', async () => {
     mocks.api.challenges.mockResolvedValue({ challenges: [INVITED, ACTIVE, DONE] })
     show('/challenges', <ChallengesPage />)
     expect(await screen.findByRole('tab', { name: '等待接受 (1)' })).toHaveAttribute('aria-selected', 'true')
@@ -131,35 +131,85 @@ describe('ChallengesPage (e7-t16)', () => {
     const card = screen.getByRole('listitem', { name: 'ben 發起' })
     expect(within(card).getByText('還剩 2 天 5 小時')).toBeInTheDocument()
     expect(within(card).getByRole('progressbar', { name: 'ben · 已打 2／8 副' })).toHaveAttribute('aria-valuenow', '2')
-    // Not accepted yet: no play button, and no progress of one's own
-    expect(within(card).queryByRole('button', { name: '開始打' })).toBeNull()
+    // The whole card is one link to the challenge's page; no buttons of its own, no 「排名」
+    const link = within(card).getByRole('link', { name: 'ben 發起' })
+    expect(link).toHaveAttribute('href', '/challenges/c1')
+    expect(within(card).queryAllByRole('button')).toHaveLength(0)
+    expect(within(card).queryByText('排名')).toBeNull()
 
+    await userEvent.click(screen.getByRole('tab', { name: '進行中 (1)' }))
+    const active = screen.getByRole('listitem', { name: 'amy 發起' })
+    expect(within(active).getByRole('progressbar', { name: '你的進度 · 已打 3／8 副' })).toBeInTheDocument()
+    expect(within(active).getByRole('link')).toHaveAttribute('href', '/challenges/c2')
+  })
+
+  it('sorts and pages the list, and shows many participants side by side with how many more', async () => {
+    const many = Array.from({ length: 25 }, (_, i) =>
+      challenge(`m${i + 1}`, {
+        createdAt: NOW - (i + 1) * HOUR,
+        deadline: NOW + (30 - i) * HOUR,
+        players: [player('amy', 'accepted'), ...Array.from({ length: 19 }, (_, j) => player(`p${j + 1}`, 'invited'))],
+      }),
+    )
+    mocks.api.challenges.mockResolvedValue({ challenges: many })
+    show('/challenges', <ChallengesPage />)
+    const panel = await screen.findByRole('tabpanel', { name: '等待接受' })
+    const hrefs = () => within(screen.getByRole('tabpanel')).getAllByRole('link').map((a) => a.getAttribute('href'))
+    // Newest first, 20 a page
+    expect(hrefs()).toHaveLength(20)
+    expect(hrefs()[0]).toBe('/challenges/m1')
+    // Six of the nineteen others on the card, then how many more
+    const first = within(panel).getAllByRole('listitem')[0]
+    expect(within(first).getAllByText('未回覆')).toHaveLength(6)
+    expect(within(first).getByText('還有 13 人')).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: '2' }))
+    expect(hrefs()).toEqual(['/challenges/m21', '/challenges/m22', '/challenges/m23', '/challenges/m24', '/challenges/m25'])
+    expect(screen.getByText('第 21–25 項，共 25 項')).toBeInTheDocument()
+
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: '排序' }), 'deadline')
+    // Back to the first page, the soonest deadline first
+    expect(hrefs()[0]).toBe('/challenges/m25')
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: '排序' }), 'oldest')
+    expect(hrefs()[0]).toBe('/challenges/m25')
+    expect(hrefs()[19]).toBe('/challenges/m6')
+  })
+})
+
+describe('answering, playing and calling off, on the challenge’s page', () => {
+  it('accepts an invitation, then starts or continues playing it', async () => {
+    mocks.api.challenge.mockResolvedValue({ challenge: INVITED })
+    show('/challenges/c1', <ChallengePage />)
+    // Not accepted yet: no play button
+    await screen.findByRole('button', { name: '接受' })
+    expect(screen.queryByRole('button', { name: '開始打' })).toBeNull()
     mocks.api.answerChallenge.mockResolvedValue({
       challenge: { ...INVITED, status: 'active', players: [INVITED.players[0], player('amy', 'accepted')] },
     })
-    await userEvent.click(within(card).getByRole('button', { name: '接受' }))
+    await userEvent.click(screen.getByRole('button', { name: '接受' }))
     expect(mocks.api.answerChallenge).toHaveBeenCalledWith('c1', true)
-    // Accepted: it moves to 進行中, and the member can play it
-    expect(await screen.findByRole('tab', { name: '進行中 (2)' })).toBeInTheDocument()
+    await userEvent.click(await screen.findByRole('button', { name: '開始打' }))
+    expect(mocks.send).toHaveBeenCalledWith({ type: 'playChallenge', challengeId: 'c1' })
+  })
 
-    await userEvent.click(screen.getByRole('tab', { name: '進行中 (2)' }))
-    const active = screen.getByRole('listitem', { name: 'amy 發起' })
-    expect(within(active).getByRole('progressbar', { name: '你的進度 · 已打 3／8 副' })).toBeInTheDocument()
-    await userEvent.click(within(active).getByRole('button', { name: '繼續打' }))
+  it('continues a challenge already started; cat started, so amy can no longer call it off', async () => {
+    mocks.api.challenge.mockResolvedValue({ challenge: ACTIVE })
+    show('/challenges/c2', <ChallengePage />)
+    await userEvent.click(await screen.findByRole('button', { name: '繼續打' }))
     expect(mocks.send).toHaveBeenCalledWith({ type: 'playChallenge', challengeId: 'c2' })
-    // cat started, so amy can no longer call it off
-    expect(within(active).queryByRole('button', { name: '取消挑戰' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '取消挑戰' })).toBeNull()
   })
 
   it('lets the creator cancel while nobody else has started', async () => {
     const mine = challenge('c4', {})
-    mocks.api.challenges.mockResolvedValue({ challenges: [mine] })
+    mocks.api.challenge.mockResolvedValue({ challenge: mine })
     mocks.api.cancelChallenge.mockResolvedValue({ challenge: { ...mine, status: 'cancelled', endedAt: NOW } })
     vi.spyOn(window, 'confirm').mockReturnValue(true)
-    show('/challenges', <ChallengesPage />)
+    show('/challenges/c4', <ChallengePage />)
     await userEvent.click(await screen.findByRole('button', { name: '取消挑戰' }))
     expect(mocks.api.cancelChallenge).toHaveBeenCalledWith('c4')
-    expect(await screen.findByRole('tab', { name: '已完成 (1)' })).toBeInTheDocument()
+    expect((await screen.findAllByText('已取消')).length).toBeGreaterThan(0)
+    expect(screen.queryByRole('button', { name: '取消挑戰' })).toBeNull()
   })
 })
 
@@ -282,10 +332,11 @@ describe('ChallengePage (e7-t18)', () => {
       }),
     })
     show('/challenges/c5', <ChallengePage />)
-    const table = within(await screen.findByRole('region', { name: '最終排名' })).getByRole('table')
-    const rows = within(table).getAllByRole('row').map((r) => r.textContent)
-    expect(rows).toEqual(['名次社員總成績 · 比賽分（MP）', '1ben75%', '2amy25%', '—cat未完成 · 已打 1／2 副'])
-    expect(within(table).getAllByRole('row')[2]).toHaveAttribute('aria-current', 'true')
+    // The places across the width, read row by row (a challenge can have ~20 people)
+    const places = within(await screen.findByRole('region', { name: '最終排名' })).getByRole('list', { name: '總成績 · 比賽分（MP）' })
+    const rows = within(places).getAllByRole('listitem')
+    expect(rows.map((r) => r.textContent)).toEqual(['1ben75%', '2amy25%', '—cat1/2未完成 · 已打 1／2 副'])
+    expect(rows[1]).toHaveAttribute('aria-current', 'true')
     expect(mocks.api.challenge).toHaveBeenCalledWith('c5')
     // No travellers from the server, no boards
     expect(screen.queryByRole('region', { name: '每一副的結果' })).toBeNull()
@@ -400,8 +451,8 @@ describe('rematch and known deals (e7-t21, e7-t22)', () => {
     mocks.api.challenge.mockResolvedValue({ challenge: ended })
     mocks.api.rematchChallenge.mockResolvedValue({ challenge: challenge('c7', {}) })
     show('/challenges/c6', <ChallengePage />)
-    const table = await screen.findByRole('table')
-    expect(within(table).getAllByRole('row')[1]).toHaveTextContent('amy · 已知牌')
+    const places = await screen.findByRole('list', { name: /總成績/ })
+    expect(within(places).getAllByRole('listitem')[0]).toHaveTextContent('amy · 已知牌')
     await userEvent.click(screen.getByRole('button', { name: '再戰' }))
     expect(mocks.api.rematchChallenge).toHaveBeenCalledWith('c6')
     await waitFor(() => expect(navigated).toHaveBeenCalledWith('/challenges/c7'))

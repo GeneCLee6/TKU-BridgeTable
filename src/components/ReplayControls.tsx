@@ -26,22 +26,26 @@ export function ReplayControls({
   replay,
   total,
   dd,
+  keys = true,
 }: {
   replay: ReturnType<typeof useTrickReplay>
   total: number
   dd?: { on: boolean; onChange: (on: boolean) => void }
+  /** False leaves the arrow keys alone: the side panel's record, beside a table that plays cards with them */
+  keys?: boolean
 }) {
   const { t } = usePreferences()
   const { step } = replay
 
   useEffect(() => {
+    if (!keys) return
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'ArrowRight') replay.next()
       if (e.key === 'ArrowLeft') replay.prev()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [replay])
+  }, [replay, keys])
 
   return (
     <Controls role="group" aria-label={t.replay}>

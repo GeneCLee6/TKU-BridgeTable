@@ -3,9 +3,12 @@ import { Link, useNavigate } from 'react-router-dom'
 import styled from 'styled-components'
 import { isOpenMatch, type TeamMatchView } from '../../shared/team-match.ts'
 import { Tag } from '../components/MatchParts.tsx'
+import { Pager, SortSelect } from '../components/Pager.tsx'
 import { Button, Card, ErrorText, Muted, PageMain, PageTitle } from '../components/ui.tsx'
 import { ApiError, api } from '../lib/api.ts'
+import { paginate, sortList } from '../lib/lists.ts'
 import { matchSettingsLine, mySeat, namedTeam, points, teamName } from '../lib/matches.ts'
+import { useListParams } from '../lib/useListParams.ts'
 import { useAuth } from '../state/AuthContext.tsx'
 import { useClub } from '../state/ClubContext.tsx'
 import { usePreferences } from '../state/PreferencesContext.tsx'
@@ -13,8 +16,11 @@ import { usePreferences } from '../state/PreferencesContext.tsx'
 /**
  * The member's team matches (§5.8): the ones they host or have a seat in, newest first, and a
  * button to set one up. Each leads to its prep room (`e8-t06`). Below, the matches being played
- * now (the lobby's list), for anyone to follow and watch either room (AC-8.4)
+ * now (the lobby's list), for anyone to follow and watch either room (AC-8.4). The member's own
+ * are newest or oldest first, a page at a time (`Pager`, as every list of records).
  */
+
+const SORTS = ['newest', 'oldest'] as const
 
 const Head = styled.div`
   display: flex;
@@ -23,6 +29,12 @@ const Head = styled.div`
   justify-content: space-between;
   gap: 8px 16px;
   margin-bottom: 8px;
+`
+
+const Tools = styled.div`
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 16px;
 `
 
 const List = styled.ul`
@@ -67,6 +79,12 @@ export function MatchesPage() {
   const [matches, setMatches] = useState<TeamMatchView[] | null>(null)
   const [error, setError] = useState('')
   const [creating, setCreating] = useState(false)
+  const listing = useListParams(SORTS, 'newest')
+  const mine = paginate(
+    sortList(matches ?? [], listing.sort, (m) => m.createdAt),
+    listing.page,
+    listing.size,
+  )
 
   // An invitation or an answer arrives as a notification: read the list again
   const latest = notifications?.items[0]?.id
@@ -75,7 +93,11 @@ export function MatchesPage() {
     api
       .matches()
       .then((r) => live && setMatches(r.matches))
-      .catch((e) => live && setError(e instanceof ApiError ? message(e.code, e.params, e.message) : String(e)))
+      .catch(
+        (e) =>
+          live &&
+          setError(e instanceof ApiError ? message(e.code, e.params, e.message) : String(e)),
+      )
     return () => {
       live = false
     }
@@ -110,30 +132,52 @@ export function MatchesPage() {
           <Muted>{t.teamMatch.none}</Muted>
         </Card>
       ) : (
-        <List>
-          {matches.map((m) => {
-            const invited = !!user && m.status === 'setup' && mySeat(m, user.id)?.status === 'invited'
-            return (
-              <li key={m.id}>
-                <Row to={`/matches/${m.id}`}>
-                  <strong>{t.teamMatch.vs(teamName(t, m, 'A'), teamName(t, m, 'B'))}</strong>
-                  <Tag $open={isOpenMatch(m.status)}>{t.teamMatch.statuses[m.status]}</Tag>
-                  {invited && (
-                    <Tag $open $accent>
-                      {t.teamMatch.invitedBadge}
-                    </Tag>
-                  )}
-                  <Muted as="span">{matchSettingsLine(t, m)}</Muted>
-                  {(m.status === 'playing' || m.status === 'finished' || m.status === 'abandoned') && (
-                    <span>
-                      {points(m.totals.A)} : {points(m.totals.B)}
-                    </span>
-                  )}
-                </Row>
-              </li>
-            )
-          })}
-        </List>
+        <>
+          <Tools>
+            <SortSelect
+              value={listing.sort}
+              options={SORTS}
+              names={t.listSorts}
+              onChange={listing.setSort}
+            />
+          </Tools>
+          <List>
+            {mine.items.map((m) => {
+              const invited =
+                !!user && m.status === 'setup' && mySeat(m, user.id)?.status === 'invited'
+              return (
+                <li key={m.id}>
+                  <Row to={`/matches/${m.id}`}>
+                    <strong>{t.teamMatch.vs(teamName(t, m, 'A'), teamName(t, m, 'B'))}</strong>
+                    <Tag $open={isOpenMatch(m.status)}>{t.teamMatch.statuses[m.status]}</Tag>
+                    {invited && (
+                      <Tag $open $accent>
+                        {t.teamMatch.invitedBadge}
+                      </Tag>
+                    )}
+                    <Muted as="span">{matchSettingsLine(t, m)}</Muted>
+                    {(m.status === 'playing' ||
+                      m.status === 'finished' ||
+                      m.status === 'abandoned') && (
+                      <span>
+                        {points(m.totals.A)} : {points(m.totals.B)}
+                      </span>
+                    )}
+                  </Row>
+                </li>
+              )
+            })}
+          </List>
+          <Pager
+            items
+            label={t.teamMatch.title}
+            page={mine.page}
+            size={listing.size}
+            total={mine.total}
+            onPage={listing.setPage}
+            onSize={listing.setSize}
+          />
+        </>
       )}
       <Live>{t.teamMatch.live}</Live>
       {!lobby?.matches?.length ? (
@@ -143,7 +187,9 @@ export function MatchesPage() {
           {lobby.matches.map((m) => (
             <li key={m.id}>
               <Row to={`/matches/${m.id}`}>
-                <strong>{t.teamMatch.vs(namedTeam(t, m.teamNames, 'A'), namedTeam(t, m.teamNames, 'B'))}</strong>
+                <strong>
+                  {t.teamMatch.vs(namedTeam(t, m.teamNames, 'A'), namedTeam(t, m.teamNames, 'B'))}
+                </strong>
                 <Tag $open>{t.teamMatch.statuses.playing}</Tag>
               </Row>
             </li>

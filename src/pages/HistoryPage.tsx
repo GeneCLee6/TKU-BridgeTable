@@ -1,14 +1,30 @@
-import { ChevronLeft, ChevronRight, Inbox, SearchX, SlidersHorizontal } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Inbox, SearchX, SlidersHorizontal } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import styled, { css } from 'styled-components'
-import { HISTORY_SORTS, historyQueryString, readHistoryQuery, type HistoryQuery } from '../../shared/history-query.ts'
-import { HISTORY_PAGE_SIZES, LIMITS, type HistoryPage as Page } from '../../shared/protocol.ts'
+import {
+  HISTORY_MODES,
+  HISTORY_SORTS,
+  historyQueryString,
+  readHistoryQuery,
+  type HistoryMode,
+  type HistoryQuery,
+} from '../../shared/history-query.ts'
+import type { HistoryPage as Page } from '../../shared/protocol.ts'
 import { FilterChips, HistoryFilters } from '../components/HistoryFilters.tsx'
-import { HistoryFrame, HistoryHead, HistoryRow, HistorySkeleton, HistoryTable } from '../components/HistoryRow.tsx'
-import { Button, Card, ErrorText, Muted, PageMain, PageTitle } from '../components/ui.tsx'
+import {
+  HistoryFrame,
+  HistoryHead,
+  HistoryRow,
+  HistorySkeleton,
+  HistoryTable,
+} from '../components/HistoryRow.tsx'
+import { Pager, SortSelect } from '../components/Pager.tsx'
+import { GroupingSwitch, RecordGroups } from '../components/RecordGroups.tsx'
+import { Button, Card, ErrorText, PageMain, PageTitle } from '../components/ui.tsx'
 import { api } from '../lib/api.ts'
 import { filterChips } from '../lib/historyChips.ts'
+import { isGrouping, readPageSize, writePageSize, type RecordGrouping } from '../lib/lists.ts'
 import { useMediaQuery } from '../lib/useMediaQuery.ts'
 import { useLobby } from '../state/ClubContext.tsx'
 import { usePreferences } from '../state/PreferencesContext.tsx'
@@ -23,6 +39,11 @@ import { mobile, mobileQuery } from '../styles/tokens.ts'
  * above the list, each removable, with "clear all" (e4-t22); on a phone the filters fold into the
  * one "Filters" button and open only when asked for.
  *
+ * The boards are grouped as in the side panel's 紀錄 (`RecordGroups`, 社長 2026-10-27): by date
+ * first, by topic first (一般牌桌, 挑戰, 隊制賽, 練習, then the dates), or not at all; the
+ * grouping, and the topic and the date picked, are in the address too (`group`, `topic`, `day`).
+ * The pager and the sort are the ones every list of records shares (`Pager.tsx`).
+ *
  * Moving between pages does not blank the list (e3-t46): the page on screen stays (faintly, if the
  * next one takes a moment) until the next one has come, pages already fetched for the same search
  * are kept in memory, and pointing at a page button fetches that page before it is pressed. Only the
@@ -36,7 +57,9 @@ const Toolbar = styled.div`
   gap: 10px 14px;
   margin-bottom: 16px;
 
-  & > div:first-child { margin-bottom: 0; }
+  & > div:first-child {
+    margin-bottom: 0;
+  }
 `
 
 const FilterToggle = styled.button<{ $active: boolean }>`
@@ -107,82 +130,16 @@ const Empty = styled.div`
   color: ${({ theme }) => theme.colors.textMuted};
   text-align: center;
 
-  & > svg { color: ${({ theme }) => theme.colors.borderStrong}; }
-  & > p { margin: 0; }
+  & > svg {
+    color: ${({ theme }) => theme.colors.borderStrong};
+  }
+  & > p {
+    margin: 0;
+  }
 `
 
 /** How long the list may take before the page says so and offers to try again (DESIGN.md §7.6) */
 const SLOW_MS = 10_000
-
-const Pager = styled.nav`
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: ${({ theme }) => theme.space(3)} ${({ theme }) => theme.space(4)};
-  border-top: 1px solid ${({ theme }) => theme.colors.border};
-  background: ${({ theme }) => theme.colors.surfaceAlt};
-  font-size: 14px;
-`
-
-const Pages = styled.div`
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px;
-`
-
-const PageButton = styled.button<{ $current?: boolean }>`
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 34px;
-  height: 34px;
-  padding: 0 6px;
-  border: 1px solid ${({ theme }) => theme.colors.border};
-  border-radius: ${({ theme }) => theme.radius.sm};
-  background: ${({ theme, $current }) => ($current ? theme.colors.primary : theme.colors.surface)};
-  color: ${({ theme, $current }) => ($current ? theme.colors.onPrimary : theme.colors.text)};
-  font-weight: 600;
-  &:disabled { opacity: 0.4; }
-`
-
-const SizeLabel = styled.label`
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: ${({ theme }) => theme.colors.textMuted};
-
-  & > select {
-    min-height: 34px;
-    padding: 0 6px;
-    border: 1px solid ${({ theme }) => theme.colors.border};
-    border-radius: ${({ theme }) => theme.radius.sm};
-    background: ${({ theme }) => theme.colors.surface};
-    color: ${({ theme }) => theme.colors.text};
-    font-size: 14px;
-  }
-`
-
-const SIZE_KEY = 'tku-bridge-table:history-size'
-
-function readSize(): number {
-  try {
-    const stored = Number(window.localStorage.getItem(SIZE_KEY))
-    return (HISTORY_PAGE_SIZES as readonly number[]).includes(stored) ? stored : LIMITS.historyPageDefault
-  } catch {
-    return LIMITS.historyPageDefault
-  }
-}
-
-/** Page numbers to offer: the first, the last and two either side of the current one, with gaps */
-function pageNumbers(page: number, last: number): (number | null)[] {
-  const wanted = [...new Set([1, last, ...[-2, -1, 0, 1, 2].map((d) => page + d)])]
-    .filter((n) => n >= 1 && n <= last)
-    .sort((a, b) => a - b)
-  return wanted.flatMap((n, i) => (i > 0 && n - wanted[i - 1] > 1 ? [null, n] : [n]))
-}
 
 interface Loaded extends Page {
   /** The query string the page was loaded for */
@@ -203,16 +160,15 @@ const searchOf = (key: string) => {
 }
 
 export function HistoryPage() {
-  const { t, message } = usePreferences()
+  const { t } = usePreferences()
   const [params, setParams] = useSearchParams()
   const paramsKey = params.toString()
   const query = useMemo(() => {
     const read = readHistoryQuery(new URLSearchParams(paramsKey))
-    return new URLSearchParams(paramsKey).has('size') ? read : { ...read, size: readSize() }
+    return new URLSearchParams(paramsKey).has('size') ? read : { ...read, size: readPageSize() }
   }, [paramsKey])
   const all = query.scope === 'all'
-  const { page, size } = query
-  const key = historyQueryString(query)
+  const groups = readGroups(params)
   const phone = useMediaQuery(mobileQuery)
   // "Today" for the date chip is the day the page opened, as in the filters
   const [openedAt] = useState(Date.now)
@@ -220,6 +176,161 @@ export function HistoryPage() {
   const chips = filterChips(query, t, members, openedAt)
   // A link with filters opens them on a wide screen; a phone keeps them folded
   const [showFilters, setShowFilters] = useState(() => !phone && chips.length > 0)
+
+  /** The address for a search and a place among the groups */
+  const address = (next: HistoryQuery, place: Groups = groups) => {
+    const out = new URLSearchParams(historyQueryString(next))
+    if (place.grouping !== 'date') out.set('group', place.grouping)
+    if (place.grouping === 'topic' && place.topic) out.set('topic', place.topic)
+    if (place.grouping !== 'none' && place.day) out.set('day', place.day)
+    return out.toString()
+  }
+  /** Paging, sorting and the page size keep the group on screen; the first two start from page 1 */
+  const update = (patch: Partial<HistoryQuery>) =>
+    setParams(address({ ...query, page: 1, ...patch }), { replace: true })
+  /** Another search may not have the day picked: back to the dates (the topic stays) */
+  const refilter = (patch: Partial<HistoryQuery>) =>
+    setParams(address({ ...query, page: 1, ...patch }, { ...groups, day: null }), { replace: true })
+  const move = (place: Groups) => setParams(address({ ...query, page: 1 }, place))
+
+  const chooseSize = (next: number) => {
+    update({ size: next })
+    writePageSize(next)
+  }
+
+  const empty =
+    chips.length > 0 ? (
+      <Empty>
+        <SearchX size={40} aria-hidden />
+        {/* "Clear all" is right above, with the chips */}
+        <p>{t.historyNoMatch}</p>
+      </Empty>
+    ) : (
+      <Empty>
+        <Inbox size={40} aria-hidden />
+        <p>{t.historyEmpty}</p>
+        <Button as={Link} to="/" $size="sm" $variant="primary">
+          {t.goToLobby}
+        </Button>
+      </Empty>
+    )
+
+  return (
+    <PageMain>
+      <PageTitle>{t.historyTitle}</PageTitle>
+      <Toolbar>
+        <Toggle role="group" aria-label={t.historyTitle}>
+          <ToggleButton
+            type="button"
+            $active={!all}
+            aria-pressed={!all}
+            onClick={() => refilter({ scope: 'mine' })}
+          >
+            {t.historyMine}
+          </ToggleButton>
+          <ToggleButton
+            type="button"
+            $active={all}
+            aria-pressed={all}
+            onClick={() => refilter({ scope: 'all' })}
+          >
+            {t.historyAll}
+          </ToggleButton>
+        </Toggle>
+        <FilterToggle
+          type="button"
+          $active={showFilters}
+          aria-expanded={showFilters}
+          aria-controls="history-filters"
+          onClick={() => setShowFilters(!showFilters)}
+        >
+          <SlidersHorizontal size={16} aria-hidden />
+          {t.filters}
+          {chips.length > 0 && ` (${chips.length})`}
+        </FilterToggle>
+        <SortSelect
+          value={query.sort}
+          options={HISTORY_SORTS}
+          names={t.sortNames}
+          onChange={(sort) => update({ sort })}
+        />
+        <GroupingSwitch
+          value={groups.grouping}
+          onChange={(grouping) => move({ grouping, topic: null, day: null })}
+        />
+      </Toolbar>
+      {showFilters && (
+        <FilterCard id="history-filters" aria-label={t.filters}>
+          <HistoryFilters query={query} members={members} onChange={refilter} now={openedAt} />
+          {phone && (
+            <Done>
+              <Button type="button" $small onClick={() => setShowFilters(false)}>
+                {t.filtersDone}
+              </Button>
+            </Done>
+          )}
+        </FilterCard>
+      )}
+      <FilterChips chips={chips} onChange={refilter} />
+      <ListCard as="section" aria-label={t.historyTitle}>
+        <RecordGroups
+          query={query}
+          grouping={groups.grouping}
+          topic={groups.topic}
+          day={groups.day}
+          onTopic={(topic) => move({ ...groups, topic, day: null })}
+          onDay={(day) => move({ ...groups, day })}
+          empty={empty}
+        >
+          {(boards) => (
+            <BoardPages
+              query={boards}
+              empty={empty}
+              onPage={(page) => update({ page })}
+              onSize={chooseSize}
+            />
+          )}
+        </RecordGroups>
+      </ListCard>
+    </PageMain>
+  )
+}
+
+/** Where the page is among the groups (DESIGN.md §7.4): in the address as `group`, `topic` and `day` */
+interface Groups {
+  grouping: RecordGrouping
+  topic: HistoryMode | null
+  day: string | null
+}
+
+function readGroups(params: URLSearchParams): Groups {
+  const group = params.get('group')
+  const day = params.get('day') ?? ''
+  return {
+    grouping: isGrouping(group) ? group : 'date',
+    topic: HISTORY_MODES.find((m) => m === params.get('topic')) ?? null,
+    day: /^\d{4}-\d{2}-\d{2}$/.test(day) ? day : null,
+  }
+}
+
+/**
+ * One group's boards (or every board, not grouped), a page at a time, as the table of DESIGN.md
+ * §7.4; paging keeps the page on screen until the next one comes (e3-t46)
+ */
+function BoardPages({
+  query,
+  empty,
+  onPage,
+  onSize,
+}: {
+  query: HistoryQuery
+  empty: ReactNode
+  onPage: (page: number) => void
+  onSize: (size: number) => void
+}) {
+  const { t, message } = usePreferences()
+  const { page, size } = query
+  const key = historyQueryString(query)
   // The list is tagged with what it was loaded for; until the next one comes, this one stays
   const [loaded, setLoaded] = useState<Loaded | null>(null)
   const cache = useRef<PageCache>({ search: '', pages: new Map() })
@@ -228,12 +339,6 @@ export function HistoryPage() {
   const current = loaded?.key === key ? loaded : null
   // What is on screen: this search's page once it has come, the one before it until then
   const shown = current ?? loaded
-  const last = loaded ? Math.max(1, Math.ceil(loaded.total / loaded.size)) : 1
-
-  /** Changes the search in the address; anything but paging starts again from the first page */
-  const update = (patch: Partial<HistoryQuery>) =>
-    setParams(historyQueryString({ ...query, page: 1, ...patch }), { replace: true })
-  const setPage = (next: number) => update({ page: next })
 
   // Asked again from the "taking a while" message
   const [attempt, setAttempt] = useState(0)
@@ -245,32 +350,23 @@ export function HistoryPage() {
   }, [key, attempt])
 
   /** The page for a query string: from memory if this search already fetched it, else from the server */
-  const fetchPage = useCallback(
-    (pageKey: string) => {
-      const search = searchOf(pageKey)
-      const kept = cache.current
-      if (kept.search !== search) {
-        kept.search = search
-        kept.pages.clear()
-      }
-      let pending = kept.pages.get(pageKey)
-      if (!pending) {
-        const asked = api.searchHistory(readHistoryQuery(new URLSearchParams(pageKey)))
-        kept.pages.set(pageKey, asked)
-        // A failed page is asked again next time
-        asked.catch(() => kept.pages.get(pageKey) === asked && kept.pages.delete(pageKey))
-        pending = asked
-      }
-      return pending
-    },
-    [],
-  )
-
-  /** Fetches a page the pointer is on, so pressing it shows it at once */
-  const prefetch = (next: number) => {
-    if (next < 1 || next > last || next === page) return
-    fetchPage(historyQueryString({ ...query, page: next })).catch(() => {})
-  }
+  const fetchPage = useCallback((pageKey: string) => {
+    const search = searchOf(pageKey)
+    const kept = cache.current
+    if (kept.search !== search) {
+      kept.search = search
+      kept.pages.clear()
+    }
+    let pending = kept.pages.get(pageKey)
+    if (!pending) {
+      const asked = api.searchHistory(readHistoryQuery(new URLSearchParams(pageKey)))
+      kept.pages.set(pageKey, asked)
+      // A failed page is asked again next time
+      asked.catch(() => kept.pages.get(pageKey) === asked && kept.pages.delete(pageKey))
+      pending = asked
+    }
+    return pending
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -288,176 +384,60 @@ export function HistoryPage() {
 
   // Past the end (the list got shorter): the server sent the last page instead
   useEffect(() => {
-    if (current && current.page !== page) setParams(historyQueryString({ ...query, page: current.page }), { replace: true })
-  }, [current, page, query, setParams])
-
-  const chooseSize = (next: number) => {
-    update({ size: next })
-    try {
-      window.localStorage.setItem(SIZE_KEY, String(next))
-    } catch {
-      // Not remembered; the list still changes
-    }
-  }
+    if (current && current.page !== page) onPage(current.page)
+  }, [current, page, onPage])
 
   return (
-    <PageMain>
-      <PageTitle>{t.historyTitle}</PageTitle>
-      <Toolbar>
-        <Toggle role="group" aria-label={t.historyTitle}>
-          <ToggleButton type="button" $active={!all} aria-pressed={!all} onClick={() => update({ scope: 'mine' })}>
-            {t.historyMine}
-          </ToggleButton>
-          <ToggleButton type="button" $active={all} aria-pressed={all} onClick={() => update({ scope: 'all' })}>
-            {t.historyAll}
-          </ToggleButton>
-        </Toggle>
-        <FilterToggle
-          type="button"
-          $active={showFilters}
-          aria-expanded={showFilters}
-          aria-controls="history-filters"
-          onClick={() => setShowFilters(!showFilters)}
-        >
-          <SlidersHorizontal size={16} aria-hidden />
-          {t.filters}
-          {chips.length > 0 && ` (${chips.length})`}
-        </FilterToggle>
-        <SizeLabel>
-          {t.sortBy}
-          <select value={query.sort} onChange={(e) => update({ sort: HISTORY_SORTS.find((s) => s === e.target.value) })}>
-            {HISTORY_SORTS.map((sort) => (
-              <option key={sort} value={sort}>
-                {t.sortNames[sort]}
-              </option>
-            ))}
-          </select>
-        </SizeLabel>
-      </Toolbar>
-      {showFilters && (
-        <FilterCard id="history-filters" aria-label={t.filters}>
-          <HistoryFilters query={query} members={members} onChange={update} now={openedAt} />
-          {phone && (
-            <Done>
-              <Button type="button" $small onClick={() => setShowFilters(false)}>
-                {t.filtersDone}
-              </Button>
-            </Done>
-          )}
-        </FilterCard>
-      )}
-      <FilterChips chips={chips} onChange={update} />
+    <div aria-busy={!current}>
       {error && <ErrorText role="alert">{error}</ErrorText>}
-      <ListCard as="section" aria-label={t.historyTitle} aria-busy={!current}>
-        {shown && shown.boards.length === 0 ? (
-          chips.length > 0 ? (
-            <Empty>
-              <SearchX size={40} aria-hidden />
-              {/* "Clear all" is right above, with the chips */}
-              <p>{t.historyNoMatch}</p>
-            </Empty>
-          ) : (
-            <Empty>
-              <Inbox size={40} aria-hidden />
-              <p>{t.historyEmpty}</p>
-              <Button as={Link} to="/" $size="sm" $variant="primary">
-                {t.goToLobby}
-              </Button>
-            </Empty>
-          )
-        ) : !current && slow ? (
-          <Empty role="status">
-            <p>{t.slowLoading}</p>
-            <Button
-              type="button"
-              $size="sm"
-              onClick={() => {
-                cache.current.pages.delete(key)
-                setAttempt((n) => n + 1)
-              }}
-            >
-              {t.retry}
-            </Button>
-          </Empty>
-        ) : (
-          <HistoryFrame>
-            <Rows $stale={!current}>
-              <HistoryTable>
-                <HistoryHead />
-                {shown ? (
-                  <tbody>
-                    {shown.boards.map((b) => (
-                      <HistoryRow key={b.id} board={b} onOpen={(id) => navigate(`/history/${id}`)} />
-                    ))}
-                  </tbody>
-                ) : (
-                  <HistorySkeleton rows={Math.min(size, 10)} />
-                )}
-              </HistoryTable>
-            </Rows>
-          </HistoryFrame>
-        )}
-        {loaded && loaded.total > 0 && (
-          <Pager aria-label={t.historyTitle}>
-            <Muted>
-              {t.pageInfo(Math.min(loaded.total, (loaded.page - 1) * loaded.size + 1), Math.min(loaded.total, loaded.page * loaded.size), loaded.total)}
-            </Muted>
-            <Pages>
-              <PageButton
-                type="button"
-                onClick={() => setPage(page - 1)}
-                onPointerEnter={() => prefetch(page - 1)}
-                onFocus={() => prefetch(page - 1)}
-                disabled={page <= 1}
-                aria-label={t.prevPage}
-                title={t.prevPage}
-              >
-                <ChevronLeft size={16} aria-hidden />
-              </PageButton>
-              {pageNumbers(page, last).map((n, i) =>
-                n === null ? (
-                  <Muted key={`gap${i}`} aria-hidden>
-                    …
-                  </Muted>
-                ) : (
-                  <PageButton
-                    key={n}
-                    type="button"
-                    $current={n === page}
-                    aria-current={n === page ? 'page' : undefined}
-                    onClick={() => setPage(n)}
-                    onPointerEnter={() => prefetch(n)}
-                    onFocus={() => prefetch(n)}
-                  >
-                    {n}
-                  </PageButton>
-                ),
+      {shown && shown.boards.length === 0 ? (
+        empty
+      ) : !current && slow ? (
+        <Empty role="status">
+          <p>{t.slowLoading}</p>
+          <Button
+            type="button"
+            $size="sm"
+            onClick={() => {
+              cache.current.pages.delete(key)
+              setAttempt((n) => n + 1)
+            }}
+          >
+            {t.retry}
+          </Button>
+        </Empty>
+      ) : (
+        <HistoryFrame>
+          <Rows $stale={!current}>
+            <HistoryTable>
+              <HistoryHead />
+              {shown ? (
+                <tbody>
+                  {shown.boards.map((b) => (
+                    <HistoryRow key={b.id} board={b} onOpen={(id) => navigate(`/history/${id}`)} />
+                  ))}
+                </tbody>
+              ) : (
+                <HistorySkeleton rows={Math.min(size, 10)} />
               )}
-              <PageButton
-                type="button"
-                onClick={() => setPage(page + 1)}
-                onPointerEnter={() => prefetch(page + 1)}
-                onFocus={() => prefetch(page + 1)}
-                disabled={page >= last}
-                aria-label={t.nextPage}
-                title={t.nextPage}
-              >
-                <ChevronRight size={16} aria-hidden />
-              </PageButton>
-            </Pages>
-            <SizeLabel>
-              {t.perPage}
-              <select value={size} onChange={(e) => chooseSize(Number(e.target.value))}>
-                {HISTORY_PAGE_SIZES.map((n) => (
-                  <option key={n} value={n}>
-                    {n}
-                  </option>
-                ))}
-              </select>
-            </SizeLabel>
-          </Pager>
-        )}
-      </ListCard>
-    </PageMain>
+            </HistoryTable>
+          </Rows>
+        </HistoryFrame>
+      )}
+      {loaded && (
+        <Pager
+          inCard
+          label={t.historyTitle}
+          page={page}
+          size={loaded.size}
+          total={loaded.total}
+          onPage={onPage}
+          onSize={onSize}
+          onPrefetch={(next) =>
+            fetchPage(historyQueryString({ ...query, page: next })).catch(() => {})
+          }
+        />
+      )}
+    </div>
   )
 }

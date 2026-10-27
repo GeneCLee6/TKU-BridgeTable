@@ -10,9 +10,14 @@ import { PreferencesProvider } from '../../src/state/PreferencesContext.tsx'
 
 const noBoards = async (query: Partial<HistoryQuery>): Promise<Page> => ({ boards: [], total: 0, page: query.page ?? 1, size: query.size ?? 20 })
 const searchHistory = vi.fn(noBoards)
+const historyDays = vi.fn(async (_query: Partial<HistoryQuery>) => ({ days: [] as { date: string; count: number }[] }))
 
 vi.mock('../../src/lib/api.ts', () => ({
-  api: { searchHistory: (query: Partial<HistoryQuery>) => searchHistory(query), favoriteIds: async () => ({ ids: [] }) },
+  api: {
+    searchHistory: (query: Partial<HistoryQuery>) => searchHistory(query),
+    historyDays: (query: Partial<HistoryQuery>) => historyDays(query),
+    favoriteIds: async () => ({ ids: [] }),
+  },
 }))
 vi.mock('../../src/state/ClubContext.tsx', () => ({
   useLobby: () => ({
@@ -33,10 +38,13 @@ function Address() {
   return null
 }
 
-const open = (address: string) =>
+/** The filters and the pages are of the one list: these tests open the page not grouped */
+const flat = (address: string) => (address.includes('group=') ? address : `${address}${address.includes('?') ? '&' : '?'}group=none`)
+
+const open = (address: string, grouped = false) =>
   render(
     <PreferencesProvider>
-      <MemoryRouter initialEntries={[address]}>
+      <MemoryRouter initialEntries={[grouped ? address : flat(address)]}>
         <Routes>
           <Route
             path="/history"
@@ -79,7 +87,7 @@ describe('history filters and sorting (e4-t16…t21)', () => {
     open('/history?page=3')
     await user.click(screen.getByRole('button', { name: '篩選' }))
     await user.click(screen.getByRole('button', { name: '成局' }))
-    expect(address.search).toBe('?bracket=game')
+    expect(address.search).toBe('?bracket=game&group=none')
     await user.selectOptions(screen.getByRole('combobox', { name: '誰主打' }), 'partner')
     await user.selectOptions(screen.getByRole('combobox', { name: '我和誰同桌' }), 'u-amy')
     await user.selectOptions(screen.getByRole('combobox', { name: '賭倍' }), 'XX')
@@ -113,7 +121,7 @@ describe('history filters and sorting (e4-t16…t21)', () => {
     await user.selectOptions(screen.getByRole('combobox', { name: '日期' }), 'custom')
     expect(screen.getByLabelText('從')).toHaveValue(params.get('from'))
     await user.selectOptions(screen.getByRole('combobox', { name: '日期' }), '')
-    expect(address.search).toBe('')
+    expect(address.search).toBe('?group=none')
   })
 
   it('filters by board and table number', async () => {
@@ -122,7 +130,7 @@ describe('history filters and sorting (e4-t16…t21)', () => {
     await user.click(screen.getByRole('button', { name: '篩選' }))
     await user.type(screen.getByRole('spinbutton', { name: '牌號' }), '7')
     await user.type(screen.getByRole('spinbutton', { name: '桌號' }), '2')
-    expect(address.search).toBe('?boardNo=7&table=2')
+    expect(address.search).toBe('?boardNo=7&table=2&group=none')
   })
 
   it('shows each condition as a chip that can be taken off on its own, or all at once (e4-t22)', async () => {
@@ -138,10 +146,10 @@ describe('history filters and sorting (e4-t16…t21)', () => {
     ])
     expect(screen.getByRole('button', { name: '篩選 (4)' })).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: '移除「合約：4 黑桃」' }))
-    expect(address.search).toBe('?scope=all&partner=u-ben&vul=Both&boardNo=7&sort=score_desc&size=50')
+    expect(address.search).toBe('?scope=all&partner=u-ben&vul=Both&boardNo=7&sort=score_desc&size=50&group=none')
     // Clearing keeps the scope, the sorting and the page size: they are not conditions
     await user.click(screen.getByRole('button', { name: '清除全部' }))
-    expect(address.search).toBe('?scope=all&sort=score_desc&size=50')
+    expect(address.search).toBe('?scope=all&sort=score_desc&size=50&group=none')
     expect(screen.queryByRole('list', { name: '目前的篩選條件' })).not.toBeInTheDocument()
     await waitFor(() => expect(lastQuery()).toEqual({ scope: 'all', sort: 'score_desc', page: 1, size: 50 }))
   })
@@ -219,7 +227,7 @@ describe('moving between pages (e3-t46)', () => {
     expect(container.querySelector('[data-skeleton]')).toBeNull()
     expect(shownBoards(container)).toHaveLength(20)
     expect(shownBoards(container)[0]).toBe('1')
-    expect(screen.getByRole('region', { name: '牌局紀錄' })).toHaveAttribute('aria-busy', 'true')
+    expect(screen.getByRole('region', { name: '牌局紀錄' }).querySelector('[aria-busy="true"]')).not.toBeNull()
     release()
     await waitFor(() => expect(shownBoards(container)[0]).toBe('21'))
     expect(shownBoards(container)).toHaveLength(20)
@@ -253,5 +261,62 @@ describe('moving between pages (e3-t46)', () => {
     expect(container.querySelector('[data-skeleton]')).not.toBeNull()
     release()
     await waitFor(() => expect(shownBoards(container)).toHaveLength(20))
+  })
+})
+
+describe('grouped as in the side panel (社長 2026-10-27)', () => {
+  beforeEach(() => {
+    searchHistory.mockClear()
+    historyDays.mockClear()
+    window.localStorage.removeItem('tku-bridge-table:history-size')
+  })
+  afterEach(() => {
+    searchHistory.mockImplementation(noBoards)
+    historyDays.mockImplementation(async () => ({ days: [] }))
+  })
+
+  it('lists the dates first, then one date’s boards a page at a time, and goes back', async () => {
+    const user = userEvent.setup()
+    historyDays.mockImplementation(async () => ({ days: [{ date: '2026-10-20', count: 60 }, { date: '2026-10-19', count: 3 }] }))
+    searchHistory.mockImplementation(sixty)
+    const { container } = open('/history', true)
+    const days = await screen.findByRole('list', { name: '依日期的牌局' })
+    expect(within(days).getAllByRole('button')).toHaveLength(2)
+    // No board is listed before a date is picked
+    expect(searchHistory).not.toHaveBeenCalled()
+
+    await user.click(within(days).getByRole('button', { name: /60 副/ }))
+    expect(address.search).toBe('?day=2026-10-20')
+    await waitFor(() => expect(shownBoards(container)).toHaveLength(20))
+    expect(lastQuery()).toMatchObject({ from: '2026-10-20', to: '2026-10-20', page: 1 })
+    // The same pager as every list of records
+    await user.click(screen.getByRole('button', { name: '2' }))
+    expect(address.search).toBe('?page=2&day=2026-10-20')
+    await waitFor(() => expect(shownBoards(container)[0]).toBe('21'))
+
+    await user.click(screen.getByRole('button', { name: '返回日期' }))
+    expect(await screen.findByRole('list', { name: '依日期的牌局' })).toBeInTheDocument()
+    expect(address.search).toBe('')
+  })
+
+  it('groups by topic first, then the dates inside it, all in the address', async () => {
+    const user = userEvent.setup()
+    const totals: Record<string, number> = { casual: 12, challenge: 7 }
+    searchHistory.mockImplementation(async (query) => ({ boards: [], total: totals[query.mode ?? ''] ?? 0, page: 1, size: 10 }))
+    historyDays.mockImplementation(async () => ({ days: [{ date: '2026-10-19', count: 7 }] }))
+    open('/history', true)
+    await user.click(screen.getByRole('button', { name: '依主題' }))
+    expect(address.search).toBe('?group=topic')
+    const topics = await screen.findByRole('list', { name: '依主題的牌局' })
+    // Topics with no boards are left out
+    expect(within(topics).getAllByRole('button').map((row) => row.textContent)).toEqual(['一般牌桌12 副', '挑戰7 副'])
+
+    await user.click(within(topics).getByRole('button', { name: /挑戰/ }))
+    expect(address.search).toBe('?group=topic&topic=challenge')
+    expect(await screen.findByRole('list', { name: '依日期的牌局' })).toBeInTheDocument()
+    expect(historyDays).toHaveBeenLastCalledWith(expect.objectContaining({ mode: 'challenge' }))
+
+    await user.click(screen.getByRole('button', { name: '返回主題' }))
+    expect(await screen.findByRole('list', { name: '依主題的牌局' })).toBeInTheDocument()
   })
 })

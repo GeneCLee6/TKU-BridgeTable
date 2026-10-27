@@ -174,7 +174,7 @@ describe('the history list', () => {
     )
     render(
       <PreferencesProvider>
-        <MemoryRouter>
+        <MemoryRouter initialEntries={['/history?group=none']}>
           <HistoryPage />
         </MemoryRouter>
       </PreferencesProvider>,

@@ -1,10 +1,10 @@
 import { expect, test, type Page } from '@playwright/test'
-import { auctionBoard, playBoard, resultBoard, serve, table, type Club } from './fixtures.ts'
+import { auctionBoard, CHALLENGE_NOW, playBoard, resultBoard, serve, table, type Club } from './fixtures.ts'
 
 /**
  * The main screens, compared with the baselines in __screenshots__ (e3-t37, AC-3.11): the table
  * while bidding, playing and after the board, on a computer, a 390px phone, two tablets (e3-t36)
- * and in dark mode, plus the tour, the lobby, the history list and the sign-in page.
+ * and in dark mode, plus the tour, the lobby, the history list, the challenges and the sign-in page.
  */
 
 const DESKTOP = { width: 1280, height: 800 }
@@ -100,7 +100,7 @@ test('sign in · desktop', async ({ page }) => {
 async function atHistory(page: Page, size: { width: number; height: number }) {
   // The phone's cards write the date relative to today
   await page.clock.setFixedTime(new Date('2026-10-20T20:00:00+08:00'))
-  await open(page, '/history', {}, size)
+  await open(page, '/history?group=none', {}, size)
   await expect(page.locator('tr[data-href]').first()).toBeVisible()
 }
 
@@ -126,5 +126,37 @@ test('history never scrolls sideways, at any width (e3-t45)', async ({ page }) =
       }
     })
     expect(overflow, `at ${width}px`).toEqual({ page: 0, table: 0 })
+  }
+})
+
+/** The challenge lobby's cards and a challenge's standings, with ~20 people (社長 2026-10-27) */
+for (const [name, size] of [
+  ['desktop', DESKTOP],
+  ['phone', PHONE],
+] as const) {
+  test(`challenges · ${name}`, async ({ page }) => {
+    await page.clock.setFixedTime(new Date(CHALLENGE_NOW))
+    await open(page, '/challenges', { challenges: true }, size)
+    await expect(page.getByRole('tab', { name: /進行中/ })).toBeVisible()
+    await page.getByRole('tab', { name: /進行中/ }).click()
+    await expect(page.getByRole('link', { name: /Amy 發起/ }).first()).toBeVisible()
+    await shot(page, `challenges-${name}`)
+  })
+
+  test(`challenge standings · ${name}`, async ({ page }) => {
+    await page.clock.setFixedTime(new Date(CHALLENGE_NOW))
+    await open(page, '/challenges/c9', {}, size)
+    await expect(page.getByRole('list', { name: /總成績/ })).toBeVisible()
+    await shot(page, `challenge-standings-${name}`)
+  })
+}
+
+test('challenges never scroll sideways on a phone', async ({ page }) => {
+  await page.clock.setFixedTime(new Date(CHALLENGE_NOW))
+  for (const path of ['/challenges', '/challenges/c9']) {
+    await open(page, path, { challenges: true }, PHONE)
+    await page.waitForLoadState('networkidle')
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
+    expect(overflow, path).toBe(0)
   }
 })
