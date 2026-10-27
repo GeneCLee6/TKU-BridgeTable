@@ -141,6 +141,23 @@ describe('the language menu', () => {
     expect(document.documentElement.lang).toBe('ja')
     expect(screen.getByRole('button', { name: '言語' })).toBeInTheDocument()
   })
+
+  it('leaves the card style and deck colours to the table (社長 #8)', () => {
+    render(
+      <PreferencesProvider>
+        <AuthProvider>
+          <ClubProvider>
+            <MemoryRouter>
+              <AppHeader />
+            </MemoryRouter>
+          </ClubProvider>
+        </AuthProvider>
+      </PreferencesProvider>,
+    )
+    expect(screen.queryByRole('button', { name: '改用文字牌（♠ A K Q）' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '改用實體牌' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '改用四色牌' })).toBeNull()
+  })
 })
 
 describe('the history list', () => {
