@@ -14,6 +14,7 @@ import { formatDateTime } from '../lib/format.ts'
 import { paginate, sortList } from '../lib/lists.ts'
 import { useListParams } from '../lib/useListParams.ts'
 import { usePreferences } from '../state/PreferencesContext.tsx'
+import { cardHover } from '../styles/controls.ts'
 
 /**
  * 精選牌局 (AC-4.5, `e4-t30`): every featured board, newest first, in tabs by category. Each card
@@ -76,10 +77,8 @@ const CardLink = styled(Link)`
   background: ${({ theme }) => theme.colors.surface};
   color: ${({ theme }) => theme.colors.text};
   text-decoration: none;
+  ${cardHover()}
 
-  &:hover {
-    border-color: ${({ theme }) => theme.colors.primary};
-  }
   & > strong {
     font-size: 16px;
   }

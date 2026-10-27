@@ -58,3 +58,37 @@ export const panelScroll = css`
   overflow-y: auto;
   overscroll-behavior: contain;
 `
+
+/**
+ * The one hover every clickable card shares (DESIGN.md §5.3, 社長 2026-10-27): a lantern-gold glow
+ * spreading out from the card and a gold edge, never a dark outline. Keyboard focus shows the same
+ * glow with a 2px `accentStrong` ring inside it (3:1 on the surface in both themes). `focus: false`
+ * for a card that is not itself a link or button (a lobby table, whose seats and buttons have their
+ * own focus ring).
+ */
+export const cardHover = (focus = true) => css`
+  transition:
+    box-shadow 0.18s ease,
+    border-color 0.18s ease;
+
+  &:hover {
+    border-color: ${({ theme }) => theme.colors.accent};
+    box-shadow: ${({ theme }) => theme.glow};
+    text-decoration: none;
+  }
+  ${focus &&
+  css`
+    &:focus-visible {
+      outline: none;
+      border-color: ${({ theme }) => theme.colors.accent};
+      box-shadow:
+        0 0 0 2px ${({ theme }) => theme.colors.accentStrong},
+        ${({ theme }) => theme.glow};
+      text-decoration: none;
+    }
+  `}
+
+  @media (prefers-reduced-motion: reduce) {
+    transition: none;
+  }
+`
