@@ -2,6 +2,7 @@ import { Volume2 } from 'lucide-react'
 import { useId, useRef, useState, type ChangeEvent, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import styled from 'styled-components'
+import { FRIENDS_ENABLED } from '../../shared/features.ts'
 import { LANGS } from '../../shared/messages.ts'
 import { PROFILE_LEVELS, PROFILE_LIMITS, type Profile, type ProfileLevel } from '../../shared/profile.ts'
 import { DEFAULT_ROBOT_SPEED, LIMITS, ROBOT_SPEEDS, type Me, type RobotSpeed } from '../../shared/protocol.ts'
@@ -622,7 +623,7 @@ export function AccountPage() {
             options={[['on', t.soundOnShort], ['off', t.soundOffShort]]}
             onChange={(v) => set({ confirmPlays: v === 'on' })}
           />
-          {user && (
+          {user && FRIENDS_ENABLED && (
             <Options
               legend={t.friendOnlineNotice}
               value={user.friendOnlineNotice === false ? 'off' : 'on'}

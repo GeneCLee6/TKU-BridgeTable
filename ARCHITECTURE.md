@@ -234,7 +234,7 @@ interface BoardState {
 - **牌桌模式**：`Table.mode`（`casual`、挑戰的 `challenge` 或練習的 `practice`（§5.11），舊資料沒有這欄也當 `casual`）與 `modeState`；`ClubService` 只在三個地方問模式（`worker/modes.ts` 的 `TableModeHooks`，都拿到 `ModeContext`：社團的亂數、現在時間、`ChallengeStore`）：發新一副（`deal`，回傳牌號與四手牌，`null` 表示沒有下一副，最後一副留在桌上）、寫紀錄（`record`）、一副結束（`boardFinished`，在紀錄存好之後，所以拿得到牌局 id）。叫牌、出牌、入座與可見性在每種模式都一樣。牌從 `Table.dealSource` 來（`shared/deal-source.ts`；沒有就是每副重洗）
 - **排程**：機器人的下一步與自動發牌都交給同一個排程器（`worker/scheduler.ts`），每桌每種工作一個 key（`robot:<桌>`、`deal:<桌>`），每個進行中的挑戰一個 `challenge:<挑戰>`（§5.5），每位斷線的入座者一個 `substitute:<桌>:<社員>`（代打），一副的紀錄社團還沒收下時每桌一個 `outbox:<桌>`（§5.10），沒搬完的舊牌桌一個 `migrate:tables`，同一個 key 還在等就不重排。Durable Object 用 `AlarmQueue`：工作放在記憶體，只把最早的一個設成物件唯一的 storage alarm（`alarm()` → `runDue()`），所以不會互相覆蓋 alarm，物件在兩步之間也能休眠；工作不寫進儲存，物件被回收後由 `load()` 依狀態重新排程。**每個 `TableObject` 有自己的佇列與 alarm**（牌桌的工作），社團的只剩挑戰、每週挑戰與搬移（§5.10）；`EVENT_OBJECTS=on` 時挑戰的 `challenge:<挑戰>` 也在那一場自己的 `EventObject`，社團只剩每週挑戰與搬移（`migrate:events`，§5.12 H2b）。測試傳 `schedule` 換成手動佇列
 - **心跳**：兩條連線都一樣（`src/lib/liveSocket.ts`）：瀏覽器每 15 秒送 `ping`，由 `setWebSocketAutoResponse` 直接回 `pong`（不必喚醒物件）。40 秒沒收到任何訊息、分頁回到前景或網路恢復時，瀏覽器立刻重新連線；重連期間的動作暫存 8 秒內補送（社團的連線補送全部，桌的連線只補牌桌動作）
-- **好友與封鎖**（AC-1.6，`worker/relations.ts`）：好友是單向關注，不需對方同意、也不通知對方（同 BBO）；`setFriend`／`setBlocked` 帶對方的 id 與 `true`／`false`，不能對自己（`notSelf`）、不存在的帳號或機器人（`userGone`）。封鎖會同時取消關注，封鎖中不能加好友（`unblockFirst`）。封鎖的效果都在伺服器：被封鎖者的聊天對封鎖者隱藏（§4），封鎖者當房主時被封鎖者不能 `joinTable` 或 `sit` 進那一桌（公開的桌回 `blockedByHost`，其他進入方式回跟任何沒被放行的人一樣的錯誤，申請也只是房主看不到，見「申請加入」；已經在桌上的不會被請走）。私訊（`e1-t27`，§5.7）與挑戰邀請（`e7-t05`）也檢查 `blocks`，之後的隊制賽邀請也要。帳號刪除時雙方名單裡的他都會刪掉
+- **好友與封鎖**（AC-1.6，`worker/relations.ts`）：**介面暫時隱藏**（社長 2026-10-27：現在只有社員在用，不需要加好友）：`shared/features.ts` 的 `FRIENDS_ENABLED` 是 `false` 時，社員列表、個人檔案卡與個人檔案頁不顯示加好友（星星）、「只看好友」與封鎖按鈕（只剩私訊；之前封鎖過的人仍有「解除封鎖」可以按），「我的帳號」沒有好友上線提示的開關，伺服器不送 `friendOnline`，大廳也不把好友置頂。名單、指令（`setFriend`／`setBlocked`）、儲存與封鎖的檢查都還在，資料不刪；重新開放是公開前的最後一批（docs/ROADMAP.md L3）。好友是單向關注，不需對方同意、也不通知對方（同 BBO）；`setFriend`／`setBlocked` 帶對方的 id 與 `true`／`false`，不能對自己（`notSelf`）、不存在的帳號或機器人（`userGone`）。封鎖會同時取消關注，封鎖中不能加好友（`unblockFirst`）。封鎖的效果都在伺服器：被封鎖者的聊天對封鎖者隱藏（§4），封鎖者當房主時被封鎖者不能 `joinTable` 或 `sit` 進那一桌（公開的桌回 `blockedByHost`，其他進入方式回跟任何沒被放行的人一樣的錯誤，申請也只是房主看不到，見「申請加入」；已經在桌上的不會被請走）。私訊（`e1-t27`，§5.7）、挑戰邀請（`e7-t05`）與受邀桌（`e2-t25`）也檢查 `blocks`，之後的隊制賽邀請也要。帳號刪除時雙方名單裡的他都會刪掉
 - 使用 Durable Object 的 hibernation API：沒人打牌時物件可以休眠，WebSocket 不會斷，醒來時從儲存重新載入。
 
 **儲存**（Durable Object 的 key-value，SQLite 後端）：
@@ -302,7 +302,7 @@ interface BoardState {
 - **送出**：`sendDirect { to, text }`。伺服器去頭尾空白（空的就忽略）；不能給自己（`notSelf`）、機器人或不存在的帳號（`userGone`）；最多 `LIMITS.directMax` 500 字（`directTooLong`）；自己封鎖對方要先解除（`unblockToMessage`），被對方封鎖回 `cannotMessage`；每位社員突發 10、每分鐘 20 則（`directTooFast`，只在 socket 入口）。存好後把 `direct` 送給兩人在線的分頁，再各送一次 `directs`
 - **讀取**：連線時送 `directs`（最新 50 個對話，每個帶對方、最新一則與未讀數，另有全部未讀數）；`GET /api/messages/:userId?before=<id>` 從最新往回一頁 30 則（舊的在前，`more` 表示還有更早的）。打開對話就送 `readDirect { userId }`，把對方寄來的都標為已讀
 - **介面**：側欄（大廳、牌桌）的「訊息」分頁（`DirectMessages`）：對話列表與單一對話，分頁按鈕上有未讀數；社員分頁每一列的信封直接開啟與他的對話（個人檔案卡做好後也從那裡開）。私訊不另外進通知中心，未讀數就在「訊息」分頁上
-- **好友上線提示**（`e1-t24`）：某位社員第一個分頁連上時，通知中心送 `friendOnline` 給**在線**、關注他、沒關掉提示、也沒被他封鎖的社員；同一個人 30 分鐘（`FRIEND_ONLINE_QUIET_MS`）內只提示一次，手機斷線重連不會一直跳。開關在「我的帳號」，存在伺服器的 `user:<id>`（`POST /api/account/preferences`）
+- **好友上線提示**（`e1-t24`）：好友隱藏時（`FRIENDS_ENABLED` 是 `false`）整個不送。某位社員第一個分頁連上時，通知中心送 `friendOnline` 給**在線**、關注他、沒關掉提示、也沒被他封鎖的社員；同一個人 30 分鐘（`FRIEND_ONLINE_QUIET_MS`）內只提示一次，手機斷線重連不會一直跳。開關在「我的帳號」，存在伺服器的 `user:<id>`（`POST /api/account/preferences`）
 
 ### 5.9 精選牌局（`e4-t28`～`e4-t31`）
 
@@ -505,7 +505,7 @@ H1 把牌桌拆出去之後（§5.10），社團的物件（`Club`）仍然是**
 | 一場挑戰的狀態（`challenges`／`challenge_players`／`challenge_results` 的那幾列） | 那一場的 `EventObject`（自己的 SQLite，**同一個** `ChallengeStore`） | 正本 |
 | 狀態怎麼變（回覆、取消、開始打、一副的結果、帳號刪除、提前結束、截止） | `ChallengeEvent`（`worker/event-service.ts`，呼叫 `challenge-flow.ts` 的純函式） | 不碰 Cloudflare；開關關時在 `Club` 裡跑同一份程式（`LocalEvents`） |
 | 期限工作（`challenge:<id>`：12 小時前提醒、截止結算） | 那一場物件自己的 `AlarmQueue` 與 storage alarm | 物件載入時依狀態重排 |
-| 建立前的檢查（好友、封鎖、人數、牌組、「用這副牌挑戰」讀紀錄） | `Club` | 只有 `Club` 有帳號與紀錄 |
+| 建立前的檢查（是不是社員、封鎖、人數、牌組、「用這副牌挑戰」讀紀錄） | `Club` | 只有 `Club` 有帳號與紀錄 |
 | 通知（邀請、回覆、取消、提醒、結果） | `Club` | 物件只說狀態，不送通知 |
 | 開關牌桌、公開牌（`revealAt`、`boards_index.reveal_at`） | `Club` | 只有 `Club` 有牌桌目錄與紀錄 |
 | 每場挑戰的**副本**（同樣三個表） | `Club` | 列表、挑戰頁、traveller、可見性（`challengeView`、`challengeBoardVisible`、`challengeTraveller` 仍在 `worker/views.ts`）、挑戰桌的快照、重賽，全部讀副本，跟以前一樣同步 |
@@ -566,7 +566,7 @@ H1 把牌桌拆出去之後（§5.10），社團的物件（`Club`）仍然是**
 **H3b：共用一份、只送差異、合併廣播**（2026-10-26）：
 - **兩份**（可見性見 §4）：`LobbyShared` 是所有人一樣的；每次廣播社團把每位社員、每張共用桌各序列化一次（約 230 個小字串），跟上一版逐項比對，有變的組成 `LobbyDelta`（`members`／`gone`／`tables`／`closed`／`matches`，整筆換掉或刪掉），**序列化一次、同一個字串送給每一位**（`Connections.send` 多一個選填的 `data`）；沒有變就不送。整份（`lobbyShared`）只在有人需要時用各項的 JSON 拼起來，同一版只拼一次。`LobbyMine` 每人算一次、跟上次送的比，有變才送，通常幾百位元組。
 - **版本**：`epoch` 是這次社團物件醒來的時間，`rev` 從 1 起算；差異帶 `base`。瀏覽器（`receiveLobby`）：`base` 等於手上的版本就套用；舊的或重複的丟掉；跳號或來自新的 `epoch` 就先留著、送一次 `lobbySync`，社團回整份，留著的差異接得上的接著套。新連線（含重連）一律先拿整份；社團被回收再醒來（連線還開著）時 `epoch` 變了，第一次廣播就給每個人整份。
-- **排序**交給瀏覽器（`composeLobby`：桌子照 `lobbyOrder`、社員線上在前、好友置頂、再照名字），「只看好友」本來就在瀏覽器。
+- **排序**交給瀏覽器（`composeLobby`：桌子照 `lobbyOrder`、社員線上在前、好友置頂（`FRIENDS_ENABLED` 時）、再照名字），「只看好友」本來就在瀏覽器。
 - **合併廣播**（`ClubConfig.later`，Durable Object 用 `setTimeout`）：大廳最多每 `LOBBY_GAP_MS`（100 ms）送一次。上一次送出已經超過 100 ms 就立刻送（平常沒有延遲）；之內的變化只記下來，到 100 ms 時一起送一次。同時湧進的入座、觀看、離桌就不必每個都等一次完整的廣播。測試多半不給 `later`，每次變化立刻送，跟以前一樣。
 - **日誌取樣**（`worker/log.ts` 的 `sampleActions`）：`action` 每 10 筆寫 1 筆到 Workers Logs（帶 `sample: 10`，查詢時乘回來），有錯誤代碼或超過 200 ms（`ACTION_SLOW_MS`）的一律寫；其他種類照舊。指標在取樣**之前**數（`ClubService` 與 `TableHost` 的 `log` 先交給 `Metrics`／`TableCounters`），系統狀態頁的次數不受影響。
 - 數字（前後對照）在 `docs/LOAD.md` §3、§6。
@@ -707,7 +707,7 @@ PRD 寫的「機器人等級」不做：機器人只有一個 TKB、沒有等級
 
 ## 5.5 挑戰（決策紀錄，`e7-t01`，2026-10-24）
 
-挑戰（E7）：發起者邀請 1–20 位好友，每個人各自坐南、和三個用同一種制度的 TKB 打同一組牌，打完比名次。這一節是 C2 定下的設計，後面的批次（C3–C9）照這裡做；要改設計先改這裡。
+挑戰（E7）：發起者邀請 1–20 位社員（不限好友，社長 2026-10-27），每個人各自坐南、和三個用同一種制度的 TKB 打同一組牌，打完比名次。這一節是 C2 定下的設計，後面的批次（C3–C9）照這裡做；要改設計先改這裡。
 
 **資料模型**（`worker/challenges.ts` 的 `Challenge`，型別與狀態在 `shared/challenge.ts`）：
 
@@ -744,12 +744,12 @@ challenge（challenges 一列）
 - **通知**：`finished` 時送 `challengeResults` 給每位接受的人（含沒打完的）；`expired` 不送通知（發起者在挑戰列表看得到狀態）。
 
 **建立與回覆**（C3，`worker/challenge-flow.ts` 的純函式，`ClubService` 檢查身分、在一個 transaction 裡寫回 `ChallengeStore`、送通知）：
-- `createChallenge { invitees, boards?, settings? }`：`invitees` 是 1–20 個不重複的社員 id（`challengeInvitees`、`badChallengeSettings`），每位都要是發起者關注的好友（`notFriend`；封鎖對方時已取消關注，所以也是這個），不能是自己（`notSelf`）、不存在的帳號或機器人（`userGone`）；對方封鎖了發起者時回 `cannotInvite`，不說是被封鎖。`boards` 1–16，預設 8（`challengeBoards`；BBO 是 4–16，社長 2026-10-25 開放 1 副）。`settings` 由 `parseChallengeSettings`（`shared/challenge.ts`）檢查：每欄可省略、套 `defaultChallengeSettings`，不能有其他欄位；計分單挑只能 `imp`／`total`，多人 `mp`／`crossImp`／`total`；`unfinished` 只能是 `worst`；機器人的制度 `tku`／`gib`（機器人沒有等級，`robotLevel` 跟其他不認得的欄位一樣被拒絕）；`days` 1–7 的整數；錯了回 `badChallengeSettings { field }`。牌組用 `makeDealSet({ kind: 'random', count })`、社團的亂數。
+- `createChallenge { invitees, boards?, settings? }`：`invitees` 是 1–20 個不重複的社員 id（`challengeInvitees`、`badChallengeSettings`），任何社員都可以，**不用是好友**（社長 2026-10-27，原本要是發起者關注的好友、回 `notFriend`；那個代碼留著不用）；發起者封鎖了對方要先解除（`unblockFirst`），不能是自己（`notSelf`）、不存在的帳號或機器人（`userGone`）；對方封鎖了發起者時回 `cannotInvite`，不說是被封鎖。`boards` 1–16，預設 8（`challengeBoards`；BBO 是 4–16，社長 2026-10-25 開放 1 副）。`settings` 由 `parseChallengeSettings`（`shared/challenge.ts`）檢查：每欄可省略、套 `defaultChallengeSettings`，不能有其他欄位；計分單挑只能 `imp`／`total`，多人 `mp`／`crossImp`／`total`；`unfinished` 只能是 `worst`；機器人的制度 `tku`／`gib`（機器人沒有等級，`robotLevel` 跟其他不認得的欄位一樣被拒絕）；`days` 1–7 的整數；錯了回 `badChallengeSettings { field }`。牌組用 `makeDealSet({ kind: 'random', count })`、社團的亂數。
 - `answerChallenge { challengeId, accept }`：只有受邀、還沒回覆的人（發起者已經是 `accepted`，所以回 `alreadyAnswered`）；挑戰要是 `pending`／`active` 而且還沒到截止時間（`challengeClosed`）。不是參與者的一律 `challengeGone`，不透露挑戰存在。
 - `cancelChallenge { challengeId }`：只有發起者（`challengeCreatorOnly`），只在 `pending`／`active`，而且除了他以外沒人有 `started_at`（`challengeStarted`；發起者自己先打了不影響）。
 - 截止時間的處理寫成 `deadlineOutcome`（沒回覆的改 `declined`，除了發起者沒人接受就 `expired`，否則 `finished`），C5 的期限工作呼叫它並結算（見上面的「期限工作與結算」）。
 
-**對象與牌組**（2026-10-24 社長決定）：只能邀請自己的好友（`worker/relations.ts`，被封鎖的不行），選人是可以搜尋的輸入框（`e7-t17`）；全社的每週挑戰（`e7-t23`）由管理員建立，不受這條限制。牌組**只用隨機牌**（`makeDealSet({ kind: 'random' })`，不用條件預設集），選項只有 Best Hand 與 Just Declare。唯一的例外是「用這副牌挑戰」（`e7-t22`）：發起者拿自己打過、可以先收藏的牌（`kind: 'given'`）挑戰別人，他不再打，建立時就把他當時的結果寫進 `challenge_results`（`known_deals = 1`），照樣計分、排名。他當時不一定坐南，所以牌組轉成讓他的座位變成南，結果也換成南北的角度。只限他和三個機器人打的牌，挑戰的機器人種類與等級鎖成當時的（紀錄裡的 `robotKind`、`robotLevel`），否則他的成績和別人的比不起來。
+**對象與牌組**（2026-10-24 社長決定，2026-10-27 改）：可以邀請任何社員，不用是好友（原本只能邀請好友；好友介面隱藏了，見 §5「好友與封鎖」），雙方任一方封鎖另一方都不行，選人是可以搜尋的輸入框（`e7-t17`）；全社的每週挑戰（`e7-t23`）由管理員建立，不受這條限制。牌組**只用隨機牌**（`makeDealSet({ kind: 'random' })`，不用條件預設集），選項只有 Best Hand 與 Just Declare。唯一的例外是「用這副牌挑戰」（`e7-t22`）：發起者拿自己打過、可以先收藏的牌（`kind: 'given'`）挑戰別人，他不再打，建立時就把他當時的結果寫進 `challenge_results`（`known_deals = 1`），照樣計分、排名。他當時不一定坐南，所以牌組轉成讓他的座位變成南，結果也換成南北的角度。只限他和三個機器人打的牌，挑戰的機器人種類與等級鎖成當時的（紀錄裡的 `robotKind`、`robotLevel`），否則他的成績和別人的比不起來。
 
 **挑戰牌桌**（`e7-t08`）：牌桌模式 `challenge`（`worker/modes.ts`），`modeState`（`ChallengeTableState`）記挑戰 id、參與者、桌上這一副是牌組的第幾副（`seq`），以及離開時坐的位子（`parkedSeat`）；`Table.dealSource` 是 `dealSourceOf(deals)`（`fixed`，整組牌只在伺服器的 `Table` 裡，§4）。一人一桌：真人坐南，北東西是設定裡同種類、同等級的機器人；不能觀看、不能撤回、不能換座位、大廳不列出。真人離開不關桌（「中途斷線視同暫停」，`e7-t12`），回來從下一副繼續。`boardFinished` 寫 `challenge_results`（同一副第二次寫入會被主鍵擋下，「每副只打一次」由資料庫保證）；`record` 加上 `mode=challenge`、`eventId`＝挑戰 id、`revealAt`。牌號、發牌者與身價照 `DealSetBoard.boardNo`（隨機牌組就是 1…N，照 16 副循環；「用這副牌挑戰」是轉過之後同樣發牌者與身價的那一號，見下面的 C8），C4 讓挑戰模式的發牌用它，不用 `boardsPlayed + 1`。
 
@@ -764,7 +764,7 @@ C4 的實作（2026-10-24）：
 
 **挑戰頁**（C6，`e7-t16`～`e7-t18`，2026-10-25）：
 - `/challenges`（`ChallengesPage`）：等待接受（受邀還沒回覆，或除了發起者還沒人接受）、進行中、已完成（結束了，或自己拒絕了）三個分頁（`src/lib/challenges.ts` 的 `challengeTab`）；每個挑戰列出對手的狀態與進度條、自己的進度、截止倒數，可以接受／拒絕、開始打／繼續打、取消（發起者，別人都還沒開打）。新通知進來就重新讀列表。
-- 發起挑戰對話框（`ChallengeDialog`）：選人只列好友（`LobbyView.friends`），點輸入框列出全部，打字 150 ms 防抖後篩選，可多選；副數、計分（依人數 `scoringsFor`）、機器人的制度、截止天數、排名公開範圍，Best Hand、Just Declare 兩個勾選（C8），下方預覽。
+- 發起挑戰對話框（`ChallengeDialog`）：選人列出自己以外的全部社員（不含機器人與自己封鎖的人，`LobbyView.members`），點輸入框列出全部，打字 150 ms 防抖後篩選，可多選；副數、計分（依人數 `scoringsFor`）、機器人的制度、截止天數、排名公開範圍，Best Hand、Just Declare 兩個勾選（C8），下方預覽。
 - `/challenges/:id`（`ChallengePage`）：伺服器照 §4 給什麼就顯示什麼：名次、總成績，自己那一列高亮，沒打完的列在下面標「未完成」與打了幾副；接著是 BBO 式的每一副結果（見下面的「結果頁」）；還沒打完全部的人只看到每個人的進度。
 - 建立、回覆、取消也走 HTTP（`POST /api/challenges`、`/api/challenges/:id/answer`、`/cancel`），讓頁面立刻拿到結果；伺服器是同一套檢查（`ClubService.challengeRequest` 呼叫 socket 訊息的同一個處理），錯誤一樣是 `ClubError` 的代碼。開始打仍用 socket 的 `playChallenge`（要跟著伺服器進牌桌）。通知點下去：邀請到 `/challenges`，其他到那個挑戰的頁面。
 
@@ -856,7 +856,7 @@ C4 的實作（2026-10-24）：
 
 **邀請彈窗**（`e1-t35`，`src/state/InvitationsContext.tsx`）：`challengeInvited`、`matchInvited` 不只進鈴鐺，也在畫面中間彈出（DESIGN.md 的 InviteDialog）。全在瀏覽器做，伺服器的通知與 API 都沒變：從推來的通知找出邀請（同一個挑戰／比賽只看最新的一則），用既有的 `GET /api/challenges/:id`、`GET /api/matches/:id` 讀詳細內容並判斷還能不能回覆（挑戰：`answerable`；隊制賽：準備中且自己的座位還是 `invited`），接受／拒絕呼叫既有的 `answer`。離線時收到的邀請在登入或重連、通知推來時一樣會彈。之後同一個挑戰或比賽又有通知（取消、移出、再邀請）就重讀一次，`match` 推送（§5.8）直接更新；挑戰的截止時間到了也會變成失效。處理過的（接受、拒絕、稍後回覆、關掉失效的）與響過的通知 id 記在 localStorage（`tku-invites-handled`、`tku-invites-rang`，留 60 天），所以同一個瀏覽器不重複彈、開好幾個分頁也只響一次；別的分頁處理了，`storage` 事件讓這一頁也關掉。接受、拒絕會把那幾則邀請標為已讀；稍後回覆不標，鈴鐺裡還看得到。
 
-現有的種類：`application`（有人申請註冊，通知每位管理員，連到管理頁）；挑戰（§5.5）：`challengeInvited`（給受邀者）、`challengeAccepted`／`challengeDeclined`（給發起者）、`challengeCancelled`（給沒拒絕的人），參數是 `challengeId` 與對方的 `username`；`challengeReminder`（截止前 12 小時，給接受了還沒打完的人）與 `challengeResults`（挑戰 `finished` 時給每位接受的人），參數是 `challengeId`，由期限工作與結算送出（§5.5，`e7-t13`）；`friendOnline`（關注的人上線了，參數 `username`，連到大廳，§5.7）。受邀桌（`e2-t25`）：`tableInvited`，參數 `tableId`、`number`（桌號）與房主的 `username`，連到那一桌。隊制賽（§5.8，`e8-t04`）：`matchInvited`（給受邀者）、`matchAccepted`／`matchDeclined`／`matchLeft`（給安排那一隊的人）、`matchRemoved`（給被移出的人，連到 `/matches`）、`matchCancelled`（給座位上的人），參數是 `matchId` 與做這件事的人的 `username`，其餘連到那場比賽的準備室。搭檔（淡江橋譜 E2，`e2-t03`）：`pairInvited`（給受邀者）、`pairAccepted`／`pairDeclined`（給邀請者）、`pairEnded`（給另一位），參數 `pairId` 與做這件事的人的 `username`，連到淡江橋譜的搭檔頁（`/pairs/:id`，橋譜 C4 做；鈴鐺用整頁開啟另一個網站）。精選（`e4-t29`）：`boardFeatured`，第一次設為精選時給打那副的社員（不含機器人與設精選的人自己；之後編輯不再通知），參數 `boardId` 與設的人的 `username`，連到那副的紀錄頁。挑戰頁出來前（C6）挑戰的通知連到大廳。受邀桌等之後各自加；私訊不進通知中心（§5.7）。PWA 推播是 `e1-t28`（M2）。
+現有的種類：`application`（有人申請註冊，通知每位管理員，連到管理頁）；挑戰（§5.5）：`challengeInvited`（給受邀者）、`challengeAccepted`／`challengeDeclined`（給發起者）、`challengeCancelled`（給沒拒絕的人），參數是 `challengeId` 與對方的 `username`；`challengeReminder`（截止前 12 小時，給接受了還沒打完的人）與 `challengeResults`（挑戰 `finished` 時給每位接受的人），參數是 `challengeId`，由期限工作與結算送出（§5.5，`e7-t13`）；`friendOnline`（關注的人上線了，參數 `username`，連到大廳，§5.7；好友隱藏時不送）。受邀桌（`e2-t25`）：`tableInvited`，參數 `tableId`、`number`（桌號）與房主的 `username`，連到那一桌。隊制賽（§5.8，`e8-t04`）：`matchInvited`（給受邀者）、`matchAccepted`／`matchDeclined`／`matchLeft`（給安排那一隊的人）、`matchRemoved`（給被移出的人，連到 `/matches`）、`matchCancelled`（給座位上的人），參數是 `matchId` 與做這件事的人的 `username`，其餘連到那場比賽的準備室。搭檔（淡江橋譜 E2，`e2-t03`）：`pairInvited`（給受邀者）、`pairAccepted`／`pairDeclined`（給邀請者）、`pairEnded`（給另一位），參數 `pairId` 與做這件事的人的 `username`，連到淡江橋譜的搭檔頁（`/pairs/:id`，橋譜 C4 做；鈴鐺用整頁開啟另一個網站）。精選（`e4-t29`）：`boardFeatured`，第一次設為精選時給打那副的社員（不含機器人與設精選的人自己；之後編輯不再通知），參數 `boardId` 與設的人的 `username`，連到那副的紀錄頁。挑戰頁出來前（C6）挑戰的通知連到大廳。受邀桌等之後各自加；私訊不進通知中心（§5.7）。PWA 推播是 `e1-t28`（M2）。
 
 ## 5.3 紀錄的 SQL 索引（決策紀錄，`e4-t10`）
 

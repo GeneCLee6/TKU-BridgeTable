@@ -1,5 +1,6 @@
 import { act, render, waitFor } from '@testing-library/react'
 import { useEffect } from 'react'
+import { FRIENDS_ENABLED } from '../../shared/features.ts'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { TABLE_SOCKET_REFUSED, type ClientMessage, type LobbyMine, type LobbyShared, type ServerMessage } from '../../shared/protocol.ts'
 import { liveSocket } from '../../src/lib/liveSocket.ts'
@@ -154,12 +155,13 @@ describe('the lobby in two parts (H3b)', () => {
     act(() => socket.receive({ type: 'lobbyShared', epoch: 5, rev: 1, lobby: shared }))
     expect(club().lobby).toBeNull()
     act(() => socket.receive({ type: 'lobbyMine', mine: mine({ friends: ['zoe'] }) }))
-    await waitFor(() => expect(club().lobby?.members.map((m) => m.username)).toEqual(['zoe', 'amy', 'ben']))
+    // Friends on top only while they are shown (FRIENDS_ENABLED)
+    await waitFor(() => expect(club().lobby?.members.map((m) => m.username)).toEqual(FRIENDS_ENABLED ? ['zoe', 'amy', 'ben'] : ['amy', 'ben', 'zoe']))
     // A delta: ben goes offline, cal joins
     act(() =>
       socket.receive({ type: 'lobbyDelta', epoch: 5, base: 1, rev: 2, delta: { members: [member('ben', 'ben', false), member('cal', 'cal')] } }),
     )
-    await waitFor(() => expect(club().lobby?.members.map((m) => m.username)).toEqual(['zoe', 'amy', 'cal', 'ben']))
+    await waitFor(() => expect(club().lobby?.members.map((m) => m.username)).toEqual(FRIENDS_ENABLED ? ['zoe', 'amy', 'cal', 'ben'] : ['amy', 'cal', 'zoe', 'ben']))
     expect(socket.messages).toEqual([])
   })
 

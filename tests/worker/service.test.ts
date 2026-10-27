@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it } from 'vitest'
 import { deal } from '../../shared/board.ts'
+import { FRIENDS_ENABLED } from '../../shared/features.ts'
 import { SEATS, type Seat } from '../../shared/cards.ts'
 import { DEFAULT_HISTORY_QUERY, taiwanDate } from '../../shared/history-query.ts'
 import { ruleBrain, type RobotBrain } from '../../shared/robot/brain.ts'
@@ -972,7 +973,8 @@ describe('friends and blocks (AC-1.6)', () => {
 
     await send(amy, { type: 'setFriend', userId: zoe, friend: true })
     expect(lobby(amy).friends).toEqual([zoe])
-    expect(lobby(amy).members.filter((m) => m.online).map((m) => m.username)).toEqual(['zoe', 'amy', 'ben'])
+    // On top only while friends are shown (FRIENDS_ENABLED)
+    expect(lobby(amy).members.filter((m) => m.online).map((m) => m.username)).toEqual(FRIENDS_ENABLED ? ['zoe', 'amy', 'ben'] : ['amy', 'ben', 'zoe'])
     // Nobody is asked or told: zoe's own lists and order stay as they were
     expect(lobby(zoe).friends).toEqual([])
     expect(lobby(zoe).members.filter((m) => m.online).map((m) => m.username)).toEqual(['amy', 'ben', 'zoe'])
