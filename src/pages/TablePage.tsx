@@ -32,13 +32,13 @@ import { TableTour } from '../components/TableTour.tsx'
 import { ContractLabel } from '../components/Suit.tsx'
 import { ClaimPicker, FeltButton, FeltPanel, JoinRequests, Prompt, ResultPanel } from '../components/TablePanels.tsx'
 import { PracticeReview } from '../components/PracticeReview.tsx'
-import { COLLECT_MS, TrickArea, TrickSpace, type CardOrigin, type Position } from '../components/TrickArea.tsx'
+import { TrickArea, TrickSpace, type CardOrigin, type Position } from '../components/TrickArea.tsx'
 import { TrickPile } from '../components/TrickPile.tsx'
 import { Button, Muted, PageMain } from '../components/ui.tsx'
 import { spokenContract } from '../lib/announce.ts'
 import { CARD_SCALE, sortForDisplay, suitOrder } from '../lib/cards.ts'
 import { auctionBoxHeight, biddingBoxHeight, handHeight, type Orientation } from '../lib/measure.ts'
-import { PACE } from '../lib/motion.ts'
+import { PACE, paceOf } from '../lib/motion.ts'
 import { useTableSounds } from '../lib/sound/hooks.ts'
 import { useCardChoice } from '../lib/useCardChoice.ts'
 import { useMediaQuery } from '../lib/useMediaQuery.ts'
@@ -359,7 +359,7 @@ function rotation(bottom: Seat): Record<Position, Seat> {
  * its four cards go to the winner (`leaving`) and on to the pile in the corner. The last trick of
  * the board stays until the countdown starts (`holdLast`).
  */
-function useTrickTable(board: BoardView | null, holdLast: boolean, leading: boolean) {
+function useTrickTable(board: BoardView | null, holdLast: boolean, leading: boolean, collectMs: number) {
   const boardNo = board?.boardNo ?? 0
   const tricks = board?.tricks ?? []
   const current = tricks.at(-1)
@@ -380,9 +380,9 @@ function useTrickTable(board: BoardView | null, holdLast: boolean, leading: bool
 
   useEffect(() => {
     if (!going) return
-    const timer = setTimeout(() => setLeaving(null), COLLECT_MS)
+    const timer = setTimeout(() => setLeaving(null), collectMs)
     return () => clearTimeout(timer)
-  }, [going])
+  }, [going, collectMs])
 
   const finished = board?.phase === 'finished'
   const waiting = board?.phase === 'play' && !!current?.winner && taken < completed
@@ -771,7 +771,9 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
   const seconds = toDeal === null ? null : Math.max(1, Math.ceil(Math.min(toDeal, DEAL_COUNTDOWN_MS) / 1000))
 
   const leadingNow = !!pendingShown && (!board?.tricks.length || !!board.tricks.at(-1)!.winner)
-  const trickTable = useTrickTable(board, holdLast, leadingNow)
+  // The animations go at the table's robot speed (出牌速度), the slowest of the people seated
+  const pace = paceOf(table.robotSpeed)
+  const trickTable = useTrickTable(board, holdLast, leadingNow, pace.collectMs)
   // Every sound at the table; a minute on one call or card brings the reminder (slowSeat)
   useTableSounds({
     table,
@@ -976,6 +978,7 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
         label={t.thisTrick}
         origin={origin}
         leaving={trickTable.leaving}
+        pace={pace}
       />
     ) : (
       <TrickSpace $w={sizes.trick} />

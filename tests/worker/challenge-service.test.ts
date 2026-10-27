@@ -138,27 +138,24 @@ describe('creating a challenge (e7-t05)', () => {
     expect((await create(amy, [ben, cat])).settings.scoring).toBe('mp')
   })
 
-  it('invites only friends: not someone the creator does not follow, nor oneself, nor nobody', async () => {
-    const [amy, ben] = await friends('amy', 'ben')
+  it('invites any member, friend or not, but not oneself, nor nobody', async () => {
+    const amy = await member('amy')
     const zoe = await member('zoe')
-    expect(await refused(amy, { type: 'createChallenge', invitees: [zoe] })).toBe('notFriend')
-    expect(error(amy)?.params).toEqual({ name: 'zoe' })
-    // Following is one-way: zoe following amy does not make zoe amy's friend
-    await send(zoe, { type: 'setFriend', userId: amy, friend: true })
-    expect(await refused(amy, { type: 'createChallenge', invitees: [ben, zoe] })).toBe('notFriend')
     expect(await refused(amy, { type: 'createChallenge', invitees: [amy] })).toBe('notSelf')
     expect(await refused(amy, { type: 'createChallenge', invitees: ['nobody'] })).toBe('userGone')
     expect(await refused(amy, { type: 'createChallenge', invitees: ['tku:N'] })).toBe('userGone')
     expect(club.challengeList(amy)).toEqual([])
-    expect(bell(ben)?.items).toEqual([])
+    // Amy does not follow Zoe, and need not (社長, 2026-10-27)
+    await create(amy, [zoe])
+    expect(bell(zoe)?.items[0]).toMatchObject({ kind: 'challengeInvited' })
   })
 
   it('never invites someone blocked, either way, without telling the creator they were blocked', async () => {
     const [amy, ben, cat] = await friends('amy', 'ben', 'cat')
-    // Amy blocks Ben: that also stops her following him
+    // Amy blocks Ben: she has to unblock him first
     await send(amy, { type: 'setBlocked', userId: ben, blocked: true })
-    expect(await refused(amy, { type: 'createChallenge', invitees: [ben] })).toBe('notFriend')
-    // Cat blocks Amy, who still follows her
+    expect(await refused(amy, { type: 'createChallenge', invitees: [ben] })).toBe('unblockFirst')
+    // Cat blocks Amy
     await send(cat, { type: 'setBlocked', userId: amy, blocked: true })
     expect(await refused(amy, { type: 'createChallenge', invitees: [cat] })).toBe('cannotInvite')
     expect(error(amy)?.params).toEqual({ name: 'cat' })
@@ -383,8 +380,8 @@ describe('challenge requests over HTTP (e7-t16, e7-t17)', () => {
       club.challengeRequest(ben, { type: 'cancelChallenge', challengeId: made!.id }),
     ).rejects.toMatchObject({ code: 'challengeCreatorOnly' })
     await expect(
-      club.challengeRequest(amy, { type: 'createChallenge', invitees: [await member('zoe')] }),
-    ).rejects.toMatchObject({ code: 'notFriend' })
+      club.challengeRequest(amy, { type: 'createChallenge', invitees: [amy] }),
+    ).rejects.toMatchObject({ code: 'notSelf' })
     await expect(
       club.challengeRequest(cat, { type: 'answerChallenge', challengeId: made!.id, accept: 'yes' as unknown as boolean }),
     ).rejects.toMatchObject({ code: 'badMessage' })

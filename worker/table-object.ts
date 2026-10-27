@@ -2,7 +2,7 @@ import { DurableObject } from 'cloudflare:workers'
 import { secureRandomInt } from '../shared/board.ts'
 import type { Seat } from '../shared/cards.ts'
 import { MESSAGE_MAX_CHARS } from '../shared/message-guard.ts'
-import { TABLE_SOCKET_REFUSED, type BoardRecord, type ServerMessage, type TableAction, type TableSettings } from '../shared/protocol.ts'
+import { TABLE_SOCKET_REFUSED, type BoardRecord, type RobotSpeed, type ServerMessage, type TableAction, type TableSettings } from '../shared/protocol.ts'
 import type { Env } from './club.ts'
 import { jsonLog, sampleActions } from './log.ts'
 import type { TableStats } from './metrics.ts'
@@ -102,6 +102,9 @@ export class TableObject extends DurableObject<Env> implements TableRpc, TableSo
   }
   blocked(userId: string, blocked: string[]) {
     return this.host.blocked(userId, blocked)
+  }
+  robotSpeed(userId: string, speed: RobotSpeed) {
+    return this.host.robotSpeed(userId, speed)
   }
   forget(userId: string) {
     return this.host.forget(userId)

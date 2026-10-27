@@ -3,10 +3,12 @@ import { isSeat, SEATS, type Seat } from '../shared/cards.ts'
 import { AppError, type MessageCode } from '../shared/messages.ts'
 import {
   CLUB_PROFILE_ID,
+  DEFAULT_ROBOT_SPEED,
   DEFAULT_TABLE_SETTINGS,
   fixedSeats,
   isPermission,
   isRobotId,
+  isRobotSpeed,
   isTableAction,
   LIMITS,
   parseTableSettings,
@@ -49,6 +51,7 @@ import {
   type TableSummary,
   type SharedTable,
   type HealthStatus,
+  type RobotSpeed,
 } from '../shared/protocol.ts'
 import { dealWith } from '../shared/dealer.ts'
 import {
@@ -132,6 +135,7 @@ import {
   saveFavorite,
 } from './favorites.ts'
 import { NotificationService } from './notifications.ts'
+import { FRIENDS_ENABLED } from '../shared/features.ts'
 import { Relations } from './relations.ts'
 import { AlarmQueue, manualScheduler, type JobKind, type Scheduler } from './scheduler.ts'
 import { LocalTables, ROBOT_NAME, robotUser, TableService, type TableConfig, type TableStore } from './table-service.ts'
@@ -198,6 +202,8 @@ interface StoredUser {
   profile?: Profile
   /** The version of their uploaded picture (e1-t34), kept in `avatar:<id>`; none means the default avatar */
   avatar?: number
+  /** How fast the robots play at their tables (出牌速度); absent for DEFAULT_ROBOT_SPEED */
+  robotSpeed?: RobotSpeed
 }
 
 /** `avatar:<userId>`: the picture as the browser sent it, already cropped and shrunk (e1-t34) */
@@ -978,21 +984,31 @@ export class ClubService {
   /**
    * `POST /api/account/preferences`: the member's own settings the server needs. Each field is
    * optional, but at least one must be there: the friend-online notice (e1-t24) and the handbook's
-   * system profile (TKU-BridgeBook e1-t16; the club's id or '' goes back to the club's). The profile
+   * system profile (TKU-BridgeBook e1-t16; the club's id or '' goes back to the club's), and how
+   * fast the robots play (出牌速度, `ROBOT_SPEEDS`; the table they are at changes at once). The profile
    * is not looked up: one deleted later simply shows the club's.
    */
-  async setAccountPreferences(userId: string, preferences: { friendOnlineNotice?: unknown; bookProfile?: unknown }): Promise<Me> {
+  async setAccountPreferences(
+    userId: string,
+    preferences: { friendOnlineNotice?: unknown; bookProfile?: unknown; robotSpeed?: unknown },
+  ): Promise<Me> {
     const user = this.requireUser(userId)
-    const { friendOnlineNotice, bookProfile } = preferences
-    if (friendOnlineNotice === undefined && bookProfile === undefined) throw new ClubError('unknownCommand')
+    const { friendOnlineNotice, bookProfile, robotSpeed } = preferences
+    if (friendOnlineNotice === undefined && bookProfile === undefined && robotSpeed === undefined) throw new ClubError('unknownCommand')
     if (friendOnlineNotice !== undefined && typeof friendOnlineNotice !== 'boolean') throw new ClubError('unknownCommand')
+    if (robotSpeed !== undefined && !isRobotSpeed(robotSpeed)) throw new ClubError('unknownCommand')
     if (bookProfile !== undefined && (typeof bookProfile !== 'string' || (bookProfile !== '' && !PROFILE_ID.test(bookProfile))))
       throw new ClubError('unknownCommand')
     if (friendOnlineNotice === true) delete user.friendOnlineNotice
     else if (friendOnlineNotice === false) user.friendOnlineNotice = false
     if (bookProfile === '' || bookProfile === CLUB_PROFILE_ID) delete user.bookProfile
     else if (bookProfile !== undefined) user.bookProfile = bookProfile
+    const speedChanged = robotSpeed !== undefined && robotSpeed !== (user.robotSpeed ?? DEFAULT_ROBOT_SPEED)
+    if (robotSpeed === DEFAULT_ROBOT_SPEED) delete user.robotSpeed
+    else if (robotSpeed !== undefined) user.robotSpeed = robotSpeed
     await this.store.put(`user:${user.id}`, user)
+    const entry = speedChanged ? this.entryOf(userId) : undefined
+    if (entry) await this.tables.get(entry.id).robotSpeed(userId, this.speedOf(userId))
     return this.me(user)
   }
 
@@ -1108,6 +1124,7 @@ export class ClubService {
       admin: !!user.admin,
       permissions: this.permissionsOf(user),
       friendOnlineNotice: user.friendOnlineNotice !== false,
+      robotSpeed: user.robotSpeed ?? DEFAULT_ROBOT_SPEED,
     }
     if (user.profile) me.profile = user.profile
     if (user.avatar) me.avatar = user.avatar
@@ -1574,6 +1591,8 @@ export class ClubService {
    * again within FRIEND_ONLINE_QUIET_MS, so a phone that keeps reconnecting stays quiet
    */
   private async announceOnline(userId: string) {
+    // Friends are hidden for now (FRIENDS_ENABLED), and so is the notice
+    if (!FRIENDS_ENABLED) return
     const user = this.users.get(userId)
     if (!user) return
     const last = this.announced.get(userId)
@@ -1935,7 +1954,7 @@ export class ClubService {
   // ── Challenges (§5.5) ───────────────────────────────────────────────────────────────────────
 
   /**
-   * Creates a challenge (e7-t05): 1–20 different members the creator follows, neither side
+   * Creates a challenge (e7-t05): 1–20 different members, any of the club's, neither side
    * blocking the other; settings checked by `parseChallengeSettings`. The boards are 4–16 dealt at
    * random now, turned for Best Hand and bid by the robots for Just Declare (`e7-t10`, `e7-t11`);
    * or, with `fromBoards`, boards the creator already played (`e7-t22`). The creator has accepted
@@ -1957,8 +1976,8 @@ export class ClubService {
     for (const id of invitees) {
       const other = this.otherMember(userId, id)
       const name = this.users.get(other)!.username
-      // Blocking the invitee also stopped following them, so a member one blocked is never a friend
-      if (!this.friends.has(userId, other)) throw new ClubError('notFriend', { name })
+      // Any member may be invited, friend or not (社長, 2026-10-27); one the creator blocked must be unblocked first
+      if (this.blocks.has(userId, other)) throw new ClubError('unblockFirst')
       // Whether they blocked the creator stays private: the creator only hears they cannot be invited
       if (this.blocks.has(other, userId)) throw new ClubError('cannotInvite', { name }, 403)
     }
@@ -2044,7 +2063,7 @@ export class ClubService {
   /**
    * One-click rematch (`e7-t21`): a participant of a challenge that ended challenges the same
    * people again (everyone who did not decline) with the same settings and number of boards, on
-   * new boards. The usual checks of `createChallenge` apply: they must still be friends
+   * new boards. The usual checks of `createChallenge` apply: they must still be members, neither side blocking
    */
   private async rematchChallenge(userId: string, challengeId: unknown): Promise<string> {
     const c = this.requireChallenge(challengeId)
@@ -2435,6 +2454,7 @@ export class ClubService {
       settings: { access: 'hidden', allowKibitz: false, boardMinutes: 0 },
       names: { [userId]: this.users.get(userId)!.username },
       blocks: { [userId]: this.blocks.of(userId) },
+      ...this.speedsFor(userId),
     }
     // The table deals its first board as it opens
     if (player.startedAt === undefined) this.applySnapshot(await this.eventFor(challenge.id).started(userId))
@@ -2472,7 +2492,7 @@ export class ClubService {
     const people = Object.fromEntries(
       members.flatMap((id) => {
         const user = this.users.get(id)
-        return user ? [[id, { username: user.username, blocked: this.blocks.of(id) }]] : []
+        return user ? [[id, { username: user.username, blocked: this.blocks.of(id), robotSpeed: this.speedOf(id) }]] : []
       }),
     )
     const ids = { open: randomId(6), closed: randomId(6) } satisfies Record<Room, string>
@@ -2617,7 +2637,7 @@ export class ClubService {
         const replaced = await this.matches.replace(userId, message)
         await this.leave(replaced.newcomer)
         const user = this.users.get(replaced.newcomer)!
-        const person = { id: user.id, username: user.username, blocked: this.blocks.of(user.id) }
+        const person = this.person(user.id)
         for (const [room, entry] of Object.entries(this.matchTables(matchId)) as [Room, TableEntry][])
           this.applyResult(
             entry.id,
@@ -2664,9 +2684,20 @@ export class ClubService {
     return entry
   }
 
-  /** A member as a table needs them: name and blocks (§5.10) */
+  /** A member as a table needs them: name, blocks and robot speed (§5.10) */
   private person(userId: string): Person {
-    return { id: userId, username: this.users.get(userId)!.username, blocked: this.blocks.of(userId) }
+    return { id: userId, username: this.users.get(userId)!.username, blocked: this.blocks.of(userId), robotSpeed: this.speedOf(userId) }
+  }
+
+  /** How fast a member wants the robots to play (出牌速度) */
+  private speedOf(userId: string): RobotSpeed {
+    return this.users.get(userId)?.robotSpeed ?? DEFAULT_ROBOT_SPEED
+  }
+
+  /** A new table's `speeds` for the member opening it, left out at the default speed */
+  private speedsFor(userId: string): Pick<Table, 'speeds'> {
+    const speed = this.speedOf(userId)
+    return speed === DEFAULT_ROBOT_SPEED ? {} : { speeds: { [userId]: speed } }
   }
 
   private async createTable(userId: string, wanted?: unknown, invitees?: unknown) {
@@ -2691,6 +2722,7 @@ export class ClubService {
       settings: { ...DEFAULT_TABLE_SETTINGS, ...settings },
       names: { [userId]: username },
       blocks: { [userId]: this.blocks.of(userId) },
+      ...this.speedsFor(userId),
       robotKind: this.defaultKindOf(userId),
     }
     if (invited) {
@@ -2751,6 +2783,7 @@ export class ClubService {
       settings: { ...PRACTICE_TABLE_SETTINGS, ...(access !== undefined && { access: access as TableAccess }) },
       names: { [userId]: this.users.get(userId)!.username },
       blocks: { [userId]: this.blocks.of(userId) },
+      ...this.speedsFor(userId),
       ...(controlled.length > 0 && { controllers: Object.fromEntries(controlled.map((seat) => [seat, userId])) }),
     }
     // The table deals its first board as it opens

@@ -74,20 +74,16 @@ const Live = styled.h2`
 export function MatchesPage() {
   const { t, message } = usePreferences()
   const { user } = useAuth()
-  const { notifications, lobby } = useClub()
+  const { notifications, lobby, matchLive } = useClub()
   const navigate = useNavigate()
   const [matches, setMatches] = useState<TeamMatchView[] | null>(null)
   const [error, setError] = useState('')
   const [creating, setCreating] = useState(false)
-  const listing = useListParams(SORTS, 'newest')
-  const mine = paginate(
-    sortList(matches ?? [], listing.sort, (m) => m.createdAt),
-    listing.page,
-    listing.size,
-  )
 
-  // An invitation or an answer arrives as a notification: read the list again
+  // An invitation or an answer arrives as a notification, or a match pushed over the socket (§5.8)
+  // was cancelled or may no longer be seen: read the list again (the server leaves those out)
   const latest = notifications?.items[0]?.id
+  const gone = matchLive && (!matchLive.match || matchLive.match.status === 'cancelled') ? matchLive.matchId : null
   useEffect(() => {
     let live = true
     api
@@ -101,7 +97,20 @@ export function MatchesPage() {
     return () => {
       live = false
     }
-  }, [latest, message])
+  }, [latest, gone, message])
+
+  // Until then the latest push already shows: its row is updated, or taken off when it is gone
+  const shown =
+    matches && matchLive
+      ? matches.flatMap((m) => (m.id !== matchLive.matchId ? [m] : gone ? [] : [matchLive.match ?? m]))
+      : matches
+
+  const listing = useListParams(SORTS, 'newest')
+  const mine = paginate(
+    sortList(shown ?? [], listing.sort, (m) => m.createdAt),
+    listing.page,
+    listing.size,
+  )
 
   const create = async () => {
     setCreating(true)
@@ -125,9 +134,9 @@ export function MatchesPage() {
       </Head>
       <Muted>{t.teamMatch.intro}</Muted>
       {error && <ErrorText role="alert">{error}</ErrorText>}
-      {matches === null ? (
+      {shown === null ? (
         !error && <Muted>{t.loading}</Muted>
-      ) : matches.length === 0 ? (
+      ) : shown.length === 0 ? (
         <Card>
           <Muted>{t.teamMatch.none}</Muted>
         </Card>

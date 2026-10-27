@@ -2,6 +2,7 @@ import { Ban, Mail, Star, X } from 'lucide-react'
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import styled from 'styled-components'
+import { FRIENDS_ENABLED } from '../../shared/features.ts'
 import type { MemberProfile } from '../../shared/profile.ts'
 import { resultLabel } from '../../shared/scoring.ts'
 import { api, ApiError } from '../lib/api.ts'
@@ -177,7 +178,11 @@ const ActionRow = styled.div`
   margin-top: ${({ theme }) => theme.space(4)};
 `
 
-/** Friend, message and block, for someone other than the viewer; each is only asked of the server */
+/**
+ * Friend, message and block, for someone other than the viewer; each is only asked of the server.
+ * While friends are hidden (FRIENDS_ENABLED) only the message button is left, and unblocking a
+ * member blocked before
+ */
 export function ProfileActions({
   name,
   friend,
@@ -197,34 +202,38 @@ export function ProfileActions({
   const { t } = usePreferences()
   return (
     <ActionRow>
-      <Button
-        type="button"
-        $size="sm"
-        aria-pressed={friend}
-        aria-label={friend ? t.removeFriend(name) : t.addFriend(name)}
-        disabled={blocked}
-        onClick={() => onFriend(!friend)}
-      >
-        <Star size={15} fill={friend ? 'currentColor' : 'none'} aria-hidden />
-        {friend ? t.unfriendShort : t.friendShort}
-      </Button>
+      {FRIENDS_ENABLED && (
+        <Button
+          type="button"
+          $size="sm"
+          aria-pressed={friend}
+          aria-label={friend ? t.removeFriend(name) : t.addFriend(name)}
+          disabled={blocked}
+          onClick={() => onFriend(!friend)}
+        >
+          <Star size={15} fill={friend ? 'currentColor' : 'none'} aria-hidden />
+          {friend ? t.unfriendShort : t.friendShort}
+        </Button>
+      )}
       {onMessage && (
         <Button type="button" $size="sm" aria-label={t.messageMember(name)} disabled={blocked} onClick={onMessage}>
           <Mail size={15} aria-hidden />
           {t.messageShort}
         </Button>
       )}
-      <Button
-        type="button"
-        $size="sm"
-        $variant="ghost"
-        aria-pressed={blocked}
-        aria-label={blocked ? t.unblockMember(name) : t.blockMember(name)}
-        onClick={() => onBlock(!blocked)}
-      >
-        <Ban size={15} aria-hidden />
-        {blocked ? t.unblockShort : t.blockShort}
-      </Button>
+      {(FRIENDS_ENABLED || blocked) && (
+        <Button
+          type="button"
+          $size="sm"
+          $variant="ghost"
+          aria-pressed={blocked}
+          aria-label={blocked ? t.unblockMember(name) : t.blockMember(name)}
+          onClick={() => onBlock(!blocked)}
+        >
+          <Ban size={15} aria-hidden />
+          {blocked ? t.unblockShort : t.blockShort}
+        </Button>
+      )}
     </ActionRow>
   )
 }

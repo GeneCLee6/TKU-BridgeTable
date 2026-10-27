@@ -2,6 +2,7 @@ import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, it, vi } from 'vitest'
+import { FRIENDS_ENABLED } from '../../shared/features.ts'
 import type { LobbyView, MemberStatus } from '../../shared/protocol.ts'
 import { PeopleList } from '../../src/components/PeopleList.tsx'
 import { PreferencesProvider } from '../../src/state/PreferencesContext.tsx'
@@ -18,12 +19,12 @@ const LOBBY: LobbyView = {
   blocked: ['lee'],
 }
 
-function show(lobby: LobbyView = LOBBY) {
+function show(lobby: LobbyView = LOBBY, onMessage?: (userId: string) => void) {
   const send = vi.fn()
   render(
     <PreferencesProvider>
       <MemoryRouter>
-        <PeopleList lobby={lobby} userId="amy" send={send} />
+        <PeopleList lobby={lobby} userId="amy" send={send} onMessage={onMessage} />
       </MemoryRouter>
     </PreferencesProvider>,
   )
@@ -32,7 +33,7 @@ function show(lobby: LobbyView = LOBBY) {
 
 const names = () => screen.getAllByRole('listitem').map((li) => li.textContent)
 
-describe('PeopleList', () => {
+describe.skipIf(!FRIENDS_ENABLED)('PeopleList', () => {
   it('stars friends, marks blocked members, and has no buttons on your own row', () => {
     show()
     expect(screen.getByRole('button', { name: '把 zoe 移出好友' })).toHaveAttribute('aria-pressed', 'true')
@@ -75,5 +76,25 @@ describe('PeopleList', () => {
     await userEvent.click(screen.getByRole('button', { name: '只看好友' }))
     expect(screen.getByText('還沒有好友：按名字旁的星星就能加入')).toBeInTheDocument()
     expect(screen.queryAllByRole('listitem')).toHaveLength(0)
+  })
+})
+
+describe.runIf(!FRIENDS_ENABLED)('PeopleList while friends are hidden (FRIENDS_ENABLED)', () => {
+  it('leaves only the envelope, and the ban button to undo an old block', async () => {
+    const onMessage = vi.fn()
+    const send = show(LOBBY, onMessage)
+    expect(screen.queryByRole('button', { name: /好友/ })).toBeNull()
+    expect(screen.queryByRole('button', { name: /^封鎖/ })).toBeNull()
+    // In the order the lobby gives them
+    expect(names().map((n) => n?.slice(0, 3))).toEqual(['zoe', 'amy', 'ben', 'kim', 'lee'])
+    const ben = screen.getAllByRole('listitem').find((li) => li.textContent?.startsWith('ben'))!
+    expect(within(ben).getAllByRole('button').map((b) => b.getAttribute('aria-label') ?? b.textContent)).toEqual([
+      'ben',
+      '傳私訊給 ben',
+    ])
+    await userEvent.click(within(ben).getByRole('button', { name: '傳私訊給 ben' }))
+    expect(onMessage).toHaveBeenCalledWith('ben')
+    await userEvent.click(screen.getByRole('button', { name: '解除封鎖 lee' }))
+    expect(send).toHaveBeenLastCalledWith({ type: 'setBlocked', userId: 'lee', blocked: false })
   })
 })

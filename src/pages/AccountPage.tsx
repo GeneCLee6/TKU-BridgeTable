@@ -2,9 +2,10 @@ import { Volume2 } from 'lucide-react'
 import { useId, useRef, useState, type ChangeEvent, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import styled from 'styled-components'
+import { FRIENDS_ENABLED } from '../../shared/features.ts'
 import { LANGS } from '../../shared/messages.ts'
 import { PROFILE_LEVELS, PROFILE_LIMITS, type Profile, type ProfileLevel } from '../../shared/profile.ts'
-import { LIMITS, type Me } from '../../shared/protocol.ts'
+import { DEFAULT_ROBOT_SPEED, LIMITS, ROBOT_SPEEDS, type Me, type RobotSpeed } from '../../shared/protocol.ts'
 import { Avatar } from '../components/Avatar.tsx'
 import { AvatarCropper } from '../components/AvatarCropper.tsx'
 import { PasswordInput } from '../components/PasswordInput.tsx'
@@ -572,6 +573,12 @@ export function AccountPage() {
       .setAccountPreferences({ friendOnlineNotice: on })
       .then(refresh)
       .catch(() => undefined)
+  /** Kept on the server too, which paces the robots at the member's table (the slowest of those seated) */
+  const setRobotSpeed = (speed: RobotSpeed) =>
+    void api
+      .setAccountPreferences({ robotSpeed: speed })
+      .then(refresh)
+      .catch(() => undefined)
 
   return (
     <PageMain>
@@ -616,13 +623,24 @@ export function AccountPage() {
             options={[['on', t.soundOnShort], ['off', t.soundOffShort]]}
             onChange={(v) => set({ confirmPlays: v === 'on' })}
           />
-          {user && (
+          {user && FRIENDS_ENABLED && (
             <Options
               legend={t.friendOnlineNotice}
               value={user.friendOnlineNotice === false ? 'off' : 'on'}
               options={[['on', t.soundOnShort], ['off', t.soundOffShort]]}
               onChange={(v) => setFriendOnlineNotice(v === 'on')}
             />
+          )}
+          {user && (
+            <>
+              <Options
+                legend={t.robotSpeed}
+                value={user.robotSpeed ?? DEFAULT_ROBOT_SPEED}
+                options={ROBOT_SPEEDS.map((speed) => [speed, t.robotSpeeds[speed]])}
+                onChange={setRobotSpeed}
+              />
+              <Steps>{t.robotSpeedHint}</Steps>
+            </>
           )}
         </Card>
         <SoundCard />

@@ -260,9 +260,7 @@ describe('one-click rematch (e7-t21)', () => {
     await send(more[0], { type: 'answerChallenge', challengeId: id, accept: true })
     expect(await refused(ben, { type: 'rematchChallenge', challengeId: id })).toBe('challengeNotOver')
     await send(amy, { type: 'cancelChallenge', challengeId: id })
-    // ben and cat are friends of amy, not of each other: ben has to follow them to rematch
-    expect(await refused(ben, { type: 'rematchChallenge', challengeId: id })).toBe('notFriend')
-    for (const other of [amy, more[0]]) await send(ben, { type: 'setFriend', userId: other, friend: true })
+    // ben and cat are friends of amy, not of each other: ben need not follow them to rematch
     time += 1
     const again = await club.challengeRequest(ben, { type: 'rematchChallenge', challengeId: id })
     expect(again!.id).not.toBe(id)

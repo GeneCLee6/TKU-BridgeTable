@@ -41,8 +41,8 @@ export function notificationText(t: Strings, n: Notification): string {
 }
 
 /**
- * Where a notification leads when clicked: an invitation to the challenge lobby, where it is
- * answered (`e7-t16`); the other challenge news to that challenge's page (`e7-t18`); an invitation
+ * Where a notification leads when clicked: challenge news, an invitation too, to that challenge's
+ * page, where it is answered and played (`e7-t16`, `e7-t18`); an invitation
  * to a table, a request to join one and its answer to that table; a featured board to its record, where the explanation is shown; team
  * match news to the match's prep room (`e8-t06`), except being taken off a seat, after which only
  * the list of one's matches is left; partnership news to the partnership's page in TKU BridgeBook
@@ -56,7 +56,6 @@ export function notificationLink(n: Notification): string {
       return '/'
     case 'challengeInvited':
     case 'challengeWeekly':
-      return '/challenges'
     case 'challengeAccepted':
     case 'challengeDeclined':
     case 'challengeCancelled':
