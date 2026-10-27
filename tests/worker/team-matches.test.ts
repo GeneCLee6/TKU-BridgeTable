@@ -271,6 +271,9 @@ describe('team matches through the club', () => {
     time += 5
     expect(await club.matches.cancel(amy, created.id)).toMatchObject({ status: 'cancelled', endedAt: T0 + 5 })
     expect(await refusedAsync(() => club.matches.cancel(amy, created.id))).toBe('matchStarted')
+    // A cancelled match leaves the list at once, but its link still opens it
+    expect(club.matches.list(amy)).toEqual([])
+    expect(club.matches.get(created.id, amy)?.status).toBe('cancelled')
     expect(refused(() => club.matches.update(amy, created.id, { boards: 8 }))).toBe('matchStarted')
     // Survives the object being evicted
     const again = clubService(store, new FakeConnections(), { maxUsers: 40, now: () => time, schedule: () => {} })
