@@ -497,12 +497,15 @@ export class TeamMatchService {
     return this.get(id, userId)
   }
 
-  /** The matches a member hosts or has a seat in, newest first (`GET /api/matches`) */
+  /**
+   * The matches a member hosts or has a seat in, newest first (`GET /api/matches`). Cancelled ones
+   * are left out: they never happened. Their prep room stays reachable by its link (`get`)
+   */
   list(userId: string): TeamMatchView[] {
     const online = this.online()
     return this.store.idsOf(userId).flatMap((id) => {
       const match = this.store.get(id)
-      const view = match && this.viewOf(match, userId, { online })
+      const view = match && match.status !== 'cancelled' && this.viewOf(match, userId, { online })
       return view ? [view] : []
     })
   }

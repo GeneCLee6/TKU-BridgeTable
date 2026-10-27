@@ -88,7 +88,11 @@ const CornerSuit = styled.span<{ $w: number; $inline: boolean }>`
   line-height: 1.05;
 `
 
-/** Double-dummy mode: what playing this card leads to ('=', '+1', '−1'), green when it makes, red when it goes down */
+/**
+ * Double-dummy mode: what playing this card leads to ('=', or the over- or undertricks as a bare
+ * number), green when it makes, red when it goes down; `label` says it in words for screen readers
+ * and, as the tooltip, for anyone who cannot tell the colours apart
+ */
 export interface CardMark {
   text: string
   makes: boolean
@@ -179,6 +183,7 @@ export function PlayingCard({
       disabled={!playable}
       onClick={playable ? () => onPlay?.(card) : undefined}
       aria-label={mark ? `${cardName(card, t)} · ${mark.label}` : cardName(card, t)}
+      title={mark ? `${cardName(card, t)} · ${mark.label}` : undefined}
       data-card={card}
     >
       <Corner $w={width} $inline={inline} $suit={suit} aria-hidden>

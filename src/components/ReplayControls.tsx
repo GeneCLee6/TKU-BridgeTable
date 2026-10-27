@@ -9,7 +9,7 @@ import { Button, Muted } from './ui.tsx'
 
 /**
  * BBO's movie buttons for a finished board (first, previous trick, next trick, last) and the
- * arrow keys; the record page and the side-by-side replay (`e4-t33`) share them. `dd` adds the
+ * arrow keys, one card at a time in double-dummy mode; the record page and the side-by-side replay (`e4-t33`) share them. `dd` adds the
  * double-dummy mode switch when the board can be analysed.
  */
 
@@ -33,28 +33,33 @@ export function ReplayControls({
 }) {
   const { t } = usePreferences()
   const { step } = replay
+  // In double-dummy mode the buttons and arrow keys move one card at a time (BBO), so after every
+  // card the hand to play next shows what each of its cards is worth
+  const byCard = !!dd?.on
+  const next = byCard ? replay.nextCard : replay.next
+  const prev = byCard ? replay.prevCard : replay.prev
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'ArrowRight') replay.next()
-      if (e.key === 'ArrowLeft') replay.prev()
+      if (e.key === 'ArrowRight') next()
+      if (e.key === 'ArrowLeft') prev()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [replay])
+  }, [next, prev])
 
   return (
     <Controls role="group" aria-label={t.replay}>
       <Button type="button" $small onClick={replay.start} aria-label={t.start}>
         <ChevronFirst size={18} aria-hidden />
       </Button>
-      <Button type="button" $small onClick={replay.prev} disabled={replay.playing || step === 0} aria-label={t.prevTrick}>
+      <Button type="button" $small onClick={prev} disabled={replay.playing || step === 0} aria-label={byCard ? t.prevCard : t.prevTrick}>
         <ChevronLeft size={18} aria-hidden />
       </Button>
       <Muted aria-label={t.trickProgress(replay.trick, replay.tricks)}>
         {replay.trick}/{replay.tricks}
       </Muted>
-      <Button type="button" $small onClick={replay.next} disabled={replay.playing || step >= total} aria-label={t.nextTrick}>
+      <Button type="button" $small onClick={next} disabled={replay.playing || step >= total} aria-label={byCard ? t.nextCard : t.nextTrick}>
         <ChevronRight size={18} aria-hidden />
       </Button>
       <Button type="button" $small onClick={replay.end} aria-label={t.end}>
