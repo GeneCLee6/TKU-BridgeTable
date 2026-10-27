@@ -171,6 +171,19 @@ export function lobby(atTable: boolean): LobbyView {
         boardsPlayed: 0,
         boardNo: null,
       },
+      {
+        id: 't3',
+        number: 5,
+        hostName: 'Dan',
+        // Tags under the seats (社長 2026-10-27): every card stays the same height with or without them
+        settings: { access: 'hidden', allowKibitz: true, boardMinutes: 0 },
+        welcome: true,
+        practice: true,
+        seats: { N: robot('N'), E: robot('E'), S: person('dan', 'Dan'), W: robot('W') },
+        spectators: 0,
+        boardsPlayed: 2,
+        boardNo: 3,
+      },
     ],
     myTableId: atTable ? 't1' : null,
     friends: ['ben'],
@@ -267,7 +280,10 @@ export function challengeList(): ChallengeView[] {
   })
   return [
     make(1, Array.from({ length: 19 }, (_, i) => challenger(i + 1, (i * 3) % 9, i % 5 === 4 ? 'invited' : 'accepted'))),
-    make(2, [challenger(1, 8), challenger(2, 2)]),
+    // Best Hand and Just Declare: tags on a line of their own (社長 2026-10-27)
+    make(2, [challenger(1, 8), challenger(2, 2)], {
+      settings: { ...defaultChallengeSettings(2), bestHand: true, justDeclare: true },
+    }),
     make(3, [challenger(3, 0, 'invited')], { status: 'pending' }),
     make(4, Array.from({ length: 6 }, (_, i) => challenger(i + 4, 5))),
   ]

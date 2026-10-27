@@ -46,14 +46,29 @@ const Board = styled.article`
   overflow: hidden;
 `
 
+/**
+ * The board's title bar is one link (社長 2026-10-27: no second 「看這一副」 beside it): the board
+ * number's link stretches over the whole bar, so clicking anywhere on it opens the board, and the
+ * chevron on the right says so
+ */
 const BoardHead = styled.header`
+  position: relative;
   display: flex;
   flex-wrap: wrap;
-  align-items: baseline;
+  align-items: center;
   gap: 4px 12px;
   padding: 8px 10px;
   background: ${({ theme }) => theme.colors.surfaceAlt};
   border-bottom: 1px solid ${({ theme }) => theme.colors.border};
+  transition: background 0.12s;
+
+  &:hover {
+    background: ${({ theme }) => theme.colors.accentSoft};
+  }
+  &:has(a:focus-visible) {
+    outline: 2px solid ${({ theme }) => theme.colors.focus};
+    outline-offset: -2px;
+  }
 
   & > h3 {
     margin: 0;
@@ -61,15 +76,20 @@ const BoardHead = styled.header`
   }
   & > h3 > a {
     color: ${({ theme }) => theme.colors.primary};
+    text-decoration: none;
   }
-  & > a:last-child {
-    display: inline-flex;
-    align-items: center;
+  & > h3 > a:focus-visible {
+    outline: none;
+  }
+  & > h3 > a::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+  }
+  & > svg {
+    flex: none;
     margin-left: auto;
     color: ${({ theme }) => theme.colors.primary};
-    font-size: 14px;
-    font-weight: 600;
-    text-decoration: none;
   }
 `
 
@@ -217,10 +237,7 @@ export function ChallengeResults({ challenge: c, userId }: { challenge: Challeng
                   <Muted as="span">
                     {t.dealerVul(t.seatNames[dealerOf(x.boardNo)], t.vulNames[vulnerabilityOf(x.boardNo)])}
                   </Muted>
-                  <Link to={to} aria-label={`${t.boardNo(x.boardNo)} · ${t.openBoard}`}>
-                    {t.openBoard}
-                    <ChevronRight size={16} aria-hidden />
-                  </Link>
+                  <ChevronRight size={18} aria-hidden />
                 </BoardHead>
                 <Scroll>
                   <Table>
