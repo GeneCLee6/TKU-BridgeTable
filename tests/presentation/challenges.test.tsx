@@ -124,9 +124,9 @@ describe('ChallengesPage (e7-t16)', () => {
   it('sorts challenges into 等待接受, 進行中 and 已完成, each a card that opens its page', async () => {
     mocks.api.challenges.mockResolvedValue({ challenges: [INVITED, ACTIVE, DONE] })
     show('/challenges', <ChallengesPage />)
-    expect(await screen.findByRole('tab', { name: '等待接受 (1)' })).toHaveAttribute('aria-selected', 'true')
-    expect(screen.getByRole('tab', { name: '進行中 (1)' })).toBeInTheDocument()
-    expect(screen.getByRole('tab', { name: '已完成 (1)' })).toBeInTheDocument()
+    expect(await screen.findByRole('tab', { name: '等待接受 1' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('tab', { name: '進行中 1' })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: '已完成 1' })).toBeInTheDocument()
 
     const card = screen.getByRole('listitem', { name: 'ben 發起' })
     expect(within(card).getByText('還剩 2 天 5 小時')).toBeInTheDocument()
@@ -137,7 +137,7 @@ describe('ChallengesPage (e7-t16)', () => {
     expect(within(card).queryAllByRole('button')).toHaveLength(0)
     expect(within(card).queryByText('排名')).toBeNull()
 
-    await userEvent.click(screen.getByRole('tab', { name: '進行中 (1)' }))
+    await userEvent.click(screen.getByRole('tab', { name: '進行中 1' }))
     const active = screen.getByRole('listitem', { name: 'amy 發起' })
     expect(within(active).getByRole('progressbar', { name: '你的進度 · 已打 3／8 副' })).toBeInTheDocument()
     expect(within(active).getByRole('link')).toHaveAttribute('href', '/challenges/c2')
