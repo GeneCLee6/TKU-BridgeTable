@@ -35,6 +35,8 @@ const mocks = vi.hoisted(() => ({
   me: 'amy',
   /** The viewer's permissions: TKB in the club's system needs `tkuSystem` (ROBOT.md §7) */
   permissions: [] as string[],
+  /** The latest team match pushed over the socket (`ClubContext.matchLive`) */
+  matchLive: null as { matchId: string; match: TeamMatchView | null } | null,
 }))
 
 vi.mock('../../src/lib/api.ts', async (original) => ({
@@ -53,7 +55,7 @@ const LOBBY: LobbyView = {
 }
 
 vi.mock('../../src/state/ClubContext.tsx', () => ({
-  useClub: () => ({ lobby: LOBBY, notifications: null, matchLive: null, status: 'open', table: null, error: null }),
+  useClub: () => ({ lobby: LOBBY, notifications: null, matchLive: mocks.matchLive, status: 'open', table: null, error: null }),
 }))
 vi.mock('../../src/state/AuthContext.tsx', () => ({
   useAuth: () => ({ user: { id: mocks.me, username: mocks.me, admin: false, permissions: mocks.permissions } }),
@@ -87,7 +89,7 @@ function prepRoom(extra: Partial<TeamMatchView> = {}): TeamMatchView {
 }
 
 function show(path: string) {
-  render(
+  const page = () => (
     <PreferencesProvider>
       <MemoryRouter initialEntries={[path]}>
         <Routes>
@@ -95,13 +97,16 @@ function show(path: string) {
           <Route path="/matches/:matchId" element={<MatchPage />} />
         </Routes>
       </MemoryRouter>
-    </PreferencesProvider>,
+    </PreferencesProvider>
   )
+  const { rerender } = render(page())
+  return { again: () => rerender(page()) }
 }
 
 beforeEach(() => {
   vi.clearAllMocks()
   mocks.me = 'amy'
+  mocks.matchLive = null
 })
 
 describe('MatchesPage', () => {
@@ -114,6 +119,27 @@ describe('MatchesPage', () => {
     expect(screen.getByText('邀請你')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '建立隊制賽' }))
     await waitFor(() => expect(navigated).toHaveBeenCalledWith('/matches/m2'))
+  })
+
+  it('drops a match from the list as soon as it is cancelled, and reads the list again', async () => {
+    const other = prepRoom({ id: 'm2', settings: { ...defaultTeamMatchSettings(), teamNames: ['政大', ''] } })
+    mocks.api.matches.mockResolvedValue({ matches: [prepRoom(), other] })
+    const { again } = show('/matches')
+    expect(await screen.findByText('淡江 對 B 隊')).toBeInTheDocument()
+    // The server leaves the cancelled one out from now on
+    mocks.api.matches.mockResolvedValue({ matches: [other] })
+    mocks.matchLive = { matchId: 'm1', match: prepRoom({ status: 'cancelled' }) }
+    again()
+    expect(screen.queryByText('淡江 對 B 隊')).not.toBeInTheDocument()
+    await waitFor(() => expect(mocks.api.matches).toHaveBeenCalledTimes(2))
+    expect(screen.getByText('政大 對 B 隊')).toBeInTheDocument()
+    // One the member may no longer see goes too
+    mocks.api.matches.mockResolvedValue({ matches: [] })
+    mocks.matchLive = { matchId: 'm2', match: null }
+    again()
+    expect(screen.queryByText('政大 對 B 隊')).not.toBeInTheDocument()
+    await waitFor(() => expect(mocks.api.matches).toHaveBeenCalledTimes(3))
+    expect(screen.queryByText('淡江 對 B 隊')).not.toBeInTheDocument()
   })
 })
 
