@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import styled, { css } from 'styled-components'
+import styled from 'styled-components'
 import {
   FEATURED_CATEGORIES,
   type FeaturedBoard,
   type FeaturedCategory,
 } from '../../shared/featured.ts'
+import { Chip, ChipCount, ChipStrip } from '../components/Chips.tsx'
 import { Pager, SortSelect } from '../components/Pager.tsx'
 import { ContractResult } from '../components/Suit.tsx'
 import { ErrorText, Muted, PageMain, PageTitle } from '../components/ui.tsx'
@@ -30,31 +31,16 @@ const Toolbar = styled.div`
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 10px 14px;
+  gap: 12px 14px;
   margin-bottom: 16px;
-`
 
-const Tabs = styled.div`
-  display: inline-flex;
-  flex-wrap: wrap;
-  border: 1px solid ${({ theme }) => theme.colors.border};
-  border-radius: ${({ theme }) => theme.radius.pill};
-  overflow: hidden;
-`
-
-const TabButton = styled.button<{ $active: boolean }>`
-  min-height: 36px;
-  padding: 0 16px;
-  border: 0;
-  background: ${({ theme }) => theme.colors.surface};
-  color: ${({ theme }) => theme.colors.text};
-  font-weight: 600;
-  ${({ $active, theme }) =>
-    $active &&
-    css`
-      background: ${theme.colors.primary};
-      color: ${theme.colors.onPrimary};
-    `}
+  /* The chips take the row and scroll inside it; the sort menu stays at the right */
+  & > :first-child {
+    flex: 1 1 320px;
+  }
+  & > :last-child {
+    margin-left: auto;
+  }
 `
 
 const Grid = styled.ul`
@@ -115,9 +101,9 @@ export function FeaturedPage() {
     <PageMain>
       <PageTitle>{t.featuredTitle}</PageTitle>
       <Toolbar>
-        <Tabs role="tablist" aria-label={t.featuredTitle}>
+        <ChipStrip role="tablist" aria-label={t.featuredTitle}>
           {tabs.map((k) => (
-            <TabButton
+            <Chip
               key={k}
               type="button"
               role="tab"
@@ -129,10 +115,10 @@ export function FeaturedPage() {
               }}
             >
               {k === 'all' ? t.featuredAll : t.featuredCategories[k]}
-              {list ? ` (${count(k)})` : ''}
-            </TabButton>
+              {list && <ChipCount n={count(k)} />}
+            </Chip>
           ))}
-        </Tabs>
+        </ChipStrip>
         <SortSelect
           value={listing.sort}
           options={SORTS}

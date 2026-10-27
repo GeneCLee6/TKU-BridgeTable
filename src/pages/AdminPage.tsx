@@ -537,24 +537,25 @@ export function AdminPage() {
                 <CardTitle id={`${id}-h-members`}>{t.membersTitle}</CardTitle>
                 <Muted>{t.memberCount(users.length, settings.maxUsers)}</Muted>
               </TitleRow>
+              {/* Search at the left, 「編輯」 at the far right (社長 2026-10-27) */}
               <HeaderTools>
-              {!memberDraft && (
-                <Button type="button" $size="sm" aria-label={t.adminEditSection(t.membersTitle)} onClick={editMembers}>
-                  <Pencil size={14} aria-hidden />
-                  {t.adminEdit}
-                </Button>
-              )}
-              <SearchBox>
-                <Search size={16} aria-hidden />
-                <Input
-                  type="search"
-                  $size="sm"
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  placeholder={t.adminSearchMembers}
-                  aria-label={t.adminSearchMembers}
-                />
-              </SearchBox>
+                <SearchBox>
+                  <Search size={16} aria-hidden />
+                  <Input
+                    type="search"
+                    $size="sm"
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    placeholder={t.adminSearchMembers}
+                    aria-label={t.adminSearchMembers}
+                  />
+                </SearchBox>
+                {!memberDraft && (
+                  <Button type="button" $size="sm" aria-label={t.adminEditSection(t.membersTitle)} onClick={editMembers}>
+                    <Pencil size={14} aria-hidden />
+                    {t.adminEdit}
+                  </Button>
+                )}
               </HeaderTools>
             </CardHeader>
             {!shown.length ? (
@@ -1269,11 +1270,21 @@ const PermissionList = styled.span`
   white-space: nowrap;
 `
 
+/**
+ * The members header's tools, taking the rest of the title row (or a row of their own on a phone):
+ * the search grows from the left, 「編輯」 stays at the far right, on one line
+ */
 const HeaderTools = styled.div`
   display: flex;
-  flex-wrap: wrap;
+  flex: 1 1 280px;
   align-items: center;
   gap: ${({ theme }) => theme.space(2)};
+  min-width: 0;
+
+  & > button {
+    flex: none;
+    margin-left: auto;
+  }
 `
 
 const Control = styled.div`
@@ -1284,7 +1295,13 @@ const Control = styled.div`
 
 const SearchBox = styled.div`
   position: relative;
-  width: min(100%, 220px);
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 320px;
+
+  ${mobile} {
+    max-width: none;
+  }
 
   & > svg {
     position: absolute;
