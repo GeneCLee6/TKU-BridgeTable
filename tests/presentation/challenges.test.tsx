@@ -411,6 +411,8 @@ describe('ChallengePage (e7-t18)', () => {
     ])
     expect(within(first).getAllByRole('row')[1]).toHaveAttribute('aria-current', 'true')
     expect(within(first).getByRole('link', { name: '第 1 副' })).toHaveAttribute('href', '/challenges/c7/boards/1')
+    // The board's title bar is the one link to it, no second 「看這一副」 (社長 2026-10-27)
+    expect(within(first).queryByRole('link', { name: /看這一副/ })).toBeNull()
     expect(within(first).getByRole('link', { name: 'cat' })).toHaveAttribute('href', '/challenges/c7/boards/1?p=cat')
     const second = within(boards).getByRole('article', { name: '第 2 副' })
     expect(within(second).getAllByRole('row').map((r) => r.textContent)).toEqual([

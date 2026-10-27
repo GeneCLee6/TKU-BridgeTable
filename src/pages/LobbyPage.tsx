@@ -16,6 +16,7 @@ import { PracticeDialog } from '../components/PracticeDialog.tsx'
 import { TableSettingsDialog } from '../components/TableSettingsDialog.tsx'
 import { Button, Card, CardFooter, Muted, PageMain, PageTitle } from '../components/ui.tsx'
 import { useClub } from '../state/ClubContext.tsx'
+import { cardHover } from '../styles/controls.ts'
 import { mobile } from '../styles/tokens.ts'
 import { playerName, seatLetter, type Strings } from '../strings.ts'
 import { usePreferences, useT } from '../state/PreferencesContext.tsx'
@@ -262,11 +263,19 @@ function occupantTitle(t: Strings, occupant: SeatOccupant) {
   return occupant.substituteFor ? `${name} · ${t.substituteFor(occupant.substituteFor)}` : name
 }
 
+/**
+ * Under the seats, just above the footer, and always there (one tag high when a table has none), so
+ * the seats line up on every card in a row and the cards are the same height
+ */
 const Tags = styled.div`
   display: flex;
   flex-wrap: wrap;
+  align-content: flex-end;
   gap: 6px;
-  margin-top: 8px;
+  min-height: ${({ theme }) => theme.space(5)};
+  margin-top: auto;
+  padding-top: 12px;
+  box-sizing: content-box;
 `
 
 const Tag = styled.span`
@@ -287,6 +296,18 @@ const HostLine = styled(Muted)`
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+`
+
+/**
+ * Every table card is the same shape whatever its tags (社長 2026-10-27): a column whose footer sits
+ * at the bottom, so cards stretched to the row's height keep the grey footer flush with the edge
+ * instead of a strip of white under it. Pointing at one glows gold like every card (`cardHover`)
+ */
+const TileCard = styled(Card)`
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  ${cardHover(false)}
 `
 
 const TileFooter = styled(CardFooter)`
@@ -325,46 +346,12 @@ export function TableTile({
   const AccessIcon = access === 'public' ? null : ACCESS_ICONS[access]
   const waiting = !table.boardNo
   return (
-    <Card aria-label={t.tableName(table.number)}>
+    <TileCard aria-label={t.tableName(table.number)}>
       <TileHead>
         <h3>{t.tableName(table.number)}</h3>
         <StateTag $waiting={waiting}>{waiting ? t.waitingTag : t.boardNo(table.boardNo!)}</StateTag>
       </TileHead>
       <HostLine title={table.hostName}>{t.hostIs(table.hostName)}</HostLine>
-      {(missing > 0 || AccessIcon || table.practice || !table.settings.allowKibitz || table.settings.boardMinutes > 0) && (
-        <Tags>
-          {table.practice && (
-            <Tag>
-              <Dumbbell size={14} aria-hidden />
-              {t.practiceTable}
-            </Tag>
-          )}
-          {missing > 0 && (
-            <Tag>
-              <UserPlus size={14} aria-hidden />
-              {t.missingSeats(missing)}
-            </Tag>
-          )}
-          {AccessIcon && access !== 'public' && (
-            <Tag>
-              <AccessIcon size={14} aria-hidden />
-              {t.accessBadge[access]}
-            </Tag>
-          )}
-          {!table.settings.allowKibitz && !table.practice && (
-            <Tag>
-              <EyeOff size={14} aria-hidden />
-              {t.noKibitz}
-            </Tag>
-          )}
-          {table.settings.boardMinutes > 0 && (
-            <Tag>
-              <Timer size={14} aria-hidden />
-              {t.boardMinutesOption(table.settings.boardMinutes)}
-            </Tag>
-          )}
-        </Tags>
-      )}
       <MiniTable>
         {SEAT_ORDER.map((seat) => {
           const occupant = table.seats[seat]
@@ -393,6 +380,38 @@ export function TableTile({
         })}
         <MiniFelt aria-hidden>{table.boardNo ?? '—'}</MiniFelt>
       </MiniTable>
+      <Tags>
+        {table.practice && (
+          <Tag>
+            <Dumbbell size={14} aria-hidden />
+            {t.practiceTable}
+          </Tag>
+        )}
+        {missing > 0 && (
+          <Tag>
+            <UserPlus size={14} aria-hidden />
+            {t.missingSeats(missing)}
+          </Tag>
+        )}
+        {AccessIcon && access !== 'public' && (
+          <Tag>
+            <AccessIcon size={14} aria-hidden />
+            {t.accessBadge[access]}
+          </Tag>
+        )}
+        {!table.settings.allowKibitz && !table.practice && (
+          <Tag>
+            <EyeOff size={14} aria-hidden />
+            {t.noKibitz}
+          </Tag>
+        )}
+        {table.settings.boardMinutes > 0 && (
+          <Tag>
+            <Timer size={14} aria-hidden />
+            {t.boardMinutesOption(table.settings.boardMinutes)}
+          </Tag>
+        )}
+      </Tags>
       <TileFooter>
         <Muted>
           {t.boardsPlayed(table.boardsPlayed)} · {t.spectators(table.spectators)}
@@ -409,7 +428,7 @@ export function TableTile({
           </Button>
         )}
       </TileFooter>
-    </Card>
+    </TileCard>
   )
 }
 

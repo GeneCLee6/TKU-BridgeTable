@@ -222,6 +222,14 @@ export function createTheme(mode: ThemeMode, deck: DeckColors) {
         ? '0 4px 12px rgba(27, 35, 51, 0.12), 0 12px 32px rgba(27, 35, 51, 0.1)'
         : '0 4px 12px rgba(0, 0, 0, 0.5), 0 12px 32px rgba(0, 0, 0, 0.4)',
     cardShadow: '0 1px 3px rgba(0, 0, 0, 0.35)',
+    /**
+     * A clickable card pointed at (`cardHover` in controls.ts, DESIGN.md §5.3): a soft lantern-gold
+     * glow spreading out from the edge, `accent` at low alpha, instead of a dark outline
+     */
+    glow:
+      mode === 'light'
+        ? '0 0 0 1px rgba(201, 151, 46, 0.35), 0 4px 18px rgba(201, 151, 46, 0.32), 0 1px 3px rgba(201, 151, 46, 0.2)'
+        : '0 0 0 1px rgba(224, 178, 85, 0.4), 0 4px 20px rgba(224, 178, 85, 0.28), 0 1px 3px rgba(224, 178, 85, 0.2)',
   }
 }
 
