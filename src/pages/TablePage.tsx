@@ -662,7 +662,7 @@ export function TablePage() {
 
 function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeof useClub>['send'] }) {
   const t = useT()
-  const { cardStyle, deck, toggleCardStyle, toggleDeck, lang, confirmCalls, confirmPlays, cardSize, tableTourSeen, set: setPrefs } = usePreferences()
+  const { cardStyle: chosenStyle, deck, toggleCardStyle, toggleDeck, lang, confirmCalls, confirmPlays, cardSize, tableTourSeen, set: setPrefs } = usePreferences()
   const { user } = useAuth()
   const { error, lobby } = useClub()
   const navigate = useNavigate()
@@ -670,6 +670,10 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
   // On a tablet the side panel floats over the table, so it starts closed there (e3-t36)
   const onTablet = useMediaQuery(tabletQuery)
   const sizes = tableSizes(feltSize.width, feltSize.height, CARD_SCALE[cardSize])
+  // A phone always draws card faces: the side hands lie on their side to leave the middle to the
+  // bidding box and the trick, which text hands there would squeeze (社長 2026-10-27). Text hands
+  // are for a computer or a tablet; the button to switch is not shown on a phone.
+  const cardStyle = sizes.phone ? 'cards' : chosenStyle
   const board = table.board
   // Toggles that belong to one board are stored with its number, so they reset on the next deal
   const boardNo = board?.boardNo ?? 0
@@ -842,7 +846,7 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
     onPlay: (card) => turnSeat && play(turnSeat)(card),
   })
 
-  const turnedSides = sizes.phone && cardStyle === 'cards'
+  const turnedSides = sizes.phone
   // On a phone a face-up dummy on the left or right goes in rows by suit; the hidden hand on the
   // other side is then only its name plate, to leave the room to dummy (社長 #4)
   const dummySeat = turnedSides && board && board.phase !== 'auction' ? board.dummy : null
@@ -1148,17 +1152,19 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
               )}
               {/* Card faces or text, two or four colours: here at the table, not in the header (社長 #8) */}
               <TitleTools>
-                <RoundButton
-                  type="button"
-                  aria-label={cardStyle === 'cards' ? t.styleToText : t.styleToCards}
-                  title={cardStyle === 'cards' ? t.styleToText : t.styleToCards}
-                  onClick={(event) => {
-                    event.stopPropagation()
-                    toggleCardStyle()
-                  }}
-                >
-                  {cardStyle === 'cards' ? <List size={16} aria-hidden /> : <Layers size={16} aria-hidden />}
-                </RoundButton>
+                {!sizes.phone && (
+                  <RoundButton
+                    type="button"
+                    aria-label={cardStyle === 'cards' ? t.styleToText : t.styleToCards}
+                    title={cardStyle === 'cards' ? t.styleToText : t.styleToCards}
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      toggleCardStyle()
+                    }}
+                  >
+                    {cardStyle === 'cards' ? <List size={16} aria-hidden /> : <Layers size={16} aria-hidden />}
+                  </RoundButton>
+                )}
                 <RoundButton
                   type="button"
                   aria-label={deck === 'two' ? t.deckToFour : t.deckToTwo}
