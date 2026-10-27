@@ -97,13 +97,17 @@ describe('double-dummy mode in a replay', () => {
     // ♣A: declarer 12 tricks, one down, the defence's best; the rest let 7♦ make
     expect(await screen.findByRole('button', { name: /莊家 12 墩（倒 1 墩） · 最佳/ })).toBeEnabled()
     expect(screen.getAllByRole('button', { name: /莊家 13 墩（剛好做成）/ })).toHaveLength(12)
-    expect(screen.getByText('−1')).toBeInTheDocument()
-    expect(screen.getAllByText('=')).toHaveLength(12)
-    expect(screen.getByText(/= 剛好做成，\+1 超一墩，−1 倒一墩/)).toBeInTheDocument()
+    // The colour says over or down: the number goes on the card without a sign, the words in the label and tooltip
+    const marks = [...document.querySelectorAll('[data-dd-mark]')].map((m) => m.textContent)
+    expect(marks.filter((m) => m === '1')).toHaveLength(1)
+    expect(marks.filter((m) => m === '=')).toHaveLength(12)
+    expect(marks.some((m) => /[+−-]/.test(m ?? ''))).toBe(false)
+    expect(screen.getByRole('button', { name: /莊家 12 墩/ })).toHaveAttribute('title', expect.stringContaining('莊家 12 墩（倒 1 墩）'))
+    expect(screen.getByText(/綠底的數字是超幾墩、紅底是倒幾墩，= 剛好做成/)).toBeInTheDocument()
     expect(mocks.solve).toHaveBeenCalledWith(expect.objectContaining({ trump: 2, first: 3, currentTrickRank: [0, 0, 0] }))
 
     await userEvent.click(toggle)
-    expect(screen.queryByText('−1')).toBeNull()
+    expect(document.querySelectorAll('[data-dd-mark]')).toHaveLength(0)
     expect(screen.queryByText(/剛好做成，/)).toBeNull()
   })
 
@@ -120,6 +124,21 @@ describe('double-dummy mode in a replay', () => {
 
     await userEvent.click(screen.getByRole('button', { name: '回到實際打法' }))
     expect(screen.queryByText('假設打法')).toBeNull()
+    expect(await screen.findByRole('button', { name: /莊家 12 墩/ })).toBeInTheDocument()
+  })
+
+  it('steps one card at a time, and the hand to play next shows every card it may play', async () => {
+    show()
+    expect(screen.getByRole('button', { name: '下一墩' })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('switch', { name: '雙夢家模式' }))
+    await screen.findByRole('button', { name: /莊家 12 墩/ })
+    await userEvent.click(screen.getByRole('button', { name: '下一張' }))
+    // West's lead is on the table, and North (to play next) is solved: all 13 spades marked
+    expect(mocks.solve).toHaveBeenLastCalledWith(expect.objectContaining({ first: 3, currentTrickSuit: [3, 0, 0] }))
+    const north = screen.getByRole('group', { name: /^N / })
+    await waitFor(() => expect(within(north).getAllByRole('button', { name: /莊家 13 墩/ })).toHaveLength(13))
+    expect(screen.queryByText('假設打法')).toBeNull()
+    await userEvent.click(screen.getByRole('button', { name: '上一張' }))
     expect(await screen.findByRole('button', { name: /莊家 12 墩/ })).toBeInTheDocument()
   })
 
