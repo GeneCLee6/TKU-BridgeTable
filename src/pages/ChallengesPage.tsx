@@ -1,9 +1,10 @@
 import { CalendarClock, Plus, Swords } from 'lucide-react'
 import { useEffect, useId, useState } from 'react'
 import { Link } from 'react-router-dom'
-import styled, { css } from 'styled-components'
+import styled from 'styled-components'
 import type { ChallengeView } from '../../shared/challenge.ts'
 import { ChallengeDialog } from '../components/ChallengeDialog.tsx'
+import { Chip, ChipCount, ChipStrip } from '../components/Chips.tsx'
 import { PlayerGrid, Progress, StatusTag } from '../components/ChallengeParts.tsx'
 import { Pager, SortSelect } from '../components/Pager.tsx'
 import { WeeklyChallengeDialog } from '../components/WeeklyChallengeDialog.tsx'
@@ -58,29 +59,14 @@ const ListTools = styled.div`
   justify-content: space-between;
   gap: 10px 14px;
   margin-bottom: 16px;
-`
 
-const Tabs = styled.div`
-  display: inline-flex;
-  flex-wrap: wrap;
-  border: 1px solid ${({ theme }) => theme.colors.border};
-  border-radius: ${({ theme }) => theme.radius.pill};
-  overflow: hidden;
-`
-
-const TabButton = styled.button<{ $active: boolean }>`
-  min-height: 36px;
-  padding: 0 16px;
-  border: 0;
-  background: ${({ theme }) => theme.colors.surface};
-  color: ${({ theme }) => theme.colors.text};
-  font-weight: 600;
-  ${({ $active, theme }) =>
-    $active &&
-    css`
-      background: ${theme.colors.primary};
-      color: ${theme.colors.onPrimary};
-    `}
+  /* The tabs take the row and scroll inside it; the sort menu stays at the right */
+  & > :first-child {
+    flex: 1 1 320px;
+  }
+  & > :last-child {
+    margin-left: auto;
+  }
 `
 
 const Grid = styled.ul`
@@ -304,9 +290,9 @@ export function ChallengesPage() {
         />
       )}
       <ListTools>
-        <Tabs role="tablist" aria-label={t.navChallenges}>
+        <ChipStrip role="tablist" aria-label={t.navChallenges}>
           {CHALLENGE_TABS.map((k) => (
-            <TabButton
+            <Chip
               key={k}
               type="button"
               role="tab"
@@ -315,10 +301,10 @@ export function ChallengesPage() {
               onClick={() => choose(k)}
             >
               {t.challengeTabs[k]}
-              {list ? ` (${byTab(k).length})` : ''}
-            </TabButton>
+              {list && <ChipCount n={byTab(k).length} />}
+            </Chip>
           ))}
-        </Tabs>
+        </ChipStrip>
         <SortSelect
           value={listing.sort}
           options={LIST_SORTS}
