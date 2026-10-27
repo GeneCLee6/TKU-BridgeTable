@@ -1,4 +1,5 @@
 import { SEATS, type Seat } from './cards.ts'
+import { FRIENDS_ENABLED } from './features.ts'
 import type { LobbyDelta, LobbyMine, LobbyShared, LobbyView, MemberStatus, ServerMessage, TableSummary } from './protocol.ts'
 
 /** How the lobby lists tables and where 快速入座 sits (AC-2.11) */
@@ -63,7 +64,8 @@ export function composeLobby(shared: LobbyShared, mine: LobbyMine): LobbyView {
       const place = mine.places[m.id]
       return place ? { ...m, ...place } : m
     })
-    .sort(memberOrder(new Set(mine.friends)))
+    // While friends are hidden (FRIENDS_ENABLED) nobody is put on top
+    .sort(memberOrder(new Set(FRIENDS_ENABLED ? mine.friends : [])))
   return {
     online: members.filter((m) => m.online).map(({ id, username, avatar }) => ({ id, username, ...(avatar && { avatar }) })),
     members,

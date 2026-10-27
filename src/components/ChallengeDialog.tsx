@@ -18,9 +18,9 @@ import { usePreferences } from '../state/PreferencesContext.tsx'
 import { Button, Card, ErrorText, Muted } from './ui.tsx'
 
 /**
- * 發起挑戰 (`e7-t17`, AC-7.1): pick friends from a searchable box (a click lists them all, typing
- * filters after a short pause), choose the settings, see a preview, send. Only friends can be
- * picked, and the deals are random, with Best Hand and Just Declare as options (`e7-t10`, `e7-t11`);
+ * 發起挑戰 (`e7-t17`, AC-7.1): pick members from a searchable box (a click lists them all, typing
+ * filters after a short pause), choose the settings, see a preview, send. Any other member can be
+ * picked, friend or not (社長, 2026-10-27), except one the viewer blocked; and the deals are random, with Best Hand and Just Declare as options (`e7-t10`, `e7-t11`);
  * the server checks it all again (ARCHITECTURE.md §5.5). Opened from a board's record with
  * `fromBoards` it is 「用這副牌挑戰」 (`e7-t22`): those boards, the robots of then, no deal options.
  * Only a member who may use the club's system (`tkuSystem`) chooses the robots; for anyone else
@@ -181,7 +181,7 @@ const Buttons = styled.div`
   margin-top: ${({ theme }) => theme.space(3)};
 `
 
-/** The value after it stopped changing for `ms`: the friend filter waits for a pause in typing */
+/** The value after it stopped changing for `ms`: the member filter waits for a pause in typing */
 function useDebounced<T>(value: T, ms: number): T {
   const [settled, setSettled] = useState(value)
   useEffect(() => {
@@ -211,10 +211,11 @@ export function ChallengeDialog({
   const listId = useId()
   const input = useRef<HTMLInputElement>(null)
 
-  const friends: PublicUser[] = useMemo(() => {
-    const ids = new Set(lobby?.friends ?? [])
-    return (lobby?.members ?? []).filter((m) => ids.has(m.id) && !m.robot)
-  }, [lobby])
+  // Everyone else in the club; the server refuses one the viewer blocked, so they are left out
+  const members: PublicUser[] = useMemo(() => {
+    const blocked = new Set(lobby?.blocked ?? [])
+    return (lobby?.members ?? []).filter((m) => m.id !== user?.id && !m.robot && !blocked.has(m.id))
+  }, [lobby, user?.id])
   const [picked, setPicked] = useState<PublicUser[]>([])
   const [query, setQuery] = useState('')
   const typed = useDebounced(query.trim().toLowerCase(), 150)
@@ -233,7 +234,7 @@ export function ChallengeDialog({
   const [openedAt] = useState(() => Date.now())
 
   const max = CHALLENGE_LIMITS.invitedMax
-  const choices = friends.filter((f) => !picked.some((p) => p.id === f.id) && f.username.toLowerCase().includes(filter))
+  const choices = members.filter((m) => !picked.some((p) => p.id === m.id) && m.username.toLowerCase().includes(filter))
   // The scoring choices depend on how many are invited; a choice that no longer fits falls back
   const scorings = scoringsFor(Math.max(1, picked.length))
   const scoring =
@@ -248,9 +249,9 @@ export function ChallengeDialog({
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose])
 
-  const pick = (friend: PublicUser) => {
+  const pick = (member: PublicUser) => {
     if (picked.length >= max) return
-    setPicked([...picked, friend])
+    setPicked([...picked, member])
     setQuery('')
     setActive(0)
     input.current?.focus()
@@ -258,7 +259,7 @@ export function ChallengeDialog({
 
   const submit = async () => {
     if (!picked.length) {
-      setError(t.pickFriends)
+      setError(t.pickInvitees)
       return
     }
     setSending(true)
@@ -291,7 +292,7 @@ export function ChallengeDialog({
           }}
         >
           <Field>
-            <label htmlFor={`${listId}-input`}>{t.challengeFriends}</label>
+            <label htmlFor={`${listId}-input`}>{t.challengeInvitees}</label>
             <Picker>
               <Box onClick={() => input.current?.focus()}>
                 {picked.map((p) => (
@@ -313,7 +314,7 @@ export function ChallengeDialog({
                   aria-expanded={open}
                   aria-controls={listId}
                   aria-autocomplete="list"
-                  placeholder={t.challengeFriendsSearch}
+                  placeholder={t.challengeInviteesSearch}
                   value={query}
                   autoComplete="off"
                   onFocus={() => setOpen(true)}
@@ -342,7 +343,7 @@ export function ChallengeDialog({
                 />
               </Box>
               {open && (
-                <Options id={listId} role="listbox" aria-label={t.challengeFriends}>
+                <Options id={listId} role="listbox" aria-label={t.challengeInvitees}>
                   {choices.length ? (
                     choices.map((f, i) => (
                       <Option
@@ -361,13 +362,13 @@ export function ChallengeDialog({
                     ))
                   ) : (
                     <Option $active={false} aria-disabled>
-                      <Muted as="span">{friends.length ? t.noFriendMatches : t.noFriendsToInvite}</Muted>
+                      <Muted as="span">{members.length ? t.noMemberMatches : t.noMembersToInvite}</Muted>
                     </Option>
                   )}
                 </Options>
               )}
             </Picker>
-            <Muted>{t.challengeFriendsHint(max)}</Muted>
+            <Muted>{t.challengeInviteesHint(max)}</Muted>
           </Field>
 
           <Row>

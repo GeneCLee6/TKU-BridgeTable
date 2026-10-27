@@ -2,6 +2,7 @@ import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { FRIENDS_ENABLED } from '../../shared/features.ts'
 import type { MemberProfile } from '../../shared/profile.ts'
 import type { LobbyView, MemberStatus } from '../../shared/protocol.ts'
 import { PeopleList } from '../../src/components/PeopleList.tsx'
@@ -78,7 +79,7 @@ describe('profile card (e1-t17)', () => {
     expect(within(card).getByRole('link', { name: '完整個人檔案' })).toHaveAttribute('href', '/members/ben')
   })
 
-  it('friends, blocks and messages from the card', async () => {
+  it.skipIf(!FRIENDS_ENABLED)('friends, blocks and messages from the card', async () => {
     const { send, onMessage } = show()
     await userEvent.click(screen.getByRole('button', { name: 'ben' }))
     const card = await screen.findByRole('dialog')
@@ -91,7 +92,22 @@ describe('profile card (e1-t17)', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 
-  it('lets a blocked member only be unblocked, and closes with Escape', async () => {
+  it.runIf(!FRIENDS_ENABLED)('only messages from the card while friends are hidden (FRIENDS_ENABLED)', async () => {
+    const { send, onMessage } = show()
+    await userEvent.click(screen.getByRole('button', { name: 'ben' }))
+    const card = await screen.findByRole('dialog')
+    await userEvent.click(await within(card).findByRole('button', { name: '傳私訊給 ben' }))
+    expect(onMessage).toHaveBeenCalledWith('ben')
+    expect(send).not.toHaveBeenCalled()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    // A member blocked before can still be unblocked
+    await userEvent.click(screen.getByRole('button', { name: 'lee' }))
+    const lee = await screen.findByRole('dialog')
+    expect(await within(lee).findByRole('button', { name: '解除封鎖 lee' })).toHaveAttribute('aria-pressed', 'true')
+    expect(within(lee).queryByRole('button', { name: /好友/ })).toBeNull()
+  })
+
+  it.skipIf(!FRIENDS_ENABLED)('lets a blocked member only be unblocked, and closes with Escape', async () => {
     show()
     await userEvent.click(screen.getByRole('button', { name: 'lee' }))
     const card = await screen.findByRole('dialog')

@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest'
+import { FRIENDS_ENABLED } from '../../shared/features.ts'
 import { applyLobbyDelta, composeLobby, emptyReplica, receiveLobby, type LobbySharedMessage } from '../../shared/lobby.ts'
 import type { LobbyMine, LobbyShared, MemberStatus, ServerMessage, SharedTable } from '../../shared/protocol.ts'
 import { ACTION_SLOW_MS, sampleActions, type LogEntry } from '../../worker/log.ts'
@@ -120,14 +121,15 @@ describe('the browser’s copy of the shared lobby', () => {
     }
     const own = { ...table('hidden', 3, 2), settings: { access: 'hidden' as const, allowKibitz: true, boardMinutes: 0 }, welcome: true }
     const lobby = composeLobby(shared, mine({ friends: ['zoe', 'amy'], welcome: ['short'], requested: ['full'], tables: [own], places: { cal: { tableNumber: 3, seat: null } } }))
-    expect(lobby.members.map((m) => m.id)).toEqual(['zoe', 'ben', 'cal', 'amy'])
+    // Friends on top only while they are shown (FRIENDS_ENABLED)
+    expect(lobby.members.map((m) => m.id)).toEqual(FRIENDS_ENABLED ? ['zoe', 'ben', 'cal', 'amy'] : ['ben', 'cal', 'zoe', 'amy'])
     expect(lobby.members.find((m) => m.id === 'cal')).toMatchObject({ tableNumber: 3, seat: null })
     expect(lobby.tables.map((t) => [t.id, t.welcome, t.requested])).toEqual([
       ['short', true, undefined],
       ['hidden', true, undefined],
       ['full', false, true],
     ])
-    expect(lobby.online.map((u) => u.id)).toEqual(['zoe', 'ben', 'cal'])
+    expect(lobby.online.map((u) => u.id)).toEqual(FRIENDS_ENABLED ? ['zoe', 'ben', 'cal'] : ['ben', 'cal', 'zoe'])
   })
 })
 

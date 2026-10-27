@@ -132,6 +132,7 @@ import {
   saveFavorite,
 } from './favorites.ts'
 import { NotificationService } from './notifications.ts'
+import { FRIENDS_ENABLED } from '../shared/features.ts'
 import { Relations } from './relations.ts'
 import { AlarmQueue, manualScheduler, type JobKind, type Scheduler } from './scheduler.ts'
 import { LocalTables, ROBOT_NAME, robotUser, TableService, type TableConfig, type TableStore } from './table-service.ts'
@@ -1574,6 +1575,8 @@ export class ClubService {
    * again within FRIEND_ONLINE_QUIET_MS, so a phone that keeps reconnecting stays quiet
    */
   private async announceOnline(userId: string) {
+    // Friends are hidden for now (FRIENDS_ENABLED), and so is the notice
+    if (!FRIENDS_ENABLED) return
     const user = this.users.get(userId)
     if (!user) return
     const last = this.announced.get(userId)
@@ -1935,7 +1938,7 @@ export class ClubService {
   // ── Challenges (§5.5) ───────────────────────────────────────────────────────────────────────
 
   /**
-   * Creates a challenge (e7-t05): 1–20 different members the creator follows, neither side
+   * Creates a challenge (e7-t05): 1–20 different members, any of the club's, neither side
    * blocking the other; settings checked by `parseChallengeSettings`. The boards are 4–16 dealt at
    * random now, turned for Best Hand and bid by the robots for Just Declare (`e7-t10`, `e7-t11`);
    * or, with `fromBoards`, boards the creator already played (`e7-t22`). The creator has accepted
@@ -1957,8 +1960,8 @@ export class ClubService {
     for (const id of invitees) {
       const other = this.otherMember(userId, id)
       const name = this.users.get(other)!.username
-      // Blocking the invitee also stopped following them, so a member one blocked is never a friend
-      if (!this.friends.has(userId, other)) throw new ClubError('notFriend', { name })
+      // Any member may be invited, friend or not (社長, 2026-10-27); one the creator blocked must be unblocked first
+      if (this.blocks.has(userId, other)) throw new ClubError('unblockFirst')
       // Whether they blocked the creator stays private: the creator only hears they cannot be invited
       if (this.blocks.has(other, userId)) throw new ClubError('cannotInvite', { name }, 403)
     }
@@ -2044,7 +2047,7 @@ export class ClubService {
   /**
    * One-click rematch (`e7-t21`): a participant of a challenge that ended challenges the same
    * people again (everyone who did not decline) with the same settings and number of boards, on
-   * new boards. The usual checks of `createChallenge` apply: they must still be friends
+   * new boards. The usual checks of `createChallenge` apply: they must still be members, neither side blocking
    */
   private async rematchChallenge(userId: string, challengeId: unknown): Promise<string> {
     const c = this.requireChallenge(challengeId)

@@ -163,13 +163,13 @@ describe('ChallengesPage (e7-t16)', () => {
   })
 })
 
-const friendsShown = () =>
-  within(screen.getByRole('listbox', { name: '邀請好友' }))
+const membersShown = () =>
+  within(screen.getByRole('listbox', { name: '邀請社員' }))
     .getAllByRole('option')
     .map((o) => o.textContent)
 
 describe('ChallengeDialog (e7-t17)', () => {
-  it('lists every friend on a click, filters as one types, and sends the chosen friends and settings', async () => {
+  it('lists every other member on a click, filters as one types, and sends the chosen members and settings', async () => {
     mocks.permissions = ['tkuSystem']
     const onCreated = vi.fn()
     mocks.api.createChallenge.mockResolvedValue({ challenge: challenge('new', {}) })
@@ -178,13 +178,13 @@ describe('ChallengeDialog (e7-t17)', () => {
         <ChallengeDialog onClose={() => {}} onCreated={onCreated} />
       </PreferencesProvider>,
     )
-    const box = screen.getByRole('combobox', { name: '邀請好友' })
+    const box = screen.getByRole('combobox', { name: '邀請社員' })
     await userEvent.click(box)
-    // Friends only: zoe is a member but not a friend
-    expect(friendsShown()).toEqual(['ben', 'bea', 'cat'])
+    // Every member but oneself, friend or not: zoe is not amy's friend
+    expect(membersShown()).toEqual(['ben', 'bea', 'cat', 'zoe'])
 
     await userEvent.type(box, 'b')
-    await waitFor(() => expect(friendsShown()).toEqual(['ben', 'bea']))
+    await waitFor(() => expect(membersShown()).toEqual(['ben', 'bea']))
     await userEvent.click(screen.getByRole('option', { name: 'bea' }))
     expect(screen.getByRole('button', { name: '移除 bea' })).toBeInTheDocument()
     // One opponent: IMPs or total points
@@ -198,7 +198,7 @@ describe('ChallengeDialog (e7-t17)', () => {
     await userEvent.selectOptions(screen.getByLabelText('機器人'), 'tku')
     await userEvent.selectOptions(screen.getByLabelText('截止時間'), '5')
     await userEvent.click(screen.getByRole('checkbox', { name: /Best Hand/ }))
-    expect(screen.getByTestId('challenge-preview')).toHaveTextContent(/^邀請 2 位好友 · 12 副 · 比賽分（MP） · TKB（淡江制度） · 截止 .* · 最好的牌（Best Hand）$/)
+    expect(screen.getByTestId('challenge-preview')).toHaveTextContent(/^邀請 2 位社員 · 12 副 · 比賽分（MP） · TKB（淡江制度） · 截止 .* · 最好的牌（Best Hand）$/)
 
     await userEvent.click(screen.getByRole('button', { name: '發出挑戰' }))
     expect(mocks.api.createChallenge).toHaveBeenCalledWith(['bea', 'cat'], 12, {
@@ -220,7 +220,7 @@ describe('ChallengeDialog (e7-t17)', () => {
       </PreferencesProvider>,
     )
     expect(screen.queryByLabelText('機器人')).toBeNull()
-    await userEvent.click(screen.getByRole('combobox', { name: '邀請好友' }))
+    await userEvent.click(screen.getByRole('combobox', { name: '邀請社員' }))
     await userEvent.click(screen.getByRole('option', { name: 'ben' }))
     await userEvent.click(screen.getByRole('button', { name: '發出挑戰' }))
     expect(mocks.api.createChallenge).toHaveBeenCalledWith(['ben'], 8, expect.objectContaining({ robotKind: 'gib' }))
@@ -239,22 +239,22 @@ describe('ChallengeDialog (e7-t17)', () => {
     expect(screen.queryByRole('checkbox')).toBeNull()
     expect(screen.getByLabelText('機器人')).toBeDisabled()
     expect(screen.getByLabelText('機器人')).toHaveValue('tku')
-    const box = screen.getByRole('combobox', { name: '邀請好友' })
+    const box = screen.getByRole('combobox', { name: '邀請社員' })
     await userEvent.click(box)
     await userEvent.click(screen.getByRole('option', { name: 'ben' }))
-    expect(screen.getByTestId('challenge-preview')).toHaveTextContent(/^邀請 1 位好友 · 1 副 · /)
+    expect(screen.getByTestId('challenge-preview')).toHaveTextContent(/^邀請 1 位社員 · 1 副 · /)
     await userEvent.click(screen.getByRole('button', { name: '發出挑戰' }))
     expect(mocks.api.challengeWithBoards).toHaveBeenCalledWith(['ben'], ['rec1'], { scoring: 'imp', days: 3, ranking: 'players' })
   })
 
-  it('asks for a friend before sending', async () => {
+  it('asks for a member before sending', async () => {
     render(
       <PreferencesProvider>
         <ChallengeDialog onClose={() => {}} onCreated={() => {}} />
       </PreferencesProvider>,
     )
     await userEvent.click(screen.getByRole('button', { name: '發出挑戰' }))
-    expect(screen.getByRole('alert')).toHaveTextContent('先選至少一位好友')
+    expect(screen.getByRole('alert')).toHaveTextContent('先選至少一位社員')
     expect(mocks.api.createChallenge).not.toHaveBeenCalled()
   })
 })
