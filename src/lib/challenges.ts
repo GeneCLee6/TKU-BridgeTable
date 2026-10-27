@@ -59,13 +59,15 @@ export const participantName = (t: Strings, p: ChallengePlayerView | undefined) 
 
 /** 8 副 · IMP · TKB（2/1）, with Best Hand and Just Declare when they are on */
 export const settingsLine = (t: Strings, c: ChallengeView) =>
-  [
-    t.challengeSettingsLine(c.boards, t.scorings[c.settings.scoring], t.robots[c.settings.robotKind]),
-    c.settings.bestHand && t.bestHand,
-    c.settings.justDeclare && t.justDeclare,
-  ]
-    .filter(Boolean)
-    .join(' · ')
+  [settingsBase(t, c), ...settingsOptions(t, c)].join(' · ')
+
+/** The boards, the scoring and the robots, without the options */
+export const settingsBase = (t: Strings, c: ChallengeView) =>
+  t.challengeSettingsLine(c.boards, t.scorings[c.settings.scoring], t.robots[c.settings.robotKind])
+
+/** The options that are on (Best Hand, Just Declare), which a challenge card shows as tags on a line of their own */
+export const settingsOptions = (t: Strings, c: ChallengeView) =>
+  [c.settings.bestHand && t.bestHand, c.settings.justDeclare && t.justDeclare].filter((x): x is string => !!x)
 
 /**
  * One-click rematch (`e7-t21`): once it ended, a participant who accepted can challenge the others
