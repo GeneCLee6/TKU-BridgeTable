@@ -20,13 +20,15 @@ import {
 import { AppError } from '../shared/messages.ts'
 import {
   DEAL_COUNTDOWN_MS,
+  DEFAULT_ROBOT_SPEED,
   fixedSeats,
   isRobotId,
   isRobotKind,
-  LAST_TRICK_MS,
   LIMITS,
   robotId,
   robotKindOf,
+  ROBOT_PACE,
+  slowestSpeed,
   SLOW_TURN_MS,
   soloTable,
   SUBSTITUTE_MS,
@@ -38,6 +40,7 @@ import {
   type PracticeReview,
   type PublicUser,
   type RobotKind,
+  type RobotSpeed,
   type ServerMessage,
   type TableAction,
   type TableChallenge,
@@ -107,13 +110,6 @@ export interface TableConfig {
 const CHAT_KEEP = 100
 /** Boards a table keeps for its History panel */
 const RECENT_KEEP = 30
-/**
- * How long robots wait before acting, so people can follow the play: a card glides to the middle
- * for 1 s (PACE in src/lib/motion.ts), and a finished trick stays on the table until its winner
- * leads again. Tuned 1.3x faster at the club president's request (was call 800, card 1400,
- * afterTrick 3000, answer 400).
- */
-const ROBOT_DELAY = { call: 600, card: 1050, afterTrick: 2300, answer: 300 }
 export const ROBOT_NAME = 'Robot'
 /** The most a robot brain may think per action before the rule robot answers instead (AC-6.5) */
 const THINK_LIMIT_MS = 2000
@@ -461,6 +457,14 @@ export class TableService implements TableApi {
     this.settled()
   }
 
+  async robotSpeed(userId: string, speed: RobotSpeed): Promise<void> {
+    const table = this.table
+    if (!table) return
+    this.setSpeed(userId, speed)
+    await this.save()
+    this.settled()
+  }
+
   async forget(userId: string): Promise<TableEntry | null> {
     const table = this.table
     if (!table) return null
@@ -488,6 +492,7 @@ export class TableService implements TableApi {
     for (const s of SEATS) if (table.controllers?.[s] === userId) delete table.controllers[s]
     if (table.names) delete table.names[userId]
     if (table.blocks) delete table.blocks[userId]
+    if (table.speeds) delete table.speeds[userId]
     this.offlineSince.delete(userId)
     this.sent.delete(userId)
     await this.save()
@@ -659,6 +664,23 @@ export class TableService implements TableApi {
     const table = this.table!
     this.name(person)
     table.blocks = { ...table.blocks, [person.id]: person.blocked }
+    this.setSpeed(person.id, person.robotSpeed)
+  }
+
+  /** Notes how fast a member wants the robots to play; only speeds other than the default are kept */
+  private setSpeed(userId: string, speed: RobotSpeed | undefined) {
+    const table = this.table!
+    if (speed && speed !== DEFAULT_ROBOT_SPEED) table.speeds = { ...table.speeds, [userId]: speed }
+    else if (table.speeds?.[userId]) {
+      delete table.speeds[userId]
+      if (!Object.keys(table.speeds).length) delete table.speeds
+    }
+  }
+
+  /** How fast the robots play here: the slowest of the people seated, so nobody is rushed */
+  private speed(table: Table): RobotSpeed {
+    const humans = SEATS.flatMap((s) => (table.seats[s] && !isRobotId(table.seats[s]) ? [table.seats[s]!] : []))
+    return slowestSpeed(humans.map((id) => table.speeds?.[id] ?? DEFAULT_ROBOT_SPEED))
   }
 
   private name(member: Named) {
@@ -1319,7 +1341,7 @@ export class TableService implements TableApi {
       table.outbox = [...(table.outbox ?? []), { record, event }]
       // A board played to the last card leaves that trick on the table for a moment first
       const playedOut = next.play.length === 52
-      table.dealAt = this.now() + (playedOut ? LAST_TRICK_MS : 0) + DEAL_COUNTDOWN_MS
+      table.dealAt = this.now() + (playedOut ? ROBOT_PACE[this.speed(table)].lastTrick : 0) + DEAL_COUNTDOWN_MS
       this.startBoardIfReady()
     }
     await this.save()
@@ -1407,12 +1429,13 @@ export class TableService implements TableApi {
     // A robot whose calls a member makes (seat control) waits for them; it still answers undo and claims
     const robotActs = (seat: Seat | null | undefined): seat is Seat => robot(seat) && isRobotId(actorOf(table, seat))
     const kindAt = (seat: Seat) => robotKindOf(table.seats[seat]!)
+    const pace = ROBOT_PACE[this.speed(table)]
 
     // Robots agree to undo requests, and accept a claim only if the cards make it good
     if (table.undo) {
       const answer = SEATS.find((s) => robot(s) && !sameSide(s, table.undo!.seat))
       if (!answer) return null
-      return { seat: answer, delay: ROBOT_DELAY.answer, decide: async () => ({ message: { type: 'undoRespond', accept: true } }) }
+      return { seat: answer, delay: pace.answer, decide: async () => ({ message: { type: 'undoRespond', accept: true } }) }
     }
     if (board.claim) {
       const answer = claimApprovers(board, board.claim.seat).find((s) => robot(s) && !board.claim!.accepted.includes(s))
@@ -1420,7 +1443,7 @@ export class TableService implements TableApi {
       const decide = async (brain: RobotBrain): Promise<RobotAnswer> => ({
         message: { type: 'claimRespond', accept: await brain.acceptsClaim(kindAt(answer), board, answer) },
       })
-      return { seat: answer, delay: ROBOT_DELAY.answer, decide }
+      return { seat: answer, delay: pace.answer, decide }
     }
     const turn = turnOf(board)
     if (!turn) return null
@@ -1430,14 +1453,14 @@ export class TableService implements TableApi {
         const bid = await brain.bid(kindAt(turn), board, turn)
         return { message: { type: 'call', call: bid.call, alert: bid.alert }, meaning: bid.meaning }
       }
-      return { seat: turn, delay: ROBOT_DELAY.call, decide }
+      return { seat: turn, delay: pace.call, decide }
     }
     const controller = controllerOf(board, turn)
     if (!robotActs(controller)) return null
     const trickJustEnded = board.play.length > 0 && board.play.length % 4 === 0
     return {
       seat: controller,
-      delay: trickJustEnded ? ROBOT_DELAY.afterTrick : ROBOT_DELAY.card,
+      delay: trickJustEnded ? pace.afterTrick : pace.card,
       decide: async (brain) => ({ message: { type: 'play', card: await brain.play(kindAt(controller), board, turn) } }),
     }
   }
@@ -1758,6 +1781,7 @@ export class TableService implements TableApi {
           ? (table.boardStartedAt ?? table.createdAt) + settings.boardMinutes * 60_000
           : null,
       waiting: waiting && { seat: waiting, since: table.turnSince ?? table.createdAt },
+      robotSpeed: this.speed(table),
     }
   }
 }
