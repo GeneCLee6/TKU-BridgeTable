@@ -256,10 +256,28 @@ function preemptOvercall(x: Suit, min: number): Rule {
   )
 }
 
+/**
+ * A light suit bid over a preempt in the direct seat (社長 2026-10-27, from the bidding study): 8–11
+ * points, the longest suit, five cards not vulnerable up to the four level, six vulnerable up to the
+ * three level. Over the 一高弱二 2♦ any suit may be bid (`anySuit`), diamonds included.
+ */
+function lightOvercall(x: Suit, anySuit = false): Rule {
+  const minLength = (ctx: Ctx) => (ctx.weVul ? 6 : 5)
+  return rule(
+    onlyIf((ctx) => direct(ctx) && (anySuit || x !== theirOpening(ctx)), cheapestIn(x)),
+    (ctx) => ({ len: length(x, minLength(ctx)), hcp: [8, 11] }),
+    (h, ctx) => {
+      const call = cheapest(ctx, x)
+      if (!call || levelOf(call) > (ctx.weVul ? 3 : 4)) return false
+      return longest(h, anySuit ? undefined : unbid(ctx)) === x && h.len[x] >= minLength(ctx) && h.hcp >= 8 && h.hcp <= 11
+    },
+  )
+}
+
 const theirStop = (ctx: Ctx) => (isSuit(theirOpening(ctx)) ? { stop: { [theirOpening(ctx)]: 'stop' as const } } : {})
 const stops = (h: Hand, ctx: Ctx) => isSuit(theirOpening(ctx)) && stopper(h, theirOpening(ctx) as Suit)
 
-/** A natural weak two (2♦ with diamonds, 2♥, 2♠): 對抗技光 for the numbers, from 12 points (待社團確認) */
+/** A natural weak two (2♦ with diamonds, 2♥, 2♠): 對抗技光 for the numbers, from 12 points (待社團確認); lighter in the direct seat */
 const overWeakTwo: Book = {
   only: (ctx) => silent(ctx) && (direct(ctx) || reopening(ctx)) && openingKind(ctx) === 'weak',
   rules: [
@@ -275,6 +293,7 @@ const overWeakTwo: Book = {
     ),
     strongDouble(17),
     ...ORDER.map((x) => preemptOvercall(x, 12)),
+    ...ORDER.map((x) => lightOvercall(x)),
     rule('X', takeoutSpec(12), (h, ctx) => h.hcp >= 12 && takeoutShape(h, ctx)),
     pass(),
   ],
@@ -295,17 +314,19 @@ const overOneMajor: Book = {
         (h, ctx) => !!cheapest(ctx, x) && levelOf(cheapest(ctx, x)!) <= 3 && longest(h) === x && h.len[x] >= 5 && h.hcp >= 12 && goodSuit(h, x),
       ),
     ),
+    ...ORDER.map((x) => lightOvercall(x, true)),
     pass(),
   ],
 }
 
-/** Three of a suit: takeout from 13 (17+ any shape), 3NT 16–21 with a stopper, a good suit from 12 (one level up 15) */
+/** Three of a suit: takeout from 13 (17+ any shape), 3NT 16–21 with a stopper, a good suit from 13 (the four level a good six from 15), 8–11 in the direct seat */
 const overThree: Book = {
   only: (ctx) => silent(ctx) && (direct(ctx) || reopening(ctx)) && openingKind(ctx) === 'three',
   rules: [
     rule('3N', (ctx) => ({ hcp: [16, 21], ...theirStop(ctx) }), (h, ctx) => h.hcp >= 16 && h.hcp <= 21 && stops(h, ctx) && h.shape[0] <= 6),
     strongDouble(17),
     ...ORDER.map((x) => preemptOvercall(x, 13)),
+    ...ORDER.map((x) => lightOvercall(x)),
     rule('X', takeoutSpec(13), (h, ctx) => h.hcp >= 13 && takeoutShape(h, ctx)),
     pass(),
   ],

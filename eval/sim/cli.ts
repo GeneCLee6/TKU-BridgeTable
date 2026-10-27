@@ -274,8 +274,9 @@ async function replay(args: Map<string, string>) {
 
 /**
  * A practice deal must not teach against the club's handbook: over a preempt it asks for a good
- * suit and 12 points or more (「如何對抗技光」, ROBOT.md §6.8), so lighter overcalls the simulation
- * likes are left out of the club's set
+ * suit and 12 points or more (「如何對抗技光」), and since 2026-10-27 the light direct overcall (8–11,
+ * five cards not vulnerable, six vulnerable, ROBOT.md §6.8) that TKB now makes itself. A lighter suit
+ * bid the simulation likes where TKB still passes is outside both, so it is left out of the club's set
  */
 function clubBook(system: string, e: Example): boolean {
   if (system !== 'tku' || e.category !== 'preempt' || !/^[1-7][SHDC]$/.test(e.alternative)) return true
