@@ -226,5 +226,8 @@ export function cardOutcomes(position: DdPosition, scores: Map<Card, number>, le
   return outcomes
 }
 
-/** '=', '+1', '−2' as BBO writes it on the card */
-export const outcomeLabel = (diff: number) => (diff === 0 ? '=' : diff > 0 ? `+${diff}` : `−${-diff}`)
+/**
+ * What goes on the card: '=' just made, otherwise the number of over- or undertricks without a sign,
+ * as BBO writes it; the colour (`CardMark.makes`) says which, and `CardMark.label` says it in words
+ */
+export const outcomeLabel = (diff: number) => (diff === 0 ? '=' : String(Math.abs(diff)))

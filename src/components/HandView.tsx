@@ -232,6 +232,7 @@ export function HandView({
                 aria-current={card === chosen || undefined}
                 disabled={!canPlay.has(card)}
                 onClick={() => onPlay?.(card)}
+                title={marks?.has(card) ? `${cardName(card, t)} · ${marks.get(card)!.label}` : undefined}
                 aria-label={
                   gone.has(card) ? t.playedCard(cardName(card, t)) : marks?.has(card) ? `${cardName(card, t)} · ${marks.get(card)!.label}` : cardName(card, t)
                 }
