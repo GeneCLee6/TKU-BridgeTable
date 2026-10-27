@@ -314,6 +314,13 @@ const TableTitle = styled.div`
   & > svg { color: ${({ theme }) => theme.table.feltMuted}; }
 `
 
+/** The round buttons under the table's name: always one row of their own, never split up */
+const TitleTools = styled.span`
+  display: flex;
+  flex-basis: 100%;
+  gap: 6px;
+`
+
 /** A small round button on the felt: the host's settings, and the card style and deck colours */
 const RoundButton = styled.button`
   display: inline-flex;
@@ -1137,41 +1144,43 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
                 </>
               )}
               {/* Card faces or text, two or four colours: here at the table, not in the header (社長 #8) */}
-              <RoundButton
-                type="button"
-                aria-label={cardStyle === 'cards' ? t.styleToText : t.styleToCards}
-                title={cardStyle === 'cards' ? t.styleToText : t.styleToCards}
-                onClick={(event) => {
-                  event.stopPropagation()
-                  toggleCardStyle()
-                }}
-              >
-                {cardStyle === 'cards' ? <List size={16} aria-hidden /> : <Layers size={16} aria-hidden />}
-              </RoundButton>
-              <RoundButton
-                type="button"
-                aria-label={deck === 'two' ? t.deckToFour : t.deckToTwo}
-                title={deck === 'two' ? t.deckToFour : t.deckToTwo}
-                onClick={(event) => {
-                  event.stopPropagation()
-                  toggleDeck()
-                }}
-              >
-                <Palette size={16} aria-hidden />
-              </RoundButton>
-              {canConfigure && (
+              <TitleTools>
                 <RoundButton
                   type="button"
-                  aria-label={t.tableSettings}
-                  title={t.tableSettings}
+                  aria-label={cardStyle === 'cards' ? t.styleToText : t.styleToCards}
+                  title={cardStyle === 'cards' ? t.styleToText : t.styleToCards}
                   onClick={(event) => {
                     event.stopPropagation()
-                    setEditingSettings(true)
+                    toggleCardStyle()
                   }}
                 >
-                  <Settings size={16} aria-hidden />
+                  {cardStyle === 'cards' ? <List size={16} aria-hidden /> : <Layers size={16} aria-hidden />}
                 </RoundButton>
-              )}
+                <RoundButton
+                  type="button"
+                  aria-label={deck === 'two' ? t.deckToFour : t.deckToTwo}
+                  title={deck === 'two' ? t.deckToFour : t.deckToTwo}
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    toggleDeck()
+                  }}
+                >
+                  <Palette size={16} aria-hidden />
+                </RoundButton>
+                {canConfigure && (
+                  <RoundButton
+                    type="button"
+                    aria-label={t.tableSettings}
+                    title={t.tableSettings}
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      setEditingSettings(true)
+                    }}
+                  >
+                    <Settings size={16} aria-hidden />
+                  </RoundButton>
+                )}
+              </TitleTools>
             </TableTitle>
           </InfoRow>
         </Area>
