@@ -62,3 +62,13 @@ export function formatDay(date: string, lang: Lang, words: { today: string; yest
     timeZone: 'UTC',
   })
 }
+
+/**
+ * A count on a chip or a tab (`Chips.tsx`), never much wider than four characters: as it is up
+ * to 9999, then compact in the language's own words (1.2萬, 12k, 120萬), so a growing count
+ * doesn't push the chips beside it
+ */
+export function formatCount(n: number, lang: Lang = 'zh'): string {
+  if (n < 10_000) return String(n)
+  return new Intl.NumberFormat(LOCALE[lang], { notation: 'compact', maximumSignificantDigits: 2 }).format(n)
+}

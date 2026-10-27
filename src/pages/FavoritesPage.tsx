@@ -9,6 +9,7 @@ import {
   type HistoryQuery,
 } from '../../shared/history-query.ts'
 import type { Favorite, FavoritesPage as Page } from '../../shared/protocol.ts'
+import { Chip, ChipCount, ChipLabel, ChipStrip } from '../components/Chips.tsx'
 import { FavoriteButton } from '../components/FavoriteButton.tsx'
 import { FavoriteNotes } from '../components/FavoriteNotes.tsx'
 import { FilterChips, HistoryFilters } from '../components/HistoryFilters.tsx'
@@ -39,24 +40,7 @@ const Toolbar = styled.div`
   margin-bottom: 16px;
 `
 
-const Pill = styled.button<{ $active: boolean }>`
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 32px;
-  padding: 0 12px;
-  border: 1px solid ${({ theme }) => theme.colors.border};
-  border-radius: ${({ theme }) => theme.radius.sm};
-  background: ${({ theme, $active }) => ($active ? theme.colors.primary : theme.colors.surface)};
-  color: ${({ theme, $active }) => ($active ? theme.colors.onPrimary : theme.colors.text)};
-  font-size: 14px;
-  font-weight: 600;
-`
-
-const TagRow = styled.div`
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
+const TagRow = styled(ChipStrip)`
   margin-bottom: 16px;
 `
 
@@ -157,7 +141,7 @@ export function FavoritesPage() {
     <PageMain>
       <PageTitle>{t.favoritesTitle}</PageTitle>
       <Toolbar>
-        <Pill
+        <Chip
           type="button"
           $active={showFilters}
           aria-expanded={showFilters}
@@ -165,8 +149,8 @@ export function FavoritesPage() {
         >
           <SlidersHorizontal size={16} aria-hidden />
           {t.filters}
-          {chips.length > 0 && ` (${chips.length})`}
-        </Pill>
+          {chips.length > 0 && <ChipCount n={chips.length} />}
+        </Chip>
         <SortSelect
           value={query.sort}
           options={HISTORY_SORTS}
@@ -176,26 +160,27 @@ export function FavoritesPage() {
       </Toolbar>
       {tags.length > 0 && (
         <TagRow role="group" aria-label={t.filterTag}>
-          <Pill
+          <Chip
             type="button"
             $active={!query.tag}
             aria-pressed={!query.tag}
             onClick={() => update({ tag: undefined })}
           >
             {t.favoriteTagsAll}
-          </Pill>
+          </Chip>
           {tags.map(({ tag, count }) => {
             const on = query.tag?.toLowerCase() === tag.toLowerCase()
             return (
-              <Pill
+              <Chip
                 key={tag}
                 type="button"
                 $active={on}
                 aria-pressed={on}
                 onClick={() => update({ tag: on ? undefined : tag })}
               >
-                {tag} ({count})
-              </Pill>
+                <ChipLabel title={tag}>{tag}</ChipLabel>
+                <ChipCount n={count} />
+              </Chip>
             )
           })}
         </TagRow>

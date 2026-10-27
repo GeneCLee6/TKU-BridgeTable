@@ -56,7 +56,8 @@ const Form = styled.form`
 
 const Who = styled.div`
   display: flex;
-  align-items: center;
+  /* The picture beside the first line, not the middle of a long hint on a phone */
+  align-items: flex-start;
   gap: ${({ theme }) => theme.space(3)};
 
   & a { color: ${({ theme }) => theme.colors.primary}; font-size: 14px; font-weight: 600; }
