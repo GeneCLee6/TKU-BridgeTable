@@ -1,4 +1,4 @@
-import { ArrowLeft, BookOpen, History, Mail, MessageSquare, Users, X } from 'lucide-react'
+import { ArrowLeft, BookOpen, History, Mail, MessageSquare, Users } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from 'react'
 import styled, { css, keyframes } from 'styled-components'
 import {
@@ -36,9 +36,10 @@ import { ContractResult } from './Suit.tsx'
  *
  * On a phone (社長 2026-10-27) the strip is a tab bar fixed to the foot of the screen, above the
  * iPhone's home bar, and a tab opens its panel as a sheet sliding up from the bar, over a dimmed
- * page that stays still (`useScrollLock`). The sheet closes from its tab, its ✕, a tap on the
- * dimmed page, Esc, or a pull down on its head. At a table the bar is lower (`compact`) so the
- * hand keeps its room. A phone always starts with the sheet closed.
+ * page that stays still (`useScrollLock`). The sheet closes from its tab, a tap on the dimmed
+ * page, Esc, or a pull down on its head; it has no ✕ either, the tab bar is right below it. At a
+ * table the bar is lower (`compact`) so the hand keeps its room. A phone always starts with the
+ * sheet closed.
  */
 
 export type PanelTab = 'chat' | 'people' | 'messages' | 'history' | 'conventions'
@@ -221,8 +222,10 @@ const ContentHead = styled.div`
   font-weight: 800;
   color: ${({ theme }) => theme.colors.primaryStrong};
 
+  /* The grip above the title, and room below it before the line */
   ${mobile} {
-    padding: 12px 6px 0 16px;
+    min-height: 0;
+    padding: 20px 16px 12px;
     touch-action: none;
     user-select: none;
   }
@@ -364,7 +367,6 @@ export function SidePanel({
           <ContentHead
             {...(phone && {
               onPointerDown: (e: PointerEvent<HTMLDivElement>) => {
-                if ((e.target as HTMLElement).closest('button')) return
                 pullFrom.current = e.clientY
                 e.currentTarget.setPointerCapture(e.pointerId)
               },
@@ -385,11 +387,6 @@ export function SidePanel({
           >
             {phone && <Grip aria-hidden />}
             <span>{label[open]}</span>
-            {phone && (
-              <Button type="button" $variant="ghost" $size="sm" aria-label={t.close} title={t.close} onClick={() => show(null)}>
-                <X size={20} aria-hidden />
-              </Button>
-            )}
           </ContentHead>
           <Body>
             {open === 'chat' && chat}

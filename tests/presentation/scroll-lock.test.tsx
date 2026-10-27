@@ -63,7 +63,7 @@ describe('the dock on a phone', () => {
       </PreferencesProvider>,
     )
 
-  it('starts closed, opens a sheet over a still page, and closes from the dimmed page or ✕', async () => {
+  it('starts closed, opens a sheet over a still page, and closes from the dimmed page or its tab, with no ✕', async () => {
     phone()
     window.localStorage.setItem('tku-bridge-table:dock', JSON.stringify({ lobby: 'people' }))
     dock()
@@ -79,7 +79,8 @@ describe('the dock on a phone', () => {
     expect(locked()).toBe(false)
 
     await userEvent.click(screen.getByRole('tab', { name: '社員' }))
-    await userEvent.click(screen.getByRole('button', { name: '關閉' }))
+    expect(screen.queryByRole('button', { name: '關閉' })).toBeNull()
+    await userEvent.click(screen.getByRole('tab', { name: '社員' }))
     expect(screen.queryByRole('tabpanel')).toBeNull()
     expect(locked()).toBe(false)
     // A phone does not remember the sheet: the stored tab is the computer's
