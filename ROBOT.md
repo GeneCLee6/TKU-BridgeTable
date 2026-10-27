@@ -526,5 +526,6 @@ const book: Book = {
 - **TKB 是確定的**：沒有亂數、不刻意失誤，同一個局面一定做同一件事；撤回重來、重新載入、兩個人打同一副挑戰牌都一樣。
 - **舊資料照讀**：B5、B6 做過四個等級（初學者、大專、公開組、橋士組）與刻意失誤，這次依社長的決定拿掉。TKB 就是當時的「大專」（公開組打得跟大專一樣；初學者只是把約定拿掉、不推論、不打信號，再加 15% 刻意失誤，評測量出它比較弱幾乎全是失誤造成的）。舊的 id（`robot:N`、`robot:gib:N`、有等級的 `robot:gib:beginner:N`）都讀成 TKB；存下來的牌桌設定、挑戰設定與紀錄裡的 `robotLevel` 載入時忽略。
 - **大腦介面**（`brain.ts` 的 `RobotBrain`）留給 TKB Adv：伺服器等它思考、兩秒沒答就改問規則機器人、局面已經變了就丟掉它的回答（ARCHITECTURE.md §5.1）。
+- **出牌速度**（社長 2026-10-27）：TKB 想得很快，等多久才出只是為了讓人看得清楚。社員在「我的帳號」選**極快**（預設，出牌 0.4 秒、一墩打完 1 秒後領下一墩）、**快**、**較慢**（之前的節奏），同桌有幾位真人時照最慢的那位。只改等待的時間，叫什麼、出什麼不變；思考時間的上限（兩秒）也照舊，大腦想得比延遲久時就等它想完。時間表見 DESIGN.md「節奏」，伺服器怎麼決定見 ARCHITECTURE.md §5.1。
 
-**測試**：`tests/engine/robot.test.ts`（id 的讀法）；`tests/worker/tku-system.test.ts`（誰能用淡江制度的 TKB）；`tests/worker/service.test.ts` 的「TKB in two systems」（放 TKB、舊頁面送來的等級忽略、牌桌設定的等級拒絕、舊的 id 與設定載入後照打）；`tests/worker/challenge-table.test.ts`（兩個人打一樣的牌得到一樣的機器人、有等級的舊挑戰照打）；`tests/presentation/table.test.tsx`（名牌的 TKB 與制度）。
+**測試**：`tests/engine/robot.test.ts`（id 的讀法）；`tests/worker/tku-system.test.ts`（誰能用淡江制度的 TKB）；`tests/worker/service.test.ts` 的「TKB in two systems」（放 TKB、舊頁面送來的等級忽略、牌桌設定的等級拒絕、舊的 id 與設定載入後照打）；`tests/worker/challenge-table.test.ts`（兩個人打一樣的牌得到一樣的機器人、有等級的舊挑戰照打）；`tests/presentation/table.test.tsx`（名牌的 TKB 與制度）；`tests/worker/service.test.ts` 的「robot speed」（預設極快、改了馬上生效、同桌取最慢、不認得的速度拒絕）；`tests/presentation/robot-speed.test.tsx`（每段速度牌都先落下、一墩看得到，「我的帳號」的設定）。

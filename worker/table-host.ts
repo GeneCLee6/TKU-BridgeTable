@@ -1,6 +1,6 @@
 import { parseClientMessage } from '../shared/message-guard.ts'
 import { AppError, type MessageCode } from '../shared/messages.ts'
-import { isTableAction, TABLE_SOCKET_REFUSED, type TableAction, type TableSettings } from '../shared/protocol.ts'
+import { isTableAction, TABLE_SOCKET_REFUSED, type RobotSpeed, type TableAction, type TableSettings } from '../shared/protocol.ts'
 import type { Seat } from '../shared/cards.ts'
 import { ClubError } from './errors.ts'
 import { crashEntry, type Logger } from './log.ts'
@@ -210,6 +210,9 @@ export class TableHost implements TableRpc {
   }
   blocked(userId: string, blocked: string[]) {
     return this.ifTable(undefined, (table) => table.blocked(userId, blocked))
+  }
+  robotSpeed(userId: string, speed: RobotSpeed) {
+    return this.ifTable(undefined, (table) => table.robotSpeed(userId, speed))
   }
   close() {
     return this.ifTable(undefined, (table) => table.close())

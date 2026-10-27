@@ -1,7 +1,7 @@
 import type { TableStats } from './metrics.ts'
 import type { Seat } from '../shared/cards.ts'
 import { AppError, type MessageCode, type MessageParams } from '../shared/messages.ts'
-import type { BoardRecord, TableAction, TableMode, TableSettings } from '../shared/protocol.ts'
+import type { BoardRecord, RobotSpeed, TableAction, TableMode, TableSettings } from '../shared/protocol.ts'
 import type { Room } from '../shared/team-match.ts'
 import { ClubError } from './errors.ts'
 import type { EventReport } from './modes.ts'
@@ -59,6 +59,8 @@ export interface Person {
   id: string
   username: string
   blocked: string[]
+  /** How fast they want the robots to play (出牌速度); the default when left out */
+  robotSpeed?: RobotSpeed
 }
 
 /** A member a table shows without them being there (invited) */
@@ -121,6 +123,8 @@ export interface TableApi {
   presence(userId: string, online: boolean): Promise<TableEntry | null>
   /** A member at the table blocked or unblocked someone: the chat they see changes */
   blocked(userId: string, blocked: string[]): Promise<void>
+  /** A member at the table changed how fast they want the robots to play (出牌速度) */
+  robotSpeed(userId: string, speed: RobotSpeed): Promise<void>
   /** An account was deleted: the table forgets them (invitations, the seat kept for them, the name) */
   forget(userId: string): Promise<TableEntry | null>
   /** The table's challenge ended: it closes, unless its participant is still sitting after their last board */
@@ -256,6 +260,9 @@ class RemoteTable implements TableApi {
   }
   blocked(userId: string, blocked: string[]) {
     return this.call(this.rpc.blocked(userId, blocked))
+  }
+  robotSpeed(userId: string, speed: RobotSpeed) {
+    return this.call(this.rpc.robotSpeed(userId, speed))
   }
   forget(userId: string) {
     return this.call(this.rpc.forget(userId))

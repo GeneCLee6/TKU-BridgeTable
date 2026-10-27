@@ -4,7 +4,7 @@ import { ROBOT_PREFIX, type DirectMessage, type NotificationsView, type TableVie
 import type { TeamMatchView } from '../../../shared/team-match.ts'
 import { usePreferences } from '../../state/PreferencesContext.tsx'
 import { INVITE_KINDS } from '../invites.ts'
-import { PACE } from '../motion.ts'
+import { paceOf } from '../motion.ts'
 import type { SoundEvent, SoundPrefs } from './events.ts'
 import { chatShowing, conversationShowing, cue, cueNews, setTableActivity, trickTaken, unlockAudio, type CueOptions } from './player.ts'
 
@@ -117,6 +117,7 @@ export function useTableSounds(input: TableSoundInput) {
     if (before === now) return
     const play = (event: SoundEvent, options: CueOptions = {}) => cue(event, prefs, { kibitzing, ...options })
     const board = table.board
+    const landsAfterS = paceOf(table.robotSpeed).landsAfterS
 
     // A new board: the shuffle, and nothing else from it yet
     if (now.boardNo !== before.boardNo) {
@@ -124,13 +125,13 @@ export function useTableSounds(input: TableSoundInput) {
       return
     }
 
-    // A card: it sounds as it lands, when the glide is all but done (PACE). Several at once (a
+    // A card: it sounds as it lands, when the glide is all but done (the table's pace, `paceOf`). Several at once (a
     // reconnection, two robot cards together) make one sound
     const carded = now.played > before.played
     if (carded) {
       const seat = input.lastPlayer
       const mine = !!me && (seat === me || (board?.contract?.declarer === me && seat === partnerOf(me)))
-      play(mine ? 'card' : 'otherCard', { delay: PACE.landsAfterS })
+      play(mine ? 'card' : 'otherCard', { delay: landsAfterS })
     }
 
     if (now.collecting && now.collecting !== before.collecting) {
@@ -157,7 +158,7 @@ export function useTableSounds(input: TableSoundInput) {
     // The board is over: after the last card lands
     if (now.finished && !before.finished) {
       const event = resultEvent(table)
-      if (event) play(event, { delay: carded ? PACE.landsAfterS + 0.25 : 0 })
+      if (event) play(event, { delay: carded ? landsAfterS + 0.25 : 0 })
     }
 
     // Someone sat down at the member's table (not a robot, not the member)

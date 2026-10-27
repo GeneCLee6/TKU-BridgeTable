@@ -381,7 +381,11 @@ export class Club extends DurableObject<Env> implements Connections {
     }
     if (route === 'POST /api/account/preferences') {
       const b = await body()
-      return json({ user: await this.service.setAccountPreferences(user.id, { friendOnlineNotice: b.friendOnlineNotice, bookProfile: b.bookProfile }) })
+      return json({ user: await this.service.setAccountPreferences(user.id, {
+          friendOnlineNotice: b.friendOnlineNotice,
+          bookProfile: b.bookProfile,
+          robotSpeed: b.robotSpeed,
+        }) })
     }
     if (route === 'PATCH /api/account/profile') return json({ user: await this.service.setProfile(user.id, await body()) })
     // The member's own picture (e1-t34): the bytes as the browser cropped and shrank them

@@ -29,7 +29,7 @@ import type {
   TablePractice,
   TableSettings,
 } from '../shared/protocol.ts'
-import { TABLE_REQUEST_MS } from '../shared/protocol.ts'
+import { TABLE_REQUEST_MS, type RobotSpeed } from '../shared/protocol.ts'
 import type { EventReport, PracticeTableState } from './modes.ts'
 import { isOpenChallenge, type ChallengeTraveller, type ChallengeView } from '../shared/challenge.ts'
 import type { DealSource } from '../shared/deal-source.ts'
@@ -98,6 +98,8 @@ export interface Table {
   names?: Record<string, string>
   /** Whom each member at the table blocked, for the chat each of them sees (`chatFor`) */
   blocks?: Record<string, string[]>
+  /** How fast each member at the table wants the robots to play (出牌速度), when not the default */
+  speeds?: Record<string, RobotSpeed>
   /** Finished boards whose record the club has not taken yet; offered again until it does (§5.10) */
   outbox?: { record: BoardRecord; event: EventReport | null }[]
   /**
