@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import styled, { css } from 'styled-components'
+import styled from 'styled-components'
 import {
   HISTORY_MODES,
   historyQueryString,
@@ -12,6 +12,7 @@ import { api } from '../lib/api.ts'
 import { formatDay } from '../lib/format.ts'
 import { groupQuery, RECORD_GROUPINGS, type RecordGrouping } from '../lib/lists.ts'
 import { usePreferences } from '../state/PreferencesContext.tsx'
+import { SegmentButton, Segmented } from './Chips.tsx'
 import { ActionButton } from './ui.tsx'
 
 /**
@@ -24,29 +25,6 @@ import { ActionButton } from './ui.tsx'
  * then hands the search for that group's boards to its child, which lists them as its page does.
  */
 
-const Switch = styled.div`
-  display: inline-flex;
-  border: 1px solid ${({ theme }) => theme.colors.border};
-  border-radius: ${({ theme }) => theme.radius.pill};
-  overflow: hidden;
-`
-
-const SwitchButton = styled.button<{ $active: boolean }>`
-  min-height: 32px;
-  padding: 0 12px;
-  border: 0;
-  background: ${({ theme }) => theme.colors.surface};
-  color: ${({ theme }) => theme.colors.text};
-  font-size: 14px;
-  font-weight: 600;
-  ${({ $active, theme }) =>
-    $active &&
-    css`
-      background: ${theme.colors.primary};
-      color: ${theme.colors.onPrimary};
-    `}
-`
-
 /** 「依日期｜依主題｜不分組」 */
 export function GroupingSwitch({
   value,
@@ -57,9 +35,10 @@ export function GroupingSwitch({
 }) {
   const { t } = usePreferences()
   return (
-    <Switch role="group" aria-label={t.groupBy}>
+    <Segmented role="group" aria-label={t.groupBy}>
       {RECORD_GROUPINGS.map((g) => (
-        <SwitchButton
+        <SegmentButton
+          $small
           key={g}
           type="button"
           $active={value === g}
@@ -67,9 +46,9 @@ export function GroupingSwitch({
           onClick={() => onChange(g)}
         >
           {t.groupings[g]}
-        </SwitchButton>
+        </SegmentButton>
       ))}
-    </Switch>
+    </Segmented>
   )
 }
 

@@ -144,7 +144,7 @@ describe('history filters and sorting (e4-t16…t21)', () => {
       '牌號：7',
       '清除全部',
     ])
-    expect(screen.getByRole('button', { name: '篩選 (4)' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '篩選 4' })).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: '移除「合約：4 黑桃」' }))
     expect(address.search).toBe('?scope=all&partner=u-ben&vul=Both&boardNo=7&sort=score_desc&size=50&group=none')
     // Clearing keeps the scope, the sorting and the page size: they are not conditions
@@ -168,7 +168,7 @@ describe('history filters and sorting (e4-t16…t21)', () => {
       // The chips show what is set; the filters themselves stay folded until asked for
       expect(await screen.findByText('成局')).toBeInTheDocument()
       expect(screen.queryByRole('combobox', { name: '結果' })).not.toBeInTheDocument()
-      const toggle = screen.getByRole('button', { name: '篩選 (2)' })
+      const toggle = screen.getByRole('button', { name: '篩選 2' })
       expect(toggle).toHaveAttribute('aria-expanded', 'false')
       await user.click(toggle)
       expect(screen.getByRole('combobox', { name: '結果' })).toHaveValue('down')

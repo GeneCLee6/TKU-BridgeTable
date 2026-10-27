@@ -32,6 +32,11 @@ const Head = styled.div`
   margin-bottom: 8px;
 `
 
+/** The intro, kept off the list below it (it touched the card on a phone) */
+const Intro = styled(Muted)`
+  margin-bottom: 16px;
+`
+
 const Tools = styled.div`
   display: flex;
   justify-content: flex-end;
@@ -131,7 +136,7 @@ export function MatchesPage() {
           {t.teamMatch.create}
         </Button>
       </Head>
-      <Muted>{t.teamMatch.intro}</Muted>
+      <Intro>{t.teamMatch.intro}</Intro>
       {error && <ErrorText role="alert">{error}</ErrorText>}
       {shown === null ? (
         !error && <Muted>{t.loading}</Muted>

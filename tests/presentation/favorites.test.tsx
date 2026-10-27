@@ -141,7 +141,7 @@ describe('「我的收藏」 (e4-t26)', () => {
     )
     expect(await screen.findByText('首攻要攻黑桃')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: '第 1 桌 #9' })).toHaveAttribute('href', '/history/b2')
-    await user.click(screen.getByRole('button', { name: '首攻 (1)' }))
+    await user.click(screen.getByRole('button', { name: '首攻 1' }))
     await waitFor(() => expect(mocks.api.favorites).toHaveBeenLastCalledWith(expect.objectContaining({ tag: '首攻' })))
     await waitFor(() => expect(screen.queryByRole('link', { name: '第 1 桌 #9' })).not.toBeInTheDocument())
     // The tag shows as a removable chip like the other conditions
