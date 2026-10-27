@@ -55,3 +55,15 @@ export function sortForDisplay(cards: readonly Card[], order: readonly Suit[]): 
     (a, b) => order.indexOf(suitOf(a)) - order.indexOf(suitOf(b)) || rankValue(rankOf(b)) - rankValue(rankOf(a)),
   )
 }
+
+/**
+ * The box a trick takes for cards `w` wide: a cross a little over three cards wide, or `tall`, with
+ * the left and right cards drawn in between the top and bottom ones, only a little over two wide.
+ * A phone with dummy on the left or right uses the tall one, so the trick sits on the table
+ * instead of against the side seats, in the height the phone has to spare (社長 2026-10-27).
+ */
+export function trickBox(w: number, tall = false) {
+  return tall
+    ? { width: Math.round(w * 2.2), height: Math.round(w * CARD_RATIO * 3.1) }
+    : { width: Math.round(w * 3.1), height: Math.round(w * CARD_RATIO * 2.3) }
+}

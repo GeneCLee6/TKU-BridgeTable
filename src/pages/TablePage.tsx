@@ -36,7 +36,7 @@ import { TrickArea, TrickSpace, type CardOrigin, type Position } from '../compon
 import { TrickPile } from '../components/TrickPile.tsx'
 import { Button, Muted, PageMain } from '../components/ui.tsx'
 import { spokenContract } from '../lib/announce.ts'
-import { CARD_SCALE, sortForDisplay, suitOrder } from '../lib/cards.ts'
+import { CARD_SCALE, sortForDisplay, suitOrder, trickBox } from '../lib/cards.ts'
 import { auctionBoxHeight, biddingBoxHeight, handHeight, type Orientation } from '../lib/measure.ts'
 import { PACE, paceOf } from '../lib/motion.ts'
 import { useTableSounds } from '../lib/sound/hooks.ts'
@@ -487,16 +487,19 @@ const clamp = (min: number, value: number, max: number) => Math.round(Math.max(m
 
 /** The felt's gap between columns on a phone */
 const PHONE_GAP = 6
+/** On a phone with a side dummy, the felt kept clear on each side of the trick */
+const PHONE_TRICK_MARGIN = 14
 
 /**
  * On a phone, a face-up dummy on the left or right is laid out by suit, one overlapped row per
  * suit as on a computer, instead of lying on its side (社長 #4). The card width is the largest
  * that lets dummy's longest suit (as dealt, so it does not change during the play) fit beside the
  * trick; your own hand keeps its size. `otherSide` is the width of the seat on the other side.
+ * The trick is then the tall one (`trickBox`), with some felt on either side of it.
  */
 function phoneDummySizes(feltWidth: number, bottom: number, trick: number, longest: number, otherSide: number) {
   const fit = (w: number) => {
-    const room = feltWidth - 2 * PHONE_GAP - otherSide - Math.round(w * 3.1)
+    const room = feltWidth - 2 * PHONE_GAP - otherSide - trickBox(w, true).width - 2 * PHONE_TRICK_MARGIN
     return { trick: w, width: clamp(30, room / (0.47 * (Math.max(1, longest) - 1) + 1), bottom * 0.9) }
   }
   // The trick keeps its size unless dummy's cards would get much smaller than your own
@@ -1048,9 +1051,10 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
         origin={origin}
         leaving={trickTable.leaving}
         pace={pace}
+        tall={!!dummySizes}
       />
     ) : (
-      <TrickSpace $w={trickWidth} />
+      <TrickSpace $w={trickWidth} $tall={!!dummySizes} />
     )
 
   const center = () => {
