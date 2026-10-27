@@ -160,8 +160,8 @@ describe('double-dummy mode: a point of the play as DDS input', () => {
 
   it('writes the result as BBO does', () => {
     expect(outcomeLabel(0)).toBe('=')
-    expect(outcomeLabel(2)).toBe('+2')
-    expect(outcomeLabel(-1)).toBe('−1')
+    expect(outcomeLabel(2)).toBe('2')
+    expect(outcomeLabel(-1)).toBe('1')
   })
 })
 

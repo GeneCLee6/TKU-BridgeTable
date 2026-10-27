@@ -7,6 +7,7 @@ export const REPLAY_CARD_MS = 550
  * BBO's movie controls for a finished board: one step is one trick. "Next" plays the four cards of
  * the next trick one after another, a moment apart, and the controls wait until the trick is
  * complete; "previous" goes straight back to the trick before. `step` is the number of cards shown.
+ * `nextCard` / `prevCard` move one card instead (double-dummy mode, as BBO's movie does).
  */
 export function useTrickReplay(total: number, delay = REPLAY_CARD_MS) {
   const [step, setStep] = useState(0)
@@ -41,6 +42,13 @@ export function useTrickReplay(total: number, delay = REPLAY_CARD_MS) {
     prev: () => {
       if (playing) return
       jump((Math.ceil(step / 4) - 1) * 4)
+    },
+    /** Double-dummy mode steps one card at a time, so every hand gets its turn to be analysed */
+    nextCard: () => {
+      if (!playing) jump(step + 1)
+    },
+    prevCard: () => {
+      if (!playing) jump(step - 1)
     },
     start: () => jump(0),
     end: () => jump(total),
