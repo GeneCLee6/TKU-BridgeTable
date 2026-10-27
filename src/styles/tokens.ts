@@ -169,6 +169,8 @@ export const layout = {
   headerHeight: '56px',
   contentMax: '1080px',
   sidePanelWidth: '300px',
+  /** The open panel of the right-hand dock (SidePanel), the same for every tab */
+  dockPanelWidth: '420px',
   mobileBreakpoint: '900px',
   /** Tablets (e3-t36): above the phone layout, up to this width */
   tabletBreakpoint: '1200px',

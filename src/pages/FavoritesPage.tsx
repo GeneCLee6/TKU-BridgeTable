@@ -1,17 +1,24 @@
-import { ChevronLeft, ChevronRight, SlidersHorizontal } from 'lucide-react'
+import { SlidersHorizontal } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import styled from 'styled-components'
-import { HISTORY_SORTS, historyQueryString, readHistoryQuery, type HistoryQuery } from '../../shared/history-query.ts'
+import {
+  HISTORY_SORTS,
+  historyQueryString,
+  readHistoryQuery,
+  type HistoryQuery,
+} from '../../shared/history-query.ts'
 import type { Favorite, FavoritesPage as Page } from '../../shared/protocol.ts'
 import { FavoriteButton } from '../components/FavoriteButton.tsx'
 import { FavoriteNotes } from '../components/FavoriteNotes.tsx'
 import { FilterChips, HistoryFilters } from '../components/HistoryFilters.tsx'
+import { Pager, SortSelect } from '../components/Pager.tsx'
 import { ContractResult } from '../components/Suit.tsx'
 import { Button, Card, ErrorText, Muted, PageMain, PageTitle } from '../components/ui.tsx'
 import { api } from '../lib/api.ts'
 import { useFavoriteIds } from '../lib/favorites.ts'
 import { filterChips } from '../lib/historyChips.ts'
+import { readPageSize, writePageSize } from '../lib/lists.ts'
 import { formatDateTime, signed } from '../lib/format.ts'
 import { useLobby } from '../state/ClubContext.tsx'
 import { usePreferences } from '../state/PreferencesContext.tsx'
@@ -51,24 +58,6 @@ const TagRow = styled.div`
   flex-wrap: wrap;
   gap: 6px;
   margin-bottom: 16px;
-`
-
-const SortLabel = styled.label`
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: ${({ theme }) => theme.colors.textMuted};
-  font-size: 14px;
-
-  & > select {
-    min-height: 34px;
-    padding: 0 6px;
-    border: 1px solid ${({ theme }) => theme.colors.border};
-    border-radius: ${({ theme }) => theme.radius.sm};
-    background: ${({ theme }) => theme.colors.surface};
-    color: ${({ theme }) => theme.colors.text};
-    font-size: 14px;
-  }
 `
 
 const FilterCard = styled(Card)`
@@ -113,15 +102,6 @@ const Score = styled.span<{ $value: number }>`
   color: ${({ $value, theme }) => ($value === 0 ? 'inherit' : $value > 0 ? theme.colors.success : theme.colors.danger)};
 `
 
-const Pager = styled.nav`
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  margin-top: 12px;
-  font-size: 14px;
-`
-
 interface Loaded extends Page {
   key: string
 }
@@ -131,7 +111,11 @@ export function FavoritesPage() {
   const [params, setParams] = useSearchParams()
   const paramsKey = params.toString()
   // Favorites are listed whoever played them: "all" only words the player filter that way
-  const query = useMemo(() => ({ ...readHistoryQuery(new URLSearchParams(paramsKey)), scope: 'all' as const }), [paramsKey])
+  const query = useMemo(() => {
+    const read = readHistoryQuery(new URLSearchParams(paramsKey))
+    const size = new URLSearchParams(paramsKey).has('size') ? read.size : readPageSize()
+    return { ...read, size, scope: 'all' as const }
+  }, [paramsKey])
   const key = historyQueryString(query)
   const [openedAt] = useState(Date.now)
   const members = useLobby()?.members ?? []
@@ -167,38 +151,49 @@ export function FavoritesPage() {
   const favoriteOf = (id: string) => edited[id] ?? current?.favorites.find((f) => f.boardId === id)
   // A star pressed off here takes the board out of the list at once
   const boards = current?.boards.filter((b) => !kept || kept.has(b.id)) ?? []
-  const last = loaded ? Math.max(1, Math.ceil(loaded.total / loaded.size)) : 1
   const tags = loaded?.tags ?? []
 
   return (
     <PageMain>
       <PageTitle>{t.favoritesTitle}</PageTitle>
       <Toolbar>
-        <Pill type="button" $active={showFilters} aria-expanded={showFilters} onClick={() => setShowFilters(!showFilters)}>
+        <Pill
+          type="button"
+          $active={showFilters}
+          aria-expanded={showFilters}
+          onClick={() => setShowFilters(!showFilters)}
+        >
           <SlidersHorizontal size={16} aria-hidden />
           {t.filters}
           {chips.length > 0 && ` (${chips.length})`}
         </Pill>
-        <SortLabel>
-          {t.sortBy}
-          <select value={query.sort} onChange={(e) => update({ sort: HISTORY_SORTS.find((s) => s === e.target.value) })}>
-            {HISTORY_SORTS.map((sort) => (
-              <option key={sort} value={sort}>
-                {t.sortNames[sort]}
-              </option>
-            ))}
-          </select>
-        </SortLabel>
+        <SortSelect
+          value={query.sort}
+          options={HISTORY_SORTS}
+          names={t.sortNames}
+          onChange={(sort) => update({ sort })}
+        />
       </Toolbar>
       {tags.length > 0 && (
         <TagRow role="group" aria-label={t.filterTag}>
-          <Pill type="button" $active={!query.tag} aria-pressed={!query.tag} onClick={() => update({ tag: undefined })}>
+          <Pill
+            type="button"
+            $active={!query.tag}
+            aria-pressed={!query.tag}
+            onClick={() => update({ tag: undefined })}
+          >
             {t.favoriteTagsAll}
           </Pill>
           {tags.map(({ tag, count }) => {
             const on = query.tag?.toLowerCase() === tag.toLowerCase()
             return (
-              <Pill key={tag} type="button" $active={on} aria-pressed={on} onClick={() => update({ tag: on ? undefined : tag })}>
+              <Pill
+                key={tag}
+                type="button"
+                $active={on}
+                aria-pressed={on}
+                onClick={() => update({ tag: on ? undefined : tag })}
+              >
                 {tag} ({count})
               </Pill>
             )
@@ -250,18 +245,18 @@ export function FavoritesPage() {
             })}
           </Items>
         )}
-        {loaded && loaded.total > loaded.size && (
-          <Pager aria-label={t.favoritesTitle}>
-            <Button type="button" $small onClick={() => update({ page: loaded.page - 1 })} disabled={loaded.page <= 1} aria-label={t.prevPage}>
-              <ChevronLeft size={16} aria-hidden />
-            </Button>
-            <Muted as="span">
-              {t.pageInfo((loaded.page - 1) * loaded.size + 1, Math.min(loaded.total, loaded.page * loaded.size), loaded.total)}
-            </Muted>
-            <Button type="button" $small onClick={() => update({ page: loaded.page + 1 })} disabled={loaded.page >= last} aria-label={t.nextPage}>
-              <ChevronRight size={16} aria-hidden />
-            </Button>
-          </Pager>
+        {loaded && (
+          <Pager
+            label={t.favoritesTitle}
+            page={loaded.page}
+            size={loaded.size}
+            total={loaded.total}
+            onPage={(page) => update({ page })}
+            onSize={(size) => {
+              writePageSize(size)
+              update({ size })
+            }}
+          />
         )}
       </Card>
     </PageMain>

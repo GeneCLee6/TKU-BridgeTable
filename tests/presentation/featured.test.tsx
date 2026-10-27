@@ -6,7 +6,7 @@ import { fullDeck, type Hands } from '../../shared/cards.ts'
 import type { FeaturedBoard } from '../../shared/featured.ts'
 import { legalCards, makeCall, newBoard, playCard, turnOf, type BoardState } from '../../shared/game.ts'
 import { summarize, type BoardRecord, type Me } from '../../shared/protocol.ts'
-import { BoardRecordView } from '../../src/pages/BoardPage.tsx'
+import { BoardRecordView } from '../../src/components/BoardRecordView.tsx'
 import { FeaturedPage } from '../../src/pages/FeaturedPage.tsx'
 import { PreferencesProvider } from '../../src/state/PreferencesContext.tsx'
 

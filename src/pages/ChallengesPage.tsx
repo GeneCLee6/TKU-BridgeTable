@@ -1,36 +1,40 @@
 import { CalendarClock, Plus, Swords } from 'lucide-react'
-import { useEffect, useState } from 'react'
-import { Link, Navigate } from 'react-router-dom'
+import { useEffect, useId, useState } from 'react'
+import { Link } from 'react-router-dom'
 import styled, { css } from 'styled-components'
 import type { ChallengeView } from '../../shared/challenge.ts'
 import { ChallengeDialog } from '../components/ChallengeDialog.tsx'
-import { Progress, StatusTag } from '../components/ChallengeParts.tsx'
+import { PlayerGrid, Progress, StatusTag } from '../components/ChallengeParts.tsx'
+import { Pager, SortSelect } from '../components/Pager.tsx'
 import { WeeklyChallengeDialog } from '../components/WeeklyChallengeDialog.tsx'
 import { Button, Card, ErrorText, Muted, PageMain, PageTitle } from '../components/ui.tsx'
 import { ApiError, api } from '../lib/api.ts'
 import {
-  answerable,
-  cancellable,
   CHALLENGE_TABS,
   challengeTitle,
   challengeTab,
-  participantName,
-  playable,
   playerOf,
   settingsLine,
   timeLeft,
   type ChallengeTab,
 } from '../lib/challenges.ts'
 import { formatDateTime } from '../lib/format.ts'
+import { LIST_SORTS, paginate, sortList } from '../lib/lists.ts'
+import { useListParams } from '../lib/useListParams.ts'
 import { useAuth } from '../state/AuthContext.tsx'
 import { useClub } from '../state/ClubContext.tsx'
 import { usePreferences } from '../state/PreferencesContext.tsx'
 
 /**
- * The challenge lobby (`e7-t16`, AC-7.7): 等待接受, 進行中 and 已完成, each challenge with its
- * opponents, everyone's progress and the time left. Answering, playing, cancelling and starting a
- * new challenge (`e7-t17`) are all here; a challenge's standings are on its own page (`e7-t18`).
+ * The challenge lobby (`e7-t16`, AC-7.7): 等待接受, 進行中 and 已完成, each challenge a small card
+ * in a grid with its state, the time left, the member's own progress and the other participants
+ * side by side (a challenge can have ~20). The whole card opens the challenge's page (`e7-t18`),
+ * where it is answered, played and called off; the list sorts and pages like every list of
+ * records (`Pager`, 社長 2026-10-27). Starting a new challenge (`e7-t17`) is here.
  */
+
+/** Participants a card shows before 「還有 N 人」 */
+const CARD_PLAYERS = 6
 
 const Toolbar = styled.div`
   display: flex;
@@ -40,13 +44,23 @@ const Toolbar = styled.div`
   gap: 12px;
   margin-bottom: 16px;
 
-  & > h1 { margin: 0; }
+  & > h1 {
+    margin: 0;
+  }
+`
+
+const ListTools = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 14px;
+  margin-bottom: 16px;
 `
 
 const Tabs = styled.div`
   display: inline-flex;
   flex-wrap: wrap;
-  margin-bottom: 16px;
   border: 1px solid ${({ theme }) => theme.colors.border};
   border-radius: ${({ theme }) => theme.radius.pill};
   overflow: hidden;
@@ -67,44 +81,85 @@ const TabButton = styled.button<{ $active: boolean }>`
     `}
 `
 
-const List = styled.ul`
+const Grid = styled.ul`
   display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
   gap: 12px;
   margin: 0;
   padding: 0;
   list-style: none;
 `
 
+/** The whole card is the link; pointing at it or focusing it lifts it (DESIGN.md §5.3) */
+const CardLink = styled(Link)`
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  height: 100%;
+  padding: 12px 14px;
+  border: 1px solid ${({ theme }) => theme.colors.border};
+  border-radius: ${({ theme }) => theme.radius.lg};
+  background: ${({ theme }) => theme.colors.surface};
+  box-shadow: ${({ theme }) => theme.shadow};
+  color: ${({ theme }) => theme.colors.text};
+  text-decoration: none;
+  transition:
+    transform 0.15s ease,
+    box-shadow 0.15s ease,
+    border-color 0.15s ease;
+
+  &:hover,
+  &:focus-visible {
+    transform: translateY(-3px);
+    border-color: ${({ theme }) => theme.colors.primary};
+    box-shadow: ${({ theme }) => theme.shadowRaised};
+    text-decoration: none;
+  }
+  &:focus-visible {
+    outline: 2px solid ${({ theme }) => theme.colors.focus};
+    outline-offset: 2px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    &:hover,
+    &:focus-visible {
+      transform: none;
+    }
+  }
+`
+
 const Head = styled.div`
   display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+
+  & > strong {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    color: ${({ theme }) => theme.colors.primaryStrong};
+    font-size: 16px;
+  }
+`
+
+const Small = styled.div`
+  display: flex;
   flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 2px 10px;
+  color: ${({ theme }) => theme.colors.textMuted};
+  font-size: 13px;
+  line-height: 18px;
+`
+
+const Mine = styled.div`
+  display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 6px 12px;
-  margin-bottom: 10px;
-
-  & > div { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-`
-
-const People = styled.ul`
-  display: grid;
-  gap: 6px;
-  margin: 0 0 12px;
-  padding: 0;
-  list-style: none;
-
-  & > li {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 4px 12px;
-  }
-  & > li > strong { min-width: 96px; }
-`
-
-const Label = styled.div`
-  margin-bottom: 6px;
-  color: ${({ theme }) => theme.colors.textMuted};
+  gap: 8px;
   font-size: 13px;
   font-weight: 600;
 `
@@ -115,103 +170,59 @@ const Actions = styled.div`
   gap: 8px;
 `
 
-function ChallengeCard({
-  c,
-  userId,
-  now,
-  onAct,
-  onPlay,
-}: {
-  c: ChallengeView
-  userId: string
-  now: number
-  onAct: (call: () => Promise<{ challenge: ChallengeView }>) => void
-  onPlay: () => void
-}) {
+function ChallengeCard({ c, userId, now }: { c: ChallengeView; userId: string; now: number }) {
   const { t, lang } = usePreferences()
+  const id = useId()
   const me = playerOf(c, userId)
   const title = challengeTitle(t, c)
   const others = c.players.filter((p) => p.userId !== userId)
   const open = c.status === 'pending' || c.status === 'active'
   return (
-    <Card as="li" aria-label={title}>
-      <Head>
-        <div>
+    <li aria-label={title}>
+      <CardLink
+        to={`/challenges/${c.id}`}
+        aria-labelledby={`${id}-title`}
+        aria-describedby={`${id}-details`}
+      >
+        <Head>
           <StatusTag status={c.status} />
-          <strong>{title}</strong>
-          <Muted as="span">{settingsLine(t, c)}</Muted>
+          <strong id={`${id}-title`}>{title}</strong>
+        </Head>
+        <div id={`${id}-details`}>
+          <Small>
+            <span>{settingsLine(t, c)}</span>
+            <span title={t.challengeDeadline(formatDateTime(c.deadline, lang))}>
+              {open && now < c.deadline
+                ? timeLeft(t, c.deadline - now)
+                : t.challengeEndedAt(formatDateTime(c.endedAt ?? c.deadline, lang))}
+            </span>
+          </Small>
+          {me?.status === 'accepted' && (
+            <Mine>
+              <span>{t.challengeYourProgress}</span>
+              <Progress played={me.played} boards={c.boards} label={t.challengeYourProgress} />
+            </Mine>
+          )}
         </div>
-        <Muted as="span" title={t.challengeDeadline(formatDateTime(c.deadline, lang))}>
-          {open && now < c.deadline
-            ? timeLeft(t, c.deadline - now)
-            : t.challengeEndedAt(formatDateTime(c.endedAt ?? c.deadline, lang))}
-        </Muted>
-      </Head>
-      <Label>{t.challengeOpponents}</Label>
-      <People>
-        {others.map((p) => (
-          <li key={p.userId}>
-            <strong>{participantName(t, p)}</strong>
-            {p.status === 'accepted' ? (
-              <Progress played={p.played} boards={c.boards} label={participantName(t, p)} />
-            ) : (
-              <Muted as="span">{t.playerStatuses[p.status]}</Muted>
-            )}
-          </li>
-        ))}
-        {me?.status === 'accepted' && (
-          <li>
-            <strong>{t.challengeYourProgress}</strong>
-            <Progress played={me.played} boards={c.boards} label={t.challengeYourProgress} />
-          </li>
+        {others.length > 0 && (
+          <PlayerGrid players={others} boards={c.boards} compact max={CARD_PLAYERS} />
         )}
-      </People>
-      <Actions>
-        {answerable(c, userId, now) && (
-          <>
-            <Button type="button" $small $variant="primary" onClick={() => onAct(() => api.answerChallenge(c.id, true))}>
-              {t.acceptChallenge}
-            </Button>
-            <Button type="button" $small onClick={() => onAct(() => api.answerChallenge(c.id, false))}>
-              {t.declineChallenge}
-            </Button>
-          </>
-        )}
-        {playable(c, userId, now) && (
-          <Button type="button" $small $variant="primary" onClick={onPlay}>
-            {me?.startedAt !== undefined ? t.resumeChallenge : t.startChallenge}
-          </Button>
-        )}
-        <Button as={Link} to={`/challenges/${c.id}`} $small>
-          {t.viewStandings}
-        </Button>
-        {cancellable(c, userId) && (
-          <Button
-            type="button"
-            $small
-            $variant="danger"
-            onClick={() => window.confirm(t.cancelChallengeConfirm) && onAct(() => api.cancelChallenge(c.id))}
-          >
-            {t.cancelChallenge}
-          </Button>
-        )}
-      </Actions>
-    </Card>
+      </CardLink>
+    </li>
   )
 }
 
 export function ChallengesPage() {
   const { t, message } = usePreferences()
   const { user } = useAuth()
-  const { lobby, send, notifications } = useClub()
+  const { notifications } = useClub()
   const [list, setList] = useState<ChallengeView[] | null>(null)
   const [error, setError] = useState('')
   const [chosen, setChosen] = useState<ChallengeTab | null>(null)
   const [creating, setCreating] = useState(false)
   const [scheduling, setScheduling] = useState(false)
   const [now, setNow] = useState(() => Date.now())
-  // After 開始打, follow the server to the challenge table it puts us at
-  const [following, setFollowing] = useState<{ from: string | null } | null>(null)
+  const listing = useListParams(LIST_SORTS, 'newest')
 
   // A new notification (an answer, a reminder, the results) may change the list
   const latest = notifications?.items[0]?.id
@@ -224,7 +235,11 @@ export function ChallengesPage() {
         setList(r.challenges)
         setNow(Date.now())
       })
-      .catch((e) => live && setError(e instanceof ApiError ? message(e.code, e.params, e.message) : String(e)))
+      .catch(
+        (e) =>
+          live &&
+          setError(e instanceof ApiError ? message(e.code, e.params, e.message) : String(e)),
+      )
     return () => {
       live = false
     }
@@ -237,19 +252,20 @@ export function ChallengesPage() {
   }, [])
 
   if (!user) return null
-  const here = lobby?.myTableId ?? null
-  if (following && here && here !== following.from) return <Navigate to={`/table/${here}`} />
 
-  const byTab = (tab: ChallengeTab) => (list ?? []).filter((c) => challengeTab(c, user.id, now) === tab)
+  const byTab = (tab: ChallengeTab) =>
+    (list ?? []).filter((c) => challengeTab(c, user.id, now) === tab)
   const tab = chosen ?? CHALLENGE_TABS.find((k) => byTab(k).length) ?? 'waiting'
-  const shown = byTab(tab)
-
-  const replace = (c: ChallengeView) => setList((old) => [c, ...(old ?? []).filter((x) => x.id !== c.id)].sort((a, b) => b.createdAt - a.createdAt))
-  const act = (call: () => Promise<{ challenge: ChallengeView }>) => {
-    setError('')
-    call()
-      .then((r) => replace(r.challenge))
-      .catch((e) => setError(e instanceof ApiError ? message(e.code, e.params, e.message) : String(e)))
+  const sorted = sortList(
+    byTab(tab),
+    listing.sort,
+    (c) => c.createdAt,
+    (c) => c.deadline,
+  )
+  const { items: shown, page, total } = paginate(sorted, listing.page, listing.size)
+  const choose = (k: ChallengeTab) => {
+    setChosen(k)
+    listing.firstPage()
   }
 
   return (
@@ -275,19 +291,34 @@ export function ChallengesPage() {
           onClose={() => setCreating(false)}
           onCreated={(c) => {
             setCreating(false)
-            replace(c)
-            setChosen('waiting')
+            setList((old) => [c, ...(old ?? []).filter((x) => x.id !== c.id)])
+            choose('waiting')
           }}
         />
       )}
-      <Tabs role="tablist" aria-label={t.navChallenges}>
-        {CHALLENGE_TABS.map((k) => (
-          <TabButton key={k} type="button" role="tab" aria-selected={tab === k} $active={tab === k} onClick={() => setChosen(k)}>
-            {t.challengeTabs[k]}
-            {list ? ` (${byTab(k).length})` : ''}
-          </TabButton>
-        ))}
-      </Tabs>
+      <ListTools>
+        <Tabs role="tablist" aria-label={t.navChallenges}>
+          {CHALLENGE_TABS.map((k) => (
+            <TabButton
+              key={k}
+              type="button"
+              role="tab"
+              aria-selected={tab === k}
+              $active={tab === k}
+              onClick={() => choose(k)}
+            >
+              {t.challengeTabs[k]}
+              {list ? ` (${byTab(k).length})` : ''}
+            </TabButton>
+          ))}
+        </Tabs>
+        <SortSelect
+          value={listing.sort}
+          options={LIST_SORTS}
+          names={t.listSorts}
+          onChange={listing.setSort}
+        />
+      </ListTools>
       {error && <ErrorText role="alert">{error}</ErrorText>}
       {list === null ? (
         <Muted>{t.loading}</Muted>
@@ -298,21 +329,22 @@ export function ChallengesPage() {
           </Muted>
         </Card>
       ) : (
-        <List role="tabpanel" aria-label={t.challengeTabs[tab]}>
-          {shown.map((c) => (
-            <ChallengeCard
-              key={c.id}
-              c={c}
-              userId={user.id}
-              now={now}
-              onAct={act}
-              onPlay={() => {
-                setFollowing({ from: here })
-                send({ type: 'playChallenge', challengeId: c.id })
-              }}
-            />
-          ))}
-        </List>
+        <>
+          <Grid role="tabpanel" aria-label={t.challengeTabs[tab]}>
+            {shown.map((c) => (
+              <ChallengeCard key={c.id} c={c} userId={user.id} now={now} />
+            ))}
+          </Grid>
+          <Pager
+            items
+            label={t.navChallenges}
+            page={page}
+            size={listing.size}
+            total={total}
+            onPage={listing.setPage}
+            onSize={listing.setSize}
+          />
+        </>
       )}
     </PageMain>
   )

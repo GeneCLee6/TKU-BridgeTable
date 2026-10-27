@@ -1,17 +1,28 @@
 import { Image as ImageIcon } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { Navigate, useNavigate, useParams } from 'react-router-dom'
 import styled from 'styled-components'
 import type { ChallengeView } from '../../shared/challenge.ts'
-import { Progress, StatusTag } from '../components/ChallengeParts.tsx'
+import { PlayerGrid, StatusTag } from '../components/ChallengeParts.tsx'
 import { ChallengeResults } from '../components/ChallengeResults.tsx'
 import { ShareCardDialog } from '../components/ShareCardDialog.tsx'
-import { ActionLink, Button, Card, ErrorText, Muted, PageMain, PageTitle } from '../components/ui.tsx'
+import {
+  ActionLink,
+  Button,
+  Card,
+  ErrorText,
+  Muted,
+  PageMain,
+  PageTitle,
+} from '../components/ui.tsx'
 import { ApiError, api } from '../lib/api.ts'
 import {
+  answerable,
+  cancellable,
   challengeTitle,
   formatScore,
   participantName,
+  playable,
   playerOf,
   rematchable,
   settingsLine,
@@ -30,7 +41,9 @@ import { usePreferences } from '../state/PreferencesContext.tsx'
  * listed after the ranked as 未完成 with how far they got; then the viewer against each other
  * player and every board's results (`ChallengeResults`), each board opening its own page. What the
  * server sends already follows §4 (`challengeView`): someone still playing gets no standings and
- * no boards, only everyone's progress.
+ * no boards, only everyone's progress. Answering, playing (開始打／繼續打) and calling it off are
+ * here too: the challenge lobby's cards only open this page (社長 2026-10-27). The standings and the
+ * participants use the width — as many to a row as fit — since a challenge can have ~20 people.
  */
 
 const Back = styled(ActionLink)`
@@ -55,67 +68,74 @@ const Section = styled(Card)`
   }
 `
 
-const People = styled.ul`
+const Actions = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+`
+
+/** The places across the width, read row by row: as many columns as fit, one on a narrow phone */
+const Ranks = styled.ol`
   display: grid;
-  gap: 6px;
-  margin: 0;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 150px), 1fr));
+  gap: 6px 12px;
+  margin: 8px 0 0;
   padding: 0;
   list-style: none;
 
-  & > li { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; }
-  & > li > strong { min-width: 96px; }
-`
-
-const Scroll = styled.div`
-  overflow-x: auto;
-  margin-top: 8px;
-`
-
-const Table = styled.table`
-  border-collapse: collapse;
-  font-size: 15px;
-  white-space: nowrap;
-
-  th, td {
+  & > li {
+    display: grid;
+    grid-template-columns: 2.2em minmax(0, 1fr) auto;
+    align-items: baseline;
+    gap: 8px;
     padding: 6px 10px;
-    border-bottom: 1px solid ${({ theme }) => theme.colors.border};
-    text-align: left;
+    border: 1px solid ${({ theme }) => theme.colors.border};
+    border-radius: ${({ theme }) => theme.radius.sm};
+    font-size: 15px;
   }
-  th {
-    color: ${({ theme }) => theme.colors.textMuted};
-    font-size: 13px;
-    font-weight: 600;
-  }
-  tr[aria-current='true'] td {
+  & > li[aria-current='true'] {
+    border-color: ${({ theme }) => theme.colors.primary};
     background: ${({ theme }) => theme.colors.primarySoft};
     font-weight: 700;
   }
 `
 
-const Num = styled.td<{ $value?: number }>`
-  text-align: right !important;
+const Place = styled.span`
+  color: ${({ theme }) => theme.colors.textMuted};
+  font-weight: 700;
   font-variant-numeric: tabular-nums;
-  color: ${({ $value, theme }) =>
-    $value === undefined || $value === 0 ? 'inherit' : $value > 0 ? theme.colors.success : theme.colors.danger};
-
-  & > a { color: inherit; }
 `
 
-const NumHead = styled.th`
-  text-align: right !important;
+const Who = styled.span`
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+`
+
+const Total = styled.span<{ $value?: number }>`
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: ${({ $value, theme }) =>
+    $value === undefined || $value === 0
+      ? 'inherit'
+      : $value > 0
+        ? theme.colors.success
+        : theme.colors.danger};
 `
 
 export function ChallengePage() {
   const { challengeId = '' } = useParams()
   const { t, lang, message } = usePreferences()
   const { user } = useAuth()
-  const { notifications } = useClub()
+  const { notifications, lobby, send } = useClub()
   const [challenge, setChallenge] = useState<ChallengeView | null | undefined>(undefined)
   const [error, setError] = useState('')
   const [now, setNow] = useState(() => Date.now())
   const [rematching, setRematching] = useState(false)
   const [sharing, setSharing] = useState(false)
   const navigate = useNavigate()
+  // After 開始打, follow the server to the challenge table it puts us at
+  const [following, setFollowing] = useState<{ from: string | null } | null>(null)
 
   // Someone finishing sends no notification to the others, but answers and the results do
   const latest = notifications?.items[0]?.id
@@ -153,9 +173,17 @@ export function ChallengePage() {
       </PageMain>
     )
   if (!challenge || !user)
-    return <PageMain>{error ? <ErrorText role="alert">{error}</ErrorText> : <Muted>{t.loading}</Muted>}</PageMain>
+    return (
+      <PageMain>
+        {error ? <ErrorText role="alert">{error}</ErrorText> : <Muted>{t.loading}</Muted>}
+      </PageMain>
+    )
+
+  const here = lobby?.myTableId ?? null
+  if (following && here && here !== following.from) return <Navigate to={`/table/${here}`} />
 
   const c = challenge
+  const me = playerOf(c, user.id)
   const card = shareCardData(c, user.id)
   const open = c.status === 'pending' || c.status === 'active'
   const standings = c.standings
@@ -175,6 +203,19 @@ export function ChallengePage() {
     }
   }
 
+  const act = (call: () => Promise<{ challenge: ChallengeView }>) => {
+    setError('')
+    call()
+      .then((r) => setChallenge(r.challenge))
+      .catch((e) =>
+        setError(e instanceof ApiError ? message(e.code, e.params, e.message) : String(e)),
+      )
+  }
+  const play = () => {
+    setFollowing({ from: here })
+    send({ type: 'playChallenge', challengeId: c.id })
+  }
+
   return (
     <PageMain>
       {back}
@@ -188,7 +229,13 @@ export function ChallengePage() {
             : t.challengeEndedAt(formatDateTime(c.endedAt ?? c.deadline, lang))}
         </Muted>
         {rematchable(c, user.id) && (
-          <Button type="button" $small $variant="primary" disabled={rematching} onClick={() => void rematch()}>
+          <Button
+            type="button"
+            $small
+            $variant="primary"
+            disabled={rematching}
+            onClick={() => void rematch()}
+          >
             {t.rematch}
           </Button>
         )}
@@ -199,54 +246,101 @@ export function ChallengePage() {
           </Button>
         )}
       </Meta>
-      {sharing && card && <ShareCardDialog challenge={c} data={card} onClose={() => setSharing(false)} />}
+      {(answerable(c, user.id, now) || playable(c, user.id, now) || cancellable(c, user.id)) && (
+        <Meta>
+          <Actions>
+            {answerable(c, user.id, now) && (
+              <>
+                <Button
+                  type="button"
+                  $variant="primary"
+                  onClick={() => act(() => api.answerChallenge(c.id, true))}
+                >
+                  {t.acceptChallenge}
+                </Button>
+                <Button type="button" onClick={() => act(() => api.answerChallenge(c.id, false))}>
+                  {t.declineChallenge}
+                </Button>
+              </>
+            )}
+            {playable(c, user.id, now) && (
+              <Button type="button" $variant="primary" onClick={play}>
+                {me?.startedAt !== undefined ? t.resumeChallenge : t.startChallenge}
+              </Button>
+            )}
+            {cancellable(c, user.id) && (
+              <Button
+                type="button"
+                $variant="danger"
+                onClick={() =>
+                  window.confirm(t.cancelChallengeConfirm) && act(() => api.cancelChallenge(c.id))
+                }
+              >
+                {t.cancelChallenge}
+              </Button>
+            )}
+          </Actions>
+        </Meta>
+      )}
+      {sharing && card && (
+        <ShareCardDialog challenge={c} data={card} onClose={() => setSharing(false)} />
+      )}
       {error && <ErrorText role="alert">{error}</ErrorText>}
 
       <Section aria-labelledby="standings-title">
         <h2 id="standings-title">{standings?.final ? t.standingsFinal : t.viewStandings}</h2>
         {!standings ? (
-          <Muted>{c.status === 'finished' || open ? t.standingsHidden : t.challengeStatuses[c.status]}</Muted>
+          <Muted>
+            {c.status === 'finished' || open ? t.standingsHidden : t.challengeStatuses[c.status]}
+          </Muted>
         ) : (
           <>
             {!standings.final && <Muted>{t.standingsLive}</Muted>}
             {standings.ranked.length === 0 && <Muted>{t.standingsNone}</Muted>}
-            {standings.ranked.length === 1 && c.settings.scoring !== 'total' && <Muted>{t.standingsSolo}</Muted>}
-            <Scroll>
-              <Table>
-                <thead>
-                  <tr>
-                    <th scope="col">{t.rankCol}</th>
-                    <th scope="col">{t.memberCol}</th>
-                    <NumHead scope="col">
-                      {t.totalCol} · {t.scorings[standings.scoring]}
-                    </NumHead>
-                  </tr>
-                </thead>
-                <tbody>
-                  {standings.ranked.map((r) => (
-                    <tr key={r.userId} aria-current={r.userId === user.id ? 'true' : undefined}>
-                      <td>{r.rank}</td>
-                      <td>
-                        {nameOf(r.userId)}
-                        {playerOf(c, r.userId)?.knownDeals && <Muted as="span"> · {t.knownDeals}</Muted>}
-                      </td>
-                      <Num $value={tone(r.total, standings.scoring)}>{formatScore(r.total, standings.scoring)}</Num>
-                    </tr>
-                  ))}
-                  {standings.unfinished.map((u) => (
-                    <tr key={u.userId} aria-current={u.userId === user.id ? 'true' : undefined}>
-                      <td>—</td>
-                      <td>{nameOf(u.userId)}</td>
-                      <td>
-                        <Muted as="span">
-                          {t.unfinished} · {t.challengeProgress(u.played, c.boards)}
-                        </Muted>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </Table>
-            </Scroll>
+            {standings.ranked.length === 1 && c.settings.scoring !== 'total' && (
+              <Muted>{t.standingsSolo}</Muted>
+            )}
+            {standings.ranked.length > 0 && (
+              <Muted aria-hidden>
+                {t.totalCol} · {t.scorings[standings.scoring]}
+              </Muted>
+            )}
+            {standings.ranked.length + standings.unfinished.length > 0 && (
+              <Ranks aria-label={`${t.totalCol} · ${t.scorings[standings.scoring]}`}>
+                {standings.ranked.map((r) => (
+                  <li key={r.userId} aria-current={r.userId === user.id ? 'true' : undefined}>
+                    <Place>{r.rank}</Place>
+                    <Who title={nameOf(r.userId)}>
+                      {nameOf(r.userId)}
+                      {playerOf(c, r.userId)?.knownDeals && (
+                        <Muted as="span"> · {t.knownDeals}</Muted>
+                      )}
+                    </Who>
+                    <Total $value={tone(r.total, standings.scoring)}>
+                      {formatScore(r.total, standings.scoring)}
+                    </Total>
+                  </li>
+                ))}
+                {standings.unfinished.map((u) => (
+                  <li key={u.userId} aria-current={u.userId === user.id ? 'true' : undefined}>
+                    <Place>—</Place>
+                    <Who title={nameOf(u.userId)}>{nameOf(u.userId)}</Who>
+                    {/* Short, so the name keeps its room in a narrow column; the whole of it for a screen reader */}
+                    <Muted
+                      as="span"
+                      title={`${t.unfinished} · ${t.challengeProgress(u.played, c.boards)}`}
+                    >
+                      <span aria-hidden>
+                        {u.played}/{c.boards}
+                      </span>
+                      <span className="visually-hidden">
+                        {t.unfinished} · {t.challengeProgress(u.played, c.boards)}
+                      </span>
+                    </Muted>
+                  </li>
+                ))}
+              </Ranks>
+            )}
           </>
         )}
       </Section>
@@ -255,18 +349,7 @@ export function ChallengePage() {
 
       <Section aria-labelledby="players-title">
         <h2 id="players-title">{t.challengePlayers}</h2>
-        <People>
-          {c.players.map((p) => (
-            <li key={p.userId}>
-              <strong>{p.userId === user.id ? t.you : participantName(t, p)}</strong>
-              {p.status === 'accepted' ? (
-                <Progress played={p.played} boards={c.boards} label={participantName(t, p)} />
-              ) : (
-                <Muted as="span">{t.playerStatuses[p.status]}</Muted>
-              )}
-            </li>
-          ))}
-        </People>
+        <PlayerGrid players={c.players} boards={c.boards} you={{ userId: user.id, name: t.you }} />
       </Section>
     </PageMain>
   )

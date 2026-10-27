@@ -21,7 +21,7 @@ import {
 } from '../lib/challenges.ts'
 import { useAuth } from '../state/AuthContext.tsx'
 import { usePreferences } from '../state/PreferencesContext.tsx'
-import { BoardRecordView } from './BoardPage.tsx'
+import { BoardRecordView } from '../components/BoardRecordView.tsx'
 
 /**
  * One board of a challenge (社長 2026-10-25, after BBO's challenge results): its traveller, then a

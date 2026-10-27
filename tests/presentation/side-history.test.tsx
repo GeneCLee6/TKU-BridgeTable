@@ -2,8 +2,10 @@ import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { fullDeck, type Hands } from '../../shared/cards.ts'
+import { legalCards, makeCall, newBoard, playCard, turnOf, type BoardState } from '../../shared/game.ts'
 import { DAY_MS, taiwanDate, taiwanDayStart } from '../../shared/history-query.ts'
-import type { BoardSummary } from '../../shared/protocol.ts'
+import type { BoardRecord, BoardSummary } from '../../shared/protocol.ts'
 import { HistoryList, TABLE_FLAT_MAX } from '../../src/components/SidePanel.tsx'
 import { PreferencesProvider } from '../../src/state/PreferencesContext.tsx'
 
@@ -14,9 +16,17 @@ const mocks = vi.hoisted(() => ({
     historyDays: vi.fn(),
     searchHistory: vi.fn(),
     favoriteIds: vi.fn(),
+    record: vi.fn(),
+    featuredBoard: vi.fn(),
   },
 }))
 vi.mock('../../src/lib/api.ts', () => ({ api: mocks.api }))
+vi.mock('../../src/components/DoubleDummyPanel.tsx', () => ({ DoubleDummyPanel: () => null }))
+// jsdom has no Worker for DDS: say the board can be analysed, as a browser would
+vi.mock('../../src/lib/useDoubleDummy.ts', async (original) => ({
+  ...(await original<typeof import('../../src/lib/useDoubleDummy.ts')>()),
+  canAnalyse: () => true,
+}))
 vi.mock('../../src/state/ClubContext.tsx', () => ({ useClub: () => ({}), useLobby: () => ({ members: [] }) }))
 vi.mock('../../src/state/AuthContext.tsx', () => ({ useAuth: () => ({ user: null }) }))
 
@@ -45,6 +55,9 @@ function summary(n: number, at: number, east = 'Cat'): BoardSummary {
 
 beforeEach(() => {
   for (const fn of Object.values(mocks.api)) fn.mockReset()
+  mocks.api.favoriteIds.mockResolvedValue({ ids: [] })
+  mocks.api.featuredBoard.mockResolvedValue({ featured: null })
+  window.localStorage.removeItem('tku-bridge-table:side-grouping')
   mocks.api.historyDays.mockResolvedValue({
     days: [
       { date: today, count: 2 },
@@ -72,7 +85,7 @@ describe('the side panel’s history by day (e3-t48)', () => {
     const days = await screen.findByRole('list', { name: '依日期的牌局' })
     const rows = within(days).getAllByRole('button')
     expect(rows.map((row) => row.textContent)).toEqual(['今天2 副', '昨天30 副', expect.stringMatching(/^\d+\/\d+.*1 副$/)])
-    expect(mocks.api.historyDays).toHaveBeenCalledWith({ scope: 'mine' })
+    expect(mocks.api.historyDays).toHaveBeenCalledWith(expect.objectContaining({ scope: 'mine' }))
     // No board is listed yet
     expect(mocks.api.searchHistory).not.toHaveBeenCalled()
   })
@@ -86,7 +99,7 @@ describe('the side panel’s history by day (e3-t48)', () => {
       .mockResolvedValueOnce({ boards: [summary(3, at)], total: 3, page: 2, size: 20 })
     const onBoard = show()
     await user.click(await screen.findByRole('button', { name: /昨天/ }))
-    expect(mocks.api.searchHistory).toHaveBeenCalledWith({ scope: 'mine', from: yesterday, to: yesterday, size: 20 })
+    expect(mocks.api.searchHistory).toHaveBeenCalledWith(expect.objectContaining({ scope: 'mine', from: yesterday, to: yesterday, size: 20, page: 1 }))
 
     const first = await screen.findByRole('button', { name: /#1/ })
     // The title on one line; NS and EW each on a line of their own, cut short with an ellipsis
@@ -101,7 +114,7 @@ describe('the side panel’s history by day (e3-t48)', () => {
 
     await user.click(screen.getByRole('button', { name: '載入更多' }))
     await screen.findByRole('button', { name: /#3/ })
-    expect(mocks.api.searchHistory).toHaveBeenLastCalledWith({ scope: 'mine', from: yesterday, to: yesterday, size: 20, page: 2 })
+    expect(mocks.api.searchHistory).toHaveBeenLastCalledWith(expect.objectContaining({ scope: 'mine', from: yesterday, to: yesterday, size: 20, page: 2 }))
     expect(screen.queryByRole('button', { name: '載入更多' })).toBeNull()
 
     // A board still opens in the panel
@@ -143,5 +156,52 @@ describe('the side panel’s history by day (e3-t48)', () => {
   it('opens 「牌局紀錄」 in a new tab from the table page', async () => {
     show()
     expect(await screen.findByRole('link', { name: '牌局紀錄' })).toHaveAttribute('target', '_blank')
+  })
+})
+
+describe('grouped as on 牌局紀錄, and a board in the record page’s own view (社長 2026-10-27)', () => {
+  it('groups my boards by topic first, then the dates inside it, and remembers the choice', async () => {
+    const user = userEvent.setup()
+    const totals: Record<string, number> = { practice: 4, team: 9 }
+    mocks.api.searchHistory.mockImplementation(async (query: { mode?: string }) => ({ boards: [], total: totals[query.mode ?? ''] ?? 0, page: 1, size: 10 }))
+    show()
+    await screen.findByRole('list', { name: '依日期的牌局' })
+    await user.click(screen.getByRole('button', { name: '依主題' }))
+    expect(window.localStorage.getItem('tku-bridge-table:side-grouping')).toBe('topic')
+    const topics = await screen.findByRole('list', { name: '依主題的牌局' })
+    expect(within(topics).getAllByRole('button').map((row) => row.textContent)).toEqual(['練習4 副', '隊制賽9 副'])
+    await user.click(within(topics).getByRole('button', { name: /隊制賽/ }))
+    expect(await screen.findByRole('list', { name: '依日期的牌局' })).toBeInTheDocument()
+    expect(mocks.api.historyDays).toHaveBeenLastCalledWith(expect.objectContaining({ scope: 'mine', mode: 'team' }))
+    await user.click(screen.getByRole('button', { name: '返回主題' }))
+    expect(await screen.findByRole('list', { name: '依主題的牌局' })).toBeInTheDocument()
+  })
+
+  it('lists every board straight when not grouped', async () => {
+    const user = userEvent.setup()
+    mocks.api.searchHistory.mockResolvedValue({ boards: [summary(1, Date.now()), summary(2, Date.now())], total: 2, page: 1, size: 20 })
+    show()
+    await user.click(await screen.findByRole('button', { name: '不分組' }))
+    expect(await screen.findAllByRole('button', { name: /^#\d/ })).toHaveLength(2)
+    expect(mocks.api.searchHistory).toHaveBeenLastCalledWith(expect.objectContaining({ scope: 'mine', page: 1 }))
+    expect(mocks.api.searchHistory.mock.calls.at(-1)?.[0]).not.toHaveProperty('from')
+  })
+
+  it('opens a board with the same features as the record page: double-dummy mode, the full page in a new tab', async () => {
+    const hands: Hands = {
+      N: fullDeck().filter((c) => c[0] === 'S'),
+      E: fullDeck().filter((c) => c[0] === 'H'),
+      S: fullDeck().filter((c) => c[0] === 'D'),
+      W: fullDeck().filter((c) => c[0] === 'C'),
+    }
+    let board: BoardState = newBoard(1, hands)
+    for (const call of ['7S', 'P', 'P', 'P']) board = makeCall(board, turnOf(board)!, call)
+    for (let i = 0; i < 52; i++) board = playCard(board, turnOf(board)!, legalCards(board, turnOf(board)!)[0])
+    const record = { ...summary(1, Date.now()), board } as unknown as BoardRecord
+    mocks.api.record.mockResolvedValue({ record })
+    show({ board: 'b1' })
+    expect(await screen.findByRole('switch', { name: '雙夢家模式' })).toBeInTheDocument()
+    expect(screen.getByRole('group', { name: '逐墩重播' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: '開啟完整頁面' })).toHaveAttribute('target', '_blank')
   })
 })

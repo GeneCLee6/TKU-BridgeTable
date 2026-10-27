@@ -13,6 +13,7 @@ import type { FeaturedCategory } from '../shared/featured.ts'
 import type { PracticeDeal } from '../shared/practice.ts'
 import type { Lang } from '../shared/messages.ts'
 import type { PublicUser, TableMode } from '../shared/protocol.ts'
+import type { ListSort, RecordGrouping } from './lib/lists.ts'
 
 /**
  * All user-facing UI copy: 繁體中文 (zh, the original), 简体中文, English, Tiếng Việt, 日本語 and
@@ -531,6 +532,12 @@ const zh = {
   dayBoards: (n: number) => `${n} 副`,
   historyMore: '載入更多',
   historyByDay: '依日期的牌局',
+  groupBy: '分組',
+  groupings: { date: '依日期', topic: '依主題', none: '不分組' } as Record<RecordGrouping, string>,
+  historyByTopic: '依主題的牌局',
+  backToTopics: '返回主題',
+  listSorts: { newest: '最新的在前', oldest: '最舊的在前', deadline: '最快截止' } as Record<ListSort, string>,
+  morePlayers: (n: number) => `還有 ${n} 人`,
   close: '關閉',
   openFullPage: '開啟完整頁面',
   sidePanel: '側欄',
@@ -579,6 +586,7 @@ const zh = {
   filterTag: '標籤',
   perPage: '每頁',
   pageInfo: (from: number, to: number, total: number) => `第 ${from}–${to} 副，共 ${total} 副`,
+  listPageInfo: (from: number, to: number, total: number) => `第 ${from}–${to} 項，共 ${total} 項`,
   prevPage: '上一頁',
   nextPage: '下一頁',
   // History filters and sorting (e4-t16…t21)
@@ -1508,6 +1516,12 @@ const en: Strings = {
   dayBoards: (n: number) => (n === 1 ? '1 board' : `${n} boards`),
   historyMore: 'Load more',
   historyByDay: 'Boards by date',
+  groupBy: 'Group',
+  groupings: { date: 'By date', topic: 'By topic', none: 'None' },
+  historyByTopic: 'Boards by topic',
+  backToTopics: 'Back to topics',
+  listSorts: { newest: 'Newest first', oldest: 'Oldest first', deadline: 'Deadline soonest' },
+  morePlayers: (n: number) => `${n} more`,
   close: 'Close',
   openFullPage: 'Open full page',
   sidePanel: 'Side panel',
@@ -1553,6 +1567,7 @@ const en: Strings = {
   filterTag: 'Tag',
   perPage: 'Per page',
   pageInfo: (from, to, total) => `${from}–${to} of ${total}`,
+  listPageInfo: (from, to, total) => `${from}–${to} of ${total}`,
   prevPage: 'Previous page',
   nextPage: 'Next page',
   // History filters and sorting (e4-t16…t21)
@@ -2474,6 +2489,12 @@ const zhHans: Strings = {
   dayBoards: (n: number) => `${n} 副`,
   historyMore: '加载更多',
   historyByDay: '按日期的牌局',
+  groupBy: '分组',
+  groupings: { date: '按日期', topic: '按主题', none: '不分组' },
+  historyByTopic: '按主题的牌局',
+  backToTopics: '返回主题',
+  listSorts: { newest: '最新的在前', oldest: '最旧的在前', deadline: '最快截止' },
+  morePlayers: (n: number) => `还有 ${n} 人`,
   close: '关闭',
   openFullPage: '打开完整页面',
   sidePanel: '侧栏',
@@ -2519,6 +2540,7 @@ const zhHans: Strings = {
   filterTag: '标签',
   perPage: '每页',
   pageInfo: (from, to, total) => `第 ${from}–${to} 副，共 ${total} 副`,
+  listPageInfo: (from, to, total) => `第 ${from}–${to} 项，共 ${total} 项`,
   prevPage: '上一页',
   nextPage: '下一页',
   // History filters and sorting (e4-t16…t21)
@@ -3441,6 +3463,12 @@ const vi: Strings = {
   dayBoards: (n: number) => `${n} ván`,
   historyMore: 'Tải thêm',
   historyByDay: 'Các ván theo ngày',
+  groupBy: 'Nhóm',
+  groupings: { date: 'Theo ngày', topic: 'Theo chủ đề', none: 'Không nhóm' },
+  historyByTopic: 'Các ván theo chủ đề',
+  backToTopics: 'Quay lại các chủ đề',
+  listSorts: { newest: 'Mới nhất trước', oldest: 'Cũ nhất trước', deadline: 'Sắp hết hạn trước' },
+  morePlayers: (n: number) => `thêm ${n} người`,
   close: 'Đóng',
   openFullPage: 'Mở trang đầy đủ',
   sidePanel: 'Thanh bên',
@@ -3486,6 +3514,7 @@ const vi: Strings = {
   filterTag: 'Nhãn',
   perPage: 'Mỗi trang',
   pageInfo: (from, to, total) => `${from}–${to} / ${total} ván`,
+  listPageInfo: (from, to, total) => `${from}–${to} / ${total}`,
   prevPage: 'Trang trước',
   nextPage: 'Trang sau',
   // History filters and sorting (e4-t16…t21)
@@ -4408,6 +4437,12 @@ const ja: Strings = {
   dayBoards: (n: number) => `${n} ボード`,
   historyMore: 'さらに読み込む',
   historyByDay: '日付別のボード',
+  groupBy: 'グループ',
+  groupings: { date: '日付別', topic: 'テーマ別', none: 'なし' },
+  historyByTopic: 'テーマ別のボード',
+  backToTopics: 'テーマに戻る',
+  listSorts: { newest: '新しい順', oldest: '古い順', deadline: '締め切りが近い順' },
+  morePlayers: (n: number) => `ほか ${n} 人`,
   close: '閉じる',
   openFullPage: 'ページで開く',
   sidePanel: 'サイドパネル',
@@ -4453,6 +4488,7 @@ const ja: Strings = {
   filterTag: 'タグ',
   perPage: '1ページの件数',
   pageInfo: (from, to, total) => `${total} 件中 ${from}–${to} 件`,
+  listPageInfo: (from, to, total) => `${total} 件中 ${from}–${to} 件`,
   prevPage: '前のページ',
   nextPage: '次のページ',
   // History filters and sorting (e4-t16…t21)
@@ -5375,6 +5411,12 @@ const ko: Strings = {
   dayBoards: (n: number) => `${n}보드`,
   historyMore: '더 불러오기',
   historyByDay: '날짜별 보드',
+  groupBy: '묶기',
+  groupings: { date: '날짜별', topic: '주제별', none: '묶지 않음' },
+  historyByTopic: '주제별 보드',
+  backToTopics: '주제로 돌아가기',
+  listSorts: { newest: '최신순', oldest: '오래된순', deadline: '마감 임박순' },
+  morePlayers: (n: number) => `외 ${n}명`,
   close: '닫기',
   openFullPage: '전체 페이지로 열기',
   sidePanel: '사이드 패널',
@@ -5420,6 +5462,7 @@ const ko: Strings = {
   filterTag: '태그',
   perPage: '페이지당',
   pageInfo: (from, to, total) => `${total}개 중 ${from}–${to}`,
+  listPageInfo: (from, to, total) => `${total}개 중 ${from}–${to}`,
   prevPage: '이전 페이지',
   nextPage: '다음 페이지',
   // History filters and sorting (e4-t16…t21)

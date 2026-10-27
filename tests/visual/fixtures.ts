@@ -1,5 +1,6 @@
 import type { Page } from '@playwright/test'
 import type { Seat } from '../../shared/cards.ts'
+import { defaultChallengeSettings, type ChallengePlayerView, type ChallengeView } from '../../shared/challenge.ts'
 import type {
   BoardSummary,
   BoardView,
@@ -233,18 +234,77 @@ export function historyPage(page: number): HistoryPage {
   return { boards, total: 45, page, size: 20 }
 }
 
+/** When the challenge screenshots are taken (their countdowns go by the clock) */
+export const CHALLENGE_NOW = Date.parse('2026-10-20T20:00:00+08:00')
+const HOUR = 3_600_000
+const NAMES = ['Ben', 'Christopher Wellington', 'Dan', 'Eve', 'Fay', 'Gus', 'Hana', 'Ivy', 'Jon', 'Kai', 'Lia', 'Max', 'Ned', 'Oli', 'Pam', 'Quin', 'Rex', 'Sue', 'Tom']
+
+const challenger = (i: number, played: number, status: ChallengePlayerView['status'] = 'accepted'): ChallengePlayerView => ({
+  user: { id: `u${i}`, username: NAMES[i % NAMES.length] },
+  userId: `u${i}`,
+  status,
+  played,
+  knownDeals: false,
+  ...(played > 0 && { startedAt: CHALLENGE_NOW - HOUR }),
+})
+
+/**
+ * The challenge lobby (社長 2026-10-27): small cards in a grid, one with the club's ~20 people,
+ * and a challenge's page with its standings across the width
+ */
+export function challengeList(): ChallengeView[] {
+  const me = (played: number): ChallengePlayerView => ({ ...challenger(0, played), user: { id: 'amy', username: 'Amy' }, userId: 'amy' })
+  const make = (n: number, others: ChallengePlayerView[], extra: Partial<ChallengeView> = {}): ChallengeView => ({
+    id: `c${n}`,
+    creatorId: 'amy',
+    createdAt: CHALLENGE_NOW - n * HOUR,
+    status: 'active',
+    deadline: CHALLENGE_NOW + (50 - n) * HOUR,
+    settings: defaultChallengeSettings(others.length),
+    boards: 8,
+    players: [me(3), ...others],
+    ...extra,
+  })
+  return [
+    make(1, Array.from({ length: 19 }, (_, i) => challenger(i + 1, (i * 3) % 9, i % 5 === 4 ? 'invited' : 'accepted'))),
+    make(2, [challenger(1, 8), challenger(2, 2)]),
+    make(3, [challenger(3, 0, 'invited')], { status: 'pending' }),
+    make(4, Array.from({ length: 6 }, (_, i) => challenger(i + 4, 5))),
+  ]
+}
+
+/** A finished challenge of 20, everyone's place and total */
+export function finishedChallenge(): ChallengeView {
+  const players = [{ ...challenger(0, 8), user: { id: 'amy', username: 'Amy' }, userId: 'amy' }, ...Array.from({ length: 19 }, (_, i) => challenger(i + 1, i === 18 ? 5 : 8))]
+  const ranked = players.slice(0, 19).map((p, i) => ({ userId: p.userId, rank: i + 1, total: 72 - i * 2.5 }))
+  return {
+    id: 'c9',
+    creatorId: 'amy',
+    createdAt: CHALLENGE_NOW - 30 * HOUR,
+    status: 'finished',
+    deadline: CHALLENGE_NOW - HOUR,
+    endedAt: CHALLENGE_NOW - HOUR,
+    settings: defaultChallengeSettings(19),
+    boards: 8,
+    players,
+    standings: { final: true, scoring: 'mp', ranked, unfinished: [{ userId: players[19].userId, played: 5 }] },
+  } as ChallengeView
+}
+
 export interface Club {
   /** Signed in (else /api/me answers 401) */
   me?: Me | null
   table?: TableWire | null
   prefs?: Record<string, unknown>
+  /** The challenge lobby has challenges (`challengeList`) */
+  challenges?: boolean
 }
 
 /**
  * Answers the app's requests: /api/me, the WebSocket's lobby and table, and an empty answer for
  * anything else; display preferences go in before the page loads
  */
-export async function serve(page: Page, { me = ME, table: tableWire = null, prefs = {} }: Club) {
+export async function serve(page: Page, { me = ME, table: tableWire = null, prefs = {}, challenges = false }: Club) {
   await page.addInitScript((stored) => {
     window.localStorage.setItem('tku-bridge-table:prefs', JSON.stringify(stored))
   }, { lang: 'zh', mode: 'light', sound: false, tableTourSeen: true, ...prefs })
@@ -252,7 +312,8 @@ export async function serve(page: Page, { me = ME, table: tableWire = null, pref
   await page.route('**/api/**', (route) => {
     const path = new URL(route.request().url()).pathname
     if (path === '/api/me') return me ? route.fulfill({ json: { user: me } }) : route.fulfill({ status: 401, json: { error: 'notLoggedIn' } })
-    if (path === '/api/challenges') return route.fulfill({ json: { challenges: [] } })
+    if (path === '/api/challenges') return route.fulfill({ json: { challenges: challenges ? challengeList() : [] } })
+    if (path === '/api/challenges/c9') return route.fulfill({ json: { challenge: finishedChallenge() } })
     if (path === '/api/featured') return route.fulfill({ json: { featured: [] } })
     if (path === '/api/history/search') {
       const page = Number(new URL(route.request().url()).searchParams.get('page') ?? 1)
