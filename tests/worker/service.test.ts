@@ -7,7 +7,8 @@ import { ruleBrain, type RobotBrain } from '../../shared/robot/brain.ts'
 import type { RobotBid } from '../../shared/robot/robots.ts'
 import {
   DEAL_COUNTDOWN_MS,
-  LAST_TRICK_MS,
+  DEFAULT_ROBOT_SPEED,
+  ROBOT_PACE,
   type BoardRecord,
   type ClientMessage,
   type ServerMessage,
@@ -642,7 +643,66 @@ describe('the pause before the next deal', () => {
       const cards = tableFor(bySeat[controller]).board!.legalCards
       await send(bySeat[controller], { type: 'play', card: cards[0] })
     }
-    expect(tableFor(bySeat.N).dealAt).toBe(time + LAST_TRICK_MS + DEAL_COUNTDOWN_MS)
+    expect(tableFor(bySeat.N).dealAt).toBe(time + ROBOT_PACE[DEFAULT_ROBOT_SPEED].lastTrick + DEAL_COUNTDOWN_MS)
+  })
+})
+
+describe('robot speed (出牌速度)', () => {
+  /** The robot move waiting to run, and how long it waits */
+  const robotJob = () => queue.find((job) => job.kind === 'robot')
+  /** Runs the robot move waiting, and lets it finish */
+  async function runOne() {
+    const index = queue.findIndex((job) => job.kind === 'robot')
+    queue.splice(index, 1)[0].run()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  }
+
+  it('is very fast unless the member chose otherwise, and changes at their table at once', async () => {
+    const gene = await member('gene')
+    expect((await club.setAccountPreferences(gene, { friendOnlineNotice: true })).robotSpeed).toBe('veryFast')
+    await send(gene, { type: 'createTable' })
+    for (const seat of ['N', 'E', 'W'] as const) await send(gene, { type: 'addRobot', seat })
+    // Board 1: North deals, a robot
+    expect(tableFor(gene).robotSpeed).toBe('veryFast')
+    expect(robotJob()?.ms).toBe(ROBOT_PACE.veryFast.call)
+
+    expect((await club.setAccountPreferences(gene, { robotSpeed: 'slower' })).robotSpeed).toBe('slower')
+    expect(tableFor(gene).robotSpeed).toBe('slower')
+    await runOne()
+    // East calls next, at the new speed
+    expect(robotJob()?.ms).toBe(ROBOT_PACE.slower.call)
+  })
+
+  it('goes at the slowest of the people seated, so nobody is rushed', async () => {
+    const [amy, ben] = await Promise.all(['amy', 'ben'].map(member))
+    await club.setAccountPreferences(amy, { robotSpeed: 'fast' })
+    await send(ben, { type: 'createTable' })
+    const tableId = tableFor(ben).id
+    for (const seat of ['E', 'W'] as const) await send(ben, { type: 'addRobot', seat })
+    expect(tableFor(ben).robotSpeed).toBe('veryFast')
+    await send(amy, { type: 'sit', tableId, seat: 'N' })
+    expect(tableFor(ben).robotSpeed).toBe('fast')
+    // North (Amy) deals and passes; East is a robot
+    await send(amy, { type: 'call', call: 'P' })
+    expect(robotJob()?.ms).toBe(ROBOT_PACE.fast.call)
+
+    await club.setAccountPreferences(amy, { robotSpeed: 'slower' })
+    expect(tableFor(ben).robotSpeed).toBe('slower')
+    await club.setAccountPreferences(ben, { robotSpeed: 'fast' })
+    expect(tableFor(amy).robotSpeed).toBe('slower')
+    // Someone only watching does not count
+    await send(amy, { type: 'leaveTable' })
+    expect(tableFor(ben).robotSpeed).toBe('fast')
+  })
+
+  it('takes only the speeds it knows', async () => {
+    const gene = await member('gene')
+    for (const robotSpeed of ['warp', '', 3, null])
+      await expect(club.setAccountPreferences(gene, { robotSpeed })).rejects.toThrow(ClubError)
+    expect((await club.setAccountPreferences(gene, { robotSpeed: 'fast' })).robotSpeed).toBe('fast')
+    // Back to the default: nothing kept
+    expect((await club.setAccountPreferences(gene, { robotSpeed: 'veryFast' })).robotSpeed).toBe('veryFast')
+    expect((await store.get<{ robotSpeed?: string }>(`user:${gene}`))?.robotSpeed).toBeUndefined()
   })
 })
 

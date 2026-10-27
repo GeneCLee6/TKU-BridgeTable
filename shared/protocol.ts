@@ -53,6 +53,8 @@ export interface Me extends PublicUser {
    * every device; absent for the club's own
    */
   bookProfile?: string
+  /** How fast the robots play at the member's tables (出牌速度); the server always sets it */
+  robotSpeed?: RobotSpeed
 }
 
 /** Where someone registered; both sites share the accounts */
@@ -418,6 +420,8 @@ export interface TableView {
    * for the reminder after SLOW_TURN_MS; null when nobody is waited on
    */
   waiting: { seat: Seat; since: number } | null
+  /** How fast the robots play here: the slowest speed of the people seated (`slowestSpeed`); the server always sets it */
+  robotSpeed?: RobotSpeed
 }
 
 /**
@@ -427,10 +431,33 @@ export interface TableView {
 export type TableWire = Omit<TableView, 'chat' | 'recent'> & { chat?: ChatMessage[]; recent?: BoardSummary[] }
 
 /**
- * After the last card the trick stays on the table this long before the countdown starts.
- * This and the countdown were tuned 1.3x faster at the club president's request (were 3500 and 3000).
+ * How fast the robots play (出牌速度, a member's own setting on 我的帳號): 極快, 快 or 較慢. A table
+ * goes at the slowest speed of the people seated there, so nobody is rushed (ARCHITECTURE.md §5.3)
  */
-export const LAST_TRICK_MS = 2700
+export const ROBOT_SPEEDS = ['veryFast', 'fast', 'slower'] as const
+export type RobotSpeed = (typeof ROBOT_SPEEDS)[number]
+export const DEFAULT_ROBOT_SPEED: RobotSpeed = 'veryFast'
+export const isRobotSpeed = (value: unknown): value is RobotSpeed => (ROBOT_SPEEDS as readonly unknown[]).includes(value)
+
+/**
+ * How long robots wait before acting at each speed (ms): a call, a card, the lead after a finished
+ * trick (the trick stays on the table until its winner leads again), an answer to undo or a claim,
+ * and how long the last trick of a board stays before the countdown. A card must wait out the
+ * glide of the card before it (src/lib/motion.ts `paceOf`), and a finished trick must be seen
+ * whole for a moment before it is collected. 較慢 is the pace before (#110)
+ */
+export const ROBOT_PACE: Record<RobotSpeed, { call: number; card: number; afterTrick: number; answer: number; lastTrick: number }> = {
+  veryFast: { call: 200, card: 400, afterTrick: 1000, answer: 150, lastTrick: 1200 },
+  fast: { call: 400, card: 700, afterTrick: 1600, answer: 250, lastTrick: 1900 },
+  slower: { call: 600, card: 1050, afterTrick: 2300, answer: 300, lastTrick: 2700 },
+}
+
+/** The slowest of these speeds (the people seated at a table); the default when there is none */
+export function slowestSpeed(speeds: readonly RobotSpeed[]): RobotSpeed {
+  if (!speeds.length) return DEFAULT_ROBOT_SPEED
+  return ROBOT_SPEEDS[Math.max(...speeds.map((speed) => ROBOT_SPEEDS.indexOf(speed)))]
+}
+
 /** The countdown before the next deal */
 export const DEAL_COUNTDOWN_MS = 2300
 

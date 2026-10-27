@@ -1,6 +1,6 @@
 import { dealSourceOf, type DealSet } from '../shared/deal-set.ts'
 import { dealFrom } from '../shared/deal-source.ts'
-import { robotId, type RobotKind, type TableMatch } from '../shared/protocol.ts'
+import { robotId, type RobotKind, type RobotSpeed, type TableMatch } from '../shared/protocol.ts'
 import { ROOMS, type Room } from '../shared/team-match.ts'
 import { openingLead } from '../shared/traveller.ts'
 import type { EventReport, TableModeHooks } from './modes.ts'
@@ -118,7 +118,7 @@ export const teamMode: TableModeHooks = {
 /**
  * A room's table as the match starts (`e8-t07`): its four seats from the match's (robots of the
  * match's system), the match's deal set, the match's time limit, and anyone may watch (the lobby
- * lists the match, not the table). `people` has the name and blocks of each member in it
+ * lists the match, not the table). `people` has the name, blocks and robot speed of each member in it
  */
 export function teamTable(input: {
   id: string
@@ -126,7 +126,7 @@ export function teamTable(input: {
   room: Room
   deals: DealSet
   now: number
-  people: Record<string, { username: string; blocked: string[] }>
+  people: Record<string, { username: string; blocked: string[]; robotSpeed?: RobotSpeed }>
 }): Table {
   const { id, match, room, deals, now, people } = input
   const kind = match.settings.robotKind
@@ -163,5 +163,6 @@ export function teamTable(input: {
     settings: { access: 'public', allowKibitz: true, boardMinutes: match.settings.boardMinutes },
     names: Object.fromEntries(Object.entries(people).map(([userId, p]) => [userId, p.username])),
     blocks: Object.fromEntries(here.flatMap((userId) => (people[userId] ? [[userId, people[userId].blocked]] : []))),
+    speeds: Object.fromEntries(here.flatMap((userId) => (people[userId]?.robotSpeed ? [[userId, people[userId].robotSpeed]] : []))),
   }
 }

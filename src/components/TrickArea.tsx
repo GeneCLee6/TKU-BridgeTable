@@ -3,7 +3,7 @@ import styled from 'styled-components'
 import type { Card, Seat } from '../../shared/cards.ts'
 import type { PlayedCard } from '../../shared/game.ts'
 import { CARD_RATIO } from '../lib/cards.ts'
-import { PACE, prefersReducedMotion } from '../lib/motion.ts'
+import { PACE, prefersReducedMotion, type Pace } from '../lib/motion.ts'
 import { PlayingCard } from './PlayingCard.tsx'
 
 /**
@@ -19,10 +19,8 @@ export type Position = 'top' | 'right' | 'bottom' | 'left'
 /** Where a played card was on screen just before it was played, if known */
 export type CardOrigin = (card: Card, seat: Seat) => DOMRect | undefined
 
-/** A card takes this long to reach the middle, easing in gently and settling softly */
-export const GLIDE_MS = PACE.glideMs
-/** A finished trick takes as long to go to its winner */
-export const COLLECT_MS = PACE.collectMs
+/** How long the glides take (`paceOf`): a card to the middle, easing in gently and settling softly, and a finished trick to its winner */
+type Glides = Pick<Pace, 'glideMs' | 'collectMs'>
 const GLIDE_EASING = 'cubic-bezier(0.33, 0.1, 0.2, 1)'
 
 const Area = styled.div<{ $w: number }>`
@@ -50,12 +48,14 @@ function Landing({
   width,
   highlight,
   origin,
+  glideMs,
 }: {
   played: PlayedCard
   position: Position
   width: number
   highlight: boolean
   origin?: CardOrigin
+  glideMs: number
 }) {
   const ref = useRef<HTMLDivElement>(null)
   // Where it came from is read once: by a second run (React's strict mode) the hand has moved on
@@ -83,7 +83,7 @@ function Landing({
           }[position],
           opacity: 0,
         }
-    el.animate([begin, { transform: 'none', opacity: 1 }], { duration: GLIDE_MS, easing: GLIDE_EASING })
+    el.animate([begin, { transform: 'none', opacity: 1 }], { duration: glideMs, easing: GLIDE_EASING })
     // Only when the card first lands; later renders leave it where it is
     // oxlint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -103,10 +103,12 @@ function Leaving({
   trick,
   positionOf,
   width,
+  collectMs,
 }: {
   trick: { cards: PlayedCard[]; winner: Seat }
   positionOf: (seat: Seat) => Position
   width: number
+  collectMs: number
 }) {
   const ref = useRef<HTMLDivElement>(null)
 
@@ -130,7 +132,7 @@ function Leaving({
           { transform: `translate(${dx}px, ${dy}px)`, opacity: 1, offset: 0.45 },
           { transform: `translate(${dx + ax * away}px, ${dy + ay * away}px) scale(0.7)`, opacity: 0 },
         ],
-        { duration: COLLECT_MS, easing: GLIDE_EASING, fill: 'forwards' },
+        { duration: collectMs, easing: GLIDE_EASING, fill: 'forwards' },
       )
     }
     // Only when the trick starts to leave
@@ -158,6 +160,7 @@ export function TrickArea({
   label,
   origin,
   leaving,
+  pace = PACE,
 }: {
   cards: PlayedCard[]
   positionOf: (seat: Seat) => Position
@@ -167,13 +170,15 @@ export function TrickArea({
   origin?: CardOrigin
   /** The trick before, on its way to the player who won it */
   leaving?: { cards: PlayedCard[]; winner: Seat; key: string }
+  /** How long the glides take: the table's robot speed (`paceOf`), the default speed's elsewhere */
+  pace?: Glides
 }) {
   return (
     <Area $w={width} role="group" aria-label={label}>
-      {leaving && <Leaving key={leaving.key} trick={leaving} positionOf={positionOf} width={width} />}
+      {leaving && <Leaving key={leaving.key} trick={leaving} positionOf={positionOf} width={width} collectMs={pace.collectMs} />}
       {cards.map((played) => (
         <Slot key={played.card} $position={positionOf(played.seat)} style={leaving ? { zIndex: 2 } : undefined}>
-          <Landing played={played} position={positionOf(played.seat)} width={width} highlight={played.seat === winner} origin={origin} />
+          <Landing played={played} position={positionOf(played.seat)} width={width} highlight={played.seat === winner} origin={origin} glideMs={pace.glideMs} />
         </Slot>
       ))}
     </Area>

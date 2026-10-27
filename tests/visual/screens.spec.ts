@@ -23,7 +23,7 @@ async function open(page: Page, path: string, club: Club, size: { width: number;
 async function atTable(page: Page, club: Club, size: { width: number; height: number }) {
   await open(page, '/table/t1', club, size)
   await expect(page.locator('[data-hand="S"]')).toBeVisible()
-  // A finished trick on the table goes to its winner when the next is led (TrickArea's COLLECT_MS)
+  // A finished trick on the table goes to its winner when the next is led (the pace's collectMs)
   await page.waitForTimeout(1500)
 }
 
