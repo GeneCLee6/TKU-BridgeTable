@@ -101,7 +101,7 @@ describe('the bidding hint card (e10-t06)', () => {
     const board = { auction, dealer: 'N', vul: 'None', phase: 'auction', bookTopics: bookTopics(ROBOT_SYSTEMS.tku, auction, 'N', 'None', 'NS') } as unknown as BoardView
     const { unmount } = wrap(<BookHints board={board} robotKind="tku" />)
     const link = await screen.findByRole('link', { name: /1NT 開叫與答叫/ })
-    expect(link).toHaveAttribute('href', 'https://tku-bridge-book.vercel.app/c/system-notrump')
+    expect(link).toHaveAttribute('href', 'https://tku-bridge-hall.vercel.app/c/system-notrump')
     expect(link).toHaveAttribute('target', '_blank')
     unmount()
     wrap(<BookHints board={board} robotKind="gib" />)
