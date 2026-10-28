@@ -143,6 +143,16 @@ describe('content edited online', () => {
     expect(checkConvention(convention('lebensohl', { kind: 'defense', level: 'basic', prerequisites: ['jacoby-2nt'], cardSlots: [] }), 'lebensohl')).toBeTruthy()
     expect(await book.revisions('lebensohl')).toEqual([])
   })
+
+  it('checks an editor’s hand conditions on a response row (BridgeHall e7-t08)', () => {
+    const withConditions = (conditions: unknown) =>
+      convention('lebensohl', {
+        sections: [{ id: 'a', title: 'A', blocks: [{ kind: 'responses', rows: [{ call: '2C', meaning: '邀請', conditions }] }] }],
+      })
+    expect(checkConvention(withConditions({ hcp: [8, 9], len: { H: [5, 40] }, forcing: 'oneRound' }), 'lebensohl')).toBeTruthy()
+    expect(() => checkConvention(withConditions({ forcing: 'game' }), 'lebensohl')).toThrow('叫品「2C」的手牌條件：手牌條件要有點力或張數')
+    expect(() => checkConvention(withConditions({ hcp: [9, 8] }), 'lebensohl')).toThrow('點力範圍不正確')
+  })
 })
 
 /** A convention with 待確認 notes in every place the handbook looks for them */
