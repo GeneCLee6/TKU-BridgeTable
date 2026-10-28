@@ -1,5 +1,6 @@
 import type { Me } from '../shared/protocol.ts'
 import type { OnlineArticle } from '../shared/robot/system/tku/sources.ts'
+import { conditionsProblem } from '../shared/systemSpec.ts'
 import { type AuditAction, AuditLog } from './audit.ts'
 import { randomId } from './auth.ts'
 import type { ImportCategory, ImportRequest } from './importer.ts'
@@ -278,6 +279,11 @@ export function checkSections(sections: unknown[]) {
       for (const row of b.rows)
         if (!isObject(row) || !isString(row.call) || !isString(row.meaning) || !isOptionalString(row.note) || !isOptionalString(row.pending))
           fail('叫品表的每一列要有叫品與意義')
+      for (const row of b.rows as Record<string, unknown>[]) {
+        // An editor's hand conditions for the robot (BridgeHall e7-t08), beside the row's words
+        const problem = row.conditions === undefined ? null : conditionsProblem(row.conditions)
+        if (problem) fail(`叫品「${String(row.call)}」的手牌條件：${problem}`)
+      }
       if (b.auction !== undefined) {
         const auction = b.auction
         if (!isObject(auction) || !isStrings(auction.seats) || (auction.seats as string[]).length !== 4 || !Array.isArray(auction.calls))

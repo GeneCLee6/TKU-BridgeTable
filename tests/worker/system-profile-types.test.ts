@@ -5,6 +5,7 @@ import {
   PROFILE_LIMITS,
   PROFILE_SCOPES,
   PROFILE_VISIBILITIES,
+  type ProfileCardEdit,
   type ProfileInput,
   type ProfileNote,
   type ProfileOverride,
@@ -23,7 +24,8 @@ import {
 type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false
 const assertType = <T extends true>(value: T) => value
 
-const PROFILE_KEYS = ['id', 'name', 'scope', 'parentId', 'visibility', 'adopted', 'overrides', 'notes', 'version', 'updatedAt', 'updatedBy'] as const
+const PROFILE_KEYS = ['id', 'name', 'scope', 'parentId', 'visibility', 'adopted', 'overrides', 'notes', 'cardEdits', 'version', 'updatedAt', 'updatedBy'] as const
+const CARD_EDIT_KEYS = ['text', 'checked', 'option', 'flagged'] as const
 const NOTE_KEYS = ['slug', 'sectionId', 'text', 'by', 'at'] as const
 const ROW_KEYS = ['kind', 'slug', 'sectionId', 'blockIndex', 'rowIndex', 'meaning', 'note'] as const
 const SECTION_KEYS = ['kind', 'slug', 'sectionId', 'section'] as const
@@ -31,7 +33,7 @@ const META_KEYS = ['kind', 'slug', 'summary', 'tags'] as const
 const SUMMARY_KEYS = ['id', 'name', 'scope', 'parentId', 'visibility', 'version', 'updatedAt', 'updatedBy', 'counts'] as const
 const COUNT_KEYS = ['adopted', 'overrides', 'notes'] as const
 const REVISION_KEYS = ['profileId', 'version', 'at', 'by', 'note', 'profile'] as const
-const INPUT_KEYS = ['name', 'scope', 'parentId', 'visibility', 'adopted', 'overrides', 'notes'] as const
+const INPUT_KEYS = ['name', 'scope', 'parentId', 'visibility', 'adopted', 'overrides', 'notes', 'cardEdits'] as const
 
 type Kind<K extends ProfileOverride['kind']> = Extract<ProfileOverride, { kind: K }>
 
@@ -48,6 +50,7 @@ const SAMPLE = {
     { kind: 'meta', slug: 'bergen', summary: '我們打反 Bergen', tags: ['反'] },
   ],
   notes: [{ slug: 'stayman', sectionId: 'responses', text: '記得問', by: 'u1', at: 1 }],
+  cardEdits: { 'wbf.openings.1H.responses': { text: '4♥=PRE', checked: true, option: 'natural', flagged: true } },
   version: 3,
   updatedAt: 1_700_000_000_000,
   updatedBy: 'u1',
@@ -57,6 +60,7 @@ describe('system profile types (mirrored in TKU-BridgeBook)', () => {
   it('have the same fields on both sides', () => {
     assertType<Equal<keyof SystemProfile, (typeof PROFILE_KEYS)[number]>>(true)
     assertType<Equal<keyof ProfileNote, (typeof NOTE_KEYS)[number]>>(true)
+    assertType<Equal<keyof ProfileCardEdit, (typeof CARD_EDIT_KEYS)[number]>>(true)
     assertType<Equal<keyof Kind<'row'>, (typeof ROW_KEYS)[number]>>(true)
     assertType<Equal<keyof Kind<'section'>, (typeof SECTION_KEYS)[number]>>(true)
     assertType<Equal<keyof Kind<'meta'>, (typeof META_KEYS)[number]>>(true)
@@ -73,7 +77,7 @@ describe('system profile types (mirrored in TKU-BridgeBook)', () => {
     expect(CLUB_PROFILE_ID).toBe('club')
     expect(PROFILE_SCOPES).toEqual(['club', 'team', 'partnership'])
     expect(PROFILE_VISIBILITIES).toEqual(['club', 'members'])
-    expect(PROFILE_LIMITS).toEqual({ bytesMax: 200_000, overridesMax: 500, profilesMax: 100, nameMax: 40, noteMax: 2_000 })
+    expect(PROFILE_LIMITS).toEqual({ bytesMax: 200_000, overridesMax: 500, profilesMax: 100, nameMax: 40, noteMax: 2_000, cardEditsMax: 1_000 })
     expect(PROFILE_SCOPES.every(isProfileScope)).toBe(true)
     expect(isProfileScope('pair')).toBe(false)
     expect(isProfileScope(undefined)).toBe(false)
