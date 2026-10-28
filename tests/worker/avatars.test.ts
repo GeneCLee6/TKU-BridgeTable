@@ -80,6 +80,15 @@ describe('uploading an avatar', () => {
     expect((await again.avatar(amy))?.version).toBe(time)
   })
 
+  it("puts the version and the display name in the handbook's member list (BridgeBook e11-t01)", async () => {
+    const amy = await member('amy')
+    await club.setProfile(amy, { displayName: '王小美' })
+    await club.setAvatar(amy, picture(WEBP))
+    const list = club.memberDirectory()
+    expect(list.find((m) => m.id === amy)).toEqual({ id: amy, username: 'amy', displayName: '王小美', avatar: time })
+    expect(list.find((m) => m.id === admin)).toEqual({ id: admin, username: 'admin' })
+  })
+
   it('tells the online members the new version at once', async () => {
     const amy = await member('amy')
     online = [admin]

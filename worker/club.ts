@@ -13,6 +13,8 @@ import { BookService, importRequestFrom, publicBookResponse } from './book.ts'
 import { claudeImporter } from './importer.ts'
 import { anonymousProfileResponse, ProfileService } from './profiles.ts'
 import { avatarResponse, readAvatarUpload } from './avatars.ts'
+import { FILES_PATH, FileService, readFileUpload } from './files.ts'
+import { FILE_LIMITS } from '../shared/files.ts'
 import { adminRouteNeed, bookRouteNeed, clubRouteNeed, requireNeed } from './roles.ts'
 import { robotMeaningsFor } from './system-spec.ts'
 import { CLIENT_ERROR_MAX_CHARS } from './client-errors.ts'
@@ -54,6 +56,11 @@ export interface Env {
   /** Daily backups (worker/backup.ts); the bucket is created by hand before deploying (DEPLOY.md §4.4) */
   BACKUPS?: R2Bucket
   /**
+   * Pictures for posts and articles (worker/files.ts, BridgeBook e11-t02); the bucket is created by
+   * hand before the binding is added (DEPLOY.md §4.8). Without it the files API answers 503
+   */
+  FILES?: R2Bucket
+  /**
    * The history index's D1 copy (ARCHITECTURE.md §5.12): its own database per environment, created
    * by hand before deploying (DEPLOY.md §4.5); none in PR previews
    */
@@ -66,6 +73,14 @@ export interface Env {
   EDGE_AUTH?: string
   /** The system profile whose 淡江橋館 rules TKB follows (BridgeHall e7-t03); the club's when unset */
   SYSTEM_PROFILE_ID?: string
+}
+
+/** A picture's upload may come straight from TKU BridgeBook's page too; its single-use pass is the check */
+const FILE_CORS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'PUT, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type',
+  'Access-Control-Max-Age': '86400',
 }
 
 /** The import upload comes straight from TKU BridgeBook's page; its single-use pass is the check */
@@ -96,6 +111,8 @@ export class Club extends DurableObject<Env> implements Connections {
   /** Replaced after a backup is restored, so nothing they cached survives */
   private book: BookService
   private profiles: ProfileService
+  /** Pictures in R2 (e11-t02); keeps only its signing key in memory */
+  private readonly files: FileService
   /** TKU BridgeBook's teams and partnerships (E2); keeps nothing in memory, so it outlives a restore */
   private readonly teams: TeamService
   private readonly store: Store
@@ -141,6 +158,7 @@ export class Club extends DurableObject<Env> implements Connections {
     })
     this.edgeSecret = edgeSecret(env)
     this.book = new BookService(store)
+    this.files = new FileService(store, env.FILES)
     this.profiles = new ProfileService(store, Date.now, (id) => this.service.usernameOf(id))
     this.teams = new TeamService(store, {
       now: Date.now,
@@ -288,6 +306,7 @@ export class Club extends DurableObject<Env> implements Connections {
   private async route(request: Request, url: URL): Promise<Response> {
     const token = readCookie(request.headers.get('Cookie'), SESSION_COOKIE)
     if (url.pathname === '/api/book/import') return this.importUpload(request)
+    if (url.pathname.startsWith(`${FILES_PATH}upload/`)) return this.fileUpload(request, url)
     if (url.pathname === '/ws') return this.upgrade(request, token)
     return this.api(request, url, token)
   }
@@ -311,6 +330,23 @@ export class Club extends DurableObject<Env> implements Connections {
       response = errorResponse(error)
     }
     for (const [key, value] of Object.entries(IMPORT_CORS)) response.headers.set(key, value)
+    return response
+  }
+
+  /** A picture or its thumbnail (e11-t02), with its single-use pass instead of the session cookie */
+  private async fileUpload(request: Request, url: URL): Promise<Response> {
+    if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: FILE_CORS })
+    let response: Response
+    try {
+      if (request.method !== 'PUT') throw new ClubError('noSuchApi', {}, 404)
+      const token = url.pathname.slice(`${FILES_PATH}upload/`.length)
+      const part = url.searchParams.get('part') === 'thumb' ? 'thumb' : 'file'
+      const bytes = await readFileUpload(request, part === 'thumb' ? FILE_LIMITS.thumbMaxBytes : FILE_LIMITS.maxBytes)
+      response = json({ file: await this.files.upload(token, part, bytes) })
+    } catch (error) {
+      response = errorResponse(error)
+    }
+    for (const [key, value] of Object.entries(FILE_CORS)) response.headers.set(key, value)
     return response
   }
 
@@ -374,6 +410,11 @@ export class Club extends DurableObject<Env> implements Connections {
     const open = await publicBookResponse(this.book, request, url.pathname)
     if (open) return open
 
+    // A picture by its signed address (e11-t02): the signature is the check, so no sign-in
+    if (request.method === 'GET' && url.pathname.startsWith(FILES_PATH)) {
+      return this.files.serve(decodeURIComponent(url.pathname.slice(FILES_PATH.length)), url)
+    }
+
     const user = await this.service.userForToken(token)
     if (!user) {
       // Without signing in, only the club's own system profile
@@ -401,6 +442,13 @@ export class Club extends DurableObject<Env> implements Connections {
     // The member's own picture (e1-t34): the bytes as the browser cropped and shrank them
     if (route === 'PUT /api/account/avatar') return json({ user: await this.service.setAvatar(user.id, await readAvatarUpload(request)) })
     if (route === 'DELETE /api/account/avatar') return json({ user: await this.service.deleteAvatar(user.id) })
+    // Pictures for posts and articles (e11-t02): a pass to upload one, fresh addresses, removing one
+    if (route === 'POST /api/files/ticket') return json(await this.files.createTicket(user.id, await body()))
+    if (route === 'POST /api/files/urls') return json(await this.files.urls((await body()).keys))
+    if (request.method === 'DELETE' && url.pathname.startsWith(FILES_PATH)) {
+      await this.files.remove(user.id, decodeURIComponent(url.pathname.slice(FILES_PATH.length)), user.admin)
+      return json({ ok: true })
+    }
     // Any member's picture, for both sites; cached by its version (`?v=`)
     const avatar = url.pathname.match(/^\/api\/avatar\/([\w-]+)$/)
     if (request.method === 'GET' && avatar) return avatarResponse(await this.service.avatar(avatar[1]), request)

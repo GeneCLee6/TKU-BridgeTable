@@ -21,6 +21,7 @@ import {
   summarize,
   USERNAME_PATTERN,
   type AdminUser,
+  type ClubMember,
   type Application,
   type BoardRecord,
   type ClientMessage,
@@ -1206,8 +1207,13 @@ export class ClubService {
   }
 
   /** Every member's id and name, nothing else, for picking a team's members or a partner */
-  memberDirectory(): { id: string; username: string }[] {
-    return [...this.users.values()].map(({ id, username }) => ({ id, username }))
+  memberDirectory(): ClubMember[] {
+    return [...this.users.values()].map(({ id, username, profile, avatar }) => ({
+      id,
+      username,
+      ...(profile?.displayName ? { displayName: profile.displayName } : {}),
+      ...(avatar ? { avatar } : {}),
+    }))
   }
 
   requireAdmin(userId: string) {
