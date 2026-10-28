@@ -69,6 +69,10 @@ export function bookRouteNeed(method: string, path: string): Need | null {
     if (method === 'DELETE') return 'bookEdit'
     return null
   }
+  // A profile's convention card versions (BridgeHall e3-t09): the profile's rights decide (club.ts)
+  if (/^\/cards\/[\w-]+$/.test(path)) return method === 'GET' || method === 'POST' ? 'member' : null
+  if (/^\/cards\/[\w-]+\/[\w-]+\/\d+$/.test(path)) return ['GET', 'PATCH', 'DELETE'].includes(method) ? 'member' : null
+  if (/^\/cards\/[\w-]+\/[\w-]+\/\d+\/docx$/.test(path)) return method === 'GET' ? 'member' : null
   // 淡江橋館 → TKB (BridgeHall e7-t03, e7-t04): the report page is the editors'
   if (path === '/system-spec') return method === 'GET' ? 'bookEdit' : null
   if (/^\/system-spec\/[\w-]+$/.test(path)) return method === 'PUT' ? 'bookEdit' : null

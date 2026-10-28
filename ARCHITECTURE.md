@@ -277,6 +277,7 @@ interface BoardState {
 | `book:categoryInfo` | 分類的版本號（`baseVersion` 用）與最後修改的人、時間 |
 | `book:profile:<id>` | 淡江橋譜的制度集（`ProfileSummary` 加上內容的分段數；`adopted`、`overrides`、`notes` 在 `bookpart:`）；`club` 沒存過時視為空的、版本 0 |
 | `book:profilerev:<id>:<版本，8 位數>` | 制度集每次儲存的完整內容（在 `bookpart:`）；刪掉制度集時一起刪 |
+| `book:cardsnap:<制度集 id>:<版型>:<n，6 位數>` | 橋館的制度卡版本（e3-t09）：`CardSnapshotMeta` 加分段數；填好的卡（橋館的 `FilledCard`，原樣保存）在 `bookpart:<key>`，Word 檔（base64）在 `bookpart:<key>#docx`；刪掉制度集時一起刪 |
 | `team:<id>` | 淡江橋譜的隊伍（`ClubTeam`：名稱、隊長、隊員、制度集 id、封存） |
 | `pair:<id>` | 淡江橋譜的搭檔（`Partnership`：兩人 `[邀請者, 受邀者]`、所屬隊伍、制度集 id（接受前是空字串）、狀態 `pending`／`active`／`ended`）；婉拒或收回的邀請直接刪掉 |
 | `userteam:<userId>:<teamId>`、`userpair:<userId>:<pairId>` | 某人在哪些隊伍、有哪些搭檔（值是 `true`） |
@@ -981,6 +982,11 @@ SQL 由 `worker/history-index.ts` 的 `searchBoards` 組：只有固定的 SQL �
 | `PUT /api/book/profiles/:id` | 能編輯的人（下面） | `{ profile: ProfileInput, baseVersion, note? }`；`baseVersion` 不符回 409 `profileConflict`。`club` 第一次存時 `baseVersion` 是 0。編輯者以外的人改 `scope`、`parentId`，或沒有 `share` 卻改 `visibility`，回 403 `noPermission` |
 | `DELETE /api/book/profiles/:id` | bookEdit | `{ baseVersion }`；`club` 回 403 `profileProtected`，還有別的制度集繼承它時回 409 `profileInUse`；版本紀錄一起刪 |
 | `GET /api/book/profiles/:id/revisions[/:version]` | bookEdit／隊伍或搭檔的成員 | 版本紀錄（新的在前，最多 100 筆，不含內容）與某一版的完整制度集 |
+| `GET /api/book/cards/:profileId` | 讀得到該制度集的人 | `{ snapshots: CardSnapshotMeta[] }`：這個制度集各版型的制度卡版本，新的在前（橋館 e3-t09） |
+| `POST /api/book/cards/:profileId` | 能編輯該制度集的人 | `CardSnapshotInput`（`templateId`、`profileVersion`、`card`、`docx?` base64、`note?`）發布一個版本，同制度集同版型從 1 編號；卡 JSON 最多 800 kB、Word 檔 600 kB（413 `contentTooLarge`），每個制度集最多 200 個版本。回 `{ snapshot: CardSnapshotMeta }`，記一筆 `card:publish` 審計 |
+| `GET /api/book/cards/:profileId/:templateId/:n[/docx]` | 讀得到該制度集的人；**分享中的版本不用登入** | `{ snapshot: CardSnapshot }`，或 Word 檔本身（`/docx`，`Content-Disposition: attachment`）；不存在或沒有 Word 檔回 404 `cardSnapshotGone`。分享中的版本在登入檢查之前就回，連結關掉後只有讀得到制度集的人看得到 |
+| `PATCH /api/book/cards/:profileId/:templateId/:n` | 有 `share` 權限的人（編輯者、隊長、現役搭檔） | `{ shared: boolean }` 開關分享連結，回 `{ snapshot }` |
+| `DELETE /api/book/cards/:profileId/:templateId/:n` | 能編輯該制度集的人 | 刪掉這個版本（含 Word 檔），記一筆 `card:delete` 審計 |
 | `GET /api/book/system-spec?profileId=` | bookEdit | `SystemSpecStatus`：`{ tableProfileId, synced }`，`synced` 是該制度集最後同步的 `SystemSpec`（`shared/systemSpec.ts`）、時間與同步者，沒同步過是 `null`；沒給 `profileId` 時是 TKB 跟著的制度集（橋館 e7-t03） |
 | `PUT /api/book/system-spec/:profileId` | bookEdit | `{ spec: SystemSpec }`：橋館的差異報告頁用 `toSystemSpec` 在瀏覽器轉好送來（內建特約只在橋館、轉換的 CPU 一次請求不夠），這裡只檢查形狀（`worker/system-spec.ts`）、`spec.profileId` 要等於網址、JSON 最多 1 MB（413 `contentTooLarge`）；制度集不存在回 404 `profileGone`。存在 `book:spec:<id>`（本體分段），每日備份一起備。回同 GET |
 | `POST /api/book/robot-meanings` | bookEdit | `RobotMeaningsQuery`（`{ items: { after, calls }[] }`，一次最多 10 個叫牌過程、每個 38 個叫品）→ `{ items }`：TKB 淡江制度的規則說每個叫品表示什麼（`explain`，只看叫牌過程；`RobotShows` 是橋館啟發式讀得到的欄位加中文說明），沒有規則是 `null`。差異報告頁分批問（橋館 e7-t04） |

@@ -622,6 +622,14 @@ export const MESSAGES = {
     ja: 'そのシステムはありません',
     ko: '그런 시스템이 없습니다',
   },
+  cardSnapshotGone: {
+    zh: '找不到這個制度卡版本，或連結已關閉',
+    'zh-Hans': '找不到这个制度卡版本，或链接已关闭',
+    en: 'No such convention card version, or its link was turned off',
+    vi: 'Không tìm thấy phiên bản thẻ quy ước này, hoặc liên kết đã bị tắt',
+    ja: 'その約束カードの版はありません。またはリンクが無効になっています',
+    ko: '그런 컨벤션 카드 버전이 없거나 링크가 꺼졌습니다',
+  },
   profileProtected: {
     zh: '社團預設的制度集不能刪除',
     'zh-Hans': '社团默认的制度集不能删除',

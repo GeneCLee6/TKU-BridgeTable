@@ -12,6 +12,7 @@ import { ACCOUNT_PREFIXES, backupAdmin, runBackup } from './backup.ts'
 import { BookService, importRequestFrom, publicBookResponse } from './book.ts'
 import { claudeImporter } from './importer.ts'
 import { anonymousProfileResponse, ProfileService } from './profiles.ts'
+import { CardSnapshotService } from './card-snapshots.ts'
 import { avatarResponse, readAvatarUpload } from './avatars.ts'
 import { FILES_PATH, FileService, readFileUpload } from './files.ts'
 import { FILE_LIMITS } from '../shared/files.ts'
@@ -111,6 +112,8 @@ export class Club extends DurableObject<Env> implements Connections {
   /** Replaced after a backup is restored, so nothing they cached survives */
   private book: BookService
   private profiles: ProfileService
+  /** Convention card versions (BridgeHall e3-t09); keeps nothing in memory */
+  private readonly cardSnapshots: CardSnapshotService
   /** Pictures in R2 (e11-t02); keeps only its signing key in memory */
   private readonly files: FileService
   /** TKU BridgeBook's teams and partnerships (E2); keeps nothing in memory, so it outlives a restore */
@@ -160,6 +163,7 @@ export class Club extends DurableObject<Env> implements Connections {
     this.book = new BookService(store)
     this.files = new FileService(store, env.FILES)
     this.profiles = new ProfileService(store, Date.now, (id) => this.service.usernameOf(id))
+    this.cardSnapshots = new CardSnapshotService(store, Date.now, (id) => this.service.usernameOf(id))
     this.teams = new TeamService(store, {
       now: Date.now,
       newId: () => randomId(6),
@@ -416,6 +420,9 @@ export class Club extends DurableObject<Env> implements Connections {
     }
 
     const user = await this.service.userForToken(token)
+    // A convention card version shared by link (BridgeHall e3-t09): anyone, signed in or not
+    const shared = request.method === 'GET' ? await this.sharedCardResponse(url.pathname) : null
+    if (shared) return shared
     if (!user) {
       // Without signing in, only the club's own system profile
       const profiles = await anonymousProfileResponse(this.profiles, request, url.pathname)
@@ -747,7 +754,34 @@ export class Club extends DurableObject<Env> implements Connections {
         return json({ profile: saved })
       }
       await this.profiles.remove(id, await body())
+      await this.cardSnapshots.removeAll(id)
       await this.book.auditTrail.record({ by: user.username, action: 'profile:delete', target: id })
+      return json({ ok: true })
+    }
+
+    // Convention card versions (BridgeHall e3-t09): reading is the profile's readers', publishing and
+    // deleting its editors', turning the link on or off theirs who may set who reads the profile
+    const cards = path.match(/^\/cards\/([\w-]+)(?:\/([\w-]+)\/(\d+)(\/docx)?)?$/)
+    if (cards) {
+      const [, id, templateId, n, docx] = cards
+      const { profile, access } = await this.teams.readProfile(user, id)
+      if (!templateId) {
+        if (method === 'GET') return json({ snapshots: await this.cardSnapshots.list(id) })
+        if (!access.edit) throw new ClubError('noPermission', {}, 403)
+        const snapshot = await this.cardSnapshots.create(user, profile, await body())
+        await this.book.auditTrail.record({ by: user.username, action: 'card:publish', target: `${id}/${snapshot.templateId}`, version: snapshot.n })
+        return json({ snapshot })
+      }
+      const at = Number(n)
+      if (docx) return docxResponse(await this.cardSnapshots.docx(id, templateId, at), `${templateId}-v${at}.docx`)
+      if (method === 'GET') return json({ snapshot: await this.cardSnapshots.get(id, templateId, at) })
+      if (method === 'PATCH') {
+        if (!access.share) throw new ClubError('noPermission', {}, 403)
+        return json({ snapshot: await this.cardSnapshots.share(id, templateId, at, (await body()).shared) })
+      }
+      if (!access.edit) throw new ClubError('noPermission', {}, 403)
+      await this.cardSnapshots.remove(id, templateId, at)
+      await this.book.auditTrail.record({ by: user.username, action: 'card:delete', target: `${id}/${templateId}`, version: at })
       return json({ ok: true })
     }
 
@@ -782,6 +816,17 @@ export class Club extends DurableObject<Env> implements Connections {
     throw new ClubError('noSuchApi', {}, 404)
   }
 
+  /** GET of a shared convention card version (or its Word file); null when it is not shared, or not one */
+  private async sharedCardResponse(pathname: string): Promise<Response | null> {
+    const m = pathname.match(/^\/api\/book\/cards\/([\w-]+)\/([\w-]+)\/(\d+)(\/docx)?$/)
+    if (!m) return null
+    const [, id, templateId, n, docx] = m
+    const meta = await this.cardSnapshots.meta(id, templateId, Number(n)).catch(() => null)
+    if (!meta?.shared) return null
+    if (docx) return docxResponse(await this.cardSnapshots.docx(id, templateId, meta.n), `${templateId}-v${meta.n}.docx`)
+    return json({ snapshot: await this.cardSnapshots.get(id, templateId, meta.n) })
+  }
+
   private async systemSpecStatus(profileId: string): Promise<SystemSpecStatus> {
     const synced = await this.service.systemSpecs.get(profileId)
     const name = synced && this.service.usernameOf(synced.syncedBy)
@@ -812,6 +857,17 @@ export class Club extends DurableObject<Env> implements Connections {
   async webSocketError(ws: WebSocket) {
     await this.webSocketClose(ws)
   }
+}
+
+/** A Word file to download */
+function docxResponse(bytes: Uint8Array, name: string) {
+  return new Response(bytes, {
+    headers: {
+      'Content-Type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'Content-Disposition': `attachment; filename="${name}"`,
+      'Cache-Control': 'no-store',
+    },
+  })
 }
 
 function json(data: unknown, status = 200, ...cookies: string[]) {

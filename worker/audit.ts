@@ -23,6 +23,9 @@ export type AuditAction =
   | 'profile:create'
   | 'profile:save'
   | 'profile:delete'
+  /** A convention card version published or deleted (BridgeHall e3-t09); `target` is `<profile>/<template>` */
+  | 'card:publish'
+  | 'card:delete'
 
 export interface AuditEntry {
   id: string
@@ -30,7 +33,7 @@ export interface AuditEntry {
   /** The member's username, as in BookRevision.by */
   by: string
   action: AuditAction
-  /** A convention's slug, a profile's id, or 'categories' */
+  /** A convention's slug, a profile's id, `<profile>/<template>` for a card, or 'categories' */
   target: string
   /** The version the change made (a published convention's, a profile's, the categories'); a draft has none */
   version?: number
