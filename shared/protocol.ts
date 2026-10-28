@@ -26,6 +26,12 @@ export interface PublicUser {
   robotKind?: RobotKind
   /** The version of the member's uploaded picture (e1-t34, `avatarUrl`); none means the default avatar */
   avatar?: number
+  /**
+   * Their profile's display name (TKU-BridgeHall e11-t19), when they set one: on the lobby's
+   * members and seats only. A table's own seats and history records carry the username, so the
+   * table page takes the name and the picture from the lobby (`withMemberProfile`)
+   */
+  displayName?: string
 }
 
 /**
@@ -1286,6 +1292,12 @@ export interface ClubMember {
   displayName?: string
   /** Their uploaded picture's version (`avatarUrl`); none means the default avatar */
   avatar?: number
+}
+
+/** GET /api/club/members/:id/teams: the teams a member is in and their active partnerships (TKU-BridgeHall e11-t04) */
+export interface MemberTeams {
+  teams: ClubTeam[]
+  pairs: Partnership[]
 }
 
 /** POST /api/club/pairs: invite `partnerId`, optionally as partners in a team both belong to */

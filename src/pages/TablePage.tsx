@@ -4,6 +4,7 @@ import { Ban, EyeOff, Hand, Layers, List, Lock, Palette, Settings } from 'lucide
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import styled, { css, keyframes } from 'styled-components'
 import { isVulnerable } from '../../shared/board.ts'
+import { withMemberProfile } from '../../shared/lobby.ts'
 import { nextSeat, partnerOf, SEATS, sideOf, SUITS, suitOf, type Card, type Seat, type Suit } from '../../shared/cards.ts'
 import type { Trick } from '../../shared/game.ts'
 import {
@@ -706,9 +707,11 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
   const viewer = me ?? 'S'
   const at = rotation(viewer)
   const positionOf = (seat: Seat) => (Object.keys(at) as Position[]).find((p) => at[p] === seat)!
+  // The table knows usernames only; the lobby has each member's picture and display name (e11-t19)
+  const occupantAt = (seat: Seat) => withMemberProfile(table.seats[seat], lobby?.members)
   const nameOf = (seat: Seat) => {
-    const o = table.seats[seat]
-    return o ? (o.robot ? `${playerName(t, o)} ${seatLetter[seat]}` : o.username) : seatLetter[seat]
+    const o = occupantAt(seat)
+    return o ? (o.robot ? `${playerName(t, o)} ${seatLetter[seat]}` : playerName(t, o)) : seatLetter[seat]
   }
   const missing = SEATS.filter((s) => !table.seats[s]).length
   /** 北 Alice: a seat as a screen reader says it */
@@ -897,7 +900,7 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
 
   const seatBlock = (position: Position) => {
     const seat = at[position]
-    const occupant = table.seats[seat]
+    const occupant = occupantAt(seat)
     // While the last trick is still on the table every hand is empty; then the deal is shown again
     const dealt = holdLast ? [] : board?.hands[seat]
     const cards = pendingShown?.seat === seat ? dealt?.filter((c) => c !== pendingShown.card) : dealt

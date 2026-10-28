@@ -5909,9 +5909,9 @@ export const LANG_NAMES: Record<Lang, { name: string; short: string }> = {
 /** The table uses BBO's seat letters in both languages */
 export const seatLetter: Record<Seat, string> = { N: 'N', E: 'E', S: 'S', W: 'W' }
 
-/** A player's name as shown: a robot by its kind in the viewer's language */
+/** A player's name as shown: a robot by its kind in the viewer's language, a member by their display name when set */
 export const playerName = (t: Strings, user: PublicUser) =>
-  user.robot ? t.robots[user.robotKind ?? 'tku'] : user.username
+  user.robot ? t.robots[user.robotKind ?? 'tku'] : user.displayName || user.username
 
 /** Where a board was played, as lists show it: its table, a challenge, practice (§5.11), or a team match's room (隊制賽開室, §5.8) */
 export const boardPlace = (t: Strings, b: { mode?: TableMode; tableNumber: number; room?: 'open' | 'closed' }) =>

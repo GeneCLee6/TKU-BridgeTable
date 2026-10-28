@@ -2,6 +2,7 @@ import {
   CLUB_PROFILE_ID,
   type ClubMember,
   type Me,
+  type MemberTeams,
   type Notification,
   type NotificationKind,
   type Partnership,
@@ -156,6 +157,18 @@ export class TeamService {
   /** The ids of the teams a member is in */
   async teamIdsOf(userId: string): Promise<string[]> {
     return [...(await this.store.list(`userteam:${userId}:`)).keys()].map(lastPart)
+  }
+
+  /**
+   * Another member's teams and partnerships, for their profile page (TKU-BridgeHall e11-t04): the
+   * teams they are in, archived ones too, and their active partnerships. Invitations and ended
+   * partnerships stay theirs (`pairsOf`); an active one is on its team's page for every member anyway
+   */
+  async memberTeams(userId: string): Promise<MemberTeams> {
+    const ids = new Set(await this.teamIdsOf(userId))
+    const teams = (await this.teams()).filter((t) => ids.has(t.id))
+    const pairs = (await this.pairsOf(userId)).filter((p) => p.status === 'active')
+    return { teams, pairs }
   }
 
   // ── Partnerships (e2-t03) ──────────────────────────────────────────────────────────────────
