@@ -10,6 +10,7 @@ import {
 import {
   SPEC_ANY,
   auctionPatterns,
+  conditionsProblem,
   expandCall,
   readMeaning,
   toSystemSpec,
@@ -312,5 +313,83 @@ describe('toSystemSpec', () => {
       ['loose', '2D', 'noAuction', undefined],
     ])
     expect(spec.unresolved[0].shows).toEqual({ name: 'gerber' })
+  })
+})
+
+describe('conditions (e7-t08)', () => {
+  const row = (meaning: string, conditions?: unknown, pending?: string) => [
+    {
+      slug: 'nt',
+      sections: [
+        {
+          id: 'answers',
+          blocks: [
+            {
+              kind: 'responses',
+              auction: { calls: ['1NT', '', '?'] },
+              rows: [{ call: '3C/D', meaning, note: '附註', conditions, pending } as never],
+            },
+          ],
+        },
+      ],
+    },
+  ]
+
+  it('makes a rule of an editor’s conditions, keeping the words', () => {
+    const conditions = { forcing: 'game', len: { D: [6, SPEC_ANY], C: [6, SPEC_ANY] }, hcp: [10, 15] }
+    const spec = toSystemSpec(row('6張↑低花，邀請', conditions), { id: 'club', version: 1 })
+    expect(spec.unresolved).toEqual([])
+    expect(spec.rules.map((r) => r.call)).toEqual(['3C', '3D'])
+    expect(spec.rules[0]).toEqual({
+      after: ['1N (P)'],
+      call: '3C',
+      shows: { hcp: [10, 15], len: { D: [6, ANY], C: [6, ANY] }, forcing: 'game' },
+      text: '6張↑低花，邀請',
+      note: '附註',
+      ref: { slug: 'nt', sectionId: 'answers' },
+      filled: true,
+    })
+    // The same order whatever order they were written in
+    expect(Object.keys(spec.rules[0].shows)).toEqual(['hcp', 'len', 'forcing'])
+    expect(Object.keys(spec.rules[0].shows.len ?? {})).toEqual(['D', 'C'])
+  })
+
+  it('takes the conditions over what the patterns read', () => {
+    const spec = toSystemSpec(row('Stayman，8點↑', { hcp: [8, 15] }), { id: 'club', version: 1 })
+    expect(spec.rules[0].shows).toEqual({ hcp: [8, 15] })
+    expect(spec.rules[0].unparsed).toBeUndefined()
+  })
+
+  it('leaves 待確認 rows and broken conditions alone', () => {
+    const pending = toSystemSpec(row('邀請', { hcp: [8, 9] }, '原文不清楚'), { id: 'club', version: 1 })
+    expect(pending.unresolved.map((u) => u.reason)).toEqual(['pending'])
+    const broken = toSystemSpec(row('邀請', { forcing: 'game' }), { id: 'club', version: 1 })
+    expect(broken.rules).toEqual([])
+    expect(broken.unresolved.map((u) => u.reason)).toEqual(['noConditions'])
+  })
+
+  it('checks their shape', () => {
+    expect(conditionsProblem({ hcp: [8, 9] })).toBeNull()
+    expect(conditionsProblem({ len: { H: [5, SPEC_ANY] }, forcing: 'oneRound' })).toBeNull()
+    expect(conditionsProblem({ hcp: [0, 37], len: { S: [0, 0], H: [13, 13] } })).toBeNull()
+    for (const bad of [
+      null,
+      [],
+      { forcing: 'game' },
+      {},
+      { hcp: [9, 8] },
+      { hcp: [8.5, 9] },
+      { hcp: [-1, 9] },
+      { hcp: [8, 38] },
+      { hcp: [38, SPEC_ANY] },
+      { hcp: [8] },
+      { len: {} },
+      { len: { N: [5, 5] } },
+      { len: { S: [5, 14] } },
+      { len: { S: [7, SPEC_ANY], H: [7, SPEC_ANY] } },
+      { hcp: [8, 9], forcing: 'invite' },
+      { hcp: [8, 9], balanced: true },
+    ])
+      expect(conditionsProblem(bad), JSON.stringify(bad)).not.toBeNull()
   })
 })
