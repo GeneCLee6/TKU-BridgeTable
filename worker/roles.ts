@@ -57,6 +57,18 @@ export function bookRouteNeed(method: string, path: string): Need | null {
     if (method === 'GET' && action === 'revisions') return 'bookEdit'
     return null
   }
+  // An article (BridgeHall e5-t04): publishing and hiding are the reviewers', its versions every
+  // editor's; reading one or the list is articleReadRoute's, without signing in
+  const article = path.match(/^\/articles\/[\w-]+(?:\/(hide|revisions)(?:\/[\w-]+)?)?$/)
+  if (article) {
+    const action = article[1]
+    const sub = /\/(?:hide|revisions)\/[\w-]+$/.test(path)
+    if (sub && action !== 'revisions') return null
+    if (method === 'PUT' && !action) return 'bookReview'
+    if (method === 'POST' && action === 'hide') return 'bookReview'
+    if (method === 'GET' && action === 'revisions') return 'bookEdit'
+    return null
+  }
   // Every draft and what is waiting for review (e8-t02); who changed what (e8-t09)
   if (path === '/reviews' || path === '/audit') return method === 'GET' ? 'bookEdit' : null
   if (path === '/categories') return method === 'PUT' ? 'bookEdit' : null
@@ -77,6 +89,17 @@ export function bookRouteNeed(method: string, path: string): Need | null {
   if (path === '/drafts') return method === 'GET' || method === 'POST' ? 'bookImport' : null
   if (/^\/drafts\/[\w-]+$/.test(path)) return method === 'GET' || method === 'DELETE' ? 'bookImport' : null
   return null
+}
+
+/**
+ * `GET /api/book/articles` and `GET /api/book/articles/:slug` (BridgeHall e5-t04): anyone reads them,
+ * signed in or not; which articles each reader gets is ArticleService's. Null for any other request.
+ */
+export function articleReadRoute(method: string, pathname: string): { slug?: string } | null {
+  if (method !== 'GET') return null
+  if (pathname === '/api/book/articles') return {}
+  const one = pathname.match(/^\/api\/book\/articles\/([\w-]+)$/)
+  return one ? { slug: one[1] } : null
 }
 
 /**

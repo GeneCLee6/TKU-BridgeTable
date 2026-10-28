@@ -710,6 +710,22 @@ export const MESSAGES = {
     ja: '内容が大きすぎます。いくつかに分けてください',
     ko: '내용이 너무 큽니다. 여러 컨벤션으로 나누세요',
   },
+  articleGone: {
+    zh: '找不到這篇文章',
+    'zh-Hans': '找不到这篇文章',
+    en: 'No such article',
+    vi: 'Không tìm thấy bài viết này',
+    ja: 'その記事はありません',
+    ko: '그런 글이 없습니다',
+  },
+  articleConflict: {
+    zh: '{name} 剛剛修改了這篇文章，請重新載入後再改',
+    'zh-Hans': '{name} 刚刚修改了这篇文章，请重新载入后再改',
+    en: '{name} just changed this article; reload it and edit again',
+    vi: '{name} vừa sửa bài viết này; hãy tải lại rồi sửa tiếp',
+    ja: '{name} さんがこの記事を変更しました。再読み込みしてから編集してください',
+    ko: '{name} 님이 방금 이 글을 수정했습니다. 다시 불러온 뒤 수정하세요',
+  },
   conventionGone: {
     zh: '找不到這個特約',
     'zh-Hans': '找不到这个特约',
