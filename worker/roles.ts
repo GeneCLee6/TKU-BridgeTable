@@ -119,6 +119,32 @@ export function clubRouteNeed(method: string, path: string): Need | null {
   return null
 }
 
+/**
+ * The forum's officers (幹部): they post on officers-only boards (the news board), pin, lock and
+ * delete anyone's posts and comments. Admins until e11-t09 brings the `forumModerate` permission
+ */
+const FORUM_MODERATE: Need = 'admin'
+export const moderatesForum = (me: Me) => allows(me, FORUM_MODERATE)
+
+/**
+ * `/api/forum/*` (`path` without that prefix; TKU-BridgeHall E11, e11-t06, e11-t07): only members
+ * who are signed in read or write the forum (M1). Boards are the admins'; pinning and locking are
+ * the officers'. Who may edit or delete a given post or comment, and post on an officers-only
+ * board, is ForumService's check (worker/forum.ts). Null when there is no such route.
+ */
+export function forumRouteNeed(method: string, path: string): Need | null {
+  if (path === '/boards') return method === 'GET' ? 'member' : method === 'POST' ? 'admin' : null
+  if (/^\/boards\/[\w-]+$/.test(path)) return method === 'PATCH' || method === 'DELETE' ? 'admin' : null
+  if (/^\/boards\/[\w-]+\/posts$/.test(path)) return method === 'GET' || method === 'POST' ? 'member' : null
+  if (path === '/latest') return method === 'GET' ? 'member' : null
+  if (/^\/posts\/[\w-]+$/.test(path)) return method === 'GET' || method === 'PATCH' || method === 'DELETE' ? 'member' : null
+  if (/^\/posts\/[\w-]+\/(pin|lock)$/.test(path)) return method === 'POST' ? FORUM_MODERATE : null
+  if (/^\/posts\/[\w-]+\/comments$/.test(path)) return method === 'POST' ? 'member' : null
+  if (/^\/comments\/[\w-]+$/.test(path)) return method === 'PATCH' || method === 'DELETE' ? 'member' : null
+  if (/^\/(posts|comments)\/[\w-]+\/reaction$/.test(path)) return method === 'PUT' || method === 'DELETE' ? 'member' : null
+  return null
+}
+
 /** Renaming a team, a new captain, its members, archiving: its captain's and the editors' */
 export const managesTeam = (me: Me, team: Pick<ClubTeam, 'captainId'>) => allows(me, 'bookEdit') || team.captainId === me.id
 
