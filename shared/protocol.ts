@@ -30,13 +30,22 @@ export interface PublicUser {
 
 /**
  * What an admin can let a member do beyond playing (§5.2): edit TKU BridgeBook (淡江橋譜) online
- * (`bookEdit`), import Word or PDF files into it (`bookImport`), feature finished boards
+ * (`bookEdit`: drafts and sending them for review), publish its conventions and send drafts back
+ * (`bookReview`, BridgeHall e8-t01; a reviewer is always an editor too, `withImpliedPermissions`),
+ * import Word or PDF files into it (`bookImport`), feature finished boards
  * (`boardCurate`, e4-t28), and seat TKB in the club's system (`tkuSystem`, 社長 2026-10-26: the
  * club's robot is private; everyone else's TKB is the 2/1 one). Admins have every permission.
  */
-export const PERMISSIONS = ['bookEdit', 'bookImport', 'boardCurate', 'tkuSystem'] as const
+export const PERMISSIONS = ['bookEdit', 'bookReview', 'bookImport', 'boardCurate', 'tkuSystem'] as const
 export type Permission = (typeof PERMISSIONS)[number]
 export const isPermission = (value: unknown): value is Permission => PERMISSIONS.includes(value as Permission)
+
+/** A permission list as stored: `bookReview` brings `bookEdit` with it (a reviewer is an editor); in PERMISSIONS order */
+export function withImpliedPermissions(permissions: readonly Permission[]): Permission[] {
+  const set = new Set(permissions)
+  if (set.has('bookReview')) set.add('bookEdit')
+  return PERMISSIONS.filter((p) => set.has(p))
+}
 
 /** The signed-in user, as /api/me returns it */
 export interface Me extends PublicUser {

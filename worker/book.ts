@@ -1,5 +1,6 @@
 import type { Me } from '../shared/protocol.ts'
 import type { OnlineArticle } from '../shared/robot/system/tku/sources.ts'
+import { type AuditAction, AuditLog } from './audit.ts'
 import { randomId } from './auth.ts'
 import type { ImportCategory, ImportRequest } from './importer.ts'
 import { ClubError } from './service.ts'
@@ -13,12 +14,21 @@ import type { Store } from './store.ts'
  * drafts made by AI import and the short-lived passes the import page uses.
  * The handbook merges the entries over its bundle when it loads (TKU-BridgeBook ARCHITECTURE.md).
  *
+ * Review (BridgeHall e8-t01, e8-t02): an entry here is always published, and it is all readers ever
+ * get. Changes wait in a convention's draft (`book:wip:<slug>`, one per convention, shared by the
+ * editors): `draft` -> `in-review` (sent for review) -> published by a reviewer (`bookReview`), or
+ * sent back to `draft`. A reviewer may also publish straight away. Entries saved before review
+ * existed have no `status`; they are published, like every other entry here.
+ *
  * Conventions are checked here only for shape (so a bad save cannot break the handbook); what they
  * say is up to the editors. Storage values are limited to 128 KiB, so large bodies are split into
  * parts (`bookpart:`) next to a small header.
  */
 
-/** One convention as edited online. `convention` is null when it is hidden from the handbook. */
+/** Where a convention's change is (e8-t01): its draft is `draft` or `in-review`; a BookEntry is `published` */
+export type BookEntryStatus = 'draft' | 'in-review' | 'published'
+
+/** One convention as edited online and published. `convention` is null when it is hidden from the handbook. */
 export interface BookEntry {
   slug: string
   version: number
@@ -28,7 +38,47 @@ export interface BookEntry {
   updatedBy: string
   /** The `updated` date of the bundled convention the first edit started from, if there was one */
   bundledUpdated?: string
+  /** Absent on entries saved before review existed (2026-10-28): they are published too */
+  status?: 'published'
+  /** Who sent the published draft for review, and when; absent when a reviewer published straight away */
+  reviewRequestedBy?: string
+  reviewRequestedAt?: number
+  /** The reviewer who published it, and when */
+  reviewedBy?: string
+  reviewedAt?: number
 }
+
+/**
+ * A convention's change that is not published yet (e8-t02): one per convention, which every editor
+ * may carry on. Only editors and reviewers see it.
+ */
+export interface BookDraft {
+  slug: string
+  status: Exclude<BookEntryStatus, 'published'>
+  /** The published version the draft started from; 0 for the bundled convention or a new one */
+  baseVersion: number
+  /** Counts the draft's saves, from 1; a save or a review sends it back as `draftRevision` */
+  revision: number
+  convention: Record<string, unknown>
+  /** As BookEntry.bundledUpdated, for when it is published */
+  bundledUpdated?: string
+  /** What the editor says the change is; becomes the version's note when published */
+  note: string
+  createdAt: number
+  createdBy: string
+  updatedAt: number
+  updatedBy: string
+  /** Set while it is in review */
+  reviewRequestedBy?: string
+  reviewRequestedAt?: number
+  /** Set when a reviewer sent it back, with why; cleared when it is sent for review again */
+  reviewedBy?: string
+  reviewedAt?: number
+  reviewNote?: string
+}
+
+/** GET /api/book/reviews: every draft without its content, plus the convention's name */
+export type BookDraftSummary = Omit<BookDraft, 'convention'> & { nameZh: string }
 
 /** A section's place in the outline, without its content */
 export interface SectionOutline {
@@ -145,6 +195,8 @@ interface Ticket {
 
 const CHUNK = 40_000
 export const BOOK_LIMITS = {
+  /** Characters of the reason a draft is sent back */
+  reviewNoteMax: 500,
   /** Characters of JSON for one convention */
   conventionMax: 600_000,
   draftMax: 2_000_000,
@@ -399,6 +451,9 @@ export class BookService {
   private readonly store: Store
   private readonly now: () => number
   private entries: Map<string, BookEntry> | null = null
+  /** The drafts (e8-t02), loaded the first time an editor asks: readers never need them */
+  private wip: Map<string, BookDraft> | null = null
+  private readonly audit: AuditLog
   /** Sorted by `order`; empty until someone edits them online */
   private categoryList: BookCategory[] = []
   private categoryInfo: Omit<BookCategories, 'categories'> = { version: 0 }
@@ -409,9 +464,14 @@ export class BookService {
   private manifestJson: string | null = null
   private lastStamp = 0
 
-  constructor(store: Store, now: () => number = Date.now) {
+  constructor(store: Store, now: () => number = Date.now, audit: AuditLog = new AuditLog(store, now)) {
     this.store = store
     this.now = now
+    this.audit = audit
+  }
+
+  private log(actor: Me, action: AuditAction, target: string, extra: { version?: number; revisionId?: string; note?: string } = {}) {
+    return this.audit.record({ by: actor.username, action, target, ...extra })
   }
 
   /** Ids that sort by time: zero-padded and strictly increasing, even within one millisecond */
@@ -512,6 +572,7 @@ export class BookService {
     await this.store.put('book:categoryInfo', this.categoryInfo)
     this.categoryList = next
     await this.changed()
+    await this.log(actor, 'book:categories', 'categories', { version: this.categoryInfo.version })
     return this.categories()
   }
 
@@ -543,21 +604,24 @@ export class BookService {
   }
 
   /**
-   * Saves a convention. `baseVersion` is the version the editor started from (0 for the bundled
-   * one or a new convention); if someone saved in between, nothing is written.
+   * Publishes a convention (a reviewer's). `baseVersion` is the published version the reviewer
+   * started from (0 for the bundled one or a new convention); if someone published in between,
+   * nothing is written. When the convention has a draft, `draftRevision` says the reviewer started
+   * from it (the draft is then used up, and its review request goes with the version); a different
+   * revision means someone saved the draft in between. Without `draftRevision` the draft stays.
    */
   async save(
     actor: Me,
     slug: string,
-    body: { convention?: unknown; baseVersion?: unknown; bundledUpdated?: unknown; note?: unknown },
+    body: { convention?: unknown; baseVersion?: unknown; bundledUpdated?: unknown; note?: unknown; draftRevision?: unknown },
   ) {
-    if (!isSlug(slug)) throw new ClubError('badContent', { reason: '網址代稱（slug）只能用小寫英數與連字號' })
-    if (JSON.stringify(body.convention ?? null).length > BOOK_LIMITS.conventionMax)
-      throw new ClubError('contentTooLarge', {}, 413)
-    const convention = checkConvention(body.convention, slug)
+    const convention = this.checked(slug, body.convention)
     const entries = await this.load()
     const current = entries.get(slug)
     this.checkBase(current, body.baseVersion)
+    const draft = (await this.loadDrafts()).get(slug)
+    const fromDraft = draft && body.draftRevision !== undefined ? draft : undefined
+    if (fromDraft) this.checkDraft(fromDraft, body.draftRevision)
     const time = this.now()
     const entry: BookEntry = {
       slug,
@@ -566,14 +630,162 @@ export class BookService {
       createdAt: current?.createdAt ?? time,
       updatedAt: time,
       updatedBy: actor.username,
+      status: 'published',
+      reviewedBy: actor.username,
+      reviewedAt: time,
     }
-    const bundled = current ? current.bundledUpdated : body.bundledUpdated
+    if (fromDraft?.status === 'in-review' && fromDraft.reviewRequestedBy) {
+      entry.reviewRequestedBy = fromDraft.reviewRequestedBy
+      entry.reviewRequestedAt = fromDraft.reviewRequestedAt
+    }
+    const bundled = current ? current.bundledUpdated : (body.bundledUpdated ?? fromDraft?.bundledUpdated)
     if (isString(bundled)) entry.bundledUpdated = bundled
     await this.write(entry)
     entries.set(slug, entry)
-    await this.record({ id: this.orderedId(), slug, version: entry.version, action: 'save', at: time, by: actor.username, note: noteOf(body.note), convention })
+    const note = noteOf(body.note) || (fromDraft?.note ?? '')
+    const revisionId = this.orderedId()
+    await this.record({ id: revisionId, slug, version: entry.version, action: 'save', at: time, by: actor.username, note, convention })
+    if (fromDraft) await this.dropDraft(slug)
     await this.changed()
+    await this.log(actor, 'book:publish', slug, { version: entry.version, revisionId, note })
     return entry
+  }
+
+  private checked(slug: string, value: unknown) {
+    if (!isSlug(slug)) throw new ClubError('badContent', { reason: '網址代稱（slug）只能用小寫英數與連字號' })
+    if (JSON.stringify(value ?? null).length > BOOK_LIMITS.conventionMax) throw new ClubError('contentTooLarge', {}, 413)
+    return checkConvention(value, slug)
+  }
+
+  // ── Drafts and review (e8-t01, e8-t02) ──────────────────────────────────────────────────────
+
+  private async loadDrafts() {
+    if (this.wip) return this.wip
+    const drafts = new Map<string, BookDraft>()
+    for (const [key, header] of await this.store.list<Omit<BookDraft, 'convention'> & Header>('book:wip:')) {
+      const { parts, ...meta } = header
+      drafts.set(meta.slug, { ...meta, convention: await this.getBody(key, parts) })
+    }
+    this.wip = drafts
+    return drafts
+  }
+
+  private async writeDraft(draft: BookDraft) {
+    const key = `book:wip:${draft.slug}`
+    const old = await this.store.get<Header>(key)
+    const { convention, ...meta } = draft
+    const parts = await this.putBody(key, convention, old?.parts)
+    await this.store.put(key, { ...meta, parts })
+    ;(await this.loadDrafts()).set(draft.slug, draft)
+  }
+
+  private async dropDraft(slug: string) {
+    const key = `book:wip:${slug}`
+    const header = await this.store.get<Header>(key)
+    await this.dropBody(key, header?.parts ?? 0)
+    await this.store.delete(key)
+    ;(await this.loadDrafts()).delete(slug)
+  }
+
+  /** Throws 409 unless `revision` is the draft's (0 when there is none) */
+  private checkDraft(draft: BookDraft | undefined, revision: unknown) {
+    if (Number(revision ?? 0) !== (draft?.revision ?? 0))
+      throw new ClubError('bookDraftConflict', { name: draft?.updatedBy ?? '別人' }, 409)
+  }
+
+  /** A convention's draft; null when it has none */
+  async draftOf(slug: string): Promise<BookDraft | null> {
+    if (!isSlug(slug)) throw new ClubError('conventionGone', {}, 404)
+    return (await this.loadDrafts()).get(slug) ?? null
+  }
+
+  /** Every draft: the ones in review first, then the latest saved first */
+  async bookDrafts(): Promise<BookDraftSummary[]> {
+    const drafts = [...(await this.loadDrafts()).values()]
+    const rank = (d: BookDraft) => (d.status === 'in-review' ? 0 : 1)
+    return drafts
+      .sort((a, b) => rank(a) - rank(b) || b.updatedAt - a.updatedAt)
+      .map(({ convention, ...rest }) => ({ ...rest, nameZh: String(convention.nameZh ?? rest.slug) }))
+  }
+
+  /**
+   * Saves a convention's draft, and with `submit` sends it for review (an editor's). The first save
+   * starts the draft: `baseVersion` is then the published version the editor started from, as for
+   * publishing. Later saves send `draftRevision`, the draft's revision they started from. Saving
+   * without `submit` takes a draft out of review.
+   */
+  async saveBookDraft(
+    actor: Me,
+    slug: string,
+    body: { convention?: unknown; baseVersion?: unknown; draftRevision?: unknown; bundledUpdated?: unknown; note?: unknown; submit?: unknown },
+  ): Promise<BookDraft> {
+    const convention = this.checked(slug, body.convention)
+    const entries = await this.load()
+    const current = (await this.loadDrafts()).get(slug)
+    this.checkDraft(current, body.draftRevision)
+    if (!current) this.checkBase(entries.get(slug), body.baseVersion)
+    const time = this.now()
+    const submit = body.submit === true
+    const draft: BookDraft = {
+      slug,
+      status: submit ? 'in-review' : 'draft',
+      baseVersion: current?.baseVersion ?? entries.get(slug)?.version ?? 0,
+      revision: (current?.revision ?? 0) + 1,
+      convention,
+      note: body.note === undefined ? (current?.note ?? '') : noteOf(body.note),
+      createdAt: current?.createdAt ?? time,
+      createdBy: current?.createdBy ?? actor.username,
+      updatedAt: time,
+      updatedBy: actor.username,
+    }
+    const bundled = current ? current.bundledUpdated : body.bundledUpdated
+    if (isString(bundled)) draft.bundledUpdated = bundled
+    if (submit) {
+      draft.reviewRequestedBy = actor.username
+      draft.reviewRequestedAt = time
+    } else if (current?.reviewNote !== undefined) {
+      // Sent back: why stays in view until it goes for review again
+      draft.reviewedBy = current.reviewedBy
+      draft.reviewedAt = current.reviewedAt
+      draft.reviewNote = current.reviewNote
+    }
+    await this.writeDraft(draft)
+    await this.log(actor, submit ? 'book:submit' : 'book:draft', slug, { note: draft.note })
+    return draft
+  }
+
+  /** Sends a draft in review back to `draft`, with why (a reviewer's) */
+  async reject(actor: Me, slug: string, body: { draftRevision?: unknown; note?: unknown }): Promise<BookDraft> {
+    const current = await this.draftOf(slug)
+    if (!current) throw new ClubError('bookDraftGone', {}, 404)
+    this.checkDraft(current, body.draftRevision)
+    if (current.status !== 'in-review') throw new ClubError('notInReview', {}, 409)
+    const time = this.now()
+    const reviewNote = String(body.note ?? '').trim().slice(0, BOOK_LIMITS.reviewNoteMax)
+    const { reviewRequestedBy: _by, reviewRequestedAt: _at, ...rest } = current
+    const draft: BookDraft = { ...rest, status: 'draft', revision: current.revision + 1, reviewedBy: actor.username, reviewedAt: time, reviewNote }
+    await this.writeDraft(draft)
+    await this.log(actor, 'book:reject', slug, { note: reviewNote })
+    return draft
+  }
+
+  /** Throws a convention's draft away (an editor's); what is published stays */
+  async discardDraft(actor: Me, slug: string, body: { draftRevision?: unknown }) {
+    const current = await this.draftOf(slug)
+    if (!current) throw new ClubError('bookDraftGone', {}, 404)
+    this.checkDraft(current, body.draftRevision)
+    await this.dropDraft(slug)
+    await this.log(actor, 'book:discard', slug)
+  }
+
+  /** The newest changes, for the admin page (e8-t09) */
+  auditLog() {
+    return this.audit.list()
+  }
+
+  /** For system profiles' changes (club.ts), so every change is in the same log */
+  get auditTrail() {
+    return this.audit
   }
 
   /** Hides a convention from the handbook; its versions stay, so it can be brought back */
@@ -590,12 +802,18 @@ export class BookService {
       createdAt: current?.createdAt ?? time,
       updatedAt: time,
       updatedBy: actor.username,
+      status: 'published',
+      reviewedBy: actor.username,
+      reviewedAt: time,
     }
     if (current?.bundledUpdated) entry.bundledUpdated = current.bundledUpdated
     await this.write(entry)
     entries.set(slug, entry)
-    await this.record({ id: this.orderedId(), slug, version: entry.version, action: 'hide', at: time, by: actor.username, note: noteOf(body.note), convention: null })
+    const revisionId = this.orderedId()
+    const note = noteOf(body.note)
+    await this.record({ id: revisionId, slug, version: entry.version, action: 'hide', at: time, by: actor.username, note, convention: null })
     await this.changed()
+    await this.log(actor, 'book:hide', slug, { version: entry.version, revisionId, note })
     return entry
   }
 
@@ -611,8 +829,11 @@ export class BookService {
     await this.store.delete(key)
     entries.delete(slug)
     const time = this.now()
-    await this.record({ id: this.orderedId(), slug, version: 0, action: 'reset', at: time, by: actor.username, note: noteOf(body.note) })
+    const revisionId = this.orderedId()
+    const note = noteOf(body.note)
+    await this.record({ id: revisionId, slug, version: 0, action: 'reset', at: time, by: actor.username, note })
     await this.changed()
+    await this.log(actor, 'book:reset', slug, { version: 0, revisionId, note })
   }
 
   /** Newest first */

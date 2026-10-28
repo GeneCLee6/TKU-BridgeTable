@@ -451,3 +451,98 @@ describe('AI import', () => {
     }
   })
 })
+
+describe('drafts and review (BridgeHall e8-t01, e8-t02, e8-t09)', () => {
+  const rita: Me = { id: 'u3', username: 'rita', admin: false, permissions: ['bookEdit', 'bookReview'] }
+
+  it('keeps a draft out of the handbook until a reviewer publishes it', async () => {
+    const draft = await book.saveBookDraft(amy, 'lebensohl', { convention: convention(), baseVersion: 0, bundledUpdated: '2026-10-21', note: '新增' })
+    expect(draft).toMatchObject({ slug: 'lebensohl', status: 'draft', baseVersion: 0, revision: 1, note: '新增', createdBy: 'amy', bundledUpdated: '2026-10-21' })
+    expect(await entries()).toEqual([])
+    expect(JSON.parse((await book.manifest()).json).entries).toEqual([])
+    expect(await book.entry('lebensohl')).toBeUndefined()
+
+    // Sent for review; a save from an older revision of the draft is refused
+    time += 10
+    const sent = await book.saveBookDraft(ben, 'lebensohl', { convention: convention(), draftRevision: 1, submit: true })
+    expect(sent).toMatchObject({ status: 'in-review', revision: 2, reviewRequestedBy: 'ben', reviewRequestedAt: time, note: '新增', createdBy: 'amy', updatedBy: 'ben' })
+    await expect(book.saveBookDraft(amy, 'lebensohl', { convention: convention(), draftRevision: 1 })).rejects.toMatchObject({ code: 'bookDraftConflict', status: 409 })
+    expect(await book.bookDrafts()).toEqual([expect.objectContaining({ slug: 'lebensohl', nameZh: '雷本索', status: 'in-review' })])
+
+    // Published from the draft: the draft is used up, and the request goes with the version
+    time += 10
+    await expect(book.save(rita, 'lebensohl', { convention: convention(), baseVersion: 0, draftRevision: 1 })).rejects.toMatchObject({ code: 'bookDraftConflict' })
+    const entry = await book.save(rita, 'lebensohl', { convention: convention(), baseVersion: 0, draftRevision: 2 })
+    expect(entry).toMatchObject({ version: 1, status: 'published', reviewRequestedBy: 'ben', reviewedBy: 'rita', reviewedAt: time, bundledUpdated: '2026-10-21' })
+    expect(await book.draftOf('lebensohl')).toBeNull()
+    expect((await book.revisions('lebensohl'))[0]).toMatchObject({ version: 1, by: 'rita', note: '新增' })
+    expect(await entries()).toHaveLength(1)
+  })
+
+  it('sends a draft back with why, which stays until it goes for review again', async () => {
+    await book.saveBookDraft(amy, 'lebensohl', { convention: convention(), baseVersion: 0 })
+    await expect(book.reject(rita, 'lebensohl', { draftRevision: 1, note: '?' })).rejects.toMatchObject({ code: 'notInReview' })
+    await book.saveBookDraft(amy, 'lebensohl', { convention: convention(), draftRevision: 1, submit: true })
+    const back = await book.reject(rita, 'lebensohl', { draftRevision: 2, note: '  點力範圍與原文不符  ' })
+    expect(back).toMatchObject({ status: 'draft', revision: 3, reviewedBy: 'rita', reviewNote: '點力範圍與原文不符' })
+    expect(back.reviewRequestedBy).toBeUndefined()
+    expect(await book.saveBookDraft(amy, 'lebensohl', { convention: convention(), draftRevision: 3 })).toMatchObject({ reviewNote: '點力範圍與原文不符' })
+    const again = await book.saveBookDraft(amy, 'lebensohl', { convention: convention(), draftRevision: 4, submit: true })
+    expect(again.reviewNote).toBeUndefined()
+    expect(again.status).toBe('in-review')
+    await expect(book.reject(rita, 'nothing', {})).rejects.toMatchObject({ code: 'bookDraftGone', status: 404 })
+  })
+
+  it('starts a draft from the published version, keeps it apart from it and throws it away', async () => {
+    await book.save(rita, 'lebensohl', { convention: convention(), baseVersion: 0 })
+    await expect(book.saveBookDraft(amy, 'lebensohl', { convention: convention(), baseVersion: 0 })).rejects.toMatchObject({ code: 'bookConflict' })
+    await book.saveBookDraft(amy, 'lebensohl', { convention: convention('lebensohl', { summary: '改過' }), baseVersion: 1 })
+    expect((await book.entry('lebensohl'))?.convention?.summary).toBe('敵方插叫後的 2NT 接力。')
+    // Publishing without the draft leaves it for its editor
+    await book.save(rita, 'lebensohl', { convention: convention(), baseVersion: 1 })
+    expect(await book.draftOf('lebensohl')).toMatchObject({ baseVersion: 1, revision: 1 })
+    await expect(book.discardDraft(amy, 'lebensohl', { draftRevision: 0 })).rejects.toMatchObject({ code: 'bookDraftConflict' })
+    await book.discardDraft(amy, 'lebensohl', { draftRevision: 1 })
+    expect(await book.draftOf('lebensohl')).toBeNull()
+    expect(await store.list('book:wip:')).toEqual(new Map())
+  })
+
+  it('reads drafts back after a reload, large ones in parts', async () => {
+    const long = [{ id: 'long', title: '長', blocks: [{ kind: 'paragraph', text: '字'.repeat(100_000) }] }]
+    await book.saveBookDraft(amy, 'lebensohl', { convention: convention('lebensohl', { sections: long }), baseVersion: 0 })
+    const again = new BookService(store, () => time)
+    expect(JSON.stringify((await again.draftOf('lebensohl'))?.convention)).toContain('字'.repeat(1000))
+  })
+
+  it('treats entries saved before review existed as published', async () => {
+    await store.put('book:entry:stayman', { slug: 'stayman', version: 3, createdAt: 1, updatedAt: 2, updatedBy: 'amy', parts: 1 })
+    await store.put('bookpart:book:entry:stayman:0', JSON.stringify(convention('stayman')))
+    const fresh = new BookService(store, () => time)
+    expect(JSON.parse((await fresh.manifest()).json).entries).toEqual([expect.objectContaining({ slug: 'stayman', version: 3 })])
+    expect(await fresh.entry('stayman')).toMatchObject({ version: 3, convention: expect.objectContaining({ slug: 'stayman' }) })
+    await fresh.saveBookDraft(amy, 'stayman', { convention: convention('stayman'), baseVersion: 3 })
+    expect(await fresh.entry('stayman')).toMatchObject({ version: 3 })
+  })
+
+  it('records who changed what, newest first, with the version it made', async () => {
+    await book.saveBookDraft(amy, 'lebensohl', { convention: convention(), baseVersion: 0, note: '新增' })
+    await book.saveBookDraft(amy, 'lebensohl', { convention: convention(), draftRevision: 1, submit: true })
+    await book.save(rita, 'lebensohl', { convention: convention(), baseVersion: 0, draftRevision: 2 })
+    await book.hide(rita, 'lebensohl', { baseVersion: 1 })
+    await book.reset(rita, 'lebensohl', { baseVersion: 2 })
+    await book.saveCategories(rita, { categories: [{ id: 'basic', label: '基本' }], baseVersion: 0 })
+    const log = await book.auditLog()
+    expect(log.map((e) => [e.by, e.action, e.target, e.version])).toEqual([
+      ['rita', 'book:categories', 'categories', 1],
+      ['rita', 'book:reset', 'lebensohl', 0],
+      ['rita', 'book:hide', 'lebensohl', 2],
+      ['rita', 'book:publish', 'lebensohl', 1],
+      ['amy', 'book:submit', 'lebensohl', undefined],
+      ['amy', 'book:draft', 'lebensohl', undefined],
+    ])
+    const published = log[3]
+    expect(published.note).toBe('新增')
+    expect((await book.revision('lebensohl', published.revisionId!)).version).toBe(1)
+    expect([...(await store.list('audit:')).keys()].every((k) => /^audit:\d{14}-\w+$/.test(k))).toBe(true)
+  })
+})
