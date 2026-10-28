@@ -282,6 +282,8 @@ interface BoardState {
 | `team:<id>` | 淡江橋譜的隊伍（`ClubTeam`：名稱、隊長、隊員、制度集 id、封存） |
 | `pair:<id>` | 淡江橋譜的搭檔（`Partnership`：兩人 `[邀請者, 受邀者]`、所屬隊伍、制度集 id（接受前是空字串）、狀態 `pending`／`active`／`ended`）；婉拒或收回的邀請直接刪掉 |
 | `userteam:<userId>:<teamId>`、`userpair:<userId>:<pairId>` | 某人在哪些隊伍、有哪些搭檔（值是 `true`） |
+| `book:quizfix:<題目 id>` | 淡江橋館幹部的修題（橋館 e6-t06，`worker/quiz.ts`）：自動題的停用、改答案或選項（附修正時的原文 `basis`），或手動出的題；誰、何時 |
+| `quizlog:<userId>:<時間>-<id>` | 社員在淡江橋館練習的成績（橋館 e6-t04）：每次練習的制度集與每題對錯，每人最新 100 次；帳號刪除時一起刪，不在每日備份裡 |
 | `book:draft:<時間>-<id>` | AI 匯入產生的草稿（只留最新 30 份） |
 | `book:ticket:<token>` | 匯入上傳用的一次性憑證（10 分鐘） |
 | `book:version` | 橋譜線上內容的版本號，`GET /api/book/content` 與 `/api/book/manifest` 的 ETag；分類改了也會加一 |
@@ -995,6 +997,12 @@ SQL 由 `worker/history-index.ts` 的 `searchBoards` 組：只有固定的 SQL �
 | `GET /api/book/system-spec?profileId=` | bookEdit | `SystemSpecStatus`：`{ tableProfileId, synced }`，`synced` 是該制度集最後同步的 `SystemSpec`（`shared/systemSpec.ts`）、時間與同步者，沒同步過是 `null`；沒給 `profileId` 時是 TKB 跟著的制度集（橋館 e7-t03） |
 | `PUT /api/book/system-spec/:profileId` | bookEdit | `{ spec: SystemSpec }`：橋館的差異報告頁用 `toSystemSpec` 在瀏覽器轉好送來（內建特約只在橋館、轉換的 CPU 一次請求不夠），這裡只檢查形狀（`worker/system-spec.ts`）、`spec.profileId` 要等於網址、JSON 最多 1 MB（413 `contentTooLarge`）；制度集不存在回 404 `profileGone`。存在 `book:spec:<id>`（本體分段），每日備份一起備。回同 GET |
 | `POST /api/book/robot-meanings` | bookEdit | `RobotMeaningsQuery`（`{ items: { after, calls }[] }`，一次最多 10 個叫牌過程、每個 38 個叫品）→ `{ items }`：TKB 淡江制度的規則說每個叫品表示什麼（`explain`，只看叫牌過程；`RobotShows` 是橋館啟發式讀得到的欄位加中文說明），沒有規則是 `null`。差異報告頁分批問（橋館 e7-t04） |
+| `GET /api/book/quiz/rounds` | 社員 | `{ rounds: QuizRound[] }`（`shared/quiz.ts`）：自己的練習成績，新的在前（橋館 e6-t04） |
+| `POST /api/book/quiz/rounds` | 社員 | `{ round: QuizRoundInput }`（制度集 id、每題的 id、特約、對錯；一次 1–50 題）→ `{ round }`；存在 `quizlog:<userId>:<時間>-<id>`，每人只留最新 100 次 |
+| `DELETE /api/book/quiz/rounds` | 社員 | 清除自己的練習成績 → `{ ok }` |
+| `GET /api/book/quiz/fixes` | 不需登入 | `{ fixes: QuizFix[] }`：幹部的修題（停用、改答案或選項、手動出題），練習頁出題時套用（橋館 e6-t06） |
+| `PUT /api/book/quiz/fixes` | bookEdit | `{ fix: QuizFixInput }` → `{ fix }`：`source: 'auto'` 修自動題（`basis` 是修正時的叫品與正解，原文改了橋館就不套用）、`'manual'` 手動出題（意義題或含 `hand` 的叫品題）；只檢查形狀，最多 2000 筆。存在 `book:quizfix:<題目 id>`（每日備份一起備），寫審計 `quiz:fix` |
+| `DELETE /api/book/quiz/fixes` | bookEdit | `{ id }` → `{ ok }`：刪掉修正（題目回到自動產生的樣子）或手動題；審計 `quiz:unfix` |
 | `GET /api/club/members` | 社員 | `{ members: ClubMember[] }`：全部社員的 id 與帳號名稱（只有這兩個欄位），依名稱；選隊員、邀搭檔用 |
 | `GET /api/club/members/:id/teams` | 社員 | `MemberTeams`：那位社員所在的隊伍（含封存）與現役搭檔；邀請中、已結束的不列。橋館他人檔案頁 `/u/:id` 用（`e11-t04`） |
 | `GET /api/forum/boards` | 社員 | `{ boards: Board[] }`，依 `order` |

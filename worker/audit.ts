@@ -26,6 +26,9 @@ export type AuditAction =
   | 'profile:create'
   | 'profile:save'
   | 'profile:delete'
+  /** A practice question fixed or written by hand, or the fix removed (BridgeHall e6-t06) */
+  | 'quiz:fix'
+  | 'quiz:unfix'
 
 export interface AuditEntry {
   id: string
