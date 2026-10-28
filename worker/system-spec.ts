@@ -65,6 +65,7 @@ export function checkSystemSpec(value: unknown, profileId: string): SystemSpec {
     if (!isString(rule.call) || !isString(rule.text) || !isRef(rule.ref)) bad('規則格式不正確')
     if (rule.note !== undefined && !isString(rule.note)) bad('規則的備註格式不正確')
     if (rule.unparsed !== undefined && !isString(rule.unparsed)) bad('規則格式不正確')
+    if (rule.filled !== undefined && rule.filled !== true) bad('規則格式不正確')
     checkShows(rule.shows)
   }
   for (const row of value.unresolved as unknown[]) {

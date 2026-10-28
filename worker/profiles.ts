@@ -4,6 +4,7 @@ import {
   PROFILE_VISIBILITIES,
   type Me,
   PROFILE_LIMITS,
+  type ProfileCardEdit,
   type ProfileInput,
   type ProfileNote,
   type ProfileOverride,
@@ -24,7 +25,7 @@ import type { Store } from './store.ts'
  * (TKU-BridgeBook src/lib/profiles.ts); this keeps them, with every saved version.
  *
  * Keys: `book:profile:<id>` is the summary (ProfileSummary plus how many parts its body has); the
- * body (`adopted`, `overrides`, `notes`) is in `bookpart:` parts, since a profile may reach 200 kB.
+ * body (`adopted`, `overrides`, `notes`, `cardEdits`) is in `bookpart:` parts, since a profile may reach 200 kB.
  * `book:profilerev:<id>:<version, 8 digits>` keeps each version, the whole profile in parts.
  *
  * The club's profile always exists: until someone saves it, it is an empty one at version 0. It
@@ -36,7 +37,7 @@ interface Header {
   parts: number
 }
 
-type Body = Pick<SystemProfile, 'adopted' | 'overrides' | 'notes'>
+type Body = Pick<SystemProfile, 'adopted' | 'overrides' | 'notes' | 'cardEdits'>
 
 /** Who may come after whom: a team inherits the club; a partnership the club or a team */
 const PARENT_SCOPES: Record<Exclude<ProfileScope, 'club'>, ProfileScope[]> = {
@@ -45,6 +46,9 @@ const PARENT_SCOPES: Record<Exclude<ProfileScope, 'club'>, ProfileScope[]> = {
 }
 
 export const PROFILE_ID = /^[\w-]{1,40}$/
+/** A convention card's slot id: `<template>.<block>[.<row>.<column>]` (handbook src/cards/slots.ts) */
+const CARD_SLOT = /^[\w-]+(\.[\w-]+)+$/
+const CARD_SLOT_MAX = 120
 const REVISIONS_LISTED = 100
 const SCOPE_ORDER: ProfileScope[] = ['club', 'team', 'partnership']
 
@@ -66,7 +70,7 @@ export const emptyClubProfile = (): SystemProfile => ({
   updatedBy: '',
 })
 
-export function profileSummary({ adopted, overrides, notes, ...rest }: SystemProfile): ProfileSummary {
+export function profileSummary({ adopted, overrides, notes, cardEdits: _cardEdits, ...rest }: SystemProfile): ProfileSummary {
   return { ...rest, counts: { adopted: Object.keys(adopted).length, overrides: overrides.length, notes: notes.length } }
 }
 
@@ -119,6 +123,31 @@ function checkNote(value: unknown): ProfileNote {
   return note
 }
 
+/** Hand edits of convention cells (e3-t06): which slots the cards have is the handbook's to check */
+function checkCardEdits(value: unknown): Record<string, ProfileCardEdit> {
+  if (!isObject(value)) return fail('制度卡補格（cardEdits）格式不正確')
+  const entries = Object.entries(value)
+  if (entries.length > PROFILE_LIMITS.cardEditsMax) fail(`制度卡補格最多 ${PROFILE_LIMITS.cardEditsMax} 格`)
+  const edits: Record<string, ProfileCardEdit> = {}
+  for (const [slot, edit] of entries) {
+    if (slot.length > CARD_SLOT_MAX || !CARD_SLOT.test(slot)) fail('制度卡補格的格子 id 格式不正確')
+    if (!isObject(edit)) fail('制度卡補格的每一格要是物件')
+    const { text, checked, option, flagged } = edit as Record<string, unknown>
+    if (text !== undefined && !isString(text)) fail('制度卡補格的文字要是文字')
+    if (isString(text) && text.length > PROFILE_LIMITS.noteMax) fail(`制度卡每格最多 ${PROFILE_LIMITS.noteMax} 字`)
+    if (checked !== undefined && typeof checked !== 'boolean') fail('制度卡補格的勾選要是 true 或 false')
+    if (option !== undefined && (!isString(option) || !option || option.length > CARD_SLOT_MAX)) fail('制度卡補格的選項格式不正確')
+    if (flagged !== undefined && typeof flagged !== 'boolean') fail('制度卡補格的標記要是 true 或 false')
+    const out: ProfileCardEdit = {}
+    if (text !== undefined) out.text = text as string
+    if (checked !== undefined) out.checked = checked as boolean
+    if (option !== undefined) out.option = option as string
+    if (flagged) out.flagged = true
+    if (Object.keys(out).length) edits[slot] = out
+  }
+  return edits
+}
+
 /**
  * Throws `badContent` unless `value` has the shape of a profile's editable fields; returns them
  * with nothing else. Whether `scope` and `parentId` fit the other profiles is ProfileService's check.
@@ -152,6 +181,10 @@ export function checkProfileInput(value: unknown): ProfileInput {
     notes: (value.notes as unknown[]).map(checkNote),
   }
   if (value.parentId !== undefined) input.parentId = value.parentId as string
+  if (value.cardEdits !== undefined) {
+    const cardEdits = checkCardEdits(value.cardEdits)
+    if (Object.keys(cardEdits).length) input.cardEdits = cardEdits
+  }
   // Absent is the whole club
   if (value.visibility === 'members') input.visibility = 'members'
   return input
@@ -302,8 +335,9 @@ export class ProfileService {
     if (bytesOf(profile) > PROFILE_LIMITS.bytesMax) throw new ClubError('contentTooLarge', {}, 413)
 
     const key = summaryKey(id)
-    const { adopted, overrides, notes } = profile
-    const parts = await putParts(this.store, key, { adopted, overrides, notes } satisfies Body, summaries.get(id)?.parts)
+    const { adopted, overrides, notes, cardEdits } = profile
+    const body: Body = { adopted, overrides, notes, ...(cardEdits && { cardEdits }) }
+    const parts = await putParts(this.store, key, body, summaries.get(id)?.parts)
     const header: ProfileSummary & Header = { ...profileSummary(profile), parts }
     await this.store.put(key, header)
     summaries.set(id, header)

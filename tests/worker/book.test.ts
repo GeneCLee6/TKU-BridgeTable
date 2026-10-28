@@ -33,6 +33,7 @@ function convention(slug = 'lebensohl', extra: Record<string, unknown> = {}) {
           },
           { kind: 'note', tone: 'info', text: 'P.S.' },
           { kind: 'hand', hand: { spades: 'AK2', hearts: 'QJ3', diamonds: 'T98', clubs: '7654' } },
+          { kind: 'intro', why: '為什麼', pitfalls: ['常見錯誤'] },
         ],
         children: [{ id: 'more', title: '更多' }],
       },
@@ -127,6 +128,8 @@ describe('content edited online', () => {
     await expect(save(twice)).rejects.toThrow('段落 id 重複：a')
     const badBlock = convention('lebensohl', { sections: [{ id: 'a', title: 'A', blocks: [{ kind: 'video' }] }] })
     await expect(save(badBlock)).rejects.toThrow('不明的內容區塊')
+    const badIntro = convention('lebensohl', { sections: [{ id: 'a', title: 'A', blocks: [{ kind: 'intro', pitfalls: '一' }] }] })
+    await expect(save(badIntro)).rejects.toThrow('導讀格式不正確')
     const badAuction = convention('lebensohl', {
       sections: [{ id: 'a', title: 'A', blocks: [{ kind: 'responses', auction: { seats: ['N'], calls: [] }, rows: [] }] }],
     })
@@ -142,6 +145,16 @@ describe('content edited online', () => {
     expect(checkConvention(convention(), 'lebensohl')).toBeTruthy()
     expect(checkConvention(convention('lebensohl', { kind: 'defense', level: 'basic', prerequisites: ['jacoby-2nt'], cardSlots: [] }), 'lebensohl')).toBeTruthy()
     expect(await book.revisions('lebensohl')).toEqual([])
+  })
+
+  it('checks an editor’s hand conditions on a response row (BridgeHall e7-t08)', () => {
+    const withConditions = (conditions: unknown) =>
+      convention('lebensohl', {
+        sections: [{ id: 'a', title: 'A', blocks: [{ kind: 'responses', rows: [{ call: '2C', meaning: '邀請', conditions }] }] }],
+      })
+    expect(checkConvention(withConditions({ hcp: [8, 9], len: { H: [5, 40] }, forcing: 'oneRound' }), 'lebensohl')).toBeTruthy()
+    expect(() => checkConvention(withConditions({ forcing: 'game' }), 'lebensohl')).toThrow('叫品「2C」的手牌條件：手牌條件要有點力或張數')
+    expect(() => checkConvention(withConditions({ hcp: [9, 8] }), 'lebensohl')).toThrow('點力範圍不正確')
   })
 })
 
@@ -256,7 +269,7 @@ describe('reading the handbook one convention at a time', () => {
     expect(one.headers.get('ETag')).toBe('W/"book-lebensohl-1"')
     const { entry } = await one.json()
     expect(entry).toMatchObject({ slug: 'lebensohl', version: 1, convention: { summary: '敵方插叫後的 2NT 接力。' } })
-    expect(entry.convention.sections[0].blocks).toHaveLength(5)
+    expect(entry.convention.sections[0].blocks).toHaveLength(6)
     expect((await get('/api/book/content/lebensohl', 'W/"book-lebensohl-1"'))!.status).toBe(304)
 
     await book.hide(ben, 'lebensohl', { baseVersion: 1 })
