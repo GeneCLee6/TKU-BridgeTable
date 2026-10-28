@@ -702,9 +702,17 @@ export class Club extends DurableObject<Env> implements Connections {
     if (!need) throw new ClubError('noSuchApi', {}, 404)
     requireNeed(user, need)
 
-    const convention = path.match(/^\/conventions\/([\w-]+)(?:\/(hide|reset|revisions)(?:\/([\w-]+))?)?$/)
+    const convention = path.match(/^\/conventions\/([\w-]+)(?:\/(hide|reset|reject|draft|revisions)(?:\/([\w-]+))?)?$/)
     if (convention) {
       const [, slug, action, revisionId] = convention
+      // Drafts and review (BridgeHall e8-t01, e8-t02)
+      if (action === 'draft') {
+        if (method === 'GET') return json({ draft: await this.book.draftOf(slug) })
+        if (method === 'PUT') return json({ draft: await this.book.saveBookDraft(user, slug, await body()) })
+        await this.book.discardDraft(user, slug, await body())
+        return json({ ok: true })
+      }
+      if (action === 'reject') return json({ draft: await this.book.reject(user, slug, await body()) })
       if (method === 'PUT') return json({ entry: await this.book.save(user, slug, await body()) })
       if (action === 'hide') return json({ entry: await this.book.hide(user, slug, await body()) })
       if (action === 'reset') {
@@ -714,11 +722,15 @@ export class Club extends DurableObject<Env> implements Connections {
       if (revisionId) return json({ revision: await this.book.revision(slug, revisionId) })
       return json({ revisions: await this.book.revisions(slug) })
     }
+    if (path === '/reviews') return json({ drafts: await this.book.bookDrafts() })
+    if (path === '/audit') return json({ entries: await this.book.auditLog() })
     if (path === '/categories') return json(await this.book.saveCategories(user, await body()))
 
     if (path === '/profiles') {
       if (method === 'GET') return json({ profiles: await this.teams.readableProfiles(user) })
-      return json({ profile: await this.profiles.create(user, await body()) })
+      const created = await this.profiles.create(user, await body())
+      await this.book.auditTrail.record({ by: user.username, action: 'profile:create', target: created.id, version: created.version })
+      return json({ profile: created })
     }
     // Which member may read, save or see the versions of a team's or partnership's profile: TeamService (e2-t04)
     const profile = path.match(/^\/profiles\/([\w-]+)(\/revisions(?:\/(\d+))?)?$/)
@@ -727,8 +739,13 @@ export class Club extends DurableObject<Env> implements Connections {
       if (revisions && version) return json({ revision: await this.teams.profileRevision(user, id, Number(version)) })
       if (revisions) return json({ revisions: await this.teams.profileRevisions(user, id) })
       if (method === 'GET') return json(await this.teams.readProfile(user, id))
-      if (method === 'PUT') return json({ profile: await this.teams.saveProfile(user, id, await body()) })
+      if (method === 'PUT') {
+        const saved = await this.teams.saveProfile(user, id, await body())
+        await this.book.auditTrail.record({ by: user.username, action: 'profile:save', target: id, version: saved.version })
+        return json({ profile: saved })
+      }
       await this.profiles.remove(id, await body())
+      await this.book.auditTrail.record({ by: user.username, action: 'profile:delete', target: id })
       return json({ ok: true })
     }
 

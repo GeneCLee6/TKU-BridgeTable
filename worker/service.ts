@@ -7,6 +7,7 @@ import {
   DEFAULT_TABLE_SETTINGS,
   fixedSeats,
   isPermission,
+  withImpliedPermissions,
   isRobotId,
   isRobotSpeed,
   isTableAction,
@@ -1277,7 +1278,7 @@ export class ClubService {
   async adminSetPermissions(userId: string, permissions: unknown) {
     const user = this.requireUser(userId)
     if (!Array.isArray(permissions) || !permissions.every(isPermission)) throw new ClubError('badPermission')
-    user.permissions = PERMISSIONS.filter((p) => permissions.includes(p))
+    user.permissions = withImpliedPermissions(permissions)
     await this.store.put(`user:${user.id}`, user)
   }
 
@@ -1301,7 +1302,7 @@ export class ClubService {
       if (!admin && user.admin && user.id === actorId) throw new ClubError('notSelf')
       next.set(user.id, {
         admin,
-        permissions: permissions ? PERMISSIONS.filter((p) => permissions.includes(p)) : (user.permissions ?? []),
+        permissions: permissions ? withImpliedPermissions(permissions) : (user.permissions ?? []),
       })
     }
     if (![...this.users.values()].some((u) => next.get(u.id)?.admin ?? u.admin)) throw new ClubError('lastAdmin')

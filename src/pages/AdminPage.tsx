@@ -219,6 +219,7 @@ export function AdminPage() {
 
   const permissionLabel: Record<Permission, string> = {
     bookEdit: t.permissionBookEdit,
+    bookReview: t.permissionBookReview,
     bookImport: t.permissionBookImport,
     boardCurate: t.permissionBoardCurate,
     tkuSystem: t.permissionTkuSystem,

@@ -7,9 +7,11 @@ import { ClubError } from './service.ts'
  * - **Admins** manage everything, members' accounts included: registrations, adding and deleting
  *   accounts, passwords, the admin role, permissions, and the club settings (account limit,
  *   invite code), which are about who may join.
- * - **Editors** (`bookEdit`) manage everything else: TKU BridgeBook's conventions (saving,
- *   hiding, going back to the bundled one, versions), its categories and system profiles, and
- *   closing a stuck table.
+ * - **Editors** (`bookEdit`) manage everything else: TKU BridgeBook's conventions (drafts, sending
+ *   them for review, versions), its categories and system profiles, and closing a stuck table.
+ * - **Reviewers** (`bookReview`, BridgeHall e8-t01) are editors who also publish a convention
+ *   (straight away or a draft sent for review), send a draft back, hide one or go back to the
+ *   bundled one. A reviewer is always an editor too (`withImpliedPermissions`).
  *
  * Teams and partnerships (TKU BridgeBook E2): editors make teams; a team's captain and the editors
  * manage it (`managesTeam`); any member invites a partner, and only the two of them answer or end it.
@@ -42,14 +44,21 @@ export function adminRouteNeed(method: string, path: string): Need {
  * route. Reading without signing in is publicBookResponse's (book.ts) and anonymousProfileResponse's (profiles.ts).
  */
 export function bookRouteNeed(method: string, path: string): Need | null {
-  const convention = path.match(/^\/conventions\/[\w-]+(?:\/(hide|reset|revisions)(?:\/[\w-]+)?)?$/)
+  // A convention: publishing, hiding and going back to the bundled one are the reviewers'; its
+  // draft (one per convention, e8-t02) and its versions are every editor's
+  const convention = path.match(/^\/conventions\/[\w-]+(?:\/(hide|reset|reject|draft|revisions)(?:\/[\w-]+)?)?$/)
   if (convention) {
     const action = convention[1]
-    if (method === 'PUT' && !action) return 'bookEdit'
-    if (method === 'POST' && (action === 'hide' || action === 'reset')) return 'bookEdit'
+    const sub = /\/(?:hide|reset|reject|draft|revisions)\/[\w-]+$/.test(path)
+    if (sub && action !== 'revisions') return null
+    if (method === 'PUT' && !action) return 'bookReview'
+    if (method === 'POST' && (action === 'hide' || action === 'reset' || action === 'reject')) return 'bookReview'
+    if (action === 'draft' && (method === 'GET' || method === 'PUT' || method === 'DELETE')) return 'bookEdit'
     if (method === 'GET' && action === 'revisions') return 'bookEdit'
     return null
   }
+  // Every draft and what is waiting for review (e8-t02); who changed what (e8-t09)
+  if (path === '/reviews' || path === '/audit') return method === 'GET' ? 'bookEdit' : null
   if (path === '/categories') return method === 'PUT' ? 'bookEdit' : null
   if (path === '/profiles') return method === 'GET' ? 'member' : method === 'POST' ? 'bookEdit' : null
   // One profile: which member may read it, save it or see its versions is profileAccess's (below)
