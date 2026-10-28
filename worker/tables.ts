@@ -1,5 +1,6 @@
 import type { TableStats } from './metrics.ts'
 import type { Seat } from '../shared/cards.ts'
+import type { BookNotes } from '../shared/robot/system/book-spec.ts'
 import { AppError, type MessageCode, type MessageParams } from '../shared/messages.ts'
 import type { BoardRecord, RobotSpeed, TableAction, TableMode, TableSettings } from '../shared/protocol.ts'
 import type { Room } from '../shared/team-match.ts'
@@ -159,6 +160,12 @@ export interface ClubLink {
    * host seats a robot: the club has the accounts, so the answer is always current
    */
   mayUseTku(userId: string): boolean | Promise<boolean>
+  /**
+   * 淡江橋館's words for TKB's calls in the club's system (`worker/system-spec.ts`, BridgeHall
+   * e7-t03), asked once a board: 'same' when `known` is still the key of the ones the table has,
+   * null when there are none. Tests that do not need them leave it out
+   */
+  bookNotes?(known: string | null): Promise<BookNotes | 'same' | null>
 }
 
 /** The club's way to reach a table by id */

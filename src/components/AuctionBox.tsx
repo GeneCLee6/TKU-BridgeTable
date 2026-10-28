@@ -154,6 +154,8 @@ function MeaningTip({ id, call, anchor, who, onClose }: { id: string; call: Auct
   const parts: { label?: string; text: string }[] = []
   if (call.robot || !call.inferred) {
     if (alerted || call.robot) parts.push({ text: (described ?? call.alert) || t.noExplanation })
+    // TKB in the club's system: 淡江橋館's own words for the call (BridgeHall e7-t03)
+    if (call.book) parts.push({ label: t.bookExplanation, text: call.book.text })
   } else {
     if (alerted) parts.push({ label: t.playerExplanation, text: call.alert || t.noExplanation })
     parts.push({ label: t.inferredBy(t.robotSystems[call.inferred]), text: described ?? '…' })
