@@ -368,6 +368,28 @@ D1 免費額度（每天讀 500 萬列、寫 10 萬列、5 GB）的估算在 `AR
 LOAD_PASSWORD=... LOAD_INVITE_CODE=... npm run load -- --url https://tku-bridge-table-pr-<號>.<子網域>.workers.dev   --users 30 --tables 5 --robot-tables 2 --watchers 6 --minutes 5 --challenge 3 --dry-run   # 先看估算
 ```
 
+## 4.8 圖片檔案（淡江橋譜 e11-t02，R2 bucket `bridgebook-files`）
+
+討論區貼文與文章的圖片存在 R2 bucket `bridgebook-files`（binding `FILES`，程式在 `worker/files.ts`，規格在 `shared/files.ts`、ARCHITECTURE.md §5.14）。頭像**不在這裡**（仍在 `avatar:`，§4.4）。
+
+**現在的狀態**：`wrangler.jsonc` 的 `FILES` binding 是註解掉的。binding 指向不存在的 bucket 時 `wrangler deploy` 會失敗，所以先不綁；沒有 binding 時圖片 API 一律回 503（`filesOff`），其他功能照常。
+
+### 啟用（只做一次）
+
+1. 建 bucket：
+
+   ```bash
+   npx wrangler r2 bucket create bridgebook-files
+   npx wrangler r2 bucket list         # 確認有 bridgebook-files
+   ```
+
+2. 開一個 PR，把 `wrangler.jsonc` 裡 `r2_buckets` 的 `FILES` 那一行取消註解（保留前面的逗號），CI 綠了合併；合併即部署。
+3. 檢查：登入後 `POST /api/files/ticket` 不再回 503。
+
+- **只有正式站**：staging 與 PR 預覽沒有 `FILES`（`r2_buckets` 不繼承），在那裡上傳圖片回 503。
+- **額度**：R2 免費 10 GB；每人每天最多 30 張、每張 ≤ 2 MB、縮圖 ≤ 256 KB。用量提醒是 E5 的 `e5-t15`。
+- **備份**：每日備份含 `file:meta:`（誰上傳、型別、大小）與 `file:secret`（簽網址的金鑰）；圖片本身只在 R2，不另外備份。
+
 ## 5. 費用與限制
 
 - Workers 免費方案：每天 10 萬次請求；WebSocket 訊息以 20:1 計算，一個晚上打牌遠低於上限。

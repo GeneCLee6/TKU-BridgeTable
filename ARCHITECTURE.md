@@ -243,6 +243,7 @@ interface BoardState {
 | --- | --- |
 | `user:<id>` | 帳號、密碼雜湊、是否管理員、橋譜權限、最後登入時間、自行重設密碼的時間、關掉好友上線提示（`friendOnlineNotice: false`）、頭像版本（`avatar`，上傳時的時間，每次一定變大） |
 | `avatar:<userId>` | 上傳的頭像（`e1-t34`）：`{ version, type, bytes }`，瀏覽器裁好的 256×256 WebP（不支援就 JPEG），最多 64 KB，遠低於單筆值的上限；帳號刪除時一起刪，和 `user:` 一起在每日備份裡。不放 R2：每個環境（正式站、staging、PR preview）不必先建 bucket 就能部署，一個社團幾百人、每人幾十 KB 也只有幾 MB |
+| `file:meta:<key>`、`file:ticket:<pass>`、`file:day:<userId>`、`file:secret` | 討論區與文章的圖片（淡江橋譜 `e11-t02`，§5.14）：圖片在 R2 `bridgebook-files`，這裡只存上傳者、型別、大小、有沒有縮圖；一次性上傳憑證（10 分鐘）；當天（台灣日期）拿過幾張憑證；簽網址的隨機金鑰。`file:meta:` 與 `file:secret` 在每日備份裡 |
 | `app:<id>` | 待審核的註冊申請：帳號名稱、密碼雜湊、自我介紹、從哪個網站申請 |
 | `session:<token>` | userId、到期時間 |
 | `tabledir:<id>` | 牌桌目錄（`TableEntry`，§5.10）：大廳與跨桌動作只讀它；牌桌在自己的 `TableObject` 時才有 |
@@ -570,6 +571,17 @@ H1 把牌桌拆出去之後（§5.10），社團的物件（`Club`）仍然是**
 - **合併廣播**（`ClubConfig.later`，Durable Object 用 `setTimeout`）：大廳最多每 `LOBBY_GAP_MS`（100 ms）送一次。上一次送出已經超過 100 ms 就立刻送（平常沒有延遲）；之內的變化只記下來，到 100 ms 時一起送一次。同時湧進的入座、觀看、離桌就不必每個都等一次完整的廣播。測試多半不給 `later`，每次變化立刻送，跟以前一樣。
 - **日誌取樣**（`worker/log.ts` 的 `sampleActions`）：`action` 每 10 筆寫 1 筆到 Workers Logs（帶 `sample: 10`，查詢時乘回來），有錯誤代碼或超過 200 ms（`ACTION_SLOW_MS`）的一律寫；其他種類照舊。指標在取樣**之前**數（`ClubService` 與 `TableHost` 的 `log` 先交給 `Metrics`／`TableCounters`），系統狀態頁的次數不受影響。
 - 數字（前後對照）在 `docs/LOAD.md` §3、§6。
+
+## 5.14 圖片檔案（R2，淡江橋譜 `e11-t02`，2026-10-28）
+
+討論區貼文（E11）與文章（E5）的圖片放 R2 bucket `bridgebook-files`（binding `FILES`），程式 `worker/files.ts`（`FileService`，不碰 Cloudflare API，bucket 是小介面 `FileBucket`），型別與上限 `shared/files.ts`。
+
+- **瀏覽器做影像處理**：縮到長邊 ≤ 2048 px、縮圖長邊 480 px；Worker 只看大小與檔頭（`sniffAvatar`，JPEG／PNG／WebP），不解碼圖片（免費方案 10 ms CPU）。
+- **一次性憑證直傳**：`POST /api/files/ticket { purpose: 'post' | 'article', type, size }` → `{ key, uploadUrl, thumbUrl, expires }`（10 分鐘，計入每人每天 30 張）；`PUT uploadUrl`（≤ 2 MB，型別要和憑證一致）、`PUT thumbUrl`（≤ 256 KB，要在原圖之後）；兩個都傳了或過期就作廢。上傳路由不看 session cookie、有 CORS，所以頁面也可以直接傳到 Worker 的網址。
+- **簽名短效網址**：`GET /api/files/<key>?e=<到期>&s=<HMAC>`，不用登入（`<img>` 跨站不帶 cookie），到期時間進位到整點再加一小時，同一小時內的網址相同、瀏覽器快取得到；`POST /api/files/urls { keys }` 重簽。金鑰是第一次用時產生的隨機值（`file:secret`），不需要另設 secret。PRD 寫的 `/_file/:key` 改放在 `/api/files/` 底下，兩站的 `/api/*` 本來就轉給 Worker。
+- **刪除**：`DELETE /api/files/<key>`，上傳者或管理員（之後加 `forumModerate`）。帳號刪除時不刪圖片（貼文可能還在用）。
+- **沒有 bucket 時**：`FILES` 沒綁就全部回 503 `filesOff`，所以 binding 先註解掉也能部署（DEPLOY.md §4.8）。
+- **頭像不搬到 R2**：仍是 `avatar:<userId>`（256×256、≤ 64 KB，見 §5 的表），兩站都讀 `GET /api/avatar/:id?v=`。`GET /api/club/members` 多回 `displayName`、`avatar`，橋譜用來畫別人的頭像（`e11-t01`、`e11-t03`）。
 
 ## 5.8 隊制賽（決策紀錄，`e8-t01`，2026-10-25）
 
