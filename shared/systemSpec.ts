@@ -7,7 +7,8 @@
  * kept word for word as the rule's explanation. A row the patterns cannot read, or whose auction
  * or call cannot be written down, goes to `unresolved` for a person to fill in (e7-t08): the
  * patterns only take what the text says outright and never add to it (TKU-BridgeBook CLAUDE.md
- * rule 1). The mapping and every pattern are listed in TKU-BridgeBook docs/SYSTEM-SPEC.md.
+ * rule 1). What a person fills in is the row's `conditions`, kept beside the words (which stay as
+ * they are); a row that has them becomes a rule showing them (`SpecRule.filled`). The mapping and every pattern are listed in TKU-BridgeBook docs/SYSTEM-SPEC.md.
  *
  * The same file is in both repositories: this one is the original, and TKU-BridgeBook
  * src/lib/systemSpec.ts is a copy its parity check compares byte for byte, so change both
@@ -45,6 +46,53 @@ export interface SpecShows {
   forcing?: 'oneRound' | 'game'
 }
 
+/**
+ * What an editor wrote down about a row's hand (e7-t08): the handbook's `ResponseRow.conditions`,
+ * filled in on the report page for a row the patterns could not read. They are not the handbook's
+ * words, which stay as they are; with high cards or a length they are what the call shows, in place
+ * of what the patterns read. A top of `SPEC_ANY` means no upper limit, as in `SpecRange`.
+ */
+export interface SpecConditions {
+  hcp?: SpecRange
+  len?: Partial<Record<SpecSuit, SpecRange>>
+  forcing?: 'oneRound' | 'game'
+}
+
+/** The highest bottom or top a condition may name (a top may also be `SPEC_ANY`) */
+export const CONDITION_LIMITS = { hcpMax: 37, lenMax: 13 } as const
+
+const CONDITION_KEYS = new Set(['hcp', 'len', 'forcing'])
+
+/**
+ * Why `value` cannot be a row's `conditions`, in words, or null when it can: whole numbers, bottom
+ * no higher than top, high cards or a length named, no more than 13 cards. The table's Worker checks
+ * saved content with it, the report page an editor's input.
+ */
+export function conditionsProblem(value: unknown): string | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return '手牌條件格式不正確'
+  const c = value as Record<string, unknown>
+  if (Object.keys(c).some((key) => !CONDITION_KEYS.has(key))) return '手牌條件只能有點力、張數與迫叫'
+  const range = (r: unknown, max: number) =>
+    Array.isArray(r) &&
+    r.length === 2 &&
+    r.every((n) => Number.isInteger(n) && n >= 0) &&
+    r[0] <= max &&
+    r[0] <= r[1] &&
+    (r[1] <= max || r[1] === SPEC_ANY)
+  if (c.hcp !== undefined && !range(c.hcp, CONDITION_LIMITS.hcpMax)) return '點力範圍不正確'
+  if (c.len !== undefined) {
+    if (typeof c.len !== 'object' || c.len === null || Array.isArray(c.len)) return '張數格式不正確'
+    const len = Object.entries(c.len)
+    if (!len.length) return '張數格式不正確'
+    if (len.some(([suit, r]) => !['S', 'H', 'D', 'C'].includes(suit) || !range(r, CONDITION_LIMITS.lenMax)))
+      return '張數範圍不正確'
+    if (len.reduce((n, [, r]) => n + (r as number[])[0], 0) > 13) return '張數加起來超過 13 張'
+  }
+  if (c.forcing !== undefined && c.forcing !== 'oneRound' && c.forcing !== 'game') return '迫叫格式不正確'
+  if (c.hcp === undefined && c.len === undefined) return '手牌條件要有點力或張數'
+  return null
+}
+
 /** Where a row is in 淡江橋館: /c/:slug/:sectionId */
 export interface SpecRef {
   slug: string
@@ -64,6 +112,8 @@ export interface SpecRule {
   /** What is left of the meaning once the patterns have read it: absent when they read it all */
   unparsed?: string
   ref: SpecRef
+  /** The shows are an editor's (the row's `conditions`, e7-t08), not read from the meaning */
+  filled?: true
 }
 
 export type UnresolvedReason =
@@ -115,6 +165,7 @@ export interface SpecInputRow {
   meaning: string
   note?: string
   pending?: string
+  conditions?: SpecConditions
 }
 
 export type SpecInputCall = string | { call: string; note?: string }
@@ -457,6 +508,22 @@ export function readMeaning(text: string): MeaningReading {
 const hasHand = (s: SpecShows) =>
   s.hcp !== undefined || s.len !== undefined || s.balanced !== undefined
 
+/** A copy of the conditions with their fields in one order, so that equal ones give equal JSON */
+function conditionsShows(c: SpecConditions): SpecShows {
+  const shows: SpecShows = {}
+  if (c.hcp) shows.hcp = [c.hcp[0], c.hcp[1]]
+  if (c.len) {
+    const len: Partial<Record<SpecSuit, SpecRange>> = {}
+    for (const suit of ['S', 'H', 'D', 'C'] as const) {
+      const r = c.len[suit]
+      if (r) len[suit] = [r[0], r[1]]
+    }
+    shows.len = len
+  }
+  if (c.forcing) shows.forcing = c.forcing
+  return shows
+}
+
 // ── The conversion ──────────────────────────────────────────────────────────────────────────
 
 /**
@@ -494,6 +561,22 @@ export function toSystemSpec(
         const calls = expandCall(row.call)
         if (!calls) {
           unresolved.push({ ...base, reason: 'call', after })
+          continue
+        }
+        // An editor's conditions: what the call shows, whatever the patterns would read
+        if (row.conditions !== undefined && conditionsProblem(row.conditions) === null) {
+          const shows = conditionsShows(row.conditions)
+          for (const call of calls) {
+            rules.push({
+              after,
+              call,
+              shows,
+              text: row.meaning,
+              ...(row.note === undefined ? {} : { note: row.note }),
+              ref,
+              filled: true,
+            })
+          }
           continue
         }
         if (NUMBERED.test(row.meaning) || CHOICE.test(maskBrackets(row.meaning))) {
