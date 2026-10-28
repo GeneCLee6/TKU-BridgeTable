@@ -447,7 +447,9 @@ describe('one-board challenges (社長, 2026-10-25)', () => {
 
 describe('the results page: each board’s lead (社長, 2026-10-25)', () => {
   it('reads the leads only for travellers the member may see, as §4 says', async () => {
-    const { amy, ben, id } = await challenge({ ranking: 'club' }, { boards: 2 })
+    // Just Declare deals until the robots reach a contract, so every board has a lead to read:
+    // random deals were all passed out now and then
+    const { amy, ben, id } = await challenge({ ranking: 'club', justDeclare: true }, { boards: 2 })
     const zoe = await member('zoe')
     await play(amy, id)
     await playAll(amy)
