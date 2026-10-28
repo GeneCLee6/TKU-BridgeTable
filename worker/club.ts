@@ -15,7 +15,9 @@ import { anonymousProfileResponse, ProfileService } from './profiles.ts'
 import { avatarResponse, readAvatarUpload } from './avatars.ts'
 import { FILES_PATH, FileService, readFileUpload } from './files.ts'
 import { FILE_LIMITS } from '../shared/files.ts'
-import { adminRouteNeed, bookRouteNeed, clubRouteNeed, requireNeed } from './roles.ts'
+import { adminRouteNeed, allows, articleReadRoute, bookRouteNeed, clubRouteNeed, forumRouteNeed, requireNeed } from './roles.ts'
+import { type ArticleReader, ArticleService } from './articles.ts'
+import { ForumService } from './forum.ts'
 import { robotMeaningsFor } from './system-spec.ts'
 import { QuizStore } from './quiz.ts'
 import { CLIENT_ERROR_MAX_CHARS } from './client-errors.ts'
@@ -111,6 +113,8 @@ export class Club extends DurableObject<Env> implements Connections {
   private readonly service: ClubService
   /** Replaced after a backup is restored, so nothing they cached survives */
   private book: BookService
+  /** The library's articles (BridgeHall e5-t04) */
+  private articles: ArticleService
   private profiles: ProfileService
   /** Pictures in R2 (e11-t02); keeps only its signing key in memory */
   private readonly files: FileService
@@ -118,6 +122,8 @@ export class Club extends DurableObject<Env> implements Connections {
   private readonly teams: TeamService
   /** 淡江橋館's practice results and question fixes (E6); keeps nothing in memory */
   private readonly quiz: QuizStore
+  /** TKU-BridgeHall's forum (E11) in the object's SQLite database; keeps nothing in memory but its rate limits */
+  private readonly forum: ForumService
   private readonly store: Store
   /** Signs edge passes (§5.12); none when switched off */
   private readonly edgeSecret: string | undefined
@@ -163,6 +169,7 @@ export class Club extends DurableObject<Env> implements Connections {
     this.book = new BookService(store)
     this.files = new FileService(store, env.FILES)
     this.quiz = new QuizStore(store, Date.now, () => randomId(8))
+    this.articles = this.newArticles()
     this.profiles = new ProfileService(store, Date.now, (id) => this.service.usernameOf(id))
     this.teams = new TeamService(store, {
       now: Date.now,
@@ -172,6 +179,12 @@ export class Club extends DurableObject<Env> implements Connections {
       notify: (id, kind, params) => this.service.notifications.notify(id, kind, params),
       profiles: () => this.profiles,
     })
+    this.forum = new ForumService(store.sql, {
+      now: Date.now,
+      newId: () => randomId(8),
+      members: () => this.service.memberDirectory(),
+    })
+    this.forum.createTables()
     // Browsers send "ping" every few seconds to keep phone connections alive and to notice a dead
     // one quickly; the runtime answers without waking the object
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair('ping', 'pong'))
@@ -422,6 +435,13 @@ export class Club extends DurableObject<Env> implements Connections {
     }
 
     const user = await this.service.userForToken(token)
+    // The library's articles (BridgeHall e5-t04): anyone reads them, members-only ones need signing in
+    const articleRead = articleReadRoute(request.method, url.pathname)
+    if (articleRead) {
+      const reader: ArticleReader = !user ? 'anyone' : allows(user, 'bookEdit') ? 'editor' : 'member'
+      const result = articleRead.slug ? await this.articles.get(reader, articleRead.slug) : await this.articles.list(reader)
+      return json(result)
+    }
     if (!user) {
       // Without signing in, only the club's own system profile
       const profiles = await anonymousProfileResponse(this.profiles, request, url.pathname)
@@ -431,6 +451,7 @@ export class Club extends DurableObject<Env> implements Connections {
     if (route === 'GET /api/me') return json({ user })
     if (url.pathname.startsWith('/api/book/')) return this.bookApi(request, url, user, body)
     if (url.pathname.startsWith('/api/club/')) return this.clubApi(request, url, user, body)
+    if (url.pathname.startsWith('/api/forum/')) return this.forumApi(request, url, user, body)
     if (route === 'POST /api/account/password') {
       const b = await body()
       await this.service.changePassword(user.id, text(b.current), text(b.next))
@@ -592,6 +613,7 @@ export class Club extends DurableObject<Env> implements Connections {
           now: Date.now(),
           restored: async (prefixes) => {
             this.book = new BookService(this.store)
+            this.articles = this.newArticles()
             this.profiles = new ProfileService(this.store, Date.now, (id) => this.service.usernameOf(id))
             this.service.systemSpecs.forget()
             // Members come back as of the backup and everyone signs in again (DEPLOY.md §4.4)
@@ -699,6 +721,60 @@ export class Club extends DurableObject<Env> implements Connections {
     throw new ClubError('noSuchApi', {}, 404)
   }
 
+  /** TKU-BridgeHall's forum (E11, e11-t06, e11-t07); members only. Who may use each route is in roles.ts */
+  private async forumApi(request: Request, url: URL, user: Me, body: () => Promise<Body>) {
+    const path = url.pathname.slice('/api/forum'.length)
+    const method = request.method
+    const need = forumRouteNeed(method, path)
+    if (!need) throw new ClubError('noSuchApi', {}, 404)
+    requireNeed(user, need)
+    const forum = this.forum
+
+    if (path === '/boards') {
+      if (method === 'GET') return json({ boards: forum.boards() })
+      return json({ board: forum.createBoard(await body()) })
+    }
+    if (path === '/latest') return json(forum.latest())
+    const posts = path.match(/^\/boards\/([\w-]+)\/posts$/)
+    if (posts) {
+      if (method === 'GET') return json(forum.boardPage(posts[1], Number(url.searchParams.get('page') ?? 1)))
+      return json({ post: forum.createPost(user, posts[1], await body()) })
+    }
+    const board = path.match(/^\/boards\/([\w-]+)$/)
+    if (board) {
+      if (method === 'PATCH') return json({ board: forum.updateBoard(board[1], await body()) })
+      forum.deleteBoard(board[1])
+      return json({ ok: true })
+    }
+    const reaction = path.match(/^\/(posts|comments)\/([\w-]+)\/reaction$/)
+    if (reaction) {
+      const target = reaction[1] === 'posts' ? 'post' : 'comment'
+      if (method === 'PUT') return json({ reactions: forum.react(user, target, reaction[2], await body()) })
+      return json({ reactions: forum.unreact(user, target, reaction[2]) })
+    }
+    const postAction = path.match(/^\/posts\/([\w-]+)\/(pin|lock|comments)$/)
+    if (postAction) {
+      const [, id, action] = postAction
+      if (action === 'pin') return json({ post: forum.setPinned(id, await body()) })
+      if (action === 'lock') return json({ post: forum.setLocked(id, await body()) })
+      return json({ comment: forum.addComment(user, id, await body()) })
+    }
+    const post = path.match(/^\/posts\/([\w-]+)$/)
+    if (post) {
+      if (method === 'GET') return json(forum.thread(post[1]))
+      if (method === 'PATCH') return json({ post: forum.updatePost(user, post[1], await body()) })
+      forum.deletePost(user, post[1])
+      return json({ ok: true })
+    }
+    const comment = path.match(/^\/comments\/([\w-]+)$/)
+    if (comment) {
+      if (method === 'PATCH') return json({ comment: forum.updateComment(user, comment[1], await body()) })
+      forum.deleteComment(user, comment[1])
+      return json({ ok: true })
+    }
+    throw new ClubError('noSuchApi', {}, 404)
+  }
+
   /**
    * TKU BridgeBook's online editing and system profiles; reading the content (publicBookResponse)
    * needs no sign-in. Who may use each route is in roles.ts.
@@ -729,6 +805,15 @@ export class Club extends DurableObject<Env> implements Connections {
       }
       if (revisionId) return json({ revision: await this.book.revision(slug, revisionId) })
       return json({ revisions: await this.book.revisions(slug) })
+    }
+    // An article (BridgeHall e5-t04); reading it is above, without signing in
+    const article = path.match(/^\/articles\/([\w-]+)(?:\/(hide|revisions)(?:\/([\w-]+))?)?$/)
+    if (article) {
+      const [, slug, action, revisionId] = article
+      if (method === 'PUT') return json({ entry: await this.articles.save(user, slug, await body()) })
+      if (action === 'hide') return json({ entry: await this.articles.hide(user, slug, await body()) })
+      if (revisionId) return json({ revision: await this.articles.revision(slug, revisionId) })
+      return json({ revisions: await this.articles.revisions(slug) })
     }
     if (path === '/reviews') return json({ drafts: await this.book.bookDrafts() })
     if (path === '/audit') return json({ entries: await this.book.auditLog() })
@@ -804,6 +889,11 @@ export class Club extends DurableObject<Env> implements Connections {
       return json({ ok: true })
     }
     throw new ClubError('noSuchApi', {}, 404)
+  }
+
+  /** Articles sign their pictures' addresses with the file service's key */
+  private newArticles() {
+    return new ArticleService(this.store, (keys) => this.files.urls(keys))
   }
 
   private async systemSpecStatus(profileId: string): Promise<SystemSpecStatus> {
