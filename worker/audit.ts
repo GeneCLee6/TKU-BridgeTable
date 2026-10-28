@@ -19,6 +19,9 @@ export type AuditAction =
   | 'book:hide'
   | 'book:reset'
   | 'book:categories'
+  /** An article published or hidden (BridgeHall e5-t04) */
+  | 'article:publish'
+  | 'article:hide'
   /** System profiles */
   | 'profile:create'
   | 'profile:save'
@@ -26,6 +29,9 @@ export type AuditAction =
   /** A convention card version published or deleted (BridgeHall e3-t09); `target` is `<profile>/<template>` */
   | 'card:publish'
   | 'card:delete'
+  /** A practice question fixed or written by hand, or the fix removed (BridgeHall e6-t06) */
+  | 'quiz:fix'
+  | 'quiz:unfix'
 
 export interface AuditEntry {
   id: string
@@ -33,7 +39,7 @@ export interface AuditEntry {
   /** The member's username, as in BookRevision.by */
   by: string
   action: AuditAction
-  /** A convention's slug, a profile's id, `<profile>/<template>` for a card, or 'categories' */
+  /** A convention's or an article's slug, a profile's id, `<profile>/<template>` for a card, or 'categories' */
   target: string
   /** The version the change made (a published convention's, a profile's, the categories'); a draft has none */
   version?: number

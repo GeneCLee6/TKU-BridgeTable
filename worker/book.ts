@@ -185,7 +185,7 @@ export interface ImportDraft extends ImportDraftSummary {
   result: unknown
 }
 
-interface Header {
+export interface Header {
   parts: number
 }
 
@@ -220,9 +220,9 @@ const TEXT_FIELDS = ['nameZh', 'nameEn', 'category', 'summary', 'updated']
 export const isObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
 export const isString = (value: unknown): value is string => typeof value === 'string'
-const isOptionalString = (value: unknown) => value === undefined || isString(value)
+export const isOptionalString = (value: unknown) => value === undefined || isString(value)
 export const isStrings = (value: unknown) => Array.isArray(value) && value.every(isString)
-const isOptionalLevel = (value: unknown) => value === undefined || LEVELS.includes(value as string)
+export const isOptionalLevel = (value: unknown) => value === undefined || LEVELS.includes(value as string)
 
 export const isSectionId = (value: unknown): value is string => isString(value) && value.length <= 80 && SECTION_ID.test(value)
 export const isSlug = (value: unknown): value is string => isString(value) && value.length <= 60 && SLUG.test(value)
@@ -249,6 +249,51 @@ export function checkConvention(value: unknown, slug: string): Record<string, un
   return value
 }
 
+const failContent = (reason: string): never => {
+  throw new ClubError('badContent', { reason })
+}
+
+function checkRules(items: unknown): void {
+  if (!Array.isArray(items)) return failContent('條列要是清單')
+  for (const item of items) {
+    if (!isObject(item) || !isString(item.text) || !isOptionalString(item.pending)) failContent('條列項目缺少文字')
+    if ((item as Record<string, unknown>).children !== undefined) checkRules((item as Record<string, unknown>).children)
+  }
+}
+
+/** Throws `badContent` unless `b` is one of the handbook's content blocks (also an article's, worker/articles.ts) */
+export function checkBlock(b: unknown) {
+  if (!isObject(b) || !BLOCK_KINDS.includes(String(b.kind))) return failContent('不明的內容區塊')
+  if (b.kind === 'paragraph' && (!isString(b.text) || !isOptionalString(b.pending))) failContent('段落缺少文字')
+  if (b.kind === 'rules') checkRules(b.items)
+  if (b.kind === 'note' && (!isString(b.text) || (b.tone !== 'info' && b.tone !== 'warning'))) failContent('注意事項格式不正確')
+  if (b.kind === 'intro' && (!isOptionalString(b.why) || !isOptionalString(b.when) || (b.pitfalls !== undefined && !isStrings(b.pitfalls))))
+    failContent('導讀格式不正確')
+  if (b.kind === 'hand') {
+    const hand = b.hand
+    if (!isObject(hand) || !['spades', 'hearts', 'diamonds', 'clubs'].every((suit) => isString(hand[suit])))
+      failContent('牌例要有四門花色')
+  }
+  if (b.kind === 'responses') {
+    if (!Array.isArray(b.rows)) return failContent('叫品表缺少列')
+    for (const row of b.rows)
+      if (!isObject(row) || !isString(row.call) || !isString(row.meaning) || !isOptionalString(row.note) || !isOptionalString(row.pending))
+        failContent('叫品表的每一列要有叫品與意義')
+    for (const row of b.rows as Record<string, unknown>[]) {
+      // An editor's hand conditions for the robot (BridgeHall e7-t08), beside the row's words
+      const problem = row.conditions === undefined ? null : conditionsProblem(row.conditions)
+      if (problem) failContent(`叫品「${String(row.call)}」的手牌條件：${problem}`)
+    }
+    if (b.auction !== undefined) {
+      const auction = b.auction
+      if (!isObject(auction) || !isStrings(auction.seats) || (auction.seats as string[]).length !== 4 || !Array.isArray(auction.calls))
+        return failContent('叫牌過程要有四個座位')
+      for (const call of auction.calls as unknown[])
+        if (!isString(call) && !(isObject(call) && isString(call.call) && isOptionalString(call.note))) failContent('叫牌過程的叫品格式不正確')
+    }
+  }
+}
+
 /**
  * Throws `badContent` unless `sections` is a list of handbook Sections, with ids that are unique
  * among them and their children. Also used for a system profile's replaced sections (profiles.ts)
@@ -258,44 +303,6 @@ export function checkSections(sections: unknown[]) {
     throw new ClubError('badContent', { reason })
   }
   const ids = new Set<string>()
-  const rules = (items: unknown): void => {
-    if (!Array.isArray(items)) return fail('條列要是清單')
-    for (const item of items) {
-      if (!isObject(item) || !isString(item.text) || !isOptionalString(item.pending)) fail('條列項目缺少文字')
-      if ((item as Record<string, unknown>).children !== undefined) rules((item as Record<string, unknown>).children)
-    }
-  }
-  const block = (b: unknown) => {
-    if (!isObject(b) || !BLOCK_KINDS.includes(String(b.kind))) return fail('不明的內容區塊')
-    if (b.kind === 'paragraph' && (!isString(b.text) || !isOptionalString(b.pending))) fail('段落缺少文字')
-    if (b.kind === 'rules') rules(b.items)
-    if (b.kind === 'note' && (!isString(b.text) || (b.tone !== 'info' && b.tone !== 'warning'))) fail('注意事項格式不正確')
-    if (b.kind === 'intro' && (!isOptionalString(b.why) || !isOptionalString(b.when) || (b.pitfalls !== undefined && !isStrings(b.pitfalls))))
-      fail('導讀格式不正確')
-    if (b.kind === 'hand') {
-      const hand = b.hand
-      if (!isObject(hand) || !['spades', 'hearts', 'diamonds', 'clubs'].every((suit) => isString(hand[suit])))
-        fail('牌例要有四門花色')
-    }
-    if (b.kind === 'responses') {
-      if (!Array.isArray(b.rows)) return fail('叫品表缺少列')
-      for (const row of b.rows)
-        if (!isObject(row) || !isString(row.call) || !isString(row.meaning) || !isOptionalString(row.note) || !isOptionalString(row.pending))
-          fail('叫品表的每一列要有叫品與意義')
-      for (const row of b.rows as Record<string, unknown>[]) {
-        // An editor's hand conditions for the robot (BridgeHall e7-t08), beside the row's words
-        const problem = row.conditions === undefined ? null : conditionsProblem(row.conditions)
-        if (problem) fail(`叫品「${String(row.call)}」的手牌條件：${problem}`)
-      }
-      if (b.auction !== undefined) {
-        const auction = b.auction
-        if (!isObject(auction) || !isStrings(auction.seats) || (auction.seats as string[]).length !== 4 || !Array.isArray(auction.calls))
-          return fail('叫牌過程要有四個座位')
-        for (const call of auction.calls as unknown[])
-          if (!isString(call) && !(isObject(call) && isString(call.call) && isOptionalString(call.note))) fail('叫牌過程的叫品格式不正確')
-      }
-    }
-  }
   const section = (s: unknown, depth: number) => {
     if (depth > BOOK_LIMITS.sectionDepthMax) fail('段落層數太多')
     if (!isObject(s) || !isString(s.id) || !SECTION_ID.test(s.id) || !isString(s.title))
@@ -306,7 +313,7 @@ export function checkSections(sections: unknown[]) {
     if (!isOptionalLevel(s.level)) fail('段落的程度（level）不存在')
     if (s.blocks !== undefined) {
       if (!Array.isArray(s.blocks)) fail('段落的內容要是清單')
-      for (const b of s.blocks as unknown[]) block(b)
+      for (const b of s.blocks as unknown[]) checkBlock(b)
     }
     if (s.children !== undefined) {
       if (!Array.isArray(s.children)) fail('子段落要是清單')
@@ -930,7 +937,7 @@ export class BookService {
   }
 }
 
-const noteOf = (note: unknown) => String(note ?? '').trim().slice(0, 200)
+export const noteOf = (note: unknown) => String(note ?? '').trim().slice(0, 200)
 
 export const IMPORT_LIMITS = { pdfMb: 20, textMax: 400_000, catalogueMax: 60_000, instructionsMax: 2_000 }
 

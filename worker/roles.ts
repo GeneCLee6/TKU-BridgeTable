@@ -57,6 +57,18 @@ export function bookRouteNeed(method: string, path: string): Need | null {
     if (method === 'GET' && action === 'revisions') return 'bookEdit'
     return null
   }
+  // An article (BridgeHall e5-t04): publishing and hiding are the reviewers', its versions every
+  // editor's; reading one or the list is articleReadRoute's, without signing in
+  const article = path.match(/^\/articles\/[\w-]+(?:\/(hide|revisions)(?:\/[\w-]+)?)?$/)
+  if (article) {
+    const action = article[1]
+    const sub = /\/(?:hide|revisions)\/[\w-]+$/.test(path)
+    if (sub && action !== 'revisions') return null
+    if (method === 'PUT' && !action) return 'bookReview'
+    if (method === 'POST' && action === 'hide') return 'bookReview'
+    if (method === 'GET' && action === 'revisions') return 'bookEdit'
+    return null
+  }
   // Every draft and what is waiting for review (e8-t02); who changed what (e8-t09)
   if (path === '/reviews' || path === '/audit') return method === 'GET' ? 'bookEdit' : null
   if (path === '/categories') return method === 'PUT' ? 'bookEdit' : null
@@ -77,10 +89,24 @@ export function bookRouteNeed(method: string, path: string): Need | null {
   if (path === '/system-spec') return method === 'GET' ? 'bookEdit' : null
   if (/^\/system-spec\/[\w-]+$/.test(path)) return method === 'PUT' ? 'bookEdit' : null
   if (path === '/robot-meanings') return method === 'POST' ? 'bookEdit' : null
+  // 練習 (BridgeHall E6): a member's own results; fixing the questions is the editors' (reading the fixes needs no sign-in)
+  if (path === '/quiz/rounds') return method === 'GET' || method === 'POST' || method === 'DELETE' ? 'member' : null
+  if (path === '/quiz/fixes') return method === 'PUT' || method === 'DELETE' ? 'bookEdit' : null
   if (path === '/import/ticket') return method === 'POST' ? 'bookImport' : null
   if (path === '/drafts') return method === 'GET' || method === 'POST' ? 'bookImport' : null
   if (/^\/drafts\/[\w-]+$/.test(path)) return method === 'GET' || method === 'DELETE' ? 'bookImport' : null
   return null
+}
+
+/**
+ * `GET /api/book/articles` and `GET /api/book/articles/:slug` (BridgeHall e5-t04): anyone reads them,
+ * signed in or not; which articles each reader gets is ArticleService's. Null for any other request.
+ */
+export function articleReadRoute(method: string, pathname: string): { slug?: string } | null {
+  if (method !== 'GET') return null
+  if (pathname === '/api/book/articles') return {}
+  const one = pathname.match(/^\/api\/book\/articles\/([\w-]+)$/)
+  return one ? { slug: one[1] } : null
 }
 
 /**
@@ -97,6 +123,32 @@ export function clubRouteNeed(method: string, path: string): Need | null {
   if (path === '/pairs') return method === 'GET' || method === 'POST' ? 'member' : null
   if (/^\/pairs\/[\w-]+$/.test(path)) return method === 'GET' ? 'member' : null
   if (/^\/pairs\/[\w-]+\/(accept|decline|end)$/.test(path)) return method === 'POST' ? 'member' : null
+  return null
+}
+
+/**
+ * The forum's officers (幹部): they post on officers-only boards (the news board), pin, lock and
+ * delete anyone's posts and comments. Admins until e11-t09 brings the `forumModerate` permission
+ */
+const FORUM_MODERATE: Need = 'admin'
+export const moderatesForum = (me: Me) => allows(me, FORUM_MODERATE)
+
+/**
+ * `/api/forum/*` (`path` without that prefix; TKU-BridgeHall E11, e11-t06, e11-t07): only members
+ * who are signed in read or write the forum (M1). Boards are the admins'; pinning and locking are
+ * the officers'. Who may edit or delete a given post or comment, and post on an officers-only
+ * board, is ForumService's check (worker/forum.ts). Null when there is no such route.
+ */
+export function forumRouteNeed(method: string, path: string): Need | null {
+  if (path === '/boards') return method === 'GET' ? 'member' : method === 'POST' ? 'admin' : null
+  if (/^\/boards\/[\w-]+$/.test(path)) return method === 'PATCH' || method === 'DELETE' ? 'admin' : null
+  if (/^\/boards\/[\w-]+\/posts$/.test(path)) return method === 'GET' || method === 'POST' ? 'member' : null
+  if (path === '/latest') return method === 'GET' ? 'member' : null
+  if (/^\/posts\/[\w-]+$/.test(path)) return method === 'GET' || method === 'PATCH' || method === 'DELETE' ? 'member' : null
+  if (/^\/posts\/[\w-]+\/(pin|lock)$/.test(path)) return method === 'POST' ? FORUM_MODERATE : null
+  if (/^\/posts\/[\w-]+\/comments$/.test(path)) return method === 'POST' ? 'member' : null
+  if (/^\/comments\/[\w-]+$/.test(path)) return method === 'PATCH' || method === 'DELETE' ? 'member' : null
+  if (/^\/(posts|comments)\/[\w-]+\/reaction$/.test(path)) return method === 'PUT' || method === 'DELETE' ? 'member' : null
   return null
 }
 
