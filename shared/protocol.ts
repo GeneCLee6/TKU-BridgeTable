@@ -1197,6 +1197,10 @@ export interface TeamPatch {
 export interface ClubMember {
   id: string
   username: string
+  /** Their profile's display name, when they set one (TKU-BridgeBook e11-t01) */
+  displayName?: string
+  /** Their uploaded picture's version (`avatarUrl`); none means the default avatar */
+  avatar?: number
 }
 
 /** POST /api/club/pairs: invite `partnerId`, optionally as partners in a team both belong to */

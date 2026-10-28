@@ -42,6 +42,9 @@ export const BACKUP_PREFIXES = [
   'user:',
   'app:',
   'avatar:',
+  // The pictures' owners and the key that signs their addresses (e11-t02); the pictures stay in R2
+  'file:meta:',
+  'file:secret',
 ] as const
 /** The prefixes that hold accounts: restoring a backup with them reloads the club's members */
 export const ACCOUNT_PREFIXES: readonly string[] = ['user:', 'app:', 'avatar:']

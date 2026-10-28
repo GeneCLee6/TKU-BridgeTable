@@ -28,7 +28,14 @@
   //   npx wrangler r2 bucket create tku-bridge-backups      (DEPLOY.md §4.4)
   // Production only: the envs below have no BACKUPS binding and no cron, so staging and previews
   // never write to (or restore from) production's bucket
-  "r2_buckets": [{ "binding": "BACKUPS", "bucket_name": "tku-bridge-backups" }],
+  "r2_buckets": [
+    { "binding": "BACKUPS", "bucket_name": "tku-bridge-backups" }
+    // Pictures for posts and articles (worker/files.ts, BridgeBook e11-t02). Off until the bucket
+    // exists, since a binding to a missing bucket fails the deploy; until then the files API
+    // answers 503. Create it, then uncomment this line (DEPLOY.md §4.8):
+    //   npx wrangler r2 bucket create bridgebook-files
+    // , { "binding": "FILES", "bucket_name": "bridgebook-files" }
+  ],
   // The history pages' D1 copy (ARCHITECTURE.md §5.12), production's own database. Create it once
   // before the first deploy with it and paste its id here (DEPLOY.md §4.5):
   //   npx wrangler d1 create tku-bridge-history
