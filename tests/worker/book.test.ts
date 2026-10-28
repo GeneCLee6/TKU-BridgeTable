@@ -33,6 +33,7 @@ function convention(slug = 'lebensohl', extra: Record<string, unknown> = {}) {
           },
           { kind: 'note', tone: 'info', text: 'P.S.' },
           { kind: 'hand', hand: { spades: 'AK2', hearts: 'QJ3', diamonds: 'T98', clubs: '7654' } },
+          { kind: 'intro', why: '為什麼', pitfalls: ['常見錯誤'] },
         ],
         children: [{ id: 'more', title: '更多' }],
       },
@@ -127,6 +128,8 @@ describe('content edited online', () => {
     await expect(save(twice)).rejects.toThrow('段落 id 重複：a')
     const badBlock = convention('lebensohl', { sections: [{ id: 'a', title: 'A', blocks: [{ kind: 'video' }] }] })
     await expect(save(badBlock)).rejects.toThrow('不明的內容區塊')
+    const badIntro = convention('lebensohl', { sections: [{ id: 'a', title: 'A', blocks: [{ kind: 'intro', pitfalls: '一' }] }] })
+    await expect(save(badIntro)).rejects.toThrow('導讀格式不正確')
     const badAuction = convention('lebensohl', {
       sections: [{ id: 'a', title: 'A', blocks: [{ kind: 'responses', auction: { seats: ['N'], calls: [] }, rows: [] }] }],
     })
@@ -266,7 +269,7 @@ describe('reading the handbook one convention at a time', () => {
     expect(one.headers.get('ETag')).toBe('W/"book-lebensohl-1"')
     const { entry } = await one.json()
     expect(entry).toMatchObject({ slug: 'lebensohl', version: 1, convention: { summary: '敵方插叫後的 2NT 接力。' } })
-    expect(entry.convention.sections[0].blocks).toHaveLength(5)
+    expect(entry.convention.sections[0].blocks).toHaveLength(6)
     expect((await get('/api/book/content/lebensohl', 'W/"book-lebensohl-1"'))!.status).toBe(304)
 
     await book.hide(ben, 'lebensohl', { baseVersion: 1 })

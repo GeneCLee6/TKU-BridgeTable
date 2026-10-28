@@ -161,7 +161,8 @@ const CATEGORY_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 
 const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 const SECTION_ID = /^[a-z0-9][a-z0-9-]*$/
-const BLOCK_KINDS = ['paragraph', 'rules', 'responses', 'note', 'hand']
+// 'intro' is 導讀 (book e4-t04): the club's own words for new players, every part optional
+const BLOCK_KINDS = ['paragraph', 'rules', 'responses', 'note', 'hand', 'intro']
 const TEXT_FIELDS = ['nameZh', 'nameEn', 'category', 'summary', 'updated']
 
 export const isObject = (value: unknown): value is Record<string, unknown> =>
@@ -217,6 +218,8 @@ export function checkSections(sections: unknown[]) {
     if (b.kind === 'paragraph' && (!isString(b.text) || !isOptionalString(b.pending))) fail('段落缺少文字')
     if (b.kind === 'rules') rules(b.items)
     if (b.kind === 'note' && (!isString(b.text) || (b.tone !== 'info' && b.tone !== 'warning'))) fail('注意事項格式不正確')
+    if (b.kind === 'intro' && (!isOptionalString(b.why) || !isOptionalString(b.when) || (b.pitfalls !== undefined && !isStrings(b.pitfalls))))
+      fail('導讀格式不正確')
     if (b.kind === 'hand') {
       const hand = b.hand
       if (!isObject(hand) || !['spades', 'hearts', 'diamonds', 'clubs'].every((suit) => isString(hand[suit])))
