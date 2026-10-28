@@ -7,6 +7,7 @@ import {
   DEFAULT_TABLE_SETTINGS,
   fixedSeats,
   isPermission,
+  withImpliedPermissions,
   isRobotId,
   isRobotSpeed,
   isTableAction,
@@ -21,6 +22,7 @@ import {
   summarize,
   USERNAME_PATTERN,
   type AdminUser,
+  type ClubMember,
   type Application,
   type BoardRecord,
   type ClientMessage,
@@ -95,6 +97,8 @@ import { ChallengeStore, type Challenge, type ChallengeResult } from './challeng
 import { LocalEvents } from './event-service.ts'
 import { EventHomes, type EventApi, type EventLink, type EventSnapshot, type RemoteEvents } from './events.ts'
 import { ClubError } from './errors.ts'
+import { SystemSpecStore } from './system-spec.ts'
+import { forgetQuizRounds } from './quiz.ts'
 import { PROFILE_ID } from './profiles.ts'
 import { FeaturedService } from './featured.ts'
 import { TeamMatchService, type MatchPlayAction } from './team-match-service.ts'
@@ -326,6 +330,11 @@ export interface ClubConfig {
    * this object and brings back any that were moved out: the switch back (DEPLOY.md §4.6)
    */
   eventObjectsOn?: boolean
+  /**
+   * The system profile whose 淡江橋館 rules TKB follows in the club's system (BridgeHall e7-t03,
+   * `worker/system-spec.ts`): the club's (CLUB_PROFILE_ID) unless set (`SYSTEM_PROFILE_ID`)
+   */
+  systemProfileId?: string
 }
 
 export type ScheduleKind = JobKind
@@ -436,6 +445,8 @@ export class ClubService {
   >()
   /** The notification centre; other parts of the club call `notifications.notify` */
   readonly notifications: NotificationService
+  /** 淡江橋館's rules synced for TKB (BridgeHall e7-t03); the book routes in `club.ts` use it too */
+  readonly systemSpecs: SystemSpecStore
   /** Whom each member follows (好友) and whom they blocked (AC-1.6) */
   private readonly friends: Relations
   private readonly blocks: Relations
@@ -531,6 +542,7 @@ export class ClubService {
     })
     this.directs = new DirectMessageStore(store.sql)
     this.practicePresets = new PracticePresets(store, this.now, () => randomId(8))
+    this.systemSpecs = new SystemSpecStore(store, this.now, config.systemProfileId)
     if (config.schedule) {
       this.scheduler = manualScheduler(config.schedule)
     } else {
@@ -558,6 +570,7 @@ export class ClubService {
       closed: (tableId) => this.tableClosed(tableId),
       boardFinished: (record, event, stats) => this.boardFinished(record, event, stats),
       mayUseTku: (userId) => this.mayUseTku(userId),
+      bookNotes: (known) => this.systemSpecs.bookNotes(known),
     }
     this.link = link
     // Each table in its own Durable Object (H1b, §5.10), unless switched back into this one
@@ -1017,9 +1030,12 @@ export class ClubService {
     const user = this.requireUser(userId)
     const parsed = parseProfile(input)
     if ('error' in parsed) throw new ClubError(parsed.error, parsed.params)
+    const renamed = user.profile?.displayName !== parsed.profile.displayName
     if (Object.keys(parsed.profile).length) user.profile = parsed.profile
     else delete user.profile
     await this.store.put(`user:${user.id}`, user)
+    // The lobby's member list and name plates show the display name (e11-t19)
+    if (renamed) this.broadcast()
     return this.me(user)
   }
 
@@ -1196,8 +1212,13 @@ export class ClubService {
   }
 
   /** Every member's id and name, nothing else, for picking a team's members or a partner */
-  memberDirectory(): { id: string; username: string }[] {
-    return [...this.users.values()].map(({ id, username }) => ({ id, username }))
+  memberDirectory(): ClubMember[] {
+    return [...this.users.values()].map(({ id, username, profile, avatar }) => ({
+      id,
+      username,
+      ...(profile?.displayName ? { displayName: profile.displayName } : {}),
+      ...(avatar ? { avatar } : {}),
+    }))
   }
 
   requireAdmin(userId: string) {
@@ -1261,7 +1282,7 @@ export class ClubService {
   async adminSetPermissions(userId: string, permissions: unknown) {
     const user = this.requireUser(userId)
     if (!Array.isArray(permissions) || !permissions.every(isPermission)) throw new ClubError('badPermission')
-    user.permissions = PERMISSIONS.filter((p) => permissions.includes(p))
+    user.permissions = withImpliedPermissions(permissions)
     await this.store.put(`user:${user.id}`, user)
   }
 
@@ -1285,7 +1306,7 @@ export class ClubService {
       if (!admin && user.admin && user.id === actorId) throw new ClubError('notSelf')
       next.set(user.id, {
         admin,
-        permissions: permissions ? PERMISSIONS.filter((p) => permissions.includes(p)) : (user.permissions ?? []),
+        permissions: permissions ? withImpliedPermissions(permissions) : (user.permissions ?? []),
       })
     }
     if (![...this.users.values()].some((u) => next.get(u.id)?.admin ?? u.admin)) throw new ClubError('lastAdmin')
@@ -1370,6 +1391,7 @@ export class ClubService {
     await this.blocks.forget(user.id)
     removeFavoritesOf(this.store.sql, user.id)
     await this.practicePresets.removeAll(user.id)
+    await forgetQuizRounds(this.store, user.id)
     this.present.delete(user.id)
     this.announced.delete(user.id)
     const correspondents = this.directs.forget(user.id)
@@ -3297,6 +3319,7 @@ export class ClubService {
         id: u.id,
         username: u.username,
         ...(u.avatar && { avatar: u.avatar }),
+        ...(u.profile?.displayName && { displayName: u.profile.displayName }),
         online: basis.online.has(u.id),
         tableNumber: table?.number ?? null,
         seat: table ? this.seatIn(table, u.id) : null,
@@ -3376,6 +3399,13 @@ export class ClubService {
   private publicUserById(id: string): PublicUser | undefined {
     if (isRobotId(id)) return robotUser(id)
     const user = this.users.get(id)
-    return user && { id: user.id, username: user.username, ...(user.avatar && { avatar: user.avatar }) }
+    return (
+      user && {
+        id: user.id,
+        username: user.username,
+        ...(user.avatar && { avatar: user.avatar }),
+        ...(user.profile?.displayName && { displayName: user.profile.displayName }),
+      }
+    )
   }
 }

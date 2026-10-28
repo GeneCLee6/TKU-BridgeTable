@@ -124,6 +124,7 @@ PR 關閉時預覽會自動刪除。若有漏掉的（例如當時還沒設定 s
 | `EDGE_AUTH_SECRET` | `wrangler secret put EDGE_AUTH_SECRET` | 無 | 簽邊緣通行證（§4.5）；沒設定時不發通行證，Worker 什麼都問社團 |
 | `EDGE_AUTH` | `wrangler.jsonc` 的 `vars` 或 `--var` | 開 | `off` 關掉通行證（§4.5） |
 | `HISTORY_D1` | `wrangler.jsonc` 的 `vars` 或 `--var` | 開 | `off` 讓紀錄頁改回社團回答、停止寫 D1（§4.5）；沒有 `HISTORY` binding（PR 預覽）時本來就沒有 |
+| `SYSTEM_PROFILE_ID` | `wrangler.jsonc` 的 `vars` 或 `--var` | `club` | TKB 用淡江制度時，叫品帶哪個制度集的橋館文字（ROBOT.md「橋館的文字跟著叫品」）；那個制度集要先在橋館差異報告頁同步過 |
 | `ANTHROPIC_BASE_URL` | `.dev.vars` | 無 | 只給測試或 API 閘道用（本機可以指向假的 API），正式環境不要設定 |
 
 本機開發的值放在 `.dev.vars`（從 `.dev.vars.example` 複製，不會 commit）。
@@ -367,6 +368,28 @@ D1 免費額度（每天讀 500 萬列、寫 10 萬列、5 GB）的估算在 `AR
 ```bash
 LOAD_PASSWORD=... LOAD_INVITE_CODE=... npm run load -- --url https://tku-bridge-table-pr-<號>.<子網域>.workers.dev   --users 30 --tables 5 --robot-tables 2 --watchers 6 --minutes 5 --challenge 3 --dry-run   # 先看估算
 ```
+
+## 4.8 圖片檔案（淡江橋譜 e11-t02，R2 bucket `bridgebook-files`）
+
+討論區貼文與文章的圖片存在 R2 bucket `bridgebook-files`（binding `FILES`，程式在 `worker/files.ts`，規格在 `shared/files.ts`、ARCHITECTURE.md §5.14）。頭像**不在這裡**（仍在 `avatar:`，§4.4）。
+
+**現在的狀態**：`wrangler.jsonc` 的 `FILES` binding 是註解掉的。binding 指向不存在的 bucket 時 `wrangler deploy` 會失敗，所以先不綁；沒有 binding 時圖片 API 一律回 503（`filesOff`），其他功能照常。
+
+### 啟用（只做一次）
+
+1. 建 bucket：
+
+   ```bash
+   npx wrangler r2 bucket create bridgebook-files
+   npx wrangler r2 bucket list         # 確認有 bridgebook-files
+   ```
+
+2. 開一個 PR，把 `wrangler.jsonc` 裡 `r2_buckets` 的 `FILES` 那一行取消註解（保留前面的逗號），CI 綠了合併；合併即部署。
+3. 檢查：登入後 `POST /api/files/ticket` 不再回 503。
+
+- **只有正式站**：staging 與 PR 預覽沒有 `FILES`（`r2_buckets` 不繼承），在那裡上傳圖片回 503。
+- **額度**：R2 免費 10 GB；每人每天最多 30 張、每張 ≤ 2 MB、縮圖 ≤ 256 KB。用量提醒是 E5 的 `e5-t15`。
+- **備份**：每日備份含 `file:meta:`（誰上傳、型別、大小）與 `file:secret`（簽網址的金鑰）；圖片本身只在 R2，不另外備份。
 
 ## 5. 費用與限制
 

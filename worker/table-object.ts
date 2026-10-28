@@ -41,6 +41,7 @@ export class TableObject extends DurableObject<Env> implements TableRpc, TableSo
       closed: (tableId) => club.tableClosed(tableId),
       boardFinished: (record: BoardRecord, event: EventReport | null, stats?: TableStats) => club.tableBoardFinished(record, event, stats),
       mayUseTku: (userId) => club.tableMayUseTku(userId),
+      bookNotes: (known) => club.tableBookNotes(known),
     }
     this.host = new TableHost({
       storage: {

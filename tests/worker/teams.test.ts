@@ -201,6 +201,18 @@ describe("the team's own settings (e2-t10) and the member directory", () => {
   it('lists the members by name', () => {
     expect(teams.members().map((m) => m.username)).toEqual(['namy', 'nben', 'ncat'])
   })
+
+  it("gives a member's teams and active partnerships for their profile page (BridgeHall e11-t04)", async () => {
+    const team = await newTeam()
+    const active = await teams.invite(ben, { partnerId: 'amy', teamId: team.id })
+    await teams.accept(amy, active.id)
+    // An invitation stays between the two
+    await teams.invite(ben, { partnerId: 'cat' })
+    const benTeams = await teams.memberTeams('ben')
+    expect(benTeams.teams.map((t) => t.id)).toEqual([team.id])
+    expect(benTeams.pairs.map((p) => p.id)).toEqual([active.id])
+    expect(await teams.memberTeams('cat')).toEqual({ teams: [], pairs: [] })
+  })
 })
 
 describe("profiles' member rights (e2-t04, AC-2.3)", () => {

@@ -7,9 +7,11 @@ import { ClubError } from './service.ts'
  * - **Admins** manage everything, members' accounts included: registrations, adding and deleting
  *   accounts, passwords, the admin role, permissions, and the club settings (account limit,
  *   invite code), which are about who may join.
- * - **Editors** (`bookEdit`) manage everything else: TKU BridgeBook's conventions (saving,
- *   hiding, going back to the bundled one, versions), its categories and system profiles, and
- *   closing a stuck table.
+ * - **Editors** (`bookEdit`) manage everything else: TKU BridgeBook's conventions (drafts, sending
+ *   them for review, versions), its categories and system profiles, and closing a stuck table.
+ * - **Reviewers** (`bookReview`, BridgeHall e8-t01) are editors who also publish a convention
+ *   (straight away or a draft sent for review), send a draft back, hide one or go back to the
+ *   bundled one. A reviewer is always an editor too (`withImpliedPermissions`).
  *
  * Teams and partnerships (TKU BridgeBook E2): editors make teams; a team's captain and the editors
  * manage it (`managesTeam`); any member invites a partner, and only the two of them answer or end it.
@@ -42,14 +44,33 @@ export function adminRouteNeed(method: string, path: string): Need {
  * route. Reading without signing in is publicBookResponse's (book.ts) and anonymousProfileResponse's (profiles.ts).
  */
 export function bookRouteNeed(method: string, path: string): Need | null {
-  const convention = path.match(/^\/conventions\/[\w-]+(?:\/(hide|reset|revisions)(?:\/[\w-]+)?)?$/)
+  // A convention: publishing, hiding and going back to the bundled one are the reviewers'; its
+  // draft (one per convention, e8-t02) and its versions are every editor's
+  const convention = path.match(/^\/conventions\/[\w-]+(?:\/(hide|reset|reject|draft|revisions)(?:\/[\w-]+)?)?$/)
   if (convention) {
     const action = convention[1]
-    if (method === 'PUT' && !action) return 'bookEdit'
-    if (method === 'POST' && (action === 'hide' || action === 'reset')) return 'bookEdit'
+    const sub = /\/(?:hide|reset|reject|draft|revisions)\/[\w-]+$/.test(path)
+    if (sub && action !== 'revisions') return null
+    if (method === 'PUT' && !action) return 'bookReview'
+    if (method === 'POST' && (action === 'hide' || action === 'reset' || action === 'reject')) return 'bookReview'
+    if (action === 'draft' && (method === 'GET' || method === 'PUT' || method === 'DELETE')) return 'bookEdit'
     if (method === 'GET' && action === 'revisions') return 'bookEdit'
     return null
   }
+  // An article (BridgeHall e5-t04): publishing and hiding are the reviewers', its versions every
+  // editor's; reading one or the list is articleReadRoute's, without signing in
+  const article = path.match(/^\/articles\/[\w-]+(?:\/(hide|revisions)(?:\/[\w-]+)?)?$/)
+  if (article) {
+    const action = article[1]
+    const sub = /\/(?:hide|revisions)\/[\w-]+$/.test(path)
+    if (sub && action !== 'revisions') return null
+    if (method === 'PUT' && !action) return 'bookReview'
+    if (method === 'POST' && action === 'hide') return 'bookReview'
+    if (method === 'GET' && action === 'revisions') return 'bookEdit'
+    return null
+  }
+  // Every draft and what is waiting for review (e8-t02); who changed what (e8-t09)
+  if (path === '/reviews' || path === '/audit') return method === 'GET' ? 'bookEdit' : null
   if (path === '/categories') return method === 'PUT' ? 'bookEdit' : null
   if (path === '/profiles') return method === 'GET' ? 'member' : method === 'POST' ? 'bookEdit' : null
   // One profile: which member may read it, save it or see its versions is profileAccess's (below)
@@ -60,10 +81,32 @@ export function bookRouteNeed(method: string, path: string): Need | null {
     if (method === 'DELETE') return 'bookEdit'
     return null
   }
+  // A profile's convention card versions (BridgeHall e3-t09): the profile's rights decide (club.ts)
+  if (/^\/cards\/[\w-]+$/.test(path)) return method === 'GET' || method === 'POST' ? 'member' : null
+  if (/^\/cards\/[\w-]+\/[\w-]+\/\d+$/.test(path)) return ['GET', 'PATCH', 'DELETE'].includes(method) ? 'member' : null
+  if (/^\/cards\/[\w-]+\/[\w-]+\/\d+\/docx$/.test(path)) return method === 'GET' ? 'member' : null
+  // 淡江橋館 → TKB (BridgeHall e7-t03, e7-t04): the report page is the editors'
+  if (path === '/system-spec') return method === 'GET' ? 'bookEdit' : null
+  if (/^\/system-spec\/[\w-]+$/.test(path)) return method === 'PUT' ? 'bookEdit' : null
+  if (path === '/robot-meanings') return method === 'POST' ? 'bookEdit' : null
+  // 練習 (BridgeHall E6): a member's own results; fixing the questions is the editors' (reading the fixes needs no sign-in)
+  if (path === '/quiz/rounds') return method === 'GET' || method === 'POST' || method === 'DELETE' ? 'member' : null
+  if (path === '/quiz/fixes') return method === 'PUT' || method === 'DELETE' ? 'bookEdit' : null
   if (path === '/import/ticket') return method === 'POST' ? 'bookImport' : null
   if (path === '/drafts') return method === 'GET' || method === 'POST' ? 'bookImport' : null
   if (/^\/drafts\/[\w-]+$/.test(path)) return method === 'GET' || method === 'DELETE' ? 'bookImport' : null
   return null
+}
+
+/**
+ * `GET /api/book/articles` and `GET /api/book/articles/:slug` (BridgeHall e5-t04): anyone reads them,
+ * signed in or not; which articles each reader gets is ArticleService's. Null for any other request.
+ */
+export function articleReadRoute(method: string, pathname: string): { slug?: string } | null {
+  if (method !== 'GET') return null
+  if (pathname === '/api/book/articles') return {}
+  const one = pathname.match(/^\/api\/book\/articles\/([\w-]+)$/)
+  return one ? { slug: one[1] } : null
 }
 
 /**
@@ -72,6 +115,7 @@ export function bookRouteNeed(method: string, path: string): Need | null {
  */
 export function clubRouteNeed(method: string, path: string): Need | null {
   if (path === '/members') return method === 'GET' ? 'member' : null
+  if (/^\/members\/[\w-]+\/teams$/.test(path)) return method === 'GET' ? 'member' : null
   if (path === '/teams') return method === 'GET' ? 'member' : method === 'POST' ? 'bookEdit' : null
   if (/^\/teams\/[\w-]+$/.test(path)) return method === 'GET' || method === 'PATCH' ? 'member' : null
   if (/^\/teams\/[\w-]+\/members$/.test(path)) return method === 'POST' ? 'member' : null
@@ -79,6 +123,32 @@ export function clubRouteNeed(method: string, path: string): Need | null {
   if (path === '/pairs') return method === 'GET' || method === 'POST' ? 'member' : null
   if (/^\/pairs\/[\w-]+$/.test(path)) return method === 'GET' ? 'member' : null
   if (/^\/pairs\/[\w-]+\/(accept|decline|end)$/.test(path)) return method === 'POST' ? 'member' : null
+  return null
+}
+
+/**
+ * The forum's officers (幹部): they post on officers-only boards (the news board), pin, lock and
+ * delete anyone's posts and comments. Admins until e11-t09 brings the `forumModerate` permission
+ */
+const FORUM_MODERATE: Need = 'admin'
+export const moderatesForum = (me: Me) => allows(me, FORUM_MODERATE)
+
+/**
+ * `/api/forum/*` (`path` without that prefix; TKU-BridgeHall E11, e11-t06, e11-t07): only members
+ * who are signed in read or write the forum (M1). Boards are the admins'; pinning and locking are
+ * the officers'. Who may edit or delete a given post or comment, and post on an officers-only
+ * board, is ForumService's check (worker/forum.ts). Null when there is no such route.
+ */
+export function forumRouteNeed(method: string, path: string): Need | null {
+  if (path === '/boards') return method === 'GET' ? 'member' : method === 'POST' ? 'admin' : null
+  if (/^\/boards\/[\w-]+$/.test(path)) return method === 'PATCH' || method === 'DELETE' ? 'admin' : null
+  if (/^\/boards\/[\w-]+\/posts$/.test(path)) return method === 'GET' || method === 'POST' ? 'member' : null
+  if (path === '/latest') return method === 'GET' ? 'member' : null
+  if (/^\/posts\/[\w-]+$/.test(path)) return method === 'GET' || method === 'PATCH' || method === 'DELETE' ? 'member' : null
+  if (/^\/posts\/[\w-]+\/(pin|lock)$/.test(path)) return method === 'POST' ? FORUM_MODERATE : null
+  if (/^\/posts\/[\w-]+\/comments$/.test(path)) return method === 'POST' ? 'member' : null
+  if (/^\/comments\/[\w-]+$/.test(path)) return method === 'PATCH' || method === 'DELETE' ? 'member' : null
+  if (/^\/(posts|comments)\/[\w-]+\/reaction$/.test(path)) return method === 'PUT' || method === 'DELETE' ? 'member' : null
   return null
 }
 

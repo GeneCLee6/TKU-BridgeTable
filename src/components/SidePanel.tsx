@@ -1,6 +1,6 @@
 import { ArrowLeft, BookOpen, History, Mail, MessageSquare, Users } from 'lucide-react'
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
-import styled, { css } from 'styled-components'
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from 'react'
+import styled, { css, keyframes } from 'styled-components'
 import {
   DEFAULT_HISTORY_QUERY,
   historyQueryString,
@@ -15,7 +15,9 @@ import { isGrouping, type RecordGrouping } from '../lib/lists.ts'
 import { useAuth } from '../state/AuthContext.tsx'
 import { useClub } from '../state/ClubContext.tsx'
 import { usePreferences } from '../state/PreferencesContext.tsx'
-import { mobile, tablet } from '../styles/tokens.ts'
+import { useMediaQuery } from '../lib/useMediaQuery.ts'
+import { useScrollLock } from '../lib/useScrollLock.ts'
+import { dockHeight, mobile, mobileQuery, tablet } from '../styles/tokens.ts'
 import { boardPlace, playerName } from '../strings.ts'
 import { BoardRecordView } from './BoardRecordView.tsx'
 import { DirectMessages } from './DirectMessages.tsx'
@@ -29,11 +31,21 @@ import { ContractResult } from './Suit.tsx'
  * a tab opens its panel beside the strip; clicking it again closes the panel, so the table gets
  * the space back. History opens a board right in the panel, so you can keep playing on the left
  * and look at an earlier board on the right. The open tab is remembered per page. There is no ✕ on
- * the panel (e3-t47): the strip is always beside it (below it on a phone), and Esc inside the panel
- * closes it too, handing the focus back to its tab.
+ * the panel (e3-t47): the strip is always beside it, and Esc inside the panel closes it too,
+ * handing the focus back to its tab.
+ *
+ * On a phone (社長 2026-10-27) the strip is a tab bar fixed to the foot of the screen, above the
+ * iPhone's home bar, and a tab opens its panel as a sheet sliding up from the bar, over a dimmed
+ * page that stays still (`useScrollLock`). The sheet closes from its tab, a tap on the dimmed
+ * page, Esc, or a pull down on its head; it has no ✕ either, the tab bar is right below it. At a
+ * table the bar is lower (`compact`) so the hand keeps its room. A phone always starts with the
+ * sheet closed.
  */
 
 export type PanelTab = 'chat' | 'people' | 'messages' | 'history' | 'conventions'
+
+/** A pull down on the sheet's head longer than this closes it */
+const PULL_TO_CLOSE = 80
 
 const Dock = styled.div`
   position: relative;
@@ -44,14 +56,18 @@ const Dock = styled.div`
   background: ${({ theme }) => theme.colors.surface};
 
   ${mobile} {
-    flex-direction: column-reverse;
+    position: fixed;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 25;
+    display: block;
     height: auto;
     border-left: 0;
-    border-top: 1px solid ${({ theme }) => theme.colors.border};
   }
 `
 
-const Rail = styled.nav`
+const Rail = styled.nav<{ $compact: boolean }>`
   display: flex;
   flex-direction: column;
   flex: none;
@@ -60,13 +76,18 @@ const Rail = styled.nav`
   background: ${({ theme }) => theme.colors.surfaceAlt};
 
   ${mobile} {
+    position: relative;
+    z-index: 2;
     flex-direction: row;
     width: 100%;
+    height: ${({ $compact }) => dockHeight($compact)};
+    padding: 0 env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
     border-left: 0;
+    border-top: 1px solid ${({ theme }) => theme.colors.border};
   }
 `
 
-const RailButton = styled.button<{ $active: boolean }>`
+const RailButton = styled.button<{ $active: boolean; $compact: boolean }>`
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -95,14 +116,30 @@ const RailButton = styled.button<{ $active: boolean }>`
 
   ${mobile} {
     flex: 1;
-    min-height: 52px;
+    min-width: 0;
+    min-height: 0;
+    padding: 2px;
     border-left: 0;
     border-top: 3px solid
       ${({ $active, theme }) => ($active ? theme.colors.primary : 'transparent')};
+    white-space: nowrap;
+
+    ${({ $compact }) =>
+      $compact &&
+      css`
+        gap: 1px;
+        font-size: 11px;
+        line-height: 14px;
+
+        & > svg {
+          width: 18px;
+          height: 18px;
+        }
+      `}
   }
 `
 
-const RailBadge = styled.span`
+const RailBadge = styled.span<{ $compact: boolean }>`
   position: absolute;
   top: 6px;
   right: 10px;
@@ -113,10 +150,20 @@ const RailBadge = styled.span`
   color: ${({ theme }) => theme.colors.onPrimary};
   font-size: 11px;
   line-height: 18px;
+
+  ${mobile} {
+    top: ${({ $compact }) => ($compact ? '2px' : '4px')};
+    right: calc(50% - 26px);
+  }
+`
+
+const rise = keyframes`
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
 `
 
 /** One width for every tab, the one a board needs, so switching tabs never moves the page (社長 2026-10-27) */
-const Content = styled.section`
+const Content = styled.section<{ $compact: boolean }>`
   display: flex;
   flex-direction: column;
   width: ${({ theme }) => theme.layout.dockPanelWidth};
@@ -134,13 +181,37 @@ const Content = styled.section`
     box-shadow: ${({ theme }) => theme.shadowRaised};
   }
 
+  /* On a phone, a sheet rising from the tab bar; one height for every tab, as on a computer */
   ${mobile} {
-    width: 100%;
-    min-height: 320px;
+    position: fixed;
+    right: 0;
+    bottom: ${({ $compact }) => dockHeight($compact)};
+    left: 0;
+    z-index: 1;
+    width: auto;
+    height: 78vh;
+    height: min(78dvh, calc(100dvh - ${({ theme }) => theme.layout.headerHeight} - ${({ $compact }) => dockHeight($compact)} - 8px));
+    padding: 0 env(safe-area-inset-right, 0px) 0 env(safe-area-inset-left, 0px);
+    border-top: 1px solid ${({ theme }) => theme.colors.border};
+    border-radius: ${({ theme }) => theme.radius.lg} ${({ theme }) => theme.radius.lg} 0 0;
+    background: ${({ theme }) => theme.colors.surface};
+    box-shadow: ${({ theme }) => theme.shadowRaised};
+    animation: ${rise} 0.2s ease-out;
+    transition: transform 0.15s ease-out;
   }
 `
 
+/** The dimmed page behind the phone's sheet; a tap on it closes the sheet */
+const Scrim = styled.div`
+  position: fixed;
+  inset: 0;
+  background: ${({ theme }) => theme.colors.overlay};
+  overscroll-behavior: contain;
+  touch-action: none;
+`
+
 const ContentHead = styled.div`
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -150,6 +221,26 @@ const ContentHead = styled.div`
   border-bottom: 1px solid ${({ theme }) => theme.colors.border};
   font-weight: 800;
   color: ${({ theme }) => theme.colors.primaryStrong};
+
+  /* The grip above the title, and room below it before the line */
+  ${mobile} {
+    min-height: 0;
+    padding: 20px 16px 12px;
+    touch-action: none;
+    user-select: none;
+  }
+`
+
+/** The pull tab at the top of the phone's sheet */
+const Grip = styled.span`
+  position: absolute;
+  top: 6px;
+  left: 50%;
+  width: 40px;
+  height: 4px;
+  margin-left: -20px;
+  border-radius: ${({ theme }) => theme.radius.pill};
+  background: ${({ theme }) => theme.colors.border};
 `
 
 const Body = styled.div`
@@ -158,6 +249,7 @@ const Body = styled.div`
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  overscroll-behavior: contain;
 `
 
 const STORAGE_KEY = 'tku-bridge-table:dock'
@@ -199,10 +291,26 @@ export function SidePanel({
   recent?: BoardSummary[]
 }) {
   const { t } = usePreferences()
+  const phone = useMediaQuery(mobileQuery)
+  // A phone starts with the sheet closed, so the page is what you see first
   const [open, setOpen] = useState<PanelTab | null>(() => {
+    if (phone) return null
     const stored = readOpen(page, initial)
     return stored && tabs.includes(stored) ? stored : null
   })
+  // A window narrowed to a phone's width closes the panel rather than covering the page with it
+  const [wasPhone, setWasPhone] = useState(phone)
+  if (phone !== wasPhone) {
+    setWasPhone(phone)
+    if (phone) setOpen(null)
+  }
+  const sheet = phone && open !== null
+  useScrollLock(sheet)
+  /** How far the sheet's head has been pulled down */
+  const [pull, setPull] = useState(0)
+  const pullFrom = useRef<number | null>(null)
+  // At a table the phone's bar is lower, so the hand keeps its room
+  const compact = page === 'table'
   const [board, setBoard] = useState<string | null>(null)
   const [talkTo, setTalkTo] = useState<string | null>(null)
   const { directs } = useClub()
@@ -222,11 +330,13 @@ export function SidePanel({
   }
   const unread = { messages: directs?.unread ?? 0 } as Partial<Record<PanelTab, number>>
 
-  const toggle = (tab: PanelTab) => {
-    const next = open === tab ? null : tab
-    setOpen(next)
-    writeOpen(page, next)
+  // A phone does not remember the open tab: it would open the sheet over the page next time
+  const show = (tab: PanelTab | null) => {
+    setOpen(tab)
+    setPull(0)
+    if (!phone) writeOpen(page, tab)
   }
+  const toggle = (tab: PanelTab) => show(open === tab ? null : tab)
   const rail = useRef<HTMLElement>(null)
 
   /** Esc inside the open panel closes it, unless something in it (a menu, a dialog) used the key */
@@ -240,15 +350,42 @@ export function SidePanel({
   /** The People tab's envelope: opens that conversation in the Messages tab */
   const message = (userId: string) => {
     setTalkTo(userId)
-    setOpen('messages')
-    writeOpen(page, 'messages')
+    show('messages')
   }
 
   return (
     <Dock aria-label={t.sidePanel} data-tour="side">
+      {sheet && <Scrim data-testid="dock-scrim" onClick={() => show(null)} />}
       {open && (
-        <Content role="tabpanel" aria-label={label[open]} onKeyDown={closeOnEscape}>
-          <ContentHead>
+        <Content
+          role="tabpanel"
+          aria-label={label[open]}
+          onKeyDown={closeOnEscape}
+          $compact={compact}
+          style={pull ? { transform: `translateY(${pull}px)`, transition: 'none' } : undefined}
+        >
+          <ContentHead
+            {...(phone && {
+              onPointerDown: (e: PointerEvent<HTMLDivElement>) => {
+                pullFrom.current = e.clientY
+                e.currentTarget.setPointerCapture(e.pointerId)
+              },
+              onPointerMove: (e: PointerEvent<HTMLDivElement>) => {
+                if (pullFrom.current !== null) setPull(Math.max(0, e.clientY - pullFrom.current))
+              },
+              onPointerUp: () => {
+                if (pullFrom.current === null) return
+                pullFrom.current = null
+                if (pull > PULL_TO_CLOSE) show(null)
+                else setPull(0)
+              },
+              onPointerCancel: () => {
+                pullFrom.current = null
+                setPull(0)
+              },
+            })}
+          >
+            {phone && <Grip aria-hidden />}
             <span>{label[open]}</span>
           </ContentHead>
           <Body>
@@ -272,7 +409,7 @@ export function SidePanel({
           </Body>
         </Content>
       )}
-      <Rail ref={rail} role="tablist" aria-orientation="vertical">
+      <Rail ref={rail} role="tablist" aria-orientation={phone ? 'horizontal' : 'vertical'} $compact={compact}>
         {tabs.map((name) => {
           const Icon = icon[name]
           return (
@@ -283,6 +420,7 @@ export function SidePanel({
               role="tab"
               aria-selected={open === name}
               $active={open === name}
+              $compact={compact}
               onClick={() => toggle(name)}
               title={label[name]}
               aria-label={
@@ -291,7 +429,7 @@ export function SidePanel({
             >
               <Icon size={22} aria-hidden />
               {label[name]}
-              {!!unread[name] && <RailBadge aria-hidden>{unread[name]}</RailBadge>}
+              {!!unread[name] && <RailBadge aria-hidden $compact={compact}>{unread[name]}</RailBadge>}
             </RailButton>
           )
         })}

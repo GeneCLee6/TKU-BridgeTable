@@ -12,6 +12,7 @@ import { useListParams } from '../lib/useListParams.ts'
 import { useAuth } from '../state/AuthContext.tsx'
 import { useClub } from '../state/ClubContext.tsx'
 import { usePreferences } from '../state/PreferencesContext.tsx'
+import { cardHover } from '../styles/controls.ts'
 
 /**
  * The member's team matches (§5.8): the ones they host or have a seat in, newest first, and a
@@ -29,6 +30,11 @@ const Head = styled.div`
   justify-content: space-between;
   gap: 8px 16px;
   margin-bottom: 8px;
+`
+
+/** The intro, kept off the list below it (it touched the card on a phone) */
+const Intro = styled(Muted)`
+  margin-bottom: 16px;
 `
 
 const Tools = styled.div`
@@ -56,10 +62,8 @@ const Row = styled(Link)`
   background: ${({ theme }) => theme.colors.surface};
   color: ${({ theme }) => theme.colors.text};
   text-decoration: none;
+  ${cardHover()}
 
-  &:hover {
-    background: ${({ theme }) => theme.colors.surfaceAlt};
-  }
   & > strong {
     font-size: 16px;
   }
@@ -132,7 +136,7 @@ export function MatchesPage() {
           {t.teamMatch.create}
         </Button>
       </Head>
-      <Muted>{t.teamMatch.intro}</Muted>
+      <Intro>{t.teamMatch.intro}</Intro>
       {error && <ErrorText role="alert">{error}</ErrorText>}
       {shown === null ? (
         !error && <Muted>{t.loading}</Muted>

@@ -1,10 +1,11 @@
 import { ALL_PASS } from '../lib/calls.ts'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { Ban, EyeOff, Hand, Lock, Settings } from 'lucide-react'
+import { Ban, EyeOff, Hand, Layers, List, Lock, Palette, Settings } from 'lucide-react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import styled, { css, keyframes } from 'styled-components'
 import { isVulnerable } from '../../shared/board.ts'
-import { nextSeat, partnerOf, SEATS, sideOf, suitOf, type Card, type Seat, type Suit } from '../../shared/cards.ts'
+import { withMemberProfile } from '../../shared/lobby.ts'
+import { nextSeat, partnerOf, SEATS, sideOf, SUITS, suitOf, type Card, type Seat, type Suit } from '../../shared/cards.ts'
 import type { Trick } from '../../shared/game.ts'
 import {
   DEAL_COUNTDOWN_MS,
@@ -36,7 +37,7 @@ import { TrickArea, TrickSpace, type CardOrigin, type Position } from '../compon
 import { TrickPile } from '../components/TrickPile.tsx'
 import { Button, Muted, PageMain } from '../components/ui.tsx'
 import { spokenContract } from '../lib/announce.ts'
-import { CARD_SCALE, sortForDisplay, suitOrder } from '../lib/cards.ts'
+import { CARD_SCALE, sortForDisplay, suitOrder, trickBox } from '../lib/cards.ts'
 import { auctionBoxHeight, biddingBoxHeight, handHeight, type Orientation } from '../lib/measure.ts'
 import { PACE, paceOf } from '../lib/motion.ts'
 import { useTableSounds } from '../lib/sound/hooks.ts'
@@ -46,7 +47,7 @@ import { useRobotRules } from '../lib/useRobotRules.ts'
 import { useAuth } from '../state/AuthContext.tsx'
 import { useClub } from '../state/ClubContext.tsx'
 import { usePreferences, useT } from '../state/PreferencesContext.tsx'
-import { mobile, tabletQuery } from '../styles/tokens.ts'
+import { dockHeight, mobile, tabletQuery } from '../styles/tokens.ts'
 import { playerName, seatLetter } from '../strings.ts'
 
 /** The levels in the seat menu: the ones offered now, and 橋士組 shown as coming later */
@@ -74,6 +75,8 @@ const Layout = styled.div`
   ${mobile} {
     grid-template-columns: minmax(0, 1fr);
     height: auto;
+    /* The dock is a tab bar fixed to the foot of the screen: the table ends above it */
+    padding-bottom: ${dockHeight(true)};
   }
 `
 
@@ -90,7 +93,7 @@ const PHONE_COVER = 10
 /** A card you clicked is shown on the table at once; if the server has not taken it by then, it goes back */
 const PENDING_MS = 4000
 
-const Felt = styled.div<{ $phone: boolean; $portrait: boolean; $sides?: number }>`
+const Felt = styled.div<{ $phone: boolean; $portrait: boolean; $columns?: string }>`
   position: relative;
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) minmax(0, 1fr);
@@ -119,11 +122,11 @@ const Felt = styled.div<{ $phone: boolean; $portrait: boolean; $sides?: number }
         'tricks . actions';
     `}
 
-  ${({ $phone, $sides }) =>
+  ${({ $phone, $columns }) =>
     $phone &&
     css`
       /* The turned side seats are the same width, so the middle sits in the middle */
-      grid-template-columns: ${$sides ? `${$sides}px minmax(0, 1fr) ${$sides}px` : 'auto minmax(0, 1fr) auto'};
+      grid-template-columns: ${$columns ?? 'auto minmax(0, 1fr) auto'};
       grid-template-rows: auto auto minmax(0, 1fr) auto auto auto;
       grid-template-areas:
         'info info status'
@@ -132,9 +135,10 @@ const Felt = styled.div<{ $phone: boolean; $portrait: boolean; $sides?: number }
         'box box box'
         'bottom bottom bottom'
         'tricks tricks actions';
-      gap: 6px;
+      gap: ${PHONE_GAP}px;
       padding: 8px 8px 12px;
-      min-height: calc(100vh - ${({ theme }) => theme.layout.headerHeight});
+      min-height: calc(100vh - ${({ theme }) => theme.layout.headerHeight} - ${dockHeight(true)});
+      min-height: calc(100dvh - ${({ theme }) => theme.layout.headerHeight} - ${dockHeight(true)});
     `}
 `
 
@@ -326,8 +330,15 @@ const TableTitle = styled.div`
   & > svg { color: ${({ theme }) => theme.table.feltMuted}; }
 `
 
-/** The host's settings button, a small round one on the felt */
-const SettingsButton = styled.button`
+/** The round buttons under the table's name: always one row of their own, never split up */
+const TitleTools = styled.span`
+  display: flex;
+  flex-basis: 100%;
+  gap: 6px;
+`
+
+/** A small round button on the felt: the host's settings, and the card style and deck colours */
+const RoundButton = styled.button`
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -487,6 +498,28 @@ function useSize() {
 
 const clamp = (min: number, value: number, max: number) => Math.round(Math.max(min, Math.min(value, max)))
 
+/** The felt's gap between columns on a phone */
+const PHONE_GAP = 6
+/** On a phone with a side dummy, the felt kept clear on each side of the trick */
+const PHONE_TRICK_MARGIN = 14
+
+/**
+ * On a phone, a face-up dummy on the left or right is laid out by suit, one overlapped row per
+ * suit as on a computer, instead of lying on its side (社長 #4). The card width is the largest
+ * that lets dummy's longest suit (as dealt, so it does not change during the play) fit beside the
+ * trick; your own hand keeps its size. `otherSide` is the width of the seat on the other side.
+ * The trick is then the tall one (`trickBox`), with some felt on either side of it.
+ */
+function phoneDummySizes(feltWidth: number, bottom: number, trick: number, longest: number, otherSide: number) {
+  const fit = (w: number) => {
+    const room = feltWidth - 2 * PHONE_GAP - otherSide - trickBox(w, true).width - 2 * PHONE_TRICK_MARGIN
+    return { trick: w, width: clamp(30, room / (0.47 * (Math.max(1, longest) - 1) + 1), bottom * 0.9) }
+  }
+  // The trick keeps its size unless dummy's cards would get much smaller than your own
+  const full = fit(trick)
+  return full.width >= bottom * 0.75 ? full : fit(clamp(34, bottom * 0.62, trick))
+}
+
 /** Scale of the auction table and the bidding box against the viewer's card width */
 const AUCTION_SCALE = 0.95
 /** When the width sets the card size, the auction table grows into the spare height, up to this */
@@ -645,7 +678,7 @@ export function TablePage() {
 
 function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeof useClub>['send'] }) {
   const t = useT()
-  const { cardStyle, lang, confirmCalls, confirmPlays, cardSize, tableTourSeen, set: setPrefs } = usePreferences()
+  const { cardStyle: chosenStyle, deck, toggleCardStyle, toggleDeck, lang, confirmCalls, confirmPlays, cardSize, tableTourSeen, set: setPrefs } = usePreferences()
   const { user } = useAuth()
   const { error, lobby } = useClub()
   const navigate = useNavigate()
@@ -653,6 +686,10 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
   // On a tablet the side panel floats over the table, so it starts closed there (e3-t36)
   const onTablet = useMediaQuery(tabletQuery)
   const sizes = tableSizes(feltSize.width, feltSize.height, CARD_SCALE[cardSize])
+  // A phone always draws card faces: the side hands lie on their side to leave the middle to the
+  // bidding box and the trick, which text hands there would squeeze (社長 2026-10-27). Text hands
+  // are for a computer or a tablet; the button to switch is not shown on a phone.
+  const cardStyle = sizes.phone ? 'cards' : chosenStyle
   const board = table.board
   // Toggles that belong to one board are stored with its number, so they reset on the next deal
   const boardNo = board?.boardNo ?? 0
@@ -682,9 +719,11 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
   const viewer = me ?? 'S'
   const at = rotation(viewer)
   const positionOf = (seat: Seat) => (Object.keys(at) as Position[]).find((p) => at[p] === seat)!
+  // The table knows usernames only; the lobby has each member's picture and display name (e11-t19)
+  const occupantAt = (seat: Seat) => withMemberProfile(table.seats[seat], lobby?.members)
   const nameOf = (seat: Seat) => {
-    const o = table.seats[seat]
-    return o ? (o.robot ? `${playerName(t, o)} ${seatLetter[seat]}` : o.username) : seatLetter[seat]
+    const o = occupantAt(seat)
+    return o ? (o.robot ? `${playerName(t, o)} ${seatLetter[seat]}` : playerName(t, o)) : seatLetter[seat]
   }
   const missing = SEATS.filter((s) => !table.seats[s]).length
   /** 北 Alice: a seat as a screen reader says it */
@@ -825,7 +864,26 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
     onPlay: (card) => turnSeat && play(turnSeat)(card),
   })
 
-  const turnedSides = sizes.phone && cardStyle === 'cards'
+  const turnedSides = sizes.phone
+  // On a phone a face-up dummy on the left or right goes in rows by suit; the hidden hand on the
+  // other side is then only its name plate, to leave the room to dummy (社長 #4)
+  const dummySeat = turnedSides && board && board.phase !== 'auction' ? board.dummy : null
+  const dummyAt = dummySeat && board?.hands[dummySeat] ? positionOf(dummySeat) : null
+  const sideDummy = dummyAt === 'left' || dummyAt === 'right' ? dummyAt : null
+  const across = sideDummy && (sideDummy === 'left' ? 'right' : 'left')
+  const plateOnly = !!across && !board?.hands[at[across]]
+  const dummySizes = (() => {
+    if (!sideDummy || !board || !dummySeat) return null
+    const played = board.tricks.flatMap((x) => x.cards).filter((x) => x.seat === dummySeat).map((x) => x.card)
+    const dealt = [...board.hands[dummySeat]!, ...played]
+    const longest = Math.max(...SUITS.map((suit) => dealt.filter((card) => suitOf(card) === suit).length))
+    return phoneDummySizes(feltSize.width, sizes.bottom, sizes.trick, longest, plateOnly ? PHONE_PLATE : sizes.sideThick)
+  })()
+  const phoneColumns = turnedSides
+    ? (['left', 'right'] as const)
+        .map((p) => (p === sideDummy ? 'auto' : `${p === across && plateOnly ? PHONE_PLATE : sizes.sideThick}px`))
+        .join(' minmax(0, 1fr) ')
+    : undefined
 
   /** What the viewer may do with a seat: sit there, and for the host: robots and asking people to leave */
   const seatActions = (seat: Seat): SeatAction[] => {
@@ -854,7 +912,7 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
 
   const seatBlock = (position: Position) => {
     const seat = at[position]
-    const occupant = table.seats[seat]
+    const occupant = occupantAt(seat)
     // While the last trick is still on the table every hand is empty; then the deal is shown again
     const dealt = holdLast ? [] : board?.hands[seat]
     const cards = pendingShown?.seat === seat ? dealt?.filter((c) => c !== pendingShown.card) : dealt
@@ -867,16 +925,29 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
             ? 'dummy'
             : undefined
         : undefined
-    const width = position === 'bottom' ? sizes.bottom : side ? sizes.side : sizes.top
+    const dummyRows = position === sideDummy && !!dummySizes
+    const onlyPlate = position === across && plateOnly
+    const width = dummyRows && dummySizes ? dummySizes.width : position === 'bottom' ? sizes.bottom : side ? sizes.side : sizes.top
     // On a phone the side seats lie on their side (cards only; text hands stay as they are)
-    const turned = side && turnedSides
+    const turned = side && turnedSides && !dummyRows
     // Face-up hands on the left and right go in rows by suit (BBO's dummy), which is narrow
-    const orientation: Orientation = !side || turned ? 'horizontal' : sizes.phone ? 'vertical' : cards ? 'rows' : 'horizontal'
+    const orientation: Orientation = dummyRows
+      ? 'rows'
+      : !side || turned
+        ? 'horizontal'
+        : sizes.phone
+          ? 'vertical'
+          : cards
+            ? 'rows'
+            : 'horizontal'
     // Seen only because the member turned on 顯示四家: marked, so it is never taken for their own
     const exposedDummy = board?.dummy === seat && !!board?.tricks.some((trick) => trick.cards.length > 0)
     const shownOnly =
       !!practice?.showHands && !!me && !!cards && board?.phase !== 'finished' && !acts.includes(seat) && !exposedDummy
-    const hand = board && (
+    // Only the plate: an empty hand stays, so a card played from it glides from there
+    const hand = board && onlyPlate ? (
+      <div data-hand={seat} data-hand-at={position} data-plate-only />
+    ) : board && (
       <div data-hand={seat} data-hand-at={position} data-shown={shownOnly || undefined}>
         {shownOnly && <ShownTag>{t.handShown}</ShownTag>}
         <HandView
@@ -893,12 +964,12 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
         />
       </div>
     )
-    const cover = !hand || cardStyle !== 'cards' ? 0 : !sizes.phone ? PLATE : turned ? PHONE_COVER : 0
+    const cover = !hand || onlyPlate || cardStyle !== 'cards' ? 0 : !sizes.phone ? PLATE : turned ? PHONE_COVER : 0
     const block = (
       <SeatBlock
         $overlap={cover}
         $appear={dealing === boardNo && dealing > 0}
-        $size={turned ? { width: sizes.sideLength, height: sizes.sideThick } : undefined}
+        $size={turned ? { width: sizes.sideLength, height: onlyPlate ? PHONE_PLATE : sizes.sideThick } : undefined}
       >
         {hand}
         <div data-plate>
@@ -920,7 +991,7 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
       </SeatBlock>
     )
     return turned ? (
-      <Turned $thick={sizes.sideThick} $length={sizes.sideLength} $dir={position === 'left' ? 1 : -1}>
+      <Turned $thick={onlyPlate ? PHONE_PLATE : sizes.sideThick} $length={sizes.sideLength} $dir={position === 'left' ? 1 : -1}>
         {block}
       </Turned>
     ) : (
@@ -983,20 +1054,22 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
     </BoxSlot>
   )
 
+  const trickWidth = dummySizes?.trick ?? sizes.trick
   const trickView = (trick: Trick | null) =>
     trick || trickTable.leaving ? (
       <TrickArea
         cards={trick?.cards ?? []}
         positionOf={positionOf}
         winner={trick?.winner}
-        width={sizes.trick}
+        width={trickWidth}
         label={t.thisTrick}
         origin={origin}
         leaving={trickTable.leaving}
         pace={pace}
+        tall={!!dummySizes}
       />
     ) : (
-      <TrickSpace $w={sizes.trick} />
+      <TrickSpace $w={trickWidth} $tall={!!dummySizes} />
     )
 
   const center = () => {
@@ -1068,7 +1141,7 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
 
   return (
     <Layout>
-      <Felt ref={feltRef} $phone={sizes.phone} $portrait={sizes.portrait} $sides={turnedSides ? sizes.sideThick : undefined} onClick={trickTable.collect}>
+      <Felt ref={feltRef} $phone={sizes.phone} $portrait={sizes.portrait} $columns={phoneColumns} onClick={trickTable.collect}>
         {dealing > 0 && dealing === boardNo && (
           <DealAnimation key={dealing} felt={feltRef} width={Math.round(sizes.side * 0.8)} />
         )}
@@ -1095,19 +1168,46 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
                   {!table.settings.allowKibitz && <EyeOff size={15} aria-label={t.noKibitz} role="img" />}
                 </>
               )}
-              {canConfigure && (
-                <SettingsButton
+              {/* Card faces or text, two or four colours: here at the table, not in the header (社長 #8) */}
+              <TitleTools>
+                {!sizes.phone && (
+                  <RoundButton
+                    type="button"
+                    aria-label={cardStyle === 'cards' ? t.styleToText : t.styleToCards}
+                    title={cardStyle === 'cards' ? t.styleToText : t.styleToCards}
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      toggleCardStyle()
+                    }}
+                  >
+                    {cardStyle === 'cards' ? <List size={16} aria-hidden /> : <Layers size={16} aria-hidden />}
+                  </RoundButton>
+                )}
+                <RoundButton
                   type="button"
-                  aria-label={t.tableSettings}
-                  title={t.tableSettings}
+                  aria-label={deck === 'two' ? t.deckToFour : t.deckToTwo}
+                  title={deck === 'two' ? t.deckToFour : t.deckToTwo}
                   onClick={(event) => {
                     event.stopPropagation()
-                    setEditingSettings(true)
+                    toggleDeck()
                   }}
                 >
-                  <Settings size={16} aria-hidden />
-                </SettingsButton>
-              )}
+                  <Palette size={16} aria-hidden />
+                </RoundButton>
+                {canConfigure && (
+                  <RoundButton
+                    type="button"
+                    aria-label={t.tableSettings}
+                    title={t.tableSettings}
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      setEditingSettings(true)
+                    }}
+                  >
+                    <Settings size={16} aria-hidden />
+                  </RoundButton>
+                )}
+              </TitleTools>
             </TableTitle>
           </InfoRow>
         </Area>

@@ -12,6 +12,8 @@ import { Avatar } from './Avatar.tsx'
 import { ContractLabel } from './Suit.tsx'
 import { Button, Card, ErrorText, Muted } from './ui.tsx'
 import { boardPlace } from '../strings.ts'
+import { panelScroll } from '../styles/controls.ts'
+import { Backdrop } from './Modal.tsx'
 
 /**
  * A member's profile (AC-1.5): avatar, display name, level, system, introduction and their latest
@@ -249,23 +251,11 @@ export function ProfileActions({
   )
 }
 
-const Backdrop = styled.div`
-  position: fixed;
-  inset: 0;
-  z-index: 50;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 16px;
-  background: ${({ theme }) => theme.colors.overlay};
-`
-
 const Panel = styled(Card)`
   position: relative;
   width: 100%;
   max-width: 440px;
-  max-height: calc(100vh - 32px);
-  overflow-y: auto;
+  ${panelScroll}
   color: ${({ theme }) => theme.colors.text};
   box-shadow: ${({ theme }) => theme.shadowRaised};
 `

@@ -13,6 +13,9 @@ export const GlobalStyle = createGlobalStyle`
     font-size: 16px;
     line-height: 1.6;
     -webkit-font-smoothing: antialiased;
+    /* viewport-fit=cover (for the phone dock's room above the home bar): keep clear of a notch held sideways */
+    padding-left: env(safe-area-inset-left, 0px);
+    padding-right: env(safe-area-inset-right, 0px);
   }
 
   /* The CJK body font draws ’ “ ” full width (「club’ s」): in English and Vietnamese they come from a

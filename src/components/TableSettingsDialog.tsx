@@ -11,6 +11,11 @@ import {
 } from '../../shared/protocol.ts'
 import { useT } from '../state/PreferencesContext.tsx'
 import { Button, Card, Muted } from './ui.tsx'
+import { panelScroll } from '../styles/controls.ts'
+import { Backdrop } from './Modal.tsx'
+
+/** Re-exported for the dialogs built from this one (practice, invite, review) */
+export { Backdrop }
 
 /**
  * How a table is run (AC-2.9, AC-2.10): asked when opening a table, and again from the host's
@@ -19,22 +24,10 @@ import { Button, Card, Muted } from './ui.tsx'
  * without asking. At a practice table only the access mode (who may watch) is asked
  */
 
-export const Backdrop = styled.div`
-  position: fixed;
-  inset: 0;
-  z-index: 50;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 16px;
-  background: ${({ theme }) => theme.colors.overlay};
-`
-
 export const Panel = styled(Card)`
   width: 100%;
   max-width: 420px;
-  max-height: calc(100vh - 32px);
-  overflow-y: auto;
+  ${panelScroll}
   color: ${({ theme }) => theme.colors.text};
 
   & > h2 {

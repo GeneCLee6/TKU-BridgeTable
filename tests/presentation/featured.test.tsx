@@ -7,6 +7,7 @@ import type { FeaturedBoard } from '../../shared/featured.ts'
 import { legalCards, makeCall, newBoard, playCard, turnOf, type BoardState } from '../../shared/game.ts'
 import { summarize, type BoardRecord, type Me } from '../../shared/protocol.ts'
 import { BoardRecordView } from '../../src/components/BoardRecordView.tsx'
+import { formatCount } from '../../src/lib/format.ts'
 import { FeaturedPage } from '../../src/pages/FeaturedPage.tsx'
 import { PreferencesProvider } from '../../src/state/PreferencesContext.tsx'
 
@@ -84,11 +85,11 @@ describe('featured page', () => {
     const link = await screen.findByRole('link', { name: /坐莊的好例子/ })
     expect(link).toHaveAttribute('href', '/history/b1')
     expect(screen.getByRole('link', { name: /叫牌的好例子/ })).toBeInTheDocument()
-    await userEvent.click(screen.getByRole('tab', { name: '叫牌 (1)' }))
+    await userEvent.click(screen.getByRole('tab', { name: '叫牌 1' }))
     const panel = screen.getByRole('tabpanel')
     expect(within(panel).getByRole('link', { name: /叫牌的好例子/ })).toBeInTheDocument()
     expect(within(panel).queryByRole('link', { name: /坐莊的好例子/ })).toBeNull()
-    await userEvent.click(screen.getByRole('tab', { name: '防守 (0)' }))
+    await userEvent.click(screen.getByRole('tab', { name: '防守 0' }))
     expect(screen.getByText('這個分類還沒有精選牌局')).toBeInTheDocument()
   })
 })
@@ -139,5 +140,16 @@ describe('robot substitutes on a record', () => {
     renderIn(<BoardRecordView record={record('b1')} />)
     expect(screen.getByText('代打')).toBeInTheDocument()
     expect(screen.getByText('北 · 代打 ben')).toBeInTheDocument()
+  })
+})
+
+describe('counts on the chips (社長 2026-10-27)', () => {
+  it('stay four characters or so however many there are', () => {
+    expect(formatCount(0)).toBe('0')
+    expect(formatCount(1234)).toBe('1234')
+    expect(formatCount(12_345)).toBe('1.2萬')
+    expect(formatCount(1_234_567)).toBe('120萬')
+    expect(formatCount(12_345, 'en')).toBe('12k')
+    expect(formatCount(123_456, 'en')).toBe('120k')
   })
 })

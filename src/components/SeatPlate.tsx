@@ -326,7 +326,7 @@ export function SeatPlate({
         data-seat={seat}
       >
         <Letter data-letter>{seatLetter[seat]}</Letter>
-        {occupant && !occupant.robot && !compact && <Avatar id={occupant.id} name={occupant.username} size={24} avatar={occupant.avatar} />}
+        {occupant && !occupant.robot && !compact && <Avatar id={occupant.id} name={playerName(t, occupant)} size={24} avatar={occupant.avatar} />}
         {name}
         {(role || offline || clickable || occupant?.robot || (turn && endsAt !== null)) && (
           <Tags>
@@ -341,7 +341,7 @@ export function SeatPlate({
             {clickable && <ChevronDown size={compact ? 13 : 16} aria-hidden />}
           </Tags>
         )}
-        {turn && <span className="visually-hidden">{t.waitingFor(occupant?.username ?? seatLetter[seat])}</span>}
+        {turn && <span className="visually-hidden">{t.waitingFor(occupant ? playerName(t, occupant) : seatLetter[seat])}</span>}
         {slow && <span className="visually-hidden">{t.slowTurn}</span>}
       </Plate>
       {open &&

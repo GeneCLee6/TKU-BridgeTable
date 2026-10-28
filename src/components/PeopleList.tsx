@@ -166,14 +166,16 @@ export function PeopleList({
     const me = m.id === userId
     const friend = friends.has(m.id)
     const isBlocked = blocked.has(m.id)
-    const friendLabel = friend ? t.removeFriend(m.username) : t.addFriend(m.username)
-    const blockLabel = isBlocked ? t.unblockMember(m.username) : t.blockMember(m.username)
+    // Their profile's display name when set, as on 淡江橋館 (e11-t19); the username stays in the tooltip
+    const shown = m.displayName || m.username
+    const friendLabel = friend ? t.removeFriend(shown) : t.addFriend(shown)
+    const blockLabel = isBlocked ? t.unblockMember(shown) : t.blockMember(shown)
     return (
       <Person key={m.id} $online={m.online}>
         <Dot $online={m.online} aria-label={m.online ? t.online : t.offline} />
-        <Avatar id={m.id} name={m.username} size={24} avatar={m.avatar} />
-        <PersonName type="button" title={t.openProfile(m.username)} onClick={() => setCard(m)}>
-          {m.username}
+        <Avatar id={m.id} name={shown} size={24} avatar={m.avatar} />
+        <PersonName type="button" title={t.openProfile(m.displayName ? `${m.displayName} (${m.username})` : m.username)} onClick={() => setCard(m)}>
+          {shown}
           {me && t.youTag}
         </PersonName>
         {isBlocked && <Tag>{t.blockedTag}</Tag>}
@@ -185,8 +187,8 @@ export function PeopleList({
                 type="button"
                 $on={false}
                 $tone="friend"
-                aria-label={t.messageMember(m.username)}
-                title={t.messageMember(m.username)}
+                aria-label={t.messageMember(shown)}
+                title={t.messageMember(shown)}
                 onClick={() => onMessage(m.id)}
               >
                 <Mail size={17} aria-hidden />

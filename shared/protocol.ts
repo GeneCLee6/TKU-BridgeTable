@@ -10,6 +10,7 @@ import type { MatchSeat, Room, TeamMatchView } from './team-match.ts'
 import type { RulingKind, Team } from './team-scoring.ts'
 import type { Profile } from './profile.ts'
 import type { Spec } from './robot/system/spec.ts'
+import type { SpecShows, SystemSpec } from './systemSpec.ts'
 
 /** Messages and views exchanged between the browser and the Worker over HTTP and WebSocket */
 
@@ -25,17 +26,32 @@ export interface PublicUser {
   robotKind?: RobotKind
   /** The version of the member's uploaded picture (e1-t34, `avatarUrl`); none means the default avatar */
   avatar?: number
+  /**
+   * Their profile's display name (TKU-BridgeHall e11-t19), when they set one: on the lobby's
+   * members and seats only. A table's own seats and history records carry the username, so the
+   * table page takes the name and the picture from the lobby (`withMemberProfile`)
+   */
+  displayName?: string
 }
 
 /**
  * What an admin can let a member do beyond playing (§5.2): edit TKU BridgeBook (淡江橋譜) online
- * (`bookEdit`), import Word or PDF files into it (`bookImport`), feature finished boards
+ * (`bookEdit`: drafts and sending them for review), publish its conventions and send drafts back
+ * (`bookReview`, BridgeHall e8-t01; a reviewer is always an editor too, `withImpliedPermissions`),
+ * import Word or PDF files into it (`bookImport`), feature finished boards
  * (`boardCurate`, e4-t28), and seat TKB in the club's system (`tkuSystem`, 社長 2026-10-26: the
  * club's robot is private; everyone else's TKB is the 2/1 one). Admins have every permission.
  */
-export const PERMISSIONS = ['bookEdit', 'bookImport', 'boardCurate', 'tkuSystem'] as const
+export const PERMISSIONS = ['bookEdit', 'bookReview', 'bookImport', 'boardCurate', 'tkuSystem'] as const
 export type Permission = (typeof PERMISSIONS)[number]
 export const isPermission = (value: unknown): value is Permission => PERMISSIONS.includes(value as Permission)
+
+/** A permission list as stored: `bookReview` brings `bookEdit` with it (a reviewer is an editor); in PERMISSIONS order */
+export function withImpliedPermissions(permissions: readonly Permission[]): Permission[] {
+  const set = new Set(permissions)
+  if (set.has('bookReview')) set.add('bookEdit')
+  return PERMISSIONS.filter((p) => set.has(p))
+}
 
 /** The signed-in user, as /api/me returns it */
 export interface Me extends PublicUser {
@@ -1039,7 +1055,7 @@ export const isProfileScope = (value: unknown): value is ProfileScope => PROFILE
  * Limits the Worker checks on a saved profile: its JSON in UTF-8 bytes, how many overrides it may
  * hold, how many profiles the club may have besides its own, the name's length and a note's length
  */
-export const PROFILE_LIMITS = { bytesMax: 200_000, overridesMax: 500, profilesMax: 100, nameMax: 40, noteMax: 2_000 } as const
+export const PROFILE_LIMITS = { bytesMax: 200_000, overridesMax: 500, profilesMax: 100, nameMax: 40, noteMax: 2_000, cardEditsMax: 1_000 } as const
 
 /**
  * Who may read a team's or partnership's profile (e2-t04): the whole club, the default, or only its
@@ -1075,6 +1091,21 @@ export interface ProfileNote {
   at: number
 }
 
+/**
+ * A hand edit of one cell of a convention card (BridgeHall E3 e3-t06), kept by slot id such as
+ * `wbf.openings.1H.responses`; the handbook fills the cards from the conventions and puts these
+ * on top. Fields left out keep what the conventions filled; `text` is at most `noteMax` long
+ */
+export interface ProfileCardEdit {
+  text?: string
+  /** A tick box, or a tick-like table cell */
+  checked?: boolean
+  /** The chosen option of a choice */
+  option?: string
+  /** Marked for the partnership to look at */
+  flagged?: boolean
+}
+
 export interface SystemProfile {
   /** CLUB_PROFILE_ID for the club; a random id for the others */
   id: string
@@ -1089,6 +1120,8 @@ export interface SystemProfile {
   adopted: Record<string, Adoption>
   overrides: ProfileOverride[]
   notes: ProfileNote[]
+  /** Hand edits of its convention cards by slot id (e3-t06); a slot left out follows the parent */
+  cardEdits?: Record<string, ProfileCardEdit>
   version: number
   updatedAt: number
   /** The user id that saved this version */
@@ -1120,7 +1153,65 @@ export interface ProfileRevision {
 }
 
 /** What an editor sends to create or save a profile; the Worker sets the id, version and who saved it */
-export type ProfileInput = Pick<SystemProfile, 'name' | 'scope' | 'parentId' | 'visibility' | 'adopted' | 'overrides' | 'notes'>
+export type ProfileInput = Pick<SystemProfile, 'name' | 'scope' | 'parentId' | 'visibility' | 'adopted' | 'overrides' | 'notes' | 'cardEdits'>
+
+// ── 淡江橋館 → the robot (BridgeHall E7: e7-t03, e7-t04) ────────────────────────────────────────
+
+/**
+ * A profile's rules as last synced from 淡江橋館: the handbook makes the `SystemSpec` from the
+ * profile's conventions (`toSystemSpec`) and an editor sends it here (PUT /api/book/system-spec/:id)
+ */
+export interface SyncedSystemSpec {
+  spec: SystemSpec
+  syncedAt: number
+  /** The user id that synced it */
+  syncedBy: string
+  /** Their username, when the account still exists */
+  syncedByName?: string
+}
+
+/** GET /api/book/system-spec?profileId=: the profile's synced rules, and which profile TKB follows */
+export interface SystemSpecStatus {
+  /** The profile whose rules TKB uses in the club's system (`ClubConfig.systemProfileId`) */
+  tableProfileId: string
+  /** Null until the profile is synced */
+  synced: SyncedSystemSpec | null
+}
+
+/** PUT /api/book/system-spec/:profileId */
+export interface SystemSpecInput {
+  spec: SystemSpec
+}
+
+/** POST /api/book/robot-meanings: the calls to look up, after each auction (a `Book.after` pattern) */
+export interface RobotMeaningsQuery {
+  items: { after: string; calls: string[] }[]
+}
+
+/** What the robot's rule shows, in the parts the handbook's patterns read, and in words */
+export interface RobotShows extends Omit<SpecShows, 'name'> {
+  /** The robot's convention name (`CONVENTIONS`), which may be one the handbook's patterns do not read */
+  name?: string
+  /** `describe` in Traditional Chinese */
+  text: string
+}
+
+export interface RobotMeaningsItem {
+  after: string
+  /** Null when no rule of TKB in the club's system makes the call after this auction */
+  meanings: Record<string, RobotShows | null>
+}
+
+/** The answer to POST /api/book/robot-meanings */
+export interface RobotMeanings {
+  items: RobotMeaningsItem[]
+}
+
+/**
+ * A synced spec's size (its JSON), how many auctions one robot-meanings request may ask about and
+ * how many calls after each: small enough for one request's CPU on the free plan
+ */
+export const SYSTEM_SPEC_LIMITS = { bytesMax: 1_000_000, meaningItemsMax: 10, meaningCallsMax: 38 } as const
 
 /**
  * What the member asking may do with a profile (e2-t04), sent with GET /api/book/profiles/:id so the
@@ -1131,6 +1222,53 @@ export interface ProfileAccess {
   notes: boolean
   edit: boolean
   share: boolean
+}
+
+// Convention card versions (制度卡版本, TKU BridgeHall E3 e3-t09)
+//
+// A published version of one profile's card on one template: the card as the handbook filled it
+// (its src/cards/fill.ts FilledCard, kept as sent) and, when the handbook made one, the Word file.
+// Read by whoever may read the profile; with `shared` on, by anyone with the link, signed in or
+// not, until it is turned off. The handbook mirrors these in TKU-BridgeHall src/lib/api.ts.
+// ---------------------------------------------------------------------------------------------
+
+/** Versions per profile, the card's JSON, the Word file (bytes, before base64) and the note */
+export const CARD_SNAPSHOT_LIMITS = { perProfile: 200, cardBytesMax: 800_000, docxBytesMax: 600_000, noteMax: 200 } as const
+
+/** GET /api/book/cards/:profileId: a version without its card */
+export interface CardSnapshotMeta {
+  profileId: string
+  /** The handbook's template id (wbf, ctcba-simple…) */
+  templateId: string
+  /** 1, 2, … for each profile and template */
+  n: number
+  at: number
+  /** The user id that published it */
+  by: string
+  byName?: string
+  note: string
+  /** The profile as it was filled from */
+  profileName: string
+  profileVersion: number
+  /** Anyone with the link may read it */
+  shared: boolean
+  /** Has the Word file (GET …/docx) */
+  docx: boolean
+}
+
+/** GET /api/book/cards/:profileId/:templateId/:n */
+export interface CardSnapshot extends CardSnapshotMeta {
+  card: Record<string, unknown>
+}
+
+/** POST /api/book/cards/:profileId */
+export interface CardSnapshotInput {
+  templateId: string
+  profileVersion: number
+  note?: string
+  card: Record<string, unknown>
+  /** The Word file, base64 */
+  docx?: string
 }
 
 // Teams and partnerships (隊伍與搭檔, TKU BridgeBook E2 e2-t01)
@@ -1197,6 +1335,16 @@ export interface TeamPatch {
 export interface ClubMember {
   id: string
   username: string
+  /** Their profile's display name, when they set one (TKU-BridgeBook e11-t01) */
+  displayName?: string
+  /** Their uploaded picture's version (`avatarUrl`); none means the default avatar */
+  avatar?: number
+}
+
+/** GET /api/club/members/:id/teams: the teams a member is in and their active partnerships (TKU-BridgeHall e11-t04) */
+export interface MemberTeams {
+  teams: ClubTeam[]
+  pairs: Partnership[]
 }
 
 /** POST /api/club/pairs: invite `partnerId`, optionally as partners in a team both belong to */

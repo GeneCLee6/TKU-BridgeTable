@@ -85,6 +85,7 @@ TKU-BridgeTable/
 │  ├─ notifications.ts     通知中心（§5.4）
 │  ├─ relations.ts         好友與封鎖名單（§5）
 │  ├─ direct-messages.ts   私訊的 SQL 表與 DirectMessageStore（§5.7）
+│  ├─ forum.ts             淡江橋館的討論區：SQL 五張表與 ForumService（§5.7 後的「論壇」）
 │  ├─ log.ts               結構化日誌（§5.6）
 │  ├─ rate-limit.ts        速率限制（§5.6）
 │  ├─ metrics.ts           指標與告警，`/api/health` 與管理頁「系統狀態」（§5.13）
@@ -243,6 +244,7 @@ interface BoardState {
 | --- | --- |
 | `user:<id>` | 帳號、密碼雜湊、是否管理員、橋譜權限、最後登入時間、自行重設密碼的時間、關掉好友上線提示（`friendOnlineNotice: false`）、頭像版本（`avatar`，上傳時的時間，每次一定變大） |
 | `avatar:<userId>` | 上傳的頭像（`e1-t34`）：`{ version, type, bytes }`，瀏覽器裁好的 256×256 WebP（不支援就 JPEG），最多 64 KB，遠低於單筆值的上限；帳號刪除時一起刪，和 `user:` 一起在每日備份裡。不放 R2：每個環境（正式站、staging、PR preview）不必先建 bucket 就能部署，一個社團幾百人、每人幾十 KB 也只有幾 MB |
+| `file:meta:<key>`、`file:ticket:<pass>`、`file:day:<userId>`、`file:secret` | 討論區與文章的圖片（淡江橋譜 `e11-t02`，§5.14）：圖片在 R2 `bridgebook-files`，這裡只存上傳者、型別、大小、有沒有縮圖；一次性上傳憑證（10 分鐘）；當天（台灣日期）拿過幾張憑證；簽網址的隨機金鑰。`file:meta:` 與 `file:secret` 在每日備份裡 |
 | `app:<id>` | 待審核的註冊申請：帳號名稱、密碼雜湊、自我介紹、從哪個網站申請 |
 | `session:<token>` | userId、到期時間 |
 | `tabledir:<id>` | 牌桌目錄（`TableEntry`，§5.10）：大廳與跨桌動作只讀它；牌桌在自己的 `TableObject` 時才有 |
@@ -261,6 +263,7 @@ interface BoardState {
 | `meta:events` | 挑戰住哪裡的版本：1＝社團、2＝每場開著的挑戰都在自己的 `EventObject`（§5.12 H2b）；沒開過開關就沒有這個 key |
 | SQL `matches`、`match_seats`、`match_boards` | 隊制賽的正本（不是索引），見 §5.8 |
 | SQL `direct_messages`、`direct_threads` | 私訊的正本，見 §5.7 |
+| SQL `forum_boards`、`forum_posts`、`forum_comments`、`forum_reactions`、`forum_reports` | 淡江橋館討論區的正本（`worker/forum.ts`，橋館 E11），見 §5.7 後的「論壇 Worker」 |
 | `meta:settings` | 管理員改過的人數上限與邀請碼（沒改過就用環境變數） |
 | `meta:weekly` | 每週社團挑戰的排程、誰存的、上一場的時間與 id（`worker/weekly-challenge.ts`，§5.5） |
 | `meta:schema` | 資料版本（現在是 4）：1→2 把舊版 `board:<時間>-<id>` 搬到新索引；2→3 把所有 `board:` 回填進 SQL 紀錄索引（§5.3）；3→4 把每個 `table:` 搬進自己的 `TableObject`、改存 `tabledir:`（§5.10）；`TABLE_OBJECTS=off` 時搬回來、回到 3 |
@@ -269,20 +272,28 @@ interface BoardState {
 | D1 `boards_index`、`board_players`、`board_summaries`、`index_meta` | 不在 Durable Object 裡：紀錄索引在 D1 的副本，加上每副的摘要與 `ready`（§5.12）；可以隨時從 `board:` 重建 |
 | `meta:backfill` | 回填 SQL 索引時做到哪一個 `board:` key；做完就刪掉，物件中途被回收時從這裡接著做 |
 | `book:entry:<slug>` | 淡江橋譜線上修改的特約（版本、誰在何時改；`convention: null` 表示隱藏），內容在 `bookpart:` |
-| `book:rev:<slug>:<時間>-<id>` | 每次儲存、隱藏、還原的版本紀錄 |
+| `book:rev:<slug>:<時間>-<id>` | 每次發布、隱藏、還原的版本紀錄 |
+| `book:wip:<slug>` | 特約的草稿（橋館 e8-t02，每個特約一份、編輯者共用；`draft`／`in-review`），內容在 `bookpart:`；讀者拿不到 |
+| `audit:<時間>-<id>` | 審計紀錄（橋館 e8-t09，`worker/audit.ts`）：誰、動作、對象、版本；不刪 |
 | `book:category:<id>` | 淡江橋譜線上編輯過的分類（`{ id, label, description, order }`）；沒有任何一筆時橋譜用它內建的分類 |
 | `book:categoryInfo` | 分類的版本號（`baseVersion` 用）與最後修改的人、時間 |
 | `book:profile:<id>` | 淡江橋譜的制度集（`ProfileSummary` 加上內容的分段數；`adopted`、`overrides`、`notes` 在 `bookpart:`）；`club` 沒存過時視為空的、版本 0 |
 | `book:profilerev:<id>:<版本，8 位數>` | 制度集每次儲存的完整內容（在 `bookpart:`）；刪掉制度集時一起刪 |
+| `book:cardsnap:<制度集 id>:<版型>:<n，6 位數>` | 橋館的制度卡版本（e3-t09）：`CardSnapshotMeta` 加分段數；填好的卡（橋館的 `FilledCard`，原樣保存）在 `bookpart:<key>`，Word 檔（base64）在 `bookpart:<key>#docx`；刪掉制度集時一起刪 |
 | `team:<id>` | 淡江橋譜的隊伍（`ClubTeam`：名稱、隊長、隊員、制度集 id、封存） |
 | `pair:<id>` | 淡江橋譜的搭檔（`Partnership`：兩人 `[邀請者, 受邀者]`、所屬隊伍、制度集 id（接受前是空字串）、狀態 `pending`／`active`／`ended`）；婉拒或收回的邀請直接刪掉 |
 | `userteam:<userId>:<teamId>`、`userpair:<userId>:<pairId>` | 某人在哪些隊伍、有哪些搭檔（值是 `true`） |
+| `book:quizfix:<題目 id>` | 淡江橋館幹部的修題（橋館 e6-t06，`worker/quiz.ts`）：自動題的停用、改答案或選項（附修正時的原文 `basis`），或手動出的題；誰、何時 |
+| `quizlog:<userId>:<時間>-<id>` | 社員在淡江橋館練習的成績（橋館 e6-t04）：每次練習的制度集與每題對錯，每人最新 100 次；帳號刪除時一起刪，不在每日備份裡 |
 | `book:draft:<時間>-<id>` | AI 匯入產生的草稿（只留最新 30 份） |
 | `book:ticket:<token>` | 匯入上傳用的一次性憑證（10 分鐘） |
 | `book:version` | 橋譜線上內容的版本號，`GET /api/book/content` 與 `/api/book/manifest` 的 ETag；分類改了也會加一 |
+| `article:entry:<slug>` | 淡江橋館叢書的文章（橋館 e5-t04，`worker/articles.ts`）：版本、誰在何時發布；`article: null` 表示隱藏；內容在 `bookpart:article:entry:<slug>:<n>` |
+| `article:rev:<slug>:<時間>-<id>` | 文章每次發布、隱藏的版本紀錄（內容在 `bookpart:`） |
+| `article:version` | 文章的版本號，每次發布或隱藏加一 |
 | `bookpart:<key>:<n>` | 大內容的分段（Durable Object 單筆值上限 128 KiB，以 4 萬字一段儲存） |
 
-**備份**（`worker/backup.ts`，淡江橋譜 e10-t08、e11-t12）：cron trigger（每天台灣 03:00）呼叫 `Club.backup()`，把 `BACKUP_PREFIXES` 開頭的 key 匯出成一份 JSON Lines 存到 R2 bucket `tku-bridge-backups`（binding `BACKUPS`）的 `daily/<台灣日期>.jsonl`，保留 30 天；`GET/POST /api/admin/backups`、`POST /api/admin/backups/restore`（預設預演，真的還原要 `confirm`）。範圍：淡江橋譜的 `book*`、`profile*`、`article*`、`team:`、`pair:`、`userteam:`、`userpair:`，加上帳號 `user:`、`app:`、`avatar:`（同一次匯出，頭像版本與圖片一定對得上）；`session:`、`meta:settings`、好友與封鎖、牌局紀錄與 SQL 表不在裡面。格式第 2 版把位元組寫成 `{"$bytes":"<base64>"}`（`encodeValue`／`decodeValue`），第 1 版（只有橋譜）照樣讀、只還原它自己的 `prefixes`。還原後 `Club` 換一個新的 `BookService`，記憶體裡的快取不會留下；有帳號時再呼叫 `ClubService.reloadAccounts()`：重讀帳號與申請、備份之後才有的帳號照刪除帳號的方式清掉、刪掉全部 `session:`、斷開所有連線，大家重新登入。步驟見 DEPLOY.md §4.4。
+**備份**（`worker/backup.ts`，淡江橋譜 e10-t08、e11-t12）：cron trigger（每天台灣 03:00）呼叫 `Club.backup()`，把 `BACKUP_PREFIXES` 開頭的 key 匯出成一份 JSON Lines 存到 R2 bucket `tku-bridge-backups`（binding `BACKUPS`）的 `daily/<台灣日期>.jsonl`，保留 30 天；`GET/POST /api/admin/backups`、`POST /api/admin/backups/restore`（預設預演，真的還原要 `confirm`）。範圍：淡江橋譜的 `book*`、`profile*`、`article*`、`team:`、`pair:`、`userteam:`、`userpair:`，加上帳號 `user:`、`app:`、`avatar:`（同一次匯出，頭像版本與圖片一定對得上）；`session:`、`meta:settings`、好友與封鎖、牌局紀錄與 SQL 表不在裡面。格式第 2 版把位元組寫成 `{"$bytes":"<base64>"}`（`encodeValue`／`decodeValue`），第 1 版（只有橋譜）照樣讀、只還原它自己的 `prefixes`。還原後 `Club` 換一個新的 `BookService`（與 `ArticleService`），記憶體裡的快取不會留下；有帳號時再呼叫 `ClubService.reloadAccounts()`：重讀帳號與申請、備份之後才有的帳號照刪除帳號的方式清掉、刪掉全部 `session:`、斷開所有連線，大家重新登入。步驟見 DEPLOY.md §4.4。
 
 每個動作處理完立即寫回，物件隨時被回收都不會遺失牌局。紀錄列表一次只讀到那一頁為止（每頁 10／20／50／100 筆摘要）。
 
@@ -413,7 +424,7 @@ interface BoardState {
 - **Just Declare 練習**（`e10-t05`）：每副先由四個 TKB 叫完（`challenge-deals.ts` 的 `robotAuction`，同 Just Declare 挑戰），南北沒當莊就重發，最多 `JUST_DECLARE_TRIES` 次；真的抽不到時先打一副有合約的（防守），再不行就讓社員自己叫。同伴當莊時社員換到莊家位（同一般牌桌的 `swapForDeclarer`）。
 - **紀錄**：`BoardRecord.mode = 'practice'`、桌號 0（列表顯示「練習」，`strings.ts` 的 `boardPlace`）。SQL 搜尋 `scope=all` 沒指定 `mode` 時排除練習（`history-index.ts` 的 `where`），所以「全部社員」、個人檔案卡的最近牌局都看不到；「我的」照常列出，篩選「練習」（`HISTORY_MODES`）兩邊都找得到。練習的牌不能設精選（`practiceNotFeatured`）、不能「用這副牌挑戰」（`practiceNoChallenge`）。
 - **畫面**：`TableView.practice`（`worker/views.ts` 的 `practiceView`：只有社員自己的設定與 `dealt`，不含任何牌）；牌桌標題 `PracticeBanner`，右下角「重發」「結束練習」。
-- **叫牌提示卡**（`e10-t06`，AC-10.4）：牌桌側欄的「特約」分頁（`BookHints`）。伺服器在 `BoardView.bookTopics` 送來（`worker/views.ts`，只看叫牌過程；看的人的同伴是 2/1 的 TKB 時不送），瀏覽器只顯示，不跑引擎（硬性規則 1）。`shared/book-topics.ts` 的 `bookTopics` 依目前的叫牌列出淡江橋譜的頁面：我方開叫的那一頁（1♣、1♦、高花、1NT、2♣ 與阻擊、2♦、2NT），對方先開叫時是競叫那一頁，再加上目前為止與下一口可能用到的約定叫（社團規則的 `Spec.name`，經 `CONVENTION_PAGES` 對到橋譜的 slug），連到 `https://tku-bridge-book.vercel.app/c/<slug>`（新分頁）。規則還沒有自己的 `bookSlug`（`e5-t45`）之前先用約定叫名稱對照，之後改讀規則上的。只看淡江制度；同伴是 2/1 的 TKB 時只說明橋譜寫的是社團制度。名稱的文字（`describe.ts`）只在分頁打開時才載入（`useRobotRules`）。同一個叫牌過程的引擎意義在 `views.ts` 記住最近 256 個（每個看的人、每次更新都問一樣的），叫牌盒提示（`callMeanings`）也共用。
+- **叫牌提示卡**（`e10-t06`，AC-10.4）：牌桌側欄的「特約」分頁（`BookHints`）。伺服器在 `BoardView.bookTopics` 送來（`worker/views.ts`，只看叫牌過程；看的人的同伴是 2/1 的 TKB 時不送），瀏覽器只顯示，不跑引擎（硬性規則 1）。`shared/book-topics.ts` 的 `bookTopics` 依目前的叫牌列出淡江橋譜的頁面：我方開叫的那一頁（1♣、1♦、高花、1NT、2♣ 與阻擊、2♦、2NT），對方先開叫時是競叫那一頁，再加上目前為止與下一口可能用到的約定叫（社團規則的 `Spec.name`，經 `CONVENTION_PAGES` 對到橋譜的 slug），連到 `https://tku-bridge-hall.vercel.app/c/<slug>`（新分頁）。規則還沒有自己的 `bookSlug`（`e5-t45`）之前先用約定叫名稱對照，之後改讀規則上的。只看淡江制度；同伴是 2/1 的 TKB 時只說明橋譜寫的是社團制度。名稱的文字（`describe.ts`）只在分頁打開時才載入（`useRobotRules`）。同一個叫牌過程的引擎意義在 `views.ts` 記住最近 256 個（每個看的人、每次更新都問一樣的），叫牌盒提示（`callMeanings`）也共用。
 
 ## 5.12 H2：紀錄索引搬到 D1、邊緣 session 驗證、`EventObject`（決策紀錄，`e11-t18`～`e11-t20`，2026-10-26）
 
@@ -570,6 +581,20 @@ H1 把牌桌拆出去之後（§5.10），社團的物件（`Club`）仍然是**
 - **合併廣播**（`ClubConfig.later`，Durable Object 用 `setTimeout`）：大廳最多每 `LOBBY_GAP_MS`（100 ms）送一次。上一次送出已經超過 100 ms 就立刻送（平常沒有延遲）；之內的變化只記下來，到 100 ms 時一起送一次。同時湧進的入座、觀看、離桌就不必每個都等一次完整的廣播。測試多半不給 `later`，每次變化立刻送，跟以前一樣。
 - **日誌取樣**（`worker/log.ts` 的 `sampleActions`）：`action` 每 10 筆寫 1 筆到 Workers Logs（帶 `sample: 10`，查詢時乘回來），有錯誤代碼或超過 200 ms（`ACTION_SLOW_MS`）的一律寫；其他種類照舊。指標在取樣**之前**數（`ClubService` 與 `TableHost` 的 `log` 先交給 `Metrics`／`TableCounters`），系統狀態頁的次數不受影響。
 - 數字（前後對照）在 `docs/LOAD.md` §3、§6。
+
+## 5.14 圖片檔案（R2，淡江橋譜 `e11-t02`，2026-10-28）
+
+討論區貼文（E11）與文章（E5）的圖片放 R2 bucket `bridgebook-files`（binding `FILES`），程式 `worker/files.ts`（`FileService`，不碰 Cloudflare API，bucket 是小介面 `FileBucket`），型別與上限 `shared/files.ts`。
+
+- **瀏覽器做影像處理**：縮到長邊 ≤ 2048 px、縮圖長邊 480 px；Worker 只看大小與檔頭（`sniffAvatar`，JPEG／PNG／WebP），不解碼圖片（免費方案 10 ms CPU）。
+- **一次性憑證直傳**：`POST /api/files/ticket { purpose: 'post' | 'article', type, size }` → `{ key, uploadUrl, thumbUrl, expires }`（10 分鐘，計入每人每天 30 張）；`PUT uploadUrl`（≤ 2 MB，型別要和憑證一致）、`PUT thumbUrl`（≤ 256 KB，要在原圖之後）；兩個都傳了或過期就作廢。上傳路由不看 session cookie、有 CORS，所以頁面也可以直接傳到 Worker 的網址。
+- **簽名短效網址**：`GET /api/files/<key>?e=<到期>&s=<HMAC>`，不用登入（`<img>` 跨站不帶 cookie），到期時間進位到整點再加一小時，同一小時內的網址相同、瀏覽器快取得到；`POST /api/files/urls { keys }` 重簽。金鑰是第一次用時產生的隨機值（`file:secret`），不需要另設 secret。PRD 寫的 `/_file/:key` 改放在 `/api/files/` 底下，兩站的 `/api/*` 本來就轉給 Worker。
+- **刪除**：`DELETE /api/files/<key>`，上傳者或管理員（之後加 `forumModerate`）。帳號刪除時不刪圖片（貼文可能還在用）。
+- **沒有 bucket 時**：`FILES` 沒綁就全部回 503 `filesOff`，所以 binding 先註解掉也能部署（DEPLOY.md §4.8）。
+- **頭像不搬到 R2**：仍是 `avatar:<userId>`（256×256、≤ 64 KB，見 §5 的表），兩站都讀 `GET /api/avatar/:id?v=`。`GET /api/club/members` 多回 `displayName`、`avatar`，橋譜用來畫別人的頭像（`e11-t01`、`e11-t03`）。
+- **顯示名稱上名牌**（`e11-t19`）：大廳的社員與大廳牌桌的座位（`PublicUser.displayName`）帶個人檔案的顯示名稱，改名時重送大廳；牌桌自己的座位與牌局紀錄仍只有帳號名稱，牌桌頁用 `withMemberProfile`（`shared/lobby.ts`）從大廳補上頭像與顯示名稱。`playerName` 有顯示名稱就用它，社員分頁的提示仍附帳號名稱。
+- **論壇型別**（`e11-t05`）：`shared/forum.ts` 的 `Board`、`Post`、`PostBlock`、`Comment`、`Reaction`、`Report` 與上限，橋館 `src/lib/forum.ts` 是逐字複本（橋館的型別對拍檢查）；Worker 模組 `worker/forum.ts` 是 `e11-t06`。
+- **論壇 Worker**（`e11-t06`、`e11-t07`，`worker/forum.ts` 的 `ForumService`）：Durable Object 的 SQLite，五張表 `forum_boards`（內建四板在建表時補上，`INSERT OR IGNORE`，所以管理員改的名稱與排序會保留；內建的不能刪，有貼文的板也不能刪）、`forum_posts`（區塊與 `mentions` 存 JSON；`pinned_at` 是置頂時間，新置頂的在前，就是 `Board.pinnedPostIds`；`comment_count` 跟留言一起維護）、`forum_comments`（巢狀一層：回覆別人的回覆，`parent_id` 一律是最上層那則）、`forum_reactions`（主鍵 target＋id＋社員，每人每則一種，換表情是覆寫）、`forum_reports`（`e11-t09` 才有 API）。不經記憶體快取；SQL 表不在每日備份裡（同私訊）。區塊逐一檢查、只留該種類有的欄位：牌不重複、四家牌每家 ≤ 13 張、叫牌過程輪到誰與合不合規則（`legalCalls`）、圖片要是 `post/` 的檔案 key；文字（段落、提示、條列）合計 ≤ `FORUM_LIMITS.postTextMax`，留言 ≤ `commentTextMax`、只能有 `paragraph`／`auction`／`hand`。`@` 提到（`mentionsIn`）認帳號名稱（不分大小寫）與顯示名稱，最長的先配；名稱以英數結尾時後面不能接英數，中文不受限；e-mail 裡的 `@` 不算；結果存在 `Post.mentions`／`Comment.mentions`，通知是 `e11-t08`。速率：每人發文加留言每分鐘 ≤ 5（`TokenBuckets`，回 429 `slowDown`；編輯不算、被拒的不算）。幹部（`moderatesForum`，roles.ts）在 `e11-t09` 加 `forumModerate` 之前是管理員：只有幹部能在 `postPolicy: 'officers'` 的板（公告）發文、置頂、鎖定、刪除別人的貼文與留言；鎖定的貼文只有幹部能留言。作者才能編輯自己的貼文與留言；刪貼文連同留言與反應，刪最上層留言連同它的回覆。路由見 §5.2 的表（`/api/forum/*`）。帳號刪除時不刪貼文（之後再定）。
 
 ## 5.8 隊制賽（決策紀錄，`e8-t01`，2026-10-25）
 
@@ -937,8 +962,8 @@ SQL 由 `worker/history-index.ts` 的 `searchBoards` 組：只有固定的 SQL �
 - **同一批帳號、各自的登入**：橋譜的 `/api/*` 由 Vercel 轉發，`tbt_session` cookie（沒有 Domain 屬性）因此屬於橋譜自己的網域。兩站用同一組帳號密碼，但要各自登入一次。`/ws` 不經過橋譜。
 - **申請與核准**：`ClubService.register` 第一個帳號直接建立（管理員），之後一律存成 `app:<id>`，`adminApprove` 才建立帳號（受人數上限限制）。申請中的名稱不能被別人註冊；用申請時的密碼登入會得到 `awaitingApproval`。
 - **忘記密碼**：`resetForgottenPassword(username, inviteCode, password)`，管理員帳號不行（`adminNoSelfReset`）；重設後登出所有 session 並記下 `passwordResetAt`。
-- **權限**：`StoredUser.permissions`：`bookEdit`（線上編輯）、`bookImport`（匯入檔案）、`boardCurate`（設精選牌局，牌桌用，§5.9）、`tkuSystem`（淡江制度機器人，牌桌用，§5.1.2）；管理員全部都有，管理頁的「權限」欄逐項勾選。淡江橋譜的 `/api/me` 也會看到 `boardCurate`、`tkuSystem`，橋譜不用它們。
-- **角色**（使用者決定，2026-10-25；名稱暫時沿用）：**管理員**什麼都能管，包括使用者帳號；**編輯者**（`bookEdit`）能管帳號以外的所有東西。帳號＝申請與核准、新增與刪除帳號、重設密碼、管理員身分、權限、社團設定（人數上限、邀請碼，管的是誰能加入），只限管理員；橋譜的特約（儲存、隱藏、還原、版本）、分類、制度集，以及關閉卡住的牌桌，編輯者都能做。`bookImport`（AI 匯入，花 API 額度）與 `boardCurate` 仍是各自勾選的權限，`bookEdit` 不包含它們。每條路由要什麼寫在 `worker/roles.ts`（`bookRouteNeed`、`adminRouteNeed`；`tests/worker/roles.test.ts` 列出每條路由），`club.ts` 先查表再分派。牌桌管理頁目前仍只給管理員開（編輯者能用 `DELETE /api/admin/tables/:id`，但畫面還沒開給他們）。隊伍與搭檔的制度集另有成員權限（`profileAccess`，e2-t04，見下方「制度集的成員權限」）：隊長、隊員、搭檔不必是編輯者也能改自己的。
+- **權限**：`StoredUser.permissions`：`bookEdit`（線上編輯：草稿、送審）、`bookReview`（審核發布：發布、退回、隱藏、還原；橋館 e8-t01。審核者一定也是編輯者：存權限時 `withImpliedPermissions` 自動補上 `bookEdit`）、`bookImport`（匯入檔案）、`boardCurate`（設精選牌局，牌桌用，§5.9）、`tkuSystem`（淡江制度機器人，牌桌用，§5.1.2）；管理員全部都有，管理頁的「權限」欄逐項勾選。淡江橋譜的 `/api/me` 也會看到 `boardCurate`、`tkuSystem`，橋譜不用它們。
+- **角色**（使用者決定，2026-10-25；名稱暫時沿用）：**管理員**什麼都能管，包括使用者帳號；**編輯者**（`bookEdit`）能管帳號以外的所有東西。帳號＝申請與核准、新增與刪除帳號、重設密碼、管理員身分、權限、社團設定（人數上限、邀請碼，管的是誰能加入），只限管理員；橋譜的特約（草稿、送審、版本）、分類、制度集，以及關閉卡住的牌桌，編輯者都能做；**發布特約（含直接發布）、退回草稿、隱藏、還原是審核者（`bookReview`）的**（橋館 e8-t01，2026-10-28 起；之前編輯者按儲存就上線）。`bookImport`（AI 匯入，花 API 額度）與 `boardCurate` 仍是各自勾選的權限，`bookEdit` 不包含它們。每條路由要什麼寫在 `worker/roles.ts`（`bookRouteNeed`、`adminRouteNeed`；`tests/worker/roles.test.ts` 列出每條路由），`club.ts` 先查表再分派。牌桌管理頁目前仍只給管理員開（編輯者能用 `DELETE /api/admin/tables/:id`，但畫面還沒開給他們）。隊伍與搭檔的制度集另有成員權限（`profileAccess`，e2-t04，見下方「制度集的成員權限」）：隊長、隊員、搭檔不必是編輯者也能改自己的。
 
 **橋譜 API**（`worker/book.ts` 的 `BookService`；不用登入的讀取路由在 `book.ts` 的 `publicBookResponse`，其他在 `club.ts` 的 `bookApi`）：
 
@@ -949,17 +974,53 @@ SQL 由 `worker/history-index.ts` 的 `searchBoards` 組：只有固定的 SQL �
 | `GET /api/book/categories` | 不用登入 | `{ version, categories: BookCategory[], updatedAt?, updatedBy? }`，依 `order` 排；空清單表示沒在線上改過，橋譜用內建的分類。ETag `W/"book-categories-<version>"` |
 | `PUT /api/book/categories` | bookEdit | `{ categories: { id, label, description? }[], baseVersion }`：整份取代（新增、改名、排序、刪除一次存），`order` 依清單位置；最多 20 個，代號小寫英數與連字號、不可重複。`baseVersion` 不符回 409 `categoryConflict`；拿掉的分類裡還有線上特約時回 409 `categoryInUse`（內建特約只有橋譜知道，由橋譜檢查） |
 | `GET /api/book/content/:slug` | 不用登入 | `{ entry: BookEntry }`（隱藏時 `convention: null`）；沒有線上版本回 404 `conventionGone`，橋譜改用內建的版本。ETag `W/"book-<slug>-<entry.version>"` |
-| `PUT /api/book/conventions/:slug` | bookEdit | `{ convention, baseVersion, bundledUpdated?, note? }`；`baseVersion` 不是目前版本時回 409 `bookConflict` |
-| `POST /api/book/conventions/:slug/reset` | bookEdit | 刪除線上版本，橋譜改回顯示內建的版本 |
-| `POST /api/book/conventions/:slug/hide` | bookEdit | 從橋譜隱藏（2026-10-25 起編輯者也可以） |
+| `PUT /api/book/conventions/:slug` | bookReview | 發布：`{ convention, baseVersion, bundledUpdated?, note?, draftRevision? }`；`baseVersion` 不是目前版本時回 409 `bookConflict`。有草稿時帶 `draftRevision`＝從草稿發布（草稿用掉，送審者記在版本上；不符回 409 `bookDraftConflict`）；不帶就保留草稿。版本記 `status: 'published'`、`reviewedBy/At`、`reviewRequestedBy/At`。**沒有 `status` 的舊資料也是已發布** |
+| `GET /api/book/conventions/:slug/draft` | bookEdit | `{ draft: BookDraft \| null }` |
+| `PUT /api/book/conventions/:slug/draft` | bookEdit | 存草稿：`{ convention, baseVersion, draftRevision, bundledUpdated?, note?, submit? }`；第一次存檢查 `baseVersion`（同發布），之後檢查 `draftRevision`（不符 409 `bookDraftConflict`）。`submit: true` 送審（`in-review`），否則是 `draft`（送審中的再存一次就撤回）。退回的理由保留到再送審 |
+| `DELETE /api/book/conventions/:slug/draft` | bookEdit | `{ draftRevision }` 捨棄草稿；沒有草稿 404 `bookDraftGone` |
+| `POST /api/book/conventions/:slug/reject` | bookReview | `{ draftRevision, note }` 退回送審中的草稿（不是送審中 409 `notInReview`），理由最多 500 字 |
+| `GET /api/book/reviews` | bookEdit | `{ drafts: BookDraftSummary[] }`：所有草稿（送審中的在前），不含內容、附特約名 |
+| `GET /api/book/audit` | bookEdit | `{ entries: AuditEntry[] }`：最近 200 筆審計紀錄（新的在前）：草稿、送審、退回、捨棄、發布、隱藏、還原、分類、制度集新增／儲存／刪除；發布、隱藏、還原帶 `revisionId` 連到版本 |
+| `POST /api/book/conventions/:slug/reset` | bookReview | 刪除線上版本，橋譜改回顯示內建的版本 |
+| `POST /api/book/conventions/:slug/hide` | bookReview | 從橋譜隱藏 |
 | `GET /api/book/conventions/:slug/revisions[/:id]` | bookEdit | 版本紀錄（新的在前）與某一版的內容 |
+| `GET /api/book/articles` | 不用登入 | 叢書的文章（橋館 e5-t04）：`{ version, entries: ArticleEntrySummary[], files }`，不含內容區塊；`files` 是封面的簽名網址（沒有 R2 bucket 時是空的）。未登入看不到 `members-only`，只有 bookEdit 看得到隱藏的 |
+| `GET /api/book/articles/:slug` | 不用登入 | `{ entry: ArticleEntry, files }`：一篇文章與它的封面、圖片的簽名網址；看不到的回 404 `articleGone` |
+| `PUT /api/book/articles/:slug` | bookReview | 發布：`{ article, baseVersion, note? }`；`baseVersion` 不是目前版本時回 409 `articleConflict`。文章的草稿與送審等文章編輯器（e5-t07） |
+| `POST /api/book/articles/:slug/hide` | bookReview | `{ baseVersion, note? }` 從叢書隱藏（版本紀錄保留） |
+| `GET /api/book/articles/:slug/revisions[/:id]` | bookEdit | 文章的版本紀錄與某一版的內容 |
 | `GET /api/book/profiles` | 不用登入／社員 | `{ profiles: ProfileSummary[] }`：每個制度集去掉內容、只留數量（`counts`），`club` 在前、再來隊伍、搭檔，各依名稱。未登入只回 `club`（備忘數為 0）；登入後只列自己看得到的（下面「制度集的成員權限」），看不到備忘的備忘數為 0 |
 | `GET /api/book/profiles/:id` | 不用登入（只限 `club`）／社員 | `{ profile: SystemProfile, access: ProfileAccess }`（`access` 是自己能做什麼：`notes`、`edit`、`share`）；`club` 沒存過時回空的（版本 0）；未登入讀 `club` 時只回 `{ profile }` 並拿掉 `notes`，讀其他的回 401；看不到的回 403 `noPermission`，看不到備忘時 `notes` 是空的；不存在回 404 `profileGone` |
 | `POST /api/book/profiles` | bookEdit | `{ profile: ProfileInput, note? }` 新增隊伍或搭檔的制度集，id 由伺服器產生（12 碼 hex），版本 1 |
 | `PUT /api/book/profiles/:id` | 能編輯的人（下面） | `{ profile: ProfileInput, baseVersion, note? }`；`baseVersion` 不符回 409 `profileConflict`。`club` 第一次存時 `baseVersion` 是 0。編輯者以外的人改 `scope`、`parentId`，或沒有 `share` 卻改 `visibility`，回 403 `noPermission` |
 | `DELETE /api/book/profiles/:id` | bookEdit | `{ baseVersion }`；`club` 回 403 `profileProtected`，還有別的制度集繼承它時回 409 `profileInUse`；版本紀錄一起刪 |
 | `GET /api/book/profiles/:id/revisions[/:version]` | bookEdit／隊伍或搭檔的成員 | 版本紀錄（新的在前，最多 100 筆，不含內容）與某一版的完整制度集 |
+| `GET /api/book/cards/:profileId` | 讀得到該制度集的人 | `{ snapshots: CardSnapshotMeta[] }`：這個制度集各版型的制度卡版本，新的在前（橋館 e3-t09） |
+| `POST /api/book/cards/:profileId` | 能編輯該制度集的人 | `CardSnapshotInput`（`templateId`、`profileVersion`、`card`、`docx?` base64、`note?`）發布一個版本，同制度集同版型從 1 編號；卡 JSON 最多 800 kB、Word 檔 600 kB（413 `contentTooLarge`），每個制度集最多 200 個版本。回 `{ snapshot: CardSnapshotMeta }`，記一筆 `card:publish` 審計 |
+| `GET /api/book/cards/:profileId/:templateId/:n[/docx]` | 讀得到該制度集的人；**分享中的版本不用登入** | `{ snapshot: CardSnapshot }`，或 Word 檔本身（`/docx`，`Content-Disposition: attachment`）；不存在或沒有 Word 檔回 404 `cardSnapshotGone`。分享中的版本在登入檢查之前就回，連結關掉後只有讀得到制度集的人看得到 |
+| `PATCH /api/book/cards/:profileId/:templateId/:n` | 有 `share` 權限的人（編輯者、隊長、現役搭檔） | `{ shared: boolean }` 開關分享連結，回 `{ snapshot }` |
+| `DELETE /api/book/cards/:profileId/:templateId/:n` | 能編輯該制度集的人 | 刪掉這個版本（含 Word 檔），記一筆 `card:delete` 審計 |
+| `GET /api/book/system-spec?profileId=` | bookEdit | `SystemSpecStatus`：`{ tableProfileId, synced }`，`synced` 是該制度集最後同步的 `SystemSpec`（`shared/systemSpec.ts`）、時間與同步者，沒同步過是 `null`；沒給 `profileId` 時是 TKB 跟著的制度集（橋館 e7-t03） |
+| `PUT /api/book/system-spec/:profileId` | bookEdit | `{ spec: SystemSpec }`：橋館的差異報告頁用 `toSystemSpec` 在瀏覽器轉好送來（內建特約只在橋館、轉換的 CPU 一次請求不夠），這裡只檢查形狀（`worker/system-spec.ts`）、`spec.profileId` 要等於網址、JSON 最多 1 MB（413 `contentTooLarge`）；制度集不存在回 404 `profileGone`。存在 `book:spec:<id>`（本體分段），每日備份一起備。回同 GET |
+| `POST /api/book/robot-meanings` | bookEdit | `RobotMeaningsQuery`（`{ items: { after, calls }[] }`，一次最多 10 個叫牌過程、每個 38 個叫品）→ `{ items }`：TKB 淡江制度的規則說每個叫品表示什麼（`explain`，只看叫牌過程；`RobotShows` 是橋館啟發式讀得到的欄位加中文說明），沒有規則是 `null`。差異報告頁分批問（橋館 e7-t04） |
+| `GET /api/book/quiz/rounds` | 社員 | `{ rounds: QuizRound[] }`（`shared/quiz.ts`）：自己的練習成績，新的在前（橋館 e6-t04） |
+| `POST /api/book/quiz/rounds` | 社員 | `{ round: QuizRoundInput }`（制度集 id、每題的 id、特約、對錯；一次 1–50 題）→ `{ round }`；存在 `quizlog:<userId>:<時間>-<id>`，每人只留最新 100 次 |
+| `DELETE /api/book/quiz/rounds` | 社員 | 清除自己的練習成績 → `{ ok }` |
+| `GET /api/book/quiz/fixes` | 不需登入 | `{ fixes: QuizFix[] }`：幹部的修題（停用、改答案或選項、手動出題），練習頁出題時套用（橋館 e6-t06） |
+| `PUT /api/book/quiz/fixes` | bookEdit | `{ fix: QuizFixInput }` → `{ fix }`：`source: 'auto'` 修自動題（`basis` 是修正時的叫品與正解，原文改了橋館就不套用）、`'manual'` 手動出題（意義題或含 `hand` 的叫品題）；只檢查形狀，最多 2000 筆。存在 `book:quizfix:<題目 id>`（每日備份一起備），寫審計 `quiz:fix` |
+| `DELETE /api/book/quiz/fixes` | bookEdit | `{ id }` → `{ ok }`：刪掉修正（題目回到自動產生的樣子）或手動題；審計 `quiz:unfix` |
 | `GET /api/club/members` | 社員 | `{ members: ClubMember[] }`：全部社員的 id 與帳號名稱（只有這兩個欄位），依名稱；選隊員、邀搭檔用 |
+| `GET /api/club/members/:id/teams` | 社員 | `MemberTeams`：那位社員所在的隊伍（含封存）與現役搭檔；邀請中、已結束的不列。橋館他人檔案頁 `/u/:id` 用（`e11-t04`） |
+| `GET /api/forum/boards` | 社員 | `{ boards: Board[] }`，依 `order` |
+| `POST /api/forum/boards`、`PATCH`／`DELETE /api/forum/boards/:id` | 管理員 | `BoardInput`；代號小寫英數與 `-`（不給就產生），重複 409 `forumBoardExists`，最多 20 個（409 `forumBoardLimit`）；內建的不能刪（409 `forumBoardBuiltIn`）、有貼文的不能刪（409 `forumBoardNotEmpty`）；不存在 404 `forumBoardGone` |
+| `GET /api/forum/boards/:id/posts?page=` | 社員 | `BoardPage`：第 1 頁先列置頂（新置頂的在前），其他新→舊，一頁 20 則 |
+| `POST /api/forum/boards/:id/posts` | 社員（公告板只有幹部，403 `forumBoardOfficersOnly`） | `PostInput` → `{ post }`；每人每分鐘發文加留言 ≤ 5（429 `slowDown`） |
+| `GET /api/forum/latest` | 社員 | `ForumLatest`：公告板最新三則（置頂優先）與其他板最新三則（橋館首頁） |
+| `GET`／`PATCH`／`DELETE /api/forum/posts/:id` | 社員；改只有作者；刪是作者或幹部 | `PostThread`（貼文與全部留言，舊→新）；`PostInput` → `{ post }`；別人的 403 `notYours`，不存在 404 `postGone` |
+| `POST /api/forum/posts/:id/pin`、`/lock` | 幹部（現在是管理員） | `{ pinned }`／`{ locked }` → `{ post }` |
+| `POST /api/forum/posts/:id/comments` | 社員（鎖定的只有幹部，409 `postLocked`） | `CommentInput`（`parentId` 是回覆）→ `{ comment }` |
+| `PATCH`／`DELETE /api/forum/comments/:id` | 改只有作者；刪是作者或幹部 | `{ blocks }` → `{ comment }`；不存在 404 `commentGone` |
+| `PUT`／`DELETE /api/forum/posts/:id/reaction`、`/comments/:id/reaction` | 社員 | `{ emoji }`（五種之一）設定或換掉自己的反應、刪掉 → `{ reactions }` |
 | `GET /api/club/teams` | 社員 | `{ teams: ClubTeam[] }`，封存的在後，各依名稱 |
 | `POST /api/club/teams` | bookEdit | `TeamInput`（`name`、`captainId`、`memberIds?`，隊長自動算隊員）；同時開隊伍的制度集（繼承 `club`）。最多 8 人（409 `teamFull`）；制度集已達上限時整個不建立 |
 | `GET /api/club/teams/:id` | 社員 | `{ team, pairs }`：隊伍與它現役的搭檔；不存在回 404 `teamGone` |

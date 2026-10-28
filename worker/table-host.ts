@@ -95,6 +95,8 @@ export class TableHost implements TableRpc {
       },
       // Asked as a host seats a robot; when the club cannot be reached the action fails (serverError)
       mayUseTku: (userId) => club.mayUseTku(userId),
+      // Asked once a board; when the club cannot be reached TKB bids without the handbook's words
+      ...(club.bookNotes ? { bookNotes: (known: string | null) => club.bookNotes!(known) } : {}),
     }
   }
 

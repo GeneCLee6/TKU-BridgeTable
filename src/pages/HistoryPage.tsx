@@ -1,7 +1,7 @@
 import { Inbox, SearchX, SlidersHorizontal } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
-import styled, { css } from 'styled-components'
+import styled from 'styled-components'
 import {
   HISTORY_MODES,
   HISTORY_SORTS,
@@ -11,6 +11,7 @@ import {
   type HistoryQuery,
 } from '../../shared/history-query.ts'
 import type { HistoryPage as Page } from '../../shared/protocol.ts'
+import { Chip, ChipCount, SegmentButton, Segmented } from '../components/Chips.tsx'
 import { FilterChips, HistoryFilters } from '../components/HistoryFilters.tsx'
 import {
   HistoryFrame,
@@ -76,19 +77,6 @@ const Toolbar = styled.div`
   }
 `
 
-const FilterToggle = styled.button<{ $active: boolean }>`
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 36px;
-  padding: 0 14px;
-  border: 1px solid ${({ theme }) => theme.colors.border};
-  border-radius: ${({ theme }) => theme.radius.pill};
-  background: ${({ theme, $active }) => ($active ? theme.colors.surfaceAlt : theme.colors.surface)};
-  color: ${({ theme }) => theme.colors.text};
-  font-weight: 600;
-`
-
 const FilterCard = styled(Card)`
   margin-bottom: 16px;
 
@@ -100,43 +88,6 @@ const FilterCard = styled(Card)`
 const Done = styled.div`
   display: flex;
   justify-content: flex-end;
-`
-
-const Toggle = styled.div`
-  display: inline-flex;
-  margin-bottom: 16px;
-  border: 1px solid ${({ theme }) => theme.colors.border};
-  border-radius: ${({ theme }) => theme.radius.pill};
-  overflow: hidden;
-
-  ${mobile} {
-    display: flex;
-    min-width: 0;
-    justify-self: start;
-    max-width: 100%;
-  }
-`
-
-const ToggleButton = styled.button<{ $active: boolean }>`
-  min-height: 36px;
-  min-width: 0;
-  padding: 0 16px;
-  border: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-
-  ${mobile} {
-    padding: 0 12px;
-  }
-  background: ${({ theme }) => theme.colors.surface};
-  font-weight: 600;
-  ${({ $active, theme }) =>
-    $active &&
-    css`
-      background: ${theme.colors.primary};
-      color: ${theme.colors.onPrimary};
-    `}
 `
 
 const ListCard = styled(Card)`
@@ -248,25 +199,25 @@ export function HistoryPage() {
     <PageMain>
       <PageTitle>{t.historyTitle}</PageTitle>
       <Toolbar>
-        <Toggle role="group" aria-label={t.historyTitle}>
-          <ToggleButton
+        <Segmented role="group" aria-label={t.historyTitle}>
+          <SegmentButton
             type="button"
             $active={!all}
             aria-pressed={!all}
             onClick={() => refilter({ scope: 'mine' })}
           >
             {t.historyMine}
-          </ToggleButton>
-          <ToggleButton
+          </SegmentButton>
+          <SegmentButton
             type="button"
             $active={all}
             aria-pressed={all}
             onClick={() => refilter({ scope: 'all' })}
           >
             {t.historyAll}
-          </ToggleButton>
-        </Toggle>
-        <FilterToggle
+          </SegmentButton>
+        </Segmented>
+        <Chip
           type="button"
           $active={showFilters}
           aria-expanded={showFilters}
@@ -275,8 +226,8 @@ export function HistoryPage() {
         >
           <SlidersHorizontal size={16} aria-hidden />
           {t.filters}
-          {chips.length > 0 && ` (${chips.length})`}
-        </FilterToggle>
+          {chips.length > 0 && <ChipCount n={chips.length} />}
+        </Chip>
         <SortSelect
           value={query.sort}
           options={HISTORY_SORTS}

@@ -1,9 +1,10 @@
 import { CalendarClock, Plus, Swords } from 'lucide-react'
 import { useEffect, useId, useState } from 'react'
 import { Link } from 'react-router-dom'
-import styled, { css } from 'styled-components'
+import styled from 'styled-components'
 import type { ChallengeView } from '../../shared/challenge.ts'
 import { ChallengeDialog } from '../components/ChallengeDialog.tsx'
+import { Chip, ChipCount, ChipStrip } from '../components/Chips.tsx'
 import { PlayerGrid, Progress, StatusTag } from '../components/ChallengeParts.tsx'
 import { Pager, SortSelect } from '../components/Pager.tsx'
 import { WeeklyChallengeDialog } from '../components/WeeklyChallengeDialog.tsx'
@@ -14,7 +15,8 @@ import {
   challengeTitle,
   challengeTab,
   playerOf,
-  settingsLine,
+  settingsBase,
+  settingsOptions,
   timeLeft,
   type ChallengeTab,
 } from '../lib/challenges.ts'
@@ -22,6 +24,7 @@ import { formatDateTime } from '../lib/format.ts'
 import { LIST_SORTS, paginate, sortList } from '../lib/lists.ts'
 import { useListParams } from '../lib/useListParams.ts'
 import { useAuth } from '../state/AuthContext.tsx'
+import { cardHover } from '../styles/controls.ts'
 import { useClub } from '../state/ClubContext.tsx'
 import { usePreferences } from '../state/PreferencesContext.tsx'
 import { mobile } from '../styles/tokens.ts'
@@ -57,40 +60,14 @@ const ListTools = styled.div`
   justify-content: space-between;
   gap: 10px 14px;
   margin-bottom: 16px;
-`
 
-/**
- * One line of tabs in every language: they never break inside the pill; if a language is still too
- * long for the screen, the pill scrolls sideways rather than cutting off the counts
- */
-const Tabs = styled.div`
-  display: inline-flex;
-  max-width: 100%;
-  border: 1px solid ${({ theme }) => theme.colors.border};
-  border-radius: ${({ theme }) => theme.radius.pill};
-  overflow-x: auto;
-  scrollbar-width: none;
-`
-
-const TabButton = styled.button<{ $active: boolean }>`
-  flex: none;
-  min-height: 36px;
-  padding: 0 16px;
-  border: 0;
-  white-space: nowrap;
-
-  ${mobile} {
-    padding: 0 12px;
+  /* The tabs take the row and scroll inside it; the sort menu stays at the right */
+  & > :first-child {
+    flex: 1 1 320px;
   }
-  background: ${({ theme }) => theme.colors.surface};
-  color: ${({ theme }) => theme.colors.text};
-  font-weight: 600;
-  ${({ $active, theme }) =>
-    $active &&
-    css`
-      background: ${theme.colors.primary};
-      color: ${theme.colors.onPrimary};
-    `}
+  & > :last-child {
+    margin-left: auto;
+  }
 `
 
 const Grid = styled.ul`
@@ -102,7 +79,7 @@ const Grid = styled.ul`
   list-style: none;
 `
 
-/** The whole card is the link; pointing at it or focusing it lifts it (DESIGN.md §5.3) */
+/** The whole card is the link; pointing at it or focusing it glows gold (`cardHover`, DESIGN.md §5.3) */
 const CardLink = styled(Link)`
   display: grid;
   align-content: start;
@@ -115,29 +92,7 @@ const CardLink = styled(Link)`
   box-shadow: ${({ theme }) => theme.shadow};
   color: ${({ theme }) => theme.colors.text};
   text-decoration: none;
-  transition:
-    transform 0.15s ease,
-    box-shadow 0.15s ease,
-    border-color 0.15s ease;
-
-  &:hover,
-  &:focus-visible {
-    transform: translateY(-3px);
-    border-color: ${({ theme }) => theme.colors.primary};
-    box-shadow: ${({ theme }) => theme.shadowRaised};
-    text-decoration: none;
-  }
-  &:focus-visible {
-    outline: 2px solid ${({ theme }) => theme.colors.focus};
-    outline-offset: 2px;
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    &:hover,
-    &:focus-visible {
-      transform: none;
-    }
-  }
+  ${cardHover()}
 `
 
 const Head = styled.div`
@@ -165,6 +120,25 @@ const Small = styled.div`
   color: ${({ theme }) => theme.colors.textMuted};
   font-size: 13px;
   line-height: 18px;
+`
+
+/** Best Hand, Just Declare: tags on a line of their own under the settings */
+const Options = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  margin-top: 6px;
+
+  & > span {
+    padding: 0 8px;
+    border-radius: ${({ theme }) => theme.radius.sm};
+    background: ${({ theme }) => theme.colors.accentSoft};
+    color: ${({ theme }) => theme.colors.accentStrong};
+    font-size: ${({ theme }) => theme.type.caption.size};
+    line-height: 20px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
 `
 
 const Mine = styled.div`
@@ -208,6 +182,7 @@ function ChallengeCard({ c, userId, now }: { c: ChallengeView; userId: string; n
   const title = challengeTitle(t, c)
   const others = c.players.filter((p) => p.userId !== userId)
   const open = c.status === 'pending' || c.status === 'active'
+  const options = settingsOptions(t, c)
   return (
     <li aria-label={title}>
       <CardLink
@@ -221,13 +196,20 @@ function ChallengeCard({ c, userId, now }: { c: ChallengeView; userId: string; n
         </Head>
         <div id={`${id}-details`}>
           <Small>
-            <span>{settingsLine(t, c)}</span>
+            <span>{settingsBase(t, c)}</span>
             <span title={t.challengeDeadline(formatDateTime(c.deadline, lang))}>
               {open && now < c.deadline
                 ? timeLeft(t, c.deadline - now)
                 : t.challengeEndedAt(formatDateTime(c.endedAt ?? c.deadline, lang))}
             </span>
           </Small>
+          {options.length > 0 && (
+            <Options>
+              {options.map((o) => (
+                <span key={o}>{o}</span>
+              ))}
+            </Options>
+          )}
           {me?.status === 'accepted' && (
             <Mine>
               <span>{t.challengeYourProgress}</span>
@@ -328,9 +310,9 @@ export function ChallengesPage() {
         />
       )}
       <ListTools>
-        <Tabs role="tablist" aria-label={t.navChallenges}>
+        <ChipStrip role="tablist" aria-label={t.navChallenges}>
           {CHALLENGE_TABS.map((k) => (
-            <TabButton
+            <Chip
               key={k}
               type="button"
               role="tab"
@@ -339,10 +321,10 @@ export function ChallengesPage() {
               onClick={() => choose(k)}
             >
               {t.challengeTabs[k]}
-              {list ? ` (${byTab(k).length})` : ''}
-            </TabButton>
+              {list && <ChipCount n={byTab(k).length} />}
+            </Chip>
           ))}
-        </Tabs>
+        </ChipStrip>
         <SortSelect
           value={listing.sort}
           options={LIST_SORTS}

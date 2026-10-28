@@ -80,6 +80,31 @@ describe('uploading an avatar', () => {
     expect((await again.avatar(amy))?.version).toBe(time)
   })
 
+  it("puts the version and the display name in the handbook's member list (BridgeBook e11-t01)", async () => {
+    const amy = await member('amy')
+    await club.setProfile(amy, { displayName: '王小美' })
+    await club.setAvatar(amy, picture(WEBP))
+    const list = club.memberDirectory()
+    expect(list.find((m) => m.id === amy)).toEqual({ id: amy, username: 'amy', displayName: '王小美', avatar: time })
+    expect(list.find((m) => m.id === admin)).toEqual({ id: admin, username: 'admin' })
+  })
+
+  it('puts the display name on the lobby and tells the online members when it changes (e11-t19)', async () => {
+    const amy = await member('amy')
+    online = [admin]
+    sent.length = 0
+    await club.setProfile(amy, { displayName: '王小美', bio: '大三' })
+    const lobby = lobbyFrom(sent.filter((s) => s.userId === admin).map((s) => s.message))!
+    expect(lobby.members.find((m) => m.id === amy)?.displayName).toBe('王小美')
+    expect(club.lobbyView(admin, [admin, amy]).online.find((u) => u.id === amy)?.displayName).toBe('王小美')
+    // Only the bio changed: nothing to tell the lobby
+    sent.length = 0
+    await club.setProfile(amy, { displayName: '王小美', bio: '大四' })
+    expect(sent).toEqual([])
+    await club.setProfile(amy, {})
+    expect(club.lobbyView(admin, [admin, amy]).members.find((m) => m.id === amy)).not.toHaveProperty('displayName')
+  })
+
   it('tells the online members the new version at once', async () => {
     const amy = await member('amy')
     online = [admin]

@@ -767,9 +767,9 @@ describe('admin', () => {
       { id: ben.id, admin: true },
     ])
     expect(await listed()).toEqual([
-      ['admin', true, ['bookEdit', 'bookImport', 'boardCurate', 'tkuSystem']],
+      ['admin', true, ['bookEdit', 'bookReview', 'bookImport', 'boardCurate', 'tkuSystem']],
       ['amy', false, ['bookEdit', 'bookImport']],
-      ['ben', true, ['bookEdit', 'bookImport', 'boardCurate', 'tkuSystem']],
+      ['ben', true, ['bookEdit', 'bookReview', 'bookImport', 'boardCurate', 'tkuSystem']],
     ])
     // One bad change stores nothing
     const before = await listed()
@@ -1109,7 +1109,7 @@ describe('friends and blocks (AC-1.6)', () => {
 describe('permissions', () => {
   it('lets admins grant TKU BridgeBook editing and import and featuring boards; admins have them all', async () => {
     const admin = (await founder('admin')).user
-    expect(admin.permissions).toEqual(['bookEdit', 'bookImport', 'boardCurate', 'tkuSystem'])
+    expect(admin.permissions).toEqual(['bookEdit', 'bookReview', 'bookImport', 'boardCurate', 'tkuSystem'])
     const amy = await join('amy')
     expect(() => club.requirePermission(amy.id, 'bookEdit')).toThrow('沒有這項權限')
     await club.adminSetPermissions(amy.id, ['bookImport', 'bookEdit', 'bookEdit'])
@@ -1118,7 +1118,7 @@ describe('permissions', () => {
     expect(() => club.requirePermission(amy.id, 'bookImport')).toThrow(ClubError)
     await expect(club.adminSetPermissions(amy.id, ['everything'])).rejects.toThrow('不明的權限')
     expect((await club.adminUsers()).map((u) => [u.username, u.permissions])).toEqual([
-      ['admin', ['bookEdit', 'bookImport', 'boardCurate', 'tkuSystem']],
+      ['admin', ['bookEdit', 'bookReview', 'bookImport', 'boardCurate', 'tkuSystem']],
       ['amy', ['bookEdit']],
     ])
     expect(() => club.requirePermission(admin.id, 'bookImport')).not.toThrow()

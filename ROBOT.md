@@ -4,7 +4,7 @@
 
 | TKB 的制度 | 叫牌制度 | 規則 |
 | --- | --- | --- |
-| **淡江制度**（`tku`） | [TKU BridgeBook 淡江橋譜](https://tku-bridge-book.vercel.app/) 收錄的社團制度與特約（原始資料：`TKU-BridgeBook/src/content/conventions/`），橋譜沒寫到的照 5542 自然制 | §1–§5，`shared/robot/system/tku/` |
+| **淡江制度**（`tku`） | [TKU BridgeHall 淡江橋館](https://tku-bridge-hall.vercel.app/) 收錄的社團制度與特約（原始資料：`TKU-BridgeBook/src/content/conventions/`），橋譜沒寫到的照 5542 自然制 | §1–§5，`shared/robot/system/tku/` |
 | **2/1**（`gib`，GIB 相容） | BBO 的 GIB 公開的 2/1 迫叫成局制度（[`docs/BBO GIB`](docs/BBO%20GIB/README.md)），叫法與說明跟 BBO 的 GIB 一致 | §6，`shared/robot/system/gib/` |
 
 房主在空位的座位選單選「放 TKB（淡江制度）」或「放 TKB（2/1）」，名牌顯示「TKB」與制度（淡江制度／2/1）。兩種機器人都不做雙明手分析、不猜測對手的牌，只依照規則與一般坐莊／防守原則行動，所以叫的牌社員看得懂。淡江機器人是練習社團制度的搭檔；2/1 機器人讓社員練 BBO 上通用的 2/1。兩種機器人用同一個制度引擎（§6），所以同伴是哪一種機器人，輪到自己叫牌時叫牌盒都會提示機器人怎麼理解每個叫品。出牌兩種機器人完全一樣，坐莊、首攻、防守信號都照社團的規則（§3、§3.2）。
@@ -342,6 +342,8 @@ AK、KQ 都可以攻任一張：攻 K 同伴跟張數，攻 A 或 Q 同伴跟態
 **叫品意義查詢**（`e5-t22`，AC-5.7）：牌桌與紀錄的叫牌表，滑鼠移到任何叫品上就顯示說明、移開就消失（觸控螢幕點一下開關，鍵盤 focus 也會顯示；社長 2026-10-25）。叫牌之前，桌上有機器人時，滑過自己叫牌盒的叫品會顯示機器人會怎麼讀它（同伴是機器人用同伴的制度，否則用對手機器人的）：伺服器用 `explain` 算好放在 `BoardView.callMeanings`（`views.ts` 的 `callMeaningsFor`），瀏覽器只負責把意義寫成文字，不再自己跑引擎。機器人的叫品照舊是它的說明；真人的叫品由伺服器在叫的時候用那一方的制度讀出意義（機器人同伴的制度，沒有機器人同伴就用淡江制度，`robots.ts` 的 `inferredMeaning`），存在 `AuctionCall.meaning`＋`inferred`，畫面標「依淡江制度推論」；真人自己的 Alert 說明另外列出（同伴照舊看不到，ARCHITECTURE.md §4）。
 
 **與淡江橋館同步**（`tku/sources.ts`，`e5-t45`，AC-5.9）：每本規則書帶著它依照的橋館文章（`Book.bookSlugs`，在 `tku/index.ts` 用 `cite` 標），`TKU_SOURCES` 記每篇文章檢查規則時的版本（線上版本，0＝橋館內建的文字）與日期。管理頁「機器人與橋館同步」（`GET /api/admin/book-sync`）比對線上現在的版本，列出在線上改過或隱藏、規則還沒對照過的文章與跟著它的規則。幹部對照新內容改好規則（或確認不用改）之後，把那篇的 `version` 改成線上的版本。橋館內建文字的修改跟著淡江橋譜的版本發布，不經過線上編輯：改的人同時檢查機器人的規則並更新 `updated`。目前（2026-10-25）正式站線上只改過「好壞2NT」（v1），機器人沒有用這個特約，所以全部同步。
+
+**橋館的文字跟著叫品**（`system/book-spec.ts`，橋館 e7-t03／e7-t04，AC-7.1、AC-7.2）：橋館把制度集的叫品表轉成規則（`shared/systemSpec.ts` 的 `toSystemSpec`，對照表在 TKU-BridgeBook `docs/SYSTEM-SPEC.md`），幹部在橋館的差異報告頁（`/integrations/table`）按「同步到牌桌」存進來（`PUT /api/book/system-spec/:id`）。TKB 用淡江制度時，**叫牌仍照 `tku/` 已驗證的規則**；叫出的叫品（pass 除外）若在 TKB 跟著的制度集（`SYSTEM_PROFILE_ID`，預設 `club`）裡有「同一個叫牌過程、同一個叫品」的列，就把那列的文字逐字帶在 `AuctionCall.book`，叫牌盒的說明多一段「淡江橋館」。兩列給同一個叫品不同文字時都不用。牌桌每副牌向社團問一次（`ClubLink.bookNotes`，沒變就回 `same`）。規則與橋館文字不一致的地方，差異報告頁用 `POST /api/book/robot-meanings`（`explain`）逐條比對列出，幹部再決定改規則或改制度。
 
 以前有等級時量過（快速版 200 副，A 大專對 B 初學者）：淡江 **+0.99 ± 0.36** IMP／副、2/1 **+1.10 ± 0.33**；全部 5,000 副都是 +1.26 ± 0.07（§7）。
 

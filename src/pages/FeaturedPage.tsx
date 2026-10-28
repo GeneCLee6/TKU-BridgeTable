@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import styled, { css } from 'styled-components'
+import styled from 'styled-components'
 import {
   FEATURED_CATEGORIES,
   type FeaturedBoard,
   type FeaturedCategory,
 } from '../../shared/featured.ts'
+import { Chip, ChipCount, ChipStrip } from '../components/Chips.tsx'
 import { Pager, SortSelect } from '../components/Pager.tsx'
 import { ContractResult } from '../components/Suit.tsx'
 import { ErrorText, Muted, PageMain, PageTitle } from '../components/ui.tsx'
@@ -14,6 +15,7 @@ import { formatDateTime } from '../lib/format.ts'
 import { paginate, sortList } from '../lib/lists.ts'
 import { useListParams } from '../lib/useListParams.ts'
 import { usePreferences } from '../state/PreferencesContext.tsx'
+import { cardHover } from '../styles/controls.ts'
 
 /**
  * 精選牌局 (AC-4.5, `e4-t30`): every featured board, newest first, in tabs by category. Each card
@@ -30,36 +32,16 @@ const Toolbar = styled.div`
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 10px 14px;
+  gap: 12px 14px;
   margin-bottom: 16px;
-`
 
-/**
- * Five categories do not fit one line on a phone in any language: each is a chip of its own, so a
- * second line looks as tidy as the first (one joined pill broke in the middle)
- */
-const Tabs = styled.div`
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-`
-
-const TabButton = styled.button<{ $active: boolean }>`
-  min-height: 36px;
-  padding: 0 14px;
-  border: 1px solid ${({ theme }) => theme.colors.border};
-  border-radius: ${({ theme }) => theme.radius.pill};
-  white-space: nowrap;
-  background: ${({ theme }) => theme.colors.surface};
-  color: ${({ theme }) => theme.colors.text};
-  font-weight: 600;
-  ${({ $active, theme }) =>
-    $active &&
-    css`
-      border-color: ${theme.colors.primary};
-      background: ${theme.colors.primary};
-      color: ${theme.colors.onPrimary};
-    `}
+  /* The chips take the row and scroll inside it; the sort menu stays at the right */
+  & > :first-child {
+    flex: 1 1 320px;
+  }
+  & > :last-child {
+    margin-left: auto;
+  }
 `
 
 const Grid = styled.ul`
@@ -81,10 +63,8 @@ const CardLink = styled(Link)`
   background: ${({ theme }) => theme.colors.surface};
   color: ${({ theme }) => theme.colors.text};
   text-decoration: none;
+  ${cardHover()}
 
-  &:hover {
-    border-color: ${({ theme }) => theme.colors.primary};
-  }
   & > strong {
     font-size: 16px;
   }
@@ -120,9 +100,9 @@ export function FeaturedPage() {
     <PageMain>
       <PageTitle>{t.featuredTitle}</PageTitle>
       <Toolbar>
-        <Tabs role="tablist" aria-label={t.featuredTitle}>
+        <ChipStrip role="tablist" aria-label={t.featuredTitle}>
           {tabs.map((k) => (
-            <TabButton
+            <Chip
               key={k}
               type="button"
               role="tab"
@@ -134,10 +114,10 @@ export function FeaturedPage() {
               }}
             >
               {k === 'all' ? t.featuredAll : t.featuredCategories[k]}
-              {list ? ` (${count(k)})` : ''}
-            </TabButton>
+              {list && <ChipCount n={count(k)} />}
+            </Chip>
           ))}
-        </Tabs>
+        </ChipStrip>
         <SortSelect
           value={listing.sort}
           options={SORTS}

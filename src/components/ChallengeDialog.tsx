@@ -16,6 +16,8 @@ import { useAuth } from '../state/AuthContext.tsx'
 import { useClub } from '../state/ClubContext.tsx'
 import { usePreferences } from '../state/PreferencesContext.tsx'
 import { Button, Card, ErrorText, Muted } from './ui.tsx'
+import { panelScroll } from '../styles/controls.ts'
+import { Backdrop } from './Modal.tsx'
 
 /**
  * 發起挑戰 (`e7-t17`, AC-7.1): pick members from a searchable box (a click lists them all, typing
@@ -27,22 +29,10 @@ import { Button, Card, ErrorText, Muted } from './ui.tsx'
  * there is one TKB, the 2/1 one (ROBOT.md §7).
  */
 
-const Backdrop = styled.div`
-  position: fixed;
-  inset: 0;
-  z-index: 50;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 16px;
-  background: ${({ theme }) => theme.colors.overlay};
-`
-
 const Panel = styled(Card)`
   width: 100%;
   max-width: 480px;
-  max-height: calc(100vh - 32px);
-  overflow-y: auto;
+  ${panelScroll}
   color: ${({ theme }) => theme.colors.text};
 
   & > h2 {

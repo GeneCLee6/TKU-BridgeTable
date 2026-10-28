@@ -21,6 +21,19 @@ export interface AuctionCall {
   meaning?: Spec
   /** Set on a person's call whose `meaning` is the engine's reading, in this system (`tku`, `gib`) */
   inferred?: SystemId
+  /**
+   * A TKB call in the club's system: 淡江橋館's words for this call after this auction, word for
+   * word, from the profile the club's robots follow (`shared/robot/system/book-spec.ts`, BridgeHall
+   * e7-t03)
+   */
+  book?: BookNote
+}
+
+/** A row of 淡江橋館: its words, and where it is (/c/:slug/:sectionId) */
+export interface BookNote {
+  text: string
+  slug: string
+  sectionId: string
 }
 
 export interface Contract {

@@ -1,6 +1,6 @@
 import { X } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
-import styled, { css } from 'styled-components'
+import styled from 'styled-components'
 import { STRAINS } from '../../shared/auction.ts'
 import { SEATS } from '../../shared/cards.ts'
 import {
@@ -20,6 +20,7 @@ import type { PublicUser } from '../../shared/protocol.ts'
 import { usePreferences } from '../state/PreferencesContext.tsx'
 import { clearAllFilters, type FilterChip } from '../lib/historyChips.ts'
 import { playerName } from '../strings.ts'
+import { Chip, ChipStrip } from './Chips.tsx'
 import { Button } from './ui.tsx'
 
 /**
@@ -69,29 +70,9 @@ const Field = styled.label`
   }
 `
 
-const Quick = styled.div`
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
+/** The contract brackets: one row of chips, as everywhere (`Chips.tsx`) */
+const Quick = styled(ChipStrip)`
   margin-bottom: 10px;
-`
-
-const Chip = styled.button<{ $active: boolean }>`
-  min-height: 32px;
-  padding: 0 12px;
-  border: 1px solid ${({ theme }) => theme.colors.border};
-  border-radius: ${({ theme }) => theme.radius.pill};
-  background: ${({ theme }) => theme.colors.surface};
-  color: ${({ theme }) => theme.colors.text};
-  font-size: 14px;
-  font-weight: 600;
-  ${({ $active, theme }) =>
-    $active &&
-    css`
-      border-color: ${theme.colors.primary};
-      background: ${theme.colors.primary};
-      color: ${theme.colors.onPrimary};
-    `}
 `
 
 type Patch = Partial<HistoryQuery>

@@ -1,4 +1,4 @@
-import { isCall } from '../shared/auction.ts'
+import { isCall, type BookNote } from '../shared/auction.ts'
 import type { RandomInt } from '../shared/board.ts'
 import { isCard, isSeat, partnerOf, sameSide, SEATS, type Seat } from '../shared/cards.ts'
 import {
@@ -49,6 +49,7 @@ import {
   type TableWire,
 } from '../shared/protocol.ts'
 import { ruleBrain, type RobotBrain } from '../shared/robot/brain.ts'
+import { bookNoteFor, type BookNotes } from '../shared/robot/system/book-spec.ts'
 import { inferredMeaning, type RobotBid } from '../shared/robot/robots.ts'
 import { randomId } from './auth.ts'
 import { reviewSteps, robotBidding } from './practice-review.ts'
@@ -170,6 +171,9 @@ export class TableService implements TableApi {
   private readonly offlineSince = new Map<string, number>()
   /** A robot is thinking; nothing else is scheduled for the table until it answers */
   private thinking = false
+  /** 淡江橋館's words for TKB's calls, and the deal they were last asked for (`bookNoteOf`) */
+  private bookNotes: BookNotes | null = null
+  private bookNotesDeal: BoardState['hands'] | null = null
   /** The entry last reported to the club, and its JSON without `rev` */
   private entry: TableEntry | null = null
   private reported: string | undefined
@@ -1239,7 +1243,7 @@ export class TableService implements TableApi {
   }
 
   /** Applies one board action for a seat, from a person or a robot */
-  private async applyAction(seat: Seat, message: ClientMessage, byRobot = false, meaning?: RobotBid['meaning']) {
+  private async applyAction(seat: Seat, message: ClientMessage, byRobot = false, meaning?: RobotBid['meaning'], book?: BookNote) {
     const table = this.table!
     const board = table.board
     if (!board) throw new ClubError('noBoard')
@@ -1259,7 +1263,8 @@ export class TableService implements TableApi {
         // A robot's explanations are for everyone, its partner too, as GIB's are on BBO
         // A 2/1 robot's call also carries what it shows, explained in each viewer's language
         if (byRobot) {
-          const made = { ...next.auction.at(-1)!, robot: true, ...(meaning ? { meaning } : {}) }
+          // TKB in the club's system: 淡江橋館's words for the call too (BridgeHall e7-t03)
+          const made = { ...next.auction.at(-1)!, robot: true, ...(meaning ? { meaning } : {}), ...(book ? { book } : {}) }
           next = { ...next, auction: [...board.auction, made] }
         } else {
           // A person's call carries what the engine reads it as, in their side's system: a robot
@@ -1549,6 +1554,27 @@ export class TableService implements TableApi {
     }
   }
 
+  /**
+   * 淡江橋館's words for a TKB call in the club's system (BridgeHall e7-t03): the club's synced
+   * rules are asked for once a board (`ClubLink.bookNotes`), and kept when the club cannot answer.
+   * TKB bids by its own rules; the words go with the call as they are, pass left out as its alert is
+   */
+  private async bookNoteOf(seat: Seat, message: ClientMessage): Promise<BookNote | undefined> {
+    const board = this.table?.board
+    const robot = this.table?.seats[seat]
+    if (message.type !== 'call' || message.call === 'P' || !board || !robot || robotKindOf(robot) !== 'tku' || !this.link.bookNotes) return
+    if (this.bookNotesDeal !== board.hands) {
+      this.bookNotesDeal = board.hands
+      try {
+        const answer = await this.link.bookNotes(this.bookNotes?.key ?? null)
+        if (answer !== 'same') this.bookNotes = answer
+      } catch (error) {
+        console.warn('book notes unavailable', error)
+      }
+    }
+    return bookNoteFor(this.bookNotes, board.auction, message.call)
+  }
+
   private async runRobot() {
     const table = this.table
     if (!table) return
@@ -1559,19 +1585,23 @@ export class TableService implements TableApi {
     const position = this.positionOf()
     this.thinking = true
     let answer: RobotAnswer
+    let book: BookNote | undefined
     const started = performance.now()
+    let thought = 0
     try {
       answer = await this.think(move.decide)
+      thought = performance.now() - started
+      book = await this.bookNoteOf(move.seat, answer.message)
     } finally {
       this.thinking = false
     }
-    this.config.onThink?.(performance.now() - started)
+    this.config.onThink?.(thought)
     if (this.table !== table || teamPaused(table)) return
     // The table moved on while the robot thought (a person played, an undo, a seat changed): ask again
     if (this.positionOf() !== position) return this.scheduleRobots()
     const { message, meaning } = answer
     try {
-      await this.applyAction(move.seat, message, true, meaning)
+      await this.applyAction(move.seat, message, true, meaning, book)
     } catch (error) {
       // A robot move that turns out illegal must not stall the table: pass or play any legal card
       if (!(error instanceof AppError)) throw error

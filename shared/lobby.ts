@@ -1,6 +1,6 @@
 import { SEATS, type Seat } from './cards.ts'
 import { FRIENDS_ENABLED } from './features.ts'
-import type { LobbyDelta, LobbyMine, LobbyShared, LobbyView, MemberStatus, ServerMessage, TableSummary } from './protocol.ts'
+import type { LobbyDelta, LobbyMine, LobbyShared, LobbyView, MemberStatus, PublicUser, ServerMessage, TableSummary } from './protocol.ts'
 
 /** How the lobby lists tables and where 快速入座 sits (AC-2.11) */
 
@@ -11,6 +11,20 @@ export interface LobbyTable {
 }
 
 /** Empty seats; a robot's seat is taken (a person may still take it from the table) */
+/**
+ * A seat at the viewer's table with the member's picture and display name from the lobby (e11-t19):
+ * the table itself knows only usernames. Robots, and people not in the lobby, are left as they are
+ */
+export function withMemberProfile<T extends PublicUser>(user: T, members: readonly PublicUser[] | undefined): T
+export function withMemberProfile<T extends PublicUser>(user: T | null, members: readonly PublicUser[] | undefined): T | null
+export function withMemberProfile<T extends PublicUser>(user: T | null, members: readonly PublicUser[] | undefined): T | null {
+  if (!user || user.robot) return user
+  const member = members?.find((m) => m.id === user.id)
+  if (!member) return user
+  const { avatar, displayName } = member
+  return { ...user, ...(avatar && { avatar }), ...(displayName && { displayName }) }
+}
+
 export const missingSeats = (table: LobbyTable) => SEATS.filter((seat) => !table.seats[seat]).length
 
 /**
@@ -67,7 +81,9 @@ export function composeLobby(shared: LobbyShared, mine: LobbyMine): LobbyView {
     // While friends are hidden (FRIENDS_ENABLED) nobody is put on top
     .sort(memberOrder(new Set(FRIENDS_ENABLED ? mine.friends : [])))
   return {
-    online: members.filter((m) => m.online).map(({ id, username, avatar }) => ({ id, username, ...(avatar && { avatar }) })),
+    online: members
+      .filter((m) => m.online)
+      .map(({ id, username, avatar, displayName }) => ({ id, username, ...(avatar && { avatar }), ...(displayName && { displayName }) })),
     members,
     tables,
     myTableId: mine.myTableId,

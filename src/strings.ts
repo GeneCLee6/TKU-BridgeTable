@@ -538,7 +538,7 @@ const zh = {
   groupings: { date: '依日期', topic: '依主題', none: '不分組' } as Record<RecordGrouping, string>,
   historyByTopic: '依主題的牌局',
   backToTopics: '返回主題',
-  listSorts: { newest: '最新的在前', oldest: '最舊的在前', deadline: '最快截止' } as Record<ListSort, string>,
+  listSorts: { newest: '最新 → 最舊', oldest: '最舊 → 最新', deadline: '截止：近 → 遠' } as Record<ListSort, string>,
   morePlayers: (n: number) => `還有 ${n} 人`,
   close: '關閉',
   openFullPage: '開啟完整頁面',
@@ -557,6 +557,7 @@ const zh = {
   callMeaning: '叫品意義',
   inferredBy: (system: string) => `依${system}推論`,
   playerExplanation: '玩家的說明',
+  bookExplanation: '淡江橋館',
   playedCard: (card: string) => `${card}（已出）`,
   playedCardsGrey: '已出牌淡化保留',
 
@@ -863,6 +864,7 @@ const zh = {
   permissionBookImport: '匯入檔案',
   permissionBoardCurate: '設精選牌局',
   permissionTkuSystem: '淡江制度機器人',
+  permissionBookReview: '審核發布',
   // Featured boards (e4-t28 – e4-t31)
   navFeatured: '精選牌局',
   featuredTitle: '精選牌局',
@@ -1523,7 +1525,7 @@ const en: Strings = {
   groupings: { date: 'By date', topic: 'By topic', none: 'None' },
   historyByTopic: 'Boards by topic',
   backToTopics: 'Back to topics',
-  listSorts: { newest: 'Newest', oldest: 'Oldest', deadline: 'Ending soon' },
+  listSorts: { newest: 'Newest → oldest', oldest: 'Oldest → newest', deadline: 'Deadline: soonest → latest' },
   morePlayers: (n: number) => `${n} more`,
   close: 'Close',
   openFullPage: 'Open full page',
@@ -1541,6 +1543,7 @@ const en: Strings = {
   callMeaning: 'Call meaning',
   inferredBy: (system: string) => `Inferred (${system})`,
   playerExplanation: "Player's explanation",
+  bookExplanation: 'TKU BridgeHall',
   playedCard: (card) => `${card} (played)`,
   playedCardsGrey: 'Dim played cards',
 
@@ -1842,6 +1845,7 @@ const en: Strings = {
   permissionBookImport: 'Import files',
   permissionBoardCurate: 'Feature boards',
   permissionTkuSystem: 'TKU-system robot',
+  permissionBookReview: 'Review and publish',
   navFeatured: 'Featured',
   featuredTitle: 'Featured boards',
   featuredAll: 'All',
@@ -2497,7 +2501,7 @@ const zhHans: Strings = {
   groupings: { date: '按日期', topic: '按主题', none: '不分组' },
   historyByTopic: '按主题的牌局',
   backToTopics: '返回主题',
-  listSorts: { newest: '最新的在前', oldest: '最旧的在前', deadline: '最快截止' },
+  listSorts: { newest: '最新 → 最旧', oldest: '最旧 → 最新', deadline: '截止：近 → 远' },
   morePlayers: (n: number) => `还有 ${n} 人`,
   close: '关闭',
   openFullPage: '打开完整页面',
@@ -2515,6 +2519,7 @@ const zhHans: Strings = {
   callMeaning: '叫品意义',
   inferredBy: (system: string) => `依${system}推断`,
   playerExplanation: '玩家的说明',
+  bookExplanation: '淡江桥馆',
   playedCard: (card) => `${card}（已出）`,
   playedCardsGrey: '已出牌淡化保留',
 
@@ -2816,6 +2821,7 @@ const zhHans: Strings = {
   permissionBookImport: '导入文件',
   permissionBoardCurate: '设精选牌局',
   permissionTkuSystem: '淡江制度机器人',
+  permissionBookReview: '审核发布',
   navFeatured: '精选牌局',
   featuredTitle: '精选牌局',
   featuredAll: '全部',
@@ -3472,7 +3478,7 @@ const vi: Strings = {
   groupings: { date: 'Theo ngày', topic: 'Theo chủ đề', none: 'Không nhóm' },
   historyByTopic: 'Các ván theo chủ đề',
   backToTopics: 'Quay lại các chủ đề',
-  listSorts: { newest: 'Mới nhất', oldest: 'Cũ nhất', deadline: 'Sắp hết hạn' },
+  listSorts: { newest: 'Mới nhất → cũ nhất', oldest: 'Cũ nhất → mới nhất', deadline: 'Hạn chót: gần → xa' },
   morePlayers: (n: number) => `thêm ${n} người`,
   close: 'Đóng',
   openFullPage: 'Mở trang đầy đủ',
@@ -3490,6 +3496,7 @@ const vi: Strings = {
   callMeaning: 'Ý nghĩa của tiếng gọi',
   inferredBy: (system: string) => `Suy luận theo ${system}`,
   playerExplanation: 'Giải thích của người chơi',
+  bookExplanation: 'TKU BridgeHall',
   playedCard: (card) => `${card} (đã đánh)`,
   playedCardsGrey: 'Làm mờ lá đã đánh',
 
@@ -3791,6 +3798,7 @@ const vi: Strings = {
   permissionBookImport: 'Nhập tệp',
   permissionBoardCurate: 'Chọn ván nổi bật',
   permissionTkuSystem: 'Robot hệ thống TKU',
+  permissionBookReview: 'Duyệt và đăng',
   navFeatured: 'Ván nổi bật',
   featuredTitle: 'Ván nổi bật',
   featuredAll: 'Tất cả',
@@ -4447,7 +4455,7 @@ const ja: Strings = {
   groupings: { date: '日付別', topic: 'テーマ別', none: 'なし' },
   historyByTopic: 'テーマ別のボード',
   backToTopics: 'テーマに戻る',
-  listSorts: { newest: '新しい順', oldest: '古い順', deadline: '締切が近い順' },
+  listSorts: { newest: '新しい → 古い', oldest: '古い → 新しい', deadline: '締め切り：近い → 遠い' },
   morePlayers: (n: number) => `ほか ${n} 人`,
   close: '閉じる',
   openFullPage: 'ページで開く',
@@ -4465,6 +4473,7 @@ const ja: Strings = {
   callMeaning: 'ビッドの意味',
   inferredBy: (system: string) => `${system}による推論`,
   playerExplanation: 'プレイヤーの説明',
+  bookExplanation: 'TKU BridgeHall（淡江橋館）',
   playedCard: (card) => `${card}（プレイ済み）`,
   playedCardsGrey: '出たカードを薄く表示',
 
@@ -4766,6 +4775,7 @@ const ja: Strings = {
   permissionBookImport: 'ファイルの取り込み',
   permissionBoardCurate: '注目ボードの設定',
   permissionTkuSystem: '淡江システムのロボット',
+  permissionBookReview: '審査・公開',
   navFeatured: '注目ボード',
   featuredTitle: '注目ボード',
   featuredAll: 'すべて',
@@ -5422,7 +5432,7 @@ const ko: Strings = {
   groupings: { date: '날짜별', topic: '주제별', none: '묶지 않음' },
   historyByTopic: '주제별 보드',
   backToTopics: '주제로 돌아가기',
-  listSorts: { newest: '최신순', oldest: '오래된순', deadline: '마감 임박순' },
+  listSorts: { newest: '최신 → 오래된', oldest: '오래된 → 최신', deadline: '마감: 가까운 → 먼' },
   morePlayers: (n: number) => `외 ${n}명`,
   close: '닫기',
   openFullPage: '전체 페이지로 열기',
@@ -5440,6 +5450,7 @@ const ko: Strings = {
   callMeaning: '비드의 의미',
   inferredBy: (system: string) => `${system} 기준 추론`,
   playerExplanation: '플레이어의 설명',
+  bookExplanation: 'TKU BridgeHall',
   playedCard: (card) => `${card} (낸 카드)`,
   playedCardsGrey: '낸 카드 흐리게 표시',
 
@@ -5741,6 +5752,7 @@ const ko: Strings = {
   permissionBookImport: '파일 가져오기',
   permissionBoardCurate: '추천 보드 지정',
   permissionTkuSystem: 'TKU 시스템 로봇',
+  permissionBookReview: '검토 및 게시',
   navFeatured: '추천 보드',
   featuredTitle: '추천 보드',
   featuredAll: '전체',
@@ -5904,9 +5916,9 @@ export const LANG_NAMES: Record<Lang, { name: string; short: string }> = {
 /** The table uses BBO's seat letters in both languages */
 export const seatLetter: Record<Seat, string> = { N: 'N', E: 'E', S: 'S', W: 'W' }
 
-/** A player's name as shown: a robot by its kind in the viewer's language */
+/** A player's name as shown: a robot by its kind in the viewer's language, a member by their display name when set */
 export const playerName = (t: Strings, user: PublicUser) =>
-  user.robot ? t.robots[user.robotKind ?? 'tku'] : user.username
+  user.robot ? t.robots[user.robotKind ?? 'tku'] : user.displayName || user.username
 
 /** Where a board was played, as lists show it: its table, a challenge, practice (§5.11), or a team match's room (隊制賽開室, §5.8) */
 export const boardPlace = (t: Strings, b: { mode?: TableMode; tableNumber: number; room?: 'open' | 'closed' }) =>

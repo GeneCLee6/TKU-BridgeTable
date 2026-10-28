@@ -171,6 +171,10 @@ export const layout = {
   sidePanelWidth: '300px',
   /** The open panel of the right-hand dock (SidePanel), the same for every tab */
   dockPanelWidth: '420px',
+  /** On a phone the dock is a tab bar fixed to the foot of the screen (plus the iPhone's home bar) */
+  dockBar: '56px',
+  /** The same bar at a table, lower so the hand keeps its room */
+  dockBarCompact: '46px',
   mobileBreakpoint: '900px',
   /** Tablets (e3-t36): above the phone layout, up to this width */
   tabletBreakpoint: '1200px',
@@ -222,6 +226,14 @@ export function createTheme(mode: ThemeMode, deck: DeckColors) {
         ? '0 4px 12px rgba(27, 35, 51, 0.12), 0 12px 32px rgba(27, 35, 51, 0.1)'
         : '0 4px 12px rgba(0, 0, 0, 0.5), 0 12px 32px rgba(0, 0, 0, 0.4)',
     cardShadow: '0 1px 3px rgba(0, 0, 0, 0.35)',
+    /**
+     * A clickable card pointed at (`cardHover` in controls.ts, DESIGN.md §5.3): a soft lantern-gold
+     * glow spreading out from the edge, `accent` at low alpha, instead of a dark outline
+     */
+    glow:
+      mode === 'light'
+        ? '0 0 0 1px rgba(201, 151, 46, 0.35), 0 4px 18px rgba(201, 151, 46, 0.32), 0 1px 3px rgba(201, 151, 46, 0.2)'
+        : '0 0 0 1px rgba(224, 178, 85, 0.4), 0 4px 20px rgba(224, 178, 85, 0.28), 0 1px 3px rgba(224, 178, 85, 0.2)',
   }
 }
 
@@ -239,3 +251,7 @@ export const tablet = `@media ${tabletQuery}`
 
 /** Computers and tablets too narrow for the full header */
 export const compactHeader = `@media (max-width: ${layout.compactHeaderBreakpoint})`
+
+/** How much of the screen's foot the phone's dock (SidePanel's tab bar) takes, with the iPhone's home bar; pages keep their content above it */
+export const dockHeight = (compact: boolean) =>
+  `calc(${compact ? layout.dockBarCompact : layout.dockBar} + env(safe-area-inset-bottom, 0px))`
