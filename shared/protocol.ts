@@ -1040,7 +1040,7 @@ export const isProfileScope = (value: unknown): value is ProfileScope => PROFILE
  * Limits the Worker checks on a saved profile: its JSON in UTF-8 bytes, how many overrides it may
  * hold, how many profiles the club may have besides its own, the name's length and a note's length
  */
-export const PROFILE_LIMITS = { bytesMax: 200_000, overridesMax: 500, profilesMax: 100, nameMax: 40, noteMax: 2_000 } as const
+export const PROFILE_LIMITS = { bytesMax: 200_000, overridesMax: 500, profilesMax: 100, nameMax: 40, noteMax: 2_000, cardEditsMax: 1_000 } as const
 
 /**
  * Who may read a team's or partnership's profile (e2-t04): the whole club, the default, or only its
@@ -1076,6 +1076,21 @@ export interface ProfileNote {
   at: number
 }
 
+/**
+ * A hand edit of one cell of a convention card (BridgeHall E3 e3-t06), kept by slot id such as
+ * `wbf.openings.1H.responses`; the handbook fills the cards from the conventions and puts these
+ * on top. Fields left out keep what the conventions filled; `text` is at most `noteMax` long
+ */
+export interface ProfileCardEdit {
+  text?: string
+  /** A tick box, or a tick-like table cell */
+  checked?: boolean
+  /** The chosen option of a choice */
+  option?: string
+  /** Marked for the partnership to look at */
+  flagged?: boolean
+}
+
 export interface SystemProfile {
   /** CLUB_PROFILE_ID for the club; a random id for the others */
   id: string
@@ -1090,6 +1105,8 @@ export interface SystemProfile {
   adopted: Record<string, Adoption>
   overrides: ProfileOverride[]
   notes: ProfileNote[]
+  /** Hand edits of its convention cards by slot id (e3-t06); a slot left out follows the parent */
+  cardEdits?: Record<string, ProfileCardEdit>
   version: number
   updatedAt: number
   /** The user id that saved this version */
@@ -1121,7 +1138,7 @@ export interface ProfileRevision {
 }
 
 /** What an editor sends to create or save a profile; the Worker sets the id, version and who saved it */
-export type ProfileInput = Pick<SystemProfile, 'name' | 'scope' | 'parentId' | 'visibility' | 'adopted' | 'overrides' | 'notes'>
+export type ProfileInput = Pick<SystemProfile, 'name' | 'scope' | 'parentId' | 'visibility' | 'adopted' | 'overrides' | 'notes' | 'cardEdits'>
 
 // ── 淡江橋館 → the robot (BridgeHall E7: e7-t03, e7-t04) ────────────────────────────────────────
 
