@@ -15,7 +15,8 @@ import { anonymousProfileResponse, ProfileService } from './profiles.ts'
 import { avatarResponse, readAvatarUpload } from './avatars.ts'
 import { FILES_PATH, FileService, readFileUpload } from './files.ts'
 import { FILE_LIMITS } from '../shared/files.ts'
-import { adminRouteNeed, bookRouteNeed, clubRouteNeed, requireNeed } from './roles.ts'
+import { adminRouteNeed, bookRouteNeed, clubRouteNeed, forumRouteNeed, requireNeed } from './roles.ts'
+import { ForumService } from './forum.ts'
 import { robotMeaningsFor } from './system-spec.ts'
 import { CLIENT_ERROR_MAX_CHARS } from './client-errors.ts'
 import { d1Replica } from './d1.ts'
@@ -115,6 +116,8 @@ export class Club extends DurableObject<Env> implements Connections {
   private readonly files: FileService
   /** TKU BridgeBook's teams and partnerships (E2); keeps nothing in memory, so it outlives a restore */
   private readonly teams: TeamService
+  /** TKU-BridgeHall's forum (E11) in the object's SQLite database; keeps nothing in memory but its rate limits */
+  private readonly forum: ForumService
   private readonly store: Store
   /** Signs edge passes (§5.12); none when switched off */
   private readonly edgeSecret: string | undefined
@@ -168,6 +171,12 @@ export class Club extends DurableObject<Env> implements Connections {
       notify: (id, kind, params) => this.service.notifications.notify(id, kind, params),
       profiles: () => this.profiles,
     })
+    this.forum = new ForumService(store.sql, {
+      now: Date.now,
+      newId: () => randomId(8),
+      members: () => this.service.memberDirectory(),
+    })
+    this.forum.createTables()
     // Browsers send "ping" every few seconds to keep phone connections alive and to notice a dead
     // one quickly; the runtime answers without waking the object
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair('ping', 'pong'))
@@ -425,6 +434,7 @@ export class Club extends DurableObject<Env> implements Connections {
     if (route === 'GET /api/me') return json({ user })
     if (url.pathname.startsWith('/api/book/')) return this.bookApi(request, url, user, body)
     if (url.pathname.startsWith('/api/club/')) return this.clubApi(request, url, user, body)
+    if (url.pathname.startsWith('/api/forum/')) return this.forumApi(request, url, user, body)
     if (route === 'POST /api/account/password') {
       const b = await body()
       await this.service.changePassword(user.id, text(b.current), text(b.next))
@@ -689,6 +699,60 @@ export class Club extends DurableObject<Env> implements Connections {
       }
       if (action === 'end') return json({ pair: await this.teams.end(user, pairId) })
       return json({ pair: await this.teams.pair(pairId) })
+    }
+    throw new ClubError('noSuchApi', {}, 404)
+  }
+
+  /** TKU-BridgeHall's forum (E11, e11-t06, e11-t07); members only. Who may use each route is in roles.ts */
+  private async forumApi(request: Request, url: URL, user: Me, body: () => Promise<Body>) {
+    const path = url.pathname.slice('/api/forum'.length)
+    const method = request.method
+    const need = forumRouteNeed(method, path)
+    if (!need) throw new ClubError('noSuchApi', {}, 404)
+    requireNeed(user, need)
+    const forum = this.forum
+
+    if (path === '/boards') {
+      if (method === 'GET') return json({ boards: forum.boards() })
+      return json({ board: forum.createBoard(await body()) })
+    }
+    if (path === '/latest') return json(forum.latest())
+    const posts = path.match(/^\/boards\/([\w-]+)\/posts$/)
+    if (posts) {
+      if (method === 'GET') return json(forum.boardPage(posts[1], Number(url.searchParams.get('page') ?? 1)))
+      return json({ post: forum.createPost(user, posts[1], await body()) })
+    }
+    const board = path.match(/^\/boards\/([\w-]+)$/)
+    if (board) {
+      if (method === 'PATCH') return json({ board: forum.updateBoard(board[1], await body()) })
+      forum.deleteBoard(board[1])
+      return json({ ok: true })
+    }
+    const reaction = path.match(/^\/(posts|comments)\/([\w-]+)\/reaction$/)
+    if (reaction) {
+      const target = reaction[1] === 'posts' ? 'post' : 'comment'
+      if (method === 'PUT') return json({ reactions: forum.react(user, target, reaction[2], await body()) })
+      return json({ reactions: forum.unreact(user, target, reaction[2]) })
+    }
+    const postAction = path.match(/^\/posts\/([\w-]+)\/(pin|lock|comments)$/)
+    if (postAction) {
+      const [, id, action] = postAction
+      if (action === 'pin') return json({ post: forum.setPinned(id, await body()) })
+      if (action === 'lock') return json({ post: forum.setLocked(id, await body()) })
+      return json({ comment: forum.addComment(user, id, await body()) })
+    }
+    const post = path.match(/^\/posts\/([\w-]+)$/)
+    if (post) {
+      if (method === 'GET') return json(forum.thread(post[1]))
+      if (method === 'PATCH') return json({ post: forum.updatePost(user, post[1], await body()) })
+      forum.deletePost(user, post[1])
+      return json({ ok: true })
+    }
+    const comment = path.match(/^\/comments\/([\w-]+)$/)
+    if (comment) {
+      if (method === 'PATCH') return json({ comment: forum.updateComment(user, comment[1], await body()) })
+      forum.deleteComment(user, comment[1])
+      return json({ ok: true })
     }
     throw new ClubError('noSuchApi', {}, 404)
   }

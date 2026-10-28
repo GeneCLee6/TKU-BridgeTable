@@ -146,6 +146,8 @@ export interface Post {
   locked?: boolean
   reactions: Reactions
   commentCount: number
+  /** The members its text names with `@` (username or display name), in the order they first appear */
+  mentions?: string[]
 }
 
 /** Comments nest one level: a reply to a reply hangs under the same top comment */
@@ -159,6 +161,8 @@ export interface Comment {
   createdAt: number
   editedAt?: number
   reactions: Reactions
+  /** The members its text names with `@`, as on a post */
+  mentions?: string[]
 }
 
 // ── Reports ──────────────────────────────────────────────────────────────────────────────────
@@ -196,4 +200,56 @@ export const FORUM_LIMITS = {
   /** Posts on one page of a board */
   pageSize: 20,
   reportReasonMax: 300,
+  /** Boards a club may have, and the length of a board's name and description */
+  boardsMax: 20,
+  boardNameMax: 20,
+  boardDescriptionMax: 100,
+  /** Posts in each of the home page's two lists (社團新聞, 最新討論) */
+  latestShown: 3,
 } as const
+
+// ── Requests and answers (worker/forum.ts, e11-t06, e11-t07) ─────────────────────────────────
+
+/** `POST /api/forum/boards` (an admin; `id` is a-z, 0-9 and '-') and `PATCH /api/forum/boards/:id` (any field) */
+export interface BoardInput {
+  id?: string
+  name?: string
+  description?: string
+  order?: number
+  postPolicy?: BoardPostPolicy
+}
+
+/** `POST /api/forum/boards/:id/posts` and `PATCH /api/forum/posts/:id` */
+export interface PostInput {
+  title?: string
+  blocks: PostBlock[]
+}
+
+/** `POST /api/forum/posts/:id/comments` (`parentId` set: a reply) and `PATCH /api/forum/comments/:id` (blocks only) */
+export interface CommentInput {
+  parentId?: string
+  blocks: CommentBlock[]
+}
+
+/** `GET /api/forum/boards/:id/posts?page=`: the pinned posts (page 1 only), then newest first */
+export interface BoardPage {
+  board: Board
+  pinned: Post[]
+  posts: Post[]
+  /** From 1 */
+  page: number
+  /** At least 1 */
+  pages: number
+}
+
+/** `GET /api/forum/posts/:id`: the post and every comment, oldest first (replies after their top comment's earlier ones) */
+export interface PostThread {
+  post: Post
+  comments: Comment[]
+}
+
+/** `GET /api/forum/latest`: the home page's 社團新聞 (the news board, pinned first) and 最新討論 (the other boards) */
+export interface ForumLatest {
+  news: Post[]
+  discussions: Post[]
+}
