@@ -98,3 +98,12 @@ describe.runIf(!FRIENDS_ENABLED)('PeopleList while friends are hidden (FRIENDS_E
     expect(send).toHaveBeenLastCalledWith({ type: 'setBlocked', userId: 'lee', blocked: false })
   })
 })
+
+describe('PeopleList names (e11-t19)', () => {
+  it("shows a member's display name, with the username in the tooltip", () => {
+    show({ ...LOBBY, members: [{ ...person('ben', true), displayName: '陳小班' }, person('amy', true)] }, vi.fn())
+    const ben = screen.getByRole('button', { name: /^陳小班/ })
+    expect(ben).toHaveAttribute('title', expect.stringContaining('陳小班 (ben)'))
+    expect(screen.getByRole('button', { name: '傳私訊給 陳小班' })).toBeInTheDocument()
+  })
+})

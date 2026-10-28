@@ -76,6 +76,7 @@ export function bookRouteNeed(method: string, path: string): Need | null {
  */
 export function clubRouteNeed(method: string, path: string): Need | null {
   if (path === '/members') return method === 'GET' ? 'member' : null
+  if (/^\/members\/[\w-]+\/teams$/.test(path)) return method === 'GET' ? 'member' : null
   if (path === '/teams') return method === 'GET' ? 'member' : method === 'POST' ? 'bookEdit' : null
   if (/^\/teams\/[\w-]+$/.test(path)) return method === 'GET' || method === 'PATCH' ? 'member' : null
   if (/^\/teams\/[\w-]+\/members$/.test(path)) return method === 'POST' ? 'member' : null

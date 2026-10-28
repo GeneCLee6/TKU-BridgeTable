@@ -1028,9 +1028,12 @@ export class ClubService {
     const user = this.requireUser(userId)
     const parsed = parseProfile(input)
     if ('error' in parsed) throw new ClubError(parsed.error, parsed.params)
+    const renamed = user.profile?.displayName !== parsed.profile.displayName
     if (Object.keys(parsed.profile).length) user.profile = parsed.profile
     else delete user.profile
     await this.store.put(`user:${user.id}`, user)
+    // The lobby's member list and name plates show the display name (e11-t19)
+    if (renamed) this.broadcast()
     return this.me(user)
   }
 
@@ -3313,6 +3316,7 @@ export class ClubService {
         id: u.id,
         username: u.username,
         ...(u.avatar && { avatar: u.avatar }),
+        ...(u.profile?.displayName && { displayName: u.profile.displayName }),
         online: basis.online.has(u.id),
         tableNumber: table?.number ?? null,
         seat: table ? this.seatIn(table, u.id) : null,
@@ -3392,6 +3396,13 @@ export class ClubService {
   private publicUserById(id: string): PublicUser | undefined {
     if (isRobotId(id)) return robotUser(id)
     const user = this.users.get(id)
-    return user && { id: user.id, username: user.username, ...(user.avatar && { avatar: user.avatar }) }
+    return (
+      user && {
+        id: user.id,
+        username: user.username,
+        ...(user.avatar && { avatar: user.avatar }),
+        ...(user.profile?.displayName && { displayName: user.profile.displayName }),
+      }
+    )
   }
 }

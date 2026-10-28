@@ -124,6 +124,7 @@ describe('roles (2026-10-25: admins manage everything, editors everything but ac
     expect(may(editor, clubRouteNeed('POST', '/teams'))).toBe(true)
     for (const [method, path] of [
       ['GET', '/members'],
+      ['GET', '/members/amy/teams'],
       ['GET', '/teams'],
       ['GET', '/teams/t1'],
       ['PATCH', '/teams/t1'],

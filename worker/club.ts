@@ -658,6 +658,8 @@ export class Club extends DurableObject<Env> implements Connections {
     requireNeed(user, need)
 
     if (path === '/members') return json({ members: this.teams.members() })
+    const memberTeams = path.match(/^\/members\/([\w-]+)\/teams$/)
+    if (memberTeams) return json(await this.teams.memberTeams(memberTeams[1]))
     if (path === '/teams') {
       if (method === 'GET') return json({ teams: await this.teams.teams() })
       return json({ team: await this.teams.createTeam(user, await body()) })

@@ -582,6 +582,8 @@ H1 把牌桌拆出去之後（§5.10），社團的物件（`Club`）仍然是**
 - **刪除**：`DELETE /api/files/<key>`，上傳者或管理員（之後加 `forumModerate`）。帳號刪除時不刪圖片（貼文可能還在用）。
 - **沒有 bucket 時**：`FILES` 沒綁就全部回 503 `filesOff`，所以 binding 先註解掉也能部署（DEPLOY.md §4.8）。
 - **頭像不搬到 R2**：仍是 `avatar:<userId>`（256×256、≤ 64 KB，見 §5 的表），兩站都讀 `GET /api/avatar/:id?v=`。`GET /api/club/members` 多回 `displayName`、`avatar`，橋譜用來畫別人的頭像（`e11-t01`、`e11-t03`）。
+- **顯示名稱上名牌**（`e11-t19`）：大廳的社員與大廳牌桌的座位（`PublicUser.displayName`）帶個人檔案的顯示名稱，改名時重送大廳；牌桌自己的座位與牌局紀錄仍只有帳號名稱，牌桌頁用 `withMemberProfile`（`shared/lobby.ts`）從大廳補上頭像與顯示名稱。`playerName` 有顯示名稱就用它，社員分頁的提示仍附帳號名稱。
+- **論壇型別**（`e11-t05`）：`shared/forum.ts` 的 `Board`、`Post`、`PostBlock`、`Comment`、`Reaction`、`Report` 與上限，橋館 `src/lib/forum.ts` 是逐字複本（橋館的型別對拍檢查）；Worker 模組 `worker/forum.ts` 是 `e11-t06`。
 
 ## 5.8 隊制賽（決策紀錄，`e8-t01`，2026-10-25）
 
@@ -975,6 +977,7 @@ SQL 由 `worker/history-index.ts` 的 `searchBoards` 組：只有固定的 SQL �
 | `PUT /api/book/system-spec/:profileId` | bookEdit | `{ spec: SystemSpec }`：橋館的差異報告頁用 `toSystemSpec` 在瀏覽器轉好送來（內建特約只在橋館、轉換的 CPU 一次請求不夠），這裡只檢查形狀（`worker/system-spec.ts`）、`spec.profileId` 要等於網址、JSON 最多 1 MB（413 `contentTooLarge`）；制度集不存在回 404 `profileGone`。存在 `book:spec:<id>`（本體分段），每日備份一起備。回同 GET |
 | `POST /api/book/robot-meanings` | bookEdit | `RobotMeaningsQuery`（`{ items: { after, calls }[] }`，一次最多 10 個叫牌過程、每個 38 個叫品）→ `{ items }`：TKB 淡江制度的規則說每個叫品表示什麼（`explain`，只看叫牌過程；`RobotShows` 是橋館啟發式讀得到的欄位加中文說明），沒有規則是 `null`。差異報告頁分批問（橋館 e7-t04） |
 | `GET /api/club/members` | 社員 | `{ members: ClubMember[] }`：全部社員的 id 與帳號名稱（只有這兩個欄位），依名稱；選隊員、邀搭檔用 |
+| `GET /api/club/members/:id/teams` | 社員 | `MemberTeams`：那位社員所在的隊伍（含封存）與現役搭檔；邀請中、已結束的不列。橋館他人檔案頁 `/u/:id` 用（`e11-t04`） |
 | `GET /api/club/teams` | 社員 | `{ teams: ClubTeam[] }`，封存的在後，各依名稱 |
 | `POST /api/club/teams` | bookEdit | `TeamInput`（`name`、`captainId`、`memberIds?`，隊長自動算隊員）；同時開隊伍的制度集（繼承 `club`）。最多 8 人（409 `teamFull`）；制度集已達上限時整個不建立 |
 | `GET /api/club/teams/:id` | 社員 | `{ team, pairs }`：隊伍與它現役的搭檔；不存在回 404 `teamGone` |
