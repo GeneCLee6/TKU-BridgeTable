@@ -4,7 +4,7 @@
 
 | TKB 的制度 | 叫牌制度 | 規則 |
 | --- | --- | --- |
-| **淡江制度**（`tku`） | [TKU BridgeBook 淡江橋譜](https://tku-bridge-book.vercel.app/) 收錄的社團制度與特約（原始資料：`TKU-BridgeBook/src/content/conventions/`），橋譜沒寫到的照 5542 自然制 | §1–§5，`shared/robot/system/tku/` |
+| **淡江制度**（`tku`） | [TKU BridgeHall 淡江橋館](https://tku-bridge-hall.vercel.app/) 收錄的社團制度與特約（原始資料：`TKU-BridgeBook/src/content/conventions/`），橋譜沒寫到的照 5542 自然制 | §1–§5，`shared/robot/system/tku/` |
 | **2/1**（`gib`，GIB 相容） | BBO 的 GIB 公開的 2/1 迫叫成局制度（[`docs/BBO GIB`](docs/BBO%20GIB/README.md)），叫法與說明跟 BBO 的 GIB 一致 | §6，`shared/robot/system/gib/` |
 
 房主在空位的座位選單選「放 TKB（淡江制度）」或「放 TKB（2/1）」，名牌顯示「TKB」與制度（淡江制度／2/1）。兩種機器人都不做雙明手分析、不猜測對手的牌，只依照規則與一般坐莊／防守原則行動，所以叫的牌社員看得懂。淡江機器人是練習社團制度的搭檔；2/1 機器人讓社員練 BBO 上通用的 2/1。兩種機器人用同一個制度引擎（§6），所以同伴是哪一種機器人，輪到自己叫牌時叫牌盒都會提示機器人怎麼理解每個叫品。出牌兩種機器人完全一樣，坐莊、首攻、防守信號都照社團的規則（§3、§3.2）。
