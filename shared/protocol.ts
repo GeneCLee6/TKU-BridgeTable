@@ -1224,6 +1224,53 @@ export interface ProfileAccess {
   share: boolean
 }
 
+// Convention card versions (制度卡版本, TKU BridgeHall E3 e3-t09)
+//
+// A published version of one profile's card on one template: the card as the handbook filled it
+// (its src/cards/fill.ts FilledCard, kept as sent) and, when the handbook made one, the Word file.
+// Read by whoever may read the profile; with `shared` on, by anyone with the link, signed in or
+// not, until it is turned off. The handbook mirrors these in TKU-BridgeHall src/lib/api.ts.
+// ---------------------------------------------------------------------------------------------
+
+/** Versions per profile, the card's JSON, the Word file (bytes, before base64) and the note */
+export const CARD_SNAPSHOT_LIMITS = { perProfile: 200, cardBytesMax: 800_000, docxBytesMax: 600_000, noteMax: 200 } as const
+
+/** GET /api/book/cards/:profileId: a version without its card */
+export interface CardSnapshotMeta {
+  profileId: string
+  /** The handbook's template id (wbf, ctcba-simple…) */
+  templateId: string
+  /** 1, 2, … for each profile and template */
+  n: number
+  at: number
+  /** The user id that published it */
+  by: string
+  byName?: string
+  note: string
+  /** The profile as it was filled from */
+  profileName: string
+  profileVersion: number
+  /** Anyone with the link may read it */
+  shared: boolean
+  /** Has the Word file (GET …/docx) */
+  docx: boolean
+}
+
+/** GET /api/book/cards/:profileId/:templateId/:n */
+export interface CardSnapshot extends CardSnapshotMeta {
+  card: Record<string, unknown>
+}
+
+/** POST /api/book/cards/:profileId */
+export interface CardSnapshotInput {
+  templateId: string
+  profileVersion: number
+  note?: string
+  card: Record<string, unknown>
+  /** The Word file, base64 */
+  docx?: string
+}
+
 // Teams and partnerships (隊伍與搭檔, TKU BridgeBook E2 e2-t01)
 //
 // Each team and each active partnership owns a system profile (above): a team's inherits the

@@ -50,6 +50,13 @@ const MEMBER_BOOK_ROUTES: [string, string][] = [
   ['PUT', '/profiles/ab12'],
   ['GET', '/profiles/club/revisions'],
   ['GET', '/profiles/ab12/revisions/3'],
+  // Convention card versions (BridgeHall e3-t09): the profile's rights decide in club.ts
+  ['GET', '/cards/ab12'],
+  ['POST', '/cards/club'],
+  ['GET', '/cards/ab12/wbf/3'],
+  ['PATCH', '/cards/ab12/wbf/3'],
+  ['DELETE', '/cards/ab12/wbf/3'],
+  ['GET', '/cards/ab12/ctcba-simple/1/docx'],
 ]
 const IMPORT_ROUTES: [string, string][] = [
   ['POST', '/import/ticket'],
