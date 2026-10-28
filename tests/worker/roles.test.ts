@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest'
-import { type ClubTeam, type Me, type Partnership, PERMISSIONS } from '../../shared/protocol.ts'
+import { type ClubTeam, type Me, type Partnership, PERMISSIONS, withImpliedPermissions } from '../../shared/protocol.ts'
 import { adminRouteNeed, allows, bookRouteNeed, clubRouteNeed, managesTeam, type Need, profileAccess, requireNeed } from '../../worker/roles.ts'
 
 const admin: Me = { id: 'a', username: 'admin', admin: true, permissions: [...PERMISSIONS] }
@@ -23,14 +23,23 @@ const ADMIN_ROUTES: [string, string][] = [
   ['POST', '/members'],
 ]
 const EDITOR_BOOK_ROUTES: [string, string][] = [
-  ['PUT', '/conventions/stayman'],
-  ['POST', '/conventions/stayman/hide'],
-  ['POST', '/conventions/stayman/reset'],
+  ['GET', '/conventions/stayman/draft'],
+  ['PUT', '/conventions/stayman/draft'],
+  ['DELETE', '/conventions/stayman/draft'],
+  ['GET', '/reviews'],
+  ['GET', '/audit'],
   ['GET', '/conventions/stayman/revisions'],
   ['GET', '/conventions/stayman/revisions/00000000000001-abc'],
   ['PUT', '/categories'],
   ['POST', '/profiles'],
   ['DELETE', '/profiles/ab12'],
+]
+/** Publishing, sending a draft back, hiding, going back to the bundled one (BridgeHall e8-t01) */
+const REVIEWER_BOOK_ROUTES: [string, string][] = [
+  ['PUT', '/conventions/stayman'],
+  ['POST', '/conventions/stayman/reject'],
+  ['POST', '/conventions/stayman/hide'],
+  ['POST', '/conventions/stayman/reset'],
 ]
 /** Which member may use these on a given profile is profileAccess's (e2-t04) */
 const MEMBER_BOOK_ROUTES: [string, string][] = [
@@ -69,7 +78,26 @@ describe('roles (2026-10-25: admins manage everything, editors everything but ac
     expect(() => requireNeed(member, adminRouteNeed('DELETE', '/tables/t1'))).toThrow(expect.objectContaining({ code: 'noPermission' }))
   })
 
-  it('lets editors do everything in the handbook: conventions (hiding too), categories and profiles', () => {
+  it('keeps publishing for reviewers, who are editors too; admins review as well', () => {
+    const reviewer: Me = { ...member, permissions: ['bookEdit', 'bookReview'] }
+    for (const [method, path] of REVIEWER_BOOK_ROUTES) {
+      expect(bookRouteNeed(method, path), `${method} ${path}`).toBe('bookReview')
+      expect(may(reviewer, bookRouteNeed(method, path))).toBe(true)
+      expect(may(admin, bookRouteNeed(method, path))).toBe(true)
+      expect(may(editor, bookRouteNeed(method, path))).toBe(false)
+    }
+    for (const [method, path] of EDITOR_BOOK_ROUTES) expect(may(reviewer, bookRouteNeed(method, path))).toBe(true)
+    expect(bookRouteNeed('POST', '/conventions/stayman/draft')).toBeNull()
+    expect(bookRouteNeed('GET', '/conventions/stayman/draft/x')).toBeNull()
+    expect(bookRouteNeed('POST', '/reviews')).toBeNull()
+  })
+
+  it('brings editing with reviewing', () => {
+    expect(withImpliedPermissions(['bookImport', 'bookReview'])).toEqual(['bookEdit', 'bookReview', 'bookImport'])
+    expect(withImpliedPermissions(['bookEdit'])).toEqual(['bookEdit'])
+  })
+
+  it('lets editors do everything else in the handbook: drafts, versions, the audit log, categories and profiles', () => {
     for (const [method, path] of EDITOR_BOOK_ROUTES) {
       expect(bookRouteNeed(method, path), `${method} ${path}`).toBe('bookEdit')
       expect(may(editor, bookRouteNeed(method, path))).toBe(true)
@@ -98,7 +126,7 @@ describe('roles (2026-10-25: admins manage everything, editors everything but ac
   it('lets admins do everything', () => {
     for (const [method, path] of [...ADMIN_ROUTES, ['DELETE', '/tables/t1'] as [string, string]])
       expect(may(admin, adminRouteNeed(method, path))).toBe(true)
-    for (const [method, path] of [...EDITOR_BOOK_ROUTES, ...MEMBER_BOOK_ROUTES, ...IMPORT_ROUTES])
+    for (const [method, path] of [...EDITOR_BOOK_ROUTES, ...REVIEWER_BOOK_ROUTES, ...MEMBER_BOOK_ROUTES, ...IMPORT_ROUTES])
       expect(may(admin, bookRouteNeed(method, path))).toBe(true)
     expect(requireNeed(admin, 'admin')).toBe(admin)
   })
