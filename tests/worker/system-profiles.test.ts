@@ -61,6 +61,19 @@ describe('system profile storage', () => {
     expect((await reloaded.list()).map((p) => p.id)).toEqual(['club', team.id])
   })
 
+  it("keeps the cards' hand edits with the profile, off the list (e3-t06)", async () => {
+    const cardEdits = { 'wbf.defence.overcalls': { text: '8-16', flagged: true } }
+    const team = await profiles.create(amy, { profile: input({ cardEdits }) })
+    expect(team.cardEdits).toEqual(cardEdits)
+    expect(await new ProfileService(store, () => time).get(team.id)).toEqual(team)
+    const listed = (await profiles.list()).find((p) => p.id === team.id)
+    expect(listed).not.toHaveProperty('cardEdits')
+    // Saved without them, they are gone
+    const saved = await profiles.save(amy, team.id, { profile: input(), baseVersion: 1 })
+    expect(saved).not.toHaveProperty('cardEdits')
+    expect(await new ProfileService(store, () => time).get(team.id)).not.toHaveProperty('cardEdits')
+  })
+
   it('keeps every version and loads an old one', async () => {
     const team = await profiles.create(amy, { profile: input(), note: '開隊' })
     await profiles.save(ben, team.id, { profile: input({ adopted: {} }), baseVersion: 1, note: '全採用' })
@@ -162,6 +175,27 @@ describe('checkProfileInput', () => {
     expect(reason({ ...input(), notes: [{ slug: 's', text: '字'.repeat(PROFILE_LIMITS.noteMax + 1), by: 'u1', at: 1 }] })).toMatch('最多')
     expect(reason({ ...input(), notes: [{ slug: 's', text: 'x' }] })).toMatch('作者')
     expect(reason(input({ overrides: [{ kind: 'meta', slug: 's', summary: '新摘要' }] }))).toBe('')
+  })
+
+  it("keeps the convention cards' hand edits by slot id (e3-t06)", () => {
+    const cardEdits = { 'wbf.openings.1H.responses': { text: '4♥=PRE', flagged: true }, 'ctcba-simple.nt.stayman': { checked: false } }
+    expect(checkProfileInput(input({ cardEdits }))).toEqual(input({ cardEdits }))
+    // Empty edits and `flagged: false` are dropped; no edits at all leave the field out
+    expect(checkProfileInput(input({ cardEdits: { 'wbf.a': {}, 'wbf.b': { flagged: false, option: 'x' } } }))).toEqual(
+      input({ cardEdits: { 'wbf.b': { option: 'x' } } }),
+    )
+    expect(checkProfileInput(input({ cardEdits: {} }))).toEqual(input())
+    expect(reason({ ...input(), cardEdits: [] })).toMatch('cardEdits')
+    expect(reason({ ...input(), cardEdits: { wbf: { text: 'x' } } })).toMatch('格子 id')
+    expect(reason({ ...input(), cardEdits: { 'wbf.a b': { text: 'x' } } })).toMatch('格子 id')
+    expect(reason({ ...input(), cardEdits: { 'wbf.a': 'x' } })).toMatch('物件')
+    expect(reason({ ...input(), cardEdits: { 'wbf.a': { text: 1 } } })).toMatch('文字')
+    expect(reason({ ...input(), cardEdits: { 'wbf.a': { text: '字'.repeat(PROFILE_LIMITS.noteMax + 1) } } })).toMatch('最多')
+    expect(reason({ ...input(), cardEdits: { 'wbf.a': { checked: 'yes' } } })).toMatch('勾選')
+    expect(reason({ ...input(), cardEdits: { 'wbf.a': { option: '' } } })).toMatch('選項')
+    expect(reason({ ...input(), cardEdits: { 'wbf.a': { flagged: 1 } } })).toMatch('標記')
+    const many = Object.fromEntries(Array.from({ length: PROFILE_LIMITS.cardEditsMax + 1 }, (_, i) => [`wbf.s${i}`, { text: 'x' }]))
+    expect(reason({ ...input(), cardEdits: many })).toMatch('最多')
   })
 
   it('keeps who may read it: for its members only, or the whole club when absent (e2-t04)', () => {
