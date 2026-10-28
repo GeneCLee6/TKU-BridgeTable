@@ -10,6 +10,7 @@ import type { MatchSeat, Room, TeamMatchView } from './team-match.ts'
 import type { RulingKind, Team } from './team-scoring.ts'
 import type { Profile } from './profile.ts'
 import type { Spec } from './robot/system/spec.ts'
+import type { SpecShows, SystemSpec } from './systemSpec.ts'
 
 /** Messages and views exchanged between the browser and the Worker over HTTP and WebSocket */
 
@@ -1121,6 +1122,64 @@ export interface ProfileRevision {
 
 /** What an editor sends to create or save a profile; the Worker sets the id, version and who saved it */
 export type ProfileInput = Pick<SystemProfile, 'name' | 'scope' | 'parentId' | 'visibility' | 'adopted' | 'overrides' | 'notes'>
+
+// ── 淡江橋館 → the robot (BridgeHall E7: e7-t03, e7-t04) ────────────────────────────────────────
+
+/**
+ * A profile's rules as last synced from 淡江橋館: the handbook makes the `SystemSpec` from the
+ * profile's conventions (`toSystemSpec`) and an editor sends it here (PUT /api/book/system-spec/:id)
+ */
+export interface SyncedSystemSpec {
+  spec: SystemSpec
+  syncedAt: number
+  /** The user id that synced it */
+  syncedBy: string
+  /** Their username, when the account still exists */
+  syncedByName?: string
+}
+
+/** GET /api/book/system-spec?profileId=: the profile's synced rules, and which profile TKB follows */
+export interface SystemSpecStatus {
+  /** The profile whose rules TKB uses in the club's system (`ClubConfig.systemProfileId`) */
+  tableProfileId: string
+  /** Null until the profile is synced */
+  synced: SyncedSystemSpec | null
+}
+
+/** PUT /api/book/system-spec/:profileId */
+export interface SystemSpecInput {
+  spec: SystemSpec
+}
+
+/** POST /api/book/robot-meanings: the calls to look up, after each auction (a `Book.after` pattern) */
+export interface RobotMeaningsQuery {
+  items: { after: string; calls: string[] }[]
+}
+
+/** What the robot's rule shows, in the parts the handbook's patterns read, and in words */
+export interface RobotShows extends Omit<SpecShows, 'name'> {
+  /** The robot's convention name (`CONVENTIONS`), which may be one the handbook's patterns do not read */
+  name?: string
+  /** `describe` in Traditional Chinese */
+  text: string
+}
+
+export interface RobotMeaningsItem {
+  after: string
+  /** Null when no rule of TKB in the club's system makes the call after this auction */
+  meanings: Record<string, RobotShows | null>
+}
+
+/** The answer to POST /api/book/robot-meanings */
+export interface RobotMeanings {
+  items: RobotMeaningsItem[]
+}
+
+/**
+ * A synced spec's size (its JSON), how many auctions one robot-meanings request may ask about and
+ * how many calls after each: small enough for one request's CPU on the free plan
+ */
+export const SYSTEM_SPEC_LIMITS = { bytesMax: 1_000_000, meaningItemsMax: 10, meaningCallsMax: 38 } as const
 
 /**
  * What the member asking may do with a profile (e2-t04), sent with GET /api/book/profiles/:id so the

@@ -343,6 +343,8 @@ AK、KQ 都可以攻任一張：攻 K 同伴跟張數，攻 A 或 Q 同伴跟態
 
 **與淡江橋館同步**（`tku/sources.ts`，`e5-t45`，AC-5.9）：每本規則書帶著它依照的橋館文章（`Book.bookSlugs`，在 `tku/index.ts` 用 `cite` 標），`TKU_SOURCES` 記每篇文章檢查規則時的版本（線上版本，0＝橋館內建的文字）與日期。管理頁「機器人與橋館同步」（`GET /api/admin/book-sync`）比對線上現在的版本，列出在線上改過或隱藏、規則還沒對照過的文章與跟著它的規則。幹部對照新內容改好規則（或確認不用改）之後，把那篇的 `version` 改成線上的版本。橋館內建文字的修改跟著淡江橋譜的版本發布，不經過線上編輯：改的人同時檢查機器人的規則並更新 `updated`。目前（2026-10-25）正式站線上只改過「好壞2NT」（v1），機器人沒有用這個特約，所以全部同步。
 
+**橋館的文字跟著叫品**（`system/book-spec.ts`，橋館 e7-t03／e7-t04，AC-7.1、AC-7.2）：橋館把制度集的叫品表轉成規則（`shared/systemSpec.ts` 的 `toSystemSpec`，對照表在 TKU-BridgeBook `docs/SYSTEM-SPEC.md`），幹部在橋館的差異報告頁（`/integrations/table`）按「同步到牌桌」存進來（`PUT /api/book/system-spec/:id`）。TKB 用淡江制度時，**叫牌仍照 `tku/` 已驗證的規則**；叫出的叫品（pass 除外）若在 TKB 跟著的制度集（`SYSTEM_PROFILE_ID`，預設 `club`）裡有「同一個叫牌過程、同一個叫品」的列，就把那列的文字逐字帶在 `AuctionCall.book`，叫牌盒的說明多一段「淡江橋館」。兩列給同一個叫品不同文字時都不用。牌桌每副牌向社團問一次（`ClubLink.bookNotes`，沒變就回 `same`）。規則與橋館文字不一致的地方，差異報告頁用 `POST /api/book/robot-meanings`（`explain`）逐條比對列出，幹部再決定改規則或改制度。
+
 以前有等級時量過（快速版 200 副，A 大專對 B 初學者）：淡江 **+0.99 ± 0.36** IMP／副、2/1 **+1.10 ± 0.33**；全部 5,000 副都是 +1.26 ± 0.07（§7）。
 
 ## 5. 修改規則

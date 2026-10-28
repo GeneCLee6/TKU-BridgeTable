@@ -60,6 +60,10 @@ export function bookRouteNeed(method: string, path: string): Need | null {
     if (method === 'DELETE') return 'bookEdit'
     return null
   }
+  // 淡江橋館 → TKB (BridgeHall e7-t03, e7-t04): the report page is the editors'
+  if (path === '/system-spec') return method === 'GET' ? 'bookEdit' : null
+  if (/^\/system-spec\/[\w-]+$/.test(path)) return method === 'PUT' ? 'bookEdit' : null
+  if (path === '/robot-meanings') return method === 'POST' ? 'bookEdit' : null
   if (path === '/import/ticket') return method === 'POST' ? 'bookImport' : null
   if (path === '/drafts') return method === 'GET' || method === 'POST' ? 'bookImport' : null
   if (/^\/drafts\/[\w-]+$/.test(path)) return method === 'GET' || method === 'DELETE' ? 'bookImport' : null

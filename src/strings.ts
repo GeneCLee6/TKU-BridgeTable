@@ -555,6 +555,7 @@ const zh = {
   callMeaning: '叫品意義',
   inferredBy: (system: string) => `依${system}推論`,
   playerExplanation: '玩家的說明',
+  bookExplanation: '淡江橋館',
   playedCard: (card: string) => `${card}（已出）`,
   playedCardsGrey: '已出牌淡化保留',
 
@@ -1538,6 +1539,7 @@ const en: Strings = {
   callMeaning: 'Call meaning',
   inferredBy: (system: string) => `Inferred (${system})`,
   playerExplanation: "Player's explanation",
+  bookExplanation: 'TKU BridgeHall',
   playedCard: (card) => `${card} (played)`,
   playedCardsGrey: 'Keep played cards (dimmed)',
 
@@ -2511,6 +2513,7 @@ const zhHans: Strings = {
   callMeaning: '叫品意义',
   inferredBy: (system: string) => `依${system}推断`,
   playerExplanation: '玩家的说明',
+  bookExplanation: '淡江桥馆',
   playedCard: (card) => `${card}（已出）`,
   playedCardsGrey: '已出牌淡化保留',
 
@@ -3485,6 +3488,7 @@ const vi: Strings = {
   callMeaning: 'Ý nghĩa của tiếng gọi',
   inferredBy: (system: string) => `Suy luận theo ${system}`,
   playerExplanation: 'Giải thích của người chơi',
+  bookExplanation: 'TKU BridgeHall',
   playedCard: (card) => `${card} (đã đánh)`,
   playedCardsGrey: 'Giữ lá đã đánh (làm mờ)',
 
@@ -4459,6 +4463,7 @@ const ja: Strings = {
   callMeaning: 'ビッドの意味',
   inferredBy: (system: string) => `${system}による推論`,
   playerExplanation: 'プレイヤーの説明',
+  bookExplanation: 'TKU BridgeHall（淡江橋館）',
   playedCard: (card) => `${card}（プレイ済み）`,
   playedCardsGrey: 'プレイ済みのカードを淡色で残す',
 
@@ -5433,6 +5438,7 @@ const ko: Strings = {
   callMeaning: '비드의 의미',
   inferredBy: (system: string) => `${system} 기준 추론`,
   playerExplanation: '플레이어의 설명',
+  bookExplanation: 'TKU BridgeHall',
   playedCard: (card) => `${card} (낸 카드)`,
   playedCardsGrey: '낸 카드 흐리게 표시',
 

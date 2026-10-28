@@ -3,7 +3,8 @@ import { AppError } from '../shared/messages.ts'
 import type { ChallengeSettings } from '../shared/challenge.ts'
 import { parseHistoryQuery } from '../shared/history-query.ts'
 import { MESSAGE_MAX_CHARS } from '../shared/message-guard.ts'
-import type { BoardRecord, Me, ServerMessage } from '../shared/protocol.ts'
+import type { BoardRecord, Me, ServerMessage, SystemSpecStatus } from '../shared/protocol.ts'
+import type { BookNotes } from '../shared/robot/system/book-spec.ts'
 import { TKU } from '../shared/robot/system/tku/index.ts'
 import { bookSync } from '../shared/robot/system/tku/sources.ts'
 import { randomId, readCookie, SESSION_COOKIE, sessionCookie } from './auth.ts'
@@ -15,6 +16,7 @@ import { avatarResponse, readAvatarUpload } from './avatars.ts'
 import { FILES_PATH, FileService, readFileUpload } from './files.ts'
 import { FILE_LIMITS } from '../shared/files.ts'
 import { adminRouteNeed, bookRouteNeed, clubRouteNeed, requireNeed } from './roles.ts'
+import { robotMeaningsFor } from './system-spec.ts'
 import { CLIENT_ERROR_MAX_CHARS } from './client-errors.ts'
 import { d1Replica } from './d1.ts'
 import { edgeSecret, mintPass, PASS_COOKIE, passCookie, passNeedsRefresh } from './edge-auth.ts'
@@ -69,6 +71,8 @@ export interface Env {
   EDGE_AUTH_SECRET?: string
   /** "off" stops handing out and reading edge passes: the switch back (DEPLOY.md §4.5) */
   EDGE_AUTH?: string
+  /** The system profile whose 淡江橋館 rules TKB follows (BridgeHall e7-t03); the club's when unset */
+  SYSTEM_PROFILE_ID?: string
 }
 
 /** A picture's upload may come straight from TKU BridgeBook's page too; its single-use pass is the check */
@@ -150,6 +154,7 @@ export class Club extends DurableObject<Env> implements Connections {
       // The history pages' copy in D1, read by the Worker (§5.12)
       historyReplica: env.HISTORY ? d1Replica(env.HISTORY) : undefined,
       historyReplicaOff: env.HISTORY_D1 === 'off',
+      systemProfileId: env.SYSTEM_PROFILE_ID || undefined,
     })
     this.edgeSecret = edgeSecret(env)
     this.book = new BookService(store)
@@ -209,6 +214,11 @@ export class Club extends DurableObject<Env> implements Connections {
   /** Whether a member may seat TKB in the club's system (`ClubLink.mayUseTku`) */
   async tableMayUseTku(userId: string): Promise<boolean> {
     return this.service.link.mayUseTku(userId)
+  }
+
+  /** 淡江橋館's words for TKB's calls (`ClubLink.bookNotes`, BridgeHall e7-t03) */
+  async tableBookNotes(known: string | null): Promise<BookNotes | 'same' | null> {
+    return this.service.systemSpecs.bookNotes(known)
   }
 
   /** A challenge in its own object changed on its own (`EventLink.changed`, H2b); a failure makes it tell again */
@@ -577,6 +587,7 @@ export class Club extends DurableObject<Env> implements Connections {
           restored: async (prefixes) => {
             this.book = new BookService(this.store)
             this.profiles = new ProfileService(this.store, Date.now, (id) => this.service.usernameOf(id))
+            this.service.systemSpecs.forget()
             // Members come back as of the backup and everyone signs in again (DEPLOY.md §4.4)
             if (prefixes.some((p) => ACCOUNT_PREFIXES.includes(p))) await this.service.reloadAccounts()
           },
@@ -721,6 +732,20 @@ export class Club extends DurableObject<Env> implements Connections {
       return json({ ok: true })
     }
 
+    // 淡江橋館 → TKB (BridgeHall e7-t03, e7-t04): the synced rules and the report page's lookups
+    if (path === '/system-spec') {
+      const profileId = url.searchParams.get('profileId') || this.service.systemSpecs.tableProfileId
+      return json(await this.systemSpecStatus(profileId))
+    }
+    const specFor = path.match(/^\/system-spec\/([\w-]+)$/)
+    if (specFor) {
+      // Only a profile that exists; its own rules for who may save it do not apply: syncing is the editors'
+      await this.profiles.get(specFor[1])
+      await this.service.systemSpecs.save(user, specFor[1], await body())
+      return json(await this.systemSpecStatus(specFor[1]))
+    }
+    if (path === '/robot-meanings') return json({ items: robotMeaningsFor(await body()) })
+
     if (path === '/import/ticket') {
       const ticket = await this.book.createTicket(user)
       return json({ ticket, url: `${url.origin}/api/book/import`, ready: !!this.env.ANTHROPIC_API_KEY })
@@ -736,6 +761,15 @@ export class Club extends DurableObject<Env> implements Connections {
       return json({ ok: true })
     }
     throw new ClubError('noSuchApi', {}, 404)
+  }
+
+  private async systemSpecStatus(profileId: string): Promise<SystemSpecStatus> {
+    const synced = await this.service.systemSpecs.get(profileId)
+    const name = synced && this.service.usernameOf(synced.syncedBy)
+    return {
+      tableProfileId: this.service.systemSpecs.tableProfileId,
+      synced: synced ? { ...synced, ...(name ? { syncedByName: name } : {}) } : null,
+    }
   }
 
   async webSocketMessage(ws: WebSocket, data: string | ArrayBuffer) {

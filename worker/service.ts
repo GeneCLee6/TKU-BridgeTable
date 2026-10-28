@@ -96,6 +96,7 @@ import { ChallengeStore, type Challenge, type ChallengeResult } from './challeng
 import { LocalEvents } from './event-service.ts'
 import { EventHomes, type EventApi, type EventLink, type EventSnapshot, type RemoteEvents } from './events.ts'
 import { ClubError } from './errors.ts'
+import { SystemSpecStore } from './system-spec.ts'
 import { PROFILE_ID } from './profiles.ts'
 import { FeaturedService } from './featured.ts'
 import { TeamMatchService, type MatchPlayAction } from './team-match-service.ts'
@@ -327,6 +328,11 @@ export interface ClubConfig {
    * this object and brings back any that were moved out: the switch back (DEPLOY.md §4.6)
    */
   eventObjectsOn?: boolean
+  /**
+   * The system profile whose 淡江橋館 rules TKB follows in the club's system (BridgeHall e7-t03,
+   * `worker/system-spec.ts`): the club's (CLUB_PROFILE_ID) unless set (`SYSTEM_PROFILE_ID`)
+   */
+  systemProfileId?: string
 }
 
 export type ScheduleKind = JobKind
@@ -437,6 +443,8 @@ export class ClubService {
   >()
   /** The notification centre; other parts of the club call `notifications.notify` */
   readonly notifications: NotificationService
+  /** 淡江橋館's rules synced for TKB (BridgeHall e7-t03); the book routes in `club.ts` use it too */
+  readonly systemSpecs: SystemSpecStore
   /** Whom each member follows (好友) and whom they blocked (AC-1.6) */
   private readonly friends: Relations
   private readonly blocks: Relations
@@ -532,6 +540,7 @@ export class ClubService {
     })
     this.directs = new DirectMessageStore(store.sql)
     this.practicePresets = new PracticePresets(store, this.now, () => randomId(8))
+    this.systemSpecs = new SystemSpecStore(store, this.now, config.systemProfileId)
     if (config.schedule) {
       this.scheduler = manualScheduler(config.schedule)
     } else {
@@ -559,6 +568,7 @@ export class ClubService {
       closed: (tableId) => this.tableClosed(tableId),
       boardFinished: (record, event, stats) => this.boardFinished(record, event, stats),
       mayUseTku: (userId) => this.mayUseTku(userId),
+      bookNotes: (known) => this.systemSpecs.bookNotes(known),
     }
     this.link = link
     // Each table in its own Durable Object (H1b, §5.10), unless switched back into this one
