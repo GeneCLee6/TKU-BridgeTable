@@ -159,7 +159,7 @@ function useMeaning() {
   return {
     ofCall(call: AuctionCall): string {
       const described = call.meaning && rules ? rules.describe(call.meaning, lang) : undefined
-      if (call.inferred) return `${t.inferredBy(t.robotSystems[call.inferred])}：${described ?? '…'}`
+      if (call.inferred) return `${t.inferredBy(t.robotSystems[call.inferred])}${t.colon}${described ?? '…'}`
       return described || call.alert || t.noExplanation
     },
     ofStep(step: PracticeReviewStep): string {
@@ -293,13 +293,13 @@ export function PracticeReview({
               {chosen && picked !== null && (
                 <Explain role="region" aria-label={r.meaningOf(t.seatNames[chosen.seat])}>
                   <dt>
-                    {r.meaningOf(t.seatNames[chosen.seat])}：<CallLabel call={chosen.call} />
+                    {r.meaningOf(t.seatNames[chosen.seat])}{t.colon}<CallLabel call={chosen.call} />
                   </dt>
                   <dd>{meaning.ofCall(chosen)}</dd>
                   {steps[picked] && (
                     <>
                       <dt>
-                        {r.robotMeaning}：<CallLabel call={steps[picked].call} />
+                        {r.robotMeaning}{t.colon}<CallLabel call={steps[picked].call} />
                       </dt>
                       <dd>{meaning.ofStep(steps[picked])}</dd>
                     </>

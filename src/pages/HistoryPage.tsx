@@ -61,6 +61,20 @@ const Toolbar = styled.div`
   & > div:first-child {
     margin-bottom: 0;
   }
+
+  /*
+   * A phone: mine/everyone and the filters button share the first line whatever the language, the
+   * sort and the grouping each take a line of their own
+   */
+  ${mobile} {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+
+    & > :nth-child(n + 3) {
+      grid-column: 1 / -1;
+      justify-self: start;
+    }
+  }
 `
 
 const FilterCard = styled(Card)`

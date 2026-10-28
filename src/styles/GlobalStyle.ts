@@ -18,6 +18,18 @@ export const GlobalStyle = createGlobalStyle`
     padding-right: env(safe-area-inset-right, 0px);
   }
 
+  /* The CJK body font draws ’ “ ” full width (「club’ s」): in English and Vietnamese they come from a
+     Latin font */
+  @font-face {
+    font-family: 'Latin Quotes';
+    src: local('Segoe UI'), local('Helvetica Neue'), local('Roboto'), local('Arial');
+    unicode-range: U+2018-201F;
+  }
+  html:lang(en) body,
+  html:lang(vi) body {
+    font-family: 'Latin Quotes', ${({ theme }) => theme.fonts.body};
+  }
+
   a { color: ${({ theme }) => theme.colors.primary}; }
 
   :focus-visible {

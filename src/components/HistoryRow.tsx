@@ -174,8 +174,13 @@ export const HistoryTable = styled.table`
       grid-area: ew;
       contain: inline-size;
     }
+    /*
+     * The date may also use the result's room (the result is a few characters at its left), so
+     * 「Yesterday 22:00」 or 「Hôm qua 22:00」 is not cut short
+     */
     td[data-col='date'] {
-      grid-area: date;
+      grid-column: 3 / 5;
+      grid-row: 1;
       text-align: right;
     }
     td[data-col='ns'],
