@@ -15,7 +15,8 @@ import { anonymousProfileResponse, ProfileService } from './profiles.ts'
 import { avatarResponse, readAvatarUpload } from './avatars.ts'
 import { FILES_PATH, FileService, readFileUpload } from './files.ts'
 import { FILE_LIMITS } from '../shared/files.ts'
-import { adminRouteNeed, bookRouteNeed, clubRouteNeed, forumRouteNeed, requireNeed } from './roles.ts'
+import { adminRouteNeed, allows, articleReadRoute, bookRouteNeed, clubRouteNeed, forumRouteNeed, requireNeed } from './roles.ts'
+import { type ArticleReader, ArticleService } from './articles.ts'
 import { ForumService } from './forum.ts'
 import { robotMeaningsFor } from './system-spec.ts'
 import { CLIENT_ERROR_MAX_CHARS } from './client-errors.ts'
@@ -111,6 +112,8 @@ export class Club extends DurableObject<Env> implements Connections {
   private readonly service: ClubService
   /** Replaced after a backup is restored, so nothing they cached survives */
   private book: BookService
+  /** The library's articles (BridgeHall e5-t04) */
+  private articles: ArticleService
   private profiles: ProfileService
   /** Pictures in R2 (e11-t02); keeps only its signing key in memory */
   private readonly files: FileService
@@ -162,6 +165,7 @@ export class Club extends DurableObject<Env> implements Connections {
     this.edgeSecret = edgeSecret(env)
     this.book = new BookService(store)
     this.files = new FileService(store, env.FILES)
+    this.articles = this.newArticles()
     this.profiles = new ProfileService(store, Date.now, (id) => this.service.usernameOf(id))
     this.teams = new TeamService(store, {
       now: Date.now,
@@ -425,6 +429,13 @@ export class Club extends DurableObject<Env> implements Connections {
     }
 
     const user = await this.service.userForToken(token)
+    // The library's articles (BridgeHall e5-t04): anyone reads them, members-only ones need signing in
+    const articleRead = articleReadRoute(request.method, url.pathname)
+    if (articleRead) {
+      const reader: ArticleReader = !user ? 'anyone' : allows(user, 'bookEdit') ? 'editor' : 'member'
+      const result = articleRead.slug ? await this.articles.get(reader, articleRead.slug) : await this.articles.list(reader)
+      return json(result)
+    }
     if (!user) {
       // Without signing in, only the club's own system profile
       const profiles = await anonymousProfileResponse(this.profiles, request, url.pathname)
@@ -596,6 +607,7 @@ export class Club extends DurableObject<Env> implements Connections {
           now: Date.now(),
           restored: async (prefixes) => {
             this.book = new BookService(this.store)
+            this.articles = this.newArticles()
             this.profiles = new ProfileService(this.store, Date.now, (id) => this.service.usernameOf(id))
             this.service.systemSpecs.forget()
             // Members come back as of the backup and everyone signs in again (DEPLOY.md §4.4)
@@ -788,6 +800,15 @@ export class Club extends DurableObject<Env> implements Connections {
       if (revisionId) return json({ revision: await this.book.revision(slug, revisionId) })
       return json({ revisions: await this.book.revisions(slug) })
     }
+    // An article (BridgeHall e5-t04); reading it is above, without signing in
+    const article = path.match(/^\/articles\/([\w-]+)(?:\/(hide|revisions)(?:\/([\w-]+))?)?$/)
+    if (article) {
+      const [, slug, action, revisionId] = article
+      if (method === 'PUT') return json({ entry: await this.articles.save(user, slug, await body()) })
+      if (action === 'hide') return json({ entry: await this.articles.hide(user, slug, await body()) })
+      if (revisionId) return json({ revision: await this.articles.revision(slug, revisionId) })
+      return json({ revisions: await this.articles.revisions(slug) })
+    }
     if (path === '/reviews') return json({ drafts: await this.book.bookDrafts() })
     if (path === '/audit') return json({ entries: await this.book.auditLog() })
     if (path === '/categories') return json(await this.book.saveCategories(user, await body()))
@@ -844,6 +865,11 @@ export class Club extends DurableObject<Env> implements Connections {
       return json({ ok: true })
     }
     throw new ClubError('noSuchApi', {}, 404)
+  }
+
+  /** Articles sign their pictures' addresses with the file service's key */
+  private newArticles() {
+    return new ArticleService(this.store, (keys) => this.files.urls(keys))
   }
 
   private async systemSpecStatus(profileId: string): Promise<SystemSpecStatus> {
