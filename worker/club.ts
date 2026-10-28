@@ -17,6 +17,7 @@ import { FILES_PATH, FileService, readFileUpload } from './files.ts'
 import { FILE_LIMITS } from '../shared/files.ts'
 import { adminRouteNeed, bookRouteNeed, clubRouteNeed, requireNeed } from './roles.ts'
 import { robotMeaningsFor } from './system-spec.ts'
+import { QuizStore } from './quiz.ts'
 import { CLIENT_ERROR_MAX_CHARS } from './client-errors.ts'
 import { d1Replica } from './d1.ts'
 import { edgeSecret, mintPass, PASS_COOKIE, passCookie, passNeedsRefresh } from './edge-auth.ts'
@@ -115,6 +116,8 @@ export class Club extends DurableObject<Env> implements Connections {
   private readonly files: FileService
   /** TKU BridgeBook's teams and partnerships (E2); keeps nothing in memory, so it outlives a restore */
   private readonly teams: TeamService
+  /** 淡江橋館's practice results and question fixes (E6); keeps nothing in memory */
+  private readonly quiz: QuizStore
   private readonly store: Store
   /** Signs edge passes (§5.12); none when switched off */
   private readonly edgeSecret: string | undefined
@@ -159,6 +162,7 @@ export class Club extends DurableObject<Env> implements Connections {
     this.edgeSecret = edgeSecret(env)
     this.book = new BookService(store)
     this.files = new FileService(store, env.FILES)
+    this.quiz = new QuizStore(store, Date.now, () => randomId(8))
     this.profiles = new ProfileService(store, Date.now, (id) => this.service.usernameOf(id))
     this.teams = new TeamService(store, {
       now: Date.now,
@@ -409,6 +413,8 @@ export class Club extends DurableObject<Env> implements Connections {
     }
     const open = await publicBookResponse(this.book, request, url.pathname)
     if (open) return open
+    // The editors' fixes to the practice questions (BridgeHall e6-t06): the practice page needs no sign-in
+    if (route === 'GET /api/book/quiz/fixes') return json({ fixes: await this.quiz.fixes() })
 
     // A picture by its signed address (e11-t02): the signature is the check, so no sign-in
     if (request.method === 'GET' && url.pathname.startsWith(FILES_PATH)) {
@@ -764,6 +770,24 @@ export class Club extends DurableObject<Env> implements Connections {
       return json(await this.systemSpecStatus(specFor[1]))
     }
     if (path === '/robot-meanings') return json({ items: robotMeaningsFor(await body()) })
+
+    // 練習 (BridgeHall e6-t04, e6-t06): a member's own results, and the editors' fixes
+    if (path === '/quiz/rounds') {
+      if (method === 'GET') return json({ rounds: await this.quiz.rounds(user.id) })
+      if (method === 'POST') return json({ round: await this.quiz.addRound(user.id, await body()) })
+      await this.quiz.clearRounds(user.id)
+      return json({ ok: true })
+    }
+    if (path === '/quiz/fixes') {
+      if (method === 'PUT') {
+        const fix = await this.quiz.saveFix(user, await body())
+        await this.book.auditTrail.record({ by: user.username, action: 'quiz:fix', target: fix.id, ...(fix.note && { note: fix.note }) })
+        return json({ fix })
+      }
+      const id = await this.quiz.removeFix(await body())
+      await this.book.auditTrail.record({ by: user.username, action: 'quiz:unfix', target: id })
+      return json({ ok: true })
+    }
 
     if (path === '/import/ticket') {
       const ticket = await this.book.createTicket(user)
