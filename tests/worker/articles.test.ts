@@ -218,6 +218,77 @@ describe('article routes', () => {
     expect(bookRouteNeed('POST', '/articles/test-article/hide/abc')).toBeNull()
     expect(bookRouteNeed('DELETE', '/articles/test-article')).toBeNull()
   })
+
+  it('leaves drafts to editors and sending one back to reviewers (e5-t07)', () => {
+    expect(bookRouteNeed('GET', '/articles/test-article/draft')).toBe('bookEdit')
+    expect(bookRouteNeed('PUT', '/articles/test-article/draft')).toBe('bookEdit')
+    expect(bookRouteNeed('DELETE', '/articles/test-article/draft')).toBe('bookEdit')
+    expect(bookRouteNeed('POST', '/articles/test-article/reject')).toBe('bookReview')
+    expect(bookRouteNeed('POST', '/articles/test-article/draft')).toBeNull()
+    expect(bookRouteNeed('GET', '/articles/test-article/draft/abc')).toBeNull()
+  })
+})
+
+describe('article drafts and review (BridgeHall e5-t07)', () => {
+  const ed: Me = { id: 'u2', username: 'ed', admin: false, permissions: ['bookEdit'] }
+
+  it('saves a draft of a new article, sends it for review and publishes it', async () => {
+    const first = await articles.saveDraft(ed, 'test-article', { article: article(), baseVersion: 0, draftRevision: 0, note: '初稿' })
+    expect(first).toMatchObject({ status: 'draft', revision: 1, baseVersion: 0, createdBy: 'ed', note: '初稿' })
+    // Not published: readers see nothing yet
+    expect((await articles.list('member')).entries).toEqual([])
+    expect(await codeOf(articles.saveDraft(ed, 'test-article', { article: article(), draftRevision: 0 }))).toBe('bookDraftConflict')
+    const sent = await articles.saveDraft(ed, 'test-article', { article: article(), draftRevision: 1, submit: true })
+    expect(sent).toMatchObject({ status: 'in-review', revision: 2, reviewRequestedBy: 'ed', note: '初稿' })
+    expect(await articles.drafts()).toMatchObject([{ slug: 'test-article', title: '測試文章', status: 'in-review' }])
+    expect(await articles.drafts()).not.toHaveProperty('0.article')
+
+    const entry = await articles.save(rita, 'test-article', { article: article(), baseVersion: 0, draftRevision: 2 })
+    expect(entry).toMatchObject({ version: 1, reviewedBy: 'rita', reviewRequestedBy: 'ed' })
+    expect(await articles.draftOf('test-article')).toBeNull()
+    expect((await articles.revisions('test-article'))[0].note).toBe('初稿')
+    expect([...(await store.list('article:wip:')).keys()]).toEqual([])
+  })
+
+  it('sends a draft back with why, which stays until it is sent again', async () => {
+    await articles.saveDraft(ed, 'test-article', { article: article(), baseVersion: 0, submit: true })
+    expect(await codeOf(articles.reject(rita, 'test-article', { draftRevision: 0, note: 'x' }))).toBe('bookDraftConflict')
+    const back = await articles.reject(rita, 'test-article', { draftRevision: 1, note: '請補作者' })
+    expect(back).toMatchObject({ status: 'draft', revision: 2, reviewedBy: 'rita', reviewNote: '請補作者' })
+    expect(back).not.toHaveProperty('reviewRequestedBy')
+    expect(await codeOf(articles.reject(rita, 'test-article', { draftRevision: 2 }))).toBe('notInReview')
+    expect(await articles.saveDraft(ed, 'test-article', { article: article(), draftRevision: 2 })).toMatchObject({ reviewNote: '請補作者' })
+    expect(await articles.saveDraft(ed, 'test-article', { article: article(), draftRevision: 3, submit: true })).not.toHaveProperty('reviewNote')
+  })
+
+  it('starts a draft of a published article from its version and throws one away', async () => {
+    await articles.save(rita, 'test-article', { article: article(), baseVersion: 0 })
+    expect(await codeOf(articles.saveDraft(ed, 'test-article', { article: article(), baseVersion: 0 }))).toBe('articleConflict')
+    expect(await articles.saveDraft(ed, 'test-article', { article: article(), baseVersion: 1 })).toMatchObject({ baseVersion: 1 })
+    expect(await codeOf(articles.discardDraft(ed, 'test-article', { draftRevision: 0 }))).toBe('bookDraftConflict')
+    await articles.discardDraft(ed, 'test-article', { draftRevision: 1 })
+    expect(await articles.draftOf('test-article')).toBeNull()
+    expect(await codeOf(articles.discardDraft(ed, 'test-article', { draftRevision: 1 }))).toBe('articleDraftGone')
+    // Publishing without the draft leaves it alone
+    await articles.saveDraft(ed, 'test-article', { article: article(), baseVersion: 1 })
+    await articles.save(rita, 'test-article', { article: article(), baseVersion: 1 })
+    expect(await articles.draftOf('test-article')).not.toBeNull()
+  })
+
+  it('checks a draft as an article and logs every step', async () => {
+    expect(await codeOf(articles.saveDraft(ed, 'test-article', { article: { title: '' }, baseVersion: 0 }))).toBe('badContent')
+    await articles.saveDraft(ed, 'test-article', { article: article(), baseVersion: 0, submit: true })
+    await articles.reject(rita, 'test-article', { draftRevision: 1 })
+    await articles.discardDraft(ed, 'test-article', { draftRevision: 2 })
+    const actions = (await new AuditLog(store, () => 0).list()).map((e) => e.action)
+    expect(actions).toEqual(['article:discard', 'article:reject', 'article:submit'])
+  })
+
+  it('reads drafts back after a restart', async () => {
+    await articles.saveDraft(ed, 'test-article', { article: article(), baseVersion: 0 })
+    const again = new ArticleService(store, async () => ({ urls: {} }))
+    expect(await again.draftOf('test-article')).toMatchObject({ revision: 1, article: { title: '測試文章' } })
+  })
 })
 
 describe('series (BridgeHall e5-t06)', () => {

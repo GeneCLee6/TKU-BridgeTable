@@ -2,7 +2,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { Me } from '../../shared/protocol.ts'
 import { BOOK_LIMITS, BookService, CATEGORY_LIMITS, checkCategories, checkConvention, importRequestFrom, publicBookResponse } from '../../worker/book.ts'
-import { importSchema } from '../../worker/importer.ts'
+import { ARTICLE_IMPORT_SYSTEM, articleImportPrompt, articleImportSchema, importSchema } from '../../worker/importer.ts'
 import { MemoryStore } from '../../worker/store.ts'
 
 const amy: Me = { id: 'u1', username: 'amy', admin: false, permissions: ['bookEdit'] }
@@ -408,6 +408,9 @@ describe('AI import', () => {
     await book.deleteDraft(drafts[0].id)
     expect(await book.drafts()).toHaveLength(BOOK_LIMITS.draftsKept - 1)
     await expect(book.saveDraft(ben, { result: { nothing: true } })).rejects.toThrow('匯入結果格式不正確')
+    // Articles (e5-t08) are kept the same way, counted apart
+    const articles = await book.saveDraft(ben, { fileName: 'x.docx', result: { articles: [{}, {}], reviewNotes: '' } })
+    expect(articles).toMatchObject({ conventions: 0, articles: 2 })
   })
 
   it('reads the upload form: a pass, what to tell the AI, and the text or the PDF', async () => {
@@ -439,6 +442,52 @@ describe('AI import', () => {
     const noCategories = new FormData()
     noCategories.set('text', 'x')
     expect(() => importRequestFrom(noCategories)).toThrow('缺少分類')
+    expect(request.target).toBe('conventions')
+  })
+
+  it('reads an upload for articles, whose categories are the series (BridgeHall e5-t08)', () => {
+    const form = new FormData()
+    form.set('meta', JSON.stringify({ target: 'articles', fileName: 'x.docx', catalogue: 'test-article｜測試', categories: [{ id: 'lessons', label: '社課講義', description: '' }] }))
+    form.set('text', '測試')
+    const { request } = importRequestFrom(form)
+    expect(request).toMatchObject({ target: 'articles', catalogue: 'test-article｜測試' })
+    expect(request.categories.map((c) => c.id)).toEqual(['lessons'])
+    const prompt = articleImportPrompt(request)
+    expect(prompt).toContain('lessons：社課講義')
+    expect(prompt).toContain('test-article｜測試')
+    const none = new FormData()
+    none.set('meta', JSON.stringify({ target: 'articles' }))
+    none.set('text', 'x')
+    expect(() => importRequestFrom(none)).toThrow('缺少系列')
+  })
+
+  it('asks for articles in a flat reply, transcribed verbatim (e5-t08)', () => {
+    const schema = articleImportSchema(['lessons', 'squeeze'])
+    const text = JSON.stringify(schema)
+    expect(text).not.toContain('$ref')
+    const article = (schema.properties.articles as { items: { properties: Record<string, { enum?: string[] }> } }).items
+    expect(article.properties.series.enum).toEqual(['lessons', 'squeeze'])
+    expect(text.match(/"const":"(\w+)"/g)).toEqual([
+      '"const":"heading"',
+      '"const":"paragraph"',
+      '"const":"rules"',
+      '"const":"responses"',
+      '"const":"note"',
+      '"const":"hand"',
+      '"const":"quote"',
+      '"const":"deal"',
+      '"const":"play"',
+    ])
+    const objects = (value: unknown): Record<string, unknown>[] =>
+      typeof value !== 'object' || value === null
+        ? []
+        : [...((value as { type?: string }).type === 'object' ? [value as Record<string, unknown>] : []), ...Object.values(value).flatMap(objects)]
+    for (const object of objects(schema)) {
+      expect(object.additionalProperties).toBe(false)
+      expect(object.required).toEqual(Object.keys(object.properties as object))
+    }
+    expect(ARTICLE_IMPORT_SYSTEM).toContain('Transcribe verbatim')
+    expect(ARTICLE_IMPORT_SYSTEM).toContain('Never fix it silently')
   })
 
   it('asks for a flat reply that structured outputs can describe', () => {
