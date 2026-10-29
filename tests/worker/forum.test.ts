@@ -186,6 +186,17 @@ describe('posts (e11-t06, AC-11.3)', () => {
     expect(latest.discussions.map((p) => p.id)).toEqual([talk[3].id, talk[2].id, talk[1].id])
   })
 
+  it('lists every board newest first on the feed, a page at a time (e11-t15)', () => {
+    const first = postAs(admin, 'news', '公告')
+    forum.setPinned(first.id, { pinned: true })
+    const talk = [postAs(amy, 'deals'), postAs(ben, 'systems'), postAs(amy, 'chat')]
+    const feed = forum.feed()
+    expect(feed.posts.map((p) => p.id)).toEqual([talk[2].id, talk[1].id, talk[0].id, first.id])
+    expect(feed).toMatchObject({ page: 1, pages: 1 })
+    expect(forum.feed(2).posts).toEqual([])
+    expect(forum.feed(0).page).toBe(1)
+  })
+
   it('limits each member to FORUM_LIMITS.perMinute posts and comments a minute', () => {
     const post = forum.createPost(amy, 'deals', { blocks: [para('1')] })
     for (let i = 1; i < FORUM_LIMITS.perMinute; i++) forum.addComment(amy, post.id, { blocks: [para(`${i}`)] })
@@ -311,6 +322,8 @@ describe('forum routes (roles.ts)', () => {
     expect(forumRouteNeed('GET', '/boards/chat/posts')).toBe('member')
     expect(forumRouteNeed('POST', '/boards/chat/posts')).toBe('member')
     expect(forumRouteNeed('GET', '/latest')).toBe('member')
+    expect(forumRouteNeed('GET', '/feed')).toBe('member')
+    expect(forumRouteNeed('POST', '/feed')).toBeNull()
     expect(forumRouteNeed('PATCH', '/posts/abc')).toBe('member')
     expect(forumRouteNeed('POST', '/posts/abc/pin')).toBe('admin')
     expect(forumRouteNeed('POST', '/posts/abc/lock')).toBe('admin')

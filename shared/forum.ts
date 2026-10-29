@@ -242,6 +242,15 @@ export interface BoardPage {
   pages: number
 }
 
+/** `GET /api/forum/feed?page=`: every board's posts newest first (the forum's front page, BridgeHall e11-t15); no pinned section */
+export interface ForumFeed {
+  posts: Post[]
+  /** From 1 */
+  page: number
+  /** At least 1 */
+  pages: number
+}
+
 /** `GET /api/forum/posts/:id`: the post and every comment, oldest first (replies after their top comment's earlier ones) */
 export interface PostThread {
   post: Post

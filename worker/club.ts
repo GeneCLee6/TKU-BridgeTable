@@ -795,6 +795,7 @@ export class Club extends DurableObject<Env> implements Connections {
       return json({ board: forum.createBoard(await body()) })
     }
     if (path === '/latest') return json(forum.latest())
+    if (path === '/feed') return json(forum.feed(Number(url.searchParams.get('page') ?? 1)))
     const posts = path.match(/^\/boards\/([\w-]+)\/posts$/)
     if (posts) {
       if (method === 'GET') return json(forum.boardPage(posts[1], Number(url.searchParams.get('page') ?? 1)))
