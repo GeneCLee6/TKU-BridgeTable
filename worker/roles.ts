@@ -58,15 +58,16 @@ export function bookRouteNeed(method: string, path: string): Need | null {
     if (method === 'GET' && action === 'revisions') return 'bookEdit'
     return null
   }
-  // An article (BridgeHall e5-t04): publishing and hiding are the reviewers', its versions every
-  // editor's; reading one or the list is articleReadRoute's, without signing in
-  const article = path.match(/^\/articles\/[\w-]+(?:\/(hide|revisions)(?:\/[\w-]+)?)?$/)
+  // An article (BridgeHall e5-t04, e5-t07): publishing, hiding and sending a draft back are the
+  // reviewers', its draft and versions every editor's; reading one or the list is articleReadRoute's
+  const article = path.match(/^\/articles\/[\w-]+(?:\/(hide|reject|draft|revisions)(?:\/[\w-]+)?)?$/)
   if (article) {
     const action = article[1]
-    const sub = /\/(?:hide|revisions)\/[\w-]+$/.test(path)
+    const sub = /\/(?:hide|reject|draft|revisions)\/[\w-]+$/.test(path)
     if (sub && action !== 'revisions') return null
     if (method === 'PUT' && !action) return 'bookReview'
-    if (method === 'POST' && action === 'hide') return 'bookReview'
+    if (method === 'POST' && (action === 'hide' || action === 'reject')) return 'bookReview'
+    if (action === 'draft' && (method === 'GET' || method === 'PUT' || method === 'DELETE')) return 'bookEdit'
     if (method === 'GET' && action === 'revisions') return 'bookEdit'
     return null
   }
@@ -175,7 +176,7 @@ export function forumRouteNeed(method: string, path: string): Need | null {
   if (path === '/boards') return method === 'GET' ? 'member' : method === 'POST' ? 'admin' : null
   if (/^\/boards\/[\w-]+$/.test(path)) return method === 'PATCH' || method === 'DELETE' ? 'admin' : null
   if (/^\/boards\/[\w-]+\/posts$/.test(path)) return method === 'GET' || method === 'POST' ? 'member' : null
-  if (path === '/latest') return method === 'GET' ? 'member' : null
+  if (path === '/latest' || path === '/feed') return method === 'GET' ? 'member' : null
   if (/^\/posts\/[\w-]+$/.test(path)) return method === 'GET' || method === 'PATCH' || method === 'DELETE' ? 'member' : null
   if (/^\/posts\/[\w-]+\/(pin|lock)$/.test(path)) return method === 'POST' ? FORUM_MODERATE : null
   if (/^\/posts\/[\w-]+\/comments$/.test(path)) return method === 'POST' ? 'member' : null

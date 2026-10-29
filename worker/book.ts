@@ -224,8 +224,10 @@ export interface ImportDraftSummary {
   fileName: string
   createdAt: number
   createdBy: string
-  /** How many conventions the AI made from the file */
+  /** How many conventions the AI made from the file (0 for articles) */
   conventions: number
+  /** How many articles, for a file imported as articles (BridgeHall e5-t08) */
+  articles?: number
 }
 
 export interface ImportDraft extends ImportDraftSummary {
@@ -1091,7 +1093,10 @@ export class BookService {
 
   async saveDraft(actor: Me, body: { fileName?: unknown; result?: unknown }) {
     const result = body.result
-    if (!isObject(result) || !Array.isArray(result.conventions)) throw new ClubError('badContent', { reason: '匯入結果格式不正確' })
+    // Conventions, or articles for the library (e5-t08)
+    const articles = isObject(result) && Array.isArray(result.articles) ? result.articles.length : undefined
+    if (!isObject(result) || (!Array.isArray(result.conventions) && articles === undefined))
+      throw new ClubError('badContent', { reason: '匯入結果格式不正確' })
     if (JSON.stringify(result).length > BOOK_LIMITS.draftMax) throw new ClubError('contentTooLarge', {}, 413)
     const time = this.now()
     const summary: ImportDraftSummary = {
@@ -1099,7 +1104,8 @@ export class BookService {
       fileName: String(body.fileName ?? '').slice(0, 200),
       createdAt: time,
       createdBy: actor.username,
-      conventions: result.conventions.length,
+      conventions: Array.isArray(result.conventions) ? result.conventions.length : 0,
+      ...(articles !== undefined && { articles }),
     }
     const key = `book:draft:${summary.id}`
     const parts = await this.putBody(key, result)
@@ -1141,7 +1147,8 @@ export const IMPORT_LIMITS = { pdfMb: 20, textMax: 400_000, catalogueMax: 60_000
 
 /**
  * The import upload, a multipart form: `ticket`, `meta` (JSON: fileName, instructions, catalogue,
- * categories) and either `file` (a PDF) or `text` (taken out of a .doc or .docx in the browser).
+ * categories, and `target` 'articles' for the library's articles, e5-t08, whose `categories` are
+ * then the series) and either `file` (a PDF) or `text` (taken out of a .doc or .docx in the browser).
  */
 export function importRequestFrom(form: FormData | null): { ticket: string; request: ImportRequest } {
   const bad = () => new ClubError('badFile', { max: IMPORT_LIMITS.pdfMb }, 400)
@@ -1157,7 +1164,8 @@ export function importRequestFrom(form: FormData | null): { ticket: string; requ
         (c): c is ImportCategory => isObject(c) && isString(c.id) && /^[a-z0-9-]{1,40}$/.test(c.id) && isString(c.label),
       )
     : []
-  if (!categories.length) throw new ClubError('badContent', { reason: '缺少分類' })
+  const target = meta.target === 'articles' ? 'articles' : 'conventions'
+  if (!categories.length) throw new ClubError('badContent', { reason: target === 'articles' ? '缺少系列' : '缺少分類' })
   const file = form.get('file')
   const text = form.get('text')
   let source: ImportRequest['source']
@@ -1169,10 +1177,11 @@ export function importRequestFrom(form: FormData | null): { ticket: string; requ
   return {
     ticket: String(form.get('ticket') ?? ''),
     request: {
+      target,
       fileName: String(meta.fileName ?? '').slice(0, 200),
       instructions: String(meta.instructions ?? '').slice(0, IMPORT_LIMITS.instructionsMax),
       catalogue: String(meta.catalogue ?? '').slice(0, IMPORT_LIMITS.catalogueMax),
-      categories: categories.slice(0, 20).map((c) => ({
+      categories: categories.slice(0, target === 'articles' ? 30 : 20).map((c) => ({
         id: c.id,
         label: String(c.label).slice(0, 40),
         description: String(c.description ?? '').slice(0, 200),

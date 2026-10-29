@@ -29,11 +29,15 @@ export interface AuctionCall {
   book?: BookNote
 }
 
-/** A row of 淡江橋館: its words, and where it is (/c/:slug/:sectionId) */
+/**
+ * A row of 淡江橋館: its words, and where it is (/c/:slug/:sectionId), read with which system
+ * profile (`profile`, left out for the club's own; BridgeHall e7-t05): `bookNoteUrl` links to it
+ */
 export interface BookNote {
   text: string
   slug: string
   sectionId: string
+  profile?: string
 }
 
 export interface Contract {

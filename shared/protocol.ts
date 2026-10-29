@@ -1,4 +1,4 @@
-import type { AuctionCall, Call, Contract } from './auction.ts'
+import type { AuctionCall, BookNote, Call, Contract } from './auction.ts'
 import type { Vulnerability } from './board.ts'
 import type { BookTopics } from './book-topics.ts'
 import type { Card, Seat, Side } from './cards.ts'
@@ -372,7 +372,13 @@ export interface BoardView {
    * system, so the bidding box tells how the robot will read it (`robot` is the robot whose system
    * it is: the partner, else an opponent). From the auction and the system only, never the cards
    */
-  callMeanings?: { robot: Seat; kind: RobotKind; meanings: Partial<Record<Call, Spec>> }
+  callMeanings?: {
+    robot: Seat
+    kind: RobotKind
+    meanings: Partial<Record<Call, Spec>>
+    /** TKB in the club's system: 淡江橋館's words for each call and where they are (BridgeHall e7-t05) */
+    book?: Partial<Record<Call, BookNote>>
+  }
   /**
    * The bidding hint card (`BookHints`, `e10-t06`): the TKU BridgeBook pages for the auction so far and
    * the calls that could come next, worked out on the server (`views.ts`) from the auction alone; none

@@ -564,6 +564,8 @@ const zh = {
   inferredBy: (system: string) => `依${system}推論`,
   playerExplanation: '玩家的說明',
   bookExplanation: '淡江橋館',
+  bookOpenHint: '點叫品，在淡江橋館開啟這一段',
+  bookOpenLabel: '在淡江橋館開啟',
   playedCard: (card: string) => `${card}（已出）`,
   playedCardsGrey: '已出牌淡化保留',
 
@@ -1556,6 +1558,8 @@ const en: Strings = {
   inferredBy: (system: string) => `Inferred (${system})`,
   playerExplanation: "Player's explanation",
   bookExplanation: 'TKU BridgeHall',
+  bookOpenHint: 'Click the call to open this section on TKU BridgeHall',
+  bookOpenLabel: 'opens on TKU BridgeHall',
   playedCard: (card) => `${card} (played)`,
   playedCardsGrey: 'Dim played cards',
 
@@ -2538,6 +2542,8 @@ const zhHans: Strings = {
   inferredBy: (system: string) => `依${system}推断`,
   playerExplanation: '玩家的说明',
   bookExplanation: '淡江桥馆',
+  bookOpenHint: '点叫品，在淡江桥馆打开这一段',
+  bookOpenLabel: '在淡江桥馆打开',
   playedCard: (card) => `${card}（已出）`,
   playedCardsGrey: '已出牌淡化保留',
 
@@ -3521,6 +3527,8 @@ const vi: Strings = {
   inferredBy: (system: string) => `Suy luận theo ${system}`,
   playerExplanation: 'Giải thích của người chơi',
   bookExplanation: 'TKU BridgeHall',
+  bookOpenHint: 'Bấm vào lần gọi để mở phần này trên TKU BridgeHall',
+  bookOpenLabel: 'mở trên TKU BridgeHall',
   playedCard: (card) => `${card} (đã đánh)`,
   playedCardsGrey: 'Làm mờ lá đã đánh',
 
@@ -4504,6 +4512,8 @@ const ja: Strings = {
   inferredBy: (system: string) => `${system}による推論`,
   playerExplanation: 'プレイヤーの説明',
   bookExplanation: 'TKU BridgeHall（淡江橋館）',
+  bookOpenHint: 'ビッドをクリックすると TKU BridgeHall のこの節が開きます',
+  bookOpenLabel: 'TKU BridgeHall で開く',
   playedCard: (card) => `${card}（プレイ済み）`,
   playedCardsGrey: '出たカードを薄く表示',
 
@@ -5487,6 +5497,8 @@ const ko: Strings = {
   inferredBy: (system: string) => `${system} 기준 추론`,
   playerExplanation: '플레이어의 설명',
   bookExplanation: 'TKU BridgeHall',
+  bookOpenHint: '비드를 누르면 TKU BridgeHall에서 이 부분이 열립니다',
+  bookOpenLabel: 'TKU BridgeHall에서 열기',
   playedCard: (card) => `${card} (낸 카드)`,
   playedCardsGrey: '낸 카드 흐리게 표시',
 

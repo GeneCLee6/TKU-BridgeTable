@@ -822,6 +822,14 @@ export const MESSAGES = {
     ja: '{name} さんがこの記事を変更しました。再読み込みしてから編集してください',
     ko: '{name} 님이 방금 이 글을 수정했습니다. 다시 불러온 뒤 수정하세요',
   },
+  articleDraftGone: {
+    zh: '這篇文章沒有草稿，可能已經發布或捨棄了',
+    'zh-Hans': '这篇文章没有草稿，可能已经发布或舍弃了',
+    en: 'This article has no draft; it may have been published or thrown away',
+    vi: 'Bài viết này không có bản nháp; có thể đã được đăng hoặc bỏ đi',
+    ja: 'この記事には下書きがありません。公開済みか破棄された可能性があります',
+    ko: '이 글에는 초안이 없습니다. 이미 게시되었거나 삭제되었을 수 있습니다',
+  },
   // E-books in TKU BridgeHall's library (e5-t09, e5-t15)
   ebookGone: {
     zh: '找不到這本書',

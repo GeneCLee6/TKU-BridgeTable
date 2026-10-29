@@ -299,6 +299,7 @@ interface BoardState {
 | `ebook:<id>` | 淡江橋館叢書的電子書（橋館 e5-t09，`worker/ebooks.ts`，§5.14）：書名、作者、系列、年代、授權、PDF 的檔案 key（`ebook/<hex>.pdf`）、封面（圖片 key）、大小、誰上傳與修改。在每日備份裡；PDF 本身只在 R2 |
 | `file:usage` | 上傳檔案（圖片＋PDF）在 R2 用了多少位元組、是否已通知管理員快滿了（橋館 e5-t15，§5.14）；不在備份裡，不見了就從 `file:meta:` 重算 |
 | `article:rev:<slug>:<時間>-<id>` | 文章每次發布、隱藏的版本紀錄（內容在 `bookpart:`） |
+| `article:wip:<slug>` | 文章的草稿（橋館 e5-t07，一篇一份，同特約的 `book:wip:`）：狀態（草稿／送審中）、從哪一版開始、第幾次存、退回的原因；內容在 `bookpart:article:wip:<slug>:<n>` |
 | `article:version` | 文章的版本號，每次發布或隱藏加一 |
 | `article:series` | 叢書的系列（橋館 e5-t06）：`{ version, series: ArticleSeries[], updatedAt, updatedBy }`；沒有時橋館用內建系列 |
 | `bookpart:<key>:<n>` | 大內容的分段（Durable Object 單筆值上限 128 KiB，以 4 萬字一段儲存） |
@@ -997,7 +998,7 @@ SQL 由 `worker/history-index.ts` 的 `searchBoards` 組：只有固定的 SQL �
 | `PUT /api/book/conventions/:slug/draft` | bookEdit | 存草稿：`{ convention, baseVersion, draftRevision, bundledUpdated?, note?, submit? }`；第一次存檢查 `baseVersion`（同發布），之後檢查 `draftRevision`（不符 409 `bookDraftConflict`）。`submit: true` 送審（`in-review`），否則是 `draft`（送審中的再存一次就撤回）。退回的理由保留到再送審 |
 | `DELETE /api/book/conventions/:slug/draft` | bookEdit | `{ draftRevision }` 捨棄草稿；沒有草稿 404 `bookDraftGone` |
 | `POST /api/book/conventions/:slug/reject` | bookReview | `{ draftRevision, note }` 退回送審中的草稿（不是送審中 409 `notInReview`），理由最多 500 字 |
-| `GET /api/book/reviews` | bookEdit | `{ drafts: BookDraftSummary[] }`：所有草稿（送審中的在前），不含內容、附特約名 |
+| `GET /api/book/reviews` | bookEdit | `{ drafts: BookDraftSummary[], articles: ArticleDraftSummary[] }`：所有特約與文章的草稿（送審中的在前），不含內容、附特約名或文章標題 |
 | `GET /api/book/audit` | bookEdit | `{ entries: AuditEntry[] }`：最近 200 筆審計紀錄（新的在前）：草稿、送審、退回、捨棄、發布、隱藏、還原、分類、制度集新增／儲存／刪除；發布、隱藏、還原帶 `revisionId` 連到版本 |
 | `GET /api/book/pending` | 社員 | `{ open: PendingMeta[], closed: PendingMeta[], editors: string[] }`：待確認面板（橋館 e8-t06）。`open` 是有人動過的待確認（`pendingmeta:<slug>/<sectionId>/<n>`；沒有紀錄的是「未處理」），`closed` 是最近 100 筆已關閉（`pendingdone:<時間>-<id>`），`editors` 是有 bookEdit 的帳號（指派用） |
 | `PUT /api/book/pending/:slug/:sectionId/:n` | bookEdit | body `{ text, status: 'open'\|'working'\|'parked', assignee?, note?, resolution? }` → `{ meta }`。`已確認`不能手動設：發布（`PUT /api/book/conventions/:slug`）時，新版本裡找不到的待確認（以段落＋原文比對）自動關閉，記發布者、版本、關閉依據（沒填就用版本說明）；還在的跟著換位置 |
@@ -1006,9 +1007,11 @@ SQL 由 `worker/history-index.ts` 的 `searchBoards` 組：只有固定的 SQL �
 | `GET /api/book/conventions/:slug/revisions[/:id]` | bookEdit | 版本紀錄（新的在前）與某一版的內容 |
 | `GET /api/book/articles` | 社員 | 叢書的文章（橋館 e5-t04）：`{ version, entries: ArticleEntrySummary[], files, series }`，不含內容區塊；`files` 是封面的簽名網址（沒有 R2 bucket 時是空的）；`series` 是線上編過的系列（e5-t06，沒編過是空清單）。`?text=1` 多回 `text`：每篇的摘要與區塊文字（每篇最多 2 萬字，給橋館搜尋，e5-t13）。未登入看不到 `members-only`，只有 bookEdit 看得到隱藏的 |
 | `GET /api/book/articles/:slug` | 社員 | `{ entry: ArticleEntry, files }`：一篇文章與它的封面、圖片的簽名網址；看不到的回 404 `articleGone` |
-| `PUT /api/book/articles/:slug` | bookReview | 發布：`{ article, baseVersion, note? }`；`baseVersion` 不是目前版本時回 409 `articleConflict`。文章的草稿與送審等文章編輯器（e5-t07） |
+| `PUT /api/book/articles/:slug` | bookReview | 發布：`{ article, baseVersion, note? }`；`baseVersion` 不是目前版本時回 409 `articleConflict`；帶 `draftRevision` 是發布草稿（草稿被改過回 409 `bookDraftConflict`），發布後草稿刪除、版本記下送審的人 |
 | `POST /api/book/articles/:slug/hide` | bookReview | `{ baseVersion, note? }` 從叢書隱藏（版本紀錄保留） |
 | `GET /api/book/articles/:slug/revisions[/:id]` | bookEdit | 文章的版本紀錄與某一版的內容 |
+| `GET/PUT/DELETE /api/book/articles/:slug/draft` | bookEdit | 文章的草稿（e5-t07，同特約草稿）：`PUT { article, baseVersion, draftRevision, note?, submit? }`，`submit: true` 送審；`DELETE { draftRevision }` 捨棄；沒有草稿 404 `articleDraftGone`；審計 `article:draft`／`article:submit`／`article:discard` |
+| `POST /api/book/articles/:slug/reject` | bookReview | `{ draftRevision, note }` 把送審中的草稿退回（審計 `article:reject`） |
 | `GET /api/book/ebooks` | 社員 | 叢書的電子書（橋館 e5-t09、e5-t11）：`{ ebooks, files, usage? }`；`files` 是封面的簽名網址；未登入看不到 `members-only`；bookEdit 多拿到 `usage`（R2 用量，e5-t15） |
 | `GET /api/book/ebooks/:id` | 社員 | `{ ebook, files }`：一本書與它封面、PDF 的簽名網址（PDF 的 15 分鐘失效）；看不到的回 404 `ebookGone` |
 | `POST /api/book/ebooks/ticket` | bookReview | `{ size }` → PDF 的一次性上傳憑證（≤ 50 MB，§5.14） |
@@ -1049,6 +1052,7 @@ SQL 由 `worker/history-index.ts` 的 `searchBoards` 組：只有固定的 SQL �
 | `POST /api/forum/boards`、`PATCH`／`DELETE /api/forum/boards/:id` | 管理員 | `BoardInput`；代號小寫英數與 `-`（不給就產生），重複 409 `forumBoardExists`，最多 20 個（409 `forumBoardLimit`）；內建的不能刪（409 `forumBoardBuiltIn`）、有貼文的不能刪（409 `forumBoardNotEmpty`）；不存在 404 `forumBoardGone` |
 | `GET /api/forum/boards/:id/posts?page=` | 社員 | `BoardPage`：第 1 頁先列置頂（新置頂的在前），其他新→舊，一頁 20 則 |
 | `POST /api/forum/boards/:id/posts` | 社員（公告板只有幹部，403 `forumBoardOfficersOnly`） | `PostInput` → `{ post }`；每人每分鐘發文加留言 ≤ 5（429 `slowDown`） |
+| `GET /api/forum/feed?page=` | 社員 | `ForumFeed`：所有板面的貼文新→舊，一頁 20 則，不另列置頂（橋館討論區首頁 `/forum`，e11-t15） |
 | `GET /api/forum/latest` | 社員 | `ForumLatest`：公告板最新三則（置頂優先）與其他板最新三則（橋館首頁） |
 | `GET`／`PATCH`／`DELETE /api/forum/posts/:id` | 社員；改只有作者；刪是作者或幹部 | `PostThread`（貼文與全部留言，舊→新）；`PostInput` → `{ post }`；別人的 403 `notYours`，不存在 404 `postGone` |
 | `POST /api/forum/posts/:id/pin`、`/lock` | 幹部（現在是管理員） | `{ pinned }`／`{ locked }` → `{ post }` |
@@ -1067,8 +1071,8 @@ SQL 由 `worker/history-index.ts` 的 `searchBoards` 組：只有固定的 SQL �
 | `POST /api/club/pairs/:id/decline` | 受邀者 | 刪掉邀請，通知邀請者 `pairDeclined` |
 | `POST /api/club/pairs/:id/end` | 兩人之一 | 現役 → `ended`（制度集保留），通知另一位 `pairEnded`；等回覆時邀請者是收回（不通知）、受邀者是婉拒。已處理過的回 409 `pairAnswered` |
 | `POST /api/book/import/ticket` | bookImport | 一次性憑證與上傳網址 |
-| `POST /api/book/import` | 憑證 | multipart：`ticket`、`meta`、`file`（PDF）或 `text`；回應是 Claude 的 SSE 串流，CORS `*` |
-| `GET/POST /api/book/drafts`、`GET/DELETE /api/book/drafts/:id` | bookImport | 匯入草稿 |
+| `POST /api/book/import` | 憑證 | multipart：`ticket`、`meta`、`file`（PDF）或 `text`；回應是 Claude 的 SSE 串流，CORS `*`。`meta.target: 'articles'`（e5-t08）改做叢書文章：`categories` 是系列、schema 是 `articleImportSchema`（逐字轉錄，多小標題、引文、牌例、出牌過程） |
+| `GET/POST /api/book/drafts`、`GET/DELETE /api/book/drafts/:id` | bookImport | 匯入草稿（`result.conventions` 或文章的 `result.articles`，摘要多 `articles` 篇數） |
 
 **制度集**（`worker/profiles.ts` 的 `ProfileService`，型別在 `shared/protocol.ts` 的 System profiles 區段，橋譜 `src/lib/api.ts` 對拍）：`checkProfileInput` 只留可編輯的欄位（`name`、`scope`、`parentId`、`adopted`、`overrides`、`notes`），id、版本、`updatedAt`、`updatedBy`（使用者 id）由伺服器填。層次固定：`club` 只有一個、不能改種類；隊伍繼承 `club`；搭檔繼承 `club` 或隊伍（沒給 `parentId` 就是 `club`），所以不會繞圈；有搭檔繼承的隊伍不能改成搭檔。上限 `PROFILE_LIMITS`：整份 JSON 200,000 bytes（UTF-8，超過 413 `contentTooLarge`）、覆寫 500 條、`club` 以外 100 個、名稱 40 字、每則備忘 2,000 字。整段覆寫的 `section` 用和特約一樣的 `checkSections` 檢查，且 `section.id` 要等於 `sectionId`；覆寫指到的段落、列存不存在由橋譜的 `resolveProfile` 回報。`visibility` 是可見範圍：沒有＝全社團，`members`＝只有成員（`club` 不能設）。新增與刪除要 `bookEdit`；讀、存、版本紀錄依下面的成員權限。
 

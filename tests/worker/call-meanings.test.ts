@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { deal } from '../../shared/board.ts'
 import { newBoard } from '../../shared/game.ts'
 import { inferredMeaning } from '../../shared/robot/robots.ts'
+import { bookKey } from '../../shared/robot/system/book-spec.ts'
 import { boardView } from '../../worker/views.ts'
 
 /** What a person's call means (e5-t22, AC-5.7): the engine's reading, and who sees it */
@@ -57,5 +58,14 @@ describe('the bidding box hints', () => {
     expect(boardView(board, 'S').callMeanings).toBeUndefined()
     expect(boardView(board, 'W', { robots: { N: 'gib' } }).callMeanings).toBeUndefined()
     expect(boardView(board, null, { robots: { N: 'gib' } }).callMeanings).toBeUndefined()
+  })
+
+  it('name 淡江橋館’s words for TKB’s calls and where they are, not 2/1’s (BridgeHall e7-t05)', () => {
+    const note = { text: 'Stayman', slug: 'notrump-responses', sectionId: 'a', profile: 'team1' }
+    const notes = { key: 'k', notes: { [bookKey('1N (P)', '2C')]: note } }
+    const view = boardView(board, 'S', { robots: { N: 'tku' }, bookNotes: notes })
+    expect(view.callMeanings!.book).toEqual({ '2C': note })
+    expect(boardView(board, 'S', { robots: { N: 'gib' }, bookNotes: notes }).callMeanings!.book).toBeUndefined()
+    expect(boardView(board, 'S', { robots: { N: 'tku' } }).callMeanings!.book).toBeUndefined()
   })
 })

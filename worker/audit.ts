@@ -28,6 +28,11 @@ export type AuditAction =
   /** An article published or hidden (BridgeHall e5-t04) */
   | 'article:publish'
   | 'article:hide'
+  /** An article's draft saved, sent for review, sent back or thrown away (BridgeHall e5-t07) */
+  | 'article:draft'
+  | 'article:submit'
+  | 'article:reject'
+  | 'article:discard'
   /** An e-book added or changed, or taken down (BridgeHall e5-t09); `target` is its id */
   | 'ebook:save'
   | 'ebook:remove'

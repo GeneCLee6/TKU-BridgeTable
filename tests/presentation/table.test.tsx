@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { ReactNode } from 'react'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import { legalCalls } from '../../shared/auction.ts'
 import { AuctionBox } from '../../src/components/AuctionBox.tsx'
 import { BiddingBox } from '../../src/components/BiddingBox.tsx'
@@ -357,6 +357,41 @@ describe('AuctionBox', () => {
     const alerted = screen.getByRole('tooltip', { name: 'Alert' })
     expect(alerted).toHaveTextContent('玩家的說明Stayman')
     expect(alerted).toHaveTextContent('依2/1推論')
+  })
+})
+
+describe('AuctionBox links to 淡江橋館 (BridgeHall e7-t05, e7-t06)', () => {
+  const book = { text: '2+ 張♣，12–21 點', slug: 'openings', sectionId: 'one-club', profile: 'team1' }
+
+  it('makes a call with the handbook’s words a link to its section, read with that profile', async () => {
+    wrap(<AuctionBox auction={[{ seat: 'E', call: '1C', robot: true, book }, { seat: 'S', call: 'P' }]} dealer="E" vul="None" />)
+    const link = screen.getByRole('link', { name: /在淡江橋館開啟/ })
+    expect(link).toHaveAttribute('href', 'https://tku-bridge-hall.vercel.app/c/openings/one-club?profile=team1')
+    expect(link).toHaveAttribute('target', '_blank')
+    await userEvent.hover(link)
+    const tip = screen.getByRole('tooltip', { name: '叫品意義' })
+    expect(tip).toHaveTextContent('淡江橋館2+ 張♣，12–21 點')
+    expect(tip).toHaveTextContent('點叫品，在淡江橋館開啟這一段')
+    // A call without the handbook's words stays a button
+    expect(screen.getByRole('button', { name: 'Pass' })).toBeInTheDocument()
+  })
+
+  it('shows the words on the first tap and opens the handbook on the second', async () => {
+    wrap(<AuctionBox auction={[{ seat: 'E', call: '1C', meaning: { hcp: [12, 21] as const }, inferred: 'tku', book }]} dealer="E" vul="None" />)
+    const link = screen.getByRole('link', { name: /1梅花/ })
+    // Whether the browser would follow the link, once React has handled the click
+    const opened: boolean[] = []
+    const follow = (e: MouseEvent) => {
+      if (e.target instanceof Node && link.contains(e.target)) opened.push(!e.defaultPrevented)
+      e.preventDefault()
+    }
+    document.addEventListener('click', follow)
+    onTestFinished(() => document.removeEventListener('click', follow))
+    const tap = [{ keys: '[TouchA]', target: link }]
+    await userEvent.pointer(tap)
+    expect(screen.getByRole('tooltip')).toHaveTextContent('2+ 張♣，12–21 點')
+    await userEvent.pointer(tap)
+    expect(opened).toEqual([false, true])
   })
 })
 

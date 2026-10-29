@@ -745,6 +745,7 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
         const spec = callMeanings.meanings[call]
         return (spec && rules.describe(spec, lang)) || t.noRobotMeaning
       },
+      book: (call) => callMeanings.book?.[call]?.text,
     }
   }, [callMeanings, rules, table.seats, t, lang])
   const trump = board?.contract && board.phase !== 'auction' ? board.contract.strain : null

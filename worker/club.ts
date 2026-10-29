@@ -806,6 +806,7 @@ export class Club extends DurableObject<Env> implements Connections {
       return json({ board: forum.createBoard(await body()) })
     }
     if (path === '/latest') return json(forum.latest())
+    if (path === '/feed') return json(forum.feed(Number(url.searchParams.get('page') ?? 1)))
     const posts = path.match(/^\/boards\/([\w-]+)\/posts$/)
     if (posts) {
       if (method === 'GET') return json(forum.boardPage(posts[1], Number(url.searchParams.get('page') ?? 1)))
@@ -905,9 +906,17 @@ export class Club extends DurableObject<Env> implements Connections {
       return json({ revisions: await this.book.revisions(slug) })
     }
     // An article (BridgeHall e5-t04); reading it is above, without signing in
-    const article = path.match(/^\/articles\/([\w-]+)(?:\/(hide|revisions)(?:\/([\w-]+))?)?$/)
+    const article = path.match(/^\/articles\/([\w-]+)(?:\/(hide|reject|draft|revisions)(?:\/([\w-]+))?)?$/)
     if (article) {
       const [, slug, action, revisionId] = article
+      // Drafts and review (BridgeHall e5-t07)
+      if (action === 'draft') {
+        if (method === 'GET') return json({ draft: await this.articles.draftOf(slug) })
+        if (method === 'PUT') return json({ draft: await this.articles.saveDraft(user, slug, await body()) })
+        await this.articles.discardDraft(user, slug, await body())
+        return json({ ok: true })
+      }
+      if (action === 'reject') return json({ draft: await this.articles.reject(user, slug, await body()) })
       if (method === 'PUT') return json({ entry: await this.articles.save(user, slug, await body()) })
       if (action === 'hide') return json({ entry: await this.articles.hide(user, slug, await body()) })
       if (revisionId) return json({ revision: await this.articles.revision(slug, revisionId) })
@@ -928,7 +937,7 @@ export class Club extends DurableObject<Env> implements Connections {
       if (method === 'GET') return json({ following: await this.notices.following(user.id, follow[1]) })
       return json({ following: await this.notices.setFollowing(user.id, follow[1], await body()) })
     }
-    if (path === '/reviews') return json({ drafts: await this.book.bookDrafts() })
+    if (path === '/reviews') return json({ drafts: await this.book.bookDrafts(), articles: await this.articles.drafts() })
     if (path === '/audit') return json({ entries: await this.book.auditLog() })
     if (path === '/pending') return json({ ...(await this.pending.list()), editors: this.service.editorNames() })
     const pending = path.match(/^\/pending\/([\w-]+)\/([\w-]+)\/(\d+)$/)
