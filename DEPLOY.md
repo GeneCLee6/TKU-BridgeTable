@@ -373,7 +373,7 @@ LOAD_PASSWORD=... LOAD_INVITE_CODE=... npm run load -- --url https://tku-bridge-
 
 討論區貼文與文章的圖片存在 R2 bucket `bridgebook-files`（binding `FILES`，程式在 `worker/files.ts`，規格在 `shared/files.ts`、ARCHITECTURE.md §5.14）。頭像**不在這裡**（仍在 `avatar:`，§4.4）。
 
-**現在的狀態**：`wrangler.jsonc` 的 `FILES` binding 是註解掉的。binding 指向不存在的 bucket 時 `wrangler deploy` 會失敗，所以先不綁；沒有 binding 時圖片 API 一律回 503（`filesOff`），其他功能照常。
+**現在的狀態**：2026-10-29 已建 bucket 並打開 `FILES` binding。（binding 指向不存在的 bucket 時 `wrangler deploy` 會失敗；沒有 binding 時圖片 API 一律回 503（`filesOff`），其他功能照常。）
 
 ### 啟用（只做一次）
 
