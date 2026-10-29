@@ -12,6 +12,10 @@ const rita: Me = { id: 'u1', username: 'rita', admin: false, permissions: ['book
 const PICTURE = 'article/0123456789abcdef01234567.webp'
 const COVER = 'article/fedcba9876543210fedcba98.jpg'
 
+/** Test data only: two hands shown, the others left out as articles often do */
+const DEAL = { hands: { N: ['SA', 'SK', 'H2'], E: [], S: ['SQ', 'HA'], W: [] }, dealer: 'N', vul: 'NS' }
+const play = (extra: Record<string, unknown>) => ({ kind: 'play', contract: '3N', declarer: 'S', tricks: [['SA']], ...extra })
+
 /** Test data only: the shape of an article, not real library content */
 function article(slug = 'test-article', extra: Record<string, unknown> = {}) {
   return {
@@ -31,6 +35,8 @@ function article(slug = 'test-article', extra: Record<string, unknown> = {}) {
       { kind: 'quote', text: '測試引文', cite: '測試出處' },
       { kind: 'image', src: PICTURE, alt: '測試圖片', caption: '測試圖說' },
       { kind: 'hand', hand: { spades: 'AK2', hearts: 'QJ3', diamonds: 'T98', clubs: '7654' } },
+      { kind: 'deal', deal: DEAL, caption: '測試牌例說明' },
+      { kind: 'play', contract: '4SX', declarer: 'S', tricks: [['HK', 'H2', 'HA', 'H3'], ['SA']], caption: '測試出牌說明' },
     ],
     ...extra,
   }
@@ -88,6 +94,18 @@ describe('checkArticle', () => {
     ['a picture from elsewhere', article('test-article', { blocks: [{ kind: 'image', src: 'https://example.com/a.jpg', alt: 'x' }] })],
     ['a block the handbook does not know', article('test-article', { blocks: [{ kind: 'video' }] })],
     ['a broken handbook block', article('test-article', { blocks: [{ kind: 'paragraph' }] })],
+    ['a deal without hands', article('test-article', { blocks: [{ kind: 'deal', deal: { dealer: 'N', vul: 'None' } }] })],
+    ['a deal with no cards', article('test-article', { blocks: [{ kind: 'deal', deal: { ...DEAL, hands: { N: [], E: [], S: [], W: [] } } }] })],
+    ['a deal with a card twice', article('test-article', { blocks: [{ kind: 'deal', deal: { ...DEAL, hands: { ...DEAL.hands, E: ['SA'] } } }] })],
+    ['a deal with a card it does not know', article('test-article', { blocks: [{ kind: 'deal', deal: { ...DEAL, hands: { ...DEAL.hands, E: ['S1'] } } }] })],
+    ['a deal with fourteen cards in a hand', article('test-article', { blocks: [{ kind: 'deal', deal: { ...DEAL, hands: { N: 'AKQJT98765432'.split('').map((r) => 'S' + r).concat('HA'), E: [], S: [], W: [] } } }] })],
+    ['a deal with an unknown vulnerability', article('test-article', { blocks: [{ kind: 'deal', deal: { ...DEAL, vul: 'All' } }] })],
+    ['a play with a bad contract', article('test-article', { blocks: [play({ contract: '4NT' })] })],
+    ['a play without a declarer', article('test-article', { blocks: [play({ declarer: 'X' })] })],
+    ['a play without tricks', article('test-article', { blocks: [play({ tricks: [] })] })],
+    ['a play with a short trick before the last', article('test-article', { blocks: [play({ tricks: [['SA'], ['SK']] })] })],
+    ['a play with five cards to a trick', article('test-article', { blocks: [play({ tricks: [['SA', 'SK', 'SQ', 'SJ', 'ST']] })] })],
+    ['a play with a card twice', article('test-article', { blocks: [play({ tricks: [['SA', 'SK', 'SQ', 'SJ'], ['SA']] })] })],
   ])('refuses %s', (_, value) => {
     expect(() => checkArticle(value, 'test-article')).toThrow(ClubError)
   })
@@ -254,6 +272,9 @@ describe('search text (BridgeHall e5-t13)', () => {
     expect(text!['test-article']).toContain('測試圖說')
     expect(text!['test-article']).not.toContain(PICTURE)
     expect(text!['test-article']).not.toContain('heading')
+    expect(text!['test-article']).toContain('測試牌例說明')
+    expect(text!['test-article']).toContain('測試出牌說明')
+    for (const notWords of ['SA', 'HK', '4SX', 'NS']) expect(text!['test-article']).not.toContain(notWords)
   })
 
   it('leaves out what the reader may not see and cuts long articles', async () => {
