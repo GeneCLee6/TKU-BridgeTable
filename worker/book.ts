@@ -8,9 +8,10 @@ import { ClubError } from './service.ts'
 import type { Store } from './store.ts'
 
 /**
- * TKU BridgeBook (淡江橋譜) content edited on the site. The handbook ships its conventions in its own
- * bundle; this keeps what members change online: one entry per convention that replaces the
- * bundled one with the same slug, adds a new one, or hides one (`convention: null`), plus every
+ * TKU BridgeBook (淡江橋譜) content. Since BridgeHall L0 (2026-10-29) the built-in conventions live
+ * here too (`book:builtin:<slug>`, seeded from BridgeHall's private repository, see BuiltinInfo), so
+ * only members can read them. Over them this keeps what members change online: one entry per
+ * convention that replaces the built-in one with the same slug, adds a new one, or hides one (`convention: null`), plus every
  * saved version, the handbook's categories once they are edited online (`book:category:<id>`), the
  * drafts made by AI import and the short-lived passes the import page uses.
  * The handbook merges the entries over its bundle when it loads (TKU-BridgeBook ARCHITECTURE.md).
@@ -156,11 +157,52 @@ export interface BookCategories {
   updatedBy?: string
 }
 
-/** GET /api/book/manifest; `categories` is the same list as GET /api/book/categories */
+/**
+ * GET /api/book/manifest; `categories` is the same list as GET /api/book/categories. `builtin` is
+ * the club's built-in conventions in catalogue order (BridgeHall L0, e10-t20): the handbook no longer
+ * ships them, so this is its catalogue, with the online entries laid over it as before.
+ */
 export interface BookManifest {
   version: number
   entries: BookEntrySummary[]
   categories: BookCategory[]
+  builtin: ConventionMeta[]
+}
+
+/**
+ * The built-in conventions (BridgeHall L0, e10-t20): the club's text, transcribed word for word from
+ * its Word files. They used to ship in the handbook's public bundle; now only members read them, here.
+ * They are not in this repository: BridgeHall's private repository seeds them
+ * (`PUT /api/book/builtin`, its scripts/seed-builtin.ts). An online entry still replaces the built-in
+ * convention with the same slug, exactly as it replaced the bundled one.
+ */
+export interface BuiltinInfo {
+  /** Counts the seeds that changed anything */
+  version: number
+  /** Catalogue order */
+  slugs: string[]
+  /** Parts of the search index's records (`bookpart:book:builtinIndex:<i>`); 0 before the first seed */
+  indexParts: number
+  updatedAt: number
+  updatedBy: string
+}
+
+/** What a seed did (or would do, on a dry run) to each built-in convention */
+export type BuiltinChange = 'new' | 'changed' | 'same' | 'removed'
+
+export interface BuiltinSeedReport {
+  dryRun: boolean
+  /** The built-in version after the seed (unchanged on a dry run or when nothing changed) */
+  version: number
+  conventions: { slug: string; change: BuiltinChange; /** It has an online entry, which readers see instead */ online: boolean }[]
+  order: 'same' | 'changed'
+  searchIndex: Exclude<BuiltinChange, 'removed'>
+}
+
+/** The built-in conventions' manifest entry, kept beside each body so the manifest never reads the bodies */
+interface BuiltinHeader extends Header {
+  slug: string
+  meta: ConventionMeta
 }
 
 export type RevisionAction = 'save' | 'hide' | 'reset'
@@ -212,6 +254,9 @@ export const BOOK_LIMITS = {
   draftsKept: 30,
   ticketMs: 10 * 60_000,
   sectionDepthMax: 8,
+  /** Built-in conventions in one seed, and characters of JSON for their search index */
+  builtinMax: 200,
+  searchIndexMax: 1_500_000,
 }
 
 /** Category limits; the import sends at most `max` categories to Claude (importRequestFrom) */
@@ -421,9 +466,10 @@ export function checkCategories(value: unknown): BookCategory[] {
 }
 
 /**
- * The handbook routes anyone may read, without signing in: every online entry
- * (`/api/book/content`, kept for older handbooks), the manifest, the categories and one entry by slug.
- * Returns null for any other request.
+ * The handbook's reading routes, for any member (club.ts checks the sign-in first, since 2026-10-29):
+ * every online entry (`/api/book/content`, kept for older handbooks), the manifest, the categories,
+ * one entry by slug, and the built-in conventions with their search index (L0). Returns null for
+ * any other request.
  */
 export async function publicBookResponse(book: BookService, request: Request, pathname: string): Promise<Response | null> {
   if (request.method !== 'GET') return null
@@ -438,6 +484,26 @@ export async function publicBookResponse(book: BookService, request: Request, pa
   if (pathname === '/api/book/categories') {
     const categories = await book.categories()
     return cachedJson(request, `W/"book-categories-${categories.version}"`, () => JSON.stringify(categories))
+  }
+  // The built-in conventions (BridgeHall L0): one by slug, every one (to check a seed), and their search index
+  if (pathname === '/api/book/builtin') {
+    const version = await book.builtinVersion()
+    const json = await book.builtinAll()
+    return cachedJson(request, `W/"builtin-${version}"`, () => json)
+  }
+  const builtin = pathname.match(/^\/api\/book\/builtin\/([^/]+)$/)
+  if (builtin) {
+    const slug = builtin[1]
+    const json = isSlug(slug) ? await book.builtin(slug) : undefined
+    if (json === undefined) throw new ClubError('conventionGone', {}, 404)
+    const version = await book.builtinVersion()
+    return cachedJson(request, `W/"builtin-${slug}-${version}"`, () => `{"convention":${json}}`)
+  }
+  if (pathname === '/api/book/search-index') {
+    const json = await book.builtinSearchIndex()
+    if (json === null) throw new ClubError('conventionGone', {}, 404)
+    const version = await book.builtinVersion()
+    return cachedJson(request, `W/"builtin-index-${version}"`, () => json)
   }
   const one = pathname.match(/^\/api\/book\/content\/([^/]+)$/)
   if (one) {
@@ -483,6 +549,12 @@ export class BookService {
   private categoryList: BookCategory[] = []
   private categoryInfo: Omit<BookCategories, 'categories'> = { version: 0 }
   private version = 0
+  /** The built-in conventions' headers by slug, in catalogue order (L0) */
+  private builtinHeaders = new Map<string, BuiltinHeader>()
+  private builtinInfo: BuiltinInfo | null = null
+  /** Built-in bodies read so far, as JSON text; cleared on a seed */
+  private builtinBodies = new Map<string, string>()
+  private builtinIndexJson: string | null = null
   /** GET /api/book/content as sent last time; cleared on every change */
   private contentJson: string | null = null
   /** GET /api/book/manifest as sent last time; cleared on every change */
@@ -531,8 +603,22 @@ export class BookService {
     const categories = await this.store.list<BookCategory>('book:category:')
     this.categoryList = [...categories.values()].sort((a, b) => a.order - b.order)
     this.categoryInfo = (await this.store.get<Omit<BookCategories, 'categories'>>('book:categoryInfo')) ?? { version: 0 }
+    await this.loadBuiltin()
     this.entries = entries
     return entries
+  }
+
+  private async loadBuiltin() {
+    this.builtinInfo = (await this.store.get<BuiltinInfo>('book:builtinInfo')) ?? null
+    const headers = await this.store.list<BuiltinHeader>('book:builtin:')
+    const bySlug = new Map([...headers.values()].map((h) => [h.slug, h]))
+    this.builtinHeaders = new Map()
+    for (const slug of this.builtinInfo?.slugs ?? []) {
+      const header = bySlug.get(slug)
+      if (header) this.builtinHeaders.set(slug, header)
+    }
+    this.builtinBodies.clear()
+    this.builtinIndexJson = null
   }
 
   /** Every online change, as one JSON text; `version` changes whenever anything does */
@@ -549,6 +635,7 @@ export class BookService {
       version: this.version,
       entries: [...entries.values()].map(entrySummary),
       categories: this.categoryList,
+      builtin: [...this.builtinHeaders.values()].map((h) => h.meta),
     } satisfies BookManifest)
     return { json: this.manifestJson, version: this.version }
   }
@@ -556,6 +643,110 @@ export class BookService {
   /** One online entry; undefined when the convention has none (the handbook shows its bundled copy) */
   async entry(slug: string): Promise<BookEntry | undefined> {
     return (await this.load()).get(slug)
+  }
+
+  // ── Built-in conventions (BridgeHall L0, e10-t20) ──────────────────────────────────────────
+
+  /** The built-in version, for ETags; 0 before the first seed */
+  async builtinVersion(): Promise<number> {
+    await this.load()
+    return this.builtinInfo?.version ?? 0
+  }
+
+  /** A built-in convention as JSON text; undefined when there is none with this slug */
+  async builtin(slug: string): Promise<string | undefined> {
+    await this.load()
+    const header = this.builtinHeaders.get(slug)
+    if (!header) return undefined
+    let json = this.builtinBodies.get(slug)
+    if (json === undefined) {
+      json = JSON.stringify(await this.getBody(`book:builtin:${slug}`, header.parts))
+      this.builtinBodies.set(slug, json)
+    }
+    return json
+  }
+
+  /** Every built-in convention in catalogue order, as the JSON text of a list (to check a seed) */
+  async builtinAll(): Promise<string> {
+    await this.load()
+    const bodies: string[] = []
+    for (const slug of this.builtinHeaders.keys()) bodies.push((await this.builtin(slug)) ?? 'null')
+    return `[${bodies.join(',')}]`
+  }
+
+  /** The built-in conventions' search index as seeded (BridgeHall builds it); null before a seed */
+  async builtinSearchIndex(): Promise<string | null> {
+    await this.load()
+    const parts = this.builtinInfo?.indexParts ?? 0
+    if (!parts) return null
+    this.builtinIndexJson ??= JSON.stringify(await this.getBody('book:builtinIndex', parts))
+    return this.builtinIndexJson
+  }
+
+  /**
+   * Replaces the built-in conventions with `conventions` (in catalogue order) and their search index
+   * (BridgeHall's scripts/seed-builtin.ts). A dry run unless `dryRun` is false: the report says what
+   * would change. Online entries are never touched: an edited convention keeps showing its online
+   * version. Removing a built-in convention needs `allowRemove`, since readers would lose it.
+   */
+  async seedBuiltin(
+    by: string,
+    body: { conventions?: unknown; searchIndex?: unknown; dryRun?: unknown; allowRemove?: unknown },
+  ): Promise<BuiltinSeedReport> {
+    if (!Array.isArray(body.conventions) || !body.conventions.length) throw new ClubError('badContent', { reason: '沒有特約' })
+    if (body.conventions.length > BOOK_LIMITS.builtinMax) throw new ClubError('contentTooLarge', {}, 413)
+    const list = (body.conventions as unknown[]).map((c) => this.checked(isObject(c) ? String(c.slug) : '', c))
+    const slugs = list.map((c) => String(c.slug))
+    if (new Set(slugs).size !== slugs.length) throw new ClubError('badContent', { reason: '特約的網址代稱（slug）重複' })
+    const index = body.searchIndex
+    if (!isObject(index) || !Array.isArray(index.records)) throw new ClubError('badContent', { reason: '缺少搜尋索引' })
+    const indexJson = JSON.stringify(index)
+    if (indexJson.length > BOOK_LIMITS.searchIndexMax) throw new ClubError('contentTooLarge', {}, 413)
+
+    const entries = await this.load()
+    const kept = new Set(slugs)
+    const before = [...this.builtinHeaders.keys()]
+    const removed = before.filter((slug) => !kept.has(slug))
+    if (removed.length && body.allowRemove !== true)
+      throw new ClubError('badContent', { reason: `會移除內建特約：${removed.join('、')}（確定要移除請加 allowRemove）` })
+    const conventions: BuiltinSeedReport['conventions'] = []
+    const writes: Record<string, unknown>[] = []
+    for (const convention of list) {
+      const slug = String(convention.slug)
+      const old = await this.builtin(slug)
+      const change: BuiltinChange = old === undefined ? 'new' : old === JSON.stringify(convention) ? 'same' : 'changed'
+      if (change !== 'same') writes.push(convention)
+      conventions.push({ slug, change, online: entries.has(slug) })
+    }
+    for (const slug of removed) conventions.push({ slug, change: 'removed', online: entries.has(slug) })
+    const order = before.filter((slug) => kept.has(slug)).join() === slugs.filter((slug) => before.includes(slug)).join() ? 'same' : 'changed'
+    const oldIndex = await this.builtinSearchIndex()
+    const searchIndex = oldIndex === null ? 'new' : oldIndex === indexJson ? 'same' : 'changed'
+    const changed = writes.length > 0 || removed.length > 0 || order === 'changed' || searchIndex !== 'same'
+    const version = this.builtinInfo?.version ?? 0
+    const dryRun = body.dryRun !== false
+    if (dryRun || !changed) return { dryRun, version, conventions, order, searchIndex }
+
+    for (const convention of writes) {
+      const slug = String(convention.slug)
+      const key = `book:builtin:${slug}`
+      const old = await this.store.get<Header>(key)
+      const parts = await this.putBody(key, convention, old?.parts)
+      await this.store.put<BuiltinHeader>(key, { slug, parts, meta: conventionMeta(convention) })
+    }
+    for (const slug of removed) {
+      const key = `book:builtin:${slug}`
+      const header = await this.store.get<Header>(key)
+      await this.dropBody(key, header?.parts ?? 0)
+      await this.store.delete(key)
+    }
+    const indexParts = await this.putBody('book:builtinIndex', index, this.builtinInfo?.indexParts)
+    const info: BuiltinInfo = { version: version + 1, slugs, indexParts, updatedAt: this.now(), updatedBy: by }
+    await this.store.put('book:builtinInfo', info)
+    await this.loadBuiltin()
+    await this.changed()
+    await this.audit.record({ by, action: 'book:builtin', target: 'builtin', version: info.version })
+    return { dryRun: false, version: info.version, conventions, order, searchIndex }
   }
 
   /** Each article edited online: its version and who changed it last, for the robot's sync (e5-t45) */

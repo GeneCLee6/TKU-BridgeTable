@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { Me } from '../../shared/protocol.ts'
-import { BOOK_LIMITS, BookService, CATEGORY_LIMITS, checkCategories, checkConvention, importRequestFrom, publicBookResponse } from '../../worker/book.ts'
+import { BOOK_LIMITS, BookService, conventionMeta, CATEGORY_LIMITS, checkCategories, checkConvention, importRequestFrom, publicBookResponse } from '../../worker/book.ts'
 import { ARTICLE_IMPORT_SYSTEM, articleImportPrompt, articleImportSchema, importSchema } from '../../worker/importer.ts'
 import { MemoryStore } from '../../worker/store.ts'
 
@@ -192,7 +192,7 @@ const get = (path: string, etag?: string) =>
 
 describe('reading the handbook one convention at a time', () => {
   it('lists every entry without its content, with the outline and 待確認 notes in page order', async () => {
-    expect(JSON.parse((await book.manifest()).json)).toEqual({ version: 0, entries: [], categories: [] })
+    expect(JSON.parse((await book.manifest()).json)).toEqual({ version: 0, entries: [], categories: [], builtin: [] })
     await book.save(amy, 'lebensohl', { convention: pendingConvention(), baseVersion: 0, bundledUpdated: '2026-10-21' })
     const manifest = JSON.parse((await book.manifest()).json)
     expect(manifest.version).toBe(1)
@@ -251,7 +251,7 @@ describe('reading the handbook one convention at a time', () => {
     expect(hidden.version).toBe(3)
     expect(hidden.entries[0]).toMatchObject({ slug: 'lebensohl', version: 3, meta: null })
     await book.reset(amy, 'lebensohl', { baseVersion: 3 })
-    expect(JSON.parse((await book.manifest()).json)).toEqual({ version: 4, entries: [], categories: [] })
+    expect(JSON.parse((await book.manifest()).json)).toEqual({ version: 4, entries: [], categories: [], builtin: [] })
   })
 
   it('answers the manifest and one convention with ETags, and 404 when there is no online entry', async () => {
@@ -607,5 +607,96 @@ describe('drafts and review (BridgeHall e8-t01, e8-t02, e8-t09)', () => {
     expect(published.note).toBe('新增')
     expect((await book.revision('lebensohl', published.revisionId!)).version).toBe(1)
     expect([...(await store.list('audit:')).keys()].every((k) => /^audit:\d{14}-\w+$/.test(k))).toBe(true)
+  })
+})
+
+describe('built-in conventions (BridgeHall L0)', () => {
+  const index = { version: 1, records: [{ slug: 'lebensohl', text: '弱牌' }] }
+  const builtins = [convention('lebensohl'), convention('stayman', { nameZh: '史泰曼' })]
+  const seed = (body: Record<string, unknown>, service = book) => service.seedBuiltin('seed-script', { conventions: builtins, searchIndex: index, ...body })
+
+  it('reports a dry run without writing, then seeds the conventions, their order and the search index', async () => {
+    const dry = await seed({})
+    expect(dry).toEqual({
+      dryRun: true,
+      version: 0,
+      conventions: [
+        { slug: 'lebensohl', change: 'new', online: false },
+        { slug: 'stayman', change: 'new', online: false },
+      ],
+      order: 'same',
+      searchIndex: 'new',
+    })
+    expect(JSON.parse((await book.manifest()).json).builtin).toEqual([])
+    expect(await book.builtinSearchIndex()).toBeNull()
+
+    const done = await seed({ dryRun: false })
+    expect(done).toMatchObject({ dryRun: false, version: 1 })
+    const manifest = JSON.parse((await book.manifest()).json)
+    expect(manifest.version).toBe(1)
+    expect(manifest.builtin).toEqual(builtins.map(conventionMeta))
+    expect(manifest.entries).toEqual([])
+    // Exactly the text that was sent, from a fresh service too (nothing but the store)
+    const fresh = new BookService(store, () => time)
+    expect(await fresh.builtin('stayman')).toBe(JSON.stringify(builtins[1]))
+    expect(JSON.parse(await fresh.builtinAll())).toEqual(builtins)
+    expect(JSON.parse((await fresh.builtinSearchIndex())!)).toEqual(index)
+    expect(await fresh.builtin('jacoby-2nt')).toBeUndefined()
+    expect((await book.auditLog())[0]).toMatchObject({ action: 'book:builtin', by: 'seed-script', target: 'builtin', version: 1 })
+  })
+
+  it('changes nothing when seeded again with the same content, and reports what changed otherwise', async () => {
+    await seed({ dryRun: false })
+    const again = await seed({ dryRun: false })
+    expect(again).toMatchObject({ version: 1, order: 'same', searchIndex: 'same' })
+    expect(again.conventions.map((c) => c.change)).toEqual(['same', 'same'])
+    expect(JSON.parse((await book.manifest()).json).version).toBe(1)
+
+    const edited = [builtins[1], convention('lebensohl', { summary: '改過' })]
+    const report = await book.seedBuiltin('seed-script', { conventions: edited, searchIndex: index, dryRun: false })
+    expect(report).toMatchObject({ version: 2, order: 'changed', searchIndex: 'same' })
+    expect(report.conventions).toEqual([
+      { slug: 'stayman', change: 'same', online: false },
+      { slug: 'lebensohl', change: 'changed', online: false },
+    ])
+    expect(JSON.parse((await book.manifest()).json).builtin.map((m: { slug: string }) => m.slug)).toEqual(['stayman', 'lebensohl'])
+  })
+
+  it('never touches online entries, and removes a built-in convention only when told to', async () => {
+    await book.save(amy, 'lebensohl', { convention: convention('lebensohl', { summary: '線上版' }), baseVersion: 0 })
+    const report = await seed({ dryRun: false })
+    expect(report.conventions[0]).toEqual({ slug: 'lebensohl', change: 'new', online: true })
+    const { entry } = await (await get('/api/book/content/lebensohl'))!.json()
+    expect(entry).toMatchObject({ version: 1, convention: { summary: '線上版' } })
+
+    const fewer = { conventions: [builtins[0]], searchIndex: index, dryRun: false }
+    await expect(book.seedBuiltin('seed-script', fewer)).rejects.toThrow('會移除內建特約：stayman')
+    const removed = await book.seedBuiltin('seed-script', { ...fewer, allowRemove: true })
+    expect(removed.conventions).toContainEqual({ slug: 'stayman', change: 'removed', online: false })
+    expect(await book.builtin('stayman')).toBeUndefined()
+    expect([...store.data.keys()].filter((k) => k.includes('stayman'))).toEqual([])
+  })
+
+  it('checks every convention and the search index before writing anything', async () => {
+    await expect(book.seedBuiltin('x', { conventions: [], searchIndex: index })).rejects.toThrow('沒有特約')
+    await expect(book.seedBuiltin('x', { conventions: [builtins[0], builtins[0]], searchIndex: index })).rejects.toThrow('重複')
+    await expect(book.seedBuiltin('x', { conventions: [{ ...builtins[0], sections: 'x' }], searchIndex: index })).rejects.toMatchObject({ code: 'badContent' })
+    await expect(book.seedBuiltin('x', { conventions: builtins })).rejects.toThrow('缺少搜尋索引')
+    expect(await book.builtinVersion()).toBe(0)
+  })
+
+  it('serves one built-in convention, all of them and the search index to members, with ETags', async () => {
+    await expect(get('/api/book/builtin/lebensohl')).rejects.toMatchObject({ status: 404 })
+    await expect(get('/api/book/search-index')).rejects.toMatchObject({ status: 404 })
+    await seed({ dryRun: false })
+    const one = (await get('/api/book/builtin/lebensohl'))!
+    expect(one.headers.get('ETag')).toBe('W/"builtin-lebensohl-1"')
+    expect(await one.json()).toEqual({ convention: builtins[0] })
+    expect((await get('/api/book/builtin/lebensohl', 'W/"builtin-lebensohl-1"'))!.status).toBe(304)
+    await expect(get('/api/book/builtin/no-such')).rejects.toMatchObject({ status: 404 })
+    expect(await (await get('/api/book/builtin'))!.json()).toEqual(builtins)
+    const search = (await get('/api/book/search-index'))!
+    expect(search.headers.get('ETag')).toBe('W/"builtin-index-1"')
+    expect(await search.json()).toEqual(index)
   })
 })

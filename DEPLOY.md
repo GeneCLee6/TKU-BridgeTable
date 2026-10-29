@@ -125,6 +125,7 @@ PR 關閉時預覽會自動刪除。若有漏掉的（例如當時還沒設定 s
 | `EDGE_AUTH` | `wrangler.jsonc` 的 `vars` 或 `--var` | 開 | `off` 關掉通行證（§4.5） |
 | `HISTORY_D1` | `wrangler.jsonc` 的 `vars` 或 `--var` | 開 | `off` 讓紀錄頁改回社團回答、停止寫 D1（§4.5）；沒有 `HISTORY` binding（PR 預覽）時本來就沒有 |
 | `SYSTEM_PROFILE_ID` | `wrangler.jsonc` 的 `vars` 或 `--var` | `club` | TKB 用淡江制度時，叫品帶哪個制度集的橋館文字（ROBOT.md「橋館的文字跟著叫品」）；那個制度集要先在橋館差異報告頁同步過 |
+| `BOOK_SEED_TOKEN` | `wrangler secret put BOOK_SEED_TOKEN` | 無 | 橋館寫入內建特約用的權杖（§4.9，至少 32 字）；沒設定時只有管理員登入後能寫 |
 | `ANTHROPIC_BASE_URL` | `.dev.vars` | 無 | 只給測試或 API 閘道用（本機可以指向假的 API），正式環境不要設定 |
 
 本機開發的值放在 `.dev.vars`（從 `.dev.vars.example` 複製，不會 commit）。
@@ -391,6 +392,15 @@ LOAD_PASSWORD=... LOAD_INVITE_CODE=... npm run load -- --url https://tku-bridge-
 - **額度**：R2 免費 10 GB；每人每天最多 30 張、每張 ≤ 2 MB、縮圖 ≤ 256 KB；電子書 PDF 每本 ≤ 50 MB（橋館 e5-t09）。超過 8 GB 時管理員會收到通知（`e5-t15`），會超過 10 GB 的上傳一律拒絕。
 - **電子書**（橋館 e5-t09，2026-10-29）：沿用同一個 bucket，不用另建；bucket 啟用後橋館的電子書頁才能上傳與閱讀。
 - **備份**：每日備份含 `file:meta:`（誰上傳、型別、大小）、`file:secret`（簽網址的金鑰）與 `ebook:`（電子書的資料）；圖片與 PDF 本身只在 R2，不另外備份。
+
+## 4.9 橋館的內建特約（L0，2026-10-29）
+
+橋館的 22 個內建特約原本打包在橋館的靜態網站裡（知道網址就抓得到）；2026-10-29 起存在這個 Worker（`book:builtin:*`，ARCHITECTURE.md §5），只有登入的社員讀得到。**這個 repo 是公開的，內容不放這裡**：特約的原始檔在橋館的 private repo，由它的 `scripts/seed-builtin.ts` 寫入（橋館 `CONTENT_GUIDE.md`）。
+
+- 權杖：`BOOK_SEED_TOKEN`（隨機 32 字以上）。設定：`npx wrangler secret put BOOK_SEED_TOKEN`；同一個值放在橋館本機的 `.env.seed`（不 commit）。沒有權杖時，管理員登入後在瀏覽器 Console 呼叫 `PUT /api/book/builtin` 也可以。
+- 寫入一律先預演（橋館 `npm run seed-builtin` 預設就是預演），看報告再 `-- --apply`，最後 `-- --verify` 逐字比對。
+- **還原備份之後**：備份範圍含 `book`，所以還原到寫入內建特約之前（2026-10-29 前）的備份會把內建特約一起刪掉，橋館會變成空的。還原後在橋館重跑一次 `npm run seed-builtin -- --apply`。
+- PR 預覽與 staging 各有自己的儲存，要看內容就對它們的網址各寫入一次（`--base <網址>`，權杖用那個環境的 secret）。
 
 ## 5. 費用與限制
 

@@ -10,6 +10,7 @@ import { bookSync } from '../shared/robot/system/tku/sources.ts'
 import { randomId, readCookie, SESSION_COOKIE, sessionCookie } from './auth.ts'
 import { ACCOUNT_PREFIXES, backupAdmin, runBackup } from './backup.ts'
 import { BookService, importRequestFrom, publicBookResponse } from './book.ts'
+import { seedTokenMatches } from './book-seed.ts'
 import { BookNotices } from './book-notices.ts'
 import { PendingService } from './pending.ts'
 import { GlossaryService, publicGlossaryResponse } from './glossary.ts'
@@ -59,6 +60,8 @@ export interface Env {
   INVITE_CODE?: string
   /** For TKU BridgeBook's AI import (wrangler secret put ANTHROPIC_API_KEY) */
   ANTHROPIC_API_KEY?: string
+  /** BridgeHall's seed of its built-in conventions (worker/book-seed.ts; wrangler secret put BOOK_SEED_TOKEN) */
+  BOOK_SEED_TOKEN?: string
   IMPORT_MODEL?: string
   /** Only for tests or an API gateway */
   ANTHROPIC_BASE_URL?: string
@@ -470,6 +473,14 @@ export class Club extends DurableObject<Env> implements Connections {
     }
 
     const user = await this.service.userForToken(token)
+    // BridgeHall's built-in conventions (L0): its seed script carries the seed token instead of a
+    // session, to seed them and to read them and their search index back
+    const seedPath = url.pathname === '/api/book/builtin' || (request.method === 'GET' && url.pathname === '/api/book/search-index')
+    if (seedPath && !user && (await seedTokenMatches(request, this.env.BOOK_SEED_TOKEN))) {
+      if (request.method === 'PUT') return json(await this.book.seedBuiltin('seed-script', await body()))
+      const read = await publicBookResponse(this.book, request, url.pathname)
+      if (read) return read
+    }
     // A convention card version shared by link (BridgeHall e3-t09): anyone, signed in or not
     const shared = request.method === 'GET' ? await this.sharedCardResponse(url.pathname) : null
     if (shared) return shared
@@ -932,6 +943,8 @@ export class Club extends DurableObject<Env> implements Connections {
     const pending = path.match(/^\/pending\/([\w-]+)\/([\w-]+)\/(\d+)$/)
     if (pending) return json({ meta: await this.pending.save(user, pending[1], pending[2], Number(pending[3]), await body()) })
     if (path === '/categories') return json(await this.book.saveCategories(user, await body()))
+    // The built-in conventions' seed (L0), from an admin's session; the script's token is above
+    if (path === '/builtin') return json(await this.book.seedBuiltin(user.username, await body()))
     if (path === '/series') return json(await this.articles.saveSeries(user, await body()))
     if (path === '/glossary') return json(await this.glossary.save(user, await body()))
 
