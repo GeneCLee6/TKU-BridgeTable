@@ -14,6 +14,7 @@ import {
   type Comment,
   type CommentBlock,
   type ForumAuctionCall,
+  type ForumFeed,
   type ForumLatest,
   type ForumRuleItem,
   type Post,
@@ -473,6 +474,18 @@ export class ForumService {
       page: at,
       pages: Math.max(1, Math.ceil(total / FORUM_LIMITS.pageSize)),
     }
+  }
+
+  /** The forum's front page (BridgeHall e11-t15): every board's posts newest first, FORUM_LIMITS.pageSize a page */
+  feed(page = 1): ForumFeed {
+    const at = Number.isInteger(page) && page > 0 ? page : 1
+    const total = this.sql.exec<{ n: number }>('SELECT COUNT(*) AS n FROM forum_posts')[0].n
+    const rows = this.sql.exec<PostRow>(
+      `SELECT ${POST_COLUMNS} FROM forum_posts ORDER BY created_at DESC, rowid DESC LIMIT ? OFFSET ?`,
+      FORUM_LIMITS.pageSize,
+      (at - 1) * FORUM_LIMITS.pageSize,
+    )
+    return { posts: this.toPosts(rows), page: at, pages: Math.max(1, Math.ceil(total / FORUM_LIMITS.pageSize)) }
   }
 
   /** The home page's two lists (e11-t16): the news board pinned first, and the newest of the others */
