@@ -287,6 +287,7 @@ interface BoardState {
 | `quizlog:<userId>:<時間>-<id>` | 社員在淡江橋館練習的成績（橋館 e6-t04）：每次練習的制度集與每題對錯，每人最新 100 次；帳號刪除時一起刪，不在每日備份裡 |
 | `book:path:<路徑 id>` | 淡江橋館幹部改過的學習路徑（橋館 e4-t08、e4-t12，`worker/learning.ts`、`shared/learning.ts`）：課次、每課讀哪些特約或段落、題目、檢核清單；誰、何時。刪掉就回到橋館內建的路徑 |
 | `pathprogress:<userId>:<路徑 id>` | 社員在淡江橋館學習路徑完成的課次（橋館 e4-t11）；沒有完成的課就不存；帳號刪除時一起刪，不在每日備份裡 |
+| `reading:<userId>` | 社員在淡江橋館文章與電子書讀到哪裡（`ReadingPlace[]`，新的在前，最多 30 筆；橋館 e5-t14）；帳號刪除時一起刪，不在每日備份裡 |
 | `book:draft:<時間>-<id>` | AI 匯入產生的草稿（只留最新 30 份） |
 | `book:ticket:<token>` | 匯入上傳用的一次性憑證（10 分鐘） |
 | `book:version` | 橋譜線上內容的版本號，`GET /api/book/content` 與 `/api/book/manifest` 的 ETag；分類改了也會加一 |
@@ -1031,6 +1032,9 @@ SQL 由 `worker/history-index.ts` 的 `searchBoards` 組：只有固定的 SQL �
 | `DELETE /api/book/paths` | bookEdit | `{ id }` → `{ ok }`：刪掉線上版本，回到橋館內建的路徑；審計 `path:reset` |
 | `GET /api/book/paths/progress` | 社員 | `{ progress: PathProgress[] }`：自己每條路徑完成的課次（橋館 e4-t11） |
 | `PUT /api/book/paths/progress` | 社員 | `{ progress: { pathId, lessonId, done } }` → `{ progress }`：標記一課完成或取消 |
+| `GET /api/book/reading` | 社員 | `{ places: ReadingPlace[] }`：自己在文章與電子書讀到哪裡，新的在前（橋館 e5-t14） |
+| `PUT /api/book/reading` | 社員 | `{ reading: { kind: 'article'｜'ebook', id, title, place, of } }` → `{ place }`：記下讀到的段落（文章，從 0 起）或頁碼（電子書，從 1 起）；同一篇移到最前 |
+| `DELETE /api/book/reading` | 社員 | `{ kind, id }` → `{ ok }`：從「繼續閱讀」拿掉一篇 |
 | `GET /api/club/members` | 社員 | `{ members: ClubMember[] }`：全部社員的 id 與帳號名稱（只有這兩個欄位），依名稱；選隊員、邀搭檔用 |
 | `GET /api/club/members/:id/teams` | 社員 | `MemberTeams`：那位社員所在的隊伍（含封存）與現役搭檔；邀請中、已結束的不列。橋館他人檔案頁 `/u/:id` 用（`e11-t04`） |
 | `GET /api/forum/boards` | 社員 | `{ boards: Board[] }`，依 `order` |
