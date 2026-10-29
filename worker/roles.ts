@@ -72,6 +72,8 @@ export function bookRouteNeed(method: string, path: string): Need | null {
   // Every draft and what is waiting for review (e8-t02); who changed what (e8-t09)
   if (path === '/reviews' || path === '/audit') return method === 'GET' ? 'bookEdit' : null
   if (path === '/categories') return method === 'PUT' ? 'bookEdit' : null
+  // The library's series (BridgeHall e5-t06), as the categories; reading them comes with the article list
+  if (path === '/series') return method === 'PUT' ? 'bookEdit' : null
   if (path === '/profiles') return method === 'GET' ? 'member' : method === 'POST' ? 'bookEdit' : null
   // One profile: which member may read it, save it or see its versions is profileAccess's (below)
   const profile = path.match(/^\/profiles\/[\w-]+(\/revisions(?:\/\d+)?)?$/)

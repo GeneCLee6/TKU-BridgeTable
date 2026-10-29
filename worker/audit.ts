@@ -22,6 +22,8 @@ export type AuditAction =
   /** An article published or hidden (BridgeHall e5-t04) */
   | 'article:publish'
   | 'article:hide'
+  /** The library's series changed (BridgeHall e5-t06) */
+  | 'article:series'
   /** System profiles */
   | 'profile:create'
   | 'profile:save'
@@ -39,7 +41,7 @@ export interface AuditEntry {
   /** The member's username, as in BookRevision.by */
   by: string
   action: AuditAction
-  /** A convention's or an article's slug, a profile's id, `<profile>/<template>` for a card, or 'categories' */
+  /** A convention's or an article's slug, a profile's id, `<profile>/<template>` for a card, 'categories' or 'series' */
   target: string
   /** The version the change made (a published convention's, a profile's, the categories'); a draft has none */
   version?: number

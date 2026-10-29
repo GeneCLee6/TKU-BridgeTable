@@ -446,7 +446,9 @@ export class Club extends DurableObject<Env> implements Connections {
     const articleRead = articleReadRoute(request.method, url.pathname)
     if (articleRead) {
       const reader: ArticleReader = !user ? 'anyone' : allows(user, 'bookEdit') ? 'editor' : 'member'
-      const result = articleRead.slug ? await this.articles.get(reader, articleRead.slug) : await this.articles.list(reader)
+      const result = articleRead.slug
+        ? await this.articles.get(reader, articleRead.slug)
+        : await this.articles.list(reader, url.searchParams.get('text') === '1')
       return json(result)
     }
     if (!user) {
@@ -825,6 +827,7 @@ export class Club extends DurableObject<Env> implements Connections {
     if (path === '/reviews') return json({ drafts: await this.book.bookDrafts() })
     if (path === '/audit') return json({ entries: await this.book.auditLog() })
     if (path === '/categories') return json(await this.book.saveCategories(user, await body()))
+    if (path === '/series') return json(await this.articles.saveSeries(user, await body()))
 
     if (path === '/profiles') {
       if (method === 'GET') return json({ profiles: await this.teams.readableProfiles(user) })
