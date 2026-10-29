@@ -99,6 +99,7 @@ import { EventHomes, type EventApi, type EventLink, type EventSnapshot, type Rem
 import { ClubError } from './errors.ts'
 import { SystemSpecStore } from './system-spec.ts'
 import { forgetQuizRounds } from './quiz.ts'
+import { forgetPathProgress } from './learning.ts'
 import { PROFILE_ID } from './profiles.ts'
 import { FeaturedService } from './featured.ts'
 import { TeamMatchService, type MatchPlayAction } from './team-match-service.ts'
@@ -1392,6 +1393,7 @@ export class ClubService {
     removeFavoritesOf(this.store.sql, user.id)
     await this.practicePresets.removeAll(user.id)
     await forgetQuizRounds(this.store, user.id)
+    await forgetPathProgress(this.store, user.id)
     this.present.delete(user.id)
     this.announced.delete(user.id)
     const correspondents = this.directs.forget(user.id)

@@ -21,6 +21,7 @@ import { type ArticleReader, ArticleService } from './articles.ts'
 import { ForumService } from './forum.ts'
 import { robotMeaningsFor } from './system-spec.ts'
 import { QuizStore } from './quiz.ts'
+import { LearningStore } from './learning.ts'
 import { CLIENT_ERROR_MAX_CHARS } from './client-errors.ts'
 import { d1Replica } from './d1.ts'
 import { edgeSecret, mintPass, PASS_COOKIE, passCookie, passNeedsRefresh } from './edge-auth.ts'
@@ -125,6 +126,8 @@ export class Club extends DurableObject<Env> implements Connections {
   private readonly teams: TeamService
   /** 淡江橋館's practice results and question fixes (E6); keeps nothing in memory */
   private readonly quiz: QuizStore
+  /** 淡江橋館's learning paths and members' progress (e4-t08, e4-t11); keeps nothing in memory */
+  private readonly learning: LearningStore
   /** TKU-BridgeHall's forum (E11) in the object's SQLite database; keeps nothing in memory but its rate limits */
   private readonly forum: ForumService
   private readonly store: Store
@@ -172,6 +175,7 @@ export class Club extends DurableObject<Env> implements Connections {
     this.book = new BookService(store)
     this.files = new FileService(store, env.FILES)
     this.quiz = new QuizStore(store, Date.now, () => randomId(8))
+    this.learning = new LearningStore(store, Date.now)
     this.articles = this.newArticles()
     this.profiles = new ProfileService(store, Date.now, (id) => this.service.usernameOf(id))
     this.cardSnapshots = new CardSnapshotService(store, Date.now, (id) => this.service.usernameOf(id))
@@ -432,6 +436,8 @@ export class Club extends DurableObject<Env> implements Connections {
     if (open) return open
     // The editors' fixes to the practice questions (BridgeHall e6-t06): the practice page needs no sign-in
     if (route === 'GET /api/book/quiz/fixes') return json({ fixes: await this.quiz.fixes() })
+    // The editors' learning paths (BridgeHall e4-t08): the path pages need no sign-in
+    if (route === 'GET /api/book/paths') return json({ paths: await this.learning.paths() })
 
     // A picture by its signed address (e11-t02): the signature is the check, so no sign-in
     if (request.method === 'GET' && url.pathname.startsWith(FILES_PATH)) {
@@ -905,6 +911,22 @@ export class Club extends DurableObject<Env> implements Connections {
       }
       const id = await this.quiz.removeFix(await body())
       await this.book.auditTrail.record({ by: user.username, action: 'quiz:unfix', target: id })
+      return json({ ok: true })
+    }
+
+    // 學習路徑 (BridgeHall e4-t11, e4-t12): a member's own progress, and the editors' paths
+    if (path === '/paths/progress') {
+      if (method === 'GET') return json({ progress: await this.learning.progress(user.id) })
+      return json({ progress: await this.learning.markLesson(user.id, await body()) })
+    }
+    if (path === '/paths') {
+      if (method === 'PUT') {
+        const saved = await this.learning.savePath(user, await body())
+        await this.book.auditTrail.record({ by: user.username, action: 'path:save', target: saved.id })
+        return json({ path: saved })
+      }
+      const id = await this.learning.removePath(await body())
+      await this.book.auditTrail.record({ by: user.username, action: 'path:reset', target: id })
       return json({ ok: true })
     }
 

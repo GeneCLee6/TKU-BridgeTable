@@ -92,6 +92,9 @@ export function bookRouteNeed(method: string, path: string): Need | null {
   // 練習 (BridgeHall E6): a member's own results; fixing the questions is the editors' (reading the fixes needs no sign-in)
   if (path === '/quiz/rounds') return method === 'GET' || method === 'POST' || method === 'DELETE' ? 'member' : null
   if (path === '/quiz/fixes') return method === 'PUT' || method === 'DELETE' ? 'bookEdit' : null
+  // 學習路徑 (BridgeHall e4-t11, e4-t12): a member's own progress; editing a path is the editors' (reading needs no sign-in)
+  if (path === '/paths/progress') return method === 'GET' || method === 'PUT' ? 'member' : null
+  if (path === '/paths') return method === 'PUT' || method === 'DELETE' ? 'bookEdit' : null
   if (path === '/import/ticket') return method === 'POST' ? 'bookImport' : null
   if (path === '/drafts') return method === 'GET' || method === 'POST' ? 'bookImport' : null
   if (/^\/drafts\/[\w-]+$/.test(path)) return method === 'GET' || method === 'DELETE' ? 'bookImport' : null

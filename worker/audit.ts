@@ -32,6 +32,9 @@ export type AuditAction =
   /** A practice question fixed or written by hand, or the fix removed (BridgeHall e6-t06) */
   | 'quiz:fix'
   | 'quiz:unfix'
+  /** A learning path saved, or back to the handbook's bundled one (BridgeHall e4-t12); `target` is the path's id */
+  | 'path:save'
+  | 'path:reset'
 
 export interface AuditEntry {
   id: string
