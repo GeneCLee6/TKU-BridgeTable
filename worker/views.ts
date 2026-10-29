@@ -1,9 +1,10 @@
-import { legalCalls, type AuctionCall, type Call } from '../shared/auction.ts'
+import { legalCalls, type AuctionCall, type BookNote, type Call } from '../shared/auction.ts'
 import type { Vulnerability } from '../shared/board.ts'
 import { bookTopics } from '../shared/book-topics.ts'
 import { nextSeat, partnerOf, SEATS, sideOf, type Seat } from '../shared/cards.ts'
 import { ROBOT_SYSTEMS } from '../shared/robot/robots.ts'
 import { explain } from '../shared/robot/system/engine.ts'
+import { bookNoteFor, type BookNotes } from '../shared/robot/system/book-spec.ts'
 import type { Spec, System } from '../shared/robot/system/spec.ts'
 import {
   canUndoFor,
@@ -303,6 +304,8 @@ export function boardView(
     kibitz?: boolean
     /** The robots at the table, by seat: on the viewer's turn the bidding box hints come from one */
     robots?: Partial<Record<Seat, RobotKind>>
+    /** 淡江橋館's words for the club's system (`ClubLink.bookNotes`): the hints for TKB name them too */
+    bookNotes?: BookNotes | null
     /** The seats the viewer calls for (seat control); just their own seat when left out */
     acts?: Seat[]
     /**
@@ -386,7 +389,7 @@ export function boardView(
   if (calling) {
     // A robot whose seat the viewer bids for does not read the calls: it is the viewer's hand
     const robots = Object.fromEntries(Object.entries(extras.robots ?? {}).filter(([seat]) => !acts.includes(seat as Seat)))
-    const hints = callMeaningsFor(board, calling, robots)
+    const hints = callMeaningsFor(board, calling, robots, extras.bookNotes)
     if (hints) view.callMeanings = hints
   }
   // The hint card (`e10-t06`): the club's book, so not when the partner of the seat bidding is TKB playing 2/1
@@ -420,13 +423,25 @@ function explained(system: System, auction: readonly AuctionCall[], dealer: Seat
  * from the auction alone (`explain`), as GIB explains a call before it is made: nothing about any
  * hand, so rule 6 holds. None at a table without robots.
  */
-export function callMeaningsFor(board: BoardState, viewer: Seat, robots: Partial<Record<Seat, RobotKind>>): BoardView['callMeanings'] {
+export function callMeaningsFor(
+  board: BoardState,
+  viewer: Seat,
+  robots: Partial<Record<Seat, RobotKind>>,
+  notes?: BookNotes | null,
+): BoardView['callMeanings'] {
   const robot = [partnerOf(viewer), nextSeat(viewer), nextSeat(viewer, 3)].find((seat) => robots[seat])
   if (!robot) return undefined
   const kind = robots[robot]!
   const meanings: Partial<Record<Call, Spec>> = {}
   for (const [call, spec] of explained(ROBOT_SYSTEMS[kind], board.auction, board.dealer, board.vul)) meanings[call] = spec
-  return { robot, kind, meanings }
+  // TKB in the club's system: the handbook's words for each call too, and where they are (e7-t05)
+  const book: Partial<Record<Call, BookNote>> = {}
+  if (kind === 'tku' && notes)
+    for (const call of legalCalls(board.auction, board.dealer)) {
+      const note = call === 'P' ? undefined : bookNoteFor(notes, board.auction, call)
+      if (note) book[call] = note
+    }
+  return { robot, kind, meanings, ...(Object.keys(book).length ? { book } : {}) }
 }
 
 /** What a challenge's viewer is to it, for the rules below */

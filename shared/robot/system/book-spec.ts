@@ -1,6 +1,6 @@
 import { isAuctionComplete, legalCalls, type AuctionCall, type BookNote, type Call } from '../../auction.ts'
 import { nextSeat, type Seat } from '../../cards.ts'
-import type { RobotShows, RobotMeaningsItem, RobotMeaningsQuery } from '../../protocol.ts'
+import { CLUB_PROFILE_ID, type RobotShows, type RobotMeaningsItem, type RobotMeaningsQuery } from '../../protocol.ts'
 import type { SystemSpec } from '../../systemSpec.ts'
 import { patternProblem, tokens } from './context.ts'
 import { describe } from './describe.ts'
@@ -31,16 +31,18 @@ export interface BookNotes {
 }
 
 /**
- * The words for each pattern and call. When two rows of the handbook give the same call after the
+ * The words for each pattern and call, from `profile`'s spec. When two rows of the handbook give the same call after the
  * same auction different words, neither is used: the robot cannot tell which one it is following
  */
-export function bookNotes(spec: SystemSpec, key: string): BookNotes {
+export function bookNotes(spec: SystemSpec, key: string, profile?: string): BookNotes {
   const notes: Record<string, BookNote> = {}
   const clash = new Set<string>()
+  // The club's own profile is what the handbook shows anyway: its links need not name it
+  const linked = profile && profile !== CLUB_PROFILE_ID ? { profile } : {}
   for (const rule of spec.rules) {
     for (const after of rule.after) {
       const k = bookKey(after, rule.call)
-      const note: BookNote = { text: rule.text, slug: rule.ref.slug, sectionId: rule.ref.sectionId }
+      const note: BookNote = { text: rule.text, slug: rule.ref.slug, sectionId: rule.ref.sectionId, ...linked }
       const known = notes[k]
       if (known && known.text !== note.text) clash.add(k)
       else if (!known) notes[k] = note

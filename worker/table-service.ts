@@ -171,9 +171,10 @@ export class TableService implements TableApi {
   private readonly offlineSince = new Map<string, number>()
   /** A robot is thinking; nothing else is scheduled for the table until it answers */
   private thinking = false
-  /** 淡江橋館's words for TKB's calls, and the deal they were last asked for (`bookNoteOf`) */
+  /** 淡江橋館's words for the club's system, and the deal they were last asked for (`loadBookNotes`) */
   private bookNotes: BookNotes | null = null
   private bookNotesDeal: BoardState['hands'] | null = null
+  private bookNotesLoad: Promise<void> | null = null
   /** The entry last reported to the club, and its JSON without `rev` */
   private entry: TableEntry | null = null
   private reported: string | undefined
@@ -1030,6 +1031,8 @@ export class TableService implements TableApi {
     table.boardSubstitutes = table.substitutes && { ...table.substitutes }
     // A board dealt with its auction made (Just Declare) goes straight to the play
     if (table.board.phase === 'play') this.swapForDeclarer()
+    // The handbook's words for the calls to come (`loadBookNotes`)
+    else void this.loadBookNotes()
     this.touchTurn()
   }
 
@@ -1275,7 +1278,15 @@ export class TableService implements TableApi {
           const kind: RobotKind =
             partner && isRobotId(partner) ? robotKindOf(partner) : own && isRobotId(own) ? robotKindOf(own) : 'tku'
           const inferred = inferredMeaning(kind, next.auction, next.dealer, next.vul)
-          if (inferred) next = { ...next, auction: [...board.auction, { ...next.auction.at(-1)!, meaning: inferred, inferred: kind }] }
+          // In the club's system the handbook's words for the call go with it too (e7-t06), so
+          // the record links every call to the handbook, not only TKB's; the words already loaded
+          // for the deal (`loadBookNotes`), as a person's call does not wait for them
+          const book = kind === 'tku' && message.call !== 'P' ? bookNoteFor(this.bookNotes, board.auction, message.call) : undefined
+          if (inferred || book)
+            next = {
+              ...next,
+              auction: [...board.auction, { ...next.auction.at(-1)!, ...(inferred ? { meaning: inferred, inferred: kind } : {}), ...(book ? { book } : {}) }],
+            }
         }
         break
       case 'play': {
@@ -1555,23 +1566,40 @@ export class TableService implements TableApi {
   }
 
   /**
-   * 淡江橋館's words for a TKB call in the club's system (BridgeHall e7-t03): the club's synced
-   * rules are asked for once a board (`ClubLink.bookNotes`), and kept when the club cannot answer.
-   * TKB bids by its own rules; the words go with the call as they are, pass left out as its alert is
+   * 淡江橋館's words for the calls in the club's system (BridgeHall e7-t03, e7-t05): the club's
+   * synced rules are asked for once a board (`ClubLink.bookNotes`), from the deal on, and kept when
+   * the club cannot answer. Every view and call waits for the same answer
+   */
+  private loadBookNotes(): Promise<void> {
+    const board = this.table?.board
+    const ask = this.link.bookNotes
+    if (!board || !ask) return Promise.resolve()
+    if (this.bookNotesDeal !== board.hands) {
+      this.bookNotesDeal = board.hands
+      this.bookNotesLoad = (async () => {
+        try {
+          const answer = await ask(this.bookNotes?.key ?? null)
+          if (answer === 'same') return
+          this.bookNotes = answer
+          // The bidding box hints name the handbook's words too
+          if (this.table?.board?.phase === 'auction') this.broadcast()
+        } catch (error) {
+          console.warn('book notes unavailable', error)
+        }
+      })()
+    }
+    return this.bookNotesLoad ?? Promise.resolve()
+  }
+
+  /**
+   * The words for a TKB call. TKB bids by its own rules; the words go with the call as they are,
+   * pass left out as its alert is
    */
   private async bookNoteOf(seat: Seat, message: ClientMessage): Promise<BookNote | undefined> {
     const board = this.table?.board
     const robot = this.table?.seats[seat]
     if (message.type !== 'call' || message.call === 'P' || !board || !robot || robotKindOf(robot) !== 'tku' || !this.link.bookNotes) return
-    if (this.bookNotesDeal !== board.hands) {
-      this.bookNotesDeal = board.hands
-      try {
-        const answer = await this.link.bookNotes(this.bookNotes?.key ?? null)
-        if (answer !== 'same') this.bookNotes = answer
-      } catch (error) {
-        console.warn('book notes unavailable', error)
-      }
-    }
+    await this.loadBookNotes()
     return bookNoteFor(this.bookNotes, board.auction, message.call)
   }
 
@@ -1784,6 +1812,7 @@ export class TableService implements TableApi {
             undoAllowed: table.mode !== 'challenge' && table.mode !== 'team',
             kibitz: this.watchable(table),
             robots: Object.fromEntries(SEATS.flatMap((s) => (table.seats[s] && isRobotId(table.seats[s]!) ? [[s, robotKindOf(table.seats[s]!)]] : []))),
+            bookNotes: this.bookNotes,
           })
         : null,
       boardsPlayed: table.boardsPlayed,

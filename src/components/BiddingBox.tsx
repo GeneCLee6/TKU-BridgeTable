@@ -1,3 +1,4 @@
+import { BookOpen } from 'lucide-react'
 import { useEffect, useId, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import styled, { css } from 'styled-components'
 import { LEVELS, STRAINS, type Call } from '../../shared/auction.ts'
@@ -29,6 +30,8 @@ export interface BiddingHints {
   title: string
   /** What a call would show */
   text: (call: Call) => string
+  /** TKB in the club's system: 淡江橋館's words for the call (BridgeHall e7-t05) */
+  book?: (call: Call) => string | undefined
 }
 
 /** How long a finger must stay on a key to see its hint instead of making the call */
@@ -206,6 +209,20 @@ const Hint = styled.div`
   }
 `
 
+/** The handbook's words under the robot's reading */
+const BookWords = styled.span`
+  display: block;
+  margin-top: 6px;
+
+  & > strong {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 13px;
+    opacity: 0.8;
+  }
+`
+
 export function BiddingBox({
   legal,
   onCall,
@@ -342,6 +359,15 @@ export function BiddingBox({
               {hints.title}
             </strong>
             {hints.text(read)}
+            {hints.book?.(read) && (
+              <BookWords>
+                <strong>
+                  <BookOpen size={13} aria-hidden />
+                  {t.bookExplanation}
+                </strong>
+                {hints.book(read)}
+              </BookWords>
+            )}
           </Hint>
         )}
         {waiting && (
