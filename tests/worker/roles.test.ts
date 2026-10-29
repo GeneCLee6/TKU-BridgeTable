@@ -97,6 +97,10 @@ describe('roles (2026-10-25: admins manage everything, editors everything but ac
     expect(bookRouteNeed('POST', '/conventions/stayman/draft')).toBeNull()
     expect(bookRouteNeed('GET', '/conventions/stayman/draft/x')).toBeNull()
     expect(bookRouteNeed('POST', '/reviews')).toBeNull()
+    // Seeding the built-in conventions (BridgeHall L0): admins, or the seed token in club.ts
+    expect(bookRouteNeed('PUT', '/builtin')).toBe('admin')
+    expect(may(reviewer, bookRouteNeed('PUT', '/builtin'))).toBe(false)
+    expect(bookRouteNeed('GET', '/builtin')).toBeNull()
   })
 
   it('brings editing with reviewing', () => {
