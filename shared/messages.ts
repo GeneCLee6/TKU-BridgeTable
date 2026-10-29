@@ -598,6 +598,14 @@ export const MESSAGES = {
     ja: '{name} さんがカテゴリを変更しました。再読み込みしてから編集してください',
     ko: '{name} 님이 방금 분류를 수정했습니다. 다시 불러온 뒤 수정하세요',
   },
+  glossaryConflict: {
+    zh: '{name} 剛剛修改了名詞表，請重新載入後再改',
+    'zh-Hans': '{name} 刚刚修改了名词表，请重新载入后再改',
+    en: '{name} just changed the glossary; reload it and edit again',
+    vi: '{name} vừa sửa bảng thuật ngữ; hãy tải lại rồi sửa tiếp',
+    ja: '{name} さんが用語集を変更しました。再読み込みしてから編集してください',
+    ko: '{name} 님이 방금 용어집을 수정했습니다. 다시 불러온 뒤 수정하세요',
+  },
   categoryInUse: {
     zh: '「{name}」裡還有特約（{convention}），請先把它們移到別的分類',
     'zh-Hans': '「{name}」里还有特约（{convention}），请先把它们移到别的分类',

@@ -10,6 +10,7 @@ import { bookSync } from '../shared/robot/system/tku/sources.ts'
 import { randomId, readCookie, SESSION_COOKIE, sessionCookie } from './auth.ts'
 import { ACCOUNT_PREFIXES, backupAdmin, runBackup } from './backup.ts'
 import { BookService, importRequestFrom, publicBookResponse } from './book.ts'
+import { GlossaryService, publicGlossaryResponse } from './glossary.ts'
 import { claudeImporter } from './importer.ts'
 import { anonymousProfileResponse, ProfileService } from './profiles.ts'
 import { CardSnapshotService } from './card-snapshots.ts'
@@ -21,6 +22,7 @@ import { type EbookReader, EbookService } from './ebooks.ts'
 import { ForumService } from './forum.ts'
 import { robotMeaningsFor } from './system-spec.ts'
 import { QuizStore } from './quiz.ts'
+import { LearningStore } from './learning.ts'
 import { CLIENT_ERROR_MAX_CHARS } from './client-errors.ts'
 import { d1Replica } from './d1.ts'
 import { edgeSecret, mintPass, PASS_COOKIE, passCookie, passNeedsRefresh } from './edge-auth.ts'
@@ -114,6 +116,8 @@ export class Club extends DurableObject<Env> implements Connections {
   private readonly service: ClubService
   /** Replaced after a backup is restored, so nothing they cached survives */
   private book: BookService
+  /** BridgeHall's glossary (e4-t05); reads storage on each request, so a restore needs nothing */
+  private readonly glossary: GlossaryService
   /** The library's articles (BridgeHall e5-t04) */
   private articles: ArticleService
   /** The library's e-books (BridgeHall e5-t09) */
@@ -127,6 +131,8 @@ export class Club extends DurableObject<Env> implements Connections {
   private readonly teams: TeamService
   /** 淡江橋館's practice results and question fixes (E6); keeps nothing in memory */
   private readonly quiz: QuizStore
+  /** 淡江橋館's learning paths and members' progress (e4-t08, e4-t11); keeps nothing in memory */
+  private readonly learning: LearningStore
   /** TKU-BridgeHall's forum (E11) in the object's SQLite database; keeps nothing in memory but its rate limits */
   private readonly forum: ForumService
   private readonly store: Store
@@ -177,6 +183,8 @@ export class Club extends DurableObject<Env> implements Connections {
       for (const id of this.service.adminIds()) await this.service.notifications.notify(id, 'filesNearlyFull', { gb: Math.round((bytes / 1024 ** 3) * 10) / 10 })
     })
     this.quiz = new QuizStore(store, Date.now, () => randomId(8))
+    this.learning = new LearningStore(store, Date.now)
+    this.glossary = new GlossaryService(store)
     this.articles = this.newArticles()
     this.ebooks = this.newEbooks()
     this.profiles = new ProfileService(store, Date.now, (id) => this.service.usernameOf(id))
@@ -437,8 +445,12 @@ export class Club extends DurableObject<Env> implements Connections {
     }
     const open = await publicBookResponse(this.book, request, url.pathname)
     if (open) return open
+    const glossary = await publicGlossaryResponse(this.glossary, request, url.pathname)
+    if (glossary) return glossary
     // The editors' fixes to the practice questions (BridgeHall e6-t06): the practice page needs no sign-in
     if (route === 'GET /api/book/quiz/fixes') return json({ fixes: await this.quiz.fixes() })
+    // The editors' learning paths (BridgeHall e4-t08): the path pages need no sign-in
+    if (route === 'GET /api/book/paths') return json({ paths: await this.learning.paths() })
 
     // A picture by its signed address (e11-t02): the signature is the check, so no sign-in
     if (request.method === 'GET' && url.pathname.startsWith(FILES_PATH)) {
@@ -848,6 +860,7 @@ export class Club extends DurableObject<Env> implements Connections {
     if (path === '/reviews') return json({ drafts: await this.book.bookDrafts() })
     if (path === '/audit') return json({ entries: await this.book.auditLog() })
     if (path === '/categories') return json(await this.book.saveCategories(user, await body()))
+    if (path === '/glossary') return json(await this.glossary.save(user, await body()))
 
     if (path === '/profiles') {
       if (method === 'GET') return json({ profiles: await this.teams.readableProfiles(user) })
@@ -928,6 +941,22 @@ export class Club extends DurableObject<Env> implements Connections {
       }
       const id = await this.quiz.removeFix(await body())
       await this.book.auditTrail.record({ by: user.username, action: 'quiz:unfix', target: id })
+      return json({ ok: true })
+    }
+
+    // 學習路徑 (BridgeHall e4-t11, e4-t12): a member's own progress, and the editors' paths
+    if (path === '/paths/progress') {
+      if (method === 'GET') return json({ progress: await this.learning.progress(user.id) })
+      return json({ progress: await this.learning.markLesson(user.id, await body()) })
+    }
+    if (path === '/paths') {
+      if (method === 'PUT') {
+        const saved = await this.learning.savePath(user, await body())
+        await this.book.auditTrail.record({ by: user.username, action: 'path:save', target: saved.id })
+        return json({ path: saved })
+      }
+      const id = await this.learning.removePath(await body())
+      await this.book.auditTrail.record({ by: user.username, action: 'path:reset', target: id })
       return json({ ok: true })
     }
 
