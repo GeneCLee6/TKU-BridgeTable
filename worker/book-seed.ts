@@ -3,7 +3,7 @@
  * holds the club's built-in conventions and sends them here with its scripts/seed-builtin.ts, which
  * signs in with this token instead of an account: `Authorization: Bearer <BOOK_SEED_TOKEN>`.
  * The token only reaches `/api/book/builtin` (seeding, and reading back every built-in convention
- * to compare with the source); an admin's session reaches it too. Without the secret, or with one
+ * to compare with the source) and `GET /api/book/search-index`; an admin's session reaches them too. Without the secret, or with one
  * shorter than SEED_TOKEN_MIN, no token is accepted (DEPLOY.md §4.10).
  */
 

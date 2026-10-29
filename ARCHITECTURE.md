@@ -989,7 +989,7 @@ SQL 由 `worker/history-index.ts` 的 `searchBoards` 組：只有固定的 SQL �
 | `PUT /api/book/glossary` | bookEdit | `{ terms, baseVersion }`：整份取代（e4-t07）；最多 500 條，名詞與別名不分大小寫不可重複，解釋 1–1000 字，`see` 是特約 slug。`baseVersion` 不符回 409 `glossaryConflict`；記稽核 `book:glossary` |
 | `GET /api/book/builtin/:slug` | 社員 | 內建特約（L0）`{ convention }`，原樣回傳寫入時的內容；沒有回 404 `conventionGone`。ETag `W/"builtin-<slug>-<內建版本>"` |
 | `GET /api/book/builtin` | 社員；或種子權杖 | 全部內建特約（依目錄順序的清單），給橋館的 `seed-builtin.ts --verify` 逐字比對。ETag `W/"builtin-<內建版本>"` |
-| `GET /api/book/search-index` | 社員 | 內建特約的搜尋索引（橋館建好、寫入時一起送來，Worker 不解讀）；還沒寫入過回 404。ETag `W/"builtin-index-<內建版本>"` |
+| `GET /api/book/search-index` | 社員；或種子權杖 | 內建特約的搜尋索引（橋館建好、寫入時一起送來，Worker 不解讀）；還沒寫入過回 404。ETag `W/"builtin-index-<內建版本>"` |
 | `PUT /api/book/builtin` | 管理員；或種子權杖（`Authorization: Bearer <BOOK_SEED_TOKEN>`，`worker/book-seed.ts`） | 寫入內建特約：`{ conventions, searchIndex, dryRun?, allowRemove? }`。**預設是預演**（`dryRun: false` 才寫）；回 `BuiltinSeedReport`：每個特約 `new`／`changed`／`same`／`removed`、有沒有線上版本（`online`，讀者看到的是線上版本）、順序與索引有沒有變。整份取代，每個特約照發布時的規則檢查形狀；會移除內建特約時要 `allowRemove: true`。**不動線上版本**（`book:entry:`）。有變動時 `book:version` 加一（所有橋館重新抓 manifest），記稽核 `book:builtin` |
 | `GET /api/book/content/:slug` | 社員 | `{ entry: BookEntry }`（隱藏時 `convention: null`）；沒有線上版本回 404 `conventionGone`，橋譜改用內建的版本。ETag `W/"book-<slug>-<entry.version>"` |
 | `PUT /api/book/conventions/:slug` | bookReview | 發布：`{ convention, baseVersion, bundledUpdated?, note?, draftRevision? }`；`baseVersion` 不是目前版本時回 409 `bookConflict`。有草稿時帶 `draftRevision`＝從草稿發布（草稿用掉，送審者記在版本上；不符回 409 `bookDraftConflict`）；不帶就保留草稿。版本記 `status: 'published'`、`reviewedBy/At`、`reviewRequestedBy/At`。**沒有 `status` 的舊資料也是已發布** |

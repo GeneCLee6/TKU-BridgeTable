@@ -473,8 +473,10 @@ export class Club extends DurableObject<Env> implements Connections {
     }
 
     const user = await this.service.userForToken(token)
-    // BridgeHall's built-in conventions (L0): its seed script carries the seed token instead of a session
-    if (url.pathname === '/api/book/builtin' && !user && (await seedTokenMatches(request, this.env.BOOK_SEED_TOKEN))) {
+    // BridgeHall's built-in conventions (L0): its seed script carries the seed token instead of a
+    // session, to seed them and to read them and their search index back
+    const seedPath = url.pathname === '/api/book/builtin' || (request.method === 'GET' && url.pathname === '/api/book/search-index')
+    if (seedPath && !user && (await seedTokenMatches(request, this.env.BOOK_SEED_TOKEN))) {
       if (request.method === 'PUT') return json(await this.book.seedBuiltin('seed-script', await body()))
       const read = await publicBookResponse(this.book, request, url.pathname)
       if (read) return read
