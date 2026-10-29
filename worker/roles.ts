@@ -74,6 +74,8 @@ export function bookRouteNeed(method: string, path: string): Need | null {
   // reading one or the list is ebookReadRoute's, without signing in
   if (path === '/ebooks/ticket' || path === '/ebooks') return method === 'POST' ? 'bookReview' : null
   if (/^\/ebooks\/[\w-]+$/.test(path)) return method === 'PUT' || method === 'DELETE' ? 'bookReview' : null
+  // Following a convention (關注, BridgeHall e8-t10): each member's own
+  if (/^\/follows\/[\w-]+$/.test(path)) return method === 'GET' || method === 'PUT' ? 'member' : null
   // Every draft and what is waiting for review (e8-t02); who changed what (e8-t09)
   if (path === '/reviews' || path === '/audit') return method === 'GET' ? 'bookEdit' : null
   if (path === '/categories') return method === 'PUT' ? 'bookEdit' : null
@@ -139,6 +141,8 @@ export function clubRouteNeed(method: string, path: string): Need | null {
   if (path === '/teams') return method === 'GET' ? 'member' : method === 'POST' ? 'bookEdit' : null
   if (/^\/teams\/[\w-]+$/.test(path)) return method === 'GET' || method === 'PATCH' ? 'member' : null
   if (/^\/teams\/[\w-]+\/members$/.test(path)) return method === 'POST' ? 'member' : null
+  // 建議統一 (BridgeHall e2-t08): the team's captain's and the editors' (book-notices.ts checks which team)
+  if (/^\/teams\/[\w-]+\/suggest-unify$/.test(path)) return method === 'POST' ? 'member' : null
   if (/^\/teams\/[\w-]+\/members\/[\w-]+$/.test(path)) return method === 'DELETE' ? 'member' : null
   if (path === '/pairs') return method === 'GET' || method === 'POST' ? 'member' : null
   if (/^\/pairs\/[\w-]+$/.test(path)) return method === 'GET' ? 'member' : null

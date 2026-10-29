@@ -1218,6 +1218,11 @@ export class ClubService {
     return [...this.users.values()].filter((u) => u.admin).map((u) => u.id)
   }
 
+  /** Who publishes the handbook's conventions, for drafts sent for review (BridgeHall e8-t10): admins and `bookReview` holders */
+  reviewerIds(): string[] {
+    return [...this.users.values()].filter((u) => u.admin || this.permissionsOf(u).includes('bookReview')).map((u) => u.id)
+  }
+
   memberDirectory(): ClubMember[] {
     return [...this.users.values()].map(({ id, username, profile, avatar }) => ({
       id,
