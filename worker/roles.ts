@@ -69,6 +69,10 @@ export function bookRouteNeed(method: string, path: string): Need | null {
     if (method === 'GET' && action === 'revisions') return 'bookEdit'
     return null
   }
+  // An e-book (BridgeHall e5-t09): uploading, adding, changing and taking one down are the reviewers';
+  // reading one or the list is ebookReadRoute's, without signing in
+  if (path === '/ebooks/ticket' || path === '/ebooks') return method === 'POST' ? 'bookReview' : null
+  if (/^\/ebooks\/[\w-]+$/.test(path)) return method === 'PUT' || method === 'DELETE' ? 'bookReview' : null
   // Every draft and what is waiting for review (e8-t02); who changed what (e8-t09)
   if (path === '/reviews' || path === '/audit') return method === 'GET' ? 'bookEdit' : null
   if (path === '/categories') return method === 'PUT' ? 'bookEdit' : null
@@ -96,6 +100,14 @@ export function bookRouteNeed(method: string, path: string): Need | null {
   if (path === '/drafts') return method === 'GET' || method === 'POST' ? 'bookImport' : null
   if (/^\/drafts\/[\w-]+$/.test(path)) return method === 'GET' || method === 'DELETE' ? 'bookImport' : null
   return null
+}
+
+/** `GET /api/book/ebooks` and `GET /api/book/ebooks/:id` (BridgeHall e5-t09): as articles, EbookService decides */
+export function ebookReadRoute(method: string, pathname: string): { id?: string } | null {
+  if (method !== 'GET') return null
+  if (pathname === '/api/book/ebooks') return {}
+  const one = pathname.match(/^\/api\/book\/ebooks\/([\w-]+)$/)
+  return one ? { id: one[1] } : null
 }
 
 /**

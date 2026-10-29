@@ -1212,6 +1212,11 @@ export class ClubService {
   }
 
   /** Every member's id and name, nothing else, for picking a team's members or a partner */
+  /** The admins' ids, for what only they hear about (the files nearly full, BridgeHall e5-t15) */
+  adminIds(): string[] {
+    return [...this.users.values()].filter((u) => u.admin).map((u) => u.id)
+  }
+
   memberDirectory(): ClubMember[] {
     return [...this.users.values()].map(({ id, username, profile, avatar }) => ({
       id,

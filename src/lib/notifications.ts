@@ -37,6 +37,8 @@ export function notificationText(t: Strings, n: Notification): string {
     case 'tableRequestApproved':
     case 'tableRequestDeclined':
       return t.notificationTexts[n.kind](name, Number(n.params.number ?? 0))
+    case 'filesNearlyFull':
+      return t.notificationTexts.filesNearlyFull(Number(n.params.gb ?? 0))
   }
 }
 
@@ -46,7 +48,8 @@ export function notificationText(t: Strings, n: Notification): string {
  * to a table, a request to join one and its answer to that table; a featured board to its record, where the explanation is shown; team
  * match news to the match's prep room (`e8-t06`), except being taken off a seat, after which only
  * the list of one's matches is left; partnership news to the partnership's page in TKU BridgeBook
- * (an address on another site, which the bell opens as a page load)
+ * (an address on another site, which the bell opens as a page load); the files nearly full to
+ * TKU BridgeHall's e-books, where the largest files are (BridgeHall e5-t15)
  */
 export function notificationLink(n: Notification): string {
   switch (n.kind) {
@@ -86,5 +89,7 @@ export function notificationLink(n: Notification): string {
     case 'pairDeclined':
     case 'pairEnded':
       return n.params.pairId ? `${BOOK_SITE}/pairs/${encodeURIComponent(String(n.params.pairId))}` : BOOK_SITE
+    case 'filesNearlyFull':
+      return `${BOOK_SITE}/library/book`
   }
 }

@@ -632,6 +632,7 @@ export const NOTIFICATION_KINDS = [
   'pairAccepted',
   'pairDeclined',
   'pairEnded',
+  'filesNearlyFull',
 ] as const
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number]
 
@@ -656,7 +657,9 @@ export interface Notification {
    * `matchAbandoned` { matchId, username } of the host who stopped it, `matchSubIn` { matchId,
    * username } of who put the member in a seat as a substitute (替補, `e8-t16`). The partnership
    * kinds (TKU BridgeBook E2, `e2-t03`): { pairId, username } of who invited the member to be
-   * partners, accepted, declined or cancelled the invitation, or ended the partnership
+   * partners, accepted, declined or cancelled the invitation, or ended the partnership.
+   * `filesNearlyFull` { gb }: to admins, the uploaded files passed 8 GB of R2's free 10 GB
+   * (BridgeHall e5-t15)
    */
   params: Record<string, string | number>
   read: boolean

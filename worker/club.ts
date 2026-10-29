@@ -15,9 +15,9 @@ import { anonymousProfileResponse, ProfileService } from './profiles.ts'
 import { CardSnapshotService } from './card-snapshots.ts'
 import { avatarResponse, readAvatarUpload } from './avatars.ts'
 import { FILES_PATH, FileService, readFileUpload } from './files.ts'
-import { FILE_LIMITS } from '../shared/files.ts'
-import { adminRouteNeed, allows, articleReadRoute, bookRouteNeed, clubRouteNeed, forumRouteNeed, requireNeed } from './roles.ts'
+import { adminRouteNeed, allows, articleReadRoute, bookRouteNeed, ebookReadRoute, clubRouteNeed, forumRouteNeed, requireNeed } from './roles.ts'
 import { type ArticleReader, ArticleService } from './articles.ts'
+import { type EbookReader, EbookService } from './ebooks.ts'
 import { ForumService } from './forum.ts'
 import { robotMeaningsFor } from './system-spec.ts'
 import { QuizStore } from './quiz.ts'
@@ -116,6 +116,8 @@ export class Club extends DurableObject<Env> implements Connections {
   private book: BookService
   /** The library's articles (BridgeHall e5-t04) */
   private articles: ArticleService
+  /** The library's e-books (BridgeHall e5-t09) */
+  private ebooks: EbookService
   private profiles: ProfileService
   /** Convention card versions (BridgeHall e3-t09); keeps nothing in memory */
   private readonly cardSnapshots: CardSnapshotService
@@ -170,9 +172,13 @@ export class Club extends DurableObject<Env> implements Connections {
     })
     this.edgeSecret = edgeSecret(env)
     this.book = new BookService(store)
-    this.files = new FileService(store, env.FILES)
+    // Admins hear when the files near R2's free room (BridgeHall e5-t15)
+    this.files = new FileService(store, env.FILES, Date.now, async (bytes) => {
+      for (const id of this.service.adminIds()) await this.service.notifications.notify(id, 'filesNearlyFull', { gb: Math.round((bytes / 1024 ** 3) * 10) / 10 })
+    })
     this.quiz = new QuizStore(store, Date.now, () => randomId(8))
     this.articles = this.newArticles()
+    this.ebooks = this.newEbooks()
     this.profiles = new ProfileService(store, Date.now, (id) => this.service.usernameOf(id))
     this.cardSnapshots = new CardSnapshotService(store, Date.now, (id) => this.service.usernameOf(id))
     this.teams = new TeamService(store, {
@@ -362,7 +368,8 @@ export class Club extends DurableObject<Env> implements Connections {
       if (request.method !== 'PUT') throw new ClubError('noSuchApi', {}, 404)
       const token = url.pathname.slice(`${FILES_PATH}upload/`.length)
       const part = url.searchParams.get('part') === 'thumb' ? 'thumb' : 'file'
-      const bytes = await readFileUpload(request, part === 'thumb' ? FILE_LIMITS.thumbMaxBytes : FILE_LIMITS.maxBytes)
+      // A picture's limit, or a PDF's for an e-book's pass (e5-t09)
+      const bytes = await readFileUpload(request, await this.files.uploadMax(token, part))
       response = json({ file: await this.files.upload(token, part, bytes) })
     } catch (error) {
       response = errorResponse(error)
@@ -448,6 +455,12 @@ export class Club extends DurableObject<Env> implements Connections {
       const reader: ArticleReader = !user ? 'anyone' : allows(user, 'bookEdit') ? 'editor' : 'member'
       const result = articleRead.slug ? await this.articles.get(reader, articleRead.slug) : await this.articles.list(reader)
       return json(result)
+    }
+    // The library's e-books (BridgeHall e5-t09, e5-t11): the same, members-only ones need signing in
+    const ebookRead = ebookReadRoute(request.method, url.pathname)
+    if (ebookRead) {
+      const reader: EbookReader = !user ? 'anyone' : allows(user, 'bookEdit') ? 'editor' : 'member'
+      return json(ebookRead.id ? await this.ebooks.get(reader, ebookRead.id) : await this.ebooks.list(reader))
     }
     if (!user) {
       // Without signing in, only the club's own system profile
@@ -621,6 +634,7 @@ export class Club extends DurableObject<Env> implements Connections {
           restored: async (prefixes) => {
             this.book = new BookService(this.store)
             this.articles = this.newArticles()
+            this.ebooks = this.newEbooks()
             this.profiles = new ProfileService(this.store, Date.now, (id) => this.service.usernameOf(id))
             this.service.systemSpecs.forget()
             // Members come back as of the backup and everyone signs in again (DEPLOY.md §4.4)
@@ -822,6 +836,15 @@ export class Club extends DurableObject<Env> implements Connections {
       if (revisionId) return json({ revision: await this.articles.revision(slug, revisionId) })
       return json({ revisions: await this.articles.revisions(slug) })
     }
+    // An e-book (BridgeHall e5-t09): a pass for its PDF, adding, changing and taking one down; reading is above
+    if (path === '/ebooks/ticket') return json(await this.files.createEbookTicket(user.id, await body()))
+    if (path === '/ebooks') return json({ ebook: await this.ebooks.create(user, await body()) })
+    const ebook = path.match(/^\/ebooks\/([\w-]+)$/)
+    if (ebook) {
+      if (method === 'PUT') return json({ ebook: await this.ebooks.update(user, ebook[1], await body()) })
+      await this.ebooks.remove(user, ebook[1])
+      return json({ ok: true })
+    }
     if (path === '/reviews') return json({ drafts: await this.book.bookDrafts() })
     if (path === '/audit') return json({ entries: await this.book.auditLog() })
     if (path === '/categories') return json(await this.book.saveCategories(user, await body()))
@@ -939,6 +962,17 @@ export class Club extends DurableObject<Env> implements Connections {
   /** Articles sign their pictures' addresses with the file service's key */
   private newArticles() {
     return new ArticleService(this.store, (keys) => this.files.urls(keys))
+  }
+
+  /** E-books sign their PDFs' and covers' addresses the same way */
+  private newEbooks() {
+    const files = this.files
+    return new EbookService(this.store, {
+      sign: (keys) => files.urls(keys),
+      meta: (key) => files.meta(key),
+      remove: (userId, key, any) => files.remove(userId, key, any),
+      usage: () => files.usage(),
+    })
   }
 
   private async systemSpecStatus(profileId: string): Promise<SystemSpecStatus> {

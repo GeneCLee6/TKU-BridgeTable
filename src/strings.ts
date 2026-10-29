@@ -108,6 +108,7 @@ const zh = {
     pairAccepted: (name: string) => `${name} 接受了你的搭檔邀請`,
     pairDeclined: (name: string) => `${name} 婉拒了你的搭檔邀請`,
     pairEnded: (name: string) => `${name} 結束了你們的搭檔`,
+    filesNearlyFull: (gb: number) => `上傳的檔案已用 ${gb} GB，快到 10 GB 的免費上限，請清理用不到的電子書或圖片`,
   },
   /** The invitation dialog (e1-t35): a challenge or a team match seat, answered at once */
   invites: {
@@ -1101,6 +1102,7 @@ const en: Strings = {
     pairAccepted: (name) => `${name} accepted your partnership invitation`,
     pairDeclined: (name) => `${name} declined your partnership invitation`,
     pairEnded: (name) => `${name} ended your partnership`,
+    filesNearlyFull: (gb) => `Uploaded files now take ${gb} GB, close to the free 10 GB: remove e-books or pictures no longer needed`,
   },
   invites: {
     later: 'Answer later',
@@ -2078,6 +2080,7 @@ const zhHans: Strings = {
     pairAccepted: (name) => `${name} 接受了你的搭档邀请`,
     pairDeclined: (name) => `${name} 婉拒了你的搭档邀请`,
     pairEnded: (name) => `${name} 结束了你们的搭档`,
+    filesNearlyFull: (gb) => `上传的文件已用 ${gb} GB，快到 10 GB 的免费上限，请清理用不到的电子书或图片`,
   },
   invites: {
     later: '稍后回复',
@@ -3054,6 +3057,7 @@ const vi: Strings = {
     pairAccepted: (name) => `${name} đã nhận lời mời làm cặp đôi của bạn`,
     pairDeclined: (name) => `${name} đã từ chối lời mời làm cặp đôi của bạn`,
     pairEnded: (name) => `${name} đã kết thúc cặp đôi của hai bạn`,
+    filesNearlyFull: (gb) => `Tệp đã tải lên chiếm ${gb} GB, gần mức miễn phí 10 GB: hãy xóa sách điện tử hoặc ảnh không còn dùng`,
   },
   invites: {
     later: 'Trả lời sau',
@@ -4031,6 +4035,7 @@ const ja: Strings = {
     pairAccepted: (name) => `${name} さんがパートナーの招待を受けました`,
     pairDeclined: (name) => `${name} さんがパートナーの招待を断りました`,
     pairEnded: (name) => `${name} さんがパートナーシップを終了しました`,
+    filesNearlyFull: (gb) => `アップロードしたファイルが ${gb} GB になり、無料枠 10 GB に近づいています。不要な電子書籍や画像を削除してください`,
   },
   invites: {
     later: 'あとで返事する',
@@ -5008,6 +5013,7 @@ const ko: Strings = {
     pairAccepted: (name) => `${name} 님이 파트너 제안을 수락했습니다`,
     pairDeclined: (name) => `${name} 님이 파트너 제안을 거절했습니다`,
     pairEnded: (name) => `${name} 님이 파트너십을 끝냈습니다`,
+    filesNearlyFull: (gb) => `업로드한 파일이 ${gb}GB로 무료 한도 10GB에 가깝습니다. 쓰지 않는 전자책이나 사진을 지우세요`,
   },
   invites: {
     later: '나중에 답하기',
