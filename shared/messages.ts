@@ -822,6 +822,22 @@ export const MESSAGES = {
     ja: '{name} さんがこの記事を変更しました。再読み込みしてから編集してください',
     ko: '{name} 님이 방금 이 글을 수정했습니다. 다시 불러온 뒤 수정하세요',
   },
+  seriesConflict: {
+    zh: '{name} 剛剛修改了系列，請重新載入後再改',
+    'zh-Hans': '{name} 刚刚修改了系列，请重新载入后再改',
+    en: '{name} just changed the series; reload them and edit again',
+    vi: '{name} vừa sửa các loạt bài; hãy tải lại rồi sửa tiếp',
+    ja: '{name} さんがシリーズを変更しました。再読み込みしてから編集してください',
+    ko: '{name} 님이 방금 시리즈를 수정했습니다. 다시 불러온 뒤 수정하세요',
+  },
+  seriesInUse: {
+    zh: '「{name}」裡還有文章（{article}），請先把它們移到別的系列',
+    'zh-Hans': '「{name}」里还有文章（{article}），请先把它们移到别的系列',
+    en: '"{name}" still has articles ({article}); move them to another series first',
+    vi: '"{name}" vẫn còn bài viết ({article}); hãy chuyển chúng sang loạt khác trước',
+    ja: '「{name}」にはまだ記事があります（{article}）。先に別のシリーズへ移してください',
+    ko: '"{name}"에 아직 글이 있습니다({article}). 먼저 다른 시리즈로 옮기세요',
+  },
   conventionGone: {
     zh: '找不到這個特約',
     'zh-Hans': '找不到这个特约',
