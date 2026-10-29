@@ -17,6 +17,8 @@
  * Avatars are not files: they stay in the club's storage (`shared/avatar.ts`).
  */
 
+import type { EbookFileType } from './ebooks.ts'
+
 export const FILE_TYPES = ['image/jpeg', 'image/png', 'image/webp'] as const
 export type FileType = (typeof FILE_TYPES)[number]
 export const isFileType = (value: unknown): value is FileType => FILE_TYPES.includes(value as FileType)
@@ -63,7 +65,8 @@ export interface FileTicket {
 /** A stored file as the uploader gets it back, with signed addresses */
 export interface UploadedFile {
   key: string
-  type: FileType
+  /** A picture's, or a PDF's for an e-book (`shared/ebooks.ts`, BridgeHall e5-t09) */
+  type: FileType | EbookFileType
   size: number
   url: string
   /** None until a thumbnail was uploaded */

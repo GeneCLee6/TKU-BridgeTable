@@ -35,6 +35,8 @@ export const BACKUP_PREFIXES = [
   'book',
   'profile',
   'article',
+  // The library's e-books (BridgeHall e5-t09); their PDFs stay in R2
+  'ebook:',
   'team:',
   'pair:',
   'userteam:',
