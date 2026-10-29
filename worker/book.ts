@@ -330,7 +330,7 @@ export function checkSections(sections: unknown[]) {
   for (const s of sections) section(s, 1)
 }
 
-interface SectionLike {
+export interface SectionLike {
   id: string
   title: string
   pending?: string
@@ -353,7 +353,7 @@ function outlineOf(sections: SectionLike[]): SectionOutline[] {
 const flattenRules = (items: RuleLike[]): RuleLike[] => items.flatMap((i) => [i, ...flattenRules(i.children ?? [])])
 
 /** Every 待確認 note in page order; a faithful copy of the handbook's pendingNotes() */
-function pendingOf(sections: SectionLike[]): PendingNoteRef[] {
+export function pendingOf(sections: SectionLike[]): PendingNoteRef[] {
   const notes: PendingNoteRef[] = []
   const walk = (list: SectionLike[], ancestors: SectionLike[]) => {
     for (const section of list) {

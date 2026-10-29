@@ -1218,6 +1218,11 @@ export class ClubService {
     return [...this.users.values()].filter((u) => u.admin).map((u) => u.id)
   }
 
+  /** The usernames of the members who may edit the handbook, for assigning a 待確認 note (BridgeHall e8-t06) */
+  editorNames(): string[] {
+    return [...this.users.values()].filter((u) => this.permissionsOf(u).includes('bookEdit')).map((u) => u.username).sort()
+  }
+
   memberDirectory(): ClubMember[] {
     return [...this.users.values()].map(({ id, username, profile, avatar }) => ({
       id,

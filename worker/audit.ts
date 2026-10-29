@@ -19,6 +19,8 @@ export type AuditAction =
   | 'book:hide'
   | 'book:reset'
   | 'book:categories'
+  /** A 待確認 note's status, assignee, remark or closing grounds changed (BridgeHall e8-t06); `target` is `<slug>/<sectionId>/<n>` */
+  | 'book:pending'
   /** The glossary saved (BridgeHall e4-t07); `target` is 'glossary' */
   | 'book:glossary'
   /** An article published or hidden (BridgeHall e5-t04) */
