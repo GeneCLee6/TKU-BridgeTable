@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { Me } from '../../shared/protocol.ts'
-import { ArticleService, checkArticle, pictureKeys } from '../../worker/articles.ts'
+import { ArticleService, checkArticle, pictureKeys, searchText } from '../../worker/articles.ts'
 import { AuditLog } from '../../worker/audit.ts'
 import { BACKUP_PREFIXES } from '../../worker/backup.ts'
 import { ClubError } from '../../worker/errors.ts'
@@ -199,5 +199,67 @@ describe('article routes', () => {
     expect(bookRouteNeed('GET', '/articles/test-article/revisions/abc')).toBe('bookEdit')
     expect(bookRouteNeed('POST', '/articles/test-article/hide/abc')).toBeNull()
     expect(bookRouteNeed('DELETE', '/articles/test-article')).toBeNull()
+  })
+})
+
+describe('series (BridgeHall e5-t06)', () => {
+  const shelf = (id: string, label = id) => ({ id, label, description: '' })
+
+  it('starts empty, so the handbook shows its built-in series, and comes with the list', async () => {
+    expect(await articles.series()).toEqual({ version: 0, series: [] })
+    expect((await articles.list('anyone')).series).toEqual({ version: 0, series: [] })
+  })
+
+  it('saves the whole list in order, keeps it after a restart and logs it', async () => {
+    const saved = await articles.saveSeries(rita, { series: [shelf('test-a', ' 測試甲 '), shelf('test-b')], baseVersion: 0 })
+    expect(saved).toMatchObject({ version: 1, updatedBy: 'rita' })
+    expect(saved.series).toEqual([
+      { id: 'test-a', label: '測試甲', description: '', order: 0 },
+      { id: 'test-b', label: 'test-b', description: '', order: 1 },
+    ])
+    expect(await codeOf(articles.saveSeries(rita, { series: [shelf('test-a')], baseVersion: 0 }))).toBe('seriesConflict')
+    const again = new ArticleService(store, async () => ({ urls: {} }))
+    expect((await again.series()).series.map((s) => s.id)).toEqual(['test-a', 'test-b'])
+    expect((await new AuditLog(store).list())[0]).toMatchObject({ action: 'article:series', target: 'series', version: 1 })
+    expect(BACKUP_PREFIXES.some((p) => 'article:series'.startsWith(p))).toBe(true)
+  })
+
+  it('refuses bad lists', async () => {
+    for (const series of [[], [shelf('Bad Id')], [shelf('test-a'), shelf('test-a')], [shelf('test-a', ' ')]])
+      expect(await codeOf(articles.saveSeries(rita, { series, baseVersion: 0 }))).toBe('badContent')
+  })
+
+  it('will not remove a series an article is in', async () => {
+    await articles.saveSeries(rita, { series: [shelf('test-series'), shelf('test-b')], baseVersion: 0 })
+    await articles.save(rita, 'test-article', { article: article(), baseVersion: 0 })
+    expect(await codeOf(articles.saveSeries(rita, { series: [shelf('test-b')], baseVersion: 1 }))).toBe('seriesInUse')
+    expect((await articles.saveSeries(rita, { series: [shelf('test-series')], baseVersion: 1 })).version).toBe(2)
+  })
+
+  it('is the editors’ to change', () => {
+    expect(bookRouteNeed('PUT', '/series')).toBe('bookEdit')
+    expect(bookRouteNeed('GET', '/series')).toBeNull()
+  })
+})
+
+describe('search text (BridgeHall e5-t13)', () => {
+  it('sends every article’s words only when asked', async () => {
+    await articles.save(rita, 'test-article', { article: article(), baseVersion: 0 })
+    expect(await articles.list('anyone')).not.toHaveProperty('text')
+    const { text } = await articles.list('anyone', true)
+    expect(Object.keys(text!)).toEqual(['test-article'])
+    expect(text!['test-article']).toContain('測試摘要')
+    expect(text!['test-article']).toContain('測試段落')
+    expect(text!['test-article']).toContain('測試出處')
+    expect(text!['test-article']).toContain('測試圖說')
+    expect(text!['test-article']).not.toContain(PICTURE)
+    expect(text!['test-article']).not.toContain('heading')
+  })
+
+  it('leaves out what the reader may not see and cuts long articles', async () => {
+    await articles.save(rita, 'club-only', { article: article('club-only', { license: 'members-only' }), baseVersion: 0 })
+    expect((await articles.list('anyone', true)).text).toEqual({})
+    const long = article('test-article', { blocks: [{ kind: 'paragraph', text: '測'.repeat(30_000) }] })
+    expect(searchText(long).length).toBe(20_000)
   })
 })

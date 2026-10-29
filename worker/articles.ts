@@ -72,11 +72,35 @@ export interface ArticleMeta {
 
 export type ArticleEntrySummary = Omit<ArticleEntry, 'article'> & { meta: ArticleMeta | null }
 
-/** GET /api/book/articles: the articles the reader may see, and signed addresses for their covers */
+/** A shelf of the library (BridgeHall e5-t06): 主打、擠牌、社課講義…; an article's `series` is its id */
+export interface ArticleSeries {
+  id: string
+  label: string
+  description: string
+  order: number
+}
+
+/**
+ * The series as edited online. An empty list means they were never edited, so the handbook's
+ * built-in ones apply; `version` is what a save sends back as `baseVersion`.
+ */
+export interface ArticleSeriesList {
+  version: number
+  series: ArticleSeries[]
+  updatedAt?: number
+  updatedBy?: string
+}
+
+/**
+ * GET /api/book/articles: the articles the reader may see, signed addresses for their covers and
+ * the series. With `?text=1` (the handbook's search, e5-t13) also every article's words, by slug.
+ */
 export interface ArticleList {
   version: number
   entries: ArticleEntrySummary[]
   files: FileUrls['urls']
+  series: ArticleSeriesList
+  text?: Record<string, string>
 }
 
 /** GET /api/book/articles/:slug: the article, and signed addresses for its cover and pictures */
@@ -109,7 +133,57 @@ export const ARTICLE_LIMITS = {
   titleMax: 120,
   authorsMax: 10,
   revisionsListed: 100,
+  /** Characters of an article's words sent for search */
+  searchTextMax: 20_000,
 } as const
+
+/** Series limits (e5-t06), as the categories' (book.ts CATEGORY_LIMITS) */
+export const SERIES_LIMITS = { max: 30, idMax: 40, labelMax: 40, descriptionMax: 200 } as const
+const SERIES_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
+
+/**
+ * Throws `badContent` unless `value` is a list of series: ids in lower-case letters, digits and
+ * hyphens, each once, with a name. Their `order` is their place in the list.
+ */
+export function checkSeries(value: unknown): ArticleSeries[] {
+  const fail = (reason: string): never => {
+    throw new ClubError('badContent', { reason })
+  }
+  if (!Array.isArray(value) || !value.length) return fail('至少要有一個系列')
+  if (value.length > SERIES_LIMITS.max) fail(`系列最多 ${SERIES_LIMITS.max} 個`)
+  const ids = new Set<string>()
+  return value.map((c, order) => {
+    if (!isObject(c) || !isString(c.id) || c.id.length > SERIES_LIMITS.idMax || !SERIES_ID.test(c.id))
+      return fail('系列代號只能用小寫英數與連字號')
+    if (ids.has(c.id)) fail(`系列代號重複：${c.id}`)
+    ids.add(c.id)
+    const label = isString(c.label) ? c.label.trim() : ''
+    if (!label || label.length > SERIES_LIMITS.labelMax) fail(`系列名稱要有 1 到 ${SERIES_LIMITS.labelMax} 個字`)
+    if (!isOptionalString(c.description)) fail('系列說明要是文字')
+    const description = String(c.description ?? '').trim()
+    if (description.length > SERIES_LIMITS.descriptionMax) fail(`系列說明最多 ${SERIES_LIMITS.descriptionMax} 個字`)
+    return { id: c.id, label, description, order }
+  })
+}
+
+/** Keys whose values are not words: a block's kind and level, a picture's file key */
+const NOT_WORDS = new Set(['kind', 'src', 'level'])
+
+/**
+ * An article's words for search (e5-t13): its summary and every text in its blocks, as one line,
+ * cut at ARTICLE_LIMITS.searchTextMax. The handbook takes the title and authors from the entry.
+ */
+export function searchText(article: Record<string, unknown>): string {
+  const words: string[] = [String(article.summary ?? '')]
+  const walk = (value: unknown, key = '') => {
+    if (NOT_WORDS.has(key)) return
+    if (isString(value)) words.push(value)
+    else if (Array.isArray(value)) value.forEach((v) => walk(v))
+    else if (isObject(value)) for (const [k, v] of Object.entries(value)) walk(v, k)
+  }
+  walk(article.blocks)
+  return words.join(' ').replace(/\s+/g, ' ').trim().slice(0, ARTICLE_LIMITS.searchTextMax)
+}
 
 const ARTICLE_BLOCKS = ['heading', 'quote', 'image']
 const TEXT_FIELDS = ['title', 'series', 'summary', 'published', 'updated']
@@ -183,6 +257,7 @@ export class ArticleService {
   private readonly audit: AuditLog
   private entries: Map<string, ArticleEntry> | null = null
   private version = 0
+  private seriesList: ArticleSeriesList = { version: 0, series: [] }
   private lastStamp = 0
 
   constructor(store: Store, sign: SignFiles, now: () => number = Date.now, audit: AuditLog = new AuditLog(store, now)) {
@@ -210,6 +285,7 @@ export class ArticleService {
       entries.set(meta.slug, { ...meta, article: await getParts(this.store, key, parts) })
     }
     this.version = (await this.store.get<number>('article:version')) ?? 0
+    this.seriesList = (await this.store.get<ArticleSeriesList>('article:series')) ?? { version: 0, series: [] }
     this.entries = entries
     return entries
   }
@@ -225,11 +301,55 @@ export class ArticleService {
     }
   }
 
-  /** The articles `reader` may see, oldest first, with addresses for their covers */
-  async list(reader: ArticleReader): Promise<ArticleList> {
+  /**
+   * The articles `reader` may see, oldest first, with addresses for their covers and the series;
+   * `withText` adds every article's words for the handbook's search (e5-t13)
+   */
+  async list(reader: ArticleReader, withText = false): Promise<ArticleList> {
     const entries = [...(await this.load()).values()].filter((e) => mayRead(reader, e)).sort((a, b) => a.createdAt - b.createdAt)
     const covers = entries.flatMap((e) => (isPictureKey(e.article?.cover) ? [e.article.cover as string] : []))
-    return { version: this.version, entries: entries.map(articleSummary), files: await this.files(covers) }
+    const text = withText
+      ? Object.fromEntries(entries.flatMap((e) => (e.article ? [[e.slug, searchText(e.article)]] : [])))
+      : undefined
+    return {
+      version: this.version,
+      entries: entries.map(articleSummary),
+      files: await this.files(covers),
+      series: this.seriesList,
+      ...(text && { text }),
+    }
+  }
+
+  /** The series as edited online (e5-t06); an empty list when they never were */
+  async series(): Promise<ArticleSeriesList> {
+    await this.load()
+    return this.seriesList
+  }
+
+  /**
+   * Replaces the whole list of series: adding, renaming, reordering and removing are one save.
+   * `baseVersion` is the version the editor started from (0 for the built-in ones). A series that
+   * was in the online list cannot be removed while an article is in it; until the list is first
+   * saved the handbook checks its built-in ones itself, since only it knows them.
+   */
+  async saveSeries(actor: Me, body: { series?: unknown; baseVersion?: unknown }): Promise<ArticleSeriesList> {
+    const next = checkSeries(body.series)
+    const entries = await this.load()
+    const old = this.seriesList
+    if (Number(body.baseVersion) !== old.version) throw new ClubError('seriesConflict', { name: old.updatedBy ?? '別人' }, 409)
+    const kept = new Set(next.map((s) => s.id))
+    const removed = new Set(old.series.map((s) => s.id).filter((id) => !kept.has(id)))
+    for (const entry of entries.values()) {
+      const series = entry.article?.series
+      if (isString(series) && removed.has(series)) {
+        const name = old.series.find((s) => s.id === series)?.label ?? series
+        throw new ClubError('seriesInUse', { name, article: String(entry.article?.title ?? entry.slug) }, 409)
+      }
+    }
+    this.seriesList = { version: old.version + 1, series: next, updatedAt: this.now(), updatedBy: actor.username }
+    await this.store.put('article:series', this.seriesList)
+    await this.log(actor, 'article:series', 'series', { version: this.seriesList.version })
+    return this.seriesList
   }
 
   /** One article, with addresses for its pictures; 404 when `reader` may not see it */
