@@ -1,0 +1,125 @@
+{
+  "category": "book",
+  "title": "淡江橋館叫品題",
+  "questions": [
+    {
+      "id": "book-system-doubles-examples-1-hand",
+      "system": "tku",
+      "dealer": "W",
+      "vul": "None",
+      "hand": "T4.9863.9762.753",
+      "auction": [
+        "1D",
+        "X",
+        "P"
+      ],
+      "answer": "1H",
+      "source": "淡江橋館：賭倍性叫品（自然制講義） › 賭倍之後 › 迫伴賭倍後的答叫例（原文例題 system-doubles/examples/1/hand）",
+      "reviewer": null,
+      "status": "pending",
+      "note": "EX1) 左敵 1♦，同伴 X，右敵 PASS，你？ 身價原文未寫，匯出為無身價。"
+    },
+    {
+      "id": "book-system-doubles-examples-2-hand",
+      "system": "tku",
+      "dealer": "W",
+      "vul": "None",
+      "hand": "Q93.KJT93.762.52",
+      "auction": [
+        "1D",
+        "X",
+        "P"
+      ],
+      "answer": "1H",
+      "source": "淡江橋館：賭倍性叫品（自然制講義） › 賭倍之後 › 迫伴賭倍後的答叫例（原文例題 system-doubles/examples/2/hand）",
+      "reviewer": null,
+      "status": "pending",
+      "note": "EX1) 左敵 1♦，同伴 X，右敵 PASS，你？ 身價原文未寫，匯出為無身價。"
+    },
+    {
+      "id": "book-system-doubles-examples-4-hand",
+      "system": "tku",
+      "dealer": "W",
+      "vul": "None",
+      "hand": "QT97.64.764.9763",
+      "auction": [
+        "1S",
+        "X",
+        "P"
+      ],
+      "answer": "2C",
+      "source": "淡江橋館：賭倍性叫品（自然制講義） › 賭倍之後 › 迫伴賭倍後的答叫例（原文例題 system-doubles/examples/4/hand）",
+      "reviewer": null,
+      "status": "pending",
+      "note": "EX2) 左敵 1♠，同伴 X，右敵 PASS，你？ 身價原文未寫，匯出為無身價。"
+    },
+    {
+      "id": "book-system-doubles-examples-6-hand",
+      "system": "tku",
+      "dealer": "W",
+      "vul": "None",
+      "hand": "94.KJT8.7542.AQ9",
+      "auction": [
+        "1D",
+        "X",
+        "P"
+      ],
+      "answer": "2H",
+      "source": "淡江橋館：賭倍性叫品（自然制講義） › 賭倍之後 › 迫伴賭倍後的答叫例（原文例題 system-doubles/examples/6/hand）",
+      "reviewer": null,
+      "status": "pending",
+      "note": "EX) 左敵 1♦，同伴 X，右敵 PASS，你？ 身價原文未寫，匯出為無身價。"
+    },
+    {
+      "id": "book-system-doubles-examples-7-hand",
+      "system": "tku",
+      "dealer": "W",
+      "vul": "None",
+      "hand": "Q2.K832.AT72.A92",
+      "auction": [
+        "1D",
+        "X",
+        "P"
+      ],
+      "answer": "2D",
+      "source": "淡江橋館：賭倍性叫品（自然制講義） › 賭倍之後 › 迫伴賭倍後的答叫例（原文例題 system-doubles/examples/7/hand）",
+      "reviewer": null,
+      "status": "pending",
+      "note": "EX) 左敵 1♦，同伴 X，右敵 PASS，你？ 身價原文未寫，匯出為無身價。"
+    },
+    {
+      "id": "book-system-doubles-examples-8-hand",
+      "system": "tku",
+      "dealer": "W",
+      "vul": "None",
+      "hand": "Q32.Q5.KJ74.9742",
+      "auction": [
+        "1D",
+        "X",
+        "P"
+      ],
+      "answer": "1N",
+      "source": "淡江橋館：賭倍性叫品（自然制講義） › 賭倍之後 › 迫伴賭倍後的答叫例（原文例題 system-doubles/examples/8/hand）",
+      "reviewer": null,
+      "status": "pending",
+      "note": "EX) 左敵 1♦，同伴 X，右敵 PASS，你？ 身價原文未寫，匯出為無身價。"
+    },
+    {
+      "id": "book-system-doubles-examples-9-hand",
+      "system": "tku",
+      "dealer": "W",
+      "vul": "None",
+      "hand": "A6.762.A9742.942",
+      "auction": [
+        "1D",
+        "X",
+        "P"
+      ],
+      "answer": "1N",
+      "source": "淡江橋館：賭倍性叫品（自然制講義） › 賭倍之後 › 迫伴賭倍後的答叫例（原文例題 system-doubles/examples/9/hand）",
+      "reviewer": null,
+      "status": "pending",
+      "note": "EX) 左敵 1♦，同伴 X，右敵 PASS，你？ 身價原文未寫，匯出為無身價。"
+    }
+  ]
+}
