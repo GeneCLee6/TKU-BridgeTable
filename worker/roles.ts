@@ -77,6 +77,9 @@ export function bookRouteNeed(method: string, path: string): Need | null {
   // Every draft and what is waiting for review (e8-t02); who changed what (e8-t09)
   if (path === '/reviews' || path === '/audit') return method === 'GET' ? 'bookEdit' : null
   if (path === '/categories') return method === 'PUT' ? 'bookEdit' : null
+  // The 待確認 panel (BridgeHall e8-t06): every member reads it, editors assign and track the notes
+  if (path === '/pending') return method === 'GET' ? 'member' : null
+  if (/^\/pending\/[\w-]+\/[\w-]+\/\d+$/.test(path)) return method === 'PUT' ? 'bookEdit' : null
   // The library's series (BridgeHall e5-t06), as the categories; reading them comes with the article list
   if (path === '/series') return method === 'PUT' ? 'bookEdit' : null
   // The glossary (BridgeHall e4-t07); reading it is publicGlossaryResponse's, for any member

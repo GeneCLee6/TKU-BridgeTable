@@ -990,6 +990,8 @@ SQL 由 `worker/history-index.ts` 的 `searchBoards` 組：只有固定的 SQL �
 | `POST /api/book/conventions/:slug/reject` | bookReview | `{ draftRevision, note }` 退回送審中的草稿（不是送審中 409 `notInReview`），理由最多 500 字 |
 | `GET /api/book/reviews` | bookEdit | `{ drafts: BookDraftSummary[] }`：所有草稿（送審中的在前），不含內容、附特約名 |
 | `GET /api/book/audit` | bookEdit | `{ entries: AuditEntry[] }`：最近 200 筆審計紀錄（新的在前）：草稿、送審、退回、捨棄、發布、隱藏、還原、分類、制度集新增／儲存／刪除；發布、隱藏、還原帶 `revisionId` 連到版本 |
+| `GET /api/book/pending` | 社員 | `{ open: PendingMeta[], closed: PendingMeta[], editors: string[] }`：待確認面板（橋館 e8-t06）。`open` 是有人動過的待確認（`pendingmeta:<slug>/<sectionId>/<n>`；沒有紀錄的是「未處理」），`closed` 是最近 100 筆已關閉（`pendingdone:<時間>-<id>`），`editors` 是有 bookEdit 的帳號（指派用） |
+| `PUT /api/book/pending/:slug/:sectionId/:n` | bookEdit | body `{ text, status: 'open'\|'working'\|'parked', assignee?, note?, resolution? }` → `{ meta }`。`已確認`不能手動設：發布（`PUT /api/book/conventions/:slug`）時，新版本裡找不到的待確認（以段落＋原文比對）自動關閉，記發布者、版本、關閉依據（沒填就用版本說明）；還在的跟著換位置 |
 | `POST /api/book/conventions/:slug/reset` | bookReview | 刪除線上版本，橋譜改回顯示內建的版本 |
 | `POST /api/book/conventions/:slug/hide` | bookReview | 從橋譜隱藏 |
 | `GET /api/book/conventions/:slug/revisions[/:id]` | bookEdit | 版本紀錄（新的在前）與某一版的內容 |

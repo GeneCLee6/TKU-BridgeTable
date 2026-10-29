@@ -10,6 +10,7 @@ import { bookSync } from '../shared/robot/system/tku/sources.ts'
 import { randomId, readCookie, SESSION_COOKIE, sessionCookie } from './auth.ts'
 import { ACCOUNT_PREFIXES, backupAdmin, runBackup } from './backup.ts'
 import { BookService, importRequestFrom, publicBookResponse } from './book.ts'
+import { PendingService } from './pending.ts'
 import { GlossaryService, publicGlossaryResponse } from './glossary.ts'
 import { claudeImporter } from './importer.ts'
 import { ProfileService } from './profiles.ts'
@@ -118,6 +119,8 @@ export class Club extends DurableObject<Env> implements Connections {
   private book: BookService
   /** BridgeHall's glossary (e4-t05); reads storage on each request, so a restore needs nothing */
   private readonly glossary: GlossaryService
+  /** The 待確認 panel (BridgeHall e8-t06); reads storage on each request, so a restore needs nothing */
+  private readonly pending: PendingService
   /** The library's articles (BridgeHall e5-t04) */
   private articles: ArticleService
   /** The library's e-books (BridgeHall e5-t09) */
@@ -178,6 +181,7 @@ export class Club extends DurableObject<Env> implements Connections {
     })
     this.edgeSecret = edgeSecret(env)
     this.book = new BookService(store)
+    this.pending = new PendingService(store, this.book.auditTrail)
     // Admins hear when the files near R2's free room (BridgeHall e5-t15)
     this.files = new FileService(store, env.FILES, Date.now, async (bytes) => {
       for (const id of this.service.adminIds()) await this.service.notifications.notify(id, 'filesNearlyFull', { gb: Math.round((bytes / 1024 ** 3) * 10) / 10 })
@@ -830,7 +834,13 @@ export class Club extends DurableObject<Env> implements Connections {
         return json({ ok: true })
       }
       if (action === 'reject') return json({ draft: await this.book.reject(user, slug, await body()) })
-      if (method === 'PUT') return json({ entry: await this.book.save(user, slug, await body()) })
+      if (method === 'PUT') {
+        const entry = await this.book.save(user, slug, await body())
+        // Notes the new version no longer has are closed (BridgeHall e8-t08)
+        const [revision] = await this.book.revisions(slug)
+        await this.pending.published(user, slug, entry.convention, entry.version, revision?.note ?? '')
+        return json({ entry })
+      }
       if (action === 'hide') return json({ entry: await this.book.hide(user, slug, await body()) })
       if (action === 'reset') {
         await this.book.reset(user, slug, await body())
@@ -859,6 +869,9 @@ export class Club extends DurableObject<Env> implements Connections {
     }
     if (path === '/reviews') return json({ drafts: await this.book.bookDrafts() })
     if (path === '/audit') return json({ entries: await this.book.auditLog() })
+    if (path === '/pending') return json({ ...(await this.pending.list()), editors: this.service.editorNames() })
+    const pending = path.match(/^\/pending\/([\w-]+)\/([\w-]+)\/(\d+)$/)
+    if (pending) return json({ meta: await this.pending.save(user, pending[1], pending[2], Number(pending[3]), await body()) })
     if (path === '/categories') return json(await this.book.saveCategories(user, await body()))
     if (path === '/series') return json(await this.articles.saveSeries(user, await body()))
     if (path === '/glossary') return json(await this.glossary.save(user, await body()))
