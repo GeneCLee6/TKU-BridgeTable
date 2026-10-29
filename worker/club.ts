@@ -10,6 +10,7 @@ import { bookSync } from '../shared/robot/system/tku/sources.ts'
 import { randomId, readCookie, SESSION_COOKIE, sessionCookie } from './auth.ts'
 import { ACCOUNT_PREFIXES, backupAdmin, runBackup } from './backup.ts'
 import { BookService, importRequestFrom, publicBookResponse } from './book.ts'
+import { GlossaryService, publicGlossaryResponse } from './glossary.ts'
 import { claudeImporter } from './importer.ts'
 import { anonymousProfileResponse, ProfileService } from './profiles.ts'
 import { CardSnapshotService } from './card-snapshots.ts'
@@ -114,6 +115,8 @@ export class Club extends DurableObject<Env> implements Connections {
   private readonly service: ClubService
   /** Replaced after a backup is restored, so nothing they cached survives */
   private book: BookService
+  /** BridgeHall's glossary (e4-t05); reads storage on each request, so a restore needs nothing */
+  private readonly glossary: GlossaryService
   /** The library's articles (BridgeHall e5-t04) */
   private articles: ArticleService
   private profiles: ProfileService
@@ -172,6 +175,7 @@ export class Club extends DurableObject<Env> implements Connections {
     this.book = new BookService(store)
     this.files = new FileService(store, env.FILES)
     this.quiz = new QuizStore(store, Date.now, () => randomId(8))
+    this.glossary = new GlossaryService(store)
     this.articles = this.newArticles()
     this.profiles = new ProfileService(store, Date.now, (id) => this.service.usernameOf(id))
     this.cardSnapshots = new CardSnapshotService(store, Date.now, (id) => this.service.usernameOf(id))
@@ -430,6 +434,8 @@ export class Club extends DurableObject<Env> implements Connections {
     }
     const open = await publicBookResponse(this.book, request, url.pathname)
     if (open) return open
+    const glossary = await publicGlossaryResponse(this.glossary, request, url.pathname)
+    if (glossary) return glossary
     // The editors' fixes to the practice questions (BridgeHall e6-t06): the practice page needs no sign-in
     if (route === 'GET /api/book/quiz/fixes') return json({ fixes: await this.quiz.fixes() })
 
@@ -825,6 +831,7 @@ export class Club extends DurableObject<Env> implements Connections {
     if (path === '/reviews') return json({ drafts: await this.book.bookDrafts() })
     if (path === '/audit') return json({ entries: await this.book.auditLog() })
     if (path === '/categories') return json(await this.book.saveCategories(user, await body()))
+    if (path === '/glossary') return json(await this.glossary.save(user, await body()))
 
     if (path === '/profiles') {
       if (method === 'GET') return json({ profiles: await this.teams.readableProfiles(user) })
