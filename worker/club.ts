@@ -23,6 +23,7 @@ import { ForumService } from './forum.ts'
 import { robotMeaningsFor } from './system-spec.ts'
 import { QuizStore } from './quiz.ts'
 import { LearningStore } from './learning.ts'
+import { ReadingStore } from './reading.ts'
 import { CLIENT_ERROR_MAX_CHARS } from './client-errors.ts'
 import { d1Replica } from './d1.ts'
 import { edgeSecret, mintPass, PASS_COOKIE, passCookie, passNeedsRefresh } from './edge-auth.ts'
@@ -133,6 +134,8 @@ export class Club extends DurableObject<Env> implements Connections {
   private readonly quiz: QuizStore
   /** 淡江橋館's learning paths and members' progress (e4-t08, e4-t11); keeps nothing in memory */
   private readonly learning: LearningStore
+  /** Members' places in articles and e-books (BridgeHall e5-t14); keeps nothing in memory */
+  private readonly reading: ReadingStore
   /** TKU-BridgeHall's forum (E11) in the object's SQLite database; keeps nothing in memory but its rate limits */
   private readonly forum: ForumService
   private readonly store: Store
@@ -184,6 +187,7 @@ export class Club extends DurableObject<Env> implements Connections {
     })
     this.quiz = new QuizStore(store, Date.now, () => randomId(8))
     this.learning = new LearningStore(store, Date.now)
+    this.reading = new ReadingStore(store, Date.now)
     this.glossary = new GlossaryService(store)
     this.articles = this.newArticles()
     this.ebooks = this.newEbooks()
@@ -949,6 +953,13 @@ export class Club extends DurableObject<Env> implements Connections {
     if (path === '/paths/progress') {
       if (method === 'GET') return json({ progress: await this.learning.progress(user.id) })
       return json({ progress: await this.learning.markLesson(user.id, await body()) })
+    }
+    // 閱讀進度 (BridgeHall e5-t14): a member's own places in articles and e-books
+    if (path === '/reading') {
+      if (method === 'GET') return json({ places: await this.reading.places(user.id) })
+      if (method === 'PUT') return json({ place: await this.reading.mark(user.id, await body()) })
+      await this.reading.forget(user.id, await body())
+      return json({ ok: true })
     }
     if (path === '/paths') {
       if (method === 'PUT') {

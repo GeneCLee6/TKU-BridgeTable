@@ -104,6 +104,8 @@ export function bookRouteNeed(method: string, path: string): Need | null {
   // 學習路徑 (BridgeHall e4-t11, e4-t12): a member's own progress; editing a path is the editors' (reading needs no sign-in)
   if (path === '/paths/progress') return method === 'GET' || method === 'PUT' ? 'member' : null
   if (path === '/paths') return method === 'PUT' || method === 'DELETE' ? 'bookEdit' : null
+  // 閱讀進度 (BridgeHall e5-t14): a member's own places in articles and e-books
+  if (path === '/reading') return ['GET', 'PUT', 'DELETE'].includes(method) ? 'member' : null
   if (path === '/import/ticket') return method === 'POST' ? 'bookImport' : null
   if (path === '/drafts') return method === 'GET' || method === 'POST' ? 'bookImport' : null
   if (/^\/drafts\/[\w-]+$/.test(path)) return method === 'GET' || method === 'DELETE' ? 'bookImport' : null
