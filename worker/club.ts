@@ -11,6 +11,7 @@ import { randomId, readCookie, SESSION_COOKIE, sessionCookie } from './auth.ts'
 import { ACCOUNT_PREFIXES, backupAdmin, runBackup } from './backup.ts'
 import { BookService, importRequestFrom, publicBookResponse } from './book.ts'
 import { BookNotices } from './book-notices.ts'
+import { PendingService } from './pending.ts'
 import { GlossaryService, publicGlossaryResponse } from './glossary.ts'
 import { claudeImporter } from './importer.ts'
 import { ProfileService } from './profiles.ts'
@@ -24,6 +25,7 @@ import { ForumService } from './forum.ts'
 import { robotMeaningsFor } from './system-spec.ts'
 import { QuizStore } from './quiz.ts'
 import { LearningStore } from './learning.ts'
+import { ReadingStore } from './reading.ts'
 import { CLIENT_ERROR_MAX_CHARS } from './client-errors.ts'
 import { d1Replica } from './d1.ts'
 import { edgeSecret, mintPass, PASS_COOKIE, passCookie, passNeedsRefresh } from './edge-auth.ts'
@@ -122,6 +124,8 @@ export class Club extends DurableObject<Env> implements Connections {
   private book: BookService
   /** BridgeHall's glossary (e4-t05); reads storage on each request, so a restore needs nothing */
   private readonly glossary: GlossaryService
+  /** The 待確認 panel (BridgeHall e8-t06); reads storage on each request, so a restore needs nothing */
+  private readonly pending: PendingService
   /** The library's articles (BridgeHall e5-t04) */
   private articles: ArticleService
   /** The library's e-books (BridgeHall e5-t09) */
@@ -137,6 +141,8 @@ export class Club extends DurableObject<Env> implements Connections {
   private readonly quiz: QuizStore
   /** 淡江橋館's learning paths and members' progress (e4-t08, e4-t11); keeps nothing in memory */
   private readonly learning: LearningStore
+  /** Members' places in articles and e-books (BridgeHall e5-t14); keeps nothing in memory */
+  private readonly reading: ReadingStore
   /** TKU-BridgeHall's forum (E11) in the object's SQLite database; keeps nothing in memory but its rate limits */
   private readonly forum: ForumService
   /** The handbook's notifications and who follows which convention (BridgeHall e8-t10); keeps nothing in memory */
@@ -184,12 +190,14 @@ export class Club extends DurableObject<Env> implements Connections {
     })
     this.edgeSecret = edgeSecret(env)
     this.book = new BookService(store)
+    this.pending = new PendingService(store, this.book.auditTrail)
     // Admins hear when the files near R2's free room (BridgeHall e5-t15)
     this.files = new FileService(store, env.FILES, Date.now, async (bytes) => {
       for (const id of this.service.adminIds()) await this.service.notifications.notify(id, 'filesNearlyFull', { gb: Math.round((bytes / 1024 ** 3) * 10) / 10 })
     })
     this.quiz = new QuizStore(store, Date.now, () => randomId(8))
     this.learning = new LearningStore(store, Date.now)
+    this.reading = new ReadingStore(store, Date.now)
     this.glossary = new GlossaryService(store)
     this.articles = this.newArticles()
     this.ebooks = this.newEbooks()
@@ -870,6 +878,9 @@ export class Club extends DurableObject<Env> implements Connections {
       if (method === 'PUT') {
         const input = await body()
         const entry = await this.book.save(user, slug, input)
+        // Notes the new version no longer has are closed (BridgeHall e8-t08)
+        const [revision] = await this.book.revisions(slug)
+        await this.pending.published(user, slug, entry.convention, entry.version, revision?.note ?? '')
         const publish = { slug, name: conventionName(entry.convention, slug), version: entry.version, requestedBy: entry.reviewRequestedBy }
         await this.tell(() => this.notices.published(user, { ...publish, changedSections: input.changedSections }))
         return json({ entry })
@@ -908,6 +919,9 @@ export class Club extends DurableObject<Env> implements Connections {
     }
     if (path === '/reviews') return json({ drafts: await this.book.bookDrafts() })
     if (path === '/audit') return json({ entries: await this.book.auditLog() })
+    if (path === '/pending') return json({ ...(await this.pending.list()), editors: this.service.editorNames() })
+    const pending = path.match(/^\/pending\/([\w-]+)\/([\w-]+)\/(\d+)$/)
+    if (pending) return json({ meta: await this.pending.save(user, pending[1], pending[2], Number(pending[3]), await body()) })
     if (path === '/categories') return json(await this.book.saveCategories(user, await body()))
     if (path === '/series') return json(await this.articles.saveSeries(user, await body()))
     if (path === '/glossary') return json(await this.glossary.save(user, await body()))
@@ -998,6 +1012,13 @@ export class Club extends DurableObject<Env> implements Connections {
     if (path === '/paths/progress') {
       if (method === 'GET') return json({ progress: await this.learning.progress(user.id) })
       return json({ progress: await this.learning.markLesson(user.id, await body()) })
+    }
+    // 閱讀進度 (BridgeHall e5-t14): a member's own places in articles and e-books
+    if (path === '/reading') {
+      if (method === 'GET') return json({ places: await this.reading.places(user.id) })
+      if (method === 'PUT') return json({ place: await this.reading.mark(user.id, await body()) })
+      await this.reading.forget(user.id, await body())
+      return json({ ok: true })
     }
     if (path === '/paths') {
       if (method === 'PUT') {

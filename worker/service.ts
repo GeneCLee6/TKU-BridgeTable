@@ -100,6 +100,7 @@ import { ClubError } from './errors.ts'
 import { SystemSpecStore } from './system-spec.ts'
 import { forgetQuizRounds } from './quiz.ts'
 import { forgetPathProgress } from './learning.ts'
+import { forgetReading } from './reading.ts'
 import { PROFILE_ID } from './profiles.ts'
 import { FeaturedService } from './featured.ts'
 import { TeamMatchService, type MatchPlayAction } from './team-match-service.ts'
@@ -1223,6 +1224,11 @@ export class ClubService {
     return [...this.users.values()].filter((u) => u.admin || this.permissionsOf(u).includes('bookReview')).map((u) => u.id)
   }
 
+  /** The usernames of the members who may edit the handbook, for assigning a 待確認 note (BridgeHall e8-t06) */
+  editorNames(): string[] {
+    return [...this.users.values()].filter((u) => this.permissionsOf(u).includes('bookEdit')).map((u) => u.username).sort()
+  }
+
   memberDirectory(): ClubMember[] {
     return [...this.users.values()].map(({ id, username, profile, avatar }) => ({
       id,
@@ -1404,6 +1410,7 @@ export class ClubService {
     await this.practicePresets.removeAll(user.id)
     await forgetQuizRounds(this.store, user.id)
     await forgetPathProgress(this.store, user.id)
+    await forgetReading(this.store, user.id)
     this.present.delete(user.id)
     this.announced.delete(user.id)
     const correspondents = this.directs.forget(user.id)

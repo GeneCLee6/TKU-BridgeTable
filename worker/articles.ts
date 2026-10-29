@@ -1,5 +1,6 @@
 import type { Me } from '../shared/protocol.ts'
 import { FILE_KEY, type FileUrls } from '../shared/files.ts'
+import { isCard, isSeat, SEATS, type Card } from '../shared/cards.ts'
 import { type AuditAction, AuditLog } from './audit.ts'
 import { randomId } from './auth.ts'
 import {
@@ -166,8 +167,11 @@ export function checkSeries(value: unknown): ArticleSeries[] {
   })
 }
 
-/** Keys whose values are not words: a block's kind and level, a picture's file key */
-const NOT_WORDS = new Set(['kind', 'src', 'level'])
+/**
+ * Keys whose values are not words: a block's kind and level, a picture's file key, a deal's cards
+ * and a play block's contract, declarer and cards (their captions are words)
+ */
+const NOT_WORDS = new Set(['kind', 'src', 'level', 'deal', 'contract', 'declarer', 'tricks'])
 
 /**
  * An article's words for search (e5-t13): its summary and every text in its blocks, as one line,
@@ -185,7 +189,10 @@ export function searchText(article: Record<string, unknown>): string {
   return words.join(' ').replace(/\s+/g, ' ').trim().slice(0, ARTICLE_LIMITS.searchTextMax)
 }
 
-const ARTICLE_BLOCKS = ['heading', 'quote', 'image']
+const ARTICLE_BLOCKS = ['heading', 'quote', 'image', 'deal', 'play']
+const VULNERABILITIES = ['None', 'NS', 'EW', 'Both']
+/** A play block's contract in the table's call notation: '4S', '3N', '4HX', '6NXX' (BridgeHall lib/play.ts) */
+export const CONTRACT = /^[1-7][CDHSN](X|XX)?$/
 const TEXT_FIELDS = ['title', 'series', 'summary', 'published', 'updated']
 
 /** A picture's file key from the uploads; never a thumbnail's, which follows from it */
@@ -213,7 +220,7 @@ export function checkArticle(value: unknown, slug: string): Record<string, unkno
   return value
 }
 
-/** An article's block: one of the handbook's, or a heading, a quote or a picture */
+/** An article's block: one of the handbook's, or a heading, a quote, a picture, a deal or a play */
 export function checkArticleBlock(b: unknown) {
   const fail = (reason: string): never => {
     throw new ClubError('badContent', { reason })
@@ -223,6 +230,54 @@ export function checkArticleBlock(b: unknown) {
   if (b.kind === 'quote' && (!isString(b.text) || !isOptionalString(b.cite))) fail('引文格式不正確')
   if (b.kind === 'image' && (!isPictureKey(b.src) || !isString(b.alt) || !isOptionalString(b.caption)))
     fail('圖片要是上傳的檔案，並有替代文字')
+  if (b.kind === 'deal') checkDealBlock(b, fail)
+  if (b.kind === 'play') checkPlayBlock(b, fail)
+}
+
+/**
+ * 牌例 (BridgeHall e5-t02): the forum's deal (forum.ts), so a seat may be left empty (an article
+ * often shows only declarer's two hands); each card once, at most thirteen to a seat.
+ */
+function checkDealBlock(b: Record<string, unknown>, fail: (reason: string) => never) {
+  const deal = b.deal
+  if (!isObject(deal) || !isObject(deal.hands)) return fail('牌例要有四家的牌')
+  if (!isSeat(deal.dealer)) fail('牌例要有發牌者')
+  if (!VULNERABILITIES.includes(deal.vul as string)) fail('牌例的身價要是 None、NS、EW 或 Both')
+  const hands = deal.hands
+  const seen = new Set<Card>()
+  for (const seat of SEATS) {
+    const cards = hands[seat] ?? []
+    if (!Array.isArray(cards) || cards.length > 13) fail('牌例每家最多 13 張牌')
+    for (const card of cards as unknown[]) {
+      if (!isCard(card)) fail(`牌例有不認得的牌：${String(card)}`)
+      if (seen.has(card as Card)) fail(`牌例的 ${String(card)} 出現了兩次`)
+      seen.add(card as Card)
+    }
+  }
+  if (!seen.size) fail('牌例要至少有一張牌')
+  if (!isOptionalString(b.caption)) fail('牌例的說明要是文字')
+}
+
+/**
+ * 出牌過程 (BridgeHall e5-t03): the contract, declarer and the tricks in order, each trick's cards
+ * from its leader on; only the last trick may stop part-way, and no card is played twice.
+ */
+function checkPlayBlock(b: Record<string, unknown>, fail: (reason: string) => never) {
+  if (!isString(b.contract) || !CONTRACT.test(b.contract)) fail('出牌過程的合約要像 4S、3N、4HX')
+  if (!isSeat(b.declarer)) fail('出牌過程要有莊家')
+  const tricks = b.tricks
+  if (!Array.isArray(tricks) || !tricks.length || tricks.length > 13) return fail('出牌過程要有 1 到 13 墩')
+  const seen = new Set<Card>()
+  tricks.forEach((trick: unknown, i) => {
+    if (!Array.isArray(trick) || !trick.length || trick.length > 4) fail(`第 ${i + 1} 墩要有 1 到 4 張牌`)
+    if ((trick as unknown[]).length < 4 && i < tricks.length - 1) fail(`第 ${i + 1} 墩少了牌：只有最後一墩可以沒出完`)
+    for (const card of trick as unknown[]) {
+      if (!isCard(card)) fail(`出牌過程有不認得的牌：${String(card)}`)
+      if (seen.has(card as Card)) fail(`出牌過程的 ${String(card)} 出現了兩次`)
+      seen.add(card as Card)
+    }
+  })
+  if (!isOptionalString(b.caption)) fail('出牌過程的說明要是文字')
 }
 
 /** The article without its blocks */

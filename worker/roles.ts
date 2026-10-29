@@ -79,6 +79,9 @@ export function bookRouteNeed(method: string, path: string): Need | null {
   // Every draft and what is waiting for review (e8-t02); who changed what (e8-t09)
   if (path === '/reviews' || path === '/audit') return method === 'GET' ? 'bookEdit' : null
   if (path === '/categories') return method === 'PUT' ? 'bookEdit' : null
+  // The 待確認 panel (BridgeHall e8-t06): every member reads it, editors assign and track the notes
+  if (path === '/pending') return method === 'GET' ? 'member' : null
+  if (/^\/pending\/[\w-]+\/[\w-]+\/\d+$/.test(path)) return method === 'PUT' ? 'bookEdit' : null
   // The library's series (BridgeHall e5-t06), as the categories; reading them comes with the article list
   if (path === '/series') return method === 'PUT' ? 'bookEdit' : null
   // The glossary (BridgeHall e4-t07); reading it is publicGlossaryResponse's, for any member
@@ -106,6 +109,8 @@ export function bookRouteNeed(method: string, path: string): Need | null {
   // 學習路徑 (BridgeHall e4-t11, e4-t12): a member's own progress; editing a path is the editors' (reading needs no sign-in)
   if (path === '/paths/progress') return method === 'GET' || method === 'PUT' ? 'member' : null
   if (path === '/paths') return method === 'PUT' || method === 'DELETE' ? 'bookEdit' : null
+  // 閱讀進度 (BridgeHall e5-t14): a member's own places in articles and e-books
+  if (path === '/reading') return ['GET', 'PUT', 'DELETE'].includes(method) ? 'member' : null
   if (path === '/import/ticket') return method === 'POST' ? 'bookImport' : null
   if (path === '/drafts') return method === 'GET' || method === 'POST' ? 'bookImport' : null
   if (/^\/drafts\/[\w-]+$/.test(path)) return method === 'GET' || method === 'DELETE' ? 'bookImport' : null
