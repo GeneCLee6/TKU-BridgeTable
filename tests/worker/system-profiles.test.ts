@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it } from 'vitest'
 import { type Me, PROFILE_LIMITS, type ProfileInput } from '../../shared/protocol.ts'
-import { anonymousProfileResponse, checkProfileInput, emptyClubProfile, ProfileService } from '../../worker/profiles.ts'
+import { checkProfileInput, emptyClubProfile, ProfileService } from '../../worker/profiles.ts'
 import { MemoryStore } from '../../worker/store.ts'
 
 const amy: Me = { id: 'u1', username: 'amy', admin: false, permissions: ['bookEdit'] }
@@ -203,19 +203,5 @@ describe('checkProfileInput', () => {
     expect(checkProfileInput(input({ visibility: 'club' }))).toEqual(input())
     expect(reason({ ...input(), visibility: 'team' })).toMatch('visibility')
     expect(reason(input({ scope: 'club', visibility: 'members' }))).toMatch('全社團')
-  })
-})
-
-describe('reading without signing in', () => {
-  const get = (path: string) => anonymousProfileResponse(profiles, new Request(`https://x${path}`), path)
-
-  it("gets the club's profile only, without its private notes", async () => {
-    await profiles.save(amy, 'club', { profile: input({ name: '社團預設', scope: 'club' }), baseVersion: 0 })
-    const team = await profiles.create(amy, { profile: input() })
-    expect(await get('/api/book/profiles')).toEqual([expect.objectContaining({ id: 'club', counts: { adopted: 1, overrides: 1, notes: 0 } })])
-    expect(await get('/api/book/profiles/club')).toMatchObject({ id: 'club', notes: [], overrides: [expect.anything()] })
-    expect(await get(`/api/book/profiles/${team.id}`)).toBeNull()
-    expect(await get('/api/book/profiles/club/revisions')).toBeNull()
-    expect(await anonymousProfileResponse(profiles, new Request('https://x/api/book/profiles', { method: 'POST' }), '/api/book/profiles')).toBeNull()
   })
 })

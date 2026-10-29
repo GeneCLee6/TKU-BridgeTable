@@ -355,14 +355,3 @@ export class ProfileService {
     return profile
   }
 }
-
-/** A profile as someone who has not signed in sees it: the club's only, without its private notes */
-export async function anonymousProfileResponse(profiles: ProfileService, request: Request, pathname: string): Promise<SystemProfile | ProfileSummary[] | null> {
-  if (request.method !== 'GET') return null
-  if (pathname === '/api/book/profiles') {
-    const club = profileSummary(await profiles.get(CLUB_PROFILE_ID))
-    return [{ ...club, counts: { ...club.counts, notes: 0 } }]
-  }
-  if (pathname === `/api/book/profiles/${CLUB_PROFILE_ID}`) return { ...(await profiles.get(CLUB_PROFILE_ID)), notes: [] }
-  return null
-}

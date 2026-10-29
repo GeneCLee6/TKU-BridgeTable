@@ -41,7 +41,8 @@ export function adminRouteNeed(method: string, path: string): Need {
 
 /**
  * `/api/book/*` for someone signed in (`path` without that prefix); null when there is no such
- * route. Reading without signing in is publicBookResponse's (book.ts) and anonymousProfileResponse's (profiles.ts).
+ * route. Reading the content is publicBookResponse's (book.ts), for any member: since 2026-10-29
+ * BridgeHall is for signed-in members only, so nothing of it is read without signing in.
  */
 export function bookRouteNeed(method: string, path: string): Need | null {
   // A convention: publishing, hiding and going back to the bundled one are the reviewers'; its
@@ -78,7 +79,7 @@ export function bookRouteNeed(method: string, path: string): Need | null {
   if (path === '/categories') return method === 'PUT' ? 'bookEdit' : null
   // The library's series (BridgeHall e5-t06), as the categories; reading them comes with the article list
   if (path === '/series') return method === 'PUT' ? 'bookEdit' : null
-  // The glossary (BridgeHall e4-t07); reading it is publicGlossaryResponse's, without signing in
+  // The glossary (BridgeHall e4-t07); reading it is publicGlossaryResponse's, for any member
   if (path === '/glossary') return method === 'PUT' ? 'bookEdit' : null
   if (path === '/profiles') return method === 'GET' ? 'member' : method === 'POST' ? 'bookEdit' : null
   // One profile: which member may read it, save it or see its versions is profileAccess's (below)

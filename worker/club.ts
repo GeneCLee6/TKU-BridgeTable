@@ -12,7 +12,7 @@ import { ACCOUNT_PREFIXES, backupAdmin, runBackup } from './backup.ts'
 import { BookService, importRequestFrom, publicBookResponse } from './book.ts'
 import { GlossaryService, publicGlossaryResponse } from './glossary.ts'
 import { claudeImporter } from './importer.ts'
-import { anonymousProfileResponse, ProfileService } from './profiles.ts'
+import { ProfileService } from './profiles.ts'
 import { CardSnapshotService } from './card-snapshots.ts'
 import { avatarResponse, readAvatarUpload } from './avatars.ts'
 import { FILES_PATH, FileService, readFileUpload } from './files.ts'
@@ -443,15 +443,6 @@ export class Club extends DurableObject<Env> implements Connections {
       await this.service.resetForgottenPassword(text(b.username), text(b.inviteCode), text(b.password))
       return json({ ok: true })
     }
-    const open = await publicBookResponse(this.book, request, url.pathname)
-    if (open) return open
-    const glossary = await publicGlossaryResponse(this.glossary, request, url.pathname)
-    if (glossary) return glossary
-    // The editors' fixes to the practice questions (BridgeHall e6-t06): the practice page needs no sign-in
-    if (route === 'GET /api/book/quiz/fixes') return json({ fixes: await this.quiz.fixes() })
-    // The editors' learning paths (BridgeHall e4-t08): the path pages need no sign-in
-    if (route === 'GET /api/book/paths') return json({ paths: await this.learning.paths() })
-
     // A picture by its signed address (e11-t02): the signature is the check, so no sign-in
     if (request.method === 'GET' && url.pathname.startsWith(FILES_PATH)) {
       return this.files.serve(decodeURIComponent(url.pathname.slice(FILES_PATH.length)), url)
@@ -461,26 +452,33 @@ export class Club extends DurableObject<Env> implements Connections {
     // A convention card version shared by link (BridgeHall e3-t09): anyone, signed in or not
     const shared = request.method === 'GET' ? await this.sharedCardResponse(url.pathname) : null
     if (shared) return shared
-    // The library's articles (BridgeHall e5-t04): anyone reads them, members-only ones need signing in
+    // Everything else needs signing in, BridgeHall's reading included: its whole site is for members
+    // since 2026-10-29 (the handbook, glossary, practice fixes, learning paths, library and profiles)
+    if (!user) throw new ClubError('signInFirst', {}, 401)
+
+    const open = await publicBookResponse(this.book, request, url.pathname)
+    if (open) return open
+    const glossary = await publicGlossaryResponse(this.glossary, request, url.pathname)
+    if (glossary) return glossary
+    // The editors' fixes to the practice questions (BridgeHall e6-t06)
+    if (route === 'GET /api/book/quiz/fixes') return json({ fixes: await this.quiz.fixes() })
+    // The editors' learning paths (BridgeHall e4-t08)
+    if (route === 'GET /api/book/paths') return json({ paths: await this.learning.paths() })
+    // The library's articles (BridgeHall e5-t04); members-only ones are like the rest now that
+    // every reader is a member
     const articleRead = articleReadRoute(request.method, url.pathname)
     if (articleRead) {
-      const reader: ArticleReader = !user ? 'anyone' : allows(user, 'bookEdit') ? 'editor' : 'member'
+      const reader: ArticleReader = allows(user, 'bookEdit') ? 'editor' : 'member'
       const result = articleRead.slug
         ? await this.articles.get(reader, articleRead.slug)
         : await this.articles.list(reader, url.searchParams.get('text') === '1')
       return json(result)
     }
-    // The library's e-books (BridgeHall e5-t09, e5-t11): the same, members-only ones need signing in
+    // The library's e-books (BridgeHall e5-t09, e5-t11): the same
     const ebookRead = ebookReadRoute(request.method, url.pathname)
     if (ebookRead) {
-      const reader: EbookReader = !user ? 'anyone' : allows(user, 'bookEdit') ? 'editor' : 'member'
+      const reader: EbookReader = allows(user, 'bookEdit') ? 'editor' : 'member'
       return json(ebookRead.id ? await this.ebooks.get(reader, ebookRead.id) : await this.ebooks.list(reader))
-    }
-    if (!user) {
-      // Without signing in, only the club's own system profile
-      const profiles = await anonymousProfileResponse(this.profiles, request, url.pathname)
-      if (profiles) return json(Array.isArray(profiles) ? { profiles } : { profile: profiles })
-      throw new ClubError('signInFirst', {}, 401)
     }
     if (route === 'GET /api/me') return json({ user })
     if (url.pathname.startsWith('/api/book/')) return this.bookApi(request, url, user, body)
@@ -812,7 +810,7 @@ export class Club extends DurableObject<Env> implements Connections {
 
   /**
    * TKU BridgeBook's online editing and system profiles; reading the content (publicBookResponse)
-   * needs no sign-in. Who may use each route is in roles.ts.
+   * needs any member (since 2026-10-29). Who may use each route is in roles.ts.
    */
   private async bookApi(request: Request, url: URL, user: Me, body: () => Promise<Body>) {
     const path = url.pathname.slice('/api/book'.length)

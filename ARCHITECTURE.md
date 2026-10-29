@@ -972,17 +972,17 @@ SQL 由 `worker/history-index.ts` 的 `searchBoards` 組：只有固定的 SQL �
 - **權限**：`StoredUser.permissions`：`bookEdit`（線上編輯：草稿、送審）、`bookReview`（審核發布：發布、退回、隱藏、還原；橋館 e8-t01。審核者一定也是編輯者：存權限時 `withImpliedPermissions` 自動補上 `bookEdit`）、`bookImport`（匯入檔案）、`boardCurate`（設精選牌局，牌桌用，§5.9）、`tkuSystem`（淡江制度機器人，牌桌用，§5.1.2）；管理員全部都有，管理頁的「權限」欄逐項勾選。淡江橋譜的 `/api/me` 也會看到 `boardCurate`、`tkuSystem`，橋譜不用它們。
 - **角色**（使用者決定，2026-10-25；名稱暫時沿用）：**管理員**什麼都能管，包括使用者帳號；**編輯者**（`bookEdit`）能管帳號以外的所有東西。帳號＝申請與核准、新增與刪除帳號、重設密碼、管理員身分、權限、社團設定（人數上限、邀請碼，管的是誰能加入），只限管理員；橋譜的特約（草稿、送審、版本）、分類、制度集，以及關閉卡住的牌桌，編輯者都能做；**發布特約（含直接發布）、退回草稿、隱藏、還原是審核者（`bookReview`）的**（橋館 e8-t01，2026-10-28 起；之前編輯者按儲存就上線）。`bookImport`（AI 匯入，花 API 額度）與 `boardCurate` 仍是各自勾選的權限，`bookEdit` 不包含它們。每條路由要什麼寫在 `worker/roles.ts`（`bookRouteNeed`、`adminRouteNeed`；`tests/worker/roles.test.ts` 列出每條路由），`club.ts` 先查表再分派。牌桌管理頁目前仍只給管理員開（編輯者能用 `DELETE /api/admin/tables/:id`，但畫面還沒開給他們）。隊伍與搭檔的制度集另有成員權限（`profileAccess`，e2-t04，見下方「制度集的成員權限」）：隊長、隊員、搭檔不必是編輯者也能改自己的。
 
-**橋譜 API**（`worker/book.ts` 的 `BookService`；不用登入的讀取路由在 `book.ts` 的 `publicBookResponse`，其他在 `club.ts` 的 `bookApi`）：
+**橋譜 API**（`worker/book.ts` 的 `BookService`；讀取路由在 `book.ts` 的 `publicBookResponse`，其他在 `club.ts` 的 `bookApi`）。**2026-10-29 起橋館全站要登入**，原本「不用登入」的讀取（下表標「社員」的 GET：內容、manifest、分類、名詞、文章、電子書、制度集、修題、學習路徑）都要登入，未登入回 401 `signInFirst`；只剩分享中的制度卡版本、簽名網址的檔案、健康檢查、錯誤回報與登入相關路由不用登入。文章與電子書的 `members-only` 因此和其他授權沒有差別（型別與檢查保留）：
 
 | 路由 | 權限 | 說明 |
 | --- | --- | --- |
-| `GET /api/book/content` | 不用登入 | 所有線上修改 `{ version, entries }`，帶 ETag `W/"book-<version>"`（舊版橋譜用，保留不變） |
-| `GET /api/book/manifest` | 不用登入 | `{ version, entries: BookEntrySummary[] }`：每個線上版本去掉內容，`meta` 是特約的欄位（沒有 `sections`）加上 `outline`（段落 id／標題／子段落）與 `pending`（待確認，與橋譜 `pendingNotes()` 同順序）；隱藏的特約 `meta: null`；`categories` 同 `GET /api/book/categories` 的清單。ETag `W/"book-manifest-<version>"` |
-| `GET /api/book/categories` | 不用登入 | `{ version, categories: BookCategory[], updatedAt?, updatedBy? }`，依 `order` 排；空清單表示沒在線上改過，橋譜用內建的分類。ETag `W/"book-categories-<version>"` |
+| `GET /api/book/content` | 社員 | 所有線上修改 `{ version, entries }`，帶 ETag `W/"book-<version>"`（舊版橋譜用，保留不變） |
+| `GET /api/book/manifest` | 社員 | `{ version, entries: BookEntrySummary[] }`：每個線上版本去掉內容，`meta` 是特約的欄位（沒有 `sections`）加上 `outline`（段落 id／標題／子段落）與 `pending`（待確認，與橋譜 `pendingNotes()` 同順序）；隱藏的特約 `meta: null`；`categories` 同 `GET /api/book/categories` 的清單。ETag `W/"book-manifest-<version>"` |
+| `GET /api/book/categories` | 社員 | `{ version, categories: BookCategory[], updatedAt?, updatedBy? }`，依 `order` 排；空清單表示沒在線上改過，橋譜用內建的分類。ETag `W/"book-categories-<version>"` |
 | `PUT /api/book/categories` | bookEdit | `{ categories: { id, label, description? }[], baseVersion }`：整份取代（新增、改名、排序、刪除一次存），`order` 依清單位置；最多 20 個，代號小寫英數與連字號、不可重複。`baseVersion` 不符回 409 `categoryConflict`；拿掉的分類裡還有線上特約時回 409 `categoryInUse`（內建特約只有橋譜知道，由橋譜檢查） |
-| `GET /api/book/glossary` | 不用登入 | 橋館的名詞表（e4-t05）：`{ version, terms: { term, aliases, definition, see? }[], updatedAt?, updatedBy? }`；version 0 的空清單表示沒在線上改過，橋館用內建的。存在 `book:glossary`（標頭）＋`bookpart:glossary:<i>`（`worker/glossary.ts`），不快取。ETag `W/"book-glossary-<version>"` |
+| `GET /api/book/glossary` | 社員 | 橋館的名詞表（e4-t05）：`{ version, terms: { term, aliases, definition, see? }[], updatedAt?, updatedBy? }`；version 0 的空清單表示沒在線上改過，橋館用內建的。存在 `book:glossary`（標頭）＋`bookpart:glossary:<i>`（`worker/glossary.ts`），不快取。ETag `W/"book-glossary-<version>"` |
 | `PUT /api/book/glossary` | bookEdit | `{ terms, baseVersion }`：整份取代（e4-t07）；最多 500 條，名詞與別名不分大小寫不可重複，解釋 1–1000 字，`see` 是特約 slug。`baseVersion` 不符回 409 `glossaryConflict`；記稽核 `book:glossary` |
-| `GET /api/book/content/:slug` | 不用登入 | `{ entry: BookEntry }`（隱藏時 `convention: null`）；沒有線上版本回 404 `conventionGone`，橋譜改用內建的版本。ETag `W/"book-<slug>-<entry.version>"` |
+| `GET /api/book/content/:slug` | 社員 | `{ entry: BookEntry }`（隱藏時 `convention: null`）；沒有線上版本回 404 `conventionGone`，橋譜改用內建的版本。ETag `W/"book-<slug>-<entry.version>"` |
 | `PUT /api/book/conventions/:slug` | bookReview | 發布：`{ convention, baseVersion, bundledUpdated?, note?, draftRevision? }`；`baseVersion` 不是目前版本時回 409 `bookConflict`。有草稿時帶 `draftRevision`＝從草稿發布（草稿用掉，送審者記在版本上；不符回 409 `bookDraftConflict`）；不帶就保留草稿。版本記 `status: 'published'`、`reviewedBy/At`、`reviewRequestedBy/At`。**沒有 `status` 的舊資料也是已發布** |
 | `GET /api/book/conventions/:slug/draft` | bookEdit | `{ draft: BookDraft \| null }` |
 | `PUT /api/book/conventions/:slug/draft` | bookEdit | 存草稿：`{ convention, baseVersion, draftRevision, bundledUpdated?, note?, submit? }`；第一次存檢查 `baseVersion`（同發布），之後檢查 `draftRevision`（不符 409 `bookDraftConflict`）。`submit: true` 送審（`in-review`），否則是 `draft`（送審中的再存一次就撤回）。退回的理由保留到再送審 |
@@ -993,19 +993,19 @@ SQL 由 `worker/history-index.ts` 的 `searchBoards` 組：只有固定的 SQL �
 | `POST /api/book/conventions/:slug/reset` | bookReview | 刪除線上版本，橋譜改回顯示內建的版本 |
 | `POST /api/book/conventions/:slug/hide` | bookReview | 從橋譜隱藏 |
 | `GET /api/book/conventions/:slug/revisions[/:id]` | bookEdit | 版本紀錄（新的在前）與某一版的內容 |
-| `GET /api/book/articles` | 不用登入 | 叢書的文章（橋館 e5-t04）：`{ version, entries: ArticleEntrySummary[], files, series }`，不含內容區塊；`files` 是封面的簽名網址（沒有 R2 bucket 時是空的）；`series` 是線上編過的系列（e5-t06，沒編過是空清單）。`?text=1` 多回 `text`：每篇的摘要與區塊文字（每篇最多 2 萬字，給橋館搜尋，e5-t13）。未登入看不到 `members-only`，只有 bookEdit 看得到隱藏的 |
-| `GET /api/book/articles/:slug` | 不用登入 | `{ entry: ArticleEntry, files }`：一篇文章與它的封面、圖片的簽名網址；看不到的回 404 `articleGone` |
+| `GET /api/book/articles` | 社員 | 叢書的文章（橋館 e5-t04）：`{ version, entries: ArticleEntrySummary[], files, series }`，不含內容區塊；`files` 是封面的簽名網址（沒有 R2 bucket 時是空的）；`series` 是線上編過的系列（e5-t06，沒編過是空清單）。`?text=1` 多回 `text`：每篇的摘要與區塊文字（每篇最多 2 萬字，給橋館搜尋，e5-t13）。未登入看不到 `members-only`，只有 bookEdit 看得到隱藏的 |
+| `GET /api/book/articles/:slug` | 社員 | `{ entry: ArticleEntry, files }`：一篇文章與它的封面、圖片的簽名網址；看不到的回 404 `articleGone` |
 | `PUT /api/book/articles/:slug` | bookReview | 發布：`{ article, baseVersion, note? }`；`baseVersion` 不是目前版本時回 409 `articleConflict`。文章的草稿與送審等文章編輯器（e5-t07） |
 | `POST /api/book/articles/:slug/hide` | bookReview | `{ baseVersion, note? }` 從叢書隱藏（版本紀錄保留） |
 | `GET /api/book/articles/:slug/revisions[/:id]` | bookEdit | 文章的版本紀錄與某一版的內容 |
-| `GET /api/book/ebooks` | 不用登入 | 叢書的電子書（橋館 e5-t09、e5-t11）：`{ ebooks, files, usage? }`；`files` 是封面的簽名網址；未登入看不到 `members-only`；bookEdit 多拿到 `usage`（R2 用量，e5-t15） |
-| `GET /api/book/ebooks/:id` | 不用登入 | `{ ebook, files }`：一本書與它封面、PDF 的簽名網址（PDF 的 15 分鐘失效）；看不到的回 404 `ebookGone` |
+| `GET /api/book/ebooks` | 社員 | 叢書的電子書（橋館 e5-t09、e5-t11）：`{ ebooks, files, usage? }`；`files` 是封面的簽名網址；未登入看不到 `members-only`；bookEdit 多拿到 `usage`（R2 用量，e5-t15） |
+| `GET /api/book/ebooks/:id` | 社員 | `{ ebook, files }`：一本書與它封面、PDF 的簽名網址（PDF 的 15 分鐘失效）；看不到的回 404 `ebookGone` |
 | `POST /api/book/ebooks/ticket` | bookReview | `{ size }` → PDF 的一次性上傳憑證（≤ 50 MB，§5.14） |
 | `POST /api/book/ebooks` | bookReview | 新增一本書：`EbookInput`（授權必填，`fileKey` 要是剛上傳的 PDF） |
 | `PUT /api/book/ebooks/:id`、`DELETE /api/book/ebooks/:id` | bookReview | 修改（換 PDF 時刪舊檔）、下架（連 PDF 一起刪） |
 | `PUT /api/book/series` | bookEdit | 整份系列一次存（e5-t06）：`{ series: { id, label, description }[], baseVersion }`；版本不符 409 `seriesConflict`；拿掉的系列裡還有文章 409 `seriesInUse`；審計 `article:series` |
-| `GET /api/book/profiles` | 不用登入／社員 | `{ profiles: ProfileSummary[] }`：每個制度集去掉內容、只留數量（`counts`），`club` 在前、再來隊伍、搭檔，各依名稱。未登入只回 `club`（備忘數為 0）；登入後只列自己看得到的（下面「制度集的成員權限」），看不到備忘的備忘數為 0 |
-| `GET /api/book/profiles/:id` | 不用登入（只限 `club`）／社員 | `{ profile: SystemProfile, access: ProfileAccess }`（`access` 是自己能做什麼：`notes`、`edit`、`share`）；`club` 沒存過時回空的（版本 0）；未登入讀 `club` 時只回 `{ profile }` 並拿掉 `notes`，讀其他的回 401；看不到的回 403 `noPermission`，看不到備忘時 `notes` 是空的；不存在回 404 `profileGone` |
+| `GET /api/book/profiles` | 社員 | `{ profiles: ProfileSummary[] }`：每個制度集去掉內容、只留數量（`counts`），`club` 在前、再來隊伍、搭檔，各依名稱。未登入只回 `club`（備忘數為 0）；登入後只列自己看得到的（下面「制度集的成員權限」），看不到備忘的備忘數為 0 |
+| `GET /api/book/profiles/:id` | 社員 | `{ profile: SystemProfile, access: ProfileAccess }`（`access` 是自己能做什麼：`notes`、`edit`、`share`）；`club` 沒存過時回空的（版本 0）；未登入讀 `club` 時只回 `{ profile }` 並拿掉 `notes`，讀其他的回 401；看不到的回 403 `noPermission`，看不到備忘時 `notes` 是空的；不存在回 404 `profileGone` |
 | `POST /api/book/profiles` | bookEdit | `{ profile: ProfileInput, note? }` 新增隊伍或搭檔的制度集，id 由伺服器產生（12 碼 hex），版本 1 |
 | `PUT /api/book/profiles/:id` | 能編輯的人（下面） | `{ profile: ProfileInput, baseVersion, note? }`；`baseVersion` 不符回 409 `profileConflict`。`club` 第一次存時 `baseVersion` 是 0。編輯者以外的人改 `scope`、`parentId`，或沒有 `share` 卻改 `visibility`，回 403 `noPermission` |
 | `DELETE /api/book/profiles/:id` | bookEdit | `{ baseVersion }`；`club` 回 403 `profileProtected`，還有別的制度集繼承它時回 409 `profileInUse`；版本紀錄一起刪 |
@@ -1021,10 +1021,10 @@ SQL 由 `worker/history-index.ts` 的 `searchBoards` 組：只有固定的 SQL �
 | `GET /api/book/quiz/rounds` | 社員 | `{ rounds: QuizRound[] }`（`shared/quiz.ts`）：自己的練習成績，新的在前（橋館 e6-t04） |
 | `POST /api/book/quiz/rounds` | 社員 | `{ round: QuizRoundInput }`（制度集 id、每題的 id、特約、對錯；一次 1–50 題）→ `{ round }`；存在 `quizlog:<userId>:<時間>-<id>`，每人只留最新 100 次 |
 | `DELETE /api/book/quiz/rounds` | 社員 | 清除自己的練習成績 → `{ ok }` |
-| `GET /api/book/quiz/fixes` | 不需登入 | `{ fixes: QuizFix[] }`：幹部的修題（停用、改答案或選項、手動出題），練習頁出題時套用（橋館 e6-t06） |
+| `GET /api/book/quiz/fixes` | 社員 | `{ fixes: QuizFix[] }`：幹部的修題（停用、改答案或選項、手動出題），練習頁出題時套用（橋館 e6-t06） |
 | `PUT /api/book/quiz/fixes` | bookEdit | `{ fix: QuizFixInput }` → `{ fix }`：`source: 'auto'` 修自動題（`basis` 是修正時的叫品與正解，原文改了橋館就不套用）、`'manual'` 手動出題（意義題或含 `hand` 的叫品題）；只檢查形狀，最多 2000 筆。存在 `book:quizfix:<題目 id>`（每日備份一起備），寫審計 `quiz:fix` |
 | `DELETE /api/book/quiz/fixes` | bookEdit | `{ id }` → `{ ok }`：刪掉修正（題目回到自動產生的樣子）或手動題；審計 `quiz:unfix` |
-| `GET /api/book/paths` | 不需登入 | `{ paths: SavedLearningPath[] }`（`shared/learning.ts`）：幹部改過的學習路徑，橋館用來取代同 id 的內建路徑（橋館 e4-t08） |
+| `GET /api/book/paths` | 社員 | `{ paths: SavedLearningPath[] }`（`shared/learning.ts`）：幹部改過的學習路徑，橋館用來取代同 id 的內建路徑（橋館 e4-t08） |
 | `PUT /api/book/paths` | bookEdit | `{ path: LearningPath }` → `{ path }`：存一條路徑（id 不能是 `edit`，1–40 課）；只檢查形狀，最多 20 條；審計 `path:save`（橋館 e4-t12） |
 | `DELETE /api/book/paths` | bookEdit | `{ id }` → `{ ok }`：刪掉線上版本，回到橋館內建的路徑；審計 `path:reset` |
 | `GET /api/book/paths/progress` | 社員 | `{ progress: PathProgress[] }`：自己每條路徑完成的課次（橋館 e4-t11） |
