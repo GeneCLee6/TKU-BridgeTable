@@ -10,6 +10,11 @@ import { ClubError } from './service.ts'
  * Structured outputs cannot describe recursive schemas, so the reply is flat: sections point to
  * their parent with `parentId`, and list items carry a `level`. The handbook rebuilds the tree
  * (TKU-BridgeBook src/lib/importResult.ts) and that file must change together with this schema.
+ *
+ * The same upload can instead make articles for the library (BridgeHall e5-t08, `target:
+ * 'articles'`): then `categories` are the library's series, the catalogue lists the articles, and
+ * the reply is `articleImportSchema`'s, which the handbook turns into articles (importResult.ts
+ * fromArticleReply) for its article editor.
  */
 
 export interface ImportCategory {
@@ -18,12 +23,17 @@ export interface ImportCategory {
   description: string
 }
 
+/** What the file becomes: the handbook's conventions, or articles for the library (e5-t08) */
+export type ImportTarget = 'conventions' | 'articles'
+
 export interface ImportRequest {
+  target: ImportTarget
   fileName: string
   /** What the admin wants the AI to keep in mind, e.g. 「這份是舊版，與特約衝突時以特約為準」 */
   instructions: string
-  /** The handbook's current conventions, one per line, so the AI can tell a new one from an update */
+  /** The handbook's current conventions (or articles), one per line, so the AI can tell a new one from an update */
   catalogue: string
+  /** The handbook's categories, or the library's series for articles */
   categories: ImportCategory[]
   source: { kind: 'pdf'; file: Blob } | { kind: 'text'; text: string }
 }
@@ -35,16 +45,18 @@ export const IMPORT_MODEL = 'claude-opus-5-5'
 
 const text = (description: string) => ({ type: 'string', description })
 
-/** The reply's JSON schema; `categories` become the allowed category ids */
-export function importSchema(categories: string[]) {
-  const object = (properties: Record<string, unknown>) => ({
-    type: 'object',
-    additionalProperties: false,
-    required: Object.keys(properties),
-    properties,
-  })
-  const pending = text('Doubt about the source in Traditional Chinese, or empty')
-  const block = [
+const object = (properties: Record<string, unknown>) => ({
+  type: 'object',
+  additionalProperties: false,
+  required: Object.keys(properties),
+  properties,
+})
+
+const pending = text('Doubt about the source in Traditional Chinese, or empty')
+
+/** The blocks a convention's section and an article both have */
+function sharedBlocks() {
+  return [
     object({ kind: { const: 'paragraph' }, text: text('Verbatim passage'), pending }),
     object({
       kind: { const: 'rules' },
@@ -87,6 +99,11 @@ export function importSchema(categories: string[]) {
       clubs: text('Cards'),
     }),
   ]
+}
+
+/** The reply's JSON schema; `categories` become the allowed category ids */
+export function importSchema(categories: string[]) {
+  const block = sharedBlocks()
   const section = object({
     id: text('Lowercase English words joined by hyphens, unique within the convention'),
     parentId: text("Id of the parent section; '' at the top level"),
@@ -112,6 +129,65 @@ export function importSchema(categories: string[]) {
   })
   return object({
     conventions: { type: 'array', items: convention },
+    reviewNotes: text('Notes for the reviewer in Traditional Chinese'),
+  })
+}
+
+const SEAT = { type: 'string', enum: ['N', 'E', 'S', 'W'] }
+
+/** One seat's cards in a deal; all four empty when the document does not show that seat */
+const dealHand = (seat: string) =>
+  object({
+    spades: text(`${seat}: spades like AKT52, - for a void, '' when the hand is not shown`),
+    hearts: text('Cards'),
+    diamonds: text('Cards'),
+    clubs: text('Cards'),
+  })
+
+/**
+ * The reply's JSON schema for articles (e5-t08): the shared blocks plus the article's own
+ * (heading, quote, deal, play). `series` become the allowed series ids. Pictures cannot be made
+ * from a file; the reply mentions them in reviewNotes.
+ */
+export function articleImportSchema(series: string[]) {
+  const block = [
+    object({ kind: { const: 'heading' }, level: { type: 'integer', description: '2 for a heading, 3 for a sub-heading' }, text: text('Verbatim heading') }),
+    ...sharedBlocks(),
+    object({ kind: { const: 'quote' }, text: text('Verbatim quotation'), cite: text('Who or what it quotes, or empty') }),
+    object({
+      kind: { const: 'deal' },
+      caption: text('Verbatim caption or board heading, or empty'),
+      dealer: SEAT,
+      vul: { type: 'string', enum: ['None', 'NS', 'EW', 'Both'] },
+      north: dealHand('North'),
+      east: dealHand('East'),
+      south: dealHand('South'),
+      west: dealHand('West'),
+    }),
+    object({
+      kind: { const: 'play' },
+      caption: text('Verbatim caption, or empty'),
+      contract: text("Contract like 4S, 3N, 4HX or 6NXX"),
+      declarer: SEAT,
+      tricks: {
+        type: 'array',
+        description: 'Tricks in order, each starting with the card led',
+        items: text('One trick: cards separated by spaces, as S2 SA S5 SK (suit letter then rank, 10 is T)'),
+      },
+    }),
+  ]
+  const article = object({
+    action: { type: 'string', enum: ['new', 'update'] },
+    replaces: text("Slug of the existing article this updates, or ''"),
+    slug: text('Lowercase English with hyphens'),
+    title: text('Verbatim title'),
+    authors: { type: 'array', items: { type: 'string' }, description: 'Authors as written, or []' },
+    series: { type: 'string', enum: series },
+    summary: text('One or two sentences in Traditional Chinese'),
+    blocks: { type: 'array', items: { anyOf: block } },
+  })
+  return object({
+    articles: { type: 'array', items: article },
     reviewNotes: text('Notes for the reviewer in Traditional Chinese'),
   })
 }
@@ -144,6 +220,42 @@ export const IMPORT_SYSTEM = `You turn documents of 淡江橋藝社 (the Tamkang
 - Compare with the site's current conventions listed in the request. If the document is a version of one of them, set action 'update', replaces and slug to that slug, and reuse its section ids where the sections match so links keep working. Otherwise action 'new' with replaces ''.
 - Output several conventions only when the document clearly holds several independent conventions or chapters, such as a whole system handbook: one per chapter.
 - Tell the reviewer briefly in reviewNotes, in Traditional Chinese, which convention you matched and why, anything you could not read, and what you marked as pending.`
+
+export const ARTICLE_IMPORT_SYSTEM = `You turn documents of 淡江橋藝社 (the Tamkang University bridge club) into articles for the library of TKU BridgeHall (淡江橋館 叢書): lesson notes, columns on play and defence, bidding theory, club history. An officer reviews your result in an editor before anything is published.
+
+# Fidelity comes first
+- Transcribe verbatim. Keep every sentence, call, card, point range, example and wording exactly as written, in the document's language. Never add, drop, reorder, summarise, rewrite or "correct" anything from your own bridge knowledge, and never improve the style. Everything in the document must appear somewhere in your output.
+- Only two conversions are allowed:
+  1. Calls in auctions and response tables are ASCII: 1C 1D 1H 1S 1NT ... 7NT, X (double), XX (redouble), P (pass); '?' for the call being decided, '---' for a dash, '' for an empty cell.
+  2. In text, letters that stand for suits become symbols ('H不fit' → '♥不fit'); other letters stay (A K Q J as cards, HCP, NT).
+- Text marked bold in the input (**like this**) stays wrapped in ** **. Add no other formatting.
+- Where the source is ambiguous, contradicts itself, has an obvious typo, cannot be read or breaks off, keep the original text and explain the doubt in that block's pending field (paragraphs, list items and table rows have one), in Traditional Chinese; for other blocks say so in reviewNotes. Never fix it silently.
+
+# Blocks, in document order
+- heading: the article's own headings; level 2 for a heading, 3 for a sub-heading. The document's title is the article's title, not a heading.
+- paragraph: a passage. rules: a bulleted or numbered list (level 0 an item, 1 its sub-item). note: a P.S. or 注意 (tone 'warning' for cautions). quote: a passage the document quotes from someone else, with cite.
+- responses: a bidding sequence with the possible calls and their meanings, as in the club's handbook (seats, calls and rows as the schema says).
+- hand: a single example hand, cards as AKQJT98765432 (10 is T), '-' for a void.
+- deal: a diagram of two to four hands. Fill each seat shown; leave every suit of a seat that is not shown ''. Write '-' for a shown void. dealer and vul as the document gives them; when it does not, dealer N and vul None, and say so in reviewNotes. A caption or board heading next to the diagram goes in caption, verbatim.
+- play: only when the document lists the play trick by trick. Each trick is the cards in the order played, starting with the card led, as suit letter plus rank (SA, HT, D2). Stop where the document stops. If the document only describes the play in prose, keep the prose as paragraphs and make no play block.
+- Pictures, photos and drawings that are not card diagrams cannot be carried over: list them in reviewNotes with where they were.
+
+# Filing
+- title: the document's title as written. authors: the authors the document names, else []. series: the shelf whose description fits best. summary: one or two sentences in Traditional Chinese on what the article is about; your own words are fine there and only there. slug: lowercase English with hyphens.
+- Compare with the library's articles listed in the request. If the document is a version of one of them, set action 'update' and replaces and slug to that slug; otherwise action 'new' with replaces ''.
+- Make several articles only when the document clearly holds several independent articles or chapters.
+- Tell the reviewer briefly in reviewNotes, in Traditional Chinese, which article you matched and why, anything you could not read or carry over, and what you marked as pending.`
+
+export function articleImportPrompt(request: ImportRequest) {
+  const series = request.categories.map((c) => `- ${c.id}：${c.label}（${c.description}）`).join('\n')
+  return [
+    `檔名：${request.fileName}`,
+    `叢書的系列：\n${series}`,
+    `叢書目前的文章：\n${request.catalogue || '（沒有）'}`,
+    `管理員的補充說明：${request.instructions.trim() || '（沒有）'}`,
+    '請依系統說明，把上面的文件逐字轉成叢書的文章資料。',
+  ].join('\n\n')
+}
 
 export function importPrompt(request: ImportRequest) {
   const categories = request.categories.map((c) => `- ${c.id}：${c.label}（${c.description}）`).join('\n')
@@ -195,6 +307,8 @@ async function analyse(client: Anthropic, model: string, request: ImportRequest)
           title,
           source: { type: 'text' as const, media_type: 'text/plain' as const, data: request.source.text },
         }
+  const articles = request.target === 'articles'
+  const ids = request.categories.map((c) => c.id)
   return client.beta.messages
     .create({
       model,
@@ -205,10 +319,12 @@ async function analyse(client: Anthropic, model: string, request: ImportRequest)
       fallbacks: 'default',
       output_config: {
         effort: 'medium',
-        format: { type: 'json_schema', schema: importSchema(request.categories.map((c) => c.id)) },
+        format: { type: 'json_schema', schema: articles ? articleImportSchema(ids) : importSchema(ids) },
       },
-      system: IMPORT_SYSTEM,
-      messages: [{ role: 'user', content: [document, { type: 'text', text: importPrompt(request) }] }],
+      system: articles ? ARTICLE_IMPORT_SYSTEM : IMPORT_SYSTEM,
+      messages: [
+        { role: 'user', content: [document, { type: 'text', text: articles ? articleImportPrompt(request) : importPrompt(request) }] },
+      ],
     })
     .asResponse()
 }

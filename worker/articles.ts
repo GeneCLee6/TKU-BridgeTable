@@ -5,6 +5,7 @@ import { type AuditAction, AuditLog } from './audit.ts'
 import { randomId } from './auth.ts'
 import {
   checkBlock,
+  dropParts,
   getParts,
   type Header,
   isObject,
@@ -27,9 +28,10 @@ import type { Store } from './store.ts'
  * a counter that changes with every save (`article:version`). The daily backup covers `article*`
  * and `bookpart:` (backup.ts BACKUP_PREFIXES).
  *
- * Only the published path for now: a reviewer (`bookReview`) publishes or hides an article
- * straight away, as with a convention without a draft. Drafts and review for articles come with
- * their editor (e5-t07). An article is checked here only for shape; what it says is the editors'.
+ * Review as for conventions (BridgeHall e5-t07, e8-t02): an editor (`bookEdit`) saves an article's
+ * draft (one per article, `article:wip:<slug>`, kept in parts too) and sends it for review; a
+ * reviewer (`bookReview`) publishes it, sends it back with why, or publishes or hides an article
+ * straight away. An article is checked here only for shape; what it says is the editors'.
  *
  * Pictures (an `image` block's `src`, the `cover`) are file keys from the uploads (files.ts,
  * e11-t02, purpose `article`), never addresses: addresses are signed and short-lived, so every
@@ -52,10 +54,42 @@ export interface ArticleEntry {
   updatedAt: number
   updatedBy: string
   status: 'published'
+  /** Who sent the published draft for review, and when; absent when a reviewer published straight away */
+  reviewRequestedBy?: string
+  reviewRequestedAt?: number
   /** The reviewer who published it, and when */
   reviewedBy: string
   reviewedAt: number
 }
+
+/**
+ * An article's change that is not published yet (BridgeHall e5-t07), as a convention's BookDraft:
+ * one per article, which every editor may carry on; only editors and reviewers see it.
+ */
+export interface ArticleDraft {
+  slug: string
+  status: 'draft' | 'in-review'
+  /** The published version the draft started from; 0 for a new article */
+  baseVersion: number
+  /** Counts the draft's saves, from 1; a save or a review sends it back as `draftRevision` */
+  revision: number
+  article: Record<string, unknown>
+  /** What the editor says the change is; becomes the version's note when published */
+  note: string
+  createdAt: number
+  createdBy: string
+  updatedAt: number
+  updatedBy: string
+  reviewRequestedBy?: string
+  reviewRequestedAt?: number
+  /** Set when a reviewer sent it back, with why; cleared when it is sent for review again */
+  reviewedBy?: string
+  reviewedAt?: number
+  reviewNote?: string
+}
+
+/** GET /api/book/reviews `articles`: every article draft without its content, plus its title */
+export type ArticleDraftSummary = Omit<ArticleDraft, 'article'> & { title: string }
 
 /** An article without its blocks: what the library's shelves need */
 export interface ArticleMeta {
@@ -134,6 +168,8 @@ export const ARTICLE_LIMITS = {
   titleMax: 120,
   authorsMax: 10,
   revisionsListed: 100,
+  /** Characters of the reason a draft is sent back */
+  reviewNoteMax: 500,
   /** Characters of an article's words sent for search */
   searchTextMax: 20_000,
 } as const
@@ -311,6 +347,8 @@ export class ArticleService {
   private readonly now: () => number
   private readonly audit: AuditLog
   private entries: Map<string, ArticleEntry> | null = null
+  /** The drafts (e5-t07), loaded the first time an editor asks: readers never need them */
+  private wip: Map<string, ArticleDraft> | null = null
   private version = 0
   private seriesList: ArticleSeriesList = { version: 0, series: [] }
   private lastStamp = 0
@@ -443,11 +481,22 @@ export class ArticleService {
    * Publishes an article (a reviewer's). `baseVersion` is the published version the reviewer
    * started from, 0 for a new article; if someone published in between, nothing is written.
    */
-  async save(actor: Me, slug: string, body: { article?: unknown; baseVersion?: unknown; note?: unknown }) {
+  async save(actor: Me, slug: string, body: { article?: unknown; baseVersion?: unknown; draftRevision?: unknown; note?: unknown }) {
+    const article = this.checked(slug, body.article)
+    // Publishing the draft (`draftRevision` given): it must be the one the reviewer read, and it goes
+    const draft = (await this.loadDrafts()).get(slug)
+    const fromDraft = draft && body.draftRevision !== undefined ? draft : undefined
+    if (fromDraft) this.checkDraft(fromDraft, body.draftRevision)
+    const note = noteOf(body.note) || (fromDraft?.note ?? '')
+    const entry = await this.publish(actor, slug, { ...body, note }, article, 'save', fromDraft)
+    if (fromDraft) await this.dropDraft(slug)
+    return entry
+  }
+
+  private checked(slug: string, value: unknown) {
     if (!isSlug(slug)) throw new ClubError('badContent', { reason: '網址代稱（slug）只能用小寫英數與連字號' })
-    if (JSON.stringify(body.article ?? null).length > ARTICLE_LIMITS.articleMax) throw new ClubError('contentTooLarge', {}, 413)
-    const article = checkArticle(body.article, slug)
-    return this.publish(actor, slug, body, article, 'save')
+    if (JSON.stringify(value ?? null).length > ARTICLE_LIMITS.articleMax) throw new ClubError('contentTooLarge', {}, 413)
+    return checkArticle(value, slug)
   }
 
   /** Hides an article from the library; its versions stay, so it can be published again */
@@ -462,6 +511,7 @@ export class ArticleService {
     body: { baseVersion?: unknown; note?: unknown },
     article: Record<string, unknown> | null,
     action: ArticleRevisionAction,
+    fromDraft?: ArticleDraft,
   ) {
     const entries = await this.load()
     const current = entries.get(slug)
@@ -477,6 +527,10 @@ export class ArticleService {
       status: 'published',
       reviewedBy: actor.username,
       reviewedAt: time,
+    }
+    if (fromDraft?.status === 'in-review' && fromDraft.reviewRequestedBy) {
+      entry.reviewRequestedBy = fromDraft.reviewRequestedBy
+      entry.reviewRequestedAt = fromDraft.reviewRequestedAt
     }
     await this.write(entry)
     entries.set(slug, entry)
@@ -503,5 +557,121 @@ export class ArticleService {
     if (!header) throw new ClubError('articleGone', {}, 404)
     const { parts, ...meta } = header
     return parts ? { ...meta, article: await getParts(this.store, key, parts) } : meta
+  }
+  // ── Drafts and review (BridgeHall e5-t07, as e8-t02 for conventions) ─────────────────────────
+
+  private async loadDrafts() {
+    if (this.wip) return this.wip
+    const drafts = new Map<string, ArticleDraft>()
+    for (const [key, header] of await this.store.list<Omit<ArticleDraft, 'article'> & Header>('article:wip:')) {
+      const { parts, ...meta } = header
+      drafts.set(meta.slug, { ...meta, article: await getParts(this.store, key, parts) })
+    }
+    this.wip = drafts
+    return drafts
+  }
+
+  private async writeDraft(draft: ArticleDraft) {
+    const key = `article:wip:${draft.slug}`
+    const old = await this.store.get<Header>(key)
+    const { article, ...meta } = draft
+    const parts = await putParts(this.store, key, article, old?.parts)
+    await this.store.put(key, { ...meta, parts })
+    ;(await this.loadDrafts()).set(draft.slug, draft)
+  }
+
+  private async dropDraft(slug: string) {
+    const key = `article:wip:${slug}`
+    const header = await this.store.get<Header>(key)
+    await dropParts(this.store, key, header?.parts ?? 0)
+    await this.store.delete(key)
+    ;(await this.loadDrafts()).delete(slug)
+  }
+
+  /** Throws 409 unless `revision` is the draft's (0 when there is none) */
+  private checkDraft(draft: ArticleDraft | undefined, revision: unknown) {
+    if (Number(revision ?? 0) !== (draft?.revision ?? 0))
+      throw new ClubError('bookDraftConflict', { name: draft?.updatedBy ?? '別人' }, 409)
+  }
+
+  /** An article's draft; null when it has none */
+  async draftOf(slug: string): Promise<ArticleDraft | null> {
+    if (!isSlug(slug)) throw new ClubError('articleGone', {}, 404)
+    return (await this.loadDrafts()).get(slug) ?? null
+  }
+
+  /** Every article draft: the ones in review first, then the latest saved first */
+  async drafts(): Promise<ArticleDraftSummary[]> {
+    const rank = (d: ArticleDraft) => (d.status === 'in-review' ? 0 : 1)
+    return [...(await this.loadDrafts()).values()]
+      .sort((a, b) => rank(a) - rank(b) || b.updatedAt - a.updatedAt)
+      .map(({ article, ...rest }) => ({ ...rest, title: isString(article.title) ? article.title : rest.slug }))
+  }
+
+  /**
+   * Saves an article's draft, and with `submit` sends it for review (an editor's). The first save
+   * checks `baseVersion` as publishing does; later saves send `draftRevision`. Saving without
+   * `submit` takes a draft out of review.
+   */
+  async saveDraft(
+    actor: Me,
+    slug: string,
+    body: { article?: unknown; baseVersion?: unknown; draftRevision?: unknown; note?: unknown; submit?: unknown },
+  ): Promise<ArticleDraft> {
+    const article = this.checked(slug, body.article)
+    const entries = await this.load()
+    const current = (await this.loadDrafts()).get(slug)
+    this.checkDraft(current, body.draftRevision)
+    if (!current) this.checkBase(entries.get(slug), body.baseVersion)
+    const time = this.now()
+    const submit = body.submit === true
+    const draft: ArticleDraft = {
+      slug,
+      status: submit ? 'in-review' : 'draft',
+      baseVersion: current?.baseVersion ?? entries.get(slug)?.version ?? 0,
+      revision: (current?.revision ?? 0) + 1,
+      article,
+      note: body.note === undefined ? (current?.note ?? '') : noteOf(body.note),
+      createdAt: current?.createdAt ?? time,
+      createdBy: current?.createdBy ?? actor.username,
+      updatedAt: time,
+      updatedBy: actor.username,
+    }
+    if (submit) {
+      draft.reviewRequestedBy = actor.username
+      draft.reviewRequestedAt = time
+    } else if (current?.reviewNote !== undefined) {
+      // Sent back: why stays in view until it goes for review again
+      draft.reviewedBy = current.reviewedBy
+      draft.reviewedAt = current.reviewedAt
+      draft.reviewNote = current.reviewNote
+    }
+    await this.writeDraft(draft)
+    await this.log(actor, submit ? 'article:submit' : 'article:draft', slug, { note: draft.note })
+    return draft
+  }
+
+  /** Sends a draft in review back to `draft`, with why (a reviewer's) */
+  async reject(actor: Me, slug: string, body: { draftRevision?: unknown; note?: unknown }): Promise<ArticleDraft> {
+    const current = await this.draftOf(slug)
+    if (!current) throw new ClubError('articleDraftGone', {}, 404)
+    this.checkDraft(current, body.draftRevision)
+    if (current.status !== 'in-review') throw new ClubError('notInReview', {}, 409)
+    const time = this.now()
+    const reviewNote = String(body.note ?? '').trim().slice(0, ARTICLE_LIMITS.reviewNoteMax)
+    const { reviewRequestedBy: _by, reviewRequestedAt: _at, ...rest } = current
+    const draft: ArticleDraft = { ...rest, status: 'draft', revision: current.revision + 1, reviewedBy: actor.username, reviewedAt: time, reviewNote }
+    await this.writeDraft(draft)
+    await this.log(actor, 'article:reject', slug, { note: reviewNote })
+    return draft
+  }
+
+  /** Throws an article's draft away (an editor's); what is published stays */
+  async discardDraft(actor: Me, slug: string, body: { draftRevision?: unknown }) {
+    const current = await this.draftOf(slug)
+    if (!current) throw new ClubError('articleDraftGone', {}, 404)
+    this.checkDraft(current, body.draftRevision)
+    await this.dropDraft(slug)
+    await this.log(actor, 'article:discard', slug, {})
   }
 }
