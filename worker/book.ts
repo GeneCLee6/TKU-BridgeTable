@@ -101,7 +101,10 @@ export interface PendingNoteRef {
 /** The handbook's ConventionKind and Level (TKU-BridgeBook src/types/convention.ts) */
 export type ConventionKind = 'system' | 'convention' | 'signal' | 'defense'
 export type ConventionLevel = 'basic' | 'intermediate' | 'advanced'
+/** The handbook's BrownSticker: what the WBF Systems Policy would call a Brown Sticker method */
+export type BrownSticker = 'opening' | 'overcall'
 const KINDS: readonly string[] = ['system', 'convention', 'signal', 'defense']
+const BROWN_STICKERS: readonly string[] = ['opening', 'overcall']
 const LEVELS: readonly string[] = ['basic', 'intermediate', 'advanced']
 
 /** Everything about a convention except its content: the Convention fields minus `sections` */
@@ -118,6 +121,8 @@ export interface ConventionMeta {
   prerequisites?: string[]
   /** Convention card slots (handbook E3) */
   cardSlots?: string[]
+  /** Marked Brown Sticker: the handbook's card page adds the announcement form (handbook e3-t12) */
+  brownSticker?: BrownSticker
   tags: string[]
   summary: string
   source: { title: string; note?: string }
@@ -242,6 +247,8 @@ export function checkConvention(value: unknown, slug: string): Record<string, un
   if (!isOptionalLevel(value.level)) fail('程度（level）不存在')
   if (value.prerequisites !== undefined && !isStrings(value.prerequisites)) fail('前置特約（prerequisites）要是文字清單')
   if (value.cardSlots !== undefined && !isStrings(value.cardSlots)) fail('制度卡位置（cardSlots）要是文字清單')
+  if (value.brownSticker !== undefined && !BROWN_STICKERS.includes(value.brownSticker as string))
+    fail('棕標（brownSticker）只能是開叫或蓋叫')
   if (!isObject(value.source) || !isString(value.source.title) || !isOptionalString(value.source.note))
     fail('缺少來源（source.title）')
   if (!Array.isArray(value.sections)) fail('缺少段落（sections）')
