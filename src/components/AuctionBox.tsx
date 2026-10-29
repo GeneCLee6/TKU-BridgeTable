@@ -1,8 +1,10 @@
+import { BookOpen } from 'lucide-react'
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import styled, { css } from 'styled-components'
 import type { AuctionCall } from '../../shared/auction.ts'
 import { isVulnerable, type Vulnerability } from '../../shared/board.ts'
+import { bookNoteUrl } from '../../shared/book-site.ts'
 import { nextSeat, type Seat } from '../../shared/cards.ts'
 import { auctionBoxHeight, auctionCell } from '../lib/measure.ts'
 import { useRobotRules } from '../lib/useRobotRules.ts'
@@ -20,6 +22,11 @@ import { CallLabel } from './Suit.tsx'
  * sends all of it. A tap toggles it on a touch screen, keyboard focus shows it. With `maxRows` the
  * table keeps one fixed height from the first call to the last, as on BBO: a long auction scrolls
  * inside it (the header stays put, the latest round in view).
+ *
+ * A call in the club's system with 淡江橋館's words for it (`AuctionCall.book`, BridgeHall e7-t05,
+ * e7-t06) is a link to that section of the handbook, read with the profile the words came from: a
+ * click opens it in a new tab (leaving the table page would leave the table); on a touch screen
+ * the first tap shows the meaning and the second opens it.
  */
 
 const Box = styled.div<{ $size: number; $width?: number }>`
@@ -78,8 +85,13 @@ const Cell = styled.td<{ $alert?: boolean; $call?: string; $size: number }>`
     `}
 `
 
-/** A call: the whole cell is a button that opens what it means */
+/** A call: the whole cell is a button that opens what it means (a link when the handbook has it) */
 const CallButton = styled.button`
+  &[href] {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
   width: 100%;
   height: 100%;
   padding: 0;
@@ -87,6 +99,7 @@ const CallButton = styled.button`
   background: none;
   color: inherit;
   font: inherit;
+  text-decoration: none;
   cursor: pointer;
   &[aria-expanded='true'] { box-shadow: inset 0 0 0 2px ${({ theme }) => theme.table.panelText}; }
 `
@@ -138,7 +151,8 @@ const PopupText = styled.p`
   white-space: pre-wrap;
 
   & + & { padding-top: 0; }
-  & > strong { display: block; font-size: 12px; font-weight: 700; opacity: 0.75; }
+  & > strong { display: flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 700; opacity: 0.75; }
+  & > small { display: block; margin-top: 4px; font-size: 12px; opacity: 0.75; }
 `
 
 /** The meaning tooltip, placed under the call (above it when there is no room below) */
@@ -151,14 +165,16 @@ function MeaningTip({ id, call, anchor, who, onClose }: { id: string; call: Auct
   const rules = useRobotRules(!!call.meaning)
   const described = call.meaning && rules ? rules.describe(call.meaning, lang) : undefined
   const alerted = call.alert !== undefined
-  const parts: { label?: string; text: string }[] = []
+  const parts: { label?: string; text: string; book?: boolean }[] = []
   if (call.robot || !call.inferred) {
     if (alerted || call.robot) parts.push({ text: (described ?? call.alert) || t.noExplanation })
     // TKB in the club's system: 淡江橋館's own words for the call (BridgeHall e7-t03)
-    if (call.book) parts.push({ label: t.bookExplanation, text: call.book.text })
+    if (call.book) parts.push({ label: t.bookExplanation, text: call.book.text, book: true })
   } else {
     if (alerted) parts.push({ label: t.playerExplanation, text: call.alert || t.noExplanation })
     parts.push({ label: t.inferredBy(t.robotSystems[call.inferred]), text: described ?? '…' })
+    // A person's call in the club's system: the handbook's words too (e7-t06)
+    if (call.book) parts.push({ label: t.bookExplanation, text: call.book.text, book: true })
   }
   if (!parts.length) parts.push({ text: t.noExplanation })
   const title = alerted ? t.alert : t.callMeaning
@@ -206,8 +222,14 @@ function MeaningTip({ id, call, anchor, who, onClose }: { id: string; call: Auct
       </PopupHead>
       {parts.map((part, i) => (
         <PopupText key={i}>
-          {part.label && <strong>{part.label}</strong>}
+          {part.label && (
+            <strong>
+              {part.book && <BookOpen size={13} aria-hidden />}
+              {part.label}
+            </strong>
+          )}
           {part.text}
+          {part.book && <small>{t.bookOpenHint}</small>}
         </PopupText>
       ))}
     </Popup>,
@@ -294,10 +316,11 @@ export function AuctionBox({
                     )
                   const index = auction.indexOf(cell)
                   const alerted = cell.alert !== undefined
+                  const link = cell.book ? { as: 'a' as const, href: bookNoteUrl(cell.book), target: '_blank', rel: 'noopener noreferrer' } : { type: 'button' as const }
                   return (
                     <Cell key={c} $size={cellSize} $call={cell.call} $alert={alerted}>
                       <CallButton
-                        type="button"
+                        {...link}
                         aria-describedby={open?.index === index ? tipId : undefined}
                         onPointerEnter={(e) => e.pointerType !== 'touch' && show(index, e.currentTarget)}
                         onPointerLeave={(e) => e.pointerType !== 'touch' && hide(index)}
@@ -306,14 +329,19 @@ export function AuctionBox({
                         onBlur={() => !pointer.current && hide(index)}
                         onClick={(e) => {
                           if (pointer.current === 'touch') {
+                            // A link opens on the second tap, once its meaning has been read
                             if (open?.index === index) hide(index)
-                            else show(index, e.currentTarget)
+                            else {
+                              if (cell.book) e.preventDefault()
+                              show(index, e.currentTarget)
+                            }
                           }
                           pointer.current = null
                         }}
                       >
                         <CallLabel call={cell.call} onCard />
                         {alerted && <span className="visually-hidden">（{t.alert}）</span>}
+                        {cell.book && <span className="visually-hidden">（{t.bookOpenLabel}）</span>}
                       </CallButton>
                     </Cell>
                   )

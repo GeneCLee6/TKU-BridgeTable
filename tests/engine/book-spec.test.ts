@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { AuctionCall } from '../../shared/auction.ts'
+import { BOOK_SITE, bookNoteUrl, bookUrl } from '../../shared/book-site.ts'
 import { auctionPattern, bookKey, bookNoteFor, bookNotes, patternAuction, robotMeanings } from '../../shared/robot/system/book-spec.ts'
 import { TKU } from '../../shared/robot/system/tku/index.ts'
 import type { SpecRule, SystemSpec } from '../../shared/systemSpec.ts'
@@ -39,6 +40,17 @@ describe('bookNotes', () => {
     expect(bookNoteFor(notes, calls('P', '1N', 'P'), '2C')?.text).toBe('Stayman，8點↑')
     expect(bookNoteFor(notes, calls('1N', 'P'), '2D')).toBeUndefined()
     expect(bookNoteFor(null, calls('1N', 'P'), '2C')).toBeUndefined()
+  })
+
+  it('names the profile the words come from, but not the club’s own (e7-t05)', () => {
+    const r = [rule(['1N (P)'], '2C', 'Stayman')]
+    expect(bookNoteFor(bookNotes(spec(r), 'k', 'team1'), calls('1N', 'P'), '2C')).toEqual({
+      text: 'Stayman',
+      slug: 'notrump-responses',
+      sectionId: 'a',
+      profile: 'team1',
+    })
+    expect(bookNoteFor(bookNotes(spec(r), 'k', 'club'), calls('1N', 'P'), '2C')).not.toHaveProperty('profile')
   })
 
   it('reads every pattern of a rule', () => {
@@ -85,5 +97,14 @@ describe('robotMeanings', () => {
   it('answers an auction it cannot read with nulls', () => {
     const [item] = robotMeanings(TKU, { items: [{ after: '1S (1H)', calls: ['2C'] }] })
     expect(item.meanings).toEqual({ '2C': null })
+  })
+})
+
+describe('bookUrl', () => {
+  it('links a section of the handbook, with the profile unless it is the club’s', () => {
+    expect(bookUrl('stayman')).toBe(`${BOOK_SITE}/c/stayman`)
+    expect(bookUrl('stayman', 's-2')).toBe(`${BOOK_SITE}/c/stayman/s-2`)
+    expect(bookUrl('stayman', 's-2', 'club')).toBe(`${BOOK_SITE}/c/stayman/s-2`)
+    expect(bookNoteUrl({ text: '', slug: 'stayman', sectionId: 's-2', profile: 'p 1' })).toBe(`${BOOK_SITE}/c/stayman/s-2?profile=p%201`)
   })
 })

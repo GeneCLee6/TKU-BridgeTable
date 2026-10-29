@@ -135,7 +135,7 @@ export class SystemSpecStore {
   async bookNotes(known: string | null): Promise<BookNotes | 'same' | null> {
     this.notes ??= (async () => {
       const synced = await this.get(this.tableProfileId)
-      return synced ? bookNotes(synced.spec, `${this.tableProfileId}:${synced.spec.version}:${synced.syncedAt}`) : null
+      return synced ? bookNotes(synced.spec, `${this.tableProfileId}:${synced.spec.version}:${synced.syncedAt}`, this.tableProfileId) : null
     })()
     const pending = this.notes
     // A failed read is tried again next time

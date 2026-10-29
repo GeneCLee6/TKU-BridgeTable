@@ -175,10 +175,47 @@ describe('TKB with the handbook’s words', () => {
       const before = auction.slice(0, auction.indexOf(call))
       expect(call.book).toEqual({ text: `book ${bookKey(auctionPattern(before), call.call)}`, slug: 's', sectionId: 'x' })
     }
-    // Pass carries no words, as it carries no alert; a person's call none either
-    expect(auction.filter((c) => !c.robot || c.call === 'P').every((c) => !c.book)).toBe(true)
+    // Pass carries no words, as it carries no alert
+    expect(auction.filter((c) => c.call === 'P').every((c) => !c.book)).toBe(true)
     expect(robotCalls.length).toBeGreaterThan(1)
     // Once for the board, however many calls TKB made
     expect(asked).toEqual([null])
+  })
+
+  it('puts them on a person’s call in the club’s system too (e7-t06)', async () => {
+    const notes: BookNotes = {
+      key: 'k1',
+      notes: new Proxy({}, { get: (_, key) => ({ text: `book ${String(key)}`, slug: 's', sectionId: 'x', profile: 'p1' }) }),
+    }
+    const store = new MemoryStore()
+    const table = new TableService(
+      'tbl1',
+      { save: (t) => store.put(`table:${t.id}`, t), remove: (id) => store.delete(`table:${id}`) },
+      { onlineUserIds: () => [], send: () => {} },
+      { changed: () => {}, closed: () => {}, boardFinished: async () => {}, mayUseTku: () => true, bookNotes: async () => notes },
+      { now: () => 1_000_000, random: (n) => Math.floor(n / 2), scheduler: manualScheduler(() => {}) },
+    )
+    const people = { N: 'amy', E: 'ben', S: 'cat', W: 'dan' } as const
+    await table.open({
+      id: 'tbl1',
+      number: 1,
+      hostId: 'amy',
+      seats: { ...people },
+      spectators: [],
+      boardsPlayed: 0,
+      board: null,
+      chat: [],
+      createdAt: 1_000_000,
+      mode: 'casual',
+      names: { amy: 'amy', ben: 'ben', cat: 'cat', dan: 'dan' },
+      blocks: { amy: [], ben: [], cat: [], dan: [] },
+    })
+    // The words are asked for when the board is dealt
+    await tick()
+    const board = table.view('amy')!.board!
+    const first = board.turn!
+    await table.act(people[first], { type: 'call', call: '1C' })
+    const [made] = table.view('amy')!.board!.auction
+    expect(made.book).toEqual({ text: `book ${bookKey('', '1C')}`, slug: 's', sectionId: 'x', profile: 'p1' })
   })
 })
