@@ -39,6 +39,13 @@ export function notificationText(t: Strings, n: Notification): string {
       return t.notificationTexts[n.kind](name, Number(n.params.number ?? 0))
     case 'filesNearlyFull':
       return t.notificationTexts.filesNearlyFull(Number(n.params.gb ?? 0))
+    case 'bookPublished':
+    case 'bookReviewRequested':
+    case 'bookReturned':
+    case 'bookSuggestUnify':
+      return t.notificationTexts[n.kind](name, String(n.params.name ?? n.params.slug ?? ''))
+    case 'bookOverrideChanged':
+      return t.notificationTexts.bookOverrideChanged(String(n.params.name ?? n.params.slug ?? ''), String(n.params.profile ?? ''))
   }
 }
 
@@ -49,7 +56,10 @@ export function notificationText(t: Strings, n: Notification): string {
  * match news to the match's prep room (`e8-t06`), except being taken off a seat, after which only
  * the list of one's matches is left; partnership news to the partnership's page in TKU BridgeBook
  * (an address on another site, which the bell opens as a page load); the files nearly full to
- * TKU BridgeHall's e-books, where the largest files are (BridgeHall e5-t15)
+ * TKU BridgeHall's e-books, where the largest files are (BridgeHall e5-t15); the handbook's news to
+ * BridgeHall (e8-t10, e8-t11, e2-t08): a published convention to its page, a draft sent for review to
+ * its review page, one sent back to its editor, an override to the profile's compare page (with
+ * `?unify=` naming the override a captain suggests dropping)
  */
 export function notificationLink(n: Notification): string {
   switch (n.kind) {
@@ -91,5 +101,17 @@ export function notificationLink(n: Notification): string {
       return n.params.pairId ? `${BOOK_SITE}/pairs/${encodeURIComponent(String(n.params.pairId))}` : BOOK_SITE
     case 'filesNearlyFull':
       return `${BOOK_SITE}/library/book`
+    case 'bookPublished':
+      return n.params.slug ? `${BOOK_SITE}/c/${encodeURIComponent(String(n.params.slug))}` : BOOK_SITE
+    case 'bookReviewRequested':
+      return n.params.slug ? `${BOOK_SITE}/review/${encodeURIComponent(String(n.params.slug))}` : `${BOOK_SITE}/review`
+    case 'bookReturned':
+      return n.params.slug ? `${BOOK_SITE}/edit/${encodeURIComponent(String(n.params.slug))}` : `${BOOK_SITE}/review`
+    case 'bookOverrideChanged':
+      return n.params.profileId ? `${BOOK_SITE}/profiles/${encodeURIComponent(String(n.params.profileId))}/compare` : BOOK_SITE
+    case 'bookSuggestUnify':
+      return n.params.profileId
+        ? `${BOOK_SITE}/profiles/${encodeURIComponent(String(n.params.profileId))}/compare?unify=${encodeURIComponent(String(n.params.ref ?? ''))}`
+        : BOOK_SITE
   }
 }

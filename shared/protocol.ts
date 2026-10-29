@@ -633,6 +633,11 @@ export const NOTIFICATION_KINDS = [
   'pairDeclined',
   'pairEnded',
   'filesNearlyFull',
+  'bookPublished',
+  'bookOverrideChanged',
+  'bookReviewRequested',
+  'bookReturned',
+  'bookSuggestUnify',
 ] as const
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number]
 
@@ -659,7 +664,15 @@ export interface Notification {
    * kinds (TKU BridgeBook E2, `e2-t03`): { pairId, username } of who invited the member to be
    * partners, accepted, declined or cancelled the invitation, or ended the partnership.
    * `filesNearlyFull` { gb }: to admins, the uploaded files passed 8 GB of R2's free 10 GB
-   * (BridgeHall e5-t15)
+   * (BridgeHall e5-t15). The handbook's kinds (BridgeHall e8-t10, e8-t11, e2-t08; worker/book-notices.ts):
+   * `bookPublished` { slug, name, version, username } of a convention the member follows, plays in a
+   * team or partnership, or sent for review, and the reviewer who published it; `bookOverrideChanged`
+   * { slug, name, profileId, profile, username } instead when the publish changed a section that
+   * their team's or partnership's profile overrides; `bookReviewRequested` { slug, name, username } to
+   * the reviewers; `bookReturned` { slug, name, username } to who sent it, from the reviewer who sent
+   * it back; `bookSuggestUnify` { pairId, profileId, ref, slug, name, team, username } to both
+   * partners when their team's captain suggests they drop an override (`ref`, as book-notices.ts
+   * `overrideRef`) and play the team's version
    */
   params: Record<string, string | number>
   read: boolean
@@ -1332,6 +1345,22 @@ export interface TeamPatch {
   captainId?: string
   archived?: boolean
   membersEdit?: boolean
+}
+
+/**
+ * POST /api/club/teams/:id/suggest-unify (BridgeHall e2-t08): the captain suggests one of the
+ * team's partnerships drop an override (`ref`, as worker/book-notices.ts `overrideRef`); `name` is
+ * the convention's name as the handbook shows it
+ */
+export interface SuggestUnifyInput {
+  pairId: string
+  ref: string
+  name?: string
+}
+
+/** GET and PUT /api/book/follows/:slug (BridgeHall e8-t10): whether the member follows (關注) a convention */
+export interface BookFollow {
+  following: boolean
 }
 
 /** GET /api/club/members: who may be put on a team or invited as a partner, by username */

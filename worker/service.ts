@@ -1219,6 +1219,11 @@ export class ClubService {
     return [...this.users.values()].filter((u) => u.admin).map((u) => u.id)
   }
 
+  /** Who publishes the handbook's conventions, for drafts sent for review (BridgeHall e8-t10): admins and `bookReview` holders */
+  reviewerIds(): string[] {
+    return [...this.users.values()].filter((u) => u.admin || this.permissionsOf(u).includes('bookReview')).map((u) => u.id)
+  }
+
   /** The usernames of the members who may edit the handbook, for assigning a 待確認 note (BridgeHall e8-t06) */
   editorNames(): string[] {
     return [...this.users.values()].filter((u) => this.permissionsOf(u).includes('bookEdit')).map((u) => u.username).sort()

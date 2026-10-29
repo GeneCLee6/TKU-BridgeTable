@@ -274,6 +274,7 @@ interface BoardState {
 | `book:entry:<slug>` | 淡江橋譜線上修改的特約（版本、誰在何時改；`convention: null` 表示隱藏），內容在 `bookpart:` |
 | `book:rev:<slug>:<時間>-<id>` | 每次發布、隱藏、還原的版本紀錄 |
 | `book:wip:<slug>` | 特約的草稿（橋館 e8-t02，每個特約一份、編輯者共用；`draft`／`in-review`），內容在 `bookpart:`；讀者拿不到 |
+| `bookfollow:<slug>:<userId>` | 社員關注的特約（橋館 e8-t10，值是 `true`）：發布時收到 `bookPublished` 通知（`worker/book-notices.ts`）；在每日備份的 `book*` 裡 |
 | `audit:<時間>-<id>` | 審計紀錄（橋館 e8-t09，`worker/audit.ts`）：誰、動作、對象、版本；不刪 |
 | `book:category:<id>` | 淡江橋譜線上編輯過的分類（`{ id, label, description, order }`）；沒有任何一筆時橋譜用它內建的分類 |
 | `book:categoryInfo` | 分類的版本號（`baseVersion` 用）與最後修改的人、時間 |

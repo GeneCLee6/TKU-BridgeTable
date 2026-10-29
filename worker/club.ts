@@ -10,6 +10,7 @@ import { bookSync } from '../shared/robot/system/tku/sources.ts'
 import { randomId, readCookie, SESSION_COOKIE, sessionCookie } from './auth.ts'
 import { ACCOUNT_PREFIXES, backupAdmin, runBackup } from './backup.ts'
 import { BookService, importRequestFrom, publicBookResponse } from './book.ts'
+import { BookNotices } from './book-notices.ts'
 import { PendingService } from './pending.ts'
 import { GlossaryService, publicGlossaryResponse } from './glossary.ts'
 import { claudeImporter } from './importer.ts'
@@ -107,6 +108,9 @@ type Body = Record<string, unknown>
 /** The largest JSON body an API reads (TKU BridgeBook's convention saves are the big ones) */
 const BODY_MAX_BYTES = 2 * 1024 * 1024
 const text = (value: unknown) => String(value ?? '')
+/** A convention's name for a notification (e8-t10); its slug when it has none or is hidden */
+const conventionName = (convention: Record<string, unknown> | null, slug: string) =>
+  (convention && typeof convention.nameZh === 'string' && convention.nameZh) || slug
 
 /**
  * The club's Durable Object: accounts, the lobby and its table directory, history, challenges,
@@ -141,6 +145,8 @@ export class Club extends DurableObject<Env> implements Connections {
   private readonly reading: ReadingStore
   /** TKU-BridgeHall's forum (E11) in the object's SQLite database; keeps nothing in memory but its rate limits */
   private readonly forum: ForumService
+  /** The handbook's notifications and who follows which convention (BridgeHall e8-t10); keeps nothing in memory */
+  private readonly notices: BookNotices
   private readonly store: Store
   /** Signs edge passes (§5.12); none when switched off */
   private readonly edgeSecret: string | undefined
@@ -203,6 +209,13 @@ export class Club extends DurableObject<Env> implements Connections {
       usernameOf: (id) => this.service.usernameOf(id),
       members: () => this.service.memberDirectory(),
       notify: (id, kind, params) => this.service.notifications.notify(id, kind, params),
+      profiles: () => this.profiles,
+    })
+    this.notices = new BookNotices(store, {
+      notify: (id, kind, params) => this.service.notifications.notify(id, kind, params),
+      members: () => this.service.memberDirectory(),
+      reviewerIds: () => this.service.reviewerIds(),
+      teams: () => this.teams,
       profiles: () => this.profiles,
     })
     this.forum = new ForumService(store.sql, {
@@ -739,6 +752,12 @@ export class Club extends DurableObject<Env> implements Connections {
       if (userId) return json({ team: await this.teams.removeMember(user, teamId, userId) })
       return json({ team: await this.teams.addMember(user, teamId, await body()) })
     }
+    // 建議統一 (BridgeHall e2-t08): the captain asks a partnership to drop an override
+    const unify = path.match(/^\/teams\/([\w-]+)\/suggest-unify$/)
+    if (unify) {
+      await this.notices.suggestUnify(user, unify[1], await body())
+      return json({ ok: true })
+    }
     const team = path.match(/^\/teams\/([\w-]+)$/)
     if (team) {
       if (method === 'GET') return json(await this.teams.team(team[1]))
@@ -820,6 +839,15 @@ export class Club extends DurableObject<Env> implements Connections {
    * TKU BridgeBook's online editing and system profiles; reading the content (publicBookResponse)
    * needs any member (since 2026-10-29). Who may use each route is in roles.ts.
    */
+  /** Sends the handbook's notifications (e8-t10); what was saved stays saved when they fail */
+  private async tell(send: () => Promise<void>) {
+    try {
+      await send()
+    } catch (error) {
+      jsonLog({ event: 'crash', where: 'bookNotice', error: error instanceof Error ? error.message : String(error) })
+    }
+  }
+
   private async bookApi(request: Request, url: URL, user: Me, body: () => Promise<Body>) {
     const path = url.pathname.slice('/api/book'.length)
     const method = request.method
@@ -833,16 +861,28 @@ export class Club extends DurableObject<Env> implements Connections {
       // Drafts and review (BridgeHall e8-t01, e8-t02)
       if (action === 'draft') {
         if (method === 'GET') return json({ draft: await this.book.draftOf(slug) })
-        if (method === 'PUT') return json({ draft: await this.book.saveBookDraft(user, slug, await body()) })
+        if (method === 'PUT') {
+          const draft = await this.book.saveBookDraft(user, slug, await body())
+          if (draft.status === 'in-review') await this.tell(() => this.notices.reviewRequested(user, { slug, name: conventionName(draft.convention, slug) }))
+          return json({ draft })
+        }
         await this.book.discardDraft(user, slug, await body())
         return json({ ok: true })
       }
-      if (action === 'reject') return json({ draft: await this.book.reject(user, slug, await body()) })
+      if (action === 'reject') {
+        const requestedBy = (await this.book.draftOf(slug))?.reviewRequestedBy
+        const draft = await this.book.reject(user, slug, await body())
+        await this.tell(() => this.notices.returned(user, { slug, name: conventionName(draft.convention, slug), requestedBy }))
+        return json({ draft })
+      }
       if (method === 'PUT') {
-        const entry = await this.book.save(user, slug, await body())
+        const input = await body()
+        const entry = await this.book.save(user, slug, input)
         // Notes the new version no longer has are closed (BridgeHall e8-t08)
         const [revision] = await this.book.revisions(slug)
         await this.pending.published(user, slug, entry.convention, entry.version, revision?.note ?? '')
+        const publish = { slug, name: conventionName(entry.convention, slug), version: entry.version, requestedBy: entry.reviewRequestedBy }
+        await this.tell(() => this.notices.published(user, { ...publish, changedSections: input.changedSections }))
         return json({ entry })
       }
       if (action === 'hide') return json({ entry: await this.book.hide(user, slug, await body()) })
@@ -870,6 +910,12 @@ export class Club extends DurableObject<Env> implements Connections {
       if (method === 'PUT') return json({ ebook: await this.ebooks.update(user, ebook[1], await body()) })
       await this.ebooks.remove(user, ebook[1])
       return json({ ok: true })
+    }
+    // Following a convention (關注, e8-t10)
+    const follow = path.match(/^\/follows\/([\w-]+)$/)
+    if (follow) {
+      if (method === 'GET') return json({ following: await this.notices.following(user.id, follow[1]) })
+      return json({ following: await this.notices.setFollowing(user.id, follow[1], await body()) })
     }
     if (path === '/reviews') return json({ drafts: await this.book.bookDrafts() })
     if (path === '/audit') return json({ entries: await this.book.auditLog() })
