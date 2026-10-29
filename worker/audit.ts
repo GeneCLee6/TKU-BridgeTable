@@ -19,6 +19,8 @@ export type AuditAction =
   | 'book:hide'
   | 'book:reset'
   | 'book:categories'
+  /** The glossary saved (BridgeHall e4-t07); `target` is 'glossary' */
+  | 'book:glossary'
   /** An article published or hidden (BridgeHall e5-t04) */
   | 'article:publish'
   | 'article:hide'

@@ -74,6 +74,8 @@ export function bookRouteNeed(method: string, path: string): Need | null {
   if (path === '/categories') return method === 'PUT' ? 'bookEdit' : null
   // The library's series (BridgeHall e5-t06), as the categories; reading them comes with the article list
   if (path === '/series') return method === 'PUT' ? 'bookEdit' : null
+  // The glossary (BridgeHall e4-t07); reading it is publicGlossaryResponse's, without signing in
+  if (path === '/glossary') return method === 'PUT' ? 'bookEdit' : null
   if (path === '/profiles') return method === 'GET' ? 'member' : method === 'POST' ? 'bookEdit' : null
   // One profile: which member may read it, save it or see its versions is profileAccess's (below)
   const profile = path.match(/^\/profiles\/[\w-]+(\/revisions(?:\/\d+)?)?$/)
