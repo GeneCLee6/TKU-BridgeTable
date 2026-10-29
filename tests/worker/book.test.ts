@@ -141,9 +141,10 @@ describe('content edited online', () => {
     await expect(save(convention('lebensohl', { kind: 'gadget' }))).rejects.toThrow('種類（kind）不存在')
     await expect(save(convention('lebensohl', { level: 'expert' }))).rejects.toThrow('程度（level）不存在')
     await expect(save(convention('lebensohl', { prerequisites: 'jacoby-2nt' }))).rejects.toThrow('前置特約')
+    await expect(save(convention('lebensohl', { brownSticker: 'response' }))).rejects.toThrow('棕標')
     await expect(save(convention('lebensohl', { sections: [{ id: 'a', title: 'A', level: 'hard' }] }))).rejects.toThrow('段落的程度')
     expect(checkConvention(convention(), 'lebensohl')).toBeTruthy()
-    expect(checkConvention(convention('lebensohl', { kind: 'defense', level: 'basic', prerequisites: ['jacoby-2nt'], cardSlots: [] }), 'lebensohl')).toBeTruthy()
+    expect(checkConvention(convention('lebensohl', { kind: 'defense', level: 'basic', prerequisites: ['jacoby-2nt'], cardSlots: [], brownSticker: 'opening' }), 'lebensohl')).toBeTruthy()
     expect(await book.revisions('lebensohl')).toEqual([])
   })
 
