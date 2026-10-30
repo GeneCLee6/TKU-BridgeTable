@@ -21,8 +21,8 @@
 
 | Epic | 名稱 | Task 完成 | AC 完成 | M1 task 數 | 狀態 |
 | --- | --- | --- | --- | --- | --- |
-| [E1](e1-accounts-identity-community.md) | 帳號、身分與社群 | 27／34 | 6／9 | 13 | in-progress |
-| [E2](e2-table-engine-realtime.md) | 牌桌引擎與即時連線 | 35／35 | 13／14 | 12 | in-progress |
+| [E1](e1-accounts-identity-community.md) | 帳號、身分與社群 | 29／36 | 6／9 | 13 | in-progress |
+| [E2](e2-table-engine-realtime.md) | 牌桌引擎與即時連線 | 35／36 | 12／14 | 12 | in-progress |
 | [E3](e3-table-ui-experience.md) | 牌桌介面與體驗 | 44／44 | 12／12 | 13 | done |
 | [E4](e4-records-favorites-search.md) | 牌局紀錄、收藏與搜尋 | 34／39 | 9／13 | 24 | in-progress |
 | [E5](e5-robot-bidding-brain.md) | 智慧機器人（一）：叫牌制度引擎、2/1 機器人與完整 5542 | 54／63 | 9／14 | 45 | in-progress |
