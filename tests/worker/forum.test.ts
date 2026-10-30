@@ -5,6 +5,7 @@ import type { Me } from '../../shared/protocol.ts'
 import { ForumService, mentionsIn, postExcerpt } from '../../worker/forum.ts'
 import { forumRouteNeed, moderatesForum } from '../../worker/roles.ts'
 import { memorySql } from './sqlite.ts'
+import type { Sql } from '../../worker/store.ts'
 
 const me = (id: string, admin = false): Me => ({ id, username: `n${id}`, admin, permissions: [] })
 const admin = me('boss', true)
@@ -324,6 +325,8 @@ describe('forum routes (roles.ts)', () => {
     expect(forumRouteNeed('GET', '/latest')).toBe('member')
     expect(forumRouteNeed('GET', '/feed')).toBe('member')
     expect(forumRouteNeed('POST', '/feed')).toBeNull()
+    expect(forumRouteNeed('GET', '/search')).toBe('member')
+    expect(forumRouteNeed('POST', '/search')).toBeNull()
     expect(forumRouteNeed('PATCH', '/posts/abc')).toBe('member')
     expect(forumRouteNeed('POST', '/posts/abc/pin')).toBe('forumModerate')
     expect(forumRouteNeed('POST', '/posts/abc/lock')).toBe('forumModerate')
@@ -446,5 +449,69 @@ describe('reports (e11-t09, AC-11.6)', () => {
     expect(() => forum.fileReport(ben, { target: 'post', targetId: more.id, reason: 'x' })).toThrow(
       expect.objectContaining({ code: 'forumReportLimit', status: 409 }),
     )
+  })
+})
+
+describe('search (e11-t10, AC-11.9)', () => {
+  it('finds posts with every word in the title or a text block, newest first, case-insensitive', () => {
+    const first = forum.createPost(amy, 'systems', { title: 'Stayman 問題', blocks: [para('開叫 1NT 之後')] })
+    time += 60_000
+    const second = forum.createPost(ben, 'chat', { blocks: [{ kind: 'note', tone: 'info', text: '週五社課講 stayman' }] })
+    time += 60_000
+    forum.createPost(admin, 'deals', { title: '牌例', blocks: [{ kind: 'rules', items: [{ text: '1NT 開叫', children: [{ text: '轉移叫' }] }] }] })
+    const found = forum.search('STAYMAN')
+    expect(found).toMatchObject({ query: 'STAYMAN', total: 2, page: 1, pages: 1 })
+    expect(found.posts.map((p) => p.id)).toEqual([second.id, first.id])
+    expect(forum.search('  1NT   開叫 ').posts.map((p) => p.title)).toEqual(['牌例', 'Stayman 問題'])
+    expect(forum.search('轉移叫').total).toBe(1)
+    expect(forum.search('stayman 轉移叫').total).toBe(0)
+  })
+
+  it('does not search captions or block fields, and treats % and _ as letters', () => {
+    forum.createPost(amy, 'chat', { blocks: [para('100% 會贏'), { kind: 'image', assetId: 'post/0123456789abcdef01234567.png', alt: '牌桌照片' }] })
+    expect(forum.search('%').total).toBe(1)
+    expect(forum.search('_').total).toBe(0)
+    expect(forum.search('牌桌照片').total).toBe(0)
+    expect(forum.search('paragraph').total).toBe(0)
+  })
+
+  it('pages the results and refuses an empty or too long search', () => {
+    for (let i = 0; i < FORUM_LIMITS.pageSize + 1; i++) postAs(i % 2 ? amy : ben, 'chat', `第 ${i} 副 叫牌`)
+    expect(forum.search('叫牌', 2)).toMatchObject({ page: 2, pages: 2, total: FORUM_LIMITS.pageSize + 1 })
+    expect(forum.search('叫牌', 2).posts).toHaveLength(1)
+    for (const bad of ['', '   ', undefined, 'x'.repeat(FORUM_LIMITS.searchMax + 1), 'a b c d e f'])
+      expect(() => forum.search(bad)).toThrow(expect.objectContaining({ code: 'badContent' }))
+  })
+
+  it('searches edited posts by their new words, and posts from before search once the tables are made again', () => {
+    const post = postAs(amy, 'chat', '舊的字')
+    forum.updatePost(amy, post.id, { blocks: [para('新的字')] })
+    expect(forum.search('舊的字').total).toBe(0)
+    expect(forum.search('新的字').total).toBe(1)
+
+    const sql: Sql = memorySql()
+    const old = new ForumService(sql, { now: () => time, newId: () => `id${++ids}`, members: () => MEMBERS })
+    old.createTables()
+    old.createPost(amy, 'chat', { blocks: [para('早期貼文')] })
+    sql.exec('UPDATE forum_posts SET body_text = NULL')
+    old.createTables()
+    expect(old.search('早期').total).toBe(1)
+  })
+})
+
+describe('my posts and mentions (e11-t10)', () => {
+  it('lists one member’s posts, and the posts mentioning a member in the post or a comment', () => {
+    const mine = postAs(amy, 'chat', '我的貼文')
+    const tagged = postAs(ben, 'chat', '問一下 @艾咪')
+    const later = postAs(ben, 'deals', '沒提到誰')
+    time += 60_000
+    forum.addComment(admin, later.id, { blocks: [para('@amy 你看看')] })
+    postAs(admin, 'chat', '@ben 而已')
+    expect(forum.feed(1, { author: 'amy' }).posts.map((p) => p.id)).toEqual([mine.id])
+    expect(forum.feed(1, { mentions: 'amy' }).posts.map((p) => p.id)).toEqual([later.id, tagged.id])
+    expect(forum.feed(1, { mentions: 'am' }).posts).toEqual([])
+    expect(forum.feed(1, { author: 'ben', mentions: 'amy' }).posts.map((p) => p.id)).toEqual([later.id, tagged.id])
+    expect(forum.feed(1, { author: 'nobody' })).toEqual({ posts: [], page: 1, pages: 1 })
+    expect(forum.feed(1).posts).toHaveLength(4)
   })
 })

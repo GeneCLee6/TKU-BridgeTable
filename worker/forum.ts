@@ -15,6 +15,7 @@ import {
   type CommentBlock,
   type ForumAuctionCall,
   type ForumFeed,
+  type ForumSearch,
   type ForumLatest,
   type ForumRuleItem,
   type Post,
@@ -70,7 +71,8 @@ const SCHEMA = [
     edited_at INTEGER,
     pinned_at INTEGER,
     locked INTEGER NOT NULL DEFAULT 0,
-    comment_count INTEGER NOT NULL DEFAULT 0
+    comment_count INTEGER NOT NULL DEFAULT 0,
+    body_text TEXT
   )`,
   'CREATE INDEX IF NOT EXISTS forum_posts_by_board ON forum_posts (board_id, created_at)',
   'CREATE INDEX IF NOT EXISTS forum_posts_by_time ON forum_posts (created_at)',
@@ -122,12 +124,18 @@ const BLOCK_LIMITS = {
 }
 
 const BOARD_ID = /^[a-z0-9][a-z0-9-]{0,19}$/
-/** BridgeHall's forum pages next to `/forum/:boardId` (e11-t17), so no board may take them */
-const RESERVED_BOARD_IDS = ['new', 'p', 'manage', 'reports']
+/** BridgeHall's forum pages next to `/forum/:boardId` (e11-t17, e11-t18), so no board may take them */
+const RESERVED_BOARD_IDS = ['new', 'p', 'manage', 'reports', 'search', 'mine', 'mentions']
 const REF_ID = /^[\w-]{1,64}$/
 const VULNERABILITIES = ['None', 'NS', 'EW', 'Both']
 
 export type ForumTarget = 'post' | 'comment'
+
+/** Which posts `feed` lists (e11-t10): a member's own, or those a member is mentioned in */
+export interface ForumFeedFilter {
+  author?: string
+  mentions?: string
+}
 
 export interface ForumDeps {
   now: () => number
@@ -241,6 +249,12 @@ export function postExcerpt(post: { title?: string; blocks: readonly PostBlock[]
   const chars = [...words]
   return chars.length > FORUM_LIMITS.excerptMax ? `${chars.slice(0, FORUM_LIMITS.excerptMax - 1).join('')}…` : words
 }
+
+/** A post's searchable words (e11-t10): its text blocks' (paragraphs, notes, lists), one a line */
+const searchText = (blocks: readonly PostBlock[]) => blocks.flatMap(blockTexts).join('\n')
+
+/** `value` as a LIKE pattern matching it anywhere; `!` escapes (`ESCAPE '!'`) */
+const containing = (value: string) => `%${value.replace(/[!%_]/g, (c) => `!${c}`)}%`
 
 // ── Blocks ───────────────────────────────────────────────────────────────────────────────────
 
@@ -395,6 +409,11 @@ export class ForumService {
   /** The tables, and the built-in boards that are missing */
   createTables() {
     for (const statement of SCHEMA) this.sql.exec(statement)
+    // Search (e11-t10) keeps each post's words in a column of their own; posts from before it get theirs here, once
+    const columns = this.sql.exec<{ name: string }>('PRAGMA table_info(forum_posts)').map((c) => c.name)
+    if (!columns.includes('body_text')) this.sql.exec('ALTER TABLE forum_posts ADD COLUMN body_text TEXT')
+    for (const row of this.sql.exec<{ id: string; blocks: string }>('SELECT id, blocks FROM forum_posts WHERE body_text IS NULL'))
+      this.sql.exec('UPDATE forum_posts SET body_text = ? WHERE id = ?', searchText(JSON.parse(row.blocks) as PostBlock[]), row.id)
     for (const board of BUILTIN_BOARDS)
       this.sql.exec(
         'INSERT OR IGNORE INTO forum_boards (id, name, description, sort, post_policy) VALUES (?, ?, ?, ?, ?)',
@@ -505,16 +524,55 @@ export class ForumService {
     }
   }
 
-  /** The forum's front page (BridgeHall e11-t15): every board's posts newest first, FORUM_LIMITS.pageSize a page */
-  feed(page = 1): ForumFeed {
+  /**
+   * The forum's front page (BridgeHall e11-t15): every board's posts newest first, FORUM_LIMITS.pageSize
+   * a page. `author`: only that member's posts (我的貼文); `mentions`: only posts that member is
+   * `@`-mentioned in, in the post or one of its comments (我提到的)
+   */
+  feed(page = 1, filter: ForumFeedFilter = {}): ForumFeed {
+    const where: string[] = []
+    const params: SqlValue[] = []
+    if (filter.author !== undefined) {
+      where.push('author_id = ?')
+      params.push(filter.author)
+    }
+    if (filter.mentions !== undefined) {
+      const quoted = containing(JSON.stringify(filter.mentions))
+      where.push(`(mentions LIKE ? ESCAPE '!' OR id IN (SELECT post_id FROM forum_comments WHERE mentions LIKE ? ESCAPE '!'))`)
+      params.push(quoted, quoted)
+    }
+    const { total: _, ...found } = this.postsPage(where, params, page)
+    return found
+  }
+
+  /**
+   * 搜尋 (e11-t10): posts whose title or text blocks hold every word of `query` (split at spaces,
+   * case-insensitive for Latin letters), newest first, FORUM_LIMITS.pageSize a page. Comments,
+   * captions and alt text are not searched.
+   */
+  search(query: unknown, page = 1): ForumSearch {
+    const words = typeof query === 'string' ? [...new Set(query.trim().split(/\s+/).filter(Boolean))] : []
+    const joined = words.join(' ')
+    if (!words.length || words.length > FORUM_LIMITS.searchWordsMax || length(joined) > FORUM_LIMITS.searchMax)
+      fail(`搜尋要 1 到 ${FORUM_LIMITS.searchMax} 字、最多 ${FORUM_LIMITS.searchWordsMax} 個詞`)
+    const where = words.map(() => `(title LIKE ? ESCAPE '!' OR body_text LIKE ? ESCAPE '!')`)
+    const params = words.flatMap((word) => [containing(word), containing(word)])
+    const { total, ...found } = this.postsPage(where, params, page)
+    return { ...found, query: joined, total }
+  }
+
+  /** One page of the posts `where` (ANDed) picks, newest first, and how many there are */
+  private postsPage(where: string[], params: SqlValue[], page: number): ForumFeed & { total: number } {
     const at = Number.isInteger(page) && page > 0 ? page : 1
-    const total = this.sql.exec<{ n: number }>('SELECT COUNT(*) AS n FROM forum_posts')[0].n
+    const clause = where.length ? `WHERE ${where.join(' AND ')}` : ''
+    const total = this.sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM forum_posts ${clause}`, ...params)[0].n
     const rows = this.sql.exec<PostRow>(
-      `SELECT ${POST_COLUMNS} FROM forum_posts ORDER BY created_at DESC, rowid DESC LIMIT ? OFFSET ?`,
+      `SELECT ${POST_COLUMNS} FROM forum_posts ${clause} ORDER BY created_at DESC, rowid DESC LIMIT ? OFFSET ?`,
+      ...params,
       FORUM_LIMITS.pageSize,
       (at - 1) * FORUM_LIMITS.pageSize,
     )
-    return { posts: this.toPosts(rows), page: at, pages: Math.max(1, Math.ceil(total / FORUM_LIMITS.pageSize)) }
+    return { posts: this.toPosts(rows), page: at, pages: Math.max(1, Math.ceil(total / FORUM_LIMITS.pageSize)), total }
   }
 
   /** The home page's two lists (e11-t16): the news board pinned first, and the newest of the others */
@@ -545,7 +603,7 @@ export class ForumService {
     do id = this.deps.newId()
     while (this.sql.exec('SELECT id FROM forum_posts WHERE id = ?', id).length)
     this.sql.exec(
-      'INSERT INTO forum_posts (id, board_id, author_id, title, blocks, mentions, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO forum_posts (id, board_id, author_id, title, blocks, mentions, created_at, body_text) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
       id,
       boardId,
       me.id,
@@ -553,6 +611,7 @@ export class ForumService {
       JSON.stringify(blocks),
       JSON.stringify(this.mentions(blocks)),
       this.deps.now(),
+      searchText(blocks),
     )
     return this.post(id)
   }
@@ -574,11 +633,12 @@ export class ForumService {
     if (row.author_id !== me.id) throw new ClubError('notYours', {}, 403)
     const { title, blocks } = this.checkPost(body)
     this.sql.exec(
-      'UPDATE forum_posts SET title = ?, blocks = ?, mentions = ?, edited_at = ? WHERE id = ?',
+      'UPDATE forum_posts SET title = ?, blocks = ?, mentions = ?, edited_at = ?, body_text = ? WHERE id = ?',
       title ?? null,
       JSON.stringify(blocks),
       JSON.stringify(this.mentions(blocks)),
       this.deps.now(),
+      searchText(blocks),
       id,
     )
     return this.post(id)
