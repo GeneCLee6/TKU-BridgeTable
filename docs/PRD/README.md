@@ -28,7 +28,7 @@
 | [E5](e5-robot-bidding-brain.md) | 智慧機器人（一）：叫牌制度引擎、2/1 機器人與完整 5542 | 54／63 | 9／14 | 45 | in-progress |
 | [E6](e6-robot-play-levels-evaluation.md) | 智慧機器人（二）：打牌大腦、TKB 與評測 | 25／42 | 6／14 | 14 | in-progress |
 | [E7](e7-challenges.md) | 挑戰（單挑與多人） | 25／29 | 5／9 | 25 | in-progress |
-| [E8](e8-two-table-team-match.md) | 雙桌隊制賽 | 22／22 | 9／9 | 17 | in-progress |
+| [E8](e8-two-table-team-match.md) | 雙桌隊制賽 | 22／22 | 9／9 | 17 | done |
 | [E9](e9-tournaments-rankings.md) | 比賽、積分與錦標賽 | 0／17 | 0／8 | 0 | planned |
 | [E10](e10-practice-teaching.md) | 練習與教學 | 6／14 | 3／9 | 6 | in-progress |
 | [E11](e11-platform-ops-scale.md) | 平台、維運、安全與規模 | 28／32 | 6／10 | 8 | in-progress |
