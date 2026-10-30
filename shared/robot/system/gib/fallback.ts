@@ -30,10 +30,16 @@ const POINTS: Record<Level, Range> = {
   grand: [37, ANY],
 }
 
-/** Partner's strength as we count it: a third of the way up the range they have shown */
+/**
+ * Partner's strength as we count it: a third of the way up the range they have shown. In a suit
+ * the total points, unless a later call narrowed the high cards more: after 1♣ (1♦) X (P) 1♠ the
+ * 11–14 of the 1♠ counts, not the 12–22 total points of the opening (V4a)
+ */
 export function partnerPoints(ctx: Ctx, notrump: boolean): number {
   const p = ctx.shown.partner
-  const range = notrump ? (p.hcp ?? shift(p.tp, -1)) : (p.tp ?? shift(p.hcp, 1))
+  const asTp = shift(p.hcp, 1)
+  const width = (r: Range) => (r[1] >= ANY - 5 ? ANY : r[1] - r[0])
+  const range = notrump ? (p.hcp ?? shift(p.tp, -1)) : p.tp && asTp && width(asTp) < width(p.tp) ? asTp : (p.tp ?? asTp)
   if (!range) return 0
   const [min, max] = range
   return max >= ANY - 5 ? min : Math.round(min + (max - min) / 3)

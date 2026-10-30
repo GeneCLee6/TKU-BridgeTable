@@ -102,6 +102,14 @@ describe('the 2/1 books', () => {
 })
 
 describe('after 1♣ / 1♦ (§2)', () => {
+  it('bids 3NT with 13+ balanced, not only 13–15 (V4a: 16 passed 1♣ and 1NT)', () => {
+    expect(bidOver('AKT 932 AQ6 QJ42', '1C P')).toBe('3N')
+    expect(bidOver('KQ3 KT5 AJ3 KQ74', '1C P')).toBe('3N')
+    // Responder after opener's 1NT rebid
+    expect(bidOver('AT9 AT74 KT7 KQT', '1C P 1H P 1N P')).toBe('3N')
+    expect(bidOver('A953 AQ K97 K854', '1D P 1S P 1N P')).toBe('3N')
+  })
+
   it('answers in a new suit: longer diamonds first, majors 4-4 hearts, 5-5 spades', () => {
     expect(bidOver('32 K432 QJ432 32', '1C P')).toBe('1D')
     expect(bidOver('432 K432 QJ43 32', '1C P')).toBe('1H')
@@ -263,6 +271,14 @@ describe('after 1NT / 2NT (§4, §5)', () => {
     expect(bidOver('K32 Q43 J54 Q432', '1N P')).toBe('2C')
     expect(bidOver('KQ2 AQ3 K54 Q432', '1N P')).toBe('4N')
     expect(bidOver('932 843 J54 5432', '1N P')).toBe('P')
+  })
+
+  it('opener accepts an invitation after Stayman with the top two points (V4a)', () => {
+    expect(bidOver('943 Q62 AK98 AKT', '1N P 2C P 2D P 2N P')).toBe('3N')
+    expect(bidOver('943 Q62 AK98 AJT', '1N P 2C P 2D P 2N P')).toBe('P')
+    expect(bidOver('Q72 AQ86 KJ5 KJ2', '1N P 2C P 2H P 3H P')).toBe('4H')
+    expect(bidOver('Q72 AQ86 KJ5 QJ2', '1N P 2C P 2H P 3H P')).toBe('P')
+    expect(meaning('1N P 2C P 2S P 2N P', '3N')).toBe('接受，16–17 大牌點')
   })
 
   it('opener answers Stayman, transfers and minor-suit Stayman', () => {
@@ -455,6 +471,9 @@ describe('when the opponents open (§7)', () => {
     expect(bidOver('K32 32 KJ32 Q432', '1H P P')).toBe('X')
     expect(bidOver('K32 KJ2 Q432 Q32', '1H P P')).toBe('1N')
     expect(bidOver('KQ432 QJ32 32 32', 'P P 1C P 1D')).toBe('1N')
+    // With less than 12 and a five-card suit, the suit rather than the double (V4a)
+    expect(bidOver('AKT72 95 J83 Q86', '1H P P')).toBe('1S')
+    expect(bidOver('AKT72 95 AJ3 Q86', '1H P P')).toBe('X')
   })
 
   it('acts over a weak two and over 1NT (Cappelletti)', () => {
@@ -534,6 +553,16 @@ describe('when our opening is doubled or overcalled (§8)', () => {
     expect(bidOver('32 Q5432 J432 32', '1H 1S')).toBe('3H')
     expect(bidOver('32 AQJ32 K32 432', '1S 2C')).toBe('2H')
     expect(bidOver('KJ2 Q43 432 Q432', '1D 1S')).toBe('1N')
+  })
+
+  it('bids a free suit at the three level and 3NT with any game hand (V4a)', () => {
+    // The cheapest bid in a new suit over a two-level overcall: 5+ cards, 10+, forcing
+    expect(bidOver('AK5 2 AKT8743 63', '1C 2H')).toBe('3D')
+    expect(bidOver('AJ 32 K63 KJ9876', '1H 2D')).toBe('3C')
+    expect(meaning('1C 2H', '3D')).toBe('5+ 張♦，10+ 大牌點，迫叫一圈')
+    // 3NT with their suit stopped is 13+, not 13–15 (these passed)
+    expect(bidOver('AJ92 A85 A93 AT8', '1D 2S')).toBe('3N')
+    expect(bidOver('AKJ AJT8 K75 Q76', '1D 2H')).toBe('3N')
   })
 
   it('redoubles, or uses Truscott 2NT, over a double', () => {
@@ -660,6 +689,12 @@ describe('when no book covers the auction (§11)', () => {
     // Partner showed five spades: three of them make a fit
     expect(goal('K32 A43 K54 5432', '1S P')?.strain).toBe('S')
     expect(goal('932 843 J54 5432', '1S P')).toBeNull()
+  })
+
+  it('counts the narrower of partner’s ranges (V4a)', () => {
+    // Opener answered the negative double with 1♠ (11–14): a weak 4-4 fit stays low, not 3♠ on
+    // the opening's 12–22 total points
+    expect(bidOver('8643 Q863 92 KQ4', '1C 1D X P 1S P')).toBe('P')
   })
 
   it('stops once the contract is reached', () => {

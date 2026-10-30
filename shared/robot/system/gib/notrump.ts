@@ -280,6 +280,14 @@ function choiceAnswers(r: Ranges, M: Suit, invite: boolean): Rule[] {
   ]
 }
 
+/** Opener answers a notrump-range invitation: game with the top two points, else stop */
+function acceptInvite(r: Ranges, game: Call, stop: Call): Rule[] {
+  return [
+    { call: game, shows: { hcp: [r.top - 1, r.top], notes: [{ key: 'accept' }] } },
+    { call: stop, shows: { hcp: [r.top - 2, r.top - 2], notes: [{ key: 'decline' }] } },
+  ]
+}
+
 // ── Minor-suit Stayman and minor transfers ────────────────────────────────────────────────────
 
 function minorStaymanAnswers(r: Ranges): Rule[] {
@@ -395,8 +403,16 @@ export function notrumpBooks(r: Ranges, open: string): Book[] {
     { after: `${open} (P) ${stayman} (P)`, rules: staymanAnswers(r), more: true },
     { after: `${open} (P) ${mss} (P)`, rules: minorStaymanAnswers(r), more: true },
   )
-  for (const answer of ['D', 'H', 'S'] as Suit[])
-    books.push({ after: `${open} (P) ${stayman} (P) ${bid(2 + r.up, answer)} (P)`, rules: afterStayman(r, answer), more: true })
+  for (const answer of ['D', 'H', 'S'] as Suit[]) {
+    const asked = `${open} (P) ${stayman} (P) ${bid(2 + r.up, answer)} (P)`
+    books.push({ after: asked, rules: afterStayman(r, answer), more: true })
+    // Stayman, then an invitation (2NT, or three of opener's major): accept with the top two
+    // points, as after a transfer (V4a: the fallback counted 8–9 as 8 and passed with 16)
+    if (r.invite) {
+      books.push({ after: `${asked} 2N (P)`, rules: acceptInvite(r, '3N', 'P'), more: true })
+      if (answer !== 'D') books.push({ after: `${asked} 3${answer} (P)`, rules: acceptInvite(r, bid(4, answer), 'P'), more: true })
+    }
+  }
   for (const M of MAJORS) {
     const transfer = bid(2 + r.up, M === 'H' ? 'D' : 'H')
     const done = bid(2 + r.up, M)
