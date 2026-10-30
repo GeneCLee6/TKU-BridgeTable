@@ -51,6 +51,20 @@ export type AuditAction =
   /** A learning path saved, or back to the handbook's bundled one (BridgeHall e4-t12); `target` is the path's id */
   | 'path:save'
   | 'path:reset'
+  /**
+   * The forum's officers (BridgeHall e11-t09; `target` is the post's id, or the board's): a post
+   * pinned or taken down, locked or opened; someone else's post or comment deleted (`note` says
+   * whose and what); a report dismissed; a board added, changed or deleted
+   */
+  | 'forum:pin'
+  | 'forum:unpin'
+  | 'forum:lock'
+  | 'forum:unlock'
+  | 'forum:removePost'
+  | 'forum:removeComment'
+  | 'forum:dismiss'
+  | 'forum:board'
+  | 'forum:boardDelete'
 
 export interface AuditEntry {
   id: string
@@ -58,7 +72,7 @@ export interface AuditEntry {
   /** The member's username, as in BookRevision.by */
   by: string
   action: AuditAction
-  /** A convention's or an article's slug, a profile's id, `<profile>/<template>` for a card, 'categories' or 'series' */
+  /** A convention's or an article's slug, a profile's id, `<profile>/<template>` for a card, 'categories' or 'series', a forum post's or board's id */
   target: string
   /** The version the change made (a published convention's, a profile's, the categories'); a draft has none */
   version?: number

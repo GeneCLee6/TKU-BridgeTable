@@ -223,6 +223,7 @@ export function AdminPage() {
     bookImport: t.permissionBookImport,
     boardCurate: t.permissionBoardCurate,
     tkuSystem: t.permissionTkuSystem,
+    forumModerate: t.permissionForumModerate,
   }
   const editMembers = () => {
     if (!users) return

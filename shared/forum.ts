@@ -200,6 +200,11 @@ export const FORUM_LIMITS = {
   /** Posts on one page of a board */
   pageSize: 20,
   reportReasonMax: 300,
+  /** Open reports one member may have at once, and reports an officer's list shows */
+  reportsOpenMax: 20,
+  reportsShown: 100,
+  /** Characters of a post's text shown for it in a report or a notification */
+  excerptMax: 40,
   /** Boards a club may have, and the length of a board's name and description */
   boardsMax: 20,
   boardNameMax: 20,
@@ -261,4 +266,31 @@ export interface PostThread {
 export interface ForumLatest {
   news: Post[]
   discussions: Post[]
+}
+
+/** `POST /api/forum/reports` (any member, e11-t09): a post or a comment, and why; a second report of the same one while it is open changes the reason */
+export interface ReportInput {
+  target: 'post' | 'comment'
+  targetId: string
+  reason: string
+}
+
+/**
+ * `POST /api/forum/reports/:id` (an officer): `dismiss` keeps what was reported; `remove` deletes
+ * it (a post with its comments, a top comment with its replies). Either closes every open report of it
+ */
+export interface ReportDecision {
+  action: 'dismiss' | 'remove'
+}
+
+/**
+ * `GET /api/forum/reports?status=open|all` (an officer): a report, newest first, with what it
+ * reported. `postId` is the post it is in (gone: deleted since); `authorId` and `excerpt` (the
+ * title or the start of the text, at most FORUM_LIMITS.excerptMax characters) are what is there now
+ */
+export interface ReportItem {
+  report: Report
+  postId?: string
+  authorId?: string
+  excerpt?: string
 }
