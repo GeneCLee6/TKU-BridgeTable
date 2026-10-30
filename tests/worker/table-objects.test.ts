@@ -304,6 +304,17 @@ describe('tables in their own objects', () => {
 })
 
 describe('a table’s own connection', () => {
+  it('closes when the member’s other sessions end (e11-t28), so a device signed out cannot stay at the table', async () => {
+    const amy = await member('amy')
+    const tableId = await robotTable(amy)
+    await connectTable(amy, tableId)
+    const { token: phone } = await club.login('amy', 'secret1')
+    await club.login('amy', 'secret1')
+    await club.endOtherSessions(amy, phone)
+    expect(dismissed).toEqual([{ tableId, userId: amy, code: 4001 }])
+    expect(object(tableId).online.has(amy)).toBe(false)
+  })
+
   it('only takes people at the table', async () => {
     const [amy, bob] = [await member('amy'), await member('bob')]
     const tableId = await robotTable(amy)

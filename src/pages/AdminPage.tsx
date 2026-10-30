@@ -104,6 +104,8 @@ export function AdminPage() {
   const [member, setMember] = useState({ username: '', password: '' })
   const [query, setQuery] = useState('')
   const [active, setActive] = useState<SectionId>('applications')
+  /** The one-time code of a password reset just approved (e1-t36): shown once, to this admin only */
+  const [handOver, setHandOver] = useState<{ username: string; code: string; expiresAt: number } | null>(null)
   const [sync, setSync] = useState<BookSyncRow[] | null>(null)
 
   const text = useCallback(
@@ -564,6 +566,16 @@ export function AdminPage() {
                 )}
               </HeaderTools>
             </CardHeader>
+            {handOver && (
+              <HandOver role="status">
+                <span>{t.resetCodeFor(handOver.username)}</span>
+                <code>{handOver.code}</code>
+                <Sub as="span">{t.resetCodeValid(formatDate(handOver.expiresAt, lang))}</Sub>
+                <Button type="button" $size="sm" onClick={() => setHandOver(null)}>
+                  {t.close}
+                </Button>
+              </HandOver>
+            )}
             {!shown.length ? (
               <Empty>{t.adminNoMatch}</Empty>
             ) : (
@@ -595,9 +607,15 @@ export function AdminPage() {
                               <Changed>{t.adminChanged}</Changed>
                             ) : (
                               <Sub>
-                                {u.passwordResetAt
-                                  ? t.selfReset(relative(u.passwordResetAt))
-                                  : t.adminJoinedOn(formatDate(u.createdAt, lang))}
+                                {u.passwordReset?.state === 'requested' ? (
+                                  <ResetFlag>{t.resetRequestedAt(relative(u.passwordReset.at))}</ResetFlag>
+                                ) : u.passwordReset?.state === 'approved' ? (
+                                  t.resetCodeValid(formatDate(u.passwordReset.until, lang))
+                                ) : u.passwordResetAt ? (
+                                  t.selfReset(relative(u.passwordResetAt))
+                                ) : (
+                                  t.adminJoinedOn(formatDate(u.createdAt, lang))
+                                )}
                               </Sub>
                             )}
                           </td>
@@ -700,6 +718,32 @@ export function AdminPage() {
                               </Actions>
                             ) : (
                               <Actions>
+                                {u.passwordReset?.state === 'requested' && (
+                                  <>
+                                    <Button
+                                      type="button"
+                                      $size="sm"
+                                      $variant="primary"
+                                      $busy={busy === `approve-${u.id}`}
+                                      onClick={() =>
+                                        void run(`approve-${u.id}`, async () => {
+                                          const answer = await api.admin.approveReset(u.id)
+                                          setHandOver({ username: u.username, ...answer })
+                                        })
+                                      }
+                                    >
+                                      {t.approveReset}
+                                    </Button>
+                                    <Button
+                                      type="button"
+                                      $size="sm"
+                                      $busy={busy === `decline-${u.id}`}
+                                      onClick={() => void run(`decline-${u.id}`, () => api.admin.declineReset(u.id))}
+                                    >
+                                      {t.declineReset}
+                                    </Button>
+                                  </>
+                                )}
                                 <Button type="button" $size="sm" onClick={() => editPending({ id: u.id, action: 'password' })}>
                                   {t.resetPassword}
                                 </Button>
@@ -1268,6 +1312,35 @@ const Dot = styled.span`
 `
 
 /** 「已修改」 under a member's name while their row has unsaved changes */
+/** A member waiting for a password reset (e1-t36) stands out in the list */
+const ResetFlag = styled.span`
+  color: ${({ theme }) => theme.colors.accentStrong};
+  font-weight: 600;
+`
+
+/** The one-time reset code, shown once above the members list for the admin to hand over */
+const HandOver = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: ${({ theme }) => theme.space(2)} ${({ theme }) => theme.space(3)};
+  margin: 0 ${({ theme }) => theme.space(4)} ${({ theme }) => theme.space(3)};
+  padding: 10px 12px;
+  border-left: 4px solid ${({ theme }) => theme.colors.success};
+  border-radius: ${({ theme }) => theme.radius.sm};
+  background: ${({ theme }) => theme.colors.successSoft};
+  color: ${({ theme }) => theme.colors.text};
+  font-size: 14px;
+  line-height: 1.6;
+
+  code {
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    user-select: all;
+  }
+`
+
 const Changed = styled(Sub)`
   color: ${({ theme }) => theme.colors.accentStrong};
   font-weight: 600;

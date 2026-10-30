@@ -43,7 +43,7 @@ describe('what answering history at the edge saves the club', () => {
       return JSON.stringify({ boards: loaded.flatMap((r) => (r ? [summarize(r)] : [])), total: found.total })
     }
     // The Worker's own part: the pass, then the rows D1 sent back (summaries as text) into the answer
-    const pass = await mintPass(SECRET, viewer, now)
+    const pass = await mintPass(SECRET, viewer, 'abc123', now)
     const workerPart = async (rows: Record<string, unknown>[]) => {
       await readPass(SECRET, pass, now)
       return JSON.stringify({ boards: rows.map((row) => JSON.parse(String(row.summary))) })

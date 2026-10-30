@@ -62,25 +62,39 @@ describe('LoginPage', () => {
     })
   })
 
-  it('resets a forgotten password with the invite code, after checking both entries match', async () => {
-    const sent = stubApi({ '/api/password/reset': { status: 200, body: { ok: true } } })
+  it('asks the admins with the invite code, then sets the password with the code they hand over (e1-t36)', async () => {
+    const sent = stubApi({
+      '/api/password/reset/request': { status: 200, body: { ok: true } },
+      '/api/password/reset': { status: 200, body: { ok: true } },
+    })
     page()
     await userEvent.click(screen.getByRole('button', { name: '忘記密碼？' }))
+    // Asking needs no password
+    expect(screen.queryByLabelText(/^新密碼/)).toBeNull()
     await userEvent.type(screen.getByLabelText(/^帳號/), 'amy')
+    await userEvent.type(screen.getByLabelText(/^邀請碼/), 'tku')
+    await userEvent.click(screen.getByRole('button', { name: '送出申請' }))
+    expect(await screen.findByRole('status')).toHaveTextContent('已送出申請')
+    expect(sent.find((s) => s.path === '/api/password/reset/request')!.body).toEqual({ username: 'amy', inviteCode: 'tku' })
+
+    await userEvent.click(screen.getByRole('button', { name: '輸入重設代碼' }))
+    // The name carries over
+    expect(screen.getByLabelText(/^帳號/)).toHaveValue('amy')
+    await userEvent.type(screen.getByLabelText(/^重設代碼/), 'ABCDE-FGH23')
     await userEvent.type(screen.getByLabelText(/^新密碼/), 'newpass1')
     await userEvent.type(screen.getByLabelText(/^再輸入一次新密碼/), 'newpass2')
-    await userEvent.type(screen.getByLabelText(/^邀請碼/), 'tku')
-    await userEvent.click(screen.getByRole('button', { name: '重設密碼' }))
+    expect(screen.queryByLabelText(/^邀請碼/)).toBeNull()
+    await userEvent.click(screen.getByRole('button', { name: '輸入重設代碼' }))
     expect(screen.getByRole('alert')).toHaveTextContent('不一樣')
     expect(sent.some((s) => s.path === '/api/password/reset')).toBe(false)
 
     await userEvent.clear(screen.getByLabelText(/^再輸入一次新密碼/))
     await userEvent.type(screen.getByLabelText(/^再輸入一次新密碼/), 'newpass1')
-    await userEvent.click(screen.getByRole('button', { name: '重設密碼' }))
+    await userEvent.click(screen.getByRole('button', { name: '輸入重設代碼' }))
     expect(await screen.findByRole('status')).toHaveTextContent('密碼已重設')
     expect(sent.find((s) => s.path === '/api/password/reset')!.body).toEqual({
       username: 'amy',
-      inviteCode: 'tku',
+      code: 'ABCDE-FGH23',
       password: 'newpass1',
     })
     // Back on the sign-in form

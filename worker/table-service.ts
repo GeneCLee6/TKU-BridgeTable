@@ -502,6 +502,9 @@ export class TableService implements TableApi {
     this.settled()
   }
 
+  /** The club closes a member's connections itself when the table runs in its process (`TableApi.signOut`) */
+  async signOut(_userId: string): Promise<void> {}
+
   async forget(userId: string): Promise<TableEntry | null> {
     const table = this.table
     if (!table) return null

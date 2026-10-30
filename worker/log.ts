@@ -29,7 +29,7 @@ export type LogEntry =
   /** The history index's D1 copy (worker/history-replica.ts, §5.12): a step that failed, or the copy filled */
   | { event: 'replica'; step: 'fill' | 'flush' | 'off'; ok: boolean; error?: string }
   /** A history page the Worker answered from D1 (§5.12), or why it handed the request to the club */
-  | { event: 'edge'; path: string; status?: number; ms: number; fallback?: 'notReady' | 'error' }
+  | { event: 'edge'; path: string; status?: number; ms: number; fallback?: 'notReady' | 'error' | 'revoked' }
   /** The daily backup to R2 (worker/backup.ts): what it wrote, or why it failed */
   | { event: 'backup'; ok: boolean; name?: string; keys?: number; rows?: number; bytes?: number; deleted?: number; error?: string }
 

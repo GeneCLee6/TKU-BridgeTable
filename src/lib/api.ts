@@ -6,6 +6,7 @@ import type { MessageParams } from '../../shared/messages.ts'
 import type { MemberProfile, Profile } from '../../shared/profile.ts'
 import type {
   AdminUser,
+  ResetCode,
   Application,
   BoardRecord,
   ClubSettings,
@@ -88,9 +89,12 @@ export const api = {
   /** The first account signs in at once; later ones wait for an admin to approve them */
   register: (username: string, password: string, inviteCode: string, note: string) =>
     post<RegisterResult>('/api/register', { username, password, inviteCode, note, site: 'table' }),
-  /** 忘記密碼: needs the club's invite code; not for admin accounts */
-  resetPassword: (username: string, inviteCode: string, password: string) =>
-    post<{ ok: true }>('/api/password/reset', { username, inviteCode, password }),
+  /** 忘記密碼, step 1 (e1-t36): asks the admins, with the club's invite code; not for admin accounts */
+  requestPasswordReset: (username: string, inviteCode: string) =>
+    post<{ ok: true }>('/api/password/reset/request', { username, inviteCode }),
+  /** 忘記密碼, step 2: the one-time code an admin handed over sets the new password */
+  resetPassword: (username: string, code: string, password: string) =>
+    post<{ ok: true }>('/api/password/reset', { username, code, password }),
   logout: () => post<{ ok: true }>('/api/logout'),
   changePassword: (current: string, next: string) => post<{ ok: true }>('/api/account/password', { current, next }),
   /** The account settings the server keeps (e1-t24) */
@@ -208,6 +212,9 @@ export const api = {
       post<{ ok: true }>(`/api/admin/users/${id}/permissions`, { permissions }),
     createUser: (username: string, password: string) => post<{ user: Me }>('/api/admin/users', { username, password }),
     resetPassword: (id: string, password: string) => post<{ ok: true }>(`/api/admin/users/${id}/password`, { password }),
+    /** 忘記密碼 (e1-t36): approving answers the one-time code to hand over */
+    approveReset: (id: string) => post<ResetCode>(`/api/admin/users/${id}/password-reset`),
+    declineReset: (id: string) => request<{ ok: true }>(`/api/admin/users/${id}/password-reset`, { method: 'DELETE' }),
     /** Every role and permission change from the members section, in one request */
     updateMembers: (changes: MemberChange[]) => post<{ ok: true }>('/api/admin/members', { changes }),
     setAdmin: (id: string, admin: boolean) => post<{ ok: true }>(`/api/admin/users/${id}/admin`, { admin }),
