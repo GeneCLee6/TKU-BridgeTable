@@ -202,6 +202,8 @@ interface StoredUser {
   passwordResetAt?: number
   /** False when the member turned off the notice that a friend came online (e1-t24) */
   friendOnlineNotice?: boolean
+  /** False when the member turned off the notice that a convention their profile plays was published (BridgeHall F4) */
+  bookAdoptedNotice?: boolean
   /** The handbook's system profile the member chose (TKU-BridgeBook e1-t16); absent for the club's */
   bookProfile?: string
   /** What the member tells the club about themselves (AC-1.5); others see it through `memberProfileView` */
@@ -998,24 +1000,29 @@ export class ClubService {
 
   /**
    * `POST /api/account/preferences`: the member's own settings the server needs. Each field is
-   * optional, but at least one must be there: the friend-online notice (e1-t24) and the handbook's
+   * optional, but at least one must be there: the friend-online notice (e1-t24), the notice that a
+   * convention the member's profile plays was published (BridgeHall F4, `bookAdoptedNotice`), the handbook's
    * system profile (TKU-BridgeBook e1-t16; the club's id or '' goes back to the club's), and how
    * fast the robots play (出牌速度, `ROBOT_SPEEDS`; the table they are at changes at once). The profile
    * is not looked up: one deleted later simply shows the club's.
    */
   async setAccountPreferences(
     userId: string,
-    preferences: { friendOnlineNotice?: unknown; bookProfile?: unknown; robotSpeed?: unknown },
+    preferences: { friendOnlineNotice?: unknown; bookAdoptedNotice?: unknown; bookProfile?: unknown; robotSpeed?: unknown },
   ): Promise<Me> {
     const user = this.requireUser(userId)
-    const { friendOnlineNotice, bookProfile, robotSpeed } = preferences
-    if (friendOnlineNotice === undefined && bookProfile === undefined && robotSpeed === undefined) throw new ClubError('unknownCommand')
+    const { friendOnlineNotice, bookAdoptedNotice, bookProfile, robotSpeed } = preferences
+    if (friendOnlineNotice === undefined && bookAdoptedNotice === undefined && bookProfile === undefined && robotSpeed === undefined)
+      throw new ClubError('unknownCommand')
     if (friendOnlineNotice !== undefined && typeof friendOnlineNotice !== 'boolean') throw new ClubError('unknownCommand')
+    if (bookAdoptedNotice !== undefined && typeof bookAdoptedNotice !== 'boolean') throw new ClubError('unknownCommand')
     if (robotSpeed !== undefined && !isRobotSpeed(robotSpeed)) throw new ClubError('unknownCommand')
     if (bookProfile !== undefined && (typeof bookProfile !== 'string' || (bookProfile !== '' && !PROFILE_ID.test(bookProfile))))
       throw new ClubError('unknownCommand')
     if (friendOnlineNotice === true) delete user.friendOnlineNotice
     else if (friendOnlineNotice === false) user.friendOnlineNotice = false
+    if (bookAdoptedNotice === true) delete user.bookAdoptedNotice
+    else if (bookAdoptedNotice === false) user.bookAdoptedNotice = false
     if (bookProfile === '' || bookProfile === CLUB_PROFILE_ID) delete user.bookProfile
     else if (bookProfile !== undefined) user.bookProfile = bookProfile
     const speedChanged = robotSpeed !== undefined && robotSpeed !== (user.robotSpeed ?? DEFAULT_ROBOT_SPEED)
@@ -1142,6 +1149,7 @@ export class ClubService {
       admin: !!user.admin,
       permissions: this.permissionsOf(user),
       friendOnlineNotice: user.friendOnlineNotice !== false,
+      bookAdoptedNotice: user.bookAdoptedNotice !== false,
       robotSpeed: user.robotSpeed ?? DEFAULT_ROBOT_SPEED,
     }
     if (user.profile) me.profile = user.profile
@@ -1220,6 +1228,11 @@ export class ClubService {
   }
 
   /** Who publishes the handbook's conventions, for drafts sent for review (BridgeHall e8-t10): admins and `bookReview` holders */
+  /** Whether the member turned off the notice that a convention their profile plays was published (BridgeHall F4) */
+  mutesAdoptedNotices(userId: string) {
+    return this.users.get(userId)?.bookAdoptedNotice === false
+  }
+
   reviewerIds(): string[] {
     return [...this.users.values()].filter((u) => u.admin || this.permissionsOf(u).includes('bookReview')).map((u) => u.id)
   }

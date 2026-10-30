@@ -306,4 +306,17 @@ describe('friend online notice (e1-t24)', () => {
       await expect(club.setAccountPreferences(amy, { bookProfile: bad })).rejects.toThrow()
     await expect(club.setAccountPreferences(amy, {})).rejects.toThrow()
   })
+
+  it('keeps the notice about conventions one\'s profile plays apart from the others (BridgeHall F4)', async () => {
+    const amy = await member('amy')
+    expect(club.mutesAdoptedNotices(amy)).toBe(false)
+    const muted = await club.setAccountPreferences(amy, { bookAdoptedNotice: false })
+    expect(muted.bookAdoptedNotice).toBe(false)
+    expect(muted.friendOnlineNotice).toBe(true)
+    expect(club.mutesAdoptedNotices(amy)).toBe(true)
+    expect((await club.login('amy', 'secret1')).user.bookAdoptedNotice).toBe(false)
+    expect((await club.setAccountPreferences(amy, { bookAdoptedNotice: true })).bookAdoptedNotice).toBe(true)
+    expect(club.mutesAdoptedNotices(amy)).toBe(false)
+    await expect(club.setAccountPreferences(amy, { bookAdoptedNotice: 'no' })).rejects.toThrow()
+  })
 })

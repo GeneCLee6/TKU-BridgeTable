@@ -1,5 +1,5 @@
 import { ClubError } from './service.ts'
-import type { Store } from './store.ts'
+import type { Sql, SqlValue, Store } from './store.ts'
 
 /**
  * Daily backup of the accounts and TKU BridgeBook's data to R2 (BridgeBook e10-t08, AC-10.5; part
@@ -15,6 +15,11 @@ import type { Store } from './store.ts'
  * real key that looks like that tag gets one more `$` so it reads back unchanged (`decodeValue`).
  * Version 1 (book only, no tags) is still read and restored, over its own prefixes only.
  *
+ * From version 3 the forum's SQL tables (BACKUP_TABLES) follow the keys: one `{"t": table, "r": row}`
+ * line per row, in the order they were written, and the header lists the tables (`tables`) and
+ * counts the rows (`rows`). A restore empties each listed table and writes its rows back in one
+ * transaction; a version 1 or 2 backup has no tables and leaves the forum alone.
+ *
  * The export only reads the Durable Object's storage from its first key to its last, so no other
  * request runs in between (input gates): a member's `user:` and `avatar:` come from the same moment
  * and a restore puts back a matching pair.
@@ -29,7 +34,7 @@ import type { Store } from './store.ts'
  * member's `avatar` version always matches their picture. Not in it: `session:` (a restore signs
  * everyone out), `meta:settings` (the invite code and member cap: the env values stand in when it is
  * missing, and a restore must not bring back a code rotated since), friends and blocks, and the
- * games with their SQL tables (e11-t12).
+ * games with their SQL tables (e11-t12). The forum's SQL tables are in it (BACKUP_TABLES).
  */
 export const BACKUP_PREFIXES = [
   'book',
@@ -48,14 +53,27 @@ export const BACKUP_PREFIXES = [
   'file:meta:',
   'file:secret',
 ] as const
+/**
+ * The SQL tables a backup holds: TKU-BridgeHall's forum (E11; worker/forum.ts), with the order its
+ * rows are written and restored in. Tables with a rowid go by it, so restored posts and comments
+ * keep the order ties are broken by. The forum's pictures stay in R2 (their `file:meta:` is a key
+ * above); the history index's tables are not here, they are rebuilt from the games.
+ */
+export const BACKUP_TABLES: readonly { name: string; order: string }[] = [
+  { name: 'forum_boards', order: 'id' },
+  { name: 'forum_posts', order: 'rowid' },
+  { name: 'forum_comments', order: 'rowid' },
+  { name: 'forum_reactions', order: 'target, target_id, user_id' },
+  { name: 'forum_reports', order: 'rowid' },
+]
 /** The prefixes that hold accounts: restoring a backup with them reloads the club's members */
 export const ACCOUNT_PREFIXES: readonly string[] = ['user:', 'app:', 'avatar:']
 /** Daily objects kept; older ones are deleted after each successful backup */
 export const BACKUP_KEEP_DAYS = 30
 export const BACKUP_FORMAT = 'tku-bridge-backup'
-/** 2: accounts and avatars, binary values tagged; 1: TKU BridgeBook only, still read */
-export const BACKUP_FORMAT_VERSION = 2
-const READABLE_VERSIONS: readonly number[] = [1, 2]
+/** 3: the forum's SQL tables too; 2: accounts and avatars, binary values tagged; 1: TKU BridgeBook only. All are read */
+export const BACKUP_FORMAT_VERSION = 3
+const READABLE_VERSIONS: readonly number[] = [1, 2, 3]
 const DAILY = 'daily/'
 const DAILY_KEY = /^daily\/(\d{4}-\d{2}-\d{2})\.jsonl$/
 /** The club is in Taiwan: a backup is named after its date there (UTC+8, no daylight saving) */
@@ -69,16 +87,23 @@ const LIST_PAGE = 500
 
 export interface BackupHeader {
   format: typeof BACKUP_FORMAT
-  /** 1 for the old book-only backups; new ones are BACKUP_FORMAT_VERSION */
-  version: 1 | typeof BACKUP_FORMAT_VERSION
+  /** 1 for the old book-only backups, 2 before the forum; new ones are BACKUP_FORMAT_VERSION */
+  version: 1 | 2 | typeof BACKUP_FORMAT_VERSION
   createdAt: string
   prefixes: string[]
   keys: number
+  /** From version 3: the SQL tables in it, and their rows in all */
+  tables?: string[]
+  rows?: number
 }
+
+export type SqlRow = Record<string, SqlValue>
 
 export interface Backup {
   header: BackupHeader
   entries: [key: string, value: unknown][]
+  /** The SQL tables' rows, in the order they are written back; none before version 3 */
+  rows: [table: string, row: SqlRow][]
 }
 
 /** The part of an R2 bucket a backup uses; R2Bucket satisfies it and tests use MemoryBucket */
@@ -102,6 +127,8 @@ export interface BackupObject {
 export interface BackupResult {
   name: string
   keys: number
+  /** The SQL tables' rows */
+  rows: number
   bytes: number
   deleted: string[]
 }
@@ -119,6 +146,9 @@ export interface RestoreResult {
   prefixes: string[]
   puts: number
   deletes: number
+  /** The SQL tables it emptied and wrote back, and their rows; none for a backup before version 3 */
+  tables: string[]
+  rows: number
 }
 
 // ── Binary values ────────────────────────────────────────────────────────────────────────────
@@ -210,16 +240,46 @@ export async function exportEntries(store: Store, prefixes: readonly string[] = 
   return entries.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
 }
 
-export function serializeBackup(entries: [string, unknown][], createdAt: Date, prefixes: readonly string[] = BACKUP_PREFIXES) {
+/** The BACKUP_TABLES this database has (a store without SQL, as in the book's tests, has none) */
+export function backupTables(sql: Sql) {
+  let names: string[]
+  try {
+    names = sql.exec<{ name: string }>("SELECT name FROM sqlite_master WHERE type = 'table'").map((t) => t.name)
+  } catch {
+    return []
+  }
+  return BACKUP_TABLES.filter((t) => names.includes(t.name))
+}
+
+/** Every row of the BACKUP_TABLES there are, table by table in their order */
+export function exportRows(sql: Sql): { tables: string[]; rows: [string, SqlRow][] } {
+  const tables = backupTables(sql)
+  const rows: [string, SqlRow][] = []
+  for (const { name, order } of tables) for (const row of sql.exec<SqlRow>(`SELECT * FROM ${name} ORDER BY ${order}`)) rows.push([name, { ...row }])
+  return { tables: tables.map((t) => t.name), rows }
+}
+
+export function serializeBackup(
+  entries: [string, unknown][],
+  createdAt: Date,
+  prefixes: readonly string[] = BACKUP_PREFIXES,
+  sql: { tables: string[]; rows: [string, SqlRow][] } = { tables: [], rows: [] },
+) {
   const header: BackupHeader = {
     format: BACKUP_FORMAT,
     version: BACKUP_FORMAT_VERSION,
     createdAt: createdAt.toISOString(),
     prefixes: [...prefixes],
     keys: entries.length,
+    tables: [...sql.tables],
+    rows: sql.rows.length,
   }
-  return [header, ...entries.map(([k, v]) => ({ k, v: encodeValue(v) }))].map((line) => JSON.stringify(line)).join('\n') + '\n'
+  const lines = [header, ...entries.map(([k, v]) => ({ k, v: encodeValue(v) })), ...sql.rows.map(([t, r]) => ({ t, r }))]
+  return lines.map((line) => JSON.stringify(line)).join('\n') + '\n'
 }
+
+const isSqlValue = (value: unknown): value is SqlValue =>
+  value === null || typeof value === 'string' || (typeof value === 'number' && Number.isFinite(value))
 
 /**
  * Reads a backup back, either version; anything that does not look exactly like one is refused
@@ -244,11 +304,26 @@ export function parseBackup(text: string): Backup {
   const { createdAt, prefixes, keys } = header as BackupHeader
   if (typeof createdAt !== 'string' || !Array.isArray(prefixes) || !prefixes.every((p) => typeof p === 'string' && p !== ''))
     bad('header')
-  const tagged = (header as BackupHeader).version !== 1
+  const { version } = header as BackupHeader
+  const tagged = version !== 1
+  const tables = version >= 3 ? (header as BackupHeader).tables : []
+  const rowCount = version >= 3 ? (header as BackupHeader).rows : 0
+  if (!Array.isArray(tables) || !tables.every((t) => BACKUP_TABLES.some((b) => b.name === t)) || typeof rowCount !== 'number')
+    bad('header')
   const entries: [string, unknown][] = []
+  const rows: [string, SqlRow][] = []
   const seen = new Set<string>()
   lines.slice(1).forEach((line, i) => {
-    const entry = parse(line, i + 1) as { k?: unknown; v?: unknown } | null
+    const entry = parse(line, i + 1) as { k?: unknown; v?: unknown; t?: unknown; r?: unknown } | null
+    if (entry && typeof entry === 'object' && 't' in entry) {
+      // A table's row: after every key, in a table the header lists, with plain SQL values
+      const { t, r } = entry
+      if (typeof t !== 'string' || !tables!.includes(t) || !r || typeof r !== 'object' || Array.isArray(r)) bad(`line ${i + 2}`)
+      if (!Object.values(r as object).every(isSqlValue)) bad(`line ${i + 2}`)
+      rows.push([t as string, r as SqlRow])
+      return
+    }
+    if (rows.length) bad(`line ${i + 2}: a key after the tables' rows`)
     if (!entry || typeof entry.k !== 'string' || !('v' in entry)) bad(`line ${i + 2}`)
     const key = entry!.k as string
     if (!prefixes.some((p) => key.startsWith(p))) bad(`key ${key} is outside the backup's prefixes`)
@@ -264,7 +339,8 @@ export function parseBackup(text: string): Backup {
     entries.push([key, value])
   })
   if (entries.length !== keys) bad(`expected ${keys} keys, found ${entries.length}`)
-  return { header: header as BackupHeader, entries }
+  if (rows.length !== rowCount) bad(`expected ${rowCount} rows, found ${rows.length}`)
+  return { header: header as BackupHeader, entries, rows }
 }
 
 // ── Names and retention ──────────────────────────────────────────────────────────────────────
@@ -319,13 +395,15 @@ export function planRestore(backup: Backup, current: [string, unknown][]): Resto
 
 export async function runBackup(store: Store, bucket: BackupBucket, now: number, keepDays = BACKUP_KEEP_DAYS): Promise<BackupResult> {
   const entries = await exportEntries(store)
-  const text = serializeBackup(entries, new Date(now))
+  // Read right after the keys, with no await in between that would let another request in
+  const sql = exportRows(store.sql)
+  const text = serializeBackup(entries, new Date(now), BACKUP_PREFIXES, sql)
   const name = backupName(now)
   await bucket.put(name, text, { httpMetadata: { contentType: 'application/x-ndjson; charset=utf-8' } })
   // Only after the new backup is safely written
   const deleted = expiredBackups((await listBackups(bucket)).map((b) => b.name), now, keepDays)
   if (deleted.length) await bucket.delete(deleted)
-  return { name, keys: entries.length, bytes: new TextEncoder().encode(text).length, deleted }
+  return { name, keys: entries.length, rows: sql.rows.length, bytes: new TextEncoder().encode(text).length, deleted }
 }
 
 /** Every backup object, newest first */
@@ -351,10 +429,18 @@ export async function restoreBackup(store: Store, bucket: BackupBucket, name: st
   const object = await bucket.get(name)
   if (!object) throw new ClubError('backupNotFound', { name }, 404)
   const backup = parseBackup(await object.text())
+  const tables = backup.header.tables ?? []
+  // Checked before anything is written, in a dry run too
+  const statements = rowStatements(store.sql, tables, backup.rows)
   const plan = planRestore(backup, await exportEntries(store, backup.header.prefixes))
   if (!dryRun) {
     for (const key of plan.deletes) await store.delete(key)
     for (const [key, value] of plan.puts) await store.put(key, value)
+    if (tables.length)
+      store.sql.transaction(() => {
+        for (const table of tables) store.sql.exec(`DELETE FROM ${table}`)
+        for (const [query, params] of statements) store.sql.exec(query, ...params)
+      })
   }
   return {
     name,
@@ -363,7 +449,32 @@ export async function restoreBackup(store: Store, bucket: BackupBucket, name: st
     prefixes: backup.header.prefixes,
     puts: plan.puts.length,
     deletes: plan.deletes.length,
+    tables,
+    rows: backup.rows.length,
   }
+}
+
+/**
+ * The INSERTs that write a backup's rows back. Every table must be here now and every column one
+ * it has (a column added since is left to its default), so a backup cannot name anything else:
+ * the names in the statements are only ever the database's own.
+ */
+function rowStatements(sql: Sql, tables: string[], rows: [string, SqlRow][]): [string, SqlValue[]][] {
+  const here = new Set(backupTables(sql).map((t) => t.name))
+  const columns = new Map<string, string[]>()
+  for (const table of tables) {
+    if (!here.has(table)) throw new ClubError('badBackup', { why: `table ${table} is missing` })
+    columns.set(table, sql.exec<{ name: string }>(`PRAGMA table_info(${table})`).map((c) => c.name))
+  }
+  return rows.map(([table, row]) => {
+    const known = columns.get(table)!
+    const names = Object.keys(row).map((key) => {
+      const name = known.find((c) => c === key)
+      if (!name) throw new ClubError('badBackup', { why: `column ${table}.${key} is not there` })
+      return name
+    })
+    return [`INSERT INTO ${table} (${names.join(', ')}) VALUES (${names.map(() => '?').join(', ')})`, names.map((n) => row[n])]
+  })
 }
 
 /**
@@ -379,8 +490,8 @@ export async function backupAdmin(
     bucket: BackupBucket | undefined
     store: Store
     now: number
-    /** After a real restore, with the prefixes it put back */
-    restored: (prefixes: string[]) => void | Promise<void>
+    /** After a real restore, with the prefixes and SQL tables it put back */
+    restored: (prefixes: string[], tables: string[]) => void | Promise<void>
   },
 ): Promise<unknown> {
   const { bucket } = club
@@ -393,7 +504,7 @@ export async function backupAdmin(
     const dryRun = b.dryRun !== false
     if (!dryRun && b.confirm !== name) throw new ClubError('backupConfirm', { name })
     const result = await restoreBackup(club.store, bucket, name, dryRun)
-    if (!dryRun) await club.restored(result.prefixes)
+    if (!dryRun) await club.restored(result.prefixes, result.tables)
     return { restore: result }
   }
   throw new ClubError('noSuchApi', {}, 404)

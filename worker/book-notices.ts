@@ -20,6 +20,8 @@ import type { TeamService } from './teams.ts'
  *
  * - A convention is published (`bookPublished`): whoever follows it (關注), the members of every
  *   active team's and partnership's profile that plays it, and whoever sent that draft for review.
+ *   A member who turned the notice off (我的帳號, `bookAdoptedNotice`) is not told for playing it,
+ *   only for following it or having sent it.
  * - Among them, the members of a profile that overrides a section the publish changed hear
  *   `bookOverrideChanged` instead, naming their profile, so they can check the override still holds.
  *   The handbook says which sections changed (`changedSections`): only it has the bundled
@@ -27,6 +29,9 @@ import type { TeamService } from './teams.ts'
  * - A draft is sent for review (`bookReviewRequested`): every reviewer. Sent back (`bookReturned`):
  *   whoever sent it.
  * - A captain suggests a partnership drops one of its overrides (`bookSuggestUnify`): both partners.
+ *
+ * - An article's draft (BridgeHall J4, e5-t07) is sent for review (`articleReviewRequested`): every
+ *   reviewer. Sent back (`articleReturned`) or published (`articlePublished`): whoever sent it.
  *
  * Nobody hears about their own doing. Following is kept as `bookfollow:<slug>:<userId>` (value
  * `true`), so it is in the daily backup with the rest of `book*`.
@@ -36,6 +41,8 @@ export interface BookNoticeDeps {
   members: () => ClubMember[]
   /** Admins and `bookReview` holders */
   reviewerIds: () => string[]
+  /** Whether the member turned off being told that a convention their profile plays was published */
+  mutesAdopted?: (userId: string) => boolean
   /** The Club replaces these after a backup is restored, so they are asked for each time */
   teams: () => TeamService
   profiles: () => ProfileService
@@ -112,7 +119,7 @@ export class BookNotices {
         (o) => o.slug === slug && (o.kind === 'row' || o.kind === 'section') && changed.has(o.sectionId),
       )
       if (!touched) {
-        plays.push(...members)
+        plays.push(...members.filter((userId) => !this.deps.mutesAdopted?.(userId)))
         continue
       }
       for (const userId of members)
@@ -167,6 +174,20 @@ export class BookNotices {
   async returned(actor: Me, draft: { slug: string; name: string; requestedBy?: string }) {
     const userId = draft.requestedBy ? this.idOf(draft.requestedBy) : undefined
     if (userId && userId !== actor.id) await this.deps.notify(userId, 'bookReturned', { slug: draft.slug, name: draft.name, username: actor.username })
+  }
+
+  // ── Articles' review (BridgeHall J4, e5-t07) ─────────────────────────────────────────────────
+
+  async articleReviewRequested(actor: Me, draft: { slug: string; title: string }) {
+    for (const userId of this.deps.reviewerIds())
+      if (userId !== actor.id)
+        await this.deps.notify(userId, 'articleReviewRequested', { slug: draft.slug, title: draft.title, username: actor.username })
+  }
+
+  /** Sent back or published: whoever sent it for review hears it */
+  async articleReviewed(actor: Me, kind: 'articleReturned' | 'articlePublished', draft: { slug: string; title: string; requestedBy?: string }) {
+    const userId = draft.requestedBy ? this.idOf(draft.requestedBy) : undefined
+    if (userId && userId !== actor.id) await this.deps.notify(userId, kind, { slug: draft.slug, title: draft.title, username: actor.username })
   }
 
   // ── 建議統一 (e2-t08) ─────────────────────────────────────────────────────────────────────

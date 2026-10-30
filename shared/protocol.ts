@@ -64,6 +64,12 @@ export interface Me extends PublicUser {
   applications?: number
   /** Whether the bell says when a friend comes online (e1-t24); the server always sets it, on unless turned off */
   friendOnlineNotice?: boolean
+  /**
+   * Whether the bell says a convention the member's team or partnership plays was published
+   * (BridgeHall F4, `bookPublished` for that reason only); the server always sets it, on unless
+   * turned off. Following, overrides, review and suggestions are told regardless
+   */
+  bookAdoptedNotice?: boolean
   /** The member's own profile (AC-1.5), to edit on "My account"; empty until they fill it in */
   profile?: Profile
   /**
@@ -646,6 +652,9 @@ export const NOTIFICATION_KINDS = [
   'bookReviewRequested',
   'bookReturned',
   'bookSuggestUnify',
+  'articleReviewRequested',
+  'articleReturned',
+  'articlePublished',
   'forumReply',
   'forumMention',
   'forumAnnouncement',
@@ -684,7 +693,10 @@ export interface Notification {
    * the reviewers; `bookReturned` { slug, name, username } to who sent it, from the reviewer who sent
    * it back; `bookSuggestUnify` { pairId, profileId, ref, slug, name, team, username } to both
    * partners when their team's captain suggests they drop an override (`ref`, as book-notices.ts
-   * `overrideRef`) and play the team's version. The forum's kinds (BridgeHall e11-t08;
+   * `overrideRef`) and play the team's version. The library's articles (BridgeHall J4, e5-t07), each
+   * { slug, title, username }: `articleReviewRequested` to the reviewers when an editor sends a
+   * draft for review, `articleReturned` to who sent it when a reviewer sends it back,
+   * `articlePublished` to who sent it when a reviewer publishes it. The forum's kinds (BridgeHall e11-t08;
    * worker/forum-notices.ts), each { postId, title, username } of the post (`title` is its title or
    * the start of its text) and who did it: `forumReply` (+ `commentId`) a comment on the member's
    * post or a reply to their comment; `forumMention` (+ `commentId` when in a comment) the member
