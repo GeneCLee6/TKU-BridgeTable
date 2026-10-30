@@ -5,6 +5,8 @@
  * The token only reaches `/api/book/builtin` (seeding, and reading back every built-in convention
  * to compare with the source) and `GET /api/book/search-index`; an admin's session reaches them
  * too. Without the secret, or with one shorter than SEED_TOKEN_MIN, no token is accepted (DEPLOY.md §4.9).
+ * The same check guards the export token (`BOOK_EXPORT_TOKEN`, BridgeHall L1, e8-t12), a different
+ * secret that only reaches `GET /api/book/export` (DEPLOY.md §4.10).
  */
 
 export const SEED_TOKEN_MIN = 32

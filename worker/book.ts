@@ -205,6 +205,43 @@ interface BuiltinHeader extends Header {
   meta: ConventionMeta
 }
 
+/**
+ * GET /api/book/export (BridgeHall L1, e8-t12): every convention as members read it, the online
+ * entries laid over the built-in layer, for BridgeHall's scheduled backup to a private repository
+ * (its scripts/export-content.ts writes the JSON and the `.ts` files). Only an admin's session or
+ * the export token (`BOOK_EXPORT_TOKEN`, worker/book-seed.ts) reaches it: it is the whole text.
+ */
+export interface BookExport {
+  /** Bumped when the shape changes */
+  format: 1
+  exportedAt: number
+  /** The online entries' version (`book:version`) and the built-in layer's (BuiltinInfo) */
+  version: number
+  builtinVersion: number
+  /**
+   * In catalogue order: the built-in conventions (each replaced by its online entry when it has
+   * one), then the conventions that exist only online, oldest first. Hidden ones are in `hidden`.
+   */
+  conventions: ExportedConvention[]
+  /** Conventions an online entry hides from the handbook */
+  hidden: { slug: string; builtin: boolean; online: ExportedOnline }[]
+  /** The categories as edited online; empty when they never were (BridgeHall's own are used) */
+  categories: BookCategory[]
+}
+
+export interface ExportedConvention {
+  slug: string
+  /** Which layer readers see: the built-in text, or an online entry over it (or with no built-in one) */
+  source: 'builtin' | 'online'
+  /** There is a built-in convention with this slug */
+  builtin: boolean
+  convention: Record<string, unknown>
+  /** The online entry, when `source` is online */
+  online?: ExportedOnline
+}
+
+export type ExportedOnline = Pick<BookEntry, 'version' | 'updatedAt' | 'updatedBy' | 'bundledUpdated'>
+
 export type RevisionAction = 'save' | 'hide' | 'reset'
 
 /** A saved version; the list leaves out `convention` */
@@ -747,6 +784,44 @@ export class BookService {
     await this.changed()
     await this.audit.record({ by, action: 'book:builtin', target: 'builtin', version: info.version })
     return { dryRun: false, version: info.version, conventions, order, searchIndex }
+  }
+
+  /** Every convention as members read it, for the backup (e8-t12; BookExport) */
+  async exportAll(): Promise<BookExport> {
+    const entries = await this.load()
+    const online = ({ version, updatedAt, updatedBy, bundledUpdated }: BookEntry): ExportedOnline => ({
+      version,
+      updatedAt,
+      updatedBy,
+      ...(bundledUpdated !== undefined && { bundledUpdated }),
+    })
+    const conventions: ExportedConvention[] = []
+    const hidden: BookExport['hidden'] = []
+    for (const slug of this.builtinHeaders.keys()) {
+      const entry = entries.get(slug)
+      if (entry?.convention === null) hidden.push({ slug, builtin: true, online: online(entry) })
+      else if (entry) conventions.push({ slug, source: 'online', builtin: true, convention: entry.convention, online: online(entry) })
+      else {
+        const json = await this.builtin(slug)
+        if (json !== undefined) conventions.push({ slug, source: 'builtin', builtin: true, convention: JSON.parse(json) })
+      }
+    }
+    const onlyOnline = [...entries.values()]
+      .filter((e) => !this.builtinHeaders.has(e.slug))
+      .sort((a, b) => a.createdAt - b.createdAt || a.slug.localeCompare(b.slug))
+    for (const entry of onlyOnline) {
+      if (entry.convention === null) hidden.push({ slug: entry.slug, builtin: false, online: online(entry) })
+      else conventions.push({ slug: entry.slug, source: 'online', builtin: false, convention: entry.convention, online: online(entry) })
+    }
+    return {
+      format: 1,
+      exportedAt: this.now(),
+      version: this.version,
+      builtinVersion: this.builtinInfo?.version ?? 0,
+      conventions,
+      hidden,
+      categories: this.categoryList,
+    }
   }
 
   /** Each article edited online: its version and who changed it last, for the robot's sync (e5-t45) */
