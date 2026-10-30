@@ -37,6 +37,8 @@ export interface TeamTableState {
   ruled?: number[]
   /** The host paused the match (`e8-t16`): since when. Nobody calls or plays, robots wait, nothing is dealt */
   pausedAt?: number
+  /** Watchers see the room one trick behind (`e8-t19`): the match's setting */
+  delay?: boolean
 }
 
 export const teamStateOf = (table: Table): TeamTableState | null =>
@@ -144,6 +146,7 @@ export function teamTable(input: {
     played: [],
     players,
     robotKind: kind,
+    ...(match.settings.delay && { delay: true }),
   }
   const here = players[room]
   return {

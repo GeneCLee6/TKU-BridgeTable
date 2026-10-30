@@ -106,7 +106,7 @@ export function ComparePage() {
   )
 }
 
-function SideBySide({ records }: { records: [BoardRecord, BoardRecord] }) {
+export function SideBySide({ records }: { records: [BoardRecord, BoardRecord] }) {
   const { t } = usePreferences()
   // One replay for both: each side shows as many of its own cards as it has (a claim ends early)
   const total = Math.max(...records.map((r) => r.board.play.length))

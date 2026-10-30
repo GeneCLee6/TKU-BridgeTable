@@ -106,10 +106,10 @@ import { PROFILE_ID } from './profiles.ts'
 import { FeaturedService } from './featured.ts'
 import { TeamMatchService, type MatchPlayAction } from './team-match-service.ts'
 import { ReplicaSync, type ReplicaDb } from './history-replica.ts'
-import type { RoomClock } from './team-match-flow.ts'
+import { isMatchPlayer, type RoomClock } from './team-match-flow.ts'
 import { TeamMatchStore } from './team-matches.ts'
 import { teamTable } from './team-mode.ts'
-import { ROOMS, type Room, type TeamMatchView } from '../shared/team-match.ts'
+import { ROOMS, VUGRAPH_CHAT_MAX, type MatchVugraph, type Room, type TeamMatchView, type VugraphRoom } from '../shared/team-match.ts'
 import {
   createHistoryIndex,
   eventBoards,
@@ -186,6 +186,7 @@ import {
   seatOccupants,
   listedForEveryone,
   tableListed,
+  vugraphChat,
   type Table,
 } from './views.ts'
 
@@ -2660,6 +2661,46 @@ export class ClubService {
   }
 
   /**
+   * The Vugraph page (`GET /api/matches/:id/vugraph`, `e8-t18`, `e8-t19`, AC-8.8): the match and
+   * its score, both rooms as a watcher sees them (one trick behind when the match says so) and the
+   * watchers' chat. Anyone who may see the match, except its players while it is set up or played
+   * (`matchNoWatching`): the club checks the seats, each table its own list of everyone who ever
+   * played there (a player substituted out too). Whoever looks while it is played is noted, and may
+   * not come in as a substitute (`matchWatching`)
+   */
+  async matchVugraph(userId: string, matchId: string): Promise<MatchVugraph> {
+    const stored = this.matches.store.get(matchId)
+    const match = stored && this.matches.get(matchId, userId)
+    if (!stored || !match) throw new ClubError('matchGone', {}, 404)
+    if ((stored.status === 'setup' || stored.status === 'playing') && isMatchPlayer(stored, userId))
+      throw new ClubError('matchNoWatching', {}, 403)
+    const rooms: Partial<Record<Room, VugraphRoom>> = {}
+    if (stored.status === 'playing') {
+      const tables = this.matchTables(matchId)
+      const found = await Promise.all(ROOMS.map((room) => (tables[room] ? this.tables.get(tables[room].id).vugraph(userId) : null)))
+      for (const [i, room] of ROOMS.entries()) if (found[i]) rooms[room] = found[i]
+      this.matches.store.watched(matchId, userId)
+    }
+    const blocked = new Set(this.blocks.of(userId))
+    const chat = vugraphChat(this.matches.store.chat(matchId), (id) => blocked.has(id), (id) => this.publicUserById(id))
+    return { match, rooms, chat }
+  }
+
+  /**
+   * Says something on the Vugraph page (`POST /api/matches/:id/vugraph/chat { text }`): only someone
+   * who may watch it (`matchVugraph`'s checks), only while it is played; trimmed, at most
+   * `VUGRAPH_CHAT_MAX`, the table chat's rate limit. Answers the page as they now see it
+   */
+  async matchVugraphChat(userId: string, matchId: string, text: unknown): Promise<MatchVugraph> {
+    if (!this.chatLimit.take(userId)) throw new ClubError('chatTooFast', {}, 429)
+    await this.matchVugraph(userId, matchId)
+    if (this.matches.store.get(matchId)?.status !== 'playing') throw new ClubError('matchNotPlaying')
+    const clean = typeof text === 'string' ? text.trim().slice(0, VUGRAPH_CHAT_MAX) : ''
+    if (clean) this.matches.store.addChat(matchId, { id: randomId(6), at: this.now(), userId, text: clean })
+    return this.matchVugraph(userId, matchId)
+  }
+
+  /**
    * The exceptions while a match is played (§5.8, `e8-t14`–`e8-t16`): the match's rules are checked
    * and written by `TeamMatchService`; the club tells the tables (`matchUpdate`) and pushes the match
    */
@@ -2690,7 +2731,9 @@ export class ClubService {
         // Someone watching the match has seen its boards: they may not come in (e11-t13)
         const newcomer = message.userId
         const watching = typeof newcomer === 'string' ? this.entryOf(newcomer) : undefined
-        if (watching?.match?.matchId === matchId && watching.spectators.includes(newcomer) && this.matches.get(matchId, userId))
+        // Nor someone who looked at it on the Vugraph page (e8-t18): they saw both rooms
+        const vugraph = typeof newcomer === 'string' && this.matches.store.hasWatched(matchId, newcomer)
+        if (((watching?.match?.matchId === matchId && watching.spectators.includes(newcomer)) || vugraph) && this.matches.get(matchId, userId))
           throw new ClubError('matchWatching', { name: this.users.get(newcomer)?.username ?? '' })
         const replaced = await this.matches.replace(userId, message)
         await this.leave(replaced.newcomer)

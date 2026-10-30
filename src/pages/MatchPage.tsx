@@ -476,13 +476,28 @@ export function MatchPage() {
                   {t.teamMatch.toTable}
                 </Button>
               ) : (
-                !mine &&
-                ROOMS.map((room) => (
-                  <Button key={room} as={Link} to={`/table/${m.tables![room]}`}>
-                    {t.teamMatch.watchRoom(t.teamMatch.rooms[room])}
-                  </Button>
-                ))
+                !mine && (
+                  <>
+                    {/* Both rooms side by side, with the score and the watchers' chat (e8-t18) */}
+                    <Button as={Link} to={`/matches/${encodeURIComponent(m.id)}/vugraph`} $variant="primary">
+                      {t.teamMatch.vugraph}
+                    </Button>
+                    {ROOMS.map((room) => (
+                      <Button key={room} as={Link} to={`/table/${m.tables![room]}`}>
+                        {t.teamMatch.watchRoom(t.teamMatch.rooms[room])}
+                      </Button>
+                    ))}
+                  </>
+                )
               )}
+            </Bar>
+          )}
+          {/* Every board both rooms played, side by side, one after another (e8-t20) */}
+          {m.boards.some((b) => b.open && b.closed) && (
+            <Bar>
+              <Button as={Link} to={`/matches/${encodeURIComponent(m.id)}/replay`}>
+                {t.teamMatch.replayAll}
+              </Button>
             </Bar>
           )}
           {m.boards.length > 0 && <BoardScores match={m} />}
@@ -759,6 +774,10 @@ function SettingsForm({
         <Check>
           <input type="checkbox" checked={draft.robots} onChange={(e) => set('robots', e.target.checked)} />
           {t.teamMatch.robots}
+        </Check>
+        <Check>
+          <input type="checkbox" checked={draft.delay} onChange={(e) => set('delay', e.target.checked)} />
+          {t.teamMatch.delay}
         </Check>
         <div>
           <Button type="submit" $variant="primary" disabled={busy}>

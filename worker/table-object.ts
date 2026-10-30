@@ -120,6 +120,9 @@ export class TableObject extends DurableObject<Env> implements TableRpc, TableSo
   matchUpdate(update: MatchTableUpdate) {
     return this.host.matchUpdate(update)
   }
+  vugraph(userId: string) {
+    return this.host.vugraph(userId)
+  }
   close() {
     return this.host.close()
   }
