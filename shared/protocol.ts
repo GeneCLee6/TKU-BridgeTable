@@ -57,6 +57,11 @@ export function withImpliedPermissions(permissions: readonly Permission[]): Perm
 
 /** The signed-in user, as /api/me returns it */
 export interface Me extends PublicUser {
+  /**
+   * The club the account belongs to (e12-t02, shared/clubs.ts); the server always sets it. Pages
+   * send it back as `X-Club-Id` so each request reaches that club's object
+   */
+  clubId?: string
   admin: boolean
   /** Everything for an admin */
   permissions: Permission[]

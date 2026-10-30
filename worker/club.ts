@@ -1,4 +1,5 @@
 import { DurableObject } from 'cloudflare:workers'
+import { clubIdOfObject, DEFAULT_CLUB_ID } from '../shared/clubs.ts'
 import { AppError } from '../shared/messages.ts'
 import type { ChallengeSettings } from '../shared/challenge.ts'
 import { parseHistoryQuery } from '../shared/history-query.ts'
@@ -189,6 +190,8 @@ export class Club extends DurableObject<Env> implements Connections {
       },
     })
     this.service = new ClubService(store, this, {
+      // One object per club (e12-t02): its name says which
+      clubId: clubIdOfObject(ctx.id.name) ?? DEFAULT_CLUB_ID,
       maxUsers: Number(env.MAX_USERS ?? 10),
       inviteCode: env.INVITE_CODE || undefined,
       // One alarm wakes the object for every robot move and deal, so it can hibernate in between

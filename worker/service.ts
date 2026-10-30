@@ -1,5 +1,6 @@
 import { secureRandomInt, type RandomInt } from '../shared/board.ts'
 import { isSeat, SEATS, type Seat } from '../shared/cards.ts'
+import { DEFAULT_CLUB_ID } from '../shared/clubs.ts'
 import { AppError, type MessageCode } from '../shared/messages.ts'
 import {
   CLUB_PROFILE_ID,
@@ -284,6 +285,8 @@ interface Outgoing {
 export const LOBBY_GAP_MS = 100
 
 export interface ClubConfig {
+  /** Which club this is (e12-t02, shared/clubs.ts); 淡江 when not given */
+  clubId?: string
   /** Defaults from the Worker environment; an admin can override them (ClubSettings) */
   maxUsers: number
   inviteCode?: string
@@ -1144,6 +1147,7 @@ export class ClubService {
 
   private me(user: StoredUser): Me {
     const me: Me = {
+      clubId: this.config.clubId ?? DEFAULT_CLUB_ID,
       id: user.id,
       username: user.username,
       admin: !!user.admin,

@@ -4,6 +4,7 @@ import type { Seat } from '../shared/cards.ts'
 import { MESSAGE_MAX_CHARS } from '../shared/message-guard.ts'
 import { TABLE_SOCKET_REFUSED, type BoardRecord, type RobotSpeed, type ServerMessage, type TableAction, type TableSettings } from '../shared/protocol.ts'
 import type { Env } from './club.ts'
+import { homeClubStub } from './clubs.ts'
 import { jsonLog, sampleActions } from './log.ts'
 import type { TableStats } from './metrics.ts'
 import type { EventReport } from './modes.ts'
@@ -35,7 +36,7 @@ export class TableObject extends DurableObject<Env> implements TableRpc, TableSo
     const storage = ctx.storage
     this.queue = new AlarmQueue(Date.now, (at) => void storage.setAlarm(at))
     // One stub, so the reports reach the club in the order they were made
-    const club = env.CLUB.get(env.CLUB.idFromName('club'))
+    const club = homeClubStub(env)
     const link: ClubLink = {
       changed: (entry) => club.tableChanged(entry),
       closed: (tableId) => club.tableClosed(tableId),

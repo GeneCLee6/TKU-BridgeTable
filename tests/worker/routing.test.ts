@@ -13,6 +13,7 @@ import { memorySql } from './sqlite.ts'
 /** The Worker's routing (`worker/index.ts`), with the Durable Objects faked (ARCHITECTURE.md §5.10) */
 
 let seen: { to: string; request: Request }[]
+let clubs: string[]
 let sessions: Map<string, string>
 let routes: Routes
 
@@ -25,9 +26,10 @@ const answer = (to: string) => ({
 
 beforeEach(() => {
   seen = []
+  clubs = []
   sessions = new Map([['good-token', 'amy']])
   routes = {
-    club: () => ({ ...answer('club'), socketUser: async (token) => (token && sessions.get(token)) ?? null }),
+    club: (clubId) => (clubs.push(clubId), { ...answer('club'), socketUser: async (token) => (token && sessions.get(token)) ?? null }),
     table: (tableId) => answer(`table:${tableId}`),
     assets: answer('assets'),
   }
@@ -42,6 +44,25 @@ describe('the Worker routing', () => {
     await route(upgrade('/ws'), routes)
     await route(new Request('https://example.org/table/abc'), routes)
     expect(seen.map((s) => s.to)).toEqual(['club', 'club', 'assets'])
+  })
+
+  it('sends a request without a club to 淡江, and turns away a club no one knows (e12-t02)', async () => {
+    await route(new Request('https://example.org/api/me'), routes)
+    await route(new Request('https://example.org/api/me', { headers: { 'X-Club-Id': 'tku' } }), routes)
+    await route(upgrade('/ws?club=tku'), routes)
+    expect(clubs).toEqual(['tku', 'tku', 'tku'])
+    for (const request of [
+      new Request('https://example.org/api/me', { headers: { 'X-Club-Id': 'ntu' } }),
+      upgrade('/ws?club=ntu'),
+      upgrade('/ws/table/abc123?club=ntu', { Cookie: 'tbt_session=good-token' }),
+    ]) {
+      const response = await route(request, routes)
+      expect(response.status).toBe(404)
+      expect(await response.json()).toMatchObject({ code: 'unknownClub' })
+    }
+    expect(seen.map((s) => s.to)).toEqual(['club', 'club', 'club'])
+    // The app itself is the same for every club
+    expect(await (await route(new Request('https://example.org/table/abc?club=ntu'), routes)).text()).toBe('assets')
   })
 
   it('forwards a table socket to its table with the member the session belongs to', async () => {
