@@ -700,3 +700,32 @@ describe('built-in conventions (BridgeHall L0)', () => {
     expect(await search.json()).toEqual(index)
   })
 })
+
+describe('the export for the backup (BridgeHall L1, e8-t12)', () => {
+  const index = { version: 1, records: [] }
+  const builtins = [convention('lebensohl'), convention('stayman', { nameZh: '史泰曼' }), convention('jacoby-2nt')]
+
+  it('lays the online entries over the built-in layer, keeps catalogue order and lists what is hidden', async () => {
+    expect(await book.exportAll()).toEqual({ format: 1, exportedAt: time, version: 0, builtinVersion: 0, conventions: [], hidden: [], categories: [] })
+    await book.seedBuiltin('seed-script', { conventions: builtins, searchIndex: index, dryRun: false })
+    await book.save(amy, 'stayman', { convention: convention('stayman', { summary: '線上版' }), baseVersion: 0, bundledUpdated: '2026-10-23' })
+    time += 10
+    await book.save(amy, 'new-one', { convention: convention('new-one'), baseVersion: 0 })
+    time += 10
+    await book.save(amy, 'another', { convention: convention('another'), baseVersion: 0 })
+    await book.hide(ben, 'jacoby-2nt', { baseVersion: 0 })
+
+    const exported = await new BookService(store, () => time).exportAll()
+    expect(exported).toMatchObject({ format: 1, exportedAt: time, version: 5, builtinVersion: 1, categories: [] })
+    expect(exported.conventions.map(({ slug, source, builtin }) => [slug, source, builtin])).toEqual([
+      ['lebensohl', 'builtin', true],
+      ['stayman', 'online', true],
+      ['new-one', 'online', false],
+      ['another', 'online', false],
+    ])
+    expect(exported.conventions[0]).toEqual({ slug: 'lebensohl', source: 'builtin', builtin: true, convention: builtins[0] })
+    expect(exported.conventions[1].convention).toMatchObject({ summary: '線上版' })
+    expect(exported.conventions[1].online).toEqual({ version: 1, updatedAt: 1_000_000, updatedBy: 'amy', bundledUpdated: '2026-10-23' })
+    expect(exported.hidden).toEqual([{ slug: 'jacoby-2nt', builtin: true, online: { version: 1, updatedAt: time, updatedBy: 'ben' } }])
+  })
+})

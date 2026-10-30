@@ -101,6 +101,10 @@ describe('roles (2026-10-25: admins manage everything, editors everything but ac
     expect(bookRouteNeed('PUT', '/builtin')).toBe('admin')
     expect(may(reviewer, bookRouteNeed('PUT', '/builtin'))).toBe(false)
     expect(bookRouteNeed('GET', '/builtin')).toBeNull()
+    // The backup's export (BridgeHall L1): admins, or the export token in club.ts
+    expect(bookRouteNeed('GET', '/export')).toBe('admin')
+    expect(may(reviewer, bookRouteNeed('GET', '/export'))).toBe(false)
+    expect(bookRouteNeed('PUT', '/export')).toBeNull()
   })
 
   it('brings editing with reviewing', () => {
