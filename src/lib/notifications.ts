@@ -46,6 +46,11 @@ export function notificationText(t: Strings, n: Notification): string {
       return t.notificationTexts[n.kind](name, String(n.params.name ?? n.params.slug ?? ''))
     case 'bookOverrideChanged':
       return t.notificationTexts.bookOverrideChanged(String(n.params.name ?? n.params.slug ?? ''), String(n.params.profile ?? ''))
+    case 'forumReply':
+    case 'forumMention':
+    case 'forumAnnouncement':
+    case 'forumPinned':
+      return t.notificationTexts[n.kind](name, String(n.params.title ?? ''))
   }
 }
 
@@ -59,7 +64,8 @@ export function notificationText(t: Strings, n: Notification): string {
  * TKU BridgeHall's e-books, where the largest files are (BridgeHall e5-t15); the handbook's news to
  * BridgeHall (e8-t10, e8-t11, e2-t08): a published convention to its page, a draft sent for review to
  * its review page, one sent back to its editor, an override to the profile's compare page (with
- * `?unify=` naming the override a captain suggests dropping)
+ * `?unify=` naming the override a captain suggests dropping); the forum's news to the post on
+ * BridgeHall (e11-t08), at the comment when there is one (`#comment-<id>`)
  */
 export function notificationLink(n: Notification): string {
   switch (n.kind) {
@@ -113,5 +119,12 @@ export function notificationLink(n: Notification): string {
       return n.params.profileId
         ? `${BOOK_SITE}/profiles/${encodeURIComponent(String(n.params.profileId))}/compare?unify=${encodeURIComponent(String(n.params.ref ?? ''))}`
         : BOOK_SITE
+    case 'forumReply':
+    case 'forumMention':
+    case 'forumAnnouncement':
+    case 'forumPinned':
+      return n.params.postId
+        ? `${BOOK_SITE}/forum/p/${encodeURIComponent(String(n.params.postId))}${n.params.commentId ? `#comment-${encodeURIComponent(String(n.params.commentId))}` : ''}`
+        : `${BOOK_SITE}/forum`
   }
 }

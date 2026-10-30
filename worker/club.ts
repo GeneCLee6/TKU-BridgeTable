@@ -22,7 +22,9 @@ import { FILES_PATH, FileService, readFileUpload } from './files.ts'
 import { adminRouteNeed, allows, articleReadRoute, bookRouteNeed, ebookReadRoute, clubRouteNeed, forumRouteNeed, requireNeed } from './roles.ts'
 import { type ArticleReader, ArticleService } from './articles.ts'
 import { type EbookReader, EbookService } from './ebooks.ts'
-import { ForumService } from './forum.ts'
+import { ForumService, postExcerpt } from './forum.ts'
+import { ForumNotices } from './forum-notices.ts'
+import type { AuditAction } from './audit.ts'
 import { robotMeaningsFor } from './system-spec.ts'
 import { QuizStore } from './quiz.ts'
 import { LearningStore } from './learning.ts'
@@ -148,6 +150,8 @@ export class Club extends DurableObject<Env> implements Connections {
   private readonly reading: ReadingStore
   /** TKU-BridgeHall's forum (E11) in the object's SQLite database; keeps nothing in memory but its rate limits */
   private readonly forum: ForumService
+  /** The forum's notifications (BridgeHall e11-t08); keeps nothing in memory */
+  private readonly forumNotices: ForumNotices
   /** The handbook's notifications and who follows which convention (BridgeHall e8-t10); keeps nothing in memory */
   private readonly notices: BookNotices
   private readonly store: Store
@@ -227,6 +231,10 @@ export class Club extends DurableObject<Env> implements Connections {
       members: () => this.service.memberDirectory(),
     })
     this.forum.createTables()
+    this.forumNotices = new ForumNotices({
+      notify: (id, kind, params) => this.service.notifications.notify(id, kind, params),
+      members: () => this.service.memberDirectory(),
+    })
     // Browsers send "ping" every few seconds to keep phone connections alive and to notice a dead
     // one quickly; the runtime answers without waking the object
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair('ping', 'pong'))
@@ -792,7 +800,11 @@ export class Club extends DurableObject<Env> implements Connections {
     throw new ClubError('noSuchApi', {}, 404)
   }
 
-  /** TKU-BridgeHall's forum (E11, e11-t06, e11-t07); members only. Who may use each route is in roles.ts */
+  /**
+   * TKU-BridgeHall's forum (E11, e11-t06, e11-t07); members only. Who may use each route is in
+   * roles.ts. New posts and comments, edits that name someone new and pins tell the members they
+   * are about (e11-t08, forum-notices.ts); what the officers do is in the audit log (e11-t09)
+   */
   private async forumApi(request: Request, url: URL, user: Me, body: () => Promise<Body>) {
     const path = url.pathname.slice('/api/forum'.length)
     const method = request.method
@@ -800,22 +812,54 @@ export class Club extends DurableObject<Env> implements Connections {
     if (!need) throw new ClubError('noSuchApi', {}, 404)
     requireNeed(user, need)
     const forum = this.forum
+    const notices = this.forumNotices
+    const audit = (action: AuditAction, target: string, note?: string) =>
+      this.tell(async () => {
+        await this.book.auditTrail.record({ by: user.username, action, target, note })
+      }, 'forumAudit')
+    const tell = (send: () => Promise<void>) => this.tell(send, 'forumNotice')
+    /** Whose a post or comment was, for the audit log */
+    const whose = (authorId: string, excerpt: string) => `${this.service.usernameOf(authorId) ?? authorId}：${excerpt}`
 
     if (path === '/boards') {
       if (method === 'GET') return json({ boards: forum.boards() })
-      return json({ board: forum.createBoard(await body()) })
+      const created = forum.createBoard(await body())
+      await audit('forum:board', created.id, created.name)
+      return json({ board: created })
     }
     if (path === '/latest') return json(forum.latest())
     if (path === '/feed') return json(forum.feed(Number(url.searchParams.get('page') ?? 1)))
+    if (path === '/reports') {
+      if (method === 'GET') return json({ reports: forum.reports(url.searchParams.get('status') === 'all' ? 'all' : 'open') })
+      return json({ report: forum.fileReport(user, await body()) })
+    }
+    const report = path.match(/^\/reports\/([\w-]+)$/)
+    if (report) {
+      const { report: handled, reported } = forum.decideReport(user, report[1], await body())
+      const what = reported.authorId ? whose(reported.authorId, reported.excerpt ?? '') : ''
+      const note = [what, `檢舉：${handled.reason}`].filter(Boolean).join('；')
+      if (handled.status === 'dismissed') await audit('forum:dismiss', reported.postId ?? handled.targetId, note)
+      else if (reported.postId)
+        await audit(handled.target === 'post' ? 'forum:removePost' : 'forum:removeComment', reported.postId, note)
+      return json({ report: handled })
+    }
     const posts = path.match(/^\/boards\/([\w-]+)\/posts$/)
     if (posts) {
       if (method === 'GET') return json(forum.boardPage(posts[1], Number(url.searchParams.get('page') ?? 1)))
-      return json({ post: forum.createPost(user, posts[1], await body()) })
+      const post = forum.createPost(user, posts[1], await body())
+      await tell(() => notices.posted(user, post, forum.board(post.boardId)))
+      return json({ post })
     }
     const board = path.match(/^\/boards\/([\w-]+)$/)
     if (board) {
-      if (method === 'PATCH') return json({ board: forum.updateBoard(board[1], await body()) })
+      if (method === 'PATCH') {
+        const changed = forum.updateBoard(board[1], await body())
+        await audit('forum:board', changed.id, changed.name)
+        return json({ board: changed })
+      }
+      const { name } = forum.board(board[1])
       forum.deleteBoard(board[1])
+      await audit('forum:boardDelete', board[1], name)
       return json({ ok: true })
     }
     const reaction = path.match(/^\/(posts|comments)\/([\w-]+)\/reaction$/)
@@ -827,21 +871,49 @@ export class Club extends DurableObject<Env> implements Connections {
     const postAction = path.match(/^\/posts\/([\w-]+)\/(pin|lock|comments)$/)
     if (postAction) {
       const [, id, action] = postAction
-      if (action === 'pin') return json({ post: forum.setPinned(id, await body()) })
-      if (action === 'lock') return json({ post: forum.setLocked(id, await body()) })
-      return json({ comment: forum.addComment(user, id, await body()) })
+      if (action === 'pin') {
+        const was = forum.post(id).pinned === true
+        const post = forum.setPinned(id, await body())
+        const now = post.pinned === true
+        if (was !== now) {
+          await audit(now ? 'forum:pin' : 'forum:unpin', id, postExcerpt(post))
+          if (now) await tell(() => notices.pinned(user, post))
+        }
+        return json({ post })
+      }
+      if (action === 'lock') {
+        const was = forum.post(id).locked === true
+        const post = forum.setLocked(id, await body())
+        if (was !== (post.locked === true)) await audit(post.locked ? 'forum:lock' : 'forum:unlock', id, postExcerpt(post))
+        return json({ post })
+      }
+      const comment = forum.addComment(user, id, await body())
+      await tell(() => notices.commented(user, forum.post(id), comment, comment.parentId ? forum.comment(comment.parentId) : undefined))
+      return json({ comment })
     }
     const post = path.match(/^\/posts\/([\w-]+)$/)
     if (post) {
       if (method === 'GET') return json(forum.thread(post[1]))
-      if (method === 'PATCH') return json({ post: forum.updatePost(user, post[1], await body()) })
+      const before = forum.post(post[1])
+      if (method === 'PATCH') {
+        const updated = forum.updatePost(user, post[1], await body())
+        await tell(() => notices.edited(user, updated, before.mentions ?? []))
+        return json({ post: updated })
+      }
       forum.deletePost(user, post[1])
+      if (before.authorId !== user.id) await audit('forum:removePost', post[1], whose(before.authorId, postExcerpt(before)))
       return json({ ok: true })
     }
     const comment = path.match(/^\/comments\/([\w-]+)$/)
     if (comment) {
-      if (method === 'PATCH') return json({ comment: forum.updateComment(user, comment[1], await body()) })
+      const before = forum.comment(comment[1])
+      if (method === 'PATCH') {
+        const updated = forum.updateComment(user, comment[1], await body())
+        await tell(() => notices.edited(user, forum.post(updated.postId), before.mentions ?? [], updated))
+        return json({ comment: updated })
+      }
       forum.deleteComment(user, comment[1])
+      if (before.authorId !== user.id) await audit('forum:removeComment', before.postId, whose(before.authorId, postExcerpt(before)))
       return json({ ok: true })
     }
     throw new ClubError('noSuchApi', {}, 404)
@@ -852,11 +924,11 @@ export class Club extends DurableObject<Env> implements Connections {
    * needs any member (since 2026-10-29). Who may use each route is in roles.ts.
    */
   /** Sends the handbook's notifications (e8-t10); what was saved stays saved when they fail */
-  private async tell(send: () => Promise<void>) {
+  private async tell(send: () => Promise<void>, where = 'bookNotice') {
     try {
       await send()
     } catch (error) {
-      jsonLog({ event: 'crash', where: 'bookNotice', error: error instanceof Error ? error.message : String(error) })
+      jsonLog({ event: 'crash', where, error: error instanceof Error ? error.message : String(error) })
     }
   }
 

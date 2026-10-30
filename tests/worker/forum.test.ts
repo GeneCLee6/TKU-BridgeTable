@@ -2,8 +2,8 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { BUILTIN_BOARDS, FORUM_LIMITS, type PostBlock } from '../../shared/forum.ts'
 import type { Me } from '../../shared/protocol.ts'
-import { ForumService, mentionsIn } from '../../worker/forum.ts'
-import { forumRouteNeed } from '../../worker/roles.ts'
+import { ForumService, mentionsIn, postExcerpt } from '../../worker/forum.ts'
+import { forumRouteNeed, moderatesForum } from '../../worker/roles.ts'
 import { memorySql } from './sqlite.ts'
 
 const me = (id: string, admin = false): Me => ({ id, username: `n${id}`, admin, permissions: [] })
@@ -325,13 +325,126 @@ describe('forum routes (roles.ts)', () => {
     expect(forumRouteNeed('GET', '/feed')).toBe('member')
     expect(forumRouteNeed('POST', '/feed')).toBeNull()
     expect(forumRouteNeed('PATCH', '/posts/abc')).toBe('member')
-    expect(forumRouteNeed('POST', '/posts/abc/pin')).toBe('admin')
-    expect(forumRouteNeed('POST', '/posts/abc/lock')).toBe('admin')
+    expect(forumRouteNeed('POST', '/posts/abc/pin')).toBe('forumModerate')
+    expect(forumRouteNeed('POST', '/posts/abc/lock')).toBe('forumModerate')
+    expect(forumRouteNeed('POST', '/reports')).toBe('member')
+    expect(forumRouteNeed('GET', '/reports')).toBe('forumModerate')
+    expect(forumRouteNeed('POST', '/reports/abc')).toBe('forumModerate')
+    expect(forumRouteNeed('DELETE', '/reports/abc')).toBeNull()
     expect(forumRouteNeed('POST', '/posts/abc/comments')).toBe('member')
     expect(forumRouteNeed('DELETE', '/comments/abc')).toBe('member')
     expect(forumRouteNeed('PUT', '/comments/abc/reaction')).toBe('member')
     expect(forumRouteNeed('GET', '/posts/abc/pin')).toBeNull()
     expect(forumRouteNeed('PUT', '/boards')).toBeNull()
     expect(forumRouteNeed('GET', '/nothing')).toBeNull()
+  })
+})
+
+describe('officers (e11-t09, AC-11.6)', () => {
+  const officer: Me = { ...me('ben'), permissions: ['forumModerate'] }
+
+  it('are the members with forumModerate, and every admin', () => {
+    expect(moderatesForum(officer)).toBe(true)
+    expect(moderatesForum(admin)).toBe(true)
+    expect(moderatesForum(amy)).toBe(false)
+    expect(moderatesForum({ ...amy, permissions: ['bookEdit', 'bookReview'] })).toBe(false)
+  })
+
+  it('post news, comment on a locked post and delete anyone’s post', () => {
+    expect(postAs(officer, 'news').boardId).toBe('news')
+    expect(() => postAs(amy, 'news')).toThrow(expect.objectContaining({ code: 'forumBoardOfficersOnly' }))
+    const post = postAs(amy)
+    forum.setLocked(post.id, { locked: true })
+    expect(forum.addComment(officer, post.id, { blocks: [para('可以')] }).authorId).toBe('ben')
+    forum.deletePost(officer, post.id)
+    expect(() => forum.post(post.id)).toThrow(expect.objectContaining({ code: 'postGone' }))
+  })
+
+  it('keeps the forum pages’ addresses from becoming boards', () => {
+    for (const id of ['new', 'p', 'manage', 'reports'])
+      expect(() => forum.createBoard({ id, name: 'x' })).toThrow(expect.objectContaining({ code: 'badContent' }))
+  })
+})
+
+describe('reports (e11-t09, AC-11.6)', () => {
+  it('a member files one about someone else’s post or comment, once while it is open', () => {
+    const post = postAs(amy, 'deals', '這副牌')
+    const report = forum.fileReport(ben, { target: 'post', targetId: post.id, reason: ' 廣告 ' })
+    expect(report).toEqual({
+      id: report.id,
+      target: 'post',
+      targetId: post.id,
+      reporterId: 'ben',
+      reason: '廣告',
+      createdAt: time,
+      status: 'open',
+    })
+    expect(forum.fileReport(ben, { target: 'post', targetId: post.id, reason: '人身攻擊' })).toMatchObject({ id: report.id, reason: '人身攻擊' })
+    expect(() => forum.fileReport(amy, { target: 'post', targetId: post.id, reason: 'x' })).toThrow(expect.objectContaining({ code: 'badContent' }))
+    expect(() => forum.fileReport(ben, { target: 'post', targetId: post.id, reason: ' ' })).toThrow(expect.objectContaining({ code: 'badContent' }))
+    expect(() => forum.fileReport(ben, { target: 'post', targetId: post.id, reason: 'x'.repeat(FORUM_LIMITS.reportReasonMax + 1) })).toThrow(
+      expect.objectContaining({ code: 'badContent' }),
+    )
+    expect(() => forum.fileReport(ben, { target: 'board', targetId: post.id, reason: 'x' })).toThrow(expect.objectContaining({ code: 'badContent' }))
+    expect(() => forum.fileReport(ben, { target: 'comment', targetId: 'none', reason: 'x' })).toThrow(expect.objectContaining({ code: 'commentGone' }))
+  })
+
+  it('lists the open ones newest first with what they report, and every one with all', () => {
+    const post = postAs(amy, 'deals', '一副很長很長的牌例，標題沒寫所以用前面的文字當作這篇貼文的名字，再多寫一些字讓它超過上限')
+    const comment = forum.addComment(ben, post.id, { blocks: [para('不好的留言')] })
+    time += 1
+    const first = forum.fileReport(ben, { target: 'post', targetId: post.id, reason: '一' })
+    time += 1
+    const second = forum.fileReport(amy, { target: 'comment', targetId: comment.id, reason: '二' })
+    const list = forum.reports()
+    expect(list.map((r) => r.report.id)).toEqual([second.id, first.id])
+    expect(list[0]).toMatchObject({ postId: post.id, authorId: 'ben', excerpt: '不好的留言' })
+    expect(list[1].excerpt).toBe(postExcerpt(post))
+    expect([...list[1].excerpt!].length).toBe(FORUM_LIMITS.excerptMax)
+    forum.decideReport(admin, first.id, { action: 'dismiss' })
+    expect(forum.reports().map((r) => r.report.id)).toEqual([second.id])
+    expect(forum.reports('all').map((r) => r.report.id)).toEqual([second.id, first.id])
+  })
+
+  it('an officer dismisses one, or removes what it reported, closing every open report of it', () => {
+    const post = postAs(amy)
+    const comment = forum.addComment(amy, post.id, { blocks: [para('留言')] })
+    const r1 = forum.fileReport(ben, { target: 'comment', targetId: comment.id, reason: '一' })
+    const r2 = forum.fileReport(admin, { target: 'comment', targetId: comment.id, reason: '二' })
+    time += 5
+    const { report, reported } = forum.decideReport(admin, r1.id, { action: 'remove' })
+    expect(report).toMatchObject({ status: 'removed', handledBy: 'boss', handledAt: time })
+    expect(reported).toEqual({ postId: post.id, authorId: 'amy', excerpt: '留言' })
+    expect(forum.report(r2.id).status).toBe('removed')
+    expect(() => forum.comment(comment.id)).toThrow(expect.objectContaining({ code: 'commentGone' }))
+    expect(() => forum.decideReport(admin, r1.id, { action: 'dismiss' })).toThrow(expect.objectContaining({ code: 'forumReportHandled' }))
+    expect(() => forum.decideReport(admin, 'nope', { action: 'dismiss' })).toThrow(expect.objectContaining({ code: 'forumReportGone' }))
+
+    const r3 = forum.fileReport(ben, { target: 'post', targetId: post.id, reason: '三' })
+    expect(() => forum.decideReport(admin, r3.id, { action: 'hide' })).toThrow(expect.objectContaining({ code: 'badContent' }))
+    expect(forum.decideReport(admin, r3.id, { action: 'dismiss' }).report.status).toBe('dismissed')
+    expect(forum.post(post.id).id).toBe(post.id)
+  })
+
+  it('closes as removed when the post goes, its comments’ too, and lists what is gone without a post', () => {
+    const post = postAs(amy)
+    const comment = forum.addComment(amy, post.id, { blocks: [para('留言')] })
+    const onPost = forum.fileReport(ben, { target: 'post', targetId: post.id, reason: '一' })
+    const onComment = forum.fileReport(ben, { target: 'comment', targetId: comment.id, reason: '二' })
+    forum.deletePost(amy, post.id)
+    expect(forum.report(onPost.id)).toMatchObject({ status: 'removed', handledBy: 'amy' })
+    expect(forum.report(onComment.id).status).toBe('removed')
+    expect(forum.reports('all').map((r) => r.postId)).toEqual([undefined, undefined])
+  })
+
+  it('lets a member have only so many open at once', () => {
+    for (let i = 0; i < FORUM_LIMITS.reportsOpenMax; i++) {
+      const post = postAs(amy, 'deals', `第 ${i} 篇`)
+      forum.fileReport(ben, { target: 'post', targetId: post.id, reason: 'x' })
+    }
+    const more = postAs(amy)
+    expect(() => forum.fileReport(ben, { target: 'post', targetId: more.id, reason: 'x' })).toThrow(
+      expect.objectContaining({ code: 'forumReportLimit', status: 409 }),
+    )
   })
 })

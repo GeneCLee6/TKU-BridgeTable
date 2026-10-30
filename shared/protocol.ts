@@ -40,9 +40,11 @@ export interface PublicUser {
  * (`bookReview`, BridgeHall e8-t01; a reviewer is always an editor too, `withImpliedPermissions`),
  * import Word or PDF files into it (`bookImport`), feature finished boards
  * (`boardCurate`, e4-t28), and seat TKB in the club's system (`tkuSystem`, 社長 2026-10-26: the
- * club's robot is private; everyone else's TKB is the 2/1 one). Admins have every permission.
+ * club's robot is private; everyone else's TKB is the 2/1 one), and be an officer (幹部) of
+ * BridgeHall's forum (`forumModerate`, e11-t09: post news, pin, lock, delete anyone's posts and
+ * comments, handle reports). Admins have every permission.
  */
-export const PERMISSIONS = ['bookEdit', 'bookReview', 'bookImport', 'boardCurate', 'tkuSystem'] as const
+export const PERMISSIONS = ['bookEdit', 'bookReview', 'bookImport', 'boardCurate', 'tkuSystem', 'forumModerate'] as const
 export type Permission = (typeof PERMISSIONS)[number]
 export const isPermission = (value: unknown): value is Permission => PERMISSIONS.includes(value as Permission)
 
@@ -644,6 +646,10 @@ export const NOTIFICATION_KINDS = [
   'bookReviewRequested',
   'bookReturned',
   'bookSuggestUnify',
+  'forumReply',
+  'forumMention',
+  'forumAnnouncement',
+  'forumPinned',
 ] as const
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number]
 
@@ -678,7 +684,12 @@ export interface Notification {
    * the reviewers; `bookReturned` { slug, name, username } to who sent it, from the reviewer who sent
    * it back; `bookSuggestUnify` { pairId, profileId, ref, slug, name, team, username } to both
    * partners when their team's captain suggests they drop an override (`ref`, as book-notices.ts
-   * `overrideRef`) and play the team's version
+   * `overrideRef`) and play the team's version. The forum's kinds (BridgeHall e11-t08;
+   * worker/forum-notices.ts), each { postId, title, username } of the post (`title` is its title or
+   * the start of its text) and who did it: `forumReply` (+ `commentId`) a comment on the member's
+   * post or a reply to their comment; `forumMention` (+ `commentId` when in a comment) the member
+   * was named with `@`; `forumAnnouncement` a new post on an officers-only board (the news), to
+   * every member; `forumPinned` an officer pinned the member's post
    */
   params: Record<string, string | number>
   read: boolean

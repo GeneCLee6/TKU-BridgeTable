@@ -22,6 +22,9 @@ import {
   type PostThread,
   type ReactionEmoji,
   type Reactions,
+  type Report,
+  type ReportItem,
+  type ReportStatus,
 } from '../shared/forum.ts'
 import type { ClubMember, Me } from '../shared/protocol.ts'
 import { TokenBuckets } from './rate-limit.ts'
@@ -39,7 +42,8 @@ import type { Sql, SqlValue } from './store.ts'
  *   (newest pin first) and is `Board.pinnedPostIds`; `comment_count` is kept with the comments
  * - `forum_comments`: one level deep, `parent_id` is always a top comment
  * - `forum_reactions`: one row per member and post or comment (one reaction each, AC-11.4)
- * - `forum_reports`: members' reports, for the officers (the API is e11-t09)
+ * - `forum_reports`: members' reports, for the officers (e11-t09); deleting what a report is about
+ *   closes it as `removed`
  *
  * Who may use each route is roles.ts `forumRouteNeed`; who may change a given post or comment, and
  * post on an officers-only board, is checked here (`moderatesForum`). Posting and commenting are
@@ -118,6 +122,8 @@ const BLOCK_LIMITS = {
 }
 
 const BOARD_ID = /^[a-z0-9][a-z0-9-]{0,19}$/
+/** BridgeHall's forum pages next to `/forum/:boardId` (e11-t17), so no board may take them */
+const RESERVED_BOARD_IDS = ['new', 'p', 'manage', 'reports']
 const REF_ID = /^[\w-]{1,64}$/
 const VULNERABILITIES = ['None', 'NS', 'EW', 'Both']
 
@@ -150,6 +156,18 @@ interface PostRow extends Record<string, SqlValue> {
   pinned_at: number | null
   locked: number
   comment_count: number
+}
+
+interface ReportRow extends Record<string, SqlValue> {
+  id: string
+  target: string
+  target_id: string
+  reporter_id: string
+  reason: string
+  created_at: number
+  status: string
+  handled_by: string | null
+  handled_at: number | null
 }
 
 interface CommentRow extends Record<string, SqlValue> {
@@ -212,6 +230,16 @@ export function mentionsIn(texts: readonly string[], members: readonly ClubMembe
     }
   }
   return found
+}
+
+/**
+ * What a post is called in a report or a notification (e11-t08, e11-t09): its title, else the start
+ * of its words, at most FORUM_LIMITS.excerptMax characters
+ */
+export function postExcerpt(post: { title?: string; blocks: readonly PostBlock[] }): string {
+  const words = post.title || post.blocks.flatMap(blockTexts).join(' ').replace(/\s+/g, ' ').trim()
+  const chars = [...words]
+  return chars.length > FORUM_LIMITS.excerptMax ? `${chars.slice(0, FORUM_LIMITS.excerptMax - 1).join('')}…` : words
 }
 
 // ── Blocks ───────────────────────────────────────────────────────────────────────────────────
@@ -407,6 +435,7 @@ export class ForumService {
     if (body.id !== undefined) {
       if (typeof body.id !== 'string' || !BOARD_ID.test(body.id)) return fail('板面代號只能用小寫英文、數字與 -，最多 20 字')
       id = body.id
+      if (RESERVED_BOARD_IDS.includes(id)) fail(`板面代號不能用 ${id}`)
       if (this.sql.exec('SELECT id FROM forum_boards WHERE id = ?', id).length) throw new ClubError('forumBoardExists', {}, 409)
     } else {
       do id = this.deps.newId()
@@ -565,6 +594,9 @@ export class ForumService {
         id,
       )
       this.sql.exec("DELETE FROM forum_reactions WHERE target = 'post' AND target_id = ?", id)
+      const comments = this.sql.exec<{ id: string }>('SELECT id FROM forum_comments WHERE post_id = ?', id).map((r) => r.id)
+      this.closeReports('comment', comments, 'removed', me.id)
+      this.closeReports('post', [id], 'removed', me.id)
       this.sql.exec('DELETE FROM forum_comments WHERE post_id = ?', id)
       this.sql.exec('DELETE FROM forum_posts WHERE id = ?', id)
     })
@@ -649,6 +681,7 @@ export class ForumService {
     if (row.author_id !== me.id && !moderatesForum(me)) throw new ClubError('notYours', {}, 403)
     this.sql.transaction(() => {
       const ids = [id, ...this.sql.exec<{ id: string }>('SELECT id FROM forum_comments WHERE parent_id = ?', id).map((r) => r.id)]
+      this.closeReports('comment', ids, 'removed', me.id)
       for (const gone of ids) {
         this.sql.exec("DELETE FROM forum_reactions WHERE target = 'comment' AND target_id = ?", gone)
         this.sql.exec('DELETE FROM forum_comments WHERE id = ?', gone)
@@ -682,6 +715,132 @@ export class ForumService {
     this.requireTarget(target, id)
     this.sql.exec('DELETE FROM forum_reactions WHERE target = ? AND target_id = ? AND user_id = ?', target, id, me.id)
     return this.reactionsOf(target, [id]).get(id) ?? {}
+  }
+
+  // ── Reports (e11-t09) ──────────────────────────────────────────────────────────────────────
+
+  /**
+   * A member reports someone else's post or comment to the officers. Reporting the same one again
+   * while the first is open changes its reason; a member has at most FORUM_LIMITS.reportsOpenMax open
+   */
+  fileReport(me: Me, body: unknown): Report {
+    if (!isObject(body)) return fail('不是一則檢舉')
+    const target = body.target
+    if (target !== 'post' && target !== 'comment') return fail('檢舉的對象（target）要是 post 或 comment')
+    if (typeof body.targetId !== 'string') return fail('檢舉要指出哪一篇貼文或留言（targetId）')
+    const targetId = body.targetId
+    const author = target === 'post' ? this.postRow(targetId).author_id : this.commentRow(targetId).author_id
+    if (author === me.id) fail('不能檢舉自己的貼文或留言')
+    const reason = text(body.reason, FORUM_LIMITS.reportReasonMax, '檢舉的原因')
+    const [open] = this.sql.exec<ReportRow>(
+      "SELECT * FROM forum_reports WHERE target = ? AND target_id = ? AND reporter_id = ? AND status = 'open'",
+      target,
+      targetId,
+      me.id,
+    )
+    if (open) {
+      this.sql.exec('UPDATE forum_reports SET reason = ? WHERE id = ?', reason, open.id)
+      return this.report(open.id)
+    }
+    const mine = this.sql.exec<{ n: number }>("SELECT COUNT(*) AS n FROM forum_reports WHERE reporter_id = ? AND status = 'open'", me.id)[0].n
+    if (mine >= FORUM_LIMITS.reportsOpenMax) throw new ClubError('forumReportLimit', { max: FORUM_LIMITS.reportsOpenMax }, 409)
+    let id: string
+    do id = this.deps.newId()
+    while (this.sql.exec('SELECT id FROM forum_reports WHERE id = ?', id).length)
+    this.sql.exec(
+      "INSERT INTO forum_reports (id, target, target_id, reporter_id, reason, created_at, status) VALUES (?, ?, ?, ?, ?, ?, 'open')",
+      id,
+      target,
+      targetId,
+      me.id,
+      reason,
+      this.deps.now(),
+    )
+    return this.report(id)
+  }
+
+  report(id: string): Report {
+    return this.toReport(this.reportRow(id))
+  }
+
+  /** The officers' list: open reports, or every report (`all`), newest first, with what each one reported */
+  reports(status: 'open' | 'all' = 'open'): ReportItem[] {
+    const rows =
+      status === 'all'
+        ? this.sql.exec<ReportRow>('SELECT * FROM forum_reports ORDER BY created_at DESC, rowid DESC LIMIT ?', FORUM_LIMITS.reportsShown)
+        : this.sql.exec<ReportRow>(
+            "SELECT * FROM forum_reports WHERE status = 'open' ORDER BY created_at DESC, rowid DESC LIMIT ?",
+            FORUM_LIMITS.reportsShown,
+          )
+    return rows.map((row) => ({ report: this.toReport(row), ...this.reported(row.target as ForumTarget, row.target_id) }))
+  }
+
+  /**
+   * An officer handles an open report: dismisses it, or removes what it reported. Either way every
+   * open report of the same post or comment closes with it. The answer also says what was reported,
+   * for the audit log.
+   */
+  decideReport(me: Me, id: string, body: unknown): { report: Report; reported: Omit<ReportItem, 'report'> } {
+    const row = this.reportRow(id)
+    if (row.status !== 'open') throw new ClubError('forumReportHandled', {}, 409)
+    const action = isObject(body) ? body.action : undefined
+    if (action !== 'dismiss' && action !== 'remove') return fail('處理方式（action）要是 dismiss 或 remove')
+    const target = row.target as ForumTarget
+    const reported = this.reported(target, row.target_id)
+    if (action === 'remove' && reported.postId) {
+      // As an officer: deleting closes this report and the others of it as removed
+      if (target === 'post') this.deletePost(me, row.target_id)
+      else this.deleteComment(me, row.target_id)
+    } else this.closeReports(target, [row.target_id], action === 'remove' ? 'removed' : 'dismissed', me.id)
+    return { report: this.report(id), reported }
+  }
+
+  /** What a report is about as it is now; nothing when it was deleted since */
+  private reported(target: ForumTarget, id: string): Omit<ReportItem, 'report'> {
+    const [comment] = target === 'comment' ? this.sql.exec<CommentRow>(`SELECT ${COMMENT_COLUMNS} FROM forum_comments WHERE id = ?`, id) : []
+    const postId = target === 'post' ? id : comment?.post_id
+    const [post] = postId ? this.sql.exec<PostRow>(`SELECT ${POST_COLUMNS} FROM forum_posts WHERE id = ?`, postId) : []
+    if (!post) return {}
+    if (target === 'post')
+      return {
+        postId: post.id,
+        authorId: post.author_id,
+        excerpt: postExcerpt({ title: post.title ?? undefined, blocks: JSON.parse(post.blocks) as PostBlock[] }),
+      }
+    return { postId: post.id, authorId: comment.author_id, excerpt: postExcerpt({ blocks: JSON.parse(comment.blocks) as PostBlock[] }) }
+  }
+
+  private closeReports(target: ForumTarget, ids: string[], status: Exclude<ReportStatus, 'open'>, by: string) {
+    for (const id of ids)
+      this.sql.exec(
+        "UPDATE forum_reports SET status = ?, handled_by = ?, handled_at = ? WHERE target = ? AND target_id = ? AND status = 'open'",
+        status,
+        by,
+        this.deps.now(),
+        target,
+        id,
+      )
+  }
+
+  private reportRow(id: string): ReportRow {
+    const [row] = id.length <= BLOCK_LIMITS.idMax ? this.sql.exec<ReportRow>('SELECT * FROM forum_reports WHERE id = ?', id) : []
+    if (!row) throw new ClubError('forumReportGone', {}, 404)
+    return row
+  }
+
+  private toReport(row: ReportRow): Report {
+    const report: Report = {
+      id: row.id,
+      target: row.target as ForumTarget,
+      targetId: row.target_id,
+      reporterId: row.reporter_id,
+      reason: row.reason,
+      createdAt: row.created_at,
+      status: row.status as ReportStatus,
+    }
+    if (row.handled_by) report.handledBy = row.handled_by
+    if (row.handled_at !== null) report.handledAt = row.handled_at
+    return report
   }
 
   // ── Helpers ────────────────────────────────────────────────────────────────────────────────
