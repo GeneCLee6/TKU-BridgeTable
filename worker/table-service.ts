@@ -627,6 +627,7 @@ export class TableService implements TableApi {
     }
     if (update.paused === true && state.pausedAt === undefined) state.pausedAt = this.now()
     if (update.paused === false && state.pausedAt !== undefined) this.resumeMatch(state.pausedAt)
+    if (update.segment) this.startSegment(update.segment)
     await this.save()
     return this.settled()
   }
@@ -1004,6 +1005,52 @@ export class TableService implements TableApi {
     table.seats[seat] = person.id
     if (!this.connections.onlineUserIds().includes(person.id)) this.awayFrom(person.id, this.now())
     this.touchTurn()
+  }
+
+  /**
+   * The next segment starts (`e8-t21`, 中場換位): the room takes on the seats as the captains left
+   * them. Whoever is no longer in one of its seats leaves the table (a pair that changed rooms sits
+   * at the other one now); a robot sitting in for a member who keeps their seat stays until they
+   * come back. Who is kept out of the other room starts afresh for the match's players (both rooms
+   * finished every board dealt so far); anyone who left the match stays out of both. The next board comes after the countdown (not while paused)
+   */
+  private startSegment(segment: NonNullable<MatchTableUpdate['segment']>) {
+    const table = this.table!
+    const state = teamStateOf(table)!
+    this.unswap()
+    // Whoever left the match (a substitute came in) stays kept out of both rooms, as before
+    const now = new Set([...segment.players.open, ...segment.players.closed])
+    const gone = [...state.players.open, ...state.players.closed].filter((id) => !now.has(id))
+    state.players = { open: [...new Set([...segment.players.open, ...gone])], closed: [...new Set([...segment.players.closed, ...gone])] }
+    state.upTo = Math.min(state.boards, Math.max(segment.last, state.upTo ?? 0))
+    const before = new Set(SEATS.flatMap((s) => [table.seats[s], table.substitutes?.[s]]).filter((id): id is string => !!id && !isRobotId(id)))
+    const after = new Set(SEATS.flatMap((s) => (segment.seats[s] ? [segment.seats[s]!.id] : [])))
+    for (const seat of SEATS) {
+      const person = segment.seats[seat]
+      const sittingIn = table.substitutes?.[seat]
+      if (person && (table.seats[seat] === person.id || sittingIn === person.id)) continue
+      if (table.undo?.seat === seat) table.undo = undefined
+      if (sittingIn) delete table.substitutes![seat]
+      if (!person) {
+        table.seats[seat] = robotId(state.robotKind, seat)
+        continue
+      }
+      table.spectators = table.spectators.filter((id) => id !== person.id)
+      this.welcome(person)
+      table.seats[seat] = person.id
+      if (!this.connections.onlineUserIds().includes(person.id)) this.awayFrom(person.id, this.now())
+    }
+    for (const id of before)
+      if (!after.has(id)) {
+        this.offlineSince.delete(id)
+        this.sent.delete(id)
+      }
+    this.checkHost()
+    this.touchTurn()
+    if (state.pausedAt !== undefined || !this.canDeal() || teamTableOver(table)) return
+    if (!table.board) return this.dealBoard()
+    table.dealAt = Math.max(table.dealAt ?? 0, this.now() + DEAL_COUNTDOWN_MS)
+    this.scheduleDeal()
   }
 
   /** Puts the board on the table away unrecorded (a ruling, or the match abandoned): nothing is on the table after */

@@ -87,6 +87,12 @@ export interface MatchTableUpdate {
   ruled?: number
   /** Paused (true) or going on (false) */
   paused?: boolean
+  /**
+   * The next segment starts (`e8-t21`): the room deals up to `last`, its four seats as the captains
+   * left them (null: a robot of the match's system), and `players` replaces who is kept out of the
+   * other room, since both rooms finished every board dealt so far
+   */
+  segment?: { last: number; seats: Record<Seat, Person | null>; players: Record<Room, string[]> }
 }
 
 /**

@@ -4,6 +4,8 @@ import {
   MATCH_SEATS,
   parseRulingReason,
   parseTeamMatchSettings,
+  segmentCount,
+  segmentRange,
   TEAM_MATCH_LIMITS,
   teamAt,
   type MatchSeat,
@@ -134,6 +136,23 @@ export function startMatch(match: TeamMatch, userId: string, online: (userId: st
 /** Whether a board is done: both rooms played it, or the host ruled on it (the ruling counts, §5.8) */
 const boardDone = (board: TeamMatchBoard | undefined) => !!board && ((!!board.open && !!board.closed) || !!board.ruling)
 
+/** The segment being played (`e8-t21`): 1 for a match without segments */
+export const currentSegment = (match: TeamMatch): number => match.segment ?? 1
+
+/**
+ * Where the match is once its boards are `boards`: every board done (`finished`), or every board
+ * of the segment being played done with another segment to come (`segmentDone`, `e8-t21`: both
+ * rooms stop and the match waits between segments)
+ */
+function progress(match: TeamMatch, boards: TeamMatchBoard[]): { finished: boolean; segmentDone: boolean } {
+  const done = (first: number, last: number) =>
+    Array.from({ length: last - first + 1 }, (_, i) => first + i).every((n) => boardDone(boards.find((b) => b.seq === n)))
+  const finished = done(1, match.settings.boards)
+  const segment = currentSegment(match)
+  const { first, last } = segmentRange(match.settings, segment)
+  return { finished, segmentDone: !finished && segment < segmentCount(match.settings) && done(first, last) }
+}
+
 /**
  * One room finished a board (`e8-t08`, `e8-t10`): null when it does not count — the match is not
  * being played, the board is not one of it, or that room already has a result there (each room
@@ -146,16 +165,13 @@ export function roomFinished(
   seq: number,
   room: 'open' | 'closed',
   result: RoomResult,
-): { complete: boolean; finished: boolean } | null {
+): { complete: boolean; finished: boolean; segmentDone: boolean } | null {
   if (match.status !== 'playing' || !Number.isInteger(seq) || seq < 1 || seq > match.settings.boards) return null
   const before = match.boards.find((b) => b.seq === seq)
   if (before?.[room]) return null
   const board: TeamMatchBoard = { ...before, seq, [room]: result }
   const boards = match.boards.filter((b) => b.seq !== seq).concat(board)
-  const finished = Array.from({ length: match.settings.boards }, (_, i) => i + 1).every((n) =>
-    boardDone(boards.find((b) => b.seq === n)),
-  )
-  return { complete: !!board.open && !!board.closed, finished }
+  return { complete: !!board.open && !!board.closed, ...progress(match, boards) }
 }
 
 // ── Exceptions while playing (e8-t14–e8-t16) ─────────────────────────────────────────────────
@@ -204,23 +220,38 @@ export function ruleBoard(
   return { seq, ruling: { kind: input.ruling as RulingKind, team: input.team as Team }, reason }
 }
 
-/** Whether every board of the match is done once `seq` is ruled on (`e8-t11`) */
-export function finishedWithRuling(match: TeamMatch, seq: number): boolean {
-  return Array.from({ length: match.settings.boards }, (_, i) => i + 1).every(
-    (n) => n === seq || boardDone(match.boards.find((b) => b.seq === n)),
-  )
+/** Whether every board of the match (`e8-t11`), or of the segment (`e8-t21`), is done once `seq` is ruled on */
+export function finishedWithRuling(match: TeamMatch, seq: number): { finished: boolean; segmentDone: boolean } {
+  const ruling: TeamMatchBoard['ruling'] = { kind: 'avg', team: 'A', reason: '', by: '', at: 0 }
+  const board: TeamMatchBoard = { ...match.boards.find((b) => b.seq === seq), seq, ruling }
+  return progress(match, match.boards.filter((b) => b.seq !== seq).concat(board))
 }
+
+/**
+ * The host starts the next segment (`e8-t21`, AC-8.9): only while the match waits between
+ * segments. Answers the segment and its boards; the seats are as the captains left them
+ */
+export function nextSegment(match: TeamMatch, userId: string): FlowError | { segment: number; first: number; last: number } {
+  const denied = hostWhilePlaying(match, userId)
+  if (denied) return denied
+  if (match.breakAt === undefined) return { error: 'matchNotBreak' }
+  const segment = currentSegment(match) + 1
+  return { segment, ...segmentRange(match.settings, segment) }
+}
+
+/** Whether the match is played and waits between segments (`e8-t21`) */
+export const betweenSegments = (match: TeamMatch) => match.status === 'playing' && match.breakAt !== undefined
 
 /** The host pauses or resumes both rooms (`e8-t16`); `changed` is false when it already is that way */
 export function pauseMatch(match: TeamMatch, userId: string, paused: boolean): FlowError | { changed: boolean } {
   return hostWhilePlaying(match, userId) ?? { changed: paused !== (match.pausedAt !== undefined) }
 }
 
-/** The host stops a match for good (`abandoned`, §5.8): it has to be paused first */
+/** The host stops a match for good (`abandoned`, §5.8): it has to be paused first (or between segments) */
 export function abandonMatch(match: TeamMatch, userId: string): FlowError | { ok: true } {
   const denied = hostWhilePlaying(match, userId)
   if (denied) return denied
-  if (match.pausedAt === undefined) return { error: 'matchPauseFirst' }
+  if (match.pausedAt === undefined && match.breakAt === undefined) return { error: 'matchPauseFirst' }
   return { ok: true }
 }
 
@@ -233,7 +264,8 @@ export function abandonMatch(match: TeamMatch, userId: string): FlowError | { ok
 export function replaceSeat(match: TeamMatch, userId: string, at: MatchSeat, newcomer: string, now: number): FlowError | SeatChange {
   if (match.status !== 'playing') return { error: 'matchNotPlaying' }
   if (arrangerOf(match, teamOf(at)) !== userId && match.hostId !== userId) return { error: 'matchNotCaptain' }
-  if (match.pausedAt === undefined) return { error: 'matchPauseFirst' }
+  // Paused, or between segments (`e8-t21`)
+  if (match.pausedAt === undefined && match.breakAt === undefined) return { error: 'matchPauseFirst' }
   if (seatAt(match, at).userId === match.hostId) return { error: 'matchHostStays' }
   if (newcomer === userId) return { error: 'notSelf' }
   if (isMatchPlayer(match, newcomer)) return { error: 'matchAlreadyIn' }
@@ -327,11 +359,12 @@ export function answerSeat(match: TeamMatch, userId: string, accept: boolean, no
 /**
  * A seat changes hands within a team (換座位): a seated member moves to an empty seat of their
  * team, or the team's captain swaps any two seats of it (`e8-t05`: captains arrange their team).
- * Seats never move between teams, since the team is the room and the direction
+ * Seats never move between teams, since the team is the room and the direction. Also between
+ * segments (`e8-t21`, 中場換位): a pair may change rooms (team A's North-South of the open room
+ * sits East-West in the closed one), which the tables take on when the next segment starts
  */
 export function moveSeat(match: TeamMatch, userId: string, from: MatchSeat, to: MatchSeat): FlowError | SeatChange {
-  const denied = beforeStart(match)
-  if (denied) return denied
+  if (match.status !== 'setup' && !betweenSegments(match)) return { error: 'matchStarted' }
   if (teamOf(from) !== teamOf(to)) return { error: 'matchOtherTeam' }
   const a = seatAt(match, from)
   const b = seatAt(match, to)

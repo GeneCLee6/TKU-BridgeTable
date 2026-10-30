@@ -1,5 +1,5 @@
 import type { Team } from '../../shared/team-scoring.ts'
-import { arrangerOf, type MatchSeat, type MatchSeatView, type TeamMatchView } from '../../shared/team-match.ts'
+import { arrangerOf, segmentCount, type MatchSeat, type MatchSeatView, type TeamMatchView } from '../../shared/team-match.ts'
 import type { Strings } from '../strings.ts'
 
 /** What the team match pages work out from a `TeamMatchView` (ARCHITECTURE.md §5.8) */
@@ -24,16 +24,20 @@ export const seatLabel = (t: Strings, s: MatchSeat) => t.teamMatch.seatLabel(t.t
 
 /** 8 副 · IMP · TKB（2/1） */
 export const matchSettingsLine = (t: Strings, m: TeamMatchView) =>
-  t.teamMatch.settingsLine(m.settings.boards, t.teamMatch.scorings[m.settings.scoring], t.robots[m.settings.robotKind])
+  t.teamMatch.settingsLine(m.settings.boards, t.teamMatch.scorings[m.settings.scoring], t.robots[m.settings.robotKind]) +
+  (m.settings.segmentBoards > 0 ? ` · ${t.teamMatch.segmentsLine(segmentCount(m.settings))}` : '')
+
+/** The match waits between segments (`e8-t21`): captains may change seats, the host starts the next */
+export const betweenSegments = (m: TeamMatchView) => m.status === 'playing' && m.breakAt !== undefined
 
 export const sameSeat = (a: MatchSeat, b: MatchSeat) => a.room === b.room && a.seat === b.seat
 
 /** The seat the member is invited to or sits in */
 export const mySeat = (m: TeamMatchView, userId: string) => m.seats.find((s) => s.userId === userId)
 
-/** Whether the member arranges this seat's team (`e8-t05`); the server checks it again */
+/** Whether the member arranges this seat's team (`e8-t05`; between segments too, `e8-t21`); the server checks it again */
 export const arranges = (m: TeamMatchView, userId: string, seat: MatchSeatView) =>
-  m.status === 'setup' && arrangerOf(m, seat.team) === userId
+  (m.status === 'setup' || betweenSegments(m)) && arrangerOf(m, seat.team) === userId
 
 /**
  * Robots in seats that do not match between the rooms (the open room's North against the closed

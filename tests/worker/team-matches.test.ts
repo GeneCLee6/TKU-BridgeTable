@@ -83,6 +83,13 @@ describe('team match store', () => {
 
     store.setRuling('m1', 3, null)
     expect(store.get('m1')!.boards[2]).toEqual({ seq: 3 })
+    // Segments (e8-t21): the break between two, then the next one
+    expect(store.get('m1')!.segment).toBeUndefined()
+    store.setBreak('m1', T0 + 60)
+    expect(store.get('m1')).toMatchObject({ breakAt: T0 + 60 })
+    store.setSegment('m1', 2)
+    expect(store.get('m1')).toMatchObject({ segment: 2 })
+    expect(store.get('m1')!.breakAt).toBeUndefined()
     store.setStatus('m1', 'finished', T0 + 99)
     expect(store.get('m1')).toMatchObject({ status: 'finished', endedAt: T0 + 99 })
   })

@@ -62,6 +62,10 @@ export interface TeamMatch {
   tables?: Record<Room, string>
   /** The host paused it (`e8-t16`): since when; absent while it runs */
   pausedAt?: number
+  /** The segment being played (`e8-t21`), 1-based; absent for the first (and a match without segments) */
+  segment?: number
+  /** Both rooms finished the segment and wait for the host to start the next (中場): since when */
+  breakAt?: number
   /** Always all eight, in `MATCH_SEATS` order */
   seats: TeamMatchSeat[]
   /** Only boards at least one room has finished or the host ruled on, by `seq` */
@@ -82,7 +86,9 @@ const SCHEMA = [
     deals TEXT,
     open_table TEXT,
     closed_table TEXT,
-    paused_at INTEGER
+    paused_at INTEGER,
+    segment INTEGER,
+    break_at INTEGER
   )`,
   'CREATE INDEX IF NOT EXISTS matches_by_status ON matches (status, created_at)',
   `CREATE TABLE IF NOT EXISTS match_seats (
@@ -157,6 +163,8 @@ interface MatchRow extends Record<string, SqlValue> {
   open_table: string | null
   closed_table: string | null
   paused_at: number | null
+  segment: number | null
+  break_at: number | null
 }
 
 interface SeatRow extends Record<string, SqlValue> {
@@ -202,6 +210,8 @@ function roomResult(boardId: string | null, scoreNS: number | null, at: number |
 /** Columns added after the tables were first made (F5): tables made before get them on load */
 const ADDED_COLUMNS: { table: string; column: string; type: string }[] = [
   { table: 'matches', column: 'paused_at', type: 'INTEGER' },
+  { table: 'matches', column: 'segment', type: 'INTEGER' },
+  { table: 'matches', column: 'break_at', type: 'INTEGER' },
   { table: 'match_boards', column: 'open_lead', type: 'TEXT' },
   { table: 'match_boards', column: 'closed_lead', type: 'TEXT' },
 ]
@@ -328,6 +338,8 @@ export class TeamMatchStore {
       ...(deals && { deals }),
       ...(row.open_table !== null && row.closed_table !== null && { tables: { open: row.open_table, closed: row.closed_table } }),
       ...optional('pausedAt', row.paused_at),
+      ...(row.segment !== null && row.segment > 1 && { segment: row.segment }),
+      ...optional('breakAt', row.break_at),
       seats,
       boards,
     }
@@ -385,6 +397,16 @@ export class TeamMatchStore {
   /** Pauses (`at`) or resumes (null) a match being played (`e8-t16`) */
   setPaused(id: string, at: number | null) {
     this.sql.exec('UPDATE matches SET paused_at = ? WHERE match_id = ?', at, id)
+  }
+
+  /** Both rooms finished the segment (`e8-t21`): the match waits between segments from `at` */
+  setBreak(id: string, at: number) {
+    this.sql.exec('UPDATE matches SET break_at = ? WHERE match_id = ?', at, id)
+  }
+
+  /** The host starts the next segment (`e8-t21`): the break is over */
+  setSegment(id: string, segment: number) {
+    this.sql.exec('UPDATE matches SET segment = ?, break_at = NULL WHERE match_id = ?', segment, id)
   }
 
   /** The host changes (`e8-t16`: the host's account was deleted while the match is played) */

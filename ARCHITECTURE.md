@@ -181,11 +181,11 @@ interface BoardState {
 
 | 誰 | 準備中（`setup`） | 比賽中（`playing`） | 結束（`finished`／`abandoned`） | 取消（`cancelled`） |
 | --- | --- | --- | --- | --- |
-| 房主、被邀請或已入座的人（「參賽者」） | 設定、8 個座位與狀態 | 同左，加**兩室都打完（或已裁定）**的每一副：兩室的南北分數、牌局 id、合約、莊家墩數、首攻、裁定與理由、各隊得分與總分；只打完一室的那一副不顯示；座位標「機器人代打中」（`substitute`）、暫停中（`pausedAt`）。**只有房主**另有兩室各在第幾副、何時超時（`rooms`，裁定用，`e8-t15`） | 全部 | 設定與座位 |
+| 房主、被邀請或已入座的人（「參賽者」） | 設定、8 個座位與狀態 | 同左，加**兩室都打完（或已裁定）**的每一副：兩室的南北分數、牌局 id、合約、莊家墩數、首攻、裁定與理由、各隊得分與總分；只打完一室的那一副不顯示；座位標「機器人代打中」（`substitute`）、暫停中（`pausedAt`）、分段時第幾段與段與段之間（`segment`、`breakAt`，`e8-t21`；段與段之間換的座位立刻看得到）。**只有房主**另有兩室各在第幾副、何時超時（`rooms`，裁定用，`e8-t15`） | 全部 | 設定與座位 |
 | 其他社員 | 404 | 同參賽者（觀看者本來就能看兩桌） | 全部 | 404 |
 
 牌桌層（`e8-t09`，F4 已實作，測試在 `tests/worker/team-match-play.test.ts` 與 `table-objects.test.ts` 的「a team match in two table objects」，E11 的 `e11-t13` 從這裡擴充）：
-- **另一室**：參賽者（比賽中有座位的社員，兩室都算，隊友也一樣；F5 起含替補上場的人與被替補下場的人，`TeamTableState.players` 只增不減）不能 `joinTable`／`sit` 另一室的牌桌，錯誤 `matchOtherRoom`。**自己那一室也不能觀看**（`matchNoWatching`）：機器人代打中的參賽者 `joinTable` 自己那一室就是回到座位（`e8-t14`），不會變成看得到四家的觀看者；被替補下場的人兩室都不能看。社團先用目錄與比賽的座位檢查一次（`checkNotInMatch`），牌桌再用自己的快照檢查一次（`TeamTableState.players`，`TableService.otherRoom`），所以繞過社團直接呼叫牌桌也進不去；桌的連線（§5.10）只收在桌上的人，另一室的參賽者連過去會被 4004 關掉。
+- **另一室**：參賽者（比賽中有座位的社員，兩室都算，隊友也一樣；F5 起含替補上場的人與被替補下場的人，`TeamTableState.players` 只增不減；分段比賽在下一段開始時換成新的座位，中場換到另一室的人只能進新的那一室，被替補下場的人仍兩室都不能進，`e8-t21`）不能 `joinTable`／`sit` 另一室的牌桌，錯誤 `matchOtherRoom`。**自己那一室也不能觀看**（`matchNoWatching`）：機器人代打中的參賽者 `joinTable` 自己那一室就是回到座位（`e8-t14`），不會變成看得到四家的觀看者；被替補下場的人兩室都不能看。社團先用目錄與比賽的座位檢查一次（`checkNotInMatch`），牌桌再用自己的快照檢查一次（`TeamTableState.players`，`TableService.otherRoom`），所以繞過社團直接呼叫牌桌也進不去；桌的連線（§5.10）只收在桌上的人，另一室的參賽者連過去會被 4004 關掉。
 - **別桌**：比賽中的參賽者不能開桌、坐到或觀看別桌、快速入座、開始挑戰（`inMatch`）；離開牌桌頁面（`leaveTable`）不會離座，座位一直留到比賽結束（斷線照 F1 的代打）。
 - **座位**：比賽桌的座位由比賽決定：`sit`、`stand`、`kick`、`addRobot`、`removeRobot`、`replaceWithRobot`、`updateTableSettings` 都是 `matchTableFixed`；不能撤回（`matchNoUndo`，`BoardView.canUndo` 一律 false）。
 - **大廳**：比賽桌不列在大廳的牌桌（`tables`），也不算在社員列表的「在哪一桌」；改列在 `LobbyView.matches`（進行中的比賽、兩室的桌 id），`/matches` 頁的「進行中的比賽」從這裡來。
@@ -681,7 +681,9 @@ match（matches 一列）
 | `setup` | `playing` | 房主按開始（`e8-t07`），而且 `matchReady`：8 個座位都 `seated`（真人接受了或機器人）、設定允許才有機器人、每位真人都在線。開始時發 `DealSet`、開兩張牌桌、寫 `started_at` |
 | `setup` | `cancelled` | 房主取消（開始前才能）；或房主的帳號被刪除 |
 | `playing` | `finished` | 每一副兩室都打完或已裁定（`e8-t11`） |
-| `playing` | `abandoned` | 房主中止（中止前要先暫停，`matchPauseFirst`，`e8-t16`）；已有結果的副照算，結果頁標「已中止」 |
+| `playing` | `abandoned` | 房主中止（中止前要先暫停或在段與段之間，`matchPauseFirst`，`e8-t16`）；已有結果的副照算，結果頁標「已中止」 |
+
+分段（`e8-t21`）不是新的狀態：`playing` 之內記「現在第幾段」（`matches.segment`，第 1 段不存）與「段與段之間」（`matches.break_at`），見下面的「分段與中場換位」。
 
 PRD 的 `ready` **不存**：能不能開始由座位與「誰在線」算出（`matchReady`，回傳不能開始的原因 `seats`／`robots`／`offline` 給準備室的按鈕，`e8-t06`），因為在線狀態不存。`finished`、`cancelled`、`abandoned` 之後不再改動（`isOpenMatch`）。
 
@@ -697,6 +699,7 @@ PRD 的 `ready` **不存**：能不能開始由座位與「誰在線」算出（
 | `robotKind` | `tku`／`gib`：整場所有機器人用同一種制度，兩室面對同一個機器人；`tku` 要房主有 `tkuSystem`（§5.1.2） | `gib`（同挑戰） |
 | `invite` | `direct`（房主邀請到指定座位）／`captains`（隊長制） | `direct` |
 | `delay` | 觀看者落後一墩（`e8-t19`，§4）；之前存的比賽沒有這一欄，讀出來是預設值 | `false` |
+| `segmentBoards` | 0（不分段）或 2 到副數減 1：每段幾副（`e8-t21`，見下面的「分段與中場換位」）；之前存的比賽讀成 0 | `0` |
 
 PRD 寫的「機器人等級」不做：機器人只有一個 TKB、沒有等級（CLAUDE.md 規則 6），送 `robotLevel` 會被當成不認得的欄位拒絕。
 
@@ -763,6 +766,8 @@ PRD 寫的「機器人等級」不做：機器人只有一個 TKB、沒有等級
 | `match_chat`（J5a） | `match_id`、`id`、`at`、`user_id`、`text`（主鍵 `match_id, at, id`）：觀賽頁的觀看者聊天，每場留最近 100 句（`MATCH_CHAT_KEEP`） | — |
 | `match_watchers`（J5a） | `match_id`、`user_id`（主鍵兩欄）：比賽中開過觀賽頁的社員，不能替補上場 | — |
 
+`matches` 另有 V1 加的 `segment`、`break_at`（分段，`e8-t21`，`ADDED_COLUMNS`）。
+
 - 每副一列（不是每室一列）：一副的兩室結果與裁定放在一起，結果頁的逐副比較只讀一列；第一室打完或第一次裁定時才建立。
 - 建立時一次寫好 8 列座位，之後只改不增減，所以「8 個座位都在」不必另外檢查。
 - 和挑戰一樣不放記憶體快取，每次讀 SQL；表是新的，載入時 `CREATE TABLE IF NOT EXISTS`，沒有舊資料要搬，`meta:schema` 不變。之後加欄位用 `PRAGMA table_info` 檢查、`ALTER TABLE ADD COLUMN`，同挑戰的 `reminded_at`：F5 的 `paused_at`、`open_lead`、`closed_lead` 就是這樣加的（`TeamMatchStore.createTables` 的 `ADDED_COLUMNS`）。
@@ -771,7 +776,7 @@ PRD 寫的「機器人等級」不做：機器人只有一個 TKB、沒有等級
 
 **刪除帳號**（`TeamMatchStore.forget`）：他主辦、還在準備的比賽 `cancelled`；別人的準備中比賽，他的座位清成空位（是 B 隊隊長就拿掉隊長）；比賽中的座位改成機器人代打，他打過的副照算；已結束的比賽保留他（名字顯示為已刪除的社員）。比賽中刪掉的是房主時，房主交給 A 隊第一位入座的真人，沒有就是 B 隊隊長，再沒有就是任何一位入座的真人（`setHost`，F5）；一個都沒有時機器人照打完，沒有房主。
 
-**M2／E11**：拆分後每場比賽是一個 `Event` Durable Object（同挑戰），三張表原樣搬進去；VP（`e8-t22`）供 E9 的多隊賽用；分段（`e8-t21`）在 `match_boards` 不變的情況下加 `segments` 設定與每段的座位紀錄。
+**M2／E11**：拆分後每場比賽是一個 `Event` Durable Object（同挑戰），三張表原樣搬進去；VP（`e8-t22`）供 E9 的多隊賽用；分段（`e8-t21`）見下，`match_boards` 不變。
 
 **各批做什麼**：
 
@@ -782,7 +787,19 @@ PRD 寫的「機器人等級」不做：機器人只有一個 TKB、沒有等級
 | F4（已完成） | 開始（`team` 牌桌、共用 `DealSet`）、兩桌推進、牌桌層的資訊隔離、即時比分、結束與通知、比賽牌局進紀錄（`mode=team`、`event_id`、E4 篩選「隊制賽」） |
 | F5（已完成） | 結果頁、斷線代打、超時裁定、暫停／繼續／同隊替補、中止、端對端測試；E11 的資訊隔離回歸測試（`e11-t13`） |
 | J5a（已完成） | 觀賽頁（Vugraph）、觀看延遲、賽後整場重播、VP（`e8-t18`～`e8-t20`、`e8-t22`，見下） |
-| J5b | 分段與中場換位、替補，比分延續（`e8-t21`） |
+| V1（原 J5b，已完成） | 分段與中場換位、替補，比分延續（`e8-t21`，見下） |
+
+**分段與中場換位**（V1，`e8-t21`，AC-8.9）：
+- **設定**：`segmentBoards`＝每段幾副，0 是不分段（預設；之前存的比賽讀成 0，照舊一口氣打完）。至少 2 副、要少於整場副數（否則 `badMatchSettings { field: 'segmentBoards' }`）；最後一段可以比較短（10 副每段 4 副＝4、4、2）。改副數時沒一起改分段、原本的分段又不再少於副數，就改回不分段。`segmentCount`、`segmentOf`、`segmentRange`（`shared/team-match.ts`）。
+- **牌桌**：開桌時 `TeamTableState.segmentBoards` 與 `upTo`（這一段最後一副）；`nextTeamSeq` 不超過 `upTo`，所以一室打完這一段就停在最後一副的結果（`TableMatch.over`），像打完整場一樣等另一室。`TableMatch.segment { n, of }` 給牌桌上方的比分條顯示「第 n / m 段」，這一段打完時寫「等房主開始下一段」。
+- **段與段之間**：每副結算時（或裁定讓這一段都完成時）若這一段兩室都完成而且還有下一段，寫 `break_at`（`roomFinished`／`finishedWithRuling` 的 `segmentDone`）。這時：
+  - 隊長（`arrangerOf`）可以換自己隊的座位（`matchMove`，平常只在準備中）：座位的隊伍由房間與方位決定，所以「A 隊開室南北那一對換到閉室東西」就是交換兩個座位；換座位只寫比賽的座位，**牌桌在下一段開始時才換人**。
+  - 房主或隊長可以替補（`matchReplace`），不必先暫停；替補照舊立刻換到牌桌上。
+  - 房主可以中止（不必先暫停）；暫停照常可用。
+  - 開始下一段：socket `matchNextSegment { matchId }` 或 `POST /api/matches/:id/next`，只有房主（`matchHostOnly`）、只在段與段之間（`matchNotBreak`）。寫 `segment`、清 `break_at`，社團把兩室各自的四個座位（社員或比賽制度的機器人）交給牌桌（`matchUpdate.segment { last, seats, players }`）。牌桌（`TableService.startSegment`）先把當莊換過去的座位換回來，照新的座位入座、不在這一室的人離桌（瀏覽器的 `MatchBanner` 看到自己的座位在另一室就自動轉過去）；機器人代打中、座位沒變的人照舊代打。`upTo` 改成新一段的最後一副，倒數後發下一副（暫停中就等繼續）。
+- **另一室的限制**：下一段開始時兩室都打完了之前發的每一副，所以 `TeamTableState.players` 換成新的座位（換到另一室的人只能進新的那一室）；被替補下場、已經不在比賽裡的人兩室都還是進不去（同 F5）。
+- **比分延續**：比分本來就是整場每一副加總，分段不影響；比賽頁的逐副結果在每一段最後一副後面加「第 n 段小計」。VP 用整場的副數與總 IMP。整場重播、觀賽頁照舊（觀賽頁多顯示第幾段與段與段之間）。
+- **座位公開**：段與段之間誰換到哪裡和準備室一樣，看得到比賽的人都看得到（沒有「雙方各自交排陣、同時公開」）。
 
 **觀賽、延遲、整場重播與 VP**（J5a，`e8-t18`～`e8-t20`、`e8-t22`，2026-10-30 已實作）：誰看得到什麼在 §4（「牌桌層」下的觀賽頁、觀看者聊天、觀看延遲）。
 - **觀賽頁**（`/matches/:id/vugraph`，`VugraphPage`）：兩室並排（`RecordDiagram` 畫四家，`vugraphRecord` 把每一手「現在手上的＋打過的」拼回原來的 13 張，只用伺服器送來的牌）、叫牌、合約與兩方墩數、比分條（含 VP）、觀看者聊天。**每 3 秒問一次**（`VUGRAPH_POLL_MS`，分頁在背景時不問，比賽不在進行就停）：觀看者不在牌桌上，牌桌的推送到不了他；每次請求由社團向兩桌各發一次 RPC（`TableApi.vugraph`），不改任何狀態。之後觀看者多了再改成推送（每桌一份觀賽畫面，所有觀看者共用）。比賽頁給非參賽者「觀賽（Vugraph）」按鈕，原本的「觀看開室／閉室」（坐到牌桌上當觀看者）保留。

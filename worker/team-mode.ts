@@ -1,7 +1,7 @@
 import { dealSourceOf, type DealSet } from '../shared/deal-set.ts'
 import { dealFrom } from '../shared/deal-source.ts'
 import { robotId, type RobotKind, type RobotSpeed, type TableMatch } from '../shared/protocol.ts'
-import { ROOMS, type Room } from '../shared/team-match.ts'
+import { ROOMS, segmentCount, segmentOf, segmentRange, type Room } from '../shared/team-match.ts'
 import { openingLead } from '../shared/traveller.ts'
 import type { EventReport, TableModeHooks } from './modes.ts'
 import type { TeamMatch } from './team-matches.ts'
@@ -39,6 +39,12 @@ export interface TeamTableState {
   pausedAt?: number
   /** Watchers see the room one trick behind (`e8-t19`): the match's setting */
   delay?: boolean
+  /**
+   * A match in segments (`e8-t21`): boards per segment, and the last board this room may deal
+   * until the host starts the next segment. Absent for a match in one go (and tables from before)
+   */
+  segmentBoards?: number
+  upTo?: number
 }
 
 export const teamStateOf = (table: Table): TeamTableState | null =>
@@ -53,14 +59,17 @@ export const HELD_BACK = 8_640_000_000_000_000
 
 /** The next place in the match this room has not played (nor the host ruled on), or null once there is none */
 export function nextTeamSeq(state: TeamTableState): number | null {
-  for (let seq = 1; seq <= state.boards; seq++) if (!state.played.includes(seq) && !state.ruled?.includes(seq)) return seq
+  for (let seq = 1; seq <= Math.min(state.boards, state.upTo ?? state.boards); seq++) if (!state.played.includes(seq) && !state.ruled?.includes(seq)) return seq
   return null
 }
 
 /** Whether the table's team match is paused (`e8-t16`) */
 export const teamPaused = (table: Table): boolean => teamStateOf(table)?.pausedAt !== undefined
 
-/** Whether a room has nothing left to play: the match ended, or it played every board and the last one is over */
+/**
+ * Whether a room has nothing left to play: the match ended, or it played every board (of the
+ * segment, `e8-t21`) and the last one is over
+ */
 export function teamTableOver(table: Table): boolean {
   const state = teamStateOf(table)
   if (!state) return false
@@ -81,6 +90,12 @@ export function tableMatch(table: Table): TableMatch | undefined {
     over: teamTableOver(table),
     ...(state.pausedAt !== undefined && { paused: true }),
     ...(state.ruled?.length && { ruled: [...state.ruled] }),
+    ...(state.segmentBoards && {
+      segment: {
+        n: segmentOf({ boards: state.boards, segmentBoards: state.segmentBoards }, state.upTo ?? state.boards),
+        of: segmentCount({ boards: state.boards, segmentBoards: state.segmentBoards }),
+      },
+    }),
   }
 }
 
@@ -147,6 +162,11 @@ export function teamTable(input: {
     players,
     robotKind: kind,
     ...(match.settings.delay && { delay: true }),
+    // Played in segments (`e8-t21`): the first segment's boards, then the room waits
+    ...(match.settings.segmentBoards > 0 && {
+      segmentBoards: match.settings.segmentBoards,
+      upTo: segmentRange(match.settings, 1).last,
+    }),
   }
   const here = players[room]
   return {

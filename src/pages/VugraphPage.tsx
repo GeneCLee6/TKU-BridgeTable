@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import styled from 'styled-components'
-import { ROOMS, VUGRAPH_CHAT_MAX, type MatchVugraph, type Room, type VugraphRoom } from '../../shared/team-match.ts'
+import { ROOMS, segmentCount, VUGRAPH_CHAT_MAX, type MatchVugraph, type Room, type VugraphRoom } from '../../shared/team-match.ts'
 import { AuctionBox } from '../components/AuctionBox.tsx'
 import { ScoreLine } from '../components/MatchParts.tsx'
 import { RecordDiagram } from '../components/RecordDiagram.tsx'
@@ -151,6 +151,13 @@ export function VugraphPage() {
         <Muted>{t.teamMatch.vugraphNote}</Muted>
         {playing && m.settings.delay && <Muted>{t.teamMatch.vugraphDelayed}</Muted>}
         {playing && m.pausedAt !== undefined && <Muted role="status">{t.teamMatch.pausedHint}</Muted>}
+        {/* Segments (e8-t21): which one is played, and the break between two */}
+        {playing && m.segment !== undefined && (
+          <Muted role="status">
+            {t.teamMatch.segmentNow(m.segment, segmentCount(m.settings))}
+            {m.breakAt !== undefined && ` · ${t.teamMatch.segmentWaiting(m.segment)}`}
+          </Muted>
+        )}
         {!playing && (
           <Muted>
             {t.teamMatch.vugraphEnded}{' '}

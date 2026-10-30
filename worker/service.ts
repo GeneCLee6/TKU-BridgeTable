@@ -2218,6 +2218,7 @@ export class ClubService {
       case 'matchAbandon':
       case 'matchReplace':
       case 'matchSitIn':
+      case 'matchNextSegment':
         return this.matchPlay(userId, message)
       default:
         // Bidding, play, chat and the host's seat changes belong to the member's table (§5.10)
@@ -3028,6 +3029,20 @@ export class ClubService {
         const { at } = this.matches.sitIn(userId, message)
         const entry = this.matchTables(matchId)[at.room]
         if (entry) this.applyResult(entry.id, await this.tables.get(entry.id).matchUpdate({ sitIn: at.seat }))
+        break
+      }
+      case 'matchNextSegment': {
+        // e8-t21: each room takes on its seats as the captains left them (a pair may have changed rooms) and deals on
+        const next = this.matches.nextSegment(userId, matchId)
+        for (const [room, entry] of Object.entries(this.matchTables(matchId)) as [Room, TableEntry][]) {
+          const seats = Object.fromEntries(
+            SEATS.map((seat) => {
+              const id = next.seats[room][seat]
+              return [seat, id !== null && this.users.get(id) ? this.person(id) : null]
+            }),
+          ) as Record<Seat, Person | null>
+          this.applyResult(entry.id, await this.tables.get(entry.id).matchUpdate({ segment: { last: next.last, seats, players: next.players } }))
+        }
         break
       }
     }
