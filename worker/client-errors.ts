@@ -4,9 +4,9 @@ import type { LogEntry } from './log.ts'
 /** The largest error report the server reads (characters) */
 export const CLIENT_ERROR_MAX_CHARS = 8192
 
-const MESSAGE_MAX = 500
-const STACK_MAX = 2000
-const FIELD_MAX = 200
+/** How much of each field a report keeps (characters); TKU-BridgeHall's reports too (book-telemetry.ts) */
+export const CLIENT_ERROR_FIELD_MAX = { message: 500, stack: 2000, field: 200, version: 40 } as const
+const { message: MESSAGE_MAX, stack: STACK_MAX, field: FIELD_MAX } = CLIENT_ERROR_FIELD_MAX
 
 const field = (value: unknown, max: number) => (typeof value === 'string' && value ? scrub(value, max) : undefined)
 
@@ -31,7 +31,7 @@ export function parseClientError(raw: string): Extract<LogEntry, { event: 'clien
   const source = field(body.source, FIELD_MAX)
   const stack = field(body.stack, STACK_MAX)
   const page = field(body.page, FIELD_MAX)
-  const version = field(body.version, 40)
+  const version = field(body.version, CLIENT_ERROR_FIELD_MAX.version)
   if (source) entry.source = source
   if (stack) entry.stack = stack
   if (page) entry.page = page

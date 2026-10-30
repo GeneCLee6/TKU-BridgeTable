@@ -25,6 +25,7 @@ import { type ArticleReader, ArticleService } from './articles.ts'
 import { type EbookReader, EbookService } from './ebooks.ts'
 import { ForumService, postExcerpt } from './forum.ts'
 import { ForumNotices } from './forum-notices.ts'
+import { BOOK_EVENTS_MAX_CHARS, BookTelemetry } from './book-telemetry.ts'
 import type { AuditAction } from './audit.ts'
 import { robotMeaningsFor } from './system-spec.ts'
 import { QuizStore } from './quiz.ts'
@@ -164,6 +165,8 @@ export class Club extends DurableObject<Env> implements Connections {
   private readonly forum: ForumService
   /** The forum's notifications (BridgeHall e11-t08); keeps nothing in memory */
   private readonly forumNotices: ForumNotices
+  /** BridgeHall's error reports and anonymous usage counts (e10-t06, e10-t07) in the object's SQLite database */
+  private readonly telemetry: BookTelemetry
   /** The handbook's notifications and who follows which convention (BridgeHall e8-t10); keeps nothing in memory */
   private readonly notices: BookNotices
   private readonly store: Store
@@ -245,6 +248,8 @@ export class Club extends DurableObject<Env> implements Connections {
       members: () => this.service.memberDirectory(),
     })
     this.forum.createTables()
+    this.telemetry = new BookTelemetry(store.sql, { now: Date.now, log: (entry) => this.service.logEntry(entry) })
+    this.telemetry.createTables()
     this.forumNotices = new ForumNotices({
       notify: (id, kind, params) => this.service.notifications.notify(id, kind, params),
       members: () => this.service.memberDirectory(),
@@ -457,6 +462,16 @@ export class Club extends DurableObject<Env> implements Connections {
       if (Number(request.headers.get('Content-Length') ?? 0) > CLIENT_ERROR_MAX_CHARS * 4)
         throw new ClubError('messageTooLarge', {}, 413)
       if (!this.service.reportClientError(await request.text())) throw new ClubError('badMessage')
+      return new Response(null, { status: 204 })
+    }
+    // BridgeHall's error reports and usage counts (e10-t06, e10-t07): no sign-in, and who is signed in
+    // is never read; over the rate (or with counting off) they are dropped and still answered 204
+    if (route === 'POST /api/book/errors' || route === 'POST /api/book/events') {
+      const max = route === 'POST /api/book/errors' ? CLIENT_ERROR_MAX_CHARS : BOOK_EVENTS_MAX_CHARS
+      if (Number(request.headers.get('Content-Length') ?? 0) > max * 4) throw new ClubError('messageTooLarge')
+      const raw = await request.text()
+      const ok = route === 'POST /api/book/errors' ? this.telemetry.report(raw) : this.telemetry.record(raw)
+      if (!ok) throw new ClubError('badMessage')
       return new Response(null, { status: 204 })
     }
     if (route === 'POST /api/register') {
@@ -966,6 +981,18 @@ export class Club extends DurableObject<Env> implements Connections {
     const need = bookRouteNeed(method, path)
     if (!need) throw new ClubError('noSuchApi', {}, 404)
     requireNeed(user, need)
+
+    // BridgeHall's error reports and usage counts (e10-t06, e10-t07); roles.ts decides who
+    if (path === '/errors') {
+      if (method === 'GET') return json({ errors: this.telemetry.errors() })
+      this.telemetry.clearErrors()
+      return new Response(null, { status: 204 })
+    }
+    if (path === '/analytics') return json(this.telemetry.view())
+    if (path === '/analytics/settings') {
+      if (!this.telemetry.setEnabled(await body())) throw new ClubError('badMessage')
+      return json(this.telemetry.view())
+    }
 
     const convention = path.match(/^\/conventions\/([\w-]+)(?:\/(hide|reset|reject|draft|revisions)(?:\/([\w-]+))?)?$/)
     if (convention) {

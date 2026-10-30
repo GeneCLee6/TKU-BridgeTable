@@ -91,6 +91,7 @@ TKU-BridgeTable/
 │  ├─ rate-limit.ts        速率限制（§5.6）
 │  ├─ metrics.ts           指標與告警，`/api/health` 與管理頁「系統狀態」（§5.13）
 │  ├─ client-errors.ts     瀏覽器錯誤回報的檢查（§5.6）
+│  ├─ book-telemetry.ts    淡江橋館的錯誤回報與匿名使用統計：SQL 四張表與 BookTelemetry（§5.15）
 │  ├─ challenges.ts        挑戰的 SQL 表與 ChallengeStore（§5.5）
 │  ├─ challenge-flow.ts    挑戰的狀態轉移（建立、回覆、取消、截止）：純函式，ClubService 寫回（§5.5）
 │  ├─ team-matches.ts      隊制賽的 SQL 表與 TeamMatchStore（§5.8）
@@ -265,6 +266,7 @@ interface BoardState {
 | SQL `matches`、`match_seats`、`match_boards` | 隊制賽的正本（不是索引），見 §5.8 |
 | SQL `direct_messages`、`direct_threads` | 私訊的正本，見 §5.7 |
 | SQL `forum_boards`、`forum_posts`、`forum_comments`、`forum_reactions`、`forum_reports` | 淡江橋館討論區的正本（`worker/forum.ts`，橋館 E11），見 §5.7 後的「論壇 Worker」 |
+| SQL `book_errors`、`book_metrics`、`book_visitors`、`book_telemetry_settings` | 淡江橋館的錯誤回報與匿名使用統計（`worker/book-telemetry.ts`，橋館 e10-t06、e10-t07），見 §5.15；不在每日備份裡 |
 | `meta:settings` | 管理員改過的人數上限與邀請碼（沒改過就用環境變數） |
 | `meta:weekly` | 每週社團挑戰的排程、誰存的、上一場的時間與 id（`worker/weekly-challenge.ts`，§5.5） |
 | `meta:schema` | 資料版本（現在是 4）：1→2 把舊版 `board:<時間>-<id>` 搬到新索引；2→3 把所有 `board:` 回填進 SQL 紀錄索引（§5.3）；3→4 把每個 `table:` 搬進自己的 `TableObject`、改存 `tabledir:`（§5.10）；`TABLE_OBJECTS=off` 時搬回來、回到 3 |
@@ -305,7 +307,7 @@ interface BoardState {
 | `article:series` | 叢書的系列（橋館 e5-t06）：`{ version, series: ArticleSeries[], updatedAt, updatedBy }`；沒有時橋館用內建系列 |
 | `bookpart:<key>:<n>` | 大內容的分段（Durable Object 單筆值上限 128 KiB，以 4 萬字一段儲存） |
 
-**備份**（`worker/backup.ts`，淡江橋譜 e10-t08、e11-t12）：cron trigger（每天台灣 03:00）呼叫 `Club.backup()`，把 `BACKUP_PREFIXES` 開頭的 key 匯出成一份 JSON Lines 存到 R2 bucket `tku-bridge-backups`（binding `BACKUPS`）的 `daily/<台灣日期>.jsonl`，保留 30 天；`GET/POST /api/admin/backups`、`POST /api/admin/backups/restore`（預設預演，真的還原要 `confirm`）。範圍：淡江橋譜的 `book*`、`profile*`、`article*`、`team:`、`pair:`、`userteam:`、`userpair:`，加上帳號 `user:`、`app:`、`avatar:`（同一次匯出，頭像版本與圖片一定對得上）；加上討論區的五張 SQL 表（`BACKUP_TABLES`：`forum_boards`、`forum_posts`、`forum_comments`、`forum_reactions`、`forum_reports`，2026-10-30 起，格式第 3 版：key 之後每列一行 `{"t":表,"r":列}`，有 rowid 的表照 rowid 順序寫、照順序寫回）；`session:`、`meta:settings`、好友與封鎖、私訊、牌局紀錄與紀錄索引的 SQL 表不在裡面。討論區的圖片本來就在 R2，備份只有它們的 `file:meta:`。格式第 2 版把位元組寫成 `{"$bytes":"<base64>"}`（`encodeValue`／`decodeValue`），第 1 版（只有橋譜）照樣讀、只還原它自己的 `prefixes`；第 1、2 版沒有表，還原時不動討論區。還原表時先檢查每張表與每個欄位現在都有（欄位名稱只用資料庫自己的），再在一個 transaction 裡清空、寫回；之後 `Club` 再跑一次 `ForumService.createTables()`（補內建看板與搜尋用的 `body_text`）。還原後 `Club` 換一個新的 `BookService`（與 `ArticleService`），記憶體裡的快取不會留下；有帳號時再呼叫 `ClubService.reloadAccounts()`：重讀帳號與申請、備份之後才有的帳號照刪除帳號的方式清掉、刪掉全部 `session:`、斷開所有連線，大家重新登入。步驟見 DEPLOY.md §4.4。
+**備份**（`worker/backup.ts`，淡江橋譜 e10-t08、e11-t12）：cron trigger（每天台灣 03:00）呼叫 `Club.backup()`，把 `BACKUP_PREFIXES` 開頭的 key 匯出成一份 JSON Lines 存到 R2 bucket `tku-bridge-backups`（binding `BACKUPS`）的 `daily/<台灣日期>.jsonl`，保留 30 天；`GET/POST /api/admin/backups`、`POST /api/admin/backups/restore`（預設預演，真的還原要 `confirm`）。範圍：淡江橋譜的 `book*`、`profile*`、`article*`、`team:`、`pair:`、`userteam:`、`userpair:`，加上帳號 `user:`、`app:`、`avatar:`（同一次匯出，頭像版本與圖片一定對得上）；加上討論區的五張 SQL 表（`BACKUP_TABLES`：`forum_boards`、`forum_posts`、`forum_comments`、`forum_reactions`、`forum_reports`，2026-10-30 起，格式第 3 版：key 之後每列一行 `{"t":表,"r":列}`，有 rowid 的表照 rowid 順序寫、照順序寫回）；`session:`、`meta:settings`、好友與封鎖、私訊、牌局紀錄與紀錄索引的 SQL 表、橋館錯誤回報與使用統計的 `book_*` 表（§5.15）不在裡面，還原也不動它們。討論區的圖片本來就在 R2，備份只有它們的 `file:meta:`。格式第 2 版把位元組寫成 `{"$bytes":"<base64>"}`（`encodeValue`／`decodeValue`），第 1 版（只有橋譜）照樣讀、只還原它自己的 `prefixes`；第 1、2 版沒有表，還原時不動討論區。還原表時先檢查每張表與每個欄位現在都有（欄位名稱只用資料庫自己的），再在一個 transaction 裡清空、寫回；之後 `Club` 再跑一次 `ForumService.createTables()`（補內建看板與搜尋用的 `body_text`）。還原後 `Club` 換一個新的 `BookService`（與 `ArticleService`），記憶體裡的快取不會留下；有帳號時再呼叫 `ClubService.reloadAccounts()`：重讀帳號與申請、備份之後才有的帳號照刪除帳號的方式清掉、刪掉全部 `session:`、斷開所有連線，大家重新登入。步驟見 DEPLOY.md §4.4。
 
 每個動作處理完立即寫回，物件隨時被回收都不會遺失牌局。紀錄列表一次只讀到那一頁為止（每頁 10／20／50／100 筆摘要）。
 
@@ -315,7 +317,7 @@ interface BoardState {
 
 - **結構化日誌**（`worker/log.ts`）：每個事件一行 JSON，Workers Logs（`wrangler.jsonc` 的 `observability`）依欄位索引。`action`：WebSocket 動作的種類、userId、耗時（ms，含廣播）、失敗時的錯誤代碼；`rejected`：沒進到處理函式的訊息（格式、大小、速率）；`http`：每個請求的方法、路徑（不含 query）、狀態、耗時、錯誤代碼；`loginLocked`；`clientError`；`crash`（不是 `ClubError`／`GameError` 的例外，層級 error）；`replica`：D1 副本某一步失敗或填完（§5.12）；`edge`：Worker 從 D1 回答的紀錄頁（耗時），或為什麼交給社團（`fallback`）。**不記密碼、token、cookie、聊天內容。** `ClubService` 只拿到 `ClubConfig.log` 這個函式，不碰 Cloudflare API；測試傳陣列收集
 - **健康檢查** `GET /api/health`（不需登入）：`{ ok, now, tables, online, events?, playing, robots, metrics, alerts }`（型別 `HealthStatus`，`shared/protocol.ts`），只有數量；回得來表示 Worker 與 Durable Object 都載入了。`metrics` 與 `alerts` 是最近一小時的指標與告警（§5.13）
-- **前端錯誤回報**（`src/lib/errorReport.ts`）：`window` 的 `error` 與 `unhandledrejection` → `POST /api/client-errors`（`sendBeacon`，不需登入）。瀏覽器送之前去除個資（`shared/scrub.ts`：URL 的 query 與 fragment、e-mail、6 位以上的數字；只送路徑不送網址參數；不帶 userId），同一個錯誤只送一次、每頁最多 5 則、取樣比例 `REPORT_SAMPLE_RATE`（社團小，目前 100%）。伺服器（`worker/client-errors.ts`）只留已知欄位、截斷長度、再去除一次個資，全社團每秒最多約 1 則（突發 20 則）寫進日誌，不存資料庫
+- **前端錯誤回報**（`src/lib/errorReport.ts`）：`window` 的 `error` 與 `unhandledrejection` → `POST /api/client-errors`（`sendBeacon`，不需登入）。瀏覽器送之前去除個資（`shared/scrub.ts`：URL 的 query 與 fragment、e-mail、6 位以上的數字；只送路徑不送網址參數；不帶 userId），同一個錯誤只送一次、每頁最多 5 則、取樣比例 `REPORT_SAMPLE_RATE`（社團小，目前 100%）。伺服器（`worker/client-errors.ts`）只留已知欄位、截斷長度、再去除一次個資，全社團每秒最多約 1 則（突發 20 則）寫進日誌，不存資料庫。淡江橋館的錯誤回報另走 `POST /api/book/errors`，會存最新 100 列給編輯者看（§5.15）
 - **訊息驗證**（`shared/message-guard.ts` 的 `parseClientMessage`）：WebSocket 訊息在 `ClubService.handleRaw` 入口檢查：最多 `MESSAGE_MAX_CHARS`（8,192 字元，二進位訊息只解碼到超過上限為止）、是 JSON 物件、`type` 是 1–40 個英文字母、已知種類的欄位型別對（型別守衛）。不合法就回 `error`（`messageTooLarge`／`badMessage`），不會進到處理函式。**沒有列在守衛裡的新種類只做形狀檢查**，所以新動作不必先改守衛；值的檢查（座位、範圍、權限）仍在各處理函式。HTTP 的 JSON 本文上限 2 MiB（`Content-Length`），超過回 413 `messageTooLarge`
 - **速率限制**（`worker/rate-limit.ts`，記在記憶體，物件被回收就重算）：每位社員（所有分頁合計）的訊息 token bucket，突發 30、每秒 10（重連時補送的動作要過得去），超過回 `slowDown` 並丟掉；聊天另外突發 5、每 2 秒 1 句，超過回 `chatTooFast`；私訊另外突發 10、每分鐘 20 則，超過回 `directTooFast`；密碼錯誤以「來源 IP（`CF-Connecting-IP`）＋帳號」計 5 次、單一 IP 計 20 次，15 分鐘內再登入回 429 `tooManyLogins`（連密碼對了也一樣），密碼對了就清掉該帳號的次數。不鎖整個帳號，避免陌生人從別處把社員鎖在外面。速率只在 socket 入口（`handleRaw`）檢查，`handle` 本身不限，測試與機器人照常。**桌的連線**（§5.10）在 `TableHost.message` 做同樣的大小與型別檢查，只收牌桌動作（其他回 `unknownCommand`），動作與聊天的 bucket 另外算（每個 `TableObject` 自己記；所以同一人在社團與桌上的額度是分開的）
 
@@ -611,6 +613,21 @@ H1 把牌桌拆出去之後（§5.10），社團的物件（`Club`）仍然是**
 - **論壇 Worker**（`e11-t06`、`e11-t07`，`worker/forum.ts` 的 `ForumService`）：Durable Object 的 SQLite，五張表 `forum_boards`（內建四板在建表時補上，`INSERT OR IGNORE`，所以管理員改的名稱與排序會保留；內建的不能刪，有貼文的板也不能刪）、`forum_posts`（區塊與 `mentions` 存 JSON；`pinned_at` 是置頂時間，新置頂的在前，就是 `Board.pinnedPostIds`；`comment_count` 跟留言一起維護）、`forum_comments`（巢狀一層：回覆別人的回覆，`parent_id` 一律是最上層那則）、`forum_reactions`（主鍵 target＋id＋社員，每人每則一種，換表情是覆寫）、`forum_reports`（檢舉，`e11-t09`）。不經記憶體快取；五張表都在每日備份裡（§5 備份，2026-10-30 起；私訊不在）。區塊逐一檢查、只留該種類有的欄位：牌不重複、四家牌每家 ≤ 13 張、叫牌過程輪到誰與合不合規則（`legalCalls`）、圖片要是 `post/` 的檔案 key；文字（段落、提示、條列）合計 ≤ `FORUM_LIMITS.postTextMax`，留言 ≤ `commentTextMax`、只能有 `paragraph`／`auction`／`hand`。`@` 提到（`mentionsIn`）認帳號名稱（不分大小寫）與顯示名稱，最長的先配；名稱以英數結尾時後面不能接英數，中文不受限；e-mail 裡的 `@` 不算；結果存在 `Post.mentions`／`Comment.mentions`。速率：每人發文加留言每分鐘 ≤ 5（`TokenBuckets`，回 429 `slowDown`；編輯不算、被拒的不算）。幹部（`moderatesForum`，roles.ts）是有 `forumModerate` 權限的社員與管理員（`e11-t09`）：只有幹部能在 `postPolicy: 'officers'` 的板（公告）發文、置頂、鎖定、刪除別人的貼文與留言；鎖定的貼文只有幹部能留言。作者才能編輯自己的貼文與留言；刪貼文連同留言與反應，刪最上層留言連同它的回覆。路由見 §5.2 的表（`/api/forum/*`）。帳號刪除時不刪貼文（之後再定）。
 - **論壇通知**（`e11-t08`，`worker/forum-notices.ts`，AC-11.5）：走通知中心，四種 `forumMention`（新貼文或留言用 `@` 提到；編輯後新提到的人）、`forumReply`（貼文被留言通知作者；回覆通知那則最上層留言的作者）、`forumAnnouncement`（`postPolicy: 'officers'` 的板有新貼文，通知全部社員）、`forumPinned`（貼文被置頂通知作者），參數 `{ postId, title, username }`（`title` 是標題，沒有就是前 40 字，`postExcerpt`）＋留言的 `commentId`。同一則每人只收一種（提到＞回覆＞公告），自己做的不通知、已不是社員的不通知；鈴鐺連到橋館 `/forum/p/<id>`（有留言時 `#comment-<id>`）。寄送失敗只記 log，貼文照樣存。
 - **檢舉與審計**（`e11-t09`，AC-11.6）：社員檢舉別人的貼文或留言（`POST /api/forum/reports`，原因 ≤ 300 字；同一則在處理前再檢舉只更新原因；每人同時最多 20 則未處理，409 `forumReportLimit`）。幹部看清單（`GET /api/forum/reports?status=open|all`，新→舊最多 100 則，附貼文 id、作者與摘要；已刪除的沒有 `postId`），處理（`POST /api/forum/reports/:id` `{ action: 'dismiss' | 'remove' }`）：駁回保留內容，移除就刪掉那則（貼文連留言、最上層留言連回覆）；同一則的其他未處理檢舉一起關閉。任何人刪掉貼文或留言時，關於它的未處理檢舉都關成 `removed`。幹部的動作寫審計（`audit:`，`worker/audit.ts`）：`forum:pin`／`unpin`、`forum:lock`／`unlock`、`forum:removePost`／`removeComment`（刪別人的；`note` 是誰的、摘要與檢舉原因）、`forum:dismiss`、`forum:board`／`boardDelete`（管理員增改刪板面），`target` 是貼文或板面的代號；橋館管理頁的審計紀錄看得到。板面代號不能用 `new`、`p`、`manage`、`reports`（橋館討論區的網址）。
+
+## 5.15 淡江橋館的錯誤回報與匿名使用統計（橋館 `e10-t06`、`e10-t07`，2026-10-30）
+
+橋館的設計方向：存在社團 Durable Object 的 SQLite（`worker/book-telemetry.ts` 的 `BookTelemetry`，只透過 `Sql` 介面），不引入第三方服務。型別在 `shared/protocol.ts` 的 `BookClientError`、`BookAnalytics*`，橋館 `src/lib/api.ts` 逐字複製。路由見 §5.2 的表。
+
+- **兩個寫入路由都不用登入，也不讀登入身分**：`club.ts` 在查 session 之前就處理 `POST /api/book/errors` 與 `/events`，所以存下來的東西和社員帳號無關。全社團各一個 token bucket（錯誤同 `/api/client-errors` 的突發 20、每秒 1；使用事件突發 100 批、每秒 10 批），超過就丟掉、照樣回 204，不讓瀏覽器重送。
+- **錯誤回報**（`book_errors`）：只留已知欄位，用 `client-errors.ts` 的上限截斷（訊息 500、堆疊 2,000、來源與頁面 200、版本 40 字）、再用 `shared/scrub.ts` 去除一次個資（網址的 query 與 fragment、e-mail、6 位以上數字）；`page` 只留路徑。同樣的 `kind`＋`message`＋`source`＋`page` 合成一列（`count` 加一、`at` 與堆疊、版本換成最新的），只留 `at` 最新的 100 列。每則也照舊寫進日誌（`clientError`，多 `site: 'book'`）。
+- **使用統計只存彙總**：
+  - `book_metrics(day, type, key, count)`：UTC 日期、種類、鍵、次數。`page` 的鍵是路徑（去掉 query 與 hash、≤ 200 字、去除個資）；在特約頁時另記 `convention`＝slug；`search` 是讀者停下來的搜尋詞（去頭尾空白後 ≤ 50 字，存成小寫、空白合併）；`profile` 是切換到的制度集種類（`club`／`team`／`pair`／`personal`，**不存制度集 id**）；`quiz` 是 `<slug>:<true|false>`。保留 **180 天**。
+  - `book_visitors(week, visitor)`：`visitor` 是瀏覽器每個 ISO 週自己產生的亂數，只用來算每週不重複人數（週一 UTC 為一週）；保留 **13 週**（本週＋前 12 週，剛好是圖表要的）。
+  - **不存**：社員 id、帳號名稱、制度集 id、IP、User-Agent、完整網址、單一事件的時間或順序；`book_metrics` 和訪客 id 之間沒有連結，所以看不出誰讀了什麼。
+  - 清理：寫入時，每天（UTC）第一次寫入順便刪掉超過保留期的列，不另設排程。
+- **開關**：`book_telemetry_settings` 的 `analytics`，預設開；管理員用 `PUT /api/book/analytics/settings` 關掉後，`POST /api/book/events` 整批丟掉（已存的彙總留著，照保留期過期）。錯誤回報不受這個開關影響。
+- **查詢**（`GET /api/book/analytics`，編輯者與管理員）：最近 12 週（含本週，舊→新，沒資料的週補 0）的不重複訪客與頁面數；最近 28 天（含今天，UTC）的熱門特約、熱門搜尋（各前 20）、切換制度集次數、練習作答與答對數。
+- **不在每日備份裡**（`BACKUP_TABLES` 只列討論區的表）：都是可以重新累積的統計，還原時也不清空、不覆寫這四張表，所以開關的設定在還原後照舊。
 
 ## 5.8 隊制賽（決策紀錄，`e8-t01`，2026-10-25）
 
@@ -997,6 +1014,12 @@ SQL 由 `worker/history-index.ts` 的 `searchBoards` 組：只有固定的 SQL �
 | `GET /api/book/builtin` | 社員；或種子權杖 | 全部內建特約（依目錄順序的清單），給橋館的 `seed-builtin.ts --verify` 逐字比對。ETag `W/"builtin-<內建版本>"` |
 | `GET /api/book/search-index` | 社員；或種子權杖 | 內建特約的搜尋索引（橋館建好、寫入時一起送來，Worker 不解讀）；還沒寫入過回 404。ETag `W/"builtin-index-<內建版本>"` |
 | `PUT /api/book/builtin` | 管理員；或種子權杖（`Authorization: Bearer <BOOK_SEED_TOKEN>`，`worker/book-seed.ts`） | 寫入內建特約：`{ conventions, searchIndex, dryRun?, allowRemove? }`。**預設是預演**（`dryRun: false` 才寫）；回 `BuiltinSeedReport`：每個特約 `new`／`changed`／`same`／`removed`、有沒有線上版本（`online`，讀者看到的是線上版本）、順序與索引有沒有變。整份取代，每個特約照發布時的規則檢查形狀；會移除內建特約時要 `allowRemove: true`。**不動線上版本**（`book:entry:`）。有變動時 `book:version` 加一（所有橋館重新抓 manifest），記稽核 `book:builtin` |
+| `POST /api/book/errors` | 不用登入，**不讀登入身分** | 淡江橋館的瀏覽器錯誤（e10-t06，§5.15）：`{ kind: 'error' \| 'rejection' \| 'boundary', message, source?, stack?, page?, version? }`；不是 JSON 物件、`kind` 不對、沒有 `message`、超過 8,192 字元（`Content-Length` 超過 4 倍也是）回 400。回 204（被限流時也一樣，靜默丟掉） |
+| `GET /api/book/errors` | bookEdit | `{ errors: BookClientError[] }`：新→舊，最多 100 列 |
+| `DELETE /api/book/errors` | bookEdit | 清空錯誤回報，回 204 |
+| `POST /api/book/events` | 不用登入，**不讀登入身分** | 淡江橋館的匿名使用事件（e10-t07，§5.15）：`BookAnalyticsBatch` `{ visitor, events }`，`visitor` 16–64 個 `[A-Za-z0-9_-]`、`events` 1–50 筆、本文 ≤ 16,384 字元，否則 400；不合規的事件個別丟掉。回 204（統計關閉或被限流時整批丟掉，也回 204） |
+| `GET /api/book/analytics` | bookEdit | `BookAnalyticsView`：最近 12 週的不重複訪客與頁面數、最近 28 天的熱門特約與搜尋（各 ≤ 20）、切換制度集次數、練習作答與答對 |
+| `PUT /api/book/analytics/settings` | 管理員 | `{ enabled: boolean }` 開關使用統計（預設開），回 `BookAnalyticsView`；格式不對回 400 |
 | `GET /api/book/export` | 管理員；或匯出權杖（`Authorization: Bearer <BOOK_EXPORT_TOKEN>`，只讀這一條） | 橋館的匯出備份（L1，`e8-t12`）：社員讀到的全部特約 `BookExport` `{ format: 1, exportedAt, version, builtinVersion, conventions, hidden, categories }`。`conventions` 依目錄順序：內建特約（有線上版本就換成線上版本，`source: 'online'`）、再接只有線上版本的新特約（舊→新）；每筆帶 `builtin`（有沒有內建層）與線上版本的 `online: { version, updatedAt, updatedBy, bundledUpdated? }`。被線上隱藏的放 `hidden`。`categories` 是線上改過的分類（沒改過是空的）。不含草稿。`Cache-Control: no-store` |
 | `GET /api/book/content/:slug` | 社員 | `{ entry: BookEntry }`（隱藏時 `convention: null`）；沒有線上版本回 404 `conventionGone`，橋譜改用內建的版本。ETag `W/"book-<slug>-<entry.version>"` |
 | `PUT /api/book/conventions/:slug` | bookReview | 發布：`{ convention, baseVersion, bundledUpdated?, note?, draftRevision? }`；`baseVersion` 不是目前版本時回 409 `bookConflict`。有草稿時帶 `draftRevision`＝從草稿發布（草稿用掉，送審者記在版本上；不符回 409 `bookDraftConflict`）；不帶就保留草稿。版本記 `status: 'published'`、`reviewedBy/At`、`reviewRequestedBy/At`。**沒有 `status` 的舊資料也是已發布** |
