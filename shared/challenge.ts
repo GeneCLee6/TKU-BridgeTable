@@ -2,6 +2,7 @@ import type { Contract } from './auction.ts'
 import type { Card } from './cards.ts'
 import type { ChallengeScoring } from './challenge-scoring.ts'
 import { isRobotKind, type PublicUser, type RobotKind } from './protocol.ts'
+import type { ScoreRuling } from './ruling-scoring.ts'
 
 /**
  * A challenge's lifecycle and settings (docs/PRD/e7-challenges.md, ARCHITECTURE.md §5.5).
@@ -154,6 +155,8 @@ export interface ChallengeStandingView {
   total: number
   /** Each board's result in the scoring's unit, in board order (a row of the person × board matrix) */
   boards?: number[]
+  /** The boards (1-based) a director ruled on for them (`e2-t36`): their total counts the rulings */
+  ruled?: number[]
 }
 
 /**
@@ -185,6 +188,8 @@ export interface ChallengeTravellerEntry {
   declarerTricks: number | null
   /** The opening lead, null when nobody led; only on one challenge's page (`GET /api/challenges/:id`) */
   lead?: Card | null
+  /** A director's ruling on this result (`e2-t36`); `scoreNS` stays the score played */
+  ruling?: ScoreRuling
 }
 
 /** Everyone's result on one board of the challenge */

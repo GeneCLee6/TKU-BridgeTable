@@ -257,6 +257,36 @@ describe('the result page (e8-t12)', () => {
   })
 })
 
+describe('a director’s ruling in the score (e2-t36)', () => {
+  it('scores a room’s ruled board by the ruling, pushes the new score, and goes back when it is taken back', async () => {
+    const { id, amy, people, open, closed } = await started()
+    await t.playUntil([amy, people.ben], () => t.played(open) >= 1 && t.played(closed) >= 1)
+    const before = matchOf(id, amy)
+    const played = before.boards[0]
+    const pushes = () => (t.h.connections.inbox.get(amy) ?? []).filter((m) => m.type === 'match').length
+    const sent = pushes()
+
+    // Avg+ for North-South in the open room is Avg+ for team A: +3 IMPs whatever the closed room did
+    await t.club().ruleBoard(t.h.boss, played.open!.boardId, { kind: 'avgPlus', side: 'NS', reason: 'Wrong explanation' })
+    const ruled = matchOf(id, amy)
+    expect(ruled.boards[0].result).toEqual({ A: 3, B: 0, ruled: true })
+    expect(ruled.boards[0].open?.ruling).toEqual({ kind: 'avgPlus', side: 'NS' })
+    expect(ruled.boards[0].open?.scoreNS).toBe(played.open!.scoreNS)
+    expect(ruled.totals.A - ruled.totals.B).toBe(before.totals.A - before.totals.B - (played.result.A - played.result.B) + 3)
+    expect(pushes()).toBeGreaterThan(sent)
+
+    // An assigned score in the closed room equal to the open room's: a push
+    await t.club().ruleBoard(t.h.boss, played.closed!.boardId, { kind: 'score', scoreNS: played.open!.scoreNS, reason: 'Revoke' })
+    await t.club().ruleBoard(t.h.boss, played.open!.boardId, null)
+    expect(matchOf(id, amy).boards[0].result).toEqual({ A: 0, B: 0, net: 0, ruled: true })
+
+    await t.club().ruleBoard(t.h.boss, played.closed!.boardId, null)
+    const back = matchOf(id, amy)
+    expect(back.boards[0].result).toEqual(played.result)
+    expect(back.totals).toEqual(before.totals)
+  })
+})
+
 /** The WBF IMP scale written out again, so the end-to-end test checks the match against its own sums */
 function impsByHand(difference: number): number {
   const steps = [20, 50, 90, 130, 170, 220, 270, 320, 370, 430, 500, 600, 750, 900, 1100, 1300, 1500, 1750, 2000, 2250, 2500, 3000, 3500, 4000]

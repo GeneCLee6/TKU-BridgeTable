@@ -9,6 +9,7 @@ import { cardName } from '../lib/cards.ts'
 import { signed } from '../lib/format.ts'
 import { usePreferences } from '../state/PreferencesContext.tsx'
 import { playerName } from '../strings.ts'
+import { RulingTag } from './RulingTag.tsx'
 import { ContractLabel, SuitSymbol } from './Suit.tsx'
 import { Button } from './ui.tsx'
 
@@ -108,7 +109,10 @@ export function TravellerTable({
                 )}
               </td>
               <td>{e.contract && e.declarerTricks !== null ? resultLabel(e.contract, e.declarerTricks) : '—'}</td>
-              <Num $value={e.scoreNS}>{signed(e.scoreNS)}</Num>
+              <Num $value={e.scoreNS}>
+                {signed(e.scoreNS)}
+                {e.ruling && <RulingTag ruling={e.ruling} />}
+              </Num>
               {ranked && (
                 <Num $value={e.points === undefined ? undefined : tone(e.points, traveller.scoring)}>
                   {e.points === undefined ? '—' : formatScore(e.points, traveller.scoring)}

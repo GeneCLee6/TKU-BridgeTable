@@ -1180,6 +1180,7 @@ const zh = {
     submit: '送出裁定',
     remove: '撤銷裁定',
     ruledBy: (name: string) => `裁判：${name}`,
+    ruledBoards: (boards: string) => `裁定：第 ${boards} 副`,
     played: (score: string) => `實際結果 ${score}`,
   },
   realReplay: {
@@ -2334,6 +2335,7 @@ const en: Strings = {
     submit: 'Give ruling',
     remove: 'Withdraw ruling',
     ruledBy: (name) => `Director: ${name}`,
+    ruledBoards: (boards) => `Ruled: board ${boards}`,
     played: (score) => `Result at the table ${score}`,
   },
   realReplay: {
@@ -3484,6 +3486,7 @@ const zhHans: Strings = {
     submit: '送出裁定',
     remove: '撤销裁定',
     ruledBy: (name) => `裁判：${name}`,
+    ruledBoards: (boards) => `裁定：第 ${boards} 副`,
     played: (score) => `实际结果 ${score}`,
   },
   realReplay: {
@@ -4636,6 +4639,7 @@ const vi: Strings = {
     submit: 'Gửi phân xử',
     remove: 'Rút lại phân xử',
     ruledBy: (name) => `Trọng tài: ${name}`,
+    ruledBoards: (boards) => `Phân xử: ván ${boards}`,
     played: (score) => `Kết quả tại bàn ${score}`,
   },
   realReplay: {
@@ -5788,6 +5792,7 @@ const ja: Strings = {
     submit: '裁定する',
     remove: '裁定を取り消す',
     ruledBy: (name) => `ディレクター：${name}`,
+    ruledBoards: (boards) => `裁定：ボード ${boards}`,
     played: (score) => `テーブルでの結果 ${score}`,
   },
   realReplay: {
@@ -6940,6 +6945,7 @@ const ko: Strings = {
     submit: '판정하기',
     remove: '판정 취소',
     ruledBy: (name) => `디렉터: ${name}`,
+    ruledBoards: (boards) => `판정: ${boards}번 보드`,
     played: (score) => `테이블 결과 ${score}`,
   },
   realReplay: {

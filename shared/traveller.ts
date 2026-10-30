@@ -3,6 +3,7 @@ import type { Card } from './cards.ts'
 import type { ChallengeScoring } from './challenge-scoring.ts'
 import type { BoardState } from './game.ts'
 import type { PublicUser } from './protocol.ts'
+import type { ScoreRuling } from './ruling-scoring.ts'
 
 /**
  * A traveller (`e4-t32`, AC-4.12): everyone's result on the same board of an event (a challenge
@@ -27,6 +28,8 @@ export interface TravellerEntry {
   scoreNS: number
   /** The board's result in the event's scoring (`Traveller.scoring`), for those ranked */
   points?: number
+  /** A director's ruling on this result (`e2-t36`): `points` counts it, `scoreNS` is the score played */
+  ruling?: ScoreRuling
 }
 
 export interface Traveller {

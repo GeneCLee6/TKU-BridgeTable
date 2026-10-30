@@ -8,6 +8,7 @@ import {
 import { scoreChallenge } from '../shared/challenge-scoring.ts'
 import type { DealSet } from '../shared/deal-set.ts'
 import type { MessageCode } from '../shared/messages.ts'
+import type { ScoreRuling } from '../shared/ruling-scoring.ts'
 import type { Challenge, ChallengePlayer, ChallengeResult } from './challenges.ts'
 
 /**
@@ -152,21 +153,40 @@ export function earlyFinish(c: Challenge): ChallengeChange | null {
  * one finisher there is nobody to compare with: they are first, with their total score only.
  * Before the end these are the live standings of those finished so far
  */
-export function challengeStandings(c: Challenge): ChallengeStandingsView {
+export function challengeStandings(
+  c: Challenge,
+  rulingOf: (boardId: string) => ScoreRuling | undefined = () => undefined,
+): ChallengeStandingsView {
   const finishers = c.players.filter((p) => hasFinished(c, p))
   const scoring = finishers.length > 1 ? c.settings.scoring : 'total'
   const scores: Record<string, number[]> = {}
+  // A director's ruling on a participant's board (`e2-t36`), and which boards those are
+  const rulings: Record<string, (ScoreRuling | undefined)[]> = {}
+  const ruled: Record<string, number[]> = {}
   for (const p of finishers) {
     const row = new Array<number>(c.deals.boards.length).fill(0)
-    for (const r of c.results) if (r.userId === p.userId) row[r.seq - 1] = r.scoreNS
+    const rulingRow = new Array<ScoreRuling | undefined>(c.deals.boards.length)
+    for (const r of c.results) {
+      if (r.userId !== p.userId) continue
+      row[r.seq - 1] = r.scoreNS
+      rulingRow[r.seq - 1] = rulingOf(r.boardId)
+    }
     scores[p.userId] = row
+    rulings[p.userId] = rulingRow
+    ruled[p.userId] = rulingRow.flatMap((ruling, i) => (ruling ? [i + 1] : []))
   }
   // Everyone ranked played every board, so the rule for unplayed boards never applies
-  const ranked = finishers.length ? scoreChallenge({ scoring, unfinished: 'worst', scores }) : []
+  const ranked = finishers.length ? scoreChallenge({ scoring, unfinished: 'worst', scores, rulings }) : []
   return {
     final: c.status === 'finished',
     scoring,
-    ranked: ranked.map((s) => ({ userId: s.player, rank: s.rank, total: s.total, boards: s.boards })),
+    ranked: ranked.map((s) => ({
+      userId: s.player,
+      rank: s.rank,
+      total: s.total,
+      boards: s.boards,
+      ...(ruled[s.player].length > 0 && { ruled: ruled[s.player] }),
+    })),
     unfinished: c.players
       .filter((p) => p.status === 'accepted' && !hasFinished(c, p))
       .map((p) => ({ userId: p.userId, played: playedCount(c, p.userId) })),

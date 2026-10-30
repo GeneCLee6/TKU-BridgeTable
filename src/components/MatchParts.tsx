@@ -9,6 +9,7 @@ import { matchVictoryPoints } from '../../shared/vp.ts'
 import { cardName } from '../lib/cards.ts'
 import { points, teamName } from '../lib/matches.ts'
 import { usePreferences } from '../state/PreferencesContext.tsx'
+import { RulingTag } from './RulingTag.tsx'
 import { ContractLabel, SuitSymbol } from './Suit.tsx'
 import { Button } from './ui.tsx'
 
@@ -146,6 +147,8 @@ function RoomCells({ room }: { room?: MatchRoomView }) {
       <td className="text">{contract && room.declarerTricks != null ? resultLabel(contract, room.declarerTricks) : '—'}</td>
       <td>
         <Link to={`/history/${encodeURIComponent(room.boardId)}`}>{room.scoreNS}</Link>
+        {/* A director's ruling on this room's board, which the score counted (`e2-t36`) */}
+        {room.ruling && <RulingTag ruling={room.ruling} />}
       </td>
     </>
   )
@@ -211,12 +214,14 @@ export function BoardScores({ match }: { match: TeamMatchView }) {
         <tbody>
           {match.boards.map((board, i) => {
             const ruling = board.ruling
+            // The host's ruling on the board, or a director's on one room's board (`e2-t36`)
+            const ruled = ruling || board.open?.ruling || board.closed?.ruling
             return (
               <Fragment key={board.seq}>
                 <tr>
                   <th scope="row">
                     {board.seq}
-                    {ruling && ` · ${t.teamMatch.ruled}`}
+                    {ruled && ` · ${t.teamMatch.ruled}`}
                   </th>
                   <RoomCells room={board.open} />
                   <RoomCells room={board.closed} />

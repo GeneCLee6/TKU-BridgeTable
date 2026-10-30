@@ -490,6 +490,8 @@ export function challengeView(
   const role = challengeRole(c, userId)
   const clubRanking = !role.player && c.status === 'finished' && c.settings.ranking === 'club'
   if (!role.player && !clubRanking) return null
+  // A director's ruling on a board counts in the standings (`e2-t36`)
+  const rulingOf = (boardId: string) => boards(boardId)?.ruling
   const played = new Map<string, number>()
   for (const r of c.results) played.set(r.userId, (played.get(r.userId) ?? 0) + 1)
   const view: ChallengeView = {
@@ -518,12 +520,12 @@ export function challengeView(
   }
 
   if (clubRanking) {
-    const standings = challengeStandings(c)
+    const standings = challengeStandings(c, rulingOf)
     view.standings = { ...standings, ranked: standings.ranked.map(({ boards: _matrix, ...rest }) => rest) }
     return view
   }
   // Expired and cancelled challenges rank nobody; their boards are open to the participants
-  if (c.status === 'finished' || (!role.ended && role.finished)) view.standings = challengeStandings(c)
+  if (c.status === 'finished' || (!role.ended && role.finished)) view.standings = challengeStandings(c, rulingOf)
   const travellers: ChallengeTraveller[] = []
   for (const [i, board] of c.deals.boards.entries()) {
     const seq = i + 1
@@ -539,6 +541,7 @@ export function challengeView(
           contract: found?.contract ?? null,
           declarerTricks: found?.declarerTricks ?? null,
           ...(found?.lead !== undefined && { lead: found.lead }),
+          ...(found?.ruling && { ruling: found.ruling }),
         }
       })
     if (entries.length) travellers.push({ seq, boardNo: board.boardNo, entries })
@@ -569,7 +572,12 @@ export function teamMatchView(
   if (!isMatchPlayer(m, userId) && !outsiderMaySee) return null
   const score = scoreTeamMatch(
     m.settings.scoring,
-    Array.from({ length: m.settings.boards }, (_, i) => boardScores(m.boards.find((b) => b.seq === i + 1))),
+    Array.from({ length: m.settings.boards }, (_, i) =>
+      boardScores(
+        m.boards.find((b) => b.seq === i + 1),
+        (boardId) => details?.get(boardId)?.ruling,
+      ),
+    ),
   )
   const boards: MatchBoardView[] = []
   for (const [i, result] of score.boards.entries()) {
@@ -582,6 +590,8 @@ export function teamMatchView(
         scoreNS: r.scoreNS,
         ...(found && { contract: found.contract, declarerTricks: found.declarerTricks }),
         ...(r.lead && { lead: r.lead }),
+        // A director's ruling on the room's board, when it counted: the host's ruling wins (`e2-t36`)
+        ...(found?.ruling && !board?.ruling && { ruling: found.ruling }),
       }
     }
     boards.push({
@@ -698,6 +708,7 @@ export function challengeTraveller(
         declarerTricks: e.declarerTricks,
         scoreNS: e.scoreNS,
         ...(points !== undefined && { points }),
+        ...(e.ruling && { ruling: e.ruling }),
       }
     }),
   }

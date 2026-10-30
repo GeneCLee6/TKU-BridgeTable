@@ -1,6 +1,7 @@
 import type { Card, Seat } from '../shared/cards.ts'
 import { decodeDealSet, encodeDealSet, type DealSet } from '../shared/deal-set.ts'
 import { defaultTeamMatchSettings, MATCH_SEATS, teamAt, type MatchStatus, type Room, type SeatStatus, type TeamMatchSettings } from '../shared/team-match.ts'
+import type { ScoreRuling } from '../shared/ruling-scoring.ts'
 import type { Ruling, RulingKind, Team, TeamBoardScores } from '../shared/team-scoring.ts'
 import type { Sql, SqlValue } from './store.ts'
 
@@ -216,12 +217,23 @@ const ADDED_COLUMNS: { table: string; column: string; type: string }[] = [
   { table: 'match_boards', column: 'closed_lead', type: 'TEXT' },
 ]
 
-/** A board's two scores for `scoreTeamMatch` */
-export const boardScores = (board: TeamMatchBoard | undefined): TeamBoardScores => ({
-  open: board?.open?.scoreNS ?? null,
-  closed: board?.closed?.scoreNS ?? null,
-  ...(board?.ruling && { ruling: { kind: board.ruling.kind, team: board.ruling.team } }),
-})
+/**
+ * A board's two scores for `scoreTeamMatch`, with the host's ruling and a director's ruling on
+ * each room's board record (`rulingOf`, from the history index, `e2-t36`)
+ */
+export function boardScores(
+  board: TeamMatchBoard | undefined,
+  rulingOf: (boardId: string) => ScoreRuling | undefined = () => undefined,
+): TeamBoardScores {
+  const open = board?.open && rulingOf(board.open.boardId)
+  const closed = board?.closed && rulingOf(board.closed.boardId)
+  return {
+    open: board?.open?.scoreNS ?? null,
+    closed: board?.closed?.scoreNS ?? null,
+    ...(board?.ruling && { ruling: { kind: board.ruling.kind, team: board.ruling.team } }),
+    ...((open || closed) && { rooms: { ...(open && { open }), ...(closed && { closed }) } }),
+  }
+}
 
 export class TeamMatchStore {
   private readonly sql: Sql
