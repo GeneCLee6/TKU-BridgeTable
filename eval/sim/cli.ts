@@ -3,8 +3,8 @@ import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { isRobotKind, type RobotKind } from '../../shared/protocol.ts'
-import { readArgs } from '../config.ts'
-import { EVAL_SEED, evalBoard } from '../deals.ts'
+import { deckSeed, readArgs } from '../config.ts'
+import { evalBoard } from '../deals.ts'
 import { bidBoard } from './board.ts'
 import { compareReport, compareStudy, type CompareOptions, type CompareRecord } from './compare.ts'
 import { BiddingStudyBuilder, biddingReport, CATEGORIES, COMPETE_CATEGORIES, CONSTRUCTIVE, practiceDeals, type BiddingCategory, type BiddingRecord, type Example, type PracticeDeal } from './bidding.ts'
@@ -48,6 +48,7 @@ const USAGE = [
   '  bidding  --deals N [--from 1] [--seed s] [--system tku|gib] [--threads N] [--out file] [--report file] [--practice dir] [--analyse]',
   '  compete  the same as bidding, only the competitive decisions',
   '  --boards file: only the board numbers in the file (leads, compare, replay)',
+  '  --deck slam: the slam-zone set of the seed (North–South 30–36, or 26–29 with a nine-card fit)',
 ].join('\n')
 
 const DATA_DIR = resolve(fileURLToPath(new URL('./data/', import.meta.url)))
@@ -88,8 +89,11 @@ function common(args: Map<string, string>): Common {
   const list = args.get('boards')
   const only = list ? new Set(readFileSync(list, 'utf8').split(/\s+/).filter(Boolean).map(Number)) : undefined
   if (only && [...only].some((n) => !Number.isInteger(n) || n < 1)) throw new Error('--boards is a file of board numbers, one a line')
-  return { seed: args.get('seed') ?? EVAL_SEED, from, deals, threads, system, only }
+  return { seed: deckSeed(args), from, deals, threads, system, only }
 }
+
+/** The seed in a file name: `slam:s` (`--deck slam`) as `slam-s`, a colon being no part of a Windows file name */
+const fileSeed = (c: Common) => c.seed.replaceAll(':', '-')
 
 /** The boards of a run, for the report title */
 const span = (c: Common) => (c.only ? `${c.only.size} 副（清單）` : `第 ${c.from}–${c.from + c.deals - 1} 副`)
@@ -180,7 +184,7 @@ async function bench(args: Map<string, string>) {
 
 async function tables(args: Map<string, string>) {
   const c = common(args)
-  const store = await JsonlStore.open<TableRecord>(args.get('out') ?? resolve(DATA_DIR, `tables-${c.seed}.jsonl`))
+  const store = await JsonlStore.open<TableRecord>(args.get('out') ?? resolve(DATA_DIR, `tables-${fileSeed(c)}.jsonl`))
   const seconds = await runStudy('DD tables', c, store, 5, (boards) => ({ kind: 'tables', seed: c.seed, boards }))
   console.log(`${store.done.size} tables in ${store.path} (${clock(seconds)})`)
 }
@@ -189,7 +193,7 @@ async function leads(args: Map<string, string>) {
   const c = common(args)
   const samples = Number(args.get('samples') ?? 0)
   if (!Number.isInteger(samples) || samples < 0) throw new Error('--samples must be 0 or a number of layouts')
-  const name = `leads-${c.seed}-${c.system}${samples ? `-s${samples}` : ''}-r${rulesFingerprint()}`
+  const name = `leads-${fileSeed(c)}-${c.system}${samples ? `-s${samples}` : ''}-r${rulesFingerprint()}`
   const store = await JsonlStore.open<LeadRecord>(args.get('out') ?? resolve(DATA_DIR, `${name}.jsonl`))
   let seconds = 0
   if (!args.has('analyse')) seconds = await runStudy('Opening leads', c, store, 10, (boards) => ({ kind: 'leads', seed: c.seed, boards, system: c.system, samples }))
@@ -217,7 +221,7 @@ async function compare(args: Map<string, string>) {
   const options: CompareOptions = { samples: Number(args.get('samples') ?? 30), seed: c.seed, objective, ddBias: Number(args.get('dd-bias') ?? 0), points }
   if (!Number.isInteger(options.samples) || options.samples < 1) throw new Error('--samples must be a number of layouts')
   if (!Number.isFinite(options.ddBias) || options.ddBias < 0) throw new Error('--dd-bias is a number of tricks, 0 or more')
-  const name = `compare-${c.seed}-${c.system}-${points}-s${options.samples}-${objective}${options.ddBias ? `-b${options.ddBias}` : ''}-r${rulesFingerprint()}`
+  const name = `compare-${fileSeed(c)}-${c.system}-${points}-s${options.samples}-${objective}${options.ddBias ? `-b${options.ddBias}` : ''}-r${rulesFingerprint()}`
   const store = await JsonlStore.open<CompareRecord>(args.get('out') ?? resolve(DATA_DIR, `${name}.jsonl`))
   let seconds = 0
   if (!args.has('analyse')) seconds = await runStudy('TKB vs sampled DD', c, store, 1, (boards) => ({ kind: 'compare', seed: c.seed, boards, system: c.system, options }))
@@ -288,7 +292,7 @@ async function bidding(args: Map<string, string>, competitive = false) {
   const c = common(args)
   const competing: BiddingCategory[] = [...COMPETE_CATEGORIES, 'contested']
   const categories = competitive ? competing : CATEGORIES
-  const name = `${competitive ? 'compete' : 'bidding'}-${c.seed}-${c.system}-r${rulesFingerprint()}`
+  const name = `${competitive ? 'compete' : 'bidding'}-${fileSeed(c)}-${c.system}-r${rulesFingerprint()}`
   const store = await JsonlStore.open<BiddingRecord>(args.get('out') ?? resolve(DATA_DIR, `${name}.jsonl`))
   let seconds = 0
   const options = competitive ? { categories } : {}

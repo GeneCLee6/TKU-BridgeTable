@@ -20,6 +20,7 @@ npm run sim -- replay --out data/leads-….jsonl         # 用這份程式的首
 npm run sim -- leads --boards 清單.txt --samples 20 --out 檔  # 只算清單裡的副號（例如重播時首攻改變的副），加單明手抽樣
 npm run sim -- bidding --deals 20000 --system gib --threads 8   # 叫牌研究：每個叫品對替代叫品（§7），約 40 分鐘
 npm run sim -- compete --deals 10000 --system gib      # 同上，只看競叫的決策點
+npm run sim -- bidding --deck slam --deals 5000 --system tku --threads 5   # 滿貫區的牌組（§9）
 npm run sim -- bidding --deals 20000 --system gib --analyse --practice shared/practice-sets  # 重做報告並寫出練習牌組
 ```
 
@@ -27,6 +28,7 @@ npm run sim -- bidding --deals 20000 --system gib --analyse --practice shared/pr
 | --- | --- |
 | `--deals N`、`--from N` | 固定牌組（`eval/deals.ts`，種子 `tku-eval-v1`）第 `from` 副起 N 副；牌組不存檔，第 n 副由種子直接發，所以 1,000,000 副不用先準備 |
 | `--seed s` | 換一組牌（跟 `npm run eval` 的 `--seed` 一樣） |
+| `--deck slam` | 那個種子的滿貫區牌組（南北 30–36 點，或 26–29 點有 9 張配合；§9），`npm run eval` 也可以用 |
 | `--system tku\|gib` | 四個 TKB 叫牌用哪套制度（預設 `tku`）；首攻與出牌的規則兩套一樣（`ROBOT.md` §3.2），差別只在叫牌過程與推論 |
 | `--threads N` | 執行緒數，預設是邏輯處理器數 − 2（這台 i5-14500 是 18） |
 | `--samples N` | `leads`：每副另外抽 N 個佈局做首攻者的單明手估計（預設 0）；`compare`：每個決策抽 N 個佈局（預設 30） |
@@ -354,6 +356,56 @@ npm run sim -- bidding --deals 15000 --system gib --analyse --practice shared/pr
 
 評測與重跑的數字見 `ROBOT.md` §3 首攻段。
 
+## 9. 滿貫附近的叫牌樣本（`--deck slam`，V4d，2026-10-30）
+
+隨機牌裡雙方合計 30 點以上的副不到一成，§7 的「成局或滿貫」一類只有幾百個對照。`--deck slam` 換成**滿貫區的牌組**：南北合計 30–36 點，或 26–29 點而且有 9 張配合（一家 5 張、一家 4 張以上）；符合條件的牌每一副機率一樣（`shared/dealer.ts` 的拒絕抽樣，`eval/deals.ts` 的 `SLAM_CONDITIONS`），種子是 `slam:<種子>`（例如 `slam:tku-eval-v1`，檔名裡寫成 `slam-tku-eval-v1`）。發牌者與身價照副號循環，所以四個座位都會開叫、四種身價都有。同一個選項也給 `npm run eval` 用：機器人自己打完，比雙明手更接近真的結果。
+
+```bash
+npm run sim -- bidding --deck slam --deals 5000 --system tku --threads 5   # 約 8 分鐘（5 執行緒，電腦跟別的模擬共用）
+npm run sim -- bidding --deck slam --deals 5000 --system gib --threads 5
+npm run eval -- --a tku --b tku@../main --deck slam --set 5000             # 這份程式對 main，滿貫區 5,000 副，約 2 分鐘
+```
+
+叫牌研究的報告多一張**滿貫區**的表（強方合計 26 點以上的副，隨機牌組也有）：強方（點力多的一方）任一家、任一王牌雙明手最多幾墩 × TKB 最後叫到哪裡（沒叫到滿貫、小滿貫、大滿貫；對方的合約算「沒叫到」），每格是副數與 TKB 對 par 的 IMP。紀錄多一個 `strong`（強方、點力、最多幾墩、TKB 的分數）；強方 26 點以上的副就算沒有決策點也會解 DD 表。
+
+### 結果：main 的 TKB，滿貫區 5,000 副
+
+| 最多幾墩 | TKB 叫到 | 淡江 | 2/1 |
+| --- | --- | --- | --- |
+| ≤11 | 沒叫到滿貫 | 1,857 | 1,897 |
+| ≤11 | 小滿貫（叫過頭） | 71 | 32 |
+| 12 | 沒叫到滿貫（漏叫） | 1,735 | 1,840 |
+| 12 | 小滿貫 | 334 | 233 |
+| 12 | 大滿貫（叫過頭） | 7 | 3 |
+| 13 | 沒叫到滿貫 | 665 | 724 |
+| 13 | 小滿貫 | 277 | 258 |
+| 13 | 大滿貫 | 53 | 13 |
+
+「成局或滿貫」一類（已經在成局、TKB Pass 對替代叫品叫六線）：淡江雙方實際 30–32 點替代較好 66%（−3.92 ± 0.48 IMP，558 個對照）、33 點以上 91%（−9.91 ± 0.93，57 個）；2/1 整類 Pass → 叫 −3.68 ± 0.40（816 個）。看起來兩種 TKB 都大量漏叫滿貫。
+
+**但雙明手的滿貫是高估的**：雙明手的莊家不會猜錯飛牌、不會被騙，30–32 點的 6NT 常常剛好 12 墩。用 `npm run eval --deck slam`（TKB 自己打）檢查：
+
+1. 照雙明手的方向叫多一點，在真的打牌裡是輸的：「書上的成局叫品之後，只要找合約的估計（自己＋同伴最少點數＋2）到 33 就叫滿貫、大滿貫也直接叫」對 main **−0.07 ± 0.03** IMP／副（95% CI [−0.13, −0.02]，贏／輸 49／80）；輸的幾乎都是雙方實際 30–32 點的 6NT（60 副 −391 IMP）與沒問 A 的大滿貫。淡江找合約的小滿貫門檻從 33 降到 32（淡江自然制總覽「小滿貫：32 pts」）也是 **−0.03 ± 0.04**（比照 33 的 +0.02 差），沒有改（`ROBOT.md` §6.9）。
+2. 真正的漏洞比雙明手看起來小得多，而且集中在一個地方：各本規則書的自然成局叫品（答叫者的「13+ 成局」、Stayman 之後的成局、開叫者加叫到成局、2/1 的 Soloway 跳叫之後）點力沒有上限，第一個符合的規則就叫成局，後面的 RKCB 與找合約輪不到。改成叫牌前**再看一次**（`System.revise`）：見 `ROBOT.md` §6.9。
+
+改了之後（同一批 5,000 副）：
+
+| | 淡江 | 2/1 |
+| --- | --- | --- |
+| 機器人自己打（`npm run eval --deck slam`，對 main） | **+0.02 ± 0.02** IMP／副（95% CI [−0.01, +0.06]，贏／輸 36／24；滿貫 778 次、main 743） | **+0.01 ± 0.01**（[−0.01, +0.04]，19／11；564 次、main 539） |
+| 雙明手（`bidding --deck slam`，合約改變的副） | 61 副，+271 IMP（+0.054／副） | 30 副，+194 IMP（+0.039／副） |
+| 12 墩：小滿貫／沒叫到 | 334 → 352／1,735 → 1,721 | 233 → 246／1,840 → 1,826 |
+| 13 墩：大滿貫 | 53 → 39（main 有 14 副是回答問 K 已經叫了六線王牌、問的人又叫七線的錯，剛好做成） | 13 → 14 |
+| 隨機 5,000 副（`--set full`，對 main） | +0.00 ± 0.01（贏／輸 5／3） | −0.00 ± 0.00（2／3） |
+
+兩個都在兩個標準誤以內：改的副不多（每 5,000 副 30–60 副），方向是對的，但還不能說「明顯變強」。叫牌題庫不變（662／729）。
+
+**讀法與下一步**：
+
+- 滿貫區的「漏叫」要用機器人自己打的結果看，不要只看雙明手。雙明手說漏叫的 12 墩副，大部分是雙方 30–32 點、TKB 坐莊做不到 12 墩的。
+- 剩下確實會輸的：答叫者在 2♣ 強開叫、2NT 開叫之後的定量判斷，與低花滿貫（淡江機器人不在低花問 RKCB）；這些照橋譜的表，改之前要先跟社團確認。
+- 要更準的判斷，下一步是在這個牌組上跑 `compare`（單明手抽樣）看滿貫合約的坐莊，或用 `--dd-bias` 校正雙明手的偏差（§2）。
+
 ## 檔案
 
 | 檔案 | 內容 |
@@ -367,8 +419,10 @@ npm run sim -- bidding --deals 15000 --system gib --analyse --practice shared/pr
 | `leads.ts` | 首攻紀錄（`leadRecord`）、慣例牌、首攻類型、社長的觀念（`CONCEPTS`）、統計（`LeadStudyBuilder`）與報告 |
 | `compare.ts` | 一副每個決策的對照（`compareBoard`）、情境、統計與報告 |
 | `replay.ts` | 首攻重播（§8）：`stateAtLead`（從種子發牌、照紀錄叫牌）、`replayLead`、`LeadReplayBuilder`（舊對新：實際牌局的墩、倒合約、IMP，抽樣的墩、倒合約、分數與偏差）與報告 |
-| `bidding.ts` | 叫牌研究（§7）：決策點的分類（`classify`）、替代叫品（`alternativesFor`）、一副的紀錄（`biddingRecord`）、統計（`BiddingStudyBuilder`）、報告與練習牌組（`practiceDeals`） |
+| `bidding.ts` | 叫牌研究（§7）：決策點的分類（`classify`）、替代叫品（`alternativesFor`）、一副的紀錄（`biddingRecord`）、統計（`BiddingStudyBuilder`）、報告與練習牌組（`practiceDeals`）；滿貫區的表（`strongSide`、`slamCellOf`，§9） |
 | `store.ts`、`progress.ts`、`random.ts` | JSON Lines 續跑、進度與 ETA、種子亂數 |
 | `data/` | 結果與報告（不進 git） |
 
 測試在 `tests/eval/sim.test.ts`：抽樣器（每張看不到的牌剛好發一次、張數與點力在範圍內、放寬會記下、看不到的牌洗過結果不變、同種子同結果）、評分（平均、做成率、得分、偏差旋鈕、莊方）、DDS（首攻者最佳墩數＋DD 表的莊家墩數＝13）、首攻的慣例牌與類型、觀念的情境、統計與報告、對照的統計、執行緒池（兩個執行緒算出的 DD 表跟單一 solver 一樣）、JSON Lines 續跑。叫牌研究的測試在 `tests/eval/bidding.test.ts`：決策點的分類、替代叫品（開叫、答叫、邀請與成局、滿貫、競叫；同伴迫叫與人工叫品之後不試 Pass）、替代叫品的種類與方向、DD 表上的得分與 IMP、par 的正負號、真實牌組上叫完替代叫品、統計與報告、練習牌組（挑選、說明、讀檔）、執行緒池與續跑。
+
+滿貫區的牌組（每一副合條件、同種子同牌、`--deck slam` 的讀法）與報告的滿貫區表在 `tests/eval/slam-deck.test.ts`。

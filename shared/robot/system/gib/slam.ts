@@ -246,3 +246,31 @@ export const slamAnswers: readonly Book[] = [
 
 /** Asking with RKCB: after the other books, before the fallback */
 export const slamAsks: readonly Book[] = [askRkcb]
+
+// ── The slam check (V4d): a natural game bid with a slam in hand ─────────────────────────────
+
+/** Exactly game: 3NT, four of a major, five of a minor (4NT, 5NT and five of a major ask or invite) */
+const isGameBid = (call: Call) => call === '3N' || call === '4H' || call === '4S' || call === '5C' || call === '5D'
+
+/**
+ * A second look at the robot's call (`System.revise`, V4d). The books' natural game bids take any
+ * strength above their floor (game after Stayman, the jump to game, the raise to game), and `askRkcb`
+ * comes after them, so a hand with a slam between us stopped in game (eval/sim/README.md §9). §10:
+ * when the fallback judges a slam in the trump suit, ask with 4NT rather than bid six. So when the
+ * books chose a natural game (not artificial, not a sign-off) and the fallback's goal is a slam:
+ * RKCB when 4NT asks it here for that suit; otherwise the small slam itself, only when my points
+ * and partner's fewest come to 33. Only while the opponents have passed, before our 4NT or five level.
+ */
+export function slamCheck(h: Hand, ctx: Ctx, call: Call, shows: Spec | undefined, explain: (call: Call) => Spec | undefined): Call | null {
+  if (!ctx.opening?.ours || !isGameBid(call) || shows?.artificial || shows?.notes?.some((n) => n.key === 'signoff')) return null
+  if (ctx.turns.some((t) => (!t.ours && t.call !== 'P') || (t.ours && isBid(t.call) && (levelOf(t.call) >= 5 || t.call === '4N')))) return null
+  const goal = goalFor(h, ctx)
+  if (!goal || (goal.kind !== 'slam' && goal.kind !== 'grand')) return null
+  if (goal.strain === trumpOf(ctx) && ctx.legal.has('4N')) {
+    const ask = explain('4N')
+    if (ask?.name === 'rkcb' && ask.trump === goal.strain) return '4N'
+  }
+  const six = bid(6, goal.strain)
+  if (h.hcp + (ctx.shown.partner.hcp?.[0] ?? 0) < 33) return null
+  return explain(six) && !explain(six)?.artificial ? six : null
+}

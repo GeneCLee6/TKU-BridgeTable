@@ -8,7 +8,7 @@ import { minors, strong } from './minors.ts'
 import { notrump } from './notrump.ts'
 import { openings } from './openings.ts'
 import { responder } from './responder.ts'
-import { slamAnswers, slamAsks } from './slam.ts'
+import { slamAnswers, slamAsks, slamCheck } from './slam.ts'
 import { cite } from './sources.ts'
 import { target } from './target.ts'
 import { twoSuiters } from './twosuiters.ts'
@@ -21,6 +21,8 @@ import { twoSuiters } from './twosuiters.ts'
 export const TKU: System = {
   id: 'tku',
   firstFit: true,
+  // V4d: a natural game bid with a slam between us asks RKCB or bids the slam instead
+  revise: slamCheck,
   // Each group names the 淡江橋館 articles it follows, for keeping in step with them (`sources.ts`)
   books: [
     ...cite(['jacoby-2nt', 'system-one-major', 'system-notrump', 'notrump-responses'], slamAnswers),

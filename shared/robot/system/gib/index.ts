@@ -6,7 +6,7 @@ import { majors } from './majors.ts'
 import { minors } from './minors.ts'
 import { notrump } from './notrump.ts'
 import { openings } from './openings.ts'
-import { slamAnswers, slamAsks } from './slam.ts'
+import { slamAnswers, slamAsks, slamCheck } from './slam.ts'
 import { soloway } from './soloway.ts'
 import { strong } from './strong.ts'
 
@@ -32,4 +32,6 @@ export const GIB: System = {
     fallback,
   ],
   emergency: forcedCall,
+  // V4d: a natural game bid with a slam between us asks RKCB or bids the slam instead
+  revise: slamCheck,
 }

@@ -1,4 +1,5 @@
-import { SEATS, sortHand, type Card, type Hands } from '../shared/cards.ts'
+import { SEATS, SUITS, sortHand, type Card, type Hands } from '../shared/cards.ts'
+import { dealWith, type DealConditions } from '../shared/dealer.ts'
 
 /**
  * The fixed deal sets of the evaluation platform (e6-t16, eval/README.md). A set is not stored as a
@@ -47,8 +48,29 @@ function mulberry32(seed: number) {
 /** The deck in a fixed order, independent of `shared/cards.ts` */
 const DECK: readonly Card[] = [...'SHDC'].flatMap((suit) => [...'AKQJT98765432'].map((rank) => suit + rank))
 
+/**
+ * A seed that starts with `slam:` (`--deck slam`) is a slam-zone set (eval/sim/README.md §9): North–
+ * South hold 30–36 points between them, or 26–29 with a nine-card fit (five and four). Every deal
+ * meeting that is equally likely (`shared/dealer.ts`); dealer and vulnerability follow the board
+ * number as usual, so each seat deals and each vulnerability comes round.
+ */
+export const SLAM_PREFIX = 'slam:'
+
+export const SLAM_CONDITIONS: readonly DealConditions[] = [
+  { sides: { NS: { hcp: [30, 36] } } },
+  ...SUITS.flatMap((suit): DealConditions[] => [
+    { seats: { N: { lengths: { [suit]: [5, 13] } }, S: { lengths: { [suit]: [4, 13] } } }, sides: { NS: { hcp: [26, 29] } } },
+    { seats: { N: { lengths: { [suit]: [4, 13] } }, S: { lengths: { [suit]: [5, 13] } } }, sides: { NS: { hcp: [26, 29] } } },
+  ]),
+]
+
 /** Board `boardNo` of the set with `seed`: a Fisher-Yates shuffle, 13 cards a seat, each hand sorted */
 export function evalBoard(boardNo: number, seed: string = EVAL_SEED): EvalBoard {
+  if (seed.startsWith(SLAM_PREFIX)) {
+    const dealt = dealWith(SLAM_CONDITIONS, mulberry32(hashText(`${seed}:${boardNo}`)), 1_000_000)
+    if (!dealt.ok) throw new Error(`no slam-zone deal for board ${boardNo} of ${seed}`)
+    return { boardNo, hands: dealt.hands }
+  }
   const random = mulberry32(hashText(`${seed}:${boardNo}`))
   const deck = [...DECK]
   for (let i = deck.length - 1; i > 0; i--) {
