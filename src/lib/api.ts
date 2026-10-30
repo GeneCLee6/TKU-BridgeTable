@@ -21,7 +21,7 @@ import type {
   RegisterResult,
   RobotSpeed,
 } from '../../shared/protocol.ts'
-import type { MatchSeat, Room, TeamMatchSettings, TeamMatchView } from '../../shared/team-match.ts'
+import type { MatchSeat, MatchVugraph, Room, TeamMatchSettings, TeamMatchView } from '../../shared/team-match.ts'
 import type { RulingKind, Team } from '../../shared/team-scoring.ts'
 import type { Traveller } from '../../shared/traveller.ts'
 import type { Seat } from '../../shared/cards.ts'
@@ -177,6 +177,10 @@ export const api = {
   /** Rulings, the pause, abandoning, substitutes and robots sitting in, while the match is played */
   matchPlay: (id: string, { action, ...body }: MatchPlayAction) =>
     post<{ match: TeamMatchView | null }>(`/api/matches/${encodeURIComponent(id)}/${action}`, body),
+  /** The Vugraph page (`e8-t18`): both rooms, the score and the watchers' chat; never for a player while it is on */
+  matchVugraph: (id: string) => request<{ vugraph: MatchVugraph }>(`/api/matches/${encodeURIComponent(id)}/vugraph`),
+  matchVugraphChat: (id: string, text: string) =>
+    post<{ vugraph: MatchVugraph }>(`/api/matches/${encodeURIComponent(id)}/vugraph/chat`, { text }),
 
   admin: {
     users: () => request<{ users: AdminUser[] }>('/api/admin/users'),

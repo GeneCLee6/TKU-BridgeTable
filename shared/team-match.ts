@@ -1,6 +1,6 @@
 import type { Contract } from './auction.ts'
 import type { Card, Seat } from './cards.ts'
-import { isRobotKind, type PublicUser, type RobotKind } from './protocol.ts'
+import { isRobotKind, type BoardView, type PublicUser, type RobotKind, type SeatOccupant, type TableMatch } from './protocol.ts'
 import { MATCH_SCORINGS, type MatchScoring, type Ruling, type Team, type TeamBoardResult } from './team-scoring.ts'
 
 /**
@@ -59,6 +59,11 @@ export interface TeamMatchSettings {
   /** The system TKB bids for every robot in the match, so both rooms face the same robot */
   robotKind: RobotKind
   invite: InviteMode
+  /**
+   * Watchers see each room one trick behind (`e8-t19`, AC-8.8): the server holds back the trick
+   * being played and the one before it (`laggedBoard` in worker/views.ts)
+   */
+  delay: boolean
 }
 
 export const TEAM_MATCH_LIMITS = {
@@ -83,6 +88,7 @@ export function defaultTeamMatchSettings(): TeamMatchSettings {
     robots: true,
     robotKind: 'gib',
     invite: 'direct',
+    delay: false,
   }
 }
 
@@ -100,7 +106,7 @@ export function parseTeamMatchSettings(
 ): { settings: TeamMatchSettings } | { field: string } {
   if (value === undefined) return { settings: base }
   if (!value || typeof value !== 'object' || Array.isArray(value)) return { field: 'settings' }
-  const { teamNames, boards, scoring, boardMinutes, robots, robotKind, invite, ...rest } = value as Record<
+  const { teamNames, boards, scoring, boardMinutes, robots, robotKind, invite, delay, ...rest } = value as Record<
     string,
     unknown
   >
@@ -118,6 +124,7 @@ export function parseTeamMatchSettings(
   if (robots !== undefined && typeof robots !== 'boolean') return { field: 'robots' }
   if (robotKind !== undefined && !isRobotKind(robotKind)) return { field: 'robotKind' }
   if (invite !== undefined && !INVITE_MODES.includes(invite as InviteMode)) return { field: 'invite' }
+  if (delay !== undefined && typeof delay !== 'boolean') return { field: 'delay' }
   return {
     settings: {
       ...base,
@@ -128,6 +135,7 @@ export function parseTeamMatchSettings(
       ...(robots !== undefined && { robots }),
       ...(robotKind !== undefined && { robotKind }),
       ...(invite !== undefined && { invite: invite as InviteMode }),
+      ...(delay !== undefined && { delay }),
     },
   }
 }
@@ -225,6 +233,42 @@ export interface TeamMatchView {
   /** While it is played, to the host only: each room's board and clock, for rulings (`e8-t15`) */
   rooms?: Record<Room, MatchRoomClock>
 }
+
+// ── The Vugraph page (`e8-t18`, `e8-t19`, AC-8.8) ────────────────────────────────────────────
+
+/**
+ * One room as the Vugraph page shows it: its seats and the board on its table as a watcher sees
+ * it (all four hands, `vugraphBoard` in worker/views.ts), one trick behind when the match says so
+ */
+export interface VugraphRoom {
+  tableId: string
+  seats: Record<Seat, SeatOccupant | null>
+  board: BoardView | null
+  /** Where the room is in the match (`TableView.match`) */
+  match: TableMatch
+}
+
+/** A line of the watchers' chat; the players never get it */
+export interface VugraphChatLine {
+  id: string
+  at: number
+  userId: string
+  username: string
+  text: string
+}
+
+/**
+ * The Vugraph page (`GET /api/matches/:id/vugraph`): the match with its score, both rooms while it
+ * is played, and the watchers' chat. Never for anyone who plays in the match while it is on
+ */
+export interface MatchVugraph {
+  match: TeamMatchView
+  rooms: Partial<Record<Room, VugraphRoom>>
+  chat: VugraphChatLine[]
+}
+
+/** How long a line of the watchers' chat may be */
+export const VUGRAPH_CHAT_MAX = 300
 
 /** Reads a ruling's reason: trimmed, 1–200 characters, no control characters; null when it is not one */
 export function parseRulingReason(value: unknown): string | null {

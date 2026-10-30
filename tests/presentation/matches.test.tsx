@@ -7,6 +7,9 @@ import { defaultTeamMatchSettings, MATCH_SEATS, teamAt, type MatchSeatView, type
 import { MatchBanner } from '../../src/components/MatchBanner.tsx'
 import { MatchesPage } from '../../src/pages/MatchesPage.tsx'
 import { MatchPage } from '../../src/pages/MatchPage.tsx'
+import { MatchReplayPage } from '../../src/pages/MatchReplayPage.tsx'
+import { VugraphPage } from '../../src/pages/VugraphPage.tsx'
+import { ApiError } from '../../src/lib/api.ts'
 import { PreferencesProvider } from '../../src/state/PreferencesContext.tsx'
 
 /**
@@ -31,6 +34,9 @@ const mocks = vi.hoisted(() => ({
     matchSeat: vi.fn(),
     startMatch: vi.fn(),
     matchPlay: vi.fn(),
+    matchVugraph: vi.fn(),
+    matchVugraphChat: vi.fn(),
+    record: vi.fn(),
   },
   me: 'amy',
   /** The viewer's permissions: TKB in the club's system needs `tkuSystem` (ROBOT.md §7) */
@@ -95,6 +101,8 @@ function show(path: string) {
         <Routes>
           <Route path="/matches" element={<MatchesPage />} />
           <Route path="/matches/:matchId" element={<MatchPage />} />
+          <Route path="/matches/:matchId/vugraph" element={<VugraphPage />} />
+          <Route path="/matches/:matchId/replay" element={<MatchReplayPage />} />
         </Routes>
       </MemoryRouter>
     </PreferencesProvider>
@@ -194,8 +202,9 @@ describe('MatchPage (e8-t06)', () => {
     await userEvent.clear(boards)
     await userEvent.type(boards, '12')
     await userEvent.selectOptions(screen.getByLabelText('邀請方式'), 'captains')
+    await userEvent.click(screen.getByLabelText('觀看者落後一墩（避免場外傳遞牌情）'))
     await userEvent.click(screen.getByRole('button', { name: '儲存' }))
-    expect(mocks.api.matchSettings).toHaveBeenCalledWith('m1', expect.objectContaining({ boards: 12, invite: 'captains' }))
+    expect(mocks.api.matchSettings).toHaveBeenCalledWith('m1', expect.objectContaining({ boards: 12, invite: 'captains', delay: true }))
   })
 
   it('lets only a host with tkuSystem choose the robots’ system (ROBOT.md §7)', async () => {
@@ -254,7 +263,7 @@ describe('MatchPage while the match is played (F4)', () => {
     mocks.api.match.mockResolvedValue({ match: playing() })
     show('/matches/m1')
     expect(await screen.findByRole('heading', { name: '比分' })).toBeInTheDocument()
-    expect(screen.getByRole('group', { name: '比分' })).toHaveTextContent('淡江10 : 0B 隊已計分 1 / 8 副')
+    expect(screen.getByRole('group', { name: '比分' })).toHaveTextContent('淡江10 : 0B 隊VP 13.78 : 6.22已計分 1 / 8 副')
     expect(screen.getByRole('link', { name: '回到我的牌桌' })).toHaveAttribute('href', '/table/t-closed')
     expect(screen.queryByRole('link', { name: '觀看開室' })).toBeNull()
     expect(screen.getByRole('link', { name: '420' })).toHaveAttribute('href', '/history/r1')
@@ -269,6 +278,8 @@ describe('MatchPage while the match is played (F4)', () => {
     show('/matches/m1')
     expect(await screen.findByRole('link', { name: '觀看開室' })).toHaveAttribute('href', '/table/t-open')
     expect(screen.getByRole('link', { name: '觀看閉室' })).toHaveAttribute('href', '/table/t-closed')
+    expect(screen.getByRole('link', { name: '觀賽（Vugraph）' })).toHaveAttribute('href', '/matches/m1/vugraph')
+    expect(screen.getByRole('link', { name: '整場重播' })).toHaveAttribute('href', '/matches/m1/replay')
   })
 
   it('names the winner once the match is over', async () => {
@@ -380,5 +391,119 @@ describe('the result page and the host’s controls (F5)', () => {
       </PreferencesProvider>,
     )
     expect(screen.getByRole('status')).toHaveTextContent('房主暫停了比賽')
+  })
+})
+
+describe('the Vugraph page (e8-t18, e8-t19) and the whole match replayed (e8-t20)', () => {
+  const room = (tableId: string, seq: number) => ({
+    tableId,
+    seats: {
+      N: { id: 'robot:gib:N', username: 'TKB', robot: true, online: true },
+      E: { id: 'robot:gib:E', username: 'TKB', robot: true, online: true },
+      S: { id: 'amy', username: 'amy', online: true },
+      W: { id: 'robot:gib:W', username: 'TKB', robot: true, online: true },
+    },
+    board: {
+      boardNo: seq,
+      dealer: 'N',
+      vul: 'none',
+      phase: 'play',
+      hands: {
+        N: ['SA', 'SK', 'SQ', 'SJ', 'ST', 'S9', 'S8', 'S7', 'S6', 'S5', 'S4', 'S3'],
+        E: ['HA', 'HK', 'HQ', 'HJ', 'HT', 'H9', 'H8', 'H7', 'H6', 'H5', 'H4', 'H3'],
+        S: ['DA', 'DK', 'DQ', 'DJ', 'DT', 'D9', 'D8', 'D7', 'D6', 'D5', 'D4', 'D3'],
+        W: ['CA', 'CK', 'CQ', 'CJ', 'CT', 'C9', 'C8', 'C7', 'C6', 'C5', 'C4', 'C3'],
+      },
+      handCounts: { N: 12, E: 12, S: 12, W: 12 },
+      auction: [
+        { seat: 'N', call: '1S' },
+        { seat: 'E', call: 'P' },
+        { seat: 'S', call: 'P' },
+        { seat: 'W', call: 'P' },
+      ],
+      contract: { level: 1, strain: 'S', doubled: '', declarer: 'N' },
+      dummy: 'S',
+      turn: 'N',
+      tricks: [
+        {
+          leader: 'E',
+          cards: [
+            { seat: 'E', card: 'H2' },
+            { seat: 'S', card: 'D2' },
+            { seat: 'W', card: 'C2' },
+            { seat: 'N', card: 'S2' },
+          ],
+          winner: 'N',
+        },
+      ],
+      tricksWon: { NS: 1, EW: 0 },
+      legalCards: [],
+      legalCalls: [],
+      canUndo: false,
+      canClaim: false,
+    },
+    match: { id: 'm1', room: tableId === 't-open' ? 'open' : 'closed', seq, boards: 8, played: seq - 1, over: false },
+  })
+
+  it('shows both rooms side by side with the score, and the watchers talk among themselves', async () => {
+    mocks.me = 'zed'
+    const settings = { ...defaultTeamMatchSettings(), teamNames: ['淡江', ''] as [string, string], delay: true }
+    const page = { match: playing({ settings }), rooms: { open: room('t-open', 2), closed: room('t-closed', 2) }, chat: [] }
+    mocks.api.matchVugraph.mockResolvedValue({ vugraph: page })
+    mocks.api.matchVugraphChat.mockResolvedValue({ vugraph: { ...page, chat: [{ id: 'c1', at: 1, userId: 'zed', username: 'zed', text: '好牌' }] } })
+    show('/matches/m1/vugraph')
+    expect(await screen.findByRole('heading', { name: '觀賽（Vugraph） · 淡江 對 B 隊' })).toBeInTheDocument()
+    expect(screen.getByRole('group', { name: '比分' })).toHaveTextContent('VP 13.78 : 6.22')
+    expect(screen.getByText(/觀看者落後一墩/)).toBeInTheDocument()
+    const open = screen.getByRole('region', { name: '開室' })
+    expect(within(open).getByRole('heading', { name: '開室 · 第 2 / 8 副' })).toBeInTheDocument()
+    expect(within(open).getByText(/南北 1 墩 · 東西 0 墩/)).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: '閉室' })).toBeInTheDocument()
+    expect(screen.getByText('還沒有人說話。')).toBeInTheDocument()
+    await userEvent.type(screen.getByLabelText('和其他觀看者聊聊…'), '好牌')
+    await userEvent.click(screen.getByRole('button', { name: '送出' }))
+    expect(mocks.api.matchVugraphChat).toHaveBeenCalledWith('m1', '好牌')
+    expect(await screen.findByText('好牌')).toBeInTheDocument()
+  })
+
+  it('tells a player they may not watch while the match is on', async () => {
+    mocks.api.matchVugraph.mockRejectedValue(new ApiError('no', 403, 'matchNoWatching'))
+    show('/matches/m1/vugraph')
+    expect(await screen.findByRole('alert')).toBeInTheDocument()
+  })
+
+  it('replays every board both rooms played, one after another', async () => {
+    const third = { seq: 3, open: { boardId: 'r5', scoreNS: 100 }, closed: { boardId: 'r6', scoreNS: 100 }, result: { A: 0, B: 0, net: 0, ruled: false } }
+    const ruled = { seq: 2, ruling: { kind: 'avg', team: 'A', reason: '超時' }, open: { boardId: 'r3', scoreNS: 50 }, result: { A: 0, B: 0, ruled: true } } as const
+    mocks.api.match.mockResolvedValue({ match: playing({ status: 'finished', tables: undefined, boards: [...playing().boards, ruled, third] }) })
+    const record = (id: string, boardNo: number) => ({
+      id,
+      tableNumber: 0,
+      finishedAt: 1,
+      players: { N: { id: 'n', username: 'n' }, E: { id: 'e', username: 'e' }, S: { id: 's', username: 's' }, W: { id: 'w', username: 'w' } },
+      board: {
+        boardNo,
+        dealer: 'N',
+        vul: 'none',
+        hands: { N: [], E: [], S: [], W: [] },
+        auction: [],
+        contract: null,
+        play: [],
+        phase: 'finished',
+        result: { contract: null, declarerTricks: null, scoreNS: 0, claimed: false },
+      },
+    })
+    mocks.api.record.mockImplementation((id: string) => Promise.resolve({ record: record(id, id === 'r1' || id === 'r2' ? 1 : 3) }))
+    show('/matches/m1/replay')
+    expect(await screen.findByRole('heading', { level: 1, name: /整場重播/ })).toBeInTheDocument()
+    await waitFor(() => expect(mocks.api.record).toHaveBeenCalledWith('r1'))
+    expect(mocks.api.record).toHaveBeenCalledWith('r2')
+    // Board 2 was ruled with one room unplayed: it is not in the replay
+    expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual(['第 1 副', '第 3 副'])
+    expect(screen.getByRole('button', { name: '上一副' })).toBeDisabled()
+    await userEvent.click(screen.getByRole('button', { name: '下一副' }))
+    await waitFor(() => expect(mocks.api.record).toHaveBeenCalledWith('r5'))
+    expect(mocks.api.record).toHaveBeenCalledWith('r6')
+    expect(screen.getByRole('button', { name: '下一副' })).toBeDisabled()
   })
 })

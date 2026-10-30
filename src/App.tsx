@@ -19,6 +19,8 @@ import { LobbyPage } from './pages/LobbyPage.tsx'
 import { LoginPage } from './pages/LoginPage.tsx'
 import { MatchesPage } from './pages/MatchesPage.tsx'
 import { MatchPage } from './pages/MatchPage.tsx'
+import { MatchReplayPage } from './pages/MatchReplayPage.tsx'
+import { VugraphPage } from './pages/VugraphPage.tsx'
 import { ProfilePage } from './pages/ProfilePage.tsx'
 import { TablePage } from './pages/TablePage.tsx'
 import { AuthProvider, useAuth } from './state/AuthContext.tsx'
@@ -82,6 +84,8 @@ function Routed() {
         <Route path="/challenges/:challengeId/boards/:seq" element={<ChallengeBoardPage />} />
         <Route path="/matches" element={<MatchesPage />} />
         <Route path="/matches/:matchId" element={<MatchPage />} />
+        <Route path="/matches/:matchId/vugraph" element={<VugraphPage />} />
+        <Route path="/matches/:matchId/replay" element={<MatchReplayPage />} />
         <Route path="/history" element={<HistoryPage />} />
         <Route path="/history/:recordId" element={<BoardPage />} />
         <Route path="/history/:recordId/vs/:otherId" element={<ComparePage />} />

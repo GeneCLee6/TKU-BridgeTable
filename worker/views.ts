@@ -39,10 +39,10 @@ import { challengeStandings, hasFinished } from './challenge-flow.ts'
 import type { Challenge } from './challenges.ts'
 import type { Traveller } from '../shared/traveller.ts'
 import type { EventBoard } from './history-index.ts'
-import { teamAt, type MatchBoardView, type MatchRoomView, type TeamMatchView } from '../shared/team-match.ts'
+import { teamAt, type MatchBoardView, type MatchRoomView, type TeamMatchView, type VugraphChatLine } from '../shared/team-match.ts'
 import { scoreTeamMatch } from '../shared/team-scoring.ts'
 import { isMatchPlayer } from './team-match-flow.ts'
-import { boardScores, type RoomResult, type TeamMatch } from './team-matches.ts'
+import { boardScores, type MatchChatLine, type RoomResult, type TeamMatch } from './team-matches.ts'
 
 /** A table as the Worker keeps it */
 export interface Table {
@@ -611,6 +611,43 @@ export function teamMatchView(
     totals: score.totals,
     leader: score.leader,
   }
+}
+
+/**
+ * A team match board as watchers see it when the match plays one trick behind (`e8-t19`, AC-8.8):
+ * while it is played, only the tricks before the last finished one are on it, so the watchers
+ * never see the trick being played nor the one just finished, and a claim waiting for an answer is
+ * not there yet. The hands are what each seat held then (`boardView` works them out from `play`).
+ * The bidding and a finished board are as they are: the result is the room's anyway. Done here, on
+ * the server, so the browser of someone watching never has the cards played since
+ */
+export function laggedBoard(board: BoardState): BoardState {
+  if (board.phase !== 'play') return board
+  const shown = Math.max(0, 4 * (Math.floor(board.play.length / 4) - 1))
+  const { claim: _claim, claimed: _claimed, ...rest } = board
+  return { ...rest, play: board.play.slice(0, shown) }
+}
+
+/**
+ * A team match room's board on the Vugraph page (`e8-t18`): what a watcher at the table sees (all
+ * four hands, no bidding box), one trick behind when the match says so (`laggedBoard`). Only for
+ * someone who does not play in the match; the table checks that (`TableService.vugraph`)
+ */
+export function vugraphBoard(board: BoardState, delay: boolean): BoardView {
+  const { bookTopics: _topics, ...view } = boardView(delay ? laggedBoard(board) : board, null, { undoAllowed: false })
+  return view
+}
+
+/** The watchers' chat as one member sees it: without the lines of those they blocked (as at a table, `chatFor`) */
+export function vugraphChat(
+  lines: MatchChatLine[],
+  blocked: (authorId: string) => boolean,
+  userById: (id: string) => PublicUser | undefined,
+): VugraphChatLine[] {
+  return lines.flatMap((line) => {
+    const user = blocked(line.userId) ? undefined : userById(line.userId)
+    return user ? [{ ...line, username: user.username }] : []
+  })
 }
 
 /**

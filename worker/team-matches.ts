@@ -1,6 +1,6 @@
 import type { Card, Seat } from '../shared/cards.ts'
 import { decodeDealSet, encodeDealSet, type DealSet } from '../shared/deal-set.ts'
-import { MATCH_SEATS, teamAt, type MatchStatus, type Room, type SeatStatus, type TeamMatchSettings } from '../shared/team-match.ts'
+import { defaultTeamMatchSettings, MATCH_SEATS, teamAt, type MatchStatus, type Room, type SeatStatus, type TeamMatchSettings } from '../shared/team-match.ts'
 import type { Ruling, RulingKind, Team, TeamBoardScores } from '../shared/team-scoring.ts'
 import type { Sql, SqlValue } from './store.ts'
 
@@ -115,7 +115,33 @@ const SCHEMA = [
     ruled_at INTEGER,
     PRIMARY KEY (match_id, seq)
   ) WITHOUT ROWID`,
+  // The watchers' chat on the Vugraph page (`e8-t18`): the players never get it
+  `CREATE TABLE IF NOT EXISTS match_chat (
+    match_id TEXT NOT NULL,
+    id TEXT NOT NULL,
+    at INTEGER NOT NULL,
+    user_id TEXT NOT NULL,
+    text TEXT NOT NULL,
+    PRIMARY KEY (match_id, at, id)
+  ) WITHOUT ROWID`,
+  // Who looked at the match on the Vugraph page while it was played: they saw both rooms, so they never come in as a substitute
+  `CREATE TABLE IF NOT EXISTS match_watchers (
+    match_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    PRIMARY KEY (match_id, user_id)
+  ) WITHOUT ROWID`,
 ]
+
+/** The Vugraph chat a match keeps: the latest this many lines */
+export const MATCH_CHAT_KEEP = 100
+
+/** One line of a match's Vugraph chat as stored (the name is looked up when it is shown) */
+export interface MatchChatLine {
+  id: string
+  at: number
+  userId: string
+  text: string
+}
 
 interface MatchRow extends Record<string, SqlValue> {
   match_id: string
@@ -296,7 +322,8 @@ export class TeamMatchStore {
       status: row.status as MatchStatus,
       ...optional('startedAt', row.started_at),
       ...optional('endedAt', row.ended_at),
-      settings: JSON.parse(row.settings) as TeamMatchSettings,
+      // A match saved before a setting existed has its default (`delay`, e8-t19)
+      settings: { ...defaultTeamMatchSettings(), ...(JSON.parse(row.settings) as Partial<TeamMatchSettings>) },
       captains: { A: row.captain_a, ...optional('B', row.captain_b) },
       ...(deals && { deals }),
       ...(row.open_table !== null && row.closed_table !== null && { tables: { open: row.open_table, closed: row.closed_table } }),
@@ -459,6 +486,8 @@ export class TeamMatchStore {
           userId,
         )
         .map((r) => r.match_id)
+      // What they said on the Vugraph pages goes with the account
+      this.sql.exec('DELETE FROM match_chat WHERE user_id = ?', userId)
       for (const id of ids) {
         const match = this.get(id)!
         if (match.status === 'setup' && match.hostId === userId) {
@@ -486,5 +515,41 @@ export class TeamMatchStore {
       }
       return ids
     })
+  }
+
+  // ── The Vugraph page (`e8-t18`) ──────────────────────────────────────────────────────────────
+
+  /** Adds a line to a match's watchers' chat, keeping the latest `MATCH_CHAT_KEEP` */
+  addChat(matchId: string, line: MatchChatLine) {
+    this.sql.transaction(() => {
+      this.sql.exec('INSERT INTO match_chat (match_id, id, at, user_id, text) VALUES (?, ?, ?, ?, ?)', matchId, line.id, line.at, line.userId, line.text)
+      this.sql.exec(
+        `DELETE FROM match_chat WHERE match_id = ? AND (at, id) NOT IN
+           (SELECT at, id FROM match_chat WHERE match_id = ? ORDER BY at DESC, id DESC LIMIT ?)`,
+        matchId,
+        matchId,
+        MATCH_CHAT_KEEP,
+      )
+    })
+  }
+
+  /** A match's watchers' chat, oldest first */
+  chat(matchId: string): MatchChatLine[] {
+    return this.sql
+      .exec<{ id: string; at: number; user_id: string; text: string }>(
+        'SELECT id, at, user_id, text FROM match_chat WHERE match_id = ? ORDER BY at, id',
+        matchId,
+      )
+      .map((r) => ({ id: r.id, at: r.at, userId: r.user_id, text: r.text }))
+  }
+
+  /** Notes that a member watched the match on the Vugraph page */
+  watched(matchId: string, userId: string) {
+    this.sql.exec('INSERT OR IGNORE INTO match_watchers (match_id, user_id) VALUES (?, ?)', matchId, userId)
+  }
+
+  /** Whether a member ever watched the match on the Vugraph page */
+  hasWatched(matchId: string, userId: string): boolean {
+    return this.sql.exec('SELECT 1 FROM match_watchers WHERE match_id = ? AND user_id = ?', matchId, userId).length > 0
   }
 }
