@@ -102,6 +102,8 @@ export function bookRouteNeed(method: string, path: string): Need | null {
     return null
   }
   // A profile's convention card versions (BridgeHall e3-t09): the profile's rights decide (club.ts)
+  // A convention card as a PDF (BridgeHall e3-t13): any member
+  if (path === '/card-pdf') return method === 'POST' ? 'member' : null
   if (/^\/cards\/[\w-]+$/.test(path)) return method === 'GET' || method === 'POST' ? 'member' : null
   if (/^\/cards\/[\w-]+\/[\w-]+\/\d+$/.test(path)) return ['GET', 'PATCH', 'DELETE'].includes(method) ? 'member' : null
   if (/^\/cards\/[\w-]+\/[\w-]+\/\d+\/docx$/.test(path)) return method === 'GET' ? 'member' : null

@@ -1257,6 +1257,33 @@ export interface ProfileAccess {
 /** Versions per profile, the card's JSON, the Word file (bytes, before base64) and the note */
 export const CARD_SNAPSHOT_LIMITS = { perProfile: 200, cardBytesMax: 800_000, docxBytesMax: 600_000, noteMax: 200 } as const
 
+/**
+ * POST /api/book/card-pdf (BridgeHall e3-t13, worker/card-pdf.ts): the card page's printable HTML
+ * printed to PDF by Browser Run. The HTML stays under the API's 2 MB body; each member may make
+ * `perMemberBurst` at once, then one every `perMemberEveryMs`; the club stops at `dailyBrowserMs`
+ * of browser time a day (the Workers Free plan has 10 minutes); the same HTML within `cacheMs` is
+ * not printed again
+ */
+export const CARD_PDF_LIMITS = {
+  htmlBytesMax: 1_900_000,
+  perMemberBurst: 5,
+  perMemberEveryMs: 120_000,
+  dailyBrowserMs: 8 * 60_000,
+  cacheMs: 60 * 60_000,
+  cacheEntries: 20,
+} as const
+
+/** The sheet a card is printed on (BridgeHall cards/types.ts `CardTemplate.paper`) */
+export type CardPdfPaper = 'A4-landscape' | 'A4-portrait'
+
+/** POST /api/book/card-pdf's body; the answer is the PDF (application/pdf) */
+export interface CardPdfRequest {
+  html: string
+  paper: CardPdfPaper
+  /** The file's name without `.pdf`; ASCII letters, digits and - only (anything else is dropped) */
+  name?: string
+}
+
 /** GET /api/book/cards/:profileId: a version without its card */
 export interface CardSnapshotMeta {
   profileId: string
