@@ -152,6 +152,8 @@ describe('accounts', () => {
     expect(await club.userForToken(token)).toEqual(user)
     const again = await club.login('gene', 'secret1')
     expect(again.user).toEqual(user)
+    // One object per club (e12-t02): the account says which; 淡江 when the club is not named
+    expect(user.clubId).toBe('tku')
     await expect(club.login('gene', 'wrong')).rejects.toThrow('帳號或密碼錯誤')
     await club.logout(token)
     expect(await club.userForToken(token)).toBeNull()

@@ -1,3 +1,5 @@
+import { DEFAULT_CLUB_ID, requestClubId } from '../shared/clubs.ts'
+import { formatMessage } from '../shared/messages.ts'
 import { parseHistoryQuery, type HistoryQuery } from '../shared/history-query.ts'
 import { TABLE_ID_PATTERN, TABLE_SOCKET_PREFIX } from '../shared/protocol.ts'
 import { readCookie, SESSION_COOKIE } from './auth.ts'
@@ -15,7 +17,8 @@ interface Fetches {
 
 /** Where the Worker sends requests; `worker/index.ts` gives the Durable Objects, the tests fakes */
 export interface Routes {
-  club(): Fetches & {
+  /** A club's object (shared/clubs.ts); the routing only asks for clubs that exist */
+  club(clubId: string): Fetches & {
     /** The member signed in with this session token, or null (one call per table connection, not per message) */
     socketUser(token: string | null): Promise<string | null>
   }
@@ -43,6 +46,12 @@ const EDGE_HISTORY = new Set(['/api/history', '/api/history/search', '/api/histo
 export async function route(request: Request, routes: Routes): Promise<Response> {
   const url = new URL(request.url)
   const { pathname } = url
+  // The club the request is for (e12-t02): `X-Club-Id` or `?club=`, none means 淡江
+  const clubId = requestClubId(request)
+  if (clubId === null && (pathname === '/ws' || pathname.startsWith('/api/') || pathname.startsWith(TABLE_SOCKET_PREFIX))) {
+    return unknownClub()
+  }
+  const club = () => routes.club(clubId ?? '')
   const now = routes.edge?.now ?? Date.now
   const cookies = request.headers.get('Cookie')
   const passUser = async () => {
@@ -53,20 +62,29 @@ export async function route(request: Request, routes: Routes): Promise<Response>
     const tableId = pathname.slice(TABLE_SOCKET_PREFIX.length)
     if (!TABLE_ID_PATTERN.test(tableId)) return new Response('Not found', { status: 404 })
     if (request.headers.get('Upgrade') !== 'websocket') return new Response('Expected WebSocket', { status: 426 })
-    const userId = (await passUser()) ?? (await routes.club().socketUser(readCookie(cookies, SESSION_COOKIE)))
+    const userId = (await passUser()) ?? (await club().socketUser(readCookie(cookies, SESSION_COOKIE)))
     if (!userId) return new Response('Unauthorized', { status: 401 })
     const headers = new Headers(request.headers)
     headers.set(TABLE_USER_HEADER, userId)
     return routes.table(tableId).fetch(new Request(request, { headers }))
   }
   const history = routes.edge?.history
-  if (history && request.method === 'GET' && EDGE_HISTORY.has(pathname)) {
+  // The D1 copy is 淡江's history index; another club's pages are its own object's
+  if (history && clubId === DEFAULT_CLUB_ID && request.method === 'GET' && EDGE_HISTORY.has(pathname)) {
     const userId = await passUser()
     const answer = userId && (await edgeHistory(url, userId, history, now, routes.edge?.log ?? noLog))
     if (answer) return answer
   }
-  if (pathname === '/ws' || pathname.startsWith('/api/')) return routes.club().fetch(request)
+  if (pathname === '/ws' || pathname.startsWith('/api/')) return club().fetch(request)
   return routes.assets.fetch(request)
+}
+
+/** The answer for a club no one knows, shaped like the club's own errors */
+function unknownClub(): Response {
+  return new Response(JSON.stringify({ error: formatMessage('unknownClub', 'zh', {}), code: 'unknownClub', params: {} }), {
+    status: 404,
+    headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' },
+  })
 }
 
 /**

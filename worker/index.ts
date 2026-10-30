@@ -1,4 +1,5 @@
 import type { Env } from './club.ts'
+import { clubStub, everyClubStub } from './clubs.ts'
 import { d1Replica } from './d1.ts'
 import { edgeSecret } from './edge-auth.ts'
 import { jsonLog } from './log.ts'
@@ -15,10 +16,10 @@ export { EventObject } from './event-object.ts'
  */
 export default {
   async fetch(request, env) {
-    const club = () => env.CLUB.get(env.CLUB.idFromName('club'))
     return route(request, {
-      club: () => {
-        const stub = club()
+      // Each club its own object (e12-t02, shared/clubs.ts)
+      club: (clubId) => {
+        const stub = clubStub(env, clubId)
         return { fetch: (r) => stub.fetch(r), socketUser: (token) => stub.socketUser(token) }
       },
       table: (tableId) => {
@@ -33,9 +34,10 @@ export default {
       },
     })
   },
-  /** The cron trigger in wrangler.jsonc: the daily backup to R2 (worker/backup.ts) */
+  /** The cron trigger in wrangler.jsonc: every club's daily backup to R2 (worker/backup.ts) */
   async scheduled(_controller, env, ctx) {
-    ctx.waitUntil(env.CLUB.get(env.CLUB.idFromName('club')).backup())
+    // Only 淡江 so far: a second club needs its own file names in the bucket first (worker/backup.ts)
+    for (const club of everyClubStub(env)) ctx.waitUntil(club.backup())
   },
 } satisfies ExportedHandler<Env>
 

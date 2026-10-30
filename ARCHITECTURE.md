@@ -17,6 +17,7 @@
 ```
 
 - 社團是**一個 Durable Object**（`Club`）：帳號、大廳與牌桌目錄、牌局紀錄、挑戰、隊制賽、淡江橋譜。**每張牌桌是自己的 Durable Object**（`TableObject`，§5.10）：座位、叫牌出牌、機器人、聊天與這一桌的 WebSocket。每個物件裡的動作依序處理；社團只在大廳看得到的事情變了才被牌桌叫醒。開關 `TABLE_OBJECTS=off` 可以把牌桌搬回社團的物件（`DEPLOY.md` §4.3）。
+- **每個社團一個 Durable Object**（多租戶決策，`e12-t02`，2026-10-30 社長決定；淡江橋館 `e10-t10`）：社團 id 對應物件名稱在 `shared/clubs.ts`（目前只有淡江 `tku`，物件名稱維持原本的 `club`，正式站資料不搬）。社團之間的資料天生隔離，key **不加** `club:<id>:` 前綴。請求用 header `X-Club-Id` 說是哪個社團（WebSocket 不能帶 header，用 `?club=`），沒帶就是淡江，所以舊頁面與舊版本照舊；不認得的社團 404 `unknownClub`（`worker/routing.ts`）。`/api/me` 的 `clubId` 是帳號所屬的社團（物件的名稱決定），淡江橋館拿來帶在之後的請求上。牌桌與挑戰的物件目前一律回報淡江（`worker/clubs.ts` 的 `homeClubStub`；第二個社團開放時由 `e12-t04` 讓它們記住自己的社團），D1 的紀錄副本與每日備份的檔名也還是淡江一家的，開第二個社團前要先分開。
 - **挑戰可以各自一個 Durable Object**（`EventObject`，H2b，§5.12）：開關 `EVENT_OBJECTS=on` 才用，**預設關**（挑戰照舊在社團的物件裡）；正式站什麼時候開由社長決定（`DEPLOY.md` §4.6）。
 - **不必經過社團的請求由 Worker 自己回答**（§5.12）：紀錄列表與搜尋從 D1 的副本讀（社團寫好紀錄後經 outbox 複製過去），牌桌連線用簽章的邊緣通行證確認是誰；通行證或副本不能用時一律照舊交給社團。開關 `HISTORY_D1=off`、`EDGE_AUTH=off`（`DEPLOY.md` §4.5）。
 - 伺服器是唯一的真相：瀏覽器送「我要叫 1♠」「我要出 ♥K」，伺服器用 `shared/game.ts` 驗證後更新狀態，再推送每個人**可以看到的**畫面。
@@ -50,6 +51,7 @@ TKU-BridgeTable/
 │  ├─ lin.ts               BBO LIN 匯出與 Handviewer 連結
 │  ├─ messages.ts          錯誤代碼與六種語言的訊息
 │  ├─ protocol.ts          HTTP／WebSocket 的訊息與畫面型別
+│  ├─ clubs.ts             社團 id 與物件名稱、請求的社團（X-Club-Id／?club=，沒帶是淡江，§1）
 │  ├─ message-guard.ts     WebSocket 訊息的大小上限與型別守衛（§5.6）
 │  ├─ scrub.ts             錯誤回報去除個資（§5.6）
 │  └─ robot/               機器人：robots（兩種機器人與各自的叫牌）、hand（牌型分析）、
@@ -61,6 +63,7 @@ TKU-BridgeTable/
 │  ├─ edge-auth.ts         邊緣通行證：簽發、驗證、cookie（§5.12）
 │  ├─ history-replica.ts   紀錄索引的 D1 副本：ReplicaSync（outbox、填副本、開關）、寫入與搜尋的 SQL（§5.12）
 │  ├─ d1.ts                把 D1 binding 包成 ReplicaDb（唯一碰 D1 的程式）
+│  ├─ clubs.ts             社團 id → 社團物件的 stub（每社團一個，§1）
 │  ├─ club.ts              社團的 Durable Object：HTTP 路由、WebSocket（hibernation）、儲存轉接、牌桌回報的 RPC
 │  ├─ table-object.ts      每桌一個的 Durable Object：儲存、alarm、這一桌的 WebSocket、社團的 stub（只是接線，§5.10）
 │  ├─ table-host.ts        TableHost：一個 TableObject 做的事（RPC 包裝錯誤、桌的連線只收在桌上的人、訊息驗證與速率限制、搬移），可在 Node 測試

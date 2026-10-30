@@ -1,6 +1,7 @@
 import { DurableObject } from 'cloudflare:workers'
 import type { Challenge, ChallengeResult } from './challenges.ts'
 import type { Env } from './club.ts'
+import { homeClubStub } from './clubs.ts'
 import { EventHost } from './event-host.ts'
 import type { EventRpc } from './events.ts'
 import { jsonLog } from './log.ts'
@@ -21,7 +22,7 @@ export class EventObject extends DurableObject<Env> implements EventRpc {
     super(ctx, env)
     const storage = ctx.storage
     this.queue = new AlarmQueue(Date.now, (at) => void storage.setAlarm(at))
-    const club = env.CLUB.get(env.CLUB.idFromName('club'))
+    const club = homeClubStub(env)
     this.host = new EventHost({
       storage: {
         get: (key) => storage.get(key),

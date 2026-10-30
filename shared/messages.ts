@@ -281,6 +281,15 @@ export const MESSAGES = {
   },
 
   // Accounts
+  /** A request named a club that does not exist (e12-t02, shared/clubs.ts) */
+  unknownClub: {
+    zh: '找不到這個社團',
+    'zh-Hans': '找不到这个社团',
+    en: 'There is no such club',
+    vi: 'Không tìm thấy câu lạc bộ này',
+    ja: 'このクラブは見つかりません',
+    ko: '이 클럽을 찾을 수 없습니다',
+  },
   signInFirst: {
     zh: '請先登入',
     'zh-Hans': '请先登录',
