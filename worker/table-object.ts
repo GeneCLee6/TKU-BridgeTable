@@ -111,6 +111,9 @@ export class TableObject extends DurableObject<Env> implements TableRpc, TableSo
   robotSpeed(userId: string, speed: RobotSpeed) {
     return this.host.robotSpeed(userId, speed)
   }
+  signOut(userId: string) {
+    return this.host.signOut(userId)
+  }
   forget(userId: string) {
     return this.host.forget(userId)
   }

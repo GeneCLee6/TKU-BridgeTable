@@ -3,7 +3,7 @@ import { formatMessage } from '../shared/messages.ts'
 import { parseHistoryQuery, type HistoryQuery } from '../shared/history-query.ts'
 import { TABLE_ID_PATTERN, TABLE_SOCKET_PREFIX } from '../shared/protocol.ts'
 import { readCookie, SESSION_COOKIE } from './auth.ts'
-import { PASS_COOKIE, readPass } from './edge-auth.ts'
+import { PASS_COOKIE, passRevoked, readPass } from './edge-auth.ts'
 import { listQuery } from './history-index.ts'
 import { daysReplica, searchReplica, type ReplicaDb } from './history-replica.ts'
 import { noLog, type Logger } from './log.ts'
@@ -26,10 +26,11 @@ export interface Routes {
   assets: Fetches
   /**
    * What the Worker answers by itself (§5.12): `secret` checks edge passes (`EDGE_AUTH_SECRET`),
-   * `history` is the history index's D1 copy. Either missing (switched off, a PR preview) means the
-   * club answers, as before
+   * `revocations` the D1 list of ended sessions (e11-t28): a pass is trusted only once it is checked
+   * there, so without it (a PR preview) the club decides. `history` is the history index's D1 copy.
+   * Any of them missing (switched off, a PR preview) means the club answers, as before
    */
-  edge?: { secret?: string; history?: ReplicaDb; now?: () => number; log?: Logger }
+  edge?: { secret?: string; revocations?: ReplicaDb; history?: ReplicaDb; now?: () => number; log?: Logger }
 }
 
 /** The history pages the Worker may answer from D1 */
@@ -59,9 +60,20 @@ export async function route(request: Request, routes: Routes): Promise<Response>
   const club = () => routes.club(clubId ?? '')
   const now = routes.edge?.now ?? Date.now
   const cookies = request.headers.get('Cookie')
+  // Who the pass is for, if it is good and its session has not ended (e11-t28); otherwise null and the club decides
   const passUser = async () => {
-    const secret = routes.edge?.secret
-    return secret ? ((await readPass(secret, readCookie(cookies, PASS_COOKIE), now()))?.userId ?? null) : null
+    const { secret, revocations, log = noLog } = routes.edge ?? {}
+    if (!secret || !revocations) return null
+    const pass = await readPass(secret, readCookie(cookies, PASS_COOKIE), now())
+    if (!pass) return null
+    const started = now()
+    try {
+      if (!(await passRevoked(revocations, pass.sessionId, now()))) return pass.userId
+      log({ event: 'edge', path: pathname, ms: now() - started, fallback: 'revoked' })
+    } catch {
+      log({ event: 'edge', path: pathname, ms: now() - started, fallback: 'error' })
+    }
+    return null
   }
   if (pathname.startsWith(TABLE_SOCKET_PREFIX)) {
     const tableId = pathname.slice(TABLE_SOCKET_PREFIX.length)

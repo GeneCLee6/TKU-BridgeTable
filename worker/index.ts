@@ -30,6 +30,8 @@ export default {
       assets: env.ASSETS,
       edge: {
         secret: edgeSecret(env),
+        // Ended sessions (e11-t28): kept whatever HISTORY_D1 says, since passes need them
+        revocations: env.HISTORY ? d1Replica(env.HISTORY) : undefined,
         history: env.HISTORY && env.HISTORY_D1 !== 'off' ? d1Replica(env.HISTORY) : undefined,
         log: jsonLog,
       },

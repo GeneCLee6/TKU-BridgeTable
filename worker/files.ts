@@ -1,4 +1,5 @@
 import { sniffAvatar } from '../shared/avatar.ts'
+import { readBytes } from './body.ts'
 import { EBOOK_KEY, EBOOK_LIMITS, EBOOK_TYPE, type EbookFileType, type FileUsage, STORAGE_LIMITS } from '../shared/ebooks.ts'
 import {
   FILE_KEY,
@@ -323,8 +324,5 @@ export class FileService {
 /** The upload's bytes, refused before or after reading when over `max` */
 export async function readFileUpload(request: Request, max: number): Promise<Uint8Array<ArrayBuffer>> {
   const tooLarge = () => new ClubError('fileTooLarge', { max: Math.round((max / 1024 / 1024) * 100) / 100 }, 413)
-  if (Number(request.headers.get('Content-Length') ?? 0) > max) throw tooLarge()
-  const bytes = new Uint8Array(await request.arrayBuffer())
-  if (bytes.length > max) throw tooLarge()
-  return bytes
+  return readBytes(request, max, tooLarge)
 }

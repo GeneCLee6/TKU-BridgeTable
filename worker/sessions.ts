@@ -45,6 +45,14 @@ export class Sessions {
 
   /** The member of a live session, or null; an expired one is removed. Notes when it was last used, once an hour at most */
   async userIdFor(token: string | null): Promise<string | null> {
+    return (await this.lookup(token))?.userId ?? null
+  }
+
+  /**
+   * The member and the session's own id (what an edge pass is bound to, e11-t28), or null. A
+   * session from before the list gets its id now, so a pass made for it can be revoked later
+   */
+  async lookup(token: string | null): Promise<{ userId: string; id: string } | null> {
     if (!token) return null
     const session = await this.store.get<Session>(KEY + token)
     if (!session) return null
@@ -53,15 +61,24 @@ export class Sessions {
       await this.store.delete(KEY + token)
       return null
     }
+    let changed = false
+    if (!session.id) {
+      session.id = randomId(8)
+      changed = true
+    }
     if (now - (session.lastSeenAt ?? 0) >= SESSION_SEEN_STEP_MS) {
       session.lastSeenAt = now
-      await this.store.put(KEY + token, session)
+      changed = true
     }
-    return session.userId
+    if (changed) await this.store.put(KEY + token, session)
+    return { userId: session.userId, id: session.id }
   }
 
-  async end(token: string) {
+  /** Ends a session by its token; its id, if it had one (for revoking its edge passes) */
+  async end(token: string): Promise<string | null> {
+    const session = await this.store.get<Session>(KEY + token)
     await this.store.delete(KEY + token)
+    return session?.id ?? null
   }
 
   /** The member's live sessions, newest use first; `token` marks the one this request came with */
@@ -97,19 +114,29 @@ export class Sessions {
     return false
   }
 
-  /** Ends every session of the member but `keep` (a token; null ends them all); how many ended */
-  async endAll(userId: string, keep: string | null = null): Promise<number> {
+  /**
+   * Ends every session of the member but `keep` (a token; null ends them all): how many, and the
+   * ids of those that had one (a session with no id never had an edge pass)
+   */
+  async endAll(userId: string, keep: string | null = null): Promise<{ ended: number; ids: string[] }> {
+    const ids: string[] = []
     let ended = 0
     for (const [key, session] of await this.store.list<Session>(KEY)) {
       if (session.userId !== userId || key === KEY + keep) continue
       await this.store.delete(key)
       ended++
+      if (session.id) ids.push(session.id)
     }
-    return ended
+    return { ended, ids }
   }
 
   /** Ends every session of everyone (after a restore, worker/backup.ts) */
-  async endEveryone() {
-    for (const key of (await this.store.list(KEY)).keys()) await this.store.delete(key)
+  async endEveryone(): Promise<string[]> {
+    const ids: string[] = []
+    for (const [key, session] of await this.store.list<Session>(KEY)) {
+      await this.store.delete(key)
+      if (session.id) ids.push(session.id)
+    }
+    return ids
   }
 }

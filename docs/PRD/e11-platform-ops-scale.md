@@ -90,11 +90,11 @@ M0 跑在 Cloudflare 免費方案：一個 Worker 加一個 SQLite 後端的 Dur
 
 **M2 · 安全審查的待辦（`e11-t24`，`docs/SECURITY.md` §4）**
 
-- [ ] `e11-t28` 邊緣通行證帶 session 的雜湊：登出、登出其他裝置、改密碼、刪帳號時通行證與那一桌的連線立刻失效；cookie 改 `__Host-` 前綴 · AC-11.7 · M · ← e11-t23
+- [x] `e11-t28` 邊緣通行證帶 session 的雜湊：登出、登出其他裝置、改密碼、刪帳號時通行證與那一桌的連線立刻失效；cookie 改 `__Host-` 前綴 · AC-11.7 · M · ← e11-t23（通行證帶 session id、D1 的 `pass_revocations`；`__Host-` 前綴會讓全部人重新登入，留給社長決定，`docs/SECURITY.md` §4）
 - [ ] `e11-t29` 密碼政策：最短長度（ASVS 要 12）與常見／外洩密碼檢查（社長決定長度）· AC-11.7 · S
-- [ ] `e11-t30` 提高 PBKDF2 次數（現在 50,000）或換演算法，登入時升級舊雜湊；先量測免費方案的 CPU · AC-11.7 · S
+- [x] `e11-t30` 提高 PBKDF2 次數（現在 50,000）或換演算法，登入時升級舊雜湊；先量測免費方案的 CPU · AC-11.7 · S（100,000 次，Cloudflare 的上限）
 - [ ] `e11-t31` 管理員的多因素驗證（TOTP）· AC-11.7 · M · ← e1-t29
-- [ ] `e11-t32` HTTP 本文邊讀邊算大小，不靠 `Content-Length` · AC-11.7 · S
+- [x] `e11-t32` HTTP 本文邊讀邊算大小，不靠 `Content-Length` · AC-11.7 · S（`worker/body.ts`）
 
 ## 風險與對策
 

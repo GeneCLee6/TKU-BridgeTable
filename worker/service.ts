@@ -71,7 +71,8 @@ import {
 import { PRACTICE_SETS, practiceSetInfos, type PracticeSetInfo } from '../shared/practice-sets/index.ts'
 import { PracticePresets } from './practice-presets.ts'
 import type { RobotBrain } from '../shared/robot/brain.ts'
-import { hashPassword, randomId, verifyPassword } from './auth.ts'
+import { hashPassword, hashResetCode, needsRehash, randomId, RESET_CODE_MS, resetCode, verifyPassword } from './auth.ts'
+import { revocationWrites } from './edge-auth.ts'
 import { checkFavorite } from '../shared/favorites.ts'
 import { DEFAULT_HISTORY_QUERY, type HistoryQuery } from '../shared/history-query.ts'
 import {
@@ -219,6 +220,8 @@ interface StoredUser {
   permissions?: Permission[]
   /** Set when the member reset a forgotten password themselves, so admins can see it */
   passwordResetAt?: number
+  /** A forgotten password (e1-t36): asked for, and once an admin approves, the one-time code's hash */
+  passwordReset?: PasswordReset
   /** False when the member turned off the notice that a friend came online (e1-t24) */
   friendOnlineNotice?: boolean
   /** False when the member turned off the notice that a convention their profile plays was published (BridgeHall F4) */
@@ -231,6 +234,19 @@ interface StoredUser {
   avatar?: number
   /** How fast the robots play at their tables (出牌速度); absent for DEFAULT_ROBOT_SPEED */
   robotSpeed?: RobotSpeed
+}
+
+/**
+ * A forgotten password (e1-t36, docs/SECURITY.md V2.5): the member asks (`requestedAt`), an admin
+ * approves and gets a one-time code to hand over in person (only its SHA-256 is kept), and the code
+ * sets a new password until `expiresAt`
+ */
+interface PasswordReset {
+  requestedAt: number | null
+  approvedAt?: number
+  approvedBy?: string
+  codeHash?: string
+  expiresAt?: number
 }
 
 /** `avatar:<userId>`: the picture as the browser sent it, already cropped and shrunk (e1-t34) */
@@ -998,19 +1014,63 @@ export class ClubService {
     }
     if (!(await verifyPassword(String(password ?? ''), user.passwordHash))) throw failed()
     this.loginByName.clear(nameKey)
+    // A hash from before e11-t30 (fewer iterations) is made again now that the password is known
+    if (needsRehash(user.passwordHash)) user.passwordHash = await hashPassword(String(password))
     user.lastLoginAt = this.now()
     await this.store.put(`user:${user.id}`, user)
     return { user: this.me(user), token: await this.sessions.create(user.id, userAgent) }
   }
 
   async logout(token: string) {
-    await this.sessions.end(token)
+    const id = await this.sessions.end(token)
+    if (id) await this.revokePasses([id])
   }
 
   async userForToken(token: string | null): Promise<Me | null> {
     const userId = await this.sessions.userIdFor(token)
     const user = userId ? this.users.get(userId) : undefined
     return user ? this.me(user) : null
+  }
+
+  /** The member and session an edge pass is made for (e11-t28), or null when the session is not live */
+  async passIdentity(token: string | null): Promise<{ userId: string; sessionId: string } | null> {
+    const session = await this.sessions.lookup(token)
+    return session && this.users.has(session.userId) ? { userId: session.userId, sessionId: session.id } : null
+  }
+
+  /**
+   * Some of a member's sessions ended (signed out elsewhere, a new password, a deleted account):
+   * their edge passes stop at once (e11-t28) and every connection of the member closes (4001),
+   * the club's and their table's; the device still signed in reconnects by itself
+   */
+  private async sessionsEnded(userId: string, ids: string[]) {
+    await this.revokePasses(ids)
+    this.connections.disconnect(userId)
+    const entry = this.entryOf(userId)
+    if (entry) {
+      try {
+        await this.tables.get(entry.id).signOut(userId)
+      } catch (error) {
+        this.log(crashEntry('signOutAtTable', error))
+      }
+    }
+  }
+
+  /**
+   * Lists ended sessions in D1, where the Worker checks every edge pass (`passRevoked`). Without D1
+   * the Worker never trusts a pass, so there is nothing to do. When the write fails the Worker's
+   * read most likely fails too and it asks the club; it is logged and tried once more a minute later
+   */
+  private async revokePasses(ids: string[], retry = true) {
+    const db = this.config.historyReplica
+    const statements = revocationWrites(ids, this.now())
+    if (!db || !statements.length) return
+    try {
+      await db.batch(statements)
+    } catch (error) {
+      this.log(crashEntry('revokePasses', error))
+      if (retry) this.scheduler.add(`revoke:${ids.join(',').slice(0, 64)}`, 'revoke', 60_000, () => this.revokePasses(ids, false))
+    }
   }
 
   /** `GET /api/account/sessions` (e11-t23): where the member is signed in, this device first */
@@ -1020,22 +1080,21 @@ export class ClubService {
   }
 
   /**
-   * `DELETE /api/account/sessions/:id`: signs one of the member's other devices out. The member's
-   * sockets close (4001) and this device's reconnect at once; a table's socket opened with an edge
-   * pass may last until the pass runs out (EDGE_PASS_MS, docs/SECURITY.md)
+   * `DELETE /api/account/sessions/:id`: signs one of the member's other devices out. Its edge pass
+   * stops at once and the member's sockets close (4001), this device's reconnecting (`sessionsEnded`)
    */
   async endSession(userId: string, token: string | null, id: string) {
     const current = (await this.sessions.list(userId, token)).find((s) => s.current)
     if (current?.id === id) throw new ClubError('notSelf')
     if (!(await this.sessions.endById(userId, String(id ?? '')))) throw new ClubError('sessionGone', {}, 404)
-    this.connections.disconnect(userId)
+    await this.sessionsEnded(userId, [String(id)])
   }
 
   /** `POST /api/account/sessions/others` (登出其他裝置): every session but this one ends; how many */
   async endOtherSessions(userId: string, token: string | null): Promise<number> {
     this.requireUser(userId)
-    const ended = await this.sessions.endAll(userId, token)
-    if (ended) this.connections.disconnect(userId)
+    const { ended, ids } = await this.sessions.endAll(userId, token)
+    if (ended) await this.sessionsEnded(userId, ids)
     return ended
   }
 
@@ -1047,7 +1106,8 @@ export class ClubService {
     const user = this.requireUser(userId)
     if (!(await verifyPassword(String(current ?? ''), user.passwordHash))) throw new ClubError('wrongPassword', {}, 403)
     await this.setPassword(user, String(next ?? ''))
-    if (await this.sessions.endAll(user.id, token)) this.connections.disconnect(user.id)
+    const { ended, ids } = await this.sessions.endAll(user.id, token)
+    if (ended) await this.sessionsEnded(user.id, ids)
   }
 
   /**
@@ -1158,30 +1218,79 @@ export class ClubService {
   }
 
   /**
-   * 忘記密碼: whoever knows the club's invite code can give a member account a new password by name.
-   * There is no e-mail check yet, so admin accounts are left out (another admin resets them on the
-   * admin page), the member is signed out everywhere, and the admin page shows when it happened.
-   * Someone still waiting for approval can change the password of their application the same way.
+   * 忘記密碼, step 1 (e1-t36): someone who knows the club's invite code asks for a member account's
+   * password to be reset. Nothing changes yet: the admins are told (通知中心) and approve or decline
+   * it on the admin page. Asking again while a request or a code is waiting tells them nothing new.
+   * Admin accounts are left out (another admin resets them), and so is a registration still waiting
    */
-  async resetForgottenPassword(username: string, inviteCode: string, password: string) {
+  async requestPasswordReset(username: string, inviteCode: string) {
     this.checkInvite(inviteCode)
     const name = String(username ?? '').trim()
     const user = this.findUser(name)
-    const application = user ? undefined : this.findApplication(name)
-    if (!user && !application) throw new ClubError('userGone', {}, 404)
-    if (user?.admin) throw new ClubError('adminNoSelfReset', {}, 403)
-    this.checkPassword(String(password ?? ''))
-    const passwordHash = await hashPassword(String(password))
-    if (application) {
-      application.passwordHash = passwordHash
-      await this.store.put(`app:${application.id}`, application)
-      return
+    if (!user) throw new ClubError(this.findApplication(name) ? 'resetApplication' : 'userGone', {}, 404)
+    if (user.admin) throw new ClubError('adminNoSelfReset', {}, 403)
+    const reset = user.passwordReset
+    if (reset?.requestedAt && !reset.codeHash) return
+    if (reset?.codeHash && (reset.expiresAt ?? 0) > this.now()) return
+    user.passwordReset = { requestedAt: this.now() }
+    await this.store.put(`user:${user.id}`, user)
+    for (const admin of this.adminIds()) await this.notifications.notify(admin, 'passwordResetRequested', { username: user.username })
+  }
+
+  /**
+   * 忘記密碼, the admin's answer (e1-t36). Approving makes a one-time code, shown to that admin only
+   * and good for RESET_CODE_MS: the admin hands it to the member in person or over a channel they
+   * know is the member's, so whoever asked in the member's name gets nothing. An admin may also give
+   * a code nobody asked for. Declining drops the request. Admin accounts keep the admin page's reset
+   */
+  async adminAnswerPasswordReset(actorId: string, userId: string, approve: boolean): Promise<{ code: string; expiresAt: number } | null> {
+    const user = this.requireUser(userId)
+    if (user.admin) throw new ClubError('adminNoSelfReset', {}, 403)
+    if (!approve) {
+      if (!user.passwordReset) throw new ClubError('noResetRequest', {}, 404)
+      delete user.passwordReset
+      await this.store.put(`user:${user.id}`, user)
+      return null
     }
-    user!.passwordHash = passwordHash
-    user!.passwordResetAt = this.now()
-    await this.store.put(`user:${user!.id}`, user)
-    await this.revokeSessions(user!.id)
-    this.connections.disconnect(user!.id)
+    const code = resetCode()
+    const now = this.now()
+    user.passwordReset = {
+      requestedAt: user.passwordReset?.requestedAt ?? null,
+      approvedAt: now,
+      approvedBy: actorId,
+      codeHash: await hashResetCode(code),
+      expiresAt: now + RESET_CODE_MS,
+    }
+    await this.store.put(`user:${user.id}`, user)
+    return { code, expiresAt: now + RESET_CODE_MS }
+  }
+
+  /**
+   * 忘記密碼, step 2 (e1-t36): the code an admin handed over sets a new password, once. Wrong codes
+   * count as failed sign-ins (the same limits, worker/rate-limit.ts). The member is signed out
+   * everywhere, edge passes and connections too, and the admin page shows when it happened
+   */
+  async resetForgottenPassword(username: string, code: string, password: string, address = '') {
+    const name = String(username ?? '').trim()
+    const nameKey = `${address}|${name.toLowerCase()}`
+    if (this.loginByName.blocked(nameKey) || this.loginByAddress.blocked(address))
+      throw new ClubError('tooManyLogins', { minutes: LOGIN_WINDOW_MS / 60_000 }, 429)
+    const user = this.findUser(name)
+    const reset = user?.passwordReset
+    const good =
+      !!reset?.codeHash && (reset.expiresAt ?? 0) > this.now() && (await hashResetCode(String(code ?? ''))) === reset.codeHash
+    if (!user || !good) {
+      this.loginByName.fail(nameKey)
+      this.loginByAddress.fail(address)
+      throw new ClubError('resetCodeWrong', {}, 403)
+    }
+    this.checkPassword(String(password ?? ''))
+    user.passwordHash = await hashPassword(String(password))
+    user.passwordResetAt = this.now()
+    delete user.passwordReset
+    this.loginByName.clear(nameKey)
+    await this.store.put(`user:${user.id}`, user)
+    await this.revokeSessions(user.id)
   }
 
   private async setPassword(user: StoredUser, password: string) {
@@ -1257,8 +1366,10 @@ export class ClubService {
     return user
   }
 
+  /** Signs the member out everywhere: every session, its edge passes and every connection */
   private async revokeSessions(userId: string) {
-    await this.sessions.endAll(userId)
+    const { ids } = await this.sessions.endAll(userId)
+    await this.sessionsEnded(userId, ids)
   }
 
   // ── Admin ───────────────────────────────────────────────────────────────────────────────────
@@ -1316,8 +1427,18 @@ export class ClubService {
         online: online.includes(u.id),
         permissions: this.permissionsOf(u),
         passwordResetAt: u.passwordResetAt ?? null,
+        passwordReset: this.resetState(u),
       })),
     )
+  }
+
+  /** Where a member's forgotten password stands, for the admin page (e1-t36) */
+  private resetState(user: StoredUser): AdminUser['passwordReset'] {
+    const reset = user.passwordReset
+    if (!reset) return null
+    if (!reset.codeHash) return reset.requestedAt ? { state: 'requested', at: reset.requestedAt } : null
+    if ((reset.expiresAt ?? 0) <= this.now()) return null
+    return { state: 'approved', at: reset.approvedAt ?? 0, until: reset.expiresAt ?? 0 }
   }
 
   async adminCreateUser(username: string, password: string) {
@@ -1399,7 +1520,6 @@ export class ClubService {
     const user = this.requireUser(userId)
     await this.setPassword(user, String(password ?? ''))
     await this.revokeSessions(user.id)
-    this.connections.disconnect(user.id)
   }
 
   async adminSetAdmin(actorId: string, userId: string, admin: boolean) {
@@ -1436,7 +1556,7 @@ export class ClubService {
     this.applications.clear()
     for (const application of (await this.store.list<StoredApplication>('app:')).values())
       this.applications.set(application.id, application)
-    await this.sessions.endEveryone()
+    await this.revokePasses(await this.sessions.endEveryone())
     for (const id of this.connections.onlineUserIds()) this.connections.disconnect(id)
     this.broadcast()
   }
@@ -1566,7 +1686,7 @@ export class ClubService {
    */
   async exportAccount(userId: string, token: string | null) {
     const user = this.requireUser(userId)
-    const { passwordHash: _hash, ...account } = user
+    const { passwordHash: _hash, passwordReset: _reset, ...account } = user
     const size = HISTORY_PAGE_SIZES[HISTORY_PAGE_SIZES.length - 1]
     const name = (id: string) => this.users.get(id)?.username ?? id
     const favorites: Favorite[] = []

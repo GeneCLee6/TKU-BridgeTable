@@ -7,6 +7,7 @@ export function notificationText(t: Strings, n: Notification): string {
   const name = String(n.params.username ?? '')
   switch (n.kind) {
     case 'application':
+    case 'passwordResetRequested':
     case 'challengeInvited':
     case 'challengeAccepted':
     case 'challengeDeclined':
@@ -76,6 +77,7 @@ export function notificationText(t: Strings, n: Notification): string {
 export function notificationLink(n: Notification): string {
   switch (n.kind) {
     case 'application':
+    case 'passwordResetRequested':
       return '/admin'
     case 'friendOnline':
       return '/'

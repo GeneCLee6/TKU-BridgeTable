@@ -1,4 +1,5 @@
 import { AVATAR_MAX_BYTES } from '../shared/avatar.ts'
+import { readBytes } from './body.ts'
 import { ClubError } from './errors.ts'
 import type { StoredAvatar } from './service.ts'
 
@@ -15,10 +16,7 @@ export const AVATAR_CHECK_CACHE = 'private, no-cache'
 /** The upload's bytes; anything over the limit is refused before or after it is read */
 export async function readAvatarUpload(request: Request): Promise<Uint8Array<ArrayBuffer>> {
   const tooLarge = () => new ClubError('avatarTooLarge', { max: AVATAR_MAX_BYTES / 1024 }, 413)
-  if (Number(request.headers.get('Content-Length') ?? 0) > AVATAR_MAX_BYTES) throw tooLarge()
-  const bytes = new Uint8Array(await request.arrayBuffer())
-  if (bytes.length > AVATAR_MAX_BYTES) throw tooLarge()
-  return bytes
+  return readBytes(request, AVATAR_MAX_BYTES, tooLarge)
 }
 
 /**
