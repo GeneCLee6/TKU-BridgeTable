@@ -1,6 +1,6 @@
 import { ALL_PASS } from '../lib/calls.ts'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { Ban, EyeOff, Hand, Layers, List, Lock, Palette, Settings } from 'lucide-react'
+import { Ban, EyeOff, Gavel, Hand, Layers, List, Lock, Palette, Settings } from 'lucide-react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import styled, { css, keyframes } from 'styled-components'
 import { isVulnerable } from '../../shared/board.ts'
@@ -1195,6 +1195,20 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
                 >
                   <Palette size={16} aria-hidden />
                 </RoundButton>
+                {/* 叫裁判 (`e2-t34`): rare, so a small button here, as BBO keeps it in a menu */}
+                {me && !table.directorCall && !challenge && !practice && (
+                  <RoundButton
+                    type="button"
+                    aria-label={t.director.call}
+                    title={t.director.call}
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      if (window.confirm(t.director.confirmCall)) send({ type: 'callDirector' })
+                    }}
+                  >
+                    <Gavel size={16} aria-hidden />
+                  </RoundButton>
+                )}
                 {canConfigure && (
                   <RoundButton
                     type="button"
@@ -1286,11 +1300,7 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
                 )}
               </Note>
             )}
-            {me && !table.directorCall && !challenge && !practice && (
-              <FeltButton type="button" $tone="plain" onClick={() => window.confirm(t.director.confirmCall) && send({ type: 'callDirector' })}>
-                {t.director.call}
-              </FeltButton>
-            )}
+
             {swapNotice && <Note role="status">{t.swappedToDeclare}</Note>}
             {challenge && challenge.played >= challenge.boards && board?.phase === 'finished' && (
               <Note role="status">
