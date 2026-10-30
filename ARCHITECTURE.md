@@ -983,6 +983,8 @@ SQL 由 `worker/history-index.ts` 的 `searchBoards` 組：只有固定的 SQL �
 
 **橋譜 API**（`worker/book.ts` 的 `BookService`；讀取路由在 `book.ts` 的 `publicBookResponse`，其他在 `club.ts` 的 `bookApi`）。**2026-10-29 起橋館全站要登入**，原本「不用登入」的讀取（下表標「社員」的 GET：內容、manifest、分類、名詞、文章、電子書、制度集、修題、學習路徑）都要登入，未登入回 401 `signInFirst`；只剩分享中的制度卡版本、簽名網址的檔案、健康檢查、錯誤回報與登入相關路由不用登入。文章與電子書的 `members-only` 因此和其他授權沒有差別（型別與檢查保留）：
 
+**線上版本缺中繼欄位時沿用內建**（`withBuiltinMeta`、`INHERITED_META`，`worker/book.ts`）：A3（橋館 #15）與 e3-t12 之前存的線上版本沒有 `kind`、`level`、`prerequisites`、`cardSlots`、`brownSticker`。讀線上版本的地方（`/api/book/content`、`/content/:slug`、`/manifest` 的 `meta`、`/export`）一律由 `BookService.readable` 補上**同 slug 內建特約**有、線上版本沒有的這幾個欄位；線上版本有的照原樣，`sections`、名稱、摘要等原文一律不動，儲存的資料（版本紀錄）也不改。橋館的編輯器打開時就拿到補好的值，下次存檔便寫進去。之後再加中繼欄位要加進 `INHERITED_META`。
+
 | 路由 | 權限 | 說明 |
 | --- | --- | --- |
 | `GET /api/book/content` | 社員 | 所有線上修改 `{ version, entries }`，帶 ETag `W/"book-<version>"`（舊版橋譜用，保留不變） |

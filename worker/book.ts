@@ -466,6 +466,28 @@ export function conventionMeta(convention: Record<string, unknown>): ConventionM
   return { ...(rest as Omit<ConventionMeta, 'outline' | 'pending'>), outline: outlineOf(list), pending: pendingOf(list) }
 }
 
+/**
+ * The classification fields that came after the first online edits (BridgeHall A3 #15 and e3-t12):
+ * kind, level, prerequisites, card slots and the Brown Sticker mark. Add any later one here.
+ */
+export const INHERITED_META = ['kind', 'level', 'prerequisites', 'cardSlots', 'brownSticker'] as const
+
+/**
+ * An online convention with the built-in convention's classification for each field in
+ * INHERITED_META it does not have: an entry saved before a field existed reads like its built-in
+ * version there. Only those fields: the text (`sections`, names, summary...) is the online one, as
+ * saved, word for word. Every read of an online entry goes through it (BookService.readable): the
+ * handbook, its editor (so the next save stores them) and the export. Returns `convention` itself
+ * when nothing is missing.
+ */
+export function withBuiltinMeta(convention: Record<string, unknown>, builtin: Partial<ConventionMeta> | undefined): Record<string, unknown> {
+  if (!builtin) return convention
+  let filled: Record<string, unknown> | undefined
+  for (const field of INHERITED_META)
+    if (convention[field] === undefined && builtin[field] !== undefined) (filled ??= { ...convention })[field] = structuredClone(builtin[field])
+  return filled ?? convention
+}
+
 export function entrySummary({ convention, ...rest }: BookEntry): BookEntrySummary {
   return { ...rest, meta: convention ? conventionMeta(convention) : null }
 }
@@ -661,7 +683,7 @@ export class BookService {
   /** Every online change, as one JSON text; `version` changes whenever anything does */
   async content(): Promise<{ json: string; version: number }> {
     const entries = await this.load()
-    this.contentJson ??= JSON.stringify({ version: this.version, entries: [...entries.values()] })
+    this.contentJson ??= JSON.stringify({ version: this.version, entries: [...entries.values()].map((e) => this.readable(e)) })
     return { json: this.contentJson, version: this.version }
   }
 
@@ -670,7 +692,7 @@ export class BookService {
     const entries = await this.load()
     this.manifestJson ??= JSON.stringify({
       version: this.version,
-      entries: [...entries.values()].map(entrySummary),
+      entries: [...entries.values()].map((e) => entrySummary(this.readable(e))),
       categories: this.categoryList,
       builtin: [...this.builtinHeaders.values()].map((h) => h.meta),
     } satisfies BookManifest)
@@ -679,7 +701,15 @@ export class BookService {
 
   /** One online entry; undefined when the convention has none (the handbook shows its bundled copy) */
   async entry(slug: string): Promise<BookEntry | undefined> {
-    return (await this.load()).get(slug)
+    const entry = (await this.load()).get(slug)
+    return entry && this.readable(entry)
+  }
+
+  /** An online entry as readers get it: with the built-in classification it lacks (withBuiltinMeta) */
+  private readable(entry: BookEntry): BookEntry {
+    if (!entry.convention) return entry
+    const convention = withBuiltinMeta(entry.convention, this.builtinHeaders.get(entry.slug)?.meta)
+    return convention === entry.convention ? entry : { ...entry, convention }
   }
 
   // ── Built-in conventions (BridgeHall L0, e10-t20) ──────────────────────────────────────────
@@ -800,7 +830,10 @@ export class BookService {
     for (const slug of this.builtinHeaders.keys()) {
       const entry = entries.get(slug)
       if (entry?.convention === null) hidden.push({ slug, builtin: true, online: online(entry) })
-      else if (entry) conventions.push({ slug, source: 'online', builtin: true, convention: entry.convention, online: online(entry) })
+      else if (entry) {
+        const convention = withBuiltinMeta(entry.convention, this.builtinHeaders.get(slug)?.meta)
+        conventions.push({ slug, source: 'online', builtin: true, convention, online: online(entry) })
+      }
       else {
         const json = await this.builtin(slug)
         if (json !== undefined) conventions.push({ slug, source: 'builtin', builtin: true, convention: JSON.parse(json) })

@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { Me } from '../../shared/protocol.ts'
-import { BOOK_LIMITS, BookService, conventionMeta, CATEGORY_LIMITS, checkCategories, checkConvention, importRequestFrom, publicBookResponse } from '../../worker/book.ts'
+import { BOOK_LIMITS, BookService, conventionMeta, CATEGORY_LIMITS, withBuiltinMeta, checkCategories, checkConvention, importRequestFrom, publicBookResponse } from '../../worker/book.ts'
 import { ARTICLE_IMPORT_SYSTEM, articleImportPrompt, articleImportSchema, importSchema } from '../../worker/importer.ts'
 import { MemoryStore } from '../../worker/store.ts'
 
@@ -727,5 +727,61 @@ describe('the export for the backup (BridgeHall L1, e8-t12)', () => {
     expect(exported.conventions[1].convention).toMatchObject({ summary: '線上版' })
     expect(exported.conventions[1].online).toEqual({ version: 1, updatedAt: 1_000_000, updatedBy: 'amy', bundledUpdated: '2026-10-23' })
     expect(exported.hidden).toEqual([{ slug: 'jacoby-2nt', builtin: true, online: { version: 1, updatedAt: time, updatedBy: 'ben' } }])
+  })
+})
+
+describe('online entries saved before a classification field existed', () => {
+  const index = { version: 1, records: [] }
+  const classified = {
+    kind: 'convention',
+    level: 'advanced',
+    prerequisites: ['lebensohl'],
+    cardSlots: ['notrump.2nt: 好壞 2NT'],
+    brownSticker: 'overcall',
+  }
+  const builtins = [convention('lebensohl'), convention('good-bad-2nt', { nameZh: '好壞 2NT', ...classified })]
+  // Saved before BridgeHall A3: no kind, level, prerequisites or card slots, and its own text
+  const old = convention('good-bad-2nt', { nameZh: '好壞 2NT', summary: '線上版' })
+  const seed = () => book.seedBuiltin('seed-script', { conventions: builtins, searchIndex: index, dryRun: false })
+
+  it('fills in only the missing fields, from the built-in classification', () => {
+    const meta = conventionMeta(builtins[1])
+    expect(withBuiltinMeta(old, meta)).toEqual({ ...old, ...classified })
+    // The text stays the online one, word for word
+    expect(withBuiltinMeta(old, meta).sections).toEqual(old.sections)
+    expect(withBuiltinMeta(old, meta).summary).toBe('線上版')
+    // A field the entry has is kept as it is
+    const own = { ...old, level: 'basic', cardSlots: ['notrump.2nt: 線上'] }
+    expect(withBuiltinMeta(own, meta)).toMatchObject({ level: 'basic', cardSlots: ['notrump.2nt: 線上'], kind: 'convention', prerequisites: ['lebensohl'] })
+    // Nothing missing, or no built-in convention: the same object
+    const full = { ...old, ...classified }
+    expect(withBuiltinMeta(full, meta)).toBe(full)
+    expect(withBuiltinMeta(old, undefined)).toBe(old)
+  })
+
+  it('serves the entry, the manifest, the whole book and the export with the built-in classification', async () => {
+    await book.save(amy, 'good-bad-2nt', { convention: old, baseVersion: 0 })
+    await seed()
+    const fresh = new BookService(store, () => time)
+    const { entry } = await (await publicBookResponse(fresh, new Request('https://x/api/book/content/good-bad-2nt'), '/api/book/content/good-bad-2nt'))!.json()
+    expect(entry.convention).toEqual({ ...old, ...classified })
+    const manifest = JSON.parse((await fresh.manifest()).json)
+    expect(manifest.entries[0].meta).toMatchObject({ ...classified, summary: '線上版' })
+    expect((await entries(fresh))[0].convention).toEqual({ ...old, ...classified })
+    const exported = await fresh.exportAll()
+    expect(exported.conventions[1]).toMatchObject({ slug: 'good-bad-2nt', source: 'online', convention: { ...old, ...classified } })
+    // What is stored is untouched
+    const [saved] = await fresh.revisions('good-bad-2nt')
+    expect((await fresh.revision('good-bad-2nt', saved.id)).convention).not.toHaveProperty('level')
+  })
+
+  it('leaves an entry that has the fields, and one with no built-in convention, as saved', async () => {
+    await seed()
+    const own = { ...old, kind: 'convention', level: 'basic' }
+    await book.save(amy, 'good-bad-2nt', { convention: own, baseVersion: 0 })
+    await book.save(amy, 'new-one', { convention: convention('new-one'), baseVersion: 0 })
+    const exported = await book.exportAll()
+    expect(exported.conventions[1].convention).toEqual({ ...own, prerequisites: ['lebensohl'], cardSlots: classified.cardSlots, brownSticker: 'overcall' })
+    expect(exported.conventions[2].convention).toEqual(convention('new-one'))
   })
 })
