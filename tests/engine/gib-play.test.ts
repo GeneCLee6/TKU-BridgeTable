@@ -52,6 +52,18 @@ describe("the 2/1 robot leads as the club's robot does", () => {
   it("01 fourth best in partner's suit: second highest from no honour", () => {
     expect(plays(board(layout({ W: 'T32 852 Q543 K87' }), '1S P P 2H 4S P P P'))).toEqual(['H5', 'H5'])
   })
+
+  it('the suit partner showed with a negative double, not our own (eval/sim/README.md §11)', () => {
+    // 1♦ (1♥) X shows four spades; East's 1NT, South leads
+    expect(plays(board(layout({ S: 'J842 K3 AQ752 Q6', N: 'KQ53 742 K4 J853' }), '1D 1H X 1N P P P'))).toEqual(['S2', 'S2'])
+  })
+
+  it('against a suit contract, the suit partner showed after AK', () => {
+    // P (P) 1♦ (1♥) X (2♣): East's double shows four spades, South plays 2♣ and West leads
+    const calls = 'P 1D 1H X 2C P P P'
+    expect(plays(board(layout({ W: 'Q52 J74 AQJ53 32', E: 'KJ84 653 K4 T854' }), calls))).toEqual(['S2', 'S2'])
+    expect(plays(board(layout({ W: 'Q52 AK4 AQJ53 32', E: 'KJ84 653 K4 T854' }), calls))).toEqual(['HA', 'HA'])
+  })
 })
 
 describe("the 2/1 robot signals as the club's robot does", () => {

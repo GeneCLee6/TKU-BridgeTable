@@ -246,7 +246,8 @@ function dropBetter(view: View, seat: Seat, led: Suit, finesse: Card): boolean {
 
 /**
  * The opening lead (ROBOT.md §3). Which suit, in this order: partner's suit (not the trump suit,
- * which partner bid artificially or as a cue bid); against a suit contract AK, a side singleton
+ * which partner bid artificially or as a cue bid); a suit partner showed without naming it (the
+ * reading: four or more), against a suit contract after AK and a singleton; against a suit contract AK, a side singleton
  * with a trump, and with trump control (the ace or four trumps) a small doubleton; a sequence;
  * then the longest suit, with the declaring side's suits (shown four or more) after the others,
  * and against a suit contract a suit headed by a lone honour (leading away from it) after the
@@ -257,7 +258,16 @@ function dropBetter(view: View, seat: Seat, led: Suit, finesse: Card): boolean {
 function openingLead(state: BoardState, seat: Seat, view: View, hand: Card[], trump: Suit | null): Card {
   const lead = (s: Suit) => clubLeadCard(suitCards(hand, s), trump)
   const partnerBid = state.auction.find((c) => c.seat === partnerOf(seat) && isBid(c.call) && strainOf(c.call) !== 'N' && strainOf(c.call) !== trump)
-  if (partnerBid && suitCards(hand, strainOf(partnerBid.call) as Suit).length) return lead(strainOf(partnerBid.call) as Suit)
+  const named = partnerBid && suitCards(hand, strainOf(partnerBid.call) as Suit).length ? (strainOf(partnerBid.call) as Suit) : null
+  // Suits partner showed (four or more as the auction reads: a natural bid, a negative double, a
+  // two-suited overcall), the one held most of
+  const shown = SUITS.filter((s) => s !== trump && view.reading.bid(partnerOf(seat), s) && suitCards(hand, s).length)
+  shown.sort((a, b) => suitCards(hand, b).length - suitCards(hand, a).length)
+  if (named && (!shown.length || shown.includes(named))) return lead(named)
+  // Partner showed a suit without naming it, or named one only as a cue bid or artificially: that
+  // suit, against a suit contract after AK and a singleton (single dummy, eval/sim/README.md §11)
+  const unnamed = shown[0]
+  if (unnamed && !trump) return lead(unnamed)
   const declarer = state.contract!.declarer
   const theirs = (s: Suit) => view.reading.bid(declarer, s) || view.reading.bid(partnerOf(declarer), s)
   const top = (s: Suit) => rankOf(suitCards(hand, s)[0])
@@ -272,6 +282,7 @@ function openingLead(state: BoardState, seat: Seat, view: View, hand: Card[], tr
     const trumps = suitCards(hand, trump)
     const singleton = pool.find((s) => suitCards(hand, s).length === 1 && trumps.length > 0)
     if (singleton) return suitCards(hand, singleton)[0]
+    if (unnamed) return lead(unnamed)
     const control = trumps.length >= 4 || (trumps.length > 0 && rankOf(trumps[0]) === 'A')
     const doubleton = control && pool.find((s) => suitCards(hand, s).length === 2 && !'AKQJ'.includes(top(s)) && !theirs(s))
     if (doubleton) return lead(doubleton)
