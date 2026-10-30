@@ -1,6 +1,6 @@
 import { writeFileSync } from 'node:fs'
-import { parseConfig, readArgs, setSize } from './config.ts'
-import { EVAL_SEED, evalBoards } from './deals.ts'
+import { deckSeed, parseConfig, readArgs, setSize } from './config.ts'
+import { evalBoards } from './deals.ts'
 import { playMatch } from './match.ts'
 import { matchReport } from './report.ts'
 import { summarize } from './stats.ts'
@@ -8,10 +8,10 @@ import { summarize } from './stats.ts'
 /**
  * The evaluation command line (e6-t15, eval/README.md):
  *
- *   npm run eval -- --a tku --b gib [--set quick|full|N] [--from 1] [--seed s] [--json out.json]
+ *   npm run eval -- --a tku --b gib [--set quick|full|N] [--from 1] [--seed s] [--deck random|slam] [--json out.json]
  */
 
-const USAGE = 'usage: npm run eval -- --a <tku|gib[@dir][,play=dir]> --b <…> [--set quick|full|N] [--from N] [--seed s] [--json file]'
+const USAGE = 'usage: npm run eval -- --a <tku|gib[@dir][,play=dir]> --b <…> [--set quick|full|N] [--from N] [--seed s] [--deck random|slam] [--json file]'
 
 async function main() {
   const args = readArgs(process.argv.slice(2))
@@ -21,7 +21,7 @@ async function main() {
   }
   const a = await parseConfig(args.get('a') ?? 'tku')
   const b = await parseConfig(args.get('b') ?? 'tku')
-  const seed = args.get('seed') ?? EVAL_SEED
+  const seed = deckSeed(args)
   const from = Number(args.get('from') ?? 1)
   const count = setSize(args.get('set') ?? 'quick')
   const boards = evalBoards(count, seed, from)

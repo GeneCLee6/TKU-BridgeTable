@@ -220,4 +220,10 @@ export interface System {
   firstFit?: boolean
   /** The call to make when pass is not allowed and no rule fits the hand */
   emergency?: (hand: Hand, ctx: Ctx) => Call
+  /**
+   * A second look at the call the rules chose (the club's slam check, `tku/slam.ts`): another call
+   * to make instead, or null to keep it. The new call is explained by the rules for it here, and
+   * kept only when some rule explains it, so partner reads it as the robot meant it.
+   */
+  revise?: (hand: Hand, ctx: Ctx, call: Call, shows: Spec | undefined, explain: (call: Call) => Spec | undefined) => Call | null
 }

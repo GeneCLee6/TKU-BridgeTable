@@ -121,6 +121,11 @@ export interface BiddingRecord {
   parContracts?: string[]
   /** Alternatives that could not be bid out (a robot failed), not counted */
   failed?: number
+  /**
+   * The side with more points (North–South on a tie), its points and its most tricks double dummy
+   * in any strain from either hand: whether a slam was there (the slam-zone summary, §9)
+   */
+  strong?: { side: Side; hcp: number; tricks: number; score: number }
   points: BiddingPoint[]
 }
 
@@ -446,6 +451,18 @@ function pairOf(hands: Hands, seat: Seat): { pairHcp: number; fit: number } {
   return { pairHcp: hcp(both), fit: Math.max(...SUITS.map((s) => lengthOf(both, s))) }
 }
 
+/** The side with more points and its most tricks double dummy */
+export function strongSide(hands: Hands, table: DdTable, state: BoardState): NonNullable<BiddingRecord['strong']> {
+  const side = strongOf(hands)
+  const seats: Seat[] = side === 'NS' ? ['N', 'S'] : ['E', 'W']
+  const tricks = Math.max(...(Object.keys(table) as Strain[]).flatMap((strain) => seats.map((seat) => table[strain][seat])))
+  return { side, hcp: hcp([...hands[seats[0]], ...hands[seats[1]]]), tricks, score: scoreOn(table, state.contract, state.vul, side) }
+}
+
+const strongOf = (hands: Hands): Side => (hcp([...hands.N, ...hands.S]) >= 20 ? 'NS' : 'EW')
+/** Whether the slam-zone summary wants the board: the stronger side has 26 points or more */
+const inSlamZone = (hands: Hands) => hcp(strongOf(hands) === 'NS' ? [...hands.N, ...hands.S] : [...hands.E, ...hands.W]) >= 26
+
 export interface BiddingOptions {
   /** Only these kinds of decision (the `compete` study is the competitive ones) */
   categories?: readonly BiddingCategory[]
@@ -488,11 +505,12 @@ export function biddingRecord(board: EvalBoard, kind: RobotKind, solver: Pick<So
     if (branches.length) found.push({ index, seat: made.seat, category: kindOf.category, level: kindOf.level, branches })
   })
   if (failed) record.failed = failed
-  if (!found.length) return record
+  if (!found.length && !inSlamZone(board.hands)) return record
   const table = solver.table(board.hands)
   const par = solver.par(table, state.dealer, state.vul)
   record.par = par.ns
   record.parContracts = par.contracts
+  record.strong = strongSide(board.hands, table, state)
   for (const point of found) {
     const side = sideOf(point.seat)
     record.points.push({
@@ -610,11 +628,41 @@ export interface CategoryStats {
   worst: Example[]
 }
 
+/**
+ * The slam zone (§9): boards where the stronger side has 26 points or more, by how many tricks it
+ * can take double dummy (11 or fewer, 12, 13) and how high TKB's final contract was for it (below
+ * a slam — including the other side's contract —, small slam, grand slam), with TKB against par
+ */
+export const SLAM_TRICKS = ['≤11', '12', '13'] as const
+export const SLAM_REACHED = ['below', 'small', 'grand'] as const
+export type SlamTricks = (typeof SLAM_TRICKS)[number]
+export type SlamReached = (typeof SLAM_REACHED)[number]
+export interface SlamCell {
+  tricks: SlamTricks
+  reached: SlamReached
+  boards: number
+  /** TKB's result against par, IMPs a board */
+  vsPar: number
+  error: number
+}
+
+export function slamCellOf(record: BiddingRecord): { tricks: SlamTricks; reached: SlamReached } | null {
+  const strong = record.strong
+  if (!strong || strong.hcp < 26) return null
+  const tricks: SlamTricks = strong.tricks >= 13 ? '13' : strong.tricks === 12 ? '12' : '≤11'
+  const [contract, declarer] = record.contract.split('-')
+  const ours = record.contract !== 'P' && sideOf(declarer as Seat) === strong.side
+  const level = ours ? Number(contract[0]) : 0
+  return { tricks, reached: level === 7 ? 'grand' : level === 6 ? 'small' : 'below' }
+}
+
 export interface BiddingStudy {
   boards: number
   withPoints: number
   failed: number
   categories: CategoryStats[]
+  /** The slam-zone summary: empty when no board's stronger side had 26 points */
+  slam: SlamCell[]
 }
 
 const WORST = 15
@@ -675,10 +723,16 @@ export class BiddingStudyBuilder {
   private readonly fine = new Map<string, Counted>()
   private readonly buckets = new Map<string, { decisions: number; conservative: Counted; aggressive: Counted; par: Mean }>()
   private readonly worst = new Map<BiddingCategory, Example[]>()
+  private readonly slam = new Map<string, Mean>()
 
   add(record: BiddingRecord) {
     this.boards++
     this.failed += record.failed ?? 0
+    const zone = slamCellOf(record)
+    if (zone && record.par !== undefined) {
+      const par = record.strong!.side === 'NS' ? record.par : -record.par
+      at(this.slam, `${zone.tricks}|${zone.reached}`, () => new Mean()).add(imps(record.strong!.score - par))
+    }
     if (record.points.length) this.withPoints++
     for (const p of record.points) {
       const c = p.category
@@ -713,6 +767,12 @@ export class BiddingStudyBuilder {
       boards: this.boards,
       withPoints: this.withPoints,
       failed: this.failed,
+      slam: SLAM_TRICKS.flatMap((tricks) =>
+        SLAM_REACHED.flatMap((reached) => {
+          const m = this.slam.get(`${tricks}|${reached}`)
+          return m ? [{ tricks, reached, boards: m.n, vsPar: m.mean, error: m.error }] : []
+        }),
+      ),
       categories: CATEGORIES.map((category) => {
         const vs = this.vsAlt.get(category) ?? new Counted()
         const par = this.vsPar.get(category) ?? new Mean()
@@ -797,6 +857,14 @@ export function biddingReport(study: BiddingStudy, title: string, categories: re
     lines.push(
       `| ${CATEGORY_LABEL[c.category]} | ${c.decisions} | ${v.n} | ${signed(v.mean)} ± ${v.error.toFixed(2)} | ${percent(v.altBetter, v.n)}／${percent(v.tkbBetter, v.n)} | ${signed(per1000(v.total), 1)} | ${signed(c.vsPar.mean)} ± ${c.vsPar.error.toFixed(2)} | ${signed(c.altVsPar.mean)} |`,
     )
+  }
+  if (study.slam.length) {
+    const reached: Record<SlamReached, string> = { below: '沒叫到滿貫', small: '小滿貫', grand: '大滿貫' }
+    lines.push('', '## 滿貫區（強方合計 26 點以上：雙明手最多幾墩 × TKB 叫到哪裡）', '')
+    lines.push('強方是點力多的一方；「最多幾墩」是強方任一家、任一王牌的雙明手墩數。12 墩以上沒叫到滿貫是漏叫，11 墩以下叫了滿貫是叫過頭；「TKB − par」是那一格每副對 par 的 IMP。', '')
+    lines.push('| 最多幾墩 | TKB 叫到 | 副數 | TKB − par |')
+    lines.push('| --- | --- | --- | --- |')
+    for (const c of study.slam) lines.push(`| ${c.tricks} | ${reached[c.reached]} | ${c.boards} | ${signed(c.vsPar)} ± ${c.error.toFixed(2)} |`)
   }
   const cells = shown.flatMap((c) => c.transitions.map((t) => ({ c, t }))).filter(({ t }) => t.mean < 0 && t.n >= 30 && t.mean + 2 * t.error < 0)
   cells.sort((a, b) => a.t.total - b.t.total)

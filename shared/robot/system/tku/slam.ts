@@ -150,6 +150,8 @@ function finish(): Rule[] {
       return ctx.said.partner?.trumpQueen === false || (!iSaid('kingAsk')(ctx) && levelOf(answer) >= 6 && strainOf(answer) === trump(ctx))
     }),
     rule((ctx) => bid(7, trump(ctx)), { notes: [{ key: 'grandSlam' }] }, (h, ctx) => iSaid('kingAsk')(ctx) && combined(h, ctx) >= (showedKing(ctx) ? 34 : 36)),
+    // Partner's answer to the king ask was already six of the trump suit: that is the small slam (V4d)
+    rule('P', { notes: [{ key: 'signoff' }] }, (_, ctx) => lastOf(ctx, 'partner') === bid(6, trump(ctx))),
     rule((ctx) => cheapest(ctx, trump(ctx)), { notes: [{ key: 'smallSlam' }] }),
   ]
 }
@@ -250,4 +252,34 @@ export const slamAsks: Book = {
       when: () => false,
     },
   ],
+}
+
+// ── The slam check (V4d): a natural game bid with a slam in hand ─────────────────────────────
+
+/** Exactly game: 3NT, four of a major, five of a minor (4NT, 5NT and five of a major ask or invite) */
+const isGameBid = (call: Call) => call === '3N' || call === '4H' || call === '4S' || call === '5C' || call === '5D'
+
+/**
+ * The club's robot's second look at its call (`System.revise`, V4d): the books' natural game bids
+ * take any strength above their floor (the responder's 「13+ 成局」, game after Stayman, the
+ * opener's raise to game), so a hand with a slam between us stopped in game (eval/sim/README.md
+ * §9). When the books chose a natural game (3NT, four of a major, five of a minor; not a sign-off
+ * of a slam auction, not artificial) and the fallback's count (`aim`: 33 points a small slam, 37 a
+ * grand) is a slam: RKCB when 4NT asks it for the agreed major here, otherwise the slam itself.
+ * Only while the opponents have passed, and before our side's 4NT or five level.
+ */
+export function slamCheck(h: Hand, ctx: Ctx, call: Call, shows: Spec | undefined, explain: (call: Call) => Spec | undefined): Call | null {
+  if (!ctx.opening?.ours || !isGameBid(call) || shows?.artificial || shows?.notes?.some((n) => n.key === 'signoff')) return null
+  if (ctx.turns.some((t) => (!t.ours && t.call !== 'P') || (t.ours && isBid(t.call) && (levelOf(t.call) >= 5 || t.call === '4N')))) return null
+  const aimed = aim(h, ctx)
+  if (!isBid(aimed) || levelOf(aimed) < 6) return null
+  const trump = agreedTrump(ctx)
+  if (trump && isMajor(trump) && strainOf(aimed) === trump && ctx.legal.has('4N')) {
+    const ask = explain('4N')
+    if (ask?.name === 'rkcb1430' && ask.trump === trump) return '4N'
+  }
+  // Without asking: the small slam only (never a grand blind), and only on partner's fewest points
+  const goal = bid(6, strainOf(aimed))
+  if (h.hcp + (ctx.shown.partner.hcp?.[0] ?? 0) < 33) return null
+  return explain(goal) && !explain(goal)?.artificial ? goal : null
 }

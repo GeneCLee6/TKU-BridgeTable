@@ -2,7 +2,7 @@ import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { isRobotKind } from '../shared/protocol.ts'
 import type { RobotBrain } from '../shared/robot/brain.ts'
-import { FULL_SET_SIZE, QUICK_SET_SIZE } from './deals.ts'
+import { EVAL_SEED, FULL_SET_SIZE, QUICK_SET_SIZE, SLAM_PREFIX } from './deals.ts'
 import type { RobotConfig } from './match.ts'
 
 /**
@@ -43,6 +43,14 @@ export async function parseConfig(spec: string): Promise<RobotConfig> {
     config.play = await brainFrom(value)
   }
   return config
+}
+
+/** `--seed s`, and `--deck slam` for its slam-zone set (`slam:s`, eval/deals.ts) */
+export function deckSeed(args: Map<string, string>): string {
+  const seed = args.get('seed') ?? EVAL_SEED
+  const deck = args.get('deck') ?? 'random'
+  if (deck !== 'random' && deck !== 'slam') throw new Error(`--deck is random or slam, not "${deck}"`)
+  return deck === 'slam' && !seed.startsWith(SLAM_PREFIX) ? SLAM_PREFIX + seed : seed
 }
 
 /** How many boards `quick`, `full` or a number means */

@@ -10,6 +10,7 @@
 npm run eval -- --a tku --b gib                 # 快速版 200 副：淡江制度對 2/1
 npm run eval -- --a gib --b gib@../main --set full  # 全部 5,000 副（約 50 秒），這份程式的 TKB 對另一份 checkout 的
 npm run eval -- --a tku --b tku,play=../main     # 叫牌相同、只換出牌（ROBOT.md §3.3 那種比較）
+npm run eval -- --a tku --b tku@../main --deck slam --set 5000  # 滿貫區的牌組（南北 30–36 點，或 26–29 點有 9 張配合；sim/README.md §9）
 npm run eval:gate -- --base ../main              # CI 門檻（見下）
 ```
 

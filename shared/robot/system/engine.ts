@@ -50,7 +50,7 @@ export function choose(
   vul: Vulnerability = 'None',
 ): Choice {
   // A first-fit system passes when the rule that fits names a call that is not legal here
-  for (const { choice, legal } of fitting(system, cards, seat, auction, dealer, vul)) return legal ? choice : { call: 'P' }
+  for (const { choice, legal } of fitting(system, cards, seat, auction, dealer, vul)) return legal ? revised(system, cards, seat, auction, dealer, vul, choice) : { call: 'P' }
   // Pass is not allowed and nothing fits: the system's emergency call, explained as any rule for it
   const ctx = contextFor(system, seat, auction, dealer, vul)
   const hand = evaluate(cards)
@@ -60,6 +60,18 @@ export function choose(
     return shows ? { call, shows } : { call }
   }
   return { call: 'P' }
+}
+
+/** The system's second look at a chosen call (`System.revise`), kept only when the rules explain it */
+function revised(system: System, cards: readonly Card[], seat: Seat, auction: readonly AuctionCall[], dealer: Seat, vul: Vulnerability, choice: Choice): Choice {
+  if (!system.revise) return choice
+  const ctx = contextFor(system, seat, auction, dealer, vul)
+  let explained: Map<Call, Spec> | undefined
+  const explain = (c: Call) => (explained ??= meanings(system, ctx)).get(c)
+  const call = system.revise(evaluate(cards), ctx, choice.call, choice.shows, explain)
+  if (!call || call === choice.call || !ctx.legal.has(call)) return choice
+  const shows = explain(call)
+  return shows ? { call, shows } : choice
 }
 
 /** What each legal call would show for the seat whose turn it is (the bidding box hints) */
