@@ -674,6 +674,7 @@ export const NOTIFICATION_KINDS = [
   'forumAnnouncement',
   'forumPinned',
   'directorCalled',
+  'passwordResetRequested',
 ] as const
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number]
 
@@ -1078,6 +1079,17 @@ export interface AdminUser {
   permissions: Permission[]
   /** When they last reset a forgotten password themselves */
   passwordResetAt: number | null
+  /**
+   * 忘記密碼 (e1-t36): `requested` when they asked and no admin answered yet, `approved` while a
+   * code an admin gave them still works (until `until`), null otherwise
+   */
+  passwordReset: { state: 'requested'; at: number } | { state: 'approved'; at: number; until: number } | null
+}
+
+/** An approved password reset (e1-t36): the one-time code for the admin to hand over, shown once */
+export interface ResetCode {
+  code: string
+  expiresAt: number
 }
 
 /**

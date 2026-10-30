@@ -36,6 +36,8 @@ export interface TableHostDeps {
 const TABLE_KEY = 'table'
 const CLOSED_KEY = 'closed'
 const FROZEN_KEY = 'frozen'
+/** The close code when the member's session ended (as the club's socket, worker/club.ts): the browser reconnects, and only a device still signed in gets back in */
+const SIGNED_OUT = 4001
 
 /**
  * Everything one `TableObject` does, without Cloudflare APIs (so it runs in Node, ARCHITECTURE.md
@@ -221,6 +223,11 @@ export class TableHost implements TableRpc {
   }
   robotSpeed(userId: string, speed: RobotSpeed) {
     return this.ifTable(undefined, (table) => table.robotSpeed(userId, speed))
+  }
+  /** Closes the member's connections to this table (e11-t28), whether it still has a table or not */
+  async signOut(userId: string): Promise<Wire<void>> {
+    this.deps.sockets.dismiss(userId, SIGNED_OUT, 'signed out')
+    return { ok: undefined }
   }
   close() {
     return this.ifTable(undefined, (table) => table.close())

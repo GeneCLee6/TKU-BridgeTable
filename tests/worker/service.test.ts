@@ -862,34 +862,7 @@ describe('registration approval', () => {
   })
 })
 
-describe('forgotten passwords', () => {
-  beforeEach(() => setup({ inviteCode: 'tku' }))
-
-  it('lets a member set a new password with the invite code, and signs them out', async () => {
-    await founder('admin', 'tku')
-    const amy = await join('amy', 'tku')
-    const { token } = await club.login('amy', 'secret1')
-    await expect(club.resetForgottenPassword('amy', 'nope', 'newpass1')).rejects.toThrow('邀請碼不正確')
-    await expect(club.resetForgottenPassword('amy', 'tku', '123')).rejects.toThrow('密碼至少')
-    await expect(club.resetForgottenPassword('nobody', 'tku', 'newpass1')).rejects.toThrow('找不到這個帳號')
-    time += 60_000
-    await club.resetForgottenPassword('AMY', 'tku', 'newpass1')
-    expect(await club.userForToken(token)).toBeNull()
-    await expect(club.login('amy', 'secret1')).rejects.toThrow('帳號或密碼錯誤')
-    expect((await club.login('amy', 'newpass1')).user.id).toBe(amy.id)
-    expect((await club.adminUsers()).find((u) => u.id === amy.id)!.passwordResetAt).toBe(time)
-  })
-
-  it('leaves admin accounts to other admins, and lets a waiting applicant change theirs', async () => {
-    await founder('admin', 'tku')
-    await expect(club.resetForgottenPassword('admin', 'tku', 'newpass1')).rejects.toThrow('其他管理員')
-    await club.register('amy', 'secret1', 'tku')
-    await club.resetForgottenPassword('amy', 'tku', 'newpass1')
-    await expect(club.login('amy', 'newpass1')).rejects.toThrow('等管理員核准')
-    await club.adminApprove(club.adminApplications()[0].id)
-    await club.login('amy', 'newpass1')
-  })
-})
+// 忘記密碼 (e1-t36): tests/worker/account-reset.test.ts
 
 describe('notifications', () => {
   const tick = () => new Promise((resolve) => setTimeout(resolve, 0))

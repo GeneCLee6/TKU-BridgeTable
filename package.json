@@ -32,7 +32,7 @@
     "styled-components": "^6.6.0"
   },
   "devDependencies": {
-    "@cloudflare/vite-plugin": "^1.64.0",
+    "@cloudflare/vite-plugin": "^1.66.0",
     "@cloudflare/workers-types": "^5.20261021.1",
     "@playwright/test": "1.64.0",
     "@testing-library/jest-dom": "^7.0.1",
@@ -47,6 +47,6 @@
     "typescript": "~7.0.2",
     "vite": "^8.3.5",
     "vitest": "^5.0.5",
-    "wrangler": "^4.151.3"
+    "wrangler": "^4.156.0"
   }
 }

@@ -1,5 +1,5 @@
 /** What a waiting job is for; tests run each kind on its own */
-export type JobKind = 'robot' | 'deal' | 'challenge' | 'substitute' | 'weekly' | 'outbox' | 'migrate' | 'replica'
+export type JobKind = 'robot' | 'deal' | 'challenge' | 'substitute' | 'weekly' | 'outbox' | 'migrate' | 'replica' | 'revoke'
 
 /** Everything done later (robot moves, the next deal, a challenge's reminder and deadline, a robot sitting in for someone offline, the weekly club challenge) goes through one scheduler */
 export interface Scheduler {

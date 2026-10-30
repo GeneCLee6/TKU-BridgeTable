@@ -483,6 +483,30 @@ export const MESSAGES = {
     ja: '管理者のパスワードはここでは再設定できません。他の管理者に管理ページで再設定してもらってください',
     ko: '관리자 비밀번호는 여기서 재설정할 수 없습니다. 다른 관리자에게 관리 페이지에서 재설정해 달라고 하세요',
   },
+  resetApplication: {
+    zh: '這個帳號的註冊申請還沒核准；請管理員拒絕這份申請，再重新申請一次',
+    'zh-Hans': '这个账号的注册申请还没批准；请管理员拒绝这份申请，再重新申请一次',
+    en: 'This registration has not been approved yet; ask an admin to decline it, then register again',
+    vi: 'Đơn đăng ký này chưa được duyệt; hãy nhờ quản trị viên từ chối rồi đăng ký lại',
+    ja: 'この登録申請はまだ承認されていません。管理者に却下してもらい、もう一度申請してください',
+    ko: '이 가입 신청은 아직 승인되지 않았습니다. 관리자에게 거절을 요청한 뒤 다시 신청하세요',
+  },
+  resetCodeWrong: {
+    zh: '重設代碼不正確或已過期，請向管理員確認',
+    'zh-Hans': '重设代码不正确或已过期，请向管理员确认',
+    en: 'The reset code is wrong or has expired; check with an admin',
+    vi: 'Mã đặt lại không đúng hoặc đã hết hạn; hãy hỏi lại quản trị viên',
+    ja: '再設定コードが正しくないか期限切れです。管理者に確認してください',
+    ko: '재설정 코드가 틀렸거나 만료되었습니다. 관리자에게 확인하세요',
+  },
+  noResetRequest: {
+    zh: '這位社員沒有待核准的重設密碼申請',
+    'zh-Hans': '这位社员没有待批准的重设密码申请',
+    en: 'This member has no password reset request waiting',
+    vi: 'Thành viên này không có yêu cầu đặt lại mật khẩu đang chờ',
+    ja: 'このメンバーには承認待ちのパスワード再設定申請がありません',
+    ko: '이 회원에게는 대기 중인 비밀번호 재설정 요청이 없습니다',
+  },
 
   // Admin
   adminOnly: {

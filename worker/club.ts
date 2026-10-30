@@ -10,7 +10,8 @@ import { TKU } from '../shared/robot/system/tku/index.ts'
 import { bookSync } from '../shared/robot/system/tku/sources.ts'
 import { randomId, readCookie, SESSION_COOKIE, sessionCookie } from './auth.ts'
 import { ACCOUNT_PREFIXES, backupAdmin, runBackup } from './backup.ts'
-import { BookService, importRequestFrom, publicBookResponse } from './book.ts'
+import { BookService, IMPORT_LIMITS, importRequestFrom, publicBookResponse } from './book.ts'
+import { readForm, readJson, readText } from './body.ts'
 import { seedTokenMatches } from './book-seed.ts'
 import { BookNotices } from './book-notices.ts'
 import { PendingService } from './pending.ts'
@@ -122,6 +123,8 @@ interface Attachment {
 type Body = Record<string, unknown>
 /** The largest JSON body an API reads (TKU BridgeBook's convention saves are the big ones) */
 const BODY_MAX_BYTES = 2 * 1024 * 1024
+/** An AI import's form: the PDF at its limit, plus room for the other fields */
+const IMPORT_BODY_MAX_BYTES = (IMPORT_LIMITS.pdfMb + 1) * 1024 * 1024
 const text = (value: unknown) => String(value ?? '')
 /** A convention's name for a notification (e8-t10); its slug when it has none or is hidden */
 const conventionName = (convention: Record<string, unknown> | null, slug: string) =>
@@ -375,9 +378,9 @@ export class Club extends DurableObject<Env> implements Connections {
     if (!token && !pass) return
     try {
       if (!(await passNeedsRefresh(secret, pass, Date.now()))) return
-      const user = await this.service.userForToken(token)
+      const who = await this.service.passIdentity(token)
       const secure = url.protocol === 'https:'
-      if (user) response.headers.append('Set-Cookie', passCookie(await mintPass(secret, user.id, Date.now()), secure))
+      if (who) response.headers.append('Set-Cookie', passCookie(await mintPass(secret, who.userId, who.sessionId, Date.now()), secure))
       else if (pass) response.headers.append('Set-Cookie', passCookie('', secure))
     } catch (error) {
       // An answer whose headers cannot change (none of ours): the Worker asks the club instead
@@ -388,7 +391,8 @@ export class Club extends DurableObject<Env> implements Connections {
   /** The cookies of a sign-in: the session, and its first edge pass when passes are on */
   private async signedIn(token: string, userId: string, secure: boolean): Promise<string[]> {
     const cookies = [sessionCookie(token, secure)]
-    if (this.edgeSecret) cookies.push(passCookie(await mintPass(this.edgeSecret, userId, Date.now()), secure))
+    const who = this.edgeSecret ? await this.service.passIdentity(token) : null
+    if (who?.userId === userId) cookies.push(passCookie(await mintPass(this.edgeSecret!, userId, who.sessionId, Date.now()), secure))
     return cookies
   }
 
@@ -406,7 +410,11 @@ export class Club extends DurableObject<Env> implements Connections {
     let response: Response
     try {
       if (request.method !== 'POST') throw new ClubError('noSuchApi', {}, 404)
-      const form = await request.formData().catch(() => null)
+      const tooLarge = () => new ClubError('badFile', { max: IMPORT_LIMITS.pdfMb }, 413)
+      const form = await readForm(request, IMPORT_BODY_MAX_BYTES, tooLarge).catch((error: unknown) => {
+        if (error instanceof ClubError) throw error
+        return null
+      })
       const { ticket, request: job } = importRequestFrom(form)
       this.service.requirePermission(await this.book.useTicket(ticket), 'bookImport')
       if (!this.env.ANTHROPIC_API_KEY) throw new ClubError('importOff', {}, 503)
@@ -454,25 +462,22 @@ export class Club extends DurableObject<Env> implements Connections {
   private async api(request: Request, url: URL, token: string | null) {
     const secure = url.protocol === 'https:'
     const route = `${request.method} ${url.pathname}`
+    const tooLarge = () => new ClubError('messageTooLarge', {}, 413)
     const body = async () => {
-      if (Number(request.headers.get('Content-Length') ?? 0) > BODY_MAX_BYTES) throw new ClubError('messageTooLarge', {}, 413)
-      return (await request.json().catch(() => ({}))) as Body
+      return (await readJson(request, BODY_MAX_BYTES, tooLarge)) as Body
     }
 
     if (route === 'GET /api/health') return json(this.service.status())
     if (route === 'POST /api/client-errors') {
       // Reports come before sign-in too, so this needs none; the service cleans and rate-limits them
-      if (Number(request.headers.get('Content-Length') ?? 0) > CLIENT_ERROR_MAX_CHARS * 4)
-        throw new ClubError('messageTooLarge', {}, 413)
-      if (!this.service.reportClientError(await request.text())) throw new ClubError('badMessage')
+      if (!this.service.reportClientError(await readText(request, CLIENT_ERROR_MAX_CHARS * 4, tooLarge))) throw new ClubError('badMessage')
       return new Response(null, { status: 204 })
     }
     // BridgeHall's error reports and usage counts (e10-t06, e10-t07): no sign-in, and who is signed in
     // is never read; over the rate (or with counting off) they are dropped and still answered 204
     if (route === 'POST /api/book/errors' || route === 'POST /api/book/events') {
       const max = route === 'POST /api/book/errors' ? CLIENT_ERROR_MAX_CHARS : BOOK_EVENTS_MAX_CHARS
-      if (Number(request.headers.get('Content-Length') ?? 0) > max * 4) throw new ClubError('messageTooLarge')
-      const raw = await request.text()
+      const raw = await readText(request, max * 4, () => new ClubError('messageTooLarge'))
       const ok = route === 'POST /api/book/errors' ? this.telemetry.report(raw) : this.telemetry.record(raw)
       if (!ok) throw new ClubError('badMessage')
       return new Response(null, { status: 204 })
@@ -504,9 +509,16 @@ export class Club extends DurableObject<Env> implements Connections {
       if (token) await this.service.logout(token)
       return json({ ok: true }, 200, sessionCookie('', secure), passCookie('', secure))
     }
+    // 忘記密碼 (e1-t36): ask with the invite code, an admin approves, the code they hand over sets the password
+    if (route === 'POST /api/password/reset/request') {
+      const b = await body()
+      await this.service.requestPasswordReset(text(b.username), text(b.inviteCode))
+      return json({ ok: true })
+    }
     if (route === 'POST /api/password/reset') {
       const b = await body()
-      await this.service.resetForgottenPassword(text(b.username), text(b.inviteCode), text(b.password))
+      const address = request.headers.get('CF-Connecting-IP') ?? ''
+      await this.service.resetForgottenPassword(text(b.username), text(b.code), text(b.password), address)
       return json({ ok: true })
     }
     // A picture by its signed address (e11-t02): the signature is the check, so no sign-in
@@ -807,6 +819,12 @@ export class Club extends DurableObject<Env> implements Connections {
     if (method === 'POST' && path === '/members') {
       await this.service.adminUpdateMembers(user.id, (await body()).changes)
       return json({ ok: true })
+    }
+    // 忘記密碼 (e1-t36): approving answers the one-time code, for this admin to hand over
+    const reset = path.match(/^\/users\/(\w+)\/password-reset$/)
+    if (reset && (method === 'POST' || method === 'DELETE')) {
+      const code = await this.service.adminAnswerPasswordReset(user.id, reset[1], method === 'POST')
+      return json(code ?? { ok: true })
     }
     const member = path.match(/^\/users\/(\w+)(\/password|\/admin|\/permissions)?$/)
     if (member) {

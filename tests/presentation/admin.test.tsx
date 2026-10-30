@@ -21,6 +21,8 @@ const mocks = vi.hoisted(() => ({
     setPermissions: vi.fn(),
     createUser: vi.fn(),
     resetPassword: vi.fn(),
+    approveReset: vi.fn(),
+    declineReset: vi.fn(),
     setAdmin: vi.fn(),
     updateMembers: vi.fn(),
     deleteUser: vi.fn(),
@@ -55,6 +57,7 @@ const user = (id: string, extra: Partial<AdminUser> = {}): AdminUser => ({
   online: false,
   permissions: [],
   passwordResetAt: null,
+  passwordReset: null,
   ...extra,
 })
 const application: Application = { id: 'app1', username: 'lin', note: '資管二', site: 'book', createdAt: NOW }
@@ -268,6 +271,24 @@ describe('AdminPage', () => {
     ])
     expect(await screen.findByRole('status')).toHaveTextContent('已儲存')
     expect(within(members).queryByRole('checkbox')).not.toBeInTheDocument()
+  })
+
+  it('approves a forgotten password: the one-time code is shown once, to hand over (e1-t36)', async () => {
+    mocks.api.users.mockResolvedValue({
+      users: [user('boss', { admin: true }), user('amy', { passwordReset: { state: 'requested', at: NOW } })],
+    })
+    mocks.api.approveReset.mockResolvedValue({ code: 'ABCDE-FGH23', expiresAt: NOW + 3 * 86_400_000 })
+    page()
+    const members = await screen.findByRole('region', { name: '社員' })
+    expect(await within(members).findByText(/申請重設密碼/)).toBeInTheDocument()
+    expect(within(members).getByRole('button', { name: '拒絕重設' })).toBeInTheDocument()
+    await userEvent.click(within(members).getByRole('button', { name: '核准重設' }))
+    expect(mocks.api.approveReset).toHaveBeenCalledWith('amy')
+    const shown = await within(members).findByRole('status')
+    expect(shown).toHaveTextContent('交給 amy')
+    expect(shown).toHaveTextContent('ABCDE-FGH23')
+    await userEvent.click(within(shown).getByRole('button', { name: '關閉' }))
+    expect(within(members).queryByText('ABCDE-FGH23')).not.toBeInTheDocument()
   })
 
   it('cancel discards member edits; undoing a change leaves nothing to save', async () => {

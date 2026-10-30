@@ -125,8 +125,9 @@ const Footnote = styled(Muted)`
   font-size: 13px;
 `
 
-type Mode = 'login' | 'register' | 'reset'
-type FieldName = 'username' | 'password' | 'repeat' | 'inviteCode'
+/** `reset` asks the admins (with the invite code), `resetCode` sets the password with the code they handed over (e1-t36) */
+type Mode = 'login' | 'register' | 'reset' | 'resetCode'
+type FieldName = 'username' | 'password' | 'repeat' | 'inviteCode' | 'code'
 
 /** Server error codes that belong to one field; the rest show above the form */
 const FIELD_OF: Record<string, FieldName> = {
@@ -135,12 +136,14 @@ const FIELD_OF: Record<string, FieldName> = {
   shortPassword: 'password',
   longPassword: 'password',
   badInvite: 'inviteCode',
+  resetCodeWrong: 'code',
 }
 
 /**
  * Sign in, 申請加入 and 忘記密碼 (DESIGN.md §7.8, docs/design/01-login.png). Applying sends an
  * application that an admin approves on the admin page (only the club's first account signs in at
- * once); the account then works on both TKU BridgeTable and TKU BridgeBook.
+ * once); the account then works on both TKU BridgeTable and TKU BridgeBook. 忘記密碼 is two steps
+ * (e1-t36): ask the admins, then enter the one-time code an admin hands over with a new password.
  */
 export function LoginPage() {
   const t = useT()
@@ -152,6 +155,7 @@ export function LoginPage() {
   const [password, setPassword] = useState('')
   const [repeat, setRepeat] = useState('')
   const [inviteCode, setInviteCode] = useState('')
+  const [code, setCode] = useState('')
   const [note, setNote] = useState('')
   const [error, setError] = useState('')
   const [fieldError, setFieldError] = useState<{ field: FieldName; text: string } | null>(null)
@@ -159,8 +163,13 @@ export function LoginPage() {
   const [busy, setBusy] = useState(false)
   const registering = mode === 'register'
   const resetting = mode === 'reset'
-  const title = registering ? t.register : resetting ? t.resetTitle : t.login
-  const intro = registering ? t.registerIntro : resetting ? t.resetIntro : t.loginIntro
+  const withCode = mode === 'resetCode'
+  const title = registering ? t.register : resetting ? t.resetTitle : withCode ? t.enterResetCode : t.login
+  const intro = registering ? t.registerIntro : resetting ? t.resetIntro : withCode ? t.resetCodeIntro : t.loginIntro
+  const submitLabel = resetting ? t.resetRequestButton : title
+  /** Who signs in or registers types a password; asking for a reset does not */
+  const needsPassword = !resetting
+  const newPassword = registering || withCode
 
   const switchTo = (next: Mode) => {
     setMode(next)
@@ -175,7 +184,7 @@ export function LoginPage() {
     event.preventDefault()
     setError('')
     setFieldError(null)
-    if (resetting && password !== repeat) {
+    if (withCode && password !== repeat) {
       setFieldError({ field: 'repeat', text: t.passwordMismatch })
       return
     }
@@ -185,8 +194,12 @@ export function LoginPage() {
         const result = await register(username, password, inviteCode, note)
         if ('pending' in result) setDone(t.applicationSent(result.username))
       } else if (resetting) {
-        await api.resetPassword(username, inviteCode, password)
+        await api.requestPasswordReset(username, inviteCode)
+        setDone(t.resetRequested)
+      } else if (withCode) {
+        await api.resetPassword(username, code, password)
         switchTo('login')
+        setCode('')
         setDone(t.resetDone)
       } else await login(username, password)
     } catch (e) {
@@ -253,27 +266,44 @@ export function LoginPage() {
               />
               {below('username', registering && t.usernameHint(LIMITS.usernameMin, LIMITS.usernameMax))}
             </Field>
-            <Field>
-              <LabelRow>
-                <FieldLabel htmlFor={`${id}-password`}>{resetting ? t.newPassword : t.password}</FieldLabel>
-                {mode === 'login' && (
-                  <LinkButton type="button" onClick={() => switchTo('reset')}>
-                    {t.forgotPassword}
-                  </LinkButton>
-                )}
-              </LabelRow>
-              <PasswordInput
-                {...describe('password', mode !== 'login')}
-                $size="lg"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
-                required
-                minLength={mode === 'login' ? undefined : LIMITS.passwordMin}
-              />
-              {below('password', mode !== 'login' && t.passwordHint(LIMITS.passwordMin))}
-            </Field>
-            {resetting && (
+            {withCode && (
+              <Field>
+                <FieldLabel htmlFor={`${id}-code`}>{t.resetCode}</FieldLabel>
+                <Input
+                  {...describe('code', true)}
+                  $size="lg"
+                  value={code}
+                  onChange={(e) => setCode(e.target.value)}
+                  autoComplete="one-time-code"
+                  required
+                  maxLength={20}
+                />
+                {below('code', t.resetCodeHint)}
+              </Field>
+            )}
+            {needsPassword && (
+              <Field>
+                <LabelRow>
+                  <FieldLabel htmlFor={`${id}-password`}>{withCode ? t.newPassword : t.password}</FieldLabel>
+                  {mode === 'login' && (
+                    <LinkButton type="button" onClick={() => switchTo('reset')}>
+                      {t.forgotPassword}
+                    </LinkButton>
+                  )}
+                </LabelRow>
+                <PasswordInput
+                  {...describe('password', newPassword)}
+                  $size="lg"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  autoComplete={newPassword ? 'new-password' : 'current-password'}
+                  required
+                  minLength={newPassword ? LIMITS.passwordMin : undefined}
+                />
+                {below('password', newPassword && t.passwordHint(LIMITS.passwordMin))}
+              </Field>
+            )}
+            {withCode && (
               <Field>
                 <FieldLabel htmlFor={`${id}-repeat`}>{t.confirmPassword}</FieldLabel>
                 <PasswordInput
@@ -287,7 +317,7 @@ export function LoginPage() {
                 {below('repeat')}
               </Field>
             )}
-            {mode !== 'login' && (
+            {(registering || resetting) && (
               <Field>
                 <FieldLabel htmlFor={`${id}-inviteCode`}>{t.inviteCode}</FieldLabel>
                 <Input
@@ -316,15 +346,26 @@ export function LoginPage() {
               </Field>
             )}
             <Button type="submit" $variant="primary" $size="lg" $busy={busy}>
-              {title}
+              {submitLabel}
             </Button>
           </Form>
         )}
         <Switch>
-          {resetting ? (
-            <LinkButton type="button" onClick={() => switchTo('login')}>
-              {t.backToLogin}
-            </LinkButton>
+          {resetting || withCode ? (
+            <>
+              {resetting && (
+                <>
+                  {t.haveResetCode}{' '}
+                  <LinkButton type="button" onClick={() => switchTo('resetCode')}>
+                    {t.enterResetCode}
+                  </LinkButton>
+                  {' · '}
+                </>
+              )}
+              <LinkButton type="button" onClick={() => switchTo('login')}>
+                {t.backToLogin}
+              </LinkButton>
+            </>
           ) : (
             <>
               {registering ? t.haveAccount : t.noAccount}{' '}

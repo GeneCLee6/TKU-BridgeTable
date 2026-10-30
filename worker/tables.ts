@@ -130,6 +130,12 @@ export interface TableApi {
   blocked(userId: string, blocked: string[]): Promise<void>
   /** A member at the table changed how fast they want the robots to play (出牌速度) */
   robotSpeed(userId: string, speed: RobotSpeed): Promise<void>
+  /**
+   * Some of the member's sessions ended (e11-t28): their connections to the table close (4001), so
+   * a device signed out cannot stay connected; one still signed in reconnects. A no-op for tables
+   * in the club's own process, whose connections are the club's
+   */
+  signOut(userId: string): Promise<void>
   /** An account was deleted: the table forgets them (invitations, the seat kept for them, the name) */
   forget(userId: string): Promise<TableEntry | null>
   /** The table's challenge ended: it closes, unless its participant is still sitting after their last board */
@@ -282,6 +288,9 @@ class RemoteTable implements TableApi {
   }
   robotSpeed(userId: string, speed: RobotSpeed) {
     return this.call(this.rpc.robotSpeed(userId, speed))
+  }
+  signOut(userId: string) {
+    return this.call(this.rpc.signOut(userId))
   }
   forget(userId: string) {
     return this.call(this.rpc.forget(userId))

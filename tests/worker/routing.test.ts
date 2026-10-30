@@ -2,7 +2,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { taiwanDayStart } from '../../shared/history-query.ts'
 import type { BoardRecord } from '../../shared/protocol.ts'
-import { EDGE_PASS_MS, mintPass, PASS_COOKIE, passCookie, passNeedsRefresh, readPass } from '../../worker/edge-auth.ts'
+import { EDGE_PASS_MS, mintPass, PASS_COOKIE, passCookie, passNeedsRefresh, passRevoked, readPass, REVOKED_FOR_MS, revocationWrites } from '../../worker/edge-auth.ts'
 import { createHistoryIndex, indexRecord, listQuery, searchBoards, searchDays } from '../../worker/history-index.ts'
 import { REPLICA_SCHEMA, replicaWrites } from '../../worker/history-replica.ts'
 import type { LogEntry } from '../../worker/log.ts'
@@ -105,25 +105,46 @@ const SECRET = 'test-secret-0123456789abcdef'
 const NOW = taiwanDayStart('2026-10-26')
 
 describe('edge passes', () => {
-  it('says who it is for until it expires, and nothing once anything in it changes', async () => {
-    const pass = await mintPass(SECRET, 'amy', NOW)
-    expect(await readPass(SECRET, pass, NOW)).toEqual({ userId: 'amy', expires: NOW + EDGE_PASS_MS })
+  it('says who it is for, and with which session, until it expires, and nothing once anything in it changes', async () => {
+    const pass = await mintPass(SECRET, 'amy', 'a1', NOW)
+    expect(await readPass(SECRET, pass, NOW)).toEqual({ userId: 'amy', sessionId: 'a1', expires: NOW + EDGE_PASS_MS })
     expect(await readPass(SECRET, pass, NOW + EDGE_PASS_MS - 1)).toMatchObject({ userId: 'amy' })
     expect(await readPass(SECRET, pass, NOW + EDGE_PASS_MS)).toBeNull()
     expect(await readPass('another-secret', pass, NOW)).toBeNull()
-    const [, expires, signature] = pass.split('.')
-    // Someone else's id, a later expiry, a changed signature, junk
-    expect(await readPass(SECRET, `ben.${expires}.${signature}`, NOW)).toBeNull()
-    expect(await readPass(SECRET, `amy.${(NOW + EDGE_PASS_MS * 50).toString(36)}.${signature}`, NOW)).toBeNull()
-    expect(await readPass(SECRET, `amy.${(NOW + EDGE_PASS_MS - 1).toString(36)}.${signature}`, NOW)).toBeNull()
-    expect(await readPass(SECRET, `amy.${expires}.${signature.slice(1)}A`, NOW)).toBeNull()
-    for (const junk of [null, '', 'amy', 'amy.x.y.z', `amy.${expires}.!!!`, 'a'.repeat(300)])
+    const [, session, expires, signature] = pass.split('.')
+    // Someone else's id, another session, a later expiry, a changed signature, junk
+    expect(await readPass(SECRET, `ben.${session}.${expires}.${signature}`, NOW)).toBeNull()
+    expect(await readPass(SECRET, `amy.ab12.${expires}.${signature}`, NOW)).toBeNull()
+    expect(await readPass(SECRET, `amy.${session}.${(NOW + EDGE_PASS_MS * 50).toString(36)}.${signature}`, NOW)).toBeNull()
+    expect(await readPass(SECRET, `amy.${session}.${(NOW + EDGE_PASS_MS - 1).toString(36)}.${signature}`, NOW)).toBeNull()
+    expect(await readPass(SECRET, `amy.${session}.${expires}.${signature.slice(1)}A`, NOW)).toBeNull()
+    // A pass from before e11-t28 (no session) is no longer taken
+    expect(await readPass(SECRET, `amy.${expires}.${signature}`, NOW)).toBeNull()
+    for (const junk of [null, '', 'amy', 'amy.x.y.z', `amy.${session}.${expires}.!!!`, 'a'.repeat(300)])
       expect(await readPass(SECRET, junk, NOW)).toBeNull()
     expect(await readPass('', pass, NOW)).toBeNull()
   })
 
+  it('is listed as revoked in D1 for as long as a pass could be good, and nothing is revoked before the list exists', async () => {
+    const d1 = memoryD1()
+    expect(await passRevoked(d1, 'aa', NOW)).toBe(false)
+    expect(revocationWrites([], NOW)).toEqual([])
+    // Junk is never written; many ids stay under D1's 100 parameters a statement
+    const many = Array.from({ length: 90 }, (_, i) => i.toString(16).padStart(4, '0'))
+    await d1.batch(revocationWrites([...many, 'not hex!', 'aa'], NOW))
+    expect(d1.rows('SELECT COUNT(*) AS n FROM pass_revocations')[0]).toEqual({ n: 91 })
+    expect(await passRevoked(d1, 'aa', NOW + REVOKED_FOR_MS)).toBe(true)
+    expect(await passRevoked(d1, 'aa', NOW + REVOKED_FOR_MS + 1)).toBe(false)
+    expect(await passRevoked(d1, 'bb', NOW)).toBe(false)
+    // Later writes drop what no pass can need any more
+    await d1.batch(revocationWrites(['bb'], NOW + REVOKED_FOR_MS + 1))
+    expect(d1.rows('SELECT session_id FROM pass_revocations')).toEqual([{ session_id: 'bb' }])
+    d1.fail = new Error('D1 is down')
+    await expect(passRevoked(d1, 'bb', NOW)).rejects.toThrow('D1 is down')
+  })
+
   it('is handed out again once more than half used', async () => {
-    const pass = await mintPass(SECRET, 'amy', NOW)
+    const pass = await mintPass(SECRET, 'amy', 'a1', NOW)
     expect(await passNeedsRefresh(SECRET, pass, NOW + EDGE_PASS_MS / 2 - 1)).toBe(false)
     expect(await passNeedsRefresh(SECRET, pass, NOW + EDGE_PASS_MS / 2 + 1)).toBe(true)
     expect(await passNeedsRefresh(SECRET, null, NOW)).toBe(true)
@@ -164,11 +185,11 @@ describe('the Worker at the edge', () => {
         return (token && sessions.get(token)) ?? null
       },
     })
-    routes.edge = { secret: SECRET, history: d1, now: () => NOW, log: (entry) => logs.push(entry) }
+    routes.edge = { secret: SECRET, revocations: d1, history: d1, now: () => NOW, log: (entry) => logs.push(entry) }
   })
 
   const get = async (path: string, userId: string | null, init: RequestInit = {}) => {
-    const cookie = userId ? `${PASS_COOKIE}=${await mintPass(SECRET, userId, NOW)}` : ''
+    const cookie = userId ? `${PASS_COOKIE}=${await mintPass(SECRET, userId, 'a1', NOW)}` : ''
     return route(new Request(`https://example.org${path}`, { ...init, headers: { Cookie: cookie } }), routes)
   }
 
@@ -230,7 +251,7 @@ describe('the Worker at the edge', () => {
   })
 
   it('opens a table socket from the pass without asking the club, and asks it when the pass is missing or bad', async () => {
-    const pass = await mintPass(SECRET, 'amy', NOW)
+    const pass = await mintPass(SECRET, 'amy', 'a1', NOW)
     const response = await route(upgrade('/ws/table/abc123', { Cookie: `${PASS_COOKIE}=${pass}` }), routes)
     expect(await response.text()).toBe('table:abc123')
     expect(seen[0].request.headers.get(TABLE_USER_HEADER)).toBe('amy')
@@ -242,9 +263,35 @@ describe('the Worker at the edge', () => {
     expect(socketUsers).toBe(1)
     expect((await route(upgrade('/ws/table/abc123', { Cookie: `${PASS_COOKIE}=${pass}` }), routes)).status).toBe(401)
     // A pass for someone else cannot be made without the secret
-    const [, expires, signature] = pass.split('.')
-    const forged = `ben.${expires}.${signature}`
+    const [, session, expires, signature] = pass.split('.')
+    const forged = `ben.${session}.${expires}.${signature}`
     routes.edge!.now = () => NOW
     expect((await route(upgrade('/ws/table/abc123', { Cookie: `${PASS_COOKIE}=${forged}`, [TABLE_USER_HEADER]: 'ben' }), routes)).status).toBe(401)
+  })
+
+  it('stops trusting a pass the moment its session ends (e11-t28), and without the list of ended sessions', async () => {
+    const pass = await mintPass(SECRET, 'amy', 'a1', NOW)
+    const other = await mintPass(SECRET, 'amy', 'b2', NOW)
+    const socket = (cookie: string) => route(upgrade('/ws/table/abc123', { Cookie: cookie }), routes)
+    // Signed out elsewhere: that device's pass is turned away, this device's still works
+    await d1.batch(revocationWrites(['b2'], NOW))
+    expect((await socket(`${PASS_COOKIE}=${other}`)).status).toBe(401)
+    expect(socketUsers).toBe(1)
+    expect(logs.at(-1)).toMatchObject({ event: 'edge', fallback: 'revoked' })
+    expect(await (await socket(`${PASS_COOKIE}=${pass}`)).text()).toBe('table:abc123')
+    expect(socketUsers).toBe(1)
+    // The history pages too: the club answers, and it knows the session is gone
+    seen = []
+    await route(new Request('https://example.org/api/history', { headers: { Cookie: `${PASS_COOKIE}=${other}` } }), routes)
+    expect(seen.map((s) => s.to)).toEqual(['club'])
+    // D1 failing, or no list at all (a PR preview): the club decides every time
+    d1.fail = new Error('D1 is down')
+    await socket(`${PASS_COOKIE}=${pass}; tbt_session=good-token`)
+    expect(socketUsers).toBe(2)
+    expect(logs.at(-1)).toMatchObject({ event: 'edge', fallback: 'error' })
+    d1.fail = null
+    routes.edge = { secret: SECRET, history: d1, now: () => NOW }
+    await socket(`${PASS_COOKIE}=${pass}; tbt_session=good-token`)
+    expect(socketUsers).toBe(3)
   })
 })
