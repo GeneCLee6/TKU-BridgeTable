@@ -7,6 +7,7 @@ import {
   INVITE_MODES,
   isOpenMatch,
   ROOMS,
+  segmentCount,
   TEAM_MATCH_LIMITS,
   type MatchSeat,
   type MatchSeatView,
@@ -18,7 +19,7 @@ import { MATCH_SCORINGS, RULINGS, TEAMS, type RulingKind, type Team } from '../.
 import { BoardScores, ScoreLine, Tag } from '../components/MatchParts.tsx'
 import { ActionLink, Button, Card, ErrorText, Field, FieldLabel, Input, Muted, PageMain, PageTitle, Select } from '../components/ui.tsx'
 import { ApiError, api, type MatchPlayAction, type MatchSeatAction } from '../lib/api.ts'
-import { arranges, matchSettingsLine, myRoomTable, mySeat, robotsUneven, sameSeat, seatLabel, teamName } from '../lib/matches.ts'
+import { arranges, betweenSegments, matchSettingsLine, myRoomTable, mySeat, robotsUneven, sameSeat, seatLabel, teamName } from '../lib/matches.ts'
 import { useTeamMatch } from '../lib/useTeamMatch.ts'
 import { useAuth } from '../state/AuthContext.tsx'
 import { useClub } from '../state/ClubContext.tsx'
@@ -249,16 +250,47 @@ export function MatchPage() {
 
   const playing = m.status === 'playing'
   const paused = playing && m.pausedAt !== undefined
-  /** While it is played: the host has a robot sit in (代打); paused, the host or the team's captain brings in a substitute (替補) */
-  const playActions = (s: MatchSeatView) => {
+  /** Between segments (`e8-t21`): captains swap their team's seats and bring in substitutes, the host starts the next */
+  const onBreak = betweenSegments(m)
+  /** A captain picks a seat of their team, then the seat to swap it with (換位) */
+  const moveButtons = (s: MatchSeatView, captain: boolean) => {
     const buttons = []
+    if (moving && !sameSeat(moving, s)) {
+      const movingTeam = m.seats.find((x) => sameSeat(x, moving))?.team
+      if (movingTeam === s.team)
+        buttons.push(
+          <Button key="here" type="button" $size="sm" $variant="primary" disabled={busy} onClick={() => void seatAction({ action: 'move', from: moving, to: s })}>
+            {t.teamMatch.moveHere}
+          </Button>,
+        )
+    }
+    if (s.status !== 'empty' && captain && !moving)
+      buttons.push(
+        <Button key="move" type="button" $size="sm" $variant="ghost" disabled={busy} onClick={() => setMoving({ room: s.room, seat: s.seat })}>
+          {t.teamMatch.move}
+        </Button>,
+      )
+    if (moving && sameSeat(moving, s))
+      buttons.push(
+        <Button key="stop" type="button" $size="sm" $variant="ghost" onClick={() => setMoving(null)}>
+          {t.teamMatch.cancelMove}
+        </Button>,
+      )
+    return buttons
+  }
+  /**
+   * While it is played: the host has a robot sit in (代打); paused or between segments, the host or
+   * the team's captain brings in a substitute (替補); between segments the captain swaps seats
+   */
+  const playActions = (s: MatchSeatView) => {
+    const buttons = onBreak ? moveButtons(s, arranges(m, me, s)) : []
     if (isHost && s.status === 'seated' && !s.robot && s.userId !== undefined && !s.substitute)
       buttons.push(
         <Button key="sitin" type="button" $size="sm" $variant="ghost" disabled={busy} onClick={() => void playAction({ action: 'sitin', room: s.room, seat: s.seat })}>
           {t.teamMatch.sitIn}
         </Button>,
       )
-    if (paused && s.userId !== m.hostId && (isHost || arrangerOf(m, s.team) === me))
+    if ((paused || onBreak) && s.userId !== m.hostId && (isHost || arrangerOf(m, s.team) === me))
       buttons.push(
         <Button key="replace" type="button" $size="sm" $variant="ghost" disabled={busy} onClick={() => setInviting(inviting && sameSeat(inviting, s) ? null : s)}>
           {t.teamMatch.replace}
@@ -271,16 +303,7 @@ export function MatchPage() {
     if (playing) return playActions(s)
     if (!setup) return null
     const captain = arranges(m, me, s)
-    const buttons = []
-    if (moving && !sameSeat(moving, s)) {
-      const movingTeam = m.seats.find((x) => sameSeat(x, moving))?.team
-      if (movingTeam === s.team)
-        buttons.push(
-          <Button key="here" type="button" $size="sm" $variant="primary" disabled={busy} onClick={() => void seatAction({ action: 'move', from: moving, to: s })}>
-            {t.teamMatch.moveHere}
-          </Button>,
-        )
-    }
+    const buttons = moveButtons(s, captain)
     if (s.status === 'empty') {
       if (captain) {
         buttons.push(
@@ -301,12 +324,6 @@ export function MatchPage() {
           </Button>,
         )
     } else {
-      if (captain && !moving)
-        buttons.push(
-          <Button key="move" type="button" $size="sm" $variant="ghost" disabled={busy} onClick={() => setMoving({ room: s.room, seat: s.seat })}>
-            {t.teamMatch.move}
-          </Button>,
-        )
       if ((captain || isHost) && s.userId !== m.hostId && s.userId !== me)
         buttons.push(
           <Button key="clear" type="button" $size="sm" $variant="ghost" disabled={busy} onClick={() => void seatAction({ action: 'clear', room: s.room, seat: s.seat })}>
@@ -314,12 +331,6 @@ export function MatchPage() {
           </Button>,
         )
     }
-    if (moving && sameSeat(moving, s))
-      buttons.push(
-        <Button key="stop" type="button" $size="sm" $variant="ghost" onClick={() => setMoving(null)}>
-          {t.teamMatch.cancelMove}
-        </Button>,
-      )
     return buttons.length ? <Actions>{buttons}</Actions> : null
   }
 
@@ -371,6 +382,12 @@ export function MatchPage() {
             {t.teamMatch.paused}
           </Tag>
         )}
+        {playing && m.segment !== undefined && <Tag $open>{t.teamMatch.segmentNow(m.segment, segmentCount(m.settings))}</Tag>}
+        {onBreak && (
+          <Tag $open $accent>
+            {t.teamMatch.breakTag}
+          </Tag>
+        )}
         <Muted as="span">{matchSettingsLine(t, m)}</Muted>
         <Muted as="span">{t.teamMatch.host(hostName)}</Muted>
       </Meta>
@@ -391,6 +408,7 @@ export function MatchPage() {
       )}
 
       {paused && <Warning role="status">{t.teamMatch.pausedHint}</Warning>}
+      {onBreak && m.segment !== undefined && <Warning role="status">{t.teamMatch.breakHint(m.segment)}</Warning>}
       {setup && m.settings.invite === 'captains' && <Muted>{t.teamMatch.captainsHint}</Muted>}
       {robotsUneven(m) && <Warning role="note">{t.teamMatch.robotsUneven}</Warning>}
 
@@ -551,6 +569,7 @@ function ManageMatch({ match, busy, onAction }: { match: TeamMatchView; busy: bo
   const { t } = usePreferences()
   const now = useNow()
   const paused = match.pausedAt !== undefined
+  const onBreak = betweenSegments(match)
   const clockNow = match.pausedAt ?? now
   const over = (room: Room) => {
     const clock = match.rooms?.[room]
@@ -559,6 +578,13 @@ function ManageMatch({ match, busy, onAction }: { match: TeamMatchView; busy: bo
   return (
     <Section aria-labelledby="manage-title">
       <h2 id="manage-title">{t.teamMatch.manage}</h2>
+      {onBreak && match.segment !== undefined && (
+        <Bar>
+          <Button type="button" $variant="primary" disabled={busy} onClick={() => onAction({ action: 'next' })}>
+            {t.teamMatch.nextSegment(match.segment + 1)}
+          </Button>
+        </Bar>
+      )}
       <Bar>
         <Button type="button" $variant={paused ? 'primary' : 'secondary'} disabled={busy} onClick={() => onAction({ action: 'pause', paused: !paused })}>
           {paused ? t.teamMatch.resume : t.teamMatch.pause}
@@ -566,7 +592,7 @@ function ManageMatch({ match, busy, onAction }: { match: TeamMatchView; busy: bo
         <Button
           type="button"
           $variant="danger"
-          disabled={busy || !paused}
+          disabled={busy || !(paused || onBreak)}
           aria-describedby="abandon-why"
           onClick={() => window.confirm(t.teamMatch.confirmAbandon) && onAction({ action: 'abandon' })}
         >
@@ -697,9 +723,12 @@ function SettingsForm({
   const set = <K extends keyof TeamMatchSettings>(key: K, value: TeamMatchSettings[K]) => setDraft((d) => ({ ...d, [key]: value }))
   const submit = (e: FormEvent) => {
     e.preventDefault()
-    onSave(draft)
+    // A segment as long as the match (the boards were cut) plays it in one go
+    onSave({ ...draft, segmentBoards: draft.segmentBoards < draft.boards ? draft.segmentBoards : 0 })
   }
-  const { boardsMin, boardsMax, minutesMax, nameMax } = TEAM_MATCH_LIMITS
+  const { boardsMin, boardsMax, minutesMax, nameMax, segmentMin } = TEAM_MATCH_LIMITS
+  /** Boards per segment the host may pick (`e8-t21`): at least two, fewer than the match */
+  const segmentChoices = Array.from({ length: Math.max(0, draft.boards - segmentMin) }, (_, i) => segmentMin + i)
   return (
     <Section aria-labelledby="settings-title">
       <h2 id="settings-title">{t.teamMatch.settings}</h2>
@@ -726,6 +755,21 @@ function SettingsForm({
             value={draft.boards}
             onChange={(e) => set('boards', Number(e.target.value))}
           />
+        </Field>
+        <Field>
+          <FieldLabel htmlFor="match-segments">{t.teamMatch.segmentBoards}</FieldLabel>
+          <Select
+            id="match-segments"
+            value={draft.segmentBoards < draft.boards ? draft.segmentBoards : 0}
+            onChange={(e) => set('segmentBoards', Number(e.target.value))}
+          >
+            <option value={0}>{t.teamMatch.noSegments}</option>
+            {segmentChoices.map((n) => (
+              <option key={n} value={n}>
+                {t.teamMatch.segmentOption(n, segmentCount({ boards: draft.boards, segmentBoards: n }))}
+              </option>
+            ))}
+          </Select>
         </Field>
         <Field>
           <FieldLabel htmlFor="match-scoring">{t.teamMatch.scoring}</FieldLabel>

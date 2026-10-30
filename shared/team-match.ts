@@ -64,6 +64,12 @@ export interface TeamMatchSettings {
    * being played and the one before it (`laggedBoard` in worker/views.ts)
    */
   delay: boolean
+  /**
+   * Boards per segment (`e8-t21`, AC-8.9); 0 plays the match in one go. Between segments both
+   * rooms stop, the captains may change their team's seats and bring in substitutes, and the host
+   * starts the next; the score runs on (`segmentOf`, `segmentRange`)
+   */
+  segmentBoards: number
 }
 
 export const TEAM_MATCH_LIMITS = {
@@ -77,6 +83,8 @@ export const TEAM_MATCH_LIMITS = {
   nameMax: 20,
   /** A ruling's reason (`e8-t15`) */
   reasonMax: 200,
+  /** The fewest boards a segment has (`e8-t21`); it has fewer than the match */
+  segmentMin: 2,
 } as const
 
 export function defaultTeamMatchSettings(): TeamMatchSettings {
@@ -89,7 +97,27 @@ export function defaultTeamMatchSettings(): TeamMatchSettings {
     robotKind: 'gib',
     invite: 'direct',
     delay: false,
+    segmentBoards: 0,
   }
+}
+
+// ── Segments (`e8-t21`, AC-8.9) ──────────────────────────────────────────────────────────────
+
+/** How many segments the match has: 1 without segments; the last one may be shorter */
+export function segmentCount(settings: Pick<TeamMatchSettings, 'boards' | 'segmentBoards'>): number {
+  return settings.segmentBoards > 0 ? Math.ceil(settings.boards / settings.segmentBoards) : 1
+}
+
+/** The segment (1-based) a board of the match (`seq`, 1-based) is in */
+export function segmentOf(settings: Pick<TeamMatchSettings, 'boards' | 'segmentBoards'>, seq: number): number {
+  return settings.segmentBoards > 0 ? Math.max(1, Math.ceil(seq / settings.segmentBoards)) : 1
+}
+
+/** The first and last boards (`seq`) of a segment */
+export function segmentRange(settings: Pick<TeamMatchSettings, 'boards' | 'segmentBoards'>, segment: number): { first: number; last: number } {
+  if (settings.segmentBoards <= 0) return { first: 1, last: settings.boards }
+  const first = (segment - 1) * settings.segmentBoards + 1
+  return { first, last: Math.min(settings.boards, segment * settings.segmentBoards) }
 }
 
 const isTeamName = (value: unknown): value is string =>
@@ -106,7 +134,7 @@ export function parseTeamMatchSettings(
 ): { settings: TeamMatchSettings } | { field: string } {
   if (value === undefined) return { settings: base }
   if (!value || typeof value !== 'object' || Array.isArray(value)) return { field: 'settings' }
-  const { teamNames, boards, scoring, boardMinutes, robots, robotKind, invite, delay, ...rest } = value as Record<
+  const { teamNames, boards, scoring, boardMinutes, robots, robotKind, invite, delay, segmentBoards, ...rest } = value as Record<
     string,
     unknown
   >
@@ -125,6 +153,11 @@ export function parseTeamMatchSettings(
   if (robotKind !== undefined && !isRobotKind(robotKind)) return { field: 'robotKind' }
   if (invite !== undefined && !INVITE_MODES.includes(invite as InviteMode)) return { field: 'invite' }
   if (delay !== undefined && typeof delay !== 'boolean') return { field: 'delay' }
+  const total = (boards as number | undefined) ?? base.boards
+  const isSegment = (n: unknown) => Number.isInteger(n) && ((n as number) === 0 || ((n as number) >= TEAM_MATCH_LIMITS.segmentMin && (n as number) < total))
+  if (segmentBoards !== undefined && !isSegment(segmentBoards)) return { field: 'segmentBoards' }
+  // Fewer boards than a segment kept from before: the match is played in one go
+  const segments = (segmentBoards as number | undefined) ?? (isSegment(base.segmentBoards) ? base.segmentBoards : 0)
   return {
     settings: {
       ...base,
@@ -136,6 +169,7 @@ export function parseTeamMatchSettings(
       ...(robotKind !== undefined && { robotKind }),
       ...(invite !== undefined && { invite: invite as InviteMode }),
       ...(delay !== undefined && { delay }),
+      segmentBoards: segments,
     },
   }
 }
@@ -230,6 +264,12 @@ export interface TeamMatchView {
   ready?: { ready: true } | { ready: false; reason: NotReady }
   /** The host paused it (`e8-t16`): since when */
   pausedAt?: number
+  /**
+   * While it is played with segments (`e8-t21`): the segment being played, 1-based, and since when
+   * both rooms finished it and wait for the host to start the next (`breakAt`, 中場)
+   */
+  segment?: number
+  breakAt?: number
   /** While it is played, to the host only: each room's board and clock, for rulings (`e8-t15`) */
   rooms?: Record<Room, MatchRoomClock>
 }

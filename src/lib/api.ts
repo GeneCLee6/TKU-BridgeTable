@@ -44,6 +44,7 @@ export type MatchPlayAction =
   | { action: 'abandon' }
   | { action: 'replace'; room: Room; seat: Seat; userId: string }
   | { action: 'sitin'; room: Room; seat: Seat }
+  | { action: 'next' }
 import type { FeaturedBoard, FeaturedInput } from '../../shared/featured.ts'
 import type { FeatureFlag, FeatureState, FeatureView } from '../../shared/features.ts'
 import type { SessionInfo } from '../../shared/account.ts'

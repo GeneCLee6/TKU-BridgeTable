@@ -27,6 +27,7 @@ import {
   moveSeat,
   finishedWithRuling,
   newTeamMatch,
+  nextSegment,
   parseHostSeat,
   parseMatchSeat,
   pauseMatch,
@@ -86,8 +87,20 @@ export interface TeamMatchDeps {
 /** What the host (替補 also a captain) does while the match is played (`e8-t14`–`e8-t16`) */
 export type MatchPlayAction = Extract<
   ClientMessage,
-  { type: 'matchRule' | 'matchPause' | 'matchAbandon' | 'matchReplace' | 'matchSitIn' }
+  { type: 'matchRule' | 'matchPause' | 'matchAbandon' | 'matchReplace' | 'matchSitIn' | 'matchNextSegment' }
 >
+
+/**
+ * The next segment begins (`e8-t21`): its last board, and each room's four seats as the captains
+ * left them (a member's id, or null for a robot), for the tables to take on
+ */
+export interface SegmentStart {
+  matchId: string
+  segment: number
+  last: number
+  seats: Record<Room, Record<MatchSeat['seat'], string | null>>
+  players: Record<Room, string[]>
+}
 
 /** What the board's seat was before a substitute came in, and who is in the match now (`e8-t16`) */
 export interface Replaced {
@@ -303,7 +316,11 @@ export class TeamMatchService {
     const match = this.store.get(id)
     const outcome = match && roomFinished(match, seq, room, result)
     if (!outcome) return null
-    this.store.addResult(id, seq, room, result)
+    this.store.transaction(() => {
+      this.store.addResult(id, seq, room, result)
+      // The segment's last board done in both rooms: the match waits for the next (`e8-t21`)
+      if (outcome.segmentDone) this.store.setBreak(id, this.deps.now())
+    })
     const board = this.store.get(id)!.boards.find((b) => b.seq === seq)
     const reveal = outcome.complete && board?.open && board.closed ? [board.open.boardId, board.closed.boardId] : []
     return { reveal, finished: outcome.finished }
@@ -328,8 +345,11 @@ export class TeamMatchService {
     const match = this.require(message.matchId, userId)
     const step = ruleBoard(match, userId, message, this.deps.live(match.id).rooms, this.deps.now())
     if ('error' in step) this.fail(step)
-    const finished = finishedWithRuling(match, step.seq)
-    this.store.setRuling(match.id, step.seq, { ...step.ruling, reason: step.reason, by: userId, at: this.deps.now() })
+    const { finished, segmentDone } = finishedWithRuling(match, step.seq)
+    this.store.transaction(() => {
+      this.store.setRuling(match.id, step.seq, { ...step.ruling, reason: step.reason, by: userId, at: this.deps.now() })
+      if (segmentDone && match.breakAt === undefined) this.store.setBreak(match.id, this.deps.now())
+    })
     const board = this.store.get(match.id)!.boards.find((b) => b.seq === step.seq)
     const reveal = [board?.open?.boardId, board?.closed?.boardId].filter((id): id is string => id !== undefined)
     return { seq: step.seq, reveal, finished }
@@ -389,6 +409,27 @@ export class TeamMatchService {
       ROOMS.map((room) => [room, now.seats.flatMap((s) => (s.room === room && !s.robot && s.userId !== undefined ? [s.userId] : []))]),
     ) as Record<Room, string[]>
     return { matchId: match.id, room: at.room, seat: at.seat, newcomer, ...(before !== undefined && { before }), players }
+  }
+
+  /**
+   * The host starts the next segment (`e8-t21`, AC-8.9) while the match waits between segments:
+   * the break ends, and the club seats each room as the captains left it and deals on
+   */
+  nextSegment(userId: string, matchId: unknown): SegmentStart {
+    const match = this.require(matchId, userId)
+    const step = nextSegment(match, userId)
+    if ('error' in step) this.fail(step)
+    this.store.setSegment(match.id, step.segment)
+    const seats = Object.fromEntries(
+      ROOMS.map((room) => [
+        room,
+        Object.fromEntries(match.seats.filter((s) => s.room === room).map((s) => [s.seat, s.robot || s.userId === undefined ? null : s.userId])),
+      ]),
+    ) as SegmentStart['seats']
+    const players = Object.fromEntries(
+      ROOMS.map((room) => [room, Object.values(seats[room]).filter((id): id is string => id !== null)]),
+    ) as Record<Room, string[]>
+    return { matchId: match.id, segment: step.segment, last: step.last, seats, players }
   }
 
   /** The host has a robot sit in for a member (代打, `e8-t14`); answers the seat */

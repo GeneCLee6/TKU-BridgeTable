@@ -718,12 +718,12 @@ export class Club extends DurableObject<Env> implements Connections {
     if (vugraph && request.method === 'POST' && vugraph[2])
       return json({ vugraph: await this.service.matchVugraphChat(user.id, vugraph[1], (await body()).text) })
     const matchAction = url.pathname.match(
-      /^\/api\/matches\/([\w-]+)\/(settings|cancel|start|invite|answer|move|leave|clear|robot|rule|pause|abandon|replace|sitin)$/,
+      /^\/api\/matches\/([\w-]+)\/(settings|cancel|start|invite|answer|move|leave|clear|robot|rule|pause|abandon|replace|sitin|next)$/,
     )
     if (request.method === 'POST' && matchAction) {
       const [, matchId, action] = matchAction
       // While it is played (e8-t14–e8-t16): rulings, the pause, abandoning, substitutes, robots sitting in
-      const play = { rule: 'matchRule', pause: 'matchPause', abandon: 'matchAbandon', replace: 'matchReplace', sitin: 'matchSitIn' } as const
+      const play = { rule: 'matchRule', pause: 'matchPause', abandon: 'matchAbandon', replace: 'matchReplace', sitin: 'matchSitIn', next: 'matchNextSegment' } as const
       if (action in play) {
         const message = { ...(await body()), type: play[action as keyof typeof play], matchId } as MatchPlayAction
         return json({ match: await this.service.matchPlayRequest(user.id, message) })
