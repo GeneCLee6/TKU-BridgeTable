@@ -70,6 +70,10 @@ export function chooseCard(state: BoardState, seat: Seat, kind: RobotKind = 'tku
     const trumped = trump !== null && suitOf(best.card) === trump && led !== trump
     if (trumped) return signal(following)
     const beaters = following.filter((c) => suitOf(best.card) === led && rankValue(rankOf(c)) > rankValue(rankOf(best.card)))
+    if (trick.length === 1 && !defending) {
+      const card = riseSecond(view, following, led, trump)
+      if (card) return card
+    }
     if (trick.length === 1) {
       // Second hand low, but cover an honour (the last of dummy's touching honours), and rise
       // over a bare honour in dummy
@@ -168,17 +172,36 @@ function finesseLead(view: View, seat: Seat, hand: Card[], suits: Suit[]): Card 
 }
 
 /**
+ * Dummy second hand to the opening lead of a suit contract, with a master: take the trick (the
+ * cheapest master) when declarer, playing last, holds no master of the suit; ducking lets third
+ * hand win it cheaply. Later in the play, and in notrump, second hand stays low: rising every
+ * time was tried, −0.04 (suit) and −0.08 (notrump) IMP/board (V4c, ROBOT.md §3.10)
+ */
+function riseSecond(view: View, following: Card[], led: Suit, trump: Suit | null): Card | null {
+  if (!trump || view.state.play.length !== 1) return null
+  const masters = following.filter((c) => view.isMaster(c)).sort(byRank)
+  if (!masters.length) return null
+  if (suitCards(view.partnerCards(), led).some((c) => view.isMaster(c))) return null
+  return masters[0]
+}
+
+/**
  * Unblocking on the declaring side: partner's winning card is partner's last of the suit, we
- * hold the rest of the winners and partner has no winner outside to come back with, so overtake
- * (with the lowest winner) and run the suit from this hand
+ * hold the rest of the winners, and partner has no winner outside to come back with or this
+ * hand has no way in outside (a master in a suit partner can lead; V4c: partner's winners do
+ * not bring the lead back here), so overtake (with the lowest winner) and run the suit from here
  */
 function unblock(view: View, following: Card[], best: PlayedCard, led: Suit): Card | null {
   if (best.seat !== partnerOf(view.seat) || suitOf(best.card) !== led || !view.isMaster(best.card)) return null
   const partner = view.partnerCards()
   if (suitCards(partner, led).length || following.length < 2) return null
   const winners = following.filter((c) => value(c) > value(best.card) && view.isMaster(c)).sort(byRank)
-  if (!winners.length || partner.some((c) => view.isMaster(c))) return null
-  return winners[0]
+  if (!winners.length) return null
+  // Partner has no winner outside to come back with, or this hand has no way in later (a master
+  // in a suit partner can lead)
+  const own = view.ownCards()
+  const entry = SUITS.some((s) => s !== led && suitCards(own, s)[0] && view.isMaster(suitCards(own, s)[0]) && suitCards(partner, s).length > 0)
+  return entry && partner.some((c) => view.isMaster(c)) ? null : winners[0]
 }
 
 /**

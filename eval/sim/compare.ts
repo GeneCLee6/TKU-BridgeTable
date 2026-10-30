@@ -80,8 +80,8 @@ export interface CompareOptions {
   seed: string
   objective: Objective
   ddBias: number
-  /** Only the opening lead, every card, or only the defenders' cards after the opening lead */
-  points: 'lead' | 'all' | 'defence'
+  /** Only the opening lead, every card, only the defenders' cards after the opening lead, or only the declaring side's */
+  points: 'lead' | 'all' | 'defence' | 'declarer'
 }
 
 function situationOf(seat: Seat, declarer: Seat, trickCards: number, playLength: number, trump: string | null, following: boolean): Situation {
@@ -107,7 +107,9 @@ export async function compareBoard(board: EvalBoard, kind: RobotKind, solver: So
     const card = await ruleBrain.play(kind, state, seat)
     const legal = legalCards(state, seat)
     const lead = state.play.length === 0
-    const wanted = options.points === 'all' || (options.points === 'lead' ? lead : !lead && !sameSide(seat, contract.declarer))
+    const declaring = sameSide(seat, contract.declarer)
+    const wanted =
+      options.points === 'all' || (options.points === 'lead' ? lead : options.points === 'declarer' ? declaring : !lead && !declaring)
     if (legal.length > 1 && wanted) {
       const current = tricksOf(state).at(-1)
       const open = current && !current.winner ? current.cards : []
