@@ -1,6 +1,6 @@
 # NEXT — 接下來怎麼做（給 AI 協作者與自己的交接手冊）
 
-最後更新 2026-10-26。**完整順序在 [`ROADMAP.md`](ROADMAP.md)**（一批一個 PR，從現在到網站完成）；這份只記「現在的位置」與工作方式。這份文件回答三件事：**現在做到哪、下一個做什麼、怎麼做最省**。每完成一個 task 就更新「現在的位置」；每個 AI session 開頭只需要讀 `CLAUDE.md` 和這一份。
+最後更新 2026-10-30。**完整順序在 [`ROADMAP.md`](ROADMAP.md)**（一批一個 PR，從現在到網站完成）；這份只記「現在的位置」與工作方式。這份文件回答三件事：**現在做到哪、下一個做什麼、怎麼做最省**。每完成一個 task 就更新「現在的位置」；每個 AI session 開頭只需要讀 `CLAUDE.md` 和這一份。
 
 ## 1. 現在的位置
 
@@ -83,7 +83,14 @@
     - U1c 防守（#147）：`compare --points defence` 各 5,000 副單明手；第三家、第二家、信號挑牌、無王先建立長門等九條，評測 **淡江 +0.40、2/1 +0.37 IMP／副**。墊牌與王牌合約先兌現還有損失，留給 TKB Adv。
   - 規模：H2b 挑戰的 EventObject（#140，開關關）；H3 負載測試（#142）：大廳廣播是第一個瓶頸，共用部分只算一次後 200 人每次 1 s → 0.2 s；系統狀態頁。
   - **社長要做的**：GitHub 補 `PREVIEW_INVITE_CODE`、`STAGING_INVITE_CODE`、`SEED_PASSWORD`（DEPLOY.md §2.1）——PR 預覽與 staging 從來沒部署過，EventObject 只在本機 workerd 跑過。200 人一小時約用掉 DO 時間每日額度一半，大活動前要估或升級付費。
+  - 2026-10-30 平行做完三批（各一個 agent、各自的 worktree）：
+    - H4（#208）：CSP 與安全標頭（`worker/security-headers.ts` 產生 `public/_headers`）、登入裝置列表與登出其他裝置（`worker/sessions.ts`）、ASVS L1 審查（`docs/SECURITY.md`，`e11-t28`–`e11-t32` 待做）、三層功能旗標（好友改由旗標控制，預設關）、隱私權政策與使用條款、匯出自己的資料與刪帳號。
+    - H6a（#206）：動作事件紀錄（`shared/board-events.ts`）、紀錄頁「照實際速度」重播、叫裁判、裁定（`POST /api/history/:id/ruling`）。`REPLICA_VERSION` 2，部署後 D1 副本重填一次。挑戰與隊制賽的計分還不讀裁定。
+    - J5a（#207）：Vugraph 觀賽頁（`/matches/:id/vugraph`，每 3 秒重抓）、房主可開的落後一墩延遲（伺服器 `laggedBoard`）、整場重播、WBF VP（`shared/vp.ts`）。
+    - 待社長決定：舊紀錄沒有 `hostId` 只有管理員能裁定；重播停頓上限 30 秒；AC-2.14 是否要等計分接上裁定才算完成；密碼最短長度（ASVS 要 12，現在 6，`e11-t29`）；Dependabot 有一個 high 警示要看。
+    - 高風險已知：「忘記密碼」只要社團邀請碼，H5 的 Email 重設（`e1-t29`）才補上。
 - **下一步（從這裡接）**：
+  0. 下一輪平行：H5（Email、Google 登入、Turnstile，要寄信服務與 OAuth 金鑰）、H6b（`e11-t25`）、J5b（`e8-t21`）互不衝突；L1 的 `e12-t03` 每個檔案都會碰，單獨做。
   1. H3b 完成（#150）：大廳拆 `LobbyShared`＋`LobbyMine`、只送差異（`lobbyDelta`）、100 ms 合併廣播、`action` 日誌 1/10 取樣；數字在 `docs/LOAD.md` §6。部署前開著的分頁要重新整理。本機 workerd 量測時社團物件中途重啟過一次（原因未查到，沒有動作失敗），遠端煙霧時留意。
   2. TKB 持續加強（模擬 → 改規則 → 評測）：2/1 叫牌補跑到 25,000 副、2/1 首攻的單明手校正、坐莊的 `compare`、滿貫附近的叫牌樣本。
   3. 秘密設好後：在任一 PR 預覽跑 `docs/LOAD.md` §6 的遠端煙霧測試，再決定正式站開 `EVENT_OBJECTS`。

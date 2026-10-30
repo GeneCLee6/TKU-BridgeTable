@@ -69,7 +69,12 @@ jobs:
             sleep 6
           done
           [ "$live" = "$DEPLOY_SHA" ] || { echo "::error::Site is not serving $DEPLOY_SHA"; exit 1; }
-          code=$(curl -s -o /dev/null -w '%{http_code}' "$SITE_URL/api/me")
-          echo "/api/me -> $code"; [ "$code" = "401" ] || exit 1
+          # The assets can answer the new version a moment before the Worker's routes do
+          for i in $(seq 1 10); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' "$SITE_URL/api/me")
+            echo "/api/me -> $code"; [ "$code" = "401" ] && break
+            sleep 3
+          done
+          [ "$code" = "401" ] || exit 1
           code=$(curl -s -o /dev/null -w '%{http_code}' "$SITE_URL/history")
           echo "/history -> $code"; [ "$code" = "200" ] || exit 1
