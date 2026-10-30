@@ -187,9 +187,9 @@ function riseSecond(view: View, following: Card[], led: Suit, trump: Suit | null
 
 /**
  * Unblocking on the declaring side: partner's winning card is partner's last of the suit, we
- * hold the rest of the winners and this hand has no way in outside (a master in a suit partner
- * can lead), so overtake (with the lowest winner) and run the suit from this hand. Before V4c it
- * looked at partner's winners outside, which do not bring the lead back here
+ * hold the rest of the winners, and partner has no winner outside to come back with or this
+ * hand has no way in outside (a master in a suit partner can lead; V4c: partner's winners do
+ * not bring the lead back here), so overtake (with the lowest winner) and run the suit from here
  */
 function unblock(view: View, following: Card[], best: PlayedCard, led: Suit): Card | null {
   if (best.seat !== partnerOf(view.seat) || suitOf(best.card) !== led || !view.isMaster(best.card)) return null
@@ -197,10 +197,11 @@ function unblock(view: View, following: Card[], best: PlayedCard, led: Suit): Ca
   if (suitCards(partner, led).length || following.length < 2) return null
   const winners = following.filter((c) => value(c) > value(best.card) && view.isMaster(c)).sort(byRank)
   if (!winners.length) return null
-  // Partner can come back to this hand later: a master of ours in a suit partner can lead
+  // Partner has no winner outside to come back with, or this hand has no way in later (a master
+  // in a suit partner can lead)
   const own = view.ownCards()
   const entry = SUITS.some((s) => s !== led && suitCards(own, s)[0] && view.isMaster(suitCards(own, s)[0]) && suitCards(partner, s).length > 0)
-  return entry ? null : winners[0]
+  return entry && partner.some((c) => view.isMaster(c)) ? null : winners[0]
 }
 
 /**
