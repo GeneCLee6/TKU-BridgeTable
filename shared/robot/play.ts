@@ -260,7 +260,7 @@ function openingLead(state: BoardState, seat: Seat, view: View, hand: Card[], tr
   const partnerBid = state.auction.find((c) => c.seat === partnerOf(seat) && isBid(c.call) && strainOf(c.call) !== 'N' && strainOf(c.call) !== trump)
   // A suit partner showed (four or more as the auction reads: a natural bid, a negative double, a
   // two-suited overcall) before one partner only named (a cue bid, an artificial bid); the one
-  // held most of (single dummy, eval/sim/README.md §9)
+  // held most of (single dummy, eval/sim/README.md §11)
   const shown = SUITS.filter((s) => s !== trump && view.reading.bid(partnerOf(seat), s) && suitCards(hand, s).length)
   if (shown.length) return lead(shown.sort((a, b) => suitCards(hand, b).length - suitCards(hand, a).length)[0])
   if (partnerBid && suitCards(hand, strainOf(partnerBid.call) as Suit).length) return lead(strainOf(partnerBid.call) as Suit)

@@ -53,7 +53,7 @@ describe("the 2/1 robot leads as the club's robot does", () => {
     expect(plays(board(layout({ W: 'T32 852 Q543 K87' }), '1S P P 2H 4S P P P'))).toEqual(['H5', 'H5'])
   })
 
-  it('the suit partner showed with a negative double, not our own (eval/sim/README.md §9)', () => {
+  it('the suit partner showed with a negative double, not our own (eval/sim/README.md §11)', () => {
     // 1♦ (1♥) X shows four spades; East's 1NT, South leads
     expect(plays(board(layout({ S: 'J842 K3 AQ752 Q6', N: 'KQ53 742 K4 J853' }), '1D 1H X 1N P P P'))).toEqual(['S2', 'S2'])
   })
