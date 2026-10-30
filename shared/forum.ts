@@ -211,6 +211,9 @@ export const FORUM_LIMITS = {
   boardDescriptionMax: 100,
   /** Posts in each of the home page's two lists (社團新聞, 最新討論) */
   latestShown: 3,
+  /** A search (e11-t10): its characters, and its words (split at spaces; a post must hold every one) */
+  searchMax: 50,
+  searchWordsMax: 5,
 } as const
 
 // ── Requests and answers (worker/forum.ts, e11-t06, e11-t07) ─────────────────────────────────
@@ -247,13 +250,27 @@ export interface BoardPage {
   pages: number
 }
 
-/** `GET /api/forum/feed?page=`: every board's posts newest first (the forum's front page, BridgeHall e11-t15); no pinned section */
+/**
+ * `GET /api/forum/feed?page=`: every board's posts newest first (the forum's front page, BridgeHall
+ * e11-t15); no pinned section. `&author=<member id>`: only that member's posts (我的貼文);
+ * `&mentions=<member id>`: only posts that member is `@`-mentioned in, in the post or a comment (e11-t10)
+ */
 export interface ForumFeed {
   posts: Post[]
   /** From 1 */
   page: number
   /** At least 1 */
   pages: number
+}
+
+/**
+ * `GET /api/forum/search?q=&page=` (e11-t10): posts whose title or text blocks (paragraphs, notes,
+ * lists) hold every word of `q`, newest first; `query` is the words as searched, `total` how many posts
+ * match. 400 `badContent` when `q` is empty or over FORUM_LIMITS.searchMax / searchWordsMax
+ */
+export interface ForumSearch extends ForumFeed {
+  query: string
+  total: number
 }
 
 /** `GET /api/forum/posts/:id`: the post and every comment, oldest first (replies after their top comment's earlier ones) */

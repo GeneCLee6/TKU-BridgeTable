@@ -601,7 +601,7 @@ H1 把牌桌拆出去之後（§5.10），社團的物件（`Club`）仍然是**
 - **瀏覽器做影像處理**：縮到長邊 ≤ 2048 px、縮圖長邊 480 px；Worker 只看大小與檔頭（`sniffAvatar`，JPEG／PNG／WebP），不解碼圖片（免費方案 10 ms CPU）。
 - **一次性憑證直傳**：`POST /api/files/ticket { purpose: 'post' | 'article', type, size }` → `{ key, uploadUrl, thumbUrl, expires }`（10 分鐘，計入每人每天 30 張）；`PUT uploadUrl`（≤ 2 MB，型別要和憑證一致）、`PUT thumbUrl`（≤ 256 KB，要在原圖之後）；兩個都傳了或過期就作廢。上傳路由不看 session cookie、有 CORS，所以頁面也可以直接傳到 Worker 的網址。
 - **簽名短效網址**：`GET /api/files/<key>?e=<到期>&s=<HMAC>`，不用登入（`<img>` 跨站不帶 cookie），到期時間進位到整點再加一小時，同一小時內的網址相同、瀏覽器快取得到；`POST /api/files/urls { keys }` 重簽。金鑰是第一次用時產生的隨機值（`file:secret`），不需要另設 secret。PRD 寫的 `/_file/:key` 改放在 `/api/files/` 底下，兩站的 `/api/*` 本來就轉給 Worker。
-- **刪除**：`DELETE /api/files/<key>`，上傳者或管理員（之後加 `forumModerate`）。帳號刪除時不刪圖片（貼文可能還在用）。
+- **刪除**：`DELETE /api/files/<key>`，上傳者、討論區幹部（`forumModerate`，橋館 G8）或管理員。帳號刪除時不刪圖片（貼文可能還在用）。
 - **沒有 bucket 時**：`FILES` 沒綁就全部回 503 `filesOff`，所以 binding 先註解掉也能部署（DEPLOY.md §4.8）。
 - **電子書 PDF**（淡江橋館 `e5-t09`～`e5-t11`，2026-10-29，`shared/ebooks.ts`、`worker/ebooks.ts`）：同一個 bucket、同一套憑證與簽名網址。`POST /api/book/ebooks/ticket { size }`（`bookReview`）→ 一般的 `FileTicket`，key 是 `ebook/<hex>.pdf`；`PUT uploadUrl` ≤ 50 MB、檔頭要是 `%PDF-`、沒有縮圖（傳完憑證就作廢）；上傳路由依憑證決定讀多少（`uploadMax`）。PDF 也是讀進記憶體再寫 R2（50 MB 在 Durable Object 的 128 MB 內）。書的紀錄 `POST /api/book/ebooks`、`PUT`／`DELETE /api/book/ebooks/:id`（`bookReview`，必填授權 `own`／`permitted`／`members-only`；換 PDF 或下架會一併刪掉舊 PDF；稽核 `ebook:save`／`ebook:remove`）。讀取 `GET /api/book/ebooks[/:id]` 不用登入，但未登入時 `members-only` 的書不在列表、單本回 404，所以連結與 PDF 網址都拿不到；PDF 的網址 15 分鐘（進位到 5 分鐘）就失效。簽名網址的回應加 `Access-Control-Allow-Origin: *`（簽名就是檢查），橋館的 PDF 閱讀器直接向 Worker 抓，不經 Vercel 轉址。
 - **用量提醒**（橋館 `e5-t15`）：`file:usage` 隨上傳與刪除增減；越過 8 GB（`STORAGE_LIMITS.warnBytes`）時通知每位管理員一次（`filesNearlyFull { gb }`，連到橋館的電子書頁），降回 8 GB 以下再越過才會再通知；會超過 10 GB 的憑證回 507 `fileStorageFull`。編輯者在 `GET /api/book/ebooks` 的回應多一個 `usage`。
@@ -1058,6 +1058,9 @@ SQL 由 `worker/history-index.ts` 的 `searchBoards` 組：只有固定的 SQL �
 | `GET /api/forum/boards/:id/posts?page=` | 社員 | `BoardPage`：第 1 頁先列置頂（新置頂的在前），其他新→舊，一頁 20 則 |
 | `POST /api/forum/boards/:id/posts` | 社員（公告板只有幹部，403 `forumBoardOfficersOnly`） | `PostInput` → `{ post }`；每人每分鐘發文加留言 ≤ 5（429 `slowDown`） |
 | `GET /api/forum/feed?page=` | 社員 | `ForumFeed`：所有板面的貼文新→舊，一頁 20 則，不另列置頂（橋館討論區首頁 `/forum`，e11-t15） |
+| `GET /api/forum/feed?page=&author=` | 社員 | 同上，只列那位社員發的貼文（橋館「我的貼文」，e11-t10） |
+| `GET /api/forum/feed?page=&mentions=` | 社員 | 同上，只列貼文或其留言 `@` 提到那位社員的（橋館「我提到的」） |
+| `GET /api/forum/search?q=&page=` | 社員 | `ForumSearch`：標題或文字區塊（段落、提示、條列）含每個詞（空白分開、最多 5 個、共 50 字；英文不分大小寫）的貼文，新→舊，一頁 20 則，多 `query`、`total`；留言、圖說、替代文字不搜。文字存在 `forum_posts.body_text`（舊貼文在 `createTables` 補）；`q` 空或太長回 400（e11-t10） |
 | `GET /api/forum/latest` | 社員 | `ForumLatest`：公告板最新三則（置頂優先）與其他板最新三則（橋館首頁） |
 | `GET`／`PATCH`／`DELETE /api/forum/posts/:id` | 社員；改只有作者；刪是作者或幹部 | `PostThread`（貼文與全部留言，舊→新）；`PostInput` → `{ post }`；別人的 403 `notYours`，不存在 404 `postGone` |
 | `POST /api/forum/posts/:id/pin`、`/lock` | 幹部（`forumModerate`） | `{ pinned }`／`{ locked }` → `{ post }`；有變才寫審計、置頂通知作者 |

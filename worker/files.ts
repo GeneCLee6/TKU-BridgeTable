@@ -252,7 +252,7 @@ export class FileService {
   }
 
   /**
-   * `DELETE /api/files/<key>`: its uploader, or `mayDeleteAny` (a moderator, later), removes the
+   * `DELETE /api/files/<key>`: its uploader, or `mayDeleteAny` (the forum's officers and admins), removes the
    * file and its thumbnail
    */
   async remove(userId: string, key: string, mayDeleteAny: boolean) {

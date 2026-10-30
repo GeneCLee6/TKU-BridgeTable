@@ -20,7 +20,7 @@ import { CardPdfService, pdfResponse } from './card-pdf.ts'
 import { CardSnapshotService } from './card-snapshots.ts'
 import { avatarResponse, readAvatarUpload } from './avatars.ts'
 import { FILES_PATH, FileService, readFileUpload } from './files.ts'
-import { adminRouteNeed, allows, articleReadRoute, bookRouteNeed, ebookReadRoute, clubRouteNeed, forumRouteNeed, requireNeed } from './roles.ts'
+import { adminRouteNeed, allows, articleReadRoute, bookRouteNeed, ebookReadRoute, clubRouteNeed, forumRouteNeed, moderatesForum, requireNeed } from './roles.ts'
 import { type ArticleReader, ArticleService } from './articles.ts'
 import { type EbookReader, EbookService } from './ebooks.ts'
 import { ForumService, postExcerpt } from './forum.ts'
@@ -559,7 +559,8 @@ export class Club extends DurableObject<Env> implements Connections {
     if (route === 'POST /api/files/ticket') return json(await this.files.createTicket(user.id, await body()))
     if (route === 'POST /api/files/urls') return json(await this.files.urls((await body()).keys))
     if (request.method === 'DELETE' && url.pathname.startsWith(FILES_PATH)) {
-      await this.files.remove(user.id, decodeURIComponent(url.pathname.slice(FILES_PATH.length)), user.admin)
+      // The forum's officers (and admins) may remove anyone's picture (BridgeHall e11-t09)
+      await this.files.remove(user.id, decodeURIComponent(url.pathname.slice(FILES_PATH.length)), moderatesForum(user))
       return json({ ok: true })
     }
     // Any member's picture, for both sites; cached by its version (`?v=`)
@@ -842,7 +843,13 @@ export class Club extends DurableObject<Env> implements Connections {
       return json({ board: created })
     }
     if (path === '/latest') return json(forum.latest())
-    if (path === '/feed') return json(forum.feed(Number(url.searchParams.get('page') ?? 1)))
+    if (path === '/feed') {
+      // 我的貼文 and 我提到的 (BridgeHall e11-t10): one member's posts, or the posts mentioning one
+      const member = (name: string) => url.searchParams.get(name)?.slice(0, 64) || undefined
+      return json(forum.feed(Number(url.searchParams.get('page') ?? 1), { author: member('author'), mentions: member('mentions') }))
+    }
+    // 搜尋 (BridgeHall e11-t10): titles and text blocks
+    if (path === '/search') return json(forum.search(url.searchParams.get('q'), Number(url.searchParams.get('page') ?? 1)))
     if (path === '/reports') {
       if (method === 'GET') return json({ reports: forum.reports(url.searchParams.get('status') === 'all' ? 'all' : 'open') })
       return json({ report: forum.fileReport(user, await body()) })

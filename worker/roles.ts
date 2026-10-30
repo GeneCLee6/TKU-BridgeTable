@@ -181,7 +181,7 @@ export function forumRouteNeed(method: string, path: string): Need | null {
   if (path === '/boards') return method === 'GET' ? 'member' : method === 'POST' ? 'admin' : null
   if (/^\/boards\/[\w-]+$/.test(path)) return method === 'PATCH' || method === 'DELETE' ? 'admin' : null
   if (/^\/boards\/[\w-]+\/posts$/.test(path)) return method === 'GET' || method === 'POST' ? 'member' : null
-  if (path === '/latest' || path === '/feed') return method === 'GET' ? 'member' : null
+  if (path === '/latest' || path === '/feed' || path === '/search') return method === 'GET' ? 'member' : null
   if (/^\/posts\/[\w-]+$/.test(path)) return method === 'GET' || method === 'PATCH' || method === 'DELETE' ? 'member' : null
   if (/^\/posts\/[\w-]+\/(pin|lock)$/.test(path)) return method === 'POST' ? FORUM_MODERATE : null
   if (/^\/posts\/[\w-]+\/comments$/.test(path)) return method === 'POST' ? 'member' : null
