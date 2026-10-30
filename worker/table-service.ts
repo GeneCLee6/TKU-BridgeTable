@@ -51,6 +51,7 @@ import {
 import { ruleBrain, type RobotBrain } from '../shared/robot/brain.ts'
 import { bookNoteFor, type BookNotes } from '../shared/robot/system/book-spec.ts'
 import { inferredMeaning, type RobotBid } from '../shared/robot/robots.ts'
+import type { BoardEvent } from '../shared/board-events.ts'
 import { randomId } from './auth.ts'
 import { reviewSteps, robotBidding } from './practice-review.ts'
 import { ClubError } from './errors.ts'
@@ -67,10 +68,12 @@ import {
 import type { Scheduler } from './scheduler.ts'
 import { tableMatch, teamPaused, teamStateOf, teamTableOver } from './team-mode.ts'
 import type { ClubLink, MatchTableUpdate, Named, Person, TableApi, TableEntry, Tables } from './tables.ts'
+import type { VugraphRoom } from '../shared/team-match.ts'
 import {
   actorOf,
   boardView,
   chatFor,
+  laggedBoard,
   liveRequests,
   mayEnter,
   practiceView,
@@ -79,6 +82,7 @@ import {
   seatOccupants,
   seatsActedBy,
   tableListed,
+  vugraphBoard,
   type AccessFacts,
   type Table,
 } from './views.ts'
@@ -255,7 +259,12 @@ export class TableService implements TableApi {
     return this.settled()!
   }
 
-  async join(person: Person): Promise<TableEntry> {
+  /**
+   * `director`: the club let the member in as the director (`e2-t34`), the host or an admin coming
+   * to a table whose players called one. They watch even where nobody else may (a table without
+   * kibitzers, one they were not invited to), but never as a player of its match
+   */
+  async join(person: Person, director = false): Promise<TableEntry> {
     const table = this.require()
     if (this.isAt(person.id)) return this.settled()!
     // Someone else's challenge table is not there for anyone to see
@@ -263,6 +272,13 @@ export class TableService implements TableApi {
     // A team match's player never watches the other room (§5.8); anyone else may watch its tables
     if (this.otherRoom(person.id)) throw new ClubError('matchOtherRoom', {}, 403)
     const team = teamStateOf(table)
+    const asDirector = director && !!table.directorCall && !(team && Object.values(team.players).some((ids) => ids.includes(person.id)))
+    if (asDirector) {
+      this.welcome(person)
+      table.spectators.push(person.id)
+      await this.save()
+      return this.settled()!
+    }
     if (team && !team.closed && team.players[team.room].includes(person.id)) {
       // A player a robot sits in for (代打) comes back to their seat; nobody of the match watches
       // its tables while it is on, not even their own room (`e8-t14`, `e11-t13`)
@@ -380,6 +396,22 @@ export class TableService implements TableApi {
     if (!waiting.some((r) => r.userId === userId)) waiting.push({ userId, at: now, ...(muted && { muted: true }) })
     table.requests = waiting
     this.name(person)
+    await this.save()
+    return this.settled()!
+  }
+
+  /**
+   * A player seated at the table calls the director (`call`), or the club clears the call (`e2-t34`);
+   * the club checks who may clear it and tells the host and the admins of a call
+   */
+  async director(userId: string, call: boolean): Promise<TableEntry> {
+    const table = this.table
+    if (!table || !this.isAt(userId)) throw new ClubError('notAtTable')
+    if (call) {
+      if (fixedSeats(table.mode)) throw new ClubError('directorNotHere')
+      if (!this.seatOf(userId)) throw new ClubError('notSeated')
+      table.directorCall = { userId, at: this.now() }
+    } else delete table.directorCall
     await this.save()
     return this.settled()!
   }
@@ -521,6 +553,28 @@ export class TableService implements TableApi {
     }
     await this.drop()
     return null
+  }
+
+  /**
+   * The room as the Vugraph page shows it to `userId` (`e8-t18`, `e8-t19`): the seats and the board
+   * as a watcher sees it, one trick behind when the match says so. Nobody who has (or had) a seat
+   * in the match gets it while the match is on, in either room (`matchNoWatching`): the club checks
+   * the match's seats first, this checks the table's own list, which keeps the players substituted
+   * out. Null for a table that is not a match's
+   */
+  async vugraph(userId: string): Promise<VugraphRoom | null> {
+    const table = this.table
+    const state = table && teamStateOf(table)
+    if (!table || !state) return null
+    if (!state.closed && (state.players.open.includes(userId) || state.players.closed.includes(userId)))
+      throw new ClubError('matchNoWatching', {}, 403)
+    const online = this.connections.onlineUserIds()
+    return {
+      tableId: table.id,
+      seats: this.occupants(table, (id) => isRobotId(id) || online.includes(id)),
+      board: table.board ? vugraphBoard(table.board, !!state.delay && !state.closed) : null,
+      match: tableMatch(table)!,
+    }
   }
 
   /**
@@ -958,6 +1012,7 @@ export class TableService implements TableApi {
     table.rejectedClaim = undefined
     table.recordId = undefined
     table.dealAt = undefined
+    table.events = undefined
   }
 
   /**
@@ -1027,6 +1082,7 @@ export class TableService implements TableApi {
     table.recordId = undefined
     table.dealAt = undefined
     table.boardStartedAt = this.now()
+    table.events = [{ at: table.boardStartedAt, type: 'deal' }]
     // A robot still sitting in for someone plays this board for them too
     table.boardSubstitutes = table.substitutes && { ...table.substitutes }
     // A board dealt with its auction made (Just Declare) goes straight to the play
@@ -1143,6 +1199,7 @@ export class TableService implements TableApi {
     table.rejectedClaim = undefined
     table.dealAt = undefined
     table.boardStartedAt = this.now()
+    table.events = [{ at: table.boardStartedAt, type: 'deal' }]
     this.touchTurn()
     await this.save()
   }
@@ -1322,6 +1379,7 @@ export class TableService implements TableApi {
         table.undo = undefined
         if (message.accept) {
           table.board = undoFor(board, undo.seat, this.auctionSeat(table, undo.seat))
+          this.logEvent({ type: 'undo', seat: undo.seat, calls: table.board.auction.length, cards: table.board.play.length })
           table.rejectedClaim = undefined
           if (table.board.phase === 'auction') this.unswap()
         }
@@ -1333,6 +1391,7 @@ export class TableService implements TableApi {
         return
     }
 
+    this.logAction(seat, message, next)
     // Any new action supersedes a pending undo request and the note about a rejected claim
     table.undo = undefined
     if (message.type !== 'claimRespond') table.rejectedClaim = undefined
@@ -1366,6 +1425,28 @@ export class TableService implements TableApi {
     if (finished) await this.sendOutbox()
   }
 
+  /** Adds one event to the board's action log (`e2-t32`), with the server's time */
+  private logEvent(event: DistributiveOmit<BoardEvent, 'at'>) {
+    const table = this.table!
+    table.events = [...(table.events ?? []), { ...event, at: this.now() } as BoardEvent]
+  }
+
+  /** Logs a call, card, claim or answer to a claim that `applyAction` took (`board` before it, `next` after) */
+  private logAction(seat: Seat, message: ClientMessage, next: BoardState) {
+    switch (message.type) {
+      case 'call':
+        return this.logEvent({ type: 'call', seat, call: next.auction.at(-1)!.call })
+      case 'play': {
+        const played = next.play.at(-1)!
+        return this.logEvent({ type: 'play', seat: played.seat, card: played.card })
+      }
+      case 'claim':
+        return this.logEvent({ type: 'claim', seat, tricks: next.claim!.tricks })
+      case 'claimRespond':
+        return this.logEvent({ type: message.accept ? 'claimAccept' : 'claimReject', seat })
+    }
+  }
+
   /** The record of a finished board; the club stores it (`ClubLink.boardFinished`) */
   private recordBoard(board: BoardState): BoardRecord {
     const table = this.table!
@@ -1388,6 +1469,9 @@ export class TableService implements TableApi {
         players,
         board,
         ...(Object.keys(substitutes).length > 0 && { substitutes }),
+        hostId: table.hostId,
+        ...(table.boardStartedAt !== undefined && { startedAt: table.boardStartedAt }),
+        ...(table.events?.length && { events: table.events }),
       },
       this.modeContext(),
     )
@@ -1707,6 +1791,7 @@ export class TableService implements TableApi {
       boardsPlayed: table.boardsPlayed,
       boardNo: table.board ? table.board.boardNo : null,
       playing: !!table.board && table.board.phase !== 'finished',
+      ...(table.directorCall && { directorCall: { ...table.directorCall } }),
       ...(state && { challenge: { challengeId: state.challengeId, userId: state.userId } }),
       ...(team && {
         match: {
@@ -1792,6 +1877,8 @@ export class TableService implements TableApi {
     // The seats the viewer calls for (seat control); only someone at the table calls for any
     const acts = this.isAt(userId) ? seatsActedBy(table, userId) : []
     const controls = acts.some((seat) => seat !== mySeat)
+    // A match that plays one trick behind shows its watchers the board as it was (e8-t19)
+    const lag = mySeat === null && !!teamStateOf(table)?.delay && !teamStateOf(table)?.closed
     return {
       id: table.id,
       number: table.number,
@@ -1802,7 +1889,7 @@ export class TableService implements TableApi {
       mySeat,
       ...(controls && { acts }),
       board: table.board
-        ? boardView(table.board, mySeat, {
+        ? boardView(lag ? laggedBoard(table.board) : table.board, mySeat, {
             acts,
             shown: this.isAt(userId) ? this.shownTo(table, userId) : undefined,
             undo: table.undo,
@@ -1839,11 +1926,18 @@ export class TableService implements TableApi {
         playing && settings.boardMinutes > 0 && !teamPaused(table)
           ? (table.boardStartedAt ?? table.createdAt) + settings.boardMinutes * 60_000
           : null,
-      waiting: waiting && { seat: waiting, since: table.turnSince ?? table.createdAt },
+      // Whose turn it is now is not for a watcher one trick behind
+      waiting: !lag && waiting ? { seat: waiting, since: table.turnSince ?? table.createdAt } : null,
       robotSpeed: this.speed(table),
+      ...(table.directorCall && {
+        directorCall: { user: this.publicUser(table.directorCall.userId) ?? { id: table.directorCall.userId, username: '—' }, at: table.directorCall.at },
+      }),
     }
   }
 }
+
+/** Omit over each member of a union (an event without its time) */
+type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never
 
 /**
  * The tables in the same process as the club (H1a and the tests): one `TableService` each, made

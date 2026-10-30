@@ -3,7 +3,7 @@ import type { Seat } from '../shared/cards.ts'
 import type { BookNotes } from '../shared/robot/system/book-spec.ts'
 import { AppError, type MessageCode, type MessageParams } from '../shared/messages.ts'
 import type { BoardRecord, RobotSpeed, TableAction, TableMode, TableSettings } from '../shared/protocol.ts'
-import type { Room } from '../shared/team-match.ts'
+import type { Room, VugraphRoom } from '../shared/team-match.ts'
 import { ClubError } from './errors.ts'
 import type { EventReport } from './modes.ts'
 import type { Table } from './views.ts'
@@ -48,6 +48,8 @@ export interface TableEntry {
     /** When the board on the table was dealt, for the host's rulings on boards over the time limit (`e8-t15`) */
     startedAt?: number
   }
+  /** A player called the director (`e2-t34`) and it was not cleared yet: who and when */
+  directorCall?: { userId: string; at: number }
   /**
    * Grows with every report (`max(last + 1, now)`, so it never goes back after the table's object
    * is reloaded); the club drops a report older than the one it has
@@ -101,8 +103,10 @@ export interface TableApi {
    * after an eviction halfway), and one that closed since answers null
    */
   adopt(table: Table): Promise<TableEntry | null>
-  /** Comes to watch */
-  join(person: Person): Promise<TableEntry>
+  /** Comes to watch; `director`: as the director the players called (`e2-t34`), where others may not */
+  join(person: Person, director?: boolean): Promise<TableEntry>
+  /** A seated player calls the director, or the call is cleared (`e2-t34`) */
+  director(userId: string, call: boolean): Promise<TableEntry>
   /** Takes a seat, from the table or from outside it (the club has already taken them from any other table) */
   sit(person: Person, seat: Seat): Promise<TableEntry>
   /** Leaves the table; a challenge table is only paused (parked) */
@@ -137,6 +141,11 @@ export interface TableApi {
   matchEnded(): Promise<TableEntry | null>
   /** The match's host changed something at the table while the match is played */
   matchUpdate(update: MatchTableUpdate): Promise<TableEntry | null>
+  /**
+   * A team match room as the Vugraph page shows it to a member (`e8-t18`): `matchNoWatching` for
+   * anyone in the match while it is on; null when the table is not a match's. Changes nothing
+   */
+  vugraph(userId: string): Promise<VugraphRoom | null>
   /** Closes the table (an admin, or a challenge that ended) */
   close(): Promise<void>
   /** A table action from a member at the table (bidding, play, chat, the host's seat changes) */
@@ -238,8 +247,11 @@ class RemoteTable implements TableApi {
   adopt(table: Table) {
     return this.call(this.rpc.adopt(table))
   }
-  join(person: Person) {
-    return this.call(this.rpc.join(person))
+  join(person: Person, director?: boolean) {
+    return this.call(this.rpc.join(person, director))
+  }
+  director(userId: string, call: boolean) {
+    return this.call(this.rpc.director(userId, call))
   }
   sit(person: Person, seat: Seat) {
     return this.call(this.rpc.sit(person, seat))
@@ -282,6 +294,9 @@ class RemoteTable implements TableApi {
   }
   matchUpdate(update: MatchTableUpdate) {
     return this.call(this.rpc.matchUpdate(update))
+  }
+  vugraph(userId: string) {
+    return this.call(this.rpc.vugraph(userId))
   }
   close() {
     return this.call(this.rpc.close())

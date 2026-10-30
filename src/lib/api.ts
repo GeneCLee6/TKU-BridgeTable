@@ -1,3 +1,4 @@
+import type { RulingRequest } from '../../shared/board-events.ts'
 import type { ChallengeSettings, ChallengeView } from '../../shared/challenge.ts'
 import type { WeeklyChallengeSchedule, WeeklyChallengeView } from '../../shared/weekly-challenge.ts'
 import { historyQueryString, type HistoryQuery } from '../../shared/history-query.ts'
@@ -21,7 +22,7 @@ import type {
   RegisterResult,
   RobotSpeed,
 } from '../../shared/protocol.ts'
-import type { MatchSeat, Room, TeamMatchSettings, TeamMatchView } from '../../shared/team-match.ts'
+import type { MatchSeat, MatchVugraph, Room, TeamMatchSettings, TeamMatchView } from '../../shared/team-match.ts'
 import type { RulingKind, Team } from '../../shared/team-scoring.ts'
 import type { Traveller } from '../../shared/traveller.ts'
 import type { Seat } from '../../shared/cards.ts'
@@ -129,6 +130,9 @@ export const api = {
   record: (id: string) => request<{ record: BoardRecord }>(`/api/history/${encodeURIComponent(id)}`),
   /** Everyone's result on the same board of its challenge, if the member may see it (e4-t32) */
   traveller: (id: string) => request<{ traveller: Traveller | null }>(`/api/history/${encodeURIComponent(id)}/traveller`),
+  /** A director's ruling on a board (e2-t35), or null to take it back; the record comes back */
+  ruleBoard: (id: string, ruling: RulingRequest | null) =>
+    post<{ record: BoardRecord }>(`/api/history/${encodeURIComponent(id)}/ruling`, { ruling }),
   /** Featured boards, newest first (e4-t30) */
   featured: () => request<{ featured: FeaturedBoard[] }>('/api/featured'),
   /** The club's practice sets, without their boards (e10-t16) */
@@ -189,6 +193,10 @@ export const api = {
   /** Rulings, the pause, abandoning, substitutes and robots sitting in, while the match is played */
   matchPlay: (id: string, { action, ...body }: MatchPlayAction) =>
     post<{ match: TeamMatchView | null }>(`/api/matches/${encodeURIComponent(id)}/${action}`, body),
+  /** The Vugraph page (`e8-t18`): both rooms, the score and the watchers' chat; never for a player while it is on */
+  matchVugraph: (id: string) => request<{ vugraph: MatchVugraph }>(`/api/matches/${encodeURIComponent(id)}/vugraph`),
+  matchVugraphChat: (id: string, text: string) =>
+    post<{ vugraph: MatchVugraph }>(`/api/matches/${encodeURIComponent(id)}/vugraph/chat`, { text }),
 
   admin: {
     users: () => request<{ users: AdminUser[] }>('/api/admin/users'),

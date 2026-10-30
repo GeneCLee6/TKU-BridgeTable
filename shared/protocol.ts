@@ -1,6 +1,7 @@
 import type { FeatureFlag } from './features.ts'
 import type { AuctionCall, BookNote, Call, Contract } from './auction.ts'
 import type { Vulnerability } from './board.ts'
+import type { BoardEvent, BoardRuling } from './board-events.ts'
 import type { BookTopics } from './book-topics.ts'
 import type { Card, Seat, Side } from './cards.ts'
 import type { ChallengeSettings } from './challenge.ts'
@@ -460,6 +461,11 @@ export interface TableView {
   waiting: { seat: Seat; since: number } | null
   /** How fast the robots play here: the slowest speed of the people seated (`slowestSpeed`); the server always sets it */
   robotSpeed?: RobotSpeed
+  /**
+   * A player called the director (`e2-t34`) and it has not been cleared yet: who and when (server
+   * clock). Everyone at the table sees it; the host and the admins were told
+   */
+  directorCall?: { user: PublicUser; at: number }
 }
 
 /**
@@ -667,6 +673,7 @@ export const NOTIFICATION_KINDS = [
   'forumMention',
   'forumAnnouncement',
   'forumPinned',
+  'directorCalled',
 ] as const
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number]
 
@@ -709,7 +716,9 @@ export interface Notification {
    * the start of its text) and who did it: `forumReply` (+ `commentId`) a comment on the member's
    * post or a reply to their comment; `forumMention` (+ `commentId` when in a comment) the member
    * was named with `@`; `forumAnnouncement` a new post on an officers-only board (the news), to
-   * every member; `forumPinned` an officer pinned the member's post
+   * every member; `forumPinned` an officer pinned the member's post. `directorCalled` { tableId,
+   * number, username } of the table and the player who called the director (`e2-t34`), to its host
+   * and the admins
    */
   params: Record<string, string | number>
   read: boolean
@@ -844,6 +853,13 @@ export type ClientMessage =
   | { type: 'showHands'; show: boolean }
   /** Marks these notifications read, or all of them when `ids` is left out */
   | { type: 'readNotifications'; ids?: string[] }
+  /**
+   * A player seated at the member's table calls the director (`e2-t34`): everyone at the table sees
+   * it, and its host and the admins are told and may come in to watch
+   */
+  | { type: 'callDirector' }
+  /** The host, an admin or whoever called clears the director call at the member's table */
+  | { type: 'clearDirector' }
   /** Follows another member (好友) or stops following them; one-way, they are not asked */
   | { type: 'setFriend'; userId: string; friend: boolean }
   /** Blocks or unblocks another member; blocking also stops following them */
@@ -950,6 +966,14 @@ export interface BoardRecord {
   revealAt?: number
   /** Seats where a robot played for a member who was offline (代打) during the board, and for whom */
   substitutes?: Partial<Record<Seat, PublicUser>>
+  /** The table's host when the board was finished: they may rule on it (`e2-t35`), as the admins may */
+  hostId?: string
+  /** When the board was dealt (server clock) */
+  startedAt?: number
+  /** Every action on the board with the server's time (`e2-t32`); records from before it have none */
+  events?: BoardEvent[]
+  /** A director's ruling on the board (`e2-t35`) */
+  ruling?: BoardRuling
 }
 
 export interface BoardSummary {
@@ -966,6 +990,8 @@ export interface BoardSummary {
   eventId?: string
   room?: Room
   revealAt?: number
+  /** The director's ruling, without its reason (the record has it) */
+  ruling?: Pick<BoardRuling, 'kind' | 'side' | 'scoreNS'>
 }
 
 export function summarize(record: BoardRecord): BoardSummary {
@@ -984,6 +1010,13 @@ export function summarize(record: BoardRecord): BoardSummary {
     ...(record.eventId !== undefined && { eventId: record.eventId }),
     ...(record.room !== undefined && { room: record.room }),
     ...(record.revealAt !== undefined && { revealAt: record.revealAt }),
+    ...(record.ruling && {
+      ruling: {
+        kind: record.ruling.kind,
+        ...(record.ruling.side && { side: record.ruling.side }),
+        ...(record.ruling.scoreNS !== undefined && { scoreNS: record.ruling.scoreNS }),
+      },
+    }),
   }
 }
 

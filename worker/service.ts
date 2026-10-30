@@ -108,10 +108,11 @@ import { PROFILE_ID } from './profiles.ts'
 import { FeaturedService } from './featured.ts'
 import { TeamMatchService, type MatchPlayAction } from './team-match-service.ts'
 import { ReplicaSync, type ReplicaDb } from './history-replica.ts'
-import type { RoomClock } from './team-match-flow.ts'
+import { isMatchPlayer, type RoomClock } from './team-match-flow.ts'
 import { TeamMatchStore } from './team-matches.ts'
 import { teamTable } from './team-mode.ts'
-import { ROOMS, type Room, type TeamMatchView } from '../shared/team-match.ts'
+import { parseRulingReason, ROOMS, TEAM_MATCH_LIMITS, VUGRAPH_CHAT_MAX, type MatchVugraph, type Room, type TeamMatchView, type VugraphRoom } from '../shared/team-match.ts'
+import { parseRulingRequest } from '../shared/board-events.ts'
 import {
   createHistoryIndex,
   eventBoards,
@@ -202,6 +203,7 @@ import {
   seatOccupants,
   listedForEveryone,
   tableListed,
+  vugraphChat,
   type Table,
 } from './views.ts'
 
@@ -2043,6 +2045,10 @@ export class ClubService {
         return this.joinTable(userId, this.requireEntry(message.tableId))
       case 'requestJoin':
         return this.requestJoin(userId, this.requireEntry(message.tableId))
+      case 'callDirector':
+        return this.callDirector(userId)
+      case 'clearDirector':
+        return this.clearDirector(userId)
       case 'answerRequest':
         return this.answerRequest(userId, message.userId, message.accept)
       case 'sit':
@@ -2810,6 +2816,46 @@ export class ClubService {
   }
 
   /**
+   * The Vugraph page (`GET /api/matches/:id/vugraph`, `e8-t18`, `e8-t19`, AC-8.8): the match and
+   * its score, both rooms as a watcher sees them (one trick behind when the match says so) and the
+   * watchers' chat. Anyone who may see the match, except its players while it is set up or played
+   * (`matchNoWatching`): the club checks the seats, each table its own list of everyone who ever
+   * played there (a player substituted out too). Whoever looks while it is played is noted, and may
+   * not come in as a substitute (`matchWatching`)
+   */
+  async matchVugraph(userId: string, matchId: string): Promise<MatchVugraph> {
+    const stored = this.matches.store.get(matchId)
+    const match = stored && this.matches.get(matchId, userId)
+    if (!stored || !match) throw new ClubError('matchGone', {}, 404)
+    if ((stored.status === 'setup' || stored.status === 'playing') && isMatchPlayer(stored, userId))
+      throw new ClubError('matchNoWatching', {}, 403)
+    const rooms: Partial<Record<Room, VugraphRoom>> = {}
+    if (stored.status === 'playing') {
+      const tables = this.matchTables(matchId)
+      const found = await Promise.all(ROOMS.map((room) => (tables[room] ? this.tables.get(tables[room].id).vugraph(userId) : null)))
+      for (const [i, room] of ROOMS.entries()) if (found[i]) rooms[room] = found[i]
+      this.matches.store.watched(matchId, userId)
+    }
+    const blocked = new Set(this.blocks.of(userId))
+    const chat = vugraphChat(this.matches.store.chat(matchId), (id) => blocked.has(id), (id) => this.publicUserById(id))
+    return { match, rooms, chat }
+  }
+
+  /**
+   * Says something on the Vugraph page (`POST /api/matches/:id/vugraph/chat { text }`): only someone
+   * who may watch it (`matchVugraph`'s checks), only while it is played; trimmed, at most
+   * `VUGRAPH_CHAT_MAX`, the table chat's rate limit. Answers the page as they now see it
+   */
+  async matchVugraphChat(userId: string, matchId: string, text: unknown): Promise<MatchVugraph> {
+    if (!this.chatLimit.take(userId)) throw new ClubError('chatTooFast', {}, 429)
+    await this.matchVugraph(userId, matchId)
+    if (this.matches.store.get(matchId)?.status !== 'playing') throw new ClubError('matchNotPlaying')
+    const clean = typeof text === 'string' ? text.trim().slice(0, VUGRAPH_CHAT_MAX) : ''
+    if (clean) this.matches.store.addChat(matchId, { id: randomId(6), at: this.now(), userId, text: clean })
+    return this.matchVugraph(userId, matchId)
+  }
+
+  /**
    * The exceptions while a match is played (§5.8, `e8-t14`–`e8-t16`): the match's rules are checked
    * and written by `TeamMatchService`; the club tells the tables (`matchUpdate`) and pushes the match
    */
@@ -2840,7 +2886,9 @@ export class ClubService {
         // Someone watching the match has seen its boards: they may not come in (e11-t13)
         const newcomer = message.userId
         const watching = typeof newcomer === 'string' ? this.entryOf(newcomer) : undefined
-        if (watching?.match?.matchId === matchId && watching.spectators.includes(newcomer) && this.matches.get(matchId, userId))
+        // Nor someone who looked at it on the Vugraph page (e8-t18): they saw both rooms
+        const vugraph = typeof newcomer === 'string' && this.matches.store.hasWatched(matchId, newcomer)
+        if (((watching?.match?.matchId === matchId && watching.spectators.includes(newcomer)) || vugraph) && this.matches.get(matchId, userId))
           throw new ClubError('matchWatching', { name: this.users.get(newcomer)?.username ?? '' })
         const replaced = await this.matches.replace(userId, message)
         await this.leave(replaced.newcomer)
@@ -3093,6 +3141,12 @@ export class ClubService {
     if (this.entryOf(userId)?.id === entry.id) return
     // Someone else's challenge table is not there for anyone to see
     if (soloTable(entry.mode)) throw new ClubError('tableGone', {}, 404)
+    // The director the players called (`e2-t34`): the host or an admin watches whatever the table's settings
+    if (entry.directorCall && this.mayDirect(userId, entry.hostId)) {
+      await this.leave(userId)
+      this.applyEntry(await this.tables.get(entry.id).join(this.person(userId), true))
+      return
+    }
     this.checkNotInMatch(userId, entry)
     this.checkWelcome(userId, entry)
     // A table without kibitzers takes people only into its seats (`e2-t26`); a practice table only has watchers
@@ -3187,6 +3241,57 @@ export class ClubService {
       number: entry.number,
       username,
     })
+  }
+
+  // ── The director (`e2-t34`, `e2-t35`) ─────────────────────────────────────────────────────────
+
+  /** Whether a member directs a table or rules on its boards: its host, or an admin */
+  private mayDirect(userId: string, hostId: string | undefined): boolean {
+    return userId === hostId || !!this.users.get(userId)?.admin
+  }
+
+  /**
+   * A player seated at the member's table calls the director: everyone at the table sees it, and the
+   * host (unless it is them) and every admin are told, with the table to come to (`joinTable` lets
+   * them in to watch even where watching is off)
+   */
+  private async callDirector(userId: string) {
+    const entry = this.entryOf(userId)
+    if (!entry) throw new ClubError('notSeated')
+    if (fixedSeats(entry.mode)) throw new ClubError('directorNotHere')
+    if (!this.seatIn(entry, userId)) throw new ClubError('notSeated')
+    this.applyEntry(await this.tables.get(entry.id).director(userId, true))
+    const username = this.users.get(userId)!.username
+    const told = new Set([entry.hostId, ...this.adminIds()].filter((id) => id !== userId && this.users.has(id)))
+    for (const id of told) await this.notifications.notify(id, 'directorCalled', { tableId: entry.id, number: entry.number, username })
+  }
+
+  /** The host, an admin or the player who called clears the director call at the member's table */
+  private async clearDirector(userId: string) {
+    const entry = this.entryOf(userId)
+    if (!entry) throw new ClubError('notAtTable')
+    if (!entry.directorCall) return
+    if (entry.directorCall.userId !== userId && !this.mayDirect(userId, entry.hostId)) throw new ClubError('directorOnly', {}, 403)
+    this.applyEntry(await this.tables.get(entry.id).director(userId, false))
+  }
+
+  /**
+   * A director's ruling on a finished board (`e2-t35`): the host of the table it was played at (the
+   * record says who) or an admin gives Avg, Avg+, Avg- or a score, with a reason; `null` takes a
+   * ruling back. The record, its history summaries and the D1 copy are written again
+   */
+  async ruleBoard(userId: string, boardId: string, body: unknown): Promise<BoardRecord> {
+    const record = /^[\w-]+$/.test(boardId) ? await this.store.get<BoardRecord>(`board:${boardId}`) : undefined
+    if (!record) throw new ClubError('boardGone', {}, 404)
+    if (!this.mayDirect(userId, record.hostId)) throw new ClubError('directorOnly', {}, 403)
+    if (body === null) delete record.ruling
+    else {
+      const request = parseRulingRequest(body, parseRulingReason)
+      if (!request) throw new ClubError('badBoardRuling', { max: TEAM_MATCH_LIMITS.reasonMax })
+      record.ruling = { ...request, by: this.publicUserById(userId)!, at: this.now() }
+    }
+    await this.writeRecord(record)
+    return record
   }
 
   /** A table action (bidding, play, chat, the host's seat changes): the member's own table handles it */
