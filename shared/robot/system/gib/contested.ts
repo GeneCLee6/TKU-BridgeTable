@@ -62,8 +62,10 @@ function afterOvercall(y: Suit): Rule[] {
     const theirs = z(ctx)
     return theirs ? cheapest(ctx, theirs.suit) : null
   })
-  // A new suit, forcing: at the two level 5+ and 10+ (before the double), at the one level 4+
-  const newSuit = (s: Suit, level: 1 | 2): Rule => ({
+  // A new suit, forcing: at the two or three level 5+ and 10+ (before the double), at the one
+  // level 4+. The three-level bid is the cheapest one over a two-level overcall (1♣ (2♥) 3♦);
+  // without it TKB passed with a long minor and opening values (V4a)
+  const newSuit = (s: Suit, level: 1 | 2 | 3): Rule => ({
     call: (ctx) => {
       const theirs = z(ctx)
       if (!theirs || theirs.suit === s) return null
@@ -73,7 +75,7 @@ function afterOvercall(y: Suit): Rule[] {
     shows: level === 1 ? { len: { [s]: [4, 13] }, hcp: plus(6), forcing: 'oneRound' } : { len: { [s]: [5, 13] }, hcp: plus(10), forcing: 'oneRound' },
     when: (h) => longest(h, UP.filter((t) => t !== y)) === s,
   })
-  for (const s of UP.filter((s) => s !== y)) rules.push(newSuit(s, 2))
+  for (const s of UP.filter((s) => s !== y)) rules.push(newSuit(s, 2), newSuit(s, 3))
   // Negative double up to 3♠
   rules.push({
     call: (ctx) => {
@@ -86,7 +88,7 @@ function afterOvercall(y: Suit): Rule[] {
     },
   })
   for (const s of UP.filter((s) => s !== y)) rules.push(newSuit(s, 1))
-  // Notrump with their suit stopped
+  // Notrump with their suit stopped; 3NT has no top (TKB passed 1♦ (2♠) with AJ92 A85 A93 AT8, V4a)
   const nt = (level: number, hcp: Range): Rule => ({
     call: (ctx) => {
       const theirs = z(ctx)
@@ -95,7 +97,7 @@ function afterOvercall(y: Suit): Rule[] {
     },
     shows: (ctx) => ({ hcp, stop: { [z(ctx)!.suit]: 'stop' } }),
   })
-  rules.push(nt(3, [13, 15]), nt(2, [11, 12]), nt(1, [8, 10]), { call: 'P', shows: {} })
+  rules.push(nt(3, plus(13)), nt(2, [11, 12]), nt(1, [8, 10]), { call: 'P', shows: {} })
   return rules
 }
 

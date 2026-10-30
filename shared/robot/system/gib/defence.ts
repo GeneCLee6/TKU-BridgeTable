@@ -62,21 +62,11 @@ function overcalls(x: Suit, balancing: boolean): Rule[] {
     }),
   })
   rules.push({ call: '1N', shows: { hcp: balancing ? [11, 14] : [15, 18], balanced: true, stop: { [x]: 'stop' } } })
-  rules.push(...takeout([x], balancing ? 9 : 12, balancing ? 15 : 17))
-  if (!balancing)
-    for (const y of unbid) {
-      const jump = levelOver(y, x, 1) + 1
-      if (jump > 3) continue
-      rules.push({
-        call: bid(jump, y),
-        shows: { name: 'weakJumpOvercall', len: { [y]: [jump === 2 ? 6 : 7, 13] }, hcp: [3, 9] },
-        when: (h) => bestSuit(h, unbid) === y,
-      })
-    }
+  const suitBids: Rule[] = []
   for (const y of unbid) {
     const level = levelOver(y, x, 1)
     const hcp: [number, number] = level === 1 ? (balancing ? [7, 16] : [8, 17]) : balancing ? [9, 16] : [10, 17]
-    rules.push({
+    suitBids.push({
       call: bid(level, y),
       shows: {
         name: 'overcall',
@@ -88,7 +78,21 @@ function overcalls(x: Suit, balancing: boolean): Rule[] {
       when: (h) => bestSuit(h, unbid) === y,
     })
   }
-  rules.push({ call: 'P', shows: {} })
+  // Balancing with less than 12 and a five-card suit: bid the suit rather than double (V4a: the
+  // double lost 1.7 IMP a time to the overcall in 25,000 boards)
+  if (balancing) suitBids.forEach((r) => rules.push({ ...r, when: (h, ctx) => h.hcp < 12 && r.when!(h, ctx) }))
+  rules.push(...takeout([x], balancing ? 9 : 12, balancing ? 15 : 17))
+  if (!balancing)
+    for (const y of unbid) {
+      const jump = levelOver(y, x, 1) + 1
+      if (jump > 3) continue
+      rules.push({
+        call: bid(jump, y),
+        shows: { name: 'weakJumpOvercall', len: { [y]: [jump === 2 ? 6 : 7, 13] }, hcp: [3, 9] },
+        when: (h) => bestSuit(h, unbid) === y,
+      })
+    }
+  rules.push(...suitBids, { call: 'P', shows: {} })
   return rules
 }
 

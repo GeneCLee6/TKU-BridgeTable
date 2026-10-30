@@ -58,7 +58,8 @@ function responses(m: Suit, passed: boolean): Rule[] {
       call: bid(2, m),
       shows: { name: 'invertedMinor', len: { [m]: [support, 13], ...fewMajors }, hcp: plus(10), forcing: 'oneRound' },
     },
-    { call: '3N', shows: { hcp: [13, 15], balanced: true, len: fewMajors } },
+    // 13+ (was 13–15: 16+ balanced without a four-card suit to bid passed 1♣, V4a)
+    { call: '3N', shows: { hcp: plus(13), balanced: true, len: fewMajors } },
     { call: '2N', shows: { hcp: [11, 12], balanced: true, len: fewMajors, notes: [{ key: 'invite' }] } },
   )
   // Jumps to a lower suit at the three level are natural and invitational
@@ -95,7 +96,8 @@ export function afterNotrumpRebid(m: Suit, M: Suit): Rule[] {
   return [
     ...hearts,
     { call: bid(4, M), shows: { len: { [M]: [6, 13] }, hcp: plus(13), notes: [{ key: 'game' }] } },
-    { call: '3N', shows: { hcp: [13, 15], notes: [{ key: 'signoff' }] }, when: (h) => h.len[M] <= 4 && (M === 'S' || h.len.S < 4) },
+    // 13+ (was 13–15: with 16+ and no other call TKB passed 1NT, V4a)
+    { call: '3N', shows: { hcp: plus(13), notes: [{ key: 'signoff' }] }, when: (h) => h.len[M] <= 4 && (M === 'S' || h.len.S < 4) },
     {
       call: bid(2, nm),
       shows: { name: 'newMinorForcing', hcp: plus(11), forcing: 'oneRound', artificial: true },
