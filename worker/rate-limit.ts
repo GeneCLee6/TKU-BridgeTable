@@ -100,6 +100,9 @@ export const LOGIN_WINDOW_MS = 15 * 60_000
 /** Error reports from browsers, for the whole club */
 export const CLIENT_ERROR_BURST = 20
 export const CLIENT_ERRORS_PER_SECOND = 1
+/** TKU-BridgeHall's usage batches (e10-t07), for the whole club: 100 at once, then 10 a second */
+export const BOOK_EVENT_BURST = 100
+export const BOOK_EVENTS_PER_SECOND = 10
 /** Direct messages per member (e1-t27): 10 at once, then 20 a minute */
 export const DIRECT_BURST = 10
 export const DIRECTS_PER_SECOND = 20 / 60

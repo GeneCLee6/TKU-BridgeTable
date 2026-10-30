@@ -21,7 +21,7 @@ export type LogEntry =
   | { event: 'tablesMoved'; to: 'objects' | 'club'; moved: number; failed: number }
   | { event: 'eventsMoved'; to: 'objects' | 'club'; moved: number; failed: number }
   /** An error a browser reported (`/api/client-errors`), already cleaned */
-  | { event: 'clientError'; kind: string; message: string; source?: string; stack?: string; page?: string; version?: string }
+  | { event: 'clientError'; kind: string; message: string; source?: string; stack?: string; page?: string; version?: string; site?: 'book' }
   /** A bug: an exception that is not a ClubError or GameError */
   | { event: 'crash'; where: string; error: string; stack?: string }
   /** The history index's D1 copy (worker/history-replica.ts, §5.12): a step that failed, or the copy filled */

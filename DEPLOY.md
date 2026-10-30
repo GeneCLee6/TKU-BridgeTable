@@ -198,7 +198,7 @@ npx wrangler deploy --var TABLE_OBJECTS:off   # 牌桌搬回社團的物件，�
   - 淡江橋譜：`book`（線上特約、`bookpart:` 分段、版本紀錄、分類、匯入草稿）、`profile`（制度集）、`article`（文章）、`team:`／`pair:`／`userteam:`／`userpair:`（隊伍與搭檔）。
   - 帳號（兩站共用）：`user:`（帳號、密碼雜湊、權限、頭像版本）、`app:`（等待核准的註冊申請）、`avatar:`（頭像圖片）。帳號與頭像在同一份備份、同一個時間點匯出，還原後每個人的頭像版本一定對得上圖片。
   - 淡江橋館的討論區（2026-10-30 起）：Durable Object SQLite 的五張表 `forum_boards`、`forum_posts`、`forum_comments`、`forum_reactions`、`forum_reports`（看板、貼文、留言、反應、檢舉）。圖片本身在 R2 `bridgebook-files`，不在備份裡（R2 不會跟著還原而消失），備份只有圖片的擁有者紀錄 `file:meta:`。討論區的文字不大：一篇貼文最多幾 KB，一千篇加留言約幾 MB，每天一份、留 30 天仍遠低於 R2 免費的 10 GB；日誌的 `bytes` 可以看實際大小。
-  - **不在裡面**：`session:`（登入狀態，還原後大家重新登入）、`meta:settings`（邀請碼與人數上限：沒有時用 `wrangler.jsonc` 的值，而且還原不該把換掉的邀請碼帶回來；遺失的話在管理頁重新設定）、好友與封鎖、私訊、牌局紀錄與紀錄索引的 SQL 表（之後的 e11-t12）。
+  - **不在裡面**：`session:`（登入狀態，還原後大家重新登入）、`meta:settings`（邀請碼與人數上限：沒有時用 `wrangler.jsonc` 的值，而且還原不該把換掉的邀請碼帶回來；遺失的話在管理頁重新設定）、好友與封鎖、私訊、牌局紀錄與紀錄索引的 SQL 表（之後的 e11-t12）、淡江橋館的錯誤回報與匿名使用統計（`book_errors`、`book_metrics`、`book_visitors`、`book_telemetry_settings`，ARCHITECTURE.md §5.15：可以重新累積，還原時也不動）。
 - **格式**：JSON Lines。第一行是 `{"format":"tku-bridge-backup","version":3,"createdAt":…,"prefixes":[…],"keys":N,"tables":[…],"rows":M}`，之後每個 key 一行 `{"k":"<key>","v":<值>}`，key 之後是 SQL 表的每一列 `{"t":"forum_posts","r":{欄位: 值}}`（照寫入的順序），值與 Durable Object 裡存的一樣；只有位元組（頭像圖片的 `Uint8Array`）寫成 `{"$bytes":"<base64>"}`，讀回來時還原成位元組（剛好叫 `$bytes` 的欄位名稱會多加一個 `$` 跳脫，讀回來一樣）。舊的 `version: 1` 備份（只有淡江橋譜）照樣可以還原，而且只還原它自己的範圍（`prefixes`），不會動到帳號；`version: 1`、`2` 沒有 SQL 表，還原時討論區不動。
 - **只有正式站**：staging 與 PR 預覽（§2.1）沒有 `BACKUPS` binding、cron 也關掉（`wrangler.jsonc` 的 `env.*.triggers`），不會寫到正式站的 bucket；在那裡呼叫管理 API 會回 503（`backupUnavailable`）。
 - **日誌**：每次備份記一筆 `event = backup`（`ok`、`name`、`keys`、`rows`（SQL 表的列數）、`bytes`、`deleted`；失敗時 `error`）。

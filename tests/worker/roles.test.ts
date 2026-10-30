@@ -33,6 +33,10 @@ const EDITOR_BOOK_ROUTES: [string, string][] = [
   ['PUT', '/categories'],
   ['POST', '/profiles'],
   ['DELETE', '/profiles/ab12'],
+  // BridgeHall's error reports and usage counts (e10-t06, e10-t07)
+  ['GET', '/errors'],
+  ['DELETE', '/errors'],
+  ['GET', '/analytics'],
 ]
 /** Publishing, sending a draft back, hiding, going back to the bundled one (BridgeHall e8-t01) */
 const REVIEWER_BOOK_ROUTES: [string, string][] = [
@@ -105,6 +109,13 @@ describe('roles (2026-10-25: admins manage everything, editors everything but ac
     expect(bookRouteNeed('GET', '/export')).toBe('admin')
     expect(may(reviewer, bookRouteNeed('GET', '/export'))).toBe(false)
     expect(bookRouteNeed('PUT', '/export')).toBeNull()
+    // Switching the usage counts off (e10-t07): admins only; sending reports is club.ts's, before any sign-in
+    expect(bookRouteNeed('PUT', '/analytics/settings')).toBe('admin')
+    expect(may(reviewer, bookRouteNeed('PUT', '/analytics/settings'))).toBe(false)
+    expect(may(admin, bookRouteNeed('PUT', '/analytics/settings'))).toBe(true)
+    expect(bookRouteNeed('POST', '/errors')).toBeNull()
+    expect(bookRouteNeed('POST', '/events')).toBeNull()
+    expect(bookRouteNeed('PUT', '/analytics')).toBeNull()
   })
 
   it('brings editing with reviewing', () => {

@@ -1440,3 +1440,66 @@ export interface PairInvite {
   partnerId: string
   teamId?: string
 }
+
+// BridgeHall's error reports and anonymous usage counts (BridgeHall e10-t06, e10-t07;
+// worker/book-telemetry.ts, ARCHITECTURE.md §5.15). BridgeHall's src/lib/api.ts copies these word for word
+
+/** A browser error the book reported (e10-t06): cleaned, no member id */
+export interface BookClientError {
+  id: number
+  /** ms since epoch, server time */
+  at: number
+  kind: 'error' | 'rejection' | 'boundary'
+  message: string
+  source?: string
+  stack?: string
+  /** Path only, no query */
+  page?: string
+  version?: string
+  /** How many times the same kind+message+source+page came in; the row keeps the latest time */
+  count: number
+}
+
+export type BookAnalyticsEventType = 'page' | 'search' | 'profile-switch' | 'quiz-answer'
+
+/** One anonymous usage event (e10-t07); no member id, no profile id */
+export interface BookAnalyticsEvent {
+  type: BookAnalyticsEventType
+  /** page: the path without query, e.g. `/c/stayman`, `/practice`; ≤ 200 chars */
+  path?: string
+  /** page on a convention page, quiz-answer: the convention slug */
+  slug?: string
+  /** search: the query the reader settled on, trimmed, ≤ 50 chars */
+  query?: string
+  /** profile-switch: the kind of profile switched to */
+  profileKind?: 'club' | 'team' | 'pair' | 'personal'
+  /** quiz-answer */
+  correct?: boolean
+}
+
+export interface BookAnalyticsBatch {
+  /** Random id the browser makes per ISO week (not stored past the weekly count) */
+  visitor: string
+  events: BookAnalyticsEvent[]
+}
+
+export interface BookAnalyticsWeek {
+  /** Monday of the week, YYYY-MM-DD (UTC) */
+  week: string
+  visitors: number
+  pages: number
+}
+
+export interface BookAnalyticsView {
+  enabled: boolean
+  /** Last 12 weeks, oldest first, weeks without data included with zeros */
+  weeks: BookAnalyticsWeek[]
+  /** Last 28 days, most viewed first, ≤ 20 */
+  topConventions: { slug: string; views: number }[]
+  /** Last 28 days, ≤ 20 */
+  topSearches: { query: string; count: number }[]
+  /** Last 28 days */
+  profileSwitches: number
+  /** Last 28 days */
+  quiz: { answered: number; correct: number }
+}

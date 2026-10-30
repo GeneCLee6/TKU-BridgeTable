@@ -119,6 +119,11 @@ export function bookRouteNeed(method: string, path: string): Need | null {
   if (path === '/paths') return method === 'PUT' || method === 'DELETE' ? 'bookEdit' : null
   // 閱讀進度 (BridgeHall e5-t14): a member's own places in articles and e-books
   if (path === '/reading') return ['GET', 'PUT', 'DELETE'].includes(method) ? 'member' : null
+  // BridgeHall's error reports and usage counts (e10-t06, e10-t07): sending them needs no sign-in
+  // (club.ts, before this); reading and clearing are the editors', switching the counting off the admins'
+  if (path === '/errors') return method === 'GET' || method === 'DELETE' ? 'bookEdit' : null
+  if (path === '/analytics') return method === 'GET' ? 'bookEdit' : null
+  if (path === '/analytics/settings') return method === 'PUT' ? 'admin' : null
   if (path === '/import/ticket') return method === 'POST' ? 'bookImport' : null
   if (path === '/drafts') return method === 'GET' || method === 'POST' ? 'bookImport' : null
   if (/^\/drafts\/[\w-]+$/.test(path)) return method === 'GET' || method === 'DELETE' ? 'bookImport' : null
