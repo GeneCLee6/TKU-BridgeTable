@@ -7,7 +7,8 @@ import { headToHead, headToHeadTotal, type ChallengeScoring } from '../../shared
 import type { ChallengeTravellerEntry, ChallengeView } from '../../shared/challenge.ts'
 import { resultLabel } from '../../shared/scoring.ts'
 import { cardName } from '../lib/cards.ts'
-import { formatScore, participantName, playerOf, resultOrder, tone, travellerScores } from '../lib/challenges.ts'
+import { formatScore, participantName, playerOf, resultOrder, tone, travellerRulings, travellerScores } from '../lib/challenges.ts'
+import { RulingTag } from './RulingTag.tsx'
 import { signed } from '../lib/format.ts'
 import { usePreferences } from '../state/PreferencesContext.tsx'
 import { mobile } from '../styles/tokens.ts'
@@ -168,7 +169,7 @@ export function ChallengeResults({ challenge: c, userId }: { challenge: Challeng
   if (!c.travellers?.length) return null
   const scoring = c.settings.scoring
   const scores = travellerScores(c)
-  const versus = scores[userId] ? headToHead(scoring, scores, userId) : []
+  const versus = scores[userId] ? headToHead(scoring, scores, userId, travellerRulings(c)) : []
   const versusOf = new Map(versus.map((v) => [v.opponent, v]))
   const order = resultOrder(c, userId)
   const place = (id: string) => order.indexOf(id)
@@ -324,7 +325,10 @@ function ResultRow({
         )}
       </td>
       <td>{e.contract && e.declarerTricks !== null ? resultLabel(e.contract, e.declarerTricks) : '—'}</td>
-      <Num $value={e.scoreNS}>{signed(e.scoreNS)}</Num>
+      <Num $value={e.scoreNS}>
+        {signed(e.scoreNS)}
+        {e.ruling && <RulingTag ruling={e.ruling} />}
+      </Num>
       {points !== undefined && (
         <Num data-wide $value={points === null ? undefined : tone(points, unit)}>
           {points === null ? '—' : formatScore(points, unit)}

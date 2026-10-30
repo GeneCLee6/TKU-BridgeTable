@@ -315,6 +315,8 @@ export function ChallengePage() {
                       {playerOf(c, r.userId)?.knownDeals && (
                         <Muted as="span"> · {t.knownDeals}</Muted>
                       )}
+                      {/* The total counts a director's ruling on these boards (`e2-t36`) */}
+                      {r.ruled && <Muted as="span"> · {t.director.ruledBoards(r.ruled.join(', '))}</Muted>}
                     </Who>
                     <Total $value={tone(r.total, standings.scoring)}>
                       {formatScore(r.total, standings.scoring)}

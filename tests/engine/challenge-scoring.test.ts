@@ -167,3 +167,60 @@ describe('a challenge of one board', () => {
     expect(brief(score('total', { amy: [620], ben: [170] }))[0]).toEqual(['amy', 620, 1])
   })
 })
+
+describe('rulings in the standings (e2-t36)', () => {
+  const scores = { amy: [420], ben: [450], cat: [400] }
+  const ruled = (scoring: ChallengeScores['scoring'], rulings: ChallengeScores['rulings']) =>
+    brief(scoreChallenge({ scoring, unfinished: 'avgMinus', scores, rulings }))
+
+  it('counts an assigned score as if it had been played', () => {
+    expect(ruled('mp', {})).toEqual([
+      ['ben', 100, 1],
+      ['amy', 50, 2],
+      ['cat', 0, 3],
+    ])
+    expect(ruled('mp', { amy: [{ kind: 'score', scoreNS: 460 }] })).toEqual([
+      ['amy', 100, 1],
+      ['ben', 50, 2],
+      ['cat', 0, 3],
+    ])
+  })
+
+  it('gives Avg+ 60%, Avg 50%, Avg- 40% and compares the others only with each other', () => {
+    expect(ruled('mp', { amy: [{ kind: 'avgPlus', side: 'NS' }] })).toEqual([
+      ['ben', 100, 1],
+      ['amy', 60, 2],
+      ['cat', 0, 3],
+    ])
+    // The participant sits South: Avg+ for East-West is Avg- for them
+    expect(ruled('mp', { amy: [{ kind: 'avgPlus', side: 'EW' }] })[1]).toEqual(['amy', 40, 2])
+    expect(ruled('mp', { amy: [{ kind: 'avg' }] })[1]).toEqual(['amy', 50, 2])
+  })
+
+  it('gives +3, 0 or −3 IMPs', () => {
+    expect(ruled('imp', { amy: [{ kind: 'avgMinus', side: 'NS' }] })).toEqual([
+      ['ben', 2, 1],
+      ['cat', -2, 2],
+      ['amy', -3, 3],
+    ])
+    expect(ruled('crossImp', { amy: [{ kind: 'avgPlus', side: 'NS' }] })[0]).toEqual(['amy', 3, 1])
+  })
+
+  it('takes the others’ average, rounded to tens, ± 100 with total points', () => {
+    expect(ruled('total', { amy: [{ kind: 'avg' }] })[1]).toEqual(['amy', 430, 2])
+    expect(ruled('total', { amy: [{ kind: 'avgPlus', side: 'NS' }] })[0]).toEqual(['amy', 530, 1])
+  })
+
+  it('compares an assigned score head to head and leaves out a board given Avg', () => {
+    const versus = (rulings: ChallengeScores['rulings']) =>
+      headToHead('mp', scores, 'amy', rulings).map((v) => [v.boards, v.compared])
+    expect(versus({ amy: [{ kind: 'score', scoreNS: 460 }] })).toEqual([
+      [[100], 1],
+      [[100], 1],
+    ])
+    expect(versus({ ben: [{ kind: 'avg' }] })).toEqual([
+      [[null], 0],
+      [[100], 1],
+    ])
+  })
+})

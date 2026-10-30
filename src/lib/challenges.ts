@@ -2,6 +2,7 @@ import type { ChallengeScoring } from '../../shared/challenge-scoring.ts'
 import { isOpenChallenge, type ChallengePlayerView, type ChallengeView } from '../../shared/challenge.ts'
 import { SEATS } from '../../shared/cards.ts'
 import type { BoardRecord, RobotKind } from '../../shared/protocol.ts'
+import type { ScoreRuling } from '../../shared/ruling-scoring.ts'
 import type { Strings } from '../strings.ts'
 
 /** What the challenge pages work out from a `ChallengeView` (ARCHITECTURE.md §5.5) */
@@ -112,6 +113,14 @@ export function travellerScores(c: ChallengeView): Record<string, (number | null
   for (const x of c.travellers ?? [])
     for (const e of x.entries) (scores[e.userId] ??= new Array<number | null>(c.boards).fill(null))[x.seq - 1] = e.scoreNS
   return Object.fromEntries(c.players.filter((p) => scores[p.userId]).map((p) => [p.userId, scores[p.userId]]))
+}
+
+/** The director's rulings on those results (`e2-t36`), in the same places as `travellerScores` */
+export function travellerRulings(c: ChallengeView): Record<string, (ScoreRuling | undefined)[]> {
+  const rulings: Record<string, (ScoreRuling | undefined)[]> = {}
+  for (const x of c.travellers ?? [])
+    for (const e of x.entries) if (e.ruling) (rulings[e.userId] ??= new Array<ScoreRuling | undefined>(c.boards))[x.seq - 1] = e.ruling
+  return rulings
 }
 
 /** The order of the results page: the member first, then by place, then the others as invited */

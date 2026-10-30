@@ -1,4 +1,6 @@
 import { imps } from './imp.ts'
+import { ARTIFICIAL, artificialForNS, ruledScore, type ScoreRuling } from './ruling-scoring.ts'
+import type { RulingKind } from './team-scoring.ts'
 
 /**
  * How a challenge is scored (docs/PRD/e7-challenges.md, 計分定義). Every participant plays the
@@ -15,6 +17,12 @@ import { imps } from './imp.ts'
  * is 0% or the lowest score anyone made on it. With `total` both use the lowest score (0 when
  * nobody played it). The others on that board are compared only with those who played it; alone,
  * a player gets 50% or 0 IMPs.
+ *
+ * A director's ruling on someone's board (`e2-t36`, `shared/ruling-scoring.ts`): an assigned score
+ * takes the place of theirs and everyone compares with it; Avg, Avg+ or Avg- gives them 50/60/40%
+ * or 0/+3/−3 IMPs (with `total`, the others' average and ± 100) and the others compare only with
+ * the results that were not given an artificial score. The participant sits South, so a ruling's
+ * North-South side is theirs.
  */
 
 export const CHALLENGE_SCORINGS = ['imp', 'total', 'mp', 'crossImp'] as const
@@ -31,6 +39,8 @@ export interface ChallengeScores {
   unfinished: UnfinishedRule
   /** Each participant's North-South score on every board, in board order; null when not played */
   scores: Record<string, (number | null)[]>
+  /** A director's ruling on a participant's board, in the same places as `scores` (`e2-t36`) */
+  rulings?: Record<string, (ScoreRuling | null | undefined)[]>
 }
 
 export interface Standing {
@@ -58,19 +68,33 @@ function boardResult(scoring: ChallengeScoring, mine: number, others: number[]):
   return others.reduce((sum, other) => sum + imps(mine - other), 0) / others.length
 }
 
-export function scoreChallenge({ scoring, unfinished, scores }: ChallengeScores): Standing[] {
+/** What an artificial ruling (as the participant gets it) is worth on a board, `others` the scores compared */
+export function artificialResult(scoring: ChallengeScoring, kind: RulingKind, others: number[]): number {
+  if (scoring === 'mp') return ARTIFICIAL.percent[kind]
+  if (scoring !== 'total') return ARTIFICIAL.imps[kind]
+  const average = others.length ? Math.round(others.reduce((a, b) => a + b, 0) / others.length / 10) * 10 : 0
+  return average + ARTIFICIAL.points[kind]
+}
+
+export function scoreChallenge({ scoring, unfinished, scores, rulings }: ChallengeScores): Standing[] {
   const players = Object.keys(scores)
   const boards = Math.max(0, ...players.map((p) => scores[p].length))
 
   const results = new Map(players.map((p) => [p, [] as number[]]))
   for (let b = 0; b < boards; b++) {
+    const ruling = (p: string) => rulings?.[p]?.[b]
     const played = players.filter((p) => typeof scores[p][b] === 'number')
-    const lowest = played.length ? Math.min(...played.map((p) => scores[p][b]!)) : 0
+    // Results given an artificial score are compared with nobody (Law 12C2)
+    const compared = played.filter((p) => !artificialForNS(ruling(p)))
+    const score = (p: string) => ruledScore(scores[p][b]!, ruling(p))
+    const lowest = compared.length ? Math.min(...compared.map(score)) : 0
     for (const player of players) {
       const mine = scores[player][b]
-      const others = played.filter((p) => p !== player).map((p) => scores[p][b]!)
+      const others = compared.filter((p) => p !== player).map(score)
+      const artificial = typeof mine === 'number' ? artificialForNS(ruling(player)) : null
       let result: number
-      if (typeof mine === 'number') result = boardResult(scoring, mine, others)
+      if (artificial) result = artificialResult(scoring, artificial, others)
+      else if (typeof mine === 'number') result = boardResult(scoring, score(player), others)
       else if (scoring === 'total') result = lowest
       else if (unfinished === 'avgMinus') result = scoring === 'mp' ? AVG_MINUS.percent : AVG_MINUS.imps
       else result = scoring === 'mp' ? 0 : boardResult(scoring, lowest, others)
@@ -122,20 +146,29 @@ export interface Versus {
 /**
  * `me` against every other participant in `scores` (North-South scores by board, null when not
  * played), in the order they were given. Only boards both played are compared, so it works for
- * those who did not finish and for a challenge of one board
+ * those who did not finish and for a challenge of one board. With a director's ruling (`e2-t36`)
+ * an assigned score is compared instead of the one played, and a board either of us was given
+ * Avg, Avg+ or Avg- on is not compared (an artificial score is compared with nobody, Law 12C2)
  */
 export function headToHead(
   scoring: ChallengeScoring,
   scores: Record<string, (number | null)[]>,
   me: string,
+  rulings: Record<string, (ScoreRuling | null | undefined)[]> = {},
 ): Versus[] {
   const mine = scores[me] ?? []
+  const comparable = (player: string, b: number): number | null => {
+    const score = scores[player][b]
+    const ruling = rulings[player]?.[b]
+    return typeof score === 'number' && !artificialForNS(ruling) ? ruledScore(score, ruling) : null
+  }
   return Object.keys(scores)
     .filter((p) => p !== me)
     .map((opponent) => {
-      const boards = mine.map((score, b) => {
-        const theirs = scores[opponent][b]
-        return typeof score === 'number' && typeof theirs === 'number' ? pairResult(scoring, score, theirs) : null
+      const boards = mine.map((_, b) => {
+        const score = comparable(me, b)
+        const theirs = comparable(opponent, b)
+        return score !== null && theirs !== null ? pairResult(scoring, score, theirs) : null
       })
       const played = boards.filter((r): r is number => r !== null)
       const sum = played.reduce((a, b) => a + b, 0)

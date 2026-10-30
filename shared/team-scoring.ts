@@ -1,4 +1,5 @@
 import { imps } from './imp.ts'
+import { artificialForNS, ruledScore, type ScoreRuling } from './ruling-scoring.ts'
 
 /**
  * How a two-table team match is scored (docs/PRD/e8-two-table-team-match.md, ARCHITECTURE.md §5.8).
@@ -14,6 +15,13 @@ import { imps } from './imp.ts'
  * A board the host ruled on (over the time limit, AC-8.6) is scored by the ruling instead of the
  * two rooms' scores: Avg is 0 IMPs (½ each with BAM); Avg+ for a team is +3 IMPs to it (60% of the
  * board with BAM) and Avg- is the same the other way round, so a board's result is zero-sum.
+ *
+ * A director's ruling on one room's board record (`e2-t35`, `e2-t36`) counts when the host did not
+ * rule on the whole board (the host's match ruling wins, and the record's ruling is then only shown):
+ * an assigned score takes the place of that room's North-South score; Avg, Avg+ or Avg- is given to
+ * the team sitting on that side in that room and decides the board like the host's ruling (the
+ * other room's score is not compared with it). Both rooms given one: the IMPs are added up (BAM:
+ * the two shares averaged).
  */
 
 export const MATCH_SCORINGS = ['imp', 'bam'] as const
@@ -44,15 +52,19 @@ export const RULING_VALUE: Record<MatchScoring, Record<RulingKind, number>> = {
 export interface TeamBoardScores {
   open: number | null
   closed: number | null
+  /** The host's ruling on the whole board (`e8-t15`): it wins over the rooms' own rulings */
   ruling?: Ruling
+  /** A director's ruling on one room's board record (`e2-t36`) */
+  rooms?: { open?: ScoreRuling; closed?: ScoreRuling }
 }
 
 /** What each team won on a board: IMPs (never negative; one of the two is 0) or BAM points */
 export interface TeamBoardResult {
   A: number
   B: number
-  /** Team A's net score (open − closed North-South); absent when the board was ruled */
+  /** Team A's net score (open − closed North-South); absent when Avg, Avg+ or Avg- decided the board */
   net?: number
+  /** A ruling counted: the host's, or a director's on a room's board (`e2-t36`) */
   ruled: boolean
 }
 
@@ -84,13 +96,29 @@ function ruled(scoring: MatchScoring, ruling: Ruling): TeamBoardResult {
 export function teamBoardResult(scoring: MatchScoring, board: TeamBoardScores): TeamBoardResult | null {
   if (board.ruling) return ruled(scoring, board.ruling)
   if (board.open === null || board.closed === null) return null
-  const net = board.open - board.closed
+  const { open: openRuling, closed: closedRuling } = board.rooms ?? {}
+  // Avg, Avg+ or Avg- in a room: for the team on that side there (open North-South is A, closed B)
+  const artificial = [
+    { kind: artificialForNS(openRuling), team: 'A' as const },
+    { kind: artificialForNS(closedRuling), team: 'B' as const },
+  ].flatMap(({ kind, team }) => (kind ? [ruled(scoring, { kind, team })] : []))
+  if (artificial.length === 1) return artificial[0]
+  if (artificial.length === 2) {
+    if (scoring === 'bam') {
+      const a = (artificial[0].A + artificial[1].A) / 2
+      return { A: a, B: 1 - a, ruled: true }
+    }
+    const margin = artificial[0].A - artificial[0].B + artificial[1].A - artificial[1].B
+    return { A: Math.max(0, margin), B: Math.max(0, -margin), ruled: true }
+  }
+  const net = ruledScore(board.open, openRuling) - ruledScore(board.closed, closedRuling)
+  const ruledHere = !!(openRuling || closedRuling)
   if (scoring === 'bam') {
     const a = net > 0 ? 1 : net < 0 ? 0 : 0.5
-    return { A: a, B: 1 - a, net, ruled: false }
+    return { A: a, B: 1 - a, net, ruled: ruledHere }
   }
   const won = imps(net)
-  return { A: Math.max(0, won), B: Math.max(0, -won), net, ruled: false }
+  return { A: Math.max(0, won), B: Math.max(0, -won), net, ruled: ruledHere }
 }
 
 /** The whole match so far: every board's result, the totals and who is ahead */

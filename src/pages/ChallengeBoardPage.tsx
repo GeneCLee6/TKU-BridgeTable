@@ -17,6 +17,7 @@ import {
   playerOf,
   resultOrder,
   tone,
+  travellerRulings,
   travellerScores,
 } from '../lib/challenges.ts'
 import { useAuth } from '../state/AuthContext.tsx'
@@ -202,7 +203,7 @@ export function ChallengeBoardPage() {
   const next = seqs[at + 1]
   const scoring = c.settings.scoring
   const versus = new Map(
-    (travellerScores(c)[user.id] ? headToHead(scoring, travellerScores(c), user.id) : []).map((v) => [
+    (travellerScores(c)[user.id] ? headToHead(scoring, travellerScores(c), user.id, travellerRulings(c)) : []).map((v) => [
       v.opponent,
       v.boards[seq - 1],
     ]),

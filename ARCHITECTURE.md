@@ -47,6 +47,7 @@ TKU-BridgeTable/
 │  ├─ challenge.ts         挑戰的狀態、設定、預設值與期限（§5.5）
 │  ├─ team-match.ts        隊制賽的狀態、兩室八個座位與隊伍對應、設定與預設值、畫面型別（§5.8）
 │  ├─ team-scoring.ts      隊制賽的計分：每副兩室分差 → IMP 或 BAM、Avg／Avg+／Avg- 裁定、總分（§5.8）
+│  ├─ ruling-scoring.ts    紀錄上的裁定怎麼計分：指定分數、Avg／Avg+／Avg- 的 MP 與 IMP 值（§5.16，`e2-t36`）
 │  ├─ history-query.ts     紀錄搜尋的條件型別、解析與網址字串
 │  ├─ favorites.ts         收藏的筆記與標籤規則（§5.3）
 │  ├─ lin.ts               BBO LIN 匯出與 Handviewer 連結
@@ -212,7 +213,7 @@ interface BoardState {
 
 **個人檔案**（AC-1.5，`memberProfileView`，`GET /api/members/:id`）：別人只拿得到 id、帳號名稱、頭像版本與四個欄位（顯示名稱、自評等級、常用制度、自我介紹），一個一個挑出來，帳號的其他東西（密碼雜湊、管理員、權限、登入時間、好友上線提示）不會送出；`recent` 是這位社員最近 10 副**看的人看得到**的牌（走紀錄搜尋，同一條 `revealAt` 規則）。自己的個人檔案在 `/api/me` 的 `profile`。頭像：上傳過的社員，`PublicUser.avatar`（大廳的 `members`、`online`、座位）、`/api/me` 與個人檔案卡帶版本號，瀏覽器用 `/api/avatar/:id?v=<版本>` 載入（兩站同一個網址，橋館經 Vercel 轉發）；沒有上傳或載入失敗時是瀏覽器依 id 與名字畫的預設頭像（`e1-t18`）。頭像所有登入的社員都看得到，跟名字一樣。
 
-**動作事件紀錄**（`e2-t32`，§5.16）：每一副的 `events`（叫品、出牌、攤牌與回覆、撤回，含伺服器時間）只存在伺服器的 `Table.events`，打牌中**從不**送到瀏覽器（`tableView` 不帶，測試在 `tests/worker/director.test.ts`）；打完後跟著紀錄（`BoardRecord.events`）走 `/api/history/:id`，所以照樣由 `recordVisible`／`challengeBoardVisible` 把關。裡面的每一張牌都是桌上四家當時看過的（打出、撤回的牌），不比紀錄本身多透露什麼。**叫裁判**（`e2-t34`）：`TableView.directorCall` 只有叫的人與時間，給桌上所有人；房主與管理員在有人叫裁判時可以進入不允許觀看或沒受邀的桌**觀看**（`TableService.join` 的 `director`），看得到的跟一般觀看者一樣（四家），但比賽的參賽者不會因此看到另一室或自己那一室。**裁定**（`e2-t35`）：`BoardRecord.ruling` 的理由只在紀錄裡，列表的 `BoardSummary.ruling` 只帶種類、哪一方與分數。
+**動作事件紀錄**（`e2-t32`，§5.16）：每一副的 `events`（叫品、出牌、攤牌與回覆、撤回，含伺服器時間）只存在伺服器的 `Table.events`，打牌中**從不**送到瀏覽器（`tableView` 不帶，測試在 `tests/worker/director.test.ts`）；打完後跟著紀錄（`BoardRecord.events`）走 `/api/history/:id`，所以照樣由 `recordVisible`／`challengeBoardVisible` 把關。裡面的每一張牌都是桌上四家當時看過的（打出、撤回的牌），不比紀錄本身多透露什麼。**叫裁判**（`e2-t34`）：`TableView.directorCall` 只有叫的人與時間，給桌上所有人；房主與管理員在有人叫裁判時可以進入不允許觀看或沒受邀的桌**觀看**（`TableService.join` 的 `director`），看得到的跟一般觀看者一樣（四家），但比賽的參賽者不會因此看到另一室或自己那一室。**裁定**（`e2-t35`）：`BoardRecord.ruling` 的理由只在紀錄裡，列表的 `BoardSummary.ruling` 只帶種類、哪一方與分數。裁定接進計分（`e2-t36`）後，挑戰的成績表（`ChallengeTravellerEntry.ruling`、牌局頁的 `TravellerEntry.ruling`）與隊制賽兩室的結果（`MatchRoomView.ruling`）也只帶這三項（不帶理由與裁判），跟著原本的可見規則：成績表只給看得到它的人、隊制賽只在兩室都完成後；排名的 `ChallengeStandingView.ruled` 只是被裁定的副號。
 
 瀏覽器拿到的 `BoardView` 只包含它能看的牌，以及伺服器算好的 `legalCalls`／`legalCards`／`canUndo`／`canClaim`，畫面不需要自己判斷規則。攤牌被拒絕後，`rejectedClaim` 記下誰拒絕，直到下一個動作。
 
@@ -644,7 +645,13 @@ H1 把牌桌拆出去之後（§5.10），社團的物件（`Club`）仍然是**
 - **事件紀錄**（`shared/board-events.ts` 的 `BoardEvent`）：發牌時 `Table.events` 從一筆 `deal` 開始；`applyAction` 每接受一個叫品、出牌、攤牌、攤牌的同意／拒絕就追加一筆（`at` 是伺服器時間，機器人的動作也一樣），撤回被同意時追加一筆 `undo`（記下撤回後剩幾個叫品、幾張牌），**不刪任何一筆**（append-only）。這一副打完，`recordBoard` 把整串連同 `startedAt`、`hostId` 寫進 `BoardRecord`；收起不留紀錄的副（`putAway`）連事件一起丟。一副大約 70 筆、3 KB，跟著牌桌每次 `save()` 寫回 `Store`，CPU 只多一次小 JSON 序列化。舊紀錄沒有 `events`。
 - **依時間重播**（`e2-t33`）：`actionTimes` 重跑事件（`undo` 截掉被撤回的時間）得到最後留下的每個叫品與每張牌的時間，對不上紀錄（舊紀錄、Just Declare 的叫牌）就是 `null`，重播不顯示「照實際速度」。`realGaps` 算每張牌前要等多久（第一張從最後一個叫品算），最短 `REAL_GAP_MIN_MS`、最長 `REAL_GAP_MAX_MS`（30 秒，有人離開座位時不用真的等）。計算全在瀏覽器。
 - **叫裁判**（`e2-t34`）：社團訊息 `callDirector`（只有入座者；挑戰桌、練習桌是 `directorNotHere`）：牌桌記 `directorCall`、`TableEntry` 也帶著，社團通知房主（不是自己時）與所有管理員（`directorCalled`，點了到 `/table/:id`）。房主與管理員在有人叫裁判時 `joinTable` 走 `join(person, true)`：不管存取模式與「允許觀看」，以觀看者身分進桌（隊制賽的參賽者除外）。`clearDirector`：房主、管理員或叫的人。
-- **裁定**（`e2-t35`）：`POST /api/history/:id/ruling` `{ ruling }`：紀錄上的房主（`BoardRecord.hostId`，舊紀錄沒有就只有管理員）或管理員；`avg`、`avgPlus`／`avgMinus`（＋`side` 給哪一方）、`score`（＋`scoreNS`，10 的倍數、絕對值 ≤ 7600），理由同隊制賽（1–200 字）；`ruling: null` 撤銷。紀錄的 `board.result` 保留實際打出的結果，`ruling` 另外記；`writeRecord` 重寫紀錄、兩份摘要並排進 D1 副本。`BoardSummary.ruling` 讓紀錄列表標「裁定」，所以 `REPLICA_VERSION` 改成 2。**挑戰與隊制賽的計分還不讀這裡的裁定**（隊制賽有自己的 `matchRule`，`e8-t15`；比賽的計分調整是 `e9-t17`）。
+- **裁定**（`e2-t35`）：`POST /api/history/:id/ruling` `{ ruling }`：紀錄上的房主（`BoardRecord.hostId`，舊紀錄沒有就只有管理員）或管理員；`avg`、`avgPlus`／`avgMinus`（＋`side` 給哪一方）、`score`（＋`scoreNS`，10 的倍數、絕對值 ≤ 7600），理由同隊制賽（1–200 字）；`ruling: null` 撤銷。紀錄的 `board.result` 保留實際打出的結果，`ruling` 另外記；`writeRecord` 重寫紀錄、兩份摘要並排進 D1 副本。`BoardSummary.ruling` 讓紀錄列表標「裁定」，所以 `REPLICA_VERSION` 改成 2。裁定**接進計分**見下一點（`e2-t36`）；比賽的計分調整是 `e9-t17`。
+- **裁定接進計分**（`e2-t36`）：`indexRecord` 把紀錄的裁定（只有種類、哪一方、分數）寫進社團 SQLite 的 `board_rulings`（不複製到 D1，所以 `REPLICA_VERSION` 不變；`BoardSummary` 也沒改），`ruleBoard` 改完紀錄就重新 `indexRecord`，撤銷就刪掉那一列；隊制賽的副會推送新的比分給參賽者與觀看者。`eventBoards` 一起讀出裁定，挑戰的排名（`challengeStandings`，大廳的挑戰列表也一樣）與隊制賽的比分（`boardScores` → `scoreTeamMatch`）每次顯示時用它重算，不回寫任何結果，所以撤銷後自然回到實際結果。定義在 `shared/ruling-scoring.ts`（Laws of Duplicate Bridge 2017）：
+  - **指定分數**（`score`，Law 12C1）：當作那一副打出這個南北分數，大家照常和它比。
+  - **Avg／Avg+／Avg-**（人為調整分，Law 12C2）：MP 是 50%／60%／40%（Law 12C2(a)；「Avg+ 取 60% 與該場平均較高者」不採用），IMP 是 0／+3／−3（Law 86A）。拿到人為調整分的那一個結果**不和任何人比**，其他人只和沒有人為調整分的結果比（只剩自己就是 50% 或 0 IMP）。挑戰的參賽者坐南，裁定給 NS 就是給他，給 EW 就是反過來（Avg+ EW＝他 Avg-）。挑戰的 `total`（總分）沒有通行的定義，採用：Avg＝其他人在這一副的平均分（四捨五入到 10），Avg±＝再 ±100 分（約等於 IMP 的 ±3）。對戰表（`headToHead`）用指定分數比，有人為調整分的那一副不比。
+  - **隊制賽**：某一室的指定分數取代那一室的南北分數；某一室的 Avg 類給那一室那一方的隊（開室 NS＝A、閉室 NS＝B），照房主裁定的同一張表（IMP ±3、BAM 0.6／0.4），另一室的結果不比；兩室都有 Avg 類時 IMP 相加、BAM 取平均。**房主用 `matchRule` 裁過的副以房主的裁定為準**，那一副兩室紀錄上的裁定只顯示在紀錄頁、不計分，所以不會重複計。
+  - 介面：挑戰結果頁與牌局頁成績表的南北分數下標「裁定 Avg+ NS」（`RulingTag`），排名列標「裁定：第 n 副」；隊制賽結果頁那一副標「裁定」，那一室的分數下標裁定。
+  - `e2-t36` 上線前下的裁定不在 `board_rulings` 裡，要重新送一次才會計分。
 
 ## 5.8 隊制賽（決策紀錄，`e8-t01`，2026-10-25）
 

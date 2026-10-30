@@ -10,6 +10,7 @@ import {
   type HistorySort,
 } from '../shared/history-query.ts'
 import { HISTORY_PAGE_SIZES, isRobotId, LIMITS, type BoardRecord, type HistoryDay } from '../shared/protocol.ts'
+import { scoreRuling, type ScoreRuling } from '../shared/ruling-scoring.ts'
 import type { Sql, SqlValue } from './store.ts'
 
 /**
@@ -57,6 +58,12 @@ export const INDEX_SCHEMA = [
 
 const SCHEMA = [
   ...INDEX_SCHEMA,
+  // A director's ruling on a board (`e2-t36`), as the scoring reads it (`ScoreRuling`, JSON): the
+  // club's own table, not copied to D1, so challenge standings and team match scores can join it
+  `CREATE TABLE IF NOT EXISTS board_rulings (
+    board_id TEXT PRIMARY KEY,
+    ruling TEXT NOT NULL
+  ) WITHOUT ROWID`,
   // Favorites (AC-4.4, `worker/favorites.ts`): one row per member and board, the tags again one
   // row each so searches can filter by them
   `CREATE TABLE IF NOT EXISTS favorites (
@@ -153,11 +160,19 @@ export function indexRecord(sql: Sql, record: BoardRecord) {
     )
     sql.exec('DELETE FROM board_players WHERE board_id = ?', record.id)
     for (const row of players) sql.exec('INSERT INTO board_players (board_id, seat, side, user_id) VALUES (?, ?, ?, ?)', ...row)
+    if (record.ruling)
+      sql.exec(
+        'INSERT OR REPLACE INTO board_rulings (board_id, ruling) VALUES (?, ?)',
+        record.id,
+        JSON.stringify(scoreRuling(record.ruling)),
+      )
+    else sql.exec('DELETE FROM board_rulings WHERE board_id = ?', record.id)
   })
 }
 
 export function unindexRecord(sql: Sql, boardId: string) {
   sql.transaction(() => {
+    sql.exec('DELETE FROM board_rulings WHERE board_id = ?', boardId)
     sql.exec('DELETE FROM board_players WHERE board_id = ?', boardId)
     sql.exec('DELETE FROM boards_index WHERE board_id = ?', boardId)
   })
@@ -174,6 +189,8 @@ export interface EventBoard {
    * asks for it (`ClubService.challengeDetail`), absent otherwise
    */
   lead?: Card | null
+  /** A director's ruling on the board (`e2-t36`): the challenge's standings and the match's score count it */
+  ruling?: ScoreRuling
 }
 
 interface EventRow extends Record<string, SqlValue> {
@@ -183,14 +200,19 @@ interface EventRow extends Record<string, SqlValue> {
   doubled: number
   declarer_seat: string | null
   tricks: number | null
+  ruling: string | null
 }
 
 const DOUBLED_TEXT = ['', 'X', 'XX'] as const
 
-/** The boards of a challenge or match (`event_id`), by board id: contract and tricks for its travellers */
+/**
+ * The boards of a challenge or match (`event_id`), by board id: contract and tricks for its
+ * travellers, and a director's ruling for its scoring (`e2-t36`)
+ */
 export function eventBoards(sql: Sql, eventId: string): Map<string, EventBoard> {
   const rows = sql.exec<EventRow>(
-    'SELECT board_id, level, strain, doubled, declarer_seat, tricks FROM boards_index WHERE event_id = ?',
+    `SELECT b.board_id, b.level, b.strain, b.doubled, b.declarer_seat, b.tricks, r.ruling
+     FROM boards_index b LEFT JOIN board_rulings r ON r.board_id = b.board_id WHERE b.event_id = ?`,
     eventId,
   )
   return new Map(
@@ -207,6 +229,7 @@ export function eventBoards(sql: Sql, eventId: string): Map<string, EventBoard> 
                 declarer: r.declarer_seat as Seat,
               },
         declarerTricks: r.tricks,
+        ...(r.ruling !== null && { ruling: JSON.parse(r.ruling) as ScoreRuling }),
       },
     ]),
   )

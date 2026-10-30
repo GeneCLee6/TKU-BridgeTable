@@ -2580,7 +2580,9 @@ export class ClubService {
   challengeList(userId: string): ChallengeView[] {
     return this.challenges.idsOf(userId).flatMap((id) => {
       const challenge = this.challenges.get(id)
-      const view = challenge && challengeView(challenge, userId, (other) => this.publicUserById(other))
+      // The boards' rulings count in the standings (`e2-t36`)
+      const boards = challenge && eventBoards(this.store.sql, id)
+      const view = challenge && challengeView(challenge, userId, (other) => this.publicUserById(other), (b) => boards?.get(b))
       if (!view) return []
       const { travellers: _later, ...rest } = view
       return [rest]
@@ -3413,7 +3415,8 @@ export class ClubService {
   /**
    * A director's ruling on a finished board (`e2-t35`): the host of the table it was played at (the
    * record says who) or an admin gives Avg, Avg+, Avg- or a score, with a reason; `null` takes a
-   * ruling back. The record, its history summaries and the D1 copy are written again
+   * ruling back. The record, its index row, its history summaries and the D1 copy are written
+   * again; the members of a team match it belongs to get the new score
    */
   async ruleBoard(userId: string, boardId: string, body: unknown): Promise<BoardRecord> {
     const record = /^[\w-]+$/.test(boardId) ? await this.store.get<BoardRecord>(`board:${boardId}`) : undefined
@@ -3425,7 +3428,11 @@ export class ClubService {
       if (!request) throw new ClubError('badBoardRuling', { max: TEAM_MATCH_LIMITS.reasonMax })
       record.ruling = { ...request, by: this.publicUserById(userId)!, at: this.now() }
     }
+    // The index keeps the ruling for the scoring (`e2-t36`): a challenge's standings and a team
+    // match's score are worked out again from it whenever they are shown
+    indexRecord(this.store.sql, record)
     await this.writeRecord(record)
+    if (record.mode === 'team' && record.eventId) this.matches.push(record.eventId)
     return record
   }
 

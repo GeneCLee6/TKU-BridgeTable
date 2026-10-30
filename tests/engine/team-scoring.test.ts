@@ -163,3 +163,48 @@ describe('team match seats and settings', () => {
     expect(segmentRange({ boards: 10, segmentBoards: 0 }, 1)).toEqual({ first: 1, last: 10 })
   })
 })
+
+describe('a director ruling on a room (e2-t36)', () => {
+  const played = { open: 420, closed: -50 }
+
+  it('counts an assigned score instead of the room’s', () => {
+    expect(teamBoardResult('imp', { ...played, rooms: { closed: { kind: 'score', scoreNS: 420 } } })).toEqual({
+      A: 0,
+      B: 0,
+      net: 0,
+      ruled: true,
+    })
+  })
+
+  it('gives Avg+/Avg- to the team on that side in that room', () => {
+    // Open room North-South is team A, closed room North-South team B
+    const room = (scoring: 'imp' | 'bam', rooms: TeamBoardScores['rooms']) => teamBoardResult(scoring, { ...played, rooms })
+    expect(room('imp', { open: { kind: 'avgPlus', side: 'NS' } })).toEqual({ A: 3, B: 0, ruled: true })
+    expect(room('imp', { open: { kind: 'avgPlus', side: 'EW' } })).toEqual({ A: 0, B: 3, ruled: true })
+    expect(room('imp', { closed: { kind: 'avgMinus', side: 'NS' } })).toEqual({ A: 3, B: 0, ruled: true })
+    expect(room('imp', { closed: { kind: 'avg' } })).toEqual({ A: 0, B: 0, ruled: true })
+    expect(room('bam', { closed: { kind: 'avgPlus', side: 'NS' } })).toEqual({ A: 0.4, B: 0.6, ruled: true })
+  })
+
+  it('adds up two rooms given Avg+/Avg- (BAM: averages them)', () => {
+    const both: TeamBoardScores = {
+      ...played,
+      rooms: { open: { kind: 'avgPlus', side: 'NS' }, closed: { kind: 'avgPlus', side: 'NS' } },
+    }
+    expect(teamBoardResult('imp', both)).toEqual({ A: 0, B: 0, ruled: true })
+    expect(teamBoardResult('bam', both)).toEqual({ A: 0.5, B: 0.5, ruled: true })
+  })
+
+  it('lets the host’s ruling on the board win, so nothing counts twice', () => {
+    const board: TeamBoardScores = {
+      ...played,
+      ruling: { kind: 'avgPlus', team: 'B' },
+      rooms: { open: { kind: 'avgPlus', side: 'NS' } },
+    }
+    expect(teamBoardResult('imp', board)).toEqual({ A: 0, B: 3, ruled: true })
+  })
+
+  it('goes back to the board as played once the ruling is taken back', () => {
+    expect(teamBoardResult('imp', played)).toEqual({ A: 10, B: 0, net: 470, ruled: false })
+  })
+})

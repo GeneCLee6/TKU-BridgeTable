@@ -1,6 +1,7 @@
 import type { Contract } from './auction.ts'
 import type { Card, Seat } from './cards.ts'
 import { isRobotKind, type BoardView, type PublicUser, type RobotKind, type SeatOccupant, type TableMatch } from './protocol.ts'
+import type { ScoreRuling } from './ruling-scoring.ts'
 import { MATCH_SCORINGS, type MatchScoring, type Ruling, type Team, type TeamBoardResult } from './team-scoring.ts'
 
 /**
@@ -218,6 +219,11 @@ export interface MatchRoomView {
   contract?: Contract | null
   declarerTricks?: number | null
   lead?: Card
+  /**
+   * A director's ruling on this room's board (`e2-t36`), only when it counted in the score (the
+   * host's ruling on the whole board wins); `scoreNS` stays the score played
+   */
+  ruling?: ScoreRuling
 }
 
 /** A board both rooms finished (or the host ruled on), as everyone allowed to see the score sees it */

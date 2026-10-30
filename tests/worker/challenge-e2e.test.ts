@@ -58,7 +58,8 @@ it('three people, four boards, matchpoints: one stops halfway and only the finis
     schedule: (run, ms, kind) => queue.push({ run, ms, kind }),
   })
   await club.load()
-  await club.register('boss', 'secret1', '')
+  const founder = await club.register('boss', 'secret1', '')
+  const boss = 'user' in founder ? founder.user.id : ''
 
   const member = async (name: string) => {
     await club.register(name, 'secret1', '')
@@ -174,4 +175,24 @@ it('three people, four boards, matchpoints: one stops halfway and only the finis
   for (const userId of [amy, ben, cat]) expect(connections.bell(userId)).toContain('challengeResults')
   // cat's parked table closed with the challenge
   expect(tables()).toHaveLength(0)
+
+  // A director's ruling counts in the standings (e2-t36): Avg+ on amy's board 1 is 60% for her,
+  // and ben, with nobody left to compare with on that board, gets 50%
+  const amyFirst = settled.results.find((r) => r.userId === amy && r.seq === 1)!.boardId
+  const rankedOf = (viewer: string) => club.challengeFor(id, viewer)!.standings!.ranked
+  await club.ruleBoard(boss, amyFirst, { kind: 'avgPlus', side: 'NS', reason: 'Misinformation' })
+  const ruledAmy = [60, ...amyBoards.slice(1)]
+  const ruledBen = [50, ...benBoards.slice(1)]
+  const ruled = rankedOf(ben)
+  expect(ruled.find((r) => r.userId === amy)).toMatchObject({ boards: ruledAmy, total: ruledAmy.reduce((a, b) => a + b, 0) / 4, ruled: [1] })
+  expect(ruled.find((r) => r.userId === ben)).toMatchObject({ boards: ruledBen, total: ruledBen.reduce((a, b) => a + b, 0) / 4 })
+  expect(ruled.find((r) => r.userId === ben)?.ruled).toBeUndefined()
+  // The traveller marks it, the score as played stays; the list (the lobby) counts it too
+  const entry = club.challengeFor(id, ben)!.travellers![0].entries.find((e) => e.userId === amy)!
+  expect(entry).toMatchObject({ scoreNS: amyScores[0], ruling: { kind: 'avgPlus', side: 'NS' } })
+  expect(club.challengeList(amy)[0].standings?.ranked.find((r) => r.userId === amy)?.ruled).toEqual([1])
+  // Taken back: the board as played again
+  await club.ruleBoard(boss, amyFirst, null)
+  expect(rankedOf(ben).find((r) => r.userId === amy)).toMatchObject({ boards: amyBoards, total: amyTotal })
+  expect(rankedOf(ben).find((r) => r.userId === amy)?.ruled).toBeUndefined()
 }, 30_000)
