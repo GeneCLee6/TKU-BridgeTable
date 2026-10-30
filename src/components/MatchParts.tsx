@@ -5,6 +5,7 @@ import styled from 'styled-components'
 import { rankLabel, rankOf, suitOf } from '../../shared/cards.ts'
 import { resultLabel } from '../../shared/scoring.ts'
 import { ROOMS, type MatchRoomView, type TeamMatchView } from '../../shared/team-match.ts'
+import { matchVictoryPoints } from '../../shared/vp.ts'
 import { cardName } from '../lib/cards.ts'
 import { points, teamName } from '../lib/matches.ts'
 import { usePreferences } from '../state/PreferencesContext.tsx'
@@ -56,6 +57,8 @@ export function ScoreLine({ match }: { match: TeamMatchView }) {
         {points(match.totals.A)} : {points(match.totals.B)}
       </strong>
       <span>{b}</span>
+      {/* The WBF continuous VP scale for the match's length (e8-t22): what the IMPs so far are worth */}
+      {match.settings.scoring === 'imp' && <VpLine match={match} />}
       <small>
         {ended
           ? match.leader
@@ -65,6 +68,12 @@ export function ScoreLine({ match }: { match: TeamMatchView }) {
       </small>
     </Score>
   )
+}
+
+function VpLine({ match }: { match: TeamMatchView }) {
+  const { t } = usePreferences()
+  const vp = matchVictoryPoints(match.totals, match.settings.boards)
+  return <span>{t.teamMatch.vp(vp.A.toFixed(2), vp.B.toFixed(2))}</span>
 }
 
 const Scroll = styled.div`

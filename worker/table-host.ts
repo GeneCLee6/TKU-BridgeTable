@@ -213,6 +213,9 @@ export class TableHost implements TableRpc {
   matchUpdate(update: MatchTableUpdate) {
     return this.ifTable(null, (table) => table.matchUpdate(update))
   }
+  vugraph(userId: string) {
+    return this.ifTable(null, (table) => table.vugraph(userId))
+  }
   blocked(userId: string, blocked: string[]) {
     return this.ifTable(undefined, (table) => table.blocked(userId, blocked))
   }

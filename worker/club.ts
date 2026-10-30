@@ -687,6 +687,11 @@ export class Club extends DurableObject<Env> implements Connections {
       const b = await body()
       return json({ match: this.service.matches.create(user.id, { settings: b.settings, seat: b.seat }) })
     }
+    // The Vugraph page (e8-t18): both rooms, the score and the watchers' chat; never for the match's players
+    const vugraph = url.pathname.match(/^\/api\/matches\/([\w-]+)\/vugraph(\/chat)?$/)
+    if (vugraph && request.method === 'GET' && !vugraph[2]) return json({ vugraph: await this.service.matchVugraph(user.id, vugraph[1]) })
+    if (vugraph && request.method === 'POST' && vugraph[2])
+      return json({ vugraph: await this.service.matchVugraphChat(user.id, vugraph[1], (await body()).text) })
     const matchAction = url.pathname.match(
       /^\/api\/matches\/([\w-]+)\/(settings|cancel|start|invite|answer|move|leave|clear|robot|rule|pause|abandon|replace|sitin)$/,
     )

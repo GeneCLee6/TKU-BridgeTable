@@ -3,7 +3,7 @@ import type { Seat } from '../shared/cards.ts'
 import type { BookNotes } from '../shared/robot/system/book-spec.ts'
 import { AppError, type MessageCode, type MessageParams } from '../shared/messages.ts'
 import type { BoardRecord, RobotSpeed, TableAction, TableMode, TableSettings } from '../shared/protocol.ts'
-import type { Room } from '../shared/team-match.ts'
+import type { Room, VugraphRoom } from '../shared/team-match.ts'
 import { ClubError } from './errors.ts'
 import type { EventReport } from './modes.ts'
 import type { Table } from './views.ts'
@@ -141,6 +141,11 @@ export interface TableApi {
   matchEnded(): Promise<TableEntry | null>
   /** The match's host changed something at the table while the match is played */
   matchUpdate(update: MatchTableUpdate): Promise<TableEntry | null>
+  /**
+   * A team match room as the Vugraph page shows it to a member (`e8-t18`): `matchNoWatching` for
+   * anyone in the match while it is on; null when the table is not a match's. Changes nothing
+   */
+  vugraph(userId: string): Promise<VugraphRoom | null>
   /** Closes the table (an admin, or a challenge that ended) */
   close(): Promise<void>
   /** A table action from a member at the table (bidding, play, chat, the host's seat changes) */
@@ -289,6 +294,9 @@ class RemoteTable implements TableApi {
   }
   matchUpdate(update: MatchTableUpdate) {
     return this.call(this.rpc.matchUpdate(update))
+  }
+  vugraph(userId: string) {
+    return this.call(this.rpc.vugraph(userId))
   }
   close() {
     return this.call(this.rpc.close())

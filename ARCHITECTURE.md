@@ -42,6 +42,7 @@ TKU-BridgeTable/
 │  ├─ game.ts              一副牌的狀態機：叫牌 → 出牌 → 結束；攤牌、撤回
 │  ├─ scoring.ts           複式計分
 │  ├─ imp.ts               WBF IMP 表（挑戰與隊制賽共用）
+│  ├─ vp.ts                WBF 連續 VP 表：IMP 差 → VP（隊制賽，之後 E9 的多隊賽，§5.8）
 │  ├─ challenge-scoring.ts 挑戰的計分：IMP、總分、MP、Cross-IMP、沒打完的副、同分名次
 │  ├─ challenge.ts         挑戰的狀態、設定、預設值與期限（§5.5）
 │  ├─ team-match.ts        隊制賽的狀態、兩室八個座位與隊伍對應、設定與預設值、畫面型別（§5.8）
@@ -190,7 +191,10 @@ interface BoardState {
 - **觀看**：非參賽者可以觀看兩室（同 BBO Vugraph，看得到四家，和一般牌桌的觀看者一樣）。觀看者說的話標 `kibitz`，只送給觀看者；入座的參賽者的瀏覽器根本收不到（`chatFor` 的 `player`，在伺服器過濾）。參賽者說的話只在本桌，觀看者也看得到。
 - **紀錄**：比賽牌局的紀錄帶 `mode: 'team'`、`eventId`＝比賽 id、`room`，`revealAt` 先是 `HELD_BACK`（JavaScript 日期的最大值，`worker/team-mode.ts`）：**某一副兩室都打完就公開那一副**（兩室各一筆紀錄一起改，`revealBoards`），比賽結束時其餘的一起公開（`revealEvent`）；在那之前只有打那一副的四位看得到（`recordVisible`）：紀錄列表、搜尋、詳細頁、牌桌側欄的 `recent`、個人檔案的最近牌局、收藏都一樣。比賽牌局沒有 traveller（`/api/history/:id/traveller` 回 `null`），兩室比較在比賽頁。
 - **比分**：只算兩室都打完（或已裁定）的副（`teamMatchView`），所以快的一室看不到慢的一室在同一副的結果，連「這一副已經計分」都看不到。兩室的進度（第幾副、何時超時）只給房主（`rooms`），因為裁定要用；其他參賽者看不到另一室打到哪裡。
-- **替補**（`e8-t16`）：正在觀看這場比賽任一室的社員不能替補上場（`matchWatching`），他已經看過兩室的牌。
+- **替補**（`e8-t16`）：正在觀看這場比賽任一室的社員不能替補上場（`matchWatching`），他已經看過兩室的牌；比賽中開過觀賽頁的人也一樣（`match_watchers`，見下）。
+- **觀賽頁（Vugraph，`e8-t18`）**：`GET /api/matches/:id/vugraph` → `{ vugraph: MatchVugraph }`：比賽畫面（比分同 `teamMatchView`）、比賽中兩室各自的座位與桌上這一副（`TableApi.vugraph` → `vugraphBoard`：和牌桌的觀看者一樣看得到四家，沒有叫牌盒與提示卡），以及觀看者聊天。**參賽者在準備中與比賽中一律 `matchNoWatching`**：社團先看比賽的座位與房主（`isMatchPlayer`），每一室的牌桌再用自己的 `TeamTableState.players`（兩室、只增不減）檢查一次，所以被替補下場的人也拿不到；看不到比賽的人是 `matchGone`。比賽結束後所有看得到比賽的人都能開（沒有牌桌了，只剩比分與聊天）。比賽中每次開這一頁都記下這位社員（`match_watchers`），之後他不能替補上場。
+- **觀看者聊天（Vugraph）**：`POST /api/matches/:id/vugraph/chat { text }`，檢查同上，只在比賽中；去頭尾空白、最多 300 字（`VUGRAPH_CHAT_MAX`），速率限制同牌桌聊天（`chatTooFast`）。存在 `match_chat`（每場留最近 100 句），**只從觀賽頁送出**：參賽者打不開觀賽頁，所以他們的瀏覽器根本收不到；照看的人的封鎖名單過濾（`vugraphChat`，同 `chatFor`）。刪帳號時刪掉他說過的話。
+- **觀看延遲（`e8-t19`）**：房主在準備時可開「觀看者落後一墩」（`TeamMatchSettings.delay`，預設關，開桌時寫進 `TeamTableState.delay`）。開了之後，打牌階段的觀看者只拿到**最後打完那一墩之前**的墩（`laggedBoard`：`play` 只留 `4 ×（完成墩數 − 1）` 張；正在打的那一墩與剛打完的那一墩都不送，等待中的攤牌也不送），每一手的牌是那時候手上的牌；`TableView.waiting`（現在輪到誰）也不送。觀賽頁（`vugraphBoard`）與坐在牌桌上的觀看者（`TableService.tableView`，`mySeat` 是 null 時）都一樣，**在伺服器裁掉**，之後打的牌不會出現在觀看者的瀏覽器。叫牌不延遲；一副打完就整副送出（結果本來就是這一室的）；比賽結束後不再延遲。入座的參賽者照常。
 - **中止**（`e8-t16`）：正在打的那一副直接收起、不留紀錄，其餘已打完的副一起公開（`revealEvent`）。裁定（`e8-t15`）讓那一副「完成」：已打完那一室的紀錄立刻公開，正在打它的那一室收起來、不留紀錄。
 
 **資訊隔離回歸測試**（`e11-t13`，AC-11.8）：`tests/worker/visibility/visibility.test.ts` 集中測一般、練習、挑戰、隊制賽四種牌桌 × 每種角色（入座、觀看、不允許觀看時沒有座位的人、另一室的參賽者、局外人）：每一則送到瀏覽器的 `table` 訊息都檢查有沒有不該看到的牌（`noHiddenCards`），還沒公開的牌局在紀錄、紀錄列表、搜尋（我的與全部）、個人檔案、收藏、traveller、精選都拿不到（`exposure`），公開之後每處都拿得到。新增可見性規則或新的地方會送出牌局時，加在這裡；CI 的 `npm test` 會跑。
@@ -691,6 +695,7 @@ PRD 的 `ready` **不存**：能不能開始由座位與「誰在線」算出（
 | `robots` | 是否允許機器人補位；關掉時已經坐著的機器人離座 | `true` |
 | `robotKind` | `tku`／`gib`：整場所有機器人用同一種制度，兩室面對同一個機器人；`tku` 要房主有 `tkuSystem`（§5.1.2） | `gib`（同挑戰） |
 | `invite` | `direct`（房主邀請到指定座位）／`captains`（隊長制） | `direct` |
+| `delay` | 觀看者落後一墩（`e8-t19`，§4）；之前存的比賽沒有這一欄，讀出來是預設值 | `false` |
 
 PRD 寫的「機器人等級」不做：機器人只有一個 TKB、沒有等級（CLAUDE.md 規則 6），送 `robotLevel` 會被當成不認得的欄位拒絕。
 
@@ -720,7 +725,7 @@ PRD 寫的「機器人等級」不做：機器人只有一個 TKB、沒有等級
 - `bam`：淨分 > 0 得 1、= 0 各 ½、< 0 得 0。
 - **裁定**（AC-8.6，`Ruling`：`avg`、`avgPlus`、`avgMinus` 加「給哪一隊」）：IMP 時 Avg 是 0、Avg+ 給那一隊 +3、Avg- 是 −3（也就是對方 +3）；BAM 時 Avg 各 ½、Avg+ 是那一隊 0.6／對方 0.4、Avg- 反過來（比照 MP 的 60%／40%）。每副的結果都是零和。有裁定的那一副**以裁定為準**，就算兩室後來都打完了也一樣（裁定可以撤回，`setRuling(…, null)`）。
 - 一副只有一室打完、又沒有裁定時不算分（`null`）；`scoreTeamMatch` 回傳每副結果、兩隊總分、已完成副數與領先的隊（同分是 `null`）。測試含手算的四副比賽（`tests/engine/team-scoring.test.ts`）。
-- M2 的 VP（`e8-t22`）用總 IMP 差換算，也放在這個檔。
+- M2 的 VP（`e8-t22`）用總 IMP 差換算，放在 `shared/vp.ts`（同 `shared/imp.ts`），見下面 J5a。
 
 **開始與兩桌推進**（F4，`e8-t07`、`e8-t08`，2026-10-25 已實作）：
 - 牌桌模式 `team`（`TABLE_MODES` 加 `team`；掛勾在 `worker/team-mode.ts`，`modes.ts` 只登記）。`modeState` 是 `TeamTableState`：比賽 id、房間、兩隊隊名（大廳列比賽用）、桌上這一副是第幾副（`seq`）、副數、這一室打完的副（`played`）、兩室的參賽者（`players`，擋另一室用）、機器人的制度、比賽結束（`closed`）。`Table.dealSource` 是 `dealSourceOf(deals)`，兩桌共用同一個 `DealSet`；第 n 副就是牌組的第 n 副，牌號 n（發牌者與身價照牌號）。`DEAL_SET_MAX` 提高到 32；挑戰仍限 16（`CHALLENGE_LIMITS.boardsMax`，「用這副牌挑戰」的 `fromBoards` 也改看它）。
@@ -754,6 +759,8 @@ PRD 寫的「機器人等級」不做：機器人只有一個 TKB、沒有等級
 | `matches` | `match_id`（主鍵）、`host_id`、`created_at`、`status`、`started_at`、`ended_at`、`settings`（JSON）、`captain_a`、`captain_b`、`deals`（`encodeDealSet`，開始前是 null）、`open_table`、`closed_table`、`paused_at`（F5） | `(status, created_at)` |
 | `match_seats` | `match_id`、`room`、`seat`（主鍵三欄）、`status`（`empty`／`invited`／`seated`）、`user_id`（空位與機器人為 null）、`robot`（0／1）、`invited_at`、`answered_at` | `(user_id, match_id)` |
 | `match_boards` | `match_id`、`seq`（主鍵兩欄）、`open_board_id`、`open_score_ns`、`open_at`、`closed_board_id`、`closed_score_ns`、`closed_at`、`open_lead`、`closed_lead`（F5）、`ruling`、`ruling_team`、`ruling_reason`、`ruled_by`、`ruled_at` | — |
+| `match_chat`（J5a） | `match_id`、`id`、`at`、`user_id`、`text`（主鍵 `match_id, at, id`）：觀賽頁的觀看者聊天，每場留最近 100 句（`MATCH_CHAT_KEEP`） | — |
+| `match_watchers`（J5a） | `match_id`、`user_id`（主鍵兩欄）：比賽中開過觀賽頁的社員，不能替補上場 | — |
 
 - 每副一列（不是每室一列）：一副的兩室結果與裁定放在一起，結果頁的逐副比較只讀一列；第一室打完或第一次裁定時才建立。
 - 建立時一次寫好 8 列座位，之後只改不增減，所以「8 個座位都在」不必另外檢查。
@@ -773,7 +780,14 @@ PRD 寫的「機器人等級」不做：機器人只有一個 TKB、沒有等級
 | F3（已完成） | 座位邀請（接受、拒絕、換座位、離開、通知）、隊長制、準備室頁、補機器人、WebSocket 推送 |
 | F4（已完成） | 開始（`team` 牌桌、共用 `DealSet`）、兩桌推進、牌桌層的資訊隔離、即時比分、結束與通知、比賽牌局進紀錄（`mode=team`、`event_id`、E4 篩選「隊制賽」） |
 | F5（已完成） | 結果頁、斷線代打、超時裁定、暫停／繼續／同隊替補、中止、端對端測試；E11 的資訊隔離回歸測試（`e11-t13`） |
-| M2 | 觀賽頁（Vugraph）、觀看延遲、賽後整場重播、分段與換位、VP |
+| J5a（已完成） | 觀賽頁（Vugraph）、觀看延遲、賽後整場重播、VP（`e8-t18`～`e8-t20`、`e8-t22`，見下） |
+| J5b | 分段與中場換位、替補，比分延續（`e8-t21`） |
+
+**觀賽、延遲、整場重播與 VP**（J5a，`e8-t18`～`e8-t20`、`e8-t22`，2026-10-30 已實作）：誰看得到什麼在 §4（「牌桌層」下的觀賽頁、觀看者聊天、觀看延遲）。
+- **觀賽頁**（`/matches/:id/vugraph`，`VugraphPage`）：兩室並排（`RecordDiagram` 畫四家，`vugraphRecord` 把每一手「現在手上的＋打過的」拼回原來的 13 張，只用伺服器送來的牌）、叫牌、合約與兩方墩數、比分條（含 VP）、觀看者聊天。**每 3 秒問一次**（`VUGRAPH_POLL_MS`，分頁在背景時不問，比賽不在進行就停）：觀看者不在牌桌上，牌桌的推送到不了他；每次請求由社團向兩桌各發一次 RPC（`TableApi.vugraph`），不改任何狀態。之後觀看者多了再改成推送（每桌一份觀賽畫面，所有觀看者共用）。比賽頁給非參賽者「觀賽（Vugraph）」按鈕，原本的「觀看開室／閉室」（坐到牌桌上當觀看者）保留。
+- **觀看延遲**：設定 `delay`（準備室的勾選）；牌桌開桌時寫進 `TeamTableState.delay`，所以延遲由牌桌自己做（`laggedBoard`），觀賽頁與牌桌上的觀看者一樣。
+- **整場重播**（`/matches/:id/replay?board=<seq>`，`MatchReplayPage`）：比賽裡**兩室都打完**的每一副（只裁定、少一室的副不列），用 C7 的並排重播（`ComparePage` 的 `SideBySide`：兩室一組播放鈕、逐墩同步），上一副／下一副或下拉選單切換；每筆紀錄照樣從 `/api/history/:id` 讀，能不能看由伺服器決定（§4 `recordVisible`）。比賽頁有兩室都打完的副時就有「整場重播」按鈕（比賽中也有：那些副已經公開）。不另做事件時間軸。
+- **VP**（`shared/vp.ts`）：WBF 2013 連續 VP 表（20 分制）：B＝15 ×√副數，贏 M IMP（M < B）得 10 + 10 × (1 − τ^(3M/B)) / (1 − τ³)，τ＝(√5 − 1)/2，四捨五入到小數兩位，輸方是 20 減贏方，M ≥ B 是 20 : 0。副數用比賽設定的副數（中止的比賽也一樣）。只有 IMP 計分才換算；比分條（比賽頁、觀賽頁、整場重播、牌桌上方）在 IMP 後面顯示「VP a : b」。E9 的多隊賽（`e9-t14`）用 `matchVictoryPoints`。
 
 ## 5.5 挑戰（決策紀錄，`e7-t01`，2026-10-24）
 

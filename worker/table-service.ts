@@ -68,10 +68,12 @@ import {
 import type { Scheduler } from './scheduler.ts'
 import { tableMatch, teamPaused, teamStateOf, teamTableOver } from './team-mode.ts'
 import type { ClubLink, MatchTableUpdate, Named, Person, TableApi, TableEntry, Tables } from './tables.ts'
+import type { VugraphRoom } from '../shared/team-match.ts'
 import {
   actorOf,
   boardView,
   chatFor,
+  laggedBoard,
   liveRequests,
   mayEnter,
   practiceView,
@@ -80,6 +82,7 @@ import {
   seatOccupants,
   seatsActedBy,
   tableListed,
+  vugraphBoard,
   type AccessFacts,
   type Table,
 } from './views.ts'
@@ -550,6 +553,28 @@ export class TableService implements TableApi {
     }
     await this.drop()
     return null
+  }
+
+  /**
+   * The room as the Vugraph page shows it to `userId` (`e8-t18`, `e8-t19`): the seats and the board
+   * as a watcher sees it, one trick behind when the match says so. Nobody who has (or had) a seat
+   * in the match gets it while the match is on, in either room (`matchNoWatching`): the club checks
+   * the match's seats first, this checks the table's own list, which keeps the players substituted
+   * out. Null for a table that is not a match's
+   */
+  async vugraph(userId: string): Promise<VugraphRoom | null> {
+    const table = this.table
+    const state = table && teamStateOf(table)
+    if (!table || !state) return null
+    if (!state.closed && (state.players.open.includes(userId) || state.players.closed.includes(userId)))
+      throw new ClubError('matchNoWatching', {}, 403)
+    const online = this.connections.onlineUserIds()
+    return {
+      tableId: table.id,
+      seats: this.occupants(table, (id) => isRobotId(id) || online.includes(id)),
+      board: table.board ? vugraphBoard(table.board, !!state.delay && !state.closed) : null,
+      match: tableMatch(table)!,
+    }
   }
 
   /**
@@ -1852,6 +1877,8 @@ export class TableService implements TableApi {
     // The seats the viewer calls for (seat control); only someone at the table calls for any
     const acts = this.isAt(userId) ? seatsActedBy(table, userId) : []
     const controls = acts.some((seat) => seat !== mySeat)
+    // A match that plays one trick behind shows its watchers the board as it was (e8-t19)
+    const lag = mySeat === null && !!teamStateOf(table)?.delay && !teamStateOf(table)?.closed
     return {
       id: table.id,
       number: table.number,
@@ -1862,7 +1889,7 @@ export class TableService implements TableApi {
       mySeat,
       ...(controls && { acts }),
       board: table.board
-        ? boardView(table.board, mySeat, {
+        ? boardView(lag ? laggedBoard(table.board) : table.board, mySeat, {
             acts,
             shown: this.isAt(userId) ? this.shownTo(table, userId) : undefined,
             undo: table.undo,
@@ -1899,7 +1926,8 @@ export class TableService implements TableApi {
         playing && settings.boardMinutes > 0 && !teamPaused(table)
           ? (table.boardStartedAt ?? table.createdAt) + settings.boardMinutes * 60_000
           : null,
-      waiting: waiting && { seat: waiting, since: table.turnSince ?? table.createdAt },
+      // Whose turn it is now is not for a watcher one trick behind
+      waiting: !lag && waiting ? { seat: waiting, since: table.turnSince ?? table.createdAt } : null,
       robotSpeed: this.speed(table),
       ...(table.directorCall && {
         directorCall: { user: this.publicUser(table.directorCall.userId) ?? { id: table.directorCall.userId, username: '—' }, at: table.directorCall.at },
