@@ -895,6 +895,22 @@ export const MESSAGES = {
     ja: 'そのインポート下書きはありません',
     ko: '그런 가져오기 초안이 없습니다',
   },
+  cardPdfOff: {
+    zh: '現在無法在伺服器產生 PDF，改用瀏覽器列印',
+    'zh-Hans': '现在无法在服务器生成 PDF，改用浏览器打印',
+    en: "The server cannot make the PDF right now; use the browser's print instead",
+    vi: 'Máy chủ hiện không tạo được PDF; hãy dùng chức năng in của trình duyệt',
+    ja: '現在サーバーで PDF を作成できません。ブラウザの印刷を使ってください',
+    ko: '지금은 서버에서 PDF를 만들 수 없습니다. 브라우저 인쇄를 사용하세요',
+  },
+  cardPdfBusy: {
+    zh: '伺服器產生 PDF 的額度暫時用完了，改用瀏覽器列印',
+    'zh-Hans': '服务器生成 PDF 的额度暂时用完了，改用浏览器打印',
+    en: "The server's PDF allowance is used up for now; use the browser's print instead",
+    vi: 'Hạn mức tạo PDF của máy chủ tạm thời đã hết; hãy dùng chức năng in của trình duyệt',
+    ja: 'サーバーの PDF 作成枠を一時的に使い切りました。ブラウザの印刷を使ってください',
+    ko: '서버의 PDF 생성 한도를 잠시 다 썼습니다. 브라우저 인쇄를 사용하세요',
+  },
   importOff: {
     zh: '還沒有設定 AI 匯入：請管理員設定 ANTHROPIC_API_KEY（見 DEPLOY.md）',
     'zh-Hans': '还没有设置 AI 导入：请管理员设置 ANTHROPIC_API_KEY（见 DEPLOY.md）',

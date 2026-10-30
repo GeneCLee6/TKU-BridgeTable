@@ -16,6 +16,7 @@ import { PendingService } from './pending.ts'
 import { GlossaryService, publicGlossaryResponse } from './glossary.ts'
 import { claudeImporter } from './importer.ts'
 import { ProfileService } from './profiles.ts'
+import { CardPdfService, pdfResponse } from './card-pdf.ts'
 import { CardSnapshotService } from './card-snapshots.ts'
 import { avatarResponse, readAvatarUpload } from './avatars.ts'
 import { FILES_PATH, FileService, readFileUpload } from './files.ts'
@@ -65,6 +66,11 @@ export interface Env {
   IMPORT_MODEL?: string
   /** Only for tests or an API gateway */
   ANTHROPIC_BASE_URL?: string
+  /**
+   * Browser Run (formerly Browser Rendering) for BridgeHall's card PDFs (worker/card-pdf.ts, DEPLOY.md
+   * §4.10); without it the card page prints with the browser's own dialog
+   */
+  BROWSER?: BrowserRun
   /** Daily backups (worker/backup.ts); the bucket is created by hand before deploying (DEPLOY.md §4.4) */
   BACKUPS?: R2Bucket
   /**
@@ -136,6 +142,7 @@ export class Club extends DurableObject<Env> implements Connections {
   private profiles: ProfileService
   /** Convention card versions (BridgeHall e3-t09); keeps nothing in memory */
   private readonly cardSnapshots: CardSnapshotService
+  private readonly cardPdf: CardPdfService
   /** Pictures in R2 (e11-t02); keeps only its signing key in memory */
   private readonly files: FileService
   /** TKU BridgeBook's teams and partnerships (E2); keeps nothing in memory, so it outlives a restore */
@@ -206,6 +213,7 @@ export class Club extends DurableObject<Env> implements Connections {
     this.ebooks = this.newEbooks()
     this.profiles = new ProfileService(store, Date.now, (id) => this.service.usernameOf(id))
     this.cardSnapshots = new CardSnapshotService(store, Date.now, (id) => this.service.usernameOf(id))
+    this.cardPdf = new CardPdfService(env.BROWSER)
     this.teams = new TeamService(store, {
       now: Date.now,
       newId: () => randomId(6),
@@ -972,6 +980,12 @@ export class Club extends DurableObject<Env> implements Connections {
       return json({ ok: true })
     }
 
+    // A convention card as a PDF (BridgeHall e3-t13): any member; the page falls back to printing
+    if (path === '/card-pdf') {
+      const input = await body()
+      const name = typeof input.name === 'string' ? input.name.replace(/[^\w-]/g, '').slice(0, 80) : ''
+      return pdfResponse(await this.cardPdf.render(user.id, input), `${name || 'card'}.pdf`)
+    }
     // Convention card versions (BridgeHall e3-t09): reading is the profile's readers', publishing and
     // deleting its editors', turning the link on or off theirs who may set who reads the profile
     const cards = path.match(/^\/cards\/([\w-]+)(?:\/([\w-]+)\/(\d+)(\/docx)?)?$/)

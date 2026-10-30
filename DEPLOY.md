@@ -402,9 +402,21 @@ LOAD_PASSWORD=... LOAD_INVITE_CODE=... npm run load -- --url https://tku-bridge-
 - **還原備份之後**：備份範圍含 `book`，所以還原到寫入內建特約之前（2026-10-29 前）的備份會把內建特約一起刪掉，橋館會變成空的。還原後在橋館重跑一次 `npm run seed-builtin -- --apply`。
 - PR 預覽與 staging 各有自己的儲存，要看內容就對它們的網址各寫入一次（`--base <網址>`，權杖用那個環境的 secret）。
 
+## 4.10 橋館制度卡 PDF（Browser Run，橋館 e3-t13）
+
+橋館制度卡頁的「下載 PDF」把卡頁的列印版面（樣式內嵌、不含程式）送到 `POST /api/book/card-pdf`，Worker 用 Cloudflare **Browser Run**（原名 Browser Rendering）的 `quickAction('pdf')` 印成 A4 PDF 回傳（`worker/card-pdf.ts`）。只給登入的社員。
+
+- **綁定**：`wrangler.jsonc` 的 `"browser": { "binding": "BROWSER" }`，正式站、staging、PR 預覽各一份。Workers 免費方案就有，不用到 Dashboard 開通、不用付款方式。
+- **額度**（免費方案，2026-10 Cloudflare 文件）：每天 10 分鐘瀏覽器時間、同時 3 個瀏覽器、每 20 秒開 1 個新的。一張卡約 1–5 秒，一天約一兩百份。Worker 自己再限制：每人一次最多 5 份、之後每 2 分鐘 1 份；全社每天用到 8 分鐘就停（留 2 分鐘給 Dashboard 試用）；同一份內容一小時內直接回記憶體裡的結果。計數都在記憶體，Durable Object 被回收就重算。
+- **失敗時**：沒有綁定、Browser Run 失敗回 503 `cardPdfOff`，額度用完回 429 `cardPdfBusy`；橋館都改開瀏覽器的列印視窗（和 L4 之前一樣）。
+- **安全**：頁面在 Browser Run 裡不跑 JavaScript、擋掉所有 http(s) 請求，字型用 Browser Run 內建的（Arial、Noto CJK），所以不會去抓任何網址。
+- **用量**：Cloudflare Dashboard 的 Browser Run 頁面看每天用掉的時間。
+- **關掉**：拿掉 `wrangler.jsonc` 的三個 `browser` 綁定再部署，橋館自動退回瀏覽器列印。
+
 ## 5. 費用與限制
 
 - Workers 免費方案：每天 10 萬次請求；WebSocket 訊息以 20:1 計算，一個晚上打牌遠低於上限。
 - SQLite Durable Object 免費方案：5 GB 儲存；一副牌的紀錄連同索引約 4 KB，約可存一百萬副以上。紀錄列表一次只讀 50 筆，資料再多也不會變慢。
 - 免費方案每次請求的 CPU 時間有限，因此密碼雜湊使用 50,000 次 PBKDF2（`worker/auth.ts`）。
+- Browser Run 免費方案：每天 10 分鐘瀏覽器時間，只用在橋館的制度卡 PDF（§4.10）。
 - D1 免費方案：每天讀 500 萬列、寫 10 萬列，全部 5 GB。紀錄索引的副本每副約寫 14 列，一天約 7,000 副才到上限（§4.5、`ARCHITECTURE.md` §5.12）。

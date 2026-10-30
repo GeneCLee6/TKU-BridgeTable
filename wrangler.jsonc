@@ -40,6 +40,10 @@
   "d1_databases": [
     { "binding": "HISTORY", "database_name": "tku-bridge-history", "database_id": "0ffccba3-4f19-4fb0-8f4c-a4207d05d997" }
   ],
+  // Browser Run (formerly Browser Rendering) for BridgeHall's card PDFs (worker/card-pdf.ts, DEPLOY.md
+  // §4.10): on the Workers Free plan, 10 minutes of browser time a day, nothing to switch on. Not
+  // inherited by the envs below, so each repeats it
+  "browser": { "binding": "BROWSER" },
   // 19:00 UTC is 03:00 in Taiwan
   "triggers": { "crons": ["0 19 * * *"] },
   "vars": {
@@ -65,6 +69,7 @@
       // Staging tries each challenge in its own object (H2b); production keeps EVENT_OBJECTS off
       // until the club's president switches it on (DEPLOY.md §4.6)
       "vars": { "MAX_USERS": "30", "EVENT_OBJECTS": "on" },
+      "browser": { "binding": "BROWSER" },
       // Staging's own D1 copy of the history (never production's): npx wrangler d1 create tku-bridge-history-staging
       "d1_databases": [
         { "binding": "HISTORY", "database_name": "tku-bridge-history-staging", "database_id": "0f2e0cc8-339a-4f6b-817b-78d8a0048202" }
@@ -86,6 +91,7 @@
       },
       // A pull request's preview tries the challenges' objects too (H2b), as staging does
       "vars": { "MAX_USERS": "30", "EVENT_OBJECTS": "on" },
+      "browser": { "binding": "BROWSER" },
       // No backups here (triggers are inherited, r2_buckets are not): see "r2_buckets" above
       "triggers": { "crons": [] }
     }
