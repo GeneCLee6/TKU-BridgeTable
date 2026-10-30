@@ -133,6 +133,7 @@ const FIELD_OF: Record<string, FieldName> = {
   badUsername: 'username',
   usernameTaken: 'username',
   shortPassword: 'password',
+  longPassword: 'password',
   badInvite: 'inviteCode',
 }
 
@@ -335,6 +336,12 @@ export function LoginPage() {
         </Switch>
       </Panel>
       <Footnote>{t.sharedAccountHint}</Footnote>
+      <Footnote>
+        {registering && <>{t.legal.agree} </>}
+        <a href="/privacy">{t.legal.privacyTitle}</a>
+        {' · '}
+        <a href="/terms">{t.legal.termsTitle}</a>
+      </Footnote>
     </Wrap>
   )
 }

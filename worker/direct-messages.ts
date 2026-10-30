@@ -117,6 +117,13 @@ export class DirectMessageStore {
     return { messages: rows.slice(0, DIRECT_PAGE_SIZE).reverse().map(toMessage), more: rows.length > DIRECT_PAGE_SIZE }
   }
 
+  /** Every message the member sent or received that is still kept, oldest first (their data export, e11-t27) */
+  everyMessage(userId: string): DirectMessage[] {
+    return this.sql
+      .exec<MessageRow>(`SELECT ${COLUMNS} FROM direct_messages WHERE from_id = ? OR to_id = ? ORDER BY id`, userId, userId)
+      .map(toMessage)
+  }
+
   /** Marks everything the other member sent read; false when nothing was unread */
   markRead(userId: string, otherId: string): boolean {
     const [thread] = this.sql.exec<{ last_id: number; read_id: number }>(

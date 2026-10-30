@@ -7,6 +7,7 @@ import {
   DEFAULT_ROBOT_SPEED,
   DEFAULT_TABLE_SETTINGS,
   fixedSeats,
+  HISTORY_PAGE_SIZES,
   isPermission,
   withImpliedPermissions,
   isRobotId,
@@ -26,6 +27,7 @@ import {
   type ClubMember,
   type Application,
   type BoardRecord,
+  type BoardSummary,
   type ClientMessage,
   type ClubSettings,
   type DirectPage,
@@ -69,7 +71,7 @@ import {
 import { PRACTICE_SETS, practiceSetInfos, type PracticeSetInfo } from '../shared/practice-sets/index.ts'
 import { PracticePresets } from './practice-presets.ts'
 import type { RobotBrain } from '../shared/robot/brain.ts'
-import { hashPassword, randomId, SESSION_DAYS, verifyPassword } from './auth.ts'
+import { hashPassword, randomId, verifyPassword } from './auth.ts'
 import { checkFavorite } from '../shared/favorites.ts'
 import { DEFAULT_HISTORY_QUERY, type HistoryQuery } from '../shared/history-query.ts'
 import {
@@ -142,7 +144,21 @@ import {
   saveFavorite,
 } from './favorites.ts'
 import { NotificationService } from './notifications.ts'
-import { FRIENDS_ENABLED } from '../shared/features.ts'
+import {
+  enabledFeatures,
+  featureEnabled,
+  featureState,
+  FEATURE_DEFAULTS,
+  FEATURE_FLAGS,
+  FEATURE_USERS_MAX,
+  isFeatureFlag,
+  isFeatureState,
+  type FeatureFlag,
+  type FeatureSettings,
+  type FeatureView,
+} from '../shared/features.ts'
+import { ACCOUNT_EXPORT_VERSION, type SessionInfo } from '../shared/account.ts'
+import { Sessions } from './sessions.ts'
 import { Relations } from './relations.ts'
 import { AlarmQueue, manualScheduler, type JobKind, type Scheduler } from './scheduler.ts'
 import { LocalTables, ROBOT_NAME, robotUser, TableService, type TableConfig, type TableStore } from './table-service.ts'
@@ -232,11 +248,6 @@ interface StoredApplication {
   createdAt: number
 }
 
-interface Session {
-  userId: string
-  expires: number
-}
-
 /** Who is connected; the Durable Object implements it with its hibernatable WebSockets */
 export interface Connections {
   onlineUserIds(): string[]
@@ -283,6 +294,9 @@ interface Outgoing {
  * crowd acting at once waits for one broadcast instead of one each
  */
 export const LOBBY_GAP_MS = 100
+
+/** Pages of 100 boards a member's data export reads at most, of their history and of their favorites */
+const EXPORT_PAGES_MAX = 100
 
 export interface ClubConfig {
   /** Which club this is (e12-t02, shared/clubs.ts); 淡江 when not given */
@@ -425,6 +439,10 @@ export class ClubService {
   /** Club actions under way that may change several tables; the lobby goes out when they end */
   private busy = 0
   private settings: Partial<ClubSettings> = {}
+  /** The club's feature flags (e11-t26, shared/features.ts), `meta:features` */
+  private features: FeatureSettings = {}
+  /** Who is signed in where (e11-t23) */
+  private readonly sessions: Sessions
   private readonly store: Store
   private readonly connections: Connections
   private readonly config: ClubConfig
@@ -548,6 +566,7 @@ export class ClubService {
       takeAction: (id) => this.actionLimit.take(id),
     })
     this.directs = new DirectMessageStore(store.sql)
+    this.sessions = new Sessions(store, this.now)
     this.practicePresets = new PracticePresets(store, this.now, () => randomId(8))
     this.systemSpecs = new SystemSpecStore(store, this.now, config.systemProfileId)
     if (config.schedule) {
@@ -620,6 +639,7 @@ export class ClubService {
     await this.friends.load()
     await this.blocks.load()
     this.settings = (await this.store.get<Partial<ClubSettings>>('meta:settings')) ?? {}
+    this.features = (await this.store.get<FeatureSettings>('meta:features')) ?? {}
     this.metrics.restore(await this.store.get<MetricsState>('meta:metrics'))
     createHistoryIndex(this.store.sql)
     this.challenges.createTables()
@@ -876,6 +896,7 @@ export class ClubService {
     inviteCode: string,
     note = '',
     site: Site = 'table',
+    userAgent = '',
   ): Promise<{ user: Me; token: string } | { pending: true; username: string }> {
     this.checkInvite(inviteCode)
     const name = this.checkNewName(username)
@@ -884,7 +905,7 @@ export class ClubService {
     const passwordHash = await hashPassword(String(password))
     if (!this.users.size) {
       const user = await this.addUser(name, passwordHash)
-      return { user: this.me(user), token: await this.createSession(user.id) }
+      return { user: this.me(user), token: await this.sessions.create(user.id, userAgent) }
     }
     const application: StoredApplication = {
       id: randomId(8),
@@ -945,6 +966,7 @@ export class ClubService {
 
   private checkPassword(password: string) {
     if (password.length < LIMITS.passwordMin) throw new ClubError('shortPassword', { min: LIMITS.passwordMin })
+    if (password.length > LIMITS.passwordMax) throw new ClubError('longPassword', { max: LIMITS.passwordMax })
   }
 
   /**
@@ -952,7 +974,7 @@ export class ClubService {
    * passwords are counted per username from that address and per address, so guessing is slowed
    * without letting a stranger lock a member out from everywhere
    */
-  async login(username: string, password: string, address = '') {
+  async login(username: string, password: string, address = '', userAgent = '') {
     const name = String(username ?? '').trim()
     const nameKey = `${address}|${name.toLowerCase()}`
     if (this.loginByName.blocked(nameKey) || this.loginByAddress.blocked(address)) {
@@ -976,29 +998,54 @@ export class ClubService {
     this.loginByName.clear(nameKey)
     user.lastLoginAt = this.now()
     await this.store.put(`user:${user.id}`, user)
-    return { user: this.me(user), token: await this.createSession(user.id) }
+    return { user: this.me(user), token: await this.sessions.create(user.id, userAgent) }
   }
 
   async logout(token: string) {
-    await this.store.delete(`session:${token}`)
+    await this.sessions.end(token)
   }
 
   async userForToken(token: string | null): Promise<Me | null> {
-    if (!token) return null
-    const session = await this.store.get<Session>(`session:${token}`)
-    if (!session) return null
-    if (session.expires < this.now()) {
-      await this.store.delete(`session:${token}`)
-      return null
-    }
-    const user = this.users.get(session.userId)
+    const userId = await this.sessions.userIdFor(token)
+    const user = userId ? this.users.get(userId) : undefined
     return user ? this.me(user) : null
   }
 
-  async changePassword(userId: string, current: string, next: string) {
+  /** `GET /api/account/sessions` (e11-t23): where the member is signed in, this device first */
+  accountSessions(userId: string, token: string | null): Promise<SessionInfo[]> {
+    this.requireUser(userId)
+    return this.sessions.list(userId, token)
+  }
+
+  /**
+   * `DELETE /api/account/sessions/:id`: signs one of the member's other devices out. The member's
+   * sockets close (4001) and this device's reconnect at once; a table's socket opened with an edge
+   * pass may last until the pass runs out (EDGE_PASS_MS, docs/SECURITY.md)
+   */
+  async endSession(userId: string, token: string | null, id: string) {
+    const current = (await this.sessions.list(userId, token)).find((s) => s.current)
+    if (current?.id === id) throw new ClubError('notSelf')
+    if (!(await this.sessions.endById(userId, String(id ?? '')))) throw new ClubError('sessionGone', {}, 404)
+    this.connections.disconnect(userId)
+  }
+
+  /** `POST /api/account/sessions/others` (登出其他裝置): every session but this one ends; how many */
+  async endOtherSessions(userId: string, token: string | null): Promise<number> {
+    this.requireUser(userId)
+    const ended = await this.sessions.endAll(userId, token)
+    if (ended) this.connections.disconnect(userId)
+    return ended
+  }
+
+  /**
+   * A new password, given the current one. Every other device is signed out (ASVS 3.3.3, docs/SECURITY.md):
+   * whoever knew the old password does not stay signed in; `token` is this device's session, kept
+   */
+  async changePassword(userId: string, current: string, next: string, token: string | null = null) {
     const user = this.requireUser(userId)
     if (!(await verifyPassword(String(current ?? ''), user.passwordHash))) throw new ClubError('wrongPassword', {}, 403)
     await this.setPassword(user, String(next ?? ''))
+    if (await this.sessions.endAll(user.id, token)) this.connections.disconnect(user.id)
   }
 
   /**
@@ -1160,6 +1207,7 @@ export class ClubService {
     if (user.avatar) me.avatar = user.avatar
     if (user.bookProfile) me.bookProfile = user.bookProfile
     if (user.admin) me.applications = this.applications.size
+    me.features = enabledFeatures(this.features, { id: user.id, admin: !!user.admin, permissions: me.permissions })
     return me
   }
 
@@ -1207,15 +1255,8 @@ export class ClubService {
     return user
   }
 
-  private async createSession(userId: string) {
-    const token = randomId(32)
-    await this.store.put<Session>(`session:${token}`, { userId, expires: this.now() + SESSION_DAYS * 86_400_000 })
-    return token
-  }
-
   private async revokeSessions(userId: string) {
-    for (const [key, session] of await this.store.list<Session>('session:'))
-      if (session.userId === userId) await this.store.delete(key)
+    await this.sessions.endAll(userId)
   }
 
   // ── Admin ───────────────────────────────────────────────────────────────────────────────────
@@ -1393,7 +1434,7 @@ export class ClubService {
     this.applications.clear()
     for (const application of (await this.store.list<StoredApplication>('app:')).values())
       this.applications.set(application.id, application)
-    for (const key of (await this.store.list('session:')).keys()) await this.store.delete(key)
+    await this.sessions.endEveryone()
     for (const id of this.connections.onlineUserIds()) this.connections.disconnect(id)
     this.broadcast()
   }
@@ -1459,6 +1500,115 @@ export class ClubService {
     this.settings = next
     await this.store.put('meta:settings', next)
     return this.clubSettings
+  }
+
+  // ── Feature flags (e11-t26, shared/features.ts) ──────────────────────────────────────────────
+
+  /** Whether a member has a flag; nobody has one for an account that is gone */
+  featureOn(flag: FeatureFlag, userId: string): boolean {
+    const user = this.users.get(userId)
+    return !!user && featureEnabled(flag, this.features, { id: user.id, admin: !!user.admin, permissions: this.permissionsOf(user) })
+  }
+
+  /** `GET /api/admin/features`: every flag, its default, the club's state and the members named */
+  adminFeatures(): FeatureView[] {
+    return FEATURE_FLAGS.map((flag) => {
+      const setting = this.features[flag]
+      return {
+        flag,
+        default: FEATURE_DEFAULTS[flag],
+        state: featureState(flag, this.features),
+        custom: !!setting,
+        users: (setting?.users ?? []).flatMap((id) => {
+          const user = this.users.get(id)
+          return user ? [{ id, username: user.username }] : []
+        }),
+      }
+    })
+  }
+
+  /**
+   * `POST /api/admin/features { flag, state, usernames }`: the club's state for a flag (`null`
+   * follows the site-wide default again) and the members who get it anyway, by name. Pages read
+   * `Me.features` again when they next load it
+   */
+  async adminSetFeature(input: { flag?: unknown; state?: unknown; usernames?: unknown }): Promise<FeatureView[]> {
+    const { flag, state, usernames } = input
+    if (!isFeatureFlag(flag)) throw new ClubError('badFeature')
+    if (state !== null && !isFeatureState(state)) throw new ClubError('badFeature')
+    if (!Array.isArray(usernames) || usernames.length > FEATURE_USERS_MAX) throw new ClubError('badFeature')
+    const users: string[] = []
+    for (const name of usernames) {
+      const user = this.findUser(String(name ?? '').trim())
+      if (!user) throw new ClubError('unknownMember', { name: String(name ?? '').slice(0, LIMITS.usernameMax) }, 404)
+      if (!users.includes(user.id)) users.push(user.id)
+    }
+    const next = { ...this.features }
+    if (state === null && !users.length) delete next[flag]
+    else next[flag] = { state: state ?? FEATURE_DEFAULTS[flag], users }
+    this.features = next
+    await this.store.put('meta:features', next)
+    // Who sees friends on top may have changed
+    this.broadcast()
+    return this.adminFeatures()
+  }
+
+  // ── The member's own data (e11-t27, 個資法) ───────────────────────────────────────────────────
+
+  /**
+   * `GET /api/account/export`: everything the club keeps about the member, as one JSON file: the
+   * account and its settings, profile, sessions, friends and blocks, notifications, direct messages,
+   * saved practice settings, favorites with notes and tags, and a summary of every board they
+   * played. Never the password hash or anyone's session token. The full record of a board stays on
+   * its page (`/history/<id>`), which the summary's id leads to
+   */
+  async exportAccount(userId: string, token: string | null) {
+    const user = this.requireUser(userId)
+    const { passwordHash: _hash, ...account } = user
+    const size = HISTORY_PAGE_SIZES[HISTORY_PAGE_SIZES.length - 1]
+    const name = (id: string) => this.users.get(id)?.username ?? id
+    const favorites: Favorite[] = []
+    const boards: BoardSummary[] = []
+    for (let page = 1; page <= EXPORT_PAGES_MAX; page++) {
+      const found = await this.favorites(userId, listQuery(true, page, size))
+      favorites.push(...found.favorites)
+      if (found.page * found.size >= found.total) break
+    }
+    for (let page = 1; page <= EXPORT_PAGES_MAX; page++) {
+      const found = await this.history(userId, false, page, size)
+      boards.push(...found.boards)
+      if (found.page * found.size >= found.total) break
+    }
+    return {
+      format: 'tku-bridge-table-account',
+      version: ACCOUNT_EXPORT_VERSION,
+      exportedAt: this.now(),
+      account,
+      sessions: await this.sessions.list(userId, token),
+      friends: this.friends.of(userId).map(name),
+      blocked: this.blocks.of(userId).map(name),
+      notifications: await this.notifications.view(userId),
+      directMessages: this.directs.everyMessage(userId).map((m) => ({ ...m, from: name(m.from), to: name(m.to) })),
+      savedPractice: await this.practicePresets.list(userId),
+      favorites,
+      boards,
+    }
+  }
+
+  /**
+   * `POST /api/account/delete { password }`: the member deletes their own account (個資法的刪除),
+   * the way an admin deletes one (`removeMember`): their account, picture, sessions, settings,
+   * friends, blocks, notifications, direct messages, favorites, saved practice and reading progress
+   * go. Boards they played stay, with their name, since they are the other players' records too;
+   * so do posts they wrote (docs/SECURITY.md §4). The club's last admin cannot leave this way
+   */
+  async deleteOwnAccount(userId: string, password: string) {
+    const user = this.requireUser(userId)
+    if (!(await verifyPassword(String(password ?? ''), user.passwordHash))) throw new ClubError('wrongPassword', {}, 403)
+    if (user.admin && [...this.users.values()].filter((u) => u.admin).length === 1) throw new ClubError('lastAdminLeaving')
+    this.log({ event: 'accountDeleted' })
+    await this.batch(() => this.removeMember(user))
+    this.broadcast()
   }
 
   async adminCloseTable(tableId: string) {
@@ -1649,8 +1799,6 @@ export class ClubService {
    * again within FRIEND_ONLINE_QUIET_MS, so a phone that keeps reconnecting stays quiet
    */
   private async announceOnline(userId: string) {
-    // Friends are hidden for now (FRIENDS_ENABLED), and so is the notice
-    if (!FRIENDS_ENABLED) return
     const user = this.users.get(userId)
     if (!user) return
     const last = this.announced.get(userId)
@@ -1659,6 +1807,8 @@ export class ClubService {
     for (const followerId of this.connections.onlineUserIds()) {
       if (followerId === userId || !this.friends.has(followerId, userId) || this.blocks.has(userId, followerId)) continue
       if (this.users.get(followerId)?.friendOnlineNotice === false) continue
+      // Only to followers who have friends (the `friends` flag, e11-t26)
+      if (!this.featureOn('friends', followerId)) continue
       await this.notifications.notify(followerId, 'friendOnline', { username: user.username })
     }
   }
@@ -3406,7 +3556,7 @@ export class ClubService {
   /** The lobby as one member sees it, put together from the shared part and theirs as the browser does (`composeLobby`) */
   lobbyView(userId: string, online = this.connections.onlineUserIds()): LobbyView {
     const basis = this.lobbyBasis(online)
-    return composeLobby(this.sharedLobby(basis), this.lobbyMine(userId, basis))
+    return composeLobby(this.sharedLobby(basis), this.lobbyMine(userId, basis), this.featureOn('friends', userId))
   }
 
   /** The team matches being played, from the directory (their tables say which match and room), oldest first */

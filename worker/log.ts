@@ -17,6 +17,8 @@ export type LogEntry =
   | { event: 'rejected'; user: string; code: string; type?: string }
   | { event: 'http'; method: string; path: string; status: number; ms: number; code?: string }
   | { event: 'loginLocked'; username: string }
+  /** A member deleted their own account (e11-t27); only that it happened, not who */
+  | { event: 'accountDeleted' }
   /** Tables moved between the club and their own objects (schema 3 ↔ 4, ARCHITECTURE.md §5.10) */
   | { event: 'tablesMoved'; to: 'objects' | 'club'; moved: number; failed: number }
   | { event: 'eventsMoved'; to: 'objects' | 'club'; moved: number; failed: number }

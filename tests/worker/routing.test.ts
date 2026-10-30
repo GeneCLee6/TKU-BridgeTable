@@ -78,6 +78,18 @@ describe('the Worker routing', () => {
     expect(seen[0].request.headers.get(TABLE_USER_HEADER)).toBe('amy')
   })
 
+  it('turns away a socket another site’s page opens (docs/SECURITY.md)', async () => {
+    const other = { Origin: 'https://evil.example', Cookie: 'tbt_session=good-token' }
+    expect((await route(upgrade('/ws', other), routes)).status).toBe(403)
+    expect((await route(upgrade('/ws/table/t1', other), routes)).status).toBe(403)
+    expect((await route(upgrade('/ws', { Origin: 'not a url' }), routes)).status).toBe(403)
+    expect(seen).toEqual([])
+    // The site's own pages, and clients that send no Origin, get through
+    await route(upgrade('/ws', { Origin: 'https://example.org' }), routes)
+    await route(upgrade('/ws'), routes)
+    expect(seen.map((s) => s.to)).toEqual(['club', 'club'])
+  })
+
   it('turns away what is not a table socket', async () => {
     expect((await route(upgrade('/ws/table/abc123', { Cookie: 'tbt_session=stale' }), routes)).status).toBe(401)
     expect((await route(new Request('https://example.org/ws/table/abc123'), routes)).status).toBe(426)

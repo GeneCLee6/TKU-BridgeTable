@@ -1027,6 +1027,115 @@ const zh = {
     abandonedNote: '比賽已中止：只計兩室都打完（或已裁定）的副。',
   },
 
+  // Sessions and the member's own data (e11-t23, e11-t27)
+  security: {
+    sessionsTitle: '登入中的裝置',
+    sessionsIntro: '這些裝置正登入你的帳號。不認得的就登出它，並修改密碼。',
+    unknownDevice: '不明的裝置',
+    thisDevice: '這個裝置',
+    sessionTimes: (signedIn: string, seen: string) => `登入於 ${signedIn} · 最近使用 ${seen}`,
+    signOut: '登出',
+    signOutLabel: (device: string) => `登出 ${device}`,
+    signOutOthers: '登出其他裝置',
+    signedOutOthers: (n: number) => `已登出 ${n} 個裝置`,
+    signedOutOne: '已登出那個裝置',
+    noOtherSessions: '沒有其他裝置登入。',
+    dataTitle: '我的資料',
+    dataIntro: '下載社團保存的你的資料（JSON 檔）：帳號與設定、個人檔案、登入的裝置、好友與封鎖、通知、私訊、收藏與筆記、練習設定和你打過的牌。',
+    exportData: '下載我的資料',
+    deleteTitle: '刪除帳號',
+    deleteIntro:
+      '刪除後無法復原：帳號、個人檔案、頭像、登入、好友與封鎖、通知、私訊、收藏與練習設定都會刪除，所有裝置都會登出。你打過的牌局紀錄也是同桌其他人的紀錄，會留下你的帳號名稱；論壇與淡江橋館的文章請先自己刪除。',
+    deletePassword: '輸入密碼確認',
+    deleteButton: '刪除我的帳號',
+    deleteConfirm: '確定要刪除帳號嗎？這無法復原。',
+    deleted: '帳號已刪除',
+  },
+  // Privacy policy and terms of use (e11-t27)
+  legal: {
+    privacyTitle: '隱私權政策',
+    termsTitle: '使用條款',
+    updated: (date: string) => `最後更新：${date}`,
+    home: '回到淡江牌桌',
+    agree: '註冊即表示你同意使用條款與隱私權政策。',
+    privacy: [
+      {
+        h: '誰保管你的資料',
+        p: '淡江牌桌與淡江橋館由淡江大學橋藝社（以下稱「本社」）的社員經營，非營利。本社依《個人資料保護法》蒐集、處理與利用你的個人資料，目的是會員管理、社團活動與資訊安全。',
+      },
+      {
+        h: '蒐集哪些資料',
+        p: '帳號名稱與密碼（只存加鹽的雜湊，沒有人看得到原文）、註冊時寫的備註、你填的個人檔案與頭像、牌局紀錄（叫牌、打牌、成績）、聊天與私訊、收藏與筆記、各項設定；登入時的瀏覽器與系統種類（列在「登入中的裝置」）；登入失敗時的 IP 位址（只在記憶體中用來防止猜密碼）；以及伺服器的運作紀錄與匿名的錯誤回報。',
+      },
+      {
+        h: '誰看得到',
+        p: '社員看得到你的帳號名稱、顯示名稱、個人檔案、頭像與是否在線。牌局紀錄依規則在打完（比賽則在公布）後給社員看；私訊只有你和對方看得到。管理員可以核准、管理與刪除帳號，但看不到密碼。本社不賣、不出租你的資料，也不放廣告或追蹤程式。',
+      },
+      {
+        h: '存在哪裡、存多久',
+        p: '資料存在 Cloudflare 的服務（可能在台灣以外的機房），帳號存在期間都會保存。每天備份一次，備份保留 30 天。伺服器的運作紀錄由 Cloudflare 依其政策短期保存。',
+      },
+      {
+        h: 'Cookie 與瀏覽器儲存',
+        p: '只用登入必要的 cookie：登入憑證（30 天）與短期的存取憑證（10 分鐘），都不能被網頁程式讀取。語言、主題、音效等偏好存在你的瀏覽器裡，不會送到伺服器。',
+      },
+      {
+        h: '你的權利',
+        p: '依個資法第 3 條，你可以查詢、閱覽與取得複本（「我的帳號」→「下載我的資料」）、補充或更正（「我的帳號」→個人檔案）、要求停止蒐集處理利用或刪除（「我的帳號」→「刪除帳號」，或請管理員代為處理）。',
+      },
+      {
+        h: '刪除帳號之後',
+        p: '帳號、個人檔案、頭像、登入、好友與封鎖、通知、私訊、收藏與練習設定會立即刪除，所有裝置都會登出。你打過的牌局紀錄也是同桌其他人的紀錄，會保留並顯示你的帳號名稱；論壇與淡江橋館的文章與留言會保留，想一併移除請先自己刪除或請幹部處理。備份中的資料在 30 天內隨備份到期消失。',
+      },
+      {
+        h: '聯絡與修改',
+        p: '對你的資料有任何問題，請聯絡橋藝社的幹部或管理員。本政策修改時會更新本頁的日期。',
+      },
+    ],
+    terms: [
+      {
+        h: '誰可以使用',
+        p: '淡江牌桌是淡江大學橋藝社社員的線上牌桌。註冊要有社團的邀請碼，並經管理員核准。',
+      },
+      {
+        h: '帳號',
+        p: '一人一個帳號，不要借給別人或和別人共用。請保管好密碼；發現不認得的登入，請在「我的帳號」登出其他裝置並修改密碼。',
+      },
+      {
+        h: '公平與禮貌',
+        p: '尊重同桌與其他社員。禁止任何作弊：場外互通牌情、一人用多個帳號同場、用程式或其他方法取得你不該看到的牌。也禁止騷擾、冒充他人，或張貼違法、侵權的內容。',
+      },
+      {
+        h: '你的內容',
+        p: '你寫的個人檔案、聊天、私訊、筆記與文章屬於你；你同意本社為了提供服務而保存、備份與在站上顯示它們。牌局紀錄屬於同桌所有人，會留在社團的紀錄裡。',
+      },
+      {
+        h: '管理',
+        p: '違反本條款時，幹部可以刪除內容、暫停或刪除帳號。管理員的操作會留下紀錄。',
+      },
+      {
+        h: '服務',
+        p: '本站免費，由社員自行維護。我們盡力維持運作與資料安全，但不保證永不中斷或沒有錯誤；資料遺失時以最近的備份還原為限。',
+      },
+      {
+        h: '修改與準據法',
+        p: '條款修改時會更新本頁的日期，之後繼續使用即表示同意。本條款以中華民國法律為準據法。',
+      },
+    ],
+  },
+  // Feature flags on the admin page (e11-t26)
+  featureFlags: {
+    title: '功能旗標',
+    intro: '新功能可以先只開給幹部（管理員與有任何權限的人），或另外開給指定的社員，確認沒問題再全部開放。',
+    states: { off: '關閉', officers: '只給幹部', on: '全部開放' },
+    followDefault: (state: string) => `照全站預設（${state}）`,
+    users: '另外開給這些社員',
+    usersHint: '帳號名稱，用逗號或空白分開；留白就沒有',
+    saved: '功能旗標已儲存',
+    names: { friends: '好友' },
+    hints: { friends: '社員分頁與個人檔案的加好友、封鎖按鈕，好友排在前面，以及「好友上線」通知。' },
+  },
+
   loading: '載入中…',
   genericError: '發生錯誤，請再試一次',
 }
@@ -2022,6 +2131,113 @@ const en: Strings = {
     abandonedNote: 'The match was abandoned: only boards both rooms played (or ruled on) count.',
   },
 
+  security: {
+    sessionsTitle: 'Signed-in devices',
+    sessionsIntro: 'These devices are signed in to your account. Sign out any you do not recognise, and change your password.',
+    unknownDevice: 'Unknown device',
+    thisDevice: 'This device',
+    sessionTimes: (signedIn, seen) => `Signed in ${signedIn} · last used ${seen}`,
+    signOut: 'Sign out',
+    signOutLabel: (device) => `Sign out ${device}`,
+    signOutOthers: 'Sign out other devices',
+    signedOutOthers: (n) => `Signed out ${n} ${n === 1 ? 'device' : 'devices'}`,
+    signedOutOne: 'That device is signed out',
+    noOtherSessions: 'No other device is signed in.',
+    dataTitle: 'My data',
+    dataIntro:
+      'Download what the club keeps about you (a JSON file): your account and settings, profile, signed-in devices, friends and blocks, notifications, direct messages, favorites and notes, practice settings and the boards you played.',
+    exportData: 'Download my data',
+    deleteTitle: 'Delete account',
+    deleteIntro:
+      'This cannot be undone: your account, profile, picture, sign-ins, friends and blocks, notifications, direct messages, favorites and practice settings are deleted, and every device is signed out. The boards you played are the other players’ records too and keep your username; delete your forum and BridgeHall posts yourself first.',
+    deletePassword: 'Enter your password to confirm',
+    deleteButton: 'Delete my account',
+    deleteConfirm: 'Delete your account? This cannot be undone.',
+    deleted: 'Your account was deleted',
+  },
+  legal: {
+    privacyTitle: 'Privacy policy',
+    termsTitle: 'Terms of use',
+    updated: (date) => `Last updated: ${date}`,
+    home: 'Back to TKU BridgeTable',
+    agree: 'By registering you agree to the terms of use and the privacy policy.',
+    privacy: [
+      {
+        h: 'Who keeps your data',
+        p: 'TKU BridgeTable and TKU BridgeHall are run, not for profit, by members of the Tamkang University Bridge Club (“the club”). The club collects, processes and uses your personal data under Taiwan’s Personal Data Protection Act, for running its membership and activities and keeping the site secure.',
+      },
+      {
+        h: 'What we collect',
+        p: 'Your username and password (only a salted hash is stored; nobody can read the password), the note you wrote when registering, the profile and picture you add, your boards (bidding, play and scores), chat and direct messages, favorites and notes, your settings; the kind of browser and system you signed in with (listed under “Signed-in devices”); the IP address of a failed sign-in (kept in memory only, to stop password guessing); and the server’s logs and anonymous error reports.',
+      },
+      {
+        h: 'Who can see it',
+        p: 'Members see your username, display name, profile, picture and whether you are online. Boards are shown to members once finished (in an event, once its results are out), as the rules say; direct messages are seen only by you and the other member. Admins approve, manage and delete accounts but cannot see passwords. The club never sells or rents your data and runs no ads or trackers.',
+      },
+      {
+        h: 'Where and how long',
+        p: 'Your data is kept on Cloudflare’s services (possibly in data centres outside Taiwan) for as long as your account exists. It is backed up daily and each backup is kept for 30 days. Cloudflare keeps the server’s logs briefly under its own policy.',
+      },
+      {
+        h: 'Cookies and browser storage',
+        p: 'Only the cookies needed to sign in: your session (30 days) and a short-lived access pass (10 minutes), neither readable by scripts on the page. Preferences such as language, theme and sounds stay in your browser and are not sent to the server.',
+      },
+      {
+        h: 'Your rights',
+        p: 'Under Article 3 of the Act you may ask about, see and get a copy of your data (My account → Download my data), add to or correct it (My account → profile), and ask that its use stop or that it be deleted (My account → Delete account, or ask an admin).',
+      },
+      {
+        h: 'After you delete your account',
+        p: 'Your account, profile, picture, sign-ins, friends and blocks, notifications, direct messages, favorites and practice settings are deleted at once and every device is signed out. The boards you played are the other players’ records too and stay, showing your username; your forum and BridgeHall posts and comments stay too, so delete them first or ask an officer. Copies in backups disappear as the backups expire, within 30 days.',
+      },
+      {
+        h: 'Contact and changes',
+        p: 'For any question about your data, ask the club’s officers or admins. When this policy changes, the date on this page changes.',
+      },
+    ],
+    terms: [
+      {
+        h: 'Who may use it',
+        p: 'TKU BridgeTable is the online bridge table of the Tamkang University Bridge Club’s members. Registering needs the club’s invite code and an admin’s approval.',
+      },
+      {
+        h: 'Your account',
+        p: 'One account per person; do not lend or share it. Keep your password safe; if you see a sign-in you do not recognise, sign out the other devices on My account and change your password.',
+      },
+      {
+        h: 'Fair play and courtesy',
+        p: 'Respect the players at your table and every member. No cheating of any kind: passing information outside the table, playing one event with several accounts, or using programs or anything else to see cards you should not. No harassment, impersonation, or unlawful or infringing content.',
+      },
+      {
+        h: 'Your content',
+        p: 'Your profile, chat, messages, notes and posts are yours; you let the club keep, back up and show them on the site to run it. Boards belong to everyone at the table and stay in the club’s records.',
+      },
+      {
+        h: 'Moderation',
+        p: 'If these terms are broken, officers may remove content and suspend or delete accounts. Admins’ actions are logged.',
+      },
+      {
+        h: 'The service',
+        p: 'The site is free and looked after by members. We do our best to keep it running and your data safe, but cannot promise it never stops or errs; lost data can only be restored from the latest backup.',
+      },
+      {
+        h: 'Changes and governing law',
+        p: 'When these terms change, the date on this page changes; using the site afterwards means you accept them. These terms are governed by the laws of the Republic of China (Taiwan).',
+      },
+    ],
+  },
+  featureFlags: {
+    title: 'Feature flags',
+    intro: 'A new feature can be opened to the officers first (admins and anyone with a permission), or to members you name, before everyone gets it.',
+    states: { off: 'Off', officers: 'Officers only', on: 'Everyone' },
+    followDefault: (state) => `Site default (${state})`,
+    users: 'Also for these members',
+    usersHint: 'Usernames, separated by commas or spaces; leave empty for none',
+    saved: 'Feature flags saved',
+    names: { friends: 'Friends' },
+    hints: { friends: 'Friend and block buttons on the People tab and profiles, friends listed first, and the “friend online” notice.' },
+  },
+
   loading: 'Loading…',
   genericError: 'Something went wrong, please try again',
 }
@@ -3012,6 +3228,112 @@ const zhHans: Strings = {
     running: '累计',
     replay: '并排重播',
     abandonedNote: '比赛已中止：只计两室都打完（或已裁定）的副。',
+  },
+
+  security: {
+    sessionsTitle: '登录中的设备',
+    sessionsIntro: '这些设备正登录你的账号。不认得的就退出它，并修改密码。',
+    unknownDevice: '不明的设备',
+    thisDevice: '这个设备',
+    sessionTimes: (signedIn, seen) => `登录于 ${signedIn} · 最近使用 ${seen}`,
+    signOut: '退出',
+    signOutLabel: (device) => `退出 ${device}`,
+    signOutOthers: '退出其他设备',
+    signedOutOthers: (n) => `已退出 ${n} 个设备`,
+    signedOutOne: '已退出那个设备',
+    noOtherSessions: '没有其他设备登录。',
+    dataTitle: '我的数据',
+    dataIntro: '下载社团保存的你的数据（JSON 文件）：账号与设置、个人资料、登录的设备、好友与屏蔽、通知、私信、收藏与笔记、练习设置和你打过的牌。',
+    exportData: '下载我的数据',
+    deleteTitle: '删除账号',
+    deleteIntro:
+      '删除后无法恢复：账号、个人资料、头像、登录、好友与屏蔽、通知、私信、收藏与练习设置都会删除，所有设备都会退出。你打过的牌局记录也是同桌其他人的记录，会留下你的账号名称；论坛与淡江桥馆的文章请先自己删除。',
+    deletePassword: '输入密码确认',
+    deleteButton: '删除我的账号',
+    deleteConfirm: '确定要删除账号吗？这无法恢复。',
+    deleted: '账号已删除',
+  },
+  legal: {
+    privacyTitle: '隐私政策',
+    termsTitle: '使用条款',
+    updated: (date) => `最后更新：${date}`,
+    home: '回到淡江牌桌',
+    agree: '注册即表示你同意使用条款与隐私政策。',
+    privacy: [
+      {
+        h: '谁保管你的数据',
+        p: '淡江牌桌与淡江桥馆由淡江大学桥艺社（以下称“本社”）的社员经营，非营利。本社依台湾《个人资料保护法》收集、处理与利用你的个人资料，目的是会员管理、社团活动与信息安全。',
+      },
+      {
+        h: '收集哪些数据',
+        p: '账号名称与密码（只存加盐的哈希，没有人看得到原文）、注册时写的备注、你填的个人资料与头像、牌局记录（叫牌、打牌、成绩）、聊天与私信、收藏与笔记、各项设置；登录时的浏览器与系统种类（列在“登录中的设备”）；登录失败时的 IP 地址（只在内存中用来防止猜密码）；以及服务器的运行记录与匿名的错误报告。',
+      },
+      {
+        h: '谁看得到',
+        p: '社员看得到你的账号名称、显示名称、个人资料、头像与是否在线。牌局记录依规则在打完（比赛则在公布）后给社员看；私信只有你和对方看得到。管理员可以审核、管理与删除账号，但看不到密码。本社不卖、不出租你的数据，也不放广告或跟踪程序。',
+      },
+      {
+        h: '存在哪里、存多久',
+        p: '数据存在 Cloudflare 的服务（可能在台湾以外的机房），账号存在期间都会保存。每天备份一次，备份保留 30 天。服务器的运行记录由 Cloudflare 依其政策短期保存。',
+      },
+      {
+        h: 'Cookie 与浏览器存储',
+        p: '只用登录必需的 cookie：登录凭证（30 天）与短期的访问凭证（10 分钟），都不能被网页程序读取。语言、主题、音效等偏好存在你的浏览器里，不会发送到服务器。',
+      },
+      {
+        h: '你的权利',
+        p: '依个资法第 3 条，你可以查询、阅览与取得副本（“我的账号”→“下载我的数据”）、补充或更正（“我的账号”→个人资料）、要求停止收集处理利用或删除（“我的账号”→“删除账号”，或请管理员代为处理）。',
+      },
+      {
+        h: '删除账号之后',
+        p: '账号、个人资料、头像、登录、好友与屏蔽、通知、私信、收藏与练习设置会立即删除，所有设备都会退出。你打过的牌局记录也是同桌其他人的记录，会保留并显示你的账号名称；论坛与淡江桥馆的文章与留言会保留，想一并移除请先自己删除或请干部处理。备份中的数据在 30 天内随备份到期消失。',
+      },
+      {
+        h: '联系与修改',
+        p: '对你的数据有任何问题，请联系桥艺社的干部或管理员。本政策修改时会更新本页的日期。',
+      },
+    ],
+    terms: [
+      {
+        h: '谁可以使用',
+        p: '淡江牌桌是淡江大学桥艺社社员的线上牌桌。注册需要社团的邀请码，并经管理员审核。',
+      },
+      {
+        h: '账号',
+        p: '一人一个账号，不要借给别人或和别人共用。请保管好密码；发现不认得的登录，请在“我的账号”退出其他设备并修改密码。',
+      },
+      {
+        h: '公平与礼貌',
+        p: '尊重同桌与其他社员。禁止任何作弊：场外互通牌情、一人用多个账号同场、用程序或其他方法取得你不该看到的牌。也禁止骚扰、冒充他人，或张贴违法、侵权的内容。',
+      },
+      {
+        h: '你的内容',
+        p: '你写的个人资料、聊天、私信、笔记与文章属于你；你同意本社为了提供服务而保存、备份与在站上显示它们。牌局记录属于同桌所有人，会留在社团的记录里。',
+      },
+      {
+        h: '管理',
+        p: '违反本条款时，干部可以删除内容、暂停或删除账号。管理员的操作会留下记录。',
+      },
+      {
+        h: '服务',
+        p: '本站免费，由社员自行维护。我们尽力维持运行与数据安全，但不保证永不中断或没有错误；数据丢失时以最近的备份恢复为限。',
+      },
+      {
+        h: '修改与准据法',
+        p: '条款修改时会更新本页的日期，之后继续使用即表示同意。本条款以中华民国（台湾）法律为准据法。',
+      },
+    ],
+  },
+  featureFlags: {
+    title: '功能开关',
+    intro: '新功能可以先只开给干部（管理员与有任何权限的人），或另外开给指定的社员，确认没问题再全部开放。',
+    states: { off: '关闭', officers: '只给干部', on: '全部开放' },
+    followDefault: (state) => `按全站默认（${state}）`,
+    users: '另外开给这些社员',
+    usersHint: '账号名称，用逗号或空格分开；留空就没有',
+    saved: '功能开关已保存',
+    names: { friends: '好友' },
+    hints: { friends: '社员页与个人资料的加好友、屏蔽按钮，好友排在前面，以及“好友上线”通知。' },
   },
 
   loading: '加载中…',
@@ -4007,6 +4329,113 @@ const vi: Strings = {
     abandonedNote: 'Trận đấu đã bị hủy bỏ: chỉ tính các ván cả hai phòng đã đánh (hoặc đã phân xử).',
   },
 
+  security: {
+    sessionsTitle: 'Thiết bị đang đăng nhập',
+    sessionsIntro: 'Các thiết bị này đang đăng nhập tài khoản của bạn. Hãy đăng xuất thiết bị bạn không nhận ra và đổi mật khẩu.',
+    unknownDevice: 'Thiết bị không rõ',
+    thisDevice: 'Thiết bị này',
+    sessionTimes: (signedIn, seen) => `Đăng nhập ${signedIn} · dùng gần nhất ${seen}`,
+    signOut: 'Đăng xuất',
+    signOutLabel: (device) => `Đăng xuất ${device}`,
+    signOutOthers: 'Đăng xuất các thiết bị khác',
+    signedOutOthers: (n) => `Đã đăng xuất ${n} thiết bị`,
+    signedOutOne: 'Đã đăng xuất thiết bị đó',
+    noOtherSessions: 'Không có thiết bị nào khác đang đăng nhập.',
+    dataTitle: 'Dữ liệu của tôi',
+    dataIntro:
+      'Tải về dữ liệu câu lạc bộ lưu về bạn (tệp JSON): tài khoản và cài đặt, hồ sơ, thiết bị đăng nhập, bạn bè và danh sách chặn, thông báo, tin nhắn riêng, mục yêu thích và ghi chú, cài đặt luyện tập và các ván bạn đã chơi.',
+    exportData: 'Tải dữ liệu của tôi',
+    deleteTitle: 'Xóa tài khoản',
+    deleteIntro:
+      'Không thể hoàn tác: tài khoản, hồ sơ, ảnh đại diện, phiên đăng nhập, bạn bè và danh sách chặn, thông báo, tin nhắn riêng, mục yêu thích và cài đặt luyện tập sẽ bị xóa, mọi thiết bị đều bị đăng xuất. Các ván bạn đã chơi cũng là hồ sơ của người chơi khác nên vẫn giữ tên tài khoản của bạn; hãy tự xóa bài viết trên diễn đàn và BridgeHall trước.',
+    deletePassword: 'Nhập mật khẩu để xác nhận',
+    deleteButton: 'Xóa tài khoản của tôi',
+    deleteConfirm: 'Xóa tài khoản của bạn? Không thể hoàn tác.',
+    deleted: 'Tài khoản đã bị xóa',
+  },
+  legal: {
+    privacyTitle: 'Chính sách quyền riêng tư',
+    termsTitle: 'Điều khoản sử dụng',
+    updated: (date) => `Cập nhật lần cuối: ${date}`,
+    home: 'Về TKU BridgeTable',
+    agree: 'Khi đăng ký, bạn đồng ý với điều khoản sử dụng và chính sách quyền riêng tư.',
+    privacy: [
+      {
+        h: 'Ai giữ dữ liệu của bạn',
+        p: 'TKU BridgeTable và TKU BridgeHall do các thành viên Câu lạc bộ Bridge Đại học Đạm Giang (“câu lạc bộ”) vận hành, phi lợi nhuận. Câu lạc bộ thu thập, xử lý và sử dụng dữ liệu cá nhân của bạn theo Luật Bảo vệ Dữ liệu Cá nhân của Đài Loan, nhằm quản lý thành viên, tổ chức hoạt động và bảo đảm an toàn cho trang.',
+      },
+      {
+        h: 'Chúng tôi thu thập gì',
+        p: 'Tên tài khoản và mật khẩu (chỉ lưu bản băm có muối, không ai đọc được mật khẩu), ghi chú khi đăng ký, hồ sơ và ảnh bạn thêm, các ván bài (kêu bài, đánh bài, điểm), trò chuyện và tin nhắn riêng, mục yêu thích và ghi chú, cài đặt; loại trình duyệt và hệ điều hành khi đăng nhập (trong “Thiết bị đang đăng nhập”); địa chỉ IP của lần đăng nhập thất bại (chỉ giữ trong bộ nhớ để chống dò mật khẩu); cùng nhật ký máy chủ và báo lỗi ẩn danh.',
+      },
+      {
+        h: 'Ai xem được',
+        p: 'Thành viên thấy tên tài khoản, tên hiển thị, hồ sơ, ảnh và trạng thái trực tuyến của bạn. Các ván bài được hiển thị cho thành viên sau khi chơi xong (với giải đấu, sau khi công bố kết quả) theo quy định; tin nhắn riêng chỉ bạn và người kia thấy. Quản trị viên duyệt, quản lý và xóa tài khoản nhưng không thấy mật khẩu. Câu lạc bộ không bán hay cho thuê dữ liệu của bạn, không có quảng cáo hay công cụ theo dõi.',
+      },
+      {
+        h: 'Lưu ở đâu và bao lâu',
+        p: 'Dữ liệu được lưu trên dịch vụ của Cloudflare (có thể ở trung tâm dữ liệu ngoài Đài Loan) trong suốt thời gian tài khoản tồn tại. Dữ liệu được sao lưu hằng ngày, mỗi bản sao lưu giữ 30 ngày. Cloudflare giữ nhật ký máy chủ trong thời gian ngắn theo chính sách của họ.',
+      },
+      {
+        h: 'Cookie và bộ nhớ trình duyệt',
+        p: 'Chỉ dùng cookie cần để đăng nhập: phiên đăng nhập (30 ngày) và thẻ truy cập ngắn hạn (10 phút), mã trên trang không đọc được. Tùy chọn như ngôn ngữ, giao diện, âm thanh nằm trong trình duyệt của bạn và không gửi lên máy chủ.',
+      },
+      {
+        h: 'Quyền của bạn',
+        p: 'Theo Điều 3 của Luật, bạn có thể hỏi, xem và nhận bản sao dữ liệu (Tài khoản của tôi → Tải dữ liệu của tôi), bổ sung hoặc sửa (Tài khoản của tôi → hồ sơ), và yêu cầu ngừng sử dụng hoặc xóa (Tài khoản của tôi → Xóa tài khoản, hoặc nhờ quản trị viên).',
+      },
+      {
+        h: 'Sau khi xóa tài khoản',
+        p: 'Tài khoản, hồ sơ, ảnh, phiên đăng nhập, bạn bè và danh sách chặn, thông báo, tin nhắn riêng, mục yêu thích và cài đặt luyện tập bị xóa ngay, mọi thiết bị bị đăng xuất. Các ván bạn đã chơi cũng là hồ sơ của người khác nên được giữ lại với tên tài khoản của bạn; bài viết và bình luận trên diễn đàn và BridgeHall cũng được giữ, hãy tự xóa trước hoặc nhờ cán bộ. Bản sao trong các bản sao lưu sẽ biến mất khi chúng hết hạn, trong vòng 30 ngày.',
+      },
+      {
+        h: 'Liên hệ và thay đổi',
+        p: 'Mọi câu hỏi về dữ liệu của bạn, hãy liên hệ cán bộ hoặc quản trị viên câu lạc bộ. Khi chính sách thay đổi, ngày trên trang này sẽ được cập nhật.',
+      },
+    ],
+    terms: [
+      {
+        h: 'Ai được sử dụng',
+        p: 'TKU BridgeTable là bàn bridge trực tuyến của thành viên Câu lạc bộ Bridge Đại học Đạm Giang. Đăng ký cần mã mời của câu lạc bộ và được quản trị viên duyệt.',
+      },
+      {
+        h: 'Tài khoản',
+        p: 'Mỗi người một tài khoản, không cho mượn hay dùng chung. Hãy giữ kỹ mật khẩu; nếu thấy lần đăng nhập lạ, hãy đăng xuất các thiết bị khác trong Tài khoản của tôi và đổi mật khẩu.',
+      },
+      {
+        h: 'Công bằng và lịch sự',
+        p: 'Tôn trọng người cùng bàn và mọi thành viên. Cấm mọi hình thức gian lận: trao đổi thông tin ngoài bàn, dùng nhiều tài khoản trong cùng một trận, hay dùng chương trình hoặc cách khác để xem bài bạn không được thấy. Cấm quấy rối, mạo danh, hay đăng nội dung trái pháp luật hoặc vi phạm bản quyền.',
+      },
+      {
+        h: 'Nội dung của bạn',
+        p: 'Hồ sơ, trò chuyện, tin nhắn, ghi chú và bài viết thuộc về bạn; bạn cho phép câu lạc bộ lưu, sao lưu và hiển thị chúng trên trang để vận hành. Các ván bài thuộc về mọi người cùng bàn và được giữ trong hồ sơ câu lạc bộ.',
+      },
+      {
+        h: 'Quản lý',
+        p: 'Khi điều khoản bị vi phạm, cán bộ có thể xóa nội dung, tạm khóa hoặc xóa tài khoản. Thao tác của quản trị viên được ghi lại.',
+      },
+      {
+        h: 'Dịch vụ',
+        p: 'Trang miễn phí và do thành viên tự duy trì. Chúng tôi cố gắng giữ trang hoạt động và dữ liệu an toàn, nhưng không bảo đảm không bao giờ gián đoạn hay lỗi; dữ liệu bị mất chỉ có thể khôi phục từ bản sao lưu gần nhất.',
+      },
+      {
+        h: 'Thay đổi và luật áp dụng',
+        p: 'Khi điều khoản thay đổi, ngày trên trang này sẽ được cập nhật; tiếp tục sử dụng nghĩa là bạn đồng ý. Điều khoản này tuân theo pháp luật Trung Hoa Dân Quốc (Đài Loan).',
+      },
+    ],
+  },
+  featureFlags: {
+    title: 'Cờ tính năng',
+    intro: 'Tính năng mới có thể mở trước cho cán bộ (quản trị viên và người có quyền), hoặc cho các thành viên bạn chỉ định, trước khi mở cho mọi người.',
+    states: { off: 'Tắt', officers: 'Chỉ cán bộ', on: 'Mọi người' },
+    followDefault: (state) => `Theo mặc định của trang (${state})`,
+    users: 'Mở thêm cho các thành viên này',
+    usersHint: 'Tên tài khoản, cách nhau bằng dấu phẩy hoặc khoảng trắng; để trống nếu không có',
+    saved: 'Đã lưu cờ tính năng',
+    names: { friends: 'Bạn bè' },
+    hints: { friends: 'Nút kết bạn và chặn ở thẻ Thành viên và hồ sơ, bạn bè xếp trước, và thông báo “bạn bè trực tuyến”.' },
+  },
+
   loading: 'Đang tải…',
   genericError: 'Đã xảy ra lỗi, vui lòng thử lại',
 }
@@ -5000,6 +5429,113 @@ const ja: Strings = {
     abandonedNote: '試合は中止されました。両室がプレイした（または裁定した）ボードだけを数えます。',
   },
 
+  security: {
+    sessionsTitle: 'ログイン中の端末',
+    sessionsIntro: 'これらの端末があなたのアカウントにログインしています。心当たりのない端末はログアウトし、パスワードを変更してください。',
+    unknownDevice: '不明な端末',
+    thisDevice: 'この端末',
+    sessionTimes: (signedIn, seen) => `ログイン ${signedIn} · 最終利用 ${seen}`,
+    signOut: 'ログアウト',
+    signOutLabel: (device) => `${device} をログアウト`,
+    signOutOthers: 'ほかの端末をログアウト',
+    signedOutOthers: (n) => `${n} 台の端末をログアウトしました`,
+    signedOutOne: 'その端末をログアウトしました',
+    noOtherSessions: 'ほかにログイン中の端末はありません。',
+    dataTitle: 'マイデータ',
+    dataIntro:
+      'クラブが保存しているあなたのデータ（JSON ファイル）をダウンロードします：アカウントと設定、プロフィール、ログイン中の端末、友達とブロック、通知、メッセージ、お気に入りとメモ、練習設定、プレイしたボード。',
+    exportData: 'データをダウンロード',
+    deleteTitle: 'アカウントを削除',
+    deleteIntro:
+      '元に戻せません：アカウント、プロフィール、アイコン、ログイン、友達とブロック、通知、メッセージ、お気に入りと練習設定が削除され、すべての端末がログアウトします。プレイしたボードは同卓者の記録でもあるため、ユーザー名とともに残ります。掲示板と BridgeHall の投稿は先にご自身で削除してください。',
+    deletePassword: '確認のためパスワードを入力',
+    deleteButton: 'アカウントを削除する',
+    deleteConfirm: 'アカウントを削除しますか？元に戻せません。',
+    deleted: 'アカウントを削除しました',
+  },
+  legal: {
+    privacyTitle: 'プライバシーポリシー',
+    termsTitle: '利用規約',
+    updated: (date) => `最終更新：${date}`,
+    home: 'TKU BridgeTable に戻る',
+    agree: '登録すると、利用規約とプライバシーポリシーに同意したことになります。',
+    privacy: [
+      {
+        h: 'データの管理者',
+        p: 'TKU BridgeTable と TKU BridgeHall は、淡江大学ブリッジクラブ（以下「クラブ」）の部員が非営利で運営しています。クラブは台湾の個人情報保護法に基づき、会員管理、クラブ活動、情報セキュリティのためにあなたの個人データを収集・処理・利用します。',
+      },
+      {
+        h: '収集するデータ',
+        p: 'ユーザー名とパスワード（ソルト付きハッシュのみ保存し、誰も原文を読めません）、登録時のメモ、プロフィールとアイコン、ボードの記録（ビッド、プレイ、スコア）、チャットとメッセージ、お気に入りとメモ、各種設定；ログイン時のブラウザと OS の種類（「ログイン中の端末」に表示）；ログイン失敗時の IP アドレス（パスワードの総当たり防止のためメモリ上でのみ保持）；サーバーのログと匿名のエラー報告。',
+      },
+      {
+        h: '誰が見られるか',
+        p: '部員はあなたのユーザー名、表示名、プロフィール、アイコン、オンライン状態を見られます。ボードの記録はルールに従い、終了後（大会では結果発表後）に部員に公開されます。メッセージはあなたと相手だけが見られます。管理者はアカウントの承認・管理・削除ができますが、パスワードは見られません。クラブはデータを販売・貸与せず、広告やトラッカーも使いません。',
+      },
+      {
+        h: '保存場所と期間',
+        p: 'データは Cloudflare のサービス（台湾以外のデータセンターの場合があります）に、アカウントがある間保存されます。毎日バックアップし、各バックアップは 30 日間保持します。サーバーのログは Cloudflare のポリシーに従い短期間保存されます。',
+      },
+      {
+        h: 'Cookie とブラウザの保存領域',
+        p: 'ログインに必要な Cookie だけを使います：セッション（30 日）と短期のアクセスパス（10 分）で、いずれもページのスクリプトからは読めません。言語、テーマ、効果音などの設定はブラウザ内に保存され、サーバーには送られません。',
+      },
+      {
+        h: 'あなたの権利',
+        p: '同法第 3 条に基づき、データの照会・閲覧・複製の取得（マイアカウント → データをダウンロード）、補充・訂正（マイアカウント → プロフィール）、利用停止・削除の請求（マイアカウント → アカウントを削除、または管理者に依頼）ができます。',
+      },
+      {
+        h: 'アカウント削除後',
+        p: 'アカウント、プロフィール、アイコン、ログイン、友達とブロック、通知、メッセージ、お気に入りと練習設定は直ちに削除され、すべての端末がログアウトします。プレイしたボードは同卓者の記録でもあるため、ユーザー名とともに残ります。掲示板と BridgeHall の投稿やコメントも残るため、先にご自身で削除するか幹部に依頼してください。バックアップ内のデータは 30 日以内にバックアップの期限切れとともに消えます。',
+      },
+      {
+        h: 'お問い合わせと改定',
+        p: 'データについての質問は、クラブの幹部または管理者にお問い合わせください。本ポリシーを改定した場合は、このページの日付を更新します。',
+      },
+    ],
+    terms: [
+      {
+        h: '利用できる人',
+        p: 'TKU BridgeTable は淡江大学ブリッジクラブ部員のためのオンラインのブリッジテーブルです。登録にはクラブの招待コードと管理者の承認が必要です。',
+      },
+      {
+        h: 'アカウント',
+        p: 'アカウントは一人一つで、貸与や共有はできません。パスワードは大切に管理してください。心当たりのないログインがあれば、マイアカウントでほかの端末をログアウトし、パスワードを変更してください。',
+      },
+      {
+        h: '公正と礼儀',
+        p: '同卓者とすべての部員を尊重してください。卓外での情報交換、一人で複数アカウントを使った同一大会への参加、プログラムなどで見てはいけないカードを見ることなど、あらゆる不正を禁じます。嫌がらせ、なりすまし、違法または権利を侵害する投稿も禁じます。',
+      },
+      {
+        h: 'あなたのコンテンツ',
+        p: 'プロフィール、チャット、メッセージ、メモ、投稿はあなたのものです。サービス提供のため、クラブがそれらを保存・バックアップ・サイト上に表示することに同意するものとします。ボードの記録は同卓者全員のもので、クラブの記録に残ります。',
+      },
+      {
+        h: '管理',
+        p: '本規約に違反した場合、幹部はコンテンツの削除、アカウントの停止または削除ができます。管理者の操作は記録されます。',
+      },
+      {
+        h: 'サービス',
+        p: '本サイトは無料で、部員が運営しています。運用とデータの安全に努めますが、中断やエラーがないことは保証しません。失われたデータは直近のバックアップからの復元に限られます。',
+      },
+      {
+        h: '改定と準拠法',
+        p: '規約を改定した場合はこのページの日付を更新し、その後の利用をもって同意したものとみなします。本規約は中華民国（台湾）法を準拠法とします。',
+      },
+    ],
+  },
+  featureFlags: {
+    title: '機能フラグ',
+    intro: '新しい機能は、全員に公開する前に幹部（管理者と権限を持つ人）や指定した部員にだけ先に公開できます。',
+    states: { off: 'オフ', officers: '幹部のみ', on: '全員' },
+    followDefault: (state) => `サイトの既定（${state}）`,
+    users: 'このメンバーにも公開',
+    usersHint: 'ユーザー名をカンマかスペースで区切って入力。空欄ならなし',
+    saved: '機能フラグを保存しました',
+    names: { friends: '友達' },
+    hints: { friends: 'メンバータブとプロフィールの友達・ブロックボタン、友達を上に表示、「友達がオンライン」通知。' },
+  },
+
   loading: '読み込み中…',
   genericError: 'エラーが発生しました。もう一度お試しください',
 }
@@ -5991,6 +6527,113 @@ const ko: Strings = {
     running: '누적',
     replay: '나란히 다시 보기',
     abandonedNote: '경기가 중단되었습니다. 두 방이 모두 플레이한(또는 판정한) 보드만 계산합니다.',
+  },
+
+  security: {
+    sessionsTitle: '로그인한 기기',
+    sessionsIntro: '이 기기들이 당신의 계정에 로그인되어 있습니다. 모르는 기기는 로그아웃하고 비밀번호를 바꾸세요.',
+    unknownDevice: '알 수 없는 기기',
+    thisDevice: '이 기기',
+    sessionTimes: (signedIn, seen) => `로그인 ${signedIn} · 최근 사용 ${seen}`,
+    signOut: '로그아웃',
+    signOutLabel: (device) => `${device} 로그아웃`,
+    signOutOthers: '다른 기기 로그아웃',
+    signedOutOthers: (n) => `기기 ${n}대를 로그아웃했습니다`,
+    signedOutOne: '그 기기를 로그아웃했습니다',
+    noOtherSessions: '로그인한 다른 기기가 없습니다.',
+    dataTitle: '내 데이터',
+    dataIntro:
+      '클럽이 보관하는 당신의 데이터(JSON 파일)를 내려받습니다: 계정과 설정, 프로필, 로그인한 기기, 친구와 차단, 알림, 쪽지, 즐겨찾기와 메모, 연습 설정, 플레이한 보드.',
+    exportData: '내 데이터 내려받기',
+    deleteTitle: '계정 삭제',
+    deleteIntro:
+      '되돌릴 수 없습니다: 계정, 프로필, 프로필 사진, 로그인, 친구와 차단, 알림, 쪽지, 즐겨찾기와 연습 설정이 삭제되고 모든 기기에서 로그아웃됩니다. 플레이한 보드는 같은 테이블 사람들의 기록이기도 해서 아이디와 함께 남습니다. 게시판과 BridgeHall 글은 먼저 직접 삭제하세요.',
+    deletePassword: '확인을 위해 비밀번호 입력',
+    deleteButton: '내 계정 삭제',
+    deleteConfirm: '계정을 삭제할까요? 되돌릴 수 없습니다.',
+    deleted: '계정이 삭제되었습니다',
+  },
+  legal: {
+    privacyTitle: '개인정보 처리방침',
+    termsTitle: '이용약관',
+    updated: (date) => `최종 업데이트: ${date}`,
+    home: 'TKU BridgeTable로 돌아가기',
+    agree: '가입하면 이용약관과 개인정보 처리방침에 동의하는 것입니다.',
+    privacy: [
+      {
+        h: '누가 데이터를 관리하나요',
+        p: 'TKU BridgeTable과 TKU BridgeHall은 단장대학교 브리지 동아리(이하 “동아리”) 회원들이 비영리로 운영합니다. 동아리는 대만 개인정보보호법에 따라 회원 관리, 동아리 활동, 정보 보안을 위해 당신의 개인정보를 수집·처리·이용합니다.',
+      },
+      {
+        h: '수집하는 데이터',
+        p: '아이디와 비밀번호(솔트를 넣은 해시만 저장하며 누구도 원문을 볼 수 없음), 가입할 때 쓴 메모, 직접 입력한 프로필과 사진, 보드 기록(비딩, 플레이, 점수), 채팅과 쪽지, 즐겨찾기와 메모, 각종 설정; 로그인할 때의 브라우저와 운영체제 종류(“로그인한 기기”에 표시); 로그인 실패 시 IP 주소(비밀번호 추측을 막기 위해 메모리에만 보관); 서버 로그와 익명 오류 보고.',
+      },
+      {
+        h: '누가 볼 수 있나요',
+        p: '회원은 당신의 아이디, 표시 이름, 프로필, 사진, 접속 여부를 볼 수 있습니다. 보드 기록은 규칙에 따라 끝난 뒤(대회는 결과 발표 후) 회원에게 공개되고, 쪽지는 당신과 상대만 볼 수 있습니다. 관리자는 계정을 승인·관리·삭제할 수 있지만 비밀번호는 볼 수 없습니다. 동아리는 데이터를 팔거나 빌려주지 않으며 광고나 추적 도구를 쓰지 않습니다.',
+      },
+      {
+        h: '어디에, 얼마나 보관하나요',
+        p: '데이터는 Cloudflare 서비스(대만 밖의 데이터센터일 수 있음)에 계정이 있는 동안 보관됩니다. 매일 백업하며 각 백업은 30일간 보관합니다. 서버 로그는 Cloudflare 정책에 따라 짧게 보관됩니다.',
+      },
+      {
+        h: '쿠키와 브라우저 저장소',
+        p: '로그인에 필요한 쿠키만 씁니다: 세션(30일)과 단기 접근 패스(10분)이며, 둘 다 페이지의 스크립트가 읽을 수 없습니다. 언어, 테마, 효과음 같은 설정은 브라우저에 저장되고 서버로 보내지 않습니다.',
+      },
+      {
+        h: '당신의 권리',
+        p: '같은 법 제3조에 따라 데이터의 조회·열람·사본 받기(내 계정 → 내 데이터 내려받기), 보충·정정(내 계정 → 프로필), 이용 중지와 삭제 요청(내 계정 → 계정 삭제, 또는 관리자에게 요청)을 할 수 있습니다.',
+      },
+      {
+        h: '계정을 삭제한 뒤',
+        p: '계정, 프로필, 사진, 로그인, 친구와 차단, 알림, 쪽지, 즐겨찾기와 연습 설정은 즉시 삭제되고 모든 기기에서 로그아웃됩니다. 플레이한 보드는 같은 테이블 사람들의 기록이기도 해서 아이디와 함께 남습니다. 게시판과 BridgeHall의 글과 댓글도 남으니 먼저 직접 삭제하거나 임원에게 요청하세요. 백업 속 데이터는 30일 안에 백업이 만료되면서 사라집니다.',
+      },
+      {
+        h: '문의와 변경',
+        p: '데이터에 관한 질문은 동아리 임원이나 관리자에게 문의하세요. 방침이 바뀌면 이 페이지의 날짜를 바꿉니다.',
+      },
+    ],
+    terms: [
+      {
+        h: '이용 대상',
+        p: 'TKU BridgeTable은 단장대학교 브리지 동아리 회원의 온라인 브리지 테이블입니다. 가입하려면 동아리 초대 코드와 관리자 승인이 필요합니다.',
+      },
+      {
+        h: '계정',
+        p: '한 사람에 한 계정이며 빌려주거나 함께 쓰지 마세요. 비밀번호를 잘 지키고, 모르는 로그인이 보이면 내 계정에서 다른 기기를 로그아웃하고 비밀번호를 바꾸세요.',
+      },
+      {
+        h: '공정과 예의',
+        p: '같은 테이블과 모든 회원을 존중하세요. 테이블 밖 정보 교환, 한 사람이 여러 계정으로 같은 경기에 참가, 프로그램 등으로 보면 안 되는 카드를 보는 것 등 모든 부정행위를 금지합니다. 괴롭힘, 사칭, 불법 또는 권리를 침해하는 게시물도 금지합니다.',
+      },
+      {
+        h: '당신의 콘텐츠',
+        p: '프로필, 채팅, 쪽지, 메모, 글은 당신의 것입니다. 서비스 운영을 위해 동아리가 이를 보관·백업하고 사이트에 표시하는 데 동의합니다. 보드 기록은 같은 테이블 모두의 것이며 동아리 기록에 남습니다.',
+      },
+      {
+        h: '관리',
+        p: '약관을 어기면 임원이 콘텐츠를 삭제하거나 계정을 정지·삭제할 수 있습니다. 관리자의 조치는 기록됩니다.',
+      },
+      {
+        h: '서비스',
+        p: '이 사이트는 무료이며 회원들이 관리합니다. 운영과 데이터 안전에 최선을 다하지만 중단이나 오류가 없다고 보장하지 않으며, 잃어버린 데이터는 가장 최근 백업으로만 복원할 수 있습니다.',
+      },
+      {
+        h: '변경과 준거법',
+        p: '약관이 바뀌면 이 페이지의 날짜를 바꾸며, 이후 계속 이용하면 동의한 것으로 봅니다. 이 약관은 중화민국(대만) 법을 준거법으로 합니다.',
+      },
+    ],
+  },
+  featureFlags: {
+    title: '기능 플래그',
+    intro: '새 기능은 모두에게 열기 전에 임원(관리자와 권한이 있는 사람)이나 지정한 회원에게 먼저 열 수 있습니다.',
+    states: { off: '끔', officers: '임원만', on: '모두' },
+    followDefault: (state) => `사이트 기본값 (${state})`,
+    users: '이 회원들에게도 열기',
+    usersHint: '아이디를 쉼표나 공백으로 구분; 비워 두면 없음',
+    saved: '기능 플래그를 저장했습니다',
+    names: { friends: '친구' },
+    hints: { friends: '회원 탭과 프로필의 친구·차단 버튼, 친구를 위에 표시, “친구 접속” 알림.' },
   },
 
   loading: '불러오는 중…',

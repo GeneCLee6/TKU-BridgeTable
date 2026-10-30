@@ -104,7 +104,8 @@ export function ClubProvider({ children }: { children: ReactNode }) {
   const clubSocket = useRef<LiveSocket | null>(null)
   const tableSocket = useRef<LiveSocket | null>(null)
   const waiting = useRef<{ message: ClientMessage; at: number }[]>([])
-  const lobby = useMemo(() => (shared && mine ? composeLobby(shared, mine) : null), [shared, mine])
+  const friendsOn = !!user?.features?.includes('friends')
+  const lobby = useMemo(() => (shared && mine ? composeLobby(shared, mine, friendsOn) : null), [shared, mine, friendsOn])
   const myTableId = mine?.myTableId ?? null
 
   /** Every message from either connection */

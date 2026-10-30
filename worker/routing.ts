@@ -51,6 +51,11 @@ export async function route(request: Request, routes: Routes): Promise<Response>
   if (clubId === null && (pathname === '/ws' || pathname.startsWith('/api/') || pathname.startsWith(TABLE_SOCKET_PREFIX))) {
     return unknownClub()
   }
+  // A socket opened by another site's page is turned away (cross-site WebSocket hijacking, ASVS
+  // 13.2; docs/SECURITY.md): browsers always send Origin on a WebSocket, other clients may leave it out
+  if ((pathname === '/ws' || pathname.startsWith(TABLE_SOCKET_PREFIX)) && !sameOrigin(request, url)) {
+    return new Response('Forbidden', { status: 403 })
+  }
   const club = () => routes.club(clubId ?? '')
   const now = routes.edge?.now ?? Date.now
   const cookies = request.headers.get('Cookie')
@@ -77,6 +82,17 @@ export async function route(request: Request, routes: Routes): Promise<Response>
   }
   if (pathname === '/ws' || pathname.startsWith('/api/')) return club().fetch(request)
   return routes.assets.fetch(request)
+}
+
+/** Whether a request came from a page of this site, or names no page at all (no Origin) */
+function sameOrigin(request: Request, url: URL): boolean {
+  const origin = request.headers.get('Origin')
+  if (origin === null) return true
+  try {
+    return new URL(origin).host === url.host
+  } catch {
+    return false
+  }
 }
 
 /** The answer for a club no one knows, shaped like the club's own errors */

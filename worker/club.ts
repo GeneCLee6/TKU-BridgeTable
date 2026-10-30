@@ -485,6 +485,7 @@ export class Club extends DurableObject<Env> implements Connections {
         text(b.inviteCode),
         text(b.note),
         b.site === 'book' ? 'book' : 'table',
+        request.headers.get('User-Agent') ?? '',
       )
       if ('pending' in result) return json(result, 202)
       return json({ user: result.user }, 200, ...(await this.signedIn(result.token, result.user.id, secure)))
@@ -495,6 +496,7 @@ export class Club extends DurableObject<Env> implements Connections {
         text(b.username),
         text(b.password),
         request.headers.get('CF-Connecting-IP') ?? '',
+        request.headers.get('User-Agent') ?? '',
       )
       return json({ user }, 200, ...(await this.signedIn(newToken, user.id, secure)))
     }
@@ -562,8 +564,31 @@ export class Club extends DurableObject<Env> implements Connections {
     if (url.pathname.startsWith('/api/forum/')) return this.forumApi(request, url, user, body)
     if (route === 'POST /api/account/password') {
       const b = await body()
-      await this.service.changePassword(user.id, text(b.current), text(b.next))
+      await this.service.changePassword(user.id, text(b.current), text(b.next), token)
       return json({ ok: true })
+    }
+    // Where the member is signed in, and signing other devices out (e11-t23)
+    if (route === 'GET /api/account/sessions') return json({ sessions: await this.service.accountSessions(user.id, token) })
+    if (route === 'POST /api/account/sessions/others') return json({ ended: await this.service.endOtherSessions(user.id, token) })
+    const session = url.pathname.match(/^\/api\/account\/sessions\/([\w-]+)$/)
+    if (request.method === 'DELETE' && session) {
+      await this.service.endSession(user.id, token, session[1])
+      return json({ ok: true })
+    }
+    // The member's own data, and deleting their account (e11-t27)
+    if (route === 'GET /api/account/export') {
+      const data = await this.service.exportAccount(user.id, token)
+      return new Response(JSON.stringify(data, null, 2), {
+        headers: {
+          'Content-Type': 'application/json; charset=utf-8',
+          'Content-Disposition': `attachment; filename="tku-bridge-table-${user.id}.json"`,
+          'Cache-Control': 'no-store',
+        },
+      })
+    }
+    if (route === 'POST /api/account/delete') {
+      await this.service.deleteOwnAccount(user.id, text((await body()).password))
+      return json({ ok: true }, 200, sessionCookie('', secure), passCookie('', secure))
     }
     if (route === 'POST /api/account/preferences') {
       const b = await body()
@@ -754,6 +779,9 @@ export class Club extends DurableObject<Env> implements Connections {
     if (method === 'POST' && path === '/weekly-challenge')
       return json({ weekly: await this.service.adminSetWeeklyChallenge(user.id, await body()) })
     if (method === 'GET' && path === '/settings') return json({ settings: this.service.clubSettings })
+    // Feature flags (e11-t26): the club's state of each and the members who get it anyway
+    if (method === 'GET' && path === '/features') return json({ features: this.service.adminFeatures() })
+    if (method === 'POST' && path === '/features') return json({ features: await this.service.adminSetFeature(await body()) })
     // The club's robot against 淡江橋館: articles edited online since its rules were checked (e5-t45)
     if (method === 'GET' && path === '/book-sync') return json({ sync: bookSync(TKU.books, await this.book.onlineArticles()) })
     if (method === 'POST' && path === '/settings') {

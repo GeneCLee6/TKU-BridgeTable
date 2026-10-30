@@ -2,8 +2,8 @@ import { Ban, Mail, Star } from 'lucide-react'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import styled from 'styled-components'
-import { FRIENDS_ENABLED } from '../../shared/features.ts'
 import type { ClientMessage, LobbyView, MemberStatus } from '../../shared/protocol.ts'
+import { useFeature } from '../state/AuthContext.tsx'
 import { usePreferences } from '../state/PreferencesContext.tsx'
 import { Avatar } from './Avatar.tsx'
 import { ProfileCard } from './ProfileCard.tsx'
@@ -15,7 +15,7 @@ import { seatLetter } from '../strings.ts'
  * are only asked of the server, which answers with a new lobby. "Friends only" hides everyone else.
  * Where the page has a Messages tab, an envelope opens the conversation with that member (AC-1.7).
  * Each member has their default avatar (e1-t18); their name opens their profile card (e1-t17).
- * While friends are hidden (FRIENDS_ENABLED) only the envelope is left: no star, no filter, and
+ * While the member does not have friends (the `friends` flag, shared/features.ts) only the envelope is left: no star, no filter, and
  * the ban button only to undo a block made before.
  */
 
@@ -150,7 +150,8 @@ export function PeopleList({
   const [card, setCard] = useState<MemberStatus | null>(null)
   const friends = new Set(lobby?.friends ?? [])
   const blocked = new Set(lobby?.blocked ?? [])
-  const friendsOnly = FRIENDS_ENABLED && onlyFriends
+  const friendsOn = useFeature('friends')
+  const friendsOnly = friendsOn && onlyFriends
   const members = (lobby?.members ?? []).filter((m) => !friendsOnly || friends.has(m.id))
   const online = members.filter((m) => m.online)
   const offline = members.filter((m) => !m.online)
@@ -194,7 +195,7 @@ export function PeopleList({
                 <Mail size={17} aria-hidden />
               </RowButton>
             )}
-            {FRIENDS_ENABLED && (
+            {friendsOn && (
               <RowButton
                 type="button"
                 $on={friend}
@@ -208,7 +209,7 @@ export function PeopleList({
                 <Star size={17} fill={friend ? 'currentColor' : 'none'} aria-hidden />
               </RowButton>
             )}
-            {(FRIENDS_ENABLED || isBlocked) && (
+            {(friendsOn || isBlocked) && (
               <RowButton
                 type="button"
                 $on={isBlocked}
@@ -251,7 +252,7 @@ export function PeopleList({
           newTab={newTab}
         />
       )}
-      {FRIENDS_ENABLED && (
+      {friendsOn && (
         <Bar>
           <FilterButton
             type="button"

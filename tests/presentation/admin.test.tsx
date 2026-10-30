@@ -2,6 +2,7 @@ import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AdminUser, Application, HealthStatus, LobbyView } from '../../shared/protocol.ts'
+import type { FeatureView } from '../../shared/features.ts'
 import { ToastProvider } from '../../src/components/Toast.tsx'
 import { formatRelative } from '../../src/lib/format.ts'
 import { AdminPage } from '../../src/pages/AdminPage.tsx'
@@ -25,6 +26,8 @@ const mocks = vi.hoisted(() => ({
     deleteUser: vi.fn(),
     closeTable: vi.fn(),
     bookSync: vi.fn(),
+    features: vi.fn(),
+    setFeature: vi.fn(),
   },
   health: vi.fn(),
 }))
@@ -41,6 +44,7 @@ const AUTH = { user: { id: 'boss', username: 'boss', admin: true, permissions: [
 vi.mock('../../src/state/AuthContext.tsx', () => ({ useAuth: () => AUTH }))
 
 const NOW = Date.now()
+const FRIENDS_FLAG: FeatureView = { flag: 'friends', default: 'off', state: 'off', custom: false, users: [] }
 const user = (id: string, extra: Partial<AdminUser> = {}): AdminUser => ({
   id,
   username: id,
@@ -98,6 +102,23 @@ beforeEach(() => {
   mocks.api.settings.mockResolvedValue({ settings: { maxUsers: 60, inviteCode: 'tku' } })
   mocks.api.bookSync.mockResolvedValue({ sync: [] })
   mocks.health.mockResolvedValue(HEALTH)
+  mocks.api.features.mockResolvedValue({ features: [FRIENDS_FLAG] })
+})
+
+describe('feature flags (e11-t26)', () => {
+  it('opens a flag to the officers and named members, one flag at a time', async () => {
+    mocks.api.setFeature.mockResolvedValue({ features: [{ ...FRIENDS_FLAG, state: 'officers', custom: true, users: [{ id: 'a1', username: 'amy' }] }] })
+    page()
+    const section = await screen.findByRole('region', { name: '功能旗標' })
+    const state = await within(section).findByLabelText('功能旗標')
+    expect(state).toHaveValue('default')
+    expect(within(section).getByRole('option', { name: '照全站預設（關閉）' })).toBeInTheDocument()
+    await userEvent.selectOptions(state, 'officers')
+    await userEvent.type(within(section).getByLabelText('另外開給這些社員'), 'amy, ben')
+    await userEvent.click(within(section).getByRole('button', { name: '儲存：好友' }))
+    expect(mocks.api.setFeature).toHaveBeenCalledWith('friends', 'officers', ['amy', 'ben'])
+    expect(await screen.findByText('功能旗標已儲存')).toBeInTheDocument()
+  })
 })
 
 describe('AdminPage', () => {
@@ -105,7 +126,7 @@ describe('AdminPage', () => {
     page()
     const nav = await screen.findByRole('navigation', { name: '管理頁的區塊' })
     const links = within(nav).getAllByRole('link')
-    expect(links.map((l) => l.textContent)).toEqual(['待審核的申請1', '社團設定', '社員2', '新增社員', '牌桌0', '機器人與橋館同步', '系統狀態'])
+    expect(links.map((l) => l.textContent)).toEqual(['待審核的申請1', '社團設定', '社員2', '新增社員', '牌桌0', '機器人與橋館同步', '功能旗標', '系統狀態'])
     expect(links[0]).toHaveAttribute('aria-current', 'location')
   })
 
@@ -133,7 +154,7 @@ describe('AdminPage', () => {
     expect(rows[0]).toHaveTextContent('joey')
     expect(rows[0]).toHaveTextContent('12 條規則')
     const nav = screen.getByRole('navigation', { name: '管理頁的區塊' })
-    expect(within(nav).getAllByRole('link').at(-2)).toHaveTextContent('機器人與橋館同步1')
+    expect(within(nav).getAllByRole('link').at(-3)).toHaveTextContent('機器人與橋館同步1')
   })
 
   it('says when every article is in step', async () => {

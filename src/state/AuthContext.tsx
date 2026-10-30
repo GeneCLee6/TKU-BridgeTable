@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { FEATURE_DEFAULTS, type FeatureFlag } from '../../shared/features.ts'
 import type { Me, RegisterResult } from '../../shared/protocol.ts'
 import { api } from '../lib/api.ts'
 import { resetFavorites } from '../lib/favorites.ts'
@@ -51,6 +52,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo(() => ({ user, login, register, logout, refresh }), [user, login, register, logout, refresh])
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
+}
+
+/**
+ * Whether the signed-in member has a feature flag (e11-t26, shared/features.ts), as the server
+ * worked it out in `Me.features`. Outside the provider (component tests) the site-wide default
+ */
+// oxlint-disable-next-line react/only-export-components
+export function useFeature(flag: FeatureFlag): boolean {
+  const ctx = useContext(AuthContext)
+  if (!ctx) return FEATURE_DEFAULTS[flag] === 'on'
+  return !!ctx.user?.features?.includes(flag)
 }
 
 // oxlint-disable-next-line react/only-export-components

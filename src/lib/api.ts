@@ -44,6 +44,8 @@ export type MatchPlayAction =
   | { action: 'replace'; room: Room; seat: Seat; userId: string }
   | { action: 'sitin'; room: Room; seat: Seat }
 import type { FeaturedBoard, FeaturedInput } from '../../shared/featured.ts'
+import type { FeatureFlag, FeatureState, FeatureView } from '../../shared/features.ts'
+import type { SessionInfo } from '../../shared/account.ts'
 import type { PracticeSettings, SavedPractice } from '../../shared/practice.ts'
 import type { PracticeSetInfo } from '../../shared/practice-sets/types.ts'
 
@@ -99,6 +101,16 @@ export const api = {
     request<{ user: Me }>('/api/account/avatar', { method: 'PUT', body: picture, headers: { 'Content-Type': picture.type } }),
   /** Back to the default avatar */
   removeAvatar: () => request<{ user: Me }>('/api/account/avatar', { method: 'DELETE' }),
+  /** Where the member is signed in, this device first (e11-t23) */
+  sessions: () => request<{ sessions: SessionInfo[] }>('/api/account/sessions'),
+  /** Signs one other device out */
+  endSession: (id: string) => request<{ ok: true }>(`/api/account/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  /** 登出其他裝置: every session but this one ends */
+  endOtherSessions: () => post<{ ended: number }>('/api/account/sessions/others'),
+  /** The member's own data as a JSON file (e11-t27); a link downloads it */
+  exportUrl: '/api/account/export',
+  /** Deletes the member's own account; the answer signs this device out too */
+  deleteAccount: (password: string) => post<{ ok: true }>('/api/account/delete', { password }),
   /** Another member's profile card with their latest boards the viewer may see */
   member: (id: string) => request<{ member: MemberProfile }>(`/api/members/${encodeURIComponent(id)}`),
   /** One page of the conversation with another member, oldest first; `before` pages back (AC-1.7) */
@@ -193,6 +205,11 @@ export const api = {
     deleteUser: (id: string) => request<{ ok: true }>(`/api/admin/users/${id}`, { method: 'DELETE' }),
     settings: () => request<{ settings: ClubSettings }>('/api/admin/settings'),
     saveSettings: (settings: Partial<ClubSettings>) => post<{ settings: ClubSettings }>('/api/admin/settings', settings),
+    /** The feature flags (e11-t26): the club's state of each and the members who get it anyway */
+    features: () => request<{ features: FeatureView[] }>('/api/admin/features'),
+    /** `state: null` follows the site-wide default again */
+    setFeature: (flag: FeatureFlag, state: FeatureState | null, usernames: string[]) =>
+      post<{ features: FeatureView[] }>('/api/admin/features', { flag, state, usernames }),
     closeTable: (id: string) => request<{ ok: true }>(`/api/admin/tables/${id}`, { method: 'DELETE' }),
     /** The club's robot against 淡江橋館: articles edited online since its rules were checked (e5-t45) */
     bookSync: () => request<{ sync: BookSyncRow[] }>('/api/admin/book-sync'),

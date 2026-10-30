@@ -2,10 +2,10 @@ import { Volume2 } from 'lucide-react'
 import { useId, useRef, useState, type ChangeEvent, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import styled from 'styled-components'
-import { FRIENDS_ENABLED } from '../../shared/features.ts'
 import { LANGS } from '../../shared/messages.ts'
 import { PROFILE_LEVELS, PROFILE_LIMITS, type Profile, type ProfileLevel } from '../../shared/profile.ts'
 import { DEFAULT_ROBOT_SPEED, LIMITS, ROBOT_SPEEDS, type Me, type RobotSpeed } from '../../shared/protocol.ts'
+import { DataCard, SessionsCard } from '../components/AccountSecurity.tsx'
 import { Avatar } from '../components/Avatar.tsx'
 import { AvatarCropper } from '../components/AvatarCropper.tsx'
 import { PasswordInput } from '../components/PasswordInput.tsx'
@@ -33,13 +33,14 @@ import { AVATAR_INPUT_TYPES } from '../lib/avatarImage.ts'
 import { isAppleMobile, isStandalone, useInstallOffer } from '../lib/pwa.ts'
 import { SOUND_STYLES, SOUND_VOLUMES } from '../lib/sound/events.ts'
 import { preview } from '../lib/sound/player.ts'
-import { useAuth } from '../state/AuthContext.tsx'
+import { useAuth, useFeature } from '../state/AuthContext.tsx'
 import { usePreferences } from '../state/PreferencesContext.tsx'
 import { LANG_NAMES } from '../strings.ts'
 
 /**
  * A member's own page (我的帳號): their profile (AC-1.5, e1-t16), display preferences, installing
- * the app and changing the password. Each part is a three-part card (DESIGN.md §7.3); saving says
+ * the app, changing the password, the signed-in devices (e11-t23) and the member's own data:
+ * downloading it and deleting the account (e11-t27). Each part is a three-part card (DESIGN.md §7.3); saving says
  * so in a toast, and a field's error sits under the field (§7.2).
  */
 
@@ -567,6 +568,7 @@ function TourCard() {
 export function AccountPage() {
   const { t, lang, mode, deck, cardStyle, cardSize, confirmCalls, confirmPlays, set } = usePreferences()
   const { user, refresh } = useAuth()
+  const friendsOn = useFeature('friends')
 
   /** Kept on the server, which decides whom to tell (e1-t24) */
   const setFriendOnlineNotice = (on: boolean) =>
@@ -624,7 +626,7 @@ export function AccountPage() {
             options={[['on', t.soundOnShort], ['off', t.soundOffShort]]}
             onChange={(v) => set({ confirmPlays: v === 'on' })}
           />
-          {user && FRIENDS_ENABLED && (
+          {user && friendsOn && (
             <Options
               legend={t.friendOnlineNotice}
               value={user.friendOnlineNotice === false ? 'off' : 'on'}
@@ -653,6 +655,13 @@ export function AccountPage() {
           <InstallApp />
         </Card>
         <PasswordForm />
+        <SessionsCard />
+        <DataCard />
+        <Muted>
+          <Link to="/privacy">{t.legal.privacyTitle}</Link>
+          {' · '}
+          <Link to="/terms">{t.legal.termsTitle}</Link>
+        </Muted>
       </Stack>
     </PageMain>
   )
