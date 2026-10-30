@@ -124,6 +124,9 @@ const text = (value: unknown) => String(value ?? '')
 /** A convention's name for a notification (e8-t10); its slug when it has none or is hidden */
 const conventionName = (convention: Record<string, unknown> | null, slug: string) =>
   (convention && typeof convention.nameZh === 'string' && convention.nameZh) || slug
+/** An article's title as a notification names it (BridgeHall J4) */
+const articleTitle = (article: Record<string, unknown> | null, slug: string) =>
+  (article && typeof article.title === 'string' && article.title) || slug
 
 /**
  * The club's Durable Object: accounts, the lobby and its table directory, history, challenges,
@@ -232,6 +235,7 @@ export class Club extends DurableObject<Env> implements Connections {
       notify: (id, kind, params) => this.service.notifications.notify(id, kind, params),
       members: () => this.service.memberDirectory(),
       reviewerIds: () => this.service.reviewerIds(),
+      mutesAdopted: (id) => this.service.mutesAdoptedNotices(id),
       teams: () => this.teams,
       profiles: () => this.profiles,
     })
@@ -263,7 +267,7 @@ export class Club extends DurableObject<Env> implements Connections {
     }
     try {
       const result = await runBackup(this.store, this.env.BACKUPS, Date.now())
-      jsonLog({ event: 'backup', ok: true, name: result.name, keys: result.keys, bytes: result.bytes, deleted: result.deleted.length })
+      jsonLog({ event: 'backup', ok: true, name: result.name, keys: result.keys, rows: result.rows, bytes: result.bytes, deleted: result.deleted.length })
       return result
     } catch (error) {
       jsonLog({ event: 'backup', ok: false, error: error instanceof Error ? error.message : String(error) })
@@ -547,6 +551,7 @@ export class Club extends DurableObject<Env> implements Connections {
       const b = await body()
       return json({ user: await this.service.setAccountPreferences(user.id, {
           friendOnlineNotice: b.friendOnlineNotice,
+          bookAdoptedNotice: b.bookAdoptedNotice,
           bookProfile: b.bookProfile,
           robotSpeed: b.robotSpeed,
         }) })
@@ -698,7 +703,7 @@ export class Club extends DurableObject<Env> implements Connections {
           bucket: this.env.BACKUPS,
           store: this.store,
           now: Date.now(),
-          restored: async (prefixes) => {
+          restored: async (prefixes, tables) => {
             this.book = new BookService(this.store)
             this.articles = this.newArticles()
             this.ebooks = this.newEbooks()
@@ -706,6 +711,8 @@ export class Club extends DurableObject<Env> implements Connections {
             this.service.systemSpecs.forget()
             // Members come back as of the backup and everyone signs in again (DEPLOY.md §4.4)
             if (prefixes.some((p) => ACCOUNT_PREFIXES.includes(p))) await this.service.reloadAccounts()
+            // The forum keeps nothing in memory; this fills in what an older backup's rows lack (search words, built-in boards)
+            if (tables.length) this.forum.createTables()
           },
         }),
       )
@@ -1005,12 +1012,28 @@ export class Club extends DurableObject<Env> implements Connections {
       // Drafts and review (BridgeHall e5-t07)
       if (action === 'draft') {
         if (method === 'GET') return json({ draft: await this.articles.draftOf(slug) })
-        if (method === 'PUT') return json({ draft: await this.articles.saveDraft(user, slug, await body()) })
+        if (method === 'PUT') {
+          const draft = await this.articles.saveDraft(user, slug, await body())
+          if (draft.status === 'in-review') await this.tell(() => this.notices.articleReviewRequested(user, { slug, title: articleTitle(draft.article, slug) }))
+          return json({ draft })
+        }
         await this.articles.discardDraft(user, slug, await body())
         return json({ ok: true })
       }
-      if (action === 'reject') return json({ draft: await this.articles.reject(user, slug, await body()) })
-      if (method === 'PUT') return json({ entry: await this.articles.save(user, slug, await body()) })
+      // Sent back or published: who sent it for review hears it (J4)
+      if (action === 'reject') {
+        const requestedBy = (await this.articles.draftOf(slug))?.reviewRequestedBy
+        const draft = await this.articles.reject(user, slug, await body())
+        await this.tell(() => this.notices.articleReviewed(user, 'articleReturned', { slug, title: articleTitle(draft.article, slug), requestedBy }))
+        return json({ draft })
+      }
+      if (method === 'PUT') {
+        const entry = await this.articles.save(user, slug, await body())
+        const requestedBy = entry.reviewRequestedBy
+        if (requestedBy)
+          await this.tell(() => this.notices.articleReviewed(user, 'articlePublished', { slug, title: articleTitle(entry.article, slug), requestedBy }))
+        return json({ entry })
+      }
       if (action === 'hide') return json({ entry: await this.articles.hide(user, slug, await body()) })
       if (revisionId) return json({ revision: await this.articles.revision(slug, revisionId) })
       return json({ revisions: await this.articles.revisions(slug) })

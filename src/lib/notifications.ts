@@ -44,6 +44,10 @@ export function notificationText(t: Strings, n: Notification): string {
     case 'bookReturned':
     case 'bookSuggestUnify':
       return t.notificationTexts[n.kind](name, String(n.params.name ?? n.params.slug ?? ''))
+    case 'articleReviewRequested':
+    case 'articleReturned':
+    case 'articlePublished':
+      return t.notificationTexts[n.kind](name, String(n.params.title ?? n.params.slug ?? ''))
     case 'bookOverrideChanged':
       return t.notificationTexts.bookOverrideChanged(String(n.params.name ?? n.params.slug ?? ''), String(n.params.profile ?? ''))
     case 'forumReply':
@@ -64,7 +68,8 @@ export function notificationText(t: Strings, n: Notification): string {
  * TKU BridgeHall's e-books, where the largest files are (BridgeHall e5-t15); the handbook's news to
  * BridgeHall (e8-t10, e8-t11, e2-t08): a published convention to its page, a draft sent for review to
  * its review page, one sent back to its editor, an override to the profile's compare page (with
- * `?unify=` naming the override a captain suggests dropping); the forum's news to the post on
+ * `?unify=` naming the override a captain suggests dropping); an article sent for review or back to
+ * its editor (where articles are reviewed, J4), a published one to the article; the forum's news to the post on
  * BridgeHall (e11-t08), at the comment when there is one (`#comment-<id>`)
  */
 export function notificationLink(n: Notification): string {
@@ -113,6 +118,12 @@ export function notificationLink(n: Notification): string {
       return n.params.slug ? `${BOOK_SITE}/review/${encodeURIComponent(String(n.params.slug))}` : `${BOOK_SITE}/review`
     case 'bookReturned':
       return n.params.slug ? `${BOOK_SITE}/edit/${encodeURIComponent(String(n.params.slug))}` : `${BOOK_SITE}/review`
+    // An article is reviewed in its editor, so a draft sent for review and one sent back both open it (J4)
+    case 'articleReviewRequested':
+    case 'articleReturned':
+      return n.params.slug ? `${BOOK_SITE}/library/${encodeURIComponent(String(n.params.slug))}/edit` : `${BOOK_SITE}/review`
+    case 'articlePublished':
+      return n.params.slug ? `${BOOK_SITE}/library/${encodeURIComponent(String(n.params.slug))}` : `${BOOK_SITE}/library`
     case 'bookOverrideChanged':
       return n.params.profileId ? `${BOOK_SITE}/profiles/${encodeURIComponent(String(n.params.profileId))}/compare` : BOOK_SITE
     case 'bookSuggestUnify':

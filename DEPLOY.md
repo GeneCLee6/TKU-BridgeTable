@@ -197,10 +197,11 @@ npx wrangler deploy --var TABLE_OBJECTS:off   # 牌桌搬回社團的物件，�
 - **範圍**：key 開頭是下面這些的全部資料：
   - 淡江橋譜：`book`（線上特約、`bookpart:` 分段、版本紀錄、分類、匯入草稿）、`profile`（制度集）、`article`（文章）、`team:`／`pair:`／`userteam:`／`userpair:`（隊伍與搭檔）。
   - 帳號（兩站共用）：`user:`（帳號、密碼雜湊、權限、頭像版本）、`app:`（等待核准的註冊申請）、`avatar:`（頭像圖片）。帳號與頭像在同一份備份、同一個時間點匯出，還原後每個人的頭像版本一定對得上圖片。
-  - **不在裡面**：`session:`（登入狀態，還原後大家重新登入）、`meta:settings`（邀請碼與人數上限：沒有時用 `wrangler.jsonc` 的值，而且還原不該把換掉的邀請碼帶回來；遺失的話在管理頁重新設定）、好友與封鎖、牌局紀錄與 SQL 表（之後的 e11-t12）。
-- **格式**：JSON Lines。第一行是 `{"format":"tku-bridge-backup","version":2,"createdAt":…,"prefixes":[…],"keys":N}`，之後每個 key 一行 `{"k":"<key>","v":<值>}`，值與 Durable Object 裡存的一樣；只有位元組（頭像圖片的 `Uint8Array`）寫成 `{"$bytes":"<base64>"}`，讀回來時還原成位元組（剛好叫 `$bytes` 的欄位名稱會多加一個 `$` 跳脫，讀回來一樣）。舊的 `version: 1` 備份（只有淡江橋譜）照樣可以還原，而且只還原它自己的範圍（`prefixes`），不會動到帳號。
+  - 淡江橋館的討論區（2026-10-30 起）：Durable Object SQLite 的五張表 `forum_boards`、`forum_posts`、`forum_comments`、`forum_reactions`、`forum_reports`（看板、貼文、留言、反應、檢舉）。圖片本身在 R2 `bridgebook-files`，不在備份裡（R2 不會跟著還原而消失），備份只有圖片的擁有者紀錄 `file:meta:`。討論區的文字不大：一篇貼文最多幾 KB，一千篇加留言約幾 MB，每天一份、留 30 天仍遠低於 R2 免費的 10 GB；日誌的 `bytes` 可以看實際大小。
+  - **不在裡面**：`session:`（登入狀態，還原後大家重新登入）、`meta:settings`（邀請碼與人數上限：沒有時用 `wrangler.jsonc` 的值，而且還原不該把換掉的邀請碼帶回來；遺失的話在管理頁重新設定）、好友與封鎖、私訊、牌局紀錄與紀錄索引的 SQL 表（之後的 e11-t12）。
+- **格式**：JSON Lines。第一行是 `{"format":"tku-bridge-backup","version":3,"createdAt":…,"prefixes":[…],"keys":N,"tables":[…],"rows":M}`，之後每個 key 一行 `{"k":"<key>","v":<值>}`，key 之後是 SQL 表的每一列 `{"t":"forum_posts","r":{欄位: 值}}`（照寫入的順序），值與 Durable Object 裡存的一樣；只有位元組（頭像圖片的 `Uint8Array`）寫成 `{"$bytes":"<base64>"}`，讀回來時還原成位元組（剛好叫 `$bytes` 的欄位名稱會多加一個 `$` 跳脫，讀回來一樣）。舊的 `version: 1` 備份（只有淡江橋譜）照樣可以還原，而且只還原它自己的範圍（`prefixes`），不會動到帳號；`version: 1`、`2` 沒有 SQL 表，還原時討論區不動。
 - **只有正式站**：staging 與 PR 預覽（§2.1）沒有 `BACKUPS` binding、cron 也關掉（`wrangler.jsonc` 的 `env.*.triggers`），不會寫到正式站的 bucket；在那裡呼叫管理 API 會回 503（`backupUnavailable`）。
-- **日誌**：每次備份記一筆 `event = backup`（`ok`、`name`、`keys`、`bytes`、`deleted`；失敗時 `error`）。
+- **日誌**：每次備份記一筆 `event = backup`（`ok`、`name`、`keys`、`rows`（SQL 表的列數）、`bytes`、`deleted`；失敗時 `error`）。
 
 ### 第一次啟用（部署這個版本**之前**）
 
@@ -235,7 +236,9 @@ await call('POST', '/backups/restore', { name: 'daily/2026-10-25.jsonl', dryRun:
 
 ### 還原
 
-還原會讓**備份範圍內**（那份備份標頭的 `prefixes`）的資料變回備份當時的樣子：備份之後新增的特約、版本紀錄、草稿都會被刪掉；牌局紀錄不受影響。`book:ticket:`（匯入用的一次性憑證）不還原。`book:version` 會設成比現在和備份都大的數字，讓所有瀏覽器重新下載內容。
+還原會讓**備份範圍內**（那份備份標頭的 `prefixes` 與 `tables`）的資料變回備份當時的樣子：備份之後新增的特約、版本紀錄、草稿都會被刪掉；牌局紀錄不受影響。
+
+`version: 3` 的備份也把**討論區**還原到那一天：五張表先清空、再寫回備份的列（同一個 transaction，失敗就全部不變）；備份之後的貼文、留言、反應、檢舉都會消失，改過的看板名稱回到那天。寫入前先檢查每張表與欄位現在都還在，對不上就整個拒絕（`badBackup`），帳號與特約也不會動。備份之後上傳的討論區圖片仍在 R2，但引用它的貼文消失了，就沒人看得到；之後若要清理再另外處理。預演的回應多了 `tables` 與 `rows`。`book:ticket:`（匯入用的一次性憑證）不還原。`book:version` 會設成比現在和備份都大的數字，讓所有瀏覽器重新下載內容。
 
 還原 `version: 2` 的備份時，帳號也回到那一天：
 
@@ -247,7 +250,7 @@ await call('POST', '/backups/restore', { name: 'daily/2026-10-25.jsonl', dryRun:
 2. **先備份現況**：`POST /backups`（還原錯了還能回來；注意同一天會覆蓋當天的檔，要保留今天稍早的版本就先下載：`npx wrangler r2 object get tku-bridge-backups/daily/<日期>.jsonl --remote --file before-restore.jsonl`）。
 3. 預演：`POST /backups/restore { name }`，看 `puts`、`deletes` 合不合理。
 4. 還原：`POST /backups/restore { name, dryRun: false, confirm: name }`。
-5. 到淡江橋譜重新整理，確認特約內容與分類是備份那天的樣子；重新登入淡江牌桌，確認社員名單與頭像是備份那天的樣子。
+5. 到淡江橋譜重新整理，確認特約內容與分類是備份那天的樣子；重新登入淡江牌桌，確認社員名單與頭像是備份那天的樣子；打開淡江橋館的討論區，確認最新的貼文是備份那天的。
 
 要看備份內容：`npx wrangler r2 object get tku-bridge-backups/daily/<日期>.jsonl --remote --file backup.jsonl`，用文字編輯器打開（每行一個 key）。
 

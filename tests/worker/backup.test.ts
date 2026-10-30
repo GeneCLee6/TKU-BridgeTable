@@ -7,6 +7,7 @@ import {
   BACKUP_FORMAT_VERSION,
   BACKUP_PREFIXES,
   BACKUP_KEEP_DAYS,
+  BACKUP_TABLES,
   type BackupBucket,
   backupAdmin,
   backupName,
@@ -22,6 +23,7 @@ import {
   serializeBackup,
 } from '../../worker/backup.ts'
 import { BookService } from '../../worker/book.ts'
+import { ForumService } from '../../worker/forum.ts'
 import { ClubService, type Connections } from '../../worker/service.ts'
 import { MemoryStore } from '../../worker/store.ts'
 import { memoryStore } from './sqlite.ts'
@@ -133,6 +135,8 @@ describe('export', () => {
       createdAt: '2026-10-24T19:00:00.000Z',
       prefixes: [...BACKUP_PREFIXES],
       keys: 3,
+      tables: [],
+      rows: 0,
     })
     expect(parseBackup(text).entries).toEqual(entries)
   })
@@ -334,6 +338,87 @@ describe('with the bucket', () => {
   it('refuses a name that is not a daily backup', async () => {
     await expect(restoreBackup(store, bucket, '../user:u1', true)).rejects.toMatchObject({ code: 'backupNotFound' })
     await expect(restoreBackup(store, bucket, day('2020-01-01'), true)).rejects.toMatchObject({ code: 'backupNotFound' })
+  })
+})
+
+describe("the forum's SQL tables", () => {
+  const forumStore = () => {
+    const sqlStore = memoryStore()
+    new ForumService(sqlStore.sql, { now: () => NOW, newId: () => 'x', members: () => [] }).createTables()
+    return sqlStore
+  }
+  const post = (id: string, title: string) => [id, 'chat', 'u1', title, '[{"kind":"paragraph","text":"hi"}]', '[]', NOW, `${title} hi`] as const
+  const insertPost = (s: MemoryStore, id: string, title: string) =>
+    s.sql.exec(
+      'INSERT INTO forum_posts (id, board_id, author_id, title, blocks, mentions, created_at, body_text) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      ...post(id, title),
+    )
+  const titles = (s: MemoryStore) => s.sql.exec<{ title: string }>('SELECT title FROM forum_posts ORDER BY rowid').map((r) => r.title)
+
+  it('backs up every forum table and restores it as it was, rows made since gone', async () => {
+    const s = forumStore()
+    insertPost(s, 'p2', '第二篇')
+    insertPost(s, 'p1', '第一篇')
+    s.sql.exec("INSERT INTO forum_comments (id, post_id, parent_id, author_id, blocks, mentions, created_at) VALUES ('c1', 'p1', NULL, 'u1', '[]', '[]', ?)", NOW)
+    s.sql.exec("INSERT INTO forum_reactions (target, target_id, user_id, emoji, created_at) VALUES ('post', 'p1', 'u2', '👍', ?)", NOW)
+    s.sql.exec("INSERT INTO forum_reports (id, target, target_id, reporter_id, reason, created_at, status) VALUES ('r1', 'post', 'p2', 'u2', 'spam', ?, 'open')", NOW)
+    await s.put('user:u1', { username: 'amy' })
+    const result = await runBackup(s, bucket, NOW)
+    const boards = s.sql.exec('SELECT * FROM forum_boards').length
+    expect(result.rows).toBe(boards + 5)
+    const backup = parseBackup(bucket.objects.get(day('2026-10-25'))!.text)
+    expect(backup.header).toMatchObject({ version: 3, tables: BACKUP_TABLES.map((t) => t.name), rows: boards + 5 })
+
+    // After the backup: a post edited, one added, a reaction removed, a board renamed
+    s.sql.exec("UPDATE forum_posts SET title = '改過' WHERE id = 'p2'")
+    insertPost(s, 'p3', '新的')
+    s.sql.exec('DELETE FROM forum_reactions')
+    s.sql.exec("UPDATE forum_boards SET name = '改名' WHERE id = 'chat'")
+
+    const dry = await restoreBackup(s, bucket, day('2026-10-25'), true)
+    expect(dry).toMatchObject({ tables: BACKUP_TABLES.map((t) => t.name), rows: boards + 5 })
+    expect(titles(s)).toEqual(['改過', '第一篇', '新的'])
+
+    await restoreBackup(s, bucket, day('2026-10-25'), false)
+    // Same rows, in the same rowid order (ties in a board's list are broken by it)
+    expect(titles(s)).toEqual(['第二篇', '第一篇'])
+    expect(s.sql.exec('SELECT id, post_id FROM forum_comments')).toEqual([{ id: 'c1', post_id: 'p1' }])
+    expect(s.sql.exec('SELECT emoji FROM forum_reactions')).toEqual([{ emoji: '👍' }])
+    expect(s.sql.exec("SELECT status FROM forum_reports WHERE id = 'r1'")).toEqual([{ status: 'open' }])
+    expect(s.sql.exec("SELECT name FROM forum_boards WHERE id = 'chat'")).not.toEqual([{ name: '改名' }])
+    expect(s.sql.exec('SELECT * FROM forum_boards').length).toBe(boards)
+  })
+
+  it('leaves the forum alone when restoring a backup from before it (version 2)', async () => {
+    const s = forumStore()
+    await s.put('book:entry:a', { v: 1 })
+    const v2 = [
+      JSON.stringify({ format: BACKUP_FORMAT, version: 2, createdAt: '2026-10-24T19:00:00.000Z', prefixes: ['book'], keys: 1 }),
+      JSON.stringify({ k: 'book:entry:a', v: { v: 2 } }),
+    ].join('\n')
+    await bucket.put(day('2026-10-25'), v2)
+    insertPost(s, 'p1', '留著')
+    expect(await restoreBackup(s, bucket, day('2026-10-25'), false)).toMatchObject({ tables: [], rows: 0 })
+    expect(titles(s)).toEqual(['留著'])
+    expect(await s.get('book:entry:a')).toEqual({ v: 2 })
+  })
+
+  it('refuses rows it cannot put back, before writing anything', async () => {
+    const s = forumStore()
+    insertPost(s, 'p1', '原本')
+    await runBackup(s, bucket, NOW)
+    const text = bucket.objects.get(day('2026-10-25'))!.text
+    const lines = text.trimEnd().split('\n')
+    const header = lines[0]
+    // An unknown table, a column that is not there, a value that is not plain SQL, a key after the rows
+    expect(() => parseBackup(`${header.replace('"forum_posts"', '"users"')}\n${lines.slice(1).join('\n')}`)).toThrow()
+    expect(() => parseBackup(text.replace('"title":"原本"', '"title":{"x":1}'))).toThrow()
+    expect(() => parseBackup(`${text}{"k":"book:x","v":1}`)).toThrow()
+    await bucket.put(day('2026-10-24'), text.replace('"title":"原本"', '"title; DROP TABLE forum_posts; --":"x"'))
+    await s.put('book:entry:a', { v: 1 })
+    await expect(restoreBackup(s, bucket, day('2026-10-24'), false)).rejects.toMatchObject({ code: 'badBackup' })
+    expect(titles(s)).toEqual(['原本'])
+    expect(await s.get('book:entry:a')).toEqual({ v: 1 })
   })
 })
 

@@ -1,6 +1,9 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it } from 'vitest'
-import type { Me, NotificationKind, ProfileOverride, SystemProfile } from '../../shared/protocol.ts'
+import { BOOK_SITE } from '../../shared/book-site.ts'
+import type { Me, Notification, NotificationKind, ProfileOverride, SystemProfile } from '../../shared/protocol.ts'
+import { notificationLink, notificationText } from '../../src/lib/notifications.ts'
+import { STRINGS } from '../../src/strings.ts'
 import { BookNotices, overrideRef } from '../../worker/book-notices.ts'
 import { ProfileService } from '../../worker/profiles.ts'
 import { MemoryStore } from '../../worker/store.ts'
@@ -109,6 +112,28 @@ describe('publishing (e8-t10, e8-t11)', () => {
     expect(sent).toEqual([{ to: 'eve', kind: 'bookPublished', params: { slug: 'stayman', name: '斯台曼', version: 3, username: 'ned' } }])
   })
 
+  it('leaves out who turned the notice off, unless they follow it, sent it or have an override touched (F4 mute)', async () => {
+    const { pair } = await club()
+    const muted = new Set(['amy', 'ben', 'cat', 'eve'])
+    notices = new BookNotices(store, {
+      notify: async (to, kind, params) => void sent.push({ to, kind, params: params as Record<string, string | number> }),
+      members: () => IDS.map((id) => ({ id, username: `n${id}` })),
+      reviewerIds: () => ['ed', 'eve'],
+      mutesAdopted: (id) => muted.has(id),
+      teams: () => teams,
+      profiles: () => profiles,
+    })
+    await notices.setFollowing('cat', 'stayman', { following: true })
+    await publish([], { requestedBy: 'neve' })
+    // amy and ben only play it: quiet; cat follows it and eve sent it: told
+    expect(sent.map((s) => s.to).sort()).toEqual(['cat', 'eve'])
+    sent = []
+    await change(pair.profileId, { overrides: [row('stayman', 's2')] })
+    await publish(['s2'])
+    expect(sent.filter((s) => s.kind === 'bookOverrideChanged').map((s) => s.to).sort()).toEqual(['amy', 'ben'])
+    expect(sent.filter((s) => s.kind === 'bookPublished').map((s) => s.to)).toEqual(['cat'])
+  })
+
   it('leaves out ended partnerships and archived teams', async () => {
     const { team, pair } = await club()
     await teams.end(amy, pair.id)
@@ -141,6 +166,37 @@ describe('review (e8-t10)', () => {
     sent = []
     await notices.returned(editor, { slug: 'stayman', name: '斯台曼' })
     expect(sent).toEqual([])
+  })
+})
+
+describe("articles' review (J4)", () => {
+  const article = { slug: 'opening-leads', title: '首攻' }
+
+  it('tells the reviewers about a draft sent for review, and who sent it when it comes back or is published', async () => {
+    await notices.articleReviewRequested(me('eve'), article)
+    expect(sent).toEqual([{ to: 'ed', kind: 'articleReviewRequested', params: { ...article, username: 'neve' } }])
+    sent = []
+    await notices.articleReviewed(editor, 'articleReturned', { ...article, requestedBy: 'neve' })
+    await notices.articleReviewed(editor, 'articlePublished', { ...article, requestedBy: 'neve' })
+    expect(sent).toEqual([
+      { to: 'eve', kind: 'articleReturned', params: { ...article, username: 'ned' } },
+      { to: 'eve', kind: 'articlePublished', params: { ...article, username: 'ned' } },
+    ])
+    sent = []
+    // Published straight away, or by who sent it: nobody to tell
+    await notices.articleReviewed(editor, 'articlePublished', article)
+    await notices.articleReviewed(editor, 'articlePublished', { ...article, requestedBy: 'ned' })
+    expect(sent).toEqual([])
+  })
+
+  it('open the article editor on BridgeHall, where articles are reviewed, or the article once published', () => {
+    const n = (kind: NotificationKind, params: Notification['params']): Notification => ({ id: 'n', at: 0, kind, params, read: false })
+    const params = { ...article, username: 'ned' }
+    expect(notificationLink(n('articleReviewRequested', params))).toBe(`${BOOK_SITE}/library/opening-leads/edit`)
+    expect(notificationLink(n('articleReturned', params))).toBe(`${BOOK_SITE}/library/opening-leads/edit`)
+    expect(notificationLink(n('articlePublished', params))).toBe(`${BOOK_SITE}/library/opening-leads`)
+    expect(notificationLink(n('articleReturned', {}))).toBe(`${BOOK_SITE}/review`)
+    expect(notificationText(STRINGS.zh, n('articleReturned', params))).toBe('ned 退回了文章「首攻」的草稿')
   })
 })
 
