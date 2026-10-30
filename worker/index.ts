@@ -4,6 +4,7 @@ import { d1Replica } from './d1.ts'
 import { edgeSecret } from './edge-auth.ts'
 import { jsonLog } from './log.ts'
 import { route } from './routing.ts'
+import { withSecurityHeaders } from './security-headers.ts'
 
 export { Club } from './club.ts'
 export { TableObject } from './table-object.ts'
@@ -16,7 +17,7 @@ export { EventObject } from './event-object.ts'
  */
 export default {
   async fetch(request, env) {
-    return route(request, {
+    const response = await route(request, {
       // Each club its own object (e12-t02, shared/clubs.ts)
       club: (clubId) => {
         const stub = clubStub(env, clubId)
@@ -33,6 +34,8 @@ export default {
         log: jsonLog,
       },
     })
+    // CSP and the other security headers (e11-t23, worker/security-headers.ts)
+    return withSecurityHeaders(response, new URL(request.url).pathname)
   },
   /** The cron trigger in wrangler.jsonc: every club's daily backup to R2 (worker/backup.ts) */
   async scheduled(_controller, env, ctx) {

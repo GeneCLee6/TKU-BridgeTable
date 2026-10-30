@@ -2,11 +2,11 @@ import { Ban, Mail, Star, X } from 'lucide-react'
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import styled from 'styled-components'
-import { FRIENDS_ENABLED } from '../../shared/features.ts'
 import type { MemberProfile } from '../../shared/profile.ts'
 import { resultLabel } from '../../shared/scoring.ts'
 import { api, ApiError } from '../lib/api.ts'
 import { formatDateTime, signed } from '../lib/format.ts'
+import { useFeature } from '../state/AuthContext.tsx'
 import { usePreferences } from '../state/PreferencesContext.tsx'
 import { Avatar } from './Avatar.tsx'
 import { ContractLabel } from './Suit.tsx'
@@ -193,7 +193,7 @@ const ActionRow = styled.div`
 
 /**
  * Friend, message and block, for someone other than the viewer; each is only asked of the server.
- * While friends are hidden (FRIENDS_ENABLED) only the message button is left, and unblocking a
+ * While the member does not have friends (the `friends` flag) only the message button is left, and unblocking a
  * member blocked before
  */
 export function ProfileActions({
@@ -213,9 +213,10 @@ export function ProfileActions({
   onMessage?: () => void
 }) {
   const { t } = usePreferences()
+  const friendsOn = useFeature('friends')
   return (
     <ActionRow>
-      {FRIENDS_ENABLED && (
+      {friendsOn && (
         <Button
           type="button"
           $size="sm"
@@ -234,7 +235,7 @@ export function ProfileActions({
           {t.messageShort}
         </Button>
       )}
-      {(FRIENDS_ENABLED || blocked) && (
+      {(friendsOn || blocked) && (
         <Button
           type="button"
           $size="sm"

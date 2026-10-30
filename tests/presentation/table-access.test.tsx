@@ -25,6 +25,7 @@ vi.mock('../../src/state/ClubContext.tsx', () => ({
 }))
 vi.mock('../../src/state/AuthContext.tsx', () => ({
   useAuth: () => ({ user: { id: 'bob', username: 'bob', admin: false, permissions: [] } }),
+  useFeature: () => false,
 }))
 
 const tableSummary = (id: string, number: number, extra: Partial<TableSummary>): TableSummary => ({

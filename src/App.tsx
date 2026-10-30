@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { Navigate, Route, Routes } from 'react-router-dom'
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import styled from 'styled-components'
 import { AppHeader } from './components/AppHeader.tsx'
 import { TOAST_TIMEOUT, ToastProvider, useToast } from './components/Toast.tsx'
@@ -16,6 +16,7 @@ import { FeaturedPage } from './pages/FeaturedPage.tsx'
 import { FavoritesPage } from './pages/FavoritesPage.tsx'
 import { HistoryPage } from './pages/HistoryPage.tsx'
 import { LobbyPage } from './pages/LobbyPage.tsx'
+import { LegalPage } from './pages/LegalPage.tsx'
 import { LoginPage } from './pages/LoginPage.tsx'
 import { MatchesPage } from './pages/MatchesPage.tsx'
 import { MatchPage } from './pages/MatchPage.tsx'
@@ -71,6 +72,9 @@ function ConnectionBanner() {
 function Routed() {
   const { user } = useAuth()
   const { t } = usePreferences()
+  const { pathname } = useLocation()
+  // The privacy policy and the terms are for anyone, signed in or not (e11-t27)
+  if (pathname === '/privacy' || pathname === '/terms') return <LegalPage kind={pathname === '/privacy' ? 'privacy' : 'terms'} />
   if (user === undefined) return <PageMain>{t.loading}</PageMain>
   if (user === null) return <LoginPage />
   return (

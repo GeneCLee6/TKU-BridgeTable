@@ -66,7 +66,7 @@ export function memberOrder(friends: ReadonlySet<string>) {
  * listed for everyone with whether the viewer may come in, and the viewer's own hidden ones, in
  * the lobby's order; every member in the People panel's order, placed at the viewer's own tables too
  */
-export function composeLobby(shared: LobbyShared, mine: LobbyMine): LobbyView {
+export function composeLobby(shared: LobbyShared, mine: LobbyMine, friendsOn: boolean = FRIENDS_ENABLED): LobbyView {
   const welcome = new Set(mine.welcome)
   const requested = new Set(mine.requested)
   const tables: TableSummary[] = [
@@ -78,8 +78,8 @@ export function composeLobby(shared: LobbyShared, mine: LobbyMine): LobbyView {
       const place = mine.places[m.id]
       return place ? { ...m, ...place } : m
     })
-    // While friends are hidden (FRIENDS_ENABLED) nobody is put on top
-    .sort(memberOrder(new Set(FRIENDS_ENABLED ? mine.friends : [])))
+    // Friends on top only for a member who has them (the `friends` flag, shared/features.ts)
+    .sort(memberOrder(new Set(friendsOn ? mine.friends : [])))
   return {
     online: members
       .filter((m) => m.online)

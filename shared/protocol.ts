@@ -1,3 +1,4 @@
+import type { FeatureFlag } from './features.ts'
 import type { AuctionCall, BookNote, Call, Contract } from './auction.ts'
 import type { Vulnerability } from './board.ts'
 import type { BoardEvent, BoardRuling } from './board-events.ts'
@@ -85,6 +86,8 @@ export interface Me extends PublicUser {
   bookProfile?: string
   /** How fast the robots play at the member's tables (出牌速度); the server always sets it */
   robotSpeed?: RobotSpeed
+  /** The feature flags the member has (e11-t26, shared/features.ts); the server always sets it */
+  features?: FeatureFlag[]
 }
 
 /** Where someone registered; both sites share the accounts */
@@ -1099,6 +1102,8 @@ export const LIMITS = {
   usernameMin: 2,
   usernameMax: 16,
   passwordMin: 6,
+  /** ASVS 2.1.2: long enough for any passphrase, short enough that hashing one costs nothing (docs/SECURITY.md) */
+  passwordMax: 128,
   applicationNoteMax: 60,
   chatMax: 300,
   directMax: 500,
