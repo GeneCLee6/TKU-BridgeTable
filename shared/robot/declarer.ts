@@ -4,8 +4,9 @@ import { suitCards } from './hand.ts'
 import { byRank, honours, value, type View } from './view.ts'
 
 /**
- * The declarer's plan (e6-t41, ROBOT.md §3.4): count the sure tricks against the tricks still
- * needed; draw trumps, knocking out a missing top trump; ruff losers in the hand with fewer
+ * The declarer's plan (e6-t41, ROBOT.md §3.4, V4c §3.10): cash the winners this hand cannot get
+ * back to; count the sure tricks (a suit that runs counts all its length) against the tricks still
+ * needed; draw trumps, knocking out one or two missing top trumps; ruff losers in the hand with fewer
  * trumps; when the sure tricks are enough, cash them, the high cards from the shorter holding
  * first; when they are not, take a finesse the auction favours, then set up the longest suit
  * before cashing; in notrump hold up a single stopper in the suit the defence attacks.
@@ -27,6 +28,9 @@ export function declarerLead(
   const trumpsOut = trump !== null && view.outstanding(trump) > 0
   const enough = sureTricks(view, trump) >= view.needed()
 
+  const stranded = strandedMaster(view, hand, partner, trump, ruffed)
+  if (stranded) return stranded
+
   if (trump && trumpsOut) {
     const top = mine(trump)[0]
     // Ruff a loser in the hand with fewer trumps before they are drawn
@@ -41,8 +45,11 @@ export function declarerLead(
       // Towards partner's master trump
       if (partnerTop && view.isMaster(partnerTop)) return mine(trump).at(-1)!
     }
-    // Knock out the one trump above our sequence, whatever the count: the rest are then ours
-    if (top && view.higherOut(top).length === 1 && touching(view, top, [...hand, ...partner])) return top
+    // Knock out the one or two trumps above our sequence (KQ against the ace, QJ against AK),
+    // whatever the count: the rest are then ours. Not when they are the only trumps out: they
+    // take their tricks anyway, and leading at them spends two of ours (V4c)
+    const above = top ? view.higherOut(top).length : 0
+    if (top && above >= 1 && above <= 2 && view.outstanding(trump) > above && touching(view, top, [...hand, ...partner])) return top
   }
 
   const cashing = cash(view, hand, partner, sides, ruffed)
@@ -56,15 +63,48 @@ export function declarerLead(
   return cashing
 }
 
+/**
+ * Masters this hand cannot reach again: partner is void in the suit and this hand has no master
+ * elsewhere that partner could lead to. Cash them now, while this hand is on lead (partner
+ * throws its losers on them), unless an opponent is known to ruff.
+ */
+function strandedMaster(view: View, hand: Card[], partner: Card[], trump: Suit | null, ruffed: (s: Suit) => boolean): Card | null {
+  if (!partner.length) return null
+  const entry = SUITS.some((s) => {
+    const top = suitCards(hand, s)[0]
+    return top && view.isMaster(top) && suitCards(partner, s).length > 0
+  })
+  if (entry) return null
+  for (const s of SUITS) {
+    if (s === trump || ruffed(s)) continue
+    const mine = suitCards(hand, s)
+    if (!mine.length || suitCards(partner, s).length || !view.isMaster(mine[0]) || view.outstanding(s) === 0) continue
+    // Partner has something to throw: a card that would lose
+    if (!partner.some((c) => suitOf(c) !== trump && !view.isMaster(c))) continue
+    return mine[0]
+  }
+  return null
+}
+
 /** Sure tricks: top tricks in every suit; once trumps are drawn, every trump of the longer holding */
 function sureTricks(view: View, trump: Suit | null): number {
   let n = 0
   for (const s of SUITS) {
     if (s === trump && view.outstanding(s) === 0) {
       n += Math.max(suitCards(view.ownCards(), s).length, suitCards(view.partnerCards(), s).length)
-    } else n += view.topTricks(s)
+    } else n += runningTricks(view, s)
   }
   return n
+}
+
+/**
+ * The tricks a suit gives cashed from the top: the masters in a row, or every card of the longer
+ * holding when there are as many masters as cards out (the rest fall under them)
+ */
+function runningTricks(view: View, s: Suit): number {
+  const top = view.topTricks(s)
+  const longer = Math.max(suitCards(view.ownCards(), s).length, suitCards(view.partnerCards(), s).length)
+  return top > 0 && top >= view.outstanding(s) ? longer : top
 }
 
 /** Cash a sure winner, not into a ruff: from the shorter holding first so the suit does not block */
@@ -83,21 +123,22 @@ function cash(view: View, hand: Card[], partner: Card[], sides: Suit[], ruffed: 
 }
 
 /**
- * Set up the longest side suit that is not ours yet: seven cards or more between the hands,
- * at most two cards out above our second best. Knock out the top with a sequence, or lead
+ * Set up the longest side suit that is not ours yet (does not run from the top; an ace-headed
+ * suit such as AQJxx counts): six cards or more between the hands, at most two cards out above
+ * our second best. Knock out the top with a sequence, or lead
  * low towards partner's honours.
  */
 function setUp(view: View, hand: Card[], partner: Card[], sides: Suit[], ruffed: (s: Suit) => boolean): Card | null {
   const both = [...hand, ...partner]
+  const length = (s: Suit) => Math.max(suitCards(hand, s).length, suitCards(partner, s).length)
   const candidates = sides.filter((s) => {
     if (ruffed(s)) return false
     const ours = suitCards(both, s)
     if (ours.length < 6 || view.outstanding(s) === 0) return false
     const second = ours[1]
-    return second !== undefined && view.higherOut(second).length <= 2 && view.higherOut(ours[0]).length > 0
+    return second !== undefined && view.higherOut(second).length <= 2 && runningTricks(view, s) < length(s)
   })
   if (!candidates.length) return null
-  const length = (s: Suit) => Math.max(suitCards(hand, s).length, suitCards(partner, s).length)
   const s = [...candidates].sort((a, b) => length(b) - length(a) || honours(suitCards(both, b)) - honours(suitCards(both, a)))[0]
   const mine = suitCards(hand, s)
   const theirs = suitCards(partner, s)
