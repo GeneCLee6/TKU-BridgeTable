@@ -5,7 +5,14 @@ import { formatDateTime, formatRelative, signed } from '../lib/format.ts'
 import { usePreferences } from '../state/PreferencesContext.tsx'
 import { boardPlace, playerName } from '../strings.ts'
 import { FavoriteButton } from './FavoriteButton.tsx'
+import { rulingLabel } from '../lib/rulings.ts'
 import { ContractLabel } from './Suit.tsx'
+
+const Ruled = styled.small`
+  display: block;
+  font-weight: 600;
+  color: ${({ theme }) => theme.colors.textMuted};
+`
 
 /**
  * One board in the history list (DESIGN.md §7.4) and the matching header. A column added here
@@ -270,6 +277,12 @@ export function HistoryRow({ board: b, onOpen }: { board: BoardSummary; onOpen: 
       <td data-col="result">{b.contract ? resultLabel(b.contract, b.result.declarerTricks) : '—'}</td>
       <Num data-col="score" $value={b.result.scoreNS}>
         {signed(b.result.scoreNS)}
+        {/* A director's ruling (`e2-t35`) stands beside the score as played */}
+        {b.ruling && (
+          <Ruled title={rulingLabel(t, b.ruling)}>
+            {t.director.ruling} {rulingLabel(t, b.ruling)}
+          </Ruled>
+        )}
       </Num>
     </tr>
   )

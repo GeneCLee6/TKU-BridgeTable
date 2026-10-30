@@ -1,5 +1,6 @@
 import { legalCalls, type AuctionCall, type BookNote, type Call } from '../shared/auction.ts'
 import type { Vulnerability } from '../shared/board.ts'
+import type { BoardEvent } from '../shared/board-events.ts'
 import { bookTopics } from '../shared/book-topics.ts'
 import { nextSeat, partnerOf, SEATS, sideOf, type Seat } from '../shared/cards.ts'
 import { ROBOT_SYSTEMS } from '../shared/robot/robots.ts'
@@ -117,6 +118,13 @@ export interface Table {
    * table (`e10-t10`) are controllers too. Only a practice table sets it for now, and only for calls
    */
   controllers?: Partial<Record<Seat, string>>
+  /**
+   * The board on the table's action log (`e2-t32`): append-only, with the server's time. Never
+   * sent to the browser while the board is played; its record keeps it once it is finished
+   */
+  events?: BoardEvent[]
+  /** A player called the director (`e2-t34`): who and when; cleared by the host, an admin or the caller */
+  directorCall?: { userId: string; at: number }
 }
 
 /** Who makes the calls for a seat: its controller, else whoever sits there (a member or a robot) */

@@ -1272,6 +1272,25 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
         <Area $area="actions" $align="end" $justify="end" data-tour="actions">
           <Actions>
             {!me && <Note>{t.kibitzing}</Note>}
+            {/* 叫裁判 (`e2-t34`): everyone at the table sees the call; the host, an admin or the caller clears it */}
+            {table.directorCall && (
+              <Note role="status">
+                {t.director.called(table.directorCall.user.username)}
+                {(table.hostId === user?.id || user?.admin || table.directorCall.user.id === user?.id) && (
+                  <>
+                    {' '}
+                    <FeltButton type="button" $tone="plain" onClick={() => send({ type: 'clearDirector' })}>
+                      {t.director.clear}
+                    </FeltButton>
+                  </>
+                )}
+              </Note>
+            )}
+            {me && !table.directorCall && !challenge && !practice && (
+              <FeltButton type="button" $tone="plain" onClick={() => window.confirm(t.director.confirmCall) && send({ type: 'callDirector' })}>
+                {t.director.call}
+              </FeltButton>
+            )}
             {swapNotice && <Note role="status">{t.swappedToDeclare}</Note>}
             {challenge && challenge.played >= challenge.boards && board?.phase === 'finished' && (
               <Note role="status">

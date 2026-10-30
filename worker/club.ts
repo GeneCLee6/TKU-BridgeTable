@@ -611,6 +611,12 @@ export class Club extends DurableObject<Env> implements Connections {
       if (!found) throw new ClubError('boardGone', {}, 404)
       return json({ record: found })
     }
+    // A director's ruling on a board (e2-t35): `{ ruling }`, null to take one back; the record comes back
+    const ruling = url.pathname.match(/^\/api\/history\/([\w-]+)\/ruling$/)
+    if (request.method === 'POST' && ruling) {
+      const b = (await body()) as { ruling?: unknown }
+      return json({ record: await this.service.ruleBoard(user.id, ruling[1], b.ruling ?? null) })
+    }
     // A board's traveller (e4-t32): null when it has none the member may see
     const traveller = url.pathname.match(/^\/api\/history\/([\w-]+)\/traveller$/)
     if (request.method === 'GET' && traveller) return json({ traveller: await this.service.traveller(traveller[1], user.id) })

@@ -1,4 +1,4 @@
-import { ChevronFirst, ChevronLast, ChevronLeft, ChevronRight } from 'lucide-react'
+import { ChevronFirst, ChevronLast, ChevronLeft, ChevronRight, Pause, Play } from 'lucide-react'
 import { useEffect } from 'react'
 import styled from 'styled-components'
 import type { useTrickReplay } from '../lib/useTrickReplay.ts'
@@ -22,15 +22,35 @@ const Controls = styled.div`
   margin-top: 12px;
 `
 
+const Label = styled.label`
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 14px;
+  color: ${({ theme }) => theme.colors.textMuted};
+`
+
+/** m:ss */
+const clock = (ms: number) => {
+  const seconds = Math.max(0, Math.round(ms / 1000))
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
+}
+
 export function ReplayControls({
   replay,
   total,
   dd,
+  real,
   keys = true,
 }: {
   replay: ReturnType<typeof useTrickReplay>
   total: number
   dd?: { on: boolean; onChange: (on: boolean) => void }
+  /**
+   * 照實際速度 (`e2-t33`), when the record has its action log: the switch, and how long into the
+   * board the card shown was played (ms); with it on, a play button runs the rest of the board
+   */
+  real?: { on: boolean; onChange: (on: boolean) => void; elapsed: number }
   /** False leaves the arrow keys alone: the side panel's record, beside a table that plays cards with them */
   keys?: boolean
 }) {
@@ -69,6 +89,24 @@ export function ReplayControls({
       <Button type="button" $small onClick={replay.end} aria-label={t.end}>
         <ChevronLast size={18} aria-hidden />
       </Button>
+      {real?.on && (
+        <Button
+          type="button"
+          $small
+          onClick={replay.playing ? replay.pause : replay.play}
+          disabled={!replay.playing && step >= total}
+          aria-label={replay.playing ? t.realReplay.pause : t.realReplay.play}
+        >
+          {replay.playing ? <Pause size={18} aria-hidden /> : <Play size={18} aria-hidden />}
+        </Button>
+      )}
+      {real?.on && step > 0 && <Muted>{t.realReplay.elapsed(clock(real.elapsed))}</Muted>}
+      {real && (
+        <Label>
+          <input type="checkbox" checked={real.on} onChange={(e) => real.onChange(e.target.checked)} />
+          {t.realReplay.realSpeed}
+        </Label>
+      )}
       <PlayedCardsSwitch />
       {dd && <DdSwitch on={dd.on} onChange={dd.onChange} />}
     </Controls>
