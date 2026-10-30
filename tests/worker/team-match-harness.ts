@@ -100,9 +100,15 @@ export async function teamHarness() {
    * Amy hosts (team A, open room South) a match of `boards` boards; each member given takes the
    * seat given, the other seats get robots
    */
-  async function match({ boards = 4, seats = {} as Record<string, MatchSeat>, scoring = 'imp' as 'imp' | 'bam', boardMinutes = 10 } = {}) {
+  async function match({
+    boards = 4,
+    seats = {} as Record<string, MatchSeat>,
+    scoring = 'imp' as 'imp' | 'bam',
+    boardMinutes = 10,
+    segmentBoards = 0,
+  } = {}) {
     const amy = await member('amy')
-    const { id } = club().matches.create(amy, { settings: { boards, scoring, boardMinutes } })
+    const { id } = club().matches.create(amy, { settings: { boards, scoring, boardMinutes, segmentBoards } })
     const people: Record<string, string> = { amy }
     for (const [name, seat] of Object.entries(seats)) {
       const userId = await member(name)

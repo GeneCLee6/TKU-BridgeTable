@@ -394,6 +394,59 @@ describe('the result page and the host’s controls (F5)', () => {
   })
 })
 
+describe('segments and changing seats between them (e8-t21)', () => {
+  it('lets the host set boards per segment', async () => {
+    mocks.api.match.mockResolvedValue({ match: prepRoom() })
+    mocks.api.matchSettings.mockResolvedValue({ match: prepRoom() })
+    show('/matches/m1')
+    await userEvent.selectOptions(await screen.findByLabelText('分段'), '每段 4 副（共 2 段）')
+    await userEvent.click(screen.getByRole('button', { name: '儲存' }))
+    expect(mocks.api.matchSettings).toHaveBeenCalledWith('m1', expect.objectContaining({ boards: 8, segmentBoards: 4 }))
+  })
+
+  it('shows the break between segments: the captain swaps seats, the host starts the next segment', async () => {
+    const match = playing({ settings: { ...defaultTeamMatchSettings(), segmentBoards: 4 }, segment: 1, breakAt: 5 })
+    mocks.api.match.mockResolvedValue({ match })
+    mocks.api.matchPlay.mockResolvedValue({ match })
+    mocks.api.matchSeat.mockResolvedValue({ match })
+    show('/matches/m1')
+    expect(await screen.findByText('第 1 / 2 段')).toBeInTheDocument()
+    expect(screen.getByText(/第 1 段打完了。隊長可以換座位/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '中止比賽' })).toBeEnabled()
+    await userEvent.click(within(screen.getByLabelText('開室南')).getByRole('button', { name: '換位' }))
+    await userEvent.click(within(screen.getByLabelText('閉室東')).getByRole('button', { name: '換到這裡' }))
+    expect(mocks.api.matchSeat).toHaveBeenCalledWith('m1', { action: 'move', from: { room: 'open', seat: 'S' }, to: expect.objectContaining({ room: 'closed', seat: 'E' }) })
+    await userEvent.click(screen.getByRole('button', { name: '開始第 2 段' }))
+    expect(mocks.api.matchPlay).toHaveBeenCalledWith('m1', { action: 'next' })
+  })
+
+  it('names the segment over the table, and says when the room waits for the next', async () => {
+    mocks.api.match.mockResolvedValue({ match: playing({ segment: 1 }) })
+    render(
+      <PreferencesProvider>
+        <MemoryRouter>
+          <MatchBanner match={{ id: 'm1', room: 'open', seq: 4, boards: 8, played: 4, over: true, segment: { n: 1, of: 2 } }} />
+        </MemoryRouter>
+      </PreferencesProvider>,
+    )
+    expect(screen.getByText('第 1 / 2 段')).toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent('第 1 段打完了，等房主開始下一段')
+  })
+
+  it('takes a player whose pair changed rooms to their new table once the next segment starts', async () => {
+    // Amy sits in the open room now; her browser is still at the closed room's table
+    mocks.api.match.mockResolvedValue({ match: playing({ segment: 2 }) })
+    render(
+      <PreferencesProvider>
+        <MemoryRouter>
+          <MatchBanner match={{ id: 'm1', room: 'closed', seq: 4, boards: 8, played: 4, over: true, segment: { n: 1, of: 2 } }} />
+        </MemoryRouter>
+      </PreferencesProvider>,
+    )
+    await waitFor(() => expect(navigated).toHaveBeenCalledWith('/table/t-open'))
+  })
+})
+
 describe('the Vugraph page (e8-t18, e8-t19) and the whole match replayed (e8-t20)', () => {
   const room = (tableId: string, seq: number) => ({
     tableId,

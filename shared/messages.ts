@@ -1698,6 +1698,14 @@ export const MESSAGES = {
     ja: '先に試合を一時停止してください',
     ko: '먼저 경기를 일시 정지하세요',
   },
+  matchNotBreak: {
+    zh: '現在不是段與段之間，不能開始下一段',
+    'zh-Hans': '现在不是段与段之间，不能开始下一段',
+    en: 'The match is not between segments, so the next one cannot start',
+    vi: 'Trận đấu không ở giữa hai hiệp nên chưa thể bắt đầu hiệp tiếp theo',
+    ja: 'セグメントの合間ではないので、次のセグメントを始められません',
+    ko: '세그먼트 사이가 아니라서 다음 세그먼트를 시작할 수 없습니다',
+  },
   matchPaused: {
     zh: '比賽暫停中，暫時不能叫牌或出牌',
     'zh-Hans': '比赛暂停中，暂时不能叫牌或出牌',

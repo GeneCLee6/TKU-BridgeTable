@@ -4,7 +4,7 @@ import { Link } from 'react-router-dom'
 import styled from 'styled-components'
 import { rankLabel, rankOf, suitOf } from '../../shared/cards.ts'
 import { resultLabel } from '../../shared/scoring.ts'
-import { ROOMS, type MatchRoomView, type TeamMatchView } from '../../shared/team-match.ts'
+import { ROOMS, segmentOf, type MatchRoomView, type TeamMatchView } from '../../shared/team-match.ts'
 import { matchVictoryPoints } from '../../shared/vp.ts'
 import { cardName } from '../lib/cards.ts'
 import { points, teamName } from '../lib/matches.ts'
@@ -166,6 +166,13 @@ export function BoardScores({ match }: { match: TeamMatchView }) {
   const running = match.boards.map((_, i) =>
     match.boards.slice(0, i + 1).reduce((sum, board) => ({ A: sum.A + board.result.A, B: sum.B + board.result.B }), { A: 0, B: 0 }),
   )
+  // In segments (`e8-t21`): each segment's subtotal after its last board shown; the score runs on
+  const segmented = match.settings.segmentBoards > 0
+  const segmentAt = (seq: number) => segmentOf(match.settings, seq)
+  const subtotal = (segment: number) =>
+    match.boards
+      .filter((board) => segmentAt(board.seq) === segment)
+      .reduce((sum, board) => ({ A: sum.A + board.result.A, B: sum.B + board.result.B }), { A: 0, B: 0 })
   return (
     <Scroll>
       <Grid>
@@ -238,6 +245,16 @@ export function BoardScores({ match }: { match: TeamMatchView }) {
                     <Note colSpan={12}>
                       {t.teamMatch.ruledAs(t.teamMatch.rulings[ruling.kind], teamName(t, match, ruling.team), ruling.reason)}
                     </Note>
+                  </tr>
+                )}
+                {segmented && segmentAt(board.seq) !== segmentAt(match.boards[i + 1]?.seq ?? Infinity) && (
+                  <tr>
+                    <th scope="row" colSpan={9}>
+                      {t.teamMatch.segmentTotal(segmentAt(board.seq))}
+                    </th>
+                    <td>{points(subtotal(segmentAt(board.seq)).A)}</td>
+                    <td>{points(subtotal(segmentAt(board.seq)).B)}</td>
+                    <td colSpan={2} />
                   </tr>
                 )}
               </Fragment>

@@ -333,6 +333,11 @@ export interface TableMatch {
   paused?: boolean
   /** Boards the host ruled on that this room skipped or will skip (`e8-t15`) */
   ruled?: number[]
+  /**
+   * A match played in segments (`e8-t21`): the segment this room is on and how many there are.
+   * `over` with a segment left means the room finished this one and waits for the next (中場)
+   */
+  segment?: { n: number; of: number }
 }
 
 /** A team match being played, as the lobby lists it for anyone to watch (§5.8, AC-8.4) */
@@ -900,16 +905,17 @@ export type ClientMessage =
   | { type: 'startMatch'; matchId: string }
   /**
    * While a team match is played (§5.8, `e8-t14`–`e8-t16`), all the host's (替補 also a team's
-   * captain's), also over HTTP (`POST /api/matches/:id/rule|pause|abandon|replace|sitin`): a ruling
+   * captain's), also over HTTP (`POST /api/matches/:id/rule|pause|abandon|replace|sitin|next`): a ruling
    * on a board over the time limit, with its reason; pausing and resuming both rooms; abandoning a
    * paused match; a member of the club taking a seat as a substitute (paused only); a robot sitting
-   * in for a member (代打) until they come back
+   * in for a member (代打) until they come back; between segments (`e8-t21`), starting the next
    */
   | { type: 'matchRule'; matchId: string; seq: number; ruling: RulingKind; team: Team; reason: string }
   | { type: 'matchPause'; matchId: string; paused: boolean }
   | { type: 'matchAbandon'; matchId: string }
   | { type: 'matchReplace'; matchId: string; room: MatchSeat['room']; seat: Seat; userId: string }
   | { type: 'matchSitIn'; matchId: string; room: MatchSeat['room']; seat: Seat }
+  | { type: 'matchNextSegment'; matchId: string }
   /** Sends a direct message (AC-1.7): not to oneself, a robot, or between members where either blocked the other */
   | { type: 'sendDirect'; to: string; text: string }
   /** Marks the conversation with this member read */

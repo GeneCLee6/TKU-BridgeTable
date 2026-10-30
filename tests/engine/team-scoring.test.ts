@@ -3,6 +3,9 @@ import {
   defaultTeamMatchSettings,
   MATCH_SEATS,
   parseTeamMatchSettings,
+  segmentCount,
+  segmentOf,
+  segmentRange,
   teamAt,
   TEAM_MATCH_LIMITS,
 } from '../../shared/team-match.ts'
@@ -135,5 +138,28 @@ describe('team match seats and settings', () => {
     expect(field({ robotKind: 'gib2' })).toBe('robotKind')
     expect(field({ invite: 'open' })).toBe('invite')
     expect(field({ teamNames: ['', ''], boards: 4, boardMinutes: 30, robotKind: 'tku', invite: 'captains' })).toBeNull()
+  })
+
+  it('splits a match into segments of so many boards (e8-t21), the last one maybe shorter', () => {
+    const field = (value: unknown, base = defaultTeamMatchSettings()) => {
+      const parsed = parseTeamMatchSettings(value, base)
+      return 'field' in parsed ? parsed.field : parsed.settings.segmentBoards
+    }
+    expect(defaultTeamMatchSettings().segmentBoards).toBe(0)
+    expect(field({ boards: 16, segmentBoards: 8 })).toBe(8)
+    expect(field({ boards: 16, segmentBoards: 0 })).toBe(0)
+    expect(field({ boards: 16, segmentBoards: 1 })).toBe('segmentBoards')
+    expect(field({ boards: 16, segmentBoards: 16 })).toBe('segmentBoards')
+    expect(field({ boards: 16, segmentBoards: 2.5 })).toBe('segmentBoards')
+    // Fewer boards than the segment kept from before: the match is played in one go
+    expect(field({ boards: 6 }, { ...defaultTeamMatchSettings(), boards: 16, segmentBoards: 8 })).toBe(0)
+    expect(field({ robots: false }, { ...defaultTeamMatchSettings(), boards: 16, segmentBoards: 8 })).toBe(8)
+
+    const ten = { boards: 10, segmentBoards: 4 }
+    expect(segmentCount(ten)).toBe(3)
+    expect([1, 4, 5, 8, 9, 10].map((seq) => segmentOf(ten, seq))).toEqual([1, 1, 2, 2, 3, 3])
+    expect(segmentRange(ten, 3)).toEqual({ first: 9, last: 10 })
+    expect(segmentCount({ boards: 10, segmentBoards: 0 })).toBe(1)
+    expect(segmentRange({ boards: 10, segmentBoards: 0 }, 1)).toEqual({ first: 1, last: 10 })
   })
 })

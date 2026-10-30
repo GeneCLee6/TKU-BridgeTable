@@ -603,6 +603,9 @@ export function teamMatchView(
     captains: m.captains,
     ...(m.status === 'playing' && m.tables && { tables: m.tables }),
     ...(m.status === 'playing' && m.pausedAt !== undefined && { pausedAt: m.pausedAt }),
+    // Segments (`e8-t21`): the one being played and the break between two; the lineup is the seats
+    ...(m.status === 'playing' && m.settings.segmentBoards > 0 && { segment: m.segment ?? 1 }),
+    ...(m.status === 'playing' && m.breakAt !== undefined && { breakAt: m.breakAt }),
     seats: m.seats.map((s) => {
       const user = s.userId === undefined ? undefined : userById(s.userId)
       return {
