@@ -246,7 +246,8 @@ function dropBetter(view: View, seat: Seat, led: Suit, finesse: Card): boolean {
 
 /**
  * The opening lead (ROBOT.md §3). Which suit, in this order: partner's suit (not the trump suit,
- * which partner bid artificially or as a cue bid); against a suit contract AK, a side singleton
+ * which partner bid artificially or as a cue bid), else a suit partner showed without naming it
+ * (the reading: four or more); against a suit contract AK, a side singleton
  * with a trump, and with trump control (the ace or four trumps) a small doubleton; a sequence;
  * then the longest suit, with the declaring side's suits (shown four or more) after the others,
  * and against a suit contract a suit headed by a lone honour (leading away from it) after the
@@ -257,6 +258,11 @@ function dropBetter(view: View, seat: Seat, led: Suit, finesse: Card): boolean {
 function openingLead(state: BoardState, seat: Seat, view: View, hand: Card[], trump: Suit | null): Card {
   const lead = (s: Suit) => clubLeadCard(suitCards(hand, s), trump)
   const partnerBid = state.auction.find((c) => c.seat === partnerOf(seat) && isBid(c.call) && strainOf(c.call) !== 'N' && strainOf(c.call) !== trump)
+  // A suit partner showed (four or more as the auction reads: a natural bid, a negative double, a
+  // two-suited overcall) before one partner only named (a cue bid, an artificial bid); the one
+  // held most of (single dummy, eval/sim/README.md §9)
+  const shown = SUITS.filter((s) => s !== trump && view.reading.bid(partnerOf(seat), s) && suitCards(hand, s).length)
+  if (shown.length) return lead(shown.sort((a, b) => suitCards(hand, b).length - suitCards(hand, a).length)[0])
   if (partnerBid && suitCards(hand, strainOf(partnerBid.call) as Suit).length) return lead(strainOf(partnerBid.call) as Suit)
   const declarer = state.contract!.declarer
   const theirs = (s: Suit) => view.reading.bid(declarer, s) || view.reading.bid(partnerOf(declarer), s)
