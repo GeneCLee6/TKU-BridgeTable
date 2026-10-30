@@ -126,6 +126,7 @@ PR 關閉時預覽會自動刪除。若有漏掉的（例如當時還沒設定 s
 | `HISTORY_D1` | `wrangler.jsonc` 的 `vars` 或 `--var` | 開 | `off` 讓紀錄頁改回社團回答、停止寫 D1（§4.5）；沒有 `HISTORY` binding（PR 預覽）時本來就沒有 |
 | `SYSTEM_PROFILE_ID` | `wrangler.jsonc` 的 `vars` 或 `--var` | `club` | TKB 用淡江制度時，叫品帶哪個制度集的橋館文字（ROBOT.md「橋館的文字跟著叫品」）；那個制度集要先在橋館差異報告頁同步過 |
 | `BOOK_SEED_TOKEN` | `wrangler secret put BOOK_SEED_TOKEN` | 無 | 橋館寫入內建特約用的權杖（§4.9，至少 32 字）；沒設定時只有管理員登入後能寫 |
+| `BOOK_EXPORT_TOKEN` | `wrangler secret put BOOK_EXPORT_TOKEN` | 無 | 橋館排程備份讀全部特約用的權杖（§4.10，至少 32 字，只能讀 `GET /api/book/export`）；沒設定時只有管理員登入後能匯出 |
 | `ANTHROPIC_BASE_URL` | `.dev.vars` | 無 | 只給測試或 API 閘道用（本機可以指向假的 API），正式環境不要設定 |
 
 本機開發的值放在 `.dev.vars`（從 `.dev.vars.example` 複製，不會 commit）。
@@ -402,7 +403,15 @@ LOAD_PASSWORD=... LOAD_INVITE_CODE=... npm run load -- --url https://tku-bridge-
 - **還原備份之後**：備份範圍含 `book`，所以還原到寫入內建特約之前（2026-10-29 前）的備份會把內建特約一起刪掉，橋館會變成空的。還原後在橋館重跑一次 `npm run seed-builtin -- --apply`。
 - PR 預覽與 staging 各有自己的儲存，要看內容就對它們的網址各寫入一次（`--base <網址>`，權杖用那個環境的 secret）。
 
-## 4.10 橋館制度卡 PDF（Browser Run，橋館 e3-t13）
+## 4.10 橋館特約的匯出備份（L1，`e8-t12`）
+
+`GET /api/book/export` 回社員讀到的全部特約（內建層＋線上版本蓋上去，`BookExport`，ARCHITECTURE.md API 表）。橋館的 GitHub Action（`.github/workflows/content-backup.yml`）每天用它把特約備份到一個 **private** repo 的 `content-backup` 分支（橋館 `CONTENT_GUIDE.md` §5）。
+
+- 權杖：`BOOK_EXPORT_TOKEN`（隨機 32 字以上，**和 `BOOK_SEED_TOKEN` 不同值**：它只能讀匯出，不能寫）。設定：`npx wrangler secret put BOOK_EXPORT_TOKEN`；同一個值放在橋館 repo 的 Actions secret `BOOK_EXPORT_TOKEN`。
+- 沒有權杖時只有管理員登入後能匯出（瀏覽器 Console `fetch('/api/book/export')`）。
+- 這份是 Git 上的文字備份與變更紀錄，不取代 §4.4 的每日備份（那份含帳號、紀錄與所有版本）。
+
+## 4.11 橋館制度卡 PDF（Browser Run，橋館 e3-t13）
 
 橋館制度卡頁的「下載 PDF」把卡頁的列印版面（樣式內嵌、不含程式）送到 `POST /api/book/card-pdf`，Worker 用 Cloudflare **Browser Run**（原名 Browser Rendering）的 `quickAction('pdf')` 印成 A4 PDF 回傳（`worker/card-pdf.ts`）。只給登入的社員。
 
@@ -418,5 +427,5 @@ LOAD_PASSWORD=... LOAD_INVITE_CODE=... npm run load -- --url https://tku-bridge-
 - Workers 免費方案：每天 10 萬次請求；WebSocket 訊息以 20:1 計算，一個晚上打牌遠低於上限。
 - SQLite Durable Object 免費方案：5 GB 儲存；一副牌的紀錄連同索引約 4 KB，約可存一百萬副以上。紀錄列表一次只讀 50 筆，資料再多也不會變慢。
 - 免費方案每次請求的 CPU 時間有限，因此密碼雜湊使用 50,000 次 PBKDF2（`worker/auth.ts`）。
-- Browser Run 免費方案：每天 10 分鐘瀏覽器時間，只用在橋館的制度卡 PDF（§4.10）。
+- Browser Run 免費方案：每天 10 分鐘瀏覽器時間，只用在橋館的制度卡 PDF（§4.11）。
 - D1 免費方案：每天讀 500 萬列、寫 10 萬列，全部 5 GB。紀錄索引的副本每副約寫 14 列，一天約 7,000 副才到上限（§4.5、`ARCHITECTURE.md` §5.12）。

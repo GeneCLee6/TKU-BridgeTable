@@ -83,6 +83,8 @@ export function bookRouteNeed(method: string, path: string): Need | null {
   // Seeding the built-in conventions (BridgeHall L0): an admin's, or BridgeHall's script with the seed
   // token (club.ts); reading them is publicBookResponse's
   if (path === '/builtin') return method === 'PUT' ? 'admin' : null
+  // The whole content for BridgeHall's backup (L1, e8-t12): an admin's, or the export token (club.ts)
+  if (path === '/export') return method === 'GET' ? 'admin' : null
   // The 待確認 panel (BridgeHall e8-t06): every member reads it, editors assign and track the notes
   if (path === '/pending') return method === 'GET' ? 'member' : null
   if (/^\/pending\/[\w-]+\/[\w-]+\/\d+$/.test(path)) return method === 'PUT' ? 'bookEdit' : null

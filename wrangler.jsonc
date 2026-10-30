@@ -41,7 +41,7 @@
     { "binding": "HISTORY", "database_name": "tku-bridge-history", "database_id": "0ffccba3-4f19-4fb0-8f4c-a4207d05d997" }
   ],
   // Browser Run (formerly Browser Rendering) for BridgeHall's card PDFs (worker/card-pdf.ts, DEPLOY.md
-  // §4.10): on the Workers Free plan, 10 minutes of browser time a day, nothing to switch on. Not
+  // §4.11): on the Workers Free plan, 10 minutes of browser time a day, nothing to switch on. Not
   // inherited by the envs below, so each repeats it
   "browser": { "binding": "BROWSER" },
   // 19:00 UTC is 03:00 in Taiwan

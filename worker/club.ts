@@ -63,12 +63,14 @@ export interface Env {
   ANTHROPIC_API_KEY?: string
   /** BridgeHall's seed of its built-in conventions (worker/book-seed.ts; wrangler secret put BOOK_SEED_TOKEN) */
   BOOK_SEED_TOKEN?: string
+  /** BridgeHall's scheduled backup of the content, read only (GET /api/book/export; wrangler secret put BOOK_EXPORT_TOKEN) */
+  BOOK_EXPORT_TOKEN?: string
   IMPORT_MODEL?: string
   /** Only for tests or an API gateway */
   ANTHROPIC_BASE_URL?: string
   /**
    * Browser Run (formerly Browser Rendering) for BridgeHall's card PDFs (worker/card-pdf.ts, DEPLOY.md
-   * §4.10); without it the card page prints with the browser's own dialog
+   * §4.11); without it the card page prints with the browser's own dialog
    */
   BROWSER?: BrowserRun
   /** Daily backups (worker/backup.ts); the bucket is created by hand before deploying (DEPLOY.md §4.4) */
@@ -488,6 +490,10 @@ export class Club extends DurableObject<Env> implements Connections {
       if (request.method === 'PUT') return json(await this.book.seedBuiltin('seed-script', await body()))
       const read = await publicBookResponse(this.book, request, url.pathname)
       if (read) return read
+    }
+    // BridgeHall's backup (L1, e8-t12) carries the export token, which reads the content and nothing else
+    if (route === 'GET /api/book/export' && !user && (await seedTokenMatches(request, this.env.BOOK_EXPORT_TOKEN))) {
+      return json(await this.book.exportAll())
     }
     // A convention card version shared by link (BridgeHall e3-t09): anyone, signed in or not
     const shared = request.method === 'GET' ? await this.sharedCardResponse(url.pathname) : null
@@ -953,6 +959,8 @@ export class Club extends DurableObject<Env> implements Connections {
     if (path === '/categories') return json(await this.book.saveCategories(user, await body()))
     // The built-in conventions' seed (L0), from an admin's session; the script's token is above
     if (path === '/builtin') return json(await this.book.seedBuiltin(user.username, await body()))
+    // The backup's export (L1), from an admin's session; the backup's token is above
+    if (path === '/export') return json(await this.book.exportAll())
     if (path === '/series') return json(await this.articles.saveSeries(user, await body()))
     if (path === '/glossary') return json(await this.glossary.save(user, await body()))
 
