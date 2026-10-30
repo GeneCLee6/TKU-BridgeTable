@@ -168,8 +168,11 @@ export class TableHost implements TableRpc {
     })
   }
 
-  join(person: Person) {
-    return this.atTable((table) => table.join(person))
+  join(person: Person, director?: boolean) {
+    return this.atTable((table) => table.join(person, director))
+  }
+  director(userId: string, call: boolean) {
+    return this.atTable((table) => table.director(userId, call))
   }
   sit(person: Person, seat: Seat) {
     return this.atTable((table) => table.sit(person, seat))

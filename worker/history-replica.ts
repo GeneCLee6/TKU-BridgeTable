@@ -152,7 +152,7 @@ export async function searchReplica(db: ReplicaDb, query: HistoryQuery, viewer: 
  * The copy's version: raise it when the D1 tables or what a board's row holds (its summary) change,
  * and every club fills its copy afresh on its next load (the Worker reads the club meanwhile)
  */
-export const REPLICA_VERSION = 1
+export const REPLICA_VERSION = 2
 
 /** Where filling the copy has got to (`meta:replica`) */
 interface ReplicaState {

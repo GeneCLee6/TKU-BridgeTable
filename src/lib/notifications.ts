@@ -36,6 +36,7 @@ export function notificationText(t: Strings, n: Notification): string {
     case 'tableRequest':
     case 'tableRequestApproved':
     case 'tableRequestDeclined':
+    case 'directorCalled':
       return t.notificationTexts[n.kind](name, Number(n.params.number ?? 0))
     case 'filesNearlyFull':
       return t.notificationTexts.filesNearlyFull(Number(n.params.gb ?? 0))
@@ -61,7 +62,7 @@ export function notificationText(t: Strings, n: Notification): string {
 /**
  * Where a notification leads when clicked: challenge news, an invitation too, to that challenge's
  * page, where it is answered and played (`e7-t16`, `e7-t18`); an invitation
- * to a table, a request to join one and its answer to that table; a featured board to its record, where the explanation is shown; team
+ * to a table, a request to join one and its answer, and a director call (`e2-t34`) to that table; a featured board to its record, where the explanation is shown; team
  * match news to the match's prep room (`e8-t06`), except being taken off a seat, after which only
  * the list of one's matches is left; partnership news to the partnership's page in TKU BridgeBook
  * (an address on another site, which the bell opens as a page load); the files nearly full to
@@ -90,6 +91,7 @@ export function notificationLink(n: Notification): string {
     case 'tableRequest':
     case 'tableRequestApproved':
     case 'tableRequestDeclined':
+    case 'directorCalled':
       return n.params.tableId ? `/table/${encodeURIComponent(String(n.params.tableId))}` : '/'
     case 'matchRemoved':
       return '/matches'

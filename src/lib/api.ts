@@ -1,3 +1,4 @@
+import type { RulingRequest } from '../../shared/board-events.ts'
 import type { ChallengeSettings, ChallengeView } from '../../shared/challenge.ts'
 import type { WeeklyChallengeSchedule, WeeklyChallengeView } from '../../shared/weekly-challenge.ts'
 import { historyQueryString, type HistoryQuery } from '../../shared/history-query.ts'
@@ -117,6 +118,9 @@ export const api = {
   record: (id: string) => request<{ record: BoardRecord }>(`/api/history/${encodeURIComponent(id)}`),
   /** Everyone's result on the same board of its challenge, if the member may see it (e4-t32) */
   traveller: (id: string) => request<{ traveller: Traveller | null }>(`/api/history/${encodeURIComponent(id)}/traveller`),
+  /** A director's ruling on a board (e2-t35), or null to take it back; the record comes back */
+  ruleBoard: (id: string, ruling: RulingRequest | null) =>
+    post<{ record: BoardRecord }>(`/api/history/${encodeURIComponent(id)}/ruling`, { ruling }),
   /** Featured boards, newest first (e4-t30) */
   featured: () => request<{ featured: FeaturedBoard[] }>('/api/featured'),
   /** The club's practice sets, without their boards (e10-t16) */

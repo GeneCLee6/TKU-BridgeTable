@@ -8,17 +8,19 @@ export const REPLAY_CARD_MS = 550
  * the next trick one after another, a moment apart, and the controls wait until the trick is
  * complete; "previous" goes straight back to the trick before. `step` is the number of cards shown.
  * `nextCard` / `prevCard` move one card instead (double-dummy mode, as BBO's movie does).
+ * `gaps` (照實際速度, `e2-t33`): how long to wait before each card instead of `delay`, as long as it
+ * was played at the table; `play` then runs the rest of the board, `pause` stops it.
  */
-export function useTrickReplay(total: number, delay = REPLAY_CARD_MS) {
+export function useTrickReplay(total: number, delay = REPLAY_CARD_MS, gaps?: readonly number[]) {
   const [step, setStep] = useState(0)
   // The card the replay is heading for; while step < target the cards come out one by one
   const [target, setTarget] = useState(0)
 
   useEffect(() => {
     if (step >= target) return
-    const timer = setTimeout(() => setStep((s) => s + 1), delay)
+    const timer = setTimeout(() => setStep((s) => s + 1), gaps?.[step] ?? delay)
     return () => clearTimeout(timer)
-  }, [step, target, delay])
+  }, [step, target, delay, gaps])
 
   const playing = step < target
   const jump = (n: number) => {
@@ -50,6 +52,13 @@ export function useTrickReplay(total: number, delay = REPLAY_CARD_MS) {
     prevCard: () => {
       if (!playing) jump(step - 1)
     },
+    /** Plays the rest of the board, card after card */
+    play: () => {
+      if (step >= total) return
+      setTarget(total)
+    },
+    /** Stops where it is */
+    pause: () => setTarget(step),
     start: () => jump(0),
     end: () => jump(total),
     jump,

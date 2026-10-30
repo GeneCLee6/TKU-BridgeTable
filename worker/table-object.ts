@@ -75,8 +75,11 @@ export class TableObject extends DurableObject<Env> implements TableRpc, TableSo
   adopt(table: Table) {
     return this.host.adopt(table)
   }
-  join(person: Person) {
-    return this.host.join(person)
+  join(person: Person, director?: boolean) {
+    return this.host.join(person, director)
+  }
+  director(userId: string, call: boolean) {
+    return this.host.director(userId, call)
   }
   sit(person: Person, seat: Seat) {
     return this.host.sit(person, seat)
