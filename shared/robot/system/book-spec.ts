@@ -105,7 +105,7 @@ function robotShows(spec: Spec): RobotShows {
 export function robotMeanings(system: System, query: RobotMeaningsQuery): RobotMeaningsItem[] {
   return query.items.map(({ after, calls }) => {
     const auction = patternAuction(after)
-    const known = auction ? explain(system, auction, 'N', 'None') : new Map<Call, Spec>()
+    const known = auction ? explain(system, auction, 'N', 'None', false) : new Map<Call, Spec>()
     const meanings: Record<string, RobotShows | null> = {}
     for (const call of calls) {
       const spec = known.get(call)

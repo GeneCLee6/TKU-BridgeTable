@@ -35,9 +35,12 @@ function bidOver(cards: string, calls: string, dealer: Seat = 'N', vul: Vulnerab
   return choose(GIB, hand(cards), nextSeat(dealer, auction.length), auction, dealer, vul).call
 }
 
-/** How the 2/1 robot explains `call` made after these calls, in Traditional Chinese */
+/**
+ * How the 2/1 robot explains `call` made after these calls, in Traditional Chinese: the call's own
+ * meaning, without the line of what the caller had already shown (Z1, tested in explain.test.ts)
+ */
 function meaning(calls: string, call: string, dealer: Seat = 'N', lang: 'zh' | 'en' = 'zh') {
-  const spec = explain(GIB, auctionOf(calls, dealer), dealer).get(call)
+  const spec = explain(GIB, auctionOf(calls, dealer), dealer, 'None', false).get(call)
   return spec ? words(spec, lang) : undefined
 }
 

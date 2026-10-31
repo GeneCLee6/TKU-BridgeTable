@@ -49,6 +49,6 @@ export function inferredMeaning(kind: RobotKind, auction: readonly AuctionCall[]
   const made = auction.at(-1)
   if (!made) return undefined
   const system = ROBOT_SYSTEMS[kind]
-  const spec = meanings(system, contextFor(system, made.seat, auction.slice(0, -1), dealer, vul)).get(made.call)
+  const spec = meanings(system, contextFor(system, made.seat, auction.slice(0, -1), dealer, vul), true).get(made.call)
   return spec && Object.keys(spec).length ? spec : undefined
 }

@@ -196,6 +196,8 @@ const Hint = styled.div`
   color: ${({ theme }) => theme.table.panelText};
   font-size: 15px;
   line-height: 1.45;
+  /* An explanation's second line: what the player had already shown */
+  white-space: pre-line;
 
   & > strong {
     display: block;
