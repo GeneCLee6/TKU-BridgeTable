@@ -53,6 +53,9 @@
     { "id": "tku-resp-149", "system": "tku", "dealer": "N", "vul": "None", "hand": "KJ984.Q973.52.84", "auction": ["2N", "P"], "answer": "3S", "source": "淡江橋譜：開叫2NT及答叫（Rule 說明）", "reviewer": null, "status": "pending", "note": "6 點 5♠4♥：2NT 之後直接叫 3♠" },
     { "id": "tku-resp-150", "system": "tku", "dealer": "E", "vul": "NS", "hand": "KQ84.5.AJ853.963", "auction": ["1N", "P"], "answer": "2C", "source": "淡江橋譜：1NT的答叫（開叫1NT之答叫）", "reviewer": null, "status": "pending", "note": "10 點四張♠、有邀請點：2♣ Stayman" },
     { "id": "tku-resp-151", "system": "tku", "dealer": "S", "vul": "Both", "hand": "KJ984.QJ853.Q5.4", "auction": ["1N", "P"], "answer": "2D", "source": "淡江橋譜：1NT的答叫（合約選擇方式）", "reviewer": null, "status": "pending", "note": "9 點 5-5 高花、邀請：2♦ 轉換 2♥ 後再叫 2♠（邀請不迫叫）" },
-    { "id": "tku-resp-152", "system": "tku", "dealer": "W", "vul": "None", "hand": "KJ984.AQ853.K5.4", "auction": ["1N", "P"], "answer": "2H", "source": "淡江橋譜：1NT的答叫（合約選擇方式）", "reviewer": null, "status": "pending", "note": "13 點 5-5 高花、成局：2♥ 轉換 2♠ 後再叫 3♥（迫叫成局）" }
+    { "id": "tku-resp-152", "system": "tku", "dealer": "W", "vul": "None", "hand": "KJ984.AQ853.K5.4", "auction": ["1N", "P"], "answer": "2H", "source": "淡江橋譜：1NT的答叫（合約選擇方式）", "reviewer": null, "status": "pending", "note": "13 點 5-5 高花、成局：2♥ 轉換 2♠ 後再叫 3♥（迫叫成局）" },
+    { "id": "tku-resp-153", "system": "tku", "dealer": "N", "vul": "None", "hand": "K84.Q73.A852.J93", "auction": ["1N", "P"], "answer": "3N", "source": "淡江橋譜：1NT的答叫", "reviewer": null, "status": "pending", "note": "10 點沒有 4 張高花：直接 3NT，不用 Stayman（社長 2026-10-31：Stayman 一定要有 4 張高花）" },
+    { "id": "tku-resp-154", "system": "tku", "dealer": "N", "vul": "None", "hand": "K84.Q73.Q852.J93", "auction": ["1N", "P"], "answer": "2N", "source": "淡江橋譜：1NT的答叫", "reviewer": null, "status": "pending", "note": "8 點沒有 4 張高花：2NT 邀請，不用 Stayman" },
+    { "id": "tku-resp-155", "system": "tku", "dealer": "N", "vul": "None", "hand": "Q8.K73.A852.J932", "auction": ["1N", "P"], "answer": "3N", "source": "淡江橋譜：1NT的答叫", "reviewer": null, "status": "pending", "note": "10 點、高花 2-3：沒有 4 張高花不能叫 Stayman，直接 3NT" }
   ]
 }

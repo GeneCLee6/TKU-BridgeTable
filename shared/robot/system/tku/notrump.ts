@@ -16,7 +16,11 @@ const fourMajor = (h: Hand) => h.len.H === 4 || h.len.S === 4
 
 // ── Responses ────────────────────────────────────────────────────────────────────────────────
 
-const stayman = { name: 'stayman', hcp: plus(9), artificial: true, forcing: 'oneRound', notes: [{ key: 'asksMajor' }] } as const
+/**
+ * Stayman always holds a four-card major (社長 2026-10-31: 「stayman 的那個人也一定要有 4 張高花」);
+ * both rules below check it. The handbook's weak Stayman with 4-4 majors (short clubs) is not used
+ */
+const stayman = { name: 'stayman', hcp: plus(9), artificial: true, forcing: 'oneRound', notes: [{ key: 'fourMajor' }, { key: 'asksMajor' }] } as const
 
 const responses: Book = {
   after: '1N (P)',
@@ -46,12 +50,13 @@ const responses: Book = {
 // ── Opener's rebid ───────────────────────────────────────────────────────────────────────────
 
 const openerRebids: Book[] = [
+  // Opener names a major only with four or more of it (社長: 「自己叫出高花一定要 4 張」); 2♦ denies both
   {
     after: '1N (P) 2C (P)',
     rules: [
       rule('2H', { name: 'stayman', len: length('H', 4), hcp: [15, 17] }, (h) => h.len.H >= 4),
       rule('2S', { name: 'stayman', len: { H: [0, 3], S: [4, 13] }, hcp: [15, 17] }, (h) => h.len.S >= 4),
-      rule('2D', { name: 'stayman', notes: [{ key: 'noMajor' }], artificial: true }),
+      rule('2D', { name: 'stayman', len: { H: [0, 3], S: [0, 3] }, notes: [{ key: 'noMajor' }], artificial: true }),
     ],
   },
   ...(['H', 'S'] as const).map(

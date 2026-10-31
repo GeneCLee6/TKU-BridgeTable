@@ -132,6 +132,7 @@ const zh: Grammar = {
   before: '已表示：',
   notes: {
     asksMajor: () => '詢問 4 張高花',
+    fourMajor: () => '有 4 張以上的高花',
     noMajor: () => '沒有 4 張高花',
     noMinor: () => '沒有 4 張低花',
     transferTo: ({ s }) => `轉到${s}`,
@@ -187,6 +188,7 @@ const zhHans: Grammar = {
   before: '已表示：',
   notes: {
     asksMajor: () => '询问 4 张高花',
+    fourMajor: () => '有 4 张以上的高花',
     noMajor: () => '没有 4 张高花',
     noMinor: () => '没有 4 张低花',
     transferTo: ({ s }) => `转移到${s}`,
@@ -248,6 +250,7 @@ const en: Grammar = {
   before: 'Shown so far: ',
   notes: {
     asksMajor: () => 'asks for a 4-card major',
+    fourMajor: () => 'holds a 4+ card major',
     noMajor: () => 'no 4-card major',
     noMinor: () => 'no 4-card minor',
     transferTo: ({ s }) => `transfer to ${s}`,
@@ -308,6 +311,7 @@ const vi: Grammar = {
   before: 'Đã cho thấy: ',
   notes: {
     asksMajor: () => 'hỏi hoa cao 4 lá',
+    fourMajor: () => 'có hoa cao 4+ lá',
     noMajor: () => 'không có hoa cao 4 lá',
     noMinor: () => 'không có hoa thấp 4 lá',
     transferTo: ({ s }) => `chuyển sang ${s}`,
@@ -369,6 +373,7 @@ const ja: Grammar = {
   before: 'これまでに示した：',
   notes: {
     asksMajor: () => '4枚のメジャーを尋ねる',
+    fourMajor: () => '4枚以上のメジャーあり',
     noMajor: () => '4枚のメジャーなし',
     noMinor: () => '4枚のマイナーなし',
     transferTo: ({ s }) => `${s}へのトランスファー`,
@@ -430,6 +435,7 @@ const ko: Grammar = {
   before: '지금까지 보여 준 것: ',
   notes: {
     asksMajor: () => '4장 메이저 질문',
+    fourMajor: () => '4장 이상 메이저 있음',
     noMajor: () => '4장 메이저 없음',
     noMinor: () => '4장 마이너 없음',
     transferTo: ({ s }) => `${s} 트랜스퍼`,
