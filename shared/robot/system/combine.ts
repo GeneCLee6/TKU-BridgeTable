@@ -7,8 +7,11 @@ import { QUALITIES, STOPS, type Note, type Range, type Spec } from './spec.ts'
  * - `union`: several rules make the same call, so the call shows only what they all show, each
  *   feature at its widest ("4+ total points, 2+ cards" for a raise that is either weak with four
  *   trumps or strong with two).
- * - `intersect` (in `infer.ts`): one player made several calls, so each feature takes the
- *   narrowest range any of them showed.
+ * - `intersect`: one player made several calls, so each feature takes the narrowest range any of
+ *   them showed.
+ *
+ * And `narrow` (Y2): a call's own meaning, each feature it mentions narrowed to what the player
+ * had already shown, which is how every explanation is shown ("11–15", not "6+", after 1NT).
  */
 
 const widest = (ranges: readonly (Range | undefined)[]): Range | undefined =>
@@ -54,3 +57,91 @@ export function union(specs: readonly Spec[]): Spec {
   if (notes.length) set('notes', notes)
   return out
 }
+
+/** Narrowest of two ranges; when they do not overlap the newer one wins (the player changed their mind) */
+function narrowest(known: Range | undefined, shown: Range | undefined): Range | undefined {
+  if (!known) return shown
+  if (!shown) return known
+  const range: Range = [Math.max(known[0], shown[0]), Math.min(known[1], shown[1])]
+  return range[0] <= range[1] ? range : shown
+}
+
+const strongest = <T extends string>(ladder: readonly T[], a: T | undefined, b: T | undefined) =>
+  a && b ? (ladder.indexOf(a) >= ladder.indexOf(b) ? a : b) : (a ?? b)
+
+/** Everything `known` and `shown` say about a hand together (hand features only, no names or notes) */
+export function intersect(known: Spec, shown: Spec): Spec {
+  const out: Spec = {}
+  const hcp = narrowest(known.hcp, shown.hcp)
+  const tp = narrowest(known.tp, shown.tp)
+  const controls = narrowest(known.controls, shown.controls)
+  if (hcp) out.hcp = hcp
+  if (tp) out.tp = tp
+  if (controls) out.controls = controls
+  const len: Partial<Record<Suit, Range>> = {}
+  const quality: Spec['quality'] = {}
+  const stop: Spec['stop'] = {}
+  for (const s of SUITS) {
+    const l = narrowest(known.len?.[s], shown.len?.[s])
+    const q = strongest(QUALITIES, known.quality?.[s], shown.quality?.[s])
+    const st = strongest(STOPS, known.stop?.[s], shown.stop?.[s])
+    if (l) len[s] = l
+    if (q) quality[s] = q
+    if (st) stop[s] = st
+  }
+  if (Object.keys(len).length) out.len = len
+  if (Object.keys(quality).length) out.quality = quality
+  if (Object.keys(stop).length) out.stop = stop
+  const balanced = shown.balanced ?? known.balanced
+  if (balanced !== undefined) out.balanced = balanced
+  return out
+}
+
+/**
+ * A call's meaning as explained for a player who has already shown `known`: each hand feature the
+ * call mentions (points, controls, each suit's length, quality and stopper) taken together with
+ * what the player showed, as `intersect` would; features the call does not mention are left out,
+ * and names, notes and forcing stay the call's. So `intersect(known, narrow(spec, known))` is
+ * `intersect(known, spec)`: what the player has shown in all does not change. The same object when
+ * nothing narrows.
+ */
+export function narrow(spec: Spec, known: Spec): Spec {
+  if (!known.hcp && !known.tp && !known.controls && !known.len && !known.quality && !known.stop) return spec
+  let out: Spec | undefined
+  for (const key of RANGES) {
+    const mine = spec[key]
+    const theirs = known[key]
+    if (!mine || !theirs) continue
+    const r = narrowest(theirs, mine)!
+    if (r[0] !== mine[0] || r[1] !== mine[1]) (out ??= { ...spec })[key] = r
+  }
+  if (spec.len && known.len) {
+    let len: Spec['len']
+    for (const s of SUITS) {
+      const mine = spec.len[s]
+      const theirs = known.len[s]
+      if (!mine || !theirs) continue
+      const r = narrowest(theirs, mine)!
+      if (r[0] !== mine[0] || r[1] !== mine[1]) (len ??= { ...spec.len })[s] = r
+    }
+    if (len) (out ??= { ...spec }).len = len
+  }
+  for (const [key, ladder] of LADDERS) {
+    const mine = spec[key]
+    const theirs = known[key]
+    if (!mine || !theirs) continue
+    let res: Partial<Record<Suit, string>> | undefined
+    for (const s of SUITS) {
+      const v = mine[s] && theirs[s] ? strongest(ladder, mine[s], theirs[s]) : mine[s]
+      if (v !== mine[s]) (res ??= { ...mine })[s] = v
+    }
+    if (res) (out ??= { ...spec })[key] = res as never
+  }
+  return out ?? spec
+}
+
+const RANGES = ['hcp', 'tp', 'controls'] as const
+const LADDERS = [
+  ['quality', QUALITIES],
+  ['stop', STOPS],
+] as const satisfies readonly (readonly ['quality' | 'stop', readonly string[]])[]

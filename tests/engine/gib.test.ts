@@ -171,7 +171,7 @@ describe('after 1♣ / 1♦ (§2)', () => {
     expect(meaning('1C P 1S P', '2D')).toBe('反序：4+ 張♦，5+ 張♣，17–21 大牌點，迫叫一圈')
     expect(meaning('1C P 1H P 1N P', '2D')).toBe('新低花迫叫：11+ 大牌點，迫叫一圈')
     expect(meaning('1C P 1D P 1H P', '1S')).toBe('第四花色迫叫：12+ 大牌點，迫叫成局')
-    expect(meaning('1C P 1S P 2D P', '2N')).toBe('雷本索：請同伴叫 3♣，5–8 大牌點，迫叫一圈')
+    expect(meaning('1C P 1S P 2D P', '2N')).toBe('雷本索：請同伴叫 3♣，6–8 大牌點，迫叫一圈')
   })
 })
 

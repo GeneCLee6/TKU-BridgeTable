@@ -1,5 +1,5 @@
 import type { Call } from '../../auction.ts'
-import { union } from './combine.ts'
+import { narrow, union } from './combine.ts'
 import { fitsPattern, tokens, type Ctx } from './context.ts'
 import type { Book, Dynamic, Rule, Spec, System } from './spec.ts'
 
@@ -63,7 +63,10 @@ export function callOf(rule: Rule, ctx: Ctx): Call | null {
 
 /**
  * What each call would show if made now, as GIB explains a call before you make it: the rules for
- * the auction that make that call, put together with `union`. Calls no rule makes are left out.
+ * the auction that make that call, put together with `union`, and each feature narrowed to what
+ * the caller has already shown (`narrow`, Y2): after 1NT (15–17) a later "6+" reads "15–17". This is
+ * every explanation the players see and what partner reads the call as. Calls no rule makes are
+ * left out.
  */
 export function meanings(system: System, ctx: Ctx): Map<Call, Spec> {
   const byCall = new Map<Call, Spec[]>()
@@ -74,5 +77,6 @@ export function meanings(system: System, ctx: Ctx): Map<Call, Spec> {
     list.push(resolve(rule.shows, ctx) ?? {})
     byCall.set(call, list)
   }
-  return new Map([...byCall].map(([call, specs]) => [call, union(specs)]))
+  const known = ctx.shown.me
+  return new Map([...byCall].map(([call, specs]) => [call, narrow(union(specs), known)]))
 }

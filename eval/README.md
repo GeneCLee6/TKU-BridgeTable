@@ -134,7 +134,7 @@ npm run quiz:play -- --base base   # CI 棘輪：base 的 TKB 答同樣的題目
 
 ## 說明前後一致（`consistency.ts`，X2）
 
-同一個人後來的叫品，說明不能跟他之前表示過的範圍（大牌點、總點、每門張數）完全不重疊，例如先表示 11+ 再說 7–10（ROBOT.md §8）：
+同一個人後來的叫品，說明不能跟他之前表示過的範圍（大牌點、總點、每門張數）完全不重疊，例如先表示 11+ 再說 7–10（ROBOT.md §8），也不能比跟之前表示的取交集還寬（ROBOT.md §8.1）：
 
 ```bash
 npm run consistency                          # 前 2,000 副×兩種制度，加叫牌與推論題庫
@@ -152,6 +152,8 @@ npm run consistency -- --seed slam:x2 --deals 2000   # 滿貫區牌組
 
 報告分「reading」（同伴與叫牌盒讀到的，所有做這個叫品的規則合起來）與「alert」（機器人自己的叫品提示的那條規則，跟 reading 不同時才另外算）。`tests/eval/consistency.test.ts` 用前 200 副加兩個題庫當棘輪（`MOST`，現在兩種制度都是 0），修好一個就把數字往下調，不能往上。
 
+**比之前表示的寬**（Y2，ROBOT.md §8.1）：同一趟也檢查每個說明寫到的項目（大牌點、總點、控制數、每門張數、花色品質、擋張）是不是比「跟之前表示的取交集」還寬，例如開叫 11–15 之後說「6+」、叫過 5+ 張♠ 之後說「3+ 張♠」（`wider`，用的是 `combine.ts` 的 `narrow`）。報告最後一段「wider than shown」依制度、來源、reading／alert 計數，列出最常見的叫牌與「說明的 → 交集」；`--json` 另存 `{ conflicts, wide }`。說明都已經取交集，所以應該是 0；棘輪是 `MOST_WIDE`（兩種制度都是 0）。改之前（main，5,000 副×兩種制度加題庫）有 3,591 個。
+
 ## 離線雙明手模擬（`sim/`）
 
 在社長的電腦上用多核心 DDS 算幾萬到幾百萬副牌，比較 TKB 的出牌跟單明手抽樣的最佳，和首攻研究：`npm run sim -- …`，見 [`sim/README.md`](sim/README.md)。
@@ -163,7 +165,7 @@ npm run consistency -- --seed slam:x2 --deals 2000   # 滿貫區牌組
 | `sim/` | 離線雙明手模擬：執行緒池、單明手抽樣、TKB 對照、首攻研究（`sim/README.md`） |
 | `quiz.ts`、`quiz-cli.ts` | 叫牌題庫：格式檢查、作答、各類正確率、棘輪與報告；`npm run quiz` |
 | `play-quiz.ts`、`play-quiz-cli.ts` | 出牌題庫：格式檢查、作答、各類正確率，棘輪與報告沿用叫牌題庫的；`npm run quiz:play` |
-| `consistency.ts`、`consistency-cli.ts` | 說明前後一致的檢查：逐個叫品比對之前表示過的範圍；`npm run consistency` |
+| `consistency.ts`、`consistency-cli.ts` | 說明前後一致的檢查：逐個叫品比對之前表示過的範圍，並找出比交集寬的說明；`npm run consistency` |
 | `deals.ts` | 固定牌組：`EVAL_SEED`、`evalBoard`、`evalBoards`、`fingerprint` |
 | `match.ts` | 一桌打完一副（`playTable`）、兩桌換位的對抗（`playMatch`）；`RobotConfig` 可以帶別的 `RobotBrain` |
 | `stats.ts` | IMP／副、標準誤、MP、合約統計（`summarize`）與門檻（`regressed`） |
