@@ -132,6 +132,26 @@ npm run quiz:play -- --base base   # CI 棘輪：base 的 TKB 答同樣的題目
 
 **出題與審核**：一開始的 50 題（`e5-t42` 的第一批）是 AI 依淡江橋譜與 5542 自然制寫的，全部標 `pending`；社團幹部逐題確認後把 `status` 改成 `reviewed`、`reviewer` 填名字，答案有錯就直接改，並補到 200 題（開叫、答叫、再叫）。機器人答錯的題目不用刪：它們是之後改規則的目標（例如 `tku-open-004` 第三家輕開、`tku-open-016` Rule of 15，等 `e5-t24`）。
 
+## 說明前後一致（`consistency.ts`，X2）
+
+同一個人後來的叫品，說明不能跟他之前表示過的範圍（大牌點、總點、每門張數）完全不重疊，例如先表示 11+ 再說 7–10（ROBOT.md §8）：
+
+```bash
+npm run consistency                          # 前 2,000 副×兩種制度，加叫牌與推論題庫
+npm run consistency -- --system gib --deals 5000 --top 50 --json out.json
+npm run consistency -- --seed slam:x2 --deals 2000   # 滿貫區牌組
+```
+
+| 參數 | 意思 |
+| --- | --- |
+| `--system` | 只跑 `tku` 或 `gib`（預設兩種） |
+| `--deals` | 用四個 TKB 叫完評測牌組的前幾副（預設 2,000） |
+| `--seed` | 換一組牌，`slam:` 開頭是滿貫區牌組 |
+| `--top` | 列出幾種最常見的叫牌（預設 30） |
+| `--json 檔名` | 另存每一次矛盾：牌號或題號、叫牌、哪個特徵、之前與現在的範圍、機器人的牌符不符合 |
+
+報告分「reading」（同伴與叫牌盒讀到的，所有做這個叫品的規則合起來）與「alert」（機器人自己的叫品提示的那條規則，跟 reading 不同時才另外算）。`tests/eval/consistency.test.ts` 用前 200 副加兩個題庫當棘輪（`MOST`，現在兩種制度都是 0），修好一個就把數字往下調，不能往上。
+
 ## 離線雙明手模擬（`sim/`）
 
 在社長的電腦上用多核心 DDS 算幾萬到幾百萬副牌，比較 TKB 的出牌跟單明手抽樣的最佳，和首攻研究：`npm run sim -- …`，見 [`sim/README.md`](sim/README.md)。
@@ -143,6 +163,7 @@ npm run quiz:play -- --base base   # CI 棘輪：base 的 TKB 答同樣的題目
 | `sim/` | 離線雙明手模擬：執行緒池、單明手抽樣、TKB 對照、首攻研究（`sim/README.md`） |
 | `quiz.ts`、`quiz-cli.ts` | 叫牌題庫：格式檢查、作答、各類正確率、棘輪與報告；`npm run quiz` |
 | `play-quiz.ts`、`play-quiz-cli.ts` | 出牌題庫：格式檢查、作答、各類正確率，棘輪與報告沿用叫牌題庫的；`npm run quiz:play` |
+| `consistency.ts`、`consistency-cli.ts` | 說明前後一致的檢查：逐個叫品比對之前表示過的範圍；`npm run consistency` |
 | `deals.ts` | 固定牌組：`EVAL_SEED`、`evalBoard`、`evalBoards`、`fingerprint` |
 | `match.ts` | 一桌打完一副（`playTable`）、兩桌換位的對抗（`playMatch`）；`RobotConfig` 可以帶別的 `RobotBrain` |
 | `stats.ts` | IMP／副、標準誤、MP、合約統計（`summarize`）與門檻（`regressed`） |

@@ -107,7 +107,32 @@ function showsFor(ctx: Ctx, call: Call): Spec {
   if (kind === 'slam') notes.push({ key: 'smallSlam' })
   if (kind === 'grand') notes.push({ key: 'grandSlam' })
   if (notes.length) spec.notes = notes
-  return spec
+  return keptTo(spec, ctx.shown.me)
+}
+
+/**
+ * What a bid of this book shows, kept to what the player has shown before (X2): the points and
+ * lengths above are worked out from partner's side, so on their own they may say "0–11" of an
+ * opening hand or "7+ cards" of a weak two. Each feature takes the part of its range the earlier
+ * calls allow; when nothing is left, the bid says nothing new about that feature.
+ */
+function keptTo(spec: Spec, known: Spec): Spec {
+  const out: Spec = { ...spec }
+  const tpKnown = known.tp ?? (known.hcp && ([known.hcp[0], ANY] as Range))
+  if (spec.tp) out.tp = narrowed(spec.tp, tpKnown)
+  if (spec.hcp) out.hcp = narrowed(spec.hcp, known.hcp)
+  if (spec.len) {
+    const len: Partial<Record<Suit, Range>> = {}
+    for (const [s, r] of Object.entries(spec.len) as [Suit, Range][]) len[s] = narrowed(r, known.len?.[s])
+    out.len = len
+  }
+  return out
+}
+
+function narrowed(range: Range, known: Range | undefined): Range {
+  if (!known) return range
+  const both: Range = [Math.max(range[0], known[0]), Math.min(range[1], known[1])]
+  return both[0] <= both[1] ? both : known
 }
 
 // ── What this hand does ──────────────────────────────────────────────────────────────────────────
