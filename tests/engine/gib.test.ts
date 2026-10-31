@@ -587,6 +587,28 @@ describe('when our opening is doubled or overcalled (§8)', () => {
     expect(bidOver('A32 K432 3 KQ432', '1C P 1H 1S')).toBe('2H')
   })
 
+  it('opener reopens with a takeout double when short in their suit (W3)', () => {
+    // 1♦ (2♠) P (P): 14+ with a doubleton in their suit, 13+ with a singleton, 12+ with a void
+    expect(bidOver('43 KJ32 AQJ84 K3', '1D 2S P P')).toBe('X')
+    expect(bidOver('4 AK32 AQJ84 K32', '1D 2S P P')).toBe('X')
+    expect(bidOver('- KJ32 AJ984 K432', '1D 2S P P')).toBe('X')
+    expect(bidOver('4 AK32 AQJ84 K32', '1D 1S P P')).toBe('X')
+    expect(explain(GIB, auctionOf('1D 2S P P', 'N'), 'N').get('X')?.name).toBe('takeout')
+    // A point fewer, three cards in their suit, or a seven-card suit: pass
+    expect(bidOver('43 KJ32 AQ984 K3', '1D 2S P P')).toBe('P')
+    expect(bidOver('4 KJ32 AQJ84 J32', '1D 2S P P')).toBe('P')
+    expect(bidOver('432 AK32 AQJ8 K3', '1D 2S P P')).toBe('P')
+    expect(bidOver('4 A2 AKQJ842 K32', '1D 2S P P')).toBe('P')
+  })
+
+  it('responder passes the reopening double for penalty with their suit, otherwise bids (W3)', () => {
+    expect(bidOver('KJT98 32 Q3 J654', '1D 2S P P X P')).toBe('P')
+    expect(explain(GIB, auctionOf('1D 2S P P X P', 'N'), 'N').get('P')?.name).toBe('penalty')
+    expect(bidOver('32 KJ54 Q3 J6542', '1D 2S P P X P')).toBe('3H')
+    expect(bidOver('32 J54 Q3 J65432', '1D 2S P P X P')).toBe('3C')
+    expect(bidOver('A32 54 Q32 Q6542', '1D 2S P P X P')).toBe('2N')
+  })
+
   it('explains these calls the way GIB does', () => {
     expect(meaning('1C 1D', 'X')).toBe('負性賭倍：4+ 張♠，4+ 張♥，6+ 大牌點，迫叫一圈')
     expect(meaning('1D 1H', 'X')).toBe('負性賭倍：4 張♠，6+ 大牌點，迫叫一圈')

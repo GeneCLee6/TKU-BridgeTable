@@ -3,7 +3,7 @@ import { SUITS, type Suit } from '../../../cards.ts'
 import { cheapest, lastOf, type Ctx } from '../context.ts'
 import { keycards, type Hand } from '../evaluate.ts'
 import type { Book, Rule, Spec } from '../spec.ts'
-import { aim } from './target.ts'
+import { aim, slamShape } from './target.ts'
 import { aces, bid, isMajor, ORDER, ours, reads, rule, shownLength } from './util.ts'
 
 /**
@@ -264,8 +264,8 @@ const isGameBid = (call: Call) => call === '3N' || call === '4H' || call === '4S
  * take any strength above their floor (the responder's 「13+ 成局」, game after Stayman, the
  * opener's raise to game), so a hand with a slam between us stopped in game (eval/sim/README.md
  * §9). When the books chose a natural game (3NT, four of a major, five of a minor; not a sign-off
- * of a slam auction, not artificial) and the fallback's count (`aim`: 33 points a small slam, 37 a
- * grand) is a slam: RKCB when 4NT asks it for the agreed major here, otherwise the slam itself.
+ * of a slam auction, not artificial) and the fallback's count (`aim`: 33 points a small slam, 32
+ * with a fit and a singleton or void, 37 a grand) is a slam: RKCB when 4NT asks it for the agreed major here, otherwise the slam itself.
  * Only while the opponents have passed, and before our side's 4NT or five level.
  */
 export function slamCheck(h: Hand, ctx: Ctx, call: Call, shows: Spec | undefined, explain: (call: Call) => Spec | undefined): Call | null {
@@ -279,7 +279,9 @@ export function slamCheck(h: Hand, ctx: Ctx, call: Call, shows: Spec | undefined
     if (ask?.name === 'rkcb1430' && ask.trump === trump) return '4N'
   }
   // Without asking: the small slam only (never a grand blind), and only on partner's fewest points
+  // (33, or 32 with a fit and a singleton or void: W3)
   const goal = bid(6, strainOf(aimed))
-  if (h.hcp + (ctx.shown.partner.hcp?.[0] ?? 0) < 33) return null
+  const sure = h.hcp + (ctx.shown.partner.hcp?.[0] ?? 0)
+  if (sure < 32 || (sure < 33 && !slamShape(h, ctx))) return null
   return explain(goal) && !explain(goal)?.artificial ? goal : null
 }

@@ -36,6 +36,8 @@
     {"id": "gib-resp-032", "system": "gib", "dealer": "N", "vul": "None", "hand": "K32.KJ2.A54.J432", "auction": ["1N", "2H"], "answer": "2N", "source": "docs/BBO GIB/gib-2over1.md §4 1NT 之後", "reviewer": null, "status": "pending", "note": "12 點、♥有擋：Lebensohl 2NT，再叫 3NT（慢叫有擋）"},
     {"id": "gib-resp-033", "system": "gib", "dealer": "N", "vul": "None", "hand": "AK32.32.AK32.K32", "auction": ["2H", "P"], "answer": "2N", "source": "docs/BBO GIB/gib-2over1.md §6 2♣、弱二與阻擊", "reviewer": null, "status": "pending", "note": "17 點：2NT 詢問旁門大牌"},
     {"id": "gib-resp-034", "system": "gib", "dealer": "N", "vul": "None", "hand": "32.KQJ32.K32.432", "auction": ["2C", "P"], "answer": "2H", "source": "docs/BBO GIB/gib-2over1.md §6 2♣、弱二與阻擊", "reviewer": null, "status": "pending", "note": "好的 5 張♥ 9 點：正面答叫"},
-    {"id": "gib-resp-035", "system": "gib", "dealer": "N", "vul": "None", "hand": "432.J32.Q432.432", "auction": ["2C", "P"], "answer": "2D", "source": "docs/BBO GIB/gib-2over1.md §6 2♣、弱二與阻擊", "reviewer": null, "status": "pending", "note": "3 點：2♦ 等待"}
+    {"id": "gib-resp-035", "system": "gib", "dealer": "N", "vul": "None", "hand": "432.J32.Q432.432", "auction": ["2C", "P"], "answer": "2D", "source": "docs/BBO GIB/gib-2over1.md §6 2♣、弱二與阻擊", "reviewer": null, "status": "pending", "note": "3 點：2♦ 等待"},
+    {"id": "gib-resp-036", "system": "gib", "dealer": "N", "vul": "None", "hand": "KJT98.32.Q3.J654", "auction": ["1D", "2S", "P", "P", "X", "P"], "answer": "P", "source": "docs/BBO GIB/gib-2over1.md §8 我方開叫被插叫（開叫者重開的迫伴賭倍，社長 2026-10-31）", "reviewer": null, "status": "pending", "note": "同伴重開的迫伴賭倍，♠ 5 張有大牌：Pass 處罰"},
+    {"id": "gib-resp-037", "system": "gib", "dealer": "N", "vul": "None", "hand": "32.KJ54.Q3.J6542", "auction": ["1D", "2S", "P", "P", "X", "P"], "answer": "3H", "source": "docs/BBO GIB/gib-2over1.md §8 我方開叫被插叫（開叫者重開的迫伴賭倍，社長 2026-10-31）", "reviewer": null, "status": "pending", "note": "同伴重開的迫伴賭倍，沒有♠長度：叫 4 張未叫的高花"}
   ]
 }

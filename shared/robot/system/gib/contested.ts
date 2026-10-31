@@ -201,6 +201,79 @@ function supportDouble(y: Suit): Rule[] {
   ]
 }
 
+// ── Opener's reopening double and responder's answer (W3) ────────────────────────────────────
+
+/**
+ * The overcall was passed round to opener (1♦ (2♠) P (P)): short in their suit with extra values,
+ * double for takeout (迫伴賭倍; the club's president, 2026-10-31). Partner may have passed with
+ * their suit (a negative double would have been for takeout), so the double lets partner pass it
+ * for penalty. Extra values by how short (chosen by measurement, ROBOT.md §6.11): 14+ high-card
+ * points with a doubleton in their suit, 13+ with a singleton, 12+ with a void; no seven-card suit.
+ */
+const REOPEN_POINTS = [12, 13, 14]
+
+function reopeningDouble(): Rule[] {
+  const z = (ctx: Ctx) => theirBid(ctx, 1)!
+  return [
+    {
+      call: 'X',
+      shows: (ctx) => ({ name: 'takeout', len: { [z(ctx).suit]: [0, 2] }, hcp: plus(REOPEN_POINTS[0]), forcing: 'oneRound' }),
+      when: (h, ctx) => {
+        const n = h.len[z(ctx).suit]
+        return n <= 2 && h.hcp >= REOPEN_POINTS[n] && h.shape[0] <= 6
+      },
+    },
+  ]
+}
+
+/** Partner reopened with a takeout double: pass for penalty with their suit, otherwise bid */
+function afterReopening(y: Suit): Rule[] {
+  const z = (ctx: Ctx) => theirBid(ctx, 1)!.suit
+  const unbid = (ctx: Ctx) => UP.filter((s) => s !== y && s !== z(ctx))
+  const nt = (ctx: Ctx) => cheapest(ctx, 'N')
+  const best = (h: Hand, ctx: Ctx, s: Suit) => {
+    const among = unbid(ctx)
+    const majors = among.filter((t) => isMajor(t) && h.len[t] >= 4)
+    return (majors.length ? longest(h, majors) : longest(h, among)) === s
+  }
+  const rules: Rule[] = [
+    {
+      call: 'P',
+      shows: (ctx) => ({ name: 'penalty', len: { [z(ctx)]: [4, 13] } }),
+      when: (h, ctx) => h.len[z(ctx)] >= 5 || (h.len[z(ctx)] >= 4 && stopped(h, z(ctx))),
+    },
+    { call: '3N', shows: (ctx) => ({ hcp: plus(11), stop: { [z(ctx)]: 'stop' } }) },
+    {
+      call: (ctx) => {
+        const call = nt(ctx)
+        return call && levelOf(call) <= 2 ? call : null
+      },
+      shows: (ctx) => ({ hcp: [8, 10], stop: { [z(ctx)]: 'stop' } }),
+    },
+  ]
+  for (const M of MAJORS.filter((M) => M !== y))
+    rules.push({
+      call: (ctx) => (z(ctx) !== M ? bid(4, M) : null),
+      shows: { len: { [M]: [4, 13] }, hcp: plus(9), notes: [{ key: 'game' }] },
+      when: (h, ctx) => best(h, ctx, M),
+    })
+  for (const s of UP.filter((s) => s !== y))
+    rules.push({
+      call: (ctx) => (z(ctx) !== s ? cheapest(ctx, s) : null),
+      shows: { len: { [s]: [4, 13] }, hcp: [0, 8] },
+      when: (h, ctx) => best(h, ctx, s) && (isMajor(s) || h.len[s] >= 5 || h.len[y] < 3),
+    })
+  rules.push({ call: (ctx) => cheapest(ctx, y), shows: { len: { [y]: [2, 13] }, hcp: [0, 8], notes: [{ key: 'preference', strain: y }] } })
+  for (const s of UP.filter((s) => s !== y)) rules.push({ call: (ctx) => (z(ctx) !== s ? cheapest(ctx, s) : null), shows: {}, when: (h, ctx) => best(h, ctx, s) })
+  return rules
+}
+
+/** The overcall at the one or two level was passed round to opener */
+const reopeningSeat = (ctx: Ctx) => {
+  const theirs = theirBid(ctx, 1)
+  return !!theirs && theirs.suit !== strainOf(ctx.turns[0].call) && theirs.level <= 2
+}
+
 // ── The books ─────────────────────────────────────────────────────────────────────────────────
 
 const suitOvercall = (at: number) => (ctx: Ctx) => {
@@ -216,6 +289,8 @@ for (const y of UP) {
     { after: `1${y} (1N)`, rules: [{ call: 'X', shows: { name: 'penalty', hcp: plus(9) } }], more: true },
     { after: `1${y} (+)`, only: suitOvercall(1), rules: afterOvercall(y), more: true },
     { after: `1${y} (+) X (P)`, only: suitOvercall(1), rules: afterNegative(y), more: true },
+    { after: `1${y} (+) P (P)`, only: reopeningSeat, rules: reopeningDouble(), more: true },
+    { after: `1${y} (+) P (P) X (P)`, only: reopeningSeat, rules: afterReopening(y), more: true },
   )
   // Support doubles up to 2♥, after a one-level response
   for (const r of UP.filter((r) => above(r, y)))

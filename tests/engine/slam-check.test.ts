@@ -41,6 +41,15 @@ describe('the slam check: a natural game bid with a slam between us (V4d)', () =
     expect(bidOver('tku', 'AKQJT7 AQT4 Q2 A', '1C P 1S P 2C P').call).toBe('6N')
   })
 
+  it('淡江: 32 points try for the slam with a fit and a singleton or void (W3)', () => {
+    // 1♣–1♠–2♠ (12–15) with 15 and a singleton club: 15 + 14 + shortness = 32, RKCB
+    const ask = bidOver('tku', 'KJ54 AQT7 AJ76 3', '1C P 1S P 2S P')
+    expect(ask.call).toBe('4N')
+    expect(ask.meaning?.name).toBe('rkcb1430')
+    // The same points without the singleton: game
+    expect(bidOver('tku', 'KJ54 AQT7 AJ7 63', '1C P 1S P 2S P').call).toBe('4S')
+  })
+
   it('淡江: never after the opponents bid, and not past our 4NT', () => {
     expect(bidOver('tku', 'A964 AJ AQJ7 A52', '1C 2H 2S P').call).not.toBe('4N')
   })
