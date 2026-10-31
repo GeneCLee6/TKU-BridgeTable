@@ -112,9 +112,64 @@ describe('third hand high', () => {
 
   it("does not overtake a card of partner's that declarer cannot beat (the rule of eleven)", () => {
     // West leads the ♥7, fourth best from KJ975; dummy ♥T83 and East ♥AQ6 hold every other card
-    // above the seven, so declarer has none: East keeps the ace and queen
+    // above the seven, so declarer has none: East keeps the ace and queen. West's 2♥ overcall
+    // shows the length that makes the seven fourth best
     const cards = layout({ N: 'A32 T83 QJT9 K43', S: 'KJ5 42 K87 AQJ65', E: 'Q876 AQ6 A32 872', W: 'T94 KJ975 654 T9' })
-    expect(plays(board(cards, NOTRUMP, ['H7', 'H3']))).toEqual(['H6', 'H6'])
+    expect(plays(board(cards, '1N 2H 3N P P P', ['H7', 'H3']))).toEqual(['H6', 'H6'])
+    // Without it (W2) the seven may be the lowest from three: third hand high
+    expect(plays(board(cards, NOTRUMP, ['H7', 'H3']))).toEqual(['HA', 'HA'])
+  })
+
+  it("plays the king once dummy's ace has passed: the president's board (W2)", () => {
+    // 3NT by South; West (the president) leads the ♥6, the club's lowest from Q86; dummy plays low
+    // from ♥AJ3, so the ace no longer sits over East's king. The three cards East cannot see above
+    // the six (Q, T, 8) are exactly the rule of eleven's count, but the lead is not fourth best and
+    // declarer's ♥T2 holds the ten: ducking lets it win. The king wins the trick (and it is not
+    // worth less later: the ace has passed it)
+    const cards = layout({
+      N: 'Q32 AJ3 QJT9 K43',
+      E: '8765 K9754 A3 72',
+      W: 'T94 Q86 8654 QT5',
+      S: 'AKJ T2 K72 AJ986',
+    })
+    expect(plays(board(cards, NOTRUMP, ['H6', 'H3']))).toEqual(['HK', 'HK'])
+    // The same against a suit contract, and on a later lead of partner's
+    expect(plays(board(cards, '1S P 4S P P P', ['H6', 'H3']))).toEqual(['HK', 'HK'])
+    // (West holds the ♦K here: the ♣Q goes to the ace, West wins the ♦K and switches to hearts)
+    const later = layout({ N: 'Q32 AJ3 QJT9 K43', E: '8765 K9754 A3 72', W: 'T94 Q86 K654 QT5', S: 'AKJ T2 872 AJ986' })
+    expect(plays(board(later, NOTRUMP, ['CQ', 'CK', 'C2', 'CA', 'D2', 'DK', 'D9', 'D3', 'H6', 'H3']))).toEqual(['HK', 'HK'])
+  })
+
+  it("plays the king over dummy's queen, and finesses only with a tenace over dummy's honour", () => {
+    // Dummy plays low from ♥AQ4: East's ♥K83 wins the trick now (declarer's jack or ten would)
+    const aq = layout({ N: 'Q32 AQ4 QJT9 K43', E: '8765 K83 A73 762', W: 'T94 J952 8654 QT' })
+    expect(plays(board(aq, NOTRUMP, ['H2', 'H4']))).toEqual(['HK', 'HK'])
+    // Dummy plays low from ♥K4: East's ♥AQ8 plays the queen, the ace stays over the king
+    const kx = layout({ N: 'Q32 K4 QJT92 K43', E: '8765 AQ8 A73 762', W: 'T94 J9752 865 QT' })
+    expect(plays(board(kx, NOTRUMP, ['H5', 'H4']))).toEqual(['HQ', 'HQ'])
+    // Dummy plays low from ♥KJ4: nothing over the king, but East's ♥QT8 finesses the T against the
+    // jack, the queen staying over it
+    const kj = layout({ N: 'Q32 KJ4 QJT9 K43', E: '8765 QT8 A73 762', W: 'T94 9752 8654 QT' })
+    expect(plays(board(kj, NOTRUMP, ['H7', 'H4']))).toEqual(['HT', 'HT'])
+    // Dummy's ♥AJ3 against East's ♥KT5: the T (K97 plays the K, above)
+    const kt = layout({ N: 'Q32 AJ3 QJT9 K43', E: '8765 KT5 A73 762', W: 'T94 Q9742 865 QT' })
+    expect(plays(board(kt, NOTRUMP, ['H4', 'H3']))).toEqual(['HT', 'HT'])
+  })
+
+  it("against a suit contract finesses against dummy only with the ten or higher", () => {
+    // 4♠: West leads the ♥7, dummy plays low from ♥J4; East's ♥AK96: the A (a nine loses to
+    // declarer's ten, and the ace may be the suit's only trick before declarer ruffs)
+    const cards = layout({ N: 'Q32 J4 QJT9 K432', E: '876 AK96 A73 765', W: 'T94 Q8752 8654 Q' })
+    expect(plays(board(cards, SPADES, ['H7', 'H4']))).toEqual(['HK', 'HK'])
+    // In notrump the nine finesses
+    expect(plays(board(cards, NOTRUMP, ['H7', 'H4']))).toEqual(['H9', 'H9'])
+  })
+
+  it("does not overtake partner's card when declarer has played and dummy, last, cannot beat it", () => {
+    // 3NT: East wins the ♦A and switches to the ♥6, declarer plays low; dummy has only the ♥2
+    // left, so the six wins: West signals (the four, liking it) rather than spend the queen
+    const cards = layout({ N: 'KQ32 2 KQJ9 KJ43', E: '765 T986 A73 Q65', S: 'AJ4 AJ73 T2 AT98', W: 'T98 KQ54 8654 72' })
+    expect(plays(board(cards, NOTRUMP, ['D6', 'D9', 'DA', 'D2', 'H6', 'H3']))).toEqual(['H4', 'H4'])
   })
 
   it("does not overtake partner's honour, but unblocks a doubleton in notrump", () => {

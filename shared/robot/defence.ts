@@ -159,13 +159,17 @@ export function dummyOverruffs(view: View, trick: PlayedCard[], led: Suit, ruff:
 }
 
 /**
- * Third hand after partner's lead (ROBOT.md §3): high, with the lowest of touching cards, so the
- * declarer does not win cheaply; but not over a card of partner's that nobody can beat, nor over
- * partner's honour (except a doubleton honour in notrump, which overtakes so the suit does not
- * block), and only as high as dummy makes necessary: a tenace over an honour dummy keeps finesses
- * against it, and nothing is spent on a trick dummy, still to play, wins anyway. The rule of
- * eleven on a low opening lead (partner holds the rest of the cards above it) says when the lead
- * is already winning. Null leaves the card to the signals.
+ * Third hand after partner's lead (ROBOT.md §3, §3.12): high, with the lowest of touching cards,
+ * so the declarer does not win cheaply; but not over a card of partner's that nobody can beat
+ * (the cards above it are all in view, or the declarer has played and dummy, last, has nothing
+ * over it), nor over partner's honour (except a doubleton honour in notrump, which overtakes so
+ * the suit does not block), and only as high as dummy makes necessary: a tenace over an honour
+ * dummy keeps finesses against it (AQ against the K; KT against dummy's AJ, the T), and nothing is
+ * spent on a trick dummy, still to play, wins anyway. Once dummy has played low, its honours have
+ * passed: a king behind dummy's AJx wins the trick. The rule of eleven on a low opening lead says
+ * the lead is already winning only when partner showed four cards or more in the auction: the
+ * club leads the lowest from three with an honour, and a person may lead anything. Null leaves
+ * the card to the signals.
  */
 export function thirdHand(view: View, trick: PlayedCard[], following: Card[], best: PlayedCard, led: Suit, trump: Suit | null): Card | null {
   if (trick.length !== 2 || suitOf(best.card) !== led) return null
@@ -177,24 +181,29 @@ export function thirdHand(view: View, trick: PlayedCard[], following: Card[], be
   if (!beaters.length) return null
   const top = beaters.at(-1)!
   const dummyLeft = suitCards(view.dummyCards(), led)
+  const dummyLast = trick[1].seat !== dummy
   // Dummy, still to play, holds a card over partner's: partner's card is not winning after all
-  const dummyBeats = trick[1].seat !== dummy && dummyLeft.some((c) => value(c) > value(best.card))
+  const dummyBeats = dummyLast && dummyLeft.some((c) => value(c) > value(best.card))
 
   if (partnerWinning && !dummyBeats) {
     const honourLed = value(partnerCard) >= 11
     // Unblock in notrump: a doubleton honour over partner's honour
     if (honourLed) return trump === null && following.length === 2 && value(top) > value(partnerCard) ? top : null
-    // Nobody can beat partner's card: the cards above it are all in view
+    // Nobody can beat partner's card: the declarer has played to the trick and dummy, last, has
+    // nothing over it; or the cards above it are all in view
+    if (dummyLast) return null
     const hidden = view.unseenAbove(best.card).length
     if (hidden === 0) return null
-    // The rule of eleven on a low opening lead: fourth best leaves partner exactly three cards
-    // above the one led, so when exactly three are out of view declarer has none (fewer, and the
-    // lead was not fourth best: a high spot from nothing, which declarer may well beat)
-    // Only in notrump: against a suit contract a low lead is as often from a short suit
-    if (trump === null && state.play.length < 4 && value(partnerCard) <= 7 && hidden === 3) return null
+    // The rule of eleven on a low opening lead in notrump: fourth best from four or more leaves
+    // partner exactly three cards above the one led, so when exactly three are out of view declarer
+    // has none. Only when the auction shows partner's four cards: the club's lowest from three
+    // with an honour (Q86 leads the 6) leaves declarer one of them (W2: dummy's AJx, the K ducked
+    // and declarer's T won). Against a suit contract a low lead is as often from a short suit
+    const fourCards = view.reading.len(trick[0].seat, led)[0] >= 3
+    if (fourCards && trump === null && state.play.length < 4 && value(partnerCard) <= 7 && hidden === 3) return null
   }
 
-  if (trick[1].seat !== dummy) {
+  if (dummyLast) {
     // Dummy plays last: the cheapest card over its top card; with none, force the top card out
     // with the cheapest card over dummy's next one when we keep a higher card (KT5 against dummy's
     // A9: the T, and the K is good); else keep ours
@@ -207,17 +216,27 @@ export function thirdHand(view: View, trick: PlayedCard[], following: Card[], be
     return null
   }
   // Dummy played second and keeps an honour above the trick: with a card over that honour, finesse
-  // against it with the highest card below it (the lowest of touching cards)
+  // against it with the highest card below it (the lowest of touching cards). Against a suit
+  // contract only with the ten or higher: a nine that loses to declarer's ten may be the suit's
+  // only trick before declarer ruffs
   const kept = dummyLeft.filter((c) => value(c) > value(best.card) && value(c) >= 10)
   if (kept.length) {
+    const lowest = trump === null ? 9 : 10
     const over = beaters.some((c) => value(c) > value(kept[0]))
     const under = beaters.filter((c) => value(c) < value(kept[0]))
-    if (over && under.length && value(under.at(-1)!) >= 9) return view.lowestEqual(under.at(-1)!, following)
+    if (over && under.length && value(under.at(-1)!) >= lowest) return view.lowestEqual(under.at(-1)!, following)
+    // Nothing over dummy's top honour: finesse against the next one down with the card just below
+    // it when we hold a card over it (KT against dummy's AJ: the T, and the K stays over the J)
+    for (const honour of kept.slice(1)) {
+      if (!beaters.some((c) => value(c) > value(honour))) continue
+      const below = beaters.filter((c) => value(c) < value(honour)).at(-1)
+      const touching = below && !view.unseenAbove(below).some((c) => value(c) < value(honour))
+      if (below && touching && value(below) >= lowest) return view.lowestEqual(below, following)
+    }
   }
   // Third hand high
   return view.lowestEqual(top, following)
 }
-
 /**
  * Hold up the stopper in notrump against dummy's long suit with no other way in: while the
  * count (auction and partner's count signal) says the declarer still has a card of the suit
