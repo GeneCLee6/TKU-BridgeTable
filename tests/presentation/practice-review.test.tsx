@@ -126,7 +126,9 @@ describe('the review of a bidding practice (e10-t07)', () => {
     // The engine's reading of amy's 1♣ (points and length), then TKB's 1♠
     expect(await within(explained).findByText(/依2\/1推論.*12/)).toBeInTheDocument()
     expect(within(explained).getByText(/TKB 的叫法/)).toHaveTextContent('1♠')
-    expect(await within(explained).findByText('5+ 張♠，12–21 大牌點')).toBeInTheDocument()
+    // The words stay whole; the ♠ in them takes its suit colour (W4)
+    const robotWords = await within(explained).findByText((_, el) => el?.tagName === 'DD' && el.textContent === '5+ 張♠，12–21 大牌點')
+    expect(within(robotWords).getByText('♠').tagName).toBe('SPAN')
     // Picked again: closed
     await userEvent.click(steps[0])
     expect(screen.queryByRole('region', { name: '北 叫的意義' })).not.toBeInTheDocument()

@@ -417,7 +417,7 @@ describe('competitive bidding (競叫篇與技光、賭倍性叫品、CAPP)', ()
     // 16+ doubles first whatever the shape (強力型)
     expect(bidOver(hand('8 AKJ73 KQJ3 Q92'), '1S')).toBe('X')
     expect(meaning('1C', '2C')).toMatch(/^Michaels 扣叫：兩門高花/)
-    expect(meaning('1D', '2S')).toMatch(/^弱跳爭叫/)
+    expect(meaning('1D', '2S')).toMatch(/^弱跳競叫/)
   })
 
   it('balances in the pass-out seat (平衡叫)', () => {

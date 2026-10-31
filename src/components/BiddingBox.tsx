@@ -6,7 +6,7 @@ import { LIMITS } from '../../shared/protocol.ts'
 import { bidKeyHeight } from '../lib/measure.ts'
 import { typingIn } from '../lib/useCardChoice.ts'
 import { useT } from '../state/PreferencesContext.tsx'
-import { CallLabel, SuitSymbol } from './Suit.tsx'
+import { CallLabel, SuitSymbol, SuitText } from './Suit.tsx'
 
 /**
  * BBO's bidding box, two rows high so it fits under the auction: Pass and the levels 1–7 on top,
@@ -358,14 +358,14 @@ export function BiddingBox({
               </span>
               {hints.title}
             </strong>
-            {hints.text(read)}
+            <SuitText text={hints.text(read)} onCard />
             {hints.book?.(read) && (
               <BookWords>
                 <strong>
                   <BookOpen size={13} aria-hidden />
                   {t.bookExplanation}
                 </strong>
-                {hints.book(read)}
+                <SuitText text={hints.book(read)!} onCard />
               </BookWords>
             )}
           </Hint>

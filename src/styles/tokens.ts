@@ -159,6 +159,15 @@ const cardSuits = {
   four: { S: '#111111', H: '#d10f1f', D: '#e06900', C: '#18852f' },
 } as const
 
+/**
+ * Suit symbols inside words on the chrome (a call's explanation in the practice review): the
+ * chrome's colours for the theme, folded to two colours like the cards when the deck is two-colour
+ */
+function chromeDeckSuits(mode: ThemeMode, deck: DeckColors) {
+  const s = suits[mode]
+  return deck === 'four' ? s : { S: s.S, H: s.H, D: s.H, C: s.S }
+}
+
 export const fonts = {
   body: `'Noto Sans TC Variable', 'Noto Sans TC', 'PingFang TC', 'Microsoft JhengHei', system-ui, sans-serif`,
   cards: `'Segoe UI', 'Helvetica Neue', Arial, sans-serif`,
@@ -206,6 +215,7 @@ export function createTheme(mode: ThemeMode, deck: DeckColors) {
     suits: suits[mode],
     table,
     cardSuits: cardSuits[deck],
+    textSuits: chromeDeckSuits(mode, deck),
     avatars,
     onAvatar,
     fonts,

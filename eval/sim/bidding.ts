@@ -45,7 +45,7 @@ export const CATEGORY_LABEL: Record<BiddingCategory, string> = {
   game: '部分合約／邀請／成局',
   slam: '成局或滿貫',
   direct: '直接位置蓋叫／不叫',
-  takeout: '技術性賭倍',
+  takeout: '迫伴賭倍',
   balancing: '平衡位置',
   preempt: '對抗阻擊',
   notrump: '對抗 1NT',

@@ -10,7 +10,7 @@ import { auctionBoxHeight, auctionCell } from '../lib/measure.ts'
 import { useRobotRules } from '../lib/useRobotRules.ts'
 import { usePreferences, useT } from '../state/PreferencesContext.tsx'
 import { seatLetter } from '../strings.ts'
-import { CallLabel } from './Suit.tsx'
+import { CallLabel, SuitText } from './Suit.tsx'
 
 /**
  * The auction as a table, BBO style: four columns from the viewer's point of view (left-hand
@@ -228,7 +228,7 @@ function MeaningTip({ id, call, anchor, who, onClose }: { id: string; call: Auct
               {part.label}
             </strong>
           )}
-          {part.text}
+          <SuitText text={part.text} onCard />
           {part.book && <small>{t.bookOpenHint}</small>}
         </PopupText>
       ))}

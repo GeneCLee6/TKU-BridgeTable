@@ -11,7 +11,7 @@ import { signed } from '../lib/format.ts'
 import { usePreferences } from '../state/PreferencesContext.tsx'
 import { seatLetter } from '../strings.ts'
 import { DoubleDummyPanel } from './DoubleDummyPanel.tsx'
-import { CallLabel, ContractLabel, ContractResult, SuitSymbol } from './Suit.tsx'
+import { CallLabel, ContractLabel, ContractResult, SuitSymbol, SuitText } from './Suit.tsx'
 import { Backdrop, Buttons, Panel } from './TableSettingsDialog.tsx'
 import { Button, Muted } from './ui.tsx'
 
@@ -295,13 +295,13 @@ export function PracticeReview({
                   <dt>
                     {r.meaningOf(t.seatNames[chosen.seat])}{t.colon}<CallLabel call={chosen.call} />
                   </dt>
-                  <dd>{meaning.ofCall(chosen)}</dd>
+                  <dd><SuitText text={meaning.ofCall(chosen)} /></dd>
                   {steps[picked] && (
                     <>
                       <dt>
                         {r.robotMeaning}{t.colon}<CallLabel call={steps[picked].call} />
                       </dt>
-                      <dd>{meaning.ofStep(steps[picked])}</dd>
+                      <dd><SuitText text={meaning.ofStep(steps[picked])} /></dd>
                     </>
                   )}
                 </Explain>
