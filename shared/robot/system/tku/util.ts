@@ -132,7 +132,11 @@ export function natural(ctx: Ctx, call: Call): Spec {
     const known = shownLength(ctx.shown.me, strain)
     const raise = bidBy('partner')
     if (raise) notes.push({ key: 'support', strain })
-    spec.len = length(strain, Math.max(known, raise ? 3 : 4, bidBy('me') ? known + 1 : 0))
+    // Partner's double showed the suit (a negative or takeout double): bidding it is support too
+    const fit = raise || shownLength(ctx.shown.partner, strain) >= 4
+    // Bidding a suit again shows one more card, but not when it is partner's suit too: raising a
+    // suit we raised before shows the support we already showed, no more (X2)
+    spec.len = length(strain, Math.max(known, raise ? 3 : 4, bidBy('me') && !fit ? known + 1 : 0))
   }
   if (level >= 6) notes.push({ key: level === 7 ? 'grandSlam' : 'smallSlam' })
   else if (isGame(strain, level)) notes.push({ key: 'game' })
