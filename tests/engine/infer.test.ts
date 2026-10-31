@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { AuctionCall } from '../../shared/auction.ts'
 import { nextSeat, type Card, type Seat } from '../../shared/cards.ts'
 import { choose, explain } from '../../shared/robot/system/engine.ts'
+import { narrow } from '../../shared/robot/system/combine.ts'
 import { contextFor, intersect, read } from '../../shared/robot/system/infer.ts'
 import { ANY, type System } from '../../shared/robot/system/spec.ts'
 
@@ -119,5 +120,30 @@ describe('reading the auction', () => {
     const calls = explain(doubling, auctionOf('1H X P'), 'N')
     expect(calls.get('P')).toEqual({ name: 'penalty' })
     expect(choose(doubling, hand('AQ32 KJ54 32 Q32'), 'W', auctionOf('1H X P'), 'N').call).toBe('P')
+  })
+})
+
+describe('narrow: each explanation within what the player showed (Y2)', () => {
+  it('narrows the features a call mentions, keeps its name and forcing, adds nothing', () => {
+    expect(narrow({ name: 'stayman', hcp: [8, ANY], forcing: 'oneRound' }, { hcp: [0, 11], len: { S: [0, 4] } })).toEqual({ name: 'stayman', hcp: [8, 11], forcing: 'oneRound' })
+    expect(narrow({ len: { S: [3, 13], H: [0, 3] } }, { len: { S: [5, 13] } })).toEqual({ len: { S: [5, 13], H: [0, 3] } })
+    const spec = { hcp: [12, 14] as [number, number] }
+    expect(narrow(spec, { hcp: [11, 15] })).toBe(spec)
+    // Ranges that do not overlap: the newer one, as `intersect`
+    expect(narrow({ hcp: [0, 5] }, { hcp: [11, 15] })).toEqual({ hcp: [0, 5] })
+  })
+
+  it('never changes what the player has shown in all', () => {
+    const known = { hcp: [0, 11] as [number, number], len: { S: [4, 13] as [number, number] } }
+    const spec = { hcp: [8, ANY] as [number, number], len: { S: [3, 13] as [number, number], H: [4, 13] as [number, number] } }
+    expect(intersect(known, narrow(spec, known))).toEqual(intersect(known, spec))
+  })
+
+  it('explains a passed hand bidding Stayman as 8–11, not 8+, for the hints, the alert and partner', () => {
+    const auction = auctionOf('P P 1N P')
+    expect(explain(toy, auction, 'N').get('2C')).toEqual({ name: 'stayman', hcp: [8, 11], forcing: 'oneRound', artificial: true })
+    expect(explain(toy, auction, 'N').get('3C')?.hcp).toEqual([10, 11])
+    expect(choose(toy, hand('AQ32 K32 Q54 432'), 'N', auction, 'N')).toEqual({ call: '2C', shows: { name: 'stayman', hcp: [8, 11], forcing: 'oneRound', artificial: true } })
+    expect(contextFor(toy, 'S', [...auction, { seat: 'N', call: '2C' }, { seat: 'E', call: 'P' }], 'N', 'None').said.partner?.hcp).toEqual([8, 11])
   })
 })

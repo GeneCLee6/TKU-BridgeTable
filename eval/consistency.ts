@@ -7,6 +7,7 @@ import { ROBOT_SYSTEMS } from '../shared/robot/robots.ts'
 import { contextOf, emptyReading } from '../shared/robot/system/context.ts'
 import { choose } from '../shared/robot/system/engine.ts'
 import { evaluate, fits } from '../shared/robot/system/evaluate.ts'
+import { narrow } from '../shared/robot/system/combine.ts'
 import { intersect } from '../shared/robot/system/infer.ts'
 import { meanings } from '../shared/robot/system/rules.ts'
 import { ANY, type Range, type Spec } from '../shared/robot/system/spec.ts'
@@ -22,6 +23,11 @@ import { auctionOf, loadBank, parseHand, seatOf } from './quiz.ts'
  * points, each suit's length), and any feature whose two ranges do not overlap is a conflict. Two
  * explanations are checked: what partner and the bidding box read the call as (`meanings`, every
  * rule for the call), and for a robot's own call the alert it gives (`choose`, the rule it used).
+ *
+ * The same walk also counts explanations that are wider than they need be (Y2, "narrowness"): a
+ * feature the explanation mentions whose range is wider than its overlap with what the player
+ * showed before ("6+ HCP" after an 11–15 opening, "3+ ♠" after five). Every explanation is the
+ * call's meaning narrowed to what its player showed (`narrow`), so there should be none.
  *
  * The auctions: the eval deal set bid out by four TKBs in each system, the bidding quiz's
  * auctions with both the book's answer and TKB's, and the inference quiz's auctions.
@@ -50,6 +56,23 @@ export interface Conflict {
   handFits?: boolean
 }
 
+/** An explanation wider than what its player had already shown allows (Y2) */
+export interface Wide {
+  system: RobotKind
+  source: Source
+  id: string
+  kind: Explanation
+  seat: Seat
+  auction: Call[]
+  pattern: string
+  /** `hcp`, `tp`, `controls`, `len S`, `quality S`, `stop S`… */
+  feature: string
+  /** As explained */
+  shown: Range | string
+  /** As the overlap with what the player showed before would explain it */
+  narrowed: Range | string
+}
+
 const overlap = (a: Range | undefined, b: Range | undefined) => !a || !b || (a[0] <= b[1] && b[0] <= a[1])
 
 /** The features where `shown` contradicts `known` */
@@ -70,6 +93,23 @@ export function contradictions(known: Spec, shown: Spec): { feature: string; kno
   return out
 }
 
+/** The features `shown` explains more widely than its overlap with `known` (what `narrow` would change) */
+export function wider(known: Spec, shown: Spec): { feature: string; shown: Range | string; narrowed: Range | string }[] {
+  const tight = narrow(shown, known)
+  if (tight === shown) return []
+  const out: { feature: string; shown: Range | string; narrowed: Range | string }[] = []
+  const differs = (a: Range | string | undefined, b: Range | string | undefined) => JSON.stringify(a) !== JSON.stringify(b)
+  for (const key of ['hcp', 'tp', 'controls'] as const)
+    if (shown[key] && differs(shown[key], tight[key])) out.push({ feature: key, shown: shown[key]!, narrowed: tight[key]! })
+  for (const key of ['len', 'quality', 'stop'] as const)
+    for (const s of SUITS) {
+      const a = shown[key]?.[s]
+      const b = tight[key]?.[s]
+      if (a !== undefined && b !== undefined && differs(a, b)) out.push({ feature: `${key} ${s}`, shown: a, narrowed: b })
+    }
+  return out
+}
+
 interface Walk {
   system: RobotKind
   source: Source
@@ -84,10 +124,14 @@ interface Walk {
 }
 
 /** Every conflict in one auction */
-export function auctionConflicts(walk: Walk): Conflict[] {
+export const auctionConflicts = (walk: Walk): Conflict[] => auctionCheck(walk).conflicts
+
+/** Every conflict and every explanation wider than it need be in one auction */
+export function auctionCheck(walk: Walk): { conflicts: Conflict[]; wide: Wide[] } {
   const system = ROBOT_SYSTEMS[walk.system]
   const reading = emptyReading()
   const found: Conflict[] = []
+  const wide: Wide[] = []
   for (let i = 0; i < walk.auction.length; i++) {
     const { seat, call } = walk.auction[i]
     const ctx = contextOf(seat, walk.auction.slice(0, i), walk.dealer, walk.vul, reading)
@@ -95,6 +139,8 @@ export function auctionConflicts(walk: Walk): Conflict[] {
     const known = reading.shown[seat]
     const cards = walk.hands?.[seat]
     const add = (kind: Explanation, shows: Spec) => {
+      for (const w of wider(known, shows))
+        wide.push({ system: walk.system, source: walk.source, id: walk.id, kind, seat, auction: walk.auction.slice(0, i + 1).map((a) => a.call), pattern: [...ctx.key, call].join(' '), ...w })
       for (const c of contradictions(known, shows))
         found.push({
           system: walk.system,
@@ -117,7 +163,7 @@ export function auctionConflicts(walk: Walk): Conflict[] {
     reading.shown[seat] = intersect(reading.shown[seat], spec)
     if (spec.forcing === 'game') reading.gameForce[seat] = reading.gameForce[partnerOf(seat)] = true
   }
-  return found
+  return { conflicts: found, wide }
 }
 
 /** Four TKBs bid a deal out; the auction and each call's alert */
@@ -145,6 +191,8 @@ export interface ConsistencyOptions {
 
 export interface Consistency {
   conflicts: Conflict[]
+  /** Explanations wider than what the player had shown allows (Y2) */
+  wide: Wide[]
   /** Calls checked, by `system source` */
   calls: Record<string, number>
 }
@@ -152,11 +200,15 @@ export interface Consistency {
 export function consistencyCheck(options: ConsistencyOptions = {}): Consistency {
   const systems = options.systems ?? (['tku', 'gib'] as const)
   const conflicts: Conflict[] = []
+  const wide: Wide[] = []
   const calls: Record<string, number> = {}
   const check = (walk: Walk, only?: number) => {
     const key = `${walk.system} ${walk.source}`
     calls[key] = (calls[key] ?? 0) + (only === undefined ? walk.auction.length : 1)
-    conflicts.push(...auctionConflicts(walk).filter((c) => only === undefined || c.auction.length === only + 1))
+    const found = auctionCheck(walk)
+    const kept = (c: { auction: Call[] }) => only === undefined || c.auction.length === only + 1
+    conflicts.push(...found.conflicts.filter(kept))
+    wide.push(...found.wide.filter(kept))
   }
   const boards = evalBoards(options.deals ?? 0, options.seed)
   for (const system of systems) {
@@ -183,13 +235,13 @@ export function consistencyCheck(options: ConsistencyOptions = {}): Consistency 
       for (const q of file.questions)
         if (q.system === system) check({ system, source: 'inference', id: q.id, dealer: q.dealer, vul: q.vul, auction: inferenceAuction(q) })
   }
-  return { conflicts, calls }
+  return { conflicts, wide, calls }
 }
 
 const range = (r: Range | undefined) => (!r ? '—' : r[1] >= ANY ? `${r[0]}+` : `${r[0]}–${r[1]}`)
 
 /** The conflicts counted by system, explanation and source, and the most frequent auctions */
-export function consistencyReport({ conflicts, calls }: Consistency, top = 30): string {
+export function consistencyReport({ conflicts, wide, calls }: Consistency, top = 30): string {
   const lines: string[] = ['calls checked:']
   for (const [k, n] of Object.entries(calls)) lines.push(`  ${k.padEnd(24)} ${n}`)
   const count = (pick: (c: Conflict) => string) => {
@@ -212,5 +264,17 @@ export function consistencyReport({ conflicts, calls }: Consistency, top = 30): 
     const fit = list.filter((x) => x.handFits === false).length
     lines.push(`  ${String(list.length).padStart(5)}  ${k}: ${range(c.known)} → ${range(c.shown)}${fit ? `  (hand outside ${fit})` : ''}  e.g. ${c.source} ${c.id}`)
   }
+  lines.push('', `wider than shown (Y2, system kind pattern feature: shown → narrowed): ${wide.length}`)
+  const wideBy = new Map<string, number>()
+  for (const w of wide) wideBy.set(`${w.system} ${w.source} ${w.kind}`, (wideBy.get(`${w.system} ${w.source} ${w.kind}`) ?? 0) + 1)
+  for (const [k, n] of [...wideBy].sort((a, b) => b[1] - a[1])) lines.push(`  ${k.padEnd(24)} ${n}`)
+  const wideGroups = new Map<string, Wide[]>()
+  for (const w of wide) {
+    const k = `${w.system} ${w.kind} ${w.pattern} | ${w.feature}`
+    wideGroups.set(k, [...(wideGroups.get(k) ?? []), w])
+  }
+  const shown = (v: Range | string) => (typeof v === 'string' ? v : range(v))
+  for (const [k, list] of [...wideGroups].sort((a, b) => b[1].length - a[1].length).slice(0, top))
+    lines.push(`  ${String(list.length).padStart(5)}  ${k}: ${shown(list[0].shown)} → ${shown(list[0].narrowed)}  e.g. ${list[0].source} ${list[0].id}`)
   return lines.join('\n')
 }

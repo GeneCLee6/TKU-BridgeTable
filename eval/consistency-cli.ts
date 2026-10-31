@@ -5,7 +5,7 @@ import type { RobotKind } from '../shared/protocol.ts'
 
 /**
  * The consistency check (X2, eval/README.md): calls explained as something the player's earlier
- * calls ruled out.
+ * calls ruled out, and explanations wider than what the player had shown (Y2).
  *
  *   npm run consistency -- [--system tku|gib] [--deals 2000] [--seed s] [--top 30] [--json out.json]
  */
@@ -21,4 +21,4 @@ const result = consistencyCheck({
 console.log(consistencyReport(result, Number(args.get('top') ?? 30)))
 console.log(`\n${((performance.now() - started) / 1000).toFixed(1)} s`)
 const json = args.get('json')
-if (json) writeFileSync(json, JSON.stringify(result.conflicts, null, 1))
+if (json) writeFileSync(json, JSON.stringify({ conflicts: result.conflicts, wide: result.wide }, null, 1))

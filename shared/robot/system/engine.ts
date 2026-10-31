@@ -1,6 +1,7 @@
 import { seatToCall, type AuctionCall, type Call } from '../../auction.ts'
 import type { Vulnerability } from '../../board.ts'
 import type { Card, Seat } from '../../cards.ts'
+import { narrow } from './combine.ts'
 import { evaluate, fits } from './evaluate.ts'
 import { contextFor } from './infer.ts'
 import { callOf, meanings, resolve, rulesFor } from './rules.ts'
@@ -35,7 +36,9 @@ function* fitting(
     if (needs && !fits(hand, needs)) continue
     if (rule.when && !rule.when(hand, ctx)) continue
     const legal = ctx.legal.has(call)
-    const shows = legal ? resolve(rule.shows, ctx) : undefined
+    // The rule's meaning as the robot alerts it: narrowed to what it has shown, like `meanings`
+    const spec = legal ? resolve(rule.shows, ctx) : undefined
+    const shows = spec && narrow(spec, ctx.shown.me)
     yield { choice: shows ? { call, shows } : { call }, legal }
   }
 }
