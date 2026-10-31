@@ -5,7 +5,7 @@ import type { RobotKind } from '../../shared/protocol.ts'
 import { chooseCard } from '../../shared/robot/play.ts'
 
 /**
- * Drawing trumps (W1, ROBOT.md §3.12): the club president's report that TKB kept cashing side
+ * Drawing trumps (W1, ROBOT.md §3.13): the club president's report that TKB kept cashing side
  * winners the opponents ruffed instead of drawing trumps, and his exception to "leave the last
  * master trump out" (V4c) when it blocks the entry to partner's winners.
  */

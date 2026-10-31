@@ -4,7 +4,7 @@ import { suitCards } from './hand.ts'
 import { byRank, honours, value, type View } from './view.ts'
 
 /**
- * The declarer's plan (e6-t41, ROBOT.md §3.4, V4c §3.10, W1 §3.12): cash the winners this hand
+ * The declarer's plan (e6-t41, ROBOT.md §3.4, V4c §3.10, W1 §3.13): cash the winners this hand
  * cannot get back to; count the sure tricks (a suit that runs counts all its length) against the
  * tricks still needed; ruff losers in the hand with fewer trumps; draw trumps whenever the
  * opponents hold some and our side can outlast them, giving up a trump trick if need be, or cross
@@ -76,7 +76,7 @@ function strandedMaster(view: View, hand: Card[], partner: Card[], trump: Suit |
 }
 
 /**
- * Draw trumps (W1, ROBOT.md §3.12): while the opponents hold trumps that are not all masters and
+ * Draw trumps (W1, ROBOT.md §3.13): while the opponents hold trumps that are not all masters and
  * the longer holding outlasts the defender with the most of them, lead trumps before cashing side
  * winners the opponents could ruff: the master from this hand; low towards partner's master (any
  * count); the top of a sequence to knock out the ones above it; low towards partner's higher trumps;
