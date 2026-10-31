@@ -4,10 +4,11 @@ import { suitCards } from './hand.ts'
 import { byRank, honours, value, type View } from './view.ts'
 
 /**
- * The declarer's plan (e6-t41, ROBOT.md §3.4, V4c §3.10): cash the winners this hand cannot get
- * back to; count the sure tricks (a suit that runs counts all its length) against the tricks still
- * needed; draw trumps, knocking out one or two missing top trumps; ruff losers in the hand with fewer
- * trumps; when the sure tricks are enough, cash them, the high cards from the shorter holding
+ * The declarer's plan (e6-t41, ROBOT.md §3.4, V4c §3.10, W1 §3.12): cash the winners this hand
+ * cannot get back to; count the sure tricks (a suit that runs counts all its length) against the
+ * tricks still needed; ruff losers in the hand with fewer trumps; draw trumps whenever the
+ * opponents hold some and our side can outlast them, giving up a trump trick if need be, or cross
+ * to the hand that can; when the sure tricks are enough, cash them, the high cards from the shorter holding
  * first; when they are not, take a finesse the auction favours, then set up the longest suit
  * before cashing; in notrump hold up a single stopper in the suit the defence attacks.
  * Only the cards the declaring side sees and the reading of the other two hands are used.
@@ -23,7 +24,6 @@ export function declarerLead(
 ): Card | null {
   const partner = view.partnerCards()
   const mine = (s: Suit) => suitCards(hand, s)
-  const theirs = (s: Suit) => suitCards(partner, s)
   const sides = SUITS.filter((s) => s !== trump && mine(s).length)
   const trumpsOut = trump !== null && view.outstanding(trump) > 0
   const enough = sureTricks(view, trump) >= view.needed()
@@ -32,24 +32,13 @@ export function declarerLead(
   if (stranded) return stranded
 
   if (trump && trumpsOut) {
-    const top = mine(trump)[0]
     // Ruff a loser in the hand with fewer trumps before they are drawn
     if (!enough) {
       const ruff = ruffInShortHand(view, hand, partner, trump, ruffed)
       if (ruff) return ruff
     }
-    // Draw trumps with a master
-    if (top && view.isMaster(top)) return top
-    const partnerTop = theirs(trump)[0]
-    if (top && mine(trump).length + theirs(trump).length >= 7) {
-      // Towards partner's master trump
-      if (partnerTop && view.isMaster(partnerTop)) return mine(trump).at(-1)!
-    }
-    // Knock out the one or two trumps above our sequence (KQ against the ace, QJ against AK),
-    // whatever the count: the rest are then ours. Not when they are the only trumps out: they
-    // take their tricks anyway, and leading at them spends two of ours (V4c)
-    const above = top ? view.higherOut(top).length : 0
-    if (top && above >= 1 && above <= 2 && view.outstanding(trump) > above && touching(view, top, [...hand, ...partner])) return top
+    const draw = drawTrumps(view, hand, partner, trump) ?? crossToDraw(view, hand, partner, trump, ruffed)
+    if (draw) return draw
   }
 
   const cashing = cash(view, hand, partner, sides, ruffed)
@@ -82,6 +71,72 @@ function strandedMaster(view: View, hand: Card[], partner: Card[], trump: Suit |
     // Partner has something to throw: a card that would lose
     if (!partner.some((c) => suitOf(c) !== trump && !view.isMaster(c))) continue
     return mine[0]
+  }
+  return null
+}
+
+/**
+ * Draw trumps (W1, ROBOT.md §3.12): while the opponents hold trumps that are not all masters and
+ * the longer holding outlasts the defender with the most of them, lead trumps before cashing side
+ * winners the opponents could ruff: the master from this hand; low towards partner's master (any
+ * count); the top of a sequence to knock out the ones above it; low towards partner's higher trumps;
+ * otherwise a low one, giving up the trump trick now.
+ */
+function drawTrumps(view: View, hand: Card[], partner: Card[], trump: Suit): Card | null {
+  const mine = suitCards(hand, trump)
+  const theirs = suitCards(partner, trump)
+  const out = view.outstanding(trump)
+  if (!mine.length || !out) return null
+  if (view.isMaster(mine[0])) return mine[0]
+  if (theirs.length && view.isMaster(theirs[0])) return mine.at(-1)!
+  const ours = [...mine, ...theirs].sort(byRank).reverse()
+  // Only masters out: they take their tricks anyway, and leading at them spends two of ours (V4c),
+  // unless the last one would take the trump entry to partner's winners
+  if (view.higherOut(ours[0]).length >= out) return trumpEntry(view, hand, partner, trump)
+  // Control: the longer holding outlasts the most a defender can hold in a normal split: three
+  // trumps against three or four out, four against five or six (with fewer, ruffing pays better)
+  if (Math.max(mine.length, theirs.length) < Math.ceil(out / 2) + 1) return null
+  if (touching(view, mine[0], ours) && value(mine[0]) >= 9) return mine[0]
+  return mine.at(-1)!
+}
+
+/**
+ * Draw the last trump out, a master, after all when it blocks the entry to partner's winners (the
+ * club president's exception, W1): partner holds two or more masters in a side suit this hand is
+ * void in, and no other way in (a side suit this hand holds where partner has a higher card or is
+ * void to ruff), but a trump above this hand's lowest. Lead the top trump: the master wins it, and
+ * the low trump left reaches partner later. Leaving it out, the master would take that crossing.
+ */
+function trumpEntry(view: View, hand: Card[], partner: Card[], trump: Suit): Card | null {
+  const mine = suitCards(hand, trump)
+  const theirs = suitCards(partner, trump)
+  if (view.outstanding(trump) !== 1 || mine.length < 2 || !theirs.length || value(theirs[0]) < value(mine.at(-1)!)) return null
+  const otherEntry = SUITS.some((s) => {
+    if (s === trump || !suitCards(hand, s).length) return false
+    // Partner ruffs it
+    if (!suitCards(partner, s).length) return true
+    const top = suitCards(partner, s)[0]
+    return view.isMaster(top) || value(top) > value(suitCards(hand, s)[0])
+  })
+  if (otherEntry) return null
+  const stranded = SUITS.some((s) => s !== trump && !suitCards(hand, s).length && suitCards(partner, s).filter((c) => view.isMaster(c)).length >= 2)
+  return stranded ? mine[0] : null
+}
+
+/**
+ * This hand has no trump to lead: go over to partner, who can draw them, in a side suit where
+ * partner holds a master (low from this hand), not one an opponent is known to ruff
+ */
+function crossToDraw(view: View, hand: Card[], partner: Card[], trump: Suit, ruffed: (s: Suit) => boolean): Card | null {
+  if (suitCards(hand, trump).length) return null
+  const theirs = suitCards(partner, trump)
+  if (!theirs.length || view.higherOut(theirs[0]).length >= view.outstanding(trump)) return null
+  if (theirs.length < Math.ceil(view.outstanding(trump) / 2) + 1) return null
+  for (const s of SUITS) {
+    if (s === trump || ruffed(s)) continue
+    const mine = suitCards(hand, s)
+    const top = suitCards(partner, s)[0]
+    if (mine.length && top && view.isMaster(top) && !view.isMaster(mine.at(-1)!)) return mine.at(-1)!
   }
   return null
 }
