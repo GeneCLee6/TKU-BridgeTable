@@ -49,6 +49,7 @@
     {"id": "tku-slam-045", "system": "tku", "dealer": "N", "vul": "None", "hand": "KQ2.KJ3.AJ54.K32", "auction": ["1N", "P"], "answer": "6N", "source": "淡江橋譜：1NT的答叫", "reviewer": null, "status": "pending", "note": "17 點：6NT"},
     {"id": "tku-slam-046", "system": "tku", "dealer": "N", "vul": "None", "hand": "KQ2.KQ3.AJ54.AJ2", "auction": ["1N", "P"], "answer": "5N", "source": "淡江橋譜：1NT的答叫", "reviewer": null, "status": "pending", "note": "20 點：5NT 邀請 7NT"},
     {"id": "tku-slam-047", "system": "tku", "dealer": "N", "vul": "None", "hand": "AQ2.KJ3.K542.K32", "auction": ["1N", "P", "4N", "P"], "answer": "5D", "source": "淡江橋譜：1NT的答叫", "reviewer": null, "status": "pending", "note": "16 點接受：叫 4 張低花 5♦"},
-    {"id": "tku-slam-048", "system": "tku", "dealer": "N", "vul": "None", "hand": "K2.AKJ32.3.KQ432", "auction": ["1H", "P", "1S", "P", "2C", "P", "4N", "P"], "answer": "5D", "source": "淡江橋譜：開叫1♥/1♠（自然制講義）（關於黑木問A）", "reviewer": null, "status": "pending", "note": "沒有同意王牌的 4NT 是黑木問 A：1 張 A 叫 5♦"}
+    {"id": "tku-slam-048", "system": "tku", "dealer": "N", "vul": "None", "hand": "K2.AKJ32.3.KQ432", "auction": ["1H", "P", "1S", "P", "2C", "P", "4N", "P"], "answer": "5D", "source": "淡江橋譜：開叫1♥/1♠（自然制講義）（關於黑木問A）", "reviewer": null, "status": "pending", "note": "沒有同意王牌的 4NT 是黑木問 A：1 張 A 叫 5♦"},
+    {"id": "tku-slam-049", "system": "tku", "dealer": "N", "vul": "None", "hand": "KJ54.AQT7.AJ76.3", "auction": ["1C", "P", "1S", "P", "2S", "P"], "answer": "4N", "source": "淡江橋譜：淡江自然制總覽（小滿貫：32 pts；社長 2026-10-31：32 點牌型好可以嘗試）", "reviewer": null, "status": "pending", "note": "15 點＋同伴 12–15，♠ 配合、♣ 單張：合計 32 點牌型好，問 RKCB"}
   ]
 }

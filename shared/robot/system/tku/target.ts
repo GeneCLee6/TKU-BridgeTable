@@ -7,9 +7,9 @@ import { bid, MAJORS, plain, rule, shownLength, topThree } from './util.ts'
 
 /**
  * Everything the other books leave out: pick the contract the partnership should reach from this
- * hand and what partner has shown (25 points for game, 33 a small slam, 37 a grand slam; an
- * eight-card fit picks the suit, otherwise notrump), and bid it if the auction is below it. Never
- * bids past it, so two robots always settle.
+ * hand and what partner has shown (25 points for game, 33 a small slam or 32 with a fit and a
+ * singleton or void (`slamShape`), 37 a grand slam; an eight-card fit picks the suit, otherwise
+ * notrump), and bid it if the auction is below it. Never bids past it, so two robots always settle.
  */
 
 /** Partner's points as we count them: two above the fewest shown, within what was shown */
@@ -21,7 +21,7 @@ function partnerPoints(ctx: Ctx) {
 function work(h: Hand, ctx: Ctx): Call {
   const { last } = ctx
   if (penaltyStands(ctx)) return 'P'
-  const fits = (['S', 'H', 'D', 'C'] as Suit[]).filter((s) => h.len[s] + shownLength(ctx.shown.partner, s) >= 8)
+  const fits = fitsOf(h, ctx)
   // e5-t41: with a fit, short side suits count (`revalue`, the hand with fewer trumps counts more);
   // competing over the opponents (sacrifices, penalty doubles) still goes by high cards
   const fit = fits[0]
@@ -32,7 +32,7 @@ function work(h: Hand, ctx: Ctx): Call {
 
   let strain: Strain
   let level: number
-  if (combined >= 33) {
+  if (combined >= 33 || (combined >= 32 && slamShape(h, ctx, fits))) {
     strain = majorFit ?? (h.balanced || !minorFit ? 'N' : minorFit)
     level = combined >= 37 ? 7 : 6
   } else if (combined >= 25) {
@@ -54,6 +54,18 @@ function work(h: Hand, ctx: Ctx): Call {
   if (bidIndex(last.call) >= bidIndex(goal)) return compete(h, ctx, points, fits)
   return combined >= 25 ? goal : (cheapest(ctx, strain) ?? 'P')
 }
+
+/**
+ * A good shape for a slam at 32 points (W3, the club's president 2026-10-31: 32 points with a good
+ * shape is borderline, try for the slam; 淡江自然制總覽「小滿貫：32 pts」): a known eight-card fit and a
+ * singleton or void. Chosen by measurement (ROBOT.md §6.11): a nine-card fit, a five-card suit or
+ * any unbalanced hand did less well; plain 32 lost.
+ */
+export function slamShape(h: Hand, ctx: Ctx, fits: readonly Suit[] = fitsOf(h, ctx)): boolean {
+  return fits.length > 0 && h.shape[3] <= 1
+}
+
+const fitsOf = (h: Hand, ctx: Ctx) => (['S', 'H', 'D', 'C'] as Suit[]).filter((s) => h.len[s] + shownLength(ctx.shown.partner, s) >= 8)
 
 const isGame = (call: Call) => levelOf(call) >= gameLevel(strainOf(call))
 
