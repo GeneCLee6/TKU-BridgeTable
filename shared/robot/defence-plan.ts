@@ -13,17 +13,18 @@ import { value, type View } from './view.ts'
 
 /**
  * Trick one of a suit contract, third hand holding the ace of partner's suit: take it rather than
- * finesse against dummy's honour when the declarer may hold a singleton, so the suit may go only
- * one round. The count (and the auction) leaves the declarer two cards at most when partner keeps
- * one more than the card led.
+ * finesse against dummy's honour when the declarer may hold a singleton honour over our finesse
+ * card, so the suit may go only one round. The count (and the auction) leaves the declarer two
+ * cards at most when partner keeps one more than the card led.
  */
 export function aceNow(view: View, following: Card[], led: Suit): boolean {
   if (view.state.play.length > 3 || !following.some((c) => rankOf(c) === 'A')) return false
-  // Our next card wins the trick anyway (dummy holds every card above it but the ace): no need
+  // Our next card wins the trick anyway (dummy holds every card above it but our ace): the
+  // finesse costs nothing, and the ace stays over dummy's honours
   const next = [...following].sort((a, b) => value(b) - value(a))[1]
-  if ((globalThis as any).process?.env?.Y3_SURE !== '0' && next && !view.unseenAbove(next).some((c) => rankOf(c) !== 'A')) return false
+  if (next && !view.unseenAbove(next).length) return false
   const declarer = view.state.contract!.declarer
-  return Math.min(view.reading.len(declarer, led)[1], view.reading.out(led) - 1) <= Number((globalThis as any).process?.env?.Y3_THR ?? 2)
+  return Math.min(view.reading.len(declarer, led)[1], view.reading.out(led) - 1) <= 2
 }
 
 /**
