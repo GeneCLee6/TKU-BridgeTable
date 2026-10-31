@@ -7,13 +7,13 @@ import { useT } from '../state/PreferencesContext.tsx'
 import { seatLetter } from '../strings.ts'
 
 /**
- * The only way suits, calls and contracts are drawn. `onCard` picks the card colours (fixed, on
- * white) instead of the chrome colours that follow the theme. Both follow the two- or four-colour
- * deck setting (X1).
+ * The only way suits, calls and contracts are drawn. One palette (`suitColours`, Y1): `onCard` is
+ * for the table's white cards and panels, which are light in both themes; otherwise the colours
+ * follow the theme (lighter on dark). Both follow the two- or four-colour deck setting (X1).
  */
 
 const Symbol = styled.span<{ $suit: Suit; $onCard?: boolean }>`
-  color: ${({ theme, $suit, $onCard }) => ($onCard ? theme.cardSuits : theme.textSuits)[$suit]};
+  color: ${({ theme, $suit, $onCard }) => ($onCard ? theme.cardSuits : theme.suits)[$suit]};
   font-family: ${({ theme }) => theme.fonts.symbols};
 `
 
@@ -28,7 +28,7 @@ export function SuitSymbol({ suit, onCard }: { suit: Strain; onCard?: boolean })
 }
 
 const Tinted = styled.span<{ $suit: Suit; $onCard?: boolean }>`
-  color: ${({ theme, $suit, $onCard }) => ($onCard ? theme.cardSuits : theme.textSuits)[$suit]};
+  color: ${({ theme, $suit, $onCard }) => ($onCard ? theme.cardSuits : theme.suits)[$suit]};
   font-family: ${({ theme }) => theme.fonts.symbols};
 `
 
