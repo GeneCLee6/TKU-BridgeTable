@@ -1,0 +1,30 @@
+{
+  "category": "declarer",
+  "title": "坐莊（第二家用大牌拿、十一張打落、忍讓）",
+  "questions": [
+    {"id": "play-decl-013", "system": "both", "board": 3,
+     "hands": {"S": "AKQJ2.32.AK2.432", "N": "T987.A4.543.AK65", "W": "65.KQJT9.QJT.QJ7", "E": "43.8765.9876.T98"},
+     "auction": ["1S", "P", "4S", "P", "P", "P"],
+     "play": ["DQ", "D3", "D6", "DA", "SA", "S5", "S7", "S3", "SK", "S6", "S8", "S4", "DK", "DJ", "D4", "D7", "D2", "DT", "D5", "D8", "C7"],
+     "answer": "CK", "accepted": ["CA"], "source": "坐莊方第二家（Y4，ROBOT.md §3.14）", "reviewer": null, "status": "pending",
+     "note": "4♠，西領 ♣7，夢家 ♣AK65 第二家：莊家 ♣432 沒有大牌，夢家出小，東就用 ♣T 拿到這一墩；用 K（或 A）拿"},
+    {"id": "play-decl-014", "system": "both", "board": 916,
+     "hands": {"N": "AKQ3.KQ.AK96.Q72", "E": "T975.5.T832.9853", "S": "4.JT983.Q54.AKJ6", "W": "J862.A7642.J7.T4"},
+     "auction": ["P", "2C", "P", "2D", "P", "2N", "P", "6N", "P", "P", "P"],
+     "play": ["ST", "S4", "SJ", "SQ", "HK", "H5", "H3", "HA", "S8"],
+     "answer": "SK", "accepted": ["SA"], "source": "單明手抽樣對照（評測牌組第 916 副，Y4，ROBOT.md §3.14）", "reviewer": null, "status": "pending",
+     "note": "6NT，西 ♥A 拿到後領 ♠8，莊家 ♠AK3 第二家：夢家 ♠ 缺門，出小就讓東的 ♠9 或西的 ♠8 拿一墩；用 K 拿"},
+    {"id": "play-decl-015", "system": "both", "board": 3,
+     "hands": {"S": "AQJ987.AK2.K2.A2", "N": "65432.43.A43.543", "W": "K.QJT98.QJT9.KQJ", "E": "T.765.8765.T9876"},
+     "auction": ["1S", "P", "4S", "P", "P", "P"],
+     "play": ["HQ", "H3", "H5", "HA", "D2", "D9", "DA", "D5", "S2", "ST"],
+     "answer": "SA", "source": "十一張缺 K 打落（Y4，ROBOT.md §3.14）", "reviewer": null, "status": "pending",
+     "note": "4♠，兩手 11 張王牌缺 ♠K 與 ♠T，東跟 T：外面只剩 K，西單張 K 的機會略大於東 KT 雙張，出 A 打落，不飛"},
+    {"id": "play-decl-016", "system": "both", "board": 3,
+     "hands": {"S": "A32.AK4.KQJT.A32", "N": "654.Q32.9876.K54", "W": "KQJT7.J98.A2.QJ9", "E": "98.T765.543.T876"},
+     "auction": ["2N", "P", "3N", "P", "P", "P"],
+     "play": ["SK", "S4", "S9"],
+     "answer": "S2", "accepted": ["S3"], "source": "七的規則（忍讓，ROBOT.md §3.4 第 6 步）", "reviewer": null, "status": "pending",
+     "note": "3NT，西攻 ♠K，兩手 ♠ 合計 6 張、只有一個擋張：忍讓 7 − 6 ＝ 1 次，等 ♦A 被逼出來時東已經沒有 ♠ 可以回"}
+  ]
+}

@@ -2,7 +2,7 @@ import { isBid, strainOf } from '../auction.ts'
 import { nextSeat, partnerOf, rankOf, rankValue, RANKS, sameSide, SEATS, SUITS, suitOf, type Card, type Seat, type Suit } from '../cards.ts'
 import { legalCards, remainingCards, tricksOf, type BoardState, type PlayedCard } from '../game.ts'
 import type { RobotKind } from '../protocol.ts'
-import { declarerLead, exitLead, holdUp } from './declarer.ts'
+import { declarerLead, exitLead, holdUp, secondHandWin } from './declarer.ts'
 import { cashOut, coverLastHonour, defenceLead, dummyOverruffs, holdUpAgainstDummy, raceSuit, secondHand, thirdHand } from './defence.ts'
 import { suitCards } from './hand.ts'
 import { clubLeadCard, sequenceLead } from './lead-card.ts'
@@ -71,7 +71,8 @@ export function chooseCard(state: BoardState, seat: Seat, kind: RobotKind = 'tku
     if (trumped) return signal(following)
     const beaters = following.filter((c) => suitOf(best.card) === led && rankValue(rankOf(c)) > rankValue(rankOf(best.card)))
     if (trick.length === 1 && !defending) {
-      const card = riseSecond(view, following, led, trump)
+      // With a master partner cannot match, take the trick (declarer.ts, Y4)
+      const card = secondHandWin(view, trick, following, led, trump)
       if (card) return card
     }
     if (trick.length === 1) {
@@ -172,20 +173,6 @@ function finesseLead(view: View, seat: Seat, hand: Card[], suits: Suit[]): Card 
 }
 
 /**
- * Dummy second hand to the opening lead of a suit contract, with a master: take the trick (the
- * cheapest master) when declarer, playing last, holds no master of the suit; ducking lets third
- * hand win it cheaply. Later in the play, and in notrump, second hand stays low: rising every
- * time was tried, −0.04 (suit) and −0.08 (notrump) IMP/board (V4c, ROBOT.md §3.10)
- */
-function riseSecond(view: View, following: Card[], led: Suit, trump: Suit | null): Card | null {
-  if (!trump || view.state.play.length !== 1) return null
-  const masters = following.filter((c) => view.isMaster(c)).sort(byRank)
-  if (!masters.length) return null
-  if (suitCards(view.partnerCards(), led).some((c) => view.isMaster(c))) return null
-  return masters[0]
-}
-
-/**
  * Unblocking on the declaring side: partner's winning card is partner's last of the suit, we
  * hold the rest of the winners, and partner has no winner outside to come back with or this
  * hand has no way in outside (a master in a suit partner can lead; V4c: partner's winners do
@@ -233,14 +220,17 @@ function declarerThird(view: View, seat: Seat, following: Card[], best: PlayedCa
 /**
  * Eight ever, nine never (e6-t41): with nine cards or more between the hands and two masters to
  * cash, play for the missing card to drop rather than finesse, unless the auction places it with
- * the opponent who has already played
+ * the opponent who has already played. With two cards out (eleven between the hands) one master
+ * is enough: AQ opposite the rest plays the ace for the king to drop (Y4, ROBOT.md §3.14)
  */
 function dropBetter(view: View, seat: Seat, led: Suit, finesse: Card): boolean {
   const second = partnerOf(nextSeat(seat))
   const followed = view.state.play.length % 4 >= 2 && suitOf(view.state.play.at(-1)!.card) === led
-  if (view.outstanding(led) + (followed ? 1 : 0) > 4) return false
+  const out = view.outstanding(led) + (followed ? 1 : 0)
+  if (out > 4) return false
   const ours = [...suitCards(view.ownCards(), led), ...suitCards(view.partnerCards(), led)]
-  if (ours.filter((c) => view.isMaster(c)).length < 2) return false
+  // Eleven cards missing the king (two out): the ace may drop it (Y4)
+  if (ours.filter((c) => view.isMaster(c)).length < (out <= 2 ? 1 : 2)) return false
   return view.reading.holder(view.higherOut(finesse)[0]) !== second
 }
 
