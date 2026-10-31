@@ -9,7 +9,7 @@ import { choose } from '../shared/robot/system/engine.ts'
 import { evaluate, fits } from '../shared/robot/system/evaluate.ts'
 import { narrow } from '../shared/robot/system/combine.ts'
 import { intersect } from '../shared/robot/system/infer.ts'
-import { meanings } from '../shared/robot/system/rules.ts'
+import { meanings, shownBefore } from '../shared/robot/system/rules.ts'
 import { ANY, type Range, type Spec } from '../shared/robot/system/spec.ts'
 import { evalBoards } from './deals.ts'
 import { inferenceAuction, loadInferenceBank } from './inference.ts'
@@ -28,6 +28,11 @@ import { auctionOf, loadBank, parseHand, seatOf } from './quiz.ts'
  * feature the explanation mentions whose range is wider than its overlap with what the player
  * showed before ("6+ HCP" after an 11–15 opening, "3+ ♠" after five). Every explanation is the
  * call's meaning narrowed to what its player showed (`narrow`), so there should be none.
+ *
+ * And explanations that leave out something the player has shown (Z1, "dropped"): every
+ * explanation the players see is the call's meaning plus everything else its player had shown
+ * (`narrow`'s `full`, `Spec.before`), so each feature of the whole picture (`intersect` of what
+ * was shown before and the call) that says anything must be in one or the other, unchanged.
  *
  * The auctions: the eval deal set bid out by four TKBs in each system, the bidding quiz's
  * auctions with both the book's answer and TKB's, and the inference quiz's auctions.
@@ -110,6 +115,32 @@ export function wider(known: Spec, shown: Spec): { feature: string; shown: Range
   return out
 }
 
+const tells = (r: Range | undefined, top: number) => !!r && (r[0] > 0 || r[1] < top)
+
+/**
+ * The features of the player's whole picture (`intersect(known, shown)`) that an explanation
+ * (`shown`, with its `before`) leaves out or tells differently (Z1). `known` is what the player had
+ * shown before, with the keycards of their last call (`shownBefore`)
+ */
+export function dropped(known: Spec, shown: Spec): { feature: string; shown: Range | string; narrowed: Range | string }[] {
+  const picture = intersect(known, shown)
+  const told: Spec = { ...shown.before, ...shown }
+  const out: { feature: string; shown: Range | string; narrowed: Range | string }[] = []
+  const check = (feature: string, want: Range | string | undefined, got: Range | string | undefined) => {
+    if (want !== undefined && JSON.stringify(want) !== JSON.stringify(got)) out.push({ feature, shown: got ?? '—', narrowed: want })
+  }
+  for (const key of ['hcp', 'tp', 'controls'] as const) if (tells(picture[key], ANY)) check(key, picture[key], told[key])
+  for (const s of SUITS) {
+    if (tells(picture.len?.[s], 13)) check(`len ${s}`, picture.len![s], told.len?.[s] ?? shown.before?.len?.[s])
+    check(`quality ${s}`, picture.quality?.[s], told.quality?.[s] ?? shown.before?.quality?.[s])
+    check(`stop ${s}`, picture.stop?.[s], told.stop?.[s] ?? shown.before?.stop?.[s])
+  }
+  const shape = (b: boolean | undefined) => (b === undefined ? undefined : b ? 'balanced' : 'unbalanced')
+  check('balanced', shape(picture.balanced), shape(told.balanced))
+  if (known.keycards && !shown.keycards) check('keycards', known.keycards.join(' '), shown.before?.keycards?.join(' '))
+  return out
+}
+
 interface Walk {
   system: RobotKind
   source: Source
@@ -126,21 +157,26 @@ interface Walk {
 /** Every conflict in one auction */
 export const auctionConflicts = (walk: Walk): Conflict[] => auctionCheck(walk).conflicts
 
-/** Every conflict and every explanation wider than it need be in one auction */
-export function auctionCheck(walk: Walk): { conflicts: Conflict[]; wide: Wide[] } {
+/** Every conflict, every explanation wider than it need be and every one that leaves something out in one auction */
+export function auctionCheck(walk: Walk): { conflicts: Conflict[]; wide: Wide[]; dropped: Wide[] } {
   const system = ROBOT_SYSTEMS[walk.system]
   const reading = emptyReading()
   const found: Conflict[] = []
   const wide: Wide[] = []
+  const left: Wide[] = []
   for (let i = 0; i < walk.auction.length; i++) {
     const { seat, call } = walk.auction[i]
     const ctx = contextOf(seat, walk.auction.slice(0, i), walk.dealer, walk.vul, reading)
     const spec = meanings(system, ctx).get(call)
+    // What the players see: the same, with everything else the player had shown (Z1)
+    const display = meanings(system, ctx, true).get(call)
     const known = reading.shown[seat]
+    const full = shownBefore(ctx)
     const cards = walk.hands?.[seat]
     const add = (kind: Explanation, shows: Spec) => {
-      for (const w of wider(known, shows))
-        wide.push({ system: walk.system, source: walk.source, id: walk.id, kind, seat, auction: walk.auction.slice(0, i + 1).map((a) => a.call), pattern: [...ctx.key, call].join(' '), ...w })
+      const where = { system: walk.system, source: walk.source, id: walk.id, kind, seat, auction: walk.auction.slice(0, i + 1).map((a) => a.call), pattern: [...ctx.key, call].join(' ') }
+      for (const w of wider(known, shows)) wide.push({ ...where, ...w })
+      for (const w of dropped(full, shows)) left.push({ ...where, ...w })
       for (const c of contradictions(known, shows))
         found.push({
           system: walk.system,
@@ -154,16 +190,16 @@ export function auctionCheck(walk: Walk): { conflicts: Conflict[]; wide: Wide[] 
           ...(cards ? { handFits: fits(evaluate(cards), shows) } : {}),
         })
     }
-    if (spec) add('reading', spec)
+    if (display) add('reading', display)
     const alert = walk.alerts?.get(i)
-    if (alert && JSON.stringify(alert) !== JSON.stringify(spec)) add('alert', alert)
+    if (alert && JSON.stringify(alert) !== JSON.stringify(display)) add('alert', alert)
     reading.forcing[seat] = spec?.forcing
     reading.said[seat] = spec
     if (!spec) continue
     reading.shown[seat] = intersect(reading.shown[seat], spec)
     if (spec.forcing === 'game') reading.gameForce[seat] = reading.gameForce[partnerOf(seat)] = true
   }
-  return { conflicts: found, wide }
+  return { conflicts: found, wide, dropped: left }
 }
 
 /** Four TKBs bid a deal out; the auction and each call's alert */
@@ -193,6 +229,8 @@ export interface Consistency {
   conflicts: Conflict[]
   /** Explanations wider than what the player had shown allows (Y2) */
   wide: Wide[]
+  /** Explanations that leave out or change something the player had shown (Z1); `narrowed` is the whole picture's */
+  dropped: Wide[]
   /** Calls checked, by `system source` */
   calls: Record<string, number>
 }
@@ -201,6 +239,7 @@ export function consistencyCheck(options: ConsistencyOptions = {}): Consistency 
   const systems = options.systems ?? (['tku', 'gib'] as const)
   const conflicts: Conflict[] = []
   const wide: Wide[] = []
+  const left: Wide[] = []
   const calls: Record<string, number> = {}
   const check = (walk: Walk, only?: number) => {
     const key = `${walk.system} ${walk.source}`
@@ -209,6 +248,7 @@ export function consistencyCheck(options: ConsistencyOptions = {}): Consistency 
     const kept = (c: { auction: Call[] }) => only === undefined || c.auction.length === only + 1
     conflicts.push(...found.conflicts.filter(kept))
     wide.push(...found.wide.filter(kept))
+    left.push(...found.dropped.filter(kept))
   }
   const boards = evalBoards(options.deals ?? 0, options.seed)
   for (const system of systems) {
@@ -235,13 +275,13 @@ export function consistencyCheck(options: ConsistencyOptions = {}): Consistency 
       for (const q of file.questions)
         if (q.system === system) check({ system, source: 'inference', id: q.id, dealer: q.dealer, vul: q.vul, auction: inferenceAuction(q) })
   }
-  return { conflicts, wide, calls }
+  return { conflicts, wide, dropped: left, calls }
 }
 
 const range = (r: Range | undefined) => (!r ? '—' : r[1] >= ANY ? `${r[0]}+` : `${r[0]}–${r[1]}`)
 
 /** The conflicts counted by system, explanation and source, and the most frequent auctions */
-export function consistencyReport({ conflicts, wide, calls }: Consistency, top = 30): string {
+export function consistencyReport({ conflicts, wide, dropped: left, calls }: Consistency, top = 30): string {
   const lines: string[] = ['calls checked:']
   for (const [k, n] of Object.entries(calls)) lines.push(`  ${k.padEnd(24)} ${n}`)
   const count = (pick: (c: Conflict) => string) => {
@@ -275,6 +315,14 @@ export function consistencyReport({ conflicts, wide, calls }: Consistency, top =
   }
   const shown = (v: Range | string) => (typeof v === 'string' ? v : range(v))
   for (const [k, list] of [...wideGroups].sort((a, b) => b[1].length - a[1].length).slice(0, top))
+    lines.push(`  ${String(list.length).padStart(5)}  ${k}: ${shown(list[0].shown)} → ${shown(list[0].narrowed)}  e.g. ${list[0].source} ${list[0].id}`)
+  lines.push('', `leaving out what was shown (Z1, system kind pattern feature: told → whole picture): ${left.length}`)
+  const leftGroups = new Map<string, Wide[]>()
+  for (const w of left) {
+    const k = `${w.system} ${w.kind} ${w.pattern} | ${w.feature}`
+    leftGroups.set(k, [...(leftGroups.get(k) ?? []), w])
+  }
+  for (const [k, list] of [...leftGroups].sort((a, b) => b[1].length - a[1].length).slice(0, top))
     lines.push(`  ${String(list.length).padStart(5)}  ${k}: ${shown(list[0].shown)} → ${shown(list[0].narrowed)}  e.g. ${list[0].source} ${list[0].id}`)
   return lines.join('\n')
 }

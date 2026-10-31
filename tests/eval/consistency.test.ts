@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest'
-import { auctionCheck, auctionConflicts, consistencyCheck, contradictions, wider } from '../../eval/consistency.ts'
+import { auctionCheck, auctionConflicts, consistencyCheck, contradictions, dropped, wider } from '../../eval/consistency.ts'
 
 /**
  * X2: a later call is never explained as something the player's earlier calls ruled out (eval/README.md
@@ -12,6 +12,23 @@ const MOST = { tku: 0, gib: 0 }
 
 /** Explanations wider than what the player had shown, allowed in the sample (Y2; a ratchet too) */
 const MOST_WIDE = { tku: 0, gib: 0 }
+
+/** Explanations that leave out something the player had shown, allowed in the sample (Z1; a ratchet too) */
+const MOST_DROPPED = { tku: 0, gib: 0 }
+
+describe('dropped', () => {
+  it('flags a feature of the whole picture the explanation does not tell, in the call or in `before`', () => {
+    expect(dropped({ hcp: [15, 17], balanced: true }, { name: 'stayman' })).toEqual([
+      { feature: 'hcp', shown: '—', narrowed: [15, 17] },
+      { feature: 'balanced', shown: '—', narrowed: 'balanced' },
+    ])
+    expect(dropped({ hcp: [15, 17], balanced: true }, { name: 'stayman', before: { hcp: [15, 17], balanced: true } })).toEqual([])
+    // What the call tells (narrowed) counts; a range that says nothing need not be told
+    expect(dropped({ hcp: [11, 15], len: { S: [0, 13] } }, { hcp: [11, 15] })).toEqual([])
+    expect(dropped({ len: { S: [5, 13] } }, { len: { H: [4, 13] }, before: { len: { S: [5, 13] } } })).toEqual([])
+    expect(dropped({ keycards: [1, 4] }, { name: 'rkcb' })).toEqual([{ feature: 'keycards', shown: '—', narrowed: '1 4' }])
+  })
+})
 
 describe('contradictions', () => {
   it('flags ranges that do not overlap, and nothing else', () => {
@@ -50,7 +67,7 @@ describe('the consistency check', () => {
   })
 
   it('finds no more conflicts or over-wide explanations than before in a fixed sample', () => {
-    const { conflicts, wide, calls } = consistencyCheck({ deals: 200 })
+    const { conflicts, wide, dropped: left, calls } = consistencyCheck({ deals: 200 })
     expect(calls['tku deal']).toBeGreaterThan(1000)
     expect(calls['gib quiz']).toBeGreaterThan(100)
     for (const system of ['tku', 'gib'] as const) {
@@ -58,6 +75,8 @@ describe('the consistency check', () => {
       expect(mine.length, mine.map((c) => `${c.source} ${c.id}: ${c.pattern} ${c.feature}`).join('\n')).toBeLessThanOrEqual(MOST[system])
       const loose = wide.filter((w) => w.system === system)
       expect(loose.length, loose.map((w) => `${w.source} ${w.id}: ${w.pattern} ${w.feature}`).join('\n')).toBeLessThanOrEqual(MOST_WIDE[system])
+      const short = left.filter((w) => w.system === system)
+      expect(short.length, short.map((w) => `${w.source} ${w.id}: ${w.pattern} ${w.feature}`).join('\n')).toBeLessThanOrEqual(MOST_DROPPED[system])
     }
   }, 120_000)
 })

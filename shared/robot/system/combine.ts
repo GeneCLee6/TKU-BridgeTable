@@ -1,5 +1,5 @@
 import { SUITS, type Suit } from '../../cards.ts'
-import { QUALITIES, STOPS, type Note, type Range, type Spec } from './spec.ts'
+import { ANY, QUALITIES, STOPS, type Note, type Range, type Spec } from './spec.ts'
 
 /**
  * GIB's two ways of putting specifications together (GIB Bid Descriptions):
@@ -104,8 +104,42 @@ export function intersect(known: Spec, shown: Spec): Spec {
  * and names, notes and forcing stay the call's. So `intersect(known, narrow(spec, known))` is
  * `intersect(known, spec)`: what the player has shown in all does not change. The same object when
  * nothing narrows.
+ *
+ * With `full` (Z1, explanations only) it also carries `before`: everything else the player has
+ * shown that the call does not mention (points, each suit's length, quality and stopper, shape,
+ * controls, and keycards and the trump queen when `known` has them), so an explanation tells the
+ * player's whole picture so far. Ranges that say nothing (0–13 cards, 0+ points) are left out. The
+ * rest is as without `full`, and no rule reads `before`, so the robots read and bid the same.
  */
-export function narrow(spec: Spec, known: Spec): Spec {
+export function narrow(spec: Spec, known: Spec, full = false): Spec {
+  const out = narrowed(spec, known)
+  if (!full) return out
+  const before = beforeOf(out, known)
+  return before ? { ...out, before } : out
+}
+
+/** A range that tells something: not 0 up to `top` or more */
+const tells = (r: Range | undefined, top: number): r is Range => !!r && (r[0] > 0 || r[1] < top)
+
+/** What `known` says that `spec` does not mention (`narrow`'s `full`); undefined when nothing */
+function beforeOf(spec: Spec, known: Spec): Spec | undefined {
+  const out: Spec = {}
+  for (const key of RANGES) if (!spec[key] && tells(known[key], ANY)) out[key] = known[key]
+  const len: Partial<Record<Suit, Range>> = {}
+  for (const s of SUITS) if (!spec.len?.[s] && tells(known.len?.[s], 13)) len[s] = known.len![s]!
+  if (Object.keys(len).length) out.len = len
+  for (const key of ['quality', 'stop'] as const) {
+    const res: Partial<Record<Suit, string>> = {}
+    for (const s of SUITS) if (known[key]?.[s] && !spec[key]?.[s]) res[s] = known[key][s]
+    if (Object.keys(res).length) out[key] = res as never
+  }
+  if (spec.balanced === undefined && known.balanced !== undefined) out.balanced = known.balanced
+  if (!spec.keycards && known.keycards) out.keycards = known.keycards
+  if (spec.trumpQueen === undefined && known.trumpQueen !== undefined) out.trumpQueen = known.trumpQueen
+  return Object.keys(out).length ? out : undefined
+}
+
+function narrowed(spec: Spec, known: Spec): Spec {
   if (!known.hcp && !known.tp && !known.controls && !known.len && !known.quality && !known.stop) return spec
   let out: Spec | undefined
   for (const key of RANGES) {

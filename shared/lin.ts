@@ -10,7 +10,8 @@ import type { BoardRecord } from './protocol.ts'
 const LIN_ORDER: Seat[] = ['S', 'W', 'N', 'E']
 const VUL_CODE = { None: 'o', NS: 'n', EW: 'e', Both: 'b' } as const
 
-const escape = (text: string) => text.replace(/\|/g, '/')
+// LIN has no line breaks: an explanation's second line ("已表示：…", Z1) joins the first
+const escape = (text: string) => text.replace(/\|/g, '/').replace(/\s*\n\s*/g, ' ')
 
 export function toLin(record: BoardRecord): string {
   const { board, players } = record

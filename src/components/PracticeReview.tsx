@@ -96,7 +96,8 @@ const Explain = styled.dl`
   font-size: 14px;
 
   & dt { font-weight: 700; }
-  & dd { margin: 0 0 4px; }
+  /* An explanation's second line: what the player had already shown */
+  & dd { margin: 0 0 4px; white-space: pre-line; }
 `
 
 const Calls = styled.p`
