@@ -1,0 +1,26 @@
+{
+  "category": "defence-lead",
+  "title": "防家領出：從莊家的計畫決定要不要急著兌現、主動或被動（Y3）",
+  "questions": [
+    {"id": "play-defence-lead-003", "system": "both", "board": 3,
+     "hands": {"N": "K54.Q87.Q65.K432", "E": "73.T964.AT832.AQ", "S": "AQJT9.K32.K4.J65", "W": "862.AJ5.J97.T987"},
+     "auction": ["1S", "P", "2S", "P", "4S", "P", "P", "P"], "play": ["D7", "D5", "DA", "D4"],
+     "answer": "DT", "accepted": ["S7", "S3"], "source": "教科書：夢家沒有長門時不急著兌現（Y3）", "reviewer": null, "status": "pending",
+     "note": "夢家 4333 沒有可以墊牌的長門，♣A 不會跑掉；先兌現 ♣A 會讓夢家的 ♣K 變成大牌（自己的 AQ 坐在夢家 K 的後面，等莊家來打這門 Q 也會贏）。被動地回同伴的 ♦ 或王牌"},
+    {"id": "play-defence-lead-004", "system": "both", "board": 3,
+     "hands": {"N": "76.432.KQJT9.K32", "E": "T98.K87.876.8765", "S": "AKQJ5.J65.32.AQ4", "W": "432.AQT9.A54.JT9"},
+     "auction": ["1S", "P", "2D", "P", "2S", "P", "4S", "P", "P", "P"], "play": ["DA", "D9", "D6", "D2"],
+     "answer": "HA", "source": "教科書：夢家的長門會跑時趕快兌現（Y3）", "reviewer": null, "status": "pending",
+     "note": "♦A 拿了之後夢家 KQJT9 都是大牌，莊家清完王就會在上面墊掉 ♥ 的輸張：現在就兌現 ♥A（同伴的 K 在後面），不能等"},
+    {"id": "play-defence-lead-005", "system": "both", "board": 3,
+     "hands": {"N": "KJ842.Q63.7.J953", "E": "T963.T8.T842.AQ7", "S": "5.AKJ74.KQJ53.82", "W": "AQ7.952.A96.KT64"},
+     "auction": ["1H", "P", "1S", "P", "2D", "P", "2H", "P", "P", "P"], "play": ["DA", "D7", "D4", "D3"],
+     "answer": "H9", "accepted": ["H5", "H2"], "source": "教科書：莊家要在夢家王吃第二門時攻王牌（Y3）", "reviewer": null, "status": "pending",
+     "note": "莊家叫過 ♥ 和 ♦，夢家 ♦ 單張而且有王牌：莊家要在夢家王吃 ♦。攻王牌減少夢家的王牌；♠A 不會跑掉（夢家 KJ842 沒有可以墊牌的長門），不急著兌現"},
+    {"id": "play-defence-lead-006", "system": "both", "board": 3,
+     "hands": {"N": "75.Q64.AKQJ9.643", "E": "A94.JT8.T863.872", "S": "KQJT86.AK5.52.QJ", "W": "32.9732.74.AKT95"},
+     "auction": ["1S", "P", "2D", "P", "2S", "P", "4S", "P", "P", "P"], "play": ["S3", "S5", "SA", "S6"],
+     "answer": "C8", "accepted": ["C7", "C2"], "source": "教科書：主動防守（Y3）", "reviewer": null, "status": "pending",
+     "note": "夢家 ♦AKQJ9 會連跑，莊家的輸張都會墊掉：要趕快攻夢家弱的 ♣（同伴可能有大牌），不是 ♥ 的連張（夢家有 Q）"}
+  ]
+}

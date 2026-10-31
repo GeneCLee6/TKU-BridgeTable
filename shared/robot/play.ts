@@ -3,6 +3,7 @@ import { nextSeat, partnerOf, rankOf, rankValue, RANKS, sameSide, SEATS, SUITS, 
 import { legalCards, remainingCards, tricksOf, type BoardState, type PlayedCard } from '../game.ts'
 import type { RobotKind } from '../protocol.ts'
 import { declarerLead, exitLead, holdUp } from './declarer.ts'
+import { declarerLength, noHurry } from './defence-plan.ts'
 import { cashOut, coverLastHonour, defenceLead, dummyOverruffs, holdUpAgainstDummy, raceSuit, secondHand, thirdHand } from './defence.ts'
 import { suitCards } from './hand.ts'
 import { clubLeadCard, sequenceLead } from './lead-card.ts'
@@ -74,6 +75,11 @@ export function chooseCard(state: BoardState, seat: Seat, kind: RobotKind = 'tku
       const card = riseSecond(view, following, led, trump)
       if (card) return card
     }
+    if (trick.length === 1 && defending && beaters.length) {
+      // The declarer leads towards dummy's long suit with no other way in: hold up, as fourth hand does
+      const card = holdUpAgainstDummy(view, trick, following, led, trump)
+      if (card) return card
+    }
     if (trick.length === 1) {
       // Second hand low, but cover an honour (the last of dummy's touching honours), and rise
       // over a bare honour in dummy
@@ -130,11 +136,14 @@ function lead(state: BoardState, seat: Seat, view: View, legal: Card[], trump: S
   } else {
     // Cash winners while they last (holding them back for later costs more than it saves); in
     // notrump not while the opening lead's suit is still being set up, unless they defeat the
-    // contract: a side winner is the entry to the long suit (defence.ts)
+    // contract: a side winner is the entry to the long suit (defence.ts); and not when the
+    // declarer's plan gives no reason to hurry (dummy has no running suit to discard on and holds
+    // two or more of the suit: defence-plan.ts, Y3)
     const race = raceSuit(view, hand, trump)
     for (const s of nonTrump) {
       const top = suitCards(hand, s)[0]
       if (race && s !== race && !cashOut(view, s, trump)) continue
+      if (noHurry(view, s, trump)) continue
       if (view.isMaster(top) && state.play.length >= 4 && !ruffed(s)) return top
     }
     // Lead the suit partner asked for with a discard
@@ -344,6 +353,7 @@ function discardCosts(view: View, legal: Card[], trump: Suit | null): Record<Sui
       }
       const theirs = suitCards(dummyCards, s)
       if (theirs.length >= mine.length && theirs.length >= 2 && mine[1] && theirs.some((c) => value(c) > value(mine[1]))) cost += 2
+      if (defending) cost += declarerLength(view, s, mine, theirs)
     }
     costs[s] = cost
   }
