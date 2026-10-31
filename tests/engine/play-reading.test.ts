@@ -6,6 +6,7 @@ import type { RobotKind } from '../../shared/protocol.ts'
 import { chooseCard } from '../../shared/robot/play.ts'
 import { TableReading } from '../../shared/robot/reading.ts'
 import { robotCall } from '../../shared/robot/robots.ts'
+import { HEAVY_MS } from './heavy.ts'
 
 /** A hand from text like 'AKQ2 KJ3 Q54 32' (♠ ♥ ♦ ♣; '-' for a void) */
 function hand(text: string): Card[] {
@@ -168,7 +169,7 @@ describe('the reading uses only what the robot may see', () => {
     return { ...state, hands: handsAgain }
   }
 
-  it('plays the same card however the hidden hands lie, on 60 random boards', () => {
+  it('plays the same card however the hidden hands lie, on 60 random boards', { timeout: HEAVY_MS }, () => {
     for (const kind of KINDS) {
       for (let seed = 1; seed <= 60; seed++) {
         const random = seeded(seed * 31 + 7)

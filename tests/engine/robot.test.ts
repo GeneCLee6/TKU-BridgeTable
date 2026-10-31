@@ -14,6 +14,7 @@ import { TKU } from '../../shared/robot/system/tku/index.ts'
 import { minorResponses } from '../../shared/robot/system/tku/minors.ts'
 import { openingBook } from '../../shared/robot/system/tku/openings.ts'
 import { supportDouble } from '../../shared/robot/system/tku/advancing.ts'
+import { HEAVY_MS } from './heavy.ts'
 
 function seeded(seed: number) {
   return (n: number) => {
@@ -52,12 +53,10 @@ function bidOver(cards: Card[], calls: string, dealer: Seat = 'N', vul: 'None' |
 
 /**
  * The 300 boards, played once for both tests below (each board is bid and played to the end, which
- * is most of this file's time). Pure CPU: with every test file running at once on a busy machine
- * it can take several times as long as alone (about 1.5 s), hence the explicit timeouts
+ * is most of this file's time); pure CPU, hence HEAVY_MS (heavy.ts)
  */
 let played: BoardState[] | undefined
 const boards300 = () => (played ??= Array.from({ length: 300 }, (_, i) => robotBoard(i + 1, deal(seeded(i + 1)))))
-const HEAVY_MS = 60_000
 
 describe('robots play 300 random boards', () => {
   it('legally, to the end, reaching sensible contracts', () => {

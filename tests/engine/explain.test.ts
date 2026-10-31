@@ -7,6 +7,7 @@ import { describe as words } from '../../shared/robot/system/describe.ts'
 import { choose, explain } from '../../shared/robot/system/engine.ts'
 import { SUITS } from '../../shared/cards.ts'
 import type { Range, Spec } from '../../shared/robot/system/spec.ts'
+import { HEAVY_MS } from './heavy.ts'
 
 /**
  * The explanation shown for a call (the bidding box hint, `explain`; a person's call read by the
@@ -39,7 +40,7 @@ function agrees(rule: Spec, hint: Spec): string | null {
 const KINDS: RobotKind[] = ['tku', 'gib']
 
 describe('the explanation of a call agrees with the rule TKB bids it by', () => {
-  it('on 150 random auctions in each system', () => {
+  it('on 150 random auctions in each system', { timeout: HEAVY_MS }, () => {
     for (const kind of KINDS) {
       const system = ROBOT_SYSTEMS[kind]
       for (let seed = 1; seed <= 150; seed++) {
