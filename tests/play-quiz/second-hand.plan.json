@@ -1,0 +1,11 @@
+{
+  "category": "second-hand",
+  "title": "第二家：莊家要建立夢家的長門、夢家沒有進手張時忍讓（Y3）",
+  "questions": [
+    {"id": "play-second-011", "system": "both", "board": 3,
+     "hands": {"N": "8642.543.QJT98.2", "E": "T93.AT76.652.T96", "S": "AQ5.KQ2.K3.AKJ87", "W": "KJ7.J98.A74.Q543"},
+     "auction": ["2N", "P", "3N", "P", "P", "P"], "play": ["C3", "C2", "CT", "CJ", "DK"],
+     "answer": "D4", "accepted": ["D7"], "source": "教科書：忍讓封死夢家的長門（Y3）", "reviewer": null, "status": "pending",
+     "note": "莊家從 Kx 領 ♦K 朝夢家 QJT98，夢家別門沒有進手張：用 A 蓋 K，莊家還有一張 ♦ 過去，夢家四墩都是大牌；忍讓一次，莊家的小 ♦ 過去之後 A 還在，夢家的 ♦ 再也兌現不了"}
+  ]
+}

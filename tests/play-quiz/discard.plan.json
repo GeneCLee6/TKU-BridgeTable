@@ -1,0 +1,11 @@
+{
+  "category": "discard",
+  "title": "墊牌：守住莊家叫過的長門（Y3）",
+  "questions": [
+    {"id": "play-discard-003", "system": "both", "board": 3,
+     "hands": {"N": "AQ4.84.K72.AK853", "E": "J865..J9654.T972", "S": "K72.AKQJ5.Q83.64", "W": "T93.T97632.AT.QJ"},
+     "auction": ["P", "P", "1C", "P", "1H", "P", "2C", "P", "3C", "P", "3N", "P", "P", "P"], "play": ["D5", "D3", "DA", "D2", "DT", "DK", "D4", "D8", "H4"],
+     "answer": "S5", "accepted": ["S6", "S8"], "source": "教科書：跟莊家的長門保持張數（Y3）", "reviewer": null, "status": "pending",
+     "note": "莊家叫過兩次 ♣（5 張以上），自己 T972 是守住它第四、五張的長度：夢家 ♥ 連跑時從 ♠（莊家與夢家各三張，用不到）或 ♦ 墊（♦ 的 J96 還可能建立），不墊 ♣"}
+  ]
+}

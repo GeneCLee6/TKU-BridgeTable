@@ -1,5 +1,6 @@
 import { nextSeat, partnerOf, rankOf, RANKS, SUITS, suitOf, type Card, type Suit } from '../cards.ts'
 import { dummyOf, type PlayedCard } from '../game.ts'
+import { aceNow, dummyThreat, ruffsInDummy } from './defence-plan.ts'
 import { suitCards } from './hand.ts'
 import { byRank, value, type View } from './view.ts'
 
@@ -18,7 +19,11 @@ export function defenceLead(view: View, hand: Card[], trump: Suit | null, ruffed
   const partner = partnerOf(view.seat)
   const dummyCards = view.dummyCards()
   const throughDummy = nextSeat(view.seat) === dummy
-  const suits = SUITS.filter((s) => suitCards(hand, s).length && (s !== trump || trumpLead(view, hand, trump, dummyCards)))
+  // The declarer's plan as we read it: a long suit in dummy to discard losers on calls for an
+  // active defence, the declarer's side suit to ruff in dummy for a trump lead
+  const threat = dummyThreat(view, trump)
+  const ruffing = trump !== null && ruffsInDummy(view, hand, trump)
+  const suits = SUITS.filter((s) => suitCards(hand, s).length && (s !== trump || ruffing || trumpLead(view, hand, trump, dummyCards)))
   if (!suits.length) return null
   const race = raceSuit(view, hand, trump)
 
@@ -29,10 +34,16 @@ export function defenceLead(view: View, hand: Card[], trump: Suit | null, ruffed
     if (ruffed(s)) n -= 10
     if (view.reading.bid(declarer, s) || view.reading.bid(dummy, s)) n -= 3
     if (view.reading.bid(partner, s)) n += 3
+    if (threat) {
+      // Dummy's suit will run: not into it, and the tricks partner may hold elsewhere now
+      if (s === threat) n -= 3
+      else if (!theirs.some((c) => value(c) >= 10)) n += 2
+    }
+    if (ruffing && s === trump) n += 4
     const seq = sequence(view, mine)
     if (seq) n += 3
-    // Leading away from a lone honour gives a trick away
-    else if (mine.some((c) => value(c) >= 11 && !view.isMaster(c))) n -= 3
+    // Leading away from a lone honour gives a trick away (unless dummy's suit is about to run)
+    else if (mine.some((c) => value(c) >= 11 && !view.isMaster(c))) n -= threat ? 1 : 3
     const dummyHonour = theirs.some((c) => value(c) >= 11 && !view.isMaster(c))
     if (throughDummy) {
       // Dummy plays next: lead through its honours, partner sits over them
@@ -220,7 +231,7 @@ export function thirdHand(view: View, trick: PlayedCard[], following: Card[], be
   // contract only with the ten or higher: a nine that loses to declarer's ten may be the suit's
   // only trick before declarer ruffs
   const kept = dummyLeft.filter((c) => value(c) > value(best.card) && value(c) >= 10)
-  if (kept.length) {
+  if (kept.length && !(trump !== null && aceNow(view, following, led))) {
     const lowest = trump === null ? 9 : 10
     const over = beaters.some((c) => value(c) > value(kept[0]))
     const under = beaters.filter((c) => value(c) < value(kept[0]))
@@ -242,7 +253,9 @@ export function thirdHand(view: View, trick: PlayedCard[], following: Card[], be
  * count (auction and partner's count signal) says the declarer still has a card of the suit
  * to lead again, duck; take it when the declarer's last one is played. Only when dummy's suit
  * is worth shutting out (its top card would be good once our stopper is gone) and dummy has no
- * entry: no outside winner, and no outside honour we do not sit over with every higher card
+ * entry: no outside winner, and no outside honour we do not sit over with every higher card.
+ * As fourth hand (dummy has played) or second hand (the declarer leads an honour towards dummy:
+ * covering it would set up dummy's suit, Y3); not when our winners defeat the contract now.
  */
 export function holdUpAgainstDummy(view: View, trick: PlayedCard[], following: Card[], led: Suit, trump: Suit | null): Card | null {
   const state = view.state
@@ -256,6 +269,8 @@ export function holdUpAgainstDummy(view: View, trick: PlayedCard[], following: C
   if (dummyLeft < 2) return null
   const masters = following.filter((c) => view.isMaster(c) || aboveAllOut(view, c))
   if (masters.length !== 1) return null
+  // The tricks to defeat the contract are ours now: take them
+  if (cashOut(view, led, trump)) return null
   // Dummy's suit is not worth shutting out: its top card (after this trick) would not be good
   // even once our master is gone
   const dummyTop = dummySuit[0]

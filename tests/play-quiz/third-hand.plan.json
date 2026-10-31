@@ -1,0 +1,11 @@
+{
+  "category": "third-hand",
+  "title": "第三家：王牌合約第一墩、莊家可能是單張時用 A 拿（Y3）",
+  "questions": [
+    {"id": "play-third-023", "system": "both", "board": 3,
+     "hands": {"N": "AJ5.KJT.854.Q873", "E": "T6.62.AK72.AJT94", "S": "KQ7.AQ8753.Q63.K", "W": "98432.94.JT9.652"},
+     "auction": ["1H", "P", "4H", "P", "P", "P"], "play": ["C5", "C3"],
+     "answer": "CA", "source": "W2 留下的問題（ROBOT.md §3.12，第 1300 副的牌型），Y3", "reviewer": null, "status": "pending",
+     "note": "4♥ 首攻 ♣5，夢家 Q873 出小：自己 5 張、夢家 4 張，莊家最多兩張（同伴至少留一張），這門很可能只有一輪。對夢家的 Q 飛 J（出 9）會讓莊家的單張 K 贏，A 之後再也拿不到；先出 A"}
+  ]
+}
