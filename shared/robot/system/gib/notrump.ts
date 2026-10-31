@@ -84,11 +84,13 @@ function responses(r: Ranges, stayman: Call, runout = false): Rule[] {
     shows: { name: 'minorStayman', hcp: plus(r.game[0]), forcing: 'game', artificial: true },
     when: (h) => !fourMajor(h) && h.len.H < 5 && h.len.S < 5 && Math.min(h.len.C, h.len.D) >= 4 && h.len.C + h.len.D >= 9,
   })
-  // Stayman: a four-card major (5-4 majors too, with values); over 1NT also inviting without one
-  const asks = { name: 'stayman' as const, notes: [{ key: 'asksMajor' as const }], forcing: 'oneRound' as const, artificial: true }
+  // Stayman: a four-card major (5-4 majors too, with values; 社長 2026-10-31: no Stayman without
+  // one). Over 1NT the only exception is the one gib-2over1.md §4 names: inviting 3NT without a
+  // major (2NT is a minor transfer), which bids 2NT next
+  const asks = { name: 'stayman' as const, forcing: 'oneRound' as const, artificial: true }
   rules.push({
     call: stayman,
-    shows: { ...asks, hcp: plus(r.invite ? r.invite[0] : r.game[0]) },
+    shows: { ...asks, hcp: plus(r.invite ? r.invite[0] : r.game[0]), notes: [{ key: 'fourMajor' }, { key: 'asksMajor' }] },
     when: (h) => fourMajor(h) && !(h.len.H >= 5 && h.len.S >= 5) && h.len.H + h.len.S <= 9,
   })
   // Transfers: 5-5 majors go through hearts with a weak or invitational hand, spades with game
@@ -119,7 +121,12 @@ function responses(r: Ranges, stayman: Call, runout = false): Rule[] {
     // GIB does not like Gerber, but knows what it means
     { call: '4C', shows: { name: 'gerber', artificial: true }, when: () => false },
   )
-  if (r.invite) rules.push({ call: stayman, shows: { ...asks, hcp: r.invite } })
+  if (r.invite)
+    rules.push({
+      call: stayman,
+      shows: { ...asks, hcp: r.invite, notes: [{ key: 'asksMajor' }, { key: 'invite' }] },
+      when: (h) => h.len.H < 4 && h.len.S < 4,
+    })
   rules.push({ call: 'P', shows: { hcp: r.weak } })
   return rules
 }
@@ -352,7 +359,7 @@ function lebensohl(theirs: Suit): Rule[] {
     // Fast denies: the cue bid or 3NT at once have no stopper
     {
       call: bid(3, theirs),
-      shows: { name: 'stayman', hcp: plus(10), notes: [{ key: 'asksMajor' }], forcing: 'game', artificial: true },
+      shows: { name: 'stayman', hcp: plus(10), notes: [{ key: 'fourMajor' }, { key: 'asksMajor' }], forcing: 'game', artificial: true },
       when: (h) => !stopped(h, theirs) && unbidMajor(h),
     },
     // A new suit at the three level forces to game
@@ -375,7 +382,7 @@ function afterLebensohlRelay(theirs: Suit): Rule[] {
     // Slow shows: the cue bid or 3NT after the relay promise a stopper
     {
       call: bid(3, theirs),
-      shows: { name: 'stayman', hcp: plus(10), stop: { [theirs]: 'stop' }, forcing: 'game', artificial: true },
+      shows: { name: 'stayman', hcp: plus(10), stop: { [theirs]: 'stop' }, notes: [{ key: 'fourMajor' }, { key: 'asksMajor' }], forcing: 'game', artificial: true },
       when: (h) => h.hcp >= 10 && MAJORS.some((M) => M !== theirs && h.len[M] >= 4),
     },
     { call: '3N', shows: { hcp: plus(10), stop: { [theirs]: 'stop' } }, when: (h) => h.hcp >= 10 },
@@ -390,6 +397,22 @@ function afterLebensohlRelay(theirs: Suit): Rule[] {
 
 const completes = (call: Call): Rule[] => [{ call, shows: { notes: [{ key: 'completes' }] } }]
 
+/** Responder after opener's answer to Stayman; `asked` is the auction up to the Stayman call and the pass after it */
+function staymanBooks(r: Ranges, asked: string): Book[] {
+  const books: Book[] = []
+  for (const answer of ['D', 'H', 'S'] as Suit[]) {
+    const answered = `${asked} ${bid(2 + r.up, answer)} (P)`
+    books.push({ after: answered, rules: afterStayman(r, answer), more: true })
+    // Stayman, then an invitation (2NT, or three of opener's major): accept with the top two
+    // points, as after a transfer (V4a: the fallback counted 8–9 as 8 and passed with 16)
+    if (r.invite) {
+      books.push({ after: `${answered} 2N (P)`, rules: acceptInvite(r, '3N', 'P'), more: true })
+      if (answer !== 'D') books.push({ after: `${answered} 3${answer} (P)`, rules: acceptInvite(r, bid(4, answer), 'P'), more: true })
+    }
+  }
+  return books
+}
+
 /**
  * The books for a notrump opening or rebid: `open` is the auction up to it ('1N', '2N', or
  * '2C (P) 2D (P) 2N' for the strong 2♣ rebid of 22–24)
@@ -402,17 +425,8 @@ export function notrumpBooks(r: Ranges, open: string): Book[] {
     { after: `${open} (P)`, rules: responses(r, stayman), more: true },
     { after: `${open} (P) ${stayman} (P)`, rules: staymanAnswers(r), more: true },
     { after: `${open} (P) ${mss} (P)`, rules: minorStaymanAnswers(r), more: true },
+    ...staymanBooks(r, `${open} (P) ${stayman} (P)`),
   )
-  for (const answer of ['D', 'H', 'S'] as Suit[]) {
-    const asked = `${open} (P) ${stayman} (P) ${bid(2 + r.up, answer)} (P)`
-    books.push({ after: asked, rules: afterStayman(r, answer), more: true })
-    // Stayman, then an invitation (2NT, or three of opener's major): accept with the top two
-    // points, as after a transfer (V4a: the fallback counted 8–9 as 8 and passed with 16)
-    if (r.invite) {
-      books.push({ after: `${asked} 2N (P)`, rules: acceptInvite(r, '3N', 'P'), more: true })
-      if (answer !== 'D') books.push({ after: `${asked} 3${answer} (P)`, rules: acceptInvite(r, bid(4, answer), 'P'), more: true })
-    }
-  }
   for (const M of MAJORS) {
     const transfer = bid(2 + r.up, M === 'H' ? 'D' : 'H')
     const done = bid(2 + r.up, M)
@@ -465,6 +479,9 @@ books.push(
   { after: '1N (2C) X (P)', rules: staymanAnswers(ONE_NT), more: true },
   { after: '1N (X)', rules: responses(ONE_NT, '2C', true), more: true },
   { after: '1N (X) 2C (P)', rules: staymanAnswers(ONE_NT), more: true },
+  // Responder goes on after the answer as without the interference (Z2: the inviting Stayman bids 2NT)
+  ...staymanBooks(ONE_NT, '1N (2C) X (P)'),
+  ...staymanBooks(ONE_NT, '1N (X) 2C (P)'),
   // Transfers over a 2♣ overcall or a double: opener completes them as usual
   ...MAJORS.flatMap((M): Book[] =>
     ['1N (2C)', '1N (X)'].map((start) => ({ after: `${start} ${M === 'H' ? '2D' : '2H'} (P)`, rules: transferAnswers(ONE_NT, M), more: true })),

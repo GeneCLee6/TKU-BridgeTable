@@ -42,6 +42,12 @@ describe('toLin', () => {
     expect(lin.endsWith('|')).toBe(true)
   })
 
+  it('joins an explanation’s two lines (Z1), as LIN has no line breaks', () => {
+    const record = finishedRecord()
+    const auction = record.board.auction.map((c, i) => (i === 0 ? { ...c, alert: 'RKCB 1430：有滿貫興趣\n已表示：5+ 張♠' } : c))
+    expect(toLin({ ...record, board: { ...record.board, auction } })).toContain('|mb|1H!|an|RKCB 1430：有滿貫興趣 已表示：5+ 張♠|')
+  })
+
   it('builds a Handviewer link', () => {
     expect(handviewerUrl(finishedRecord())).toMatch(
       /^https:\/\/www\.bridgebase\.com\/tools\/handviewer\.html\?lin=pn%7C/,

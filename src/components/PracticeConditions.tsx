@@ -108,7 +108,7 @@ const Pick = styled.button<{ $suit: string }>`
   border-radius: 4px;
   border: 1px solid ${({ theme }) => theme.colors.borderStrong};
   background: ${({ theme }) => theme.colors.surface};
-  color: ${({ theme, $suit }) => theme.textSuits[$suit as 'S']};
+  color: ${({ theme, $suit }) => theme.suits[$suit as 'S']};
   font-size: 13px;
   cursor: pointer;
 

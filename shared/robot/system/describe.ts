@@ -109,6 +109,8 @@ interface Grammar {
   trumpQueen: readonly [string, string]
   forcing: Record<Forcing, string>
   artificial: string
+  /** Leads what the player had already shown (`Spec.before`, Z1), on its own line */
+  before: string
   notes: Record<NoteKey, (n: { s: string; c: string[]; counts: string }) => string>
 }
 
@@ -127,8 +129,10 @@ const zh: Grammar = {
   trumpQueen: ['有王牌 Q', '沒有王牌 Q'],
   forcing: { oneRound: '迫叫一圈', game: '迫叫成局' },
   artificial: '人工叫',
+  before: '已表示：',
   notes: {
     asksMajor: () => '詢問 4 張高花',
+    fourMajor: () => '有 4 張以上的高花',
     noMajor: () => '沒有 4 張高花',
     noMinor: () => '沒有 4 張低花',
     transferTo: ({ s }) => `轉到${s}`,
@@ -181,8 +185,10 @@ const zhHans: Grammar = {
   keycards: (c) => `${c} 张关键张`,
   trumpQueen: ['有将牌 Q', '没有将牌 Q'],
   forcing: { oneRound: '逼叫一轮', game: '逼叫到局' },
+  before: '已表示：',
   notes: {
     asksMajor: () => '询问 4 张高花',
+    fourMajor: () => '有 4 张以上的高花',
     noMajor: () => '没有 4 张高花',
     noMinor: () => '没有 4 张低花',
     transferTo: ({ s }) => `转移到${s}`,
@@ -241,8 +247,10 @@ const en: Grammar = {
   trumpQueen: ['trump queen', 'no trump queen'],
   forcing: { oneRound: 'forcing', game: 'game forcing' },
   artificial: 'artificial',
+  before: 'Shown so far: ',
   notes: {
     asksMajor: () => 'asks for a 4-card major',
+    fourMajor: () => 'holds a 4+ card major',
     noMajor: () => 'no 4-card major',
     noMinor: () => 'no 4-card minor',
     transferTo: ({ s }) => `transfer to ${s}`,
@@ -300,8 +308,10 @@ const vi: Grammar = {
   trumpQueen: ['có Q chủ', 'không có Q chủ'],
   forcing: { oneRound: 'bắt buộc một vòng', game: 'bắt buộc đến game' },
   artificial: 'nhân tạo',
+  before: 'Đã cho thấy: ',
   notes: {
     asksMajor: () => 'hỏi hoa cao 4 lá',
+    fourMajor: () => 'có hoa cao 4+ lá',
     noMajor: () => 'không có hoa cao 4 lá',
     noMinor: () => 'không có hoa thấp 4 lá',
     transferTo: ({ s }) => `chuyển sang ${s}`,
@@ -360,8 +370,10 @@ const ja: Grammar = {
   trumpQueen: ['切り札のQあり', '切り札のQなし'],
   forcing: { oneRound: 'フォーシング', game: 'ゲームフォーシング' },
   artificial: '人工的',
+  before: 'これまでに示した：',
   notes: {
     asksMajor: () => '4枚のメジャーを尋ねる',
+    fourMajor: () => '4枚以上のメジャーあり',
     noMajor: () => '4枚のメジャーなし',
     noMinor: () => '4枚のマイナーなし',
     transferTo: ({ s }) => `${s}へのトランスファー`,
@@ -420,8 +432,10 @@ const ko: Grammar = {
   trumpQueen: ['트럼프 Q 있음', '트럼프 Q 없음'],
   forcing: { oneRound: '포싱', game: '게임 포싱' },
   artificial: '인위적',
+  before: '지금까지 보여 준 것: ',
   notes: {
     asksMajor: () => '4장 메이저 질문',
+    fourMajor: () => '4장 이상 메이저 있음',
     noMajor: () => '4장 메이저 없음',
     noMinor: () => '4장 마이너 없음',
     transferTo: ({ s }) => `${s} 트랜스퍼`,
@@ -484,16 +498,27 @@ export function callText(call: Call): string {
 
 const symbol = (strain: Strain | undefined) => (strain ? SUIT_SYMBOL[strain] : '')
 
-/** What a call shows, in words; '' when it shows nothing in particular */
+/**
+ * What a call shows, in words; '' when it shows nothing in particular. The call's own meaning
+ * first, then on a line of its own what the player had already shown that the call does not
+ * mention (`Spec.before`, Z1): "已表示：15–17 大牌點，平均牌型"
+ */
 export function describe(spec: Spec, lang: Lang): string {
   const g = GRAMMAR[lang]
+  const own = features(spec, g, lang)
+  const before = spec.before && features(spec.before, g, lang, spec.before.balanced ?? spec.balanced)
+  if (!before) return own
+  return own ? `${own}\n${g.before}${before}` : `${g.before}${before}`
+}
+
+function features(spec: Spec, g: Grammar, lang: Lang, balanced = spec.balanced): string {
   const parts: string[] = []
   const add = (text: string | null | undefined) => text && parts.push(text)
 
   for (const note of spec.notes ?? []) add(noteText(g, note))
   for (const s of SUITS) {
     // A balanced hand already has two to five cards in every suit
-    if (spec.balanced && spec.len?.[s]?.[0] === 2 && spec.len[s]![1] === 5) continue
+    if (balanced && spec.len?.[s]?.[0] === 2 && spec.len[s]![1] === 5) continue
     const range = spec.len?.[s] && rangeText(spec.len[s]!, LENGTH_TOP)
     if (range) add(g.len(range, SUIT_SYMBOL[s]))
   }
