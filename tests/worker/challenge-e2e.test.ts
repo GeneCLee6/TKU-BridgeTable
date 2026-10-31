@@ -44,7 +44,7 @@ class FakeConnections implements Connections {
 }
 
 const tick = async (times = 1) => {
-  for (let i = 0; i < times; i++) await new Promise((resolve) => setTimeout(resolve, 0))
+  for (let i = 0; i < times; i++) await new Promise((resolve) => setImmediate(resolve))
 }
 
 it('three people, four boards, matchpoints: one stops halfway and only the finishers are ranked', async () => {

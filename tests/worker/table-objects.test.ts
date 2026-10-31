@@ -55,7 +55,7 @@ let gates: Map<string, Promise<void>>
 let failRoom: string | null
 let logs: LogEntry[]
 
-const tick = () => new Promise((resolve) => setTimeout(resolve, 0))
+const tick = () => new Promise((resolve) => setImmediate(resolve))
 const clone = <T>(value: T): T => (value === undefined ? value : structuredClone(value))
 
 function makeHost(tableId: string, object: Omit<FakeObject, 'host'>): TableHost {

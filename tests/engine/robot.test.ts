@@ -50,11 +50,19 @@ function bidOver(cards: Card[], calls: string, dealer: Seat = 'N', vul: 'None' |
   return robotCall('tku', cards, nextSeat(dealer, auction.length), auction, dealer, vul).call
 }
 
+/**
+ * The 300 boards, played once for both tests below (each board is bid and played to the end, which
+ * is most of this file's time). Pure CPU: with every test file running at once on a busy machine
+ * it can take several times as long as alone (about 1.5 s), hence the explicit timeouts
+ */
+let played: BoardState[] | undefined
+const boards300 = () => (played ??= Array.from({ length: 300 }, (_, i) => robotBoard(i + 1, deal(seeded(i + 1)))))
+const HEAVY_MS = 60_000
+
 describe('robots play 300 random boards', () => {
   it('legally, to the end, reaching sensible contracts', () => {
     const levels = new Map<string, number>()
-    for (let seed = 1; seed <= 300; seed++) {
-      const state = robotBoard(seed, deal(seeded(seed)))
+    for (const state of boards300()) {
       expect(state.phase).toBe('finished')
       expect(state.auction.length).toBeLessThan(40)
       const c = contractOf(state.auction)
@@ -63,19 +71,19 @@ describe('robots play 300 random boards', () => {
     }
     expect(levels.get('passed') ?? 0).toBeLessThan(60)
     expect((levels.get('3') ?? 0) + (levels.get('4') ?? 0)).toBeGreaterThan(50)
-  })
+  }, HEAVY_MS)
 
   it('alerting and explaining every call but pass, as GIB does', () => {
-    for (let seed = 1; seed <= 300; seed++) {
-      for (const entry of robotBoard(seed, deal(seeded(seed))).auction) {
+    for (const [i, state] of boards300().entries()) {
+      for (const entry of state.auction) {
         if (entry.call === 'P') expect(entry.alert).toBeUndefined()
         else {
-          expect(entry.alert, `board ${seed}: ${entry.call}`).toBeTruthy()
+          expect(entry.alert, `board ${i + 1}: ${entry.call}`).toBeTruthy()
           expect(entry.alert!.length).toBeLessThanOrEqual(LIMITS.alertMax)
         }
       }
     }
-  })
+  }, HEAVY_MS)
 })
 
 describe('openings (淡江制度)', () => {

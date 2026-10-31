@@ -92,7 +92,7 @@ async function runRobots(limit = 400) {
     if (index < 0) return
     queue.splice(index, 1)[0].run()
     // Each move is async; let it finish before the next
-    await new Promise((resolve) => setTimeout(resolve, 0))
+    await new Promise((resolve) => setImmediate(resolve))
   }
 }
 
@@ -102,7 +102,7 @@ async function dealNext() {
   queue = queue.filter((job) => !isDeal(job))
   time += Math.max(0, ...deals.map((job) => job.ms))
   for (const job of deals) job.run()
-  await new Promise((resolve) => setTimeout(resolve, 0))
+  await new Promise((resolve) => setImmediate(resolve))
 }
 
 /** The first account, which becomes the admin and signs in at once */
@@ -125,7 +125,7 @@ async function member(name: string) {
   connections.online.add(user.id)
   club.connected(user.id)
   // Notifications go out once they are read from the store
-  await new Promise((resolve) => setTimeout(resolve, 0))
+  await new Promise((resolve) => setImmediate(resolve))
   return user.id
 }
 
@@ -657,7 +657,7 @@ describe('robot speed (出牌速度)', () => {
   async function runOne() {
     const index = queue.findIndex((job) => job.kind === 'robot')
     queue.splice(index, 1)[0].run()
-    await new Promise((resolve) => setTimeout(resolve, 0))
+    await new Promise((resolve) => setImmediate(resolve))
   }
 
   it('is very fast unless the member chose otherwise, and changes at their table at once', async () => {
@@ -865,7 +865,7 @@ describe('registration approval', () => {
 // 忘記密碼 (e1-t36): tests/worker/account-reset.test.ts
 
 describe('notifications', () => {
-  const tick = () => new Promise((resolve) => setTimeout(resolve, 0))
+  const tick = () => new Promise((resolve) => setImmediate(resolve))
   const bell = (userId: string) => connections.last(userId, 'notifications')?.notifications
 
   it('tell admins about a new registration, at once and again when they come back', async () => {
@@ -1199,7 +1199,7 @@ describe('the SQL history index', () => {
     const jobs = queue.filter((job) => job.kind === 'outbox')
     queue = queue.filter((job) => job.kind !== 'outbox')
     for (const job of jobs) job.run()
-    await new Promise((resolve) => setTimeout(resolve, 0))
+    await new Promise((resolve) => setImmediate(resolve))
   }
 
   async function passOut(bySeat: Record<Seat, string>) {

@@ -99,7 +99,9 @@ describe('2/1 robots play 300 random boards', () => {
       }
       expect(state.phase).toBe('finished')
     }
-  })
+    // Pure CPU (about 1.7 s alone): with every test file running at once on a busy machine it can
+    // take several times as long, past the 15 s every other test gets
+  }, 60_000)
 })
 
 function seeded(seed: number) {

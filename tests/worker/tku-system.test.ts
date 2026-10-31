@@ -66,7 +66,7 @@ beforeEach(async () => {
   boss = await member('boss')
 })
 
-const tick = () => new Promise((resolve) => setTimeout(resolve, 0))
+const tick = () => new Promise((resolve) => setImmediate(resolve))
 
 async function member(name: string) {
   const result = await club.register(name, 'secret1', '')

@@ -592,7 +592,9 @@ describe('a challenge board’s page (社長, 2026-10-25)', () => {
     // 640 − 1440 = −800: amy lost 13 IMPs to ben
     expect(tabs.map((tab) => tab.textContent)).toEqual(['你', 'ben-13'])
     expect(tabs[0]).toHaveAttribute('aria-selected', 'true')
-    expect(mocks.api.traveller).toHaveBeenCalledWith('b-amy')
+    // The traveller and the record are asked for in effects, which React runs after the render
+    // that showed the tabs (passive effects may come a task later): wait for them, not assume them
+    await waitFor(() => expect(mocks.api.traveller).toHaveBeenCalledWith('b-amy'))
     await waitFor(() => expect(mocks.api.record).toHaveBeenCalledWith('b-amy'))
     expect(await within(screen.getByRole('tabpanel', { name: '你' })).findByText('NS +640')).toBeInTheDocument()
     // The side-by-side replay from the traveller, against the viewer's own board

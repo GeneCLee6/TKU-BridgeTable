@@ -114,7 +114,7 @@ describe('robot meanings for the report page', () => {
 })
 
 describe('TKB with the handbook’s words', () => {
-  const tick = () => new Promise((resolve) => setTimeout(resolve, 0))
+  const tick = () => new Promise((resolve) => setImmediate(resolve))
 
   it('puts the words on its calls, asking the club once a board', async () => {
     const queue: { run: () => void; kind: JobKind }[] = []
