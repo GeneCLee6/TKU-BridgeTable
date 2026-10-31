@@ -10,7 +10,8 @@ import { byRank, honours, value, type View } from './view.ts'
  * opponents hold some and our side can outlast them, giving up a trump trick if need be, or cross
  * to the hand that can; when the sure tricks are enough, cash them, the high cards from the shorter holding
  * first; when they are not, take a finesse the auction favours, then set up the longest suit
- * before cashing; in notrump hold up a single stopper in the suit the defence attacks.
+ * before cashing; in notrump hold up a single stopper in the suit the defence attacks; second hand
+ * takes the trick with a master when partner cannot (Y4).
  * Only the cards the declaring side sees and the reading of the other two hands are used.
  */
 
@@ -286,3 +287,20 @@ export function holdUp(view: View, trick: PlayedCard[], following: Card[], led: 
   return [...following].sort(byRank)[0]
 }
 
+/**
+ * Second hand on the declaring side after a defender's lead (Y4, ROBOT.md §3.14): with a master
+ * that beats the card led, take the trick when partner, last to play, cannot. In a trump contract
+ * that is whenever partner holds no master of the suit (a low card, a void with trumps to spare,
+ * or none); in notrump only when partner is void. Ducking would only hand third hand a cheap
+ * trick. Hold-ups (`holdUp`) are decided before this. In notrump with partner holding low cards,
+ * second hand stays low: rising there lost (V4c, Y4).
+ */
+export function secondHandWin(view: View, trick: PlayedCard[], following: Card[], led: Suit, trump: Suit | null): Card | null {
+  if (trick.length !== 1 || sameSide(trick[0].seat, view.seat) || suitOf(trick[0].card) !== led) return null
+  const master = following.filter((c) => view.isMaster(c) && value(c) > value(trick[0].card)).sort(byRank)[0]
+  const partner = view.partnerCards()
+  if (!master || !partner.length) return null
+  const theirs = suitCards(partner, led)
+  const cannot = trump === null ? theirs.length === 0 : !theirs.some((c) => view.isMaster(c))
+  return cannot ? master : null
+}
