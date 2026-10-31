@@ -71,6 +71,8 @@
     { "id": "tku-rebid-268", "system": "tku", "dealer": "W", "vul": "NS", "hand": "AK5.KQ8.AJ74.K52", "auction": ["2N", "P", "3C", "P"], "answer": "3N", "source": "淡江橋譜：開叫2NT及答叫（Puppet：2NT 3♣）", "reviewer": null, "status": "pending", "note": "20 點、沒有四張或五張高花：3NT" },
     { "id": "tku-rebid-269", "system": "tku", "dealer": "N", "vul": "EW", "hand": "AKQ.AKJ4.AQ5.KQ3", "auction": ["2C", "P", "2D", "P"], "answer": "4N", "source": "淡江橋譜：開叫2♣、弱二與阻塞叫（自然制講義）（開叫2♣）", "reviewer": null, "status": "pending", "note": "28 點 3-4-3-3 平均牌型：4NT 28–30" },
     { "id": "tku-rebid-270", "system": "tku", "dealer": "E", "vul": "Both", "hand": "84.952.KQT84.J73", "auction": ["2C", "P", "2D", "P", "2S", "P"], "answer": "3D", "source": "淡江橋譜：開叫2♣、弱二與阻塞叫（自然制講義）（開叫2♣）", "reviewer": null, "status": "pending", "note": "6 點五張♦、♠只有兩張：叫出五張的♦" },
-    { "id": "tku-rebid-271", "system": "tku", "dealer": "S", "vul": "None", "hand": "A5.AKQ.AKJ984.K3", "auction": ["2C", "P", "2D", "P"], "answer": "3D", "source": "5542 自然制（ROBOT.md §2）", "reviewer": null, "status": "pending", "note": "24 點六張♦、不平均：叫出最長的♦" }
+    { "id": "tku-rebid-271", "system": "tku", "dealer": "S", "vul": "None", "hand": "A5.AKQ.AKJ984.K3", "auction": ["2C", "P", "2D", "P"], "answer": "3D", "source": "5542 自然制（ROBOT.md §2）", "reviewer": null, "status": "pending", "note": "24 點六張♦、不平均：叫出最長的♦" },
+    { "id": "tku-rebid-272", "system": "tku", "dealer": "N", "vul": "None", "hand": "AQ54.KJ8.K93.Q72", "auction": ["1N", "P", "2C", "P"], "answer": "2S", "source": "淡江橋譜：1NT的答叫", "reviewer": null, "status": "pending", "note": "16 點 4 張♠、3 張♥：回答 2♠（叫出的高花一定要 4 張）" },
+    { "id": "tku-rebid-273", "system": "tku", "dealer": "N", "vul": "None", "hand": "AQ5.KJ8.K932.Q72", "auction": ["1N", "P", "2C", "P"], "answer": "2D", "source": "淡江橋譜：1NT的答叫", "reviewer": null, "status": "pending", "note": "16 點高花 3-3：回答 2♦，不叫 3 張的高花" }
   ]
 }

@@ -98,6 +98,7 @@ export type Convention = (typeof CONVENTIONS)[number]
 /** Extra words a call may carry, with the strain or calls they mention */
 export const NOTES = [
   'asksMajor',
+  'fourMajor',
   'noMajor',
   'noMinor',
   'transferTo',

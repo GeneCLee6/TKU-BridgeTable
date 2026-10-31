@@ -567,7 +567,7 @@ describe('the club’s rules in the system engine', () => {
     expect(reads('1S P', '3C')).toBe('Bergen 加叫：4+ 張♠，10–11 大牌點')
     expect(reads('1S P', '2N')).toBe('J2N：3+ 張♠，12+ 大牌點，迫叫成局')
     expect(reads('1N P', '2D')).toBe('轉換：轉到♥，5+ 張♥')
-    expect(reads('1N P', '2C', 'en')).toBe('Stayman: asks for a 4-card major; 9+ HCP; forcing')
+    expect(reads('1N P', '2C', 'en')).toBe('Stayman: holds a 4+ card major; asks for a 4-card major; 9+ HCP; forcing')
     expect(reads('', '2D')).toBe('一高弱二：6–10 大牌點')
     expect(reads('1H 2N', '3C')).toContain('對抗不尋常 2NT')
     expect(reads('1H X 2H', 'X')).toBe('回答性賭倍：兩門低花，6–11 大牌點')
