@@ -83,8 +83,13 @@ beforeEach(async () => {
   await club.register('boss', 'secret1', '')
 })
 
+/**
+ * Lets the club's async work settle. Every job is in the manual `queue`, so only promises are
+ * pending: a macrotask turn is enough, and `setImmediate` takes one without the 1 ms (15 ms on a
+ * busy Windows machine) `setTimeout(…, 0)` sleeps, which made a robot-played board take seconds
+ */
 const tick = async (times = 1) => {
-  for (let i = 0; i < times; i++) await new Promise((resolve) => setTimeout(resolve, 0))
+  for (let i = 0; i < times; i++) await new Promise((resolve) => setImmediate(resolve))
 }
 
 async function run(kind: ScheduleKind) {

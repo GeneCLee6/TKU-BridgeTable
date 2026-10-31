@@ -81,7 +81,7 @@ beforeEach(async () => {
   club.connected(boss)
 })
 
-const tick = () => new Promise((resolve) => setTimeout(resolve, 0))
+const tick = () => new Promise((resolve) => setImmediate(resolve))
 
 async function runRobots(limit = 400) {
   for (let i = 0; i < limit; i++) {

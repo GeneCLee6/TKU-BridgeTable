@@ -34,7 +34,7 @@ let club: ClubService
 let time: number
 let admin: string
 
-const tick = () => new Promise((resolve) => setTimeout(resolve, 0))
+const tick = () => new Promise((resolve) => setImmediate(resolve))
 
 beforeEach(async () => {
   store = memoryStore()

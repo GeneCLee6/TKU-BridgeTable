@@ -4,6 +4,7 @@ import { fullDeck, rankOf, rankValue, SEATS, type Card, type Hands, type Seat } 
 import { legalCards, makeCall, newBoard, playCard, turnOf, type BoardState } from '../../shared/game.ts'
 import { chooseCard } from '../../shared/robot/play.ts'
 import { robotCall } from '../../shared/robot/robots.ts'
+import { HEAVY_MS } from './heavy.ts'
 
 /** A hand from text like 'AKQ2 KJ3 Q54 32' (♠ ♥ ♦ ♣; '-' for a void) */
 function hand(text: string): Card[] {
@@ -99,7 +100,7 @@ describe('2/1 robots play 300 random boards', () => {
       }
       expect(state.phase).toBe('finished')
     }
-  })
+  }, HEAVY_MS)
 })
 
 function seeded(seed: number) {

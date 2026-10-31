@@ -13,6 +13,7 @@ import { GIB } from '../../shared/robot/system/gib/index.ts'
 import { openings } from '../../shared/robot/system/gib/openings.ts'
 import { contextFor } from '../../shared/robot/system/infer.ts'
 import type { System } from '../../shared/robot/system/spec.ts'
+import { HEAVY_MS } from './heavy.ts'
 
 /** A hand from text like 'AKQ2 KJ3 Q54 32' (♠ ♥ ♦ ♣; '-' for a void) */
 function hand(text: string): Card[] {
@@ -79,7 +80,7 @@ describe('the 2/1 books', () => {
     }
   })
 
-  it('bid 300 random boards legally to the end, explaining every call but pass', () => {
+  it('bid 300 random boards legally to the end, explaining every call but pass', { timeout: HEAVY_MS }, () => {
     const contracts = new Map<string, number>()
     for (let seed = 1; seed <= 300; seed++) {
       let state = newBoard(seed, deal(seeded(seed)))

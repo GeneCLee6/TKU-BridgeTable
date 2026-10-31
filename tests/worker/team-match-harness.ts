@@ -44,7 +44,7 @@ export class FakeConnections implements Connections {
   }
 }
 
-export const tick = () => new Promise((resolve) => setTimeout(resolve, 0))
+export const tick = () => new Promise((resolve) => setImmediate(resolve))
 export const at = (room: Room, seat: MatchSeat['seat']): MatchSeat => ({ room, seat })
 
 export interface Job {

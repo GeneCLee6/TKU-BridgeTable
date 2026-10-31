@@ -503,7 +503,13 @@ describe('the Vugraph page (e8-t18, e8-t19) and the whole match replayed (e8-t20
     const settings = { ...defaultTeamMatchSettings(), teamNames: ['淡江', ''] as [string, string], delay: true }
     const page = { match: playing({ settings }), rooms: { open: room('t-open', 2), closed: room('t-closed', 2) }, chat: [] }
     mocks.api.matchVugraph.mockResolvedValue({ vugraph: page })
-    mocks.api.matchVugraphChat.mockResolvedValue({ vugraph: { ...page, chat: [{ id: 'c1', at: 1, userId: 'zed', username: 'zed', text: '好牌' }] } })
+    // The page asks again every VUGRAPH_POLL_MS (real timers here): once the chat is sent the
+    // server answers with it, or a poll on a busy machine would take the message away again
+    const said = { ...page, chat: [{ id: 'c1', at: 1, userId: 'zed', username: 'zed', text: '好牌' }] }
+    mocks.api.matchVugraphChat.mockImplementation(async () => {
+      mocks.api.matchVugraph.mockResolvedValue({ vugraph: said })
+      return { vugraph: said }
+    })
     show('/matches/m1/vugraph')
     expect(await screen.findByRole('heading', { name: '觀賽（Vugraph） · 淡江 對 B 隊' })).toBeInTheDocument()
     expect(screen.getByRole('group', { name: '比分' })).toHaveTextContent('VP 13.78 : 6.22')

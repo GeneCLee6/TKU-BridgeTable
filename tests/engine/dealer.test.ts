@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { hcp, SEATS, SUITS, type Hands } from '../../shared/cards.ts'
 import { DEAL_PRESET_IDS, DEAL_PRESETS } from '../../shared/deal-presets.ts'
 import { conditionsProblem, dealWith, meetsConditions, type DealConditions } from '../../shared/dealer.ts'
+import { HEAVY_MS } from './heavy.ts'
 
 /** mulberry32: a small seeded generator with good low bits */
 function seeded(seed: number) {
@@ -46,7 +47,7 @@ describe('the constrained dealer', () => {
     near(deals.reduce((sum, h) => sum + hcp(h.S), 0) / deals.length, 10, 0.1)
   })
 
-  it('keeps the odds among the deals that meet the conditions', () => {
+  it('keeps the odds among the deals that meet the conditions', { timeout: HEAVY_MS }, () => {
     // Among balanced hands: 4-4-3-2 45.3%, 5-3-3-2 32.6%, 4-3-3-3 22.1%
     const balanced = many({ seats: { S: { balanced: true } } }, 8000, 2)
     near(share(balanced, (h) => shape(h.S) === '4432'), 0.453, 0.02)
@@ -57,7 +58,7 @@ describe('the constrained dealer', () => {
     near(share(strong, (h) => hcp(h.S) === 17), 0.234, 0.02)
   })
 
-  it('meets every kind of condition at once', () => {
+  it('meets every kind of condition at once', { timeout: HEAVY_MS }, () => {
     const conditions: DealConditions = {
       seats: { N: { hcp: [0, 5] }, W: { lengths: { S: [6, 13], H: [0, 1] } } },
       sides: { NS: { hcp: [20, 24] } },

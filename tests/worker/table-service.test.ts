@@ -22,7 +22,7 @@ let refuse: boolean
 let sent: ServerMessage[]
 let table: TableService
 
-const tick = () => new Promise((resolve) => setTimeout(resolve, 0))
+const tick = () => new Promise((resolve) => setImmediate(resolve))
 
 function newTable(): Table {
   return {
