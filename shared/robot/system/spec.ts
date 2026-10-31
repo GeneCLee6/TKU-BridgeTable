@@ -174,6 +174,11 @@ export interface Spec {
   /** Asks or relays rather than names a strain */
   artificial?: boolean
   notes?: readonly Note[]
+  /**
+   * Explanations only (`narrow`'s `full`, Z1): what the player had already shown that this call
+   * does not mention, told after the call's own meaning. No rule reads it
+   */
+  before?: Spec
 }
 
 export type Dynamic<T> = T | ((ctx: Ctx) => T)

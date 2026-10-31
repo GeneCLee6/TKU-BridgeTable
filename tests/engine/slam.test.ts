@@ -24,9 +24,9 @@ function bidOver(cards: Card[], calls: string) {
   return robotCall('tku', cards, nextSeat('N', auction.length), auction, 'N', 'None').call
 }
 
-/** What a call made after these calls means to the club's robots */
+/** What a call made after these calls means to the club's robots (its own meaning, without Z1's "已表示" line) */
 const reads = (calls: string, call: string, lang: 'zh' | 'en' = 'zh') => {
-  const spec = explain(TKU, auctionOf(calls), 'N').get(call)
+  const spec = explain(TKU, auctionOf(calls), 'N', 'None', false).get(call)
   return spec ? words(spec, lang) : undefined
 }
 

@@ -65,10 +65,13 @@ export function callOf(rule: Rule, ctx: Ctx): Call | null {
  * What each call would show if made now, as GIB explains a call before you make it: the rules for
  * the auction that make that call, put together with `union`, and each feature narrowed to what
  * the caller has already shown (`narrow`, Y2): after 1NT (15–17) a later "6+" reads "15–17". This is
- * every explanation the players see and what partner reads the call as. Calls no rule makes are
- * left out.
+ * what partner reads the call as. Calls no rule makes are left out.
+ *
+ * With `full` (Z1), as every explanation the players see: each meaning also carries everything else
+ * the caller has shown (`narrow`'s `before`, from `shownBefore`). Only the explanations ask for it;
+ * the robots' reading (`infer.ts`) and choices do not, so they are the same either way.
  */
-export function meanings(system: System, ctx: Ctx): Map<Call, Spec> {
+export function meanings(system: System, ctx: Ctx, full = false): Map<Call, Spec> {
   const byCall = new Map<Call, Spec[]>()
   for (const rule of rulesFor(system, ctx)) {
     const call = callOf(rule, ctx)
@@ -77,6 +80,20 @@ export function meanings(system: System, ctx: Ctx): Map<Call, Spec> {
     list.push(resolve(rule.shows, ctx) ?? {})
     byCall.set(call, list)
   }
-  const known = ctx.shown.me
-  return new Map([...byCall].map(([call, specs]) => [call, narrow(union(specs), known)]))
+  const known = full ? shownBefore(ctx) : ctx.shown.me
+  return new Map([...byCall].map(([call, specs]) => [call, narrow(union(specs), known, full)]))
+}
+
+/**
+ * Everything the player whose turn it is has shown, for a full explanation: what the reading put
+ * together (`ctx.shown.me`), and the keycards and trump queen of their last call, which `intersect`
+ * does not keep
+ */
+export function shownBefore(ctx: Ctx): Spec {
+  const said = ctx.said.me
+  if (!said || (!said.keycards && said.trumpQueen === undefined)) return ctx.shown.me
+  const known: Spec = { ...ctx.shown.me }
+  if (said.keycards) known.keycards = said.keycards
+  if (said.trumpQueen !== undefined) known.trumpQueen = said.trumpQueen
+  return known
 }
