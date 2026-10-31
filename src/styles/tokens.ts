@@ -90,7 +90,7 @@ const palette = {
   },
 } as const
 
-/** Suit colours on the chrome (history tables, lobby) */
+/** Suit colours on the chrome (history tables, lobby); components read them through `textSuits` */
 const suits = {
   light: { S: '#1a2233', H: '#c8102e', D: '#b34700', C: '#1b7a33' },
   dark: { S: '#e6ebf3', H: '#ff6b6b', D: '#ffa04d', C: '#5fd27a' },
@@ -153,10 +153,14 @@ const table = {
 const avatars = ['#1c2e4f', '#7a3b12', '#1f6b43', '#5b2c7a', '#a0302a', '#2a5d8f', '#6e5410', '#3d5a40', '#7a2a55', '#3f4a5c'] as const
 const onAvatar = '#ffffff'
 
-/** Suit colours printed on the cards: two-colour like BBO's default, or four-colour */
+/**
+ * Suit colours printed on the cards: two-colour like BBO's default, or four-colour. The four-colour
+ * ♦ is a dark orange (X1): 4.9:1 or better on the card face and the panel, 3:1 or better on the
+ * table's yellows (a selected call, an alerted cell), like ♥
+ */
 const cardSuits = {
   two: { S: '#111111', H: '#d10f1f', D: '#d10f1f', C: '#111111' },
-  four: { S: '#111111', H: '#d10f1f', D: '#e06900', C: '#18852f' },
+  four: { S: '#111111', H: '#d10f1f', D: '#b34d00', C: '#18852f' },
 } as const
 
 /**
