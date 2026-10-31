@@ -90,12 +90,6 @@ const palette = {
   },
 } as const
 
-/** Suit colours on the chrome (history tables, lobby); components read them through `textSuits` */
-const suits = {
-  light: { S: '#1a2233', H: '#c8102e', D: '#b34700', C: '#1b7a33' },
-  dark: { S: '#e6ebf3', H: '#ff6b6b', D: '#ffa04d', C: '#5fd27a' },
-} as const
-
 /** The table, modelled on BBO; identical in light and dark mode */
 const table = {
   felt: '#1f6b43',
@@ -153,22 +147,27 @@ const table = {
 const avatars = ['#1c2e4f', '#7a3b12', '#1f6b43', '#5b2c7a', '#a0302a', '#2a5d8f', '#6e5410', '#3d5a40', '#7a2a55', '#3f4a5c'] as const
 const onAvatar = '#ffffff'
 
-/**
- * Suit colours printed on the cards: two-colour like BBO's default, or four-colour. The four-colour
- * ♦ is a dark orange (X1): 4.9:1 or better on the card face and the panel, 3:1 or better on the
- * table's yellows (a selected call, an alerted cell), like ♥
- */
-const cardSuits = {
-  two: { S: '#111111', H: '#d10f1f', D: '#d10f1f', C: '#111111' },
-  four: { S: '#111111', H: '#d10f1f', D: '#b34d00', C: '#18852f' },
-} as const
+export type Suits = Record<'S' | 'H' | 'D' | 'C', string>
 
 /**
- * Suit symbols inside words on the chrome (a call's explanation in the practice review): the
- * chrome's colours for the theme, folded to two colours like the cards when the deck is two-colour
+ * The one suit palette (Y1, DESIGN.md §2.3): the same hue for a suit on every page (the cards, the
+ * auction, the bidding box, explanations, history, the lobby). `light` is for light surfaces: the
+ * white cards and the table's panels in either theme, and the light chrome. `dark` is the same hues
+ * made lighter for the dark chrome. Every colour is 4.5:1 or better on every surface it is drawn on;
+ * on the table's yellows (a selected call, an alerted cell) 3:1 or better, the symbols being large
+ * (tests/presentation/suit-palette.test.ts)
  */
-function chromeDeckSuits(mode: ThemeMode, deck: DeckColors) {
-  const s = suits[mode]
+const suitPalette = {
+  light: { S: '#111111', H: '#c8102e', D: '#a64700', C: '#15702a' },
+  dark: { S: '#e6ebf3', H: '#f57a8e', D: '#ff8a33', C: '#4cc96a' },
+} as const satisfies Record<ThemeMode, Suits>
+
+/**
+ * The suit colours for a surface's tone and the deck setting: four-colour, or two-colour like
+ * BBO's default, where ♦ takes ♥'s colour and ♣ takes ♠'s
+ */
+export function suitColours(surface: ThemeMode, deck: DeckColors): Suits {
+  const s = suitPalette[surface]
   return deck === 'four' ? s : { S: s.S, H: s.H, D: s.H, C: s.S }
 }
 
@@ -216,10 +215,11 @@ export function createTheme(mode: ThemeMode, deck: DeckColors) {
   return {
     mode,
     colors: palette[mode],
-    suits: suits[mode],
     table,
-    cardSuits: cardSuits[deck],
-    textSuits: chromeDeckSuits(mode, deck),
+    /** Suits on the chrome: the palette for the theme, with the deck setting */
+    suits: suitColours(mode, deck),
+    /** Suits on the table (cards, panels, bidding box), which looks the same in both themes */
+    cardSuits: suitColours('light', deck),
     avatars,
     onAvatar,
     fonts,

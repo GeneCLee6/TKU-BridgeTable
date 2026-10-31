@@ -27,20 +27,6 @@ const rgb = (hex: string) => {
   return `rgb(${n >> 16}, ${(n >> 8) & 255}, ${n & 255})`
 }
 
-/** WCAG contrast ratio of two #rrggbb colours */
-function contrast(a: string, b: string) {
-  const lum = (hex: string) => {
-    const n = parseInt(hex.slice(1), 16)
-    const ch = [n >> 16, (n >> 8) & 255, n & 255].map((c) => {
-      const s = c / 255
-      return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4
-    })
-    return 0.2126 * ch[0] + 0.7152 * ch[1] + 0.0722 * ch[2]
-  }
-  const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x)
-  return (hi + 0.05) / (lo + 0.05)
-}
-
 describe('SuitText', () => {
   it('keeps the words as they are, so a screen reader reads the same text', () => {
     const { p } = show('four', true)
@@ -89,12 +75,6 @@ describe('SuitText', () => {
     }
     expect(label('four')).toBe(rgb(light.D))
     expect(label('two')).toBe(rgb(light.H))
-  })
-
-  it('keeps the four-colour ♦ readable on the table: 4.5:1 on the cards, the panels and the alert box', () => {
-    const { cardSuits, table } = createTheme('light', 'four')
-    for (const bg of [table.cardFace, table.panel, table.bidButton, table.alertField]) expect(contrast(cardSuits.D, bg)).toBeGreaterThanOrEqual(4.5)
-    for (const bg of [table.bidSelected, table.alert]) expect(contrast(cardSuits.D, bg)).toBeGreaterThanOrEqual(3)
   })
 
   it('leaves text without suit symbols alone', () => {
