@@ -527,10 +527,10 @@ describe('when the opponents open (§7)', () => {
 
   it('explains these calls the way GIB does', () => {
     expect(meaning('1C', '2C')).toBe('Michaels 扣叫：兩門高花，5+ 張♠，5+ 張♥，8+ 大牌點，迫叫一圈')
-    expect(meaning('1H', 'X')).toBe('技術性賭倍：12+ 大牌點，迫叫一圈')
+    expect(meaning('1H', 'X')).toBe('迫伴賭倍：12+ 大牌點，迫叫一圈')
     expect(meaning('1S', '2N')).toBe('不尋常 2NT：兩門低花，5+ 張♦，5+ 張♣，8–12 大牌點，迫叫一圈')
-    expect(meaning('1C', '2S')).toBe('弱跳爭叫：6+ 張♠，3–9 大牌點')
-    expect(meaning('1C', '1S')).toBe('爭叫：5+ 張♠，8–17 大牌點，9–19 總點')
+    expect(meaning('1C', '2S')).toBe('弱跳競叫：6+ 張♠，3–9 大牌點')
+    expect(meaning('1C', '1S')).toBe('競叫：5+ 張♠，8–17 大牌點，9–19 總點')
     expect(meaning('1N', '2D')).toBe('Cappelletti：兩門高花，4+ 張♠，4+ 張♥，10–15 大牌點')
     expect(meaning('1H X 2H', 'X')).toBe('回答性賭倍：4+ 張♦，4+ 張♣，7+ 大牌點，迫叫一圈')
   })

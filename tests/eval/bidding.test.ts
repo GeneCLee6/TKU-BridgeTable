@@ -268,10 +268,10 @@ describe('bidding: the study and the practice deals', () => {
     expect(takeout.transitions).toEqual([expect.objectContaining({ tkb: 'pass', alt: 'double', n: 2, altBetter: 1 })])
     expect(takeout.worst.map((e) => e.board)).toEqual([1])
     const report = biddingReport(study, 'test')
-    expect(report).toContain('| 技術性賭倍 | 2 | 2 |')
+    expect(report).toContain('| 迫伴賭倍 | 2 | 2 |')
     expect(report).toContain('Pass → 賭倍')
-    expect(report).toContain('技術性賭倍：TKB 損失最大的牌例')
-    expect(report).toContain('### 技術性賭倍')
+    expect(report).toContain('迫伴賭倍：TKB 損失最大的牌例')
+    expect(report).toContain('### 迫伴賭倍')
     expect(takeout.byPoints).toEqual([expect.objectContaining({ bucket: '23–24', decisions: 2, aggressive: expect.objectContaining({ n: 2 }) })])
   })
 
