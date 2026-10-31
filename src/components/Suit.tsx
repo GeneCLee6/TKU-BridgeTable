@@ -8,11 +8,12 @@ import { seatLetter } from '../strings.ts'
 
 /**
  * The only way suits, calls and contracts are drawn. `onCard` picks the card colours (fixed, on
- * white) instead of the chrome colours that follow the theme.
+ * white) instead of the chrome colours that follow the theme. Both follow the two- or four-colour
+ * deck setting (X1).
  */
 
 const Symbol = styled.span<{ $suit: Suit; $onCard?: boolean }>`
-  color: ${({ theme, $suit, $onCard }) => ($onCard ? theme.cardSuits : theme.suits)[$suit]};
+  color: ${({ theme, $suit, $onCard }) => ($onCard ? theme.cardSuits : theme.textSuits)[$suit]};
   font-family: ${({ theme }) => theme.fonts.symbols};
 `
 

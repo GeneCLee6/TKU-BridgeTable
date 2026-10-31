@@ -113,7 +113,7 @@ tests/bidding-quiz/*.json   題庫：手牌、叫牌過程、身價、正解、�
 - [x] `e5-t03` 1NT 之後：Stayman、轉換、2♠ 低花詢問、Texas、邀請；1NT 被插叫用雷本索 · AC-5.1 · #1
 - [x] `e5-t04` 高花開叫的答叫：Bergen（松濤版）、splinter、J2N、1NT 迫叫、2/1、單加叫與長門邀請 · AC-5.1 · #1
 - [x] `e5-t05` 2♦（一高弱二）的答叫：2♥ P/C、2NT 詢問與回答 · AC-5.1 · #1
-- [x] `e5-t06` 競叫：一二線競叫、1NT 競叫、迫伴賭倍、不尋常 2NT 與對抗、回答性賭倍、負性賭倍 · AC-5.1 · #1
+- [x] `e5-t06` 競叫：一二線蓋叫、1NT 蓋叫、迫伴賭倍、不尋常 2NT 與對抗、回答性賭倍、負性賭倍 · AC-5.1 · #1
 - [x] `e5-t07` 依雙方已顯示的點力找目標合約（25 點成局、33 點小滿貫）· AC-5.1 · #1
 - [x] `e5-t08` 5542 自然制後備：1♣ 2+、1♦ 4+、高花 5+，自然叫品附點力張數說明 · AC-5.2 · #10
 - [x] `e5-t09` 機器人非 Pass 叫品全部 Alert、說明所有人可見（`AuctionCall.robot`）· AC-5.1 · #10
@@ -130,7 +130,7 @@ tests/bidding-quiz/*.json   題庫：手牌、叫牌過程、身價、正解、�
 - [x] `e5-t57` 1♥／1♠ 之後（§3）：單加叫、1NT 迫叫、2/1、Jacoby 2NT、limit raise、splinter、雙向成局試探、Reverse Drury · AC-5.13 · #27
 - [x] `e5-t58` 1NT／2NT 之後（§4、§5）：Stayman、Smolen、轉換與超接受、低花 Stayman、低花轉換、短門、Texas、Gerber、定量；被插叫 · AC-5.13 · #27
 - [x] `e5-t59` 2♣、弱二與阻擊之後（§6）· AC-5.13 · #27
-- [x] `e5-t60` 敵方開叫（§7）：競叫、弱跳競叫、1NT 競叫、迫伴賭倍與回應、Michaels、不尋常 2NT、Cappelletti、Sandwich、平衡位置、回答性賭倍 · AC-5.13 · #27
+- [x] `e5-t60` 敵方開叫（§7）：蓋叫、弱跳蓋叫、1NT 蓋叫、迫伴賭倍與回應、Michaels、不尋常 2NT、Cappelletti、Sandwich、平衡位置、回答性賭倍 · AC-5.13 · #27
 - [x] `e5-t61` 我方開叫被插叫（§8）：負性、支持性賭倍、Truscott 2NT、扣叫加叫、Unusual vs Unusual、自由叫、總墩數法則（對弱二賭倍後的 Lebensohl 已在 `e5-t60`）· AC-5.13 · #27
 - [x] `e5-t62` Soloway 跳叫新花與之後（§9）· AC-5.13 · #27
 - [x] `e5-t63` 滿貫（§10）：RKCB 0314、問王牌 Q、5NT 問 K、Gerber 的回答、DOPI · AC-5.13 · #27
@@ -174,7 +174,7 @@ tests/bidding-quiz/*.json   題庫：手牌、叫牌過程、身價、正解、�
 - [x] `e5-t35` 滿貫：RKCB 1430 與回答（含王牌 Q 詢問）、扣叫、Gerber、5NT 大滿貫迫叫 · AC-5.4 · M · ← e5-t28 · `tku/slam.ts`；J2N 特約的 RKCB 是 1430（舊講義的表是 0314，以特約為準）；黑木問 A、1NT 的 4NT／5NT／6NT／7NT 照「1NT的答叫」；題庫新類別 `slam` 48 題；評測對 main 5,000 副淡江 +0.09 ± 0.03 IMP／副（整批）
 - [x] `e5-t36` J2N 之後依橋譜報牌型（補上 `ROBOT.md` 記錄的簡化）· AC-5.4 · S · ← e5-t17 · `tku/majorSlam.ts`：開叫者報牌型、加一詢問的回答、答叫者照「短門滿貫的判斷原則」RKCB 或成局；第二次詢問與 check 沒做（`ROBOT.md` §2）
 - [x] `e5-t37` Bergen 之後的詢問、splinter 之後的控制叫，接上 RKCB · AC-5.4 · S · ← e5-t35 · Bergen 14+／15+／17+ 詢問短門、缺門再問；splinter 之後扣叫控制（橋譜沒寫，照一般用法）
-- [x] `e5-t38` 對抗敵方 1NT 的競叫制度（DONT 或 Cappelletti，依社團）· AC-5.4 · S · ← e5-t30 · 社團用 CAPP（「開叫1NT/2NT」敵方開叫1NT後的防禦叫）
+- [x] `e5-t38` 對抗敵方 1NT 的蓋叫制度（DONT 或 Cappelletti，依社團）· AC-5.4 · S · ← e5-t30 · 社團用 CAPP（「開叫1NT/2NT」敵方開叫1NT後的防禦叫）
 
 **M1 · 牌值判斷**
 
