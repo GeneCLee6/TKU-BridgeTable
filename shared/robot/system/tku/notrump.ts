@@ -2,6 +2,7 @@ import { isBid, levelOf, strainOf } from '../../../auction.ts'
 import type { Suit } from '../../../cards.ts'
 import type { Ctx } from '../context.ts'
 import type { Hand } from '../evaluate.ts'
+import { jumpsTo3NT } from '../nt-invite.ts'
 import type { Book, Rule } from '../spec.ts'
 import { answer, answerIs, bid, contested, fiveCard, iOpened, isMajor, length, onlyIf, ORDER, other, ours, overcallOf, overcallSuit, partnerOpened, pass, plus, reads, rule, stopper } from './util.ts'
 
@@ -18,9 +19,11 @@ const fourMajor = (h: Hand) => h.len.H === 4 || h.len.S === 4
 
 /**
  * Stayman always holds a four-card major (社長 2026-10-31: 「stayman 的那個人也一定要有 4 張高花」);
- * both rules below check it. The handbook's weak Stayman with 4-4 majors (short clubs) is not used
+ * both rules below check it. The handbook's weak Stayman with 4-4 majors (short clubs) is not used.
+ * From 8 HCP, not the handbook's 9 (T1, 社長 2026-11-01: an invitation with a four-card major goes
+ * through Stayman, so 2NT never holds one)
  */
-const stayman = { name: 'stayman', hcp: plus(9), artificial: true, forcing: 'oneRound', notes: [{ key: 'fourMajor' }, { key: 'asksMajor' }] } as const
+const stayman = { name: 'stayman', hcp: plus(8), artificial: true, forcing: 'oneRound', notes: [{ key: 'fourMajor' }, { key: 'asksMajor' }] } as const
 
 const responses: Book = {
   after: '1N (P)',
@@ -28,10 +31,10 @@ const responses: Book = {
     rule('4D', { name: 'texas', len: length('H', 6), hcp: [10, 15], notes: [{ key: 'transferTo', strain: 'H' }] }, (h) => longMajor(h) === 'H' && h.len.H >= 6 && h.hcp >= 10 && h.hcp <= 15),
     rule('4H', { name: 'texas', len: length('S', 6), hcp: [10, 15], notes: [{ key: 'transferTo', strain: 'S' }] }, (h) => longMajor(h) === 'S' && h.len.S >= 6 && h.hcp >= 10 && h.hcp <= 15),
     // Five of one major and four of the other: Stayman with invitational values
-    rule('2C', stayman, (h) => !!longMajor(h) && h.len[other(longMajor(h)!)] === 4 && h.hcp >= 9),
+    rule('2C', stayman, (h) => !!longMajor(h) && h.len[other(longMajor(h)!)] === 4 && h.hcp >= 8),
     rule('2D', { name: 'transfer', len: length('H', 5), artificial: true, notes: [{ key: 'transferTo', strain: 'H' }] }, (h) => longMajor(h) === 'H'),
     rule('2H', { name: 'transfer', len: length('S', 5), artificial: true, notes: [{ key: 'transferTo', strain: 'S' }] }, (h) => longMajor(h) === 'S'),
-    rule('2C', stayman, (h) => fourMajor(h) && h.hcp >= 9),
+    rule('2C', stayman, (h) => fourMajor(h) && h.hcp >= 8),
     rule('2S', { name: 'minorAsk', hcp: [0, 7], artificial: true }, (h) => h.hcp < 8 && (h.len.C >= 6 || h.len.D >= 6)),
     // Slams by points (「1NT的答叫」): 4NT 15–16 and 5NT 19–20 invite, 6NT 17–18, 7NT 21+
     rule('7N', { hcp: plus(21), notes: [{ key: 'grandSlam' }] }, (h) => h.hcp >= 21),
@@ -40,7 +43,9 @@ const responses: Book = {
     rule('4N', { name: 'quantitative', hcp: [15, 16], notes: [{ key: 'noMajor' }] }, (h) => h.hcp >= 15 && !fourMajor(h)),
     reads('4C', { name: 'gerber', artificial: true, forcing: 'oneRound', notes: [{ key: 'slamInterest' }] }),
     rule('3N', { hcp: [10, 15], notes: [{ key: 'noMajor' }, { key: 'toPlay' }] }, (h) => h.hcp >= 10),
-    rule('2N', { hcp: [8, 9], notes: [{ key: 'noMajor' }, { key: 'invite' }] }, (h) => h.hcp >= 8),
+    // T1: inviting with a long, good minor jumps to game (`jumpsTo3NT`); otherwise 2NT invites
+    rule('3N', { hcp: [8, 9], notes: [{ key: 'noMajor' }, { key: 'toPlay' }] }, jumpsTo3NT),
+    rule('2N', { len: { H: [0, 3], S: [0, 3] }, hcp: [8, 9], notes: [{ key: 'noMajor' }, { key: 'invite' }] }, (h) => h.hcp >= 8),
     // Three of a suit is not in the handbook: read as five cards and game values
     ...ORDER.map((s) => reads(bid(3, s), { len: length(s, 5), hcp: plus(12) })),
     pass({ hcp: [0, 7] }),
@@ -129,11 +134,12 @@ const afterStayman: Book = {
   rules: [
     ...(['H', 'S'] as const).flatMap((s): Rule[] => [
       rule(bid(4, s), { len: length(s, 4), hcp: plus(10), notes: [{ key: 'game' }] }, (h, ctx) => staymanAnswer(ctx) === s && h.len[s] >= 4 && h.hcp >= 10),
-      rule(bid(3, s), { len: length(s, 4), hcp: [9, 9], notes: [{ key: 'invite' }] }, (h, ctx) => staymanAnswer(ctx) === s && h.len[s] >= 4),
+      rule(bid(3, s), { len: length(s, 4), hcp: [8, 9], notes: [{ key: 'invite' }] }, (h, ctx) => staymanAnswer(ctx) === s && h.len[s] >= 4),
     ]),
-    rule('2N', { len: length('S', 4, 4), hcp: [9, 9], notes: [{ key: 'invite' }] }, (h, ctx) => staymanAnswer(ctx) === 'H' && h.len.S >= 4 && h.hcp < 10),
+    // After 2♥ the Stayman bidder without four hearts holds four spades
+    rule('2N', { len: length('S', 4, 4), hcp: [8, 9], notes: [{ key: 'invite' }] }, (h, ctx) => staymanAnswer(ctx) === 'H' && h.len.S >= 4 && h.hcp < 10),
     rule('3N', { hcp: plus(10), notes: [{ key: 'toPlay' }] }, (h) => h.hcp >= 10),
-    rule('2N', { hcp: [9, 9], notes: [{ key: 'invite' }] }),
+    rule('2N', { hcp: [8, 9], notes: [{ key: 'invite' }] }, (_h, ctx) => staymanAnswer(ctx) !== 'H'),
   ],
 }
 
