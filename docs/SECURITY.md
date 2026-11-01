@@ -68,7 +68,7 @@ npx tsx -e "import {headersFile} from './worker/security-headers.ts'; process.st
 | 3.2.1／3.2.2 登入後換新 token、128 bit 以上隨機 | ✅ | 每次登入新的 256 bit token（`randomId(32)`，`crypto.getRandomValues`） |
 | 3.3.1 登出讓 session 失效 | ✅ | `POST /api/logout` 刪掉 `session:<token>` 並清 cookie |
 | 3.3.3 改密碼後可以登出其他 session | ✅ | 「登入中的裝置」卡（`GET /api/account/sessions`、`DELETE /api/account/sessions/:id`、`POST /api/account/sessions/others`）；改密碼時也自動登出其他裝置。`e11-t28` 起連邊緣通行證與牌桌的連線也一起失效 |
-| 3.4.1～3.4.3 cookie 屬性 | ✅ | `tbt_session`、`tbt_pass` 都是 HttpOnly、SameSite=Lax、Path=/，HTTPS 時加 Secure |
+| 3.4.1～3.4.3 cookie 屬性 | ✅ | `tbt_session`、`tbt_pass`、`tbt_device`（瀏覽器 id，不是登入憑證，防作弊報表用，ARCHITECTURE.md §5.17）都是 HttpOnly、SameSite=Lax、Path=/，HTTPS 時加 Secure |
 | 3.4.4 `__Host-` 前綴 | 📋 | 沒用。改名會讓全部人（含淡江橋館經 Vercel 轉發的登入）重新登入一次，`e11-t28` 沒一起做，留給社長決定時間（§4） |
 | 3.7.1 重要操作再驗證 | ✅ | 改密碼要目前的密碼；刪除帳號要密碼＋確認 |
 | 邊緣通行證的撤銷窗口 | 🔧 | `e11-t28`：通行證帶 session id（`pass2` 格式）；session 結束時社團把 id 寫進 D1 的 `pass_revocations`，Worker 每次靠通行證回答前先查，**登出後下一個請求就不認**；同時關掉那個人在牌桌的連線（`TableApi.signOut`）。沒有 D1（PR 預覽）或查詢失敗時 Worker 不認通行證、改問社團（ARCHITECTURE.md §5.12） |
@@ -146,7 +146,7 @@ npx tsx -e "import {headersFile} from './worker/security-headers.ts'; process.st
 
 ## 5. 個人資料：匯出與刪除（`e11-t27`）
 
-- **匯出**：「我的帳號」→「下載我的資料」，`GET /api/account/export` 回一個 JSON 檔（`format: 'tku-bridge-table-account'`、`version`）：帳號與設定（不含密碼雜湊）、登入中的裝置、好友與封鎖、通知、私訊、練習設定、收藏與筆記、打過的每副牌的摘要（完整紀錄在 `/history/<id>`）。不含別人的 session 或任何 token。
-- **刪除**：「我的帳號」→「刪除帳號」，要密碼與確認；`POST /api/account/delete` 走與管理員刪帳號相同的 `removeMember`：帳號、頭像、session、好友與封鎖、通知、私訊、收藏、練習設定、閱讀與學習進度立即刪除，所有連線關閉。社團唯一的管理員不能刪（`lastAdminLeaving`）。
+- **匯出**：「我的帳號」→「下載我的資料」，`GET /api/account/export` 回一個 JSON 檔（`format: 'tku-bridge-table-account'`、`version`）：帳號與設定（不含密碼雜湊）、登入中的裝置、登入與連線紀錄（`signIns`：網路的雜湊、瀏覽器 id 與名稱、時間，防作弊報表用，ARCHITECTURE.md §5.17）、好友與封鎖、通知、私訊、練習設定、收藏與筆記、打過的每副牌的摘要（完整紀錄在 `/history/<id>`）。不含別人的 session 或任何 token。
+- **刪除**：「我的帳號」→「刪除帳號」，要密碼與確認；`POST /api/account/delete` 走與管理員刪帳號相同的 `removeMember`：帳號、頭像、session、登入與連線紀錄（`seen:`）、好友與封鎖、通知、私訊、收藏、練習設定、閱讀與學習進度立即刪除，所有連線關閉。社團唯一的管理員不能刪（`lastAdminLeaving`）。
 - **保留的**：打過的牌局紀錄是同桌其他人的紀錄，保留帳號名稱；論壇與淡江橋館的文章與留言保留（隱私權政策請社員先自己刪）；備份裡的帳號在 30 天內隨備份到期消失。
 - **政策頁**：`/privacy`、`/terms`（不用登入，`src/pages/LegalPage.tsx`，文字在 `strings.ts` 的 `legal`，六種語言）。登入頁與「我的帳號」底下有連結；註冊時寫「註冊即表示同意」。內容改了要改 `LEGAL_UPDATED`。

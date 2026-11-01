@@ -84,7 +84,7 @@ M0 跑在 Cloudflare 免費方案：一個 Worker 加一個 SQLite 後端的 Dur
 
 - [x] `e11-t23` CSP 與安全標頭、session 列表與「登出其他裝置」· AC-11.7 · S（`docs/SECURITY.md` §2；通行證的 10 分鐘窗口留給 `e11-t28`）
 - [x] `e11-t24` 安全審查（對照 OWASP ASVS Level 1），修正清單逐項開 task · AC-11.7 · M · ← e11-t23（`docs/SECURITY.md` §3；當場修：密碼上限、改密碼登出其他裝置、WebSocket 的 Origin 檢查）
-- [ ] `e11-t25` 防作弊報表：同 IP／同裝置多帳號同場、挑戰與隊制賽中的異常模式，管理頁可查 · AC-11.8 · M · ← e7-t13, e8-t11
+- [x] `e11-t25` 防作弊報表：同 IP／同裝置多帳號同場、挑戰與隊制賽中的異常模式，管理頁可查（只做社團內部；ARCHITECTURE.md §5.17）· AC-11.8 · H6b
 - [x] `e11-t26` 功能旗標（全站／社團／使用者），新功能先對幹部開放 · AC-11.9 · S（`shared/features.ts`、管理頁「功能旗標」；第一個旗標是好友）
 - [x] `e11-t27` 隱私權政策與使用條款頁；社員匯出自己的資料、刪除帳號時的資料處理流程（台灣個資法）· AC-11.10, AC-11.6 · M（`/privacy`、`/terms`、「我的帳號」的下載與刪除，`docs/SECURITY.md` §5）
 

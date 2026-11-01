@@ -52,6 +52,7 @@ TKU-BridgeTable/
 │  ├─ favorites.ts         收藏的筆記與標籤規則（§5.3）
 │  ├─ lin.ts               BBO LIN 匯出與 Handviewer 連結
 │  ├─ messages.ts          錯誤代碼與六種語言的訊息
+│  ├─ integrity.ts         防作弊報表：型別、門檻、從登入紀錄配對帳號、線索強度（§5.17）
 │  ├─ protocol.ts          HTTP／WebSocket 的訊息與畫面型別
 │  ├─ clubs.ts             社團 id 與物件名稱、請求的社團（X-Club-Id／?club=，沒帶是淡江，§1）
 │  ├─ message-guard.ts     WebSocket 訊息的大小上限與型別守衛（§5.6）
@@ -74,6 +75,7 @@ TKU-BridgeTable/
 │  ├─ event-service.ts     ChallengeEvent：一場挑戰的規則、期限工作與結算（不碰 Cloudflare）；LocalEvents＝挑戰在社團的物件裡
 │  ├─ event-host.ts        EventHost：一個 EventObject 做的事（RPC 包裝、變更編號、回報與重送、搬移），可在 Node 測試
 │  ├─ event-object.ts      每場挑戰一個的 Durable Object：儲存、SQLite、alarm、社團的 stub（只是接線，EVENT_OBJECTS=on 才用）
+│  ├─ integrity.ts         防作弊報表的資料：登入紀錄（`seen:`，IP 只存加鹽雜湊）、從紀錄索引查同桌與同場比賽（§5.17）
 │  ├─ service.ts           ClubService：帳號、申請、session、牌桌目錄、權限、牌局紀錄（可單獨測試）
 │  ├─ table-service.ts     TableService：一張牌桌的一切（座位、叫牌出牌、機器人、發牌、代打、聊天、畫面），LocalTables（§5.10）
 │  ├─ tables.ts            社團與牌桌之間的介面：TableEntry（牌桌目錄）、TableApi、ClubLink、RPC 的 Wire 與 RemoteTables（§5.10）
@@ -260,6 +262,7 @@ interface BoardState {
 | `file:meta:<key>`、`file:ticket:<pass>`、`file:day:<userId>`、`file:secret` | 討論區與文章的圖片（淡江橋譜 `e11-t02`，§5.14）：圖片在 R2 `bridgebook-files`，這裡只存上傳者、型別、大小、有沒有縮圖；一次性上傳憑證（10 分鐘）；當天（台灣日期）拿過幾張憑證；簽網址的隨機金鑰。`file:meta:` 與 `file:secret` 在每日備份裡 |
 | `app:<id>` | 待審核的註冊申請：帳號名稱、密碼雜湊、自我介紹、從哪個網站申請 |
 | `session:<token>` | userId、到期時間、`id`（列表用，不是 token）、建立與最近使用時間、裝置名稱（`worker/sessions.ts`） |
+| `seen:<userId>`、`meta:seenSalt` | 防作弊報表（§5.17，`worker/integrity.ts`）：登入與連線時的網路雜湊（加鹽的 SHA-256，不存 IP）、瀏覽器 id（cookie `tbt_device`）與名稱、第一次與最近一次；每人最多 16 筆、90 天；帳號刪除時一起刪，不在備份裡 |
 | `tabledir:<id>` | 牌桌目錄（`TableEntry`，§5.10）：大廳與跨桌動作只讀它；牌桌在自己的 `TableObject` 時才有 |
 | `table:<id>` | 只在牌桌留在社團的物件時（H1a、測試、`TABLE_OBJECTS=off`）：座位、觀看者、目前這副、聊天、撤回請求；它顯示的社員名字（`names`）、各人的封鎖名單（`blocks`，聊天用）、還沒交給社團的牌局紀錄（`outbox`）；挑戰桌的 `modeState` 帶挑戰的快照（§5.10）。由 `TableService` 讀寫。每桌一個物件時同樣的內容在那個物件的 `table`（另有 `closed`：這一桌關了；`frozen`：已交回社團，等 `release`） |
 | `board:<id>` | 一副牌的完整紀錄（原始四手牌、叫牌、出牌、結果） |
@@ -652,6 +655,24 @@ H1 把牌桌拆出去之後（§5.10），社團的物件（`Club`）仍然是**
   - **隊制賽**：某一室的指定分數取代那一室的南北分數；某一室的 Avg 類給那一室那一方的隊（開室 NS＝A、閉室 NS＝B），照房主裁定的同一張表（IMP ±3、BAM 0.6／0.4），另一室的結果不比；兩室都有 Avg 類時 IMP 相加、BAM 取平均。**房主用 `matchRule` 裁過的副以房主的裁定為準**，那一副兩室紀錄上的裁定只顯示在紀錄頁、不計分，所以不會重複計。
   - 介面：挑戰結果頁與牌局頁成績表的南北分數下標「裁定 Avg+ NS」（`RulingTag`），排名列標「裁定：第 n 副」；隊制賽結果頁那一副標「裁定」，那一室的分數下標裁定。
   - `e2-t36` 上線前下的裁定不在 `board_rulings` 裡，要重新送一次才會計分。
+
+## 5.17 防作弊報表（`e11-t25`，2026-11-01）
+
+AC-11.8 的後半：「同 IP／同裝置多帳號同場等可疑行為有管理員報表」。只做社團內部（不跨社團、不跨站）。
+
+- **蒐集什麼**（`worker/integrity.ts` 的 `Sightings`）：社員**登入**（`/api/login`、第一個帳號的 `/api/register`）與**每次連上社團的 WebSocket**（`/ws`）時，`Club` 呼叫 `ClubService.noteSighting`，記在 `seen:<userId>`：
+  - **網路**：`CF-Connecting-IP` 加社團自己的隨機鹽（`meta:seenSalt`，第一次用時產生）做 SHA-256，取前 16 個十六進位字。**IP 位址本身不寫進儲存**；同一個位址在同一個社團永遠是同一個雜湊，所以比得出來。（鹽和雜湊在同一個儲存裡，拿到整個儲存的人可以窮舉 IPv4 還原，這是已知的取捨，見下面「待決定」。）
+  - **瀏覽器**：cookie `tbt_device`（`worker/auth.ts` 的 `deviceCookie`：HttpOnly、SameSite=Lax、1 年、隨機 12 bytes），登入時沒有就發一個；已經登入的瀏覽器在下一次 `/api/me` 拿到。它**不是登入憑證**，誰用這個瀏覽器登入都一樣；兩個帳號出現同一個 id＝同一個瀏覽器。格式不對的值（不是我們發的）不記。
+  - 加上 `deviceLabel` 的瀏覽器與系統名稱（跟「登入中的裝置」一樣），給報表顯示。
+  - 每人最多 16 筆（`INTEGRITY_LIMITS.perMember`），90 天以上的丟掉；同一個網路＋瀏覽器一小時內只寫一次（`SIGHTING_STEP_MS`），所以重連只多一次讀取。記錄失敗不影響登入或連線。
+- **報表**（`GET /api/admin/integrity?days=7|30|90`，預設 30；`ClubService.adminIntegrityReport` 先 `requireAdmin`，`Club` 的路由也只給管理員）：
+  1. `findLinks`（`shared/integrity.ts`，純函式）：期間內，兩個現存帳號用過**同一個瀏覽器**，或用過**同一個小網路**（用過的社員 ≤ 4 人，`INTEGRITY_LIMITS.sharedNetwork`）就成一組。超過 4 人的網路（社辦、校園、行動網路的 NAT）**不配對**，只列在「共用網路」並顯示人數與雜湊的前 6 碼。
+  2. 依「同瀏覽器 → 網路數 → 最近」排序，最多看 40 組（`INTEGRITY_LIMITS.pairs`，其餘只報數量 `more`）。每組在 `Club` 的 SQLite 紀錄索引（`board_players`、`boards_index`，§5.3）查兩次（都走 `players_by_user`）：期間內**同桌**的副數（搭檔、對手）與最近 5 副的 id；**同一場挑戰或隊制賽**（`mode IN ('challenge','team')`、同一個 `event_id`），以及誰的牌全部在對方打完之後才打（`after`：挑戰的場外資訊風險；隊制賽兩室同時打就是 `null`）。
+  3. 線索強度（`integrityLevel`）：**強**＝同瀏覽器且一起打過；**中**＝同瀏覽器，或小網路且一起打過；**弱**＝只有小網路。
+- **成本**：一份報表＝列出 `seen:`（每位社員一筆）＋最多 80 次有索引的小查詢，在 `Club` 裡跑；只有管理員按「產生報表」才跑，管理頁打開時不跑。不用 D1 副本，所以 `REPLICA_VERSION` 不變；`summarize`、`BoardSummary` 沒改。
+- **可見性**：報表只有帳號名稱、瀏覽器名稱、網路雜湊的前 6 碼、次數與牌局／比賽的連結，**沒有任何一手牌**；點紀錄連結照舊走 `recordVisible`（還沒公開的挑戰牌，管理員一樣看不到）。`worker/views.ts` 不變。報表不通知任何人、不自動處理。
+- **個資**：`seen:` 在「下載我的資料」裡（`signIns`），帳號刪除時一起刪（`dropMember`），不在每日備份裡。隱私權政策（`legal.privacy`）寫了蒐集什麼、保留多久與這個 cookie。
+- **待決定**（社長／管理員）：門檻（4 人以上算共用網路、40 組、90 天）、是否要讓幹部（不是管理員）也看得到、要不要在出現「強」的線索時主動通知管理員、雜湊要不要改用 Worker 的 secret 當鹽（拿到儲存也無法窮舉）。現在的預設都是最保守的：只有管理員、只在按下時產生、不通知。
 
 ## 5.8 隊制賽（決策紀錄，`e8-t01`，2026-10-25）
 

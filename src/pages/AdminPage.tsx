@@ -13,6 +13,7 @@ import {
 import type { BookSyncRow } from '../../shared/robot/system/tku/sources.ts'
 import { PasswordInput } from '../components/PasswordInput.tsx'
 import { FeatureFlags } from '../components/FeatureFlags.tsx'
+import { IntegrityReport } from '../components/IntegrityReport.tsx'
 import { SystemStatus } from '../components/SystemStatus.tsx'
 import { useToast } from '../components/Toast.tsx'
 import {
@@ -42,8 +43,8 @@ import { mobile } from '../styles/tokens.ts'
  * The club admin page (DESIGN.md §7.8, docs/design/03-admin.png): registrations waiting for
  * approval, settings (account limit, invite code), members (TKU BridgeBook permissions, reset
  * password, admin role, delete), adding a member directly, closing stuck tables, and the 淡江橋館
- * articles edited online since the robot's rules were checked against them (e5-t45), and the feature
- * flags (e11-t26). A section nav
+ * articles edited online since the robot's rules were checked against them (e5-t45), the feature
+ * flags (e11-t26) and the anti-cheating report (e11-t25). A section nav
  * on the left (a dropdown on a phone), one card per section. Everything opens read-only; the
  * settings and the members' roles and permissions change only after 「編輯」, and 「儲存」 sends the
  * section's changes in one request (DESIGN.md §7.9). Saving shows a toast, and an error the
@@ -51,8 +52,8 @@ import { mobile } from '../styles/tokens.ts'
  * with TKU BridgeBook, which has the same approvals and permissions on its own admin page.
  */
 
-type SectionId = 'applications' | 'settings' | 'members' | 'add' | 'tables' | 'bookSync' | 'features' | 'status'
-const SECTIONS: SectionId[] = ['applications', 'settings', 'members', 'add', 'tables', 'bookSync', 'features', 'status']
+type SectionId = 'applications' | 'settings' | 'members' | 'add' | 'tables' | 'bookSync' | 'features' | 'integrity' | 'status'
+const SECTIONS: SectionId[] = ['applications', 'settings', 'members', 'add', 'tables', 'bookSync', 'features', 'integrity', 'status']
 const anchor = (section: SectionId) => `admin-${section}`
 
 /** Fields a server error can belong to */
@@ -314,6 +315,7 @@ export function AdminPage() {
     tables: t.tablesTitle,
     bookSync: t.bookSyncTitle,
     features: t.featureFlags.title,
+    integrity: t.integrity.title,
     status: t.statusTitle,
   }
   const outOfStep = sync?.filter((row) => !row.synced) ?? []
@@ -325,6 +327,7 @@ export function AdminPage() {
     tables: tables.length,
     bookSync: outOfStep.length || null,
     features: null,
+    integrity: null,
     status: null,
   }
   const words = { today: t.timeToday, yesterday: t.timeYesterday }
@@ -924,6 +927,14 @@ export function AdminPage() {
               <Muted>{t.featureFlags.intro}</Muted>
             </CardHeader>
             <FeatureFlags />
+          </Section>
+
+          <Section id={anchor('integrity')} aria-labelledby={`${id}-h-integrity`}>
+            <CardHeader>
+              <CardTitle id={`${id}-h-integrity`}>{t.integrity.title}</CardTitle>
+              <Muted>{t.integrity.intro}</Muted>
+            </CardHeader>
+            <IntegrityReport />
           </Section>
 
           <Section id={anchor('status')} aria-labelledby={`${id}-h-status`}>
