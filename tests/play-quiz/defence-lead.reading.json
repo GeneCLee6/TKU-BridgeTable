@@ -1,0 +1,18 @@
+{
+  "category": "defence-lead",
+  "title": "防家領出：從莊家的點數放大牌、讀同伴的花色偏好信號（T4）",
+  "questions": [
+    {"id": "play-defence-lead-007", "system": "both", "board": 3,
+     "hands": {"N": "765.QJ4.73.KQJT9", "E": "AKJT.7632.J652.8", "S": "432.AK5.AKQ4.732", "W": "Q98.T98.T98.A654"},
+     "auction": ["1N", "P", "3N", "P", "P", "P"],
+     "play": ["HT", "H4", "H7", "HA", "DA", "D8", "D3", "D2", "DK", "D9", "D7", "D5", "DQ", "DT", "S5", "D6", "HK", "H8", "HJ", "H3", "C2", "CA", "C9", "C8"],
+     "answer": "S8", "accepted": ["S9"], "source": "教科書：從莊家的點數推出同伴的大牌（T4）", "reviewer": null, "status": "pending",
+     "note": "莊家開 1NT（15–17），已經出了 ♥AK、♦AKQ 共 16 點，最多再 1 點：♠A、♠K 一定在同伴手上。從 Q98 攻出不會送墩，♠ 是倒約的四墩；♥ 夢家還有 Q、同伴的 ♥7 也不歡迎"},
+    {"id": "play-defence-lead-008", "system": "both", "board": 3,
+     "hands": {"N": "652.74.AKQJ2.643", "E": "743.8632.9873.AK", "S": "AKQJ9.KQ5.54.QJ7", "W": "T8.AJT9.T6.T9852"},
+     "auction": ["1S", "P", "2D", "P", "3S", "P", "4S", "P", "P", "P"],
+     "play": ["S8", "S2", "S3", "S9", "SA", "ST", "S5", "S4", "SK", "C2", "S6", "S7", "D4", "D6", "DA", "D3", "DK", "D7", "D5", "DT", "DQ", "D8", "C7", "C5", "DJ", "D9", "H5", "C8", "H7", "H2", "HK", "HA"],
+     "answer": "CT", "accepted": ["C9"], "source": "教科書：夢家的長門連跑時打花色偏好（T4）", "reviewer": null, "status": "pending",
+     "note": "夢家 ♦AKQJ2 連跑，張數對莊家沒有用，防家改打花色偏好：同伴第一張 ♦ 跟最小的 3，要另外兩門（♥、♣）中較低的 ♣。拿到 ♥A 之後轉攻 ♣，不是 ♥J 的連張（莊家還有 ♥Q）。這個慣例要社長確認"}
+  ]
+}

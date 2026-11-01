@@ -1,0 +1,12 @@
+{
+  "category": "discard",
+  "title": "墊牌：數莊家的牌型，留住該留的（T4）",
+  "questions": [
+    {"id": "play-discard-004", "system": "both", "board": 3,
+     "hands": {"N": "732.54.AKQJ98.83", "E": "T86.J72.T32.AQJ4", "S": "A54.AKQ3.64.K752", "W": "KQJ9.T986.75.T96"},
+     "auction": ["1N", "P", "2C", "P", "2H", "P", "3N", "P", "P", "P"],
+     "play": ["SK", "S2", "S6", "SA", "D6", "D5", "DA", "D2", "H4", "H2", "HA", "H6", "HK", "H8", "H5", "H7", "D4", "D7", "DK", "D3", "DQ", "DT", "C2"],
+     "answer": "C6", "accepted": ["C9", "CT"], "source": "教科書：數到 13 張再墊牌（T4）", "reviewer": null, "status": "pending",
+     "note": "莊家答 2♥ 表示 4 張 ♥，同伴的 ♥2、♥7（先小後大＝奇數張）也對得上：莊家還有兩張 ♥，自己的 ♥T9 守住第四輪，不能墊。♠QJ 已經是大牌，墊 ♣"}
+  ]
+}
