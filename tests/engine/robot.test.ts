@@ -128,6 +128,23 @@ describe('openings (淡江制度)', () => {
     expect(bidOver(hand('4 KJ97432 - AQ852'), '')).toBe('3H')
   })
 
+  it('invites in a minor with 2♠ and four of the minor (S1, 「1NT的答叫」)', () => {
+    // 8–9, seven clubs with one top honour, a singleton: 2♠, then 4♣ whatever opener answers
+    expect(bidOver(hand('K2 Q43 5 QJ87432'), '1N P')).toBe('2S')
+    expect(bidOver(hand('K2 Q43 5 QJ87432'), '1N P 2S P 2N P')).toBe('4C')
+    expect(bidOver(hand('K32 Q J987432 K2'), '1N P 2S P 3C P')).toBe('4D')
+    // Weak: 3♣ to play, as before; no singleton: 2NT; a good minor: 3NT (T1)
+    expect(bidOver(hand('K32 5 Q2 J987432'), '1N P 2S P 2N P')).toBe('3C')
+    expect(bidOver(hand('K32 J4 Q98742 K2'), '1N P')).toBe('2N')
+    expect(bidOver(hand('32 32 KQJ432 Q32'), '1N P')).toBe('3N')
+    // Opener: five of the minor with 16–17, otherwise pass
+    expect(bidOver(hand('AQ5 K84 Q73 AJ52'), '1N P 2S P 3C P 4C P')).toBe('5C')
+    expect(bidOver(hand('AQ5 K84 J73 AJ52'), '1N P 2S P 3C P 4C P')).toBe('P')
+    const before = '1N P 2S P 2N P'.split(' ').map((call, i) => ({ seat: nextSeat('N', i), call }))
+    expect(explain(TKU, before, 'N', 'None').get('4C')).toMatchObject({ hcp: [8, 9], len: { C: [6, 13] }, notes: [{ key: 'invite' }] })
+    expect(explain(TKU, before, 'N', 'None').get('3C')).toMatchObject({ hcp: [0, 7], len: { C: [6, 13] } })
+  })
+
   it('answers the two-suiters (技光的答叫)', () => {
     expect(bidOver(hand('8642 Q93 K852 73'), '2H P')).toBe('P')
     expect(bidOver(hand('K843 5 QJ84 T972'), '2H P')).toBe('2S')
