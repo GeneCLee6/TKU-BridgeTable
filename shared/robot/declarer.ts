@@ -1,6 +1,7 @@
 import { nextSeat, partnerOf, sameSide, SUITS, suitOf, type Card, type Seat, type Suit } from '../cards.ts'
 import type { PlayedCard } from '../game.ts'
 import { suitCards } from './hand.ts'
+import { createVoid, crossToRuff, ruffOut, throwIn } from './declarer-technique.ts'
 import { byRank, honours, value, type View } from './view.ts'
 
 /**
@@ -12,7 +13,9 @@ import { byRank, honours, value, type View } from './view.ts'
  * first; when they are not, take a finesse the auction favours, then set up the longest suit
  * before cashing; in notrump hold up a single stopper in the suit the defence attacks, as long
  * as the card reading says the shorter defender still has one (T3); second hand takes the trick
- * with a master when partner cannot (Y4).
+ * with a master when partner cannot (Y4). In a suit contract the techniques of S3
+ * (`declarer-technique.ts`): make the short hand void and ruff before drawing trumps, set up a
+ * long suit by ruffing, strip the hands and throw a defender in.
  * Only the cards the declaring side sees and the reading of the other two hands are used.
  */
 
@@ -41,11 +44,19 @@ export function declarerLead(
     if (!enough) {
       const ruff = ruffInShortHand(view, hand, partner, trump, ruffed)
       if (ruff) return ruff
+      // Make the short hand void, or cross to the long hand for the ruff, before drawing trumps (S3)
+      const ruffing = createVoid(view, hand, partner, trump, ruffed) ?? crossToRuff(view, hand, partner, trump, ruffed)
+      if (ruffing) return ruffing
     }
     const draw = drawTrumps(view, hand, partner, trump) ?? crossToDraw(view, hand, partner, trump, ruffed)
     if (draw) return draw
   }
 
+  if (trump && !enough) {
+    // Set up a long suit by ruffing; strip the hands and throw a defender in (S3)
+    const technique = ruffOut(view, hand, partner, trump, ruffed) ?? throwIn(view, hand, partner, trump, ruffed)
+    if (technique) return technique
+  }
   const cashing = cash(view, hand, partner, sides, ruffed)
   if (enough && cashing) return cashing
   const finessing = finesse([...(trumpsOut ? [trump!] : []), ...sides.filter((s) => !ruffed(s))])

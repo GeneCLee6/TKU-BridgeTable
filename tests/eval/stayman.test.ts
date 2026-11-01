@@ -7,6 +7,7 @@ import { ROBOT_SYSTEMS } from '../../shared/robot/robots.ts'
 import { choose } from '../../shared/robot/system/engine.ts'
 import { evaluate } from '../../shared/robot/system/evaluate.ts'
 import { jumpsTo3NT } from '../../shared/robot/system/nt-invite.ts'
+import { invitesInMinor } from '../../shared/robot/system/tku/notrump.ts'
 import { bidOut } from '../../eval/consistency.ts'
 import { evalBoards } from '../../eval/deals.ts'
 import { HEAVY_MS } from '../engine/heavy.ts'
@@ -64,7 +65,8 @@ describe('Stayman (Z2)', () => {
     }, HEAVY_MS)
 
   // T1: over 1NT an invitation (8–9) with a four-card major goes through Stayman, one without bids
-  // 2NT or, with a long good minor, 3NT; and a 2NT response never holds a four-card major
+  // 2NT or, with a long good minor, 3NT; and a 2NT response never holds a four-card major. 淡江
+  // invites with a long minor not good enough for 3NT through 2♠ and four of the minor (S1)
   for (const system of SYSTEMS)
     it(`${system}: invites over 1NT with Stayman or a natural 2NT`, () => {
       let invited = 0
@@ -75,7 +77,7 @@ describe('Stayman (Z2)', () => {
         if (call === '2N') expect(fourMajor(cards) || h.len.H >= 5 || h.len.S >= 5, where).toBe(false)
         if (h.hcp < 8 || h.hcp > 9 || h.len.H >= 5 || h.len.S >= 5) continue
         invited++
-        expect(call, where).toBe(fourMajor(cards) ? '2C' : jumpsTo3NT(h) ? '3N' : '2N')
+        expect(call, where).toBe(fourMajor(cards) ? '2C' : jumpsTo3NT(h) ? '3N' : system === 'tku' && invitesInMinor(h) ? '2S' : '2N')
       }
       expect(invited).toBeGreaterThan(30)
     }, HEAVY_MS)
