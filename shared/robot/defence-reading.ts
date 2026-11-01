@@ -134,17 +134,10 @@ const hcpOf = (card: Card) => HCP[rankOf(card)] ?? 0
  */
 export function placeHonour(view: View, card: Card): Seat | null {
   const declarer = view.state.contract!.declarer
-  const partner = partnerOf(view.seat)
-  const [lo, hi] = view.reading.hcp(declarer)
-  if (hcpOf(card) > hi) return partner
-  const unseen = unseenHonours(view)
-  if (!unseen.includes(card)) return null
-  const others = unseen.filter((c) => c !== card).reduce((n, c) => n + hcpOf(c), 0)
-  if (hcpOf(card) > 0 && others < lo) return declarer
-  const [plo, phi] = view.reading.hcp(partner)
-  if (hcpOf(card) > phi) return declarer
-  if (hcpOf(card) > 0 && others < plo) return partner
-  return view.reading.holder(card)
+  if (hcpOf(card) > view.reading.hcp(declarer)[1]) return partnerOf(view.seat)
+  if (!view.cardReading.unseen.length || !unseenHonours(view).includes(card)) return null
+  // The points decide it (shared with the declarer's card reading, card-reading.ts, T3)
+  return view.cardReading.placedByPoints(card) ?? view.reading.holder(card)
 }
 
 /** The honours (A K Q J) neither played nor in view: the declarer's or partner's */
