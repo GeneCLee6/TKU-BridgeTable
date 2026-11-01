@@ -15,6 +15,23 @@ import { answer, answerIs, bid, contested, fiveCard, iOpened, isMajor, length, o
 const longMajor = (h: Hand): Suit | null => (h.len.S >= 5 && h.len.S >= h.len.H ? 'S' : h.len.H >= 5 ? 'H' : null)
 const fourMajor = (h: Hand) => h.len.H === 4 || h.len.S === 4
 
+/** The responder's long minor after 2♠: the longer one (clubs when equal) */
+const longMinor = (h: Hand): Suit => (h.len.D > h.len.C ? 'D' : 'C')
+
+/**
+ * S1: an 8–9 point hand with no four-card major whose minor is not good enough to jump to 3NT
+ * (`jumpsTo3NT`) invites in that minor when it is seven cards or longer, or six with a void: 2♠,
+ * then four of the minor (淡江橋譜「1NT的答叫」, 合約選擇方式・邀請叫品:「低花邀請：2NT或2♠後之四線
+ * 低花」). The handbook gives both ways without saying which hands take which; other hands keep the
+ * 2NT invitation. Chosen by measurement on targeted deals (ROBOT.md §6.14): with six cards and no
+ * void the four-level invitation loses heavily to 2NT (3NT makes more often than five of a minor).
+ */
+export function invitesInMinor(h: Hand): boolean {
+  if (h.hcp < 8 || h.hcp > 9 || h.len.H >= 4 || h.len.S >= 4 || jumpsTo3NT(h)) return false
+  const m = longMinor(h)
+  return h.len[m] >= 7 || (h.len[m] === 6 && ORDER.some((s) => h.len[s] === 0))
+}
+
 // ── Responses ────────────────────────────────────────────────────────────────────────────────
 
 /**
@@ -45,6 +62,9 @@ const responses: Book = {
     rule('3N', { hcp: [10, 15], notes: [{ key: 'noMajor' }, { key: 'toPlay' }] }, (h) => h.hcp >= 10),
     // T1: inviting with a long, good minor jumps to game (`jumpsTo3NT`); otherwise 2NT invites
     rule('3N', { hcp: [8, 9], notes: [{ key: 'noMajor' }, { key: 'toPlay' }] }, jumpsTo3NT),
+    // S1 (「1NT的答叫」合約選擇方式：「低花邀請：2NT或2♠後之四線低花」): a long minor not good enough
+    // for 3NT goes through 2♠ and invites at the four level (`invitesInMinor`)
+    rule('2S', { name: 'minorAsk', hcp: [8, 9], artificial: true }, invitesInMinor),
     rule('2N', { len: { H: [0, 3], S: [0, 3] }, hcp: [8, 9], notes: [{ key: 'noMajor' }, { key: 'invite' }] }, (h) => h.hcp >= 8),
     // Three of a suit is not in the handbook: read as five cards and game values
     ...ORDER.map((s) => reads(bid(3, s), { len: length(s, 5), hcp: plus(12) })),
@@ -149,9 +169,24 @@ const staymanAnswer = (ctx: Ctx) => strainOf(ours(ctx)[2])
 const afterMinorAsk: Book = {
   after: '1N (P) 2S (P) * (P)',
   rules: [
+    // S1: four of the minor invites five (「低花邀請：…2♠後之四線低花」)
+    ...(['C', 'D'] as const).map((m) => rule(bid(4, m), { len: length(m, 6), hcp: [8, 9], notes: [{ key: 'invite' }] }, (h) => h.hcp >= 8 && longMinor(h) === m)),
     rule('P', undefined, (h, ctx) => h.len.C >= 6 && ours(ctx)[2] === '3C'),
-    rule('3C', { len: length('C', 6), notes: [{ key: 'signoff' }] }, (h) => h.len.C >= 6),
-    rule('3D', { len: length('D', 6), notes: [{ key: 'signoff' }] }),
+    rule('3C', { len: length('C', 6), hcp: [0, 7], notes: [{ key: 'signoff' }] }, (h) => h.len.C >= 6),
+    rule('3D', { len: length('D', 6), hcp: [0, 7], notes: [{ key: 'signoff' }] }),
+  ],
+}
+
+/**
+ * S1: opener after the four-level minor invitation. The handbook does not say how opener answers;
+ * like the 2NT invitation, 16–17 accepts (five of the minor) and 15 passes. Accepting only with a
+ * fit or an honour in the minor measured worse (ROBOT.md §6.14)
+ */
+const afterMinorInvite: Book = {
+  after: ['1N (P) 2S (P) 2N (P) 4C (P)', '1N (P) 2S (P) 2N (P) 4D (P)', '1N (P) 2S (P) 3C (P) 4C (P)', '1N (P) 2S (P) 3C (P) 4D (P)'],
+  rules: [
+    ...(['C', 'D'] as const).map((m) => rule(onlyIf((ctx) => ours(ctx)[3] === bid(4, m), bid(5, m)), { hcp: [16, 17], notes: [{ key: 'accept' }, { key: 'game' }] }, (h) => h.hcp >= 16)),
+    pass(),
   ],
 }
 
@@ -239,5 +274,5 @@ const afterQuantitative: Book = {
   }),
 }
 
-export const notrump: Book[] = [responses, ...openerRebids, afterTransfer('H'), afterTransfer('S'), afterStayman, afterMinorAsk, afterQuantitative, lebensohl, lebensohlRebid, openerContested]
+export const notrump: Book[] = [responses, ...openerRebids, afterTransfer('H'), afterTransfer('S'), afterStayman, afterMinorAsk, afterMinorInvite, afterQuantitative, lebensohl, lebensohlRebid, openerContested]
 
