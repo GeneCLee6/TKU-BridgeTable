@@ -1,0 +1,21 @@
+{
+  "category": "response",
+  "title": "答叫：1NT 之後的邀請（T1）",
+  "questions": [
+    { "id": "tku-resp-156", "system": "tku", "dealer": "N", "vul": "None", "hand": "K32.Q32.Q432.J32", "auction": ["1N", "P"], "answer": "2N", "source": "淡江橋譜：1NT的答叫", "reviewer": null, "status": "pending", "note": "8 點、沒有 4 張高花：2NT 自然邀請（社長 2026-11-01，T1）" },
+    { "id": "tku-resp-157", "system": "tku", "dealer": "N", "vul": "None", "hand": "KJ32.Q32.J43.J32", "auction": ["1N", "P"], "answer": "2C", "source": "淡江橋譜：1NT的答叫", "reviewer": null, "status": "pending", "note": "8 點、4 張♠：先 Stayman（社長 2026-11-01：8 點有 4 張高花也用 Stayman，書上是 9↑，T1）" },
+    { "id": "tku-resp-158", "system": "tku", "dealer": "N", "vul": "None", "hand": "KJ432.Q32.Q43.32", "auction": ["1N", "P"], "answer": "2H", "source": "淡江橋譜：1NT的答叫", "reviewer": null, "status": "pending", "note": "8 點、5 張♠：先轉換，再叫 2NT 邀請（T1）" },
+    { "id": "tku-resp-159", "system": "tku", "dealer": "N", "vul": "None", "hand": "32.32.KQJ432.Q32", "auction": ["1N", "P"], "answer": "3N", "source": "淡江橋譜：1NT的答叫", "reviewer": null, "status": "pending", "note": "8 點、好的 6 張♦、沒有 4 張高花：直接 3NT（社長 2026-11-01，T1）" },
+    { "id": "tku-resp-160", "system": "tku", "dealer": "N", "vul": "None", "hand": "J2.Q32.K32.QJ432", "auction": ["1N", "P"], "answer": "2N", "source": "淡江橋譜：1NT的答叫", "reviewer": null, "status": "pending", "note": "9 點、5 張♣ 不夠好、沒有 4 張高花：2NT 邀請（T1）" },
+    { "id": "tku-resp-161", "system": "tku", "dealer": "S", "vul": "None", "hand": "KJ32.Q32.J43.J32", "auction": ["P", "1N", "P"], "answer": "2C", "source": "淡江橋譜：1NT的答叫", "reviewer": null, "status": "pending", "note": "Pass 過、8 點、4 張♠：Stayman（T1）" },
+    { "id": "gib-resp-041", "system": "gib", "dealer": "N", "vul": "None", "hand": "K32.Q32.Q432.J32", "auction": ["1N", "P"], "answer": "2N", "source": "docs/BBO GIB/gib-2over1.md §4 1NT 之後", "reviewer": null, "status": "pending", "note": "8 點、沒有 4 張高花：2NT 自然邀請（社團決定，與 GIB 不同，T1）" },
+    { "id": "gib-resp-042", "system": "gib", "dealer": "N", "vul": "None", "hand": "KJ32.Q32.J43.J32", "auction": ["1N", "P"], "answer": "2C", "source": "docs/BBO GIB/gib-2over1.md §4 1NT 之後", "reviewer": null, "status": "pending", "note": "8 點、4 張♠：Stayman（T1）" },
+    { "id": "gib-resp-043", "system": "gib", "dealer": "N", "vul": "None", "hand": "KJ432.Q32.Q43.32", "auction": ["1N", "P"], "answer": "2H", "source": "docs/BBO GIB/gib-2over1.md §4 1NT 之後", "reviewer": null, "status": "pending", "note": "8 點、5 張♠：先轉換，再叫 2NT 邀請（T1）" },
+    { "id": "gib-resp-044", "system": "gib", "dealer": "N", "vul": "None", "hand": "32.32.KQJ432.Q32", "auction": ["1N", "P"], "answer": "3N", "source": "docs/BBO GIB/gib-2over1.md §4 1NT 之後", "reviewer": null, "status": "pending", "note": "8 點、好的 6 張♦、沒有 4 張高花：直接 3NT（社長 2026-11-01，T1）" },
+    { "id": "gib-resp-045", "system": "gib", "dealer": "N", "vul": "None", "hand": "K32.Q32.Q432.J32", "auction": ["1N", "X"], "answer": "2N", "source": "docs/BBO GIB/gib-2over1.md §4 1NT 之後（被插叫）", "reviewer": null, "status": "pending", "note": "被賭倍、制度照用：8 點沒有 4 張高花叫 2NT 邀請，不借 2♣（T1）" },
+    { "id": "gib-resp-046", "system": "gib", "dealer": "N", "vul": "None", "hand": "K32.Q32.Q432.J32", "auction": ["1N", "2C"], "answer": "2N", "source": "docs/BBO GIB/gib-2over1.md §4 1NT 之後（被插叫）", "reviewer": null, "status": "pending", "note": "對方 2♣ 插叫、制度照用：8 點沒有 4 張高花叫 2NT 邀請，不用賭倍（Stayman）（T1）" },
+    { "id": "gib-resp-047", "system": "gib", "dealer": "N", "vul": "None", "hand": "J2.Q32.K32.QJ432", "auction": ["1N", "P"], "answer": "2N", "source": "docs/BBO GIB/gib-2over1.md §4 1NT 之後", "reviewer": null, "status": "pending", "note": "9 點、5 張♣ 不夠好、沒有 4 張高花：2NT 邀請（T1）" },
+    { "id": "tku-resp-162", "system": "tku", "dealer": "N", "vul": "None", "hand": "32.J32.AKJ32.432", "auction": ["1N", "P"], "answer": "3N", "source": "淡江橋譜：1NT的答叫", "reviewer": null, "status": "pending", "note": "9 點、好的 5 張♦（AKJ）、沒有 4 張高花：直接 3NT（T1）" },
+    { "id": "gib-resp-048", "system": "gib", "dealer": "N", "vul": "None", "hand": "32.J32.AKJ32.432", "auction": ["1N", "P"], "answer": "3N", "source": "docs/BBO GIB/gib-2over1.md §4 1NT 之後", "reviewer": null, "status": "pending", "note": "9 點、好的 5 張♦（AKJ）、沒有 4 張高花：直接 3NT（T1）" }
+  ]
+}
