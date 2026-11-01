@@ -1,0 +1,12 @@
+{
+  "category": "third-hand",
+  "title": "第三家：看牌只出需要的大牌（S2）",
+  "questions": [
+    {"id": "play-third-024", "system": "both", "board": 3,
+     "hands": {"S": "AK3.J74.AKQ2.432", "W": "7642.KT63.93.A76", "N": "Q5.952.J876.KQ95", "E": "JT98.AQ8.T54.JT8"},
+     "auction": ["1N", "P", "3N", "P", "P", "P"],
+     "play": ["S2", "S5", "S8", "SK", "DA", "D3", "D6", "D4", "DK", "D9", "D7", "D5", "DQ", "S4", "D8", "DT", "SA", "S6", "SQ", "S9", "C2", "CA", "C5", "C8", "H3", "H2"],
+     "answer": "HQ", "accepted": [], "source": "教科書：第三家只出需要的大牌；從莊家的點數放 K（S2）", "reviewer": null, "status": "pending",
+     "note": "莊家開 1NT（15–17），已經出了 ♠AK、♦AKQ 共 16 點，最多還有 1 點：♥K 一定在同伴手上。出 Q 就贏，A 留著；出 A 等於自己吃掉同伴的一張牌"}
+  ]
+}
