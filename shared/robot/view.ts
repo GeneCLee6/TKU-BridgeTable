@@ -2,6 +2,7 @@ import { partnerOf, rankOf, rankValue, RANKS, sameSide, suitOf, type Card, type 
 import { dummyOf, remainingCards, tricksOf, tricksWon, type BoardState } from '../game.ts'
 import type { RobotKind } from '../protocol.ts'
 import { suitCards } from './hand.ts'
+import { CardReading } from './card-reading.ts'
 import { TableReading } from './reading.ts'
 
 export const byRank = (a: Card, b: Card) => rankValue(rankOf(a)) - rankValue(rankOf(b))
@@ -19,6 +20,7 @@ export class View {
   /** The cards of the trick in progress: played, but still to be beaten */
   private readonly onTable: Set<Card>
   private table: TableReading | null = null
+  private cards: CardReading | null = null
 
   constructor(state: BoardState, seat: Seat, kind: RobotKind) {
     this.state = state
@@ -48,7 +50,13 @@ export class View {
     return dummy && this.state.play.length > 0 ? remainingCards(this.state, dummy) : []
   }
 
-  /** No higher card of the suit is still out among cards this robot cannot see */
+  /**
+   * No higher card of the suit is still out among cards this robot cannot see: the card wins a
+   * later round of the suit. Cards on the table in the trick in progress count as gone, so after
+   * the ace is led the king is a master (it wins the next round) but does not win this trick: ask
+   * `winsNow` for that (T3, ROBOT.md §3.16). Counting stoppers wants this meaning: KJ over a queen
+   * led after the ace are two masters, the king covers and the jack is good
+   */
   isMaster(card: Card): boolean {
     const suit = suitOf(card)
     for (const rank of RANKS) {
@@ -57,6 +65,16 @@ export class View {
       if (!this.played.has(higher) && !this.known.has(higher)) return false
     }
     return true
+  }
+
+  /**
+   * The card, played to the trick in progress, beats every card of its suit on the table and no
+   * card out can beat it: it wins the trick unless someone ruffs. On lead the same as `isMaster`
+   */
+  winsNow(card: Card): boolean {
+    const suit = suitOf(card)
+    for (const c of this.onTable) if (suitOf(c) === suit && value(c) > value(card)) return false
+    return this.isMaster(card)
   }
 
   /**
@@ -78,6 +96,12 @@ export class View {
   get reading(): TableReading {
     this.table ??= new TableReading(this.state, this.seat, this.kind)
     return this.table
+  }
+
+  /** The unseen hands card by card: the lead, count signals, vacant places (T3, card-reading.ts) */
+  get cardReading(): CardReading {
+    this.cards ??= new CardReading(this)
+    return this.cards
   }
 
   /** Cards of the suit above `card` still out (neither played nor on our side) */
@@ -112,7 +136,10 @@ export class View {
     return true
   }
 
-  /** Cards of a suit neither played nor visible to this robot */
+  /**
+   * Cards of a suit neither played nor on this robot's side (own hand and partner's when in view).
+   * For the declaring side these are the defenders' cards; for a defender dummy's cards count too
+   */
   outstanding(suit: Suit): number {
     let n = 0
     for (const rank of RANKS) {

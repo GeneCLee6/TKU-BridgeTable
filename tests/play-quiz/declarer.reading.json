@@ -1,0 +1,30 @@
+{
+  "category": "declarer",
+  "title": "坐莊（看牌：忍讓到危險手的同伴沒牌、避開危險手、叫牌定位、已知張數時飛或打落）",
+  "questions": [
+    {"id": "play-decl-017", "system": "both", "board": 4,
+     "hands": {"W": "KQJT987.543.76.2", "E": "2.QJT9.T985.7643", "S": "A65.AK2.KQJ2.AK5", "N": "43.876.A43.QJT98"},
+     "auction": ["3S", "P", "P", "3N", "P", "P", "P"],
+     "play": ["SK", "S3", "S2", "S5", "SQ", "S4", "H9"],
+     "answer": "SA", "source": "看牌忍讓（T3，ROBOT.md §3.16）", "reviewer": null, "status": "pending",
+     "note": "3NT，西先開 3♠ 攻 ♠K，忍讓一次；西再領 ♠Q，東墊牌：東已經沒有 ♠，忍讓不再切斷什麼，只是多送一墩。七的規則（兩手 5 張）會再忍讓一次，看牌就用 A 拿"},
+    {"id": "play-decl-018", "system": "both", "board": 3,
+     "hands": {"S": "A64.AK54.AQ32.A2", "N": "92.32.765.KQJT98", "W": "KQJ753.986.K84.4", "E": "T8.QJT7.JT9.7653"},
+     "auction": ["2N", "P", "3N", "P", "P", "P"],
+     "play": ["SK", "S2", "S8", "S4", "SQ", "S9", "ST", "S6", "SJ", "C8", "H7", "SA", "C2", "C4", "CT", "C3", "D5", "D9"],
+     "answer": "DA", "source": "避開危險手（T3，ROBOT.md §3.16）", "reviewer": null, "status": "pending",
+     "note": "3NT，西的 ♠ 已經做成三張大牌、東沒有 ♠：夢家領 ♦，飛 ♦Q 輸給西就倒約；不飛，A 拿下（♣ 六墩、♥ 兩墩、♠A、♦A 已經十墩）"},
+    {"id": "play-decl-019", "system": "both", "board": 4,
+     "hands": {"S": "AJT98.KJ3.AQ.QT9", "N": "K765.AT2.987.876", "W": "Q3.Q54.KJ42.AKJ2", "E": "42.9876.T653.543"},
+     "auction": ["1N", "P", "P", "3S", "P", "4S", "P", "P", "P"],
+     "play": ["CK", "C6", "C3", "C9", "CA", "C7", "C4", "CT", "D4", "D7", "DT", "DQ", "S8", "S3", "SK", "S2", "H2", "H6"],
+     "answer": "HK", "source": "叫牌定位的雙向飛牌（T3，ROBOT.md §3.16）", "reviewer": null, "status": "pending",
+     "note": "4♠，西開 1NT（15–17），已經出了 ♣AK；外面的大牌只剩 9 點，西至少還有 8 點，♥Q 一定在西：不朝東飛 J，出 K，之後從手上朝夢家 ♥AT 飛西"},
+    {"id": "play-decl-020", "system": "both", "board": 4,
+     "hands": {"S": "AKJ54.A3.AKQ.KQJ", "N": "7632.654.JT9.AT9", "W": "8.KQJT987.432.32", "E": "QT9.2.8765.87654"},
+     "auction": ["3H", "P", "P", "4S", "P", "P", "P"],
+     "play": ["C3", "CA", "C4", "CJ", "S2", "S9"],
+     "answer": "SJ", "source": "已知張數時飛牌（T3，ROBOT.md §3.16）", "reviewer": null, "status": "pending",
+     "note": "4♠，兩手 9 張王牌缺 Q：平常「九張打落」，但西先開 3♥（7 張），空位少，東持 Q 的機會約 2／3；東跟 9 之後飛 J"}
+  ]
+}

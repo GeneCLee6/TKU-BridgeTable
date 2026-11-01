@@ -22,6 +22,11 @@ import { byRank, honours, value, View } from './view.ts'
  * (`declarer.ts`), the defenders from their inferences (`defence.ts`).
  */
 
+/** Third hand does not finesse when the card reading places the missing card behind it this likely (T3) */
+const BEHIND = 0.9
+/** With the danger hand last, third hand finesses only when the missing card is with second hand this likely (T3) */
+const AVOID = 0.75
+
 export function chooseCard(state: BoardState, seat: Seat, kind: RobotKind = 'tku'): Card {
   const legal = legalCards(state, seat)
   if (legal.length <= 1) return legal[0]
@@ -202,17 +207,21 @@ function unblock(view: View, following: Card[], best: PlayedCard, led: Suit): Ca
 
 /**
  * Third hand on the declaring side, after partner led and second hand played. Partner's honour
- * that loses only to one outstanding card runs, unless the auction places that card behind us.
- * Otherwise take the finesse: the cheapest card that loses only to one outstanding card, unless
- * the auction places it with the last player; then go up with a winner. Null leaves it to the
- * usual third-hand play.
+ * that loses only to one outstanding card runs, unless the card reading all but places that card
+ * behind us (nine in ten, T3). Otherwise take the finesse: the cheapest card that loses only to
+ * one outstanding card, unless the reading all but places it with the last player; then go up
+ * with a winner. In notrump with the last player holding a suit we no longer stop, go up unless
+ * the missing card is clearly with second hand; and play for the drop when the odds say so
+ * (`dropOdds`). Null leaves it to the usual third-hand play.
  */
 function declarerThird(view: View, seat: Seat, following: Card[], best: PlayedCard, led: Suit, trump: Suit | null): Card | null {
   if (suitOf(best.card) !== led) return null
   const last = nextSeat(seat)
   const behind = (card: Card) => {
     const over = view.higherOut(card)
-    return over.length !== 1 || view.reading.holder(over[0]) === last
+    if (over.length !== 1) return true
+    // The card reading must all but place it there (T3): a finesse that may win is worth taking
+    return (view.cardReading.odds(over[0])[last] ?? 0) >= BEHIND
   }
   const low = [...following].sort(byRank)[0]
   if (best.seat === partnerOf(seat) && value(best.card) >= 10 && !behind(best.card)) return low
@@ -222,25 +231,43 @@ function declarerThird(view: View, seat: Seat, following: Card[], best: PlayedCa
   const winner = beaters.find((c) => view.isMaster(c))
   if (!beaters.length || winner === beaters[0]) return winner ?? null
   const finesse = beaters.find((c) => !behind(c))
-  if (finesse && winner && dropBetter(view, seat, led, finesse)) return winner
+  // Keep the danger hand off lead (T3): in notrump, when the last player holds the established
+  // cards of a suit we no longer stop, a losing finesse would put it in; go up unless the reading
+  // clearly places the missing card with second hand
+  if (finesse && winner && trump === null && SUITS.some((s) => s !== led && view.cardReading.danger(s) === last)) {
+    const missing = view.higherOut(finesse)[0]
+    if ((view.cardReading.odds(missing)[partnerOf(last)] ?? 0) < AVOID) return winner
+  }
+  if (finesse && winner && dropOdds(view, seat, led, finesse)) return winner
   return finesse ?? winner ?? null
 }
 
 /**
- * Eight ever, nine never (e6-t41): with nine cards or more between the hands and two masters to
- * cash, play for the missing card to drop rather than finesse, unless the auction places it with
- * the opponent who has already played. With two cards out (eleven between the hands) one master
- * is enough: AQ opposite the rest plays the ace for the king to drop (Y4, ROBOT.md §3.14)
+ * Drop or finesse by the odds (T3, ROBOT.md §3.16): the finesse wins when the missing card is
+ * with second hand (it has played); the drop when its holder has no more cards of the suit than
+ * the rounds our masters can play (second hand one fewer: this round is played). The chances
+ * come from the card reading: the lengths each defender has shown (vacant places), the lead,
+ * count signals, the points of the auction.
  */
-function dropBetter(view: View, seat: Seat, led: Suit, finesse: Card): boolean {
-  const second = partnerOf(nextSeat(seat))
-  const followed = view.state.play.length % 4 >= 2 && suitOf(view.state.play.at(-1)!.card) === led
-  const out = view.outstanding(led) + (followed ? 1 : 0)
-  if (out > 4) return false
+function dropOdds(view: View, seat: Seat, led: Suit, finesse: Card): boolean {
+  const last = nextSeat(seat)
+  const second = partnerOf(last)
+  const missing = view.higherOut(finesse)[0]
+  const reading = view.cardReading
   const ours = [...suitCards(view.ownCards(), led), ...suitCards(view.partnerCards(), led)]
-  // Eleven cards missing the king (two out): the ace may drop it (Y4)
-  if (ours.filter((c) => view.isMaster(c)).length < (out <= 2 ? 1 : 2)) return false
-  return view.reading.holder(view.higherOut(finesse)[0]) !== second
+  const rounds = Math.min(ours.filter((c) => view.isMaster(c)).length, Math.max(suitCards(view.ownCards(), led).length, suitCards(view.partnerCards(), led).length))
+  const pSecond = reading.odds(missing)[second] ?? 0.5
+  const falls = (s: Seat, most: number) => {
+    const p = reading.lengthOdds(s, led)
+    if (!p) return 0
+    const total = p.reduce((sum, w, k) => sum + w * k, 0)
+    if (total <= 0) return 0
+    // The chance the seat holds the card and at most `most` of the suit
+    const share = s === second ? pSecond : 1 - pSecond
+    return (share * p.reduce((sum, w, k) => sum + (k <= most ? w * k : 0), 0)) / total
+  }
+  const drop = falls(last, rounds) + falls(second, rounds - 1)
+  return drop > pSecond
 }
 
 /**

@@ -5,6 +5,7 @@ import { dummyOf, legalCards, makeCall, newBoard, playCard, turnOf, type BoardSt
 import type { RobotKind } from '../../shared/protocol.ts'
 import { chooseCard } from '../../shared/robot/play.ts'
 import { TableReading } from '../../shared/robot/reading.ts'
+import { View } from '../../shared/robot/view.ts'
 import { robotCall } from '../../shared/robot/robots.ts'
 import { HEAVY_MS } from './heavy.ts'
 
@@ -83,12 +84,19 @@ describe('reading the auction during the play (e6-t39)', () => {
     }
   })
 
-  it('takes the finesse through the opener and goes up when the opener sits behind', () => {
+  it('takes the finesse through the opener, and behind the opener unless the reading all but places the king there', () => {
     // The same cards, only the auction differs: ♦2 from dummy, West plays low
     const cards = layout({ N: 'AQ5', W: 'K76', E: 'JT98' })
     for (const kind of KINDS) {
       expect(chooseCard(board(cards, WEST_OPENS, [...opening, 'D2', 'D6']), 'N', kind)).toBe('DQ')
-      expect(chooseCard(board(cards, EAST_OPENS, [...opening, 'D2', 'D6']), 'N', kind)).toBe('DA')
+      // East opened: the card reading puts the king behind about five times in six (T3, ROBOT.md
+      // §3.16), not the nine in ten it takes to give up the finesse; the king, if East's, scores
+      // a trick either way
+      const behind = board(cards, EAST_OPENS, [...opening, 'D2', 'D6'])
+      const odds = new View(behind, 'N', kind).cardReading.odds('DK')
+      expect(odds.E).toBeGreaterThan(0.75)
+      expect(odds.E).toBeLessThan(0.9)
+      expect(chooseCard(behind, 'N', kind)).toBe('DQ')
     }
   })
 })
