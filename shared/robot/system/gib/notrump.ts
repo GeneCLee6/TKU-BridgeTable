@@ -1,6 +1,7 @@
 import type { Call } from '../../../auction.ts'
 import type { Suit } from '../../../cards.ts'
 import type { Hand } from '../evaluate.ts'
+import { jumpsTo3NT } from '../nt-invite.ts'
 import type { Book, Range, Rule } from '../spec.ts'
 import { shortness } from './majors.ts'
 import { above, bid, MAJORS, other, plus, UP } from './util.ts'
@@ -79,18 +80,18 @@ function responses(r: Ranges, stayman: Call, runout = false): Rule[] {
         shows: { len: { [x]: [0, 1] }, hcp: plus(10), notes: [{ key: 'shortIn', strain: x }], forcing: 'game' },
         when: (h) => UP.every((s) => s === x || h.len[s] >= 4) && h.len.H < 5 && h.len.S < 5,
       })
-  rules.push({
-    call: bid(2 + r.up, 'S'),
-    shows: { name: 'minorStayman', hcp: plus(r.game[0]), forcing: 'game', artificial: true },
-    when: (h) => !fourMajor(h) && h.len.H < 5 && h.len.S < 5 && Math.min(h.len.C, h.len.D) >= 4 && h.len.C + h.len.D >= 9,
-  })
-  // Stayman: a four-card major (5-4 majors too, with values; 社長 2026-10-31: no Stayman without
-  // one). Over 1NT the only exception is the one gib-2over1.md §4 names: inviting 3NT without a
-  // major (2NT is a minor transfer), which bids 2NT next
-  const asks = { name: 'stayman' as const, forcing: 'oneRound' as const, artificial: true }
+  // Minor-suit Stayman over 2NT only: over 1NT 2♠ is the club transfer (T1, 社團決定)
+  if (r.up)
+    rules.push({
+      call: bid(2 + r.up, 'S'),
+      shows: { name: 'minorStayman', hcp: plus(r.game[0]), forcing: 'game', artificial: true },
+      when: (h) => !fourMajor(h) && h.len.H < 5 && h.len.S < 5 && Math.min(h.len.C, h.len.D) >= 4 && h.len.C + h.len.D >= 9,
+    })
+  // Stayman: a four-card major (5-4 majors too, with values), no exceptions (社長 2026-10-31 and
+  // 2026-11-01, T1: over 1NT an invitation without one bids a natural 2NT)
   rules.push({
     call: stayman,
-    shows: { ...asks, hcp: plus(r.invite ? r.invite[0] : r.game[0]), notes: [{ key: 'fourMajor' }, { key: 'asksMajor' }] },
+    shows: { name: 'stayman', forcing: 'oneRound', artificial: true, hcp: plus(r.invite ? r.invite[0] : r.game[0]), notes: [{ key: 'fourMajor' }, { key: 'asksMajor' }] },
     when: (h) => fourMajor(h) && !(h.len.H >= 5 && h.len.S >= 5) && h.len.H + h.len.S <= 9,
   })
   // Transfers: 5-5 majors go through hearts with a weak or invitational hand, spades with game
@@ -101,10 +102,11 @@ function responses(r: Ranges, stayman: Call, runout = false): Rule[] {
       when: (h) => (fiveFive(h) ? M === (within(h.hcp, r.game) ? 'S' : 'H') : fiveMajor(h) === M),
     })
   if (r.up === 0) {
-    // Minor transfers: weak to play, or game values with a short suit
+    // Minor transfers: weak to play, or game values with a short suit. 2♠ to clubs, not GIB's 2NT
+    // (T1, 社團決定): 2NT is a natural invitation
     const minorTransfer = (h: Hand, m: Suit) => h.len[m] >= 6 && (h.hcp <= r.weak[1] || (h.hcp >= 10 && shortness(h, m) !== null))
     for (const [call, m] of [
-      ['2N', 'C'],
+      ['2S', 'C'],
       ['3C', 'D'],
     ] as const)
       rules.push({
@@ -121,12 +123,13 @@ function responses(r: Ranges, stayman: Call, runout = false): Rule[] {
     // GIB does not like Gerber, but knows what it means
     { call: '4C', shows: { name: 'gerber', artificial: true }, when: () => false },
   )
+  // Inviting 3NT without a four-card major (T1, 社長 2026-11-01): a long, good minor jumps to game,
+  // otherwise a natural 2NT (opener passes with a minimum, bids 3NT with a maximum)
   if (r.invite)
-    rules.push({
-      call: stayman,
-      shows: { ...asks, hcp: r.invite, notes: [{ key: 'asksMajor' }, { key: 'invite' }] },
-      when: (h) => h.len.H < 4 && h.len.S < 4,
-    })
+    rules.push(
+      { call: '3N', shows: { hcp: r.invite, notes: [{ key: 'noMajor' }, { key: 'toPlay' }] }, when: jumpsTo3NT },
+      { call: '2N', shows: { len: { H: [0, 3], S: [0, 3] }, hcp: r.invite, notes: [{ key: 'noMajor' }, { key: 'invite' }] } },
+    )
   rules.push({ call: 'P', shows: { hcp: r.weak } })
   return rules
 }
@@ -424,9 +427,12 @@ export function notrumpBooks(r: Ranges, open: string): Book[] {
   books.push(
     { after: `${open} (P)`, rules: responses(r, stayman), more: true },
     { after: `${open} (P) ${stayman} (P)`, rules: staymanAnswers(r), more: true },
-    { after: `${open} (P) ${mss} (P)`, rules: minorStaymanAnswers(r), more: true },
     ...staymanBooks(r, `${open} (P) ${stayman} (P)`),
   )
+  if (r.up) {
+    books.push({ after: `${open} (P) ${mss} (P)`, rules: minorStaymanAnswers(r), more: true })
+    for (const m of ['C', 'D'] as Suit[]) books.push({ after: `${open} (P) ${mss} (P) ${bid(3 + r.up, m)} (P)`, rules: shortMajor(r), more: true })
+  }
   for (const M of MAJORS) {
     const transfer = bid(2 + r.up, M === 'H' ? 'D' : 'H')
     const done = bid(2 + r.up, M)
@@ -453,24 +459,23 @@ export function notrumpBooks(r: Ranges, open: string): Book[] {
         },
       )
   }
-  for (const m of ['C', 'D'] as Suit[]) books.push({ after: `${open} (P) ${mss} (P) ${bid(3 + r.up, m)} (P)`, rules: shortMajor(r), more: true })
   return books
 }
 
 const books: Book[] = [...notrumpBooks(ONE_NT, '1N'), ...notrumpBooks(TWO_NT, '2N')]
-// Minor transfers over 1NT: opener must accept
-books.push(
-  { after: '1N (P) 2N (P)', rules: completes('3C'), more: true },
-  { after: '1N (P) 3C (P)', rules: completes('3D'), more: true },
-  { after: '1N (P) 2N (P) 3C (P)', rules: afterMinorTransfer('C'), more: true },
-  { after: '1N (P) 3C (P) 3D (P)', rules: afterMinorTransfer('D'), more: true },
-)
-for (const [start, m] of [
-  ['1N (P) 2N (P) 3C (P)', 'C'],
-  ['1N (P) 3C (P) 3D (P)', 'D'],
-] as const) {
-  for (const x of UP.filter((s) => s !== m && s !== 'C')) books.push({ after: `${start} 3${x} (P)`, rules: afterMinorShortness(m, x), more: true })
-  books.push({ after: `${start} 3N (P)`, rules: afterMinorSlamTry(m), more: true })
+// After 1NT, with or without a double or a 2♣ overcall (the system stays on): the natural 2NT
+// invitation (T1), and the minor transfers, 2♠ to clubs and 3♣ to diamonds, which opener must accept
+for (const start of ['1N (P)', '1N (2C)', '1N (X)']) {
+  books.push({ after: `${start} 2N (P)`, rules: acceptInvite(ONE_NT, '3N', 'P'), more: true })
+  for (const [transfer, m] of [
+    ['2S', 'C'],
+    ['3C', 'D'],
+  ] as const) {
+    const done = `${start} ${transfer} (P) 3${m} (P)`
+    books.push({ after: `${start} ${transfer} (P)`, rules: completes(bid(3, m)), more: true }, { after: done, rules: afterMinorTransfer(m), more: true })
+    for (const x of UP.filter((s) => s !== m && s !== 'C')) books.push({ after: `${done} 3${x} (P)`, rules: afterMinorShortness(m, x), more: true })
+    books.push({ after: `${done} 3N (P)`, rules: afterMinorSlamTry(m), more: true })
+  }
 }
 // Interference: over a 2♣ overcall (one-suited) double is Stayman and the rest stays on; over a
 // double the system stays on and redouble rescues into a minor; other two-level overcalls: Lebensohl
@@ -479,7 +484,7 @@ books.push(
   { after: '1N (2C) X (P)', rules: staymanAnswers(ONE_NT), more: true },
   { after: '1N (X)', rules: responses(ONE_NT, '2C', true), more: true },
   { after: '1N (X) 2C (P)', rules: staymanAnswers(ONE_NT), more: true },
-  // Responder goes on after the answer as without the interference (Z2: the inviting Stayman bids 2NT)
+  // Responder goes on after the answer as without the interference (Z2)
   ...staymanBooks(ONE_NT, '1N (2C) X (P)'),
   ...staymanBooks(ONE_NT, '1N (X) 2C (P)'),
   // Transfers over a 2♣ overcall or a double: opener completes them as usual
