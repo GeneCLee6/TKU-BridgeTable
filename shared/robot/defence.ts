@@ -1,6 +1,7 @@
 import { nextSeat, partnerOf, rankOf, RANKS, SUITS, suitOf, type Card, type Suit } from '../cards.ts'
 import { dummyOf, type PlayedCard } from '../game.ts'
 import { aceNow, dummyThreat, ruffsInDummy } from './defence-plan.ts'
+import { declarerLen, partnerAttitude, placeHonour } from './defence-reading.ts'
 import { suitCards } from './hand.ts'
 import { byRank, value, type View } from './view.ts'
 
@@ -42,8 +43,15 @@ export function defenceLead(view: View, hand: Card[], trump: Suit | null, ruffed
     if (ruffing && s === trump) n += 4
     const seq = sequence(view, mine)
     if (seq) n += 3
-    // Leading away from a lone honour gives a trick away (unless dummy's suit is about to run)
-    else if (mine.some((c) => value(c) >= 11 && !view.isMaster(c))) n -= threat ? 1 : 3
+    // Leading away from a lone honour gives a trick away (unless dummy's suit is about to run, or
+    // the declarer's points place the cards above it with partner, T4)
+    else if (mine.some((c) => value(c) >= 11 && !view.isMaster(c)) && !partnerOver(view, mine, theirs)) n -= threat ? 1 : 3
+    // Partner encouraged a suit we led (T4, the club's reverse attitude: a low card). A discouraging
+    // card is not counted against the suit: partner without an honour cannot tell us to switch
+    if (partnerAttitude(view, s) === 'like') n += 3
+    // The declarer's points place the suit's top card (a queen or higher) with partner (T4)
+    const top = unseenTop(view, s)
+    if (top && value(top) >= 12 && placeHonour(view, top) === partner) n += 2
     const dummyHonour = theirs.some((c) => value(c) >= 11 && !view.isMaster(c))
     if (throughDummy) {
       // Dummy plays next: lead through its honours, partner sits over them
@@ -63,6 +71,24 @@ export function defenceLead(view: View, hand: Card[], trump: Suit | null, ruffed
   if (seq) return seq
   if (cards.length <= 2) return cards[0]
   return cards.some((c) => value(c) >= 11) ? (cards[3] ?? cards.at(-1)!) : cards[0]
+}
+
+/**
+ * Leading away from our honour is safe: the cards above it we cannot see are all placed with
+ * partner by the declarer's points (`placeHonour`), and dummy holds none of them
+ */
+function partnerOver(view: View, mine: Card[], dummy: Card[]): boolean {
+  const honour = mine.find((c) => value(c) >= 11 && !view.isMaster(c))!
+  if (dummy.some((c) => value(c) > value(honour))) return false
+  const above = view.unseenAbove(honour)
+  return above.length > 0 && above.every((c) => placeHonour(view, c) === partnerOf(view.seat))
+}
+
+/** The highest card of the suit we cannot see (neither played, nor ours, nor dummy's) */
+function unseenTop(view: View, suit: Suit): Card | null {
+  const seen = new Set<Card>([...view.ownCards(), ...view.dummyCards(), ...view.state.play.map((p) => p.card)])
+  for (const r of RANKS) if (!seen.has(suit + r)) return suit + r
+  return null
 }
 
 /**
@@ -279,7 +305,7 @@ export function holdUpAgainstDummy(view: View, trick: PlayedCard[], following: C
   const entry = (c: Card) => suitOf(c) !== led && (aboveAllOut(view, c) || (value(c) >= 11 && !view.coveredByMe(c)))
   if (dummyCards.some(entry)) return null
   const declarerPlayed = trick.some((p) => p.seat === declarer)
-  const left = view.reading.len(declarer, led)[0] - (declarerPlayed ? 0 : 1)
+  const left = declarerLen(view, led, true)[0] - (declarerPlayed ? 0 : 1)
   return left >= 1 ? [...following].sort(byRank)[0] : null
 }
 

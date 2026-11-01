@@ -90,7 +90,7 @@ describe('reading the auction during the play (e6-t39)', () => {
     for (const kind of KINDS) {
       expect(chooseCard(board(cards, WEST_OPENS, [...opening, 'D2', 'D6']), 'N', kind)).toBe('DQ')
       // East opened: the card reading puts the king behind about five times in six (T3, ROBOT.md
-      // §3.16), not the nine in ten it takes to give up the finesse; the king, if East's, scores
+      // §3.17), not the nine in ten it takes to give up the finesse; the king, if East's, scores
       // a trick either way
       const behind = board(cards, EAST_OPENS, [...opening, 'D2', 'D6'])
       const odds = new View(behind, 'N', kind).cardReading.odds('DK')

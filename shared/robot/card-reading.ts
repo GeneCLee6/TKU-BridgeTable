@@ -5,7 +5,7 @@ import type { Range } from './system/spec.ts'
 import type { View } from './view.ts'
 
 /**
- * Reading the cards (T3, ROBOT.md §3.16): what a robot can tell, card by card, about the two hands
+ * Reading the cards (T3, ROBOT.md §3.17): what a robot can tell, card by card, about the two hands
  * it cannot see, from what it can see (its `View`: its own hand, the hand in view, the cards
  * played, the auction). On top of the auction and the count (`reading.ts`, §3.3):
  *
@@ -160,14 +160,30 @@ export class CardReading {
     return this.honours
   }
 
-  private midpointShare(a: Seat, b: Seat, card: Card, pa: number): number {
+  /**
+   * The seat the points place an honour with for certain: the other unseen hand has too few
+   * points left for it, or this hand needs it (the other honours out do not reach its minimum).
+   * "Declarer opened 15–17 and has shown 13, so partner has the queen." Null when the points
+   * leave it open (shared with the defence, `defence-reading.ts`)
+   */
+  placedByPoints(card: Card): Seat | null {
     const points = hcpOf(card)
+    if (points === 0 || this.unseen.length !== 2 || !this.isUnseen(card)) return null
+    const others = this.unseenPoints() - points
+    for (const seat of this.unseen) {
+      const other = this.unseen.find((s) => s !== seat)!
+      const [lo, hi] = this.view.reading.hcp(seat)
+      if (points > hi) return other
+      if (others < lo) return seat
+    }
+    return null
+  }
+
+  private midpointShare(a: Seat, b: Seat, card: Card, pa: number): number {
+    const placed = this.placedByPoints(card)
+    if (placed) return placed === a ? 1 : 0
     const ra = this.view.reading.hcp(a)
     const rb = this.view.reading.hcp(b)
-    const total = this.unseenPoints()
-    const can = (r: Range, other: Range) => r[1] >= points && other[0] <= total - points
-    if (!can(ra, rb)) return 0
-    if (!can(rb, ra)) return 1
     if (pa <= 0 || pa >= 1) return pa
     const ma = (ra[0] + ra[1]) / 2
     const mb = (rb[0] + rb[1]) / 2

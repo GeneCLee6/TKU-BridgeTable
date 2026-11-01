@@ -1,0 +1,17 @@
+{
+  "category": "rebid",
+  "title": "再叫：1NT 之後的邀請（T1）",
+  "questions": [
+    { "id": "tku-rebid-274", "system": "tku", "dealer": "N", "vul": "None", "hand": "KJ32.Q32.J43.J32", "auction": ["1N", "P", "2C", "P", "2D", "P"], "answer": "2N", "source": "淡江橋譜：1NT的答叫", "reviewer": null, "status": "pending", "note": "8 點 Stayman 沒對到：2NT 邀請（T1）" },
+    { "id": "tku-rebid-275", "system": "tku", "dealer": "N", "vul": "None", "hand": "KJ32.Q32.J43.J32", "auction": ["1N", "P", "2C", "P", "2S", "P"], "answer": "3S", "source": "淡江橋譜：1NT的答叫", "reviewer": null, "status": "pending", "note": "8 點 Stayman 對到♠：3♠ 邀請（T1）" },
+    { "id": "tku-rebid-276", "system": "tku", "dealer": "N", "vul": "None", "hand": "KJ432.Q32.Q43.32", "auction": ["1N", "P", "2H", "P", "2S", "P"], "answer": "2N", "source": "淡江橋譜：1NT的答叫", "reviewer": null, "status": "pending", "note": "8 點 5 張♠：轉換後 2NT 邀請" },
+    { "id": "tku-rebid-277", "system": "tku", "dealer": "N", "vul": "None", "hand": "AQ32.KJ2.KJ3.Q32", "auction": ["1N", "P", "2C", "P", "2S", "P", "3S", "P"], "answer": "4S", "source": "淡江橋譜：1NT的答叫", "reviewer": null, "status": "pending", "note": "16 點：接受 3♠ 邀請" },
+    { "id": "tku-rebid-278", "system": "tku", "dealer": "N", "vul": "None", "hand": "AQ32.KJ2.K43.Q32", "auction": ["1N", "P", "2C", "P", "2S", "P", "3S", "P"], "answer": "P", "source": "淡江橋譜：1NT的答叫", "reviewer": null, "status": "pending", "note": "15 點低限：拒絕 3♠ 邀請" },
+    { "id": "gib-rebid-041", "system": "gib", "dealer": "N", "vul": "None", "hand": "AQ3.KJ2.KJ3.Q432", "auction": ["1N", "P", "2N", "P"], "answer": "3N", "source": "docs/BBO GIB/gib-2over1.md §4 1NT 之後", "reviewer": null, "status": "pending", "note": "2NT 是自然邀請（社團決定，T1）：16 點接受" },
+    { "id": "gib-rebid-042", "system": "gib", "dealer": "N", "vul": "None", "hand": "AQ3.KJ2.K43.Q432", "auction": ["1N", "P", "2N", "P"], "answer": "P", "source": "docs/BBO GIB/gib-2over1.md §4 1NT 之後", "reviewer": null, "status": "pending", "note": "2NT 是自然邀請（社團決定，T1）：15 點拒絕" },
+    { "id": "gib-rebid-043", "system": "gib", "dealer": "N", "vul": "None", "hand": "KJ32.Q32.J43.J32", "auction": ["1N", "P", "2C", "P", "2D", "P"], "answer": "2N", "source": "docs/BBO GIB/gib-2over1.md §4 1NT 之後", "reviewer": null, "status": "pending", "note": "8 點 Stayman 沒對到：2NT 邀請（T1）" },
+    { "id": "gib-rebid-044", "system": "gib", "dealer": "N", "vul": "None", "hand": "KJ432.Q32.Q43.32", "auction": ["1N", "P", "2H", "P", "2S", "P"], "answer": "2N", "source": "docs/BBO GIB/gib-2over1.md §4 1NT 之後", "reviewer": null, "status": "pending", "note": "8 點 5 張♠：轉換後 2NT 邀請" },
+    { "id": "gib-rebid-045", "system": "gib", "dealer": "N", "vul": "None", "hand": "AQ3.KJ2.KJ3.Q432", "auction": ["1N", "X", "2N", "P"], "answer": "3N", "source": "docs/BBO GIB/gib-2over1.md §4 1NT 之後（被插叫）", "reviewer": null, "status": "pending", "note": "被賭倍後的 2NT 也是自然邀請（T1）：16 點接受" },
+    { "id": "gib-rebid-046", "system": "gib", "dealer": "N", "vul": "None", "hand": "2.32.432.QJ86432", "auction": ["1N", "P", "2S", "P", "3C", "P"], "answer": "P", "source": "docs/BBO GIB/gib-2over1.md §4 1NT 之後", "reviewer": null, "status": "pending", "note": "2♠ 轉換到♣（社團決定，T1）之後弱牌 Pass" }
+  ]
+}

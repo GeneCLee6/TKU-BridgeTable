@@ -274,7 +274,7 @@ function sequenceTop(view: View, cards: Card[]): Card | null {
 /**
  * Hold up the only stopper in notrump (the rule of seven): duck the suit the defence leads
  * 7 − (our cards in it) times, so the defender with the long suit has no way to reach partner.
- * The rule guesses a five-card suit; when the card reading (T3, ROBOT.md §3.16) clearly shows
+ * The rule guesses a five-card suit; when the card reading (T3, ROBOT.md §3.17) clearly shows
  * the long hand, hold up longer while its partner is all but sure to hold another card, and
  * stop once that partner is all but sure to be out and the long hand leads the suit itself
  */

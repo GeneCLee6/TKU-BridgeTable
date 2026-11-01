@@ -258,7 +258,7 @@ describe('after 1♥ / 1♠ (§3)', () => {
 })
 
 describe('after 1NT / 2NT (§4, §5)', () => {
-  it('answers 1NT with Stayman, transfers, Texas, minor-suit Stayman, shortness and notrump', () => {
+  it('answers 1NT with Stayman, transfers, Texas, minor transfers, shortness and notrump', () => {
     expect(bidOver('KJ32 Q43 Q54 Q32', '1N P')).toBe('2C')
     expect(bidOver('KJ432 Q432 Q5 32', '1N P')).toBe('2C')
     expect(bidOver('32 QJ432 J54 432', '1N P')).toBe('2D')
@@ -267,12 +267,19 @@ describe('after 1NT / 2NT (§4, §5)', () => {
     expect(bidOver('QJ432 QJ432 32 2', '1N P')).toBe('2D')
     expect(bidOver('KQ432 AJ432 32 2', '1N P')).toBe('2H')
     expect(bidOver('KQJ432 32 K54 Q2', '1N P')).toBe('4H')
-    expect(bidOver('2 32 AQ432 KJ432', '1N P')).toBe('2S')
+    // No minor-suit Stayman over 1NT: 2♠ is the club transfer (T1, 社團決定, not GIB's)
+    expect(bidOver('2 32 AQ432 KJ432', '1N P')).toBe('3N')
     expect(bidOver('KJ32 Q432 2 AJ32', '1N P')).toBe('3D')
-    expect(bidOver('2 32 432 QJ86432', '1N P')).toBe('2N')
+    expect(bidOver('2 32 432 QJ86432', '1N P')).toBe('2S')
+    expect(bidOver('32 2 QJ86432 432', '1N P')).toBe('3C')
     expect(bidOver('K32 Q43 K54 Q432', '1N P')).toBe('3N')
-    // Inviting 3NT without a major goes through Stayman
-    expect(bidOver('K32 Q43 J54 Q432', '1N P')).toBe('2C')
+    // Inviting 3NT without a major: a natural 2NT, or 3NT with a long good minor (T1)
+    expect(bidOver('K32 Q43 J54 Q432', '1N P')).toBe('2N')
+    expect(bidOver('32 32 KQJ432 Q32', '1N P')).toBe('3N')
+    expect(bidOver('K32 Q43 J54 Q432', '1N X')).toBe('2N')
+    expect(bidOver('K32 Q43 J54 Q432', '1N 2C')).toBe('2N')
+    // Inviting with a four-card major: Stayman from 8 HCP
+    expect(bidOver('KJ32 Q43 J54 J32', '1N P')).toBe('2C')
     expect(bidOver('KQ2 AQ3 K54 Q432', '1N P')).toBe('4N')
     expect(bidOver('932 843 J54 5432', '1N P')).toBe('P')
   })
@@ -285,15 +292,20 @@ describe('after 1NT / 2NT (§4, §5)', () => {
     expect(meaning('1N P 2C P 2S P 2N P', '3N')).toBe('接受，16–17 大牌點')
   })
 
-  it('opener answers Stayman, transfers and minor-suit Stayman', () => {
+  it('opener answers Stayman, transfers and the natural 2NT', () => {
     expect(bidOver('AQ2 KJ32 Q54 K32', '1N P 2C P')).toBe('2H')
     expect(bidOver('AQ32 KJ3 Q54 K32', '1N P 2C P')).toBe('2S')
     expect(bidOver('AQ2 KJ3 Q54 K432', '1N P 2C P')).toBe('2D')
     expect(bidOver('AQ2 KJ3 Q54 K432', '1N P 2D P')).toBe('2H')
     expect(bidOver('AQ2 KJ32 KQ5 Q32', '1N P 2D P')).toBe('3H')
-    expect(bidOver('AQ2 KJ3 Q54 K432', '1N P 2S P')).toBe('2N')
-    expect(bidOver('AQ2 K3 Q543 K432', '1N P 2S P')).toBe('3D')
-    expect(bidOver('AQ2 KJ3 Q54 K432', '1N P 2N P')).toBe('3C')
+    // 2♠ is the club transfer, 2NT a natural invitation (T1)
+    expect(bidOver('AQ2 K3 Q543 K432', '1N P 2S P')).toBe('3C')
+    expect(bidOver('AQ2 KJ3 Q54 K432', '1N P 2N P')).toBe('P')
+    expect(bidOver('AQ2 KJ3 KJ4 K432', '1N P 2N P')).toBe('3N')
+    expect(bidOver('AQ2 KJ3 KJ4 K432', '1N X 2N P')).toBe('3N')
+    expect(bidOver('AQ2 KJ3 Q54 K432', '1N 2C 2S P')).toBe('3C')
+    // Minor-suit Stayman stays over 2NT
+    expect(bidOver('AQ2 KJ AQ43 KJ32', '2N P 3S P')).toBe('4D')
     expect(bidOver('AQ2 KJ3 Q54 K432', '1N P 4D P')).toBe('4H')
   })
 
@@ -342,7 +354,9 @@ describe('after 1NT / 2NT (§4, §5)', () => {
   })
 
   it('explains these calls the way GIB does', () => {
-    expect(meaning('1N P', '2C')).toBe('Stayman：詢問 4 張高花，8+ 大牌點，迫叫一圈')
+    expect(meaning('1N P', '2C')).toBe('Stayman：有 4 張以上的高花，詢問 4 張高花，8+ 大牌點，迫叫一圈')
+    expect(meaning('1N P', '2N')).toBe('沒有 4 張高花，邀請，0–3 張♠，0–3 張♥，8–9 大牌點')
+    expect(meaning('1N P', '2S')).toBe('轉換：轉到♣，6+ 張♣，迫叫一圈')
     expect(meaning('1N P', '2D')).toBe('轉換：轉到♥，5+ 張♥，迫叫一圈')
     expect(meaning('1N P', '4C')).toBe('Gerber')
     expect(meaning('1N P 2D P 2H P', '3N')).toBe('請同伴選 4♥ 或 3NT，5 張♥，10–15 大牌點')
@@ -375,8 +389,8 @@ describe('the 2/1 audit: forcing calls and the notrump structure (ROBOT.md §6.7
   })
 
   it('opener answers the shortness after a minor transfer: 3NT with a stopper, else game in the minor', () => {
-    expect(bidOver('AQ2 KJ3 KQ4 J432', '1N P 2N P 3C P 3D P')).toBe('3N')
-    expect(bidOver('AQ2 KJ32 54 AK32', '1N P 2N P 3C P 3D P')).toBe('5C')
+    expect(bidOver('AQ2 KJ3 KQ4 J432', '1N P 2S P 3C P 3D P')).toBe('3N')
+    expect(bidOver('AQ2 KJ32 54 AK32', '1N P 2S P 3C P 3D P')).toBe('5C')
   })
 
   it('new minor forcing: responder places the contract, and 1♥–1♠–1NT–2♣ is new minor forcing too', () => {

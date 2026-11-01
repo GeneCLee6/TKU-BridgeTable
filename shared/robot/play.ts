@@ -4,6 +4,7 @@ import { legalCards, remainingCards, tricksOf, type BoardState, type PlayedCard 
 import type { RobotKind } from '../protocol.ts'
 import { declarerLead, exitLead, holdUp, secondHandWin } from './declarer.ts'
 import { declarerLength, noHurry } from './defence-plan.ts'
+import { preferencePair, runningPreference, runningSuitAt, wantedBack } from './defence-reading.ts'
 import { cashOut, coverLastHonour, defenceLead, dummyOverruffs, holdUpAgainstDummy, raceSuit, secondHand, thirdHand } from './defence.ts'
 import { suitCards } from './hand.ts'
 import { clubLeadCard, sequenceLead } from './lead-card.ts'
@@ -49,7 +50,7 @@ export function chooseCard(state: BoardState, seat: Seat, kind: RobotKind = 'tku
 
   const defending = !sameSide(seat, contract.declarer)
   // A card that signals rather than wins, from the club's methods (橋牌防守信號)
-  const signal = (cards: Card[]) => (!defending ? lowest(cards) : signalFollow(state, seat, trick, cards, trump))
+  const signal = (cards: Card[]) => (!defending ? lowest(cards) : signalFollow(view, trick, cards, trump))
 
   if (following.length) {
     // A defender after partner's lead: third hand high, with its exceptions (defence.ts)
@@ -152,8 +153,8 @@ function lead(state: BoardState, seat: Seat, view: View, legal: Card[], trump: S
       if (noHurry(view, s, trump)) continue
       if (view.isMaster(top) && state.play.length >= 4 && !ruffed(s)) return top
     }
-    // Lead the suit partner asked for with a discard
-    const wanted = partnerSignal(state, seat, trump)
+    // Lead the suit partner asked for with a discard, or with suit preference while dummy's suit ran (T4)
+    const wanted = partnerSignal(state, seat, trump) ?? runningPreference(view, trump)
     if (wanted && suitCards(hand, wanted).length && !ruffed(wanted)) {
       const cards = suitCards(hand, wanted)
       return cards.length === 2 ? cards[0] : cards.at(-1)!
@@ -243,7 +244,7 @@ function declarerThird(view: View, seat: Seat, following: Card[], best: PlayedCa
 }
 
 /**
- * Drop or finesse by the odds (T3, ROBOT.md §3.16): the finesse wins when the missing card is
+ * Drop or finesse by the odds (T3, ROBOT.md §3.17): the finesse wins when the missing card is
  * with second hand (it has played); the drop when its holder has no more cards of the suit than
  * the rounds our masters can play (second hand one fewer: this round is played). The chances
  * come from the card reading: the lengths each defender has shown (vacant places), the lead,
@@ -397,7 +398,8 @@ const highSpotOf = (cards: Card[]) => [...cards].sort(byRank).filter((c) => valu
  * - declarer's lead: count, standard (先大後小＝偶數張); in notrump, the first suit declarer
  *   plays carries a Smith Echo about the opening lead instead (小牌＝歡迎首攻花色)
  */
-function signalFollow(state: BoardState, seat: Seat, trick: PlayedCard[], cards: Card[], trump: Suit | null): Card {
+function signalFollow(view: View, trick: PlayedCard[], cards: Card[], trump: Suit | null): Card {
+  const { state, seat } = view
   const low = [...cards].sort(byRank)[0]
   if (cards.length === 1) return low
   // A high signal from cards that cannot take a trick (ours below outnumber the cards out above):
@@ -419,6 +421,12 @@ function signalFollow(state: BoardState, seat: Seat, trick: PlayedCard[], cards:
     // Partner's queen (KQ, QJ) asks attitude too: the jack likes it as well
     const like = cards.some((c) => (rankOf(leader.card) === 'Q' ? 'AKJ' : 'AKQ').includes(rankOf(c)))
     return like ? low : highSpot(cards)
+  }
+  // Dummy's long suit runs: the count tells partner nothing, so ask for a suit instead (T4)
+  if (trump && runningSuitAt(view, state.play.length - trick.length, trump) === led) {
+    const pair = preferencePair(led, trump)!
+    const want = wantedBack(view, pair)
+    if (want) return want === pair[0] ? highSpot(cards) : low
   }
   const tricks = tricksOf(state)
   const firstDeclarerTrick = tricks.slice(1).find((t) => sameSide(t.leader, state.contract!.declarer))

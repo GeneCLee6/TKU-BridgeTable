@@ -54,7 +54,7 @@ export class View {
    * No higher card of the suit is still out among cards this robot cannot see: the card wins a
    * later round of the suit. Cards on the table in the trick in progress count as gone, so after
    * the ace is led the king is a master (it wins the next round) but does not win this trick: ask
-   * `winsNow` for that (T3, ROBOT.md §3.16). Counting stoppers wants this meaning: KJ over a queen
+   * `winsNow` for that (T3, ROBOT.md §3.17). Counting stoppers wants this meaning: KJ over a queen
    * led after the ace are two masters, the king covers and the jack is good
    */
   isMaster(card: Card): boolean {

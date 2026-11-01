@@ -6,7 +6,7 @@ import { chooseCard } from '../../shared/robot/play.ts'
 import { View } from '../../shared/robot/view.ts'
 
 /**
- * Declarer play by reading the cards (T3, ROBOT.md §3.16): the card reading (`card-reading.ts`)
+ * Declarer play by reading the cards (T3, ROBOT.md §3.17): the card reading (`card-reading.ts`)
  * from the club's opening leads, count signals, vacant places and the auction's points, and the
  * declarer's hold-up, avoidance and finesse-or-drop decisions that use it.
  */
