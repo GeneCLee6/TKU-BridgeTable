@@ -1,0 +1,16 @@
+{
+  "category": "fourth-hand",
+  "title": "第四家：用同伴的張數信號決定什麼時候拿 A（T4）",
+  "questions": [
+    {"id": "play-fourth-001", "system": "both", "board": 1,
+     "hands": {"N": "AK7.AQ.32.AKT942", "E": "T862.J973.764.Q6", "S": "543.642.KQJT9.73", "W": "QJ9.KT85.A85.J85"},
+     "auction": ["1C", "P", "1D", "P", "3N", "P", "P", "P"], "play": ["H3", "H2", "HK", "HA", "CA", "C6", "C3", "C5", "D2", "D4", "DK"],
+     "answer": "D5", "accepted": ["D8"], "source": "教科書：對夢家的長門忍讓，看同伴的張數信號（T4）", "reviewer": null, "status": "pending",
+     "note": "夢家 ♦KQJT9 沒有別的進手張。莊家第一次打的花色（♣）是 Smith Echo，這一門同伴的 ♦4 是張數：看得到比它小的只有 ♦3 一張不知道在哪，4 是小牌＝奇數張，同伴 3 張、莊家還剩 1 張，現在拿 A 莊家就能用剩下那張過到夢家。忍讓一次，下一輪莊家沒牌了再拿"},
+    {"id": "play-fourth-002", "system": "both", "board": 1,
+     "hands": {"N": "AK7.AQ.2.AKT9842", "E": "T862.J973.7643.Q", "S": "543.642.KQJT9.73", "W": "QJ9.KT85.A85.J65"},
+     "auction": ["1C", "P", "1D", "P", "3N", "P", "P", "P"], "play": ["H3", "H2", "HK", "HA", "CA", "CQ", "C3", "C5", "D2", "D7", "DK"],
+     "answer": "DA", "source": "教科書：同伴的張數信號說莊家沒有了就拿（T4）", "reviewer": null, "status": "pending",
+     "note": "同伴的 ♦7 底下還有三張看不到的小牌，是大牌＝偶數張：同伴 4 張，莊家原本只有 1 張，已經出了。現在就拿 A，夢家的 ♦ 再也進不去"}
+  ]
+}
