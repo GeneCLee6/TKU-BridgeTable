@@ -3,6 +3,7 @@ import { nextSeat, partnerOf, rankOf, rankValue, RANKS, sameSide, SEATS, SUITS, 
 import { legalCards, remainingCards, tricksOf, type BoardState, type PlayedCard } from '../game.ts'
 import type { RobotKind } from '../protocol.ts'
 import { declarerLead, exitLead, holdUp, secondHandWin } from './declarer.ts'
+import { masters } from './declarer-technique.ts'
 import { declarerLength, noHurry } from './defence-plan.ts'
 import { preferencePair, runningPreference, runningSuitAt, wantedBack } from './defence-reading.ts'
 import { cashOut, coverLastHonour, defenceLead, dummyOverruffs, holdUpAgainstDummy, raceSuit, secondHand, thirdHand } from './defence.ts'
@@ -104,9 +105,19 @@ export function chooseCard(state: BoardState, seat: Seat, kind: RobotKind = 'tku
   // Void in the suit led
   const trumps = trump ? legal.filter((c) => suitOf(c) === trump) : []
   const partnerSafe = partnerWinning && (lastToPlay || view.isMaster(best.card))
+  if (!defending && trumps.length) {
+    // Partner, last to play, wins the trick with a master: keep the long hand's trumps (S3)
+    const card = spareLongTrump(view, trick, legal, led, trump!)
+    if (card) return card
+  }
   if (trumps.length && !partnerSafe) {
     const highestTrump = trick.filter((p) => suitOf(p.card) === trump).map((p) => rankValue(rankOf(p.card)))
     const over = trumps.filter((c) => rankValue(rankOf(c)) > Math.max(0, ...highestTrump))
+    if (!defending && over.length) {
+      // The defender behind may overruff (the card reading): ruff with a master (S3)
+      const card = ruffHigh(view, trick, over, led, trump!)
+      if (card) return card
+    }
     // Not when dummy, still to play, is seen to overruff (defence.ts)
     if (over.length && !(defending && dummyOverruffs(view, trick, led, lowest(over), trump!))) return lowest(over)
   }
@@ -334,6 +345,53 @@ function fourthBest(cards: Card[]): Card {
   if (cards.length >= 4) return cards[3]
   if (cards.length === 2) return cards[0]
   return cards.at(-1)!
+}
+
+/**
+ * Second hand on the declaring side, void in the suit a defender led, holding more trumps than
+ * partner: when partner, last to play, holds a master that beats the card led, and the card
+ * reading says the defender in between is not void (so it cannot ruff partner's master), throw
+ * a loser that costs nothing (`discardCosts`) instead of ruffing in the long hand (S3,
+ * ROBOT.md §3.4): the trick is ours anyway, and the long hand keeps its trump length
+ */
+function spareLongTrump(view: View, trick: PlayedCard[], legal: Card[], led: Suit, trump: Suit): Card | null {
+  if (trick.length !== 1) return null
+  const partner = view.partnerCards()
+  const myTrumps = suitCards(legal, trump).length
+  if (myTrumps <= suitCards(partner, trump).length) return null
+  const top = suitCards(partner, led)[0]
+  if (!top || value(top) < value(trick[0].card) || !view.isMaster(top)) return null
+  const third = nextSeat(view.seat)
+  if (view.reading.mayRuff(third, led, trump) || (view.cardReading.lengthOdds(third, led)?.[0] ?? 0) > 0.15) return null
+  // A real loser: the lowest card of a suit where this hand holds more cards than our masters win
+  const cost = discardCosts(view, legal, trump)
+  const losers = SUITS.filter((s) => s !== trump && suitCards(legal, s).length > masters(view, s) && cost[s] === 0)
+  if (!losers.length) return null
+  const s = [...losers].sort((a, b) => suitCards(legal, b).length - suitCards(legal, a).length)[0]
+  return suitCards(legal, s).at(-1)!
+}
+
+/** The defender behind is out of the suit led at least this likely: ruff high (S3) */
+const OVERRUFF = 0.3
+
+/**
+ * Ruffing on the declaring side with a defender still to play after us: when the card reading
+ * says it is likely out of the suit too (it showed out, or its length odds) and may hold a trump,
+ * ruff with the lowest master trump rather than the lowest trump, which it would overruff (S3,
+ * ROBOT.md §3.4). Only in the hand with fewer trumps (dummy, usually): the long hand's high trumps
+ * draw the defenders' (ruffing high there gave a trump trick back). Null when the low ruff is
+ * safe or no master is left.
+ */
+function ruffHigh(view: View, trick: PlayedCard[], over: Card[], led: Suit, trump: Suit): Card | null {
+  if (trick.length > 2 || view.outstanding(trump) === 0) return null
+  // Only in the hand with fewer trumps: the long hand's high trumps are the ones that draw theirs
+  if (suitCards(view.ownCards(), trump).length >= suitCards(view.partnerCards(), trump).length) return null
+  const next = nextSeat(view.seat)
+  if (view.reading.len(next, trump)[1] === 0) return null
+  if (view.cardReading.exhausted(next, led) < OVERRUFF) return null
+  const low = [...over].sort(byRank)[0]
+  if (view.isMaster(low)) return null
+  return [...over].sort(byRank).find((c) => view.isMaster(c)) ?? null
 }
 
 /** Throw the lowest card from the longest side suit, keeping winners and trumps */
