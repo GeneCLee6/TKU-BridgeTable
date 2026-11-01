@@ -1,0 +1,11 @@
+{
+  "category": "response",
+  "title": "答叫：1NT 之後的低花邀請（S1）",
+  "questions": [
+    { "id": "tku-resp-163", "system": "tku", "dealer": "N", "vul": "None", "hand": "K2.Q43.5.QJ87432", "auction": ["1N", "P"], "answer": "2S", "source": "淡江橋譜：1NT的答叫（合約選擇方式：邀請叫品）", "reviewer": null, "status": "pending", "note": "8 點、7 張♣只有一張大牌（不夠直接 3NT）：2♠，之後叫 4♣ 低花邀請（S1）" },
+    { "id": "tku-resp-164", "system": "tku", "dealer": "N", "vul": "None", "hand": "K32.Q.J987432.K2", "auction": ["1N", "P"], "answer": "2S", "source": "淡江橋譜：1NT的答叫（合約選擇方式：邀請叫品）", "reviewer": null, "status": "pending", "note": "9 點、7 張♦只有 J：2♠，之後叫 4♦ 低花邀請（S1）" },
+    { "id": "tku-resp-165", "system": "tku", "dealer": "N", "vul": "None", "hand": "K32.J4.Q98742.K2", "auction": ["1N", "P"], "answer": "2N", "source": "淡江橋譜：1NT的答叫（合約選擇方式：邀請叫品）", "reviewer": null, "status": "pending", "note": "9 點、6 張♦、沒有缺門：2NT 邀請（低花邀請的另一個叫法，S1）" },
+    { "id": "tku-resp-166", "system": "tku", "dealer": "N", "vul": "None", "hand": "K32.5.Q2.J987432", "auction": ["1N", "P"], "answer": "2S", "source": "淡江橋譜：1NT的答叫（合約選擇方式：爛牌要打）", "reviewer": null, "status": "pending", "note": "6 點、7 張♣：2♠ 之後 3 線低花束叫（照舊，S1 的對照）" },
+    { "id": "tku-resp-167", "system": "tku", "dealer": "N", "vul": "None", "hand": "K32..QJ8742.K432", "auction": ["1N", "P"], "answer": "2S", "source": "淡江橋譜：1NT的答叫（合約選擇方式：邀請叫品）", "reviewer": null, "status": "pending", "note": "9 點、6 張♦、♥缺門：2♠，之後叫 4♦ 低花邀請（S1）" }
+  ]
+}
