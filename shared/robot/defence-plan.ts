@@ -1,5 +1,6 @@
 import { rankOf, RANKS, SUITS, suitOf, type Card, type Suit } from '../cards.ts'
 import { suitCards } from './hand.ts'
+import { declarerLen, dummyDiscards } from './defence-reading.ts'
 import { value, type View } from './view.ts'
 
 /**
@@ -23,8 +24,7 @@ export function aceNow(view: View, following: Card[], led: Suit): boolean {
   // finesse costs nothing, and the ace stays over dummy's honours
   const next = [...following].sort((a, b) => value(b) - value(a))[1]
   if (next && !view.unseenAbove(next).length) return false
-  const declarer = view.state.contract!.declarer
-  return Math.min(view.reading.len(declarer, led)[1], view.reading.out(led) - 1) <= 2
+  return Math.min(declarerLen(view, led)[1], view.reading.out(led) - 1) <= 2
 }
 
 /**
@@ -48,13 +48,17 @@ export function dummyThreat(view: View, trump: Suit | null): Suit | null {
 }
 
 /**
- * No hurry to cash a winner of the suit: dummy has no running suit for the declarer's losers,
- * dummy holds two or more of the suit (it will not ruff it or discard on it soon), and our
+ * No hurry to cash a winner of the suit: dummy has no running suit the declarer can discard
+ * losers on (by the count: the declarer may run out of it first, T4), dummy holds two or more of the suit (it will not ruff it or discard on it soon), and our
  * winners of the suit do not defeat the contract now. The winner stays, and the declarer may
  * have to lead the suit to us.
  */
 export function noHurry(view: View, s: Suit, trump: Suit | null): boolean {
-  if (dummyThreat(view, trump)) return false
+  // The count of dummy's suit (T4, ROBOT.md §3.16): a running suit is a reason to hurry only when
+  // the declarer may run out of it and discard; a suit of three or more the count says the
+  // declarer will discard on is one too
+  const threat = dummyThreat(view, trump) && dummyDiscards(view, trump, false)
+  if (threat || dummyDiscards(view, trump, true)) return false
   if (suitCards(view.dummyCards(), s).length < 2) return false
   return view.topTricks(s) < view.needed()
 }
@@ -80,7 +84,7 @@ export function ruffsInDummy(view: View, hand: Card[], trump: Suit): boolean {
  * dummy (none left) nor the declarer (one card at most) can use costs 1 less
  */
 export function declarerLength(view: View, s: Suit, mine: Card[], dummy: Card[]): number {
-  const [lo, hi] = view.reading.len(view.state.contract!.declarer, s)
+  const [lo, hi] = declarerLen(view, s)
   let cost = 0
   if (lo >= mine.length && value(mine[0]) >= 10) cost += 2
   if (!dummy.length && hi <= 1) cost -= 1
