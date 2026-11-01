@@ -8,7 +8,7 @@ import { value, type View } from './view.ts'
  * T4 (ROBOT.md §3.16): a defender reads partner's signals, as the club gives them (ROBOT.md §3,
  * §3.2), and counts the declarer's hand from the auction and the cards played. Only what the
  * defender sees: its own hand, dummy, the cards played (`View`, `TableReading`), never the
- * declarer's or partner's cards. Since S2 (ROBOT.md §3.18) the declarer's hand is read with the
+ * declarer's or partner's cards. Since S2 (ROBOT.md §3.19) the declarer's hand is read with the
  * card reading of T3 (`card-reading.ts`, `View.cardReading`): the opening lead's holdings, both
  * defenders' count signals, vacant places and the honour layouts the auction's points allow.
  *

@@ -12,7 +12,7 @@ import { playState, type PlayQuestion } from '../../eval/play-quiz.ts'
 import { HEAVY_MS } from './heavy.ts'
 
 /**
- * S2 (ROBOT.md §3.18): the defenders read the declarer's hand with the card reading of T3
+ * S2 (ROBOT.md §3.19): the defenders read the declarer's hand with the card reading of T3
  * (`card-reading.ts`: the auction, the opening lead, both defenders' count signals, vacant places,
  * the honour layouts the points allow) for switches, discards and second and third hand. Each
  * position is also in the play question bank (tests/play-quiz/*.reading.json).
