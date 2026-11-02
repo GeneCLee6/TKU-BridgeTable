@@ -137,3 +137,22 @@ describe('ComparePage (e4-t33)', () => {
     expect(screen.getByText(/（攤牌）/)).toBeInTheDocument()
   })
 })
+
+describe('a partner challenge’s traveller (e7-t28)', () => {
+  it('names each partnership as one entry, the viewer’s own as 你和 partner', () => {
+    const cat = { id: 'cat', username: 'cat' }
+    const zoe = { id: 'zoe', username: 'zoe' }
+    const pairs: Traveller = {
+      ...TRAVELLER,
+      entries: [
+        { ...TRAVELLER.entries[0], partnerId: 'ben', partner: ben },
+        { ...TRAVELLER.entries[1], userId: 'cat', user: cat, partnerId: 'zoe', partner: zoe },
+      ],
+    }
+    // ben is amy's partner: the partnership's record is under amy
+    wrap(<TravellerTable traveller={pairs} viewerId="ben" />)
+    const rows = within(screen.getByRole('table')).getAllByRole('row')
+    expect(within(rows[1]).getByRole('link', { name: '你和 amy' })).toHaveAttribute('href', '/history/b-amy')
+    expect(within(rows[2]).getByRole('link', { name: 'cat & zoe' })).toBeInTheDocument()
+  })
+})

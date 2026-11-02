@@ -13,12 +13,44 @@ export type ChallengeTab = (typeof CHALLENGE_TABS)[number]
 
 export const playerOf = (c: ChallengeView, userId: string) => c.players.find((p) => p.userId === userId)
 
+/**
+ * A partner challenge (`e7-t28`): the member a partnership's standings and travellers are under,
+ * the one of the two invited first. Oneself in any other challenge
+ */
+export function pairLeadOf(c: ChallengeView, userId: string): string {
+  const partner = playerOf(c, userId)?.partnerId
+  if (partner === undefined) return userId
+  const at = (id: string) => c.players.findIndex((p) => p.userId === id)
+  const there = at(partner)
+  return there >= 0 && there < at(userId) ? partner : userId
+}
+
+/** Whether the member's partner has not accepted yet: they cannot play until both did (`e7-t28`) */
+export function partnerPending(c: ChallengeView, userId: string) {
+  const partner = playerOf(c, userId)?.partnerId
+  return partner !== undefined && playerOf(c, partner)?.status !== 'accepted'
+}
+
+/**
+ * The name of a standings or traveller entry: the participant, or a partnership's two members
+ * (「A & B」). `you` names the viewer (你, or 你和 B for their own partnership)
+ */
+export function entryName(t: Strings, c: ChallengeView, userId: string, you?: string): string {
+  const p = playerOf(c, userId)
+  const partner = p?.partnerId === undefined ? undefined : playerOf(c, p.partnerId)
+  if (!partner) return userId === you ? t.you : participantName(t, p)
+  if (you === userId) return t.partnerChallenge.youAnd(participantName(t, partner))
+  if (you === partner.userId) return t.partnerChallenge.youAnd(participantName(t, p))
+  return t.partnerChallenge.pairName(participantName(t, p), participantName(t, partner))
+}
+
 /** Whether the member can play the challenge now: accepted, still open, boards left */
 export function playable(c: ChallengeView, userId: string, now: number) {
   const me = playerOf(c, userId)
   return (
     !!me &&
     me.status === 'accepted' &&
+    !partnerPending(c, userId) &&
     !me.knownDeals &&
     me.played < c.boards &&
     isOpenChallenge(c.status) &&
@@ -73,7 +105,9 @@ export const settingsBase = (t: Strings, c: ChallengeView) =>
 
 /** The options that are on (Best Hand, Just Declare), which a challenge card shows as tags on a line of their own */
 export const settingsOptions = (t: Strings, c: ChallengeView) =>
-  [c.settings.bestHand && t.bestHand, c.settings.justDeclare && t.justDeclare].filter((x): x is string => !!x)
+  [c.settings.partners && t.partnerChallenge.tag, c.settings.bestHand && t.bestHand, c.settings.justDeclare && t.justDeclare].filter(
+    (x): x is string => !!x,
+  )
 
 /**
  * One-click rematch (`e7-t21`): once it ended, a participant who accepted can challenge the others

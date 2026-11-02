@@ -166,13 +166,14 @@ export class ChallengeExtras {
    * `GET /api/challenges/stats`: the member's own record over the finished challenges they were
    * ranked in (`challengeStats`). Once a challenge is finished every participant sees all of it
    * (§4), so a head to head only uses what both already see. The daily and weekly club events are
-   * left out: they are the whole club against the robots, not a challenge between members
+   * left out: they are the whole club against the robots, not a challenge between members; so are
+   * partner challenges (`e7-t28`): their results are a partnership's, not the member's own
    */
   stats(userId: string): ChallengeStatsView {
     const list: StatsChallenge[] = []
     for (const id of this.deps.challenges.idsOf(userId)) {
       const c = this.deps.challenges.get(id)
-      if (!c || c.status !== 'finished' || c.settings.daily || c.settings.weekly) continue
+      if (!c || c.status !== 'finished' || c.settings.daily || c.settings.weekly || c.settings.partners) continue
       const me = c.players.find((p) => p.userId === userId)
       if (!me || !hasFinished(c, me)) continue
       const boards = this.deps.boardsOf(id)

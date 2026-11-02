@@ -1325,6 +1325,22 @@ export const MESSAGES = {
     ja: 'このチャレンジのボードはすべてプレイしました',
     ko: '이 도전의 보드를 모두 플레이했습니다',
   },
+  challengePartnerWaiting: {
+    zh: '搭檔還沒接受挑戰，兩人都接受才能開打',
+    'zh-Hans': '搭档还没接受挑战，两人都接受才能开打',
+    en: 'Your partner has not accepted yet: you both have to accept before you play',
+    vi: 'Bạn cùng cặp chưa nhận thử thách: cả hai phải nhận rồi mới chơi được',
+    ja: 'パートナーがまだ受けていません。二人とも受けてからプレイできます',
+    ko: '파트너가 아직 수락하지 않았습니다. 두 사람 모두 수락해야 플레이할 수 있습니다',
+  },
+  challengePartnerAway: {
+    zh: '搭檔離開了牌桌，等他回來再繼續',
+    'zh-Hans': '搭档离开了牌桌，等他回来再继续',
+    en: 'Your partner left the table: play goes on when they are back',
+    vi: 'Bạn cùng cặp đã rời bàn: chờ họ quay lại rồi chơi tiếp',
+    ja: 'パートナーがテーブルを離れました。戻ってから続けます',
+    ko: '파트너가 테이블을 떠났습니다. 돌아오면 계속합니다',
+  },
   challengeTableFixed: {
     zh: '挑戰牌桌不能觀看、換座位或改設定',
     'zh-Hans': '挑战牌桌不能观看、换座位或改设置',
