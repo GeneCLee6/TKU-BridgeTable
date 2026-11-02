@@ -109,5 +109,15 @@ export const DIRECTS_PER_SECOND = 20 / 60
 /** Requests to join a table per member: 3 at once, then one every 30 seconds (a declined one also waits TABLE_REQUEST_COOLDOWN_MS) */
 export const REQUEST_BURST = 3
 export const REQUESTS_PER_SECOND = 1 / 30
+/**
+ * Mail sent per account (e1-t29, e1-t30): 3 at once, then one every 10 minutes, verification and
+ * reset links together. Over it a reset request is dropped without a word (it must not tell whether
+ * the account exists); a verification answers slowDown
+ */
+export const MAIL_BURST = 3
+export const MAILS_PER_SECOND = 1 / 600
+/** Reset requests per network address: 5 at once, then one every 2 minutes */
+export const MAIL_REQUEST_BURST = 5
+export const MAIL_REQUESTS_PER_SECOND = 1 / 120
 /** A friend coming online is announced at most once in this long, so reconnects stay quiet (e1-t24) */
 export const FRIEND_ONLINE_QUIET_MS = 30 * 60_000

@@ -58,7 +58,7 @@ npx tsx -e "import {headersFile} from './worker/security-headers.ts'; process.st
 | 2.1.7 檢查外洩密碼 | ✅ | `e11-t29`：`worker/common-passwords.ts` 是 1,197 個外洩密碼——NCSC 從 Have I Been Pwned 整理的最常用 100,000 個裡，長度 12–128 的那些（短的反正會被長度擋掉），轉小寫、去重，約 20 KB。來源：SecLists（`Passwords/Common-Credentials/100k-most-used-passwords-NCSC.txt`，MIT License，Copyright (c) 2018 Daniel Miessler）；用 `scripts/common-passwords.ts` 重新產生。另外擋本站的字（`tkubridgetable` 等）與同一個字元重複（`commonPassword`）。查詢是第一次用時建一個 `Set`、之後 `Set.has`，在社團的 Durable Object 裡做；不呼叫外部服務（CSP 只放行本站，密碼也不該送出去）。也擋跟帳號名稱相同或包含帳號名稱（不分大小寫；2 個字的帳號只擋相同，否則太多密碼會被誤擋）的密碼（`passwordHasUsername`）。沒有做 k-anonymity 的 Pwned Passwords API：要放行外部連線，且清單已涵蓋最常見的 |
 | 2.2.1 防暴力猜測 | ✅ | `worker/rate-limit.ts`：同一來源＋帳號 15 分鐘 5 次、同一來源 20 次（`tooManyLogins`） |
 | 2.4.1 密碼雜湊 | 🔧⚠️ | `e11-t30`：PBKDF2-SHA-256 加鹽，新雜湊 100,000 次（之前 50,000），舊雜湊在下次登入成功時重算（`needsRehash`）。**100,000 是 Cloudflare 執行環境 PBKDF2 的上限**（多了會被拒絕），OWASP 建議的 600,000 次在 Workers 上做不到；量測（2026-10-30，Node）：50,000 次 6 ms、100,000 次 12 ms、600,000 次 65 ms。雜湊在社團的 Durable Object 裡算，不佔 Worker 每次請求的 10 ms，登入有次數限制。要更強只能換演算法（Argon2 要 WASM，CPU 更多），目前不做 |
-| 2.5.x 忘記密碼 | 🔧 | `e1-t36`：邀請碼只能**送出申請**（通知管理員），管理員核准後才產生一次性代碼（約 49 bit、3 天、用一次、只存雜湊），只顯示給核准的管理員，由他交給確認過的本人；代碼與新密碼才能重設，錯的代碼與登入共用失敗次數限制。重設後登出所有裝置（session、通行證、連線）。管理員帳號仍只能由其他管理員重設。剩下的風險：管理員沒確認本人就把代碼交出去（DEPLOY.md 寫明要確認）。Email 重設在全台灣橋手清單最後（`e1-t30`） |
+| 2.5.x 忘記密碼 | 🔧 | `e1-t36`：邀請碼只能**送出申請**（通知管理員），管理員核准後才產生一次性代碼（約 49 bit、3 天、用一次、只存雜湊），只顯示給核准的管理員，由他交給確認過的本人；代碼與新密碼才能重設，錯的代碼與登入共用失敗次數限制。重設後登出所有裝置（session、通行證、連線）。管理員帳號仍只能由其他管理員重設。剩下的風險：管理員沒確認本人就把代碼交出去（DEPLOY.md 寫明要確認）。**Email 重設**（`e1-t29`、`e1-t30`，ARCHITECTURE.md §5.20）：只有驗證過 Email 的帳號能用；連結的權杖 256 bit、30 分鐘、用一次、只存 SHA-256，放在網址的 `#` 後（不進伺服器紀錄），打開頁面不會用掉要按按鈕；不論帳號或 Email 存不存在回答都一樣；每個帳號 10 分鐘 1 封、每個 IP 2 分鐘 1 次申請，錯的連結與登入共用失敗次數限制；設好後登出所有裝置。綁定 Email 要輸入密碼，驗證連結 24 小時、用一次。沒設寄信服務時整個關掉（`emailOff`） |
 | 2.7／2.8 多因素 | 📋 | 沒有。ASVS L1 對管理介面要求多因素（4.3.1），排在 H5 之後（`e11-t31`） |
 
 ### V3 Session
@@ -146,7 +146,7 @@ npx tsx -e "import {headersFile} from './worker/security-headers.ts'; process.st
 
 ## 5. 個人資料：匯出與刪除（`e11-t27`）
 
-- **匯出**：「我的帳號」→「下載我的資料」，`GET /api/account/export` 回一個 JSON 檔（`format: 'tku-bridge-table-account'`、`version`）：帳號與設定（不含密碼雜湊）、登入中的裝置、登入與連線紀錄（`signIns`：網路的雜湊（以 Worker secret `SEEN_SALT` 加鹽，不含 IP；沒設 secret 時是空的）、瀏覽器 id 與名稱、時間，防作弊報表用，ARCHITECTURE.md §5.17）、好友與封鎖、通知、私訊、練習設定、收藏與筆記、打過的每副牌的摘要（完整紀錄在 `/history/<id>`）。不含別人的 session 或任何 token。
-- **刪除**：「我的帳號」→「刪除帳號」，要密碼與確認；`POST /api/account/delete` 走與管理員刪帳號相同的 `removeMember`：帳號、頭像、session、登入與連線紀錄（`seen:`）、好友與封鎖、通知、私訊、收藏、練習設定、閱讀與學習進度立即刪除，所有連線關閉。社團唯一的管理員不能刪（`lastAdminLeaving`）。
+- **匯出**：「我的帳號」→「下載我的資料」，`GET /api/account/export` 回一個 JSON 檔（`format: 'tku-bridge-table-account'`、`version`）：帳號與設定（不含密碼雜湊）、登入中的裝置、登入與連線紀錄（`signIns`：網路的雜湊（以 Worker secret `SEEN_SALT` 加鹽，不含 IP；沒設 secret 時是空的）、瀏覽器 id 與名稱、時間，防作弊報表用，ARCHITECTURE.md §5.17）、好友與封鎖、通知、私訊、練習設定、收藏與筆記、打過的每副牌的摘要（完整紀錄在 `/history/<id>`）。帳號裡有 Email（`email`、`emailVerifiedAt`，等待驗證的地址是 `emailPending`，`e1-t29`），不含驗證或重設連結的雜湊。不含別人的 session 或任何 token。
+- **刪除**：「我的帳號」→「刪除帳號」，要密碼與確認；`POST /api/account/delete` 走與管理員刪帳號相同的 `removeMember`：帳號（含 Email 與寄出的連結）、頭像、session、登入與連線紀錄（`seen:`）、好友與封鎖、通知、私訊、收藏、練習設定、閱讀與學習進度立即刪除，所有連線關閉。社團唯一的管理員不能刪（`lastAdminLeaving`）。
 - **保留的**：打過的牌局紀錄是同桌其他人的紀錄，保留帳號名稱；論壇與淡江橋館的文章與留言保留（隱私權政策請社員先自己刪）；備份裡的帳號在 30 天內隨備份到期消失。
 - **政策頁**：`/privacy`、`/terms`（不用登入，`src/pages/LegalPage.tsx`，文字在 `strings.ts` 的 `legal`，六種語言）。登入頁與「我的帳號」底下有連結；註冊時寫「註冊即表示同意」。內容改了要改 `LEGAL_UPDATED`。

@@ -97,6 +97,17 @@ export const api = {
   /** 忘記密碼, step 2: the one-time code an admin handed over sets the new password */
   resetPassword: (username: string, code: string, password: string) =>
     post<{ ok: true }>('/api/password/reset', { username, code, password }),
+  /** Whether the club sends mail (e1-t29); off when no mail provider is set */
+  emailStatus: () => request<{ enabled: boolean }>('/api/email'),
+  /** The link from the verification mail (e1-t29); no sign-in needed */
+  verifyEmail: (token: string) => post<{ username: string; address: string }>('/api/email/verify', { token }),
+  /** 忘記密碼 by email (e1-t30): the same answer whether or not the account has a verified address */
+  requestEmailReset: (account: string, lang: string) => post<{ ok: true }>('/api/email/reset/request', { account, lang }),
+  /** The link from the reset mail sets the new password */
+  resetPasswordByEmail: (token: string, password: string) => post<{ username: string }>('/api/email/reset', { token, password }),
+  /** Binds or changes the member's email (a link goes to it); an empty address removes it */
+  setEmail: (address: string, password: string, lang: string) => post<{ user: Me }>('/api/account/email', { address, password, lang }),
+  resendEmailVerification: (lang: string) => post<{ user: Me }>('/api/account/email/resend', { lang }),
   logout: () => post<{ ok: true }>('/api/logout'),
   changePassword: (current: string, next: string) => post<{ ok: true }>('/api/account/password', { current, next }),
   /** The account settings the server keeps (e1-t24) */

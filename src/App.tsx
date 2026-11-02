@@ -19,6 +19,7 @@ import { ForumBoardPage, ForumHomePage, ForumPostPage } from './pages/ForumPages
 import { HistoryPage } from './pages/HistoryPage.tsx'
 import { LobbyPage } from './pages/LobbyPage.tsx'
 import { LegalPage } from './pages/LegalPage.tsx'
+import { EmailLinkPage } from './pages/EmailLinkPage.tsx'
 import { LoginPage } from './pages/LoginPage.tsx'
 import { MatchesPage } from './pages/MatchesPage.tsx'
 import { MatchPage } from './pages/MatchPage.tsx'
@@ -79,6 +80,8 @@ function Routed() {
   const forumOn = useFeature('forum')
   // The privacy policy and the terms are for anyone, signed in or not (e11-t27)
   if (pathname === '/privacy' || pathname === '/terms') return <LegalPage kind={pathname === '/privacy' ? 'privacy' : 'terms'} />
+  // The email links (e1-t29, e1-t30) work signed in or not, on any device
+  if (pathname === '/email/verify' || pathname === '/email/reset') return <EmailLinkPage kind={pathname === '/email/verify' ? 'verify' : 'reset'} />
   if (user === undefined) return <PageMain>{t.loading}</PageMain>
   if (user === null) return <LoginPage />
   return (
