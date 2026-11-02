@@ -106,7 +106,25 @@ export interface Me extends PublicUser {
    * for everyone else
    */
   twoFactor?: AccountTwoFactor
+  /**
+   * Google sign-in (e1-t31): the Google account bound to this one (only its address, for the
+   * owner), or null; left out when the club has no Google sign-in (DEPLOY.md §4.16)
+   */
+  google?: AccountGoogle | null
 }
+
+/** `Me.google`: the address Google gave when it was bound, and when */
+export interface AccountGoogle {
+  email: string
+  linkedAt: number
+}
+
+/**
+ * `GET /api/auth/google/pending` (e1-t31): what this browser's Google sign-in waits for after
+ * coming back from Google: the two-step code, or the application form (with Google's name, only
+ * to fill in the display name)
+ */
+export type GooglePending = { step: 'code' } | { step: 'apply'; name: string } | { step: null }
 
 /** `Me.email`: the verified address, and one waiting for its link */
 export interface AccountEmail {

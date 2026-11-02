@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { FEATURE_DEFAULTS, type FeatureFlag } from '../../shared/features.ts'
 import type { Me, RegisterResult } from '../../shared/protocol.ts'
-import { api } from '../lib/api.ts'
+import { api, type GoogleApplication } from '../lib/api.ts'
 import { resetFavorites } from '../lib/favorites.ts'
 
 /** The signed-in member. `undefined` while the session is being checked, `null` when signed out. */
@@ -10,7 +10,14 @@ interface Auth {
   /** `code` is the second step (兩步驟登入, e11-t31), for accounts that turned it on */
   login: (username: string, password: string, code?: string, lang?: string) => Promise<void>
   /** Signs in the club's first account; later registrations come back pending */
-  register: (username: string, password: string, inviteCode: string, note: string, turnstileToken?: string) => Promise<RegisterResult>
+  register: (
+    username: string,
+    password: string,
+    inviteCode: string,
+    note: string,
+    turnstileToken?: string,
+    google?: GoogleApplication,
+  ) => Promise<RegisterResult>
   logout: () => Promise<void>
   /** Reads the account again, e.g. after an admin handled applications */
   refresh: () => Promise<void>
@@ -39,11 +46,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     resetFavorites()
   }, [])
 
-  const register = useCallback(async (username: string, password: string, inviteCode: string, note: string, turnstileToken?: string) => {
-    const result = await api.register(username, password, inviteCode, note, turnstileToken)
-    if ('user' in result) setUser(result.user)
-    return result
-  }, [])
+  const register = useCallback(
+    async (username: string, password: string, inviteCode: string, note: string, turnstileToken?: string, google?: GoogleApplication) => {
+      const result = await api.register(username, password, inviteCode, note, turnstileToken, google)
+      if ('user' in result) setUser(result.user)
+      return result
+    },
+    [],
+  )
 
   const logout = useCallback(async () => {
     await api.logout().catch(() => undefined)

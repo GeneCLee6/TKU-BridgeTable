@@ -1,5 +1,6 @@
 import { useEffect, useId, useState, type FormEvent, type ReactNode } from 'react'
 import styled from 'styled-components'
+import { PROFILE_LIMITS } from '../../shared/profile.ts'
 import { LIMITS } from '../../shared/protocol.ts'
 import { LogoMark } from '../components/Logo.tsx'
 import { PasswordInput } from '../components/PasswordInput.tsx'
@@ -7,6 +8,7 @@ import { Turnstile } from '../components/Turnstile.tsx'
 import { Button, Card, ErrorText, Field, FieldError, FieldHint, FieldLabel, Input, Muted } from '../components/ui.tsx'
 import { useAuth } from '../state/AuthContext.tsx'
 import { api, ApiError } from '../lib/api.ts'
+import { leave } from '../lib/leave.ts'
 import { usePreferences, useT } from '../state/PreferencesContext.tsx'
 import { mobile } from '../styles/tokens.ts'
 
@@ -121,6 +123,33 @@ const Done = styled.p`
   line-height: 1.6;
 `
 
+/** 或 between the form and the Google button, with a rule on each side */
+const Or = styled.p`
+  display: flex;
+  align-items: center;
+  gap: ${({ theme }) => theme.space(3)};
+  margin: 0;
+  color: ${({ theme }) => theme.colors.textMuted};
+  font-size: ${({ theme }) => theme.type.small.size};
+
+  &::before,
+  &::after {
+    content: '';
+    flex: 1;
+    border-top: 1px solid ${({ theme }) => theme.colors.border};
+  }
+`
+
+/** Where Google sent the browser back to (e1-t31): `?google=code|apply|error&code=…`, read once */
+function googleReturn(): { step: 'code' | 'apply' | 'error' | null; code: string } {
+  const params = new URLSearchParams(window.location.search)
+  const step = params.get('google')
+  return {
+    step: step === 'code' || step === 'apply' || step === 'error' ? step : null,
+    code: params.get('code') ?? '',
+  }
+}
+
 const Footnote = styled(Muted)`
   text-align: center;
   font-size: 13px;
@@ -130,8 +159,8 @@ const Footnote = styled(Muted)`
  * `reset` asks the admins (with the invite code), `resetCode` sets the password with the code they
  * handed over (e1-t36); `emailReset` mails a link to the account's verified address (e1-t30)
  */
-type Mode = 'login' | 'register' | 'reset' | 'resetCode' | 'emailReset'
-type FieldName = 'username' | 'password' | 'repeat' | 'inviteCode' | 'code' | 'otp'
+type Mode = 'login' | 'register' | 'reset' | 'resetCode' | 'emailReset' | 'googleCode'
+type FieldName = 'username' | 'password' | 'repeat' | 'inviteCode' | 'code' | 'otp' | 'displayName'
 
 /** Server error codes that belong to one field; the rest show above the form */
 const FIELD_OF: Record<string, FieldName> = {
@@ -141,6 +170,7 @@ const FIELD_OF: Record<string, FieldName> = {
   longPassword: 'password',
   passwordHasUsername: 'password',
   commonPassword: 'password',
+  profileNameTooLong: 'displayName',
   badInvite: 'inviteCode',
   resetCodeWrong: 'code',
 }
@@ -150,13 +180,18 @@ const FIELD_OF: Record<string, FieldName> = {
  * application that an admin approves on the admin page (only the club's first account signs in at
  * once); the account then works on both TKU BridgeTable and TKU BridgeBook. 忘記密碼 is two steps
  * (e1-t36): ask the admins, then enter the one-time code an admin hands over with a new password.
+ * With Google sign-in on (e1-t31) there is a Google button: Google sends the browser back here with
+ * `?google=` when the account has 兩步驟登入 (the code step, `googleCode`), when the Google account
+ * has no club account (the application form, Google's name filling in the display name) or on an error.
  */
 export function LoginPage() {
   const t = useT()
   const { message, lang } = usePreferences()
-  const { login, register } = useAuth()
+  const { login, register, refresh } = useAuth()
   const id = useId()
-  const [mode, setMode] = useState<Mode>('login')
+  /** Where Google sent the browser back to (e1-t31), read once */
+  const [back] = useState(googleReturn)
+  const [mode, setMode] = useState<Mode>(back.step === 'code' ? 'googleCode' : 'login')
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [repeat, setRepeat] = useState('')
@@ -166,7 +201,7 @@ export function LoginPage() {
   const [needOtp, setNeedOtp] = useState(false)
   const [otp, setOtp] = useState('')
   const [note, setNote] = useState('')
-  const [error, setError] = useState('')
+  const [error, setError] = useState(() => (back.step === 'error' ? message(back.code, {}, t.genericError) : ''))
   const [fieldError, setFieldError] = useState<{ field: FieldName; text: string } | null>(null)
   const [done, setDone] = useState('')
   const [busy, setBusy] = useState(false)
@@ -174,6 +209,10 @@ export function LoginPage() {
   const [siteKey, setSiteKey] = useState<string | null>(null)
   const [turnstileToken, setTurnstileToken] = useState('')
   const [turnstileReset, setTurnstileReset] = useState(0)
+  /** Google sign-in (e1-t31): whether it is on, an application with it and its display name */
+  const [googleOn, setGoogleOn] = useState(false)
+  const [googleApply, setGoogleApply] = useState(false)
+  const [displayName, setDisplayName] = useState('')
 
   /** Whether the club sends mail (e1-t29): only then is there 忘記密碼 by email */
   const [emailOn, setEmailOn] = useState(false)
@@ -187,7 +226,51 @@ export function LoginPage() {
       live = false
     }
   }, [])
+  useEffect(() => {
+    let live = true
+    api.google
+      .status()
+      .then(({ enabled }) => live && setGoogleOn(enabled))
+      .catch(() => undefined)
+    return () => {
+      live = false
+    }
+  }, [])
+
+  // Back from Google: the code step, the application form with Google's name, or what went wrong
+  useEffect(() => {
+    if (!back.step) return
+    let live = true
+    window.history.replaceState(null, '', window.location.pathname)
+    if (back.step === 'apply')
+      api.google
+        .pending()
+        .then((pending) => {
+          if (!live) return
+          if (pending.step !== 'apply') return setError(message('googleFailed', {}, t.genericError))
+          setMode('register')
+          setGoogleApply(true)
+          setDisplayName(pending.name)
+        })
+        .catch(() => live && setError(t.genericError))
+    return () => {
+      live = false
+    }
+  }, [back, message, t])
+
+  const startGoogle = async () => {
+    setError('')
+    setBusy(true)
+    try {
+      leave.to((await api.google.start(window.location.pathname + window.location.search)).url)
+    } catch (e) {
+      setError(e instanceof ApiError ? message(e.code, e.params, e.message) : t.genericError)
+      setBusy(false)
+    }
+  }
+
   const registering = mode === 'register'
+  const googleCode = mode === 'googleCode'
   const resetting = mode === 'reset'
   const withCode = mode === 'resetCode'
   const emailing = mode === 'emailReset'
@@ -199,7 +282,9 @@ export function LoginPage() {
         ? t.enterResetCode
         : emailing
           ? t.email.resetTitle
-          : t.login
+          : googleCode
+            ? t.google.codeTitle
+            : t.login
   const intro = registering
     ? t.registerIntro
     : resetting
@@ -208,10 +293,12 @@ export function LoginPage() {
         ? t.resetCodeIntro
         : emailing
           ? t.email.resetIntro
-          : t.loginIntro
-  const submitLabel = resetting ? t.resetRequestButton : emailing ? t.email.sendLink : title
-  /** Who signs in or registers types a password; asking for a reset does not */
-  const needsPassword = !resetting && !emailing
+          : googleCode
+            ? t.google.codeIntro
+            : t.loginIntro
+  const submitLabel = resetting ? t.resetRequestButton : emailing ? t.email.sendLink : googleCode ? t.login : title
+  /** Who signs in or registers types a password; asking for a reset (or the code step after Google) does not */
+  const needsPassword = !resetting && !emailing && !googleCode
   const newPassword = registering || withCode
 
   useEffect(() => {
@@ -236,6 +323,7 @@ export function LoginPage() {
     setRepeat('')
     setNeedOtp(false)
     setOtp('')
+    setGoogleApply(false)
   }
 
   const submit = async (event: FormEvent) => {
@@ -252,8 +340,20 @@ export function LoginPage() {
     }
     setBusy(true)
     try {
-      if (registering) {
-        const result = await register(username, password, inviteCode, note, needsTurnstile ? turnstileToken : undefined)
+      if (googleCode) {
+        // The code step after Google (e1-t31): signed in, back to where the member was
+        const { returnTo } = await api.google.code(otp, lang)
+        window.history.replaceState(null, '', returnTo)
+        await refresh()
+      } else if (registering) {
+        const result = await register(
+          username,
+          password,
+          inviteCode,
+          note,
+          needsTurnstile ? turnstileToken : undefined,
+          googleApply ? { displayName } : undefined,
+        )
         if ('pending' in result) setDone(t.applicationSent(result.username))
       } else if (resetting) {
         await api.requestPasswordReset(username, inviteCode)
@@ -273,6 +373,9 @@ export function LoginPage() {
         setNeedOtp(true)
         return
       }
+      // The code step after Google ran out: start again from the sign-in form
+      if (googleCode && e instanceof ApiError && e.code === 'googleFailed') switchTo('login')
+      if (e instanceof ApiError && e.code === 'googleFailed') setGoogleApply(false)
       const text = e instanceof ApiError ? message(e.code, e.params, e.message) : t.genericError
       const field =
         e instanceof ApiError ? (e.code === 'twoFactorWrong' ? 'otp' : mode !== 'login' ? FIELD_OF[e.code] : undefined) : undefined
@@ -325,20 +428,37 @@ export function LoginPage() {
           <Form onSubmit={submit} aria-label={title}>
             {error && <ErrorText role="alert">{error}</ErrorText>}
             {done && <Done role="status">{done}</Done>}
-            <Field>
-              <FieldLabel htmlFor={`${id}-username`}>{emailing ? t.email.account : t.username}</FieldLabel>
-              <Input
-                {...describe('username', registering)}
-                $size="lg"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                autoComplete={emailing ? 'email' : 'username'}
-                required
-                minLength={emailing ? undefined : LIMITS.usernameMin}
-                maxLength={emailing ? 254 : LIMITS.usernameMax}
-              />
-              {below('username', registering && t.usernameHint(LIMITS.usernameMin, LIMITS.usernameMax))}
-            </Field>
+            {registering && googleApply && <Done role="status">{t.google.applyNotice}</Done>}
+            {!googleCode && (
+              <Field>
+                <FieldLabel htmlFor={`${id}-username`}>{emailing ? t.email.account : t.username}</FieldLabel>
+                <Input
+                  {...describe('username', registering)}
+                  $size="lg"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  autoComplete={emailing ? 'email' : 'username'}
+                  required
+                  minLength={emailing ? undefined : LIMITS.usernameMin}
+                  maxLength={emailing ? 254 : LIMITS.usernameMax}
+                />
+                {below('username', registering && t.usernameHint(LIMITS.usernameMin, LIMITS.usernameMax))}
+              </Field>
+            )}
+            {registering && googleApply && (
+              <Field>
+                <FieldLabel htmlFor={`${id}-displayName`}>{t.google.displayName}</FieldLabel>
+                <Input
+                  {...describe('displayName', true)}
+                  $size="lg"
+                  value={displayName}
+                  onChange={(e) => setDisplayName(e.target.value)}
+                  maxLength={PROFILE_LIMITS.displayNameMax}
+                  autoComplete="nickname"
+                />
+                {below('displayName', t.google.displayNameHint)}
+              </Field>
+            )}
             {withCode && (
               <Field>
                 <FieldLabel htmlFor={`${id}-code`}>{t.resetCode}</FieldLabel>
@@ -376,7 +496,7 @@ export function LoginPage() {
                 {below('password', newPassword && t.passwordHint(LIMITS.passwordMin))}
               </Field>
             )}
-            {mode === 'login' && needOtp && (
+            {((mode === 'login' && needOtp) || googleCode) && (
               <Field>
                 <FieldLabel htmlFor={`${id}-otp`}>{t.twoFactor.code}</FieldLabel>
                 <Input
@@ -438,6 +558,14 @@ export function LoginPage() {
             <Button type="submit" $variant="primary" $size="lg" $busy={busy}>
               {submitLabel}
             </Button>
+            {googleOn && (mode === 'login' || (registering && !googleApply)) && (
+              <>
+                <Or>{t.google.or}</Or>
+                <Button type="button" $size="lg" disabled={busy} onClick={() => void startGoogle()}>
+                  {registering ? t.google.apply : t.google.signIn}
+                </Button>
+              </>
+            )}
           </Form>
         )}
         <Switch>
@@ -451,6 +579,10 @@ export function LoginPage() {
                 {t.backToLogin}
               </LinkButton>
             </>
+          ) : googleCode ? (
+            <LinkButton type="button" onClick={() => switchTo('login')}>
+              {t.google.usePassword}
+            </LinkButton>
           ) : resetting || withCode ? (
             <>
               {resetting && emailOn && (
