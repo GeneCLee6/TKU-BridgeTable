@@ -99,11 +99,11 @@ M0 已經有一套社團用的帳號系統：邀請碼＋管理員核准、PBKDF
 **M2 · 推播與公開階段的身分**（全台灣橋手清單；多元登入 `e1-t29`–`e1-t33` 排在清單最後，社長 2026-10-30）
 
 - [ ] `e1-t28` PWA 推播：VAPID 金鑰、訂閱管理、依通知種類的推播偏好 · AC-1.8 · M · ← e1-t22
-- [ ] `e1-t29` Email 綁定與驗證信（寄信服務選型寫進 PR：Cloudflare Email Service 或 Resend）· AC-1.9 · M
-- [ ] `e1-t30` Email 重設密碼（社團模式仍可保留「帳號＋邀請碼」重設）· AC-1.9 · S · ← e1-t29
+- [x] `e1-t29` Email 綁定與驗證信（寄信服務選型寫進 PR：Cloudflare Email Service 或 Resend）· AC-1.9 · M（Resend，沒設 `RESEND_API_KEY`／`MAIL_FROM` 時關閉；ARCHITECTURE.md §5.20、DEPLOY.md §4.14）#253
+- [x] `e1-t30` Email 重設密碼（社團模式仍可保留「帳號＋邀請碼」重設）· AC-1.9 · S · ← e1-t29（一次性 30 分鐘連結、只存雜湊；管理員核准的 `e1-t36` 保留）#253
 - [ ] `e1-t31` Google 登入（OAuth，與既有帳號綁定）· AC-1.9 · M
 - [ ] `e1-t32` LINE 登入 · AC-1.9 · M · ← e1-t31
-- [ ] `e1-t33` 註冊防濫用：Cloudflare Turnstile、同 IP 註冊速率限制 · AC-1.9 · S
+- [x] `e1-t33` 註冊防濫用：Cloudflare Turnstile、同 IP 註冊速率限制 · AC-1.9 · S（Turnstile 兩把金鑰都設才開，DEPLOY.md §4.13；同 IP 一小時 10 次一直開著）#252
 - [x] `e1-t34` 上傳頭像：瀏覽器先裁切、縮成小圖再上傳（Worker 免費方案每次 10 ms CPU，不在伺服器處理圖片）、大小與格式限制；2026-10-26 提前到 ROADMAP U4，不等 Email 登入；存在社團的 Durable Object（`avatar:<id>`），不用 R2，PR #136 · AC-1.5 · M · ← e1-t18
 
 ## 風險與對策

@@ -133,7 +133,13 @@
      - `e11-t29`（#248）新密碼至少 12 字元（社長決定）、擋常見／外洩密碼（SecLists NCSC 清單 12 字以上 1,197 筆）與包含帳號名稱的；舊密碼照常登入。**GitHub secret `SEED_PASSWORD`、`LOAD_PASSWORD` 要符合新規則**，否則預覽站建不起種子帳號。待做：淡江橋館 `src/lib/api.ts` 的 `passwordMin: 6` 改 12（提示與 `minLength`）。
      - J1（#249）共同模型（ARCHITECTURE.md §5.18）與每日賽：台灣 00:00 開 8 副 MP 全社挑戰、`/daily` 頁；管理員在 `/daily` 開關（預設關）。待決：正式站要不要開、用哪套機器人（預設 2/1）、打完的結果通知要不要關、入口要不要放頁首；全台灣規模時改「按開打才加入」（要在 `EventObject` 加加入動作）。
      - K1（#247）論壇：後端早已由橋館做好（`worker/forum.ts`），牌桌共用同一套 API，只補 `/forum` 頁面（§5.19，功能旗標 `forum` 預設關，發文先連到橋館）。待決：旗標何時開、論壇通知改連牌桌（K3）、未登入可否讀。
-     - 下一批候選：J2（積分、rating）、J3（雙人賽）、K2（論壇編輯器）、K4（檢舉與搜尋）；Phase P 要先升級付費方案；`e11-t31` 接在 Email 綁定之後。
+  0h. **2026-11-02 第二輪（社長：「繼續 H5 開始，不衝突的開多 agent 同時做」；五個 agent 平行）**：
+     - H5b（#252，`e1-t33`）Turnstile（`TURNSTILE_SITE_KEY`＋`TURNSTILE_SECRET_KEY` 都設才開，DEPLOY.md §4.13）、同 IP 一小時 10 次申請／錯邀請碼（一直開著，IP 用 `SEEN_SALT` 加鹽雜湊）。**打開 Turnstile 前橋館要先改**：讀 `/api/register/options`、送 `turnstileToken`、CSP 放行 `challenges.cloudflare.com`。待決：要不要開、10 次夠不夠（招生夜同一個校園 Wi-Fi）。
+     - H5a（#253，`e1-t29` `e1-t30`）Email 綁定與 Email 重設密碼，寄信用 Resend（§5.20；Cloudflare 免費的 `send_email` 只能寄給驗證過的地址）。沒設 `RESEND_API_KEY`／`MAIL_FROM` 時整個關閉；部署前要有社團網域並在 Resend 驗證 SPF／DKIM（DEPLOY.md §4.14）。管理員核准重設（`e1-t36`）保留。待決：管理員可否用 Email 重設（目前可以）；多社團時信裡的連結要帶社團。
+     - K2（#254，`e13-t04`–`t06`）發文編輯器、四手牌編輯器、叫牌過程輸入；貼文格式與橋館相同，後端沒改，橋館不用跟著改。順帶：作者可編輯／刪除、幹部可刪、留言可附叫牌、K1「幹部」沒算管理員的漏洞。待決：首攻要不要存（要改 `ForumDeal`，橋館同時改）、按讚入口。
+     - J2（#255，`e9-t04`–`t08`）積分規則與帳本（Club 的 SQLite，同一場只記一次）、`/rankings` 月榜年榜、Glicko-2 rating 與走勢（§5.21，旗標 `rankings` 預設關）。之前結束的比賽不補記。待決：各種比賽的分數、年榜用日曆年或學期／學年、朋友挑戰算不算 rating、暫定門檻 RD 110、「用這副牌挑戰」的發起者不算、實體社課要不要合併。
+     - J3（#256，`e9-t09`–`t13`）雙人賽：Mitchell 移位（3–10 桌）、報名、同步換桌、MP＋Neuberg、結果頁與 traveller（§5.22，旗標 `pairs` 預設關）、結束時記 J2 積分。開 `EVENT_OBJECTS` 時住自己的 `EventObject`，不做搬移與退回（DEPLOY.md §4.6）。待決：只做 Mitchell 可否、搭檔不用確認、全員在線同步換桌（一桌拖住要等 `e9-t17` 裁判工具）、積分南北東西合併排、雙人賽牌桌誰都不能觀看。
+     - 下一批候選：H5c Google 登入（`e1-t31`）、管理員 TOTP（`e11-t31`，Email 綁定已完成）、K4（檢舉與搜尋，會動橋館共用的 `worker/forum.ts`）、K3（從紀錄分享、個人頁、論壇通知）、J4（主題牌組等，接 J2）；Phase P 要先升級付費方案。
   1. H3b 完成（#150）：大廳拆 `LobbyShared`＋`LobbyMine`、只送差異（`lobbyDelta`）、100 ms 合併廣播、`action` 日誌 1/10 取樣；數字在 `docs/LOAD.md` §6。部署前開著的分頁要重新整理。本機 workerd 量測時社團物件中途重啟過一次（原因未查到，沒有動作失敗），遠端煙霧時留意。
   2. TKB 持續加強（模擬 → 改規則 → 評測）：V4 四項做完（見上）；下一輪從 V4 的待決與 `ROBOT.md` 的「待社團確認」挑。
   3. 秘密設好後：在任一 PR 預覽跑 `docs/LOAD.md` §6 的遠端煙霧測試，再決定正式站開 `EVENT_OBJECTS`。
