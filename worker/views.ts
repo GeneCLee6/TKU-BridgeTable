@@ -475,6 +475,20 @@ export function challengeBoardVisible(c: Challenge, boardId: string, userId: str
 }
 
 /**
+ * Who reads and who writes board `seq`'s discussion thread of a challenge (§4, `e7-t27`). Readers
+ * are exactly those `challengeView` gives that board's traveller: a participant who played every
+ * board, or any participant once it ended, and only once the board has a result. Writers are the
+ * readers who played every board (the known-deals creator too). Someone still playing reads
+ * nothing, as with the results, since a comment would tell them how a board went (社長); members
+ * outside the challenge never see it, even when its standings are open to the club
+ */
+export function challengeThreadAccess(c: Challenge, seq: number, userId: string): { read: boolean; write: boolean } {
+  const role = challengeRole(c, userId)
+  const read = !!role.player && (role.ended || role.finished) && c.results.some((r) => r.seq === seq)
+  return { read, write: read && role.finished }
+}
+
+/**
  * A challenge as a member may see it (§4, §5.5, `e7-t14`), or null. Participants (invited,
  * accepted or declined) always see the settings, the state and how many boards each person has
  * played; the deals never go out. On top of that, while it is open:

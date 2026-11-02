@@ -1,4 +1,4 @@
-import { CalendarClock, CalendarDays, Plus, Swords } from 'lucide-react'
+import { BarChart3, CalendarClock, CalendarDays, Plus, Swords } from 'lucide-react'
 import { useEffect, useId, useState } from 'react'
 import { Link } from 'react-router-dom'
 import styled from 'styled-components'
@@ -305,6 +305,10 @@ export function ChallengesPage() {
               {t.daily.title}
             </Button>
           )}
+          <Button as={Link} to="/challenges/stats">
+            <BarChart3 size={18} aria-hidden />
+            {t.challengeExtras.statsLink}
+          </Button>
           {user.admin && (
             <Button type="button" onClick={() => setScheduling(true)}>
               <CalendarClock size={18} aria-hidden />

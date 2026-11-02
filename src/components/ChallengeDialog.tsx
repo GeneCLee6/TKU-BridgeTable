@@ -387,6 +387,7 @@ export function ChallengeDialog({
                   </option>
                 ))}
               </Select>
+              {scoring === 'datumImp' && <Muted>{t.challengeExtras.datumHint}</Muted>}
             </Field>
             {robotKinds.length > 1 && (
               <Field>

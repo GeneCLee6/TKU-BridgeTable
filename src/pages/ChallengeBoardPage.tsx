@@ -7,6 +7,7 @@ import { headToHead } from '../../shared/challenge-scoring.ts'
 import type { ChallengeView } from '../../shared/challenge.ts'
 import type { BoardRecord } from '../../shared/protocol.ts'
 import type { Traveller } from '../../shared/traveller.ts'
+import { ChallengeThread } from '../components/ChallengeThread.tsx'
 import { TravellerTable } from '../components/Traveller.tsx'
 import { ActionLink, Card, ErrorText, Muted, PageMain, PageTitle } from '../components/ui.tsx'
 import { ApiError, api } from '../lib/api.ts'
@@ -285,6 +286,8 @@ export function ChallengeBoardPage() {
           )}
         </div>
       </section>
+
+      <ChallengeThread challengeId={c.id} seq={seq} />
     </PageMain>
   )
 }

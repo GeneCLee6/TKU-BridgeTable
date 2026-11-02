@@ -197,6 +197,7 @@ import type { ClubLink, Person, RemoteTables, TableEntry, Tables } from './table
 import { nextWeeklyRun, WEEKLY_KEY, type WeeklyState } from './weekly-challenge.ts'
 import { DAILY_KEY, nextDailyRun, type DailyState } from './daily-event.ts'
 import { RankingsService } from './rankings-service.ts'
+import { ChallengeExtras } from './challenge-extras.ts'
 import type { Store } from './store.ts'
 import { parseClientMessage } from '../shared/message-guard.ts'
 import { parseProfile, PROFILE_RECENT, type MemberProfile, type Profile } from '../shared/profile.ts'
@@ -574,6 +575,8 @@ export class ClubService {
    * those that live in their own `EventObject` (H2b, §5.12). Every page and rule reads this
    */
   readonly challenges: ChallengeStore
+  /** Each board's discussion thread and a member's challenge record (M2: e7-t27, e7-t29) */
+  readonly challengeExtras: ChallengeExtras
   /** Which challenges live in their own object, and what the club already did about each one's state */
   private readonly homes: EventHomes
   /** The challenges that live in this object */
@@ -651,6 +654,15 @@ export class ClubService {
     this.friends = new Relations(store, 'friend', this.now)
     this.blocks = new Relations(store, 'block', this.now)
     this.challenges = new ChallengeStore(store.sql)
+    this.challengeExtras = new ChallengeExtras({
+      sql: store.sql,
+      challenges: this.challenges,
+      now: this.now,
+      userById: (id) => this.publicUserById(id),
+      isAdmin: (id) => !!this.users.get(id)?.admin,
+      takeAction: (id) => this.actionLimit.take(id),
+      boardsOf: (eventId) => eventBoards(this.store.sql, eventId),
+    })
     this.homes = new EventHomes(store.sql)
     this.rankings = new RankingsService({
       store,
@@ -800,6 +812,7 @@ export class ClubService {
     this.metrics.restore(await this.store.get<MetricsState>('meta:metrics'))
     createHistoryIndex(this.store.sql)
     this.challenges.createTables()
+    this.challengeExtras.createTables()
     this.homes.createTables()
     this.matches.store.createTables()
     this.matchHomes.createTables()
@@ -1980,6 +1993,7 @@ export class ClubService {
     await this.friends.forget(user.id)
     await this.blocks.forget(user.id)
     removeFavoritesOf(this.store.sql, user.id)
+    this.challengeExtras.forget(user.id)
     this.rankings.forget(user.id)
     await this.practicePresets.removeAll(user.id)
     await forgetQuizRounds(this.store, user.id)
@@ -2118,6 +2132,7 @@ export class ClubService {
       notifications: await this.notifications.view(userId),
       directMessages: this.directs.everyMessage(userId).map((m) => ({ ...m, from: name(m.from), to: name(m.to) })),
       savedPractice: await this.practicePresets.list(userId),
+      challengeComments: this.challengeExtras.commentsOf(userId),
       ...this.rankings.exportOf(userId),
       favorites,
       boards,
