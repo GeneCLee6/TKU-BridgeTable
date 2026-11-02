@@ -358,6 +358,11 @@ export interface TableChallenge {
   /** Boards the player has finished */
   played: number
   deadline: number
+  /**
+   * A partner challenge (`e7-t28`): the partner is away (left the table): nothing is dealt or
+   * played until they are back
+   */
+  partnerAway?: boolean
 }
 
 /**
@@ -709,6 +714,7 @@ export const NOTIFICATION_KINDS = [
   'challengeReminder',
   'challengeResults',
   'challengeWeekly',
+  'challengePartnerDeclined',
   'friendOnline',
   'tableInvited',
   'tableRequest',
@@ -938,6 +944,8 @@ export type ClientMessage =
   | { type: 'playChallenge'; challengeId: string }
   /**
    * Challenges 1–20 friends (§5.5): `boards` 1–16 (8 when left out), settings over the defaults.
+   * With `settings.partners` (`e7-t28`) the invitees are the creator's partner, then the opposing
+   * partnerships two by two (3–19 people)
    * With `fromBoards` (history ids, 1–16) the boards are ones the creator played with three robots
    * (「用這副牌挑戰」, `e7-t22`): their results count and they do not play again
    */

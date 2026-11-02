@@ -57,6 +57,7 @@ import { reviewSteps, robotBidding } from './practice-review.ts'
 import { ClubError } from './errors.ts'
 import {
   biddingOnly,
+  challengePeople,
   challengeStateOf,
   challengeTableOpen,
   modeOf,
@@ -230,11 +231,12 @@ export class TableService implements TableApi {
 
   /**
    * Whether a member may hold a connection to this table (ARCHITECTURE.md §5.10): seated, watching,
-   * or the player of a parked challenge table
+   * or a player of a parked challenge table (either member of a partnership, `e7-t28`)
    */
   admits(userId: string): boolean {
     const table = this.table
-    return !!table && (this.isAt(userId) || challengeStateOf(table)?.userId === userId)
+    const state = table && challengeStateOf(table)
+    return !!table && (this.isAt(userId) || (!!state && challengePeople(state).includes(userId)))
   }
 
   private load(table: Table) {
@@ -350,13 +352,15 @@ export class TableService implements TableApi {
     const challenge = challengeStateOf(table)
     if (challenge) {
       // Leaving a challenge table only pauses it (中途斷線視同暫停): it waits with the board as it
-      // was until they come back. One with nothing left to play closes
-      if (this.challengeTableOver()) {
+      // was until they come back. One with nothing left to play closes, once a partner still
+      // looking at the last board (`e7-t28`) leaves too
+      if (this.challengeTableOver() && this.humansSeated() <= 1) {
         await this.drop()
         return null
       }
       if (seat) {
-        challenge.parkedSeat = seat
+        // A partner always sits North (nobody changes seats when North-South are both people)
+        if (userId === challenge.userId) challenge.parkedSeat = seat
         this.vacate(seat)
       }
       await this.save()
@@ -450,11 +454,13 @@ export class TableService implements TableApi {
   async resume(person: Person): Promise<TableEntry> {
     const table = this.require()
     const state = challengeStateOf(table)
-    if (!state || state.userId !== person.id) throw new ClubError('tableGone', {}, 404)
+    if (!state || !challengePeople(state).includes(person.id)) throw new ClubError('tableGone', {}, 404)
     if (this.isAt(person.id)) return this.settled()!
     this.welcome(person)
-    table.seats[state.parkedSeat ?? 'S'] = person.id
-    state.parkedSeat = undefined
+    if (person.id === state.userId) {
+      table.seats[state.parkedSeat ?? 'S'] = person.id
+      state.parkedSeat = undefined
+    } else table.seats.N = person.id
     table.hostId = person.id
     this.startBoardIfReady()
     await this.save()
@@ -522,7 +528,8 @@ export class TableService implements TableApi {
     const table = this.table
     if (!table) return null
     // Their challenges forget them, so their parked challenge table goes too
-    if (challengeStateOf(table)?.userId === userId) {
+    const state = challengeStateOf(table)
+    if (state && challengePeople(state).includes(userId)) {
       await this.drop()
       return null
     }
@@ -1318,6 +1325,15 @@ export class TableService implements TableApi {
     return !!state && !challengeTableOpen(state, this.now())
   }
 
+  /**
+   * A partnership's table (`e7-t28`) while one of the two is away: it stands still, the robots
+   * too, so the one still there cannot play on alone; it goes on when the partner is back
+   */
+  private partnerAway(): boolean {
+    const table = this.table!
+    return challengeStateOf(table)?.partnerId !== undefined && SEATS.some((s) => !table.seats[s])
+  }
+
   /** What a challenge table's player sees of the challenge: which board of how many, until when */
   private tableChallenge(table: Table): TableChallenge | undefined {
     const state = challengeStateOf(table)
@@ -1328,6 +1344,7 @@ export class TableService implements TableApi {
       boards: state.boards.length,
       played: state.played.length,
       deadline: state.deadline,
+      ...(this.partnerAway() && { partnerAway: true }),
     }
   }
 
@@ -1382,6 +1399,7 @@ export class TableService implements TableApi {
     if (!board) throw new ClubError('noBoard')
     // At the deadline play stops, as on BBO: a board still going is dropped, not finished
     if (this.challengeClosed()) throw new ClubError('challengeClosed')
+    if (this.partnerAway()) throw new ClubError('challengePartnerAway')
 
     let next: BoardState
     switch (message.type) {
@@ -1597,7 +1615,7 @@ export class TableService implements TableApi {
     const table = this.table
     const board = table?.board
     if (!table || !board || board.phase === 'finished' || (this.humansSeated() === 0 && !this.playsOn())) return null
-    if (this.challengeClosed() || teamPaused(table)) return null
+    if (this.challengeClosed() || this.partnerAway() || teamPaused(table)) return null
     const robot = (seat: Seat | null | undefined): seat is Seat => !!seat && isRobotId(table.seats[seat])
     // A robot whose calls a member makes (seat control) waits for them; it still answers undo and claims
     const robotActs = (seat: Seat | null | undefined): seat is Seat => robot(seat) && isRobotId(actorOf(table, seat))
@@ -1865,7 +1883,13 @@ export class TableService implements TableApi {
       boardNo: table.board ? table.board.boardNo : null,
       playing: !!table.board && table.board.phase !== 'finished',
       ...(table.directorCall && { directorCall: { ...table.directorCall } }),
-      ...(state && { challenge: { challengeId: state.challengeId, userId: state.userId } }),
+      ...(state && {
+        challenge: {
+          challengeId: state.challengeId,
+          userId: state.userId,
+          ...(state.partnerId !== undefined && { partnerId: state.partnerId }),
+        },
+      }),
       ...(team && {
         match: {
           matchId: team.matchId,

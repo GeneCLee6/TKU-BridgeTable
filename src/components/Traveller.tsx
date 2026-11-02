@@ -73,7 +73,17 @@ export function TravellerTable({
 }) {
   const { t } = usePreferences()
   const ranked = traveller.entries.some((e) => e.points !== undefined)
-  const who = (e: TravellerEntry) => (e.userId === viewerId ? t.you : (e.user?.username ?? t.deletedMember))
+  const who = (e: TravellerEntry) => {
+    const name = e.user?.username ?? t.deletedMember
+    // A partnership is one entry (`e7-t28`): 「A & B」, or 你和 B for the viewer's own
+    if (e.partnerId !== undefined) {
+      const partner = e.partner?.username ?? t.deletedMember
+      if (e.userId === viewerId) return t.partnerChallenge.youAnd(partner)
+      if (e.partnerId === viewerId) return t.partnerChallenge.youAnd(name)
+      return t.partnerChallenge.pairName(name, partner)
+    }
+    return e.userId === viewerId ? t.you : name
+  }
 
   return (
     <Scroll>

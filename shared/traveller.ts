@@ -30,6 +30,9 @@ export interface TravellerEntry {
   points?: number
   /** A director's ruling on this result (`e2-t36`): `points` counts it, `scoreNS` is the score played */
   ruling?: ScoreRuling
+  /** A partner challenge (`e7-t28`): the partnership's result, `userId` and this partner as one entry */
+  partner?: PublicUser
+  partnerId?: string
 }
 
 export interface Traveller {

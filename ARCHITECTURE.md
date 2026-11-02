@@ -197,6 +197,8 @@ interface BoardState {
 
 **挑戰戰績**（`e7-t29`，`GET /api/challenges/stats`）：只回答**本人**的戰績，沒有讀別人戰績的 API。只用已經 `finished` 的挑戰（結束後每位參與者本來就看得到全部），只比打完全部副數的人，所以不會比 traveller 多透露什麼。
 
+**雙人搭檔挑戰**（`e7-t28`，§5.5 M2）：規則和上表一樣，只是「打完全部副數」以搭檔為單位：搭檔的每一副結果寫給兩個人（同一個牌局 id、同一個分數），所以兩人同時打完、同時看得到 traveller、排名與討論串，`challengeBoardVisible` 也讓兩人都能打開別組的紀錄；沒打完的搭檔兩人都看不到別人的結果。排名與 traveller 把搭檔合成一列（掛在先受邀的那位，帶 `partnerId`），不多給任何東西。搭檔的牌桌是一般的挑戰牌桌：兩位真人坐南北、東西是機器人，`boardView` 照一般規則（各看自己的牌，夢家攤開後照常），大廳不列、不能觀看；只有這兩人進得了（`admits`、`resume`），別人一樣 `tableGone`。測試在 `tests/worker/challenge-partners.test.ts`（兩種 `EVENT_OBJECTS` 模式都跑）。
+
 **隊制賽**（§5.8，`teamMatchView`，`GET /api/matches`、`/api/matches/:id`、socket 的 `match`）：牌組永遠不送；準備中的比賽只給房主與有座位（受邀或已入座）的人，被移出、拒絕或離開後就看不到（推送 `match: null`）；畫面另附每位座位上的社員在不在線（`online`，和大廳的社員列表同一份資訊）與房主能不能開始（`ready`）；比賽中另附兩室牌桌的 id（`tables`，參賽者回到自己那一桌、其他人觀看用；能不能進去由牌桌決定）；比賽中的牌桌只是兩張一般牌桌，看得到的牌和一般牌桌一樣，額外的限制在牌桌層（F4 的 `e8-t09`，見下）。比賽的畫面推給參賽者，比賽中也推給兩桌上的每一個人（入座與觀看），牌桌上方的比分條就是用它（`e8-t10`）。
 
 | 誰 | 準備中（`setup`） | 比賽中（`playing`） | 結束（`finished`／`abandoned`） | 取消（`cancelled`） |
@@ -1234,7 +1236,7 @@ PRD 寫的「機器人等級」不做：機器人只有一個 TKB、沒有等級
 challenge（challenges 一列）
   ├─ settings  計分、機器人的制度（TKB 用淡江制度或 2/1）、Best Hand、Just Declare、截止天數、排名公開範圍（JSON）
   ├─ deals     DealSet：N 副的牌號與四手牌（shared/deal-set.ts，一副一行 PBN）
-  ├─ players   challenge_players：invited → accepted｜declined；開打、完成時間、已知牌
+  ├─ players   challenge_players：invited → accepted｜declined；開打、完成時間、已知牌、搭檔（e7-t28）
   └─ results   challenge_results：人 × 副：牌局 id、南北分數、時間
 ```
 
@@ -1326,14 +1328,28 @@ C4 的實作（2026-10-24）：
 
 **M2：IMP 對 datum、每副討論串、挑戰戰績**（J4，`e7-t27`、`e7-t29`、`e7-t30`，2026-11-02）：
 - **IMP 對 datum**（`e7-t30`，計分 `datumImp`，`shared/challenge-scoring.ts` 的 `datumOf`）：多人挑戰與每週社團挑戰多一個計分選項（`scoringsFor`、`WEEKLY_SCORINGS`；單挑沒有，兩人時 datum 就是兩人的平均，沒有意義）。每一副的 datum ＝ 那一副比較的所有分數（**含自己**）的平均，**三個以上時去掉一個最高與一個最低**，四捨五入到 10 分；每個人以「自己的分數 − datum」查 IMP 表，各副加總。只有一人打的那一副 datum 就是他自己的分數，得 0 IMP（同其他 IMP 計分）。裁定照舊：Avg／Avg+／Avg- 是 0／+3／−3 IMP，不放進別人的 datum；指定分數用指定的分數。結果頁的「你對每位的成績」跟 Cross-IMP 一樣用兩人分數差的一般 IMP。
-  - **建議預設**（PRD 沒定，待社長確認）：去掉最高最低的門檻是 3 個分數（BBO 與多數俱樂部軟體依人數去掉更多，社團規模用 1 高 1 低）；datum 含自己的分數；四捨五入到 10 分。
-- **每副討論串**（`e7-t27`）：每一副的頁面（`/challenges/:id/boards/:seq`，`ChallengeBoardPage` 最下面的 `ChallengeThread`）。誰讀、誰寫見 §4（`challengeThreadAccess`）。留言 1–500 字（`CHALLENGE_COMMENT_MAX`），每串送最新 200 則（`CHALLENGE_COMMENTS_SHOWN`），走社員的動作速率限制。**不用論壇**（§5.19）：論壇是牌桌與橋館共用、所有社員都能讀的公開討論，挑戰的討論串要依「打完沒有」把關，而且不該出現在橋館；所以是 `Club` 自己的一張表 `challenge_comments`（`id`、`challenge_id`、`seq`、`user_id`、`text`、`at`；索引 `(challenge_id, seq, id)`、`(user_id)`），程式在 `worker/challenge-extras.ts`（`ChallengeExtras`，不碰 Cloudflare API）。`EVENT_OBJECTS` 開著時也留在 `Club`：留言不改挑戰的狀態，判斷權限讀的是 `Club` 的挑戰副本。刪除帳號時他的留言一起刪（`removeMember`），個資匯出帶 `challengeComments`。沒有通知、沒有即時推送（打開頁面時讀、送出後拿到新的整串）。
+  - **已決定**（社長 2026-11-02，照 J4 的建議）：3 個分數以上去掉一個最高與一個最低（BBO 與多數俱樂部軟體依人數去掉更多，社團規模用 1 高 1 低）；datum 含自己的分數；四捨五入到 10 分。
+- **每副討論串**（`e7-t27`）：每一副的頁面（`/challenges/:id/boards/:seq`，`ChallengeBoardPage` 最下面的 `ChallengeThread`）。誰讀、誰寫見 §4（`challengeThreadAccess`）。留言 1–500 字（`CHALLENGE_COMMENT_MAX`），每串送最新 200 則（`CHALLENGE_COMMENTS_SHOWN`），走社員的動作速率限制。**不用論壇**（§5.19）：論壇是牌桌與橋館共用、所有社員都能讀的公開討論，挑戰的討論串要依「打完沒有」把關，而且不該出現在橋館；所以是 `Club` 自己的一張表 `challenge_comments`（`id`、`challenge_id`、`seq`、`user_id`、`text`、`at`；索引 `(challenge_id, seq, id)`、`(user_id)`），程式在 `worker/challenge-extras.ts`（`ChallengeExtras`，不碰 Cloudflare API）。`EVENT_OBJECTS` 開著時也留在 `Club`：留言不改挑戰的狀態，判斷權限讀的是 `Club` 的挑戰副本。刪除帳號時他的留言一起刪（`removeMember`），個資匯出帶 `challengeComments`。沒有通知、沒有即時推送（打開頁面時讀、送出後拿到新的整串）。管理員只有在**自己看得到這一串時**才能刪別人的留言（社長 2026-11-02 決定，照 J4 的建議）。
 - **挑戰戰績**（`e7-t29`，`/challenges/stats`，`ChallengeStatsPage`，挑戰頁右上的「我的戰績」）：純函式 `shared/challenge-stats.ts` 的 `challengeStats`，`ChallengeExtras.stats` 從 `Club` 的副本取這個人參與、已經 `finished`、**他打完全部副數**的挑戰，只放排名裡的人（同 `challengeStandings`，含裁定）。
   - 每場挑戰和每一位**同樣打完的**對手算一次「交手」，照那一場的計分（`headToHead`，只比兩人都有分數、沒被判人工分數的副）分勝負：IMP／總分正數贏、負數輸、0 和；MP 高於 50% 贏。**勝率** ＝（勝 ＋ 和 ÷ 2）÷ 交手次數。
   - **平均 IMP** 不管那一場的計分，一律是每一副和每一位對手的分數差換算的 IMP，加總後除以比過的副數。
   - 另有「挑戰場數」（排名裡至少還有一人的挑戰）、「第一名」（含並列），以及**對每位的戰績**（head-to-head：場數、勝負和、比過幾副、IMP 合計、最近一次），依場數、再依最近一次排序。
-  - **建議預設**（PRD 沒定，待社長確認）：不算每日賽與每週社團挑戰（那是全社對機器人，不是社員之間的挑戰，人數多會把勝率稀釋掉）；沒打完的挑戰不算；和局算半場。
-- **沒做**：`e7-t26` 主題牌組已取消（社長 2026-10-24）。`e7-t28` 雙人搭檔挑戰延後：要讓兩位真人同坐一張挑戰牌桌（邀請以搭檔為單位、兩人都在才發牌、暫停與續打、北家當莊時不換座位、計分以搭檔為單位、`EventObject` 的流程），牽動牌桌模式與挑戰的資料模型，不是 S/M 的改動，另開一批。
+  - **已決定**（社長 2026-11-02，照 J4 的建議）：不算每日賽與每週社團挑戰（那是全社對機器人，不是社員之間的挑戰，人數多會把勝率稀釋掉）；沒打完的挑戰不算；和局算半場。雙人搭檔挑戰（`e7-t28`）也不算：成績是兩個人的，不是本人的（見下面的「雙人搭檔挑戰」）。
+- **沒做**：`e7-t26` 主題牌組已取消（社長 2026-10-24）。
+
+**雙人搭檔挑戰**（`e7-t28`，AC-7.9，2026-11-02）：兩位真人坐南北、對兩個機器人，和其他搭檔打同一組牌比成績。設計上**每個人仍是 `challenge_players` 的一列**（回覆、通知、可見性、我的挑戰都照舊），只多一欄 `partner_id`；搭檔是「一組」只表現在幾個純函式（`worker/challenge-flow.ts` 的 `partnerOf`、`pairLead`、`isPairSecond`、`pairReady`）。沒有沿用雙人賽（§5.22）的 `pair` 實體：那是事先登記、跨比賽的搭檔，挑戰的搭檔只活在這一場，`partner_id` 就夠，也不用動 E2 的搭檔表。
+- **建立**：`createChallenge` 的 `settings.partners = true`（`parseChallengeSettings` 檢查，社員可以送，不像 `weekly`／`daily`）。`invitees` 依序是**自己的搭檔，再兩兩一組的對手搭檔**（`challengePairsOf`：`[搭檔, A1, A2, B1, B2, …]`），所以人數一定是奇數，3–19 位（對手 1–9 組，`CHALLENGE_LIMITS.pairsMin`／`pairsMax`）；偶數回 `badChallengeSettings { field: 'invitees' }`，太少太多回 `challengeInvitees { min, max }`。計分的選項以**對手組數**算（`opponentsOf`）：一組對手時只有 `imp`／`total`，兩組以上多了 `mp`／`crossImp`／`datumImp`。「用這副牌挑戰」不能是搭檔挑戰（`badChallengeSettings { field: 'partners' }`：那是他一個人打過的牌）；每週、每日都不是。發起者照舊自動接受；淡江制度的 TKB 照舊只檢查發起者（§5.1.2）。
+- **回覆**（`answer`，純函式）：每個人各自接受或拒絕。一組**兩人都接受**才算接受：發起者那一組以外有一組兩人都接受時才 `pending` → `active`。**一人拒絕，整組拒絕**：他的搭檔（不管接受了沒）一起改 `declined`（`declinePairs`，同一個 transaction 寫兩列），搭檔收到 `challengePartnerDeclined` 通知（發起者照舊收到 `challengeDeclined`，不重複通知）。發起者的搭檔拒絕時發起者那一組就出局，其他組照打。發起者那一組以外每一組都拒絕了就立刻 `expired`。截止時間到時沒回覆的人改 `declined`，他的搭檔也跟著（`deadlineOutcome`），所以「接受了」一定表示整組接受。
+- **開打**（`playChallenge`）：搭檔還沒接受回 `challengePartnerWaiting`（社團的副本與 `ChallengeEvent.started` 都檢查，兩種 `EVENT_OBJECTS` 模式一樣）。一組一張桌：先受邀的那位（`pairLead`，發起者那一組就是發起者）坐**南**、搭檔坐**北**、東西是設定的機器人；`ChallengeTableState.userId` 是南、`partnerId` 是北，`TableEntry.challenge` 也帶 `partnerId`，兩人都用 `challengeEntry` 找得到這張桌。誰先來誰先坐，另一個位子空著：**四個位子都有人才發牌**（一般牌桌的 `canDeal`），空著時 `TableChallenge.partnerAway`，牌桌頁首顯示「搭檔不在桌上，等他入座再繼續」。
+- **暫停與續打**：一人離開（`leaveTable`、開別桌）只把他從位子拿下來，桌子停著；**打到一半時整桌停住**（`TableService.partnerAway`）：機器人不動，留下的那位也不能叫牌出牌（`challengePartnerAway`），所以不會一個人替兩人打。回來（`playChallenge` → `resume`）坐回原位接著打。座位固定：南北都是真人，沒有「替機器人當莊而換座位」（`swapForDeclarer` 只在莊家是機器人、夢家是真人時換），北家當莊就是北的人主打，所以搭檔回來一定是北，只有南記 `parkedSeat`。斷線（沒送 `leaveTable`）時座位照舊保留（挑戰桌沒有代打），輪到他時桌子等他重連。打完最後一副後兩人都離開桌子才關。
+- **結果**：牌桌的 `boardFinished` 照舊寫一筆（`userId` ＝南）；`ChallengeEvent.result` 寫給**兩個人**（同一個 `board_id`、同一個南北分數），兩人一起 `finished_at`。所以「打完幾副」「打完全部」「每副只打一次」的既有規則與 `challengeBoardVisible` 都不用改。截止時間到時打到一半的那一副照舊作廢，沒打完的搭檔列在「未完成」（一列，帶 `partnerId`）。
+- **計分與顯示**：`challengeStandings` 只排每組的第一位（`isPairSecond` 的不排），`ChallengeStandingView.partnerId`、`unfinished[].partnerId` 帶搭檔；traveller 每組一列（`ChallengeTravellerEntry.partnerId`、牌局頁的 `TravellerEntry.partner`）。`scoreChallenge`（`shared/challenge-scoring.ts`）不用改：它比的本來就是「一列一個分數」，搭檔就是一列。結果頁、每副頁、牌局頁把一組寫成「A & B」，自己那一組寫「你和 B」（`src/lib/challenges.ts` 的 `pairLeadOf`、`entryName`）；名次與「你對每位的成績」以自己那一組為準。挑戰卡與設定列多一個「雙人搭檔」標籤。
+- **社團積分與實力評分**（J2，§5.21）：**照挑戰的種類照給**（`challengeKind`，一般挑戰就是 `challenge` 的規則），一組是一個 side、**兩人各得那一個名次的分數**（`challengeEvent` 的 `userIds: [南, 北]`，同隊制賽一隊多人的做法）。名次與「需要幾組才給分」都以組數算。
+- **挑戰戰績**（`e7-t29`）不算搭檔挑戰：勝率與 head-to-head 是個人的，搭檔的成績是兩個人的。
+- **刪除帳號**（`ChallengeStore.forgetIn`）：進行中的搭檔挑戰拿掉他，他的搭檔改 `declined`、這一組的結果一起刪；剩不到兩組（不到 4 位沒拒絕的人）就 `cancelled`。牌桌照舊關掉（`forget` 認得南北兩人）。
+- **再戰**：同樣的搭檔，按再戰的人和他的搭檔是第一組；有人拒絕過或帳號不在的組不再邀請；自己的搭檔不在了或沒有別組可邀就 `rematchNobody`。
+- **儲存**：`challenge_players.partner_id`（TEXT，可空）。舊表由 `createTables` 用 `PRAGMA table_info` 檢查、缺了就 `ALTER TABLE ADD COLUMN`（同 C5 的 `reminded_at`），不升 `meta:schema`；`EventObject` 的 SQLite 用同一個 `ChallengeStore`，一起補。`boards_index`、`summarize` 都沒改，所以 `REPLICA_VERSION` 不變。
+- **建議預設**（PRD 沒定，待社長確認）：由發起者一次選好全部的搭檔組（不是受邀的人再去找搭檔）；一人拒絕整組出局、不能換人；搭檔挑戰給積分且兩人各得一份；不算進個人戰績；一組最多 9 組對手（受邀的上限仍是 20 人以內）。
 
 **公平與確定性**（`e7-t09`）：機器人是確定的（§5.1），兩個人做一樣的事就遇到一樣的反應。機器人的制度（`robotKind`）在建立時鎖進 `settings`；機器人沒有等級（社長 2026-10-24），`settings` 帶 `robotLevel` 會被拒絕，以前存下來的挑戰帶著的 `robotLevel` 載入時丟掉。以後若 TKB Adv 要用亂數（模擬），種子要用「挑戰 id＋第幾副＋動作序號」，不能用牌局 id。
 
@@ -1352,7 +1368,7 @@ C4 的實作（2026-10-24）：
 | 表 | 欄位 | 索引 |
 | --- | --- | --- |
 | `challenges` | `challenge_id`（主鍵）、`creator_id`、`created_at`、`status`、`accept_by`、`started_at`（變 `active` 的時間）、`ended_at`、`settings`（JSON）、`deals`（`encodeDealSet`）、`reminded_at`（截止前提醒送出的時間，C5） | `(status, accept_by)` |
-| `challenge_players` | `challenge_id`、`user_id`（主鍵兩欄）、`position`（邀請順序，發起者 0）、`status`、`invited_at`、`answered_at`、`started_at`、`finish_by`（不再使用）、`finished_at`、`known_deals` | `(user_id, challenge_id)` |
+| `challenge_players` | `challenge_id`、`user_id`（主鍵兩欄）、`position`（邀請順序，發起者 0）、`status`、`invited_at`、`answered_at`、`started_at`、`finish_by`（不再使用）、`finished_at`、`known_deals`、`partner_id`（雙人搭檔挑戰的搭檔，`e7-t28`） | `(user_id, challenge_id)` |
 | `challenge_results` | `challenge_id`、`user_id`、`seq`（主鍵三欄；`seq` 是牌組裡第幾副）、`board_id`、`score_ns`、`played_at` | — |
 
 為什麼用 SQL、不用 KV：

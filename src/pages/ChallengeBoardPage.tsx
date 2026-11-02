@@ -13,9 +13,9 @@ import { ActionLink, Card, ErrorText, Muted, PageMain, PageTitle } from '../comp
 import { ApiError, api } from '../lib/api.ts'
 import {
   challengeTitle,
+  entryName,
   formatScore,
-  participantName,
-  playerOf,
+  pairLeadOf,
   resultOrder,
   tone,
   travellerRulings,
@@ -138,9 +138,11 @@ export function ChallengeBoardPage() {
 
   const c = challenge
   const board = c?.travellers?.find((x) => x.seq === seq)
-  const order = c && user ? resultOrder(c, user.id) : []
+  // A partnership is one entry, under its first member (`e7-t28`)
+  const lead = c && user ? pairLeadOf(c, user.id) : undefined
+  const order = c && lead ? resultOrder(c, lead) : []
   const entries = [...(board?.entries ?? [])].sort((a, b) => order.indexOf(a.userId) - order.indexOf(b.userId))
-  const mine = entries.find((e) => e.userId === user?.id)
+  const mine = entries.find((e) => e.userId === lead)
   const chosen = entries.find((e) => e.userId === params.get('p')) ?? mine ?? entries[0]
   const anyBoard = entries[0]?.boardId
   const chosenId = chosen?.boardId
@@ -203,13 +205,14 @@ export function ChallengeBoardPage() {
   const prev = seqs[at - 1]
   const next = seqs[at + 1]
   const scoring = c.settings.scoring
+  const me = lead ?? user.id
   const versus = new Map(
-    (travellerScores(c)[user.id] ? headToHead(scoring, travellerScores(c), user.id, travellerRulings(c)) : []).map((v) => [
+    (travellerScores(c)[me] ? headToHead(scoring, travellerScores(c), me, travellerRulings(c)) : []).map((v) => [
       v.opponent,
       v.boards[seq - 1],
     ]),
   )
-  const nameOf = (id: string) => (id === user.id ? t.you : participantName(t, playerOf(c, id)))
+  const nameOf = (id: string) => entryName(t, c, id, user.id)
   const shown = traveller && traveller.boardId === anyBoard ? traveller.traveller : null
   const loadedRecord = record?.id === chosen.boardId ? record : null
   const choose = (userId: string) => setParams({ p: userId }, { replace: true })
@@ -258,7 +261,7 @@ export function ChallengeBoardPage() {
         <Heading id="played-by-title">{t.boardPlayedBy}</Heading>
         <Tabs role="tablist" aria-labelledby="played-by-title">
           {entries.map((e) => {
-            const value = e.userId === user.id ? null : versus.get(e.userId)
+            const value = e.userId === me ? null : versus.get(e.userId)
             return (
               <Tab
                 key={e.boardId}

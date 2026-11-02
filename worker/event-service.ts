@@ -6,6 +6,8 @@ import {
   deadlineOutcome,
   earlyFinish,
   nextChallengeTime,
+  pairReady,
+  partnerOf,
   REMINDER_MS,
   type ChallengeChange,
 } from './challenge-flow.ts'
@@ -106,6 +108,8 @@ export class ChallengeEvent {
     if (!player) this.fail('challengeGone')
     if (!challengeTakesPart(challenge, this.deps.now())) this.fail('challengeClosed')
     if (player.status !== 'accepted') throw new ClubError('challengeNotAccepted')
+    // A partnership sits down once both accepted (`e7-t28`)
+    if (!pairReady(challenge, player)) throw new ClubError('challengePartnerWaiting')
     if (player.startedAt === undefined) this.deps.store.updatePlayer(this.id, { ...player, startedAt: this.deps.now() })
     return this.require()
   }
@@ -114,18 +118,22 @@ export class ChallengeEvent {
    * A board's result, checked against the challenge as it is now: a board finished after the
    * deadline does not count, like one not played (its time is when the table finished it, so a
    * result that reaches the challenge late still counts). The last one marks the participant
-   * finished, and may finish the challenge before its deadline
+   * finished, and may finish the challenge before its deadline. A partnership's board (`e7-t28`)
+   * is written for both members, the same board and score: each has played it
    */
   result(result: ChallengeResult): Challenge {
     const c = this.require()
     const player = c.players.find((p) => p.userId === result.userId)
     const counts = isOpenChallenge(c.status) && result.playedAt < c.deadline
     if (!counts || !player || c.results.some((r) => r.userId === result.userId && r.seq === result.seq)) return c
+    const partner = partnerOf(c, player.userId)
     const { store, now } = this.deps
     store.transaction(() => {
-      store.addResult(c.id, result)
-      if (playedSeqs(c, result.userId).size + 1 >= c.deals.boards.length)
-        store.updatePlayer(c.id, { ...player, finishedAt: now() })
+      for (const p of partner ? [player, partner] : [player]) {
+        if (c.results.some((r) => r.userId === p.userId && r.seq === result.seq)) continue
+        store.addResult(c.id, { ...result, userId: p.userId })
+        if (playedSeqs(c, p.userId).size + 1 >= c.deals.boards.length) store.updatePlayer(c.id, { ...p, finishedAt: now() })
+      }
     })
     this.finishEarly()
     return this.require()

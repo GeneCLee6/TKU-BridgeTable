@@ -61,6 +61,12 @@ export interface ChallengeSettings {
    * every member until the next midnight. Only the server sets it, as `weekly`
    */
   daily?: boolean
+  /**
+   * A partner challenge (`e7-t28`): two members sit North-South at one table against two robots and
+   * compare with the other partnerships. The invitees then come in pairs: the creator's partner
+   * first, then each opposing partnership (`challengePairsOf`)
+   */
+  partners?: boolean
 }
 
 export const CHALLENGE_LIMITS = {
@@ -74,6 +80,9 @@ export const CHALLENGE_LIMITS = {
   daysMin: 1,
   daysMax: 7,
   daysDefault: 3,
+  /** A partner challenge (`e7-t28`): opposing partnerships besides the creator's own */
+  pairsMin: 1,
+  pairsMax: 9,
 } as const
 
 const DAY_MS = 86_400_000
@@ -102,6 +111,23 @@ export const scoringsFor = (invited: number): readonly ChallengeScoring[] =>
   invited > 1 ? ['mp', 'crossImp', 'datumImp', 'total'] : ['imp', 'total']
 
 /**
+ * How many competitors a challenge has besides the creator: the people invited, or for a partner
+ * challenge the opposing partnerships (the invitees are the creator's partner, then two by two)
+ */
+export const opponentsOf = (invited: number, partners: boolean) => (partners ? Math.floor((invited - 1) / 2) : invited)
+
+/**
+ * The partnerships of a partner challenge's invitees (`e7-t28`): the creator with the first
+ * invitee, then the others two by two. Null when they do not pair up (an even count)
+ */
+export function challengePairsOf(creatorId: string, invitees: readonly string[]): [string, string][] | null {
+  if (invitees.length < 3 || invitees.length % 2 === 0) return null
+  const pairs: [string, string][] = [[creatorId, invitees[0]]]
+  for (let i = 1; i < invitees.length; i += 2) pairs.push([invitees[i], invitees[i + 1]])
+  return pairs
+}
+
+/**
  * Checks the settings a creator sent (`e7-t05`): every field optional, falling back on
  * `defaultChallengeSettings`, nothing else allowed. There is no rule for unplayed boards: only
  * those who play every board are ranked. Returns the settings, or the first field that is wrong
@@ -110,16 +136,19 @@ export function parseChallengeSettings(
   value: unknown,
   invited: number,
 ): { settings: ChallengeSettings } | { field: string } {
-  const settings = defaultChallengeSettings(invited)
-  if (value === undefined) return { settings }
+  if (value === undefined) return { settings: defaultChallengeSettings(invited) }
   if (!value || typeof value !== 'object' || Array.isArray(value)) return { field: 'settings' }
-  const { scoring, robotKind, bestHand, justDeclare, days, ranking, ...rest } = value as Record<
+  const { scoring, robotKind, bestHand, justDeclare, days, ranking, partners, ...rest } = value as Record<
     string,
     unknown
   >
   const extra = Object.keys(rest)[0]
   if (extra !== undefined) return { field: extra }
-  if (scoring !== undefined && !scoringsFor(invited).includes(scoring as ChallengeScoring)) return { field: 'scoring' }
+  if (partners !== undefined && typeof partners !== 'boolean') return { field: 'partners' }
+  // A partner challenge is scored between partnerships: the choices follow how many there are
+  const opponents = opponentsOf(invited, partners === true)
+  const settings = defaultChallengeSettings(opponents)
+  if (scoring !== undefined && !scoringsFor(opponents).includes(scoring as ChallengeScoring)) return { field: 'scoring' }
   if (robotKind !== undefined && !isRobotKind(robotKind)) return { field: 'robotKind' }
   if (bestHand !== undefined && typeof bestHand !== 'boolean') return { field: 'bestHand' }
   if (justDeclare !== undefined && typeof justDeclare !== 'boolean') return { field: 'justDeclare' }
@@ -136,6 +165,7 @@ export function parseChallengeSettings(
       ...(justDeclare !== undefined && { justDeclare }),
       ...(days !== undefined && { days: days as number }),
       ...(ranking !== undefined && { ranking: ranking as RankingVisibility }),
+      ...(partners === true && { partners: true }),
     },
   }
 }
@@ -152,6 +182,8 @@ export interface ChallengePlayerView {
   /** Boards played so far */
   played: number
   knownDeals: boolean
+  /** Their partner in a partner challenge (`e7-t28`): the two play one table and count as one entry */
+  partnerId?: string
 }
 
 /** One ranked participant: their place, total and, for those allowed to see it, each board's result */
@@ -165,6 +197,8 @@ export interface ChallengeStandingView {
   boards?: number[]
   /** The boards (1-based) a director ruled on for them (`e2-t36`): their total counts the rulings */
   ruled?: number[]
+  /** A partner challenge (`e7-t28`): the partnership is one entry, under its first member, with this partner */
+  partnerId?: string
 }
 
 /**
@@ -182,7 +216,7 @@ export interface ChallengeStandingsView {
   scoring: ChallengeScoring
   ranked: ChallengeStandingView[]
   /** Accepted participants who did not play every board, in the order they were invited */
-  unfinished: { userId: string; played: number }[]
+  unfinished: { userId: string; played: number; partnerId?: string }[]
 }
 
 /** One participant's result on a board, as its traveller lists it */
@@ -198,6 +232,8 @@ export interface ChallengeTravellerEntry {
   lead?: Card | null
   /** A director's ruling on this result (`e2-t36`); `scoreNS` stays the score played */
   ruling?: ScoreRuling
+  /** A partner challenge (`e7-t28`): the partnership's result, under its first member, with this partner */
+  partnerId?: string
 }
 
 /** Everyone's result on one board of the challenge */
