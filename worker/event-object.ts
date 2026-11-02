@@ -6,18 +6,20 @@ import { EventHost } from './event-host.ts'
 import type { EventRpc } from './events.ts'
 import type { MatchStep } from './match-event.ts'
 import type { MatchRpc } from './match-events.ts'
+import type { PairsStep, PairsEvent } from './pairs-flow.ts'
+import type { PairsRpc } from './pairs-events.ts'
 import type { TeamMatch } from './team-matches.ts'
 import { jsonLog } from './log.ts'
 import { AlarmQueue } from './scheduler.ts'
 
 /**
- * One challenge (`idFromName('challenge:<id>')`, H2b) or one team match (`idFromName('match:<id>')`,
- * H2c) in its own Durable Object (ARCHITECTURE.md §5.12), used when `EVENT_OBJECTS=on`. This is
+ * One challenge (`idFromName('challenge:<id>')`, H2b), one team match (`idFromName('match:<id>')`,
+ * H2c) or one pairs event (`idFromName('pairs:<id>')`, §5.20) in its own Durable Object (§5.12), used when `EVENT_OBJECTS=on`. This is
  * only the glue to Cloudflare: storage, the SQLite database, the alarm and the club's stub. What
  * the event does is `EventHost`, `ChallengeEvent` and `MatchEvent`, which never touch a Cloudflare
  * API. Only the club calls it (RPC); no browser connects here.
  */
-export class EventObject extends DurableObject<Env> implements EventRpc, MatchRpc {
+export class EventObject extends DurableObject<Env> implements EventRpc, MatchRpc, PairsRpc {
   private readonly host: EventHost
   private readonly queue: AlarmQueue
 
@@ -42,7 +44,11 @@ export class EventObject extends DurableObject<Env> implements EventRpc, MatchRp
         exec: (query, ...params) => storage.sql.exec(query, ...params).toArray() as never,
         transaction: (fn) => storage.transactionSync(fn),
       },
-      club: { changed: (snapshot) => club.eventChanged(snapshot), matchChanged: (snapshot) => club.matchChanged(snapshot) },
+      club: {
+        changed: (snapshot) => club.eventChanged(snapshot),
+        matchChanged: (snapshot) => club.matchChanged(snapshot),
+        pairsChanged: (snapshot) => club.pairsChanged(snapshot),
+      },
       scheduler: this.queue,
       now: Date.now,
       log: jsonLog,
@@ -86,5 +92,11 @@ export class EventObject extends DurableObject<Env> implements EventRpc, MatchRp
   }
   handOverMatch() {
     return this.host.handOverMatch()
+  }
+  adoptPairs(event: PairsEvent) {
+    return this.host.adoptPairs(event)
+  }
+  stepPairs(step: PairsStep) {
+    return this.host.stepPairs(step)
   }
 }

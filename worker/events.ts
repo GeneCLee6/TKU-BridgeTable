@@ -1,3 +1,4 @@
+import type { PairsSnapshot } from './pairs-events.ts'
 import { AppError, type MessageCode, type MessageParams } from '../shared/messages.ts'
 import { ClubError } from './errors.ts'
 import type { Challenge, ChallengeResult } from './challenges.ts'
@@ -52,6 +53,8 @@ export interface EventApi {
 export interface EventLink {
   changed(snapshot: EventSnapshot): Promise<void>
   matchChanged(snapshot: MatchSnapshot): Promise<void>
+  /** A pairs event's change told again (§5.20) */
+  pairsChanged?(snapshot: PairsSnapshot): Promise<void>
 }
 
 /** The club's way to reach a challenge by id */

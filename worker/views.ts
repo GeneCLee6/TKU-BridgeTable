@@ -44,6 +44,9 @@ import { teamAt, type MatchBoardView, type MatchRoomView, type TeamMatchView, ty
 import { scoreTeamMatch } from '../shared/team-scoring.ts'
 import { isMatchPlayer } from './team-match-flow.ts'
 import { boardScores, type MatchChatLine, type RoomResult, type TeamMatch } from './team-matches.ts'
+import { pairPlace } from '../shared/movement.ts'
+import { scorePairs, type PairsSummary, type PairsTableView, type PairsTraveller, type PairsView } from '../shared/pairs.ts'
+import { pairOf, type PairsEvent } from './pairs-flow.ts'
 
 /** A table as the Worker keeps it */
 export interface Table {
@@ -166,7 +169,8 @@ export interface AccessFacts {
  */
 export function tableListed(table: AccessFacts, userId: string, at: boolean): boolean {
   // A team match's tables are listed with their match (`LobbyView.matches`, §5.8)
-  if (table.mode === 'challenge' || table.mode === 'team') return false
+  // A pairs event's tables are its players' only, reached from its page (§5.20)
+  if (table.mode === 'challenge' || table.mode === 'team' || table.mode === 'pairs') return false
   if (at || table.hostId === userId) return true
   return table.settings.access !== 'hidden' || !!table.invited?.includes(userId)
 }
@@ -178,7 +182,7 @@ export function tableListed(table: AccessFacts, userId: string, at: boolean): bo
  * (`LobbyMine`) of those it is listed for
  */
 export function listedForEveryone(table: AccessFacts): boolean {
-  return table.mode !== 'challenge' && table.mode !== 'team' && table.settings.access !== 'hidden'
+  return table.mode !== 'challenge' && table.mode !== 'team' && table.mode !== 'pairs' && table.settings.access !== 'hidden'
 }
 
 /**
@@ -754,5 +758,110 @@ export function practiceView(table: Pick<Table, 'mode' | 'modeState' | 'board'>)
       }),
       ...(reviewed && { review }),
     },
+  }
+}
+
+// ── Pairs events (§5.20, `e9-t12`, `e9-t13`) ───────────────────────────────────────────────────
+
+/** A pairs event on the list */
+export function pairsSummary(event: PairsEvent, viewerId: string, userById: (id: string) => PublicUser | null): PairsSummary {
+  return {
+    id: event.id,
+    title: event.settings.title,
+    status: event.status,
+    director: userById(event.directorId) ?? { id: event.directorId, username: '' },
+    createdAt: event.createdAt,
+    pairs: event.pairs.length,
+    mine: pairOf(event, viewerId) >= 0,
+    round: event.round,
+    rounds: event.movement?.rounds ?? 0,
+  }
+}
+
+/**
+ * A pairs event as a member sees it (§4): the pairs, the movement, the current round's tables, the
+ * live standings (everyone), and the travellers. While the event is on, a member in it sees the
+ * traveller of a board only once their own pair played it, so nobody learns how a board went at
+ * other tables before playing it; the director who is not in a pair sees all (to rule), anyone
+ * else none. A record's id goes only with the viewer's own result until the event is over (the
+ * records are kept back until then, `HELD_BACK`). The deal set never leaves the server
+ */
+export function pairsView(event: PairsEvent, viewerId: string, userById: (id: string) => PublicUser | null): PairsView {
+  const user = (id: string) => userById(id) ?? { id, username: '' }
+  const movement = event.movement
+  const myPair = pairOf(event, viewerId)
+  const over = event.status === 'finished'
+  const scoring = movement ? scorePairs(movement, event.results) : null
+  const playedBy = (pair: number) => new Set(event.results.filter((r) => r.ns === pair || r.ew === pair).map((r) => r.boardNo))
+  const mine = myPair >= 0 ? playedBy(myPair) : null
+  const seesBoard = (boardNo: number) =>
+    over || (mine ? mine.has(boardNo) : event.directorId === viewerId && event.status === 'playing')
+  const round = movement?.schedule[event.round - 1]
+  const tables: PairsTableView[] =
+    event.status === 'playing' && round
+      ? round.tables.map((t) => ({
+          table: t.table,
+          ns: t.ns,
+          ew: t.ew,
+          tableId: event.roundTables[event.round - 1]?.[t.table - 1] ?? '',
+          boards: t.boards,
+          played: event.results.filter((r) => r.round === event.round && r.table === t.table).length,
+        }))
+      : []
+  const travellers: PairsTraveller[] = []
+  if (scoring) {
+    const boards = [...new Set(scoring.scored.map((s) => s.result.boardNo))].sort((a, b) => a - b)
+    for (const boardNo of boards) {
+      if (!seesBoard(boardNo)) continue
+      travellers.push({
+        boardNo,
+        entries: scoring.scored
+          .filter((s) => s.result.boardNo === boardNo)
+          .sort((a, b) => b.result.scoreNS - a.result.scoreNS || a.result.round - b.result.round)
+          .map(({ result: r, percentNS }) => ({
+            round: r.round,
+            table: r.table,
+            ns: r.ns,
+            ew: r.ew,
+            contract: r.contract,
+            declarerTricks: r.declarerTricks,
+            ...(r.lead && { lead: r.lead }),
+            scoreNS: r.scoreNS,
+            percentNS,
+            ...((over || r.ns === myPair || r.ew === myPair) && { boardId: r.boardId }),
+          })),
+      })
+    }
+  }
+  return {
+    id: event.id,
+    title: event.settings.title,
+    status: event.status,
+    director: user(event.directorId),
+    createdAt: event.createdAt,
+    settings: event.settings,
+    pairs: event.pairs.map((p, pair) => ({
+      pair,
+      players: p.players.map(user),
+      ...(movement && pairPlace(pair, movement.tables)),
+    })),
+    ...(myPair >= 0 && { myPair }),
+    ...(movement && {
+      movement: {
+        kind: movement.kind,
+        tables: movement.tables,
+        rounds: movement.rounds,
+        boardsPerRound: movement.boardsPerRound,
+        boards: movement.boards,
+      },
+    }),
+    round: event.round,
+    ...(myPair >= 0 && event.status === 'playing' && { myTable: tables.find((t) => t.ns === myPair || t.ew === myPair) ?? null }),
+    tables,
+    standings: scoring?.standings ?? [],
+    travellers,
+    ...(event.startedAt !== undefined && { startedAt: event.startedAt }),
+    ...(event.finishedAt !== undefined && { finishedAt: event.finishedAt }),
+    canDirect: event.directorId === viewerId,
   }
 }

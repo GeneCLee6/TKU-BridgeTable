@@ -44,6 +44,8 @@ TKU-BridgeTable/
 │  ├─ imp.ts               WBF IMP 表（挑戰與隊制賽共用）
 │  ├─ vp.ts                WBF 連續 VP 表：IMP 差 → VP（隊制賽，之後 E9 的多隊賽，§5.8）
 │  ├─ challenge-scoring.ts 挑戰的計分：IMP、總分、MP、Cross-IMP、沒打完的副、同分名次
+│  ├─ movement.ts          雙人賽的移位：Mitchell（3–10 桌、輪空、跳桌），純函式（§5.20）
+│  ├─ pairs.ts             雙人賽的設定、MP 計分（Neuberg 調整、南北東西分開排名）與頁面的型別（§5.20）
 │  ├─ challenge.ts         挑戰的狀態、設定、預設值與期限（§5.5）
 │  ├─ team-match.ts        隊制賽的狀態、兩室八個座位與隊伍對應、設定與預設值、畫面型別（§5.8）
 │  ├─ team-scoring.ts      隊制賽的計分：每副兩室分差 → IMP 或 BAM、Avg／Avg+／Avg- 裁定、總分（§5.8）
@@ -76,7 +78,7 @@ TKU-BridgeTable/
 │  ├─ match-event.ts       MatchEvent：一場隊制賽的寫入（每個 MatchStep 在比賽本身再檢查一次規則，最後一副在這裡結束比賽；不碰 Cloudflare）；LocalMatches＝隊制賽在社團的物件裡
 │  ├─ event-service.ts     ChallengeEvent：一場挑戰的規則、期限工作與結算（不碰 Cloudflare）；LocalEvents＝挑戰在社團的物件裡
 │  ├─ event-host.ts        EventHost：一個 EventObject 做的事（RPC 包裝、變更編號、回報與重送、搬移），可在 Node 測試
-│  ├─ event-object.ts      每場挑戰或隊制賽一個的 Durable Object：儲存、SQLite、alarm、社團的 stub（只是接線，EVENT_OBJECTS=on 才用）
+│  ├─ event-object.ts      每場挑戰、隊制賽或雙人賽一個的 Durable Object：儲存、SQLite、alarm、社團的 stub（只是接線，EVENT_OBJECTS=on 才用）
 │  ├─ integrity.ts         防作弊報表的資料：登入紀錄（`seen:`，IP 只存加鹽雜湊）、從紀錄索引查同桌與同場比賽（§5.17）
 │  ├─ service.ts           ClubService：帳號、申請、session、牌桌目錄、權限、牌局紀錄（可單獨測試）
 │  ├─ table-service.ts     TableService：一張牌桌的一切（座位、叫牌出牌、機器人、發牌、代打、聊天、畫面），LocalTables（§5.10）
@@ -107,8 +109,12 @@ TKU-BridgeTable/
 │  ├─ team-matches.ts      隊制賽的 SQL 表與 TeamMatchStore（§5.8）
 │  ├─ team-match-flow.ts   隊制賽的步驟（建立、改設定、取消、座位與隊長、開始、每室的結果與結束）：純函式（§5.8）
 │  ├─ team-match-service.ts 隊制賽社團那一半：動作（HTTP 與 socket）的檢查、通知、畫面與推送，寫入一律經 MatchStep（§5.8、§5.12 H2c）
-│  ├─ modes.ts             牌桌模式（casual、challenge、practice、team）與三個掛勾（發新一副、寫紀錄、一副結束）
+│  ├─ modes.ts             牌桌模式（casual、challenge、practice、team、pairs）與三個掛勾（發新一副、寫紀錄、一副結束）
 │  ├─ team-mode.ts         隊制賽一室的牌桌：team 模式的掛勾、開桌時的快照、紀錄先不公開（§5.8）
+│  ├─ pairs-flow.ts        一場雙人賽的狀態與步驟（報名、退出、取消、開始、每副的結果、下一輪）：純函式（§5.20）
+│  ├─ pairs-events.ts      社團與雙人賽之間的介面（PairsApi、PairsRpc、LocalPairs、RemotePairs，§5.20）
+│  ├─ pairs-service.ts     雙人賽社團那一半：只有社團能做的檢查、每一輪開桌與換桌、頁面（§5.20）
+│  ├─ pairs-mode.ts        雙人賽一輪一桌的牌桌：pairs 模式的掛勾、開桌時的快照、紀錄先不公開（§5.20）
 │  ├─ scheduler.ts         統一排程器：機器人、自動發牌、挑戰的提醒與截止都走同一個 alarm 佇列
 │  ├─ auth.ts              PBKDF2 密碼雜湊（100,000 次，舊的登入時升級）、session cookie、忘記密碼的一次性代碼
 │  ├─ password-policy.ts   新密碼的規則（e11-t29）：至少 12 字、不含帳號名稱、不在 common-passwords.ts 的外洩清單（docs/SECURITY.md V2.1）
@@ -203,6 +209,8 @@ interface BoardState {
 - **觀看者聊天（Vugraph）**：`POST /api/matches/:id/vugraph/chat { text }`，檢查同上，只在比賽中；去頭尾空白、最多 300 字（`VUGRAPH_CHAT_MAX`），速率限制同牌桌聊天（`chatTooFast`）。存在 `match_chat`（每場留最近 100 句），**只從觀賽頁送出**：參賽者打不開觀賽頁，所以他們的瀏覽器根本收不到；照看的人的封鎖名單過濾（`vugraphChat`，同 `chatFor`）。刪帳號時刪掉他說過的話。
 - **觀看延遲（`e8-t19`）**：房主在準備時可開「觀看者落後一墩」（`TeamMatchSettings.delay`，預設關，開桌時寫進 `TeamTableState.delay`）。開了之後，打牌階段的觀看者只拿到**最後打完那一墩之前**的墩（`laggedBoard`：`play` 只留 `4 ×（完成墩數 − 1）` 張；正在打的那一墩與剛打完的那一墩都不送，等待中的攤牌也不送），每一手的牌是那時候手上的牌；`TableView.waiting`（現在輪到誰）也不送。觀賽頁（`vugraphBoard`）與坐在牌桌上的觀看者（`TableService.tableView`，`mySeat` 是 null 時）都一樣，**在伺服器裁掉**，之後打的牌不會出現在觀看者的瀏覽器。叫牌不延遲；一副打完就整副送出（結果本來就是這一室的）；比賽結束後不再延遲。入座的參賽者照常。
 - **中止**（`e8-t16`）：正在打的那一副直接收起、不留紀錄，其餘已打完的副一起公開（`revealEvent`）。裁定（`e8-t15`）讓那一副「完成」：已打完那一室的紀錄立刻公開，正在打它的那一室收起來、不留紀錄。
+
+**雙人賽**（§5.20，`pairsView`、`pairsSummary`，`GET /api/pairs`、`/api/pairs/:id`）：牌組永遠不送；有 `pairs` 旗標的社員都看得到列表與每一場（取消的只給裁判）。即時成績（每對的 MP、百分比、名次）所有人都看得到。**每副成績（traveller）**：比賽進行中，參賽者只看得到**自己這一對已經打過的副**，所以不會在打之前知道那一副在別桌的結果；沒有參賽的裁判看得到全部（裁定用），其他人一副都看不到；結束後全部公開。紀錄的 id 只跟著自己的那一列（結束前別桌的紀錄還沒公開）。牌桌層：每一輪的牌桌只是一般牌桌（`mode: 'pairs'`），大廳不列、不能觀看（`allowKibitz: false`），比賽中的參賽者不能進同一場的其他桌（`matchNoWatching`，牌桌再用自己的 `PairsTableState.players` 檢查一次），也不能開桌、坐到或觀看別桌、開始挑戰（`inPairs`，社團的 `checkNotInMatch`）；座位與設定由移位決定（`pairsTableFixed`）、不能撤回（`pairsNoUndo`）。紀錄帶 `mode: 'pairs'`、`eventId`，`revealAt` 是 `HELD_BACK`，**比賽結束時才一起公開**（`revealEvent`）：同一副在 Mitchell 裡是不同輪在不同桌打的，所以在那之前只有打那一副的四位看得到。測試在 `tests/worker/pairs-event.test.ts`（兩種 `EVENT_OBJECTS` 模式都跑）。
 
 **資訊隔離回歸測試**（`e11-t13`，AC-11.8）：`tests/worker/visibility/visibility.test.ts` 集中測一般、練習、挑戰、隊制賽四種牌桌 × 每種角色（入座、觀看、不允許觀看時沒有座位的人、另一室的參賽者、局外人）：每一則送到瀏覽器的 `table` 訊息都檢查有沒有不該看到的牌（`noHiddenCards`），還沒公開的牌局在紀錄、紀錄列表、搜尋（我的與全部）、個人檔案、收藏、traveller、精選都拿不到（`exposure`），公開之後每處都拿得到。新增可見性規則或新的地方會送出牌局時，加在這裡；CI 的 `npm test` 會跑。
 
@@ -826,6 +834,48 @@ E13 的 PRD 原本寫「貼文與留言進 D1」。現況是社團 Durable Objec
 - **K2**：四手牌編輯器（`e13-t05`）、叫牌過程輸入（`e13-t06`）、發文編輯器（`e13-t04`）；牌圖改用 `RecordDiagram`。
 - **K3**：從紀錄分享（`e13-t07`，伺服器檢查挑戰未結束的牌）、個人頁的貼文（`e13-t08`）、通知改連牌桌（`e13-t09`）。
 - **K4**：檢舉與管理頁（`e13-t10`）、全文搜尋（`e13-t11`，屆時評估 D1 FTS5）。
+
+## 5.20 雙人賽（決策紀錄，`e9-t09`～`e9-t13`，2026-11-02，J3）
+
+照 §5.18 的共同模型：**Event** 是一場雙人賽，**Round** 是移位的一輪，**Table** 是那一輪每一張同時開打的牌桌（`mode=pairs`），**Board** 是同一副在多桌各打一次（traveller）。功能旗標 `pairs`（`shared/features.ts`）**預設關**。
+
+### 移位（`e9-t09`，`shared/movement.ts`）
+
+- **只做 Mitchell**（3–10 桌，5–20 對）。Howell 的每一種桌數都要查表（不是公式），而且它是一、兩桌的移位，社團這個人數打隊制賽就好；之後要加照同一個 `Movement` 形狀加。
+- 南北坐著不動（南北第 t 對在第 t 桌），東西每輪往上一桌、牌組往下一桌；T 桌就有 T 組牌。**奇數桌**打 T 輪，每對東西都遇到每對南北、打到每一組牌。**偶數桌**是跳桌 Mitchell：過了一半的輪數東西多跳一桌，打 T − 1 輪（每對東西少遇一對南北、少打一組牌；打滿 T 輪會回到第一輪的對手）。
+- **輪空**：奇數對時最後一個東西位置是空的（phantom），它走到哪一桌那一桌那一輪就不開，那一桌的南北輪空。
+- 每輪每組牌剛好在一桌，所以每一副打的次數一樣（phantom 經過的那幾組少一次，Neuberg 補）。每輪副數 1–4，全場最多 32 副（`DEAL_SET_MAX`），超過就自動減少每輪副數（10 桌最多每輪 3 副）。
+- 測試（`tests/engine/movement.test.ts`）：5–20 對每一種都檢查每對不重複打同一副、不重複遇到同一個對手、南北只遇東西、每輪每組牌與每對只出現一次、沒打的就是輪空的。
+
+### 建立與報名（`e9-t10`）
+
+- 有旗標的社員都能建立，建立的人就是**裁判**（`directorId`）：只有他能開始、取消、移除別的搭檔。設定（`parsePairsSettings`）：名稱、每輪副數、每副限時；錯了回 `badPairsSettings`。
+- **報名**：社員填搭檔的帳號名稱，兩人一起成為一對（`pairsBadPartner`：自己、不存在、任一方封鎖對方；`pairsInPair`：任一人已經報名；最多 20 對 `pairsFull`）。搭檔不用另外確認（社課當場報名），兩人任一人都能退出（`withdraw`）。報名的順序就是移位的位置：前 T 對坐南北、其餘東西（`pairPlace`），**桌數由對數自動決定**（`tablesFor`）。
+- **開始**：裁判、5–20 對（`pairsTooFew`）、所有人在線（`pairsOffline`）、沒有人在打隊制賽或別的雙人賽（`pairsPlayerBusy`）。全場一組牌（`makeDealSet`，副號 1…），每個人先離開所在的牌桌，第一輪的桌一起開；有一桌開不了就把開好的關掉，比賽留在報名中。
+
+### 進行（`e9-t11`）
+
+- **每一輪的每一張牌桌是一個獨立的牌桌**（H1 的 `TableObject`，`pairs-mode.ts`）：開桌時帶那一輪的快照（兩對、要打的副號、全場牌組、每副限時、全場參賽者名單），各自發牌、各自排程。南北對的第一位坐北、東西對的第一位坐東。桌號不在大廳，`TableView.pairs` 給牌桌頁上方的 `PairsBanner`（第幾輪、第幾桌、打了幾副）。
+- **每輪結束換桌**：一副打完，牌桌回報 `EventReport { kind: 'pairs', round, table, boardNo, ns, ew, result }`，社團把結果交給那一場（`PairsStep.result`，同一桌同一副只寫一次，重送略過）。**那一輪每一桌都打完**，社團（`PairsService.advance`，每場一次只做一件）先告訴那一輪的每一桌結束（`matchEnded`：不再發牌、人走了就關），讓每個參賽者離桌，再一起開下一輪的桌，最後送 `PairsStep.round`；已經開過（另一個呼叫先到）就把多開的關掉。瀏覽器的 `usePairsFollow` 看到自己不在這一桌了就跳到新的桌，輪空的人回比賽頁（它在下一輪開桌時再帶過去）。
+- 最後一輪的最後一副在同一個步驟把比賽改成結束；社團再告訴最後一輪的桌、**公開所有紀錄**（`revealEvent`），只做一次（社團記 `settled`）。社團物件在換桌途中被回收：載入時與每次讀比賽頁時都再看一次狀態，該換桌的補做。
+- 同步換桌（不是各桌各自往下走）：Mitchell 下一輪要的牌組正在別桌打，所以要等那一輪全部打完。一桌拖住時暫時沒有裁判工具（`e9-t17` 的重新開一桌、調整分數）；每副限時照牌桌的設定倒數。
+
+### 計分與即時成績（`e9-t12`，`shared/pairs.ts` 的 `scorePairs`）
+
+- 每一副南北跟南北比：贏一個 2 分、平手 1 分，東西拿剩下的。**Neuberg**：這一副打了 n 次、全場最多打 N 次（照移位算出來的，`plannedPlays`）時 `mp' = (mp + 1) × N / n − 1`，滿分 `2 × (N − 1)`；只打一次的是 50%。
+- 南北、東西**分開排名**（Mitchell 一定是兩組），每對的百分比是「拿到的 MP ÷ 自己打過那幾副的滿分」，所以輪空或還沒打完的對也能公平比較：這就是即時成績，每次讀頁面時從結果算，不存。同分同名次。
+- 還沒做：裁定（`ruleBoard` 改的是紀錄，雙人賽的成績還沒讀它，`e9-t17` 一起做）；積分（J2 的帳本以 Event 為單位，結算時接）。
+
+### 結果頁（`e9-t13`，`/pairs/:id`）
+
+報名中：搭檔名單、報名表、裁判的開始與取消。進行中與結束：這一輪的桌（自己的桌與「到我的牌桌」、輪空提示）、南北與東西的成績表、**我的逐副表現**（每副的對手、合約、南北分數、我這一方的百分比）、**每副 traveller**（每一桌的輪次、兩對、合約與莊家、首攻、結果、南北分數、南北的百分比；看得到的才送，§4）。進行中每 5 秒重讀一次。
+
+### 比賽住在哪：`EventObject`（同一個開關 `EVENT_OBJECTS`）
+
+- 一場雙人賽的正本**建立時決定住哪裡，之後不搬**：`EVENT_OBJECTS=on` 時在自己的 `EventObject`（`idFromName('pairs:<id>')`，同一個類別，`EventHost` 依 `kind = 'pairs'` 分派，整場存在一個 key），否則在社團的儲存（`LocalPairs`）。社團一律留一份副本（`pairsev:<id>`：正本、住哪裡、最後寫進的變更編號、收尾過沒有），列表、頁面、`tableOf` 全讀副本。
+- 每個變更是一個 `PairsStep`，在社團先用副本跑一次同一個純函式（`applyPairsStep`，錯誤照樣丟），再交給正本跑一次，正本的回答（`PairsSnapshot`：整場＋`rev`）寫回副本（只寫比較新的）。物件說沒有這場時拿副本給它 `adoptPairs` 再送一次；物件的變更 5 秒後再回報一次（`pairsChanged`，回答丟了的時候補）。一副的結果送不到時錯誤傳回牌桌，沿用牌桌的 `outbox` 重送。
+- **開關關著時**：新的雙人賽都在社團的物件裡，行為完全一樣（測試兩種模式都跑）。**跟挑戰、隊制賽不同，不做搬移與退回**：雙人賽是新的，沒有舊資料要搬；開關從開改成關時，已經在物件裡的那幾場繼續從物件存取（`ClubConfig.pairsObjects` 一直都接著），新的才在社團。沒有自己的期限工作，所以物件只在社團呼叫時變。
+- 需要 workerd 才能測的只有接線（`event-object.ts` 的 `adoptPairs`／`stepPairs`、`Club.pairsChanged`）：PR 預覽與 staging 已經是開的。
 
 ## 5.8 隊制賽（決策紀錄，`e8-t01`，2026-10-25）
 

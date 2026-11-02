@@ -15,7 +15,7 @@
  * every language of `src/strings.ts` (`featureFlags`), and check it where the feature is.
  */
 
-export const FEATURE_FLAGS = ['friends', 'forum'] as const
+export const FEATURE_FLAGS = ['friends', 'forum', 'pairs'] as const
 export type FeatureFlag = (typeof FEATURE_FLAGS)[number]
 
 export const FEATURE_STATES = ['off', 'officers', 'on'] as const
@@ -45,10 +45,15 @@ export type FeatureSettings = Partial<Record<FeatureFlag, FeatureSetting>>
  * link. Off until the club opens it. The flag guards the table's pages only: `/api/forum/*` is
  * BridgeHall's forum too (the same posts), which its members already use, so the server checks
  * each forum route's role (roles.ts `forumRouteNeed`), not this flag.
+ *
+ * Pairs events (雙人賽, E9 J3, ARCHITECTURE.md §5.20): the `/pairs` pages and their API. Off until the
+ * club tries one: it needs 10 members online at once. Without it `/api/pairs*` answers `pairsOff`;
+ * tables of an event already being played go on.
  */
 export const FEATURE_DEFAULTS: Record<FeatureFlag, FeatureState> = {
   friends: 'off',
   forum: 'off',
+  pairs: 'off',
 }
 
 /** Kept for the code and tests written before flags: whether friends are on for everyone by default */

@@ -13,6 +13,7 @@ import {
   Swords,
   Trophy,
   Users,
+  UsersRound,
   Volume2,
   VolumeX,
 } from 'lucide-react'
@@ -290,6 +291,8 @@ export function AppHeader() {
   const { user, logout } = useAuth()
   // The forum's link only for members who have the flag (E13 K1)
   const forumOn = useFeature('forum')
+  // Pairs events' link only with their flag (E9 J3)
+  const pairsOn = useFeature('pairs')
   const { status, notifications, send } = useClub()
   const inviteBanner = useInviteBanner()
   const { mode, sound: soundOn, soundStyle, t, toggleMode, toggleSound } = usePreferences()
@@ -316,6 +319,12 @@ export function AppHeader() {
             <Trophy size={18} aria-hidden />
             <span>{t.navMatches}</span>
           </Link>
+          {pairsOn && (
+            <Link to="/pairs" aria-label={t.pairs.title} title={t.pairs.title}>
+              <UsersRound size={18} aria-hidden />
+              <span>{t.pairs.title}</span>
+            </Link>
+          )}
           <Link to="/history" aria-label={t.navHistory} title={t.navHistory}>
             <History size={18} aria-hidden />
             <span>{t.navHistory}</span>

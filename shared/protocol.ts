@@ -242,9 +242,9 @@ export function parseTableSettings(value: unknown): Partial<TableSettings> | nul
 /**
  * What a table is for (`worker/modes.ts`): `casual` tables anyone opens, a participant's own
  * `challenge` table (ARCHITECTURE.md §5.5), a member's own `practice` table with three robots
- * (§5.11), and the two rooms of a `team` match (§5.8). Pairs events add theirs
+ * (§5.11), the two rooms of a `team` match (§5.8), and a round's table of a `pairs` event (§5.20)
  */
-export const TABLE_MODES = ['casual', 'challenge', 'practice', 'team'] as const
+export const TABLE_MODES = ['casual', 'challenge', 'practice', 'team', 'pairs'] as const
 export type TableMode = (typeof TABLE_MODES)[number]
 
 /**
@@ -319,6 +319,20 @@ export interface TableChallenge {
  * many. The score is not here: it comes from the match itself (`TeamMatchView`), which only counts
  * boards both rooms finished
  */
+/** A pairs event's table as everyone at it sees it (`TableView.pairs`, §5.20) */
+export interface TablePairs {
+  id: string
+  round: number
+  rounds: number
+  /** The movement's table, 1-based */
+  table: number
+  /** Boards finished here this round, and how many the round has */
+  played: number
+  boards: number
+  /** Nothing left to play here this round: the players go to the next round's table */
+  over: boolean
+}
+
 export interface TableMatch {
   id: string
   room: Room
@@ -451,6 +465,8 @@ export interface TableView {
   challenge?: TableChallenge
   /** At a team match table (§5.8): no undo, and seats and settings are the match's */
   match?: TableMatch
+  /** A pairs event's table (§5.20) */
+  pairs?: TablePairs
   /** At a practice table (§5.11): its settings. Seats and settings do not change there; undo has no limit */
   practice?: TablePractice
   /** The host only: the members invited to the table (`e2-t25`) */

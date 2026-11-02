@@ -122,6 +122,8 @@ import { TeamMatchService, type MatchPlayAction } from './team-match-service.ts'
 import { ReplicaSync, type ReplicaDb } from './history-replica.ts'
 import { isMatchPlayer, matchMembers, type RoomClock } from './team-match-flow.ts'
 import { LocalMatches, type MatchStep } from './match-event.ts'
+import type { RemotePairs } from './pairs-events.ts'
+import { PairsService } from './pairs-service.ts'
 import { MatchHomes, type MatchApi, type MatchSnapshot, type RemoteMatches } from './match-events.ts'
 import { TeamMatchStore, type TeamMatch } from './team-matches.ts'
 import { teamTable } from './team-mode.ts'
@@ -391,6 +393,11 @@ export interface ClubConfig {
    */
   matchObjects?: RemoteMatches
   /**
+   * The pairs events' own Durable Objects (the same `EventObject` class, §5.20): a new event goes
+   * there while `eventObjectsOn`, else into this object, and stays where it was made
+   */
+  pairsObjects?: RemotePairs
+  /**
    * The system profile whose 淡江橋館 rules TKB follows in the club's system (BridgeHall e7-t03,
    * `worker/system-spec.ts`): the club's (CLUB_PROFILE_ID) unless set (`SYSTEM_PROFILE_ID`)
    */
@@ -553,6 +560,8 @@ export class ClubService {
    * club's copy of those in their own `EventObject` (H2c, §5.12). Every page and rule reads this
    */
   readonly matches: TeamMatchService
+  /** Pairs events (`e9-t09`–`e9-t13`, §5.20): the club's half and its copy of every event */
+  readonly pairs: PairsService
   /** Which matches live in their own object, and which ended matches the club already closed up */
   private readonly matchHomes: MatchHomes
   /** The matches that live in this object */
@@ -623,6 +632,28 @@ export class ClubService {
       write: (matchId, step) => this.writeMatch(matchId, step),
     })
     this.matchHomes = new MatchHomes(store.sql)
+    this.pairs = new PairsService({
+      store,
+      now: this.now,
+      newId: () => randomId(8),
+      random: (n) => this.random(n),
+      log: (entry) => this.log(entry),
+      userById: (id) => this.publicUserById(id) ?? null,
+      userByName: (name) => [...this.users.values()].find((u) => u.username.toLowerCase() === name.toLowerCase())?.id ?? null,
+      blocked: (by, other) => this.blocks.has(by, other),
+      online: () => this.connections.onlineUserIds(),
+      featureOn: (id) => this.featureOn('pairs', id),
+      takeAction: (id) => this.actionLimit.take(id),
+      person: (id) => ({ username: this.users.get(id)?.username ?? '', blocked: this.blocks.of(id), robotSpeed: this.speedOf(id) }),
+      inMatch: (id) => !!this.matches.playingOf(id),
+      openTable: async (table) => this.applyEntry(await this.tables.get(table.id).open(table)),
+      endTable: async (tableId) => this.applyResult(tableId, await this.tables.get(tableId).matchEnded()),
+      closeTable: (tableId) => this.closeTable(tableId),
+      leave: (id) => this.leave(id),
+      reveal: async (eventId) => this.revealRecords(revealEvent(this.store.sql, eventId, this.now())),
+      objects: config.pairsObjects,
+      objectsOn: !!config.eventObjectsOn,
+    })
     this.localMatches = new LocalMatches({ store: this.matches.store, now: this.now })
     this.matchObjects = config.matchObjects
     if (this.matchObjects)
@@ -653,6 +684,7 @@ export class ClubService {
     this.eventLink = {
       changed: (snapshot) => this.eventChanged(snapshot),
       matchChanged: (snapshot) => this.matchChanged(snapshot),
+      pairsChanged: (snapshot) => this.pairs.changed(snapshot),
     }
     this.localEvents = new LocalEvents({
       store: this.challenges,
@@ -745,6 +777,7 @@ export class ClubService {
     this.scheduleWeekly()
     this.daily = (await this.store.get<DailyState>(DAILY_KEY)) ?? null
     this.scheduleDaily()
+    await this.pairs.load()
   }
 
   /** A table kept in this object's storage takes its state back (brought up to date first) */
@@ -3251,6 +3284,9 @@ export class ClubService {
    * table checks the other room again with its own state
    */
   private checkNotInMatch(userId: string, target?: TableEntry) {
+    // A pairs event's player is at their round's table and nowhere else until it ends (§5.20)
+    const pairsTable = this.pairs.tableOf(userId)
+    if (pairsTable !== null && target?.id !== pairsTable) throw new ClubError('inPairs')
     const match = this.matches.playingOf(userId)
     if (!match) return
     if (target?.match?.matchId !== match.id) throw new ClubError('inMatch')
@@ -3887,6 +3923,7 @@ export class ClubService {
     await this.saveRecord(record)
     this.metrics.board(stats)
     if (event?.kind === 'team') return this.teamBoardFinished(event)
+    if (event?.kind === 'pairs') return this.pairs.boardFinished(event)
     if (event?.kind !== 'challenge') return
     if (!this.challenges.get(event.challengeId)) return
     if (event.result) await this.addChallengeResult(event.challengeId, event.result)

@@ -49,6 +49,8 @@ import { useClub } from '../state/ClubContext.tsx'
 import { usePreferences, useT } from '../state/PreferencesContext.tsx'
 import { dockHeight, mobile, tabletQuery } from '../styles/tokens.ts'
 import { playerName, seatLetter } from '../strings.ts'
+import { PairsBanner } from '../components/PairsBanner.tsx'
+import { usePairsFollow } from '../lib/usePairsFollow.ts'
 
 /** The levels in the seat menu: the ones offered now, and 橋士組 shown as coming later */
 
@@ -610,6 +612,8 @@ export function TablePage() {
   const { tableId } = useParams()
   const { table, lobby, status, send } = useClub()
   const t = useT()
+  // A pairs event's player goes on to the next round's table (§5.20)
+  usePairsFollow(tableId, table, lobby?.myTableId)
 
   // Only those the access mode lets in come to the table (others may ask at a request table), and a
   // table without kibitzers takes people only into its seats (a practice table only has watchers)
@@ -713,8 +717,8 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
   const acts: Seat[] = table.acts ?? (me ? [me] : [])
   // Nobody runs a challenge, practice or team match table: its seats, robots and settings are
   // fixed; only who may watch a practice table changes (its member's settings button)
-  const iAmHost = !!user && table.hostId === user.id && !challenge && !practice && !table.match
-  const canConfigure = !!user && table.hostId === user.id && !challenge && !table.match
+  const iAmHost = !!user && table.hostId === user.id && !challenge && !practice && !table.match && !table.pairs
+  const canConfigure = !!user && table.hostId === user.id && !challenge && !table.match && !table.pairs
   const AccessIcon = { public: null, request: Hand, hidden: Lock, closed: Ban }[table.settings.access]
   const viewer = me ?? 'S'
   const at = rotation(viewer)
@@ -890,7 +894,7 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
   const seatActions = (seat: Seat): SeatAction[] => {
     const occupant = table.seats[seat]
     const actions: SeatAction[] = []
-    if (challenge || practice || table.match) return actions
+    if (challenge || practice || table.match || table.pairs) return actions
     const between = !board || board.phase === 'finished'
     // A free seat (or a robot's) can be taken; someone already seated moves only between boards
     if ((!occupant || (occupant.robot && !me)) && (!me || between))
@@ -1159,6 +1163,8 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
                 <PracticeBanner practice={practice} />
               ) : table.match ? (
                 <MatchBanner match={table.match} watching={!me} />
+              ) : table.pairs ? (
+                <PairsBanner pairs={table.pairs} />
               ) : (
                 <>
                   <span>{t.tableName(table.number)} ·</span>
@@ -1349,7 +1355,7 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
                   type="button"
                   $tone="plain"
                   disabled={!canUndo}
-                  title={challenge ? t.challengeNoUndo : table.match ? t.teamMatch.noUndo : undefined}
+                  title={challenge ? t.challengeNoUndo : table.match ? t.teamMatch.noUndo : table.pairs ? t.pairs.noUndo : undefined}
                   data-tour="undo"
                   onClick={() => send({ type: 'undoRequest' })}
                 >

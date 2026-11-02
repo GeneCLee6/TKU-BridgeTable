@@ -2,6 +2,7 @@ import type { RulingRequest } from '../../shared/board-events.ts'
 import type { ChallengeSettings, ChallengeView } from '../../shared/challenge.ts'
 import type { WeeklyChallengeSchedule, WeeklyChallengeView } from '../../shared/weekly-challenge.ts'
 import type { DailyEventSettings, DailyEventView } from '../../shared/daily-event.ts'
+import type { PairsSettings, PairsSummary, PairsView } from '../../shared/pairs.ts'
 import { historyQueryString, type HistoryQuery } from '../../shared/history-query.ts'
 import type { MessageParams } from '../../shared/messages.ts'
 import type { MemberProfile, Profile } from '../../shared/profile.ts'
@@ -172,6 +173,17 @@ export const api = {
   challenge: (id: string) => request<{ challenge: ChallengeView }>(`/api/challenges/${encodeURIComponent(id)}`),
   /** The daily club event's page (`e9-t03`): today's, yesterday's and the earlier days */
   daily: () => request<{ daily: DailyEventView }>('/api/daily'),
+  /** Pairs events (`e9-t10`–`e9-t13`, §5.20): the list, one event as the member may see it, and its actions */
+  pairs: {
+    list: () => request<{ pairs: PairsSummary[] }>('/api/pairs'),
+    get: (id: string) => request<{ pairs: PairsView }>(`/api/pairs/${encodeURIComponent(id)}`),
+    create: (settings: Partial<PairsSettings>) => post<{ pairs: PairsView }>('/api/pairs', { settings }),
+    enter: (id: string, partner: string) => post<{ pairs: PairsView }>(`/api/pairs/${encodeURIComponent(id)}/enter`, { partner }),
+    withdraw: (id: string, userId?: string) =>
+      post<{ pairs: PairsView }>(`/api/pairs/${encodeURIComponent(id)}/withdraw`, { userId }),
+    cancel: (id: string) => post<{ pairs: PairsView }>(`/api/pairs/${encodeURIComponent(id)}/cancel`),
+    start: (id: string) => post<{ pairs: PairsView }>(`/api/pairs/${encodeURIComponent(id)}/start`),
+  },
   /** Challenges friends (`e7-t17`); the server checks everything and answers with the new challenge */
   createChallenge: (invitees: string[], boards: number, settings: Partial<ChallengeSettings>) =>
     post<{ challenge: ChallengeView }>('/api/challenges', { invitees, boards, settings }),

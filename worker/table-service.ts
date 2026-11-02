@@ -67,6 +67,7 @@ import {
 } from './modes.ts'
 import type { Scheduler } from './scheduler.ts'
 import { tableMatch, teamPaused, teamStateOf, teamTableOver } from './team-mode.ts'
+import { pairsStateOf, pairsTableOver, tablePairs } from './pairs-mode.ts'
 import type { ClubLink, MatchTableUpdate, Named, Person, TableApi, TableEntry, Tables } from './tables.ts'
 import type { VugraphRoom } from '../shared/team-match.ts'
 import {
@@ -288,6 +289,15 @@ export class TableService implements TableApi {
       }
       throw new ClubError('matchNoWatching', {}, 403)
     }
+    // Nobody of a pairs event watches its tables while it is on (§5.20); a player a robot sits in for comes back
+    const pairs = pairsStateOf(table)
+    if (pairs && !pairs.closed && pairs.players.includes(person.id)) {
+      if (this.substituteSeat(person.id)) {
+        this.welcome(person)
+        return (await this.reclaim(person.id, true))!
+      }
+      throw new ClubError('matchNoWatching', {}, 403)
+    }
     if (table.mode !== 'team') this.checkAccess(person.id)
     if (!this.watchable(table)) throw new ClubError('noKibitzing', {}, 403)
     this.welcome(person)
@@ -312,6 +322,8 @@ export class TableService implements TableApi {
       if (this.otherRoom(userId)) throw new ClubError('matchOtherRoom', {}, 403)
       throw new ClubError('matchTableFixed')
     }
+    // A pairs event seats its players by the movement (§5.20)
+    if (table.mode === 'pairs') throw new ClubError('pairsTableFixed')
     if (!here) this.checkAccess(userId)
     // A person may take a robot's seat at any time, as on BBO
     const occupant = table.seats[seat]
@@ -365,6 +377,7 @@ export class TableService implements TableApi {
     if (table.hostId !== userId) throw new ClubError('hostOnly')
     if (soloTable(table.mode)) throw this.fixed()
     if (table.mode === 'team') throw new ClubError('matchTableFixed')
+    if (table.mode === 'pairs') throw new ClubError('pairsTableFixed')
     // At a practice table only who may watch changes: it has no time limit, and watching is what coming in means
     if (table.mode === 'practice' && (settings.allowKibitz !== undefined || settings.boardMinutes !== undefined))
       throw this.fixed()
@@ -382,7 +395,7 @@ export class TableService implements TableApi {
   async request(person: Person, muted: boolean): Promise<TableEntry> {
     const table = this.require()
     const userId = person.id
-    if (soloTable(table.mode) || table.mode === 'team') throw new ClubError('tableGone', {}, 404)
+    if (soloTable(table.mode) || table.mode === 'team' || table.mode === 'pairs') throw new ClubError('tableGone', {}, 404)
     if (this.isAt(userId)) return this.settled()!
     const facts = accessFacts(table)
     if (!tableListed(facts, userId, false)) throw new ClubError('tableGone', {}, 404)
@@ -513,8 +526,8 @@ export class TableService implements TableApi {
       await this.drop()
       return null
     }
-    // A team match plays on: a robot of the match's system takes the deleted member's seat (§5.8)
-    const team = teamStateOf(table)
+    // A team match (or a pairs event's round) plays on: a robot takes the deleted member's seat (§5.8, §5.20)
+    const team = teamStateOf(table) ?? pairsStateOf(table)
     const kept = team && !team.closed ? this.seatOf(userId) : null
     if (kept) {
       this.vacate(kept)
@@ -587,6 +600,14 @@ export class TableService implements TableApi {
    */
   async matchEnded(): Promise<TableEntry | null> {
     const table = this.table
+    // A pairs event's round (or the event) ended (§5.20): the same, with nothing to put away (the round's boards were all played)
+    const pairs = table && pairsStateOf(table)
+    if (table && pairs) {
+      pairs.closed = true
+      table.dealAt = undefined
+      if (table.board && table.board.phase !== 'finished') this.putAway()
+      return this.saveOrDrop()
+    }
     const state = table && teamStateOf(table)
     if (!table || !state) return this.settled()
     state.closed = true
@@ -779,6 +800,7 @@ export class TableService implements TableApi {
     const mode = this.table!.mode
     if (fixedSeats(mode)) throw this.fixed()
     if (mode === 'team') throw new ClubError('matchTableFixed')
+    if (mode === 'pairs') throw new ClubError('pairsTableFixed')
   }
 
   private fixed() {
@@ -801,7 +823,7 @@ export class TableService implements TableApi {
    * people and six robots may leave one room to the robots) and when everyone at it leaves
    */
   private playsOn(): boolean {
-    const state = teamStateOf(this.table!)
+    const state = teamStateOf(this.table!) ?? pairsStateOf(this.table!)
     return !!state && !state.closed
   }
 
@@ -959,8 +981,8 @@ export class TableService implements TableApi {
     const table = this.table
     const seat = table && this.isAt(userId) ? this.seatOf(userId) : null
     if (!table || !seat || table.mode === 'challenge') return
-    // A team match room plays on with robots alone (`e8-t14`): its robot is the match's system
-    const team = teamStateOf(table)
+    // A team match room (or a pairs event's table) plays on with robots alone (`e8-t14`): its robot is the event's system
+    const team = teamStateOf(table) ?? pairsStateOf(table)
     const online = this.connections.onlineUserIds()
     if (!team && !SEATS.some((s) => s !== seat && online.includes(table.seats[s] ?? ''))) return
     // TKB plays the system of a robot partner, if there is one, else the table's (its host's when it opened)
@@ -1319,6 +1341,7 @@ export class TableService implements TableApi {
     if (message.type === 'undoRequest' || message.type === 'undoRespond') {
       if (table.mode === 'challenge') throw new ClubError('challengeNoUndo')
       if (table.mode === 'team') throw new ClubError('matchNoUndo')
+      if (table.mode === 'pairs') throw new ClubError('pairsNoUndo')
     }
     if (message.type === 'call') return this.applyAction(this.callingSeat(userId, seat, message.seat), message)
     if (message.type === 'undoRequest') return this.applyAction(this.undoSeat(userId, seat), message)
@@ -1946,7 +1969,7 @@ export class TableService implements TableApi {
             recordId: table.recordId,
             rejectedClaim: table.rejectedClaim,
             auctionSeat: mySeat ? this.auctionSeat(table, mySeat) : undefined,
-            undoAllowed: table.mode !== 'challenge' && table.mode !== 'team',
+            undoAllowed: table.mode !== 'challenge' && table.mode !== 'team' && table.mode !== 'pairs',
             kibitz: this.watchable(table),
             robots: Object.fromEntries(SEATS.flatMap((s) => (table.seats[s] && isRobotId(table.seats[s]!) ? [[s, robotKindOf(table.seats[s]!)]] : []))),
             bookNotes: this.bookNotes,
@@ -1954,7 +1977,7 @@ export class TableService implements TableApi {
         : null,
       boardsPlayed: table.boardsPlayed,
       dealAt:
-        table.board?.phase === 'finished' && this.canDeal() && !this.challengeTableOver() && !teamTableOver(table)
+        table.board?.phase === 'finished' && this.canDeal() && !this.challengeTableOver() && !teamTableOver(table) && !pairsTableOver(table)
           ? (table.dealAt ?? null)
           : null,
       chat: chatFor(table.chat, (authorId) => blocked.has(authorId), { player: table.mode === 'team' && mySeat !== null }),
@@ -1962,9 +1985,11 @@ export class TableService implements TableApi {
       ...(table.mode === 'challenge' && { challenge: this.tableChallenge(table) }),
       ...practiceView(table),
       ...(table.mode === 'team' && { match: tableMatch(table) }),
+      ...(table.mode === 'pairs' && { pairs: tablePairs(table) }),
       ...(table.hostId === userId &&
         !soloTable(table.mode) &&
-        table.mode !== 'team' && {
+        table.mode !== 'team' &&
+        table.mode !== 'pairs' && {
           invited: (table.invited ?? []).flatMap((id) => this.publicUser(id) ?? []),
           // Requests from members the host blocked never reach them (`muted`)
           requests: liveRequests(table.requests, this.now()).flatMap((r) => {

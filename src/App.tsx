@@ -12,6 +12,7 @@ import { ChallengeBoardPage } from './pages/ChallengeBoardPage.tsx'
 import { ChallengePage } from './pages/ChallengePage.tsx'
 import { ChallengesPage } from './pages/ChallengesPage.tsx'
 import { DailyPage } from './pages/DailyPage.tsx'
+import { PairsEventPage, PairsListPage } from './pages/PairsPages.tsx'
 import { ComparePage } from './pages/ComparePage.tsx'
 import { FeaturedPage } from './pages/FeaturedPage.tsx'
 import { FavoritesPage } from './pages/FavoritesPage.tsx'
@@ -77,6 +78,8 @@ function Routed() {
   const { pathname } = useLocation()
   // The forum's pages only for members who have the flag (E13 K1, shared/features.ts)
   const forumOn = useFeature('forum')
+  // Pairs events (E9 J3, §5.20) behind their flag
+  const pairsOn = useFeature('pairs')
   // The privacy policy and the terms are for anyone, signed in or not (e11-t27)
   if (pathname === '/privacy' || pathname === '/terms') return <LegalPage kind={pathname === '/privacy' ? 'privacy' : 'terms'} />
   if (user === undefined) return <PageMain>{t.loading}</PageMain>
@@ -100,6 +103,8 @@ function Routed() {
         <Route path="/history/:recordId/vs/:otherId" element={<ComparePage />} />
         <Route path="/featured" element={<FeaturedPage />} />
         <Route path="/favorites" element={<FavoritesPage />} />
+        {pairsOn && <Route path="/pairs" element={<PairsListPage />} />}
+        {pairsOn && <Route path="/pairs/:eventId" element={<PairsEventPage />} />}
         {forumOn && <Route path="/forum" element={<ForumHomePage />} />}
         {forumOn && <Route path="/forum/p/:postId" element={<ForumPostPage />} />}
         {forumOn && <Route path="/forum/:boardId" element={<ForumBoardPage />} />}

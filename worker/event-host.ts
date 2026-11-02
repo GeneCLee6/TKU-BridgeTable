@@ -4,6 +4,8 @@ import { eventWire, type EventLink, type EventRpc, type EventSnapshot, type Even
 import { crashEntry, type Logger } from './log.ts'
 import { MatchEvent, type MatchStep } from './match-event.ts'
 import type { MatchRpc, MatchSnapshot, MatchWire } from './match-events.ts'
+import { applyPairsStep, type PairsEvent, type PairsStep } from './pairs-flow.ts'
+import type { PairsRpc, PairsSnapshot, PairsWire } from './pairs-events.ts'
 import type { Scheduler } from './scheduler.ts'
 import type { Sql } from './store.ts'
 import { TeamMatchStore, type TeamMatch } from './team-matches.ts'
@@ -38,6 +40,8 @@ const KIND_KEY = 'kind'
 const REV_KEY = 'rev'
 const UNREPORTED_KEY = 'unreported'
 const FROZEN_KEY = 'frozen'
+/** A pairs event (§5.20) is kept whole under one key (at most 20 pairs and 32 boards) */
+const PAIRS_KEY = 'pairs'
 /**
  * How soon a change is told to the club again on its own, after the answer that carried it (in
  * case that answer was lost), and how long between tries after a failure (doubling, at most 10 minutes)
@@ -59,12 +63,14 @@ const refused = { code: 'serverError', params: {}, status: 503 } as const
  * and a failure is tried again on the alarm. The club keeps the newest number it wrote, so a late
  * or repeated report changes nothing. The Durable Object glue is `worker/event-object.ts`.
  */
-export class EventHost implements EventRpc, MatchRpc {
+export class EventHost implements EventRpc, MatchRpc, PairsRpc {
   private readonly deps: EventHostDeps
   private readonly store: ChallengeStore
   private readonly matchStore: TeamMatchStore
   private event: ChallengeEvent | null = null
   private match: MatchEvent | null = null
+  /** A pairs event (§5.20): no SQL and no job of its own, it changes only when the club calls */
+  private pairs: PairsEvent | null = null
   private rev = 0
   /** The club took the event back (`handOver`): nothing is changed, run or told until `release` */
   private frozen = false
@@ -99,6 +105,15 @@ export class EventHost implements EventRpc, MatchRpc {
     return challenge && { challenge, rev: this.rev }
   }
 
+  /** The pairs event as it is now, for tests */
+  get pairsEvent(): PairsEvent | null {
+    return this.frozen ? null : this.pairs
+  }
+
+  private pairsSnapshot(): PairsSnapshot | null {
+    return !this.frozen && this.pairs ? { event: this.pairs, rev: this.rev } : null
+  }
+
   private matchSnapshot(): MatchSnapshot | null {
     const match = this.matchLive ? this.match!.get() : null
     return match && { match, rev: this.rev }
@@ -120,7 +135,9 @@ export class EventHost implements EventRpc, MatchRpc {
     const id = await storage.get<string>(ID_KEY)
     this.rev = (await storage.get<number>(REV_KEY)) ?? 0
     if (!id) return
-    if ((await storage.get<string>(KIND_KEY)) === 'match') this.match = this.makeMatch(id)
+    const kind = await storage.get<string>(KIND_KEY)
+    if (kind === 'match') this.match = this.makeMatch(id)
+    else if (kind === 'pairs') this.pairs = (await storage.get<PairsEvent>(PAIRS_KEY)) ?? null
     else {
       this.event = this.make(id)
       this.event.schedule()
@@ -161,10 +178,12 @@ export class EventHost implements EventRpc, MatchRpc {
     const pending = await storage.get<number>(UNREPORTED_KEY)
     const snapshot = this.snapshot()
     const matchSnapshot = this.matchSnapshot()
-    if (pending === undefined || (!snapshot && !matchSnapshot)) return
+    const pairsSnapshot = this.pairsSnapshot()
+    if (pending === undefined || (!snapshot && !matchSnapshot && !pairsSnapshot)) return
     try {
       if (snapshot) await club.changed(snapshot)
-      else await club.matchChanged(matchSnapshot!)
+      else if (matchSnapshot) await club.matchChanged(matchSnapshot)
+      else await club.pairsChanged?.(pairsSnapshot!)
       this.retryMs = REPORT_RETRY_MS
       if ((await storage.get<number>(UNREPORTED_KEY)) === pending) await storage.delete(UNREPORTED_KEY)
     } catch (error) {
@@ -223,6 +242,7 @@ export class EventHost implements EventRpc, MatchRpc {
     }
     this.event = null
     this.match = null
+    this.pairs = null
     await this.deps.storage.clear()
     // Clearing a Durable Object's storage also drops its SQL tables
     this.createTables()
@@ -233,7 +253,7 @@ export class EventHost implements EventRpc, MatchRpc {
   async adopt(challenge: Challenge): Promise<EventWire> {
     await this.thaw()
     const { storage } = this.deps
-    if (!this.event && !this.match) {
+    if (!this.event && !this.match && !this.pairs) {
       await storage.put(ID_KEY, challenge.id)
       this.event = this.make(challenge.id)
     }
@@ -283,7 +303,7 @@ export class EventHost implements EventRpc, MatchRpc {
   async adoptMatch(match: TeamMatch): Promise<MatchWire> {
     await this.thaw()
     const { storage } = this.deps
-    if (!this.event && !this.match) {
+    if (!this.event && !this.match && !this.pairs) {
       await storage.put(ID_KEY, match.id)
       await storage.put(KIND_KEY, 'match')
       this.match = this.makeMatch(match.id)
@@ -317,5 +337,45 @@ export class EventHost implements EventRpc, MatchRpc {
     this.frozen = true
     await this.deps.storage.put(FROZEN_KEY, true)
     return { snapshot }
+  }
+
+  // ── The club's calls for a pairs event (PairsRpc, §5.20) ────────────────────────────────────
+
+  async adoptPairs(event: PairsEvent): Promise<PairsWire> {
+    const { storage } = this.deps
+    if (this.frozen) return { snapshot: null, error: refused }
+    if (!this.event && !this.match && !this.pairs) {
+      await storage.put(ID_KEY, event.id)
+      await storage.put(KIND_KEY, 'pairs')
+      this.pairs = structuredClone(event)
+      await storage.put(PAIRS_KEY, this.pairs)
+      await this.changed()
+    }
+    if (this.pairs?.id !== event.id) return { snapshot: null, error: { ...refused, status: 500 } }
+    return { snapshot: this.pairsSnapshot() }
+  }
+
+  /**
+   * One change, run on a copy and kept only when it went through; a change is counted, kept and
+   * told again a little later (in case the answer is lost), as for a match
+   */
+  async stepPairs(step: PairsStep): Promise<PairsWire> {
+    if (this.frozen) return { snapshot: null, error: refused }
+    if (!this.pairs) return { snapshot: null }
+    const next = structuredClone(this.pairs)
+    try {
+      applyPairsStep(next, step)
+    } catch (error) {
+      return eventWire(() => this.pairsSnapshot(), async () => {
+        throw error
+      })
+    }
+    if (JSON.stringify(next) !== JSON.stringify(this.pairs)) {
+      this.pairs = next
+      await this.deps.storage.put(PAIRS_KEY, next)
+      await this.changed()
+      this.reportLater(REPORT_AGAIN_MS)
+    }
+    return { snapshot: this.pairsSnapshot() }
   }
 }
