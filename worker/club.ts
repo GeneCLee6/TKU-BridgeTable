@@ -8,7 +8,8 @@ import type { BoardRecord, Me, ServerMessage, SystemSpecStatus } from '../shared
 import type { BookNotes } from '../shared/robot/system/book-spec.ts'
 import { TKU } from '../shared/robot/system/tku/index.ts'
 import { bookSync } from '../shared/robot/system/tku/sources.ts'
-import { randomId, readCookie, SESSION_COOKIE, sessionCookie } from './auth.ts'
+import { DEVICE_COOKIE, deviceCookie, randomId, readCookie, SESSION_COOKIE, sessionCookie } from './auth.ts'
+import { deviceLabel } from '../shared/account.ts'
 import { ACCOUNT_PREFIXES, backupAdmin, runBackup } from './backup.ts'
 import { BookService, IMPORT_LIMITS, importRequestFrom, publicBookResponse } from './book.ts'
 import { readForm, readJson, readText } from './body.ts'
@@ -92,6 +93,11 @@ export interface Env {
   HISTORY?: D1Database
   /** "off" stops keeping and reading the D1 copy: the switch back (DEPLOY.md §4.5) */
   HISTORY_D1?: string
+  /**
+   * Salts the anti-cheating report's network hashes (wrangler secret put SEEN_SALT, ARCHITECTURE.md
+   * §5.17); without it no network is kept, only the browser
+   */
+  SEEN_SALT?: string
   /** Signs edge passes (wrangler secret put EDGE_AUTH_SECRET); without it the Worker asks the club every time */
   EDGE_AUTH_SECRET?: string
   /** "off" stops handing out and reading edge passes: the switch back (DEPLOY.md §4.5) */
@@ -215,6 +221,8 @@ export class Club extends DurableObject<Env> implements Connections {
       historyReplica: env.HISTORY ? d1Replica(env.HISTORY) : undefined,
       historyReplicaOff: env.HISTORY_D1 === 'off',
       systemProfileId: env.SYSTEM_PROFILE_ID || undefined,
+      // The anti-cheating report's network salt (§5.17): a secret, never in the club's storage
+      seenSalt: env.SEEN_SALT || undefined,
     })
     this.edgeSecret = edgeSecret(env)
     this.book = new BookService(store)
@@ -360,7 +368,39 @@ export class Club extends DurableObject<Env> implements Connections {
     }
     this.service.logEntry({ event: 'http', method: request.method, path: url.pathname, status: response.status, ms: Date.now() - started, ...(code ? { code } : {}) })
     await this.edgePass(request, url, response)
+    this.deviceId(request, url, response)
     return response
+  }
+
+  /**
+   * Gives a signed-in browser without one its `tbt_device` id (e11-t25) with its next `/api/me`, so
+   * browsers signed in before the report existed get one without signing in again
+   */
+  private deviceId(request: Request, url: URL, response: Response) {
+    if (url.pathname !== '/api/me' || !response.ok) return
+    const cookies = request.headers.get('Cookie')
+    if (!readCookie(cookies, SESSION_COOKIE) || validDevice(readCookie(cookies, DEVICE_COOKIE))) return
+    try {
+      response.headers.append('Set-Cookie', deviceCookie(randomId(12), url.protocol === 'https:'))
+    } catch {
+      // An answer whose headers cannot change (none of ours): the next one tries again
+    }
+  }
+
+  /**
+   * Notes where a member signed in or connected from (the anti-cheating report, e11-t25): the
+   * address's hash and the browser's id. A sign-in from a browser with no id gets one: its cookie
+   */
+  private async sighting(request: Request, userId: string, secure: boolean, fresh = false): Promise<string[]> {
+    const had = readCookie(request.headers.get('Cookie'), DEVICE_COOKIE)
+    const device = validDevice(had) ? had! : fresh ? randomId(12) : ''
+    await this.service.noteSighting(
+      userId,
+      request.headers.get('CF-Connecting-IP') ?? '',
+      device,
+      deviceLabel(request.headers.get('User-Agent')),
+    )
+    return device && device !== had ? [deviceCookie(device, secure)] : []
   }
 
   /**
@@ -456,6 +496,7 @@ export class Club extends DurableObject<Env> implements Connections {
     this.ctx.acceptWebSocket(server, [user.id])
     server.serializeAttachment({ userId: user.id } satisfies Attachment)
     this.service.connected(user.id)
+    await this.sighting(request, user.id, false)
     return new Response(null, { status: 101, webSocket: client })
   }
 
@@ -493,7 +534,8 @@ export class Club extends DurableObject<Env> implements Connections {
         request.headers.get('User-Agent') ?? '',
       )
       if ('pending' in result) return json(result, 202)
-      return json({ user: result.user }, 200, ...(await this.signedIn(result.token, result.user.id, secure)))
+      const device = await this.sighting(request, result.user.id, secure, true)
+      return json({ user: result.user }, 200, ...(await this.signedIn(result.token, result.user.id, secure)), ...device)
     }
     if (route === 'POST /api/login') {
       const b = await body()
@@ -503,7 +545,8 @@ export class Club extends DurableObject<Env> implements Connections {
         request.headers.get('CF-Connecting-IP') ?? '',
         request.headers.get('User-Agent') ?? '',
       )
-      return json({ user }, 200, ...(await this.signedIn(newToken, user.id, secure)))
+      const device = await this.sighting(request, user.id, secure, true)
+      return json({ user }, 200, ...(await this.signedIn(newToken, user.id, secure)), ...device)
     }
     if (route === 'POST /api/logout') {
       if (token) await this.service.logout(token)
@@ -802,6 +845,9 @@ export class Club extends DurableObject<Env> implements Connections {
     if (method === 'POST' && path === '/weekly-challenge')
       return json({ weekly: await this.service.adminSetWeeklyChallenge(user.id, await body()) })
     if (method === 'GET' && path === '/settings') return json({ settings: this.service.clubSettings })
+    // The anti-cheating report (e11-t25): admins only, checked again in the service
+    if (method === 'GET' && path === '/integrity')
+      return json({ report: await this.service.adminIntegrityReport(user.id, url.searchParams.get('days')) })
     // Feature flags (e11-t26): the club's state of each and the members who get it anyway
     if (method === 'GET' && path === '/features') return json({ features: this.service.adminFeatures() })
     if (method === 'POST' && path === '/features') return json({ features: await this.service.adminSetFeature(await body()) })
@@ -1350,6 +1396,9 @@ function docxResponse(bytes: Uint8Array, name: string) {
     },
   })
 }
+
+/** A `tbt_device` id as this club makes them (randomId), not whatever a browser sent */
+const validDevice = (id: string | null) => !!id && /^[\w-]{8,64}$/.test(id)
 
 function json(data: unknown, status = 200, ...cookies: string[]) {
   const headers = new Headers({ 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' })
