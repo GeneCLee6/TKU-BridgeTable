@@ -126,3 +126,7 @@ export const FRIEND_ONLINE_QUIET_MS = 30 * 60_000
  * gets this far knows the password, so the account's verified email hears when it locks
  */
 export const TWO_FACTOR_FAILURES = 5
+
+/** Google sign-ins started per network address (e1-t31): 10 at once, then one a minute */
+export const GOOGLE_START_BURST = 10
+export const GOOGLE_STARTS_PER_SECOND = 1 / 60

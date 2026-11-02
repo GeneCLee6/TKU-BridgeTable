@@ -19,3 +19,8 @@ TURNSTILE_SECRET_KEY=
 # domain verified there; leave either empty and email is off
 RESEND_API_KEY=
 MAIL_FROM=
+
+# Google sign-in (DEPLOY.md §4.16): an OAuth client whose redirect URIs include
+# http://localhost:5173/api/auth/google/callback; leave either empty and Google sign-in is off
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=

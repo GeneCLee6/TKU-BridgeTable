@@ -19,6 +19,7 @@ import { PendingService } from './pending.ts'
 import { GlossaryService, publicGlossaryResponse } from './glossary.ts'
 import { claudeImporter } from './importer.ts'
 import { mailerFrom } from './mail.ts'
+import { GOOGLE_APPLY_MS, GOOGLE_CALLBACK_PATH, GOOGLE_CODE_MS, GOOGLE_COOKIE, googleCookie, googleFrom, googleSite, safeReturn } from './google.ts'
 import { ProfileService } from './profiles.ts'
 import { CardPdfService, pdfResponse } from './card-pdf.ts'
 import { CardSnapshotService } from './card-snapshots.ts'
@@ -42,7 +43,7 @@ import { edgeSecret, mintPass, PASS_COOKIE, passCookie, passNeedsRefresh } from 
 import { crashEntry, jsonLog, sampleActions } from './log.ts'
 import { requireTurnstile, turnstileKeys } from './turnstile.ts'
 import type { TableStats } from './metrics.ts'
-import { type ChallengeRequest, ClubError, ClubService, type Connections } from './service.ts'
+import { type ChallengeRequest, ClubError, ClubService, type Connections, type GoogleOutcome } from './service.ts'
 import type { EventReport } from './modes.ts'
 import type { Store } from './store.ts'
 import { TeamService } from './teams.ts'
@@ -128,6 +129,12 @@ export interface Env {
    * it (the normal state) `POST /api/ops/two-factor-reset` does not exist
    */
   TWO_FACTOR_RESET_TOKEN?: string
+  /**
+   * Google sign-in (e1-t31; worker/google.ts, DEPLOY.md §4.16): the OAuth client's id and secret
+   * from Google Cloud (wrangler secret put). Without both, Google sign-in is off; PR previews never get them
+   */
+  GOOGLE_CLIENT_ID?: string
+  GOOGLE_CLIENT_SECRET?: string
 }
 
 /** A picture's upload may come straight from TKU BridgeBook's page too; its single-use pass is the check */
@@ -252,6 +259,9 @@ export class Club extends DurableObject<Env> implements Connections {
       seenSalt: env.SEEN_SALT || undefined,
       // Email (e1-t29, e1-t30): none unless RESEND_API_KEY and MAIL_FROM are set
       mailer: mailerFrom(env),
+      // Google sign-in (e1-t31): none unless GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET are set, and only
+      // for 淡江: Google's way back carries no club, so it always reaches 淡江's object
+      google: (clubIdOfObject(ctx.id.name) ?? DEFAULT_CLUB_ID) === DEFAULT_CLUB_ID ? googleFrom(env) : undefined,
     })
     this.edgeSecret = edgeSecret(env)
     this.book = new BookService(store)
@@ -475,6 +485,95 @@ export class Club extends DurableObject<Env> implements Connections {
     return cookies
   }
 
+  /**
+   * Google sign-in's routes that need no session (e1-t31). The page sends its own origin, which
+   * must be this Worker's or 淡江橋館's (`googleSite`): the callback, and so the cookies, stay on
+   * that site. The callback answers with a redirect to a path on the same site (relative, so it
+   * stays on 淡江橋館 when Vercel passed it here): the place the member was, the code step, the
+   * application form or an error code for the page to show
+   */
+  private async googleApi(request: Request, url: URL, route: string, token: string | null, body: () => Promise<Body>) {
+    const secure = url.protocol === 'https:'
+    const flowId = readCookie(request.headers.get('Cookie'), GOOGLE_COOKIE)
+    if (route === 'GET /api/auth/google') return json(this.service.googleStatus())
+    if (route === 'POST /api/auth/google/start') {
+      const b = await body()
+      const site = googleSite(text(b.origin), url)
+      if (!site) throw new ClubError('googleOff', {}, 403)
+      const address = request.headers.get('CF-Connecting-IP') ?? ''
+      const { url: to, flowId: id } = await this.service.startGoogle(
+        `${site.origin}${GOOGLE_CALLBACK_PATH}`,
+        site.site,
+        safeReturn(b.returnTo),
+        address,
+      )
+      return json({ url: to }, 200, googleCookie(id, secure))
+    }
+    if (route === `GET ${GOOGLE_CALLBACK_PATH}`) {
+      const params = url.searchParams
+      const query = { state: params.get('state') ?? '', code: params.get('code') ?? '', error: params.get('error') ?? '' }
+      const sessionUser = (await this.service.userForToken(token))?.id ?? null
+      let outcome: GoogleOutcome
+      try {
+        outcome = await this.service.finishGoogle(flowId, query, sessionUser, request.headers.get('User-Agent') ?? '')
+      } catch (error) {
+        // Google switched off between the start and the way back
+        if (!(error instanceof AppError)) throw error
+        outcome = { kind: 'failed', code: 'googleOff', link: false, site: 'table' }
+      }
+      return this.googleRedirect(request, outcome, secure)
+    }
+    if (route === 'GET /api/auth/google/pending') return json(await this.service.googlePending(flowId))
+    if (route === 'POST /api/auth/google/code') {
+      const b = await body()
+      const { user, token: newToken, returnTo } = await this.service.finishGoogleCode(
+        flowId,
+        text(b.code),
+        request.headers.get('CF-Connecting-IP') ?? '',
+        request.headers.get('User-Agent') ?? '',
+        b.lang,
+      )
+      const device = await this.sighting(request, user.id, secure, true)
+      return json({ user, returnTo }, 200, ...(await this.signedIn(newToken, user.id, secure)), ...device, googleCookie('', secure))
+    }
+    return null
+  }
+
+  /** Where a Google callback sends the browser, with the cookies it ends with */
+  private async googleRedirect(request: Request, outcome: GoogleOutcome, secure: boolean): Promise<Response> {
+    // 淡江牌桌 shows its sign-in page on any path when signed out; 淡江橋館's is /login
+    const signIn = outcome.site === 'book' ? '/login' : '/'
+    const headers = new Headers({ 'Cache-Control': 'no-store' })
+    let location: string
+    let cookies: string[]
+    switch (outcome.kind) {
+      case 'signedIn': {
+        location = safeReturn(outcome.returnTo)
+        const device = await this.sighting(request, outcome.user.id, secure, true)
+        cookies = [...(await this.signedIn(outcome.token, outcome.user.id, secure)), ...device, googleCookie('', secure)]
+        break
+      }
+      case 'code':
+        location = `${signIn}?google=code`
+        cookies = [googleCookie(outcome.flowId, secure, GOOGLE_CODE_MS)]
+        break
+      case 'apply':
+        location = `${signIn}?google=apply`
+        cookies = [googleCookie(outcome.flowId, secure, GOOGLE_APPLY_MS)]
+        break
+      case 'linked':
+        location = '/account?google=linked'
+        cookies = [googleCookie('', secure)]
+        break
+      default:
+        location = `${outcome.link ? '/account' : signIn}?google=error&code=${outcome.code}`
+        cookies = [googleCookie('', secure)]
+    }
+    headers.set('Location', location)
+    for (const cookie of cookies) headers.append('Set-Cookie', cookie)
+    return new Response(null, { status: 302, headers })
+  }
+
   private async route(request: Request, url: URL): Promise<Response> {
     const token = readCookie(request.headers.get('Cookie'), SESSION_COOKIE)
     if (url.pathname === '/api/book/import') return this.importUpload(request)
@@ -571,6 +670,8 @@ export class Club extends DurableObject<Env> implements Connections {
       const address = request.headers.get('CF-Connecting-IP') ?? ''
       const turnstile = turnstileKeys(this.env)
       if (turnstile) await requireTurnstile(turnstile.secret, text(b.turnstileToken), address, jsonLog)
+      // Applying with Google (e1-t31): `google: true` uses the flow the callback left in this browser's cookie
+      const google = b.google === true ? readCookie(request.headers.get('Cookie'), GOOGLE_COOKIE) : undefined
       const result = await this.service.register(
         text(b.username),
         text(b.password),
@@ -579,10 +680,12 @@ export class Club extends DurableObject<Env> implements Connections {
         b.site === 'book' ? 'book' : 'table',
         request.headers.get('User-Agent') ?? '',
         address,
+        { google, displayName: b.displayName },
       )
-      if ('pending' in result) return json(result, 202)
+      const cleared = google !== undefined ? [googleCookie('', secure)] : []
+      if ('pending' in result) return json(result, 202, ...cleared)
       const device = await this.sighting(request, result.user.id, secure, true)
-      return json({ user: result.user }, 200, ...(await this.signedIn(result.token, result.user.id, secure)), ...device)
+      return json({ user: result.user }, 200, ...(await this.signedIn(result.token, result.user.id, secure)), ...device, ...cleared)
     }
     // `code` is the second step (兩步驟登入, e11-t31), only for accounts that turned it on: without
     // it they get 401 twoFactorNeeded and send the same request again with it. Everyone else's
@@ -599,6 +702,12 @@ export class Club extends DurableObject<Env> implements Connections {
       )
       const device = await this.sighting(request, user.id, secure, true)
       return json({ user }, 200, ...(await this.signedIn(newToken, user.id, secure)), ...device)
+    }
+    // Google sign-in (e1-t31, worker/google.ts): whether it is on, the way to Google and back, the
+    // code step for 兩步驟登入 and what the sign-in page should show after coming back
+    if (url.pathname.startsWith('/api/auth/google')) {
+      const answer = await this.googleApi(request, url, route, token, body)
+      if (answer) return answer
     }
     if (route === 'POST /api/logout') {
       if (token) await this.service.logout(token)
@@ -705,6 +814,21 @@ export class Club extends DurableObject<Env> implements Connections {
     }
     if (route === 'POST /api/account/email/resend') {
       return json({ user: await this.service.resendEmailVerification(user.id, url.origin, (await body()).lang) })
+    }
+    // Google sign-in (e1-t31): binding asks for the password again, then goes to Google; unbinding asks for it too
+    if (route === 'POST /api/account/google/link') {
+      const b = await body()
+      const site = googleSite(text(b.origin), url)
+      if (!site) throw new ClubError('googleOff', {}, 403)
+      const address = request.headers.get('CF-Connecting-IP') ?? ''
+      const { url: to, flowId } = await this.service.startGoogle(`${site.origin}${GOOGLE_CALLBACK_PATH}`, site.site, '/account', address, {
+        userId: user.id,
+        password: text(b.password),
+      })
+      return json({ url: to }, 200, googleCookie(flowId, secure))
+    }
+    if (route === 'POST /api/account/google/unlink') {
+      return json({ user: await this.service.unlinkGoogle(user.id, text((await body()).password)) })
     }
     // 兩步驟登入 (e11-t31): a secret to set up (admins), its first code turns it on, new recovery codes, off
     if (route === 'POST /api/account/2fa/setup') return json(await this.service.startTwoFactor(user.id, text((await body()).password)))

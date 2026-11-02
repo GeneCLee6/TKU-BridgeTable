@@ -1352,6 +1352,29 @@ const zh = {
     linkMissing: '連結不完整，請直接點信裡的連結打開這一頁。',
     toSite: '回到淡江牌桌',
   },
+  // Google sign-in (e1-t31)
+  google: {
+    signIn: '用 Google 登入',
+    apply: '用 Google 申請加入',
+    or: '或',
+    applyNotice: '已確認你的 Google 帳號。仍要選一個帳號名稱與密碼，送出後等管理員核准；核准後可以用 Google 或密碼登入。已經有帳號的話，請改用帳號密碼登入，再到「我的帳號」綁定 Google。',
+    displayName: '顯示名稱',
+    displayNameHint: '其他社員看到的名字，可以修改；先填入 Google 帳號的名字。',
+    codeTitle: '輸入驗證碼',
+    codeIntro: '這個帳號開了兩步驟登入，用 Google 登入也要輸入驗證 App 上的 6 位數驗證碼或一組備用碼。',
+    usePassword: '改用帳號密碼登入',
+    title: 'Google 登入',
+    intro: '綁定 Google 帳號後，可以用 Google 登入淡江牌桌與淡江橋館。帳號名稱與顯示名稱不會改變，也照樣可以用密碼登入；開了兩步驟登入的帳號用 Google 登入時一樣要輸入驗證碼。Google 的 Email 只有你自己看得到。',
+    linked: (email: string) => `已綁定：${email}`,
+    none: '還沒有綁定 Google 帳號。',
+    password: '輸入密碼確認',
+    passwordFirst: '請先輸入密碼',
+    link: '綁定 Google 帳號',
+    unlink: '解除綁定',
+    unlinkConfirm: '確定要解除綁定 Google 嗎？之後請用帳號密碼登入。',
+    unlinked: '已解除綁定 Google',
+    linkedDone: 'Google 帳號已綁定，之後可以用 Google 登入。',
+  },
   // 兩步驟登入 (e11-t31)
   twoFactor: {
     title: '兩步驟登入',
@@ -1406,6 +1429,10 @@ const zh = {
       {
         h: 'Email',
         p: 'Email 是選填的。綁定時會寄一封驗證信，驗證過後只用來寄重設密碼的連結；其他社員看不到，管理員的頁面也不顯示。信由寄信服務 Resend（美國）代為寄出，它只拿到收件地址與信的內容。連結只存雜湊，用過或過期就失效。移除 Email 或刪除帳號時一併刪除。',
+      },
+      {
+        h: 'Google 登入',
+        p: 'Google 登入是選用的。綁定或用 Google 申請時，本社只保存 Google 帳號的識別碼與當時的 Email（只顯示給你自己，用來辨認綁的是哪個 Google 帳號），不保存頭像，也不會收到你的 Google 密碼；Google 的名字只用來預先填入申請表的顯示名稱。解除綁定或刪除帳號時一併刪除。登入過程由 Google（美國）處理，適用 Google 的隱私權政策。',
       },
       {
         h: '誰看得到',
@@ -2951,6 +2978,29 @@ const en: Strings = {
     linkMissing: 'This link is incomplete; open the page from the link in the email.',
     toSite: 'Back to TKU BridgeTable',
   },
+  // Google sign-in (e1-t31)
+  google: {
+    signIn: 'Sign in with Google',
+    apply: 'Apply with Google',
+    or: 'or',
+    applyNotice: 'Your Google account is confirmed. You still choose a username and a password, and an admin approves the application; after that you can sign in with Google or your password. Already have an account? Sign in with your password instead and link Google under My account.',
+    displayName: 'Display name',
+    displayNameHint: 'The name other members see; you can change it. Filled in from your Google account.',
+    codeTitle: 'Enter your code',
+    codeIntro: 'This account uses two-step sign-in: signing in with Google also needs the 6-digit code from your authenticator app, or a recovery code.',
+    usePassword: 'Sign in with a password instead',
+    title: 'Google sign-in',
+    intro: 'With a Google account linked, you can sign in to TKU BridgeTable and TKU BridgeHall with Google. Your username and display name stay the same, and your password still works; accounts with two-step sign-in still enter their code. Only you see the Google email.',
+    linked: (email: string) => `Linked: ${email}`,
+    none: 'No Google account linked yet.',
+    password: 'Your password, to confirm',
+    passwordFirst: 'Enter your password first',
+    link: 'Link a Google account',
+    unlink: 'Unlink',
+    unlinkConfirm: 'Unlink Google? You will sign in with your password.',
+    unlinked: 'Google unlinked',
+    linkedDone: 'Google account linked; you can now sign in with Google.',
+  },
   // 兩步驟登入 (e11-t31)
   twoFactor: {
     title: 'Two-step sign-in',
@@ -3004,6 +3054,10 @@ const en: Strings = {
       {
         h: 'Email',
         p: 'An email address is optional. Binding one sends a verification email; once verified it is only used to send password reset links. Other members never see it, and neither do the admin pages. The mail is sent by the email service Resend (USA), which only gets the address and the message. Links are kept only as hashes and stop working once used or expired. The address goes when you remove it or delete your account.',
+      },
+      {
+        h: 'Google sign-in',
+        p: 'Google sign-in is optional. When you link Google or apply with it, the club keeps only the Google account’s id and its email at that time (shown only to you, so you know which Google account is linked); not your picture, and never your Google password. Google’s name is only used to fill in the display name on the application. Both are deleted when you unlink Google or delete your account. Google (USA) handles the sign-in itself, under Google’s privacy policy.',
       },
       {
         h: 'Who can see it',
@@ -4543,6 +4597,29 @@ const zhHans: Strings = {
     linkMissing: '链接不完整，请直接点信里的链接打开这一页。',
     toSite: '回到淡江牌桌',
   },
+  // Google sign-in (e1-t31)
+  google: {
+    signIn: '用 Google 登录',
+    apply: '用 Google 申请加入',
+    or: '或',
+    applyNotice: '已确认你的 Google 账号。仍要选一个账号名称与密码，提交后等管理员批准；批准后可以用 Google 或密码登录。已经有账号的话，请改用账号密码登录，再到“我的账号”绑定 Google。',
+    displayName: '显示名称',
+    displayNameHint: '其他社员看到的名字，可以修改；先填入 Google 账号的名字。',
+    codeTitle: '输入验证码',
+    codeIntro: '这个账号开了两步验证登录，用 Google 登录也要输入验证 App 上的 6 位数验证码或一组备用码。',
+    usePassword: '改用账号密码登录',
+    title: 'Google 登录',
+    intro: '绑定 Google 账号后，可以用 Google 登录淡江牌桌与淡江桥馆。账号名称与显示名称不会改变，也照样可以用密码登录；开了两步验证登录的账号用 Google 登录时一样要输入验证码。Google 的 Email 只有你自己看得到。',
+    linked: (email: string) => `已绑定：${email}`,
+    none: '还没有绑定 Google 账号。',
+    password: '输入密码确认',
+    passwordFirst: '请先输入密码',
+    link: '绑定 Google 账号',
+    unlink: '解除绑定',
+    unlinkConfirm: '确定要解除绑定 Google 吗？之后请用账号密码登录。',
+    unlinked: '已解除绑定 Google',
+    linkedDone: 'Google 账号已绑定，之后可以用 Google 登录。',
+  },
   // 兩步驟登入 (e11-t31)
   twoFactor: {
     title: '两步验证登录',
@@ -4596,6 +4673,10 @@ const zhHans: Strings = {
       {
         h: 'Email',
         p: 'Email 是选填的。绑定时会寄一封验证信，验证过后只用来寄重设密码的链接；其他社员看不到，管理员的页面也不显示。信由寄信服务 Resend（美国）代为寄出，它只拿到收件地址与信的内容。链接只存哈希，用过或过期就失效。移除 Email 或删除账号时一并删除。',
+      },
+      {
+        h: 'Google 登录',
+        p: 'Google 登录是选用的。绑定或用 Google 申请时，本社只保存 Google 账号的识别码与当时的 Email（只显示给你自己，用来辨认绑的是哪个 Google 账号），不保存头像，也不会收到你的 Google 密码；Google 的名字只用来预先填入申请表的显示名称。解除绑定或删除账号时一并删除。登录过程由 Google（美国）处理，适用 Google 的隐私政策。',
       },
       {
         h: '谁看得到',
@@ -6137,6 +6218,29 @@ const vi: Strings = {
     linkMissing: 'Liên kết không đầy đủ; hãy mở trang này từ liên kết trong email.',
     toSite: 'Quay lại TKU BridgeTable',
   },
+  // Google sign-in (e1-t31)
+  google: {
+    signIn: 'Đăng nhập bằng Google',
+    apply: 'Đăng ký bằng Google',
+    or: 'hoặc',
+    applyNotice: 'Đã xác nhận tài khoản Google của bạn. Bạn vẫn cần chọn tên tài khoản và mật khẩu, rồi chờ quản trị viên duyệt; sau đó có thể đăng nhập bằng Google hoặc mật khẩu. Nếu đã có tài khoản, hãy đăng nhập bằng mật khẩu rồi liên kết Google trong Tài khoản của tôi.',
+    displayName: 'Tên hiển thị',
+    displayNameHint: 'Tên các thành viên khác thấy; có thể sửa. Được điền sẵn từ tài khoản Google.',
+    codeTitle: 'Nhập mã xác thực',
+    codeIntro: 'Tài khoản này dùng đăng nhập hai bước: đăng nhập bằng Google cũng cần mã 6 chữ số từ ứng dụng xác thực, hoặc một mã dự phòng.',
+    usePassword: 'Đăng nhập bằng mật khẩu',
+    title: 'Đăng nhập bằng Google',
+    intro: 'Khi đã liên kết tài khoản Google, bạn có thể đăng nhập TKU BridgeTable và TKU BridgeHall bằng Google. Tên tài khoản và tên hiển thị không đổi, mật khẩu vẫn dùng được; tài khoản có đăng nhập hai bước vẫn phải nhập mã. Chỉ bạn thấy email Google.',
+    linked: (email: string) => `Đã liên kết: ${email}`,
+    none: 'Chưa liên kết tài khoản Google.',
+    password: 'Nhập mật khẩu để xác nhận',
+    passwordFirst: 'Hãy nhập mật khẩu trước',
+    link: 'Liên kết tài khoản Google',
+    unlink: 'Hủy liên kết',
+    unlinkConfirm: 'Hủy liên kết Google? Sau đó hãy đăng nhập bằng mật khẩu.',
+    unlinked: 'Đã hủy liên kết Google',
+    linkedDone: 'Đã liên kết tài khoản Google; từ giờ có thể đăng nhập bằng Google.',
+  },
   // 兩步驟登入 (e11-t31)
   twoFactor: {
     title: 'Đăng nhập hai bước',
@@ -6190,6 +6294,10 @@ const vi: Strings = {
       {
         h: 'Email',
         p: 'Email là tùy chọn. Khi gắn email, bạn sẽ nhận một thư xác minh; sau khi xác minh, email chỉ dùng để gửi liên kết đặt lại mật khẩu. Thành viên khác không thấy được, trang quản trị cũng không hiển thị. Thư được gửi qua dịch vụ Resend (Hoa Kỳ), dịch vụ này chỉ nhận địa chỉ và nội dung thư. Liên kết chỉ được lưu dưới dạng băm và hết hiệu lực khi đã dùng hoặc hết hạn. Email bị xóa khi bạn gỡ nó hoặc xóa tài khoản.',
+      },
+      {
+        h: 'Đăng nhập bằng Google',
+        p: 'Đăng nhập bằng Google là tùy chọn. Khi liên kết hoặc đăng ký bằng Google, câu lạc bộ chỉ lưu mã định danh của tài khoản Google và email lúc đó (chỉ hiển thị cho bạn, để biết đã liên kết tài khoản Google nào); không lưu ảnh đại diện và không bao giờ nhận mật khẩu Google. Tên Google chỉ dùng để điền sẵn tên hiển thị trong đơn đăng ký. Cả hai bị xóa khi bạn hủy liên kết hoặc xóa tài khoản. Việc đăng nhập do Google (Mỹ) xử lý theo chính sách quyền riêng tư của Google.',
       },
       {
         h: 'Ai xem được',
@@ -7731,6 +7839,29 @@ const ja: Strings = {
     linkMissing: 'リンクが不完全です。メールのリンクからこのページを開いてください。',
     toSite: 'TKU BridgeTable に戻る',
   },
+  // Google sign-in (e1-t31)
+  google: {
+    signIn: 'Google でログイン',
+    apply: 'Google で入会申請',
+    or: 'または',
+    applyNotice: 'Google アカウントを確認しました。アカウント名とパスワードを決めて送信し、管理者の承認を待ってください。承認後は Google でもパスワードでもログインできます。すでにアカウントがある場合は、パスワードでログインしてから「マイアカウント」で Google を連携してください。',
+    displayName: '表示名',
+    displayNameHint: 'ほかのメンバーに見える名前で、変更できます。Google アカウントの名前が入っています。',
+    codeTitle: 'コードを入力',
+    codeIntro: 'このアカウントは 2 段階ログインを使っています。Google でログインする場合も、認証アプリの 6 桁のコードかバックアップコードが必要です。',
+    usePassword: 'パスワードでログインする',
+    title: 'Google ログイン',
+    intro: 'Google アカウントを連携すると、TKU BridgeTable と TKU BridgeHall に Google でログインできます。アカウント名と表示名は変わらず、パスワードでも引き続きログインできます。2 段階ログインを使っているアカウントは Google でもコードの入力が必要です。Google のメールアドレスはあなただけに表示されます。',
+    linked: (email: string) => `連携済み：${email}`,
+    none: 'Google アカウントはまだ連携されていません。',
+    password: '確認のためパスワードを入力',
+    passwordFirst: '先にパスワードを入力してください',
+    link: 'Google アカウントを連携',
+    unlink: '連携を解除',
+    unlinkConfirm: 'Google の連携を解除しますか？以後はパスワードでログインしてください。',
+    unlinked: 'Google の連携を解除しました',
+    linkedDone: 'Google アカウントを連携しました。これから Google でログインできます。',
+  },
   // 兩步驟登入 (e11-t31)
   twoFactor: {
     title: '2 段階ログイン',
@@ -7784,6 +7915,10 @@ const ja: Strings = {
       {
         h: 'メールアドレス',
         p: 'メールアドレスの登録は任意です。登録すると確認メールが届き、確認後はパスワード再設定のリンクを送るためだけに使います。他のメンバーには見えず、管理ページにも表示されません。メールは送信サービス Resend（米国）が送り、Resend が受け取るのは宛先とメールの内容だけです。リンクはハッシュだけを保存し、使用後または期限切れで無効になります。アドレスを削除するかアカウントを削除すると消えます。',
+      },
+      {
+        h: 'Google ログイン',
+        p: 'Google ログインは任意です。連携または Google での申請の際、クラブが保存するのは Google アカウントの識別子とその時点のメールアドレス（どの Google アカウントを連携したか分かるよう、あなたにだけ表示）だけで、プロフィール画像は保存せず、Google のパスワードを受け取ることもありません。Google の名前は申請フォームの表示名を事前入力するためだけに使います。連携の解除またはアカウントの削除で一緒に削除されます。ログインの処理は Google（米国）が行い、Google のプライバシーポリシーが適用されます。',
       },
       {
         h: '誰が見られるか',
@@ -9325,6 +9460,29 @@ const ko: Strings = {
     linkMissing: '링크가 완전하지 않습니다. 메일의 링크로 이 페이지를 여세요.',
     toSite: 'TKU BridgeTable로 돌아가기',
   },
+  // Google sign-in (e1-t31)
+  google: {
+    signIn: 'Google로 로그인',
+    apply: 'Google로 가입 신청',
+    or: '또는',
+    applyNotice: 'Google 계정을 확인했습니다. 계정 이름과 비밀번호를 정해 보내면 관리자가 승인합니다. 승인 후에는 Google이나 비밀번호로 로그인할 수 있습니다. 이미 계정이 있다면 비밀번호로 로그인한 뒤 내 계정에서 Google을 연결하세요.',
+    displayName: '표시 이름',
+    displayNameHint: '다른 회원에게 보이는 이름이며 바꿀 수 있습니다. Google 계정의 이름이 채워져 있습니다.',
+    codeTitle: '코드 입력',
+    codeIntro: '이 계정은 2단계 로그인을 사용합니다. Google로 로그인할 때도 인증 앱의 6자리 코드나 백업 코드가 필요합니다.',
+    usePassword: '비밀번호로 로그인',
+    title: 'Google 로그인',
+    intro: 'Google 계정을 연결하면 TKU BridgeTable과 TKU BridgeHall에 Google로 로그인할 수 있습니다. 계정 이름과 표시 이름은 바뀌지 않고 비밀번호로도 계속 로그인할 수 있습니다. 2단계 로그인을 쓰는 계정은 Google로 로그인할 때도 코드를 입력해야 합니다. Google 이메일은 본인에게만 보입니다.',
+    linked: (email: string) => `연결됨: ${email}`,
+    none: '아직 연결된 Google 계정이 없습니다.',
+    password: '확인을 위해 비밀번호 입력',
+    passwordFirst: '먼저 비밀번호를 입력하세요',
+    link: 'Google 계정 연결',
+    unlink: '연결 해제',
+    unlinkConfirm: 'Google 연결을 해제할까요? 이후에는 비밀번호로 로그인하세요.',
+    unlinked: 'Google 연결을 해제했습니다',
+    linkedDone: 'Google 계정을 연결했습니다. 이제 Google로 로그인할 수 있습니다.',
+  },
   // 兩步驟登入 (e11-t31)
   twoFactor: {
     title: '2단계 로그인',
@@ -9378,6 +9536,10 @@ const ko: Strings = {
       {
         h: '이메일',
         p: '이메일 등록은 선택입니다. 등록하면 인증 메일이 가고, 인증된 뒤에는 비밀번호 재설정 링크를 보낼 때만 씁니다. 다른 회원에게 보이지 않으며 관리 페이지에도 표시되지 않습니다. 메일은 발송 서비스 Resend(미국)가 보내며, Resend는 받는 주소와 메일 내용만 받습니다. 링크는 해시로만 저장되고, 사용하거나 만료되면 쓸 수 없습니다. 이메일을 삭제하거나 계정을 삭제하면 함께 지워집니다.',
+      },
+      {
+        h: 'Google 로그인',
+        p: 'Google 로그인은 선택 사항입니다. Google을 연결하거나 Google로 신청할 때 동아리는 Google 계정의 식별자와 그때의 이메일(어떤 Google 계정이 연결되었는지 알 수 있도록 본인에게만 표시)만 보관하며, 프로필 사진은 보관하지 않고 Google 비밀번호는 받지 않습니다. Google 이름은 신청서의 표시 이름을 미리 채우는 데만 씁니다. 연결을 해제하거나 계정을 삭제하면 함께 삭제됩니다. 로그인 과정은 Google(미국)이 처리하며 Google의 개인정보처리방침이 적용됩니다.',
       },
       {
         h: '누가 볼 수 있나요',

@@ -28,6 +28,7 @@ import type {
   MemberChange,
   Permission,
   RegisterOptions,
+  GooglePending,
   RegisterResult,
   RobotSpeed,
 } from '../../shared/protocol.ts'
@@ -88,6 +89,11 @@ export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return data as T
 }
 
+/** An application with Google (e1-t31): the display name the applicant kept or typed */
+export interface GoogleApplication {
+  displayName: string
+}
+
 const post = <T>(path: string, body: unknown = {}) => request<T>(path, { method: 'POST', body: JSON.stringify(body) })
 
 export const api = {
@@ -101,8 +107,16 @@ export const api = {
   login: (username: string, password: string, code = '', lang?: string) =>
     post<{ user: Me }>('/api/login', code ? { username, password, code, lang } : { username, password }),
   /** The first account signs in at once; later ones wait for an admin to approve them */
-  register: (username: string, password: string, inviteCode: string, note: string, turnstileToken?: string) =>
-    post<RegisterResult>('/api/register', { username, password, inviteCode, note, site: 'table', turnstileToken }),
+  register: (username: string, password: string, inviteCode: string, note: string, turnstileToken?: string, google?: GoogleApplication) =>
+    post<RegisterResult>('/api/register', {
+      username,
+      password,
+      inviteCode,
+      note,
+      site: 'table',
+      turnstileToken,
+      ...(google && { google: true, displayName: google.displayName }),
+    }),
   /** What 申請加入 needs before it is sent (e1-t33): Turnstile's site key, or null when it is off */
   registerOptions: () => request<RegisterOptions>('/api/register/options'),
   /** 忘記密碼, step 1 (e1-t36): asks the admins, with the club's invite code; not for admin accounts */
@@ -130,6 +144,19 @@ export const api = {
       post<{ user: Me; recoveryCodes: string[] }>('/api/account/2fa/recovery', { password, code }),
     disable: (password: string, code: string, lang: string) =>
       post<{ user: Me }>('/api/account/2fa/disable', { password, code, lang }),
+  },
+  /**
+   * Google sign-in (e1-t31): whether it is on; the address of Google for signing in or (with the
+   * password) binding it, which the page then opens; what the browser waits for after coming back;
+   * the two-step code after Google; unbinding
+   */
+  google: {
+    status: () => request<{ enabled: boolean }>('/api/auth/google'),
+    start: (returnTo: string) => post<{ url: string }>('/api/auth/google/start', { origin: window.location.origin, returnTo }),
+    pending: () => request<GooglePending>('/api/auth/google/pending'),
+    code: (code: string, lang: string) => post<{ user: Me; returnTo: string }>('/api/auth/google/code', { code, lang }),
+    link: (password: string) => post<{ url: string }>('/api/account/google/link', { password, origin: window.location.origin }),
+    unlink: (password: string) => post<{ user: Me }>('/api/account/google/unlink', { password }),
   },
   logout: () => post<{ ok: true }>('/api/logout'),
   changePassword: (current: string, next: string) => post<{ ok: true }>('/api/account/password', { current, next }),

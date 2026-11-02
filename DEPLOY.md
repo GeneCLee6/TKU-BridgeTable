@@ -133,6 +133,8 @@ PR 關閉時預覽會自動刪除。若有漏掉的（例如當時還沒設定 s
 | `TWO_FACTOR_RESET_TOKEN` | `wrangler secret put TWO_FACTOR_RESET_TOKEN` | **無（平常不要設）** | 只有一位管理員又遺失手機與備用碼時的最後手段（§4.15，至少 32 字隨機）：設了才有 `POST /api/ops/two-factor-reset`，**用完立刻 `wrangler secret delete`** |
 | `RESEND_API_KEY` | `wrangler secret put RESEND_API_KEY` | 無 | 寄 Email 驗證信與重設密碼信（§4.14）；跟 `MAIL_FROM` 兩個都設才打開，沒設定時沒有 Email 功能 |
 | `MAIL_FROM` | `wrangler.jsonc` 的 `vars` 或 secret | 無 | 寄件人，要是 Resend 驗證過的網域上的地址（§4.14） |
+| `GOOGLE_CLIENT_ID` | `wrangler secret put GOOGLE_CLIENT_ID` | 無 | Google 登入（§4.16）：Google Cloud 的 OAuth 用戶端 ID |
+| `GOOGLE_CLIENT_SECRET` | `wrangler secret put GOOGLE_CLIENT_SECRET` | 無 | 那個用戶端的密鑰；**兩個都設才開**，PR 預覽不設（預覽站沒有 Google 登入） |
 | `ANTHROPIC_BASE_URL` | `.dev.vars` | 無 | 只給測試或 API 閘道用（本機可以指向假的 API），正式環境不要設定 |
 
 本機開發的值放在 `.dev.vars`（從 `.dev.vars.example` 複製，不會 commit）。
@@ -561,6 +563,46 @@ npx wrangler secret put TURNSTILE_SECRET_KEY        # 貼上 widget 的 Secret K
 - Windows PowerShell 沒有 `$(...)` 管線與 `curl` 的這些寫法時，可以改用 Git Bash 執行上面的指令。
 - staging 或 PR 預覽要練習時，在第 2、4 步加 `--env staging`（或 `--name tku-bridge-table-pr-<號>`），第 3 步換成那個環境的網址。
 - **Cloudflare 帳號本身一定要開兩步驟驗證**：這個救援等於信任能登入 Cloudflare 帳號的人。
+
+## 4.16 Google 登入（`e1-t31`）
+
+Google 是**綁在既有帳號上的另一種登入方式**（ARCHITECTURE.md §5.2）：社員在「我的帳號」輸入密碼後綁定，之後可以按「用 Google 登入」（淡江牌桌與淡江橋館都有）。帳號名稱與顯示名稱不變；開了兩步驟登入的帳號（管理員一定有）用 Google 登入後還是要輸入驗證碼。新的人可以「用 Google 申請加入」，但照樣要選帳號名稱與密碼、填邀請碼，等管理員核准。**沒設定也能部署**：兩個 secret 都設才會打開，否則登入頁與「我的帳號」都沒有 Google。
+
+### 啟用（只做一次，社長用自己的 Google 帳號）
+
+1. 到 <https://console.cloud.google.com/>，上方選專案 →「新增專案」，名稱例如 `TKU BridgeTable`（不用綁信用卡；Google 登入免費）。
+2. 左側選單 →「API 和服務」→「OAuth 同意畫面」（新版叫 **Google Auth Platform**）→「開始」：
+   - 應用程式名稱 `淡江牌桌`、使用者支援電子郵件填自己的 Gmail；目標對象選 **外部**；聯絡資訊填自己的 Gmail；同意政策後建立。
+   - 「品牌塑造」可以加首頁 `https://tku-bridge-table.genelee-pro.workers.dev`、隱私權政策 `…/privacy`、服務條款 `…/terms`；**授權網域**加 `genelee-pro.workers.dev` 與 `vercel.app`（Google 不接受 `workers.dev`／`vercel.app` 這類公用網域時可以留空，只用到 `openid email profile` 時不影響登入）。
+   - 「資料存取」（範圍）只要 `openid`、`.../auth/userinfo.email`、`.../auth/userinfo.profile`，這三個不用 Google 審查。
+   - 「目標對象」→ **發布應用程式**（改成「實際運作中」）。停在「測試中」時只有列在測試使用者裡的 Gmail 能登入，而且 7 天就要重新同意。
+3. 「用戶端」（舊版是「憑證」→「建立憑證」→「OAuth 用戶端 ID」）→ 應用程式類型 **網頁應用程式**，名稱 `淡江牌桌（正式站）`：
+   - **已授權的 JavaScript 來源**：不用填（流程在伺服器，沒有在頁面裡呼叫 Google 的 script）。
+   - **已授權的重新導向 URI**（要一字不差，包括 `https`、沒有結尾的 `/`）：
+
+     ```
+     https://tku-bridge-table.genelee-pro.workers.dev/api/auth/google/callback
+     https://tku-bridge-hall.vercel.app/api/auth/google/callback
+     ```
+
+     第二個是淡江橋館：橋館的 `/api/*` 由 Vercel 轉到牌桌的 Worker，cookie 才會留在橋館自己的網域（跟密碼登入一樣，兩站各自登入）。以後換成社團的網域時，在這裡加上新網域的 `…/api/auth/google/callback`，並改 `shared/book-site.ts` 的 `BOOK_SITE`（橋館的網域）。
+   - 建立後複製**用戶端 ID**（`…apps.googleusercontent.com`）與**用戶端密鑰**（`GOCSPX-…`）。
+4. 設定 Worker（正式站）：
+
+   ```bash
+   npx wrangler secret put GOOGLE_CLIENT_ID        # 貼上用戶端 ID
+   npx wrangler secret put GOOGLE_CLIENT_SECRET    # 貼上用戶端密鑰
+   ```
+
+5. 檢查：`curl -s https://tku-bridge-table.genelee-pro.workers.dev/api/auth/google` 回 `{"enabled":true}`；用密碼登入 →「我的帳號」→「Google 登入」→ 輸入密碼 →「綁定 Google 帳號」→ 選 Google 帳號 → 回到「我的帳號」顯示「已綁定：…」。登出後按「用 Google 登入」：社長有開兩步驟登入，會再問驗證碼。橋館的登入頁也試一次（橋館的 PR 部署之後）。
+
+- **staging**：另建一個 OAuth 用戶端（或在同一個用戶端加 URI）`https://tku-bridge-table-staging.genelee-pro.workers.dev/api/auth/google/callback`，用 `--name tku-bridge-table-staging` 設那兩個 secret。staging 不支援橋館（橋館的 `/api` 只轉到正式站）。
+- **PR 預覽沒有 Google 登入**：每個 PR 的網址都不同（`tku-bridge-table-pr-<號>`），Google 只接受事先登記、一字不差的重新導向 URI，不能用萬用字元；而且預覽的 Worker 不會拿到這兩個 secret，所以預覽站自動關閉（看不到按鈕）。要測流程就在 staging 測。橋館的 Vercel 預覽也一樣：頁面送出的網站不是正式的橋館網址，Worker 回 `googleOff`。
+- **本機**：要試的話在同一個用戶端加 `http://localhost:5173/api/auth/google/callback`（橋館的開發伺服器再加 `http://localhost:5174/...`），把兩個值放 `.dev.vars`（不要 commit）。
+- **CSP 不用改**：整頁導向到 Google 再導回來，不載入 Google 的 script 或 iframe（docs/SECURITY.md §2）。
+- **關掉**：`npx wrangler secret delete GOOGLE_CLIENT_SECRET`。綁定留在帳號裡，重新打開後照樣能用；關掉期間大家用密碼登入。
+- **用戶端密鑰外洩時**：在 Google Cloud 的用戶端頁面「新增密鑰」→ 用 `wrangler secret put GOOGLE_CLIENT_SECRET` 換上新的 → 停用舊的。
+- 日誌：`googleSignIn`、`googleLinked`、`googleUnlinked`、`googleFailed`（`reason`：`state` 是 cookie 不見或過期、`denied` 是在 Google 按了取消、`exchange` 是 Google 拒絕 code（常見原因：重新導向 URI 沒登記或密鑰錯）、`token` 是 ID token 檢查沒過）。
 
 ## 5. 費用與限制
 
