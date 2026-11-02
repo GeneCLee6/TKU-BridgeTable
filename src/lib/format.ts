@@ -16,6 +16,11 @@ export function formatDateTime(at: number, lang: Lang = 'zh'): string {
   })
 }
 
+/** 14:05: the time of day only, for something due within minutes */
+export function formatTime(at: number, lang: Lang = 'zh'): string {
+  return new Date(at).toLocaleTimeString(LOCALE[lang], { hour: '2-digit', minute: '2-digit', hour12: false })
+}
+
 /** +620, -100, 0 */
 export const signed = (n: number) => (n > 0 ? `+${n}` : `${n}`)
 

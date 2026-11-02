@@ -2933,6 +2933,7 @@ export class ClubService {
     const entry = this.entryOf(userId)
     if (entry && !this.remote) void this.tables.get(entry.id).presence(userId, true)
     void this.reclaimSeats(userId)
+    void this.rejoinDropped(userId)
     this.broadcast()
     void this.pushNotifications(userId)
     this.pushDirects(userId)
@@ -3042,6 +3043,27 @@ export class ClubService {
     }
     this.broadcast()
     this.matches.presence(userId)
+  }
+
+  /**
+   * A member of a partnership who lost their seat for being offline too long (`e7-t28`,
+   * PARTNER_AWAY_MS) sits down again as they come back online, and the board goes on as it was.
+   * Quietly: a reconnect does not tell the partner (`challengePartnerSeated`), and if the challenge
+   * no longer takes them nothing happens
+   */
+  private async rejoinDropped(userId: string) {
+    const entry = [...this.directory.values()].find((t) => t.challenge?.dropped?.includes(userId))
+    if (!entry || this.entryOf(userId)) return
+    const challengeId = entry.challenge!.challengeId
+    await this.inLane(userId, async () => {
+      try {
+        await this.batch(() => this.playChallenge(userId, challengeId, { quiet: true }))
+      } catch (error) {
+        if (!(error instanceof AppError)) throw error
+        return
+      }
+      this.broadcast()
+    })
   }
 
   /** A member back online takes their seat back from the robot sitting in for them (代打) */
@@ -4027,7 +4049,7 @@ export class ClubService {
    * where they were: a board in progress goes on exactly as it was, a finished one is followed by
    * the next board of the set. Whatever table they were at they leave first
    */
-  private async playChallenge(userId: string, challengeId: unknown) {
+  private async playChallenge(userId: string, challengeId: unknown, { quiet = false } = {}) {
     const challenge = this.requireChallenge(challengeId)
     const player = challenge.players.find((p) => p.userId === userId)
     if (!player) throw new ClubError('challengeGone', {}, 404)
@@ -4045,7 +4067,9 @@ export class ClubService {
     if (player.knownDeals || (!existing && nextSeq(challenge, userId) === null)) throw new ClubError('challengeDone')
     await this.leave(userId)
     if (existing) {
-      this.applyResult(existing.id, await this.tables.get(existing.id).resume(this.person(userId)))
+      const entry = await this.tables.get(existing.id).resume(this.person(userId))
+      this.applyResult(existing.id, entry)
+      if (!quiet) await this.tellPartnerSeated(challenge, userId, entry)
       return
     }
     const kind = challenge.settings.robotKind
@@ -4085,7 +4109,24 @@ export class ClubService {
     }
     // The table deals its first board as it opens
     if (player.startedAt === undefined) this.applySnapshot(await this.eventFor(challenge.id).started(userId))
-    this.applyEntry(await this.tables.get(table.id).open(table))
+    const entry = await this.tables.get(table.id).open(table)
+    this.applyEntry(entry)
+    await this.tellPartnerSeated(challenge, userId, entry)
+  }
+
+  /**
+   * A member of a partnership sat down at its table and the partner is not there (`e7-t28`): the
+   * partner hears it, with a link straight to the table. Once per sit-down (`playChallenge`), not
+   * on a reconnect, and not when the partner is already seated
+   */
+  private async tellPartnerSeated(challenge: Challenge, userId: string, entry: TableEntry | null) {
+    const partner = partnerOf(challenge, userId)?.userId
+    if (partner === undefined || !entry || SEATS.some((s) => entry.seats[s] === partner)) return
+    await this.notifications.notify(partner, 'challengePartnerSeated', {
+      challengeId: challenge.id,
+      tableId: entry.id,
+      username: this.users.get(userId)?.username ?? '',
+    })
   }
 
   // ── Team matches being played (§5.8, e8-t07–e8-t11, e8-t13) ─────────────────────────────────

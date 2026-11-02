@@ -286,6 +286,11 @@ export const TABLE_REQUEST_COOLDOWN_MS = 10 * 60_000
 export const SLOW_TURN_MS = 60_000
 /** A seated member offline this long is replaced by a robot until they come back (代打, AC-2.13) */
 export const SUBSTITUTE_MS = 3 * 60_000
+/**
+ * A partner challenge (`e7-t28`): a member offline this long loses their seat, and the table is set
+ * aside (parked) until both are back; no robot plays for them (社長, 2026-11-02)
+ */
+export const PARTNER_AWAY_MS = 3 * 60_000
 
 /**
  * Checks settings from the browser: every field optional, nothing else allowed; null when invalid.
@@ -386,6 +391,13 @@ export interface TableChallenge {
    * played until they are back
    */
   partnerAway?: boolean
+  /**
+   * A partner challenge: a member at the table dropped offline; their seat is kept until this time
+   * (PARTNER_AWAY_MS), then the table is set aside until both are back
+   */
+  partnerOfflineUntil?: number
+  /** A partner challenge: the partner was offline too long and lost their seat; the board waits as it was */
+  partnerDropped?: boolean
 }
 
 /**
@@ -738,6 +750,7 @@ export const NOTIFICATION_KINDS = [
   'challengeResults',
   'challengeWeekly',
   'challengePartnerDeclined',
+  'challengePartnerSeated',
   'friendOnline',
   'tableInvited',
   'tableRequest',

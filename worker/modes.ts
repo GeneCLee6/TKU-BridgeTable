@@ -124,6 +124,16 @@ export interface ChallengeTableState {
   robotKind: RobotKind
   /** The challenge ended (finished, expired or cancelled): nothing more is played */
   closed?: boolean
+  /**
+   * A partner challenge: since when each seated member has been offline (kept so an evicted object
+   * still knows when PARTNER_AWAY_MS is up)
+   */
+  offline?: Record<string, number>
+  /**
+   * A partner challenge: the members who lost their seat for being offline PARTNER_AWAY_MS; coming
+   * back online seats them again (`ClubService.rejoinDropped`)
+   */
+  dropped?: string[]
 }
 
 export const challengeStateOf = (table: Table): ChallengeTableState | null =>
