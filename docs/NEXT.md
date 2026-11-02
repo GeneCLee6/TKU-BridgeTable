@@ -151,10 +151,10 @@
      - 橋館 #64（含 #63）：登入頁驗證碼欄位、`adminTwoFactorRequired` 訊息、`passwordMin` 12、標籤、已隱藏標記、`forum:hide` 審計名稱。兩個橋館 PR 的 parity 互相依賴，所以合成一個合併。
      - #265（`e7-t28`）雙人搭檔挑戰：`settings.partners`、`challenge_players.partner_id`、一組一桌（南北真人、東西機器人），四位都在才發牌、搭檔離開整桌停住；一人拒絕整組出局；積分兩人各一份；不算個人戰績；最多 9 組對手。J4 的預設（datum、戰績範圍、和局算半場、刪留言）社長照建議定案。待決：只斷線時桌子無限等待（沒有逾時）、搭檔入座不通知。
   0k. **2026-11-02 第五輪（社長拍板：管理員可以自己關兩步驟登入、橋館忘記密碼要跟上、搭檔斷線逾時與入座通知要做；多元登入由我決定時機 → Google 先做）**：
-     - #268（`e1-t31`）Google 登入：OIDC 授權碼＋PKCE＋state（HttpOnly cookie `tbt_google`）＋nonce，在社團物件換 token、只用 `sub` 認人（`worker/google.ts`）。綁在既有帳號上，帳號名稱與顯示名稱不變；用 Google 申請仍要取帳號名稱、設密碼、管理員核准，Google 名字只預填顯示名稱。有開兩步驟登入的仍要驗證碼（`POST /api/auth/google/code`）。導回只限牌桌與 `BOOK_SITE`；PR 預覽沒有 Google。**要啟用：社長照 DEPLOY.md §4.16 在 Google Cloud 建 OAuth 用戶端，設 `GOOGLE_CLIENT_ID`、`GOOGLE_CLIENT_SECRET`**。橋館 #66 只加登入按鈕（綁定與申請只在牌桌）。待決：用 Google 申請可否免設密碼、綁定要不要也要驗證碼。
-     - #267（`e7-t28` 後續）搭檔斷線保留 3 分鐘（`PARTNER_AWAY_MS`，排程 `partnerAway`），逾時這一副擱著、重連自動坐回，不代打；搭檔入座通知 `challengePartnerSeated`。
+     - #268（`e1-t31`）Google 登入：OIDC 授權碼＋PKCE＋state（HttpOnly cookie `tbt_google`）＋nonce，在社團物件換 token、只用 `sub` 認人（`worker/google.ts`）。綁在既有帳號上，帳號名稱與顯示名稱不變；用 Google 申請仍要取帳號名稱、設密碼、管理員核准，Google 名字只預填顯示名稱。有開兩步驟登入的仍要驗證碼（`POST /api/auth/google/code`）。導回只限牌桌與 `BOOK_SITE`；PR 預覽沒有 Google。**已啟用**（2026-11-02 社長在 Google Cloud 建好 OAuth 用戶端並發布，設了 `GOOGLE_CLIENT_ID`、`GOOGLE_CLIENT_SECRET`；Branding 的首頁、`/privacy`、`/terms` 與授權網域 `genelee-pro.workers.dev`、`tku-bridge-hall.vercel.app`）。橋館 #66 只加登入按鈕（綁定與申請只在牌桌）。社長照建議定案：用 Google 申請仍要設密碼；綁定只要密碼、不要驗證碼（有兩步驟登入的人用 Google 登入時本來就要驗證碼）。
+     - #267（`e7-t28` 後續）搭檔斷線保留 3 分鐘（`PARTNER_AWAY_MS`，排程 `partnerAway`），逾時這一副擱著、重連自動坐回，不代打（3 分鐘社長照建議定案）；搭檔入座通知 `challengePartnerSeated`。
      - 管理員可以自己關兩步驟登入：社長決定維持（2026-11-02）。
-     - 橋館 #65 忘記密碼改成管理員核准＋重設代碼＋Email 重設：**還沒合併**，要先在橋館的 private 內容 repo 刪掉舊流程的測試（`tests/presentation/accounts.test.tsx`「resets a forgotten password once both entries match」，修改在 `C:\dev\TKU-BridgeHall-content-reset`，push 要社長同意）。待決：橋館管理頁要不要也能核准重設。
+     - 橋館 #65 忘記密碼改成管理員核准＋重設代碼＋Email 重設：已合併（private 內容 repo #6 先刪掉舊流程的測試）。核准重設只在牌桌做，橋館管理頁不加（社長照建議定案）。
      - 下一批候選：J5b 確認（`e8-t21` 已在 V1 做完，勾掉即可）、H6b 跨社團防作弊、L1（`e12-t03` 每個檔案都會碰，單獨做）；LINE 登入（`e1-t32`，照 Google 的模式）；Phase P 要先升級付費方案。
   1. H3b 完成（#150）：大廳拆 `LobbyShared`＋`LobbyMine`、只送差異（`lobbyDelta`）、100 ms 合併廣播、`action` 日誌 1/10 取樣；數字在 `docs/LOAD.md` §6。部署前開著的分頁要重新整理。本機 workerd 量測時社團物件中途重啟過一次（原因未查到，沒有動作失敗），遠端煙霧時留意。
   2. TKB 持續加強（模擬 → 改規則 → 評測）：V4 四項做完（見上）；下一輪從 V4 的待決與 `ROBOT.md` 的「待社團確認」挑。
