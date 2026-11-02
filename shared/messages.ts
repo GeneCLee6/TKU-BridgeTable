@@ -637,6 +637,23 @@ export const MESSAGES = {
     ja: 'このアカウントは 2 段階ログインを使っていません',
     ko: '이 계정은 2단계 로그인을 사용하지 않습니다',
   },
+  // Push notifications (e1-t28)
+  pushOff: {
+    zh: '社團還沒有開放推播通知',
+    'zh-Hans': '社团还没有开放推送通知',
+    en: 'The club does not offer push notifications yet',
+    vi: 'Câu lạc bộ chưa bật thông báo đẩy',
+    ja: 'クラブはまだプッシュ通知を使っていません',
+    ko: '동아리에서 아직 푸시 알림을 사용하지 않습니다',
+  },
+  pushBadSubscription: {
+    zh: '這個瀏覽器的推播訂閱無法使用，請重新整理後再試一次',
+    'zh-Hans': '这个浏览器的推送订阅无法使用，请刷新后再试一次',
+    en: "This browser's push subscription cannot be used; reload the page and try again",
+    vi: 'Không dùng được đăng ký thông báo đẩy của trình duyệt này; hãy tải lại trang rồi thử lại',
+    ja: 'このブラウザのプッシュ購読は使えません。ページを再読み込みしてもう一度お試しください',
+    ko: '이 브라우저의 푸시 구독을 사용할 수 없습니다. 페이지를 새로 고친 뒤 다시 시도하세요',
+  },
   // Google sign-in (e1-t31)
   googleOff: {
     zh: '社團還沒有開放 Google 登入',

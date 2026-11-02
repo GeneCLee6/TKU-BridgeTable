@@ -190,6 +190,8 @@ import {
   saveFavorite,
 } from './favorites.ts'
 import { NotificationService } from './notifications.ts'
+import { PushService } from './push.ts'
+import type { PushSender } from './web-push.ts'
 import {
   enabledFeatures,
   featureEnabled,
@@ -506,6 +508,13 @@ export interface ClubConfig {
    * it is off: `Me.google` is left out and every Google route answers `googleOff`
    */
   google?: GoogleAuth
+  /**
+   * Web Push (e1-t28; `worker/web-push.ts`, `worker/push.ts`). Without it (no `VAPID_*` secrets,
+   * PR previews) push is off: `GET /api/push` says so and the other push routes answer `pushOff`
+   */
+  push?: PushSender
+  /** Keeps the object alive for work after the answer (the Durable Object's `waitUntil`); tests leave it out */
+  defer?: (task: Promise<unknown>) => void
 }
 
 export type ScheduleKind = JobKind
@@ -628,6 +637,8 @@ export class ClubService {
   >()
   /** The notification centre; other parts of the club call `notifications.notify` */
   readonly notifications: NotificationService
+  /** Push notifications to members' devices (e1-t28, worker/push.ts) */
+  readonly push: PushService
   /** 淡江橋館's rules synced for TKB (BridgeHall e7-t03); the book routes in `club.ts` use it too */
   readonly systemSpecs: SystemSpecStore
   /** Whom each member follows (好友) and whom they blocked (AC-1.6) */
@@ -726,7 +737,20 @@ export class ClubService {
     this.googleFlows = new GoogleFlows(store, this.now)
     this.googleStartLimit = new TokenBuckets(GOOGLE_START_BURST, GOOGLE_STARTS_PER_SECOND, this.now)
     this.random = config.random ?? secureRandomInt
-    this.notifications = new NotificationService(store, this.now, (userId) => void this.pushNotifications(userId))
+    this.push = new PushService(store, {
+      sender: config.push,
+      now: this.now,
+      online: (userId) => this.connections.onlineUserIds().includes(userId),
+      forum: (userId) => this.featureOn('forum', userId),
+      defer: config.defer ?? ((task) => void task.catch(() => {})),
+      log: (entry) => this.log(entry),
+    })
+    this.notifications = new NotificationService(
+      store,
+      this.now,
+      (userId) => void this.pushNotifications(userId),
+      (userId, item) => this.push.queue(userId, item),
+    )
     this.friends = new Relations(store, 'friend', this.now)
     this.blocks = new Relations(store, 'block', this.now)
     this.challenges = new ChallengeStore(store.sql)
@@ -2307,6 +2331,8 @@ export class ClubService {
   private async revokeSessions(userId: string) {
     const { ids } = await this.sessions.endAll(userId)
     await this.sessionsEnded(userId, ids)
+    // A device signed out stops getting the member's pushes too (e1-t28): each subscribes again after signing in
+    await this.push.dropDevices(userId)
   }
 
   // ── Admin ───────────────────────────────────────────────────────────────────────────────────
@@ -2532,6 +2558,7 @@ export class ClubService {
     await this.revokeSessions(user.id)
     await this.sightings.forget(user.id)
     await this.notifications.forget(user.id)
+    await this.push.forget(user.id)
     await this.friends.forget(user.id)
     await this.blocks.forget(user.id)
     removeFavoritesOf(this.store.sql, user.id)
@@ -2684,6 +2711,8 @@ export class ClubService {
       friends: this.friends.of(userId).map(name),
       blocked: this.blocks.of(userId).map(name),
       notifications: await this.notifications.view(userId),
+      // The devices that get pushes (e1-t28): their names and dates, never the subscription's address or keys
+      push: await this.push.exportOf(userId),
       directMessages: this.directs.everyMessage(userId).map((m) => ({ ...m, from: name(m.from), to: name(m.to) })),
       savedPractice: await this.practicePresets.list(userId),
       challengeComments: this.challengeExtras.commentsOf(userId),

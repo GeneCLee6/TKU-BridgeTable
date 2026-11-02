@@ -13,19 +13,27 @@ import type { Store } from './store.ts'
  * member keeps their newest NOTIFICATIONS_KEPT under `notif:<userId>:<time>-<id>`, older ones are
  * dropped. A member's notifications are read from the store the first time they are needed and
  * kept in memory after that. Whenever they change, `onChange` is told so the member is sent the
- * new view.
+ * new view, and `onNew` is handed each new one to push to the member's devices (e1-t28).
  */
 export class NotificationService {
   private readonly store: Store
   private readonly now: () => number
   private readonly onChange: (userId: string) => void
+  /** Every new notification, for the push (e1-t28, worker/push.ts) */
+  private readonly onNew: (userId: string, item: Notification) => void
   /** Each member's notifications, oldest first, with their keys */
   private readonly loaded = new Map<string, { key: string; item: Notification }[]>()
 
-  constructor(store: Store, now: () => number, onChange: (userId: string) => void) {
+  constructor(
+    store: Store,
+    now: () => number,
+    onChange: (userId: string) => void,
+    onNew: (userId: string, item: Notification) => void = () => {},
+  ) {
     this.store = store
     this.now = now
     this.onChange = onChange
+    this.onNew = onNew
   }
 
   private async entries(userId: string) {
@@ -47,6 +55,7 @@ export class NotificationService {
     entries.push({ key, item })
     for (const old of entries.splice(0, Math.max(0, entries.length - NOTIFICATIONS_KEPT))) await this.store.delete(old.key)
     this.onChange(userId)
+    this.onNew(userId, item)
     return item
   }
 

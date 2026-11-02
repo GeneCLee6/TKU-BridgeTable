@@ -135,6 +135,9 @@ PR 關閉時預覽會自動刪除。若有漏掉的（例如當時還沒設定 s
 | `MAIL_FROM` | `wrangler.jsonc` 的 `vars` 或 secret | 無 | 寄件人，要是 Resend 驗證過的網域上的地址（§4.14） |
 | `GOOGLE_CLIENT_ID` | `wrangler secret put GOOGLE_CLIENT_ID` | 無 | Google 登入（§4.16）：Google Cloud 的 OAuth 用戶端 ID |
 | `GOOGLE_CLIENT_SECRET` | `wrangler secret put GOOGLE_CLIENT_SECRET` | 無 | 那個用戶端的密鑰；**兩個都設才開**，PR 預覽不設（預覽站沒有 Google 登入） |
+| `VAPID_PUBLIC_KEY` | `wrangler secret put VAPID_PUBLIC_KEY` | 無 | PWA 推播（§4.17）：`npm run vapid` 產生的公鑰（公開的，瀏覽器訂閱時要用；放 secret 只是跟私鑰放一起） |
+| `VAPID_PRIVATE_KEY` | `wrangler secret put VAPID_PRIVATE_KEY` | 無 | 同一對的私鑰，**只放 secret** |
+| `VAPID_SUBJECT` | `wrangler secret put VAPID_SUBJECT` | 無 | 推播服務聯絡得到的人：`mailto:` 開頭的 Email 或 `https:` 網址；**三個都設才開**，PR 預覽不設（預覽站沒有推播） |
 | `ANTHROPIC_BASE_URL` | `.dev.vars` | 無 | 只給測試或 API 閘道用（本機可以指向假的 API），正式環境不要設定 |
 
 本機開發的值放在 `.dev.vars`（從 `.dev.vars.example` 複製，不會 commit）。
@@ -603,6 +606,45 @@ Google 是**綁在既有帳號上的另一種登入方式**（ARCHITECTURE.md §
 - **關掉**：`npx wrangler secret delete GOOGLE_CLIENT_SECRET`。綁定留在帳號裡，重新打開後照樣能用；關掉期間大家用密碼登入。
 - **用戶端密鑰外洩時**：在 Google Cloud 的用戶端頁面「新增密鑰」→ 用 `wrangler secret put GOOGLE_CLIENT_SECRET` 換上新的 → 停用舊的。
 - 日誌：`googleSignIn`、`googleLinked`、`googleUnlinked`、`googleFailed`（`reason`：`state` 是 cookie 不見或過期、`denied` 是在 Google 按了取消、`exchange` 是 Google 拒絕 code（常見原因：重新導向 URI 沒登記或密鑰錯）、`token` 是 ID token 檢查沒過）。
+
+## 4.17 PWA 推播（`e1-t28`）
+
+社員在「我的帳號」→「推播通知」按「在這台裝置開啟推播」，之後**沒開著網頁時**，通知中心的每則新通知（挑戰邀請、牌桌邀請、隊制賽、討論區回覆…）也會出現在手機或電腦的系統通知裡，點了直接到對應的頁面。每台裝置各自開；要推哪幾類可以勾選（「關注的人上線」預設不推）。**沒設定也能部署**：三個 secret 都設才會打開，否則「我的帳號」沒有這張卡片。不用申請任何帳號，也不用付費：推播走各瀏覽器自己的推播服務（Chrome／Edge／Android 是 Google FCM、Firefox 是 Mozilla、Safari 是 Apple），用一對自己產生的 VAPID 金鑰辨認我們的網站。
+
+### 啟用（只做一次）
+
+1. 產生金鑰（本機，在專案資料夾）：
+
+   ```bash
+   npm run vapid
+   ```
+
+   會印出兩行 `VAPID_PUBLIC_KEY=…`、`VAPID_PRIVATE_KEY=…`（不會寫進任何檔案）。沒有專案的電腦也可以用 Node 22 以上的一行指令：
+
+   ```bash
+   node -e "crypto.subtle.generateKey({name:'ECDSA',namedCurve:'P-256'},true,['sign']).then(async k=>{console.log('VAPID_PUBLIC_KEY='+Buffer.from(await crypto.subtle.exportKey('raw',k.publicKey)).toString('base64url'));console.log('VAPID_PRIVATE_KEY='+(await crypto.subtle.exportKey('jwk',k.privateKey)).d)})"
+   ```
+
+2. 設定 Worker（正式站），每個指令貼上對應的值：
+
+   ```bash
+   npx wrangler secret put VAPID_PUBLIC_KEY      # 貼上 VAPID_PUBLIC_KEY= 後面那串
+   npx wrangler secret put VAPID_PRIVATE_KEY     # 貼上 VAPID_PRIVATE_KEY= 後面那串
+   npx wrangler secret put VAPID_SUBJECT         # 例如 mailto:社長的 Email（推播服務聯絡用）
+   ```
+
+   `VAPID_SUBJECT` 是推播服務（Google、Mozilla、Apple）有問題時聯絡的方式，**一定要 `mailto:` 或 `https:` 開頭**，否則視為沒設定。私鑰只放 secret，不要存進檔案或貼到聊天室；印出來的那兩行用完就關掉終端機。
+3. 檢查：用手機或電腦登入 →「我的帳號」→「推播通知」→「在這台裝置開啟推播」→ 瀏覽器問要不要允許通知，按允許 → 下面的裝置列表出現這台 →「傳送測試通知」，幾秒內收到「推播通知設定好了…」。再關掉網頁，請另一位社員邀請你參加挑戰，手機應該跳出通知，點了到挑戰頁。
+4. **iPhone 與 iPad**：只有 iOS 16.4 以上、而且要先在 Safari 按「分享」→「加入主畫面」，**從主畫面的圖示打開**淡江牌桌，才能開啟推播（Apple 的限制，在 Safari 分頁裡不行）。卡片上會說明。
+
+- **staging**：另產生一對金鑰（或用同一對），用 `--name tku-bridge-table-staging` 設那三個 secret。
+- **PR 預覽沒有推播**：預覽的 Worker 拿不到這三個 secret，自動關閉。要測就在 staging 測。
+- **本機**：放 `.dev.vars`（不要 commit）。`npm run dev` 不會自動註冊 service worker，按「開啟推播」時才註冊；Chrome 允許 `localhost` 用推播。
+- **CSP 不用改**：訂閱是瀏覽器內建的 `pushManager`，送推播是伺服器對推播服務的請求，頁面不連外部網址（docs/SECURITY.md §2）。
+- **關掉**：`npx wrangler secret delete VAPID_SUBJECT`（刪任一個就關）。社員的訂閱留在儲存裡，重新設回**同一對金鑰**就恢復；換了新的一對，舊訂閱推不出去（推播服務會拒絕），社員要在「我的帳號」重新開啟一次。
+- **金鑰外洩時**：用 `npm run vapid` 產生新的一對、`wrangler secret put` 換上；請社員重新開啟推播（舊訂閱會在推播失敗時被刪掉或留著不再有效）。
+- 日誌：`push`（`sent` 送出幾則、`failed` 失敗幾則與 `statuses` 推播服務回的狀態碼、`removed` 因為 404／410 刪掉幾個失效的訂閱；不記是誰）。`statuses` 裡常見的 `403`／`401` 是金鑰換過或 `VAPID_SUBJECT` 格式不對，`413` 是內容太長（不應該發生），`429` 是推播服務限流。
+- 額度：每則推播是社團 Durable Object 對推播服務的一個 `fetch`，在 Durable Object 裡做（不佔 Worker 每次請求的 10 ms CPU）；加密每台裝置約 1 ms 以內。一般一則通知只給一兩個人，每週挑戰給全社團也只是幾十個。
 
 ## 5. 費用與限制
 

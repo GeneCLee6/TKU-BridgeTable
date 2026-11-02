@@ -19,6 +19,7 @@ import { PendingService } from './pending.ts'
 import { GlossaryService, publicGlossaryResponse } from './glossary.ts'
 import { claudeImporter } from './importer.ts'
 import { mailerFrom } from './mail.ts'
+import { pushFrom } from './web-push.ts'
 import { GOOGLE_APPLY_MS, GOOGLE_CALLBACK_PATH, GOOGLE_CODE_MS, GOOGLE_COOKIE, googleCookie, googleFrom, googleSite, safeReturn } from './google.ts'
 import { ProfileService } from './profiles.ts'
 import { CardPdfService, pdfResponse } from './card-pdf.ts'
@@ -135,6 +136,14 @@ export interface Env {
    */
   GOOGLE_CLIENT_ID?: string
   GOOGLE_CLIENT_SECRET?: string
+  /**
+   * Web Push (e1-t28; worker/web-push.ts, DEPLOY.md §4.17): the VAPID key pair made by `npm run vapid`
+   * and a contact (`mailto:` or `https:`) for the push services, all three wrangler secrets. Without
+   * all three, push is off; PR previews never get them
+   */
+  VAPID_PUBLIC_KEY?: string
+  VAPID_PRIVATE_KEY?: string
+  VAPID_SUBJECT?: string
 }
 
 /** A picture's upload may come straight from TKU BridgeBook's page too; its single-use pass is the check */
@@ -262,6 +271,9 @@ export class Club extends DurableObject<Env> implements Connections {
       // Google sign-in (e1-t31): none unless GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET are set, and only
       // for 淡江: Google's way back carries no club, so it always reaches 淡江's object
       google: (clubIdOfObject(ctx.id.name) ?? DEFAULT_CLUB_ID) === DEFAULT_CLUB_ID ? googleFrom(env) : undefined,
+      // Web Push (e1-t28): none unless the three VAPID secrets are set; sent after the answer, kept alive by waitUntil
+      push: pushFrom(env),
+      defer: (task) => ctx.waitUntil(task),
     })
     this.edgeSecret = edgeSecret(env)
     this.book = new BookService(store)
@@ -829,6 +841,18 @@ export class Club extends DurableObject<Env> implements Connections {
     }
     if (route === 'POST /api/account/google/unlink') {
       return json({ user: await this.service.unlinkGoogle(user.id, text((await body()).password)) })
+    }
+    // Push notifications (e1-t28, worker/push.ts): this member's devices and choices; off without the VAPID secrets
+    if (url.pathname.startsWith('/api/push')) {
+      const push = this.service.push
+      if (route === 'GET /api/push') return json(await push.view(user.id))
+      if (route === 'POST /api/push/subscribe') return json(await push.subscribe(user.id, await body(), request.headers.get('User-Agent') ?? ''))
+      if (route === 'POST /api/push/unsubscribe') return json(await push.unsubscribe(user.id, text((await body()).id)))
+      if (route === 'POST /api/push/kinds') return json(await push.setKinds(user.id, (await body()).kinds))
+      if (route === 'POST /api/push/test') {
+        const id = (await body()).id
+        return json({ devices: await push.test(user.id, typeof id === 'string' && id ? id : undefined) })
+      }
     }
     // 兩步驟登入 (e11-t31): a secret to set up (admins), its first code turns it on, new recovery codes, off
     if (route === 'POST /api/account/2fa/setup') return json(await this.service.startTwoFactor(user.id, text((await body()).password)))

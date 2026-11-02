@@ -8,6 +8,7 @@ import { DEFAULT_ROBOT_SPEED, LIMITS, ROBOT_SPEEDS, type Me, type RobotSpeed } f
 import { DataCard, SessionsCard } from '../components/AccountSecurity.tsx'
 import { EmailCard } from '../components/EmailCard.tsx'
 import { GoogleCard } from '../components/GoogleCard.tsx'
+import { PushCard } from '../components/PushCard.tsx'
 import { TwoFactorCard } from '../components/TwoFactorCard.tsx'
 import { Avatar } from '../components/Avatar.tsx'
 import { AvatarCropper } from '../components/AvatarCropper.tsx'
@@ -698,6 +699,7 @@ export function AccountPage() {
         <PasswordForm />
         <EmailCard />
         <GoogleCard />
+        <PushCard />
         <TwoFactorCard />
         <SessionsCard />
         <DataCard />
