@@ -475,10 +475,10 @@ describe('restoring the accounts into a running club', () => {
     const sqlStore = memoryStore()
     const club = new ClubService(sqlStore, connections, { maxUsers: 20, now: () => time, schedule: () => undefined })
     await club.load()
-    const founder = await club.register('admin', 'secret1', '')
+    const founder = await club.register('admin', 'club-secret-1', '')
     if (!('user' in founder)) throw new Error('the first account should sign in at once')
     const member = async (name: string) => {
-      await club.register(name, 'secret1', '')
+      await club.register(name, 'club-secret-1', '')
       return (await club.adminApprove(club.adminApplications().find((a) => a.username === name)!.id)).id
     }
     const amy = await member('amy')
@@ -491,8 +491,8 @@ describe('restoring the accounts into a running club', () => {
     expect(second).not.toBe(first)
     const ben = await member('ben')
     await club.setAvatar(ben, picture(3))
-    await club.register('cat', 'secret1', '')
-    const { token } = await club.login('amy', 'secret1')
+    await club.register('cat', 'club-secret-1', '')
+    const { token } = await club.login('amy', 'club-secret-1')
     expect(await club.userForToken(token)).toMatchObject({ id: amy })
     online.add(amy).add(ben)
 
@@ -525,6 +525,6 @@ describe('restoring the accounts into a running club', () => {
     expect(await club.userForToken(token)).toBeNull()
     expect((await sqlStore.list('session:')).size).toBe(0)
     expect(new Set(disconnected)).toEqual(new Set([amy, ben]))
-    expect((await club.login('amy', 'secret1')).user.avatar).toBe(first)
+    expect((await club.login('amy', 'club-secret-1')).user.avatar).toBe(first)
   })
 })

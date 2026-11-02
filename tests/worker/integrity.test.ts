@@ -33,7 +33,7 @@ beforeEach(async () => {
 })
 
 async function join(name: string) {
-  const result = await club.register(name, 'secret1', '')
+  const result = await club.register(name, 'club-secret-1', '')
   if ('user' in result) return result.user.id
   const application = club.adminApplications().find((a) => a.username === name)!
   return (await club.adminApprove(application.id)).id
@@ -162,7 +162,7 @@ describe('the anti-cheating report', () => {
     const other = memoryStore()
     const elsewhere = new ClubService(other, new NoConnections(), { maxUsers: 20, now: () => time, schedule: () => {}, seenSalt: 'another-salt-0123456789' })
     await elsewhere.load()
-    const first = await elsewhere.register('boss', 'secret1', '')
+    const first = await elsewhere.register('boss', 'club-secret-1', '')
     const otherBoss = 'user' in first ? first.user.id : ''
     await elsewhere.noteSighting(otherBoss, '203.0.113.9', 'boss-device', 'Chrome · macOS')
     expect((await other.get<Sighting[]>(`seen:${otherBoss}`))![0].net).not.toBe(net)

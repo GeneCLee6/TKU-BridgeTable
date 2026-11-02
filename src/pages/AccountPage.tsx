@@ -416,8 +416,10 @@ function PasswordForm() {
             autoComplete="new-password"
             minLength={LIMITS.passwordMin}
             onChange={(e) => setNext(e.target.value)}
+            aria-describedby={`${id}-next-hint`}
             required
           />
+          <FieldHint id={`${id}-next-hint`}>{t.passwordHint(LIMITS.passwordMin)}</FieldHint>
         </Field>
       </Form>
       <CardFooter>

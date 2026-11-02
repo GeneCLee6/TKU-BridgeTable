@@ -42,14 +42,14 @@ beforeEach(async () => {
   time = 1_000_000
   club = new ClubService(store, connections, { maxUsers: 20, now: () => time, schedule: () => undefined })
   await club.load()
-  const founder = await club.register('admin', 'secret1', '')
+  const founder = await club.register('admin', 'club-secret-1', '')
   if (!('user' in founder)) throw new Error('the first account should sign in at once')
   admin = founder.user.id
 })
 
 /** Registers, approves, and connects a member */
 async function member(name: string, online = true) {
-  const result = await club.register(name, 'secret1', '')
+  const result = await club.register(name, 'club-secret-1', '')
   const user =
     'user' in result ? result.user : await club.adminApprove(club.adminApplications().find((a) => a.username === name)!.id)
   if (online) await connect(user.id)
@@ -296,7 +296,7 @@ describe('friend online notice (e1-t24)', () => {
     expect(me.bookProfile).toBe('a1b2c3')
     expect(me.friendOnlineNotice).toBe(false)
     // Signing in on another device gets the same choice
-    expect((await club.login('amy', 'secret1')).user.bookProfile).toBe('a1b2c3')
+    expect((await club.login('amy', 'club-secret-1')).user.bookProfile).toBe('a1b2c3')
 
     expect((await club.setAccountPreferences(amy, { bookProfile: 'club' })).bookProfile).toBeUndefined()
     await club.setAccountPreferences(amy, { bookProfile: 'a1b2c3' })
@@ -314,7 +314,7 @@ describe('friend online notice (e1-t24)', () => {
     expect(muted.bookAdoptedNotice).toBe(false)
     expect(muted.friendOnlineNotice).toBe(true)
     expect(club.mutesAdoptedNotices(amy)).toBe(true)
-    expect((await club.login('amy', 'secret1')).user.bookAdoptedNotice).toBe(false)
+    expect((await club.login('amy', 'club-secret-1')).user.bookAdoptedNotice).toBe(false)
     expect((await club.setAccountPreferences(amy, { bookAdoptedNotice: true })).bookAdoptedNotice).toBe(true)
     expect(club.mutesAdoptedNotices(amy)).toBe(false)
     await expect(club.setAccountPreferences(amy, { bookAdoptedNotice: 'no' })).rejects.toThrow()

@@ -107,14 +107,14 @@ async function dealNext() {
 
 /** The first account, which becomes the admin and signs in at once */
 async function founder(name = 'gene', inviteCode = '') {
-  const result = await club.register(name, 'secret1', inviteCode)
+  const result = await club.register(name, 'club-secret-1', inviteCode)
   if (!('user' in result)) throw new Error('the first account should sign in at once')
   return result
 }
 
 /** Registers and, past the first account, approves the application as an admin would */
 async function join(name: string, inviteCode = '') {
-  const result = await club.register(name, 'secret1', inviteCode)
+  const result = await club.register(name, 'club-secret-1', inviteCode)
   if ('user' in result) return result.user
   const application = club.adminApplications().find((a) => a.username === name)!
   return club.adminApprove(application.id)
@@ -150,7 +150,7 @@ describe('accounts', () => {
   it('registers, logs in and resolves sessions', async () => {
     const { user, token } = await founder('Gene')
     expect(await club.userForToken(token)).toEqual(user)
-    const again = await club.login('gene', 'secret1')
+    const again = await club.login('gene', 'club-secret-1')
     expect(again.user).toEqual(user)
     // One object per club (e12-t02): the account says which; 淡江 when the club is not named
     expect(user.clubId).toBe('tku')
@@ -160,36 +160,36 @@ describe('accounts', () => {
   })
 
   it('stores a hash, never the password', async () => {
-    await club.register('gene', 'secret1', '')
+    await club.register('gene', 'club-secret-1', '')
     // Applications too
-    await club.register('amy', 'secret1', '')
-    expect(JSON.stringify([...store.data.values()])).not.toContain('secret1')
+    await club.register('amy', 'club-secret-1', '')
+    expect(JSON.stringify([...store.data.values()])).not.toContain('club-secret-1')
   })
 
   it('rejects duplicate names, bad names and short passwords', async () => {
     await founder('gene')
-    await expect(club.register('GENE', 'secret1', '')).rejects.toThrow('已經有人使用')
-    await expect(club.register('a', 'secret1', '')).rejects.toThrow(ClubError)
-    await expect(club.register('has space', 'secret1', '')).rejects.toThrow(ClubError)
+    await expect(club.register('GENE', 'club-secret-1', '')).rejects.toThrow('已經有人使用')
+    await expect(club.register('a', 'club-secret-1', '')).rejects.toThrow(ClubError)
+    await expect(club.register('has space', 'club-secret-1', '')).rejects.toThrow(ClubError)
     await expect(club.register('amy', '123', '')).rejects.toThrow('密碼至少')
     // A name waiting for approval is taken too
-    await club.register('amy', 'secret1', '')
-    await expect(club.register('Amy', 'secret1', '')).rejects.toThrow('已經有人使用')
+    await club.register('amy', 'club-secret-1', '')
+    await expect(club.register('Amy', 'club-secret-1', '')).rejects.toThrow('已經有人使用')
   })
 
   it('caps the number of accounts and checks the invite code', async () => {
     await setup({ maxUsers: 2, inviteCode: 'tku' })
-    await expect(club.register('amy', 'secret1', 'nope')).rejects.toThrow('邀請碼不正確')
+    await expect(club.register('amy', 'club-secret-1', 'nope')).rejects.toThrow('邀請碼不正確')
     await founder('amy', 'tku')
     await join('ben', 'tku')
-    await expect(club.register('cat', 'secret1', 'tku')).rejects.toThrow('上限')
+    await expect(club.register('cat', 'club-secret-1', 'tku')).rejects.toThrow('上限')
   })
 
   it('keeps accounts and tables across a reload', async () => {
     const { tableId } = await fullTable()
     const reloaded = new ClubService(store, connections, { maxUsers: 10 })
     await reloaded.load()
-    expect((await reloaded.login('north', 'secret1')).user.username).toBe('north')
+    expect((await reloaded.login('north', 'club-secret-1')).user.username).toBe('north')
     expect(reloaded.lobbyView('x').tables.map((t) => t.id)).toEqual([tableId])
   })
 })
@@ -740,16 +740,16 @@ describe('admin', () => {
 
   it('lists, creates, resets, promotes and deletes members', async () => {
     const admin = (await founder('admin')).user
-    const amy = await club.adminCreateUser('amy', 'secret1')
+    const amy = await club.adminCreateUser('amy', 'club-secret-1')
     expect((await club.adminUsers()).map((u) => [u.username, u.admin])).toEqual([
       ['admin', true],
       ['amy', false],
     ])
-    const { token } = await club.login('amy', 'secret1')
-    await club.adminResetPassword(amy.id, 'newpass1')
+    const { token } = await club.login('amy', 'club-secret-1')
+    await club.adminResetPassword(amy.id, 'new-passphrase-1')
     expect(await club.userForToken(token)).toBeNull()
-    await expect(club.login('amy', 'secret1')).rejects.toThrow()
-    await club.login('amy', 'newpass1')
+    await expect(club.login('amy', 'club-secret-1')).rejects.toThrow()
+    await club.login('amy', 'new-passphrase-1')
 
     await club.adminSetAdmin(admin.id, amy.id, true)
     await club.adminSetAdmin(admin.id, amy.id, false)
@@ -799,9 +799,9 @@ describe('admin', () => {
     await founder('admin', 'env-code')
     await club.adminUpdateSettings({ maxUsers: 2, inviteCode: 'new-code' })
     expect(club.clubSettings).toEqual({ maxUsers: 2, inviteCode: 'new-code' })
-    await expect(club.register('amy', 'secret1', 'env-code')).rejects.toThrow('邀請碼不正確')
+    await expect(club.register('amy', 'club-secret-1', 'env-code')).rejects.toThrow('邀請碼不正確')
     await join('amy', 'new-code')
-    await expect(club.register('ben', 'secret1', 'new-code')).rejects.toThrow('上限')
+    await expect(club.register('ben', 'club-secret-1', 'new-code')).rejects.toThrow('上限')
     await expect(club.adminUpdateSettings({ maxUsers: 1 })).rejects.toThrow(ClubError)
     // Settings survive a reload
     const reloaded = new ClubService(store, connections, { maxUsers: 10 })
@@ -811,48 +811,48 @@ describe('admin', () => {
 
   it('lets members change their own password', async () => {
     const { user } = await founder('gene')
-    await expect(club.changePassword(user.id, 'wrong', 'newpass1')).rejects.toThrow('目前的密碼不正確')
-    await club.changePassword(user.id, 'secret1', 'newpass1')
-    await club.login('gene', 'newpass1')
+    await expect(club.changePassword(user.id, 'wrong', 'new-passphrase-1')).rejects.toThrow('目前的密碼不正確')
+    await club.changePassword(user.id, 'club-secret-1', 'new-passphrase-1')
+    await club.login('gene', 'new-passphrase-1')
   })
 })
 
 describe('registration approval', () => {
   it('holds later registrations until an admin approves them', async () => {
     await founder('admin')
-    expect(await club.register('amy', 'secret1', '', '  王小美 資工二  ', 'book')).toEqual({ pending: true, username: 'amy' })
-    await expect(club.login('amy', 'secret1')).rejects.toThrow('等管理員核准')
+    expect(await club.register('amy', 'club-secret-1', '', '  王小美 資工二  ', 'book')).toEqual({ pending: true, username: 'amy' })
+    await expect(club.login('amy', 'club-secret-1')).rejects.toThrow('等管理員核准')
     await expect(club.login('amy', 'wrong')).rejects.toThrow('帳號或密碼錯誤')
-    expect((await club.login('admin', 'secret1')).user.applications).toBe(1)
+    expect((await club.login('admin', 'club-secret-1')).user.applications).toBe(1)
     const [application] = club.adminApplications()
     expect(application).toMatchObject({ username: 'amy', note: '王小美 資工二', site: 'book' })
     expect(application).not.toHaveProperty('passwordHash')
 
     const amy = await club.adminApprove(application.id)
     expect(amy).toMatchObject({ username: 'amy', admin: false, permissions: [] })
-    expect((await club.login('amy', 'secret1')).user.id).toBe(amy.id)
+    expect((await club.login('amy', 'club-secret-1')).user.id).toBe(amy.id)
     expect(club.adminApplications()).toEqual([])
-    expect((await club.userForToken((await club.login('admin', 'secret1')).token))!.applications).toBe(0)
+    expect((await club.userForToken((await club.login('admin', 'club-secret-1')).token))!.applications).toBe(0)
     await expect(club.adminApprove(application.id)).rejects.toThrow('找不到這筆申請')
   })
 
   it('frees the name of a rejected application, and keeps waiting ones across a reload', async () => {
     await founder('admin')
-    await club.register('amy', 'secret1', '')
+    await club.register('amy', 'club-secret-1', '')
     await club.adminReject(club.adminApplications()[0].id)
-    await expect(club.login('amy', 'secret1')).rejects.toThrow('帳號或密碼錯誤')
-    await club.register('amy', 'secret2', '')
+    await expect(club.login('amy', 'club-secret-1')).rejects.toThrow('帳號或密碼錯誤')
+    await club.register('amy', 'club-secret-2', '')
     const reloaded = new ClubService(store, connections, { maxUsers: 10 })
     await reloaded.load()
     expect(reloaded.adminApplications().map((a) => a.username)).toEqual(['amy'])
-    await expect(reloaded.login('amy', 'secret2')).rejects.toThrow('等管理員核准')
+    await expect(reloaded.login('amy', 'club-secret-2')).rejects.toThrow('等管理員核准')
   })
 
   it('does not approve past the member limit', async () => {
     await setup({ maxUsers: 2 })
     await founder('admin')
-    await club.register('amy', 'secret1', '')
-    await club.register('ben', 'secret1', '')
+    await club.register('amy', 'club-secret-1', '')
+    await club.register('ben', 'club-secret-1', '')
     const [amy, ben] = club.adminApplications()
     await club.adminApprove(amy.id)
     await expect(club.adminApprove(ben.id)).rejects.toThrow('上限')
@@ -876,7 +876,7 @@ describe('notifications', () => {
     expect(bell(admin)).toEqual({ items: [], unread: 0 })
 
     time++
-    await club.register('newbie', 'secret1', '', '大二')
+    await club.register('newbie', 'club-secret-1', '', '大二')
     expect(bell(admin)).toMatchObject({ unread: 1, items: [{ kind: 'application', params: { username: 'newbie' }, read: false }] })
 
     // Kept for an admin who was away, also after the object reloads
@@ -890,7 +890,7 @@ describe('notifications', () => {
     await tick()
     expect(bell(other.id)?.unread).toBe(0)
     time++
-    await reloaded.register('second', 'secret1', '')
+    await reloaded.register('second', 'club-secret-1', '')
     expect(bell(other.id)?.items.map((n) => n.params.username)).toEqual(['second'])
     expect(bell(admin)?.items.map((n) => n.params.username)).toEqual(['second', 'other', 'newbie'])
   })
