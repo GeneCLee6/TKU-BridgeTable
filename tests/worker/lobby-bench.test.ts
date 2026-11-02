@@ -58,9 +58,9 @@ async function bench(code: { ClubService: ClubClass; memoryStore: () => unknown 
     later: (run: () => void, ms: number) => void setTimeout(run, ms),
   })
   await club.load()
-  const founder = await club.register('admin', 'secret1', '')
+  const founder = await club.register('admin', 'club-secret-1', '')
   const ids = [founder.user!.id]
-  for (let i = 1; i < USERS; i++) ids.push((await club.adminCreateUser(`load${String(i).padStart(3, '0')}`, 'secret1')).id)
+  for (let i = 1; i < USERS; i++) ids.push((await club.adminCreateUser(`load${String(i).padStart(3, '0')}`, 'club-secret-1')).id)
   for (const id of ids) {
     online.add(id)
     club.connected(id)

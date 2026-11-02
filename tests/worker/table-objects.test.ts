@@ -145,7 +145,7 @@ beforeEach(async () => {
 })
 
 async function member(name: string) {
-  const result = await club.register(name, 'secret1', '')
+  const result = await club.register(name, 'club-secret-1', '')
   const user = 'user' in result ? result.user : await club.adminApprove(club.adminApplications().find((a) => a.username === name)!.id)
   sockets.online.add(user.id)
   club.connected(user.id)
@@ -308,8 +308,8 @@ describe('a table’s own connection', () => {
     const amy = await member('amy')
     const tableId = await robotTable(amy)
     await connectTable(amy, tableId)
-    const { token: phone } = await club.login('amy', 'secret1')
-    await club.login('amy', 'secret1')
+    const { token: phone } = await club.login('amy', 'club-secret-1')
+    await club.login('amy', 'club-secret-1')
     await club.endOtherSessions(amy, phone)
     expect(dismissed).toEqual([{ tableId, userId: amy, code: 4001 }])
     expect(object(tableId).online.has(amy)).toBe(false)

@@ -11,6 +11,7 @@
 import { writeFileSync } from 'node:fs'
 import { parseArgs } from 'node:util'
 import type { Seat } from '../../shared/cards.ts'
+import { LIMITS } from '../../shared/protocol.ts'
 import { checkTarget } from '../seed.ts'
 import { describe, estimate, measured, RUN_SHARE, worstShare, type Plan } from './budget.ts'
 import { SimUser } from './client.ts'
@@ -36,7 +37,7 @@ const { values } = parseArgs({
 })
 
 const password = process.env.LOAD_PASSWORD ?? ''
-if (!values.url || password.length < 6) {
+if (!values.url || password.length < LIMITS.passwordMin) {
   console.error('Usage: LOAD_PASSWORD=... [LOAD_INVITE_CODE=...] npm run load -- --url <site> [options] (see scripts/load/cli.ts)')
   process.exit(2)
 }

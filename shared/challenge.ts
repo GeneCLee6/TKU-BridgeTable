@@ -56,6 +56,11 @@ export interface ChallengeSettings {
    * Only the server sets it; a member sending it is refused like any unknown field
    */
   weekly?: boolean
+  /**
+   * The daily club event (`e9-t02`): created at 00:00 Taiwan time, 8 boards of matchpoints, open to
+   * every member until the next midnight. Only the server sets it, as `weekly`
+   */
+  daily?: boolean
 }
 
 export const CHALLENGE_LIMITS = {

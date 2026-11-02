@@ -1,6 +1,7 @@
 import type { ChallengeScoring } from '../../shared/challenge-scoring.ts'
 import { isOpenChallenge, type ChallengePlayerView, type ChallengeView } from '../../shared/challenge.ts'
 import { SEATS } from '../../shared/cards.ts'
+import { taiwanDay } from '../../shared/daily-event.ts'
 import type { BoardRecord, RobotKind } from '../../shared/protocol.ts'
 import type { ScoreRuling } from '../../shared/ruling-scoring.ts'
 import type { Strings } from '../strings.ts'
@@ -51,9 +52,13 @@ export function timeLeft(t: Strings, ms: number) {
   return t.timeLeft(Math.floor(minutes / 1440), Math.floor((minutes % 1440) / 60), minutes % 60)
 }
 
-/** 每週社團挑戰 for the club's weekly challenge (`e7-t23`), otherwise 某某的挑戰 */
+/** 每週社團挑戰 for the club's weekly challenge (`e7-t23`), 每日賽 2026-11-02 for the daily event (`e9-t02`), otherwise 某某的挑戰 */
 export const challengeTitle = (t: Strings, c: ChallengeView) =>
-  c.settings.weekly ? t.weeklyChallengeTitle : t.challengeBy(participantName(t, playerOf(c, c.creatorId)))
+  c.settings.daily
+    ? t.daily.titleOn(taiwanDay(c.createdAt))
+    : c.settings.weekly
+      ? t.weeklyChallengeTitle
+      : t.challengeBy(participantName(t, playerOf(c, c.creatorId)))
 
 /** A participant's name; accounts deleted after the challenge ended have none */
 export const participantName = (t: Strings, p: ChallengePlayerView | undefined) => p?.user?.username ?? t.deletedMember
@@ -75,8 +80,8 @@ export const settingsOptions = (t: Strings, c: ChallengeView) =>
  * who did not decline again; the server checks it all again
  */
 export function rematchable(c: ChallengeView, userId: string) {
-  // Next week's club challenge comes by itself (`e7-t23`)
-  if (c.settings.weekly || isOpenChallenge(c.status) || playerOf(c, userId)?.status !== 'accepted') return false
+  // Next week's club challenge (`e7-t23`) and tomorrow's daily event (`e9-t02`) come by themselves
+  if (c.settings.weekly || c.settings.daily || isOpenChallenge(c.status) || playerOf(c, userId)?.status !== 'accepted') return false
   return c.players.some((p) => p.userId !== userId && p.status !== 'declined' && p.user)
 }
 

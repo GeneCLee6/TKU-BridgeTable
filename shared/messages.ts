@@ -443,6 +443,22 @@ export const MESSAGES = {
     ja: 'パスワードは {max} 文字以内にしてください',
     ko: '비밀번호는 {max}자 이하여야 합니다',
   },
+  passwordHasUsername: {
+    zh: '密碼不能是帳號名稱，也不能包含帳號名稱',
+    'zh-Hans': '密码不能是账号名称，也不能包含账号名称',
+    en: 'Passwords cannot be or contain your username',
+    vi: 'Mật khẩu không được trùng hoặc chứa tên tài khoản',
+    ja: 'パスワードにユーザー名を使うことはできません',
+    ko: '비밀번호에 아이디를 쓰거나 포함할 수 없습니다',
+  },
+  commonPassword: {
+    zh: '這個密碼太常見（出現在外洩密碼清單），請換一個',
+    'zh-Hans': '这个密码太常见（出现在泄露密码清单），请换一个',
+    en: 'That password is too common (it is on a list of breached passwords); choose another',
+    vi: 'Mật khẩu này quá phổ biến (nằm trong danh sách mật khẩu bị lộ), hãy chọn mật khẩu khác',
+    ja: 'このパスワードはよく使われています（流出したパスワードの一覧にあります）。別のものにしてください',
+    ko: '너무 흔한 비밀번호입니다(유출된 비밀번호 목록에 있음). 다른 비밀번호를 쓰세요',
+  },
   usernameTaken: {
     zh: '這個帳號已經有人使用',
     'zh-Hans': '这个账号已经有人使用',
@@ -1361,6 +1377,14 @@ export const MESSAGES = {
     vi: 'Thử thách hằng tuần không có đấu lại: tuần sau sẽ có thử thách mới',
     ja: '週例クラブチャレンジは再戦できません。来週新しいチャレンジが始まります',
     ko: '주간 클럽 도전은 재대결할 수 없습니다. 다음 주에 새 도전이 열립니다',
+  },
+  dailyNoRematch: {
+    zh: '每日賽不能再戰，明天 00:00 會自動開新的一場',
+    'zh-Hans': '每日赛不能再战，明天 00:00 会自动开新的一场',
+    en: 'The daily event has no rematch: a new one starts at midnight',
+    vi: 'Giải hằng ngày không có đấu lại: giải mới bắt đầu lúc 00:00',
+    ja: 'デイリー大会は再戦できません。0:00 に新しい大会が始まります',
+    ko: '데일리 대회는 재대결할 수 없습니다. 0시에 새 대회가 열립니다',
   },
 
   // HTTP

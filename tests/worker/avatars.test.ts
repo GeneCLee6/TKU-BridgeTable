@@ -36,13 +36,13 @@ beforeEach(async () => {
   sent.length = 0
   club = new ClubService(store, connections, { maxUsers: 20, now: () => time, schedule: () => undefined })
   await club.load()
-  const founder = await club.register('admin', 'secret1', '')
+  const founder = await club.register('admin', 'club-secret-1', '')
   if (!('user' in founder)) throw new Error('the first account should sign in at once')
   admin = founder.user.id
 })
 
 async function member(name: string) {
-  const result = await club.register(name, 'secret1', '')
+  const result = await club.register(name, 'club-secret-1', '')
   if ('user' in result) return result.user.id
   return (await club.adminApprove(club.adminApplications().find((a) => a.username === name)!.id)).id
 }

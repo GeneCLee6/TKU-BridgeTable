@@ -111,6 +111,7 @@ TKU-BridgeTable/
 │  ├─ team-mode.ts         隊制賽一室的牌桌：team 模式的掛勾、開桌時的快照、紀錄先不公開（§5.8）
 │  ├─ scheduler.ts         統一排程器：機器人、自動發牌、挑戰的提醒與截止都走同一個 alarm 佇列
 │  ├─ auth.ts              PBKDF2 密碼雜湊（100,000 次，舊的登入時升級）、session cookie、忘記密碼的一次性代碼
+│  ├─ password-policy.ts   新密碼的規則（e11-t29）：至少 12 字、不含帳號名稱、不在 common-passwords.ts 的外洩清單（docs/SECURITY.md V2.1）
 │  └─ store.ts             儲存介面與測試用 MemoryStore
 ├─ src/                    React app
 │  ├─ components/          牌、手牌、叫牌盒、叫牌過程、牌號、名牌、墩、面板、頁首、聊天
@@ -289,6 +290,7 @@ interface BoardState {
 | SQL `book_errors`、`book_metrics`、`book_visitors`、`book_telemetry_settings` | 淡江橋館的錯誤回報與匿名使用統計（`worker/book-telemetry.ts`，橋館 e10-t06、e10-t07），見 §5.15；不在每日備份裡 |
 | `meta:settings` | 管理員改過的人數上限與邀請碼（沒改過就用環境變數） |
 | `meta:weekly` | 每週社團挑戰的排程、誰存的、上一場的時間與 id（`worker/weekly-challenge.ts`，§5.5） |
+| `meta:daily` | 每日賽的設定、誰存的、上一場的 00:00、每一天的挑戰 id（`worker/daily-event.ts`，§5.18） |
 | `meta:schema` | 資料版本（現在是 4）：1→2 把舊版 `board:<時間>-<id>` 搬到新索引；2→3 把所有 `board:` 回填進 SQL 紀錄索引（§5.3）；3→4 把每個 `table:` 搬進自己的 `TableObject`、改存 `tabledir:`（§5.10）；`TABLE_OBJECTS=off` 時搬回來、回到 3 |
 | `replq:<boardId>` | 還沒複製到 D1 的牌局（outbox，§5.12）：值是排進來的時間＋序號，寫進 D1 後刪掉（期間又被改的留著） |
 | `meta:replica` | D1 副本的狀態（§5.12）：`off`／`filling`（做到哪一個 `board:` key）／`ready`，與填它時的 `REPLICA_VERSION` |
@@ -716,6 +718,35 @@ AC-11.8 的後半：「同 IP／同裝置多帳號同場等可疑行為有管理
 - **可見性**：報表只有帳號名稱、瀏覽器名稱、網路雜湊的前 6 碼、次數與牌局／比賽的連結，**沒有任何一手牌**；點紀錄連結照舊走 `recordVisible`（還沒公開的挑戰牌，管理員一樣看不到）。`worker/views.ts` 不變。報表不通知任何人、不自動處理。
 - **個資**：`seen:` 在「下載我的資料」裡（`signIns`），帳號刪除時一起刪（`dropMember`），不在每日備份裡。隱私權政策（`legal.privacy`）寫了蒐集什麼、保留多久與這個 cookie。
 - **社長決定**（2026-11-02）：上線；網路雜湊的鹽改用 Worker secret `SEEN_SALT`（上面「網路」）。其他維持保守的預設：只有管理員看得到（幹部不行）、只在管理員按下時產生、出現「強」的線索也不主動通知、超過 4 人算共用網路、最多看 40 組、保留 90 天。
+
+## 5.18 比賽共同模型與每日賽（決策紀錄，`e9-t01`～`e9-t03`，2026-11-02）
+
+### 共同模型：`Event → Rounds → Tables → Boards`（`e9-t01`）
+
+E9 之後的比賽（雙人賽、多隊賽、個人賽）都用同一個模型描述；現有的挑戰（§5.5）與隊制賽（§5.8）是它的特例，**不改它們的資料表**，只是用這個詞彙說明它們，新的比賽照它加。
+
+| 層 | 意思 | 挑戰（含每週、每日） | 隊制賽 | 雙人賽（`e9-t09`～`e9-t13`） | 多隊賽（`e9-t14`） | 個人賽（`e9-t15`） |
+| --- | --- | --- | --- | --- | --- | --- |
+| **Event** | 一場比賽：設定、參賽者、狀態、計分方式、期限 | `challenges` 一列（`Challenge`） | `matches` 一列（`TeamMatch`） | 一場雙人賽 | 一場多隊賽 | 一場個人賽 |
+| **Round** | 同時打的一段；輪與輪之間換對手或換桌 | 只有 1 輪 | 1 輪；分段（`segmentBoards`）是同一輪裡的段，中場可換人 | 多輪，Mitchell／Howell 移位（之後的 `shared/movement.ts`，`e9-t09`）決定每輪誰在哪桌打哪幾副 | 每輪一次配對（循環或瑞士制），一輪就是一場隊制賽 | 多輪，每輪換搭檔 |
+| **Table** | 一張牌桌（四個座位） | 每個參賽者自己一桌（坐南，其他三家是 TKB），各自什麼時候打都可以 | 2 桌：開室、閉室（`room`） | 每輪 N 桌同時開打（`mode=pairs`） | 每場 2 桌 | 每輪 N 桌 |
+| **Board** | 一副牌在一桌打出的結果 | 牌組（`DealSet`）在每人桌上各打一次；`challenge_results`（人 × 副）指向 `board:<id>` 紀錄 | 同一副在兩室各打一次（`match_boards`） | 同一副在多桌各打一次（traveller） | 同隊制賽 | 同雙人賽 |
+
+- **計分在 Event 層**：同一副在不同桌的結果互相比（`shared/challenge-scoring.ts` 的 MP、Cross-IMP、總分；`shared/team-scoring.ts` 的 IMP／BAM；`shared/vp.ts` 的 VP），裁定照 §5.16 一起算。雙人賽不同副打的次數不同時用 Neuberg 調整（`e9-t12`）。
+- **一副牌的紀錄一律是 `BoardRecord`**（`board:<id>`，§5.3），Event 只記「誰、哪一副、哪一筆紀錄、南北分數」，重播、traveller、裁定都從紀錄來；比賽進行中用 `revealAt` 擋住還沒打的人（§4）。
+- **Event 住在哪**：`EVENT_OBJECTS=on` 時每場挑戰一個 `EventObject`（§5.12 H2b），隊制賽在 H2c 搬進去；新的比賽也是一場一個物件，`Club` 只留目錄與「社團才做得到的事」（通知、帳號、副本）。
+- **新比賽要加的**：Round 與 Table 的對應（移位或配對）是新的、純函式放 `shared/`；開桌重用牌桌模式（`worker/modes.ts`）；Board 與計分重用上面那些。積分（`e9-t04`～`e9-t06`）以 Event 為單位結算，每筆記來源 Event 的 id。
+
+### 每日賽（`e9-t02`、`e9-t03`）
+
+**每日賽就是一場挑戰**（`settings.daily = true`），走挑戰的整套流程：牌組、牌桌、結算、排名、可見性、結果頁（`/challenges/:id`）、兩種 `EVENT_OBJECTS` 路徑都一樣，所以不碰 `EventObject` 與隊制賽的程式。排程照每週挑戰（`e7-t23`）的做法另寫一份。
+
+- **設定**（`shared/daily-event.ts`、`worker/daily-event.ts`）：管理員在 `/daily` 開關、選機器人的制度。`POST /api/admin/daily-event`（`ClubService.adminSetDailyEvent`，錯了回 `badChallengeSettings { field }`），存在 KV 的 `meta:daily`（`DailyState`：設定、存的人、存的時間、上一場的 00:00、每一天的 `{ day, challengeId }`）。副數（8）、計分（MP）、天數（1）、`ranking = club` 是 AC-9.1 定的，不給改。
+- **開關用社團設定，不用功能旗標**（`shared/features.ts`）：每日賽是全社一起的活動（不是某些人先試用的功能），而且要跟著存「誰建立、用哪種機器人」，跟每週挑戰的排程一樣是社團設定。**預設關**：社團人少，每天一場可能沒人打。
+- **工作**：`daily:<存的時間>`（`JobKind` 的 `daily`），排在「存檔之後、上一場之後」的第一個台灣時間 00:00（`nextDailyRun`、`dailySlotAfter`），存檔不會立刻開一場（開啟後從下一個 00:00 開始）。到時先寫 `lastRunAt` 再建立，失敗也不會開兩場；物件睡過好幾天只開今天這一場。挑戰的 `createdAt` 寫成那天的 00:00（不是工作真的跑的時間），所以截止一定是隔天 00:00。
+- **建立**（`createDailyEvent`）：跟每週挑戰一樣邀請全社、發起者是存設定的管理員（不是管理員了就用最早的管理員）、全社只有他一人時不開、只有兩人時 MP 改 IMP。差別：**不發任何通知**（不發建立通知、不發截止前提醒、接受也不通知發起者；只有打完的人在結束時收到結果通知），**不出現在挑戰大廳**（`challengeList` 排除；不然每人每天多一張卡），不能再戰（`dailyNoRematch`）。00:00 之後才加入的社員不在今天這一場，明天開始。
+- **頁面**（`GET /api/daily` → `DailyEventView`，`src/pages/DailyPage.tsx`）：今天的賽（狀態、截止、自己打了幾副、「開打／繼續打」、目前名次）、昨天的排名、之前的歷史列表（最多 30 天，每天打完的人數，連到那一天的結果頁）。今天、昨天的挑戰都經 `challengeFor`（§4 的 `challengeView`），所以**今天的名次只有自己打完 8 副才看得到**，昨天的（結束了、`ranking = club`）全社都看得到。「開打」對還是「受邀」的人先送接受再送 `playChallenge`。挑戰頁的頁首在每日賽開著時（或管理員）多一個「每日賽」按鈕；挑戰結果頁的「返回」對每日賽回 `/daily`。
+- **還沒做**：積分（J2）；全台灣規模時「邀請全社」要改成「點開打才加入」（`EventObject` 加一個加入的動作，等 H2c 合併後再做），挑戰的回報也要改成只送變的部分（§5.12）。
 
 ## 5.19 論壇（決策紀錄，`e13-t01`，2026-11-02，K1）
 

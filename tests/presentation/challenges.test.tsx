@@ -29,6 +29,7 @@ const mocks = vi.hoisted(() => ({
   api: {
     challenges: vi.fn(),
     challenge: vi.fn(),
+    daily: vi.fn(),
     createChallenge: vi.fn(),
     answerChallenge: vi.fn(),
     cancelChallenge: vi.fn(),
@@ -118,6 +119,9 @@ beforeEach(() => {
   for (const fn of Object.values(mocks.api)) fn.mockReset()
   mocks.send.mockReset()
   mocks.permissions = []
+  mocks.api.daily.mockResolvedValue({
+    daily: { settings: { enabled: false, robotKind: 'gib' }, next: null, today: null, yesterday: null, history: [] },
+  })
 })
 
 describe('ChallengesPage (e7-t16)', () => {
@@ -141,6 +145,22 @@ describe('ChallengesPage (e7-t16)', () => {
     const active = screen.getByRole('listitem', { name: 'amy 發起' })
     expect(within(active).getByRole('progressbar', { name: '你的進度 · 已打 3／8 副' })).toBeInTheDocument()
     expect(within(active).getByRole('link')).toHaveAttribute('href', '/challenges/c2')
+  })
+
+  it('links to the daily event while it runs (e9-t03)', async () => {
+    mocks.api.challenges.mockResolvedValue({ challenges: [] })
+    mocks.api.daily.mockResolvedValue({
+      daily: { settings: { enabled: true, robotKind: 'gib' }, next: null, today: null, yesterday: null, history: [] },
+    })
+    show('/challenges', <ChallengesPage />)
+    expect(await screen.findByRole('link', { name: '每日賽' })).toHaveAttribute('href', '/daily')
+  })
+
+  it('has no daily event link while it is off, for a member', async () => {
+    mocks.api.challenges.mockResolvedValue({ challenges: [] })
+    show('/challenges', <ChallengesPage />)
+    await waitFor(() => expect(mocks.api.daily).toHaveBeenCalled())
+    expect(screen.queryByRole('link', { name: '每日賽' })).not.toBeInTheDocument()
   })
 
   it('sorts and pages the list, and shows many participants side by side with how many more', async () => {

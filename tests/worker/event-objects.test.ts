@@ -80,7 +80,7 @@ beforeEach(async () => {
   time = 1_000_000
   logs = []
   await open(true)
-  await club.register('boss', 'secret1', '')
+  await club.register('boss', 'club-secret-1', '')
 })
 
 /**
@@ -100,7 +100,7 @@ async function run(kind: ScheduleKind) {
 }
 
 async function member(name: string) {
-  const result = await club.register(name, 'secret1', '')
+  const result = await club.register(name, 'club-secret-1', '')
   const user =
     'user' in result ? result.user : await club.adminApprove(club.adminApplications().find((a) => a.username === name)!.id)
   connections.online.add(user.id)
@@ -292,7 +292,7 @@ function failEventObjectNext() {
 async function switchedOff() {
   store = memoryStore()
   await open(false)
-  await club.register('boss', 'secret1', '')
+  await club.register('boss', 'club-secret-1', '')
 }
 
 describe('moving the challenges out and back', () => {

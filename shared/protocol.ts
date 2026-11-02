@@ -1121,7 +1121,8 @@ export interface ClubSettings {
 export const LIMITS = {
   usernameMin: 2,
   usernameMax: 16,
-  passwordMin: 6,
+  /** e11-t29: 12 (ASVS 2.1.1), decided 2026-11-02; only new passwords, existing ones still sign in */
+  passwordMin: 12,
   /** ASVS 2.1.2: long enough for any passphrase, short enough that hashing one costs nothing (docs/SECURITY.md) */
   passwordMax: 128,
   applicationNoteMax: 60,

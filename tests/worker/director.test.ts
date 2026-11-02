@@ -62,7 +62,7 @@ beforeEach(async () => {
 const tick = () => new Promise((resolve) => setImmediate(resolve))
 
 async function member(name: string) {
-  const result = await club.register(name, 'secret1', '')
+  const result = await club.register(name, 'club-secret-1', '')
   const user = 'user' in result ? result.user : await club.adminApprove(club.adminApplications().find((a) => a.username === name)!.id)
   connections.online.add(user.id)
   club.connected(user.id)

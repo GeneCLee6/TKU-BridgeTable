@@ -74,11 +74,11 @@ beforeEach(async () => {
   time = 1_000_000
   logs = []
   await open(true)
-  await club.register('boss', 'secret1', '')
+  await club.register('boss', 'club-secret-1', '')
 })
 
 async function member(name: string) {
-  const result = await club.register(name, 'secret1', '')
+  const result = await club.register(name, 'club-secret-1', '')
   const user =
     'user' in result ? result.user : await club.adminApprove(club.adminApplications().find((a) => a.username === name)!.id)
   connections.online.add(user.id)
@@ -202,7 +202,7 @@ describe('each team match in its own object', () => {
 async function switchedOff() {
   store = memoryStore()
   await open(false)
-  await club.register('boss', 'secret1', '')
+  await club.register('boss', 'club-secret-1', '')
 }
 
 /** A match that ended before H2c, written straight into the club's tables */

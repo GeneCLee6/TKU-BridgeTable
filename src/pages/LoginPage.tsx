@@ -135,6 +135,8 @@ const FIELD_OF: Record<string, FieldName> = {
   usernameTaken: 'username',
   shortPassword: 'password',
   longPassword: 'password',
+  passwordHasUsername: 'password',
+  commonPassword: 'password',
   badInvite: 'inviteCode',
   resetCodeWrong: 'code',
 }
