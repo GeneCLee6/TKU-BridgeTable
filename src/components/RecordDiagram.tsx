@@ -83,6 +83,7 @@ export function RecordDiagram({
   orientationFor,
   compact = false,
   dd,
+  anonymous = false,
 }: {
   record: BoardRecord
   /** Cards of the replay shown so far */
@@ -96,6 +97,8 @@ export function RecordDiagram({
   compact?: boolean
   /** Double-dummy mode, when the viewer has turned it on */
   dd?: DdReplay
+  /** No players and no board number (a forum post's four hands, E13 K2): the seats are named instead */
+  anonymous?: boolean
 }) {
   const { t, playedCards } = usePreferences()
   const { board, players } = record
@@ -111,12 +114,12 @@ export function RecordDiagram({
       label: outcome.best ? `${t.ddOutcome(outcome.tricks, outcome.diff)} · ${t.ddBestCard}` : t.ddOutcome(outcome.tricks, outcome.diff),
     })
   const current = tricksOf(shown).at(-1)
-  const name = (u: PublicUser) => playerName(t, u)
+  const name = (u: PublicUser, seat: Seat) => (anonymous ? t.seatNames[seat] : playerName(t, u))
 
   return (
     <Diagram $compact={compact}>
       <Corner $compact={compact}>
-        <BoardInfo boardNo={board.boardNo} dealer={board.dealer} vul={board.vul} positions={POSITIONS} size={compact ? 14 : 18} />
+        <BoardInfo boardNo={anonymous ? undefined : board.boardNo} dealer={board.dealer} vul={board.vul} positions={POSITIONS} size={compact ? 14 : 18} />
       </Corner>
       {SEATS.map((seat) => {
         const style = styleFor(seat)
@@ -127,7 +130,7 @@ export function RecordDiagram({
         return (
           <Spot key={seat} $area={positionOf(seat)}>
             <Name $compact={compact}>
-              {seatLetter[seat]} {name(players[seat])}
+              {anonymous ? name(players[seat], seat) : `${seatLetter[seat]} ${name(players[seat], seat)}`}
               {!compact && ` · ${t.hcp(hcp(dealt))}`}
             </Name>
             <HandView
@@ -138,7 +141,7 @@ export function RecordDiagram({
               style={style}
               orientation={orientationFor?.(seat)}
               order={style === 'text' ? RECORD_SUITS : suitOrder(null, held)}
-              label={`${seatLetter[seat]} ${name(players[seat])}`}
+              label={`${seatLetter[seat]} ${name(players[seat], seat)}`}
               {...(seat === turn && { playable: dd!.position!.legal, marks, onPlay: dd!.playCard })}
             />
           </Spot>
