@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { ChallengeBanner } from '../../src/components/ChallengeBanner.tsx'
-import { formatDateTime } from '../../src/lib/format.ts'
+import { formatDateTime, formatTime } from '../../src/lib/format.ts'
 import { PreferencesProvider } from '../../src/state/PreferencesContext.tsx'
 
 const DEADLINE = Date.UTC(2026, 9, 27, 8)
@@ -34,5 +34,26 @@ describe('ChallengeBanner at a partnership’s table (e7-t28)', () => {
       </PreferencesProvider>,
     )
     expect(screen.getByRole('status')).toHaveTextContent('搭檔不在桌上，等他入座再繼續')
+  })
+
+  it('says until when a partner who dropped offline keeps their seat (社長 2026-11-02)', () => {
+    const until = DEADLINE - 3600_000
+    render(
+      <PreferencesProvider>
+        <ChallengeBanner challenge={{ id: 'c1', seq: 2, boards: 8, played: 1, deadline: DEADLINE, partnerOfflineUntil: until }} />
+      </PreferencesProvider>,
+    )
+    expect(screen.getByRole('status')).toHaveTextContent(`搭檔斷線了：${formatTime(until, 'zh')} 前沒回來，這一副就先擱著`)
+  })
+
+  it('says the board is set aside once that partner was away too long', () => {
+    render(
+      <PreferencesProvider>
+        <ChallengeBanner
+          challenge={{ id: 'c1', seq: 2, boards: 8, played: 1, deadline: DEADLINE, partnerAway: true, partnerDropped: true }}
+        />
+      </PreferencesProvider>,
+    )
+    expect(screen.getByRole('status')).toHaveTextContent(/^搭檔斷線太久，這一副先擱著/)
   })
 })

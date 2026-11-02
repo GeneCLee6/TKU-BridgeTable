@@ -1,7 +1,7 @@
 import { ALL_PASS } from '../lib/calls.ts'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Ban, EyeOff, Gavel, Hand, Layers, List, Lock, Palette, Settings } from 'lucide-react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import styled, { css, keyframes } from 'styled-components'
 import { isVulnerable } from '../../shared/board.ts'
 import { withMemberProfile } from '../../shared/lobby.ts'
@@ -614,6 +614,24 @@ export function TablePage() {
   const t = useT()
   // A pairs event's player goes on to the next round's table (§5.22)
   usePairsFollow(tableId, table, lobby?.myTableId)
+  // The link of `challengePartnerSeated` (`e7-t28`): sit down at the partnership's table, once
+  const [search] = useSearchParams()
+  const challengeId = search.get('challenge')
+  const askedFor = useRef<string | null>(null)
+  const [joining, setJoining] = useState(false)
+  useEffect(() => {
+    if (status !== 'open' || !lobby || !tableId || !challengeId || lobby.myTableId === tableId) return
+    if (askedFor.current === tableId) return
+    askedFor.current = tableId
+    setJoining(true)
+    send({ type: 'playChallenge', challengeId })
+  }, [status, lobby, tableId, challengeId, send])
+  // A refusal comes as an error message: after a while the page says the table is not there
+  useEffect(() => {
+    if (!joining) return
+    const timer = setTimeout(() => setJoining(false), 5000)
+    return () => clearTimeout(timer)
+  }, [joining])
 
   // Only those the access mode lets in come to the table (others may ask at a request table), and a
   // table without kibitzers takes people only into its seats (a practice table only has watchers)
@@ -642,6 +660,7 @@ export function TablePage() {
 
   if (!lobby) return <PageMain>{t.connecting}</PageMain>
   // A challenge table is not in the lobby: it is there only for its player
+  if (lobby.myTableId !== tableId && !listed && joining) return <PageMain>{t.connecting}</PageMain>
   if (lobby.myTableId !== tableId && !listed)
     return (
       <PageMain>

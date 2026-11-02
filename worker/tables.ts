@@ -38,7 +38,13 @@ export interface TableEntry {
   /** A board is on the table and not finished: nobody changes seats */
   playing: boolean
   /** A challenge table: whose and for which challenge */
-  challenge?: { challengeId: string; userId: string; partnerId?: string }
+  challenge?: {
+    challengeId: string
+    userId: string
+    partnerId?: string
+    /** A partner challenge: members who lost their seat for being offline too long, seated again when back online */
+    dropped?: string[]
+  }
   /** A team match room's table (§5.8): which match and room, and the teams' names for the lobby's list of matches */
   match?: {
     matchId: string

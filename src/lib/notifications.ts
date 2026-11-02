@@ -12,6 +12,7 @@ export function notificationText(t: Strings, n: Notification): string {
     case 'challengeAccepted':
     case 'challengeDeclined':
     case 'challengePartnerDeclined':
+    case 'challengePartnerSeated':
     case 'challengeCancelled':
     case 'friendOnline':
     case 'matchInvited':
@@ -66,7 +67,8 @@ export function notificationText(t: Strings, n: Notification): string {
 
 /**
  * Where a notification leads when clicked: challenge news, an invitation too, to that challenge's
- * page, where it is answered and played (`e7-t16`, `e7-t18`); an invitation
+ * page, where it is answered and played (`e7-t16`, `e7-t18`), except a partner sitting down at the
+ * partnership's table (`e7-t28`), which leads to that table; an invitation
  * to a table, a request to join one and its answer, and a director call (`e2-t34`) to that table; a featured board to its record, where the explanation is shown; team
  * match news to the match's prep room (`e8-t06`), except being taken off a seat, after which only
  * the list of one's matches is left; partnership news to the partnership's page in TKU BridgeBook
@@ -95,6 +97,11 @@ export function notificationLink(n: Notification, options: { forum?: boolean } =
     case 'challengeReminder':
     case 'challengeResults':
       return n.params.challengeId ? `/challenges/${encodeURIComponent(String(n.params.challengeId))}` : '/challenges'
+    // Straight to the partnership's table (`e7-t28`); `?challenge=` lets the table page sit them down
+    case 'challengePartnerSeated':
+      return n.params.tableId && n.params.challengeId
+        ? `/table/${encodeURIComponent(String(n.params.tableId))}?challenge=${encodeURIComponent(String(n.params.challengeId))}`
+        : '/challenges'
     case 'tableInvited':
     case 'tableRequest':
     case 'tableRequestApproved':

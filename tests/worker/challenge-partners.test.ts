@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it } from 'vitest'
-import type { ClientMessage, ServerMessage, TableView } from '../../shared/protocol.ts'
+import { PARTNER_AWAY_MS, type ClientMessage, type Notification, type ServerMessage, type TableView } from '../../shared/protocol.ts'
+import { notificationLink } from '../../src/lib/notifications.ts'
 import { challengeEvent } from '../../worker/ranking-events.ts'
 import type { ClubService, Connections, ScheduleKind } from '../../worker/service.ts'
 import type { MemoryStore } from '../../worker/store.ts'
@@ -46,8 +47,11 @@ class FakeConnections implements Connections {
     return found?.type === 'error' ? found.code : undefined
   }
   bell(userId: string) {
+    return this.notices(userId).map((n) => n.kind)
+  }
+  notices(userId: string): Notification[] {
     const last = (this.inbox.get(userId) ?? []).findLast((m) => m.type === 'notifications')
-    return last?.type === 'notifications' ? last.notifications.items.map((n) => n.kind) : []
+    return last?.type === 'notifications' ? last.notifications.items : []
   }
 }
 
@@ -63,16 +67,20 @@ const tick = async (times = 1) => {
   for (let i = 0; i < times; i++) await new Promise((resolve) => setImmediate(resolve))
 }
 
+/** The club as its object makes it, on the test's store (again after an eviction) */
+const newClub = () =>
+  clubService(store, connections, {
+    maxUsers: 40,
+    now: () => time,
+    schedule: (run, ms, kind) => queue.push({ run, ms, kind }),
+  })
+
 beforeEach(async () => {
   store = memoryStore()
   connections = new FakeConnections()
   queue = []
   time = Date.UTC(2026, 10, 10)
-  club = clubService(store, connections, {
-    maxUsers: 40,
-    now: () => time,
-    schedule: (run, ms, kind) => queue.push({ run, ms, kind }),
-  })
+  club = newClub()
   await club.load()
   const result = await club.register('boss', 'club-secret-1', '')
   boss = 'user' in result ? result.user.id : ''
@@ -394,5 +402,135 @@ describe('leaving the club and rematches (e7-t28)', () => {
       [ids.amy, ids.ben],
       [ids.ben, ids.amy],
     ])
+  })
+})
+
+describe('a partner offline (e7-t28 follow-up, 社長 2026-11-02)', () => {
+  const offline = async (name: string) => {
+    connections.online.delete(ids[name])
+    await club.disconnected(ids[name])
+    await tick()
+  }
+  const online = async (name: string) => {
+    connections.online.add(ids[name])
+    club.connected(ids[name])
+    await tick(10)
+  }
+  const runAway = async () => {
+    const due = queue.filter((job) => job.kind === 'partnerAway')
+    queue = queue.filter((job) => job.kind !== 'partnerAway')
+    for (const job of due) job.run()
+    await tick(10)
+    return due
+  }
+  /** amy and ben seated, halfway through board 1 */
+  async function midBoard() {
+    const id = await partnerChallenge([['cat', 'dan']], { scoring: 'imp' })
+    await send(ids.amy, { type: 'playChallenge', challengeId: id })
+    await send(ids.ben, { type: 'playChallenge', challengeId: id })
+    await step([ids.amy, ids.ben])
+    expect(connections.table(ids.amy)!.board!.phase).not.toBe('finished')
+    return id
+  }
+
+  it('keeps the seat for PARTNER_AWAY_MS, then sets the board aside without a robot, and seats them again as they come back', async () => {
+    const id = await midBoard()
+    await offline('ben')
+    // The seat is kept, and amy sees until when
+    let view = connections.table(ids.amy)!
+    expect(view.seats.N?.id).toBe(ids.ben)
+    expect(view.challenge?.partnerOfflineUntil).toBe(time + PARTNER_AWAY_MS)
+    expect(view.challenge?.partnerAway).toBeUndefined()
+    expect(queue.filter((job) => job.kind === 'partnerAway').map((job) => job.ms)).toEqual([PARTNER_AWAY_MS])
+    // Not a robot sitting in (代打) either
+    expect(queue.some((job) => job.kind === 'substitute')).toBe(false)
+
+    time += PARTNER_AWAY_MS
+    await runAway()
+    view = connections.table(ids.amy)!
+    expect(view.seats.N).toBeNull()
+    expect(view.challenge?.partnerAway).toBe(true)
+    expect(view.challenge?.partnerDropped).toBe(true)
+    expect(view.challenge?.partnerOfflineUntil).toBeUndefined()
+    const frozen = JSON.stringify(view.board)
+    await runRobots()
+    expect(JSON.stringify(connections.table(ids.amy)!.board)).toBe(frozen)
+    // amy is not stuck: she may leave, and the table stays parked for both
+    await send(ids.amy, { type: 'leaveTable' })
+    expect([...store.data.keys()].filter((k) => k.startsWith('table:'))).toHaveLength(1)
+
+    // ben back online sits North again, quietly; amy comes back and the board goes on as it was
+    connections.inbox.set(ids.ben, [])
+    await online('ben')
+    view = connections.table(ids.ben)!
+    expect(view.seats.N?.id).toBe(ids.ben)
+    // ben sees his own hand; the auction and play are as they were
+    const { auction, tricks, turn } = JSON.parse(frozen) as NonNullable<TableView['board']>
+    expect([view.board!.auction, view.board!.tricks, view.board!.turn]).toEqual([auction, tricks, turn])
+    // A reconnect tells nobody
+    expect(connections.bell(ids.amy)).not.toContain('challengePartnerSeated')
+    await send(ids.amy, { type: 'playChallenge', challengeId: id })
+    view = connections.table(ids.amy)!
+    expect(view.challenge?.partnerAway).toBeUndefined()
+    expect(view.challenge?.partnerDropped).toBeUndefined()
+    await playBoard([ids.amy, ids.ben])
+    expect(connections.table(ids.amy)!.challenge?.played).toBe(1)
+  })
+
+  it('cancels the wait when the partner is back in time', async () => {
+    await midBoard()
+    await offline('ben')
+    time += PARTNER_AWAY_MS / 3
+    await online('ben')
+    expect(connections.table(ids.amy)!.challenge?.partnerOfflineUntil).toBeUndefined()
+    time += PARTNER_AWAY_MS
+    await runAway()
+    const view = connections.table(ids.amy)!
+    expect(view.seats.N?.id).toBe(ids.ben)
+    expect(view.challenge?.partnerAway).toBeUndefined()
+    await playBoard([ids.amy, ids.ben])
+  })
+
+  it('goes on counting after the club object is evicted', async () => {
+    await midBoard()
+    await offline('ben')
+    time += PARTNER_AWAY_MS - 60_000
+    queue = []
+    club = newClub()
+    await club.load()
+    await tick()
+    // The rest of the wait, not a new one
+    expect(queue.filter((job) => job.kind === 'partnerAway').map((job) => job.ms)).toEqual([60_000])
+    time += 60_000
+    connections.inbox.set(ids.amy, [])
+    club.connected(ids.amy)
+    await tick()
+    await runAway()
+    expect(connections.table(ids.amy)!.seats.N).toBeNull()
+    expect(connections.table(ids.amy)!.challenge?.partnerDropped).toBe(true)
+  })
+
+  it('tells the partner once per sit-down, with a link to the table, and not when they are seated or on a reconnect', async () => {
+    const id = await partnerChallenge([['cat', 'dan']])
+    const seated = (name: string) => connections.notices(ids[name]).filter((n) => n.kind === 'challengePartnerSeated')
+    await send(ids.amy, { type: 'playChallenge', challengeId: id })
+    const tableId = connections.table(ids.amy)!.id
+    expect(seated('ben').map((n) => n.params)).toEqual([{ challengeId: id, tableId, username: 'amy' }])
+    expect(notificationLink(seated('ben')[0])).toBe(`/table/${tableId}?challenge=${id}`)
+    // ben sits down: amy is already there, so nothing for her
+    await send(ids.ben, { type: 'playChallenge', challengeId: id })
+    expect(seated('amy')).toHaveLength(0)
+    // A reconnect is not a sit-down
+    await offline('amy')
+    await online('amy')
+    expect(seated('ben')).toHaveLength(1)
+    // ben leaves; amy leaves and sits down again: ben hears it again
+    await send(ids.ben, { type: 'leaveTable' })
+    await send(ids.amy, { type: 'leaveTable' })
+    await send(ids.amy, { type: 'playChallenge', challengeId: id })
+    expect(seated('ben')).toHaveLength(2)
+    // Pressing play while already seated is no new sit-down
+    await send(ids.amy, { type: 'playChallenge', challengeId: id })
+    expect(seated('ben')).toHaveLength(2)
   })
 })
