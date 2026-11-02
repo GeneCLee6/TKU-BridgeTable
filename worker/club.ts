@@ -1065,14 +1065,22 @@ export class Club extends DurableObject<Env> implements Connections {
       await audit('forum:board', created.id, created.name)
       return json({ board: created })
     }
-    if (path === '/latest') return json(forum.latest())
+    if (path === '/latest') return json(forum.latest(user))
     if (path === '/feed') {
       // 我的貼文 and 我提到的 (BridgeHall e11-t10): one member's posts, or the posts mentioning one
       const member = (name: string) => url.searchParams.get(name)?.slice(0, 64) || undefined
-      return json(forum.feed(Number(url.searchParams.get('page') ?? 1), { author: member('author'), mentions: member('mentions') }))
+      return json(
+        forum.feed(Number(url.searchParams.get('page') ?? 1), { author: member('author'), mentions: member('mentions') }, user),
+      )
     }
-    // 搜尋 (BridgeHall e11-t10): titles and text blocks
-    if (path === '/search') return json(forum.search(url.searchParams.get('q'), Number(url.searchParams.get('page') ?? 1)))
+    // 搜尋 (BridgeHall e11-t10): titles and text blocks; `board` narrows it to one board (the table's e13-t11)
+    if (path === '/search')
+      return json(
+        forum.search(url.searchParams.get('q'), Number(url.searchParams.get('page') ?? 1), {
+          board: url.searchParams.get('board')?.slice(0, 64) || undefined,
+          viewer: user,
+        }),
+      )
     if (path === '/reports') {
       if (method === 'GET') return json({ reports: forum.reports(url.searchParams.get('status') === 'all' ? 'all' : 'open') })
       return json({ report: forum.fileReport(user, await body()) })
@@ -1089,7 +1097,7 @@ export class Club extends DurableObject<Env> implements Connections {
     }
     const posts = path.match(/^\/boards\/([\w-]+)\/posts$/)
     if (posts) {
-      if (method === 'GET') return json(forum.boardPage(posts[1], Number(url.searchParams.get('page') ?? 1)))
+      if (method === 'GET') return json(forum.boardPage(posts[1], Number(url.searchParams.get('page') ?? 1), user))
       const post = forum.createPost(user, posts[1], await body())
       await tell(() => notices.posted(user, post, forum.board(post.boardId)))
       return json({ post })
@@ -1112,7 +1120,7 @@ export class Club extends DurableObject<Env> implements Connections {
       if (method === 'PUT') return json({ reactions: forum.react(user, target, reaction[2], await body()) })
       return json({ reactions: forum.unreact(user, target, reaction[2]) })
     }
-    const postAction = path.match(/^\/posts\/([\w-]+)\/(pin|lock|comments)$/)
+    const postAction = path.match(/^\/posts\/([\w-]+)\/(pin|lock|hide|comments)$/)
     if (postAction) {
       const [, id, action] = postAction
       if (action === 'pin') {
@@ -1131,13 +1139,21 @@ export class Club extends DurableObject<Env> implements Connections {
         if (was !== (post.locked === true)) await audit(post.locked ? 'forum:lock' : 'forum:unlock', id, postExcerpt(post))
         return json({ post })
       }
+      if (action === 'hide') {
+        // An officer hides a post (the table's e13-t10); its open reports close with it
+        const before = forum.post(id)
+        const post = forum.setHidden(user, id, await body())
+        if ((before.hidden === true) !== (post.hidden === true))
+          await audit(post.hidden ? 'forum:hide' : 'forum:unhide', id, whose(post.authorId, postExcerpt(post)))
+        return json({ post })
+      }
       const comment = forum.addComment(user, id, await body())
       await tell(() => notices.commented(user, forum.post(id), comment, comment.parentId ? forum.comment(comment.parentId) : undefined))
       return json({ comment })
     }
     const post = path.match(/^\/posts\/([\w-]+)$/)
     if (post) {
-      if (method === 'GET') return json(forum.thread(post[1]))
+      if (method === 'GET') return json(forum.thread(post[1], user))
       const before = forum.post(post[1])
       if (method === 'PATCH') {
         const updated = forum.updatePost(user, post[1], await body())

@@ -188,7 +188,8 @@ export function forumRouteNeed(method: string, path: string): Need | null {
   if (/^\/boards\/[\w-]+\/posts$/.test(path)) return method === 'GET' || method === 'POST' ? 'member' : null
   if (path === '/latest' || path === '/feed' || path === '/search') return method === 'GET' ? 'member' : null
   if (/^\/posts\/[\w-]+$/.test(path)) return method === 'GET' || method === 'PATCH' || method === 'DELETE' ? 'member' : null
-  if (/^\/posts\/[\w-]+\/(pin|lock)$/.test(path)) return method === 'POST' ? FORUM_MODERATE : null
+  // Hiding a post (the table's e13-t10) is the officers' too
+  if (/^\/posts\/[\w-]+\/(pin|lock|hide)$/.test(path)) return method === 'POST' ? FORUM_MODERATE : null
   if (/^\/posts\/[\w-]+\/comments$/.test(path)) return method === 'POST' ? 'member' : null
   if (/^\/comments\/[\w-]+$/.test(path)) return method === 'PATCH' || method === 'DELETE' ? 'member' : null
   if (/^\/(posts|comments)\/[\w-]+\/reaction$/.test(path)) return method === 'PUT' || method === 'DELETE' ? 'member' : null
