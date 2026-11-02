@@ -130,6 +130,8 @@ PR 關閉時預覽會自動刪除。若有漏掉的（例如當時還沒設定 s
 | `SYSTEM_PROFILE_ID` | `wrangler.jsonc` 的 `vars` 或 `--var` | `club` | TKB 用淡江制度時，叫品帶哪個制度集的橋館文字（ROBOT.md「橋館的文字跟著叫品」）；那個制度集要先在橋館差異報告頁同步過 |
 | `BOOK_SEED_TOKEN` | `wrangler secret put BOOK_SEED_TOKEN` | 無 | 橋館寫入內建特約用的權杖（§4.9，至少 32 字）；沒設定時只有管理員登入後能寫 |
 | `BOOK_EXPORT_TOKEN` | `wrangler secret put BOOK_EXPORT_TOKEN` | 無 | 橋館排程備份讀全部特約用的權杖（§4.10，至少 32 字，只能讀 `GET /api/book/export`）；沒設定時只有管理員登入後能匯出 |
+| `RESEND_API_KEY` | `wrangler secret put RESEND_API_KEY` | 無 | 寄 Email 驗證信與重設密碼信（§4.14）；跟 `MAIL_FROM` 兩個都設才打開，沒設定時沒有 Email 功能 |
+| `MAIL_FROM` | `wrangler.jsonc` 的 `vars` 或 secret | 無 | 寄件人，要是 Resend 驗證過的網域上的地址（§4.14） |
 | `ANTHROPIC_BASE_URL` | `.dev.vars` | 無 | 只給測試或 API 閘道用（本機可以指向假的 API），正式環境不要設定 |
 
 本機開發的值放在 `.dev.vars`（從 `.dev.vars.example` 複製，不會 commit）。
@@ -476,10 +478,34 @@ npx wrangler secret put TURNSTILE_SECRET_KEY        # 貼上 widget 的 Secret K
 - 本機開發、測試、PR 預覽都不設，不受影響。想在本機試，`.dev.vars` 可以放 Cloudflare 的測試金鑰（site key `1x00000000000000000000AA`、secret `1x0000000000000000000000000000000AA`，永遠通過）。
 - 連不到 Cloudflare 的驗證時一律不放行（申請者看到「人機驗證沒有通過」，再試一次）；日誌有 `turnstileFailed`。
 
+## 4.14 Email 綁定與 Email 重設密碼（H5a，`e1-t29`、`e1-t30`）
+
+寄信用 Resend（ARCHITECTURE.md §5.20 有選型）。**沒設定也能部署**：Email 功能自動關閉（「我的帳號」沒有 Email、登入頁的忘記密碼只有管理員核准），其他功能不受影響。
+
+### 啟用（只做一次）
+
+1. 到 <https://resend.com> 註冊（免費方案：每月 3,000 封、每天 100 封），**Domains → Add Domain** 加社團的網域，照畫面把 SPF、DKIM 的 DNS 紀錄加到網域的 DNS，等狀態變成 Verified。沒有自己的網域就不能寄給社員（`onboarding@resend.dev` 只能寄給 Resend 帳號自己的信箱，只適合試用）。
+2. **API Keys → Create API Key**，權限選 **Sending access**、網域選上面那個。
+3. 設定 Worker（正式站與 staging 可以用同一個金鑰，寄件人可以不同）：
+
+   ```bash
+   npx wrangler secret put RESEND_API_KEY                                   # 貼上 re_ 開頭的金鑰（正式站）
+   npx wrangler secret put RESEND_API_KEY --name tku-bridge-table-staging   # staging
+   ```
+
+   寄件人 `MAIL_FROM` 加到 `wrangler.jsonc` 的 `vars`（或用 secret，一樣有效），要是驗證過的網域上的地址，例如 `"MAIL_FROM": "淡江牌桌 <no-reply@example.org>"`。
+4. 部署後到「我的帳號」綁定自己的 Email，確認收得到驗證信；登出後在登入頁按「忘記密碼？」，應該先看到「用 Email 重設密碼」。
+
+- 兩個都設才會打開；只設一個等於沒設。
+- 寄不出去時（金鑰錯、網域沒驗證、超過額度），綁定會顯示「信寄不出去」，重設申請照樣回「已寄出」（不能洩漏帳號有沒有 Email），日誌有 `mailFailed`（`kind: verify` 或 `reset`）。
+- 關掉：`npx wrangler secret delete RESEND_API_KEY`。已綁定的 Email 留在帳號裡，重新打開後照樣能用。
+- PR 預覽不設，所以預覽站沒有 Email。
+
 ## 5. 費用與限制
 
 - Workers 免費方案：每天 10 萬次請求；WebSocket 訊息以 20:1 計算，一個晚上打牌遠低於上限。
 - SQLite Durable Object 免費方案：5 GB 儲存；一副牌的紀錄連同索引約 4 KB，約可存一百萬副以上。紀錄列表一次只讀 50 筆，資料再多也不會變慢。
 - 密碼雜湊使用 100,000 次 PBKDF2-SHA-256（`worker/auth.ts`，`e11-t30`；Cloudflare 的 PBKDF2 最多只收 100,000 次）。一次約 12 ms CPU，在社團的 Durable Object 裡算（不是 Worker 每次請求的 10 ms），登入有次數限制。2026-10-30 之前的帳號是 50,000 次，下次登入時自動升級。
+- Resend 免費方案：每月 3,000 封、每天 100 封，只寄 Email 驗證與重設密碼的信（§4.14）；每個帳號 10 分鐘最多 1 封（一次可以 3 封）。
 - Browser Run 免費方案：每天 10 分鐘瀏覽器時間，只用在橋館的制度卡 PDF（§4.11）。
 - D1 免費方案：每天讀 500 萬列、寫 10 萬列，全部 5 GB。紀錄索引的副本每副約寫 14 列，一天約 7,000 副才到上限（§4.5、`ARCHITECTURE.md` §5.12）。

@@ -72,6 +72,17 @@ import { PRACTICE_SETS, practiceSetInfos, type PracticeSetInfo } from '../shared
 import { PracticePresets } from './practice-presets.ts'
 import type { RobotBrain } from '../shared/robot/brain.ts'
 import { checkNewPassword } from './password-policy.ts'
+import {
+  composeMail,
+  EMAIL_RESET_MS,
+  EMAIL_VERIFY_MS,
+  emailToken,
+  hashEmailToken,
+  isEmail,
+  mailLang,
+  normalizeEmail,
+  type Mailer,
+} from './mail.ts'
 import { hashPassword, hashResetCode, needsRehash, randomId, RESET_CODE_MS, resetCode, verifyPassword } from './auth.ts'
 import { revocationWrites } from './edge-auth.ts'
 import { checkFavorite } from '../shared/favorites.ts'
@@ -204,6 +215,10 @@ import {
   LOGIN_FAILURES_PER_ADDRESS,
   LOGIN_FAILURES_PER_NAME,
   LOGIN_WINDOW_MS,
+  MAIL_BURST,
+  MAIL_REQUEST_BURST,
+  MAIL_REQUESTS_PER_SECOND,
+  MAILS_PER_SECOND,
   REQUEST_BURST,
   REQUESTS_PER_SECOND,
   TokenBuckets,
@@ -239,6 +254,13 @@ interface StoredUser {
   passwordResetAt?: number
   /** A forgotten password (e1-t36): asked for, and once an admin approves, the one-time code's hash */
   passwordReset?: PasswordReset
+  /** The member's email address (e1-t29), set once the link sent to it was opened */
+  email?: string
+  emailVerifiedAt?: number
+  /** An address waiting for its verification link (only the link's hash is kept) */
+  emailPending?: { address: string; tokenHash: string; expiresAt: number }
+  /** A password reset link sent to the verified address (e1-t30); only its hash is kept */
+  emailReset?: { tokenHash: string; expiresAt: number }
   /** False when the member turned off the notice that a friend came online (e1-t24) */
   friendOnlineNotice?: boolean
   /** False when the member turned off the notice that a convention their profile plays was published (BridgeHall F4) */
@@ -402,6 +424,11 @@ export interface ClubConfig {
    * purpose; without it no network is kept, only the browser
    */
   seenSalt?: string
+  /**
+   * Sends mail (e1-t29, e1-t30; `worker/mail.ts`). Without it (no `RESEND_API_KEY`/`MAIL_FROM`)
+   * email is off: `Me.email` is left out and every email route answers `emailOff`
+   */
+  mailer?: Mailer
 }
 
 export type ScheduleKind = JobKind
@@ -580,6 +607,9 @@ export class ClubService {
   private readonly loginByAddress: FailureWindow
   private readonly clientErrorLimit: TokenBuckets
   private readonly avatarLimit: TokenBuckets
+  /** Mail per account, and reset requests per network address (e1-t29, e1-t30) */
+  private readonly mailLimit: TokenBuckets
+  private readonly mailRequestLimit: TokenBuckets
 
   constructor(store: Store, connections: Connections, config: ClubConfig) {
     this.store = store
@@ -602,6 +632,8 @@ export class ClubService {
     this.loginByAddress = new FailureWindow(LOGIN_FAILURES_PER_ADDRESS, LOGIN_WINDOW_MS, this.now)
     this.clientErrorLimit = new TokenBuckets(CLIENT_ERROR_BURST, CLIENT_ERRORS_PER_SECOND, this.now)
     this.avatarLimit = new TokenBuckets(AVATAR_BURST, AVATARS_PER_SECOND, this.now)
+    this.mailLimit = new TokenBuckets(MAIL_BURST, MAILS_PER_SECOND, this.now)
+    this.mailRequestLimit = new TokenBuckets(MAIL_REQUEST_BURST, MAIL_REQUESTS_PER_SECOND, this.now)
     this.random = config.random ?? secureRandomInt
     this.notifications = new NotificationService(store, this.now, (userId) => void this.pushNotifications(userId))
     this.friends = new Relations(store, 'friend', this.now)
@@ -1259,6 +1291,8 @@ export class ClubService {
   async changePassword(userId: string, current: string, next: string, token: string | null = null) {
     const user = this.requireUser(userId)
     if (!(await verifyPassword(String(current ?? ''), user.passwordHash))) throw new ClubError('wrongPassword', {}, 403)
+    // A reset link sent before no longer works
+    delete user.emailReset
     await this.setPassword(user, String(next ?? ''))
     const { ended, ids } = await this.sessions.endAll(user.id, token)
     if (ended) await this.sessionsEnded(user.id, ids)
@@ -1442,9 +1476,159 @@ export class ClubService {
     user.passwordHash = await hashPassword(String(password))
     user.passwordResetAt = this.now()
     delete user.passwordReset
+    delete user.emailReset
     this.loginByName.clear(nameKey)
     await this.store.put(`user:${user.id}`, user)
     await this.revokeSessions(user.id)
+  }
+
+  // ── Email (e1-t29, e1-t30; ARCHITECTURE.md §5.20) ─────────────────────────────────────────────
+
+  /** `GET /api/email`: whether the club sends mail, so the sign-in page offers the email reset */
+  emailStatus() {
+    return { enabled: !!this.config.mailer }
+  }
+
+  private requireMailer(): Mailer {
+    if (!this.config.mailer) throw new ClubError('emailOff', {}, 503)
+    return this.config.mailer
+  }
+
+  /**
+   * `POST /api/account/email { address, password }`: the member binds an address, or changes it.
+   * The password is asked so a session left open cannot redirect the account's reset mail. The
+   * address only counts once the link sent to it is opened (`verifyEmail`); until then a verified
+   * address stays as it was. An empty address (with the password) removes the address
+   */
+  async setEmail(userId: string, address: string, password: string, origin: string, lang?: unknown): Promise<Me> {
+    const mailer = this.requireMailer()
+    const user = this.requireUser(userId)
+    if (!(await verifyPassword(String(password ?? ''), user.passwordHash))) throw new ClubError('wrongPassword', {}, 403)
+    const wanted = normalizeEmail(address)
+    if (!wanted) {
+      delete user.email
+      delete user.emailVerifiedAt
+      delete user.emailPending
+      delete user.emailReset
+      await this.store.put(`user:${user.id}`, user)
+      return this.me(user)
+    }
+    if (!isEmail(wanted)) throw new ClubError('badEmail')
+    if (wanted === user.email) throw new ClubError('emailSame')
+    await this.sendVerification(mailer, user, wanted, origin, lang)
+    return this.me(user)
+  }
+
+  /** `POST /api/account/email/resend`: a fresh link for the address waiting for verification */
+  async resendEmailVerification(userId: string, origin: string, lang?: unknown): Promise<Me> {
+    const mailer = this.requireMailer()
+    const user = this.requireUser(userId)
+    if (!user.emailPending) throw new ClubError('noEmailPending', {}, 404)
+    await this.sendVerification(mailer, user, user.emailPending.address, origin, lang)
+    return this.me(user)
+  }
+
+  private async sendVerification(mailer: Mailer, user: StoredUser, address: string, origin: string, lang: unknown) {
+    if (!this.mailLimit.take(user.id)) throw new ClubError('slowDown', {}, 429)
+    const token = emailToken()
+    const message = composeMail(address, mailLang(lang), 'mailVerifySubject', 'mailVerifyBody', {
+      username: user.username,
+      link: `${origin}/email/verify#${token}`,
+      hours: EMAIL_VERIFY_MS / 3_600_000,
+    })
+    try {
+      await mailer.send(message)
+    } catch {
+      this.log({ event: 'mailFailed', kind: 'verify' })
+      throw new ClubError('emailSendFailed', {}, 502)
+    }
+    // Only a link that went out replaces the one before
+    user.emailPending = { address, tokenHash: await hashEmailToken(token), expiresAt: this.now() + EMAIL_VERIFY_MS }
+    await this.store.put(`user:${user.id}`, user)
+  }
+
+  /**
+   * `POST /api/email/verify { token }`: the link from the verification mail, once. No sign-in: the
+   * link itself is the proof, and it may be opened on another device. An address another account
+   * already verified is refused (only whoever reads that inbox can learn it)
+   */
+  async verifyEmail(token: string): Promise<{ username: string; address: string }> {
+    this.requireMailer()
+    const hash = await hashEmailToken(String(token ?? ''))
+    const user = [...this.users.values()].find((u) => u.emailPending?.tokenHash === hash)
+    const pending = user?.emailPending
+    if (!user || !pending || pending.expiresAt <= this.now()) throw new ClubError('emailLinkWrong', {}, 403)
+    if ([...this.users.values()].some((u) => u.id !== user.id && u.email === pending.address)) {
+      delete user.emailPending
+      await this.store.put(`user:${user.id}`, user)
+      throw new ClubError('emailTaken', {}, 409)
+    }
+    user.email = pending.address
+    user.emailVerifiedAt = this.now()
+    delete user.emailPending
+    // A reset link sent to the old address no longer works
+    delete user.emailReset
+    await this.store.put(`user:${user.id}`, user)
+    this.log({ event: 'emailVerified' })
+    return { username: user.username, address: pending.address }
+  }
+
+  /**
+   * `POST /api/email/reset/request { account }`: 忘記密碼 by email (e1-t30). `account` is the
+   * username or the verified address; if it names an account with a verified address, a one-time
+   * link good for EMAIL_RESET_MS goes there. The answer is the same whether or not it does, so it
+   * tells nobody whether an account or an address exists. Accounts without one still ask the admins
+   * (e1-t36, `requestPasswordReset`). Limited per network address (slowDown) and per account (quietly)
+   */
+  async requestEmailReset(account: string, origin: string, lang?: unknown, address = ''): Promise<void> {
+    const mailer = this.requireMailer()
+    if (!this.mailRequestLimit.take(address)) throw new ClubError('slowDown', {}, 429)
+    const wanted = String(account ?? '').trim()
+    if (!wanted || wanted.length > 300) return
+    const user = wanted.includes('@')
+      ? [...this.users.values()].find((u) => !!u.email && u.email === normalizeEmail(wanted))
+      : this.findUser(wanted)
+    if (!user?.email || !this.mailLimit.take(user.id)) return
+    const token = emailToken()
+    const message = composeMail(user.email, mailLang(lang), 'mailResetSubject', 'mailResetBody', {
+      username: user.username,
+      link: `${origin}/email/reset#${token}`,
+      minutes: EMAIL_RESET_MS / 60_000,
+    })
+    try {
+      await mailer.send(message)
+    } catch {
+      // Told nowhere but the log: an error here would say that the account has an address
+      this.log({ event: 'mailFailed', kind: 'reset' })
+      return
+    }
+    user.emailReset = { tokenHash: await hashEmailToken(token), expiresAt: this.now() + EMAIL_RESET_MS }
+    await this.store.put(`user:${user.id}`, user)
+  }
+
+  /**
+   * `POST /api/email/reset { token, password }`: the link from the reset mail sets a new password,
+   * once. Wrong links count as failed sign-ins from that network (worker/rate-limit.ts). The member
+   * is signed out everywhere, as with the admins' code (e1-t36), whose code stops working too
+   */
+  async resetPasswordByEmail(token: string, password: string, address = ''): Promise<{ username: string }> {
+    this.requireMailer()
+    if (this.loginByAddress.blocked(address)) throw new ClubError('tooManyLogins', { minutes: LOGIN_WINDOW_MS / 60_000 }, 429)
+    const hash = await hashEmailToken(String(token ?? ''))
+    const user = [...this.users.values()].find((u) => u.emailReset?.tokenHash === hash)
+    if (!user || !user.email || (user.emailReset?.expiresAt ?? 0) <= this.now()) {
+      this.loginByAddress.fail(address)
+      throw new ClubError('emailLinkWrong', {}, 403)
+    }
+    checkNewPassword(String(password ?? ''), user.username)
+    user.passwordHash = await hashPassword(String(password))
+    user.passwordResetAt = this.now()
+    delete user.emailReset
+    delete user.passwordReset
+    await this.store.put(`user:${user.id}`, user)
+    await this.revokeSessions(user.id)
+    this.log({ event: 'passwordResetByEmail' })
+    return { username: user.username }
   }
 
   private async setPassword(user: StoredUser, password: string) {
@@ -1472,6 +1656,13 @@ export class ClubService {
     if (user.avatar) me.avatar = user.avatar
     if (user.bookProfile) me.bookProfile = user.bookProfile
     if (user.admin) me.applications = this.applications.size
+    if (this.config.mailer) {
+      me.email = {
+        address: user.email ?? null,
+        verifiedAt: user.emailVerifiedAt ?? null,
+        pending: user.emailPending?.address ?? null,
+      }
+    }
     me.features = enabledFeatures(this.features, { id: user.id, admin: !!user.admin, permissions: me.permissions })
     return me
   }
@@ -1849,7 +2040,9 @@ export class ClubService {
    */
   async exportAccount(userId: string, token: string | null) {
     const user = this.requireUser(userId)
-    const { passwordHash: _hash, passwordReset: _reset, ...account } = user
+    const { passwordHash: _hash, passwordReset: _reset, emailPending, emailReset: _emailReset, ...rest } = user
+    // The address waiting for verification, never a link's hash
+    const account = emailPending ? { ...rest, emailPending: emailPending.address } : rest
     const size = HISTORY_PAGE_SIZES[HISTORY_PAGE_SIZES.length - 1]
     const name = (id: string) => this.users.get(id)?.username ?? id
     const favorites: Favorite[] = []

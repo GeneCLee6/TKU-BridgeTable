@@ -18,6 +18,7 @@ import { BookNotices } from './book-notices.ts'
 import { PendingService } from './pending.ts'
 import { GlossaryService, publicGlossaryResponse } from './glossary.ts'
 import { claudeImporter } from './importer.ts'
+import { mailerFrom } from './mail.ts'
 import { ProfileService } from './profiles.ts'
 import { CardPdfService, pdfResponse } from './card-pdf.ts'
 import { CardSnapshotService } from './card-snapshots.ts'
@@ -112,6 +113,12 @@ export interface Env {
   EDGE_AUTH?: string
   /** The system profile whose 淡江橋館 rules TKB follows (BridgeHall e7-t03); the club's when unset */
   SYSTEM_PROFILE_ID?: string
+  /**
+   * Email (e1-t29, e1-t30; worker/mail.ts, DEPLOY.md §4.14): Resend's API key (wrangler secret put
+   * RESEND_API_KEY) and the sender, an address on a domain verified there. Without both, email is off
+   */
+  RESEND_API_KEY?: string
+  MAIL_FROM?: string
 }
 
 /** A picture's upload may come straight from TKU BridgeBook's page too; its single-use pass is the check */
@@ -232,6 +239,8 @@ export class Club extends DurableObject<Env> implements Connections {
       systemProfileId: env.SYSTEM_PROFILE_ID || undefined,
       // The anti-cheating report's network salt (§5.17): a secret, never in the club's storage
       seenSalt: env.SEEN_SALT || undefined,
+      // Email (e1-t29, e1-t30): none unless RESEND_API_KEY and MAIL_FROM are set
+      mailer: mailerFrom(env),
     })
     this.edgeSecret = edgeSecret(env)
     this.book = new BookService(store)
@@ -586,6 +595,22 @@ export class Club extends DurableObject<Env> implements Connections {
       await this.service.resetForgottenPassword(text(b.username), text(b.code), text(b.password), address)
       return json({ ok: true })
     }
+    // Email (e1-t29, e1-t30): whether it is on, a verification link, and 忘記密碼 by a link mailed
+    // to the verified address. No sign-in: the links are the proof, and asking says nothing about
+    // whether the account or the address exists
+    if (route === 'GET /api/email') return json(this.service.emailStatus())
+    if (route === 'POST /api/email/verify') return json(await this.service.verifyEmail(text((await body()).token)))
+    if (route === 'POST /api/email/reset/request') {
+      const b = await body()
+      const address = request.headers.get('CF-Connecting-IP') ?? ''
+      await this.service.requestEmailReset(text(b.account), url.origin, b.lang, address)
+      return json({ ok: true })
+    }
+    if (route === 'POST /api/email/reset') {
+      const b = await body()
+      const address = request.headers.get('CF-Connecting-IP') ?? ''
+      return json(await this.service.resetPasswordByEmail(text(b.token), text(b.password), address))
+    }
     // A picture by its signed address (e11-t02): the signature is the check, so no sign-in
     if (request.method === 'GET' && url.pathname.startsWith(FILES_PATH)) {
       return this.files.serve(decodeURIComponent(url.pathname.slice(FILES_PATH.length)), url)
@@ -643,6 +668,14 @@ export class Club extends DurableObject<Env> implements Connections {
       const b = await body()
       await this.service.changePassword(user.id, text(b.current), text(b.next), token)
       return json({ ok: true })
+    }
+    // The member's email (e1-t29): bind or change it (a link goes to it), remove it, or resend the link
+    if (route === 'POST /api/account/email') {
+      const b = await body()
+      return json({ user: await this.service.setEmail(user.id, text(b.address), text(b.password), url.origin, b.lang) })
+    }
+    if (route === 'POST /api/account/email/resend') {
+      return json({ user: await this.service.resendEmailVerification(user.id, url.origin, (await body()).lang) })
     }
     // Where the member is signed in, and signing other devices out (e11-t23)
     if (route === 'GET /api/account/sessions') return json({ sessions: await this.service.accountSessions(user.id, token) })

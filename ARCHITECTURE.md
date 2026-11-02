@@ -841,6 +841,35 @@ E13 的 PRD 原本寫「貼文與留言進 D1」。現況是社團 Durable Objec
 - **K3**：從紀錄分享（`e13-t07`，伺服器檢查挑戰未結束的牌）、個人頁的貼文（`e13-t08`）、通知改連牌桌（`e13-t09`）。
 - **K4**：檢舉與管理頁（`e13-t10`）、全文搜尋（`e13-t11`，屆時評估 D1 FTS5）。
 
+## 5.20 Email 綁定與 Email 重設密碼（決策紀錄，`e1-t29`、`e1-t30`，2026-11-02，H5a）
+
+社員可以在「我的帳號」綁定一個 Email，驗證過後，忘記密碼時用 Email 收重設連結，不必等管理員核准。管理員核准的忘記密碼（`e1-t36`）照舊保留，沒有驗證 Email 的帳號只能走那條路。
+
+### 寄信服務：Resend
+
+| | Resend | Cloudflare Email Service（Email Sending） |
+| --- | --- | --- |
+| 免費額度 | 每月 3,000 封、每天 100 封、1 個網域 | 2025-09 才宣布、還在測試；依當時的公告，寄給任意收件人要 Workers 付費方案（免費方案能用的是 Email Routing 的 `send_email`，**只能寄給帳號裡驗證過的收件地址**，不能寄給社員）。正式版的價格出來後再評估 |
+| Worker 整合 | 一次 `fetch`（`POST https://api.resend.com/emails`），金鑰是 Worker secret | 原生 binding，不用金鑰 |
+| 10 ms CPU | 一次 `fetch` 加一個小 JSON，CPU 幾乎是零；而且是在社團的 Durable Object 裡送，不是 Worker 的 10 ms 請求 | 同樣幾乎是零 |
+| 網域 | 寄件網域要在 Resend 加 DNS 紀錄（SPF、DKIM），網域不必在 Cloudflare | 寄件網域要在 Cloudflare |
+| 鎖定 | 換服務只改 `worker/mail.ts` | 同左 |
+
+我們在免費方案，Cloudflare 的服務寄不到社員信箱，所以選 **Resend**。社團一天寄的信（驗證與重設）遠低於每天 100 封；之後真要換成 Cloudflare Email Service，只要在 `worker/mail.ts` 加一個實作 `Mailer` 的 binding 版本，`ClubService` 不用改。
+
+### 怎麼運作
+
+- **開關**：`RESEND_API_KEY`（secret）和 `MAIL_FROM`（寄件人）**兩個都設**才有 `Mailer`（`mailerFrom`）；少一個就關：`Me.email` 不送，「我的帳號」沒有 Email 卡片、登入頁沒有「用 Email 重設」，所有 Email 的 API 回 `emailOff`（503）。這跟功能旗標（`shared/features.ts`）一樣是「沒開就看不到」，但看的是部署設定而不是社團的選擇，因為沒有寄信服務時打開也沒用。PR 預覽不設，所以預覽站沒有 Email。
+- **`ClubService` 不碰 Cloudflare 或 Resend**：它只拿到 `ClubConfig.mailer`（`send({ to, subject, text })`）；`club.ts` 用 Worker 的設定做出 Resend 版本。測試換成把信收進陣列的假 `Mailer`。
+- **綁定**（`POST /api/account/email { address, password }`）：要輸入密碼（session 被別人拿到時，不能把重設信改寄到他的信箱）。寄一封驗證信，連結是 `/email/verify#<權杖>`，24 小時內有效、只能用一次。驗證前原本驗證過的 Email 照舊有效；空的 address 加密碼是移除。
+- **驗證**（`POST /api/email/verify { token }`）：不用登入，連結本身就是證明（常在手機上開）。另一個帳號已經驗證過同一個 Email 就拒絕（`emailTaken`）——只有能讀那個信箱的人才會知道，所以不算洩漏。
+- **Email 重設**（`POST /api/email/reset/request { account }`）：帳號名稱或驗證過的 Email 都可以。有驗證過的 Email 才寄 `/email/reset#<權杖>`，30 分鐘內有效、只能用一次；**不論帳號或 Email 存不存在、有沒有寄出，回答都一樣**（`{ ok: true }`），寄信失敗也只寫日誌（`mailFailed`）。`POST /api/email/reset { token, password }` 設新密碼（新密碼規則照 `checkNewPassword`），登出所有裝置（session、通行證、連線），管理員給的重設代碼也一起失效。管理員帳號也可以用（`e1-t36` 不讓管理員用邀請碼，是因為邀請碼太弱；驗證過的 Email 不是）。
+- **權杖**：32 bytes 隨機（256 bit），**只存 SHA-256**（`StoredUser.emailPending.tokenHash`、`emailReset.tokenHash`），原文只在信裡。放在網址的 `#` 後面，瀏覽器不會送給伺服器，也不會進 Cloudflare 的請求紀錄；頁面讀到後立刻從網址列拿掉。打開頁面不會用掉連結，要按按鈕（信箱的連結掃描器先點過也沒關係）。改密碼、重新驗證或移除 Email 時，寄出的重設連結都失效。
+- **速率限制**（`worker/rate-limit.ts`）：每個帳號的信（驗證加重設）一次 3 封、之後每 10 分鐘 1 封，驗證超過回 `slowDown`、重設超過**不說**（說了就洩漏帳號有 Email）；同一個 IP 的重設申請一次 5 次、之後每 2 分鐘 1 次（`slowDown`，只看 IP 不洩漏帳號）；錯的重設連結跟登入共用同一個 IP 的失敗次數（`tooManyLogins`）。
+- **個資**：Email 存在 `user:<id>` 裡，匯出（`GET /api/account/export`）有 `email`、`emailVerifiedAt` 與等待驗證的地址，沒有任何權杖雜湊；刪帳號時跟著 `user:<id>` 刪除。其他社員與管理頁都看不到 Email。隱私權政策加了一段（六種語言，`LEGAL_UPDATED` 2026-11-02）。
+- **信的文字**在 `shared/messages.ts`（`mailVerifySubject`、`mailVerifyBody`、`mailResetSubject`、`mailResetBody`，六種語言），語言照頁面送來的 `lang`，沒有就繁中；純文字，不寄 HTML。
+- **限制**：多社團（`e12-t02`）的連結沒有帶社團，Email 的 API 和其他沒登入的 API 一樣到預設社團（淡江）；開第二個社團時要一起處理。
+
 ## 5.8 隊制賽（決策紀錄，`e8-t01`，2026-10-25）
 
 隊制賽（E8，雙桌隊制賽，Teams of Four）：房主找齊 8 個人（不夠可補機器人），兩隊在開室與閉室打同一組牌，依兩室的南北分差計 IMP 或 BAM。這一節是 F2 定下的設計，後面的批次（F3–F5、M2）照這裡做；要改設計先改這裡。PRD 沒有定、F2 先選的做法（原本標「建議預設」）社長 2026-10-25 全部確認。

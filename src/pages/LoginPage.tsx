@@ -126,8 +126,11 @@ const Footnote = styled(Muted)`
   font-size: 13px;
 `
 
-/** `reset` asks the admins (with the invite code), `resetCode` sets the password with the code they handed over (e1-t36) */
-type Mode = 'login' | 'register' | 'reset' | 'resetCode'
+/**
+ * `reset` asks the admins (with the invite code), `resetCode` sets the password with the code they
+ * handed over (e1-t36); `emailReset` mails a link to the account's verified address (e1-t30)
+ */
+type Mode = 'login' | 'register' | 'reset' | 'resetCode' | 'emailReset'
 type FieldName = 'username' | 'password' | 'repeat' | 'inviteCode' | 'code'
 
 /** Server error codes that belong to one field; the rest show above the form */
@@ -150,7 +153,7 @@ const FIELD_OF: Record<string, FieldName> = {
  */
 export function LoginPage() {
   const t = useT()
-  const { message } = usePreferences()
+  const { message, lang } = usePreferences()
   const { login, register } = useAuth()
   const id = useId()
   const [mode, setMode] = useState<Mode>('login')
@@ -168,14 +171,44 @@ export function LoginPage() {
   const [siteKey, setSiteKey] = useState<string | null>(null)
   const [turnstileToken, setTurnstileToken] = useState('')
   const [turnstileReset, setTurnstileReset] = useState(0)
+
+  /** Whether the club sends mail (e1-t29): only then is there 忘記密碼 by email */
+  const [emailOn, setEmailOn] = useState(false)
+  useEffect(() => {
+    let live = true
+    api
+      .emailStatus()
+      .then(({ enabled }) => live && setEmailOn(enabled))
+      .catch(() => undefined)
+    return () => {
+      live = false
+    }
+  }, [])
   const registering = mode === 'register'
   const resetting = mode === 'reset'
   const withCode = mode === 'resetCode'
-  const title = registering ? t.register : resetting ? t.resetTitle : withCode ? t.enterResetCode : t.login
-  const intro = registering ? t.registerIntro : resetting ? t.resetIntro : withCode ? t.resetCodeIntro : t.loginIntro
-  const submitLabel = resetting ? t.resetRequestButton : title
+  const emailing = mode === 'emailReset'
+  const title = registering
+    ? t.register
+    : resetting
+      ? t.resetTitle
+      : withCode
+        ? t.enterResetCode
+        : emailing
+          ? t.email.resetTitle
+          : t.login
+  const intro = registering
+    ? t.registerIntro
+    : resetting
+      ? t.resetIntro
+      : withCode
+        ? t.resetCodeIntro
+        : emailing
+          ? t.email.resetIntro
+          : t.loginIntro
+  const submitLabel = resetting ? t.resetRequestButton : emailing ? t.email.sendLink : title
   /** Who signs in or registers types a password; asking for a reset does not */
-  const needsPassword = !resetting
+  const needsPassword = !resetting && !emailing
   const newPassword = registering || withCode
 
   useEffect(() => {
@@ -220,6 +253,9 @@ export function LoginPage() {
       } else if (resetting) {
         await api.requestPasswordReset(username, inviteCode)
         setDone(t.resetRequested)
+      } else if (emailing) {
+        await api.requestEmailReset(username, lang)
+        setDone(t.email.linkSent)
       } else if (withCode) {
         await api.resetPassword(username, code, password)
         switchTo('login')
@@ -279,16 +315,16 @@ export function LoginPage() {
             {error && <ErrorText role="alert">{error}</ErrorText>}
             {done && <Done role="status">{done}</Done>}
             <Field>
-              <FieldLabel htmlFor={`${id}-username`}>{t.username}</FieldLabel>
+              <FieldLabel htmlFor={`${id}-username`}>{emailing ? t.email.account : t.username}</FieldLabel>
               <Input
                 {...describe('username', registering)}
                 $size="lg"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                autoComplete="username"
+                autoComplete={emailing ? 'email' : 'username'}
                 required
-                minLength={LIMITS.usernameMin}
-                maxLength={LIMITS.usernameMax}
+                minLength={emailing ? undefined : LIMITS.usernameMin}
+                maxLength={emailing ? 254 : LIMITS.usernameMax}
               />
               {below('username', registering && t.usernameHint(LIMITS.usernameMin, LIMITS.usernameMax))}
             </Field>
@@ -312,7 +348,7 @@ export function LoginPage() {
                 <LabelRow>
                   <FieldLabel htmlFor={`${id}-password`}>{withCode ? t.newPassword : t.password}</FieldLabel>
                   {mode === 'login' && (
-                    <LinkButton type="button" onClick={() => switchTo('reset')}>
+                    <LinkButton type="button" onClick={() => switchTo(emailOn ? 'emailReset' : 'reset')}>
                       {t.forgotPassword}
                     </LinkButton>
                   )}
@@ -378,8 +414,27 @@ export function LoginPage() {
           </Form>
         )}
         <Switch>
-          {resetting || withCode ? (
+          {emailing ? (
             <>
+              <LinkButton type="button" onClick={() => switchTo('reset')}>
+                {t.email.byAdmin}
+              </LinkButton>
+              {' · '}
+              <LinkButton type="button" onClick={() => switchTo('login')}>
+                {t.backToLogin}
+              </LinkButton>
+            </>
+          ) : resetting || withCode ? (
+            <>
+              {resetting && emailOn && (
+                <>
+                  {t.email.haveEmail}{' '}
+                  <LinkButton type="button" onClick={() => switchTo('emailReset')}>
+                    {t.email.resetByEmail}
+                  </LinkButton>
+                  {' · '}
+                </>
+              )}
               {resetting && (
                 <>
                   {t.haveResetCode}{' '}
