@@ -145,7 +145,12 @@
      - K3（#259，`e13-t07`–`t09`）紀錄頁「分享到論壇」（伺服器 `checkShareable`：只能分享已公開的牌，貼文只存紀錄 id，每位讀者照 §4 讀牌）、個人頁的論壇貼文與隱私設定（`hideProfileBoards`／`hideProfilePosts` 存在帳號上，不放 `Profile`，以免橋館整份覆寫時被清掉）、論壇通知改連牌桌。待決：隱私要不要也擋紀錄的玩家搜尋、未公開的牌按鈕停用（而非隱藏）可否。
      - J4（#260，`e7-t27` `e7-t29` `e7-t30`）IMP 對 datum（`datumImp`，多人與每週挑戰）、每副討論串（`challenge_comments`，存取同 traveller：`views.ts` 的 `challengeThreadAccess`，沒用論壇）、`/challenges/stats` 我的戰績與對戰紀錄。`e7-t26` 已取消；`e7-t28` 雙人搭檔挑戰延後（另開一批）。待決（§5.5）：datum 去頭尾與四捨五入到 10 分、戰績不算每日賽與每週挑戰、和局算半場、管理員刪留言的範圍、要不要排 `e7-t28`。
      - **repo 的 pre-push hook 擋所有 force-push**（含自己分支的 force-with-lease）：已推的分支不要 rebase，改 merge `origin/main`。
-     - 下一批候選：`e7-t28` 雙人搭檔挑戰、J5b 確認（`e8-t21` 已在 V1 做完，勾掉即可）、H6b 跨社團防作弊、L1（`e12-t03` 每個檔案都會碰，單獨做）；多元登入（H5c Google、O3 LINE）最後；Phase P 要先升級付費方案。
+  0j. **2026-11-02 第四輪（社長拍板第三輪的待決：論壇三項都要、兩步驟登入強制＋QR code、只有社長一位管理員、挑戰照建議預設；三個 agent 平行）**：
+     - #263（`e11-t31` 後續）**管理員一定要開兩步驟登入**：沒開的管理員能登入，但所有要管理員或權限的 API（含橋館的 `/api/book`、論壇管理）回 403 `adminTwoFactorRequired`（`ClubService.actsAsAdmin`、`roles.ts` 的 `adminLocked`），`/api/account/2fa/*` 不擋；設定頁有 QR code（`qrcode-generator`，畫成 SVG）。只有一位管理員的最後手段：臨時 Worker secret `TWO_FACTOR_RESET_TOKEN` 開 `POST /api/ops/two-factor-reset`，用完立刻刪（DEPLOY.md §4.15）。測試用 `tests/worker/admin-two-factor.ts` 的 `adminWithTwoFactor`。**2026-11-02 已部署：社長要立刻在「我的帳號」開啟。**待決：管理員能不能自己關掉（目前能）；橋館「忘記密碼」仍是舊流程（帳號＋邀請碼），跟牌桌 `e1-t36` 不一致。
+     - #264（論壇後續）貼文標籤（自由輸入、`normalizeTag`、每篇 5 個、每個 20 字、`GET /api/forum/tags`、`&tag=` 篩選）、隱藏／取消隱藏通知作者（`forumHidden`／`forumUnhidden`，不寫幹部名字）、「不公開打過的牌局」也讓別人用 `player=`／`declarer=` 搜不到（`where()` 的 `hidden`，點名別人時由社團回答，`partner=` 不擋）。
+     - 橋館 #64（含 #63）：登入頁驗證碼欄位、`adminTwoFactorRequired` 訊息、`passwordMin` 12、標籤、已隱藏標記、`forum:hide` 審計名稱。兩個橋館 PR 的 parity 互相依賴，所以合成一個合併。
+     - #265（`e7-t28`）雙人搭檔挑戰：`settings.partners`、`challenge_players.partner_id`、一組一桌（南北真人、東西機器人），四位都在才發牌、搭檔離開整桌停住；一人拒絕整組出局；積分兩人各一份；不算個人戰績；最多 9 組對手。J4 的預設（datum、戰績範圍、和局算半場、刪留言）社長照建議定案。待決：只斷線時桌子無限等待（沒有逾時）、搭檔入座不通知。
+     - 下一批候選：J5b 確認（`e8-t21` 已在 V1 做完，勾掉即可）、H6b 跨社團防作弊、L1（`e12-t03` 每個檔案都會碰，單獨做）；多元登入（H5c Google、O3 LINE）最後；Phase P 要先升級付費方案。
   1. H3b 完成（#150）：大廳拆 `LobbyShared`＋`LobbyMine`、只送差異（`lobbyDelta`）、100 ms 合併廣播、`action` 日誌 1/10 取樣；數字在 `docs/LOAD.md` §6。部署前開著的分頁要重新整理。本機 workerd 量測時社團物件中途重啟過一次（原因未查到，沒有動作失敗），遠端煙霧時留意。
   2. TKB 持續加強（模擬 → 改規則 → 評測）：V4 四項做完（見上）；下一輪從 V4 的待決與 `ROBOT.md` 的「待社團確認」挑。
   3. 秘密設好後：在任一 PR 預覽跑 `docs/LOAD.md` §6 的遠端煙霧測試，再決定正式站開 `EVENT_OBJECTS`。
