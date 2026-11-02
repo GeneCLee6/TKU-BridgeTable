@@ -1,6 +1,6 @@
 /**
  * Signing in with another site's account (Google e1-t31, LINE e1-t32; AC-1.9; ARCHITECTURE.md §5.2,
- * docs/SECURITY.md V2, DEPLOY.md §4.16, §4.17): what both providers share.
+ * docs/SECURITY.md V2, DEPLOY.md §4.16, §4.18): what both providers share.
  *
  * OpenID Connect's authorization-code flow, run by the server: the page asks the Worker for the
  * provider's address (`POST /api/auth/<provider>/start`), the browser goes there, and the provider

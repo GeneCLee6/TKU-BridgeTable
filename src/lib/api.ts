@@ -60,6 +60,7 @@ export type MatchPlayAction =
 import type { FeaturedBoard, FeaturedInput } from '../../shared/featured.ts'
 import type { FeatureFlag, FeatureState, FeatureView } from '../../shared/features.ts'
 import type { SessionInfo } from '../../shared/account.ts'
+import type { PushKinds, PushView } from '../../shared/push.ts'
 import type { PracticeSettings, SavedPractice } from '../../shared/practice.ts'
 import type { PracticeSetInfo } from '../../shared/practice-sets/types.ts'
 
@@ -167,6 +168,18 @@ export const api = {
   google: oauthApi('google'),
   /** LINE login (e1-t32): the same routes under /api/auth/line and /api/account/line */
   line: oauthApi('line'),
+  /**
+   * Push notifications (e1-t28): whether the club has them, the VAPID key, this member's devices and
+   * choices; subscribing this browser (`PushSubscription.toJSON()` and the page's language),
+   * removing a device, choosing kinds, a test push
+   */
+  push: {
+    view: () => request<PushView>('/api/push'),
+    subscribe: (subscription: PushSubscriptionJSON, lang: string) => post<PushView>('/api/push/subscribe', { ...subscription, lang }),
+    unsubscribe: (id: string) => post<PushView>('/api/push/unsubscribe', { id }),
+    kinds: (kinds: Partial<PushKinds>) => post<PushView>('/api/push/kinds', { kinds }),
+    test: (id?: string) => post<{ devices: number }>('/api/push/test', id ? { id } : {}),
+  },
   logout: () => post<{ ok: true }>('/api/logout'),
   changePassword: (current: string, next: string) => post<{ ok: true }>('/api/account/password', { current, next }),
   /** The account settings the server keeps (e1-t24) */

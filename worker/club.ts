@@ -19,6 +19,7 @@ import { PendingService } from './pending.ts'
 import { GlossaryService, publicGlossaryResponse } from './glossary.ts'
 import { claudeImporter } from './importer.ts'
 import { mailerFrom } from './mail.ts'
+import { pushFrom } from './web-push.ts'
 import { googleFrom } from './google.ts'
 import { lineFrom } from './line.ts'
 import { callbackPath, flowCookie, flowCookieName, OAUTH_APPLY_MS, OAUTH_CODE_MS, oauthSite, safeReturn, type OAuthName } from './oauth.ts'
@@ -138,7 +139,15 @@ export interface Env {
   GOOGLE_CLIENT_ID?: string
   GOOGLE_CLIENT_SECRET?: string
   /**
-   * LINE login (e1-t32; worker/line.ts, DEPLOY.md §4.17): the LINE Login channel's id and secret
+   * Web Push (e1-t28; worker/web-push.ts, DEPLOY.md §4.17): the VAPID key pair made by `npm run vapid`
+   * and a contact (`mailto:` or `https:`) for the push services, all three wrangler secrets. Without
+   * all three, push is off; PR previews never get them
+   */
+  VAPID_PUBLIC_KEY?: string
+  VAPID_PRIVATE_KEY?: string
+  VAPID_SUBJECT?: string
+  /**
+   * LINE login (e1-t32; worker/line.ts, DEPLOY.md §4.18): the LINE Login channel's id and secret
    * from LINE Developers (wrangler secret put). Without both, LINE login is off; PR previews never get them
    */
   LINE_CHANNEL_ID?: string
@@ -270,6 +279,9 @@ export class Club extends DurableObject<Env> implements Connections {
       // Google sign-in and LINE login (e1-t31, e1-t32): none unless their two secrets are set, and only
       // for 淡江: the way back carries no club, so it always reaches 淡江's object
       ...((clubIdOfObject(ctx.id.name) ?? DEFAULT_CLUB_ID) === DEFAULT_CLUB_ID && { google: googleFrom(env), line: lineFrom(env) }),
+      // Web Push (e1-t28): none unless the three VAPID secrets are set; sent after the answer, kept alive by waitUntil
+      push: pushFrom(env),
+      defer: (task) => ctx.waitUntil(task),
     })
     this.edgeSecret = edgeSecret(env)
     this.book = new BookService(store)
@@ -847,6 +859,18 @@ export class Club extends DurableObject<Env> implements Connections {
         password: text(b.password),
       })
       return json({ url: to }, 200, flowCookie(name, flowId, secure))
+    }
+    // Push notifications (e1-t28, worker/push.ts): this member's devices and choices; off without the VAPID secrets
+    if (url.pathname.startsWith('/api/push')) {
+      const push = this.service.push
+      if (route === 'GET /api/push') return json(await push.view(user.id))
+      if (route === 'POST /api/push/subscribe') return json(await push.subscribe(user.id, await body(), request.headers.get('User-Agent') ?? ''))
+      if (route === 'POST /api/push/unsubscribe') return json(await push.unsubscribe(user.id, text((await body()).id)))
+      if (route === 'POST /api/push/kinds') return json(await push.setKinds(user.id, (await body()).kinds))
+      if (route === 'POST /api/push/test') {
+        const id = (await body()).id
+        return json({ devices: await push.test(user.id, typeof id === 'string' && id ? id : undefined) })
+      }
     }
     // 兩步驟登入 (e11-t31): a secret to set up (admins), its first code turns it on, new recovery codes, off
     if (route === 'POST /api/account/2fa/setup') return json(await this.service.startTwoFactor(user.id, text((await body()).password)))

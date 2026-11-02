@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 import { FEATURE_DEFAULTS, type FeatureFlag } from '../../shared/features.ts'
 import type { Me, RegisterResult } from '../../shared/protocol.ts'
 import { api, type OAuthApplication } from '../lib/api.ts'
+import { forgetPushOnSignOut } from '../lib/push.ts'
 import { resetFavorites } from '../lib/favorites.ts'
 
 /** The signed-in member. `undefined` while the session is being checked, `null` when signed out. */
@@ -56,6 +57,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   )
 
   const logout = useCallback(async () => {
+    // The next member signing in on this browser must not get this one's pushes (e1-t28)
+    await forgetPushOnSignOut()
     await api.logout().catch(() => undefined)
     resetFavorites()
     setUser(null)

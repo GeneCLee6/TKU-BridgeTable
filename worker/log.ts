@@ -24,6 +24,11 @@ export type LogEntry =
   /** Google sign-in and LINE login (e1-t31, e1-t32): never the account, the address or the name; `reason` says which check failed */
   | { event: 'oauthSignIn' | 'oauthLinked' | 'oauthUnlinked'; provider: 'google' | 'line' }
   | { event: 'oauthFailed'; provider: 'google' | 'line'; reason: string }
+  /**
+   * Web Push (e1-t28): one batch sent; how many went out, failed (the push service's status, or no
+   * answer) and how many dead subscriptions (404/410) were removed. Never who or which device
+   */
+  | { event: 'push'; sent: number; failed: number; removed: number; statuses?: string }
   | { event: 'passwordResetByEmail' }
   | { event: 'mailFailed'; kind: 'verify' | 'reset' | 'security' }
   /**

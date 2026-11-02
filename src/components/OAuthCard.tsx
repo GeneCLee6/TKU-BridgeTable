@@ -15,7 +15,7 @@ import { Button, Card, CardFooter, CardHeader, CardTitle, ErrorText, Field, Fiel
  * to this one (Google's address or the LINE name, only the owner sees it), binding one (the password
  * first, then the provider's own branded button) and unbinding it (with the password; the password
  * keeps working). Shown only when the server sends `Me.google` / `Me.line`, that is when the club
- * has that provider (DEPLOY.md §4.16, §4.17). The provider sends the browser back here with
+ * has that provider (DEPLOY.md §4.16, §4.18). The provider sends the browser back here with
  * `?google=linked` or `?line=error&code=…`, which the card reports once
  */
 

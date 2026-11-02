@@ -113,7 +113,7 @@ export interface Me extends PublicUser {
   google?: AccountGoogle | null
   /**
    * LINE login (e1-t32): the LINE account bound to this one (only its LINE name, for the owner), or
-   * null; left out when the club has no LINE login (DEPLOY.md §4.17)
+   * null; left out when the club has no LINE login (DEPLOY.md §4.18)
    */
   line?: AccountLine | null
 }

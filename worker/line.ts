@@ -1,5 +1,5 @@
 /**
- * LINE login (e1-t32, AC-1.9; ARCHITECTURE.md §5.2, docs/SECURITY.md V2, DEPLOY.md §4.17): LINE
+ * LINE login (e1-t32, AC-1.9; ARCHITECTURE.md §5.2, docs/SECURITY.md V2, DEPLOY.md §4.18): LINE
  * Login v2.1's authorization-code flow with PKCE, `state` and `nonce`, the same flow as Google's
  * (`worker/oauth.ts`). Only the `openid profile` scope: LINE gives the email only to channels it
  * approved, and the account is found by the ID token's `sub` (LINE's user id) anyway.
