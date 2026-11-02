@@ -155,7 +155,12 @@
      - #267（`e7-t28` 後續）搭檔斷線保留 3 分鐘（`PARTNER_AWAY_MS`，排程 `partnerAway`），逾時這一副擱著、重連自動坐回，不代打（3 分鐘社長照建議定案）；搭檔入座通知 `challengePartnerSeated`。
      - 管理員可以自己關兩步驟登入：社長決定維持（2026-11-02）。
      - 橋館 #65 忘記密碼改成管理員核准＋重設代碼＋Email 重設：已合併（private 內容 repo #6 先刪掉舊流程的測試）。核准重設只在牌桌做，橋館管理頁不加（社長照建議定案）。
-     - 下一批候選：J5b 確認（`e8-t21` 已在 V1 做完，勾掉即可）、H6b 跨社團防作弊、L1（`e12-t03` 每個檔案都會碰，單獨做）；LINE 登入（`e1-t32`，照 Google 的模式）；Phase P 要先升級付費方案。
+     - 下一批候選見 0l。
+  0l. **2026-11-02 第六輪（社長：Google 與 LINE 登入要有正式的圖示，不要陽春版）**：
+     - #273（`e1-t32`）LINE 登入＋品牌按鈕：Google 照品牌規範（四色 G、白底灰框），LINE 照按鈕規範（`#06c755`、白色 logo），行內 SVG、顏色在 `theme.brands`。共用部分搬到 `worker/oauth.ts`，`google.ts`／`line.ts` 只剩各自的授權網址、換 token、驗 ID token（LINE 用 channel secret 驗 HS256）；日誌事件改名 `oauth*`。**要啟用：社長照 DEPLOY.md §4.18 建 LINE Login channel 並發布，設 `LINE_CHANNEL_ID`、`LINE_CHANNEL_SECRET`**；還沒在真的 channel 上端到端試過。橋館 #67 同款按鈕（只有登入）。AC-1.9 等社長實測後再勾。
+     - #272（`e1-t28`）PWA 推播：WebCrypto 實作 Web Push（RFC 8291 測試向量）＋VAPID，從社團物件分批送、在線上的人不推、404/410 自動移除；我的帳號可開關、管理裝置、依種類設定、測試推播。**要啟用：DEPLOY.md §4.17，`npm run vapid` 後設 `VAPID_PUBLIC_KEY`、`VAPID_PRIVATE_KEY`、`VAPID_SUBJECT`**。待決：鎖定畫面要不要只寫「你有新通知」；改自己的密碼不會清掉推播訂閱。
+     - #271（`e4-t36`–`t38`）PBN 匯出（單副與篩選結果，最多 500 副）、整場 LIN、公開分享連結 `/share/<token>`：同桌四人或管理員可建立、任一人可撤銷、永不過期；公開頁只寫分享者的名字（他開了「不公開打過的牌局」也匿名），其他人一律「社員」，機器人照寫（社長 2026-11-02 定案）；隱私權政策六種語言加了一段。J8 完成。
+     - 下一批候選：H6b 跨社團防作弊（要先有 L1 多社團才有意義）、L1（`e12-t03` 每個檔案都會碰，單獨做）、O3 其餘（公告排程與首頁、圖片上傳、比賽報名頁、裁判工具）；Phase P／I、J6、J7 要先升級付費方案或 DDS。
   1. H3b 完成（#150）：大廳拆 `LobbyShared`＋`LobbyMine`、只送差異（`lobbyDelta`）、100 ms 合併廣播、`action` 日誌 1/10 取樣；數字在 `docs/LOAD.md` §6。部署前開著的分頁要重新整理。本機 workerd 量測時社團物件中途重啟過一次（原因未查到，沒有動作失敗），遠端煙霧時留意。
   2. TKB 持續加強（模擬 → 改規則 → 評測）：V4 四項做完（見上）；下一輪從 V4 的待決與 `ROBOT.md` 的「待社團確認」挑。
   3. 秘密設好後：在任一 PR 預覽跑 `docs/LOAD.md` §6 的遠端煙霧測試，再決定正式站開 `EVENT_OBJECTS`。
