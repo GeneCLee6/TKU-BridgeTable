@@ -105,4 +105,15 @@ describe('forum notification links (e11-t08)', () => {
     expect(notificationLink(n({ postId: 'p1', commentId: 'c2' }))).toBe(`${BOOK_SITE}/forum/p/p1#comment-c2`)
     expect(notificationLink(n({}))).toBe(`${BOOK_SITE}/forum`)
   })
+
+  it('open the table’s own forum for a member who has it (e13-t09)', () => {
+    const n = (kind: Notification['kind'], params: Notification['params']): Notification => ({ id: 'n', at: 0, kind, params, read: false })
+    for (const kind of ['forumReply', 'forumMention', 'forumAnnouncement', 'forumPinned'] as const) {
+      expect(notificationLink(n(kind, { postId: 'p1' }), { forum: true })).toBe('/forum/p/p1')
+    }
+    expect(notificationLink(n('forumMention', { postId: 'p 1', commentId: 'c2' }), { forum: true })).toBe('/forum/p/p%201#comment-c2')
+    expect(notificationLink(n('forumReply', {}), { forum: true })).toBe('/forum')
+    // Other news is not affected
+    expect(notificationLink(n('boardFeatured', { boardId: 'b1' }), { forum: true })).toBe('/history/b1')
+  })
 })

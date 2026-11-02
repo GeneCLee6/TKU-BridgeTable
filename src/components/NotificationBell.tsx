@@ -6,6 +6,7 @@ import type { NotificationsView } from '../../shared/protocol.ts'
 import { formatDateTime } from '../lib/format.ts'
 import { notificationLink, notificationText } from '../lib/notifications.ts'
 import { usePreferences } from '../state/PreferencesContext.tsx'
+import { useFeature } from '../state/AuthContext.tsx'
 import { mobile } from '../styles/tokens.ts'
 
 /** The header bell (AC-1.8): unread count, the newest notifications, each leading to its page */
@@ -126,6 +127,7 @@ export function NotificationBell({
 }) {
   const { t, lang } = usePreferences()
   const navigate = useNavigate()
+  const forumOn = useFeature('forum')
   const [open, setOpen] = useState(false)
   const wrap = useRef<HTMLDivElement>(null)
   const { items, unread } = notifications
@@ -176,7 +178,7 @@ export function NotificationBell({
                 onClick={() => {
                   if (!n.read) onRead([n.id])
                   setOpen(false)
-                  const link = notificationLink(n)
+                  const link = notificationLink(n, { forum: forumOn })
                   // Partnership news leads to TKU BridgeBook, another site
                   if (/^https?:/.test(link)) window.location.assign(link)
                   else navigate(link)

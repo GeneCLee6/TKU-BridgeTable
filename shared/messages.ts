@@ -1631,6 +1631,14 @@ export const MESSAGES = {
     ja: 'そのボードはありません',
     ko: '그런 보드가 없습니다',
   },
+  recordNotShareable: {
+    zh: '這副牌的挑戰或比賽還沒結束，結束後才能分享到論壇',
+    'zh-Hans': '这副牌的挑战或比赛还没结束，结束后才能分享到论坛',
+    en: 'This board’s challenge or match is not over yet; share it on the forum once it ends',
+    vi: 'Thử thách hoặc trận đấu của ván này chưa kết thúc; hãy chia sẻ lên diễn đàn sau khi kết thúc',
+    ja: 'このボードのチャレンジまたは試合はまだ終わっていません。終わってからフォーラムで共有できます',
+    ko: '이 보드의 챌린지나 경기가 아직 끝나지 않았습니다. 끝난 뒤에 포럼에 공유할 수 있습니다',
+  },
   badFeatured: {
     zh: '精選的內容不正確：{field}',
     'zh-Hans': '精选的内容不正确：{field}',
