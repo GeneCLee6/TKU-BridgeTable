@@ -1,0 +1,14 @@
+{
+  "category": "rebid",
+  "title": "再叫：1NT–2♠ 之後的低花邀請（S1）",
+  "questions": [
+    { "id": "tku-rebid-279", "system": "tku", "dealer": "N", "vul": "None", "hand": "K2.Q43.5.QJ87432", "auction": ["1N", "P", "2S", "P", "2N", "P"], "answer": "4C", "source": "淡江橋譜：1NT的答叫（合約選擇方式：邀請叫品）", "reviewer": null, "status": "pending", "note": "8 點 7 張♣：2♠ 後之四線低花＝邀請 5♣（同伴回答♦也一樣，S1）" },
+    { "id": "tku-rebid-280", "system": "tku", "dealer": "N", "vul": "None", "hand": "K2.Q43.5.QJ87432", "auction": ["1N", "P", "2S", "P", "3C", "P"], "answer": "4C", "source": "淡江橋譜：1NT的答叫（合約選擇方式：邀請叫品）", "reviewer": null, "status": "pending", "note": "8 點 7 張♣：同伴回答 3♣ 後加叫 4♣ 邀請（S1）" },
+    { "id": "tku-rebid-281", "system": "tku", "dealer": "N", "vul": "None", "hand": "K32.Q.J987432.K2", "auction": ["1N", "P", "2S", "P", "3C", "P"], "answer": "4D", "source": "淡江橋譜：1NT的答叫（合約選擇方式：邀請叫品）", "reviewer": null, "status": "pending", "note": "9 點 7 張♦：同伴回答 3♣ 後叫 4♦ 邀請（S1）" },
+    { "id": "tku-rebid-282", "system": "tku", "dealer": "N", "vul": "None", "hand": "K32.5.Q2.J987432", "auction": ["1N", "P", "2S", "P", "2N", "P"], "answer": "3C", "source": "淡江橋譜：1NT的答叫（合約選擇方式：爛牌要打）", "reviewer": null, "status": "pending", "note": "6 點：3♣ 束叫，不是邀請（S1 的對照）" },
+    { "id": "tku-rebid-283", "system": "tku", "dealer": "N", "vul": "None", "hand": "AQ5.K84.Q73.AJ52", "auction": ["1N", "P", "2S", "P", "3C", "P", "4C", "P"], "answer": "5C", "source": "淡江橋譜：1NT的答叫（合約選擇方式：邀請叫品）", "reviewer": null, "status": "pending", "note": "16 點：接受低花邀請，叫 5♣（S1）" },
+    { "id": "tku-rebid-284", "system": "tku", "dealer": "N", "vul": "None", "hand": "AQ5.K84.J73.AJ52", "auction": ["1N", "P", "2S", "P", "3C", "P", "4C", "P"], "answer": "P", "source": "淡江橋譜：1NT的答叫（合約選擇方式：邀請叫品）", "reviewer": null, "status": "pending", "note": "15 點低限：不接受，Pass 4♣（S1）" },
+    { "id": "tku-rebid-285", "system": "tku", "dealer": "N", "vul": "None", "hand": "AQ5.K84.AJ52.K73", "auction": ["1N", "P", "2S", "P", "2N", "P", "4D", "P"], "answer": "5D", "source": "淡江橋譜：1NT的答叫（合約選擇方式：邀請叫品）", "reviewer": null, "status": "pending", "note": "17 點：接受低花邀請，叫 5♦（S1）" },
+    { "id": "tku-rebid-286", "system": "tku", "dealer": "N", "vul": "None", "hand": "AQ5.QJ84.Q2.A752", "auction": ["1N", "P", "2S", "P", "3C", "P", "4D", "P"], "answer": "P", "source": "淡江橋譜：1NT的答叫（合約選擇方式：邀請叫品）", "reviewer": null, "status": "pending", "note": "15 點：不接受 4♦ 邀請，Pass（S1）" }
+  ]
+}

@@ -1,7 +1,7 @@
 import { nextSeat, partnerOf, rankOf, RANKS, SUITS, suitOf, type Card, type Suit } from '../cards.ts'
 import { dummyOf, type PlayedCard } from '../game.ts'
 import { aceNow, dummyThreat, ruffsInDummy } from './defence-plan.ts'
-import { declarerLen, partnerAttitude, placeHonour } from './defence-reading.ts'
+import { declarerHas, declarerHolds, declarerLen, partnerAttitude, partnerHolds, placeHonour } from './defence-reading.ts'
 import { suitCards } from './hand.ts'
 import { byRank, value, type View } from './view.ts'
 
@@ -50,7 +50,7 @@ export function defenceLead(view: View, hand: Card[], trump: Suit | null, ruffed
     // card is not counted against the suit: partner without an honour cannot tell us to switch
     if (partnerAttitude(view, s) === 'like') n += 3
     // The declarer's points place the suit's top card (a queen or higher) with partner (T4)
-    const top = unseenTop(view, s)
+    const top = unseenCards(view, s)[0]
     if (top && value(top) >= 12 && placeHonour(view, top) === partner) n += 2
     const dummyHonour = theirs.some((c) => value(c) >= 11 && !view.isMaster(c))
     if (throughDummy) {
@@ -60,6 +60,7 @@ export function defenceLead(view: View, hand: Card[], trump: Suit | null, ruffed
     // Nothing in dummy (in notrump a void too: the declarer's honours sit in front of partner's)
     else if ((theirs.length || trump === null) && !theirs.some((c) => value(c) >= 10)) n += 1
     if (s === trump) n += 2
+    n += readSwitch(view, s, theirs, throughDummy)
     if (state.play[0].seat === partner && suitOf(state.play[0].card) === s) n += 4
     // Our own opening lead in notrump, still being set up: keep at it
     if (s === race && state.play[0].seat === view.seat) n += 3
@@ -84,11 +85,32 @@ function partnerOver(view: View, mine: Card[], dummy: Card[]): boolean {
   return above.length > 0 && above.every((c) => placeHonour(view, c) === partnerOf(view.seat))
 }
 
-/** The highest card of the suit we cannot see (neither played, nor ours, nor dummy's) */
-function unseenTop(view: View, suit: Suit): Card | null {
+/**
+ * Where the declarer's cards are, as the cards read (S2; the card reading, card-reading.ts):
+ * - leading through the declarer (the declarer plays next, dummy last with nothing of the ten or
+ *   higher): the reading puts the suit's top unseen honour with partner and the next one with the
+ *   declarer, so partner's card sits over it: +2
+ * - the reading gives the declarer the suit's two top cards out (both the queen or higher) and we
+ *   hold no winner in it: leading it only helps the declarer set it up: −2
+ */
+function readSwitch(view: View, s: Suit, theirs: Card[], throughDummy: boolean): number {
+  if (view.cardReading.unseen.length !== 2) return 0
+  const unseen = unseenCards(view, s)
+  let n = 0
+  const [h1, h2] = unseen
+  if (!throughDummy && h1 && h2 && value(h2) >= 11 && !theirs.some((c) => value(c) >= 10)) {
+    if (partnerHolds(view, h1) >= 0.6 && declarerHolds(view, h2) >= 0.6) n += 2
+  }
+  if (h1 && h2 && value(h2) >= 12 && !suitCards(view.ownCards(), s).some((c) => view.isMaster(c))) {
+    if (declarerHolds(view, h1) >= 0.7 && declarerHolds(view, h2) >= 0.7) n -= 2
+  }
+  return n
+}
+
+/** The cards of the suit we cannot see (neither played, nor ours, nor dummy's), highest first */
+function unseenCards(view: View, suit: Suit): Card[] {
   const seen = new Set<Card>([...view.ownCards(), ...view.dummyCards(), ...view.state.play.map((p) => p.card)])
-  for (const r of RANKS) if (!seen.has(suit + r)) return suit + r
-  return null
+  return [...RANKS].map((r) => suit + r).filter((c) => !seen.has(c))
 }
 
 /**
@@ -131,9 +153,33 @@ function sequence(view: View, cards: Card[]): Card | null {
  */
 export function coverLastHonour(view: View, trick: PlayedCard[]): boolean {
   const lead = trick[0]
-  if (lead.seat !== dummyOf(view.state) || value(lead.card) < 10) return true
-  const dummy = suitCards(view.dummyCards(), suitOf(lead.card))
-  return !dummy.some((c) => view.lowestEqual(lead.card, [lead.card, c]) === c)
+  if (value(lead.card) < 10) return true
+  if (lead.seat === dummyOf(view.state)) {
+    const dummy = suitCards(view.dummyCards(), suitOf(lead.card))
+    if (dummy.some((c) => view.lowestEqual(lead.card, [lead.card, c]) === c)) return false
+  }
+  return !safeDuck(view, trick)
+}
+
+/**
+ * Second hand need not cover the honour led (S2): our cheapest card over it is no winner, and the
+ * hand that led cannot lead the suit through us often enough to catch it. That hand (dummy's
+ * cards in view, the declarer's by the card reading: the auction, the lead, both defenders'
+ * count, vacant places) surely has fewer cards of the suit left than our small cards below the
+ * cover after this one. "Don't cover when the declarer has the doubleton": the honour scores
+ * later instead of falling to the card above it
+ */
+function safeDuck(view: View, trick: PlayedCard[]): boolean {
+  const lead = trick[0]
+  const suit = suitOf(lead.card)
+  const mine = suitCards(view.ownCards(), suit)
+  const cover = [...mine].sort(byRank).find((c) => value(c) > value(lead.card))
+  if (!cover || view.isMaster(cover)) return false
+  const spare = mine.filter((c) => value(c) < value(cover)).length - 1
+  if (spare < 0) return false
+  const dummy = dummyOf(view.state)!
+  if (lead.seat === dummy) return suitCards(view.dummyCards(), suit).length <= spare
+  return declarerHas(view, suit, 0, spare) >= 0.8
 }
 
 /**
@@ -271,8 +317,33 @@ export function thirdHand(view: View, trick: PlayedCard[], following: Card[], be
       if (below && touching && value(below) >= lowest) return view.lowestEqual(below, following)
     }
   }
-  // Third hand high
+  // Third hand high, but no higher than the card reading needs: the cards between our top card
+  // and a lower one are partner's (S2)
+  // Notrump only: against a suit contract the ace is the trick before the declarer ruffs, and it
+  // drops a singleton king (both contracts: −46／−8 IMP on 5,000 boards)
+  if (trump === null) {
+    const card = placedFinesse(view, beaters, top)
+    if (card) return view.lowestEqual(card, following)
+  }
   return view.lowestEqual(top, following)
+}
+
+/**
+ * Third hand, dummy played and the declarer last: the lowest of our cards over the trick whose
+ * cards up to our top card we cannot see are all partner's as the cards read (AQ with the king
+ * placed with partner: the queen). The declarer then has none of them to win with cheaply
+ */
+function placedFinesse(view: View, beaters: Card[], top: Card): Card | null {
+  if (view.cardReading.unseen.length !== 2) return null
+  let best: Card | null = null
+  for (const c of [...beaters].reverse().slice(1)) {
+    const gap = view.unseenAbove(c).filter((u) => value(u) < value(top))
+    if (!gap.length) continue
+    const p = gap.reduce((x, u) => x * partnerHolds(view, u), 1)
+    if (p >= 0.7) best = c
+    else break
+  }
+  return best
 }
 /**
  * Hold up the stopper in notrump against dummy's long suit with no other way in: while the

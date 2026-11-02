@@ -1,0 +1,12 @@
+{
+  "category": "second-hand",
+  "title": "第二家：看牌決定要不要蓋大牌（S2）",
+  "questions": [
+    {"id": "play-second-012", "system": "both", "board": 3,
+     "hands": {"N": "654.652.AJT9.AK4", "E": "87.T987.762.T976", "S": "AKQJ32.AK4.Q5.32", "W": "T9.QJ3.K843.QJ85"},
+     "auction": ["1S", "P", "3S", "P", "4S", "P", "P", "P"],
+     "play": ["CQ", "CA", "C6", "C2", "S4", "S8", "SA", "S9", "SK", "ST", "S5", "S7", "HA", "H3", "H2", "H8", "HK", "HJ", "H5", "H7", "H4", "HQ", "H6", "H9", "CJ", "CK", "C7", "C3", "C4", "C9", "S2", "C5", "DQ"],
+     "answer": "D3", "accepted": ["D4", "D8"], "source": "教科書：莊家是雙張時不蓋（S2）", "reviewer": null, "status": "pending",
+     "note": "數莊家的牌：同伴的 ♠8、♠7 與 ♥8、♥7（先大後小＝偶數）說 ♠ 莊家 6 張、♥T 在同伴，莊家 ♥ 3 張、♣ 王吃時缺門，剩下的 4 張是 3 張 ♠ 和 1 張 ♦：♦Q 是雙張。蓋 K 就被夢家的 A 拿走，J T 9 都成大牌；不蓋，Q 贏之後莊家只剩 ♦5，K843 還有兩張小牌保護，K 一定拿一墩"}
+  ]
+}

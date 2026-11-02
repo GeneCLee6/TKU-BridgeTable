@@ -8,7 +8,9 @@ import { value, type View } from './view.ts'
  * T4 (ROBOT.md §3.16): a defender reads partner's signals, as the club gives them (ROBOT.md §3,
  * §3.2), and counts the declarer's hand from the auction and the cards played. Only what the
  * defender sees: its own hand, dummy, the cards played (`View`, `TableReading`), never the
- * declarer's or partner's cards.
+ * declarer's or partner's cards. Since S2 (ROBOT.md §3.19) the declarer's hand is read with the
+ * card reading of T3 (`card-reading.ts`, `View.cardReading`): the opening lead's holdings, both
+ * defenders' count signals, vacant places and the honour layouts the auction's points allow.
  *
  * A signal is read the way a person reads it: a card is low when every lower card of the suit was
  * in view when it was played (our own hand, dummy, cards already played), high when two or more
@@ -108,7 +110,9 @@ export function partnerCount(view: View, suit: Suit, single = false): 'even' | '
  */
 export function declarerLen(view: View, suit: Suit, single = false): Range {
   const declarer = view.state.contract!.declarer
-  const base = view.reading.len(declarer, suit)
+  // The card reading (card-reading.ts, T3): the auction and count, and the opening lead's
+  // holdings, both defenders' count signals and the vacant places (S2)
+  const base = view.cardReading.len(declarer, suit)
   const signal = partnerCount(view, suit, single)
   if (!signal) return base
   const partner = partnerOf(view.seat)
@@ -130,14 +134,58 @@ const hcpOf = (card: Card) => HCP[rankOf(card)] ?? 0
  * Who holds an honour we cannot see, from the declarer's points (the auction less the honours
  * played: "declarer opened 15–17 and has shown 13, so partner has the queen"): the declarer has
  * too few points left for it, or needs it (the other unseen honours do not reach the declarer's
- * minimum); otherwise the reading's guess (`holder`). Null when it cannot tell.
+ * minimum); otherwise the card reading's holder at seven in ten (S2; 0.6: +45／−31 IMP, 0.8:
+ * −2／−31 on 5,000 boards). Null when it cannot tell.
  */
 export function placeHonour(view: View, card: Card): Seat | null {
   const declarer = view.state.contract!.declarer
   if (hcpOf(card) > view.reading.hcp(declarer)[1]) return partnerOf(view.seat)
   if (!view.cardReading.unseen.length || !unseenHonours(view).includes(card)) return null
   // The points decide it (shared with the declarer's card reading, card-reading.ts, T3)
-  return view.cardReading.placedByPoints(card) ?? view.reading.holder(card)
+  // the card reading's odds otherwise (S2: the lead, vacant places and the honour layouts the
+  // auction's points allow, rather than the reading's clear-margin guess)
+  return view.cardReading.placedByPoints(card) ?? view.cardReading.holder(card, PLACED)
+}
+
+/** How sure the card reading must be to place an honour (S2) */
+const PLACED = 0.7
+
+/** The chance the declarer holds a card we cannot see (the card reading, T3); 0 for one in view */
+export function declarerHolds(view: View, card: Card): number {
+  return view.cardReading.odds(card)[view.state.contract!.declarer] ?? 0
+}
+
+/** The chance partner holds a card we cannot see (the card reading, T3); 0 for one in view */
+export function partnerHolds(view: View, card: Card): number {
+  return view.cardReading.odds(card)[partnerOf(view.seat)] ?? 0
+}
+
+/**
+ * The chance of each number of cards of the suit the declarer still holds (index = cards): the
+ * card reading's (the lead, both defenders' count signals, vacant places, the auction), kept
+ * within `declarerLen` (partner's count after our king). Null when the reading has none
+ */
+export function declarerOdds(view: View, suit: Suit): number[] | null {
+  const p = view.cardReading.lengthOdds(view.state.contract!.declarer, suit)
+  if (!p) return null
+  const [lo, hi] = declarerLen(view, suit)
+  const declarer = view.state.contract!.declarer
+  // Counting to thirteen: the declarer's cards left less the fewest the reading leaves in the other suits
+  const left = 13 - view.state.play.filter((x) => x.seat === declarer).length
+  const most = Math.min(hi, left - SUITS.filter((s) => s !== suit).reduce((n, s) => n + declarerLen(view, s)[0], 0))
+  const kept = p.map((w, k) => (k >= lo && k <= most ? w : 0))
+  const total = kept.reduce((a, b) => a + b, 0)
+  return total > 0 ? kept.map((w) => w / total) : p
+}
+
+/** The chance the declarer still holds at least `least` and at most `most` cards of the suit */
+export function declarerHas(view: View, suit: Suit, least: number, most = 13): number {
+  const p = declarerOdds(view, suit)
+  if (!p) {
+    const [lo, hi] = declarerLen(view, suit)
+    return lo >= least && hi <= most ? 1 : hi < least || lo > most ? 0 : 0.5
+  }
+  return p.reduce((sum, w, k) => sum + (k >= least && k <= most ? w : 0), 0)
 }
 
 /** The honours (A K Q J) neither played nor in view: the declarer's or partner's */
