@@ -15,7 +15,7 @@
  * every language of `src/strings.ts` (`featureFlags`), and check it where the feature is.
  */
 
-export const FEATURE_FLAGS = ['friends', 'forum'] as const
+export const FEATURE_FLAGS = ['friends', 'forum', 'rankings'] as const
 export type FeatureFlag = (typeof FEATURE_FLAGS)[number]
 
 export const FEATURE_STATES = ['off', 'officers', 'on'] as const
@@ -45,10 +45,16 @@ export type FeatureSettings = Partial<Record<FeatureFlag, FeatureSetting>>
  * link. Off until the club opens it. The flag guards the table's pages only: `/api/forum/*` is
  * BridgeHall's forum too (the same posts), which its members already use, so the server checks
  * each forum route's role (roles.ts `forumRouteNeed`), not this flag.
+ *
+ * Rankings (積分與實力評分, J2, ARCHITECTURE.md §5.20): the points boards (`/rankings`), the rating
+ * on the profile and their APIs. Off until the club settles the rules. The ledger and the ratings
+ * are kept from every finished event either way, so opening it shows everything since J2; admins
+ * reach the page with the flag off to set the rules first.
  */
 export const FEATURE_DEFAULTS: Record<FeatureFlag, FeatureState> = {
   friends: 'off',
   forum: 'off',
+  rankings: 'off',
 }
 
 /** Kept for the code and tests written before flags: whether friends are on for everyone by default */

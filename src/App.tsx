@@ -12,6 +12,7 @@ import { ChallengeBoardPage } from './pages/ChallengeBoardPage.tsx'
 import { ChallengePage } from './pages/ChallengePage.tsx'
 import { ChallengesPage } from './pages/ChallengesPage.tsx'
 import { DailyPage } from './pages/DailyPage.tsx'
+import { RankingsPage } from './pages/RankingsPage.tsx'
 import { ComparePage } from './pages/ComparePage.tsx'
 import { FeaturedPage } from './pages/FeaturedPage.tsx'
 import { FavoritesPage } from './pages/FavoritesPage.tsx'
@@ -77,6 +78,7 @@ function Routed() {
   const { pathname } = useLocation()
   // The forum's pages only for members who have the flag (E13 K1, shared/features.ts)
   const forumOn = useFeature('forum')
+  const rankingsOn = useFeature('rankings')
   // The privacy policy and the terms are for anyone, signed in or not (e11-t27)
   if (pathname === '/privacy' || pathname === '/terms') return <LegalPage kind={pathname === '/privacy' ? 'privacy' : 'terms'} />
   if (user === undefined) return <PageMain>{t.loading}</PageMain>
@@ -89,6 +91,7 @@ function Routed() {
         <Route path="/table/:tableId" element={<TablePage />} />
         <Route path="/challenges" element={<ChallengesPage />} />
         <Route path="/daily" element={<DailyPage />} />
+        {(rankingsOn || user.admin) && <Route path="/rankings" element={<RankingsPage />} />}
         <Route path="/challenges/:challengeId" element={<ChallengePage />} />
         <Route path="/challenges/:challengeId/boards/:seq" element={<ChallengeBoardPage />} />
         <Route path="/matches" element={<MatchesPage />} />

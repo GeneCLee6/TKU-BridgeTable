@@ -1386,6 +1386,47 @@ export const MESSAGES = {
     ja: 'デイリー大会は再戦できません。0:00 に新しい大会が始まります',
     ko: '데일리 대회는 재대결할 수 없습니다. 0시에 새 대회가 열립니다',
   },
+  // Club points and ratings (J2, ARCHITECTURE.md §5.20)
+  rankingsOff: {
+    zh: '積分與實力評分還沒開放',
+    'zh-Hans': '积分与实力评分还没开放',
+    en: 'Club points and ratings are not open yet',
+    vi: 'Điểm câu lạc bộ và hệ số trình độ chưa được mở',
+    ja: 'クラブポイントとレーティングはまだ公開されていません',
+    ko: '클럽 포인트와 레이팅은 아직 열리지 않았습니다',
+  },
+  badPointsRules: {
+    zh: '積分規則的設定不正確：{field}',
+    'zh-Hans': '积分规则的设置不正确：{field}',
+    en: 'That points rule is not valid: {field}',
+    vi: 'Quy tắc tính điểm không hợp lệ: {field}',
+    ja: 'ポイントのルールが正しくありません：{field}',
+    ko: '포인트 규칙이 올바르지 않습니다: {field}',
+  },
+  badPeriod: {
+    zh: '找不到這個期間',
+    'zh-Hans': '找不到这个期间',
+    en: 'No such period',
+    vi: 'Không tìm thấy khoảng thời gian này',
+    ja: 'その期間はありません',
+    ko: '해당 기간이 없습니다',
+  },
+  pointsEntryMissing: {
+    zh: '這位社員在這場比賽沒有積分紀錄',
+    'zh-Hans': '这位社员在这场比赛没有积分记录',
+    en: 'That member has no points entry for that event',
+    vi: 'Thành viên này không có điểm ở giải đó',
+    ja: 'このメンバーにはその大会のポイント記録がありません',
+    ko: '이 회원은 해당 대회의 포인트 기록이 없습니다',
+  },
+  pointsReason: {
+    zh: '更正要寫原因（最多 {max} 字）',
+    'zh-Hans': '更正要写原因（最多 {max} 字）',
+    en: 'A correction needs a reason (at most {max} characters)',
+    vi: 'Việc chỉnh sửa cần có lý do (tối đa {max} ký tự)',
+    ja: '訂正には理由が必要です（{max} 文字以内）',
+    ko: '정정에는 사유가 필요합니다(최대 {max}자)',
+  },
 
   // HTTP
   boardGone: {

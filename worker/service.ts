@@ -182,6 +182,7 @@ import { LocalTables, ROBOT_NAME, robotUser, TableService, type TableConfig, typ
 import type { ClubLink, Person, RemoteTables, TableEntry, Tables } from './tables.ts'
 import { nextWeeklyRun, WEEKLY_KEY, type WeeklyState } from './weekly-challenge.ts'
 import { DAILY_KEY, nextDailyRun, type DailyState } from './daily-event.ts'
+import { RankingsService } from './rankings-service.ts'
 import type { Store } from './store.ts'
 import { parseClientMessage } from '../shared/message-guard.ts'
 import { parseProfile, PROFILE_RECENT, type MemberProfile, type Profile } from '../shared/profile.ts'
@@ -548,6 +549,8 @@ export class ClubService {
   private weekly: WeeklyState | null = null
   /** The daily club event's settings and the events it created (`e9-t02`), null until an admin sets it */
   private daily: DailyState | null = null
+  /** Club points and ratings (J2, §5.20): the ledger, the boards and each member's rating */
+  readonly rankings: RankingsService
   /**
    * Two-table team matches, kept in SQL (§5.7): the matches that live in this object, and the
    * club's copy of those in their own `EventObject` (H2c, §5.12). Every page and rule reads this
@@ -605,6 +608,15 @@ export class ClubService {
     this.blocks = new Relations(store, 'block', this.now)
     this.challenges = new ChallengeStore(store.sql)
     this.homes = new EventHomes(store.sql)
+    this.rankings = new RankingsService({
+      store,
+      now: this.now,
+      log: (entry) => this.log(entry),
+      isAdmin: (id) => !!this.users.get(id)?.admin,
+      exists: (id) => this.users.has(id),
+      userById: (id) => this.publicUserById(id),
+      featureOn: (flag, id) => this.featureOn(flag, id),
+    })
     this.matches = new TeamMatchService(new TeamMatchStore(store.sql), {
       now: this.now,
       newId: () => randomId(8),
@@ -723,6 +735,7 @@ export class ClubService {
     this.matches.store.createTables()
     this.matchHomes.createTables()
     this.directs.createTables()
+    await this.rankings.load()
     const schema = (await this.store.get<number>('meta:schema')) ?? 1
     if (schema < 2) await this.migrate()
     if (schema < 3) await this.backfillIndex()
@@ -1725,6 +1738,7 @@ export class ClubService {
     await this.friends.forget(user.id)
     await this.blocks.forget(user.id)
     removeFavoritesOf(this.store.sql, user.id)
+    this.rankings.forget(user.id)
     await this.practicePresets.removeAll(user.id)
     await forgetQuizRounds(this.store, user.id)
     await forgetPathProgress(this.store, user.id)
@@ -1860,6 +1874,7 @@ export class ClubService {
       notifications: await this.notifications.view(userId),
       directMessages: this.directs.everyMessage(userId).map((m) => ({ ...m, from: name(m.from), to: name(m.to) })),
       savedPractice: await this.practicePresets.list(userId),
+      ...this.rankings.exportOf(userId),
       favorites,
       boards,
     }
@@ -2694,6 +2709,8 @@ export class ClubService {
         if (again) await this.challengeEnded(challenge)
         return
       }
+      // Its points and ratings (J2): kept once, whenever the club hears of it (`RankingsService`)
+      this.rankings.challengeFinished(challenge)
       this.homes.settle(id, 'ended')
       await this.challengeEnded(challenge)
       if (challenge.status !== 'finished') return
@@ -2786,6 +2803,7 @@ export class ClubService {
     )
     if (done.length) await this.revealRecords(revealBoards(this.store.sql, done, this.now()))
     if ((match.status !== 'finished' && match.status !== 'abandoned') || this.matchHomes.ended(id)) return
+    this.rankings.matchFinished(match)
     this.matchHomes.settleEnd(id)
     if (match.status === 'finished')
       for (const userId of matchMembers(match)) await this.notifications.notify(userId, 'matchFinished', { matchId: id })

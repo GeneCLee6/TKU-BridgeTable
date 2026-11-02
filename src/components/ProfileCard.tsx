@@ -7,6 +7,7 @@ import { resultLabel } from '../../shared/scoring.ts'
 import { api, ApiError } from '../lib/api.ts'
 import { formatDateTime, signed } from '../lib/format.ts'
 import { useFeature } from '../state/AuthContext.tsx'
+import { RatingTrend } from './RatingTrend.tsx'
 import { usePreferences } from '../state/PreferencesContext.tsx'
 import { Avatar } from './Avatar.tsx'
 import { ContractLabel } from './Suit.tsx'
@@ -157,6 +158,8 @@ export function ProfileDetails({
       {profile.bio && <Bio>{profile.bio}</Bio>}
       {empty && <Muted style={{ marginTop: 12 }}>{t.profileEmpty}</Muted>}
       {actions}
+      {/* 實力評分 and its trend (J2), with the rankings flag */}
+      <RatingTrend userId={member.id} />
       <SectionTitle>{t.recentBoards}</SectionTitle>
       {member.recent.length === 0 ? (
         <Muted>{t.noRecentBoards}</Muted>

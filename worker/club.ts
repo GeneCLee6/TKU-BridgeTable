@@ -739,6 +739,16 @@ export class Club extends DurableObject<Env> implements Connections {
     if (route === 'GET /api/challenges') return json({ challenges: this.service.challengeList(user.id) })
     // The daily club event's page (e9-t03): today's, yesterday's and the earlier days
     if (route === 'GET /api/daily') return json({ daily: this.service.dailyEvent(user.id) })
+    // Club points and ratings (J2, ARCHITECTURE.md §5.20); the service checks the flag and who may
+    if (route === 'GET /api/rankings') return json({ board: this.service.rankings.leaderboard(user.id, url.searchParams) })
+    if (route === 'GET /api/rankings/ledger')
+      return json({ entries: this.service.rankings.memberLedger(user.id, url.searchParams) })
+    if (route === 'POST /api/rankings/rules') return json({ rules: await this.service.rankings.adminSetRules(user.id, await body()) })
+    if (route === 'POST /api/rankings/adjust') return json({ entry: this.service.rankings.adminAdjust(user.id, await body()) })
+    if (route === 'POST /api/ratings/visibility')
+      return json({ rating: this.service.rankings.setHidden(user.id, (await body()).hidden) })
+    const rated = url.pathname.match(/^\/api\/ratings\/([\w-]+)$/)
+    if (rated && request.method === 'GET') return json({ rating: this.service.rankings.rating(user.id, rated[1]) })
     // The challenge pages create, answer and cancel over HTTP to hear back at once (e7-t16, e7-t17)
     if (route === 'POST /api/challenges') {
       const b = await body()

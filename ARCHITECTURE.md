@@ -224,7 +224,7 @@ interface BoardState {
 
 ## 5. 通訊與儲存
 
-**HTTP**：`GET /api/challenges`（我參與的挑戰，新的在前）、`/api/challenges/:id`、`POST /api/challenges`（建立）、`POST /api/challenges/:id/answer`、`/cancel`（§5.5）、`GET /api/matches`（我主辦或有座位的隊制賽，新的在前；已取消的不列，`/matches` 頁收到 `match` 推送是取消或 `null` 時先拿掉、再重讀列表，連結 `/api/matches/:id` 仍打得開）、`/api/matches/:id`、`POST /api/matches`（建立）、`POST /api/matches/:id/settings`、`/cancel`、`/invite`、`/answer`、`/move`、`/leave`、`/clear`、`/robot`、`/start`，比賽中的 `/rule`、`/pause`、`/abandon`、`/replace`、`/sitin`（§5.8）、`GET /api/practice/sets`（練習牌組，不含牌）、`GET /api/practice/presets`、`POST /api/practice/presets`、`DELETE /api/practice/presets/:id`（存的練習設定，§5.11）、`GET /api/featured`（全部精選，新的在前）、`GET /api/featured/:boardId`（那副的精選或 `null`）、`POST /api/featured/:boardId`（設為精選或編輯，要 `boardCurate`）、`DELETE /api/featured/:boardId`（取消精選，§5.9）、`POST /api/register`（第一個帳號直接登入，之後回 202 `{ pending }`）、`/api/login`、`/api/logout`、`/api/password/reset/request`（忘記密碼第一步：`{ username, inviteCode }`，通知管理員，`e1-t36`）、`/api/password/reset`（第二步：`{ username, code, password }`，用管理員給的一次性代碼設新密碼，錯的代碼與登入共用失敗次數限制）、`/api/account/password`（改密碼後其他裝置的 session 全部登出，這個裝置保留）、`/api/account/preferences`（欄位都選填、至少一個：`friendOnlineNotice` 好友上線提示開關，`e1-t24`；`bookAdoptedNotice` 採用特約的發布通知開關（橋館 F4，關掉後只停「隊伍／搭檔制度集採用該特約」這個原因的 `bookPublished`，關注、送審者、覆寫段落變更、建議統一照常；`/api/me` 一律帶）；`bookProfile` 淡江橋館讀的制度集 id，空字串或 `club` 回到社團預設，只檢查格式、不查是否存在，橋譜 `e1-t16`；`/api/me` 的 `bookProfile` 同步回傳；`robotSpeed` 機器人出牌速度 `veryFast`／`fast`／`slower`，其他值 `unknownCommand`，`/api/me` 一律帶，§5.1）、`PATCH /api/account/profile`（自己的個人檔案，`shared/profile.ts` 的 `parseProfile` 檢查：只收四個欄位、長度上限、等級只能是 `PROFILE_LEVELS`，空的欄位清掉）、`PUT /api/account/avatar`（自己的頭像，`e1-t34`：本文是瀏覽器裁好、縮成 256×256 的圖片原始位元組，最多 `AVATAR_MAX_BYTES` 64 KB，超過回 413 `avatarTooLarge`；只看檔頭的 magic bytes 判斷是 WebP／JPEG／PNG，不是就 415 `avatarBadFormat`，Worker 不解碼圖片；每人突發 5 次、之後每分鐘 1 次，與刪除共用，`slowDown`）、`DELETE /api/account/avatar`（回到字首預設頭像）、`GET /api/account/sessions`（登入中的裝置，`e11-t23`：`SessionInfo[]`，這個裝置在前；每個 session 有自己的 `id`，從不送出 token；裝置名稱是登入時 User-Agent 摘要的「瀏覽器 · 系統」，最近使用時間一小時最多寫一次）、`DELETE /api/account/sessions/:id`（登出另一個裝置；不能是這個裝置 `notSelf`，不是自己的或已失效 404 `sessionGone`）、`POST /api/account/sessions/others`（登出其他裝置，回 `{ ended }`；有登出就關掉這個人的 `/ws`（4001），這個裝置會自己重連）、`GET /api/account/export`（自己的資料 JSON 下載，`e11-t27`：帳號與設定（不含密碼雜湊）、session 列表、好友與封鎖、通知、私訊、練習設定、收藏與筆記、打過的牌的摘要；`Content-Disposition: attachment`）、`POST /api/account/delete { password }`（刪除自己的帳號，同管理員刪帳號的 `removeMember`；密碼錯 `wrongPassword`，社團唯一的管理員 `lastAdminLeaving`；回應清掉 cookie）、`GET /api/avatar/:userId?v=<版本>`（要登入；`ETag: "avatar-<版本>"`，`v` 是目前版本時 `Cache-Control: private, max-age=31536000, immutable`，否則 `private, no-cache`，`If-None-Match` 相同回 304；沒有頭像回 404 `noAvatar`）；`GET /api/members/:id`（別人的個人檔案卡，§4）；`GET /api/messages/:userId?before=<id>`（與某位社員的私訊，一頁 30 則，§5.7）；`GET /api/me`（含 `permissions`，管理員另有 `applications` 待審核數）、`/api/history?scope=all&page=<n>&size=<10|20|50|100>`（回傳該頁與總數）、`/api/history/search?<條件>`（§5.3）、`/api/history/days?<條件>`（每天幾副，§5.3）、`/api/history/:id`。維運：`GET /api/health`、`POST /api/client-errors`（§5.6，都不需登入）。管理員：`GET/POST /api/admin/users`、`POST /api/admin/users/:id/password`、`POST /api/admin/users/:id/password-reset`（核准忘記密碼，回 `{ code, expiresAt }`，代碼只出現這一次）、`DELETE /api/admin/users/:id/password-reset`（拒絕）、`POST /api/admin/users/:id/admin`、`POST /api/admin/users/:id/permissions`、`POST /api/admin/members`（`{ changes: MemberChange[] }`：管理頁社員區一次存好幾位的身分與權限，`ClubService.adminUpdateMembers` 全部先檢查、全部成功或全部不存，規則同單筆：不能拿掉自己的管理員、至少留一位管理員）、`DELETE /api/admin/users/:id`、`GET /api/admin/applications`、`POST /api/admin/applications/:id/approve`、`DELETE /api/admin/applications/:id`、`GET/POST /api/admin/settings`、`GET/POST /api/admin/features`（功能旗標，`e11-t26`，`shared/features.ts`：`{ flag, state, usernames }`，`state` 是 `off`／`officers`／`on` 或 `null`＝照全站預設；存在 `meta:features`；每個人的 `Me.features` 由伺服器算好）、`DELETE /api/admin/tables/:id`。淡江橋譜的 `/api/book/*` 見 §5.2。session 放在 HttpOnly、SameSite=Lax 的 cookie（`tbt_session`）。錯誤回應帶 `code` 與 `params`（`shared/messages.ts`），瀏覽器依語言顯示。
+**HTTP**：`GET /api/challenges`（我參與的挑戰，新的在前）、`/api/challenges/:id`、`POST /api/challenges`（建立）、`POST /api/challenges/:id/answer`、`/cancel`（§5.5）、`GET /api/matches`（我主辦或有座位的隊制賽，新的在前；已取消的不列，`/matches` 頁收到 `match` 推送是取消或 `null` 時先拿掉、再重讀列表，連結 `/api/matches/:id` 仍打得開）、`/api/matches/:id`、`POST /api/matches`（建立）、`POST /api/matches/:id/settings`、`/cancel`、`/invite`、`/answer`、`/move`、`/leave`、`/clear`、`/robot`、`/start`，比賽中的 `/rule`、`/pause`、`/abandon`、`/replace`、`/sitin`（§5.8）、`GET /api/rankings?month=|year=|season=`、`/api/rankings/ledger?user=`、`POST /api/rankings/rules`、`/api/rankings/adjust`（後兩個只給管理員）、`GET /api/ratings/:userId`、`POST /api/ratings/visibility`（社團積分與實力評分，§5.20）、`GET /api/practice/sets`（練習牌組，不含牌）、`GET /api/practice/presets`、`POST /api/practice/presets`、`DELETE /api/practice/presets/:id`（存的練習設定，§5.11）、`GET /api/featured`（全部精選，新的在前）、`GET /api/featured/:boardId`（那副的精選或 `null`）、`POST /api/featured/:boardId`（設為精選或編輯，要 `boardCurate`）、`DELETE /api/featured/:boardId`（取消精選，§5.9）、`POST /api/register`（第一個帳號直接登入，之後回 202 `{ pending }`）、`/api/login`、`/api/logout`、`/api/password/reset/request`（忘記密碼第一步：`{ username, inviteCode }`，通知管理員，`e1-t36`）、`/api/password/reset`（第二步：`{ username, code, password }`，用管理員給的一次性代碼設新密碼，錯的代碼與登入共用失敗次數限制）、`/api/account/password`（改密碼後其他裝置的 session 全部登出，這個裝置保留）、`/api/account/preferences`（欄位都選填、至少一個：`friendOnlineNotice` 好友上線提示開關，`e1-t24`；`bookAdoptedNotice` 採用特約的發布通知開關（橋館 F4，關掉後只停「隊伍／搭檔制度集採用該特約」這個原因的 `bookPublished`，關注、送審者、覆寫段落變更、建議統一照常；`/api/me` 一律帶）；`bookProfile` 淡江橋館讀的制度集 id，空字串或 `club` 回到社團預設，只檢查格式、不查是否存在，橋譜 `e1-t16`；`/api/me` 的 `bookProfile` 同步回傳；`robotSpeed` 機器人出牌速度 `veryFast`／`fast`／`slower`，其他值 `unknownCommand`，`/api/me` 一律帶，§5.1）、`PATCH /api/account/profile`（自己的個人檔案，`shared/profile.ts` 的 `parseProfile` 檢查：只收四個欄位、長度上限、等級只能是 `PROFILE_LEVELS`，空的欄位清掉）、`PUT /api/account/avatar`（自己的頭像，`e1-t34`：本文是瀏覽器裁好、縮成 256×256 的圖片原始位元組，最多 `AVATAR_MAX_BYTES` 64 KB，超過回 413 `avatarTooLarge`；只看檔頭的 magic bytes 判斷是 WebP／JPEG／PNG，不是就 415 `avatarBadFormat`，Worker 不解碼圖片；每人突發 5 次、之後每分鐘 1 次，與刪除共用，`slowDown`）、`DELETE /api/account/avatar`（回到字首預設頭像）、`GET /api/account/sessions`（登入中的裝置，`e11-t23`：`SessionInfo[]`，這個裝置在前；每個 session 有自己的 `id`，從不送出 token；裝置名稱是登入時 User-Agent 摘要的「瀏覽器 · 系統」，最近使用時間一小時最多寫一次）、`DELETE /api/account/sessions/:id`（登出另一個裝置；不能是這個裝置 `notSelf`，不是自己的或已失效 404 `sessionGone`）、`POST /api/account/sessions/others`（登出其他裝置，回 `{ ended }`；有登出就關掉這個人的 `/ws`（4001），這個裝置會自己重連）、`GET /api/account/export`（自己的資料 JSON 下載，`e11-t27`：帳號與設定（不含密碼雜湊）、session 列表、好友與封鎖、通知、私訊、練習設定、收藏與筆記、打過的牌的摘要；`Content-Disposition: attachment`）、`POST /api/account/delete { password }`（刪除自己的帳號，同管理員刪帳號的 `removeMember`；密碼錯 `wrongPassword`，社團唯一的管理員 `lastAdminLeaving`；回應清掉 cookie）、`GET /api/avatar/:userId?v=<版本>`（要登入；`ETag: "avatar-<版本>"`，`v` 是目前版本時 `Cache-Control: private, max-age=31536000, immutable`，否則 `private, no-cache`，`If-None-Match` 相同回 304；沒有頭像回 404 `noAvatar`）；`GET /api/members/:id`（別人的個人檔案卡，§4）；`GET /api/messages/:userId?before=<id>`（與某位社員的私訊，一頁 30 則，§5.7）；`GET /api/me`（含 `permissions`，管理員另有 `applications` 待審核數）、`/api/history?scope=all&page=<n>&size=<10|20|50|100>`（回傳該頁與總數）、`/api/history/search?<條件>`（§5.3）、`/api/history/days?<條件>`（每天幾副，§5.3）、`/api/history/:id`。維運：`GET /api/health`、`POST /api/client-errors`（§5.6，都不需登入）。管理員：`GET/POST /api/admin/users`、`POST /api/admin/users/:id/password`、`POST /api/admin/users/:id/password-reset`（核准忘記密碼，回 `{ code, expiresAt }`，代碼只出現這一次）、`DELETE /api/admin/users/:id/password-reset`（拒絕）、`POST /api/admin/users/:id/admin`、`POST /api/admin/users/:id/permissions`、`POST /api/admin/members`（`{ changes: MemberChange[] }`：管理頁社員區一次存好幾位的身分與權限，`ClubService.adminUpdateMembers` 全部先檢查、全部成功或全部不存，規則同單筆：不能拿掉自己的管理員、至少留一位管理員）、`DELETE /api/admin/users/:id`、`GET /api/admin/applications`、`POST /api/admin/applications/:id/approve`、`DELETE /api/admin/applications/:id`、`GET/POST /api/admin/settings`、`GET/POST /api/admin/features`（功能旗標，`e11-t26`，`shared/features.ts`：`{ flag, state, usernames }`，`state` 是 `off`／`officers`／`on` 或 `null`＝照全站預設；存在 `meta:features`；每個人的 `Me.features` 由伺服器算好）、`DELETE /api/admin/tables/:id`。淡江橋譜的 `/api/book/*` 見 §5.2。session 放在 HttpOnly、SameSite=Lax 的 cookie（`tbt_session`）。錯誤回應帶 `code` 與 `params`（`shared/messages.ts`），瀏覽器依語言顯示。
 
 **WebSocket** `/ws`（同網域，帶 cookie 驗證）與在桌上時的第二條 `/ws/table/<桌 id>`（§5.10）：牌桌的動作（`TABLE_ACTIONS`：`stand`、`kick`、`addRobot`、`removeRobot`、`replaceWithRobot`、`call`、`play`、`claim`、`claimRespond`、`undoRequest`、`undoRespond`、`chat`、`redeal`）在桌的連線打開時走那一條，那一桌直接推 `table`；其他動作、與桌的連線還沒接上時的牌桌動作走 `/ws`（社團轉給那一桌）。桌的連線只收在桌上的人（入座、觀看、停著的挑戰桌的主人），其他人與離開的人用 4004（`TABLE_SOCKET_REFUSED`）關掉，瀏覽器不再重試那一桌：
 
@@ -291,6 +291,7 @@ interface BoardState {
 | `meta:settings` | 管理員改過的人數上限與邀請碼（沒改過就用環境變數） |
 | `meta:weekly` | 每週社團挑戰的排程、誰存的、上一場的時間與 id（`worker/weekly-challenge.ts`，§5.5） |
 | `meta:daily` | 每日賽的設定、誰存的、上一場的 00:00、每一天的挑戰 id（`worker/daily-event.ts`，§5.18） |
+| `meta:points` | 社團積分規則與賽季（`PointsRules`，`worker/rankings.ts`，§5.20）；帳本與 rating 在 SQLite 的 `ranked_events`、`points_entries`、`points_adjustments`、`ratings`、`rating_history` |
 | `meta:schema` | 資料版本（現在是 4）：1→2 把舊版 `board:<時間>-<id>` 搬到新索引；2→3 把所有 `board:` 回填進 SQL 紀錄索引（§5.3）；3→4 把每個 `table:` 搬進自己的 `TableObject`、改存 `tabledir:`（§5.10）；`TABLE_OBJECTS=off` 時搬回來、回到 3 |
 | `replq:<boardId>` | 還沒複製到 D1 的牌局（outbox，§5.12）：值是排進來的時間＋序號，寫進 D1 後刪掉（期間又被改的留著） |
 | `meta:replica` | D1 副本的狀態（§5.12）：`off`／`filling`（做到哪一個 `board:` key）／`ready`，與填它時的 `REPLICA_VERSION` |
@@ -746,7 +747,7 @@ E9 之後的比賽（雙人賽、多隊賽、個人賽）都用同一個模型�
 - **工作**：`daily:<存的時間>`（`JobKind` 的 `daily`），排在「存檔之後、上一場之後」的第一個台灣時間 00:00（`nextDailyRun`、`dailySlotAfter`），存檔不會立刻開一場（開啟後從下一個 00:00 開始）。到時先寫 `lastRunAt` 再建立，失敗也不會開兩場；物件睡過好幾天只開今天這一場。挑戰的 `createdAt` 寫成那天的 00:00（不是工作真的跑的時間），所以截止一定是隔天 00:00。
 - **建立**（`createDailyEvent`）：跟每週挑戰一樣邀請全社、發起者是存設定的管理員（不是管理員了就用最早的管理員）、全社只有他一人時不開、只有兩人時 MP 改 IMP。差別：**不發任何通知**（不發建立通知、不發截止前提醒、接受也不通知發起者；只有打完的人在結束時收到結果通知），**不出現在挑戰大廳**（`challengeList` 排除；不然每人每天多一張卡），不能再戰（`dailyNoRematch`）。00:00 之後才加入的社員不在今天這一場，明天開始。
 - **頁面**（`GET /api/daily` → `DailyEventView`，`src/pages/DailyPage.tsx`）：今天的賽（狀態、截止、自己打了幾副、「開打／繼續打」、目前名次）、昨天的排名、之前的歷史列表（最多 30 天，每天打完的人數，連到那一天的結果頁）。今天、昨天的挑戰都經 `challengeFor`（§4 的 `challengeView`），所以**今天的名次只有自己打完 8 副才看得到**，昨天的（結束了、`ranking = club`）全社都看得到。「開打」對還是「受邀」的人先送接受再送 `playChallenge`。挑戰頁的頁首在每日賽開著時（或管理員）多一個「每日賽」按鈕；挑戰結果頁的「返回」對每日賽回 `/daily`。
-- **還沒做**：積分（J2）；全台灣規模時「邀請全社」要改成「點開打才加入」（`EventObject` 加一個加入的動作，等 H2c 合併後再做），挑戰的回報也要改成只送變的部分（§5.12）。
+- **積分與 rating** 見 §5.20。**還沒做**：全台灣規模時「邀請全社」要改成「點開打才加入」（`EventObject` 加一個加入的動作，等 H2c 合併後再做），挑戰的回報也要改成只送變的部分（§5.12）。
 
 ## 5.19 論壇（決策紀錄，`e13-t01`，2026-11-02，K1）
 
@@ -826,6 +827,87 @@ E13 的 PRD 原本寫「貼文與留言進 D1」。現況是社團 Durable Objec
 - **K2**：四手牌編輯器（`e13-t05`）、叫牌過程輸入（`e13-t06`）、發文編輯器（`e13-t04`）；牌圖改用 `RecordDiagram`。
 - **K3**：從紀錄分享（`e13-t07`，伺服器檢查挑戰未結束的牌）、個人頁的貼文（`e13-t08`）、通知改連牌桌（`e13-t09`）。
 - **K4**：檢舉與管理頁（`e13-t10`）、全文搜尋（`e13-t11`，屆時評估 D1 FTS5）。
+
+## 5.20 社團積分與實力評分（決策紀錄，`e9-t04`～`e9-t08`，2026-11-02，J2）
+
+AC-9.2（社團積分：依名次給分、月榜年榜、規則可設定、每筆可追溯）與 AC-9.3（rating、機器人是固定對手強度、個人頁走勢、可不公開）。比賽以 §5.18 的 Event 為單位結算：一場比賽結束時記一次，之後怎麼重複聽到都不再記。
+
+### 什麼比賽算
+
+| 比賽 | 積分種類 | 每一方 | 何時記 |
+| --- | --- | --- | --- |
+| 每日賽（`settings.daily`） | `daily` | 打完 8 副、有名次的人 | 挑戰 `finished`（`settleChallenge`） |
+| 每週社團挑戰（`settings.weekly`） | `weekly` | 同上 | 同上 |
+| 其他挑戰 | `challenge` | 同上 | 同上 |
+| 隊制賽 | `match` | 一隊（座位上的社員；機器人只算進 rating） | 比賽 `finished`（`settleMatch`）；`abandoned`、`cancelled` 不算 |
+| 雙人賽（J3） | `pairs` | 一對 | J3 結算時呼叫 `ClubService.rankings.record(...)` |
+
+- **只有打完全部副數、有名次的人**（跟挑戰的排名一樣，§5.5）。只有一人打完（排名是總分、沒人可比）不給分、不算 rating。
+- **「用這副牌挑戰」的發起者（`knownDeals`）不算**：他的成績是之前打的，這場不是真的參賽。
+- 時間點：挑戰記在結束時，但不晚於「截止前 1 ms」，所以 10/31 的每日賽打到 11/1 00:00 截止仍算 10 月；隊制賽記在 `endedAt`。
+
+### 積分規則（`shared/points.ts`，`e9-t04`）
+
+每一方拿 `參加分 + 每贏過一方的分數 × 贏過的方數`，一方的每個社員都拿整份；同名次贏過的方數一樣（1、2、2、4 名：第 2 名的兩人都贏過 1 方）。排名的方數少於「最少方數」就整場不給分。分數到小數第一位。管理員在 `/rankings` 頁改（`POST /api/rankings/rules`，存在 KV 的 `meta:points`）；**改規則只影響之後結束的比賽**，已經記下的不重算（要改用更正）。
+
+**預設（保守，待社長確認）**：
+
+| 種類 | 給分 | 參加分 | 每贏過一方 | 最少方數 |
+| --- | --- | --- | --- | --- |
+| 每日賽 | 是 | 1 | 1 | 2 |
+| 每週社團挑戰 | 是 | 2 | 2 | 2 |
+| 挑戰 | 是 | 0 | 1 | 3（兩個人互挑不給分，避免刷分） |
+| 隊制賽 | 是 | 2 | 4 | 2 |
+| 雙人賽 | 是 | 2 | 1 | 3 |
+
+「依參加人數加權」就是「贏過的方數」：人越多、贏過的人越多，分數越高（PRD 風險「積分讓人只打簡單的」）。
+
+### 積分帳本（`worker/rankings.ts`，`e9-t05`）
+
+**存在 `Club` 物件的 SQLite**，跟它的來源（`challenges`、`matches`）放一起，跟論壇（§5.19）一樣先不搬 D1：一場比賽的結算在同一個 transaction 裡寫完，榜單的查詢是一個 `GROUP BY`（一年幾千列）。之後全台灣規模再看要不要像紀錄一樣做 D1 副本（§5.12）。
+
+| 表 | 內容 |
+| --- | --- |
+| `ranked_events` | 已經記過的比賽（`event_id` 主鍵）：**冪等**的依據 |
+| `points_entries` | 每人每場一列（主鍵 `event_id, user_id`）：種類、時間、名次、方數、規則給的分數 |
+| `points_adjustments` | 管理員的更正：差額、原因、誰、何時；**不改原本那列**，所以每一分都追得到 |
+| `ratings` | 每人目前的 rating、RD、σ、場數、最後一場的時間、是否不公開 |
+| `rating_history` | 每人每場之後的 rating 與 RD（走勢圖） |
+
+- **冪等**：`RankingStore.record` 先看 `ranked_events`，記過就什麼都不做；積分與 rating 同一個 transaction。`settleChallenge` 在記下「已結束」之前就先記積分，所以中途失敗、重新結算也不會漏記或重複。記帳出錯只寫日誌（`recordPoints`），不擋結算。
+- **旗標關著也照記**：開放之後看得到 J2 之後的每一場。J2 之前結束的比賽不補記。
+- **更正**（`POST /api/rankings/adjust { eventId, userId, points, reason }`，只有管理員，原因必填、最多 200 字）：設定更正後的分數，存差額；明細顯示規則給的分數與每一筆更正。
+- 刪除帳號（`removeMember`）刪掉他的積分與 rating；別人在那些比賽的名次與分數不變。匯出（`/api/account/export`）多 `points`、`rating`（docs/SECURITY.md §4）。
+
+### 月榜、年榜、賽季（`e9-t06`）
+
+- `GET /api/rankings?month=YYYY-MM`（預設本月）、`?year=YYYY`、`?season=<id>`；期間一律用台灣時間（月初 00:00 到下個月初 00:00）。同分同名次。
+- **賽季**：管理員在積分規則下面設（名稱、開始、結束日，兩端都含，最多 20 個）；沒設時年榜就是日曆年。學年制（例如 9 月到隔年 1 月）就設賽季。
+- 明細：`GET /api/rankings/ledger?user=<id>&<期間>`，每一筆連到來源比賽（挑戰頁、隊制賽頁；每日賽顯示那一天）。社員可以看任何人的明細（榜單本來就公開給全社）。
+
+### 實力評分（`shared/rating.ts`，`e9-t07`、`e9-t08`）
+
+- **Glicko-2**，照 Glickman 的文件（"Example of the Glicko-2 system"）；測試用文件裡的例子（1500／200／0.06 對三個對手 → 1464.06／151.52／0.05999）。
+- **初始值**：1500、RD 350、σ 0.06；τ = 0.5。RD 大於 110 顯示「暫定」。
+- **一場比賽就是一個評分期**：每個社員對其他每一方各算一局（名次高贏、同名次和）；對手的強度用賽前的 rating。大場次（例如 30 人的每日賽）每局的權重是 `min(1, 3 ／ (方數 − 1))`，一場最多等於 3 局，不會一天就把新人的 rating 定死（標準 Glicko-2 沒有權重，這是我們的延伸；權重為 1 時跟標準一樣）。
+- **沒打的期間**：每 30 天沒比賽算一個空的評分期，RD 照公式變大（最多 350），rating 不變。
+- **機器人的固定 rating**：只有一個機器人 TKB（§5.1），固定 1500、RD 50、不會變。隊制賽或雙人賽有機器人坐的位置，那一方的強度是社員與機器人的平均（RD 取平方平均）。挑戰與每日賽裡每個人都配一樣的機器人，所以只比社員之間。之後有 TKB Adv 再給它自己的數字。
+- **哪些比賽算 rating**：上表的全部，包括兩個人互挑的挑戰（積分不給，但 rating 看對手強度，刷不了分）。
+- **不公開**：個人檔案上自己勾「不公開我的實力評分」（`POST /api/ratings/visibility { hidden }`），別人（包括管理員）只拿到「不公開」，看不到數字與走勢。積分榜不受影響（積分是社團活動，全社公開）。
+- **頁面**：`GET /api/ratings/:userId` → `RatingView`（目前 rating、RD、暫定、場數、最近 200 場的走勢）。個人檔案卡與個人頁（`ProfileDetails`）顯示 rating 與走勢圖（`src/components/RatingTrend.tsx`：簡單 SVG 折線、每場一點、滑過顯示日期與分數，旁邊有給螢幕閱讀器的表格）。
+
+### 功能旗標 `rankings`（預設關）
+
+`shared/features.ts`：頁首的「積分榜」、`/rankings`、個人檔案的 rating 與它們的 API。**管理員旗標關著也進得去**（先設規則、看記下的帳），社員要旗標開。記帳不看旗標（上面）。
+
+### 待社長決定
+
+1. 上面的預設分數（每種比賽給多少、挑戰要不要三人才給分）。
+2. 年榜用日曆年，還是設學期／學年賽季。
+3. rating 要不要只算社團的比賽（每日賽、每週、隊制賽、雙人賽），不算朋友之間的挑戰。
+4. 新人 rating 顯示「暫定」的門檻（RD 110，大約打 5～10 場）。
+5. 「用這副牌挑戰」的發起者不算積分與 rating（目前不算）。
+6. 實體社課的比賽要不要合併計算（E9 未決問題；目前只有線上）。
 
 ## 5.8 隊制賽（決策紀錄，`e8-t01`，2026-10-25）
 

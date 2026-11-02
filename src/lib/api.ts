@@ -2,6 +2,8 @@ import type { RulingRequest } from '../../shared/board-events.ts'
 import type { ChallengeSettings, ChallengeView } from '../../shared/challenge.ts'
 import type { WeeklyChallengeSchedule, WeeklyChallengeView } from '../../shared/weekly-challenge.ts'
 import type { DailyEventSettings, DailyEventView } from '../../shared/daily-event.ts'
+import type { LeaderboardView, LedgerEntry, PointsRules } from '../../shared/points.ts'
+import type { RatingView } from '../../shared/rating.ts'
 import { historyQueryString, type HistoryQuery } from '../../shared/history-query.ts'
 import type { MessageParams } from '../../shared/messages.ts'
 import type { MemberProfile, Profile } from '../../shared/profile.ts'
@@ -172,6 +174,15 @@ export const api = {
   challenge: (id: string) => request<{ challenge: ChallengeView }>(`/api/challenges/${encodeURIComponent(id)}`),
   /** The daily club event's page (`e9-t03`): today's, yesterday's and the earlier days */
   daily: () => request<{ daily: DailyEventView }>('/api/daily'),
+  /** Club points and ratings (J2): a period's board (`month=YYYY-MM`, `year=YYYY` or `season=<id>`) */
+  rankings: (period: string) => request<{ board: LeaderboardView }>(`/api/rankings?${period}`),
+  ledger: (userId: string, period: string) =>
+    request<{ entries: LedgerEntry[] }>(`/api/rankings/ledger?user=${encodeURIComponent(userId)}&${period}`),
+  savePointsRules: (rules: Partial<PointsRules>) => post<{ rules: PointsRules }>('/api/rankings/rules', rules),
+  adjustPoints: (eventId: string, userId: string, points: number, reason: string) =>
+    post<{ entry: LedgerEntry }>('/api/rankings/adjust', { eventId, userId, points, reason }),
+  rating: (userId: string) => request<{ rating: RatingView }>(`/api/ratings/${encodeURIComponent(userId)}`),
+  setRatingHidden: (hidden: boolean) => post<{ rating: RatingView }>('/api/ratings/visibility', { hidden }),
   /** Challenges friends (`e7-t17`); the server checks everything and answers with the new challenge */
   createChallenge: (invitees: string[], boards: number, settings: Partial<ChallengeSettings>) =>
     post<{ challenge: ChallengeView }>('/api/challenges', { invitees, boards, settings }),

@@ -5,6 +5,7 @@ import {
   Globe,
   History,
   LogOut,
+  Medal,
   MessagesSquare,
   Moon,
   Shield,
@@ -290,6 +291,8 @@ export function AppHeader() {
   const { user, logout } = useAuth()
   // The forum's link only for members who have the flag (E13 K1)
   const forumOn = useFeature('forum')
+  // The rankings' link (J2): members with the flag, and admins, who set the rules first
+  const rankingsOn = useFeature('rankings')
   const { status, notifications, send } = useClub()
   const inviteBanner = useInviteBanner()
   const { mode, sound: soundOn, soundStyle, t, toggleMode, toggleSound } = usePreferences()
@@ -328,6 +331,12 @@ export function AppHeader() {
             <Star size={18} aria-hidden />
             <span>{t.navFavorites}</span>
           </Link>
+          {(rankingsOn || user.admin) && (
+            <Link to="/rankings" aria-label={t.rankings.nav} title={t.rankings.nav}>
+              <Medal size={18} aria-hidden />
+              <span>{t.rankings.nav}</span>
+            </Link>
+          )}
           {forumOn && (
             <Link to="/forum" aria-label={t.navForum} title={t.navForum}>
               <MessagesSquare size={18} aria-hidden />
