@@ -23,8 +23,11 @@ export type LogEntry =
   | { event: 'emailVerified' }
   | { event: 'passwordResetByEmail' }
   | { event: 'mailFailed'; kind: 'verify' | 'reset' | 'security' }
-  /** 兩步驟登入 (e11-t31): turned on, off (by the member or another admin), a wrong code at sign-in, a recovery code used; never who */
-  | { event: 'twoFactorOn' | 'twoFactorOff' | 'twoFactorCleared' | 'twoFactorFailed' | 'twoFactorRecoveryUsed' }
+  /**
+   * 兩步驟登入 (e11-t31): turned on, off (by the member or another admin), a wrong code at sign-in, a
+   * recovery code used, or cleared by the site's owner with TWO_FACTOR_RESET_TOKEN (DEPLOY.md §4.15); never who
+   */
+  | { event: 'twoFactorOn' | 'twoFactorOff' | 'twoFactorCleared' | 'twoFactorFailed' | 'twoFactorRecoveryUsed' | 'twoFactorOwnerReset' }
   /** A sign-in came with an address but SEEN_SALT is not set: the anti-cheating report keeps no network (§5.17) */
   | { event: 'seenSaltMissing' }
   /** An address used up its registrations for the hour (e1-t33); the address is not logged */

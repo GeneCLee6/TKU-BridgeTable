@@ -5,6 +5,7 @@ import type { Seat } from '../../shared/cards.ts'
 import type { ClientMessage, ServerMessage, TableView } from '../../shared/protocol.ts'
 import { ClubService, type Connections } from '../../worker/service.ts'
 import { memoryStore } from './sqlite.ts'
+import { adminWithTwoFactor } from './admin-two-factor.ts'
 
 /**
  * The action log, the director and rulings (`e2-t32`～`e2-t35`, AC-2.14): every call and card is
@@ -64,6 +65,8 @@ const tick = () => new Promise((resolve) => setImmediate(resolve))
 async function member(name: string) {
   const result = await club.register(name, 'club-secret-1', '')
   const user = 'user' in result ? result.user : await club.adminApprove(club.adminApplications().find((a) => a.username === name)!.id)
+  // The first account is the admin: it turns two-step sign-in on so that it acts as one (社長 2026-11-02)
+  if ('user' in result) await adminWithTwoFactor(club, user.id)
   connections.online.add(user.id)
   club.connected(user.id)
   await tick()

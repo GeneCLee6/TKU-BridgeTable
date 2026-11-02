@@ -1,6 +1,6 @@
 # 安全：標頭、session 與安全審查
 
-> `e11-t23`（CSP 與安全標頭、session 列表與「登出其他裝置」）、`e11-t24`（對照 OWASP ASVS Level 1 的安全審查）。2026-10-30 第一次審查；同日 V3（`e1-t36`、`e11-t28`、`e11-t30`、`e11-t32`）修掉 §4 的四項；2026-11-02 加上管理員的兩步驟登入（`e11-t31`）。
+> `e11-t23`（CSP 與安全標頭、session 列表與「登出其他裝置」）、`e11-t24`（對照 OWASP ASVS Level 1 的安全審查）。2026-10-30 第一次審查；同日 V3（`e1-t36`、`e11-t28`、`e11-t30`、`e11-t32`）修掉 §4 的四項；2026-11-02 加上管理員的兩步驟登入（`e11-t31`），同日社長決定改成**管理員一定要開**、加 QR code 與只有一位管理員時的救援。
 > 改了驗證、session、可見性、上傳或標頭，回來對照這份文件，並更新 §3 的狀態。
 
 ## 1. 範圍與做法
@@ -61,7 +61,7 @@ npx tsx -e "import {headersFile} from './worker/security-headers.ts'; process.st
 | 申請加入的防濫用（11.1.4 防自動化） | 🔧 | `e1-t33`：同一來源一小時 10 次申請或錯的邀請碼（`worker/register-limit.ts`，429 `tooManyRegistrations`），位址只存以 `SEEN_SALT` 加鹽的雜湊、一小時後清掉，沒設 `SEEN_SALT` 時只在記憶體；Cloudflare Turnstile（`worker/turnstile.ts`）設了 site key 與 secret 才開，伺服器向 `siteverify` 驗證、連不到時不放行（403 `captchaFailed`）。「忘記密碼」申請沒套：已經每人只通知一次、要邀請碼；Email 重設（`e1-t30`）時再加（ARCHITECTURE.md §5.2） |
 | 2.4.1 密碼雜湊 | 🔧⚠️ | `e11-t30`：PBKDF2-SHA-256 加鹽，新雜湊 100,000 次（之前 50,000），舊雜湊在下次登入成功時重算（`needsRehash`）。**100,000 是 Cloudflare 執行環境 PBKDF2 的上限**（多了會被拒絕），OWASP 建議的 600,000 次在 Workers 上做不到；量測（2026-10-30，Node）：50,000 次 6 ms、100,000 次 12 ms、600,000 次 65 ms。雜湊在社團的 Durable Object 裡算，不佔 Worker 每次請求的 10 ms，登入有次數限制。要更強只能換演算法（Argon2 要 WASM，CPU 更多），目前不做 |
 | 2.5.x 忘記密碼 | 🔧 | `e1-t36`：邀請碼只能**送出申請**（通知管理員），管理員核准後才產生一次性代碼（約 49 bit、3 天、用一次、只存雜湊），只顯示給核准的管理員，由他交給確認過的本人；代碼與新密碼才能重設，錯的代碼與登入共用失敗次數限制。重設後登出所有裝置（session、通行證、連線）。管理員帳號仍只能由其他管理員重設。剩下的風險：管理員沒確認本人就把代碼交出去（DEPLOY.md 寫明要確認）。**Email 重設**（`e1-t29`、`e1-t30`，ARCHITECTURE.md §5.20）：只有驗證過 Email 的帳號能用；連結的權杖 256 bit、30 分鐘、用一次、只存 SHA-256，放在網址的 `#` 後（不進伺服器紀錄），打開頁面不會用掉要按按鈕；不論帳號或 Email 存不存在回答都一樣；每個帳號 10 分鐘 1 封、每個 IP 2 分鐘 1 次申請，錯的連結與登入共用失敗次數限制；設好後登出所有裝置。綁定 Email 要輸入密碼，驗證連結 24 小時、用一次。沒設寄信服務時整個關掉（`emailOff`） |
-| 2.7／2.8 多因素 | 🔧 | `e11-t31`：管理員可開「兩步驟登入」（TOTP，RFC 6238：SHA-1、6 位數、30 秒，前後各容許一步；`worker/totp.ts` 只用 WebCrypto）。同一步的驗證碼只能用一次（記住 `lastStep`）；10 組一次性備用碼只存 SHA-256；驗證碼錯 5 次鎖那個帳號 15 分鐘（不分來源，`TWO_FACTOR_FAILURES`），同時算進那個 IP 的登入失敗次數；鎖住、用了備用碼、被關掉時寄通知到驗證過的 Email。金鑰要能算出驗證碼，所以跟密碼雜湊一樣原樣存在 `user:<id>`（備份裡也有），匯出資料不含金鑰與備用碼雜湊。**目前是自願開啟**，不強制（§4） |
+| 2.7／2.8 多因素 | 🔧 | `e11-t31`：管理員可開「兩步驟登入」（TOTP，RFC 6238：SHA-1、6 位數、30 秒，前後各容許一步；`worker/totp.ts` 只用 WebCrypto）。同一步的驗證碼只能用一次（記住 `lastStep`）；10 組一次性備用碼只存 SHA-256；驗證碼錯 5 次鎖那個帳號 15 分鐘（不分來源，`TWO_FACTOR_FAILURES`），同時算進那個 IP 的登入失敗次數；鎖住、用了備用碼、被關掉時寄通知到驗證過的 Email。金鑰要能算出驗證碼，所以跟密碼雜湊一樣原樣存在 `user:<id>`（備份裡也有），匯出資料不含金鑰與備用碼雜湊。**管理員一定要開**（社長 2026-11-02）：沒開的管理員能登入，但所有管理員與權限才能用的 API 都回 403 `adminTwoFactorRequired`（伺服器判斷，ARCHITECTURE.md §5.2）。設定頁的 QR code 在頁面裡用 `qrcode-generator`（MIT，打包進來）畫成 SVG，金鑰不送到別的服務 |
 
 ### V3 Session
 
@@ -81,7 +81,7 @@ npx tsx -e "import {headersFile} from './worker/security-headers.ts'; process.st
 | --- | --- | --- |
 | 4.1.1～4.1.3 伺服器端檢查、最小權限 | ✅ | 規則與權限只在 `ClubService`／`worker/roles.ts`；前端只看 `legalCalls`／`legalCards`；管理路由 `adminRouteNeed` |
 | 4.2.1 不能用 id 讀別人的東西 | ✅ | 可見性集中在 `worker/views.ts`，`tests/worker/visibility/` 回歸測試；session 列表與登出只看自己的（`endSession` 對別人的 id 一律 404） |
-| 4.3.1 管理介面多因素 | ⚠️ | 見 2.7（`e11-t31`）：管理員能開，但沒開的管理員照樣能進管理頁；要不要強制由社長決定（§4） |
+| 4.3.1 管理介面多因素 | ✅ | 見 2.7（`e11-t31`）：沒開兩步驟登入的管理員在伺服器上只算一般社員（`ClubService.actsAsAdmin`、`roles.ts` 的 `adminLocked`），管理頁只顯示「先去開啟」的橫幅；淡江橋館的管理功能走同一支 API，一樣擋。只有一位管理員又遺失手機與備用碼時，由 Cloudflare 帳號的擁有者用臨時的 `TWO_FACTOR_RESET_TOKEN` 清掉（DEPLOY.md §4.15）：這個 secret 平常不存在，路由回 404，不是網頁上的後門 |
 
 ### V5 輸入驗證與輸出編碼
 
@@ -118,10 +118,10 @@ npx tsx -e "import {headersFile} from './worker/security-headers.ts'; process.st
 | 項目 | 狀態 | 說明 |
 | --- | --- | --- |
 | 10.3.2 第三方資源 | ✅ | 沒有 CDN、沒有分析或廣告程式；字型隨網站打包。唯一的外部 script 是 Cloudflare Turnstile（`e1-t33`），只在申請加入、開了 Turnstile 時載入；它必須從 Cloudflare 載入（官方不支援自己放），所以沒有 SRI |
-| 14.2.1 相依套件 | ✅ | 2026-10-30 `npm audit --omit=dev`：0 個漏洞。Dependabot 的 undici 警示（high，`< 7.30.1`，經 `wrangler`／`@cloudflare/vite-plugin` 的 miniflare，只在開發與部署工具）：升到 wrangler 4.156、vite-plugin 1.66 後 undici 7.30.1，`npm audit` 全部 0 個 |
+| 14.2.1 相依套件 | ✅ | 2026-10-30 `npm audit --omit=dev`：0 個漏洞。2026-11-02 加 `qrcode-generator`（MIT，作者 Kazuhiko Arase，沒有相依套件，只在瀏覽器畫 QR code）。Dependabot 的 undici 警示（high，`< 7.30.1`，經 `wrangler`／`@cloudflare/vite-plugin` 的 miniflare，只在開發與部署工具）：升到 wrangler 4.156、vite-plugin 1.66 後 undici 7.30.1，`npm audit` 全部 0 個 |
 | 14.4.x 安全標頭 | 🔧 | §2 |
 | 14.5.3 CORS | ✅ | 只有不靠 cookie 的路由開 `Access-Control-Allow-Origin: *`：簽名上傳、AI 匯入（帶一次性憑證）、簽名的檔案網址；其餘 API 沒有 CORS，淡江橋館經 Vercel 同網域轉發 |
-| 祕密 | ✅ | `INVITE_CODE`、`ANTHROPIC_API_KEY`、`EDGE_AUTH_SECRET`、`SEEN_SALT`、`TURNSTILE_SECRET_KEY` 等都是 `wrangler secret`，staging 與預覽站各自一套（DEPLOY.md）。`SEEN_SALT` 是防作弊報表網路雜湊的鹽，刻意不放在社團儲存裡：拿到儲存或備份也無法窮舉 IPv4 還原登入位址（ARCHITECTURE.md §5.17）；沒設時不記網路 |
+| 祕密 | ✅ | `INVITE_CODE`、`ANTHROPIC_API_KEY`、`EDGE_AUTH_SECRET`、`SEEN_SALT`、`TURNSTILE_SECRET_KEY` 等都是 `wrangler secret`；`TWO_FACTOR_RESET_TOKEN` 只在救援時臨時設、用完就刪（DEPLOY.md §4.15），staging 與預覽站各自一套（DEPLOY.md）。`SEEN_SALT` 是防作弊報表網路雜湊的鹽，刻意不放在社團儲存裡：拿到儲存或備份也無法窮舉 IPv4 還原登入位址（ARCHITECTURE.md §5.17）；沒設時不記網路 |
 
 ### V12 檔案／V13 API
 
@@ -142,7 +142,7 @@ npx tsx -e "import {headersFile} from './worker/security-headers.ts'; process.st
 | `e11-t28` | ✅ 邊緣通行證帶 session id、撤銷清單在 D1、那一桌的連線立刻關（V3）。`__Host-` 前綴沒做：會讓全部人重新登入 | 低 | 社長：要不要、什麼時候讓大家重新登入一次 |
 | `e11-t29` | ✅ 最短 12 字、擋外洩密碼與包含帳號名稱的密碼，只套用新設定的密碼（V2.1） | — | — |
 | `e11-t30` | ✅ 100,000 次（Cloudflare 上限），登入時升級（V3） | — | — |
-| `e11-t31` | ✅ 管理員的兩步驟登入（TOTP＋備用碼，自願開啟；DEPLOY.md §4.15）。沒做：強制管理員開啟、設定頁的 QR code（要自己寫 QR 編碼器或加套件，目前用 `otpauth://` 連結與手動輸入金鑰）、淡江橋館登入頁的驗證碼欄位（API 已經相容，橋館要加一格） | 低 | 社長：要不要強制所有管理員開啟（沒開就不能進管理頁）；橋館何時加驗證碼欄位 |
+| `e11-t31` | ✅ 管理員的兩步驟登入（TOTP＋備用碼；DEPLOY.md §4.15）。2026-11-02 社長決定：**管理員一定要開**（伺服器擋所有管理功能，回 `adminTwoFactorRequired`）、設定頁加 QR code（`qrcode-generator`，頁面裡畫 SVG）、只有一位管理員時由 Cloudflare 帳號擁有者用臨時 secret `TWO_FACTOR_RESET_TOKEN` 清掉；淡江橋館登入頁加驗證碼欄位（橋館的 PR，在牌桌部署後合併） | 低 | — |
 | `e11-t32` | ✅ `worker/body.ts`（V3） | — | — |
 | `e1-t36` | ✅ 忘記密碼改成管理員核准、一次性代碼（V3）；Email 重設（`e1-t30`）在全台灣清單最後 | 低 | — |
 | `e1-t33` | ✅ 申請加入：同一來源的次數限制、Cloudflare Turnstile（預設關，DEPLOY.md §4.13） | 低 | 社長：要不要打開 Turnstile（淡江橋館要先帶 token）；一小時 10 次夠不夠招生活動用 |

@@ -8,6 +8,7 @@ import type { MemoryStore } from '../../worker/store.ts'
 import type { TeamMatch } from '../../worker/team-matches.ts'
 import { memoryStore } from './sqlite.ts'
 import { clubService, writeChallenge } from './event-mode.ts'
+import { adminWithTwoFactor } from './admin-two-factor.ts'
 
 /**
  * Club points and ratings (J2: e9-t04, e9-t05, e9-t06, e9-t08) from finished challenges, on both
@@ -53,6 +54,8 @@ beforeEach(async () => {
   await club.load()
   const result = await club.register('boss', 'club-secret-1', '')
   boss = 'user' in result ? result.user.id : ''
+  // The founder turns two-step sign-in on so that it acts as an admin (社長 2026-11-02)
+  await adminWithTwoFactor(club, boss)
 })
 
 async function member(name: string) {

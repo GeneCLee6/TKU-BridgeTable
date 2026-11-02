@@ -6,6 +6,7 @@ import type { MemoryStore } from '../../worker/store.ts'
 import type { Table } from '../../worker/views.ts'
 import { memoryStore } from './sqlite.ts'
 import { clubService } from './event-mode.ts'
+import { adminWithTwoFactor } from './admin-two-factor.ts'
 
 /**
  * TKB in the club's system is private (社長 2026-10-26, ROBOT.md §7): only members given
@@ -71,6 +72,8 @@ const tick = () => new Promise((resolve) => setImmediate(resolve))
 async function member(name: string) {
   const result = await club.register(name, 'club-secret-1', '')
   const user = 'user' in result ? result.user : await club.adminApprove(club.adminApplications().find((a) => a.username === name)!.id)
+  // The first account is the admin: it turns two-step sign-in on so that it acts as one (社長 2026-11-02)
+  if ('user' in result) await adminWithTwoFactor(club, user.id)
   connections.online.add(user.id)
   club.connected(user.id)
   await tick()

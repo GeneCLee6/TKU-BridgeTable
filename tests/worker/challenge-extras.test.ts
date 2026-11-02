@@ -5,6 +5,7 @@ import type { ClubService, Connections, ScheduleKind } from '../../worker/servic
 import type { MemoryStore } from '../../worker/store.ts'
 import { memoryStore } from './sqlite.ts'
 import { clubService, writeChallenge } from './event-mode.ts'
+import { adminWithTwoFactor } from './admin-two-factor.ts'
 
 /**
  * The challenges' M2 extras on both paths of `EVENT_OBJECTS` (the file matches the `challenge*`
@@ -48,6 +49,8 @@ beforeEach(async () => {
   await club.load()
   const result = await club.register('boss', 'club-secret-1', '')
   boss = 'user' in result ? result.user.id : ''
+  // The founder turns two-step sign-in on so that it acts as an admin (社長 2026-11-02)
+  await adminWithTwoFactor(club, boss)
   for (const name of ['amy', 'ben', 'cat', 'dan']) ids[name] = await member(name)
 })
 
@@ -154,7 +157,10 @@ describe('each board discussion thread (e7-t27)', () => {
     expect(() => extras.removeComment(id, 1, ids.ben, first.id)).toThrow(expect.objectContaining({ code: 'challengeCommentGone' }))
     expect(extras.removeComment(id, 1, ids.amy, first.id).comments.map((c) => c.text)).toEqual(['his'])
 
+    // A new admin deletes others' comments once two-step sign-in is on
     await club.adminSetAdmin(boss, ids.amy, true)
+    expect(extras.comments(id, 1, ids.amy).comments[0].removable).toBe(false)
+    await adminWithTwoFactor(club, ids.amy)
     expect(extras.comments(id, 1, ids.amy).comments[0].removable).toBe(true)
     expect((await club.exportAccount(ids.ben, null)).challengeComments).toEqual([{ challengeId: id, seq: 1, text: 'his', at: time }])
 

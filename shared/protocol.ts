@@ -119,6 +119,11 @@ export interface AccountEmail {
 export interface AccountTwoFactor {
   enabled: boolean
   recoveryLeft: number
+  /**
+   * True for an admin who has not turned it on yet (社長 2026-11-02): they sign in and use the site
+   * as a member, but every admin-only action answers `adminTwoFactorRequired` until they set it up
+   */
+  required?: boolean
 }
 
 /** `POST /api/account/2fa/setup`: the new secret, as text and as the address an authenticator app reads */

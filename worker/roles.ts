@@ -24,13 +24,23 @@ import { ClubError } from './service.ts'
  */
 export type Need = 'member' | 'admin' | Permission
 
-export const allows = (me: Me, need: Need) =>
-  me.admin || need === 'member' || (need !== 'admin' && me.permissions.includes(need))
+/**
+ * An admin who has not turned two-step sign-in on yet (社長 2026-11-02, ARCHITECTURE.md §5.2): a
+ * member with their own permissions (`Me.permissions` is only those) until they set it up
+ */
+export const adminLocked = (me: Me) => me.admin && !!me.twoFactor?.required
 
-/** Throws 403 unless `me` may use a route that needs `need` */
+export const allows = (me: Me, need: Need) =>
+  (me.admin && !adminLocked(me)) || need === 'member' || (need !== 'admin' && me.permissions.includes(need))
+
+/**
+ * Throws 403 unless `me` may use a route that needs `need`; an admin who still has to turn two-step
+ * sign-in on hears `adminTwoFactorRequired`, so the page sends them to set it up
+ */
 export function requireNeed(me: Me, need: Need) {
-  if (!allows(me, need)) throw new ClubError(need === 'admin' ? 'adminOnly' : 'noPermission', {}, 403)
-  return me
+  if (allows(me, need)) return me
+  if (adminLocked(me)) throw new ClubError('adminTwoFactorRequired', {}, 403)
+  throw new ClubError(need === 'admin' ? 'adminOnly' : 'noPermission', {}, 403)
 }
 
 /** `/api/admin/*` (`path` without that prefix): accounts and settings are admins'; closing a table is an editor's */

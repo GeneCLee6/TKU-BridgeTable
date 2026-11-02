@@ -11,6 +11,7 @@ import {
   type Permission,
 } from '../../shared/protocol.ts'
 import type { BookSyncRow } from '../../shared/robot/system/tku/sources.ts'
+import { AdminTwoFactorBanner } from '../components/AdminTwoFactorBanner.tsx'
 import { PasswordInput } from '../components/PasswordInput.tsx'
 import { FeatureFlags } from '../components/FeatureFlags.tsx'
 import { IntegrityReport } from '../components/IntegrityReport.tsx'
@@ -34,6 +35,7 @@ import {
 } from '../components/ui.tsx'
 import { api, ApiError } from '../lib/api.ts'
 import { formatDate, formatRelative } from '../lib/format.ts'
+import { mustTurnOnTwoFactor } from '../lib/twoFactor.ts'
 import { useAuth } from '../state/AuthContext.tsx'
 import { useClub } from '../state/ClubContext.tsx'
 import { usePreferences } from '../state/PreferencesContext.tsx'
@@ -85,7 +87,23 @@ function changesOf(users: AdminUser[], draft: Record<string, Role>): MemberChang
   return changes
 }
 
+/**
+ * Admins must turn two-step sign-in on first (社長 2026-11-02): until then the server refuses every
+ * admin request, so the page shows only the banner that sends them to set it up
+ */
 export function AdminPage() {
+  const { t } = usePreferences()
+  const { user } = useAuth()
+  if (!mustTurnOnTwoFactor(user)) return <AdminPanels />
+  return (
+    <PageMain>
+      <PageTitle>{t.adminTitle}</PageTitle>
+      <AdminTwoFactorBanner />
+    </PageMain>
+  )
+}
+
+function AdminPanels() {
   const { t, lang, message } = usePreferences()
   const { user: me, refresh } = useAuth()
   const { lobby } = useClub()
