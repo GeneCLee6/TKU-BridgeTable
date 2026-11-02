@@ -31,6 +31,7 @@ import {
   slowestSpeed,
   SLOW_TURN_MS,
   soloTable,
+  PARTNER_AWAY_MS,
   SUBSTITUTE_MS,
   summarize,
   TABLE_REQUEST_COOLDOWN_MS,
@@ -251,6 +252,15 @@ export class TableService implements TableApi {
       const id = table.seats[seat]
       if (id && !isRobotId(id) && !online.includes(id) && table.mode !== 'challenge') this.awayFrom(id, this.now())
     }
+    // A partnership's table (`e7-t28`): the clock of whoever is offline goes on from when they dropped
+    const state = challengeStateOf(table)
+    if (state?.partnerId !== undefined)
+      for (const id of challengePeople(state)) {
+        if (!this.seatOf(id)) continue
+        if (online.includes(id)) {
+          if (state.offline) delete state.offline[id]
+        } else this.partnerOffline(id, state.offline?.[id] ?? this.now())
+      }
   }
 
   // ── The club's calls (TableApi) ─────────────────────────────────────────────────────────────
@@ -351,6 +361,7 @@ export class TableService implements TableApi {
     this.offlineSince.delete(userId)
     const challenge = challengeStateOf(table)
     if (challenge) {
+      if (challenge.offline) delete challenge.offline[userId]
       // Leaving a challenge table only pauses it (中途斷線視同暫停): it waits with the board as it
       // was until they come back. One with nothing left to play closes, once a partner still
       // looking at the last board (`e7-t28`) leaves too
@@ -461,6 +472,9 @@ export class TableService implements TableApi {
       table.seats[state.parkedSeat ?? 'S'] = person.id
       state.parkedSeat = undefined
     } else table.seats.N = person.id
+    if (state.dropped) state.dropped = state.dropped.filter((id) => id !== person.id)
+    if (state.offline) delete state.offline[person.id]
+    if (!state.dropped?.length) delete state.dropped
     table.hostId = person.id
     this.startBoardIfReady()
     await this.save()
@@ -489,8 +503,14 @@ export class TableService implements TableApi {
     const table = this.table
     this.sent.delete(userId)
     if (!table || !this.isAt(userId)) return this.settled()
+    const challenge = challengeStateOf(table)
     if (online) {
       this.offlineSince.delete(userId)
+      // Back before PARTNER_AWAY_MS (`e7-t28`): the seat is theirs, nothing was set aside
+      if (challenge?.offline?.[userId] !== undefined) {
+        delete challenge.offline[userId]
+        await this.save()
+      }
       return this.settled()
     }
     if (table.spectators.includes(userId)) {
@@ -502,6 +522,12 @@ export class TableService implements TableApi {
     await this.save()
     // Away for SUBSTITUTE_MS, TKB plays for them until they come back (代打)
     if (table.mode !== 'challenge') this.awayFrom(userId, this.now())
+    // A partnership's table has no 代打 (a robot never plays for a member in a scored challenge):
+    // after PARTNER_AWAY_MS the table is set aside instead (`e7-t28`)
+    else if (challenge?.partnerId !== undefined && this.seatOf(userId)) {
+      this.partnerOffline(userId, this.now())
+      await this.save()
+    }
     return this.settled()
   }
 
@@ -1014,6 +1040,42 @@ export class TableService implements TableApi {
     this.touchTurn()
   }
 
+  // ── A partner offline (e7-t28) ────────────────────────────────────────────────────────────────
+
+  /**
+   * Notes that a member seated at a partnership's table went offline at `since` (kept in the table's
+   * state, so an evicted object goes on counting) and queues the job that sets the table aside
+   */
+  private partnerOffline(userId: string, since: number) {
+    const state = challengeStateOf(this.table!)!
+    state.offline = { ...state.offline, [userId]: state.offline?.[userId] ?? since }
+    const left = PARTNER_AWAY_MS - (this.now() - state.offline[userId])
+    this.scheduler.add(`partnerAway:${this.id}:${userId}`, 'partnerAway', Math.max(0, left), () => this.partnerAwayDue(userId))
+  }
+
+  /**
+   * A member of a partnership has been offline PARTNER_AWAY_MS: they lose their seat as if they had
+   * left, so the table is set aside with the board as it was (its partner is told, `partnerDropped`)
+   * and nobody is stuck waiting. No robot sits in. Back online, the club seats them again
+   * (`dropped`); a board still unfinished at the deadline is dropped as always. A job left from an
+   * earlier time away only puts itself back for the rest of the wait
+   */
+  private async partnerAwayDue(userId: string) {
+    const table = this.table
+    const state = table && challengeStateOf(table)
+    const since = state?.offline?.[userId]
+    if (!state || since === undefined) return
+    if (this.connections.onlineUserIds().includes(userId) || !this.seatOf(userId)) {
+      delete state.offline![userId]
+      await this.save()
+      return
+    }
+    if (this.now() - since < PARTNER_AWAY_MS) return this.partnerOffline(userId, since)
+    // Nothing left to play: they only leave (`leave` closes the table once nobody is at it)
+    if (!this.challengeTableOver()) state.dropped = [...new Set([...(state.dropped ?? []), userId])]
+    await this.leave(userId)
+  }
+
   // ── Team match exceptions (§5.8, e8-t14–e8-t16) ──────────────────────────────────────────────
 
   /**
@@ -1338,6 +1400,8 @@ export class TableService implements TableApi {
   private tableChallenge(table: Table): TableChallenge | undefined {
     const state = challengeStateOf(table)
     if (!state) return undefined
+    // Members of a partnership still seated but offline: the table is set aside when the first one's time is up
+    const offline = Object.entries(state.offline ?? {}).flatMap(([id, since]) => (this.seatOf(id) ? [since] : []))
     return {
       id: state.challengeId,
       seq: state.seq,
@@ -1345,6 +1409,8 @@ export class TableService implements TableApi {
       played: state.played.length,
       deadline: state.deadline,
       ...(this.partnerAway() && { partnerAway: true }),
+      ...(this.partnerAway() && !!state.dropped?.length && { partnerDropped: true }),
+      ...(offline.length > 0 && { partnerOfflineUntil: Math.min(...offline) + PARTNER_AWAY_MS }),
     }
   }
 
@@ -1888,6 +1954,7 @@ export class TableService implements TableApi {
           challengeId: state.challengeId,
           userId: state.userId,
           ...(state.partnerId !== undefined && { partnerId: state.partnerId }),
+          ...(!!state.dropped?.length && { dropped: [...state.dropped] }),
         },
       }),
       ...(team && {
