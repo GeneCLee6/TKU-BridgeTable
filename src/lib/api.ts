@@ -117,7 +117,14 @@ export const api = {
   logout: () => post<{ ok: true }>('/api/logout'),
   changePassword: (current: string, next: string) => post<{ ok: true }>('/api/account/password', { current, next }),
   /** The account settings the server keeps (e1-t24) */
-  setAccountPreferences: (preferences: { friendOnlineNotice?: boolean; bookProfile?: string; robotSpeed?: RobotSpeed }) => post<{ user: Me }>('/api/account/preferences', preferences),
+  setAccountPreferences: (preferences: {
+    friendOnlineNotice?: boolean
+    bookProfile?: string
+    robotSpeed?: RobotSpeed
+    /** Whether others see these on the member's profile page (e13-t08) */
+    profileBoards?: boolean
+    profilePosts?: boolean
+  }) => post<{ user: Me }>('/api/account/preferences', preferences),
   /** Replaces the member's own profile (AC-1.5); empty fields clear it */
   setProfile: (profile: Profile) =>
     request<{ user: Me }>('/api/account/profile', { method: 'PATCH', body: JSON.stringify(profile) }),
@@ -137,7 +144,8 @@ export const api = {
   /** Deletes the member's own account; the answer signs this device out too */
   deleteAccount: (password: string) => post<{ ok: true }>('/api/account/delete', { password }),
   /** Another member's profile card with their latest boards the viewer may see */
-  member: (id: string) => request<{ member: MemberProfile }>(`/api/members/${encodeURIComponent(id)}`),
+  /** `hidden`: what the member keeps off their page for this viewer (e13-t08) */
+  member: (id: string) => request<{ member: MemberProfile; hidden?: { boards: boolean; posts: boolean } }>(`/api/members/${encodeURIComponent(id)}`),
   /** One page of the conversation with another member, oldest first; `before` pages back (AC-1.7) */
   directMessages: (userId: string, before?: number) =>
     request<DirectPage>(`/api/messages/${encodeURIComponent(userId)}${before ? `?before=${before}` : ''}`),

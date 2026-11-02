@@ -276,6 +276,10 @@ interface StoredUser {
   avatar?: number
   /** How fast the robots play at their tables (出牌速度); absent for DEFAULT_ROBOT_SPEED */
   robotSpeed?: RobotSpeed
+  /** True when the member hides the boards they played from their profile page (e13-t08) */
+  hideProfileBoards?: boolean
+  /** True when the member hides their forum posts from their profile page (e13-t08) */
+  hideProfilePosts?: boolean
 }
 
 /**
@@ -1350,17 +1354,25 @@ export class ClubService {
    * optional, but at least one must be there: the friend-online notice (e1-t24), the notice that a
    * convention the member's profile plays was published (BridgeHall F4, `bookAdoptedNotice`), the handbook's
    * system profile (TKU-BridgeBook e1-t16; the club's id or '' goes back to the club's), and how
-   * fast the robots play (出牌速度, `ROBOT_SPEEDS`; the table they are at changes at once). The profile
+   * fast the robots play (出牌速度, `ROBOT_SPEEDS`; the table they are at changes at once), and what
+   * others see on their profile page (e13-t08: `profileBoards`, `profilePosts`). The profile
    * is not looked up: one deleted later simply shows the club's.
    */
   async setAccountPreferences(
     userId: string,
-    preferences: { friendOnlineNotice?: unknown; bookAdoptedNotice?: unknown; bookProfile?: unknown; robotSpeed?: unknown },
+    preferences: {
+      friendOnlineNotice?: unknown
+      bookAdoptedNotice?: unknown
+      bookProfile?: unknown
+      robotSpeed?: unknown
+      profileBoards?: unknown
+      profilePosts?: unknown
+    },
   ): Promise<Me> {
     const user = this.requireUser(userId)
-    const { friendOnlineNotice, bookAdoptedNotice, bookProfile, robotSpeed } = preferences
-    if (friendOnlineNotice === undefined && bookAdoptedNotice === undefined && bookProfile === undefined && robotSpeed === undefined)
-      throw new ClubError('unknownCommand')
+    const { friendOnlineNotice, bookAdoptedNotice, bookProfile, robotSpeed, profileBoards, profilePosts } = preferences
+    if (Object.values(preferences).every((value) => value === undefined)) throw new ClubError('unknownCommand')
+    for (const flag of [profileBoards, profilePosts]) if (flag !== undefined && typeof flag !== 'boolean') throw new ClubError('unknownCommand')
     if (friendOnlineNotice !== undefined && typeof friendOnlineNotice !== 'boolean') throw new ClubError('unknownCommand')
     if (bookAdoptedNotice !== undefined && typeof bookAdoptedNotice !== 'boolean') throw new ClubError('unknownCommand')
     if (robotSpeed !== undefined && !isRobotSpeed(robotSpeed)) throw new ClubError('unknownCommand')
@@ -1370,6 +1382,10 @@ export class ClubService {
     else if (friendOnlineNotice === false) user.friendOnlineNotice = false
     if (bookAdoptedNotice === true) delete user.bookAdoptedNotice
     else if (bookAdoptedNotice === false) user.bookAdoptedNotice = false
+    if (profileBoards === true) delete user.hideProfileBoards
+    else if (profileBoards === false) user.hideProfileBoards = true
+    if (profilePosts === true) delete user.hideProfilePosts
+    else if (profilePosts === false) user.hideProfilePosts = true
     if (bookProfile === '' || bookProfile === CLUB_PROFILE_ID) delete user.bookProfile
     else if (bookProfile !== undefined) user.bookProfile = bookProfile
     const speedChanged = robotSpeed !== undefined && robotSpeed !== (user.robotSpeed ?? DEFAULT_ROBOT_SPEED)
@@ -1397,12 +1413,14 @@ export class ClubService {
 
   /**
    * `GET /api/members/:id`: another member's profile card (AC-1.5) with their latest boards the
-   * viewer may see (the history search's own visibility rule). Only `memberProfileView`'s fields leave
+   * viewer may see (the history search's own visibility rule). Only `memberProfileView`'s fields leave.
+   * A member who hides their boards (e13-t08) shows none to others; they still see their own
    */
   async memberProfile(viewerId: string, memberId: string): Promise<MemberProfile> {
     this.requireUser(viewerId)
     const member = this.users.get(String(memberId ?? ''))
     if (!member) throw new ClubError('userGone', {}, 404)
+    if (member.hideProfileBoards && viewerId !== member.id) return memberProfileView(member, [])
     const recent = await this.search(viewerId, {
       ...DEFAULT_HISTORY_QUERY,
       scope: 'all',
@@ -1410,6 +1428,29 @@ export class ClubService {
       size: PROFILE_RECENT,
     })
     return memberProfileView(member, recent.boards)
+  }
+
+  /**
+   * What a member's profile page leaves out for this viewer (e13-t08, 隱私設定): their boards, their
+   * forum posts. Nothing for the member themselves; a member who is gone has nothing to hide
+   */
+  profileHidden(viewerId: string, memberId: string): { boards: boolean; posts: boolean } {
+    const member = this.users.get(String(memberId ?? ''))
+    if (!member || member.id === viewerId) return { boards: false, posts: false }
+    return { boards: !!member.hideProfileBoards, posts: !!member.hideProfilePosts }
+  }
+
+  /**
+   * Checks that a member may share a board on the forum (e13-t07, AC-13.3): one everybody in the club
+   * may see (`recordVisible` for anyone), so a post never points at cards kept back. A board the
+   * member may not see at all is `boardGone`, as on the record page, so asking tells nothing about
+   * it; one they may see only as its player or a challenge's entrant, its challenge or match not over
+   * yet (`revealAt` to come), is `recordNotShareable`
+   */
+  async checkShareable(userId: string, boardId: string): Promise<void> {
+    const record = await this.record(boardId, userId)
+    if (!record) throw new ClubError('boardGone', {}, 404)
+    if (record.revealAt !== undefined && record.revealAt > this.now()) throw new ClubError('recordNotShareable', {}, 409)
   }
 
   /**
@@ -1698,6 +1739,7 @@ export class ClubService {
       friendOnlineNotice: user.friendOnlineNotice !== false,
       bookAdoptedNotice: user.bookAdoptedNotice !== false,
       robotSpeed: user.robotSpeed ?? DEFAULT_ROBOT_SPEED,
+      profilePrivacy: { boards: !user.hideProfileBoards, posts: !user.hideProfilePosts },
     }
     if (user.profile) me.profile = user.profile
     if (user.avatar) me.avatar = user.avatar

@@ -35,10 +35,15 @@ import type { Strings } from '../strings.ts'
  * as the post will. What the Worker would refuse is listed before sending (`postProblems`).
  *
  * - `/forum/new?board=`: a new post; its draft is kept on this device until it is published
+ * - `/forum/new?record=`: sharing a board from the history (e13-t07, the record page's 分享到論壇):
+ *   the board is added to the draft as a `record` block, on 牌局討論 unless a board is named; the
+ *   server checks the whole club may see it
  * - `/forum/p/:postId/edit`: the author edits a post (the board stays)
  */
 
 const DRAFT_KEY = 'tku-bridgetable:forumDraft'
+/** 牌局討論 (shared/forum.ts BUILTIN_BOARDS), where a board shared from the history goes first */
+const SHARE_BOARD_ID = 'deals'
 
 function loadDraft(): PostDraft | null {
   try {
@@ -180,6 +185,7 @@ export function PostEditor({
   boards,
   post,
   boardId: preferred,
+  record,
   onDone,
   onCancel,
 }: {
@@ -187,6 +193,8 @@ export function PostEditor({
   /** Editing this post; a new one when absent */
   post?: Post
   boardId?: string
+  /** A new post sharing this history record (e13-t07): added to the draft unless it is there */
+  record?: string
   onDone: (post: Post) => void
   onCancel: () => void
 }) {
@@ -196,12 +204,13 @@ export function PostEditor({
   const officer = !!user && (user.admin || user.permissions.includes('forumModerate'))
   const choices = boards.filter((b) => b.postPolicy === 'all' || officer)
   const [draft] = useState(() => (post ? null : loadDraft()))
-  const firstBoard = [post?.boardId, preferred, draft?.boardId].find((id) => id && choices.some((b) => b.id === id))
+  const firstBoard = [post?.boardId, preferred, record ? undefined : draft?.boardId].find((id) => id && choices.some((b) => b.id === id))
   const [boardId, setBoardId] = useState(firstBoard ?? choices.find((b) => b.postPolicy === 'all')?.id ?? choices[0]?.id ?? '')
   const [title, setTitle] = useState(post?.title ?? draft?.title ?? '')
   const [items, setItems] = useState<Item[]>(() => {
-    const blocks = post?.blocks ?? draft?.blocks ?? []
-    const pieces = piecesOf(blocks)
+    const blocks: PostBlock[] = post?.blocks ?? draft?.blocks ?? []
+    const shared = !post && record && !blocks.some((b) => b.kind === 'record' && b.tableRecordId === record)
+    const pieces = piecesOf(shared ? [...blocks, { kind: 'record', tableRecordId: record }] : blocks)
     return (pieces.length ? pieces : [{ kind: 'text', text: '' } as EditorPiece]).map(item)
   })
   const [open, setOpen] = useState<number | null>(null)
@@ -351,7 +360,7 @@ export function PostEditor({
               {piece.kind === 'kept' && (
                 <>
                   <ForumBlocks blocks={[piece.block]} />
-                  <Muted>{e.kept}</Muted>
+                  {piece.block.kind !== 'record' && <Muted>{e.kept}</Muted>}
                 </>
               )}
             </PieceBox>
@@ -399,7 +408,9 @@ export function ForumNewPostPage() {
   const navigate = useNavigate()
   const [boards, setBoards] = useState<Board[] | null>(null)
   const [error, setError] = useState('')
-  const board = params.get('board') ?? undefined
+  const record = params.get('record') || undefined
+  // A board shared from the history goes to 牌局討論 unless another board is named
+  const board = params.get('board') ?? (record ? SHARE_BOARD_ID : undefined)
 
   useEffect(() => {
     forumApi
@@ -422,6 +433,7 @@ export function ForumNewPostPage() {
           <PostEditor
             boards={boards}
             boardId={board}
+            record={record}
             onDone={(post) => navigate(`/forum/p/${encodeURIComponent(post.id)}`)}
             onCancel={() => navigate(board ? `/forum/${encodeURIComponent(board)}` : '/forum')}
           />

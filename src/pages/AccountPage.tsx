@@ -572,11 +572,18 @@ export function AccountPage() {
   const { t, lang, mode, deck, cardStyle, cardSize, confirmCalls, confirmPlays, set } = usePreferences()
   const { user, refresh } = useAuth()
   const friendsOn = useFeature('friends')
+  const forumOn = useFeature('forum')
 
   /** Kept on the server, which decides whom to tell (e1-t24) */
   const setFriendOnlineNotice = (on: boolean) =>
     void api
       .setAccountPreferences({ friendOnlineNotice: on })
+      .then(refresh)
+      .catch(() => undefined)
+  /** What others see on the member's profile page (e13-t08); the server leaves out what is hidden */
+  const setPrivacy = (change: { profileBoards?: boolean; profilePosts?: boolean }) =>
+    void api
+      .setAccountPreferences(change)
       .then(refresh)
       .catch(() => undefined)
   /** Kept on the server too, which paces the robots at the member's table (the slowest of those seated) */
@@ -593,6 +600,28 @@ export function AccountPage() {
       </PageTitle>
       <Stack>
         <ProfileForm />
+        {user && (
+          <Card>
+            <CardHeader>
+              <CardTitle>{t.forum.privacyTitle}</CardTitle>
+            </CardHeader>
+            <Options
+              legend={t.forum.privacyBoards}
+              value={user.profilePrivacy?.boards === false ? 'off' : 'on'}
+              options={[['on', t.forum.privacyShow], ['off', t.forum.privacyHide]]}
+              onChange={(v) => setPrivacy({ profileBoards: v === 'on' })}
+            />
+            {forumOn && (
+              <Options
+                legend={t.forum.privacyPosts}
+                value={user.profilePrivacy?.posts === false ? 'off' : 'on'}
+                options={[['on', t.forum.privacyShow], ['off', t.forum.privacyHide]]}
+                onChange={(v) => setPrivacy({ profilePosts: v === 'on' })}
+              />
+            )}
+            <Steps>{t.forum.privacyHint}</Steps>
+          </Card>
+        )}
         <Card>
           <CardHeader>
             <CardTitle>{t.preferences}</CardTitle>

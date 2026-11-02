@@ -71,10 +71,11 @@ export function notificationText(t: Strings, n: Notification): string {
  * BridgeHall (e8-t10, e8-t11, e2-t08): a published convention to its page, a draft sent for review to
  * its review page, one sent back to its editor, an override to the profile's compare page (with
  * `?unify=` naming the override a captain suggests dropping); an article sent for review or back to
- * its editor (where articles are reviewed, J4), a published one to the article; the forum's news to the post on
- * BridgeHall (e11-t08), at the comment when there is one (`#comment-<id>`)
+ * its editor (where articles are reviewed, J4), a published one to the article; the forum's news to the post,
+ * at the comment when there is one (`#comment-<id>`): on the table's own forum for a member who has
+ * it (`forum` flag on, e13-t09), otherwise on BridgeHall (e11-t08)
  */
-export function notificationLink(n: Notification): string {
+export function notificationLink(n: Notification, options: { forum?: boolean } = {}): string {
   switch (n.kind) {
     case 'application':
     case 'passwordResetRequested':
@@ -139,7 +140,7 @@ export function notificationLink(n: Notification): string {
     case 'forumAnnouncement':
     case 'forumPinned':
       return n.params.postId
-        ? `${BOOK_SITE}/forum/p/${encodeURIComponent(String(n.params.postId))}${n.params.commentId ? `#comment-${encodeURIComponent(String(n.params.commentId))}` : ''}`
-        : `${BOOK_SITE}/forum`
+        ? `${options.forum ? '' : BOOK_SITE}/forum/p/${encodeURIComponent(String(n.params.postId))}${n.params.commentId ? `#comment-${encodeURIComponent(String(n.params.commentId))}` : ''}`
+        : `${options.forum ? '' : BOOK_SITE}/forum`
   }
 }

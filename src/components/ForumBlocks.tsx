@@ -1,22 +1,27 @@
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import styled from 'styled-components'
 import { bookUrl } from '../../shared/book-site.ts'
 import { RANKS, rankOf, SUITS, suitOf, type Card, type Seat } from '../../shared/cards.ts'
 import type { ForumDeal as ForumDealValue, ForumRuleItem, PostBlock } from '../../shared/forum.ts'
 import { dealRecord } from '../../shared/forum-editor.ts'
+import type { BoardRecord } from '../../shared/protocol.ts'
+import { api } from '../lib/api.ts'
 import { CARD_SCALE } from '../lib/cards.ts'
 import { useMediaQuery } from '../lib/useMediaQuery.ts'
 import { mobileQuery } from '../styles/tokens.ts'
 import { usePreferences } from '../state/PreferencesContext.tsx'
 import { AuctionBox } from './AuctionBox.tsx'
 import { RecordDiagram } from './RecordDiagram.tsx'
-import { SuitSymbol, SuitText } from './Suit.tsx'
+import { ContractResult, SuitSymbol, SuitText } from './Suit.tsx'
 
 /**
  * A forum post's or comment's blocks (shared/forum.ts `PostBlock`, ARCHITECTURE.md §5.19), drawn
  * with the table's own pieces: the suits in the deck's colours (`SuitSymbol`) and the auction in
  * the record pages' `AuctionBox`. A post is never HTML, so nothing here sets inner HTML; text is
  * shown as text with its line breaks. Four hands are drawn with the record pages' `RecordDiagram` (K2).
+ * A board shared from the history (`record`, e13-t07) is fetched from the record page's own API, so
+ * the viewer sees it only as §4 lets them; the post keeps nothing but its id.
  */
 
 const Stack = styled.div`
@@ -127,6 +132,59 @@ export function ForumDeal({ deal }: { deal: ForumDealValue }) {
   )
 }
 
+const RecordLine = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  gap: ${({ theme }) => theme.space(2)} ${({ theme }) => theme.space(4)};
+  align-items: center;
+`
+
+/**
+ * A board shared from the history (AC-13.3): its diagram with the players, the contract and result,
+ * and a link to replay it on the record page. Read through `GET /api/history/:id`, which applies
+ * the record page's visibility (§4); a board the viewer may not see, or one that is gone, is only
+ * the link, which says the same as the record page would
+ */
+export function ForumRecord({ id }: { id: string }) {
+  const { t, cardStyle, cardSize } = usePreferences()
+  const phone = useMediaQuery(mobileQuery)
+  const [loaded, setLoaded] = useState<{ id: string; record: BoardRecord | null } | null>(null)
+  useEffect(() => {
+    let live = true
+    api
+      .record(id)
+      .then((r) => live && setLoaded({ id, record: r.record }))
+      .catch(() => live && setLoaded({ id, record: null }))
+    return () => {
+      live = false
+    }
+  }, [id])
+  const record = loaded?.id === id ? loaded.record : null
+  const link = `/history/${encodeURIComponent(id)}`
+  if (!record) return <Link to={link}>{t.forum.record}</Link>
+  const scale = CARD_SCALE[cardSize]
+  const side = (seat: Seat) => seat === 'E' || seat === 'W'
+  const { contract, result } = record.board
+  return (
+    <Figure>
+      <DealFrame>
+        <RecordDiagram
+          record={record}
+          step={0}
+          width={Math.round((phone ? 40 : 60) * scale)}
+          trickWidth={Math.round((phone ? 24 : 40) * scale)}
+          styleFor={(seat) => (phone && side(seat) ? 'text' : cardStyle)}
+          orientationFor={(seat) => (side(seat) && !phone ? 'rows' : 'horizontal')}
+        />
+      </DealFrame>
+      <RecordLine>
+        {result && <ContractResult contract={contract} tricks={result.declarerTricks} />}
+        <Link to={link}>{t.forum.replay}</Link>
+      </RecordLine>
+    </Figure>
+  )
+}
+
 function Rules({ items, ordered }: { items: ForumRuleItem[]; ordered?: boolean }) {
   return (
     <List as={ordered ? 'ol' : 'ul'}>
@@ -187,7 +245,7 @@ function Block({ block }: { block: PostBlock }) {
         </Ref>
       )
     case 'record':
-      return <Link to={`/history/${encodeURIComponent(block.tableRecordId)}`}>{t.forum.record}</Link>
+      return <ForumRecord id={block.tableRecordId} />
   }
 }
 
