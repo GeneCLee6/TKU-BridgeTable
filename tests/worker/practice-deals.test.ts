@@ -19,6 +19,7 @@ import type { ClientMessage, ServerMessage, TableView } from '../../shared/proto
 import { ClubService, type Connections, type ScheduleKind } from '../../worker/service.ts'
 import type { MemoryStore } from '../../worker/store.ts'
 import { memoryStore } from './sqlite.ts'
+import { adminWithTwoFactor } from './admin-two-factor.ts'
 
 /**
  * The bidding practice room, part two (`e10-t16`): each seat's points and shape or its whole hand,
@@ -77,6 +78,8 @@ beforeEach(async () => {
   await club.load()
   const founder = await club.register('boss', 'club-secret-1', '')
   boss = 'user' in founder ? founder.user.id : ''
+  // The founder turns two-step sign-in on so that it acts as an admin (社長 2026-11-02)
+  await adminWithTwoFactor(club, boss)
   connections.online.add(boss)
   club.connected(boss)
 })

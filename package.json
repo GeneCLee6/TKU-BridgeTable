@@ -27,6 +27,7 @@
     "@fontsource-variable/noto-sans-tc": "^5.3.1",
     "bridge-dds": "^1.4.0",
     "lucide-react": "^1.61.0",
+    "qrcode-generator": "^2.0.4",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "react-router-dom": "^7.18.4",

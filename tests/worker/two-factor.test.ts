@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { MailMessage } from '../../worker/mail.ts'
+import { requireNeed } from '../../worker/roles.ts'
 import { ClubService, type Connections } from '../../worker/service.ts'
 import type { MemoryStore } from '../../worker/store.ts'
 import {
@@ -104,7 +105,7 @@ describe('turning 兩步驟登入 on (e11-t31)', () => {
     expect(setup.secret).toMatch(/^[A-Z2-7]{32}$/)
     expect(setup.uri).toContain(`secret=${setup.secret}`)
     // Not on yet: the password alone still signs in
-    expect((await club.login('admin', PASSWORD)).user.twoFactor).toEqual({ enabled: false, recoveryLeft: 0 })
+    expect((await club.login('admin', PASSWORD)).user.twoFactor).toEqual({ enabled: false, recoveryLeft: 0, required: true })
     await expect(club.enableTwoFactor(adminId, '000000', null)).rejects.toMatchObject({ code: 'twoFactorWrong' })
     const { user, recoveryCodes } = await club.enableTwoFactor(adminId, await codeNow(setup.secret), null)
     expect(user.twoFactor).toEqual({ enabled: true, recoveryLeft: RECOVERY_CODES })
@@ -130,6 +131,55 @@ describe('turning 兩步驟登入 on (e11-t31)', () => {
     expect(await club.userForToken(other)).toBeNull()
     expect(await club.userForToken(here)).not.toBeNull()
     expect(disconnected).toContain(adminId)
+  })
+})
+
+describe('admins must turn 兩步驟登入 on (社長 2026-11-02)', () => {
+  it('lets the founder sign in and set it up, refusing every admin-only action until then', async () => {
+    // The first account signs in with the password alone (an existing session counts the same)
+    const { token, user } = await club.login('admin', PASSWORD)
+    expect(user.admin).toBe(true)
+    expect(user.twoFactor).toEqual({ enabled: false, recoveryLeft: 0, required: true })
+    expect(user.permissions).toEqual([])
+    for (const need of ['admin', 'bookEdit', 'bookReview', 'forumModerate'] as const)
+      expect(() => requireNeed(user, need)).toThrow(expect.objectContaining({ code: 'adminTwoFactorRequired', status: 403 }))
+    expect(requireNeed(user, 'member')).toBe(user)
+    expect(() => club.requireAdmin(adminId)).toThrow(expect.objectContaining({ code: 'adminTwoFactorRequired' }))
+    expect(() => club.requirePermission(adminId, 'bookImport')).toThrow(expect.objectContaining({ code: 'adminTwoFactorRequired' }))
+
+    // The setup on the account page stays open; the session it is done in stays signed in
+    const { secret } = await club.startTwoFactor(adminId, PASSWORD)
+    await club.enableTwoFactor(adminId, await codeNow(secret), token)
+    const after = (await club.userForToken(token))!
+    expect(after.twoFactor).toEqual({ enabled: true, recoveryLeft: RECOVERY_CODES })
+    expect(requireNeed(after, 'admin')).toBe(after)
+    expect(after.permissions).toContain('bookEdit')
+    expect(() => club.requireAdmin(adminId)).not.toThrow()
+  })
+
+  it('holds back a newly made admin until they turn it on; a member is never asked', async () => {
+    await turnOn()
+    const amy = await member('amy')
+    expect(() => club.requireAdmin(amy)).toThrow(expect.objectContaining({ code: 'adminOnly' }))
+    expect((await club.login('amy', PASSWORD)).user.twoFactor).toBeUndefined()
+    await club.adminSetAdmin(adminId, amy, true)
+    expect((await club.login('amy', PASSWORD)).user.twoFactor).toEqual({ enabled: false, recoveryLeft: 0, required: true })
+    expect(() => club.requireAdmin(amy)).toThrow(expect.objectContaining({ code: 'adminTwoFactorRequired' }))
+    // The admin page still lists them as an admin with every permission
+    expect((await club.adminUsers()).find((u) => u.id === amy)).toMatchObject({ admin: true, twoFactor: false, permissions: expect.arrayContaining(['bookEdit']) })
+    await turnOn(amy)
+    expect(() => club.requireAdmin(amy)).not.toThrow()
+  })
+
+  it('keeps an admin’s own permissions while the rule holds them back', async () => {
+    const amy = await member('amy')
+    await turnOn()
+    await club.adminSetPermissions(amy, ['bookEdit'])
+    await club.adminSetAdmin(adminId, amy, true)
+    const { user } = await club.login('amy', PASSWORD)
+    expect(user.permissions).toEqual(['bookEdit'])
+    expect(requireNeed(user, 'bookEdit')).toBe(user)
+    expect(() => requireNeed(user, 'admin')).toThrow(expect.objectContaining({ code: 'adminTwoFactorRequired' }))
   })
 })
 
@@ -209,7 +259,9 @@ describe('managing 兩步驟登入', () => {
     const { recoveryCodes } = await turnOn()
     await expect(club.disableTwoFactor(adminId, PASSWORD, 'AAAAA-AAAAA')).rejects.toMatchObject({ code: 'twoFactorWrong' })
     const me = await club.disableTwoFactor(adminId, PASSWORD, recoveryCodes[2])
-    expect(me.twoFactor).toEqual({ enabled: false, recoveryLeft: 0 })
+    // An admin again has to turn it on before acting as one
+    expect(me.twoFactor).toEqual({ enabled: false, recoveryLeft: 0, required: true })
+    expect(me.permissions).toEqual([])
     await club.login('admin', PASSWORD)
     await expect(club.disableTwoFactor(adminId, PASSWORD, '000000')).rejects.toMatchObject({ code: 'twoFactorOff' })
   })
@@ -231,6 +283,22 @@ describe('managing 兩步驟登入', () => {
     expect((await club.adminUsers()).find((u) => u.id === bob)?.twoFactor).toBe(false)
     await club.login('bob', PASSWORD)
     await expect(club.adminClearTwoFactor(adminId, bob)).rejects.toMatchObject({ code: 'twoFactorOff' })
+  })
+
+  it('lets the site owner clear the only admin’s, with TWO_FACTOR_RESET_TOKEN (DEPLOY.md §4.15)', async () => {
+    const { secret } = await turnOn()
+    const session = (await club.login('admin', PASSWORD, '', '', await codeNow(secret))).token
+    await club.setEmail(adminId, 'admin@example.org', PASSWORD, ORIGIN)
+    await club.verifyEmail(sent[sent.length - 1].text.match(/#([\w-]+)/)![1])
+    sent = []
+    await expect(club.ownerResetTwoFactor('nobody')).rejects.toMatchObject({ code: 'userGone' })
+    expect(await club.ownerResetTwoFactor(' Admin ')).toEqual({ username: 'admin', cleared: true })
+    // Signed out everywhere, told by email, and back to setting it up (admin features wait until then)
+    expect(await club.userForToken(session)).toBeNull()
+    expect(sent).toHaveLength(1)
+    const { user } = await club.login('admin', PASSWORD)
+    expect(user.twoFactor).toEqual({ enabled: false, recoveryLeft: 0, required: true })
+    await expect(club.ownerResetTwoFactor('admin')).rejects.toMatchObject({ code: 'twoFactorOff' })
   })
 
   it('keeps the secret and the recovery hashes out of the download', async () => {

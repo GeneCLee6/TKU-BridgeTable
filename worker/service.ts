@@ -699,7 +699,7 @@ export class ClubService {
       challenges: this.challenges,
       now: this.now,
       userById: (id) => this.publicUserById(id),
-      isAdmin: (id) => !!this.users.get(id)?.admin,
+      isAdmin: (id) => this.actsAsAdmin(this.users.get(id)),
       takeAction: (id) => this.actionLimit.take(id),
       boardsOf: (eventId) => eventBoards(this.store.sql, eventId),
     })
@@ -708,7 +708,7 @@ export class ClubService {
       store,
       now: this.now,
       log: (entry) => this.log(entry),
-      isAdmin: (id) => !!this.users.get(id)?.admin,
+      isAdmin: (id) => this.actsAsAdmin(this.users.get(id)),
       exists: (id) => this.users.has(id),
       userById: (id) => this.publicUserById(id),
       featureOn: (flag, id) => this.featureOn(flag, id),
@@ -1776,6 +1776,26 @@ export class ClubService {
     await this.securityMail(user, 'mailTwoFactorOffBody', undefined)
   }
 
+  /**
+   * `POST /api/ops/two-factor-reset { username }` with TWO_FACTOR_RESET_TOKEN (club.ts): the site
+   * owner's last resort when the only admin lost both the phone and the recovery codes (社長
+   * 2026-11-02, DEPLOY.md §4.15). Clears the second step, signs the member out everywhere and
+   * tells their email; the admin then signs in with the password and sets it up again
+   */
+  async ownerResetTwoFactor(username: string): Promise<{ username: string; cleared: true }> {
+    const user = this.findUser(String(username ?? '').trim())
+    if (!user) throw new ClubError('userGone', {}, 404)
+    if (!user.twoFactor && !user.twoFactorSetup) throw new ClubError('twoFactorOff', {}, 409)
+    delete user.twoFactor
+    delete user.twoFactorSetup
+    this.twoFactorFailures.clear(user.id)
+    await this.store.put(`user:${user.id}`, user)
+    await this.revokeSessions(user.id)
+    this.log({ event: 'twoFactorOwnerReset' })
+    await this.securityMail(user, 'mailTwoFactorOffBody', undefined)
+    return { username: user.username, cleared: true }
+  }
+
   // ── Email (e1-t29, e1-t30; ARCHITECTURE.md §5.20) ─────────────────────────────────────────────
 
   /** `GET /api/email`: whether the club sends mail, so the sign-in page offers the email reset */
@@ -1931,7 +1951,28 @@ export class ClubService {
     await this.store.put(`user:${user.id}`, user)
   }
 
+  /**
+   * Whether the member may act as an admin now: an admin who has turned two-step sign-in on
+   * (社長 2026-11-02, ARCHITECTURE.md §5.2). An admin without it signs in and plays as a member with
+   * their own permissions, and every admin-only action answers `adminTwoFactorRequired` (roles.ts
+   * `requireNeed`, `requireAdmin` here) until they set it up on the account page, which stays open
+   */
+  private actsAsAdmin(user: StoredUser | undefined): boolean {
+    return !!user?.admin && !!user.twoFactor
+  }
+
+  /** An admin who still has to turn two-step sign-in on */
+  private adminLocked(user: StoredUser): boolean {
+    return !!user.admin && !user.twoFactor
+  }
+
+  /** What the member may use now: every permission for an admin who may act as one (`actsAsAdmin`) */
   private permissionsOf(user: StoredUser): Permission[] {
+    return this.actsAsAdmin(user) ? [...PERMISSIONS] : PERMISSIONS.filter((p) => user.permissions?.includes(p))
+  }
+
+  /** What the member's role gives, two-step sign-in or not: what the admin page lists and who gets assigned notes */
+  private rolePermissions(user: StoredUser): Permission[] {
     return user.admin ? [...PERMISSIONS] : PERMISSIONS.filter((p) => user.permissions?.includes(p))
   }
 
@@ -1959,9 +2000,12 @@ export class ClubService {
       }
     }
     // 兩步驟登入 (e11-t31): admins may turn it on; anyone who has it sees it, even after the admin role went
-    if (user.admin || user.twoFactor)
+    // An admin without it is told to turn it on (`required`) before any admin-only action works
+    if (user.admin || user.twoFactor) {
       me.twoFactor = { enabled: !!user.twoFactor, recoveryLeft: user.twoFactor?.recovery.length ?? 0 }
-    me.features = enabledFeatures(this.features, { id: user.id, admin: !!user.admin, permissions: me.permissions })
+      if (this.adminLocked(user)) me.twoFactor.required = true
+    }
+    me.features = enabledFeatures(this.features, { id: user.id, admin: !!user.admin, permissions: this.rolePermissions(user) })
     return me
   }
 
@@ -1969,7 +2013,8 @@ export class ClubService {
   requirePermission(userId: string, permission: Permission): Me {
     const user = this.users.get(userId)
     if (!user) throw new ClubError('signInAgain', {}, 401)
-    if (!this.permissionsOf(user).includes(permission)) throw new ClubError('noPermission', {}, 403)
+    if (!this.permissionsOf(user).includes(permission))
+      throw this.adminLocked(user) ? new ClubError('adminTwoFactorRequired', {}, 403) : new ClubError('noPermission', {}, 403)
     return this.me(user)
   }
 
@@ -2035,12 +2080,12 @@ export class ClubService {
   }
 
   reviewerIds(): string[] {
-    return [...this.users.values()].filter((u) => u.admin || this.permissionsOf(u).includes('bookReview')).map((u) => u.id)
+    return [...this.users.values()].filter((u) => this.rolePermissions(u).includes('bookReview')).map((u) => u.id)
   }
 
   /** The usernames of the members who may edit the handbook, for assigning a 待確認 note (BridgeHall e8-t06) */
   editorNames(): string[] {
-    return [...this.users.values()].filter((u) => this.permissionsOf(u).includes('bookEdit')).map((u) => u.username).sort()
+    return [...this.users.values()].filter((u) => this.rolePermissions(u).includes('bookEdit')).map((u) => u.username).sort()
   }
 
   memberDirectory(): ClubMember[] {
@@ -2052,8 +2097,11 @@ export class ClubService {
     }))
   }
 
+  /** Throws unless the member may act as an admin now (`actsAsAdmin`) */
   requireAdmin(userId: string) {
-    if (!this.users.get(userId)?.admin) throw new ClubError('adminOnly', {}, 403)
+    const user = this.users.get(userId)
+    if (user && this.adminLocked(user)) throw new ClubError('adminTwoFactorRequired', {}, 403)
+    if (!this.actsAsAdmin(user)) throw new ClubError('adminOnly', {}, 403)
   }
 
   async adminUsers(): Promise<AdminUser[]> {
@@ -2068,7 +2116,7 @@ export class ClubService {
         lastLoginAt: u.lastLoginAt ?? null,
         boards: (await this.store.list(`uhist:${u.id}:`)).size,
         online: online.includes(u.id),
-        permissions: this.permissionsOf(u),
+        permissions: this.rolePermissions(u),
         passwordResetAt: u.passwordResetAt ?? null,
         passwordReset: this.resetState(u),
         twoFactor: !!u.twoFactor,
@@ -2285,7 +2333,7 @@ export class ClubService {
   /** Whether a member has a flag; nobody has one for an account that is gone */
   featureOn(flag: FeatureFlag, userId: string): boolean {
     const user = this.users.get(userId)
-    return !!user && featureEnabled(flag, this.features, { id: user.id, admin: !!user.admin, permissions: this.permissionsOf(user) })
+    return !!user && featureEnabled(flag, this.features, { id: user.id, admin: !!user.admin, permissions: this.rolePermissions(user) })
   }
 
   /** `GET /api/admin/features`: every flag, its default, the club's state and the members named */
@@ -4364,7 +4412,7 @@ export class ClubService {
 
   /** Whether a member directs a table or rules on its boards: its host, or an admin */
   private mayDirect(userId: string, hostId: string | undefined): boolean {
-    return userId === hostId || !!this.users.get(userId)?.admin
+    return userId === hostId || this.actsAsAdmin(this.users.get(userId))
   }
 
   /**

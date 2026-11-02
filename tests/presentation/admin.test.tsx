@@ -2,7 +2,7 @@ import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { AdminUser, Application, HealthStatus, LobbyView } from '../../shared/protocol.ts'
+import type { AdminUser, Application, HealthStatus, LobbyView, Me } from '../../shared/protocol.ts'
 import type { FeatureView } from '../../shared/features.ts'
 import type { IntegrityReport } from '../../shared/integrity.ts'
 import { ToastProvider } from '../../src/components/Toast.tsx'
@@ -46,7 +46,7 @@ vi.mock('../../src/lib/api.ts', async (original) => ({
 const LOBBY: LobbyView = { online: [], members: [], tables: [], myTableId: null, friends: [], blocked: [] }
 vi.mock('../../src/state/ClubContext.tsx', () => ({ useClub: () => ({ lobby: LOBBY }) }))
 // The same object every render, as AuthProvider's memo gives (a new `refresh` each time would reload forever)
-const AUTH = { user: { id: 'boss', username: 'boss', admin: true, permissions: [] }, refresh: async () => {} }
+const AUTH: { user: Me; refresh: () => Promise<void> } = { user: { id: 'boss', username: 'boss', admin: true, permissions: [] }, refresh: async () => {} }
 vi.mock('../../src/state/AuthContext.tsx', () => ({ useAuth: () => AUTH }))
 
 const NOW = Date.now()
@@ -182,6 +182,20 @@ describe('anti-cheating report (e11-t25)', () => {
 })
 
 describe('AdminPage', () => {
+  it('sends an admin without two-step sign-in to set it up, and asks the server for nothing (社長 2026-11-02)', async () => {
+    const before = AUTH.user
+    AUTH.user = { ...before, twoFactor: { enabled: false, recoveryLeft: 0, required: true } }
+    try {
+      page()
+      const banner = screen.getByRole('alert', { name: '請先開啟兩步驟登入' })
+      expect(within(banner).getByRole('link', { name: '到「我的帳號」設定' })).toHaveAttribute('href', '/account#two-factor')
+      expect(screen.queryByRole('navigation', { name: '管理頁的區塊' })).toBeNull()
+      expect(mocks.api.users).not.toHaveBeenCalled()
+    } finally {
+      AUTH.user = before
+    }
+  })
+
   it('has a section nav, with the waiting applications counted', async () => {
     page()
     const nav = await screen.findByRole('navigation', { name: '管理頁的區塊' })

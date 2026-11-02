@@ -645,6 +645,15 @@ export const MESSAGES = {
     ja: '設定の時間が切れました。最初からやり直してください',
     ko: '설정 시간이 지났습니다. 처음부터 다시 시작하세요',
   },
+  // Admins turn two-step sign-in on before doing anything only an admin may (社長 2026-11-02)
+  adminTwoFactorRequired: {
+    zh: '管理員要先開啟兩步驟登入才能使用管理功能，請到「我的帳號」設定',
+    'zh-Hans': '管理员要先开启两步验证登录才能使用管理功能，请到“我的账号”设置',
+    en: 'Admins must turn on two-step sign-in before using admin features; set it up on the Account page',
+    vi: 'Quản trị viên phải bật đăng nhập hai bước trước khi dùng các chức năng quản trị; hãy thiết lập ở trang Tài khoản',
+    ja: '管理機能を使うには、先に 2 段階ログインをオンにしてください。「アカウント」ページで設定できます',
+    ko: '관리 기능을 쓰려면 먼저 2단계 로그인을 켜야 합니다. 「내 계정」에서 설정하세요',
+  },
   mailSecuritySubject: {
     zh: '淡江牌桌：帳號安全通知',
     'zh-Hans': '淡江牌桌：账号安全通知',

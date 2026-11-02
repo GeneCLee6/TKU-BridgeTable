@@ -12,12 +12,14 @@ import {
   ROBOT_PACE,
   type BoardRecord,
   type ClientMessage,
+  type Me,
   type ServerMessage,
   type TableView,
 } from '../../shared/protocol.ts'
 import { ClubError, ClubService, type Connections, type ScheduleKind } from '../../worker/service.ts'
 import type { MemoryStore } from '../../worker/store.ts'
 import { memoryStore } from './sqlite.ts'
+import { adminWithTwoFactor } from './admin-two-factor.ts'
 import { lobbyFrom } from './lobby-copy.ts'
 import { indexRecord } from '../../worker/history-index.ts'
 import type { Table } from '../../worker/views.ts'
@@ -121,13 +123,25 @@ async function join(name: string, inviteCode = '') {
 }
 
 async function member(name: string) {
+  return online(await join(name))
+}
+
+/** The first account, online, with two-step sign-in on so that it acts as an admin */
+async function adminMember(name: string) {
   const user = await join(name)
+  // Turned on before going online: turning it on signs out every other session
+  await adminWithTwoFactor(club, user.id)
+  return online(user)
+}
+
+async function online(user: Me) {
   connections.online.add(user.id)
   club.connected(user.id)
   // Notifications go out once they are read from the store
   await new Promise((resolve) => setImmediate(resolve))
   return user.id
 }
+
 
 const send = (userId: string, message: ClientMessage) => club.handle(userId, message)
 const tableFor = (userId: string) => connections.table(userId)!
@@ -466,7 +480,7 @@ describe('robots at the table', () => {
         acceptsClaim: (kind, state, seat) => (asked.push(`claim ${kind} ${seat}`), ruleBrain.acceptsClaim(kind, state, seat)),
       },
     })
-    const gene = await member('gene')
+    const gene = await adminMember('gene')
     await send(gene, { type: 'createTable' })
     await send(gene, { type: 'addRobot', seat: 'N', kind: 'gib' })
     for (const seat of ['E', 'W'] as const) await send(gene, { type: 'addRobot', seat })
@@ -506,7 +520,7 @@ describe('robots at the table', () => {
   })
 
   it('come in two kinds: the club’s robot by default, or the 2/1 robot (GIB-compatible)', async () => {
-    const gene = await member('gene')
+    const gene = await adminMember('gene')
     await send(gene, { type: 'createTable' })
     await send(gene, { type: 'addRobot', seat: 'N', kind: 'gib' })
     await send(gene, { type: 'addRobot', seat: 'E' })
@@ -734,7 +748,11 @@ describe('admin', () => {
     const second = await join('second')
     expect(first.admin).toBe(true)
     expect(second.admin).toBe(false)
-    expect(() => club.requireAdmin(second.id)).toThrow(ClubError)
+    expect(() => club.requireAdmin(second.id)).toThrow('只有管理員可以使用')
+    // Not before two-step sign-in is on (社長 2026-11-02)
+    expect(first.twoFactor).toEqual({ enabled: false, recoveryLeft: 0, required: true })
+    expect(() => club.requireAdmin(first.id)).toThrow('管理員要先開啟兩步驟登入')
+    await adminWithTwoFactor(club, first.id)
     expect(() => club.requireAdmin(first.id)).not.toThrow()
   })
 
@@ -1084,7 +1102,11 @@ describe('friends and blocks (AC-1.6)', () => {
 describe('permissions', () => {
   it('lets admins grant TKU BridgeBook editing and import and featuring boards; admins have them all', async () => {
     const admin = (await founder('admin')).user
-    expect(admin.permissions).toEqual(['bookEdit', 'bookReview', 'bookImport', 'boardCurate', 'tkuSystem', 'forumModerate'])
+    // An admin uses none of them before two-step sign-in is on, and is told to turn it on
+    expect(admin.permissions).toEqual([])
+    expect(() => club.requirePermission(admin.id, 'bookEdit')).toThrow('管理員要先開啟兩步驟登入')
+    await adminWithTwoFactor(club, admin.id)
+    expect(club.requirePermission(admin.id, 'bookEdit').permissions).toEqual(['bookEdit', 'bookReview', 'bookImport', 'boardCurate', 'tkuSystem', 'forumModerate'])
     const amy = await join('amy')
     expect(() => club.requirePermission(amy.id, 'bookEdit')).toThrow('沒有這項權限')
     await club.adminSetPermissions(amy.id, ['bookImport', 'bookEdit', 'bookEdit'])
@@ -1101,6 +1123,7 @@ describe('permissions', () => {
 
   it('features boards only for members given boardCurate (e4-t28)', async () => {
     const admin = (await founder('admin')).user
+    await adminWithTwoFactor(club, admin.id)
     const amy = await join('amy')
     await expect(club.featured.set(amy.id, 'nope', {})).rejects.toThrow('沒有這項權限')
     await club.adminSetPermissions(amy.id, ['boardCurate'])
@@ -1366,7 +1389,7 @@ describe('a robot partner as declarer', () => {
 
 describe('TKB in two systems, and robots saved when they had levels', () => {
   it('seat TKB in the system chosen; a level sent by an older page is ignored', async () => {
-    const gene = await member('gene')
+    const gene = await adminMember('gene')
     await send(gene, { type: 'createTable' })
     await send(gene, { type: 'addRobot', seat: 'N' })
     await send(gene, { type: 'addRobot', seat: 'E', kind: 'gib', level: 'beginner' } as never)

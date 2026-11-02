@@ -240,6 +240,8 @@ export function createTheme(mode: ThemeMode, deck: DeckColors) {
         ? '0 4px 12px rgba(27, 35, 51, 0.12), 0 12px 32px rgba(27, 35, 51, 0.1)'
         : '0 4px 12px rgba(0, 0, 0, 0.5), 0 12px 32px rgba(0, 0, 0, 0.4)',
     cardShadow: '0 1px 3px rgba(0, 0, 0, 0.35)',
+    /** A QR code (the two-step sign-in setup): black on white in both themes, as phone cameras read best */
+    qr: { dark: '#000000', light: '#ffffff' },
     /**
      * A clickable card pointed at (`cardHover` in controls.ts, DESIGN.md §5.3): a soft lantern-gold
      * glow spreading out from the edge, `accent` at low alpha, instead of a dark outline

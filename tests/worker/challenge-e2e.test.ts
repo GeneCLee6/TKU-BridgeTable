@@ -4,6 +4,7 @@ import type { ClientMessage, ServerMessage, TableView } from '../../shared/proto
 import type { Connections, ScheduleKind } from '../../worker/service.ts'
 import { memoryStore } from './sqlite.ts'
 import { clubService } from './event-mode.ts'
+import { adminWithTwoFactor } from './admin-two-factor.ts'
 
 /**
  * End to end (C9, e7-t25, AC-7.4, AC-7.5): three people take a 4-board matchpoint challenge
@@ -60,6 +61,8 @@ it('three people, four boards, matchpoints: one stops halfway and only the finis
   await club.load()
   const founder = await club.register('boss', 'club-secret-1', '')
   const boss = 'user' in founder ? founder.user.id : ''
+  // The founder turns two-step sign-in on so that it acts as an admin (社長 2026-11-02)
+  await adminWithTwoFactor(club, boss)
 
   const member = async (name: string) => {
     await club.register(name, 'club-secret-1', '')
