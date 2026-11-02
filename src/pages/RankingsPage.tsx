@@ -21,7 +21,7 @@ import { usePreferences } from '../state/PreferencesContext.tsx'
 import { playerName } from '../strings.ts'
 
 /**
- * 社團積分榜 (`e9-t06`, AC-9.2, ARCHITECTURE.md §5.20): the month's and the year's (or a season's)
+ * 社團積分榜 (`e9-t06`, AC-9.2, ARCHITECTURE.md §5.21): the month's and the year's (or a season's)
  * boards, each member's entries traced to their events, and for admins the points rules, the
  * seasons and corrections to an entry (`e9-t04`, `e9-t05`). Members see it with the `rankings` flag.
  */

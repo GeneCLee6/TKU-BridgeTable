@@ -46,7 +46,7 @@ export type FeatureSettings = Partial<Record<FeatureFlag, FeatureSetting>>
  * BridgeHall's forum too (the same posts), which its members already use, so the server checks
  * each forum route's role (roles.ts `forumRouteNeed`), not this flag.
  *
- * Rankings (積分與實力評分, J2, ARCHITECTURE.md §5.20): the points boards (`/rankings`), the rating
+ * Rankings (積分與實力評分, J2, ARCHITECTURE.md §5.21): the points boards (`/rankings`), the rating
  * on the profile and their APIs. Off until the club settles the rules. The ledger and the ratings
  * are kept from every finished event either way, so opening it shows everything since J2; admins
  * reach the page with the flag off to set the rules first.

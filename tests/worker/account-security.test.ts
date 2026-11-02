@@ -313,6 +313,10 @@ describe('security headers (e11-t23)', () => {
     expect(PAGE_CSP).toContain("connect-src 'self'")
     expect(PAGE_CSP).toContain("frame-ancestors 'none'")
     expect(PAGE_CSP).toContain("object-src 'none'")
+    // The one other origin: Cloudflare Turnstile's script and frame on 申請加入 (e1-t33)
+    expect(PAGE_CSP).toContain("script-src 'self' 'wasm-unsafe-eval' https://challenges.cloudflare.com;")
+    expect(PAGE_CSP).toContain('frame-src https://challenges.cloudflare.com;')
+    expect(PAGE_CSP.match(/https:\/\/[^\s;]+/g)!.every((origin) => origin === 'https://challenges.cloudflare.com')).toBe(true)
   })
 
   it('adds the API’s headers, keeps what an answer set, and leaves a WebSocket upgrade alone', () => {

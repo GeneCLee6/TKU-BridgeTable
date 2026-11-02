@@ -61,14 +61,15 @@ export function BoardInfo({
   positions,
   size = 24,
 }: {
-  boardNo: number
+  /** None for a deal that is not a numbered board (a forum post's, E13 K2) */
+  boardNo?: number
   dealer: Seat
   vul: Vulnerability
   positions: Record<Position, Seat>
   size?: number
 }) {
   const t = useT()
-  const label = `${t.boardNo(boardNo)}，${t.dealer} ${seatLetter[dealer]}，${t.vulNames[vul]}`
+  const label = `${boardNo ? `${t.boardNo(boardNo)}，` : ''}${t.dealer} ${seatLetter[dealer]}，${t.vulNames[vul]}`
   return (
     <Compass $size={size} role="img" aria-label={label} title={label}>
       {(Object.keys(AREAS) as Position[]).map((area) => {
@@ -79,7 +80,7 @@ export function BoardInfo({
           </Mark>
         )
       })}
-      <BoardNumber>{boardNo}</BoardNumber>
+      <BoardNumber>{boardNo || ''}</BoardNumber>
     </Compass>
   )
 }

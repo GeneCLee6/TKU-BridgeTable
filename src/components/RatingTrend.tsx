@@ -8,7 +8,7 @@ import { usePreferences } from '../state/PreferencesContext.tsx'
 import { Muted } from './ui.tsx'
 
 /**
- * 實力評分 on a profile (`e9-t08`, AC-9.3, ARCHITECTURE.md §5.20): the member's rating, how many
+ * 實力評分 on a profile (`e9-t08`, AC-9.3, ARCHITECTURE.md §5.21): the member's rating, how many
  * events it rests on and its trend, a plain SVG line. A member who hides it shows only that it is
  * hidden (the server sends nothing more); on their own profile they choose. Only with the
  * `rankings` flag.

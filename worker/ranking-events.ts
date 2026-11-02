@@ -9,7 +9,7 @@ import type { RankedEvent } from './rankings.ts'
 import { boardScores, type TeamMatch } from './team-matches.ts'
 
 /**
- * How each kind of finished event goes into the ledger (`e9-t05`, ARCHITECTURE.md §5.20). Pure:
+ * How each kind of finished event goes into the ledger (`e9-t05`, ARCHITECTURE.md §5.21). Pure:
  * the club calls these when it settles an event, and `RankingStore.record` keeps each event once.
  */
 

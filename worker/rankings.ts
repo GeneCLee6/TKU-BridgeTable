@@ -23,7 +23,7 @@ import {
 import type { Sql, SqlValue } from './store.ts'
 
 /**
- * The points ledger and the ratings (`e9-t05`, `e9-t08`, ARCHITECTURE.md §5.20), in the club
+ * The points ledger and the ratings (`e9-t05`, `e9-t08`, ARCHITECTURE.md §5.21), in the club
  * object's SQLite next to the challenges and matches they come from. An event is recorded once
  * (`ranked_events`): the points of each member, then the ratings, all in one transaction, so an
  * event heard of again (a late report, a settlement run twice) changes nothing.

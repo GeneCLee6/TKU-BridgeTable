@@ -2,7 +2,7 @@ import type { PublicUser } from './protocol.ts'
 import { TAIWAN_OFFSET_MS } from './weekly-challenge.ts'
 
 /**
- * Club points (社團積分, `e9-t04`–`e9-t06`, AC-9.2, ARCHITECTURE.md §5.20): every finished event gives
+ * Club points (社團積分, `e9-t04`–`e9-t06`, AC-9.2, ARCHITECTURE.md §5.21): every finished event gives
  * points by place and by how many sides took part, under rules the admins set per kind of event.
  * Each entry in the ledger names its event, so every point can be traced. Pure functions only.
  */
@@ -41,7 +41,7 @@ export interface PointsRules {
 }
 
 /**
- * The defaults (保守預設, waiting for the club to decide, ARCHITECTURE.md §5.20): the club's own
+ * The defaults (保守預設, waiting for the club to decide, ARCHITECTURE.md §5.21): the club's own
  * events count most; a challenge among friends needs three who finished, so two cannot trade wins
  */
 export const DEFAULT_POINTS_RULES: PointsRules = {

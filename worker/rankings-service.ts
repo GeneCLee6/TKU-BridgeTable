@@ -23,7 +23,7 @@ import type { Store } from './store.ts'
 import type { TeamMatch } from './team-matches.ts'
 
 /**
- * Club points and ratings as the club serves them (J2: `e9-t04`–`e9-t08`, ARCHITECTURE.md §5.20).
+ * Club points and ratings as the club serves them (J2: `e9-t04`–`e9-t08`, ARCHITECTURE.md §5.21).
  * Kept apart from `ClubService`, which only tells it of every finished event and routes the pages'
  * requests here. Nothing here touches Cloudflare: the store and the clock come in.
  */

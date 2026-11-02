@@ -6,6 +6,7 @@ import { LANGS } from '../../shared/messages.ts'
 import { PROFILE_LEVELS, PROFILE_LIMITS, type Profile, type ProfileLevel } from '../../shared/profile.ts'
 import { DEFAULT_ROBOT_SPEED, LIMITS, ROBOT_SPEEDS, type Me, type RobotSpeed } from '../../shared/protocol.ts'
 import { DataCard, SessionsCard } from '../components/AccountSecurity.tsx'
+import { EmailCard } from '../components/EmailCard.tsx'
 import { Avatar } from '../components/Avatar.tsx'
 import { AvatarCropper } from '../components/AvatarCropper.tsx'
 import { PasswordInput } from '../components/PasswordInput.tsx'
@@ -657,6 +658,7 @@ export function AccountPage() {
           <InstallApp />
         </Card>
         <PasswordForm />
+        <EmailCard />
         <SessionsCard />
         <DataCard />
         <Muted>

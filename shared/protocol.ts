@@ -88,6 +88,15 @@ export interface Me extends PublicUser {
   robotSpeed?: RobotSpeed
   /** The feature flags the member has (e11-t26, shared/features.ts); the server always sets it */
   features?: FeatureFlag[]
+  /** The member's email (e1-t29); left out when the club sends no mail (no mail provider set, DEPLOY.md §4.14) */
+  email?: AccountEmail
+}
+
+/** `Me.email`: the verified address, and one waiting for its link */
+export interface AccountEmail {
+  address: string | null
+  verifiedAt: number | null
+  pending: string | null
 }
 
 /** Where someone registered; both sites share the accounts */
@@ -105,6 +114,11 @@ export interface Application {
 
 /** POST /api/register: the first account signs in at once; later ones wait for approval */
 export type RegisterResult = { user: Me } | { pending: true; username: string }
+
+/** GET /api/register/options (e1-t33): Turnstile's site key when the form must show it, else null */
+export interface RegisterOptions {
+  turnstileSiteKey: string | null
+}
 
 export interface SeatOccupant extends PublicUser {
   online: boolean

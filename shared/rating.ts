@@ -1,5 +1,5 @@
 /**
- * The club's playing strength (實力評分, `e9-t07`, AC-9.3, ARCHITECTURE.md §5.20): Glicko-2 as Mark
+ * The club's playing strength (實力評分, `e9-t07`, AC-9.3, ARCHITECTURE.md §5.21): Glicko-2 as Mark
  * Glickman describes it ("Example of the Glicko-2 system", 2013), one rating per member. Each
  * finished event is one rating period: every member in it plays one game against every other side
  * (another player, pair or team), won, drawn or lost by their places. Pure functions only.
