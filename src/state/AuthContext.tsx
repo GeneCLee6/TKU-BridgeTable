@@ -7,7 +7,8 @@ import { resetFavorites } from '../lib/favorites.ts'
 /** The signed-in member. `undefined` while the session is being checked, `null` when signed out. */
 interface Auth {
   user: Me | null | undefined
-  login: (username: string, password: string) => Promise<void>
+  /** `code` is the second step (兩步驟登入, e11-t31), for accounts that turned it on */
+  login: (username: string, password: string, code?: string, lang?: string) => Promise<void>
   /** Signs in the club's first account; later registrations come back pending */
   register: (username: string, password: string, inviteCode: string, note: string, turnstileToken?: string) => Promise<RegisterResult>
   logout: () => Promise<void>
@@ -33,8 +34,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     void refresh()
   }, [refresh])
 
-  const login = useCallback(async (username: string, password: string) => {
-    setUser((await api.login(username, password)).user)
+  const login = useCallback(async (username: string, password: string, code?: string, lang?: string) => {
+    setUser((await api.login(username, password, code, lang)).user)
     resetFavorites()
   }, [])
 

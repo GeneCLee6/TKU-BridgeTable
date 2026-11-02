@@ -576,6 +576,9 @@ export class Club extends DurableObject<Env> implements Connections {
       const device = await this.sighting(request, result.user.id, secure, true)
       return json({ user: result.user }, 200, ...(await this.signedIn(result.token, result.user.id, secure)), ...device)
     }
+    // `code` is the second step (兩步驟登入, e11-t31), only for accounts that turned it on: without
+    // it they get 401 twoFactorNeeded and send the same request again with it. Everyone else's
+    // request and answer are as before (TKU BridgeHall signs in here too)
     if (route === 'POST /api/login') {
       const b = await body()
       const { user, token: newToken } = await this.service.login(
@@ -583,6 +586,8 @@ export class Club extends DurableObject<Env> implements Connections {
         text(b.password),
         request.headers.get('CF-Connecting-IP') ?? '',
         request.headers.get('User-Agent') ?? '',
+        text(b.code),
+        b.lang,
       )
       const device = await this.sighting(request, user.id, secure, true)
       return json({ user }, 200, ...(await this.signedIn(newToken, user.id, secure)), ...device)
@@ -684,6 +689,17 @@ export class Club extends DurableObject<Env> implements Connections {
     }
     if (route === 'POST /api/account/email/resend') {
       return json({ user: await this.service.resendEmailVerification(user.id, url.origin, (await body()).lang) })
+    }
+    // 兩步驟登入 (e11-t31): a secret to set up (admins), its first code turns it on, new recovery codes, off
+    if (route === 'POST /api/account/2fa/setup') return json(await this.service.startTwoFactor(user.id, text((await body()).password)))
+    if (route === 'POST /api/account/2fa/enable') return json(await this.service.enableTwoFactor(user.id, text((await body()).code), token))
+    if (route === 'POST /api/account/2fa/recovery') {
+      const b = await body()
+      return json(await this.service.renewRecoveryCodes(user.id, text(b.password), text(b.code)))
+    }
+    if (route === 'POST /api/account/2fa/disable') {
+      const b = await body()
+      return json({ user: await this.service.disableTwoFactor(user.id, text(b.password), text(b.code), b.lang) })
     }
     // Where the member is signed in, and signing other devices out (e11-t23)
     if (route === 'GET /api/account/sessions') return json({ sessions: await this.service.accountSessions(user.id, token) })
@@ -966,6 +982,12 @@ export class Club extends DurableObject<Env> implements Connections {
     if (reset && (method === 'POST' || method === 'DELETE')) {
       const code = await this.service.adminAnswerPasswordReset(user.id, reset[1], method === 'POST')
       return json(code ?? { ok: true })
+    }
+    // 兩步驟登入 (e11-t31): turning off a member's second step, for one who lost the phone and the recovery codes
+    const twoFactor = path.match(/^\/users\/(\w+)\/2fa$/)
+    if (twoFactor && method === 'DELETE') {
+      await this.service.adminClearTwoFactor(user.id, twoFactor[1])
+      return json({ ok: true })
     }
     const member = path.match(/^\/users\/(\w+)(\/password|\/admin|\/permissions)?$/)
     if (member) {

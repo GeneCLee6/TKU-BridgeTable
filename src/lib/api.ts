@@ -9,6 +9,7 @@ import { historyQueryString, type HistoryQuery } from '../../shared/history-quer
 import type { MessageParams } from '../../shared/messages.ts'
 import type { MemberProfile, Profile } from '../../shared/profile.ts'
 import type {
+  TwoFactorSetup,
   AdminUser,
   ResetCode,
   Application,
@@ -91,7 +92,12 @@ export const api = {
   me: () => request<{ user: Me }>('/api/me'),
   /** The health check with the last hour's numbers, for the admin page's system status (e11-t22) */
   health: () => request<HealthStatus>('/api/health'),
-  login: (username: string, password: string) => post<{ user: Me }>('/api/login', { username, password }),
+  /**
+   * Signs in. `code` is the second step (兩步驟登入, e11-t31) for accounts that turned it on: they
+   * first get 401 twoFactorNeeded, then send the same with the code from the app or a recovery code
+   */
+  login: (username: string, password: string, code = '', lang?: string) =>
+    post<{ user: Me }>('/api/login', code ? { username, password, code, lang } : { username, password }),
   /** The first account signs in at once; later ones wait for an admin to approve them */
   register: (username: string, password: string, inviteCode: string, note: string, turnstileToken?: string) =>
     post<RegisterResult>('/api/register', { username, password, inviteCode, note, site: 'table', turnstileToken }),
@@ -114,6 +120,15 @@ export const api = {
   /** Binds or changes the member's email (a link goes to it); an empty address removes it */
   setEmail: (address: string, password: string, lang: string) => post<{ user: Me }>('/api/account/email', { address, password, lang }),
   resendEmailVerification: (lang: string) => post<{ user: Me }>('/api/account/email/resend', { lang }),
+  /** 兩步驟登入 (e11-t31): a secret to set up (admins), its first code turns it on, new recovery codes, off */
+  twoFactor: {
+    setup: (password: string) => post<TwoFactorSetup>('/api/account/2fa/setup', { password }),
+    enable: (code: string) => post<{ user: Me; recoveryCodes: string[] }>('/api/account/2fa/enable', { code }),
+    renew: (password: string, code: string) =>
+      post<{ user: Me; recoveryCodes: string[] }>('/api/account/2fa/recovery', { password, code }),
+    disable: (password: string, code: string, lang: string) =>
+      post<{ user: Me }>('/api/account/2fa/disable', { password, code, lang }),
+  },
   logout: () => post<{ ok: true }>('/api/logout'),
   changePassword: (current: string, next: string) => post<{ ok: true }>('/api/account/password', { current, next }),
   /** The account settings the server keeps (e1-t24) */
@@ -260,6 +275,8 @@ export const api = {
     updateMembers: (changes: MemberChange[]) => post<{ ok: true }>('/api/admin/members', { changes }),
     setAdmin: (id: string, admin: boolean) => post<{ ok: true }>(`/api/admin/users/${id}/admin`, { admin }),
     deleteUser: (id: string) => request<{ ok: true }>(`/api/admin/users/${id}`, { method: 'DELETE' }),
+    /** 兩步驟登入 (e11-t31): turns a member's second step off, for one who lost the phone */
+    clearTwoFactor: (id: string) => request<{ ok: true }>(`/api/admin/users/${id}/2fa`, { method: 'DELETE' }),
     settings: () => request<{ settings: ClubSettings }>('/api/admin/settings'),
     saveSettings: (settings: Partial<ClubSettings>) => post<{ settings: ClubSettings }>('/api/admin/settings', settings),
     /** The feature flags (e11-t26): the club's state of each and the members who get it anyway */
