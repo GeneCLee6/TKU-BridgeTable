@@ -43,7 +43,9 @@ TKU-BridgeTable/
 │  ├─ scoring.ts           複式計分
 │  ├─ imp.ts               WBF IMP 表（挑戰與隊制賽共用）
 │  ├─ vp.ts                WBF 連續 VP 表：IMP 差 → VP（隊制賽，之後 E9 的多隊賽，§5.8）
-│  ├─ challenge-scoring.ts 挑戰的計分：IMP、總分、MP、Cross-IMP、沒打完的副、同分名次
+│  ├─ challenge-scoring.ts 挑戰的計分：IMP、總分、MP、Cross-IMP、IMP 對 datum、沒打完的副、同分名次
+│  ├─ challenge-stats.ts   挑戰戰績：勝率、平均 IMP、對每位的 head-to-head（§5.5 M2）
+│  ├─ challenge-comments.ts 每副討論串的型別與上限（§5.5 M2）
 │  ├─ movement.ts          雙人賽的移位：Mitchell（3–10 桌、輪空、跳桌），純函式（§5.22）
 │  ├─ pairs.ts             雙人賽的設定、MP 計分（Neuberg 調整、南北東西分開排名）與頁面的型別（§5.22）
 │  ├─ challenge.ts         挑戰的狀態、設定、預設值與期限（§5.5）
@@ -106,6 +108,7 @@ TKU-BridgeTable/
 │  ├─ book-telemetry.ts    淡江橋館的錯誤回報與匿名使用統計：SQL 四張表與 BookTelemetry（§5.15）
 │  ├─ challenges.ts        挑戰的 SQL 表與 ChallengeStore（§5.5）
 │  ├─ challenge-flow.ts    挑戰的狀態轉移（建立、回覆、取消、截止）：純函式，ClubService 寫回（§5.5）
+│  ├─ challenge-extras.ts  挑戰的每副討論串（challenge_comments 表）與戰績（§5.5 M2）
 │  ├─ team-matches.ts      隊制賽的 SQL 表與 TeamMatchStore（§5.8）
 │  ├─ team-match-flow.ts   隊制賽的步驟（建立、改設定、取消、座位與隊長、開始、每室的結果與結束）：純函式（§5.8）
 │  ├─ team-match-service.ts 隊制賽社團那一半：動作（HTTP 與 socket）的檢查、通知、畫面與推送，寫入一律經 MatchStep（§5.8、§5.12 H2c）
@@ -189,6 +192,10 @@ interface BoardState {
 | 非參與者 | 404 | `ranking = club` 且 `finished`：排名（名次與總成績，不含每副分數、traveller）；否則 404 |
 
 `GET /api/challenges` 的列表不帶 traveller（給大廳用），單一挑戰才帶。單一挑戰的 traveller 另帶每一列的首攻（結果頁用，2026-10-25）：索引沒有首攻，`ClubService.challengeDetail` 先用 `challengeView` 算出這個人看得到哪幾列，**只讀那幾列**的紀錄，把首攻放進 `EventBoard.lead` 再交給 `challengeView` 重算一次，所以首攻跟著同一條規則出去，還沒打完的人與非參與者一副紀錄都不會被讀。這些判斷都在 `worker/views.ts`（`challengeView`、`challengeBoardVisible`），測試在 `tests/worker/challenge-settlement.test.ts` 與 `challenge-options.test.ts`（首攻）。
+
+**每副討論串**（`e7-t27`，`GET`／`POST /api/challenges/:id/boards/:seq/comments`、`DELETE …/comments/:id`）：讀的人**就是**看得到那一副 traveller 的人（`worker/views.ts` 的 `challengeThreadAccess`，跟 `challengeView` 給 traveller 的條件相同）：挑戰進行中只有打完全部副數的參與者，結束後每位參與者；還沒打完的人連有沒有人留言都不知道（回 `challengeGone` 404，跟不存在一樣），非參與者永遠看不到，`ranking = club` 也一樣（社團只看得到排名）。寫的人只有打完全部副數的參與者（含「已知牌」的發起者），沒打完的人在結束後只能讀（`challengeCommentFinishFirst`）。刪除：寫的人自己，或看得到這一串的管理員。測試在 `tests/worker/challenge-extras.test.ts`（兩種 `EVENT_OBJECTS` 模式都跑）。
+
+**挑戰戰績**（`e7-t29`，`GET /api/challenges/stats`）：只回答**本人**的戰績，沒有讀別人戰績的 API。只用已經 `finished` 的挑戰（結束後每位參與者本來就看得到全部），只比打完全部副數的人，所以不會比 traveller 多透露什麼。
 
 **隊制賽**（§5.8，`teamMatchView`，`GET /api/matches`、`/api/matches/:id`、socket 的 `match`）：牌組永遠不送；準備中的比賽只給房主與有座位（受邀或已入座）的人，被移出、拒絕或離開後就看不到（推送 `match: null`）；畫面另附每位座位上的社員在不在線（`online`，和大廳的社員列表同一份資訊）與房主能不能開始（`ready`）；比賽中另附兩室牌桌的 id（`tables`，參賽者回到自己那一桌、其他人觀看用；能不能進去由牌桌決定）；比賽中的牌桌只是兩張一般牌桌，看得到的牌和一般牌桌一樣，額外的限制在牌桌層（F4 的 `e8-t09`，見下）。比賽的畫面推給參賽者，比賽中也推給兩桌上的每一個人（入座與觀看），牌桌上方的比分條就是用它（`e8-t10`）。
 
@@ -1316,6 +1323,17 @@ C4 的實作（2026-10-24）：
   - 全部只用伺服器給的 `ChallengeView`（traveller 與排名），瀏覽器只做算術，不判斷誰看得到什麼：還沒打完的人沒有 traveller，什麼都不顯示；沒打過某一副的人（沒打完、或拒絕了的參與者在結束後）在那一副沒有「你對他」。
 - `/challenges/:id/boards/:seq`（`ChallengeBoardPage`）：那一副的 traveller（`TravellerTable`，莊家名字、每副成績、「和他並排看」到 `ComparePage`，和自己的那一副比），上一副／下一副，以及**每個人一個分頁**：分頁顯示我對他的勝負，內容是 `BoardRecordView`（不帶標題）：牌、重播、叫牌、雙夢家、出牌紀錄。網址的 `?p=社員 id` 記住選的人，預設是自己。伺服器沒給這一副的 traveller 時只說「現在還看不到」，不讀任何紀錄；每份紀錄照樣走 `/api/history/:id`（`recordVisible`、`challengeBoardVisible`）。
 - **1 副的挑戰**：計分不用改，只是每個人只有一副：MP 兩人打完是 100%／0%，同分各 50% 並列第一；只有一人打完照舊用 `total`、只顯示總分；Cross-IMP 兩人時就是 IMP。再戰維持 1 副。測試在 `tests/engine/challenge-scoring.test.ts`（「a challenge of one board」）與 `tests/worker/challenge-options.test.ts`（「one-board challenges」：三人 MP、兩人打完、一人未完成）。
+
+**M2：IMP 對 datum、每副討論串、挑戰戰績**（J4，`e7-t27`、`e7-t29`、`e7-t30`，2026-11-02）：
+- **IMP 對 datum**（`e7-t30`，計分 `datumImp`，`shared/challenge-scoring.ts` 的 `datumOf`）：多人挑戰與每週社團挑戰多一個計分選項（`scoringsFor`、`WEEKLY_SCORINGS`；單挑沒有，兩人時 datum 就是兩人的平均，沒有意義）。每一副的 datum ＝ 那一副比較的所有分數（**含自己**）的平均，**三個以上時去掉一個最高與一個最低**，四捨五入到 10 分；每個人以「自己的分數 − datum」查 IMP 表，各副加總。只有一人打的那一副 datum 就是他自己的分數，得 0 IMP（同其他 IMP 計分）。裁定照舊：Avg／Avg+／Avg- 是 0／+3／−3 IMP，不放進別人的 datum；指定分數用指定的分數。結果頁的「你對每位的成績」跟 Cross-IMP 一樣用兩人分數差的一般 IMP。
+  - **建議預設**（PRD 沒定，待社長確認）：去掉最高最低的門檻是 3 個分數（BBO 與多數俱樂部軟體依人數去掉更多，社團規模用 1 高 1 低）；datum 含自己的分數；四捨五入到 10 分。
+- **每副討論串**（`e7-t27`）：每一副的頁面（`/challenges/:id/boards/:seq`，`ChallengeBoardPage` 最下面的 `ChallengeThread`）。誰讀、誰寫見 §4（`challengeThreadAccess`）。留言 1–500 字（`CHALLENGE_COMMENT_MAX`），每串送最新 200 則（`CHALLENGE_COMMENTS_SHOWN`），走社員的動作速率限制。**不用論壇**（§5.19）：論壇是牌桌與橋館共用、所有社員都能讀的公開討論，挑戰的討論串要依「打完沒有」把關，而且不該出現在橋館；所以是 `Club` 自己的一張表 `challenge_comments`（`id`、`challenge_id`、`seq`、`user_id`、`text`、`at`；索引 `(challenge_id, seq, id)`、`(user_id)`），程式在 `worker/challenge-extras.ts`（`ChallengeExtras`，不碰 Cloudflare API）。`EVENT_OBJECTS` 開著時也留在 `Club`：留言不改挑戰的狀態，判斷權限讀的是 `Club` 的挑戰副本。刪除帳號時他的留言一起刪（`removeMember`），個資匯出帶 `challengeComments`。沒有通知、沒有即時推送（打開頁面時讀、送出後拿到新的整串）。
+- **挑戰戰績**（`e7-t29`，`/challenges/stats`，`ChallengeStatsPage`，挑戰頁右上的「我的戰績」）：純函式 `shared/challenge-stats.ts` 的 `challengeStats`，`ChallengeExtras.stats` 從 `Club` 的副本取這個人參與、已經 `finished`、**他打完全部副數**的挑戰，只放排名裡的人（同 `challengeStandings`，含裁定）。
+  - 每場挑戰和每一位**同樣打完的**對手算一次「交手」，照那一場的計分（`headToHead`，只比兩人都有分數、沒被判人工分數的副）分勝負：IMP／總分正數贏、負數輸、0 和；MP 高於 50% 贏。**勝率** ＝（勝 ＋ 和 ÷ 2）÷ 交手次數。
+  - **平均 IMP** 不管那一場的計分，一律是每一副和每一位對手的分數差換算的 IMP，加總後除以比過的副數。
+  - 另有「挑戰場數」（排名裡至少還有一人的挑戰）、「第一名」（含並列），以及**對每位的戰績**（head-to-head：場數、勝負和、比過幾副、IMP 合計、最近一次），依場數、再依最近一次排序。
+  - **建議預設**（PRD 沒定，待社長確認）：不算每日賽與每週社團挑戰（那是全社對機器人，不是社員之間的挑戰，人數多會把勝率稀釋掉）；沒打完的挑戰不算；和局算半場。
+- **沒做**：`e7-t26` 主題牌組已取消（社長 2026-10-24）。`e7-t28` 雙人搭檔挑戰延後：要讓兩位真人同坐一張挑戰牌桌（邀請以搭檔為單位、兩人都在才發牌、暫停與續打、北家當莊時不換座位、計分以搭檔為單位、`EventObject` 的流程），牽動牌桌模式與挑戰的資料模型，不是 S/M 的改動，另開一批。
 
 **公平與確定性**（`e7-t09`）：機器人是確定的（§5.1），兩個人做一樣的事就遇到一樣的反應。機器人的制度（`robotKind`）在建立時鎖進 `settings`；機器人沒有等級（社長 2026-10-24），`settings` 帶 `robotLevel` 會被拒絕，以前存下來的挑戰帶著的 `robotLevel` 載入時丟掉。以後若 TKB Adv 要用亂數（模擬），種子要用「挑戰 id＋第幾副＋動作序號」，不能用牌局 id。
 

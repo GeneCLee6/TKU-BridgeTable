@@ -94,9 +94,12 @@ export function defaultChallengeSettings(invited: number): ChallengeSettings {
 export const challengeDeadline = (createdAt: number, settings: ChallengeSettings) =>
   createdAt + settings.days * DAY_MS
 
-/** Head to head: IMPs or total points; with more: matchpoints, cross-IMPs or total points (AC-7.1) */
+/**
+ * Head to head: IMPs or total points; with more: matchpoints, cross-IMPs, IMPs against the datum
+ * (`e7-t30`) or total points (AC-7.1)
+ */
 export const scoringsFor = (invited: number): readonly ChallengeScoring[] =>
-  invited > 1 ? ['mp', 'crossImp', 'total'] : ['imp', 'total']
+  invited > 1 ? ['mp', 'crossImp', 'datumImp', 'total'] : ['imp', 'total']
 
 /**
  * Checks the settings a creator sent (`e7-t05`): every field optional, falling back on

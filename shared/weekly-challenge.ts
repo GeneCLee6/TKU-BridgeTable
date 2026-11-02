@@ -9,8 +9,8 @@ import { isRobotKind, type RobotKind } from './protocol.ts'
  * server's clock or the admin's browser.
  */
 
-/** Whole-club challenges have many players: matchpoints, cross-IMPs or total points */
-export const WEEKLY_SCORINGS = ['mp', 'crossImp', 'total'] as const satisfies readonly ChallengeScoring[]
+/** Whole-club challenges have many players: matchpoints, cross-IMPs, IMPs against the datum or total points */
+export const WEEKLY_SCORINGS = ['mp', 'crossImp', 'datumImp', 'total'] as const satisfies readonly ChallengeScoring[]
 export type WeeklyScoring = (typeof WEEKLY_SCORINGS)[number]
 
 export interface WeeklyChallengeSchedule {

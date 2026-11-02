@@ -851,6 +851,20 @@ export class Club extends DurableObject<Env> implements Connections {
             : { type: 'rematchChallenge', challengeId }
       return json({ challenge: await this.service.challengeRequest(user.id, message) })
     }
+    // A member's challenge record (e7-t29): their own only
+    if (route === 'GET /api/challenges/stats') return json({ stats: this.service.challengeExtras.stats(user.id) })
+    // Each board's discussion thread (e7-t27); `challengeThreadAccess` decides who reads and writes
+    const thread = url.pathname.match(/^\/api\/challenges\/([\w-]+)\/boards\/(\d+)\/comments(?:\/(\d+))?$/)
+    if (thread) {
+      const [, challengeId, seqText, commentId] = thread
+      const seq = Number(seqText)
+      const extras = this.service.challengeExtras
+      if (request.method === 'GET' && !commentId) return json({ thread: extras.comments(challengeId, seq, user.id) })
+      if (request.method === 'POST' && !commentId)
+        return json({ thread: extras.addComment(challengeId, seq, user.id, (await body()).text) })
+      if (request.method === 'DELETE' && commentId)
+        return json({ thread: extras.removeComment(challengeId, seq, user.id, Number(commentId)) })
+    }
     const challenge = url.pathname.match(/^\/api\/challenges\/([\w-]+)$/)
     if (request.method === 'GET' && challenge) {
       const found = await this.service.challengeDetail(challenge[1], user.id)

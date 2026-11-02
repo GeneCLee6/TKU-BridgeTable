@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  datumOf,
   headToHead,
   headToHeadTotal,
   pairResult,
@@ -222,5 +223,53 @@ describe('rulings in the standings (e2-t36)', () => {
       [[null], 0],
       [[100], 1],
     ])
+  })
+})
+
+describe('IMPs against the datum (e7-t30)', () => {
+  it('leaves out the highest and the lowest score from three on and rounds to 10', () => {
+    expect(datumOf([])).toBe(0)
+    expect(datumOf([420])).toBe(420)
+    // Two scores: nothing left out, 295 rounds to 300
+    expect(datumOf([420, 170])).toBe(300)
+    expect(datumOf([420, 170, -50])).toBe(170)
+    // 170, 420 and 620 kept: 403.3 → 400
+    expect(datumOf([620, 420, 170, -100, 650])).toBe(400)
+  })
+
+  it('scores each board against its datum, worked by hand', () => {
+    const standings = score('datumImp', {
+      amy: [620, 100],
+      ben: [420, 100],
+      cat: [170, 100],
+      dan: [-100, 100],
+      eve: [650, 140],
+    })
+    // Board 1, datum 400: +220 = 6, +20 = 1, −230 = −6, −500 = −11, +250 = 6
+    // Board 2, datum 100: eve +40 = 1, the others 0
+    expect(brief(standings)).toEqual([
+      ['eve', 7, 1],
+      ['amy', 6, 2],
+      ['ben', 1, 3],
+      ['cat', -6, 4],
+      ['dan', -11, 5],
+    ])
+    expect(standings[0].boards).toEqual([6, 1])
+  })
+
+  it('alone on a board is 0 IMPs, and two players compare with their rounded average', () => {
+    expect(brief(score('datumImp', { amy: [420], ben: [null] }))).toEqual([
+      ['amy', 0, 1],
+      ['ben', -3, 2],
+    ])
+    // Datum 300: +120 = 3, −130 = −4
+    expect(brief(score('datumImp', { amy: [420], ben: [170] }))).toEqual([
+      ['amy', 3, 1],
+      ['ben', -4, 2],
+    ])
+  })
+
+  it('compares two players in plain IMPs on the results page', () => {
+    expect(pairResult('datumImp', 420, 170)).toBe(6)
   })
 })

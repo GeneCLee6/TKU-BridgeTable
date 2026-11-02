@@ -1,5 +1,7 @@
 import type { RulingRequest } from '../../shared/board-events.ts'
 import type { ChallengeSettings, ChallengeView } from '../../shared/challenge.ts'
+import type { ChallengeCommentsView } from '../../shared/challenge-comments.ts'
+import type { ChallengeStatsView } from '../../shared/challenge-stats.ts'
 import type { WeeklyChallengeSchedule, WeeklyChallengeView } from '../../shared/weekly-challenge.ts'
 import type { DailyEventSettings, DailyEventView } from '../../shared/daily-event.ts'
 import type { PairsSettings, PairsSummary, PairsView } from '../../shared/pairs.ts'
@@ -210,6 +212,18 @@ export const api = {
   challenges: () => request<{ challenges: ChallengeView[] }>('/api/challenges'),
   /** One challenge as the member may see it, with the standings and travellers they are allowed */
   challenge: (id: string) => request<{ challenge: ChallengeView }>(`/api/challenges/${encodeURIComponent(id)}`),
+  /** The member's own challenge record (`e7-t29`) */
+  challengeStats: () => request<{ stats: ChallengeStatsView }>('/api/challenges/stats'),
+  /** One board's discussion thread (`e7-t27`): the server decides who reads and who writes */
+  challengeThread: (id: string, seq: number) =>
+    request<{ thread: ChallengeCommentsView }>(`/api/challenges/${encodeURIComponent(id)}/boards/${seq}/comments`),
+  postChallengeComment: (id: string, seq: number, text: string) =>
+    post<{ thread: ChallengeCommentsView }>(`/api/challenges/${encodeURIComponent(id)}/boards/${seq}/comments`, { text }),
+  removeChallengeComment: (id: string, seq: number, commentId: number) =>
+    request<{ thread: ChallengeCommentsView }>(
+      `/api/challenges/${encodeURIComponent(id)}/boards/${seq}/comments/${commentId}`,
+      { method: 'DELETE' },
+    ),
   /** The daily club event's page (`e9-t03`): today's, yesterday's and the earlier days */
   daily: () => request<{ daily: DailyEventView }>('/api/daily'),
   /** Pairs events (`e9-t10`–`e9-t13`, §5.22): the list, one event as the member may see it, and its actions */

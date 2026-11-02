@@ -149,7 +149,7 @@ npx tsx -e "import {headersFile} from './worker/security-headers.ts'; process.st
 
 ## 5. 個人資料：匯出與刪除（`e11-t27`）
 
-- **匯出**：「我的帳號」→「下載我的資料」，`GET /api/account/export` 回一個 JSON 檔（`format: 'tku-bridge-table-account'`、`version`）：帳號與設定（不含密碼雜湊）、登入中的裝置、登入與連線紀錄（`signIns`：網路的雜湊（以 Worker secret `SEEN_SALT` 加鹽，不含 IP；沒設 secret 時是空的）、瀏覽器 id 與名稱、時間，防作弊報表用，ARCHITECTURE.md §5.17）、好友與封鎖、通知、私訊、練習設定、收藏與筆記、社團積分明細與實力評分（`points`、`rating`，ARCHITECTURE.md §5.21）、打過的每副牌的摘要（完整紀錄在 `/history/<id>`）。帳號裡有 Email（`email`、`emailVerifiedAt`，等待驗證的地址是 `emailPending`，`e1-t29`），不含驗證或重設連結的雜湊。不含別人的 session 或任何 token。
-- **刪除**：「我的帳號」→「刪除帳號」，要密碼與確認；`POST /api/account/delete` 走與管理員刪帳號相同的 `removeMember`：帳號（含 Email 與寄出的連結）、頭像、session、登入與連線紀錄（`seen:`）、好友與封鎖、通知、私訊、收藏、練習設定、閱讀與學習進度、社團積分與實力評分（§5.21）立即刪除，所有連線關閉。社團唯一的管理員不能刪（`lastAdminLeaving`）。
+- **匯出**：「我的帳號」→「下載我的資料」，`GET /api/account/export` 回一個 JSON 檔（`format: 'tku-bridge-table-account'`、`version`）：帳號與設定（不含密碼雜湊）、登入中的裝置、登入與連線紀錄（`signIns`：網路的雜湊（以 Worker secret `SEEN_SALT` 加鹽，不含 IP；沒設 secret 時是空的）、瀏覽器 id 與名稱、時間，防作弊報表用，ARCHITECTURE.md §5.17）、好友與封鎖、通知、私訊、練習設定、收藏與筆記、社團積分明細與實力評分（`points`、`rating`，ARCHITECTURE.md §5.21）、挑戰討論串的留言（`challengeComments`，§5.5）、打過的每副牌的摘要（完整紀錄在 `/history/<id>`）。帳號裡有 Email（`email`、`emailVerifiedAt`，等待驗證的地址是 `emailPending`，`e1-t29`），不含驗證或重設連結的雜湊。不含別人的 session 或任何 token。
+- **刪除**：「我的帳號」→「刪除帳號」，要密碼與確認；`POST /api/account/delete` 走與管理員刪帳號相同的 `removeMember`：帳號（含 Email 與寄出的連結）、頭像、session、登入與連線紀錄（`seen:`）、好友與封鎖、通知、私訊、收藏、練習設定、閱讀與學習進度、社團積分與實力評分（§5.21）、挑戰討論串的留言立即刪除，所有連線關閉。社團唯一的管理員不能刪（`lastAdminLeaving`）。
 - **保留的**：打過的牌局紀錄是同桌其他人的紀錄，保留帳號名稱；論壇與淡江橋館的文章與留言保留（隱私權政策請社員先自己刪）；備份裡的帳號在 30 天內隨備份到期消失。
 - **政策頁**：`/privacy`、`/terms`（不用登入，`src/pages/LegalPage.tsx`，文字在 `strings.ts` 的 `legal`，六種語言）。登入頁與「我的帳號」底下有連結；註冊時寫「註冊即表示同意」。內容改了要改 `LEGAL_UPDATED`。
