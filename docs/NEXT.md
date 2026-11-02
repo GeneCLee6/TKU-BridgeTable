@@ -139,7 +139,13 @@
      - K2（#254，`e13-t04`–`t06`）發文編輯器、四手牌編輯器、叫牌過程輸入；貼文格式與橋館相同，後端沒改，橋館不用跟著改。順帶：作者可編輯／刪除、幹部可刪、留言可附叫牌、K1「幹部」沒算管理員的漏洞。待決：首攻要不要存（要改 `ForumDeal`，橋館同時改）、按讚入口。
      - J2（#255，`e9-t04`–`t08`）積分規則與帳本（Club 的 SQLite，同一場只記一次）、`/rankings` 月榜年榜、Glicko-2 rating 與走勢（§5.21，旗標 `rankings` 預設關）。之前結束的比賽不補記。待決：各種比賽的分數、年榜用日曆年或學期／學年、朋友挑戰算不算 rating、暫定門檻 RD 110、「用這副牌挑戰」的發起者不算、實體社課要不要合併。
      - J3（#256，`e9-t09`–`t13`）雙人賽：Mitchell 移位（3–10 桌）、報名、同步換桌、MP＋Neuberg、結果頁與 traveller（§5.22，旗標 `pairs` 預設關）、結束時記 J2 積分。開 `EVENT_OBJECTS` 時住自己的 `EventObject`，不做搬移與退回（DEPLOY.md §4.6）。待決：只做 Mitchell 可否、搭檔不用確認、全員在線同步換桌（一桌拖住要等 `e9-t17` 裁判工具）、積分南北東西合併排、雙人賽牌桌誰都不能觀看。
-     - 下一批候選：H5c Google 登入（`e1-t31`）、管理員 TOTP（`e11-t31`，Email 綁定已完成）、K4（檢舉與搜尋，會動橋館共用的 `worker/forum.ts`）、K3（從紀錄分享、個人頁、論壇通知）、J4（主題牌組等，接 J2）；Phase P 要先升級付費方案。
+  0i. **2026-11-02 第三輪（社長：「多元登入先不做，先繼續做其他功能，同一批開多 agent 同時做」；四個 agent 平行）**：
+     - K4（#258，`e13-t10` `e13-t11`）共用的 `worker/forum.ts` 本來就有檢舉與 LIKE 搜尋，只補幹部「隱藏貼文」（`hidden_at`，只有作者與幹部看得到，其他人 404 `postGone`；隱藏時結案檢舉）與搜尋 `&board=`；牌桌加 `/forum/search`、`/forum/reports`。搜尋不用 FTS5（中文斷詞，§5.19）。**橋館要跟著改**：`Post.hidden`、`AuditAction` 的 `forum:hide`／`forum:unhide`。待決：貼文要不要加標籤（AC-13.7 的標籤部分沒達成）、隱藏要不要通知作者。
+     - `e11-t31`（#261）管理員兩步驟登入：TOTP（WebCrypto，`worker/totp.ts`）＋10 組備用碼，自願開啟；登入 `POST /api/login` 多一個 `code`，錯 5 次鎖 15 分鐘；另一位管理員可替人關掉；Email 只用來通知，不能救援（DEPLOY.md §4.15）。**橋館登入頁還沒有驗證碼欄位：開了的管理員目前不能登入橋館**。待決：要不要強制管理員開、橋館何時加欄位、要不要 QR code、只有一位管理員時的救援。
+     - K3（#259，`e13-t07`–`t09`）紀錄頁「分享到論壇」（伺服器 `checkShareable`：只能分享已公開的牌，貼文只存紀錄 id，每位讀者照 §4 讀牌）、個人頁的論壇貼文與隱私設定（`hideProfileBoards`／`hideProfilePosts` 存在帳號上，不放 `Profile`，以免橋館整份覆寫時被清掉）、論壇通知改連牌桌。待決：隱私要不要也擋紀錄的玩家搜尋、未公開的牌按鈕停用（而非隱藏）可否。
+     - J4（#260，`e7-t27` `e7-t29` `e7-t30`）IMP 對 datum（`datumImp`，多人與每週挑戰）、每副討論串（`challenge_comments`，存取同 traveller：`views.ts` 的 `challengeThreadAccess`，沒用論壇）、`/challenges/stats` 我的戰績與對戰紀錄。`e7-t26` 已取消；`e7-t28` 雙人搭檔挑戰延後（另開一批）。待決（§5.5）：datum 去頭尾與四捨五入到 10 分、戰績不算每日賽與每週挑戰、和局算半場、管理員刪留言的範圍、要不要排 `e7-t28`。
+     - **repo 的 pre-push hook 擋所有 force-push**（含自己分支的 force-with-lease）：已推的分支不要 rebase，改 merge `origin/main`。
+     - 下一批候選：`e7-t28` 雙人搭檔挑戰、J5b 確認（`e8-t21` 已在 V1 做完，勾掉即可）、H6b 跨社團防作弊、L1（`e12-t03` 每個檔案都會碰，單獨做）；多元登入（H5c Google、O3 LINE）最後；Phase P 要先升級付費方案。
   1. H3b 完成（#150）：大廳拆 `LobbyShared`＋`LobbyMine`、只送差異（`lobbyDelta`）、100 ms 合併廣播、`action` 日誌 1/10 取樣；數字在 `docs/LOAD.md` §6。部署前開著的分頁要重新整理。本機 workerd 量測時社團物件中途重啟過一次（原因未查到，沒有動作失敗），遠端煙霧時留意。
   2. TKB 持續加強（模擬 → 改規則 → 評測）：V4 四項做完（見上）；下一輪從 V4 的待決與 `ROBOT.md` 的「待社團確認」挑。
   3. 秘密設好後：在任一 PR 預覽跑 `docs/LOAD.md` §6 的遠端煙霧測試，再決定正式站開 `EVENT_OBJECTS`。
