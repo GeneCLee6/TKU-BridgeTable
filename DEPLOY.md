@@ -365,7 +365,7 @@ D1 免費額度（每天讀 500 萬列、寫 10 萬列、5 GB）的估算在 `AR
 
 ### 出問題時（切回去）
 
-把 `vars` 裡的 `EVENT_OBJECTS` 拿掉（或改成 `off`）再部署；急的話先 `npx wrangler deploy --var EVENT_OBJECTS:off`。社團的物件重新載入時把每場挑戰與隊制賽從它的物件拿回來（那一場先停住，不再改、不跑工作、不回報），寫回社團的表、刪掉 `event_homes` 那一列、在社團排好提醒與截止，再清掉那個物件；全部搬完 `meta:events`（隊制賽是 `meta:matches`、`match_homes`）回到 1，Logs 有 `{"event":"eventsMoved","to":"club",...}`（隊制賽多 `"kind":"matches"`）。拿不回來的那一場繼續在物件裡照常運作，稍後再試。正本只會在一個地方（社團或那一場的物件），所以怎麼切都不會掉挑戰、隊制賽或結果。**不要**刪掉 `EventObject` 類別或 migration `v3`：Cloudflare 會拒絕部署，要刪得另外加一個 `deleted_classes` 的 migration（會連資料一起刪）。
+把 `vars` 裡的 `EVENT_OBJECTS` 拿掉（或改成 `off`）再部署；急的話先 `npx wrangler deploy --var EVENT_OBJECTS:off`。社團的物件重新載入時把每場挑戰與隊制賽從它的物件拿回來（那一場先停住，不再改、不跑工作、不回報），寫回社團的表、刪掉 `event_homes` 那一列、在社團排好提醒與截止，再清掉那個物件；全部搬完 `meta:events`（隊制賽是 `meta:matches`、`match_homes`）回到 1，Logs 有 `{"event":"eventsMoved","to":"club",...}`（隊制賽多 `"kind":"matches"`）。拿不回來的那一場繼續在物件裡照常運作，稍後再試。正本只會在一個地方（社團或那一場的物件），所以怎麼切都不會掉挑戰、隊制賽或結果。雙人賽（ARCHITECTURE.md §5.22）不搬回來：已經在物件裡的那幾場繼續從物件存取，關掉之後新建的才在社團。**不要**刪掉 `EventObject` 類別或 migration `v3`：Cloudflare 會拒絕部署，要刪得另外加一個 `deleted_classes` 的 migration（會連資料一起刪）。
 
 ## 4.7 系統狀態、指標與負載測試（H3，`e11-t21`、`e11-t22`）
 

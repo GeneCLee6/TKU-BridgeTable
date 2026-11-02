@@ -2,6 +2,7 @@ import type { RulingRequest } from '../../shared/board-events.ts'
 import type { ChallengeSettings, ChallengeView } from '../../shared/challenge.ts'
 import type { WeeklyChallengeSchedule, WeeklyChallengeView } from '../../shared/weekly-challenge.ts'
 import type { DailyEventSettings, DailyEventView } from '../../shared/daily-event.ts'
+import type { PairsSettings, PairsSummary, PairsView } from '../../shared/pairs.ts'
 import type { LeaderboardView, LedgerEntry, PointsRules } from '../../shared/points.ts'
 import type { RatingView } from '../../shared/rating.ts'
 import { historyQueryString, type HistoryQuery } from '../../shared/history-query.ts'
@@ -188,6 +189,17 @@ export const api = {
   challenge: (id: string) => request<{ challenge: ChallengeView }>(`/api/challenges/${encodeURIComponent(id)}`),
   /** The daily club event's page (`e9-t03`): today's, yesterday's and the earlier days */
   daily: () => request<{ daily: DailyEventView }>('/api/daily'),
+  /** Pairs events (`e9-t10`–`e9-t13`, §5.22): the list, one event as the member may see it, and its actions */
+  pairs: {
+    list: () => request<{ pairs: PairsSummary[] }>('/api/pairs'),
+    get: (id: string) => request<{ pairs: PairsView }>(`/api/pairs/${encodeURIComponent(id)}`),
+    create: (settings: Partial<PairsSettings>) => post<{ pairs: PairsView }>('/api/pairs', { settings }),
+    enter: (id: string, partner: string) => post<{ pairs: PairsView }>(`/api/pairs/${encodeURIComponent(id)}/enter`, { partner }),
+    withdraw: (id: string, userId?: string) =>
+      post<{ pairs: PairsView }>(`/api/pairs/${encodeURIComponent(id)}/withdraw`, { userId }),
+    cancel: (id: string) => post<{ pairs: PairsView }>(`/api/pairs/${encodeURIComponent(id)}/cancel`),
+    start: (id: string) => post<{ pairs: PairsView }>(`/api/pairs/${encodeURIComponent(id)}/start`),
+  },
   /** Club points and ratings (J2): a period's board (`month=YYYY-MM`, `year=YYYY` or `season=<id>`) */
   rankings: (period: string) => request<{ board: LeaderboardView }>(`/api/rankings?${period}`),
   ledger: (userId: string, period: string) =>

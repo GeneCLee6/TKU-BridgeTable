@@ -49,6 +49,7 @@ import type { TableObject } from './table-object.ts'
 import type { EventObject } from './event-object.ts'
 import { RemoteEvents, type EventRpc, type EventSnapshot } from './events.ts'
 import { RemoteMatches, type MatchRpc, type MatchSnapshot } from './match-events.ts'
+import { RemotePairs, type PairsRpc, type PairsSnapshot } from './pairs-events.ts'
 import { RemoteTables, type TableEntry, type TableRpc } from './tables.ts'
 import type { MatchAction, MatchPlayAction } from './team-match-service.ts'
 
@@ -232,6 +233,8 @@ export class Club extends DurableObject<Env> implements Connections {
         (challengeId) => env.EVENT.get(env.EVENT.idFromName(`challenge:${challengeId}`)) as unknown as EventRpc,
       ),
       matchObjects: new RemoteMatches((matchId) => env.EVENT.get(env.EVENT.idFromName(`match:${matchId}`)) as unknown as MatchRpc),
+      // A pairs event (§5.22) goes into its own object when made while the switch is on, and stays there
+      pairsObjects: new RemotePairs((eventId) => env.EVENT.get(env.EVENT.idFromName(`pairs:${eventId}`)) as unknown as PairsRpc),
       eventObjectsOn: env.EVENT_OBJECTS === 'on',
       // The history pages' copy in D1, read by the Worker (§5.12)
       historyReplica: env.HISTORY ? d1Replica(env.HISTORY) : undefined,
@@ -347,6 +350,11 @@ export class Club extends DurableObject<Env> implements Connections {
   /** A team match in its own object tells a change again (`EventLink.matchChanged`, H2c); a failure makes it tell again */
   async matchChanged(snapshot: MatchSnapshot) {
     await this.service.eventLink.matchChanged(snapshot)
+  }
+
+  /** A pairs event in its own object tells a change again (`EventLink.pairsChanged`, §5.22) */
+  async pairsChanged(snapshot: PairsSnapshot) {
+    await this.service.pairs.changed(snapshot)
   }
 
   /** Whose session this is, for a table's connection: the Worker asks once per connection */
@@ -827,6 +835,24 @@ export class Club extends DurableObject<Env> implements Connections {
       const found = await this.service.challengeDetail(challenge[1], user.id)
       if (!found) throw new ClubError('challengeGone', {}, 404)
       return json({ challenge: found })
+    }
+    // Pairs events (§5.22, e9-t10–e9-t13): the list, one event, and its actions
+    if (route === 'GET /api/pairs') return json({ pairs: this.service.pairs.list(user.id) })
+    if (route === 'POST /api/pairs') return json({ pairs: await this.service.pairs.create(user.id, (await body()).settings) })
+    const pairsPage = url.pathname.match(/^\/api\/pairs\/([\w-]+)(?:\/(enter|withdraw|cancel|start))?$/)
+    if (pairsPage) {
+      const [, eventId, action] = pairsPage
+      if (request.method === 'GET' && !action) return json({ pairs: this.service.pairs.view(eventId, user.id) })
+      if (request.method === 'POST' && action) {
+        const b = await body()
+        const pairs = this.service.pairs
+        if (action === 'enter') return json({ pairs: await pairs.enter(user.id, eventId, b.partner) })
+        if (action === 'withdraw') return json({ pairs: await pairs.withdraw(user.id, eventId, b.userId) })
+        if (action === 'cancel') return json({ pairs: await pairs.cancel(user.id, eventId) })
+        const started = await pairs.start(user.id, eventId)
+        this.service.broadcast()
+        return json({ pairs: started })
+      }
     }
     // Team matches (§5.8): set up (e8-t03), seated (e8-t04, e8-t05) and started (e8-t07) over HTTP
     if (route === 'GET /api/matches') return json({ matches: this.service.matches.list(user.id) })

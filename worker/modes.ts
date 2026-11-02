@@ -17,6 +17,7 @@ import type { BoardRecord, PracticeReview, RobotKind, TableMode } from '../share
 import type { Room } from '../shared/team-match.ts'
 import { challengeTakesPart } from './challenge-flow.ts'
 import type { Challenge, ChallengeResult } from './challenges.ts'
+import { pairsMode, type PairsTableResult } from './pairs-mode.ts'
 import { teamMode } from './team-mode.ts'
 import type { RoomResult } from './team-matches.ts'
 import type { Table } from './views.ts'
@@ -52,6 +53,17 @@ export type EventReport =
   | { kind: 'challenge'; challengeId: string; result: ChallengeResult | null }
   /** A team match room's board (§5.8): `seq` is its place in the match; null when it does not count (the match ended) */
   | { kind: 'team'; matchId: string; room: Room; seq: number; result: RoomResult | null }
+  /** A pairs event's board (§5.22): where in the movement it was played; null when it does not count (the round ended) */
+  | {
+      kind: 'pairs'
+      eventId: string
+      round: number
+      table: number
+      boardNo: number
+      ns: number
+      ew: number
+      result: PairsTableResult | null
+    }
 
 /**
  * The three places where a mode changes what a table does; bidding, play, seating and visibility
@@ -277,7 +289,7 @@ const practice: TableModeHooks = {
   boardFinished: () => null,
 }
 
-const MODES: Record<TableMode, TableModeHooks> = { casual, challenge, practice, team: teamMode }
+const MODES: Record<TableMode, TableModeHooks> = { casual, challenge, practice, team: teamMode, pairs: pairsMode }
 
 /** Tables saved before modes existed are casual */
 export function modeOf(table: Table): TableModeHooks {

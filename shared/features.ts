@@ -15,7 +15,7 @@
  * every language of `src/strings.ts` (`featureFlags`), and check it where the feature is.
  */
 
-export const FEATURE_FLAGS = ['friends', 'forum', 'rankings'] as const
+export const FEATURE_FLAGS = ['friends', 'forum', 'rankings', 'pairs'] as const
 export type FeatureFlag = (typeof FEATURE_FLAGS)[number]
 
 export const FEATURE_STATES = ['off', 'officers', 'on'] as const
@@ -46,6 +46,9 @@ export type FeatureSettings = Partial<Record<FeatureFlag, FeatureSetting>>
  * BridgeHall's forum too (the same posts), which its members already use, so the server checks
  * each forum route's role (roles.ts `forumRouteNeed`), not this flag.
  *
+ * Pairs events (雙人賽, E9 J3, ARCHITECTURE.md §5.22): the `/pairs` pages and their API. Off until the
+ * club tries one: it needs 10 members online at once. Without it `/api/pairs*` answers `pairsOff`;
+ * tables of an event already being played go on.
  * Rankings (積分與實力評分, J2, ARCHITECTURE.md §5.21): the points boards (`/rankings`), the rating
  * on the profile and their APIs. Off until the club settles the rules. The ledger and the ratings
  * are kept from every finished event either way, so opening it shows everything since J2; admins
@@ -54,6 +57,7 @@ export type FeatureSettings = Partial<Record<FeatureFlag, FeatureSetting>>
 export const FEATURE_DEFAULTS: Record<FeatureFlag, FeatureState> = {
   friends: 'off',
   forum: 'off',
+  pairs: 'off',
   rankings: 'off',
 }
 

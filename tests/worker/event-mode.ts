@@ -3,6 +3,7 @@ import { ChallengeStore } from '../../worker/challenges.ts'
 import { EventHost } from '../../worker/event-host.ts'
 import { RemoteEvents, type EventRpc } from '../../worker/events.ts'
 import { RemoteMatches, type MatchRpc } from '../../worker/match-events.ts'
+import { RemotePairs, type PairsRpc } from '../../worker/pairs-events.ts'
 import { noLog } from '../../worker/log.ts'
 import { AlarmQueue, manualScheduler, type Scheduler } from '../../worker/scheduler.ts'
 import { ClubService, type ClubConfig, type Connections } from '../../worker/service.ts'
@@ -62,6 +63,10 @@ function makeHost(world: World, parts: Omit<FakeEventObject, 'host'>): EventHost
         if (!world.club) throw new Error('no club')
         await world.club.eventLink.matchChanged(clone(snapshot))
       },
+      pairsChanged: async (snapshot) => {
+        if (!world.club) throw new Error('no club')
+        await world.club.eventLink.pairsChanged!(clone(snapshot))
+      },
     },
     // An object's jobs are its own, and gone when it is evicted (they are scheduled again on load)
     scheduler: world.schedule ? manualScheduler(world.schedule) : world.scheduler,
@@ -82,8 +87,8 @@ async function objectOf(world: World, id: string): Promise<FakeEventObject> {
   return found
 }
 
-function stub(world: World, id: string): EventRpc & MatchRpc {
-  return new Proxy({} as EventRpc & MatchRpc, {
+function stub(world: World, id: string): EventRpc & MatchRpc & PairsRpc {
+  return new Proxy({} as EventRpc & MatchRpc & PairsRpc, {
     get:
       (_, name: string) =>
       async (...args: unknown[]) => {
@@ -118,6 +123,8 @@ export function clubService(store: Store, connections: Connections, config: Club
     eventObjects: new RemoteEvents((id) => stub(world, id)),
     // A team match's object is named apart from a challenge's (`match:<id>`), as in production
     matchObjects: new RemoteMatches((id) => stub(world, matchKey(id))),
+    // A pairs event's too (`pairs:<id>`, §5.22)
+    pairsObjects: new RemotePairs((id) => stub(world, pairsKey(id))),
     eventObjectsOn: config.eventObjectsOn ?? true,
   })
   world.club = club
@@ -169,3 +176,6 @@ export function writeChallenge(club: ClubService, id: string, write: (store: Cha
 
 /** The key of a team match's object in `eventObjects` (H2c): its own name, apart from the challenges' */
 export const matchKey = (matchId: string) => `match:${matchId}`
+
+/** The key of a pairs event's object (§5.22) */
+export const pairsKey = (eventId: string) => `pairs:${eventId}`
