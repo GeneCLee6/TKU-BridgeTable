@@ -175,6 +175,7 @@ import {
 import { ACCOUNT_EXPORT_VERSION, type SessionInfo } from '../shared/account.ts'
 import { Sessions } from './sessions.ts'
 import { integrityReport, seenSalt, Sightings } from './integrity.ts'
+import { RegistrationLimit, REGISTRATION_WINDOW_MS } from './register-limit.ts'
 import { integrityDays, type IntegrityReport } from '../shared/integrity.ts'
 import { Relations } from './relations.ts'
 import { AlarmQueue, manualScheduler, type JobKind, type Scheduler } from './scheduler.ts'
@@ -492,6 +493,8 @@ export class ClubService {
   private readonly sessions: Sessions
   /** Where members were signed in, for the anti-cheating report (`e11-t25`) */
   private readonly sightings: Sightings
+  /** Applications and wrong invite codes per address (e1-t33), by a salted hash of it */
+  private readonly registrations: RegistrationLimit
   /** The missing SEEN_SALT is logged once per wake, not at every sign-in */
   private saltMissingLogged = false
   private readonly store: Store
@@ -640,6 +643,7 @@ export class ClubService {
     this.directs = new DirectMessageStore(store.sql)
     this.sessions = new Sessions(store, this.now)
     this.sightings = new Sightings(store, this.now, seenSalt(config.seenSalt))
+    this.registrations = new RegistrationLimit(store, this.now, seenSalt(config.seenSalt))
     this.practicePresets = new PracticePresets(store, this.now, () => randomId(8))
     this.systemSpecs = new SystemSpecStore(store, this.now, config.systemProfileId)
     if (config.schedule) {
@@ -1057,12 +1061,25 @@ export class ClubService {
     note = '',
     site: Site = 'table',
     userAgent = '',
+    address = '',
   ): Promise<{ user: Me; token: string } | { pending: true; username: string }> {
-    this.checkInvite(inviteCode)
+    // Per address (e1-t33): applications and wrong invite codes count, mistakes in the form do not
+    const from = await this.registrations.key(address)
+    if (await this.registrations.blocked(from)) {
+      this.log({ event: 'registerLimited' })
+      throw new ClubError('tooManyRegistrations', { minutes: REGISTRATION_WINDOW_MS / 60_000 }, 429)
+    }
+    try {
+      this.checkInvite(inviteCode)
+    } catch (error) {
+      await this.registrations.count(from)
+      throw error
+    }
     const name = this.checkNewName(username)
     checkNewPassword(String(password ?? ''), name)
     this.checkRoom()
     const passwordHash = await hashPassword(String(password))
+    await this.registrations.count(from)
     if (!this.users.size) {
       const user = await this.addUser(name, passwordHash)
       return { user: this.me(user), token: await this.sessions.create(user.id, userAgent) }

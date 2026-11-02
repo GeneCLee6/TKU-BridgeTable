@@ -1,8 +1,9 @@
-import { useId, useState, type FormEvent, type ReactNode } from 'react'
+import { useEffect, useId, useState, type FormEvent, type ReactNode } from 'react'
 import styled from 'styled-components'
 import { LIMITS } from '../../shared/protocol.ts'
 import { LogoMark } from '../components/Logo.tsx'
 import { PasswordInput } from '../components/PasswordInput.tsx'
+import { Turnstile } from '../components/Turnstile.tsx'
 import { Button, Card, ErrorText, Field, FieldError, FieldHint, FieldLabel, Input, Muted } from '../components/ui.tsx'
 import { useAuth } from '../state/AuthContext.tsx'
 import { api, ApiError } from '../lib/api.ts'
@@ -163,6 +164,10 @@ export function LoginPage() {
   const [fieldError, setFieldError] = useState<{ field: FieldName; text: string } | null>(null)
   const [done, setDone] = useState('')
   const [busy, setBusy] = useState(false)
+  /** Turnstile on 申請加入 (e1-t33): its site key once the Worker says it is on, and the current token */
+  const [siteKey, setSiteKey] = useState<string | null>(null)
+  const [turnstileToken, setTurnstileToken] = useState('')
+  const [turnstileReset, setTurnstileReset] = useState(0)
   const registering = mode === 'register'
   const resetting = mode === 'reset'
   const withCode = mode === 'resetCode'
@@ -172,6 +177,19 @@ export function LoginPage() {
   /** Who signs in or registers types a password; asking for a reset does not */
   const needsPassword = !resetting
   const newPassword = registering || withCode
+
+  useEffect(() => {
+    if (!registering || siteKey !== null) return
+    let cancelled = false
+    api.registerOptions().then(
+      (options) => !cancelled && setSiteKey(options.turnstileSiteKey ?? ''),
+      () => undefined,
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [registering, siteKey])
+  const needsTurnstile = registering && !!siteKey
 
   const switchTo = (next: Mode) => {
     setMode(next)
@@ -190,10 +208,14 @@ export function LoginPage() {
       setFieldError({ field: 'repeat', text: t.passwordMismatch })
       return
     }
+    if (needsTurnstile && !turnstileToken) {
+      setError(t.captchaNeeded)
+      return
+    }
     setBusy(true)
     try {
       if (registering) {
-        const result = await register(username, password, inviteCode, note)
+        const result = await register(username, password, inviteCode, note, needsTurnstile ? turnstileToken : undefined)
         if ('pending' in result) setDone(t.applicationSent(result.username))
       } else if (resetting) {
         await api.requestPasswordReset(username, inviteCode)
@@ -209,6 +231,8 @@ export function LoginPage() {
       const field = e instanceof ApiError && mode !== 'login' ? FIELD_OF[e.code] : undefined
       if (field) setFieldError({ field, text })
       else setError(text)
+      // A Turnstile token is good for one try
+      if (needsTurnstile) setTurnstileReset((n) => n + 1)
     } finally {
       setBusy(false)
     }
@@ -347,6 +371,7 @@ export function LoginPage() {
                 <FieldHint id={`${id}-note-hint`}>{t.applicationNoteHint}</FieldHint>
               </Field>
             )}
+            {needsTurnstile && siteKey && <Turnstile siteKey={siteKey} resetKey={turnstileReset} onToken={setTurnstileToken} />}
             <Button type="submit" $variant="primary" $size="lg" $busy={busy}>
               {submitLabel}
             </Button>

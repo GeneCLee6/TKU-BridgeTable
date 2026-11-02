@@ -4,7 +4,7 @@ import { AppError } from '../shared/messages.ts'
 import type { ChallengeSettings } from '../shared/challenge.ts'
 import { parseHistoryQuery } from '../shared/history-query.ts'
 import { MESSAGE_MAX_CHARS } from '../shared/message-guard.ts'
-import type { BoardRecord, Me, ServerMessage, SystemSpecStatus } from '../shared/protocol.ts'
+import type { BoardRecord, Me, RegisterOptions, ServerMessage, SystemSpecStatus } from '../shared/protocol.ts'
 import type { BookNotes } from '../shared/robot/system/book-spec.ts'
 import { TKU } from '../shared/robot/system/tku/index.ts'
 import { bookSync } from '../shared/robot/system/tku/sources.ts'
@@ -38,6 +38,7 @@ import { CLIENT_ERROR_MAX_CHARS } from './client-errors.ts'
 import { d1Replica } from './d1.ts'
 import { edgeSecret, mintPass, PASS_COOKIE, passCookie, passNeedsRefresh } from './edge-auth.ts'
 import { crashEntry, jsonLog, sampleActions } from './log.ts'
+import { requireTurnstile, turnstileKeys } from './turnstile.ts'
 import type { TableStats } from './metrics.ts'
 import { type ChallengeRequest, ClubError, ClubService, type Connections } from './service.ts'
 import type { EventReport } from './modes.ts'
@@ -99,6 +100,12 @@ export interface Env {
    * §5.17); without it no network is kept, only the browser
    */
   SEEN_SALT?: string
+  /**
+   * Turnstile on 申請加入 (e1-t33, worker/turnstile.ts, DEPLOY.md §4.13): the site key is a plain
+   * variable, the secret a wrangler secret; Turnstile is on only when both are set
+   */
+  TURNSTILE_SITE_KEY?: string
+  TURNSTILE_SECRET_KEY?: string
   /** Signs edge passes (wrangler secret put EDGE_AUTH_SECRET); without it the Worker asks the club every time */
   EDGE_AUTH_SECRET?: string
   /** "off" stops handing out and reading edge passes: the switch back (DEPLOY.md §4.5) */
@@ -530,8 +537,15 @@ export class Club extends DurableObject<Env> implements Connections {
       if (!ok) throw new ClubError('badMessage')
       return new Response(null, { status: 204 })
     }
+    // What 申請加入 needs before it is sent (e1-t33): Turnstile's site key, or null when it is off
+    if (route === 'GET /api/register/options') {
+      return json({ turnstileSiteKey: turnstileKeys(this.env)?.siteKey ?? null } satisfies RegisterOptions)
+    }
     if (route === 'POST /api/register') {
       const b = await body()
+      const address = request.headers.get('CF-Connecting-IP') ?? ''
+      const turnstile = turnstileKeys(this.env)
+      if (turnstile) await requireTurnstile(turnstile.secret, text(b.turnstileToken), address, jsonLog)
       const result = await this.service.register(
         text(b.username),
         text(b.password),
@@ -539,6 +553,7 @@ export class Club extends DurableObject<Env> implements Connections {
         text(b.note),
         b.site === 'book' ? 'book' : 'table',
         request.headers.get('User-Agent') ?? '',
+        address,
       )
       if ('pending' in result) return json(result, 202)
       const device = await this.sighting(request, result.user.id, secure, true)
