@@ -4,6 +4,7 @@ import styled from 'styled-components'
 import {
   CHALLENGE_LIMITS,
   defaultChallengeSettings,
+  opponentsOf,
   RANKING_VISIBILITIES,
   scoringsFor,
   type ChallengeSettings,
@@ -223,12 +224,18 @@ export function ChallengeDialog({
   // The preview's deadline counts from when the dialog opened; the server counts from sending
   const [openedAt] = useState(() => Date.now())
 
-  const max = CHALLENGE_LIMITS.invitedMax
+  // A partner challenge (`e7-t28`): the first pick is the member's partner, then the opposing pairs two by two
+  const partners = !fromBoards && !!settings.partners
+  const max = partners ? 1 + 2 * CHALLENGE_LIMITS.pairsMax : CHALLENGE_LIMITS.invitedMax
+  const opponents = Math.max(1, opponentsOf(picked.length, partners))
+  const pairsReady = picked.length >= 3 && picked.length % 2 === 1
   const choices = members.filter((m) => !picked.some((p) => p.id === m.id) && m.username.toLowerCase().includes(filter))
-  // The scoring choices depend on how many are invited; a choice that no longer fits falls back
-  const scorings = scoringsFor(Math.max(1, picked.length))
+  // The scoring choices depend on how many compete; a choice that no longer fits falls back
+  const scorings = scoringsFor(opponents)
   const scoring =
-    settings.scoring && scorings.includes(settings.scoring) ? settings.scoring : defaultChallengeSettings(Math.max(1, picked.length)).scoring
+    settings.scoring && scorings.includes(settings.scoring) ? settings.scoring : defaultChallengeSettings(opponents).scoring
+  /** Which partnership a pick belongs to, shown on its chip */
+  const pairLabel = (i: number) => (i === 0 ? t.partnerChallenge.mine : t.partnerChallenge.pair(Math.ceil(i / 2)))
 
   useEffect(() => input.current?.focus(), [])
   useEffect(() => {
@@ -252,6 +259,10 @@ export function ChallengeDialog({
       setError(t.pickInvitees)
       return
     }
+    if (partners && !pairsReady) {
+      setError(t.partnerChallenge.pickHint(CHALLENGE_LIMITS.pairsMax))
+      return
+    }
     setSending(true)
     setError('')
     try {
@@ -259,7 +270,15 @@ export function ChallengeDialog({
       const { robotKind: kind, bestHand, justDeclare, days, ranking } = settings
       const { challenge } = fromBoards
         ? await api.challengeWithBoards(ids, fromBoards.ids, { scoring, days, ranking })
-        : await api.createChallenge(ids, boards, { scoring, robotKind: kind, bestHand, justDeclare, days, ranking })
+        : await api.createChallenge(ids, boards, {
+            scoring,
+            robotKind: kind,
+            bestHand,
+            justDeclare,
+            days,
+            ranking,
+            ...(partners && { partners: true }),
+          })
       onCreated(challenge)
     } catch (e) {
       setError(e instanceof ApiError ? message(e.code, e.params, e.message) : String(e))
@@ -285,8 +304,9 @@ export function ChallengeDialog({
             <label htmlFor={`${listId}-input`}>{t.challengeInvitees}</label>
             <Picker>
               <Box onClick={() => input.current?.focus()}>
-                {picked.map((p) => (
+                {picked.map((p, i) => (
                   <Chip key={p.id}>
+                    {partners && <small>{pairLabel(i)}</small>}
                     {p.username}
                     <button
                       type="button"
@@ -358,8 +378,19 @@ export function ChallengeDialog({
                 </Options>
               )}
             </Picker>
-            <Muted>{t.challengeInviteesHint(max)}</Muted>
+            <Muted>{partners ? t.partnerChallenge.pickHint(CHALLENGE_LIMITS.pairsMax) : t.challengeInviteesHint(max)}</Muted>
           </Field>
+          {!fromBoards && (
+            <Choice>
+              <input
+                type="checkbox"
+                checked={partners}
+                onChange={(e) => setSettings({ ...settings, partners: e.target.checked })}
+              />
+              <span>{t.partnerChallenge.title}</span>
+              <Muted>{t.partnerChallenge.hint}</Muted>
+            </Choice>
+          )}
 
           <Row>
             {!fromBoards && (
@@ -465,6 +496,7 @@ export function ChallengeDialog({
             <span data-testid="challenge-preview">
               {[
                 t.challengePreviewText(picked.length, boardCount, t.scorings[scoring], t.robots[robotKind], deadline),
+                partners && t.partnerChallenge.preview(opponentsOf(picked.length, true)),
                 !fromBoards && settings.bestHand && t.bestHand,
                 !fromBoards && settings.justDeclare && t.justDeclare,
               ]

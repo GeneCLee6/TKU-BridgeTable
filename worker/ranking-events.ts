@@ -36,7 +36,10 @@ export function challengeEvent(
     id: c.id,
     kind: challengeKind(c.settings),
     at: Math.min(c.endedAt ?? now, c.deadline - 1),
-    sides: sides.filter((s) => !known.has(s.userId)).map((s) => ({ userIds: [s.userId], robots: 0, rank: s.rank })),
+    // A partnership (`e7-t28`) is one side: both members are credited with its place
+    sides: sides
+      .filter((s) => !known.has(s.userId))
+      .map((s) => ({ userIds: s.partnerId === undefined ? [s.userId] : [s.userId, s.partnerId], robots: 0, rank: s.rank })),
   }
 }
 

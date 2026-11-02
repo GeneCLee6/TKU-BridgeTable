@@ -109,6 +109,23 @@ describe('challenge store', () => {
     expect(store.get('c1')!.remindedAt).toBe(T0 + DAY)
   })
 
+  it('adds the partner column to a table made before partner challenges (e7-t28), and keeps each partner', () => {
+    const sql = memorySql()
+    sql.exec(`CREATE TABLE challenge_players (challenge_id TEXT NOT NULL, user_id TEXT NOT NULL, position INTEGER NOT NULL,
+      status TEXT NOT NULL, invited_at INTEGER NOT NULL, answered_at INTEGER, started_at INTEGER, finish_by INTEGER,
+      finished_at INTEGER, known_deals INTEGER NOT NULL, PRIMARY KEY (challenge_id, user_id)) WITHOUT ROWID`)
+    const store = new ChallengeStore(sql)
+    store.createTables()
+    store.create(challenge('c1', 'amy', ['ben']))
+    expect(store.get('c1')!.players.every((p) => p.partnerId === undefined)).toBe(true)
+    const pairs = challenge('c2', 'amy', ['ben', 'cat', 'dan'])
+    pairs.settings = { ...pairs.settings, partners: true }
+    const partner: Record<string, string> = { amy: 'ben', ben: 'amy', cat: 'dan', dan: 'cat' }
+    pairs.players = pairs.players.map((p) => ({ ...p, partnerId: partner[p.userId] }))
+    store.create(pairs)
+    expect(store.get('c2')!.players.map((p) => p.partnerId)).toEqual(['ben', 'amy', 'dan', 'cat'])
+  })
+
   it('takes a deleted account out of open challenges and cancels those left with one player', () => {
     const store = fresh()
     store.create(challenge('duel', 'amy', ['ben']))
