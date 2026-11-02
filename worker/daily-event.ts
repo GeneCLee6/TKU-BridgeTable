@@ -1,7 +1,7 @@
 import { dailySlotAfter, type DailyEventSettings } from '../shared/daily-event.ts'
 
 /**
- * The daily club event's saved state (`e9-t02`, ARCHITECTURE.md §5.17), one key in the store, as
+ * The daily club event's saved state (`e9-t02`, ARCHITECTURE.md §5.18), one key in the store, as
  * the weekly challenge's (`weekly-challenge.ts`). The job is not stored: `ClubService.load()`
  * schedules it again from here, and one that came due while the object slept runs at once.
  */

@@ -15,6 +15,7 @@ import { DailyPage } from './pages/DailyPage.tsx'
 import { ComparePage } from './pages/ComparePage.tsx'
 import { FeaturedPage } from './pages/FeaturedPage.tsx'
 import { FavoritesPage } from './pages/FavoritesPage.tsx'
+import { ForumBoardPage, ForumHomePage, ForumPostPage } from './pages/ForumPages.tsx'
 import { HistoryPage } from './pages/HistoryPage.tsx'
 import { LobbyPage } from './pages/LobbyPage.tsx'
 import { LegalPage } from './pages/LegalPage.tsx'
@@ -25,7 +26,7 @@ import { MatchReplayPage } from './pages/MatchReplayPage.tsx'
 import { VugraphPage } from './pages/VugraphPage.tsx'
 import { ProfilePage } from './pages/ProfilePage.tsx'
 import { TablePage } from './pages/TablePage.tsx'
-import { AuthProvider, useAuth } from './state/AuthContext.tsx'
+import { AuthProvider, useAuth, useFeature } from './state/AuthContext.tsx'
 import { ClubProvider, useClub } from './state/ClubContext.tsx'
 import { InvitationsProvider } from './state/InvitationsContext.tsx'
 import { PreferencesProvider, usePreferences } from './state/PreferencesContext.tsx'
@@ -74,6 +75,8 @@ function Routed() {
   const { user } = useAuth()
   const { t } = usePreferences()
   const { pathname } = useLocation()
+  // The forum's pages only for members who have the flag (E13 K1, shared/features.ts)
+  const forumOn = useFeature('forum')
   // The privacy policy and the terms are for anyone, signed in or not (e11-t27)
   if (pathname === '/privacy' || pathname === '/terms') return <LegalPage kind={pathname === '/privacy' ? 'privacy' : 'terms'} />
   if (user === undefined) return <PageMain>{t.loading}</PageMain>
@@ -97,6 +100,9 @@ function Routed() {
         <Route path="/history/:recordId/vs/:otherId" element={<ComparePage />} />
         <Route path="/featured" element={<FeaturedPage />} />
         <Route path="/favorites" element={<FavoritesPage />} />
+        {forumOn && <Route path="/forum" element={<ForumHomePage />} />}
+        {forumOn && <Route path="/forum/p/:postId" element={<ForumPostPage />} />}
+        {forumOn && <Route path="/forum/:boardId" element={<ForumBoardPage />} />}
         <Route path="/account" element={<AccountPage />} />
         <Route path="/members/:userId" element={<ProfilePage />} />
         {user.admin && <Route path="/admin" element={<AdminPage />} />}

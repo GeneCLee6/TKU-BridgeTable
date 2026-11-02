@@ -106,3 +106,23 @@ export function sessionCookie(token: string, secure: boolean): string {
     ...(secure ? ['Secure'] : []),
   ].join('; ')
 }
+
+/**
+ * The browser's own random id (`e11-t25`, the anti-cheating report): set once, kept a year, the
+ * same whoever signs in with that browser. It is not a session and signs nobody in; two accounts
+ * seen with one id were used from one browser. HttpOnly like the session, so a page's script never
+ * reads it
+ */
+export const DEVICE_COOKIE = 'tbt_device'
+export const DEVICE_DAYS = 365
+
+export function deviceCookie(id: string, secure: boolean): string {
+  return [
+    `${DEVICE_COOKIE}=${id}`,
+    'Path=/',
+    'HttpOnly',
+    'SameSite=Lax',
+    `Max-Age=${DEVICE_DAYS * 86_400}`,
+    ...(secure ? ['Secure'] : []),
+  ].join('; ')
+}

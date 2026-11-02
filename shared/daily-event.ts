@@ -3,7 +3,7 @@ import { isRobotKind, type RobotKind } from './protocol.ts'
 import { TAIWAN_OFFSET_MS } from './weekly-challenge.ts'
 
 /**
- * The daily club event (`e9-t02`, `e9-t03`, ARCHITECTURE.md §5.17): every day at 00:00 Taiwan time
+ * The daily club event (`e9-t02`, `e9-t03`, ARCHITECTURE.md §5.18): every day at 00:00 Taiwan time
  * the club creates a challenge of 8 boards scored in matchpoints and invites every member; it ends
  * at the next midnight. It is a challenge (`settings.daily`), so playing, standings and the results
  * page are the challenge's. An admin turns it on and picks the robots' system; it is off by

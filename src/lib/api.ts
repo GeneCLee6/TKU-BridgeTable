@@ -29,6 +29,7 @@ import type { RulingKind, Team } from '../../shared/team-scoring.ts'
 import type { Traveller } from '../../shared/traveller.ts'
 import type { Seat } from '../../shared/cards.ts'
 import type { BookSyncRow } from '../../shared/robot/system/tku/sources.ts'
+import type { IntegrityDays, IntegrityReport } from '../../shared/integrity.ts'
 
 /** The seat actions of a team match before the start; `action` is the last part of the path */
 export type MatchSeatAction =
@@ -68,7 +69,7 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
     credentials: 'same-origin',
     headers: init?.body ? { 'Content-Type': 'application/json' } : undefined,
@@ -232,6 +233,8 @@ export const api = {
     closeTable: (id: string) => request<{ ok: true }>(`/api/admin/tables/${id}`, { method: 'DELETE' }),
     /** The club's robot against 淡江橋館: articles edited online since its rules were checked (e5-t45) */
     bookSync: () => request<{ sync: BookSyncRow[] }>('/api/admin/book-sync'),
+    /** The anti-cheating report (`e11-t25`): one browser or one small network, and what those accounts played together */
+    integrity: (days: IntegrityDays) => request<{ report: IntegrityReport }>(`/api/admin/integrity?days=${days}`),
     /** The weekly club challenge's schedule (`e7-t23`) */
     weeklyChallenge: () => request<{ weekly: WeeklyChallengeView }>('/api/admin/weekly-challenge'),
     saveWeeklyChallenge: (schedule: Partial<WeeklyChallengeSchedule>) =>

@@ -15,7 +15,7 @@ import { usePreferences } from '../state/PreferencesContext.tsx'
 
 /**
  * 每日賽 (`e9-t03`, AC-9.1): today's event with its play button and the standings so far, yesterday's
- * standings and the earlier days. Each day is a challenge (`settings.daily`, ARCHITECTURE.md §5.17),
+ * standings and the earlier days. Each day is a challenge (`settings.daily`, ARCHITECTURE.md §5.18),
  * so its results page is the challenge's (`/challenges/:id`), and what the server sends already
  * follows §4: today's standings only once the member played every board. Admins turn it on here.
  */
