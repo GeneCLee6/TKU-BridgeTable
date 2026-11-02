@@ -30,3 +30,8 @@ GOOGLE_CLIENT_SECRET=
 VAPID_PUBLIC_KEY=
 VAPID_PRIVATE_KEY=
 VAPID_SUBJECT=
+
+# LINE login (DEPLOY.md §4.18): a LINE Login channel whose callback URLs include
+# http://localhost:5173/api/auth/line/callback; leave either empty and LINE login is off
+LINE_CHANNEL_ID=
+LINE_CHANNEL_SECRET=

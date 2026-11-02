@@ -1,9 +1,10 @@
 import { useEffect, useId, useState, type FormEvent, type ReactNode } from 'react'
 import styled from 'styled-components'
 import { PROFILE_LIMITS } from '../../shared/profile.ts'
-import { LIMITS } from '../../shared/protocol.ts'
+import { LIMITS, type OAuthName } from '../../shared/protocol.ts'
 import { LogoMark } from '../components/Logo.tsx'
 import { PasswordInput } from '../components/PasswordInput.tsx'
+import { SignInButton } from '../components/SignInButtons.tsx'
 import { Turnstile } from '../components/Turnstile.tsx'
 import { Button, Card, ErrorText, Field, FieldError, FieldHint, FieldLabel, Input, Muted } from '../components/ui.tsx'
 import { useAuth } from '../state/AuthContext.tsx'
@@ -123,7 +124,7 @@ const Done = styled.p`
   line-height: 1.6;
 `
 
-/** 或 between the form and the Google button, with a rule on each side */
+/** 或 between the form and the Google and LINE buttons, with a rule on each side */
 const Or = styled.p`
   display: flex;
   align-items: center;
@@ -140,15 +141,28 @@ const Or = styled.p`
   }
 `
 
-/** Where Google sent the browser back to (e1-t31): `?google=code|apply|error&code=…`, read once */
-function googleReturn(): { step: 'code' | 'apply' | 'error' | null; code: string } {
+const PROVIDERS: readonly OAuthName[] = ['google', 'line']
+
+/**
+ * Where Google or LINE sent the browser back to (e1-t31, e1-t32): `?google=code|apply|error&code=…`
+ * or the same with `?line=`, read once
+ */
+function oauthReturn(): { provider: OAuthName; step: 'code' | 'apply' | 'error' | null; code: string } {
   const params = new URLSearchParams(window.location.search)
-  const step = params.get('google')
+  const provider = PROVIDERS.find((p) => params.has(p)) ?? 'google'
+  const step = params.get(provider)
   return {
+    provider,
     step: step === 'code' || step === 'apply' || step === 'error' ? step : null,
     code: params.get('code') ?? '',
   }
 }
+
+/** A button for each provider the club has, in a stack */
+const Providers = styled.div`
+  display: grid;
+  gap: ${({ theme }) => theme.space(3)};
+`
 
 const Footnote = styled(Muted)`
   text-align: center;
@@ -159,7 +173,7 @@ const Footnote = styled(Muted)`
  * `reset` asks the admins (with the invite code), `resetCode` sets the password with the code they
  * handed over (e1-t36); `emailReset` mails a link to the account's verified address (e1-t30)
  */
-type Mode = 'login' | 'register' | 'reset' | 'resetCode' | 'emailReset' | 'googleCode'
+type Mode = 'login' | 'register' | 'reset' | 'resetCode' | 'emailReset' | 'oauthCode'
 type FieldName = 'username' | 'password' | 'repeat' | 'inviteCode' | 'code' | 'otp' | 'displayName'
 
 /** Server error codes that belong to one field; the rest show above the form */
@@ -180,18 +194,19 @@ const FIELD_OF: Record<string, FieldName> = {
  * application that an admin approves on the admin page (only the club's first account signs in at
  * once); the account then works on both TKU BridgeTable and TKU BridgeBook. 忘記密碼 is two steps
  * (e1-t36): ask the admins, then enter the one-time code an admin hands over with a new password.
- * With Google sign-in on (e1-t31) there is a Google button: Google sends the browser back here with
- * `?google=` when the account has 兩步驟登入 (the code step, `googleCode`), when the Google account
- * has no club account (the application form, Google's name filling in the display name) or on an error.
+ * With Google sign-in (e1-t31) or LINE login (e1-t32) on there is a branded button for each: the
+ * provider sends the browser back here with `?google=` or `?line=` when the account has 兩步驟登入
+ * (the code step, `oauthCode`), when its account has no club account (the application form, the
+ * provider's name filling in the display name) or on an error.
  */
 export function LoginPage() {
   const t = useT()
   const { message, lang } = usePreferences()
   const { login, register, refresh } = useAuth()
   const id = useId()
-  /** Where Google sent the browser back to (e1-t31), read once */
-  const [back] = useState(googleReturn)
-  const [mode, setMode] = useState<Mode>(back.step === 'code' ? 'googleCode' : 'login')
+  /** Where Google or LINE sent the browser back to (e1-t31, e1-t32), read once */
+  const [back] = useState(oauthReturn)
+  const [mode, setMode] = useState<Mode>(back.step === 'code' ? 'oauthCode' : 'login')
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [repeat, setRepeat] = useState('')
@@ -209,9 +224,9 @@ export function LoginPage() {
   const [siteKey, setSiteKey] = useState<string | null>(null)
   const [turnstileToken, setTurnstileToken] = useState('')
   const [turnstileReset, setTurnstileReset] = useState(0)
-  /** Google sign-in (e1-t31): whether it is on, an application with it and its display name */
-  const [googleOn, setGoogleOn] = useState(false)
-  const [googleApply, setGoogleApply] = useState(false)
+  /** Google sign-in and LINE login (e1-t31, e1-t32): which are on, the one an application uses, and its display name */
+  const [providersOn, setProvidersOn] = useState<Record<OAuthName, boolean>>({ google: false, line: false })
+  const [applyWith, setApplyWith] = useState<OAuthName | null>(null)
   const [displayName, setDisplayName] = useState('')
 
   /** Whether the club sends mail (e1-t29): only then is there 忘記密碼 by email */
@@ -228,28 +243,29 @@ export function LoginPage() {
   }, [])
   useEffect(() => {
     let live = true
-    api.google
-      .status()
-      .then(({ enabled }) => live && setGoogleOn(enabled))
-      .catch(() => undefined)
+    for (const provider of PROVIDERS)
+      api[provider]
+        .status()
+        .then(({ enabled }) => live && setProvidersOn((on) => ({ ...on, [provider]: enabled })))
+        .catch(() => undefined)
     return () => {
       live = false
     }
   }, [])
 
-  // Back from Google: the code step, the application form with Google's name, or what went wrong
+  // Back from Google or LINE: the code step, the application form with the provider's name, or what went wrong
   useEffect(() => {
     if (!back.step) return
     let live = true
     window.history.replaceState(null, '', window.location.pathname)
     if (back.step === 'apply')
-      api.google
+      api[back.provider]
         .pending()
         .then((pending) => {
           if (!live) return
-          if (pending.step !== 'apply') return setError(message('googleFailed', {}, t.genericError))
+          if (pending.step !== 'apply') return setError(message(`${back.provider}Failed`, {}, t.genericError))
           setMode('register')
-          setGoogleApply(true)
+          setApplyWith(back.provider)
           setDisplayName(pending.name)
         })
         .catch(() => live && setError(t.genericError))
@@ -258,11 +274,11 @@ export function LoginPage() {
     }
   }, [back, message, t])
 
-  const startGoogle = async () => {
+  const startOAuth = async (provider: OAuthName) => {
     setError('')
     setBusy(true)
     try {
-      leave.to((await api.google.start(window.location.pathname + window.location.search)).url)
+      leave.to((await api[provider].start(window.location.pathname + window.location.search)).url)
     } catch (e) {
       setError(e instanceof ApiError ? message(e.code, e.params, e.message) : t.genericError)
       setBusy(false)
@@ -270,7 +286,9 @@ export function LoginPage() {
   }
 
   const registering = mode === 'register'
-  const googleCode = mode === 'googleCode'
+  const oauthCode = mode === 'oauthCode'
+  /** The provider of the code step, or of the application in progress */
+  const via = applyWith ?? back.provider
   const resetting = mode === 'reset'
   const withCode = mode === 'resetCode'
   const emailing = mode === 'emailReset'
@@ -282,8 +300,8 @@ export function LoginPage() {
         ? t.enterResetCode
         : emailing
           ? t.email.resetTitle
-          : googleCode
-            ? t.google.codeTitle
+          : oauthCode
+            ? t[via].codeTitle
             : t.login
   const intro = registering
     ? t.registerIntro
@@ -293,12 +311,12 @@ export function LoginPage() {
         ? t.resetCodeIntro
         : emailing
           ? t.email.resetIntro
-          : googleCode
-            ? t.google.codeIntro
+          : oauthCode
+            ? t[via].codeIntro
             : t.loginIntro
-  const submitLabel = resetting ? t.resetRequestButton : emailing ? t.email.sendLink : googleCode ? t.login : title
-  /** Who signs in or registers types a password; asking for a reset (or the code step after Google) does not */
-  const needsPassword = !resetting && !emailing && !googleCode
+  const submitLabel = resetting ? t.resetRequestButton : emailing ? t.email.sendLink : oauthCode ? t.login : title
+  /** Who signs in or registers types a password; asking for a reset (or the code step after Google or LINE) does not */
+  const needsPassword = !resetting && !emailing && !oauthCode
   const newPassword = registering || withCode
 
   useEffect(() => {
@@ -323,7 +341,7 @@ export function LoginPage() {
     setRepeat('')
     setNeedOtp(false)
     setOtp('')
-    setGoogleApply(false)
+    setApplyWith(null)
   }
 
   const submit = async (event: FormEvent) => {
@@ -340,9 +358,9 @@ export function LoginPage() {
     }
     setBusy(true)
     try {
-      if (googleCode) {
-        // The code step after Google (e1-t31): signed in, back to where the member was
-        const { returnTo } = await api.google.code(otp, lang)
+      if (oauthCode) {
+        // The code step after Google or LINE (e1-t31, e1-t32): signed in, back to where the member was
+        const { returnTo } = await api[via].code(otp, lang)
         window.history.replaceState(null, '', returnTo)
         await refresh()
       } else if (registering) {
@@ -352,7 +370,7 @@ export function LoginPage() {
           inviteCode,
           note,
           needsTurnstile ? turnstileToken : undefined,
-          googleApply ? { displayName } : undefined,
+          applyWith ? { provider: applyWith, displayName } : undefined,
         )
         if ('pending' in result) setDone(t.applicationSent(result.username))
       } else if (resetting) {
@@ -373,9 +391,10 @@ export function LoginPage() {
         setNeedOtp(true)
         return
       }
-      // The code step after Google ran out: start again from the sign-in form
-      if (googleCode && e instanceof ApiError && e.code === 'googleFailed') switchTo('login')
-      if (e instanceof ApiError && e.code === 'googleFailed') setGoogleApply(false)
+      // The code step after Google or LINE ran out: start again from the sign-in form
+      const flowGone = e instanceof ApiError && e.code === `${via}Failed`
+      if (oauthCode && flowGone) switchTo('login')
+      if (flowGone) setApplyWith(null)
       const text = e instanceof ApiError ? message(e.code, e.params, e.message) : t.genericError
       const field =
         e instanceof ApiError ? (e.code === 'twoFactorWrong' ? 'otp' : mode !== 'login' ? FIELD_OF[e.code] : undefined) : undefined
@@ -428,8 +447,8 @@ export function LoginPage() {
           <Form onSubmit={submit} aria-label={title}>
             {error && <ErrorText role="alert">{error}</ErrorText>}
             {done && <Done role="status">{done}</Done>}
-            {registering && googleApply && <Done role="status">{t.google.applyNotice}</Done>}
-            {!googleCode && (
+            {registering && applyWith && <Done role="status">{t[applyWith].applyNotice}</Done>}
+            {!oauthCode && (
               <Field>
                 <FieldLabel htmlFor={`${id}-username`}>{emailing ? t.email.account : t.username}</FieldLabel>
                 <Input
@@ -445,9 +464,9 @@ export function LoginPage() {
                 {below('username', registering && t.usernameHint(LIMITS.usernameMin, LIMITS.usernameMax))}
               </Field>
             )}
-            {registering && googleApply && (
+            {registering && applyWith && (
               <Field>
-                <FieldLabel htmlFor={`${id}-displayName`}>{t.google.displayName}</FieldLabel>
+                <FieldLabel htmlFor={`${id}-displayName`}>{t[applyWith].displayName}</FieldLabel>
                 <Input
                   {...describe('displayName', true)}
                   $size="lg"
@@ -456,7 +475,7 @@ export function LoginPage() {
                   maxLength={PROFILE_LIMITS.displayNameMax}
                   autoComplete="nickname"
                 />
-                {below('displayName', t.google.displayNameHint)}
+                {below('displayName', t[applyWith].displayNameHint)}
               </Field>
             )}
             {withCode && (
@@ -496,7 +515,7 @@ export function LoginPage() {
                 {below('password', newPassword && t.passwordHint(LIMITS.passwordMin))}
               </Field>
             )}
-            {((mode === 'login' && needOtp) || googleCode) && (
+            {((mode === 'login' && needOtp) || oauthCode) && (
               <Field>
                 <FieldLabel htmlFor={`${id}-otp`}>{t.twoFactor.code}</FieldLabel>
                 <Input
@@ -558,12 +577,16 @@ export function LoginPage() {
             <Button type="submit" $variant="primary" $size="lg" $busy={busy}>
               {submitLabel}
             </Button>
-            {googleOn && (mode === 'login' || (registering && !googleApply)) && (
+            {PROVIDERS.some((p) => providersOn[p]) && (mode === 'login' || (registering && !applyWith)) && (
               <>
                 <Or>{t.google.or}</Or>
-                <Button type="button" $size="lg" disabled={busy} onClick={() => void startGoogle()}>
-                  {registering ? t.google.apply : t.google.signIn}
-                </Button>
+                <Providers>
+                  {PROVIDERS.filter((p) => providersOn[p]).map((provider) => (
+                    <SignInButton key={provider} provider={provider} disabled={busy} onClick={() => void startOAuth(provider)}>
+                      {registering ? t[provider].apply : t[provider].signIn}
+                    </SignInButton>
+                  ))}
+                </Providers>
               </>
             )}
           </Form>
@@ -579,9 +602,9 @@ export function LoginPage() {
                 {t.backToLogin}
               </LinkButton>
             </>
-          ) : googleCode ? (
+          ) : oauthCode ? (
             <LinkButton type="button" onClick={() => switchTo('login')}>
-              {t.google.usePassword}
+              {t[via].usePassword}
             </LinkButton>
           ) : resetting || withCode ? (
             <>

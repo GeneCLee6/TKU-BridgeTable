@@ -29,7 +29,8 @@ import type {
   MemberChange,
   Permission,
   RegisterOptions,
-  GooglePending,
+  OAuthName,
+  OAuthPending,
   RegisterResult,
   RobotSpeed,
   SharedBoard,
@@ -92,12 +93,25 @@ export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return data as T
 }
 
-/** An application with Google (e1-t31): the display name the applicant kept or typed */
-export interface GoogleApplication {
+/** An application with Google or LINE (e1-t31, e1-t32): which one, and the display name the applicant kept or typed */
+export interface OAuthApplication {
+  provider: OAuthName
   displayName: string
 }
 
 const post = <T>(path: string, body: unknown = {}) => request<T>(path, { method: 'POST', body: JSON.stringify(body) })
+
+/** One provider's routes (Google e1-t31, LINE e1-t32) */
+function oauthApi(name: OAuthName) {
+  return {
+    status: () => request<{ enabled: boolean }>(`/api/auth/${name}`),
+    start: (returnTo: string) => post<{ url: string }>(`/api/auth/${name}/start`, { origin: window.location.origin, returnTo }),
+    pending: () => request<OAuthPending>(`/api/auth/${name}/pending`),
+    code: (code: string, lang: string) => post<{ user: Me; returnTo: string }>(`/api/auth/${name}/code`, { code, lang }),
+    link: (password: string) => post<{ url: string }>(`/api/account/${name}/link`, { password, origin: window.location.origin }),
+    unlink: (password: string) => post<{ user: Me }>(`/api/account/${name}/unlink`, { password }),
+  }
+}
 
 export const api = {
   me: () => request<{ user: Me }>('/api/me'),
@@ -110,7 +124,7 @@ export const api = {
   login: (username: string, password: string, code = '', lang?: string) =>
     post<{ user: Me }>('/api/login', code ? { username, password, code, lang } : { username, password }),
   /** The first account signs in at once; later ones wait for an admin to approve them */
-  register: (username: string, password: string, inviteCode: string, note: string, turnstileToken?: string, google?: GoogleApplication) =>
+  register: (username: string, password: string, inviteCode: string, note: string, turnstileToken?: string, oauth?: OAuthApplication) =>
     post<RegisterResult>('/api/register', {
       username,
       password,
@@ -118,7 +132,7 @@ export const api = {
       note,
       site: 'table',
       turnstileToken,
-      ...(google && { google: true, displayName: google.displayName }),
+      ...(oauth && { [oauth.provider]: true, displayName: oauth.displayName }),
     }),
   /** What 申請加入 needs before it is sent (e1-t33): Turnstile's site key, or null when it is off */
   registerOptions: () => request<RegisterOptions>('/api/register/options'),
@@ -153,14 +167,9 @@ export const api = {
    * password) binding it, which the page then opens; what the browser waits for after coming back;
    * the two-step code after Google; unbinding
    */
-  google: {
-    status: () => request<{ enabled: boolean }>('/api/auth/google'),
-    start: (returnTo: string) => post<{ url: string }>('/api/auth/google/start', { origin: window.location.origin, returnTo }),
-    pending: () => request<GooglePending>('/api/auth/google/pending'),
-    code: (code: string, lang: string) => post<{ user: Me; returnTo: string }>('/api/auth/google/code', { code, lang }),
-    link: (password: string) => post<{ url: string }>('/api/account/google/link', { password, origin: window.location.origin }),
-    unlink: (password: string) => post<{ user: Me }>('/api/account/google/unlink', { password }),
-  },
+  google: oauthApi('google'),
+  /** LINE login (e1-t32): the same routes under /api/auth/line and /api/account/line */
+  line: oauthApi('line'),
   /**
    * Push notifications (e1-t28): whether the club has them, the VAPID key, this member's devices and
    * choices; subscribing this browser (`PushSubscription.toJSON()` and the page's language),

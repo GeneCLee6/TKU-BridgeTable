@@ -111,7 +111,15 @@ export interface Me extends PublicUser {
    * owner), or null; left out when the club has no Google sign-in (DEPLOY.md §4.16)
    */
   google?: AccountGoogle | null
+  /**
+   * LINE login (e1-t32): the LINE account bound to this one (only its LINE name, for the owner), or
+   * null; left out when the club has no LINE login (DEPLOY.md §4.18)
+   */
+  line?: AccountLine | null
 }
+
+/** The other sites a member may sign in with (e1-t31 Google, e1-t32 LINE; worker/oauth.ts) */
+export type OAuthName = 'google' | 'line'
 
 /** `Me.google`: the address Google gave when it was bound, and when */
 export interface AccountGoogle {
@@ -119,12 +127,18 @@ export interface AccountGoogle {
   linkedAt: number
 }
 
+/** `Me.line`: the LINE name when it was bound (LINE gives no email here), and when */
+export interface AccountLine {
+  name: string
+  linkedAt: number
+}
+
 /**
- * `GET /api/auth/google/pending` (e1-t31): what this browser's Google sign-in waits for after
- * coming back from Google: the two-step code, or the application form (with Google's name, only
- * to fill in the display name)
+ * `GET /api/auth/<google|line>/pending` (e1-t31, e1-t32): what this browser's sign-in with the
+ * provider waits for after coming back from it: the two-step code, or the application form (with
+ * the provider's name, only to fill in the display name)
  */
-export type GooglePending = { step: 'code' } | { step: 'apply'; name: string } | { step: null }
+export type OAuthPending = { step: 'code' } | { step: 'apply'; name: string } | { step: null }
 
 /** `Me.email`: the verified address, and one waiting for its link */
 export interface AccountEmail {

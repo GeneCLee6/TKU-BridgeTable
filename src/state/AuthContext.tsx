@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { FEATURE_DEFAULTS, type FeatureFlag } from '../../shared/features.ts'
 import type { Me, RegisterResult } from '../../shared/protocol.ts'
-import { api, type GoogleApplication } from '../lib/api.ts'
+import { api, type OAuthApplication } from '../lib/api.ts'
 import { forgetPushOnSignOut } from '../lib/push.ts'
 import { resetFavorites } from '../lib/favorites.ts'
 
@@ -17,7 +17,7 @@ interface Auth {
     inviteCode: string,
     note: string,
     turnstileToken?: string,
-    google?: GoogleApplication,
+    oauth?: OAuthApplication,
   ) => Promise<RegisterResult>
   logout: () => Promise<void>
   /** Reads the account again, e.g. after an admin handled applications */
@@ -48,8 +48,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const register = useCallback(
-    async (username: string, password: string, inviteCode: string, note: string, turnstileToken?: string, google?: GoogleApplication) => {
-      const result = await api.register(username, password, inviteCode, note, turnstileToken, google)
+    async (username: string, password: string, inviteCode: string, note: string, turnstileToken?: string, oauth?: OAuthApplication) => {
+      const result = await api.register(username, password, inviteCode, note, turnstileToken, oauth)
       if ('user' in result) setUser(result.user)
       return result
     },

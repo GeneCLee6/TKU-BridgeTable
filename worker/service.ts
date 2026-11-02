@@ -4,7 +4,7 @@ import { DEFAULT_CLUB_ID } from '../shared/clubs.ts'
 import { AppError, type MessageCode, type MessageParams } from '../shared/messages.ts'
 import {
   CLUB_PROFILE_ID,
-  type GooglePending,
+  type OAuthPending,
   DEFAULT_ROBOT_SPEED,
   DEFAULT_TABLE_SETTINGS,
   fixedSeats,
@@ -96,7 +96,16 @@ import {
   verifyTotp,
 } from './totp.ts'
 import { revocationWrites } from './edge-auth.ts'
-import { checkIdToken, GOOGLE_APPLY_MS, GOOGLE_CODE_MS, GOOGLE_START_MS, GoogleFlows, oauthRandom, pkceChallenge, type GoogleAuth } from './google.ts'
+import {
+  OAUTH_APPLY_MS,
+  OAUTH_CODE_MS,
+  OAUTH_START_MS,
+  OAuthFlows,
+  oauthRandom,
+  pkceChallenge,
+  type OAuthName,
+  type OAuthProvider,
+} from './oauth.ts'
 import { checkFavorite } from '../shared/favorites.ts'
 import { DEFAULT_HISTORY_QUERY, type HistoryQuery } from '../shared/history-query.ts'
 import {
@@ -243,8 +252,8 @@ import {
   LOGIN_WINDOW_MS,
   MAIL_BURST,
   MAIL_REQUEST_BURST,
-  GOOGLE_START_BURST,
-  GOOGLE_STARTS_PER_SECOND,
+  OAUTH_START_BURST,
+  OAUTH_STARTS_PER_SECOND,
   MAIL_REQUESTS_PER_SECOND,
   MAILS_PER_SECOND,
   REQUEST_BURST,
@@ -316,6 +325,12 @@ interface StoredUser {
    * account it is. Never shown to anyone else
    */
   google?: { sub: string; email: string; linkedAt: number }
+  /**
+   * LINE login bound to the account (e1-t32): LINE's user id (`sub`, what finds the account), and
+   * the LINE name when it was bound, only to show the owner which LINE account it is (LINE gives no
+   * email without its approval). Never shown to anyone else
+   */
+  line?: { sub: string; name: string; linkedAt: number }
 }
 
 /**
@@ -360,15 +375,17 @@ interface StoredApplication {
   createdAt: number
   /** Applied with Google (e1-t31): bound to the account once an admin approves it */
   google?: { sub: string; email: string }
-  /** The display name the applicant chose (Google's name may have filled it in) */
+  /** Applied with LINE (e1-t32): bound to the account once an admin approves it */
+  line?: { sub: string; name: string }
+  /** The display name the applicant chose (Google's or LINE's name may have filled it in) */
   displayName?: string
 }
 
 /**
- * How a Google callback ended (e1-t31), on which site: the Durable Object turns it into a redirect
- * and cookies. `link` says the flow was binding Google on "My account"
+ * How a Google or LINE callback ended (e1-t31, e1-t32), on which site: the Durable Object turns it
+ * into a redirect and cookies. `link` says the flow was binding the provider on "My account"
  */
-export type GoogleOutcome = { site: 'table' | 'book' } & (
+export type OAuthOutcome = { site: 'table' | 'book' } & (
   | { kind: 'signedIn'; user: Me; token: string; returnTo: string }
   | { kind: 'code'; flowId: string }
   | { kind: 'apply'; flowId: string }
@@ -509,7 +526,12 @@ export interface ClubConfig {
    * Google sign-in (e1-t31; `worker/google.ts`). Without it (no `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`)
    * it is off: `Me.google` is left out and every Google route answers `googleOff`
    */
-  google?: GoogleAuth
+  google?: OAuthProvider
+  /**
+   * LINE login (e1-t32; `worker/line.ts`). Without it (no `LINE_CHANNEL_ID`/`LINE_CHANNEL_SECRET`)
+   * it is off: `Me.line` is left out and every LINE route answers `lineOff`
+   */
+  line?: OAuthProvider
   /**
    * Web Push (e1-t28; `worker/web-push.ts`, `worker/push.ts`). Without it (no `VAPID_*` secrets,
    * PR previews) push is off: `GET /api/push` says so and the other push routes answer `pushOff`
@@ -518,6 +540,9 @@ export interface ClubConfig {
   /** Keeps the object alive for work after the answer (the Durable Object's `waitUntil`); tests leave it out */
   defer?: (task: Promise<unknown>) => void
 }
+
+/** A provider's message code: `googleOff`, `lineTaken`… (shared/messages.ts has each) */
+const oauthCode = (name: OAuthName, what: 'Off' | 'Failed' | 'NotLinked' | 'Linked' | 'Taken'): MessageCode => `${name}${what}`
 
 export type ScheduleKind = JobKind
 
@@ -710,9 +735,9 @@ export class ClubService {
   /** Mail per account, and reset requests per network address (e1-t29, e1-t30) */
   private readonly mailLimit: TokenBuckets
   private readonly mailRequestLimit: TokenBuckets
-  /** Google sign-in's flows in storage, and how often one network address may start one (e1-t31) */
-  private readonly googleFlows: GoogleFlows
-  private readonly googleStartLimit: TokenBuckets
+  /** Google's and LINE's flows in storage, and how often one network address may start one (e1-t31, e1-t32) */
+  private readonly oauthFlows: Record<OAuthName, OAuthFlows>
+  private readonly oauthStartLimit: TokenBuckets
 
   constructor(store: Store, connections: Connections, config: ClubConfig) {
     this.store = store
@@ -738,8 +763,8 @@ export class ClubService {
     this.avatarLimit = new TokenBuckets(AVATAR_BURST, AVATARS_PER_SECOND, this.now)
     this.mailLimit = new TokenBuckets(MAIL_BURST, MAILS_PER_SECOND, this.now)
     this.mailRequestLimit = new TokenBuckets(MAIL_REQUEST_BURST, MAIL_REQUESTS_PER_SECOND, this.now)
-    this.googleFlows = new GoogleFlows(store, this.now)
-    this.googleStartLimit = new TokenBuckets(GOOGLE_START_BURST, GOOGLE_STARTS_PER_SECOND, this.now)
+    this.oauthFlows = { google: new OAuthFlows(store, this.now, 'google'), line: new OAuthFlows(store, this.now, 'line') }
+    this.oauthStartLimit = new TokenBuckets(OAUTH_START_BURST, OAUTH_STARTS_PER_SECOND, this.now)
     this.random = config.random ?? secureRandomInt
     this.push = new PushService(store, {
       sender: config.push,
@@ -1268,7 +1293,7 @@ export class ClubService {
     site: Site = 'table',
     userAgent = '',
     address = '',
-    extra: { google?: string | null; displayName?: unknown } = {},
+    extra: { oauth?: { name: OAuthName; flow: string | null }; displayName?: unknown } = {},
   ): Promise<{ user: Me; token: string } | { pending: true; username: string }> {
     // Per address (e1-t33): applications and wrong invite codes count, mistakes in the form do not
     const from = await this.registrations.key(address)
@@ -1286,14 +1311,15 @@ export class ClubService {
     checkNewPassword(String(password ?? ''), name)
     this.checkRoom()
     const displayName = this.applicationName(extra.displayName)
-    // Applying with Google (e1-t31): the flow the callback left for this browser, its Google account bound to nobody yet
-    const google = extra.google !== undefined ? await this.googleApplication(extra.google) : undefined
+    // Applying with Google or LINE (e1-t31, e1-t32): the flow the callback left for this browser, its account bound to nobody yet
+    const via = extra.oauth
+    const identity = via ? await this.oauthApplication(via.name, via.flow) : undefined
     const passwordHash = await hashPassword(String(password))
     await this.registrations.count(from)
-    if (google) await this.googleFlows.drop(String(extra.google))
+    if (via && identity) await this.oauthFlows[via.name].drop(String(via.flow))
     if (!this.users.size) {
       const user = await this.addUser(name, passwordHash)
-      if (google) user.google = { ...google, linkedAt: this.now() }
+      if (via && identity) this.bindOAuth(user, via.name, identity)
       if (displayName) user.profile = { displayName }
       await this.store.put(`user:${user.id}`, user)
       return { user: this.me(user), token: await this.sessions.create(user.id, userAgent) }
@@ -1305,7 +1331,8 @@ export class ClubService {
       note: String(note ?? '').trim().slice(0, LIMITS.applicationNoteMax),
       site: site === 'book' ? 'book' : 'table',
       createdAt: this.now(),
-      ...(google && { google }),
+      ...(via?.name === 'google' && identity && { google: { sub: identity.sub, email: identity.email } }),
+      ...(via?.name === 'line' && identity && { line: { sub: identity.sub, name: identity.name } }),
       ...(displayName && { displayName }),
     }
     this.applications.set(application.id, application)
@@ -1882,50 +1909,63 @@ export class ClubService {
 
   // ── Email (e1-t29, e1-t30; ARCHITECTURE.md §5.20) ─────────────────────────────────────────────
 
-  // ── Google sign-in (e1-t31; ARCHITECTURE.md §5.2, docs/SECURITY.md V2, worker/google.ts) ──────
+  // ── Google sign-in and LINE login (e1-t31, e1-t32; ARCHITECTURE.md §5.2, docs/SECURITY.md V2, worker/oauth.ts) ──
 
-  /** `GET /api/auth/google`: whether the club has Google sign-in, so the pages show its buttons */
-  googleStatus() {
-    return { enabled: !!this.config.google }
+  /** `GET /api/auth/<google|line>`: whether the club has the provider, so the pages show its buttons */
+  oauthStatus(name: OAuthName) {
+    return { enabled: !!this.config[name] }
   }
 
-  private requireGoogle(): GoogleAuth {
-    if (!this.config.google) throw new ClubError('googleOff', {}, 503)
-    return this.config.google
+  private requireOAuth(name: OAuthName): OAuthProvider {
+    const provider = this.config[name]
+    if (!provider) throw new ClubError(oauthCode(name, 'Off'), {}, 503)
+    return provider
   }
 
-  /** The account Google's `sub` is bound to */
-  private userByGoogle(sub: string) {
-    return [...this.users.values()].find((u) => u.google?.sub === sub)
+  /** The account a provider's `sub` is bound to */
+  private userByOAuth(name: OAuthName, sub: string) {
+    return [...this.users.values()].find((u) => u[name]?.sub === sub)
   }
 
-  private applicationByGoogle(sub: string) {
-    return [...this.applications.values()].find((a) => a.google?.sub === sub)
+  private applicationByOAuth(name: OAuthName, sub: string) {
+    return [...this.applications.values()].find((a) => a[name]?.sub === sub)
   }
 
   /**
-   * `POST /api/auth/google/start`: a new flow, and Google's address for it. `redirectUri` is the
-   * callback on the site the page is on (the Durable Object checks the site, `googleSite`).
-   * `link` is a signed-in member binding Google on "My account": their password is asked again,
-   * so a session left open cannot add a way into the account. Limited per network address
+   * Binds a provider's account to a member: its `sub`, and only what shows its owner which one it
+   * is (Google: the email; LINE: the LINE name). Not written to storage here
    */
-  async startGoogle(
+  private bindOAuth(user: StoredUser, name: OAuthName, identity: { sub: string; email?: string; name?: string }) {
+    const linkedAt = this.now()
+    if (name === 'google') user.google = { sub: identity.sub, email: identity.email ?? '', linkedAt }
+    else user.line = { sub: identity.sub, name: identity.name ?? '', linkedAt }
+  }
+
+  /**
+   * `POST /api/auth/<provider>/start`: a new flow, and the provider's address for it. `redirectUri`
+   * is the callback on the site the page is on (the Durable Object checks the site, `oauthSite`).
+   * `link` is a signed-in member binding the provider on "My account": their password is asked
+   * again, so a session left open cannot add a way into the account. Limited per network address
+   * (both providers together)
+   */
+  async startOAuth(
+    name: OAuthName,
     redirectUri: string,
     site: 'table' | 'book',
     returnTo: string,
     address: string,
     link?: { userId: string; password: string },
   ): Promise<{ url: string; flowId: string }> {
-    const google = this.requireGoogle()
-    if (!this.googleStartLimit.take(address)) throw new ClubError('slowDown', {}, 429)
+    const provider = this.requireOAuth(name)
+    if (!this.oauthStartLimit.take(address)) throw new ClubError('slowDown', {}, 429)
     if (link) {
       const user = this.requireUser(link.userId)
       if (!(await verifyPassword(String(link.password ?? ''), user.passwordHash))) throw new ClubError('wrongPassword', {}, 403)
-      if (user.google) throw new ClubError('googleLinked', {}, 409)
+      if (user[name]) throw new ClubError(oauthCode(name, 'Linked'), {}, 409)
     }
     const verifier = oauthRandom()
     const nonce = oauthRandom()
-    const flowId = await this.googleFlows.create({
+    const flowId = await this.oauthFlows[name].create({
       step: 'start',
       site,
       returnTo,
@@ -1933,131 +1973,134 @@ export class ClubService {
       verifier,
       nonce,
       ...(link && { userId: link.userId }),
-      expiresAt: this.now() + GOOGLE_START_MS,
+      expiresAt: this.now() + OAUTH_START_MS,
     })
     if (!flowId) throw new ClubError('slowDown', {}, 429)
-    const url = google.authorizeUrl({ redirectUri, state: flowId, nonce, challenge: await pkceChallenge(verifier) })
+    const url = provider.authorizeUrl({ redirectUri, state: flowId, nonce, challenge: await pkceChallenge(verifier) })
     return { url, flowId }
   }
 
   /**
-   * `GET /api/auth/google/callback`: Google sent the browser back. The flow is the one the
-   * browser's cookie names, and `state` must be the same; it works once. The code is exchanged and
-   * the ID token checked (`checkIdToken`); then, by Google's `sub`:
-   * - binding (`userId`): the same member must still be signed in, and no other account may have this Google account
-   * - signing in: the account's session, or the code step for an account with 兩步驟登入 (Google never replaces it)
-   * - no account: on 淡江牌桌 the application form (`apply`), on 淡江橋館 `googleNotLinked`
+   * `GET /api/auth/<provider>/callback`: the provider sent the browser back. The flow is the one
+   * the browser's cookie names, and `state` must be the same; it works once. The code is exchanged
+   * and the ID token checked (`OAuthProvider.identify`); then, by the provider's `sub`:
+   * - binding (`userId`): the same member must still be signed in, and no other account may have this provider account
+   * - signing in: the account's session, or the code step for an account with 兩步驟登入 (the provider never replaces it)
+   * - no account: on 淡江牌桌 the application form (`apply`), on 淡江橋館 `<provider>NotLinked`
    * Errors come back as a message code for the page to show
    */
-  async finishGoogle(
+  async finishOAuth(
+    name: OAuthName,
     cookieFlow: string | null,
     query: { state: string; code: string; error: string },
     sessionUserId: string | null,
     userAgent = '',
-  ): Promise<GoogleOutcome> {
-    const google = this.requireGoogle()
-    const flow = cookieFlow && cookieFlow === query.state ? await this.googleFlows.take(cookieFlow) : null
+  ): Promise<OAuthOutcome> {
+    const provider = this.requireOAuth(name)
+    const flows = this.oauthFlows[name]
+    const flow = cookieFlow && cookieFlow === query.state ? await flows.take(cookieFlow) : null
     if (!flow || flow.step !== 'start') {
-      this.log({ event: 'googleFailed', reason: 'state' })
-      return { kind: 'failed', code: 'googleFailed', link: false, site: 'table' }
+      this.log({ event: 'oauthFailed', provider: name, reason: 'state' })
+      return { kind: 'failed', code: oauthCode(name, 'Failed'), link: false, site: 'table' }
     }
     const link = !!flow.userId
-    const failed = (code: MessageCode, reason: string): GoogleOutcome => {
-      this.log({ event: 'googleFailed', reason })
+    const failed = (code: MessageCode, reason: string): OAuthOutcome => {
+      this.log({ event: 'oauthFailed', provider: name, reason })
       return { kind: 'failed', code, link, site: flow.site }
     }
-    // The member pressed cancel at Google, or Google refused
-    if (query.error || !query.code) return failed('googleFailed', query.error ? 'denied' : 'noCode')
+    // The member pressed cancel at the provider, or the provider refused
+    if (query.error || !query.code) return failed(oauthCode(name, 'Failed'), query.error ? 'denied' : 'noCode')
     let claims: Record<string, unknown>
     try {
-      claims = await google.exchange({ code: query.code, verifier: flow.verifier, redirectUri: flow.redirectUri })
+      claims = await provider.exchange({ code: query.code, verifier: flow.verifier, redirectUri: flow.redirectUri })
     } catch {
-      return failed('googleFailed', 'exchange')
+      return failed(oauthCode(name, 'Failed'), 'exchange')
     }
-    const identity = checkIdToken(claims, { clientId: google.clientId, nonce: flow.nonce, now: this.now() })
-    if (!identity) return failed('googleFailed', 'token')
-    const owner = this.userByGoogle(identity.sub)
+    const identity = provider.identify(claims, { nonce: flow.nonce, now: this.now() })
+    if (!identity) return failed(oauthCode(name, 'Failed'), 'token')
+    const owner = this.userByOAuth(name, identity.sub)
     if (flow.userId) {
       const user = this.users.get(flow.userId)
-      if (!user || sessionUserId !== user.id) return failed('googleFailed', 'session')
-      if (user.google) return failed('googleLinked', 'linked')
-      if ((owner && owner.id !== user.id) || this.applicationByGoogle(identity.sub)) return failed('googleTaken', 'taken')
-      user.google = { sub: identity.sub, email: identity.email, linkedAt: this.now() }
+      if (!user || sessionUserId !== user.id) return failed(oauthCode(name, 'Failed'), 'session')
+      if (user[name]) return failed(oauthCode(name, 'Linked'), 'linked')
+      if ((owner && owner.id !== user.id) || this.applicationByOAuth(name, identity.sub)) return failed(oauthCode(name, 'Taken'), 'taken')
+      this.bindOAuth(user, name, identity)
       await this.store.put(`user:${user.id}`, user)
-      this.log({ event: 'googleLinked' })
+      this.log({ event: 'oauthLinked', provider: name })
       return { kind: 'linked', site: flow.site }
     }
     if (owner) {
       if (owner.twoFactor) {
-        const flowId = await this.googleFlows.create({
+        const flowId = await flows.create({
           step: 'code',
           site: flow.site,
           returnTo: flow.returnTo,
           userId: owner.id,
-          expiresAt: this.now() + GOOGLE_CODE_MS,
+          expiresAt: this.now() + OAUTH_CODE_MS,
         })
         if (!flowId) return failed('slowDown', 'full')
         return { kind: 'code', flowId, site: flow.site }
       }
-      return { kind: 'signedIn', ...(await this.googleSession(owner, userAgent)), returnTo: flow.returnTo, site: flow.site }
+      return { kind: 'signedIn', ...(await this.oauthSession(name, owner, userAgent)), returnTo: flow.returnTo, site: flow.site }
     }
-    if (this.applicationByGoogle(identity.sub)) return failed('awaitingApproval', 'pending')
-    if (flow.site === 'book') return failed('googleNotLinked', 'unknown')
-    const flowId = await this.googleFlows.create({
+    if (this.applicationByOAuth(name, identity.sub)) return failed('awaitingApproval', 'pending')
+    if (flow.site === 'book') return failed(oauthCode(name, 'NotLinked'), 'unknown')
+    const flowId = await flows.create({
       step: 'apply',
       sub: identity.sub,
       email: identity.email,
       name: identity.name,
-      expiresAt: this.now() + GOOGLE_APPLY_MS,
+      expiresAt: this.now() + OAUTH_APPLY_MS,
     })
     if (!flowId) return failed('slowDown', 'full')
     return { kind: 'apply', flowId, site: flow.site }
   }
 
-  private async googleSession(user: StoredUser, userAgent: string) {
+  private async oauthSession(name: OAuthName, user: StoredUser, userAgent: string) {
     user.lastLoginAt = this.now()
     await this.store.put(`user:${user.id}`, user)
-    this.log({ event: 'googleSignIn' })
+    this.log({ event: 'oauthSignIn', provider: name })
     return { user: this.me(user), token: await this.sessions.create(user.id, userAgent) }
   }
 
   /**
-   * `GET /api/auth/google/pending`: what the browser's flow waits for after Google, for the sign-in
-   * page: the code step, or the application form with the name Google gave (only to prefill the
-   * display name, never kept unless the applicant sends it). `step: null` when there is none
+   * `GET /api/auth/<provider>/pending`: what the browser's flow waits for after the provider, for
+   * the sign-in page: the code step, or the application form with the name the provider gave (only
+   * to prefill the display name, never kept unless the applicant sends it). `step: null` when
+   * there is none
    */
-  async googlePending(cookieFlow: string | null): Promise<GooglePending> {
-    if (!this.config.google) return { step: null }
-    const flow = await this.googleFlows.peek(cookieFlow)
+  async oauthPending(name: OAuthName, cookieFlow: string | null): Promise<OAuthPending> {
+    if (!this.config[name]) return { step: null }
+    const flow = await this.oauthFlows[name].peek(cookieFlow)
     if (flow?.step === 'code') return { step: 'code' }
     if (flow?.step === 'apply') return { step: 'apply', name: [...flow.name].slice(0, PROFILE_LIMITS.displayNameMax).join('') }
     return { step: null }
   }
 
   /**
-   * `POST /api/auth/google/code { code }`: the second step after Google, for the account the
-   * browser's flow names. The same rules as signing in with the password (`secondStep`): no code
-   * answers `twoFactorNeeded`, wrong ones count against the account and the network; the flow
-   * stays for another try until GOOGLE_CODE_MS is up. Signs in and ends the flow
+   * `POST /api/auth/<provider>/code { code }`: the second step after the provider, for the account
+   * the browser's flow names. The same rules as signing in with the password (`secondStep`): no
+   * code answers `twoFactorNeeded`, wrong ones count against the account and the network; the flow
+   * stays for another try until OAUTH_CODE_MS is up. Signs in and ends the flow
    */
-  async finishGoogleCode(cookieFlow: string | null, code: string, address = '', userAgent = '', lang?: unknown) {
-    this.requireGoogle()
+  async finishOAuthCode(name: OAuthName, cookieFlow: string | null, code: string, address = '', userAgent = '', lang?: unknown) {
+    this.requireOAuth(name)
     if (this.loginByAddress.blocked(address)) throw new ClubError('tooManyLogins', { minutes: LOGIN_WINDOW_MS / 60_000 }, 429)
-    const flow = await this.googleFlows.peek(cookieFlow)
+    const flow = await this.oauthFlows[name].peek(cookieFlow)
     const user = flow?.step === 'code' ? this.users.get(flow.userId) : undefined
-    if (!flow || flow.step !== 'code' || !user) throw new ClubError('googleFailed', {}, 401)
+    if (!flow || flow.step !== 'code' || !user) throw new ClubError(oauthCode(name, 'Failed'), {}, 401)
     if (user.twoFactor) await this.secondStep(user, String(code ?? ''), address, lang)
-    await this.googleFlows.drop(String(cookieFlow))
-    return { ...(await this.googleSession(user, userAgent)), returnTo: flow.returnTo }
+    await this.oauthFlows[name].drop(String(cookieFlow))
+    return { ...(await this.oauthSession(name, user, userAgent)), returnTo: flow.returnTo }
   }
 
-  /** The Google account of an application with Google: the browser's flow, bound to nobody yet */
-  private async googleApplication(cookieFlow: string | null): Promise<{ sub: string; email: string }> {
-    this.requireGoogle()
-    const flow = await this.googleFlows.peek(cookieFlow)
-    if (flow?.step !== 'apply') throw new ClubError('googleFailed', {}, 401)
-    if (this.userByGoogle(flow.sub) || this.applicationByGoogle(flow.sub)) throw new ClubError('googleTaken', {}, 409)
-    return { sub: flow.sub, email: flow.email }
+  /** The provider's account of an application with it: the browser's flow, bound to nobody yet */
+  private async oauthApplication(name: OAuthName, cookieFlow: string | null): Promise<{ sub: string; email: string; name: string }> {
+    this.requireOAuth(name)
+    const flow = await this.oauthFlows[name].peek(cookieFlow)
+    if (flow?.step !== 'apply') throw new ClubError(oauthCode(name, 'Failed'), {}, 401)
+    if (this.userByOAuth(name, flow.sub) || this.applicationByOAuth(name, flow.sub)) throw new ClubError(oauthCode(name, 'Taken'), {}, 409)
+    return { sub: flow.sub, email: flow.email, name: flow.name }
   }
 
   /** An application's display name: optional, within the profile's limit */
@@ -2069,17 +2112,17 @@ export class ClubService {
   }
 
   /**
-   * `POST /api/account/google/unlink { password }`: the member removes Google from the account.
-   * They still sign in with their password (every account has one), so nobody is locked out
+   * `POST /api/account/<provider>/unlink { password }`: the member removes the provider from the
+   * account. They still sign in with their password (every account has one), so nobody is locked out
    */
-  async unlinkGoogle(userId: string, password: string): Promise<Me> {
-    this.requireGoogle()
+  async unlinkOAuth(name: OAuthName, userId: string, password: string): Promise<Me> {
+    this.requireOAuth(name)
     const user = this.requireUser(userId)
     if (!(await verifyPassword(String(password ?? ''), user.passwordHash))) throw new ClubError('wrongPassword', {}, 403)
-    if (!user.google) throw new ClubError('googleNotLinked', {}, 404)
-    delete user.google
+    if (!user[name]) throw new ClubError(oauthCode(name, 'NotLinked'), {}, 404)
+    delete user[name]
     await this.store.put(`user:${user.id}`, user)
-    this.log({ event: 'googleUnlinked' })
+    this.log({ event: 'oauthUnlinked', provider: name })
     return this.me(user)
   }
 
@@ -2284,8 +2327,9 @@ export class ClubService {
         pending: user.emailPending?.address ?? null,
       }
     }
-    // Google sign-in (e1-t31): only when the club has it; the address only for the owner
+    // Google sign-in and LINE login (e1-t31, e1-t32): only when the club has them; the address or LINE name only for the owner
     if (this.config.google) me.google = user.google ? { email: user.google.email, linkedAt: user.google.linkedAt } : null
+    if (this.config.line) me.line = user.line ? { name: user.line.name, linkedAt: user.line.linkedAt } : null
     // 兩步驟登入 (e11-t31): admins may turn it on; anyone who has it sees it, even after the admin role went
     // An admin without it is told to turn it on (`required`) before any admin-only action works
     if (user.admin || user.twoFactor) {
@@ -2439,11 +2483,13 @@ export class ClubService {
     // An admin may have added an account with the same name in the meantime
     if (this.findUser(application.username)) throw new ClubError('usernameTaken', {}, 409)
     const user = await this.addUser(application.username, application.passwordHash)
-    // Google, unless another account bound the same Google account in the meantime (e1-t31)
-    const google = application.google
-    if (google && !this.userByGoogle(google.sub)) user.google = { ...google, linkedAt: this.now() }
+    // Google or LINE, unless another account bound the same one in the meantime (e1-t31, e1-t32)
+    for (const name of ['google', 'line'] as const) {
+      const bound = application[name]
+      if (bound && !this.userByOAuth(name, bound.sub)) this.bindOAuth(user, name, bound)
+    }
     if (application.displayName) user.profile = { displayName: application.displayName }
-    if (user.google || user.profile) await this.store.put(`user:${user.id}`, user)
+    if (user.google || user.line || user.profile) await this.store.put(`user:${user.id}`, user)
     await this.dropApplication(application)
     return this.me(user)
   }
