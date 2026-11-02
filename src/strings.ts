@@ -1478,6 +1478,10 @@ const zh = {
         p: '社員看得到你的帳號名稱、顯示名稱、個人檔案、頭像與是否在線。牌局紀錄依規則在打完（比賽則在公布）後給社員看；私訊只有你和對方看得到。管理員可以核准、管理與刪除帳號，但看不到密碼；管理員的防作弊報表列出用過同一個瀏覽器或同一個小網路、又一起打牌的帳號（不顯示 IP 位址）。本社不賣、不出租你的資料，也不放廣告或追蹤程式。',
       },
       {
+        h: '公開分享連結',
+        p: '打過一副牌的社員（或管理員）可以替那一副產生公開分享連結：任何人有連結就能看那一副的牌、叫牌與打牌過程，不用登入，也只看得到那一副。頁面只顯示產生連結的社員的帳號名稱，同桌其他社員一律寫「社員」；你設定「不公開打過的牌局」時，連你自己產生的也不顯示名字。連結不會過期，打那一副的任何一位社員或管理員都可以隨時撤銷，撤銷後立即失效；刪除帳號時，你產生的連結一併刪除。',
+      },
+      {
         h: '存在哪裡、存多久',
         p: '資料存在 Cloudflare 的服務（可能在台灣以外的機房），帳號存在期間都會保存。每天備份一次，備份保留 30 天。伺服器的運作紀錄由 Cloudflare 依其政策短期保存。',
       },
@@ -1709,7 +1713,7 @@ const zh = {
     failed: '下載失敗，請再試一次',
     share: '公開分享連結',
     shareTitle: '公開分享連結',
-    shareIntro: '有連結的人不用登入就能看這一副牌，只有這一副。設定「不公開打過的牌局」的社員不顯示名字。',
+    shareIntro: '有連結的人不用登入就能看這一副牌，只有這一副。頁面只顯示產生連結的人的名字（設定「不公開打過的牌局」時也不顯示），同桌其他社員都寫「社員」。連結不會過期，可以隨時撤銷。',
     shareCreate: '產生連結',
     shareCopy: '複製連結',
     shareCopied: '已複製連結',
@@ -3164,6 +3168,10 @@ const en: Strings = {
         p: 'Members see your username, display name, profile, picture and whether you are online. Boards are shown to members once finished (in an event, once its results are out), as the rules say; direct messages are seen only by you and the other member. Admins approve, manage and delete accounts but cannot see passwords; their anti-cheating report lists accounts that used one browser or one small network and played together (no IP addresses are shown). The club never sells or rents your data and runs no ads or trackers.',
       },
       {
+        h: 'Public links to a board',
+        p: 'A member who played a board (or an admin) can make a public link to it: anyone with the link can see that board’s cards, auction and play without signing in, and only that board. The page shows only the username of the member who made the link; the other members at the table appear as “Member”, and if you keep the boards you played private, not even a link you made shows your name. Links do not expire; any member who played the board, or an admin, can revoke one at any time, and it stops working at once. Deleting your account deletes the links you made.',
+      },
+      {
         h: 'Where and how long',
         p: 'Your data is kept on Cloudflare’s services (possibly in data centres outside Taiwan) for as long as your account exists. It is backed up daily and each backup is kept for 30 days. Cloudflare keeps the server’s logs briefly under its own policy.',
       },
@@ -3393,7 +3401,7 @@ const en: Strings = {
     failed: 'The download failed; please try again',
     share: 'Public link',
     shareTitle: 'Public link',
-    shareIntro: 'Anyone with the link can see this board, and only this board, without signing in. Members who keep the boards they played private are not named.',
+    shareIntro: 'Anyone with the link can see this board, and only this board, without signing in. Only the member who made the link is named (not even they, if they keep the boards they played private); the other members appear as “Member”. The link does not expire; revoke it at any time.',
     shareCreate: 'Create link',
     shareCopy: 'Copy link',
     shareCopied: 'Link copied',
@@ -4844,6 +4852,10 @@ const zhHans: Strings = {
         p: '社员看得到你的账号名称、显示名称、个人资料、头像与是否在线。牌局记录依规则在打完（比赛则在公布）后给社员看；私信只有你和对方看得到。管理员可以审核、管理与删除账号，但看不到密码；管理员的防作弊报表列出用过同一个浏览器或同一个小网络、又一起打牌的账号（不显示 IP 地址）。本社不卖、不出租你的数据，也不放广告或跟踪程序。',
       },
       {
+        h: '公开分享链接',
+        p: '打过一副牌的社员（或管理员）可以为那一副生成公开分享链接：任何人有链接就能看那一副的牌、叫牌与打牌过程，不用登录，也只看得到那一副。页面只显示生成链接的社员的账号名称，同桌其他社员一律写“社员”；你设置“不公开打过的牌局”时，连你自己生成的也不显示名字。链接不会过期，打那一副的任何一位社员或管理员都可以随时撤销，撤销后立即失效；删除账号时，你生成的链接一并删除。',
+      },
+      {
         h: '存在哪里、存多久',
         p: '数据存在 Cloudflare 的服务（可能在台湾以外的机房），账号存在期间都会保存。每天备份一次，备份保留 30 天。服务器的运行记录由 Cloudflare 依其政策短期保存。',
       },
@@ -5073,7 +5085,7 @@ const zhHans: Strings = {
     failed: '下载失败，请再试一次',
     share: '公开分享链接',
     shareTitle: '公开分享链接',
-    shareIntro: '有链接的人不用登录就能看这一副牌，只有这一副。设置“不公开打过的牌局”的社员不显示名字。',
+    shareIntro: '有链接的人不用登录就能看这一副牌，只有这一副。页面只显示生成链接的人的名字（设置“不公开打过的牌局”时也不显示），同桌其他社员都写“社员”。链接不会过期，可以随时撤销。',
     shareCreate: '生成链接',
     shareCopy: '复制链接',
     shareCopied: '已复制链接',
@@ -6526,6 +6538,10 @@ const vi: Strings = {
         p: 'Thành viên thấy tên tài khoản, tên hiển thị, hồ sơ, ảnh và trạng thái trực tuyến của bạn. Các ván bài được hiển thị cho thành viên sau khi chơi xong (với giải đấu, sau khi công bố kết quả) theo quy định; tin nhắn riêng chỉ bạn và người kia thấy. Quản trị viên duyệt, quản lý và xóa tài khoản nhưng không thấy mật khẩu; báo cáo chống gian lận của họ liệt kê các tài khoản từng dùng cùng trình duyệt hoặc cùng mạng nhỏ và chơi cùng nhau (không hiện địa chỉ IP). Câu lạc bộ không bán hay cho thuê dữ liệu của bạn, không có quảng cáo hay công cụ theo dõi.',
       },
       {
+        h: 'Liên kết công khai của một ván',
+        p: 'Thành viên đã chơi một ván (hoặc quản trị viên) có thể tạo liên kết công khai cho ván đó: ai có liên kết đều xem được bài, phần kêu bài và đánh bài của ván đó mà không cần đăng nhập, và chỉ ván đó. Trang chỉ hiện tên tài khoản của thành viên đã tạo liên kết; các thành viên khác cùng bàn hiện là “Thành viên”, và nếu bạn chọn không công khai các ván đã chơi thì ngay cả liên kết do bạn tạo cũng không hiện tên bạn. Liên kết không hết hạn; bất kỳ thành viên nào đã chơi ván đó hoặc quản trị viên đều có thể thu hồi bất cứ lúc nào, và liên kết mất hiệu lực ngay. Khi xóa tài khoản, các liên kết bạn tạo cũng bị xóa.',
+      },
+      {
         h: 'Lưu ở đâu và bao lâu',
         p: 'Dữ liệu được lưu trên dịch vụ của Cloudflare (có thể ở trung tâm dữ liệu ngoài Đài Loan) trong suốt thời gian tài khoản tồn tại. Dữ liệu được sao lưu hằng ngày, mỗi bản sao lưu giữ 30 ngày. Cloudflare giữ nhật ký máy chủ trong thời gian ngắn theo chính sách của họ.',
       },
@@ -6755,7 +6771,7 @@ const vi: Strings = {
     failed: 'Tải xuống thất bại, vui lòng thử lại',
     share: 'Liên kết công khai',
     shareTitle: 'Liên kết công khai',
-    shareIntro: 'Ai có liên kết đều xem được ván này, và chỉ ván này, mà không cần đăng nhập. Thành viên chọn không công khai các ván đã chơi sẽ không hiện tên.',
+    shareIntro: 'Ai có liên kết đều xem được ván này, và chỉ ván này, mà không cần đăng nhập. Chỉ hiện tên người tạo liên kết (trừ khi họ không công khai các ván đã chơi); các thành viên khác hiện là “Thành viên”. Liên kết không hết hạn và có thể thu hồi bất cứ lúc nào.',
     shareCreate: 'Tạo liên kết',
     shareCopy: 'Sao chép liên kết',
     shareCopied: 'Đã sao chép liên kết',
@@ -8208,6 +8224,10 @@ const ja: Strings = {
         p: '部員はあなたのユーザー名、表示名、プロフィール、アイコン、オンライン状態を見られます。ボードの記録はルールに従い、終了後（大会では結果発表後）に部員に公開されます。メッセージはあなたと相手だけが見られます。管理者はアカウントの承認・管理・削除ができますが、パスワードは見られません。管理者の不正防止レポートには、同じブラウザや同じ小さなネットワークを使い、一緒にプレイしたアカウントが表示されます（IP アドレスは表示されません）。クラブはデータを販売・貸与せず、広告やトラッカーも使いません。',
       },
       {
+        h: 'ボードの公開リンク',
+        p: 'あるボードをプレーした会員（または管理者）は、そのボードの公開リンクを作れます。リンクを知っている人は、ログインせずにそのボードの手札、オークション、プレーを見られます（見られるのはそのボードだけです）。ページに表示されるのはリンクを作った会員のユーザー名だけで、同じテーブルの他の会員は「会員」と表示されます。プレーしたボードを非公開にしている場合は、自分で作ったリンクでも名前は表示されません。リンクに期限はなく、そのボードをプレーした会員または管理者はいつでも取り消せ、取り消すとすぐに使えなくなります。アカウントを削除すると、作ったリンクも削除されます。',
+      },
+      {
         h: '保存場所と期間',
         p: 'データは Cloudflare のサービス（台湾以外のデータセンターの場合があります）に、アカウントがある間保存されます。毎日バックアップし、各バックアップは 30 日間保持します。サーバーのログは Cloudflare のポリシーに従い短期間保存されます。',
       },
@@ -8437,7 +8457,7 @@ const ja: Strings = {
     failed: 'ダウンロードに失敗しました。もう一度お試しください',
     share: '公開リンク',
     shareTitle: '公開リンク',
-    shareIntro: 'リンクを知っている人は、ログインせずにこのボード（このボードだけ）を見られます。プレーしたボードを非公開にしている会員の名前は表示されません。',
+    shareIntro: 'リンクを知っている人は、ログインせずにこのボード（このボードだけ）を見られます。名前が表示されるのはリンクを作った人だけで（プレーしたボードを非公開にしていれば表示されません）、他の会員は「会員」と表示されます。リンクに期限はなく、いつでも取り消せます。',
     shareCreate: 'リンクを作る',
     shareCopy: 'リンクをコピー',
     shareCopied: 'リンクをコピーしました',
@@ -9890,6 +9910,10 @@ const ko: Strings = {
         p: '회원은 당신의 아이디, 표시 이름, 프로필, 사진, 접속 여부를 볼 수 있습니다. 보드 기록은 규칙에 따라 끝난 뒤(대회는 결과 발표 후) 회원에게 공개되고, 쪽지는 당신과 상대만 볼 수 있습니다. 관리자는 계정을 승인·관리·삭제할 수 있지만 비밀번호는 볼 수 없습니다. 관리자의 부정행위 방지 보고서에는 같은 브라우저나 같은 작은 네트워크를 쓰고 함께 플레이한 계정이 나옵니다(IP 주소는 표시되지 않음). 동아리는 데이터를 팔거나 빌려주지 않으며 광고나 추적 도구를 쓰지 않습니다.',
       },
       {
+        h: '보드 공개 링크',
+        p: '어떤 보드를 플레이한 회원(또는 관리자)은 그 보드의 공개 링크를 만들 수 있습니다. 링크가 있는 사람은 로그인하지 않고 그 보드의 카드, 비딩, 플레이를 볼 수 있으며, 그 보드만 볼 수 있습니다. 페이지에는 링크를 만든 회원의 아이디만 표시되고, 같은 테이블의 다른 회원은 ‘회원’으로 표시됩니다. 플레이한 보드를 비공개로 설정했다면 직접 만든 링크에도 이름이 표시되지 않습니다. 링크는 만료되지 않으며, 그 보드를 플레이한 회원이나 관리자는 언제든지 취소할 수 있고 취소하면 바로 쓸 수 없게 됩니다. 계정을 삭제하면 만든 링크도 함께 삭제됩니다.',
+      },
+      {
         h: '어디에, 얼마나 보관하나요',
         p: '데이터는 Cloudflare 서비스(대만 밖의 데이터센터일 수 있음)에 계정이 있는 동안 보관됩니다. 매일 백업하며 각 백업은 30일간 보관합니다. 서버 로그는 Cloudflare 정책에 따라 짧게 보관됩니다.',
       },
@@ -10119,7 +10143,7 @@ const ko: Strings = {
     failed: '다운로드에 실패했습니다. 다시 시도해 주세요',
     share: '공개 링크',
     shareTitle: '공개 링크',
-    shareIntro: '링크가 있는 사람은 로그인하지 않고 이 보드(이 보드만)를 볼 수 있습니다. 플레이한 보드를 비공개로 한 회원의 이름은 표시되지 않습니다.',
+    shareIntro: '링크가 있는 사람은 로그인하지 않고 이 보드(이 보드만)를 볼 수 있습니다. 링크를 만든 사람의 이름만 표시되고(플레이한 보드를 비공개로 했다면 표시되지 않음), 다른 회원은 ‘회원’으로 표시됩니다. 링크는 만료되지 않으며 언제든지 취소할 수 있습니다.',
     shareCreate: '링크 만들기',
     shareCopy: '링크 복사',
     shareCopied: '링크를 복사했습니다',

@@ -173,7 +173,7 @@ export class BoardShares {
       ? this.sql.exec<ShareRow>('SELECT token, board_id, created_by, created_at FROM board_shares WHERE token = ?', token)[0]
       : undefined
     const record = row && (await this.deps.record(row.board_id))
-    const view = record && sharedBoardView(record, this.deps.hidesBoards, this.deps.now())
+    const view = record && sharedBoardView(record, row.created_by, this.deps.hidesBoards, this.deps.now())
     if (!view) {
       this.misses.fail(key)
       throw new ClubError('shareGone', {}, 404)

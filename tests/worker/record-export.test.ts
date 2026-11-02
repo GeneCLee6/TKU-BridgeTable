@@ -137,20 +137,28 @@ describe('sharedBoardView', () => {
       ruling: { kind: 'score', reason: 'secret' } as never,
       substitutes: { E: { id: 'ben', username: 'ben' } },
     })
-    const view = sharedBoardView(r, (id) => id === 'cat', 10)!
+    const view = sharedBoardView(r, 'ben', () => false, 10)!
     const text = JSON.stringify(view)
-    for (const leak of ['T1', 'e1', 'secret', 'robot:tku', '"id"', 'meaning', 'inferred', '淡江橋館', 'cat', 'events'])
+    for (const leak of ['T1', 'e1', 'secret', 'robot:tku', '"id"', 'meaning', 'inferred', '淡江橋館', 'amy', 'cat', 'events'])
       expect(text).not.toContain(leak)
-    expect(view.players).toEqual({ N: { name: 'amy' }, E: { name: 'ben' }, S: { name: null }, W: { name: 'Robot', robot: true } })
+    // Only the member who made the link is named; the others are 「社員」, robots keep their name
+    expect(view.players).toEqual({ N: { name: null }, E: { name: 'ben' }, S: { name: null }, W: { name: 'Robot', robot: true } })
     expect(view.board.hands).toEqual(HANDS)
     expect(view.board.auction[2]).toEqual({ seat: 'N', call: '1N', alert: '15-17 "strong"' })
     expect(view.board.play).toHaveLength(4)
   })
 
+  it('names nobody when the maker keeps their boards private or did not play', () => {
+    const r = record('b1', 5, ['amy', 'ben', 'cat', 'robot:tku:W'])
+    const names = (sharedBy: string, hides: (id: string) => boolean) => Object.values(sharedBoardView(r, sharedBy, hides, 10)!.players).map((p) => p.name)
+    expect(names('ben', (id) => id === 'ben')).toEqual([null, null, null, 'Robot'])
+    expect(names('admin', () => false)).toEqual([null, null, null, 'Robot'])
+  })
+
   it('is null for a board kept back or not finished', () => {
-    expect(sharedBoardView(record('b', 0, ['amy', 'ben', 'cat', 'dan'], { revealAt: 100 }), () => false, 50)).toBeNull()
-    expect(sharedBoardView(record('b', 0, ['amy', 'ben', 'cat', 'dan'], { revealAt: 100 }), () => false, 100)).not.toBeNull()
-    expect(sharedBoardView(record('b', 0, ['amy', 'ben', 'cat', 'dan'], { board: board({ result: undefined }) }), () => false, 0)).toBeNull()
+    expect(sharedBoardView(record('b', 0, ['amy', 'ben', 'cat', 'dan'], { revealAt: 100 }), 'amy', () => false, 50)).toBeNull()
+    expect(sharedBoardView(record('b', 0, ['amy', 'ben', 'cat', 'dan'], { revealAt: 100 }), 'amy', () => false, 100)).not.toBeNull()
+    expect(sharedBoardView(record('b', 0, ['amy', 'ben', 'cat', 'dan'], { board: board({ result: undefined }) }), 'amy', () => false, 0)).toBeNull()
   })
 })
 
@@ -271,11 +279,14 @@ describe('the club', () => {
     it('shows the board to anyone with the token, until it is revoked', async () => {
       const { token } = await club.shares.create(ben, 'b1')
       const shared = await club.shares.open(token, '1.2.3.4')
-      expect(shared.players.N).toEqual({ name: 'amy' })
-      expect(JSON.stringify(shared)).not.toContain(amy)
-      // A member who keeps their boards private is not named
-      await club.setAccountPreferences(amy, { profileBoards: false })
+      // Ben made it: only he is named (社長 2026-11-02), even after Amy asks for the same link
+      expect(shared.players).toEqual({ N: { name: null }, E: { name: 'ben' }, S: { name: null }, W: { name: 'Robot', robot: true } })
+      expect(JSON.stringify(shared)).not.toContain(ben)
+      expect((await club.shares.create(amy, 'b1')).token).toBe(token)
       expect((await club.shares.open(token, '1.2.3.4')).players.N).toEqual({ name: null })
+      // Not even he, once he keeps his boards private
+      await club.setAccountPreferences(ben, { profileBoards: false })
+      expect((await club.shares.open(token, '1.2.3.4')).players.E).toEqual({ name: null })
       await club.shares.revoke(cat, 'b1')
       expect(await codeOf(club.shares.open(token, '1.2.3.4'))).toBe('shareGone')
       expect(await club.shares.get(amy, 'b1')).toBeNull()

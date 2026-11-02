@@ -102,7 +102,17 @@ async function exposure(viewer: string, boardId: string, player: string) {
 
 const hidden = { record: false, history: false, mine: false, search: false, profile: false, favorite: false, traveller: false, export: false, session: false }
 
-/** What a curator gets trying to feature the board: the board must be public first, and an outsider is not told it exists */
+/** What a member gets trying to make the board's public link (e4-t38): only once it is public, and an outsider is not told it exists */
+const shareCode = (userId: string, boardId: string) =>
+  t
+    .club()
+    .shares.create(userId, boardId)
+    .then(
+      () => 'shared',
+      (error: { code: string }) => error.code,
+    )
+
+/** What a member gets trying to feature the board: the board must be public first, and an outsider is not told it exists */
 const featureCode = (curator: string, boardId: string) =>
   t
     .club()
@@ -379,6 +389,9 @@ describe('team match tables', () => {
     expect(await exposure(amy, first, amy)).toMatchObject({ record: true, mine: true, favorite: true, traveller: false })
     for (const viewer of [ben, bea, cat]) expect(await exposure(viewer, first, amy)).toEqual(hidden)
     expect(await featureCode(t.h.boss, first)).toBe('boardGone')
+    // No public link before it is public: its player is told why, the others not that it exists
+    expect(await shareCode(amy, first)).toBe('shareHeldBack')
+    for (const viewer of [ben, cat]) expect(await shareCode(viewer, first)).toBe('boardGone')
     for (const player of [ben, bea]) {
       const sent = inbox(player)
       // Not a message about the other room's table, not its record, not its score
@@ -395,6 +408,14 @@ describe('team match tables', () => {
     await t.playUntil([ben, bea], () => t.played(closed) === 1)
     expect(await exposure(cat, first, amy)).toMatchObject({ record: true, history: true, search: true, profile: true, favorite: true })
     expect(await featureCode(t.h.boss, first)).toBe('featured')
+    // Its public link names only the member who made it (社長 2026-11-02): every other member is 「社員」
+    expect(await shareCode(amy, first)).toBe('shared')
+    const { token } = (await t.club().shares.get(amy, first))!
+    const shared = await t.club().shares.open(token, '9.9.9.9')
+    const named = Object.values(shared.players).filter((p) => !p.robot && p.name !== null).map((p) => p.name)
+    expect(named).toEqual(['amy'])
+    const record = (await t.club().record(first, amy))!
+    for (const seat of SEATS) if (record.players[seat].id) expect(JSON.stringify(shared)).not.toContain(record.players[seat].id)
 
     await t.playUntil([amy, ben, bea], () => t.club().matches.get(id, amy)!.status === 'finished')
     for (const userId of [amy, ben, bea]) expect(noHiddenCards(userId)).toBeGreaterThan(10)

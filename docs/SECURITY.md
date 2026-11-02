@@ -138,7 +138,7 @@ npx tsx -e "import {headersFile} from './worker/security-headers.ts'; process.st
 | 13.2.3 CSRF | ✅ | cookie 是 SameSite=Lax，跨站的 POST／PUT／DELETE 不帶 cookie；`workers.dev` 在 Public Suffix List 上，別人的 `*.workers.dev` 不算同站 |
 | 跨站 WebSocket（CSWSH） | 🔧 | `/ws` 與 `/ws/table/*` 的 `Origin` 必須是本站（`worker/routing.ts`），別的網站的頁面開不了；沒有 `Origin` 的非瀏覽器用戶端（負載測試）照舊 |
 | 速率限制 | ✅ | 每個連線的動作、聊天、錯誤回報、使用統計各有 token bucket（`worker/rate-limit.ts`） |
-| 公開分享連結（`e4-t38`） | ✅ | 唯一不用登入就讀得到牌的 API（`GET /api/share/:token`）：token 是 128 位元亂數；每個網路位址一個 token bucket（一次 30、之後每 2 秒一個），查錯 15 分鐘內 10 次就擋 15 分鐘（`slowDown`）；只回那一副已公開、打完的牌，欄位一個一個挑（`worker/views.ts` 的 `sharedBoardView`），沒有任何 id，不公開打過的牌局的社員不顯示名字；回應帶 `X-Robots-Tag: noindex`。頁面 `/share/<token>` 是一般的 SPA 頁面，CSP 不用改。網址裡的 token 不會隨 Referer 送到別的網站（`Referrer-Policy: strict-origin-when-cross-origin` 跨站只送網域）。可見性與誰能產生、撤銷見 ARCHITECTURE.md §4 |
+| 公開分享連結（`e4-t38`） | ✅ | 唯一不用登入就讀得到牌的 API（`GET /api/share/:token`）：token 是 128 位元亂數；每個網路位址一個 token bucket（一次 30、之後每 2 秒一個），查錯 15 分鐘內 10 次就擋 15 分鐘（`slowDown`）；只回那一副已公開、打完的牌，欄位一個一個挑（`worker/views.ts` 的 `sharedBoardView`），沒有任何 id；只有產生連結的社員顯示名字（他設了「不公開打過的牌局」也不顯示），其他真人一律是「社員」；連結不過期、可隨時撤銷；回應帶 `X-Robots-Tag: noindex`。頁面 `/share/<token>` 是一般的 SPA 頁面，CSP 不用改。網址裡的 token 不會隨 Referer 送到別的網站（`Referrer-Policy: strict-origin-when-cross-origin` 跨站只送網域）。可見性與誰能產生、撤銷見 ARCHITECTURE.md §4 |
 
 ## 4. 待辦清單
 
