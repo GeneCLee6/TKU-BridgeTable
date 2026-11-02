@@ -15,7 +15,7 @@
  * every language of `src/strings.ts` (`featureFlags`), and check it where the feature is.
  */
 
-export const FEATURE_FLAGS = ['friends'] as const
+export const FEATURE_FLAGS = ['friends', 'forum'] as const
 export type FeatureFlag = (typeof FEATURE_FLAGS)[number]
 
 export const FEATURE_STATES = ['off', 'officers', 'on'] as const
@@ -40,9 +40,15 @@ export type FeatureSettings = Partial<Record<FeatureFlag, FeatureSetting>>
  * has no friend-online setting, nobody is put on top of the People list, and the server sends them
  * no friend-online notice. The friend and block lists, their commands and their checks all stay;
  * challenges and table invitations take any member either way.
+ *
+ * Forum (論壇, E13 K1, ARCHITECTURE.md §5.19): the table's forum pages (`/forum/*`) and the header's
+ * link. Off until the club opens it. The flag guards the table's pages only: `/api/forum/*` is
+ * BridgeHall's forum too (the same posts), which its members already use, so the server checks
+ * each forum route's role (roles.ts `forumRouteNeed`), not this flag.
  */
 export const FEATURE_DEFAULTS: Record<FeatureFlag, FeatureState> = {
   friends: 'off',
+  forum: 'off',
 }
 
 /** Kept for the code and tests written before flags: whether friends are on for everyone by default */
