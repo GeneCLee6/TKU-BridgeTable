@@ -71,6 +71,7 @@ import {
 import { PRACTICE_SETS, practiceSetInfos, type PracticeSetInfo } from '../shared/practice-sets/index.ts'
 import { PracticePresets } from './practice-presets.ts'
 import type { RobotBrain } from '../shared/robot/brain.ts'
+import { checkNewPassword } from './password-policy.ts'
 import { hashPassword, hashResetCode, needsRehash, randomId, RESET_CODE_MS, resetCode, verifyPassword } from './auth.ts'
 import { revocationWrites } from './edge-auth.ts'
 import { checkFavorite } from '../shared/favorites.ts'
@@ -918,7 +919,7 @@ export class ClubService {
   ): Promise<{ user: Me; token: string } | { pending: true; username: string }> {
     this.checkInvite(inviteCode)
     const name = this.checkNewName(username)
-    this.checkPassword(String(password ?? ''))
+    checkNewPassword(String(password ?? ''), name)
     this.checkRoom()
     const passwordHash = await hashPassword(String(password))
     if (!this.users.size) {
@@ -964,7 +965,7 @@ export class ClubService {
   /** Accounts admins add themselves need no approval */
   private async createUser(username: string, password: string) {
     const name = this.checkNewName(username)
-    this.checkPassword(String(password ?? ''))
+    checkNewPassword(String(password ?? ''), name)
     this.checkRoom()
     return this.addUser(name, await hashPassword(String(password)))
   }
@@ -980,11 +981,6 @@ export class ClubService {
     this.users.set(user.id, user)
     await this.store.put(`user:${user.id}`, user)
     return user
-  }
-
-  private checkPassword(password: string) {
-    if (password.length < LIMITS.passwordMin) throw new ClubError('shortPassword', { min: LIMITS.passwordMin })
-    if (password.length > LIMITS.passwordMax) throw new ClubError('longPassword', { max: LIMITS.passwordMax })
   }
 
   /**
@@ -1284,7 +1280,7 @@ export class ClubService {
       this.loginByAddress.fail(address)
       throw new ClubError('resetCodeWrong', {}, 403)
     }
-    this.checkPassword(String(password ?? ''))
+    checkNewPassword(String(password ?? ''), user.username)
     user.passwordHash = await hashPassword(String(password))
     user.passwordResetAt = this.now()
     delete user.passwordReset
@@ -1294,7 +1290,7 @@ export class ClubService {
   }
 
   private async setPassword(user: StoredUser, password: string) {
-    this.checkPassword(password)
+    checkNewPassword(password, user.username)
     user.passwordHash = await hashPassword(password)
     await this.store.put(`user:${user.id}`, user)
   }

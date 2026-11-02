@@ -53,9 +53,9 @@ npx tsx -e "import {headersFile} from './worker/security-headers.ts'; process.st
 
 | 項目 | 狀態 | 說明 |
 | --- | --- | --- |
-| 2.1.1 密碼至少 12 字 | 📋 | 目前 `LIMITS.passwordMin` 6。改成 12 會讓社員改密碼時被擋，要社長決定（§4 `e11-t29`） |
+| 2.1.1 密碼至少 12 字 | ✅ | `e11-t29`（社長 2026-11-02 決定）：`LIMITS.passwordMin` 12（之前 6）。只檢查**新設定**的密碼：申請加入、管理員新增帳號、改密碼、管理員重設、忘記密碼的重設（`worker/password-policy.ts` 的 `checkNewPassword`）；現有帳號用舊的短密碼照樣登入，不強迫改。規則在伺服器判斷，表單的 `minLength` 與提示（`passwordHint`）只是提示 |
 | 2.1.2 允許至少 64 字、最多 128 字 | 🔧 | 新增 `LIMITS.passwordMax` 128（`longPassword`），之前沒有上限 |
-| 2.1.7 檢查外洩密碼 | 📋 | 沒有檢查（`e11-t29`） |
+| 2.1.7 檢查外洩密碼 | ✅ | `e11-t29`：`worker/common-passwords.ts` 是 1,197 個外洩密碼——NCSC 從 Have I Been Pwned 整理的最常用 100,000 個裡，長度 12–128 的那些（短的反正會被長度擋掉），轉小寫、去重，約 20 KB。來源：SecLists（`Passwords/Common-Credentials/100k-most-used-passwords-NCSC.txt`，MIT License，Copyright (c) 2018 Daniel Miessler）；用 `scripts/common-passwords.ts` 重新產生。另外擋本站的字（`tkubridgetable` 等）與同一個字元重複（`commonPassword`）。查詢是第一次用時建一個 `Set`、之後 `Set.has`，在社團的 Durable Object 裡做；不呼叫外部服務（CSP 只放行本站，密碼也不該送出去）。也擋跟帳號名稱相同或包含帳號名稱（不分大小寫；2 個字的帳號只擋相同，否則太多密碼會被誤擋）的密碼（`passwordHasUsername`）。沒有做 k-anonymity 的 Pwned Passwords API：要放行外部連線，且清單已涵蓋最常見的 |
 | 2.2.1 防暴力猜測 | ✅ | `worker/rate-limit.ts`：同一來源＋帳號 15 分鐘 5 次、同一來源 20 次（`tooManyLogins`） |
 | 2.4.1 密碼雜湊 | 🔧⚠️ | `e11-t30`：PBKDF2-SHA-256 加鹽，新雜湊 100,000 次（之前 50,000），舊雜湊在下次登入成功時重算（`needsRehash`）。**100,000 是 Cloudflare 執行環境 PBKDF2 的上限**（多了會被拒絕），OWASP 建議的 600,000 次在 Workers 上做不到；量測（2026-10-30，Node）：50,000 次 6 ms、100,000 次 12 ms、600,000 次 65 ms。雜湊在社團的 Durable Object 裡算，不佔 Worker 每次請求的 10 ms，登入有次數限制。要更強只能換演算法（Argon2 要 WASM，CPU 更多），目前不做 |
 | 2.5.x 忘記密碼 | 🔧 | `e1-t36`：邀請碼只能**送出申請**（通知管理員），管理員核准後才產生一次性代碼（約 49 bit、3 天、用一次、只存雜湊），只顯示給核准的管理員，由他交給確認過的本人；代碼與新密碼才能重設，錯的代碼與登入共用失敗次數限制。重設後登出所有裝置（session、通行證、連線）。管理員帳號仍只能由其他管理員重設。剩下的風險：管理員沒確認本人就把代碼交出去（DEPLOY.md 寫明要確認）。Email 重設在全台灣橋手清單最後（`e1-t30`） |
@@ -138,7 +138,7 @@ npx tsx -e "import {headersFile} from './worker/security-headers.ts'; process.st
 | Task | 內容 | 風險 | 需要決定 |
 | --- | --- | --- | --- |
 | `e11-t28` | ✅ 邊緣通行證帶 session id、撤銷清單在 D1、那一桌的連線立刻關（V3）。`__Host-` 前綴沒做：會讓全部人重新登入 | 低 | 社長：要不要、什麼時候讓大家重新登入一次 |
-| `e11-t29` | 密碼政策：最短長度（ASVS 要 12）與常見／外洩密碼檢查 | 中 | 社長：最短幾個字、要不要擋常見密碼 |
+| `e11-t29` | ✅ 最短 12 字、擋外洩密碼與包含帳號名稱的密碼，只套用新設定的密碼（V2.1） | — | — |
 | `e11-t30` | ✅ 100,000 次（Cloudflare 上限），登入時升級（V3） | — | — |
 | `e11-t31` | 管理員的多因素驗證（TOTP） | 中 | 排在 H5（Email）之後 |
 | `e11-t32` | ✅ `worker/body.ts`（V3） | — | — |

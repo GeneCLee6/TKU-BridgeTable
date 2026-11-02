@@ -215,10 +215,10 @@ async function run(plan: typeof PLAN, random: () => number) {
   await club.load()
 
   // ── Members ──
-  const founder = await club.register('admin', 'secret1', '')
+  const founder = await club.register('admin', 'club-secret-1', '')
   if (!('user' in founder)) throw new Error('no founder')
   const ids = [founder.user.id]
-  for (let i = 1; i < plan.users; i++) ids.push((await club.adminCreateUser(`load${String(i).padStart(3, '0')}`, 'secret1')).id)
+  for (let i = 1; i < plan.users; i++) ids.push((await club.adminCreateUser(`load${String(i).padStart(3, '0')}`, 'club-secret-1')).id)
   const clubSend = (userId: string, message: ClientMessage) =>
     timed('club', `club: ${message.type}`, async () => {
       await club.handleRaw(userId, JSON.stringify(message))

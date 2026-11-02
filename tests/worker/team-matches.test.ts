@@ -230,12 +230,12 @@ beforeEach(async () => {
   time = T0
   club = clubService(store, new FakeConnections(), { maxUsers: 40, now: () => time, schedule: () => {} })
   await club.load()
-  const boss = await club.register('boss', 'secret1', '')
+  const boss = await club.register('boss', 'club-secret-1', '')
   bossId = 'user' in boss ? boss.user.id : ''
 })
 
 async function member(name: string) {
-  const result = await club.register(name, 'secret1', '')
+  const result = await club.register(name, 'club-secret-1', '')
   const user =
     'user' in result ? result.user : await club.adminApprove(club.adminApplications().find((a) => a.username === name)!.id)
   return user.id

@@ -48,14 +48,14 @@ describe('LoginPage', () => {
     page()
     await userEvent.click(screen.getByRole('button', { name: '申請加入' }))
     await userEvent.type(screen.getByLabelText(/^帳號/), 'amy')
-    await userEvent.type(screen.getByLabelText(/^密碼/), 'secret1')
+    await userEvent.type(screen.getByLabelText(/^密碼/), 'club-secret-1')
     await userEvent.type(screen.getByLabelText(/^邀請碼/), 'tku')
     await userEvent.type(screen.getByLabelText(/^自我介紹/), '王小美')
     await userEvent.click(screen.getByRole('button', { name: '申請加入' }))
     expect(await screen.findByRole('status')).toHaveTextContent('已送出 amy 的申請')
     expect(sent.find((s) => s.path === '/api/register')!.body).toEqual({
       username: 'amy',
-      password: 'secret1',
+      password: 'club-secret-1',
       inviteCode: 'tku',
       note: '王小美',
       site: 'table',
@@ -81,21 +81,21 @@ describe('LoginPage', () => {
     // The name carries over
     expect(screen.getByLabelText(/^帳號/)).toHaveValue('amy')
     await userEvent.type(screen.getByLabelText(/^重設代碼/), 'ABCDE-FGH23')
-    await userEvent.type(screen.getByLabelText(/^新密碼/), 'newpass1')
-    await userEvent.type(screen.getByLabelText(/^再輸入一次新密碼/), 'newpass2')
+    await userEvent.type(screen.getByLabelText(/^新密碼/), 'new-passphrase-1')
+    await userEvent.type(screen.getByLabelText(/^再輸入一次新密碼/), 'new-passphrase-2')
     expect(screen.queryByLabelText(/^邀請碼/)).toBeNull()
     await userEvent.click(screen.getByRole('button', { name: '輸入重設代碼' }))
     expect(screen.getByRole('alert')).toHaveTextContent('不一樣')
     expect(sent.some((s) => s.path === '/api/password/reset')).toBe(false)
 
     await userEvent.clear(screen.getByLabelText(/^再輸入一次新密碼/))
-    await userEvent.type(screen.getByLabelText(/^再輸入一次新密碼/), 'newpass1')
+    await userEvent.type(screen.getByLabelText(/^再輸入一次新密碼/), 'new-passphrase-1')
     await userEvent.click(screen.getByRole('button', { name: '輸入重設代碼' }))
     expect(await screen.findByRole('status')).toHaveTextContent('密碼已重設')
     expect(sent.find((s) => s.path === '/api/password/reset')!.body).toEqual({
       username: 'amy',
       code: 'ABCDE-FGH23',
-      password: 'newpass1',
+      password: 'new-passphrase-1',
     })
     // Back on the sign-in form
     expect(screen.getByRole('form', { name: '登入' })).toBeInTheDocument()
@@ -110,7 +110,7 @@ describe('LoginPage', () => {
     })
     page()
     await userEvent.type(screen.getByLabelText(/^帳號/), 'amy')
-    await userEvent.type(screen.getByLabelText(/^密碼/), 'secret1')
+    await userEvent.type(screen.getByLabelText(/^密碼/), 'club-secret-1')
     await userEvent.click(screen.getByRole('button', { name: '登入' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('等管理員核准')
   })

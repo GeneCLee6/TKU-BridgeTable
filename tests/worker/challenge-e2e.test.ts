@@ -58,11 +58,11 @@ it('three people, four boards, matchpoints: one stops halfway and only the finis
     schedule: (run, ms, kind) => queue.push({ run, ms, kind }),
   })
   await club.load()
-  const founder = await club.register('boss', 'secret1', '')
+  const founder = await club.register('boss', 'club-secret-1', '')
   const boss = 'user' in founder ? founder.user.id : ''
 
   const member = async (name: string) => {
-    await club.register(name, 'secret1', '')
+    await club.register(name, 'club-secret-1', '')
     const user = await club.adminApprove(club.adminApplications().find((a) => a.username === name)!.id)
     connections.online.add(user.id)
     club.connected(user.id)

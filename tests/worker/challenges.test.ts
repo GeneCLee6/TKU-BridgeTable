@@ -149,7 +149,7 @@ describe('challenges in the club', () => {
     await club.load()
   }
   const join = async (name: string) => {
-    const result = await club.register(name, 'secret1', '')
+    const result = await club.register(name, 'club-secret-1', '')
     if ('user' in result) return result.user
     const application = club.adminApplications().find((a) => a.username === name)!
     return club.adminApprove(application.id)

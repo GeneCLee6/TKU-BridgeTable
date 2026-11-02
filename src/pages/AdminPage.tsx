@@ -256,7 +256,14 @@ export function AdminPage() {
         await api.admin.createUser(member.username, member.password)
         setMember({ username: '', password: '' })
       },
-      { badUsername: 'username', usernameTaken: 'username', shortPassword: 'password', longPassword: 'password' },
+      {
+        badUsername: 'username',
+        usernameTaken: 'username',
+        shortPassword: 'password',
+        longPassword: 'password',
+        passwordHasUsername: 'password',
+        commonPassword: 'password',
+      },
     )
   }
 
@@ -689,6 +696,8 @@ export function AdminPage() {
                                       void run(`password-${u.id}`, () => api.admin.resetPassword(u.id, newPassword), {
                                         shortPassword: 'reset',
                                         longPassword: 'reset',
+                                        passwordHasUsername: 'reset',
+                                        commonPassword: 'reset',
                                       })
                                     }
                                   >

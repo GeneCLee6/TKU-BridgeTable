@@ -47,7 +47,7 @@ beforeEach(async () => {
 })
 
 async function founder() {
-  const result = await club.register('gene', 'secret1', '')
+  const result = await club.register('gene', 'club-secret-1', '')
   if (!('user' in result)) throw new Error('the first account should sign in at once')
   connections.online.add(result.user.id)
   club.connected(result.user.id)
@@ -115,20 +115,20 @@ describe('rate limits (e11-t11)', () => {
     await founder()
     for (let i = 0; i < LOGIN_FAILURES_PER_NAME; i++)
       await expect(club.login('gene', 'wrong', '1.2.3.4')).rejects.toMatchObject({ code: 'badLogin' })
-    await expect(club.login('gene', 'secret1', '1.2.3.4')).rejects.toMatchObject({ code: 'tooManyLogins', status: 429 })
+    await expect(club.login('gene', 'club-secret-1', '1.2.3.4')).rejects.toMatchObject({ code: 'tooManyLogins', status: 429 })
     // Another address is not locked out, so a stranger cannot lock a member out everywhere
-    expect((await club.login('gene', 'secret1', '5.6.7.8')).user.username).toBe('gene')
+    expect((await club.login('gene', 'club-secret-1', '5.6.7.8')).user.username).toBe('gene')
     time += LOGIN_WINDOW_MS
-    expect((await club.login('gene', 'secret1', '1.2.3.4')).user.username).toBe('gene')
+    expect((await club.login('gene', 'club-secret-1', '1.2.3.4')).user.username).toBe('gene')
     expect(logs.some((e) => e.event === 'loginLocked')).toBe(true)
   })
 
   it('a right password clears the count', async () => {
     await founder()
     for (let i = 0; i < LOGIN_FAILURES_PER_NAME - 1; i++) await club.login('gene', 'wrong', 'a').catch(() => {})
-    await club.login('gene', 'secret1', 'a')
+    await club.login('gene', 'club-secret-1', 'a')
     await club.login('gene', 'wrong', 'a').catch(() => {})
-    expect((await club.login('gene', 'secret1', 'a')).user.username).toBe('gene')
+    expect((await club.login('gene', 'club-secret-1', 'a')).user.username).toBe('gene')
   })
 })
 

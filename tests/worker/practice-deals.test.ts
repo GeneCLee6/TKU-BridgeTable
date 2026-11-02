@@ -75,7 +75,7 @@ beforeEach(async () => {
     schedule: (run, ms, kind) => queue.push({ run, ms, kind }),
   })
   await club.load()
-  const founder = await club.register('boss', 'secret1', '')
+  const founder = await club.register('boss', 'club-secret-1', '')
   boss = 'user' in founder ? founder.user.id : ''
   connections.online.add(boss)
   club.connected(boss)
@@ -93,7 +93,7 @@ async function runRobots(limit = 400) {
 }
 
 async function member(name: string) {
-  const result = await club.register(name, 'secret1', '')
+  const result = await club.register(name, 'club-secret-1', '')
   const user =
     'user' in result ? result.user : await club.adminApprove(club.adminApplications().find((a) => a.username === name)!.id)
   connections.online.add(user.id)

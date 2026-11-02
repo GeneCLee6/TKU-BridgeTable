@@ -35,13 +35,13 @@ beforeEach(async () => {
     historyReplica: d1,
   })
   await club.load()
-  const founder = await club.register('admin', 'secret1', 'tku')
+  const founder = await club.register('admin', 'club-secret-1', 'tku')
   if (!('user' in founder)) throw new Error('the first account should sign in at once')
   adminId = founder.user.id
 })
 
 async function member(name: string) {
-  await club.register(name, 'secret1', 'tku')
+  await club.register(name, 'club-secret-1', 'tku')
   return (await club.adminApprove(club.adminApplications().find((a) => a.username === name)!.id)).id
 }
 
@@ -54,13 +54,13 @@ const resetOf = async (userId: string) => (await club.adminUsers()).find((u) => 
 describe('忘記密碼 with an admin’s approval (e1-t36)', () => {
   it('asks the admins, who hand over a one-time code that sets the new password and signs the member out everywhere', async () => {
     const amy = await member('amy')
-    const { token } = await club.login('amy', 'secret1')
+    const { token } = await club.login('amy', 'club-secret-1')
     const [session] = await sessionIds([token])
     // Asking needs the club's invite code, and changes nothing yet
     await expect(club.requestPasswordReset('amy', 'nope')).rejects.toThrow('邀請碼不正確')
     await club.requestPasswordReset('AMY', 'tku')
     expect(await club.userForToken(token)).not.toBeNull()
-    await club.login('amy', 'secret1')
+    await club.login('amy', 'club-secret-1')
     // The admins hear about it once, however often it is asked
     await club.requestPasswordReset('amy', 'tku')
     expect((await notices(adminId)).filter((n) => n.kind === 'passwordResetRequested')).toEqual([
@@ -69,7 +69,7 @@ describe('忘記密碼 with an admin’s approval (e1-t36)', () => {
     expect(await resetOf(amy)).toEqual({ state: 'requested', at: time })
 
     // Whoever asked has no code until an admin approves; then only the admin sees it
-    await expect(club.resetForgottenPassword('amy', 'AAAAA-AAAAA', 'newpass1')).rejects.toThrow('重設代碼不正確')
+    await expect(club.resetForgottenPassword('amy', 'AAAAA-AAAAA', 'new-passphrase-1')).rejects.toThrow('重設代碼不正確')
     time += 60_000
     const answer = await club.adminAnswerPasswordReset(adminId, amy, true)
     expect(answer!.code).toMatch(/^[A-Z2-9]{5}-[A-Z2-9]{5}$/)
@@ -83,12 +83,12 @@ describe('忘記密碼 with an admin’s approval (e1-t36)', () => {
     await expect(club.resetForgottenPassword('amy', code, '123')).rejects.toThrow('密碼至少')
     time += 60_000
     // Typed in lower case without the dash works
-    await club.resetForgottenPassword('amy', code.toLowerCase().replace('-', ' '), 'newpass1')
+    await club.resetForgottenPassword('amy', code.toLowerCase().replace('-', ' '), 'new-passphrase-1')
     expect(await club.userForToken(token)).toBeNull()
     expect(disconnected).toContain(amy)
     expect(await revoked(session)).toBe(true)
-    await expect(club.login('amy', 'secret1')).rejects.toThrow('帳號或密碼錯誤')
-    expect((await club.login('amy', 'newpass1')).user.id).toBe(amy)
+    await expect(club.login('amy', 'club-secret-1')).rejects.toThrow('帳號或密碼錯誤')
+    expect((await club.login('amy', 'new-passphrase-1')).user.id).toBe(amy)
     const listed = (await club.adminUsers()).find((u) => u.id === amy)!
     expect(listed).toMatchObject({ passwordResetAt: time, passwordReset: null })
     // The code worked once
@@ -102,7 +102,7 @@ describe('忘記密碼 with an admin’s approval (e1-t36)', () => {
     await club.requestPasswordReset('amy', 'tku')
     const { code } = (await club.adminAnswerPasswordReset(adminId, amy, true))!
     time += RESET_CODE_MS
-    await expect(club.resetForgottenPassword('amy', code, 'newpass1')).rejects.toThrow('重設代碼不正確')
+    await expect(club.resetForgottenPassword('amy', code, 'new-passphrase-1')).rejects.toThrow('重設代碼不正確')
     expect(await resetOf(amy)).toBeNull()
     // Once it ran out, asking again tells the admins again
     await club.requestPasswordReset('amy', 'tku')
@@ -113,16 +113,16 @@ describe('忘記密碼 with an admin’s approval (e1-t36)', () => {
     // Five wrong codes from one place and the name is locked there for a while, like sign-ins
     const { code: fresh } = (await club.adminAnswerPasswordReset(adminId, amy, true))!
     for (let i = 0; i < 5; i++)
-      await expect(club.resetForgottenPassword('amy', 'WRONG-CODE0', 'newpass1', '1.2.3.4')).rejects.toThrow('重設代碼不正確')
-    await expect(club.resetForgottenPassword('amy', fresh, 'newpass1', '1.2.3.4')).rejects.toThrow(ClubError)
-    await club.resetForgottenPassword('amy', fresh, 'newpass1', '5.6.7.8')
+      await expect(club.resetForgottenPassword('amy', 'WRONG-CODE0', 'new-passphrase-1', '1.2.3.4')).rejects.toThrow('重設代碼不正確')
+    await expect(club.resetForgottenPassword('amy', fresh, 'new-passphrase-1', '1.2.3.4')).rejects.toThrow(ClubError)
+    await club.resetForgottenPassword('amy', fresh, 'new-passphrase-1', '5.6.7.8')
   })
 
   it('leaves admin accounts to other admins, and a registration still waiting to the admins', async () => {
     await expect(club.requestPasswordReset('admin', 'tku')).rejects.toThrow('其他管理員')
     await expect(club.adminAnswerPasswordReset(adminId, adminId, true)).rejects.toThrow('其他管理員')
     await expect(club.requestPasswordReset('nobody', 'tku')).rejects.toThrow('找不到這個帳號')
-    await club.register('ben', 'secret1', 'tku')
+    await club.register('ben', 'club-secret-1', 'tku')
     await expect(club.requestPasswordReset('ben', 'tku')).rejects.toThrow('還沒核准')
   })
 })
@@ -130,7 +130,7 @@ describe('忘記密碼 with an admin’s approval (e1-t36)', () => {
 describe('edge passes stop when their session ends (e11-t28)', () => {
   it('lists ended sessions in D1: sign-out, one device, the other devices, a new password, a deleted account', async () => {
     const ben = await member('ben')
-    const tokens = await Promise.all([1, 2, 3, 4].map(async () => (await club.login('ben', 'secret1')).token))
+    const tokens = await Promise.all([1, 2, 3, 4].map(async () => (await club.login('ben', 'club-secret-1')).token))
     const [a, b, c, d] = await sessionIds(tokens)
     expect(await club.passIdentity('no-such-token')).toBeNull()
 
@@ -146,21 +146,21 @@ describe('edge passes stop when their session ends (e11-t28)', () => {
     expect(await revoked(d)).toBe(true)
     expect(await revoked(b)).toBe(false)
 
-    const { token: again } = await club.login('ben', 'secret1')
+    const { token: again } = await club.login('ben', 'club-secret-1')
     const [e] = await sessionIds([again])
-    await club.changePassword(ben, 'secret1', 'newpass1', tokens[1])
+    await club.changePassword(ben, 'club-secret-1', 'new-passphrase-1', tokens[1])
     expect([await revoked(e), await revoked(b)]).toEqual([true, false])
 
-    await club.deleteOwnAccount(ben, 'newpass1')
+    await club.deleteOwnAccount(ben, 'new-passphrase-1')
     expect(await revoked(b)).toBe(true)
   })
 
   it('tries once more when D1 fails, and an admin’s reset signs the member out too', async () => {
     const ben = await member('ben')
-    const { token } = await club.login('ben', 'secret1')
+    const { token } = await club.login('ben', 'club-secret-1')
     const [id] = await sessionIds([token])
     d1.fail = new Error('D1 is down')
-    await club.adminResetPassword(ben, 'newpass1')
+    await club.adminResetPassword(ben, 'new-passphrase-1')
     expect(await club.userForToken(token)).toBeNull()
     d1.fail = null
     expect(await revoked(id)).toBe(false)
@@ -170,7 +170,7 @@ describe('edge passes stop when their session ends (e11-t28)', () => {
 describe('password hashes (e11-t30)', () => {
   it('makes new hashes with ITERATIONS and upgrades an older one at the next sign-in', async () => {
     expect(ITERATIONS).toBe(100_000)
-    const fresh = await hashPassword('secret1')
+    const fresh = await hashPassword('club-secret-1')
     expect(fresh.split('$')[1]).toBe('100000')
     expect(needsRehash(fresh)).toBe(false)
 
@@ -178,21 +178,21 @@ describe('password hashes (e11-t30)', () => {
     const user = (await store.get<{ passwordHash: string }>(`user:${ben}`))!
     // A hash from before: 50,000 iterations, as accounts made until now have
     const salt = btoa(String.fromCharCode(...new Uint8Array(16)))
-    const key = await crypto.subtle.importKey('raw', new TextEncoder().encode('secret1'), 'PBKDF2', false, ['deriveBits'])
+    const key = await crypto.subtle.importKey('raw', new TextEncoder().encode('club-secret-1'), 'PBKDF2', false, ['deriveBits'])
     const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt: new Uint8Array(16), iterations: 50_000 }, key, 256)
     const old = `pbkdf2$50000$${salt}$${btoa(String.fromCharCode(...new Uint8Array(bits)))}`
     expect(needsRehash(old)).toBe(true)
-    expect(await verifyPassword('secret1', old)).toBe(true)
+    expect(await verifyPassword('club-secret-1', old)).toBe(true)
     await store.put(`user:${ben}`, { ...user, passwordHash: old })
     await club.load()
 
     await expect(club.login('ben', 'wrong11')).rejects.toThrow('帳號或密碼錯誤')
     expect((await store.get<{ passwordHash: string }>(`user:${ben}`))!.passwordHash).toBe(old)
-    await club.login('ben', 'secret1')
+    await club.login('ben', 'club-secret-1')
     const upgraded = (await store.get<{ passwordHash: string }>(`user:${ben}`))!.passwordHash
     expect(upgraded.split('$')[1]).toBe('100000')
-    expect(await verifyPassword('secret1', upgraded)).toBe(true)
-    await club.login('ben', 'secret1')
+    expect(await verifyPassword('club-secret-1', upgraded)).toBe(true)
+    await club.login('ben', 'club-secret-1')
   })
 
   it('makes reset codes that are hard to mistake, kept only as their hash', async () => {

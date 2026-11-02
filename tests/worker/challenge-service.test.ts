@@ -48,13 +48,13 @@ beforeEach(async () => {
   club = makeClub()
   await club.load()
   // The first account is the admin and hears of every registration; keep that out of the bells
-  await club.register('boss', 'secret1', '')
+  await club.register('boss', 'club-secret-1', '')
 })
 
 const tick = () => new Promise((resolve) => setImmediate(resolve))
 
 async function member(name: string) {
-  const result = await club.register(name, 'secret1', '')
+  const result = await club.register(name, 'club-secret-1', '')
   const user =
     'user' in result ? result.user : await club.adminApprove(club.adminApplications().find((a) => a.username === name)!.id)
   connections.online.add(user.id)

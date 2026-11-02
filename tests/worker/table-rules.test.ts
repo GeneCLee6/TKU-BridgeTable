@@ -89,7 +89,7 @@ beforeEach(async () => {
 const tick = () => new Promise((resolve) => setImmediate(resolve))
 
 async function member(name: string) {
-  const result = await club.register(name, 'secret1', '')
+  const result = await club.register(name, 'club-secret-1', '')
   let id: string
   if ('user' in result) id = result.user.id
   else id = (await club.adminApprove(club.adminApplications().find((a) => a.username === name)!.id)).id

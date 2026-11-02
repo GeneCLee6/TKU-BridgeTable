@@ -73,14 +73,14 @@ export async function teamHarness() {
     historyReplica: d1,
   })
   await h.club.load()
-  const founder = await h.club.register('boss', 'secret1', '')
+  const founder = await h.club.register('boss', 'club-secret-1', '')
   h.boss = 'user' in founder ? founder.user.id : ''
 
   const club = () => h.club
   const send = (userId: string, message: ClientMessage) => club().handle(userId, message)
 
   async function member(name: string) {
-    const result = await club().register(name, 'secret1', '')
+    const result = await club().register(name, 'club-secret-1', '')
     const user = 'user' in result ? result.user : await club().adminApprove(club().adminApplications().find((a) => a.username === name)!.id)
     connections.online.add(user.id)
     club().connected(user.id)

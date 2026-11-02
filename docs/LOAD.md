@@ -26,7 +26,7 @@
 ```bash
 # 本機：.dev.vars.preview 放 INVITE_CODE=、MAX_USERS=250、EVENT_OBJECTS=on
 CLOUDFLARE_ENV=preview npx vite --port 5199 --strictPort
-LOAD_PASSWORD=loadtest1 npm run load -- --url http://localhost:5199 --users 200 --tables 30 --robot-tables 5 \
+LOAD_PASSWORD=load-test-pass-1 npm run load -- --url http://localhost:5199 --users 200 --tables 30 --robot-tables 5 \
   --watchers 45 --minutes 10 --challenge 3 --churn 0.02 --out load.json
 # CPU：
 TBT_LOAD=full npx vitest run tests/worker/load-cpu.test.ts --project default --silent=false
