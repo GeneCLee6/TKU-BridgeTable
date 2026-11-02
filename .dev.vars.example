@@ -9,3 +9,8 @@ EDGE_AUTH_SECRET=
 # Salts the anti-cheating report's network hashes (ARCHITECTURE.md §5.17): any random string of at
 # least 16 characters; leave empty and only browsers are compared
 SEEN_SALT=
+
+# Cloudflare Turnstile on registering (DEPLOY.md §4.13): on only when both are set. Cloudflare's
+# test keys always pass: site key 1x00000000000000000000AA, secret 1x0000000000000000000000000000000AA
+TURNSTILE_SITE_KEY=
+TURNSTILE_SECRET_KEY=

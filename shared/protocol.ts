@@ -106,6 +106,11 @@ export interface Application {
 /** POST /api/register: the first account signs in at once; later ones wait for approval */
 export type RegisterResult = { user: Me } | { pending: true; username: string }
 
+/** GET /api/register/options (e1-t33): Turnstile's site key when the form must show it, else null */
+export interface RegisterOptions {
+  turnstileSiteKey: string | null
+}
+
 export interface SeatOccupant extends PublicUser {
   online: boolean
   /** A robot sitting in for a member who dropped offline (代打, `e2-t31`): their name; they get the seat back on returning */
