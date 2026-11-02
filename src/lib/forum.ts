@@ -33,8 +33,12 @@ export const forumApi = {
   boards: () => request<{ boards: Board[] }>('/api/forum/boards').then((r) => r.boards),
   /** Pinned posts on page 1, then newest first, FORUM_LIMITS.pageSize a page */
   boardPage: (boardId: string, page = 1) => request<BoardPage>(`/api/forum/boards/${id(boardId)}/posts?page=${page}`),
-  /** Every board's posts newest first, no pinned section */
-  feed: (page = 1) => request<ForumFeed>(`/api/forum/feed?page=${page}`),
+  /**
+   * Every board's posts newest first, no pinned section; `author`: only that member's (their profile
+   * page, e13-t08), none when they keep their posts off it
+   */
+  feed: (page = 1, author?: string) =>
+    request<ForumFeed>(`/api/forum/feed?page=${page}${author ? `&author=${id(author)}` : ''}`),
   /** The post and every comment, oldest first */
   post: (postId: string) => request<PostThread>(`/api/forum/posts/${id(postId)}`),
   /** A new post on a board (an officers-only board takes only the officers') */

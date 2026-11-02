@@ -57,6 +57,12 @@ export function withImpliedPermissions(permissions: readonly Permission[]): Perm
   return PERMISSIONS.filter((p) => set.has(p))
 }
 
+/** Whether other members see a member's boards and forum posts on their profile page (e13-t08) */
+export interface ProfilePrivacy {
+  boards: boolean
+  posts: boolean
+}
+
 /** The signed-in user, as /api/me returns it */
 export interface Me extends PublicUser {
   /**
@@ -86,6 +92,11 @@ export interface Me extends PublicUser {
   bookProfile?: string
   /** How fast the robots play at the member's tables (出牌速度); the server always sets it */
   robotSpeed?: RobotSpeed
+  /**
+   * What other members may see on the member's profile page (e13-t08, 隱私設定): the boards they
+   * played and their forum posts; the server always sets it, both shown unless turned off
+   */
+  profilePrivacy?: ProfilePrivacy
   /** The feature flags the member has (e11-t26, shared/features.ts); the server always sets it */
   features?: FeatureFlag[]
   /** The member's email (e1-t29); left out when the club sends no mail (no mail provider set, DEPLOY.md §4.14) */

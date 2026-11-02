@@ -1,6 +1,6 @@
 import { ChevronLeft, ChevronRight, EyeOff, Lock, MessageSquare, Pin } from 'lucide-react'
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import styled from 'styled-components'
 import { FORUM_LIMITS, type Board, type BoardPage, type Comment, type CommentBlock, type ForumAuction, type ForumFeed, type Post, type PostThread } from '../../shared/forum.ts'
 import { emptyAuction } from '../../shared/forum-editor.ts'
@@ -503,6 +503,14 @@ export function ForumPostPage() {
   useEffect(() => {
     void load()
   }, [load])
+
+  // A notification about a comment opens the post at it (`#comment-<id>`, e13-t09), once it is drawn
+  const { hash } = useLocation()
+  const loadedId = thread?.post.id
+  useEffect(() => {
+    if (!loadedId || !hash.startsWith('#comment-')) return
+    document.getElementById(decodeURIComponent(hash.slice(1)))?.scrollIntoView?.({ block: 'center' })
+  }, [loadedId, hash])
 
   const officer = useOfficer()
   const post = thread?.post

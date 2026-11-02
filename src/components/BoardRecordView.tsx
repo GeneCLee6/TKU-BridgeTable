@@ -1,4 +1,4 @@
-import { ExternalLink, Swords } from 'lucide-react'
+import { ExternalLink, Share2, Swords } from 'lucide-react'
 import { useMemo, useState, type ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import styled, { css } from 'styled-components'
@@ -166,6 +166,9 @@ export function BoardRecordView({
   // may set up (the club's needs `tkuSystem`, ROBOT.md §7)
   const played = framed && user ? challengeRobotsOf(record, user.id, openedAt) : null
   const robots = played && robotKindsFor(user).includes(played) ? played : null
+  // 分享到論壇 (e13-t07): a board the whole club may see; one kept back (a challenge or match not over) waits
+  const forumOn = !!user?.features?.includes('forum')
+  const shareable = record.revealAt === undefined || record.revealAt <= openedAt
 
   const allTricks = tricksOf(board)
   const contract = board.contract
@@ -276,6 +279,18 @@ export function BoardRecordView({
             <Button type="button" $small onClick={copyLin}>
               {copied ? t.copiedLin : t.copyLin}
             </Button>
+            {framed && forumOn &&
+              (shareable ? (
+                <Button as={Link} to={`/forum/new?record=${encodeURIComponent(record.id)}`} $small>
+                  <Share2 size={16} aria-hidden />
+                  {t.forum.share}
+                </Button>
+              ) : (
+                <Button type="button" $small disabled title={t.forum.shareHint}>
+                  <Share2 size={16} aria-hidden />
+                  {t.forum.share}
+                </Button>
+              ))}
             {robots && (
               <Button type="button" $small onClick={() => setChallenging(true)}>
                 <Swords size={16} aria-hidden />

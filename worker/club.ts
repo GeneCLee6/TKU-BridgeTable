@@ -29,6 +29,7 @@ import { type ArticleReader, ArticleService } from './articles.ts'
 import { type EbookReader, EbookService } from './ebooks.ts'
 import { ForumService, postExcerpt } from './forum.ts'
 import { ForumNotices } from './forum-notices.ts'
+import { addedRecordIds } from './forum-share.ts'
 import { BOOK_EVENTS_MAX_CHARS, BookTelemetry } from './book-telemetry.ts'
 import type { AuditAction } from './audit.ts'
 import { robotMeaningsFor } from './system-spec.ts'
@@ -731,6 +732,8 @@ export class Club extends DurableObject<Env> implements Connections {
           bookAdoptedNotice: b.bookAdoptedNotice,
           bookProfile: b.bookProfile,
           robotSpeed: b.robotSpeed,
+          profileBoards: b.profileBoards,
+          profilePosts: b.profilePosts,
         }) })
     }
     if (route === 'PATCH /api/account/profile') return json({ user: await this.service.setProfile(user.id, await body()) })
@@ -750,7 +753,9 @@ export class Club extends DurableObject<Env> implements Connections {
     if (request.method === 'GET' && avatar) return avatarResponse(await this.service.avatar(avatar[1]), request)
     // Another member's profile card (AC-1.5)
     const member = url.pathname.match(/^\/api\/members\/([\w-]+)$/)
-    if (request.method === 'GET' && member) return json({ member: await this.service.memberProfile(user.id, member[1]) })
+    if (request.method === 'GET' && member)
+      // `hidden`: what the member keeps off their page for this viewer (e13-t08); BridgeHall reads only `member`
+      return json({ member: await this.service.memberProfile(user.id, member[1]), hidden: this.service.profileHidden(user.id, member[1]) })
     // A page of the member's own conversation with another member (AC-1.7); new messages come over the socket
     const conversation = url.pathname.match(/^\/api\/messages\/([\w-]+)$/)
     if (request.method === 'GET' && conversation) {
@@ -1091,9 +1096,10 @@ export class Club extends DurableObject<Env> implements Connections {
     if (path === '/feed') {
       // 我的貼文 and 我提到的 (BridgeHall e11-t10): one member's posts, or the posts mentioning one
       const member = (name: string) => url.searchParams.get(name)?.slice(0, 64) || undefined
-      return json(
-        forum.feed(Number(url.searchParams.get('page') ?? 1), { author: member('author'), mentions: member('mentions') }, user),
-      )
+      // Another member's posts on their profile page, unless they keep them off it (e13-t08)
+      const author = member('author')
+      if (author && this.service.profileHidden(user.id, author).posts) return json({ posts: [], page: 1, pages: 1 })
+      return json(forum.feed(Number(url.searchParams.get('page') ?? 1), { author, mentions: member('mentions') }, user))
     }
     // 搜尋 (BridgeHall e11-t10): titles and text blocks; `board` narrows it to one board (the table's e13-t11)
     if (path === '/search')
@@ -1120,7 +1126,10 @@ export class Club extends DurableObject<Env> implements Connections {
     const posts = path.match(/^\/boards\/([\w-]+)\/posts$/)
     if (posts) {
       if (method === 'GET') return json(forum.boardPage(posts[1], Number(url.searchParams.get('page') ?? 1), user))
-      const post = forum.createPost(user, posts[1], await body())
+      const input = await body()
+      // A board shared from the history (e13-t07): only one the whole club may see
+      for (const id of addedRecordIds(input)) await this.service.checkShareable(user.id, id)
+      const post = forum.createPost(user, posts[1], input)
       await tell(() => notices.posted(user, post, forum.board(post.boardId)))
       return json({ post })
     }
@@ -1178,7 +1187,9 @@ export class Club extends DurableObject<Env> implements Connections {
       if (method === 'GET') return json(forum.thread(post[1], user))
       const before = forum.post(post[1])
       if (method === 'PATCH') {
-        const updated = forum.updatePost(user, post[1], await body())
+        const input = await body()
+        if (before.authorId === user.id) for (const id of addedRecordIds(input, before.blocks)) await this.service.checkShareable(user.id, id)
+        const updated = forum.updatePost(user, post[1], input)
         await tell(() => notices.edited(user, updated, before.mentions ?? []))
         return json({ post: updated })
       }
