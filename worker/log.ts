@@ -24,6 +24,11 @@ export type LogEntry =
   /** Google sign-in (e1-t31): never the account or the address; `reason` says which check failed */
   | { event: 'googleSignIn' | 'googleLinked' | 'googleUnlinked' }
   | { event: 'googleFailed'; reason: string }
+  /**
+   * Web Push (e1-t28): one batch sent; how many went out, failed (the push service's status, or no
+   * answer) and how many dead subscriptions (404/410) were removed. Never who or which device
+   */
+  | { event: 'push'; sent: number; failed: number; removed: number; statuses?: string }
   | { event: 'passwordResetByEmail' }
   | { event: 'mailFailed'; kind: 'verify' | 'reset' | 'security' }
   /**

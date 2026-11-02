@@ -54,7 +54,7 @@ M0 已經有一套社團用的帳號系統：邀請碼＋管理員核准、PBKDF
 - [ ] AC-1.5 — 個人檔案：顯示名稱、自評等級、常用制度、自我介紹、頭像；在社員分頁點名字可以看到。
 - [x] AC-1.6 — 好友與封鎖：社員分頁可只看好友、好友置頂；好友上線有提示（可關）；封鎖者不能私訊或邀請。
 - [x] AC-1.7 — 私訊：一對一訊息、未讀數、離線保留、速率限制。
-- [ ] AC-1.8 — 通知中心：挑戰、隊制賽、私訊、精選等通知即時出現在頁首鈴鐺，點了直接到對應頁；M2 起可選 PWA 推播。
+- [x] AC-1.8 — 通知中心：挑戰、隊制賽、私訊、精選等通知即時出現在頁首鈴鐺，點了直接到對應頁；M2 起可選 PWA 推播。
 - [ ] AC-1.9 — 公開階段的身分：Email 驗證與 Email 重設密碼、Google 與 LINE 登入、註冊有 Turnstile 與速率限制。
 
 ## Task 拆分
@@ -98,7 +98,7 @@ M0 已經有一套社團用的帳號系統：邀請碼＋管理員核准、PBKDF
 
 **M2 · 推播與公開階段的身分**（全台灣橋手清單；多元登入 `e1-t29`–`e1-t33` 排在清單最後，社長 2026-10-30）
 
-- [ ] `e1-t28` PWA 推播：VAPID 金鑰、訂閱管理、依通知種類的推播偏好 · AC-1.8 · M · ← e1-t22
+- [x] `e1-t28` PWA 推播：VAPID 金鑰、訂閱管理、依通知種類的推播偏好 · AC-1.8 · M · ← e1-t22（Web Push 只用 WebCrypto：RFC 8291 aes128gcm 加密、RFC 8292 VAPID ES256；從社團的 Durable Object 送、在線的人不推、404／410 刪掉訂閱；「我的帳號」每台裝置各自開關、裝置列表、依群組勾選（伺服器存每個種類）；`VAPID_*` 三個 secret 都設才開，ARCHITECTURE.md §5.4、DEPLOY.md §4.17）
 - [x] `e1-t29` Email 綁定與驗證信（寄信服務選型寫進 PR：Cloudflare Email Service 或 Resend）· AC-1.9 · M（Resend，沒設 `RESEND_API_KEY`／`MAIL_FROM` 時關閉；ARCHITECTURE.md §5.20、DEPLOY.md §4.14）#253
 - [x] `e1-t30` Email 重設密碼（社團模式仍可保留「帳號＋邀請碼」重設）· AC-1.9 · S · ← e1-t29（一次性 30 分鐘連結、只存雜湊；管理員核准的 `e1-t36` 保留）#253
 - [x] `e1-t31` Google 登入（OAuth，與既有帳號綁定）· AC-1.9 · M（OIDC 授權碼＋PKCE，伺服器換 token、用 `sub` 認人；綁在既有帳號、用 Google 申請仍要核准、兩步驟登入照樣要驗證碼；`GOOGLE_CLIENT_ID`／`GOOGLE_CLIENT_SECRET` 都設才開，ARCHITECTURE.md §5.2、DEPLOY.md §4.16）
