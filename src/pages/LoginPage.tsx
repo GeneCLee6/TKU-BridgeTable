@@ -131,7 +131,7 @@ const Footnote = styled(Muted)`
  * handed over (e1-t36); `emailReset` mails a link to the account's verified address (e1-t30)
  */
 type Mode = 'login' | 'register' | 'reset' | 'resetCode' | 'emailReset'
-type FieldName = 'username' | 'password' | 'repeat' | 'inviteCode' | 'code'
+type FieldName = 'username' | 'password' | 'repeat' | 'inviteCode' | 'code' | 'otp'
 
 /** Server error codes that belong to one field; the rest show above the form */
 const FIELD_OF: Record<string, FieldName> = {
@@ -162,6 +162,9 @@ export function LoginPage() {
   const [repeat, setRepeat] = useState('')
   const [inviteCode, setInviteCode] = useState('')
   const [code, setCode] = useState('')
+  /** 兩步驟登入 (e11-t31): set once the server answers that this account needs a code, and the code typed */
+  const [needOtp, setNeedOtp] = useState(false)
+  const [otp, setOtp] = useState('')
   const [note, setNote] = useState('')
   const [error, setError] = useState('')
   const [fieldError, setFieldError] = useState<{ field: FieldName; text: string } | null>(null)
@@ -231,6 +234,8 @@ export function LoginPage() {
     setDone('')
     setPassword('')
     setRepeat('')
+    setNeedOtp(false)
+    setOtp('')
   }
 
   const submit = async (event: FormEvent) => {
@@ -261,10 +266,16 @@ export function LoginPage() {
         switchTo('login')
         setCode('')
         setDone(t.resetDone)
-      } else await login(username, password)
+      } else await login(username, password, needOtp ? otp : undefined, lang)
     } catch (e) {
+      // The right password for an account with the second step: ask for the code, no error
+      if (e instanceof ApiError && e.code === 'twoFactorNeeded') {
+        setNeedOtp(true)
+        return
+      }
       const text = e instanceof ApiError ? message(e.code, e.params, e.message) : t.genericError
-      const field = e instanceof ApiError && mode !== 'login' ? FIELD_OF[e.code] : undefined
+      const field =
+        e instanceof ApiError ? (e.code === 'twoFactorWrong' ? 'otp' : mode !== 'login' ? FIELD_OF[e.code] : undefined) : undefined
       if (field) setFieldError({ field, text })
       else setError(text)
       // A Turnstile token is good for one try
@@ -363,6 +374,22 @@ export function LoginPage() {
                   minLength={newPassword ? LIMITS.passwordMin : undefined}
                 />
                 {below('password', newPassword && t.passwordHint(LIMITS.passwordMin))}
+              </Field>
+            )}
+            {mode === 'login' && needOtp && (
+              <Field>
+                <FieldLabel htmlFor={`${id}-otp`}>{t.twoFactor.code}</FieldLabel>
+                <Input
+                  {...describe('otp', true)}
+                  $size="lg"
+                  value={otp}
+                  onChange={(e) => setOtp(e.target.value)}
+                  autoComplete="one-time-code"
+                  autoFocus
+                  required
+                  maxLength={20}
+                />
+                {below('otp', t.twoFactor.loginHint)}
               </Field>
             )}
             {withCode && (

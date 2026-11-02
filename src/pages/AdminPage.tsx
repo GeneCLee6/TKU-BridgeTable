@@ -59,7 +59,7 @@ const anchor = (section: SectionId) => `admin-${section}`
 /** Fields a server error can belong to */
 type FieldKey = 'maxUsers' | 'inviteCode' | 'username' | 'password' | 'reset'
 
-type Pending = { id: string; action: 'password' | 'delete' | 'reject' | 'close' } | null
+type Pending = { id: string; action: 'password' | 'delete' | 'reject' | 'close' | 'twoFactor' } | null
 
 /** A member's role and permissions, as the members section edits them */
 type Role = { admin: boolean; permissions: Permission[] }
@@ -645,6 +645,7 @@ export function AdminPage() {
                             ) : (
                               <Badge $on={u.admin}>{u.admin ? t.admin : t.member}</Badge>
                             )}
+                            {u.twoFactor && <Sub>{t.twoFactor.adminTag}</Sub>}
                           </td>
                           <td>
                             {role.admin ? (
@@ -712,6 +713,22 @@ export function AdminPage() {
                                 </Actions>
                                 {below('reset')}
                               </PasswordRow>
+                            ) : editing === 'twoFactor' ? (
+                              <Actions>
+                                <span>{t.twoFactor.adminClearConfirm(u.username)}</span>
+                                <Button
+                                  type="button"
+                                  $size="sm"
+                                  $variant="danger"
+                                  $busy={busy === `twoFactor-${u.id}`}
+                                  onClick={() => void run(`twoFactor-${u.id}`, () => api.admin.clearTwoFactor(u.id))}
+                                >
+                                  {t.confirm}
+                                </Button>
+                                <Button type="button" $size="sm" onClick={() => editPending(null)}>
+                                  {t.cancel}
+                                </Button>
+                              </Actions>
                             ) : editing === 'delete' ? (
                               <Actions>
                                 <span>{t.confirmDelete(u.username)}</span>
@@ -761,18 +778,33 @@ export function AdminPage() {
                                 </Button>
                                 <RowMenu label={t.adminMoreActions(u.username)} disabled={self}>
                                   {(close) => (
-                                    // The role is edited with the permissions (「編輯」); deleting is not an edit
-                                    <MenuItem
-                                      type="button"
-                                      role="menuitem"
-                                      $danger
-                                      onClick={() => {
-                                        close()
-                                        editPending({ id: u.id, action: 'delete' })
-                                      }}
-                                    >
-                                      {t.adminDeleteMember}
-                                    </MenuItem>
+                                    // The role is edited with the permissions (「編輯」); deleting is not an edit.
+                                    // Turning off 兩步驟登入 (e11-t31) is for a member who lost the phone
+                                    <>
+                                      {u.twoFactor && (
+                                        <MenuItem
+                                          type="button"
+                                          role="menuitem"
+                                          onClick={() => {
+                                            close()
+                                            editPending({ id: u.id, action: 'twoFactor' })
+                                          }}
+                                        >
+                                          {t.twoFactor.adminClear}
+                                        </MenuItem>
+                                      )}
+                                      <MenuItem
+                                        type="button"
+                                        role="menuitem"
+                                        $danger
+                                        onClick={() => {
+                                          close()
+                                          editPending({ id: u.id, action: 'delete' })
+                                        }}
+                                      >
+                                        {t.adminDeleteMember}
+                                      </MenuItem>
+                                    </>
                                   )}
                                 </RowMenu>
                               </Actions>

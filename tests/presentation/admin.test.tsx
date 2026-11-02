@@ -28,6 +28,7 @@ const mocks = vi.hoisted(() => ({
     setAdmin: vi.fn(),
     updateMembers: vi.fn(),
     deleteUser: vi.fn(),
+    clearTwoFactor: vi.fn(),
     closeTable: vi.fn(),
     bookSync: vi.fn(),
     features: vi.fn(),
@@ -397,6 +398,20 @@ describe('AdminPage', () => {
 
     await userEvent.click(screen.getByRole('button', { name: '確定' }))
     expect(mocks.api.deleteUser).toHaveBeenCalledWith('amy')
+  })
+
+  it('turns off a member’s 兩步驟登入 from the row menu, after asking (e11-t31)', async () => {
+    mocks.api.users.mockResolvedValue({ users: [user('boss', { admin: true }), user('kim', { admin: true, twoFactor: true })] })
+    mocks.api.clearTwoFactor.mockResolvedValue({ ok: true })
+    page()
+    expect(await screen.findByText('兩步驟登入')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'kim 的其他操作' }))
+    const menu = screen.getByRole('menu', { name: 'kim 的其他操作' })
+    await userEvent.click(within(menu).getByRole('menuitem', { name: '關閉兩步驟登入' }))
+    expect(screen.getByText(/確定要關閉 kim 的兩步驟登入嗎/)).toBeInTheDocument()
+    expect(mocks.api.clearTwoFactor).not.toHaveBeenCalled()
+    await userEvent.click(screen.getByRole('button', { name: '確定' }))
+    expect(mocks.api.clearTwoFactor).toHaveBeenCalledWith('kim')
   })
 
   it('shows times relative to today and the board counts', async () => {
