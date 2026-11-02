@@ -687,6 +687,8 @@ export class Club extends DurableObject<Env> implements Connections {
     const preset = url.pathname.match(/^\/api\/practice\/presets\/([\w-]+)$/)
     if (preset && request.method === 'DELETE') return json({ presets: await this.service.removeSavedPractice(user.id, preset[1]) })
     if (route === 'GET /api/challenges') return json({ challenges: this.service.challengeList(user.id) })
+    // The daily club event's page (e9-t03): today's, yesterday's and the earlier days
+    if (route === 'GET /api/daily') return json({ daily: this.service.dailyEvent(user.id) })
     // The challenge pages create, answer and cancel over HTTP to hear back at once (e7-t16, e7-t17)
     if (route === 'POST /api/challenges') {
       const b = await body()
@@ -801,6 +803,8 @@ export class Club extends DurableObject<Env> implements Connections {
     if (method === 'GET' && path === '/weekly-challenge') return json({ weekly: this.service.weeklyChallenge() })
     if (method === 'POST' && path === '/weekly-challenge')
       return json({ weekly: await this.service.adminSetWeeklyChallenge(user.id, await body()) })
+    if (method === 'POST' && path === '/daily-event')
+      return json({ daily: await this.service.adminSetDailyEvent(user.id, await body()) })
     if (method === 'GET' && path === '/settings') return json({ settings: this.service.clubSettings })
     // Feature flags (e11-t26): the club's state of each and the members who get it anyway
     if (method === 'GET' && path === '/features') return json({ features: this.service.adminFeatures() })

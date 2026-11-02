@@ -45,6 +45,7 @@ export default defineConfig({
           include: [
             'tests/worker/challenge*.test.ts',
             'tests/worker/weekly-challenge.test.ts',
+            'tests/worker/daily-event.test.ts',
             'tests/worker/team-match*.test.ts',
             'tests/worker/tku-system.test.ts',
             'tests/worker/visibility/*.test.ts',

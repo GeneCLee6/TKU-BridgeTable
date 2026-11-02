@@ -1,6 +1,7 @@
 import type { RulingRequest } from '../../shared/board-events.ts'
 import type { ChallengeSettings, ChallengeView } from '../../shared/challenge.ts'
 import type { WeeklyChallengeSchedule, WeeklyChallengeView } from '../../shared/weekly-challenge.ts'
+import type { DailyEventSettings, DailyEventView } from '../../shared/daily-event.ts'
 import { historyQueryString, type HistoryQuery } from '../../shared/history-query.ts'
 import type { MessageParams } from '../../shared/messages.ts'
 import type { MemberProfile, Profile } from '../../shared/profile.ts'
@@ -168,6 +169,8 @@ export const api = {
   challenges: () => request<{ challenges: ChallengeView[] }>('/api/challenges'),
   /** One challenge as the member may see it, with the standings and travellers they are allowed */
   challenge: (id: string) => request<{ challenge: ChallengeView }>(`/api/challenges/${encodeURIComponent(id)}`),
+  /** The daily club event's page (`e9-t03`): today's, yesterday's and the earlier days */
+  daily: () => request<{ daily: DailyEventView }>('/api/daily'),
   /** Challenges friends (`e7-t17`); the server checks everything and answers with the new challenge */
   createChallenge: (invitees: string[], boards: number, settings: Partial<ChallengeSettings>) =>
     post<{ challenge: ChallengeView }>('/api/challenges', { invitees, boards, settings }),
@@ -233,5 +236,8 @@ export const api = {
     weeklyChallenge: () => request<{ weekly: WeeklyChallengeView }>('/api/admin/weekly-challenge'),
     saveWeeklyChallenge: (schedule: Partial<WeeklyChallengeSchedule>) =>
       post<{ weekly: WeeklyChallengeView }>('/api/admin/weekly-challenge', schedule),
+    /** Turns the daily club event on or off, and its robots' system (`e9-t02`) */
+    saveDailyEvent: (settings: Partial<DailyEventSettings>) =>
+      post<{ daily: DailyEventView }>('/api/admin/daily-event', settings),
   },
 }

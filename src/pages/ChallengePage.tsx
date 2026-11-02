@@ -158,7 +158,12 @@ export function ChallengePage() {
     }
   }, [challengeId, latest, message])
 
-  const back = (
+  // The daily event lives on its own page (`e9-t03`)
+  const back = challenge?.settings.daily ? (
+    <Back back to="/daily">
+      {t.daily.title}
+    </Back>
+  ) : (
     <Back back to="/challenges">
       {t.allChallenges}
     </Back>
