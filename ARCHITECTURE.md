@@ -121,6 +121,7 @@ TKU-BridgeTable/
 │  ├─ scheduler.ts         統一排程器：機器人、自動發牌、挑戰的提醒與截止都走同一個 alarm 佇列
 │  ├─ auth.ts              PBKDF2 密碼雜湊（100,000 次，舊的登入時升級）、session cookie、忘記密碼的一次性代碼
 │  ├─ password-policy.ts   新密碼的規則（e11-t29）：至少 12 字、不含帳號名稱、不在 common-passwords.ts 的外洩清單（docs/SECURITY.md V2.1）
+│  ├─ totp.ts              兩步驟登入（e11-t31）：TOTP（RFC 6238，WebCrypto）、base32、otpauth 連結、備用碼
 │  └─ store.ts             儲存介面與測試用 MemoryStore
 ├─ src/                    React app
 │  ├─ components/          牌、手牌、叫牌盒、叫牌過程、牌號、名牌、墩、面板、頁首、聊天
@@ -838,7 +839,7 @@ E13 的 PRD 原本寫「貼文與留言進 D1」。現況是社團 Durable Objec
 - 作者名稱用大廳的社員列表（`lobby.members`，顯示名稱優先）；已不是社員的顯示「已離開的社員」。
 - 區塊由 `ForumBlocks` 畫：段落、提示、條列照文字（花色符號上色，`SuitText`）；一手牌用文字牌型；**四手牌用紀錄頁的 `RecordDiagram`**（K2，`ForumDeal`：`shared/forum-editor.ts` 的 `dealRecord` 把 `ForumDeal` 轉成沒有牌號、沒有玩家的紀錄，`anonymous` 讓四家顯示方位而不是名字，`BoardInfo` 不寫牌號）；叫牌過程用紀錄頁的 `AuctionBox`；圖片、橋館制度、牌桌紀錄是連結。
 - **發文在牌桌站內**（K2）：頁面上的「發文」開牌桌的 `/forum/new`。通知鈴鐺的論壇通知還是連到橋館（`src/lib/notifications.ts`）；旗標全開後再決定改指牌桌（K3 `e13-t09`）。
-- 反應、檢舉、搜尋在牌桌還沒有入口（API 都有）：檢舉與搜尋是 K4；反應還沒排批次。編輯與刪除貼文在 K2 做了。
+- 檢舉、隱藏、搜尋在 K4 做了（見下面「檢舉、隱藏與搜尋」）；反應還沒排批次。編輯與刪除貼文在 K2 做了。
 
 ### 發文編輯器（K2：`e13-t04`、`e13-t05`、`e13-t06`）
 
@@ -851,11 +852,55 @@ E13 的 PRD 原本寫「貼文與留言進 D1」。現況是社團 Durable Objec
 - **留言可以附叫牌過程**（PRD「留言也可嵌入叫牌過程」）：留言框的「加叫牌過程」，送出 `paragraph`＋`auction`。
 - **莊位與首攻**：PRD 的 `e13-t05` 寫了莊位與首攻，但 `ForumDeal` 只有四家牌、發牌與身價；莊家可以從同一篇的叫牌過程看出來。要存首攻得在 `ForumDeal` 加欄位，而橋館的型別對拍（`parity/table-types.ts`）是 `Same`，要兩站一起改，K2 先不做。
 
+### 檢舉、隱藏與搜尋（K4：`e13-t10`、`e13-t11`）
+
+開工前先對照了橋館：**檢舉（e11-t09）、速率限制（每人每分鐘發文加留言 ≤ 5）、搜尋（e11-t10）的後端都已經有**，橋館的討論區也有頁面。K4 只補兩個後端缺口（隱藏、搜尋限定板面），其他是牌桌的頁面。
+
+| 部分 | 現況 | K4 做的 |
+| --- | --- | --- |
+| 檢舉 | 有（`POST /api/forum/reports`，每人未處理 ≤ 20） | 貼文頁每篇貼文、每則留言（不是自己的）有「檢舉」，填原因送出 |
+| 處理檢舉 | 有（`GET`／`POST /api/forum/reports…`，駁回或刪除） | 幹部的 `/forum/reports`：待處理／全部、檢舉人、原因、作者與摘要、連到貼文（留言連到 `#comment-<id>`）；不處理、刪除內容、隱藏（只有貼文） |
+| **隱藏** | **沒有** | 新增（下面） |
+| 速率限制 | 有（`TokenBuckets`，429 `slowDown`）；檢舉靠「每人未處理 ≤ 20」 | 不改 |
+| 搜尋 | 有（標題與文字區塊，`LIKE`） | 加 `&board=` 限定板面；牌桌的 `/forum/search` |
+| 標籤 | **資料模型沒有標籤** | 不做，待社長決定（下面） |
+
+**隱藏貼文**（AC-13.1「管理員可隱藏」、AC-13.6）：
+
+- `POST /api/forum/posts/:id/hide { hidden }`（幹部，`forumRouteNeed` 跟置頂、鎖定同一條），存在 `forum_posts.hidden_at`、`hidden_by`。**資料表的變更是加欄位**：`createTables` 照 `body_text` 的做法用 `PRAGMA table_info` 檢查、沒有就 `ALTER TABLE … ADD COLUMN`（新建的表直接有），舊備份還原後也會補（還原是 `DELETE FROM` 再插回，欄位還在）。
+- 隱藏的貼文**只有作者與幹部看得到**（`Post.hidden` 為 true，頁面標「已隱藏」）；其他社員在板面、首頁、所有貼文、搜尋都看不到，直接開網址、留言、按反應、檢舉都是 404 `postGone`（跟刪掉一樣，不透露它還在）。過濾在伺服器（`visibleTo`、`seenPostRow`），`boardPage`／`feed`／`search`／`latest`／`thread` 多一個 `viewer` 參數，沒給就當看不到隱藏的。
+- 隱藏時這篇的**未處理檢舉一起關成 `removed`**（跟刪除一樣，`ReportStatus` 不加新值，橋館的檢舉頁照樣看得懂）。取消隱藏不會重開檢舉。
+- 審計 `forum:hide`／`forum:unhide`（`note` 是作者與摘要）。
+- 只做貼文；留言不隱藏（不當的留言直接刪，留言沒有「讓作者改」的需要）。
+
+**搜尋為什麼還是 `LIKE`、不用 FTS5**：
+
+- **中文斷詞**：FTS5 預設的 `unicode61` 把連在一起的漢字當成**一個詞**（整句沒有空格），搜「首攻」找不到「這副牌首攻什麼」；`trigram` 斷詞可以找子字串，但**少於 3 個字的查詢找不到**，而橋牌最常搜的正是兩個字（叫牌、首攻、賭倍、蓋叫）。兩個字還是要退回 `LIKE`，等於維護兩套。
+- **量**：一個社團的貼文幾千篇，`LIKE '%詞%'` 掃 `title` 與 `body_text` 在 Durable Object 裡不到 1 ms；而且搜尋跑在 `Club` 物件裡，不佔 Worker 每次請求 10 ms CPU 的額度。
+- **一致**：跟橋館已上線的搜尋同一套規則（每個詞都要有、英文不分大小寫、`%` `_` 當普通字），兩站結果一樣。
+- **什麼時候換**：搬 D1、全台灣公開、貼文到幾萬篇時，改成 `trigram` FTS5 加「少於 3 字退回 `LIKE`」；`ForumService.search` 是唯一要改的地方。
+
+**牌桌的頁面**：
+
+| 網址 | 頁面 | 內容 |
+| --- | --- | --- |
+| `/forum/search?q=&board=&page=` | `ForumSearchPage` | 搜尋框、板面下拉（全部板面或一個），結果用貼文列表、分頁；條件在網址上，可以分享 |
+| `/forum/reports` | `ForumReportsPage` | 只有幹部（其他人轉回 `/forum`）；論壇首頁的「檢舉處理」連結也只給幹部看 |
+
+元件測試在 `tests/presentation/forum-moderation.test.tsx`，伺服器在 `tests/worker/forum.test.ts`（隱藏、可見性、舊表補欄位、搜尋限定板面）。
+
+**橋館要跟著改的**（不改也不會壞，只是看不到新功能）：
+
+1. `src/lib/forum.ts`（型別複本）：`Post` 加 `hidden?: boolean`；`parity/table-types.ts` 的對拍會抓到。
+2. `src/lib/api.ts` 的 `AuditAction` 加 `forum:hide`、`forum:unhide`，`reviewStrings.ts` 加「隱藏貼文」「取消隱藏」，審計紀錄才顯示得出名稱。
+3. 想要的話：討論區的貼文頁加幹部的「隱藏」、檢舉頁加「隱藏」、搜尋頁加板面篩選（`forumApi.search` 帶 `board`）。
+4. 橋館的幹部現在就看得到隱藏的貼文（列表照常出現），但沒有「已隱藏」標記，直到做了第 1 點。
+
 ### 之後
 
 - **K2**（做完）：四手牌編輯器（`e13-t05`）、叫牌過程輸入（`e13-t06`）、發文編輯器（`e13-t04`）；牌圖改用 `RecordDiagram`。見下面「發文編輯器」。
 - **K3**：從紀錄分享（`e13-t07`，伺服器檢查挑戰未結束的牌）、個人頁的貼文（`e13-t08`）、通知改連牌桌（`e13-t09`）。
-- **K4**：檢舉與管理頁（`e13-t10`）、全文搜尋（`e13-t11`，屆時評估 D1 FTS5）。
+- **K4**（做完）：檢舉、隱藏與管理頁（`e13-t10`）、搜尋限定板面（`e13-t11`，評估後不用 FTS5）。見上面「檢舉、隱藏與搜尋」。
 
 ## 5.20 Email 綁定與 Email 重設密碼（決策紀錄，`e1-t29`、`e1-t30`，2026-11-02，H5a）
 
@@ -1417,6 +1462,12 @@ SQL 由 `worker/history-index.ts` 的 `searchBoards` 組：只有固定的 SQL �
   - **Cloudflare Turnstile**（`worker/turnstile.ts`）：`TURNSTILE_SITE_KEY`（vars）與 `TURNSTILE_SECRET_KEY`（secret）**都設**才開；`GET /api/register/options`（不用登入）回 `{ turnstileSiteKey: string | null }`（`RegisterOptions`），申請表單有 site key 才載入 `challenges.cloudflare.com` 的 script、畫出元件（`src/components/Turnstile.tsx`），`POST /api/register` 帶 `turnstileToken`。驗證是對 `siteverify` 的 fetch，放在 `club.ts`（`ClubService` 不碰 Cloudflare API），在 `ClubService.register` 之前；沒有、錯的、用過的、過期的 token，或連不到 Cloudflare（不放行）都回 403 `captchaFailed`，日誌 `turnstileFailed`（Cloudflare 的錯誤代碼）。token 只能用一次，表單在每次失敗後重新產生。**淡江橋館的申請也走 `/api/register`**：開 Turnstile 之前橋館要先帶 `turnstileToken`（DEPLOY.md §4.13）。
   - 「忘記密碼」的申請沒有套用：同一個人在申請還在等時不會重複通知管理員，且要邀請碼；Email 重設（`e1-t30`）寄信有成本、可能被拿來灌別人的信箱，那時再用 `RegistrationLimit` 同樣的做法。
 - **忘記密碼**（`e1-t36`，管理員核准）：`requestPasswordReset(username, inviteCode)` 只記下申請（`StoredUser.passwordReset.requestedAt`）並通知管理員（`passwordResetRequested`，通知中心）；申請還在等或代碼還有效時再申請不重複通知。管理員在管理頁核准（`adminAnswerPasswordReset`）才產生一組一次性代碼（`XXXXX-XXXXX`，31 個不易混淆的字元、約 49 bit，3 天有效，只存 SHA-256），**只顯示給按核准的管理員**，由他當面或私訊交給本人；拒絕就刪掉申請。`resetForgottenPassword(username, code, password)` 對了才設新密碼，用過就失效；錯的代碼與登入共用 `loginByName`／`loginByAddress` 的失敗次數。改好後登出所有 session、通行證與連線（`revokeSessions`），記下 `passwordResetAt`。管理員帳號不行（`adminNoSelfReset`），還在等核准的註冊申請也不行（`resetApplication`，請管理員拒絕後重新申請）。**為什麼是「核准後發代碼」而不是「申請時附上新密碼的雜湊」**：知道邀請碼的人都能以別人的名義申請；若申請時就附密碼，管理員核准的是「誰送的密碼」無從分辨，冒名者的密碼會生效。代碼只交到管理員確認過的本人手上，冒名者申請了也拿不到。
+- **兩步驟登入**（`e11-t31`，docs/SECURITY.md V2.7、DEPLOY.md §4.15）：管理員可以自己開 TOTP（RFC 6238，`worker/totp.ts`，只用 WebCrypto，一次檢查最多 3 個 HMAC-SHA-1，在社團的 Durable Object 裡算）。**自願開啟**，PRD 沒說要強制，留給社長決定。
+  - **設定**：`POST /api/account/2fa/setup { password }`（只限管理員，`adminOnly`）回 `TwoFactorSetup { secret, uri, expiresAt }`：base32 金鑰與 `otpauth://totp/TKU%20BridgeTable:<帳號>?…` 連結（手機上直接點開驗證 App；沒有 QR code，CSP 只放行本站，又不想為此加套件）。金鑰先存在 `StoredUser.twoFactorSetup`，10 分鐘內 `POST /api/account/2fa/enable { code }` 給對第一個驗證碼才生效（`twoFactorSetupGone`），回 `{ user, recoveryCodes }`：10 組 `XXXXX-XXXXX` 備用碼只出現這一次，只存 SHA-256；同時登出其他裝置（只靠密碼開的 session 不留）。
+  - **登入**：`POST /api/login` 多一個可選的 `code`（和 `lang`，通知信用）。**密碼對了**才會知道要驗證碼：沒帶 `code` 回 401 `twoFactorNeeded`，頁面多一格驗證碼後**用同一組帳號密碼再送一次**（不發中間票證，伺服器不必多存狀態）。6 位數字當 App 的驗證碼（前後各容許一步、同一步只能用一次：`TwoFactor.lastStep`），其他當備用碼（用掉就刪）。錯了回 401 `twoFactorWrong`，算進那個帳號的 `TWO_FACTOR_FAILURES`（5 次／15 分鐘，不分來源；鎖了回 `tooManyLogins`）與那個 IP 的登入失敗次數。**沒開的帳號請求與回應完全不變**，淡江橋館照舊；開了的管理員要等橋館的登入頁加一格驗證碼（同一支 API 帶 `code` 就好）。
+  - **管理**：`POST /api/account/2fa/recovery { password, code }` 換一批備用碼（舊的全部失效）、`POST /api/account/2fa/disable { password, code }` 關掉，都要密碼加驗證碼或備用碼（同一個失敗次數）。`DELETE /api/admin/users/:id/2fa`：另一位管理員替手機與備用碼都不見的人關掉（不能對自己，`notSelf`）。`Me.twoFactor { enabled, recoveryLeft }` 只給管理員與已經開了的人；`AdminUser.twoFactor` 給管理頁。
+  - **Email**（§5.20）：驗證碼錯到鎖住（有人知道密碼）、用了備用碼、兩步驟登入被關掉時，寄「帳號安全通知」到驗證過的 Email（`mailSecuritySubject` 與三種內文，算進每個帳號的寄信次數）；沒有 Email 就不寄。**改密碼與 Email 重設密碼都不會關掉兩步驟登入**：拿到信箱的人也還要驗證碼。
+  - **儲存**：金鑰要能算驗證碼，所以跟密碼雜湊一樣原樣放在 `user:<id>`（備份裡也有）；匯出資料（`GET /api/account/export`）只有 `twoFactorEnabledAt`，沒有金鑰與備用碼雜湊。
 - **權限**：`StoredUser.permissions`：`bookEdit`（線上編輯：草稿、送審）、`bookReview`（審核發布：發布、退回、隱藏、還原；橋館 e8-t01。審核者一定也是編輯者：存權限時 `withImpliedPermissions` 自動補上 `bookEdit`）、`bookImport`（匯入檔案）、`boardCurate`（設精選牌局，牌桌用，§5.9）、`tkuSystem`（淡江制度機器人，牌桌用，§5.1.2）、`forumModerate`（淡江橋館討論區的幹部：發公告、置頂、鎖定、刪別人的貼文與留言、處理檢舉；橋館 e11-t09）；管理員全部都有，管理頁的「權限」欄逐項勾選。淡江橋譜的 `/api/me` 也會看到 `boardCurate`、`tkuSystem`，橋譜不用它們。
 - **角色**（使用者決定，2026-10-25；名稱暫時沿用）：**管理員**什麼都能管，包括使用者帳號；**編輯者**（`bookEdit`）能管帳號以外的所有東西。帳號＝申請與核准、新增與刪除帳號、重設密碼、管理員身分、權限、社團設定（人數上限、邀請碼，管的是誰能加入），只限管理員；橋譜的特約（草稿、送審、版本）、分類、制度集，以及關閉卡住的牌桌，編輯者都能做；**發布特約（含直接發布）、退回草稿、隱藏、還原是審核者（`bookReview`）的**（橋館 e8-t01，2026-10-28 起；之前編輯者按儲存就上線）。`bookImport`（AI 匯入，花 API 額度）與 `boardCurate` 仍是各自勾選的權限，`bookEdit` 不包含它們。每條路由要什麼寫在 `worker/roles.ts`（`bookRouteNeed`、`adminRouteNeed`；`tests/worker/roles.test.ts` 列出每條路由），`club.ts` 先查表再分派。牌桌管理頁目前仍只給管理員開（編輯者能用 `DELETE /api/admin/tables/:id`，但畫面還沒開給他們）。隊伍與搭檔的制度集另有成員權限（`profileAccess`，e2-t04，見下方「制度集的成員權限」）：隊長、隊員、搭檔不必是編輯者也能改自己的。
 
@@ -1507,10 +1558,11 @@ SQL 由 `worker/history-index.ts` 的 `searchBoards` 組：只有固定的 SQL �
 | `GET /api/forum/feed?page=` | 社員 | `ForumFeed`：所有板面的貼文新→舊，一頁 20 則，不另列置頂（橋館討論區首頁 `/forum`，e11-t15） |
 | `GET /api/forum/feed?page=&author=` | 社員 | 同上，只列那位社員發的貼文（橋館「我的貼文」，e11-t10） |
 | `GET /api/forum/feed?page=&mentions=` | 社員 | 同上，只列貼文或其留言 `@` 提到那位社員的（橋館「我提到的」） |
-| `GET /api/forum/search?q=&page=` | 社員 | `ForumSearch`：標題或文字區塊（段落、提示、條列）含每個詞（空白分開、最多 5 個、共 50 字；英文不分大小寫）的貼文，新→舊，一頁 20 則，多 `query`、`total`；留言、圖說、替代文字不搜。文字存在 `forum_posts.body_text`（舊貼文在 `createTables` 補）；`q` 空或太長回 400（e11-t10） |
+| `GET /api/forum/search?q=&page=&board=` | 社員 | `ForumSearch`：標題或文字區塊（段落、提示、條列）含每個詞（空白分開、最多 5 個、共 50 字；英文不分大小寫）的貼文，新→舊，一頁 20 則，多 `query`、`total`；留言、圖說、替代文字不搜。文字存在 `forum_posts.body_text`（舊貼文在 `createTables` 補）；`q` 空或太長回 400（e11-t10）；`board` 只搜那個板面（牌桌 e13-t11） |
 | `GET /api/forum/latest` | 社員 | `ForumLatest`：公告板最新三則（置頂優先）與其他板最新三則（橋館首頁） |
 | `GET`／`PATCH`／`DELETE /api/forum/posts/:id` | 社員；改只有作者；刪是作者或幹部 | `PostThread`（貼文與全部留言，舊→新）；`PostInput` → `{ post }`；別人的 403 `notYours`，不存在 404 `postGone` |
 | `POST /api/forum/posts/:id/pin`、`/lock` | 幹部（`forumModerate`） | `{ pinned }`／`{ locked }` → `{ post }`；有變才寫審計、置頂通知作者 |
+| `POST /api/forum/posts/:id/hide` | 幹部（`forumModerate`） | `{ hidden }` → `{ post }`；隱藏後只有作者與幹部看得到（其他人所有列表與搜尋都沒有、開了是 404 `postGone`），未處理的檢舉關成 `removed`；有變才寫審計 `forum:hide`／`unhide`（牌桌 e13-t10） |
 | `POST /api/forum/posts/:id/comments` | 社員（鎖定的只有幹部，409 `postLocked`） | `CommentInput`（`parentId` 是回覆）→ `{ comment }` |
 | `PATCH`／`DELETE /api/forum/comments/:id` | 改只有作者；刪是作者或幹部 | `{ blocks }` → `{ comment }`；不存在 404 `commentGone` |
 | `PUT`／`DELETE /api/forum/posts/:id/reaction`、`/comments/:id/reaction` | 社員 | `{ emoji }`（五種之一）設定或換掉自己的反應、刪掉 → `{ reactions }` |

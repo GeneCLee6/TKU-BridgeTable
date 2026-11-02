@@ -22,7 +22,9 @@ export type LogEntry =
   /** Email (e1-t29, e1-t30): an address verified, a password reset by its link, or a mail the provider refused; never who or which address */
   | { event: 'emailVerified' }
   | { event: 'passwordResetByEmail' }
-  | { event: 'mailFailed'; kind: 'verify' | 'reset' }
+  | { event: 'mailFailed'; kind: 'verify' | 'reset' | 'security' }
+  /** 兩步驟登入 (e11-t31): turned on, off (by the member or another admin), a wrong code at sign-in, a recovery code used; never who */
+  | { event: 'twoFactorOn' | 'twoFactorOff' | 'twoFactorCleared' | 'twoFactorFailed' | 'twoFactorRecoveryUsed' }
   /** A sign-in came with an address but SEEN_SALT is not set: the anti-cheating report keeps no network (§5.17) */
   | { event: 'seenSaltMissing' }
   /** An address used up its registrations for the hour (e1-t33); the address is not logged */

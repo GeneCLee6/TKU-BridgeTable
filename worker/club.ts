@@ -576,6 +576,9 @@ export class Club extends DurableObject<Env> implements Connections {
       const device = await this.sighting(request, result.user.id, secure, true)
       return json({ user: result.user }, 200, ...(await this.signedIn(result.token, result.user.id, secure)), ...device)
     }
+    // `code` is the second step (兩步驟登入, e11-t31), only for accounts that turned it on: without
+    // it they get 401 twoFactorNeeded and send the same request again with it. Everyone else's
+    // request and answer are as before (TKU BridgeHall signs in here too)
     if (route === 'POST /api/login') {
       const b = await body()
       const { user, token: newToken } = await this.service.login(
@@ -583,6 +586,8 @@ export class Club extends DurableObject<Env> implements Connections {
         text(b.password),
         request.headers.get('CF-Connecting-IP') ?? '',
         request.headers.get('User-Agent') ?? '',
+        text(b.code),
+        b.lang,
       )
       const device = await this.sighting(request, user.id, secure, true)
       return json({ user }, 200, ...(await this.signedIn(newToken, user.id, secure)), ...device)
@@ -684,6 +689,17 @@ export class Club extends DurableObject<Env> implements Connections {
     }
     if (route === 'POST /api/account/email/resend') {
       return json({ user: await this.service.resendEmailVerification(user.id, url.origin, (await body()).lang) })
+    }
+    // 兩步驟登入 (e11-t31): a secret to set up (admins), its first code turns it on, new recovery codes, off
+    if (route === 'POST /api/account/2fa/setup') return json(await this.service.startTwoFactor(user.id, text((await body()).password)))
+    if (route === 'POST /api/account/2fa/enable') return json(await this.service.enableTwoFactor(user.id, text((await body()).code), token))
+    if (route === 'POST /api/account/2fa/recovery') {
+      const b = await body()
+      return json(await this.service.renewRecoveryCodes(user.id, text(b.password), text(b.code)))
+    }
+    if (route === 'POST /api/account/2fa/disable') {
+      const b = await body()
+      return json({ user: await this.service.disableTwoFactor(user.id, text(b.password), text(b.code), b.lang) })
     }
     // Where the member is signed in, and signing other devices out (e11-t23)
     if (route === 'GET /api/account/sessions') return json({ sessions: await this.service.accountSessions(user.id, token) })
@@ -981,6 +997,12 @@ export class Club extends DurableObject<Env> implements Connections {
       const code = await this.service.adminAnswerPasswordReset(user.id, reset[1], method === 'POST')
       return json(code ?? { ok: true })
     }
+    // 兩步驟登入 (e11-t31): turning off a member's second step, for one who lost the phone and the recovery codes
+    const twoFactor = path.match(/^\/users\/(\w+)\/2fa$/)
+    if (twoFactor && method === 'DELETE') {
+      await this.service.adminClearTwoFactor(user.id, twoFactor[1])
+      return json({ ok: true })
+    }
     const member = path.match(/^\/users\/(\w+)(\/password|\/admin|\/permissions)?$/)
     if (member) {
       const [, id, action] = member
@@ -1079,14 +1101,22 @@ export class Club extends DurableObject<Env> implements Connections {
       await audit('forum:board', created.id, created.name)
       return json({ board: created })
     }
-    if (path === '/latest') return json(forum.latest())
+    if (path === '/latest') return json(forum.latest(user))
     if (path === '/feed') {
       // 我的貼文 and 我提到的 (BridgeHall e11-t10): one member's posts, or the posts mentioning one
       const member = (name: string) => url.searchParams.get(name)?.slice(0, 64) || undefined
-      return json(forum.feed(Number(url.searchParams.get('page') ?? 1), { author: member('author'), mentions: member('mentions') }))
+      return json(
+        forum.feed(Number(url.searchParams.get('page') ?? 1), { author: member('author'), mentions: member('mentions') }, user),
+      )
     }
-    // 搜尋 (BridgeHall e11-t10): titles and text blocks
-    if (path === '/search') return json(forum.search(url.searchParams.get('q'), Number(url.searchParams.get('page') ?? 1)))
+    // 搜尋 (BridgeHall e11-t10): titles and text blocks; `board` narrows it to one board (the table's e13-t11)
+    if (path === '/search')
+      return json(
+        forum.search(url.searchParams.get('q'), Number(url.searchParams.get('page') ?? 1), {
+          board: url.searchParams.get('board')?.slice(0, 64) || undefined,
+          viewer: user,
+        }),
+      )
     if (path === '/reports') {
       if (method === 'GET') return json({ reports: forum.reports(url.searchParams.get('status') === 'all' ? 'all' : 'open') })
       return json({ report: forum.fileReport(user, await body()) })
@@ -1103,7 +1133,7 @@ export class Club extends DurableObject<Env> implements Connections {
     }
     const posts = path.match(/^\/boards\/([\w-]+)\/posts$/)
     if (posts) {
-      if (method === 'GET') return json(forum.boardPage(posts[1], Number(url.searchParams.get('page') ?? 1)))
+      if (method === 'GET') return json(forum.boardPage(posts[1], Number(url.searchParams.get('page') ?? 1), user))
       const post = forum.createPost(user, posts[1], await body())
       await tell(() => notices.posted(user, post, forum.board(post.boardId)))
       return json({ post })
@@ -1126,7 +1156,7 @@ export class Club extends DurableObject<Env> implements Connections {
       if (method === 'PUT') return json({ reactions: forum.react(user, target, reaction[2], await body()) })
       return json({ reactions: forum.unreact(user, target, reaction[2]) })
     }
-    const postAction = path.match(/^\/posts\/([\w-]+)\/(pin|lock|comments)$/)
+    const postAction = path.match(/^\/posts\/([\w-]+)\/(pin|lock|hide|comments)$/)
     if (postAction) {
       const [, id, action] = postAction
       if (action === 'pin') {
@@ -1145,13 +1175,21 @@ export class Club extends DurableObject<Env> implements Connections {
         if (was !== (post.locked === true)) await audit(post.locked ? 'forum:lock' : 'forum:unlock', id, postExcerpt(post))
         return json({ post })
       }
+      if (action === 'hide') {
+        // An officer hides a post (the table's e13-t10); its open reports close with it
+        const before = forum.post(id)
+        const post = forum.setHidden(user, id, await body())
+        if ((before.hidden === true) !== (post.hidden === true))
+          await audit(post.hidden ? 'forum:hide' : 'forum:unhide', id, whose(post.authorId, postExcerpt(post)))
+        return json({ post })
+      }
       const comment = forum.addComment(user, id, await body())
       await tell(() => notices.commented(user, forum.post(id), comment, comment.parentId ? forum.comment(comment.parentId) : undefined))
       return json({ comment })
     }
     const post = path.match(/^\/posts\/([\w-]+)$/)
     if (post) {
-      if (method === 'GET') return json(forum.thread(post[1]))
+      if (method === 'GET') return json(forum.thread(post[1], user))
       const before = forum.post(post[1])
       if (method === 'PATCH') {
         const updated = forum.updatePost(user, post[1], await body())

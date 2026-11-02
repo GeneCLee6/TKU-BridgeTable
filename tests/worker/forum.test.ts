@@ -515,3 +515,84 @@ describe('my posts and mentions (e11-t10)', () => {
     expect(forum.feed(1).posts).toHaveLength(4)
   })
 })
+
+describe('hiding (the table’s e13-t10, AC-13.6)', () => {
+  const officer: Me = { ...me('cat'), permissions: ['forumModerate'] }
+
+  it('lets only officers hide a post, and closes its open reports', () => {
+    expect(forumRouteNeed('POST', '/posts/p1/hide')).toBe('forumModerate')
+    expect(forumRouteNeed('GET', '/posts/p1/hide')).toBeNull()
+    const post = postAs(amy, 'chat', '不當內容')
+    const report = forum.fileReport(ben, { target: 'post', targetId: post.id, reason: '廣告' })
+    expect(() => forum.setHidden(officer, post.id, { hidden: 'yes' })).toThrow(expect.objectContaining({ code: 'badContent' }))
+    expect(forum.setHidden(officer, post.id, { hidden: true }).hidden).toBe(true)
+    expect(forum.report(report.id)).toMatchObject({ status: 'removed', handledBy: 'cat' })
+    expect(forum.setHidden(officer, post.id, { hidden: false }).hidden).toBeUndefined()
+    expect(() => forum.setHidden(officer, 'nope', { hidden: true })).toThrow(expect.objectContaining({ code: 'postGone' }))
+  })
+
+  it('keeps a hidden post from everyone but its author and the officers', () => {
+    const shown = postAs(ben, 'chat', '可以看的叫牌')
+    const hidden = postAs(amy, 'chat', '藏起來的叫牌')
+    forum.setHidden(officer, hidden.id, { hidden: true })
+    const ids = (posts: { id: string }[]) => posts.map((p) => p.id)
+
+    expect(ids(forum.boardPage('chat', 1, ben).posts)).toEqual([shown.id])
+    expect(ids(forum.boardPage('chat', 1, amy).posts)).toEqual([hidden.id, shown.id])
+    expect(ids(forum.boardPage('chat', 1, officer).posts)).toEqual([hidden.id, shown.id])
+    expect(ids(forum.boardPage('chat').posts)).toEqual([shown.id])
+    expect(ids(forum.feed(1, {}, ben).posts)).toEqual([shown.id])
+    expect(ids(forum.feed(1, { author: 'amy' }, amy).posts)).toEqual([hidden.id])
+    expect(ids(forum.latest(ben).discussions)).toEqual([shown.id])
+    expect(ids(forum.latest(admin).discussions)).toEqual([hidden.id, shown.id])
+    expect(forum.search('叫牌', 1, { viewer: ben }).total).toBe(1)
+    expect(forum.search('叫牌', 1, { viewer: officer }).total).toBe(2)
+
+    expect(() => forum.thread(hidden.id, ben)).toThrow(expect.objectContaining({ code: 'postGone', status: 404 }))
+    expect(forum.thread(hidden.id, amy).post.hidden).toBe(true)
+    expect(forum.thread(hidden.id, officer).post.hidden).toBe(true)
+    expect(() => forum.addComment(ben, hidden.id, { blocks: [para('x')] })).toThrow(expect.objectContaining({ code: 'postGone' }))
+    expect(() => forum.react(ben, 'post', hidden.id, { emoji: '👍' })).toThrow(expect.objectContaining({ code: 'postGone' }))
+    expect(() => forum.fileReport(ben, { target: 'post', targetId: hidden.id, reason: 'x' })).toThrow(
+      expect.objectContaining({ code: 'postGone' }),
+    )
+    time += 60_000
+    const reply = forum.addComment(officer, hidden.id, { blocks: [para('請修改')] })
+    expect(() => forum.react(ben, 'comment', reply.id, { emoji: '👍' })).toThrow(expect.objectContaining({ code: 'postGone' }))
+    expect(forum.react(amy, 'comment', reply.id, { emoji: '👍' })).toEqual({ '👍': ['amy'] })
+  })
+
+  it('hides a pinned post from the pinned list too', () => {
+    const post = postAs(admin, 'news', '公告')
+    forum.setPinned(post.id, { pinned: true })
+    forum.setHidden(admin, post.id, { hidden: true })
+    expect(forum.boardPage('news', 1, ben).pinned).toEqual([])
+    expect(forum.boardPage('news', 1, admin).pinned.map((p) => p.id)).toEqual([post.id])
+  })
+
+  it('adds the hiding columns to tables from before it', () => {
+    const sql: Sql = memorySql()
+    sql.exec(`CREATE TABLE forum_posts (
+      id TEXT PRIMARY KEY, board_id TEXT NOT NULL, author_id TEXT NOT NULL, title TEXT, blocks TEXT NOT NULL,
+      mentions TEXT NOT NULL, created_at INTEGER NOT NULL, edited_at INTEGER, pinned_at INTEGER,
+      locked INTEGER NOT NULL DEFAULT 0, comment_count INTEGER NOT NULL DEFAULT 0, body_text TEXT)`)
+    sql.exec(
+      "INSERT INTO forum_posts (id, board_id, author_id, blocks, mentions, created_at) VALUES ('old', 'chat', 'amy', ?, '[]', 1)",
+      JSON.stringify([para('舊貼文')]),
+    )
+    const old = new ForumService(sql, { now: () => time, newId: () => `id${++ids}`, members: () => MEMBERS })
+    old.createTables()
+    expect(old.thread('old', ben).post.hidden).toBeUndefined()
+    expect(old.setHidden(admin, 'old', { hidden: true }).hidden).toBe(true)
+  })
+})
+
+describe('search by board (the table’s e13-t11, AC-13.7)', () => {
+  it('narrows a search to one board', () => {
+    const deal = postAs(amy, 'deals', '首攻的問題')
+    postAs(ben, 'systems', '首攻的約定')
+    expect(forum.search('首攻').total).toBe(2)
+    expect(forum.search('首攻', 1, { board: 'deals' }).posts.map((p) => p.id)).toEqual([deal.id])
+    expect(forum.search('首攻', 1, { board: 'nope' }).total).toBe(0)
+  })
+})

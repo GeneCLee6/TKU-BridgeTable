@@ -121,3 +121,8 @@ export const MAIL_REQUEST_BURST = 5
 export const MAIL_REQUESTS_PER_SECOND = 1 / 120
 /** A friend coming online is announced at most once in this long, so reconnects stay quiet (e1-t24) */
 export const FRIEND_ONLINE_QUIET_MS = 30 * 60_000
+/**
+ * Wrong second-step codes per account (e11-t31), from anywhere: 5, then wait LOGIN_WINDOW_MS. Whoever
+ * gets this far knows the password, so the account's verified email hears when it locks
+ */
+export const TWO_FACTOR_FAILURES = 5
