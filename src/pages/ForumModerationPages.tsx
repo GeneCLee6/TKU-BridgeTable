@@ -2,7 +2,7 @@ import { ChevronLeft } from 'lucide-react'
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { Link, Navigate, useSearchParams } from 'react-router-dom'
 import styled from 'styled-components'
-import { FORUM_LIMITS, type Board, type ForumSearch, type ReportItem } from '../../shared/forum.ts'
+import { FORUM_LIMITS, normalizeTag, type Board, type ForumSearch, type ForumTags, type ReportItem } from '../../shared/forum.ts'
 import { Segmented, SegmentButton } from '../components/Chips.tsx'
 import { Button, ErrorText, FieldHint, Input, Muted, PageMain, PageTitle, Select, Textarea } from '../components/ui.tsx'
 import { formatDateTime } from '../lib/format.ts'
@@ -16,7 +16,8 @@ import { BackLink, Badge, ForumPager, Intro, PostRows } from './ForumPages.tsx'
  * BridgeHall's (e11-t09, e11-t10); hiding a post and searching one board are the table's additions.
  *
  * - `ReportForm`: a member reports someone else's post or comment (on the post page)
- * - `/forum/search?q=&board=&page=`: titles and text holding every word, on one board or all
+ * - `/forum/search?q=&board=&tag=&page=`: titles and text holding every word, on one board or all,
+ *   with one tag or any (AC-13.7); a tag alone lists every post with it
  * - `/forum/reports`: the officers' list of reports; dismiss, delete what was reported, or hide the post
  *
  * Who may do what is the server's (roles.ts, worker/forum.ts); the buttons only follow the same rules.
@@ -89,62 +90,75 @@ export function ReportForm({
 
 const SearchForm = styled.form`
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
   gap: ${({ theme }) => theme.space(2)};
   margin-bottom: ${({ theme }) => theme.space(2)};
 
   @media (max-width: 560px) {
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
     & > input {
       grid-column: 1 / -1;
     }
   }
 `
 
-/** `/forum/search`: the forum's posts holding every word of `?q=`, on `?board=` or every board */
+/**
+ * `/forum/search`: the forum's posts holding every word of `?q=`, on `?board=` or every board, with
+ * `?tag=` or any tag (AC-13.7); a tag alone (no words) lists every post with it
+ */
 export function ForumSearchPage() {
   const { t, message } = usePreferences()
   const [params, setParams] = useSearchParams()
   const query = (params.get('q') ?? '').trim()
   const board = params.get('board') ?? ''
+  const tag = normalizeTag(params.get('tag') ?? '')
   const page = Math.max(1, Number.parseInt(params.get('page') ?? '1', 10) || 1)
   const [text, setText] = useState(query)
   const [boardChoice, setBoardChoice] = useState(board)
+  const [tagChoice, setTagChoice] = useState(tag)
   const [boards, setBoards] = useState<Board[] | null>(null)
+  const [tags, setTags] = useState<ForumTags['tags']>([])
   // The answer and the search it answers: a new search shows nothing until its own answer comes
   const [answer, setAnswer] = useState<{ key: string; found: ForumSearch } | null>(null)
   const [error, setError] = useState('')
-  const key = JSON.stringify([query, board, page])
-  const found = query && answer?.key === key ? answer.found : null
+  const key = JSON.stringify([query, board, tag, page])
+  const found = (query || tag) && answer?.key === key ? answer.found : null
 
   useEffect(() => {
     forumApi
       .boards()
       .then(setBoards)
       .catch(() => setBoards([]))
+    forumApi
+      .tags()
+      .then(setTags)
+      .catch(() => setTags([]))
   }, [])
   useEffect(() => {
-    if (!query) return
-    const asked = JSON.stringify([query, board, page])
+    if (!query && !tag) return
+    const asked = JSON.stringify([query, board, tag, page])
     forumApi
-      .search(query, page, board || undefined)
+      .search(query, page, board || undefined, tag || undefined)
       .then((r) => {
         setAnswer({ key: asked, found: r })
         setError('')
       })
       .catch((e: ApiFailure) => setError(message(e.code ?? '', e.params ?? {}, e.message)))
-  }, [query, board, page, message])
+  }, [query, board, tag, page, message])
 
-  const go = (next: { q: string; board: string; page?: number }) =>
+  const go = (next: { q: string; board: string; tag: string; page?: number }) =>
     setParams({
       q: next.q,
       ...(next.board ? { board: next.board } : {}),
+      ...(next.tag ? { tag: next.tag } : {}),
       ...(next.page && next.page > 1 ? { page: String(next.page) } : {}),
     })
   const submit = (e: FormEvent) => {
     e.preventDefault()
-    if (text.trim()) go({ q: text.trim(), board: boardChoice })
+    if (text.trim() || tagChoice) go({ q: text.trim(), board: boardChoice, tag: tagChoice })
   }
+  // The tag asked for stays a choice even when no post the member may see has it any more
+  const tagNames = [...new Set([...(tag ? [tag] : []), ...tags.map((x) => x.tag)])]
 
   return (
     <PageMain>
@@ -170,18 +184,30 @@ export function ForumSearchPage() {
             </option>
           ))}
         </Select>
-        <Button type="submit" disabled={!text.trim()}>
+        <Select aria-label={t.forum.tags} value={tagChoice} onChange={(e) => setTagChoice(e.target.value)}>
+          <option value="">{t.forum.allTags}</option>
+          {tagNames.map((name) => (
+            <option key={name} value={name}>
+              #{name}
+            </option>
+          ))}
+        </Select>
+        <Button type="submit" disabled={!text.trim() && !tagChoice}>
           {t.forum.search}
         </Button>
       </SearchForm>
-      <FieldHint>{t.forum.searchHint(FORUM_LIMITS.searchMax, FORUM_LIMITS.searchWordsMax)}</FieldHint>
+      <FieldHint>
+        {t.forum.searchHint(FORUM_LIMITS.searchMax, FORUM_LIMITS.searchWordsMax)} {t.forum.searchOrTag}
+      </FieldHint>
       {error && <ErrorText role="alert">{error}</ErrorText>}
-      {query && !found && !error && <Muted>{t.loading}</Muted>}
+      {(query || tag) && !found && !error && <Muted>{t.loading}</Muted>}
       {found && (
         <>
-          <Muted role="status">{found.total ? t.forum.searchResults(found.total, found.query) : t.forum.noResults}</Muted>
+          <Muted role="status">
+            {!found.total ? t.forum.noResults : found.query ? t.forum.searchResults(found.total, found.query) : t.forum.tagResults(found.total, tag)}
+          </Muted>
           {found.posts.length > 0 && <PostRows posts={found.posts} boards={boards ?? undefined} />}
-          <ForumPager page={found.page} pages={found.pages} onPage={(n) => go({ q: query, board, page: n })} />
+          <ForumPager page={found.page} pages={found.pages} onPage={(n) => go({ q: query, board, tag, page: n })} />
         </>
       )}
     </PageMain>

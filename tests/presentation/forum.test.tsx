@@ -11,7 +11,7 @@ import { PreferencesProvider } from '../../src/state/PreferencesContext.tsx'
 /** The table's forum pages (E13 K1, e13-t03): boards, a board's posts a page at a time, a post and its comments */
 
 const mocks = vi.hoisted(() => ({
-  forum: { boards: vi.fn(), boardPage: vi.fn(), feed: vi.fn(), post: vi.fn(), comment: vi.fn(), deleteComment: vi.fn() },
+  forum: { tags: vi.fn(async () => [] as { tag: string; count: number }[]), boards: vi.fn(), boardPage: vi.fn(), feed: vi.fn(), post: vi.fn(), comment: vi.fn(), deleteComment: vi.fn() },
   auth: { user: { id: 'ben', username: 'ben', admin: false, permissions: [] } as Me },
 }))
 vi.mock('../../src/lib/forum.ts', () => ({ forumApi: mocks.forum }))
@@ -84,7 +84,7 @@ describe('forum pages', () => {
     expect(row).toHaveAttribute('href', '/forum/p/p1')
     expect(within(row).getByText(/牌局討論 · 艾美/)).toBeInTheDocument()
     expect(within(row).getByLabelText('2 則留言')).toBeInTheDocument()
-    expect(mocks.forum.feed).toHaveBeenCalledWith(1)
+    expect(mocks.forum.feed).toHaveBeenCalledWith(1, undefined, undefined)
   })
 
   it('shows a board with its pinned posts first and pages through it', async () => {
@@ -102,7 +102,46 @@ describe('forum pages', () => {
     expect(screen.getByText('第 1 / 2 頁')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '下一頁' }))
     expect(await screen.findByRole('link', { name: /貼文 n2/ })).toBeInTheDocument()
-    expect(mocks.forum.boardPage).toHaveBeenLastCalledWith('deals', 2)
+    expect(mocks.forum.boardPage).toHaveBeenLastCalledWith('deals', 2, undefined)
+  })
+
+  it('lists the tags in use, filters the posts by one and keeps it while paging (AC-13.7)', async () => {
+    mocks.forum.tags.mockResolvedValue([
+      { tag: '首攻', count: 3 },
+      { tag: '2/1', count: 1 },
+    ])
+    mocks.forum.feed.mockImplementation(async (page: number) => ({ posts: [post(`t${page}`, { tags: ['首攻', '防禦'] })], page, pages: 2 }))
+    renderAt('/forum?tag=首攻')
+    const chip = await screen.findByRole('link', { name: '看標籤「2/1」的貼文' })
+    expect(chip).toHaveAttribute('href', `/forum?tag=${encodeURIComponent('2/1')}`)
+    // The chosen tag leads back to every post
+    expect(screen.getByRole('link', { name: '看標籤「首攻」的貼文' })).toHaveAttribute('href', '/forum')
+    expect(screen.getByRole('link', { name: '清除標籤篩選' })).toHaveAttribute('href', '/forum')
+    expect(screen.getByText('標籤：首攻')).toBeInTheDocument()
+    const row = await screen.findByRole('link', { name: /貼文 t1/ })
+    expect(within(row).getByText('#防禦')).toBeInTheDocument()
+    expect(mocks.forum.feed).toHaveBeenCalledWith(1, undefined, '首攻')
+    await userEvent.click(screen.getByRole('button', { name: '下一頁' }))
+    expect(await screen.findByRole('link', { name: /貼文 t2/ })).toBeInTheDocument()
+    expect(mocks.forum.feed).toHaveBeenLastCalledWith(2, undefined, '首攻')
+  })
+
+  it('filters a board by tag', async () => {
+    mocks.forum.boardPage.mockResolvedValue({ board: boards[1], pinned: [], posts: [post('b1', { tags: ['首攻'] })], page: 1, pages: 1 })
+    renderAt('/forum/deals?tag=首攻')
+    expect(await screen.findByRole('link', { name: /貼文 b1/ })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: '清除標籤篩選' })).toHaveAttribute('href', '/forum/deals')
+    expect(mocks.forum.boardPage).toHaveBeenCalledWith('deals', 1, '首攻')
+  })
+
+  it('shows a post’s tags as links to the posts with each one', async () => {
+    mocks.forum.post.mockResolvedValue({ post: post('p1', { tags: ['首攻', '2/1'] }), comments: [] })
+    renderAt('/forum/p/p1')
+    const tags = await screen.findByRole('list', { name: '標籤' })
+    expect(within(tags).getAllByRole('link').map((a) => a.getAttribute('href'))).toEqual([
+      `/forum?tag=${encodeURIComponent('首攻')}`,
+      `/forum?tag=${encodeURIComponent('2/1')}`,
+    ])
   })
 
   it('shows a post, its comments and replies, and sends a comment as a paragraph', async () => {

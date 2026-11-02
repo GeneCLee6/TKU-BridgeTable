@@ -424,10 +424,17 @@ export interface PostDraft {
   boardId: string
   title: string
   blocks: PostBlock[]
+  /** Its tags (AC-13.7); drafts from before tags have none */
+  tags?: string[]
 }
 
 export function isPostDraft(value: unknown): value is PostDraft {
   if (typeof value !== 'object' || value === null) return false
   const draft = value as PostDraft
-  return typeof draft.boardId === 'string' && typeof draft.title === 'string' && Array.isArray(draft.blocks)
+  return (
+    typeof draft.boardId === 'string' &&
+    typeof draft.title === 'string' &&
+    Array.isArray(draft.blocks) &&
+    (draft.tags === undefined || (Array.isArray(draft.tags) && draft.tags.every((tag) => typeof tag === 'string')))
+  )
 }

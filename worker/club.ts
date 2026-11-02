@@ -27,7 +27,7 @@ import { FILES_PATH, FileService, readFileUpload } from './files.ts'
 import { adminRouteNeed, allows, articleReadRoute, bookRouteNeed, ebookReadRoute, clubRouteNeed, forumRouteNeed, moderatesForum, requireNeed } from './roles.ts'
 import { type ArticleReader, ArticleService } from './articles.ts'
 import { type EbookReader, EbookService } from './ebooks.ts'
-import { ForumService, postExcerpt } from './forum.ts'
+import { ForumService, postExcerpt, tagFilter } from './forum.ts'
 import { ForumNotices } from './forum-notices.ts'
 import { addedRecordIds } from './forum-share.ts'
 import { BOOK_EVENTS_MAX_CHARS, BookTelemetry } from './book-telemetry.ts'
@@ -1107,19 +1107,24 @@ export class Club extends DurableObject<Env> implements Connections {
       return json({ board: created })
     }
     if (path === '/latest') return json(forum.latest(user))
+    // The tags in use (the table's AC-13.7): the editor's suggestions and the tag filters
+    if (path === '/tags') return json(forum.tags(user))
+    // `&tag=` narrows a board, the feed and a search to the posts with that tag (AC-13.7)
+    const tag = tagFilter(url.searchParams.get('tag'))
     if (path === '/feed') {
       // 我的貼文 and 我提到的 (BridgeHall e11-t10): one member's posts, or the posts mentioning one
       const member = (name: string) => url.searchParams.get(name)?.slice(0, 64) || undefined
       // Another member's posts on their profile page, unless they keep them off it (e13-t08)
       const author = member('author')
       if (author && this.service.profileHidden(user.id, author).posts) return json({ posts: [], page: 1, pages: 1 })
-      return json(forum.feed(Number(url.searchParams.get('page') ?? 1), { author, mentions: member('mentions') }, user))
+      return json(forum.feed(Number(url.searchParams.get('page') ?? 1), { author, mentions: member('mentions'), tag }, user))
     }
     // 搜尋 (BridgeHall e11-t10): titles and text blocks; `board` narrows it to one board (the table's e13-t11)
     if (path === '/search')
       return json(
         forum.search(url.searchParams.get('q'), Number(url.searchParams.get('page') ?? 1), {
           board: url.searchParams.get('board')?.slice(0, 64) || undefined,
+          tag,
           viewer: user,
         }),
       )
@@ -1139,7 +1144,7 @@ export class Club extends DurableObject<Env> implements Connections {
     }
     const posts = path.match(/^\/boards\/([\w-]+)\/posts$/)
     if (posts) {
-      if (method === 'GET') return json(forum.boardPage(posts[1], Number(url.searchParams.get('page') ?? 1), user))
+      if (method === 'GET') return json(forum.boardPage(posts[1], Number(url.searchParams.get('page') ?? 1), user, tag))
       const input = await body()
       // A board shared from the history (e13-t07): only one the whole club may see
       for (const id of addedRecordIds(input)) await this.service.checkShareable(user.id, id)
@@ -1185,11 +1190,13 @@ export class Club extends DurableObject<Env> implements Connections {
         return json({ post })
       }
       if (action === 'hide') {
-        // An officer hides a post (the table's e13-t10); its open reports close with it
+        // An officer hides a post (the table's e13-t10); its open reports close with it, and its author is told (2026-11-02)
         const before = forum.post(id)
         const post = forum.setHidden(user, id, await body())
-        if ((before.hidden === true) !== (post.hidden === true))
+        if ((before.hidden === true) !== (post.hidden === true)) {
           await audit(post.hidden ? 'forum:hide' : 'forum:unhide', id, whose(post.authorId, postExcerpt(post)))
+          await tell(() => notices.hidden(user, post))
+        }
         return json({ post })
       }
       const comment = forum.addComment(user, id, await body())

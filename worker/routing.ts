@@ -4,7 +4,7 @@ import { parseHistoryQuery, type HistoryQuery } from '../shared/history-query.ts
 import { TABLE_ID_PATTERN, TABLE_SOCKET_PREFIX } from '../shared/protocol.ts'
 import { readCookie, SESSION_COOKIE } from './auth.ts'
 import { PASS_COOKIE, passRevoked, readPass } from './edge-auth.ts'
-import { listQuery } from './history-index.ts'
+import { listQuery, namesOthers } from './history-index.ts'
 import { daysReplica, searchReplica, type ReplicaDb } from './history-replica.ts'
 import { noLog, type Logger } from './log.ts'
 
@@ -118,7 +118,8 @@ function unknownClub(): Response {
 /**
  * A history page from the D1 copy, exactly as the club would answer it (`Club.api`), or null to let
  * the club answer: a query the club would refuse (it sends the error), one by favorite tag (the
- * tags are only in the club), a copy not complete, or D1 failing
+ * tags are only in the club), one for another member as player or declarer (whether they keep their
+ * boards off their profile is only in the club, e13-t08), a copy not complete, or D1 failing
  */
 async function edgeHistory(url: URL, userId: string, db: ReplicaDb, now: () => number, log: Logger): Promise<Response | null> {
   const started = now()
@@ -132,7 +133,7 @@ async function edgeHistory(url: URL, userId: string, db: ReplicaDb, now: () => n
   } catch {
     return null
   }
-  if (query.tag) return null
+  if (query.tag || namesOthers(query, userId)) return null
   try {
     const page =
       url.pathname === '/api/history/days'

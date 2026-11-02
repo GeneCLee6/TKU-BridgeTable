@@ -1,8 +1,8 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it } from 'vitest'
-import { BUILTIN_BOARDS, FORUM_LIMITS, type PostBlock } from '../../shared/forum.ts'
+import { BUILTIN_BOARDS, FORUM_LIMITS, normalizeTag, splitTags, type PostBlock } from '../../shared/forum.ts'
 import type { Me } from '../../shared/protocol.ts'
-import { ForumService, mentionsIn, postExcerpt } from '../../worker/forum.ts'
+import { ForumService, mentionsIn, postExcerpt, tagFilter } from '../../worker/forum.ts'
 import { forumRouteNeed, moderatesForum } from '../../worker/roles.ts'
 import { memorySql } from './sqlite.ts'
 import type { Sql } from '../../worker/store.ts'
@@ -327,6 +327,8 @@ describe('forum routes (roles.ts)', () => {
     expect(forumRouteNeed('POST', '/feed')).toBeNull()
     expect(forumRouteNeed('GET', '/search')).toBe('member')
     expect(forumRouteNeed('POST', '/search')).toBeNull()
+    expect(forumRouteNeed('GET', '/tags')).toBe('member')
+    expect(forumRouteNeed('POST', '/tags')).toBeNull()
     expect(forumRouteNeed('PATCH', '/posts/abc')).toBe('member')
     expect(forumRouteNeed('POST', '/posts/abc/pin')).toBe('forumModerate')
     expect(forumRouteNeed('POST', '/posts/abc/lock')).toBe('forumModerate')
@@ -594,5 +596,105 @@ describe('search by board (the table’s e13-t11, AC-13.7)', () => {
     expect(forum.search('首攻').total).toBe(2)
     expect(forum.search('首攻', 1, { board: 'deals' }).posts.map((p) => p.id)).toEqual([deal.id])
     expect(forum.search('首攻', 1, { board: 'nope' }).total).toBe(0)
+  })
+})
+
+describe('tags (the table’s AC-13.7, 2026-11-02)', () => {
+  const tagged = (who: Me, tags: unknown, board = 'deals', text = '一副牌') => {
+    time += 60_000
+    return forum.createPost(who, board, { blocks: [para(text)], tags })
+  }
+  const idsOf = (posts: { id: string }[]) => posts.map((p) => p.id)
+
+  it('normalizes tags: full-width, case, #, spaces and separators', () => {
+    expect(normalizeTag('  #２/１  GF ')).toBe('2/1 gf')
+    expect(normalizeTag('##首攻')).toBe('首攻')
+    expect(normalizeTag('a\tb')).toBe('a b')
+    expect(normalizeTag('#')).toBe('')
+    expect(splitTags('2/1, 首攻、防禦；首攻,, #Squeeze')).toEqual(['2/1', '首攻', '防禦', 'squeeze'])
+    expect(tagFilter(' #SQUEEZE ')).toBe('squeeze')
+    expect(tagFilter('')).toBeUndefined()
+    expect(tagFilter('x'.repeat(FORUM_LIMITS.tagMax + 1))).toBeUndefined()
+    expect(tagFilter(['x'])).toBeUndefined()
+  })
+
+  it('keeps a post’s tags normalized, without repeats, within the limits', () => {
+    expect(tagged(amy, ['首攻', ' 首攻 ', 'Squeeze', '', '#2/1']).tags).toEqual(['首攻', 'squeeze', '2/1'])
+    expect(tagged(ben, []).tags).toBeUndefined()
+    expect(postAs(amy).tags).toBeUndefined()
+    expect(() => tagged(amy, ['a', 'b', 'c', 'd', 'e', 'f'])).toThrow(expect.objectContaining({ code: 'badContent' }))
+    expect(() => tagged(amy, ['x'.repeat(FORUM_LIMITS.tagMax + 1)])).toThrow(expect.objectContaining({ code: 'badContent' }))
+    expect(() => tagged(amy, 'a,b')).toThrow(expect.objectContaining({ code: 'badContent' }))
+    expect(() => tagged(amy, [1])).toThrow(expect.objectContaining({ code: 'badContent' }))
+    // Five once the repeats are dropped is fine
+    expect(tagged(ben, ['a', 'A', 'b', 'c', 'd', 'e']).tags).toEqual(['a', 'b', 'c', 'd', 'e'])
+  })
+
+  it('keeps the tags when an edit leaves them out, and takes them off with []', () => {
+    const post = tagged(amy, ['首攻'])
+    expect(forum.updatePost(amy, post.id, { blocks: [para('改過')] }).tags).toEqual(['首攻'])
+    expect(forum.updatePost(amy, post.id, { blocks: [para('改過')], tags: ['防禦', '首攻'] }).tags).toEqual(['防禦', '首攻'])
+    expect(forum.updatePost(amy, post.id, { blocks: [para('改過')], tags: [] }).tags).toBeUndefined()
+  })
+
+  it('filters a board, the feed and a search by tag, pinned posts too', () => {
+    const lead = tagged(amy, ['首攻', '防禦'], 'deals', '首攻問題')
+    const other = tagged(ben, ['首攻'], 'systems', '首攻約定')
+    tagged(amy, ['首攻王'], 'deals', '首攻王')
+    tagged(ben, [], 'deals', '首攻')
+    expect(idsOf(forum.boardPage('deals', 1, amy, '首攻').posts)).toEqual([lead.id])
+    expect(idsOf(forum.boardPage('deals', 1, amy, '#首攻').posts)).toEqual([lead.id])
+    expect(idsOf(forum.feed(1, { tag: '首攻' }, amy).posts)).toEqual([other.id, lead.id])
+    expect(idsOf(forum.feed(1, { tag: '首攻', author: 'ben' }, amy).posts)).toEqual([other.id])
+    expect(forum.search('首攻', 1, { tag: '防禦', viewer: amy }).total).toBe(1)
+    expect(forum.search('問題', 1, { tag: '首攻', board: 'systems', viewer: amy }).total).toBe(0)
+    // A tag alone lists every post with it; neither words nor a tag is refused
+    expect(forum.search('', 1, { tag: '首攻', viewer: amy })).toMatchObject({ query: '', total: 2 })
+    expect(() => forum.search('', 1, { viewer: amy })).toThrow(expect.objectContaining({ code: 'badContent' }))
+    // LIKE's wildcards in a tag are only characters
+    tagged(amy, ['100%'])
+    expect(forum.feed(1, { tag: '1_0%' }, amy).posts).toEqual([])
+    expect(forum.feed(1, { tag: '100%' }, amy).posts).toHaveLength(1)
+    const news = tagged(admin, ['活動'], 'news', '社課')
+    forum.setPinned(news.id, { pinned: true })
+    tagged(admin, [], 'news', '其他公告')
+    expect(idsOf(forum.boardPage('news', 1, amy, '活動').pinned)).toEqual([news.id])
+    expect(forum.boardPage('news', 1, amy, '活動').posts).toEqual([])
+    expect(forum.boardPage('news', 1, amy, '首攻').pinned).toEqual([])
+  })
+
+  it('lists the tags in use, most posts first, counting only posts the member may see', () => {
+    tagged(amy, ['首攻', '防禦'])
+    tagged(ben, ['首攻'])
+    const hidden = tagged(amy, ['秘密', '首攻'])
+    forum.setHidden(admin, hidden.id, { hidden: true })
+    expect(forum.tags(ben).tags).toEqual([
+      { tag: '首攻', count: 2 },
+      { tag: '防禦', count: 1 },
+    ])
+    expect(forum.tags(amy).tags[0]).toEqual({ tag: '首攻', count: 3 })
+    expect(forum.tags(admin).tags.map((t) => t.tag)).toEqual(['首攻', '秘密', '防禦'])
+    // A hidden post is not found by its tag either
+    expect(forum.feed(1, { tag: '秘密' }, ben).posts).toEqual([])
+    expect(idsOf(forum.feed(1, { tag: '秘密' }, amy).posts)).toEqual([hidden.id])
+    expect(forum.search('', 1, { tag: '秘密', viewer: ben }).total).toBe(0)
+  })
+
+  it('adds the tags column to tables from before it', () => {
+    const sql: Sql = memorySql()
+    sql.exec(`CREATE TABLE forum_posts (
+      id TEXT PRIMARY KEY, board_id TEXT NOT NULL, author_id TEXT NOT NULL, title TEXT, blocks TEXT NOT NULL,
+      mentions TEXT NOT NULL, created_at INTEGER NOT NULL, edited_at INTEGER, pinned_at INTEGER,
+      locked INTEGER NOT NULL DEFAULT 0, comment_count INTEGER NOT NULL DEFAULT 0, body_text TEXT,
+      hidden_at INTEGER, hidden_by TEXT)`)
+    sql.exec(
+      "INSERT INTO forum_posts (id, board_id, author_id, blocks, mentions, created_at) VALUES ('old', 'chat', 'amy', ?, '[]', 1)",
+      JSON.stringify([para('舊貼文')]),
+    )
+    const old = new ForumService(sql, { now: () => time, newId: () => `id${++ids}`, members: () => MEMBERS })
+    old.createTables()
+    expect(old.thread('old', ben).post.tags).toBeUndefined()
+    expect(old.tags(ben).tags).toEqual([])
+    expect(old.updatePost(amy, 'old', { blocks: [para('舊貼文')], tags: ['舊'] }).tags).toEqual(['舊'])
   })
 })

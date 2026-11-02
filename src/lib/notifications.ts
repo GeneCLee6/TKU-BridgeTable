@@ -57,6 +57,9 @@ export function notificationText(t: Strings, n: Notification): string {
     case 'forumAnnouncement':
     case 'forumPinned':
       return t.notificationTexts[n.kind](name, String(n.params.title ?? ''))
+    case 'forumHidden':
+    case 'forumUnhidden':
+      return t.notificationTexts[n.kind](String(n.params.title ?? ''))
   }
 }
 
@@ -139,6 +142,8 @@ export function notificationLink(n: Notification, options: { forum?: boolean } =
     case 'forumMention':
     case 'forumAnnouncement':
     case 'forumPinned':
+    case 'forumHidden':
+    case 'forumUnhidden':
       return n.params.postId
         ? `${options.forum ? '' : BOOK_SITE}/forum/p/${encodeURIComponent(String(n.params.postId))}${n.params.commentId ? `#comment-${encodeURIComponent(String(n.params.commentId))}` : ''}`
         : `${options.forum ? '' : BOOK_SITE}/forum`

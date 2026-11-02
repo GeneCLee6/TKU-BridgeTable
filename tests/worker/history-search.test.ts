@@ -6,7 +6,7 @@ import type { Seat } from '../../shared/cards.ts'
 import type { BoardState } from '../../shared/game.ts'
 import { DEFAULT_HISTORY_QUERY, taiwanDayStart, type HistoryQuery } from '../../shared/history-query.ts'
 import type { BoardRecord } from '../../shared/protocol.ts'
-import { createHistoryIndex, indexRecord, searchBoards, searchDays } from '../../worker/history-index.ts'
+import { createHistoryIndex, indexRecord, namesOthers, searchBoards, searchDays } from '../../worker/history-index.ts'
 import { memorySql } from './sqlite.ts'
 
 interface Fixture {
@@ -104,6 +104,26 @@ describe('history search', () => {
     // A robot declaring counts too
     expect(ids({ declarerSide: 'opponents' })).toEqual(new Set(['spades4x', 'hearts2', 'nextday']))
     expect(ids({ declarerSide: 'partner' }, 'cat')).toEqual(new Set(['hearts2']))
+  })
+
+  it('finds nothing by a player or declarer the viewer may not search for (e13-t08, §4)', () => {
+    const sql = memorySql()
+    createHistoryIndex(sql)
+    for (const board of BOARDS) indexRecord(sql, record(board))
+    const find = (query: Partial<HistoryQuery>, hidden: string[]) =>
+      searchBoards(sql, { ...DEFAULT_HISTORY_QUERY, scope: 'all', size: 100, ...query }, 'cat', DAY + 10 * 86_400_000, false, hidden)
+    expect(find({ player: 'ben' }, ['ben'])).toEqual({ ids: [], total: 0, page: 1 })
+    expect(find({ declarer: 'ben' }, ['ben']).total).toBe(0)
+    // The same boards by anyone else, and in the plain list
+    expect(find({ player: 'amy' }, ['ben']).total).toBe(8)
+    expect(find({}, ['ben']).total).toBe(9)
+    expect(new Set(find({ declarer: 'ben' }, []).ids)).toEqual(new Set(['nt3', 'grand']))
+    expect(searchDays(sql, { ...DEFAULT_HISTORY_QUERY, scope: 'all', player: 'ben' }, 'cat', DAY + 10 * 86_400_000, ['ben'])).toEqual([])
+    // Only another member's name sends a search to the club (routing.ts)
+    expect(namesOthers({ ...DEFAULT_HISTORY_QUERY, player: 'cat' }, 'cat')).toBe(false)
+    expect(namesOthers({ ...DEFAULT_HISTORY_QUERY, player: 'ben' }, 'cat')).toBe(true)
+    expect(namesOthers({ ...DEFAULT_HISTORY_QUERY, declarer: 'ben' }, 'cat')).toBe(true)
+    expect(namesOthers({ ...DEFAULT_HISTORY_QUERY, partner: 'ben' }, 'cat')).toBe(false)
   })
 
   it('filters by players and partners', () => {

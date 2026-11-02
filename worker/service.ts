@@ -2453,9 +2453,22 @@ export class ClubService {
     return this.search(userId, listQuery(all, page, size))
   }
 
-  /** One page of a history search (`shared/history-query.ts`), from the SQL index; boards kept back are left out */
+  /**
+   * The members a history search by player or declarer must not find for this viewer (e13-t08,
+   * ARCHITECTURE.md §4): of the ones this query names, those who keep their boards off their profile.
+   * None for themselves (`profileHidden`) or an admin
+   */
+  private hiddenPlayers(viewerId: string, query: HistoryQuery): string[] {
+    if (this.users.get(viewerId)?.admin) return []
+    return [query.player, query.declarer].filter((id): id is string => !!id && this.profileHidden(viewerId, id).boards)
+  }
+
+  /**
+   * One page of a history search (`shared/history-query.ts`), from the SQL index; boards kept back
+   * are left out, and a search for a member who keeps their boards off their profile finds nothing (§4)
+   */
   async search(userId: string, query: HistoryQuery): Promise<HistoryPage> {
-    const found = searchBoards(this.store.sql, query, userId, this.now())
+    const found = searchBoards(this.store.sql, query, userId, this.now(), false, this.hiddenPlayers(userId, query))
     const records = await Promise.all(found.ids.map((id) => this.store.get<BoardRecord>(`board:${id}`)))
     return {
       boards: records.flatMap((record) => (record ? [summarize(record)] : [])),
@@ -2467,7 +2480,7 @@ export class ClubService {
 
   /** How many boards a history search finds per Taiwan date, newest first (the side panel's list by day, e3-t48) */
   historyDays(userId: string, query: HistoryQuery): HistoryDays {
-    return { days: searchDays(this.store.sql, query, userId, this.now()) }
+    return { days: searchDays(this.store.sql, query, userId, this.now(), this.hiddenPlayers(userId, query)) }
   }
 
   // ── Favorites (AC-4.4) ──────────────────────────────────────────────────────────────────────
@@ -2485,7 +2498,7 @@ export class ClubService {
 
   /** One page of the member's favorites, filtered as history is (and by `tag`), with their notes and tags */
   async favorites(userId: string, query: HistoryQuery): Promise<FavoritesPage> {
-    const found = searchBoards(this.store.sql, query, userId, this.now(), true)
+    const found = searchBoards(this.store.sql, query, userId, this.now(), true, this.hiddenPlayers(userId, query))
     const records = await Promise.all(found.ids.map((id) => this.store.get<BoardRecord>(`board:${id}`)))
     const boards = records.flatMap((record) => (record ? [summarize(record)] : []))
     const kept = favoritesAmong(this.store.sql, userId, boards.map((b) => b.id))

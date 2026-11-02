@@ -12,6 +12,7 @@ import { PreferencesProvider } from '../../src/state/PreferencesContext.tsx'
 
 const mocks = vi.hoisted(() => ({
   forum: {
+    tags: vi.fn(async () => [] as { tag: string; count: number }[]),
     boards: vi.fn(),
     feed: vi.fn(),
     post: vi.fn(),
@@ -107,14 +108,26 @@ describe('forum search (e13-t11)', () => {
     await userEvent.click(screen.getByRole('button', { name: '搜尋' }))
     expect(await screen.findByText('「首攻」找到 1 篇貼文')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /貼文 p1/ })).toHaveAttribute('href', '/forum/p/p1')
-    expect(mocks.forum.search).toHaveBeenCalledWith('首攻', 1, 'deals')
+    expect(mocks.forum.search).toHaveBeenCalledWith('首攻', 1, 'deals', undefined)
   })
 
   it('reads the search from the address and says when nothing matches', async () => {
     mocks.forum.search.mockResolvedValue({ posts: [], page: 1, pages: 1, query: 'xyz', total: 0 })
     renderAt('/forum/search?q=xyz')
     expect(await screen.findByText('沒有符合的貼文')).toBeInTheDocument()
-    expect(mocks.forum.search).toHaveBeenCalledWith('xyz', 1, undefined)
+    expect(mocks.forum.search).toHaveBeenCalledWith('xyz', 1, undefined, undefined)
+  })
+
+  it('lists every post with a tag, with no words to search for (AC-13.7)', async () => {
+    mocks.forum.tags.mockResolvedValue([{ tag: '首攻', count: 2 }])
+    mocks.forum.search.mockResolvedValue({ posts: [post('p1'), post('p2')], page: 1, pages: 1, query: '', total: 2 })
+    renderAt('/forum/search')
+    expect(screen.getByRole('button', { name: '搜尋' })).toBeDisabled()
+    await screen.findByRole('option', { name: '#首攻' })
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: '標籤' }), '首攻')
+    await userEvent.click(screen.getByRole('button', { name: '搜尋' }))
+    expect(await screen.findByText('標籤「首攻」有 2 篇貼文')).toBeInTheDocument()
+    expect(mocks.forum.search).toHaveBeenCalledWith('', 1, undefined, '首攻')
   })
 })
 

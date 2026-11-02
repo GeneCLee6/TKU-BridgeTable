@@ -1,8 +1,19 @@
-import { ChevronLeft, ChevronRight, EyeOff, Lock, MessageSquare, Pin } from 'lucide-react'
+import { ChevronLeft, ChevronRight, EyeOff, Hash, Lock, MessageSquare, Pin, X } from 'lucide-react'
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import styled from 'styled-components'
-import { FORUM_LIMITS, type Board, type BoardPage, type Comment, type CommentBlock, type ForumAuction, type ForumFeed, type Post, type PostThread } from '../../shared/forum.ts'
+import {
+  FORUM_LIMITS,
+  type Board,
+  type BoardPage,
+  type Comment,
+  type CommentBlock,
+  type ForumAuction,
+  type ForumFeed,
+  type ForumTags,
+  type Post,
+  type PostThread,
+} from '../../shared/forum.ts'
 import { emptyAuction } from '../../shared/forum-editor.ts'
 import { AuctionEditor } from '../components/AuctionEditor.tsx'
 import { ForumBlocks } from '../components/ForumBlocks.tsx'
@@ -21,8 +32,9 @@ import { ReportForm } from './ForumModerationPages.tsx'
  * feature flag (App.tsx). Three pages, at the same addresses as BridgeHall's, so a link to a post
  * reads the same on both sites:
  *
- * - `/forum`: the boards, then every board's posts newest first, a page at a time
+ * - `/forum`: the boards and the tags in use, then every board's posts newest first, a page at a time
  * - `/forum/:boardId`: one board, its pinned posts first (page 1), then newest first
+ * - `?tag=` on either: only the posts with that tag (AC-13.7); a post's tags link there
  * - `/forum/p/:postId`: the post and its comments (one level of replies); members comment and
  *   reply, and delete their own comments (officers anyone's; the server checks)
  *
@@ -116,6 +128,9 @@ const Row = styled(Link)`
     color: ${({ theme }) => theme.colors.textMuted};
     font-size: 13px;
   }
+  & > ul {
+    grid-column: 1;
+  }
 `
 
 const Count = styled.span`
@@ -139,6 +154,90 @@ export const Badge = styled.span`
   font-size: 12px;
   font-weight: 600;
   white-space: nowrap;
+`
+
+/** A post's tags, or the tags to filter by (AC-13.7) */
+export const TagRow = styled.ul`
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+`
+
+const tagLook = `
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 1px 8px;
+  font-size: 12px;
+  line-height: 18px;
+  white-space: nowrap;
+  text-decoration: none;
+`
+
+export const TagChip = styled(Link)<{ $active?: boolean }>`
+  ${tagLook}
+  border: 1px solid ${({ theme, $active }) => ($active ? theme.colors.primary : theme.colors.border)};
+  border-radius: ${({ theme }) => theme.radius.pill};
+  background: ${({ theme, $active }) => ($active ? theme.colors.accentSoft : theme.colors.surfaceAlt)};
+  color: ${({ theme, $active }) => ($active ? theme.colors.accentStrong : theme.colors.textMuted)};
+
+  &:hover {
+    border-color: ${({ theme }) => theme.colors.primary};
+    color: ${({ theme }) => theme.colors.primary};
+  }
+`
+
+/** A tag inside a link (a post's row), so not a link itself */
+const TagText = styled.span`
+  ${tagLook}
+  border: 1px solid ${({ theme }) => theme.colors.border};
+  border-radius: ${({ theme }) => theme.radius.pill};
+  background: ${({ theme }) => theme.colors.surfaceAlt};
+  color: ${({ theme }) => theme.colors.textMuted};
+`
+
+/** Where a tag leads: the forum's posts with it, or one board's (AC-13.7) */
+const tagHref = (tag: string, boardId?: string) =>
+  `${boardId ? `/forum/${encodeURIComponent(boardId)}` : '/forum'}?tag=${encodeURIComponent(tag)}`
+
+/** A post's tags as links to the posts with each one */
+export function PostTags({ tags }: { tags?: readonly string[] }) {
+  const { t } = usePreferences()
+  if (!tags?.length) return null
+  return (
+    <TagRow aria-label={t.forum.tags}>
+      {tags.map((tag) => (
+        <li key={tag}>
+          <TagChip to={tagHref(tag)} aria-label={t.forum.tagLink(tag)}>
+            <Hash size={11} aria-hidden />
+            {tag}
+          </TagChip>
+        </li>
+      ))}
+    </TagRow>
+  )
+}
+
+/** The tag a list is filtered by, and the way back to the whole list */
+function TagFilter({ tag, clear }: { tag: string; clear: string }) {
+  const { t } = usePreferences()
+  return (
+    <FilterBar role="status">
+      <TagChip to={clear} $active aria-label={t.forum.clearTag} title={t.forum.clearTag}>
+        {t.forum.tagFilter(tag)}
+        <X size={12} aria-hidden />
+      </TagChip>
+    </FilterBar>
+  )
+}
+
+const FilterBar = styled.div`
+  display: flex;
+  margin-bottom: ${({ theme }) => theme.space(3)};
 `
 
 const PagerBar = styled.nav`
@@ -224,12 +323,13 @@ const Composer = styled.form`
   }
 `
 
-/** The page in `?page=`, from 1 */
-function usePage(): [number, (page: number) => void] {
+/** The page in `?page=`, from 1, and the tag in `?tag=` (AC-13.7), kept when the page changes */
+function usePage(): [number, (page: number) => void, string] {
   const [params, setParams] = useSearchParams()
   const page = Math.max(1, Number.parseInt(params.get('page') ?? '1', 10) || 1)
-  const setPage = (n: number) => setParams(n > 1 ? { page: String(n) } : {})
-  return [page, setPage]
+  const tag = (params.get('tag') ?? '').trim()
+  const setPage = (n: number) => setParams({ ...(tag ? { tag } : {}), ...(n > 1 ? { page: String(n) } : {}) })
+  return [page, setPage, tag]
 }
 
 export function ForumPager({ page, pages, onPage }: { page: number; pages: number; onPage: (page: number) => void }) {
@@ -283,6 +383,15 @@ export function PostRows({ posts, boards }: { posts: Post[]; boards?: Board[] })
                 {board ? `${board.name} · ` : ''}
                 {t.forum.byLine(name(post.authorId), formatDateTime(post.createdAt, lang))}
               </small>
+              {!!post.tags?.length && (
+                <TagRow aria-label={t.forum.tags}>
+                  {post.tags.map((tag) => (
+                    <li key={tag}>
+                      <TagText>#{tag}</TagText>
+                    </li>
+                  ))}
+                </TagRow>
+              )}
               <Count aria-label={t.forum.commentCount(post.commentCount)}>
                 <MessageSquare size={14} aria-hidden />
                 {post.commentCount}
@@ -306,9 +415,10 @@ function Write({ board }: { board?: Board }) {
 /** `/forum`: the boards and every board's latest posts */
 export function ForumHomePage() {
   const { t, message } = usePreferences()
-  const [page, setPage] = usePage()
+  const [page, setPage, tag] = usePage()
   const [boards, setBoards] = useState<Board[] | null>(null)
   const [feed, setFeed] = useState<ForumFeed | null>(null)
+  const [tags, setTags] = useState<ForumTags['tags']>([])
   const [error, setError] = useState('')
 
   useEffect(() => {
@@ -319,10 +429,16 @@ export function ForumHomePage() {
   }, [message])
   useEffect(() => {
     forumApi
-      .feed(page)
+      .tags()
+      .then(setTags)
+      .catch(() => setTags([]))
+  }, [])
+  useEffect(() => {
+    forumApi
+      .feed(page, undefined, tag || undefined)
       .then(setFeed)
       .catch((e) => setError(message(e.code, e.params, e.message)))
-  }, [page, message])
+  }, [page, tag, message])
   const officer = useOfficer()
 
   return (
@@ -353,7 +469,23 @@ export function ForumHomePage() {
           ))}
         </BoardGrid>
       )}
+      {tags.length > 0 && (
+        <>
+          <SectionTitle>{t.forum.tags}</SectionTitle>
+          <TagRow>
+            {tags.map(({ tag: name, count }) => (
+              <li key={name}>
+                <TagChip to={name === tag ? '/forum' : tagHref(name)} $active={name === tag} aria-label={t.forum.tagLink(name)}>
+                  <Hash size={11} aria-hidden />
+                  {name} · {count}
+                </TagChip>
+              </li>
+            ))}
+          </TagRow>
+        </>
+      )}
       <SectionTitle>{t.forum.latest}</SectionTitle>
+      {tag && <TagFilter tag={tag} clear="/forum" />}
       {!feed && !error && <Muted>{t.loading}</Muted>}
       {feed && feed.posts.length === 0 && <Muted>{t.forum.noPosts}</Muted>}
       {feed && feed.posts.length > 0 && <PostRows posts={feed.posts} boards={boards ?? undefined} />}
@@ -366,19 +498,19 @@ export function ForumHomePage() {
 export function ForumBoardPage() {
   const { boardId = '' } = useParams()
   const { t, message } = usePreferences()
-  const [page, setPage] = usePage()
+  const [page, setPage, tag] = usePage()
   const [data, setData] = useState<BoardPage | null>(null)
   const [error, setError] = useState('')
 
   useEffect(() => {
     forumApi
-      .boardPage(boardId, page)
+      .boardPage(boardId, page, tag || undefined)
       .then((d) => {
         setData(d)
         setError('')
       })
       .catch((e) => setError(message(e.code, e.params, e.message)))
-  }, [boardId, page, message])
+  }, [boardId, page, tag, message])
 
   const posts = data ? [...data.pinned, ...data.posts] : []
   return (
@@ -397,6 +529,7 @@ export function ForumBoardPage() {
           <Write board={data.board} />
         </Intro>
       )}
+      {tag && <TagFilter tag={tag} clear={`/forum/${encodeURIComponent(boardId)}`} />}
       {error && <ErrorText role="alert">{error}</ErrorText>}
       {!data && !error && <Muted>{t.loading}</Muted>}
       {data && posts.length === 0 && <Muted>{t.forum.noPosts}</Muted>}
@@ -624,6 +757,7 @@ export function ForumPostPage() {
             )}
             {reportButton(':post', post.authorId)}
           </Meta>
+          <PostTags tags={post.tags} />
           {post.hidden && <Muted>{t.forum.hiddenHint}</Muted>}
           {reportForm(':post', 'post', post.id)}
           {reported && <Muted role="status">{t.forum.reportSent}</Muted>}

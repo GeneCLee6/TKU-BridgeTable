@@ -2,7 +2,7 @@ import { ArrowDown, ArrowUp, ChevronLeft, X } from 'lucide-react'
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import styled from 'styled-components'
-import { FORUM_LIMITS, type Board, type Post, type PostBlock } from '../../shared/forum.ts'
+import { FORUM_LIMITS, splitTags, type Board, type Post, type PostBlock } from '../../shared/forum.ts'
 import {
   blocksOf,
   CAPTION_MAX,
@@ -18,6 +18,7 @@ import {
 } from '../../shared/forum-editor.ts'
 import { AuctionBox } from '../components/AuctionBox.tsx'
 import { AuctionEditor } from '../components/AuctionEditor.tsx'
+import { Chip, ChipLabel } from '../components/Chips.tsx'
 import { DealEditor } from '../components/DealEditor.tsx'
 import { ForumBlocks, ForumDeal } from '../components/ForumBlocks.tsx'
 import { Button, Card, ErrorText, FieldHint, FieldLabel, Input, Muted, PageMain, PageTitle, Select, Textarea } from '../components/ui.tsx'
@@ -32,7 +33,8 @@ import type { Strings } from '../strings.ts'
  * Markdown subset (`parseMarkdown`), four hands (`DealEditor`), an auction (`AuctionEditor`), and,
  * when editing a post written on BridgeHall, the blocks this editor does not edit (kept as they
  * were; moved or removed only). One deal or auction is open for editing at a time; the others show
- * as the post will. What the Worker would refuse is listed before sending (`postProblems`).
+ * as the post will. What the Worker would refuse is listed before sending (`postProblems`). Tags
+ * (AC-13.7) are typed freely, normalized as the Worker does (`splitTags`), with the tags in use offered.
  *
  * - `/forum/new?board=`: a new post; its draft is kept on this device until it is published
  * - `/forum/new?record=`: sharing a board from the history (e13-t07, the record page's 分享到論壇):
@@ -172,6 +174,94 @@ const BackLink = styled(Link)`
   font-size: 14px;
 `
 
+const TagBox = styled.div`
+  display: grid;
+  gap: ${({ theme }) => theme.space(2)};
+
+  & > ul {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+`
+
+const SmallChip = styled(Chip)`
+  height: 28px;
+  padding: 0 10px;
+  font-size: 13px;
+`
+
+/**
+ * A post's tags (AC-13.7): typed and added with Enter, a comma or leaving the box, normalized as the
+ * Worker keeps them; at most FORUM_LIMITS.tagsMax of FORUM_LIMITS.tagMax characters. The tags in use
+ * (`suggestions`, most used first) are offered as one-click chips
+ */
+function TagsField({ tags, onChange, suggestions }: { tags: string[]; onChange: (tags: string[]) => void; suggestions: readonly string[] }) {
+  const { t } = usePreferences()
+  const e = t.forumEditor
+  const [text, setText] = useState('')
+  const inputId = useId()
+  const hintId = useId()
+  const full = tags.length >= FORUM_LIMITS.tagsMax
+  const add = (value: string) => {
+    const next = [...tags]
+    for (const tag of splitTags(value))
+      if (!next.includes(tag) && next.length < FORUM_LIMITS.tagsMax && [...tag].length <= FORUM_LIMITS.tagMax) next.push(tag)
+    if (next.length !== tags.length) onChange(next)
+    setText('')
+  }
+  const offered = suggestions.filter((tag) => !tags.includes(tag)).slice(0, 12)
+  return (
+    <TagBox>
+      <Labelled htmlFor={inputId}>
+        <FieldLabel as="span">{e.tagsLabel}</FieldLabel>
+        <Input
+          id={inputId}
+          aria-describedby={hintId}
+          placeholder={full ? '' : e.tagsPlaceholder}
+          disabled={full}
+          maxLength={FORUM_LIMITS.tagMax}
+          value={text}
+          onChange={(ev) => (/[,，、;；]/.test(ev.target.value) ? add(ev.target.value) : setText(ev.target.value))}
+          onKeyDown={(ev) => {
+            if (ev.key !== 'Enter' || ev.nativeEvent.isComposing) return
+            ev.preventDefault()
+            add(text)
+          }}
+          onBlur={() => text.trim() && add(text)}
+        />
+      </Labelled>
+      <FieldHint id={hintId}>{e.tagsHint(FORUM_LIMITS.tagsMax, FORUM_LIMITS.tagMax)}</FieldHint>
+      {tags.length > 0 && (
+        <ul aria-label={t.forum.tags}>
+          {tags.map((tag) => (
+            <li key={tag}>
+              <SmallChip type="button" $active onClick={() => onChange(tags.filter((x) => x !== tag))} aria-label={e.removeTag(tag)} title={e.removeTag(tag)}>
+                <ChipLabel>#{tag}</ChipLabel>
+                <X size={12} aria-hidden />
+              </SmallChip>
+            </li>
+          ))}
+        </ul>
+      )}
+      {!full && offered.length > 0 && (
+        <ul aria-label={e.suggestedTags}>
+          {offered.map((tag) => (
+            <li key={tag}>
+              <SmallChip type="button" $active={false} onClick={() => add(tag)}>
+                <ChipLabel>#{tag}</ChipLabel>
+              </SmallChip>
+            </li>
+          ))}
+        </ul>
+      )}
+    </TagBox>
+  )
+}
+
 /** The vulnerability of the last deal above an auction, for its colours */
 function vulAbove(items: Item[], index: number) {
   for (let i = index - 1; i >= 0; i--) {
@@ -207,6 +297,8 @@ export function PostEditor({
   const firstBoard = [post?.boardId, preferred, record ? undefined : draft?.boardId].find((id) => id && choices.some((b) => b.id === id))
   const [boardId, setBoardId] = useState(firstBoard ?? choices.find((b) => b.postPolicy === 'all')?.id ?? choices[0]?.id ?? '')
   const [title, setTitle] = useState(post?.title ?? draft?.title ?? '')
+  const [tags, setTags] = useState<string[]>(post?.tags ?? draft?.tags ?? [])
+  const [suggestions, setSuggestions] = useState<string[]>([])
   const [items, setItems] = useState<Item[]>(() => {
     const blocks: PostBlock[] = post?.blocks ?? draft?.blocks ?? []
     const shared = !post && record && !blocks.some((b) => b.kind === 'record' && b.tableRecordId === record)
@@ -227,8 +319,15 @@ export function PostEditor({
 
   // A new post's draft is kept as it is written
   useEffect(() => {
-    if (!post && !sent.current) saveDraft({ boardId, title, blocks: blocksOf(items.map((i) => i.piece)) })
-  }, [post, boardId, title, items])
+    if (!post && !sent.current) saveDraft({ boardId, title, blocks: blocksOf(items.map((i) => i.piece)), ...(tags.length ? { tags } : {}) })
+  }, [post, boardId, title, items, tags])
+  // The tags in use, offered in the tag box (AC-13.7); none when they cannot be read
+  useEffect(() => {
+    forumApi
+      .tags()
+      .then((found) => setSuggestions(found.map((x) => x.tag)))
+      .catch(() => setSuggestions([]))
+  }, [])
 
   const update = (id: number, piece: EditorPiece) => setItems((list) => list.map((i) => (i.id === id ? { ...i, piece } : i)))
   const move = (index: number, by: number) =>
@@ -253,7 +352,7 @@ export function PostEditor({
     setBusy(true)
     setError('')
     try {
-      const input = { title: title.trim() || undefined, blocks }
+      const input = { title: title.trim() || undefined, blocks, tags }
       const done = post ? await forumApi.updatePost(post.id, input) : await forumApi.createPost(boardId, input)
       if (!post) {
         sent.current = true
@@ -292,6 +391,7 @@ export function PostEditor({
         <FieldLabel as="span">{e.titleLabel}</FieldLabel>
         <Input id={titleId} value={title} maxLength={FORUM_LIMITS.titleMax} onChange={(ev) => setTitle(ev.target.value)} />
       </Labelled>
+      <TagsField tags={tags} onChange={setTags} suggestions={suggestions} />
       <FieldHint id={hintId}>{e.textHint}</FieldHint>
       <Pieces>
         {items.map(({ id, piece }, index) => {

@@ -317,17 +317,30 @@ const ORDER: Record<HistorySort, string> = {
 }
 
 /**
+ * Whether a search names another member as its player or declarer: those are the searches a member
+ * who keeps their boards off their profile (e13-t08) is left out of (`hidden` below), which only the
+ * club knows, so the D1 copy leaves them to the club (routing.ts `edgeHistory`)
+ */
+export const namesOthers = (query: HistoryQuery, viewer: string) =>
+  (!!query.player && query.player !== viewer) || (!!query.declarer && query.declarer !== viewer)
+
+/**
  * The WHERE clause of a search and its parameters. Every value goes in as a `?` parameter; only
  * fixed pieces of SQL are joined into the text. Boards still kept back (`reveal_at` in the future)
- * are left out unless the member asking played them, whatever the search (AC-4.9)
+ * are left out unless the member asking played them, whatever the search (AC-4.9).
+ *
+ * `hidden`: the members who keep their boards off their profile from this viewer (e13-t08, the
+ * club's call: not the viewer, nobody for an admin). Searching for one of them as the player or the
+ * declarer finds nothing (ARCHITECTURE.md §4); their boards still show in every other search
  */
-function where(query: HistoryQuery, viewer: string, now: number, favorites: boolean): [string, SqlValue[]] {
+function where(query: HistoryQuery, viewer: string, now: number, favorites: boolean, hidden: readonly string[] = []): [string, SqlValue[]] {
   const parts: string[] = [`(b.reveal_at IS NULL OR b.reveal_at <= ? OR ${SEATED('v')})`]
   const params: SqlValue[] = [now, viewer]
   const add = (part: string, ...values: SqlValue[]) => {
     parts.push(part)
     params.push(...values)
   }
+  if ((query.player && hidden.includes(query.player)) || (query.declarer && hidden.includes(query.declarer))) add('0 = 1')
   if (favorites)
     add('EXISTS (SELECT 1 FROM favorites f WHERE f.user_id = ? AND f.board_id = b.board_id)', viewer)
   else if (query.scope === 'mine') add(SEATED('m'), viewer)
@@ -402,8 +415,9 @@ export function searchStatements(
   now: number,
   favorites: boolean,
   columns = 'b.board_id',
+  hidden: readonly string[] = [],
 ): { count: Statement; page: (page: number) => Statement } {
-  const [condition, params] = where(query, viewer, now, favorites)
+  const [condition, params] = where(query, viewer, now, favorites, hidden)
   return {
     count: { sql: `SELECT COUNT(*) AS n FROM boards_index b WHERE ${condition}`, params },
     page: (page) => ({
@@ -418,8 +432,8 @@ export function searchStatements(
  * days (`sort`, `page` and `size` play no part). The same WHERE as the search, so boards kept back
  * count only for their own players. The club's index and the D1 copy run the same SQL
  */
-export function dayStatement(query: HistoryQuery, viewer: string, now: number): Statement {
-  const [condition, params] = where(query, viewer, now, false)
+export function dayStatement(query: HistoryQuery, viewer: string, now: number, hidden: readonly string[] = []): Statement {
+  const [condition, params] = where(query, viewer, now, false, hidden)
   return {
     sql: `SELECT (b.played_at + ${TAIWAN_OFFSET_MS}) / ${DAY_MS} AS day, COUNT(*) AS n FROM boards_index b
       WHERE ${condition} GROUP BY day ORDER BY day DESC LIMIT ?`,
@@ -432,8 +446,8 @@ export const dayRows = (rows: Record<string, SqlValue>[]): HistoryDay[] =>
   rows.map((row) => ({ date: new Date(Number(row.day) * DAY_MS).toISOString().slice(0, 10), count: Number(row.n) }))
 
 /** How many boards a search finds per Taiwan date, from the club's index (`dayStatement`) */
-export function searchDays(sql: Sql, query: HistoryQuery, viewer: string, now: number): HistoryDay[] {
-  const { sql: text, params } = dayStatement(query, viewer, now)
+export function searchDays(sql: Sql, query: HistoryQuery, viewer: string, now: number, hidden: readonly string[] = []): HistoryDay[] {
+  const { sql: text, params } = dayStatement(query, viewer, now, hidden)
   return dayRows(sql.exec(text, ...params))
 }
 
@@ -443,7 +457,7 @@ export const shownPage = (query: HistoryQuery, total: number) => Math.min(query.
 /**
  * One page of a search: the board ids in order, how many boards match, and the page shown (a page
  * past the end shows the last one). With `favorites`, only the viewer's favorites, whoever played
- * them (`scope` is then ignored); boards kept back stay out all the same
+ * them (`scope` is then ignored); boards kept back stay out all the same. `hidden`: as `where`
  */
 export function searchBoards(
   sql: Sql,
@@ -451,8 +465,9 @@ export function searchBoards(
   viewer: string,
   now: number,
   favorites = false,
+  hidden: readonly string[] = [],
 ): { ids: string[]; total: number; page: number } {
-  const statements = searchStatements(query, viewer, now, favorites)
+  const statements = searchStatements(query, viewer, now, favorites, 'b.board_id', hidden)
   const total = sql.exec<{ n: number }>(statements.count.sql, ...statements.count.params)[0].n
   const page = shownPage(query, total)
   const { sql: text, params } = statements.page(page)
