@@ -3,6 +3,8 @@ import { clubIdOfObject, DEFAULT_CLUB_ID } from '../shared/clubs.ts'
 import { AppError } from '../shared/messages.ts'
 import type { ChallengeSettings } from '../shared/challenge.ts'
 import { parseHistoryQuery } from '../shared/history-query.ts'
+import { toSessionLin } from '../shared/lin.ts'
+import { toPbnFile } from '../shared/pbn.ts'
 import { MESSAGE_MAX_CHARS } from '../shared/message-guard.ts'
 import type { BoardRecord, Me, RegisterOptions, ServerMessage, SystemSpecStatus } from '../shared/protocol.ts'
 import type { BookNotes } from '../shared/robot/system/book-spec.ts'
@@ -770,6 +772,13 @@ export class Club extends DurableObject<Env> implements Connections {
     // A convention card version shared by link (BridgeHall e3-t09): anyone, signed in or not
     const shared = request.method === 'GET' ? await this.sharedCardResponse(url.pathname) : null
     if (shared) return shared
+    // A board's public link (e4-t38): anyone, signed in or not; rate-limited per address (worker/board-shares.ts)
+    const shareLink = url.pathname.match(/^\/api\/share\/([\w-]+)$/)
+    if (request.method === 'GET' && shareLink) {
+      const response = json({ shared: await this.service.shares.open(shareLink[1], request.headers.get('CF-Connecting-IP') ?? '') })
+      response.headers.set('X-Robots-Tag', 'noindex')
+      return response
+    }
     // Everything else needs signing in, BridgeHall's reading included: its whole site is for members
     // since 2026-10-29 (the handbook, glossary, practice fixes, learning paths, library and profiles)
     if (!user) throw new ClubError('signInFirst', {}, 401)
@@ -908,11 +917,33 @@ export class Club extends DurableObject<Env> implements Connections {
     }
     if (route === 'GET /api/history/search') return json(await this.service.search(user.id, parseHistoryQuery(url.searchParams)))
     if (route === 'GET /api/history/days') return json(this.service.historyDays(user.id, parseHistoryQuery(url.searchParams)))
+    // The records page's search as one PBN file (e4-t36): its first LIMITS.exportBoardsMax boards
+    if (route === 'GET /api/history/export.pbn') {
+      const { records, total } = await this.service.exportBoards(user.id, parseHistoryQuery(url.searchParams))
+      return textFile(toPbnFile(records), `tku-records-${records.length}.pbn`, { 'X-Boards-Total': String(total) })
+    }
     const record = url.pathname.match(/^\/api\/history\/([\w-]+)$/)
     if (request.method === 'GET' && record) {
       const found = await this.service.record(record[1], user.id)
       if (!found) throw new ClubError('boardGone', {}, 404)
       return json({ record: found })
+    }
+    // A board's whole session at its table as one LIN file (e4-t37)
+    const sessionLin = url.pathname.match(/^\/api\/history\/([\w-]+)\/session\.lin$/)
+    if (request.method === 'GET' && sessionLin) {
+      const records = await this.service.session(sessionLin[1], user.id)
+      if (!records) throw new ClubError('boardGone', {}, 404)
+      const first = records[0]
+      const place = first.mode === 'practice' ? 'Practice' : `Table ${first.tableNumber}`
+      return textFile(toSessionLin(records, `TKU BridgeTable ${place}`), `tku-session-${sessionLin[1]}.lin`)
+    }
+    // A board's public link (e4-t38): its players and the admins see it, make it and take it back
+    const share = url.pathname.match(/^\/api\/history\/([\w-]+)\/share$/)
+    if (share && request.method === 'GET') return json({ share: await this.service.shares.get(user.id, share[1]) })
+    if (share && request.method === 'POST') return json({ share: await this.service.shares.create(user.id, share[1]) })
+    if (share && request.method === 'DELETE') {
+      await this.service.shares.revoke(user.id, share[1])
+      return json({ ok: true })
     }
     // A director's ruling on a board (e2-t35): `{ ruling }`, null to take one back; the record comes back
     const ruling = url.pathname.match(/^\/api\/history\/([\w-]+)\/ruling$/)
@@ -1708,6 +1739,18 @@ function json(data: unknown, status = 200, ...cookies: string[]) {
   const headers = new Headers({ 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' })
   for (const cookie of cookies) headers.append('Set-Cookie', cookie)
   return new Response(JSON.stringify(data), { status, headers })
+}
+
+/** A text file to download (PBN, LIN): ASCII file names only, so no encoding is needed */
+function textFile(text: string, name: string, headers: Record<string, string> = {}) {
+  return new Response(text, {
+    headers: {
+      'Content-Type': 'text/plain; charset=utf-8',
+      'Content-Disposition': `attachment; filename="${name.replace(/[^\w.-]/g, '_')}"`,
+      'Cache-Control': 'no-store',
+      ...headers,
+    },
+  })
 }
 
 function errorResponse(error: unknown) {

@@ -23,8 +23,8 @@ import { lobbyFrom } from '../lobby-copy.ts'
  *   hidden hand sent to someone without a seat at a table that allows no kibitzers. Robots never
  *   claim and the members here never do, so no claim opens a hand.
  * - **Every way to a finished board**: `exposure` asks each surface the club has — the record, the
- *   history list, search (mine and everyone's), a member's profile, favourites, the traveller and
- *   featuring it — whether a member may get the board, so a board still kept back is checked
+ *   history list, search (mine and everyone's), a member's profile, favourites, the traveller, the
+ *   PBN export and a session's LIN, and featuring it — whether a member may get the board, so a board still kept back is checked
  *   everywhere at once, and so is the same board once it is shown.
  *
  * It runs with the rest of `tests/worker` in CI (`npm test`). A new surface or table mode belongs here.
@@ -92,10 +92,15 @@ async function exposure(viewer: string, boardId: string, player: string) {
       () => false,
     ),
     traveller: (await club.traveller(boardId, viewer)) !== null,
+    // The records page's PBN (e4-t36) and a session's LIN (e4-t37)
+    export: (await Promise.all([all, { ...all, mode: 'team' as const }].map((q) => club.exportBoards(viewer, q)))).some((e) =>
+      e.records.some((r) => r.id === boardId),
+    ),
+    session: !!(await club.session(boardId, viewer))?.some((r) => r.id === boardId),
   }
 }
 
-const hidden = { record: false, history: false, mine: false, search: false, profile: false, favorite: false, traveller: false }
+const hidden = { record: false, history: false, mine: false, search: false, profile: false, favorite: false, traveller: false, export: false, session: false }
 
 /** What a curator gets trying to feature the board: the board must be public first, and an outsider is not told it exists */
 const featureCode = (curator: string, boardId: string) =>

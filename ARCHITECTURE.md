@@ -229,6 +229,12 @@ interface BoardState {
 
 **打完的牌局什麼時候公開**（AC-4.9，`recordVisible`）：紀錄可以帶 `revealAt`（挑戰、隊制賽還在進行時）。在那之前，只有打那一副的四位看得到；其他人在紀錄列表、搜尋、詳細頁、牌桌側欄的 `recent`、收藏、精選都看不到。**收藏**（§5.3）：只能收藏 `recordVisible` 看得到的牌——還沒公開的挑戰／隊制賽牌局只有打的四位能收藏，別人收藏或查詢都拿到跟不存在一樣的 `boardGone`（404），連「打完全部副數、可以看 traveller」的參與者也要等公開；「我的收藏」列表走同一個 `searchBoards`，照樣套用 `reveal_at` 的規則。筆記與標籤只有收藏的人自己讀得到：每個查詢都以自己的 id 為條件，沒有讀別人收藏的 API。**精選**（§5.9）：只有已經公開的牌（沒有 `revealAt` 或已經過了）才能設為精選——打過那副的策展人拿到 `featuredNotRevealed`，沒打過的拿到 `boardGone`，不透露那副牌存在；精選的列表與單副讀取也再套一次 `recordVisible`。**分享到論壇**（`e13-t07`，§5.19）：貼文的 `record` 區塊只存紀錄 id；發文與編輯時伺服器檢查新加的每一副（`ClubService.checkShareable`）：只有已經公開的牌（沒有 `revealAt` 或已經過了）能分享，打過那副的人拿到 `recordNotShareable`（409），看不到的人拿到 `boardGone`，不透露那副牌存在。貼文裡的牌圖由瀏覽器走 `/api/history/:id` 讀，所以每個讀者照樣由 `recordVisible`／`challengeBoardVisible` 把關；貼文本身不帶任何一張牌。搜尋在 SQL 裡套同一條規則（`reveal_at IS NULL OR reveal_at <= 現在 OR 我打過`），而且不管搜尋什麼條件都會套用，前端無法關掉。Worker 從 D1 副本回答的紀錄列表與搜尋（§5.12）跑的是同一段 SQL，規則一樣；資訊隔離套件比對兩邊的回答完全相同。
 
+**匯出與公開分享連結**（`e4-t36`～`t38`，§5.3 的「匯出與分享」）：PBN 與整場 LIN 只給看得到的牌：紀錄頁的整批 PBN（`GET /api/history/export.pbn?<條件>`）跑的是同一個 `searchBoards`（同一個 `where()`），還沒公開的牌只有打的人匯出得到，點名不公開打過的牌局的社員當玩家或主打時一副都沒有（同搜尋）；整場 LIN（`GET /api/history/:id/session.lin`）先要看得到那一副（`ClubService.record`），同一場的其他副也一副一副用 `record` 過濾，看不到的就不放進檔案。**公開分享連結**（`sharedBoardView`）是唯一一個不用登入就讀得到牌的地方：
+- **誰能產生、撤銷**：打那一副的人（四個座位上的社員）與管理員（`BoardShares.manageable`）；看得到牌但沒打的社員拿到 `shareNotPlayer`（403），看不到的拿到 `boardGone`（404），不透露那副牌存在。每副最多一個連結（`board_shares` 的 `board_id` 唯一），誰再按都拿到同一個；任何一位打的人或管理員都能撤銷（撤銷後立即失效，再產生是新的 token）。還沒公開的挑戰／隊制賽／雙人賽牌（`revealAt` 還沒到）打的人拿到 `shareHeldBack`（409）；公開之後才能產生。產生的人刪帳號時，他產生的連結一起刪。
+- **公開頁看到什麼**（`GET /api/share/:token`，`/share/<token>`）：只有那一副打完的牌（沒有 `result` 或還沒公開一律當作不存在，每次讀都重算）：原始四手牌、叫牌與 Alert 說明（機器人的說明是它的簡短解釋，同 BBO 的 GIB）、打牌過程、合約、結果與分數、日期，四個座位的帳號名稱。**不送**：任何 id（紀錄、桌、比賽、社員的 id）、桌號、模式、主人、裁定與理由、代打、動作事件與時間、引擎對叫品的推論（`meaning`、`inferred`）與淡江橋館的原文（`book`：淡江制度只給社員）。設定「不公開打過的牌局」（`hideProfileBoards`）的社員名字是 `null`，頁面寫「社員」；每次讀都看他現在的設定，所以之後才關也立刻生效。頁面沒有任何連到別副或紀錄頁的連結。
+- **猜 token**：token 是 128 位元的亂數（32 個十六進位字元）；每個網路位址（`CF-Connecting-IP`）查詢一次扣一個 token bucket（一次 30 個、之後每 2 秒一個），查錯（不存在、已撤銷、牌已不能看）15 分鐘內 10 次就整個擋 15 分鐘（`slowDown`，429），回應也帶 `X-Robots-Tag: noindex`。
+測試在 `tests/worker/record-export.test.ts`；`tests/worker/visibility/visibility.test.ts` 的 `exposure` 也檢查還沒公開的牌在 PBN 與整場 LIN 都拿不到。
+
 **練習桌**（§5.11，`practiceView`）：牌照上表（社員只看到自己的牌，打完四家公開）；`TableView.practice` 只有社員自己選的設定與發了幾副，不含任何牌。**顯示四家**（`e10-t16`）：練習桌的主人（有座位）開了 `showHands`，`boardView` 另外帶 `shown`（四家）：只給他、只是看得到，叫牌盒與提示照舊（不是 `acts`）；觀看者照上表，沒有座位的人、別桌的人都不受影響，送不送牌由伺服器決定（`TableService.shownTo`）。**牌組**（`deal: 'set'`）：牌組的牌（`PracticeTableState.problems`）跟挑戰的牌組一樣只在伺服器，`practiceView` 只送正在打的那一副是第幾題、分類、精選的標題，**叫牌結束後**才送教學重點（`note`，叫牌前送會洩漏該怎麼叫）；收藏與精選的牌只能是看得到**而且已經公開**的（`revealAt` 已過或沒有）：還沒公開的挑戰、隊制賽牌，連打過的人也拿到 `boardGone`。練習牌組的 JSON 只有 Worker import，瀏覽器的 bundle 裡沒有（測試檢查 `src/` 沒有 import 它）。Just Declare 練習的叫牌是機器人叫的，跟所有機器人的叫品一樣公開。練習的紀錄所有人仍看得到（`recordVisible` 不變），只是「全部社員」的列表預設不列（§5.11）。
 
 **封鎖與聊天**（AC-1.6，`chatFor`）：牌桌聊天照每位觀看者過濾，他封鎖的社員說的話不會送到他的瀏覽器；其他人照常看得到，解除封鎖後保留的訊息會再出現。大廳的 `friends`／`blocked` 只在社員自己的那一份（`LobbyMine`），別人封鎖或加了誰不會送出。
@@ -1499,6 +1505,23 @@ SQL 由 `worker/history-index.ts` 的 `searchBoards` 組：只有固定的 SQL �
 規則：筆記最多 500 字（`favoriteNoteTooLong`）；標籤最多 8 個、每個 20 字（`favoriteTagsBad`），去頭尾空白、連續空白合成一個、逗號與控制字元換成空白，大小寫不同算同一個標籤；每人最多收藏 1,000 副（`favoritesFull`）。`tag` 也是一般搜尋的條件（「我收藏且標了這個標籤的」），所以紀錄頁的篩選標籤也會顯示它。帳號刪除時連收藏一起刪。一頁的筆記逐筆讀（Durable Object 一個查詢最多 100 個參數，一頁可能有 100 副）。
 
 介面：星號（`FavoriteButton`）在紀錄列表每一列、紀錄頁、牌桌側欄的紀錄、牌桌的結果面板；按了立刻變色，伺服器拒絕就變回來並顯示錯誤。「我的收藏」在 `/favorites`（`FavoritesPage`）：沿用紀錄頁的篩選、條件標籤與排序，另有一排標籤按鈕；每副的筆記與標籤在原地編輯（`FavoriteNotes`：Enter 或逗號加入標籤，打字時列出自己用過的相符標籤）。
+
+**匯出與分享**（`e4-t36`～`t38`，J8；可見性見 §4「匯出與公開分享連結」）：
+
+| API | 做什麼 |
+| --- | --- |
+| `GET /api/history/export.pbn?<搜尋條件>` | 紀錄頁「下載 PBN」：條件與 `/api/history/search` 相同（紀錄頁另把分組選到的主題與日期併進去），照搜尋的排序取前 `LIMITS.exportBoardsMax`（500）副，一份 PBN 2.1（`shared/pbn.ts` 的 `toPbnFile`：必要的標籤、`Deal`、`Auction`（Alert 寫成 `=n=` 與 `[Note]`）、`Play`（從首攻者起每墩一行，攤牌後的寫 `*`）、`Score`）。`X-Boards-Total` 是搜尋找到幾副，超過上限時頁面說只下載了前 500 副。不經 D1 副本（§5.12），由社團回答 |
+| `GET /api/history/:id/session.lin` | 「下載整場 LIN」：這一副與同一張桌連續打的其他副（`shared/lin.ts` 的 `toSessionLin`：一行 `vg`，之後每副一行 `qx|o<n>|` 加那一副的 LIN，各帶自己的 `pn`，因為中途可能換人） |
+| `GET`／`POST`／`DELETE /api/history/:id/share` | 這一副的公開連結：讀（沒有是 `null`）、產生（已經有就給同一個）、撤銷 |
+| `GET /api/share/:token` | 不用登入：`{ shared: SharedBoard }`（`sharedBoardView`），頁面在 `/share/<token>`（`SharedBoardPage`） |
+
+**一場**（`sessionOf`，`worker/board-shares.ts`）：紀錄從 J8 起帶 `tableId`（那一桌的 id）。同一場＝同一個 `tableId`、依完成時間排序、相鄰兩副相隔不超過 60 分鐘（`SESSION_GAP_MS`）連成的一串，最多 `LIMITS.sessionBoardsMax`（100）副；候選先用索引找（`sessionCandidates`：同桌號、同模式與比賽、前後 12 小時、至少有一位這一副的社員，各方向最多 200 副），再讀紀錄比 `tableId`。J8 以前的紀錄沒有 `tableId`：改用「同桌號、同模式、沒有 `tableId`、有這一副的社員」。`tableId` 只在完整紀錄裡，`BoardSummary` 與索引都沒改，所以 `REPLICA_VERSION` 不用加。單副的 PBN 由瀏覽器從已經載入的紀錄產生（`toPbnFile([record])`），不用另外問伺服器；下載都是先 `fetch` 再存成 `blob:`（`src/lib/download.ts`），CSP 不用改。
+
+| 表 | 欄位 | 索引 |
+| --- | --- | --- |
+| `board_shares` | `token`（主鍵）、`board_id`（唯一）、`created_by`、`created_at` | 主鍵、`board_id` |
+
+`board_shares` 跟收藏一樣在社團的 SQLite（`BoardShares.createTables`，每次載入時建），不在每日備份裡（同收藏）；帳號匯出帶自己產生過的連結（`boardShares`），刪帳號時一起刪。
 
 **紀錄頁**（`e4-t16`～`t21`）：`/history` 的篩選與排序都寫在網址（`/history?scope=all&level=4&strain=S&sort=score_desc`），重新整理或分享連結都是同一份清單；頁面用 `readHistoryQuery` 讀網址（不認得的參數直接略過，不像 API 回錯誤）、用 `historyQueryString` 寫回，條件改了就回第 1 頁。日期的「今天／本週（從週一）／本月」由 `datePresetRange` 換成台灣日期的 `from`／`to`。篩選介面在 `src/components/HistoryFilters.tsx`。用到的條件在清單上方顯示成標籤（`src/lib/historyChips.ts` 的 `filterChips`：階數＋花色合成一個「合約」、起訖日期合成一個「日期」），每個可單獨移除，「清除全部」只清條件、保留範圍、排序與每頁筆數（e4-t22）。手機版篩選收合在「篩選（n）」按鈕裡，按了才展開，展開後有「完成」收回；寬螢幕開啟帶條件的連結時直接展開。
 

@@ -1,4 +1,4 @@
-import { ExternalLink, Share2, Swords } from 'lucide-react'
+import { Download, ExternalLink, Link2, Share2, Swords } from 'lucide-react'
 import { useMemo, useState, type ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import styled, { css } from 'styled-components'
@@ -6,8 +6,11 @@ import { actionTimes, realGaps } from '../../shared/board-events.ts'
 import { rankLabel, rankOf, SEATS, suitOf } from '../../shared/cards.ts'
 import { tricksOf } from '../../shared/game.ts'
 import { handviewerUrl, toLin } from '../../shared/lin.ts'
+import { toPbnFile } from '../../shared/pbn.ts'
 import { robotKindsFor, type BoardRecord, type PublicUser } from '../../shared/protocol.ts'
+import { api, ApiError } from '../lib/api.ts'
 import { CARD_SCALE, cardName } from '../lib/cards.ts'
+import { downloadFile, saveText } from '../lib/download.ts'
 import { challengeRobotsOf } from '../lib/challenges.ts'
 import { formatDateTime, signed } from '../lib/format.ts'
 import { useMediaQuery } from '../lib/useMediaQuery.ts'
@@ -20,6 +23,7 @@ import { usePreferences } from '../state/PreferencesContext.tsx'
 import { mobileQuery } from '../styles/tokens.ts'
 import { boardPlace, playerName, seatLetter } from '../strings.ts'
 import { AuctionBox } from './AuctionBox.tsx'
+import { BoardShareDialog } from './BoardShareDialog.tsx'
 import { ChallengeDialog } from './ChallengeDialog.tsx'
 import { DoubleDummyPanel } from './DoubleDummyPanel.tsx'
 import { DdReplayBar } from './DoubleDummyReplay.tsx'
@@ -30,7 +34,7 @@ import { RecordSubstitutes } from './RecordSubstitutes.tsx'
 import { ReplayControls } from './ReplayControls.tsx'
 import { RulingPanel } from './RulingPanel.tsx'
 import { ContractLabel, ContractResult, SuitSymbol } from './Suit.tsx'
-import { Button, Card, PageMain, PageTitle } from './ui.tsx'
+import { Button, Card, ErrorText, PageMain, PageTitle } from './ui.tsx'
 
 /**
  * One finished board's record: the deal as a hand diagram (RecordDiagram, BBO's Handviewer), the
@@ -138,7 +142,7 @@ export function BoardRecordView({
   newTab?: boolean
   after?: ReactNode
 }) {
-  const { t, lang, cardStyle, cardSize } = usePreferences()
+  const { t, lang, cardStyle, cardSize, message } = usePreferences()
   const scale = CARD_SCALE[cardSize]
   const phone = useMediaQuery(mobileQuery)
   const framed = !embedded && !compact
@@ -169,6 +173,10 @@ export function BoardRecordView({
   // 分享到論壇 (e13-t07): a board the whole club may see; one kept back (a challenge or match not over) waits
   const forumOn = !!user?.features?.includes('forum')
   const shareable = record.revealAt === undefined || record.revealAt <= openedAt
+  // 公開分享連結 (e4-t38): the board's players and the admins; the server checks again
+  const sharer = framed && !!user && (user.admin || SEATS.some((seat) => players[seat]?.id === user.id))
+  const [sharing, setSharing] = useState(false)
+  const [downloadError, setDownloadError] = useState('')
 
   const allTricks = tricksOf(board)
   const contract = board.contract
@@ -185,6 +193,17 @@ export function BoardRecordView({
       setTimeout(() => setCopied(false), 1500)
     } catch {
       // Clipboard blocked: the Handviewer link still works
+    }
+  }
+
+  // PBN (e4-t36) is made here from the record; the session's LIN (e4-t37) needs the other boards, from the server
+  const downloadPbn = () => saveText(`tku-board-${board.boardNo}-${record.id}.pbn`, toPbnFile([record]))
+  const downloadSession = async () => {
+    setDownloadError('')
+    try {
+      await downloadFile(api.sessionLinPath(record.id), `tku-session-${record.id}.lin`)
+    } catch (e) {
+      setDownloadError(e instanceof ApiError ? message(e.code, e.params, e.message) : t.recordExport.failed)
     }
   }
 
@@ -279,6 +298,30 @@ export function BoardRecordView({
             <Button type="button" $small onClick={copyLin}>
               {copied ? t.copiedLin : t.copyLin}
             </Button>
+            {!compact && (
+              <>
+                <Button type="button" $small onClick={downloadPbn}>
+                  <Download size={16} aria-hidden />
+                  {t.recordExport.pbn}
+                </Button>
+                <Button type="button" $small onClick={downloadSession} title={t.recordExport.sessionHint}>
+                  <Download size={16} aria-hidden />
+                  {t.recordExport.sessionLin}
+                </Button>
+              </>
+            )}
+            {sharer && (
+              <Button
+                type="button"
+                $small
+                disabled={!shareable}
+                title={shareable ? undefined : t.recordExport.shareHeldHint}
+                onClick={() => setSharing(true)}
+              >
+                <Link2 size={16} aria-hidden />
+                {t.recordExport.share}
+              </Button>
+            )}
             {framed && forumOn &&
               (shareable ? (
                 <Button as={Link} to={`/forum/new?record=${encodeURIComponent(record.id)}`} $small>
@@ -303,6 +346,7 @@ export function BoardRecordView({
               </Link>
             )}
           </Links>
+          {downloadError && <ErrorText role="alert">{downloadError}</ErrorText>}
         </Part>
       </Columns>
       {framed && (
@@ -374,6 +418,7 @@ export function BoardRecordView({
           <Link to="/history">{t.backToHistory}</Link>
         </p>
       )}
+      {sharing && <BoardShareDialog boardId={record.id} onClose={() => setSharing(false)} />}
       {challenging && robots && (
         <ChallengeDialog
           fromBoards={{ ids: [record.id], robotKind: robots }}
