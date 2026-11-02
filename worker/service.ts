@@ -163,6 +163,8 @@ import {
 } from '../shared/features.ts'
 import { ACCOUNT_EXPORT_VERSION, type SessionInfo } from '../shared/account.ts'
 import { Sessions } from './sessions.ts'
+import { integrityReport, seenSalt, Sightings } from './integrity.ts'
+import { integrityDays, type IntegrityReport } from '../shared/integrity.ts'
 import { Relations } from './relations.ts'
 import { AlarmQueue, manualScheduler, type JobKind, type Scheduler } from './scheduler.ts'
 import { LocalTables, ROBOT_NAME, robotUser, TableService, type TableConfig, type TableStore } from './table-service.ts'
@@ -381,6 +383,12 @@ export interface ClubConfig {
    * `worker/system-spec.ts`): the club's (CLUB_PROFILE_ID) unless set (`SYSTEM_PROFILE_ID`)
    */
   systemProfileId?: string
+  /**
+   * The salt for the anti-cheating report's network hashes (`wrangler secret put SEEN_SALT`, at
+   * least SEEN_SALT_MIN characters; ARCHITECTURE.md §5.17). Kept out of the club's storage on
+   * purpose; without it no network is kept, only the browser
+   */
+  seenSalt?: string
 }
 
 export type ScheduleKind = JobKind
@@ -470,6 +478,10 @@ export class ClubService {
   private features: FeatureSettings = {}
   /** Who is signed in where (e11-t23) */
   private readonly sessions: Sessions
+  /** Where members were signed in, for the anti-cheating report (`e11-t25`) */
+  private readonly sightings: Sightings
+  /** The missing SEEN_SALT is logged once per wake, not at every sign-in */
+  private saltMissingLogged = false
   private readonly store: Store
   private readonly connections: Connections
   private readonly config: ClubConfig
@@ -613,6 +625,7 @@ export class ClubService {
     })
     this.directs = new DirectMessageStore(store.sql)
     this.sessions = new Sessions(store, this.now)
+    this.sightings = new Sightings(store, this.now, seenSalt(config.seenSalt))
     this.practicePresets = new PracticePresets(store, this.now, () => randomId(8))
     this.systemSpecs = new SystemSpecStore(store, this.now, config.systemProfileId)
     if (config.schedule) {
@@ -1696,6 +1709,7 @@ export class ClubService {
     await this.store.delete(`user:${user.id}`)
     await this.store.delete(`avatar:${user.id}`)
     await this.revokeSessions(user.id)
+    await this.sightings.forget(user.id)
     await this.notifications.forget(user.id)
     await this.friends.forget(user.id)
     await this.blocks.forget(user.id)
@@ -1828,6 +1842,8 @@ export class ClubService {
       exportedAt: this.now(),
       account,
       sessions: await this.sessions.list(userId, token),
+      // Where they were seen signed in (the anti-cheating report, e11-t25): a hash of the network, never the address
+      signIns: await this.sightings.of(userId),
       friends: this.friends.of(userId).map(name),
       blocked: this.blocks.of(userId).map(name),
       notifications: await this.notifications.view(userId),
@@ -1852,6 +1868,46 @@ export class ClubService {
     this.log({ event: 'accountDeleted' })
     await this.batch(() => this.removeMember(user))
     this.broadcast()
+  }
+
+  // ── The anti-cheating report (e11-t25, ARCHITECTURE.md §5.17) ─────────────────────────────────
+
+  /**
+   * Notes where a member is signed in: at signing in and at every club connection. `address` is
+   * CF-Connecting-IP (only its salted hash is kept, and only with SEEN_SALT set), `device` the
+   * browser's `tbt_device` cookie, `label` its browser and system. Never fails the request it rides on
+   */
+  async noteSighting(userId: string, address: string, device: string, label: string) {
+    if (!this.users.has(userId)) return
+    if (address && !this.sightings.networks && !this.saltMissingLogged) {
+      this.saltMissingLogged = true
+      this.log({ event: 'seenSaltMissing' })
+    }
+    try {
+      await this.sightings.note(userId, address, device, label)
+    } catch (error) {
+      this.log(crashEntry('noteSighting', error))
+    }
+  }
+
+  /**
+   * `GET /api/admin/integrity?days=`: members seen on one browser or one small network, and what
+   * those accounts played together in the last `days` (30 by default). Admins only; a lead to look
+   * into, never acted on by itself
+   */
+  async adminIntegrityReport(adminId: string, days: unknown): Promise<IntegrityReport> {
+    this.requireAdmin(adminId)
+    return integrityReport({
+      sql: this.store.sql,
+      sightings: await this.sightings.all(),
+      member: (id) => {
+        const user = this.users.get(id)
+        return user ? { id, username: user.username } : null
+      },
+      days: integrityDays(days),
+      now: this.now(),
+      networks: this.sightings.networks,
+    })
   }
 
   async adminCloseTable(tableId: string) {

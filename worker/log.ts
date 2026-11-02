@@ -19,6 +19,8 @@ export type LogEntry =
   | { event: 'loginLocked'; username: string }
   /** A member deleted their own account (e11-t27); only that it happened, not who */
   | { event: 'accountDeleted' }
+  /** A sign-in came with an address but SEEN_SALT is not set: the anti-cheating report keeps no network (§5.17) */
+  | { event: 'seenSaltMissing' }
   /** Tables moved between the club and their own objects (schema 3 ↔ 4, ARCHITECTURE.md §5.10) */
   | { event: 'tablesMoved'; to: 'objects' | 'club'; moved: number; failed: number }
   /** Challenges (H2b) or team matches (`kind: 'matches'`, H2c) moved between the club and their own objects (§5.12) */

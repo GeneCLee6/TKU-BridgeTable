@@ -122,6 +122,7 @@ PR 關閉時預覽會自動刪除。若有漏掉的（例如當時還沒設定 s
 | `ANTHROPIC_API_KEY` | `wrangler secret put ANTHROPIC_API_KEY` | 無 | 淡江橋譜「匯入檔案」用的 Claude API 金鑰；沒設定時匯入頁會說明尚未設定，其他功能不受影響 |
 | `IMPORT_MODEL` | `wrangler.jsonc` 的 `vars` | `claude-opus-5-5` | 匯入用的模型，通常不用改 |
 | `EDGE_AUTH_SECRET` | `wrangler secret put EDGE_AUTH_SECRET` | 無 | 簽邊緣通行證（§4.5）；沒設定時不發通行證，Worker 什麼都問社團 |
+| `SEEN_SALT` | `wrangler secret put SEEN_SALT` | 無 | 防作弊報表的網路雜湊用的鹽（§4.12，至少 16 字，建議 32 bytes 隨機）；沒設定時不記網路、只比對同一個瀏覽器，報表上會說明 |
 | `EDGE_AUTH` | `wrangler.jsonc` 的 `vars` 或 `--var` | 開 | `off` 關掉通行證（§4.5） |
 | `HISTORY_D1` | `wrangler.jsonc` 的 `vars` 或 `--var` | 開 | `off` 讓紀錄頁改回社團回答、停止寫 D1（§4.5）；沒有 `HISTORY` binding（PR 預覽）時本來就沒有 |
 | `SYSTEM_PROFILE_ID` | `wrangler.jsonc` 的 `vars` 或 `--var` | `club` | TKB 用淡江制度時，叫品帶哪個制度集的橋館文字（ROBOT.md「橋館的文字跟著叫品」）；那個制度集要先在橋館差異報告頁同步過 |
@@ -428,6 +429,26 @@ LOAD_PASSWORD=... LOAD_INVITE_CODE=... npm run load -- --url https://tku-bridge-
 - **安全**：頁面在 Browser Run 裡不跑 JavaScript、擋掉所有 http(s) 請求，字型用 Browser Run 內建的（Arial、Noto CJK），所以不會去抓任何網址。
 - **用量**：Cloudflare Dashboard 的 Browser Run 頁面看每天用掉的時間。
 - **關掉**：拿掉 `wrangler.jsonc` 的三個 `browser` 綁定再部署，橋館自動退回瀏覽器列印。
+
+## 4.12 防作弊報表的鹽（H6b，`e11-t25`）
+
+管理頁的「防作弊報表」（ARCHITECTURE.md §5.17）把登入時的 IP 加鹽做雜湊，用來比對「同一個小網路」。鹽是 Worker secret `SEEN_SALT`，**不存在社團的儲存裡**：拿到儲存或備份的人沒有鹽，就無法窮舉 IPv4 還原位址（社長 2026-11-02 決定）。
+
+### 部署這個版本**之前**（只做一次）
+
+正式站與 staging 各一個、**不要相同**；值是一串隨機字，不必記住：
+
+```bash
+node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"   # 產生一串，複製
+npx wrangler secret put SEEN_SALT                                             # 貼上（正式站）
+node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"   # 再產生一串
+npx wrangler secret put SEEN_SALT --name tku-bridge-table-staging             # 貼上（staging）
+```
+
+- 沒設（或少於 16 字）也能部署：報表**只比對同一個瀏覽器**，不記網路、沒有「共用網路」；報表上方會寫「還沒有設定網路雜湊的鹽」，日誌有 `seenSaltMissing`。設好之後從下一次登入或連線開始記網路。
+- PR 預覽不設（每次部署產生新的鹽，雜湊會對不起來），所以預覽站只比對瀏覽器。
+- **不要隨便換**：換了之後新舊雜湊對不起來，舊的網路紀錄不會再配對，90 天內自然清掉；外洩時才換。
+- 合併前的 PR 版本曾把鹽存在社團儲存的 `meta:seenSalt`，那個版本沒有上過正式站；程式不再讀它，用它算的雜湊作廢，不用處理。
 
 ## 5. 費用與限制
 
