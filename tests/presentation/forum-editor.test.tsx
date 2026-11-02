@@ -17,6 +17,7 @@ import { PreferencesProvider } from '../../src/state/PreferencesContext.tsx'
 
 const mocks = vi.hoisted(() => ({
   forum: {
+    tags: vi.fn(async () => [] as { tag: string; count: number }[]),
     boards: vi.fn(),
     post: vi.fn(),
     createPost: vi.fn(),
@@ -185,9 +186,46 @@ describe('post editor (e13-t04)', () => {
             },
           },
         ],
+        tags: [],
       }),
     )
     expect(window.localStorage.getItem('tku-bridgetable:forumDraft')).toBeNull()
+  })
+
+  it('adds tags typed, pasted with commas or picked from the ones in use, and takes them off (AC-13.7)', async () => {
+    mocks.forum.tags.mockResolvedValue([
+      { tag: '首攻', count: 4 },
+      { tag: '2/1', count: 2 },
+    ])
+    mocks.forum.createPost.mockResolvedValue(post({ id: 'p9' }))
+    renderAt('/forum/new')
+    const box = await screen.findByLabelText('標籤（選填）')
+    await userEvent.type(box, '#Squeeze{Enter}')
+    fireEvent.change(box, { target: { value: '防禦，squeeze,' } })
+    const suggested = await screen.findByRole('list', { name: '常用標籤' })
+    await userEvent.click(within(suggested).getByRole('button', { name: '#首攻' }))
+    const chosen = screen.getByRole('list', { name: '標籤' })
+    expect(within(chosen).getAllByRole('button').map((b) => b.textContent)).toEqual(['#squeeze', '#防禦', '#首攻'])
+    // A tag picked is not offered again
+    expect(within(suggested).queryByRole('button', { name: '#首攻' })).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: '拿掉標籤「防禦」' }))
+    fireEvent.change(screen.getByRole('textbox', { name: '文字' }), { target: { value: '擠牌' } })
+    await userEvent.click(screen.getByRole('button', { name: '發布' }))
+    await waitFor(() =>
+      expect(mocks.forum.createPost).toHaveBeenCalledWith('deals', {
+        title: undefined,
+        blocks: [{ kind: 'paragraph', text: '擠牌' }],
+        tags: ['squeeze', '首攻'],
+      }),
+    )
+  })
+
+  it('stops taking tags at the limit', async () => {
+    renderAt('/forum/new')
+    const box = await screen.findByLabelText('標籤（選填）')
+    fireEvent.change(box, { target: { value: 'a,b,c,d,e,f,' } })
+    expect(within(screen.getByRole('list', { name: '標籤' })).getAllByRole('button')).toHaveLength(5)
+    expect(box).toBeDisabled()
   })
 
   it('keeps a draft on this device and lists what stops a post', async () => {
@@ -209,6 +247,7 @@ describe('post editor (e13-t04)', () => {
           { kind: 'deal', deal, caption: '第 1 副' },
           { kind: 'ref', slug: 'stayman' },
         ],
+        tags: ['舊標籤'],
       }),
       comments: [],
     })
@@ -226,6 +265,7 @@ describe('post editor (e13-t04)', () => {
       expect(mocks.forum.updatePost).toHaveBeenCalledWith('p1', {
         title: '舊標題',
         blocks: [{ kind: 'paragraph', text: '新內容' }, { kind: 'deal', deal: { ...deal, hands: { N: ['SA', 'SK'], E: ['HA'], S: [], W: [] } }, caption: '第 1 副' }, { kind: 'ref', slug: 'stayman' }],
+        tags: ['舊標籤'],
       }),
     )
   })

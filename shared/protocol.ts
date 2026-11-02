@@ -753,6 +753,8 @@ export const NOTIFICATION_KINDS = [
   'forumMention',
   'forumAnnouncement',
   'forumPinned',
+  'forumHidden',
+  'forumUnhidden',
   'directorCalled',
   'passwordResetRequested',
 ] as const
@@ -797,7 +799,9 @@ export interface Notification {
    * the start of its text) and who did it: `forumReply` (+ `commentId`) a comment on the member's
    * post or a reply to their comment; `forumMention` (+ `commentId` when in a comment) the member
    * was named with `@`; `forumAnnouncement` a new post on an officers-only board (the news), to
-   * every member; `forumPinned` an officer pinned the member's post. `directorCalled` { tableId,
+   * every member; `forumPinned` an officer pinned the member's post; `forumHidden`, `forumUnhidden`
+   * { postId, title } only (no officer's name) an officer hid the member's post or showed it again
+   * (the table's e13-t10, 2026-11-02). `directorCalled` { tableId,
    * number, username } of the table and the player who called the director (`e2-t34`), to its host
    * and the admins
    */

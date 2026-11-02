@@ -234,7 +234,7 @@ interface BoardState {
 
 **私訊**（AC-1.7，§5.7）：一則私訊只送給它的兩位成員（雙方所有分頁的 `direct`），對話列表 `directs` 只送自己的；`GET /api/messages/:userId` 只讀「自己與對方」這一對的訊息，SQL 以兩人 id 組成的 `pair` 查詢，拿不到別人之間的對話。被對方封鎖的人只會收到「不能傳私訊給他」（`cannotMessage`），不會知道被封鎖。
 
-**個人檔案**（AC-1.5，`memberProfileView`，`GET /api/members/:id`）：別人只拿得到 id、帳號名稱、頭像版本與四個欄位（顯示名稱、自評等級、常用制度、自我介紹），一個一個挑出來，帳號的其他東西（密碼雜湊、管理員、權限、登入時間、好友上線提示）不會送出；`recent` 是這位社員最近 10 副**看的人看得到**的牌（走紀錄搜尋，同一條 `revealAt` 規則）。**隱私設定**（`e13-t08`）：社員在「我的帳號」可以讓個人頁不公開「最近的牌」與「論壇貼文」（`/api/account/preferences` 的 `profileBoards`、`profilePosts`，`Me.profilePrivacy`）；不公開時別人拿到的 `recent` 是空的、`GET /api/forum/feed?author=<他>` 回空的一頁，回應另帶 `hidden: { boards, posts }` 讓頁面寫「這位社員不公開」；本人一律看得到。這只管個人頁：紀錄搜尋（打過的牌也是同桌三人的紀錄）與論壇板面照常。自己的個人檔案在 `/api/me` 的 `profile`。頭像：上傳過的社員，`PublicUser.avatar`（大廳的 `members`、`online`、座位）、`/api/me` 與個人檔案卡帶版本號，瀏覽器用 `/api/avatar/:id?v=<版本>` 載入（兩站同一個網址，橋館經 Vercel 轉發）；沒有上傳或載入失敗時是瀏覽器依 id 與名字畫的預設頭像（`e1-t18`）。頭像所有登入的社員都看得到，跟名字一樣。
+**個人檔案**（AC-1.5，`memberProfileView`，`GET /api/members/:id`）：別人只拿得到 id、帳號名稱、頭像版本與四個欄位（顯示名稱、自評等級、常用制度、自我介紹），一個一個挑出來，帳號的其他東西（密碼雜湊、管理員、權限、登入時間、好友上線提示）不會送出；`recent` 是這位社員最近 10 副**看的人看得到**的牌（走紀錄搜尋，同一條 `revealAt` 規則）。**隱私設定**（`e13-t08`）：社員在「我的帳號」可以讓個人頁不公開「最近的牌」與「論壇貼文」（`/api/account/preferences` 的 `profileBoards`、`profilePosts`，`Me.profilePrivacy`）；不公開時別人拿到的 `recent` 是空的、`GET /api/forum/feed?author=<他>` 回空的一頁，回應另帶 `hidden: { boards, posts }` 讓頁面寫「這位社員不公開」；本人一律看得到。**不公開「最近的牌」也擋紀錄的玩家搜尋**（社長 2026-11-02 決定）：別的社員在紀錄搜尋（`/api/history/search`、`/api/history/days`、「我的收藏」）用 `player=<他>` 或 `declarer=<他>` 找，一副都找不到（總數 0、每天的副數是空的），跟他沒打過牌一樣，不另外說「他不公開」；**本人與管理員照常找得到**。牌本身不藏：那幾副照樣是同桌其他人的紀錄，在全部的列表、用其他條件（合約、日期、別的玩家）搜尋、詳細頁都看得到，只是不能「以他為條件」找出來。同桌的人也一樣（用自己找得到，用他找不到）。`partner=` 不擋：那是「我和誰搭檔」，結果都是看的人自己打過的牌。條件只寫在 `history-index.ts` 的 `where()`（多一個 `hidden` 參數：這次搜尋點名的玩家裡，對這位看的人不公開的；`ClubService.hiddenPlayers` 算，管理員是空的），社團的索引與 D1 副本共用；D1 不知道誰不公開，所以搜尋點名**別人**當玩家或主打時（`namesOthers`），Worker 不從副本回答、交給社團（跟收藏的標籤一樣），索引與摘要都沒改，`REPLICA_VERSION` 不用加。論壇板面照常。自己的個人檔案在 `/api/me` 的 `profile`。頭像：上傳過的社員，`PublicUser.avatar`（大廳的 `members`、`online`、座位）、`/api/me` 與個人檔案卡帶版本號，瀏覽器用 `/api/avatar/:id?v=<版本>` 載入（兩站同一個網址，橋館經 Vercel 轉發）；沒有上傳或載入失敗時是瀏覽器依 id 與名字畫的預設頭像（`e1-t18`）。頭像所有登入的社員都看得到，跟名字一樣。
 
 **動作事件紀錄**（`e2-t32`，§5.16）：每一副的 `events`（叫品、出牌、攤牌與回覆、撤回，含伺服器時間）只存在伺服器的 `Table.events`，打牌中**從不**送到瀏覽器（`tableView` 不帶，測試在 `tests/worker/director.test.ts`）；打完後跟著紀錄（`BoardRecord.events`）走 `/api/history/:id`，所以照樣由 `recordVisible`／`challengeBoardVisible` 把關。裡面的每一張牌都是桌上四家當時看過的（打出、撤回的牌），不比紀錄本身多透露什麼。**叫裁判**（`e2-t34`）：`TableView.directorCall` 只有叫的人與時間，給桌上所有人；房主與管理員在有人叫裁判時可以進入不允許觀看或沒受邀的桌**觀看**（`TableService.join` 的 `director`），看得到的跟一般觀看者一樣（四家），但比賽的參賽者不會因此看到另一室或自己那一室。**裁定**（`e2-t35`）：`BoardRecord.ruling` 的理由只在紀錄裡，列表的 `BoardSummary.ruling` 只帶種類、哪一方與分數。裁定接進計分（`e2-t36`）後，挑戰的成績表（`ChallengeTravellerEntry.ruling`、牌局頁的 `TravellerEntry.ruling`）與隊制賽兩室的結果（`MatchRoomView.ruling`）也只帶這三項（不帶理由與裁判），跟著原本的可見規則：成績表只給看得到它的人、隊制賽只在兩室都完成後；排名的 `ChallengeStandingView.ruled` 只是被裁定的副號。
 
@@ -814,6 +814,7 @@ E13 的 PRD 原本寫「貼文與留言進 D1」。現況是社團 Durable Objec
 - **貼文**：標題（≤ 80 字）＋區塊（≤ 20 個）。區塊種類 `paragraph`、`rules`、`note`、`hand`、`deal`、`auction`、`image`、`ref`（橋館的制度）、`record`（牌桌的一副紀錄，只存 id）。伺服器逐一檢查：牌不重複、每家 ≤ 13 張、叫牌合規則（`legalCalls`）、圖片是 `post/` 的檔案、文字合計 ≤ 5000 字。
 - **留言**：一層巢狀（回覆別人的回覆掛在同一則最上層留言下），只能有 `paragraph`、`auction`、`hand`，文字 ≤ 1000 字。
 - **反應**：五種（👍♠♥♦♣），每人每則一種。置頂、鎖定在貼文上。
+- **標籤**（2026-11-02 加）：每篇最多 5 個、每個最多 20 字，自由輸入、伺服器正規化；見下面「標籤、隱藏的通知、隱私擋玩家搜尋」。
 
 ### 可見性與權限（全部在伺服器）
 
@@ -865,7 +866,7 @@ E13 的 PRD 原本寫「貼文與留言進 D1」。現況是社團 Durable Objec
 | **隱藏** | **沒有** | 新增（下面） |
 | 速率限制 | 有（`TokenBuckets`，429 `slowDown`）；檢舉靠「每人未處理 ≤ 20」 | 不改 |
 | 搜尋 | 有（標題與文字區塊，`LIKE`） | 加 `&board=` 限定板面；牌桌的 `/forum/search` |
-| 標籤 | **資料模型沒有標籤** | 不做，待社長決定（下面） |
+| 標籤 | 資料模型沒有標籤 | K4 不做；社長 2026-11-02 決定加，見下面「標籤、隱藏的通知、隱私擋玩家搜尋」 |
 
 **隱藏貼文**（AC-13.1「管理員可隱藏」、AC-13.6）：
 
@@ -886,7 +887,7 @@ E13 的 PRD 原本寫「貼文與留言進 D1」。現況是社團 Durable Objec
 
 | 網址 | 頁面 | 內容 |
 | --- | --- | --- |
-| `/forum/search?q=&board=&page=` | `ForumSearchPage` | 搜尋框、板面下拉（全部板面或一個），結果用貼文列表、分頁；條件在網址上，可以分享 |
+| `/forum/search?q=&board=&tag=&page=` | `ForumSearchPage` | 搜尋框、板面下拉（全部板面或一個）、標籤下拉（全部或一個；只選標籤不打字＝那個標籤的全部貼文），結果用貼文列表、分頁；條件在網址上，可以分享 |
 | `/forum/reports` | `ForumReportsPage` | 只有幹部（其他人轉回 `/forum`）；論壇首頁的「檢舉處理」連結也只給幹部看 |
 
 元件測試在 `tests/presentation/forum-moderation.test.tsx`，伺服器在 `tests/worker/forum.test.ts`（隱藏、可見性、舊表補欄位、搜尋限定板面）。
@@ -898,11 +899,37 @@ E13 的 PRD 原本寫「貼文與留言進 D1」。現況是社團 Durable Objec
 3. 想要的話：討論區的貼文頁加幹部的「隱藏」、檢舉頁加「隱藏」、搜尋頁加板面篩選（`forumApi.search` 帶 `board`）。
 4. 橋館的幹部現在就看得到隱藏的貼文（列表照常出現），但沒有「已隱藏」標記，直到做了第 1 點。
 
+### 標籤、隱藏的通知、隱私擋玩家搜尋（社長 2026-11-02 決定，三項都做）
+
+K3、K4 留下的三個待決，社長都說「要」。
+
+**1. 貼文標籤**（AC-13.7「依標籤篩選」）：
+
+- **自由輸入，不是固定清單**：PRD 沒有規定標籤要由誰定，板面已經分大類，標籤是作者自己補的細分（「2/1」「首攻」「擠牌」）；固定清單要有人維護，社團小、先不要。為了不讓同一個標籤長出好幾種寫法，**伺服器正規化**（`shared/forum.ts` 的 `normalizeTag`，兩站與 Worker 共用）：NFKC（全形英數變半形）、英文轉小寫、去掉開頭的 `#` 與前後空白、連續空白變一個、分隔字元（`,` `，` `、` `;` `；`）與控制字元拿掉；重複的去掉。編輯器另外把「常用標籤」列出來一鍵加（`GET /api/forum/tags`）。
+- **上限**：每篇最多 5 個（`FORUM_LIMITS.tagsMax`），每個最多 20 字（`tagMax`，算 code point），超過回 400 `badContent`；建議清單最多 30 個（`tagsShown`）。
+- **資料**：`forum_posts.tags`，JSON 陣列（沒有標籤是 NULL），照 K4 的 `hidden_at` 用 `PRAGMA table_info` 檢查、沒有就 `ALTER TABLE … ADD COLUMN`。篩選是對 `"標籤"`（含引號）的 `LIKE`（`%` `_` `!` 跳脫），跟 `mentions` 的做法一樣，所以「首攻」不會配到「首攻王」；一個社團幾千篇，掃一遍不到 1 ms。建議清單用 SQLite 的 `json_each` 加 `GROUP BY`。備份是 `SELECT *`，新欄位自動跟著走。
+- **API**（型別在 `shared/forum.ts`，都是選填，橋館不改也不會壞）：`Post.tags?`、`PostInput.tags?`；`GET /api/forum/boards/:id/posts`、`/feed`、`/search` 都可以加 `&tag=`（板面的置頂貼文也照標籤篩）；`/search` 有 `tag` 時 `q` 可以空（＝那個標籤的全部貼文）；`GET /api/forum/tags` 回 `{ tags: [{ tag, count }] }`，用的貼文多的在前。**編輯時沒帶 `tags` 就保留原本的標籤**，`[]` 才是全部拿掉——還沒有標籤欄位的舊版橋館編輯貼文時不會把標籤清掉。
+- **隱藏的貼文照 K4 的規則**：標籤篩選、建議清單的計數都走同一個 `visibleTo`，別人用標籤也找不到幹部隱藏的貼文，它的標籤也不算進建議清單；作者與幹部照常。
+- **牌桌的頁面**：發文編輯器在標題下面有「標籤（選填）」：打字按 Enter 或逗號加入、離開欄位也會加入，貼上 `a, b, c` 一次加多個，滿 5 個欄位停用；加入的標籤可以點掉；下面是「常用標籤」（沒加的、最多 12 個）。貼文列表每篇標題下列標籤（`#首攻`，列表的一列本身是連結，所以這裡不是連結）；貼文頁的標籤是連結，連到 `/forum?tag=`。論壇首頁在板面下面列出常用標籤（「首攻 · 3」），點了列表只剩那個標籤的貼文、上面有「標籤：首攻 ×」可以清掉；板面頁 `/forum/:boardId?tag=` 一樣；換頁時保留標籤。搜尋頁多一個標籤下拉。
+
+**2. 隱藏與取消隱藏時通知作者**：
+
+- 新通知種類 `forumHidden`、`forumUnhidden`（`shared/protocol.ts` 的 `NOTIFICATION_KINDS`），`worker/forum-notices.ts` 的 `hidden(actor, post)`，在 `club.ts` 隱藏狀態真的改變時、寫完審計之後送（跟其他論壇通知一樣走 `tell`，送失敗不影響已存的隱藏）。
+- 參數只有 `{ postId, title }`，**不帶是哪位幹部**：幹部做的是社團的決定，名字不必送到作者的瀏覽器（避免私下爭執）；誰做的記在審計紀錄（`forum:hide`／`forum:unhide`）。幹部隱藏自己的貼文、作者已經離開社團時不送。
+- 文字六種語言（「幹部隱藏了你的貼文「…」，其他社員暫時看不到」「幹部取消隱藏你的貼文「…」，大家又看得到了」），點了開那篇貼文（作者看得到自己被隱藏的貼文；有 `forum` 旗標連牌桌、沒有連橋館，同 `e13-t09`）。
+
+**3. 隱私也擋紀錄的玩家搜尋**：規則寫在 §4「個人檔案」。「我的帳號」隱私設定的說明文字改成寫明這件事（六種語言）。
+
+**測試**：`tests/worker/forum.test.ts`（正規化、上限、編輯保留、三種篩選與置頂、`LIKE` 跳脫、建議清單與隱藏、舊表補欄位、路由）、`forum-notices.test.ts`（隱藏通知、不帶幹部名字、不通知自己與離開的人、連結）、`history-search.test.ts`（`where()` 的 `hidden`、`namesOthers`）、`forum-share.test.ts`（`ClubService.search`／`historyDays`：別人找不到、本人與管理員找得到、同桌的人用自己找得到、全部列表照常、改回公開又找得到）、`routing.test.ts`（點名別人時交給社團、找自己照樣從 D1）；元件測試 `tests/presentation/forum*.test.tsx`（編輯器加標籤、常用標籤、上限；首頁與板面的標籤篩選與換頁；貼文頁的標籤連結；只用標籤搜尋）。
+
+**橋館要跟著改的**（另一個 PR，牌桌合併並部署之後再合併）：`src/lib/forum.ts` 的型別複本加 `Post.tags`、`PostInput.tags`、`ForumTags`、`FORUM_LIMITS` 的三個值與 `normalizeTag`／`splitTags`，以及 K4 留下的 `Post.hidden` 與「已隱藏」標記、`AuditAction` 的 `forum:hide`／`forum:unhide`；發文框加標籤、貼文顯示標籤、討論區依標籤篩選。
+
 ### 之後
 
 - **K2**（做完）：四手牌編輯器（`e13-t05`）、叫牌過程輸入（`e13-t06`）、發文編輯器（`e13-t04`）；牌圖改用 `RecordDiagram`。見下面「發文編輯器」。
 - **K3**（做完）：從紀錄分享（`e13-t07`）、個人頁的貼文與隱私設定（`e13-t08`）、通知改連牌桌（`e13-t09`）。見下面「分享、個人頁、通知」。
 - **K4**（做完）：檢舉、隱藏與管理頁（`e13-t10`）、搜尋限定板面（`e13-t11`，評估後不用 FTS5）。見上面「檢舉、隱藏與搜尋」。
+- **K4 之後的三項**（做完，社長 2026-11-02）：貼文標籤（AC-13.7）、隱藏時通知作者、隱私擋紀錄的玩家搜尋。見上面「標籤、隱藏的通知、隱私擋玩家搜尋」。
 
 ### 分享、個人頁、通知（K3：`e13-t07`、`e13-t08`、`e13-t09`）
 

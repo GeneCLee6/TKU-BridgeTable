@@ -13,6 +13,8 @@ import { postExcerpt } from './forum.ts'
  *   replies under it
  * - `forumAnnouncement`: every member, for a new post on an officers-only board (社團新聞)
  * - `forumPinned`: a post's author when an officer pins it
+ * - `forumHidden` / `forumUnhidden`: a post's author when an officer hides it or shows it again
+ *   (the table's e13-t10, 2026-11-02); `{ postId, title }` only, without the officer's name
  *
  * Each member hears one thing about one post or comment, the most particular first (being named
  * over a reply over the news). Nobody hears about their own doing, nor someone who is no longer a
@@ -54,6 +56,15 @@ export class ForumNotices {
   /** An officer pinned a post */
   async pinned(actor: Me, post: Post) {
     await this.teller(actor, post)(post.authorId, 'forumPinned')
+  }
+
+  /**
+   * An officer hid a post or showed it again (as it is now, `post.hidden`): its author hears which,
+   * not who did it (the officers' names are in the audit log). Not an officer hiding their own post
+   */
+  async hidden(actor: Me, post: Post) {
+    if (post.authorId === actor.id || !this.deps.members().some((m) => m.id === post.authorId)) return
+    await this.deps.notify(post.authorId, post.hidden ? 'forumHidden' : 'forumUnhidden', { postId: post.id, title: postExcerpt(post) })
   }
 
   private teller(actor: Me, post: Post, commentId?: string) {

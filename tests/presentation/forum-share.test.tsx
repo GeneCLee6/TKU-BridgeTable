@@ -17,7 +17,7 @@ import { PreferencesProvider } from '../../src/state/PreferencesContext.tsx'
 
 const mocks = vi.hoisted(() => ({
   api: { record: vi.fn(), member: vi.fn() },
-  forum: { boards: vi.fn(), createPost: vi.fn(), feed: vi.fn() },
+  forum: { tags: vi.fn(async () => [] as { tag: string; count: number }[]), boards: vi.fn(), createPost: vi.fn(), feed: vi.fn() },
   user: { id: 'ben', username: 'ben', admin: false, permissions: [], features: ['forum'] } as Me,
 }))
 vi.mock('../../src/lib/api.ts', async (original) => ({

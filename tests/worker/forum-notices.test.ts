@@ -96,6 +96,24 @@ describe('forum notifications (e11-t08, AC-11.5)', () => {
     await notices.pinned(boss, post)
     expect(sent).toEqual([])
   })
+
+  it('hiding a post and showing it again tell its author, without the officer’s name (2026-11-02)', async () => {
+    const post = forum.createPost(amy, 'deals', { title: '叫牌', blocks: [para('x')] })
+    await notices.hidden(boss, forum.setHidden(boss, post.id, { hidden: true }))
+    await notices.hidden(boss, forum.setHidden(boss, post.id, { hidden: false }))
+    expect(sent).toEqual([
+      { to: 'amy', kind: 'forumHidden', params: { postId: post.id, title: '叫牌' } },
+      { to: 'amy', kind: 'forumUnhidden', params: { postId: post.id, title: '叫牌' } },
+    ])
+
+    // Not an officer hiding their own post, nor someone who left
+    sent = []
+    const own = forum.createPost(boss, 'deals', { blocks: [para('y')] })
+    await notices.hidden(boss, forum.setHidden(boss, own.id, { hidden: true }))
+    members = members.filter((m) => m.id !== 'amy')
+    await notices.hidden(boss, forum.setHidden(boss, post.id, { hidden: true }))
+    expect(sent).toEqual([])
+  })
 })
 
 describe('forum notification links (e11-t08)', () => {
@@ -108,7 +126,7 @@ describe('forum notification links (e11-t08)', () => {
 
   it('open the table’s own forum for a member who has it (e13-t09)', () => {
     const n = (kind: Notification['kind'], params: Notification['params']): Notification => ({ id: 'n', at: 0, kind, params, read: false })
-    for (const kind of ['forumReply', 'forumMention', 'forumAnnouncement', 'forumPinned'] as const) {
+    for (const kind of ['forumReply', 'forumMention', 'forumAnnouncement', 'forumPinned', 'forumHidden', 'forumUnhidden'] as const) {
       expect(notificationLink(n(kind, { postId: 'p1' }), { forum: true })).toBe('/forum/p/p1')
     }
     expect(notificationLink(n('forumMention', { postId: 'p 1', commentId: 'c2' }), { forum: true })).toBe('/forum/p/p%201#comment-c2')

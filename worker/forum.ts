@@ -7,6 +7,7 @@ import {
   COMMENT_BLOCK_KINDS,
   FORUM_LIMITS,
   NEWS_BOARD_ID,
+  normalizeTag,
   REACTION_EMOJIS,
   type Board,
   type BoardPage,
@@ -17,6 +18,7 @@ import {
   type ForumFeed,
   type ForumSearch,
   type ForumLatest,
+  type ForumTags,
   type ForumRuleItem,
   type Post,
   type PostBlock,
@@ -47,6 +49,8 @@ import type { Sql, SqlValue } from './store.ts'
  *   closes it as `removed`, and so does hiding it (a post)
  * - `forum_posts.hidden_at`: an officer hid the post (the table's e13-t10); only its author and the
  *   officers still see it, everyone else is told it is gone (`visibleTo`)
+ * - `forum_posts.tags`: the post's tags (the table's AC-13.7) as a JSON array, NULL for none; a tag
+ *   filter is a LIKE on the quoted tag, as mentions are (a club's posts are a scan of a few thousand rows)
  *
  * Who may use each route is roles.ts `forumRouteNeed`; who may change a given post or comment, and
  * post on an officers-only board, is checked here (`moderatesForum`). Posting and commenting are
@@ -76,7 +80,8 @@ const SCHEMA = [
     comment_count INTEGER NOT NULL DEFAULT 0,
     body_text TEXT,
     hidden_at INTEGER,
-    hidden_by TEXT
+    hidden_by TEXT,
+    tags TEXT
   )`,
   'CREATE INDEX IF NOT EXISTS forum_posts_by_board ON forum_posts (board_id, created_at)',
   'CREATE INDEX IF NOT EXISTS forum_posts_by_time ON forum_posts (created_at)',
@@ -139,6 +144,8 @@ export type ForumTarget = 'post' | 'comment'
 export interface ForumFeedFilter {
   author?: string
   mentions?: string
+  /** Only posts with this tag (the table's AC-13.7); normalized here */
+  tag?: string
 }
 
 export interface ForumDeps {
@@ -169,6 +176,7 @@ interface PostRow extends Record<string, SqlValue> {
   locked: number
   comment_count: number
   hidden_at: number | null
+  tags: string | null
 }
 
 interface ReportRow extends Record<string, SqlValue> {
@@ -260,6 +268,35 @@ const searchText = (blocks: readonly PostBlock[]) => blocks.flatMap(blockTexts).
 
 /** `value` as a LIKE pattern matching it anywhere; `!` escapes (`ESCAPE '!'`) */
 const containing = (value: string) => `%${value.replace(/[!%_]/g, (c) => `!${c}`)}%`
+
+/**
+ * A post's tags (the table's AC-13.7, 2026-11-02): each normalized (`normalizeTag`), repeats
+ * dropped, at most FORUM_LIMITS.tagsMax of at most FORUM_LIMITS.tagMax characters
+ */
+function checkTags(value: unknown): string[] {
+  if (!Array.isArray(value)) return fail('標籤（tags）要是文字的清單')
+  const tags: string[] = []
+  for (const raw of value as unknown[]) {
+    if (typeof raw !== 'string') return fail('標籤要是文字')
+    const tag = normalizeTag(raw)
+    if (!tag) continue
+    if (length(tag) > FORUM_LIMITS.tagMax) fail(`標籤最多 ${FORUM_LIMITS.tagMax} 字：${tag}`)
+    if (!tags.includes(tag)) tags.push(tag)
+  }
+  if (tags.length > FORUM_LIMITS.tagsMax) fail(`標籤最多 ${FORUM_LIMITS.tagsMax} 個`)
+  return tags
+}
+
+/** A tag filter from a request, normalized; none when it is empty or longer than any tag may be */
+export function tagFilter(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined
+  const tag = normalizeTag(value.slice(0, 100))
+  return tag && length(tag) <= FORUM_LIMITS.tagMax ? tag : undefined
+}
+
+/** The WHERE term (on forum_posts) for posts with a tag, and its parameter */
+const TAGGED = `tags LIKE ? ESCAPE '!'`
+const tagged = (tag: string) => containing(JSON.stringify(tag))
 
 // ── Blocks ───────────────────────────────────────────────────────────────────────────────────
 
@@ -396,7 +433,7 @@ const POST_KINDS = ['paragraph', 'rules', 'note', 'hand', 'deal', 'auction', 'im
 
 // ── The service ──────────────────────────────────────────────────────────────────────────────
 
-const POST_COLUMNS = 'id, board_id, author_id, title, blocks, mentions, created_at, edited_at, pinned_at, locked, comment_count, hidden_at'
+const POST_COLUMNS = 'id, board_id, author_id, title, blocks, mentions, created_at, edited_at, pinned_at, locked, comment_count, hidden_at, tags'
 
 /**
  * The posts `viewer` may see (e13-t10), as WHERE terms on forum_posts: the officers see every post;
@@ -436,6 +473,8 @@ export class ForumService {
     // Hiding (the table's e13-t10): tables from before it get its columns here, once
     if (!columns.includes('hidden_at')) this.sql.exec('ALTER TABLE forum_posts ADD COLUMN hidden_at INTEGER')
     if (!columns.includes('hidden_by')) this.sql.exec('ALTER TABLE forum_posts ADD COLUMN hidden_by TEXT')
+    // Tags (the table's AC-13.7): posts from before them have none
+    if (!columns.includes('tags')) this.sql.exec('ALTER TABLE forum_posts ADD COLUMN tags TEXT')
     for (const row of this.sql.exec<{ id: string; blocks: string }>('SELECT id, blocks FROM forum_posts WHERE body_text IS NULL'))
       this.sql.exec('UPDATE forum_posts SET body_text = ? WHERE id = ?', searchText(JSON.parse(row.blocks) as PostBlock[]), row.id)
     for (const board of BUILTIN_BOARDS)
@@ -526,12 +565,18 @@ export class ForumService {
 
   /**
    * One page of a board: its pinned posts on page 1, then the others newest first, FORUM_LIMITS.pageSize
-   * a page; only the posts `viewer` may see (`visibleTo`)
+   * a page; only the posts `viewer` may see (`visibleTo`). `tag`: only the posts with it, the pinned
+   * ones too (the table's AC-13.7)
    */
-  boardPage(id: string, page = 1, viewer?: Me): BoardPage {
+  boardPage(id: string, page = 1, viewer?: Me, tag?: string): BoardPage {
     const board = this.board(id)
     const at = Number.isInteger(page) && page > 0 ? page : 1
     const seen = andVisible(viewer)
+    const wanted = tag ? normalizeTag(tag) : ''
+    if (wanted) {
+      seen.and += ` AND ${TAGGED}`
+      seen.params.push(tagged(wanted))
+    }
     const total = this.sql.exec<{ n: number }>(
       `SELECT COUNT(*) AS n FROM forum_posts WHERE board_id = ? AND pinned_at IS NULL${seen.and}`,
       id,
@@ -565,7 +610,8 @@ export class ForumService {
   /**
    * The forum's front page (BridgeHall e11-t15): every board's posts newest first, FORUM_LIMITS.pageSize
    * a page. `author`: only that member's posts (我的貼文); `mentions`: only posts that member is
-   * `@`-mentioned in, in the post or one of its comments (我提到的). Only the posts `viewer` may see
+   * `@`-mentioned in, in the post or one of its comments (我提到的); `tag`: only posts with that tag
+   * (the table's AC-13.7). Only the posts `viewer` may see
    */
   feed(page = 1, filter: ForumFeedFilter = {}, viewer?: Me): ForumFeed {
     const { where, params } = visibleTo(viewer)
@@ -578,6 +624,11 @@ export class ForumService {
       where.push(`(mentions LIKE ? ESCAPE '!' OR id IN (SELECT post_id FROM forum_comments WHERE mentions LIKE ? ESCAPE '!'))`)
       params.push(quoted, quoted)
     }
+    const tag = filter.tag ? normalizeTag(filter.tag) : ''
+    if (tag) {
+      where.push(TAGGED)
+      params.push(tagged(tag))
+    }
     const { total: _, ...found } = this.postsPage(where, params, page)
     return found
   }
@@ -586,21 +637,26 @@ export class ForumService {
    * 搜尋 (e11-t10): posts whose title or text blocks hold every word of `query` (split at spaces,
    * case-insensitive for Latin letters), newest first, FORUM_LIMITS.pageSize a page. Comments,
    * captions and alt text are not searched. `board`: only that board's posts (the table's e13-t11);
-   * only the posts `viewer` may see.
+   * `tag`: only posts with that tag (AC-13.7), and then `query` may be empty; only the posts `viewer` may see.
    *
    * LIKE, not FTS5 (ARCHITECTURE.md §5.19, e13-t11): Chinese has no spaces, so FTS5's unicode61
    * tokenizer takes a whole run of 漢字 as one token, and its trigram tokenizer finds nothing shorter
    * than three characters (叫牌, 首攻); one club's posts are a scan of a few thousand rows.
    */
-  search(query: unknown, page = 1, options: { board?: string; viewer?: Me } = {}): ForumSearch {
+  search(query: unknown, page = 1, options: { board?: string; tag?: string; viewer?: Me } = {}): ForumSearch {
     const words = typeof query === 'string' ? [...new Set(query.trim().split(/\s+/).filter(Boolean))] : []
     const joined = words.join(' ')
-    if (!words.length || words.length > FORUM_LIMITS.searchWordsMax || length(joined) > FORUM_LIMITS.searchMax)
+    const tag = options.tag ? normalizeTag(options.tag) : ''
+    if ((!words.length && !tag) || words.length > FORUM_LIMITS.searchWordsMax || length(joined) > FORUM_LIMITS.searchMax)
       fail(`搜尋要 1 到 ${FORUM_LIMITS.searchMax} 字、最多 ${FORUM_LIMITS.searchWordsMax} 個詞`)
     const { where, params } = visibleTo(options.viewer)
     if (options.board) {
       where.push('board_id = ?')
       params.push(options.board)
+    }
+    if (tag) {
+      where.push(TAGGED)
+      params.push(tagged(tag))
     }
     where.push(...words.map(() => `(title LIKE ? ESCAPE '!' OR body_text LIKE ? ESCAPE '!')`))
     params.push(...words.flatMap((word) => [containing(word), containing(word)]))
@@ -620,6 +676,22 @@ export class ForumService {
       (at - 1) * FORUM_LIMITS.pageSize,
     )
     return { posts: this.toPosts(rows), page: at, pages: Math.max(1, Math.ceil(total / FORUM_LIMITS.pageSize)), total }
+  }
+
+  /**
+   * The tags in use (the table's AC-13.7), most posts first (ties by name), at most
+   * FORUM_LIMITS.tagsShown; only the posts `viewer` may see count
+   */
+  tags(viewer?: Me): ForumTags {
+    const { where, params } = visibleTo(viewer)
+    const clause = ['tags IS NOT NULL', ...where].join(' AND ')
+    const rows = this.sql.exec<{ tag: string; n: number }>(
+      `SELECT j.value AS tag, COUNT(*) AS n FROM forum_posts, json_each(forum_posts.tags) AS j WHERE ${clause}
+       GROUP BY j.value ORDER BY n DESC, j.value LIMIT ?`,
+      ...params,
+      FORUM_LIMITS.tagsShown,
+    )
+    return { tags: rows.map((r) => ({ tag: r.tag, count: r.n })) }
   }
 
   /** The home page's two lists (e11-t16): the news board pinned first, and the newest of the others */
@@ -647,13 +719,13 @@ export class ForumService {
   createPost(me: Me, boardId: string, body: unknown): Post {
     const board = this.board(boardId)
     if (board.postPolicy === 'officers' && !moderatesForum(me)) throw new ClubError('forumBoardOfficersOnly', {}, 403)
-    const { title, blocks } = this.checkPost(body)
+    const { title, blocks, tags } = this.checkPost(body)
     this.takeWrite(me.id)
     let id: string
     do id = this.deps.newId()
     while (this.sql.exec('SELECT id FROM forum_posts WHERE id = ?', id).length)
     this.sql.exec(
-      'INSERT INTO forum_posts (id, board_id, author_id, title, blocks, mentions, created_at, body_text) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO forum_posts (id, board_id, author_id, title, blocks, mentions, created_at, body_text, tags) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
       id,
       boardId,
       me.id,
@@ -662,6 +734,7 @@ export class ForumService {
       JSON.stringify(this.mentions(blocks)),
       this.deps.now(),
       searchText(blocks),
+      tags?.length ? JSON.stringify(tags) : null,
     )
     return this.post(id)
   }
@@ -677,18 +750,19 @@ export class ForumService {
     return { post, comments: this.toComments(rows) }
   }
 
-  /** Only its author edits a post: title and blocks */
+  /** Only its author edits a post: title and blocks, and its tags when they are sent (left out: kept) */
   updatePost(me: Me, id: string, body: unknown): Post {
     const row = this.postRow(id)
     if (row.author_id !== me.id) throw new ClubError('notYours', {}, 403)
-    const { title, blocks } = this.checkPost(body)
+    const { title, blocks, tags } = this.checkPost(body)
     this.sql.exec(
-      'UPDATE forum_posts SET title = ?, blocks = ?, mentions = ?, edited_at = ?, body_text = ? WHERE id = ?',
+      'UPDATE forum_posts SET title = ?, blocks = ?, mentions = ?, edited_at = ?, body_text = ?, tags = ? WHERE id = ?',
       title ?? null,
       JSON.stringify(blocks),
       JSON.stringify(this.mentions(blocks)),
       this.deps.now(),
       searchText(blocks),
+      tags === undefined ? row.tags : tags.length ? JSON.stringify(tags) : null,
       id,
     )
     return this.post(id)
@@ -980,10 +1054,11 @@ export class ForumService {
     return value as BoardPostPolicy
   }
 
-  private checkPost(body: unknown): { title?: string; blocks: PostBlock[] } {
+  private checkPost(body: unknown): { title?: string; blocks: PostBlock[]; tags?: string[] } {
     if (!isObject(body)) return fail('不是一篇貼文')
     const title = optionalText(body.title, FORUM_LIMITS.titleMax, '標題')
-    return { title, blocks: checkBlocks(body.blocks, POST_KINDS, FORUM_LIMITS.postTextMax) }
+    const blocks = checkBlocks(body.blocks, POST_KINDS, FORUM_LIMITS.postTextMax)
+    return { title, blocks, tags: body.tags === undefined || body.tags === null ? undefined : checkTags(body.tags) }
   }
 
   private flag(body: unknown, name: string): boolean {
@@ -1084,6 +1159,8 @@ export class ForumService {
       if (row.hidden_at !== null) post.hidden = true
       const mentions = JSON.parse(row.mentions) as string[]
       if (mentions.length) post.mentions = mentions
+      const tags = row.tags ? (JSON.parse(row.tags) as string[]) : []
+      if (tags.length) post.tags = tags
       return post
     })
   }

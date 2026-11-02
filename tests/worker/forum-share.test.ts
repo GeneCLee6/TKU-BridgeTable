@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { BoardState } from '../../shared/game.ts'
+import { DEFAULT_HISTORY_QUERY, type HistoryQuery } from '../../shared/history-query.ts'
 import type { BoardRecord } from '../../shared/protocol.ts'
 import { addedRecordIds } from '../../worker/forum-share.ts'
 import { indexRecord } from '../../worker/history-index.ts'
@@ -146,5 +147,28 @@ describe('profile page privacy (e13-t08, AC-13.5)', () => {
     expect(club.profileHidden(amy, amy)).toEqual({ boards: false, posts: false })
     // Nothing is said about someone who is not there
     expect(club.profileHidden(ben, 'nobody')).toEqual({ boards: false, posts: false })
+  })
+
+  it('keeps a member who hides their boards out of other members’ history searches by player (§4, 2026-11-02)', async () => {
+    const amy = await member('amy')
+    const ben = await member('ben')
+    const cat = await member('cat')
+    await finished('b1', 100, [amy, ben, 'robot:S', 'robot:W'])
+    const by = (player: string): HistoryQuery => ({ ...DEFAULT_HISTORY_QUERY, scope: 'all', player })
+    const ids = async (viewer: string, query: HistoryQuery) => (await club.search(viewer, query)).boards.map((b) => b.id)
+    expect(await ids(cat, by(amy))).toEqual(['b1'])
+    await club.setAccountPreferences(amy, { profileBoards: false })
+    expect(await club.search(cat, by(amy))).toMatchObject({ boards: [], total: 0 })
+    expect(club.historyDays(cat, by(amy)).days).toEqual([])
+    // Ben, who played it with her, finds it by himself but not by her
+    expect(await ids(ben, by(amy))).toEqual([])
+    expect(await ids(cat, by(ben))).toEqual(['b1'])
+    // The board stays in the club's list
+    expect(await ids(cat, { ...DEFAULT_HISTORY_QUERY, scope: 'all' })).toEqual(['b1'])
+    // Amy herself and the admins still find it
+    expect(await ids(amy, by(amy))).toEqual(['b1'])
+    expect(await ids(admin, by(amy))).toEqual(['b1'])
+    await club.setAccountPreferences(amy, { profileBoards: true })
+    expect(await ids(cat, by(amy))).toEqual(['b1'])
   })
 })

@@ -220,7 +220,7 @@ describe('the Worker at the edge', () => {
     expect(logs.every((entry) => entry.event === 'edge' && entry.status === 200)).toBe(true)
   })
 
-  it('leaves the history to the club without a good pass, for a tag, a bad query, a copy not complete or D1 failing', async () => {
+  it('leaves the history to the club without a good pass, for a tag, another player, a bad query, a copy not complete or D1 failing', async () => {
     const asks = async (path: string, userId: string | null, cookie?: string) => {
       seen = []
       const response = cookie
@@ -231,6 +231,10 @@ describe('the Worker at the edge', () => {
     expect(await asks('/api/history', null)).toEqual({ to: ['club'], body: 'club' })
     expect((await asks('/api/history', null, `${PASS_COOKIE}=amy.zzzz.abc; tbt_session=good-token`)).to).toEqual(['club'])
     expect((await asks('/api/history/search?tag=slam', 'amy')).to).toEqual(['club'])
+    // Another member as player or declarer: whether they hide their boards is the club's (e13-t08)
+    expect((await asks('/api/history/search?player=ben', 'amy')).to).toEqual(['club'])
+    expect((await asks('/api/history/days?declarer=ben', 'amy')).to).toEqual(['club'])
+    expect((await asks('/api/history/search?player=amy', 'amy')).to).toEqual([])
     expect((await asks('/api/history/search?level=9', 'amy')).to).toEqual(['club'])
     // Only GET, only these two pages
     seen = []
