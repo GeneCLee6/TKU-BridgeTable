@@ -21,7 +21,8 @@ export type LogEntry =
   | { event: 'accountDeleted' }
   /** Tables moved between the club and their own objects (schema 3 ↔ 4, ARCHITECTURE.md §5.10) */
   | { event: 'tablesMoved'; to: 'objects' | 'club'; moved: number; failed: number }
-  | { event: 'eventsMoved'; to: 'objects' | 'club'; moved: number; failed: number }
+  /** Challenges (H2b) or team matches (`kind: 'matches'`, H2c) moved between the club and their own objects (§5.12) */
+  | { event: 'eventsMoved'; kind?: 'matches'; to: 'objects' | 'club'; moved: number; failed: number }
   /** An error a browser reported (`/api/client-errors`), already cleaned */
   | { event: 'clientError'; kind: string; message: string; source?: string; stack?: string; page?: string; version?: string; site?: 'book' }
   /** A bug: an exception that is not a ClubError or GameError */

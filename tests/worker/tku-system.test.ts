@@ -231,21 +231,21 @@ describe('practice tables', () => {
 describe('team matches', () => {
   it('are set up with the club’s robots only by a host with it; one set up so keeps them', async () => {
     const amy = await member('amy')
-    const code = (run: () => unknown) => {
+    const code = async (run: () => Promise<unknown>) => {
       try {
-        run()
+        await run()
       } catch (e) {
         return (e as ClubError).code
       }
     }
-    expect(code(() => club.matches.create(amy, { settings: { robotKind: 'tku' } }))).toBe('tkuSystemOnly')
-    const { id } = club.matches.create(amy, {})
+    expect(await code(() => club.matches.create(amy, { settings: { robotKind: 'tku' } }))).toBe('tkuSystemOnly')
+    const { id } = await club.matches.create(amy, {})
     expect(club.matches.get(id, amy)!.settings.robotKind).toBe('gib')
-    expect(code(() => club.matches.update(amy, id, { robotKind: 'tku' }))).toBe('tkuSystemOnly')
+    expect(await code(() => club.matches.update(amy, id, { robotKind: 'tku' }))).toBe('tkuSystemOnly')
     await club.adminSetPermissions(amy, ['tkuSystem'])
-    expect(club.matches.update(amy, id, { robotKind: 'tku' }).settings.robotKind).toBe('tku')
+    expect((await club.matches.update(amy, id, { robotKind: 'tku' })).settings.robotKind).toBe('tku')
     // Taken away later: the match keeps its robots and its other settings still change
     await club.adminSetPermissions(amy, [])
-    expect(club.matches.update(amy, id, { boards: 8 }).settings).toMatchObject({ boards: 8, robotKind: 'tku' })
+    expect((await club.matches.update(amy, id, { boards: 8 })).settings).toMatchObject({ boards: 8, robotKind: 'tku' })
   })
 })

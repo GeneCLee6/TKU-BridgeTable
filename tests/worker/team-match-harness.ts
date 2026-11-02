@@ -108,7 +108,7 @@ export async function teamHarness() {
     segmentBoards = 0,
   } = {}) {
     const amy = await member('amy')
-    const { id } = club().matches.create(amy, { settings: { boards, scoring, boardMinutes, segmentBoards } })
+    const { id } = await club().matches.create(amy, { settings: { boards, scoring, boardMinutes, segmentBoards } })
     const people: Record<string, string> = { amy }
     for (const [name, seat] of Object.entries(seats)) {
       const userId = await member(name)

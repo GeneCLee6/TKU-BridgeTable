@@ -4,17 +4,20 @@ import type { Env } from './club.ts'
 import { homeClubStub } from './clubs.ts'
 import { EventHost } from './event-host.ts'
 import type { EventRpc } from './events.ts'
+import type { MatchStep } from './match-event.ts'
+import type { MatchRpc } from './match-events.ts'
+import type { TeamMatch } from './team-matches.ts'
 import { jsonLog } from './log.ts'
 import { AlarmQueue } from './scheduler.ts'
 
 /**
- * One challenge in its own Durable Object (`idFromName('challenge:<id>')`, ARCHITECTURE.md §5.12,
- * H2b), used when `EVENT_OBJECTS=on`. This is only the glue to Cloudflare: storage, the SQLite
- * database, the alarm and the club's stub. What the challenge does is `EventHost` and
- * `ChallengeEvent`, which never touch a Cloudflare API. Only the club calls it (RPC); no browser
- * connects here.
+ * One challenge (`idFromName('challenge:<id>')`, H2b) or one team match (`idFromName('match:<id>')`,
+ * H2c) in its own Durable Object (ARCHITECTURE.md §5.12), used when `EVENT_OBJECTS=on`. This is
+ * only the glue to Cloudflare: storage, the SQLite database, the alarm and the club's stub. What
+ * the event does is `EventHost`, `ChallengeEvent` and `MatchEvent`, which never touch a Cloudflare
+ * API. Only the club calls it (RPC); no browser connects here.
  */
-export class EventObject extends DurableObject<Env> implements EventRpc {
+export class EventObject extends DurableObject<Env> implements EventRpc, MatchRpc {
   private readonly host: EventHost
   private readonly queue: AlarmQueue
 
@@ -39,7 +42,7 @@ export class EventObject extends DurableObject<Env> implements EventRpc {
         exec: (query, ...params) => storage.sql.exec(query, ...params).toArray() as never,
         transaction: (fn) => storage.transactionSync(fn),
       },
-      club: { changed: (snapshot) => club.eventChanged(snapshot) },
+      club: { changed: (snapshot) => club.eventChanged(snapshot), matchChanged: (snapshot) => club.matchChanged(snapshot) },
       scheduler: this.queue,
       now: Date.now,
       log: jsonLog,
@@ -74,5 +77,14 @@ export class EventObject extends DurableObject<Env> implements EventRpc {
   }
   release() {
     return this.host.release()
+  }
+  adoptMatch(match: TeamMatch) {
+    return this.host.adoptMatch(match)
+  }
+  stepMatch(step: MatchStep) {
+    return this.host.stepMatch(step)
+  }
+  handOverMatch() {
+    return this.host.handOverMatch()
   }
 }

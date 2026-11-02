@@ -512,42 +512,86 @@ export class TeamMatchStore {
    */
   forget(userId: string, now: number): string[] {
     return this.sql.transaction(() => {
-      const ids = this.sql
-        .exec<{ match_id: string }>(
-          `SELECT match_id FROM matches WHERE status IN ${OPEN}
-             AND (host_id = ? OR match_id IN (SELECT match_id FROM match_seats WHERE user_id = ?))`,
-          userId,
-          userId,
-        )
-        .map((r) => r.match_id)
-      // What they said on the Vugraph pages goes with the account
-      this.sql.exec('DELETE FROM match_chat WHERE user_id = ?', userId)
-      for (const id of ids) {
-        const match = this.get(id)!
-        if (match.status === 'setup' && match.hostId === userId) {
-          this.setStatus(id, 'cancelled', now)
-          continue
-        }
-        if (match.captains.B === userId) this.setCaptainB(id, null)
-        // A match being played goes on under a new host: team A's first member, else team B's
-        // captain, else anyone still seated; with nobody left the robots finish it hostless
-        if (match.status === 'playing' && match.hostId === userId) {
-          const people = match.seats.filter((s) => s.userId !== undefined && s.userId !== userId && !s.robot && s.status === 'seated')
-          const next =
-            people.find((s) => teamAt(s.room, s.seat) === 'A')?.userId ??
-            (match.captains.B !== userId ? match.captains.B : undefined) ??
-            people[0]?.userId
-          if (next !== undefined) this.setHost(id, next)
-        }
-        for (const seat of match.seats.filter((s) => s.userId === userId))
-          this.updateSeat(
-            id,
-            match.status === 'playing'
-              ? { room: seat.room, seat: seat.seat, status: 'seated', robot: true }
-              : { room: seat.room, seat: seat.seat, status: 'empty', robot: false },
-          )
-      }
+      const ids = this.openIdsOf(userId)
+      this.forgetChat(userId)
+      for (const id of ids) this.forgetIn(id, userId, now)
       return ids
+    })
+  }
+
+  /** The open matches a member hosts or has a seat in (what `forget` changes) */
+  openIdsOf(userId: string): string[] {
+    return this.sql
+      .exec<{ match_id: string }>(
+        `SELECT match_id FROM matches WHERE status IN ${OPEN}
+           AND (host_id = ? OR match_id IN (SELECT match_id FROM match_seats WHERE user_id = ?))`,
+        userId,
+        userId,
+      )
+      .map((r) => r.match_id)
+  }
+
+  /** What they said on the Vugraph pages goes with the account (the club keeps the chat, never a match's own object) */
+  forgetChat(userId: string) {
+    this.sql.exec('DELETE FROM match_chat WHERE user_id = ?', userId)
+  }
+
+  /** `forget` in one match (H2c: a match in its own object does it there); false when it is not open */
+  forgetIn(id: string, userId: string, now: number): boolean {
+    return this.sql.transaction(() => {
+      const match = this.get(id)
+      if (!match || (match.status !== 'setup' && match.status !== 'playing')) return false
+      if (match.status === 'setup' && match.hostId === userId) {
+        this.setStatus(id, 'cancelled', now)
+        return true
+      }
+      if (match.captains.B === userId) this.setCaptainB(id, null)
+      // A match being played goes on under a new host: team A's first member, else team B's
+      // captain, else anyone still seated; with nobody left the robots finish it hostless
+      if (match.status === 'playing' && match.hostId === userId) {
+        const people = match.seats.filter((s) => s.userId !== undefined && s.userId !== userId && !s.robot && s.status === 'seated')
+        const next =
+          people.find((s) => teamAt(s.room, s.seat) === 'A')?.userId ??
+          (match.captains.B !== userId ? match.captains.B : undefined) ??
+          people[0]?.userId
+        if (next !== undefined) this.setHost(id, next)
+      }
+      for (const seat of match.seats.filter((s) => s.userId === userId))
+        this.updateSeat(
+          id,
+          match.status === 'playing'
+            ? { room: seat.room, seat: seat.seat, status: 'seated', robot: true }
+            : { room: seat.room, seat: seat.seat, status: 'empty', robot: false },
+        )
+      return true
+    })
+  }
+
+  /** Removes a match's own rows (not its Vugraph chat or watchers: the club keeps those) */
+  remove(id: string) {
+    this.sql.transaction(() => {
+      for (const table of ['match_boards', 'match_seats', 'matches']) this.sql.exec(`DELETE FROM ${table} WHERE match_id = ?`, id)
+    })
+  }
+
+  /**
+   * Writes a match as it is somewhere else, whole, over what is kept of it here: the club's copy
+   * of a match whose own `EventObject` reported it (H2c, ARCHITECTURE.md §5.12), or a match coming
+   * back into the club. Its pause, segment, break and boards come along
+   */
+  replace(match: TeamMatch) {
+    const id = match.id
+    this.sql.transaction(() => {
+      this.remove(id)
+      this.create(match)
+      if (match.pausedAt !== undefined) this.setPaused(id, match.pausedAt)
+      if (match.segment !== undefined) this.setSegment(id, match.segment)
+      if (match.breakAt !== undefined) this.setBreak(id, match.breakAt)
+      for (const board of match.boards) {
+        if (board.open) this.addResult(id, board.seq, 'open', board.open)
+        if (board.closed) this.addResult(id, board.seq, 'closed', board.closed)
+        if (board.ruling) this.setRuling(id, board.seq, board.ruling)
+      }
     })
   }
 

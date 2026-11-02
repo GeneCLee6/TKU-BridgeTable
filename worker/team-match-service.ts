@@ -1,5 +1,4 @@
 import { parseClientMessage } from '../shared/message-guard.ts'
-import type { MessageCode } from '../shared/messages.ts'
 import type { ClientMessage, NotificationKind, PublicUser, ServerMessage } from '../shared/protocol.ts'
 import type { DealSet } from '../shared/deal-set.ts'
 import {
@@ -12,37 +11,31 @@ import {
   type Room,
   type TeamMatchView,
 } from '../shared/team-match.ts'
+import { ClubError } from './errors.ts'
 import type { EventBoard } from './history-index.ts'
-import { ClubError } from './service.ts'
+import { flowError, seatChange, seatOf, type MatchAction, type MatchStep } from './match-event.ts'
 import {
   abandonMatch,
-  answerSeat,
   cancelMatch,
   changeSettings,
-  clearSeat,
-  inviteToSeat,
-  leaveSeat,
   matchMembers,
   matchReady,
-  moveSeat,
-  finishedWithRuling,
   newTeamMatch,
   nextSegment,
   parseHostSeat,
   parseMatchSeat,
   pauseMatch,
   replaceSeat,
-  robotSeat,
-  roomFinished,
   ruleBoard,
   sitInFor,
   startMatch,
   type FlowError,
   type RoomClock,
-  type SeatChange,
 } from './team-match-flow.ts'
-import { TeamMatchStore, type RoomResult, type TeamMatch } from './team-matches.ts'
+import type { RoomResult, TeamMatch, TeamMatchStore } from './team-matches.ts'
 import { teamMatchView } from './views.ts'
+
+export type { MatchAction } from './match-event.ts'
 
 /**
  * Team matches (ARCHITECTURE.md §5.8): creating one, changing its settings and cancelling it
@@ -51,8 +44,15 @@ import { teamMatchView } from './views.ts'
  * and reading them back as each member may see them. It is kept out of
  * `ClubService`, which only builds it and hands it what it needs from the club: the clock, ids,
  * who members are, blocks, who is online, notifications, the socket and the per-member rate limit.
- * Like `ClubService` it never touches a Cloudflare API: the matches are in `Store.sql` through
- * `TeamMatchStore`. Every change is pushed to the match's members who are online (`match`).
+ * Like `ClubService` it never touches a Cloudflare API.
+ *
+ * This is the club's half (H2c, §5.12): every check that needs the club (who is online, blocks,
+ * members, the other matches), the notifications, the views and the pushes, all read from the
+ * club's tables (`TeamMatchStore`: the matches that live in the club, and the club's copy of
+ * those in their own `EventObject`). Each change goes through `write` as a `MatchStep`, which the
+ * match's own half (`MatchEvent`, `worker/match-event.ts`) checks again on the match itself and
+ * writes, wherever the match lives. Every change is pushed to the match's members who are online
+ * (`match`).
  */
 
 export interface TeamMatchDeps {
@@ -82,6 +82,10 @@ export interface TeamMatchDeps {
   notify: (userId: string, kind: NotificationKind, params: Record<string, string | number>) => Promise<unknown>
   /** Whether the member may set TKB up in the club's system (`tkuSystem`, ROBOT.md §7) */
   mayUseTku: (userId: string) => boolean
+  /** A new match goes where it will live (the club, or its own object), its copy written in the club (H2c) */
+  add: (match: TeamMatch) => Promise<void>
+  /** One change to a match, made where it lives; the club's copy is written from the answer before this returns (H2c) */
+  write: (matchId: string, step: MatchStep) => Promise<void>
 }
 
 /** What the host (替補 also a captain) does while the match is played (`e8-t14`–`e8-t16`) */
@@ -113,21 +117,6 @@ export interface Replaced {
   players: Record<Room, string[]>
 }
 
-/** The seat actions, over the socket or `POST /api/matches/:id/<action>` */
-export type MatchAction = Extract<
-  ClientMessage,
-  { type: 'matchInvite' | 'matchAnswer' | 'matchMove' | 'matchLeave' | 'matchClear' | 'matchRobot' }
->
-
-const STATUS: Partial<Record<MessageCode, number>> = {
-  matchHostOnly: 403,
-  matchNotCaptain: 403,
-  cannotInvite: 403,
-  matchGone: 404,
-  userGone: 404,
-  matchNoWatching: 403,
-}
-
 /** What views of a match need from the club: who is online, the boards' rows in the index, the tables */
 interface ViewContext {
   online: Set<string>
@@ -149,7 +138,7 @@ export class TeamMatchService {
   }
 
   private fail(step: FlowError): never {
-    throw new ClubError(step.error, step.params ?? {}, STATUS[step.error] ?? 400)
+    throw flowError(step)
   }
 
   /** The match, or `matchGone` for one that does not exist or the member may not see (not told apart) */
@@ -242,7 +231,7 @@ export class TeamMatchService {
    * host's seat, one of team A's (default the open room's South). A member hosts one open match at
    * a time (`matchOpen`)
    */
-  create(userId: string, body: { settings?: unknown; seat?: unknown }): TeamMatchView {
+  async create(userId: string, body: { settings?: unknown; seat?: unknown }): Promise<TeamMatchView> {
     this.limit(userId)
     const parsed = parseTeamMatchSettings(body.settings)
     if ('field' in parsed) throw new ClubError('badMatchSettings', { field: parsed.field })
@@ -251,12 +240,12 @@ export class TeamMatchService {
     if (!seat) throw new ClubError('badMatchSettings', { field: 'seat' })
     if (this.store.openHostedBy(userId).length) throw new ClubError('matchOpen')
     const match = newTeamMatch({ id: this.deps.newId(), hostId: userId, now: this.deps.now(), settings: parsed.settings, seat })
-    this.store.create(match)
+    await this.deps.add(match)
     return this.view(match.id, userId)
   }
 
   /** The host changes settings before the start (`POST /api/matches/:id/settings`) */
-  update(userId: string, id: string, settings: unknown): TeamMatchView {
+  async update(userId: string, id: string, settings: unknown): Promise<TeamMatchView> {
     this.limit(userId)
     const match = this.require(id, userId)
     const step = changeSettings(match, userId, settings)
@@ -264,11 +253,7 @@ export class TeamMatchService {
     // A match set up with the club's robots keeps them; switching to them needs `tkuSystem`
     if (step.settings.robotKind === 'tku' && match.settings.robotKind !== 'tku' && !this.deps.mayUseTku(userId))
       throw new ClubError('tkuSystemOnly', {}, 403)
-    this.store.transaction(() => {
-      this.store.setSettings(id, step.settings)
-      for (const seat of step.freed) this.store.updateSeat(id, { ...seat, status: 'empty', robot: false })
-      if (step.captainB !== undefined) this.store.setCaptainB(id, step.captainB)
-    })
+    await this.deps.write(id, { kind: 'settings', userId, settings })
     this.push(id)
     return this.view(id, userId)
   }
@@ -279,7 +264,7 @@ export class TeamMatchService {
     const match = this.require(id, userId)
     const step = cancelMatch(match, userId)
     if ('error' in step) this.fail(step)
-    this.store.setStatus(id, 'cancelled', this.deps.now())
+    await this.deps.write(id, { kind: 'cancel', userId })
     for (const other of this.players(match)) if (other !== userId) await this.notify(other, 'matchCancelled', id, userId)
     this.push(id)
     return this.view(id, userId)
@@ -300,7 +285,7 @@ export class TeamMatchService {
   /** The match's two tables are open: it is being played. Everyone in it but the host is told, and sees it */
   async started(id: string, deals: DealSet, tables: Record<Room, string>) {
     const match = this.store.get(id)!
-    this.store.setStarted(id, deals, tables, this.deps.now())
+    await this.deps.write(id, { kind: 'started', deals, tables })
     for (const userId of matchMembers(match))
       if (userId !== match.hostId) await this.notify(userId, 'matchStarted', id, match.hostId)
     this.push(id)
@@ -308,59 +293,45 @@ export class TeamMatchService {
 
   /**
    * A room finished a board (`e8-t08`, `e8-t10`): its result is written once (the same report
-   * again, or one for a match no longer played, changes nothing and answers null). Answers the
-   * board's two records once both rooms played it (to be shown to everyone), and whether that was
-   * the match's last board
+   * again, or one for a match no longer played, changes nothing and answers null). The match
+   * itself decides (`MatchEvent`): the club's copy may be behind, so it is not checked here first.
+   * Answers the board's two records once both rooms played it, and whether that was the match's
+   * last board (the match is then finished). The club shows the records and closes up the match
+   * from the match's state (`ClubService.settleMatch`)
    */
-  addResult(id: string, seq: number, room: Room, result: RoomResult): { reveal: string[]; finished: boolean } | null {
-    const match = this.store.get(id)
-    const outcome = match && roomFinished(match, seq, room, result)
-    if (!outcome) return null
-    this.store.transaction(() => {
-      this.store.addResult(id, seq, room, result)
-      // The segment's last board done in both rooms: the match waits for the next (`e8-t21`)
-      if (outcome.segmentDone) this.store.setBreak(id, this.deps.now())
-    })
-    const board = this.store.get(id)!.boards.find((b) => b.seq === seq)
-    const reveal = outcome.complete && board?.open && board.closed ? [board.open.boardId, board.closed.boardId] : []
-    return { reveal, finished: outcome.finished }
-  }
-
-  /** Every board of the match is done (`e8-t11`): it is finished, and everyone in it is told to come and see the result */
-  async finish(id: string) {
-    const match = this.store.get(id)
-    if (match?.status !== 'playing') return
-    this.store.setStatus(id, 'finished', this.deps.now())
-    for (const userId of matchMembers(match)) await this.deps.notify(userId, 'matchFinished', { matchId: id })
+  async addResult(id: string, seq: number, room: Room, result: RoomResult): Promise<{ reveal: string[]; finished: boolean } | null> {
+    const before = this.store.get(id)
+    if (!before) return null
+    await this.deps.write(id, { kind: 'result', seq, room, result })
+    const after = this.store.get(id)
+    const board = after?.boards.find((b) => b.seq === seq)
+    if (!after || !board || before.boards.find((b) => b.seq === seq)?.[room] || board[room]?.boardId !== result.boardId) return null
+    const reveal = board.open && board.closed ? [board.open.boardId, board.closed.boardId] : []
+    return { reveal, finished: before.status === 'playing' && after.status === 'finished' }
   }
 
   // ── While it is played (e8-t14–e8-t16): the club tells the tables ────────────────────────────
 
   /**
    * The host rules on a board (`e8-t15`): checked against where the rooms are (`ruleBoard`) and
-   * kept with its reason. Answers the board, the records of it to show to everyone now (the board
-   * is done) and whether that was the match's last board
+   * kept with its reason; the last board finishes the match. Answers the board. The club shows its
+   * records and closes up the match from the match's state
    */
-  rule(userId: string, message: Extract<MatchPlayAction, { type: 'matchRule' }>): { seq: number; reveal: string[]; finished: boolean } {
+  async rule(userId: string, message: Extract<MatchPlayAction, { type: 'matchRule' }>): Promise<{ seq: number }> {
     const match = this.require(message.matchId, userId)
-    const step = ruleBoard(match, userId, message, this.deps.live(match.id).rooms, this.deps.now())
+    const rooms = this.deps.live(match.id).rooms
+    const step = ruleBoard(match, userId, message, rooms, this.deps.now())
     if ('error' in step) this.fail(step)
-    const { finished, segmentDone } = finishedWithRuling(match, step.seq)
-    this.store.transaction(() => {
-      this.store.setRuling(match.id, step.seq, { ...step.ruling, reason: step.reason, by: userId, at: this.deps.now() })
-      if (segmentDone && match.breakAt === undefined) this.store.setBreak(match.id, this.deps.now())
-    })
-    const board = this.store.get(match.id)!.boards.find((b) => b.seq === step.seq)
-    const reveal = [board?.open?.boardId, board?.closed?.boardId].filter((id): id is string => id !== undefined)
-    return { seq: step.seq, reveal, finished }
+    await this.deps.write(match.id, { kind: 'rule', userId, message, rooms })
+    return { seq: step.seq }
   }
 
   /** The host pauses or resumes (`e8-t16`); answers whether that changed anything */
-  pause(userId: string, matchId: unknown, paused: boolean): { matchId: string; changed: boolean } {
+  async pause(userId: string, matchId: unknown, paused: boolean): Promise<{ matchId: string; changed: boolean }> {
     const match = this.require(matchId, userId)
     const step = pauseMatch(match, userId, paused)
     if ('error' in step) this.fail(step)
-    if (step.changed) this.store.setPaused(match.id, paused ? this.deps.now() : null)
+    if (step.changed) await this.deps.write(match.id, { kind: 'pause', userId, paused })
     return { matchId: match.id, changed: step.changed }
   }
 
@@ -369,10 +340,7 @@ export class TeamMatchService {
     const match = this.require(matchId, userId)
     const step = abandonMatch(match, userId)
     if ('error' in step) this.fail(step)
-    this.store.transaction(() => {
-      this.store.setPaused(match.id, null)
-      this.store.setStatus(match.id, 'abandoned', this.deps.now())
-    })
+    await this.deps.write(match.id, { kind: 'abandon', userId })
     for (const other of matchMembers(match)) if (other !== userId) await this.notify(other, 'matchAbandoned', match.id, userId)
     return match.id
   }
@@ -398,10 +366,7 @@ export class TeamMatchService {
       throw new ClubError('matchPlayerBusy', { name: this.deps.userById(newcomer)?.username ?? '' })
     const target = match.seats.find((s) => s.room === at.room && s.seat === at.seat)!
     const before = !target.robot ? target.userId : undefined
-    this.store.transaction(() => {
-      for (const seat of step.seats) this.store.updateSeat(match.id, seat)
-      if (before !== undefined && match.captains.B === before) this.store.setCaptainB(match.id, newcomer)
-    })
+    await this.deps.write(match.id, { kind: 'replace', userId, at, newcomer })
     await this.notify(newcomer, 'matchSubIn', match.id, userId)
     if (before !== undefined && before !== userId) await this.notify(before, 'matchRemoved', match.id, userId)
     const now = this.store.get(match.id)!
@@ -415,11 +380,11 @@ export class TeamMatchService {
    * The host starts the next segment (`e8-t21`, AC-8.9) while the match waits between segments:
    * the break ends, and the club seats each room as the captains left it and deals on
    */
-  nextSegment(userId: string, matchId: unknown): SegmentStart {
+  async nextSegment(userId: string, matchId: unknown): Promise<SegmentStart> {
     const match = this.require(matchId, userId)
     const step = nextSegment(match, userId)
     if ('error' in step) this.fail(step)
-    this.store.setSegment(match.id, step.segment)
+    await this.deps.write(match.id, { kind: 'segment', userId })
     const seats = Object.fromEntries(
       ROOMS.map((room) => [
         room,
@@ -432,7 +397,7 @@ export class TeamMatchService {
     return { matchId: match.id, segment: step.segment, last: step.last, seats, players }
   }
 
-  /** The host has a robot sit in for a member (代打, `e8-t14`); answers the seat */
+  /** The host has a robot sit in for a member (代打, `e8-t14`); answers the seat. Nothing about the match changes */
   sitIn(userId: string, message: Extract<MatchPlayAction, { type: 'matchSitIn' }>): { matchId: string; at: MatchSeat } {
     const match = this.require(message.matchId, userId)
     const at = parseMatchSeat({ room: message.room, seat: message.seat })
@@ -450,33 +415,30 @@ export class TeamMatchService {
 
   /**
    * A seat action (`e8-t04`, `e8-t05`), from the socket (rate-limited there) or `request`. Checks
-   * who may (`team-match-flow.ts`), writes the seats and team B's captain in one transaction, tells
-   * whom it concerns through the notification centre and pushes the match
+   * who may (`team-match-flow.ts`) and what only the club knows (members, blocks), writes the seats
+   * and team B's captain where the match lives, tells whom it concerns through the notification
+   * centre and pushes the match
    */
   async act(userId: string, message: MatchAction): Promise<string> {
     const match = this.require(message.matchId, userId)
     const now = this.deps.now()
-    const seatOf = (value: unknown) => {
-      const seat = parseMatchSeat(value)
-      if (!seat) throw new ClubError('badSeat')
-      return seat
-    }
     const notices: { to: string; kind: NotificationKind }[] = []
     /** Whom an answer or a departure from a seat is news to: the captain who arranges that team, or the host */
     const captainFor = (at: MatchSeat) => {
       const captain = arrangerOf(match, teamAt(at.room, at.seat))
       return captain === userId ? match.hostId : captain
     }
-    let step: FlowError | SeatChange
+    if (message.type === 'matchInvite') {
+      seatOf({ room: message.room, seat: message.seat })
+      const invitee = message.userId
+      if (typeof invitee !== 'string' || (invitee !== userId && !this.deps.isMember(invitee))) throw new ClubError('userGone', {}, 404)
+    }
+    const step = seatChange(match, userId, message, now)
+    if ('error' in step) this.fail(step)
     switch (message.type) {
       case 'matchInvite': {
-        const at = seatOf({ room: message.room, seat: message.seat })
-        const invitee = message.userId
-        if (typeof invitee !== 'string' || (invitee !== userId && !this.deps.isMember(invitee)))
-          throw new ClubError('userGone', {}, 404)
-        step = inviteToSeat(match, userId, at, invitee, now)
-        if ('error' in step) break
         // Whether the invitee blocked the inviter (or the host) stays private: only that they cannot be invited
+        const invitee = message.userId as string
         const { blocked } = this.deps
         if ([userId, match.hostId].some((id) => blocked(invitee, id) || blocked(id, invitee)))
           throw new ClubError('cannotInvite', { name: this.deps.userById(invitee)?.username ?? '' }, 403)
@@ -484,42 +446,23 @@ export class TeamMatchService {
         break
       }
       case 'matchAnswer': {
-        if (typeof message.accept !== 'boolean') throw new ClubError('unknownCommand')
-        step = answerSeat(match, userId, message.accept, now)
         const mine = match.seats.find((s) => s.userId === userId)
-        if (!('error' in step) && mine) notices.push({ to: captainFor(mine), kind: message.accept ? 'matchAccepted' : 'matchDeclined' })
+        if (mine) notices.push({ to: captainFor(mine), kind: message.accept ? 'matchAccepted' : 'matchDeclined' })
         break
       }
-      case 'matchMove':
-        step = moveSeat(match, userId, seatOf(message.from), seatOf(message.to))
-        break
       case 'matchLeave': {
-        step = leaveSeat(match, userId)
         const mine = match.seats.find((s) => s.userId === userId)
-        if (!('error' in step) && mine)
-          notices.push({ to: captainFor(mine), kind: mine.status === 'invited' ? 'matchDeclined' : 'matchLeft' })
+        if (mine) notices.push({ to: captainFor(mine), kind: mine.status === 'invited' ? 'matchDeclined' : 'matchLeft' })
         break
       }
       case 'matchClear': {
         const at = seatOf({ room: message.room, seat: message.seat })
-        step = clearSeat(match, userId, at)
         const target = match.seats.find((s) => s.room === at.room && s.seat === at.seat)
-        if (!('error' in step) && target?.userId !== undefined && target.userId !== userId)
-          notices.push({ to: target.userId, kind: 'matchRemoved' })
+        if (target?.userId !== undefined && target.userId !== userId) notices.push({ to: target.userId, kind: 'matchRemoved' })
         break
       }
-      case 'matchRobot':
-        step = robotSeat(match, userId, seatOf({ room: message.room, seat: message.seat }), now)
-        break
-      default:
-        throw new ClubError('unknownCommand')
     }
-    if ('error' in step) this.fail(step)
-    const change = step
-    this.store.transaction(() => {
-      for (const seat of change.seats) this.store.updateSeat(match.id, seat)
-      if (change.captainB !== undefined) this.store.setCaptainB(match.id, change.captainB)
-    })
+    await this.deps.write(match.id, { kind: 'seat', userId, message })
     for (const { to, kind } of notices) if (to !== userId) await this.notify(to, kind, match.id, userId)
     this.push(match.id, this.players(match))
     return match.id

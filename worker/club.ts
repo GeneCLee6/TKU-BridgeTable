@@ -45,6 +45,7 @@ import { TeamService } from './teams.ts'
 import type { TableObject } from './table-object.ts'
 import type { EventObject } from './event-object.ts'
 import { RemoteEvents, type EventRpc, type EventSnapshot } from './events.ts'
+import { RemoteMatches, type MatchRpc, type MatchSnapshot } from './match-events.ts'
 import { RemoteTables, type TableEntry, type TableRpc } from './tables.ts'
 import type { MatchAction, MatchPlayAction } from './team-match-service.ts'
 
@@ -206,10 +207,11 @@ export class Club extends DurableObject<Env> implements Connections {
       // Each table in its own object (§5.10), unless switched back with TABLE_OBJECTS=off
       tableObjects: new RemoteTables((tableId) => env.TABLE.get(env.TABLE.idFromName(tableId)) as unknown as TableRpc),
       tablesInClub: env.TABLE_OBJECTS === 'off',
-      // Each challenge in its own object (H2b, §5.12) only when switched on; off by default
+      // Each challenge (H2b) and team match (H2c) in its own object (§5.12) only when switched on; off by default
       eventObjects: new RemoteEvents(
         (challengeId) => env.EVENT.get(env.EVENT.idFromName(`challenge:${challengeId}`)) as unknown as EventRpc,
       ),
+      matchObjects: new RemoteMatches((matchId) => env.EVENT.get(env.EVENT.idFromName(`match:${matchId}`)) as unknown as MatchRpc),
       eventObjectsOn: env.EVENT_OBJECTS === 'on',
       // The history pages' copy in D1, read by the Worker (§5.12)
       historyReplica: env.HISTORY ? d1Replica(env.HISTORY) : undefined,
@@ -316,6 +318,11 @@ export class Club extends DurableObject<Env> implements Connections {
   /** A challenge in its own object changed on its own (`EventLink.changed`, H2b); a failure makes it tell again */
   async eventChanged(snapshot: EventSnapshot) {
     await this.service.eventLink.changed(snapshot)
+  }
+
+  /** A team match in its own object tells a change again (`EventLink.matchChanged`, H2c); a failure makes it tell again */
+  async matchChanged(snapshot: MatchSnapshot) {
+    await this.service.eventLink.matchChanged(snapshot)
   }
 
   /** Whose session this is, for a table's connection: the Worker asks once per connection */
@@ -722,7 +729,7 @@ export class Club extends DurableObject<Env> implements Connections {
     if (route === 'GET /api/matches') return json({ matches: this.service.matches.list(user.id) })
     if (route === 'POST /api/matches') {
       const b = await body()
-      return json({ match: this.service.matches.create(user.id, { settings: b.settings, seat: b.seat }) })
+      return json({ match: await this.service.matches.create(user.id, { settings: b.settings, seat: b.seat }) })
     }
     // The Vugraph page (e8-t18): both rooms, the score and the watchers' chat; never for the match's players
     const vugraph = url.pathname.match(/^\/api\/matches\/([\w-]+)\/vugraph(\/chat)?$/)
@@ -740,7 +747,7 @@ export class Club extends DurableObject<Env> implements Connections {
         const message = { ...(await body()), type: play[action as keyof typeof play], matchId } as MatchPlayAction
         return json({ match: await this.service.matchPlayRequest(user.id, message) })
       }
-      if (action === 'settings') return json({ match: this.service.matches.update(user.id, matchId, (await body()).settings) })
+      if (action === 'settings') return json({ match: await this.service.matches.update(user.id, matchId, (await body()).settings) })
       if (action === 'cancel') return json({ match: await this.service.matches.cancel(user.id, matchId) })
       if (action === 'start') return json({ match: await this.service.startMatchRequest(user.id, matchId) })
       const type = `match${action[0].toUpperCase()}${action.slice(1)}`

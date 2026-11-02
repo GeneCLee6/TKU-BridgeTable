@@ -242,16 +242,6 @@ async function member(name: string) {
 }
 
 /** The code a request was turned down with */
-function refused(fn: () => unknown) {
-  try {
-    fn()
-  } catch (error) {
-    if (error instanceof ClubError) return error.code
-    throw error
-  }
-  throw new Error('it was not turned down')
-}
-
 async function refusedAsync(fn: () => Promise<unknown>) {
   try {
     await fn()
@@ -265,12 +255,12 @@ async function refusedAsync(fn: () => Promise<unknown>) {
 describe('team matches through the club', () => {
   it('creates a match with settings and a seat, changes it, cancels it, and lists it', async () => {
     const amy = await member('amy')
-    const created = club.matches.create(amy, { settings: { teamNames: ['淡江', '政大'], boards: 16 }, seat: { room: 'closed', seat: 'E' } })
+    const created = await club.matches.create(amy, { settings: { teamNames: ['淡江', '政大'], boards: 16 }, seat: { room: 'closed', seat: 'E' } })
     expect(created).toMatchObject({ hostId: amy, status: 'setup', captains: { A: amy }, boards: [], totals: { A: 0, B: 0 } })
     expect(created.settings).toMatchObject({ teamNames: ['淡江', '政大'], boards: 16, scoring: 'imp' })
     expect(created.seats.find((s) => s.userId === amy)).toMatchObject({ room: 'closed', seat: 'E', team: 'A', user: { username: 'amy' } })
 
-    const changed = club.matches.update(amy, created.id, { scoring: 'bam', boardMinutes: 0 })
+    const changed = await club.matches.update(amy, created.id, { scoring: 'bam', boardMinutes: 0 })
     expect(changed.settings).toMatchObject({ boards: 16, scoring: 'bam', boardMinutes: 0 })
     expect(club.matches.list(amy).map((m) => m.id)).toEqual([created.id])
     expect(club.matches.get(created.id, amy)?.settings.scoring).toBe('bam')
@@ -281,7 +271,7 @@ describe('team matches through the club', () => {
     // A cancelled match leaves the list at once, but its link still opens it
     expect(club.matches.list(amy)).toEqual([])
     expect(club.matches.get(created.id, amy)?.status).toBe('cancelled')
-    expect(refused(() => club.matches.update(amy, created.id, { boards: 8 }))).toBe('matchStarted')
+    expect(await refusedAsync(() => club.matches.update(amy, created.id, { boards: 8 }))).toBe('matchStarted')
     // Survives the object being evicted
     const again = clubService(store, new FakeConnections(), { maxUsers: 40, now: () => time, schedule: () => {} })
     await again.load()
@@ -291,23 +281,23 @@ describe('team matches through the club', () => {
   it('turns down bad settings and seats, a second open match, strangers and non-hosts', async () => {
     const amy = await member('amy')
     const ben = await member('ben')
-    expect(refused(() => club.matches.create(amy, { settings: { boards: 40 } }))).toBe('badMatchSettings')
-    expect(refused(() => club.matches.create(amy, { seat: { room: 'open', seat: 'E' } }))).toBe('badMatchSettings')
-    const { id } = club.matches.create(amy, {})
-    expect(refused(() => club.matches.create(amy, {}))).toBe('matchOpen')
+    expect(await refusedAsync(() => club.matches.create(amy, { settings: { boards: 40 } }))).toBe('badMatchSettings')
+    expect(await refusedAsync(() => club.matches.create(amy, { seat: { room: 'open', seat: 'E' } }))).toBe('badMatchSettings')
+    const { id } = await club.matches.create(amy, {})
+    expect(await refusedAsync(() => club.matches.create(amy, {}))).toBe('matchOpen')
     // Others do not even learn it exists while it is set up
     expect(club.matches.get(id, ben)).toBeNull()
-    expect(refused(() => club.matches.update(ben, id, { boards: 12 }))).toBe('matchGone')
+    expect(await refusedAsync(() => club.matches.update(ben, id, { boards: 12 }))).toBe('matchGone')
     expect(await refusedAsync(() => club.matches.cancel(ben, 'nope'))).toBe('matchGone')
     expect(club.matches.list(ben)).toEqual([])
     // Once it ended the host may open another
     await club.matches.cancel(amy, id)
-    expect(club.matches.create(amy, {}).status).toBe('setup')
+    expect((await club.matches.create(amy, {})).status).toBe('setup')
   })
 
   it('cancels a match being set up when its host’s account is deleted', async () => {
     const amy = await member('amy')
-    const { id } = club.matches.create(amy, {})
+    const { id } = await club.matches.create(amy, {})
     await club.adminDeleteUser(bossId, amy)
     expect(club.matches.store.get(id)?.status).toBe('cancelled')
   })
