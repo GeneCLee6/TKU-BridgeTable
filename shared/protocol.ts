@@ -1107,6 +1107,11 @@ export interface BoardRecord {
   events?: BoardEvent[]
   /** A director's ruling on the board (`e2-t35`) */
   ruling?: BoardRuling
+  /**
+   * The table it was played at (e4-t37: the boards of one session are the ones with the same
+   * table, one after another); records from before it have none
+   */
+  tableId?: string
 }
 
 export interface BoardSummary {
@@ -1151,6 +1156,34 @@ export function summarize(record: BoardRecord): BoardSummary {
       },
     }),
   }
+}
+
+/**
+ * A board's public link (e4-t38, ARCHITECTURE.md §4): its players and the admins see it and may
+ * take it back; `createdBy` is who made it
+ */
+export interface BoardShare {
+  token: string
+  createdAt: number
+  createdBy: PublicUser
+}
+
+/** A seat on a shared board: a member's name, or null for one who keeps their boards off their profile */
+export interface SharedPlayer {
+  name: string | null
+  robot?: boolean
+  robotKind?: RobotKind
+}
+
+/**
+ * One board as anyone with its public link sees it (`GET /api/share/:token`, `sharedBoardView`):
+ * the finished deal, the auction with its alerts, the play and the result, and the seats' names.
+ * Nothing else of the record: no ids, no table, event or ruling, no timing
+ */
+export interface SharedBoard {
+  board: BoardState
+  finishedAt: number
+  players: Record<Seat, SharedPlayer>
 }
 
 /** One page of the history list, newest first; `page` counts from 1 */
@@ -1261,6 +1294,10 @@ export const LIMITS = {
   historyPageDefault: 20,
   /** Days the list by day goes back at most (`GET /api/history/days`) */
   historyDaysMax: 366,
+  /** Boards in one PBN download of the records page (e4-t36): the first of the search, in its order */
+  exportBoardsMax: 500,
+  /** Boards in one session's LIN (e4-t37) */
+  sessionBoardsMax: 100,
   favoritesMax: 1000,
   favoriteNoteMax: 500,
   favoriteTagsMax: 8,

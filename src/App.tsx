@@ -31,6 +31,7 @@ import { MatchPage } from './pages/MatchPage.tsx'
 import { MatchReplayPage } from './pages/MatchReplayPage.tsx'
 import { VugraphPage } from './pages/VugraphPage.tsx'
 import { ProfilePage } from './pages/ProfilePage.tsx'
+import { SharedBoardPage } from './pages/SharedBoardPage.tsx'
 import { TablePage } from './pages/TablePage.tsx'
 import { AuthProvider, useAuth, useFeature } from './state/AuthContext.tsx'
 import { ClubProvider, useClub } from './state/ClubContext.tsx'
@@ -90,6 +91,13 @@ function Routed() {
   if (pathname === '/privacy' || pathname === '/terms') return <LegalPage kind={pathname === '/privacy' ? 'privacy' : 'terms'} />
   // The email links (e1-t29, e1-t30) work signed in or not, on any device
   if (pathname === '/email/verify' || pathname === '/email/reset') return <EmailLinkPage kind={pathname === '/email/verify' ? 'verify' : 'reset'} />
+  // A board's public link (e4-t38) is for anyone, signed in or not
+  if (pathname.startsWith('/share/'))
+    return (
+      <Routes>
+        <Route path="/share/:token" element={<SharedBoardPage />} />
+      </Routes>
+    )
   if (user === undefined) return <PageMain>{t.loading}</PageMain>
   if (user === null) return <LoginPage />
   return (

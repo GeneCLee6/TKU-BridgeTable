@@ -154,6 +154,7 @@ import { forgetQuizRounds } from './quiz.ts'
 import { forgetPathProgress } from './learning.ts'
 import { forgetReading } from './reading.ts'
 import { PROFILE_ID } from './profiles.ts'
+import { BoardShares, SESSION_WINDOW_MS, sessionOf } from './board-shares.ts'
 import { FeaturedService } from './featured.ts'
 import { TeamMatchService, type MatchPlayAction } from './team-match-service.ts'
 import { ReplicaSync, type ReplicaDb } from './history-replica.ts'
@@ -175,6 +176,7 @@ import {
   revealEvent,
   searchBoards,
   searchDays,
+  sessionCandidates,
   unindexRecord,
 } from './history-index.ts'
 import {
@@ -710,6 +712,8 @@ export class ClubService {
   private readonly matchObjects?: RemoteMatches
   /** Featured boards (精選牌局, AC-4.5, §5.9) */
   readonly featured: FeaturedService
+  /** Public links of boards (e4-t38) */
+  readonly shares: BoardShares
   /** Members' saved practice settings (`e10-t16`, §5.11) */
   private readonly practicePresets: PracticePresets
   /** Keeps the history index's D1 copy in step (§5.12), when there is one */
@@ -853,6 +857,15 @@ export class ClubService {
       notify: (id, kind, params) => this.notifications.notify(id, kind, params),
       takeAction: (id) => this.actionLimit.take(id),
     })
+    this.shares = new BoardShares(store.sql, {
+      now: this.now,
+      newToken: () => randomId(16),
+      record: (id) => this.store.get<BoardRecord>(`board:${id}`),
+      visibleRecord: (id, userId) => this.record(id, userId),
+      isAdmin: (id) => !!this.users.get(id)?.admin,
+      hidesBoards: (id) => !!this.users.get(id)?.hideProfileBoards,
+      userById: (id) => this.publicUserById(id),
+    })
     this.directs = new DirectMessageStore(store.sql)
     this.sessions = new Sessions(store, this.now)
     this.sightings = new Sightings(store, this.now, seenSalt(config.seenSalt))
@@ -936,6 +949,7 @@ export class ClubService {
     this.features = (await this.store.get<FeatureSettings>('meta:features')) ?? {}
     this.metrics.restore(await this.store.get<MetricsState>('meta:metrics'))
     createHistoryIndex(this.store.sql)
+    this.shares.createTables()
     this.challenges.createTables()
     this.challengeExtras.createTables()
     this.homes.createTables()
@@ -2608,6 +2622,7 @@ export class ClubService {
     await this.friends.forget(user.id)
     await this.blocks.forget(user.id)
     removeFavoritesOf(this.store.sql, user.id)
+    this.shares.removeMadeBy(user.id)
     this.challengeExtras.forget(user.id)
     this.rankings.forget(user.id)
     await this.practicePresets.removeAll(user.id)
@@ -2765,6 +2780,8 @@ export class ClubService {
       ...this.rankings.exportOf(userId),
       favorites,
       boards,
+      // The public links they made (e4-t38)
+      boardShares: this.shares.madeBy(userId),
     }
   }
 
@@ -2934,6 +2951,31 @@ export class ClubService {
     if (recordVisible(record, userId, this.now())) return record
     const challenge = record.mode === 'challenge' && record.eventId ? this.challenges.get(record.eventId) : null
     return challenge && challengeBoardVisible(challenge, record.id, userId) ? record : null
+  }
+
+  /**
+   * The boards of a records-page search for one PBN file (e4-t36): the same search as the list
+   * (`searchBoards`, so boards kept back and members who hide their boards stay out as there), its
+   * first LIMITS.exportBoardsMax boards in its order. `total` is how many the search finds
+   */
+  async exportBoards(userId: string, query: HistoryQuery): Promise<{ records: BoardRecord[]; total: number }> {
+    const all = { ...query, page: 1, size: LIMITS.exportBoardsMax }
+    const found = searchBoards(this.store.sql, all, userId, this.now(), false, this.hiddenPlayers(userId, query))
+    const records = await Promise.all(found.ids.map((id) => this.store.get<BoardRecord>(`board:${id}`)))
+    return { records: records.flatMap((r) => (r ? [r] : [])), total: found.total }
+  }
+
+  /**
+   * A board's session (e4-t37): it and the boards played before and after it at the same table
+   * (`sessionOf`), only those the member may see (`record`), oldest first; null when they may not
+   * see this board
+   */
+  async session(id: string, userId: string): Promise<BoardRecord[] | null> {
+    const target = await this.record(id, userId)
+    if (!target) return null
+    const ids = sessionCandidates(this.store.sql, target, SESSION_WINDOW_MS, LIMITS.sessionBoardsMax * 2)
+    const candidates = await Promise.all(ids.filter((other) => other !== id).map((other) => this.record(other, userId)))
+    return sessionOf(target, candidates.flatMap((r) => (r ? [r] : [])))
   }
 
   /**

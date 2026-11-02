@@ -486,3 +486,36 @@ export function listQuery(all: boolean, page: number, size: number): HistoryQuer
     size: (HISTORY_PAGE_SIZES as readonly number[]).includes(size) ? size : LIMITS.historyPageDefault,
   }
 }
+
+/**
+ * The boards that may belong to the same session as one (e4-t37): played at a table with the same
+ * number, of the same mode and event, within `windowMs` before or after it, with at least one of
+ * its members at the table; at most `limit` each way, the nearest first, then oldest first.
+ * `sessionOf` (worker/board-shares.ts) keeps the ones of the same table, one after another
+ */
+export function sessionCandidates(
+  sql: Sql,
+  record: Pick<BoardRecord, 'id' | 'tableNumber' | 'mode' | 'eventId' | 'finishedAt' | 'players'>,
+  windowMs: number,
+  limit: number,
+): string[] {
+  const members = [...new Set(SEATS.flatMap((seat) => memberId(record.players[seat]?.id) ?? []))]
+  if (!members.length) return [record.id]
+  const side = (before: boolean) =>
+    ids(
+      sql.exec<{ board_id: string }>(
+        `SELECT b.board_id FROM boards_index b WHERE b.table_no = ? AND b.mode = ? AND b.event_id IS ?
+         AND b.played_at ${before ? '<=' : '>'} ? AND b.played_at ${before ? '>=' : '<='} ?
+         AND EXISTS (SELECT 1 FROM board_players p WHERE p.board_id = b.board_id AND p.user_id IN (${members.map(() => '?').join(', ')}))
+         ORDER BY b.played_at ${before ? 'DESC' : 'ASC'}, b.board_id ${before ? 'DESC' : 'ASC'} LIMIT ?`,
+        record.tableNumber,
+        record.mode ?? 'casual',
+        record.eventId ?? null,
+        record.finishedAt,
+        before ? record.finishedAt - windowMs : record.finishedAt + windowMs,
+        ...members,
+        limit,
+      ),
+    )
+  return [...side(true).reverse(), ...side(false)]
+}

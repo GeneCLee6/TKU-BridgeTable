@@ -1627,6 +1627,7 @@ export class TableService implements TableApi {
         board,
         ...(Object.keys(substitutes).length > 0 && { substitutes }),
         hostId: table.hostId,
+        tableId: table.id,
         ...(table.boardStartedAt !== undefined && { startedAt: table.boardStartedAt }),
         ...(table.events?.length && { events: table.events }),
       },

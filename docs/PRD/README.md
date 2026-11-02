@@ -24,7 +24,7 @@
 | [E1](e1-accounts-identity-community.md) | 帳號、身分與社群 | 35／36 | 7／9 | 13 | in-progress |
 | [E2](e2-table-engine-realtime.md) | 牌桌引擎與即時連線 | 36／36 | 13／14 | 12 | in-progress |
 | [E3](e3-table-ui-experience.md) | 牌桌介面與體驗 | 44／44 | 12／12 | 13 | done |
-| [E4](e4-records-favorites-search.md) | 牌局紀錄、收藏與搜尋 | 34／39 | 9／13 | 24 | in-progress |
+| [E4](e4-records-favorites-search.md) | 牌局紀錄、收藏與搜尋 | 37／39 | 10／13 | 24 | in-progress |
 | [E5](e5-robot-bidding-brain.md) | 智慧機器人（一）：叫牌制度引擎、2/1 機器人與完整 5542 | 54／63 | 9／14 | 45 | in-progress |
 | [E6](e6-robot-play-levels-evaluation.md) | 智慧機器人（二）：打牌大腦、TKB 與評測 | 25／42 | 6／14 | 14 | in-progress |
 | [E7](e7-challenges.md) | 挑戰（單挑與多人） | 29／29 | 6／9 | 25 | in-progress |
@@ -34,7 +34,7 @@
 | [E11](e11-platform-ops-scale.md) | 平台、維運、安全與規模 | 31／32 | 6／10 | 8 | in-progress |
 | [E12](e12-commercialization.md) | 多社團與商業化 | 0／19 | 0／9 | 0 | planned |
 | [E13](e13-community-forum.md) | 社群與論壇 | 11／13 | 4／7 | 0 | in-progress |
-| | **合計** | **307／394** | **77／136** | **177** | |
+| | **合計** | **343／406** | **86／137** | **177** | |
 
 里程碑分布：M0 95 個（全部完成）、M1 177 個、M2 97 個、M3 25 個。作廢的 task（刪除線）不計入。
 

@@ -27,6 +27,8 @@ import type {
   PublicUser,
   RobotKind,
   SeatOccupant,
+  SharedBoard,
+  SharedPlayer,
   TableMode,
   TablePractice,
   TableSettings,
@@ -226,6 +228,56 @@ export function recordVisible(
 ): boolean {
   if (record.revealAt === undefined || record.revealAt <= now) return true
   return SEATS.some((seat) => record.players[seat]?.id === userId)
+}
+
+/**
+ * One board as anyone with its public link sees it, signed in or not (e4-t38, ARCHITECTURE.md §4):
+ * null unless the board is finished and public (`revealAt` passed or none), so a challenge or match
+ * board still kept back is never shown. Only the deal, the auction with its alerts (a robot's are
+ * its short explanation, public as GIB's are on BBO), the play and the result go out, picked field
+ * by field: no record, table or event ids, no ruling, no timing, no engine readings of the calls
+ * nor 淡江橋館's words (`meaning`, `inferred`, `book`: the club's system is for members). Only the
+ * member who made the link (`sharedBy`) is named, by username, unless they keep their boards off
+ * their profile (`hides`, 「不公開打過的牌局」); every other member's seat is null (「社員」), so a
+ * link made by an admin who did not play names nobody (社長 2026-11-02). Robots keep their name.
+ * Never an id
+ */
+export function sharedBoardView(
+  record: BoardRecord,
+  sharedBy: string,
+  hides: (userId: string) => boolean,
+  now: number,
+): SharedBoard | null {
+  const { board } = record
+  if (!board.result || (record.revealAt !== undefined && record.revealAt > now)) return null
+  const players = {} as Record<Seat, SharedPlayer>
+  for (const seat of SEATS) {
+    const user = record.players[seat]
+    players[seat] = user?.robot
+      ? { name: user.username, robot: true, ...(user.robotKind && { robotKind: user.robotKind }) }
+      : { name: user?.id && user.id === sharedBy && !hides(user.id) ? user.username : null }
+  }
+  return {
+    board: {
+      boardNo: board.boardNo,
+      dealer: board.dealer,
+      vul: board.vul,
+      hands: board.hands,
+      auction: board.auction.map(({ seat, call, alert, robot }) => ({
+        seat,
+        call,
+        ...(alert !== undefined && { alert }),
+        ...(robot && { robot }),
+      })),
+      contract: board.contract,
+      play: board.play.map(({ seat, card }) => ({ seat, card })),
+      phase: 'finished',
+      ...(board.claimed?.length && { claimed: [...board.claimed] }),
+      result: { ...board.result },
+    },
+    finishedAt: record.finishedAt,
+    players,
+  }
 }
 
 /**
