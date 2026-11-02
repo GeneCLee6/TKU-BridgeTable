@@ -5,3 +5,7 @@ INVITE_CODE=
 # Signs edge passes (ARCHITECTURE.md §5.12): set any long random string to try the history pages
 # answered from D1 by the Worker; leave empty and the club answers everything, as before
 EDGE_AUTH_SECRET=
+
+# Salts the anti-cheating report's network hashes (ARCHITECTURE.md §5.17): any random string of at
+# least 16 characters; leave empty and only browsers are compared
+SEEN_SALT=

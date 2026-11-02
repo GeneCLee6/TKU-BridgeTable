@@ -262,7 +262,7 @@ interface BoardState {
 | `file:meta:<key>`、`file:ticket:<pass>`、`file:day:<userId>`、`file:secret` | 討論區與文章的圖片（淡江橋譜 `e11-t02`，§5.14）：圖片在 R2 `bridgebook-files`，這裡只存上傳者、型別、大小、有沒有縮圖；一次性上傳憑證（10 分鐘）；當天（台灣日期）拿過幾張憑證；簽網址的隨機金鑰。`file:meta:` 與 `file:secret` 在每日備份裡 |
 | `app:<id>` | 待審核的註冊申請：帳號名稱、密碼雜湊、自我介紹、從哪個網站申請 |
 | `session:<token>` | userId、到期時間、`id`（列表用，不是 token）、建立與最近使用時間、裝置名稱（`worker/sessions.ts`） |
-| `seen:<userId>`、`meta:seenSalt` | 防作弊報表（§5.17，`worker/integrity.ts`）：登入與連線時的網路雜湊（加鹽的 SHA-256，不存 IP）、瀏覽器 id（cookie `tbt_device`）與名稱、第一次與最近一次；每人最多 16 筆、90 天；帳號刪除時一起刪，不在備份裡 |
+| `seen:<userId>` | 防作弊報表（§5.17，`worker/integrity.ts`）：登入與連線時的網路雜湊（以 Worker secret `SEEN_SALT` 加鹽的 SHA-256，不存 IP；鹽不在儲存裡）、瀏覽器 id（cookie `tbt_device`）與名稱、第一次與最近一次；每人最多 16 筆、90 天；帳號刪除時一起刪，不在備份裡 |
 | `tabledir:<id>` | 牌桌目錄（`TableEntry`，§5.10）：大廳與跨桌動作只讀它；牌桌在自己的 `TableObject` 時才有 |
 | `table:<id>` | 只在牌桌留在社團的物件時（H1a、測試、`TABLE_OBJECTS=off`）：座位、觀看者、目前這副、聊天、撤回請求；它顯示的社員名字（`names`）、各人的封鎖名單（`blocks`，聊天用）、還沒交給社團的牌局紀錄（`outbox`）；挑戰桌的 `modeState` 帶挑戰的快照（§5.10）。由 `TableService` 讀寫。每桌一個物件時同樣的內容在那個物件的 `table`（另有 `closed`：這一桌關了；`frozen`：已交回社團，等 `release`） |
 | `board:<id>` | 一副牌的完整紀錄（原始四手牌、叫牌、出牌、結果） |
@@ -661,7 +661,10 @@ H1 把牌桌拆出去之後（§5.10），社團的物件（`Club`）仍然是**
 AC-11.8 的後半：「同 IP／同裝置多帳號同場等可疑行為有管理員報表」。只做社團內部（不跨社團、不跨站）。
 
 - **蒐集什麼**（`worker/integrity.ts` 的 `Sightings`）：社員**登入**（`/api/login`、第一個帳號的 `/api/register`）與**每次連上社團的 WebSocket**（`/ws`）時，`Club` 呼叫 `ClubService.noteSighting`，記在 `seen:<userId>`：
-  - **網路**：`CF-Connecting-IP` 加社團自己的隨機鹽（`meta:seenSalt`，第一次用時產生）做 SHA-256，取前 16 個十六進位字。**IP 位址本身不寫進儲存**；同一個位址在同一個社團永遠是同一個雜湊，所以比得出來。（鹽和雜湊在同一個儲存裡，拿到整個儲存的人可以窮舉 IPv4 還原，這是已知的取捨，見下面「待決定」。）
+  - **網路**：`CF-Connecting-IP` 加鹽做 SHA-256，取前 16 個十六進位字。鹽是 **Worker secret `SEEN_SALT`**（`wrangler secret put SEEN_SALT`，DEPLOY.md §3；`Club` 從 `env` 讀，經 `ClubConfig.seenSalt` 交給 `ClubService`，`ClubService` 不碰 Cloudflare API），**不在社團的儲存裡**，所以單拿到儲存（或備份）的人無法窮舉 IPv4 還原。**IP 位址本身不寫進儲存**；同一個位址在同一個 secret 下永遠是同一個雜湊，所以比得出來。
+    - **沒設 `SEEN_SALT`**（或少於 16 字，`SEEN_SALT_MIN`，當作沒設）：**不記網路**（`net` 存空字串），只記瀏覽器，所以只會出現「同一個瀏覽器」的線索、沒有「共用網路」；報表帶 `networkOff: true`，管理頁在報表上方說明要設 secret；社團物件每次醒來第一次遇到有位址的登入時記一筆日誌 `seenSaltMissing`。
+    - **換 secret** 之後新舊雜湊不相容：舊的網路紀錄不會和新的配對，最多 90 天後自然清掉。不同環境（正式站、staging、預覽）各自的 secret 也互不相容。
+    - PR #242 原本把隨機鹽存在社團儲存的 `meta:seenSalt`，社長 2026-11-02 決定改用 Worker secret；那個版本沒有上過正式站，只有 PR 預覽可能存過 `meta:seenSalt` 與用它算的雜湊：程式不再讀它，舊雜湊直接作廢（預覽站在 PR 關閉時整個刪除）。
   - **瀏覽器**：cookie `tbt_device`（`worker/auth.ts` 的 `deviceCookie`：HttpOnly、SameSite=Lax、1 年、隨機 12 bytes），登入時沒有就發一個；已經登入的瀏覽器在下一次 `/api/me` 拿到。它**不是登入憑證**，誰用這個瀏覽器登入都一樣；兩個帳號出現同一個 id＝同一個瀏覽器。格式不對的值（不是我們發的）不記。
   - 加上 `deviceLabel` 的瀏覽器與系統名稱（跟「登入中的裝置」一樣），給報表顯示。
   - 每人最多 16 筆（`INTEGRITY_LIMITS.perMember`），90 天以上的丟掉；同一個網路＋瀏覽器一小時內只寫一次（`SIGHTING_STEP_MS`），所以重連只多一次讀取。記錄失敗不影響登入或連線。
@@ -672,7 +675,7 @@ AC-11.8 的後半：「同 IP／同裝置多帳號同場等可疑行為有管理
 - **成本**：一份報表＝列出 `seen:`（每位社員一筆）＋最多 80 次有索引的小查詢，在 `Club` 裡跑；只有管理員按「產生報表」才跑，管理頁打開時不跑。不用 D1 副本，所以 `REPLICA_VERSION` 不變；`summarize`、`BoardSummary` 沒改。
 - **可見性**：報表只有帳號名稱、瀏覽器名稱、網路雜湊的前 6 碼、次數與牌局／比賽的連結，**沒有任何一手牌**；點紀錄連結照舊走 `recordVisible`（還沒公開的挑戰牌，管理員一樣看不到）。`worker/views.ts` 不變。報表不通知任何人、不自動處理。
 - **個資**：`seen:` 在「下載我的資料」裡（`signIns`），帳號刪除時一起刪（`dropMember`），不在每日備份裡。隱私權政策（`legal.privacy`）寫了蒐集什麼、保留多久與這個 cookie。
-- **待決定**（社長／管理員）：門檻（4 人以上算共用網路、40 組、90 天）、是否要讓幹部（不是管理員）也看得到、要不要在出現「強」的線索時主動通知管理員、雜湊要不要改用 Worker 的 secret 當鹽（拿到儲存也無法窮舉）。現在的預設都是最保守的：只有管理員、只在按下時產生、不通知。
+- **社長決定**（2026-11-02）：上線；網路雜湊的鹽改用 Worker secret `SEEN_SALT`（上面「網路」）。其他維持保守的預設：只有管理員看得到（幹部不行）、只在管理員按下時產生、出現「強」的線索也不主動通知、超過 4 人算共用網路、最多看 40 組、保留 90 天。
 
 ## 5.8 隊制賽（決策紀錄，`e8-t01`，2026-10-25）
 

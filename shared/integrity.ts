@@ -208,6 +208,8 @@ export interface IntegrityReport {
   shared: SharedNetwork[]
   /** Members with any sighting in the window: how much the report could see */
   seen: number
+  /** No network is kept (the Worker secret SEEN_SALT is not set): only browsers are compared */
+  networkOff: boolean
 }
 
 /** Strongest first: level, then one browser before a network, then the most played together, then the newest */

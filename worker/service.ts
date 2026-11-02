@@ -161,7 +161,7 @@ import {
 } from '../shared/features.ts'
 import { ACCOUNT_EXPORT_VERSION, type SessionInfo } from '../shared/account.ts'
 import { Sessions } from './sessions.ts'
-import { integrityReport, Sightings } from './integrity.ts'
+import { integrityReport, seenSalt, Sightings } from './integrity.ts'
 import { integrityDays, type IntegrityReport } from '../shared/integrity.ts'
 import { Relations } from './relations.ts'
 import { AlarmQueue, manualScheduler, type JobKind, type Scheduler } from './scheduler.ts'
@@ -376,6 +376,12 @@ export interface ClubConfig {
    * `worker/system-spec.ts`): the club's (CLUB_PROFILE_ID) unless set (`SYSTEM_PROFILE_ID`)
    */
   systemProfileId?: string
+  /**
+   * The salt for the anti-cheating report's network hashes (`wrangler secret put SEEN_SALT`, at
+   * least SEEN_SALT_MIN characters; ARCHITECTURE.md §5.17). Kept out of the club's storage on
+   * purpose; without it no network is kept, only the browser
+   */
+  seenSalt?: string
 }
 
 export type ScheduleKind = JobKind
@@ -465,6 +471,8 @@ export class ClubService {
   private readonly sessions: Sessions
   /** Where members were signed in, for the anti-cheating report (`e11-t25`) */
   private readonly sightings: Sightings
+  /** The missing SEEN_SALT is logged once per wake, not at every sign-in */
+  private saltMissingLogged = false
   private readonly store: Store
   private readonly connections: Connections
   private readonly config: ClubConfig
@@ -589,7 +597,7 @@ export class ClubService {
     })
     this.directs = new DirectMessageStore(store.sql)
     this.sessions = new Sessions(store, this.now)
-    this.sightings = new Sightings(store, this.now)
+    this.sightings = new Sightings(store, this.now, seenSalt(config.seenSalt))
     this.practicePresets = new PracticePresets(store, this.now, () => randomId(8))
     this.systemSpecs = new SystemSpecStore(store, this.now, config.systemProfileId)
     if (config.schedule) {
@@ -1745,11 +1753,15 @@ export class ClubService {
 
   /**
    * Notes where a member is signed in: at signing in and at every club connection. `address` is
-   * CF-Connecting-IP (only its salted hash is kept), `device` the browser's `tbt_device` cookie,
-   * `label` its browser and system. Never fails the request it rides on
+   * CF-Connecting-IP (only its salted hash is kept, and only with SEEN_SALT set), `device` the
+   * browser's `tbt_device` cookie, `label` its browser and system. Never fails the request it rides on
    */
   async noteSighting(userId: string, address: string, device: string, label: string) {
     if (!this.users.has(userId)) return
+    if (address && !this.sightings.networks && !this.saltMissingLogged) {
+      this.saltMissingLogged = true
+      this.log({ event: 'seenSaltMissing' })
+    }
     try {
       await this.sightings.note(userId, address, device, label)
     } catch (error) {
@@ -1773,6 +1785,7 @@ export class ClubService {
       },
       days: integrityDays(days),
       now: this.now(),
+      networks: this.sightings.networks,
     })
   }
 

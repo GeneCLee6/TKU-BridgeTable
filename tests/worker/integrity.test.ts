@@ -20,6 +20,7 @@ class NoConnections implements Connections {
 }
 
 const DAY = 86_400_000
+const SALT = 'test-salt-0123456789abcdef'
 let store: MemoryStore
 let club: ClubService
 let time: number
@@ -27,7 +28,7 @@ let time: number
 beforeEach(async () => {
   store = memoryStore()
   time = 400 * DAY
-  club = new ClubService(store, new NoConnections(), { maxUsers: 20, now: () => time, schedule: () => {} })
+  club = new ClubService(store, new NoConnections(), { maxUsers: 20, now: () => time, schedule: () => {}, seenSalt: SALT })
   await club.load()
 })
 
@@ -73,6 +74,7 @@ describe('the anti-cheating report', () => {
     await club.noteSighting(amy, '1.2.3.4', 'device-one', 'Chrome · Windows')
     await club.noteSighting(bob, '5.6.7.8', 'device-one', 'Chrome · Windows')
     let found = await report(boss)
+    expect(found.networkOff).toBe(false)
     expect(found.pairs).toHaveLength(1)
     expect(found.pairs[0]).toMatchObject({ level: 'medium', devices: ['Chrome · Windows'], networks: 0, partners: 0, opponents: 0 })
     expect([found.pairs[0].a.username, found.pairs[0].b.username].sort()).toEqual(['amy', 'bob'])
@@ -146,6 +148,50 @@ describe('the anti-cheating report', () => {
     const amy = await join('amy')
     await club.noteSighting(amy, '203.0.113.9', 'amy-device', 'Chrome · macOS')
     expect((await store.get<Sighting[]>(`seen:${amy}`))![0].net).toBe(first.net)
+  })
+
+  it('salts with the Worker secret, never with anything in the club’s storage', async () => {
+    const boss = await join('boss')
+    await club.noteSighting(boss, '203.0.113.9', 'boss-device', 'Chrome · macOS')
+    const dump = JSON.stringify([...store.data.entries()])
+    expect(dump).not.toContain(SALT)
+    expect(await store.get('meta:seenSalt')).toBeUndefined()
+    const net = (await store.get<Sighting[]>(`seen:${boss}`))![0].net
+
+    // Another secret (a rotated one, or another environment) gives another hash for the same address
+    const other = memoryStore()
+    const elsewhere = new ClubService(other, new NoConnections(), { maxUsers: 20, now: () => time, schedule: () => {}, seenSalt: 'another-salt-0123456789' })
+    await elsewhere.load()
+    const first = await elsewhere.register('boss', 'secret1', '')
+    const otherBoss = 'user' in first ? first.user.id : ''
+    await elsewhere.noteSighting(otherBoss, '203.0.113.9', 'boss-device', 'Chrome · macOS')
+    expect((await other.get<Sighting[]>(`seen:${otherBoss}`))![0].net).not.toBe(net)
+  })
+
+  it('without SEEN_SALT keeps no network, only the browser, says so in the report, and logs it once', async () => {
+    const logged: string[] = []
+    store = memoryStore()
+    club = new ClubService(store, new NoConnections(), {
+      maxUsers: 20,
+      now: () => time,
+      schedule: () => {},
+      seenSalt: 'too-short',
+      log: (entry) => void logged.push(entry.event),
+    })
+    await club.load()
+    const boss = await join('boss')
+    const amy = await join('amy')
+    const bob = await join('bob')
+    await club.noteSighting(amy, '10.0.0.1', 'amy-device', 'Chrome · Windows')
+    await club.noteSighting(bob, '10.0.0.1', 'shared-device', 'Chrome · Windows')
+    await club.noteSighting(amy, '10.0.0.1', 'shared-device', 'Chrome · Windows')
+    expect((await store.get<Sighting[]>(`seen:${amy}`))!.map((s) => s.net)).toEqual(['', ''])
+    expect(logged.filter((event) => event === 'seenSaltMissing')).toHaveLength(1)
+    const found = await report(boss)
+    expect(found.networkOff).toBe(true)
+    expect(found.pairs).toHaveLength(1)
+    expect(found.pairs[0]).toMatchObject({ networks: 0, devices: ['Chrome · Windows'] })
+    expect(found.shared).toEqual([])
   })
 
   it('ignores a device id that is not one the club makes', async () => {

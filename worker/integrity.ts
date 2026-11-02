@@ -12,39 +12,45 @@ import {
   type Sighting,
   type Together,
 } from '../shared/integrity.ts'
-import { randomId } from './auth.ts'
 import type { Sql, Store } from './store.ts'
 
 /**
  * The anti-cheating report's data (`e11-t25`, ARCHITECTURE.md §5.17). Sightings are kept at
  * `seen:<userId>` (at most INTEGRITY_LIMITS.perMember, 90 days): the network as a salted hash of the
- * address (`meta:seenSalt`, a random value made once; the address itself is never written) and the
- * browser as the id in its `tbt_device` cookie. Who played together is read from the club's own
- * history index (`boards_index`, `board_players`), a few indexed queries per pair.
+ * address and the browser as the id in its `tbt_device` cookie. The salt is the Worker secret
+ * `SEEN_SALT` (DEPLOY.md), never the club's storage, so a copy of the storage alone cannot be
+ * walked back to addresses; without it no network is kept, only the browser. The address itself
+ * is never written. Who played together is read from the club's own history index
+ * (`boards_index`, `board_players`), a few indexed queries per pair.
  */
 
 const KEY = 'seen:'
-const SALT_KEY = 'meta:seenSalt'
+/** Shorter than this is no salt at all (an IPv4 address with a guessable salt is easy to walk back) */
+export const SEEN_SALT_MIN = 16
+
+/** The salt to hash addresses with, or null when `SEEN_SALT` is unset or too short to count */
+export function seenSalt(value: string | undefined): string | null {
+  return value && value.length >= SEEN_SALT_MIN ? value : null
+}
 
 export class Sightings {
   private readonly store: Store
   private readonly now: () => number
-  private salt: string | null = null
+  private readonly salt: string | null
 
-  constructor(store: Store, now: () => number) {
+  constructor(store: Store, now: () => number, salt: string | null) {
     this.store = store
     this.now = now
+    this.salt = salt
+  }
+
+  /** Whether networks are kept (`SEEN_SALT` is set); browsers are kept either way */
+  get networks() {
+    return this.salt !== null
   }
 
   private async network(address: string): Promise<string> {
-    if (!address) return ''
-    if (!this.salt) {
-      this.salt = (await this.store.get<string>(SALT_KEY)) ?? null
-      if (!this.salt) {
-        this.salt = randomId(16)
-        await this.store.put(SALT_KEY, this.salt)
-      }
-    }
+    if (!address || !this.salt) return ''
     const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`${this.salt}:${address}`))
     return [...new Uint8Array(digest).slice(0, 8)].map((b) => b.toString(16).padStart(2, '0')).join('')
   }
@@ -148,6 +154,8 @@ export function integrityReport(input: {
   member: (id: string) => IntegrityMember | null
   days: IntegrityDays
   now: number
+  /** Whether networks are kept (`SEEN_SALT` is set) */
+  networks: boolean
 }): IntegrityReport {
   const { sql, member, days, now } = input
   const since = now - days * 86_400_000
@@ -170,5 +178,5 @@ export function integrityReport(input: {
     })
     .sort(comparePairs)
   const seen = [...current.values()].filter((list) => list.some((s) => s.last >= since)).length
-  return { days, generatedAt: now, pairs, more: links.length - looked.length, shared, seen }
+  return { days, generatedAt: now, pairs, more: links.length - looked.length, shared, seen, networkOff: !input.networks }
 }

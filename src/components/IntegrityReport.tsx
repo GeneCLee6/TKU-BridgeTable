@@ -61,6 +61,7 @@ export function IntegrityReport() {
       {error && <ErrorText role="alert">{error}</ErrorText>}
       {report && (
         <>
+          {report.networkOff && <Muted>{g.networkOff}</Muted>}
           <Summary aria-live="polite">
             {g.summary(report.seen, report.pairs.length)}
             {report.more > 0 && ` ${g.more(report.more)}`}

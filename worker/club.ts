@@ -93,6 +93,11 @@ export interface Env {
   HISTORY?: D1Database
   /** "off" stops keeping and reading the D1 copy: the switch back (DEPLOY.md §4.5) */
   HISTORY_D1?: string
+  /**
+   * Salts the anti-cheating report's network hashes (wrangler secret put SEEN_SALT, ARCHITECTURE.md
+   * §5.17); without it no network is kept, only the browser
+   */
+  SEEN_SALT?: string
   /** Signs edge passes (wrangler secret put EDGE_AUTH_SECRET); without it the Worker asks the club every time */
   EDGE_AUTH_SECRET?: string
   /** "off" stops handing out and reading edge passes: the switch back (DEPLOY.md §4.5) */
@@ -216,6 +221,8 @@ export class Club extends DurableObject<Env> implements Connections {
       historyReplica: env.HISTORY ? d1Replica(env.HISTORY) : undefined,
       historyReplicaOff: env.HISTORY_D1 === 'off',
       systemProfileId: env.SYSTEM_PROFILE_ID || undefined,
+      // The anti-cheating report's network salt (§5.17): a secret, never in the club's storage
+      seenSalt: env.SEEN_SALT || undefined,
     })
     this.edgeSecret = edgeSecret(env)
     this.book = new BookService(store)

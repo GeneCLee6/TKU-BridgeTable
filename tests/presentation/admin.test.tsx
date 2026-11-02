@@ -134,6 +134,7 @@ describe('anti-cheating report (e11-t25)', () => {
     days: 30,
     generatedAt: NOW,
     seen: 12,
+    networkOff: false,
     more: 0,
     shared: [{ label: 'a1b2c3', members: 9, lastSeen: NOW }],
     pairs: [
@@ -167,6 +168,15 @@ describe('anti-cheating report (e11-t25)', () => {
     expect(within(section).getByRole('link', { name: '紀錄 1' })).toHaveAttribute('href', '/history/b1')
     expect(within(section).getByText(/bob 在對方打完後才打/)).toBeInTheDocument()
     expect(within(section).getByText(/網路 a1b2c3：9 位社員/)).toBeInTheDocument()
+    expect(within(section).queryByText(/SEEN_SALT/)).not.toBeInTheDocument()
+  })
+
+  it('says when no network is kept because SEEN_SALT is not set', async () => {
+    mocks.api.integrity.mockResolvedValue({ report: { ...REPORT, networkOff: true, shared: [] } })
+    page()
+    const section = await screen.findByRole('region', { name: '防作弊報表' })
+    await userEvent.click(within(section).getByRole('button', { name: '產生報表' }))
+    expect(await within(section).findByText(/還沒有設定網路雜湊的鹽（SEEN_SALT/)).toBeInTheDocument()
   })
 })
 
