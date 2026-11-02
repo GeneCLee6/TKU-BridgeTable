@@ -11,6 +11,7 @@ import { BoardPage } from './pages/BoardPage.tsx'
 import { ChallengeBoardPage } from './pages/ChallengeBoardPage.tsx'
 import { ChallengePage } from './pages/ChallengePage.tsx'
 import { ChallengesPage } from './pages/ChallengesPage.tsx'
+import { DailyPage } from './pages/DailyPage.tsx'
 import { ComparePage } from './pages/ComparePage.tsx'
 import { FeaturedPage } from './pages/FeaturedPage.tsx'
 import { FavoritesPage } from './pages/FavoritesPage.tsx'
@@ -87,6 +88,7 @@ function Routed() {
         <Route path="/" element={<LobbyPage />} />
         <Route path="/table/:tableId" element={<TablePage />} />
         <Route path="/challenges" element={<ChallengesPage />} />
+        <Route path="/daily" element={<DailyPage />} />
         <Route path="/challenges/:challengeId" element={<ChallengePage />} />
         <Route path="/challenges/:challengeId/boards/:seq" element={<ChallengeBoardPage />} />
         <Route path="/matches" element={<MatchesPage />} />

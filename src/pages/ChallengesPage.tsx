@@ -1,4 +1,4 @@
-import { CalendarClock, Plus, Swords } from 'lucide-react'
+import { CalendarClock, CalendarDays, Plus, Swords } from 'lucide-react'
 import { useEffect, useId, useState } from 'react'
 import { Link } from 'react-router-dom'
 import styled from 'styled-components'
@@ -234,6 +234,8 @@ export function ChallengesPage() {
   const [chosen, setChosen] = useState<ChallengeTab | null>(null)
   const [creating, setCreating] = useState(false)
   const [scheduling, setScheduling] = useState(false)
+  // The daily event's page (`e9-t03`): shown to members while it runs, to admins to turn it on
+  const [dailyOn, setDailyOn] = useState<boolean | null>(null)
   const [now, setNow] = useState(() => Date.now())
   const listing = useListParams(LIST_SORTS, 'newest')
 
@@ -257,6 +259,17 @@ export function ChallengesPage() {
       live = false
     }
   }, [latest, message])
+
+  useEffect(() => {
+    let live = true
+    api
+      .daily()
+      .then((r) => live && setDailyOn(r.daily ? r.daily.settings.enabled : null))
+      .catch(() => live && setDailyOn(null))
+    return () => {
+      live = false
+    }
+  }, [])
 
   // The countdowns move once a minute
   useEffect(() => {
@@ -286,6 +299,12 @@ export function ChallengesPage() {
       <Toolbar>
         <PageTitle>{t.navChallenges}</PageTitle>
         <Actions>
+          {(dailyOn || (dailyOn === false && user.admin)) && (
+            <Button as={Link} to="/daily">
+              <CalendarDays size={18} aria-hidden />
+              {t.daily.title}
+            </Button>
+          )}
           {user.admin && (
             <Button type="button" onClick={() => setScheduling(true)}>
               <CalendarClock size={18} aria-hidden />

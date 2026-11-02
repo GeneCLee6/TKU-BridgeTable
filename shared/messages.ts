@@ -1378,6 +1378,14 @@ export const MESSAGES = {
     ja: '週例クラブチャレンジは再戦できません。来週新しいチャレンジが始まります',
     ko: '주간 클럽 도전은 재대결할 수 없습니다. 다음 주에 새 도전이 열립니다',
   },
+  dailyNoRematch: {
+    zh: '每日賽不能再戰，明天 00:00 會自動開新的一場',
+    'zh-Hans': '每日赛不能再战，明天 00:00 会自动开新的一场',
+    en: 'The daily event has no rematch: a new one starts at midnight',
+    vi: 'Giải hằng ngày không có đấu lại: giải mới bắt đầu lúc 00:00',
+    ja: 'デイリー大会は再戦できません。0:00 に新しい大会が始まります',
+    ko: '데일리 대회는 재대결할 수 없습니다. 0시에 새 대회가 열립니다',
+  },
 
   // HTTP
   boardGone: {

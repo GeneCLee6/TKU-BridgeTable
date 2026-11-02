@@ -91,6 +91,16 @@ import {
   parseWeeklySchedule,
   type WeeklyChallengeView,
 } from '../shared/weekly-challenge.ts'
+import {
+  DAILY_BOARDS,
+  DAILY_DAYS,
+  DAILY_HISTORY,
+  DEFAULT_DAILY_SETTINGS,
+  latestDailySlot,
+  parseDailySettings,
+  taiwanDay,
+  type DailyEventView,
+} from '../shared/daily-event.ts'
 import { dealSourceOf, makeDealSet, type DealSet, type DealSetBoard } from '../shared/deal-set.ts'
 import { openingLead, type Traveller } from '../shared/traveller.ts'
 import {
@@ -169,6 +179,7 @@ import { AlarmQueue, manualScheduler, type JobKind, type Scheduler } from './sch
 import { LocalTables, ROBOT_NAME, robotUser, TableService, type TableConfig, type TableStore } from './table-service.ts'
 import type { ClubLink, Person, RemoteTables, TableEntry, Tables } from './tables.ts'
 import { nextWeeklyRun, WEEKLY_KEY, type WeeklyState } from './weekly-challenge.ts'
+import { DAILY_KEY, nextDailyRun, type DailyState } from './daily-event.ts'
 import type { Store } from './store.ts'
 import { parseClientMessage } from '../shared/message-guard.ts'
 import { parseProfile, PROFILE_RECENT, type MemberProfile, type Profile } from '../shared/profile.ts'
@@ -526,6 +537,8 @@ export class ClubService {
   readonly eventLink: EventLink
   /** The weekly club challenge's schedule (`e7-t23`), null until an admin sets one */
   private weekly: WeeklyState | null = null
+  /** The daily club event's settings and the events it created (`e9-t02`), null until an admin sets it */
+  private daily: DailyState | null = null
   /** Two-table team matches, kept in SQL (§5.7); set up over HTTP, played in later batches */
   readonly matches: TeamMatchService
   /** Featured boards (精選牌局, AC-4.5, §5.9) */
@@ -698,6 +711,8 @@ export class ClubService {
     await this.batch(() => this.loadEvents())
     this.weekly = (await this.store.get<WeeklyState>(WEEKLY_KEY)) ?? null
     this.scheduleWeekly()
+    this.daily = (await this.store.get<DailyState>(DAILY_KEY)) ?? null
+    this.scheduleDaily()
   }
 
   /** A table kept in this object's storage takes its state back (brought up to date first) */
@@ -2460,6 +2475,7 @@ export class ClubService {
     if (me.status !== 'accepted') throw new ClubError('challengeNotAccepted')
     // Next week's club challenge comes by itself
     if (c.settings.weekly) throw new ClubError('weeklyNoRematch')
+    if (c.settings.daily) throw new ClubError('dailyNoRematch')
     const others = c.players
       .filter((p) => p.userId !== userId && p.status !== 'declined' && this.users.has(p.userId))
       .map((p) => p.userId)
@@ -2565,8 +2581,10 @@ export class ClubService {
     }
     if (challenge.remindedAt !== undefined && !done.reminded) {
       this.homes.settle(id, 'reminded')
-      for (const userId of remindWhom(challenge))
-        await this.notifications.notify(userId, 'challengeReminder', { challengeId: id })
+      // The daily event reminds nobody: every member is invited, every day
+      if (!challenge.settings.daily)
+        for (const userId of remindWhom(challenge))
+          await this.notifications.notify(userId, 'challengeReminder', { challengeId: id })
     }
   }
 
@@ -2575,8 +2593,8 @@ export class ClubService {
     if (typeof accept !== 'boolean') throw new ClubError('unknownCommand')
     const challenge = this.requireChallenge(challengeId)
     this.applySnapshot(await this.eventFor(challenge.id).answer(userId, accept))
-    // The weekly club challenge's creator is the club: no admin hears every member's answer
-    if (!challenge.settings.weekly)
+    // The weekly and daily events' creator is the club: no admin hears every member's answer
+    if (!challenge.settings.weekly && !challenge.settings.daily)
       await this.notifications.notify(challenge.creatorId, accept ? 'challengeAccepted' : 'challengeDeclined', {
         challengeId: challenge.id,
         username: this.users.get(userId)!.username,
@@ -2632,6 +2650,8 @@ export class ClubService {
   challengeList(userId: string): ChallengeView[] {
     return this.challenges.idsOf(userId).flatMap((id) => {
       const challenge = this.challenges.get(id)
+      // One a day for every member: the daily events have their own page (`dailyEvent`)
+      if (challenge?.settings.daily) return []
       // The boards' rulings count in the standings (`e2-t36`)
       const boards = challenge && eventBoards(this.store.sql, id)
       const view = challenge && challengeView(challenge, userId, (other) => this.publicUserById(other), (b) => boards?.get(b))
@@ -2787,6 +2807,119 @@ export class ClubService {
     await this.addChallenge(challenge)
     for (const p of challenge.players)
       await this.notifications.notify(p.userId, 'challengeWeekly', { challengeId: challenge.id })
+    return challenge.id
+  }
+
+  // ── The daily club event (§5.18, e9-t02, e9-t03) ────────────────────────────────────────────
+
+  /**
+   * What the daily page shows (`e9-t03`): the settings, when the next event is created, today's and
+   * yesterday's events as the member may see them (`challengeFor`, §4: today's standings only once
+   * they played every board) and every earlier day, newest first
+   */
+  dailyEvent(userId: string): DailyEventView {
+    const state = this.daily
+    const runs = state?.runs ?? []
+    const now = this.now()
+    const today = taiwanDay(now)
+    const yesterday = taiwanDay(now - 86_400_000)
+    const viewOf = (day: string) => {
+      const run = runs.find((r) => r.day === day)
+      return run ? this.challengeFor(run.challengeId, userId) : null
+    }
+    const history = runs
+      .filter((r) => r.day !== today)
+      .slice(-DAILY_HISTORY)
+      .reverse()
+      .flatMap((run) => {
+        const c = this.challenges.get(run.challengeId)
+        if (!c) return []
+        const finished = c.players.filter((p) => p.finishedAt !== undefined).length
+        return [{ day: run.day, challengeId: run.challengeId, status: c.status, finished }]
+      })
+    return {
+      settings: state?.settings ?? DEFAULT_DAILY_SETTINGS,
+      next: state ? nextDailyRun(state) : null,
+      today: viewOf(today),
+      yesterday: viewOf(yesterday),
+      history,
+    }
+  }
+
+  /**
+   * An admin turns the daily event on or off and picks the robots' system (`parseDailySettings`).
+   * The next event is at the first midnight after now, so saving never creates one at once
+   */
+  async adminSetDailyEvent(adminId: string, value: unknown): Promise<DailyEventView> {
+    const parsed = parseDailySettings(value, this.daily?.settings)
+    if ('field' in parsed) throw new ClubError('badChallengeSettings', { field: parsed.field })
+    this.daily = { runs: [], ...this.daily, settings: parsed.settings, adminId, savedAt: this.now() }
+    await this.store.put(DAILY_KEY, this.daily)
+    this.scheduleDaily()
+    return this.dailyEvent(adminId)
+  }
+
+  /** One job, keyed by when the settings were saved, as the weekly one (`scheduleWeekly`) */
+  private scheduleDaily() {
+    const state = this.daily
+    const at = state && nextDailyRun(state)
+    if (!state || at === null || at === undefined) return
+    const savedAt = state.savedAt
+    this.scheduler.add(`daily:${savedAt}`, 'daily', Math.max(0, at - this.now()), () => this.dailyDue(savedAt))
+  }
+
+  /**
+   * The daily job: the midnight is noted first (a failure halfway never creates two), then the
+   * event is created and the job waits for the next midnight. An object that slept through
+   * several days creates today's event only, counted from today's midnight
+   */
+  private async dailyDue(savedAt: number) {
+    const state = this.daily
+    if (!state || state.savedAt !== savedAt) return
+    const at = nextDailyRun(state)
+    if (at === null) return
+    const now = this.now()
+    if (now >= at) {
+      const slot = latestDailySlot(now)
+      state.lastRunAt = slot
+      await this.store.put(DAILY_KEY, state)
+      const id = await this.createDailyEvent(state, slot)
+      if (id) {
+        state.runs.push({ day: taiwanDay(slot), challengeId: id })
+        await this.store.put(DAILY_KEY, state)
+        this.broadcast()
+      }
+    }
+    this.scheduleDaily()
+  }
+
+  /**
+   * Creates the day's event: a challenge of 8 boards in matchpoints for every member, ending at the
+   * next midnight (`createdAt` is the midnight, whenever the job ran), made as the weekly one is
+   * (`createWeeklyChallenge`): the admin who saved the settings is its creator, or the oldest admin.
+   * Nobody is notified: it comes every day and the daily page shows it. Null when there is nobody to invite
+   */
+  private async createDailyEvent(state: DailyState, slot: number): Promise<string | null> {
+    const members = [...this.users.values()].sort((a, b) => a.createdAt - b.createdAt)
+    const creator = members.find((u) => u.admin && u.id === state.adminId) ?? members.find((u) => u.admin)
+    if (!creator) return null
+    const invitees = members.filter((u) => u.id !== creator.id).map((u) => u.id)
+    if (!invitees.length) return null
+    const { robotKind } = state.settings
+    const settings: ChallengeSettings = {
+      // Head to head (a club of two) matchpoints mean little: IMPs instead
+      scoring: invitees.length > 1 ? 'mp' : 'imp',
+      robotKind,
+      bestHand: false,
+      justDeclare: false,
+      days: DAILY_DAYS,
+      ranking: 'club',
+      daily: true,
+    }
+    const deals = challengeDeals({ count: DAILY_BOARDS, bestHand: false, justDeclare: false, robotKind }, this.random)
+    if (!deals) return null
+    const challenge = newChallenge({ id: randomId(8), creatorId: creator.id, invitees, settings, deals, now: slot })
+    await this.addChallenge(challenge)
     return challenge.id
   }
 
