@@ -2,6 +2,7 @@
 import { ChallengeStore } from '../../worker/challenges.ts'
 import { EventHost } from '../../worker/event-host.ts'
 import { RemoteEvents, type EventRpc } from '../../worker/events.ts'
+import { RemoteMatches, type MatchRpc } from '../../worker/match-events.ts'
 import { noLog } from '../../worker/log.ts'
 import { AlarmQueue, manualScheduler, type Scheduler } from '../../worker/scheduler.ts'
 import { ClubService, type ClubConfig, type Connections } from '../../worker/service.ts'
@@ -11,9 +12,10 @@ import { memorySql } from './sqlite.ts'
 /**
  * The challenge and team match tests run twice (`vite.config.ts`, the project `event-objects`):
  * as they are, every challenge in the club's object (the switch off, the default), and with
- * `TBT_EVENT_OBJECTS=on`, every challenge in its own `EventObject` (H2b, ARCHITECTURE.md §5.12).
+ * `TBT_EVENT_OBJECTS=on`, every challenge (H2b) and team match (H2c) in its own `EventObject`
+ * (ARCHITECTURE.md §5.12; a match's object is keyed `match:<id>`).
  * Each object is an `EventHost` with its own storage and SQLite database, reached through
- * `RemoteEvents` behind a structured clone (as RPC copies everything); its jobs go to the test's
+ * `RemoteEvents` or `RemoteMatches` behind a structured clone (as RPC copies everything); its jobs go to the test's
  * own queue (`schedule`), so the tests run them as they always did.
  */
 export const EVENT_OBJECTS = process.env.TBT_EVENT_OBJECTS === 'on'
@@ -56,6 +58,10 @@ function makeHost(world: World, parts: Omit<FakeEventObject, 'host'>): EventHost
         if (!world.club) throw new Error('no club')
         await world.club.eventLink.changed(clone(snapshot))
       },
+      matchChanged: async (snapshot) => {
+        if (!world.club) throw new Error('no club')
+        await world.club.eventLink.matchChanged(clone(snapshot))
+      },
     },
     // An object's jobs are its own, and gone when it is evicted (they are scheduled again on load)
     scheduler: world.schedule ? manualScheduler(world.schedule) : world.scheduler,
@@ -76,8 +82,8 @@ async function objectOf(world: World, id: string): Promise<FakeEventObject> {
   return found
 }
 
-function stub(world: World, id: string): EventRpc {
-  return new Proxy({} as EventRpc, {
+function stub(world: World, id: string): EventRpc & MatchRpc {
+  return new Proxy({} as EventRpc & MatchRpc, {
     get:
       (_, name: string) =>
       async (...args: unknown[]) => {
@@ -110,6 +116,8 @@ export function clubService(store: Store, connections: Connections, config: Club
   const club = new ClubService(store, connections, {
     ...config,
     eventObjects: new RemoteEvents((id) => stub(world, id)),
+    // A team match's object is named apart from a challenge's (`match:<id>`), as in production
+    matchObjects: new RemoteMatches((id) => stub(world, matchKey(id))),
     eventObjectsOn: config.eventObjectsOn ?? true,
   })
   world.club = club
@@ -158,3 +166,6 @@ export function writeChallenge(club: ClubService, id: string, write: (store: Cha
   const object = eventObject(club, id)
   if (object) write(new ChallengeStore(object.sql))
 }
+
+/** The key of a team match's object in `eventObjects` (H2c): its own name, apart from the challenges' */
+export const matchKey = (matchId: string) => `match:${matchId}`

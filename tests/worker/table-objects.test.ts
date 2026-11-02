@@ -524,7 +524,7 @@ describe('a team match in two table objects (§5.8, §5.10)', () => {
   /** Amy (open room South) and Ben (closed room South) with six robots, `boards` boards, ready to start */
   async function ready(boards = 4) {
     const [amy, ben] = [await member('amy'), await member('ben')]
-    const { id } = club.matches.create(amy, { settings: { boards } })
+    const { id } = await club.matches.create(amy, { settings: { boards } })
     await club.matches.act(amy, { type: 'matchInvite', matchId: id, room: 'closed', seat: 'S', userId: ben })
     await club.matches.act(ben, { type: 'matchAnswer', matchId: id, accept: true })
     for (const room of ['open', 'closed'] as const)

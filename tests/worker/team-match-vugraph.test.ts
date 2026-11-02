@@ -17,7 +17,7 @@ beforeEach(async () => {
 /** A match of four boards: Amy in the open room's South, Ben in the closed room's South, robots elsewhere */
 async function started({ delay = false } = {}) {
   const m = await t.match({ boards: 4, seats: { ben: at('closed', 'S') } })
-  if (delay) t.club().matches.update(m.amy, m.id, { delay: true })
+  if (delay) await t.club().matches.update(m.amy, m.id, { delay: true })
   await t.send(m.amy, { type: 'startMatch', matchId: m.id })
   return { ...m, open: t.tableIdOf(m.id, 'open'), closed: t.tableIdOf(m.id, 'closed') }
 }
@@ -87,8 +87,8 @@ describe('watching one trick behind (e8-t19)', () => {
   it('is the host’s setting, off unless turned on, and only a yes or a no', async () => {
     const m = await t.match({ boards: 4 })
     expect(t.club().matches.get(m.id, m.amy)!.settings.delay).toBe(false)
-    expect(() => t.club().matches.update(m.amy, m.id, { delay: 'yes' })).toThrow(expect.objectContaining({ code: 'badMatchSettings', params: { field: 'delay' } }))
-    expect(t.club().matches.update(m.amy, m.id, { delay: true }).settings.delay).toBe(true)
+    await expect(t.club().matches.update(m.amy, m.id, { delay: 'yes' })).rejects.toThrow(expect.objectContaining({ code: 'badMatchSettings', params: { field: 'delay' } }))
+    expect((await t.club().matches.update(m.amy, m.id, { delay: true })).settings.delay).toBe(true)
   })
 
   it('shows the watchers only the tricks before the last finished one, on the Vugraph page and at the table', async () => {

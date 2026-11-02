@@ -557,6 +557,8 @@ export interface HealthStatus {
   online: number
   /** Challenges in their own objects (H2b), when the club has them */
   events?: { objects: number; unconfirmed: number }
+  /** The same for the team matches (H2c) */
+  matchEvents?: { objects: number; unconfirmed: number }
   /** Members seated at a table, and the robots seated */
   playing: number
   robots: number

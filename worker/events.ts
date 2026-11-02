@@ -1,6 +1,7 @@
 import { AppError, type MessageCode, type MessageParams } from '../shared/messages.ts'
 import { ClubError } from './errors.ts'
 import type { Challenge, ChallengeResult } from './challenges.ts'
+import type { MatchSnapshot } from './match-events.ts'
 import type { Sql } from './store.ts'
 
 /**
@@ -44,9 +45,13 @@ export interface EventApi {
   forget(userId: string): Promise<EventSnapshot>
 }
 
-/** What a challenge tells the club on its own: its job reminded or settled it */
+/**
+ * What an event tells the club on its own: a challenge's job reminded or settled it; a match's
+ * change told again in case the answer that carried it was lost (H2c)
+ */
 export interface EventLink {
   changed(snapshot: EventSnapshot): Promise<void>
+  matchChanged(snapshot: MatchSnapshot): Promise<void>
 }
 
 /** The club's way to reach a challenge by id */
@@ -77,7 +82,10 @@ export type EventRpc = {
 }
 
 /** Runs a call and wraps the `ClubError` it threw, for RPC; any other error is a bug and is thrown */
-export async function eventWire(snapshot: () => EventSnapshot | null, run: () => Promise<unknown>): Promise<EventWire> {
+export async function eventWire<S = EventSnapshot>(
+  snapshot: () => S | null,
+  run: () => Promise<unknown>,
+): Promise<{ snapshot: S | null; error?: EventWire['error'] }> {
   try {
     await run()
     return { snapshot: snapshot() }

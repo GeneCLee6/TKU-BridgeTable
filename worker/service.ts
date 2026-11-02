@@ -120,8 +120,10 @@ import { PROFILE_ID } from './profiles.ts'
 import { FeaturedService } from './featured.ts'
 import { TeamMatchService, type MatchPlayAction } from './team-match-service.ts'
 import { ReplicaSync, type ReplicaDb } from './history-replica.ts'
-import { isMatchPlayer, type RoomClock } from './team-match-flow.ts'
-import { TeamMatchStore } from './team-matches.ts'
+import { isMatchPlayer, matchMembers, type RoomClock } from './team-match-flow.ts'
+import { LocalMatches, type MatchStep } from './match-event.ts'
+import { MatchHomes, type MatchApi, type MatchSnapshot, type RemoteMatches } from './match-events.ts'
+import { TeamMatchStore, type TeamMatch } from './team-matches.ts'
 import { teamTable } from './team-mode.ts'
 import { parseRulingReason, ROOMS, TEAM_MATCH_LIMITS, VUGRAPH_CHAT_MAX, type MatchVugraph, type Room, type TeamMatchView, type VugraphRoom } from '../shared/team-match.ts'
 import { parseRulingRequest } from '../shared/board-events.ts'
@@ -384,6 +386,11 @@ export interface ClubConfig {
    */
   eventObjectsOn?: boolean
   /**
+   * The team matches' own Durable Objects (the same `EventObject` class, H2c, §5.12), moved there
+   * by the same switch (`eventObjectsOn`). Without it every match lives in this object (`LocalMatches`)
+   */
+  matchObjects?: RemoteMatches
+  /**
    * The system profile whose 淡江橋館 rules TKB follows in the club's system (BridgeHall e7-t03,
    * `worker/system-spec.ts`): the club's (CLUB_PROFILE_ID) unless set (`SYSTEM_PROFILE_ID`)
    */
@@ -412,6 +419,8 @@ const MOVE_RETRY_MS = 60_000
 const EVENTS_KEY = 'meta:events'
 const EVENTS_IN_CLUB = 1
 const EVENTS_IN_OBJECTS = 2
+/** `meta:matches`: the same for the team matches (H2c): 1 in the club, 2 once every open one lives in its own object */
+const MATCHES_KEY = 'meta:matches'
 /** Boards indexed per step of the backfill; the position is saved after each step */
 const BACKFILL_BATCH = 100
 /** How many closed tables the club remembers, to drop their reports that arrive late (§5.10) */
@@ -539,8 +548,17 @@ export class ClubService {
   private weekly: WeeklyState | null = null
   /** The daily club event's settings and the events it created (`e9-t02`), null until an admin sets it */
   private daily: DailyState | null = null
-  /** Two-table team matches, kept in SQL (§5.7); set up over HTTP, played in later batches */
+  /**
+   * Two-table team matches, kept in SQL (§5.7): the matches that live in this object, and the
+   * club's copy of those in their own `EventObject` (H2c, §5.12). Every page and rule reads this
+   */
   readonly matches: TeamMatchService
+  /** Which matches live in their own object, and which ended matches the club already closed up */
+  private readonly matchHomes: MatchHomes
+  /** The matches that live in this object */
+  private readonly localMatches: LocalMatches
+  /** The matches' own objects, when configured (even switched off: those not brought back yet are reached there) */
+  private readonly matchObjects?: RemoteMatches
   /** Featured boards (精選牌局, AC-4.5, §5.9) */
   readonly featured: FeaturedService
   /** Members' saved practice settings (`e10-t16`, §5.11) */
@@ -601,7 +619,17 @@ export class ClubService {
       live: (matchId) => this.matchLive(matchId),
       boardDetails: (matchId) => eventBoards(this.store.sql, matchId),
       mayUseTku: (id) => this.mayUseTku(id),
+      add: (match) => this.addMatch(match),
+      write: (matchId, step) => this.writeMatch(matchId, step),
     })
+    this.matchHomes = new MatchHomes(store.sql)
+    this.localMatches = new LocalMatches({ store: this.matches.store, now: this.now })
+    this.matchObjects = config.matchObjects
+    if (this.matchObjects)
+      this.matchObjects.attach = {
+        snapshot: (snapshot) => this.applyMatchSnapshot(snapshot),
+        copy: (id) => (this.matchHomes.rev(id) === undefined ? null : this.matches.store.get(id)),
+      }
     this.featured = new FeaturedService(store, {
       now: this.now,
       userById: (id) => this.publicUserById(id),
@@ -622,7 +650,10 @@ export class ClubService {
     }
     if (config.historyReplica)
       this.replica = new ReplicaSync({ store, db: config.historyReplica, scheduler: this.scheduler, now: this.now, log: this.log })
-    this.eventLink = { changed: (snapshot) => this.eventChanged(snapshot) }
+    this.eventLink = {
+      changed: (snapshot) => this.eventChanged(snapshot),
+      matchChanged: (snapshot) => this.matchChanged(snapshot),
+    }
     this.localEvents = new LocalEvents({
       store: this.challenges,
       scheduler: this.scheduler,
@@ -690,6 +721,7 @@ export class ClubService {
     this.challenges.createTables()
     this.homes.createTables()
     this.matches.store.createTables()
+    this.matchHomes.createTables()
     this.directs.createTables()
     const schema = (await this.store.get<number>('meta:schema')) ?? 1
     if (schema < 2) await this.migrate()
@@ -797,6 +829,9 @@ export class ClubService {
     else if (this.eventObjects) await this.bringEventsBack()
     for (const id of this.challenges.openIds())
       if (this.homes.rev(id) === undefined) this.localEvents.event(id).schedule()
+    // The team matches the same way (H2c); a match has no job of its own to schedule
+    if (this.matchObjects && this.config.eventObjectsOn) await this.moveMatchesOut()
+    else if (this.matchObjects) await this.bringMatchesBack()
   }
 
   /**
@@ -833,12 +868,90 @@ export class ClubService {
       await this.store.put(EVENTS_KEY, EVENTS_IN_OBJECTS)
   }
 
-  /** Moves the challenges whose object did not answer again in a minute (either way: the switch decides) */
+  /**
+   * Moves the challenges and team matches whose object did not answer again in a minute (either
+   * way: the switch decides). Moving is idempotent, so one job does both
+   */
   private retryEventMove() {
     this.scheduler.add('migrate:events', 'migrate', MOVE_RETRY_MS, async () => {
-      await this.batch(() => (this.config.eventObjectsOn ? this.moveEventsOut() : this.bringEventsBack()))
+      await this.batch(async () => {
+        if (this.config.eventObjectsOn) {
+          if (this.eventObjects) await this.moveEventsOut()
+          if (this.matchObjects) await this.moveMatchesOut()
+        } else {
+          if (this.eventObjects) await this.bringEventsBack()
+          if (this.matchObjects) await this.bringMatchesBack()
+        }
+      })
       this.broadcast()
     })
+  }
+
+  /**
+   * `meta:matches` 1 → 2 (H2c, §5.12): every open team match kept in the club moves into its own
+   * `EventObject`, as the challenges do (`moveEventsOut`): marked as living there first
+   * (`match_homes`, not yet confirmed), then adopted by the object from the club's copy, its answer
+   * written back. One whose object fails is tried again later (and adopts the copy anyway the first
+   * time the club writes to it). Matches that already ended never change and stay in the club
+   */
+  private async moveMatchesOut() {
+    const objects = this.matchObjects!
+    const homes = this.matchHomes
+    for (const id of this.matches.store.openIds()) if (homes.rev(id) === undefined) homes.setRev(id, -1)
+    const pending = homes.unconfirmed()
+    let failed = 0
+    await Promise.all(
+      pending.map(async (id) => {
+        const copy = this.matches.store.get(id)
+        if (!copy) return homes.drop(id)
+        try {
+          this.applyMatchSnapshot(await objects.get(id).adopt(copy))
+          await this.settleMatch(id)
+        } catch (error) {
+          failed++
+          this.log(crashEntry('moveMatchesOut', error))
+        }
+      }),
+    )
+    if (pending.length) this.log({ event: 'eventsMoved', kind: 'matches', to: 'objects', moved: pending.length - failed, failed })
+    if (failed) return this.retryEventMove()
+    if (((await this.store.get<number>(MATCHES_KEY)) ?? EVENTS_IN_CLUB) < EVENTS_IN_OBJECTS)
+      await this.store.put(MATCHES_KEY, EVENTS_IN_OBJECTS)
+  }
+
+  /**
+   * The switch back for the team matches (`EVENT_OBJECTS` not `on`), as `bringEventsBack`: the
+   * object hands the match over and keeps still, the club writes it over its copy and forgets the
+   * object is its home, the object forgets it. One whose object fails stays there, reached there,
+   * and is tried again later; `meta:matches` goes back to 1 once none is left
+   */
+  private async bringMatchesBack() {
+    const objects = this.matchObjects!
+    const ids = this.matchHomes.ids()
+    let failed = 0
+    for (const id of ids) {
+      try {
+        const match = await objects.handOver(id)
+        this.store.sql.transaction(() => {
+          if (match) this.matches.store.replace(match)
+          this.matchHomes.drop(id)
+        })
+        await this.settleMatch(id)
+      } catch (error) {
+        failed++
+        this.log(crashEntry('bringMatchesBack', error))
+        continue
+      }
+      try {
+        await objects.release(id)
+      } catch (error) {
+        // It keeps still (frozen) and is wiped the next time it adopts
+        this.log(crashEntry('releaseMatch', error))
+      }
+    }
+    if (ids.length) this.log({ event: 'eventsMoved', kind: 'matches', to: 'club', moved: ids.length - failed, failed })
+    if (failed) return this.retryEventMove()
+    if ((await this.store.get<number>(MATCHES_KEY)) === EVENTS_IN_OBJECTS) await this.store.put(MATCHES_KEY, EVENTS_IN_CLUB)
   }
 
   /**
@@ -1630,8 +1743,16 @@ export class ClubService {
         this.log(crashEntry('forgetInChallenge', error))
       }
     }
-    // A match they host that has not started is cancelled; their seats are emptied (§5.7)
-    this.matches.store.forget(user.id, this.now())
+    // A match they host that has not started is cancelled; their seats are emptied (§5.7), where each match lives (H2c)
+    this.matches.store.forgetChat(user.id)
+    for (const id of this.matches.store.openIdsOf(user.id)) {
+      try {
+        await this.writeMatch(id, { kind: 'forget', userId: user.id })
+      } catch (error) {
+        // Their account is gone either way; the match only keeps their name in its seat
+        this.log(crashEntry('forgetInMatch', error))
+      }
+    }
     this.connections.disconnect(user.id)
   }
 
@@ -2137,6 +2258,8 @@ export class ClubService {
       online: this.connections.onlineUserIds().length,
       // How many challenges live in their own objects (H2b), when there are objects to live in
       ...(this.eventObjects && { events: this.homes.counts() }),
+      // And how many team matches (H2c)
+      ...(this.matchObjects && { matchEvents: this.matchHomes.counts() }),
     }
   }
 
@@ -2588,6 +2711,87 @@ export class ClubService {
     }
   }
 
+  // ── Where each team match lives (H2c, §5.12) ────────────────────────────────────────────────
+
+  /** The match, where it lives: its own object (`match_homes` has it), or this one */
+  private matchFor(id: string): MatchApi {
+    return this.matchObjects && this.matchHomes.rev(id) !== undefined ? this.matchObjects.get(id) : this.localMatches.get(id)
+  }
+
+  /**
+   * A new match goes where the switch says. Into its own object: the club's copy and its home are
+   * written first, so from then on the club reaches it there; if the object does not answer, it
+   * adopts the copy the next time it is written to, or when the move is tried again
+   */
+  private async addMatch(match: TeamMatch) {
+    if (!this.matchObjects || !this.config.eventObjectsOn) {
+      await this.localMatches.get(match.id).adopt(match)
+      return
+    }
+    this.store.sql.transaction(() => {
+      this.matches.store.replace(match)
+      this.matchHomes.setRev(match.id, -1)
+    })
+    try {
+      this.applyMatchSnapshot(await this.matchObjects.get(match.id).adopt(match))
+    } catch (error) {
+      this.log(crashEntry('adoptMatch', error))
+      this.retryEventMove()
+    }
+  }
+
+  /** One change to a match, where it lives; its answer is written over the club's copy (`TeamMatchDeps.write`) */
+  private async writeMatch(id: string, step: MatchStep) {
+    this.applyMatchSnapshot(await this.matchFor(id).step(step))
+  }
+
+  /**
+   * A match in its own object as it answered or reported: written over the club's copy, unless the
+   * club already wrote a newer one. Nothing to write for one that lives here: the copy is the match
+   */
+  private applyMatchSnapshot({ match, rev }: MatchSnapshot) {
+    const known = this.matchHomes.rev(match.id)
+    if (known === undefined || rev <= known) return
+    this.store.sql.transaction(() => {
+      this.matches.store.replace(match)
+      this.matchHomes.setRev(match.id, rev)
+    })
+  }
+
+  /**
+   * A match in its own object tells a change again (`EventLink.matchChanged`: the answer that
+   * carried it may have been lost). Only while it lives there; the club catches up from its state
+   */
+  private async matchChanged(snapshot: MatchSnapshot) {
+    const known = this.matchHomes.rev(snapshot.match.id)
+    if (known === undefined || snapshot.rev <= known) return
+    this.applyMatchSnapshot(snapshot)
+    await this.batch(() => this.settleMatch(snapshot.match.id))
+    this.matches.push(snapshot.match.id)
+    this.broadcast()
+  }
+
+  /**
+   * What the club does about a match's state, however often or late it hears of it (H2c): every
+   * board done in both rooms (or ruled on) is shown to everyone (only the records still kept back
+   * change); a match that ended, once (`match_settled`): a finished one is announced to everyone in
+   * it, and its tables are told and its every board shown (`matchTablesEnded`). Noted first, so a
+   * failure halfway never does it twice
+   */
+  private async settleMatch(id: string) {
+    const match = this.matches.store.get(id)
+    if (!match) return
+    const done = match.boards.flatMap((b) =>
+      b.ruling || (b.open && b.closed) ? [b.open?.boardId, b.closed?.boardId].filter((x): x is string => x !== undefined) : [],
+    )
+    if (done.length) await this.revealRecords(revealBoards(this.store.sql, done, this.now()))
+    if ((match.status !== 'finished' && match.status !== 'abandoned') || this.matchHomes.ended(id)) return
+    this.matchHomes.settleEnd(id)
+    if (match.status === 'finished')
+      for (const userId of matchMembers(match)) await this.notifications.notify(userId, 'matchFinished', { matchId: id })
+    await this.matchTablesEnded(id)
+  }
+
   /** An invitee accepts or declines (e7-t06); the creator is told either way */
   private async answerChallenge(userId: string, challengeId: unknown, accept: unknown) {
     if (typeof accept !== 'boolean') throw new ClubError('unknownCommand')
@@ -3031,7 +3235,14 @@ export class ClubService {
       throw failed.reason instanceof AppError ? failed.reason : new ClubError('serverError', {}, 500)
     }
     for (const result of opened) if (result.status === 'fulfilled') this.applyEntry(result.value)
-    await this.matches.started(match.id, deals, ids)
+    try {
+      await this.matches.started(match.id, deals, ids)
+    } catch (error) {
+      // The match's own object did not take the start (H2c): it stays set up, and both rooms close
+      if (this.matches.store.get(match.id)?.status === 'setup')
+        for (const room of ROOMS) await this.closeTable(ids[room]).catch(() => undefined)
+      throw error instanceof AppError ? error : new ClubError('serverError', {}, 500)
+    }
   }
 
   /**
@@ -3066,21 +3277,15 @@ export class ClubService {
    */
   private async teamBoardFinished(event: Extract<EventReport, { kind: 'team' }>) {
     if (!event.result) return
-    const outcome = this.matches.addResult(event.matchId, event.seq, event.room, event.result)
+    // Where the match lives it is written once; the last board finishes it there (H2c). A match
+    // whose object does not answer throws: the table offers the board again (its outbox)
+    const outcome = await this.matches.addResult(event.matchId, event.seq, event.room, event.result)
     if (!outcome) return
-    await this.revealRecords(revealBoards(this.store.sql, outcome.reveal, this.now()))
-    if (outcome.finished) await this.endMatch(event.matchId)
+    // The board's records shown once both rooms played it; a finished match closed up (`e8-t11`):
+    // its tables told (nothing more is dealt; each closes once its people leave), any board still
+    // kept back shown to everyone, and everyone in it told
+    await this.settleMatch(event.matchId)
     this.matches.push(event.matchId)
-  }
-
-  /**
-   * A match whose every board is done (`e8-t11`): finished, its tables told (nothing more is dealt;
-   * each closes once its people leave), any board still kept back shown to everyone, and everyone
-   * in it told
-   */
-  private async endMatch(matchId: string) {
-    await this.matches.finish(matchId)
-    await this.matchTablesEnded(matchId)
   }
 
   /** The match ended (finished or abandoned): its tables are told, and every board of it is shown to everyone */
@@ -3172,15 +3377,15 @@ export class ClubService {
     switch (message.type) {
       case 'matchRule': {
         // e8-t15: the room playing the board puts it away; the board is done, so its records are shown
-        const { seq, reveal, finished } = this.matches.rule(userId, message)
+        // The last board finishes the match where it lives (H2c); the club closes it up from its state
+        const { seq } = await this.matches.rule(userId, message)
         for (const entry of Object.values(this.matchTables(matchId)))
           this.applyResult(entry.id, await this.tables.get(entry.id).matchUpdate({ ruled: seq }))
-        await this.revealRecords(revealBoards(this.store.sql, reveal, this.now()))
-        if (finished) await this.endMatch(matchId)
+        await this.settleMatch(matchId)
         break
       }
       case 'matchPause': {
-        const { changed } = this.matches.pause(userId, matchId, message.paused)
+        const { changed } = await this.matches.pause(userId, matchId, message.paused)
         if (changed)
           for (const entry of Object.values(this.matchTables(matchId)))
             this.applyResult(entry.id, await this.tables.get(entry.id).matchUpdate({ paused: message.paused }))
@@ -3188,7 +3393,8 @@ export class ClubService {
       }
       case 'matchAbandon':
         await this.matches.abandon(userId, matchId)
-        await this.matchTablesEnded(matchId)
+        // Its tables told and its boards shown, once (`settleMatch`)
+        await this.settleMatch(matchId)
         break
       case 'matchReplace': {
         // Someone watching the match has seen its boards: they may not come in (e11-t13)
@@ -3220,7 +3426,7 @@ export class ClubService {
       }
       case 'matchNextSegment': {
         // e8-t21: each room takes on its seats as the captains left them (a pair may have changed rooms) and deals on
-        const next = this.matches.nextSegment(userId, matchId)
+        const next = await this.matches.nextSegment(userId, matchId)
         for (const [room, entry] of Object.entries(this.matchTables(matchId)) as [Room, TableEntry][]) {
           const seats = Object.fromEntries(
             SEATS.map((seat) => {

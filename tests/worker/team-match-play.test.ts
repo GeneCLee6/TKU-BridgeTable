@@ -103,7 +103,7 @@ async function refused(userId: string, message: ClientMessage) {
  */
 async function match({ boards = 4, seats = {} as Record<string, MatchSeat>, scoring = 'imp' as 'imp' | 'bam' } = {}) {
   const amy = await member('amy')
-  const { id } = club.matches.create(amy, { settings: { boards, scoring } })
+  const { id } = await club.matches.create(amy, { settings: { boards, scoring } })
   const people: Record<string, string> = { amy }
   for (const [name, seat] of Object.entries(seats)) {
     const userId = await member(name)
@@ -200,7 +200,7 @@ describe('starting a team match (e8-t07)', () => {
 
   it('starts over HTTP too, and keeps anyone from playing two matches at once', async () => {
     const { id, amy, people } = await match({ seats: { ben: at('closed', 'S') } })
-    const { id: second } = club.matches.create(people.ben, {})
+    const { id: second } = await club.matches.create(people.ben, {})
     for (const s of MATCH_SEATS)
       if (!(s.room === 'open' && s.seat === 'S')) await club.matches.act(people.ben, { type: 'matchRobot', matchId: second, ...s })
     const started = await club.startMatchRequest(amy, id)
@@ -424,10 +424,10 @@ describe('the end of a match (e8-t11) and its boards in the history (e8-t13)', (
     const { id, amy } = await match({ boards: 4, seats: {} })
     await send(amy, { type: 'startMatch', matchId: id })
     const result = { boardId: 'x1', scoreNS: 420, playedAt: time }
-    expect(club.matches.addResult(id, 1, 'open', result)).toEqual({ reveal: [], finished: false })
-    expect(club.matches.addResult(id, 1, 'open', { ...result, boardId: 'x2' })).toBeNull()
-    expect(club.matches.addResult(id, 9, 'open', result)).toBeNull()
-    expect(club.matches.addResult(id, 1, 'closed', { ...result, boardId: 'y1' })).toEqual({ reveal: ['x1', 'y1'], finished: false })
+    expect(await club.matches.addResult(id, 1, 'open', result)).toEqual({ reveal: [], finished: false })
+    expect(await club.matches.addResult(id, 1, 'open', { ...result, boardId: 'x2' })).toBeNull()
+    expect(await club.matches.addResult(id, 9, 'open', result)).toBeNull()
+    expect(await club.matches.addResult(id, 1, 'closed', { ...result, boardId: 'y1' })).toEqual({ reveal: ['x1', 'y1'], finished: false })
     expect(club.matches.store.get(id)!.boards[0]).toMatchObject({ open: { boardId: 'x1' }, closed: { boardId: 'y1' } })
   })
 
