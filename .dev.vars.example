@@ -10,7 +10,12 @@ EDGE_AUTH_SECRET=
 # least 16 characters; leave empty and only browsers are compared
 SEEN_SALT=
 
-# Email binding and email password reset (DEPLOY.md §4.13): a Resend API key and a sender on a
+# Cloudflare Turnstile on registering (DEPLOY.md §4.13): on only when both are set. Cloudflare's
+# test keys always pass: site key 1x00000000000000000000AA, secret 1x0000000000000000000000000000000AA
+TURNSTILE_SITE_KEY=
+TURNSTILE_SECRET_KEY=
+
+# Email binding and email password reset (DEPLOY.md §4.14): a Resend API key and a sender on a
 # domain verified there; leave either empty and email is off
 RESEND_API_KEY=
 MAIL_FROM=

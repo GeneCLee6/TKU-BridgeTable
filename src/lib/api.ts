@@ -21,6 +21,7 @@ import type {
   Me,
   MemberChange,
   Permission,
+  RegisterOptions,
   RegisterResult,
   RobotSpeed,
 } from '../../shared/protocol.ts'
@@ -89,8 +90,10 @@ export const api = {
   health: () => request<HealthStatus>('/api/health'),
   login: (username: string, password: string) => post<{ user: Me }>('/api/login', { username, password }),
   /** The first account signs in at once; later ones wait for an admin to approve them */
-  register: (username: string, password: string, inviteCode: string, note: string) =>
-    post<RegisterResult>('/api/register', { username, password, inviteCode, note, site: 'table' }),
+  register: (username: string, password: string, inviteCode: string, note: string, turnstileToken?: string) =>
+    post<RegisterResult>('/api/register', { username, password, inviteCode, note, site: 'table', turnstileToken }),
+  /** What 申請加入 needs before it is sent (e1-t33): Turnstile's site key, or null when it is off */
+  registerOptions: () => request<RegisterOptions>('/api/register/options'),
   /** 忘記密碼, step 1 (e1-t36): asks the admins, with the club's invite code; not for admin accounts */
   requestPasswordReset: (username: string, inviteCode: string) =>
     post<{ ok: true }>('/api/password/reset/request', { username, inviteCode }),

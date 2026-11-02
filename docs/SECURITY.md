@@ -24,10 +24,11 @@
 | 指令 | 值 | 為什麼 |
 | --- | --- | --- |
 | `default-src` | `'self'` | 其他沒列的都只能來自本站 |
-| `script-src` | `'self' 'wasm-unsafe-eval'` | Vite 產物都是外部檔案（`index.html` 沒有行內 script）；DDS（`bridge-dds`）在 Web Worker 裡用 `WebAssembly.instantiate` 編譯內嵌的 WASM，需要 `'wasm-unsafe-eval'`（不是 `'unsafe-eval'`） |
+| `script-src` | `'self' 'wasm-unsafe-eval' https://challenges.cloudflare.com` | Vite 產物都是外部檔案（`index.html` 沒有行內 script）；DDS（`bridge-dds`）在 Web Worker 裡用 `WebAssembly.instantiate` 編譯內嵌的 WASM，需要 `'wasm-unsafe-eval'`（不是 `'unsafe-eval'`）；Cloudflare Turnstile 的 script（`e1-t33`，`TURNSTILE_ORIGIN`），只在申請加入、而且 Worker 給了 site key 時才載入 |
 | `style-src` | `'self' 'unsafe-inline'` | styled-components 插 `<style>`、React 的 `style` 屬性；只開給樣式，script 沒有 `'unsafe-inline'` |
 | `img-src` | `'self' data: blob:` | 頭像與圖片都是本站的 `/api/avatar/`、`/api/files/`；裁切頭像、分享卡用 `blob:` |
 | `font-src` | `'self' data:` | Noto Sans TC 隨網站打包；小檔可能被 Vite 內嵌成 `data:` |
+| `frame-src` | `https://challenges.cloudflare.com` | Turnstile 在 iframe 裡做驗證（`e1-t33`）；其他網站一律不能被框進來 |
 | `connect-src` | `'self'` | API 與 WebSocket 都在本站（CSP Level 3 的 `'self'` 也涵蓋同主機的 `wss:`）；淡江橋館走它自己的網域（Vercel 轉發），不需要放行 |
 | `worker-src` | `'self' blob:` | DDS 的 Web Worker、Service Worker（`sw.js`） |
 | `object-src`／`base-uri`／`form-action`／`frame-ancestors` | `'none'`／`'self'`／`'self'`／`'none'` | 不能嵌入別的網站、不能被別的網站框住 |
@@ -57,6 +58,7 @@ npx tsx -e "import {headersFile} from './worker/security-headers.ts'; process.st
 | 2.1.2 允許至少 64 字、最多 128 字 | 🔧 | 新增 `LIMITS.passwordMax` 128（`longPassword`），之前沒有上限 |
 | 2.1.7 檢查外洩密碼 | ✅ | `e11-t29`：`worker/common-passwords.ts` 是 1,197 個外洩密碼——NCSC 從 Have I Been Pwned 整理的最常用 100,000 個裡，長度 12–128 的那些（短的反正會被長度擋掉），轉小寫、去重，約 20 KB。來源：SecLists（`Passwords/Common-Credentials/100k-most-used-passwords-NCSC.txt`，MIT License，Copyright (c) 2018 Daniel Miessler）；用 `scripts/common-passwords.ts` 重新產生。另外擋本站的字（`tkubridgetable` 等）與同一個字元重複（`commonPassword`）。查詢是第一次用時建一個 `Set`、之後 `Set.has`，在社團的 Durable Object 裡做；不呼叫外部服務（CSP 只放行本站，密碼也不該送出去）。也擋跟帳號名稱相同或包含帳號名稱（不分大小寫；2 個字的帳號只擋相同，否則太多密碼會被誤擋）的密碼（`passwordHasUsername`）。沒有做 k-anonymity 的 Pwned Passwords API：要放行外部連線，且清單已涵蓋最常見的 |
 | 2.2.1 防暴力猜測 | ✅ | `worker/rate-limit.ts`：同一來源＋帳號 15 分鐘 5 次、同一來源 20 次（`tooManyLogins`） |
+| 申請加入的防濫用（11.1.4 防自動化） | 🔧 | `e1-t33`：同一來源一小時 10 次申請或錯的邀請碼（`worker/register-limit.ts`，429 `tooManyRegistrations`），位址只存以 `SEEN_SALT` 加鹽的雜湊、一小時後清掉，沒設 `SEEN_SALT` 時只在記憶體；Cloudflare Turnstile（`worker/turnstile.ts`）設了 site key 與 secret 才開，伺服器向 `siteverify` 驗證、連不到時不放行（403 `captchaFailed`）。「忘記密碼」申請沒套：已經每人只通知一次、要邀請碼；Email 重設（`e1-t30`）時再加（ARCHITECTURE.md §5.2） |
 | 2.4.1 密碼雜湊 | 🔧⚠️ | `e11-t30`：PBKDF2-SHA-256 加鹽，新雜湊 100,000 次（之前 50,000），舊雜湊在下次登入成功時重算（`needsRehash`）。**100,000 是 Cloudflare 執行環境 PBKDF2 的上限**（多了會被拒絕），OWASP 建議的 600,000 次在 Workers 上做不到；量測（2026-10-30，Node）：50,000 次 6 ms、100,000 次 12 ms、600,000 次 65 ms。雜湊在社團的 Durable Object 裡算，不佔 Worker 每次請求的 10 ms，登入有次數限制。要更強只能換演算法（Argon2 要 WASM，CPU 更多），目前不做 |
 | 2.5.x 忘記密碼 | 🔧 | `e1-t36`：邀請碼只能**送出申請**（通知管理員），管理員核准後才產生一次性代碼（約 49 bit、3 天、用一次、只存雜湊），只顯示給核准的管理員，由他交給確認過的本人；代碼與新密碼才能重設，錯的代碼與登入共用失敗次數限制。重設後登出所有裝置（session、通行證、連線）。管理員帳號仍只能由其他管理員重設。剩下的風險：管理員沒確認本人就把代碼交出去（DEPLOY.md 寫明要確認）。**Email 重設**（`e1-t29`、`e1-t30`，ARCHITECTURE.md §5.20）：只有驗證過 Email 的帳號能用；連結的權杖 256 bit、30 分鐘、用一次、只存 SHA-256，放在網址的 `#` 後（不進伺服器紀錄），打開頁面不會用掉要按按鈕；不論帳號或 Email 存不存在回答都一樣；每個帳號 10 分鐘 1 封、每個 IP 2 分鐘 1 次申請，錯的連結與登入共用失敗次數限制；設好後登出所有裝置。綁定 Email 要輸入密碼，驗證連結 24 小時、用一次。沒設寄信服務時整個關掉（`emailOff`） |
 | 2.7／2.8 多因素 | 📋 | 沒有。ASVS L1 對管理介面要求多因素（4.3.1），排在 H5 之後（`e11-t31`） |
@@ -115,11 +117,11 @@ npx tsx -e "import {headersFile} from './worker/security-headers.ts'; process.st
 
 | 項目 | 狀態 | 說明 |
 | --- | --- | --- |
-| 10.3.2 第三方資源 | ✅ | 沒有 CDN、沒有分析或廣告程式；字型隨網站打包 |
+| 10.3.2 第三方資源 | ✅ | 沒有 CDN、沒有分析或廣告程式；字型隨網站打包。唯一的外部 script 是 Cloudflare Turnstile（`e1-t33`），只在申請加入、開了 Turnstile 時載入；它必須從 Cloudflare 載入（官方不支援自己放），所以沒有 SRI |
 | 14.2.1 相依套件 | ✅ | 2026-10-30 `npm audit --omit=dev`：0 個漏洞。Dependabot 的 undici 警示（high，`< 7.30.1`，經 `wrangler`／`@cloudflare/vite-plugin` 的 miniflare，只在開發與部署工具）：升到 wrangler 4.156、vite-plugin 1.66 後 undici 7.30.1，`npm audit` 全部 0 個 |
 | 14.4.x 安全標頭 | 🔧 | §2 |
 | 14.5.3 CORS | ✅ | 只有不靠 cookie 的路由開 `Access-Control-Allow-Origin: *`：簽名上傳、AI 匯入（帶一次性憑證）、簽名的檔案網址；其餘 API 沒有 CORS，淡江橋館經 Vercel 同網域轉發 |
-| 祕密 | ✅ | `INVITE_CODE`、`ANTHROPIC_API_KEY`、`EDGE_AUTH_SECRET`、`SEEN_SALT` 等都是 `wrangler secret`，staging 與預覽站各自一套（DEPLOY.md）。`SEEN_SALT` 是防作弊報表網路雜湊的鹽，刻意不放在社團儲存裡：拿到儲存或備份也無法窮舉 IPv4 還原登入位址（ARCHITECTURE.md §5.17）；沒設時不記網路 |
+| 祕密 | ✅ | `INVITE_CODE`、`ANTHROPIC_API_KEY`、`EDGE_AUTH_SECRET`、`SEEN_SALT`、`TURNSTILE_SECRET_KEY` 等都是 `wrangler secret`，staging 與預覽站各自一套（DEPLOY.md）。`SEEN_SALT` 是防作弊報表網路雜湊的鹽，刻意不放在社團儲存裡：拿到儲存或備份也無法窮舉 IPv4 還原登入位址（ARCHITECTURE.md §5.17）；沒設時不記網路 |
 
 ### V12 檔案／V13 API
 
@@ -143,6 +145,7 @@ npx tsx -e "import {headersFile} from './worker/security-headers.ts'; process.st
 | `e11-t31` | 管理員的多因素驗證（TOTP） | 中 | 排在 H5（Email）之後 |
 | `e11-t32` | ✅ `worker/body.ts`（V3） | — | — |
 | `e1-t36` | ✅ 忘記密碼改成管理員核准、一次性代碼（V3）；Email 重設（`e1-t30`）在全台灣清單最後 | 低 | — |
+| `e1-t33` | ✅ 申請加入：同一來源的次數限制、Cloudflare Turnstile（預設關，DEPLOY.md §4.13） | 低 | 社長：要不要打開 Turnstile（淡江橋館要先帶 token）；一小時 10 次夠不夠招生活動用 |
 
 ## 5. 個人資料：匯出與刪除（`e11-t27`）
 

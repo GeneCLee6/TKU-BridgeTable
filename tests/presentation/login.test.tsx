@@ -114,4 +114,41 @@ describe('LoginPage', () => {
     await userEvent.click(screen.getByRole('button', { name: '登入' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('等管理員核准')
   })
+
+  it('shows Turnstile when the Worker hands out a site key, sends its token and asks for a new one after a failure (e1-t33)', async () => {
+    const sent = stubApi({
+      '/api/register/options': { status: 200, body: { turnstileSiteKey: '0x4AAA-test' } },
+      '/api/register': { status: 409, body: { error: '這個帳號已經有人使用', code: 'usernameTaken', params: {} } },
+    })
+    let pass: ((token: string) => void) | null = null
+    const widget = { render: vi.fn(), reset: vi.fn(), remove: vi.fn() }
+    widget.render.mockImplementation((_element: HTMLElement, options: { sitekey: string; language: string; callback: (token: string) => void }) => {
+      pass = options.callback
+      return 'w1'
+    })
+    vi.stubGlobal('turnstile', widget)
+    page()
+    await userEvent.click(screen.getByRole('button', { name: '申請加入' }))
+    expect(await screen.findByRole('group', { name: '人機驗證' })).toBeInTheDocument()
+    await vi.waitFor(() => expect(widget.render).toHaveBeenCalled())
+    expect(widget.render.mock.calls.at(-1)![1]).toMatchObject({ sitekey: '0x4AAA-test', language: 'zh-tw' })
+    await userEvent.type(screen.getByLabelText(/^帳號/), 'amy')
+    await userEvent.type(screen.getByLabelText(/^密碼/), 'club-secret-1')
+    // No token yet: the form says so and sends nothing
+    await userEvent.click(screen.getByRole('button', { name: '申請加入' }))
+    expect(screen.getByRole('alert')).toHaveTextContent('請先完成人機驗證')
+    expect(sent.some((s) => s.path === '/api/register')).toBe(false)
+    pass!('token-1')
+    await userEvent.click(screen.getByRole('button', { name: '申請加入' }))
+    await vi.waitFor(() => expect(widget.reset).toHaveBeenCalledWith('w1'))
+    expect(sent.find((s) => s.path === '/api/register')!.body).toMatchObject({ username: 'amy', turnstileToken: 'token-1' })
+  })
+
+  it('shows no Turnstile when it is off', async () => {
+    stubApi({ '/api/register/options': { status: 200, body: { turnstileSiteKey: null } } })
+    page()
+    await userEvent.click(screen.getByRole('button', { name: '申請加入' }))
+    await vi.waitFor(() => expect(screen.getByLabelText(/^邀請碼/)).toBeInTheDocument())
+    expect(screen.queryByRole('group', { name: '人機驗證' })).toBeNull()
+  })
 })

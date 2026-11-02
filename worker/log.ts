@@ -25,6 +25,10 @@ export type LogEntry =
   | { event: 'mailFailed'; kind: 'verify' | 'reset' }
   /** A sign-in came with an address but SEEN_SALT is not set: the anti-cheating report keeps no network (§5.17) */
   | { event: 'seenSaltMissing' }
+  /** An address used up its registrations for the hour (e1-t33); the address is not logged */
+  | { event: 'registerLimited' }
+  /** Turnstile turned a registration away (e1-t33): Cloudflare's error codes, or `unreachable` */
+  | { event: 'turnstileFailed'; codes: string }
   /** Tables moved between the club and their own objects (schema 3 ↔ 4, ARCHITECTURE.md §5.10) */
   | { event: 'tablesMoved'; to: 'objects' | 'club'; moved: number; failed: number }
   /** Challenges (H2b) or team matches (`kind: 'matches'`, H2c) moved between the club and their own objects (§5.12) */

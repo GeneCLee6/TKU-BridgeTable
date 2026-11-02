@@ -10,7 +10,7 @@ import { Button, Card, CardFooter, CardHeader, CardTitle, ErrorText, Field, Fiel
 /**
  * "My account"'s email (e1-t29): the verified address, one waiting for its link, binding or
  * changing it (a link goes to it) and removing it, each with the password. Shown only when the
- * server sends `Me.email`, that is when the club has a mail provider (DEPLOY.md §4.13)
+ * server sends `Me.email`, that is when the club has a mail provider (DEPLOY.md §4.14)
  */
 
 const Stack = styled.div`

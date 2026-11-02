@@ -1653,6 +1653,23 @@ export const MESSAGES = {
     ja: 'パスワードの誤りが多すぎます。{minutes} 分後にもう一度お試しください',
     ko: '비밀번호를 너무 많이 틀렸습니다. {minutes}분 후에 다시 시도하세요',
   },
+  // 申請加入 against abuse (e1-t33)
+  tooManyRegistrations: {
+    zh: '這個網路申請加入太多次了，請 {minutes} 分鐘後再試',
+    'zh-Hans': '这个网络申请加入太多次了，请 {minutes} 分钟后再试',
+    en: 'Too many applications from this network; try again in {minutes} minutes',
+    vi: 'Mạng này đã gửi quá nhiều đơn đăng ký, vui lòng thử lại sau {minutes} phút',
+    ja: 'このネットワークからの入会申請が多すぎます。{minutes} 分後にもう一度お試しください',
+    ko: '이 네트워크에서 가입 신청이 너무 많습니다. {minutes}분 후에 다시 시도하세요',
+  },
+  captchaFailed: {
+    zh: '人機驗證沒有通過或已過期，請再驗證一次',
+    'zh-Hans': '人机验证没有通过或已过期，请再验证一次',
+    en: 'The human check did not pass or has expired; please do it again',
+    vi: 'Xác minh không phải người máy chưa đạt hoặc đã hết hạn, vui lòng xác minh lại',
+    ja: 'ロボットでないことの確認が通らなかったか期限切れです。もう一度確認してください',
+    ko: '사람 확인을 통과하지 못했거나 만료되었습니다. 다시 확인해 주세요',
+  },
   // Team matches (§5.7)
   badMatchSettings: {
     zh: '隊制賽的設定不正確：{field}',

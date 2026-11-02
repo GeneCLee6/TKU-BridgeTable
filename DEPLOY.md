@@ -123,13 +123,15 @@ PR 關閉時預覽會自動刪除。若有漏掉的（例如當時還沒設定 s
 | `IMPORT_MODEL` | `wrangler.jsonc` 的 `vars` | `claude-opus-5-5` | 匯入用的模型，通常不用改 |
 | `EDGE_AUTH_SECRET` | `wrangler secret put EDGE_AUTH_SECRET` | 無 | 簽邊緣通行證（§4.5）；沒設定時不發通行證，Worker 什麼都問社團 |
 | `SEEN_SALT` | `wrangler secret put SEEN_SALT` | 無 | 防作弊報表的網路雜湊用的鹽（§4.12，至少 16 字，建議 32 bytes 隨機）；沒設定時不記網路、只比對同一個瀏覽器，報表上會說明 |
+| `TURNSTILE_SITE_KEY` | `wrangler.jsonc` 的 `vars` 或 `--var` | 無 | 申請加入的 Cloudflare Turnstile（§4.13）：site key，公開的 |
+| `TURNSTILE_SECRET_KEY` | `wrangler secret put TURNSTILE_SECRET_KEY` | 無 | Turnstile 的 secret key；**兩個都設才開**，少一個就不顯示、不驗證 |
 | `EDGE_AUTH` | `wrangler.jsonc` 的 `vars` 或 `--var` | 開 | `off` 關掉通行證（§4.5） |
 | `HISTORY_D1` | `wrangler.jsonc` 的 `vars` 或 `--var` | 開 | `off` 讓紀錄頁改回社團回答、停止寫 D1（§4.5）；沒有 `HISTORY` binding（PR 預覽）時本來就沒有 |
 | `SYSTEM_PROFILE_ID` | `wrangler.jsonc` 的 `vars` 或 `--var` | `club` | TKB 用淡江制度時，叫品帶哪個制度集的橋館文字（ROBOT.md「橋館的文字跟著叫品」）；那個制度集要先在橋館差異報告頁同步過 |
 | `BOOK_SEED_TOKEN` | `wrangler secret put BOOK_SEED_TOKEN` | 無 | 橋館寫入內建特約用的權杖（§4.9，至少 32 字）；沒設定時只有管理員登入後能寫 |
 | `BOOK_EXPORT_TOKEN` | `wrangler secret put BOOK_EXPORT_TOKEN` | 無 | 橋館排程備份讀全部特約用的權杖（§4.10，至少 32 字，只能讀 `GET /api/book/export`）；沒設定時只有管理員登入後能匯出 |
-| `RESEND_API_KEY` | `wrangler secret put RESEND_API_KEY` | 無 | 寄 Email 驗證信與重設密碼信（§4.13）；跟 `MAIL_FROM` 兩個都設才打開，沒設定時沒有 Email 功能 |
-| `MAIL_FROM` | `wrangler.jsonc` 的 `vars` 或 secret | 無 | 寄件人，要是 Resend 驗證過的網域上的地址（§4.13） |
+| `RESEND_API_KEY` | `wrangler secret put RESEND_API_KEY` | 無 | 寄 Email 驗證信與重設密碼信（§4.14）；跟 `MAIL_FROM` 兩個都設才打開，沒設定時沒有 Email 功能 |
+| `MAIL_FROM` | `wrangler.jsonc` 的 `vars` 或 secret | 無 | 寄件人，要是 Resend 驗證過的網域上的地址（§4.14） |
 | `ANTHROPIC_BASE_URL` | `.dev.vars` | 無 | 只給測試或 API 閘道用（本機可以指向假的 API），正式環境不要設定 |
 
 本機開發的值放在 `.dev.vars`（從 `.dev.vars.example` 複製，不會 commit）。
@@ -452,7 +454,31 @@ npx wrangler secret put SEEN_SALT --name tku-bridge-table-staging             # 
 - **不要隨便換**：換了之後新舊雜湊對不起來，舊的網路紀錄不會再配對，90 天內自然清掉；外洩時才換。
 - 合併前的 PR 版本曾把鹽存在社團儲存的 `meta:seenSalt`，那個版本沒有上過正式站；程式不再讀它，用它算的雜湊作廢，不用處理。
 
-## 4.13 Email 綁定與 Email 重設密碼（H5a，`e1-t29`、`e1-t30`）
+## 4.13 申請加入的防濫用（H5b，`e1-t33`）
+
+申請加入有兩道（ARCHITECTURE.md §5.2）：
+
+- **同一個網路一小時最多 10 次**（送出的申請與錯的邀請碼都算），一直都開，不用設定。位址只存加鹽的雜湊；鹽是 §4.12 的 `SEEN_SALT`，沒設時次數只在記憶體、物件被回收就重算（照樣有效，只是比較鬆）。社團的招生活動如果大家都連校園 Wi-Fi（同一個對外 IP），一小時超過 10 人申請會被擋：請部分新生改用手機網路，或由管理員在管理頁直接新增帳號（不算次數）。
+- **Cloudflare Turnstile**（人機驗證），預設關。
+
+### 打開 Turnstile
+
+1. **先確認淡江橋館也送 `turnstileToken`**：橋館的申請也走 `/api/register`，這邊打開之後，還沒改的橋館送申請會被擋（`captchaFailed`）。橋館要做的：申請表單呼叫 `GET /api/register/options`，有 `turnstileSiteKey` 就畫 Turnstile、送出時帶 `turnstileToken`，並在它的 CSP 放行 `https://challenges.cloudflare.com`（script 與 frame）。
+2. Cloudflare 控制台 → Turnstile → Add widget：網域加上正式站與橋館的網域（staging 用另一個 widget，網域是 staging 與 `localhost` 以外的預覽網域）；模式選 **Managed**。
+3. 設定（正式站；staging 加 `--name tku-bridge-table-staging`，用 staging 的那組）：
+
+```bash
+npx wrangler secret put TURNSTILE_SECRET_KEY        # 貼上 widget 的 Secret Key
+```
+
+   site key 是公開的，放 `wrangler.jsonc` 的 `vars`（`"TURNSTILE_SITE_KEY": "0x4AAAA…"`）後部署；或部署時 `--var TURNSTILE_SITE_KEY:0x4AAAA…`。
+4. 檢查：開申請加入，表單上出現 Turnstile；`curl -s https://<網站>/api/register/options` 回 site key；不帶 token 直接 `POST /api/register` 回 403 `captchaFailed`。開發者工具的 Console 不應有 CSP 錯誤（`_headers` 已放行 `challenges.cloudflare.com`，docs/SECURITY.md §2）。
+
+- **關掉**：`wrangler secret delete TURNSTILE_SECRET_KEY`（或拿掉 site key）再部署，表單就不顯示、伺服器不驗證。
+- 本機開發、測試、PR 預覽都不設，不受影響。想在本機試，`.dev.vars` 可以放 Cloudflare 的測試金鑰（site key `1x00000000000000000000AA`、secret `1x0000000000000000000000000000000AA`，永遠通過）。
+- 連不到 Cloudflare 的驗證時一律不放行（申請者看到「人機驗證沒有通過」，再試一次）；日誌有 `turnstileFailed`。
+
+## 4.14 Email 綁定與 Email 重設密碼（H5a，`e1-t29`、`e1-t30`）
 
 寄信用 Resend（ARCHITECTURE.md §5.20 有選型）。**沒設定也能部署**：Email 功能自動關閉（「我的帳號」沒有 Email、登入頁的忘記密碼只有管理員核准），其他功能不受影響。
 
@@ -480,6 +506,6 @@ npx wrangler secret put SEEN_SALT --name tku-bridge-table-staging             # 
 - Workers 免費方案：每天 10 萬次請求；WebSocket 訊息以 20:1 計算，一個晚上打牌遠低於上限。
 - SQLite Durable Object 免費方案：5 GB 儲存；一副牌的紀錄連同索引約 4 KB，約可存一百萬副以上。紀錄列表一次只讀 50 筆，資料再多也不會變慢。
 - 密碼雜湊使用 100,000 次 PBKDF2-SHA-256（`worker/auth.ts`，`e11-t30`；Cloudflare 的 PBKDF2 最多只收 100,000 次）。一次約 12 ms CPU，在社團的 Durable Object 裡算（不是 Worker 每次請求的 10 ms），登入有次數限制。2026-10-30 之前的帳號是 50,000 次，下次登入時自動升級。
-- Resend 免費方案：每月 3,000 封、每天 100 封，只寄 Email 驗證與重設密碼的信（§4.13）；每個帳號 10 分鐘最多 1 封（一次可以 3 封）。
+- Resend 免費方案：每月 3,000 封、每天 100 封，只寄 Email 驗證與重設密碼的信（§4.14）；每個帳號 10 分鐘最多 1 封（一次可以 3 封）。
 - Browser Run 免費方案：每天 10 分鐘瀏覽器時間，只用在橋館的制度卡 PDF（§4.11）。
 - D1 免費方案：每天讀 500 萬列、寫 10 萬列，全部 5 GB。紀錄索引的副本每副約寫 14 列，一天約 7,000 副才到上限（§4.5、`ARCHITECTURE.md` §5.12）。
