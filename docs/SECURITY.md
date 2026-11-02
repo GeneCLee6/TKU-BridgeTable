@@ -138,6 +138,7 @@ npx tsx -e "import {headersFile} from './worker/security-headers.ts'; process.st
 | 13.2.3 CSRF | ✅ | cookie 是 SameSite=Lax，跨站的 POST／PUT／DELETE 不帶 cookie；`workers.dev` 在 Public Suffix List 上，別人的 `*.workers.dev` 不算同站 |
 | 跨站 WebSocket（CSWSH） | 🔧 | `/ws` 與 `/ws/table/*` 的 `Origin` 必須是本站（`worker/routing.ts`），別的網站的頁面開不了；沒有 `Origin` 的非瀏覽器用戶端（負載測試）照舊 |
 | 速率限制 | ✅ | 每個連線的動作、聊天、錯誤回報、使用統計各有 token bucket（`worker/rate-limit.ts`） |
+| 公開分享連結（`e4-t38`） | ✅ | 唯一不用登入就讀得到牌的 API（`GET /api/share/:token`）：token 是 128 位元亂數；每個網路位址一個 token bucket（一次 30、之後每 2 秒一個），查錯 15 分鐘內 10 次就擋 15 分鐘（`slowDown`）；只回那一副已公開、打完的牌，欄位一個一個挑（`worker/views.ts` 的 `sharedBoardView`），沒有任何 id；只有產生連結的社員顯示名字（他設了「不公開打過的牌局」也不顯示），其他真人一律是「社員」；連結不過期、可隨時撤銷；回應帶 `X-Robots-Tag: noindex`。頁面 `/share/<token>` 是一般的 SPA 頁面，CSP 不用改。網址裡的 token 不會隨 Referer 送到別的網站（`Referrer-Policy: strict-origin-when-cross-origin` 跨站只送網域）。可見性與誰能產生、撤銷見 ARCHITECTURE.md §4 |
 
 ## 4. 待辦清單
 
@@ -157,7 +158,7 @@ npx tsx -e "import {headersFile} from './worker/security-headers.ts'; process.st
 
 ## 5. 個人資料：匯出與刪除（`e11-t27`）
 
-- **匯出**：「我的帳號」→「下載我的資料」，`GET /api/account/export` 回一個 JSON 檔（`format: 'tku-bridge-table-account'`、`version`）：帳號與設定（不含密碼雜湊）、登入中的裝置、登入與連線紀錄（`signIns`：網路的雜湊（以 Worker secret `SEEN_SALT` 加鹽，不含 IP；沒設 secret 時是空的）、瀏覽器 id 與名稱、時間，防作弊報表用，ARCHITECTURE.md §5.17）、好友與封鎖、通知、私訊、練習設定、收藏與筆記、社團積分明細與實力評分（`points`、`rating`，ARCHITECTURE.md §5.21）、挑戰討論串的留言（`challengeComments`，§5.5）、打過的每副牌的摘要（完整紀錄在 `/history/<id>`）。帳號裡有 Email（`email`、`emailVerifiedAt`，等待驗證的地址是 `emailPending`，`e1-t29`），不含驗證或重設連結的雜湊；綁了 Google 時有 `google`（Google 帳號的 `sub`、綁定當時的 Email、綁定時間，`e1-t31`），進行中的 Google 流程（`google:<id>`，最多 30 分鐘）不在裡面。開了推播時有 `push`：每台裝置的名稱與開啟時間、每個種類推不推（`e1-t28`），沒有推播服務的網址與金鑰。不含別人的 session 或任何 token。
-- **刪除**：「我的帳號」→「刪除帳號」，要密碼與確認；`POST /api/account/delete` 走與管理員刪帳號相同的 `removeMember`：帳號（含 Email 與寄出的連結、Google 的綁定）、頭像、session、推播的裝置與偏好（`push:`）、登入與連線紀錄（`seen:`）、好友與封鎖、通知、私訊、收藏、練習設定、閱讀與學習進度、社團積分與實力評分（§5.21）、挑戰討論串的留言立即刪除，所有連線關閉。社團唯一的管理員不能刪（`lastAdminLeaving`）。
+- **匯出**：「我的帳號」→「下載我的資料」，`GET /api/account/export` 回一個 JSON 檔（`format: 'tku-bridge-table-account'`、`version`）：帳號與設定（不含密碼雜湊）、登入中的裝置、登入與連線紀錄（`signIns`：網路的雜湊（以 Worker secret `SEEN_SALT` 加鹽，不含 IP；沒設 secret 時是空的）、瀏覽器 id 與名稱、時間，防作弊報表用，ARCHITECTURE.md §5.17）、好友與封鎖、通知、私訊、練習設定、收藏與筆記、社團積分明細與實力評分（`points`、`rating`，ARCHITECTURE.md §5.21）、挑戰討論串的留言（`challengeComments`，§5.5）、自己產生過的公開分享連結（`boardShares`：哪一副、何時，`e4-t38`）、打過的每副牌的摘要（完整紀錄在 `/history/<id>`）。帳號裡有 Email（`email`、`emailVerifiedAt`，等待驗證的地址是 `emailPending`，`e1-t29`），不含驗證或重設連結的雜湊；綁了 Google 時有 `google`（Google 帳號的 `sub`、綁定當時的 Email、綁定時間，`e1-t31`），進行中的 Google 流程（`google:<id>`，最多 30 分鐘）不在裡面。開了推播時有 `push`：每台裝置的名稱與開啟時間、每個種類推不推（`e1-t28`），沒有推播服務的網址與金鑰。不含別人的 session 或任何 token。
+- **刪除**：「我的帳號」→「刪除帳號」，要密碼與確認；`POST /api/account/delete` 走與管理員刪帳號相同的 `removeMember`：帳號（含 Email 與寄出的連結、Google 的綁定）、頭像、session、推播的裝置與偏好（`push:`）、登入與連線紀錄（`seen:`）、好友與封鎖、通知、私訊、收藏、練習設定、閱讀與學習進度、社團積分與實力評分（§5.21）、挑戰討論串的留言、自己產生的公開分享連結（`e4-t38`）立即刪除，所有連線關閉。社團唯一的管理員不能刪（`lastAdminLeaving`）。
 - **保留的**：打過的牌局紀錄是同桌其他人的紀錄，保留帳號名稱；論壇與淡江橋館的文章與留言保留（隱私權政策請社員先自己刪）；備份裡的帳號在 30 天內隨備份到期消失。
 - **政策頁**：`/privacy`、`/terms`（不用登入，`src/pages/LegalPage.tsx`，文字在 `strings.ts` 的 `legal`，六種語言）。登入頁與「我的帳號」底下有連結；註冊時寫「註冊即表示同意」。內容改了要改 `LEGAL_UPDATED`。

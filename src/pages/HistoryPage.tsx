@@ -1,4 +1,4 @@
-import { Inbox, SearchX, SlidersHorizontal } from 'lucide-react'
+import { Download, Inbox, SearchX, SlidersHorizontal } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import styled from 'styled-components'
@@ -10,7 +10,7 @@ import {
   type HistoryMode,
   type HistoryQuery,
 } from '../../shared/history-query.ts'
-import type { HistoryPage as Page } from '../../shared/protocol.ts'
+import { LIMITS, type HistoryPage as Page } from '../../shared/protocol.ts'
 import { Chip, ChipCount, SegmentButton, Segmented } from '../components/Chips.tsx'
 import { FilterChips, HistoryFilters } from '../components/HistoryFilters.tsx'
 import {
@@ -22,10 +22,11 @@ import {
 } from '../components/HistoryRow.tsx'
 import { Pager, SortSelect } from '../components/Pager.tsx'
 import { GroupingSwitch, RecordGroups } from '../components/RecordGroups.tsx'
-import { Button, Card, ErrorText, PageMain, PageTitle } from '../components/ui.tsx'
-import { api } from '../lib/api.ts'
+import { Button, Card, ErrorText, Muted, PageMain, PageTitle } from '../components/ui.tsx'
+import { api, ApiError } from '../lib/api.ts'
+import { downloadFile } from '../lib/download.ts'
 import { filterChips } from '../lib/historyChips.ts'
-import { isGrouping, readPageSize, writePageSize, type RecordGrouping } from '../lib/lists.ts'
+import { groupQuery, isGrouping, readPageSize, writePageSize, type RecordGrouping } from '../lib/lists.ts'
 import { useMediaQuery } from '../lib/useMediaQuery.ts'
 import { useLobby } from '../state/ClubContext.tsx'
 import { usePreferences } from '../state/PreferencesContext.tsx'
@@ -140,7 +141,7 @@ const searchOf = (key: string) => {
 }
 
 export function HistoryPage() {
-  const { t } = usePreferences()
+  const { t, message } = usePreferences()
   const [params, setParams] = useSearchParams()
   const paramsKey = params.toString()
   const query = useMemo(() => {
@@ -172,6 +173,24 @@ export function HistoryPage() {
   const refilter = (patch: Partial<HistoryQuery>) =>
     setParams(address({ ...query, page: 1, ...patch }, { ...groups, day: null }), { replace: true })
   const move = (place: Groups) => setParams(address({ ...query, page: 1 }, place))
+
+  // PBN of what the page shows (e4-t36): the filters, and the topic and date picked among the groups
+  const [exporting, setExporting] = useState(false)
+  const [exportNote, setExportNote] = useState<{ error: boolean; text: string } | null>(null)
+  const exportPbn = async () => {
+    setExporting(true)
+    setExportNote(null)
+    try {
+      const shown = groupQuery(query, groups.grouping === 'topic' ? groups.topic : null, groups.grouping !== 'none' ? groups.day : null)
+      const headers = await downloadFile(api.exportPbnPath(shown), 'tku-records.pbn')
+      const total = Number(headers.get('X-Boards-Total') ?? 0)
+      if (total > LIMITS.exportBoardsMax) setExportNote({ error: false, text: t.recordExport.exportCapped(LIMITS.exportBoardsMax, total) })
+    } catch (e) {
+      setExportNote({ error: true, text: e instanceof ApiError ? message(e.code, e.params, e.message) : t.recordExport.failed })
+    } finally {
+      setExporting(false)
+    }
+  }
 
   const chooseSize = (next: number) => {
     update({ size: next })
@@ -238,7 +257,13 @@ export function HistoryPage() {
           value={groups.grouping}
           onChange={(grouping) => move({ grouping, topic: null, day: null })}
         />
+        <Button type="button" $small disabled={exporting} title={t.recordExport.exportHint(LIMITS.exportBoardsMax)} onClick={exportPbn}>
+          <Download size={16} aria-hidden />
+          {t.recordExport.exportPbn}
+        </Button>
       </Toolbar>
+      {exportNote &&
+        (exportNote.error ? <ErrorText role="alert">{exportNote.text}</ErrorText> : <Muted role="status">{exportNote.text}</Muted>)}
       {showFilters && (
         <FilterCard id="history-filters" aria-label={t.filters}>
           <HistoryFilters query={query} members={members} onChange={refilter} now={openedAt} />

@@ -16,6 +16,7 @@ import type {
   ResetCode,
   Application,
   BoardRecord,
+  BoardShare,
   ClubSettings,
   DirectPage,
   Favorite,
@@ -31,6 +32,7 @@ import type {
   GooglePending,
   RegisterResult,
   RobotSpeed,
+  SharedBoard,
 } from '../../shared/protocol.ts'
 import type { MatchSeat, MatchVugraph, Room, TeamMatchSettings, TeamMatchView } from '../../shared/team-match.ts'
 import type { RulingKind, Team } from '../../shared/team-scoring.ts'
@@ -217,6 +219,18 @@ export const api = {
   /** How many boards a history search finds per Taiwan date, newest first (the side panel, e3-t48) */
   historyDays: (query: Partial<HistoryQuery>) => request<HistoryDays>(`/api/history/days?${historyQueryString(query)}`),
   record: (id: string) => request<{ record: BoardRecord }>(`/api/history/${encodeURIComponent(id)}`),
+  /** A board's public link (e4-t38), for its players and the admins; null when it has none */
+  boardShare: (id: string) => request<{ share: BoardShare | null }>(`/api/history/${encodeURIComponent(id)}/share`),
+  /** Makes the board's public link, or gives the one it has */
+  createBoardShare: (id: string) => post<{ share: BoardShare }>(`/api/history/${encodeURIComponent(id)}/share`),
+  /** Takes the board's public link back: it stops working at once */
+  revokeBoardShare: (id: string) => request<{ ok: true }>(`/api/history/${encodeURIComponent(id)}/share`, { method: 'DELETE' }),
+  /** A board by its public link, signed in or not (e4-t38) */
+  sharedBoard: (token: string) => request<{ shared: SharedBoard }>(`/api/share/${encodeURIComponent(token)}`),
+  /** The records page's search as one PBN file (e4-t36): its first LIMITS.exportBoardsMax boards */
+  exportPbnPath: (query: Partial<HistoryQuery>) => `/api/history/export.pbn?${historyQueryString(query)}`,
+  /** A board's whole session at its table as one LIN file (e4-t37) */
+  sessionLinPath: (id: string) => `/api/history/${encodeURIComponent(id)}/session.lin`,
   /** Everyone's result on the same board of its challenge, if the member may see it (e4-t32) */
   traveller: (id: string) => request<{ traveller: Traveller | null }>(`/api/history/${encodeURIComponent(id)}/traveller`),
   /** A director's ruling on a board (e2-t35), or null to take it back; the record comes back */
