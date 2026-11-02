@@ -144,6 +144,11 @@ export interface Post {
   pinned?: boolean
   /** No new comments */
   locked?: boolean
+  /**
+   * An officer hid it (the table's e13-t10): only its author and the officers see it, with this set;
+   * everyone else gets 404 `postGone` and does not find it in a list or a search
+   */
+  hidden?: boolean
   reactions: Reactions
   commentCount: number
   /** The members its text names with `@` (username or display name), in the order they first appear */
@@ -266,7 +271,8 @@ export interface ForumFeed {
 /**
  * `GET /api/forum/search?q=&page=` (e11-t10): posts whose title or text blocks (paragraphs, notes,
  * lists) hold every word of `q`, newest first; `query` is the words as searched, `total` how many posts
- * match. 400 `badContent` when `q` is empty or over FORUM_LIMITS.searchMax / searchWordsMax
+ * match. `&board=<board id>`: only that board's posts (the table's e13-t11). Hidden posts only for
+ * their authors and the officers. 400 `badContent` when `q` is empty or over FORUM_LIMITS.searchMax / searchWordsMax
  */
 export interface ForumSearch extends ForumFeed {
   query: string

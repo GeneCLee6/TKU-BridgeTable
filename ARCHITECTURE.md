@@ -831,7 +831,7 @@ E13 的 PRD 原本寫「貼文與留言進 D1」。現況是社團 Durable Objec
 - 作者名稱用大廳的社員列表（`lobby.members`，顯示名稱優先）；已不是社員的顯示「已離開的社員」。
 - 區塊由 `ForumBlocks` 畫：段落、提示、條列照文字（花色符號上色，`SuitText`）；一手牌用文字牌型；**四手牌用紀錄頁的 `RecordDiagram`**（K2，`ForumDeal`：`shared/forum-editor.ts` 的 `dealRecord` 把 `ForumDeal` 轉成沒有牌號、沒有玩家的紀錄，`anonymous` 讓四家顯示方位而不是名字，`BoardInfo` 不寫牌號）；叫牌過程用紀錄頁的 `AuctionBox`；圖片、橋館制度、牌桌紀錄是連結。
 - **發文在牌桌站內**（K2）：頁面上的「發文」開牌桌的 `/forum/new`。通知鈴鐺的論壇通知還是連到橋館（`src/lib/notifications.ts`）；旗標全開後再決定改指牌桌（K3 `e13-t09`）。
-- 反應、檢舉、搜尋在牌桌還沒有入口（API 都有）：檢舉與搜尋是 K4；反應還沒排批次。編輯與刪除貼文在 K2 做了。
+- 檢舉、隱藏、搜尋在 K4 做了（見下面「檢舉、隱藏與搜尋」）；反應還沒排批次。編輯與刪除貼文在 K2 做了。
 
 ### 發文編輯器（K2：`e13-t04`、`e13-t05`、`e13-t06`）
 
@@ -844,11 +844,55 @@ E13 的 PRD 原本寫「貼文與留言進 D1」。現況是社團 Durable Objec
 - **留言可以附叫牌過程**（PRD「留言也可嵌入叫牌過程」）：留言框的「加叫牌過程」，送出 `paragraph`＋`auction`。
 - **莊位與首攻**：PRD 的 `e13-t05` 寫了莊位與首攻，但 `ForumDeal` 只有四家牌、發牌與身價；莊家可以從同一篇的叫牌過程看出來。要存首攻得在 `ForumDeal` 加欄位，而橋館的型別對拍（`parity/table-types.ts`）是 `Same`，要兩站一起改，K2 先不做。
 
+### 檢舉、隱藏與搜尋（K4：`e13-t10`、`e13-t11`）
+
+開工前先對照了橋館：**檢舉（e11-t09）、速率限制（每人每分鐘發文加留言 ≤ 5）、搜尋（e11-t10）的後端都已經有**，橋館的討論區也有頁面。K4 只補兩個後端缺口（隱藏、搜尋限定板面），其他是牌桌的頁面。
+
+| 部分 | 現況 | K4 做的 |
+| --- | --- | --- |
+| 檢舉 | 有（`POST /api/forum/reports`，每人未處理 ≤ 20） | 貼文頁每篇貼文、每則留言（不是自己的）有「檢舉」，填原因送出 |
+| 處理檢舉 | 有（`GET`／`POST /api/forum/reports…`，駁回或刪除） | 幹部的 `/forum/reports`：待處理／全部、檢舉人、原因、作者與摘要、連到貼文（留言連到 `#comment-<id>`）；不處理、刪除內容、隱藏（只有貼文） |
+| **隱藏** | **沒有** | 新增（下面） |
+| 速率限制 | 有（`TokenBuckets`，429 `slowDown`）；檢舉靠「每人未處理 ≤ 20」 | 不改 |
+| 搜尋 | 有（標題與文字區塊，`LIKE`） | 加 `&board=` 限定板面；牌桌的 `/forum/search` |
+| 標籤 | **資料模型沒有標籤** | 不做，待社長決定（下面） |
+
+**隱藏貼文**（AC-13.1「管理員可隱藏」、AC-13.6）：
+
+- `POST /api/forum/posts/:id/hide { hidden }`（幹部，`forumRouteNeed` 跟置頂、鎖定同一條），存在 `forum_posts.hidden_at`、`hidden_by`。**資料表的變更是加欄位**：`createTables` 照 `body_text` 的做法用 `PRAGMA table_info` 檢查、沒有就 `ALTER TABLE … ADD COLUMN`（新建的表直接有），舊備份還原後也會補（還原是 `DELETE FROM` 再插回，欄位還在）。
+- 隱藏的貼文**只有作者與幹部看得到**（`Post.hidden` 為 true，頁面標「已隱藏」）；其他社員在板面、首頁、所有貼文、搜尋都看不到，直接開網址、留言、按反應、檢舉都是 404 `postGone`（跟刪掉一樣，不透露它還在）。過濾在伺服器（`visibleTo`、`seenPostRow`），`boardPage`／`feed`／`search`／`latest`／`thread` 多一個 `viewer` 參數，沒給就當看不到隱藏的。
+- 隱藏時這篇的**未處理檢舉一起關成 `removed`**（跟刪除一樣，`ReportStatus` 不加新值，橋館的檢舉頁照樣看得懂）。取消隱藏不會重開檢舉。
+- 審計 `forum:hide`／`forum:unhide`（`note` 是作者與摘要）。
+- 只做貼文；留言不隱藏（不當的留言直接刪，留言沒有「讓作者改」的需要）。
+
+**搜尋為什麼還是 `LIKE`、不用 FTS5**：
+
+- **中文斷詞**：FTS5 預設的 `unicode61` 把連在一起的漢字當成**一個詞**（整句沒有空格），搜「首攻」找不到「這副牌首攻什麼」；`trigram` 斷詞可以找子字串，但**少於 3 個字的查詢找不到**，而橋牌最常搜的正是兩個字（叫牌、首攻、賭倍、蓋叫）。兩個字還是要退回 `LIKE`，等於維護兩套。
+- **量**：一個社團的貼文幾千篇，`LIKE '%詞%'` 掃 `title` 與 `body_text` 在 Durable Object 裡不到 1 ms；而且搜尋跑在 `Club` 物件裡，不佔 Worker 每次請求 10 ms CPU 的額度。
+- **一致**：跟橋館已上線的搜尋同一套規則（每個詞都要有、英文不分大小寫、`%` `_` 當普通字），兩站結果一樣。
+- **什麼時候換**：搬 D1、全台灣公開、貼文到幾萬篇時，改成 `trigram` FTS5 加「少於 3 字退回 `LIKE`」；`ForumService.search` 是唯一要改的地方。
+
+**牌桌的頁面**：
+
+| 網址 | 頁面 | 內容 |
+| --- | --- | --- |
+| `/forum/search?q=&board=&page=` | `ForumSearchPage` | 搜尋框、板面下拉（全部板面或一個），結果用貼文列表、分頁；條件在網址上，可以分享 |
+| `/forum/reports` | `ForumReportsPage` | 只有幹部（其他人轉回 `/forum`）；論壇首頁的「檢舉處理」連結也只給幹部看 |
+
+元件測試在 `tests/presentation/forum-moderation.test.tsx`，伺服器在 `tests/worker/forum.test.ts`（隱藏、可見性、舊表補欄位、搜尋限定板面）。
+
+**橋館要跟著改的**（不改也不會壞，只是看不到新功能）：
+
+1. `src/lib/forum.ts`（型別複本）：`Post` 加 `hidden?: boolean`；`parity/table-types.ts` 的對拍會抓到。
+2. `src/lib/api.ts` 的 `AuditAction` 加 `forum:hide`、`forum:unhide`，`reviewStrings.ts` 加「隱藏貼文」「取消隱藏」，審計紀錄才顯示得出名稱。
+3. 想要的話：討論區的貼文頁加幹部的「隱藏」、檢舉頁加「隱藏」、搜尋頁加板面篩選（`forumApi.search` 帶 `board`）。
+4. 橋館的幹部現在就看得到隱藏的貼文（列表照常出現），但沒有「已隱藏」標記，直到做了第 1 點。
+
 ### 之後
 
 - **K2**（做完）：四手牌編輯器（`e13-t05`）、叫牌過程輸入（`e13-t06`）、發文編輯器（`e13-t04`）；牌圖改用 `RecordDiagram`。見下面「發文編輯器」。
 - **K3**：從紀錄分享（`e13-t07`，伺服器檢查挑戰未結束的牌）、個人頁的貼文（`e13-t08`）、通知改連牌桌（`e13-t09`）。
-- **K4**：檢舉與管理頁（`e13-t10`）、全文搜尋（`e13-t11`，屆時評估 D1 FTS5）。
+- **K4**（做完）：檢舉、隱藏與管理頁（`e13-t10`）、搜尋限定板面（`e13-t11`，評估後不用 FTS5）。見上面「檢舉、隱藏與搜尋」。
 
 ## 5.20 Email 綁定與 Email 重設密碼（決策紀錄，`e1-t29`、`e1-t30`，2026-11-02，H5a）
 
@@ -1489,10 +1533,11 @@ SQL 由 `worker/history-index.ts` 的 `searchBoards` 組：只有固定的 SQL �
 | `GET /api/forum/feed?page=` | 社員 | `ForumFeed`：所有板面的貼文新→舊，一頁 20 則，不另列置頂（橋館討論區首頁 `/forum`，e11-t15） |
 | `GET /api/forum/feed?page=&author=` | 社員 | 同上，只列那位社員發的貼文（橋館「我的貼文」，e11-t10） |
 | `GET /api/forum/feed?page=&mentions=` | 社員 | 同上，只列貼文或其留言 `@` 提到那位社員的（橋館「我提到的」） |
-| `GET /api/forum/search?q=&page=` | 社員 | `ForumSearch`：標題或文字區塊（段落、提示、條列）含每個詞（空白分開、最多 5 個、共 50 字；英文不分大小寫）的貼文，新→舊，一頁 20 則，多 `query`、`total`；留言、圖說、替代文字不搜。文字存在 `forum_posts.body_text`（舊貼文在 `createTables` 補）；`q` 空或太長回 400（e11-t10） |
+| `GET /api/forum/search?q=&page=&board=` | 社員 | `ForumSearch`：標題或文字區塊（段落、提示、條列）含每個詞（空白分開、最多 5 個、共 50 字；英文不分大小寫）的貼文，新→舊，一頁 20 則，多 `query`、`total`；留言、圖說、替代文字不搜。文字存在 `forum_posts.body_text`（舊貼文在 `createTables` 補）；`q` 空或太長回 400（e11-t10）；`board` 只搜那個板面（牌桌 e13-t11） |
 | `GET /api/forum/latest` | 社員 | `ForumLatest`：公告板最新三則（置頂優先）與其他板最新三則（橋館首頁） |
 | `GET`／`PATCH`／`DELETE /api/forum/posts/:id` | 社員；改只有作者；刪是作者或幹部 | `PostThread`（貼文與全部留言，舊→新）；`PostInput` → `{ post }`；別人的 403 `notYours`，不存在 404 `postGone` |
 | `POST /api/forum/posts/:id/pin`、`/lock` | 幹部（`forumModerate`） | `{ pinned }`／`{ locked }` → `{ post }`；有變才寫審計、置頂通知作者 |
+| `POST /api/forum/posts/:id/hide` | 幹部（`forumModerate`） | `{ hidden }` → `{ post }`；隱藏後只有作者與幹部看得到（其他人所有列表與搜尋都沒有、開了是 404 `postGone`），未處理的檢舉關成 `removed`；有變才寫審計 `forum:hide`／`unhide`（牌桌 e13-t10） |
 | `POST /api/forum/posts/:id/comments` | 社員（鎖定的只有幹部，409 `postLocked`） | `CommentInput`（`parentId` 是回覆）→ `{ comment }` |
 | `PATCH`／`DELETE /api/forum/comments/:id` | 改只有作者；刪是作者或幹部 | `{ blocks }` → `{ comment }`；不存在 404 `commentGone` |
 | `PUT`／`DELETE /api/forum/posts/:id/reaction`、`/comments/:id/reaction` | 社員 | `{ emoji }`（五種之一）設定或換掉自己的反應、刪掉 → `{ reactions }` |

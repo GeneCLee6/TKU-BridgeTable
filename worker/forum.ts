@@ -44,7 +44,9 @@ import type { Sql, SqlValue } from './store.ts'
  * - `forum_comments`: one level deep, `parent_id` is always a top comment
  * - `forum_reactions`: one row per member and post or comment (one reaction each, AC-11.4)
  * - `forum_reports`: members' reports, for the officers (e11-t09); deleting what a report is about
- *   closes it as `removed`
+ *   closes it as `removed`, and so does hiding it (a post)
+ * - `forum_posts.hidden_at`: an officer hid the post (the table's e13-t10); only its author and the
+ *   officers still see it, everyone else is told it is gone (`visibleTo`)
  *
  * Who may use each route is roles.ts `forumRouteNeed`; who may change a given post or comment, and
  * post on an officers-only board, is checked here (`moderatesForum`). Posting and commenting are
@@ -72,7 +74,9 @@ const SCHEMA = [
     pinned_at INTEGER,
     locked INTEGER NOT NULL DEFAULT 0,
     comment_count INTEGER NOT NULL DEFAULT 0,
-    body_text TEXT
+    body_text TEXT,
+    hidden_at INTEGER,
+    hidden_by TEXT
   )`,
   'CREATE INDEX IF NOT EXISTS forum_posts_by_board ON forum_posts (board_id, created_at)',
   'CREATE INDEX IF NOT EXISTS forum_posts_by_time ON forum_posts (created_at)',
@@ -164,6 +168,7 @@ interface PostRow extends Record<string, SqlValue> {
   pinned_at: number | null
   locked: number
   comment_count: number
+  hidden_at: number | null
 }
 
 interface ReportRow extends Record<string, SqlValue> {
@@ -391,7 +396,23 @@ const POST_KINDS = ['paragraph', 'rules', 'note', 'hand', 'deal', 'auction', 'im
 
 // ── The service ──────────────────────────────────────────────────────────────────────────────
 
-const POST_COLUMNS = 'id, board_id, author_id, title, blocks, mentions, created_at, edited_at, pinned_at, locked, comment_count'
+const POST_COLUMNS = 'id, board_id, author_id, title, blocks, mentions, created_at, edited_at, pinned_at, locked, comment_count, hidden_at'
+
+/**
+ * The posts `viewer` may see (e13-t10), as WHERE terms on forum_posts: the officers see every post;
+ * anyone else not the ones an officer hid, unless they wrote them. No viewer: no hidden posts
+ */
+function visibleTo(viewer: Me | undefined): { where: string[]; params: SqlValue[] } {
+  if (viewer && moderatesForum(viewer)) return { where: [], params: [] }
+  if (viewer) return { where: ['(hidden_at IS NULL OR author_id = ?)'], params: [viewer.id] }
+  return { where: ['hidden_at IS NULL'], params: [] }
+}
+
+/** `visibleTo`'s terms to follow a WHERE that already has one */
+const andVisible = (viewer: Me | undefined) => {
+  const { where, params } = visibleTo(viewer)
+  return { and: where.map((w) => ` AND ${w}`).join(''), params }
+}
 const COMMENT_COLUMNS = 'id, post_id, parent_id, author_id, blocks, mentions, created_at, edited_at'
 
 export class ForumService {
@@ -412,6 +433,9 @@ export class ForumService {
     // Search (e11-t10) keeps each post's words in a column of their own; posts from before it get theirs here, once
     const columns = this.sql.exec<{ name: string }>('PRAGMA table_info(forum_posts)').map((c) => c.name)
     if (!columns.includes('body_text')) this.sql.exec('ALTER TABLE forum_posts ADD COLUMN body_text TEXT')
+    // Hiding (the table's e13-t10): tables from before it get its columns here, once
+    if (!columns.includes('hidden_at')) this.sql.exec('ALTER TABLE forum_posts ADD COLUMN hidden_at INTEGER')
+    if (!columns.includes('hidden_by')) this.sql.exec('ALTER TABLE forum_posts ADD COLUMN hidden_by TEXT')
     for (const row of this.sql.exec<{ id: string; blocks: string }>('SELECT id, blocks FROM forum_posts WHERE body_text IS NULL'))
       this.sql.exec('UPDATE forum_posts SET body_text = ? WHERE id = ?', searchText(JSON.parse(row.blocks) as PostBlock[]), row.id)
     for (const board of BUILTIN_BOARDS)
@@ -500,20 +524,34 @@ export class ForumService {
     this.sql.exec('DELETE FROM forum_boards WHERE id = ?', id)
   }
 
-  /** One page of a board: its pinned posts on page 1, then the others newest first, FORUM_LIMITS.pageSize a page */
-  boardPage(id: string, page = 1): BoardPage {
+  /**
+   * One page of a board: its pinned posts on page 1, then the others newest first, FORUM_LIMITS.pageSize
+   * a page; only the posts `viewer` may see (`visibleTo`)
+   */
+  boardPage(id: string, page = 1, viewer?: Me): BoardPage {
     const board = this.board(id)
     const at = Number.isInteger(page) && page > 0 ? page : 1
-    const total = this.sql.exec<{ n: number }>('SELECT COUNT(*) AS n FROM forum_posts WHERE board_id = ? AND pinned_at IS NULL', id)[0].n
-    const rows = this.sql.exec<PostRow>(
-      `SELECT ${POST_COLUMNS} FROM forum_posts WHERE board_id = ? AND pinned_at IS NULL ORDER BY created_at DESC, rowid DESC LIMIT ? OFFSET ?`,
+    const seen = andVisible(viewer)
+    const total = this.sql.exec<{ n: number }>(
+      `SELECT COUNT(*) AS n FROM forum_posts WHERE board_id = ? AND pinned_at IS NULL${seen.and}`,
       id,
+      ...seen.params,
+    )[0].n
+    const rows = this.sql.exec<PostRow>(
+      `SELECT ${POST_COLUMNS} FROM forum_posts WHERE board_id = ? AND pinned_at IS NULL${seen.and}
+       ORDER BY created_at DESC, rowid DESC LIMIT ? OFFSET ?`,
+      id,
+      ...seen.params,
       FORUM_LIMITS.pageSize,
       (at - 1) * FORUM_LIMITS.pageSize,
     )
     const pinned =
       at === 1
-        ? this.sql.exec<PostRow>(`SELECT ${POST_COLUMNS} FROM forum_posts WHERE board_id = ? AND pinned_at IS NOT NULL ORDER BY pinned_at DESC`, id)
+        ? this.sql.exec<PostRow>(
+            `SELECT ${POST_COLUMNS} FROM forum_posts WHERE board_id = ? AND pinned_at IS NOT NULL${seen.and} ORDER BY pinned_at DESC`,
+            id,
+            ...seen.params,
+          )
         : []
     return {
       board,
@@ -527,11 +565,10 @@ export class ForumService {
   /**
    * The forum's front page (BridgeHall e11-t15): every board's posts newest first, FORUM_LIMITS.pageSize
    * a page. `author`: only that member's posts (我的貼文); `mentions`: only posts that member is
-   * `@`-mentioned in, in the post or one of its comments (我提到的)
+   * `@`-mentioned in, in the post or one of its comments (我提到的). Only the posts `viewer` may see
    */
-  feed(page = 1, filter: ForumFeedFilter = {}): ForumFeed {
-    const where: string[] = []
-    const params: SqlValue[] = []
+  feed(page = 1, filter: ForumFeedFilter = {}, viewer?: Me): ForumFeed {
+    const { where, params } = visibleTo(viewer)
     if (filter.author !== undefined) {
       where.push('author_id = ?')
       params.push(filter.author)
@@ -548,15 +585,25 @@ export class ForumService {
   /**
    * 搜尋 (e11-t10): posts whose title or text blocks hold every word of `query` (split at spaces,
    * case-insensitive for Latin letters), newest first, FORUM_LIMITS.pageSize a page. Comments,
-   * captions and alt text are not searched.
+   * captions and alt text are not searched. `board`: only that board's posts (the table's e13-t11);
+   * only the posts `viewer` may see.
+   *
+   * LIKE, not FTS5 (ARCHITECTURE.md §5.19, e13-t11): Chinese has no spaces, so FTS5's unicode61
+   * tokenizer takes a whole run of 漢字 as one token, and its trigram tokenizer finds nothing shorter
+   * than three characters (叫牌, 首攻); one club's posts are a scan of a few thousand rows.
    */
-  search(query: unknown, page = 1): ForumSearch {
+  search(query: unknown, page = 1, options: { board?: string; viewer?: Me } = {}): ForumSearch {
     const words = typeof query === 'string' ? [...new Set(query.trim().split(/\s+/).filter(Boolean))] : []
     const joined = words.join(' ')
     if (!words.length || words.length > FORUM_LIMITS.searchWordsMax || length(joined) > FORUM_LIMITS.searchMax)
       fail(`搜尋要 1 到 ${FORUM_LIMITS.searchMax} 字、最多 ${FORUM_LIMITS.searchWordsMax} 個詞`)
-    const where = words.map(() => `(title LIKE ? ESCAPE '!' OR body_text LIKE ? ESCAPE '!')`)
-    const params = words.flatMap((word) => [containing(word), containing(word)])
+    const { where, params } = visibleTo(options.viewer)
+    if (options.board) {
+      where.push('board_id = ?')
+      params.push(options.board)
+    }
+    where.push(...words.map(() => `(title LIKE ? ESCAPE '!' OR body_text LIKE ? ESCAPE '!')`))
+    params.push(...words.flatMap((word) => [containing(word), containing(word)]))
     const { total, ...found } = this.postsPage(where, params, page)
     return { ...found, query: joined, total }
   }
@@ -576,16 +623,19 @@ export class ForumService {
   }
 
   /** The home page's two lists (e11-t16): the news board pinned first, and the newest of the others */
-  latest(): ForumLatest {
+  latest(viewer?: Me): ForumLatest {
+    const seen = andVisible(viewer)
     const news = this.sql.exec<PostRow>(
-      `SELECT ${POST_COLUMNS} FROM forum_posts WHERE board_id = ?
+      `SELECT ${POST_COLUMNS} FROM forum_posts WHERE board_id = ?${seen.and}
        ORDER BY pinned_at IS NULL, pinned_at DESC, created_at DESC, rowid DESC LIMIT ?`,
       NEWS_BOARD_ID,
+      ...seen.params,
       FORUM_LIMITS.latestShown,
     )
     const discussions = this.sql.exec<PostRow>(
-      `SELECT ${POST_COLUMNS} FROM forum_posts WHERE board_id != ? ORDER BY created_at DESC, rowid DESC LIMIT ?`,
+      `SELECT ${POST_COLUMNS} FROM forum_posts WHERE board_id != ?${seen.and} ORDER BY created_at DESC, rowid DESC LIMIT ?`,
       NEWS_BOARD_ID,
+      ...seen.params,
       FORUM_LIMITS.latestShown,
     )
     return { news: this.toPosts(news), discussions: this.toPosts(discussions) }
@@ -620,9 +670,9 @@ export class ForumService {
     return this.toPosts([this.postRow(id)])[0]
   }
 
-  /** A post and all its comments, oldest first */
-  thread(id: string): PostThread {
-    const post = this.post(id)
+  /** A post and all its comments, oldest first; a hidden post only for its author and the officers (`viewer`) */
+  thread(id: string, viewer?: Me): PostThread {
+    const post = this.toPosts([this.seenPostRow(id, viewer)])[0]
     const rows = this.sql.exec<CommentRow>(`SELECT ${COMMENT_COLUMNS} FROM forum_comments WHERE post_id = ? ORDER BY created_at, rowid`, id)
     return { post, comments: this.toComments(rows) }
   }
@@ -670,6 +720,21 @@ export class ForumService {
     return this.post(id)
   }
 
+  /**
+   * An officer hides a post (e13-t10) or shows it again: `{ hidden }`. Hidden, only its author and
+   * the officers see it; hiding closes its open reports as `removed`, as deleting does
+   */
+  setHidden(me: Me, id: string, body: unknown): Post {
+    const row = this.postRow(id)
+    const hidden = this.flag(body, 'hidden')
+    if (hidden !== (row.hidden_at !== null))
+      this.sql.transaction(() => {
+        this.sql.exec('UPDATE forum_posts SET hidden_at = ?, hidden_by = ? WHERE id = ?', hidden ? this.deps.now() : null, hidden ? me.id : null, id)
+        if (hidden) this.closeReports('post', [id], 'removed', me.id)
+      })
+    return this.post(id)
+  }
+
   /** An officer locks a post (no new comments) or opens it again: `{ locked }` */
   setLocked(id: string, body: unknown): Post {
     this.postRow(id)
@@ -684,7 +749,7 @@ export class ForumService {
    * under the same top comment. A locked post takes only the officers' comments.
    */
   addComment(me: Me, postId: string, body: unknown): Comment {
-    const post = this.postRow(postId)
+    const post = this.seenPostRow(postId, me)
     if (post.locked && !moderatesForum(me)) throw new ClubError('postLocked', {}, 409)
     if (!isObject(body)) return fail('不是一則留言')
     let parentId: string | null = null
@@ -754,7 +819,7 @@ export class ForumService {
 
   /** A member's one reaction to a post or a comment: `{ emoji }` replaces the one they had */
   react(me: Me, target: ForumTarget, id: string, body: unknown): Reactions {
-    this.requireTarget(target, id)
+    this.requireTarget(target, id, me)
     const emoji = isObject(body) ? body.emoji : undefined
     if (!REACTION_EMOJIS.includes(emoji as ReactionEmoji)) return fail(`反應要是 ${REACTION_EMOJIS.join(' ')} 其中一個`)
     this.sql.exec(
@@ -772,7 +837,7 @@ export class ForumService {
 
   /** Takes a member's reaction back */
   unreact(me: Me, target: ForumTarget, id: string): Reactions {
-    this.requireTarget(target, id)
+    this.requireTarget(target, id, me)
     this.sql.exec('DELETE FROM forum_reactions WHERE target = ? AND target_id = ? AND user_id = ?', target, id, me.id)
     return this.reactionsOf(target, [id]).get(id) ?? {}
   }
@@ -789,7 +854,7 @@ export class ForumService {
     if (target !== 'post' && target !== 'comment') return fail('檢舉的對象（target）要是 post 或 comment')
     if (typeof body.targetId !== 'string') return fail('檢舉要指出哪一篇貼文或留言（targetId）')
     const targetId = body.targetId
-    const author = target === 'post' ? this.postRow(targetId).author_id : this.commentRow(targetId).author_id
+    const author = this.requireTarget(target, targetId, me)
     if (author === me.id) fail('不能檢舉自己的貼文或留言')
     const reason = text(body.reason, FORUM_LIMITS.reportReasonMax, '檢舉的原因')
     const [open] = this.sql.exec<ReportRow>(
@@ -947,9 +1012,20 @@ export class ForumService {
     return row
   }
 
-  private requireTarget(target: ForumTarget, id: string) {
-    if (target === 'post') this.postRow(id)
-    else this.commentRow(id)
+  /** A post or a comment `viewer` may see (not one on a post hidden from them); its author */
+  private requireTarget(target: ForumTarget, id: string, viewer?: Me): string {
+    if (target === 'post') return this.seenPostRow(id, viewer).author_id
+    const comment = this.commentRow(id)
+    this.seenPostRow(comment.post_id, viewer)
+    return comment.author_id
+  }
+
+  /** A post `viewer` may see: one an officer hid is gone for everyone but its author and the officers */
+  private seenPostRow(id: string, viewer?: Me): PostRow {
+    const row = this.postRow(id)
+    if (row.hidden_at !== null && !(viewer && (viewer.id === row.author_id || moderatesForum(viewer))))
+      throw new ClubError('postGone', {}, 404)
+    return row
   }
 
   private toBoard(row: BoardRow): Board {
@@ -1005,6 +1081,7 @@ export class ForumService {
       if (row.edited_at !== null) post.editedAt = row.edited_at
       if (row.pinned_at !== null) post.pinned = true
       if (row.locked) post.locked = true
+      if (row.hidden_at !== null) post.hidden = true
       const mentions = JSON.parse(row.mentions) as string[]
       if (mentions.length) post.mentions = mentions
       return post
