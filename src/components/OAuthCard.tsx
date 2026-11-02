@@ -4,16 +4,19 @@ import { api, ApiError } from '../lib/api.ts'
 import { leave } from '../lib/leave.ts'
 import { useAuth } from '../state/AuthContext.tsx'
 import { usePreferences } from '../state/PreferencesContext.tsx'
+import type { OAuthName } from '../../shared/protocol.ts'
 import { PasswordInput } from './PasswordInput.tsx'
+import { SignInButton } from './SignInButtons.tsx'
 import { useToast } from './Toast.tsx'
 import { Button, Card, CardFooter, CardHeader, CardTitle, ErrorText, Field, FieldLabel, Muted } from './ui.tsx'
 
 /**
- * "My account"'s Google sign-in (e1-t31): the Google account bound to this one (its address, only
- * the owner sees it), binding one (the password first, then Google) and unbinding it (with the
- * password; the password keeps working). Shown only when the server sends `Me.google`, that is when
- * the club has Google sign-in (DEPLOY.md §4.16). Google sends the browser back here with
- * `?google=linked` or `?google=error&code=…`, which this card reports once
+ * "My account"'s Google sign-in (e1-t31) or LINE login (e1-t32), one card each: the account bound
+ * to this one (Google's address or the LINE name, only the owner sees it), binding one (the password
+ * first, then the provider's own branded button) and unbinding it (with the password; the password
+ * keeps working). Shown only when the server sends `Me.google` / `Me.line`, that is when the club
+ * has that provider (DEPLOY.md §4.16, §4.17). The provider sends the browser back here with
+ * `?google=linked` or `?line=error&code=…`, which the card reports once
  */
 
 const Stack = styled.div`
@@ -28,20 +31,20 @@ const Status = styled.p`
   overflow-wrap: anywhere;
 `
 
-/** What Google's way back said, read once when the page opens */
-function googleBack(): { step: string | null; code: string } {
+/** What the provider's way back said, read once when the page opens */
+function backFrom(provider: OAuthName): { step: string | null; code: string } {
   const params = new URLSearchParams(window.location.search)
-  return { step: params.get('google'), code: params.get('code') ?? '' }
+  return { step: params.get(provider), code: params.get('code') ?? '' }
 }
 
-export function GoogleCard() {
+export function OAuthCard({ provider }: { provider: OAuthName }) {
   const { t, message } = usePreferences()
-  const g = t.google
+  const g = t[provider]
   const toast = useToast()
   const { user, refresh } = useAuth()
   const id = useId()
   const [password, setPassword] = useState('')
-  const [back] = useState(googleBack)
+  const [back] = useState(() => backFrom(provider))
   const [error, setError] = useState(() => (back.step === 'error' ? message(back.code, {}, t.genericError) : ''))
   const [busy, setBusy] = useState(false)
   const told = useRef(false)
@@ -53,8 +56,8 @@ export function GoogleCard() {
     if (back.step === 'linked') toast.success(g.linkedDone)
   }, [back, g, toast])
 
-  const google = user?.google
-  if (google === undefined) return null
+  const label = provider === 'google' ? user?.google?.email : user?.line?.name
+  if (user?.[provider] === undefined) return null
 
   const fail = (err: unknown) => setError(err instanceof ApiError ? message(err.code, err.params, err.message) : t.genericError)
 
@@ -63,7 +66,7 @@ export function GoogleCard() {
     setError('')
     setBusy(true)
     try {
-      leave.to((await api.google.link(password)).url)
+      leave.to((await api[provider].link(password)).url)
     } catch (err) {
       fail(err)
       setBusy(false)
@@ -76,7 +79,7 @@ export function GoogleCard() {
     setError('')
     setBusy(true)
     try {
-      await api.google.unlink(password)
+      await api[provider].unlink(password)
       setPassword('')
       toast.success(g.unlinked)
       await refresh()
@@ -94,7 +97,7 @@ export function GoogleCard() {
       </CardHeader>
       <Stack>
         <Muted>{g.intro}</Muted>
-        <Status role="status">{google ? g.linked(google.email) : g.none}</Status>
+        <Status role="status">{user[provider] ? g.linked(label ?? '') : g.none}</Status>
         {error && <ErrorText role="alert">{error}</ErrorText>}
         <Field>
           <FieldLabel htmlFor={`${id}-password`}>{g.password}</FieldLabel>
@@ -108,14 +111,14 @@ export function GoogleCard() {
         </Field>
       </Stack>
       <CardFooter>
-        {google ? (
+        {user[provider] ? (
           <Button type="button" $variant="danger" disabled={busy} onClick={() => void unlink()}>
             {g.unlink}
           </Button>
         ) : (
-          <Button type="submit" $variant="primary" $busy={busy}>
+          <SignInButton provider={provider} type="submit" busy={busy} inline>
             {g.link}
-          </Button>
+          </SignInButton>
         )}
       </CardFooter>
     </Card>

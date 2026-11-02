@@ -102,7 +102,7 @@ M0 已經有一套社團用的帳號系統：邀請碼＋管理員核准、PBKDF
 - [x] `e1-t29` Email 綁定與驗證信（寄信服務選型寫進 PR：Cloudflare Email Service 或 Resend）· AC-1.9 · M（Resend，沒設 `RESEND_API_KEY`／`MAIL_FROM` 時關閉；ARCHITECTURE.md §5.20、DEPLOY.md §4.14）#253
 - [x] `e1-t30` Email 重設密碼（社團模式仍可保留「帳號＋邀請碼」重設）· AC-1.9 · S · ← e1-t29（一次性 30 分鐘連結、只存雜湊；管理員核准的 `e1-t36` 保留）#253
 - [x] `e1-t31` Google 登入（OAuth，與既有帳號綁定）· AC-1.9 · M（OIDC 授權碼＋PKCE，伺服器換 token、用 `sub` 認人；綁在既有帳號、用 Google 申請仍要核准、兩步驟登入照樣要驗證碼；`GOOGLE_CLIENT_ID`／`GOOGLE_CLIENT_SECRET` 都設才開，ARCHITECTURE.md §5.2、DEPLOY.md §4.16）
-- [ ] `e1-t32` LINE 登入 · AC-1.9 · M · ← e1-t31
+- [x] `e1-t32` LINE 登入 · AC-1.9 · M · ← e1-t31（LINE Login v2.1 授權碼＋PKCE＋state＋nonce，與 Google 共用 `worker/oauth.ts`；ID token 驗 HS256 簽章、只用 `sub` 認人、不要 Email；綁在既有帳號、用 LINE 申請仍要核准、兩步驟登入照樣要驗證碼；`LINE_CHANNEL_ID`／`LINE_CHANNEL_SECRET` 都設才開，ARCHITECTURE.md §5.2、DEPLOY.md §4.17。同一批把 Google 與 LINE 按鈕改成兩家品牌規範的樣式，DESIGN.md §7.11）
 - [x] `e1-t33` 註冊防濫用：Cloudflare Turnstile、同 IP 註冊速率限制 · AC-1.9 · S（Turnstile 兩把金鑰都設才開，DEPLOY.md §4.13；同 IP 一小時 10 次一直開著）#252
 - [x] `e1-t34` 上傳頭像：瀏覽器先裁切、縮成小圖再上傳（Worker 免費方案每次 10 ms CPU，不在伺服器處理圖片）、大小與格式限制；2026-10-26 提前到 ROADMAP U4，不等 Email 登入；存在社團的 Durable Object（`avatar:<id>`），不用 R2，PR #136 · AC-1.5 · M · ← e1-t18
 

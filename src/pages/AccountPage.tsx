@@ -7,7 +7,7 @@ import { PROFILE_LEVELS, PROFILE_LIMITS, type Profile, type ProfileLevel } from 
 import { DEFAULT_ROBOT_SPEED, LIMITS, ROBOT_SPEEDS, type Me, type RobotSpeed } from '../../shared/protocol.ts'
 import { DataCard, SessionsCard } from '../components/AccountSecurity.tsx'
 import { EmailCard } from '../components/EmailCard.tsx'
-import { GoogleCard } from '../components/GoogleCard.tsx'
+import { OAuthCard } from '../components/OAuthCard.tsx'
 import { TwoFactorCard } from '../components/TwoFactorCard.tsx'
 import { Avatar } from '../components/Avatar.tsx'
 import { AvatarCropper } from '../components/AvatarCropper.tsx'
@@ -697,7 +697,8 @@ export function AccountPage() {
         </Card>
         <PasswordForm />
         <EmailCard />
-        <GoogleCard />
+        <OAuthCard provider="google" />
+        <OAuthCard provider="line" />
         <TwoFactorCard />
         <SessionsCard />
         <DataCard />

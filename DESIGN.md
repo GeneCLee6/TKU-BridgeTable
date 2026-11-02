@@ -355,3 +355,19 @@
 - **篩選籤（`ChipStrip`＋`Chip`）**：分類分頁與篩選（精選牌局的分類、收藏的標籤、紀錄篩選的合約範圍、「篩選」按鈕）一律用這個。每顆籤是實心的膠囊：高 36、左右內距 14、14 / 600、字置中、`borderStrong` 框、`surface` 底；選中時 `primary` 底、`onPrimary` 字。一整排**不換行**：放不下（手機、標籤很多）時在排內左右捲動，對齊一顆籤（scroll-snap），不顯示捲軸，還有內容的那一側淡出 24px；選中的籤會捲進畫面。太長的標籤以「…」截斷（`ChipLabel`，全文在 `title`），一顆最寬 240。
 - **數字（`ChipCount`）**：籤裡的數字是小徽章（高 20、最少 24 寬、12 / 700、等寬數字 `tabular-nums`；未選 `surfaceAlt` 底、`textMuted` 字，選中時反白），不再寫成「（5）」。9999 以下照寫，再多用各語言的簡寫（1.2萬、12k，`lib/format.ts` 的 `formatCount`），所以數字從 0 長到上千也不會把旁邊的籤擠開。
 - **分段切換（`Segmented`＋`SegmentButton`）**：同一個設定的兩三個選項（我打過的｜全部社員、依日期｜依主題｜不分組）。各段等寬、一整條不換行（不會再折成破掉的橢圓），字太長以「…」截斷。
+
+### 7.11 其他網站的登入按鈕（`components/SignInButtons.tsx`，`e1-t31`、`e1-t32`）
+
+社長 2026-11-02 嫌原本的 Google 按鈕「陽春」：Google 與 LINE 的按鈕改照兩家的品牌規範畫，**不是**我們的 `Button`。登入頁（`或` 下面滿寬，一個一列）、申請表（文字換成「申請加入」）、「我的帳號」的綁定卡片（卡片頁腳，跟文字一樣寬）都用同一個 `SignInButton provider`。顏色只在 `theme.brands`（`styles/tokens.ts`），別的地方不要用這些顏色。
+
+| | Google（Sign in with Google 品牌規範） | LINE（LINE Login 按鈕規範） |
+| --- | --- | --- |
+| 底色 | 淺色主題白 `#ffffff`、深色主題 `#131314` | LINE 綠 `#06c755`（兩種主題一樣） |
+| 框 | 1px 灰：淺色 `#747775`、深色 `#8e918f` | 無 |
+| 字 | `#1f1f1f`／深色 `#e3e3e3`，14 / 20、500（有 Roboto 用 Roboto） | 白、14 / 20、700 |
+| logo | 四色「G」20×20（四色兩種主題都不變），在字的左邊、間距 10，整組置中 | 白色 LINE logo，在最左邊，右邊一條 8% 黑的分隔線，字在其餘的寬度置中 |
+| 高、內距、圓角 | 40、左右 12、圓角 4 | 40、logo 左右 10、圓角 6 |
+| 滑過／按下 | 疊一層字色 8%／12% | 疊一層黑 10%／30% |
+| 文字 | 「使用 Google 帳戶登入」「使用 Google 帳戶申請加入」（英文 Sign in with Google／Sign up with Google，六種語言照 Google 的譯法） | 「用 LINE 登入」「用 LINE 申請加入」（英文 Log in with LINE，日文 LINEでログイン） |
+
+鍵盤焦點同其他按鈕（`focus` 2px 外框、外推 2px）；停用與處理中不透明度 0.45、`aria-busy`。logo 是行內 SVG（CSP 只放行本站，docs/SECURITY.md §2），`aria-hidden`，按鈕的名稱就是文字。不要改 logo 的顏色、比例，也不要只放 logo 不放字。

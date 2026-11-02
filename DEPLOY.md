@@ -602,7 +602,54 @@ Google 是**綁在既有帳號上的另一種登入方式**（ARCHITECTURE.md §
 - **CSP 不用改**：整頁導向到 Google 再導回來，不載入 Google 的 script 或 iframe（docs/SECURITY.md §2）。
 - **關掉**：`npx wrangler secret delete GOOGLE_CLIENT_SECRET`。綁定留在帳號裡，重新打開後照樣能用；關掉期間大家用密碼登入。
 - **用戶端密鑰外洩時**：在 Google Cloud 的用戶端頁面「新增密鑰」→ 用 `wrangler secret put GOOGLE_CLIENT_SECRET` 換上新的 → 停用舊的。
-- 日誌：`googleSignIn`、`googleLinked`、`googleUnlinked`、`googleFailed`（`reason`：`state` 是 cookie 不見或過期、`denied` 是在 Google 按了取消、`exchange` 是 Google 拒絕 code（常見原因：重新導向 URI 沒登記或密鑰錯）、`token` 是 ID token 檢查沒過）。
+- 日誌：`oauthSignIn`、`oauthLinked`、`oauthUnlinked`、`oauthFailed`，都帶 `provider: 'google'`（LINE 是 `'line'`，§4.17）（`oauthFailed` 的 `reason`：`state` 是 cookie 不見或過期、`denied` 是在 Google 按了取消、`exchange` 是 Google 拒絕 code（常見原因：重新導向 URI 沒登記或密鑰錯）、`token` 是 ID token 檢查沒過）。
+
+## 4.17 LINE 登入（`e1-t32`）
+
+跟 Google 登入（§4.16）是同一套：LINE 是綁在既有帳號上的**另一種登入方式**，綁定要輸入密碼、用 LINE 申請仍要選帳號名稱、設密碼、等管理員核准（LINE 的名字只預先填入顯示名稱），開了兩步驟登入的帳號用 LINE 登入一樣要輸入驗證碼。只用 LINE Login v2.1 的 `openid profile`，**不要求 Email**（要 Email 得向 LINE 申請審核，我們也用不到：認人只用 ID token 的 `sub`）。`LINE_CHANNEL_ID` 與 `LINE_CHANNEL_SECRET` 兩個 Worker secret **都設**才開；PR 預覽不會拿到，所以預覽站沒有 LINE 登入。
+
+### 啟用（只做一次，社長用自己的 LINE 帳號）
+
+LINE Developers 主控台只有英文與日文介面，下面用英文介面的名稱，括號裡是說明。
+
+1. 到 <https://developers.line.biz/console/>，按 **Log in with LINE account**（用自己的 LINE 帳號登入，手機 LINE 會跳出確認）。第一次進來要填 **Developer name**（開發者名稱，填自己的名字）與 Email、同意 **LINE Developers Agreement** 後 **Create my account**。
+2. **Providers** → **Create**（建立「提供者」：LINE 同意畫面上顯示的服務提供者）→ **Provider name** 填 `淡江橋藝社` → **Create**。
+3. 在這個 provider 裡選 **Create a new channel** → **LINE Login**（不是 Messaging API），填：
+   - **Region to provide the service**（服務地區）：`Taiwan`
+   - **Company or owner's country or region**（公司或擁有者所在地）：`Taiwan`
+   - **Channel name**（頻道名稱，登入時 LINE 顯示給使用者看）：`淡江牌桌`（名稱裡不能有「LINE」）
+   - **Channel description**（說明）：`淡江橋藝社的線上牌桌與橋館`
+   - **App types**（應用程式類型）：只勾 **Web app**
+   - **Email address**（LINE 用來聯絡開發者的信箱）：自己的 Email
+   - **Privacy policy URL**／**Terms of use URL**（選填）：`https://tku-bridge-table.genelee-pro.workers.dev/privacy`、`…/terms`
+   - 勾選同意 **LINE Developers Agreement** 等條款 → **Create**
+4. 頻道的 **Basic settings** 分頁：複製 **Channel ID**（一串數字）與 **Channel secret**（按 **Issue**／顯示後複製的 32 字元英數）。**OpenID Connect** 那一欄的 **Email address permission** 不要申請。
+5. **LINE Login** 分頁 → **Callback URL** → **Edit**，一行一個（要一字不差，包括 `https`、沒有結尾的 `/`）→ **Update**：
+
+   ```
+   https://tku-bridge-table.genelee-pro.workers.dev/api/auth/line/callback
+   https://tku-bridge-hall.vercel.app/api/auth/line/callback
+   ```
+
+   第二個是淡江橋館：橋館的 `/api/*` 由 Vercel 轉到牌桌的 Worker，cookie 才會留在橋館自己的網域。以後換成社團的網域時，在這裡加上新網域的 `…/api/auth/line/callback`。同一頁的 **Use LINE Login in your mobile app**、**Email address permission** 都不用開；**Linked LINE Official Account**（加官方帳號好友的提示）留空。
+6. **公開頻道**：頻道名稱旁邊的狀態是 **Developing**（開發中，只有頻道的管理員與 **Roles** 裡加的測試者能登入）→ 按 **Developing** → **Publish**（公開）→ 確認。沒有公開的話社員用 LINE 登入會失敗（`lineFailed`，日誌 `reason: 'denied'`）。
+7. 設定 Worker（正式站）：
+
+   ```bash
+   npx wrangler secret put LINE_CHANNEL_ID        # 貼上 Channel ID
+   npx wrangler secret put LINE_CHANNEL_SECRET    # 貼上 Channel secret
+   ```
+
+8. 檢查：`curl -s https://tku-bridge-table.genelee-pro.workers.dev/api/auth/line` 回 `{"enabled":true}`；用密碼登入 →「我的帳號」→「LINE 登入」→ 輸入密碼 →「綁定 LINE 帳號」→ LINE 的同意畫面按「許可」→ 回到「我的帳號」顯示「已綁定：（你的 LINE 名字）」。登出後按「用 LINE 登入」：社長有開兩步驟登入，會再問驗證碼。手機上會直接跳到 LINE App 確認（或電腦版用 QR code 登入）。
+
+- **staging**：在同一個頻道的 Callback URL 加 `https://tku-bridge-table-staging.genelee-pro.workers.dev/api/auth/line/callback`，用 `--name tku-bridge-table-staging` 設那兩個 secret。staging 不支援橋館。
+- **PR 預覽沒有 LINE 登入**：預覽的網址每次都不同，LINE 只接受登記過的 Callback URL；預覽的 Worker 也不會拿到這兩個 secret，所以預覽站自動關閉（看不到按鈕）。橋館的 Vercel 預覽也一樣回 `lineOff`。
+- **本機**：在 Callback URL 加 `http://localhost:5173/api/auth/line/callback`，把兩個值放 `.dev.vars`（不要 commit）。
+- **ID token 的驗證**：LINE 網頁登入的 ID token 用 Channel secret 以 HS256 簽章，伺服器每次都驗（一次 HMAC，免費方案的 10 ms CPU 綽綽有餘），再檢查 `iss`（`https://access.line.me`）、`aud`（Channel ID）、`exp`、`iat`、`nonce`（`worker/line.ts`）。
+- **CSP 不用改**：整頁導向到 `access.line.me` 再導回來，LINE 的 logo 是頁面裡的 SVG，不載入 LINE 的 script 或圖片（docs/SECURITY.md §2）。
+- **關掉**：`npx wrangler secret delete LINE_CHANNEL_SECRET`。綁定留在帳號裡，重新打開後照樣能用。
+- **Channel secret 外洩時**：**Basic settings** → **Channel secret** 的 **Issue**（重新發行）→ 用 `wrangler secret put LINE_CHANNEL_SECRET` 換上新的（舊的立刻失效，換上前 LINE 登入會失敗）。
+- 日誌：與 Google 相同的 `oauthSignIn`、`oauthLinked`、`oauthUnlinked`、`oauthFailed`，`provider: 'line'`（`reason` 同 §4.16；`exchange` 也包括 ID token 的簽章不對，常見原因是 Channel secret 貼錯）。
 
 ## 5. 費用與限制
 

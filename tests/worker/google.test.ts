@@ -1,21 +1,18 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it } from 'vitest'
 import { BOOK_SITE } from '../../shared/book-site.ts'
+import { checkIdToken, GOOGLE_TOKEN_URL, googleAuth, googleFrom } from '../../worker/google.ts'
 import {
-  checkIdToken,
   decodeJwtPayload,
-  GOOGLE_APPLY_MS,
-  GOOGLE_CODE_MS,
-  GOOGLE_START_MS,
-  GOOGLE_TOKEN_URL,
-  googleAuth,
-  googleCookie,
-  googleFrom,
-  googleSite,
+  flowCookie,
+  OAUTH_APPLY_MS,
+  OAUTH_CODE_MS,
+  OAUTH_START_MS,
+  oauthSite,
   pkceChallenge,
   safeReturn,
-} from '../../worker/google.ts'
-import { ClubService, type Connections, type GoogleOutcome } from '../../worker/service.ts'
+} from '../../worker/oauth.ts'
+import { ClubService, type Connections, type OAuthOutcome } from '../../worker/service.ts'
 import type { MemoryStore } from '../../worker/store.ts'
 import { totpCode, totpStep } from '../../worker/totp.ts'
 import { adminWithTwoFactor } from './admin-two-factor.ts'
@@ -100,12 +97,12 @@ async function member(name: string) {
 async function viaGoogle(
   claims: Record<string, unknown>,
   options: { site?: 'table' | 'book'; link?: { userId: string; password: string }; session?: string | null; returnTo?: string } = {},
-): Promise<GoogleOutcome> {
-  const { url, flowId } = await club.startGoogle(REDIRECT, options.site ?? 'table', options.returnTo ?? '/lobby', '1.2.3.4', options.link)
+): Promise<OAuthOutcome> {
+  const { url, flowId } = await club.startOAuth('google', REDIRECT, options.site ?? 'table', options.returnTo ?? '/lobby', '1.2.3.4', options.link)
   const nonce = new URL(url).searchParams.get('nonce')!
   const code = `code-${exchanged.length}-${Math.random()}`
   googleUsers[code] = { nonce, ...claims }
-  return club.finishGoogle(flowId, { state: flowId, code, error: '' }, options.session ?? options.link?.userId ?? null)
+  return club.finishOAuth('google', flowId, { state: flowId, code, error: '' }, options.session ?? options.link?.userId ?? null)
 }
 
 describe('Google sign-in helpers (e1-t31)', () => {
@@ -140,21 +137,21 @@ describe('Google sign-in helpers (e1-t31)', () => {
 
   it('runs only on our own sites, and returns only to a path on them', () => {
     const worker = new URL('https://tku-bridge-table.example.dev/api/auth/google/start')
-    expect(googleSite('https://tku-bridge-table.example.dev', worker)).toEqual({ origin: 'https://tku-bridge-table.example.dev', site: 'table' })
-    expect(googleSite(BOOK_SITE, worker)).toEqual({ origin: BOOK_SITE, site: 'book' })
-    expect(googleSite('https://evil.example', worker)).toBeNull()
-    expect(googleSite('http://localhost:5174', worker)).toBeNull()
-    expect(googleSite('', worker)).toBeNull()
+    expect(oauthSite('https://tku-bridge-table.example.dev', worker)).toEqual({ origin: 'https://tku-bridge-table.example.dev', site: 'table' })
+    expect(oauthSite(BOOK_SITE, worker)).toEqual({ origin: BOOK_SITE, site: 'book' })
+    expect(oauthSite('https://evil.example', worker)).toBeNull()
+    expect(oauthSite('http://localhost:5174', worker)).toBeNull()
+    expect(oauthSite('', worker)).toBeNull()
     // Development: 橋館's dev server on another localhost port
-    expect(googleSite('http://localhost:5174', new URL('http://localhost:5173/api/x'))).toEqual({ origin: 'http://localhost:5174', site: 'book' })
+    expect(oauthSite('http://localhost:5174', new URL('http://localhost:5173/api/x'))).toEqual({ origin: 'http://localhost:5174', site: 'book' })
     expect(safeReturn('/history?x=1')).toBe('/history?x=1')
     for (const bad of ['//evil.example', 'https://evil.example', '/\\evil.example', '', undefined, `/${'a'.repeat(400)}`])
       expect(safeReturn(bad)).toBe('/')
   })
 
   it('keeps the flow cookie HttpOnly, Lax and on /api/ only', () => {
-    expect(googleCookie('abc', true)).toBe(`tbt_google=abc; Path=/api/; HttpOnly; SameSite=Lax; Max-Age=${GOOGLE_START_MS / 1000}; Secure`)
-    expect(googleCookie('', false)).toContain('Max-Age=0')
+    expect(flowCookie('google', 'abc', true)).toBe(`tbt_google=abc; Path=/api/; HttpOnly; SameSite=Lax; Max-Age=${OAUTH_START_MS / 1000}; Secure`)
+    expect(flowCookie('google', '', false)).toContain('Max-Age=0')
   })
 
   it('is off unless both secrets are set', () => {
@@ -168,7 +165,7 @@ describe('Google sign-in helpers (e1-t31)', () => {
 describe('the flow (e1-t31)', () => {
   it('sends the browser to Google with state, nonce and an S256 challenge, and exchanges the code with the verifier', async () => {
     const amy = await member('amy')
-    const { url, flowId } = await club.startGoogle(REDIRECT, 'table', '/lobby', '1.2.3.4')
+    const { url, flowId } = await club.startOAuth('google', REDIRECT, 'table', '/lobby', '1.2.3.4')
     const params = new URL(url).searchParams
     expect(url.startsWith('https://accounts.google.com/o/oauth2/v2/auth?')).toBe(true)
     expect(Object.fromEntries(params)).toMatchObject({
@@ -211,21 +208,21 @@ describe('the flow (e1-t31)', () => {
   it('refuses a callback without the browser’s cookie, with another state, used twice or expired', async () => {
     const amy = await member('amy')
     await viaGoogle(account('g-amy'), { link: { userId: amy, password: PASSWORD } })
-    const { url, flowId } = await club.startGoogle(REDIRECT, 'table', '/', '1.2.3.4')
+    const { url, flowId } = await club.startOAuth('google', REDIRECT, 'table', '/', '1.2.3.4')
     googleUsers.c1 = { ...account('g-amy'), nonce: new URL(url).searchParams.get('nonce') }
     const failed = { kind: 'failed', code: 'googleFailed' }
-    expect(await club.finishGoogle(null, { state: flowId, code: 'c1', error: '' }, null)).toMatchObject(failed)
-    expect(await club.finishGoogle('x'.repeat(43), { state: flowId, code: 'c1', error: '' }, null)).toMatchObject(failed)
-    expect(await club.finishGoogle(flowId, { state: flowId, code: 'c1', error: '' }, null)).toMatchObject({ kind: 'signedIn' })
-    expect(await club.finishGoogle(flowId, { state: flowId, code: 'c1', error: '' }, null)).toMatchObject(failed)
-    const late = await club.startGoogle(REDIRECT, 'table', '/', '1.2.3.4')
-    time += GOOGLE_START_MS + 1
-    expect(await club.finishGoogle(late.flowId, { state: late.flowId, code: 'c1', error: '' }, null)).toMatchObject(failed)
+    expect(await club.finishOAuth('google', null, { state: flowId, code: 'c1', error: '' }, null)).toMatchObject(failed)
+    expect(await club.finishOAuth('google', 'x'.repeat(43), { state: flowId, code: 'c1', error: '' }, null)).toMatchObject(failed)
+    expect(await club.finishOAuth('google', flowId, { state: flowId, code: 'c1', error: '' }, null)).toMatchObject({ kind: 'signedIn' })
+    expect(await club.finishOAuth('google', flowId, { state: flowId, code: 'c1', error: '' }, null)).toMatchObject(failed)
+    const late = await club.startOAuth('google', REDIRECT, 'table', '/', '1.2.3.4')
+    time += OAUTH_START_MS + 1
+    expect(await club.finishOAuth('google', late.flowId, { state: late.flowId, code: 'c1', error: '' }, null)).toMatchObject(failed)
   })
 
   it('refuses a cancelled sign-in, a refused code and an ID token for another nonce or client', async () => {
-    const cancelled = await club.startGoogle(REDIRECT, 'table', '/', '1.2.3.4')
-    expect(await club.finishGoogle(cancelled.flowId, { state: cancelled.flowId, code: '', error: 'access_denied' }, null)).toMatchObject({
+    const cancelled = await club.startOAuth('google', REDIRECT, 'table', '/', '1.2.3.4')
+    expect(await club.finishOAuth('google', cancelled.flowId, { state: cancelled.flowId, code: '', error: 'access_denied' }, null)).toMatchObject({
       kind: 'failed',
       code: 'googleFailed',
     })
@@ -236,20 +233,20 @@ describe('the flow (e1-t31)', () => {
   })
 
   it('limits how many flows one network address starts', async () => {
-    for (let i = 0; i < 10; i++) await club.startGoogle(REDIRECT, 'table', '/', '9.9.9.9')
-    await expect(club.startGoogle(REDIRECT, 'table', '/', '9.9.9.9')).rejects.toMatchObject({ code: 'slowDown' })
-    await club.startGoogle(REDIRECT, 'table', '/', '8.8.8.8')
+    for (let i = 0; i < 10; i++) await club.startOAuth('google', REDIRECT, 'table', '/', '9.9.9.9')
+    await expect(club.startOAuth('google', REDIRECT, 'table', '/', '9.9.9.9')).rejects.toMatchObject({ code: 'slowDown' })
+    await club.startOAuth('google', REDIRECT, 'table', '/', '8.8.8.8')
   })
 
   it('answers googleOff everywhere when the club has no Google', async () => {
     await open(false)
     const amy = await member('amy')
-    expect(club.googleStatus()).toEqual({ enabled: false })
+    expect(club.oauthStatus('google')).toEqual({ enabled: false })
     expect((await club.userForToken((await club.login('amy', PASSWORD)).token))?.google).toBeUndefined()
-    await expect(club.startGoogle(REDIRECT, 'table', '/', '')).rejects.toMatchObject({ code: 'googleOff' })
-    await expect(club.unlinkGoogle(amy, PASSWORD)).rejects.toMatchObject({ code: 'googleOff' })
-    await expect(club.register('bob', PASSWORD, 'tku', '', 'table', '', '', { google: 'x' })).rejects.toMatchObject({ code: 'googleOff' })
-    expect(await club.googlePending('x')).toEqual({ step: null })
+    await expect(club.startOAuth('google', REDIRECT, 'table', '/', '')).rejects.toMatchObject({ code: 'googleOff' })
+    await expect(club.unlinkOAuth('google', amy, PASSWORD)).rejects.toMatchObject({ code: 'googleOff' })
+    await expect(club.register('bob', PASSWORD, 'tku', '', 'table', '', '', { oauth: { name: 'google', flow: 'x' } })).rejects.toMatchObject({ code: 'googleOff' })
+    expect(await club.oauthPending('google', 'x')).toEqual({ step: null })
   })
 })
 
@@ -257,7 +254,7 @@ describe('binding and unbinding on My account (e1-t31)', () => {
   it('asks for the password, keeps only sub and the address for the owner, and refuses one Google account on two', async () => {
     const amy = await member('amy')
     const bob = await member('bob')
-    await expect(club.startGoogle(REDIRECT, 'table', '/', '', { userId: amy, password: 'wrong-password' })).rejects.toMatchObject({
+    await expect(club.startOAuth('google', REDIRECT, 'table', '/', '', { userId: amy, password: 'wrong-password' })).rejects.toMatchObject({
       code: 'wrongPassword',
     })
     expect((await viaGoogle(account('g-amy'), { link: { userId: amy, password: PASSWORD } })).kind).toBe('linked')
@@ -271,7 +268,7 @@ describe('binding and unbinding on My account (e1-t31)', () => {
     expect(JSON.stringify(await club.memberProfile(bob, amy))).not.toContain('gmail')
     expect(JSON.stringify(await club.adminUsers())).not.toContain('gmail')
     // Already bound, or bound to someone else
-    await expect(club.startGoogle(REDIRECT, 'table', '/', '', { userId: amy, password: PASSWORD })).rejects.toMatchObject({ code: 'googleLinked' })
+    await expect(club.startOAuth('google', REDIRECT, 'table', '/', '', { userId: amy, password: PASSWORD })).rejects.toMatchObject({ code: 'googleLinked' })
     expect(await viaGoogle(account('g-amy'), { link: { userId: bob, password: PASSWORD } })).toMatchObject({
       kind: 'failed',
       code: 'googleTaken',
@@ -293,9 +290,9 @@ describe('binding and unbinding on My account (e1-t31)', () => {
   it('unbinds with the password; the password still signs in', async () => {
     const amy = await member('amy')
     await viaGoogle(account('g-amy'), { link: { userId: amy, password: PASSWORD } })
-    await expect(club.unlinkGoogle(amy, 'wrong-password')).rejects.toMatchObject({ code: 'wrongPassword' })
-    expect((await club.unlinkGoogle(amy, PASSWORD)).google).toBeNull()
-    await expect(club.unlinkGoogle(amy, PASSWORD)).rejects.toMatchObject({ code: 'googleNotLinked' })
+    await expect(club.unlinkOAuth('google', amy, 'wrong-password')).rejects.toMatchObject({ code: 'wrongPassword' })
+    expect((await club.unlinkOAuth('google', amy, PASSWORD)).google).toBeNull()
+    await expect(club.unlinkOAuth('google', amy, PASSWORD)).rejects.toMatchObject({ code: 'googleNotLinked' })
     expect((await viaGoogle(account('g-amy'))).kind).toBe('apply')
     expect((await club.login('amy', PASSWORD)).user.username).toBe('amy')
   })
@@ -321,20 +318,20 @@ describe('applying with Google (e1-t31)', () => {
   it('fills in only the display name, still needs a username, a password and an admin’s approval', async () => {
     const flow = await applyFlow('g-cat', '陳小貓 Google 帳號名字很長很長很長')
     // The page reads Google's name to prefill the display name, cut to its limit
-    expect(await club.googlePending(flow)).toEqual({ step: 'apply', name: '陳小貓 Google 帳號名字很' })
-    await expect(club.register('cat', PASSWORD, 'wrong-invite', '', 'table', '', '5.5.5.5', { google: flow })).rejects.toMatchObject({
+    expect(await club.oauthPending('google', flow)).toEqual({ step: 'apply', name: '陳小貓 Google 帳號名字很' })
+    await expect(club.register('cat', PASSWORD, 'wrong-invite', '', 'table', '', '5.5.5.5', { oauth: { name: 'google', flow } })).rejects.toMatchObject({
       code: 'badInvite',
     })
-    await expect(club.register('cat', 'short', 'tku', '', 'table', '', '', { google: flow })).rejects.toThrow()
-    const result = await club.register('cat', PASSWORD, 'tku', '新生', 'table', '', '', { google: flow, displayName: '小貓' })
+    await expect(club.register('cat', 'short', 'tku', '', 'table', '', '', { oauth: { name: 'google', flow } })).rejects.toThrow()
+    const result = await club.register('cat', PASSWORD, 'tku', '新生', 'table', '', '', { oauth: { name: 'google', flow }, displayName: '小貓' })
     expect(result).toEqual({ pending: true, username: 'cat' })
     // The flow is used up; Google sign-in now says the application waits
-    expect(await club.googlePending(flow)).toEqual({ step: null })
+    expect(await club.oauthPending('google', flow)).toEqual({ step: null })
     expect(await viaGoogle(account('g-cat'))).toMatchObject({ kind: 'failed', code: 'awaitingApproval' })
     // Nobody may apply again with the same Google account
     const again = await applyFlow('g-cat2')
     await store.put(`google:${again}`, { ...(await store.get<object>(`google:${again}`)), sub: 'g-cat' })
-    await expect(club.register('cat2', PASSWORD, 'tku', '', 'table', '', '', { google: again })).rejects.toMatchObject({ code: 'googleTaken' })
+    await expect(club.register('cat2', PASSWORD, 'tku', '', 'table', '', '', { oauth: { name: 'google', flow: again } })).rejects.toMatchObject({ code: 'googleTaken' })
 
     const approved = await club.adminApprove(club.adminApplications().find((a) => a.username === 'cat')!.id)
     expect(approved.username).toBe('cat')
@@ -345,10 +342,10 @@ describe('applying with Google (e1-t31)', () => {
   })
 
   it('needs the flow from Google, unexpired', async () => {
-    await expect(club.register('cat', PASSWORD, 'tku', '', 'table', '', '', { google: null })).rejects.toMatchObject({ code: 'googleFailed' })
+    await expect(club.register('cat', PASSWORD, 'tku', '', 'table', '', '', { oauth: { name: 'google', flow: null } })).rejects.toMatchObject({ code: 'googleFailed' })
     const flow = await applyFlow('g-cat')
-    time += GOOGLE_APPLY_MS + 1
-    await expect(club.register('cat', PASSWORD, 'tku', '', 'table', '', '', { google: flow })).rejects.toMatchObject({ code: 'googleFailed' })
+    time += OAUTH_APPLY_MS + 1
+    await expect(club.register('cat', PASSWORD, 'tku', '', 'table', '', '', { oauth: { name: 'google', flow } })).rejects.toMatchObject({ code: 'googleFailed' })
   })
 
   it('on 淡江橋館 a Google account with no club account is told to bind it or apply', async () => {
@@ -361,7 +358,7 @@ describe('applying with Google (e1-t31)', () => {
     await club.load()
     const outcome = await viaGoogle(account('g-founder'))
     if (outcome.kind !== 'apply') throw new Error('expected the form')
-    const result = await club.register('founder', PASSWORD, '', '', 'table', '', '', { google: outcome.flowId, displayName: '社長' })
+    const result = await club.register('founder', PASSWORD, '', '', 'table', '', '', { oauth: { name: 'google', flow: outcome.flowId }, displayName: '社長' })
     if (!('user' in result)) throw new Error('expected an account')
     expect(result.user.google).toEqual({ email: 'g-founder@gmail.com', linkedAt: time })
     expect(result.user.profile).toEqual({ displayName: '社長' })
@@ -378,18 +375,18 @@ describe('two-step sign-in after Google (e1-t31)', () => {
     expect(outcome.kind).toBe('code')
     if (outcome.kind !== 'code') return
     const flow = outcome.flowId
-    expect(await club.googlePending(flow)).toEqual({ step: 'code' })
-    await expect(club.finishGoogleCode(flow, '', '1.2.3.4')).rejects.toMatchObject({ code: 'twoFactorNeeded' })
-    await expect(club.finishGoogleCode(flow, '000000', '1.2.3.4')).rejects.toMatchObject({ code: 'twoFactorWrong' })
-    await expect(club.finishGoogleCode('y'.repeat(43), await totpCode(secret, totpStep(time)), '1.2.3.4')).rejects.toMatchObject({
+    expect(await club.oauthPending('google', flow)).toEqual({ step: 'code' })
+    await expect(club.finishOAuthCode('google', flow, '', '1.2.3.4')).rejects.toMatchObject({ code: 'twoFactorNeeded' })
+    await expect(club.finishOAuthCode('google', flow, '000000', '1.2.3.4')).rejects.toMatchObject({ code: 'twoFactorWrong' })
+    await expect(club.finishOAuthCode('google', 'y'.repeat(43), await totpCode(secret, totpStep(time)), '1.2.3.4')).rejects.toMatchObject({
       code: 'googleFailed',
     })
-    const signed = await club.finishGoogleCode(flow, await totpCode(secret, totpStep(time)), '1.2.3.4')
+    const signed = await club.finishOAuthCode('google', flow, await totpCode(secret, totpStep(time)), '1.2.3.4')
     expect(signed.returnTo).toBe('/admin')
     expect(signed.user.permissions.length).toBeGreaterThan(0)
     expect((await club.userForToken(signed.token))?.id).toBe(admin)
     // The flow works once
-    await expect(club.finishGoogleCode(flow, recoveryCodes[0], '1.2.3.4')).rejects.toMatchObject({ code: 'googleFailed' })
+    await expect(club.finishOAuthCode('google', flow, recoveryCodes[0], '1.2.3.4')).rejects.toMatchObject({ code: 'googleFailed' })
   })
 
   it('locks the account after five wrong codes, and the code step expires', async () => {
@@ -398,14 +395,14 @@ describe('two-step sign-in after Google (e1-t31)', () => {
     await viaGoogle(account('g-admin'), { link: { userId: admin, password: PASSWORD } })
     const outcome = await viaGoogle(account('g-admin'))
     if (outcome.kind !== 'code') throw new Error('expected the code step')
-    for (let i = 0; i < 5; i++) await expect(club.finishGoogleCode(outcome.flowId, '000000', `10.0.0.${i}`)).rejects.toMatchObject({ code: 'twoFactorWrong' })
+    for (let i = 0; i < 5; i++) await expect(club.finishOAuthCode('google', outcome.flowId, '000000', `10.0.0.${i}`)).rejects.toMatchObject({ code: 'twoFactorWrong' })
     time += 60_000
-    await expect(club.finishGoogleCode(outcome.flowId, await totpCode(secret, totpStep(time)), '10.0.1.1')).rejects.toMatchObject({
+    await expect(club.finishOAuthCode('google', outcome.flowId, await totpCode(secret, totpStep(time)), '10.0.1.1')).rejects.toMatchObject({
       code: 'tooManyLogins',
     })
     // The password path is locked the same way
     await expect(club.login('admin', PASSWORD, '10.0.2.2', '', await totpCode(secret, totpStep(time)))).rejects.toMatchObject({ code: 'tooManyLogins' })
-    time += GOOGLE_CODE_MS
-    await expect(club.finishGoogleCode(outcome.flowId, '123456', '10.0.1.1')).rejects.toMatchObject({ code: 'googleFailed' })
+    time += OAUTH_CODE_MS
+    await expect(club.finishOAuthCode('google', outcome.flowId, '123456', '10.0.1.1')).rejects.toMatchObject({ code: 'googleFailed' })
   })
 })

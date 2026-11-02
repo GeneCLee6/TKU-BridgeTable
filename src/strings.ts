@@ -1354,8 +1354,8 @@ const zh = {
   },
   // Google sign-in (e1-t31)
   google: {
-    signIn: '用 Google 登入',
-    apply: '用 Google 申請加入',
+    signIn: '使用 Google 帳戶登入',
+    apply: '使用 Google 帳戶申請加入',
     or: '或',
     applyNotice: '已確認你的 Google 帳號。仍要選一個帳號名稱與密碼，送出後等管理員核准；核准後可以用 Google 或密碼登入。已經有帳號的話，請改用帳號密碼登入，再到「我的帳號」綁定 Google。',
     displayName: '顯示名稱',
@@ -1374,6 +1374,28 @@ const zh = {
     unlinkConfirm: '確定要解除綁定 Google 嗎？之後請用帳號密碼登入。',
     unlinked: '已解除綁定 Google',
     linkedDone: 'Google 帳號已綁定，之後可以用 Google 登入。',
+  },
+  // LINE login (e1-t32)
+  line: {
+    signIn: '用 LINE 登入',
+    apply: '用 LINE 申請加入',
+    applyNotice: '已確認你的 LINE 帳號。仍要選一個帳號名稱與密碼，送出後等管理員核准；核准後可以用 LINE 或密碼登入。已經有帳號的話，請改用帳號密碼登入，再到「我的帳號」綁定 LINE。',
+    displayName: '顯示名稱',
+    displayNameHint: '其他社員看到的名字，可以修改；先填入 LINE 的名字。',
+    codeTitle: '輸入驗證碼',
+    codeIntro: '這個帳號開了兩步驟登入，用 LINE 登入也要輸入驗證 App 上的 6 位數驗證碼或一組備用碼。',
+    usePassword: '改用帳號密碼登入',
+    title: 'LINE 登入',
+    intro: '綁定 LINE 帳號後，可以用 LINE 登入淡江牌桌與淡江橋館。帳號名稱與顯示名稱不會改變，也照樣可以用密碼登入；開了兩步驟登入的帳號用 LINE 登入時一樣要輸入驗證碼。綁定時的 LINE 名字只有你自己看得到。',
+    linked: (name: string) => `已綁定：${name}`,
+    none: '還沒有綁定 LINE 帳號。',
+    password: '輸入密碼確認',
+    passwordFirst: '請先輸入密碼',
+    link: '綁定 LINE 帳號',
+    unlink: '解除綁定',
+    unlinkConfirm: '確定要解除綁定 LINE 嗎？之後請用帳號密碼登入。',
+    unlinked: '已解除綁定 LINE',
+    linkedDone: 'LINE 帳號已綁定，之後可以用 LINE 登入。',
   },
   // 兩步驟登入 (e11-t31)
   twoFactor: {
@@ -1433,6 +1455,10 @@ const zh = {
       {
         h: 'Google 登入',
         p: 'Google 登入是選用的。綁定或用 Google 申請時，本社只保存 Google 帳號的識別碼與當時的 Email（只顯示給你自己，用來辨認綁的是哪個 Google 帳號），不保存頭像，也不會收到你的 Google 密碼；Google 的名字只用來預先填入申請表的顯示名稱。解除綁定或刪除帳號時一併刪除。登入過程由 Google（美國）處理，適用 Google 的隱私權政策。',
+      },
+      {
+        h: 'LINE 登入',
+        p: 'LINE 登入是選用的。綁定或用 LINE 申請時，本社只保存 LINE 的使用者識別碼與當時的 LINE 名字（只顯示給你自己，用來辨認綁的是哪個 LINE 帳號），不要求 Email，不保存頭像，也不會收到你的 LINE 密碼；LINE 的名字也用來預先填入申請表的顯示名稱。解除綁定或刪除帳號時一併刪除。登入過程由 LINE（LY Corporation，日本）處理，適用 LINE 的隱私權政策。',
       },
       {
         h: '誰看得到',
@@ -2981,7 +3007,7 @@ const en: Strings = {
   // Google sign-in (e1-t31)
   google: {
     signIn: 'Sign in with Google',
-    apply: 'Apply with Google',
+    apply: 'Sign up with Google',
     or: 'or',
     applyNotice: 'Your Google account is confirmed. You still choose a username and a password, and an admin approves the application; after that you can sign in with Google or your password. Already have an account? Sign in with your password instead and link Google under My account.',
     displayName: 'Display name',
@@ -3000,6 +3026,28 @@ const en: Strings = {
     unlinkConfirm: 'Unlink Google? You will sign in with your password.',
     unlinked: 'Google unlinked',
     linkedDone: 'Google account linked; you can now sign in with Google.',
+  },
+  // LINE login (e1-t32)
+  line: {
+    signIn: 'Log in with LINE',
+    apply: 'Apply with LINE',
+    applyNotice: 'Your LINE account is confirmed. You still choose a username and a password, and an admin approves the application; after that you can log in with LINE or your password. Already have an account? Sign in with your password instead and link LINE under My account.',
+    displayName: 'Display name',
+    displayNameHint: 'The name other members see; you can change it. Filled in from your LINE name.',
+    codeTitle: 'Enter your code',
+    codeIntro: 'This account uses two-step sign-in: logging in with LINE also needs the 6-digit code from your authenticator app, or a recovery code.',
+    usePassword: 'Sign in with a password instead',
+    title: 'LINE login',
+    intro: 'With a LINE account linked, you can log in to TKU BridgeTable and TKU BridgeHall with LINE. Your username and display name stay the same, and your password still works; accounts with two-step sign-in still enter their code. Only you see the LINE name kept with the link.',
+    linked: (name: string) => `Linked: ${name}`,
+    none: 'No LINE account linked yet.',
+    password: 'Your password, to confirm',
+    passwordFirst: 'Enter your password first',
+    link: 'Link a LINE account',
+    unlink: 'Unlink',
+    unlinkConfirm: 'Unlink LINE? You will sign in with your password.',
+    unlinked: 'LINE unlinked',
+    linkedDone: 'LINE account linked; you can now log in with LINE.',
   },
   // 兩步驟登入 (e11-t31)
   twoFactor: {
@@ -3058,6 +3106,10 @@ const en: Strings = {
       {
         h: 'Google sign-in',
         p: 'Google sign-in is optional. When you link Google or apply with it, the club keeps only the Google account’s id and its email at that time (shown only to you, so you know which Google account is linked); not your picture, and never your Google password. Google’s name is only used to fill in the display name on the application. Both are deleted when you unlink Google or delete your account. Google (USA) handles the sign-in itself, under Google’s privacy policy.',
+      },
+      {
+        h: 'LINE login',
+        p: 'LINE login is optional. When you link LINE or apply with it, the club keeps only your LINE user id and your LINE name at that time (shown only to you, so you know which LINE account is linked); no email is asked for, your picture is not kept, and your LINE password never reaches us. The LINE name also fills in the display name on the application. Both are deleted when you unlink LINE or delete your account. LINE (LY Corporation, Japan) handles the login itself, under LINE’s privacy policy.',
       },
       {
         h: 'Who can see it',
@@ -4599,8 +4651,8 @@ const zhHans: Strings = {
   },
   // Google sign-in (e1-t31)
   google: {
-    signIn: '用 Google 登录',
-    apply: '用 Google 申请加入',
+    signIn: '使用 Google 账号登录',
+    apply: '使用 Google 账号申请加入',
     or: '或',
     applyNotice: '已确认你的 Google 账号。仍要选一个账号名称与密码，提交后等管理员批准；批准后可以用 Google 或密码登录。已经有账号的话，请改用账号密码登录，再到“我的账号”绑定 Google。',
     displayName: '显示名称',
@@ -4619,6 +4671,28 @@ const zhHans: Strings = {
     unlinkConfirm: '确定要解除绑定 Google 吗？之后请用账号密码登录。',
     unlinked: '已解除绑定 Google',
     linkedDone: 'Google 账号已绑定，之后可以用 Google 登录。',
+  },
+  // LINE login (e1-t32)
+  line: {
+    signIn: '用 LINE 登录',
+    apply: '用 LINE 申请加入',
+    applyNotice: '已确认你的 LINE 账号。仍要选一个账号名称与密码，提交后等管理员批准；批准后可以用 LINE 或密码登录。已经有账号的话，请改用账号密码登录，再到“我的账号”绑定 LINE。',
+    displayName: '显示名称',
+    displayNameHint: '其他社员看到的名字，可以修改；先填入 LINE 的名字。',
+    codeTitle: '输入验证码',
+    codeIntro: '这个账号开了两步验证登录，用 LINE 登录也要输入验证 App 上的 6 位数验证码或一组备用码。',
+    usePassword: '改用账号密码登录',
+    title: 'LINE 登录',
+    intro: '绑定 LINE 账号后，可以用 LINE 登录淡江牌桌与淡江桥馆。账号名称与显示名称不会改变，也照样可以用密码登录；开了两步验证登录的账号用 LINE 登录时一样要输入验证码。绑定时的 LINE 名字只有你自己看得到。',
+    linked: (name: string) => `已绑定：${name}`,
+    none: '还没有绑定 LINE 账号。',
+    password: '输入密码确认',
+    passwordFirst: '请先输入密码',
+    link: '绑定 LINE 账号',
+    unlink: '解除绑定',
+    unlinkConfirm: '确定要解除绑定 LINE 吗？之后请用账号密码登录。',
+    unlinked: '已解除绑定 LINE',
+    linkedDone: 'LINE 账号已绑定，之后可以用 LINE 登录。',
   },
   // 兩步驟登入 (e11-t31)
   twoFactor: {
@@ -4677,6 +4751,10 @@ const zhHans: Strings = {
       {
         h: 'Google 登录',
         p: 'Google 登录是选用的。绑定或用 Google 申请时，本社只保存 Google 账号的识别码与当时的 Email（只显示给你自己，用来辨认绑的是哪个 Google 账号），不保存头像，也不会收到你的 Google 密码；Google 的名字只用来预先填入申请表的显示名称。解除绑定或删除账号时一并删除。登录过程由 Google（美国）处理，适用 Google 的隐私政策。',
+      },
+      {
+        h: 'LINE 登录',
+        p: 'LINE 登录是选用的。绑定或用 LINE 申请时，本社只保存 LINE 的用户识别码与当时的 LINE 名字（只显示给你自己，用来辨认绑的是哪个 LINE 账号），不要求 Email，不保存头像，也不会收到你的 LINE 密码；LINE 的名字也用来预先填入申请表的显示名称。解除绑定或删除账号时一并删除。登录过程由 LINE（LY Corporation，日本）处理，适用 LINE 的隐私政策。',
       },
       {
         h: '谁看得到',
@@ -6241,6 +6319,28 @@ const vi: Strings = {
     unlinked: 'Đã hủy liên kết Google',
     linkedDone: 'Đã liên kết tài khoản Google; từ giờ có thể đăng nhập bằng Google.',
   },
+  // LINE login (e1-t32)
+  line: {
+    signIn: 'Đăng nhập bằng LINE',
+    apply: 'Đăng ký bằng LINE',
+    applyNotice: 'Đã xác nhận tài khoản LINE của bạn. Bạn vẫn cần chọn tên tài khoản và mật khẩu, rồi chờ quản trị viên duyệt; sau đó có thể đăng nhập bằng LINE hoặc mật khẩu. Nếu đã có tài khoản, hãy đăng nhập bằng mật khẩu rồi liên kết LINE trong Tài khoản của tôi.',
+    displayName: 'Tên hiển thị',
+    displayNameHint: 'Tên các thành viên khác thấy; có thể sửa. Được điền sẵn từ tên LINE.',
+    codeTitle: 'Nhập mã xác thực',
+    codeIntro: 'Tài khoản này dùng đăng nhập hai bước: đăng nhập bằng LINE cũng cần mã 6 chữ số từ ứng dụng xác thực, hoặc một mã dự phòng.',
+    usePassword: 'Đăng nhập bằng mật khẩu',
+    title: 'Đăng nhập bằng LINE',
+    intro: 'Khi đã liên kết tài khoản LINE, bạn có thể đăng nhập TKU BridgeTable và TKU BridgeHall bằng LINE. Tên tài khoản và tên hiển thị không đổi, mật khẩu vẫn dùng được; tài khoản có đăng nhập hai bước vẫn phải nhập mã. Chỉ bạn thấy tên LINE lưu kèm liên kết.',
+    linked: (name: string) => `Đã liên kết: ${name}`,
+    none: 'Chưa liên kết tài khoản LINE.',
+    password: 'Nhập mật khẩu để xác nhận',
+    passwordFirst: 'Hãy nhập mật khẩu trước',
+    link: 'Liên kết tài khoản LINE',
+    unlink: 'Hủy liên kết',
+    unlinkConfirm: 'Hủy liên kết LINE? Sau đó hãy đăng nhập bằng mật khẩu.',
+    unlinked: 'Đã hủy liên kết LINE',
+    linkedDone: 'Đã liên kết tài khoản LINE; từ giờ có thể đăng nhập bằng LINE.',
+  },
   // 兩步驟登入 (e11-t31)
   twoFactor: {
     title: 'Đăng nhập hai bước',
@@ -6298,6 +6398,10 @@ const vi: Strings = {
       {
         h: 'Đăng nhập bằng Google',
         p: 'Đăng nhập bằng Google là tùy chọn. Khi liên kết hoặc đăng ký bằng Google, câu lạc bộ chỉ lưu mã định danh của tài khoản Google và email lúc đó (chỉ hiển thị cho bạn, để biết đã liên kết tài khoản Google nào); không lưu ảnh đại diện và không bao giờ nhận mật khẩu Google. Tên Google chỉ dùng để điền sẵn tên hiển thị trong đơn đăng ký. Cả hai bị xóa khi bạn hủy liên kết hoặc xóa tài khoản. Việc đăng nhập do Google (Mỹ) xử lý theo chính sách quyền riêng tư của Google.',
+      },
+      {
+        h: 'Đăng nhập bằng LINE',
+        p: 'Đăng nhập bằng LINE là tùy chọn. Khi liên kết hoặc đăng ký bằng LINE, câu lạc bộ chỉ lưu mã người dùng LINE và tên LINE lúc đó (chỉ hiển thị cho bạn, để biết đã liên kết tài khoản LINE nào); không yêu cầu email, không lưu ảnh đại diện và không bao giờ nhận mật khẩu LINE. Tên LINE cũng dùng để điền sẵn tên hiển thị trong đơn đăng ký. Cả hai bị xóa khi bạn hủy liên kết hoặc xóa tài khoản. Việc đăng nhập do LINE (LY Corporation, Nhật Bản) xử lý theo chính sách quyền riêng tư của LINE.',
       },
       {
         h: 'Ai xem được',
@@ -7862,6 +7966,28 @@ const ja: Strings = {
     unlinked: 'Google の連携を解除しました',
     linkedDone: 'Google アカウントを連携しました。これから Google でログインできます。',
   },
+  // LINE login (e1-t32)
+  line: {
+    signIn: 'LINEでログイン',
+    apply: 'LINEで入会申請',
+    applyNotice: 'LINE アカウントを確認しました。アカウント名とパスワードを決めて送信し、管理者の承認を待ってください。承認後は LINE でもパスワードでもログインできます。すでにアカウントがある場合は、パスワードでログインしてから「マイアカウント」で LINE を連携してください。',
+    displayName: '表示名',
+    displayNameHint: 'ほかのメンバーに見える名前で、変更できます。LINE の名前が入っています。',
+    codeTitle: 'コードを入力',
+    codeIntro: 'このアカウントは 2 段階ログインを使っています。LINE でログインする場合も、認証アプリの 6 桁のコードかバックアップコードが必要です。',
+    usePassword: 'パスワードでログインする',
+    title: 'LINE ログイン',
+    intro: 'LINE アカウントを連携すると、TKU BridgeTable と TKU BridgeHall に LINE でログインできます。アカウント名と表示名は変わらず、パスワードでも引き続きログインできます。2 段階ログインを使っているアカウントは LINE でもコードの入力が必要です。連携時の LINE の名前はあなただけに表示されます。',
+    linked: (name: string) => `連携済み：${name}`,
+    none: 'LINE アカウントはまだ連携されていません。',
+    password: '確認のためパスワードを入力',
+    passwordFirst: '先にパスワードを入力してください',
+    link: 'LINE アカウントを連携',
+    unlink: '連携を解除',
+    unlinkConfirm: 'LINE の連携を解除しますか？以後はパスワードでログインしてください。',
+    unlinked: 'LINE の連携を解除しました',
+    linkedDone: 'LINE アカウントを連携しました。これから LINE でログインできます。',
+  },
   // 兩步驟登入 (e11-t31)
   twoFactor: {
     title: '2 段階ログイン',
@@ -7919,6 +8045,10 @@ const ja: Strings = {
       {
         h: 'Google ログイン',
         p: 'Google ログインは任意です。連携または Google での申請の際、クラブが保存するのは Google アカウントの識別子とその時点のメールアドレス（どの Google アカウントを連携したか分かるよう、あなたにだけ表示）だけで、プロフィール画像は保存せず、Google のパスワードを受け取ることもありません。Google の名前は申請フォームの表示名を事前入力するためだけに使います。連携の解除またはアカウントの削除で一緒に削除されます。ログインの処理は Google（米国）が行い、Google のプライバシーポリシーが適用されます。',
+      },
+      {
+        h: 'LINE ログイン',
+        p: 'LINE ログインは任意です。連携または LINE での申請の際、クラブが保存するのは LINE のユーザー ID とその時点の LINE の名前（どの LINE アカウントを連携したか分かるよう、あなたにだけ表示）だけで、メールアドレスは求めず、プロフィール画像は保存せず、LINE のパスワードを受け取ることもありません。LINE の名前は申請フォームの表示名の事前入力にも使います。連携の解除またはアカウントの削除で一緒に削除されます。ログインの処理は LINE（LY Corporation、日本）が行い、LINE のプライバシーポリシーが適用されます。',
       },
       {
         h: '誰が見られるか',
@@ -9462,7 +9592,7 @@ const ko: Strings = {
   },
   // Google sign-in (e1-t31)
   google: {
-    signIn: 'Google로 로그인',
+    signIn: 'Google 계정으로 로그인',
     apply: 'Google로 가입 신청',
     or: '또는',
     applyNotice: 'Google 계정을 확인했습니다. 계정 이름과 비밀번호를 정해 보내면 관리자가 승인합니다. 승인 후에는 Google이나 비밀번호로 로그인할 수 있습니다. 이미 계정이 있다면 비밀번호로 로그인한 뒤 내 계정에서 Google을 연결하세요.',
@@ -9482,6 +9612,28 @@ const ko: Strings = {
     unlinkConfirm: 'Google 연결을 해제할까요? 이후에는 비밀번호로 로그인하세요.',
     unlinked: 'Google 연결을 해제했습니다',
     linkedDone: 'Google 계정을 연결했습니다. 이제 Google로 로그인할 수 있습니다.',
+  },
+  // LINE login (e1-t32)
+  line: {
+    signIn: 'LINE으로 로그인',
+    apply: 'LINE으로 가입 신청',
+    applyNotice: 'LINE 계정을 확인했습니다. 계정 이름과 비밀번호를 정해 보내면 관리자가 승인합니다. 승인 후에는 LINE이나 비밀번호로 로그인할 수 있습니다. 이미 계정이 있다면 비밀번호로 로그인한 뒤 내 계정에서 LINE을 연결하세요.',
+    displayName: '표시 이름',
+    displayNameHint: '다른 회원에게 보이는 이름이며 바꿀 수 있습니다. LINE 이름이 채워져 있습니다.',
+    codeTitle: '코드 입력',
+    codeIntro: '이 계정은 2단계 로그인을 사용합니다. LINE으로 로그인할 때도 인증 앱의 6자리 코드나 백업 코드가 필요합니다.',
+    usePassword: '비밀번호로 로그인',
+    title: 'LINE 로그인',
+    intro: 'LINE 계정을 연결하면 TKU BridgeTable과 TKU BridgeHall에 LINE으로 로그인할 수 있습니다. 계정 이름과 표시 이름은 바뀌지 않고 비밀번호로도 계속 로그인할 수 있습니다. 2단계 로그인을 쓰는 계정은 LINE으로 로그인할 때도 코드를 입력해야 합니다. 연결할 때의 LINE 이름은 본인에게만 보입니다.',
+    linked: (name: string) => `연결됨: ${name}`,
+    none: '아직 연결된 LINE 계정이 없습니다.',
+    password: '확인을 위해 비밀번호 입력',
+    passwordFirst: '먼저 비밀번호를 입력하세요',
+    link: 'LINE 계정 연결',
+    unlink: '연결 해제',
+    unlinkConfirm: 'LINE 연결을 해제할까요? 이후에는 비밀번호로 로그인하세요.',
+    unlinked: 'LINE 연결을 해제했습니다',
+    linkedDone: 'LINE 계정을 연결했습니다. 이제 LINE으로 로그인할 수 있습니다.',
   },
   // 兩步驟登入 (e11-t31)
   twoFactor: {
@@ -9540,6 +9692,10 @@ const ko: Strings = {
       {
         h: 'Google 로그인',
         p: 'Google 로그인은 선택 사항입니다. Google을 연결하거나 Google로 신청할 때 동아리는 Google 계정의 식별자와 그때의 이메일(어떤 Google 계정이 연결되었는지 알 수 있도록 본인에게만 표시)만 보관하며, 프로필 사진은 보관하지 않고 Google 비밀번호는 받지 않습니다. Google 이름은 신청서의 표시 이름을 미리 채우는 데만 씁니다. 연결을 해제하거나 계정을 삭제하면 함께 삭제됩니다. 로그인 과정은 Google(미국)이 처리하며 Google의 개인정보처리방침이 적용됩니다.',
+      },
+      {
+        h: 'LINE 로그인',
+        p: 'LINE 로그인은 선택 사항입니다. LINE을 연결하거나 LINE으로 신청할 때 동아리는 LINE 사용자 ID와 그때의 LINE 이름(어떤 LINE 계정이 연결되었는지 알 수 있도록 본인에게만 표시)만 보관하며, 이메일은 요청하지 않고 프로필 사진은 보관하지 않으며 LINE 비밀번호는 받지 않습니다. LINE 이름은 신청서의 표시 이름을 미리 채우는 데에도 씁니다. 연결을 해제하거나 계정을 삭제하면 함께 삭제됩니다. 로그인 과정은 LINE(LY Corporation, 일본)이 처리하며 LINE의 개인정보처리방침이 적용됩니다.',
       },
       {
         h: '누가 볼 수 있나요',

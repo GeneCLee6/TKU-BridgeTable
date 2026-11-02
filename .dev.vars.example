@@ -24,3 +24,8 @@ MAIL_FROM=
 # http://localhost:5173/api/auth/google/callback; leave either empty and Google sign-in is off
 GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
+
+# LINE login (DEPLOY.md §4.17): a LINE Login channel whose callback URLs include
+# http://localhost:5173/api/auth/line/callback; leave either empty and LINE login is off
+LINE_CHANNEL_ID=
+LINE_CHANNEL_SECRET=
