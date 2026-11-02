@@ -815,16 +815,29 @@ E13 的 PRD 原本寫「貼文與留言進 D1」。現況是社團 Durable Objec
 | --- | --- | --- |
 | `/forum` | `ForumHomePage` | 板面（名稱、說明、公告板標「只有幹部能發文」），下面是所有板面的最新貼文，新→舊，一頁 20 則（`GET /api/forum/feed?page=`） |
 | `/forum/:boardId` | `ForumBoardPage` | 一個板面：第 1 頁先列置頂（新置頂的在前），其他新→舊，一頁 20 則（`GET /api/forum/boards/:id/posts?page=`）；頁碼在網址的 `?page=` |
-| `/forum/p/:postId` | `ForumPostPage` | 貼文與全部留言（`GET /api/forum/posts/:id`）；社員寫留言、回覆（純文字，送成一個 `paragraph` 區塊）、刪自己的留言（幹部可刪任何人的）；鎖定的貼文不顯示留言框 |
+| `/forum/p/:postId` | `ForumPostPage` | 貼文與全部留言（`GET /api/forum/posts/:id`）；社員寫留言、回覆（文字，可附一段叫牌過程）、刪自己的留言（幹部可刪任何人的）；作者看到「編輯」，作者與幹部看到「刪除貼文」；鎖定的貼文不顯示留言框 |
+| `/forum/new?board=` | `ForumNewPostPage` | 發文（K2）：選板面（公告板只列給幹部）、標題、內容；草稿存在這台裝置（`tku-bridgetable:forumDraft`），發布後清除（`POST /api/forum/boards/:id/posts`） |
+| `/forum/p/:postId/edit` | `ForumEditPostPage` | 作者編輯自己的貼文（K2）：板面不能換（`PATCH /api/forum/posts/:id`） |
 
 - 作者名稱用大廳的社員列表（`lobby.members`，顯示名稱優先）；已不是社員的顯示「已離開的社員」。
-- 區塊由 `ForumBlocks` 畫：段落、提示、條列照文字（花色符號上色，`SuitText`）；一手牌與四手牌用文字牌型（四家排成羅盤，中間是發牌與身價）；叫牌過程用紀錄頁的 `AuctionBox`；圖片、橋館制度、牌桌紀錄是連結。K2 再換成 `RecordDiagram`。
-- **發文先在橋館**：牌桌的發文編輯器是 K2（`e13-t04`～`e13-t06`），在那之前頁面上的「到淡江橋館發文」開橋館的 `/forum/new`。通知鈴鐺的論壇通知也還是連到橋館（`src/lib/notifications.ts`）；旗標全開後再決定改指牌桌。
-- 反應、編輯、檢舉、搜尋在牌桌還沒有入口（API 都有）：檢舉與搜尋是 K4，反應與編輯跟 K2 的編輯器一起做。
+- 區塊由 `ForumBlocks` 畫：段落、提示、條列照文字（花色符號上色，`SuitText`）；一手牌用文字牌型；**四手牌用紀錄頁的 `RecordDiagram`**（K2，`ForumDeal`：`shared/forum-editor.ts` 的 `dealRecord` 把 `ForumDeal` 轉成沒有牌號、沒有玩家的紀錄，`anonymous` 讓四家顯示方位而不是名字，`BoardInfo` 不寫牌號）；叫牌過程用紀錄頁的 `AuctionBox`；圖片、橋館制度、牌桌紀錄是連結。
+- **發文在牌桌站內**（K2）：頁面上的「發文」開牌桌的 `/forum/new`。通知鈴鐺的論壇通知還是連到橋館（`src/lib/notifications.ts`）；旗標全開後再決定改指牌桌（K3 `e13-t09`）。
+- 反應、檢舉、搜尋在牌桌還沒有入口（API 都有）：檢舉與搜尋是 K4；反應還沒排批次。編輯與刪除貼文在 K2 做了。
+
+### 發文編輯器（K2：`e13-t04`、`e13-t05`、`e13-t06`）
+
+**不改格式、不改後端**：編輯器送出的就是 `shared/forum.ts` 既有的區塊（`paragraph`、`rules`、`note`、`deal`、`auction`），跟橋館的發文框寫的一樣，兩站都能顯示；`worker/forum.ts` 的檢查照舊。純邏輯在 `shared/forum-editor.ts`（`tests/engine/forum-editor.test.ts`），元件測試在 `tests/presentation/forum-editor.test.tsx`。
+
+- **文字是 Markdown 子集**（`parseMarkdown`，反過來是 `toMarkdown`，讀回來不變）：空一行分段（相鄰的段落併成一個 `paragraph`，免得超過 20 個區塊）；`- `／`* ` 條列、`1. ` 編號（兩格縮排一層，最多三層）→ `rules`；`> ` → `note`，第一行 `> [!WARNING]` 是警告；`!s !h !d !c` → ♠♥♦♣（前面緊接拉丁字母時不換）；行首 `\` 是普通文字。**沒有**粗體、斜體、連結、HTML：兩站都把文字當文字畫。
+- **四手牌編輯器**（`DealEditor`）：選一家，點 52 張牌給它；點自己的牌收回、點別家的牌搬過來；一家滿 13 張就不能再給，並自動換順時針下一家沒滿的；三家滿了可以「其餘給第四家」。發牌與身價用下拉選單。規則同伺服器：**每張牌只在一家、每家最多 13 張、至少一張**；**允許部分牌例**（兩手牌、殘局），畫面寫出還有幾張沒分配。
+- **叫牌過程輸入**（`AuctionEditor`）：沿用牌桌的叫牌盒 `BiddingBox`（含 Alert 說明與鍵盤），只開放 `shared/auction.ts` 的 `legalCalls` 允許的叫品，所以送出的一定合法；可收回一個、清除、換發牌者（叫品順序不變、座位跟著轉）。叫牌可以只寫到一半（叫牌問題）；結束時顯示合約與莊家。叫牌盒聽整個視窗的鍵盤，所以一頁同時只開一個。
+- **發文編輯器**（`PostEditor`）：一篇貼文是一串「片段」（`EditorPiece`）：文字、四手牌、叫牌過程，可上移、下移、移除；四手牌與叫牌一次只展開一個編輯，其他顯示成貼文的樣子。編輯橋館寫的貼文時，牌桌不編的區塊（單手牌、圖片、制度引用、牌桌紀錄）原樣保留、只能移動或移除。送出前列出伺服器會擋的問題（`postProblems`：空的、超過 20 個區塊或 5000 字、標題超過 80 字、四手牌或叫牌不合規則）。
+- **留言可以附叫牌過程**（PRD「留言也可嵌入叫牌過程」）：留言框的「加叫牌過程」，送出 `paragraph`＋`auction`。
+- **莊位與首攻**：PRD 的 `e13-t05` 寫了莊位與首攻，但 `ForumDeal` 只有四家牌、發牌與身價；莊家可以從同一篇的叫牌過程看出來。要存首攻得在 `ForumDeal` 加欄位，而橋館的型別對拍（`parity/table-types.ts`）是 `Same`，要兩站一起改，K2 先不做。
 
 ### 之後
 
-- **K2**：四手牌編輯器（`e13-t05`）、叫牌過程輸入（`e13-t06`）、發文編輯器（`e13-t04`）；牌圖改用 `RecordDiagram`。
+- **K2**（做完）：四手牌編輯器（`e13-t05`）、叫牌過程輸入（`e13-t06`）、發文編輯器（`e13-t04`）；牌圖改用 `RecordDiagram`。見下面「發文編輯器」。
 - **K3**：從紀錄分享（`e13-t07`，伺服器檢查挑戰未結束的牌）、個人頁的貼文（`e13-t08`）、通知改連牌桌（`e13-t09`）。
 - **K4**：檢舉與管理頁（`e13-t10`）、全文搜尋（`e13-t11`，屆時評估 D1 FTS5）。
 
