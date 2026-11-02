@@ -12,16 +12,25 @@
  * WebSockets to the site itself (`connect-src 'self'` covers `wss:` to the same host). Pictures of
  * posts and articles, avatars and e-book PDFs come from the Worker's own `/api/files/` and
  * `/api/avatar/`; TKU BridgeBook reaches `/api/book/*` through its own domain (Vercel), so neither
- * needs another origin here.
+ * needs another origin here. The one other origin is Cloudflare Turnstile's (`TURNSTILE_ORIGIN`),
+ * for its script and frame on 申請加入.
  */
+
+/**
+ * Cloudflare Turnstile on 申請加入 (e1-t33, worker/turnstile.ts): its script and the frame it draws
+ * the check in. The only other origin the page may load from; nothing is fetched from it unless
+ * the Worker hands out a site key
+ */
+export const TURNSTILE_ORIGIN = 'https://challenges.cloudflare.com'
 
 export const PAGE_CSP = [
   "default-src 'self'",
-  "script-src 'self' 'wasm-unsafe-eval'",
+  `script-src 'self' 'wasm-unsafe-eval' ${TURNSTILE_ORIGIN}`,
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob:",
   "font-src 'self' data:",
   "connect-src 'self'",
+  `frame-src ${TURNSTILE_ORIGIN}`,
   "worker-src 'self' blob:",
   "manifest-src 'self'",
   "media-src 'self' data: blob:",

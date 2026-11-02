@@ -16,7 +16,7 @@ import { usePreferences, useT } from '../state/PreferencesContext.tsx'
 import { seatLetter, type Strings } from '../strings.ts'
 
 /**
- * 雙人賽 (`e9-t10`–`e9-t13`, AC-9.4, ARCHITECTURE.md §5.20): the list with the form for a new
+ * 雙人賽 (`e9-t10`–`e9-t13`, AC-9.4, ARCHITECTURE.md §5.22): the list with the form for a new
  * event, and one event's page — the pairs entered, the director's start, each round's tables, the
  * live standings by field, the travellers and the member's own boards. What the server sends
  * already follows §4: a board's results at other tables only once the member's pair played it.

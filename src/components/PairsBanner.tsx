@@ -5,7 +5,7 @@ import type { TablePairs } from '../../shared/protocol.ts'
 import { useT } from '../state/PreferencesContext.tsx'
 
 /**
- * A pairs event's table (§5.20, `e9-t11`): the title names the round and the table, with a link to
+ * A pairs event's table (§5.22, `e9-t11`): the title names the round and the table, with a link to
  * the event (a new tab: leaving this page would leave the table). `lib/usePairsFollow.ts` takes the
  * player on when the round changes
  */

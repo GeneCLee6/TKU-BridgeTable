@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import type { TableView } from '../../shared/protocol.ts'
 
 /**
- * Each round opens new tables (§5.20): once the club moved the player off this one, they go to the
+ * Each round opens new tables (§5.22): once the club moved the player off this one, they go to the
  * table they are seated at now, or back to the event's page while their pair sits out (which takes
  * them on when their next table opens)
  */

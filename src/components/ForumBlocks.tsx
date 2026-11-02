@@ -1,17 +1,22 @@
 import { Link } from 'react-router-dom'
 import styled from 'styled-components'
 import { bookUrl } from '../../shared/book-site.ts'
-import { RANKS, rankOf, SEATS, SUITS, suitOf, type Card, type Seat } from '../../shared/cards.ts'
-import type { ForumDeal, ForumRuleItem, PostBlock } from '../../shared/forum.ts'
+import { RANKS, rankOf, SUITS, suitOf, type Card, type Seat } from '../../shared/cards.ts'
+import type { ForumDeal as ForumDealValue, ForumRuleItem, PostBlock } from '../../shared/forum.ts'
+import { dealRecord } from '../../shared/forum-editor.ts'
+import { CARD_SCALE } from '../lib/cards.ts'
+import { useMediaQuery } from '../lib/useMediaQuery.ts'
+import { mobileQuery } from '../styles/tokens.ts'
 import { usePreferences } from '../state/PreferencesContext.tsx'
 import { AuctionBox } from './AuctionBox.tsx'
+import { RecordDiagram } from './RecordDiagram.tsx'
 import { SuitSymbol, SuitText } from './Suit.tsx'
 
 /**
  * A forum post's or comment's blocks (shared/forum.ts `PostBlock`, ARCHITECTURE.md §5.19), drawn
  * with the table's own pieces: the suits in the deck's colours (`SuitSymbol`) and the auction in
  * the record pages' `AuctionBox`. A post is never HTML, so nothing here sets inner HTML; text is
- * shown as text with its line breaks. The four-hand editor and `RecordDiagram` come with K2.
+ * shown as text with its line breaks. Four hands are drawn with the record pages' `RecordDiagram` (K2).
  */
 
 const Stack = styled.div`
@@ -53,31 +58,8 @@ const HandLine = styled.div`
   }
 `
 
-const DealGrid = styled.div`
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, max-content));
-  grid-template-areas:
-    '. N .'
-    'W C E'
-    '. S .';
-  gap: ${({ theme }) => theme.space(3)};
-  align-items: center;
-  width: fit-content;
-  max-width: 100%;
-  padding: ${({ theme }) => theme.space(3)};
-  border: 1px solid ${({ theme }) => theme.colors.border};
-  border-radius: ${({ theme }) => theme.radius.md};
-  background: ${({ theme }) => theme.colors.surfaceAlt};
-`
-
-const DealSeat = styled.div<{ $seat: Seat }>`
-  grid-area: ${({ $seat }) => $seat};
-`
-
-const DealCentre = styled.small`
-  grid-area: C;
-  color: ${({ theme }) => theme.colors.textMuted};
-  text-align: center;
+const DealFrame = styled.div`
+  max-width: 640px;
 `
 
 const Caption = styled.small`
@@ -121,17 +103,27 @@ function Hand({ cards, label }: { cards: readonly Card[]; label?: string }) {
   )
 }
 
-function Deal({ deal }: { deal: ForumDeal }) {
-  const { t } = usePreferences()
+/**
+ * Four hands drawn with the record pages' diagram (AC-13.2), sized as the record page sizes it:
+ * the seats named instead of players, no board number, nothing played
+ */
+export function ForumDeal({ deal }: { deal: ForumDealValue }) {
+  const { cardStyle, cardSize } = usePreferences()
+  const phone = useMediaQuery(mobileQuery)
+  const scale = CARD_SCALE[cardSize]
+  const side = (seat: Seat) => seat === 'E' || seat === 'W'
   return (
-    <DealGrid>
-      {SEATS.map((seat: Seat) => (
-        <DealSeat key={seat} $seat={seat}>
-          <Hand cards={deal.hands[seat]} label={t.seatNames[seat]} />
-        </DealSeat>
-      ))}
-      <DealCentre>{t.dealerVul(t.seatNames[deal.dealer], t.vulNames[deal.vul])}</DealCentre>
-    </DealGrid>
+    <DealFrame>
+      <RecordDiagram
+        record={dealRecord(deal)}
+        step={0}
+        width={Math.round((phone ? 40 : 60) * scale)}
+        trickWidth={Math.round((phone ? 24 : 40) * scale)}
+        styleFor={(seat) => (phone && side(seat) ? 'text' : cardStyle)}
+        orientationFor={(seat) => (side(seat) && !phone ? 'rows' : 'horizontal')}
+        anonymous
+      />
+    </DealFrame>
   )
 }
 
@@ -170,7 +162,7 @@ function Block({ block }: { block: PostBlock }) {
     case 'deal':
       return (
         <Figure>
-          <Deal deal={block.deal} />
+          <ForumDeal deal={block.deal} />
           {block.caption && <Caption>{block.caption}</Caption>}
         </Figure>
       )

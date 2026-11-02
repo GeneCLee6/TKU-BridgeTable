@@ -3,6 +3,8 @@ import type { ChallengeSettings, ChallengeView } from '../../shared/challenge.ts
 import type { WeeklyChallengeSchedule, WeeklyChallengeView } from '../../shared/weekly-challenge.ts'
 import type { DailyEventSettings, DailyEventView } from '../../shared/daily-event.ts'
 import type { PairsSettings, PairsSummary, PairsView } from '../../shared/pairs.ts'
+import type { LeaderboardView, LedgerEntry, PointsRules } from '../../shared/points.ts'
+import type { RatingView } from '../../shared/rating.ts'
 import { historyQueryString, type HistoryQuery } from '../../shared/history-query.ts'
 import type { MessageParams } from '../../shared/messages.ts'
 import type { MemberProfile, Profile } from '../../shared/profile.ts'
@@ -22,6 +24,7 @@ import type {
   Me,
   MemberChange,
   Permission,
+  RegisterOptions,
   RegisterResult,
   RobotSpeed,
 } from '../../shared/protocol.ts'
@@ -90,14 +93,27 @@ export const api = {
   health: () => request<HealthStatus>('/api/health'),
   login: (username: string, password: string) => post<{ user: Me }>('/api/login', { username, password }),
   /** The first account signs in at once; later ones wait for an admin to approve them */
-  register: (username: string, password: string, inviteCode: string, note: string) =>
-    post<RegisterResult>('/api/register', { username, password, inviteCode, note, site: 'table' }),
+  register: (username: string, password: string, inviteCode: string, note: string, turnstileToken?: string) =>
+    post<RegisterResult>('/api/register', { username, password, inviteCode, note, site: 'table', turnstileToken }),
+  /** What 申請加入 needs before it is sent (e1-t33): Turnstile's site key, or null when it is off */
+  registerOptions: () => request<RegisterOptions>('/api/register/options'),
   /** 忘記密碼, step 1 (e1-t36): asks the admins, with the club's invite code; not for admin accounts */
   requestPasswordReset: (username: string, inviteCode: string) =>
     post<{ ok: true }>('/api/password/reset/request', { username, inviteCode }),
   /** 忘記密碼, step 2: the one-time code an admin handed over sets the new password */
   resetPassword: (username: string, code: string, password: string) =>
     post<{ ok: true }>('/api/password/reset', { username, code, password }),
+  /** Whether the club sends mail (e1-t29); off when no mail provider is set */
+  emailStatus: () => request<{ enabled: boolean }>('/api/email'),
+  /** The link from the verification mail (e1-t29); no sign-in needed */
+  verifyEmail: (token: string) => post<{ username: string; address: string }>('/api/email/verify', { token }),
+  /** 忘記密碼 by email (e1-t30): the same answer whether or not the account has a verified address */
+  requestEmailReset: (account: string, lang: string) => post<{ ok: true }>('/api/email/reset/request', { account, lang }),
+  /** The link from the reset mail sets the new password */
+  resetPasswordByEmail: (token: string, password: string) => post<{ username: string }>('/api/email/reset', { token, password }),
+  /** Binds or changes the member's email (a link goes to it); an empty address removes it */
+  setEmail: (address: string, password: string, lang: string) => post<{ user: Me }>('/api/account/email', { address, password, lang }),
+  resendEmailVerification: (lang: string) => post<{ user: Me }>('/api/account/email/resend', { lang }),
   logout: () => post<{ ok: true }>('/api/logout'),
   changePassword: (current: string, next: string) => post<{ ok: true }>('/api/account/password', { current, next }),
   /** The account settings the server keeps (e1-t24) */
@@ -173,7 +189,7 @@ export const api = {
   challenge: (id: string) => request<{ challenge: ChallengeView }>(`/api/challenges/${encodeURIComponent(id)}`),
   /** The daily club event's page (`e9-t03`): today's, yesterday's and the earlier days */
   daily: () => request<{ daily: DailyEventView }>('/api/daily'),
-  /** Pairs events (`e9-t10`–`e9-t13`, §5.20): the list, one event as the member may see it, and its actions */
+  /** Pairs events (`e9-t10`–`e9-t13`, §5.22): the list, one event as the member may see it, and its actions */
   pairs: {
     list: () => request<{ pairs: PairsSummary[] }>('/api/pairs'),
     get: (id: string) => request<{ pairs: PairsView }>(`/api/pairs/${encodeURIComponent(id)}`),
@@ -184,6 +200,15 @@ export const api = {
     cancel: (id: string) => post<{ pairs: PairsView }>(`/api/pairs/${encodeURIComponent(id)}/cancel`),
     start: (id: string) => post<{ pairs: PairsView }>(`/api/pairs/${encodeURIComponent(id)}/start`),
   },
+  /** Club points and ratings (J2): a period's board (`month=YYYY-MM`, `year=YYYY` or `season=<id>`) */
+  rankings: (period: string) => request<{ board: LeaderboardView }>(`/api/rankings?${period}`),
+  ledger: (userId: string, period: string) =>
+    request<{ entries: LedgerEntry[] }>(`/api/rankings/ledger?user=${encodeURIComponent(userId)}&${period}`),
+  savePointsRules: (rules: Partial<PointsRules>) => post<{ rules: PointsRules }>('/api/rankings/rules', rules),
+  adjustPoints: (eventId: string, userId: string, points: number, reason: string) =>
+    post<{ entry: LedgerEntry }>('/api/rankings/adjust', { eventId, userId, points, reason }),
+  rating: (userId: string) => request<{ rating: RatingView }>(`/api/ratings/${encodeURIComponent(userId)}`),
+  setRatingHidden: (hidden: boolean) => post<{ rating: RatingView }>('/api/ratings/visibility', { hidden }),
   /** Challenges friends (`e7-t17`); the server checks everything and answers with the new challenge */
   createChallenge: (invitees: string[], boards: number, settings: Partial<ChallengeSettings>) =>
     post<{ challenge: ChallengeView }>('/api/challenges', { invitees, boards, settings }),

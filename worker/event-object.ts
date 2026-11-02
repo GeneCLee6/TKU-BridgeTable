@@ -14,7 +14,7 @@ import { AlarmQueue } from './scheduler.ts'
 
 /**
  * One challenge (`idFromName('challenge:<id>')`, H2b), one team match (`idFromName('match:<id>')`,
- * H2c) or one pairs event (`idFromName('pairs:<id>')`, §5.20) in its own Durable Object (§5.12), used when `EVENT_OBJECTS=on`. This is
+ * H2c) or one pairs event (`idFromName('pairs:<id>')`, §5.22) in its own Durable Object (§5.12), used when `EVENT_OBJECTS=on`. This is
  * only the glue to Cloudflare: storage, the SQLite database, the alarm and the club's stub. What
  * the event does is `EventHost`, `ChallengeEvent` and `MatchEvent`, which never touch a Cloudflare
  * API. Only the club calls it (RPC); no browser connects here.

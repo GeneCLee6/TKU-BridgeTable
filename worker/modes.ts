@@ -53,7 +53,7 @@ export type EventReport =
   | { kind: 'challenge'; challengeId: string; result: ChallengeResult | null }
   /** A team match room's board (§5.8): `seq` is its place in the match; null when it does not count (the match ended) */
   | { kind: 'team'; matchId: string; room: Room; seq: number; result: RoomResult | null }
-  /** A pairs event's board (§5.20): where in the movement it was played; null when it does not count (the round ended) */
+  /** A pairs event's board (§5.22): where in the movement it was played; null when it does not count (the round ended) */
   | {
       kind: 'pairs'
       eventId: string

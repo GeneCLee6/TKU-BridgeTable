@@ -123,7 +123,7 @@ export function clubService(store: Store, connections: Connections, config: Club
     eventObjects: new RemoteEvents((id) => stub(world, id)),
     // A team match's object is named apart from a challenge's (`match:<id>`), as in production
     matchObjects: new RemoteMatches((id) => stub(world, matchKey(id))),
-    // A pairs event's too (`pairs:<id>`, §5.20)
+    // A pairs event's too (`pairs:<id>`, §5.22)
     pairsObjects: new RemotePairs((id) => stub(world, pairsKey(id))),
     eventObjectsOn: config.eventObjectsOn ?? true,
   })
@@ -177,5 +177,5 @@ export function writeChallenge(club: ClubService, id: string, write: (store: Cha
 /** The key of a team match's object in `eventObjects` (H2c): its own name, apart from the challenges' */
 export const matchKey = (matchId: string) => `match:${matchId}`
 
-/** The key of a pairs event's object (§5.20) */
+/** The key of a pairs event's object (§5.22) */
 export const pairsKey = (eventId: string) => `pairs:${eventId}`

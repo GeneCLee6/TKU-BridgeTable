@@ -40,7 +40,7 @@ const KIND_KEY = 'kind'
 const REV_KEY = 'rev'
 const UNREPORTED_KEY = 'unreported'
 const FROZEN_KEY = 'frozen'
-/** A pairs event (§5.20) is kept whole under one key (at most 20 pairs and 32 boards) */
+/** A pairs event (§5.22) is kept whole under one key (at most 20 pairs and 32 boards) */
 const PAIRS_KEY = 'pairs'
 /**
  * How soon a change is told to the club again on its own, after the answer that carried it (in
@@ -69,7 +69,7 @@ export class EventHost implements EventRpc, MatchRpc, PairsRpc {
   private readonly matchStore: TeamMatchStore
   private event: ChallengeEvent | null = null
   private match: MatchEvent | null = null
-  /** A pairs event (§5.20): no SQL and no job of its own, it changes only when the club calls */
+  /** A pairs event (§5.22): no SQL and no job of its own, it changes only when the club calls */
   private pairs: PairsEvent | null = null
   private rev = 0
   /** The club took the event back (`handOver`): nothing is changed, run or told until `release` */
@@ -339,7 +339,7 @@ export class EventHost implements EventRpc, MatchRpc, PairsRpc {
     return { snapshot }
   }
 
-  // ── The club's calls for a pairs event (PairsRpc, §5.20) ────────────────────────────────────
+  // ── The club's calls for a pairs event (PairsRpc, §5.22) ────────────────────────────────────
 
   async adoptPairs(event: PairsEvent): Promise<PairsWire> {
     const { storage } = this.deps

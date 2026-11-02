@@ -289,7 +289,7 @@ export class TableService implements TableApi {
       }
       throw new ClubError('matchNoWatching', {}, 403)
     }
-    // Nobody of a pairs event watches its tables while it is on (§5.20); a player a robot sits in for comes back
+    // Nobody of a pairs event watches its tables while it is on (§5.22); a player a robot sits in for comes back
     const pairs = pairsStateOf(table)
     if (pairs && !pairs.closed && pairs.players.includes(person.id)) {
       if (this.substituteSeat(person.id)) {
@@ -322,7 +322,7 @@ export class TableService implements TableApi {
       if (this.otherRoom(userId)) throw new ClubError('matchOtherRoom', {}, 403)
       throw new ClubError('matchTableFixed')
     }
-    // A pairs event seats its players by the movement (§5.20)
+    // A pairs event seats its players by the movement (§5.22)
     if (table.mode === 'pairs') throw new ClubError('pairsTableFixed')
     if (!here) this.checkAccess(userId)
     // A person may take a robot's seat at any time, as on BBO
@@ -526,7 +526,7 @@ export class TableService implements TableApi {
       await this.drop()
       return null
     }
-    // A team match (or a pairs event's round) plays on: a robot takes the deleted member's seat (§5.8, §5.20)
+    // A team match (or a pairs event's round) plays on: a robot takes the deleted member's seat (§5.8, §5.22)
     const team = teamStateOf(table) ?? pairsStateOf(table)
     const kept = team && !team.closed ? this.seatOf(userId) : null
     if (kept) {
@@ -600,7 +600,7 @@ export class TableService implements TableApi {
    */
   async matchEnded(): Promise<TableEntry | null> {
     const table = this.table
-    // A pairs event's round (or the event) ended (§5.20): the same, with nothing to put away (the round's boards were all played)
+    // A pairs event's round (or the event) ended (§5.22): the same, with nothing to put away (the round's boards were all played)
     const pairs = table && pairsStateOf(table)
     if (table && pairs) {
       pairs.closed = true

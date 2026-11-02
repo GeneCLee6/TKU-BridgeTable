@@ -13,13 +13,16 @@ import { ChallengePage } from './pages/ChallengePage.tsx'
 import { ChallengesPage } from './pages/ChallengesPage.tsx'
 import { DailyPage } from './pages/DailyPage.tsx'
 import { PairsEventPage, PairsListPage } from './pages/PairsPages.tsx'
+import { RankingsPage } from './pages/RankingsPage.tsx'
 import { ComparePage } from './pages/ComparePage.tsx'
 import { FeaturedPage } from './pages/FeaturedPage.tsx'
 import { FavoritesPage } from './pages/FavoritesPage.tsx'
 import { ForumBoardPage, ForumHomePage, ForumPostPage } from './pages/ForumPages.tsx'
+import { ForumEditPostPage, ForumNewPostPage } from './pages/ForumEditorPage.tsx'
 import { HistoryPage } from './pages/HistoryPage.tsx'
 import { LobbyPage } from './pages/LobbyPage.tsx'
 import { LegalPage } from './pages/LegalPage.tsx'
+import { EmailLinkPage } from './pages/EmailLinkPage.tsx'
 import { LoginPage } from './pages/LoginPage.tsx'
 import { MatchesPage } from './pages/MatchesPage.tsx'
 import { MatchPage } from './pages/MatchPage.tsx'
@@ -78,10 +81,13 @@ function Routed() {
   const { pathname } = useLocation()
   // The forum's pages only for members who have the flag (E13 K1, shared/features.ts)
   const forumOn = useFeature('forum')
-  // Pairs events (E9 J3, §5.20) behind their flag
+  // Pairs events (E9 J3, §5.22) behind their flag
   const pairsOn = useFeature('pairs')
+  const rankingsOn = useFeature('rankings')
   // The privacy policy and the terms are for anyone, signed in or not (e11-t27)
   if (pathname === '/privacy' || pathname === '/terms') return <LegalPage kind={pathname === '/privacy' ? 'privacy' : 'terms'} />
+  // The email links (e1-t29, e1-t30) work signed in or not, on any device
+  if (pathname === '/email/verify' || pathname === '/email/reset') return <EmailLinkPage kind={pathname === '/email/verify' ? 'verify' : 'reset'} />
   if (user === undefined) return <PageMain>{t.loading}</PageMain>
   if (user === null) return <LoginPage />
   return (
@@ -92,6 +98,7 @@ function Routed() {
         <Route path="/table/:tableId" element={<TablePage />} />
         <Route path="/challenges" element={<ChallengesPage />} />
         <Route path="/daily" element={<DailyPage />} />
+        {(rankingsOn || user.admin) && <Route path="/rankings" element={<RankingsPage />} />}
         <Route path="/challenges/:challengeId" element={<ChallengePage />} />
         <Route path="/challenges/:challengeId/boards/:seq" element={<ChallengeBoardPage />} />
         <Route path="/matches" element={<MatchesPage />} />
@@ -106,7 +113,9 @@ function Routed() {
         {pairsOn && <Route path="/pairs" element={<PairsListPage />} />}
         {pairsOn && <Route path="/pairs/:eventId" element={<PairsEventPage />} />}
         {forumOn && <Route path="/forum" element={<ForumHomePage />} />}
+        {forumOn && <Route path="/forum/new" element={<ForumNewPostPage />} />}
         {forumOn && <Route path="/forum/p/:postId" element={<ForumPostPage />} />}
+        {forumOn && <Route path="/forum/p/:postId/edit" element={<ForumEditPostPage />} />}
         {forumOn && <Route path="/forum/:boardId" element={<ForumBoardPage />} />}
         <Route path="/account" element={<AccountPage />} />
         <Route path="/members/:userId" element={<ProfilePage />} />

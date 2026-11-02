@@ -1,9 +1,10 @@
 import { ChevronLeft, ChevronRight, Lock, MessageSquare, Pin } from 'lucide-react'
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
-import { Link, useParams, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import styled from 'styled-components'
-import { BOOK_SITE } from '../../shared/book-site.ts'
-import { FORUM_LIMITS, type Board, type BoardPage, type Comment, type ForumFeed, type Post, type PostThread } from '../../shared/forum.ts'
+import { FORUM_LIMITS, type Board, type BoardPage, type Comment, type CommentBlock, type ForumAuction, type ForumFeed, type Post, type PostThread } from '../../shared/forum.ts'
+import { emptyAuction } from '../../shared/forum-editor.ts'
+import { AuctionEditor } from '../components/AuctionEditor.tsx'
 import { ForumBlocks } from '../components/ForumBlocks.tsx'
 import { Button, Card, ErrorText, Muted, PageMain, PageTitle, Textarea } from '../components/ui.tsx'
 import { formatDateTime } from '../lib/format.ts'
@@ -25,7 +26,8 @@ import { cardHover } from '../styles/controls.ts'
  * - `/forum/p/:postId`: the post and its comments (one level of replies); members comment and
  *   reply, and delete their own comments (officers anyone's; the server checks)
  *
- * Writing a post is BridgeHall's until the table's editor (K2); the page links there.
+ * Posts are written and edited with the table's own editor (K2, `ForumEditorPage.tsx`); a comment
+ * may carry an auction (`AuctionEditor`).
  */
 
 const Intro = styled.div`
@@ -156,7 +158,7 @@ const BackLink = styled(Link)`
   font-size: 14px;
 `
 
-const ExternalLink = styled.a`
+const WriteLink = styled(Link)`
   color: ${({ theme }) => theme.colors.primary};
   font-weight: 600;
 `
@@ -294,13 +296,18 @@ function PostRows({ posts, boards }: { posts: Post[]; boards?: Board[] }) {
   )
 }
 
-function WriteInHall() {
+/** An officer of the forum (`forumModerate`, or an admin): the server checks the same */
+function useOfficer() {
+  const { user } = useAuth()
+  return !!user && (user.admin || user.permissions.includes('forumModerate'))
+}
+
+/** 發文: the table's editor, on this board when there is one */
+function Write({ board }: { board?: Board }) {
   const { t } = usePreferences()
-  return (
-    <ExternalLink href={`${BOOK_SITE}/forum/new`} target="_blank" rel="noreferrer">
-      {t.forum.writeInHall}
-    </ExternalLink>
-  )
+  const officer = useOfficer()
+  if (board && board.postPolicy === 'officers' && !officer) return null
+  return <WriteLink to={board ? `/forum/new?board=${encodeURIComponent(board.id)}` : '/forum/new'}>{t.forum.write}</WriteLink>
 }
 
 /** `/forum`: the boards and every board's latest posts */
@@ -329,7 +336,7 @@ export function ForumHomePage() {
       <PageTitle>{t.forum.title}</PageTitle>
       <Intro>
         <Muted>{t.forum.intro}</Muted>
-        <WriteInHall />
+        <Write />
       </Intro>
       {error && <ErrorText role="alert">{error}</ErrorText>}
       <SectionTitle>{t.forum.boards}</SectionTitle>
@@ -388,7 +395,7 @@ export function ForumBoardPage() {
             {data.board.description}
             {data.board.postPolicy === 'officers' ? ` · ${t.forum.officersOnly}` : ''}
           </Muted>
-          <WriteInHall />
+          <Write board={data.board} />
         </Intro>
       )}
       {error && <ErrorText role="alert">{error}</ErrorText>}
@@ -404,21 +411,37 @@ function CommentForm({
   label,
   onSend,
   onCancel,
+  auctionOpen,
+  onAuction,
 }: {
   label: string
-  onSend: (text: string) => Promise<void>
+  onSend: (blocks: CommentBlock[]) => Promise<void>
   onCancel?: () => void
+  /** Whether this form's auction editor is the open one (one bidding box on the page at a time) */
+  auctionOpen: boolean
+  onAuction: (open: boolean) => void
 }) {
   const { t } = usePreferences()
   const [text, setText] = useState('')
+  const [auction, setAuction] = useState<ForumAuction>(() => emptyAuction())
   const [busy, setBusy] = useState(false)
+  const blocks: CommentBlock[] = [
+    ...(text.trim() ? [{ kind: 'paragraph' as const, text: text.trim() }] : []),
+    ...(auctionOpen && auction.calls.length ? [{ kind: 'auction' as const, auction }] : []),
+  ]
+  const toggleAuction = () => {
+    setAuction(emptyAuction())
+    onAuction(!auctionOpen)
+  }
   const submit = async (e: FormEvent) => {
     e.preventDefault()
-    if (!text.trim() || busy) return
+    if (!blocks.length || busy) return
     setBusy(true)
     try {
-      await onSend(text.trim())
+      await onSend(blocks)
       setText('')
+      setAuction(emptyAuction())
+      onAuction(false)
     } finally {
       setBusy(false)
     }
@@ -433,13 +456,17 @@ function CommentForm({
         value={text}
         onChange={(e) => setText(e.target.value)}
       />
+      {auctionOpen && <AuctionEditor value={auction} onChange={setAuction} />}
       <div>
+        <Button type="button" $variant="ghost" onClick={toggleAuction}>
+          {auctionOpen ? t.forum.removeAuction : t.forum.addAuction}
+        </Button>
         {onCancel && (
           <Button type="button" $variant="ghost" onClick={onCancel}>
             {t.forum.cancel}
           </Button>
         )}
-        <Button type="submit" disabled={!text.trim()} $busy={busy}>
+        <Button type="submit" disabled={!blocks.length} $busy={busy}>
           {t.forum.send}
         </Button>
       </div>
@@ -453,9 +480,12 @@ export function ForumPostPage() {
   const { t, lang, message } = usePreferences()
   const { user } = useAuth()
   const name = useMemberName()
+  const navigate = useNavigate()
   const [thread, setThread] = useState<PostThread | null>(null)
   const [error, setError] = useState('')
   const [replyTo, setReplyTo] = useState<string | null>(null)
+  // Which comment form has its auction editor open: the top one ('') or a reply's
+  const [auctionIn, setAuctionIn] = useState<string | null>(null)
 
   const load = useCallback(
     () =>
@@ -472,14 +502,14 @@ export function ForumPostPage() {
     void load()
   }, [load])
 
-  const officer = !!user?.permissions.includes('forumModerate')
+  const officer = useOfficer()
   const post = thread?.post
   const mayComment = !!post && (!post.locked || officer)
 
-  const send = (parentId?: string) => async (text: string) => {
+  const send = (parentId?: string) => async (blocks: CommentBlock[]) => {
     try {
       setError('')
-      await forumApi.comment(postId, { parentId, blocks: [{ kind: 'paragraph', text }] })
+      await forumApi.comment(postId, { parentId, blocks })
       setReplyTo(null)
       await load()
     } catch (e) {
@@ -498,6 +528,21 @@ export function ForumPostPage() {
       setError(message(err.code ?? '', err.params ?? {}, err.message))
     }
   }
+
+  const removePost = async () => {
+    if (!post || !window.confirm(t.forum.confirmDeletePost)) return
+    try {
+      await forumApi.deletePost(post.id)
+      navigate(`/forum/${encodeURIComponent(post.boardId)}`)
+    } catch (e) {
+      const err = e as { code?: string; params?: Record<string, string | number>; message: string }
+      setError(message(err.code ?? '', err.params ?? {}, err.message))
+    }
+  }
+  const auctionForm = (key: string) => ({
+    auctionOpen: auctionIn === key,
+    onAuction: (open: boolean) => setAuctionIn(open ? key : null),
+  })
 
   const comments = thread?.comments ?? []
   return (
@@ -518,6 +563,12 @@ export function ForumPostPage() {
               {t.forum.byLine(name(post.authorId), formatDateTime(post.createdAt, lang))}
               {post.editedAt ? ` · ${t.forum.edited}` : ''}
             </span>
+            {post.authorId === user?.id && <WriteLink to={`/forum/p/${encodeURIComponent(post.id)}/edit`}>{t.forum.editPost}</WriteLink>}
+            {(post.authorId === user?.id || officer) && (
+              <Button type="button" $variant="ghost" $size="sm" onClick={() => void removePost()}>
+                {t.forum.deletePost}
+              </Button>
+            )}
           </Meta>
           <Card>
             <ForumBlocks blocks={post.blocks} />
@@ -554,13 +605,14 @@ export function ForumPostPage() {
                       label={t.forum.replyLabel(name(comment.authorId))}
                       onSend={send(comment.id)}
                       onCancel={() => setReplyTo(null)}
+                      {...auctionForm(comment.id)}
                     />
                   )}
                 </CommentBox>
               ))}
             </CommentList>
           )}
-          {mayComment ? <CommentForm label={t.forum.commentLabel} onSend={send()} /> : <Muted>{t.forum.lockedHint}</Muted>}
+          {mayComment ? <CommentForm label={t.forum.commentLabel} onSend={send()} {...auctionForm('')} /> : <Muted>{t.forum.lockedHint}</Muted>}
         </>
       )}
     </PageMain>

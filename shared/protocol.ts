@@ -88,6 +88,15 @@ export interface Me extends PublicUser {
   robotSpeed?: RobotSpeed
   /** The feature flags the member has (e11-t26, shared/features.ts); the server always sets it */
   features?: FeatureFlag[]
+  /** The member's email (e1-t29); left out when the club sends no mail (no mail provider set, DEPLOY.md §4.14) */
+  email?: AccountEmail
+}
+
+/** `Me.email`: the verified address, and one waiting for its link */
+export interface AccountEmail {
+  address: string | null
+  verifiedAt: number | null
+  pending: string | null
 }
 
 /** Where someone registered; both sites share the accounts */
@@ -105,6 +114,11 @@ export interface Application {
 
 /** POST /api/register: the first account signs in at once; later ones wait for approval */
 export type RegisterResult = { user: Me } | { pending: true; username: string }
+
+/** GET /api/register/options (e1-t33): Turnstile's site key when the form must show it, else null */
+export interface RegisterOptions {
+  turnstileSiteKey: string | null
+}
 
 export interface SeatOccupant extends PublicUser {
   online: boolean
@@ -242,7 +256,7 @@ export function parseTableSettings(value: unknown): Partial<TableSettings> | nul
 /**
  * What a table is for (`worker/modes.ts`): `casual` tables anyone opens, a participant's own
  * `challenge` table (ARCHITECTURE.md §5.5), a member's own `practice` table with three robots
- * (§5.11), the two rooms of a `team` match (§5.8), and a round's table of a `pairs` event (§5.20)
+ * (§5.11), the two rooms of a `team` match (§5.8), and a round's table of a `pairs` event (§5.22)
  */
 export const TABLE_MODES = ['casual', 'challenge', 'practice', 'team', 'pairs'] as const
 export type TableMode = (typeof TABLE_MODES)[number]
@@ -319,7 +333,7 @@ export interface TableChallenge {
  * many. The score is not here: it comes from the match itself (`TeamMatchView`), which only counts
  * boards both rooms finished
  */
-/** A pairs event's table as everyone at it sees it (`TableView.pairs`, §5.20) */
+/** A pairs event's table as everyone at it sees it (`TableView.pairs`, §5.22) */
 export interface TablePairs {
   id: string
   round: number
@@ -465,7 +479,7 @@ export interface TableView {
   challenge?: TableChallenge
   /** At a team match table (§5.8): no undo, and seats and settings are the match's */
   match?: TableMatch
-  /** A pairs event's table (§5.20) */
+  /** A pairs event's table (§5.22) */
   pairs?: TablePairs
   /** At a practice table (§5.11): its settings. Seats and settings do not change there; undo has no limit */
   practice?: TablePractice

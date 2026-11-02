@@ -612,7 +612,7 @@ export function TablePage() {
   const { tableId } = useParams()
   const { table, lobby, status, send } = useClub()
   const t = useT()
-  // A pairs event's player goes on to the next round's table (§5.20)
+  // A pairs event's player goes on to the next round's table (§5.22)
   usePairsFollow(tableId, table, lobby?.myTableId)
 
   // Only those the access mode lets in come to the table (others may ask at a request table), and a

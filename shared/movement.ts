@@ -1,5 +1,5 @@
 /**
- * Pairs movements (`e9-t09`, AC-9.4, ARCHITECTURE.md §5.20): who sits at which table in each round
+ * Pairs movements (`e9-t09`, AC-9.4, ARCHITECTURE.md §5.22): who sits at which table in each round
  * and which boards they play there. Pure functions, no I/O.
  *
  * Only the **Mitchell** movement, for 3 to 10 tables (社團的規模: 5 to 20 pairs). Howell needs a

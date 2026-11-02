@@ -53,7 +53,7 @@ export interface EventApi {
 export interface EventLink {
   changed(snapshot: EventSnapshot): Promise<void>
   matchChanged(snapshot: MatchSnapshot): Promise<void>
-  /** A pairs event's change told again (§5.20) */
+  /** A pairs event's change told again (§5.22) */
   pairsChanged?(snapshot: PairsSnapshot): Promise<void>
 }
 

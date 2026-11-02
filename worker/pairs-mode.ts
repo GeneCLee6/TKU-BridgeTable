@@ -8,7 +8,7 @@ import { HELD_BACK } from './team-mode.ts'
 import type { Table } from './views.ts'
 
 /**
- * A pairs event's table in one round (`mode=pairs`, `e9-t11`, ARCHITECTURE.md §5.20): the round's
+ * A pairs event's table in one round (`mode=pairs`, `e9-t11`, ARCHITECTURE.md §5.22): the round's
  * boards for the two pairs the movement put there, and what the table needs of its event to run on
  * its own (§5.10). The club opens one for every table that plays a round and tells it when the
  * round (or the event) is over; the boards' hands stay in `Table.dealSource` (the event's deal

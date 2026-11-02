@@ -4,7 +4,7 @@ import { plannedPlays, type Movement, type PairDirection } from './movement.ts'
 import type { PublicUser } from './protocol.ts'
 
 /**
- * Pairs events (雙人賽, `e9-t10`–`e9-t13`, AC-9.4, ARCHITECTURE.md §5.20): the settings, the
+ * Pairs events (雙人賽, `e9-t10`–`e9-t13`, AC-9.4, ARCHITECTURE.md §5.22): the settings, the
  * matchpoint scoring with the Neuberg adjustment, and what the pages see. Pure functions; the
  * event itself lives in `worker/pairs-flow.ts`, what each viewer may see is cut in `worker/views.ts`.
  */

@@ -3,7 +3,7 @@ import type { EventWire } from './events.ts'
 import { applyPairsStep, type PairsEvent, type PairsStep } from './pairs-flow.ts'
 
 /**
- * How the club and the pairs events talk (ARCHITECTURE.md §5.20), the way it talks to the team
+ * How the club and the pairs events talk (ARCHITECTURE.md §5.22), the way it talks to the team
  * matches (`match-events.ts`, H2c). An event lives where it was created and stays there: in its
  * own `EventObject` (`idFromName('pairs:<id>')`) when `EVENT_OBJECTS=on` then, else in the club's
  * storage (`LocalPairs`). The club keeps a copy of every event (`pairs:<id>` in its storage, with

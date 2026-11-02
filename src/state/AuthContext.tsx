@@ -9,7 +9,7 @@ interface Auth {
   user: Me | null | undefined
   login: (username: string, password: string) => Promise<void>
   /** Signs in the club's first account; later registrations come back pending */
-  register: (username: string, password: string, inviteCode: string, note: string) => Promise<RegisterResult>
+  register: (username: string, password: string, inviteCode: string, note: string, turnstileToken?: string) => Promise<RegisterResult>
   logout: () => Promise<void>
   /** Reads the account again, e.g. after an admin handled applications */
   refresh: () => Promise<void>
@@ -38,8 +38,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     resetFavorites()
   }, [])
 
-  const register = useCallback(async (username: string, password: string, inviteCode: string, note: string) => {
-    const result = await api.register(username, password, inviteCode, note)
+  const register = useCallback(async (username: string, password: string, inviteCode: string, note: string, turnstileToken?: string) => {
+    const result = await api.register(username, password, inviteCode, note, turnstileToken)
     if ('user' in result) setUser(result.user)
     return result
   }, [])

@@ -169,7 +169,7 @@ export interface AccessFacts {
  */
 export function tableListed(table: AccessFacts, userId: string, at: boolean): boolean {
   // A team match's tables are listed with their match (`LobbyView.matches`, §5.8)
-  // A pairs event's tables are its players' only, reached from its page (§5.20)
+  // A pairs event's tables are its players' only, reached from its page (§5.22)
   if (table.mode === 'challenge' || table.mode === 'team' || table.mode === 'pairs') return false
   if (at || table.hostId === userId) return true
   return table.settings.access !== 'hidden' || !!table.invited?.includes(userId)
@@ -761,7 +761,7 @@ export function practiceView(table: Pick<Table, 'mode' | 'modeState' | 'board'>)
   }
 }
 
-// ── Pairs events (§5.20, `e9-t12`, `e9-t13`) ───────────────────────────────────────────────────
+// ── Pairs events (§5.22, `e9-t12`, `e9-t13`) ───────────────────────────────────────────────────
 
 /** A pairs event on the list */
 export function pairsSummary(event: PairsEvent, viewerId: string, userById: (id: string) => PublicUser | null): PairsSummary {

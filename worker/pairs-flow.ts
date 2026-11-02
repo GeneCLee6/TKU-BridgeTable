@@ -4,7 +4,7 @@ import type { PairsResult, PairsSettings, PairsStatus } from '../shared/pairs.ts
 import { ClubError } from './errors.ts'
 
 /**
- * One pairs event's state and how it changes (`e9-t10`–`e9-t12`, ARCHITECTURE.md §5.20). Every
+ * One pairs event's state and how it changes (`e9-t10`–`e9-t12`, ARCHITECTURE.md §5.22). Every
  * change is a `PairsStep` run by `applyPairsStep`, a pure function on the event: the club runs it
  * on its copy first (with what only it knows checked before: members, blocks, who is online), then
  * the event runs it again where it lives (its own `EventObject` with `EVENT_OBJECTS=on`, else the

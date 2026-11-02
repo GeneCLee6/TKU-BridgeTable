@@ -1,7 +1,7 @@
 import type { RandomInt } from '../shared/board.ts'
 import { makeDealSet } from '../shared/deal-set.ts'
 import { mitchell, MOVEMENT_PAIRS } from '../shared/movement.ts'
-import { parsePairsSettings, type PairsSummary, type PairsView } from '../shared/pairs.ts'
+import { parsePairsSettings, scorePairs, type PairsSummary, type PairsView } from '../shared/pairs.ts'
 import type { PublicUser, RobotSpeed } from '../shared/protocol.ts'
 import { AppError } from '../shared/messages.ts'
 import { ClubError } from './errors.ts'
@@ -10,12 +10,13 @@ import type { EventReport } from './modes.ts'
 import { LocalPairs, type PairsApi, type PairsSnapshot, type RemotePairs } from './pairs-events.ts'
 import { nextRoundDue, pairOf, pairsPlayers, type PairsEvent, type PairsStep } from './pairs-flow.ts'
 import { pairsTable } from './pairs-mode.ts'
+import type { RankedEvent } from './rankings.ts'
 import type { Store } from './store.ts'
 import type { Table } from './views.ts'
 import { pairsSummary, pairsView } from './views.ts'
 
 /**
- * Pairs events, the club's half (`e9-t10`–`e9-t13`, ARCHITECTURE.md §5.20): the checks only the
+ * Pairs events, the club's half (`e9-t10`–`e9-t13`, ARCHITECTURE.md §5.22): the checks only the
  * club can make (members, blocks, who is online, who plays elsewhere), the tables of each round,
  * and every page. The event's own state changes in `pairs-flow.ts` where it lives (its own
  * `EventObject` with `EVENT_OBJECTS=on` when it was created, else the club's storage); the club
@@ -58,6 +59,8 @@ export interface PairsServiceDeps {
   leave: (userId: string) => Promise<void>
   /** Shows every record of the event to everyone (`revealEvent`) */
   reveal: (eventId: string) => Promise<void>
+  /** Writes a finished event into the points ledger and the ratings (J2, `RankingsService.record`; once per event there) */
+  ranked: (event: RankedEvent) => void
   /** The events' own objects, when configured */
   objects?: RemotePairs
   /** New events go into their own objects (`EVENT_OBJECTS=on`) */
@@ -375,7 +378,11 @@ export class PairsService {
       await this.deps.store.put(KEY + id, { ...copy, settled: true })
       this.copies.set(id, { ...copy, settled: true })
       for (const tableId of event.roundTables.at(-1) ?? []) if (tableId) await this.deps.endTable(tableId)
-      if (event.status === 'finished') await this.deps.reveal(id)
+      if (event.status === 'finished') {
+        await this.deps.reveal(id)
+        const ranked = pairsRanked(event)
+        if (ranked) this.deps.ranked(ranked)
+      }
       return
     }
     if (!nextRoundDue(event)) return
@@ -394,4 +401,22 @@ export class PairsService {
     if (kept && kept.join() !== tables.join())
       for (const tableId of tables) if (tableId) await this.deps.closeTable(tableId).catch(() => undefined)
   }
+}
+
+/**
+ * A finished event as the points ledger takes it (J2, `kind: 'pairs'`): every pair one side, ranked
+ * by its matchpoint percentage across both fields (a Mitchell ranks NS and EW apart, but the
+ * percentages compare: each is a share of the tops of the boards that pair played), equal
+ * percentages sharing a place; null before the end
+ */
+export function pairsRanked(event: PairsEvent): RankedEvent | null {
+  if (event.status !== 'finished' || !event.movement) return null
+  const { standings } = scorePairs(event.movement, event.results)
+  const same = 1e-9
+  const sides = standings.map((s) => ({
+    userIds: event.pairs[s.pair].players,
+    robots: 0,
+    rank: 1 + standings.filter((o) => o.percent > s.percent + same).length,
+  }))
+  return { id: event.id, kind: 'pairs', at: event.finishedAt ?? event.startedAt ?? event.createdAt, sides }
 }

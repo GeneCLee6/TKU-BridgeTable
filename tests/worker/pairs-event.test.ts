@@ -6,7 +6,7 @@ import { EVENT_OBJECTS, eventObjects, pairsKey } from './event-mode.ts'
 import { teamHarness, tick } from './team-match-harness.ts'
 
 /**
- * Pairs events (J3, `e9-t10`–`e9-t13`, ARCHITECTURE.md §5.20): entering, the start, every round's
+ * Pairs events (J3, `e9-t10`–`e9-t13`, ARCHITECTURE.md §5.22): entering, the start, every round's
  * tables at once, the change of tables after each round, what nobody may see of a board before
  * playing it, the matchpoints and the end. Runs twice (`vite.config.ts`): with every event in the
  * club's object, and with `EVENT_OBJECTS=on`, each in its own `EventObject` (`pairs:<id>`).
@@ -139,6 +139,12 @@ describe('pairs events', () => {
     const anyRecord = done.travellers[0].entries[0].boardId!
     const outsider = await t.member('outsider')
     expect(await club().record(anyRecord, outsider)).not.toBeNull()
+    // The points ledger took the event once (J2: `kind: 'pairs'`), every player with an entry
+    expect(club().rankings.ledger.recorded(id)).toBe(true)
+    for (const userId of ids) {
+      const entries = club().rankings.ledger.ledger(userId, { from: 0, to: Infinity })
+      expect(entries).toEqual([expect.objectContaining({ eventId: id, kind: 'pairs' })])
+    }
     // The players are free again
     expect(club().pairs.tableOf(ids[0])).toBeNull()
     await send(ids[0], { type: 'leaveTable' })

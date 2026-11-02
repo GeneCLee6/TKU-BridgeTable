@@ -4,7 +4,7 @@ import { AppError } from '../shared/messages.ts'
 import type { ChallengeSettings } from '../shared/challenge.ts'
 import { parseHistoryQuery } from '../shared/history-query.ts'
 import { MESSAGE_MAX_CHARS } from '../shared/message-guard.ts'
-import type { BoardRecord, Me, ServerMessage, SystemSpecStatus } from '../shared/protocol.ts'
+import type { BoardRecord, Me, RegisterOptions, ServerMessage, SystemSpecStatus } from '../shared/protocol.ts'
 import type { BookNotes } from '../shared/robot/system/book-spec.ts'
 import { TKU } from '../shared/robot/system/tku/index.ts'
 import { bookSync } from '../shared/robot/system/tku/sources.ts'
@@ -18,6 +18,7 @@ import { BookNotices } from './book-notices.ts'
 import { PendingService } from './pending.ts'
 import { GlossaryService, publicGlossaryResponse } from './glossary.ts'
 import { claudeImporter } from './importer.ts'
+import { mailerFrom } from './mail.ts'
 import { ProfileService } from './profiles.ts'
 import { CardPdfService, pdfResponse } from './card-pdf.ts'
 import { CardSnapshotService } from './card-snapshots.ts'
@@ -38,6 +39,7 @@ import { CLIENT_ERROR_MAX_CHARS } from './client-errors.ts'
 import { d1Replica } from './d1.ts'
 import { edgeSecret, mintPass, PASS_COOKIE, passCookie, passNeedsRefresh } from './edge-auth.ts'
 import { crashEntry, jsonLog, sampleActions } from './log.ts'
+import { requireTurnstile, turnstileKeys } from './turnstile.ts'
 import type { TableStats } from './metrics.ts'
 import { type ChallengeRequest, ClubError, ClubService, type Connections } from './service.ts'
 import type { EventReport } from './modes.ts'
@@ -100,12 +102,24 @@ export interface Env {
    * §5.17); without it no network is kept, only the browser
    */
   SEEN_SALT?: string
+  /**
+   * Turnstile on 申請加入 (e1-t33, worker/turnstile.ts, DEPLOY.md §4.13): the site key is a plain
+   * variable, the secret a wrangler secret; Turnstile is on only when both are set
+   */
+  TURNSTILE_SITE_KEY?: string
+  TURNSTILE_SECRET_KEY?: string
   /** Signs edge passes (wrangler secret put EDGE_AUTH_SECRET); without it the Worker asks the club every time */
   EDGE_AUTH_SECRET?: string
   /** "off" stops handing out and reading edge passes: the switch back (DEPLOY.md §4.5) */
   EDGE_AUTH?: string
   /** The system profile whose 淡江橋館 rules TKB follows (BridgeHall e7-t03); the club's when unset */
   SYSTEM_PROFILE_ID?: string
+  /**
+   * Email (e1-t29, e1-t30; worker/mail.ts, DEPLOY.md §4.14): Resend's API key (wrangler secret put
+   * RESEND_API_KEY) and the sender, an address on a domain verified there. Without both, email is off
+   */
+  RESEND_API_KEY?: string
+  MAIL_FROM?: string
 }
 
 /** A picture's upload may come straight from TKU BridgeBook's page too; its single-use pass is the check */
@@ -219,7 +233,7 @@ export class Club extends DurableObject<Env> implements Connections {
         (challengeId) => env.EVENT.get(env.EVENT.idFromName(`challenge:${challengeId}`)) as unknown as EventRpc,
       ),
       matchObjects: new RemoteMatches((matchId) => env.EVENT.get(env.EVENT.idFromName(`match:${matchId}`)) as unknown as MatchRpc),
-      // A pairs event (§5.20) goes into its own object when made while the switch is on, and stays there
+      // A pairs event (§5.22) goes into its own object when made while the switch is on, and stays there
       pairsObjects: new RemotePairs((eventId) => env.EVENT.get(env.EVENT.idFromName(`pairs:${eventId}`)) as unknown as PairsRpc),
       eventObjectsOn: env.EVENT_OBJECTS === 'on',
       // The history pages' copy in D1, read by the Worker (§5.12)
@@ -228,6 +242,8 @@ export class Club extends DurableObject<Env> implements Connections {
       systemProfileId: env.SYSTEM_PROFILE_ID || undefined,
       // The anti-cheating report's network salt (§5.17): a secret, never in the club's storage
       seenSalt: env.SEEN_SALT || undefined,
+      // Email (e1-t29, e1-t30): none unless RESEND_API_KEY and MAIL_FROM are set
+      mailer: mailerFrom(env),
     })
     this.edgeSecret = edgeSecret(env)
     this.book = new BookService(store)
@@ -336,7 +352,7 @@ export class Club extends DurableObject<Env> implements Connections {
     await this.service.eventLink.matchChanged(snapshot)
   }
 
-  /** A pairs event in its own object tells a change again (`EventLink.pairsChanged`, §5.20) */
+  /** A pairs event in its own object tells a change again (`EventLink.pairsChanged`, §5.22) */
   async pairsChanged(snapshot: PairsSnapshot) {
     await this.service.pairs.changed(snapshot)
   }
@@ -538,8 +554,15 @@ export class Club extends DurableObject<Env> implements Connections {
       if (!ok) throw new ClubError('badMessage')
       return new Response(null, { status: 204 })
     }
+    // What 申請加入 needs before it is sent (e1-t33): Turnstile's site key, or null when it is off
+    if (route === 'GET /api/register/options') {
+      return json({ turnstileSiteKey: turnstileKeys(this.env)?.siteKey ?? null } satisfies RegisterOptions)
+    }
     if (route === 'POST /api/register') {
       const b = await body()
+      const address = request.headers.get('CF-Connecting-IP') ?? ''
+      const turnstile = turnstileKeys(this.env)
+      if (turnstile) await requireTurnstile(turnstile.secret, text(b.turnstileToken), address, jsonLog)
       const result = await this.service.register(
         text(b.username),
         text(b.password),
@@ -547,6 +570,7 @@ export class Club extends DurableObject<Env> implements Connections {
         text(b.note),
         b.site === 'book' ? 'book' : 'table',
         request.headers.get('User-Agent') ?? '',
+        address,
       )
       if ('pending' in result) return json(result, 202)
       const device = await this.sighting(request, result.user.id, secure, true)
@@ -578,6 +602,22 @@ export class Club extends DurableObject<Env> implements Connections {
       const address = request.headers.get('CF-Connecting-IP') ?? ''
       await this.service.resetForgottenPassword(text(b.username), text(b.code), text(b.password), address)
       return json({ ok: true })
+    }
+    // Email (e1-t29, e1-t30): whether it is on, a verification link, and 忘記密碼 by a link mailed
+    // to the verified address. No sign-in: the links are the proof, and asking says nothing about
+    // whether the account or the address exists
+    if (route === 'GET /api/email') return json(this.service.emailStatus())
+    if (route === 'POST /api/email/verify') return json(await this.service.verifyEmail(text((await body()).token)))
+    if (route === 'POST /api/email/reset/request') {
+      const b = await body()
+      const address = request.headers.get('CF-Connecting-IP') ?? ''
+      await this.service.requestEmailReset(text(b.account), url.origin, b.lang, address)
+      return json({ ok: true })
+    }
+    if (route === 'POST /api/email/reset') {
+      const b = await body()
+      const address = request.headers.get('CF-Connecting-IP') ?? ''
+      return json(await this.service.resetPasswordByEmail(text(b.token), text(b.password), address))
     }
     // A picture by its signed address (e11-t02): the signature is the check, so no sign-in
     if (request.method === 'GET' && url.pathname.startsWith(FILES_PATH)) {
@@ -636,6 +676,14 @@ export class Club extends DurableObject<Env> implements Connections {
       const b = await body()
       await this.service.changePassword(user.id, text(b.current), text(b.next), token)
       return json({ ok: true })
+    }
+    // The member's email (e1-t29): bind or change it (a link goes to it), remove it, or resend the link
+    if (route === 'POST /api/account/email') {
+      const b = await body()
+      return json({ user: await this.service.setEmail(user.id, text(b.address), text(b.password), url.origin, b.lang) })
+    }
+    if (route === 'POST /api/account/email/resend') {
+      return json({ user: await this.service.resendEmailVerification(user.id, url.origin, (await body()).lang) })
     }
     // Where the member is signed in, and signing other devices out (e11-t23)
     if (route === 'GET /api/account/sessions') return json({ sessions: await this.service.accountSessions(user.id, token) })
@@ -747,6 +795,16 @@ export class Club extends DurableObject<Env> implements Connections {
     if (route === 'GET /api/challenges') return json({ challenges: this.service.challengeList(user.id) })
     // The daily club event's page (e9-t03): today's, yesterday's and the earlier days
     if (route === 'GET /api/daily') return json({ daily: this.service.dailyEvent(user.id) })
+    // Club points and ratings (J2, ARCHITECTURE.md §5.21); the service checks the flag and who may
+    if (route === 'GET /api/rankings') return json({ board: this.service.rankings.leaderboard(user.id, url.searchParams) })
+    if (route === 'GET /api/rankings/ledger')
+      return json({ entries: this.service.rankings.memberLedger(user.id, url.searchParams) })
+    if (route === 'POST /api/rankings/rules') return json({ rules: await this.service.rankings.adminSetRules(user.id, await body()) })
+    if (route === 'POST /api/rankings/adjust') return json({ entry: this.service.rankings.adminAdjust(user.id, await body()) })
+    if (route === 'POST /api/ratings/visibility')
+      return json({ rating: this.service.rankings.setHidden(user.id, (await body()).hidden) })
+    const rated = url.pathname.match(/^\/api\/ratings\/([\w-]+)$/)
+    if (rated && request.method === 'GET') return json({ rating: this.service.rankings.rating(user.id, rated[1]) })
     // The challenge pages create, answer and cancel over HTTP to hear back at once (e7-t16, e7-t17)
     if (route === 'POST /api/challenges') {
       const b = await body()
@@ -778,7 +836,7 @@ export class Club extends DurableObject<Env> implements Connections {
       if (!found) throw new ClubError('challengeGone', {}, 404)
       return json({ challenge: found })
     }
-    // Pairs events (§5.20, e9-t10–e9-t13): the list, one event, and its actions
+    // Pairs events (§5.22, e9-t10–e9-t13): the list, one event, and its actions
     if (route === 'GET /api/pairs') return json({ pairs: this.service.pairs.list(user.id) })
     if (route === 'POST /api/pairs') return json({ pairs: await this.service.pairs.create(user.id, (await body()).settings) })
     const pairsPage = url.pathname.match(/^\/api\/pairs\/([\w-]+)(?:\/(enter|withdraw|cancel|start))?$/)
