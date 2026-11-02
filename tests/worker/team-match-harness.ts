@@ -5,6 +5,7 @@ import type { MemoryStore } from '../../worker/store.ts'
 import { memoryD1 } from './d1.ts'
 import { memoryStore } from './sqlite.ts'
 import { clubService } from './event-mode.ts'
+import { adminWithTwoFactor } from './admin-two-factor.ts'
 
 /**
  * A club in Node for the team match tests (F5) and the visibility suite (`e11-t13`): the tables
@@ -75,6 +76,8 @@ export async function teamHarness() {
   await h.club.load()
   const founder = await h.club.register('boss', 'club-secret-1', '')
   h.boss = 'user' in founder ? founder.user.id : ''
+  // The founder turns two-step sign-in on so that it acts as an admin (社長 2026-11-02)
+  await adminWithTwoFactor(h.club, h.boss)
 
   const club = () => h.club
   const send = (userId: string, message: ClientMessage) => club().handle(userId, message)

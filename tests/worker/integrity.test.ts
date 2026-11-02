@@ -8,6 +8,7 @@ import { indexRecord } from '../../worker/history-index.ts'
 import { ClubError, ClubService, type Connections } from '../../worker/service.ts'
 import type { MemoryStore } from '../../worker/store.ts'
 import { memoryStore } from './sqlite.ts'
+import { adminWithTwoFactor } from './admin-two-factor.ts'
 
 /** The anti-cheating report (e11-t25, ARCHITECTURE.md §5.17) */
 
@@ -34,7 +35,11 @@ beforeEach(async () => {
 
 async function join(name: string) {
   const result = await club.register(name, 'club-secret-1', '')
-  if ('user' in result) return result.user.id
+  // The first account is the admin: it turns two-step sign-in on so that it acts as one (社長 2026-11-02)
+  if ('user' in result) {
+    await adminWithTwoFactor(club, result.user.id)
+    return result.user.id
+  }
   const application = club.adminApplications().find((a) => a.username === name)!
   return (await club.adminApprove(application.id)).id
 }

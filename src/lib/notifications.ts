@@ -11,6 +11,7 @@ export function notificationText(t: Strings, n: Notification): string {
     case 'challengeInvited':
     case 'challengeAccepted':
     case 'challengeDeclined':
+    case 'challengePartnerDeclined':
     case 'challengeCancelled':
     case 'friendOnline':
     case 'matchInvited':
@@ -89,6 +90,7 @@ export function notificationLink(n: Notification, options: { forum?: boolean } =
     case 'challengeWeekly':
     case 'challengeAccepted':
     case 'challengeDeclined':
+    case 'challengePartnerDeclined':
     case 'challengeCancelled':
     case 'challengeReminder':
     case 'challengeResults':

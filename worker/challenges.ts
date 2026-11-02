@@ -23,6 +23,11 @@ export interface ChallengePlayer {
    * play again, their results from those boards are copied in and ranked like everyone's
    */
   knownDeals: boolean
+  /**
+   * Their partner in a partner challenge (`e7-t28`, column `partner_id`): the two answer each for
+   * themselves, play one table and get the same results
+   */
+  partnerId?: string
 }
 
 /** One participant's result on one board of the challenge */
@@ -82,6 +87,7 @@ const SCHEMA = [
     finish_by INTEGER,
     finished_at INTEGER,
     known_deals INTEGER NOT NULL,
+    partner_id TEXT,
     PRIMARY KEY (challenge_id, user_id)
   ) WITHOUT ROWID`,
   'CREATE INDEX IF NOT EXISTS challenge_players_by_user ON challenge_players (user_id, challenge_id)',
@@ -118,6 +124,7 @@ interface PlayerRow extends Record<string, SqlValue> {
   finish_by: number | null
   finished_at: number | null
   known_deals: number
+  partner_id: string | null
 }
 
 interface ResultRow extends Record<string, SqlValue> {
@@ -148,6 +155,9 @@ export class ChallengeStore {
       // C5 added `reminded_at`; tables made before it get the column here (nothing to fill in)
       const columns = this.sql.exec<{ name: string }>('PRAGMA table_info(challenges)').map((c) => c.name)
       if (!columns.includes('reminded_at')) this.sql.exec('ALTER TABLE challenges ADD COLUMN reminded_at INTEGER')
+      // `e7-t28` added `partner_id`; every challenge before it is one person a table (nothing to fill in)
+      const playerColumns = this.sql.exec<{ name: string }>('PRAGMA table_info(challenge_players)').map((c) => c.name)
+      if (!playerColumns.includes('partner_id')) this.sql.exec('ALTER TABLE challenge_players ADD COLUMN partner_id TEXT')
     })
   }
 
@@ -176,7 +186,7 @@ export class ChallengeStore {
       for (const [position, player] of c.players.entries())
         this.sql.exec(
           `INSERT INTO challenge_players (challenge_id, user_id, position, status, invited_at, answered_at, started_at,
-            finish_by, finished_at, known_deals) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            finish_by, finished_at, known_deals, partner_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           c.id,
           player.userId,
           position,
@@ -196,6 +206,7 @@ export class ChallengeStore {
       null,
       p.finishedAt ?? null,
       p.knownDeals ? 1 : 0,
+      p.partnerId ?? null,
     ]
   }
 
@@ -215,6 +226,7 @@ export class ChallengeStore {
           ...optional('startedAt', p.started_at),
           ...optional('finishedAt', p.finished_at),
           knownDeals: p.known_deals === 1,
+          ...(p.partner_id !== null && p.partner_id !== undefined && { partnerId: p.partner_id }),
         }),
       )
     const order = new Map(players.map((p, i) => [p.userId, i]))
@@ -284,7 +296,7 @@ export class ChallengeStore {
   updatePlayer(id: string, player: ChallengePlayer) {
     this.sql.exec(
       `UPDATE challenge_players SET status = ?, invited_at = ?, answered_at = ?, started_at = ?, finish_by = ?,
-        finished_at = ?, known_deals = ? WHERE challenge_id = ? AND user_id = ?`,
+        finished_at = ?, known_deals = ?, partner_id = ? WHERE challenge_id = ? AND user_id = ?`,
       ...this.playerValues(player),
       id,
       player.userId,
@@ -318,25 +330,39 @@ export class ChallengeStore {
 
   /**
    * A deleted account leaves a challenge still going: their place and results are removed, and one
-   * left with fewer than two participants (who have not declined) is cancelled. A challenge that
-   * already ended keeps them, so final standings never change. False when there was nothing to do
+   * left with fewer than two participants (who have not declined) is cancelled. In a partner
+   * challenge (`e7-t28`) their partner cannot play on alone: the partner declines and loses the
+   * pair's results too, and fewer than two partnerships left cancels it. A challenge that already
+   * ended keeps them, so final standings never change. False when there was nothing to do
    */
   forgetIn(id: string, userId: string, now: number): boolean {
     return this.sql.transaction(() => {
-      const open = this.sql.exec<{ n: number }>(
-        `SELECT COUNT(*) AS n FROM challenge_players p JOIN challenges c ON c.challenge_id = p.challenge_id
+      const row = this.sql.exec<{ partner_id: string | null }>(
+        `SELECT p.partner_id FROM challenge_players p JOIN challenges c ON c.challenge_id = p.challenge_id
          WHERE c.challenge_id = ? AND p.user_id = ? AND c.status IN ${OPEN}`,
         id,
         userId,
-      )[0].n
-      if (!open) return false
+      )[0]
+      if (!row) return false
       this.sql.exec('DELETE FROM challenge_results WHERE challenge_id = ? AND user_id = ?', id, userId)
       this.sql.exec('DELETE FROM challenge_players WHERE challenge_id = ? AND user_id = ?', id, userId)
+      const partner = row.partner_id
+      if (partner) {
+        this.sql.exec('DELETE FROM challenge_results WHERE challenge_id = ? AND user_id = ?', id, partner)
+        this.sql.exec(
+          `UPDATE challenge_players SET status = 'declined', answered_at = COALESCE(answered_at, ?), partner_id = NULL
+           WHERE challenge_id = ? AND user_id = ?`,
+          now,
+          id,
+          partner,
+        )
+      }
       const left = this.sql.exec<{ n: number }>(
         "SELECT COUNT(*) AS n FROM challenge_players WHERE challenge_id = ? AND status <> 'declined'",
         id,
       )[0].n
-      if (left < 2) this.setStatus(id, 'cancelled', now)
+      // A partnership is two people: fewer than two partnerships is fewer than four
+      if (left < (partner ? 4 : 2)) this.setStatus(id, 'cancelled', now)
       return true
     })
   }

@@ -121,6 +121,13 @@ export interface Env {
    */
   RESEND_API_KEY?: string
   MAIL_FROM?: string
+  /**
+   * The site owner's last resort for an admin who lost both the authenticator and the recovery
+   * codes (社長 2026-11-02, DEPLOY.md §4.15): set with `wrangler secret put` only for the reset and
+   * deleted right after, so only someone with access to the Cloudflare account can use it. Without
+   * it (the normal state) `POST /api/ops/two-factor-reset` does not exist
+   */
+  TWO_FACTOR_RESET_TOKEN?: string
 }
 
 /** A picture's upload may come straight from TKU BridgeBook's page too; its single-use pass is the check */
@@ -628,6 +635,14 @@ export class Club extends DurableObject<Env> implements Connections {
     // A picture by its signed address (e11-t02): the signature is the check, so no sign-in
     if (request.method === 'GET' && url.pathname.startsWith(FILES_PATH)) {
       return this.files.serve(decodeURIComponent(url.pathname.slice(FILES_PATH.length)), url)
+    }
+
+    // The owner's two-step sign-in reset (DEPLOY.md §4.15): only with TWO_FACTOR_RESET_TOKEN, which
+    // exists only while the owner has set it with wrangler; without it (or with a wrong one) the route
+    // is answered as if it were not there
+    if (route === 'POST /api/ops/two-factor-reset') {
+      if (!(await seedTokenMatches(request, this.env.TWO_FACTOR_RESET_TOKEN))) throw new ClubError('noSuchApi', {}, 404)
+      return json(await this.service.ownerResetTwoFactor(text((await body()).username)))
     }
 
     const user = await this.service.userForToken(token)

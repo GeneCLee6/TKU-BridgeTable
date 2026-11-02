@@ -1,6 +1,6 @@
 import { Volume2 } from 'lucide-react'
-import { useId, useRef, useState, type ChangeEvent, type FormEvent } from 'react'
-import { Link } from 'react-router-dom'
+import { useEffect, useId, useRef, useState, type ChangeEvent, type FormEvent } from 'react'
+import { Link, useLocation } from 'react-router-dom'
 import styled from 'styled-components'
 import { LANGS } from '../../shared/messages.ts'
 import { PROFILE_LEVELS, PROFILE_LIMITS, type Profile, type ProfileLevel } from '../../shared/profile.ts'
@@ -31,6 +31,7 @@ import {
   Textarea,
 } from '../components/ui.tsx'
 import { api, ApiError } from '../lib/api.ts'
+import { TWO_FACTOR_ANCHOR } from '../lib/twoFactor.ts'
 import { AVATAR_INPUT_TYPES } from '../lib/avatarImage.ts'
 import { isAppleMobile, isStandalone, useInstallOffer } from '../lib/pwa.ts'
 import { SOUND_STYLES, SOUND_VOLUMES } from '../lib/sound/events.ts'
@@ -574,6 +575,12 @@ export function AccountPage() {
   const { user, refresh } = useAuth()
   const friendsOn = useFeature('friends')
   const forumOn = useFeature('forum')
+  const { hash } = useLocation()
+
+  // The admin page's banner links to the two-step sign-in card (`#two-factor`)
+  useEffect(() => {
+    if (hash === `#${TWO_FACTOR_ANCHOR}`) document.getElementById(TWO_FACTOR_ANCHOR)?.scrollIntoView?.({ block: 'start' })
+  }, [hash])
 
   /** Kept on the server, which decides whom to tell (e1-t24) */
   const setFriendOnlineNotice = (on: boolean) =>

@@ -20,8 +20,10 @@ import {
   answerable,
   cancellable,
   challengeTitle,
+  entryName,
   formatScore,
-  participantName,
+  pairLeadOf,
+  partnerPending,
   playable,
   playerOf,
   rematchable,
@@ -189,10 +191,13 @@ export function ChallengePage() {
 
   const c = challenge
   const me = playerOf(c, user.id)
-  const card = shareCardData(c, user.id)
+  // A partnership is one entry, under its first member (`e7-t28`)
+  const lead = pairLeadOf(c, user.id)
+  const card = shareCardData(c, lead)
   const open = c.status === 'pending' || c.status === 'active'
   const standings = c.standings
-  const nameOf = (userId: string) => participantName(t, playerOf(c, userId))
+  const nameOf = (userId: string) => entryName(t, c, userId)
+  const waitingPartner = open && now < c.deadline && me?.status === 'accepted' && partnerPending(c, user.id)
 
   // One-click rematch (`e7-t21`): the same people and settings, new boards
   const rematch = async () => {
@@ -287,6 +292,7 @@ export function ChallengePage() {
           </Actions>
         </Meta>
       )}
+      {waitingPartner && <Muted role="status">{t.partnerChallenge.waitingPartner}</Muted>}
       {sharing && card && (
         <ShareCardDialog challenge={c} data={card} onClose={() => setSharing(false)} />
       )}
@@ -313,7 +319,7 @@ export function ChallengePage() {
             {standings.ranked.length + standings.unfinished.length > 0 && (
               <Ranks aria-label={`${t.totalCol} · ${t.scorings[standings.scoring]}`}>
                 {standings.ranked.map((r) => (
-                  <li key={r.userId} aria-current={r.userId === user.id ? 'true' : undefined}>
+                  <li key={r.userId} aria-current={r.userId === lead ? 'true' : undefined}>
                     <Place>{r.rank}</Place>
                     <Who title={nameOf(r.userId)}>
                       {nameOf(r.userId)}
@@ -329,7 +335,7 @@ export function ChallengePage() {
                   </li>
                 ))}
                 {standings.unfinished.map((u) => (
-                  <li key={u.userId} aria-current={u.userId === user.id ? 'true' : undefined}>
+                  <li key={u.userId} aria-current={u.userId === lead ? 'true' : undefined}>
                     <Place>—</Place>
                     <Who title={nameOf(u.userId)}>{nameOf(u.userId)}</Who>
                     {/* Short, so the name keeps its room in a narrow column; the whole of it for a screen reader */}

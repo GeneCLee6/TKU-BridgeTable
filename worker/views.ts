@@ -36,7 +36,7 @@ import type { EventReport, PracticeTableState } from './modes.ts'
 import { isOpenChallenge, type ChallengeTraveller, type ChallengeView } from '../shared/challenge.ts'
 import type { DealSource } from '../shared/deal-source.ts'
 import type { MemberProfile, Profile } from '../shared/profile.ts'
-import { challengeStandings, hasFinished } from './challenge-flow.ts'
+import { challengeStandings, hasFinished, isPairSecond, withPartner } from './challenge-flow.ts'
 import type { Challenge } from './challenges.ts'
 import type { Traveller } from '../shared/traveller.ts'
 import type { EventBoard } from './history-index.ts'
@@ -533,6 +533,7 @@ export function challengeView(
         ...(p.finishedAt !== undefined && { finishedAt: p.finishedAt }),
         played: played.get(p.userId) ?? 0,
         knownDeals: p.knownDeals,
+        ...(p.partnerId !== undefined && { partnerId: p.partnerId }),
       }
     }),
   }
@@ -548,8 +549,9 @@ export function challengeView(
   for (const [i, board] of c.deals.boards.entries()) {
     const seq = i + 1
     if (!role.ended && !role.finished) break
+    // A partnership's result is one entry, under its first member (`e7-t28`)
     const entries = c.results
-      .filter((r) => r.seq === seq)
+      .filter((r) => r.seq === seq && !isPairSecond(c, r.userId))
       .map((r) => {
         const found = boards(r.boardId)
         return {
@@ -560,6 +562,7 @@ export function challengeView(
           declarerTricks: found?.declarerTricks ?? null,
           ...(found?.lead !== undefined && { lead: found.lead }),
           ...(found?.ruling && { ruling: found.ruling }),
+          ...withPartner(c, r.userId),
         }
       })
     if (entries.length) travellers.push({ seq, boardNo: board.boardNo, entries })
@@ -715,6 +718,7 @@ export function challengeTraveller(
     scoring: view.standings?.scoring ?? challenge.settings.scoring,
     entries: found.entries.map((e) => {
       const user = userById(e.userId)
+      const partner = e.partnerId === undefined ? undefined : userById(e.partnerId)
       const points = ranked.get(e.userId)?.[found.seq - 1]
       return {
         userId: e.userId,
@@ -727,6 +731,7 @@ export function challengeTraveller(
         scoreNS: e.scoreNS,
         ...(points !== undefined && { points }),
         ...(e.ruling && { ruling: e.ruling }),
+        ...(e.partnerId !== undefined && { partnerId: e.partnerId, ...(partner && { partner }) }),
       }
     }),
   }

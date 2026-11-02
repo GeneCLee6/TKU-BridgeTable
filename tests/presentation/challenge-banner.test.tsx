@@ -25,3 +25,14 @@ describe('ChallengeBanner (e7-t15)', () => {
     expect(screen.getByText('挑戰 · 第 1／8 副')).toBeInTheDocument()
   })
 })
+
+describe('ChallengeBanner at a partnership’s table (e7-t28)', () => {
+  it('says the table waits while the partner is not seated', () => {
+    render(
+      <PreferencesProvider>
+        <ChallengeBanner challenge={{ id: 'c1', seq: 2, boards: 8, played: 1, deadline: DEADLINE, partnerAway: true }} />
+      </PreferencesProvider>,
+    )
+    expect(screen.getByRole('status')).toHaveTextContent('搭檔不在桌上，等他入座再繼續')
+  })
+})

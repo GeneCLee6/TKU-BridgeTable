@@ -99,7 +99,14 @@ const casual: TableModeHooks = {
  */
 export interface ChallengeTableState {
   challengeId: string
+  /** The participant, South; for a partnership its first member, under whom its results go */
   userId: string
+  /**
+   * A partner challenge (`e7-t28`): the partner, North. Both seats must be taken for a board to be
+   * dealt or the robots to move; one who leaves gets their own seat back (nobody changes seats at a
+   * table where North-South are both people)
+   */
+  partnerId?: string
   /** The board on the table: its place in the deal set, 1-based (0 before the first) */
   seq: number
   /**
@@ -157,8 +164,13 @@ export function challengeSnapshot(
   }
 }
 
+/** The people a challenge table is for: its participant and, for a partnership, the partner */
+export const challengePeople = (state: ChallengeTableState): string[] =>
+  state.partnerId === undefined ? [state.userId] : [state.userId, state.partnerId]
+
 /**
- * One person in the South seat and three robots of the challenge's kind. Boards come from the
+ * One person in the South seat and three robots of the challenge's kind (a partnership: South and
+ * North, two robots). Boards come from the
  * deal set in order, numbered as in the set; each result is written once (the club skips a second
  * one). Nothing is dealt or counted once the challenge is closed or past its deadline
  */

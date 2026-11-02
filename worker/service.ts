@@ -100,6 +100,7 @@ import { DEFAULT_HISTORY_QUERY, type HistoryQuery } from '../shared/history-quer
 import {
   CHALLENGE_LIMITS,
   isOpenChallenge,
+  opponentsOf,
   parseChallengeSettings,
   scoringsFor,
   type ChallengeSettings,
@@ -126,7 +127,11 @@ import { dealSourceOf, makeDealSet, type DealSet, type DealSetBoard } from '../s
 import { openingLead, type Traveller } from '../shared/traveller.ts'
 import {
   challengeTakesPart,
+  isPairSecond,
   newChallenge,
+  pairLead,
+  pairReady,
+  partnerOf,
   remindWhom,
 } from './challenge-flow.ts'
 import { ChallengeStore, type Challenge, type ChallengeResult } from './challenges.ts'
@@ -162,6 +167,7 @@ import {
   unindexRecord,
 } from './history-index.ts'
 import {
+  challengePeople,
   challengeSnapshot,
   challengeStateOf,
   nextSeq,
@@ -693,7 +699,7 @@ export class ClubService {
       challenges: this.challenges,
       now: this.now,
       userById: (id) => this.publicUserById(id),
-      isAdmin: (id) => !!this.users.get(id)?.admin,
+      isAdmin: (id) => this.actsAsAdmin(this.users.get(id)),
       takeAction: (id) => this.actionLimit.take(id),
       boardsOf: (eventId) => eventBoards(this.store.sql, eventId),
     })
@@ -702,7 +708,7 @@ export class ClubService {
       store,
       now: this.now,
       log: (entry) => this.log(entry),
-      isAdmin: (id) => !!this.users.get(id)?.admin,
+      isAdmin: (id) => this.actsAsAdmin(this.users.get(id)),
       exists: (id) => this.users.has(id),
       userById: (id) => this.publicUserById(id),
       featureOn: (flag, id) => this.featureOn(flag, id),
@@ -1770,6 +1776,26 @@ export class ClubService {
     await this.securityMail(user, 'mailTwoFactorOffBody', undefined)
   }
 
+  /**
+   * `POST /api/ops/two-factor-reset { username }` with TWO_FACTOR_RESET_TOKEN (club.ts): the site
+   * owner's last resort when the only admin lost both the phone and the recovery codes (社長
+   * 2026-11-02, DEPLOY.md §4.15). Clears the second step, signs the member out everywhere and
+   * tells their email; the admin then signs in with the password and sets it up again
+   */
+  async ownerResetTwoFactor(username: string): Promise<{ username: string; cleared: true }> {
+    const user = this.findUser(String(username ?? '').trim())
+    if (!user) throw new ClubError('userGone', {}, 404)
+    if (!user.twoFactor && !user.twoFactorSetup) throw new ClubError('twoFactorOff', {}, 409)
+    delete user.twoFactor
+    delete user.twoFactorSetup
+    this.twoFactorFailures.clear(user.id)
+    await this.store.put(`user:${user.id}`, user)
+    await this.revokeSessions(user.id)
+    this.log({ event: 'twoFactorOwnerReset' })
+    await this.securityMail(user, 'mailTwoFactorOffBody', undefined)
+    return { username: user.username, cleared: true }
+  }
+
   // ── Email (e1-t29, e1-t30; ARCHITECTURE.md §5.20) ─────────────────────────────────────────────
 
   /** `GET /api/email`: whether the club sends mail, so the sign-in page offers the email reset */
@@ -1925,7 +1951,28 @@ export class ClubService {
     await this.store.put(`user:${user.id}`, user)
   }
 
+  /**
+   * Whether the member may act as an admin now: an admin who has turned two-step sign-in on
+   * (社長 2026-11-02, ARCHITECTURE.md §5.2). An admin without it signs in and plays as a member with
+   * their own permissions, and every admin-only action answers `adminTwoFactorRequired` (roles.ts
+   * `requireNeed`, `requireAdmin` here) until they set it up on the account page, which stays open
+   */
+  private actsAsAdmin(user: StoredUser | undefined): boolean {
+    return !!user?.admin && !!user.twoFactor
+  }
+
+  /** An admin who still has to turn two-step sign-in on */
+  private adminLocked(user: StoredUser): boolean {
+    return !!user.admin && !user.twoFactor
+  }
+
+  /** What the member may use now: every permission for an admin who may act as one (`actsAsAdmin`) */
   private permissionsOf(user: StoredUser): Permission[] {
+    return this.actsAsAdmin(user) ? [...PERMISSIONS] : PERMISSIONS.filter((p) => user.permissions?.includes(p))
+  }
+
+  /** What the member's role gives, two-step sign-in or not: what the admin page lists and who gets assigned notes */
+  private rolePermissions(user: StoredUser): Permission[] {
     return user.admin ? [...PERMISSIONS] : PERMISSIONS.filter((p) => user.permissions?.includes(p))
   }
 
@@ -1953,9 +2000,12 @@ export class ClubService {
       }
     }
     // 兩步驟登入 (e11-t31): admins may turn it on; anyone who has it sees it, even after the admin role went
-    if (user.admin || user.twoFactor)
+    // An admin without it is told to turn it on (`required`) before any admin-only action works
+    if (user.admin || user.twoFactor) {
       me.twoFactor = { enabled: !!user.twoFactor, recoveryLeft: user.twoFactor?.recovery.length ?? 0 }
-    me.features = enabledFeatures(this.features, { id: user.id, admin: !!user.admin, permissions: me.permissions })
+      if (this.adminLocked(user)) me.twoFactor.required = true
+    }
+    me.features = enabledFeatures(this.features, { id: user.id, admin: !!user.admin, permissions: this.rolePermissions(user) })
     return me
   }
 
@@ -1963,7 +2013,8 @@ export class ClubService {
   requirePermission(userId: string, permission: Permission): Me {
     const user = this.users.get(userId)
     if (!user) throw new ClubError('signInAgain', {}, 401)
-    if (!this.permissionsOf(user).includes(permission)) throw new ClubError('noPermission', {}, 403)
+    if (!this.permissionsOf(user).includes(permission))
+      throw this.adminLocked(user) ? new ClubError('adminTwoFactorRequired', {}, 403) : new ClubError('noPermission', {}, 403)
     return this.me(user)
   }
 
@@ -2029,12 +2080,12 @@ export class ClubService {
   }
 
   reviewerIds(): string[] {
-    return [...this.users.values()].filter((u) => u.admin || this.permissionsOf(u).includes('bookReview')).map((u) => u.id)
+    return [...this.users.values()].filter((u) => this.rolePermissions(u).includes('bookReview')).map((u) => u.id)
   }
 
   /** The usernames of the members who may edit the handbook, for assigning a 待確認 note (BridgeHall e8-t06) */
   editorNames(): string[] {
-    return [...this.users.values()].filter((u) => this.permissionsOf(u).includes('bookEdit')).map((u) => u.username).sort()
+    return [...this.users.values()].filter((u) => this.rolePermissions(u).includes('bookEdit')).map((u) => u.username).sort()
   }
 
   memberDirectory(): ClubMember[] {
@@ -2046,8 +2097,11 @@ export class ClubService {
     }))
   }
 
+  /** Throws unless the member may act as an admin now (`actsAsAdmin`) */
   requireAdmin(userId: string) {
-    if (!this.users.get(userId)?.admin) throw new ClubError('adminOnly', {}, 403)
+    const user = this.users.get(userId)
+    if (user && this.adminLocked(user)) throw new ClubError('adminTwoFactorRequired', {}, 403)
+    if (!this.actsAsAdmin(user)) throw new ClubError('adminOnly', {}, 403)
   }
 
   async adminUsers(): Promise<AdminUser[]> {
@@ -2062,7 +2116,7 @@ export class ClubService {
         lastLoginAt: u.lastLoginAt ?? null,
         boards: (await this.store.list(`uhist:${u.id}:`)).size,
         online: online.includes(u.id),
-        permissions: this.permissionsOf(u),
+        permissions: this.rolePermissions(u),
         passwordResetAt: u.passwordResetAt ?? null,
         passwordReset: this.resetState(u),
         twoFactor: !!u.twoFactor,
@@ -2207,6 +2261,7 @@ export class ClubService {
     for (const entry of [...this.directory.values()]) {
       const involved =
         entry.challenge?.userId === user.id ||
+        entry.challenge?.partnerId === user.id ||
         entry.invited.includes(user.id) ||
         Object.values(entry.substitutes).includes(user.id) ||
         // A team match plays on: a robot takes their seat (§5.8)
@@ -2278,7 +2333,7 @@ export class ClubService {
   /** Whether a member has a flag; nobody has one for an account that is gone */
   featureOn(flag: FeatureFlag, userId: string): boolean {
     const user = this.users.get(userId)
-    return !!user && featureEnabled(flag, this.features, { id: user.id, admin: !!user.admin, permissions: this.permissionsOf(user) })
+    return !!user && featureEnabled(flag, this.features, { id: user.id, admin: !!user.admin, permissions: this.rolePermissions(user) })
   }
 
   /** `GET /api/admin/features`: every flag, its default, the club's state and the members named */
@@ -3025,10 +3080,13 @@ export class ClubService {
     wanted: unknown,
     fromBoards?: unknown,
   ): Promise<string> {
-    const { invitedMin, invitedMax, boardsMin, boardsMax, boardsDefault } = CHALLENGE_LIMITS
+    const { invitedMin, invitedMax, boardsMin, boardsMax, boardsDefault, pairsMin, pairsMax } = CHALLENGE_LIMITS
     if (!Array.isArray(invitees)) throw new ClubError('badChallengeSettings', { field: 'invitees' })
-    if (invitees.length < invitedMin || invitees.length > invitedMax)
-      throw new ClubError('challengeInvitees', { min: invitedMin, max: invitedMax })
+    // A partner challenge (`e7-t28`): the creator's partner, then each opposing partnership
+    const partners = !!wanted && typeof wanted === 'object' && (wanted as { partners?: unknown }).partners === true
+    const [min, max] = partners ? [1 + 2 * pairsMin, 1 + 2 * pairsMax] : [invitedMin, invitedMax]
+    if (invitees.length < min || invitees.length > max) throw new ClubError('challengeInvitees', { min, max })
+    if (partners && invitees.length % 2 === 0) throw new ClubError('badChallengeSettings', { field: 'invitees' })
     if (new Set(invitees).size !== invitees.length) throw new ClubError('badChallengeSettings', { field: 'invitees' })
     for (const id of invitees) {
       const other = this.otherMember(userId, id)
@@ -3045,6 +3103,8 @@ export class ClubService {
     let known: ChallengeResult[] | undefined
     if (fromBoards !== undefined) {
       if (boards !== undefined) throw new ClubError('badChallengeSettings', { field: 'boards' })
+      // Boards the creator played alone are no partnership's to compare
+      if (settings.partners) throw new ClubError('badChallengeSettings', { field: 'partners' })
       const given = await this.boardsToChallengeWith(userId, fromBoards)
       // Their own boards are dealt as they were: no Best Hand, no Just Declare, and the same robots
       if (settings.bestHand) throw new ClubError('badChallengeSettings', { field: 'bestHand' })
@@ -3131,9 +3191,9 @@ export class ClubService {
     // Next week's club challenge comes by itself
     if (c.settings.weekly) throw new ClubError('weeklyNoRematch')
     if (c.settings.daily) throw new ClubError('dailyNoRematch')
-    const others = c.players
-      .filter((p) => p.userId !== userId && p.status !== 'declined' && this.users.has(p.userId))
-      .map((p) => p.userId)
+    const others = c.settings.partners
+      ? this.rematchPairs(c, userId)
+      : c.players.filter((p) => p.userId !== userId && p.status !== 'declined' && this.users.has(p.userId)).map((p) => p.userId)
     if (!others.length) throw new ClubError('rematchNobody')
     // As many boards as before, a 「用這副牌挑戰」 of one board too (社長, 2026-10-25)
     const { boardsMin, boardsMax } = CHALLENGE_LIMITS
@@ -3143,8 +3203,36 @@ export class ClubService {
     // made with the club's robots comes back with the 2/1 TKB for a member without `tkuSystem`
     const robotKind = c.settings.robotKind === 'tku' && !this.mayUseTku(userId) ? 'gib' : c.settings.robotKind
     // With someone gone the number of people may no longer fit the scoring: then the default
-    const fits = scoringsFor(others.length).includes(scoring)
-    return this.createChallenge(userId, others, boards, { robotKind, bestHand, justDeclare, days, ranking, ...(fits && { scoring }) })
+    const partners = !!c.settings.partners
+    const fits = scoringsFor(opponentsOf(others.length, partners)).includes(scoring)
+    return this.createChallenge(userId, others, boards, {
+      robotKind,
+      bestHand,
+      justDeclare,
+      days,
+      ranking,
+      ...(fits && { scoring }),
+      ...(partners && { partners }),
+    })
+  }
+
+  /**
+   * A partner challenge's rematch (`e7-t28`): the same partnerships, the one asking with their own
+   * partner first; a partnership with a member who declined or left the club is not asked again.
+   * Empty when their own partner is gone or no other partnership is left
+   */
+  private rematchPairs(c: Challenge, userId: string): string[] {
+    const here = (id: string) => {
+      const p = c.players.find((q) => q.userId === id)
+      return !!p && p.status !== 'declined' && this.users.has(id)
+    }
+    const mine = partnerOf(c, userId)
+    if (!mine || !here(mine.userId)) return []
+    const pairs = c.players
+      .filter((p) => p.partnerId !== undefined && !isPairSecond(c, p.userId) && pairLead(c, userId) !== p.userId)
+      .map((p) => [p.userId, p.partnerId!])
+      .filter(([a, b]) => here(a) && here(b))
+    return pairs.length ? [mine.userId, ...pairs.flat()] : []
   }
 
   private requireChallenge(id: unknown): Challenge {
@@ -3332,6 +3420,12 @@ export class ClubService {
     if (typeof accept !== 'boolean') throw new ClubError('unknownCommand')
     const challenge = this.requireChallenge(challengeId)
     this.applySnapshot(await this.eventFor(challenge.id).answer(userId, accept))
+    // A partner challenge (`e7-t28`): one member saying no declines the partnership; the partner hears why
+    const after = this.challenges.get(challenge.id)
+    const name = this.users.get(userId)?.username ?? ''
+    for (const p of challenge.players)
+      if (p.userId !== userId && p.userId !== challenge.creatorId && p.status !== 'declined' && after?.players.find((q) => q.userId === p.userId)?.status === 'declined')
+        await this.notifications.notify(p.userId, 'challengePartnerDeclined', { challengeId: challenge.id, username: name })
     // The weekly and daily events' creator is the club: no admin hears every member's answer
     if (!challenge.settings.weekly && !challenge.settings.daily)
       await this.notifications.notify(challenge.creatorId, accept ? 'challengeAccepted' : 'challengeDeclined', {
@@ -3664,9 +3758,11 @@ export class ClubService {
 
   // ── Challenge tables (§5.5, e7-t08, e7-t12) ─────────────────────────────────────────────────
 
-  /** A participant's table for a challenge, at it or parked */
+  /** A participant's table for a challenge, at it or parked (a partnership's, for either member: `e7-t28`) */
   private challengeEntry(challengeId: string, userId: string): TableEntry | undefined {
-    return [...this.directory.values()].find((t) => t.challenge?.challengeId === challengeId && t.challenge.userId === userId)
+    return [...this.directory.values()].find(
+      (t) => t.challenge?.challengeId === challengeId && (t.challenge.userId === userId || t.challenge.partnerId === userId),
+    )
   }
 
   /**
@@ -3688,6 +3784,8 @@ export class ClubService {
       throw new ClubError('challengeClosed')
     }
     if (player.status !== 'accepted') throw new ClubError('challengeNotAccepted')
+    // A partnership sits down once both accepted (`e7-t28`)
+    if (!pairReady(challenge, player)) throw new ClubError('challengePartnerWaiting')
     if (atIt) return
     this.checkNotInMatch(userId)
     if (player.knownDeals || (!existing && nextSeq(challenge, userId) === null)) throw new ClubError('challengeDone')
@@ -3697,13 +3795,27 @@ export class ClubService {
       return
     }
     const kind = challenge.settings.robotKind
-    const state: ChallengeTableState = { challengeId: challenge.id, userId, seq: 0, ...challengeSnapshot(challenge, userId, this.now()) }
+    // A partnership's table (`e7-t28`): its first member South, the partner North, two robots;
+    // whoever comes first sits and the table waits for the other
+    const lead = pairLead(challenge, userId)
+    const partner = partnerOf(challenge, lead)?.userId
+    const people = partner === undefined ? [userId] : [lead, partner]
+    const state: ChallengeTableState = {
+      challengeId: challenge.id,
+      userId: lead,
+      ...(partner !== undefined && { partnerId: partner }),
+      seq: 0,
+      ...challengeSnapshot(challenge, lead, this.now()),
+    }
     const table: Table = {
       id: randomId(6),
       // Challenge tables are not in the lobby and take no number from it
       number: 0,
       hostId: userId,
-      seats: { N: robotId(kind, 'N'), E: robotId(kind, 'E'), S: userId, W: robotId(kind, 'W') },
+      seats:
+        partner === undefined
+          ? { N: robotId(kind, 'N'), E: robotId(kind, 'E'), S: userId, W: robotId(kind, 'W') }
+          : { N: userId === partner ? userId : null, E: robotId(kind, 'E'), S: userId === lead ? userId : null, W: robotId(kind, 'W') },
       spectators: [],
       boardsPlayed: state.played.length,
       board: null,
@@ -3713,8 +3825,8 @@ export class ClubService {
       modeState: state,
       dealSource: dealSourceOf(challenge.deals),
       settings: { access: 'hidden', allowKibitz: false, boardMinutes: 0 },
-      names: { [userId]: this.users.get(userId)!.username },
-      blocks: { [userId]: this.blocks.of(userId) },
+      names: Object.fromEntries(people.map((id) => [id, this.users.get(id)?.username ?? ''])),
+      blocks: Object.fromEntries(people.map((id) => [id, this.blocks.of(id)])),
       ...this.speedsFor(userId),
     }
     // The table deals its first board as it opens
@@ -4313,7 +4425,7 @@ export class ClubService {
 
   /** Whether a member directs a table or rules on its boards: its host, or an admin */
   private mayDirect(userId: string, hostId: string | undefined): boolean {
-    return userId === hostId || !!this.users.get(userId)?.admin
+    return userId === hostId || this.actsAsAdmin(this.users.get(userId))
   }
 
   /**
@@ -4461,7 +4573,7 @@ export class ClubService {
       table.hostId,
     ])
     const state = challengeStateOf(table)
-    if (state) people.add(state.userId)
+    if (state) for (const id of challengePeople(state)) people.add(id)
     const names: Record<string, string> = { ...table.names }
     for (const id of people) {
       const user = this.users.get(id)

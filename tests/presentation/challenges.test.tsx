@@ -742,3 +742,100 @@ describe('ChallengeStatsPage (e7-t29)', () => {
     expect(await screen.findByText(/還沒有算得到的挑戰/)).toBeInTheDocument()
   })
 })
+
+describe('partner challenges (e7-t28)', () => {
+  it('picks the partner first, then the opposing pairs, and sends a partner challenge', async () => {
+    mocks.api.createChallenge.mockResolvedValue({ challenge: challenge('new', {}) })
+    render(
+      <PreferencesProvider>
+        <ChallengeDialog onClose={() => {}} onCreated={() => {}} />
+      </PreferencesProvider>,
+    )
+    await userEvent.click(screen.getByRole('checkbox', { name: /雙人搭檔挑戰/ }))
+    const box = screen.getByRole('combobox', { name: '邀請社員' })
+    for (const name of ['ben', 'bea']) {
+      await userEvent.click(box)
+      await userEvent.click(screen.getByRole('option', { name }))
+    }
+    // Two picks do not pair up: the partner and half a pair
+    await userEvent.click(screen.getByRole('button', { name: '發出挑戰' }))
+    expect(screen.getByRole('alert')).toHaveTextContent('先選 1 位搭檔')
+    expect(mocks.api.createChallenge).not.toHaveBeenCalled()
+    await userEvent.click(box)
+    await userEvent.click(screen.getByRole('option', { name: 'cat' }))
+    expect(screen.getByText('你的搭檔').parentElement).toHaveTextContent('ben')
+    expect(screen.getAllByText('第 1 組').map((e) => e.parentElement?.textContent)).toEqual(['第 1 組bea', '第 1 組cat'])
+    // One opposing partnership: IMPs or total points, as one on one
+    expect(within(screen.getByLabelText('計分')).getAllByRole('option').map((o) => o.textContent)).toEqual(['IMP', '總分'])
+    expect(screen.getByTestId('challenge-preview')).toHaveTextContent('雙人搭檔 · 1 組對手')
+    await userEvent.click(screen.getByRole('button', { name: '發出挑戰' }))
+    expect(mocks.api.createChallenge).toHaveBeenCalledWith(['ben', 'bea', 'cat'], 8, expect.objectContaining({ scoring: 'imp', partners: true }))
+  })
+
+  const PAIRS = challenge('p1', {
+    status: 'finished',
+    endedAt: NOW,
+    deadline: NOW,
+    boards: 1,
+    creatorId: 'ben',
+    settings: { ...defaultChallengeSettings(1), partners: true },
+    // amy is ben's partner: the partnership is under ben, invited first
+    players: [
+      player('ben', 'accepted', 1, { partnerId: 'amy' }),
+      player('amy', 'accepted', 1, { partnerId: 'ben' }),
+      player('cat', 'accepted', 1, { partnerId: 'zoe' }),
+      player('zoe', 'accepted', 1, { partnerId: 'cat' }),
+    ],
+    standings: {
+      final: true,
+      scoring: 'imp',
+      ranked: [
+        { userId: 'cat', rank: 1, total: 6, boards: [6], partnerId: 'zoe' },
+        { userId: 'ben', rank: 2, total: -6, boards: [-6], partnerId: 'amy' },
+      ],
+      unfinished: [],
+    },
+    travellers: [
+      {
+        seq: 1,
+        boardNo: 1,
+        entries: [
+          { userId: 'ben', boardId: 'r-ben', scoreNS: 420, contract: { level: 4, strain: 'S', doubled: '', declarer: 'S' }, declarerTricks: 10, partnerId: 'amy' },
+          { userId: 'cat', boardId: 'r-cat', scoreNS: 620, contract: { level: 4, strain: 'S', doubled: '', declarer: 'N' }, declarerTricks: 11, partnerId: 'zoe' },
+        ],
+      },
+    ],
+  })
+
+  it('shows each partnership as one entry, the viewer’s own as 你和 partner', async () => {
+    mocks.api.challenge.mockResolvedValue({ challenge: PAIRS })
+    show('/challenges/p1', <ChallengePage />)
+    const places = within(await screen.findByRole('region', { name: '最終排名' })).getByRole('list', { name: '總成績 · IMP' })
+    const rows = within(places).getAllByRole('listitem')
+    expect(rows.map((r) => r.textContent)).toEqual(['1cat & zoe+6', '2ben & amy-6'])
+    // amy is the partnership's second member, and still sees it as her own
+    expect(rows[1]).toHaveAttribute('aria-current', 'true')
+    const board = within(screen.getByRole('region', { name: '每一副的結果' }))
+    expect(board.getByRole('link', { name: '你和 ben' })).toBeInTheDocument()
+    expect(board.getByRole('link', { name: 'cat & zoe' })).toBeInTheDocument()
+    expect(document.body).toHaveTextContent('雙人搭檔')
+  })
+
+  it('waits for the partner to accept before offering to play', async () => {
+    mocks.api.challenge.mockResolvedValue({
+      challenge: challenge('p2', {
+        status: 'active',
+        settings: { ...defaultChallengeSettings(1), partners: true },
+        players: [
+          player('amy', 'accepted', 0, { partnerId: 'ben' }),
+          player('ben', 'invited', 0, { partnerId: 'amy' }),
+          player('cat', 'accepted', 0, { partnerId: 'zoe' }),
+          player('zoe', 'accepted', 0, { partnerId: 'cat' }),
+        ],
+      }),
+    })
+    show('/challenges/p2', <ChallengePage />)
+    expect(await screen.findByRole('status')).toHaveTextContent('搭檔還沒接受，兩人都接受才能開打')
+    expect(screen.queryByRole('button', { name: '開始打' })).toBeNull()
+  })
+})

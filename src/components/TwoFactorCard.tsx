@@ -2,17 +2,21 @@ import { useId, useState, type FormEvent } from 'react'
 import styled from 'styled-components'
 import type { TwoFactorSetup } from '../../shared/protocol.ts'
 import { api, ApiError } from '../lib/api.ts'
+import { TWO_FACTOR_ANCHOR } from '../lib/twoFactor.ts'
 import { useAuth } from '../state/AuthContext.tsx'
 import { usePreferences } from '../state/PreferencesContext.tsx'
 import { PasswordInput } from './PasswordInput.tsx'
+import { QrCode } from './QrCode.tsx'
 import { useToast } from './Toast.tsx'
 import { Button, Card, CardFooter, CardHeader, CardTitle, ErrorText, Field, FieldLabel, Input, Muted } from './ui.tsx'
 
 /**
- * "My account"'s 兩步驟登入 (e11-t31): set up with an authenticator app (its `otpauth://` link on
- * the phone, or the key typed in), confirm with the first code, keep the recovery codes shown once;
- * then new recovery codes or turning it off, each with the password and a code. Shown only when the
- * server sends `Me.twoFactor`, that is to admins and to anyone who has it on
+ * "My account"'s 兩步驟登入 (e11-t31): set up with an authenticator app (a QR code drawn in the
+ * page, its `otpauth://` link on the phone, or the key typed in), confirm with the first code, keep
+ * the recovery codes shown once; then new recovery codes or turning it off, each with the password
+ * and a code. Shown only when the server sends `Me.twoFactor`, that is to admins and to anyone who
+ * has it on. Admins must turn it on before admin features work (社長 2026-11-02): the admin page
+ * links here (`TWO_FACTOR_ANCHOR`)
  */
 
 const Stack = styled.div`
@@ -52,6 +56,16 @@ const Codes = styled.ol`
   color: ${({ theme }) => theme.colors.text};
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   user-select: all;
+`
+
+const Required = styled.p`
+  margin: 0;
+  padding: ${({ theme }) => theme.space(3)};
+  border-left: 3px solid ${({ theme }) => theme.colors.accent};
+  border-radius: ${({ theme }) => theme.radius.sm};
+  background: ${({ theme }) => theme.colors.accentSoft};
+  color: ${({ theme }) => theme.colors.text};
+  font-weight: 600;
 `
 
 const AppLink = styled.a`
@@ -185,10 +199,11 @@ export function TwoFactorCard() {
 
   if (setup) {
     return (
-      <Card as="form" onSubmit={enable} aria-label={s.title}>
+      <Card as="form" id={TWO_FACTOR_ANCHOR} onSubmit={enable} aria-label={s.title}>
         {header}
         <Stack>
           <Muted>{s.step1}</Muted>
+          <QrCode text={setup.uri} label={s.qrLabel} />
           <AppLink href={setup.uri}>{s.openApp}</AppLink>
           <div>
             <FieldLabel as="span">{s.secret}</FieldLabel>
@@ -212,9 +227,10 @@ export function TwoFactorCard() {
 
   if (!state.enabled) {
     return (
-      <Card as="form" onSubmit={start} aria-label={s.title}>
+      <Card as="form" id={TWO_FACTOR_ANCHOR} onSubmit={start} aria-label={s.title}>
         {header}
         <Stack>
+          {state.required && <Required>{s.required}</Required>}
           <Muted>{s.intro}</Muted>
           <Status role="status">{s.off}</Status>
           {error && <ErrorText role="alert">{error}</ErrorText>}

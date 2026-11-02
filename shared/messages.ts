@@ -645,6 +645,15 @@ export const MESSAGES = {
     ja: '設定の時間が切れました。最初からやり直してください',
     ko: '설정 시간이 지났습니다. 처음부터 다시 시작하세요',
   },
+  // Admins turn two-step sign-in on before doing anything only an admin may (社長 2026-11-02)
+  adminTwoFactorRequired: {
+    zh: '管理員要先開啟兩步驟登入才能使用管理功能，請到「我的帳號」設定',
+    'zh-Hans': '管理员要先开启两步验证登录才能使用管理功能，请到“我的账号”设置',
+    en: 'Admins must turn on two-step sign-in before using admin features; set it up on the Account page',
+    vi: 'Quản trị viên phải bật đăng nhập hai bước trước khi dùng các chức năng quản trị; hãy thiết lập ở trang Tài khoản',
+    ja: '管理機能を使うには、先に 2 段階ログインをオンにしてください。「アカウント」ページで設定できます',
+    ko: '관리 기능을 쓰려면 먼저 2단계 로그인을 켜야 합니다. 「내 계정」에서 설정하세요',
+  },
   mailSecuritySubject: {
     zh: '淡江牌桌：帳號安全通知',
     'zh-Hans': '淡江牌桌：账号安全通知',
@@ -1315,6 +1324,22 @@ export const MESSAGES = {
     vi: 'Bạn đã chơi hết các ván của thử thách này',
     ja: 'このチャレンジのボードはすべてプレイしました',
     ko: '이 도전의 보드를 모두 플레이했습니다',
+  },
+  challengePartnerWaiting: {
+    zh: '搭檔還沒接受挑戰，兩人都接受才能開打',
+    'zh-Hans': '搭档还没接受挑战，两人都接受才能开打',
+    en: 'Your partner has not accepted yet: you both have to accept before you play',
+    vi: 'Bạn cùng cặp chưa nhận thử thách: cả hai phải nhận rồi mới chơi được',
+    ja: 'パートナーがまだ受けていません。二人とも受けてからプレイできます',
+    ko: '파트너가 아직 수락하지 않았습니다. 두 사람 모두 수락해야 플레이할 수 있습니다',
+  },
+  challengePartnerAway: {
+    zh: '搭檔離開了牌桌，等他回來再繼續',
+    'zh-Hans': '搭档离开了牌桌，等他回来再继续',
+    en: 'Your partner left the table: play goes on when they are back',
+    vi: 'Bạn cùng cặp đã rời bàn: chờ họ quay lại rồi chơi tiếp',
+    ja: 'パートナーがテーブルを離れました。戻ってから続けます',
+    ko: '파트너가 테이블을 떠났습니다. 돌아오면 계속합니다',
   },
   challengeTableFixed: {
     zh: '挑戰牌桌不能觀看、換座位或改設定',

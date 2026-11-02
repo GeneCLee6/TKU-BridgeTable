@@ -82,7 +82,7 @@ describe('"My account"’s 兩步驟登入 card (e11-t31)', () => {
     const codes = Array.from({ length: 10 }, (_, i) => `AAAA${i}-BBBBB`)
     const sent = stubApi({
       '/api/me': [
-        { status: 200, body: { user: admin({ enabled: false, recoveryLeft: 0 }) } },
+        { status: 200, body: { user: admin({ enabled: false, recoveryLeft: 0, required: true }) } },
         { status: 200, body: { user: admin({ enabled: true, recoveryLeft: 10 }) } },
       ],
       '/api/account/2fa/setup': {
@@ -93,9 +93,15 @@ describe('"My account"’s 兩步驟登入 card (e11-t31)', () => {
     })
     wrap(<TwoFactorCard />)
     expect(await screen.findByText('還沒開啟。')).toBeInTheDocument()
+    // An admin is told it is required before admin features work
+    expect(screen.getByText('你是管理員：開啟兩步驟登入後才能使用管理功能。')).toBeInTheDocument()
     await userEvent.type(screen.getByLabelText(/^輸入密碼確認/), 'club-secret-1')
     await userEvent.click(screen.getByRole('button', { name: '開始設定' }))
     expect(await screen.findByRole('link', { name: '用驗證 App 開啟' })).toHaveAttribute('href', expect.stringMatching(/^otpauth:\/\/totp\//))
+    // The QR code is drawn in the page as SVG, black modules on white
+    const qr = screen.getByRole('img', { name: '用驗證 App 掃描的 QR code' })
+    expect(qr.tagName.toLowerCase()).toBe('svg')
+    expect(qr.querySelector('path')!.getAttribute('d')).toMatch(/^M\d+ \d+h1v1h-1z/)
     expect(screen.getByText('JBSW Y3DP EHPK 3PXP JBSW Y3DP EHPK 3PXP')).toBeInTheDocument()
     await userEvent.type(screen.getByLabelText(/^驗證碼/), '123456')
     await userEvent.click(screen.getByRole('button', { name: '開啟兩步驟登入' }))
