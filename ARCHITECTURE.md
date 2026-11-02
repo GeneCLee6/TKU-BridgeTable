@@ -97,6 +97,8 @@ TKU-BridgeTable/
 │  ├─ practice-presets.ts  社員存的練習設定（存成我的設定，§5.11）
 │  ├─ practice-review.ts   叫牌練習的檢討：每一口 TKB 會叫什麼、四家 TKB 從頭叫（只給那一家的牌，§5.11）
 │  ├─ notifications.ts     通知中心（§5.4）
+│  ├─ push.ts              PWA 推播（e1-t28）：社員的裝置與推播偏好、批次送出、刪掉失效的訂閱（§5.4）
+│  ├─ web-push.ts          Web Push（e1-t28）：RFC 8291 加密、RFC 8292 VAPID JWT、只准瀏覽器的推播服務（WebCrypto，§5.4）
 │  ├─ relations.ts         好友與封鎖名單（§5）
 │  ├─ direct-messages.ts   私訊的 SQL 表與 DirectMessageStore（§5.7）
 │  ├─ forum.ts             論壇（淡江橋館與牌桌共用）：SQL 五張表與 ForumService（§5.19）
@@ -295,6 +297,7 @@ interface BoardState {
 | `featured:<boardId>` | 精選牌局（§5.9）：標題、分類、講解、逐墩講解、誰先設的與時間、那副牌設精選時的摘要（`BoardSummary`）；帳號刪除時保留，設的人顯示「—」 |
 | `practicePresets:<userId>` | 社員存的練習設定（`e10-t16`，§5.11）：`SavedPractice[]`（id、名稱、設定、時間），新的在前，最多 20 組；帳號刪除時一起刪 |
 | `notif:<userId>:<時間>-<id>` | 通知（`worker/notifications.ts`）：種類、參數、時間、是否已讀；每人只留最新 500 則，帳號刪除時一起刪 |
+| `push:<userId>` | PWA 推播（`e1-t28`，`worker/push.ts`）：每台裝置的訂閱（推播服務的網址、`p256dh`、`auth`、語言、裝置名稱、開啟時間；最多 10 台）與改過的推播種類（只存跟預設不同的）；被登出所有裝置時清掉裝置、帳號刪除時整筆刪；不在備份裡 |
 | `friend:<userId>:<friendId>` | 社員關注的好友（單向），值是 `{ at }`；載入時全部讀進記憶體 |
 | `block:<userId>:<otherId>` | 社員封鎖的對象，值是 `{ at }`；載入時全部讀進記憶體 |
 | SQL `challenges`、`challenge_players`、`challenge_results` | 挑戰的正本（不是索引），見 §5.5；`EVENT_OBJECTS=on` 時，住在自己 `EventObject` 的挑戰正本在那個物件，這裡是社團的副本（§5.12 H2b） |
@@ -1433,7 +1436,18 @@ C4 的實作（2026-10-24）：
 
 **邀請彈窗**（`e1-t35`，`src/state/InvitationsContext.tsx`）：`challengeInvited`、`matchInvited` 不只進鈴鐺，也在畫面中間彈出（DESIGN.md 的 InviteDialog）。全在瀏覽器做，伺服器的通知與 API 都沒變：從推來的通知找出邀請（同一個挑戰／比賽只看最新的一則），用既有的 `GET /api/challenges/:id`、`GET /api/matches/:id` 讀詳細內容並判斷還能不能回覆（挑戰：`answerable`；隊制賽：準備中且自己的座位還是 `invited`），接受／拒絕呼叫既有的 `answer`。離線時收到的邀請在登入或重連、通知推來時一樣會彈。之後同一個挑戰或比賽又有通知（取消、移出、再邀請）就重讀一次，`match` 推送（§5.8）直接更新；挑戰的截止時間到了也會變成失效。處理過的（接受、拒絕、稍後回覆、關掉失效的）與響過的通知 id 記在 localStorage（`tku-invites-handled`、`tku-invites-rang`，留 60 天），所以同一個瀏覽器不重複彈、開好幾個分頁也只響一次；別的分頁處理了，`storage` 事件讓這一頁也關掉。接受、拒絕會把那幾則邀請標為已讀；稍後回覆不標，鈴鐺裡還看得到。
 
-現有的種類：`application`（有人申請註冊，通知每位管理員，連到管理頁）；挑戰（§5.5）：`challengeInvited`（給受邀者）、`challengeAccepted`／`challengeDeclined`（給發起者）、`challengeCancelled`（給沒拒絕的人），參數是 `challengeId` 與對方的 `username`；`challengeReminder`（截止前 12 小時，給接受了還沒打完的人）與 `challengeResults`（挑戰 `finished` 時給每位接受的人），參數是 `challengeId`，由期限工作與結算送出（§5.5，`e7-t13`）；`friendOnline`（關注的人上線了，參數 `username`，連到大廳，§5.7；好友隱藏時不送）。受邀桌（`e2-t25`）：`tableInvited`，參數 `tableId`、`number`（桌號）與房主的 `username`，連到那一桌。隊制賽（§5.8，`e8-t04`）：`matchInvited`（給受邀者）、`matchAccepted`／`matchDeclined`／`matchLeft`（給安排那一隊的人）、`matchRemoved`（給被移出的人，連到 `/matches`）、`matchCancelled`（給座位上的人），參數是 `matchId` 與做這件事的人的 `username`，其餘連到那場比賽的準備室。搭檔（淡江橋譜 E2，`e2-t03`）：`pairInvited`（給受邀者）、`pairAccepted`／`pairDeclined`（給邀請者）、`pairEnded`（給另一位），參數 `pairId` 與做這件事的人的 `username`，連到淡江橋譜的搭檔頁（`/pairs/:id`，橋譜 C4 做；鈴鐺用整頁開啟另一個網站）。精選（`e4-t29`）：`boardFeatured`，第一次設為精選時給打那副的社員（不含機器人與設精選的人自己；之後編輯不再通知），參數 `boardId` 與設的人的 `username`，連到那副的紀錄頁。挑戰頁出來前（C6）挑戰的通知連到大廳。受邀桌等之後各自加；私訊不進通知中心（§5.7）。PWA 推播是 `e1-t28`（M2）。
+現有的種類：`application`（有人申請註冊，通知每位管理員，連到管理頁）；挑戰（§5.5）：`challengeInvited`（給受邀者）、`challengeAccepted`／`challengeDeclined`（給發起者）、`challengeCancelled`（給沒拒絕的人），參數是 `challengeId` 與對方的 `username`；`challengeReminder`（截止前 12 小時，給接受了還沒打完的人）與 `challengeResults`（挑戰 `finished` 時給每位接受的人），參數是 `challengeId`，由期限工作與結算送出（§5.5，`e7-t13`）；`friendOnline`（關注的人上線了，參數 `username`，連到大廳，§5.7；好友隱藏時不送）。受邀桌（`e2-t25`）：`tableInvited`，參數 `tableId`、`number`（桌號）與房主的 `username`，連到那一桌。隊制賽（§5.8，`e8-t04`）：`matchInvited`（給受邀者）、`matchAccepted`／`matchDeclined`／`matchLeft`（給安排那一隊的人）、`matchRemoved`（給被移出的人，連到 `/matches`）、`matchCancelled`（給座位上的人），參數是 `matchId` 與做這件事的人的 `username`，其餘連到那場比賽的準備室。搭檔（淡江橋譜 E2，`e2-t03`）：`pairInvited`（給受邀者）、`pairAccepted`／`pairDeclined`（給邀請者）、`pairEnded`（給另一位），參數 `pairId` 與做這件事的人的 `username`，連到淡江橋譜的搭檔頁（`/pairs/:id`，橋譜 C4 做；鈴鐺用整頁開啟另一個網站）。精選（`e4-t29`）：`boardFeatured`，第一次設為精選時給打那副的社員（不含機器人與設精選的人自己；之後編輯不再通知），參數 `boardId` 與設的人的 `username`，連到那副的紀錄頁。挑戰頁出來前（C6）挑戰的通知連到大廳。受邀桌等之後各自加；私訊不進通知中心（§5.7），所以也不推播。
+
+**PWA 推播**（`e1-t28`，AC-1.8；`worker/push.ts`、`worker/web-push.ts`、`shared/push.ts`、`shared/push-texts.ts`，DEPLOY.md §4.17、docs/SECURITY.md）：通知中心的每則**新**通知（`NotificationService` 的 `onNew`）交給 `PushService.queue`；社員**沒有連線**（`Connections.onlineUserIds` 沒有他）、那個種類沒關掉、有訂閱的裝置時，推到他的每台裝置。
+
+- **開關**：`VAPID_PUBLIC_KEY`、`VAPID_PRIVATE_KEY`、`VAPID_SUBJECT`（`mailto:`／`https:`）三個 Worker secret 都設而且格式對才開（`pushFrom`）；否則 `GET /api/push` 回 `enabled: false`、「我的帳號」沒有卡片，其他路由回 503 `pushOff`。PR 預覽拿不到 secret，所以沒有推播。
+- **API**（都要登入）：`GET /api/push`（`PushView`：是否開、VAPID 公鑰、自己的裝置 `{ id, name, createdAt }`、每個種類推不推）；`POST /api/push/subscribe`（`PushSubscription.toJSON()`＋頁面語言；同一個 endpoint 再訂一次是更新，第 11 台擠掉最舊的）；`POST /api/push/unsubscribe { id }`；`POST /api/push/kinds { kinds: { <種類>: boolean } }`；`POST /api/push/test { id? }`（測試推播，在線也推，每人 10 秒一次）。裝置的 `id` 是 endpoint 的 SHA-256 前 16 個十六進位字（`pushDeviceId`），頁面用同樣的算法認出「這台裝置」，endpoint 與金鑰不回給頁面。endpoint 只接受瀏覽器的推播服務（FCM、Mozilla autopush、WNS、Apple，`allowedEndpoint`），社團不會替人去打任意網址。
+- **文字**：鈴鐺的文字在瀏覽器依語言組（`strings.ts` 太大，Worker 不能帶），推播要在沒開網頁時由 service worker 直接顯示，所以伺服器自己寫：`shared/push-texts.generated.ts` 是 `strings.ts` 的 `notificationTexts` 轉成的範本（`{username}`、`{number}`…），由 `npm run push:texts`（`tests/presentation/push-texts.test.ts` 加 `-u`）產生；同一個測試在每種語言、每個種類比對推播和鈴鐺的文字一樣，`strings.ts` 改了沒重產就會失敗。語言是那台裝置訂閱時頁面的語言。點了到哪裡跟鈴鐺同一個函式（`notificationLink` 搬到 `shared/notification-link.ts`），討論區連牌桌或橋館看社員的 `forum` 旗標。內容 `{ title, body, url, tag }`，`body` 最多 300 字、`tag` 是通知的 id。
+- **送出**：在社團的 Durable Object 裡，不在 Worker 的請求裡（10 ms CPU）。同一輪（一個動作）通知的全部收進一批，`ctx.waitUntil` 撐著物件、回應不必等推播服務；一批 6 個同時送。每台裝置的推播：新的 P-256 金鑰對與 salt、ECDH＋HKDF、AES-128-GCM（RFC 8291 `aes128gcm`，一個 4096 的 record），`Authorization: vapid t=<JWT>, k=<公鑰>`；JWT（ES256，`aud` 是推播服務的 origin，12 小時）每個推播服務簽一次、快到期前一小時才換（`WebPush.jwtFor`），所以推給全社團（大多在 FCM）只簽一次。等人回應的種類（邀請、申請加入、叫裁判、隊制賽開始或替補）`Urgency: high`，其他 `normal`；跟某一桌或某人上線有關的 `TTL` 一小時（過了推播服務就丟掉），其他一天。推播服務回 404／410 表示瀏覽器已經取消訂閱，那台裝置刪掉；其他失敗（429、5xx、連不上）只記日誌（`push`），**不重送**：通知照樣在鈴鐺裡。物件在送出途中被回收，那一批就沒了（同樣的理由不存佇列）。
+- **在線不推**：用社團的連線判斷，跟鈴鐺推 `notifications` 同一個依據；送出那一刻才看（排隊時離線、送出時上線就不推）。在線包括開在背景分頁的網頁（電腦上通常一直連著；手機瀏覽器在背景幾分鐘內會斷線，之後就會推）；這時鈴鐺與邀請彈窗（e1-t35）已經會提醒。
+- **偏好**：存每個種類（`PushKinds`，只存跟預設不同的）；「我的帳號」把種類分成幾組（`PUSH_GROUPS`：挑戰、牌桌、隊制賽、搭檔、精選、關注的人上線（有 `friends` 旗標才顯示）、橋譜與文章、討論區、管理（只給管理員看）），勾一組就改那組全部的種類；每個種類一定在一組（測試）。`friendOnline` 預設不推（`PUSH_OFF_BY_DEFAULT`），其他預設推。偏好只管推播，鈴鐺不受影響。
+- **裝置的生命**：「在這台裝置關閉」與**登出**都會先 `POST /api/push/unsubscribe` 再取消瀏覽器的訂閱（同一台電腦下一個登入的人不會收到前一個人的推播，`forgetPushOnSignOut`，最多等 1.5 秒）；被登出所有裝置（`revokeSessions`：重設密碼、管理員改密碼、兩步驟被關掉…）時清掉全部裝置，社員之後要在各裝置重新開啟。自己改密碼只登出其他 session，不動推播（分不出哪個訂閱屬於這個 session）。瀏覽器換了訂閱（`pushsubscriptionchange`）時，service worker 自己用同一把公鑰重新訂閱並送到 `subscribe`。匯出資料有裝置名稱、開啟時間與種類，沒有 endpoint 與金鑰。
+- **瀏覽器**（`public/sw.js`、`src/lib/push.ts`、`src/components/PushCard.tsx`）：service worker 的 `push` 顯示通知（圖示 `icon-192.png`），`notificationclick` 把已開著的本站視窗叫到前面並前往 `url`，沒有就開新視窗（淡江橋譜的網址直接開）。iPhone／iPad 只有加入主畫面、從主畫面打開（iOS 16.4+）才有 `PushManager`，卡片改成說明；瀏覽器封鎖了通知也會說明。正式站載入時就註冊 service worker；開發模式不註冊，按「開啟推播」時才註冊。
 
 ## 5.3 紀錄的 SQL 索引（決策紀錄，`e4-t10`）
 

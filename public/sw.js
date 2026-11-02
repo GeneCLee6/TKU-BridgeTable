@@ -51,3 +51,80 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(caches.match(request).then((hit) => hit || fetch(request).then((response) => keep(request, response))))
   }
 })
+
+// Push notifications (e1-t28, ARCHITECTURE.md §5.4): the server sends { title, body, url, tag },
+// already in the member's language, encrypted for this browser (RFC 8291). Clicking one focuses a
+// window of the site and takes it to `url`, or opens one.
+self.addEventListener('push', (event) => {
+  let message = {}
+  try {
+    message = event.data ? event.data.json() : {}
+  } catch {
+    message = {}
+  }
+  const title = typeof message.title === 'string' && message.title ? message.title : '淡江牌桌'
+  event.waitUntil(
+    self.registration.showNotification(title, {
+      body: typeof message.body === 'string' ? message.body : '',
+      tag: typeof message.tag === 'string' ? message.tag : undefined,
+      icon: '/icon-192.png',
+      badge: '/icon-192.png',
+      data: { url: typeof message.url === 'string' ? message.url : '/' },
+    }),
+  )
+})
+
+/** Only this site's paths and https pages (TKU BridgeBook) are opened */
+const pushTarget = (url) => {
+  try {
+    const target = new URL(url, self.location.origin)
+    return target.protocol === 'https:' || target.origin === self.location.origin ? target : new URL('/', self.location.origin)
+  } catch {
+    return new URL('/', self.location.origin)
+  }
+}
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close()
+  const target = pushTarget(event.notification.data && event.notification.data.url)
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(async (windows) => {
+      if (target.origin === self.location.origin) {
+        const open = windows.find((w) => new URL(w.url).origin === self.location.origin)
+        if (open) {
+          const focused = await open.focus()
+          if (new URL(focused.url).href !== target.href) await focused.navigate(target.href).catch(() => undefined)
+          return
+        }
+      }
+      await self.clients.openWindow(target.href)
+    }),
+  )
+})
+
+/** The site's language closest to the browser's (the page sends its own when it subscribes) */
+const siteLang = () => {
+  const lang = (self.navigator.language || '').toLowerCase()
+  if (lang.startsWith('zh')) return /cn|sg|hans/.test(lang) ? 'zh-Hans' : 'zh'
+  return ['en', 'vi', 'ja', 'ko'].find((code) => lang.startsWith(code)) || 'zh'
+}
+
+// The browser renewed the subscription: hand the new one to the server (the old one answers 410 and is dropped)
+self.addEventListener('pushsubscriptionchange', (event) => {
+  const old = event.oldSubscription
+  const key = old && old.options && old.options.applicationServerKey
+  if (!key) return
+  event.waitUntil(
+    self.registration.pushManager
+      .subscribe({ userVisibleOnly: true, applicationServerKey: key })
+      .then((subscription) =>
+        fetch('/api/push/subscribe', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...subscription.toJSON(), lang: siteLang() }),
+        }),
+      )
+      .catch(() => undefined),
+  )
+})

@@ -24,3 +24,9 @@ MAIL_FROM=
 # http://localhost:5173/api/auth/google/callback; leave either empty and Google sign-in is off
 GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
+
+# Push notifications (DEPLOY.md §4.17): `npm run vapid` makes the pair; the subject is a contact
+# (mailto: or https:) for the push services; leave any empty and push is off
+VAPID_PUBLIC_KEY=
+VAPID_PRIVATE_KEY=
+VAPID_SUBJECT=

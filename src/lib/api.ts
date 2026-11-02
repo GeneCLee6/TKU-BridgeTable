@@ -59,6 +59,7 @@ export type MatchPlayAction =
 import type { FeaturedBoard, FeaturedInput } from '../../shared/featured.ts'
 import type { FeatureFlag, FeatureState, FeatureView } from '../../shared/features.ts'
 import type { SessionInfo } from '../../shared/account.ts'
+import type { PushKinds, PushView } from '../../shared/push.ts'
 import type { PracticeSettings, SavedPractice } from '../../shared/practice.ts'
 import type { PracticeSetInfo } from '../../shared/practice-sets/types.ts'
 
@@ -157,6 +158,18 @@ export const api = {
     code: (code: string, lang: string) => post<{ user: Me; returnTo: string }>('/api/auth/google/code', { code, lang }),
     link: (password: string) => post<{ url: string }>('/api/account/google/link', { password, origin: window.location.origin }),
     unlink: (password: string) => post<{ user: Me }>('/api/account/google/unlink', { password }),
+  },
+  /**
+   * Push notifications (e1-t28): whether the club has them, the VAPID key, this member's devices and
+   * choices; subscribing this browser (`PushSubscription.toJSON()` and the page's language),
+   * removing a device, choosing kinds, a test push
+   */
+  push: {
+    view: () => request<PushView>('/api/push'),
+    subscribe: (subscription: PushSubscriptionJSON, lang: string) => post<PushView>('/api/push/subscribe', { ...subscription, lang }),
+    unsubscribe: (id: string) => post<PushView>('/api/push/unsubscribe', { id }),
+    kinds: (kinds: Partial<PushKinds>) => post<PushView>('/api/push/kinds', { kinds }),
+    test: (id?: string) => post<{ devices: number }>('/api/push/test', id ? { id } : {}),
   },
   logout: () => post<{ ok: true }>('/api/logout'),
   changePassword: (current: string, next: string) => post<{ ok: true }>('/api/account/password', { current, next }),
