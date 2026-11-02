@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, Lock, MessageSquare, Pin } from 'lucide-react'
+import { ChevronLeft, ChevronRight, EyeOff, Lock, MessageSquare, Pin } from 'lucide-react'
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import styled from 'styled-components'
@@ -9,11 +9,11 @@ import { ForumBlocks } from '../components/ForumBlocks.tsx'
 import { Button, Card, ErrorText, Muted, PageMain, PageTitle, Textarea } from '../components/ui.tsx'
 import { formatDateTime } from '../lib/format.ts'
 import { forumApi } from '../lib/forum.ts'
+import { useMemberName, useOfficer } from '../lib/forumHooks.ts'
 import { useAuth } from '../state/AuthContext.tsx'
-import { useClub } from '../state/ClubContext.tsx'
 import { usePreferences } from '../state/PreferencesContext.tsx'
-import { playerName } from '../strings.ts'
 import { cardHover } from '../styles/controls.ts'
+import { ReportForm } from './ForumModerationPages.tsx'
 
 /**
  * 論壇 (E13 K1, `e13-t03`, ARCHITECTURE.md §5.19): the table's pages on the club forum that
@@ -30,7 +30,7 @@ import { cardHover } from '../styles/controls.ts'
  * may carry an auction (`AuctionEditor`).
  */
 
-const Intro = styled.div`
+export const Intro = styled.div`
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -128,7 +128,7 @@ const Count = styled.span`
   font-size: 13px;
 `
 
-const Badge = styled.span`
+export const Badge = styled.span`
   display: inline-flex;
   align-items: center;
   gap: 2px;
@@ -149,7 +149,7 @@ const PagerBar = styled.nav`
   margin-top: ${({ theme }) => theme.space(4)};
 `
 
-const BackLink = styled(Link)`
+export const BackLink = styled(Link)`
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -161,6 +161,12 @@ const BackLink = styled(Link)`
 const WriteLink = styled(Link)`
   color: ${({ theme }) => theme.colors.primary};
   font-weight: 600;
+`
+
+const Links = styled.span`
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: ${({ theme }) => theme.space(4)};
 `
 
 const Meta = styled.p`
@@ -218,19 +224,6 @@ const Composer = styled.form`
   }
 `
 
-/** A member's name from the lobby's member list; a member who left shows as such */
-function useMemberName() {
-  const { t } = usePreferences()
-  const { lobby } = useClub()
-  return useCallback(
-    (id: string) => {
-      const member = lobby?.members.find((m) => m.id === id)
-      return member ? playerName(t, member) : t.forum.unknownMember
-    },
-    [lobby, t],
-  )
-}
-
 /** The page in `?page=`, from 1 */
 function usePage(): [number, (page: number) => void] {
   const [params, setParams] = useSearchParams()
@@ -278,6 +271,12 @@ export function PostRows({ posts, boards }: { posts: Post[]; boards?: Board[] })
                     {t.forum.locked}
                   </Badge>
                 )}
+                {post.hidden && (
+                  <Badge>
+                    <EyeOff size={12} aria-hidden />
+                    {t.forum.hidden}
+                  </Badge>
+                )}
                 {post.title || t.forum.untitled}
               </strong>
               <small>
@@ -294,12 +293,6 @@ export function PostRows({ posts, boards }: { posts: Post[]; boards?: Board[] })
       })}
     </PostList>
   )
-}
-
-/** An officer of the forum (`forumModerate`, or an admin): the server checks the same */
-function useOfficer() {
-  const { user } = useAuth()
-  return !!user && (user.admin || user.permissions.includes('forumModerate'))
 }
 
 /** 發文: the table's editor, on this board when there is one */
@@ -330,13 +323,19 @@ export function ForumHomePage() {
       .then(setFeed)
       .catch((e) => setError(message(e.code, e.params, e.message)))
   }, [page, message])
+  const officer = useOfficer()
 
   return (
     <PageMain>
       <PageTitle>{t.forum.title}</PageTitle>
       <Intro>
         <Muted>{t.forum.intro}</Muted>
-        <Write />
+        {/* Search and the officers' reports (K4: e13-t11, e13-t10) */}
+        <Links>
+          <WriteLink to="/forum/search">{t.forum.search}</WriteLink>
+          {officer && <WriteLink to="/forum/reports">{t.forum.reports}</WriteLink>}
+          <Write />
+        </Links>
       </Intro>
       {error && <ErrorText role="alert">{error}</ErrorText>}
       <SectionTitle>{t.forum.boards}</SectionTitle>
@@ -486,6 +485,9 @@ export function ForumPostPage() {
   const [replyTo, setReplyTo] = useState<string | null>(null)
   // Which comment form has its auction editor open: the top one ('') or a reply's
   const [auctionIn, setAuctionIn] = useState<string | null>(null)
+  // Which post or comment the report form is open on (K4, e13-t10), and the thanks once one is sent
+  const [reporting, setReporting] = useState<string | null>(null)
+  const [reported, setReported] = useState(false)
 
   const load = useCallback(
     () =>
@@ -547,6 +549,43 @@ export function ForumPostPage() {
       setError(message(err.code ?? '', err.params ?? {}, err.message))
     }
   }
+  /** An officer hides the post from everyone but its author and the officers, or shows it again */
+  const toggleHidden = async () => {
+    if (!post || (!post.hidden && !window.confirm(t.forum.confirmHide))) return
+    try {
+      setError('')
+      await forumApi.hide(post.id, !post.hidden)
+      await load()
+    } catch (e) {
+      const err = e as { code?: string; params?: Record<string, string | number>; message: string }
+      setError(message(err.code ?? '', err.params ?? {}, err.message))
+    }
+  }
+  const reportButton = (key: string, authorId: string) =>
+    user && authorId !== user.id ? (
+      <Button
+        type="button"
+        $variant="ghost"
+        $size="sm"
+        onClick={() => {
+          setReported(false)
+          setReporting(reporting === key ? null : key)
+        }}
+      >
+        {t.forum.report}
+      </Button>
+    ) : null
+  const reportForm = (key: string, target: 'post' | 'comment', targetId: string) =>
+    reporting === key ? (
+      <ReportForm
+        target={target}
+        targetId={targetId}
+        onDone={(sent) => {
+          setReporting(null)
+          setReported(sent)
+        }}
+      />
+    ) : null
   const auctionForm = (key: string) => ({
     auctionOpen: auctionIn === key,
     onAuction: (open: boolean) => setAuctionIn(open ? key : null),
@@ -567,6 +606,7 @@ export function ForumPostPage() {
           <Meta>
             {post.pinned && <Badge>{t.forum.pinned}</Badge>}
             {post.locked && <Badge>{t.forum.locked}</Badge>}
+            {post.hidden && <Badge>{t.forum.hidden}</Badge>}
             <span>
               {t.forum.byLine(name(post.authorId), formatDateTime(post.createdAt, lang))}
               {post.editedAt ? ` · ${t.forum.edited}` : ''}
@@ -577,7 +617,16 @@ export function ForumPostPage() {
                 {t.forum.deletePost}
               </Button>
             )}
+            {officer && (
+              <Button type="button" $variant="ghost" $size="sm" onClick={() => void toggleHidden()}>
+                {post.hidden ? t.forum.unhide : t.forum.hide}
+              </Button>
+            )}
+            {reportButton(':post', post.authorId)}
           </Meta>
+          {post.hidden && <Muted>{t.forum.hiddenHint}</Muted>}
+          {reportForm(':post', 'post', post.id)}
+          {reported && <Muted role="status">{t.forum.reportSent}</Muted>}
           <Card>
             <ForumBlocks blocks={post.blocks} />
           </Card>
@@ -605,8 +654,10 @@ export function ForumPostPage() {
                           {t.forum.deleteComment}
                         </Button>
                       )}
+                      {reportButton(comment.id, comment.authorId)}
                     </Actions>
                   </CommentHead>
+                  {reportForm(comment.id, 'comment', comment.id)}
                   <ForumBlocks blocks={comment.blocks} />
                   {replyTo === comment.id && (
                     <CommentForm

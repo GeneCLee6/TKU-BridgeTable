@@ -7,6 +7,7 @@ import { PROFILE_LEVELS, PROFILE_LIMITS, type Profile, type ProfileLevel } from 
 import { DEFAULT_ROBOT_SPEED, LIMITS, ROBOT_SPEEDS, type Me, type RobotSpeed } from '../../shared/protocol.ts'
 import { DataCard, SessionsCard } from '../components/AccountSecurity.tsx'
 import { EmailCard } from '../components/EmailCard.tsx'
+import { TwoFactorCard } from '../components/TwoFactorCard.tsx'
 import { Avatar } from '../components/Avatar.tsx'
 import { AvatarCropper } from '../components/AvatarCropper.tsx'
 import { PasswordInput } from '../components/PasswordInput.tsx'
@@ -688,6 +689,7 @@ export function AccountPage() {
         </Card>
         <PasswordForm />
         <EmailCard />
+        <TwoFactorCard />
         <SessionsCard />
         <DataCard />
         <Muted>

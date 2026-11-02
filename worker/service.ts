@@ -1,7 +1,7 @@
 import { secureRandomInt, type RandomInt } from '../shared/board.ts'
 import { isSeat, SEATS, type Seat } from '../shared/cards.ts'
 import { DEFAULT_CLUB_ID } from '../shared/clubs.ts'
-import { AppError, type MessageCode } from '../shared/messages.ts'
+import { AppError, type MessageCode, type MessageParams } from '../shared/messages.ts'
 import {
   CLUB_PROFILE_ID,
   DEFAULT_ROBOT_SPEED,
@@ -43,6 +43,7 @@ import {
   type LobbyShared,
   type LobbyView,
   type Me,
+  type TwoFactorSetup,
   type MemberChange,
   type MemberStatus,
   type Permission,
@@ -84,6 +85,15 @@ import {
   type Mailer,
 } from './mail.ts'
 import { hashPassword, hashResetCode, needsRehash, randomId, RESET_CODE_MS, resetCode, verifyPassword } from './auth.ts'
+import {
+  hashRecoveryCode,
+  looksLikeTotp,
+  newRecoveryCodes,
+  newTotpSecret,
+  otpauthUri,
+  TOTP_SETUP_MS,
+  verifyTotp,
+} from './totp.ts'
 import { revocationWrites } from './edge-auth.ts'
 import { checkFavorite } from '../shared/favorites.ts'
 import { DEFAULT_HISTORY_QUERY, type HistoryQuery } from '../shared/history-query.ts'
@@ -225,6 +235,7 @@ import {
   REQUEST_BURST,
   REQUESTS_PER_SECOND,
   TokenBuckets,
+  TWO_FACTOR_FAILURES,
 } from './rate-limit.ts'
 import { AVATAR_BURST, AVATAR_MAX_BYTES, AVATARS_PER_SECOND, sniffAvatar, type AvatarType } from '../shared/avatar.ts'
 import {
@@ -280,6 +291,22 @@ interface StoredUser {
   hideProfileBoards?: boolean
   /** True when the member hides their forum posts from their profile page (e13-t08) */
   hideProfilePosts?: boolean
+  /** The second sign-in step (兩步驟登入, e11-t31), once turned on */
+  twoFactor?: TwoFactor
+  /** A secret shown at setup, waiting for its first code (TOTP_SETUP_MS) */
+  twoFactorSetup?: { secret: string; expiresAt: number }
+}
+
+/**
+ * 兩步驟登入 (e11-t31, docs/SECURITY.md V2.7): the authenticator app's secret (base32; it has to be
+ * kept as it is to check codes, like the password hash it lives with), the last 30-second step that
+ * signed in (a code works once) and the SHA-256 of each unused recovery code
+ */
+interface TwoFactor {
+  secret: string
+  enabledAt: number
+  lastStep: number
+  recovery: string[]
 }
 
 /**
@@ -621,6 +648,8 @@ export class ClubService {
   private readonly requestLimit: TokenBuckets
   private readonly loginByName: FailureWindow
   private readonly loginByAddress: FailureWindow
+  /** Wrong second-step codes per account (e11-t31), wherever they come from */
+  private readonly twoFactorFailures: FailureWindow
   private readonly clientErrorLimit: TokenBuckets
   private readonly avatarLimit: TokenBuckets
   /** Mail per account, and reset requests per network address (e1-t29, e1-t30) */
@@ -646,6 +675,7 @@ export class ClubService {
     this.requestLimit = new TokenBuckets(REQUEST_BURST, REQUESTS_PER_SECOND, this.now)
     this.loginByName = new FailureWindow(LOGIN_FAILURES_PER_NAME, LOGIN_WINDOW_MS, this.now)
     this.loginByAddress = new FailureWindow(LOGIN_FAILURES_PER_ADDRESS, LOGIN_WINDOW_MS, this.now)
+    this.twoFactorFailures = new FailureWindow(TWO_FACTOR_FAILURES, LOGIN_WINDOW_MS, this.now)
     this.clientErrorLimit = new TokenBuckets(CLIENT_ERROR_BURST, CLIENT_ERRORS_PER_SECOND, this.now)
     this.avatarLimit = new TokenBuckets(AVATAR_BURST, AVATARS_PER_SECOND, this.now)
     this.mailLimit = new TokenBuckets(MAIL_BURST, MAILS_PER_SECOND, this.now)
@@ -1229,7 +1259,7 @@ export class ClubService {
    * passwords are counted per username from that address and per address, so guessing is slowed
    * without letting a stranger lock a member out from everywhere
    */
-  async login(username: string, password: string, address = '', userAgent = '') {
+  async login(username: string, password: string, address = '', userAgent = '', code = '', lang?: unknown) {
     const name = String(username ?? '').trim()
     const nameKey = `${address}|${name.toLowerCase()}`
     if (this.loginByName.blocked(nameKey) || this.loginByAddress.blocked(address)) {
@@ -1253,6 +1283,8 @@ export class ClubService {
     this.loginByName.clear(nameKey)
     // A hash from before e11-t30 (fewer iterations) is made again now that the password is known
     if (needsRehash(user.passwordHash)) user.passwordHash = await hashPassword(String(password))
+    // 兩步驟登入 (e11-t31): only someone who knows the password learns that a code is needed
+    if (user.twoFactor) await this.secondStep(user, String(code ?? ''), address, lang)
     user.lastLoginAt = this.now()
     await this.store.put(`user:${user.id}`, user)
     return { user: this.me(user), token: await this.sessions.create(user.id, userAgent) }
@@ -1570,6 +1602,161 @@ export class ClubService {
     await this.revokeSessions(user.id)
   }
 
+  // ── 兩步驟登入 (e11-t31; ARCHITECTURE.md §5.2, docs/SECURITY.md V2.7) ───────────────────────────
+
+  /**
+   * Signing in, after the right password, for an account with the second step: no code answers
+   * `twoFactorNeeded` (the page then asks for one, and sends the name and password again with it);
+   * a wrong one counts against the account (TWO_FACTOR_FAILURES in LOGIN_WINDOW_MS, from anywhere)
+   * and the network. The account's verified email hears when the codes lock (someone knows the
+   * password) and when a recovery code is used
+   */
+  private async secondStep(user: StoredUser, code: string, address: string, lang: unknown) {
+    if (!code.trim()) throw new ClubError('twoFactorNeeded', {}, 401)
+    if (this.twoFactorFailures.blocked(user.id)) throw new ClubError('tooManyLogins', { minutes: LOGIN_WINDOW_MS / 60_000 }, 429)
+    const used = await this.checkSecondFactor(user, code)
+    if (used === null) {
+      this.loginByAddress.fail(address)
+      this.twoFactorFailures.fail(user.id)
+      this.log({ event: 'twoFactorFailed' })
+      if (this.twoFactorFailures.blocked(user.id)) await this.securityMail(user, 'mailTwoFactorLockedBody', lang)
+      throw new ClubError('twoFactorWrong', {}, 401)
+    }
+    this.twoFactorFailures.clear(user.id)
+    if (used === 'recovery') {
+      this.log({ event: 'twoFactorRecoveryUsed' })
+      await this.securityMail(user, 'mailRecoveryUsedBody', lang, { left: user.twoFactor?.recovery.length ?? 0 })
+    }
+  }
+
+  /**
+   * Whether a code from the app (6 digits) or an unused recovery code is right; a recovery code is
+   * used up and the app's step is remembered, both saved. Null when it is wrong
+   */
+  private async checkSecondFactor(user: StoredUser, code: string): Promise<'totp' | 'recovery' | null> {
+    const factor = user.twoFactor
+    if (!factor) return null
+    if (looksLikeTotp(code)) {
+      const step = await verifyTotp(factor.secret, code, this.now(), factor.lastStep)
+      if (step === null) return null
+      factor.lastStep = step
+      await this.store.put(`user:${user.id}`, user)
+      return 'totp'
+    }
+    const hash = await hashRecoveryCode(code)
+    const index = factor.recovery.indexOf(hash)
+    if (index < 0) return null
+    factor.recovery.splice(index, 1)
+    await this.store.put(`user:${user.id}`, user)
+    return 'recovery'
+  }
+
+  /** On "My account", for a change to the second step: the password and a code (or a recovery code), with the same limits */
+  private async confirmSecondFactor(user: StoredUser, password: string, code: string) {
+    if (!(await verifyPassword(String(password ?? ''), user.passwordHash))) throw new ClubError('wrongPassword', {}, 403)
+    if (this.twoFactorFailures.blocked(user.id)) throw new ClubError('tooManyLogins', { minutes: LOGIN_WINDOW_MS / 60_000 }, 429)
+    if ((await this.checkSecondFactor(user, String(code ?? ''))) === null) {
+      this.twoFactorFailures.fail(user.id)
+      throw new ClubError('twoFactorWrong', {}, 403)
+    }
+    this.twoFactorFailures.clear(user.id)
+  }
+
+  /** A security notice to the account's verified email, when the club sends mail; a failure is only logged */
+  private async securityMail(user: StoredUser, body: MessageCode, lang: unknown, params: MessageParams = {}) {
+    const mailer = this.config.mailer
+    if (!mailer || !user.email || !this.mailLimit.take(user.id)) return
+    try {
+      await mailer.send(composeMail(user.email, mailLang(lang), 'mailSecuritySubject', body, { username: user.username, ...params }))
+    } catch {
+      this.log({ event: 'mailFailed', kind: 'security' })
+    }
+  }
+
+  /**
+   * `POST /api/account/2fa/setup { password }`: step 1 of turning the second step on, admins only
+   * (e11-t31). A new secret, shown once as text and as the `otpauth://` address the app reads; it
+   * counts only after its first code (`enableTwoFactor`) within TOTP_SETUP_MS
+   */
+  async startTwoFactor(userId: string, password: string): Promise<TwoFactorSetup> {
+    const user = this.requireUser(userId)
+    if (!user.admin) throw new ClubError('adminOnly', {}, 403)
+    if (user.twoFactor) throw new ClubError('twoFactorOn', {}, 409)
+    if (!(await verifyPassword(String(password ?? ''), user.passwordHash))) throw new ClubError('wrongPassword', {}, 403)
+    const secret = newTotpSecret()
+    const expiresAt = this.now() + TOTP_SETUP_MS
+    user.twoFactorSetup = { secret, expiresAt }
+    await this.store.put(`user:${user.id}`, user)
+    return { secret, uri: otpauthUri(secret, user.username), expiresAt }
+  }
+
+  /**
+   * `POST /api/account/2fa/enable { code }`: step 2, the app's first code turns it on. Answers the
+   * recovery codes, shown only now (only their hashes are kept). Every other device is signed out:
+   * a session opened with the password alone does not stay
+   */
+  async enableTwoFactor(userId: string, code: string, token: string | null): Promise<{ user: Me; recoveryCodes: string[] }> {
+    const user = this.requireUser(userId)
+    if (!user.admin) throw new ClubError('adminOnly', {}, 403)
+    if (user.twoFactor) throw new ClubError('twoFactorOn', {}, 409)
+    const setup = user.twoFactorSetup
+    if (!setup || setup.expiresAt <= this.now()) throw new ClubError('twoFactorSetupGone', {}, 404)
+    if (this.twoFactorFailures.blocked(user.id)) throw new ClubError('tooManyLogins', { minutes: LOGIN_WINDOW_MS / 60_000 }, 429)
+    const step = await verifyTotp(setup.secret, String(code ?? ''), this.now())
+    if (step === null) {
+      this.twoFactorFailures.fail(user.id)
+      throw new ClubError('twoFactorWrong', {}, 403)
+    }
+    this.twoFactorFailures.clear(user.id)
+    const { codes, hashes } = await newRecoveryCodes()
+    user.twoFactor = { secret: setup.secret, enabledAt: this.now(), lastStep: step, recovery: hashes }
+    delete user.twoFactorSetup
+    await this.store.put(`user:${user.id}`, user)
+    this.log({ event: 'twoFactorOn' })
+    const { ended, ids } = await this.sessions.endAll(user.id, token)
+    if (ended) await this.sessionsEnded(user.id, ids)
+    return { user: this.me(user), recoveryCodes: codes }
+  }
+
+  /** `POST /api/account/2fa/recovery { password, code }`: new recovery codes; the old ones stop working */
+  async renewRecoveryCodes(userId: string, password: string, code: string): Promise<{ user: Me; recoveryCodes: string[] }> {
+    const user = this.requireUser(userId)
+    if (!user.twoFactor) throw new ClubError('twoFactorOff', {}, 409)
+    await this.confirmSecondFactor(user, password, code)
+    const { codes, hashes } = await newRecoveryCodes()
+    user.twoFactor.recovery = hashes
+    await this.store.put(`user:${user.id}`, user)
+    return { user: this.me(user), recoveryCodes: codes }
+  }
+
+  /** `POST /api/account/2fa/disable { password, code }`: turns it off, with the password and a code; the email hears */
+  async disableTwoFactor(userId: string, password: string, code: string, lang?: unknown): Promise<Me> {
+    const user = this.requireUser(userId)
+    if (!user.twoFactor) throw new ClubError('twoFactorOff', {}, 409)
+    await this.confirmSecondFactor(user, password, code)
+    delete user.twoFactor
+    await this.store.put(`user:${user.id}`, user)
+    this.log({ event: 'twoFactorOff' })
+    await this.securityMail(user, 'mailTwoFactorOffBody', lang)
+    return this.me(user)
+  }
+
+  /**
+   * `DELETE /api/admin/users/:id/2fa`: another admin turns a member's second step off, for one who
+   * lost the phone and the recovery codes. Not for oneself (that needs a code). Their email hears
+   */
+  async adminClearTwoFactor(actorId: string, userId: string) {
+    if (actorId === userId) throw new ClubError('notSelf')
+    const user = this.requireUser(userId)
+    if (!user.twoFactor) throw new ClubError('twoFactorOff', {}, 409)
+    delete user.twoFactor
+    delete user.twoFactorSetup
+    this.twoFactorFailures.clear(user.id)
+    await this.store.put(`user:${user.id}`, user)
+    this.log({ event: 'twoFactorCleared' })
+    await this.securityMail(user, 'mailTwoFactorOffBody', undefined)
+  }
+
   // ── Email (e1-t29, e1-t30; ARCHITECTURE.md §5.20) ─────────────────────────────────────────────
 
   /** `GET /api/email`: whether the club sends mail, so the sign-in page offers the email reset */
@@ -1752,6 +1939,9 @@ export class ClubService {
         pending: user.emailPending?.address ?? null,
       }
     }
+    // 兩步驟登入 (e11-t31): admins may turn it on; anyone who has it sees it, even after the admin role went
+    if (user.admin || user.twoFactor)
+      me.twoFactor = { enabled: !!user.twoFactor, recoveryLeft: user.twoFactor?.recovery.length ?? 0 }
     me.features = enabledFeatures(this.features, { id: user.id, admin: !!user.admin, permissions: me.permissions })
     return me
   }
@@ -1862,6 +2052,7 @@ export class ClubService {
         permissions: this.permissionsOf(u),
         passwordResetAt: u.passwordResetAt ?? null,
         passwordReset: this.resetState(u),
+        twoFactor: !!u.twoFactor,
       })),
     )
   }
@@ -2130,9 +2321,21 @@ export class ClubService {
    */
   async exportAccount(userId: string, token: string | null) {
     const user = this.requireUser(userId)
-    const { passwordHash: _hash, passwordReset: _reset, emailPending, emailReset: _emailReset, ...rest } = user
-    // The address waiting for verification, never a link's hash
-    const account = emailPending ? { ...rest, emailPending: emailPending.address } : rest
+    const {
+      passwordHash: _hash,
+      passwordReset: _reset,
+      emailPending,
+      emailReset: _emailReset,
+      twoFactor,
+      twoFactorSetup: _setup,
+      ...rest
+    } = user
+    // The address waiting for verification, never a link's hash; for 兩步驟登入 when it was turned on, never its secret
+    const account = {
+      ...rest,
+      ...(emailPending ? { emailPending: emailPending.address } : {}),
+      ...(twoFactor ? { twoFactorEnabledAt: twoFactor.enabledAt } : {}),
+    }
     const size = HISTORY_PAGE_SIZES[HISTORY_PAGE_SIZES.length - 1]
     const name = (id: string) => this.users.get(id)?.username ?? id
     const favorites: Favorite[] = []

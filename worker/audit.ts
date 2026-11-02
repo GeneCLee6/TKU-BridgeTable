@@ -54,12 +54,15 @@ export type AuditAction =
   /**
    * The forum's officers (BridgeHall e11-t09; `target` is the post's id, or the board's): a post
    * pinned or taken down, locked or opened; someone else's post or comment deleted (`note` says
-   * whose and what); a report dismissed; a board added, changed or deleted
+   * whose and what); a report dismissed; a board added, changed or deleted; a post hidden or shown
+   * again (the table's e13-t10)
    */
   | 'forum:pin'
   | 'forum:unpin'
   | 'forum:lock'
   | 'forum:unlock'
+  | 'forum:hide'
+  | 'forum:unhide'
   | 'forum:removePost'
   | 'forum:removeComment'
   | 'forum:dismiss'

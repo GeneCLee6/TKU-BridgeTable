@@ -101,6 +101,11 @@ export interface Me extends PublicUser {
   features?: FeatureFlag[]
   /** The member's email (e1-t29); left out when the club sends no mail (no mail provider set, DEPLOY.md §4.14) */
   email?: AccountEmail
+  /**
+   * 兩步驟登入 (e11-t31): sent to admins (who may turn it on) and to anyone who has it on; left out
+   * for everyone else
+   */
+  twoFactor?: AccountTwoFactor
 }
 
 /** `Me.email`: the verified address, and one waiting for its link */
@@ -108,6 +113,22 @@ export interface AccountEmail {
   address: string | null
   verifiedAt: number | null
   pending: string | null
+}
+
+/** `Me.twoFactor`: whether the second sign-in step is on, and how many recovery codes are unused */
+export interface AccountTwoFactor {
+  enabled: boolean
+  recoveryLeft: number
+}
+
+/** `POST /api/account/2fa/setup`: the new secret, as text and as the address an authenticator app reads */
+export interface TwoFactorSetup {
+  /** Base32, for typing into the app */
+  secret: string
+  /** `otpauth://totp/...` */
+  uri: string
+  /** When the secret stops waiting for its first code */
+  expiresAt: number
 }
 
 /** Where someone registered; both sites share the accounts */
@@ -1133,6 +1154,8 @@ export interface AdminUser {
    * code an admin gave them still works (until `until`), null otherwise
    */
   passwordReset: { state: 'requested'; at: number } | { state: 'approved'; at: number; until: number } | null
+  /** Whether they turned 兩步驟登入 on (e11-t31); another admin may turn it off for them */
+  twoFactor?: boolean
 }
 
 /** An approved password reset (e1-t36): the one-time code for the admin to hand over, shown once */
