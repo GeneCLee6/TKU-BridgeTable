@@ -5,6 +5,7 @@ import {
   Globe,
   History,
   LogOut,
+  MessagesSquare,
   Moon,
   Shield,
   Star,
@@ -19,7 +20,7 @@ import { useEffect, useRef, useState } from 'react'
 import { NavLink } from 'react-router-dom'
 import styled from 'styled-components'
 import { LANGS } from '../../shared/messages.ts'
-import { useAuth } from '../state/AuthContext.tsx'
+import { useAuth, useFeature } from '../state/AuthContext.tsx'
 import { useClub } from '../state/ClubContext.tsx'
 import { useInviteBanner } from '../state/InvitationsContext.tsx'
 import { usePreferences } from '../state/PreferencesContext.tsx'
@@ -287,6 +288,8 @@ function LanguageMenu() {
 
 export function AppHeader() {
   const { user, logout } = useAuth()
+  // The forum's link only for members who have the flag (E13 K1)
+  const forumOn = useFeature('forum')
   const { status, notifications, send } = useClub()
   const inviteBanner = useInviteBanner()
   const { mode, sound: soundOn, soundStyle, t, toggleMode, toggleSound } = usePreferences()
@@ -325,6 +328,12 @@ export function AppHeader() {
             <Star size={18} aria-hidden />
             <span>{t.navFavorites}</span>
           </Link>
+          {forumOn && (
+            <Link to="/forum" aria-label={t.navForum} title={t.navForum}>
+              <MessagesSquare size={18} aria-hidden />
+              <span>{t.navForum}</span>
+            </Link>
+          )}
           {user.admin && (
             <Link
               to="/admin"

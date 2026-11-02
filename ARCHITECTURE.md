@@ -52,6 +52,7 @@ TKU-BridgeTable/
 │  ├─ favorites.ts         收藏的筆記與標籤規則（§5.3）
 │  ├─ lin.ts               BBO LIN 匯出與 Handviewer 連結
 │  ├─ messages.ts          錯誤代碼與六種語言的訊息
+│  ├─ integrity.ts         防作弊報表：型別、門檻、從登入紀錄配對帳號、線索強度（§5.17）
 │  ├─ protocol.ts          HTTP／WebSocket 的訊息與畫面型別
 │  ├─ clubs.ts             社團 id 與物件名稱、請求的社團（X-Club-Id／?club=，沒帶是淡江，§1）
 │  ├─ message-guard.ts     WebSocket 訊息的大小上限與型別守衛（§5.6）
@@ -74,6 +75,7 @@ TKU-BridgeTable/
 │  ├─ event-service.ts     ChallengeEvent：一場挑戰的規則、期限工作與結算（不碰 Cloudflare）；LocalEvents＝挑戰在社團的物件裡
 │  ├─ event-host.ts        EventHost：一個 EventObject 做的事（RPC 包裝、變更編號、回報與重送、搬移），可在 Node 測試
 │  ├─ event-object.ts      每場挑戰一個的 Durable Object：儲存、SQLite、alarm、社團的 stub（只是接線，EVENT_OBJECTS=on 才用）
+│  ├─ integrity.ts         防作弊報表的資料：登入紀錄（`seen:`，IP 只存加鹽雜湊）、從紀錄索引查同桌與同場比賽（§5.17）
 │  ├─ service.ts           ClubService：帳號、申請、session、牌桌目錄、權限、牌局紀錄（可單獨測試）
 │  ├─ table-service.ts     TableService：一張牌桌的一切（座位、叫牌出牌、機器人、發牌、代打、聊天、畫面），LocalTables（§5.10）
 │  ├─ tables.ts            社團與牌桌之間的介面：TableEntry（牌桌目錄）、TableApi、ClubLink、RPC 的 Wire 與 RemoteTables（§5.10）
@@ -91,7 +93,7 @@ TKU-BridgeTable/
 │  ├─ notifications.ts     通知中心（§5.4）
 │  ├─ relations.ts         好友與封鎖名單（§5）
 │  ├─ direct-messages.ts   私訊的 SQL 表與 DirectMessageStore（§5.7）
-│  ├─ forum.ts             淡江橋館的討論區：SQL 五張表與 ForumService（§5.7 後的「論壇」）
+│  ├─ forum.ts             論壇（淡江橋館與牌桌共用）：SQL 五張表與 ForumService（§5.19）
 │  ├─ forum-notices.ts     討論區的通知：被回覆、被提到、公告、被置頂（橋館 e11-t08）
 │  ├─ log.ts               結構化日誌（§5.6）
 │  ├─ rate-limit.ts        速率限制（§5.6）
@@ -261,6 +263,7 @@ interface BoardState {
 | `file:meta:<key>`、`file:ticket:<pass>`、`file:day:<userId>`、`file:secret` | 討論區與文章的圖片（淡江橋譜 `e11-t02`，§5.14）：圖片在 R2 `bridgebook-files`，這裡只存上傳者、型別、大小、有沒有縮圖；一次性上傳憑證（10 分鐘）；當天（台灣日期）拿過幾張憑證；簽網址的隨機金鑰。`file:meta:` 與 `file:secret` 在每日備份裡 |
 | `app:<id>` | 待審核的註冊申請：帳號名稱、密碼雜湊、自我介紹、從哪個網站申請 |
 | `session:<token>` | userId、到期時間、`id`（列表用，不是 token）、建立與最近使用時間、裝置名稱（`worker/sessions.ts`） |
+| `seen:<userId>` | 防作弊報表（§5.17，`worker/integrity.ts`）：登入與連線時的網路雜湊（以 Worker secret `SEEN_SALT` 加鹽的 SHA-256，不存 IP；鹽不在儲存裡）、瀏覽器 id（cookie `tbt_device`）與名稱、第一次與最近一次；每人最多 16 筆、90 天；帳號刪除時一起刪，不在備份裡 |
 | `tabledir:<id>` | 牌桌目錄（`TableEntry`，§5.10）：大廳與跨桌動作只讀它；牌桌在自己的 `TableObject` 時才有 |
 | `table:<id>` | 只在牌桌留在社團的物件時（H1a、測試、`TABLE_OBJECTS=off`）：座位、觀看者、目前這副、聊天、撤回請求；它顯示的社員名字（`names`）、各人的封鎖名單（`blocks`，聊天用）、還沒交給社團的牌局紀錄（`outbox`）；挑戰桌的 `modeState` 帶挑戰的快照（§5.10）。由 `TableService` 讀寫。每桌一個物件時同樣的內容在那個物件的 `table`（另有 `closed`：這一桌關了；`frozen`：已交回社團，等 `release`） |
 | `board:<id>` | 一副牌的完整紀錄（原始四手牌、叫牌、出牌、結果） |
@@ -653,6 +656,106 @@ H1 把牌桌拆出去之後（§5.10），社團的物件（`Club`）仍然是**
   - **隊制賽**：某一室的指定分數取代那一室的南北分數；某一室的 Avg 類給那一室那一方的隊（開室 NS＝A、閉室 NS＝B），照房主裁定的同一張表（IMP ±3、BAM 0.6／0.4），另一室的結果不比；兩室都有 Avg 類時 IMP 相加、BAM 取平均。**房主用 `matchRule` 裁過的副以房主的裁定為準**，那一副兩室紀錄上的裁定只顯示在紀錄頁、不計分，所以不會重複計。
   - 介面：挑戰結果頁與牌局頁成績表的南北分數下標「裁定 Avg+ NS」（`RulingTag`），排名列標「裁定：第 n 副」；隊制賽結果頁那一副標「裁定」，那一室的分數下標裁定。
   - `e2-t36` 上線前下的裁定不在 `board_rulings` 裡，要重新送一次才會計分。
+
+## 5.17 防作弊報表（`e11-t25`，2026-11-01）
+
+AC-11.8 的後半：「同 IP／同裝置多帳號同場等可疑行為有管理員報表」。只做社團內部（不跨社團、不跨站）。
+
+- **蒐集什麼**（`worker/integrity.ts` 的 `Sightings`）：社員**登入**（`/api/login`、第一個帳號的 `/api/register`）與**每次連上社團的 WebSocket**（`/ws`）時，`Club` 呼叫 `ClubService.noteSighting`，記在 `seen:<userId>`：
+  - **網路**：`CF-Connecting-IP` 加鹽做 SHA-256，取前 16 個十六進位字。鹽是 **Worker secret `SEEN_SALT`**（`wrangler secret put SEEN_SALT`，DEPLOY.md §3；`Club` 從 `env` 讀，經 `ClubConfig.seenSalt` 交給 `ClubService`，`ClubService` 不碰 Cloudflare API），**不在社團的儲存裡**，所以單拿到儲存（或備份）的人無法窮舉 IPv4 還原。**IP 位址本身不寫進儲存**；同一個位址在同一個 secret 下永遠是同一個雜湊，所以比得出來。
+    - **沒設 `SEEN_SALT`**（或少於 16 字，`SEEN_SALT_MIN`，當作沒設）：**不記網路**（`net` 存空字串），只記瀏覽器，所以只會出現「同一個瀏覽器」的線索、沒有「共用網路」；報表帶 `networkOff: true`，管理頁在報表上方說明要設 secret；社團物件每次醒來第一次遇到有位址的登入時記一筆日誌 `seenSaltMissing`。
+    - **換 secret** 之後新舊雜湊不相容：舊的網路紀錄不會和新的配對，最多 90 天後自然清掉。不同環境（正式站、staging、預覽）各自的 secret 也互不相容。
+    - PR #242 原本把隨機鹽存在社團儲存的 `meta:seenSalt`，社長 2026-11-02 決定改用 Worker secret；那個版本沒有上過正式站，只有 PR 預覽可能存過 `meta:seenSalt` 與用它算的雜湊：程式不再讀它，舊雜湊直接作廢（預覽站在 PR 關閉時整個刪除）。
+  - **瀏覽器**：cookie `tbt_device`（`worker/auth.ts` 的 `deviceCookie`：HttpOnly、SameSite=Lax、1 年、隨機 12 bytes），登入時沒有就發一個；已經登入的瀏覽器在下一次 `/api/me` 拿到。它**不是登入憑證**，誰用這個瀏覽器登入都一樣；兩個帳號出現同一個 id＝同一個瀏覽器。格式不對的值（不是我們發的）不記。
+  - 加上 `deviceLabel` 的瀏覽器與系統名稱（跟「登入中的裝置」一樣），給報表顯示。
+  - 每人最多 16 筆（`INTEGRITY_LIMITS.perMember`），90 天以上的丟掉；同一個網路＋瀏覽器一小時內只寫一次（`SIGHTING_STEP_MS`），所以重連只多一次讀取。記錄失敗不影響登入或連線。
+- **報表**（`GET /api/admin/integrity?days=7|30|90`，預設 30；`ClubService.adminIntegrityReport` 先 `requireAdmin`，`Club` 的路由也只給管理員）：
+  1. `findLinks`（`shared/integrity.ts`，純函式）：期間內，兩個現存帳號用過**同一個瀏覽器**，或用過**同一個小網路**（用過的社員 ≤ 4 人，`INTEGRITY_LIMITS.sharedNetwork`）就成一組。超過 4 人的網路（社辦、校園、行動網路的 NAT）**不配對**，只列在「共用網路」並顯示人數與雜湊的前 6 碼。
+  2. 依「同瀏覽器 → 網路數 → 最近」排序，最多看 40 組（`INTEGRITY_LIMITS.pairs`，其餘只報數量 `more`）。每組在 `Club` 的 SQLite 紀錄索引（`board_players`、`boards_index`，§5.3）查兩次（都走 `players_by_user`）：期間內**同桌**的副數（搭檔、對手）與最近 5 副的 id；**同一場挑戰或隊制賽**（`mode IN ('challenge','team')`、同一個 `event_id`），以及誰的牌全部在對方打完之後才打（`after`：挑戰的場外資訊風險；隊制賽兩室同時打就是 `null`）。
+  3. 線索強度（`integrityLevel`）：**強**＝同瀏覽器且一起打過；**中**＝同瀏覽器，或小網路且一起打過；**弱**＝只有小網路。
+- **成本**：一份報表＝列出 `seen:`（每位社員一筆）＋最多 80 次有索引的小查詢，在 `Club` 裡跑；只有管理員按「產生報表」才跑，管理頁打開時不跑。不用 D1 副本，所以 `REPLICA_VERSION` 不變；`summarize`、`BoardSummary` 沒改。
+- **可見性**：報表只有帳號名稱、瀏覽器名稱、網路雜湊的前 6 碼、次數與牌局／比賽的連結，**沒有任何一手牌**；點紀錄連結照舊走 `recordVisible`（還沒公開的挑戰牌，管理員一樣看不到）。`worker/views.ts` 不變。報表不通知任何人、不自動處理。
+- **個資**：`seen:` 在「下載我的資料」裡（`signIns`），帳號刪除時一起刪（`dropMember`），不在每日備份裡。隱私權政策（`legal.privacy`）寫了蒐集什麼、保留多久與這個 cookie。
+- **社長決定**（2026-11-02）：上線；網路雜湊的鹽改用 Worker secret `SEEN_SALT`（上面「網路」）。其他維持保守的預設：只有管理員看得到（幹部不行）、只在管理員按下時產生、出現「強」的線索也不主動通知、超過 4 人算共用網路、最多看 40 組、保留 90 天。
+
+## 5.19 論壇（決策紀錄，`e13-t01`，2026-11-02，K1）
+
+E13 要的「牌桌論壇」開工前先對照了淡江橋館：**論壇的後端已經在這個 Worker 裡**，是橋館 E11 做的，當初就寫成讓牌桌的 E13 接手（橋館 AC-11.8）。所以 K1 不重做 schema 與 API，只寫這份設計、補牌桌缺的頁面。
+
+### 對照結果：已經有的、缺的
+
+| 部分 | 現況 | 在哪 |
+| --- | --- | --- |
+| 型別與上限 | 有 | `shared/forum.ts`（`Board`、`Post`、`PostBlock`、`Comment`、`Reactions`、`Report`、`FORUM_LIMITS`）；橋館 `src/lib/forum.ts` 是逐字複本、型別對拍 |
+| 資料表與 API | 有（橋館 e11-t06、e11-t07、e11-t09、e11-t10） | `worker/forum.ts` 的 `ForumService`，路由 `/api/forum/*`（§5.2 的表），權限 `roles.ts` 的 `forumRouteNeed`／`moderatesForum` |
+| 通知 | 有（橋館 e11-t08） | `worker/forum-notices.ts`：被提到、被回覆、公告、被置頂 |
+| 備份 | 有 | 五張表在每日備份裡（§5 備份，格式第 3 版） |
+| 單元測試 | 有 | `tests/worker/forum.test.ts`、`tests/worker/forum-notices.test.ts`、`tests/engine/forum.test.ts` |
+| 橋館的頁面 | 有、已上線 | 橋館 `src/forum/*`：討論區首頁、板面、貼文、發文編輯器、反應、檢舉、管理、搜尋、我的貼文 |
+| **牌桌的頁面** | **缺** → K1 補 | `src/pages/ForumPages.tsx`、`src/components/ForumBlocks.tsx`、`src/lib/forum.ts` |
+
+`e13-t02`（schema、`worker/forum.ts`、單元測試）因此實質上已完成；K1 只在牌桌加功能旗標與頁面。
+
+### 決策：牌桌與橋館共用同一份資料與同一套 API
+
+牌桌的論壇與橋館的討論區是**同一個論壇**：同一個 `ForumService`、同一份資料表、同一套 `/api/forum/*`，兩站各自畫自己的頁面。理由：
+
+1. **同一批人、同一套帳號**（§5.2）。分成兩份，社員要在兩個地方找討論，通知也會各來一份。
+2. **後端本來就是為 E13 寫的**：型別在 `shared/`、模組不依賴橋譜、不碰 Cloudflare（只透過 `Sql`），牌桌直接用，不必搬。
+3. **貼文是結構化區塊、不是 HTML**：資料一樣，兩站用各自的元件畫（牌桌用自己的花色顏色與 `AuctionBox`），不必為了樣式分資料。
+4. **權限、速率限制、檢舉、審計、備份只做一次**，不會兩邊規則不一致。
+
+代價：改 `shared/forum.ts` 或 API 要一起改橋館（`src/lib/forum.ts` 與 `src/lib/forumApi.ts`，對拍會抓到型別不一致）；牌桌之後加的區塊種類（K2 的牌局區塊等）橋館也要能畫，所以新的區塊種類要先在 `shared/forum.ts` 定好、兩站同時上。
+
+### 儲存：先留在 Durable Object 的 SQLite，不搬 D1
+
+E13 的 PRD 原本寫「貼文與留言進 D1」。現況是社團 Durable Object（`Club`）的 SQLite，五張表 `forum_boards`、`forum_posts`、`forum_comments`、`forum_reactions`、`forum_reports`（欄位與規則見 §5.14 後的「論壇 Worker」）。K1 **不搬**：
+
+- 量小：只有社團內部的社員，一頁 20 則、每人每分鐘最多 5 則發文加留言；DO 的 SQLite 綽綽有餘。
+- 一致：發文、通知、審計在同一個物件裡，不必處理跨資料庫的一致性。
+- 已在每日備份裡，還原流程也寫好了。
+- PRD 的風險「與牌桌搶資源」不成立：論壇的請求走 `Club` 的 HTTP，不進每桌的 `TableObject`（§5.10），也不經 WebSocket。
+
+**什麼時候搬 D1**：多社團或全台灣公開（Phase N、全台灣橋手清單），或全文搜尋要用 FTS5（K4 `e13-t11`）時。做法比照 §5.12（紀錄索引）：DO 仍是正本、D1 是副本或用 outbox 搬；`ForumService` 只透過 `Sql` 介面，搬時換實作即可。
+
+### 資料模型（摘要）
+
+- **板面**：內建四個（`BUILTIN_BOARDS`：社團公告、牌局討論、制度問答、閒聊），管理員可改名、排序、新增（最多 20 個）；`postPolicy: 'officers'` 的板（公告）只有幹部能發文。PRD 的四個板面（公告、討論、叫牌問題、新聞）對應：公告＝社團公告（也是新聞與活動）、討論＝牌局討論、叫牌問題＝制度問答，另有閒聊。
+- **貼文**：標題（≤ 80 字）＋區塊（≤ 20 個）。區塊種類 `paragraph`、`rules`、`note`、`hand`、`deal`、`auction`、`image`、`ref`（橋館的制度）、`record`（牌桌的一副紀錄，只存 id）。伺服器逐一檢查：牌不重複、每家 ≤ 13 張、叫牌合規則（`legalCalls`）、圖片是 `post/` 的檔案、文字合計 ≤ 5000 字。
+- **留言**：一層巢狀（回覆別人的回覆掛在同一則最上層留言下），只能有 `paragraph`、`auction`、`hand`，文字 ≤ 1000 字。
+- **反應**：五種（👍♠♥♦♣），每人每則一種。置頂、鎖定在貼文上。
+
+### 可見性與權限（全部在伺服器）
+
+- 只有登入的社員能讀寫（`forumRouteNeed` 都是 `member` 以上）；未登入的人看不到論壇（PRD 未決問題「公開論壇是否允許未登入閱讀」維持不開放）。
+- 作者才能編輯自己的貼文與留言；刪除是作者或幹部（`forumModerate`，管理員也有）；置頂、鎖定、處理檢舉只有幹部；鎖定的貼文只有幹部能留言。牌桌頁面上的按鈕只是依同樣規則顯示，伺服器會再檢查一次。
+- **貼文不會帶出不該看的牌**：`record` 區塊只存紀錄 id，點了走 `/history/:id`，可見性照 §4；「挑戰未結束的牌不能分享」在 K3（`e13-t07`）分享時由伺服器檢查。
+- 不存 HTML，前端不用 `innerHTML`，文字當文字畫；圖片走同源的 `/api/files/`，CSP 不變。
+
+### 功能旗標 `forum`（預設關）
+
+`shared/features.ts` 的 `forum`，預設 `off`。**只管牌桌的頁面與頁首的「論壇」連結**：旗標沒開的社員看不到連結，`/forum/*` 會轉回大廳。`/api/forum/*` 不看這個旗標，因為橋館的社員已經在用同一套 API；論壇的權限照上面的角色判斷。上線步驟：管理頁「功能旗標」先開給幹部（`officers`），沒問題再全開。
+
+### 牌桌的頁面（`e13-t03`）
+
+網址與橋館相同，同一則貼文在兩站的路徑一樣：
+
+| 網址 | 頁面 | 內容 |
+| --- | --- | --- |
+| `/forum` | `ForumHomePage` | 板面（名稱、說明、公告板標「只有幹部能發文」），下面是所有板面的最新貼文，新→舊，一頁 20 則（`GET /api/forum/feed?page=`） |
+| `/forum/:boardId` | `ForumBoardPage` | 一個板面：第 1 頁先列置頂（新置頂的在前），其他新→舊，一頁 20 則（`GET /api/forum/boards/:id/posts?page=`）；頁碼在網址的 `?page=` |
+| `/forum/p/:postId` | `ForumPostPage` | 貼文與全部留言（`GET /api/forum/posts/:id`）；社員寫留言、回覆（純文字，送成一個 `paragraph` 區塊）、刪自己的留言（幹部可刪任何人的）；鎖定的貼文不顯示留言框 |
+
+- 作者名稱用大廳的社員列表（`lobby.members`，顯示名稱優先）；已不是社員的顯示「已離開的社員」。
+- 區塊由 `ForumBlocks` 畫：段落、提示、條列照文字（花色符號上色，`SuitText`）；一手牌與四手牌用文字牌型（四家排成羅盤，中間是發牌與身價）；叫牌過程用紀錄頁的 `AuctionBox`；圖片、橋館制度、牌桌紀錄是連結。K2 再換成 `RecordDiagram`。
+- **發文先在橋館**：牌桌的發文編輯器是 K2（`e13-t04`～`e13-t06`），在那之前頁面上的「到淡江橋館發文」開橋館的 `/forum/new`。通知鈴鐺的論壇通知也還是連到橋館（`src/lib/notifications.ts`）；旗標全開後再決定改指牌桌。
+- 反應、編輯、檢舉、搜尋在牌桌還沒有入口（API 都有）：檢舉與搜尋是 K4，反應與編輯跟 K2 的編輯器一起做。
+
+### 之後
+
+- **K2**：四手牌編輯器（`e13-t05`）、叫牌過程輸入（`e13-t06`）、發文編輯器（`e13-t04`）；牌圖改用 `RecordDiagram`。
+- **K3**：從紀錄分享（`e13-t07`，伺服器檢查挑戰未結束的牌）、個人頁的貼文（`e13-t08`）、通知改連牌桌（`e13-t09`）。
+- **K4**：檢舉與管理頁（`e13-t10`）、全文搜尋（`e13-t11`，屆時評估 D1 FTS5）。
 
 ## 5.8 隊制賽（決策紀錄，`e8-t01`，2026-10-25）
 
