@@ -160,17 +160,22 @@ const Actions = styled.div`
   flex-wrap: wrap;
   gap: 8px;
 
-  /* A phone: the buttons share a line of their own under the title, in every language */
+  /*
+   * A phone: the buttons take two columns under the title, in every language; with an odd number
+   * the last one (starting a challenge) has a row of its own
+   */
   ${mobile} {
     display: grid;
-    grid-auto-columns: minmax(0, 1fr);
-    grid-auto-flow: column;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     width: 100%;
 
-    & > button {
+    & > * {
       min-width: 0;
       white-space: normal;
       text-align: center;
+    }
+    & > :last-child:nth-child(odd) {
+      grid-column: 1 / -1;
     }
   }
 `
