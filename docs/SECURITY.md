@@ -17,7 +17,7 @@
 | --- | --- | --- |
 | 網頁與它的檔案（`index.html`、`/assets/*`、圖示） | 靜態資產不經過 Worker，由 `public/_headers` 給（`headersFile()` 產生，`tests/worker/account-security.test.ts` 檢查兩邊一致） | `PAGE_HEADERS`：CSP、`X-Frame-Options: DENY`、`X-Content-Type-Options: nosniff`、`Referrer-Policy: strict-origin-when-cross-origin`、HSTS 兩年、`Cross-Origin-Opener-Policy: same-origin`、`Permissions-Policy`（關掉相機、麥克風、定位、付款、USB） |
 | `/api/*`、`/ws` | `worker/index.ts` 的 `withSecurityHeaders` | `API_HEADERS`：`default-src 'none'; frame-ancestors 'none'; sandbox`、`X-Frame-Options: DENY`、nosniff、Referrer-Policy、HSTS。回應自己設的不覆蓋；WebSocket 升級（101）不動 |
-| `/api/files/*`（簽名網址的圖片與電子書 PDF） | 同上 | 只有 nosniff、Referrer-Policy、HSTS：淡江橋館的 PDF 閱讀器可能把它放進自己的框架 |
+| `/api/files/*`（簽名網址的圖片與電子書 PDF） | 同上 | 只有 nosniff、Referrer-Policy、HSTS：淡江橋館的 PDF 閱讀器可能把它放進自己的框架。回應自己帶 `Content-Type`（上傳時從檔頭判斷的型別）、`Content-Disposition: inline`、`Content-Security-Policy: default-src 'none'`、`Cache-Control: private, max-age=<到網址到期>, immutable`（`e13-t13`） |
 
 **網頁的 CSP**（`PAGE_CSP`）只允許這個網站用到的東西：
 
@@ -87,6 +87,7 @@ npx tsx -e "import {headersFile} from './worker/security-headers.ts'; process.st
 | --- | --- | --- |
 | 4.1.1～4.1.3 伺服器端檢查、最小權限 | ✅ | 規則與權限只在 `ClubService`／`worker/roles.ts`；前端只看 `legalCalls`／`legalCards`；管理路由 `adminRouteNeed` |
 | 4.2.1 不能用 id 讀別人的東西 | ✅ | 可見性集中在 `worker/views.ts`，`tests/worker/visibility/` 回歸測試；session 列表與登出只看自己的（`endSession` 對別人的 id 一律 404） |
+| 論壇圖片（`e13-t13`） | ✅ | 貼文只能放自己上傳的圖片（`forumImageNotYours`）；`POST /api/files/urls` 只替上傳者、或看得到用這張圖的貼文的人簽 `post/` 的網址，所以幹部隱藏貼文後別人拿不到新網址，已發出的最多兩小時內失效；刪貼文或編輯拿掉圖片時，沒有其他貼文用的就從 R2 刪掉（`worker/post-images.ts`，ARCHITECTURE.md §5.14） |
 | 4.3.1 管理介面多因素 | ✅ | 見 2.7（`e11-t31`）：沒開兩步驟登入的管理員在伺服器上只算一般社員（`ClubService.actsAsAdmin`、`roles.ts` 的 `adminLocked`），管理頁只顯示「先去開啟」的橫幅；淡江橋館的管理功能走同一支 API，一樣擋。只有一位管理員又遺失手機與備用碼時，由 Cloudflare 帳號的擁有者用臨時的 `TWO_FACTOR_RESET_TOKEN` 清掉（DEPLOY.md §4.15）：這個 secret 平常不存在，路由回 404，不是網頁上的後門 |
 
 ### V5 輸入驗證與輸出編碼
@@ -133,8 +134,8 @@ npx tsx -e "import {headersFile} from './worker/security-headers.ts'; process.st
 
 | 項目 | 狀態 | 說明 |
 | --- | --- | --- |
-| 12.1.1 上傳大小 | ✅ | 頭像 64 KB、圖片 2 MB、縮圖 256 KB、電子書 50 MB，超過 413 |
-| 12.2.1 檔案型別 | ✅ | 看檔頭的 magic bytes，不信 `Content-Type`；Worker 不解碼圖片 |
+| 12.1.1 上傳大小 | ✅ | 頭像 64 KB、圖片 2 MB、縮圖 256 KB、電子書 50 MB，超過 413；每人每天 30 張圖片（`fileDailyLimit`），R2 全部 10 GB（`fileStorageFull`） |
+| 12.2.1 檔案型別 | ✅ | 看檔頭的 magic bytes，不信 `Content-Type`；Worker 不解碼圖片。JPEG、PNG、WebP，貼文另可 GIF（`e13-t13`）；SVG 一律不收（可能帶 script）。照片在瀏覽器用 canvas 重畫後才上傳，拍攝地點等 EXIF 不會進 R2（GIF 原樣上傳，GIF 沒有 EXIF） |
 | 13.2.3 CSRF | ✅ | cookie 是 SameSite=Lax，跨站的 POST／PUT／DELETE 不帶 cookie；`workers.dev` 在 Public Suffix List 上，別人的 `*.workers.dev` 不算同站 |
 | 跨站 WebSocket（CSWSH） | 🔧 | `/ws` 與 `/ws/table/*` 的 `Origin` 必須是本站（`worker/routing.ts`），別的網站的頁面開不了；沒有 `Origin` 的非瀏覽器用戶端（負載測試）照舊 |
 | 速率限制 | ✅ | 每個連線的動作、聊天、錯誤回報、使用統計各有 token bucket（`worker/rate-limit.ts`） |
@@ -159,7 +160,7 @@ npx tsx -e "import {headersFile} from './worker/security-headers.ts'; process.st
 
 ## 5. 個人資料：匯出與刪除（`e11-t27`）
 
-- **匯出**：「我的帳號」→「下載我的資料」，`GET /api/account/export` 回一個 JSON 檔（`format: 'tku-bridge-table-account'`、`version`）：帳號與設定（不含密碼雜湊）、登入中的裝置、登入與連線紀錄（`signIns`：網路的雜湊（以 Worker secret `SEEN_SALT` 加鹽，不含 IP；沒設 secret 時是空的）、瀏覽器 id 與名稱、時間，防作弊報表用，ARCHITECTURE.md §5.17）、好友與封鎖、通知、私訊、練習設定、收藏與筆記、社團積分明細與實力評分（`points`、`rating`，ARCHITECTURE.md §5.21）、挑戰討論串的留言（`challengeComments`，§5.5）、自己產生過的公開分享連結（`boardShares`：哪一副、何時，`e4-t38`）、打過的每副牌的摘要（完整紀錄在 `/history/<id>`）。帳號裡有 Email（`email`、`emailVerifiedAt`，等待驗證的地址是 `emailPending`，`e1-t29`），不含驗證或重設連結的雜湊；綁了 Google 時有 `google`（Google 帳號的 `sub`、綁定當時的 Email、綁定時間，`e1-t31`），綁了 LINE 時有 `line`（LINE 的 `sub`、綁定當時的 LINE 名字、綁定時間，`e1-t32`），進行中的流程（`google:<id>`、`line:<id>`，最多 30 分鐘）不在裡面。開了推播時有 `push`：每台裝置的名稱與開啟時間、每個種類推不推（`e1-t28`），沒有推播服務的網址與金鑰。不含別人的 session 或任何 token。
-- **刪除**：「我的帳號」→「刪除帳號」，要密碼與確認；`POST /api/account/delete` 走與管理員刪帳號相同的 `removeMember`：帳號（含 Email 與寄出的連結、Google 與 LINE 的綁定）、頭像、session、推播的裝置與偏好（`push:`）、登入與連線紀錄（`seen:`）、好友與封鎖、通知、私訊、收藏、練習設定、閱讀與學習進度、社團積分與實力評分（§5.21）、挑戰討論串的留言、自己產生的公開分享連結（`e4-t38`）立即刪除，所有連線關閉。社團唯一的管理員不能刪（`lastAdminLeaving`）。
-- **保留的**：打過的牌局紀錄是同桌其他人的紀錄，保留帳號名稱；論壇與淡江橋館的文章與留言保留（隱私權政策請社員先自己刪）；備份裡的帳號在 30 天內隨備份到期消失。
+- **匯出**：「我的帳號」→「下載我的資料」，`GET /api/account/export` 回一個 JSON 檔（`format: 'tku-bridge-table-account'`、`version`）：帳號與設定（不含密碼雜湊）、登入中的裝置、登入與連線紀錄（`signIns`：網路的雜湊（以 Worker secret `SEEN_SALT` 加鹽，不含 IP；沒設 secret 時是空的）、瀏覽器 id 與名稱、時間，防作弊報表用，ARCHITECTURE.md §5.17）、好友與封鎖、通知、私訊、練習設定、收藏與筆記、社團積分明細與實力評分（`points`、`rating`，ARCHITECTURE.md §5.21）、挑戰討論串的留言（`challengeComments`，§5.5）、自己產生過的公開分享連結（`boardShares`：哪一副、何時，`e4-t38`）、打過的每副牌的摘要（完整紀錄在 `/history/<id>`）、自己上傳過的圖片清單（`files`：key、型別、大小、上傳時間，不含圖片本身；圖片用貼文頁或 `POST /api/files/urls` 拿，`e13-t13`）。帳號裡有 Email（`email`、`emailVerifiedAt`，等待驗證的地址是 `emailPending`，`e1-t29`），不含驗證或重設連結的雜湊；綁了 Google 時有 `google`（Google 帳號的 `sub`、綁定當時的 Email、綁定時間，`e1-t31`），綁了 LINE 時有 `line`（LINE 的 `sub`、綁定當時的 LINE 名字、綁定時間，`e1-t32`），進行中的流程（`google:<id>`、`line:<id>`，最多 30 分鐘）不在裡面。開了推播時有 `push`：每台裝置的名稱與開啟時間、每個種類推不推（`e1-t28`），沒有推播服務的網址與金鑰。不含別人的 session 或任何 token。
+- **刪除**：「我的帳號」→「刪除帳號」，要密碼與確認；`POST /api/account/delete` 走與管理員刪帳號相同的 `removeMember`：帳號（含 Email 與寄出的連結、Google 與 LINE 的綁定）、頭像、session、推播的裝置與偏好（`push:`）、登入與連線紀錄（`seen:`）、好友與封鎖、通知、私訊、收藏、練習設定、閱讀與學習進度、社團積分與實力評分（§5.21）、挑戰討論串的留言、自己產生的公開分享連結（`e4-t38`）、每天上傳張數的計數立即刪除，所有連線關閉。**論壇圖片**（`e13-t13`）：沒有任何貼文在用的（上傳了沒發、或貼文已刪）從 R2 刪掉；還在自己貼文裡的跟著貼文保留（貼文刪掉時一起刪）。刪帳號由 `ClubService` 的 `onMemberRemoved` 通知 `Club` 處理，管理員刪帳號、還原備份時少掉的帳號也一樣；R2 出錯不會擋住刪帳號（記 log，圖片留著）。社團唯一的管理員不能刪（`lastAdminLeaving`）。
+- **保留的**：打過的牌局紀錄是同桌其他人的紀錄，保留帳號名稱；論壇與淡江橋館的文章與留言保留（隱私權政策請社員先自己刪），貼文裡的圖片也是；叢書文章的圖片與電子書是叢書的，不刪；備份裡的帳號在 30 天內隨備份到期消失。
 - **政策頁**：`/privacy`、`/terms`（不用登入，`src/pages/LegalPage.tsx`，文字在 `strings.ts` 的 `legal`，六種語言）。登入頁與「我的帳號」底下有連結；註冊時寫「註冊即表示同意」。內容改了要改 `LEGAL_UPDATED`。

@@ -443,6 +443,9 @@ const POST_KINDS = ['paragraph', 'rules', 'note', 'hand', 'deal', 'auction', 'im
 
 // ── The service ──────────────────────────────────────────────────────────────────────────────
 
+/** The pictures' keys in a post's blocks (e13-t13) */
+export const postImageKeys = (blocks: readonly PostBlock[]): string[] => blocks.flatMap((b) => (b.kind === 'image' ? [b.assetId] : []))
+
 const POST_COLUMNS =
   'id, board_id, author_id, title, blocks, mentions, created_at, edited_at, pinned_at, locked, comment_count, hidden_at, tags, draft, publish_at'
 
@@ -897,6 +900,31 @@ export class ForumService {
     this.postRow(id)
     this.sql.exec('UPDATE forum_posts SET locked = ? WHERE id = ?', this.flag(body, 'locked') ? 1 : 0, id)
     return this.post(id)
+  }
+
+  // ── Pictures (the table's e13-t13) ─────────────────────────────────────────────────────────
+
+  /**
+   * Which of these picture keys a post uses, among the posts `viewer` may see (`visibleTo`, and for
+   * an officer the scheduled ones too); every post, drafts included, when `viewer` is `'all'`. Only posts hold pictures (a comment's blocks have none). A LIKE
+   * on the quoted key finds the posts, and their blocks are read to be sure
+   */
+  imagesInUse(keys: readonly string[], viewer: Me | 'all'): Set<string> {
+    const wanted = [...new Set(keys)].filter((key) => FILE_KEY.test(key) && key.startsWith('post/'))
+    const found = new Set<string>()
+    if (!wanted.length) return found
+    // An officer also sees the posts waiting for their time (e13-t12, `unpublished`); a draft's pictures are its author's own
+    const { where, params } =
+      viewer === 'all' ? { where: [], params: [] } : moderatesForum(viewer) ? { where: ['draft = 0'], params: [] } : visibleTo(viewer)
+    const like = `(${wanted.map(() => 'blocks LIKE ?').join(' OR ')})`
+    const rows = this.sql.exec<{ blocks: string }>(
+      `SELECT blocks FROM forum_posts WHERE ${[like, ...where].join(' AND ')}`,
+      ...wanted.map((key) => `%"${key}"%`),
+      ...params,
+    )
+    for (const row of rows)
+      for (const key of postImageKeys(JSON.parse(row.blocks) as PostBlock[])) if (wanted.includes(key)) found.add(key)
+    return found
   }
 
   // ── Comments (e11-t07) ─────────────────────────────────────────────────────────────────────

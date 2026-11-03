@@ -30,10 +30,11 @@ import { CardPdfService, pdfResponse } from './card-pdf.ts'
 import { CardSnapshotService } from './card-snapshots.ts'
 import { avatarResponse, readAvatarUpload } from './avatars.ts'
 import { FILES_PATH, FileService, readFileUpload } from './files.ts'
+import { addedImageKeys, checkImagesOwned, droppedImageKeys, releaseImages, signFiles } from './post-images.ts'
 import { adminRouteNeed, allows, articleReadRoute, bookRouteNeed, ebookReadRoute, clubRouteNeed, forumRouteNeed, moderatesForum, requireNeed } from './roles.ts'
 import { type ArticleReader, ArticleService } from './articles.ts'
 import { type EbookReader, EbookService } from './ebooks.ts'
-import { ForumService, postExcerpt, tagFilter } from './forum.ts'
+import { ForumService, postExcerpt, postImageKeys, tagFilter } from './forum.ts'
 import { ForumNotices } from './forum-notices.ts'
 import { ForumSchedule } from './forum-schedule.ts'
 import { addedRecordIds } from './forum-share.ts'
@@ -287,6 +288,8 @@ export class Club extends DurableObject<Env> implements Connections {
       // Web Push (e1-t28): none unless the three VAPID secrets are set; sent after the answer, kept alive by waitUntil
       push: pushFrom(env),
       defer: (task) => ctx.waitUntil(task),
+      // A deleted member's forum pictures that no post uses go from R2 (e13-t13); the ones in their posts stay with the posts
+      onMemberRemoved: async (userId) => void (await this.files.forget(userId, (key) => this.forum.imagesInUse([key], 'all').size > 0)),
     })
     this.edgeSecret = edgeSecret(env)
     this.book = new BookService(store)
@@ -916,7 +919,8 @@ export class Club extends DurableObject<Env> implements Connections {
     }
     // The member's own data, and deleting their account (e11-t27)
     if (route === 'GET /api/account/export') {
-      const data = await this.service.exportAccount(user.id, token)
+      // With the pictures they uploaded (e13-t13): keys, types and sizes, not the bytes
+      const data = { ...(await this.service.exportAccount(user.id, token)), files: await this.files.ownedBy(user.id) }
       return new Response(JSON.stringify(data, null, 2), {
         headers: {
           'Content-Type': 'application/json; charset=utf-8',
@@ -946,7 +950,8 @@ export class Club extends DurableObject<Env> implements Connections {
     if (route === 'DELETE /api/account/avatar') return json({ user: await this.service.deleteAvatar(user.id) })
     // Pictures for posts and articles (e11-t02): a pass to upload one, fresh addresses, removing one
     if (route === 'POST /api/files/ticket') return json(await this.files.createTicket(user.id, await body()))
-    if (route === 'POST /api/files/urls') return json(await this.files.urls((await body()).keys))
+    // A forum picture only for its uploader or a reader of a post using it (e13-t13)
+    if (route === 'POST /api/files/urls') return json(await signFiles(this.files, this.forum, user, (await body()).keys))
     if (request.method === 'DELETE' && url.pathname.startsWith(FILES_PATH)) {
       // The forum's officers (and admins) may remove anyone's picture (BridgeHall e11-t09)
       await this.files.remove(user.id, decodeURIComponent(url.pathname.slice(FILES_PATH.length)), moderatesForum(user))
@@ -1373,7 +1378,11 @@ export class Club extends DurableObject<Env> implements Connections {
     }
     const report = path.match(/^\/reports\/([\w-]+)$/)
     if (report) {
+      // A reported post removed takes its pictures with it (e13-t13)
+      const asked = forum.report(report[1])
+      const images = asked.target === 'post' ? this.postImagesOf(asked.targetId) : []
       const { report: handled, reported } = forum.decideReport(user, report[1], await body())
+      if (handled.status === 'removed') await this.releasePostImages(images)
       const what = reported.authorId ? whose(reported.authorId, reported.excerpt ?? '') : ''
       const note = [what, `檢舉：${handled.reason}`].filter(Boolean).join('；')
       if (handled.status === 'dismissed') await audit('forum:dismiss', reported.postId ?? handled.targetId, note)
@@ -1387,6 +1396,8 @@ export class Club extends DurableObject<Env> implements Connections {
       const input = await body()
       // A board shared from the history (e13-t07): only one the whole club may see
       for (const id of addedRecordIds(input)) await this.service.checkShareable(user.id, id)
+      // Only pictures the author uploaded (e13-t13)
+      await checkImagesOwned(this.files, user.id, addedImageKeys(input))
       const post = forum.createPost(user, posts[1], input)
       // A draft or a scheduled post is told about once it is out (e13-t12)
       if (post.draft || post.publishAt !== undefined) this.forumSchedule.saved(post)
@@ -1450,7 +1461,10 @@ export class Club extends DurableObject<Env> implements Connections {
       const before = forum.post(post[1])
       if (method === 'PATCH') {
         const input = await body()
-        if (before.authorId === user.id) for (const id of addedRecordIds(input, before.blocks)) await this.service.checkShareable(user.id, id)
+        if (before.authorId === user.id) {
+          for (const id of addedRecordIds(input, before.blocks)) await this.service.checkShareable(user.id, id)
+          await checkImagesOwned(this.files, user.id, addedImageKeys(input, before.blocks))
+        }
         const updated = forum.updatePost(user, post[1], input)
         const wasOut = !before.draft && before.publishAt === undefined
         const out = !updated.draft && updated.publishAt === undefined
@@ -1458,10 +1472,13 @@ export class Club extends DurableObject<Env> implements Connections {
         if (wasOut) await tell(() => notices.edited(user, updated, before.mentions ?? []))
         else if (out) await tell(() => notices.posted(user, updated, forum.board(updated.boardId)))
         else this.forumSchedule.saved(updated)
+        // A picture edited out of the post goes from R2 unless another post uses it (e13-t13)
+        await this.releasePostImages(droppedImageKeys(before.blocks, updated.blocks))
         return json({ post: updated })
       }
       forum.deletePost(user, post[1])
       if (before.authorId !== user.id) await audit('forum:removePost', post[1], whose(before.authorId, postExcerpt(before)))
+      await this.releasePostImages(postImageKeys(before.blocks))
       return json({ ok: true })
     }
     const comment = path.match(/^\/comments\/([\w-]+)$/)
@@ -1483,6 +1500,20 @@ export class Club extends DurableObject<Env> implements Connections {
    * TKU BridgeBook's online editing and system profiles; reading the content (publicBookResponse)
    * needs any member (since 2026-10-29). Who may use each route is in roles.ts.
    */
+  /** A post's pictures, none when it is gone */
+  private postImagesOf(postId: string): string[] {
+    try {
+      return postImageKeys(this.forum.post(postId).blocks)
+    } catch {
+      return []
+    }
+  }
+
+  /** Pictures no post uses any more go from R2 (e13-t13); a failure only leaves them there, never fails the answer */
+  private async releasePostImages(keys: readonly string[]) {
+    if (keys.length) await this.tell(async () => void (await releaseImages(this.files, this.forum, keys)), 'forumImages')
+  }
+
   /** Sends the handbook's notifications (e8-t10); what was saved stays saved when they fail */
   private async tell(send: () => Promise<void>, where = 'bookNotice') {
     try {

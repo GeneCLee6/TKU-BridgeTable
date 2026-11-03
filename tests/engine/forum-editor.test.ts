@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { deal as randomDeal } from '../../shared/board.ts'
 import { fullDeck, SEATS } from '../../shared/cards.ts'
-import type { ForumAuction, PostBlock } from '../../shared/forum.ts'
+import { FORUM_LIMITS, type ForumAuction, type PostBlock } from '../../shared/forum.ts'
 import {
+  ALT_MAX,
   addCall,
   auctionProblems,
   auctionStatus,
@@ -181,11 +182,14 @@ describe('the post as the editor holds it', () => {
     { kind: 'deal', deal, caption: '第 3 副' },
     { kind: 'image', assetId: 'post/x.png', alt: '' },
     { kind: 'auction', auction: { dealer: 'W', calls: [{ seat: 'W', call: '1N' }] } },
+    { kind: 'hand', cards: ['SA'] },
   ]
 
   it('edits the text blocks next to each other as one piece and keeps what it does not edit', () => {
     const pieces = piecesOf(blocks)
-    expect(pieces.map((p) => p.kind)).toEqual(['text', 'deal', 'kept', 'auction'])
+    expect(pieces.map((p) => p.kind)).toEqual(['text', 'deal', 'image', 'auction', 'kept'])
+    // A picture is edited here (e13-t13): its alternative text and caption
+    expect(pieces[2]).toEqual({ kind: 'image', assetId: 'post/x.png', alt: '', caption: '' })
     expect(pieces[0]).toEqual({ kind: 'text', text: '問題\n\n- a' })
     expect(dealerFor(pieces)).toBe('W')
     expect(blocksOf(pieces)).toEqual([
@@ -195,7 +199,21 @@ describe('the post as the editor holds it', () => {
       { kind: 'deal', deal: { ...deal, hands: { N: ['SA', 'SK'], E: [], S: [], W: [] } }, caption: '第 3 副' },
       blocks[3],
       blocks[4],
+      blocks[5],
     ])
+  })
+
+  it('sends a picture with its trimmed alternative text and caption (e13-t13)', () => {
+    expect(blocksOf([{ kind: 'image', assetId: 'post/x.gif', alt: ' 牌桌 ', caption: ' 第一副 ' }])).toEqual([
+      { kind: 'image', assetId: 'post/x.gif', alt: '牌桌', caption: '第一副' },
+    ])
+    expect(blocksOf([{ kind: 'image', assetId: 'post/x.gif', alt: 'x'.repeat(300), caption: '' }])[0]).toEqual({
+      kind: 'image',
+      assetId: 'post/x.gif',
+      alt: 'x'.repeat(ALT_MAX),
+    })
+    const seven = Array.from({ length: FORUM_LIMITS.imagesMax + 1 }, () => ({ kind: 'image' as const, assetId: 'post/x.png', alt: '' }))
+    expect(postProblems('', seven)).toContainEqual({ kind: 'tooManyImages', max: FORUM_LIMITS.imagesMax })
   })
 
   it('leaves out empty pieces and blank captions', () => {
