@@ -2340,6 +2340,31 @@ export const MESSAGES = {
     ja: '開始には少なくとも {min} ペア（3 テーブル）が必要です',
     ko: '시작하려면 최소 {min}페어(3테이블)가 필요합니다',
   },
+  // Individual events (e9-t15, ARCHITECTURE.md §5.25)
+  individualSize: {
+    zh: '個人賽要剛好 {sizes} 人才能開始（每桌四人，沒有人輪空）',
+    'zh-Hans': '个人赛要刚好 {sizes} 人才能开始（每桌四人，没有人轮空）',
+    en: 'An individual event starts with exactly {sizes} players (four a table, nobody sitting out)',
+    vi: 'Giải cá nhân cần đúng {sizes} người để bắt đầu (bốn người một bàn, không ai phải nghỉ)',
+    ja: '個人戦は {sizes} 人ちょうどで開始できます（1 テーブル 4 人、休みなし）',
+    ko: '개인전은 정확히 {sizes}명이어야 시작할 수 있습니다(테이블당 4명, 쉬는 사람 없음)',
+  },
+  individualBlocked: {
+    zh: '你和已經報名的一位社員有封鎖關係，個人賽會讓你們當一次搭檔，所以不能報名',
+    'zh-Hans': '你和已经报名的一位社员有封锁关系，个人赛会让你们当一次搭档，所以不能报名',
+    en: 'You and a member who already entered have blocked one another: an individual event would make you partners once, so you cannot enter',
+    vi: 'Bạn và một thành viên đã đăng ký có chặn nhau: giải cá nhân sẽ xếp hai bạn làm cặp một lần, nên bạn không thể đăng ký',
+    ja: 'すでにエントリーしたメンバーとブロック関係にあります。個人戦では一度パートナーになるため、エントリーできません',
+    ko: '이미 참가 신청한 회원과 차단 관계가 있습니다. 개인전에서는 한 번 파트너가 되므로 신청할 수 없습니다',
+  },
+  individualFull: {
+    zh: '這場個人賽已經有 {max} 人，不能再報名',
+    'zh-Hans': '这场个人赛已经有 {max} 人，不能再报名',
+    en: 'This individual event already has {max} players',
+    vi: 'Giải cá nhân này đã có {max} người',
+    ja: 'この個人戦はすでに {max} 人です',
+    ko: '이 개인전은 이미 {max}명입니다',
+  },
   pairsOffline: {
     zh: '{name} 不在線上，所有人都在線才能開始',
     'zh-Hans': '{name} 不在线上，所有人都在线才能开始',

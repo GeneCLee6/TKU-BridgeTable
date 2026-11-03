@@ -94,7 +94,7 @@ export function notificationLink(n: Notification, options: { forum?: boolean } =
       return n.params.tournamentId ? `/tournaments/${encodeURIComponent(String(n.params.tournamentId))}` : '/tournaments'
     // Straight to the results: the pairs event's or the team match's page
     case 'tournamentResults':
-      if (n.params.eventId && (n.params.eventKind === 'pairs' || n.params.eventKind === 'match'))
+      if (n.params.eventId && (n.params.eventKind === 'pairs' || n.params.eventKind === 'match' || n.params.eventKind === 'individual'))
         return tournamentEventLink(n.params.eventKind, String(n.params.eventId))
       return n.params.tournamentId ? `/tournaments/${encodeURIComponent(String(n.params.tournamentId))}` : '/tournaments'
     case 'forumReply':

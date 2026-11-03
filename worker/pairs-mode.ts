@@ -32,6 +32,8 @@ export interface PairsTableState {
   players: string[]
   /** The system of a robot that sits in for someone (代打) */
   robotKind: RobotKind
+  /** An individual event's table (`e9-t15`): `ns` and `ew` are North's and East's places among the players */
+  individual?: true
   /** The round (or the event) ended: nothing more is dealt, and the table closes once its people leave */
   closed?: boolean
 }
@@ -63,6 +65,7 @@ export function tablePairs(table: Table): TablePairs | undefined {
     played: state.played.length,
     boards: state.boards.length,
     over: pairsTableOver(table),
+    ...(state.individual && { individual: true as const }),
   }
 }
 
@@ -136,6 +139,8 @@ export function pairsTable(input: {
   table: number
   ns: [string, string]
   ew: [string, string]
+  /** An individual event (`e9-t15`) */
+  format?: 'individual'
   nsPair: number
   ewPair: number
   boards: number[]
@@ -159,6 +164,7 @@ export function pairsTable(input: {
     played: [],
     players: input.players,
     robotKind: 'tku',
+    ...(input.format === 'individual' && { individual: true as const }),
   }
   return {
     id: input.id,
