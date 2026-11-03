@@ -2349,6 +2349,14 @@ export const MESSAGES = {
     ja: '個人戦は {sizes} 人ちょうどで開始できます（1 テーブル 4 人、休みなし）',
     ko: '개인전은 정확히 {sizes}명이어야 시작할 수 있습니다(테이블당 4명, 쉬는 사람 없음)',
   },
+  individualRounds: {
+    zh: '輪數只有個人賽能設定，要是 1–{max} 輪（最多人數 − 1）',
+    'zh-Hans': '轮数只有个人赛能设置，要是 1–{max} 轮（最多人数 − 1）',
+    en: 'Only an individual event has a number of rounds, from 1 to {max} (at most the players − 1)',
+    vi: 'Chỉ giải cá nhân mới đặt số vòng, từ 1 đến {max} vòng (tối đa số người − 1)',
+    ja: 'ラウンド数を設定できるのは個人戦だけで、1〜{max} ラウンド（最大で人数 − 1）です',
+    ko: '라운드 수는 개인전에서만 설정할 수 있으며 1–{max}라운드(최대 인원 − 1)여야 합니다',
+  },
   individualBlocked: {
     zh: '你和已經報名的一位社員有封鎖關係，個人賽會讓你們當一次搭檔，所以不能報名',
     'zh-Hans': '你和已经报名的一位社员有封锁关系，个人赛会让你们当一次搭档，所以不能报名',

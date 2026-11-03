@@ -1,6 +1,6 @@
 import type { Contract } from './auction.ts'
 import type { Card } from './cards.ts'
-import { movementTable, plannedPlays, sidesAt, type Movement, type PairDirection } from './movement.ts'
+import { INDIVIDUAL_ROUNDS_MAX, movementTable, plannedPlays, sidesAt, type Movement, type PairDirection } from './movement.ts'
 import type { PublicUser } from './protocol.ts'
 import type { RefereeNote } from './referee.ts'
 import { ARTIFICIAL, artificialForNS, ruledScore, type ScoreRuling } from './ruling-scoring.ts'
@@ -32,6 +32,12 @@ export interface PairsSettings {
   boardsPerRound: number
   /** Each board's time limit at the tables, 0 for none */
   boardMinutes: number
+  /**
+   * An individual event (`e9-t15`, §5.25): play only the first this many rounds of the movement
+   * (1 … n − 1; more than the players starting allow plays them all). Absent: all n − 1 rounds.
+   * A pairs event has none
+   */
+  rounds?: number
 }
 
 export const DEFAULT_PAIRS_SETTINGS: PairsSettings = { title: '', boardsPerRound: 3, boardMinutes: 8 }
@@ -56,6 +62,11 @@ export function parsePairsSettings(value: unknown): PairsSettings | null {
     const minutes = input.boardMinutes as number
     if (!Number.isInteger(minutes) || minutes < 0 || minutes > PAIRS_LIMITS.boardMinutesMax) return null
     settings.boardMinutes = minutes
+  }
+  if (input.rounds !== undefined && input.rounds !== null) {
+    const rounds = input.rounds as number
+    if (!Number.isInteger(rounds) || rounds < 1 || rounds > INDIVIDUAL_ROUNDS_MAX) return null
+    settings.rounds = rounds
   }
   return settings
 }
