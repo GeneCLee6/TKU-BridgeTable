@@ -1,6 +1,7 @@
 import type { Contract } from './auction.ts'
 import type { Card, Seat } from './cards.ts'
 import { isRobotKind, type BoardView, type PublicUser, type RobotKind, type SeatOccupant, type TableMatch } from './protocol.ts'
+import type { RefereeNote } from './referee.ts'
 import type { ScoreRuling } from './ruling-scoring.ts'
 import { MATCH_SCORINGS, type MatchScoring, type Ruling, type Team, type TeamBoardResult } from './team-scoring.ts'
 
@@ -264,8 +265,15 @@ export interface TeamMatchView {
   tables?: Record<Room, string>
   /** Only boards with a result: a board one room has played and the other has not is never shown */
   boards: MatchBoardView[]
+  /** Each team's total, after any penalty (`penalties`) */
   totals: Record<Team, number>
   leader: Team | null
+  /** What the director took off each team's total (`e9-t17`): IMPs, or BAM points */
+  penalties?: Partial<Record<Team, number>>
+  /** The viewer may use the director's tools (`e9-t17`): the host, or an admin */
+  canReferee?: boolean
+  /** What the director did (`e9-t17`): a board's note only once the board is shown */
+  referee?: RefereeNote[]
   /** While setting up: whether the host can start, or why not (`matchReady`, worked out each time) */
   ready?: { ready: true } | { ready: false; reason: NotReady }
   /** The host paused it (`e8-t16`): since when */

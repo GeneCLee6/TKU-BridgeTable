@@ -236,6 +236,7 @@ export function earlyFinish(c: Challenge): ChallengeChange | null {
 export function challengeStandings(
   c: Challenge,
   rulingOf: (boardId: string) => ScoreRuling | undefined = () => undefined,
+  penalties?: ReadonlyMap<string, number>,
 ): ChallengeStandingsView {
   // A partnership is one entry, under its first member (`e7-t28`): both have the same results
   const finishers = c.players.filter((p) => hasFinished(c, p) && !isPairSecond(c, p.userId))
@@ -257,7 +258,7 @@ export function challengeStandings(
     ruled[p.userId] = rulingRow.flatMap((ruling, i) => (ruling ? [i + 1] : []))
   }
   // Everyone ranked played every board, so the rule for unplayed boards never applies
-  const ranked = finishers.length ? scoreChallenge({ scoring, unfinished: 'worst', scores, rulings }) : []
+  const ranked = finishers.length ? scoreChallenge({ scoring, unfinished: 'worst', scores, rulings, ...(penalties && { penalties }) }) : []
   return {
     final: c.status === 'finished',
     scoring,
@@ -267,6 +268,7 @@ export function challengeStandings(
       total: s.total,
       boards: s.boards,
       ...(ruled[s.player].length > 0 && { ruled: ruled[s.player] }),
+      ...(s.penalty !== undefined && { penalty: s.penalty }),
       ...withPartner(c, s.player),
     })),
     unfinished: c.players

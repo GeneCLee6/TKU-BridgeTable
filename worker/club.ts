@@ -1083,6 +1083,14 @@ export class Club extends DurableObject<Env> implements Connections {
       if (!found) throw new ClubError('challengeGone', {}, 404)
       return json({ challenge: found })
     }
+    // The tournament director's tools (e9-t17, §5.23): a board's score, a penalty, the start delayed, a table re-opened
+    const referee = url.pathname.match(/^\/api\/referee\/(pairs|match|challenge)\/([\w-]+)$/)
+    if (request.method === 'POST' && referee) {
+      const done = await this.service.refereeAct(user.id, referee[1], referee[2], await body())
+      // A table re-opened changes the lobby
+      this.service.broadcast()
+      return json(done)
+    }
     // Pairs events (§5.22, e9-t10–e9-t13): the list, one event, and its actions
     if (route === 'GET /api/pairs') return json({ pairs: this.service.pairs.list(user.id) })
     if (route === 'POST /api/pairs') return json({ pairs: await this.service.pairs.create(user.id, (await body()).settings) })

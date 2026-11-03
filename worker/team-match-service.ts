@@ -33,7 +33,7 @@ import {
   type RoomClock,
 } from './team-match-flow.ts'
 import type { RoomResult, TeamMatch, TeamMatchStore } from './team-matches.ts'
-import { teamMatchView } from './views.ts'
+import { teamMatchView, type EventDirecting } from './views.ts'
 
 export type { MatchAction } from './match-event.ts'
 
@@ -86,6 +86,8 @@ export interface TeamMatchDeps {
   add: (match: TeamMatch) => Promise<void>
   /** One change to a match, made where it lives; the club's copy is written from the answer before this returns (H2c) */
   write: (matchId: string, step: MatchStep) => Promise<void>
+  /** What the match's page needs of the director's work (`e9-t17`): admin or not, and the log */
+  directing?: (matchId: string, userId: string) => EventDirecting
 }
 
 /** What the host (替補 also a captain) does while the match is played (`e8-t14`–`e8-t16`) */
@@ -168,7 +170,7 @@ export class TeamMatchService {
    * may not see it
    */
   private viewOf(match: TeamMatch, userId: string, ctx = this.context(match)): TeamMatchView | null {
-    const view = teamMatchView(match, userId, this.deps.userById, ctx.details)
+    const view = teamMatchView(match, userId, this.deps.userById, ctx.details, this.deps.directing?.(match.id, userId))
     if (!view) return null
     const { online, live } = ctx
     const limit = match.settings.boardMinutes * 60_000

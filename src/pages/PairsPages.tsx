@@ -5,6 +5,8 @@ import { rankLabel, rankOf, suitOf } from '../../shared/cards.ts'
 import { MOVEMENT_PAIRS } from '../../shared/movement.ts'
 import type { PairsSettings, PairsSummary, PairsView } from '../../shared/pairs.ts'
 import { resultLabel } from '../../shared/scoring.ts'
+import { RefereeNotes, RefereeTools } from '../components/RefereePanel.tsx'
+import { RulingTag } from '../components/RulingTag.tsx'
 import { ContractLabel, SuitSymbol } from '../components/Suit.tsx'
 import { Button, Card, ErrorText, Input, Muted, PageMain, PageTitle } from '../components/ui.tsx'
 import { ApiError, api } from '../lib/api.ts'
@@ -266,7 +268,11 @@ function Standings({ view }: { view: PairsView }) {
                 .map((s) => (
                   <tr key={s.pair} aria-current={s.pair === view.myPair ? 'true' : undefined}>
                     <td>{s.boards ? s.rank : '—'}</td>
-                    <td>{pairLabel(t, view, s.pair)}</td>
+                    <td>
+                      {pairLabel(t, view, s.pair)}
+                      {/* The director's penalty (e9-t17), already out of the MP */}
+                      {s.penalty !== undefined && <Muted as="span"> · {t.referee.penaltyMark(String(s.penalty))}</Muted>}
+                    </td>
                     <Num>{s.boards}</Num>
                     <Num>{s.mp.toFixed(1)}</Num>
                     <Num>{s.boards ? percent(s.percent) : '—'}</Num>
@@ -330,7 +336,10 @@ function Travellers({ view }: { view: PairsView }) {
                       )}
                     </td>
                     <td>{e.contract && e.declarerTricks !== null ? resultLabel(e.contract, e.declarerTricks) : '—'}</td>
-                    <Num $value={e.scoreNS}>{signed(e.scoreNS)}</Num>
+                    <Num $value={e.scoreNS}>
+                      {e.contract || !e.ruling ? signed(e.scoreNS) : '—'}
+                      {e.ruling && <RulingTag ruling={e.ruling} />}
+                    </Num>
                     <Num>{percent(e.percentNS)}</Num>
                   </tr>
                 )
@@ -340,6 +349,41 @@ function Travellers({ view }: { view: PairsView }) {
         </Scroll>
       ))}
     </>
+  )
+}
+
+/** What the director did (e9-t17), and the director's tools */
+function PairsReferee({ view, onDone }: { view: PairsView; onDone: () => void }) {
+  const t = useT()
+  const notes = view.referee ?? []
+  const label = (target: string) => pairLabel(t, view, Number(target))
+  const started = view.status === 'playing' || view.status === 'finished'
+  return (
+    <Section aria-labelledby="pairs-referee">
+      <h2 id="pairs-referee">{view.canReferee ? t.referee.title : t.referee.notes}</h2>
+      {notes.length > 0 && <Muted>{t.referee.notesHint}</Muted>}
+      <RefereeNotes notes={notes} targetLabel={label} unit={t.referee.units.mp} />
+      {view.canReferee && view.status !== 'cancelled' && (
+        <>
+          {started && <Muted>{t.referee.recordHint}</Muted>}
+          <RefereeTools
+            kind="pairs"
+            eventId={view.id}
+            targets={started ? view.pairs.map((p) => ({ value: String(p.pair), label: pairLabel(t, view, p.pair) })) : []}
+            targetLabel={label}
+            unit={t.referee.units.mp}
+            notes={notes}
+            tables={
+              view.status === 'playing'
+                ? view.tables.map((tb) => ({ table: tb.table, boards: tb.boards, label: t.pairs.tableLine(tb.table, tb.played, tb.boards.length) }))
+                : []
+            }
+            canDelay={view.status === 'open'}
+            onDone={onDone}
+          />
+        </>
+      )}
+    </Section>
   )
 }
 
@@ -478,6 +522,7 @@ export function PairsEventPage() {
           </Muted>
         )}
       </Row>
+      {view.delayedUntil !== undefined && <Muted role="status">{t.referee.delayed(formatDateTime(view.delayedUntil, lang))}</Muted>}
       {error && <ErrorText role="alert">{error}</ErrorText>}
 
       {view.status === 'playing' && (
@@ -567,6 +612,8 @@ export function PairsEventPage() {
           </Section>
         </>
       )}
+
+      {(!!view.referee?.length || !!view.canReferee) && <PairsReferee view={view} onDone={load} />}
     </PageMain>
   )
 }

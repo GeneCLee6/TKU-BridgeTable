@@ -5,6 +5,7 @@ import styled from 'styled-components'
 import type { ChallengeView } from '../../shared/challenge.ts'
 import { PlayerGrid, StatusTag } from '../components/ChallengeParts.tsx'
 import { ChallengeResults } from '../components/ChallengeResults.tsx'
+import { RefereeNotes, RefereeTools } from '../components/RefereePanel.tsx'
 import { ShareCardDialog } from '../components/ShareCardDialog.tsx'
 import {
   ActionLink,
@@ -138,6 +139,8 @@ export function ChallengePage() {
   const navigate = useNavigate()
   // After 開始打, follow the server to the challenge table it puts us at
   const [following, setFollowing] = useState<{ from: string | null } | null>(null)
+  // Read again after the director's tools (e9-t17)
+  const [reloads, setReloads] = useState(0)
 
   // Someone finishing sends no notification to the others, but answers and the results do
   const latest = notifications?.items[0]?.id
@@ -158,7 +161,7 @@ export function ChallengePage() {
     return () => {
       live = false
     }
-  }, [challengeId, latest, message])
+  }, [challengeId, latest, message, reloads])
 
   // The daily event lives on its own page (`e9-t03`)
   const back = challenge?.settings.daily ? (
@@ -197,6 +200,8 @@ export function ChallengePage() {
   const open = c.status === 'pending' || c.status === 'active'
   const standings = c.standings
   const nameOf = (userId: string) => entryName(t, c, userId)
+  // A penalty comes off the total: percentage points with matchpoints (the total is the average), else IMPs or points
+  const penaltyUnit = c.settings.scoring === 'mp' ? t.referee.units.percent : t.scorings[c.settings.scoring]
   const waitingPartner = open && now < c.deadline && me?.status === 'accepted' && partnerPending(c, user.id)
 
   // One-click rematch (`e7-t21`): the same people and settings, new boards
@@ -328,6 +333,10 @@ export function ChallengePage() {
                       )}
                       {/* The total counts a director's ruling on these boards (`e2-t36`) */}
                       {r.ruled && <Muted as="span"> · {t.director.ruledBoards(r.ruled.join(', '))}</Muted>}
+                      {/* The director's penalty (e9-t17), already out of the total */}
+                      {r.penalty !== undefined && (
+                        <Muted as="span"> · {t.referee.penaltyMark(formatScore(r.penalty, standings.scoring))}</Muted>
+                      )}
                     </Who>
                     <Total $value={tone(r.total, standings.scoring)}>
                       {formatScore(r.total, standings.scoring)}
@@ -359,6 +368,30 @@ export function ChallengePage() {
       </Section>
 
       <ChallengeResults challenge={c} userId={user.id} />
+
+      {(!!c.referee?.length || !!c.canReferee) && (
+        <Section aria-labelledby="referee-title">
+          <h2 id="referee-title">{c.canReferee ? t.referee.title : t.referee.notes}</h2>
+          {!!c.referee?.length && <Muted>{t.referee.notesHint}</Muted>}
+          <RefereeNotes notes={c.referee ?? []} targetLabel={nameOf} unit={penaltyUnit} />
+          {c.canReferee && (
+            <>
+              <Muted>{t.referee.recordHint}</Muted>
+              <RefereeTools
+                kind="challenge"
+                eventId={c.id}
+                targets={c.players
+                  .filter((p) => p.status === 'accepted' && pairLeadOf(c, p.userId) === p.userId)
+                  .map((p) => ({ value: p.userId, label: nameOf(p.userId) }))}
+                targetLabel={nameOf}
+                unit={penaltyUnit}
+                notes={c.referee ?? []}
+                onDone={() => setReloads((n) => n + 1)}
+              />
+            </>
+          )}
+        </Section>
+      )}
 
       <Section aria-labelledby="players-title">
         <h2 id="players-title">{t.challengePlayers}</h2>

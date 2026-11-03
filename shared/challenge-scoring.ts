@@ -44,6 +44,8 @@ export interface ChallengeScores {
   scores: Record<string, (number | null)[]>
   /** A director's ruling on a participant's board, in the same places as `scores` (`e2-t36`) */
   rulings?: Record<string, (ScoreRuling | null | undefined)[]>
+  /** What the director took off a participant's total (`e9-t17`), in the scoring's unit */
+  penalties?: ReadonlyMap<string, number>
 }
 
 export interface Standing {
@@ -55,6 +57,8 @@ export interface Standing {
   /** Equal totals share a place and the next place is skipped: 1, 2, 2, 4 */
   rank: number
   played: number
+  /** Taken off `total` by the director (`e9-t17`) */
+  penalty?: number
 }
 
 /** Totals this close count as equal (averaged IMPs and percentages are fractions) */
@@ -93,7 +97,7 @@ export function artificialResult(scoring: ChallengeScoring, kind: RulingKind, ot
   return average + ARTIFICIAL.points[kind]
 }
 
-export function scoreChallenge({ scoring, unfinished, scores, rulings }: ChallengeScores): Standing[] {
+export function scoreChallenge({ scoring, unfinished, scores, rulings, penalties }: ChallengeScores): Standing[] {
   const players = Object.keys(scores)
   const boards = Math.max(0, ...players.map((p) => scores[p].length))
 
@@ -122,12 +126,14 @@ export function scoreChallenge({ scoring, unfinished, scores, rulings }: Challen
   const standings = players.map((player) => {
     const list = results.get(player)!
     const sum = list.reduce((a, b) => a + b, 0)
+    const penalty = penalties?.get(player) ?? 0
     return {
       player,
       boards: list,
-      total: scoring === 'mp' ? (boards ? sum / boards : 0) : sum,
+      total: (scoring === 'mp' ? (boards ? sum / boards : 0) : sum) - penalty,
       rank: 0,
       played: scores[player].filter((s) => typeof s === 'number').length,
+      ...(penalty > 0 && { penalty }),
     }
   })
   for (const s of standings) s.rank = 1 + standings.filter((o) => o.total > s.total + SAME).length
