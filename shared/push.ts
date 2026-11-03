@@ -32,6 +32,15 @@ export const PUSH_GROUPS = {
     'matchSubIn',
   ],
   pairs: ['pairInvited', 'pairAccepted', 'pairDeclined', 'pairEnded'],
+  tournaments: [
+    'tournamentAnnounced',
+    'tournamentPartner',
+    'tournamentWithdrawn',
+    'tournamentRemoved',
+    'tournamentCancelled',
+    'tournamentReminder',
+    'tournamentResults',
+  ],
   featured: ['boardFeatured'],
   friends: ['friendOnline'],
   book: [

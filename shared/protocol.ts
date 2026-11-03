@@ -802,6 +802,13 @@ export const NOTIFICATION_KINDS = [
   'forumUnhidden',
   'directorCalled',
   'passwordResetRequested',
+  'tournamentAnnounced',
+  'tournamentPartner',
+  'tournamentWithdrawn',
+  'tournamentRemoved',
+  'tournamentCancelled',
+  'tournamentReminder',
+  'tournamentResults',
 ] as const
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number]
 
@@ -848,7 +855,12 @@ export interface Notification {
    * { postId, title } only (no officer's name) an officer hid the member's post or showed it again
    * (the table's e13-t10, 2026-11-02). `directorCalled` { tableId,
    * number, username } of the table and the player who called the director (`e2-t34`), to its host
-   * and the admins
+   * and the admins. The tournament kinds (`e9-t16`, §5.24), each { tournamentId, title }:
+   * `tournamentAnnounced` to every member with the flag; `tournamentPartner` (+ `username`) a member
+   * entered with them as partner or teammate, to confirm; `tournamentWithdrawn` (+ `username`) a
+   * partner withdrew or said no, so their entry is off; `tournamentRemoved` (+ `username`) an admin
+   * took their entry off; `tournamentCancelled`; `tournamentReminder` an hour before the start;
+   * `tournamentResults` (+ `eventKind`, `eventId`) its event finished, leading to the results
    */
   params: Record<string, string | number>
   read: boolean

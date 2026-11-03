@@ -6,6 +6,7 @@ import type { ChallengeStatsView } from '../../shared/challenge-stats.ts'
 import type { WeeklyChallengeSchedule, WeeklyChallengeView } from '../../shared/weekly-challenge.ts'
 import type { DailyEventSettings, DailyEventView } from '../../shared/daily-event.ts'
 import type { PairsSettings, PairsSummary, PairsView } from '../../shared/pairs.ts'
+import type { TournamentSettings, TournamentSummary, TournamentView } from '../../shared/tournament.ts'
 import type { LeaderboardView, LedgerEntry, PointsRules } from '../../shared/points.ts'
 import type { RatingView } from '../../shared/rating.ts'
 import { historyQueryString, type HistoryQuery } from '../../shared/history-query.ts'
@@ -303,6 +304,22 @@ export const api = {
       post<{ pairs: PairsView }>(`/api/pairs/${encodeURIComponent(id)}/withdraw`, { userId }),
     cancel: (id: string) => post<{ pairs: PairsView }>(`/api/pairs/${encodeURIComponent(id)}/cancel`),
     start: (id: string) => post<{ pairs: PairsView }>(`/api/pairs/${encodeURIComponent(id)}/start`),
+  },
+  /** Tournament announcements and entries (`e9-t16`, §5.24): admins announce and start, members enter */
+  tournaments: {
+    list: () => request<{ tournaments: TournamentSummary[] }>('/api/tournaments'),
+    get: (id: string) => request<{ tournament: TournamentView }>(`/api/tournaments/${encodeURIComponent(id)}`),
+    create: (settings: Partial<TournamentSettings>) => post<{ tournament: TournamentView }>('/api/tournaments', { settings }),
+    update: (id: string, settings: Partial<TournamentSettings>) =>
+      post<{ tournament: TournamentView }>(`/api/tournaments/${encodeURIComponent(id)}/settings`, { settings }),
+    enter: (id: string, partners: string[], teamName?: string) =>
+      post<{ tournament: TournamentView }>(`/api/tournaments/${encodeURIComponent(id)}/enter`, { partners, teamName }),
+    answer: (id: string, accept: boolean) => post<{ tournament: TournamentView }>(`/api/tournaments/${encodeURIComponent(id)}/answer`, { accept }),
+    withdraw: (id: string) => post<{ tournament: TournamentView }>(`/api/tournaments/${encodeURIComponent(id)}/withdraw`),
+    remove: (id: string, entryId: string) =>
+      post<{ tournament: TournamentView }>(`/api/tournaments/${encodeURIComponent(id)}/remove`, { entryId }),
+    cancel: (id: string) => post<{ tournament: TournamentView }>(`/api/tournaments/${encodeURIComponent(id)}/cancel`),
+    start: (id: string) => post<{ tournament: TournamentView }>(`/api/tournaments/${encodeURIComponent(id)}/start`),
   },
   /** Club points and ratings (J2): a period's board (`month=YYYY-MM`, `year=YYYY` or `season=<id>`) */
   rankings: (period: string) => request<{ board: LeaderboardView }>(`/api/rankings?${period}`),

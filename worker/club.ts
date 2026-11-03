@@ -1102,7 +1102,7 @@ export class Club extends DurableObject<Env> implements Connections {
       if (!found) throw new ClubError('challengeGone', {}, 404)
       return json({ challenge: found })
     }
-    // The tournament director's tools (e9-t17, §5.23): a board's score, a penalty, the start delayed, a table re-opened
+    // The tournament director's tools (e9-t17, §5.24): a board's score, a penalty, the start delayed, a table re-opened
     const referee = url.pathname.match(/^\/api\/referee\/(pairs|match|challenge)\/([\w-]+)$/)
     if (request.method === 'POST' && referee) {
       const done = await this.service.refereeAct(user.id, referee[1], referee[2], await body())
@@ -1126,6 +1126,25 @@ export class Club extends DurableObject<Env> implements Connections {
         const started = await pairs.start(user.id, eventId)
         this.service.broadcast()
         return json({ pairs: started })
+      }
+    }
+    // Tournament announcements and entries (§5.24, e9-t16): admins announce, change, cancel and start; members enter
+    const tournaments = this.service.tournaments
+    if (route === 'GET /api/tournaments') return json({ tournaments: tournaments.list(user.id) })
+    if (route === 'POST /api/tournaments') return json({ tournament: await tournaments.create(user.id, (await body()).settings) })
+    const tournamentPage = url.pathname.match(/^\/api\/tournaments\/([\w-]+)(?:\/(settings|cancel|remove|enter|answer|withdraw|start))?$/)
+    if (tournamentPage) {
+      const [, id, action] = tournamentPage
+      if (request.method === 'GET' && !action) return json({ tournament: tournaments.view(id, user.id) })
+      if (request.method === 'POST' && action) {
+        const b = await body()
+        if (action === 'settings') return json({ tournament: await tournaments.update(user.id, id, b.settings) })
+        if (action === 'cancel') return json({ tournament: await tournaments.cancel(user.id, id) })
+        if (action === 'remove') return json({ tournament: await tournaments.remove(user.id, id, b.entryId) })
+        if (action === 'enter') return json({ tournament: await tournaments.enter(user.id, id, { partners: b.partners, teamName: b.teamName }) })
+        if (action === 'answer') return json({ tournament: await tournaments.answer(user.id, id, b.accept) })
+        if (action === 'withdraw') return json({ tournament: await tournaments.withdraw(user.id, id) })
+        return json({ tournament: await tournaments.start(user.id, id) })
       }
     }
     // Team matches (§5.8): set up (e8-t03), seated (e8-t04, e8-t05) and started (e8-t07) over HTTP

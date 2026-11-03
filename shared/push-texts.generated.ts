@@ -52,7 +52,14 @@ export const PUSH_TEXTS: PushTexts = {
       "forumHidden": "幹部隱藏了你的貼文「{title}」，其他社員暫時看不到",
       "forumUnhidden": "幹部取消隱藏你的貼文「{title}」，大家又看得到了",
       "directorCalled": "{username} 在第 {number} 桌叫裁判",
-      "passwordResetRequested": "{username} 申請重設密碼，等你核准"
+      "passwordResetRequested": "{username} 申請重設密碼，等你核准",
+      "tournamentAnnounced": "新的比賽公告「{title}」，快來報名",
+      "tournamentPartner": "{username} 和你一起報名了「{title}」，請確認",
+      "tournamentWithdrawn": "{username} 退出了「{title}」，你們這組的報名取消了",
+      "tournamentRemoved": "{username} 把你們從「{title}」的報名名單移除了",
+      "tournamentCancelled": "「{title}」取消了",
+      "tournamentReminder": "「{title}」再一小時就開賽了",
+      "tournamentResults": "「{title}」結束了，來看結果"
     }
   },
   "zh-Hans": {
@@ -105,7 +112,14 @@ export const PUSH_TEXTS: PushTexts = {
       "forumHidden": "干部隐藏了你的帖子「{title}」，其他社员暂时看不到",
       "forumUnhidden": "干部取消隐藏你的帖子「{title}」，大家又看得到了",
       "directorCalled": "{username} 在第 {number} 桌叫裁判",
-      "passwordResetRequested": "{username} 申请重设密码，等你批准"
+      "passwordResetRequested": "{username} 申请重设密码，等你批准",
+      "tournamentAnnounced": "新的比赛公告「{title}」，快来报名",
+      "tournamentPartner": "{username} 和你一起报名了「{title}」，请确认",
+      "tournamentWithdrawn": "{username} 退出了「{title}」，你们这组的报名取消了",
+      "tournamentRemoved": "{username} 把你们从「{title}」的报名名单移除了",
+      "tournamentCancelled": "「{title}」取消了",
+      "tournamentReminder": "「{title}」再一小时就开赛了",
+      "tournamentResults": "「{title}」结束了，来看结果"
     }
   },
   "en": {
@@ -158,7 +172,14 @@ export const PUSH_TEXTS: PushTexts = {
       "forumHidden": "An officer hid your post \"{title}\"; other members can't see it for now",
       "forumUnhidden": "An officer made your post \"{title}\" visible again",
       "directorCalled": "{username} called the director at Table {number}",
-      "passwordResetRequested": "{username} asked to reset their password and is waiting for approval"
+      "passwordResetRequested": "{username} asked to reset their password and is waiting for approval",
+      "tournamentAnnounced": "New tournament \"{title}\": enter now",
+      "tournamentPartner": "{username} entered \"{title}\" with you: please confirm",
+      "tournamentWithdrawn": "{username} withdrew from \"{title}\": your entry is off",
+      "tournamentRemoved": "{username} took your entry off \"{title}\"",
+      "tournamentCancelled": "\"{title}\" was cancelled",
+      "tournamentReminder": "\"{title}\" starts in an hour",
+      "tournamentResults": "\"{title}\" is over: see the results"
     }
   },
   "vi": {
@@ -211,7 +232,14 @@ export const PUSH_TEXTS: PushTexts = {
       "forumHidden": "Ban cán sự đã ẩn bài viết \"{title}\" của bạn; các thành viên khác tạm thời không xem được",
       "forumUnhidden": "Ban cán sự đã hiện lại bài viết \"{title}\" của bạn",
       "directorCalled": "{username} đã gọi trọng tài ở Bàn {number}",
-      "passwordResetRequested": "{username} yêu cầu đặt lại mật khẩu, đang chờ bạn duyệt"
+      "passwordResetRequested": "{username} yêu cầu đặt lại mật khẩu, đang chờ bạn duyệt",
+      "tournamentAnnounced": "Giải đấu mới \"{title}\": hãy đăng ký",
+      "tournamentPartner": "{username} đã đăng ký \"{title}\" cùng bạn: hãy xác nhận",
+      "tournamentWithdrawn": "{username} đã rút khỏi \"{title}\": đăng ký của nhóm bạn bị hủy",
+      "tournamentRemoved": "{username} đã gỡ đăng ký của nhóm bạn khỏi \"{title}\"",
+      "tournamentCancelled": "\"{title}\" đã bị hủy",
+      "tournamentReminder": "\"{title}\" sẽ bắt đầu sau một giờ",
+      "tournamentResults": "\"{title}\" đã kết thúc: xem kết quả"
     }
   },
   "ja": {
@@ -264,7 +292,14 @@ export const PUSH_TEXTS: PushTexts = {
       "forumHidden": "幹部があなたの投稿「{title}」を非表示にしました。他のメンバーには見えません",
       "forumUnhidden": "幹部があなたの投稿「{title}」を再表示しました",
       "directorCalled": "{username} さんがテーブル {number} でディレクターを呼びました",
-      "passwordResetRequested": "{username} さんがパスワードの再設定を申請し、承認を待っています"
+      "passwordResetRequested": "{username} さんがパスワードの再設定を申請し、承認を待っています",
+      "tournamentAnnounced": "新しい大会「{title}」のお知らせです。申し込みをどうぞ",
+      "tournamentPartner": "{username} さんがあなたと一緒に「{title}」に申し込みました。確認してください",
+      "tournamentWithdrawn": "{username} さんが「{title}」を辞退したため、申し込みは取り消されました",
+      "tournamentRemoved": "{username} さんが「{title}」の申し込みを取り消しました",
+      "tournamentCancelled": "「{title}」は中止になりました",
+      "tournamentReminder": "「{title}」はあと 1 時間で始まります",
+      "tournamentResults": "「{title}」が終わりました。結果を見ましょう"
     }
   },
   "ko": {
@@ -317,7 +352,14 @@ export const PUSH_TEXTS: PushTexts = {
       "forumHidden": "임원이 회원님의 글 「{title}」를 숨겼습니다. 다른 회원에게는 보이지 않습니다",
       "forumUnhidden": "임원이 회원님의 글 「{title}」를 다시 공개했습니다",
       "directorCalled": "{username} 님이 {number}번 테이블에서 디렉터를 불렀습니다",
-      "passwordResetRequested": "{username} 님이 비밀번호 재설정을 요청하고 승인을 기다립니다"
+      "passwordResetRequested": "{username} 님이 비밀번호 재설정을 요청하고 승인을 기다립니다",
+      "tournamentAnnounced": "새 대회 「{title}」 공지: 지금 신청하세요",
+      "tournamentPartner": "{username} 님이 당신과 함께 「{title}」에 신청했습니다. 확인해 주세요",
+      "tournamentWithdrawn": "{username} 님이 「{title}」에서 빠져 신청이 취소되었습니다",
+      "tournamentRemoved": "{username} 님이 「{title}」 신청 명단에서 당신의 팀을 뺐습니다",
+      "tournamentCancelled": "「{title}」이(가) 취소되었습니다",
+      "tournamentReminder": "「{title}」이(가) 한 시간 뒤에 시작합니다",
+      "tournamentResults": "「{title}」이(가) 끝났습니다. 결과를 확인하세요"
     }
   }
 }

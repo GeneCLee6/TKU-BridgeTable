@@ -1,7 +1,7 @@
 import type { RandomInt } from '../shared/board.ts'
 import { makeDealSet } from '../shared/deal-set.ts'
 import { mitchell, MOVEMENT_PAIRS } from '../shared/movement.ts'
-import { parsePairsSettings, scorePairs, type PairsScoringOptions, type PairsSummary, type PairsView } from '../shared/pairs.ts'
+import { parsePairsSettings, scorePairs, type PairsScoringOptions, type PairsSettings, type PairsSummary, type PairsView } from '../shared/pairs.ts'
 import type { PublicUser, RobotSpeed } from '../shared/protocol.ts'
 import { delayOf, type RefereeEntry } from '../shared/referee.ts'
 import type { ScoreRuling } from '../shared/ruling-scoring.ts'
@@ -137,8 +137,14 @@ export class PairsService {
     return copy.event
   }
 
-  private allowed(userId: string) {
-    if (!this.deps.featureOn(userId)) throw new ClubError('pairsOff', {}, 403)
+  /**
+   * The member has the `pairs` flag, or is in the event or directs it: an event made from a
+   * tournament's entries (`e9-t16`, §5.24) is played by members who may not have the flag
+   */
+  private allowed(userId: string, event?: PairsEvent) {
+    if (this.deps.featureOn(userId)) return
+    if (event && (event.directorId === userId || pairOf(event, userId) >= 0)) return
+    throw new ClubError('pairsOff', {}, 403)
   }
 
   private limited(userId: string) {
@@ -159,8 +165,8 @@ export class PairsService {
 
   /** `GET /api/pairs/:id`: the event as the member may see it (`views.ts` `pairsView`) */
   view(id: string, userId: string): PairsView {
-    this.allowed(userId)
     const event = this.require(id)
+    this.allowed(userId, event)
     void this.progress(event.id)
     return pairsView(event, userId, this.deps.userById, this.directing(event.id, userId))
   }
@@ -198,12 +204,29 @@ export class PairsService {
     this.limited(userId)
     const parsed = parsePairsSettings(settings)
     if (!parsed) throw new ClubError('badPairsSettings')
+    const event = await this.open(userId, parsed)
+    return this.view(event.id, userId)
+  }
+
+  /**
+   * A tournament's pairs event (`e9-t16`, §5.24): made by the admin who starts the tournament (its
+   * director) with the tournament's settings, and its pairs entered in order. The tournament
+   * already checked the flag, the partners and the blocks; the director starts it on its page
+   */
+  async createFrom(directorId: string, settings: PairsSettings, pairs: [string, string][]): Promise<string> {
+    const event = await this.open(directorId, settings)
+    for (const players of pairs) await this.step(event.id, { kind: 'enter', players, at: this.deps.now() })
+    return event.id
+  }
+
+  /** A new event, its copy kept and its home (the club or its own object) chosen */
+  private async open(userId: string, settings: PairsSettings): Promise<PairsEvent> {
     const event: PairsEvent = {
       id: this.deps.newId(),
       directorId: userId,
       createdAt: this.deps.now(),
       status: 'open',
-      settings: parsed,
+      settings,
       pairs: [],
       round: 0,
       roundTables: [],
@@ -220,7 +243,12 @@ export class PairsService {
     } catch (error) {
       this.deps.log(crashEntry('adoptPairs', error))
     }
-    return this.view(event.id, userId)
+    return event
+  }
+
+  /** An event's state for a tournament made from it (`e9-t16`); null when there is none */
+  statusOf(id: string): PairsEvent['status'] | null {
+    return this.copies.get(id)?.event.status ?? null
   }
 
   /** `POST /api/pairs/:id/enter { partner }`: the member and a partner (by username) enter as a pair */
@@ -240,9 +268,9 @@ export class PairsService {
 
   /** `POST /api/pairs/:id/withdraw { userId? }`: a pair leaves (one of its players, or the director for any pair) */
   async withdraw(userId: string, id: string, who: unknown): Promise<PairsView> {
-    this.allowed(userId)
-    this.limited(userId)
     const event = this.require(id)
+    this.allowed(userId, event)
+    this.limited(userId)
     const target = typeof who === 'string' && who ? who : userId
     await this.step(event.id, { kind: 'withdraw', userId: target, by: userId })
     return this.view(event.id, userId)
@@ -250,9 +278,9 @@ export class PairsService {
 
   /** `POST /api/pairs/:id/cancel`: the director calls it off before the start */
   async cancel(userId: string, id: string): Promise<PairsView> {
-    this.allowed(userId)
-    this.limited(userId)
     const event = this.require(id)
+    this.allowed(userId, event)
+    this.limited(userId)
     await this.step(event.id, { kind: 'cancel', userId, at: this.deps.now() })
     return this.view(event.id, userId)
   }
@@ -266,9 +294,9 @@ export class PairsService {
    * tables open together. If one cannot open, those opened close and the event stays open
    */
   async start(userId: string, id: string): Promise<PairsView> {
-    this.allowed(userId)
-    this.limited(userId)
     const event = this.require(id)
+    this.allowed(userId, event)
+    this.limited(userId)
     if (event.directorId !== userId) throw new ClubError('pairsDirectorOnly', {}, 403)
     if (event.status !== 'open') throw new ClubError('pairsNotOpen')
     // The director put the start off (`e9-t17`): not before then

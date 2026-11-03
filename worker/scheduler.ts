@@ -7,6 +7,7 @@ export type JobKind =
   | 'partnerAway'
   | 'weekly'
   | 'daily'
+  | 'tournament'
   | 'outbox'
   | 'migrate'
   | 'replica'
