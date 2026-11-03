@@ -166,7 +166,7 @@ import { MatchHomes, type MatchApi, type MatchSnapshot, type RemoteMatches } fro
 import { TeamMatchStore, type TeamMatch } from './team-matches.ts'
 import { teamTable } from './team-mode.ts'
 import { parseRulingReason, ROOMS, TEAM_MATCH_LIMITS, VUGRAPH_CHAT_MAX, type MatchVugraph, type Room, type TeamMatchView, type VugraphRoom } from '../shared/team-match.ts'
-import { parseRulingRequest } from '../shared/board-events.ts'
+import { parseRulingRequest, type RulingRequest } from '../shared/board-events.ts'
 import {
   createHistoryIndex,
   eventBoards,
@@ -275,8 +275,20 @@ import {
   listedForEveryone,
   tableListed,
   vugraphChat,
+  type EventDirecting,
   type Table,
 } from './views.ts'
+import { AuditLog } from './audit.ts'
+import { RefereeLog, refereeKindOf } from './referee.ts'
+import {
+  isRefereeEvent,
+  parseRefereeRequest,
+  penaltiesOf,
+  REFEREE_LIMITS,
+  type RefereeAction,
+  type RefereeEvent,
+} from '../shared/referee.ts'
+import { scoreRuling } from '../shared/ruling-scoring.ts'
 
 export { ClubError } from './errors.ts'
 
@@ -710,6 +722,8 @@ export class ClubService {
   readonly matches: TeamMatchService
   /** Pairs events (`e9-t09`–`e9-t13`, §5.22): the club's half and its copy of every event */
   readonly pairs: PairsService
+  /** The director's log of every club event (`e9-t17`, §5.23), each entry in the audit log too */
+  readonly referee: RefereeLog
   /** Which matches live in their own object, and which ended matches the club already closed up */
   private readonly matchHomes: MatchHomes
   /** The matches that live in this object */
@@ -824,8 +838,10 @@ export class ClubService {
       mayUseTku: (id) => this.mayUseTku(id),
       add: (match) => this.addMatch(match),
       write: (matchId, step) => this.writeMatch(matchId, step),
+      directing: (matchId, userId) => this.directing('match', matchId, userId),
     })
     this.matchHomes = new MatchHomes(store.sql)
+    this.referee = new RefereeLog(store, new AuditLog(store, this.now), this.now, () => randomId(6))
     this.pairs = new PairsService({
       store,
       now: this.now,
@@ -846,6 +862,12 @@ export class ClubService {
       leave: (id) => this.leave(id),
       reveal: async (eventId) => this.revealRecords(revealEvent(this.store.sql, eventId, this.now())),
       ranked: (event) => this.rankings.record(event),
+      isAdmin: (id) => this.actsAsAdmin(this.users.get(id)),
+      refereeOf: (id) => this.referee.of('pairs', id),
+      rulingsOf: (id) => {
+        const boards = eventBoards(this.store.sql, id)
+        return (boardId) => boards.get(boardId)?.ruling
+      },
       objects: config.pairsObjects,
       objectsOn: !!config.eventObjectsOn,
     })
@@ -973,6 +995,7 @@ export class ClubService {
     this.matchHomes.createTables()
     this.directs.createTables()
     await this.rankings.load()
+    await this.referee.load()
     const schema = (await this.store.get<number>('meta:schema')) ?? 1
     if (schema < 2) await this.migrate()
     if (schema < 3) await this.backfillIndex()
@@ -3736,7 +3759,7 @@ export class ClubService {
         return
       }
       // Its points and ratings (J2): kept once, whenever the club hears of it (`RankingsService`)
-      this.rankings.challengeFinished(challenge)
+      this.rankings.challengeFinished(challenge, penaltiesOf(this.referee.of('challenge', id)))
       this.homes.settle(id, 'ended')
       await this.challengeEnded(challenge)
       if (challenge.status !== 'finished') return
@@ -3829,7 +3852,7 @@ export class ClubService {
     )
     if (done.length) await this.revealRecords(revealBoards(this.store.sql, done, this.now()))
     if ((match.status !== 'finished' && match.status !== 'abandoned') || this.matchHomes.ended(id)) return
-    this.rankings.matchFinished(match)
+    this.rankings.matchFinished(match, penaltiesOf(this.referee.of('match', id)))
     this.matchHomes.settleEnd(id)
     if (match.status === 'finished')
       for (const userId of matchMembers(match)) await this.notifications.notify(userId, 'matchFinished', { matchId: id })
@@ -3908,7 +3931,9 @@ export class ClubService {
       if (challenge?.settings.daily) return []
       // The boards' rulings count in the standings (`e2-t36`)
       const boards = challenge && eventBoards(this.store.sql, id)
-      const view = challenge && challengeView(challenge, userId, (other) => this.publicUserById(other), (b) => boards?.get(b))
+      const view =
+        challenge &&
+        challengeView(challenge, userId, (other) => this.publicUserById(other), (b) => boards?.get(b), this.directing('challenge', id, userId))
       if (!view) return []
       const { travellers: _later, ...rest } = view
       return [rest]
@@ -3923,7 +3948,13 @@ export class ClubService {
     const challenge = this.challenges.get(id)
     if (!challenge) return null
     const boards = eventBoards(this.store.sql, id)
-    return challengeView(challenge, userId, (other) => this.publicUserById(other), (boardId) => boards.get(boardId))
+    return challengeView(
+      challenge,
+      userId,
+      (other) => this.publicUserById(other),
+      (boardId) => boards.get(boardId),
+      this.directing('challenge', id, userId),
+    )
   }
 
   /**
@@ -3937,7 +3968,8 @@ export class ClubService {
     if (!challenge) return null
     const boards = eventBoards(this.store.sql, id)
     const user = (other: string) => this.publicUserById(other)
-    const view = challengeView(challenge, userId, user, (boardId) => boards.get(boardId))
+    const directing = this.directing('challenge', id, userId)
+    const view = challengeView(challenge, userId, user, (boardId) => boards.get(boardId), directing)
     const shown = view?.travellers?.flatMap((x) => x.entries.map((e) => e.boardId)) ?? []
     if (!shown.length) return view
     const records = await Promise.all(shown.map((boardId) => this.store.get<BoardRecord>(`board:${boardId}`)))
@@ -3946,7 +3978,7 @@ export class ClubService {
       const board = records[i]?.board
       if (found && board) boards.set(boardId, { ...found, lead: openingLead(board) })
     })
-    return challengeView(challenge, userId, user, (boardId) => boards.get(boardId))
+    return challengeView(challenge, userId, user, (boardId) => boards.get(boardId), directing)
   }
 
   // ── Challenge settlement (§5.5, e7-t13; the deadline job is the challenge's own, `ChallengeEvent`) ──
@@ -4903,18 +4935,120 @@ export class ClubService {
     const record = /^[\w-]+$/.test(boardId) ? await this.store.get<BoardRecord>(`board:${boardId}`) : undefined
     if (!record) throw new ClubError('boardGone', {}, 404)
     if (!this.mayDirect(userId, record.hostId)) throw new ClubError('directorOnly', {}, 403)
-    if (body === null) delete record.ruling
-    else {
-      const request = parseRulingRequest(body, parseRulingReason)
+    let request: RulingRequest | null = null
+    if (body !== null) {
+      request = parseRulingRequest(body, parseRulingReason)
       if (!request) throw new ClubError('badBoardRuling', { max: TEAM_MATCH_LIMITS.reasonMax })
-      record.ruling = { ...request, by: this.publicUserById(userId)!, at: this.now() }
     }
+    return this.ruleRecord(userId, record, request)
+  }
+
+  /**
+   * Writes a ruling on a board record (or takes it back): the record, its index row (the scoring
+   * reads it, `e2-t36`), its summaries and the D1 copy; then the director's log of the event it
+   * belongs to (`e9-t17`) and the audit log, so the result page and the admins see who, when and why
+   */
+  private async ruleRecord(userId: string, record: BoardRecord, request: RulingRequest | null): Promise<BoardRecord> {
+    const before = record.ruling
+    if (request === null) delete record.ruling
+    else record.ruling = { ...request, by: this.publicUserById(userId)!, at: this.now() }
     // The index keeps the ruling for the scoring (`e2-t36`): a challenge's standings and a team
     // match's score are worked out again from it whenever they are shown
     indexRecord(this.store.sql, record)
     await this.writeRecord(record)
     if (record.mode === 'team' && record.eventId) this.matches.push(record.eventId)
+    // Taking back a ruling that was not there leaves no trace
+    if (!request && !before) return record
+    const actor = this.users.get(userId)!
+    const action: RefereeAction = { action: 'score', boardId: record.id, ruling: request ? scoreRuling(request) : null }
+    const kind = refereeKindOf(record)
+    if (kind && record.eventId)
+      await this.referee.add(kind, record.eventId, actor, action, request?.reason ?? '', `board:${record.id}`)
+    else await this.referee.auditOnly(actor, action, request?.reason ?? '', `board:${record.id}`)
     return record
+  }
+
+  /** What an event's page needs of the director's work (`e9-t17`): whether the viewer is an admin, and the log */
+  private directing(kind: RefereeEvent, eventId: string, userId: string): EventDirecting {
+    return { admin: this.actsAsAdmin(this.users.get(userId)), entries: this.referee.of(kind, eventId) }
+  }
+
+  /**
+   * `POST /api/referee/:kind/:id` (`e9-t17`, AC-9.8): the director's tools on a club event — a
+   * board's score (a ruling on its record, `ruleRecord`; a pairs board never played), a penalty or
+   * taking one back, the start delayed (a pairs event before its start), a table re-opened (a
+   * pairs event's round). A pairs event's director or a team match's host may, and admins on
+   * every event (challenges, the daily event among them, only admins: their creator plays in
+   * them). Each one goes into the event's log and the audit log; the pages work the scores out
+   * again from it whenever they are shown
+   */
+  async refereeAct(userId: string, kind: unknown, eventId: string, body: unknown): Promise<{ ok: true }> {
+    if (!isRefereeEvent(kind)) throw new ClubError('refereeNotHere', {}, 404)
+    const request = parseRefereeRequest(body)
+    if (!request) throw new ClubError('badReferee', { max: REFEREE_LIMITS.reasonMax })
+    const actor = this.users.get(userId)
+    if (!actor) throw new ClubError('refereeOnly', {}, 403)
+    const admin = this.actsAsAdmin(actor)
+    // Who may, and who a penalty may be for
+    let targets: (target: string) => boolean
+    if (kind === 'pairs') {
+      const event = this.pairs.requireReferee(userId, eventId)
+      targets = (t) => /^\d+$/.test(t) && Number(t) < event.pairs.length && event.status !== 'open' && event.status !== 'cancelled'
+    } else if (kind === 'match') {
+      const match = this.matches.store.get(eventId)
+      if (!match) throw new ClubError('matchGone', {}, 404)
+      if (match.hostId !== userId && !admin) throw new ClubError('refereeOnly', {}, 403)
+      targets = (t) => (t === 'A' || t === 'B') && match.status !== 'setup' && match.status !== 'cancelled'
+    } else {
+      const challenge = this.challenges.get(eventId)
+      if (!challenge) throw new ClubError('challengeGone', {}, 404)
+      if (!admin) throw new ClubError('refereeOnly', {}, 403)
+      targets = (t) => challenge.players.some((p) => p.userId === t && p.status === 'accepted' && !isPairSecond(challenge, t))
+    }
+    if (!this.actionLimit.take(userId)) throw new ClubError('slowDown', {}, 429)
+    const log = (action: RefereeAction, reason: string) => this.referee.add(kind, eventId, actor, action, reason)
+    switch (request.action) {
+      case 'score': {
+        if ('boardId' in request) {
+          const record = await this.store.get<BoardRecord>(`board:${request.boardId}`)
+          if (!record || record.eventId !== eventId || refereeKindOf(record) !== kind) throw new ClubError('refereeNoBoard', {}, 404)
+          await this.ruleRecord(userId, record, request.ruling)
+          break
+        }
+        if (kind !== 'pairs') throw new ClubError('refereeNotHere')
+        const ruling = request.ruling ? scoreRuling(request.ruling) : null
+        const { round } = await this.pairs.assign(eventId, { ...request, ruling })
+        await log({ action: 'score', round, table: request.table, boardNo: request.boardNo, ruling }, request.ruling?.reason ?? '')
+        break
+      }
+      case 'penalty':
+        if (!targets(request.target)) throw new ClubError('refereeBadTarget')
+        await log({ action: 'penalty', target: request.target, amount: request.amount }, request.reason)
+        break
+      case 'withdraw': {
+        const entries = this.referee.of(kind, eventId)
+        const penalty = entries.find((e) => e.id === request.of && e.action === 'penalty')
+        if (!penalty || entries.some((e) => e.action === 'withdraw' && e.of === request.of)) throw new ClubError('refereeNoEntry', {}, 404)
+        await log({ action: 'withdraw', of: request.of }, request.reason)
+        break
+      }
+      case 'delay': {
+        if (kind !== 'pairs') throw new ClubError('refereeNotHere')
+        if (this.pairs.requireReferee(userId, eventId).status !== 'open') throw new ClubError('pairsNotOpen')
+        const until = request.minutes ? this.now() + request.minutes * 60_000 : null
+        await log({ action: 'delay', until }, request.reason)
+        break
+      }
+      case 'restart': {
+        if (kind !== 'pairs') throw new ClubError('refereeNotHere')
+        const { round } = await this.pairs.restart(eventId, request.table, request.replay)
+        await log({ action: 'restart', round, table: request.table, replay: request.replay }, request.reason)
+        break
+      }
+    }
+    // A match's score changed for those watching it
+    if (kind === 'match') this.matches.push(eventId)
+    return { ok: true }
   }
 
   /** A table action (bidding, play, chat, the host's seat changes): the member's own table handles it */

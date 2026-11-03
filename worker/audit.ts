@@ -68,6 +68,16 @@ export type AuditAction =
   | 'forum:dismiss'
   | 'forum:board'
   | 'forum:boardDelete'
+  /**
+   * The tournament director's tools (the table's e9-t17; `target` is `<kind>:<eventId>` for an
+   * event, `board:<id>` for a ruling on a board record, `note` the reason): a board's score
+   * adjusted, a penalty given or taken back, the start delayed, a table re-opened
+   */
+  | 'referee:score'
+  | 'referee:penalty'
+  | 'referee:withdraw'
+  | 'referee:delay'
+  | 'referee:restart'
 
 export interface AuditEntry {
   id: string
@@ -75,7 +85,7 @@ export interface AuditEntry {
   /** The member's username, as in BookRevision.by */
   by: string
   action: AuditAction
-  /** A convention's or an article's slug, a profile's id, `<profile>/<template>` for a card, 'categories' or 'series', a forum post's or board's id */
+  /** A convention's or an article's slug, a profile's id, `<profile>/<template>` for a card, 'categories' or 'series', a forum post's or board's id, a club event (`referee:*`) */
   target: string
   /** The version the change made (a published convention's, a profile's, the categories'); a draft has none */
   version?: number

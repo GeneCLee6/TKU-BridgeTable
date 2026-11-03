@@ -1,19 +1,21 @@
 import type { RandomInt } from '../shared/board.ts'
 import { makeDealSet } from '../shared/deal-set.ts'
 import { mitchell, MOVEMENT_PAIRS } from '../shared/movement.ts'
-import { parsePairsSettings, scorePairs, type PairsSummary, type PairsView } from '../shared/pairs.ts'
+import { parsePairsSettings, scorePairs, type PairsScoringOptions, type PairsSummary, type PairsView } from '../shared/pairs.ts'
 import type { PublicUser, RobotSpeed } from '../shared/protocol.ts'
+import { delayOf, type RefereeEntry } from '../shared/referee.ts'
+import type { ScoreRuling } from '../shared/ruling-scoring.ts'
 import { AppError } from '../shared/messages.ts'
 import { ClubError } from './errors.ts'
 import { crashEntry, type Logger } from './log.ts'
 import type { EventReport } from './modes.ts'
 import { LocalPairs, type PairsApi, type PairsSnapshot, type RemotePairs } from './pairs-events.ts'
-import { nextRoundDue, pairOf, pairsPlayers, type PairsEvent, type PairsStep } from './pairs-flow.ts'
+import { boardsLeft, nextRoundDue, pairOf, pairsPlayers, type PairsEvent, type PairsStep } from './pairs-flow.ts'
 import { pairsTable } from './pairs-mode.ts'
 import type { RankedEvent } from './rankings.ts'
 import type { Store } from './store.ts'
 import type { Table } from './views.ts'
-import { pairsSummary, pairsView } from './views.ts'
+import { pairsScoring, pairsSummary, pairsView, type PairsDirecting } from './views.ts'
 
 /**
  * Pairs events, the club's half (`e9-t10`–`e9-t13`, ARCHITECTURE.md §5.22): the checks only the
@@ -61,6 +63,12 @@ export interface PairsServiceDeps {
   reveal: (eventId: string) => Promise<void>
   /** Writes a finished event into the points ledger and the ratings (J2, `RankingsService.record`; once per event there) */
   ranked: (event: RankedEvent) => void
+  /** The member acts as an admin (`actsAsAdmin`): they may direct any event (`e9-t17`) */
+  isAdmin: (userId: string) => boolean
+  /** The director's log of an event (`worker/referee.ts`) */
+  refereeOf: (eventId: string) => readonly RefereeEntry[]
+  /** The rulings on an event's board records (`e2-t35`, the history index's `board_rulings`) */
+  rulingsOf: (eventId: string) => (boardId: string) => ScoreRuling | undefined
   /** The events' own objects, when configured */
   objects?: RemotePairs
   /** New events go into their own objects (`EVENT_OBJECTS=on`) */
@@ -154,7 +162,16 @@ export class PairsService {
     this.allowed(userId)
     const event = this.require(id)
     void this.progress(event.id)
-    return pairsView(event, userId, this.deps.userById)
+    return pairsView(event, userId, this.deps.userById, this.directing(event.id, userId))
+  }
+
+  /** What the page and the scoring need of the director's work (`e9-t17`) */
+  private directing(id: string, userId?: string): PairsDirecting {
+    return {
+      ...(userId !== undefined && { admin: this.deps.isAdmin(userId) }),
+      entries: this.deps.refereeOf(id),
+      rulingOf: this.deps.rulingsOf(id),
+    }
   }
 
   /**
@@ -254,6 +271,10 @@ export class PairsService {
     const event = this.require(id)
     if (event.directorId !== userId) throw new ClubError('pairsDirectorOnly', {}, 403)
     if (event.status !== 'open') throw new ClubError('pairsNotOpen')
+    // The director put the start off (`e9-t17`): not before then
+    const until = delayOf(this.deps.refereeOf(event.id))
+    if (until !== null && until > this.deps.now())
+      throw new ClubError('eventDelayed', { minutes: Math.ceil((until - this.deps.now()) / 60_000) })
     const movement = mitchell(event.pairs.length, event.settings.boardsPerRound)
     if (!movement) throw new ClubError(event.pairs.length < MOVEMENT_PAIRS.min ? 'pairsTooFew' : 'pairsFull', { min: MOVEMENT_PAIRS.min, max: MOVEMENT_PAIRS.max })
     const online = new Set(this.deps.online())
@@ -284,32 +305,8 @@ export class PairsService {
     const schedule = movement.schedule[round - 1]
     const ids = Array.from({ length: movement.tables }, () => '')
     for (const t of schedule.tables) ids[t.table - 1] = this.deps.newId()
-    const players = pairsPlayers(event)
-    const people = Object.fromEntries(players.map((id) => [id, this.deps.person(id)]))
-    const now = this.deps.now()
     const opened = await Promise.allSettled(
-      schedule.tables.map((t) =>
-        this.deps.openTable(
-          pairsTable({
-            id: ids[t.table - 1],
-            eventId: event.id,
-            directorId: event.directorId,
-            round,
-            rounds: movement.rounds,
-            table: t.table,
-            ns: event.pairs[t.ns].players,
-            ew: event.pairs[t.ew].players,
-            nsPair: t.ns,
-            ewPair: t.ew,
-            boards: t.boards,
-            deals: event.deals!,
-            boardMinutes: event.settings.boardMinutes,
-            players,
-            now,
-            people,
-          }),
-        ),
-      ),
+      schedule.tables.map((t) => this.deps.openTable(this.tableOfRound(event, round, t.table, ids[t.table - 1], t.boards))),
     )
     const failed = opened.find((r): r is PromiseRejectedResult => r.status === 'rejected')
     if (failed) {
@@ -318,6 +315,82 @@ export class PairsService {
       throw failed.reason instanceof AppError ? failed.reason : new ClubError('serverError', {}, 500)
     }
     return ids
+  }
+
+  /** One table of a round as it opens, playing `boards` (the round's there, or what is left of them) */
+  private tableOfRound(event: PairsEvent, round: number, table: number, id: string, boards: number[]): Table {
+    const movement = event.movement!
+    const t = movement.schedule[round - 1].tables.find((x) => x.table === table)!
+    const players = pairsPlayers(event)
+    return pairsTable({
+      id,
+      eventId: event.id,
+      directorId: event.directorId,
+      round,
+      rounds: movement.rounds,
+      table,
+      ns: event.pairs[t.ns].players,
+      ew: event.pairs[t.ew].players,
+      nsPair: t.ns,
+      ewPair: t.ew,
+      boards,
+      deals: event.deals!,
+      boardMinutes: event.settings.boardMinutes,
+      players,
+      now: this.deps.now(),
+      people: Object.fromEntries(players.map((p) => [p, this.deps.person(p)])),
+    })
+  }
+
+  // ── The director's tools (`e9-t17`; the log and the audit are the club's, `ClubService.referee`) ──
+
+  /** The event, for one of the director's tools: its director or an admin */
+  requireReferee(userId: string, id: unknown): PairsEvent {
+    const event = this.require(id)
+    if (event.directorId !== userId && !this.deps.isAdmin(userId)) throw new ClubError('refereeOnly', {}, 403)
+    return event
+  }
+
+  /**
+   * A score for a board a table of the round has not played (a table held the round up), or one
+   * given so taken back; the round moves on when that was the last board it waited for
+   */
+  async assign(id: string, request: { round?: number; table: number; boardNo: number; ruling: ScoreRuling | null }) {
+    const event = this.require(id)
+    const round = request.round ?? event.round
+    await this.step(id, { kind: 'assign', round, table: request.table, boardNo: request.boardNo, ruling: request.ruling, at: this.deps.now() })
+    await this.progress(id)
+    return { round }
+  }
+
+  /**
+   * Re-opens a table of the round: the table closes (the board on it is not kept), its four players
+   * leave it, and a new one opens for the boards there with no result yet and those in `replay`
+   * (played there, played again: their results are dropped). One at a time with the round changes
+   */
+  restart(id: string, table: number, replay: number[]): Promise<{ round: number }> {
+    return this.lane(id, async () => {
+      const event = this.require(id)
+      if (event.status !== 'playing' || !event.movement) throw new ClubError('pairsNotPlaying')
+      const round = event.round
+      const t = event.movement.schedule[round - 1]?.tables.find((x) => x.table === table)
+      if (!t || !replay.every((b) => t.boards.includes(b))) throw new ClubError('refereeNoBoard', {}, 404)
+      const left = new Set(boardsLeft(event, round, table))
+      const boards = t.boards.filter((b) => left.has(b) || replay.includes(b))
+      if (!boards.length) throw new ClubError('refereeNothingLeft')
+      const old = event.roundTables[round - 1]?.[table - 1]
+      if (old) await this.deps.closeTable(old).catch(() => undefined)
+      for (const player of [...event.pairs[t.ns].players, ...event.pairs[t.ew].players]) await this.deps.leave(player)
+      const tableId = this.deps.newId()
+      await this.deps.openTable(this.tableOfRound(event, round, table, tableId, boards))
+      try {
+        await this.step(id, { kind: 'retable', round, table, tableId, replay })
+      } catch (error) {
+        await this.deps.closeTable(tableId).catch(() => undefined)
+        throw error
+      }
+      return { round }
+    })
   }
 
   /**
@@ -355,13 +428,22 @@ export class PairsService {
 
   /** Whatever the event's state calls for, one at a time: the next round's tables, or closing up the end */
   private progress(id: string): Promise<void> {
+    return this.lane(id, () => this.advance(id)).catch((error) => this.deps.log(crashEntry('pairsProgress', error)))
+  }
+
+  /** Runs `run` after whatever the event is doing already; its error goes to the caller */
+  private lane<T>(id: string, run: () => Promise<T>): Promise<T> {
     const previous = this.lanes.get(id) ?? Promise.resolve()
-    const next = previous.then(() => this.advance(id)).catch((error) => this.deps.log(crashEntry('pairsProgress', error)))
+    const result = previous.then(run)
+    const next = result.then(
+      () => undefined,
+      () => undefined,
+    )
     this.lanes.set(id, next)
     void next.then(() => {
       if (this.lanes.get(id) === next) this.lanes.delete(id)
     })
-    return next
+    return result
   }
 
   /**
@@ -380,7 +462,7 @@ export class PairsService {
       for (const tableId of event.roundTables.at(-1) ?? []) if (tableId) await this.deps.endTable(tableId)
       if (event.status === 'finished') {
         await this.deps.reveal(id)
-        const ranked = pairsRanked(event)
+        const ranked = pairsRanked(event, pairsScoring(this.directing(id)))
         if (ranked) this.deps.ranked(ranked)
       }
       return
@@ -409,9 +491,10 @@ export class PairsService {
  * percentages compare: each is a share of the tops of the boards that pair played), equal
  * percentages sharing a place; null before the end
  */
-export function pairsRanked(event: PairsEvent): RankedEvent | null {
+export function pairsRanked(event: PairsEvent, scoring: PairsScoringOptions = {}): RankedEvent | null {
   if (event.status !== 'finished' || !event.movement) return null
-  const { standings } = scorePairs(event.movement, event.results)
+  // With the director's rulings and penalties (`e9-t17`), as the results page shows them
+  const { standings } = scorePairs(event.movement, event.results, scoring)
   const same = 1e-9
   const sides = standings.map((s) => ({
     userIds: event.pairs[s.pair].players,
