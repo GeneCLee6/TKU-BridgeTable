@@ -39,8 +39,27 @@ const VIEW: TeamEventView = {
       matches: [{ matchId: 'm1', a: 0, b: 1, status: 'finished', imps: { A: 23, B: 8 }, vp: { A: 14.74, B: 5.26 } }],
       bye: 2,
       done: true,
+      sameDeals: true,
+      boards: [
+        {
+          seq: 1,
+          datum: 200,
+          rows: [
+            {
+              matchId: 'm1',
+              a: 0,
+              b: 1,
+              open: { scoreNS: 420, contract: { level: 4, strain: 'S', doubled: '', declarer: 'S' }, declarerTricks: 10 },
+              closed: { scoreNS: -50, contract: { level: 4, strain: 'S', doubled: '', declarer: 'N' }, declarerTricks: 9 },
+              result: { A: 10, B: 0 },
+              ruled: false,
+              vsDatum: { open: 6, closed: -6 },
+            },
+          ],
+        },
+      ],
     },
-    { n: 2, matches: [{ matchId: 'm2', a: 2, b: 0, status: 'playing', imps: { A: 3, B: 0 } }], bye: 1, done: false },
+    { n: 2, matches: [{ matchId: 'm2', a: 2, b: 0, status: 'playing', imps: { A: 3, B: 0 } }], bye: 1, done: false, sameDeals: true, boards: [] },
   ],
   standings: [
     { team: 0, rank: 1, vp: 14.74, played: 1, byes: 0, impsFor: 23, impsAgainst: 8, quotient: 2.875 },
@@ -84,7 +103,7 @@ describe('multi-team event page (e9-t14)', () => {
     expect(rows[0]).toHaveAttribute('aria-current', 'true')
     expect(within(standings).getByText(/輪空得 12 VP/)).toBeInTheDocument()
     const rounds = screen.getByRole('region', { name: '各輪' })
-    expect(within(rounds).getByText('甲隊 對 第 2 隊')).toBeInTheDocument()
+    expect(within(rounds).getAllByText('甲隊 對 第 2 隊').length).toBeGreaterThan(0)
     expect(within(rounds).getByText('IMP 23 : 8')).toBeInTheDocument()
     expect(within(rounds).getByText('VP 14.74 : 5.26')).toBeInTheDocument()
     expect(within(rounds).getByText('輪空：丙隊')).toBeInTheDocument()
@@ -115,5 +134,27 @@ describe('multi-team event page (e9-t14)', () => {
     await userEvent.click(await screen.findByRole('button', { name: '開始第 3 輪' }))
     expect(mocks.api.teamEvents.next).toHaveBeenCalledWith('e1')
     expect(await screen.findByRole('alert')).toHaveTextContent('這一輪還有比賽沒打完')
+  })
+})
+
+describe('multi-team event page: the round compared board by board (same deals)', () => {
+  beforeEach(() => {
+    for (const fn of Object.values(mocks.api.teamEvents)) fn.mockReset()
+  })
+
+  it("shows each board once every match played it: each match's rooms, IMPs and the datum", async () => {
+    mocks.api.teamEvents.get.mockResolvedValue({ event: VIEW })
+    renderPage()
+    const rounds = await screen.findByRole('region', { name: '各輪' })
+    const board = within(rounds).getByRole('table', { name: /第 1 副/ })
+    expect(board).toHaveTextContent('基準分（南北）200')
+    const row = within(board).getAllByRole('row')[1]
+    expect(row).toHaveTextContent('甲隊 對 第 2 隊')
+    expect(row).toHaveTextContent('420')
+    expect(row).toHaveTextContent('-50')
+    expect(row).toHaveTextContent('10 : 0')
+    expect(row).toHaveTextContent('+6 / -6')
+    // The round still on has no board every match has played yet
+    expect(within(rounds).getByText('還沒有每一場都打完的副。')).toBeInTheDocument()
   })
 })

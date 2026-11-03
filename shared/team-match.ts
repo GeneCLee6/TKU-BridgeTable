@@ -284,8 +284,19 @@ export interface TeamMatchView {
    */
   segment?: number
   breakAt?: number
-  /** While it is played, to the host only: each room's board and clock, for rulings (`e8-t15`) */
+  /**
+   * While it is played, to whoever runs it only (the host; in a multi-team event's match its
+   * director or an admin instead, `event`): each room's board and clock, for rulings (`e8-t15`)
+   */
   rooms?: Record<Room, MatchRoomClock>
+  /**
+   * A multi-team event's match (§5.26): the event, and whether the viewer directs it. Its director
+   * (or an admin) runs it instead of the host: may start it for the host, and while it is played
+   * rules over the time limit, pauses, abandons, has a robot sit in and starts the next segment;
+   * the host only plays. Its seats are the line-ups (only swapped within a team), its settings
+   * stay, it is not called off
+   */
+  event?: { id: string; directs: boolean }
 }
 
 // ── The Vugraph page (`e8-t18`, `e8-t19`, AC-8.8) ────────────────────────────────────────────

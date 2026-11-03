@@ -50,6 +50,7 @@ export default defineConfig({
             'tests/worker/pairs*.test.ts',
             'tests/worker/tournaments.test.ts',
             'tests/worker/team-events.test.ts',
+            'tests/worker/team-event-director.test.ts',
             'tests/worker/tku-system.test.ts',
             'tests/worker/visibility/*.test.ts',
           ],

@@ -249,12 +249,13 @@ describe('multi-team events (e9-t14)', () => {
         const m = round.matches[0]
         const match = t2.club().matches.store.get(m.matchId)!
         await t2.send(match.hostId, { type: 'startMatch', matchId: m.matchId })
-        await t2.club().matches.pause(match.hostId, m.matchId, true)
+        // The event's director pauses its matches (the host only plays)
+        await t2.club().matches.pause(admin, m.matchId, true)
         const outsider = t2.view(admin).teams[round.matches[1].a].players[0].id
         expect(
           await code(() => t2.club().matches.replace(match.hostId, { type: 'matchReplace', matchId: m.matchId, room: 'open', seat: 'N', userId: outsider })),
         ).toBe('teamEventRoster')
-        await t2.club().matches.pause(match.hostId, m.matchId, false)
+        await t2.club().matches.pause(admin, m.matchId, false)
       }
       for (const m of round.matches) {
         const match = t2.club().matches.store.get(m.matchId)!

@@ -168,7 +168,8 @@ import { TeamEventService, type EventMatchInput } from './team-events.ts'
 import { matchTotals } from './ranking-events.ts'
 import type { TournamentKind } from '../shared/tournament.ts'
 import { MatchHomes, type MatchApi, type MatchSnapshot, type RemoteMatches } from './match-events.ts'
-import { TeamMatchStore, type TeamMatch } from './team-matches.ts'
+import { TeamMatchStore, type RoomResult, type TeamMatch } from './team-matches.ts'
+import type { EventMatchBoard, EventRoomResult } from '../shared/team-event.ts'
 import { teamTable } from './team-mode.ts'
 import { parseRulingReason, ROOMS, TEAM_MATCH_LIMITS, teamAt, VUGRAPH_CHAT_MAX, type MatchVugraph, type Room, type TeamMatchSettings, type TeamMatchView, type VugraphRoom } from '../shared/team-match.ts'
 import { parseRulingRequest, type RulingRequest } from '../shared/board-events.ts'
@@ -850,6 +851,8 @@ export class ClubService {
       write: (matchId, step) => this.writeMatch(matchId, step),
       directing: (matchId, userId) => this.directing('match', matchId, userId),
       eventTeams: (matchId) => this.teamEvents.ofMatch(matchId)?.teams ?? null,
+      eventRole: (matchId, userId) => this.teamEvents.roleIn(matchId, userId),
+      eventDirector: (matchId) => this.teamEvents.directorOf(matchId),
     })
     this.matchHomes = new MatchHomes(store.sql)
     this.referee = new RefereeLog(store, new AuditLog(store, this.now), this.now, () => randomId(6))
@@ -963,6 +966,7 @@ export class ClubService {
       },
       record: (event) => this.rankings.record(event),
       ended: (id) => this.tournaments.eventEnded('teams', id),
+      newDeals: (count) => makeDealSet({ kind: 'random', count }, this.random),
     })
     if (config.historyReplica)
       this.replica = new ReplicaSync({ store, db: config.historyReplica, scheduler: this.scheduler, now: this.now, log: this.log })
@@ -3917,7 +3921,9 @@ export class ClubService {
     const done = match.boards.flatMap((b) =>
       b.ruling || (b.open && b.closed) ? [b.open?.boardId, b.closed?.boardId].filter((x): x is string => x !== undefined) : [],
     )
-    if (done.length) await this.revealRecords(revealBoards(this.store.sql, done, this.now()))
+    // A multi-team event's round plays the same deals in every match: its boards are shown across the round together (§5.26)
+    if (this.teamEvents.shownIn(id)) await this.revealRound(id)
+    else if (done.length) await this.revealRecords(revealBoards(this.store.sql, done, this.now()))
     if ((match.status !== 'finished' && match.status !== 'abandoned') || this.matchHomes.ended(id)) return
     // A multi-team event's match (`e9-t14`) counts in the event's points, once the event finishes
     const forEvent = !!this.teamEvents.ofMatch(id)
@@ -3991,7 +3997,20 @@ export class ClubService {
     if (!m) return null
     const boards = eventBoards(this.store.sql, matchId)
     const score = matchTotals(m, (b) => boards.get(b)?.ruling, penaltiesOf(this.referee.of('match', matchId)))
-    return { status: m.status, imps: { A: score.totals.A, B: score.totals.B }, boards: m.settings.boards }
+    // Each board done, for the round's comparison (§5.26): the two rooms' contracts and scores, what each team won
+    const room = (r: RoomResult | undefined): EventRoomResult | undefined => {
+      if (!r) return undefined
+      const found = boards.get(r.boardId)
+      return { scoreNS: r.scoreNS, ...(found && { contract: found.contract, declarerTricks: found.declarerTricks }) }
+    }
+    const played = score.boards.flatMap((result, i): EventMatchBoard[] => {
+      if (!result) return []
+      const board = m.boards.find((b) => b.seq === i + 1)
+      const open = room(board?.open)
+      const closed = room(board?.closed)
+      return [{ seq: i + 1, ...(open && { open }), ...(closed && { closed }), result: { A: result.A, B: result.B }, ruled: result.ruled }]
+    })
+    return { status: m.status, imps: { A: score.totals.A, B: score.totals.B }, boards: m.settings.boards, played }
   }
 
   /** Where a tournament's event stands (`e9-t16`): an abandoned match counts as finished (its boards are scored) */
@@ -4480,8 +4499,9 @@ export class ClubService {
     for (const id of members)
       if (this.matches.store.playingIdOf(id))
         throw new ClubError('matchPlayerBusy', { name: this.users.get(id)?.username ?? '' })
-    const deals = makeDealSet({ kind: 'random', count: match.settings.boards }, this.random)
-    if (!deals) throw new ClubError('serverError', {}, 500)
+    // A multi-team event's round plays the same deals in each of its matches (§5.26); any other match its own
+    const deals = (await this.teamEvents.dealsFor(match.id)) ?? makeDealSet({ kind: 'random', count: match.settings.boards }, this.random)
+    if (!deals || deals.boards.length !== match.settings.boards) throw new ClubError('serverError', {}, 500)
     const people = Object.fromEntries(
       members.flatMap((id) => {
         const user = this.users.get(id)
@@ -4503,7 +4523,7 @@ export class ClubService {
     }
     for (const result of opened) if (result.status === 'fulfilled') this.applyEntry(result.value)
     try {
-      await this.matches.started(match.id, deals, ids)
+      await this.matches.started(match.id, deals, ids, userId)
     } catch (error) {
       // The match's own object did not take the start (H2c): it stays set up, and both rooms close
       if (this.matches.store.get(match.id)?.status === 'setup')
@@ -4562,7 +4582,33 @@ export class ClubService {
   private async matchTablesEnded(matchId: string) {
     for (const entry of [...this.directory.values()])
       if (entry.match?.matchId === matchId) this.applyResult(entry.id, await this.tables.get(entry.id).matchEnded())
-    await this.revealRecords(revealEvent(this.store.sql, matchId, this.now()))
+    // A multi-team event's round: its boards are shown once the round's other matches played them too (`revealRound`)
+    if (this.teamEvents.shownIn(matchId)) await this.revealRound(matchId)
+    else await this.revealRecords(revealEvent(this.store.sql, matchId, this.now()))
+  }
+
+  /**
+   * Shows a multi-team event's round's records (§5.26): its matches play the same deals, so each
+   * board's records (every match's two rooms) are kept back until every match of the round has
+   * done it or will not play it any more (`roundBoardShown`); once every match of the round is
+   * over, all of them are shown, as a match's are when it ends. Until then only the four who played
+   * a room's board see its record (§4)
+   */
+  private async revealRound(matchId: string) {
+    const found = this.teamEvents.roundOf(matchId)
+    const shown = this.teamEvents.shownIn(matchId)
+    if (!found || !shown) return
+    const matches = found.round.matches.map((m) => this.matches.store.get(m.matchId))
+    const over = matches.every((m) => !m || m.status === 'finished' || m.status === 'abandoned' || m.status === 'cancelled')
+    const now = this.now()
+    if (over) {
+      for (const m of found.round.matches) await this.revealRecords(revealEvent(this.store.sql, m.matchId, now))
+      return
+    }
+    const boardIds = matches.flatMap((m) =>
+      (m?.boards ?? []).flatMap((b) => (shown(b.seq) ? [b.open?.boardId, b.closed?.boardId].filter((x): x is string => x !== undefined) : [])),
+    )
+    if (boardIds.length) await this.revealRecords(revealBoards(this.store.sql, boardIds, now))
   }
 
   /** A match's tables in the directory, by room */
@@ -4612,6 +4658,8 @@ export class ClubService {
     if (!stored || !match) throw new ClubError('matchGone', {}, 404)
     if ((stored.status === 'setup' || stored.status === 'playing') && isMatchPlayer(stored, userId))
       throw new ClubError('matchNoWatching', {}, 403)
+    // The round's other matches play the same deals: not while one's own team still plays them (§5.26)
+    if (this.teamEvents.watchBarred(matchId, userId)) throw new ClubError('teamEventNoWatching', {}, 403)
     const rooms: Partial<Record<Room, VugraphRoom>> = {}
     if (stored.status === 'playing') {
       const tables = this.matchTables(matchId)
@@ -4946,6 +4994,8 @@ export class ClubService {
       return
     }
     this.checkNotInMatch(userId, entry)
+    // A multi-team event's round plays the same deals in every match: no watching another while one's own team plays them (§5.26)
+    if (entry.match && this.teamEvents.watchBarred(entry.match.matchId, userId)) throw new ClubError('teamEventNoWatching', {}, 403)
     this.checkWelcome(userId, entry)
     // A table without kibitzers takes people only into its seats (`e2-t26`); a practice table only has watchers
     if (!entry.settings.allowKibitz && entry.mode !== 'practice') throw new ClubError('noKibitzing', {}, 403)
@@ -5160,10 +5210,18 @@ export class ClubService {
 
   /** What an event's page needs of the director's work (`e9-t17`): whether the viewer is an admin, and the log */
   private directing(kind: RefereeEvent, eventId: string, userId: string): EventDirecting {
+    const teamEvent = kind === 'match' ? this.teamEvents.ofMatch(eventId) : null
+    // A multi-team event's match (§5.26): its director runs it; the round's boards are shown across its matches together
+    const shown = teamEvent ? this.teamEvents.shownIn(eventId) : null
     return {
       admin: this.actsAsAdmin(this.users.get(userId)),
       entries: this.referee.of(kind, eventId),
-      ...(kind === 'match' && this.teamEvents.ofMatch(eventId) && { eventMatch: true }),
+      ...(teamEvent && {
+        eventMatch: true,
+        eventId: teamEvent.event.id,
+        directs: this.teamEvents.directsMatch(eventId, userId),
+        ...(shown && { shown }),
+      }),
     }
   }
 
@@ -5191,8 +5249,9 @@ export class ClubService {
     } else if (kind === 'match') {
       const match = this.matches.store.get(eventId)
       if (!match) throw new ClubError('matchGone', {}, 404)
-      // A multi-team event's match (`e9-t14`): its host is a player in the event, so only admins (its director is one)
-      if ((match.hostId !== userId || this.teamEvents.ofMatch(eventId)) && !admin) throw new ClubError('refereeOnly', {}, 403)
+      // A multi-team event's match (`e9-t14`): its host is a player in the event, so its director (or an admin) instead
+      const event = this.teamEvents.ofMatch(eventId)
+      if (!admin && (event ? !this.teamEvents.directsMatch(eventId, userId) : match.hostId !== userId)) throw new ClubError('refereeOnly', {}, 403)
       targets = (t) => (t === 'A' || t === 'B') && match.status !== 'setup' && match.status !== 'cancelled'
     } else {
       const challenge = this.challenges.get(eventId)

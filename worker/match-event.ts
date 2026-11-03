@@ -21,6 +21,7 @@ import {
   robotSeat,
   roomFinished,
   ruleBoard,
+  type EventRole,
   type FlowError,
   type RoomClock,
   type SeatChange,
@@ -48,23 +49,28 @@ export type MatchAction = Extract<
 /** The host's ruling as the socket sends it (`e8-t15`) */
 export type RuleMessage = Extract<ClientMessage, { type: 'matchRule' }>
 
-/** A change the club asks of a match; structured-clonable, so it crosses Durable Object RPC as it is */
+/**
+ * A change the club asks of a match; structured-clonable, so it crosses Durable Object RPC as it
+ * is. `role`: who the member is in a multi-team event's match (§5.26), worked out by the club (it
+ * knows the event and the admins); absent for any other match
+ */
 export type MatchStep =
   | { kind: 'settings'; userId: string; settings: unknown }
   | { kind: 'cancel'; userId: string }
   | { kind: 'seat'; userId: string; message: MatchAction }
   | { kind: 'started'; deals: DealSet; tables: Record<Room, string> }
   | { kind: 'result'; seq: number; room: Room; result: RoomResult }
-  | { kind: 'rule'; userId: string; message: RuleMessage; rooms: Partial<Record<Room, RoomClock>> }
-  | { kind: 'pause'; userId: string; paused: boolean }
-  | { kind: 'abandon'; userId: string }
-  | { kind: 'replace'; userId: string; at: MatchSeat; newcomer: string }
-  | { kind: 'segment'; userId: string }
+  | { kind: 'rule'; userId: string; message: RuleMessage; rooms: Partial<Record<Room, RoomClock>>; role?: EventRole }
+  | { kind: 'pause'; userId: string; paused: boolean; role?: EventRole }
+  | { kind: 'abandon'; userId: string; role?: EventRole }
+  | { kind: 'replace'; userId: string; at: MatchSeat; newcomer: string; role?: EventRole }
+  | { kind: 'segment'; userId: string; role?: EventRole }
   | { kind: 'forget'; userId: string }
 
 const STATUS: Partial<Record<MessageCode, number>> = {
   matchHostOnly: 403,
   matchNotCaptain: 403,
+  matchEventDirector: 403,
   cannotInvite: 403,
   matchGone: 404,
   userGone: 404,
@@ -188,7 +194,7 @@ export class MatchEvent {
         break
       }
       case 'rule': {
-        const ruled = refuse(ruleBoard(match, step.userId, step.message, step.rooms, now()))
+        const ruled = refuse(ruleBoard(match, step.userId, step.message, step.rooms, now(), step.role))
         const { finished, segmentDone } = finishedWithRuling(match, ruled.seq)
         store.transaction(() => {
           store.setRuling(id, ruled.seq, { ...ruled.ruling, reason: ruled.reason, by: step.userId, at: now() })
@@ -198,19 +204,19 @@ export class MatchEvent {
         break
       }
       case 'pause': {
-        const change = refuse(pauseMatch(match, step.userId, step.paused))
+        const change = refuse(pauseMatch(match, step.userId, step.paused, step.role))
         if (change.changed) store.setPaused(id, step.paused ? now() : null)
         break
       }
       case 'abandon':
-        refuse(abandonMatch(match, step.userId))
+        refuse(abandonMatch(match, step.userId, step.role))
         store.transaction(() => {
           store.setPaused(id, null)
           store.setStatus(id, 'abandoned', now())
         })
         break
       case 'replace': {
-        const change = refuse(replaceSeat(match, step.userId, step.at, step.newcomer, now()))
+        const change = refuse(replaceSeat(match, step.userId, step.at, step.newcomer, now(), step.role))
         const target = match.seats.find((s) => s.room === step.at.room && s.seat === step.at.seat)
         const before = target && !target.robot ? target.userId : undefined
         store.transaction(() => {
@@ -220,7 +226,7 @@ export class MatchEvent {
         break
       }
       case 'segment':
-        store.setSegment(id, refuse(nextSegment(match, step.userId)).segment)
+        store.setSegment(id, refuse(nextSegment(match, step.userId, step.role)).segment)
         break
       case 'forget':
         store.forgetIn(id, step.userId, now())

@@ -1,17 +1,21 @@
+import type { DealSet } from '../shared/deal-set.ts'
 import type { NotificationKind, PublicUser } from '../shared/protocol.ts'
 import {
+  eventFormat,
   eventStandings,
-  formatFor,
   matchCounts,
   nextPairing,
+  roundBoardShown,
   roundDone,
   TEAM_EVENT_LIMITS,
   type EventMatchScore,
   type TeamEvent,
+  type TeamEventRound,
   type TeamEventSettings,
   type TeamEventView,
 } from '../shared/team-event.ts'
 import { ClubError } from './errors.ts'
+import type { EventRole } from './team-match-flow.ts'
 import { crashEntry, type Logger } from './log.ts'
 import type { RankedEvent } from './rankings.ts'
 import type { Store } from './store.ts'
@@ -29,6 +33,10 @@ import { teamEventView } from './views.ts'
  */
 
 const KEY = 'teamev:'
+/** A round's deals, the same in each of its matches (`teamevdeal:<event>:<n>`): read when a match starts, never sent to a browser */
+const DEALS_KEY = 'teamevdeal:'
+const dealsKey = (eventId: string, n: number) => `${DEALS_KEY}${eventId}:${n}`
+
 
 /** The two line-ups of a round's match: team A's first player hosts (open room South) */
 export interface EventMatchInput {
@@ -62,6 +70,8 @@ export interface TeamEventDeps {
   record: (event: RankedEvent) => void
   /** The event finished: the tournament made it hears (its results announcement) */
   ended: (eventId: string) => Promise<void>
+  /** A round's deals (`count` boards numbered 1…), dealt once for all its matches; null when they cannot be made */
+  newDeals: (count: number) => DealSet | null
 }
 
 export class TeamEventService {
@@ -109,6 +119,15 @@ export class TeamEventService {
 
   private scoreOf = (matchId: string) => this.deps.matchScore(matchId)
 
+  /** `scoreOf` worked out once a match for one page or check: the round's comparison asks each match many times */
+  private scores() {
+    const known = new Map<string, EventMatchScore | null>()
+    return (matchId: string) => {
+      if (!known.has(matchId)) known.set(matchId, this.scoreOf(matchId))
+      return known.get(matchId)!
+    }
+  }
+
   // ── Made from a tournament (`e9-t16`) ──────────────────────────────────────────────────────
 
   /**
@@ -121,7 +140,8 @@ export class TeamEventService {
     const L = TEAM_EVENT_LIMITS
     if (teams.length < L.teamsMin || teams.length > L.teamsMax) throw new ClubError('tournamentTooFew', { count: teams.length, min: L.teamsMin })
     for (const t of teams) if (t.players.length < L.teamSizeMin || t.players.length > L.teamSizeMax) throw new ClubError('tournamentEntrySize')
-    const { format, rounds } = formatFor(teams.length, settings.rounds)
+    // The admin's choice of format (round robin or Swiss), or decided now from the teams there are
+    const { format, rounds } = eventFormat(teams.length, settings)
     const event: TeamEvent = {
       id: this.deps.newId(),
       directorId,
@@ -151,7 +171,7 @@ export class TeamEventService {
     return teamEventView(e, userId, {
       userById: (id) => this.deps.userById(id),
       directs: this.directs(e, userId),
-      scoreOf: this.scoreOf,
+      scoreOf: this.scores(),
     })
   }
 
@@ -167,6 +187,70 @@ export class TeamEventService {
         for (const m of r.matches)
           if (m.matchId === matchId) return { event: e, teams: { A: e.teams[m.a].players, B: e.teams[m.b].players } }
     return null
+  }
+
+  /** The event and round a team match was made for, if any */
+  roundOf(matchId: string): { event: TeamEvent; round: TeamEventRound } | null {
+    for (const e of this.all.values())
+      for (const round of e.played) if (round.matches.some((m) => m.matchId === matchId)) return { event: e, round }
+    return null
+  }
+
+  /** Who a member is in a match (`EventRole`): for any match not an event's, neither */
+  roleIn(matchId: string, userId: string): EventRole {
+    const found = this.ofMatch(matchId)
+    return { event: !!found, director: !!found && this.directs(found.event, userId) }
+  }
+
+  /** The member directs the multi-team event a match belongs to (its director or an admin); false for any other match */
+  directsMatch(matchId: string, userId: string): boolean {
+    return this.roleIn(matchId, userId).director
+  }
+
+  /** The event's director, for a match of it (pushed the match as its players are); null for any other match */
+  directorOf(matchId: string): string | null {
+    return this.ofMatch(matchId)?.event.directorId ?? null
+  }
+
+  /**
+   * The deals a match of a round plays (`teamevdeal:`): the round's, the same for each of its
+   * matches. Null for a match not an event's, or of a round made before rounds shared their deals
+   */
+  async dealsFor(matchId: string): Promise<DealSet | null> {
+    const found = this.roundOf(matchId)
+    if (!found?.round.sameDeals) return null
+    return (await this.deps.store.get<DealSet>(dealsKey(found.event.id, found.round.n))) ?? null
+  }
+
+  /**
+   * Which boards of a match's round may be shown outside the match that played them (`roundBoardShown`):
+   * null for a match not an event's, or of a round whose matches dealt their own (nothing to hide)
+   */
+  shownIn(matchId: string): ((seq: number) => boolean) | null {
+    const found = this.roundOf(matchId)
+    if (!found?.round.sameDeals) return null
+    const { round } = found
+    const scoreOf = this.scores()
+    const shown = new Set<number>()
+    for (let seq = 1; seq <= found.event.settings.boards; seq++) if (roundBoardShown(round, seq, scoreOf)) shown.add(seq)
+    return (seq) => shown.has(seq)
+  }
+
+  /**
+   * Whether a member may not watch a match (its tables, its Vugraph page) because their own team
+   * plays the same deals in another match of the round that is not over (§5.26): the round's
+   * matches share their deals. The director and admins may; so may anyone once their match is over
+   */
+  watchBarred(matchId: string, userId: string): boolean {
+    const found = this.roundOf(matchId)
+    if (!found?.round.sameDeals || this.directs(found.event, userId)) return false
+    const { event, round } = found
+    return round.matches.some(
+      (m) =>
+        m.matchId !== matchId &&
+        (event.teams[m.a].players.includes(userId) || event.teams[m.b].players.includes(userId)) &&
+        !roundDone({ ...round, matches: [m] }, this.scoreOf),
+    )
   }
 
   // ── Captains and the director ────────────────────────────────────────────────────────────
@@ -227,6 +311,11 @@ export class TeamEventService {
     this.busy.add(e.id)
     try {
       const pairing = nextPairing(e, this.scoreOf)
+      const n = e.played.length + 1
+      // One set of deals for the whole round: every match plays the same boards, compared afterwards
+      const deals = this.deps.newDeals(e.settings.boards)
+      if (!deals) throw new ClubError('serverError', {}, 500)
+      await this.deps.store.put(dealsKey(e.id, n), deals)
       const made: string[] = []
       try {
         for (const [a, b] of pairing.pairs) {
@@ -243,14 +332,15 @@ export class TeamEventService {
         }
       } catch (error) {
         for (const matchId of made) await this.deps.cancelMatch(matchId).catch(() => undefined)
+        await this.deps.store.delete(dealsKey(e.id, n)).catch(() => undefined)
         throw error
       }
-      const n = e.played.length + 1
-      const round = {
+      const round: TeamEventRound = {
         n,
         matches: pairing.pairs.map(([a, b], i) => ({ a, b, matchId: made[i] })),
         ...(pairing.bye !== undefined && { bye: pairing.bye }),
         at: this.deps.now(),
+        sameDeals: true,
       }
       const next: TeamEvent = { ...this.all.get(e.id)!, status: 'playing', played: [...e.played, round] }
       await this.save(next)

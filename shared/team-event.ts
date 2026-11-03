@@ -1,3 +1,5 @@
+import type { Contract } from './auction.ts'
+import { imps } from './imp.ts'
 import type { PublicUser } from './protocol.ts'
 import type { MatchStatus } from './team-match.ts'
 import { matchVictoryPoints, VP_TOTAL } from './vp.ts'
@@ -34,6 +36,13 @@ export const TEAM_EVENT_FORMATS = ['roundRobin', 'swiss'] as const
 export type TeamEventFormat = (typeof TEAM_EVENT_FORMATS)[number]
 
 /**
+ * What the admin chose on the announcement (§5.26, 社長 2026-11-03): a round robin, Swiss, or
+ * `auto` (decided at the start from the teams there are, `formatFor`; the form's suggestion)
+ */
+export const TEAM_EVENT_FORMAT_CHOICES = ['auto', 'roundRobin', 'swiss'] as const
+export type TeamEventFormatChoice = (typeof TEAM_EVENT_FORMAT_CHOICES)[number]
+
+/**
  * - `ready`: made from a tournament's entries; captains set their line-ups, the director starts round 1
  * - `playing`: a round is on, or between rounds waiting for the director to start the next
  * - `finished`: every match of the last round ended; the standings are final, points given
@@ -48,8 +57,14 @@ export interface TeamEventSettings {
   boards: number
   /** Each board's time limit (the team match's, 0 for none) */
   boardMinutes: number
-  /** The most rounds: a round robin needing more than this is played Swiss over this many */
+  /**
+   * The most rounds: with `auto`, a round robin needing more than this is played Swiss over this
+   * many; with `swiss`, the rounds played (at most one fewer than the teams); with `roundRobin`,
+   * every team meeting every other (`roundRobinRounds` of the places)
+   */
   rounds: number
+  /** The format the admin chose; absent (events before it could be chosen) is `auto` */
+  format?: TeamEventFormatChoice
 }
 
 /**
@@ -63,6 +78,28 @@ export function formatFor(teams: number, maxRounds: number): { format: TeamEvent
 
 /** A round robin of n teams: n − 1 rounds, n with an odd number (every team has one bye) */
 export const roundRobinRounds = (teams: number) => (teams % 2 ? teams : teams - 1)
+
+/**
+ * Whether the rounds fit the chosen format for up to `capacity` teams (the announcement's check):
+ * a round robin plays exactly `roundRobinRounds(capacity)` (so at most 10 teams within the 9
+ * rounds allowed); Swiss at most one fewer than the teams; `auto` anything allowed
+ */
+export function roundsFit(format: TeamEventFormatChoice, rounds: number, capacity: number): boolean {
+  if (format === 'roundRobin') return rounds === roundRobinRounds(capacity)
+  if (format === 'swiss') return rounds <= capacity - 1
+  return true
+}
+
+/**
+ * The format and rounds an event plays with the teams there are at the start: the admin's choice
+ * (a round robin of however many came; Swiss over the rounds asked, at most one fewer than the
+ * teams), or `auto` (`formatFor`)
+ */
+export function eventFormat(teams: number, settings: Pick<TeamEventSettings, 'rounds' | 'format'>): { format: TeamEventFormat; rounds: number } {
+  if (settings.format === 'roundRobin') return { format: 'roundRobin', rounds: roundRobinRounds(teams) }
+  if (settings.format === 'swiss') return { format: 'swiss', rounds: Math.min(settings.rounds, teams - 1) }
+  return formatFor(teams, settings.rounds)
+}
 
 // ── Pairings ─────────────────────────────────────────────────────────────────────────────────
 
@@ -272,6 +309,12 @@ export interface TeamEventRound {
   matches: TeamEventPairing[]
   bye?: number
   at: number
+  /**
+   * Every match of the round plays the same deals (社長 2026-11-03), made when the round is: kept
+   * under their own key (`teamevdeal:<event>:<n>`, never sent to a browser); absent for rounds
+   * made before (each match dealt its own)
+   */
+  sameDeals?: boolean
 }
 
 export interface TeamEvent {
@@ -292,12 +335,34 @@ export interface TeamEvent {
   tournamentId?: string
 }
 
+/** One room's result on a board, as the round's comparison shows it */
+export interface EventRoomResult {
+  scoreNS: number
+  /** Null for a passed-out board; absent when the index has no row for it */
+  contract?: Contract | null
+  declarerTricks?: number | null
+}
+
+/** A board one of the event's matches has done: both rooms played it, or it was ruled on */
+export interface EventMatchBoard {
+  /** The board's place in the match, 1-based: the same deal in every match of the round */
+  seq: number
+  open?: EventRoomResult
+  closed?: EventRoomResult
+  /** What each team won on it (IMPs) */
+  result: { A: number; B: number }
+  /** A ruling decided it (on the whole board, or on a room's record) */
+  ruled: boolean
+}
+
 /** What the event needs of one of its matches: where it stands and its score (the director's penalties taken off) */
 export interface EventMatchScore {
   status: MatchStatus
   imps: { A: number; B: number }
   /** The match's boards (the VP scale's) */
   boards: number
+  /** The boards it has done so far (the round's comparison, and what may be shown of it) */
+  played?: EventMatchBoard[]
 }
 
 /** A match that will not change any more: finished, abandoned, called off, or gone */
@@ -308,6 +373,101 @@ export const matchCounts = (s: EventMatchScore | null): s is EventMatchScore => 
 
 export const roundDone = (round: TeamEventRound, scoreOf: (matchId: string) => EventMatchScore | null) =>
   round.matches.every((m) => matchOver(scoreOf(m.matchId)))
+
+/**
+ * Whether a board of a round may be shown to people outside the match that played it (§5.26,
+ * 社長 2026-11-03): every match of the round plays the same deals, so a board is shown across
+ * them only once every match of the round has done it (both rooms, or ruled on) or will not play
+ * it any more (finished, abandoned, called off). Until then a player of one match could learn the
+ * deal from another's result
+ */
+export function roundBoardShown(round: TeamEventRound, seq: number, scoreOf: (matchId: string) => EventMatchScore | null): boolean {
+  return round.matches.every((m) => {
+    const s = scoreOf(m.matchId)
+    return matchOver(s) || !!s?.played?.some((b) => b.seq === seq)
+  })
+}
+
+/** One match's line in a board's comparison */
+export interface TeamEventBoardRow {
+  matchId: string
+  /** Indexes into the teams; team A sat North-South in the open room */
+  a: number
+  b: number
+  open?: EventRoomResult
+  closed?: EventRoomResult
+  /** What each team won on the board (IMPs) */
+  result: { A: number; B: number }
+  ruled: boolean
+  /** Each room's North-South score against the datum, in IMPs (not for a ruled board) */
+  vsDatum?: { open?: number; closed?: number }
+}
+
+/** One board of a round across its matches (the same deal everywhere) */
+export interface TeamEventBoardView {
+  seq: number
+  /** The field's datum: the mean North-South score of the rooms that played it (boards not ruled), to the nearest 10; null with fewer than two */
+  datum: number | null
+  rows: TeamEventBoardRow[]
+}
+
+/**
+ * A round's boards compared across its matches (§5.26): only the boards `roundBoardShown`, each
+ * with every match's two rooms, what each team won, and every room against the field's datum (the
+ * mean of the North-South scores played, to the nearest 10: the Butler datum without dropping the
+ * extremes). A match that never played a board (abandoned before it) has no line for it
+ */
+export function roundComparison(round: TeamEventRound, boards: number, scoreOf: (matchId: string) => EventMatchScore | null): TeamEventBoardView[] {
+  const views: TeamEventBoardView[] = []
+  for (let seq = 1; seq <= boards; seq++) {
+    if (!roundBoardShown(round, seq, scoreOf)) continue
+    const lines = round.matches.flatMap((m) => {
+      const board = scoreOf(m.matchId)?.played?.find((b) => b.seq === seq)
+      return board ? [{ m, board }] : []
+    })
+    if (!lines.length) continue
+    const scores = lines.flatMap(({ board }) =>
+      board.ruled ? [] : [board.open?.scoreNS, board.closed?.scoreNS].filter((x): x is number => x !== undefined),
+    )
+    const datum = scores.length >= 2 ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length / 10) * 10 : null
+    const against = (room?: EventRoomResult) => (room && datum !== null ? imps(room.scoreNS - datum) : undefined)
+    views.push({
+      seq,
+      datum,
+      rows: lines.map(({ m, board }) => {
+        const open = board.ruled ? undefined : against(board.open)
+        const closed = board.ruled ? undefined : against(board.closed)
+        return {
+          matchId: m.matchId,
+          a: m.a,
+          b: m.b,
+          ...(board.open && { open: board.open }),
+          ...(board.closed && { closed: board.closed }),
+          result: board.result,
+          ruled: board.ruled,
+          ...((open !== undefined || closed !== undefined) && {
+            vsDatum: { ...(open !== undefined && { open }), ...(closed !== undefined && { closed }) },
+          }),
+        }
+      }),
+    })
+  }
+  return views
+}
+
+/**
+ * A match's score as people outside it may see it while its round is on (§5.26): the boards not
+ * shown across the round yet taken out (their IMPs would hint at the deal); the director's
+ * penalties stay in. A match that is over, as it is
+ */
+export function shownImps(round: TeamEventRound, s: EventMatchScore, scoreOf: (matchId: string) => EventMatchScore | null): { A: number; B: number } {
+  if (matchOver(s) || !s.played) return s.imps
+  const hidden = s.played.filter((b) => !roundBoardShown(round, b.seq, scoreOf))
+  return {
+    A: round2(s.imps.A - hidden.reduce((sum, b) => sum + b.result.A, 0)),
+    B: round2(s.imps.B - hidden.reduce((sum, b) => sum + b.result.B, 0)),
+  }
+}
 
 /**
  * The standings now: every match that counts (finished or abandoned), and the byes of the rounds
@@ -354,7 +514,11 @@ export interface TeamEventMatchView {
   a: number
   b: number
   status: MatchStatus | 'gone'
-  /** The score so far (boards both rooms played), with the director's penalties */
+  /**
+   * The score so far, with the director's penalties: to people outside the match only the boards
+   * shown across the round (`shownImps`) while it is played; its own players and the director see
+   * every board both rooms played
+   */
   imps: { A: number; B: number }
   /** Once the match ended: its VP */
   vp?: { A: number; B: number }
@@ -366,6 +530,10 @@ export interface TeamEventRoundView {
   bye?: number
   /** Every match of the round ended */
   done: boolean
+  /** Its matches play the same deals (rounds made before each dealt their own) */
+  sameDeals: boolean
+  /** The round's boards compared across its matches, each once every match has done it (`roundComparison`) */
+  boards: TeamEventBoardView[]
 }
 
 export interface TeamStandingView extends TeamStanding {

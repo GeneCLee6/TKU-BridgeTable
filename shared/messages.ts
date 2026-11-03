@@ -2680,6 +2680,22 @@ export const MESSAGES = {
     ja: '団体戦の交代はこのチームに登録したメンバーだけです',
     ko: '단체전의 교체 선수는 이 팀에 등록된 선수여야 합니다',
   },
+  matchEventDirector: {
+    zh: '多隊賽的比賽由多隊賽的裁判（或管理員）處理超時裁定、暫停、中止與代打；房主只負責自己隊的座位',
+    'zh-Hans': '多队赛的比赛由多队赛的裁判（或管理员）处理超时裁定、暂停、中止与代打；房主只负责自己队的座位',
+    en: "In a multi-team event's match the event's director (or an admin) rules on time, pauses, abandons and has robots sit in; the host only arranges their own team's seats",
+    vi: 'Trong trận của giải đồng đội, trọng tài của giải (hoặc quản trị viên) xử lý quá giờ, tạm dừng, hủy trận và cho máy đánh thay; chủ phòng chỉ sắp chỗ cho đội mình',
+    ja: '団体戦の試合では、時間超過の裁定・一時停止・中止・代打は団体戦のディレクター（または管理者）が行います。ホストは自分のチームの座席だけを扱えます',
+    ko: '단체전 경기에서는 시간 초과 판정, 일시 정지, 중단, 대타를 단체전 디렉터(또는 관리자)가 합니다. 방장은 자기 팀의 좌석만 정할 수 있습니다',
+  },
+  teamEventNoWatching: {
+    zh: '這一輪的每一場打同一組牌：你們隊這一輪的比賽打完前，不能觀看同一輪的其他場',
+    'zh-Hans': '这一轮的每一场打同一组牌：你们队这一轮的比赛打完前，不能观看同一轮的其他场',
+    en: "Every match of this round plays the same deals: you can't watch another until your team's match of the round is over",
+    vi: 'Mọi trận của vòng này chơi cùng bộ bài: bạn không thể xem trận khác cho đến khi trận của đội bạn trong vòng này kết thúc',
+    ja: 'このラウンドの試合はすべて同じハンドです。自分のチームのこのラウンドの試合が終わるまで、ほかの試合は観戦できません',
+    ko: '이번 라운드의 모든 경기는 같은 핸드를 칩니다. 이번 라운드 우리 팀 경기가 끝나기 전에는 다른 경기를 관전할 수 없습니다',
+  },
   tournamentBadPairing: {
     zh: '配對要包含每一位單人報名的社員各一次；名單可能剛變了，請重新整理',
     'zh-Hans': '配对要包含每一位单人报名的社员各一次；名单可能刚变了，请刷新',
