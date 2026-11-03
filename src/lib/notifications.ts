@@ -64,5 +64,13 @@ export function notificationText(t: Strings, n: Notification): string {
     case 'forumHidden':
     case 'forumUnhidden':
       return t.notificationTexts[n.kind](String(n.params.title ?? ''))
+    case 'tournamentAnnounced':
+    case 'tournamentPartner':
+    case 'tournamentWithdrawn':
+    case 'tournamentRemoved':
+    case 'tournamentCancelled':
+    case 'tournamentReminder':
+    case 'tournamentResults':
+      return t.notificationTexts[n.kind](name, String(n.params.title ?? ''))
   }
 }

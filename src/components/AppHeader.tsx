@@ -2,6 +2,7 @@ import {
   Award,
   Check,
   ChevronDown,
+  Flag,
   Globe,
   History,
   LogOut,
@@ -296,6 +297,7 @@ export function AppHeader() {
   const pairsOn = useFeature('pairs')
   // The rankings' link (J2): members with the flag, and admins, who set the rules first
   const rankingsOn = useFeature('rankings')
+  const tournamentsOn = useFeature('tournaments')
   const { status, notifications, send } = useClub()
   const inviteBanner = useInviteBanner()
   const { mode, sound: soundOn, soundStyle, t, toggleMode, toggleSound } = usePreferences()
@@ -326,6 +328,12 @@ export function AppHeader() {
             <Link to="/pairs" aria-label={t.pairs.title} title={t.pairs.title}>
               <UsersRound size={18} aria-hidden />
               <span>{t.pairs.title}</span>
+            </Link>
+          )}
+          {tournamentsOn && (
+            <Link to="/tournaments" aria-label={t.tournaments.title} title={t.tournaments.title}>
+              <Flag size={18} aria-hidden />
+              <span>{t.tournaments.title}</span>
             </Link>
           )}
           <Link to="/history" aria-label={t.navHistory} title={t.navHistory}>

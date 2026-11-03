@@ -1,5 +1,6 @@
 import { BOOK_SITE } from './book-site.ts'
 import type { Notification } from './protocol.ts'
+import { tournamentEventLink } from './tournament.ts'
 
 /**
  * Where a notification leads when clicked: challenge news, an invitation too, to that challenge's
@@ -15,7 +16,8 @@ import type { Notification } from './protocol.ts'
  * `?unify=` naming the override a captain suggests dropping); an article sent for review or back to
  * its editor (where articles are reviewed, J4), a published one to the article; the forum's news to the post,
  * at the comment when there is one (`#comment-<id>`): on the table's own forum for a member who has
- * it (`forum` flag on, e13-t09), otherwise on BridgeHall (e11-t08)
+ * it (`forum` flag on, e13-t09), otherwise on BridgeHall (e11-t08); tournament news to the
+ * tournament's page (`e9-t16`), its results straight to the event's page
  */
 export function notificationLink(n: Notification, options: { forum?: boolean } = {}): string {
   switch (n.kind) {
@@ -83,6 +85,18 @@ export function notificationLink(n: Notification, options: { forum?: boolean } =
       return n.params.profileId
         ? `${BOOK_SITE}/profiles/${encodeURIComponent(String(n.params.profileId))}/compare?unify=${encodeURIComponent(String(n.params.ref ?? ''))}`
         : BOOK_SITE
+    case 'tournamentAnnounced':
+    case 'tournamentPartner':
+    case 'tournamentWithdrawn':
+    case 'tournamentRemoved':
+    case 'tournamentCancelled':
+    case 'tournamentReminder':
+      return n.params.tournamentId ? `/tournaments/${encodeURIComponent(String(n.params.tournamentId))}` : '/tournaments'
+    // Straight to the results: the pairs event's or the team match's page
+    case 'tournamentResults':
+      if (n.params.eventId && (n.params.eventKind === 'pairs' || n.params.eventKind === 'match'))
+        return tournamentEventLink(n.params.eventKind, String(n.params.eventId))
+      return n.params.tournamentId ? `/tournaments/${encodeURIComponent(String(n.params.tournamentId))}` : '/tournaments'
     case 'forumReply':
     case 'forumMention':
     case 'forumAnnouncement':

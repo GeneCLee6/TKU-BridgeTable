@@ -48,6 +48,7 @@ TKU-BridgeTable/
 │  ├─ challenge-comments.ts 每副討論串的型別與上限（§5.5 M2）
 │  ├─ movement.ts          雙人賽的移位：Mitchell（3–10 桌、輪空、跳桌），純函式（§5.22）
 │  ├─ pairs.ts             雙人賽的設定、MP 計分（Neuberg 調整、南北東西分開排名）與頁面的型別（§5.22）
+│  ├─ tournament.ts        比賽公告與報名：設定的檢查、報名（單人、搭檔、整隊）、從名單配成雙人賽的對或隊制賽的隊、頁面型別（§5.23）
 │  ├─ challenge.ts         挑戰的狀態、設定、預設值與期限（§5.5）
 │  ├─ team-match.ts        隊制賽的狀態、兩室八個座位與隊伍對應、設定與預設值、畫面型別（§5.8）
 │  ├─ team-scoring.ts      隊制賽的計分：每副兩室分差 → IMP 或 BAM、Avg／Avg+／Avg- 裁定、總分（§5.8）
@@ -120,6 +121,7 @@ TKU-BridgeTable/
 │  ├─ pairs-events.ts      社團與雙人賽之間的介面（PairsApi、PairsRpc、LocalPairs、RemotePairs，§5.22）
 │  ├─ pairs-service.ts     雙人賽社團那一半：只有社團能做的檢查、每一輪開桌與換桌、頁面（§5.22）
 │  ├─ pairs-mode.ts        雙人賽一輪一桌的牌桌：pairs 模式的掛勾、開桌時的快照、紀錄先不公開（§5.22）
+│  ├─ tournaments.ts       比賽公告與報名（e9-t16）：公告、報名與確認、退出、開賽前提醒、用名單建立雙人賽或隊制賽、結果公告（§5.23）
 │  ├─ scheduler.ts         統一排程器：機器人、自動發牌、挑戰的提醒與截止都走同一個 alarm 佇列
 │  ├─ auth.ts              PBKDF2 密碼雜湊（100,000 次，舊的登入時升級）、session cookie、忘記密碼的一次性代碼
 │  ├─ password-policy.ts   新密碼的規則（e11-t29）：至少 12 字、不含帳號名稱、不在 common-passwords.ts 的外洩清單（docs/SECURITY.md V2.1）
@@ -323,6 +325,7 @@ interface BoardState {
 | `meta:settings` | 管理員改過的人數上限與邀請碼（沒改過就用環境變數） |
 | `meta:weekly` | 每週社團挑戰的排程、誰存的、上一場的時間與 id（`worker/weekly-challenge.ts`，§5.5） |
 | `meta:daily` | 每日賽的設定、誰存的、上一場的 00:00、每一天的挑戰 id（`worker/daily-event.ts`，§5.18） |
+| `tourn:<id>` | 一場比賽公告：設定、狀態、報名名單（每組的人與確認了沒有）、建立的比賽 id、提醒過的開賽時間（`worker/tournaments.ts`，§5.23） |
 | `meta:points` | 社團積分規則與賽季（`PointsRules`，`worker/rankings.ts`，§5.21）；帳本與 rating 在 SQLite 的 `ranked_events`、`points_entries`、`points_adjustments`、`ratings`、`rating_history` |
 | `meta:schema` | 資料版本（現在是 4）：1→2 把舊版 `board:<時間>-<id>` 搬到新索引；2→3 把所有 `board:` 回填進 SQL 紀錄索引（§5.3）；3→4 把每個 `table:` 搬進自己的 `TableObject`、改存 `tabledir:`（§5.10）；`TABLE_OBJECTS=off` 時搬回來、回到 3 |
 | `replq:<boardId>` | 還沒複製到 D1 的牌局（outbox，§5.12）：值是排進來的時間＋序號，寫進 D1 後刪掉（期間又被改的留著） |
@@ -1105,6 +1108,24 @@ AC-9.2（社團積分：依名次給分、月榜年榜、規則可設定、每�
 - **開關關著時**：新的雙人賽都在社團的物件裡，行為完全一樣（測試兩種模式都跑）。**跟挑戰、隊制賽不同，不做搬移與退回**：雙人賽是新的，沒有舊資料要搬；開關從開改成關時，已經在物件裡的那幾場繼續從物件存取（`ClubConfig.pairsObjects` 一直都接著），新的才在社團。沒有自己的期限工作，所以物件只在社團呼叫時變。
 - 需要 workerd 才能測的只有接線（`event-object.ts` 的 `adoptPairs`／`stepPairs`、`Club.pairsChanged`）：PR 預覽與 staging 已經是開的。
 
+## 5.23 比賽公告與報名（決策紀錄，`e9-t16`，AC-9.7，2026-11-03）
+
+**比賽公告不是另一套比賽引擎**：它是「公告＋報名名單」，到時候由管理員把名單交給現有的比賽建立流程，比賽本身照樣是一場雙人賽（§5.22）或隊制賽（§5.8），在它們自己的頁面打、計分、出結果。所以 `e9-t17`（裁判工具）、積分（§5.21）、可見性（§4）都不用為比賽公告另外做。功能旗標 `tournaments`（`shared/features.ts`）**預設關**；管理員不開也能進 `/tournaments` 先準備（管理頁的功能旗標區有連結），頁首的「比賽」只在社員有旗標時出現。
+
+- **資料**（`shared/tournament.ts`、`worker/tournaments.ts` 的 `TournamentService`，不碰 Cloudflare API）：每場一個 KV key `tourn:<id>`（`Tournament`：設定、狀態 `open`／`started`／`finished`／`cancelled`、報名名單、建立的比賽 id、提醒過的開賽時間），載入時全部讀進記憶體。社團一場一場地少，不放 SQL、不放 `EventObject`。
+- **公告**（只有管理員，`tournamentAdminOnly`）：比賽方式（`pairs` 雙人賽／`match` 隊制賽）、名稱、說明、開賽時間、報名截止（不晚於開賽）、名額（雙人賽 5–20 對；隊制賽固定兩隊），以及那種比賽自己的設定（雙人賽的每輪副數與每副限時、隊制賽的副數、IMP／BAM、每副限時，用 `parsePairsSettings`、`parseTeamMatchSettings` 檢查）。錯了回 `badTournament { field }`。建立時通知每位有旗標的社員（`tournamentAnnounced`）。開賽前可以改（已經有人報名就不能換比賽方式、名額不能少於已報名的）、可以取消（通知報名的人）、可以移除某一組報名（通知那組的人）。
+- **報名**（有旗標的社員，報名截止前）：雙人賽可以自己報名（算半對，開賽時和其他單人依報名順序兩兩配對）或帶一位搭檔；隊制賽一定是四人一隊（可取隊名）。搭檔、隊友用帳號名稱指定，檢查：存在、不是自己、不重複、兩邊都沒封鎖對方（`tournamentBadPartner`，不說是哪一種）、沒人已經在別組（`tournamentAlreadyIn`）、人數對（`tournamentEntrySize`）、沒超過名額（`tournamentFull`）。**搭檔要確認**（`tournamentPartner` 通知；`POST …/answer { accept }`），確認在開賽前都可以，婉拒和**退出**（同組任何一人）只能在截止前（`tournamentClosed`），而且整組一起取消，通知同組其他人（`tournamentWithdrawn`）。
+- **報名名單**：所有有旗標的社員都看得到每一組的人、誰還沒確認（`TournamentView.entries`）；取消的比賽只有管理員看得到。
+- **開賽前提醒**：統一排程器（`worker/scheduler.ts`）的 `tournament:<id>:<開賽時間>` 工作（`JobKind` 的 `tournament`），排在開賽前一小時（已經過了就立刻），給名單上每一個人（含還沒確認的）`tournamentReminder`。改了開賽時間就排新的一個，舊的到時發現時間不對什麼都不做；送過的記在 `remindedFor`，物件被回收後 `load()` 重排時也不會送第二次。取消或結束了就不送。
+- **用名單開賽**（管理員，`POST …/start`）：
+  - 雙人賽：搭檔確認過的每一對（依報名順序），加上單人兩兩配成的對（多出一人就不排），至少 5 對（`tournamentTooFew { count, min }`），最多前 20 對。`PairsService.createFrom` 建立雙人賽（**裁判是按開賽的管理員**，設定照公告），把每一對報名進去。之後管理員在雙人賽頁按「開始」（照 §5.22：所有人在線、沒在別的比賽才開得了）。
+  - 隊制賽：前兩支四人都確認的隊伍。由第一隊的第一位當房主建立隊制賽（`invite = direct`、不放機器人、隊名照報名），用房主的身分把其他七人邀請到座位（第一隊：開室北、閉室東西；第二隊：開室東西、閉室南北），他們在邀請彈窗接受、房主在準備室開始（§5.8，照常的 `matchInvited` 流程）。有一個邀請失敗（例如有人封鎖房主）就把剛建立的隊制賽取消，比賽公告留在報名中。
+  - 比賽公告變成 `started`、記下比賽 id；頁面多一個「前往比賽」連到 `/pairs/:id` 或 `/matches/:id`。
+- **雙人賽頁的旗標**：從比賽公告建立的雙人賽，參賽的人與裁判不需要 `pairs` 旗標也能看那場的頁面與操作（`PairsService.allowed` 加上「是這場的人」），所以 `/pairs/:eventId` 的路由一律掛上、由伺服器決定（別人照樣 `pairsOff`）；雙人賽列表與建立仍要旗標。
+- **結果公告**：雙人賽收尾（§5.22 的 `settled`，和積分同一個時機）與隊制賽收尾（`settleMatch`，完賽或放棄都算，放棄時兩室都打完的副照樣計分）時呼叫 `TournamentService.eventEnded`；讀比賽頁、列表時也會再看一次（社團漏聽的時候補）。比賽結束 → 比賽公告 `finished`，通知名單上每一個人 `tournamentResults`（直接連到結果頁），頁面的連結改成「看比賽結果」。建立的比賽在開打前被取消（雙人賽的裁判取消、隊制賽的房主取消）或不見了 → 比賽公告回到 `open`，管理員可以重新開賽。
+- **API**：`GET /api/tournaments`（依開賽時間）、`POST /api/tournaments { settings }`、`GET /api/tournaments/:id`、`POST /api/tournaments/:id/{settings|cancel|remove|enter|answer|withdraw|start}`。頁面 `src/pages/TournamentPages.tsx`（`/tournaments`、`/tournaments/:id`）。
+- **還沒做**：多隊賽（`e9-t14`）、個人賽（`e9-t15`）做好之後加成新的比賽方式；隊制賽只取前兩隊（多的隊伍留在名單上）；雙人賽開賽仍要裁判在雙人賽頁按「開始」（要所有人在線，不在開賽時間自動開）；報名費、候補名單沒有做。
+
 ## 5.8 隊制賽（決策紀錄，`e8-t01`，2026-10-25）
 
 隊制賽（E8，雙桌隊制賽，Teams of Four）：房主找齊 8 個人（不夠可補機器人），兩隊在開室與閉室打同一組牌，依兩室的南北分差計 IMP 或 BAM。這一節是 F2 定下的設計，後面的批次（F3–F5、M2）照這裡做；要改設計先改這裡。PRD 沒有定、F2 先選的做法（原本標「建議預設」）社長 2026-10-25 全部確認。
@@ -1444,7 +1465,7 @@ C4 的實作（2026-10-24）：
 
 **邀請彈窗**（`e1-t35`，`src/state/InvitationsContext.tsx`）：`challengeInvited`、`matchInvited` 不只進鈴鐺，也在畫面中間彈出（DESIGN.md 的 InviteDialog）。全在瀏覽器做，伺服器的通知與 API 都沒變：從推來的通知找出邀請（同一個挑戰／比賽只看最新的一則），用既有的 `GET /api/challenges/:id`、`GET /api/matches/:id` 讀詳細內容並判斷還能不能回覆（挑戰：`answerable`；隊制賽：準備中且自己的座位還是 `invited`），接受／拒絕呼叫既有的 `answer`。離線時收到的邀請在登入或重連、通知推來時一樣會彈。之後同一個挑戰或比賽又有通知（取消、移出、再邀請）就重讀一次，`match` 推送（§5.8）直接更新；挑戰的截止時間到了也會變成失效。處理過的（接受、拒絕、稍後回覆、關掉失效的）與響過的通知 id 記在 localStorage（`tku-invites-handled`、`tku-invites-rang`，留 60 天），所以同一個瀏覽器不重複彈、開好幾個分頁也只響一次；別的分頁處理了，`storage` 事件讓這一頁也關掉。接受、拒絕會把那幾則邀請標為已讀；稍後回覆不標，鈴鐺裡還看得到。
 
-現有的種類：`application`（有人申請註冊，通知每位管理員，連到管理頁）；挑戰（§5.5）：`challengeInvited`（給受邀者）、`challengeAccepted`／`challengeDeclined`（給發起者）、`challengeCancelled`（給沒拒絕的人），參數是 `challengeId` 與對方的 `username`；`challengeReminder`（截止前 12 小時，給接受了還沒打完的人）與 `challengeResults`（挑戰 `finished` 時給每位接受的人），參數是 `challengeId`，由期限工作與結算送出（§5.5，`e7-t13`）；`friendOnline`（關注的人上線了，參數 `username`，連到大廳，§5.7；好友隱藏時不送）。受邀桌（`e2-t25`）：`tableInvited`，參數 `tableId`、`number`（桌號）與房主的 `username`，連到那一桌。隊制賽（§5.8，`e8-t04`）：`matchInvited`（給受邀者）、`matchAccepted`／`matchDeclined`／`matchLeft`（給安排那一隊的人）、`matchRemoved`（給被移出的人，連到 `/matches`）、`matchCancelled`（給座位上的人），參數是 `matchId` 與做這件事的人的 `username`，其餘連到那場比賽的準備室。搭檔（淡江橋譜 E2，`e2-t03`）：`pairInvited`（給受邀者）、`pairAccepted`／`pairDeclined`（給邀請者）、`pairEnded`（給另一位），參數 `pairId` 與做這件事的人的 `username`，連到淡江橋譜的搭檔頁（`/pairs/:id`，橋譜 C4 做；鈴鐺用整頁開啟另一個網站）。精選（`e4-t29`）：`boardFeatured`，第一次設為精選時給打那副的社員（不含機器人與設精選的人自己；之後編輯不再通知），參數 `boardId` 與設的人的 `username`，連到那副的紀錄頁。挑戰頁出來前（C6）挑戰的通知連到大廳。受邀桌等之後各自加；私訊不進通知中心（§5.7），所以也不推播。
+現有的種類：`application`（有人申請註冊，通知每位管理員，連到管理頁）；挑戰（§5.5）：`challengeInvited`（給受邀者）、`challengeAccepted`／`challengeDeclined`（給發起者）、`challengeCancelled`（給沒拒絕的人），參數是 `challengeId` 與對方的 `username`；`challengeReminder`（截止前 12 小時，給接受了還沒打完的人）與 `challengeResults`（挑戰 `finished` 時給每位接受的人），參數是 `challengeId`，由期限工作與結算送出（§5.5，`e7-t13`）；`friendOnline`（關注的人上線了，參數 `username`，連到大廳，§5.7；好友隱藏時不送）。受邀桌（`e2-t25`）：`tableInvited`，參數 `tableId`、`number`（桌號）與房主的 `username`，連到那一桌。隊制賽（§5.8，`e8-t04`）：`matchInvited`（給受邀者）、`matchAccepted`／`matchDeclined`／`matchLeft`（給安排那一隊的人）、`matchRemoved`（給被移出的人，連到 `/matches`）、`matchCancelled`（給座位上的人），參數是 `matchId` 與做這件事的人的 `username`，其餘連到那場比賽的準備室。搭檔（淡江橋譜 E2，`e2-t03`）：`pairInvited`（給受邀者）、`pairAccepted`／`pairDeclined`（給邀請者）、`pairEnded`（給另一位），參數 `pairId` 與做這件事的人的 `username`，連到淡江橋譜的搭檔頁（`/pairs/:id`，橋譜 C4 做；鈴鐺用整頁開啟另一個網站）。精選（`e4-t29`）：`boardFeatured`，第一次設為精選時給打那副的社員（不含機器人與設精選的人自己；之後編輯不再通知），參數 `boardId` 與設的人的 `username`，連到那副的紀錄頁。挑戰頁出來前（C6）挑戰的通知連到大廳。比賽公告（§5.23，`e9-t16`）：`tournamentAnnounced`（給有 `tournaments` 旗標的社員）、`tournamentPartner`（被一起報名的搭檔或隊友，要確認）、`tournamentWithdrawn`（同組的人退出或婉拒，這組報名取消）、`tournamentRemoved`（管理員移除這組報名）、`tournamentCancelled`、`tournamentReminder`（開賽前一小時）、`tournamentResults`（建立的比賽結束），參數 `tournamentId`、`title`（`tournamentPartner`、`tournamentWithdrawn`、`tournamentRemoved` 加做這件事的人的 `username`），連到比賽頁；`tournamentResults` 多帶 `eventKind`、`eventId`，直接連到那場雙人賽或隊制賽的結果頁。受邀桌等之後各自加；私訊不進通知中心（§5.7），所以也不推播。
 
 **PWA 推播**（`e1-t28`，AC-1.8；`worker/push.ts`、`worker/web-push.ts`、`shared/push.ts`、`shared/push-texts.ts`，DEPLOY.md §4.17、docs/SECURITY.md）：通知中心的每則**新**通知（`NotificationService` 的 `onNew`）交給 `PushService.queue`；社員**沒有連線**（`Connections.onlineUserIds` 沒有他）、那個種類沒關掉、有訂閱的裝置時，推到他的每台裝置。
 
@@ -1453,7 +1474,7 @@ C4 的實作（2026-10-24）：
 - **文字**：鈴鐺的文字在瀏覽器依語言組（`strings.ts` 太大，Worker 不能帶），推播要在沒開網頁時由 service worker 直接顯示，所以伺服器自己寫：`shared/push-texts.generated.ts` 是 `strings.ts` 的 `notificationTexts` 轉成的範本（`{username}`、`{number}`…），由 `npm run push:texts`（`tests/presentation/push-texts.test.ts` 加 `-u`）產生；同一個測試在每種語言、每個種類比對推播和鈴鐺的文字一樣，`strings.ts` 改了沒重產就會失敗。語言是那台裝置訂閱時頁面的語言。點了到哪裡跟鈴鐺同一個函式（`notificationLink` 搬到 `shared/notification-link.ts`），討論區連牌桌或橋館看社員的 `forum` 旗標。內容 `{ title, body, url, tag }`，`body` 最多 300 字、`tag` 是通知的 id。
 - **送出**：在社團的 Durable Object 裡，不在 Worker 的請求裡（10 ms CPU）。同一輪（一個動作）通知的全部收進一批，`ctx.waitUntil` 撐著物件、回應不必等推播服務；一批 6 個同時送。每台裝置的推播：新的 P-256 金鑰對與 salt、ECDH＋HKDF、AES-128-GCM（RFC 8291 `aes128gcm`，一個 4096 的 record），`Authorization: vapid t=<JWT>, k=<公鑰>`；JWT（ES256，`aud` 是推播服務的 origin，12 小時）每個推播服務簽一次、快到期前一小時才換（`WebPush.jwtFor`），所以推給全社團（大多在 FCM）只簽一次。等人回應的種類（邀請、申請加入、叫裁判、隊制賽開始或替補）`Urgency: high`，其他 `normal`；跟某一桌或某人上線有關的 `TTL` 一小時（過了推播服務就丟掉），其他一天。推播服務回 404／410 表示瀏覽器已經取消訂閱，那台裝置刪掉；其他失敗（429、5xx、連不上）只記日誌（`push`），**不重送**：通知照樣在鈴鐺裡。物件在送出途中被回收，那一批就沒了（同樣的理由不存佇列）。
 - **在線不推**：用社團的連線判斷，跟鈴鐺推 `notifications` 同一個依據；送出那一刻才看（排隊時離線、送出時上線就不推）。在線包括開在背景分頁的網頁（電腦上通常一直連著；手機瀏覽器在背景幾分鐘內會斷線，之後就會推）；這時鈴鐺與邀請彈窗（e1-t35）已經會提醒。
-- **偏好**：存每個種類（`PushKinds`，只存跟預設不同的）；「我的帳號」把種類分成幾組（`PUSH_GROUPS`：挑戰、牌桌、隊制賽、搭檔、精選、關注的人上線（有 `friends` 旗標才顯示）、橋譜與文章、討論區、管理（只給管理員看）），勾一組就改那組全部的種類；每個種類一定在一組（測試）。`friendOnline` 預設不推（`PUSH_OFF_BY_DEFAULT`），其他預設推。偏好只管推播，鈴鐺不受影響。
+- **偏好**：存每個種類（`PushKinds`，只存跟預設不同的）；「我的帳號」把種類分成幾組（`PUSH_GROUPS`：挑戰、牌桌、隊制賽、搭檔、比賽（有 `tournaments` 旗標或管理員才顯示）、精選、關注的人上線（有 `friends` 旗標才顯示）、橋譜與文章、討論區、管理（只給管理員看）），勾一組就改那組全部的種類；每個種類一定在一組（測試）。`friendOnline` 預設不推（`PUSH_OFF_BY_DEFAULT`），其他預設推。偏好只管推播，鈴鐺不受影響。
 - **裝置的生命**：「在這台裝置關閉」與**登出**都會先 `POST /api/push/unsubscribe` 再取消瀏覽器的訂閱（同一台電腦下一個登入的人不會收到前一個人的推播，`forgetPushOnSignOut`，最多等 1.5 秒）；被登出所有裝置（`revokeSessions`：重設密碼、管理員改密碼、兩步驟被關掉…）時清掉全部裝置，社員之後要在各裝置重新開啟。自己改密碼只登出其他 session，不動推播（分不出哪個訂閱屬於這個 session）。瀏覽器換了訂閱（`pushsubscriptionchange`）時，service worker 自己用同一把公鑰重新訂閱並送到 `subscribe`。匯出資料有裝置名稱、開啟時間與種類，沒有 endpoint 與金鑰。
 - **瀏覽器**（`public/sw.js`、`src/lib/push.ts`、`src/components/PushCard.tsx`）：service worker 的 `push` 顯示通知（圖示 `icon-192.png`），`notificationclick` 把已開著的本站視窗叫到前面並前往 `url`，沒有就開新視窗（淡江橋譜的網址直接開）。iPhone／iPad 只有加入主畫面、從主畫面打開（iOS 16.4+）才有 `PushManager`，卡片改成說明；瀏覽器封鎖了通知也會說明。正式站載入時就註冊 service worker；開發模式不註冊，按「開啟推播」時才註冊。
 

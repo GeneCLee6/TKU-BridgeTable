@@ -162,10 +162,11 @@ import { isMatchPlayer, matchMembers, type RoomClock } from './team-match-flow.t
 import { LocalMatches, type MatchStep } from './match-event.ts'
 import type { RemotePairs } from './pairs-events.ts'
 import { PairsService } from './pairs-service.ts'
+import { TournamentService } from './tournaments.ts'
 import { MatchHomes, type MatchApi, type MatchSnapshot, type RemoteMatches } from './match-events.ts'
 import { TeamMatchStore, type TeamMatch } from './team-matches.ts'
 import { teamTable } from './team-mode.ts'
-import { parseRulingReason, ROOMS, TEAM_MATCH_LIMITS, VUGRAPH_CHAT_MAX, type MatchVugraph, type Room, type TeamMatchView, type VugraphRoom } from '../shared/team-match.ts'
+import { parseRulingReason, ROOMS, TEAM_MATCH_LIMITS, VUGRAPH_CHAT_MAX, type MatchVugraph, type Room, type TeamMatchSettings, type TeamMatchView, type VugraphRoom } from '../shared/team-match.ts'
 import { parseRulingRequest } from '../shared/board-events.ts'
 import {
   createHistoryIndex,
@@ -704,6 +705,8 @@ export class ClubService {
   readonly matches: TeamMatchService
   /** Pairs events (`e9-t09`–`e9-t13`, §5.22): the club's half and its copy of every event */
   readonly pairs: PairsService
+  /** Tournament announcements and entries (`e9-t16`, §5.23), made into pairs events or team matches */
+  readonly tournaments: TournamentService
   /** Which matches live in their own object, and which ended matches the club already closed up */
   private readonly matchHomes: MatchHomes
   /** The matches that live in this object */
@@ -839,7 +842,10 @@ export class ClubService {
       closeTable: (tableId) => this.closeTable(tableId),
       leave: (id) => this.leave(id),
       reveal: async (eventId) => this.revealRecords(revealEvent(this.store.sql, eventId, this.now())),
-      ranked: (event) => this.rankings.record(event),
+      ranked: (event) => {
+        this.rankings.record(event)
+        void this.tournaments.eventEnded('pairs', event.id)
+      },
       objects: config.pairsObjects,
       objectsOn: !!config.eventObjectsOn,
     })
@@ -878,6 +884,24 @@ export class ClubService {
       const wake = config.wake ?? ((at: number) => void setTimeout(() => void this.runDue(), Math.max(0, at - this.now())))
       this.scheduler = this.queue = new AlarmQueue(this.now, wake)
     }
+    this.tournaments = new TournamentService({
+      store,
+      now: this.now,
+      newId: () => randomId(8),
+      log: (entry) => this.log(entry),
+      scheduler: this.scheduler,
+      isAdmin: (id) => this.actsAsAdmin(this.users.get(id)),
+      featureOn: (id) => this.featureOn('tournaments', id),
+      members: () => [...this.users.keys()],
+      userById: (id) => this.publicUserById(id) ?? null,
+      userByName: (name) => [...this.users.values()].find((u) => u.username.toLowerCase() === name.toLowerCase())?.id ?? null,
+      blocked: (by, other) => this.blocks.has(by, other),
+      takeAction: (id) => this.actionLimit.take(id),
+      notify: (id, kind, params) => this.notifications.notify(id, kind, params),
+      createPairs: (directorId, settings, pairs) => this.pairs.createFrom(directorId, settings, pairs),
+      createMatch: (teams, settings) => this.tournamentMatch(teams, settings),
+      eventState: (kind, id) => this.tournamentEventState(kind, id),
+    })
     if (config.historyReplica)
       this.replica = new ReplicaSync({ store, db: config.historyReplica, scheduler: this.scheduler, now: this.now, log: this.log })
     this.eventLink = {
@@ -980,6 +1004,7 @@ export class ClubService {
     this.daily = (await this.store.get<DailyState>(DAILY_KEY)) ?? null
     this.scheduleDaily()
     await this.pairs.load()
+    await this.tournaments.load()
   }
 
   /** A table kept in this object's storage takes its state back (brought up to date first) */
@@ -3803,9 +3828,49 @@ export class ClubService {
     if ((match.status !== 'finished' && match.status !== 'abandoned') || this.matchHomes.ended(id)) return
     this.rankings.matchFinished(match)
     this.matchHomes.settleEnd(id)
+    await this.tournaments.eventEnded('match', id)
     if (match.status === 'finished')
       for (const userId of matchMembers(match)) await this.notifications.notify(userId, 'matchFinished', { matchId: id })
     await this.matchTablesEnded(id)
+  }
+
+  /**
+   * A tournament's team match (`e9-t16`, §5.23): hosted by the first team's first player (open
+   * room South), every other player invited to their seat as the host would (the first team
+   * North-South in the open room and East-West in the closed one); they accept in the invitation
+   * dialog and the host starts it. An invitation refused (a block) calls the match off again
+   */
+  private async tournamentMatch(teams: { name: string; players: string[] }[], settings: Partial<TeamMatchSettings>): Promise<string> {
+    const [a, b] = teams
+    const host = a.players[0]
+    const { id } = await this.matches.create(host, {
+      settings: { ...settings, teamNames: [a.name, b.name] },
+      seat: { room: 'open', seat: 'S' },
+    })
+    const seats: [string, Room, Seat][] = [
+      [a.players[1], 'open', 'N'],
+      [a.players[2], 'closed', 'E'],
+      [a.players[3], 'closed', 'W'],
+      [b.players[0], 'open', 'E'],
+      [b.players[1], 'open', 'W'],
+      [b.players[2], 'closed', 'N'],
+      [b.players[3], 'closed', 'S'],
+    ]
+    try {
+      for (const [userId, room, seat] of seats) await this.matches.act(host, { type: 'matchInvite', matchId: id, room, seat, userId })
+    } catch (error) {
+      await this.matches.cancel(host, id).catch(() => undefined)
+      throw error
+    }
+    return id
+  }
+
+  /** Where a tournament's event stands (`e9-t16`): an abandoned match counts as finished (its boards are scored) */
+  private tournamentEventState(kind: 'pairs' | 'match', id: string): 'on' | 'finished' | 'cancelled' | null {
+    const status = kind === 'pairs' ? this.pairs.statusOf(id) : (this.matches.store.get(id)?.status ?? null)
+    if (status === null) return null
+    if (status === 'finished' || status === 'abandoned') return 'finished'
+    return status === 'cancelled' ? 'cancelled' : 'on'
   }
 
   /** An invitee accepts or declines (e7-t06); the creator is told either way */

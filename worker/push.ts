@@ -60,6 +60,7 @@ const URGENT = new Set<NotificationKind>([
   'matchStarted',
   'matchSubIn',
   'pairInvited',
+  'tournamentPartner',
 ])
 /** The kinds that are stale within the hour (a table, someone online): the push service drops them after that */
 const SHORT_LIVED = new Set<NotificationKind>([

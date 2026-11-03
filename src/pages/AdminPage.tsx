@@ -1,5 +1,6 @@
 import { MoreHorizontal, Pencil, Search } from 'lucide-react'
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react'
+import { Link } from 'react-router-dom'
 import styled, { css } from 'styled-components'
 import {
   LIMITS,
@@ -984,6 +985,9 @@ function AdminPanels() {
             <CardHeader>
               <CardTitle id={`${id}-h-features`}>{t.featureFlags.title}</CardTitle>
               <Muted>{t.featureFlags.intro}</Muted>
+              <Muted>
+                <Link to="/tournaments">{t.tournaments.adminLink}</Link>
+              </Muted>
             </CardHeader>
             <FeatureFlags />
           </Section>

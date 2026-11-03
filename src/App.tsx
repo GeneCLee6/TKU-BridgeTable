@@ -14,6 +14,7 @@ import { ChallengesPage } from './pages/ChallengesPage.tsx'
 import { ChallengeStatsPage } from './pages/ChallengeStatsPage.tsx'
 import { DailyPage } from './pages/DailyPage.tsx'
 import { PairsEventPage, PairsListPage } from './pages/PairsPages.tsx'
+import { TournamentPage, TournamentsListPage } from './pages/TournamentPages.tsx'
 import { RankingsPage } from './pages/RankingsPage.tsx'
 import { ComparePage } from './pages/ComparePage.tsx'
 import { FeaturedPage } from './pages/FeaturedPage.tsx'
@@ -87,6 +88,7 @@ function Routed() {
   // Pairs events (E9 J3, §5.22) behind their flag
   const pairsOn = useFeature('pairs')
   const rankingsOn = useFeature('rankings')
+  const tournamentsOn = useFeature('tournaments')
   // The privacy policy and the terms are for anyone, signed in or not (e11-t27)
   if (pathname === '/privacy' || pathname === '/terms') return <LegalPage kind={pathname === '/privacy' ? 'privacy' : 'terms'} />
   // The email links (e1-t29, e1-t30) work signed in or not, on any device
@@ -122,7 +124,10 @@ function Routed() {
         <Route path="/featured" element={<FeaturedPage />} />
         <Route path="/favorites" element={<FavoritesPage />} />
         {pairsOn && <Route path="/pairs" element={<PairsListPage />} />}
-        {pairsOn && <Route path="/pairs/:eventId" element={<PairsEventPage />} />}
+        {/* A pairs event made from a tournament (e9-t16) is played by members without the flag: the server decides who sees it */}
+        <Route path="/pairs/:eventId" element={<PairsEventPage />} />
+        {(tournamentsOn || user.admin) && <Route path="/tournaments" element={<TournamentsListPage />} />}
+        {(tournamentsOn || user.admin) && <Route path="/tournaments/:tournamentId" element={<TournamentPage />} />}
         {forumOn && <Route path="/forum" element={<ForumHomePage />} />}
         {forumOn && <Route path="/forum/new" element={<ForumNewPostPage />} />}
         {forumOn && <Route path="/forum/search" element={<ForumSearchPage />} />}

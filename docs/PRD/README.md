@@ -17,7 +17,7 @@
 
 ## Epic 進度
 
-統計日期 2026-11-02。勾選以各 epic 文件為準，改了勾選順手更新這張表。
+統計日期 2026-11-03。勾選以各 epic 文件為準，改了勾選順手更新這張表。
 
 | Epic | 名稱 | Task 完成 | AC 完成 | M1 task 數 | 狀態 |
 | --- | --- | --- | --- | --- | --- |
@@ -29,12 +29,12 @@
 | [E6](e6-robot-play-levels-evaluation.md) | 智慧機器人（二）：打牌大腦、TKB 與評測 | 25／42 | 6／14 | 14 | in-progress |
 | [E7](e7-challenges.md) | 挑戰（單挑與多人） | 29／29 | 6／9 | 25 | in-progress |
 | [E8](e8-two-table-team-match.md) | 雙桌隊制賽 | 22／22 | 9／9 | 17 | done |
-| [E9](e9-tournaments-rankings.md) | 比賽、積分與錦標賽 | 13／17 | 1／8 | 0 | in-progress |
+| [E9](e9-tournaments-rankings.md) | 比賽、積分與錦標賽 | 14／17 | 2／8 | 0 | in-progress |
 | [E10](e10-practice-teaching.md) | 練習與教學 | 6／14 | 3／9 | 6 | in-progress |
 | [E11](e11-platform-ops-scale.md) | 平台、維運、安全與規模 | 31／32 | 6／10 | 8 | in-progress |
 | [E12](e12-commercialization.md) | 多社團與商業化 | 0／19 | 0／9 | 0 | planned |
 | [E13](e13-community-forum.md) | 社群與論壇 | 11／13 | 4／7 | 0 | in-progress |
-| | **合計** | **344／406** | **86／137** | **177** | |
+| | **合計** | **345／406** | **87／137** | **177** | |
 
 里程碑分布：M0 95 個（全部完成）、M1 177 個、M2 97 個、M3 25 個。作廢的 task（刪除線）不計入。
 
