@@ -103,6 +103,7 @@ TKU-BridgeTable/
 │  ├─ direct-messages.ts   私訊的 SQL 表與 DirectMessageStore（§5.7）
 │  ├─ forum.ts             論壇（淡江橋館與牌桌共用）：SQL 五張表與 ForumService（§5.19）
 │  ├─ forum-notices.ts     討論區的通知：被回覆、被提到、公告、被置頂（橋館 e11-t08）
+│  ├─ post-images.ts       論壇圖片（e13-t13）：只放自己上傳的、只替看得到貼文的人簽網址、刪貼文連圖一起刪（§5.14）
 │  ├─ log.ts               結構化日誌（§5.6）
 │  ├─ rate-limit.ts        速率限制（§5.6）
 │  ├─ metrics.ts           指標與告警，`/api/health` 與管理頁「系統狀態」（§5.13）
@@ -689,10 +690,17 @@ H1 把牌桌拆出去之後（§5.10），社團的物件（`Club`）仍然是**
 
 討論區貼文（E11）與文章（E5）的圖片放 R2 bucket `bridgebook-files`（binding `FILES`），程式 `worker/files.ts`（`FileService`，不碰 Cloudflare API，bucket 是小介面 `FileBucket`），型別與上限 `shared/files.ts`。
 
-- **瀏覽器做影像處理**：縮到長邊 ≤ 2048 px、縮圖長邊 480 px；Worker 只看大小與檔頭（`sniffAvatar`，JPEG／PNG／WebP），不解碼圖片（免費方案 10 ms CPU）。
+- **瀏覽器做影像處理**：縮到長邊 ≤ 2048 px、縮圖長邊 480 px；Worker 只看大小與檔頭（`sniffFile`：JPEG／PNG／WebP，貼文另可 GIF），不解碼圖片（免費方案 10 ms CPU）。
 - **一次性憑證直傳**：`POST /api/files/ticket { purpose: 'post' | 'article', type, size }` → `{ key, uploadUrl, thumbUrl, expires }`（10 分鐘，計入每人每天 30 張）；`PUT uploadUrl`（≤ 2 MB，型別要和憑證一致）、`PUT thumbUrl`（≤ 256 KB，要在原圖之後）；兩個都傳了或過期就作廢。上傳路由不看 session cookie、有 CORS，所以頁面也可以直接傳到 Worker 的網址。
 - **簽名短效網址**：`GET /api/files/<key>?e=<到期>&s=<HMAC>`，不用登入（`<img>` 跨站不帶 cookie），到期時間進位到整點再加一小時，同一小時內的網址相同、瀏覽器快取得到；`POST /api/files/urls { keys }` 重簽。金鑰是第一次用時產生的隨機值（`file:secret`），不需要另設 secret。PRD 寫的 `/_file/:key` 改放在 `/api/files/` 底下，兩站的 `/api/*` 本來就轉給 Worker。
-- **刪除**：`DELETE /api/files/<key>`，上傳者、討論區幹部（`forumModerate`，橋館 G8）或管理員。帳號刪除時不刪圖片（貼文可能還在用）。
+- **刪除**：`DELETE /api/files/<key>`，上傳者、討論區幹部（`forumModerate`，橋館 G8）或管理員。帳號刪除見下面「論壇的圖片」。
+- **論壇的圖片**（牌桌 `e13-t13`，2026-11-03，`worker/post-images.ts`）：牌桌的發文編輯器也能插圖（`PostImageButton`、`src/lib/postImage.ts`）：照片在瀏覽器用 canvas 縮到長邊 2048 px、寫成 WebP（不支援就 JPEG），所以拍攝地點等 EXIF 不會上傳；**GIF 原樣上傳**（才會動，≤ 2 MB，只限 `purpose: 'post'`，叢書文章仍是三種，橋館的文章編輯器不必改），縮圖一律是靜態的。SVG 一律不收。決定：
+  - **誰的**：新增或編輯貼文時，新加的 `image` 區塊要是作者自己上傳的檔案（`file:meta:` 的 `owner`），否則 403 `forumImageNotYours`；本來就在貼文裡的不再檢查。所以一張圖只屬於一位作者。
+  - **誰看得到**：`POST /api/files/urls` 對 `post/` 的 key 只替上傳者、或看得到用這張圖的貼文的人簽（`ForumService.imagesInUse`，條件與貼文的 `visibleTo` 相同，之後貼文多了草稿或排程也跟著走）；文章與電子書照舊。幹部隱藏貼文後，作者與幹部以外的人拿不到新網址；**已經發出的網址不撤銷**，最多到期（進位到整點再加一小時，最長約兩小時）就失效：網址是無狀態的 HMAC，撤銷要每次請求查資料，不划算。
+  - **跟著貼文走**：刪貼文（作者、幹部、處理檢舉的「移除」）或編輯時拿掉圖片，沒有其他貼文用的就從 R2 刪掉（回應之後做，失敗只記 log）。上傳了沒發的圖片留著，直到上傳者刪帳號。
+  - **刪帳號**：`ClubService` 的 `onMemberRemoved` 呼叫 `FileService.forget`：沒有任何貼文用的 `post/` 圖片刪掉、當天的計數刪掉；還在貼文裡的跟貼文保留（貼文本來就保留）；文章圖片與電子書是叢書的，不刪。匯出（`GET /api/account/export`）多一個 `files`：自己上傳的檔案清單。
+  - **回應標頭**：`Content-Type` 是上傳時從檔頭判斷的型別、`X-Content-Type-Options: nosniff`、`Content-Disposition: inline`、`Content-Security-Policy: default-src 'none'`、`Cache-Control: private, max-age=<到期>, immutable`。網頁 CSP 不用改（`img-src 'self'`，圖片走同源 `/api/files/`）。
+  - **速率**：沿用每人每天 30 張憑證（台灣日期）與全部 10 GB 的上限；每篇最多 6 張（`FORUM_LIMITS.imagesMax`，編輯器送出前就擋）。
 - **沒有 bucket 時**：`FILES` 沒綁就全部回 503 `filesOff`，所以 binding 先註解掉也能部署（DEPLOY.md §4.8）。
 - **電子書 PDF**（淡江橋館 `e5-t09`～`e5-t11`，2026-10-29，`shared/ebooks.ts`、`worker/ebooks.ts`）：同一個 bucket、同一套憑證與簽名網址。`POST /api/book/ebooks/ticket { size }`（`bookReview`）→ 一般的 `FileTicket`，key 是 `ebook/<hex>.pdf`；`PUT uploadUrl` ≤ 50 MB、檔頭要是 `%PDF-`、沒有縮圖（傳完憑證就作廢）；上傳路由依憑證決定讀多少（`uploadMax`）。PDF 也是讀進記憶體再寫 R2（50 MB 在 Durable Object 的 128 MB 內）。書的紀錄 `POST /api/book/ebooks`、`PUT`／`DELETE /api/book/ebooks/:id`（`bookReview`，必填授權 `own`／`permitted`／`members-only`；換 PDF 或下架會一併刪掉舊 PDF；稽核 `ebook:save`／`ebook:remove`）。讀取 `GET /api/book/ebooks[/:id]` 不用登入，但未登入時 `members-only` 的書不在列表、單本回 404，所以連結與 PDF 網址都拿不到；PDF 的網址 15 分鐘（進位到 5 分鐘）就失效。簽名網址的回應加 `Access-Control-Allow-Origin: *`（簽名就是檢查），橋館的 PDF 閱讀器直接向 Worker 抓，不經 Vercel 轉址。
 - **用量提醒**（橋館 `e5-t15`）：`file:usage` 隨上傳與刪除增減；越過 8 GB（`STORAGE_LIMITS.warnBytes`）時通知每位管理員一次（`filesNearlyFull { gb }`，連到橋館的電子書頁），降回 8 GB 以下再越過才會再通知；會超過 10 GB 的憑證回 507 `fileStorageFull`。編輯者在 `GET /api/book/ebooks` 的回應多一個 `usage`。
@@ -853,7 +861,7 @@ E13 的 PRD 原本寫「貼文與留言進 D1」。現況是社團 Durable Objec
 | `/forum/p/:postId/edit` | `ForumEditPostPage` | 作者編輯自己的貼文（K2）：板面不能換（`PATCH /api/forum/posts/:id`） |
 
 - 作者名稱用大廳的社員列表（`lobby.members`，顯示名稱優先）；已不是社員的顯示「已離開的社員」。
-- 區塊由 `ForumBlocks` 畫：段落、提示、條列照文字（花色符號上色，`SuitText`）；一手牌用文字牌型；**四手牌用紀錄頁的 `RecordDiagram`**（K2，`ForumDeal`：`shared/forum-editor.ts` 的 `dealRecord` 把 `ForumDeal` 轉成沒有牌號、沒有玩家的紀錄，`anonymous` 讓四家顯示方位而不是名字，`BoardInfo` 不寫牌號）；叫牌過程用紀錄頁的 `AuctionBox`；圖片、橋館制度、牌桌紀錄是連結。
+- 區塊由 `ForumBlocks` 畫：段落、提示、條列照文字（花色符號上色，`SuitText`）；一手牌用文字牌型；**四手牌用紀錄頁的 `RecordDiagram`**（K2，`ForumDeal`：`shared/forum-editor.ts` 的 `dealRecord` 把 `ForumDeal` 轉成沒有牌號、沒有玩家的紀錄，`anonymous` 讓四家顯示方位而不是名字，`BoardInfo` 不寫牌號）；叫牌過程用紀錄頁的 `AuctionBox`；圖片（`e13-t13`）用 `POST /api/files/urls` 拿簽名網址直接顯示、點了開原圖，拿不到的（刪了或貼文被隱藏）顯示「圖片已刪除」；橋館制度、牌桌紀錄是連結。
 - **發文在牌桌站內**（K2）：頁面上的「發文」開牌桌的 `/forum/new`。通知鈴鐺的論壇通知：有 `forum` 旗標的社員連牌桌的貼文，沒有的照舊連橋館（K3 `e13-t09`）。
 - 檢舉、隱藏、搜尋在 K4 做了（見下面「檢舉、隱藏與搜尋」）；反應還沒排批次。編輯與刪除貼文在 K2 做了。
 
@@ -864,7 +872,7 @@ E13 的 PRD 原本寫「貼文與留言進 D1」。現況是社團 Durable Objec
 - **文字是 Markdown 子集**（`parseMarkdown`，反過來是 `toMarkdown`，讀回來不變）：空一行分段（相鄰的段落併成一個 `paragraph`，免得超過 20 個區塊）；`- `／`* ` 條列、`1. ` 編號（兩格縮排一層，最多三層）→ `rules`；`> ` → `note`，第一行 `> [!WARNING]` 是警告；`!s !h !d !c` → ♠♥♦♣（前面緊接拉丁字母時不換）；行首 `\` 是普通文字。**沒有**粗體、斜體、連結、HTML：兩站都把文字當文字畫。
 - **四手牌編輯器**（`DealEditor`）：選一家，點 52 張牌給它；點自己的牌收回、點別家的牌搬過來；一家滿 13 張就不能再給，並自動換順時針下一家沒滿的；三家滿了可以「其餘給第四家」。發牌與身價用下拉選單。規則同伺服器：**每張牌只在一家、每家最多 13 張、至少一張**；**允許部分牌例**（兩手牌、殘局），畫面寫出還有幾張沒分配。
 - **叫牌過程輸入**（`AuctionEditor`）：沿用牌桌的叫牌盒 `BiddingBox`（含 Alert 說明與鍵盤），只開放 `shared/auction.ts` 的 `legalCalls` 允許的叫品，所以送出的一定合法；可收回一個、清除、換發牌者（叫品順序不變、座位跟著轉）。叫牌可以只寫到一半（叫牌問題）；結束時顯示合約與莊家。叫牌盒聽整個視窗的鍵盤，所以一頁同時只開一個。
-- **發文編輯器**（`PostEditor`）：一篇貼文是一串「片段」（`EditorPiece`）：文字、四手牌、叫牌過程，可上移、下移、移除；四手牌與叫牌一次只展開一個編輯，其他顯示成貼文的樣子。編輯橋館寫的貼文時，牌桌不編的區塊（單手牌、圖片、制度引用、牌桌紀錄）原樣保留、只能移動或移除。送出前列出伺服器會擋的問題（`postProblems`：空的、超過 20 個區塊或 5000 字、標題超過 80 字、四手牌或叫牌不合規則）。
+- **發文編輯器**（`PostEditor`）：一篇貼文是一串「片段」（`EditorPiece`）：文字、四手牌、叫牌過程、圖片（`e13-t13`：先上傳，可寫替代文字與說明），可上移、下移、移除；四手牌與叫牌一次只展開一個編輯，其他顯示成貼文的樣子。編輯橋館寫的貼文時，牌桌不編的區塊（單手牌、制度引用、牌桌紀錄）原樣保留、只能移動或移除。送出前列出伺服器會擋的問題（`postProblems`：空的、超過 20 個區塊或 5000 字、標題超過 80 字、超過 6 張圖片、四手牌或叫牌不合規則）。
 - **留言可以附叫牌過程**（PRD「留言也可嵌入叫牌過程」）：留言框的「加叫牌過程」，送出 `paragraph`＋`auction`。
 - **莊位與首攻**：PRD 的 `e13-t05` 寫了莊位與首攻，但 `ForumDeal` 只有四家牌、發牌與身價；莊家可以從同一篇的叫牌過程看出來。要存首攻得在 `ForumDeal` 加欄位，而橋館的型別對拍（`parity/table-types.ts`）是 `Same`，要兩站一起改，K2 先不做。
 

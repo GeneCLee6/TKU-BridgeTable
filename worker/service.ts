@@ -539,6 +539,12 @@ export interface ClubConfig {
   push?: PushSender
   /** Keeps the object alive for work after the answer (the Durable Object's `waitUntil`); tests leave it out */
   defer?: (task: Promise<unknown>) => void
+  /**
+   * A member's account is gone (deleted by an admin or themselves, or not in a restored backup):
+   * what lives outside the club's accounts goes too, e.g. their forum pictures no post uses
+   * (e13-t13, `FileService.forget`). A failure is logged and never stops the deletion
+   */
+  onMemberRemoved?: (userId: string) => Promise<void>
 }
 
 /** A provider's message code: `googleOff`, `lineTaken`… (shared/messages.ts has each) */
@@ -2652,6 +2658,12 @@ export class ClubService {
         // Their account is gone either way; the match only keeps their name in its seat
         this.log(crashEntry('forgetInMatch', error))
       }
+    }
+    try {
+      await this.config.onMemberRemoved?.(user.id)
+    } catch (error) {
+      // Their account is gone either way; only what the hook keeps is left behind
+      this.log(crashEntry('memberRemovedHook', error))
     }
     this.connections.disconnect(user.id)
   }

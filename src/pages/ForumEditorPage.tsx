@@ -3,7 +3,9 @@ import { useEffect, useId, useRef, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import styled from 'styled-components'
 import { FORUM_LIMITS, splitTags, type Board, type Post, type PostBlock } from '../../shared/forum.ts'
+import { FILE_LIMITS } from '../../shared/files.ts'
 import {
+  ALT_MAX,
   blocksOf,
   CAPTION_MAX,
   dealerFor,
@@ -21,6 +23,7 @@ import { AuctionEditor } from '../components/AuctionEditor.tsx'
 import { Chip, ChipLabel } from '../components/Chips.tsx'
 import { DealEditor } from '../components/DealEditor.tsx'
 import { ForumBlocks, ForumDeal } from '../components/ForumBlocks.tsx'
+import { PostImageButton } from '../components/PostImageButton.tsx'
 import { Button, Card, ErrorText, FieldHint, FieldLabel, Input, Muted, PageMain, PageTitle, Select, Textarea } from '../components/ui.tsx'
 import { forumApi } from '../lib/forum.ts'
 import { useAuth } from '../state/AuthContext.tsx'
@@ -30,7 +33,8 @@ import type { Strings } from '../strings.ts'
 /**
  * 發文編輯器 (E13 K2, `e13-t04`, ARCHITECTURE.md §5.19): writing a post on the table's own site,
  * in the forum's blocks that BridgeHall shows as well. The post is a list of pieces: text in a
- * Markdown subset (`parseMarkdown`), four hands (`DealEditor`), an auction (`AuctionEditor`), and,
+ * Markdown subset (`parseMarkdown`), four hands (`DealEditor`), an auction (`AuctionEditor`), a
+ * picture (`PostImageButton`, e13-t13: shrunk in the browser, uploaded to R2, kept by its key), and,
  * when editing a post written on BridgeHall, the blocks this editor does not edit (kept as they
  * were; moved or removed only). One deal or auction is open for editing at a time; the others show
  * as the post will. What the Worker would refuse is listed before sending (`postProblems`). Tags
@@ -83,6 +87,8 @@ const problemText = (e: Strings['forumEditor'], t: Strings, p: PostProblem): str
       return e.problemTooLong(p.length, p.max)
     case 'titleTooLong':
       return e.problemTitleTooLong(p.max)
+    case 'tooManyImages':
+      return e.problemTooManyImages(p.max)
     case 'deal':
       if (p.problem.kind === 'duplicate') return e.problemDuplicate(p.problem.card)
       if (p.problem.kind === 'tooMany') return e.problemTooMany(t.seatNames[p.problem.seat])
@@ -396,7 +402,8 @@ export function PostEditor({
       <Pieces>
         {items.map(({ id, piece }, index) => {
           const editing = open === id
-          const label = piece.kind === 'text' ? e.text : piece.kind === 'deal' ? e.deal : piece.kind === 'auction' ? e.auction : ''
+          const label =
+            piece.kind === 'text' ? e.text : piece.kind === 'deal' ? e.deal : piece.kind === 'auction' ? e.auction : piece.kind === 'image' ? t.forum.image : ''
           return (
             <PieceBox key={id}>
               <PieceHead>
@@ -447,7 +454,20 @@ export function PostEditor({
                 ) : (
                   <AuctionBox auction={piece.auction.calls} dealer={piece.auction.dealer} vul={vulAbove(items, index)} size={40} />
                 ))}
-              {(piece.kind === 'deal' || piece.kind === 'auction') && (
+              {piece.kind === 'image' && (
+                <>
+                  <ForumBlocks blocks={[{ kind: 'image', assetId: piece.assetId, alt: piece.alt }]} />
+                  <Input
+                    aria-label={e.imageAlt}
+                    placeholder={e.imageAlt}
+                    $size="sm"
+                    maxLength={ALT_MAX}
+                    value={piece.alt}
+                    onChange={(ev) => update(id, { ...piece, alt: ev.target.value })}
+                  />
+                </>
+              )}
+              {(piece.kind === 'deal' || piece.kind === 'auction' || piece.kind === 'image') && (
                 <Input
                   aria-label={`${label} · ${e.caption}`}
                   placeholder={e.caption}
@@ -477,7 +497,13 @@ export function PostEditor({
         <Button type="button" $variant="secondary" $size="sm" onClick={() => add({ kind: 'auction', auction: emptyAuction(dealer), caption: '' })}>
           {e.addAuction}
         </Button>
+        <PostImageButton
+          disabled={items.filter((i) => i.piece.kind === 'image').length >= FORUM_LIMITS.imagesMax}
+          onUploaded={(file) => add({ kind: 'image', assetId: file.key, alt: '', caption: '' })}
+          onError={setError}
+        />
       </Toolbar>
+      <FieldHint>{e.imageHint(FILE_LIMITS.maxBytes / 1024 / 1024, FILE_LIMITS.perDay)}</FieldHint>
       {shown.length > 0 && (
         <Problems role="alert">
           {shown.map((p, i) => (
