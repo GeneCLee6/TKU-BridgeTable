@@ -1,6 +1,7 @@
 import type { Page } from '@playwright/test'
 import type { Seat } from '../../shared/cards.ts'
 import { defaultChallengeSettings, type ChallengePlayerView, type ChallengeView } from '../../shared/challenge.ts'
+import { enabledFeatures } from '../../shared/features.ts'
 import type {
   BoardSummary,
   BoardView,
@@ -19,7 +20,16 @@ import type {
  * WebSocket are answered here, so the real app runs without a Worker, the same every time.
  */
 
-export const ME: Me = { id: 'amy', username: 'Amy', admin: true, permissions: [], friendOnlineNotice: true, profile: {} }
+export const ME: Me = {
+  id: 'amy',
+  username: 'Amy',
+  admin: true,
+  permissions: [],
+  friendOnlineNotice: true,
+  profile: {},
+  // As the server works them out for a club that kept the site-wide defaults (friends on since L3)
+  features: enabledFeatures({}, { id: 'amy', admin: true, permissions: [] }),
+}
 
 const person = (id: string, username: string): SeatOccupant => ({ id, username, online: true })
 const robot = (seat: Seat, robotKind: 'tku' | 'gib' = 'gib'): SeatOccupant => ({

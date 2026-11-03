@@ -34,12 +34,14 @@ export type FeatureSettings = Partial<Record<FeatureFlag, FeatureSetting>>
 /**
  * The site-wide defaults.
  *
- * Friends (好友, AC-1.6): only club members use the site, so nobody needs to follow anyone yet
- * (社長, 2026-10-27). While a member does not have it the People tab, the profile card and the
- * profile page show no friend, pin or block buttons and no "friends only" filter, the account page
- * has no friend-online setting, nobody is put on top of the People list, and the server sends them
- * no friend-online notice. The friend and block lists, their commands and their checks all stay;
- * challenges and table invitations take any member either way.
+ * Friends (好友, AC-1.6): on. Hidden from 2026-10-27 while only club members used the site (社長),
+ * opened again on 2026-11-03 (docs/ROADMAP.md L3). A club may still turn it off or give it to its
+ * officers only: while a member does not have it the People tab, the profile card and the profile
+ * page show no friend or block buttons and no "friends only" filter, the account page has no
+ * friend-online setting and the push settings no friend-online group, nobody is put on top of the
+ * People list, and the server sends them no friend-online notice. The friend and block lists, their
+ * commands and their checks never depend on it; challenges and table invitations take any member
+ * either way.
  *
  * Forum (論壇, E13 K1, ARCHITECTURE.md §5.19): the table's forum pages (`/forum/*`) and the header's
  * link. Off until the club opens it. The flag guards the table's pages only: `/api/forum/*` is
@@ -59,14 +61,14 @@ export type FeatureSettings = Partial<Record<FeatureFlag, FeatureSetting>>
  * players whether or not they have `pairs`.
  */
 export const FEATURE_DEFAULTS: Record<FeatureFlag, FeatureState> = {
-  friends: 'off',
+  friends: 'on',
   forum: 'off',
   pairs: 'off',
   rankings: 'off',
   tournaments: 'off',
 }
 
-/** Kept for the code and tests written before flags: whether friends are on for everyone by default */
+/** Kept for the code and tests written before flags: whether friends are on for everyone by default (true since L3) */
 export const FRIENDS_ENABLED: boolean = FEATURE_DEFAULTS.friends === 'on'
 
 /** Most members a club may name for one flag */

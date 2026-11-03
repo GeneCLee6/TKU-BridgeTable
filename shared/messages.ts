@@ -1987,6 +1987,14 @@ export const MESSAGES = {
     ja: 'メッセージを送る前にブロックを解除してください',
     ko: '메시지를 보내려면 먼저 차단을 해제하세요',
   },
+  unblockToInvite: {
+    zh: '請先解除封鎖，才能邀請他',
+    'zh-Hans': '请先解除屏蔽，才能邀请他',
+    en: 'Unblock this member before inviting them',
+    vi: 'Hãy bỏ chặn thành viên này trước khi mời',
+    ja: '招待する前にブロックを解除してください',
+    ko: '초대하려면 먼저 차단을 해제하세요',
+  },
   tooManyLogins: {
     zh: '密碼錯誤太多次，請 {minutes} 分鐘後再試',
     'zh-Hans': '密码错误太多次，请 {minutes} 分钟后再试',
@@ -2326,7 +2334,7 @@ export const MESSAGES = {
   },
   pairsBadPartner: {
     zh: '搭檔要是另一位社員，而且你們沒有互相封鎖',
-    'zh-Hans': '搭档要是另一位社员，而且你们没有互相封锁',
+    'zh-Hans': '搭档要是另一位社员，而且你们没有互相屏蔽',
     en: 'Your partner must be another member, and neither of you may have blocked the other',
     vi: 'Bạn cùng cặp phải là một thành viên khác và hai bạn không chặn nhau',
     ja: 'パートナーは別のメンバーで、お互いにブロックしていない必要があります',
@@ -2359,7 +2367,7 @@ export const MESSAGES = {
   },
   individualBlocked: {
     zh: '你和已經報名的一位社員有封鎖關係，個人賽會讓你們當一次搭檔，所以不能報名',
-    'zh-Hans': '你和已经报名的一位社员有封锁关系，个人赛会让你们当一次搭档，所以不能报名',
+    'zh-Hans': '你和已经报名的一位社员有屏蔽关系，个人赛会让你们当一次搭档，所以不能报名',
     en: 'You and a member who already entered have blocked one another: an individual event would make you partners once, so you cannot enter',
     vi: 'Bạn và một thành viên đã đăng ký có chặn nhau: giải cá nhân sẽ xếp hai bạn làm cặp một lần, nên bạn không thể đăng ký',
     ja: 'すでにエントリーしたメンバーとブロック関係にあります。個人戦では一度パートナーになるため、エントリーできません',

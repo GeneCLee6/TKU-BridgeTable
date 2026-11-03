@@ -154,7 +154,7 @@ describe('creating a challenge (e7-t05)', () => {
     const [amy, ben, cat] = await friends('amy', 'ben', 'cat')
     // Amy blocks Ben: she has to unblock him first
     await send(amy, { type: 'setBlocked', userId: ben, blocked: true })
-    expect(await refused(amy, { type: 'createChallenge', invitees: [ben] })).toBe('unblockFirst')
+    expect(await refused(amy, { type: 'createChallenge', invitees: [ben] })).toBe('unblockToInvite')
     // Cat blocks Amy
     await send(cat, { type: 'setBlocked', userId: amy, blocked: true })
     expect(await refused(amy, { type: 'createChallenge', invitees: [cat] })).toBe('cannotInvite')

@@ -1,6 +1,5 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it } from 'vitest'
-import { FRIENDS_ENABLED } from '../../shared/features.ts'
 import { parseClientMessage } from '../../shared/message-guard.ts'
 import { DIRECT_KEPT, DIRECT_PAGE_SIZE, LIMITS, type ClientMessage, type ServerMessage } from '../../shared/protocol.ts'
 import { DIRECT_BURST, FRIEND_ONLINE_QUIET_MS } from '../../worker/rate-limit.ts'
@@ -236,15 +235,16 @@ describe('friend online notice (e1-t24)', () => {
       .filter((n) => n.kind === 'friendOnline')
       .map((n) => n.params.username)
 
-  it.runIf(!FRIENDS_ENABLED)('says nothing while friends are hidden (FRIENDS_ENABLED)', async () => {
+  it('says nothing while the club has friends turned off (the `friends` flag)', async () => {
     const amy = await member('amy')
     const ben = await member('ben', false)
     await send(amy, { type: 'setFriend', userId: ben, friend: true })
+    await club.adminSetFeature({ flag: 'friends', state: 'off', usernames: [] })
     await connect(ben)
     expect(kinds(amy)).toEqual([])
   })
 
-  it.skipIf(!FRIENDS_ENABLED)('tells online followers once when a friend comes online, not on a reconnect soon after', async () => {
+  it('tells online followers once when a friend comes online, not on a reconnect soon after', async () => {
     const amy = await member('amy')
     const cat = await member('cat')
     const ben = await member('ben', false)
@@ -269,7 +269,7 @@ describe('friend online notice (e1-t24)', () => {
     expect(kinds(amy)).toEqual(['ben', 'ben'])
   })
 
-  it.skipIf(!FRIENDS_ENABLED)('can be turned off on the account page, and is not sent to someone the friend blocked', async () => {
+  it('can be turned off on the account page, and is not sent to someone the friend blocked', async () => {
     const amy = await member('amy')
     const cat = await member('cat')
     const ben = await member('ben', false)

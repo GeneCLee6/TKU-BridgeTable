@@ -173,6 +173,27 @@ describe('push notifications (e1-t28)', () => {
     expect((await club.push.view(amy)).kinds.matchInvited).toBe(false)
   })
 
+  it('pushes a friend coming online to a follower who is away, without a stale bell item (e1-t24)', async () => {
+    const amy = await member('amy')
+    const cat = await member('cat')
+    const ben = await member('ben')
+    await club.push.subscribe(amy, await subscription(), CHROME)
+    await club.push.subscribe(cat, await subscription(), CHROME)
+    await club.push.setKinds(amy, { friendOnline: true })
+    await club.handle(amy, { type: 'setFriend', userId: ben, friend: true })
+    // Cat follows Ben too but left the kind off (its default)
+    await club.handle(cat, { type: 'setFriend', userId: ben, friend: true })
+
+    online.add(ben)
+    club.connected(ben)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    await settle()
+    expect(sender.sent.map((s) => s.message.body)).toEqual(['ben 上線了'])
+    expect(sender.sent[0].ttl).toBe(3_600)
+    // Away members find no "came online" waiting in the bell when they come back
+    expect((await club.notifications.view(amy)).items.filter((n) => n.kind === 'friendOnline')).toEqual([])
+  })
+
   it('removes a device the push service no longer knows (404, 410), keeps one that failed otherwise', async () => {
     const amy = await member('amy')
     const gone = await subscription()
