@@ -1987,6 +1987,14 @@ export const MESSAGES = {
     ja: 'メッセージを送る前にブロックを解除してください',
     ko: '메시지를 보내려면 먼저 차단을 해제하세요',
   },
+  unblockToInvite: {
+    zh: '請先解除封鎖，才能邀請他',
+    'zh-Hans': '请先解除屏蔽，才能邀请他',
+    en: 'Unblock this member before inviting them',
+    vi: 'Hãy bỏ chặn thành viên này trước khi mời',
+    ja: '招待する前にブロックを解除してください',
+    ko: '초대하려면 먼저 차단을 해제하세요',
+  },
   tooManyLogins: {
     zh: '密碼錯誤太多次，請 {minutes} 分鐘後再試',
     'zh-Hans': '密码错误太多次，请 {minutes} 分钟后再试',
@@ -2326,7 +2334,7 @@ export const MESSAGES = {
   },
   pairsBadPartner: {
     zh: '搭檔要是另一位社員，而且你們沒有互相封鎖',
-    'zh-Hans': '搭档要是另一位社员，而且你们没有互相封锁',
+    'zh-Hans': '搭档要是另一位社员，而且你们没有互相屏蔽',
     en: 'Your partner must be another member, and neither of you may have blocked the other',
     vi: 'Bạn cùng cặp phải là một thành viên khác và hai bạn không chặn nhau',
     ja: 'パートナーは別のメンバーで、お互いにブロックしていない必要があります',
@@ -2349,9 +2357,17 @@ export const MESSAGES = {
     ja: '個人戦は {sizes} 人ちょうどで開始できます（1 テーブル 4 人、休みなし）',
     ko: '개인전은 정확히 {sizes}명이어야 시작할 수 있습니다(테이블당 4명, 쉬는 사람 없음)',
   },
+  individualRounds: {
+    zh: '輪數只有個人賽能設定，要是 1–{max} 輪（最多人數 − 1）',
+    'zh-Hans': '轮数只有个人赛能设置，要是 1–{max} 轮（最多人数 − 1）',
+    en: 'Only an individual event has a number of rounds, from 1 to {max} (at most the players − 1)',
+    vi: 'Chỉ giải cá nhân mới đặt số vòng, từ 1 đến {max} vòng (tối đa số người − 1)',
+    ja: 'ラウンド数を設定できるのは個人戦だけで、1〜{max} ラウンド（最大で人数 − 1）です',
+    ko: '라운드 수는 개인전에서만 설정할 수 있으며 1–{max}라운드(최대 인원 − 1)여야 합니다',
+  },
   individualBlocked: {
     zh: '你和已經報名的一位社員有封鎖關係，個人賽會讓你們當一次搭檔，所以不能報名',
-    'zh-Hans': '你和已经报名的一位社员有封锁关系，个人赛会让你们当一次搭档，所以不能报名',
+    'zh-Hans': '你和已经报名的一位社员有屏蔽关系，个人赛会让你们当一次搭档，所以不能报名',
     en: 'You and a member who already entered have blocked one another: an individual event would make you partners once, so you cannot enter',
     vi: 'Bạn và một thành viên đã đăng ký có chặn nhau: giải cá nhân sẽ xếp hai bạn làm cặp một lần, nên bạn không thể đăng ký',
     ja: 'すでにエントリーしたメンバーとブロック関係にあります。個人戦では一度パートナーになるため、エントリーできません',

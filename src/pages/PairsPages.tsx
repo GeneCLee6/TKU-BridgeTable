@@ -2,9 +2,10 @@ import { useCallback, useEffect, useId, useState } from 'react'
 import { Link, Navigate, useLocation, useNavigate, useParams } from 'react-router-dom'
 import styled from 'styled-components'
 import { rankLabel, rankOf, suitOf } from '../../shared/cards.ts'
-import { INDIVIDUAL_SIZES, MOVEMENT_PAIRS } from '../../shared/movement.ts'
+import { INDIVIDUAL_ROUNDS_MAX, INDIVIDUAL_SIZES, MOVEMENT_PAIRS } from '../../shared/movement.ts'
 import type { PairsFormat, PairsSettings, PairsSummary, PairsView } from '../../shared/pairs.ts'
 import { resultLabel } from '../../shared/scoring.ts'
+import { IndividualRoundsSelect } from '../components/IndividualRounds.tsx'
 import { RefereeNotes, RefereeTools } from '../components/RefereePanel.tsx'
 import { RulingTag } from '../components/RulingTag.tsx'
 import { ContractLabel, SuitSymbol } from '../components/Suit.tsx'
@@ -175,7 +176,7 @@ function CreateForm({ onCreated }: { onCreated: (view: PairsView) => void }) {
           setBusy(true)
           setError('')
           api.pairs
-            .create(settings, format === 'individual' ? 'individual' : undefined)
+            .create(format === 'individual' ? settings : { ...settings, rounds: undefined }, format === 'individual' ? 'individual' : undefined)
             .then((r) => onCreated(r.pairs))
             .catch((e) => setError(errorText(e)))
             .finally(() => setBusy(false))
@@ -216,10 +217,18 @@ function CreateForm({ onCreated }: { onCreated: (view: PairsView) => void }) {
               onChange={(e) => setSettings({ ...settings, boardMinutes: Number(e.target.value) })}
             />
           </label>
+          {format === 'individual' && (
+            <IndividualRoundsSelect
+              value={settings.rounds}
+              max={INDIVIDUAL_ROUNDS_MAX}
+              onChange={(rounds) => setSettings({ ...settings, rounds })}
+            />
+          )}
           <Button type="submit" $variant="primary" disabled={busy}>
             {t.pairs.create}
           </Button>
         </Row>
+        {format === 'individual' && <Muted>{t.pairs.roundsHint}</Muted>}
       </form>
       {error && <ErrorText role="alert">{error}</ErrorText>}
     </Section>
@@ -573,6 +582,9 @@ export function PairsEventPage() {
         )}
       </Row>
       {view.format === 'individual' && <Muted>{t.pairs.individualIntro}</Muted>}
+      {view.format === 'individual' && view.settings.rounds !== undefined && view.status === 'open' && (
+        <Muted>{t.pairs.roundsOnly(view.settings.rounds)}</Muted>
+      )}
       {view.delayedUntil !== undefined && <Muted role="status">{t.referee.delayed(formatDateTime(view.delayedUntil, lang))}</Muted>}
       {error && <ErrorText role="alert">{error}</ErrorText>}
 

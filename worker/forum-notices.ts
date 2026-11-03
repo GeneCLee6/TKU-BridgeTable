@@ -18,12 +18,19 @@ import { postExcerpt } from './forum.ts'
  *
  * Each member hears one thing about one post or comment, the most particular first (being named
  * over a reply over the news). Nobody hears about their own doing, nor someone who is no longer a
- * member. Sending is the caller's (club.ts `tell`): what was saved stays saved when it fails.
+ * member, nor a member who blocked the one who named them or replied (AC-1.6: a mention or a reply
+ * from someone they blocked; the news and the officers' doings still reach them). Sending is the
+ * caller's (club.ts `tell`): what was saved stays saved when it fails.
  */
 export interface ForumNoticeDeps {
   notify: (userId: string, kind: NotificationKind, params: Notification['params']) => Promise<unknown>
   members: () => ClubMember[]
+  /** Whether `by` blocked `other` (worker/relations.ts); nobody when left out */
+  blocked?: (by: string, other: string) => boolean
 }
+
+/** The kinds a member who blocked the actor does not hear */
+const PERSONAL: readonly NotificationKind[] = ['forumMention', 'forumReply']
 
 export class ForumNotices {
   private readonly deps: ForumNoticeDeps
@@ -74,6 +81,8 @@ export class ForumNotices {
     if (commentId) params.commentId = commentId
     return async (userId: string, kind: NotificationKind) => {
       if (told.has(userId) || !known.has(userId)) return
+      // Not marked told: a member named in the news by an officer they blocked still hears the news
+      if (PERSONAL.includes(kind) && this.deps.blocked?.(userId, actor.id)) return
       told.add(userId)
       await this.deps.notify(userId, kind, params)
     }

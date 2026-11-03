@@ -72,6 +72,25 @@ describe('forum notifications (e11-t08, AC-11.5)', () => {
     expect(sent).toEqual([])
   })
 
+  it('says nothing of a mention or a reply to a member who blocked its writer; the news still reaches them (AC-1.6)', async () => {
+    const blocks = new Set(['amy:cat'])
+    notices = new ForumNotices({
+      notify: async (to, kind, params) => sent.push({ to, kind, params }),
+      members: () => members,
+      blocked: (by, other) => blocks.has(`${by}:${other}`),
+    })
+    const post = forum.createPost(amy, 'deals', { blocks: [para('一副牌')] })
+    const reply = forum.addComment(cat, post.id, { blocks: [para('@amy @ben 看')] })
+    await notices.commented(cat, post, reply)
+    expect(kinds()).toEqual(['ben:forumMention'])
+
+    sent = []
+    blocks.add('amy:boss')
+    const news = forum.createPost(boss, 'news', { blocks: [para('@amy 社課改時間')] })
+    await notices.posted(boss, news, forum.board('news'))
+    expect(kinds()).toEqual(['amy:forumAnnouncement', 'ben:forumAnnouncement', 'cat:forumAnnouncement'])
+  })
+
   it('an edit tells only whoever it names now and did not before', async () => {
     const post = forum.createPost(amy, 'deals', { blocks: [para('@ben 看')] })
     const edited = forum.updatePost(amy, post.id, { blocks: [para('@ben @cat 看')] })

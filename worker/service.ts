@@ -3185,9 +3185,11 @@ export class ClubService {
   }
 
   /**
-   * Tells the online members who follow someone that they just came online (e1-t24), through the
-   * notification centre. Not for followers who turned it off or whom the newcomer blocked, and not
-   * again within FRIEND_ONLINE_QUIET_MS, so a phone that keeps reconnecting stays quiet
+   * Tells the members who follow someone that they just came online (e1-t24): in the notification
+   * centre for followers who are online; for the ones who are not, only a push if they turned on
+   * that kind (`friendOnline` is off by default, shared/push.ts), so no stale bell item waits for
+   * them. Not for followers who turned the notice off or whom the newcomer blocked, and not again
+   * within FRIEND_ONLINE_QUIET_MS, so a phone that keeps reconnecting stays quiet
    */
   private async announceOnline(userId: string) {
     const user = this.users.get(userId)
@@ -3195,13 +3197,21 @@ export class ClubService {
     const last = this.announced.get(userId)
     if (last !== undefined && this.now() - last < FRIEND_ONLINE_QUIET_MS) return
     this.announced.set(userId, this.now())
-    for (const followerId of this.connections.onlineUserIds()) {
+    const online = new Set(this.connections.onlineUserIds())
+    for (const [followerId, follower] of this.users) {
       if (followerId === userId || !this.friends.has(followerId, userId) || this.blocks.has(userId, followerId)) continue
-      if (this.users.get(followerId)?.friendOnlineNotice === false) continue
+      if (follower.friendOnlineNotice === false) continue
       // Only to followers who have friends (the `friends` flag, e11-t26)
       if (!this.featureOn('friends', followerId)) continue
-      await this.notifications.notify(followerId, 'friendOnline', { username: user.username })
+      const params = { username: user.username }
+      if (online.has(followerId)) await this.notifications.notify(followerId, 'friendOnline', params)
+      else this.push.queue(followerId, { id: randomId(6), at: this.now(), kind: 'friendOnline', params, read: false })
     }
+  }
+
+  /** Whether `by` blocked `other` (AC-1.6), for the forum's notices (club.ts) */
+  hasBlocked(by: string, other: string): boolean {
+    return this.blocks.has(by, other)
   }
 
   /** Sends a member their conversation list if they are online and it changed since the last send */
@@ -3607,7 +3617,7 @@ export class ClubService {
       const other = this.otherMember(userId, id)
       const name = this.users.get(other)!.username
       // Any member may be invited, friend or not (社長, 2026-10-27); one the creator blocked must be unblocked first
-      if (this.blocks.has(userId, other)) throw new ClubError('unblockFirst')
+      if (this.blocks.has(userId, other)) throw new ClubError('unblockToInvite')
       // Whether they blocked the creator stays private: the creator only hears they cannot be invited
       if (this.blocks.has(other, userId)) throw new ClubError('cannotInvite', { name }, 403)
     }
@@ -4955,7 +4965,7 @@ export class ClubService {
     for (const id of invitees) {
       const other = this.otherMember(userId, id)
       const name = this.users.get(other)!.username
-      if (this.blocks.has(userId, other)) throw new ClubError('unblockFirst')
+      if (this.blocks.has(userId, other)) throw new ClubError('unblockToInvite')
       if (this.blocks.has(other, userId)) throw new ClubError('cannotInvite', { name }, 403)
     }
     return invitees as string[]

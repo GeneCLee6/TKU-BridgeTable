@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -108,5 +108,39 @@ describe('individual tournament pages', () => {
     const places = screen.getByRole('spinbutton', { name: '名額（人）' })
     expect(places).toHaveValue(20)
     expect(places).toHaveAttribute('min', '8')
+  })
+
+  // Only the first N rounds (§5.25)
+  it('sets the rounds to play, up to what the places seat', async () => {
+    mocks.user.admin = true
+    mocks.api.tournaments.list.mockResolvedValue({ tournaments: [] })
+    mocks.api.tournaments.create.mockResolvedValue({ tournament: OPEN })
+    mocks.api.tournaments.get.mockResolvedValue({ tournament: OPEN })
+    renderPage('/tournaments')
+    const kind = await screen.findByRole('combobox', { name: '比賽方式' })
+    expect(screen.queryByRole('combobox', { name: '輪數' })).not.toBeInTheDocument()
+    await userEvent.selectOptions(kind, 'individual')
+    const rounds = screen.getByRole('combobox', { name: '輪數' })
+    expect(rounds).toHaveValue('')
+    // 20 places: up to 19 rounds; 13 places seat 12: up to 11
+    expect(within(rounds).getAllByRole('option')).toHaveLength(20)
+    const places = screen.getByRole('spinbutton', { name: '名額（人）' })
+    await userEvent.clear(places)
+    await userEvent.type(places, '13')
+    expect(within(rounds).getAllByRole('option')).toHaveLength(12)
+    await userEvent.selectOptions(rounds, '6')
+    await userEvent.type(screen.getByRole('textbox', { name: '名稱' }), '個人賽盃')
+    await userEvent.click(screen.getByRole('button', { name: '公告比賽' }))
+    expect(mocks.api.tournaments.create).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: 'individual', capacity: 13, pairs: { boardsPerRound: 3, boardMinutes: 8, rounds: 6 } }),
+    )
+  })
+
+  it('shows the rounds on the announcement', async () => {
+    mocks.api.tournaments.get.mockResolvedValue({
+      tournament: { ...OPEN, settings: { ...OPEN.settings, pairs: { ...OPEN.settings.pairs, rounds: 7 } } },
+    })
+    renderPage()
+    expect(await screen.findByText('只打前 7 輪')).toBeInTheDocument()
   })
 })

@@ -193,7 +193,7 @@ describe('hidden tables with an invitation list (e2-t25)', () => {
     await send(gene, { type: 'setBlocked', userId: amy, blocked: true })
     await send(gene, { type: 'createTable', settings: { access: 'hidden' } })
     await send(gene, { type: 'updateTableSettings', settings: {}, invitees: [amy] })
-    expect(lastError(gene)).toBe('unblockFirst')
+    expect(lastError(gene)).toBe('unblockToInvite')
     expect(tableFor(gene).invited).toEqual([])
     expect(connections.last(amy, 'notifications')!.notifications.items.some((n) => n.kind === 'tableInvited')).toBe(false)
   })

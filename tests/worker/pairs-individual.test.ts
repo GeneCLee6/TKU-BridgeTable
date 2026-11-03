@@ -23,7 +23,7 @@ const code = async (run: () => Promise<unknown>) => {
   return undefined
 }
 
-async function setUp(players = 8, boardsPerRound = 1) {
+async function setUp(players = 8, boardsPerRound = 1, rounds?: number) {
   const t = await teamHarness()
   const { club, member } = t
   const names = Array.from({ length: players }, (_, i) => `p${i + 1}`)
@@ -32,7 +32,7 @@ async function setUp(players = 8, boardsPerRound = 1) {
   await club().adminSetFeature({ flag: 'pairs', state: 'on', usernames: [] })
   // The director runs the event without playing in it
   const director = await member('td')
-  const view = await club().pairs.create(director, { title: '個人賽之夜', boardsPerRound }, 'individual')
+  const view = await club().pairs.create(director, { title: '個人賽之夜', boardsPerRound, rounds }, 'individual')
   for (const id of ids) await club().pairs.enter(id, view.id, undefined)
   const viewOf = (userId: string) => club().pairs.view(view.id, userId)
   return { ...t, connections: t.h.connections, ids, names, director, id: view.id, viewOf }
@@ -246,5 +246,92 @@ describe('individual events (e9-t15)', () => {
       expect((await club().notifications.view(userId)).items.find((n) => n.kind === 'tournamentResults')).toMatchObject({
         params: { tournamentId: id, eventKind: 'individual', eventId },
       })
+  })
+
+  // "Only the first N rounds" (§5.25, the president's call): checked on the server, the movement cut short
+  it('checks the rounds to play: an individual event only, 1 to 19', async () => {
+    const t = await setUp(8)
+    const { club, director, viewOf, id } = t
+    for (const rounds of [0, 20, 1.5, '3'])
+      expect(await code(() => club().pairs.create(director, { boardsPerRound: 1, rounds }, 'individual'))).toBe('individualRounds')
+    // A pairs event has no rounds to set
+    expect(await code(() => club().pairs.create(director, { boardsPerRound: 1, rounds: 3 }))).toBe('individualRounds')
+    expect(await code(() => club().pairs.create(director, { boardsPerRound: 9, rounds: 3 }, 'individual'))).toBe('badPairsSettings')
+    // Absent: all n − 1
+    expect(viewOf(director).settings.rounds).toBeUndefined()
+    // More rounds than the players allow plays them all
+    const many = await club().pairs.create(director, { boardsPerRound: 1, rounds: 19 }, 'individual')
+    for (const userId of t.ids) await club().pairs.withdraw(userId, id, undefined)
+    for (const userId of t.ids) await club().pairs.enter(userId, many.id, undefined)
+    expect(club().pairs.view(many.id, director).settings.rounds).toBe(19)
+    expect(await club().pairs.start(director, many.id)).toMatchObject({ movement: { rounds: 7, boards: 7 } })
+  })
+
+  it('plays only the first rounds when cut short: no seat conflicts, no partner twice, ranked by percentage, points', async () => {
+    const t = await setUp(8, 2, 3)
+    const { club, ids, director, id, playUntil, connections, viewOf } = t
+    expect(viewOf(director).settings.rounds).toBe(3)
+    const started = await club().pairs.start(director, id)
+    club().broadcast()
+    await tick()
+    // Boards a round as asked: 3 rounds × 2 boards
+    expect(started.movement).toMatchObject({ kind: 'individual', tables: 2, rounds: 3, boardsPerRound: 2, boards: 6 })
+    const partners = new Map<string, string[]>()
+    for (let round = 1; round <= 3; round++) {
+      const seated = viewOf(director).tables.flatMap((tb) => tb.seats!)
+      expect([...seated].sort((a, b) => a - b)).toEqual([...Array(8).keys()])
+      for (const userId of ids) {
+        const view = viewOf(userId)
+        const table = view.myTable!
+        const seat = table.seats!.indexOf(view.myPair!)
+        expect(connections.table(userId)?.pairs).toMatchObject({ round, rounds: 3, table: table.table })
+        partners.set(userId, [...(partners.get(userId) ?? []), view.pairs[table.seats![seat ^ 1]].players[0].id])
+      }
+      await playUntil(ids, () => {
+        const v = viewOf(director)
+        return round < 3 ? v.round === round + 1 : v.status === 'finished'
+      })
+    }
+    // Three different partners each, nobody twice
+    for (const userId of ids) expect(new Set(partners.get(userId)).size).toBe(3)
+    const done = viewOf(ids[0])
+    expect(done.status).toBe('finished')
+    expect(done.round).toBe(3)
+    expect(done.travellers).toHaveLength(6)
+    // Everyone played the 6 boards; all passed out: 50% each, one place
+    expect(done.standings.every((s) => s.boards === 6 && s.percent === 50 && s.rank === 1)).toBe(true)
+    for (const userId of ids)
+      expect(club().rankings.ledger.ledger(userId, { from: 0, to: Infinity })).toEqual([
+        expect.objectContaining({ eventId: id, kind: 'individual', rank: 1, field: 8 }),
+      ])
+  })
+
+  it('takes the rounds on an individual tournament, up to the most its capacity seats', async () => {
+    const t = await teamHarness()
+    const { club, member, h } = t
+    const ids: string[] = []
+    for (let i = 0; i < 8; i++) ids.push(await member(`q${i + 1}`))
+    await club().adminSetFeature({ flag: 'tournaments', state: 'on', usernames: [] })
+    const admin = h.boss
+    const HOUR = 3_600_000
+    const base = { kind: 'individual', title: '個人賽盃', startsAt: h.time + 3 * 24 * HOUR, deadline: h.time + 2 * 24 * HOUR }
+    // 11 places seat 8 at most: 7 rounds
+    expect(await code(() => club().tournaments.create(admin, { ...base, capacity: 11, pairs: { boardsPerRound: 1, boardMinutes: 8, rounds: 8 } }))).toBe(
+      'individualRounds',
+    )
+    expect(await code(() => club().tournaments.create(admin, { ...base, pairs: { boardsPerRound: 1, boardMinutes: 8, rounds: 0 } }))).toBe('individualRounds')
+    // A pairs tournament keeps none
+    const pairs = await club().tournaments.create(admin, { ...base, kind: 'pairs', pairs: { boardsPerRound: 1, boardMinutes: 8, rounds: 3 } })
+    expect(club().tournaments.view(pairs.id, admin).settings.pairs.rounds).toBeUndefined()
+    const made = await club().tournaments.create(admin, { ...base, capacity: 12, pairs: { boardsPerRound: 1, boardMinutes: 8, rounds: 2 } })
+    expect(made.settings.pairs.rounds).toBe(2)
+    // Lowering the capacity under the rounds is refused
+    expect(await code(() => club().tournaments.update(admin, made.id, { capacity: 8, pairs: { boardsPerRound: 1, boardMinutes: 8, rounds: 9 } }))).toBe(
+      'individualRounds',
+    )
+    for (const userId of ids) await club().tournaments.enter(userId, made.id, {})
+    const started = await club().tournaments.start(admin, made.id)
+    expect(club().pairs.view(started.eventId!, ids[0])).toMatchObject({ format: 'individual', settings: { rounds: 2 } })
+    expect(await club().pairs.start(admin, started.eventId!)).toMatchObject({ movement: { rounds: 2, boards: 2 } })
   })
 })

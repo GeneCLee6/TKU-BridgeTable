@@ -64,6 +64,11 @@ export const TOURNAMENT_LIMITS = {
 export interface TournamentPairsSettings {
   boardsPerRound: number
   boardMinutes: number
+  /**
+   * An individual event's rounds to play (`e9-t15`, §5.25): 1 to the starting size's n − 1 for the
+   * capacity; absent plays all. Only kept for kind `individual`
+   */
+  rounds?: number
 }
 export interface TournamentMatchSettings {
   boards: number
@@ -136,7 +141,7 @@ export function parseTournamentSettings(
   value: unknown,
   now: number,
   base?: TournamentSettings,
-): { settings: TournamentSettings } | { field: string } {
+): { settings: TournamentSettings } | { field: string; max?: number } {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return { field: 'settings' }
   const input = value as Record<string, unknown>
   const kind = input.kind ?? base?.kind
@@ -174,8 +179,16 @@ export function parseTournamentSettings(
     capacity = asked as number
   }
   const pairsIn = input.pairs ?? base?.pairs ?? DEFAULT_PAIRS
-  const pairs = parsePairsSettings(pairsIn)
+  // The rounds (`e9-t15`): only an individual event keeps them, checked against the most it may seat
+  const { rounds: roundsIn, ...pairsRest } = (pairsIn && typeof pairsIn === 'object' ? pairsIn : {}) as Record<string, unknown>
+  const pairs = parsePairsSettings(pairsIn && typeof pairsIn === 'object' ? pairsRest : pairsIn)
   if (!pairs || typeof pairsIn !== 'object' || 'title' in (pairsIn as object)) return { field: 'pairs' }
+  let rounds: number | undefined
+  if (kind === 'individual' && roundsIn !== undefined && roundsIn !== null) {
+    const max = individualSizeFor(capacity) - 1
+    if (!Number.isInteger(roundsIn) || (roundsIn as number) < 1 || (roundsIn as number) > max) return { field: 'rounds', max }
+    rounds = roundsIn as number
+  }
   const matchIn = input.match ?? base?.match ?? DEFAULT_MATCH
   if (!matchIn || typeof matchIn !== 'object' || Array.isArray(matchIn)) return { field: 'match' }
   const { boards, scoring, boardMinutes, ...rest } = matchIn as Record<string, unknown>
@@ -195,7 +208,7 @@ export function parseTournamentSettings(
       startsAt: startsAt as number,
       deadline: deadline as number,
       capacity,
-      pairs: { boardsPerRound: pairs.boardsPerRound, boardMinutes: pairs.boardMinutes },
+      pairs: { boardsPerRound: pairs.boardsPerRound, boardMinutes: pairs.boardMinutes, ...(rounds !== undefined && { rounds }) },
       match: { boards: match.settings.boards, scoring: match.settings.scoring, boardMinutes: match.settings.boardMinutes },
       teams,
     },

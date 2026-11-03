@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useId, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import styled from 'styled-components'
+import { individualSizeFor } from '../../shared/movement.ts'
 import { roundRobinRounds, TEAM_EVENT_FORMAT_CHOICES, TEAM_EVENT_LIMITS, type TeamEventFormatChoice } from '../../shared/team-event.ts'
 import {
   DEFAULT_TEAMS,
@@ -12,6 +13,7 @@ import {
   type TournamentSummary,
   type TournamentView,
 } from '../../shared/tournament.ts'
+import { IndividualRoundsSelect } from '../components/IndividualRounds.tsx'
 import { Button, Card, ErrorText, Input, Muted, PageMain, PageTitle, Select, Textarea } from '../components/ui.tsx'
 import { ApiError, api } from '../lib/api.ts'
 import { formatDateTime } from '../lib/format.ts'
@@ -260,6 +262,13 @@ function TournamentForm({
               onChange={(e) => set({ pairs: { ...settings.pairs, boardMinutes: Number(e.target.value) } })}
             />
           </label>
+          {settings.kind === 'individual' && (
+            <IndividualRoundsSelect
+              value={settings.pairs.rounds}
+              max={Math.max(1, individualSizeFor(settings.capacity) - 1)}
+              onChange={(rounds) => set({ pairs: { ...settings.pairs, rounds } })}
+            />
+          )}
         </Row>
       ) : settings.kind === 'teams' ? (
         <>
@@ -606,6 +615,7 @@ export function TournamentPage() {
         <Meta>
           <Status>{tt.status[view.status]}</Status>
           <span>{tt.kinds[view.kind]}</span>
+          {view.kind === 'individual' && view.settings.pairs.rounds !== undefined && <span>{t.pairs.roundsOnly(view.settings.pairs.rounds)}</span>}
           <span>{tt.when(formatDateTime(view.startsAt, lang))}</span>
           <span>{tt.until(formatDateTime(view.deadline, lang))}</span>
           <span>{usedLabel(t, view)}</span>
