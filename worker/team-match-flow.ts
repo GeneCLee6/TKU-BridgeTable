@@ -61,6 +61,26 @@ export function newTeamMatch(input: {
   }
 }
 
+/**
+ * Who acts in a multi-team event's match (§5.26, 社長 2026-11-03): its director (or an admin)
+ * rules over the time limit, pauses, abandons, has a robot sit in, starts the next segment and may
+ * start it for the host; the host only plays (and arranges team A's seats, as team B's captain
+ * does team B's). The club works it out (it knows the event and who is an admin) and passes it on
+ * with the step, so the match's own object checks the same
+ */
+export interface EventRole {
+  /** The match is a multi-team event's */
+  event: boolean
+  /** The member directs it: the event's director or an admin */
+  director: boolean
+}
+
+/** Any other match: the host runs it */
+export const NO_EVENT: EventRole = { event: false, director: false }
+
+/** Whether the member runs the match (rulings, pause, abandon, sit-in, segments): the host, or in an event's match its director */
+export const runsMatch = (match: TeamMatch, userId: string, role: EventRole = NO_EVENT) => (role.event ? role.director : match.hostId === userId)
+
 /** Only the host changes or cancels a match, and only before it starts */
 function hostBeforeStart(match: TeamMatch, userId: string): FlowError | null {
   if (match.hostId !== userId) return { error: 'matchHostOnly' }
@@ -125,9 +145,12 @@ export const matchMembers = (match: TeamMatch): string[] =>
 
 // ── Playing (e8-t07, e8-t08, e8-t10, e8-t11) ─────────────────────────────────────────────────
 
-/** The host starts the match (`e8-t07`): only the host, only while setting up, and only when it is ready (`matchReady`) */
-export function startMatch(match: TeamMatch, userId: string, online: (userId: string) => boolean): FlowError | { ok: true } {
-  const denied = hostBeforeStart(match, userId)
+/**
+ * The host starts the match (`e8-t07`): only the host (or a multi-team event's director, §5.26),
+ * only while setting up, and only when it is ready (`matchReady`)
+ */
+export function startMatch(match: TeamMatch, userId: string, online: (userId: string) => boolean, role: EventRole = NO_EVENT): FlowError | { ok: true } {
+  const denied = hostBeforeStart(match, role.event && role.director ? match.hostId : userId)
   if (denied) return denied
   if (!matchReady(match, online).ready) return { error: 'matchNotReady' }
   return { ok: true }
@@ -176,9 +199,9 @@ export function roomFinished(
 
 // ── Exceptions while playing (e8-t14–e8-t16) ─────────────────────────────────────────────────
 
-/** Only the host, only while the match is played */
-function hostWhilePlaying(match: TeamMatch, userId: string): FlowError | null {
-  if (match.hostId !== userId) return { error: 'matchHostOnly' }
+/** Only the host (a multi-team event's director instead, §5.26), only while the match is played */
+function hostWhilePlaying(match: TeamMatch, userId: string, role: EventRole = NO_EVENT): FlowError | null {
+  if (!runsMatch(match, userId, role)) return { error: role.event ? 'matchEventDirector' : 'matchHostOnly' }
   if (match.status !== 'playing') return { error: 'matchNotPlaying' }
   return null
 }
@@ -202,8 +225,9 @@ export function ruleBoard(
   input: { seq: unknown; ruling: unknown; team: unknown; reason: unknown },
   rooms: Partial<Record<Room, RoomClock>>,
   now: number,
+  role: EventRole = NO_EVENT,
 ): FlowError | { seq: number; ruling: Ruling; reason: string } {
-  const denied = hostWhilePlaying(match, userId)
+  const denied = hostWhilePlaying(match, userId, role)
   if (denied) return denied
   const seq = input.seq
   const reason = parseRulingReason(input.reason)
@@ -231,8 +255,8 @@ export function finishedWithRuling(match: TeamMatch, seq: number): { finished: b
  * The host starts the next segment (`e8-t21`, AC-8.9): only while the match waits between
  * segments. Answers the segment and its boards; the seats are as the captains left them
  */
-export function nextSegment(match: TeamMatch, userId: string): FlowError | { segment: number; first: number; last: number } {
-  const denied = hostWhilePlaying(match, userId)
+export function nextSegment(match: TeamMatch, userId: string, role: EventRole = NO_EVENT): FlowError | { segment: number; first: number; last: number } {
+  const denied = hostWhilePlaying(match, userId, role)
   if (denied) return denied
   if (match.breakAt === undefined) return { error: 'matchNotBreak' }
   const segment = currentSegment(match) + 1
@@ -243,13 +267,13 @@ export function nextSegment(match: TeamMatch, userId: string): FlowError | { seg
 export const betweenSegments = (match: TeamMatch) => match.status === 'playing' && match.breakAt !== undefined
 
 /** The host pauses or resumes both rooms (`e8-t16`); `changed` is false when it already is that way */
-export function pauseMatch(match: TeamMatch, userId: string, paused: boolean): FlowError | { changed: boolean } {
-  return hostWhilePlaying(match, userId) ?? { changed: paused !== (match.pausedAt !== undefined) }
+export function pauseMatch(match: TeamMatch, userId: string, paused: boolean, role: EventRole = NO_EVENT): FlowError | { changed: boolean } {
+  return hostWhilePlaying(match, userId, role) ?? { changed: paused !== (match.pausedAt !== undefined) }
 }
 
 /** The host stops a match for good (`abandoned`, §5.8): it has to be paused first (or between segments) */
-export function abandonMatch(match: TeamMatch, userId: string): FlowError | { ok: true } {
-  const denied = hostWhilePlaying(match, userId)
+export function abandonMatch(match: TeamMatch, userId: string, role: EventRole = NO_EVENT): FlowError | { ok: true } {
+  const denied = hostWhilePlaying(match, userId, role)
   if (denied) return denied
   if (match.pausedAt === undefined && match.breakAt === undefined) return { error: 'matchPauseFirst' }
   return { ok: true }
@@ -261,9 +285,17 @@ export function abandonMatch(match: TeamMatch, userId: string): FlowError | { ok
  * direction, so the substitute plays for that team. Not the host's own seat, and not someone
  * already in the match. Whether the member exists, is free and is not watching is the service's
  */
-export function replaceSeat(match: TeamMatch, userId: string, at: MatchSeat, newcomer: string, now: number): FlowError | SeatChange {
+export function replaceSeat(
+  match: TeamMatch,
+  userId: string,
+  at: MatchSeat,
+  newcomer: string,
+  now: number,
+  role: EventRole = NO_EVENT,
+): FlowError | SeatChange {
   if (match.status !== 'playing') return { error: 'matchNotPlaying' }
-  if (arrangerOf(match, teamOf(at)) !== userId && match.hostId !== userId) return { error: 'matchNotCaptain' }
+  // In a multi-team event's match the host arranges only team A (its captain); the director either team
+  if (arrangerOf(match, teamOf(at)) !== userId && !runsMatch(match, userId, role)) return { error: 'matchNotCaptain' }
   // Paused, or between segments (`e8-t21`)
   if (match.pausedAt === undefined && match.breakAt === undefined) return { error: 'matchPauseFirst' }
   if (seatAt(match, at).userId === match.hostId) return { error: 'matchHostStays' }
@@ -273,8 +305,8 @@ export function replaceSeat(match: TeamMatch, userId: string, at: MatchSeat, new
 }
 
 /** The host has a robot sit in for the member in a seat (代打, `e8-t14`) until they come back */
-export function sitInFor(match: TeamMatch, userId: string, at: MatchSeat): FlowError | { memberId: string } {
-  const denied = hostWhilePlaying(match, userId)
+export function sitInFor(match: TeamMatch, userId: string, at: MatchSeat, role: EventRole = NO_EVENT): FlowError | { memberId: string } {
+  const denied = hostWhilePlaying(match, userId, role)
   if (denied) return denied
   const target = seatAt(match, at)
   if (target.robot || target.userId === undefined) return { error: 'matchNotMember' }

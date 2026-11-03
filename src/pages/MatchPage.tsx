@@ -22,6 +22,7 @@ import { ActionLink, Button, Card, ErrorText, Field, FieldLabel, Input, Muted, P
 import { ApiError, api, type MatchPlayAction, type MatchSeatAction } from '../lib/api.ts'
 import { arranges, betweenSegments, matchSettingsLine, myRoomTable, mySeat, robotsUneven, sameSeat, seatLabel, teamName } from '../lib/matches.ts'
 import { useTeamMatch } from '../lib/useTeamMatch.ts'
+import { teamEventLink } from '../../shared/team-event.ts'
 import { useAuth } from '../state/AuthContext.tsx'
 import { useClub } from '../state/ClubContext.tsx'
 import { usePreferences } from '../state/PreferencesContext.tsx'
@@ -237,6 +238,12 @@ export function MatchPage() {
   const m = match
   const me = user.id
   const isHost = m.hostId === me
+  /** A multi-team event's match (§5.26): its seats are the line-ups, its director runs it; the host only plays */
+  const eventMatch = m.event
+  /** Who runs it while it is played (rulings, pause, abandon, sit-in, segments): the host, or the event's director */
+  const runs = eventMatch ? eventMatch.directs : isHost
+  /** Who may start it: the host, or a multi-team event's director for the host */
+  const canStart = isHost || !!eventMatch?.directs
   const setup = m.status === 'setup'
   const mine = mySeat(m, me)
   const hostName = m.seats.find((s) => s.userId === m.hostId)?.user?.username ?? t.deletedMember
@@ -285,13 +292,13 @@ export function MatchPage() {
    */
   const playActions = (s: MatchSeatView) => {
     const buttons = onBreak ? moveButtons(s, arranges(m, me, s)) : []
-    if (isHost && s.status === 'seated' && !s.robot && s.userId !== undefined && !s.substitute)
+    if (runs && s.status === 'seated' && !s.robot && s.userId !== undefined && !s.substitute)
       buttons.push(
         <Button key="sitin" type="button" $size="sm" $variant="ghost" disabled={busy} onClick={() => void playAction({ action: 'sitin', room: s.room, seat: s.seat })}>
           {t.teamMatch.sitIn}
         </Button>,
       )
-    if ((paused || onBreak) && s.userId !== m.hostId && (isHost || arrangerOf(m, s.team) === me))
+    if ((paused || onBreak) && s.userId !== m.hostId && (runs || arrangerOf(m, s.team) === me))
       buttons.push(
         <Button key="replace" type="button" $size="sm" $variant="ghost" disabled={busy} onClick={() => setInviting(inviting && sameSeat(inviting, s) ? null : s)}>
           {t.teamMatch.replace}
@@ -325,7 +332,7 @@ export function MatchPage() {
           </Button>,
         )
     } else {
-      if ((captain || isHost) && s.userId !== m.hostId && s.userId !== me)
+      if (!eventMatch && (captain || isHost) && s.userId !== m.hostId && s.userId !== me)
         buttons.push(
           <Button key="clear" type="button" $size="sm" $variant="ghost" disabled={busy} onClick={() => void seatAction({ action: 'clear', room: s.room, seat: s.seat })}>
             {s.status === 'invited' ? t.teamMatch.withdraw : t.teamMatch.remove}
@@ -392,6 +399,12 @@ export function MatchPage() {
         <Muted as="span">{matchSettingsLine(t, m)}</Muted>
         <Muted as="span">{t.teamMatch.host(hostName)}</Muted>
       </Meta>
+      {eventMatch && (
+        <Muted>
+          {eventMatch.directs ? t.teamMatch.eventDirectorHint : t.teamMatch.eventMatchHint}{' '}
+          <Link to={teamEventLink(eventMatch.id)}>{t.teamMatch.eventLink}</Link>
+        </Muted>
+      )}
       {error && <ErrorText role="alert">{error}</ErrorText>}
 
       {setup && mine?.status === 'invited' && (
@@ -529,13 +542,13 @@ export function MatchPage() {
         </Section>
       )}
 
-      {playing && isHost && <ManageMatch match={m} busy={busy} onAction={(action) => void playAction(action)} />}
+      {playing && runs && <ManageMatch match={m} busy={busy} onAction={(action) => void playAction(action)} />}
       {!setup && m.status !== 'cancelled' && (!!m.referee?.length || !!m.canReferee) && (
         <MatchReferee match={m} onDone={() => void api.match(m.id).then((r) => setMatch(r.match), fail)} />
       )}
-      {setup && isHost && <StartBar match={m} busy={busy} onStart={() => void run(() => api.startMatch(m.id))} />}
-      {setup && isHost && <SettingsForm key={JSON.stringify(m.settings)} match={m} busy={busy} onSave={(settings) => void run(() => api.matchSettings(m.id, settings))} />}
-      {setup && (
+      {setup && canStart && <StartBar match={m} busy={busy} onStart={() => void run(() => api.startMatch(m.id))} />}
+      {setup && isHost && !eventMatch && <SettingsForm key={JSON.stringify(m.settings)} match={m} busy={busy} onSave={(settings) => void run(() => api.matchSettings(m.id, settings))} />}
+      {setup && !eventMatch && (
         <Bar>
           {isHost ? (
             <Button

@@ -215,4 +215,38 @@ describe('tournament pages', () => {
     expect(within(section).queryByRole('combobox')).not.toBeInTheDocument()
     expect(within(section).queryByRole('button')).not.toBeInTheDocument()
   })
+
+  it('lets an admin choose round robin or Swiss for a multi-team event, its rounds following the places', async () => {
+    mocks.user.admin = true
+    mocks.api.tournaments.list.mockResolvedValue({ tournaments: [] })
+    mocks.api.tournaments.create.mockResolvedValue({ tournament: { ...OPEN, kind: 'teams' } })
+    renderPage('/tournaments')
+    const form = await screen.findByRole('form', { name: '公告比賽' })
+    await userEvent.type(within(form).getByLabelText('名稱'), '團體賽')
+    await userEvent.selectOptions(within(form).getByLabelText('比賽方式'), 'teams')
+    const places = within(form).getByLabelText('名額（隊）')
+    await userEvent.clear(places)
+    await userEvent.type(places, '6')
+    await userEvent.selectOptions(within(form).getByLabelText('賽制'), 'roundRobin')
+    const rounds = within(form).getByLabelText('輪數（循環賽：每隊遇到每隊一次）')
+    expect(rounds).toHaveValue(5)
+    expect(rounds).toHaveAttribute('readonly')
+    expect(within(form).getByText(/循環賽的輪數是名額減一/)).toBeInTheDocument()
+    // Fewer places: the rounds follow
+    await userEvent.clear(places)
+    await userEvent.type(places, '5')
+    expect(rounds).toHaveValue(5)
+    await userEvent.clear(places)
+    await userEvent.type(places, '4')
+    expect(rounds).toHaveValue(3)
+    // Swiss: the rounds are the admin's; back to the round robin before announcing
+    await userEvent.selectOptions(within(form).getByLabelText('賽制'), 'swiss')
+    expect(within(form).getByLabelText('輪數（瑞士制，少於名額）')).not.toHaveAttribute('readonly')
+    await userEvent.selectOptions(within(form).getByLabelText('賽制'), 'roundRobin')
+    mocks.api.tournaments.get.mockResolvedValue({ tournament: { ...OPEN, kind: 'teams' } })
+    await userEvent.click(within(form).getByRole('button', { name: '公告比賽' }))
+    expect(mocks.api.tournaments.create).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: 'teams', capacity: 4, teams: expect.objectContaining({ format: 'roundRobin', rounds: 3 }) }),
+    )
+  })
 })

@@ -221,8 +221,9 @@ export class TournamentService {
   private parse(value: unknown, base?: TournamentSettings): TournamentSettings {
     const parsed = parseTournamentSettings(value, this.deps.now(), base)
     if ('field' in parsed) {
-      // An individual event's rounds (`e9-t15`, §5.25): its own message, with the most allowed
-      if (parsed.field === 'rounds') throw new ClubError('individualRounds', { max: parsed.max ?? 0 })
+      // An individual event's rounds (`e9-t15`, §5.25): its own message, with the most allowed. A
+      // multi-team event's rounds that do not fit its format (§5.26) come back without `max`: badTournament
+      if (parsed.field === 'rounds' && parsed.max !== undefined) throw new ClubError('individualRounds', { max: parsed.max ?? 0 })
       throw new ClubError('badTournament', { field: parsed.field })
     }
     return parsed.settings

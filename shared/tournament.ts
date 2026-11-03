@@ -1,7 +1,7 @@
 import { individualSizeFor, INDIVIDUAL_PLAYERS, MOVEMENT_PAIRS } from './movement.ts'
 import { parsePairsSettings, type PairsSettings } from './pairs.ts'
 import type { PublicUser } from './protocol.ts'
-import { TEAM_EVENT_LIMITS, type TeamEventSettings } from './team-event.ts'
+import { roundsFit, TEAM_EVENT_FORMAT_CHOICES, TEAM_EVENT_LIMITS, type TeamEventFormatChoice, type TeamEventSettings } from './team-event.ts'
 import { parseTeamMatchSettings, TEAM_MATCH_LIMITS, type TeamMatchSettings } from './team-match.ts'
 import type { MatchScoring } from './team-scoring.ts'
 
@@ -80,6 +80,12 @@ export interface TournamentTeamsSettings {
   boards: number
   boardMinutes: number
   rounds: number
+  /**
+   * Round robin or Swiss as the admin chose (社長 2026-11-03), or `auto` (decided at the start);
+   * absent in tournaments kept from before (read as `auto`). A round robin's rounds are every team
+   * meeting every other at the places, Swiss's fewer than the places (`roundsFit`)
+   */
+  format?: TeamEventFormatChoice
 }
 
 export interface TournamentSettings {
@@ -108,20 +114,22 @@ export const DEFAULT_TEAMS: TournamentTeamsSettings = {
   boards: TEAM_EVENT_LIMITS.boardsDefault,
   boardMinutes: 10,
   rounds: TEAM_EVENT_LIMITS.roundsDefault,
+  format: 'auto',
 }
 
 /** A multi-team event's settings, or null when a field is wrong (every field required, nothing else) */
 function parseTeamsSettings(value: unknown): TournamentTeamsSettings | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
-  const { boards, boardMinutes, rounds, ...rest } = value as Record<string, unknown>
+  const { boards, boardMinutes, rounds, format = 'auto', ...rest } = value as Record<string, unknown>
   if (Object.keys(rest).length) return null
+  if (!TEAM_EVENT_FORMAT_CHOICES.includes(format as TeamEventFormatChoice)) return null
   const L = TEAM_EVENT_LIMITS
   if (!Number.isInteger(boards) || (boards as number) < L.boardsMin || (boards as number) > L.boardsMax) return null
   if (!Number.isInteger(rounds) || (rounds as number) < L.roundsMin || (rounds as number) > L.roundsMax) return null
   // The team match's own check of the time limit (0, or 3–30)
   const match = parseTeamMatchSettings({ boardMinutes })
   if ('field' in match) return null
-  return { boards: boards as number, boardMinutes: match.settings.boardMinutes, rounds: rounds as number }
+  return { boards: boards as number, boardMinutes: match.settings.boardMinutes, rounds: rounds as number, format: format as TeamEventFormatChoice }
 }
 
 /**
@@ -190,6 +198,8 @@ export function parseTournamentSettings(
   const teamsIn = input.teams ?? base?.teams ?? DEFAULT_TEAMS
   const teams = parseTeamsSettings(typeof teamsIn === 'object' && teamsIn ? { ...DEFAULT_TEAMS, ...teamsIn } : teamsIn)
   if (!teams) return { field: 'teams' }
+  // The rounds the chosen format plays at the places: a round robin every team meeting every other, Swiss fewer than the places
+  if (kind === 'teams' && !roundsFit(teams.format ?? 'auto', teams.rounds, capacity)) return { field: 'rounds' }
   return {
     settings: {
       kind: kind as TournamentKind,

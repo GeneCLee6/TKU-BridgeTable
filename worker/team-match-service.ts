@@ -26,10 +26,13 @@ import {
   parseHostSeat,
   parseMatchSeat,
   pauseMatch,
+  NO_EVENT,
   replaceSeat,
   ruleBoard,
+  runsMatch,
   sitInFor,
   startMatch,
+  type EventRole,
   type FlowError,
   type RoomClock,
 } from './team-match-flow.ts'
@@ -95,6 +98,13 @@ export interface TeamMatchDeps {
    * settings stay and it is not called off; a substitute comes from the team
    */
   eventTeams?: (matchId: string) => { A: string[]; B: string[] } | null
+  /**
+   * Who the member is in a multi-team event's match (§5.26): its director (or an admin) runs it
+   * instead of the host. Absent, or `event: false`, for any other match
+   */
+  eventRole?: (matchId: string, userId: string) => EventRole
+  /** The director of the multi-team event a match belongs to, who is pushed the match as its players are; null for any other */
+  eventDirector?: (matchId: string) => string | null
 }
 
 /** What the host (替補 also a captain) does while the match is played (`e8-t14`–`e8-t16`) */
@@ -153,8 +163,15 @@ export class TeamMatchService {
   /** The match, or `matchGone` for one that does not exist or the member may not see (not told apart) */
   private require(id: unknown, userId: string): TeamMatch {
     const match = typeof id === 'string' ? this.store.get(id) : null
-    if (!match || !teamMatchView(match, userId, this.deps.userById)) throw new ClubError('matchGone', {}, 404)
+    // A multi-team event's director sees its matches from the prep room on (§5.26)
+    const directs = !!match && this.role(match.id, userId).director
+    if (!match || !teamMatchView(match, userId, this.deps.userById, undefined, { eventMatch: directs, directs })) throw new ClubError('matchGone', {}, 404)
     return match
+  }
+
+  /** Who the member is in the match: in a multi-team event's, its director or not (§5.26) */
+  private role(matchId: string, userId: string): EventRole {
+    return this.deps.eventRole?.(matchId, userId) ?? NO_EVENT
   }
 
   private online(): Set<string> {
@@ -197,7 +214,9 @@ export class TeamMatchService {
           : s,
       ),
       ...(match.status === 'setup' && { ready: matchReady(match, (id) => online.has(id)) }),
-      ...(live && match.hostId === userId && { rooms: Object.fromEntries(ROOMS.map((room) => [room, clock(room)])) as Record<Room, MatchRoomClock> }),
+      ...(live && runsMatch(match, userId, this.role(match.id, userId)) && {
+        rooms: Object.fromEntries(ROOMS.map((room) => [room, clock(room)])) as Record<Room, MatchRoomClock>,
+      }),
     }
   }
 
@@ -226,7 +245,9 @@ export class TeamMatchService {
     if (!match) return
     const ctx = this.context(match)
     const watching = match.status === 'setup' || match.status === 'cancelled' ? [] : this.deps.watchers(id)
-    for (const userId of new Set([...before, ...this.players(match), ...watching]))
+    // A multi-team event's director follows its matches as they change (§5.26)
+    const director = this.deps.eventDirector?.(id)
+    for (const userId of new Set([...before, ...this.players(match), ...watching, ...(director ? [director] : [])]))
       if (ctx.online.has(userId)) send(userId, { type: 'match', matchId: id, match: this.viewOf(match, userId, ctx) })
   }
 
@@ -322,17 +343,21 @@ export class TeamMatchService {
   startable(userId: string, id: unknown): TeamMatch {
     const match = this.require(id, userId)
     const online = this.online()
-    const step = startMatch(match, userId, (member) => online.has(member))
+    const step = startMatch(match, userId, (member) => online.has(member), this.role(match.id, userId))
     if ('error' in step) this.fail(step)
     return match
   }
 
-  /** The match's two tables are open: it is being played. Everyone in it but the host is told, and sees it */
-  async started(id: string, deals: DealSet, tables: Record<Room, string>) {
+  /**
+   * The match's two tables are open: it is being played. Everyone in it but whoever started it
+   * (the host, or a multi-team event's director, §5.26) is told, and sees it
+   */
+  async started(id: string, deals: DealSet, tables: Record<Room, string>, by?: string) {
     const match = this.store.get(id)!
+    const starter = by ?? match.hostId
     await this.deps.write(id, { kind: 'started', deals, tables })
     for (const userId of matchMembers(match))
-      if (userId !== match.hostId) await this.notify(userId, 'matchStarted', id, match.hostId)
+      if (userId !== starter) await this.notify(userId, 'matchStarted', id, starter)
     this.push(id)
   }
 
@@ -365,27 +390,30 @@ export class TeamMatchService {
   async rule(userId: string, message: Extract<MatchPlayAction, { type: 'matchRule' }>): Promise<{ seq: number }> {
     const match = this.require(message.matchId, userId)
     const rooms = this.deps.live(match.id).rooms
-    const step = ruleBoard(match, userId, message, rooms, this.deps.now())
+    const role = this.role(match.id, userId)
+    const step = ruleBoard(match, userId, message, rooms, this.deps.now(), role)
     if ('error' in step) this.fail(step)
-    await this.deps.write(match.id, { kind: 'rule', userId, message, rooms })
+    await this.deps.write(match.id, { kind: 'rule', userId, message, rooms, ...(role.event && { role }) })
     return { seq: step.seq }
   }
 
   /** The host pauses or resumes (`e8-t16`); answers whether that changed anything */
   async pause(userId: string, matchId: unknown, paused: boolean): Promise<{ matchId: string; changed: boolean }> {
     const match = this.require(matchId, userId)
-    const step = pauseMatch(match, userId, paused)
+    const role = this.role(match.id, userId)
+    const step = pauseMatch(match, userId, paused, role)
     if ('error' in step) this.fail(step)
-    if (step.changed) await this.deps.write(match.id, { kind: 'pause', userId, paused })
+    if (step.changed) await this.deps.write(match.id, { kind: 'pause', userId, paused, ...(role.event && { role }) })
     return { matchId: match.id, changed: step.changed }
   }
 
   /** The host abandons a paused match (`e8-t16`): it ends here, its scored boards kept; everyone in it is told */
   async abandon(userId: string, matchId: unknown): Promise<string> {
     const match = this.require(matchId, userId)
-    const step = abandonMatch(match, userId)
+    const role = this.role(match.id, userId)
+    const step = abandonMatch(match, userId, role)
     if ('error' in step) this.fail(step)
-    await this.deps.write(match.id, { kind: 'abandon', userId })
+    await this.deps.write(match.id, { kind: 'abandon', userId, ...(role.event && { role }) })
     for (const other of matchMembers(match)) if (other !== userId) await this.notify(other, 'matchAbandoned', match.id, userId)
     return match.id
   }
@@ -402,7 +430,8 @@ export class TeamMatchService {
     if (!at) throw new ClubError('badSeat')
     const newcomer = message.userId
     if (typeof newcomer !== 'string' || (newcomer !== userId && !this.deps.isMember(newcomer))) throw new ClubError('userGone', {}, 404)
-    const step = replaceSeat(match, userId, at, newcomer, this.deps.now())
+    const role = this.role(match.id, userId)
+    const step = replaceSeat(match, userId, at, newcomer, this.deps.now(), role)
     if ('error' in step) this.fail(step)
     // A multi-team event's substitute is one of the team's own (`e9-t14`)
     const teams = this.deps.eventTeams?.(match.id)
@@ -414,7 +443,7 @@ export class TeamMatchService {
       throw new ClubError('matchPlayerBusy', { name: this.deps.userById(newcomer)?.username ?? '' })
     const target = match.seats.find((s) => s.room === at.room && s.seat === at.seat)!
     const before = !target.robot ? target.userId : undefined
-    await this.deps.write(match.id, { kind: 'replace', userId, at, newcomer })
+    await this.deps.write(match.id, { kind: 'replace', userId, at, newcomer, ...(role.event && { role }) })
     await this.notify(newcomer, 'matchSubIn', match.id, userId)
     if (before !== undefined && before !== userId) await this.notify(before, 'matchRemoved', match.id, userId)
     const now = this.store.get(match.id)!
@@ -430,9 +459,10 @@ export class TeamMatchService {
    */
   async nextSegment(userId: string, matchId: unknown): Promise<SegmentStart> {
     const match = this.require(matchId, userId)
-    const step = nextSegment(match, userId)
+    const role = this.role(match.id, userId)
+    const step = nextSegment(match, userId, role)
     if ('error' in step) this.fail(step)
-    await this.deps.write(match.id, { kind: 'segment', userId })
+    await this.deps.write(match.id, { kind: 'segment', userId, ...(role.event && { role }) })
     const seats = Object.fromEntries(
       ROOMS.map((room) => [
         room,
@@ -450,7 +480,7 @@ export class TeamMatchService {
     const match = this.require(message.matchId, userId)
     const at = parseMatchSeat({ room: message.room, seat: message.seat })
     if (!at) throw new ClubError('badSeat')
-    const step = sitInFor(match, userId, at)
+    const step = sitInFor(match, userId, at, this.role(match.id, userId))
     if ('error' in step) this.fail(step)
     return { matchId: match.id, at }
   }

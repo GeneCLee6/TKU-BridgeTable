@@ -2,7 +2,7 @@ import { useCallback, useEffect, useId, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import styled from 'styled-components'
 import { individualSizeFor } from '../../shared/movement.ts'
-import { TEAM_EVENT_LIMITS } from '../../shared/team-event.ts'
+import { roundRobinRounds, TEAM_EVENT_FORMAT_CHOICES, TEAM_EVENT_LIMITS, type TeamEventFormatChoice } from '../../shared/team-event.ts'
 import {
   DEFAULT_TEAMS,
   entrySizes,
@@ -38,6 +38,9 @@ const Section = styled(Card)`
     color: ${({ theme }) => theme.colors.primaryStrong};
   }
 `
+
+/** The most teams a round robin takes within the rounds allowed (10 teams: 9 rounds) */
+const ROUND_ROBIN_TEAMS_MAX = 10
 
 const Row = styled.div`
   display: flex;
@@ -164,6 +167,11 @@ function TournamentForm({
   const set = (patch: Partial<TournamentSettings>) => setSettings((s) => ({ ...s, ...patch }))
   const teams = settings.teams ?? DEFAULT_TEAMS
   const setTeams = (patch: Partial<typeof teams>) => set({ teams: { ...teams, ...patch } })
+  // The admin chooses the format (§5.26); a round robin's rounds follow the places (every team meeting every other)
+  const teamsFormat: TeamEventFormatChoice = teams.format ?? 'auto'
+  const roundRobin = teamsFormat === 'roundRobin'
+  const setCapacity = (capacity: number) =>
+    set({ capacity, ...(settings.kind === 'teams' && roundRobin && { teams: { ...teams, rounds: roundRobinRounds(capacity) } }) })
   const tt = t.tournaments
   return (
     <form
@@ -263,16 +271,33 @@ function TournamentForm({
           )}
         </Row>
       ) : settings.kind === 'teams' ? (
+        <>
         <Row>
           <label>
             {tt.capacityTeams}
             <Input
               type="number"
               min={TOURNAMENT_LIMITS.teamsMin}
-              max={TOURNAMENT_LIMITS.teamsMax}
+              max={roundRobin ? ROUND_ROBIN_TEAMS_MAX : TOURNAMENT_LIMITS.teamsMax}
               value={settings.capacity}
-              onChange={(e) => set({ capacity: Number(e.target.value) })}
+              onChange={(e) => setCapacity(Number(e.target.value))}
             />
+          </label>
+          <label>
+            {tt.format}
+            <Select
+              value={teamsFormat}
+              onChange={(e) => {
+                const format = e.target.value as TeamEventFormatChoice
+                setTeams({ format, ...(format === 'roundRobin' && { rounds: roundRobinRounds(settings.capacity) }) })
+              }}
+            >
+              {TEAM_EVENT_FORMAT_CHOICES.map((f) => (
+                <option key={f} value={f}>
+                  {tt.formatChoices[f]}
+                </option>
+              ))}
+            </Select>
           </label>
           <label>
             {tt.boards}
@@ -285,12 +310,13 @@ function TournamentForm({
             />
           </label>
           <label>
-            {tt.rounds}
+            {roundRobin ? tt.roundsRoundRobin : teamsFormat === 'swiss' ? tt.roundsSwiss : tt.rounds}
             <Input
               type="number"
               min={TEAM_EVENT_LIMITS.roundsMin}
-              max={TEAM_EVENT_LIMITS.roundsMax}
+              max={teamsFormat === 'swiss' ? Math.min(TEAM_EVENT_LIMITS.roundsMax, settings.capacity - 1) : TEAM_EVENT_LIMITS.roundsMax}
               value={teams.rounds}
+              readOnly={roundRobin}
               onChange={(e) => setTeams({ rounds: Number(e.target.value) })}
             />
           </label>
@@ -299,6 +325,8 @@ function TournamentForm({
             <Input type="number" min={0} max={30} value={teams.boardMinutes} onChange={(e) => setTeams({ boardMinutes: Number(e.target.value) })} />
           </label>
         </Row>
+        {roundRobin && <Muted>{tt.roundRobinHint}</Muted>}
+        </>
       ) : (
         <Row>
           <label>

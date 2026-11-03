@@ -56,7 +56,9 @@ import {
   eventStandings,
   impQuotient,
   matchCounts,
+  roundComparison,
   roundDone,
+  shownImps,
   type EventMatchScore,
   type TeamEvent,
   type TeamEventView,
@@ -667,13 +669,18 @@ export function teamMatchView(
 ): TeamMatchView | null {
   const m = match
   const outsiderMaySee = m.status === 'playing' || m.status === 'finished' || m.status === 'abandoned'
-  if (!isMatchPlayer(m, userId) && !outsiderMaySee) return null
+  const player = isMatchPlayer(m, userId)
+  // A multi-team event's director (or an admin) runs its matches, from the prep room on (§5.26)
+  const directs = !!director.eventMatch && !!director.directs
+  if (!player && !outsiderMaySee && !directs) return null
+  // The round's other matches play the same deals: outside the match, a board only once every match of the round has done it
+  const hidden = (seq: number) => !player && !directs && !!director.shown && !director.shown(seq)
   const score = penalizedMatch(
     scoreTeamMatch(
       m.settings.scoring,
       Array.from({ length: m.settings.boards }, (_, i) =>
         boardScores(
-          m.boards.find((b) => b.seq === i + 1),
+          hidden(i + 1) ? undefined : m.boards.find((b) => b.seq === i + 1),
           (boardId) => details?.get(boardId)?.ruling,
         ),
       ),
@@ -733,7 +740,8 @@ export function teamMatchView(
     totals: score.totals,
     leader: score.leader,
     ...(score.penalties && { penalties: score.penalties }),
-    ...((director.admin || (m.hostId === userId && !director.eventMatch)) && { canReferee: true }),
+    ...((director.admin || (director.eventMatch ? directs : m.hostId === userId)) && { canReferee: true }),
+    ...(director.eventMatch && director.eventId !== undefined && { event: { id: director.eventId, directs } }),
     ...refereeOf(),
   }
 
@@ -1019,8 +1027,20 @@ export interface EventDirecting {
   admin?: boolean
   /** The director's log */
   entries?: readonly RefereeEntry[]
-  /** A multi-team event's match (`e9-t14`): its host plays in the event, so only admins direct it */
+  /** A multi-team event's match (`e9-t14`): its host plays in the event, so its director (or an admin) runs it */
   eventMatch?: boolean
+  /** The multi-team event the match belongs to */
+  eventId?: string
+  /**
+   * A multi-team event's match: the viewer directs it (the event's director or an admin), so they
+   * see it while it is set up, start it, rule, pause, abandon (§5.26, 社長 2026-11-03)
+   */
+  directs?: boolean
+  /**
+   * A multi-team event's match whose round plays the same deals: which boards may be shown to
+   * people outside it (`roundBoardShown`); absent, every board both rooms played
+   */
+  shown?: (seq: number) => boolean
 }
 
 /** What a pairs event's page and scoring need of its director (`e9-t17`) */
@@ -1058,17 +1078,23 @@ export function teamEventView(event: TeamEvent, viewerId: string, ctx: TeamEvent
     n: r.n,
     matches: r.matches.map((m) => {
       const s = ctx.scoreOf(m.matchId)
+      // The round's matches play the same deals: outside a match, its score counts only the boards
+      // every match of the round has done (§5.26); its own teams and the director see it all
+      const inside = ctx.directs || m.a === myTeam || m.b === myTeam
       return {
         matchId: m.matchId,
         a: m.a,
         b: m.b,
         status: s?.status ?? ('gone' as const),
-        imps: s?.imps ?? { A: 0, B: 0 },
+        imps: !s ? { A: 0, B: 0 } : inside || !r.sameDeals ? s.imps : shownImps(r, s, ctx.scoreOf),
         ...(matchCounts(s) && { vp: eventMatchVp(s.imps, s.boards) }),
       }
     }),
     ...(r.bye !== undefined && { bye: r.bye }),
     done: roundDone(r, ctx.scoreOf),
+    // Each board across the round's matches, once every one of them has done it (the same for everyone)
+    sameDeals: !!r.sameDeals,
+    boards: r.sameDeals ? roundComparison(r, event.settings.boards, ctx.scoreOf) : [],
   }))
   const last = event.played.at(-1)
   const mine = myTeam >= 0 && last && !roundDone(last, ctx.scoreOf) ? last.matches.find((m) => m.a === myTeam || m.b === myTeam) : undefined

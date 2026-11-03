@@ -215,3 +215,52 @@ describe('the event as kept (e9-t14)', () => {
     expect(nextPairing(rr, () => null)).toEqual(roundRobinSchedule(5)[0])
   })
 })
+
+describe('the format chosen and the round compared (社長 2026-11-03)', () => {
+  it('fits the rounds to the format: a round robin of the places, Swiss fewer than them', async () => {
+    const { roundsFit, eventFormat } = await import('../../shared/team-event.ts')
+    expect(roundsFit('roundRobin', 7, 8)).toBe(true)
+    expect(roundsFit('roundRobin', 7, 7)).toBe(true)
+    expect(roundsFit('roundRobin', 5, 8)).toBe(false)
+    expect(roundsFit('swiss', 3, 4)).toBe(true)
+    expect(roundsFit('swiss', 4, 4)).toBe(false)
+    expect(roundsFit('auto', 9, 16)).toBe(true)
+    // At the start: the teams there are
+    expect(eventFormat(5, { rounds: 7, format: 'roundRobin' })).toEqual({ format: 'roundRobin', rounds: 5 })
+    expect(eventFormat(4, { rounds: 3, format: 'swiss' })).toEqual({ format: 'swiss', rounds: 3 })
+    expect(eventFormat(3, { rounds: 5, format: 'swiss' })).toEqual({ format: 'swiss', rounds: 2 })
+    expect(eventFormat(4, { rounds: 5 })).toEqual(formatFor(4, 5))
+  })
+
+  it('shows a board across the round once every match did it, with the datum, and keeps the rest out of the score shown', async () => {
+    const { roundBoardShown, roundComparison, shownImps } = await import('../../shared/team-event.ts')
+    const round = { n: 1, at: 0, sameDeals: true, matches: [{ a: 0, b: 1, matchId: 'm1' }, { a: 2, b: 3, matchId: 'm2' }] }
+    const room = (scoreNS: number) => ({ scoreNS })
+    const scores: Record<string, EventMatchScore> = {
+      m1: {
+        status: 'playing',
+        imps: { A: 11, B: 0 },
+        boards: 2,
+        played: [
+          { seq: 1, open: room(420), closed: room(-50), result: { A: 10, B: 0 }, ruled: false },
+          { seq: 2, open: room(100), closed: room(50), result: { A: 1, B: 0 }, ruled: false },
+        ],
+      },
+      m2: { status: 'playing', imps: { A: 0, B: 0 }, boards: 2, played: [{ seq: 1, open: room(420), closed: room(-420), result: { A: 0, B: 0 }, ruled: false }] },
+    }
+    const scoreOf = (id: string) => scores[id] ?? null
+    expect(roundBoardShown(round, 1, scoreOf)).toBe(true)
+    expect(roundBoardShown(round, 2, scoreOf)).toBe(false)
+    const boards = roundComparison(round, 2, scoreOf)
+    expect(boards.map((b) => b.seq)).toEqual([1])
+    // Datum: (420 − 50 + 420 − 420) / 4 = 92.5, to the nearest 10
+    expect(boards[0].datum).toBe(90)
+    expect(boards[0].rows[0]).toMatchObject({ matchId: 'm1', vsDatum: { open: 8, closed: -4 } })
+    // Board 2 is not in the score shown outside match 1 yet
+    expect(shownImps(round, scores.m1, scoreOf)).toEqual({ A: 10, B: 0 })
+    // A match over will not play it: shown
+    scores.m2 = { ...scores.m2, status: 'abandoned' }
+    expect(roundBoardShown(round, 2, scoreOf)).toBe(true)
+    expect(roundComparison(round, 2, scoreOf)[1].rows.map((r) => r.matchId)).toEqual(['m1'])
+  })
+})

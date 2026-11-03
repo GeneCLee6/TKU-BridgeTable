@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import styled from 'styled-components'
-import type { TeamEventTeamView, TeamEventView } from '../../shared/team-event.ts'
+import { resultLabel } from '../../shared/scoring.ts'
+import type { EventRoomResult, TeamEventRoundView, TeamEventTeamView, TeamEventView } from '../../shared/team-event.ts'
+import { ContractLabel } from '../components/Suit.tsx'
 import { Button, Card, ErrorText, Muted, PageMain, PageTitle, Select } from '../components/ui.tsx'
 import { ApiError, api } from '../lib/api.ts'
 import { formatDateTime } from '../lib/format.ts'
@@ -112,6 +114,79 @@ const r2 = (n: number) => Math.round(n * 100) / 100
 function useErrorText() {
   const { message } = usePreferences()
   return useCallback((e: unknown) => (e instanceof ApiError ? message(e.code, e.params, e.message) : String(e)), [message])
+}
+
+/** One room's contract, result and North-South score on a board of the comparison */
+function RoomResult({ room }: { room?: EventRoomResult }) {
+  if (!room) return <>—</>
+  const contract = room.contract
+  return (
+    <>
+      {contract === undefined ? '—' : <ContractLabel contract={contract} />}
+      {contract && room.declarerTricks != null && ` ${resultLabel(contract, room.declarerTricks)}`} · {room.scoreNS}
+    </>
+  )
+}
+
+/**
+ * A round's boards across its matches (§5.26, 社長 2026-11-03): every match of the round plays the
+ * same deals, so each board once every match has done it — each match's two rooms, what each team
+ * won, and each room against the field's datum. The server sends a board only then (§4)
+ */
+function RoundBoards({ round, teamName }: { round: TeamEventRoundView; teamName: (i: number) => string }) {
+  const t = useT()
+  const te = t.teamEvents
+  const signed = (n: number) => (n > 0 ? `+${n}` : String(n))
+  return (
+    <details>
+      <summary>
+        {te.boards}（{te.round(round.n)}）
+      </summary>
+      <Muted>{te.boardsHint}</Muted>
+      {!round.boards.length ? (
+        <Muted>{te.noBoards}</Muted>
+      ) : (
+        round.boards.map((board) => (
+          <Table key={board.seq}>
+            <caption>
+              {te.board(board.seq)} · {board.datum === null ? te.noDatum : te.datum(board.datum)}
+            </caption>
+            <thead>
+              <tr>
+                <th scope="col">{te.matchCol}</th>
+                <th scope="col">{te.openRoom}</th>
+                <th scope="col">{te.closedRoom}</th>
+                <th scope="col">{te.impsCol}</th>
+                <th scope="col">{te.vsDatum}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {board.rows.map((row) => (
+                <tr key={row.matchId}>
+                  <td>{te.match(teamName(row.a), teamName(row.b))}</td>
+                  <td>
+                    <RoomResult room={row.open} />
+                  </td>
+                  <td>
+                    <RoomResult room={row.closed} />
+                  </td>
+                  <td>
+                    {r2(row.result.A)} : {r2(row.result.B)}
+                    {row.ruled && ` · ${te.ruled}`}
+                  </td>
+                  <td>
+                    {row.vsDatum
+                      ? `${row.vsDatum.open === undefined ? '—' : signed(row.vsDatum.open)} / ${row.vsDatum.closed === undefined ? '—' : signed(row.vsDatum.closed)}`
+                      : '—'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </Table>
+        ))
+      )}
+    </details>
+  )
 }
 
 /** A captain's (or the director's) form for the next round's four: the open room pair, then the closed room pair */
@@ -326,6 +401,8 @@ export function TeamEventPage() {
                   )}
                 </tbody>
               </Table>
+              {/* Older rounds, each match with its own deals, have nothing to compare */}
+              {r.sameDeals && <RoundBoards round={r} teamName={teamName} />}
             </Scroll>
           ))
         )}

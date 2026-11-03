@@ -1206,6 +1206,9 @@ const zh = {
   timeYesterday: '昨天',
 
   teamMatch: {
+    eventMatchHint: '這是多隊賽的一場：座位照出賽名單（只能在同一隊裡換座位），超時裁定、暫停、中止與代打由多隊賽的裁判處理。',
+    eventDirectorHint: '你是這場多隊賽的裁判：可以替房主按開始；比賽中由你做超時裁定、暫停、中止與代打。',
+    eventLink: '回多隊賽',
     title: '隊制賽',
     intro: '兩隊各四人，在開室與閉室打同一組牌，依兩室的南北分差計 IMP 或 BAM。',
     create: '建立隊制賽',
@@ -1674,6 +1677,11 @@ const zh = {
 
   // Tournament announcements and entries (e9-t16, ARCHITECTURE.md §5.24)
   tournaments: {
+    format: '賽制',
+    formatChoices: { auto: '自動（循環賽打得完就打循環，否則瑞士制）', roundRobin: '循環賽', swiss: '瑞士制' },
+    roundsRoundRobin: '輪數（循環賽：每隊遇到每隊一次）',
+    roundsSwiss: '輪數（瑞士制，少於名額）',
+    roundRobinHint: '循環賽的輪數是名額減一（奇數隊是名額），最多 10 隊；報名的隊伍較少時照實際的隊數打。',
     title: '比賽',
     intro: '社團的比賽公告：看時間與說明、報名（自己、和搭檔或整隊，搭檔要確認）、報名截止前可以退出。開賽前一天與一小時會提醒報名的人，比賽結束後公告結果。',
     create: '公告比賽',
@@ -1746,6 +1754,18 @@ const zh = {
 
   // Multi-team events (e9-t14, ARCHITECTURE.md §5.26)
   teamEvents: {
+    boards: '各副比較',
+    boardsHint: '這一輪的每一場打同一組牌。一副要等這一輪每一場都打完（或不會再打）才會出現，之前只有打那一場的人看得到。',
+    noBoards: '還沒有每一場都打完的副。',
+    board: (n: number) => `第 ${n} 副`,
+    datum: (n: number) => `基準分（南北）${n}`,
+    noDatum: '基準分：—',
+    matchCol: '比賽',
+    openRoom: '開室',
+    closedRoom: '閉室',
+    impsCol: 'IMP',
+    vsDatum: '對基準 IMP（開室／閉室）',
+    ruled: '裁定',
     title: '多隊賽',
     formats: { roundRobin: '循環賽', swiss: '瑞士制' },
     status: { ready: '準備中', playing: '進行中', finished: '已結束', cancelled: '已取消' },
@@ -3144,6 +3164,9 @@ const en: Strings = {
   timeYesterday: 'Yesterday',
 
   teamMatch: {
+    eventMatchHint: "This is a multi-team event's match: the seats are the line-ups (swapped only within a team), and the event's director rules on time, pauses, abandons and has robots sit in.",
+    eventDirectorHint: "You direct this multi-team event: you may start the match for the host, and while it is played you rule on time, pause, abandon and have robots sit in.",
+    eventLink: 'Back to the event',
     title: 'Team matches',
     intro: 'Two teams of four play the same boards in the open and closed rooms, scored by IMPs or BAM on the difference between the rooms.',
     create: 'New team match',
@@ -3609,6 +3632,11 @@ const en: Strings = {
 
   // Tournament announcements and entries (e9-t16, ARCHITECTURE.md §5.24)
   tournaments: {
+    format: 'Format',
+    formatChoices: { auto: 'Automatic (round robin when it fits, otherwise Swiss)', roundRobin: 'Round robin', swiss: 'Swiss' },
+    roundsRoundRobin: 'Rounds (round robin: every team meets every other)',
+    roundsSwiss: 'Rounds (Swiss, fewer than the places)',
+    roundRobinHint: 'A round robin plays one round fewer than the places (as many as the places when odd), up to 10 teams; with fewer teams entered it plays as many as there are.',
     title: 'Tournaments',
     intro: "The club's tournament announcements: see when and what, enter (alone, with a partner or as a team; partners confirm), and withdraw before the deadline. Everyone entered is reminded a day and an hour before the start, and the results are announced at the end.",
     create: 'Announce a tournament',
@@ -3681,6 +3709,18 @@ const en: Strings = {
 
   // Pairs events (e9-t10–e9-t13, ARCHITECTURE.md §5.22)
   teamEvents: {
+    boards: 'Board by board',
+    boardsHint: "Every match of this round plays the same deals. A board shows here once every match of the round has played it (or won't any more); until then only those who played it see it.",
+    noBoards: 'No board has been played in every match yet.',
+    board: (n: number) => `Board ${n}`,
+    datum: (n: number) => `Datum (NS) ${n}`,
+    noDatum: 'Datum: —',
+    matchCol: 'Match',
+    openRoom: 'Open room',
+    closedRoom: 'Closed room',
+    impsCol: 'IMPs',
+    vsDatum: 'IMPs vs datum (open / closed)',
+    ruled: 'Ruled',
     title: 'Multi-team event',
     formats: { roundRobin: 'Round robin', swiss: 'Swiss' },
     status: { ready: 'Getting ready', playing: 'In play', finished: 'Finished', cancelled: 'Cancelled' },
@@ -5070,6 +5110,9 @@ const zhHans: Strings = {
   timeYesterday: '昨天',
 
   teamMatch: {
+    eventMatchHint: '这是多队赛的一场：座位照出赛名单（只能在同一队里换座位），超时裁定、暂停、中止与代打由多队赛的裁判处理。',
+    eventDirectorHint: '你是这场多队赛的裁判：可以替房主按开始；比赛中由你做超时裁定、暂停、中止与代打。',
+    eventLink: '回多队赛',
     title: '队制赛',
     intro: '两队各四人，在开室与闭室打同一组牌，依两室的南北分差计 IMP 或 BAM。',
     create: '建立队制赛',
@@ -5534,6 +5577,11 @@ const zhHans: Strings = {
 
   // Tournament announcements and entries (e9-t16, ARCHITECTURE.md §5.24)
   tournaments: {
+    format: '赛制',
+    formatChoices: { auto: '自动（循环赛打得完就打循环，否则瑞士制）', roundRobin: '循环赛', swiss: '瑞士制' },
+    roundsRoundRobin: '轮数（循环赛：每队遇到每队一次）',
+    roundsSwiss: '轮数（瑞士制，少于名额）',
+    roundRobinHint: '循环赛的轮数是名额减一（奇数队是名额），最多 10 队；报名的队伍较少时照实际的队数打。',
     title: '比赛',
     intro: '社团的比赛公告：看时间与说明、报名（自己、和搭档或整队，搭档要确认）、报名截止前可以退出。开赛前一天与一小时会提醒报名的人，比赛结束后公告结果。',
     create: '公告比赛',
@@ -5606,6 +5654,18 @@ const zhHans: Strings = {
 
   // Pairs events (e9-t10–e9-t13, ARCHITECTURE.md §5.22)
   teamEvents: {
+    boards: '各副比较',
+    boardsHint: '这一轮的每一场打同一组牌。一副要等这一轮每一场都打完（或不会再打）才会出现，之前只有打那一场的人看得到。',
+    noBoards: '还没有每一场都打完的副。',
+    board: (n: number) => `第 ${n} 副`,
+    datum: (n: number) => `基准分（南北）${n}`,
+    noDatum: '基准分：—',
+    matchCol: '比赛',
+    openRoom: '开室',
+    closedRoom: '闭室',
+    impsCol: 'IMP',
+    vsDatum: '对基准 IMP（开室／闭室）',
+    ruled: '裁定',
     title: '多队赛',
     formats: { roundRobin: '循环赛', swiss: '瑞士制' },
     status: { ready: '准备中', playing: '进行中', finished: '已结束', cancelled: '已取消' },
@@ -6996,6 +7056,9 @@ const vi: Strings = {
   timeYesterday: 'Hôm qua',
 
   teamMatch: {
+    eventMatchHint: 'Đây là một trận của giải đồng đội: chỗ ngồi theo đội hình (chỉ đổi trong cùng đội); trọng tài của giải xử lý quá giờ, tạm dừng, hủy trận và cho máy đánh thay.',
+    eventDirectorHint: 'Bạn là trọng tài của giải đồng đội này: có thể bắt đầu trận thay chủ phòng; trong trận bạn xử lý quá giờ, tạm dừng, hủy trận và cho máy đánh thay.',
+    eventLink: 'Về giải đồng đội',
     title: 'Đấu đồng đội',
     intro: 'Hai đội bốn người chơi cùng một bộ bài ở phòng mở và phòng đóng, tính IMP hoặc BAM theo chênh lệch giữa hai phòng.',
     create: 'Tạo trận mới',
@@ -7461,6 +7524,11 @@ const vi: Strings = {
 
   // Tournament announcements and entries (e9-t16, ARCHITECTURE.md §5.24)
   tournaments: {
+    format: 'Thể thức',
+    formatChoices: { auto: 'Tự động (vòng tròn nếu đủ vòng, nếu không thì Thụy Sĩ)', roundRobin: 'Vòng tròn', swiss: 'Thụy Sĩ' },
+    roundsRoundRobin: 'Số vòng (vòng tròn: mỗi đội gặp mọi đội một lần)',
+    roundsSwiss: 'Số vòng (Thụy Sĩ, ít hơn số suất)',
+    roundRobinHint: 'Vòng tròn có số vòng bằng số suất trừ một (bằng số suất nếu lẻ), tối đa 10 đội; nếu ít đội đăng ký hơn thì đấu theo số đội thực tế.',
     title: 'Giải đấu',
     intro: 'Thông báo giải đấu của câu lạc bộ: xem thời gian và mô tả, đăng ký (một mình, với người cùng cặp hoặc cả đội; người cùng nhóm phải xác nhận), và rút lui trước hạn chót. Người đã đăng ký được nhắc trước giờ bắt đầu một ngày và một giờ, kết quả được công bố khi kết thúc.',
     create: 'Thông báo giải đấu',
@@ -7533,6 +7601,18 @@ const vi: Strings = {
 
   // Pairs events (e9-t10–e9-t13, ARCHITECTURE.md §5.22)
   teamEvents: {
+    boards: 'So sánh từng ván',
+    boardsHint: 'Mọi trận của vòng này chơi cùng bộ bài. Một ván chỉ hiện ở đây khi mọi trận của vòng đã chơi xong (hoặc sẽ không chơi nữa); trước đó chỉ người đã chơi ván đó mới thấy.',
+    noBoards: 'Chưa có ván nào mà mọi trận đều đã chơi xong.',
+    board: (n: number) => `Ván ${n}`,
+    datum: (n: number) => `Điểm chuẩn (Bắc-Nam) ${n}`,
+    noDatum: 'Điểm chuẩn: —',
+    matchCol: 'Trận',
+    openRoom: 'Phòng mở',
+    closedRoom: 'Phòng kín',
+    impsCol: 'IMP',
+    vsDatum: 'IMP so với điểm chuẩn (mở / kín)',
+    ruled: 'Phán quyết',
     title: 'Giải đồng đội',
     formats: { roundRobin: 'Vòng tròn', swiss: 'Thụy Sĩ' },
     status: { ready: 'Đang chuẩn bị', playing: 'Đang đấu', finished: 'Đã kết thúc', cancelled: 'Đã hủy' },
@@ -8923,6 +9003,9 @@ const ja: Strings = {
   timeYesterday: '昨日',
 
   teamMatch: {
+    eventMatchHint: 'これは団体戦の1試合です。座席は出場メンバーどおり（同じチーム内でだけ入れ替え可）で、時間超過の裁定・一時停止・中止・代打は団体戦のディレクターが行います。',
+    eventDirectorHint: 'あなたはこの団体戦のディレクターです。ホストの代わりに開始でき、試合中は時間超過の裁定・一時停止・中止・代打を行います。',
+    eventLink: '団体戦に戻る',
     title: 'チーム戦',
     intro: '4 人ずつの 2 チームがオープンルームとクローズドルームで同じボードをプレイし、両ルームの差を IMP または BAM で計算します。',
     create: 'チーム戦を作成',
@@ -9388,6 +9471,11 @@ const ja: Strings = {
 
   // Tournament announcements and entries (e9-t16, ARCHITECTURE.md §5.24)
   tournaments: {
+    format: '方式',
+    formatChoices: { auto: '自動（総当たりで足りれば総当たり、足りなければスイス式）', roundRobin: '総当たり', swiss: 'スイス式' },
+    roundsRoundRobin: 'ラウンド数（総当たり：全チームと1回ずつ対戦）',
+    roundsSwiss: 'ラウンド数（スイス式、定員より少なく）',
+    roundRobinHint: '総当たりのラウンド数は定員−1（奇数なら定員）で、最大 10 チームです。参加チームが少なければ実際のチーム数で行います。',
     title: '大会',
     intro: 'クラブの大会のお知らせ：日時と説明を見て、申し込み（一人、パートナーと、またはチームで。パートナーは確認が必要）、締切前なら辞退できます。開始 1 日前と 1 時間前に申し込んだ人へお知らせし、終了後に結果を発表します。',
     create: '大会を告知',
@@ -9460,6 +9548,18 @@ const ja: Strings = {
 
   // Pairs events (e9-t10–e9-t13, ARCHITECTURE.md §5.22)
   teamEvents: {
+    boards: 'ボードごとの比較',
+    boardsHint: 'このラウンドの試合はすべて同じハンドです。各ボードは、このラウンドの全試合がプレーし終える（またはもうプレーしない）まで表示されず、それまではプレーした人だけが見られます。',
+    noBoards: '全試合でプレーし終えたボードはまだありません。',
+    board: (n: number) => `ボード ${n}`,
+    datum: (n: number) => `基準点（NS）${n}`,
+    noDatum: '基準点：—',
+    matchCol: '試合',
+    openRoom: 'オープンルーム',
+    closedRoom: 'クローズドルーム',
+    impsCol: 'IMP',
+    vsDatum: '基準点との IMP（オープン／クローズド）',
+    ruled: '裁定',
     title: '団体戦',
     formats: { roundRobin: '総当たり', swiss: 'スイス式' },
     status: { ready: '準備中', playing: '進行中', finished: '終了', cancelled: '取り消し' },
@@ -10850,6 +10950,9 @@ const ko: Strings = {
   timeYesterday: '어제',
 
   teamMatch: {
+    eventMatchHint: '단체전의 한 경기입니다. 좌석은 출전 명단대로이고(같은 팀 안에서만 바꿀 수 있음), 시간 초과 판정·일시 정지·중단·대타는 단체전 디렉터가 합니다.',
+    eventDirectorHint: '당신은 이 단체전의 디렉터입니다. 방장 대신 시작할 수 있고, 경기 중에는 시간 초과 판정·일시 정지·중단·대타를 합니다.',
+    eventLink: '단체전으로 돌아가기',
     title: '팀전',
     intro: '네 명씩 두 팀이 오픈 룸과 클로즈드 룸에서 같은 보드를 치고, 두 룸의 차이를 IMP 또는 BAM으로 계산합니다.',
     create: '팀전 만들기',
@@ -11315,6 +11418,11 @@ const ko: Strings = {
 
   // Tournament announcements and entries (e9-t16, ARCHITECTURE.md §5.24)
   tournaments: {
+    format: '방식',
+    formatChoices: { auto: '자동(리그전이 가능하면 리그전, 아니면 스위스식)', roundRobin: '리그전', swiss: '스위스식' },
+    roundsRoundRobin: '라운드 수(리그전: 모든 팀과 한 번씩)',
+    roundsSwiss: '라운드 수(스위스식, 정원보다 적게)',
+    roundRobinHint: '리그전의 라운드 수는 정원−1(홀수면 정원)이며 최대 10팀입니다. 참가 팀이 적으면 실제 팀 수로 진행합니다.',
     title: '대회',
     intro: '동아리 대회 공지: 일시와 설명을 보고 신청(혼자, 파트너와, 또는 팀으로. 파트너는 확인 필요)하고, 마감 전에는 취소할 수 있습니다. 시작 하루 전과 한 시간 전에 신청한 사람에게 알리고, 끝나면 결과를 공지합니다.',
     create: '대회 공지',
@@ -11387,6 +11495,18 @@ const ko: Strings = {
 
   // Pairs events (e9-t10–e9-t13, ARCHITECTURE.md §5.22)
   teamEvents: {
+    boards: '보드별 비교',
+    boardsHint: '이번 라운드의 모든 경기는 같은 핸드를 칩니다. 한 보드는 이번 라운드의 모든 경기가 끝내야(또는 더 치지 않아야) 여기에 나타나며, 그전에는 그 보드를 친 사람만 볼 수 있습니다.',
+    noBoards: '모든 경기에서 끝난 보드가 아직 없습니다.',
+    board: (n: number) => `보드 ${n}`,
+    datum: (n: number) => `기준점(NS) ${n}`,
+    noDatum: '기준점: —',
+    matchCol: '경기',
+    openRoom: '오픈룸',
+    closedRoom: '클로즈드룸',
+    impsCol: 'IMP',
+    vsDatum: '기준점 대비 IMP(오픈 / 클로즈드)',
+    ruled: '판정',
     title: '단체전',
     formats: { roundRobin: '리그전', swiss: '스위스식' },
     status: { ready: '준비 중', playing: '진행 중', finished: '종료', cancelled: '취소됨' },
