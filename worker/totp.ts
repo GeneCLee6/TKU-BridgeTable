@@ -10,6 +10,7 @@
  */
 
 import { hashResetCode, resetCode } from './auth.ts'
+import { toHalfWidth } from '../shared/halfwidth.ts'
 
 export const TOTP_DIGITS = 6
 export const TOTP_PERIOD_S = 30
@@ -85,14 +86,14 @@ export async function totpCode(secret: string, step: number): Promise<string> {
 }
 
 /** Whether text is shaped like a code from the app (6 digits, spaces allowed) rather than a recovery code */
-export const looksLikeTotp = (text: string) => /^\d{6}$/.test(text.replace(/\s/g, ''))
+export const looksLikeTotp = (text: string) => /^\d{6}$/.test(toHalfWidth(text).replace(/\s/g, ''))
 
 /**
  * The step a code matches, newer than `lastStep` and within TOTP_DRIFT of now; null when it does
  * not. Every candidate step is compared, so the time taken does not say which one matched
  */
 export async function verifyTotp(secret: string, code: string, now: number, lastStep = -1): Promise<number | null> {
-  const wanted = String(code ?? '').replace(/\s/g, '')
+  const wanted = toHalfWidth(String(code ?? '')).replace(/\s/g, '')
   if (!/^\d{6}$/.test(wanted)) return null
   const current = totpStep(now)
   let found: number | null = null
