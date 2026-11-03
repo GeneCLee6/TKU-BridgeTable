@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, EyeOff, Hash, Lock, MessageSquare, Pin, X } from 'lucide-react'
+import { CalendarClock, ChevronLeft, ChevronRight, EyeOff, FilePen, Hash, Lock, MessageSquare, Pin, X } from 'lucide-react'
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import styled from 'styled-components'
@@ -20,6 +20,7 @@ import { ForumBlocks } from '../components/ForumBlocks.tsx'
 import { Button, Card, ErrorText, Muted, PageMain, PageTitle, Textarea } from '../components/ui.tsx'
 import { formatDateTime } from '../lib/format.ts'
 import { forumApi } from '../lib/forum.ts'
+import { notOut } from '../lib/forumRelease.ts'
 import { useMemberName, useOfficer } from '../lib/forumHooks.ts'
 import { useAuth } from '../state/AuthContext.tsx'
 import { usePreferences } from '../state/PreferencesContext.tsx'
@@ -37,6 +38,7 @@ import { ReportForm } from './ForumModerationPages.tsx'
  * - `?tag=` on either: only the posts with that tag (AC-13.7); a post's tags link there
  * - `/forum/p/:postId`: the post and its comments (one level of replies); members comment and
  *   reply, and delete their own comments (officers anyone's; the server checks)
+ * - `/forum/drafts`: my drafts and scheduled posts, and for an officer everyone's scheduled ones (e13-t12)
  *
  * Posts are written and edited with the table's own editor (K2, `ForumEditorPage.tsx`); a comment
  * may carry an auction (`AuctionEditor`).
@@ -377,11 +379,18 @@ export function PostRows({ posts, boards }: { posts: Post[]; boards?: Board[] })
                     {t.forum.hidden}
                   </Badge>
                 )}
+                <ReleaseBadge post={post} />
                 {post.title || t.forum.untitled}
               </strong>
               <small>
                 {board ? `${board.name} · ` : ''}
-                {t.forum.byLine(name(post.authorId), formatDateTime(post.createdAt, lang))}
+                {notOut(post)
+                  ? `${name(post.authorId)} · ${
+                      post.publishAt !== undefined
+                        ? t.forumNews.scheduledFor(formatDateTime(post.publishAt, lang))
+                        : t.forumNews.savedAt(formatDateTime(post.createdAt, lang))
+                    }`
+                  : t.forum.byLine(name(post.authorId), formatDateTime(post.createdAt, lang))}
               </small>
               {!!post.tags?.length && (
                 <TagRow aria-label={t.forum.tags}>
@@ -402,6 +411,26 @@ export function PostRows({ posts, boards }: { posts: Post[]; boards?: Board[] })
       })}
     </PostList>
   )
+}
+
+/** 草稿／排程中 (e13-t12): a post that is not out yet says so */
+function ReleaseBadge({ post }: { post: Post }) {
+  const { t } = usePreferences()
+  if (post.publishAt !== undefined)
+    return (
+      <Badge>
+        <CalendarClock size={12} aria-hidden />
+        {t.forumNews.scheduled}
+      </Badge>
+    )
+  if (post.draft)
+    return (
+      <Badge>
+        <FilePen size={12} aria-hidden />
+        {t.forumNews.draft}
+      </Badge>
+    )
+  return null
 }
 
 /** 發文: the table's editor, on this board when there is one */
@@ -450,6 +479,7 @@ export function ForumHomePage() {
         <Links>
           <WriteLink to="/forum/search">{t.forum.search}</WriteLink>
           {officer && <WriteLink to="/forum/reports">{t.forum.reports}</WriteLink>}
+          <WriteLink to="/forum/drafts">{t.forumNews.drafts}</WriteLink>
           <Write />
         </Links>
       </Intro>
@@ -647,7 +677,9 @@ export function ForumPostPage() {
 
   const officer = useOfficer()
   const post = thread?.post
-  const mayComment = !!post && (!post.locked || officer)
+  // A draft or a scheduled post (e13-t12) takes no comments, reports or hiding until it is out
+  const unpublished = !!post && notOut(post)
+  const mayComment = !!post && !unpublished && (!post.locked || officer)
 
   const send = (parentId?: string) => async (blocks: CommentBlock[]) => {
     try {
@@ -740,6 +772,7 @@ export function ForumPostPage() {
             {post.pinned && <Badge>{t.forum.pinned}</Badge>}
             {post.locked && <Badge>{t.forum.locked}</Badge>}
             {post.hidden && <Badge>{t.forum.hidden}</Badge>}
+            <ReleaseBadge post={post} />
             <span>
               {t.forum.byLine(name(post.authorId), formatDateTime(post.createdAt, lang))}
               {post.editedAt ? ` · ${t.forum.edited}` : ''}
@@ -750,64 +783,107 @@ export function ForumPostPage() {
                 {t.forum.deletePost}
               </Button>
             )}
-            {officer && (
+            {officer && !unpublished && (
               <Button type="button" $variant="ghost" $size="sm" onClick={() => void toggleHidden()}>
                 {post.hidden ? t.forum.unhide : t.forum.hide}
               </Button>
             )}
-            {reportButton(':post', post.authorId)}
+            {!unpublished && reportButton(':post', post.authorId)}
           </Meta>
           <PostTags tags={post.tags} />
           {post.hidden && <Muted>{t.forum.hiddenHint}</Muted>}
+          {post.publishAt !== undefined && <Muted role="note">{t.forumNews.scheduledHint(formatDateTime(post.publishAt, lang))}</Muted>}
+          {post.draft && <Muted role="note">{t.forumNews.draftHint}</Muted>}
           {reportForm(':post', 'post', post.id)}
           {reported && <Muted role="status">{t.forum.reportSent}</Muted>}
           <Card>
             <ForumBlocks blocks={post.blocks} />
           </Card>
-          <SectionTitle>
-            {t.forum.comments} ({comments.length})
-          </SectionTitle>
-          {comments.length === 0 && <Muted>{t.forum.noComments}</Muted>}
-          {comments.length > 0 && (
-            <CommentList>
-              {comments.map((comment) => (
-                <CommentBox key={comment.id} id={`comment-${comment.id}`} $reply={!!comment.parentId}>
-                  <CommentHead>
-                    <span>
-                      {t.forum.byLine(name(comment.authorId), formatDateTime(comment.createdAt, lang))}
-                      {comment.editedAt ? ` · ${t.forum.edited}` : ''}
-                    </span>
-                    <Actions>
-                      {mayComment && (
-                        <Button type="button" $variant="ghost" $size="sm" onClick={() => setReplyTo(comment.parentId ?? comment.id)}>
-                          {t.forum.reply}
-                        </Button>
+          {!unpublished && (
+            <>
+              <SectionTitle>
+                {t.forum.comments} ({comments.length})
+              </SectionTitle>
+              {comments.length === 0 && <Muted>{t.forum.noComments}</Muted>}
+              {comments.length > 0 && (
+                <CommentList>
+                  {comments.map((comment) => (
+                    <CommentBox key={comment.id} id={`comment-${comment.id}`} $reply={!!comment.parentId}>
+                      <CommentHead>
+                        <span>
+                          {t.forum.byLine(name(comment.authorId), formatDateTime(comment.createdAt, lang))}
+                          {comment.editedAt ? ` · ${t.forum.edited}` : ''}
+                        </span>
+                        <Actions>
+                          {mayComment && (
+                            <Button type="button" $variant="ghost" $size="sm" onClick={() => setReplyTo(comment.parentId ?? comment.id)}>
+                              {t.forum.reply}
+                            </Button>
+                          )}
+                          {(comment.authorId === user?.id || officer) && (
+                            <Button type="button" $variant="ghost" $size="sm" onClick={() => void remove(comment)}>
+                              {t.forum.deleteComment}
+                            </Button>
+                          )}
+                          {reportButton(comment.id, comment.authorId)}
+                        </Actions>
+                      </CommentHead>
+                      {reportForm(comment.id, 'comment', comment.id)}
+                      <ForumBlocks blocks={comment.blocks} />
+                      {replyTo === comment.id && (
+                        <CommentForm
+                          label={t.forum.replyLabel(name(comment.authorId))}
+                          onSend={send(comment.id)}
+                          onCancel={() => setReplyTo(null)}
+                          {...auctionForm(comment.id)}
+                        />
                       )}
-                      {(comment.authorId === user?.id || officer) && (
-                        <Button type="button" $variant="ghost" $size="sm" onClick={() => void remove(comment)}>
-                          {t.forum.deleteComment}
-                        </Button>
-                      )}
-                      {reportButton(comment.id, comment.authorId)}
-                    </Actions>
-                  </CommentHead>
-                  {reportForm(comment.id, 'comment', comment.id)}
-                  <ForumBlocks blocks={comment.blocks} />
-                  {replyTo === comment.id && (
-                    <CommentForm
-                      label={t.forum.replyLabel(name(comment.authorId))}
-                      onSend={send(comment.id)}
-                      onCancel={() => setReplyTo(null)}
-                      {...auctionForm(comment.id)}
-                    />
-                  )}
-                </CommentBox>
-              ))}
-            </CommentList>
+                    </CommentBox>
+                  ))}
+                </CommentList>
+              )}
+              {mayComment ? <CommentForm label={t.forum.commentLabel} onSend={send()} {...auctionForm('')} /> : <Muted>{t.forum.lockedHint}</Muted>}
+            </>
           )}
-          {mayComment ? <CommentForm label={t.forum.commentLabel} onSend={send()} {...auctionForm('')} /> : <Muted>{t.forum.lockedHint}</Muted>}
         </>
       )}
+    </PageMain>
+  )
+}
+
+/** `/forum/drafts` (e13-t12): my drafts and scheduled posts; an officer sees everyone's scheduled ones too */
+export function ForumDraftsPage() {
+  const { t, message } = usePreferences()
+  const [posts, setPosts] = useState<Post[] | null>(null)
+  const [boards, setBoards] = useState<Board[] | undefined>(undefined)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    forumApi
+      .drafts()
+      .then(setPosts)
+      .catch((e) => setError(message(e.code, e.params, e.message)))
+    forumApi
+      .boards()
+      .then(setBoards)
+      .catch(() => setBoards(undefined))
+  }, [message])
+
+  return (
+    <PageMain>
+      <BackLink to="/forum">
+        <ChevronLeft size={16} aria-hidden />
+        {t.forum.back}
+      </BackLink>
+      <PageTitle>{t.forumNews.drafts}</PageTitle>
+      <Intro>
+        <Muted>{t.forumNews.draftsIntro}</Muted>
+        <Write />
+      </Intro>
+      {error && <ErrorText role="alert">{error}</ErrorText>}
+      {!posts && !error && <Muted>{t.loading}</Muted>}
+      {posts && posts.length === 0 && <Muted>{t.forumNews.noDrafts}</Muted>}
+      {posts && posts.length > 0 && <PostRows posts={posts} boards={boards} />}
     </PageMain>
   )
 }
