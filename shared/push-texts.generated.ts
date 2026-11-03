@@ -59,7 +59,8 @@ export const PUSH_TEXTS: PushTexts = {
       "tournamentRemoved": "{username} 把你們從「{title}」的報名名單移除了",
       "tournamentCancelled": "「{title}」取消了",
       "tournamentReminder": "「{title}」再一小時就開賽了",
-      "tournamentResults": "「{title}」結束了，來看結果"
+      "tournamentResults": "「{title}」結束了，來看結果",
+      "tournamentDayReminder": "「{title}」明天這個時候開賽"
     }
   },
   "zh-Hans": {
@@ -119,7 +120,8 @@ export const PUSH_TEXTS: PushTexts = {
       "tournamentRemoved": "{username} 把你们从「{title}」的报名名单移除了",
       "tournamentCancelled": "「{title}」取消了",
       "tournamentReminder": "「{title}」再一小时就开赛了",
-      "tournamentResults": "「{title}」结束了，来看结果"
+      "tournamentResults": "「{title}」结束了，来看结果",
+      "tournamentDayReminder": "「{title}」明天这个时候开赛"
     }
   },
   "en": {
@@ -179,7 +181,8 @@ export const PUSH_TEXTS: PushTexts = {
       "tournamentRemoved": "{username} took your entry off \"{title}\"",
       "tournamentCancelled": "\"{title}\" was cancelled",
       "tournamentReminder": "\"{title}\" starts in an hour",
-      "tournamentResults": "\"{title}\" is over: see the results"
+      "tournamentResults": "\"{title}\" is over: see the results",
+      "tournamentDayReminder": "\"{title}\" starts this time tomorrow"
     }
   },
   "vi": {
@@ -239,7 +242,8 @@ export const PUSH_TEXTS: PushTexts = {
       "tournamentRemoved": "{username} đã gỡ đăng ký của nhóm bạn khỏi \"{title}\"",
       "tournamentCancelled": "\"{title}\" đã bị hủy",
       "tournamentReminder": "\"{title}\" sẽ bắt đầu sau một giờ",
-      "tournamentResults": "\"{title}\" đã kết thúc: xem kết quả"
+      "tournamentResults": "\"{title}\" đã kết thúc: xem kết quả",
+      "tournamentDayReminder": "\"{title}\" sẽ bắt đầu vào giờ này ngày mai"
     }
   },
   "ja": {
@@ -299,7 +303,8 @@ export const PUSH_TEXTS: PushTexts = {
       "tournamentRemoved": "{username} さんが「{title}」の申し込みを取り消しました",
       "tournamentCancelled": "「{title}」は中止になりました",
       "tournamentReminder": "「{title}」はあと 1 時間で始まります",
-      "tournamentResults": "「{title}」が終わりました。結果を見ましょう"
+      "tournamentResults": "「{title}」が終わりました。結果を見ましょう",
+      "tournamentDayReminder": "「{title}」は明日のこの時間に始まります"
     }
   },
   "ko": {
@@ -359,7 +364,8 @@ export const PUSH_TEXTS: PushTexts = {
       "tournamentRemoved": "{username} 님이 「{title}」 신청 명단에서 당신의 팀을 뺐습니다",
       "tournamentCancelled": "「{title}」이(가) 취소되었습니다",
       "tournamentReminder": "「{title}」이(가) 한 시간 뒤에 시작합니다",
-      "tournamentResults": "「{title}」이(가) 끝났습니다. 결과를 확인하세요"
+      "tournamentResults": "「{title}」이(가) 끝났습니다. 결과를 확인하세요",
+      "tournamentDayReminder": "「{title}」이(가) 내일 이 시간에 시작합니다"
     }
   }
 }

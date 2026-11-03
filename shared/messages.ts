@@ -2583,6 +2583,14 @@ export const MESSAGES = {
     ja: 'その申し込みは見つかりません',
     ko: '그 신청을 찾을 수 없습니다',
   },
+  tournamentBadPairing: {
+    zh: '配對要包含每一位單人報名的社員各一次；名單可能剛變了，請重新整理',
+    'zh-Hans': '配对要包含每一位单人报名的社员各一次；名单可能刚变了，请刷新',
+    en: 'The pairing must have every member who entered alone exactly once; the list may just have changed, so reload',
+    vi: 'Việc ghép cặp phải có mỗi thành viên đăng ký một mình đúng một lần; danh sách có thể vừa thay đổi, hãy tải lại',
+    ja: 'ペアリングには一人で申し込んだ部員を全員ちょうど一回ずつ入れてください。名簿が変わった可能性があるので再読み込みしてください',
+    ko: '짝 배정에는 혼자 신청한 회원이 모두 한 번씩 들어가야 합니다. 명단이 방금 바뀌었을 수 있으니 새로고침하세요',
+  },
   tournamentTooFew: {
     zh: '完成報名的只有 {count} 組，至少要 {min} 組才能開賽',
     'zh-Hans': '完成报名的只有 {count} 组，至少要 {min} 组才能开赛',

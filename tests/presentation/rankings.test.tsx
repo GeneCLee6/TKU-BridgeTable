@@ -88,6 +88,27 @@ describe('RankingsPage', () => {
     expect(within(ledger).queryByRole('button', { name: '更正' })).toBeNull()
   })
 
+  it('marks the points re-credited after a director changed a finished event', async () => {
+    mocks.api.ledger.mockResolvedValue({
+      entries: [
+        {
+          eventId: 'c1',
+          kind: 'challenge',
+          at: Date.now(),
+          rank: 2,
+          field: 3,
+          base: 2,
+          points: 1,
+          adjustments: [{ delta: -1, reason: '場外資訊', by: 'boss', at: 1, auto: true }],
+        },
+      ],
+    })
+    renderPage()
+    await userEvent.click((await screen.findAllByRole('button', { name: '看明細' }))[0])
+    const ledger = await screen.findByRole('region', { name: 'ben 的積分明細' })
+    expect(within(ledger).getByText('裁判調整後重算 -1：場外資訊')).toBeInTheDocument()
+  })
+
   it('gives admins the rules and corrections', async () => {
     mocks.admin = true
     mocks.flag = false

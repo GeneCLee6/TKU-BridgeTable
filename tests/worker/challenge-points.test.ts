@@ -285,3 +285,68 @@ describe("the director's penalty on a challenge (e9-t17)", () => {
     ])
   })
 })
+
+describe("re-crediting a finished challenge's points after a director's change (e9-t17 follow-up)", () => {
+  it('works the points out again, writes each difference once, and takes it back with the penalty', async () => {
+    const { ids, id } = await challenge(['ben', 'cat'], { amy: [620, 420], ben: [420, 420], cat: [-100, 50] })
+    await toDeadline(id)
+    expect(board()).toEqual([
+      ['amy', 1, 2, 1],
+      ['ben', 2, 1, 1],
+      ['cat', 3, 0, 1],
+    ])
+    const act = (body: unknown) => club.refereeAct(boss, 'challenge', id, body)
+    await act({ action: 'penalty', target: ids.amy, amount: 300, reason: '場外資訊' })
+    expect(board()).toEqual([
+      ['ben', 1, 2, 1],
+      ['amy', 2, 1, 1],
+      ['cat', 3, 0, 1],
+    ])
+    const ledger = (userId: string) => club.rankings.ledger.ledger(userId, { from: 0, to: Infinity })
+    expect(ledger(ids.amy)).toEqual([
+      expect.objectContaining({ eventId: id, rank: 2, base: 2, points: 1, adjustments: [{ delta: -1, reason: '場外資訊', by: boss, at: time, auto: true }] }),
+    ])
+    expect(ledger(ids.ben)[0]).toMatchObject({ rank: 1, base: 1, points: 2 })
+    // Nothing changed since: working it out again writes nothing (idempotent), and neither does a reload
+    const penalties = new Map([[ids.amy, 300]])
+    expect(club.rankings.recredit(club.rankings.challengeNow(club.challenges.get(id)!, penalties), boss, '再算一次')).toEqual([])
+    club = newClub()
+    await club.load()
+    await tick(10)
+    expect(ledger(ids.amy)[0].adjustments).toHaveLength(1)
+
+    // An admin's own correction stays on top of the re-credit
+    club.rankings.adminAdjust(boss, { eventId: id, userId: ids.cat, points: 0.5, reason: '鼓勵' })
+    // Taking the penalty back puts the places and the points back
+    const penaltyId = club.challengeFor(id, ids.ben)!.referee![0].id
+    await act({ action: 'withdraw', of: penaltyId, reason: '誤判' })
+    expect(board()).toEqual([
+      ['amy', 1, 2, 1],
+      ['ben', 2, 1, 1],
+      ['cat', 3, 0.5, 1],
+    ])
+    expect(ledger(ids.amy)[0].adjustments.map((a) => [a.delta, a.reason, a.auto])).toEqual([
+      [-1, '場外資訊', true],
+      [1, '誤判', true],
+    ])
+    expect(ledger(ids.cat)[0].adjustments).toEqual([expect.objectContaining({ delta: 0.5, reason: '鼓勵' })])
+    const { AuditLog } = await import('../../worker/audit.ts')
+    const audit = (await new AuditLog(store).list()).filter((a) => a.action === 'points:recredit')
+    expect(audit).toHaveLength(2)
+    expect(audit.every((a) => a.by === 'boss' && a.target === `challenge:${id}`)).toBe(true)
+    expect(audit.map((a) => a.note).sort()).toEqual(['amy +1 = 2, ben -1 = 1 · 誤判', 'amy -1 = 1, ben +1 = 2 · 場外資訊'].sort())
+  })
+
+  it('leaves a challenge not credited yet to its settlement', async () => {
+    const { ids, id } = await challenge(['ben', 'cat'], { amy: [620, 420], ben: [420, 420], cat: [-100, 50] })
+    await club.refereeAct(boss, 'challenge', id, { action: 'penalty', target: ids.amy, amount: 300, reason: '場外資訊' })
+    expect(club.rankings.ledger.recorded(id)).toBe(false)
+    await toDeadline(id)
+    expect(board()).toEqual([
+      ['ben', 1, 2, 1],
+      ['amy', 2, 1, 1],
+      ['cat', 3, 0, 1],
+    ])
+    expect(club.rankings.ledger.ledger(ids.amy, { from: 0, to: Infinity })[0].adjustments).toEqual([])
+  })
+})

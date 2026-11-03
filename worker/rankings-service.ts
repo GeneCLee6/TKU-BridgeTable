@@ -18,7 +18,7 @@ import { ClubError } from './errors.ts'
 import { eventBoards } from './history-index.ts'
 import { crashEntry, type Logger } from './log.ts'
 import { challengeEvent, matchEvent } from './ranking-events.ts'
-import { POINTS_KEY, RankingStore, type RankedEvent } from './rankings.ts'
+import { POINTS_KEY, RankingStore, type PointsRecredit, type RankedEvent } from './rankings.ts'
 import type { Store } from './store.ts'
 import type { TeamMatch } from './team-matches.ts'
 
@@ -85,6 +85,29 @@ export class RankingsService {
   matchFinished(m: TeamMatch, penalties?: ReadonlyMap<string, number>) {
     const boards = eventBoards(this.deps.store.sql, m.id)
     this.record(matchEvent(m, (b) => boards.get(b)?.ruling, this.deps.now(), penalties))
+  }
+
+  /**
+   * A director changed an event after its points were credited (`e9-t17` follow-up, §5.23): the
+   * event worked out again (`event`, null when not finished) is re-credited (`RankingStore.recredit`),
+   * idempotently. `by` is the director's id, `reason` theirs. Empty when the event was never
+   * credited (its settlement will count the change) or nothing changed
+   */
+  recredit(event: RankedEvent | null, by: string, reason: string): PointsRecredit[] {
+    if (!event || !this.ledger.recorded(event.id)) return []
+    return this.ledger.recredit(event, this.rules, by, reason, this.deps.now())
+  }
+
+  /** A challenge as the ledger takes it now (`recredit`): its rulings and the director's penalties */
+  challengeNow(c: Challenge, penalties?: ReadonlyMap<string, number>): RankedEvent | null {
+    const boards = eventBoards(this.deps.store.sql, c.id)
+    return challengeEvent(c, (b) => boards.get(b)?.ruling, this.deps.now(), penalties)
+  }
+
+  /** A team match as the ledger takes it now (`recredit`) */
+  matchNow(m: TeamMatch, penalties?: ReadonlyMap<string, number>): RankedEvent | null {
+    const boards = eventBoards(this.deps.store.sql, m.id)
+    return matchEvent(m, (b) => boards.get(b)?.ruling, this.deps.now(), penalties)
   }
 
   // ── The pages (e9-t06, e9-t08) ─────────────────────────────────────────────────────────────

@@ -154,7 +154,8 @@ describe('tournaments (e9-t16)', () => {
     const { club, ids, admin, h } = t
     const view = await club().tournaments.create(admin, t.settings())
     await club().tournaments.enter(ids.amy, view.id, { partners: ['ben'] })
-    const jobs = () => h.queue.filter((j) => j.kind === 'tournament')
+    // The hour's reminder only here (the day before's has its own test)
+    const jobs = () => h.queue.filter((j) => j.kind === 'tournament' && j.ms % (24 * HOUR) !== 0)
     expect(jobs().map((j) => j.ms)).toEqual([3 * 24 * HOUR - HOUR])
     // Moved a day later: the old job does nothing, the new one reminds
     const later = view.startsAt + 24 * HOUR
@@ -239,6 +240,61 @@ describe('tournaments (e9-t16)', () => {
       })
     // A member who never entered hears nothing
     expect(await t.kinds(ids.p10)).not.toContain('tournamentResults')
+  })
+
+  it('lets an admin see and change how the members alone are paired before the start (2026-11-03)', async () => {
+    const names = ['p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'a1', 'a2', 'a3', 'a4', 'a5']
+    const t = await setUp(names)
+    const { club, ids, admin } = t
+    const { id } = await club().tournaments.create(admin, t.settings())
+    for (const i of [1, 3, 5]) {
+      await club().tournaments.enter(ids[`p${i}`], id, { partners: [`p${i + 1}`] })
+      await club().tournaments.answer(ids[`p${i + 1}`], id, true)
+    }
+    for (const name of ['a1', 'a2', 'a3', 'a4', 'a5']) await club().tournaments.enter(ids[name], id, {})
+    const proposal = (userId = admin) => {
+      const singles = club().tournaments.view(id, userId).singles!
+      return { pairs: singles.pairs.map((p) => p.map((u) => u.username).join('+')), leftOver: singles.leftOver.map((u) => u.username), adjusted: singles.adjusted }
+    }
+    // By default, in the order they entered; members see it too
+    expect(proposal(ids.a1)).toEqual({ pairs: ['a1+a2', 'a3+a4'], leftOver: ['a5'], adjusted: false })
+
+    // Only an admin changes it, and only to an order of exactly the members alone
+    const order = (...n: string[]) => n.map((name) => ids[name])
+    expect(await code(() => club().tournaments.setPairing(ids.a1, id, order('a1', 'a3', 'a2', 'a4', 'a5')))).toBe('tournamentAdminOnly')
+    for (const bad of [order('a1', 'a3', 'a2', 'a4'), order('a1', 'a1', 'a2', 'a4', 'a5'), order('a1', 'a3', 'a2', 'a4', 'p1'), 'a1', [1, 2, 3, 4, 5]])
+      expect(await code(() => club().tournaments.setPairing(admin, id, bad))).toBe('tournamentBadPairing')
+    await club().tournaments.setPairing(admin, id, order('a5', 'a3', 'a2', 'a4', 'a1'))
+    expect(proposal()).toEqual({ pairs: ['a5+a3', 'a2+a4'], leftOver: ['a1'], adjusted: true })
+
+    // Someone alone withdraws and another enters: the order kept for the rest, the newcomer last
+    await club().tournaments.withdraw(ids.a2, id)
+    const late = await t.member('a6')
+    await club().tournaments.enter(late, id, {})
+    expect(proposal()).toEqual({ pairs: ['a5+a3', 'a4+a1'], leftOver: ['a6'], adjusted: true })
+    // A stale order (from before the change) is refused
+    expect(await code(() => club().tournaments.setPairing(admin, id, order('a5', 'a3', 'a2', 'a4', 'a1')))).toBe('tournamentBadPairing')
+
+    // The event starts with the admin's pairs, after the confirmed ones
+    const started = await club().tournaments.start(admin, id)
+    const pairs = club().pairs.view(started.eventId!, admin)
+    expect(pairs.pairs.map((p) => p.players.map((u) => u.username).join('+'))).toEqual(['p1+p2', 'p3+p4', 'p5+p6', 'a5+a3', 'a4+a1'])
+    // Started: no proposal any more, and no change
+    expect(club().tournaments.view(id, admin).singles).toBeUndefined()
+    expect(await code(() => club().tournaments.setPairing(admin, id, null))).toBe('tournamentNotOpen')
+  })
+
+  it('goes back to the order they entered, and has no pairing for a team match', async () => {
+    const t = await setUp(['a1', 'a2', 'a3'])
+    const { club, ids, admin } = t
+    const { id } = await club().tournaments.create(admin, t.settings())
+    for (const name of ['a1', 'a2', 'a3']) await club().tournaments.enter(ids[name], id, {})
+    await club().tournaments.setPairing(admin, id, [ids.a3, ids.a1, ids.a2])
+    const back = await club().tournaments.setPairing(admin, id, null)
+    expect(back.singles).toMatchObject({ pairs: [[{ username: 'a1' }, { username: 'a2' }]], leftOver: [{ username: 'a3' }], adjusted: false })
+    const match = await club().tournaments.create(admin, t.settings({ kind: 'match', capacity: 2 }))
+    expect(match.singles).toBeUndefined()
+    expect(await code(() => club().tournaments.setPairing(admin, match.id, []))).toBe('tournamentBadPairing')
   })
 
   it('is open again when its pairs event is called off before the start', async () => {
@@ -327,5 +383,98 @@ describe('tournament results (e9-t16)', () => {
     expect(sent.map((s) => s.to).sort()).toEqual([...people].sort())
     expect(sent.every((s) => s.kind === 'tournamentResults' && s.params.eventId === 'ev1' && s.params.eventKind === 'pairs')).toBe(true)
     expect(service.view(id, 'amy')).toMatchObject({ status: 'finished', finishedAt: time, eventLink: '/pairs/ev1' })
+  })
+})
+
+describe('the day-before reminder (2026-11-03)', () => {
+  /** A tournament service on `store` with its own job queue: a new one over the same store is the club woken after an eviction */
+  function service(store: ReturnType<typeof memoryStore>, clock: { time: number }) {
+    const jobs: { key: string; ms: number; run: () => Promise<void> }[] = []
+    const sent: { to: string; kind: NotificationKind }[] = []
+    const tournaments = new TournamentService({
+      store,
+      now: () => clock.time,
+      newId: (() => {
+        let n = 0
+        return () => `id${clock.time}-${++n}`
+      })(),
+      log: () => {},
+      scheduler: { add: (key, _kind, ms, run) => void jobs.push({ key, ms, run }), pending: () => false },
+      isAdmin: (id) => id === 'boss',
+      featureOn: () => true,
+      members: () => ['boss', 'amy', 'ben'],
+      userById: (id) => ({ id, username: id }),
+      userByName: (name) => name,
+      blocked: () => false,
+      takeAction: () => true,
+      notify: async (to, kind) => void sent.push({ to, kind }),
+      createPairs: async () => 'ev1',
+      createMatch: async () => 'm1',
+      eventState: () => 'on',
+    })
+    const due = () => jobs.splice(0).map((j) => ({ ...j, day: j.key.endsWith(':day') }))
+    const told = (kind: NotificationKind) => sent.filter((n) => n.kind === kind).map((n) => n.to)
+    return { tournaments, due, told }
+  }
+  const settings = (now: number, startsIn: number) => ({ kind: 'pairs', title: '社慶盃', startsAt: now + startsIn, deadline: now + startsIn - HOUR })
+
+  it('goes a day before as well as an hour before, once, and follows a new start', async () => {
+    const store = memoryStore()
+    const clock = { time: 1_000 }
+    const s = service(store, clock)
+    const view = await s.tournaments.create('boss', settings(clock.time, 3 * 24 * HOUR))
+    await s.tournaments.enter('amy', view.id, { partners: ['ben'] })
+    const jobs = s.due()
+    expect(jobs.map((j) => [j.day, j.ms])).toEqual([
+      [true, 2 * 24 * HOUR],
+      [false, 3 * 24 * HOUR - HOUR],
+    ])
+    clock.time += 2 * 24 * HOUR
+    await jobs[0].run()
+    expect(s.told('tournamentDayReminder')).toEqual(['amy', 'ben'])
+    // Once: again, or woken after an eviction, only the hour's is left
+    await jobs[0].run()
+    expect(s.told('tournamentDayReminder')).toHaveLength(2)
+    const woken = service(store, clock)
+    await woken.tournaments.load()
+    expect(woken.due().map((j) => [j.day, j.ms])).toEqual([[false, 23 * HOUR]])
+
+    // Moved two days later: a day-before reminder for the new start; the old jobs wake to nothing
+    await woken.tournaments.update('boss', view.id, { startsAt: view.startsAt + 2 * 24 * HOUR, deadline: view.startsAt })
+    expect(woken.due().map((j) => [j.day, j.ms])).toEqual([
+      [true, 2 * 24 * HOUR],
+      [false, 3 * 24 * HOUR - HOUR],
+    ])
+    await jobs[1].run()
+    expect(woken.told('tournamentReminder')).toEqual([])
+    // Moved to five hours from now: the hour's only, after an eviction too
+    await woken.tournaments.update('boss', view.id, { startsAt: clock.time + 5 * HOUR, deadline: clock.time + 4 * HOUR })
+    expect(woken.due().map((j) => [j.day, j.ms])).toEqual([[false, 4 * HOUR]])
+    const again = service(store, clock)
+    await again.tournaments.load()
+    expect(again.due().map((j) => [j.day, j.ms])).toEqual([[false, 4 * HOUR]])
+  })
+
+  it('is skipped for an announcement less than a day ahead, and when the club slept through most of the day', async () => {
+    const store = memoryStore()
+    const clock = { time: 1_000 }
+    const s = service(store, clock)
+    await s.tournaments.create('boss', settings(clock.time, 20 * HOUR))
+    expect(s.due().map((j) => [j.day, j.ms])).toEqual([[false, 19 * HOUR]])
+
+    const view = await s.tournaments.create('boss', settings(clock.time, 3 * 24 * HOUR))
+    await s.tournaments.enter('amy', view.id, { partners: ['ben'] })
+    s.due()
+    // Woken eleven hours before the start: the day-before job runs at once and stays quiet
+    clock.time = view.startsAt - 11 * HOUR
+    const woken = service(store, clock)
+    await woken.tournaments.load()
+    const jobs = woken.due().filter((j) => j.key.includes(view.id))
+    expect(jobs.map((j) => [j.day, j.ms])).toEqual([
+      [true, 0],
+      [false, 10 * HOUR],
+    ])
+    await jobs[0].run()
+    expect(woken.told('tournamentDayReminder')).toEqual([])
   })
 })

@@ -320,6 +320,9 @@ export const api = {
       post<{ tournament: TournamentView }>(`/api/tournaments/${encodeURIComponent(id)}/remove`, { entryId }),
     cancel: (id: string) => post<{ tournament: TournamentView }>(`/api/tournaments/${encodeURIComponent(id)}/cancel`),
     start: (id: string) => post<{ tournament: TournamentView }>(`/api/tournaments/${encodeURIComponent(id)}/start`),
+    /** The order the members alone are paired in (an admin, before the start); null: the order they entered */
+    pairing: (id: string, order: string[] | null) =>
+      post<{ tournament: TournamentView }>(`/api/tournaments/${encodeURIComponent(id)}/pairing`, { order }),
   },
   /** Club points and ratings (J2): a period's board (`month=YYYY-MM`, `year=YYYY` or `season=<id>`) */
   rankings: (period: string) => request<{ board: LeaderboardView }>(`/api/rankings?${period}`),

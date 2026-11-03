@@ -69,6 +69,7 @@ export function notificationText(t: Strings, n: Notification): string {
     case 'tournamentWithdrawn':
     case 'tournamentRemoved':
     case 'tournamentCancelled':
+    case 'tournamentDayReminder':
     case 'tournamentReminder':
     case 'tournamentResults':
       return t.notificationTexts[n.kind](name, String(n.params.title ?? ''))

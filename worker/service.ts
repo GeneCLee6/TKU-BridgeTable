@@ -229,6 +229,7 @@ import type { ClubLink, Person, RemoteTables, TableEntry, Tables } from './table
 import { nextWeeklyRun, WEEKLY_KEY, type WeeklyState } from './weekly-challenge.ts'
 import { DAILY_KEY, nextDailyRun, type DailyState } from './daily-event.ts'
 import { RankingsService } from './rankings-service.ts'
+import type { RankedEvent } from './rankings.ts'
 import { ChallengeExtras } from './challenge-extras.ts'
 import type { Store } from './store.ts'
 import { parseClientMessage } from '../shared/message-guard.ts'
@@ -5027,10 +5028,46 @@ export class ClubService {
     const actor = this.users.get(userId)!
     const action: RefereeAction = { action: 'score', boardId: record.id, ruling: request ? scoreRuling(request) : null }
     const kind = refereeKindOf(record)
-    if (kind && record.eventId)
+    if (kind && record.eventId) {
       await this.referee.add(kind, record.eventId, actor, action, request?.reason ?? '', `board:${record.id}`)
-    else await this.referee.auditOnly(actor, action, request?.reason ?? '', `board:${record.id}`)
+      // A ruling on a board of an event that finished and was credited: its points again
+      await this.recreditPoints(kind, record.eventId, actor, request?.reason ?? '')
+    } else await this.referee.auditOnly(actor, action, request?.reason ?? '', `board:${record.id}`)
     return record
+  }
+
+  /**
+   * A director changed an event after its end (`e9-t17` follow-up, §5.23): when its club points were
+   * credited already, they are worked out again from the event as its page shows it now (rulings and
+   * penalties) and each member's difference goes into the points ledger (`RankingsService.recredit`)
+   * and the audit log. Doing it twice writes nothing more. An event not credited yet (still going, or
+   * its settlement not run) is left to its settlement, which counts the change. Never fails the
+   * director's action: a failure is logged
+   */
+  private async recreditPoints(kind: RefereeEvent, eventId: string, actor: StoredUser, reason: string) {
+    try {
+      const penalties = penaltiesOf(this.referee.of(kind, eventId))
+      let event: RankedEvent | null = null
+      if (kind === 'pairs') event = this.pairs.rankedNow(eventId)
+      else if (kind === 'match') {
+        const match = this.matches.store.get(eventId)
+        event = match ? this.rankings.matchNow(match, penalties) : null
+      } else {
+        const challenge = this.challenges.get(eventId)
+        event = challenge ? this.rankings.challengeNow(challenge, penalties) : null
+      }
+      const changes = this.rankings.recredit(event, actor.id, reason)
+      if (changes.length)
+        await this.referee.auditRecredit(
+          actor,
+          kind,
+          eventId,
+          changes.map((c) => ({ ...c, username: this.users.get(c.userId)?.username ?? c.userId })),
+          reason,
+        )
+    } catch (error) {
+      this.log(crashEntry('recreditPoints', error))
+    }
   }
 
   /** What an event's page needs of the director's work (`e9-t17`): whether the viewer is an admin, and the log */
@@ -5111,6 +5148,9 @@ export class ClubService {
         break
       }
     }
+    // A finished event's points follow the change (a ruling on a board did already, `ruleRecord`)
+    if (request.action === 'penalty' || request.action === 'withdraw' || (request.action === 'score' && !('boardId' in request)))
+      await this.recreditPoints(kind, eventId, actor, request.action === 'score' ? (request.ruling?.reason ?? '') : request.reason)
     // A match's score changed for those watching it
     if (kind === 'match') this.matches.push(eventId)
     return { ok: true }

@@ -288,8 +288,12 @@ export class Club extends DurableObject<Env> implements Connections {
       // Web Push (e1-t28): none unless the three VAPID secrets are set; sent after the answer, kept alive by waitUntil
       push: pushFrom(env),
       defer: (task) => ctx.waitUntil(task),
-      // A deleted member's forum pictures that no post uses go from R2 (e13-t13); the ones in their posts stay with the posts
-      onMemberRemoved: async (userId) => void (await this.files.forget(userId, (key) => this.forum.imagesInUse([key], 'all').size > 0)),
+      // A deleted member's forum drafts and scheduled posts go (the president, 2026-11-03), then
+      // their pictures that no post uses go from R2 (e13-t13); the ones in their published posts stay with the posts
+      onMemberRemoved: async (userId) => {
+        this.forum.forgetUnpublished(userId)
+        await this.files.forget(userId, (key) => this.forum.imagesInUse([key], 'all').size > 0)
+      },
     })
     this.edgeSecret = edgeSecret(env)
     this.book = new BookService(store)
@@ -1132,7 +1136,7 @@ export class Club extends DurableObject<Env> implements Connections {
     const tournaments = this.service.tournaments
     if (route === 'GET /api/tournaments') return json({ tournaments: tournaments.list(user.id) })
     if (route === 'POST /api/tournaments') return json({ tournament: await tournaments.create(user.id, (await body()).settings) })
-    const tournamentPage = url.pathname.match(/^\/api\/tournaments\/([\w-]+)(?:\/(settings|cancel|remove|enter|answer|withdraw|start))?$/)
+    const tournamentPage = url.pathname.match(/^\/api\/tournaments\/([\w-]+)(?:\/(settings|cancel|remove|enter|answer|withdraw|pairing|start))?$/)
     if (tournamentPage) {
       const [, id, action] = tournamentPage
       if (request.method === 'GET' && !action) return json({ tournament: tournaments.view(id, user.id) })
@@ -1144,6 +1148,7 @@ export class Club extends DurableObject<Env> implements Connections {
         if (action === 'enter') return json({ tournament: await tournaments.enter(user.id, id, { partners: b.partners, teamName: b.teamName }) })
         if (action === 'answer') return json({ tournament: await tournaments.answer(user.id, id, b.accept) })
         if (action === 'withdraw') return json({ tournament: await tournaments.withdraw(user.id, id) })
+        if (action === 'pairing') return json({ tournament: await tournaments.setPairing(user.id, id, b.order) })
         return json({ tournament: await tournaments.start(user.id, id) })
       }
     }
