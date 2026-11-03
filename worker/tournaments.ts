@@ -3,10 +3,13 @@ import {
   entriesUsed,
   entryComplete,
   entryOf,
+  entrySizes,
+  eventTeamsFromEntries,
   matchSettingsOf,
   pairsFromEntries,
   pairsSettingsOf,
   parseTournamentSettings,
+  teamEventSettingsOf,
   teamsFromEntries,
   tournamentEventLink,
   tournamentPlayers,
@@ -19,6 +22,7 @@ import {
   type TournamentView,
 } from '../shared/tournament.ts'
 import type { PairsSettings } from '../shared/pairs.ts'
+import type { TeamEventSettings } from '../shared/team-event.ts'
 import type { TeamMatchSettings } from '../shared/team-match.ts'
 import { ClubError } from './errors.ts'
 import { crashEntry, type Logger } from './log.ts'
@@ -60,6 +64,8 @@ export interface TournamentDeps {
   createPairs: (directorId: string, settings: PairsSettings, pairs: [string, string][]) => Promise<string>
   /** Makes the team match (hosted by the first team's first player, every other seat invited), and answers its id */
   createMatch: (teams: { name: string; players: string[] }[], settings: Partial<TeamMatchSettings>) => Promise<string>
+  /** Makes the multi-team event (`e9-t14`, its director the admin) with these teams, and answers its id */
+  createTeams?: (directorId: string, settings: TeamEventSettings, teams: { name: string; players: string[] }[], tournamentId: string) => Promise<string>
   /** Where the event stands; null when there is none */
   eventState: (kind: TournamentKind, eventId: string) => EventState | null
 }
@@ -264,7 +270,7 @@ export class TournamentService {
     const names = body.partners ?? []
     if (!Array.isArray(names) || !names.every((n) => typeof n === 'string')) throw new ClubError('tournamentBadPartner')
     const kind = t.settings.kind
-    const wanted = kind === 'pairs' ? [0, 1] : [TOURNAMENT_LIMITS.teamSize - 1]
+    const wanted = entrySizes(kind).map((n) => n - 1)
     if (!wanted.includes(names.length)) throw new ClubError('tournamentEntrySize')
     const partners: string[] = []
     for (const raw of names as string[]) {
@@ -276,7 +282,7 @@ export class TournamentService {
     for (const member of [userId, ...partners])
       if (entryOf(t, member)) throw new ClubError('tournamentAlreadyIn', { name: this.name(member) })
     let teamName: string | undefined
-    if (kind === 'match') {
+    if (kind === 'match' || kind === 'teams') {
       const asked = typeof body.teamName === 'string' ? body.teamName.trim() : ''
       if (body.teamName !== undefined && typeof body.teamName !== 'string') throw new ClubError('badTournament', { field: 'teamName' })
       if (asked.length > TOURNAMENT_LIMITS.teamNameMax || /\p{Cc}/u.test(asked)) throw new ClubError('badTournament', { field: 'teamName' })
@@ -345,8 +351,9 @@ export class TournamentService {
    * (5–20 pairs), directed by the admin, who starts it on its page once everyone is online. A
    * team match: the first two complete teams, hosted by the first team's first player, every other
    * player invited to their seat (they accept in the invitation dialog as for any match, and the
-   * host starts it). Entries that do not count (a partner who did not confirm, one alone left over)
-   * stay listed and are not in the event
+   * host starts it). A multi-team event (`e9-t14`, §5.25): every complete team of 4–6 (3–16
+   * teams), directed by the admin, who starts each round on its page. Entries that do not count (a
+   * partner who did not confirm, one alone left over) stay listed and are not in the event
    */
   async start(adminId: string, id: string): Promise<TournamentView> {
     this.admin(adminId)
@@ -359,6 +366,18 @@ export class TournamentService {
       if (pairs.length < TOURNAMENT_LIMITS.pairsMin)
         throw new ClubError('tournamentTooFew', { count: pairs.length, min: TOURNAMENT_LIMITS.pairsMin })
       eventId = await this.deps.createPairs(adminId, pairsSettingsOf(t.settings), pairs.slice(0, TOURNAMENT_LIMITS.pairsMax))
+    } else if (t.settings.kind === 'teams') {
+      // A multi-team event (`e9-t14`): every complete team of 4–6, in the order they entered
+      const teams = eventTeamsFromEntries(t)
+      if (teams.length < TOURNAMENT_LIMITS.teamsMin)
+        throw new ClubError('tournamentTooFew', { count: teams.length, min: TOURNAMENT_LIMITS.teamsMin })
+      if (!this.deps.createTeams) throw new ClubError('serverError', {}, 500)
+      eventId = await this.deps.createTeams(
+        adminId,
+        teamEventSettingsOf(t.settings),
+        teams.slice(0, TOURNAMENT_LIMITS.teamsMax).map((e) => ({ name: e.teamName ?? '', players: e.players.map((p) => p.userId) })),
+        t.id,
+      )
     } else {
       const teams = teamsFromEntries(t)
       if (teams.length < TOURNAMENT_LIMITS.teams) throw new ClubError('tournamentTooFew', { count: teams.length, min: TOURNAMENT_LIMITS.teams })

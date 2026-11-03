@@ -1,6 +1,7 @@
 import { MOVEMENT_PAIRS } from './movement.ts'
 import { parsePairsSettings, type PairsSettings } from './pairs.ts'
 import type { PublicUser } from './protocol.ts'
+import { TEAM_EVENT_LIMITS, type TeamEventSettings } from './team-event.ts'
 import { parseTeamMatchSettings, TEAM_MATCH_LIMITS, type TeamMatchSettings } from './team-match.ts'
 import type { MatchScoring } from './team-scoring.ts'
 
@@ -13,8 +14,8 @@ import type { MatchScoring } from './team-scoring.ts'
  * would. Pure functions; the service is `worker/tournaments.ts`.
  */
 
-/** The existing events a tournament can run as */
-export const TOURNAMENT_KINDS = ['pairs', 'match'] as const
+/** The existing events a tournament can run as; `teams` is the multi-team event (`e9-t14`, §5.25) */
+export const TOURNAMENT_KINDS = ['pairs', 'match', 'teams'] as const
 export type TournamentKind = (typeof TOURNAMENT_KINDS)[number]
 
 /**
@@ -36,6 +37,10 @@ export const TOURNAMENT_LIMITS = {
   teams: 2,
   teamSize: 4,
   teamNameMax: TEAM_MATCH_LIMITS.nameMax,
+  /** A multi-team event (`e9-t14`): 3–16 teams of 4–6 */
+  teamsMin: TEAM_EVENT_LIMITS.teamsMin,
+  teamsMax: TEAM_EVENT_LIMITS.teamsMax,
+  teamSizeMax: TEAM_EVENT_LIMITS.teamSizeMax,
   /** The reminder goes this long before the start */
   reminderMs: 60 * 60_000,
   /** Announced at most this far ahead */
@@ -52,6 +57,12 @@ export interface TournamentMatchSettings {
   scoring: MatchScoring
   boardMinutes: number
 }
+/** A multi-team event's (`e9-t14`): boards per match, the time limit, the most rounds; always IMP (VP needs IMPs) */
+export interface TournamentTeamsSettings {
+  boards: number
+  boardMinutes: number
+  rounds: number
+}
 
 export interface TournamentSettings {
   kind: TournamentKind
@@ -61,14 +72,35 @@ export interface TournamentSettings {
   startsAt: number
   /** Entries and withdrawals close; at most `startsAt` */
   deadline: number
-  /** Most entries: pairs for a pairs event (5–20), always 2 teams for a team match */
+  /** Most entries: pairs for a pairs event (5–20), always 2 teams for a team match, 3–16 teams for a multi-team event */
   capacity: number
   pairs: TournamentPairsSettings
   match: TournamentMatchSettings
+  /** A multi-team event's settings; absent in tournaments kept from before `e9-t14` (read as the defaults) */
+  teams?: TournamentTeamsSettings
 }
 
 const DEFAULT_PAIRS: TournamentPairsSettings = { boardsPerRound: 3, boardMinutes: 8 }
 const DEFAULT_MATCH: TournamentMatchSettings = { boards: 8, scoring: 'imp', boardMinutes: 10 }
+export const DEFAULT_TEAMS: TournamentTeamsSettings = {
+  boards: TEAM_EVENT_LIMITS.boardsDefault,
+  boardMinutes: 10,
+  rounds: TEAM_EVENT_LIMITS.roundsDefault,
+}
+
+/** A multi-team event's settings, or null when a field is wrong (every field required, nothing else) */
+function parseTeamsSettings(value: unknown): TournamentTeamsSettings | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const { boards, boardMinutes, rounds, ...rest } = value as Record<string, unknown>
+  if (Object.keys(rest).length) return null
+  const L = TEAM_EVENT_LIMITS
+  if (!Number.isInteger(boards) || (boards as number) < L.boardsMin || (boards as number) > L.boardsMax) return null
+  if (!Number.isInteger(rounds) || (rounds as number) < L.roundsMin || (rounds as number) > L.roundsMax) return null
+  // The team match's own check of the time limit (0, or 3–30)
+  const match = parseTeamMatchSettings({ boardMinutes })
+  if ('field' in match) return null
+  return { boards: boards as number, boardMinutes: match.settings.boardMinutes, rounds: rounds as number }
+}
 
 /**
  * Checks what an admin sent: every field, against `base` when changing a tournament. `now` is when
@@ -100,7 +132,12 @@ export function parseTournamentSettings(
     return { field: 'deadline' }
   let capacity: number
   if (kind === 'match') capacity = TOURNAMENT_LIMITS.teams
-  else {
+  else if (kind === 'teams') {
+    const asked = input.capacity ?? (base?.kind === 'teams' ? base.capacity : TOURNAMENT_LIMITS.teamsMax)
+    if (!Number.isInteger(asked) || (asked as number) < TOURNAMENT_LIMITS.teamsMin || (asked as number) > TOURNAMENT_LIMITS.teamsMax)
+      return { field: 'capacity' }
+    capacity = asked as number
+  } else {
     const asked = input.capacity ?? (base?.kind === 'pairs' ? base.capacity : TOURNAMENT_LIMITS.pairsMax)
     if (!Number.isInteger(asked) || (asked as number) < TOURNAMENT_LIMITS.pairsMin || (asked as number) > TOURNAMENT_LIMITS.pairsMax)
       return { field: 'capacity' }
@@ -115,6 +152,9 @@ export function parseTournamentSettings(
   if (Object.keys(rest).length) return { field: 'match' }
   const match = parseTeamMatchSettings({ boards: boards ?? DEFAULT_MATCH.boards, scoring: scoring ?? DEFAULT_MATCH.scoring, boardMinutes: boardMinutes ?? DEFAULT_MATCH.boardMinutes })
   if ('field' in match) return { field: 'match' }
+  const teamsIn = input.teams ?? base?.teams ?? DEFAULT_TEAMS
+  const teams = parseTeamsSettings(typeof teamsIn === 'object' && teamsIn ? { ...DEFAULT_TEAMS, ...teamsIn } : teamsIn)
+  if (!teams) return { field: 'teams' }
   return {
     settings: {
       kind: kind as TournamentKind,
@@ -125,6 +165,7 @@ export function parseTournamentSettings(
       capacity,
       pairs: { boardsPerRound: pairs.boardsPerRound, boardMinutes: pairs.boardMinutes },
       match: { boards: match.settings.boards, scoring: match.settings.scoring, boardMinutes: match.settings.boardMinutes },
+      teams,
     },
   }
 }
@@ -134,6 +175,16 @@ export const pairsSettingsOf = (s: TournamentSettings): PairsSettings => ({ titl
 
 /** The team match's settings for a tournament: every seat invited by the host, no robots (the teams' names are added) */
 export const matchSettingsOf = (s: TournamentSettings): Partial<TeamMatchSettings> => ({ ...s.match, invite: 'direct', robots: false })
+
+/** The multi-team event's settings for a tournament (its title is the tournament's) */
+export const teamEventSettingsOf = (s: TournamentSettings): TeamEventSettings => ({ title: s.title, ...(s.teams ?? DEFAULT_TEAMS) })
+
+/** How many players an entry has: one or two (a pairs event), four (a team match), four to six (a multi-team event) */
+export function entrySizes(kind: TournamentKind): number[] {
+  if (kind === 'pairs') return [1, 2]
+  if (kind === 'match') return [TOURNAMENT_LIMITS.teamSize]
+  return Array.from({ length: TOURNAMENT_LIMITS.teamSizeMax - TOURNAMENT_LIMITS.teamSize + 1 }, (_, i) => TOURNAMENT_LIMITS.teamSize + i)
+}
 
 // ── Entries ───────────────────────────────────────────────────────────────────────────────
 
@@ -150,7 +201,7 @@ export interface TournamentPlayer {
 export interface TournamentEntry {
   id: string
   players: TournamentPlayer[]
-  /** A team's name (a team match), empty for 「A 隊」/「B 隊」 */
+  /** A team's name (a team match or a multi-team event), empty for 「A 隊」/「B 隊」 */
   teamName?: string
   at: number
 }
@@ -205,6 +256,10 @@ export function pairsFromEntries(t: Tournament): { pairs: [string, string][]; le
 export const teamsFromEntries = (t: Tournament) =>
   t.entries.filter((e) => e.players.length === TOURNAMENT_LIMITS.teamSize && entryComplete(e))
 
+/** The teams a multi-team event starts with (`e9-t14`): every team of 4–6 all confirmed, in the order they entered */
+export const eventTeamsFromEntries = (t: Tournament) =>
+  t.entries.filter((e) => e.players.length >= TOURNAMENT_LIMITS.teamSize && e.players.length <= TOURNAMENT_LIMITS.teamSizeMax && entryComplete(e))
+
 // ── What the pages see (`GET /api/tournaments`, `GET /api/tournaments/:id`) ────────────────
 
 export interface TournamentEntryView {
@@ -241,7 +296,7 @@ export interface TournamentView extends TournamentSummary {
   /** Entries and withdrawals are still taken (open, before the deadline) */
   entriesOpen: boolean
   eventId?: string
-  /** Where the event is played, and once finished its results: `/pairs/:id` or `/matches/:id` */
+  /** Where the event is played, and once finished its results: `/pairs/:id`, `/matches/:id` or `/team-events/:id` */
   eventLink?: string
   startedAt?: number
   finishedAt?: number
@@ -251,4 +306,8 @@ export interface TournamentView extends TournamentSummary {
 
 /** The page of a tournament's event (and its results) */
 export const tournamentEventLink = (kind: TournamentKind, eventId: string) =>
-  kind === 'pairs' ? `/pairs/${encodeURIComponent(eventId)}` : `/matches/${encodeURIComponent(eventId)}`
+  kind === 'pairs'
+    ? `/pairs/${encodeURIComponent(eventId)}`
+    : kind === 'teams'
+      ? `/team-events/${encodeURIComponent(eventId)}`
+      : `/matches/${encodeURIComponent(eventId)}`

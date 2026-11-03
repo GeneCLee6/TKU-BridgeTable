@@ -40,6 +40,7 @@ export const PUSH_GROUPS = {
     'tournamentCancelled',
     'tournamentReminder',
     'tournamentResults',
+    'teamEventRound',
   ],
   featured: ['boardFeatured'],
   friends: ['friendOnline'],

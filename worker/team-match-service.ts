@@ -9,6 +9,7 @@ import {
   type MatchRoomClock,
   type MatchSeat,
   type Room,
+  type TeamMatchSettings,
   type TeamMatchView,
 } from '../shared/team-match.ts'
 import { ClubError } from './errors.ts'
@@ -88,6 +89,12 @@ export interface TeamMatchDeps {
   write: (matchId: string, step: MatchStep) => Promise<void>
   /** What the match's page needs of the director's work (`e9-t17`): admin or not, and the log */
   directing?: (matchId: string, userId: string) => EventDirecting
+  /**
+   * The teams of the multi-team event a match was made for (`e9-t14`, §5.25), null for any other
+   * match: its seats are the line-ups, so only moving within a team is left to the captains, its
+   * settings stay and it is not called off; a substitute comes from the team
+   */
+  eventTeams?: (matchId: string) => { A: string[]; B: string[] } | null
 }
 
 /** What the host (替補 also a captain) does while the match is played (`e8-t14`–`e8-t16`) */
@@ -194,6 +201,11 @@ export class TeamMatchService {
     }
   }
 
+  /** A multi-team event's match (`e9-t14`): the event decides who sits where and that it is played */
+  private notForEvent(matchId: string) {
+    if (this.deps.eventTeams?.(matchId)) throw new ClubError('teamEventMatch')
+  }
+
   private view(id: string, userId: string): TeamMatchView {
     return this.viewOf(this.store.get(id)!, userId)!
   }
@@ -246,10 +258,40 @@ export class TeamMatchService {
     return this.view(match.id, userId)
   }
 
+  /**
+   * A multi-team event's round match (`e9-t14`, §5.25): every seat taken at once by the two
+   * line-ups (no invitations: the players entered and confirmed in the tournament), team A's first
+   * player hosting from the open room's South, team B's first its captain (`captains`, so each
+   * captain may still swap their own team's seats before the start). A seat nobody is left for (an
+   * account deleted) gets a robot. Answers the match's id; it is set up, for its host to start
+   */
+  async createSeated(input: {
+    hostId: string
+    captainB: string
+    settings: Partial<TeamMatchSettings>
+    seats: { room: Room; seat: MatchSeat['seat']; userId: string | null }[]
+  }): Promise<string> {
+    const robots = input.seats.some((s) => s.userId === null)
+    const parsed = parseTeamMatchSettings({ ...input.settings, invite: 'captains', robots })
+    if ('field' in parsed) throw new ClubError('badMatchSettings', { field: parsed.field })
+    const now = this.deps.now()
+    const match = newTeamMatch({ id: this.deps.newId(), hostId: input.hostId, now, settings: parsed.settings, seat: { room: 'open', seat: 'S' } })
+    match.captains = { A: input.hostId, B: input.captainB }
+    match.seats = match.seats.map((s) => {
+      // The host's seat is taken already
+      if (s.room === 'open' && s.seat === 'S') return s
+      const userId = input.seats.find((x) => x.room === s.room && x.seat === s.seat)?.userId ?? null
+      return userId === null ? { ...s, status: 'seated', robot: true } : { ...s, status: 'seated', userId, robot: false, invitedAt: now, answeredAt: now }
+    })
+    await this.deps.add(match)
+    return match.id
+  }
+
   /** The host changes settings before the start (`POST /api/matches/:id/settings`) */
   async update(userId: string, id: string, settings: unknown): Promise<TeamMatchView> {
     this.limit(userId)
     const match = this.require(id, userId)
+    this.notForEvent(match.id)
     const step = changeSettings(match, userId, settings)
     if ('error' in step) this.fail(step)
     // A match set up with the club's robots keeps them; switching to them needs `tkuSystem`
@@ -264,6 +306,7 @@ export class TeamMatchService {
   async cancel(userId: string, id: string): Promise<TeamMatchView> {
     this.limit(userId)
     const match = this.require(id, userId)
+    this.notForEvent(match.id)
     const step = cancelMatch(match, userId)
     if ('error' in step) this.fail(step)
     await this.deps.write(id, { kind: 'cancel', userId })
@@ -361,6 +404,9 @@ export class TeamMatchService {
     if (typeof newcomer !== 'string' || (newcomer !== userId && !this.deps.isMember(newcomer))) throw new ClubError('userGone', {}, 404)
     const step = replaceSeat(match, userId, at, newcomer, this.deps.now())
     if ('error' in step) this.fail(step)
+    // A multi-team event's substitute is one of the team's own (`e9-t14`)
+    const teams = this.deps.eventTeams?.(match.id)
+    if (teams && !teams[teamAt(at.room, at.seat)].includes(newcomer)) throw new ClubError('teamEventRoster')
     const { blocked } = this.deps
     if ([userId, match.hostId].some((id) => blocked(newcomer, id) || blocked(id, newcomer)))
       throw new ClubError('cannotInvite', { name: this.deps.userById(newcomer)?.username ?? '' }, 403)
@@ -423,6 +469,8 @@ export class TeamMatchService {
    */
   async act(userId: string, message: MatchAction): Promise<string> {
     const match = this.require(message.matchId, userId)
+    // A multi-team event's seats are its line-ups: the captains only swap their own team's (`e9-t14`)
+    if (message.type !== 'matchMove') this.notForEvent(match.id)
     const now = this.deps.now()
     const notices: { to: string; kind: NotificationKind }[] = []
     /** Whom an answer or a departure from a seat is news to: the captain who arranges that team, or the host */

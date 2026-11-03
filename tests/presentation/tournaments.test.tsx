@@ -130,6 +130,20 @@ describe('tournament pages', () => {
     expect(button).toBeEnabled()
   })
 
+  it('asks a multi-team event for three to five teammates (e9-t14)', async () => {
+    mocks.api.tournaments.get.mockResolvedValue({ tournament: { ...OPEN, kind: 'teams', capacity: 8, used: 0, entries: [] } })
+    renderPage()
+    const button = await screen.findByRole('button', { name: '整隊報名' })
+    const box = screen.getByLabelText('三到五位隊友的帳號名稱（用逗號或空白分開）')
+    await userEvent.type(box, 'ben cat')
+    expect(button).toBeDisabled()
+    await userEvent.type(box, ' dan eve fay')
+    expect(button).toBeEnabled()
+    await userEvent.type(box, ' gus')
+    expect(button).toBeDisabled()
+    expect(screen.getByText('0／8 隊')).toBeInTheDocument()
+  })
+
   it('lets an admin start it from the entries, then links the event', async () => {
     mocks.user.admin = true
     mocks.api.tournaments.get.mockResolvedValue({ tournament: { ...OPEN, canManage: true } })

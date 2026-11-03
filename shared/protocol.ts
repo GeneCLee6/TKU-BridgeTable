@@ -809,6 +809,7 @@ export const NOTIFICATION_KINDS = [
   'tournamentCancelled',
   'tournamentReminder',
   'tournamentResults',
+  'teamEventRound',
 ] as const
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number]
 
@@ -860,7 +861,9 @@ export interface Notification {
    * entered with them as partner or teammate, to confirm; `tournamentWithdrawn` (+ `username`) a
    * partner withdrew or said no, so their entry is off; `tournamentRemoved` (+ `username`) an admin
    * took their entry off; `tournamentCancelled`; `tournamentReminder` an hour before the start;
-   * `tournamentResults` (+ `eventKind`, `eventId`) its event finished, leading to the results
+   * `tournamentResults` (+ `eventKind`, `eventId`) its event finished, leading to the results.
+   * `teamEventRound` { teamEventId, title, number, matchId? } a multi-team event's round `number`
+   * was paired (`e9-t14`, §5.25): to every player of the round's teams, with their match (none: a bye)
    */
   params: Record<string, string | number>
   read: boolean

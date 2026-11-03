@@ -72,5 +72,7 @@ export function notificationText(t: Strings, n: Notification): string {
     case 'tournamentReminder':
     case 'tournamentResults':
       return t.notificationTexts[n.kind](name, String(n.params.title ?? ''))
+    case 'teamEventRound':
+      return t.notificationTexts.teamEventRound(String(n.params.title ?? ''), Number(n.params.number ?? 0))
   }
 }
