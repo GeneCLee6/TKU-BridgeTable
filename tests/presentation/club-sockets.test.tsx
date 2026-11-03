@@ -1,6 +1,5 @@
 import { act, render, waitFor } from '@testing-library/react'
 import { useEffect } from 'react'
-import { FRIENDS_ENABLED } from '../../shared/features.ts'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { TABLE_SOCKET_REFUSED, type ClientMessage, type LobbyMine, type LobbyShared, type ServerMessage } from '../../shared/protocol.ts'
 import { liveSocket } from '../../src/lib/liveSocket.ts'
@@ -63,10 +62,10 @@ const mine = (over: Partial<LobbyMine> = {}): LobbyMine => ({
 const member = (id: string, username: string, online = true) => ({ id, username, online, tableNumber: null, seat: null })
 
 /** The provider with a probe that sees what it holds; its club connection open */
-async function mount() {
+async function mount(features: string[] = []) {
   vi.stubGlobal(
     'fetch',
-    vi.fn(async () => new Response(JSON.stringify({ user: { id: 'amy', username: 'amy' } }), { headers: { 'Content-Type': 'application/json' } })),
+    vi.fn(async () => new Response(JSON.stringify({ user: { id: 'amy', username: 'amy', features } }), { headers: { 'Content-Type': 'application/json' } })),
   )
   const seen: { club: ReturnType<typeof useClub> | null } = { club: null }
   function Probe() {
@@ -150,18 +149,21 @@ describe('the live connections', () => {
 describe('the lobby in two parts (H3b)', () => {
   const shared: LobbyShared = { members: [member('amy', 'amy'), member('ben', 'ben'), member('zoe', 'zoe')], tables: [], matches: [] }
 
-  it('puts the shared part and the viewer’s own together, sorting as the server did', async () => {
-    const { socket, club } = await mount()
+  it.each([
+    ['with friends', ['friends'], ['zoe', 'amy', 'ben'], ['zoe', 'amy', 'cal', 'ben']],
+    ['without friends', [], ['amy', 'ben', 'zoe'], ['amy', 'cal', 'zoe', 'ben']],
+  ])('puts the shared part and the viewer’s own together, sorting as the server did (%s)', async (_, features, first, after) => {
+    const { socket, club } = await mount(features)
     act(() => socket.receive({ type: 'lobbyShared', epoch: 5, rev: 1, lobby: shared }))
     expect(club().lobby).toBeNull()
     act(() => socket.receive({ type: 'lobbyMine', mine: mine({ friends: ['zoe'] }) }))
-    // Friends on top only while they are shown (FRIENDS_ENABLED)
-    await waitFor(() => expect(club().lobby?.members.map((m) => m.username)).toEqual(FRIENDS_ENABLED ? ['zoe', 'amy', 'ben'] : ['amy', 'ben', 'zoe']))
+    // Friends on top only for a member who has the `friends` flag (Me.features)
+    await waitFor(() => expect(club().lobby?.members.map((m) => m.username)).toEqual(first))
     // A delta: ben goes offline, cal joins
     act(() =>
       socket.receive({ type: 'lobbyDelta', epoch: 5, base: 1, rev: 2, delta: { members: [member('ben', 'ben', false), member('cal', 'cal')] } }),
     )
-    await waitFor(() => expect(club().lobby?.members.map((m) => m.username)).toEqual(FRIENDS_ENABLED ? ['zoe', 'amy', 'cal', 'ben'] : ['amy', 'cal', 'zoe', 'ben']))
+    await waitFor(() => expect(club().lobby?.members.map((m) => m.username)).toEqual(after))
     expect(socket.messages).toEqual([])
   })
 

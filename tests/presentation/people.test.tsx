@@ -1,11 +1,25 @@
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
-import { describe, expect, it, vi } from 'vitest'
-import { FRIENDS_ENABLED } from '../../shared/features.ts'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { FeatureFlag } from '../../shared/features.ts'
 import type { LobbyView, MemberStatus } from '../../shared/protocol.ts'
 import { PeopleList } from '../../src/components/PeopleList.tsx'
 import { PreferencesProvider } from '../../src/state/PreferencesContext.tsx'
+
+// The `friends` flag as a club may set it (shared/features.ts): null leaves the real hook
+const flags = vi.hoisted(() => ({ friends: null as boolean | null }))
+vi.mock('../../src/state/AuthContext.tsx', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/state/AuthContext.tsx')>()
+  return {
+    ...actual,
+    useFeature: (flag: FeatureFlag) => (flag === 'friends' && flags.friends !== null ? flags.friends : actual.useFeature(flag)),
+  }
+})
+
+afterEach(() => {
+  flags.friends = null
+})
 
 const person = (id: string, online: boolean): MemberStatus => ({ id, username: id, online, tableNumber: null, seat: null })
 
@@ -33,7 +47,7 @@ function show(lobby: LobbyView = LOBBY, onMessage?: (userId: string) => void) {
 
 const names = () => screen.getAllByRole('listitem').map((li) => li.textContent)
 
-describe.skipIf(!FRIENDS_ENABLED)('PeopleList', () => {
+describe('PeopleList', () => {
   it('stars friends, marks blocked members, and has no buttons on your own row', () => {
     show()
     expect(screen.getByRole('button', { name: '把 zoe 移出好友' })).toHaveAttribute('aria-pressed', 'true')
@@ -79,8 +93,9 @@ describe.skipIf(!FRIENDS_ENABLED)('PeopleList', () => {
   })
 })
 
-describe.runIf(!FRIENDS_ENABLED)('PeopleList while friends are hidden (FRIENDS_ENABLED)', () => {
+describe('PeopleList while the club has friends turned off (the `friends` flag)', () => {
   it('leaves only the envelope, and the ban button to undo an old block', async () => {
+    flags.friends = false
     const onMessage = vi.fn()
     const send = show(LOBBY, onMessage)
     expect(screen.queryByRole('button', { name: /好友/ })).toBeNull()

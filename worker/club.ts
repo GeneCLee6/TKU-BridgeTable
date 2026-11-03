@@ -338,6 +338,7 @@ export class Club extends DurableObject<Env> implements Connections {
     this.forumNotices = new ForumNotices({
       notify: (id, kind, params) => this.service.notifications.notify(id, kind, params),
       members: () => this.service.memberDirectory(),
+      blocked: (by, other) => this.service.hasBlocked(by, other),
     })
     this.forumSchedule = new ForumSchedule({
       forum: this.forum,

@@ -2,7 +2,7 @@ import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { FRIENDS_ENABLED } from '../../shared/features.ts'
+import type { FeatureFlag } from '../../shared/features.ts'
 import type { MemberProfile } from '../../shared/profile.ts'
 import type { LobbyView, MemberStatus } from '../../shared/protocol.ts'
 import { PeopleList } from '../../src/components/PeopleList.tsx'
@@ -11,6 +11,16 @@ import { PreferencesProvider } from '../../src/state/PreferencesContext.tsx'
 import { AuthProvider } from '../../src/state/AuthContext.tsx'
 import { ToastProvider } from '../../src/components/Toast.tsx'
 import { AccountPage } from '../../src/pages/AccountPage.tsx'
+
+// The `friends` flag as a club may set it (shared/features.ts): null leaves the real hook
+const flags = vi.hoisted(() => ({ friends: null as boolean | null }))
+vi.mock('../../src/state/AuthContext.tsx', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/state/AuthContext.tsx')>()
+  return {
+    ...actual,
+    useFeature: (flag: FeatureFlag) => (flag === 'friends' && flags.friends !== null ? flags.friends : actual.useFeature(flag)),
+  }
+})
 
 const person = (id: string, online: boolean): MemberStatus => ({ id, username: id, online, tableNumber: null, seat: null })
 
@@ -62,7 +72,10 @@ function show(onMessage = vi.fn()) {
   return { send, asked, onMessage }
 }
 
-afterEach(() => vi.unstubAllGlobals())
+afterEach(() => {
+  vi.unstubAllGlobals()
+  flags.friends = null
+})
 
 describe('profile card (e1-t17)', () => {
   it('opens from a name with the profile and the latest boards', async () => {
@@ -79,7 +92,7 @@ describe('profile card (e1-t17)', () => {
     expect(within(card).getByRole('link', { name: '完整個人檔案' })).toHaveAttribute('href', '/members/ben')
   })
 
-  it.skipIf(!FRIENDS_ENABLED)('friends, blocks and messages from the card', async () => {
+  it('friends, blocks and messages from the card', async () => {
     const { send, onMessage } = show()
     await userEvent.click(screen.getByRole('button', { name: 'ben' }))
     const card = await screen.findByRole('dialog')
@@ -92,7 +105,8 @@ describe('profile card (e1-t17)', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 
-  it.runIf(!FRIENDS_ENABLED)('only messages from the card while friends are hidden (FRIENDS_ENABLED)', async () => {
+  it('only messages from the card while the club has friends turned off (the `friends` flag)', async () => {
+    flags.friends = false
     const { send, onMessage } = show()
     await userEvent.click(screen.getByRole('button', { name: 'ben' }))
     const card = await screen.findByRole('dialog')
@@ -107,7 +121,7 @@ describe('profile card (e1-t17)', () => {
     expect(within(lee).queryByRole('button', { name: /好友/ })).toBeNull()
   })
 
-  it.skipIf(!FRIENDS_ENABLED)('lets a blocked member only be unblocked, and closes with Escape', async () => {
+  it('lets a blocked member only be unblocked, and closes with Escape', async () => {
     show()
     await userEvent.click(screen.getByRole('button', { name: 'lee' }))
     const card = await screen.findByRole('dialog')
