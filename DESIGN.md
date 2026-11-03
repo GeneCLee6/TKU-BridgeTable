@@ -358,15 +358,15 @@
 
 ### 7.11 其他網站的登入按鈕（`components/SignInButtons.tsx`，`e1-t31`、`e1-t32`）
 
-社長 2026-11-02 嫌原本的 Google 按鈕「陽春」：Google 與 LINE 的按鈕改照兩家的品牌規範畫，**不是**我們的 `Button`。登入頁（`或` 下面滿寬，一個一列）、申請表（文字換成「申請加入」）、「我的帳號」的綁定卡片（卡片頁腳，跟文字一樣寬）都用同一個 `SignInButton provider`。顏色只在 `theme.brands`（`styles/tokens.ts`），別的地方不要用這些顏色。
+社長 2026-11-02 嫌原本的 Google 按鈕「陽春」：Google 與 LINE 的按鈕改照兩家的品牌規範畫，**不是**我們的 `Button`。登入頁（`或` 下面滿寬，一個一列）、申請表（文字換成「申請加入」）、「我的帳號」的綁定卡片（卡片頁腳，跟文字一樣寬）都用同一個 `SignInButton provider`。顏色只在 `theme.brands`（`styles/tokens.ts`），別的地方不要用這些顏色。2026-11-03 社長覺得 LINE 的 logo 擠在最左邊、隔一條線很怪：改成跟多數網站（蝦皮、KKday、104）一樣，LINE 與 Google 兩顆的 logo 和字都整組置中，高度、內距、圓角相同。
 
 | | Google（Sign in with Google 品牌規範） | LINE（LINE Login 按鈕規範） |
 | --- | --- | --- |
 | 底色 | 淺色主題白 `#ffffff`、深色主題 `#131314` | LINE 綠 `#06c755`（兩種主題一樣） |
 | 框 | 1px 灰：淺色 `#747775`、深色 `#8e918f` | 無 |
 | 字 | `#1f1f1f`／深色 `#e3e3e3`，14 / 20、500（有 Roboto 用 Roboto） | 白、14 / 20、700 |
-| logo | 四色「G」20×20（四色兩種主題都不變），在字的左邊、間距 10，整組置中 | 白色 LINE logo，在最左邊，右邊一條 8% 黑的分隔線，字在其餘的寬度置中 |
-| 高、內距、圓角 | 40、左右 12、圓角 4 | 40、logo 左右 10、圓角 6 |
+| logo | 四色「G」20×20（四色兩種主題都不變），在字的左邊、間距 10，整組置中 | 白色 LINE logo 20×20，跟 Google 一樣在字的左邊、間距 10，整組置中，沒有分隔線 |
+| 高、內距、圓角 | 40、左右 12、圓角 4 | 同 Google：40、左右 12、圓角 4（兩顆疊在一起像一對） |
 | 滑過／按下 | 疊一層字色 8%／12% | 疊一層黑 10%／30% |
 | 文字 | 「使用 Google 帳戶登入」「使用 Google 帳戶申請加入」（英文 Sign in with Google／Sign up with Google，六種語言照 Google 的譯法） | 「用 LINE 登入」「用 LINE 申請加入」（英文 Log in with LINE，日文 LINEでログイン） |
 
