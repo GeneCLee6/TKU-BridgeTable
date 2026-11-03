@@ -164,6 +164,7 @@ import { LocalMatches, type MatchStep } from './match-event.ts'
 import type { RemotePairs } from './pairs-events.ts'
 import { PairsService } from './pairs-service.ts'
 import { TournamentService } from './tournaments.ts'
+import type { TournamentKind } from '../shared/tournament.ts'
 import { MatchHomes, type MatchApi, type MatchSnapshot, type RemoteMatches } from './match-events.ts'
 import { TeamMatchStore, type TeamMatch } from './team-matches.ts'
 import { teamTable } from './team-mode.ts'
@@ -867,7 +868,7 @@ export class ClubService {
       reveal: async (eventId) => this.revealRecords(revealEvent(this.store.sql, eventId, this.now())),
       ranked: (event) => {
         this.rankings.record(event)
-        void this.tournaments.eventEnded('pairs', event.id)
+        void this.tournaments.eventEnded(event.kind === 'individual' ? 'individual' : 'pairs', event.id)
       },
       isAdmin: (id) => this.actsAsAdmin(this.users.get(id)),
       refereeOf: (id) => this.referee.of('pairs', id),
@@ -928,6 +929,7 @@ export class ClubService {
       takeAction: (id) => this.actionLimit.take(id),
       notify: (id, kind, params) => this.notifications.notify(id, kind, params),
       createPairs: (directorId, settings, pairs) => this.pairs.createFrom(directorId, settings, pairs),
+      createIndividual: (directorId, settings, players) => this.pairs.createIndividual(directorId, settings, players),
       createMatch: (teams, settings) => this.tournamentMatch(teams, settings),
       eventState: (kind, id) => this.tournamentEventState(kind, id),
     })
@@ -3924,8 +3926,9 @@ export class ClubService {
   }
 
   /** Where a tournament's event stands (`e9-t16`): an abandoned match counts as finished (its boards are scored) */
-  private tournamentEventState(kind: 'pairs' | 'match', id: string): 'on' | 'finished' | 'cancelled' | null {
-    const status = kind === 'pairs' ? this.pairs.statusOf(id) : (this.matches.store.get(id)?.status ?? null)
+  private tournamentEventState(kind: TournamentKind, id: string): 'on' | 'finished' | 'cancelled' | null {
+    // An individual event (e9-t15) is a pairs event of the individual format
+    const status = kind === 'pairs' || kind === 'individual' ? this.pairs.statusOf(id) : (this.matches.store.get(id)?.status ?? null)
     if (status === null) return null
     if (status === 'finished' || status === 'abandoned') return 'finished'
     return status === 'cancelled' ? 'cancelled' : 'on'

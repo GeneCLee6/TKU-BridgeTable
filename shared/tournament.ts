@@ -1,4 +1,4 @@
-import { MOVEMENT_PAIRS } from './movement.ts'
+import { individualSizeFor, INDIVIDUAL_PLAYERS, MOVEMENT_PAIRS } from './movement.ts'
 import { parsePairsSettings, type PairsSettings } from './pairs.ts'
 import type { PublicUser } from './protocol.ts'
 import { parseTeamMatchSettings, TEAM_MATCH_LIMITS, type TeamMatchSettings } from './team-match.ts'
@@ -13,8 +13,8 @@ import type { MatchScoring } from './team-scoring.ts'
  * would. Pure functions; the service is `worker/tournaments.ts`.
  */
 
-/** The existing events a tournament can run as */
-export const TOURNAMENT_KINDS = ['pairs', 'match'] as const
+/** The existing events a tournament can run as; `individual` is a pairs event of the individual format (`e9-t15`) */
+export const TOURNAMENT_KINDS = ['pairs', 'match', 'individual'] as const
 export type TournamentKind = (typeof TOURNAMENT_KINDS)[number]
 
 /**
@@ -32,6 +32,9 @@ export const TOURNAMENT_LIMITS = {
   /** Pairs in a pairs event (the Mitchell movement's 5–20, `MOVEMENT_PAIRS`) */
   pairsMin: MOVEMENT_PAIRS.min,
   pairsMax: MOVEMENT_PAIRS.max,
+  /** Players in an individual event (`e9-t15`): it starts with 8, 12, 16 or 20 of them */
+  playersMin: INDIVIDUAL_PLAYERS.min,
+  playersMax: INDIVIDUAL_PLAYERS.max,
   /** A team match is two teams of four */
   teams: 2,
   teamSize: 4,
@@ -61,8 +64,9 @@ export interface TournamentSettings {
   startsAt: number
   /** Entries and withdrawals close; at most `startsAt` */
   deadline: number
-  /** Most entries: pairs for a pairs event (5–20), always 2 teams for a team match */
+  /** Most entries: pairs for a pairs event (5–20), always 2 teams for a team match, players for an individual event (8–20) */
   capacity: number
+  /** A pairs event's settings; an individual event (`e9-t15`) plays with these too */
   pairs: TournamentPairsSettings
   match: TournamentMatchSettings
 }
@@ -100,7 +104,12 @@ export function parseTournamentSettings(
     return { field: 'deadline' }
   let capacity: number
   if (kind === 'match') capacity = TOURNAMENT_LIMITS.teams
-  else {
+  else if (kind === 'individual') {
+    const asked = input.capacity ?? (base?.kind === 'individual' ? base.capacity : TOURNAMENT_LIMITS.playersMax)
+    if (!Number.isInteger(asked) || (asked as number) < TOURNAMENT_LIMITS.playersMin || (asked as number) > TOURNAMENT_LIMITS.playersMax)
+      return { field: 'capacity' }
+    capacity = asked as number
+  } else {
     const asked = input.capacity ?? (base?.kind === 'pairs' ? base.capacity : TOURNAMENT_LIMITS.pairsMax)
     if (!Number.isInteger(asked) || (asked as number) < TOURNAMENT_LIMITS.pairsMin || (asked as number) > TOURNAMENT_LIMITS.pairsMax)
       return { field: 'capacity' }
@@ -182,9 +191,10 @@ export const tournamentPlayers = (t: Tournament) => t.entries.flatMap((e) => e.p
 
 /**
  * How full it is, in entries as capacity counts them: a pair or a team is one, a member alone half
- * a pair (two alone make one at the start)
+ * a pair (two alone make one at the start); in an individual event (`e9-t15`) every member alone is one
  */
-export const entriesUsed = (t: Tournament) => t.entries.reduce((n, e) => n + (e.players.length === 1 ? 0.5 : 1), 0)
+export const entriesUsed = (t: Tournament) =>
+  t.entries.reduce((n, e) => n + (e.players.length === 1 && t.settings.kind !== 'individual' ? 0.5 : 1), 0)
 
 /**
  * The pairs a pairs event starts with: every pair whose partner confirmed, in the order they
@@ -199,6 +209,17 @@ export function pairsFromEntries(t: Tournament): { pairs: [string, string][]; le
   }
   for (let i = 0; i + 1 < alone.length; i += 2) pairs.push([alone[i], alone[i + 1]])
   return { pairs, leftOver: alone.length % 2 ? [alone.at(-1)!] : [] }
+}
+
+/**
+ * The players an individual event (`e9-t15`) starts with: the members who entered, in order, as
+ * many as the movement seats (8, 12, 16 or 20: the largest not above the number entered); the
+ * rest are left over and play not
+ */
+export function playersFromEntries(t: Tournament): { players: string[]; leftOver: string[] } {
+  const all = t.entries.filter((e) => e.players.length === 1).map((e) => e.players[0].userId)
+  const size = individualSizeFor(all.length)
+  return { players: all.slice(0, size), leftOver: all.slice(size) }
 }
 
 /** The teams a team match starts with: every team of four all confirmed, in the order they entered */
@@ -249,6 +270,6 @@ export interface TournamentView extends TournamentSummary {
   canManage: boolean
 }
 
-/** The page of a tournament's event (and its results) */
+/** The page of a tournament's event (and its results); an individual event's is a pairs event's page */
 export const tournamentEventLink = (kind: TournamentKind, eventId: string) =>
-  kind === 'pairs' ? `/pairs/${encodeURIComponent(eventId)}` : `/matches/${encodeURIComponent(eventId)}`
+  kind === 'pairs' || kind === 'individual' ? `/pairs/${encodeURIComponent(eventId)}` : `/matches/${encodeURIComponent(eventId)}`
