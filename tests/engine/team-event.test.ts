@@ -15,7 +15,7 @@ import {
 } from '../../shared/team-event.ts'
 import { matchVictoryPoints } from '../../shared/vp.ts'
 
-/** The pairings and standings of multi-team events (`e9-t14`, AC-9.5, ARCHITECTURE.md §5.25) */
+/** The pairings and standings of multi-team events (`e9-t14`, AC-9.5, ARCHITECTURE.md §5.26) */
 
 const key = (a: number, b: number) => (a < b ? `${a}-${b}` : `${b}-${a}`)
 

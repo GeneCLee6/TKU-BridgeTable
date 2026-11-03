@@ -10,6 +10,7 @@ import {
   pairsSettingsOf,
   parseTournamentSettings,
   teamEventSettingsOf,
+  playersFromEntries,
   teamsFromEntries,
   tournamentEventLink,
   tournamentPlayers,
@@ -62,6 +63,8 @@ export interface TournamentDeps {
   notify: (userId: string, kind: NotificationKind, params: Record<string, string>) => Promise<unknown>
   /** Makes the pairs event (its director the admin) with these pairs entered, and answers its id */
   createPairs: (directorId: string, settings: PairsSettings, pairs: [string, string][]) => Promise<string>
+  /** Makes the individual event (`e9-t15`, its director the admin) with these players entered alone, and answers its id */
+  createIndividual?: (directorId: string, settings: PairsSettings, players: string[]) => Promise<string>
   /** Makes the team match (hosted by the first team's first player, every other seat invited), and answers its id */
   createMatch: (teams: { name: string; players: string[] }[], settings: Partial<TeamMatchSettings>) => Promise<string>
   /** Makes the multi-team event (`e9-t14`, its director the admin) with these teams, and answers its id */
@@ -270,6 +273,7 @@ export class TournamentService {
     const names = body.partners ?? []
     if (!Array.isArray(names) || !names.every((n) => typeof n === 'string')) throw new ClubError('tournamentBadPartner')
     const kind = t.settings.kind
+    // An individual event (e9-t15): every member enters alone; a multi-team event's teams are 4–6
     const wanted = entrySizes(kind).map((n) => n - 1)
     if (!wanted.includes(names.length)) throw new ClubError('tournamentEntrySize')
     const partners: string[] = []
@@ -281,6 +285,9 @@ export class TournamentService {
     }
     for (const member of [userId, ...partners])
       if (entryOf(t, member)) throw new ClubError('tournamentAlreadyIn', { name: this.name(member) })
+    // Everyone partners everyone once in an individual event: not with someone either of them blocked
+    if (kind === 'individual' && tournamentPlayers(t).some((other) => this.deps.blocked(userId, other) || this.deps.blocked(other, userId)))
+      throw new ClubError('individualBlocked')
     let teamName: string | undefined
     if (kind === 'match' || kind === 'teams') {
       const asked = typeof body.teamName === 'string' ? body.teamName.trim() : ''
@@ -351,7 +358,7 @@ export class TournamentService {
    * (5–20 pairs), directed by the admin, who starts it on its page once everyone is online. A
    * team match: the first two complete teams, hosted by the first team's first player, every other
    * player invited to their seat (they accept in the invitation dialog as for any match, and the
-   * host starts it). A multi-team event (`e9-t14`, §5.25): every complete team of 4–6 (3–16
+   * host starts it). A multi-team event (`e9-t14`, §5.26): every complete team of 4–6 (3–16
    * teams), directed by the admin, who starts each round on its page. Entries that do not count (a
    * partner who did not confirm, one alone left over) stay listed and are not in the event
    */
@@ -361,7 +368,16 @@ export class TournamentService {
     const t = this.require(id)
     this.open(t)
     let eventId: string
-    if (t.settings.kind === 'pairs') {
+    if (t.settings.kind === 'individual') {
+      // As many as the movement seats (8, 12, 16 or 20), in the order they entered (e9-t15)
+      const { players } = playersFromEntries(t)
+      if (!players.length) {
+        const count = t.entries.length
+        throw new ClubError('tournamentTooFew', { count, min: TOURNAMENT_LIMITS.playersMin })
+      }
+      if (!this.deps.createIndividual) throw new ClubError('serverError', {}, 500)
+      eventId = await this.deps.createIndividual(adminId, pairsSettingsOf(t.settings), players)
+    } else if (t.settings.kind === 'pairs') {
       const { pairs } = pairsFromEntries(t)
       if (pairs.length < TOURNAMENT_LIMITS.pairsMin)
         throw new ClubError('tournamentTooFew', { count: pairs.length, min: TOURNAMENT_LIMITS.pairsMin })

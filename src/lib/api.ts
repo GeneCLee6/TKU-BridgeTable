@@ -299,8 +299,11 @@ export const api = {
   pairs: {
     list: () => request<{ pairs: PairsSummary[] }>('/api/pairs'),
     get: (id: string) => request<{ pairs: PairsView }>(`/api/pairs/${encodeURIComponent(id)}`),
-    create: (settings: Partial<PairsSettings>) => post<{ pairs: PairsView }>('/api/pairs', { settings }),
-    enter: (id: string, partner: string) => post<{ pairs: PairsView }>(`/api/pairs/${encodeURIComponent(id)}/enter`, { partner }),
+    /** `format: 'individual'`: an individual event (e9-t15) */
+    create: (settings: Partial<PairsSettings>, format?: 'individual') =>
+      post<{ pairs: PairsView }>('/api/pairs', { settings, ...(format && { format }) }),
+    /** No partner in an individual event: the member enters alone */
+    enter: (id: string, partner?: string) => post<{ pairs: PairsView }>(`/api/pairs/${encodeURIComponent(id)}/enter`, { partner }),
     withdraw: (id: string, userId?: string) =>
       post<{ pairs: PairsView }>(`/api/pairs/${encodeURIComponent(id)}/withdraw`, { userId }),
     cancel: (id: string) => post<{ pairs: PairsView }>(`/api/pairs/${encodeURIComponent(id)}/cancel`),
@@ -322,7 +325,7 @@ export const api = {
     cancel: (id: string) => post<{ tournament: TournamentView }>(`/api/tournaments/${encodeURIComponent(id)}/cancel`),
     start: (id: string) => post<{ tournament: TournamentView }>(`/api/tournaments/${encodeURIComponent(id)}/start`),
   },
-  /** Multi-team events (`e9-t14`, §5.25): the page, a captain's line-up, the director's next round and cancel */
+  /** Multi-team events (`e9-t14`, §5.26): the page, a captain's line-up, the director's next round and cancel */
   teamEvents: {
     get: (id: string) => request<{ event: TeamEventView }>(`/api/team-events/${encodeURIComponent(id)}`),
     lineup: (id: string, team: number, players: string[]) =>

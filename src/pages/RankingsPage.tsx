@@ -145,10 +145,10 @@ const RuleGrid = styled.table`
 
 const signed = (n: number) => (n > 0 ? `+${n}` : String(n))
 
-/** Where an entry's event is shown: the challenge, match or pairs event page */
+/** Where an entry's event is shown: the challenge, match or pairs event page (an individual event's too) */
 function eventLink(kind: PointKind, id: string): string | null {
   if (kind === 'match') return `/matches/${id}`
-  if (kind === 'pairs') return `/pairs/${id}`
+  if (kind === 'pairs' || kind === 'individual') return `/pairs/${id}`
   if (kind === 'teams') return `/team-events/${id}`
   return `/challenges/${id}`
 }

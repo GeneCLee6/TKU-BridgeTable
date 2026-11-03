@@ -431,6 +431,8 @@ export interface TablePairs {
   boards: number
   /** Nothing left to play here this round: the players go to the next round's table */
   over: boolean
+  /** An individual event's table (`e9-t15`): the partners change every round */
+  individual?: true
 }
 
 export interface TableMatch {
@@ -863,7 +865,7 @@ export interface Notification {
    * took their entry off; `tournamentCancelled`; `tournamentReminder` an hour before the start;
    * `tournamentResults` (+ `eventKind`, `eventId`) its event finished, leading to the results.
    * `teamEventRound` { teamEventId, title, number, matchId? } a multi-team event's round `number`
-   * was paired (`e9-t14`, §5.25): to every player of the round's teams, with their match (none: a bye)
+   * was paired (`e9-t14`, §5.26): to every player of the round's teams, with their match (none: a bye)
    */
   params: Record<string, string | number>
   read: boolean

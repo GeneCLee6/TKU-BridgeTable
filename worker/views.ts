@@ -47,7 +47,7 @@ import { scoreTeamMatch } from '../shared/team-scoring.ts'
 import { isMatchPlayer } from './team-match-flow.ts'
 import { boardScores, type MatchChatLine, type RoomResult, type TeamMatch } from './team-matches.ts'
 import { pairPlace } from '../shared/movement.ts'
-import { scorePairs, type PairsSummary, type PairsTableView, type PairsTraveller, type PairsView } from '../shared/pairs.ts'
+import { resultSides, scorePairs, type PairsSummary, type PairsTableView, type PairsTraveller, type PairsView } from '../shared/pairs.ts'
 import { pairOf, type PairsEvent } from './pairs-flow.ts'
 import { delayOf, penalizedMatch, penaltiesOf, refereeNotes, type RefereeEntry } from '../shared/referee.ts'
 import { scoreRuling, type ScoreRuling } from '../shared/ruling-scoring.ts'
@@ -887,6 +887,7 @@ export function pairsSummary(event: PairsEvent, viewerId: string, userById: (id:
     director: userById(event.directorId) ?? { id: event.directorId, username: '' },
     createdAt: event.createdAt,
     pairs: event.pairs.length,
+    ...(event.format && { format: event.format }),
     mine: pairOf(event, viewerId) >= 0,
     round: event.round,
     rounds: event.movement?.rounds ?? 0,
@@ -913,7 +914,13 @@ export function pairsView(
   const over = event.status === 'finished'
   const canReferee = event.directorId === viewerId || !!director.admin
   const scoring = movement ? scorePairs(movement, event.results, pairsScoring(director)) : null
-  const playedBy = (pair: number) => new Set(event.results.filter((r) => r.ns === pair || r.ew === pair).map((r) => r.boardNo))
+  // The entrants of a result: its two pairs, or in an individual event (e9-t15) the four players at the table
+  const playedIn = (r: (typeof event.results)[number]) => {
+    if (!movement) return [r.ns, r.ew]
+    const sides = resultSides(movement, r)
+    return [...sides.ns, ...sides.ew]
+  }
+  const playedBy = (pair: number) => new Set(event.results.filter((r) => playedIn(r).includes(pair)).map((r) => r.boardNo))
   const mine = myPair >= 0 ? playedBy(myPair) : null
   // The director (or an admin directing, e9-t17) who is not in a pair sees every board, to rule
   const seesBoard = (boardNo: number) => over || (mine ? mine.has(boardNo) : canReferee && event.status === 'playing')
@@ -935,6 +942,7 @@ export function pairsView(
           tableId: event.roundTables[event.round - 1]?.[t.table - 1] ?? '',
           boards: t.boards,
           played: event.results.filter((r) => r.round === event.round && r.table === t.table).length,
+          ...(t.seats && { seats: t.seats }),
         }))
       : []
   const travellers: PairsTraveller[] = []
@@ -958,7 +966,8 @@ export function pairsView(
             scoreNS: r.scoreNS,
             percentNS,
             ...(ruling && { ruling: scoreRuling(ruling) }),
-            ...(r.boardId && (over || r.ns === myPair || r.ew === myPair) && { boardId: r.boardId }),
+            ...(movement?.kind === 'individual' && { seats: playedIn(r) as [number, number, number, number] }),
+            ...(r.boardId && (over || playedIn(r).includes(myPair)) && { boardId: r.boardId }),
           })),
       })
     }
@@ -970,10 +979,12 @@ export function pairsView(
     director: user(event.directorId),
     createdAt: event.createdAt,
     settings: event.settings,
+    ...(event.format && { format: event.format }),
     pairs: event.pairs.map((p, pair) => ({
       pair,
       players: p.players.map(user),
-      ...(movement && pairPlace(pair, movement.tables)),
+      // A Mitchell's place (NS 1, EW 2); an individual event's players have none, they move every round
+      ...(movement?.kind === 'mitchell' && pairPlace(pair, movement.tables)),
     })),
     ...(myPair >= 0 && { myPair }),
     ...(movement && {
@@ -986,7 +997,10 @@ export function pairsView(
       },
     }),
     round: event.round,
-    ...(myPair >= 0 && event.status === 'playing' && { myTable: tables.find((t) => t.ns === myPair || t.ew === myPair) ?? null }),
+    ...(myPair >= 0 &&
+      event.status === 'playing' && {
+        myTable: tables.find((t) => (t.seats ?? [t.ns, t.ew]).includes(myPair)) ?? null,
+      }),
     tables,
     standings: scoring?.standings ?? [],
     travellers,
@@ -1030,7 +1044,7 @@ export interface TeamEventContext {
 }
 
 /**
- * A multi-team event as one member sees it (`e9-t14`, AC-9.5, §5.25; who may see it at all is
+ * A multi-team event as one member sees it (`e9-t14`, AC-9.5, §5.26; who may see it at all is
  * `TeamEventService.mayView`). Everything is public to them — the teams, the pairings, each
  * match's score so far (as its own page shows it to anyone, §5.8: only boards both rooms played),
  * the standings — except the line-up a team set for the next round: only its own players and

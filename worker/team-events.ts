@@ -18,7 +18,7 @@ import type { Store } from './store.ts'
 import { teamEventView } from './views.ts'
 
 /**
- * Multi-team events (多隊賽, `e9-t14`, AC-9.5, ARCHITECTURE.md §5.25): made from a tournament's
+ * Multi-team events (多隊賽, `e9-t14`, AC-9.5, ARCHITECTURE.md §5.26): made from a tournament's
  * entries (§5.24), directed by the admin who started it. Each round pairs the teams (round robin
  * or Swiss, `shared/team-event.ts`) and makes one ordinary team match per pairing (§5.8), every
  * seat taken by the teams' line-ups; the matches are played, scored, refereed (§5.23) and kept

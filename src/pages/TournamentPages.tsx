@@ -120,7 +120,11 @@ function toLocalInput(at: number): string {
 const fromLocalInput = (value: string) => (value ? new Date(value).getTime() : NaN)
 
 const usedLabel = (t: Strings, s: TournamentSummary) =>
-  s.kind === 'pairs' ? t.tournaments.pairsUsed(s.used, s.capacity) : t.tournaments.teamsUsed(s.used, s.capacity)
+  s.kind === 'pairs'
+    ? t.tournaments.pairsUsed(s.used, s.capacity)
+    : s.kind === 'individual'
+      ? t.tournaments.playersUsed(s.used, s.capacity)
+      : t.tournaments.teamsUsed(s.used, s.capacity)
 
 /** Splits the usernames typed into a box: commas, the full-width one, or spaces */
 const names = (value: string) => value.split(/[\s,，、]+/).filter(Boolean)
@@ -186,8 +190,16 @@ function TournamentForm({
             disabled={!!initial?.entries.length}
             onChange={(e) => {
               const kind = e.target.value as TournamentKind
-              // Each kind's own number of places
-              set({ kind, capacity: kind === 'teams' ? TOURNAMENT_LIMITS.teamsMax : kind === 'pairs' ? TOURNAMENT_LIMITS.pairsMax : TOURNAMENT_LIMITS.teams })
+              // Each kind's own number of places: players (8–20), pairs (5–20), teams (3–16), two teams
+              const capacity =
+                kind === 'individual'
+                  ? TOURNAMENT_LIMITS.playersMax
+                  : kind === 'pairs'
+                    ? TOURNAMENT_LIMITS.pairsMax
+                    : kind === 'teams'
+                      ? TOURNAMENT_LIMITS.teamsMax
+                      : TOURNAMENT_LIMITS.teams
+              set({ kind, capacity })
             }}
           >
             {TOURNAMENT_KINDS.map((k) => (
@@ -208,14 +220,14 @@ function TournamentForm({
           <Input type="datetime-local" value={toLocalInput(settings.deadline)} onChange={(e) => set({ deadline: fromLocalInput(e.target.value) })} />
         </label>
       </Row>
-      {settings.kind === 'pairs' ? (
+      {settings.kind === 'pairs' || settings.kind === 'individual' ? (
         <Row>
           <label>
-            {tt.capacity}
+            {settings.kind === 'individual' ? tt.capacityPlayers : tt.capacity}
             <Input
               type="number"
-              min={TOURNAMENT_LIMITS.pairsMin}
-              max={TOURNAMENT_LIMITS.pairsMax}
+              min={settings.kind === 'individual' ? TOURNAMENT_LIMITS.playersMin : TOURNAMENT_LIMITS.pairsMin}
+              max={settings.kind === 'individual' ? TOURNAMENT_LIMITS.playersMax : TOURNAMENT_LIMITS.pairsMax}
               value={settings.capacity}
               onChange={(e) => set({ capacity: Number(e.target.value) })}
             />
@@ -399,8 +411,10 @@ function EnterForm({ view, onChange }: { view: TournamentView; onChange: (view: 
   const [partners, setPartners] = useState('')
   const [teamName, setTeamName] = useState('')
   const [error, setError] = useState('')
-  const team = view.kind !== 'pairs'
-  // Teammates besides oneself: three for a team match, three to five for a multi-team event
+  const team = view.kind === 'match' || view.kind === 'teams'
+  // An individual event (e9-t15): everyone enters alone
+  const alone = view.kind === 'individual'
+  // Teammates besides oneself: three for a team match, three to five for a multi-team event (e9-t14)
   const sizes = entrySizes(view.kind).map((n) => n - 1)
   return (
     <form
@@ -408,7 +422,7 @@ function EnterForm({ view, onChange }: { view: TournamentView; onChange: (view: 
         event.preventDefault()
         setError('')
         api.tournaments
-          .enter(view.id, names(partners), team ? teamName : undefined)
+          .enter(view.id, alone ? [] : names(partners), team ? teamName : undefined)
           .then((r) => {
             setPartners('')
             onChange(r.tournament)
@@ -423,12 +437,14 @@ function EnterForm({ view, onChange }: { view: TournamentView; onChange: (view: 
             <Input value={teamName} maxLength={TOURNAMENT_LIMITS.teamNameMax} onChange={(e) => setTeamName(e.target.value)} />
           </label>
         )}
-        <label>
-          {view.kind === 'teams' ? tt.teammatesMany : team ? tt.teammates : tt.partner}
-          <Input value={partners} onChange={(e) => setPartners(e.target.value)} autoComplete="off" />
-        </label>
+        {!alone && (
+          <label>
+            {view.kind === 'teams' ? tt.teammatesMany : team ? tt.teammates : tt.partner}
+            <Input value={partners} onChange={(e) => setPartners(e.target.value)} autoComplete="off" />
+          </label>
+        )}
         <Button type="submit" $variant="primary" disabled={team && !sizes.includes(names(partners).length)}>
-          {team ? tt.enterTeam : names(partners).length ? tt.enterPair : tt.enterAlone}
+          {team ? tt.enterTeam : !alone && names(partners).length ? tt.enterPair : tt.enterAlone}
         </Button>
       </Row>
       {error && <ErrorText role="alert">{error}</ErrorText>}
@@ -541,7 +557,7 @@ export function TournamentPage() {
           <List>
             {view.entries.map((e, i) => (
               <li key={e.id} aria-current={e.id === view.myEntry ? 'true' : undefined}>
-                {view.kind !== 'pairs' && <strong>{e.teamName || tt.team(i + 1)}</strong>}
+                {(view.kind === 'match' || view.kind === 'teams') && <strong>{e.teamName || tt.team(i + 1)}</strong>}
                 {e.players.map((p) => (
                   <span key={p.id}>
                     <Link to={`/members/${p.id}`}>{p.username || t.deletedMember}</Link>
@@ -579,7 +595,15 @@ export function TournamentPage() {
             />
           ) : (
             <>
-              <Muted>{view.kind === 'pairs' ? tt.startHintPairs : view.kind === 'teams' ? tt.startHintTeams : tt.startHintMatch}</Muted>
+              <Muted>
+                {view.kind === 'pairs'
+                  ? tt.startHintPairs
+                  : view.kind === 'individual'
+                    ? tt.startHintIndividual
+                    : view.kind === 'teams'
+                      ? tt.startHintTeams
+                      : tt.startHintMatch}
+              </Muted>
               <Row>
                 <Button type="button" $variant="primary" disabled={busy} onClick={() => act(() => api.tournaments.start(view.id))}>
                   {tt.start}

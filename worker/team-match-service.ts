@@ -90,7 +90,7 @@ export interface TeamMatchDeps {
   /** What the match's page needs of the director's work (`e9-t17`): admin or not, and the log */
   directing?: (matchId: string, userId: string) => EventDirecting
   /**
-   * The teams of the multi-team event a match was made for (`e9-t14`, §5.25), null for any other
+   * The teams of the multi-team event a match was made for (`e9-t14`, §5.26), null for any other
    * match: its seats are the line-ups, so only moving within a team is left to the captains, its
    * settings stay and it is not called off; a substitute comes from the team
    */
@@ -259,7 +259,7 @@ export class TeamMatchService {
   }
 
   /**
-   * A multi-team event's round match (`e9-t14`, §5.25): every seat taken at once by the two
+   * A multi-team event's round match (`e9-t14`, §5.26): every seat taken at once by the two
    * line-ups (no invitations: the players entered and confirmed in the tournament), team A's first
    * player hosting from the open room's South, team B's first its captain (`captains`, so each
    * captain may still swap their own team's seats before the start). A seat nobody is left for (an

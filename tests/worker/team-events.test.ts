@@ -5,7 +5,7 @@ import { matchVictoryPoints } from '../../shared/vp.ts'
 import { teamHarness } from './team-match-harness.ts'
 
 /**
- * Multi-team events (`e9-t14`, AC-9.5, ARCHITECTURE.md §5.25) end to end: a tournament of teams of
+ * Multi-team events (`e9-t14`, AC-9.5, ARCHITECTURE.md §5.26) end to end: a tournament of teams of
  * 4–6, made into the event; captains' line-ups; the director's rounds, each an ordinary team match
  * per pairing with the line-ups seated; the byes; VP standings with the director's penalties; the
  * match's own rules kept for the event; the finish, its points and the results announcement. Runs

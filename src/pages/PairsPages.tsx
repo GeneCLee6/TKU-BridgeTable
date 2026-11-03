@@ -2,13 +2,13 @@ import { useCallback, useEffect, useId, useState } from 'react'
 import { Link, Navigate, useLocation, useNavigate, useParams } from 'react-router-dom'
 import styled from 'styled-components'
 import { rankLabel, rankOf, suitOf } from '../../shared/cards.ts'
-import { MOVEMENT_PAIRS } from '../../shared/movement.ts'
-import type { PairsSettings, PairsSummary, PairsView } from '../../shared/pairs.ts'
+import { INDIVIDUAL_SIZES, MOVEMENT_PAIRS } from '../../shared/movement.ts'
+import type { PairsFormat, PairsSettings, PairsSummary, PairsView } from '../../shared/pairs.ts'
 import { resultLabel } from '../../shared/scoring.ts'
 import { RefereeNotes, RefereeTools } from '../components/RefereePanel.tsx'
 import { RulingTag } from '../components/RulingTag.tsx'
 import { ContractLabel, SuitSymbol } from '../components/Suit.tsx'
-import { Button, Card, ErrorText, Input, Muted, PageMain, PageTitle } from '../components/ui.tsx'
+import { Button, Card, ErrorText, Input, Muted, PageMain, PageTitle, Select } from '../components/ui.tsx'
 import { ApiError, api } from '../lib/api.ts'
 import { cardName } from '../lib/cards.ts'
 import { formatDateTime, signed } from '../lib/format.ts'
@@ -23,6 +23,9 @@ import { seatLetter, type Strings } from '../strings.ts'
  * live standings by field, the travellers and the member's own boards. What the server sends
  * already follows §4: a board's results at other tables only once the member's pair played it.
  * At a table, `components/PairsBanner.tsx` names the round and takes the player on.
+ *
+ * An individual event (個人賽, `e9-t15`, §5.25) is the same event with `format: 'individual'`:
+ * every entry is one player, the partnerships at a table come from its `seats`, one standings table.
  */
 
 const Section = styled(Card)`
@@ -120,7 +123,8 @@ const Num = styled.td<{ $value?: number }>`
 
 const percent = (value: number) => `${value.toFixed(2)}%`
 
-const titleOf = (t: Strings, e: { title: string }) => e.title || t.pairs.untitled
+const titleOf = (t: Strings, e: { title: string; format?: PairsFormat }) =>
+  e.title || (e.format === 'individual' ? t.pairs.individualUntitled : t.pairs.untitled)
 
 function useErrorText() {
   const { message } = usePreferences()
@@ -135,6 +139,23 @@ function pairLabel(t: Strings, view: PairsView, pair: number): string {
   return p.dir ? `${t.pairs.pair(t.pairs.dirs[p.dir], p.no!)} ${names}` : names
 }
 
+/** A table or a result: its two pairs, or in an individual event the four players (North, South, East, West) */
+interface Sides {
+  ns: number
+  ew: number
+  seats?: [number, number, number, number]
+}
+
+/** The entries on one side: its pair, or the two players of an individual event's partnership */
+const sideOf = (e: Sides, side: 'ns' | 'ew'): number[] =>
+  e.seats ? (side === 'ns' ? [e.seats[0], e.seats[1]] : [e.seats[2], e.seats[3]]) : [side === 'ns' ? e.ns : e.ew]
+
+/** One side's name: the pair, or the two players who partner there */
+const sideLabel = (t: Strings, view: PairsView, e: Sides, side: 'ns' | 'ew') =>
+  sideOf(e, side)
+    .map((entry) => pairLabel(t, view, entry))
+    .join(' – ')
+
 // ── The list (`/pairs`) ─────────────────────────────────────────────────────────────────────
 
 function CreateForm({ onCreated }: { onCreated: (view: PairsView) => void }) {
@@ -142,6 +163,7 @@ function CreateForm({ onCreated }: { onCreated: (view: PairsView) => void }) {
   const errorText = useErrorText()
   const id = useId()
   const [settings, setSettings] = useState<PairsSettings>({ title: '', boardsPerRound: 3, boardMinutes: 8 })
+  const [format, setFormat] = useState<PairsFormat>('pairs')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   return (
@@ -153,13 +175,23 @@ function CreateForm({ onCreated }: { onCreated: (view: PairsView) => void }) {
           setBusy(true)
           setError('')
           api.pairs
-            .create(settings)
+            .create(settings, format === 'individual' ? 'individual' : undefined)
             .then((r) => onCreated(r.pairs))
             .catch((e) => setError(errorText(e)))
             .finally(() => setBusy(false))
         }}
       >
         <Row>
+          <label>
+            {t.pairs.format}
+            <Select value={format} onChange={(e) => setFormat(e.target.value as PairsFormat)}>
+              {(['pairs', 'individual'] as const).map((f) => (
+                <option key={f} value={f}>
+                  {t.pairs.formats[f]}
+                </option>
+              ))}
+            </Select>
+          </label>
           <label>
             {t.pairs.name}
             <Input value={settings.title} maxLength={40} onChange={(e) => setSettings({ ...settings, title: e.target.value })} />
@@ -228,7 +260,7 @@ export function PairsListPage() {
               <li key={e.id} aria-current={e.mine ? 'true' : undefined}>
                 <Link to={`/pairs/${e.id}`}>{titleOf(t, e)}</Link>
                 <Status>{t.pairs.status[e.status]}</Status>
-                <Muted as="span">{t.pairs.pairsCount(e.pairs)}</Muted>
+                <Muted as="span">{e.format === 'individual' ? t.pairs.playersCount(e.pairs) : t.pairs.pairsCount(e.pairs)}</Muted>
                 {e.status === 'playing' && <Muted as="span">{t.pairs.roundOf(e.round, e.rounds)}</Muted>}
                 <Muted as="span">{t.pairs.director(e.director.username)}</Muted>
                 <Muted as="span">{formatDateTime(e.createdAt, lang)}</Muted>
@@ -243,20 +275,21 @@ export function PairsListPage() {
 
 // ── One event (`/pairs/:eventId`) ───────────────────────────────────────────────────────────
 
-/** NS and EW ranked apart, the viewer's pair highlighted */
+/** NS and EW ranked apart (an individual event: every player in one field), the viewer's pair highlighted */
 function Standings({ view }: { view: PairsView }) {
   const t = useT()
   if (!view.standings.length) return null
+  const individual = view.format === 'individual'
   return (
     <>
-      {(['NS', 'EW'] as const).map((dir) => (
-        <Scroll key={dir}>
+      {(individual ? [undefined] : (['NS', 'EW'] as const)).map((dir) => (
+        <Scroll key={dir ?? 'all'}>
           <Table>
-            <caption>{t.pairs.dirs[dir]}</caption>
+            {dir && <caption>{t.pairs.dirs[dir]}</caption>}
             <thead>
               <tr>
                 <th scope="col">{t.rankCol}</th>
-                <th scope="col">{t.pairs.entries}</th>
+                <th scope="col">{individual ? t.pairs.playerCol : t.pairs.entries}</th>
                 <th scope="col">{t.pairs.boardsCol}</th>
                 <th scope="col">{t.pairs.mp}</th>
                 <th scope="col">{t.pairs.percent}</th>
@@ -309,12 +342,12 @@ function Travellers({ view }: { view: PairsView }) {
             </thead>
             <tbody>
               {tr.entries.map((e) => {
-                const mine = e.ns === view.myPair || e.ew === view.myPair
+                const mine = view.myPair !== undefined && [...sideOf(e, 'ns'), ...sideOf(e, 'ew')].includes(view.myPair)
                 return (
                   <tr key={`${e.round}-${e.table}`} aria-current={mine ? 'true' : undefined}>
                     <td>{e.round}</td>
-                    <td>{pairLabel(t, view, e.ns)}</td>
-                    <td>{pairLabel(t, view, e.ew)}</td>
+                    <td>{sideLabel(t, view, e, 'ns')}</td>
+                    <td>{sideLabel(t, view, e, 'ew')}</td>
                     <td>
                       {e.boardId ? (
                         <Link to={`/history/${e.boardId}`}>
@@ -393,9 +426,13 @@ function MyBoards({ view }: { view: PairsView }) {
   const pair = view.myPair
   if (pair === undefined) return null
   const rows = view.travellers.flatMap((tr) =>
-    tr.entries.filter((e) => e.ns === pair || e.ew === pair).map((e) => ({ boardNo: tr.boardNo, e, ns: e.ns === pair })),
+    tr.entries
+      .filter((e) => [...sideOf(e, 'ns'), ...sideOf(e, 'ew')].includes(pair))
+      .map((e) => ({ boardNo: tr.boardNo, e, ns: sideOf(e, 'ns').includes(pair) })),
   )
   if (!rows.length) return null
+  // An individual event: the partner changes every round
+  const individual = view.format === 'individual'
   return (
     <Scroll>
       <Table>
@@ -404,6 +441,7 @@ function MyBoards({ view }: { view: PairsView }) {
           <tr>
             <th scope="col">{t.pairs.roundCol}</th>
             <th scope="col">{t.board}</th>
+            {individual && <th scope="col">{t.pairs.partnerCol}</th>}
             <th scope="col">{t.pairs.against}</th>
             <th scope="col">{t.contract}</th>
             <th scope="col">{t.scoreNS}</th>
@@ -415,7 +453,15 @@ function MyBoards({ view }: { view: PairsView }) {
             <tr key={boardNo}>
               <td>{e.round}</td>
               <td>{e.boardId ? <Link to={`/history/${e.boardId}`}>{boardNo}</Link> : boardNo}</td>
-              <td>{pairLabel(t, view, ns ? e.ew : e.ns)}</td>
+              {individual && (
+                <td>
+                  {sideOf(e, ns ? 'ns' : 'ew')
+                    .filter((entry) => entry !== pair)
+                    .map((entry) => pairLabel(t, view, entry))
+                    .join(' – ')}
+                </td>
+              )}
+              <td>{sideLabel(t, view, e, ns ? 'ew' : 'ns')}</td>
               <td>
                 <ContractLabel contract={e.contract} />
               </td>
@@ -435,13 +481,15 @@ function EnterForm({ view, onChange }: { view: PairsView; onChange: (view: Pairs
   const errorText = useErrorText()
   const [partner, setPartner] = useState('')
   const [error, setError] = useState('')
+  // An individual event (e9-t15): the member enters alone
+  const alone = view.format === 'individual'
   return (
     <form
       onSubmit={(event) => {
         event.preventDefault()
         setError('')
         api.pairs
-          .enter(view.id, partner)
+          .enter(view.id, alone ? undefined : partner)
           .then((r) => {
             setPartner('')
             onChange(r.pairs)
@@ -450,12 +498,14 @@ function EnterForm({ view, onChange }: { view: PairsView; onChange: (view: Pairs
       }}
     >
       <Row>
-        <label>
-          {t.pairs.partner}
-          <Input value={partner} onChange={(e) => setPartner(e.target.value)} autoComplete="off" />
-        </label>
-        <Button type="submit" $variant="primary" disabled={!partner.trim()}>
-          {t.pairs.enter}
+        {!alone && (
+          <label>
+            {t.pairs.partner}
+            <Input value={partner} onChange={(e) => setPartner(e.target.value)} autoComplete="off" />
+          </label>
+        )}
+        <Button type="submit" $variant="primary" disabled={!alone && !partner.trim()}>
+          {alone ? t.pairs.enterAlone : t.pairs.enter}
         </Button>
       </Row>
       {error && <ErrorText role="alert">{error}</ErrorText>}
@@ -522,6 +572,7 @@ export function PairsEventPage() {
           </Muted>
         )}
       </Row>
+      {view.format === 'individual' && <Muted>{t.pairs.individualIntro}</Muted>}
       {view.delayedUntil !== undefined && <Muted role="status">{t.referee.delayed(formatDateTime(view.delayedUntil, lang))}</Muted>}
       {error && <ErrorText role="alert">{error}</ErrorText>}
 
@@ -544,7 +595,7 @@ export function PairsEventPage() {
               <li key={tb.table} aria-current={tb.table === view.myTable?.table ? 'true' : undefined}>
                 <span>{t.pairs.tableLine(tb.table, tb.played, tb.boards.length)}</span>
                 <Muted as="span">
-                  {pairLabel(t, view, tb.ns)} · {pairLabel(t, view, tb.ew)}
+                  {sideLabel(t, view, tb, 'ns')} · {sideLabel(t, view, tb, 'ew')}
                 </Muted>
               </li>
             ))}
@@ -554,7 +605,7 @@ export function PairsEventPage() {
 
       {view.status === 'open' && (
         <Section aria-labelledby="pairs-entries">
-          <h2 id="pairs-entries">{t.pairs.entries}</h2>
+          <h2 id="pairs-entries">{view.format === 'individual' ? t.pairs.individualEntries : t.pairs.entries}</h2>
           {!view.pairs.length ? (
             <Muted>{t.pairs.noEntries}</Muted>
           ) : (
@@ -579,7 +630,11 @@ export function PairsEventPage() {
           {!mine && <EnterForm view={view} onChange={setView} />}
           {view.canDirect && (
             <>
-              <Muted>{t.pairs.startHint(MOVEMENT_PAIRS.min, MOVEMENT_PAIRS.max)}</Muted>
+              <Muted>
+                {view.format === 'individual'
+                  ? t.pairs.individualStartHint(INDIVIDUAL_SIZES.join('/'))
+                  : t.pairs.startHint(MOVEMENT_PAIRS.min, MOVEMENT_PAIRS.max)}
+              </Muted>
               <Row>
                 <Button type="button" $variant="primary" onClick={() => act(() => api.pairs.start(view.id))}>
                   {t.pairs.start}
@@ -601,7 +656,9 @@ export function PairsEventPage() {
         <>
           <Section aria-labelledby="pairs-standings">
             <h2 id="pairs-standings">{t.pairs.standings}</h2>
-            {view.status === 'playing' && <Muted>{t.pairs.standingsLive}</Muted>}
+            {view.status === 'playing' && (
+              <Muted>{view.format === 'individual' ? t.pairs.individualStandingsLive : t.pairs.standingsLive}</Muted>
+            )}
             <Standings view={view} />
           </Section>
           <Section aria-labelledby="pairs-mine">

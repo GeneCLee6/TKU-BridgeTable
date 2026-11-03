@@ -29,12 +29,12 @@
 | [E6](e6-robot-play-levels-evaluation.md) | 智慧機器人（二）：打牌大腦、TKB 與評測 | 25／42 | 6／14 | 14 | in-progress |
 | [E7](e7-challenges.md) | 挑戰（單挑與多人） | 29／29 | 6／9 | 25 | in-progress |
 | [E8](e8-two-table-team-match.md) | 雙桌隊制賽 | 22／22 | 9／9 | 17 | done |
-| [E9](e9-tournaments-rankings.md) | 比賽、積分與錦標賽 | 16／17 | 4／8 | 0 | in-progress |
+| [E9](e9-tournaments-rankings.md) | 比賽、積分與錦標賽 | 17／17 | 5／8 | 0 | in-progress |
 | [E10](e10-practice-teaching.md) | 練習與教學 | 6／14 | 3／9 | 6 | in-progress |
 | [E11](e11-platform-ops-scale.md) | 平台、維運、安全與規模 | 31／32 | 6／10 | 8 | in-progress |
 | [E12](e12-commercialization.md) | 多社團與商業化 | 0／19 | 0／9 | 0 | planned |
 | [E13](e13-community-forum.md) | 社群與論壇 | 13／13 | 5／7 | 0 | in-progress |
-| | **合計** | **349／406** | **90／137** | **177** | |
+| | **合計** | **350／406** | **91／137** | **177** | |
 
 里程碑分布：M0 95 個（全部完成）、M1 177 個、M2 97 個、M3 25 個。作廢的 task（刪除線）不計入。
 

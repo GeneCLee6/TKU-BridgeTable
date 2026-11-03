@@ -8,7 +8,7 @@ import { formatDateTime } from '../lib/format.ts'
 import { usePreferences, useT } from '../state/PreferencesContext.tsx'
 
 /**
- * 多隊賽 (`e9-t14`, AC-9.5, ARCHITECTURE.md §5.25): one multi-team event made from a tournament —
+ * 多隊賽 (`e9-t14`, AC-9.5, ARCHITECTURE.md §5.26): one multi-team event made from a tournament —
  * the standings by VP (with the tie-breaks spelled out), every round's pairings and each match's
  * IMPs and VP (each match played on its own page, `/matches/:id`, where its referee tools are),
  * the viewer's match or bye this round, the teams and the line-up a captain sets for the next

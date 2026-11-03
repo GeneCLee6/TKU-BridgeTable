@@ -1,6 +1,6 @@
 import type { Contract } from './auction.ts'
 import type { Card } from './cards.ts'
-import { plannedPlays, type Movement, type PairDirection } from './movement.ts'
+import { movementTable, plannedPlays, sidesAt, type Movement, type PairDirection } from './movement.ts'
 import type { PublicUser } from './protocol.ts'
 import type { RefereeNote } from './referee.ts'
 import { ARTIFICIAL, artificialForNS, ruledScore, type ScoreRuling } from './ruling-scoring.ts'
@@ -15,6 +15,15 @@ export const PAIRS_STATUSES = ['open', 'playing', 'finished', 'cancelled'] as co
 export type PairsStatus = (typeof PAIRS_STATUSES)[number]
 
 export const PAIRS_LIMITS = { titleMax: 40, boardMinutesMax: 30 } as const
+
+/**
+ * A pairs event's format: fixed pairs on a Mitchell (`pairs`), or an **individual** event
+ * (個人賽, `e9-t15`, AC-9.6): members enter alone and change partner every round (`individual`
+ * in `shared/movement.ts`), each ranked on their own. Same engine, tables and pages
+ */
+export const PAIRS_FORMATS = ['pairs', 'individual'] as const
+export type PairsFormat = (typeof PAIRS_FORMATS)[number]
+export const isPairsFormat = (value: unknown): value is PairsFormat => PAIRS_FORMATS.includes(value as PairsFormat)
 
 export interface PairsSettings {
   /** Shown on the list and the page; empty shows 「雙人賽」 */
@@ -87,8 +96,10 @@ export interface ScoredResult {
 }
 
 export interface PairStanding {
+  /** The pair's index (an individual event: the player's) */
   pair: number
-  dir: PairDirection
+  /** A Mitchell's field; absent in an individual event (one field) */
+  dir?: PairDirection
   /** Equal percentages share a place: 1, 2, 2, 4 */
   rank: number
   /** The adjusted matchpoints added up, and their share of the tops of the boards played */
@@ -150,19 +161,26 @@ export function scorePairs(
       scored.push({ result: r, mpNS, mpEW: top - mpNS, top, percentNS, percentEW: 100 - percentNS, ...(ruling && { ruling }) })
     }
   }
-  const totals = new Map<number, { mp: number; boards: number; dir: PairDirection }>()
+  const totals = new Map<number, { mp: number; boards: number; dir?: PairDirection }>()
+  const individual = movement.kind === 'individual'
   for (let pair = 0; pair < movement.pairs; pair++)
-    totals.set(pair, { mp: 0, boards: 0, dir: pair < movement.tables ? 'NS' : 'EW' })
+    totals.set(pair, { mp: 0, boards: 0, ...(!individual && { dir: pair < movement.tables ? 'NS' : 'EW' }) })
+  // An individual event (`e9-t15`): each player gets their partnership's matchpoints on the board
   for (const s of scored) {
-    const ns = totals.get(s.result.ns)
-    const ew = totals.get(s.result.ew)
-    if (ns) {
-      ns.mp += s.mpNS
-      ns.boards++
+    const sides = resultSides(movement, s.result)
+    for (const entrant of sides.ns) {
+      const t = totals.get(entrant)
+      if (t) {
+        t.mp += s.mpNS
+        t.boards++
+      }
     }
-    if (ew) {
-      ew.mp += s.mpEW
-      ew.boards++
+    for (const entrant of sides.ew) {
+      const t = totals.get(entrant)
+      if (t) {
+        t.mp += s.mpEW
+        t.boards++
+      }
     }
   }
   const standings: PairStanding[] = [...totals].map(([pair, t]) => {
@@ -171,7 +189,7 @@ export function scorePairs(
     const mp = t.mp - penalty
     return {
       pair,
-      dir: t.dir,
+      ...(t.dir && { dir: t.dir }),
       rank: 0,
       mp,
       percent: t.boards ? (top ? (mp / (t.boards * top)) * 100 : 50) : 0,
@@ -185,6 +203,15 @@ export function scorePairs(
   return { scored, standings }
 }
 
+/**
+ * The entrants on each side of a result: its pairs, or in an individual event (`e9-t15`) the two
+ * players of each partnership at that table that round (the movement's seats)
+ */
+export function resultSides(movement: Movement, result: Pick<PairsResult, 'round' | 'table' | 'ns' | 'ew'>): { ns: number[]; ew: number[] } {
+  const table = movement.kind === 'individual' ? movementTable(movement, result.round, result.table) : undefined
+  return table ? sidesAt(table) : { ns: [result.ns], ew: [result.ew] }
+}
+
 // ── What the pages see (`GET /api/pairs`, `GET /api/pairs/:id`, built in worker/views.ts) ──────
 
 export interface PairsSummary {
@@ -193,7 +220,10 @@ export interface PairsSummary {
   status: PairsStatus
   director: PublicUser
   createdAt: number
+  /** Entries: pairs, or players in an individual event */
   pairs: number
+  /** An individual event (`e9-t15`); absent for pairs */
+  format?: 'individual'
   /** The viewer is in a pair */
   mine: boolean
   round: number
@@ -203,6 +233,7 @@ export interface PairsSummary {
 export interface PairsPairView {
   /** The pair's index in the list */
   pair: number
+  /** Its two players; one in an individual event (each entry is a player) */
   players: PublicUser[]
   /** From the start: its place in the movement */
   dir?: PairDirection
@@ -217,6 +248,8 @@ export interface PairsTableView {
   boards: number[]
   /** Boards finished at it this round */
   played: number
+  /** An individual event: the players (entries) North, South, East, West */
+  seats?: [number, number, number, number]
 }
 
 export interface PairsTravellerEntry {
@@ -231,6 +264,8 @@ export interface PairsTravellerEntry {
   percentNS: number
   /** The director's ruling it counted with (`e2-t35`, `e9-t17`) */
   ruling?: ScoreRuling
+  /** An individual event: the players (entries) North, South, East, West */
+  seats?: [number, number, number, number]
   /** Only when the viewer may open the record: their own, or once the event is over */
   boardId?: string
 }
@@ -247,11 +282,13 @@ export interface PairsView {
   director: PublicUser
   createdAt: number
   settings: PairsSettings
+  /** An individual event (`e9-t15`): every entry is one player, partners change every round */
+  format?: 'individual'
   pairs: PairsPairView[]
-  /** The viewer's pair, if they are in one */
+  /** The viewer's pair (an individual event: their own entry), if they are in one */
   myPair?: number
   /** From the start */
-  movement?: { kind: 'mitchell'; tables: number; rounds: number; boardsPerRound: number; boards: number }
+  movement?: { kind: Movement['kind']; tables: number; rounds: number; boardsPerRound: number; boards: number }
   round: number
   /** The viewer's table this round (null: they sit out); absent when they play none */
   myTable?: PairsTableView | null

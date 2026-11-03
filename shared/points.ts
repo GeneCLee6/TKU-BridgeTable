@@ -7,8 +7,8 @@ import { TAIWAN_OFFSET_MS } from './weekly-challenge.ts'
  * Each entry in the ledger names its event, so every point can be traced. Pure functions only.
  */
 
-/** The kinds of event that give points; `pairs` is the pairs event (J3), `teams` the multi-team event (`e9-t14`) */
-export const POINT_KINDS = ['daily', 'weekly', 'challenge', 'match', 'pairs', 'teams'] as const
+/** The kinds of event that give points; `pairs` is the pairs event (J3), `individual` the individual event (`e9-t15`), `teams` the multi-team event (`e9-t14`) */
+export const POINT_KINDS = ['daily', 'weekly', 'challenge', 'match', 'pairs', 'individual', 'teams'] as const
 export type PointKind = (typeof POINT_KINDS)[number]
 export const isPointKind = (value: unknown): value is PointKind => POINT_KINDS.includes(value as PointKind)
 
@@ -51,6 +51,8 @@ export const DEFAULT_POINTS_RULES: PointsRules = {
     challenge: { enabled: true, participation: 0, perBeaten: 1, minSides: 3 },
     match: { enabled: true, participation: 2, perBeaten: 4, minSides: 2 },
     pairs: { enabled: true, participation: 2, perBeaten: 1, minSides: 3 },
+    // Every player one side: twice the sides of a pairs event of the same size, so half a point a side beaten
+    individual: { enabled: true, participation: 2, perBeaten: 0.5, minSides: 4 },
     teams: { enabled: true, participation: 2, perBeaten: 2, minSides: 3 },
   },
   seasons: [],

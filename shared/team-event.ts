@@ -3,7 +3,7 @@ import type { MatchStatus } from './team-match.ts'
 import { matchVictoryPoints, VP_TOTAL } from './vp.ts'
 
 /**
- * Multi-team events (多隊賽, `e9-t14`, AC-9.5, ARCHITECTURE.md §5.25): three or more teams of 4–6
+ * Multi-team events (多隊賽, `e9-t14`, AC-9.5, ARCHITECTURE.md §5.26): three or more teams of 4–6
  * play rounds; every round pairs the teams two by two (a round robin when the field is small enough
  * for everyone to meet everyone in the rounds allowed, otherwise Swiss), and every pairing is one
  * ordinary two-table team match (§5.8), played on its own page. Each match's IMPs become Victory
@@ -185,7 +185,7 @@ export function impQuotient(s: Pick<TeamStanding, 'impsFor' | 'impsAgainst'>): n
 }
 
 /**
- * The standings: Victory Points, then (`docs` ARCHITECTURE.md §5.25) for two teams level on VP the
+ * The standings (ARCHITECTURE.md §5.26): Victory Points, then for two teams level on VP the
  * VP of their own matches against each other, then the IMP quotient (IMPs won ÷ IMPs lost); still
  * level, they share the place. Every match given (finished, or abandoned with what was scored)
  * counts; each bye is worth `BYE_VP`. Teams level everywhere keep their entry order on the list
