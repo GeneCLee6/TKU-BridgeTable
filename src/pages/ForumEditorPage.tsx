@@ -23,9 +23,11 @@ import { AuctionEditor } from '../components/AuctionEditor.tsx'
 import { Chip, ChipLabel } from '../components/Chips.tsx'
 import { DealEditor } from '../components/DealEditor.tsx'
 import { ForumBlocks, ForumDeal } from '../components/ForumBlocks.tsx'
+import { ReleaseFields } from '../components/ForumRelease.tsx'
 import { PostImageButton } from '../components/PostImageButton.tsx'
 import { Button, Card, ErrorText, FieldHint, FieldLabel, Input, Muted, PageMain, PageTitle, Select, Textarea } from '../components/ui.tsx'
 import { forumApi } from '../lib/forum.ts'
+import { fromLocalInput, initialRelease, notOut } from '../lib/forumRelease.ts'
 import { useAuth } from '../state/AuthContext.tsx'
 import { usePreferences } from '../state/PreferencesContext.tsx'
 import type { Strings } from '../strings.ts'
@@ -45,6 +47,9 @@ import type { Strings } from '../strings.ts'
  *   the board is added to the draft as a `record` block, on 牌局討論 unless a board is named; the
  *   server checks the whole club may see it
  * - `/forum/p/:postId/edit`: the author edits a post (the board stays)
+ *
+ * A post not out yet (e13-t12) may be saved as a draft on the server (「存成草稿」, only its author
+ * sees it) and, by an officer, scheduled (`ReleaseFields`); a post that is out stays out.
  */
 
 const DRAFT_KEY = 'tku-bridgetable:forumDraft'
@@ -315,6 +320,10 @@ export function PostEditor({
   const [tried, setTried] = useState(false)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  // Drafts and scheduled posts (e13-t12): only while the post is not out; scheduling only for officers
+  const unpublished = !post || notOut(post)
+  const [release, setRelease] = useState(() => initialRelease(post))
+  const scheduling = unpublished && officer && release.schedule
   const boardSelect = useId()
   const titleId = useId()
   const hintId = useId()
@@ -351,14 +360,22 @@ export function PostEditor({
   }
   const dealer = dealerFor(items.map((i) => i.piece))
 
-  const submit = async (ev: FormEvent) => {
+  const submit = async (ev: FormEvent, asDraft = false) => {
     ev.preventDefault()
     setTried(true)
     if (problems.length || busy || !boardId) return
     setBusy(true)
     setError('')
     try {
-      const input = { title: title.trim() || undefined, blocks, tags }
+      // A draft; scheduled; or out now (a draft or a scheduled post put out; a new post needs no word)
+      const when = asDraft
+        ? { draft: true }
+        : scheduling
+          ? { publishAt: fromLocalInput(release.at) ?? 0 }
+          : post && unpublished
+            ? { draft: false }
+            : {}
+      const input = { title: title.trim() || undefined, blocks, tags, ...when }
       const done = post ? await forumApi.updatePost(post.id, input) : await forumApi.createPost(boardId, input)
       if (!post) {
         sent.current = true
@@ -512,14 +529,20 @@ export function PostEditor({
         </Problems>
       )}
       {error && <ErrorText role="alert">{error}</ErrorText>}
+      {unpublished && officer && <ReleaseFields value={release} onChange={setRelease} />}
       <Footer>
         <Muted>{post ? '' : e.draftKept}</Muted>
         <div>
           <Button type="button" $variant="ghost" onClick={discard}>
             {e.cancel}
           </Button>
+          {unpublished && (
+            <Button type="button" $variant="secondary" disabled={busy || !boardId} onClick={(ev) => void submit(ev, true)}>
+              {t.forumNews.saveDraft}
+            </Button>
+          )}
           <Button type="submit" $busy={busy} disabled={!boardId || (tried && problems.length > 0)}>
-            {post ? e.save : e.publish}
+            {scheduling ? t.forumNews.scheduleSubmit : !unpublished ? e.save : post ? t.forumNews.publishNow : e.publish}
           </Button>
         </div>
       </Footer>

@@ -102,6 +102,21 @@ describe('forum pictures (e13-t13)', () => {
     expect(await signed(ben, [shown])).toEqual([shown])
   })
 
+  it('signs a draft’s pictures for its author only, and a scheduled post’s for the officers too (e13-t12)', async () => {
+    const drafted = await upload(amy)
+    time += 60_000
+    forum.createPost(amy, 'deals', { blocks: [image(drafted)], draft: true })
+    const scheduled = await upload(officer)
+    time += 60_000
+    forum.createPost(officer, 'news', { blocks: [image(scheduled)], publishAt: time + 3_600_000 })
+    const other = me('dan', ['forumModerate'])
+    expect(await signed(amy, [drafted, scheduled])).toEqual([drafted])
+    expect(await signed(ben, [drafted, scheduled])).toEqual([])
+    expect(await signed(other, [drafted, scheduled])).toEqual([scheduled])
+    // Still in use, so deleting another post never takes them
+    expect(forum.imagesInUse([drafted, scheduled], 'all').size).toBe(2)
+  })
+
   it('does not count a key quoted in text as a picture in use', async () => {
     const key = await upload(amy)
     post(amy, [{ kind: 'paragraph', text: `"${key}"` }])

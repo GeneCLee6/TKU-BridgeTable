@@ -33,8 +33,8 @@
 | [E10](e10-practice-teaching.md) | 練習與教學 | 6／14 | 3／9 | 6 | in-progress |
 | [E11](e11-platform-ops-scale.md) | 平台、維運、安全與規模 | 31／32 | 6／10 | 8 | in-progress |
 | [E12](e12-commercialization.md) | 多社團與商業化 | 0／19 | 0／9 | 0 | planned |
-| [E13](e13-community-forum.md) | 社群與論壇 | 12／13 | 4／7 | 0 | in-progress |
-| | **合計** | **344／406** | **86／137** | **177** | |
+| [E13](e13-community-forum.md) | 社群與論壇 | 13／13 | 5／7 | 0 | in-progress |
+| | **合計** | **346／406** | **87／137** | **177** | |
 
 里程碑分布：M0 95 個（全部完成）、M1 177 個、M2 97 個、M3 25 個。作廢的 task（刪除線）不計入。
 

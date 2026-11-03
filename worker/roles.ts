@@ -198,6 +198,8 @@ export function forumRouteNeed(method: string, path: string): Need | null {
   if (/^\/boards\/[\w-]+\/posts$/.test(path)) return method === 'GET' || method === 'POST' ? 'member' : null
   // The tags in use (the table's AC-13.7) are read like the lists
   if (path === '/latest' || path === '/feed' || path === '/search' || path === '/tags') return method === 'GET' ? 'member' : null
+  // Their own drafts and scheduled posts (the table's e13-t12); who sees which is ForumService's
+  if (path === '/drafts') return method === 'GET' ? 'member' : null
   if (/^\/posts\/[\w-]+$/.test(path)) return method === 'GET' || method === 'PATCH' || method === 'DELETE' ? 'member' : null
   // Hiding a post (the table's e13-t10) is the officers' too
   if (/^\/posts\/[\w-]+\/(pin|lock|hide)$/.test(path)) return method === 'POST' ? FORUM_MODERATE : null

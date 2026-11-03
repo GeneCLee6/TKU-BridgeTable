@@ -36,6 +36,7 @@ import { type ArticleReader, ArticleService } from './articles.ts'
 import { type EbookReader, EbookService } from './ebooks.ts'
 import { ForumService, postExcerpt, postImageKeys, tagFilter } from './forum.ts'
 import { ForumNotices } from './forum-notices.ts'
+import { ForumSchedule } from './forum-schedule.ts'
 import { addedRecordIds } from './forum-share.ts'
 import { BOOK_EVENTS_MAX_CHARS, BookTelemetry } from './book-telemetry.ts'
 import type { AuditAction } from './audit.ts'
@@ -226,6 +227,8 @@ export class Club extends DurableObject<Env> implements Connections {
   private readonly forum: ForumService
   /** The forum's notifications (BridgeHall e11-t08); keeps nothing in memory */
   private readonly forumNotices: ForumNotices
+  /** The forum's scheduled posts (e13-t12): their times are in the forum's rows, their jobs in the club's scheduler */
+  private readonly forumSchedule: ForumSchedule
   /** BridgeHall's error reports and anonymous usage counts (e10-t06, e10-t07) in the object's SQLite database */
   private readonly telemetry: BookTelemetry
   /** The handbook's notifications and who follows which convention (BridgeHall e8-t10); keeps nothing in memory */
@@ -332,10 +335,21 @@ export class Club extends DurableObject<Env> implements Connections {
       notify: (id, kind, params) => this.service.notifications.notify(id, kind, params),
       members: () => this.service.memberDirectory(),
     })
+    this.forumSchedule = new ForumSchedule({
+      forum: this.forum,
+      at: (key, at, run) => this.service.scheduleAt(key, 'forum', at, run),
+      member: (id) => this.service.memberMe(id),
+      // Out at its time: told as a new post is
+      published: (author, post, board) => this.tell(() => this.forumNotices.posted(author, post, board), 'forumNotice'),
+    })
     // Browsers send "ping" every few seconds to keep phone connections alive and to notice a dead
     // one quickly; the runtime answers without waking the object
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair('ping', 'pong'))
-    ctx.blockConcurrencyWhile(() => this.service.load())
+    ctx.blockConcurrencyWhile(async () => {
+      await this.service.load()
+      // Jobs are not stored: the scheduled posts wait for their times again (e13-t12)
+      this.forumSchedule.load()
+    })
   }
 
   async alarm() {
@@ -1166,7 +1180,10 @@ export class Club extends DurableObject<Env> implements Connections {
             // Members come back as of the backup and everyone signs in again (DEPLOY.md §4.4)
             if (prefixes.some((p) => ACCOUNT_PREFIXES.includes(p))) await this.service.reloadAccounts()
             // The forum keeps nothing in memory; this fills in what an older backup's rows lack (search words, built-in boards)
-            if (tables.length) this.forum.createTables()
+            if (tables.length) {
+              this.forum.createTables()
+              this.forumSchedule.load()
+            }
           },
         }),
       )
@@ -1324,6 +1341,8 @@ export class Club extends DurableObject<Env> implements Connections {
       return json({ board: created })
     }
     if (path === '/latest') return json(forum.latest(user))
+    // My drafts and scheduled posts, and an officer's view of everyone's scheduled ones (e13-t12)
+    if (path === '/drafts') return json(forum.unpublished(user))
     // The tags in use (the table's AC-13.7): the editor's suggestions and the tag filters
     if (path === '/tags') return json(forum.tags(user))
     // `&tag=` narrows a board, the feed and a search to the posts with that tag (AC-13.7)
@@ -1372,7 +1391,9 @@ export class Club extends DurableObject<Env> implements Connections {
       // Only pictures the author uploaded (e13-t13)
       await checkImagesOwned(this.files, user.id, addedImageKeys(input))
       const post = forum.createPost(user, posts[1], input)
-      await tell(() => notices.posted(user, post, forum.board(post.boardId)))
+      // A draft or a scheduled post is told about once it is out (e13-t12)
+      if (post.draft || post.publishAt !== undefined) this.forumSchedule.saved(post)
+      else await tell(() => notices.posted(user, post, forum.board(post.boardId)))
       return json({ post })
     }
     const board = path.match(/^\/boards\/([\w-]+)$/)
@@ -1437,7 +1458,12 @@ export class Club extends DurableObject<Env> implements Connections {
           await checkImagesOwned(this.files, user.id, addedImageKeys(input, before.blocks))
         }
         const updated = forum.updatePost(user, post[1], input)
-        await tell(() => notices.edited(user, updated, before.mentions ?? []))
+        const wasOut = !before.draft && before.publishAt === undefined
+        const out = !updated.draft && updated.publishAt === undefined
+        // A draft or a scheduled post put out now is told about as a new post (e13-t12); one still waiting is not told about yet
+        if (wasOut) await tell(() => notices.edited(user, updated, before.mentions ?? []))
+        else if (out) await tell(() => notices.posted(user, updated, forum.board(updated.boardId)))
+        else this.forumSchedule.saved(updated)
         // A picture edited out of the post goes from R2 unless another post uses it (e13-t13)
         await this.releasePostImages(droppedImageKeys(before.blocks, updated.blocks))
         return json({ post: updated })

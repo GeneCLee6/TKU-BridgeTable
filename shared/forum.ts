@@ -159,6 +159,17 @@ export interface Post {
    * FORUM_LIMITS.tagsMax; none when it has none
    */
   tags?: string[]
+  /**
+   * Not out yet (the table's e13-t12): a draft only its author sees. Never in a list, a search or
+   * the tag counts; `GET /api/forum/drafts` lists them. `createdAt` is when it was last saved
+   */
+  draft?: boolean
+  /**
+   * Not out yet (the table's e13-t12): scheduled by an officer to come out then (ms), seen only by
+   * its author and the officers until it does; then it is posted as of that moment and every member
+   * hears as of a new post
+   */
+  publishAt?: number
 }
 
 /** Comments nest one level: a reply to a reply hangs under the same top comment */
@@ -229,6 +240,9 @@ export const FORUM_LIMITS = {
   tagsMax: 5,
   tagMax: 20,
   tagsShown: 30,
+  /** Drafts and scheduled posts one member may have at once, and how far ahead a post may be scheduled (the table's e13-t12) */
+  draftsMax: 20,
+  scheduleDaysMax: 90,
 } as const
 
 // ── Tags (the table's AC-13.7) ───────────────────────────────────────────────────────────────
@@ -275,6 +289,18 @@ export interface PostInput {
    * they were (so a site without tags keeps them); `[]` takes them all off
    */
   tags?: string[]
+  /**
+   * The table's e13-t12: `true` saves it as a draft (only its author sees it); `false` puts a draft
+   * or a scheduled post out now. Left out: a new post is out now, an edit keeps it as it was (so a
+   * site without drafts never publishes one by editing it). A post that is out stays out (400 `badContent`)
+   */
+  draft?: boolean
+  /**
+   * The table's e13-t12, officers only (403 `forumScheduleOfficersOnly`): when it comes out (ms),
+   * after now and at most FORUM_LIMITS.scheduleDaysMax days ahead (400 `forumScheduleTime`); `null`
+   * puts it out now. Not with `draft: true`
+   */
+  publishAt?: number | null
 }
 
 /** `POST /api/forum/posts/:id/comments` (`parentId` set: a reply) and `PATCH /api/forum/comments/:id` (blocks only) */
@@ -337,6 +363,15 @@ export interface ForumTags {
 export interface PostThread {
   post: Post
   comments: Comment[]
+}
+
+/**
+ * `GET /api/forum/drafts` (the table's e13-t12): the member's drafts and scheduled posts, and an
+ * officer's view of everyone's scheduled posts too; scheduled first (soonest first), then drafts
+ * (last saved first). At most FORUM_LIMITS.draftsMax a member
+ */
+export interface ForumUnpublished {
+  posts: Post[]
 }
 
 /** `GET /api/forum/latest`: the home page's 社團新聞 (the news board, pinned first) and 最新討論 (the other boards) */

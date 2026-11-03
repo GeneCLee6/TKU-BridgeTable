@@ -166,7 +166,6 @@ const googleLogo = { blue: '#4285f4', green: '#34a853', yellow: '#fbbc05', red: 
 const lineBrand = {
   bg: '#06c755',
   text: '#ffffff',
-  separator: 'rgba(0, 0, 0, 0.08)',
   hover: 'rgba(0, 0, 0, 0.1)',
   pressed: 'rgba(0, 0, 0, 0.3)',
 } as const

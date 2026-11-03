@@ -5,7 +5,8 @@ import type { OAuthName } from '../../shared/protocol.ts'
 /**
  * The sign-in buttons of other sites (e1-t31 Google, e1-t32 LINE; DESIGN.md §7.11), drawn as their
  * brand guidelines ask: Google's white button with a gray edge and the four-colour "G" (dark in the
- * dark theme), LINE's green one with the white LINE logo and a thin line between logo and text.
+ * dark theme), LINE's green one with the white LINE logo. Both put the logo 10 left of the words and centre
+ * the pair, with the same height and radius, so the two stacked buttons look like a matched pair.
  * The logos are inline SVG (the CSP lets in nothing from other sites); the colours are
  * `theme.brands`. Used on the sign-in page, the application form and "My account"
  */
@@ -137,30 +138,17 @@ const GoogleShell = styled.button<{ $inline: boolean }>`
   }
 `
 
-/** LINE's button: LINE green, the logo at the left behind a thin line, the words centred in the rest */
+/** LINE's button: LINE green, laid out like Google's (logo 10 left of the words, the pair centred) so the two match */
 const LineShell = styled.button<{ $inline: boolean }>`
   ${shell}
-  padding: 0;
+  justify-content: center;
+  gap: 10px;
+  padding: 0 12px;
   border: 0;
-  border-radius: ${({ theme }) => theme.radius.sm};
+  border-radius: 4px;
   background: ${({ theme }) => theme.brands.line.bg};
   color: ${({ theme }) => theme.brands.line.text};
   font-weight: 700;
-
-  ${Logo} {
-    box-sizing: content-box;
-    padding: 0 10px;
-    border-right: 1px solid ${({ theme }) => theme.brands.line.separator};
-    align-self: stretch;
-    width: 22px;
-    height: auto;
-  }
-
-  ${Label} {
-    flex: 1;
-    padding: 0 12px;
-    text-align: center;
-  }
 
   &:hover:not(:disabled) {
     background-image: linear-gradient(${({ theme }) => theme.brands.line.hover}, ${({ theme }) => theme.brands.line.hover});

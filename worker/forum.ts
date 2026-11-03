@@ -19,6 +19,7 @@ import {
   type ForumSearch,
   type ForumLatest,
   type ForumTags,
+  type ForumUnpublished,
   type ForumRuleItem,
   type Post,
   type PostBlock,
@@ -51,6 +52,10 @@ import type { Sql, SqlValue } from './store.ts'
  *   officers still see it, everyone else is told it is gone (`visibleTo`)
  * - `forum_posts.tags`: the post's tags (the table's AC-13.7) as a JSON array, NULL for none; a tag
  *   filter is a LIKE on the quoted tag, as mentions are (a club's posts are a scan of a few thousand rows)
+ * - `forum_posts.draft`, `forum_posts.publish_at`: a post not published yet (the table's e13-t12): a
+ *   draft (`draft = 1`) only its author sees; a scheduled post (`publish_at`, an officer's) its
+ *   author and the officers see until `publishScheduled` publishes it. Neither is in any list, search
+ *   or tag count, and neither takes comments, reactions, reports, pins or hiding (`PUBLISHED`)
  *
  * Who may use each route is roles.ts `forumRouteNeed`; who may change a given post or comment, and
  * post on an officers-only board, is checked here (`moderatesForum`). Posting and commenting are
@@ -81,7 +86,9 @@ const SCHEMA = [
     body_text TEXT,
     hidden_at INTEGER,
     hidden_by TEXT,
-    tags TEXT
+    tags TEXT,
+    draft INTEGER NOT NULL DEFAULT 0,
+    publish_at INTEGER
   )`,
   'CREATE INDEX IF NOT EXISTS forum_posts_by_board ON forum_posts (board_id, created_at)',
   'CREATE INDEX IF NOT EXISTS forum_posts_by_time ON forum_posts (created_at)',
@@ -134,9 +141,10 @@ const BLOCK_LIMITS = {
 
 const BOARD_ID = /^[a-z0-9][a-z0-9-]{0,19}$/
 /** BridgeHall's forum pages next to `/forum/:boardId` (e11-t17, e11-t18), so no board may take them */
-const RESERVED_BOARD_IDS = ['new', 'p', 'manage', 'reports', 'search', 'mine', 'mentions']
+const RESERVED_BOARD_IDS = ['new', 'p', 'manage', 'reports', 'search', 'mine', 'mentions', 'drafts']
 const REF_ID = /^[\w-]{1,64}$/
 const VULNERABILITIES = ['None', 'NS', 'EW', 'Both']
+const DAY_MS = 86_400_000
 
 export type ForumTarget = 'post' | 'comment'
 
@@ -177,6 +185,8 @@ interface PostRow extends Record<string, SqlValue> {
   comment_count: number
   hidden_at: number | null
   tags: string | null
+  draft: number
+  publish_at: number | null
 }
 
 interface ReportRow extends Record<string, SqlValue> {
@@ -436,16 +446,21 @@ const POST_KINDS = ['paragraph', 'rules', 'note', 'hand', 'deal', 'auction', 'im
 /** The pictures' keys in a post's blocks (e13-t13) */
 export const postImageKeys = (blocks: readonly PostBlock[]): string[] => blocks.flatMap((b) => (b.kind === 'image' ? [b.assetId] : []))
 
-const POST_COLUMNS = 'id, board_id, author_id, title, blocks, mentions, created_at, edited_at, pinned_at, locked, comment_count, hidden_at, tags'
+const POST_COLUMNS =
+  'id, board_id, author_id, title, blocks, mentions, created_at, edited_at, pinned_at, locked, comment_count, hidden_at, tags, draft, publish_at'
+
+/** The WHERE term (on forum_posts) for posts that are out (the table's e13-t12): not a draft, not waiting for its time */
+const PUBLISHED = 'draft = 0 AND publish_at IS NULL'
 
 /**
  * The posts `viewer` may see (e13-t10), as WHERE terms on forum_posts: the officers see every post;
  * anyone else not the ones an officer hid, unless they wrote them. No viewer: no hidden posts
  */
 function visibleTo(viewer: Me | undefined): { where: string[]; params: SqlValue[] } {
-  if (viewer && moderatesForum(viewer)) return { where: [], params: [] }
-  if (viewer) return { where: ['(hidden_at IS NULL OR author_id = ?)'], params: [viewer.id] }
-  return { where: ['hidden_at IS NULL'], params: [] }
+  // Drafts and scheduled posts are in no list for anyone (e13-t12): their author finds them in `unpublished`
+  if (viewer && moderatesForum(viewer)) return { where: [PUBLISHED], params: [] }
+  if (viewer) return { where: [PUBLISHED, '(hidden_at IS NULL OR author_id = ?)'], params: [viewer.id] }
+  return { where: [PUBLISHED, 'hidden_at IS NULL'], params: [] }
 }
 
 /** `visibleTo`'s terms to follow a WHERE that already has one */
@@ -478,6 +493,9 @@ export class ForumService {
     if (!columns.includes('hidden_by')) this.sql.exec('ALTER TABLE forum_posts ADD COLUMN hidden_by TEXT')
     // Tags (the table's AC-13.7): posts from before them have none
     if (!columns.includes('tags')) this.sql.exec('ALTER TABLE forum_posts ADD COLUMN tags TEXT')
+    // Drafts and scheduled posts (the table's e13-t12): every post from before them is out
+    if (!columns.includes('draft')) this.sql.exec('ALTER TABLE forum_posts ADD COLUMN draft INTEGER NOT NULL DEFAULT 0')
+    if (!columns.includes('publish_at')) this.sql.exec('ALTER TABLE forum_posts ADD COLUMN publish_at INTEGER')
     for (const row of this.sql.exec<{ id: string; blocks: string }>('SELECT id, blocks FROM forum_posts WHERE body_text IS NULL'))
       this.sql.exec('UPDATE forum_posts SET body_text = ? WHERE id = ?', searchText(JSON.parse(row.blocks) as PostBlock[]), row.id)
     for (const board of BUILTIN_BOARDS)
@@ -718,17 +736,24 @@ export class ForumService {
 
   // ── Posts ──────────────────────────────────────────────────────────────────────────────────
 
-  /** A member posts on a board; an officers-only board takes only the officers' */
+  /**
+   * A member posts on a board; an officers-only board takes only the officers'. `draft: true` keeps
+   * it as a draft, `publishAt` (an officer's) schedules it (the table's e13-t12, `checkRelease`);
+   * neither puts it out now
+   */
   createPost(me: Me, boardId: string, body: unknown): Post {
     const board = this.board(boardId)
     if (board.postPolicy === 'officers' && !moderatesForum(me)) throw new ClubError('forumBoardOfficersOnly', {}, 403)
     const { title, blocks, tags } = this.checkPost(body)
+    const release = this.checkRelease(me, body) ?? { draft: false, publishAt: null }
+    if (release.draft || release.publishAt !== null) this.checkUnpublishedRoom(me.id)
     this.takeWrite(me.id)
     let id: string
     do id = this.deps.newId()
     while (this.sql.exec('SELECT id FROM forum_posts WHERE id = ?', id).length)
     this.sql.exec(
-      'INSERT INTO forum_posts (id, board_id, author_id, title, blocks, mentions, created_at, body_text, tags) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      `INSERT INTO forum_posts (id, board_id, author_id, title, blocks, mentions, created_at, body_text, tags, draft, publish_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       id,
       boardId,
       me.id,
@@ -738,7 +763,49 @@ export class ForumService {
       this.deps.now(),
       searchText(blocks),
       tags?.length ? JSON.stringify(tags) : null,
+      release.draft ? 1 : 0,
+      release.publishAt,
     )
+    return this.post(id)
+  }
+
+  /**
+   * The member's drafts and scheduled posts (the table's e13-t12), and for an officer everyone's
+   * scheduled posts too (the news the club is about to get): the scheduled ones first, soonest
+   * first, then the drafts, last saved first
+   */
+  unpublished(viewer: Me): ForumUnpublished {
+    const officer = moderatesForum(viewer)
+    const rows = this.sql.exec<PostRow>(
+      `SELECT ${POST_COLUMNS} FROM forum_posts WHERE NOT (${PUBLISHED}) AND (author_id = ?${officer ? ' OR draft = 0' : ''})
+       ORDER BY draft, publish_at, created_at DESC, rowid DESC`,
+      viewer.id,
+    )
+    return { posts: this.toPosts(rows) }
+  }
+
+  /** Every scheduled post's id and time, for scheduling them again after the object wakes (club.ts) */
+  scheduled(): { id: string; publishAt: number }[] {
+    return this.sql
+      .exec<{ id: string; publish_at: number }>('SELECT id, publish_at FROM forum_posts WHERE draft = 0 AND publish_at IS NOT NULL ORDER BY publish_at')
+      .map((r) => ({ id: r.id, publishAt: r.publish_at }))
+  }
+
+  /**
+   * The time of a post scheduled for `at` came (the table's e13-t12): it is out from now, as if
+   * posted now. Null when it is no longer waiting for `at` (published, deleted, made a draft or
+   * moved to another time since: that time's job publishes it). `stillMay`: whether its author may
+   * still schedule it there; when not (no longer an officer, or no longer a member) it goes back to
+   * being a draft instead, for its author to see
+   */
+  publishScheduled(id: string, at: number, stillMay: (authorId: string) => boolean): Post | null {
+    const [row] = this.sql.exec<PostRow>(`SELECT ${POST_COLUMNS} FROM forum_posts WHERE id = ? AND draft = 0 AND publish_at = ?`, id, at)
+    if (!row) return null
+    if (!stillMay(row.author_id)) {
+      this.sql.exec('UPDATE forum_posts SET draft = 1, publish_at = NULL WHERE id = ?', id)
+      return null
+    }
+    this.sql.exec('UPDATE forum_posts SET publish_at = NULL, created_at = ? WHERE id = ?', this.deps.now(), id)
     return this.post(id)
   }
 
@@ -753,19 +820,35 @@ export class ForumService {
     return { post, comments: this.toComments(rows) }
   }
 
-  /** Only its author edits a post: title and blocks, and its tags when they are sent (left out: kept) */
+  /**
+   * Only its author edits a post: title and blocks, and its tags when they are sent (left out: kept).
+   * A post not out yet (the table's e13-t12) may also become a draft, be scheduled or come out now
+   * (`checkRelease`; left out: it stays as it is). Until it is out its time is when it was last saved
+   * and its edits are not marked as edits, so one that comes out now counts as posted now. A post
+   * that is out stays out
+   */
   updatePost(me: Me, id: string, body: unknown): Post {
     const row = this.postRow(id)
     if (row.author_id !== me.id) throw new ClubError('notYours', {}, 403)
     const { title, blocks, tags } = this.checkPost(body)
+    const out = !row.draft && row.publish_at === null
+    const release = this.checkRelease(me, body)
+    if (out && release && (release.draft || release.publishAt !== null)) fail('已經發布的貼文不能改回草稿或排程')
+    const now = this.deps.now()
+    const next = out ? null : (release ?? { draft: !!row.draft, publishAt: row.publish_at })
     this.sql.exec(
-      'UPDATE forum_posts SET title = ?, blocks = ?, mentions = ?, edited_at = ?, body_text = ?, tags = ? WHERE id = ?',
+      `UPDATE forum_posts SET title = ?, blocks = ?, mentions = ?, edited_at = ?, body_text = ?, tags = ?, draft = ?, publish_at = ?,
+       created_at = ? WHERE id = ?`,
       title ?? null,
       JSON.stringify(blocks),
       JSON.stringify(this.mentions(blocks)),
-      this.deps.now(),
+      out ? now : null,
       searchText(blocks),
       tags === undefined ? row.tags : tags.length ? JSON.stringify(tags) : null,
+      next?.draft ? 1 : 0,
+      next?.publishAt ?? null,
+      // Not out yet: when it was last saved, until it comes out (then: when it came out)
+      out ? row.created_at : now,
       id,
     )
     return this.post(id)
@@ -791,7 +874,7 @@ export class ForumService {
 
   /** An officer pins a post above the board's others (the newest pin first) or takes it down: `{ pinned }` */
   setPinned(id: string, body: unknown): Post {
-    const row = this.postRow(id)
+    const row = this.outPostRow(id)
     const pinned = this.flag(body, 'pinned')
     if (pinned !== (row.pinned_at !== null)) this.sql.exec('UPDATE forum_posts SET pinned_at = ? WHERE id = ?', pinned ? this.deps.now() : null, id)
     return this.post(id)
@@ -802,7 +885,7 @@ export class ForumService {
    * the officers see it; hiding closes its open reports as `removed`, as deleting does
    */
   setHidden(me: Me, id: string, body: unknown): Post {
-    const row = this.postRow(id)
+    const row = this.outPostRow(id)
     const hidden = this.flag(body, 'hidden')
     if (hidden !== (row.hidden_at !== null))
       this.sql.transaction(() => {
@@ -822,15 +905,17 @@ export class ForumService {
   // ── Pictures (the table's e13-t13) ─────────────────────────────────────────────────────────
 
   /**
-   * Which of these picture keys a post uses, among the posts `viewer` may see (`visibleTo`); every
-   * post when `viewer` is `'all'`. Only posts hold pictures (a comment's blocks have none). A LIKE
+   * Which of these picture keys a post uses, among the posts `viewer` may see (`visibleTo`, and for
+   * an officer the scheduled ones too); every post, drafts included, when `viewer` is `'all'`. Only posts hold pictures (a comment's blocks have none). A LIKE
    * on the quoted key finds the posts, and their blocks are read to be sure
    */
   imagesInUse(keys: readonly string[], viewer: Me | 'all'): Set<string> {
     const wanted = [...new Set(keys)].filter((key) => FILE_KEY.test(key) && key.startsWith('post/'))
     const found = new Set<string>()
     if (!wanted.length) return found
-    const { where, params } = viewer === 'all' ? { where: [], params: [] } : visibleTo(viewer)
+    // An officer also sees the posts waiting for their time (e13-t12, `unpublished`); a draft's pictures are its author's own
+    const { where, params } =
+      viewer === 'all' ? { where: [], params: [] } : moderatesForum(viewer) ? { where: ['draft = 0'], params: [] } : visibleTo(viewer)
     const like = `(${wanted.map(() => 'blocks LIKE ?').join(' OR ')})`
     const rows = this.sql.exec<{ blocks: string }>(
       `SELECT blocks FROM forum_posts WHERE ${[like, ...where].join(' AND ')}`,
@@ -849,7 +934,7 @@ export class ForumService {
    * under the same top comment. A locked post takes only the officers' comments.
    */
   addComment(me: Me, postId: string, body: unknown): Comment {
-    const post = this.seenPostRow(postId, me)
+    const post = this.outPostRow(postId, me)
     if (post.locked && !moderatesForum(me)) throw new ClubError('postLocked', {}, 409)
     if (!isObject(body)) return fail('不是一則留言')
     let parentId: string | null = null
@@ -1115,18 +1200,62 @@ export class ForumService {
 
   /** A post or a comment `viewer` may see (not one on a post hidden from them); its author */
   private requireTarget(target: ForumTarget, id: string, viewer?: Me): string {
-    if (target === 'post') return this.seenPostRow(id, viewer).author_id
+    if (target === 'post') return this.outPostRow(id, viewer).author_id
     const comment = this.commentRow(id)
-    this.seenPostRow(comment.post_id, viewer)
+    this.outPostRow(comment.post_id, viewer)
     return comment.author_id
   }
 
-  /** A post `viewer` may see: one an officer hid is gone for everyone but its author and the officers */
+  /**
+   * A post `viewer` may see: one an officer hid is gone for everyone but its author and the officers;
+   * a draft is gone for everyone but its author, a scheduled post for everyone but its author and
+   * the officers (the table's e13-t12)
+   */
   private seenPostRow(id: string, viewer?: Me): PostRow {
     const row = this.postRow(id)
-    if (row.hidden_at !== null && !(viewer && (viewer.id === row.author_id || moderatesForum(viewer))))
-      throw new ClubError('postGone', {}, 404)
+    const author = !!viewer && viewer.id === row.author_id
+    const officer = !!viewer && moderatesForum(viewer)
+    if (row.draft && !author) throw new ClubError('postGone', {}, 404)
+    if ((row.hidden_at !== null || row.publish_at !== null) && !(author || officer)) throw new ClubError('postGone', {}, 404)
     return row
+  }
+
+  /**
+   * A post that is out, for what only such a post takes (comments, reactions, reports, pins, hiding):
+   * one not out yet is 409 `postNotPublished` for whoever may see it. No viewer: the officers' routes
+   */
+  private outPostRow(id: string, viewer?: Me): PostRow {
+    const row = viewer ? this.seenPostRow(id, viewer) : this.postRow(id)
+    if (row.draft || row.publish_at !== null) throw new ClubError('postNotPublished', {}, 409)
+    return row
+  }
+
+  /**
+   * When a post comes out (the table's e13-t12), from `draft` and `publishAt` in a post's body:
+   * `draft: true` a draft; `publishAt` (ms) scheduled, only by an officer (403
+   * `forumScheduleOfficersOnly`), after now and at most FORUM_LIMITS.scheduleDaysMax days ahead
+   * (400 `forumScheduleTime`); `draft: false` or `publishAt: null` out now. Null when the body says neither
+   */
+  private checkRelease(me: Me, body: unknown): { draft: boolean; publishAt: number | null } | null {
+    const { draft, publishAt } = isObject(body) ? body : ({} as Record<string, unknown>)
+    if (draft !== undefined && typeof draft !== 'boolean') return fail('draft 要是 true 或 false')
+    if (publishAt !== undefined && publishAt !== null) {
+      if (draft === true) fail('草稿不能同時排程')
+      if (!moderatesForum(me)) throw new ClubError('forumScheduleOfficersOnly', {}, 403)
+      const now = this.deps.now()
+      const at = publishAt as number
+      if (!Number.isSafeInteger(at) || at <= now || at > now + FORUM_LIMITS.scheduleDaysMax * DAY_MS)
+        throw new ClubError('forumScheduleTime', { days: FORUM_LIMITS.scheduleDaysMax }, 400)
+      return { draft: false, publishAt: at }
+    }
+    if (draft === undefined) return publishAt === null ? { draft: false, publishAt: null } : null
+    return { draft, publishAt: null }
+  }
+
+  /** Room for one more draft or scheduled post of this member's (409 `forumDraftLimit`) */
+  private checkUnpublishedRoom(userId: string) {
+    const n = this.sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM forum_posts WHERE author_id = ? AND NOT (${PUBLISHED})`, userId)[0].n
+    if (n >= FORUM_LIMITS.draftsMax) throw new ClubError('forumDraftLimit', { max: FORUM_LIMITS.draftsMax }, 409)
   }
 
   private toBoard(row: BoardRow): Board {
@@ -1183,6 +1312,8 @@ export class ForumService {
       if (row.pinned_at !== null) post.pinned = true
       if (row.locked) post.locked = true
       if (row.hidden_at !== null) post.hidden = true
+      if (row.draft) post.draft = true
+      if (row.publish_at !== null) post.publishAt = row.publish_at
       const mentions = JSON.parse(row.mentions) as string[]
       if (mentions.length) post.mentions = mentions
       const tags = row.tags ? (JSON.parse(row.tags) as string[]) : []
