@@ -11,6 +11,7 @@ import { playable } from '../lib/challenges.ts'
 import { formatDateTime } from '../lib/format.ts'
 import { useAuth } from '../state/AuthContext.tsx'
 import { Avatar } from '../components/Avatar.tsx'
+import { LobbyNews } from '../components/LobbyNews.tsx'
 import { SidePanel } from '../components/SidePanel.tsx'
 import { PracticeDialog } from '../components/PracticeDialog.tsx'
 import { TableSettingsDialog } from '../components/TableSettingsDialog.tsx'
@@ -704,6 +705,8 @@ export function LobbyPage() {
             send({ type: 'playChallenge', challengeId })
           }}
         />
+        {/* 社團公告 and the newest discussions (E13 e13-t12), with the forum flag */}
+        <LobbyNews />
         <Section aria-labelledby="lobby-tables">
           <SectionHead>
             <h2 id="lobby-tables">{t.tables}</h2>

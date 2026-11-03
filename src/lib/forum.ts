@@ -4,7 +4,9 @@ import type {
   CommentInput,
   ForumFeed,
   ForumSearch,
+  ForumLatest,
   ForumTags,
+  ForumUnpublished,
   Board,
   Post,
   PostInput,
@@ -20,10 +22,12 @@ import { request } from './api.ts'
  * The forum's API for the table's pages (E13 K1, ARCHITECTURE.md §5.19): the same `/api/forum/*`
  * as BridgeHall's forum (`worker/forum.ts`), so both sites show the same posts. Only what the
  * table's pages use so far: reading boards, posts and comments; writing, editing (posts) and
- * deleting posts and comments (K2, the post editor); search, reports and hiding (K4); tags (AC-13.7).
+ * deleting posts and comments (K2, the post editor); search, reports and hiding (K4); tags (AC-13.7);
+ * drafts, scheduled posts and the home page's announcements (e13-t12).
  * Errors come back as `ApiError` with the server's code (404 `forumBoardGone`, `postGone`,
- * `commentGone`, `forumReportGone`; 403 `notYours`, `forumBoardOfficersOnly`; 409 `postLocked`,
- * `forumReportHandled`, `forumReportLimit`; 429 `slowDown`; 400 `badContent`).
+ * `commentGone`, `forumReportGone`; 403 `notYours`, `forumBoardOfficersOnly`, `forumScheduleOfficersOnly`;
+ * 409 `postLocked`, `postNotPublished`, `forumReportHandled`, `forumReportLimit`, `forumDraftLimit`;
+ * 429 `slowDown`; 400 `badContent`, `forumScheduleTime`).
  */
 
 const id = (value: string) => encodeURIComponent(value)
@@ -41,6 +45,10 @@ export const forumApi = {
    */
   feed: (page = 1, author?: string, tag?: string) =>
     request<ForumFeed>(`/api/forum/feed?page=${page}${author ? `&author=${id(author)}` : ''}${tag ? `&tag=${id(tag)}` : ''}`),
+  /** The home page's lists: the news board (pinned first) and the newest of the other boards (e13-t12) */
+  latest: () => request<ForumLatest>('/api/forum/latest'),
+  /** My drafts and scheduled posts, and for an officer everyone's scheduled ones (e13-t12) */
+  drafts: () => request<ForumUnpublished>('/api/forum/drafts').then((r) => r.posts),
   /** The tags in use, most posts first (AC-13.7): the editor's suggestions and the tag filters */
   tags: () => request<ForumTags>('/api/forum/tags').then((r) => r.tags),
   /** The post and every comment, oldest first */
