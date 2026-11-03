@@ -292,6 +292,15 @@ export class TeamEventService {
     }
   }
 
+  /**
+   * The finished event as the ledger takes it now (`RankingsService.recredit`, after a director
+   * changed one of its matches): its standings with every ruling and penalty; null when not finished
+   */
+  rankedNow(id: string): RankedEvent | null {
+    const e = this.all.get(id)
+    return e?.status === 'finished' ? this.ranked(e) : null
+  }
+
   /** The finished event for the ledger: each team a side, placed by the standings */
   private ranked(e: TeamEvent): RankedEvent {
     const sat = e.teams.map(() => new Set<string>())

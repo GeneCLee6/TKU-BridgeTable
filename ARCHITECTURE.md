@@ -712,7 +712,7 @@ H1 把牌桌拆出去之後（§5.10），社團的物件（`Club`）仍然是**
   - **誰的**：新增或編輯貼文時，新加的 `image` 區塊要是作者自己上傳的檔案（`file:meta:` 的 `owner`），否則 403 `forumImageNotYours`；本來就在貼文裡的不再檢查。所以一張圖只屬於一位作者。
   - **誰看得到**：`POST /api/files/urls` 對 `post/` 的 key 只替上傳者、或看得到用這張圖的貼文的人簽（`ForumService.imagesInUse`，條件與貼文的 `visibleTo` 相同；草稿與排程（`e13-t12`）不在列表裡，草稿的圖只有作者（上傳者）拿得到，排程中的另外給幹部，才能在「草稿與排程」預覽）；文章與電子書照舊。幹部隱藏貼文後，作者與幹部以外的人拿不到新網址；**已經發出的網址不撤銷**，最多到期（進位到整點再加一小時，最長約兩小時）就失效：網址是無狀態的 HMAC，撤銷要每次請求查資料，不划算。
   - **跟著貼文走**：刪貼文（作者、幹部、處理檢舉的「移除」）或編輯時拿掉圖片，沒有其他貼文用的就從 R2 刪掉（回應之後做，失敗只記 log）。上傳了沒發的圖片留著，直到上傳者刪帳號。
-  - **刪帳號**：`ClubService` 的 `onMemberRemoved` 呼叫 `FileService.forget`：沒有任何貼文用的 `post/` 圖片刪掉、當天的計數刪掉；還在貼文裡的跟貼文保留（貼文本來就保留）；文章圖片與電子書是叢書的，不刪。匯出（`GET /api/account/export`）多一個 `files`：自己上傳的檔案清單。
+  - **刪帳號**：`ClubService` 的 `onMemberRemoved` 先刪他的論壇草稿與排程中的貼文（`ForumService.forgetUnpublished`，社長 2026-11-03），再呼叫 `FileService.forget`：沒有任何貼文用的 `post/` 圖片刪掉（所以草稿與排程裡的圖片也一起刪）、當天的計數刪掉；還在貼文裡的跟貼文保留（貼文本來就保留）；文章圖片與電子書是叢書的，不刪。匯出（`GET /api/account/export`）多一個 `files`：自己上傳的檔案清單。
   - **回應標頭**：`Content-Type` 是上傳時從檔頭判斷的型別、`X-Content-Type-Options: nosniff`、`Content-Disposition: inline`、`Content-Security-Policy: default-src 'none'`、`Cache-Control: private, max-age=<到期>, immutable`。網頁 CSP 不用改（`img-src 'self'`，圖片走同源 `/api/files/`）。
   - **速率**：沿用每人每天 30 張憑證（台灣日期）與全部 10 GB 的上限；每篇最多 6 張（`FORUM_LIMITS.imagesMax`，編輯器送出前就擋）。
 - **沒有 bucket 時**：`FILES` 沒綁就全部回 503 `filesOff`，所以 binding 先註解掉也能部署（DEPLOY.md §4.8）。
@@ -721,7 +721,7 @@ H1 把牌桌拆出去之後（§5.10），社團的物件（`Club`）仍然是**
 - **頭像不搬到 R2**：仍是 `avatar:<userId>`（256×256、≤ 64 KB，見 §5 的表），兩站都讀 `GET /api/avatar/:id?v=`。`GET /api/club/members` 多回 `displayName`、`avatar`，橋譜用來畫別人的頭像（`e11-t01`、`e11-t03`）。
 - **顯示名稱上名牌**（`e11-t19`）：大廳的社員與大廳牌桌的座位（`PublicUser.displayName`）帶個人檔案的顯示名稱，改名時重送大廳；牌桌自己的座位與牌局紀錄仍只有帳號名稱，牌桌頁用 `withMemberProfile`（`shared/lobby.ts`）從大廳補上頭像與顯示名稱。`playerName` 有顯示名稱就用它，社員分頁的提示仍附帳號名稱。
 - **論壇型別**（`e11-t05`）：`shared/forum.ts` 的 `Board`、`Post`、`PostBlock`、`Comment`、`Reaction`、`Report` 與上限，橋館 `src/lib/forum.ts` 是逐字複本（橋館的型別對拍檢查）；Worker 模組 `worker/forum.ts` 是 `e11-t06`。
-- **論壇 Worker**（`e11-t06`、`e11-t07`，`worker/forum.ts` 的 `ForumService`）：Durable Object 的 SQLite，五張表 `forum_boards`（內建四板在建表時補上，`INSERT OR IGNORE`，所以管理員改的名稱與排序會保留；內建的不能刪，有貼文的板也不能刪）、`forum_posts`（區塊與 `mentions` 存 JSON；`pinned_at` 是置頂時間，新置頂的在前，就是 `Board.pinnedPostIds`；`comment_count` 跟留言一起維護）、`forum_comments`（巢狀一層：回覆別人的回覆，`parent_id` 一律是最上層那則）、`forum_reactions`（主鍵 target＋id＋社員，每人每則一種，換表情是覆寫）、`forum_reports`（檢舉，`e11-t09`）。不經記憶體快取；五張表都在每日備份裡（§5 備份，2026-10-30 起；私訊不在）。區塊逐一檢查、只留該種類有的欄位：牌不重複、四家牌每家 ≤ 13 張、叫牌過程輪到誰與合不合規則（`legalCalls`）、圖片要是 `post/` 的檔案 key；文字（段落、提示、條列）合計 ≤ `FORUM_LIMITS.postTextMax`，留言 ≤ `commentTextMax`、只能有 `paragraph`／`auction`／`hand`。`@` 提到（`mentionsIn`）認帳號名稱（不分大小寫）與顯示名稱，最長的先配；名稱以英數結尾時後面不能接英數，中文不受限；e-mail 裡的 `@` 不算；結果存在 `Post.mentions`／`Comment.mentions`。速率：每人發文加留言每分鐘 ≤ 5（`TokenBuckets`，回 429 `slowDown`；編輯不算、被拒的不算）。幹部（`moderatesForum`，roles.ts）是有 `forumModerate` 權限的社員與管理員（`e11-t09`）：只有幹部能在 `postPolicy: 'officers'` 的板（公告）發文、置頂、鎖定、刪除別人的貼文與留言；鎖定的貼文只有幹部能留言。作者才能編輯自己的貼文與留言；刪貼文連同留言與反應，刪最上層留言連同它的回覆。路由見 §5.2 的表（`/api/forum/*`）。帳號刪除時不刪貼文（之後再定）。
+- **論壇 Worker**（`e11-t06`、`e11-t07`，`worker/forum.ts` 的 `ForumService`）：Durable Object 的 SQLite，五張表 `forum_boards`（內建四板在建表時補上，`INSERT OR IGNORE`，所以管理員改的名稱與排序會保留；內建的不能刪，有貼文的板也不能刪）、`forum_posts`（區塊與 `mentions` 存 JSON；`pinned_at` 是置頂時間，新置頂的在前，就是 `Board.pinnedPostIds`；`comment_count` 跟留言一起維護）、`forum_comments`（巢狀一層：回覆別人的回覆，`parent_id` 一律是最上層那則）、`forum_reactions`（主鍵 target＋id＋社員，每人每則一種，換表情是覆寫）、`forum_reports`（檢舉，`e11-t09`）。不經記憶體快取；五張表都在每日備份裡（§5 備份，2026-10-30 起；私訊不在）。區塊逐一檢查、只留該種類有的欄位：牌不重複、四家牌每家 ≤ 13 張、叫牌過程輪到誰與合不合規則（`legalCalls`）、圖片要是 `post/` 的檔案 key；文字（段落、提示、條列）合計 ≤ `FORUM_LIMITS.postTextMax`，留言 ≤ `commentTextMax`、只能有 `paragraph`／`auction`／`hand`。`@` 提到（`mentionsIn`）認帳號名稱（不分大小寫）與顯示名稱，最長的先配；名稱以英數結尾時後面不能接英數，中文不受限；e-mail 裡的 `@` 不算；結果存在 `Post.mentions`／`Comment.mentions`。速率：每人發文加留言每分鐘 ≤ 5（`TokenBuckets`，回 429 `slowDown`；編輯不算、被拒的不算）。幹部（`moderatesForum`，roles.ts）是有 `forumModerate` 權限的社員與管理員（`e11-t09`）：只有幹部能在 `postPolicy: 'officers'` 的板（公告）發文、置頂、鎖定、刪除別人的貼文與留言；鎖定的貼文只有幹部能留言。作者才能編輯自己的貼文與留言；刪貼文連同留言與反應，刪最上層留言連同它的回覆。路由見 §5.2 的表（`/api/forum/*`）。帳號刪除時不刪已發布的貼文；草稿與排程中的貼文一起刪（2026-11-03，見 §5.19「公告與新聞的編輯流程」）。
 - **論壇通知**（`e11-t08`，`worker/forum-notices.ts`，AC-11.5）：走通知中心，四種 `forumMention`（新貼文或留言用 `@` 提到；編輯後新提到的人）、`forumReply`（貼文被留言通知作者；回覆通知那則最上層留言的作者）、`forumAnnouncement`（`postPolicy: 'officers'` 的板有新貼文，通知全部社員）、`forumPinned`（貼文被置頂通知作者），參數 `{ postId, title, username }`（`title` 是標題，沒有就是前 40 字，`postExcerpt`）＋留言的 `commentId`。同一則每人只收一種（提到＞回覆＞公告），自己做的不通知、已不是社員的不通知；鈴鐺連到貼文 `/forum/p/<id>`（有留言時 `#comment-<id>`，貼文頁讀完後捲到那則留言）：有 `forum` 旗標的社員連牌桌自己的論壇（K3 `e13-t09`），沒有的連橋館。寄送失敗只記 log，貼文照樣存。
 - **檢舉與審計**（`e11-t09`，AC-11.6）：社員檢舉別人的貼文或留言（`POST /api/forum/reports`，原因 ≤ 300 字；同一則在處理前再檢舉只更新原因；每人同時最多 20 則未處理，409 `forumReportLimit`）。幹部看清單（`GET /api/forum/reports?status=open|all`，新→舊最多 100 則，附貼文 id、作者與摘要；已刪除的沒有 `postId`），處理（`POST /api/forum/reports/:id` `{ action: 'dismiss' | 'remove' }`）：駁回保留內容，移除就刪掉那則（貼文連留言、最上層留言連回覆）；同一則的其他未處理檢舉一起關閉。任何人刪掉貼文或留言時，關於它的未處理檢舉都關成 `removed`。幹部的動作寫審計（`audit:`，`worker/audit.ts`）：`forum:pin`／`unpin`、`forum:lock`／`unlock`、`forum:removePost`／`removeComment`（刪別人的；`note` 是誰的、摘要與檢舉原因）、`forum:dismiss`、`forum:board`／`boardDelete`（管理員增改刪板面），`target` 是貼文或板面的代號；橋館管理頁的審計紀錄看得到。板面代號不能用 `new`、`p`、`manage`、`reports`（橋館討論區的網址）。
 
@@ -977,6 +977,7 @@ AC-13.4 的「公告、新聞」沿用 K1 的對照：**公告與新聞都在「
 - **API**（都是選填，橋館不送也不會壞）：`PostInput.draft`、`PostInput.publishAt`。建立時 `draft: true` 是草稿、`publishAt` 是排程、都沒有就立刻發布；**編輯時沒帶就維持原狀**，所以橋館（不知道草稿）編輯一篇草稿不會不小心把它發出去；`draft: false` 或 `publishAt: null` 是「立即發布」。`GET /api/forum/drafts` 回 `{ posts }`：自己的草稿與排程，幹部再加上所有人的排程；排程的在前（近的先），草稿在後（最近存的先）。
 - **排程發布**（`worker/forum-schedule.ts` 的 `ForumSchedule`）：時間存在貼文那一列，工作交給社團**唯一的排程器**（§5「排程」，`JobKind` 的 `forum`，經 `ClubService.scheduleAt`），key 是 `forum:<貼文>:<時間>`。改了時間就是新的 key，舊的工作醒來發現時間不同就什麼都不做；刪掉、改回草稿、已經發布的也一樣（`publishScheduled` 只認「還在等這個時間」的那一列）。工作照樣不存：`Club` 建構時在 `load()` 之後、還原備份之後都會把所有排程中的貼文重排一次，物件睡過了時間就一醒來立刻發布。
 - **發布時再檢查一次**：時間到時作者要還是社員、還是幹部（`ClubService.memberMe`）；不是的話這篇**改回作者的草稿**、不通知任何人，作者回來還找得到。
+- **刪帳號**（社長 2026-11-03）：作者的草稿與排程中的貼文一起刪（`ForumService.forgetUnpublished`，`Club` 的 `onMemberRemoved` 在刪圖片之前做），它們的圖片接著由 `FileService.forget` 刪掉（§5.14）；排程工作醒來找不到那一列就什麼都不做。已發布的貼文照舊保留。docs/SECURITY.md §5、隱私權政策都寫了。
 - **通知跟一般貼文一樣**：發布的那一刻送 `forum-notices.ts` 的 `posted`（社團公告板：每位社員 `forumAnnouncement`；被 `@` 到的人 `forumMention`），作者算發文的人。存草稿、排程、編輯草稿都不通知；草稿或排程「立即發布」時也是 `posted`，不是 `edited`。
 - **頁面**：
   - 發文編輯器（`ForumEditorPage.tsx`，改動盡量小）：還沒發布的貼文多一個「存成草稿」；幹部多一個「排程發布」（`components/ForumRelease.tsx`，勾選後填 `datetime-local`，瀏覽器的本地時間，預設一到兩小時後的整點），送出鍵變成「排程」；編輯草稿或排程時主按鈕是「立即發布」。已經發布的貼文只有「儲存」。存成草稿後這台裝置的草稿清掉（伺服器有了）。
@@ -1081,9 +1082,9 @@ AC-9.2（社團積分：依名次給分、月榜年榜、規則可設定、每�
 
 | 表 | 內容 |
 | --- | --- |
-| `ranked_events` | 已經記過的比賽（`event_id` 主鍵）：**冪等**的依據 |
+| `ranked_events` | 已經記過的比賽（`event_id` 主鍵）：**冪等**的依據；`rule` 是記帳當時那一種比賽的規則（JSON，重算用，2026-11-03 加的欄位，之前記的是空的） |
 | `points_entries` | 每人每場一列（主鍵 `event_id, user_id`）：種類、時間、名次、方數、規則給的分數 |
-| `points_adjustments` | 管理員的更正：差額、原因、誰、何時；**不改原本那列**，所以每一分都追得到 |
+| `points_adjustments` | 管理員的更正與裁判調整後的重算：差額、原因、誰、何時、`auto`（1 是重算寫的）；**不改原本那列**，所以每一分都追得到 |
 | `ratings` | 每人目前的 rating、RD、σ、場數、最後一場的時間、是否不公開 |
 | `rating_history` | 每人每場之後的 rating 與 RD（走勢圖） |
 
@@ -1173,7 +1174,7 @@ AC-9.8：「裁判工具：調整分數、處罰、延遲開賽、重新開一�
 - **雙人賽**：建立它的裁判（`directorId`）與管理員（`actsAsAdmin`，要開兩步驟登入）。
 - **隊制賽**：房主（本來就能做超時裁定，`e8-t15`）與管理員。
 - **挑戰**（含每週、每日賽）：只有管理員，因為發起的人自己也在打。
-- 沒有另外的「裁判」角色：`roles.ts` 只有管理員與各項權限，比賽的裁判就是建立比賽的人。要不要加一個全社團的「裁判」權限，等社長決定。
+- 沒有另外的「裁判」角色：`roles.ts` 只有管理員與各項權限，比賽的裁判就是建立比賽的人。社長 2026-11-03 決定**不另設全社團的「裁判」權限**。
 - 檢查全在 `ClubService.refereeAct`（雙人賽的部分在 `PairsService.requireReferee`）；頁面上的 `canReferee` 只決定顯示表單。
 
 ### 做什麼（`POST /api/referee/:kind/:id`，`kind` 是 `pairs`／`match`／`challenge`）
@@ -1193,7 +1194,7 @@ AC-9.8：「裁判工具：調整分數、處罰、延遲開賽、重新開一�
 ### 紀錄（`worker/referee.ts` 的 `RefereeLog`）
 
 - 每場比賽一個值 `referee:<kind>:<id>`（`RefereeEntry[]`：`id`、`at`、`by`（社員 id）、`reason`，加上做了什麼），**只加不改**，處罰用一筆 `withdraw` 撤銷；最多留 200 筆。社團載入時全部讀進記憶體（頁面是同步組的，每次都要讀處罰）。比賽住在 `EventObject` 時也一樣存在社團，因為頁面與計分都在社團組（§5.12），`EventObject` 不需要知道。
-- **稽核紀錄**：每一筆同時寫一筆 `audit:`（`worker/audit.ts`，`referee:score`／`referee:penalty`／`referee:withdraw`／`referee:delay`／`referee:restart`，`target` 是 `<kind>:<id>`，紀錄上的裁定是 `board:<id>`，`note` 是一句說明加理由），跟淡江橋館的變更在同一份，管理頁（`GET /api/book/audit`）看得到。不屬於比賽的牌（一般牌桌）的裁定只寫稽核紀錄。
+- **稽核紀錄**：每一筆同時寫一筆 `audit:`（`worker/audit.ts`，`referee:score`／`referee:penalty`／`referee:withdraw`／`referee:delay`／`referee:restart`，收尾後重算積分時另有 `points:recredit`，`target` 是 `<kind>:<id>`，紀錄上的裁定是 `board:<id>`，`note` 是一句說明加理由），跟淡江橋館的變更在同一份，管理頁（`GET /api/book/audit`）看得到。不屬於比賽的牌（一般牌桌）的裁定只寫稽核紀錄。
 - `REPLICA_VERSION` 不變：`summarize`、`BoardSummary` 沒改，D1 副本與裁判紀錄無關。
 
 ### 計分（全部在顯示時重算）
@@ -1201,7 +1202,8 @@ AC-9.8：「裁判工具：調整分數、處罰、延遲開賽、重新開一�
 - 雙人賽：`scorePairs(movement, results, { rulingOf, penalties })`（§5.22）；`pairsView`、`pairsRanked` 都用 `pairsScoring`。`PairStanding.penalty`、`PairsTravellerEntry.ruling`。
 - 隊制賽：`penalizedMatch(scoreTeamMatch(…), penaltiesOf(…))` 從兩隊的總分扣、重算領先；`teamMatchView` 與 `matchEvent`（積分）都用它。`TeamMatchView.penalties`。
 - 挑戰：`scoreChallenge` 的 `penalties` 從 `total` 扣再排名次；`challengeStandings`、`challengeView`、`challengeEvent` 都帶著。`ChallengeStandingView.penalty`。
-- **積分**：比賽收尾時（只記一次，§5.21）用當時的成績，所以收尾前的處罰與裁定都算進去；**收尾後**才做的調整不會重記積分，要管理員用積分更正（`POST /api/admin/points/adjust`，`e9-t05`）。rating 也一樣（依時間順序算，不回頭重算）。
+- **積分**：比賽收尾時（只記一次，§5.21）用當時的成績，所以收尾前的處罰與裁定都算進去。
+- **收尾後的調整自動重算積分**（社長 2026-11-03）：已經記過積分的比賽（`ranked_events` 有它），裁判再調整分數、處罰或撤銷處罰（`refereeAct`），或在紀錄頁裁定那場的一副（`ruleRecord`），`ClubService.recreditPoints` 就用頁面現在的成績重算那一場（雙人賽 `PairsService.rankedNow`、隊制賽 `matchNow`、挑戰 `challengeNow`），交給 `RankingStore.recredit`：用**記帳當時的規則**（`ranked_events.rule`；之前記的沒有，就用現在的規則）算每人應得的分數，和「規則給的分數＋之前的重算」比，差額寫一筆 `points_adjustments`（`auto = 1`、原因是裁判的理由、誰是裁判），名次與方數改成新的。同樣的成績再算一次差額是 0、什麼都不寫，所以**冪等**；管理員自己的更正疊在上面不受影響。只重算原本有一列的人（刪掉的帳號不會回來；裁判工具不會改變誰打完）。同時寫一筆稽核 `points:recredit`（`target` 是 `<kind>:<id>`，`note` 是每個人的差額與重算後的分數，加上理由）。積分明細把重算的那筆標成「裁判調整後重算」。還沒記過積分的比賽（進行中、還沒收尾）不重算，收尾時本來就會算進去。rating 不重算（依時間順序算，不回頭重算）。出錯只記 log（`recreditPoints`），不擋裁判的動作。測試：`tests/worker/challenge-points.test.ts`、`team-match-referee.test.ts`、`pairs-referee.test.ts` 的重算。
 
 ### 可見性（`worker/views.ts`，§4）
 
@@ -1222,13 +1224,15 @@ AC-9.8：「裁判工具：調整分數、處罰、延遲開賽、重新開一�
 - **報名**（有旗標的社員，報名截止前）：雙人賽可以自己報名（算半對，開賽時和其他單人依報名順序兩兩配對）或帶一位搭檔；隊制賽一定是四人一隊（可取隊名）。搭檔、隊友用帳號名稱指定，檢查：存在、不是自己、不重複、兩邊都沒封鎖對方（`tournamentBadPartner`，不說是哪一種）、沒人已經在別組（`tournamentAlreadyIn`）、人數對（`tournamentEntrySize`）、沒超過名額（`tournamentFull`）。**搭檔要確認**（`tournamentPartner` 通知；`POST …/answer { accept }`），確認在開賽前都可以，婉拒和**退出**（同組任何一人）只能在截止前（`tournamentClosed`），而且整組一起取消，通知同組其他人（`tournamentWithdrawn`）。
 - **報名名單**：所有有旗標的社員都看得到每一組的人、誰還沒確認（`TournamentView.entries`）；取消的比賽只有管理員看得到。
 - **開賽前提醒**：統一排程器（`worker/scheduler.ts`）的 `tournament:<id>:<開賽時間>` 工作（`JobKind` 的 `tournament`），排在開賽前一小時（已經過了就立刻），給名單上每一個人（含還沒確認的）`tournamentReminder`。改了開賽時間就排新的一個，舊的到時發現時間不對什麼都不做；送過的記在 `remindedFor`，物件被回收後 `load()` 重排時也不會送第二次。取消或結束了就不送。
+- **前一天的提醒**（社長 2026-11-03）：另一個工作 `tournament:<id>:<開賽時間>:day`（每種比賽方式都有，含個人賽），開賽前 24 小時送 `tournamentDayReminder`（「明天這個時候開賽」），對象一樣。只有**設定開賽時間的那一刻離開賽還有 24 小時以上**才有（公告時、或改了開賽時間時判斷，記在 `dayReminderFor`）；公告或改到不到一天後開賽就只有一小時前那一則。改時間的處理和一小時前的一樣（新時間新工作、舊的醒來什麼都不做），送過記在 `dayRemindedFor`。物件睡過頭、醒來時離開賽不到 12 小時（`dayReminderLateMs`）就不送前一天那則（會說「明天」），一小時前的照送。推播文字 `npm run push:texts` 重產。
 - **用名單開賽**（管理員，`POST …/start`）：
-  - 雙人賽：搭檔確認過的每一對（依報名順序），加上單人兩兩配成的對（多出一人就不排），至少 5 對（`tournamentTooFew { count, min }`），最多前 20 對。`PairsService.createFrom` 建立雙人賽（**裁判是按開賽的管理員**，設定照公告），把每一對報名進去。之後管理員在雙人賽頁按「開始」（照 §5.22：所有人在線、沒在別的比賽才開得了）。
+  - 雙人賽：搭檔確認過的每一對（依報名順序），加上單人兩兩配成的對（照下面的配對；多出一人就不排），至少 5 對（`tournamentTooFew { count, min }`），最多前 20 對。`PairsService.createFrom` 建立雙人賽（**裁判是按開賽的管理員**，設定照公告），把每一對報名進去。之後管理員在雙人賽頁按「開始」（照 §5.22：所有人在線、沒在別的比賽才開得了）。
   - 隊制賽：前兩支四人都確認的隊伍。由第一隊的第一位當房主建立隊制賽（`invite = direct`、不放機器人、隊名照報名），用房主的身分把其他七人邀請到座位（第一隊：開室北、閉室東西；第二隊：開室東西、閉室南北），他們在邀請彈窗接受、房主在準備室開始（§5.8，照常的 `matchInvited` 流程）。有一個邀請失敗（例如有人封鎖房主）就把剛建立的隊制賽取消，比賽公告留在報名中。
   - 比賽公告變成 `started`、記下比賽 id；頁面多一個「前往比賽」連到 `/pairs/:id` 或 `/matches/:id`。
 - **雙人賽頁的旗標**：從比賽公告建立的雙人賽，參賽的人與裁判不需要 `pairs` 旗標也能看那場的頁面與操作（`PairsService.allowed` 加上「是這場的人」），所以 `/pairs/:eventId` 的路由一律掛上、由伺服器決定（別人照樣 `pairsOff`）；雙人賽列表與建立仍要旗標。
 - **結果公告**：雙人賽收尾（§5.22 的 `settled`，和積分同一個時機）與隊制賽收尾（`settleMatch`，完賽或放棄都算，放棄時兩室都打完的副照樣計分）時呼叫 `TournamentService.eventEnded`；讀比賽頁、列表時也會再看一次（社團漏聽的時候補）。比賽結束 → 比賽公告 `finished`，通知名單上每一個人 `tournamentResults`（直接連到結果頁），頁面的連結改成「看比賽結果」。建立的比賽在開打前被取消（雙人賽的裁判取消、隊制賽的房主取消）或不見了 → 比賽公告回到 `open`，管理員可以重新開賽。
-- **API**：`GET /api/tournaments`（依開賽時間）、`POST /api/tournaments { settings }`、`GET /api/tournaments/:id`、`POST /api/tournaments/:id/{settings|cancel|remove|enter|answer|withdraw|start}`。頁面 `src/pages/TournamentPages.tsx`（`/tournaments`、`/tournaments/:id`）。
+- **單人報名的配對**（社長 2026-11-03，只有雙人賽；個人賽每個人都自己報名、和每個人當一次搭檔，沒有配對可調，`setPairing` 回 `tournamentBadPairing`）：單人照樣依報名順序兩兩配對，但開賽前比賽頁有「單人報名的配對」（`TournamentView.singles`：預計的每一對與多出的一人、管理員調整過沒有），所有看得到比賽的人都看得到。管理員可以用每個人旁邊的「交換…」把兩個人對調（`POST /api/tournaments/:id/pairing { order }`，送出整個順序），或「恢復報名順序」（`order: null`）。伺服器（`TournamentService.setPairing`）檢查：管理員、報名中、雙人賽、順序剛好是現在每一位單人各一次（`isPairingOrder`），不然 400 `tournamentBadPairing`（例如這中間有人報名或退出，頁面重新讀）。順序存在 `Tournament.pairing`；之後有單人退出就從順序裡拿掉、新報名的單人接在最後（`singlesOrder`），所以退出的人後面的會往前遞補，開賽前再看一次。開賽（`pairsFromEntries`）照這個順序配。
+- **API**：`GET /api/tournaments`（依開賽時間）、`POST /api/tournaments { settings }`、`GET /api/tournaments/:id`、`POST /api/tournaments/:id/{settings|cancel|remove|enter|answer|withdraw|pairing|start}`。頁面 `src/pages/TournamentPages.tsx`（`/tournaments`、`/tournaments/:id`）。
 - **個人賽**（`individual`，`e9-t15`，§5.25）：名額是人數（8–20），每個人都自己報名（帶搭檔回 `tournamentEntrySize`），一人算一個名額；和已報名的任何人有封鎖關係就不能報名（`individualBlocked`，個人賽每兩人會當一次搭檔）。開賽時依報名順序取 8、12、16 或 20 人（不超過報名人數的最大那一種，`playersFromEntries`），多的人這次不排；不到 8 人回 `tournamentTooFew`。`PairsService.createIndividual` 建立個人格式的雙人賽，之後一樣在 `/pairs/:id` 開始、打、計分；結束時 `tournamentResults` 的 `eventKind` 是 `individual`。
 - **多隊賽**（`teams`，`e9-t14`）：見 §5.26。名額 3–16 隊，每隊 4–6 人（`entrySizes`），開賽時每一支全部確認的隊伍建立一場多隊賽（`TeamEventService.createFrom`），結束時同樣呼叫 `eventEnded` 公告結果。
 - **還沒做**：隊制賽只取前兩隊（多的隊伍留在名單上）；雙人賽開賽仍要裁判在雙人賽頁按「開始」（要所有人在線，不在開賽時間自動開）；報名費、候補名單沒有做。
@@ -1297,7 +1301,7 @@ AC-9.5：「多隊賽：多隊循環或瑞士制配對，VP 計分（用 E8 的 
 - **出賽名單**：每隊有一份「下一輪的出賽名單」，四位、依座位順序（開室一對、閉室一對），預設是報名的前四位。**隊長**（報名的第一位）、裁判或管理員在比賽結束前都能改（`POST /api/team-events/:id/lineup { team, players }`，`teamEventCaptainOnly`、`teamEventBadLineup`）；改了只影響之後開的輪。
 - **開下一輪**（`POST /api/team-events/:id/next`，只有裁判或管理員 `teamEventDirectorOnly`；上一輪的每一場都結束才行 `teamEventRoundOn`；打完了 `teamEventOver`）：算出配對，每一組建立一場隊制賽（`TeamMatchService.createSeated`），**八個座位直接入座**（報名時已經確認過，不再邀請）：A 隊的出賽名單坐開室南北（第一位坐南、當房主）與閉室東西，B 隊坐開室東西與閉室南北（B 隊第一位是 B 隊隊長，`invite = captains`）；IMP、不放機器人（出賽名單少人時那個座位才放比賽制度的機器人）、副數與每副限時照公告。有一場建不起來就把這一輪已建的取消、這一輪不算。這一輪每一隊的每個人都收到 `teamEventRound`（有比賽的連到自己那一場、輪空的連到多隊賽頁）。**每場由房主在準備室開始**（八位都在線、沒在打別場，照 §5.8 的 `matchReady`），各場不必同時。
 - **比賽的規矩**（`TeamMatchDeps.eventTeams`）：多隊賽的比賽座位就是出賽名單，所以準備中**只能在同一隊裡換座位**（`matchMove`），邀請、離開、移出、補機器人、改設定、取消都回 `teamEventMatch`；**替補只能是這一隊報名的隊員**（`teamEventRoster`；5、6 人的隊伍用得上）。房主自己也是參賽者，所以**多隊賽比賽的裁判工具只給管理員**（`refereeOnly`；比賽頁的 `canReferee` 也一樣）。房主的超時裁定（`matchRule`）、暫停、中止、代打照舊是房主的（同一般隊制賽）。
-- **結束**：最後一輪的最後一場結束（`ClubService.settleMatch` → `TeamEventService.matchEnded`；讀頁面時也會再看一次）→ 多隊賽 `finished`，記**積分**（種類 `teams`，每隊一方、名次照排名，每隊**實際上場過**的社員才算；同名次同分；rating 每隊一方）→ 比賽公告 `finished`、通知名單上每一個人 `tournamentResults`（直接連到多隊賽頁）。**多隊賽裡的每一場隊制賽不另外記 `match` 積分**（不然一場比賽記兩次）。裁判在多隊賽結束前做的調整都算進積分；之後的要管理員更正（同 §5.23）。
+- **結束**：最後一輪的最後一場結束（`ClubService.settleMatch` → `TeamEventService.matchEnded`；讀頁面時也會再看一次）→ 多隊賽 `finished`，記**積分**（種類 `teams`，每隊一方、名次照排名，每隊**實際上場過**的社員才算；同名次同分；rating 每隊一方）→ 比賽公告 `finished`、通知名單上每一個人 `tournamentResults`（直接連到多隊賽頁）。**多隊賽裡的每一場隊制賽不另外記 `match` 積分**（不然一場比賽記兩次）。裁判在多隊賽結束前做的調整都算進積分；**結束之後**在某一場比賽上的調整（處罰、撤銷、調整分數）照 §5.23 的自動重記：那一場本身沒有積分，所以重算的是整場多隊賽（`TeamEventService.rankedNow` → `RankingsService.recredit`），稽核紀錄是一筆 `points:recredit`、`target` 為 `teams:<id>`（沒有新的稽核動作）。
 - **取消**（`POST /api/team-events/:id/cancel`）：裁判或管理員，只在第一輪開始前（`teamEventStarted`）；比賽公告回到報名中，可以再開一次（會是新的一場）。
 - **刪除帳號**：從還沒結束的多隊賽的隊伍裡拿掉（在出賽名單裡就由隊上下一位補上）；已經在比賽裡的座位照 §5.8（機器人代打）。
 
@@ -1662,7 +1666,7 @@ C4 的實作（2026-10-24）：
 
 **邀請彈窗**（`e1-t35`，`src/state/InvitationsContext.tsx`）：`challengeInvited`、`matchInvited` 不只進鈴鐺，也在畫面中間彈出（DESIGN.md 的 InviteDialog）。全在瀏覽器做，伺服器的通知與 API 都沒變：從推來的通知找出邀請（同一個挑戰／比賽只看最新的一則），用既有的 `GET /api/challenges/:id`、`GET /api/matches/:id` 讀詳細內容並判斷還能不能回覆（挑戰：`answerable`；隊制賽：準備中且自己的座位還是 `invited`），接受／拒絕呼叫既有的 `answer`。離線時收到的邀請在登入或重連、通知推來時一樣會彈。之後同一個挑戰或比賽又有通知（取消、移出、再邀請）就重讀一次，`match` 推送（§5.8）直接更新；挑戰的截止時間到了也會變成失效。處理過的（接受、拒絕、稍後回覆、關掉失效的）與響過的通知 id 記在 localStorage（`tku-invites-handled`、`tku-invites-rang`，留 60 天），所以同一個瀏覽器不重複彈、開好幾個分頁也只響一次；別的分頁處理了，`storage` 事件讓這一頁也關掉。接受、拒絕會把那幾則邀請標為已讀；稍後回覆不標，鈴鐺裡還看得到。
 
-現有的種類：`application`（有人申請註冊，通知每位管理員，連到管理頁）；挑戰（§5.5）：`challengeInvited`（給受邀者）、`challengeAccepted`／`challengeDeclined`（給發起者）、`challengeCancelled`（給沒拒絕的人），參數是 `challengeId` 與對方的 `username`；`challengeReminder`（截止前 12 小時，給接受了還沒打完的人）與 `challengeResults`（挑戰 `finished` 時給每位接受的人），參數是 `challengeId`，由期限工作與結算送出（§5.5，`e7-t13`）；`friendOnline`（關注的人上線了，參數 `username`，連到大廳，§5.7；好友隱藏時不送）。受邀桌（`e2-t25`）：`tableInvited`，參數 `tableId`、`number`（桌號）與房主的 `username`，連到那一桌。隊制賽（§5.8，`e8-t04`）：`matchInvited`（給受邀者）、`matchAccepted`／`matchDeclined`／`matchLeft`（給安排那一隊的人）、`matchRemoved`（給被移出的人，連到 `/matches`）、`matchCancelled`（給座位上的人），參數是 `matchId` 與做這件事的人的 `username`，其餘連到那場比賽的準備室。搭檔（淡江橋譜 E2，`e2-t03`）：`pairInvited`（給受邀者）、`pairAccepted`／`pairDeclined`（給邀請者）、`pairEnded`（給另一位），參數 `pairId` 與做這件事的人的 `username`，連到淡江橋譜的搭檔頁（`/pairs/:id`，橋譜 C4 做；鈴鐺用整頁開啟另一個網站）。精選（`e4-t29`）：`boardFeatured`，第一次設為精選時給打那副的社員（不含機器人與設精選的人自己；之後編輯不再通知），參數 `boardId` 與設的人的 `username`，連到那副的紀錄頁。挑戰頁出來前（C6）挑戰的通知連到大廳。比賽公告（§5.24，`e9-t16`）：`tournamentAnnounced`（給有 `tournaments` 旗標的社員）、`tournamentPartner`（被一起報名的搭檔或隊友，要確認）、`tournamentWithdrawn`（同組的人退出或婉拒，這組報名取消）、`tournamentRemoved`（管理員移除這組報名）、`tournamentCancelled`、`tournamentReminder`（開賽前一小時）、`tournamentResults`（建立的比賽結束），參數 `tournamentId`、`title`（`tournamentPartner`、`tournamentWithdrawn`、`tournamentRemoved` 加做這件事的人的 `username`），連到比賽頁；`tournamentResults` 多帶 `eventKind`、`eventId`，直接連到那場雙人賽或隊制賽的結果頁。受邀桌等之後各自加；私訊不進通知中心（§5.7），所以也不推播。
+現有的種類：`application`（有人申請註冊，通知每位管理員，連到管理頁）；挑戰（§5.5）：`challengeInvited`（給受邀者）、`challengeAccepted`／`challengeDeclined`（給發起者）、`challengeCancelled`（給沒拒絕的人），參數是 `challengeId` 與對方的 `username`；`challengeReminder`（截止前 12 小時，給接受了還沒打完的人）與 `challengeResults`（挑戰 `finished` 時給每位接受的人），參數是 `challengeId`，由期限工作與結算送出（§5.5，`e7-t13`）；`friendOnline`（關注的人上線了，參數 `username`，連到大廳，§5.7；好友隱藏時不送）。受邀桌（`e2-t25`）：`tableInvited`，參數 `tableId`、`number`（桌號）與房主的 `username`，連到那一桌。隊制賽（§5.8，`e8-t04`）：`matchInvited`（給受邀者）、`matchAccepted`／`matchDeclined`／`matchLeft`（給安排那一隊的人）、`matchRemoved`（給被移出的人，連到 `/matches`）、`matchCancelled`（給座位上的人），參數是 `matchId` 與做這件事的人的 `username`，其餘連到那場比賽的準備室。搭檔（淡江橋譜 E2，`e2-t03`）：`pairInvited`（給受邀者）、`pairAccepted`／`pairDeclined`（給邀請者）、`pairEnded`（給另一位），參數 `pairId` 與做這件事的人的 `username`，連到淡江橋譜的搭檔頁（`/pairs/:id`，橋譜 C4 做；鈴鐺用整頁開啟另一個網站）。精選（`e4-t29`）：`boardFeatured`，第一次設為精選時給打那副的社員（不含機器人與設精選的人自己；之後編輯不再通知），參數 `boardId` 與設的人的 `username`，連到那副的紀錄頁。挑戰頁出來前（C6）挑戰的通知連到大廳。比賽公告（§5.24，`e9-t16`）：`tournamentAnnounced`（給有 `tournaments` 旗標的社員）、`tournamentPartner`（被一起報名的搭檔或隊友，要確認）、`tournamentWithdrawn`（同組的人退出或婉拒，這組報名取消）、`tournamentRemoved`（管理員移除這組報名）、`tournamentCancelled`、`tournamentDayReminder`（開賽前一天，開賽時間設在一天以上之後才有）、`tournamentReminder`（開賽前一小時）、`tournamentResults`（建立的比賽結束），參數 `tournamentId`、`title`（`tournamentPartner`、`tournamentWithdrawn`、`tournamentRemoved` 加做這件事的人的 `username`），連到比賽頁；`tournamentResults` 多帶 `eventKind`、`eventId`，直接連到那場雙人賽或隊制賽的結果頁。受邀桌等之後各自加；私訊不進通知中心（§5.7），所以也不推播。
 
 **PWA 推播**（`e1-t28`，AC-1.8；`worker/push.ts`、`worker/web-push.ts`、`shared/push.ts`、`shared/push-texts.ts`，DEPLOY.md §4.17、docs/SECURITY.md）：通知中心的每則**新**通知（`NotificationService` 的 `onNew`）交給 `PushService.queue`；社員**沒有連線**（`Connections.onlineUserIds` 沒有他）、那個種類沒關掉、有訂閱的裝置時，推到他的每台裝置。
 

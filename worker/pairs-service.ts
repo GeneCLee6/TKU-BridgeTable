@@ -189,6 +189,15 @@ export class PairsService {
     return pairsView(event, userId, this.deps.userById, this.directing(event.id, userId))
   }
 
+  /**
+   * The event as the points ledger takes it now, the director's latest work counted (the re-credit
+   * after a change to a finished event, `ClubService.recreditPoints`); null when it is not finished
+   */
+  rankedNow(id: string): RankedEvent | null {
+    const copy = this.copies.get(id)
+    return copy ? pairsRanked(copy.event, pairsScoring(this.directing(id))) : null
+  }
+
   /** What the page and the scoring need of the director's work (`e9-t17`) */
   private directing(id: string, userId?: string): PairsDirecting {
     return {

@@ -36,7 +36,8 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS ranked_events (
     event_id TEXT PRIMARY KEY,
     kind TEXT NOT NULL,
-    at INTEGER NOT NULL
+    at INTEGER NOT NULL,
+    rule TEXT
   )`,
   `CREATE TABLE IF NOT EXISTS points_entries (
     event_id TEXT NOT NULL,
@@ -57,7 +58,8 @@ const SCHEMA = [
     delta REAL NOT NULL,
     reason TEXT NOT NULL,
     by_id TEXT NOT NULL,
-    made_at INTEGER NOT NULL
+    made_at INTEGER NOT NULL,
+    auto INTEGER NOT NULL DEFAULT 0
   )`,
   'CREATE INDEX IF NOT EXISTS points_adjustments_entry ON points_adjustments (event_id, user_id)',
   `CREATE TABLE IF NOT EXISTS ratings (
@@ -103,6 +105,13 @@ interface RatingRow extends Record<string, SqlValue> {
 
 const round = (n: number, places = 1) => Math.round(n * 10 ** places) / 10 ** places
 
+/** One member's points changed by `recredit`: the difference written to the ledger, and what the entry comes to */
+export interface PointsRecredit {
+  userId: string
+  delta: number
+  points: number
+}
+
 export class RankingStore {
   private readonly sql: Sql
 
@@ -113,6 +122,12 @@ export class RankingStore {
   createTables() {
     this.sql.transaction(() => {
       for (const statement of SCHEMA) this.sql.exec(statement)
+      // Columns added after J2 (the table's round-7 follow-ups): the rule an event was recorded under,
+      // and the corrections the re-credit wrote (`recredit`). Older rows: no rule (the current one
+      // is used), every correction an admin's
+      const has = (table: string, column: string) => this.sql.exec<{ name: string }>(`PRAGMA table_info(${table})`).some((c) => c.name === column)
+      if (!has('ranked_events', 'rule')) this.sql.exec('ALTER TABLE ranked_events ADD COLUMN rule TEXT')
+      if (!has('points_adjustments', 'auto')) this.sql.exec('ALTER TABLE points_adjustments ADD COLUMN auto INTEGER NOT NULL DEFAULT 0')
     })
   }
 
@@ -128,7 +143,13 @@ export class RankingStore {
   record(event: RankedEvent, rules: PointsRules): boolean {
     return this.sql.transaction(() => {
       if (this.recorded(event.id)) return false
-      this.sql.exec('INSERT INTO ranked_events (event_id, kind, at) VALUES (?, ?, ?)', event.id, event.kind, event.at)
+      this.sql.exec(
+        'INSERT INTO ranked_events (event_id, kind, at, rule) VALUES (?, ?, ?, ?)',
+        event.id,
+        event.kind,
+        event.at,
+        JSON.stringify(rules.kinds[event.kind]),
+      )
       for (const p of placePoints(rules.kinds[event.kind], event.sides))
         this.sql.exec(
           'INSERT OR IGNORE INTO points_entries (event_id, user_id, kind, at, rank, field, points) VALUES (?, ?, ?, ?, ?, ?, ?)',
@@ -142,6 +163,52 @@ export class RankingStore {
         )
       this.rate(event)
       return true
+    })
+  }
+
+  /**
+   * A recorded event's result changed after it was credited (the director's tools, `e9-t17`, after
+   * its end): each member's points are worked out again from `event` under the rule it was
+   * recorded with (the current one for an event recorded before the rule was kept), and the
+   * difference from what the rule gave plus the earlier re-credits is written as a correction
+   * (`auto`), with who and why. An admin's own corrections stay on top of it. Doing it again with
+   * the same result writes nothing, so it is idempotent. Places and fields follow the new result;
+   * only members with an entry are re-credited (a deleted account's entries are gone and stay
+   * gone; a director's tools never change who finished). Ratings are not worked out again (they
+   * go in time order, §5.21). Empty when the event was never recorded or nothing changed
+   */
+  recredit(event: RankedEvent, rules: PointsRules, by: string, reason: string, now: number): PointsRecredit[] {
+    return this.sql.transaction(() => {
+      const ranked = this.sql.exec<{ kind: PointKind; rule: string | null }>('SELECT kind, rule FROM ranked_events WHERE event_id = ?', event.id)[0]
+      if (!ranked) return []
+      const rule = ranked.rule ? (JSON.parse(ranked.rule) as PointsRules['kinds'][PointKind]) : rules.kinds[ranked.kind]
+      const next = new Map(placePoints(rule, event.sides).map((p) => [p.userId, p]))
+      const entries = this.sql.exec<{ user_id: string; points: number }>('SELECT user_id, points FROM points_entries WHERE event_id = ? ORDER BY rowid', event.id)
+      const changes: PointsRecredit[] = []
+      for (const entry of entries) {
+        const placed = next.get(entry.user_id)
+        const auto = this.sql.exec<{ delta: number | null }>(
+          'SELECT SUM(delta) AS delta FROM points_adjustments WHERE event_id = ? AND user_id = ? AND auto = 1',
+          event.id,
+          entry.user_id,
+        )[0]?.delta
+        const delta = round((placed?.points ?? 0) - (entry.points + (auto ?? 0)))
+        if (placed)
+          this.sql.exec('UPDATE points_entries SET rank = ?, field = ? WHERE event_id = ? AND user_id = ?', placed.rank, placed.field, event.id, entry.user_id)
+        if (delta === 0) continue
+        this.sql.exec(
+          'INSERT INTO points_adjustments (event_id, user_id, delta, reason, by_id, made_at, auto) VALUES (?, ?, ?, ?, ?, ?, 1)',
+          event.id,
+          entry.user_id,
+          delta,
+          reason,
+          by,
+          now,
+        )
+        const all = this.adjustmentsOf(event.id, entry.user_id).reduce((s, a) => s + a.delta, 0)
+        changes.push({ userId: entry.user_id, delta, points: round(entry.points + all) })
+      }
+      return changes
     })
   }
 
@@ -230,12 +297,12 @@ export class RankingStore {
 
   private adjustmentsOf(eventId: string, userId: string): PointsAdjustment[] {
     return this.sql
-      .exec<{ delta: number; reason: string; by_id: string; made_at: number }>(
-        'SELECT delta, reason, by_id, made_at FROM points_adjustments WHERE event_id = ? AND user_id = ? ORDER BY id',
+      .exec<{ delta: number; reason: string; by_id: string; made_at: number; auto: number }>(
+        'SELECT delta, reason, by_id, made_at, auto FROM points_adjustments WHERE event_id = ? AND user_id = ? ORDER BY id',
         eventId,
         userId,
       )
-      .map((a) => ({ delta: a.delta, reason: a.reason, by: a.by_id, at: a.made_at }))
+      .map((a) => ({ delta: a.delta, reason: a.reason, by: a.by_id, at: a.made_at, ...(a.auto === 1 && { auto: true as const }) }))
   }
 
   /**

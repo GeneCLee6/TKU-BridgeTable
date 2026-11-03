@@ -324,6 +324,9 @@ export const api = {
       post<{ tournament: TournamentView }>(`/api/tournaments/${encodeURIComponent(id)}/remove`, { entryId }),
     cancel: (id: string) => post<{ tournament: TournamentView }>(`/api/tournaments/${encodeURIComponent(id)}/cancel`),
     start: (id: string) => post<{ tournament: TournamentView }>(`/api/tournaments/${encodeURIComponent(id)}/start`),
+    /** The order the members alone are paired in (an admin, before the start); null: the order they entered */
+    pairing: (id: string, order: string[] | null) =>
+      post<{ tournament: TournamentView }>(`/api/tournaments/${encodeURIComponent(id)}/pairing`, { order }),
   },
   /** Multi-team events (`e9-t14`, §5.26): the page, a captain's line-up, the director's next round and cancel */
   teamEvents: {

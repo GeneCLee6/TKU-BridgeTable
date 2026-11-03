@@ -21,6 +21,7 @@ const mocks = vi.hoisted(() => ({
       remove: vi.fn(),
       cancel: vi.fn(),
       start: vi.fn(),
+      pairing: vi.fn(),
     },
   },
   user: { id: 'u1', username: 'amy', admin: false, permissions: [] as string[] },
@@ -170,5 +171,48 @@ describe('tournament pages', () => {
     expect(await screen.findByRole('link', { name: '社慶盃' })).toHaveAttribute('href', '/tournaments/t1')
     expect(screen.getByText('2／10 對')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: '公告比賽' })).toBeInTheDocument()
+  })
+
+  it('shows how those alone will be paired, and lets an admin swap them or go back (2026-11-03)', async () => {
+    mocks.user.admin = true
+    const u = (id: string, username: string) => ({ id, username })
+    const singles: NonNullable<TournamentView['singles']> = {
+      pairs: [
+        [u('u4', 'dan'), u('u5', 'eve')],
+        [u('u6', 'fay'), u('u7', 'gus')],
+      ],
+      leftOver: [u('u8', 'hal')],
+      adjusted: false,
+    }
+    mocks.api.tournaments.get.mockResolvedValue({ tournament: { ...OPEN, canManage: true, singles } })
+    mocks.api.tournaments.pairing.mockResolvedValue({
+      tournament: { ...OPEN, canManage: true, singles: { pairs: [[u('u4', 'dan'), u('u6', 'fay')], [u('u5', 'eve'), u('u7', 'gus')]], leftOver: [u('u8', 'hal')], adjusted: true } },
+    })
+    renderPage()
+    const section = await screen.findByRole('region', { name: '單人報名的配對' })
+    expect(within(section).getByText('第 1 對')).toBeInTheDocument()
+    expect(within(section).getByText('多出一人（這次不排）')).toBeInTheDocument()
+    expect(within(section).queryByRole('button', { name: '恢復報名順序' })).not.toBeInTheDocument()
+    // Eve swaps places with Fay: the whole new order goes to the server
+    await userEvent.selectOptions(within(section).getByRole('combobox', { name: '把 eve 和誰交換' }), 'u6')
+    expect(mocks.api.tournaments.pairing).toHaveBeenCalledWith('t1', ['u4', 'u6', 'u5', 'u7', 'u8'])
+    expect(await within(section).findByText('管理員調整過配對。')).toBeInTheDocument()
+    mocks.api.tournaments.pairing.mockResolvedValue({ tournament: { ...OPEN, canManage: true, singles } })
+    await userEvent.click(within(section).getByRole('button', { name: '恢復報名順序' }))
+    expect(mocks.api.tournaments.pairing).toHaveBeenLastCalledWith('t1', null)
+  })
+
+  it('shows members the proposed pairing without the controls', async () => {
+    const singles: NonNullable<TournamentView['singles']> = {
+      pairs: [[{ id: 'u4', username: 'dan' }, { id: 'u5', username: 'eve' }]],
+      leftOver: [],
+      adjusted: true,
+    }
+    mocks.api.tournaments.get.mockResolvedValue({ tournament: { ...OPEN, singles } })
+    renderPage()
+    const section = await screen.findByRole('region', { name: '單人報名的配對' })
+    expect(within(section).getByRole('link', { name: 'eve' })).toBeInTheDocument()
+    expect(within(section).queryByRole('combobox')).not.toBeInTheDocument()
+    expect(within(section).queryByRole('button')).not.toBeInTheDocument()
   })
 })

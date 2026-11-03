@@ -60,6 +60,7 @@ export const PUSH_TEXTS: PushTexts = {
       "tournamentCancelled": "「{title}」取消了",
       "tournamentReminder": "「{title}」再一小時就開賽了",
       "tournamentResults": "「{title}」結束了，來看結果",
+      "tournamentDayReminder": "「{title}」明天這個時候開賽",
       "teamEventRound": "「{title}」第 {number} 輪配對好了，來看你們的比賽"
     }
   },
@@ -121,6 +122,7 @@ export const PUSH_TEXTS: PushTexts = {
       "tournamentCancelled": "「{title}」取消了",
       "tournamentReminder": "「{title}」再一小时就开赛了",
       "tournamentResults": "「{title}」结束了，来看结果",
+      "tournamentDayReminder": "「{title}」明天这个时候开赛",
       "teamEventRound": "「{title}」第 {number} 轮配对好了，来看你们的比赛"
     }
   },
@@ -182,6 +184,7 @@ export const PUSH_TEXTS: PushTexts = {
       "tournamentCancelled": "\"{title}\" was cancelled",
       "tournamentReminder": "\"{title}\" starts in an hour",
       "tournamentResults": "\"{title}\" is over: see the results",
+      "tournamentDayReminder": "\"{title}\" starts this time tomorrow",
       "teamEventRound": "\"{title}\" round {number} is paired: see your match"
     }
   },
@@ -243,6 +246,7 @@ export const PUSH_TEXTS: PushTexts = {
       "tournamentCancelled": "\"{title}\" đã bị hủy",
       "tournamentReminder": "\"{title}\" sẽ bắt đầu sau một giờ",
       "tournamentResults": "\"{title}\" đã kết thúc: xem kết quả",
+      "tournamentDayReminder": "\"{title}\" sẽ bắt đầu vào giờ này ngày mai",
       "teamEventRound": "\"{title}\" vòng {number} đã bốc cặp: xem trận của đội bạn"
     }
   },
@@ -304,6 +308,7 @@ export const PUSH_TEXTS: PushTexts = {
       "tournamentCancelled": "「{title}」は中止になりました",
       "tournamentReminder": "「{title}」はあと 1 時間で始まります",
       "tournamentResults": "「{title}」が終わりました。結果を見ましょう",
+      "tournamentDayReminder": "「{title}」は明日のこの時間に始まります",
       "teamEventRound": "「{title}」第 {number} ラウンドの組み合わせが決まりました。試合を確認しましょう"
     }
   },
@@ -365,6 +370,7 @@ export const PUSH_TEXTS: PushTexts = {
       "tournamentCancelled": "「{title}」이(가) 취소되었습니다",
       "tournamentReminder": "「{title}」이(가) 한 시간 뒤에 시작합니다",
       "tournamentResults": "「{title}」이(가) 끝났습니다. 결과를 확인하세요",
+      "tournamentDayReminder": "「{title}」이(가) 내일 이 시간에 시작합니다",
       "teamEventRound": "「{title}」 {number}라운드 대진이 정해졌습니다. 경기를 확인하세요"
     }
   }

@@ -91,6 +91,7 @@ export function notificationLink(n: Notification, options: { forum?: boolean } =
     case 'tournamentWithdrawn':
     case 'tournamentRemoved':
     case 'tournamentCancelled':
+    case 'tournamentDayReminder':
     case 'tournamentReminder':
       return n.params.tournamentId ? `/tournaments/${encodeURIComponent(String(n.params.tournamentId))}` : '/tournaments'
     // Straight to the results: the pairs event's or the team match's page

@@ -792,6 +792,18 @@ export class ForumService {
   }
 
   /**
+   * A member's account is deleted: their drafts and scheduled posts go with it (the president,
+   * 2026-11-03); their published posts stay. A post not out yet has no comments, reactions or
+   * reports (they wait for it to come out), so only its row goes; its pictures then have no post
+   * and `FileService.forget` removes them. A scheduled post's job wakes to nothing. Returns the ids removed
+   */
+  forgetUnpublished(userId: string): string[] {
+    const ids = this.sql.exec<{ id: string }>(`SELECT id FROM forum_posts WHERE author_id = ? AND NOT (${PUBLISHED})`, userId).map((r) => r.id)
+    if (ids.length) this.sql.exec(`DELETE FROM forum_posts WHERE author_id = ? AND NOT (${PUBLISHED})`, userId)
+    return ids
+  }
+
+  /**
    * The time of a post scheduled for `at` came (the table's e13-t12): it is out from now, as if
    * posted now. Null when it is no longer waiting for `at` (published, deleted, made a draft or
    * moved to another time since: that time's job publishes it). `stillMay`: whether its author may

@@ -38,6 +38,7 @@ export const PUSH_GROUPS = {
     'tournamentWithdrawn',
     'tournamentRemoved',
     'tournamentCancelled',
+    'tournamentDayReminder',
     'tournamentReminder',
     'tournamentResults',
     'teamEventRound',

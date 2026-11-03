@@ -2,6 +2,7 @@
 import { describe, expect, it } from 'vitest'
 import { BYE_VP } from '../../shared/team-event.ts'
 import { matchVictoryPoints } from '../../shared/vp.ts'
+import { AuditLog } from '../../worker/audit.ts'
 import { teamHarness } from './team-match-harness.ts'
 
 /**
@@ -201,6 +202,21 @@ describe('multi-team events (e9-t14)', () => {
     expect(ledger(ids.a4)).toEqual([])
     const last = done.standings[2]
     expect(ledger(done.teams[last.team].players[1].id)[0]).toMatchObject({ rank: 3 })
+    // A director's change after the end re-credits the event's points (the match has none of its own)
+    const top = done.standings[0]
+    const topPlayer = done.teams[top.team].players[0].id
+    const before = ledger(topPlayer)[0]
+    expect(before).toMatchObject({ rank: 1 })
+    const topMatch = done.played.flatMap((r) => r.matches).find((m) => m.a === top.team || m.b === top.team)!
+    await t.club().refereeAct(admin, 'match', topMatch.matchId, { action: 'penalty', target: topMatch.a === top.team ? 'A' : 'B', amount: 40, reason: '違規' })
+    expect(t.view(admin).standings.at(-1)!.team).toBe(top.team)
+    const after = ledger(topPlayer)[0]
+    expect(after).toMatchObject({ rank: 3, adjustments: [expect.objectContaining({ auto: true, reason: '違規' })] })
+    expect(after.points).toBeLessThan(before.points)
+    expect(ledger(topMatch.a === top.team ? done.teams[topMatch.b].players[0].id : done.teams[topMatch.a].players[0].id)).toHaveLength(1)
+    const audit = await new AuditLog(t.h.store).list()
+    expect(audit.filter((x) => x.action === 'points:recredit').map((x) => x.target)).toEqual([`teams:${eventId}`])
+
     // The tournament is finished and everyone in it told
     expect(t.club().tournaments.view(t.tournamentId, ids.b2)).toMatchObject({ status: 'finished', eventLink: `/team-events/${eventId}` })
     expect(await t.kinds(ids.a4)).toContain('tournamentResults')

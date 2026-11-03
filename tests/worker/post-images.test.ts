@@ -155,4 +155,27 @@ describe('forum pictures (e13-t13)', () => {
     expect(await files.forget(amy.id, (key) => forum.imagesInUse([key], 'all').size > 0)).toEqual([never])
     expect([...bucket.objects.keys()].sort()).toEqual([other, posted].sort())
   })
+
+  it("on deleting an account, removes the member's drafts and scheduled posts and then their pictures (2026-11-03)", async () => {
+    const posted = await upload(officer)
+    const drafted = await upload(officer)
+    const scheduled = await upload(officer)
+    const published = post(officer, [image(posted)])
+    time += 60_000
+    const draft = forum.createPost(officer, 'deals', { blocks: [image(drafted)], draft: true })
+    time += 60_000
+    const later = forum.createPost(officer, 'news', { blocks: [image(scheduled)], publishAt: time + 3_600_000 })
+    // Someone else's draft stays
+    time += 60_000
+    const amys = forum.createPost(amy, 'deals', { blocks: [{ kind: 'paragraph', text: '還沒寫完' }], draft: true })
+
+    expect(forum.forgetUnpublished(officer.id).sort()).toEqual([draft.id, later.id].sort())
+    expect(forum.scheduled()).toEqual([])
+    expect(forum.unpublished(amy).posts.map((p) => p.id)).toEqual([amys.id])
+    expect(forum.post(published.id).id).toBe(published.id)
+    expect(await files.forget(officer.id, (key) => forum.imagesInUse([key], 'all').size > 0)).toEqual(expect.arrayContaining([drafted, scheduled]))
+    expect([...bucket.objects.keys()]).toEqual([posted])
+    // The scheduled post's job, when it wakes, finds nothing to publish
+    expect(forum.publishScheduled(later.id, time + 3_600_000, () => true)).toBeNull()
+  })
 })
