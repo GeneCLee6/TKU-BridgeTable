@@ -1,6 +1,6 @@
 import type { RandomInt } from '../shared/board.ts'
 import { makeDealSet } from '../shared/deal-set.ts'
-import { entrantsAt } from '../shared/movement.ts'
+import { entrantsAt, INDIVIDUAL_ROUNDS_MAX } from '../shared/movement.ts'
 import {
   isPairsFormat,
   parsePairsSettings,
@@ -233,7 +233,12 @@ export class PairsService {
     this.allowed(userId)
     this.limited(userId)
     const parsed = parsePairsSettings(settings)
-    if (!parsed || (format !== undefined && !isPairsFormat(format))) throw new ClubError('badPairsSettings')
+    if (format !== undefined && !isPairsFormat(format)) throw new ClubError('badPairsSettings')
+    // The rounds to play (`e9-t15`, §5.25): only an individual event has them, 1 to 19
+    const rounds = settings && typeof settings === 'object' ? (settings as { rounds?: unknown }).rounds : undefined
+    if (rounds !== undefined && rounds !== null && (format !== 'individual' || (!parsed && parsePairsSettings({ ...(settings as object), rounds: undefined }))))
+      throw new ClubError('individualRounds', { max: INDIVIDUAL_ROUNDS_MAX })
+    if (!parsed) throw new ClubError('badPairsSettings')
     const event = await this.open(userId, parsed, format === 'individual' ? 'individual' : undefined)
     return this.view(event.id, userId)
   }
@@ -355,7 +360,7 @@ export class PairsService {
     const until = delayOf(this.deps.refereeOf(event.id))
     if (until !== null && until > this.deps.now())
       throw new ClubError('eventDelayed', { minutes: Math.ceil((until - this.deps.now()) / 60_000) })
-    const movement = movementFor(event.format, event.pairs.length, event.settings.boardsPerRound)
+    const movement = movementFor(event.format, event.pairs.length, event.settings.boardsPerRound, event.settings.rounds)
     if (!movement) throw movementRefused(event)
     const online = new Set(this.deps.online())
     for (const player of pairsPlayers(event)) {

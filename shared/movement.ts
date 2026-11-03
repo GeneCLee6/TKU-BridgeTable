@@ -177,23 +177,36 @@ export const isIndividualSize = (players: number): players is (typeof INDIVIDUAL
 export const individualSizeFor = (count: number): number =>
   [...INDIVIDUAL_SIZES].reverse().find((n) => n <= count) ?? 0
 
+/** Most rounds an individual event may be cut to (`rounds` below): the largest size's n − 1 */
+export const INDIVIDUAL_ROUNDS_MAX = INDIVIDUAL_PLAYERS.max - 1
+
+/** The rounds an individual event of `players` plays when its director asked for `wanted` (absent: all n − 1) */
+export const individualRoundsFor = (players: number, wanted?: number) =>
+  wanted === undefined ? players - 1 : Math.max(1, Math.min(wanted, players - 1))
+
 /**
  * The individual movement for `players` players (8, 12, 16 or 20) and `boardsPerRound` boards a
  * round (capped so the event has at most 32 boards): n − 1 rounds of n / 4 tables, every player
  * at a table every round (`WHIST_FIRST_ROUNDS`). Online there are no boards to carry, so every
  * table of a round plays the same boards and each board is played at every table (compared n / 4
  * times). The entry order is the players' numbers: the last one entered is ∞ (stays at one seat);
- * null for a size it cannot take
+ * null for a size it cannot take.
+ *
+ * `rounds` cuts it to the first rounds of the schedule (1 … n − 1; more is read as n − 1): every
+ * player still plays every round and partners nobody twice, but not everyone partners everyone
+ * (ARCHITECTURE.md §5.25). The 32-board cap counts the rounds played
  */
-export function individual(players: number, boardsPerRound: number): Movement | null {
+export function individual(players: number, boardsPerRound: number, rounds?: number): Movement | null {
   if (!isIndividualSize(players)) return null
   if (!Number.isInteger(boardsPerRound) || boardsPerRound < BOARDS_PER_ROUND.min) return null
+  if (rounds !== undefined && (!Number.isInteger(rounds) || rounds < 1)) return null
   const m = players - 1
+  const played = individualRoundsFor(players, rounds)
   const tables = players / 4
-  const perRound = Math.max(BOARDS_PER_ROUND.min, Math.min(boardsPerRound, BOARDS_PER_ROUND.max, Math.floor(MOVEMENT_BOARDS_MAX / m)))
+  const perRound = Math.max(BOARDS_PER_ROUND.min, Math.min(boardsPerRound, BOARDS_PER_ROUND.max, Math.floor(MOVEMENT_BOARDS_MAX / played)))
   const first = WHIST_FIRST_ROUNDS[players]
   const schedule: MovementRound[] = []
-  for (let r = 0; r < m; r++) {
+  for (let r = 0; r < played; r++) {
     const at = (x: number) => (x === m ? m : mod(x + r, m))
     const boards = Array.from({ length: perRound }, (_, i) => r * perRound + i + 1)
     schedule.push({
@@ -205,7 +218,7 @@ export function individual(players: number, boardsPerRound: number): Movement | 
       sitOut: [],
     })
   }
-  return { kind: 'individual', tables, rounds: m, boardsPerRound: perRound, boards: m * perRound, pairs: players, phantom: false, schedule }
+  return { kind: 'individual', tables, rounds: played, boardsPerRound: perRound, boards: played * perRound, pairs: players, phantom: false, schedule }
 }
 
 /** The entrants (pairs, or an individual movement's players) at a table: NS then EW */
