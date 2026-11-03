@@ -1,5 +1,5 @@
 import type { DealSet } from '../shared/deal-set.ts'
-import { mitchell, MOVEMENT_PAIRS, type Movement } from '../shared/movement.ts'
+import { individual, INDIVIDUAL_PLAYERS, INDIVIDUAL_SIZES, mitchell, MOVEMENT_PAIRS, type Movement, type MovementTable } from '../shared/movement.ts'
 import type { PairsResult, PairsSettings, PairsStatus } from '../shared/pairs.ts'
 import type { ScoreRuling } from '../shared/ruling-scoring.ts'
 import { ClubError } from './errors.ts'
@@ -14,8 +14,11 @@ import { ClubError } from './errors.ts'
  */
 
 export interface PairsPair {
-  /** Two member ids; the first sits North (or East) */
-  players: [string, string]
+  /**
+   * Two member ids; the first sits North (or East). An individual event (`e9-t15`): one, every
+   * entry is a player (the movement says where they sit each round)
+   */
+  players: [string, string] | [string]
   /** When the pair entered */
   at: number
 }
@@ -26,6 +29,8 @@ export interface PairsEvent {
   createdAt: number
   status: PairsStatus
   settings: PairsSettings
+  /** An individual event (`e9-t15`): members enter alone and change partner every round; absent for pairs */
+  format?: 'individual'
   /** In the order they entered; from the start this order is the movement's (`pairPlace`) */
   pairs: PairsPair[]
   /** From the start */
@@ -42,7 +47,7 @@ export interface PairsEvent {
 
 /** A change the club asks of an event; structured-clonable, so it crosses Durable Object RPC */
 export type PairsStep =
-  | { kind: 'enter'; players: [string, string]; at: number }
+  | { kind: 'enter'; players: [string, string] | [string]; at: number }
   | { kind: 'withdraw'; userId: string; by: string }
   | { kind: 'cancel'; userId: string; at: number }
   | { kind: 'start'; userId: string; deals: DealSet; tables: string[]; at: number }
@@ -61,9 +66,36 @@ export const pairOf = (event: PairsEvent, userId: string): number => event.pairs
 /** Everyone in a pair of the event */
 export const pairsPlayers = (event: PairsEvent): string[] => event.pairs.flatMap((p) => p.players)
 
+/** The movement for `entries` entries: a Mitchell for pairs, the individual movement (`e9-t15`) for players */
+export const movementFor = (format: PairsEvent['format'], entries: number, boardsPerRound: number): Movement | null =>
+  format === 'individual' ? individual(entries, boardsPerRound) : mitchell(entries, boardsPerRound)
+
 /** The event's movement for its pairs now (before the start: what it would be) */
 export const movementOf = (event: PairsEvent): Movement | null =>
-  event.movement ?? mitchell(event.pairs.length, event.settings.boardsPerRound)
+  event.movement ?? movementFor(event.format, event.pairs.length, event.settings.boardsPerRound)
+
+/** Most entries an event takes: 20 pairs, or 20 players in an individual event */
+export const entriesMax = (event: Pick<PairsEvent, 'format'>) =>
+  event.format === 'individual' ? INDIVIDUAL_PLAYERS.max : MOVEMENT_PAIRS.max
+
+/** The error for a number of entries the movement cannot take */
+export function movementRefused(event: PairsEvent): ClubError {
+  if (event.format === 'individual') return new ClubError('individualSize', { sizes: INDIVIDUAL_SIZES.join('/') })
+  return new ClubError(event.pairs.length < MOVEMENT_PAIRS.min ? 'pairsTooFew' : 'pairsFull', { min: MOVEMENT_PAIRS.min, max: MOVEMENT_PAIRS.max })
+}
+
+/**
+ * Who sits where at a table of the movement: the NS pair North and South and the EW pair East and
+ * West (each pair's first player North or East); an individual event's players by its seats
+ */
+export function seatsOf(event: PairsEvent, table: MovementTable): { ns: [string, string]; ew: [string, string] } {
+  const player = (entry: number) => event.pairs[entry].players[0]
+  if (table.seats) {
+    const [n, s, e, w] = table.seats
+    return { ns: [player(n), player(s)], ew: [player(e), player(w)] }
+  }
+  return { ns: event.pairs[table.ns].players as [string, string], ew: event.pairs[table.ew].players as [string, string] }
+}
 
 /** Whether every table of the round finished every board it plays */
 export function roundDone(event: PairsEvent, round: number): boolean {
@@ -110,9 +142,12 @@ export function applyPairsStep(event: PairsEvent, step: PairsStep): void {
   switch (step.kind) {
     case 'enter': {
       open(event)
+      // A pair enters two players; an individual event one (`e9-t15`)
+      if (step.players.length !== (event.format === 'individual' ? 1 : 2)) throw new ClubError('unknownCommand')
       for (const userId of step.players)
         if (pairOf(event, userId) >= 0) throw new ClubError('pairsInPair', { name: userId })
-      if (event.pairs.length >= MOVEMENT_PAIRS.max) throw new ClubError('pairsFull', { max: MOVEMENT_PAIRS.max })
+      if (event.pairs.length >= entriesMax(event))
+        throw new ClubError(event.format === 'individual' ? 'individualFull' : 'pairsFull', { max: entriesMax(event) })
       event.pairs.push({ players: step.players, at: step.at })
       return
     }
@@ -133,8 +168,8 @@ export function applyPairsStep(event: PairsEvent, step: PairsStep): void {
     case 'start': {
       director(event, step.userId)
       open(event)
-      const movement = mitchell(event.pairs.length, event.settings.boardsPerRound)
-      if (!movement) throw new ClubError('pairsTooFew', { min: MOVEMENT_PAIRS.min })
+      const movement = movementFor(event.format, event.pairs.length, event.settings.boardsPerRound)
+      if (!movement) throw movementRefused(event)
       if (step.deals.boards.length !== movement.boards || step.tables.length !== movement.tables)
         throw new ClubError('serverError', {}, 500)
       event.status = 'playing'

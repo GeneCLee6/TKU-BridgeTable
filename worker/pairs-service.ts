@@ -1,7 +1,15 @@
 import type { RandomInt } from '../shared/board.ts'
 import { makeDealSet } from '../shared/deal-set.ts'
-import { mitchell, MOVEMENT_PAIRS } from '../shared/movement.ts'
-import { parsePairsSettings, scorePairs, type PairsScoringOptions, type PairsSettings, type PairsSummary, type PairsView } from '../shared/pairs.ts'
+import { entrantsAt } from '../shared/movement.ts'
+import {
+  isPairsFormat,
+  parsePairsSettings,
+  scorePairs,
+  type PairsScoringOptions,
+  type PairsSettings,
+  type PairsSummary,
+  type PairsView,
+} from '../shared/pairs.ts'
 import type { PublicUser, RobotSpeed } from '../shared/protocol.ts'
 import { delayOf, type RefereeEntry } from '../shared/referee.ts'
 import type { ScoreRuling } from '../shared/ruling-scoring.ts'
@@ -10,7 +18,17 @@ import { ClubError } from './errors.ts'
 import { crashEntry, type Logger } from './log.ts'
 import type { EventReport } from './modes.ts'
 import { LocalPairs, type PairsApi, type PairsSnapshot, type RemotePairs } from './pairs-events.ts'
-import { boardsLeft, nextRoundDue, pairOf, pairsPlayers, type PairsEvent, type PairsStep } from './pairs-flow.ts'
+import {
+  boardsLeft,
+  movementFor,
+  movementRefused,
+  nextRoundDue,
+  pairOf,
+  pairsPlayers,
+  seatsOf,
+  type PairsEvent,
+  type PairsStep,
+} from './pairs-flow.ts'
 import { pairsTable } from './pairs-mode.ts'
 import type { RankedEvent } from './rankings.ts'
 import type { Store } from './store.ts'
@@ -199,7 +217,7 @@ export class PairsService {
       const pair = pairOf(event, userId)
       if (pair < 0) continue
       const round = event.movement!.schedule[event.round - 1]
-      const table = round?.tables.find((t) => t.ns === pair || t.ew === pair)
+      const table = round?.tables.find((t) => entrantsAt(t).includes(pair))
       return (table && event.roundTables[event.round - 1]?.[table.table - 1]) || ''
     }
     return null
@@ -207,13 +225,16 @@ export class PairsService {
 
   // ── Setting up (`e9-t10`) ────────────────────────────────────────────────────────────────
 
-  /** `POST /api/pairs { settings }`: a new event; whoever creates it directs it */
-  async create(userId: string, settings: unknown): Promise<PairsView> {
+  /**
+   * `POST /api/pairs { settings, format? }`: a new event; whoever creates it directs it. `format`
+   * `individual` makes an individual event (`e9-t15`): members enter alone
+   */
+  async create(userId: string, settings: unknown, format?: unknown): Promise<PairsView> {
     this.allowed(userId)
     this.limited(userId)
     const parsed = parsePairsSettings(settings)
-    if (!parsed) throw new ClubError('badPairsSettings')
-    const event = await this.open(userId, parsed)
+    if (!parsed || (format !== undefined && !isPairsFormat(format))) throw new ClubError('badPairsSettings')
+    const event = await this.open(userId, parsed, format === 'individual' ? 'individual' : undefined)
     return this.view(event.id, userId)
   }
 
@@ -228,14 +249,25 @@ export class PairsService {
     return event.id
   }
 
+  /**
+   * A tournament's individual event (`e9-t15`, §5.25): as `createFrom`, every player entered alone
+   * in order (the tournament checked the flag and the blocks)
+   */
+  async createIndividual(directorId: string, settings: PairsSettings, players: string[]): Promise<string> {
+    const event = await this.open(directorId, settings, 'individual')
+    for (const player of players) await this.step(event.id, { kind: 'enter', players: [player], at: this.deps.now() })
+    return event.id
+  }
+
   /** A new event, its copy kept and its home (the club or its own object) chosen */
-  private async open(userId: string, settings: PairsSettings): Promise<PairsEvent> {
+  private async open(userId: string, settings: PairsSettings, format?: 'individual'): Promise<PairsEvent> {
     const event: PairsEvent = {
       id: this.deps.newId(),
       directorId: userId,
       createdAt: this.deps.now(),
       status: 'open',
       settings,
+      ...(format && { format }),
       pairs: [],
       round: 0,
       roundTables: [],
@@ -260,12 +292,23 @@ export class PairsService {
     return this.copies.get(id)?.event.status ?? null
   }
 
-  /** `POST /api/pairs/:id/enter { partner }`: the member and a partner (by username) enter as a pair */
+  /**
+   * `POST /api/pairs/:id/enter { partner }`: the member and a partner (by username) enter as a
+   * pair; in an individual event (`e9-t15`) the member alone, refused when they and someone
+   * entered blocked one another (they would partner once)
+   */
   async enter(userId: string, id: string, partner: unknown): Promise<PairsView> {
     this.allowed(userId)
     this.limited(userId)
     const event = this.require(id)
     if (event.status !== 'open') throw new ClubError('pairsNotOpen')
+    if (event.format === 'individual') {
+      if (pairOf(event, userId) >= 0) throw new ClubError('pairsInPair', { name: this.deps.userById(userId)?.username ?? '' })
+      if (pairsPlayers(event).some((other) => this.deps.blocked(userId, other) || this.deps.blocked(other, userId)))
+        throw new ClubError('individualBlocked')
+      await this.step(event.id, { kind: 'enter', players: [userId], at: this.deps.now() })
+      return this.view(event.id, userId)
+    }
     const partnerId = typeof partner === 'string' ? this.deps.userByName(partner.trim()) : null
     if (!partnerId || partnerId === userId || this.deps.blocked(userId, partnerId) || this.deps.blocked(partnerId, userId))
       throw new ClubError('pairsBadPartner')
@@ -312,8 +355,8 @@ export class PairsService {
     const until = delayOf(this.deps.refereeOf(event.id))
     if (until !== null && until > this.deps.now())
       throw new ClubError('eventDelayed', { minutes: Math.ceil((until - this.deps.now()) / 60_000) })
-    const movement = mitchell(event.pairs.length, event.settings.boardsPerRound)
-    if (!movement) throw new ClubError(event.pairs.length < MOVEMENT_PAIRS.min ? 'pairsTooFew' : 'pairsFull', { min: MOVEMENT_PAIRS.min, max: MOVEMENT_PAIRS.max })
+    const movement = movementFor(event.format, event.pairs.length, event.settings.boardsPerRound)
+    if (!movement) throw movementRefused(event)
     const online = new Set(this.deps.online())
     for (const player of pairsPlayers(event)) {
       const name = this.deps.userById(player)?.username ?? ''
@@ -359,6 +402,7 @@ export class PairsService {
     const movement = event.movement!
     const t = movement.schedule[round - 1].tables.find((x) => x.table === table)!
     const players = pairsPlayers(event)
+    const { ns, ew } = seatsOf(event, t)
     return pairsTable({
       id,
       eventId: event.id,
@@ -366,8 +410,9 @@ export class PairsService {
       round,
       rounds: movement.rounds,
       table,
-      ns: event.pairs[t.ns].players,
-      ew: event.pairs[t.ew].players,
+      ns,
+      ew,
+      ...(event.format && { format: event.format }),
       nsPair: t.ns,
       ewPair: t.ew,
       boards,
@@ -417,7 +462,8 @@ export class PairsService {
       if (!boards.length) throw new ClubError('refereeNothingLeft')
       const old = event.roundTables[round - 1]?.[table - 1]
       if (old) await this.deps.closeTable(old).catch(() => undefined)
-      for (const player of [...event.pairs[t.ns].players, ...event.pairs[t.ew].players]) await this.deps.leave(player)
+      const { ns, ew } = seatsOf(event, t)
+      for (const player of [...ns, ...ew]) await this.deps.leave(player)
       const tableId = this.deps.newId()
       await this.deps.openTable(this.tableOfRound(event, round, table, tableId, boards))
       try {
@@ -523,7 +569,8 @@ export class PairsService {
 }
 
 /**
- * A finished event as the points ledger takes it (J2, `kind: 'pairs'`): every pair one side, ranked
+ * A finished event as the points ledger takes it (J2, `kind: 'pairs'`; `individual` for an
+ * individual event, `e9-t15`, every player one side): every pair one side, ranked
  * by its matchpoint percentage across both fields (a Mitchell ranks NS and EW apart, but the
  * percentages compare: each is a share of the tops of the boards that pair played), equal
  * percentages sharing a place; null before the end
@@ -538,5 +585,5 @@ export function pairsRanked(event: PairsEvent, scoring: PairsScoringOptions = {}
     robots: 0,
     rank: 1 + standings.filter((o) => o.percent > s.percent + same).length,
   }))
-  return { id: event.id, kind: 'pairs', at: event.finishedAt ?? event.startedAt ?? event.createdAt, sides }
+  return { id: event.id, kind: event.format === 'individual' ? 'individual' : 'pairs', at: event.finishedAt ?? event.startedAt ?? event.createdAt, sides }
 }

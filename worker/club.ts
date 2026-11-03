@@ -1116,7 +1116,11 @@ export class Club extends DurableObject<Env> implements Connections {
     }
     // Pairs events (§5.22, e9-t10–e9-t13): the list, one event, and its actions
     if (route === 'GET /api/pairs') return json({ pairs: this.service.pairs.list(user.id) })
-    if (route === 'POST /api/pairs') return json({ pairs: await this.service.pairs.create(user.id, (await body()).settings) })
+    if (route === 'POST /api/pairs') {
+      // `format: 'individual'`: an individual event (e9-t15, §5.25)
+      const b = await body()
+      return json({ pairs: await this.service.pairs.create(user.id, b.settings, b.format) })
+    }
     const pairsPage = url.pathname.match(/^\/api\/pairs\/([\w-]+)(?:\/(enter|withdraw|cancel|start))?$/)
     if (pairsPage) {
       const [, eventId, action] = pairsPage

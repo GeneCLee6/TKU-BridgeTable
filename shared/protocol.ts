@@ -431,6 +431,8 @@ export interface TablePairs {
   boards: number
   /** Nothing left to play here this round: the players go to the next round's table */
   over: boolean
+  /** An individual event's table (`e9-t15`): the partners change every round */
+  individual?: true
 }
 
 export interface TableMatch {

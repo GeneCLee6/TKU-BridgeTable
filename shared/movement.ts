@@ -19,6 +19,9 @@
  * Every round each set is at exactly one table, so every board is played the same number of times
  * (one fewer at the boards the phantom would have played: Neuberg evens that out, `pairs.ts`).
  * NS and EW are ranked apart (two fields), as a Mitchell always is.
+ *
+ * And the **individual** movement (個人賽, `e9-t15`, `individual` below): every player changes
+ * partner every round, for 8, 12, 16 or 20 players, on a whist tournament's schedule.
  */
 
 export const MOVEMENT_TABLES = { min: 3, max: 10 } as const
@@ -39,10 +42,15 @@ export interface PairPlace {
 export interface MovementTable {
   /** 1-based */
   table: number
-  /** The NS pair's index in the list of pairs */
+  /** The NS pair's index in the list of pairs (an individual movement: North's index among the players) */
   ns: number
-  /** The EW pair's index in the list of pairs */
+  /** The EW pair's index in the list of pairs (an individual movement: East's index among the players) */
   ew: number
+  /**
+   * An individual movement (`e9-t15`): the four players at the table, North, South, East, West
+   * (indices in the list of players); North–South and East–West are this round's partnerships
+   */
+  seats?: [number, number, number, number]
   /** The board set (0-based) at the table */
   set: number
   /** The board numbers played, in order */
@@ -59,12 +67,14 @@ export interface MovementRound {
 }
 
 export interface Movement {
-  kind: 'mitchell'
+  /** A pairs Mitchell, or an individual movement (`e9-t15`, `individual`) */
+  kind: 'mitchell' | 'individual'
   tables: number
   rounds: number
   boardsPerRound: number
   /** All the boards: `tables × boardsPerRound` */
   boards: number
+  /** Pairs entered (an individual movement: players) */
   pairs: number
   /** The odd pair out: the last EW place is empty */
   phantom: boolean
@@ -124,7 +134,7 @@ export function mitchell(pairs: number, boardsPerRound: number): Movement | null
 
 /** Where a pair plays in a round: its table, or null when it sits out */
 export function tableOfPair(movement: Movement, round: number, pair: number): MovementTable | null {
-  return movement.schedule[round - 1]?.tables.find((t) => t.ns === pair || t.ew === pair) ?? null
+  return movement.schedule[round - 1]?.tables.find((t) => entrantsAt(t).includes(pair)) ?? null
 }
 
 /** How many times each board is played in the whole event (by board number, 1-based index) */
@@ -133,3 +143,79 @@ export function plannedPlays(movement: Movement): number[] {
   for (const round of movement.schedule) for (const table of round.tables) for (const b of table.boards) plays[b]++
   return plays
 }
+
+// ── Individual movements (個人賽, `e9-t15`, AC-9.6) ─────────────────────────────────────────────
+
+/**
+ * Players an individual event takes: 2 to 5 full tables, nobody sitting out (the pairs engine
+ * seats no robots). Each size has a complete schedule below
+ */
+export const INDIVIDUAL_SIZES = [8, 12, 16, 20] as const
+export const INDIVIDUAL_PLAYERS = { min: INDIVIDUAL_SIZES[0], max: INDIVIDUAL_SIZES[INDIVIDUAL_SIZES.length - 1] } as const
+
+/**
+ * The first round of a **Z-cyclic whist tournament** Wh(n) for n = 8, 12, 16, 20 players: the
+ * players are the numbers 0 … m − 1 (m = n − 1) and ∞ (= m). Each table `[a, b, c, d]` is a and c
+ * (North–South) against b and d (East–West). Round r adds r to every number (mod m, ∞ stays), and
+ * there are m rounds. For these first rounds the partners' differences (±(a − c), ±(b − d)) cover
+ * every non-zero number mod m exactly once and the opponents' (±(a − b), ±(a − d), ±(c − b),
+ * ±(c − d)) exactly twice, so over the m rounds **every player partners every other player exactly
+ * once and plays against every other player exactly twice** — the most even schedule there is.
+ * Found by a computer search and checked in `tests/engine/individual-movement.test.ts`.
+ */
+export const WHIST_FIRST_ROUNDS: Record<(typeof INDIVIDUAL_SIZES)[number], [number, number, number, number][]> = {
+  8: [[0, 1, 2, 4], [3, 5, 7, 6]],
+  12: [[0, 1, 3, 8], [2, 4, 7, 6], [5, 9, 11, 10]],
+  16: [[0, 1, 2, 6], [3, 10, 7, 13], [4, 8, 11, 9], [5, 12, 14, 15]],
+  20: [[0, 1, 2, 5], [3, 10, 12, 19], [4, 11, 15, 17], [6, 9, 18, 14], [7, 13, 8, 16]],
+}
+
+export const isIndividualSize = (players: number): players is (typeof INDIVIDUAL_SIZES)[number] =>
+  (INDIVIDUAL_SIZES as readonly number[]).includes(players)
+
+/** The most players of `count` an individual movement seats: the largest size not above it (0: too few) */
+export const individualSizeFor = (count: number): number =>
+  [...INDIVIDUAL_SIZES].reverse().find((n) => n <= count) ?? 0
+
+/**
+ * The individual movement for `players` players (8, 12, 16 or 20) and `boardsPerRound` boards a
+ * round (capped so the event has at most 32 boards): n − 1 rounds of n / 4 tables, every player
+ * at a table every round (`WHIST_FIRST_ROUNDS`). Online there are no boards to carry, so every
+ * table of a round plays the same boards and each board is played at every table (compared n / 4
+ * times). The entry order is the players' numbers: the last one entered is ∞ (stays at one seat);
+ * null for a size it cannot take
+ */
+export function individual(players: number, boardsPerRound: number): Movement | null {
+  if (!isIndividualSize(players)) return null
+  if (!Number.isInteger(boardsPerRound) || boardsPerRound < BOARDS_PER_ROUND.min) return null
+  const m = players - 1
+  const tables = players / 4
+  const perRound = Math.max(BOARDS_PER_ROUND.min, Math.min(boardsPerRound, BOARDS_PER_ROUND.max, Math.floor(MOVEMENT_BOARDS_MAX / m)))
+  const first = WHIST_FIRST_ROUNDS[players]
+  const schedule: MovementRound[] = []
+  for (let r = 0; r < m; r++) {
+    const at = (x: number) => (x === m ? m : mod(x + r, m))
+    const boards = Array.from({ length: perRound }, (_, i) => r * perRound + i + 1)
+    schedule.push({
+      round: r + 1,
+      tables: first.map(([a, b, c, d], t) => {
+        const seats: [number, number, number, number] = [at(a), at(c), at(b), at(d)]
+        return { table: t + 1, ns: seats[0], ew: seats[2], set: r, boards: [...boards], seats }
+      }),
+      sitOut: [],
+    })
+  }
+  return { kind: 'individual', tables, rounds: m, boardsPerRound: perRound, boards: m * perRound, pairs: players, phantom: false, schedule }
+}
+
+/** The entrants (pairs, or an individual movement's players) at a table: NS then EW */
+export const entrantsAt = (table: MovementTable): number[] => table.seats ?? [table.ns, table.ew]
+
+/** The two sides of a table, as entrants: a pair each, or two players each in an individual movement */
+export function sidesAt(table: MovementTable): { ns: number[]; ew: number[] } {
+  return table.seats ? { ns: [table.seats[0], table.seats[1]], ew: [table.seats[2], table.seats[3]] } : { ns: [table.ns], ew: [table.ew] }
+}
+
+/** The table of a round in the movement */
+export const movementTable = (movement: Movement, round: number, table: number): MovementTable | undefined =>
+  movement.schedule[round - 1]?.tables.find((t) => t.table === table)

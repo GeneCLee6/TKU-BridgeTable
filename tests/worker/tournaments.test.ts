@@ -455,6 +455,26 @@ describe('the day-before reminder (2026-11-03)', () => {
     expect(again.due().map((j) => [j.day, j.ms])).toEqual([[false, 4 * HOUR]])
   })
 
+  it('goes a day before an individual event too, which has no singles pairing (e9-t15)', async () => {
+    const store = memoryStore()
+    const clock = { time: 1_000 }
+    const s = service(store, clock)
+    const view = await s.tournaments.create('boss', { ...settings(clock.time, 3 * 24 * HOUR), kind: 'individual', capacity: 8 })
+    await s.tournaments.enter('amy', view.id, {})
+    await s.tournaments.enter('ben', view.id, {})
+    const jobs = s.due()
+    expect(jobs.map((j) => [j.day, j.ms])).toEqual([
+      [true, 2 * 24 * HOUR],
+      [false, 3 * 24 * HOUR - HOUR],
+    ])
+    clock.time += 2 * 24 * HOUR
+    await jobs[0].run()
+    expect(s.told('tournamentDayReminder')).toEqual(['amy', 'ben'])
+    // Everyone plays alone and partners everyone: nothing to pair, and no pairing to set
+    expect(s.tournaments.view(view.id, 'boss').singles).toBeUndefined()
+    expect(await code(() => s.tournaments.setPairing('boss', view.id, ['ben', 'amy']))).toBe('tournamentBadPairing')
+  })
+
   it('is skipped for an announcement less than a day ahead, and when the club slept through most of the day', async () => {
     const store = memoryStore()
     const clock = { time: 1_000 }

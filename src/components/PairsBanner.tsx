@@ -31,7 +31,7 @@ export function PairsBanner({ pairs }: { pairs: TablePairs }) {
     <Wrap>
       <UsersRound size={15} aria-hidden />
       <Link to={`/pairs/${encodeURIComponent(pairs.id)}`} target="_blank" rel="noopener">
-        {t.pairs.banner(pairs.round, pairs.rounds, pairs.table)}
+        {(pairs.individual ? t.pairs.individualBanner : t.pairs.banner)(pairs.round, pairs.rounds, pairs.table)}
       </Link>
       <small>{`${pairs.played}／${pairs.boards}`}</small>
       {pairs.over && pairs.round < pairs.rounds && <small role="status">{t.pairs.bannerOver}</small>}

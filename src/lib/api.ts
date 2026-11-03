@@ -298,8 +298,11 @@ export const api = {
   pairs: {
     list: () => request<{ pairs: PairsSummary[] }>('/api/pairs'),
     get: (id: string) => request<{ pairs: PairsView }>(`/api/pairs/${encodeURIComponent(id)}`),
-    create: (settings: Partial<PairsSettings>) => post<{ pairs: PairsView }>('/api/pairs', { settings }),
-    enter: (id: string, partner: string) => post<{ pairs: PairsView }>(`/api/pairs/${encodeURIComponent(id)}/enter`, { partner }),
+    /** `format: 'individual'`: an individual event (e9-t15) */
+    create: (settings: Partial<PairsSettings>, format?: 'individual') =>
+      post<{ pairs: PairsView }>('/api/pairs', { settings, ...(format && { format }) }),
+    /** No partner in an individual event: the member enters alone */
+    enter: (id: string, partner?: string) => post<{ pairs: PairsView }>(`/api/pairs/${encodeURIComponent(id)}/enter`, { partner }),
     withdraw: (id: string, userId?: string) =>
       post<{ pairs: PairsView }>(`/api/pairs/${encodeURIComponent(id)}/withdraw`, { userId }),
     cancel: (id: string) => post<{ pairs: PairsView }>(`/api/pairs/${encodeURIComponent(id)}/cancel`),

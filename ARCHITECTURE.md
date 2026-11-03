@@ -46,7 +46,7 @@ TKU-BridgeTable/
 │  ├─ challenge-scoring.ts 挑戰的計分：IMP、總分、MP、Cross-IMP、IMP 對 datum、沒打完的副、同分名次
 │  ├─ challenge-stats.ts   挑戰戰績：勝率、平均 IMP、對每位的 head-to-head（§5.5 M2）
 │  ├─ challenge-comments.ts 每副討論串的型別與上限（§5.5 M2）
-│  ├─ movement.ts          雙人賽的移位：Mitchell（3–10 桌、輪空、跳桌），純函式（§5.22）
+│  ├─ movement.ts          雙人賽的移位：Mitchell（3–10 桌、輪空、跳桌）與個人賽的移位（8／12／16／20 人，§5.25），純函式（§5.22）
 │  ├─ pairs.ts             雙人賽的設定、MP 計分（Neuberg 調整、南北東西分開排名）與頁面的型別（§5.22）
 │  ├─ tournament.ts        比賽公告與報名：設定的檢查、報名（單人、搭檔、整隊）、從名單配成雙人賽的對或隊制賽的隊、頁面型別（§5.24）
 │  ├─ challenge.ts         挑戰的狀態、設定、預設值與期限（§5.5）
@@ -232,7 +232,7 @@ interface BoardState {
 - **觀看延遲（`e8-t19`）**：房主在準備時可開「觀看者落後一墩」（`TeamMatchSettings.delay`，預設關，開桌時寫進 `TeamTableState.delay`）。開了之後，打牌階段的觀看者只拿到**最後打完那一墩之前**的墩（`laggedBoard`：`play` 只留 `4 ×（完成墩數 − 1）` 張；正在打的那一墩與剛打完的那一墩都不送，等待中的攤牌也不送），每一手的牌是那時候手上的牌；`TableView.waiting`（現在輪到誰）也不送。觀賽頁（`vugraphBoard`）與坐在牌桌上的觀看者（`TableService.tableView`，`mySeat` 是 null 時）都一樣，**在伺服器裁掉**，之後打的牌不會出現在觀看者的瀏覽器。叫牌不延遲；一副打完就整副送出（結果本來就是這一室的）；比賽結束後不再延遲。入座的參賽者照常。
 - **中止**（`e8-t16`）：正在打的那一副直接收起、不留紀錄，其餘已打完的副一起公開（`revealEvent`）。裁定（`e8-t15`）讓那一副「完成」：已打完那一室的紀錄立刻公開，正在打它的那一室收起來、不留紀錄。
 
-**雙人賽**（§5.22，`pairsView`、`pairsSummary`，`GET /api/pairs`、`/api/pairs/:id`）：牌組永遠不送；有 `pairs` 旗標的社員都看得到列表與每一場（取消的只給裁判）。即時成績（每對的 MP、百分比、名次）所有人都看得到。**每副成績（traveller）**：比賽進行中，參賽者只看得到**自己這一對已經打過的副**，所以不會在打之前知道那一副在別桌的結果；沒有參賽的裁判（與沒有參賽的管理員，`e9-t17`）看得到全部（裁定用），其他人一副都看不到；結束後全部公開。紀錄的 id 只跟著自己的那一列（結束前別桌的紀錄還沒公開）。牌桌層：每一輪的牌桌只是一般牌桌（`mode: 'pairs'`），大廳不列、不能觀看（`allowKibitz: false`），比賽中的參賽者不能進同一場的其他桌（`matchNoWatching`，牌桌再用自己的 `PairsTableState.players` 檢查一次），也不能開桌、坐到或觀看別桌、開始挑戰（`inPairs`，社團的 `checkNotInMatch`）；座位與設定由移位決定（`pairsTableFixed`）、不能撤回（`pairsNoUndo`）。紀錄帶 `mode: 'pairs'`、`eventId`，`revealAt` 是 `HELD_BACK`，**比賽結束時才一起公開**（`revealEvent`）：同一副在 Mitchell 裡是不同輪在不同桌打的，所以在那之前只有打那一副的四位看得到。測試在 `tests/worker/pairs-event.test.ts`（兩種 `EVENT_OBJECTS` 模式都跑）。
+**雙人賽**（§5.22，`pairsView`、`pairsSummary`，`GET /api/pairs`、`/api/pairs/:id`）：牌組永遠不送；有 `pairs` 旗標的社員都看得到列表與每一場（取消的只給裁判）。即時成績（每對的 MP、百分比、名次）所有人都看得到。**每副成績（traveller）**：比賽進行中，參賽者只看得到**自己這一對已經打過的副**，所以不會在打之前知道那一副在別桌的結果；沒有參賽的裁判（與沒有參賽的管理員，`e9-t17`）看得到全部（裁定用），其他人一副都看不到；結束後全部公開。紀錄的 id 只跟著自己的那一列（結束前別桌的紀錄還沒公開）。牌桌層：每一輪的牌桌只是一般牌桌（`mode: 'pairs'`），大廳不列、不能觀看（`allowKibitz: false`），比賽中的參賽者不能進同一場的其他桌（`matchNoWatching`，牌桌再用自己的 `PairsTableState.players` 檢查一次），也不能開桌、坐到或觀看別桌、開始挑戰（`inPairs`，社團的 `checkNotInMatch`）；座位與設定由移位決定（`pairsTableFixed`）、不能撤回（`pairsNoUndo`）。紀錄帶 `mode: 'pairs'`、`eventId`，`revealAt` 是 `HELD_BACK`，**比賽結束時才一起公開**（`revealEvent`）：同一副在 Mitchell 裡是不同輪在不同桌打的，所以在那之前只有打那一副的四位看得到。測試在 `tests/worker/pairs-event.test.ts`（兩種 `EVENT_OBJECTS` 模式都跑）。**個人賽**（§5.25）是同一個 `pairsView`：每個參賽者是一個「單位」，traveller 的每一列多帶那一桌四個座位的參賽者（`seats`），「自己打過的副」是自己坐過的桌，所以一樣是打完那一副才看得到別桌的結果；結束前紀錄一樣 `HELD_BACK`（同一輪每一桌打同一副，所以在那之前只有自己那一桌的四位看得到），測試在 `tests/worker/pairs-individual.test.ts`。
 
 **資訊隔離回歸測試**（`e11-t13`，AC-11.8）：`tests/worker/visibility/visibility.test.ts` 集中測一般、練習、挑戰、隊制賽四種牌桌 × 每種角色（入座、觀看、不允許觀看時沒有座位的人、另一室的參賽者、局外人）：每一則送到瀏覽器的 `table` 訊息都檢查有沒有不該看到的牌（`noHiddenCards`），還沒公開的牌局在紀錄、紀錄列表、搜尋（我的與全部）、個人檔案、收藏、traveller、精選都拿不到（`exposure`），公開之後每處都拿得到。新增可見性規則或新的地方會送出牌局時，加在這裡；CI 的 `npm test` 會跑。
 
@@ -1046,6 +1046,7 @@ AC-9.2（社團積分：依名次給分、月榜年榜、規則可設定、每�
 | 其他挑戰 | `challenge` | 同上 | 同上 |
 | 隊制賽 | `match` | 一隊（座位上的社員；機器人只算進 rating） | 比賽 `finished`（`settleMatch`）；`abandoned`、`cancelled` 不算 |
 | 雙人賽（J3） | `pairs` | 一對 | J3 結算時呼叫 `ClubService.rankings.record(...)` |
+| 個人賽（`e9-t15`，§5.25） | `individual` | 一個人 | 同雙人賽（同一個收尾） |
 
 - **只有打完全部副數、有名次的人**（跟挑戰的排名一樣，§5.5）。只有一人打完（排名是總分、沒人可比）不給分、不算 rating。
 - **「用這副牌挑戰」的發起者（`knownDeals`）不算**：他的成績是之前打的，這場不是真的參賽。
@@ -1064,6 +1065,7 @@ AC-9.2（社團積分：依名次給分、月榜年榜、規則可設定、每�
 | 挑戰 | 是 | 0 | 1 | 3（兩個人互挑不給分，避免刷分） |
 | 隊制賽 | 是 | 2 | 4 | 2 |
 | 雙人賽 | 是 | 2 | 1 | 3 |
+| 個人賽 | 是 | 2 | 0.5 | 4（每人一方，方數是同樣桌數雙人賽的兩倍，所以每贏過一方減半） |
 
 「依參加人數加權」就是「贏過的方數」：人越多、贏過的人越多，分數越高（PRD 風險「積分讓人只打簡單的」）。
 
@@ -1215,16 +1217,56 @@ AC-9.8：「裁判工具：調整分數、處罰、延遲開賽、重新開一�
 - **報名**（有旗標的社員，報名截止前）：雙人賽可以自己報名（算半對，開賽時和其他單人依報名順序兩兩配對）或帶一位搭檔；隊制賽一定是四人一隊（可取隊名）。搭檔、隊友用帳號名稱指定，檢查：存在、不是自己、不重複、兩邊都沒封鎖對方（`tournamentBadPartner`，不說是哪一種）、沒人已經在別組（`tournamentAlreadyIn`）、人數對（`tournamentEntrySize`）、沒超過名額（`tournamentFull`）。**搭檔要確認**（`tournamentPartner` 通知；`POST …/answer { accept }`），確認在開賽前都可以，婉拒和**退出**（同組任何一人）只能在截止前（`tournamentClosed`），而且整組一起取消，通知同組其他人（`tournamentWithdrawn`）。
 - **報名名單**：所有有旗標的社員都看得到每一組的人、誰還沒確認（`TournamentView.entries`）；取消的比賽只有管理員看得到。
 - **開賽前提醒**：統一排程器（`worker/scheduler.ts`）的 `tournament:<id>:<開賽時間>` 工作（`JobKind` 的 `tournament`），排在開賽前一小時（已經過了就立刻），給名單上每一個人（含還沒確認的）`tournamentReminder`。改了開賽時間就排新的一個，舊的到時發現時間不對什麼都不做；送過的記在 `remindedFor`，物件被回收後 `load()` 重排時也不會送第二次。取消或結束了就不送。
-- **前一天的提醒**（社長 2026-11-03）：另一個工作 `tournament:<id>:<開賽時間>:day`，開賽前 24 小時送 `tournamentDayReminder`（「明天這個時候開賽」），對象一樣。只有**設定開賽時間的那一刻離開賽還有 24 小時以上**才有（公告時、或改了開賽時間時判斷，記在 `dayReminderFor`）；公告或改到不到一天後開賽就只有一小時前那一則。改時間的處理和一小時前的一樣（新時間新工作、舊的醒來什麼都不做），送過記在 `dayRemindedFor`。物件睡過頭、醒來時離開賽不到 12 小時（`dayReminderLateMs`）就不送前一天那則（會說「明天」），一小時前的照送。推播文字 `npm run push:texts` 重產。
+- **前一天的提醒**（社長 2026-11-03）：另一個工作 `tournament:<id>:<開賽時間>:day`（每種比賽方式都有，含個人賽），開賽前 24 小時送 `tournamentDayReminder`（「明天這個時候開賽」），對象一樣。只有**設定開賽時間的那一刻離開賽還有 24 小時以上**才有（公告時、或改了開賽時間時判斷，記在 `dayReminderFor`）；公告或改到不到一天後開賽就只有一小時前那一則。改時間的處理和一小時前的一樣（新時間新工作、舊的醒來什麼都不做），送過記在 `dayRemindedFor`。物件睡過頭、醒來時離開賽不到 12 小時（`dayReminderLateMs`）就不送前一天那則（會說「明天」），一小時前的照送。推播文字 `npm run push:texts` 重產。
 - **用名單開賽**（管理員，`POST …/start`）：
   - 雙人賽：搭檔確認過的每一對（依報名順序），加上單人兩兩配成的對（照下面的配對；多出一人就不排），至少 5 對（`tournamentTooFew { count, min }`），最多前 20 對。`PairsService.createFrom` 建立雙人賽（**裁判是按開賽的管理員**，設定照公告），把每一對報名進去。之後管理員在雙人賽頁按「開始」（照 §5.22：所有人在線、沒在別的比賽才開得了）。
   - 隊制賽：前兩支四人都確認的隊伍。由第一隊的第一位當房主建立隊制賽（`invite = direct`、不放機器人、隊名照報名），用房主的身分把其他七人邀請到座位（第一隊：開室北、閉室東西；第二隊：開室東西、閉室南北），他們在邀請彈窗接受、房主在準備室開始（§5.8，照常的 `matchInvited` 流程）。有一個邀請失敗（例如有人封鎖房主）就把剛建立的隊制賽取消，比賽公告留在報名中。
   - 比賽公告變成 `started`、記下比賽 id；頁面多一個「前往比賽」連到 `/pairs/:id` 或 `/matches/:id`。
 - **雙人賽頁的旗標**：從比賽公告建立的雙人賽，參賽的人與裁判不需要 `pairs` 旗標也能看那場的頁面與操作（`PairsService.allowed` 加上「是這場的人」），所以 `/pairs/:eventId` 的路由一律掛上、由伺服器決定（別人照樣 `pairsOff`）；雙人賽列表與建立仍要旗標。
 - **結果公告**：雙人賽收尾（§5.22 的 `settled`，和積分同一個時機）與隊制賽收尾（`settleMatch`，完賽或放棄都算，放棄時兩室都打完的副照樣計分）時呼叫 `TournamentService.eventEnded`；讀比賽頁、列表時也會再看一次（社團漏聽的時候補）。比賽結束 → 比賽公告 `finished`，通知名單上每一個人 `tournamentResults`（直接連到結果頁），頁面的連結改成「看比賽結果」。建立的比賽在開打前被取消（雙人賽的裁判取消、隊制賽的房主取消）或不見了 → 比賽公告回到 `open`，管理員可以重新開賽。
-- **單人報名的配對**（社長 2026-11-03）：單人照樣依報名順序兩兩配對，但開賽前比賽頁有「單人報名的配對」（`TournamentView.singles`：預計的每一對與多出的一人、管理員調整過沒有），所有看得到比賽的人都看得到。管理員可以用每個人旁邊的「交換…」把兩個人對調（`POST /api/tournaments/:id/pairing { order }`，送出整個順序），或「恢復報名順序」（`order: null`）。伺服器（`TournamentService.setPairing`）檢查：管理員、報名中、雙人賽、順序剛好是現在每一位單人各一次（`isPairingOrder`），不然 400 `tournamentBadPairing`（例如這中間有人報名或退出，頁面重新讀）。順序存在 `Tournament.pairing`；之後有單人退出就從順序裡拿掉、新報名的單人接在最後（`singlesOrder`），所以退出的人後面的會往前遞補，開賽前再看一次。開賽（`pairsFromEntries`）照這個順序配。
+- **單人報名的配對**（社長 2026-11-03，只有雙人賽；個人賽每個人都自己報名、和每個人當一次搭檔，沒有配對可調，`setPairing` 回 `tournamentBadPairing`）：單人照樣依報名順序兩兩配對，但開賽前比賽頁有「單人報名的配對」（`TournamentView.singles`：預計的每一對與多出的一人、管理員調整過沒有），所有看得到比賽的人都看得到。管理員可以用每個人旁邊的「交換…」把兩個人對調（`POST /api/tournaments/:id/pairing { order }`，送出整個順序），或「恢復報名順序」（`order: null`）。伺服器（`TournamentService.setPairing`）檢查：管理員、報名中、雙人賽、順序剛好是現在每一位單人各一次（`isPairingOrder`），不然 400 `tournamentBadPairing`（例如這中間有人報名或退出，頁面重新讀）。順序存在 `Tournament.pairing`；之後有單人退出就從順序裡拿掉、新報名的單人接在最後（`singlesOrder`），所以退出的人後面的會往前遞補，開賽前再看一次。開賽（`pairsFromEntries`）照這個順序配。
 - **API**：`GET /api/tournaments`（依開賽時間）、`POST /api/tournaments { settings }`、`GET /api/tournaments/:id`、`POST /api/tournaments/:id/{settings|cancel|remove|enter|answer|withdraw|pairing|start}`。頁面 `src/pages/TournamentPages.tsx`（`/tournaments`、`/tournaments/:id`）。
-- **還沒做**：多隊賽（`e9-t14`）、個人賽（`e9-t15`）做好之後加成新的比賽方式；隊制賽只取前兩隊（多的隊伍留在名單上）；雙人賽開賽仍要裁判在雙人賽頁按「開始」（要所有人在線，不在開賽時間自動開）；報名費、候補名單沒有做。
+- **個人賽**（`individual`，`e9-t15`，§5.25）：名額是人數（8–20），每個人都自己報名（帶搭檔回 `tournamentEntrySize`），一人算一個名額；和已報名的任何人有封鎖關係就不能報名（`individualBlocked`，個人賽每兩人會當一次搭檔）。開賽時依報名順序取 8、12、16 或 20 人（不超過報名人數的最大那一種，`playersFromEntries`），多的人這次不排；不到 8 人回 `tournamentTooFew`。`PairsService.createIndividual` 建立個人格式的雙人賽，之後一樣在 `/pairs/:id` 開始、打、計分；結束時 `tournamentResults` 的 `eventKind` 是 `individual`。
+- **還沒做**：多隊賽（`e9-t14`）做好之後加成新的比賽方式；隊制賽只取前兩隊（多的隊伍留在名單上）；雙人賽開賽仍要裁判在雙人賽頁按「開始」（要所有人在線，不在開賽時間自動開）；報名費、候補名單沒有做。
+
+## 5.25 個人賽（決策紀錄，`e9-t15`，AC-9.6，2026-11-03）
+
+AC-9.6：「個人賽：每輪換搭檔的移位與個人排名。」**不是另一套比賽引擎**：一場個人賽就是一場格式為 `individual` 的雙人賽（`PairsEvent.format`），用同一個 `PairsService`、`applyPairsStep`、`EventObject`（同一個開關 `EVENT_OBJECTS`、同一把 key `pairs:<id>`）、同一種牌桌（`mode=pairs`）、同一個計分（`scorePairs`）與同一頁（`/pairs/:id`）。差別只在「一個參賽單位是一個人」與移位。
+
+### 移位（`shared/movement.ts` 的 `individual`）
+
+- **8、12、16、20 人**（2–5 桌，`INDIVIDUAL_SIZES`）。雙人賽的引擎不放機器人，所以只收剛好坐滿的人數，沒有人輪空；其他人數回 `individualSize`。
+- 用 **Z-cyclic whist tournament** Wh(n)：參賽者是 0 … m − 1（m = n − 1）與 ∞，第一輪的每一桌 `[a, b, c, d]` 是 a、c（南北）對 b、d（東西），第 r 輪每個數加 r（mod m，∞ 不動），共 m 輪。四種人數的第一輪（`WHIST_FIRST_ROUNDS`）是電腦搜尋找到的，滿足「搭檔的差（±(a − c)、±(b − d)）剛好涵蓋每個非零數一次、對手的差剛好兩次」，所以**全場每兩人剛好當一次搭檔、當兩次對手**，這是最平均的排法（每人 n − 1 輪、每輪一個新搭檔、兩個對手）。測試（`tests/engine/individual-movement.test.ts`）把四種人數全部展開檢查：每輪每人剛好一個座位（沒有衝突、沒有輪空）、每兩人搭檔 1 次、對手 2 次。
+- 報名順序就是號碼：最後報名的人是 ∞（整場坐同一桌同一個位置），其他人每輪換桌換位置。
+- **牌**：線上沒有實體牌要傳，所以**同一輪每一桌打同一組牌**（第 r 輪打第 (r − 1) × 每輪副數 + 1 起的那幾副），每一副在每一桌各打一次（桌數 = 比較的次數，Neuberg 的 N）。每輪副數 1–4，全場最多 32 副：8 人 7 輪（最多每輪 4 副）、12 人 11 輪（2 副）、16 人 15 輪（2 副）、20 人 19 輪（1 副）。
+- `MovementTable` 多一個 `seats`（北、南、東、西的參賽者序號）；`ns`／`ew` 是北家與東家的序號（牌桌回報的結果照舊帶 `ns`／`ew`，`applyPairsStep` 照舊比對）。`entrantsAt`、`sidesAt`、`resultSides` 把「一張桌或一筆結果的兩方」統一成參賽者的序號清單，雙人賽是 `[ns]`／`[ew]`，個人賽是兩位。
+
+### 報名、開始、進行
+
+- `POST /api/pairs { settings, format: 'individual' }` 建立（有 `pairs` 旗標的社員；格式錯了回 `badPairsSettings`），`POST /api/pairs/:id/enter`（不帶搭檔）自己報名。`PairsPair.players` 在個人賽只有一位，所以報名名單、退出（自己或裁判）、`pairOf`、`pairsPlayers` 都照舊。最多 20 人（`individualFull`）。**封鎖**：個人賽每兩人會當一次搭檔，所以和已經報名的任何人有封鎖關係就不能報名（`individualBlocked`，不說是誰）。
+- 開始的檢查與雙人賽一樣（裁判、所有人在線、沒在別的比賽），人數不對回 `individualSize { sizes }`。每一輪的每一桌照 `seats` 坐（`seatsOf`），換桌、拖住的桌、`usePairsFollow` 帶人去新桌都照 §5.22；`TablePairs.individual` 讓牌桌上方的 `PairsBanner` 寫「個人賽」。
+
+### 計分與排名
+
+- 每一副照雙人賽算 MP（同一副在每一桌的結果互比，§5.22 的 `scorePairs`，含裁定與 Neuberg），**每個人拿自己那一方的 MP**：南北兩位都拿 `mpNS`、東西兩位都拿 `mpEW`（`resultSides`）。
+- **一個排名**（沒有南北／東西之分，`PairStanding.dir` 不給），百分比是「拿到的 MP ÷ 自己打過那幾副的滿分」，同百分比同名次；即時成績每次讀頁面重算。
+- **積分**：收尾時 `pairsRanked` 送 `kind: 'individual'`，每人一方（§5.21 的新種類 `individual`，預設參加 2 分、每贏過一人 0.5 分、至少 4 人），積分明細連到 `/pairs/:id`。
+
+### 裁判工具、可見性、比賽公告
+
+- **裁判工具**（§5.23）全部適用，`POST /api/referee/pairs/:id`：處罰的對象是一位參賽者（序號），調整分數、沒打的副給分數、重新開一桌（四位照 `seats` 離桌、到新桌）都照雙人賽。
+- **可見性**（§4）：traveller 的每一列多帶 `seats`；參賽者打完那一副（自己坐過那一桌那一輪）才看得到別桌的結果，紀錄的 id 只跟著自己坐過的那一列；結束後全部公開。
+- **比賽公告**（§5.24）多一種比賽方式 `individual`：只能自己報名，名額是人數，開賽時取前 8／12／16／20 人。
+
+### 頁面
+
+`src/pages/PairsPages.tsx` 依 `PairsView.format` 顯示：建立表單多「比賽方式」（雙人賽／個人賽）、報名只要按「報名」、每一桌與 traveller 的每一方寫那兩位、成績只有一張表（「社員」）、「我的逐副表現」多一欄「搭檔」。比賽公告頁（`TournamentPages.tsx`）的個人賽：名額（人）、只有「自己報名」、開賽說明。
+
+### 待社長決定
+
+- 人數只收 8／12／16／20；其他人數要機器人補位（雙人賽的引擎還沒有），或接受每輪有人輪空的排法（搭檔次數會不平均）。比賽公告多出來的人這次不排。
+- 輪數固定是人數 − 1（每兩人都當過搭檔）；16、20 人時很長（15、19 輪），要不要給「只打前幾輪」的選項。
+- 個人賽的積分預設（參加 2、每贏過一人 0.5、至少 4 人）。
 
 ## 5.8 隊制賽（決策紀錄，`e8-t01`，2026-10-25）
 
