@@ -67,12 +67,12 @@ export const pairOf = (event: PairsEvent, userId: string): number => event.pairs
 export const pairsPlayers = (event: PairsEvent): string[] => event.pairs.flatMap((p) => p.players)
 
 /** The movement for `entries` entries: a Mitchell for pairs, the individual movement (`e9-t15`) for players */
-export const movementFor = (format: PairsEvent['format'], entries: number, boardsPerRound: number): Movement | null =>
-  format === 'individual' ? individual(entries, boardsPerRound) : mitchell(entries, boardsPerRound)
+export const movementFor = (format: PairsEvent['format'], entries: number, boardsPerRound: number, rounds?: number): Movement | null =>
+  format === 'individual' ? individual(entries, boardsPerRound, rounds) : mitchell(entries, boardsPerRound)
 
 /** The event's movement for its pairs now (before the start: what it would be) */
 export const movementOf = (event: PairsEvent): Movement | null =>
-  event.movement ?? movementFor(event.format, event.pairs.length, event.settings.boardsPerRound)
+  event.movement ?? movementFor(event.format, event.pairs.length, event.settings.boardsPerRound, event.settings.rounds)
 
 /** Most entries an event takes: 20 pairs, or 20 players in an individual event */
 export const entriesMax = (event: Pick<PairsEvent, 'format'>) =>
@@ -168,7 +168,7 @@ export function applyPairsStep(event: PairsEvent, step: PairsStep): void {
     case 'start': {
       director(event, step.userId)
       open(event)
-      const movement = movementFor(event.format, event.pairs.length, event.settings.boardsPerRound)
+      const movement = movementFor(event.format, event.pairs.length, event.settings.boardsPerRound, event.settings.rounds)
       if (!movement) throw movementRefused(event)
       if (step.deals.boards.length !== movement.boards || step.tables.length !== movement.tables)
         throw new ClubError('serverError', {}, 500)

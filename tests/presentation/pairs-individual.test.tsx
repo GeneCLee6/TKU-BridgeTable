@@ -5,13 +5,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { PairsView } from '../../shared/pairs.ts'
 import type { LobbyView } from '../../shared/protocol.ts'
 import { PairsBanner } from '../../src/components/PairsBanner.tsx'
-import { PairsEventPage } from '../../src/pages/PairsPages.tsx'
+import { PairsEventPage, PairsListPage } from '../../src/pages/PairsPages.tsx'
 import { PreferencesProvider } from '../../src/state/PreferencesContext.tsx'
 
 /** An individual event's page (e9-t15, AC-9.6): entering alone, the partnerships at each table, one ranking */
 
 const mocks = vi.hoisted(() => ({
-  api: { pairs: { get: vi.fn(), enter: vi.fn(), withdraw: vi.fn(), start: vi.fn(), cancel: vi.fn() } },
+  api: { pairs: { get: vi.fn(), enter: vi.fn(), withdraw: vi.fn(), start: vi.fn(), cancel: vi.fn(), list: vi.fn(), create: vi.fn() } },
 }))
 
 vi.mock('../../src/lib/api.ts', async (original) => ({
@@ -140,5 +140,39 @@ describe('individual event page', () => {
       </PreferencesProvider>,
     )
     expect(screen.getByRole('link', { name: '個人賽 第 2／7 輪 · 第 1 桌' })).toBeInTheDocument()
+  })
+
+  // Only the first N rounds (§5.25)
+  it('sets the rounds to play on the form, for an individual event only', async () => {
+    mocks.api.pairs.list.mockResolvedValue({ pairs: [] })
+    mocks.api.pairs.create.mockResolvedValue({ pairs: OPEN })
+    render(
+      <PreferencesProvider>
+        <MemoryRouter initialEntries={['/pairs']}>
+          <Routes>
+            <Route path="/pairs" element={<PairsListPage />} />
+            <Route path="/pairs/:eventId" element={<p>event</p>} />
+          </Routes>
+        </MemoryRouter>
+      </PreferencesProvider>,
+    )
+    expect(await screen.findByText('還沒有雙人賽。', { exact: false })).toBeInTheDocument()
+    // A pairs event has no rounds to set
+    expect(screen.queryByRole('combobox', { name: '輪數' })).not.toBeInTheDocument()
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: '比賽方式' }), 'individual')
+    const rounds = screen.getByRole('combobox', { name: '輪數' })
+    // All n − 1 by default, else 1 to 19
+    expect(rounds).toHaveValue('')
+    expect(within(rounds).getAllByRole('option').map((o) => o.textContent)).toEqual(['全部（人數 − 1 輪）', ...Array.from({ length: 19 }, (_, i) => `${i + 1}`)])
+    expect(screen.getByText(/不會跟同一人搭檔兩次/)).toBeInTheDocument()
+    await userEvent.selectOptions(rounds, '10')
+    await userEvent.click(screen.getByRole('button', { name: '建立雙人賽' }))
+    expect(mocks.api.pairs.create).toHaveBeenCalledWith({ title: '', boardsPerRound: 3, boardMinutes: 8, rounds: 10 }, 'individual')
+  })
+
+  it('says an open event plays only its first rounds', async () => {
+    mocks.api.pairs.get.mockResolvedValue({ pairs: { ...OPEN, settings: { ...OPEN.settings, rounds: 5 } } })
+    renderPage()
+    expect(await screen.findByText('只打前 5 輪')).toBeInTheDocument()
   })
 })
