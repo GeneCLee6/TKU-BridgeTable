@@ -51,6 +51,16 @@ import { resultSides, scorePairs, type PairsSummary, type PairsTableView, type P
 import { pairOf, type PairsEvent } from './pairs-flow.ts'
 import { delayOf, penalizedMatch, penaltiesOf, refereeNotes, type RefereeEntry } from '../shared/referee.ts'
 import { scoreRuling, type ScoreRuling } from '../shared/ruling-scoring.ts'
+import {
+  eventMatchVp,
+  eventStandings,
+  impQuotient,
+  matchCounts,
+  roundDone,
+  type EventMatchScore,
+  type TeamEvent,
+  type TeamEventView,
+} from '../shared/team-event.ts'
 
 /** A table as the Worker keeps it */
 export interface Table {
@@ -723,7 +733,7 @@ export function teamMatchView(
     totals: score.totals,
     leader: score.leader,
     ...(score.penalties && { penalties: score.penalties }),
-    ...((director.admin || m.hostId === userId) && { canReferee: true }),
+    ...((director.admin || (m.hostId === userId && !director.eventMatch)) && { canReferee: true }),
     ...refereeOf(),
   }
 
@@ -1009,6 +1019,8 @@ export interface EventDirecting {
   admin?: boolean
   /** The director's log */
   entries?: readonly RefereeEntry[]
+  /** A multi-team event's match (`e9-t14`): its host plays in the event, so only admins direct it */
+  eventMatch?: boolean
 }
 
 /** What a pairs event's page and scoring need of its director (`e9-t17`) */
@@ -1021,4 +1033,74 @@ export interface PairsDirecting extends EventDirecting {
 export function pairsScoring(director: Pick<PairsDirecting, 'entries' | 'rulingOf'>) {
   const penalties = new Map([...penaltiesOf(director.entries)].map(([target, amount]) => [Number(target), amount]))
   return { ...(director.rulingOf && { rulingOf: director.rulingOf }), penalties }
+}
+
+/** What a multi-team event's page needs besides the event (`e9-t14`) */
+export interface TeamEventContext {
+  userById: (id: string) => PublicUser | null
+  /** The viewer directs it (its director or an admin) */
+  directs: boolean
+  scoreOf: (matchId: string) => EventMatchScore | null
+}
+
+/**
+ * A multi-team event as one member sees it (`e9-t14`, AC-9.5, §5.26; who may see it at all is
+ * `TeamEventService.mayView`). Everything is public to them — the teams, the pairings, each
+ * match's score so far (as its own page shows it to anyone, §5.8: only boards both rooms played),
+ * the standings — except the line-up a team set for the next round: only its own players and
+ * the director see it until the round is made (then the seats are on the match's page anyway)
+ */
+export function teamEventView(event: TeamEvent, viewerId: string, ctx: TeamEventContext): TeamEventView {
+  const user = (id: string): PublicUser => ctx.userById(id) ?? { id, username: '' }
+  const myTeam = event.teams.findIndex((t) => t.players.includes(viewerId))
+  const open = event.status === 'ready' || event.status === 'playing'
+  const played = event.played.map((r) => ({
+    n: r.n,
+    matches: r.matches.map((m) => {
+      const s = ctx.scoreOf(m.matchId)
+      return {
+        matchId: m.matchId,
+        a: m.a,
+        b: m.b,
+        status: s?.status ?? ('gone' as const),
+        imps: s?.imps ?? { A: 0, B: 0 },
+        ...(matchCounts(s) && { vp: eventMatchVp(s.imps, s.boards) }),
+      }
+    }),
+    ...(r.bye !== undefined && { bye: r.bye }),
+    done: roundDone(r, ctx.scoreOf),
+  }))
+  const last = event.played.at(-1)
+  const mine = myTeam >= 0 && last && !roundDone(last, ctx.scoreOf) ? last.matches.find((m) => m.a === myTeam || m.b === myTeam) : undefined
+  return {
+    id: event.id,
+    title: event.settings.title,
+    status: event.status,
+    format: event.format,
+    rounds: event.roundsTotal,
+    settings: event.settings,
+    director: user(event.directorId),
+    createdAt: event.createdAt,
+    ...(event.finishedAt !== undefined && { finishedAt: event.finishedAt }),
+    teams: event.teams.map((t, i) => {
+      const own = i === myTeam || ctx.directs
+      return {
+        id: t.id,
+        name: t.name,
+        players: t.players.map(user),
+        lineup: own ? t.lineup : [],
+        canLineup: open && (ctx.directs || t.players[0] === viewerId),
+      }
+    }),
+    played,
+    standings: eventStandings(event, ctx.scoreOf).map((s) => {
+      const q = impQuotient(s)
+      return { ...s, quotient: Number.isFinite(q) ? Math.round(q * 1000) / 1000 : null }
+    }),
+    ...(myTeam >= 0 && { myTeam }),
+    ...(mine && { myMatch: mine.matchId }),
+    canNext: ctx.directs && open && event.played.length < event.roundsTotal && (!last || roundDone(last, ctx.scoreOf)),
+    canCancel: ctx.directs && event.status === 'ready',
+    ...(event.tournamentId !== undefined && { tournamentId: event.tournamentId }),
+  }
 }

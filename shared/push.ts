@@ -41,6 +41,7 @@ export const PUSH_GROUPS = {
     'tournamentDayReminder',
     'tournamentReminder',
     'tournamentResults',
+    'teamEventRound',
   ],
   featured: ['boardFeatured'],
   friends: ['friendOnline'],

@@ -49,6 +49,21 @@ export function challengeEvent(
 /** Totals this close count as level (BAM rulings are tenths) */
 const SAME = 1e-9
 
+/** A team match's score over all its boards, with the board rulings and the director's penalties (`e9-t17`) */
+export function matchTotals(
+  m: TeamMatch,
+  rulingOf: (boardId: string) => ScoreRuling | undefined,
+  penalties: ReadonlyMap<string, number> = new Map(),
+) {
+  return penalizedMatch(
+    scoreTeamMatch(
+      m.settings.scoring,
+      Array.from({ length: m.settings.boards }, (_, i) => boardScores(m.boards.find((b) => b.seq === i + 1), rulingOf)),
+    ),
+    penalties,
+  )
+}
+
 /**
  * A finished team match: two sides, the members of each team (robots count at their fixed rating
  * for the ratings), placed by the final score; level is a draw. Null when it did not finish
@@ -60,13 +75,7 @@ export function matchEvent(
   penalties: ReadonlyMap<string, number> = new Map(),
 ): RankedEvent | null {
   if (m.status !== 'finished') return null
-  const score = penalizedMatch(
-    scoreTeamMatch(
-      m.settings.scoring,
-      Array.from({ length: m.settings.boards }, (_, i) => boardScores(m.boards.find((b) => b.seq === i + 1), rulingOf)),
-    ),
-    penalties,
-  )
+  const score = matchTotals(m, rulingOf, penalties)
   const diff = score.totals.A - score.totals.B
   const team = (t: 'A' | 'B') => {
     const seats = m.seats.filter((s) => teamAt(s.room, s.seat) === t)

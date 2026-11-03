@@ -99,7 +99,8 @@ export class RefereeLog {
    */
   async auditRecredit(
     actor: { username: string },
-    kind: RefereeEvent,
+    /** The event's kind; `teams` a multi-team event re-credited for a change to one of its matches (`e9-t14`) */
+    kind: RefereeEvent | 'teams',
     eventId: string,
     changes: readonly { username: string; delta: number; points: number }[],
     reason: string,

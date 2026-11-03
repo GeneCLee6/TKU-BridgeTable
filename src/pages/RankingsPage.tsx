@@ -149,6 +149,7 @@ const signed = (n: number) => (n > 0 ? `+${n}` : String(n))
 function eventLink(kind: PointKind, id: string): string | null {
   if (kind === 'match') return `/matches/${id}`
   if (kind === 'pairs' || kind === 'individual') return `/pairs/${id}`
+  if (kind === 'teams') return `/team-events/${id}`
   return `/challenges/${id}`
 }
 

@@ -15,6 +15,7 @@ import { ChallengeStatsPage } from './pages/ChallengeStatsPage.tsx'
 import { DailyPage } from './pages/DailyPage.tsx'
 import { PairsEventPage, PairsListPage } from './pages/PairsPages.tsx'
 import { TournamentPage, TournamentsListPage } from './pages/TournamentPages.tsx'
+import { TeamEventPage } from './pages/TeamEventPage.tsx'
 import { RankingsPage } from './pages/RankingsPage.tsx'
 import { ComparePage } from './pages/ComparePage.tsx'
 import { FeaturedPage } from './pages/FeaturedPage.tsx'
@@ -128,6 +129,8 @@ function Routed() {
         <Route path="/pairs/:eventId" element={<PairsEventPage />} />
         {(tournamentsOn || user.admin) && <Route path="/tournaments" element={<TournamentsListPage />} />}
         {(tournamentsOn || user.admin) && <Route path="/tournaments/:tournamentId" element={<TournamentPage />} />}
+        {/* Its teams reach it without the flag too: the server decides (e9-t14) */}
+        <Route path="/team-events/:eventId" element={<TeamEventPage />} />
         {forumOn && <Route path="/forum" element={<ForumHomePage />} />}
         {forumOn && <Route path="/forum/new" element={<ForumNewPostPage />} />}
         {forumOn && <Route path="/forum/search" element={<ForumSearchPage />} />}

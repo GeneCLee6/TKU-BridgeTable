@@ -164,11 +164,13 @@ import { LocalMatches, type MatchStep } from './match-event.ts'
 import type { RemotePairs } from './pairs-events.ts'
 import { PairsService } from './pairs-service.ts'
 import { TournamentService } from './tournaments.ts'
+import { TeamEventService, type EventMatchInput } from './team-events.ts'
+import { matchTotals } from './ranking-events.ts'
 import type { TournamentKind } from '../shared/tournament.ts'
 import { MatchHomes, type MatchApi, type MatchSnapshot, type RemoteMatches } from './match-events.ts'
 import { TeamMatchStore, type TeamMatch } from './team-matches.ts'
 import { teamTable } from './team-mode.ts'
-import { parseRulingReason, ROOMS, TEAM_MATCH_LIMITS, VUGRAPH_CHAT_MAX, type MatchVugraph, type Room, type TeamMatchSettings, type TeamMatchView, type VugraphRoom } from '../shared/team-match.ts'
+import { parseRulingReason, ROOMS, TEAM_MATCH_LIMITS, teamAt, VUGRAPH_CHAT_MAX, type MatchVugraph, type Room, type TeamMatchSettings, type TeamMatchView, type VugraphRoom } from '../shared/team-match.ts'
 import { parseRulingRequest, type RulingRequest } from '../shared/board-events.ts'
 import {
   createHistoryIndex,
@@ -730,6 +732,8 @@ export class ClubService {
   readonly referee: RefereeLog
   /** Tournament announcements and entries (`e9-t16`, §5.24), made into pairs events or team matches */
   readonly tournaments: TournamentService
+  /** Multi-team events (`e9-t14`, §5.26), made from tournaments: rounds of ordinary team matches, VP standings */
+  readonly teamEvents: TeamEventService
   /** Which matches live in their own object, and which ended matches the club already closed up */
   private readonly matchHomes: MatchHomes
   /** The matches that live in this object */
@@ -845,6 +849,7 @@ export class ClubService {
       add: (match) => this.addMatch(match),
       write: (matchId, step) => this.writeMatch(matchId, step),
       directing: (matchId, userId) => this.directing('match', matchId, userId),
+      eventTeams: (matchId) => this.teamEvents.ofMatch(matchId)?.teams ?? null,
     })
     this.matchHomes = new MatchHomes(store.sql)
     this.referee = new RefereeLog(store, new AuditLog(store, this.now), this.now, () => randomId(6))
@@ -932,7 +937,32 @@ export class ClubService {
       createPairs: (directorId, settings, pairs) => this.pairs.createFrom(directorId, settings, pairs),
       createIndividual: (directorId, settings, players) => this.pairs.createIndividual(directorId, settings, players),
       createMatch: (teams, settings) => this.tournamentMatch(teams, settings),
+      createTeams: (directorId, settings, teams, tournamentId) => this.teamEvents.createFrom(directorId, settings, teams, tournamentId),
       eventState: (kind, id) => this.tournamentEventState(kind, id),
+    })
+    this.teamEvents = new TeamEventService({
+      store,
+      now: this.now,
+      newId: () => randomId(8),
+      log: (entry) => this.log(entry),
+      isAdmin: (id) => this.actsAsAdmin(this.users.get(id)),
+      featureOn: (id) => this.featureOn('tournaments', id),
+      userById: (id) => this.publicUserById(id) ?? null,
+      takeAction: (id) => this.actionLimit.take(id),
+      notify: (id, kind, params) => this.notifications.notify(id, kind, params),
+      createMatch: (input) => this.eventMatch(input),
+      cancelMatch: async (matchId) => {
+        await this.writeMatch(matchId, { kind: 'cancel', userId: this.matches.store.get(matchId)?.hostId ?? '' })
+      },
+      matchScore: (matchId) => this.eventMatchScore(matchId),
+      matchPlayers: (matchId) => {
+        const m = this.matches.store.get(matchId)
+        const of = (team: 'A' | 'B') =>
+          m ? [...new Set(m.seats.flatMap((s) => (teamAt(s.room, s.seat) === team && !s.robot && s.userId !== undefined ? [s.userId] : [])))] : []
+        return { A: of('A'), B: of('B') }
+      },
+      record: (event) => this.rankings.record(event),
+      ended: (id) => this.tournaments.eventEnded('teams', id),
     })
     if (config.historyReplica)
       this.replica = new ReplicaSync({ store, db: config.historyReplica, scheduler: this.scheduler, now: this.now, log: this.log })
@@ -1048,6 +1078,7 @@ export class ClubService {
     this.scheduleDaily()
     await this.pairs.load()
     await this.tournaments.load()
+    await this.teamEvents.load()
   }
 
   /** A table kept in this object's storage takes its state back (brought up to date first) */
@@ -2705,6 +2736,7 @@ export class ClubService {
     this.shares.removeMadeBy(user.id)
     this.challengeExtras.forget(user.id)
     this.rankings.forget(user.id)
+    await this.teamEvents.forget(user.id)
     await this.practicePresets.removeAll(user.id)
     await forgetQuizRounds(this.store, user.id)
     await forgetPathProgress(this.store, user.id)
@@ -3887,9 +3919,12 @@ export class ClubService {
     )
     if (done.length) await this.revealRecords(revealBoards(this.store.sql, done, this.now()))
     if ((match.status !== 'finished' && match.status !== 'abandoned') || this.matchHomes.ended(id)) return
-    this.rankings.matchFinished(match, penaltiesOf(this.referee.of('match', id)))
+    // A multi-team event's match (`e9-t14`) counts in the event's points, once the event finishes
+    const forEvent = !!this.teamEvents.ofMatch(id)
+    if (!forEvent) this.rankings.matchFinished(match, penaltiesOf(this.referee.of('match', id)))
     this.matchHomes.settleEnd(id)
-    await this.tournaments.eventEnded('match', id)
+    if (forEvent) await this.teamEvents.matchEnded(id)
+    else await this.tournaments.eventEnded('match', id)
     if (match.status === 'finished')
       for (const userId of matchMembers(match)) await this.notifications.notify(userId, 'matchFinished', { matchId: id })
     await this.matchTablesEnded(id)
@@ -3926,8 +3961,45 @@ export class ClubService {
     return id
   }
 
+  /**
+   * A multi-team event's round match (`e9-t14`, §5.26): the two line-ups in their seats as a
+   * tournament's team match would have them (team A North-South in the open room and East-West in
+   * the closed one), IMPs (the VP scale needs them), no robots but for a seat nobody is left for
+   */
+  private async eventMatch(input: EventMatchInput): Promise<string> {
+    const { A, B } = input.lineups
+    const seat = (userId: string | undefined, room: Room, s: Seat) => ({ room, seat: s, userId: userId ?? null })
+    return this.matches.createSeated({
+      hostId: A[0],
+      captainB: B[0],
+      settings: { teamNames: input.teamNames, boards: input.boards, boardMinutes: input.boardMinutes, scoring: 'imp' },
+      seats: [
+        seat(A[1], 'open', 'N'),
+        seat(A[2], 'closed', 'E'),
+        seat(A[3], 'closed', 'W'),
+        seat(B[0], 'open', 'E'),
+        seat(B[1], 'open', 'W'),
+        seat(B[2], 'closed', 'N'),
+        seat(B[3], 'closed', 'S'),
+      ],
+    })
+  }
+
+  /** One match as a multi-team event counts it (`e9-t14`): the rulings and the director's penalties in its IMPs */
+  private eventMatchScore(matchId: string) {
+    const m = this.matches.store.get(matchId)
+    if (!m) return null
+    const boards = eventBoards(this.store.sql, matchId)
+    const score = matchTotals(m, (b) => boards.get(b)?.ruling, penaltiesOf(this.referee.of('match', matchId)))
+    return { status: m.status, imps: { A: score.totals.A, B: score.totals.B }, boards: m.settings.boards }
+  }
+
   /** Where a tournament's event stands (`e9-t16`): an abandoned match counts as finished (its boards are scored) */
   private tournamentEventState(kind: TournamentKind, id: string): 'on' | 'finished' | 'cancelled' | null {
+    if (kind === 'teams') {
+      const s = this.teamEvents.statusOf(id)
+      return s === null ? null : s === 'finished' ? 'finished' : s === 'cancelled' ? 'cancelled' : 'on'
+    }
     // An individual event (e9-t15) is a pairs event of the individual format
     const status = kind === 'pairs' || kind === 'individual' ? this.pairs.statusOf(id) : (this.matches.store.get(id)?.status ?? null)
     if (status === null) return null
@@ -5066,15 +5138,21 @@ export class ClubService {
         const challenge = this.challenges.get(eventId)
         event = challenge ? this.rankings.challengeNow(challenge, penalties) : null
       }
-      const changes = this.rankings.recredit(event, actor.id, reason)
-      if (changes.length)
-        await this.referee.auditRecredit(
-          actor,
-          kind,
-          eventId,
-          changes.map((c) => ({ ...c, username: this.users.get(c.userId)?.username ?? c.userId })),
-          reason,
-        )
+      const credit = async (ranked: RankedEvent | null, target: RefereeEvent | 'teams', id: string) => {
+        const changes = this.rankings.recredit(ranked, actor.id, reason)
+        if (changes.length)
+          await this.referee.auditRecredit(
+            actor,
+            target,
+            id,
+            changes.map((c) => ({ ...c, username: this.users.get(c.userId)?.username ?? c.userId })),
+            reason,
+          )
+      }
+      await credit(event, kind, eventId)
+      // A multi-team event's match (`e9-t14`) has no points of its own: the event's are worked out again
+      const teamEvent = kind === 'match' ? this.teamEvents.ofMatch(eventId)?.event : undefined
+      if (teamEvent) await credit(this.teamEvents.rankedNow(teamEvent.id), 'teams', teamEvent.id)
     } catch (error) {
       this.log(crashEntry('recreditPoints', error))
     }
@@ -5082,7 +5160,11 @@ export class ClubService {
 
   /** What an event's page needs of the director's work (`e9-t17`): whether the viewer is an admin, and the log */
   private directing(kind: RefereeEvent, eventId: string, userId: string): EventDirecting {
-    return { admin: this.actsAsAdmin(this.users.get(userId)), entries: this.referee.of(kind, eventId) }
+    return {
+      admin: this.actsAsAdmin(this.users.get(userId)),
+      entries: this.referee.of(kind, eventId),
+      ...(kind === 'match' && this.teamEvents.ofMatch(eventId) && { eventMatch: true }),
+    }
   }
 
   /**
@@ -5109,7 +5191,8 @@ export class ClubService {
     } else if (kind === 'match') {
       const match = this.matches.store.get(eventId)
       if (!match) throw new ClubError('matchGone', {}, 404)
-      if (match.hostId !== userId && !admin) throw new ClubError('refereeOnly', {}, 403)
+      // A multi-team event's match (`e9-t14`): its host is a player in the event, so only admins (its director is one)
+      if ((match.hostId !== userId || this.teamEvents.ofMatch(eventId)) && !admin) throw new ClubError('refereeOnly', {}, 403)
       targets = (t) => (t === 'A' || t === 'B') && match.status !== 'setup' && match.status !== 'cancelled'
     } else {
       const challenge = this.challenges.get(eventId)

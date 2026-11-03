@@ -7,6 +7,7 @@ import type { WeeklyChallengeSchedule, WeeklyChallengeView } from '../../shared/
 import type { DailyEventSettings, DailyEventView } from '../../shared/daily-event.ts'
 import type { PairsSettings, PairsSummary, PairsView } from '../../shared/pairs.ts'
 import type { TournamentSettings, TournamentSummary, TournamentView } from '../../shared/tournament.ts'
+import type { TeamEventView } from '../../shared/team-event.ts'
 import type { LeaderboardView, LedgerEntry, PointsRules } from '../../shared/points.ts'
 import type { RatingView } from '../../shared/rating.ts'
 import { historyQueryString, type HistoryQuery } from '../../shared/history-query.ts'
@@ -326,6 +327,14 @@ export const api = {
     /** The order the members alone are paired in (an admin, before the start); null: the order they entered */
     pairing: (id: string, order: string[] | null) =>
       post<{ tournament: TournamentView }>(`/api/tournaments/${encodeURIComponent(id)}/pairing`, { order }),
+  },
+  /** Multi-team events (`e9-t14`, §5.26): the page, a captain's line-up, the director's next round and cancel */
+  teamEvents: {
+    get: (id: string) => request<{ event: TeamEventView }>(`/api/team-events/${encodeURIComponent(id)}`),
+    lineup: (id: string, team: number, players: string[]) =>
+      post<{ event: TeamEventView }>(`/api/team-events/${encodeURIComponent(id)}/lineup`, { team, players }),
+    next: (id: string) => post<{ event: TeamEventView }>(`/api/team-events/${encodeURIComponent(id)}/next`),
+    cancel: (id: string) => post<{ event: TeamEventView }>(`/api/team-events/${encodeURIComponent(id)}/cancel`),
   },
   /** Club points and ratings (J2): a period's board (`month=YYYY-MM`, `year=YYYY` or `season=<id>`) */
   rankings: (period: string) => request<{ board: LeaderboardView }>(`/api/rankings?${period}`),

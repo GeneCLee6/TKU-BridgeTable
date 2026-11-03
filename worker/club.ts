@@ -1156,6 +1156,21 @@ export class Club extends DurableObject<Env> implements Connections {
         return json({ tournament: await tournaments.start(user.id, id) })
       }
     }
+    // Multi-team events (§5.26, e9-t14): made from a tournament; line-ups, the director's next round and cancel
+    const teamEvent = url.pathname.match(/^\/api\/team-events\/([\w-]+)(?:\/(lineup|next|cancel))?$/)
+    if (teamEvent) {
+      const [, eventId, action] = teamEvent
+      const events = this.service.teamEvents
+      if (request.method === 'GET' && !action) return json({ event: events.view(eventId, user.id) })
+      if (request.method === 'POST' && action) {
+        const b = await body()
+        if (action === 'lineup') return json({ event: await events.setLineup(user.id, eventId, b.team, b.players) })
+        if (action === 'cancel') return json({ event: await events.cancel(user.id, eventId) })
+        const next = await events.nextRound(user.id, eventId)
+        this.service.broadcast()
+        return json({ event: next })
+      }
+    }
     // Team matches (§5.8): set up (e8-t03), seated (e8-t04, e8-t05) and started (e8-t07) over HTTP
     if (route === 'GET /api/matches') return json({ matches: this.service.matches.list(user.id) })
     if (route === 'POST /api/matches') {

@@ -1,5 +1,6 @@
 import { BOOK_SITE } from './book-site.ts'
 import type { Notification } from './protocol.ts'
+import { teamEventLink } from './team-event.ts'
 import { tournamentEventLink } from './tournament.ts'
 
 /**
@@ -95,9 +96,13 @@ export function notificationLink(n: Notification, options: { forum?: boolean } =
       return n.params.tournamentId ? `/tournaments/${encodeURIComponent(String(n.params.tournamentId))}` : '/tournaments'
     // Straight to the results: the pairs event's or the team match's page
     case 'tournamentResults':
-      if (n.params.eventId && (n.params.eventKind === 'pairs' || n.params.eventKind === 'match' || n.params.eventKind === 'individual'))
+      if (n.params.eventId && (n.params.eventKind === 'pairs' || n.params.eventKind === 'match' || n.params.eventKind === 'individual' || n.params.eventKind === 'teams'))
         return tournamentEventLink(n.params.eventKind, String(n.params.eventId))
       return n.params.tournamentId ? `/tournaments/${encodeURIComponent(String(n.params.tournamentId))}` : '/tournaments'
+    // A round paired (`e9-t14`): the team's match, or the event's page for a bye
+    case 'teamEventRound':
+      if (n.params.matchId) return `/matches/${encodeURIComponent(String(n.params.matchId))}`
+      return n.params.teamEventId ? teamEventLink(String(n.params.teamEventId)) : '/tournaments'
     case 'forumReply':
     case 'forumMention':
     case 'forumAnnouncement':
