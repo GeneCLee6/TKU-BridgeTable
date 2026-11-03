@@ -26,7 +26,7 @@ import type { Scheduler } from './scheduler.ts'
 import type { Store } from './store.ts'
 
 /**
- * Tournament announcements and entries (比賽公告與報名, `e9-t16`, AC-9.7, ARCHITECTURE.md §5.23).
+ * Tournament announcements and entries (比賽公告與報名, `e9-t16`, AC-9.7, ARCHITECTURE.md §5.24).
  * An admin announces one; members with the `tournaments` flag enter alone, with a partner or as a
  * team (each partner confirms), withdraw before the deadline and see who entered; an hour before
  * the start everyone in an entry is reminded; the admin turns the entries into the event (a pairs

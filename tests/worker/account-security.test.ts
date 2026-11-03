@@ -292,6 +292,26 @@ describe('the member’s own data (e11-t27)', () => {
     await expect(club.login('ben', 'club-secret-1')).rejects.toMatchObject({ code: 'badLogin' })
   })
 
+  it('tells the club when an account goes, so their unused forum pictures go too (e13-t13), and survives a failing hook', async () => {
+    const removed: string[] = []
+    club = new ClubService(store, connections, {
+      maxUsers: 20,
+      now: () => time,
+      schedule: () => undefined,
+      onMemberRemoved: async (id) => {
+        removed.push(id)
+        if (removed.length > 1) throw new Error('R2 is down')
+      },
+    })
+    await club.load()
+    const ben = await member('ben')
+    const amy = await member('amy')
+    await club.deleteOwnAccount(ben, 'club-secret-1')
+    await club.adminDeleteUser(adminId, amy)
+    expect(removed).toEqual([ben, amy])
+    expect(club.usernameOf(amy)).toBeUndefined()
+  })
+
   it('keeps the club’s last admin', async () => {
     await expect(club.deleteOwnAccount(adminId, 'club-secret-1')).rejects.toMatchObject({ code: 'lastAdminLeaving' })
     const ben = await member('ben')

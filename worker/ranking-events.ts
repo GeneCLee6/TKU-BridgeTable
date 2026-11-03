@@ -7,6 +7,7 @@ import { challengeStandings } from './challenge-flow.ts'
 import type { Challenge } from './challenges.ts'
 import type { RankedEvent } from './rankings.ts'
 import { boardScores, type TeamMatch } from './team-matches.ts'
+import { penalizedMatch } from '../shared/referee.ts'
 
 /**
  * How each kind of finished event goes into the ledger (`e9-t05`, ARCHITECTURE.md §5.21). Pure:
@@ -26,10 +27,12 @@ export function challengeEvent(
   c: Challenge,
   rulingOf: (boardId: string) => ScoreRuling | undefined,
   now: number,
+  penalties?: ReadonlyMap<string, number>,
 ): RankedEvent | null {
   if (c.status !== 'finished') return null
   const known = new Set(c.players.filter((p) => p.knownDeals).map((p) => p.userId))
-  const standings = challengeStandings(c, rulingOf)
+  // With the director's penalties (`e9-t17`), as the results page shows them
+  const standings = challengeStandings(c, rulingOf, penalties)
   // One finisher has nobody to compare with (`total`): no places to give
   const sides = standings.scoring === 'total' && standings.ranked.length < 2 ? [] : standings.ranked
   return {
@@ -54,11 +57,15 @@ export function matchEvent(
   m: TeamMatch,
   rulingOf: (boardId: string) => ScoreRuling | undefined,
   now: number,
+  penalties: ReadonlyMap<string, number> = new Map(),
 ): RankedEvent | null {
   if (m.status !== 'finished') return null
-  const score = scoreTeamMatch(
-    m.settings.scoring,
-    Array.from({ length: m.settings.boards }, (_, i) => boardScores(m.boards.find((b) => b.seq === i + 1), rulingOf)),
+  const score = penalizedMatch(
+    scoreTeamMatch(
+      m.settings.scoring,
+      Array.from({ length: m.settings.boards }, (_, i) => boardScores(m.boards.find((b) => b.seq === i + 1), rulingOf)),
+    ),
+    penalties,
   )
   const diff = score.totals.A - score.totals.B
   const team = (t: 'A' | 'B') => {

@@ -259,3 +259,29 @@ describe('team matches (matchEvent)', () => {
     expect(matchEvent({ ...match, status: 'abandoned' } as TeamMatch, () => undefined, 9)).toBeNull()
   })
 })
+
+describe("the director's penalty on a challenge (e9-t17)", () => {
+  it('only admins give one; it counts in the standings and the points, and its note goes with them', async () => {
+    const { ids, id } = await challenge(['ben', 'cat'], { amy: [620, 420], ben: [420, 420], cat: [-100, 50] })
+    const act = (userId: string, body: unknown) => club.refereeAct(userId, 'challenge', id, body)
+    const refused = async (run: () => Promise<unknown>) => run().then(() => undefined, (e: { code?: string }) => e.code)
+    // The creator plays in it: not theirs to direct
+    expect(await refused(() => act(ids.amy, { action: 'penalty', target: ids.ben, amount: 300, reason: '慢打' }))).toBe('refereeOnly')
+    expect(await refused(() => act(boss, { action: 'penalty', target: 'nobody', amount: 300, reason: '慢打' }))).toBe('refereeBadTarget')
+    expect(await refused(() => act(boss, { action: 'restart', table: 1, reason: '慢打' }))).toBe('refereeNotHere')
+    await act(boss, { action: 'penalty', target: ids.amy, amount: 300, reason: '場外資訊' })
+    const view = club.challengeFor(id, ids.ben)!
+    expect(view.standings!.ranked.map((r) => [r.userId, r.rank, r.total, r.penalty])).toEqual([
+      [ids.ben, 1, 840, undefined],
+      [ids.amy, 2, 740, 300],
+      [ids.cat, 3, -50, undefined],
+    ])
+    expect(view.referee).toEqual([expect.objectContaining({ action: 'penalty', target: ids.amy, amount: 300, reason: '場外資訊' })])
+    await toDeadline(id)
+    expect(board()).toEqual([
+      ['ben', 1, 2, 1],
+      ['amy', 2, 1, 1],
+      ['cat', 3, 0, 1],
+    ])
+  })
+})

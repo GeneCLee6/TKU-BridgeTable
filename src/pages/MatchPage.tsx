@@ -17,6 +17,7 @@ import {
 } from '../../shared/team-match.ts'
 import { MATCH_SCORINGS, RULINGS, TEAMS, type RulingKind, type Team } from '../../shared/team-scoring.ts'
 import { BoardScores, ScoreLine, Tag } from '../components/MatchParts.tsx'
+import { RefereeNotes, RefereeTools } from '../components/RefereePanel.tsx'
 import { ActionLink, Button, Card, ErrorText, Field, FieldLabel, Input, Muted, PageMain, PageTitle, Select } from '../components/ui.tsx'
 import { ApiError, api, type MatchPlayAction, type MatchSeatAction } from '../lib/api.ts'
 import { arranges, betweenSegments, matchSettingsLine, myRoomTable, mySeat, robotsUneven, sameSeat, seatLabel, teamName } from '../lib/matches.ts'
@@ -485,6 +486,12 @@ export function MatchPage() {
           <Bar>
             <ScoreLine match={m} />
           </Bar>
+          {/* The director's penalties (e9-t17), already out of the totals */}
+          {m.penalties && (
+            <Muted>
+              {TEAMS.filter((team) => m.penalties![team]).map((team) => `${teamName(t, m, team)} ${t.referee.penaltyMark(String(m.penalties![team]))}`).join(' · ')}
+            </Muted>
+          )}
           {m.status === 'playing' && <Muted>{t.teamMatch.playingHint}</Muted>}
           {m.status === 'abandoned' && <Muted>{t.teamMatch.abandonedNote}</Muted>}
           {m.status === 'playing' && m.tables && (
@@ -523,6 +530,9 @@ export function MatchPage() {
       )}
 
       {playing && isHost && <ManageMatch match={m} busy={busy} onAction={(action) => void playAction(action)} />}
+      {!setup && m.status !== 'cancelled' && (!!m.referee?.length || !!m.canReferee) && (
+        <MatchReferee match={m} onDone={() => void api.match(m.id).then((r) => setMatch(r.match), fail)} />
+      )}
       {setup && isHost && <StartBar match={m} busy={busy} onStart={() => void run(() => api.startMatch(m.id))} />}
       {setup && isHost && <SettingsForm key={JSON.stringify(m.settings)} match={m} busy={busy} onSave={(settings) => void run(() => api.matchSettings(m.id, settings))} />}
       {setup && (
@@ -546,6 +556,35 @@ export function MatchPage() {
         </Bar>
       )}
     </PageMain>
+  )
+}
+
+/** What the director did (e9-t17): penalties in IMPs (or BAM points), and the rulings on the rooms' boards */
+function MatchReferee({ match: m, onDone }: { match: TeamMatchView; onDone: () => void }) {
+  const { t } = usePreferences()
+  const notes = m.referee ?? []
+  const unit = m.settings.scoring === 'bam' ? t.referee.units.bam : t.referee.units.imp
+  const label = (team: string) => teamName(t, m, team as Team)
+  return (
+    <Section aria-labelledby="referee-title">
+      <h2 id="referee-title">{m.canReferee ? t.referee.title : t.referee.notes}</h2>
+      {notes.length > 0 && <Muted>{t.referee.notesHint}</Muted>}
+      <RefereeNotes notes={notes} targetLabel={label} unit={unit} />
+      {m.canReferee && (
+        <>
+          <Muted>{t.referee.recordHint}</Muted>
+          <RefereeTools
+            kind="match"
+            eventId={m.id}
+            targets={TEAMS.map((team) => ({ value: team, label: label(team) }))}
+            targetLabel={label}
+            unit={unit}
+            notes={notes}
+            onDone={onDone}
+          />
+        </>
+      )}
+    </Section>
   )
 }
 

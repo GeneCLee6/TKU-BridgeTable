@@ -1,6 +1,7 @@
 import type { DealSet } from '../shared/deal-set.ts'
 import { mitchell, MOVEMENT_PAIRS, type Movement } from '../shared/movement.ts'
 import type { PairsResult, PairsSettings, PairsStatus } from '../shared/pairs.ts'
+import type { ScoreRuling } from '../shared/ruling-scoring.ts'
 import { ClubError } from './errors.ts'
 
 /**
@@ -47,6 +48,13 @@ export type PairsStep =
   | { kind: 'start'; userId: string; deals: DealSet; tables: string[]; at: number }
   | { kind: 'result'; result: PairsResult }
   | { kind: 'round'; round: number; tables: string[] }
+  /**
+   * The director's tools (`e9-t17`): a score for a board of the round a table has not played
+   * (`null` takes back one given so), and a table of the round re-opened as `tableId` with the
+   * boards in `replay` (played there) to play again
+   */
+  | { kind: 'assign'; round: number; table: number; boardNo: number; ruling: ScoreRuling | null; at: number }
+  | { kind: 'retable'; round: number; table: number; tableId: string; replay: number[] }
 
 export const pairOf = (event: PairsEvent, userId: string): number => event.pairs.findIndex((p) => p.players.includes(userId))
 
@@ -77,6 +85,21 @@ function director(event: PairsEvent, userId: string) {
 
 function open(event: PairsEvent) {
   if (event.status !== 'open') throw new ClubError('pairsNotOpen')
+}
+
+/** The last board of the last round finishes the event */
+function finishIfDone(event: PairsEvent, at: number) {
+  if (event.movement && event.round === event.movement.rounds && roundDone(event, event.round)) {
+    event.status = 'finished'
+    event.finishedAt = at
+  }
+}
+
+/** The boards of a table of the round with no result yet, in order */
+export function boardsLeft(event: PairsEvent, round: number, table: number): number[] {
+  const t = event.movement?.schedule[round - 1]?.tables.find((x) => x.table === table)
+  if (!t) return []
+  return t.boards.filter((b) => !event.results.some((r) => r.round === round && r.table === table && r.boardNo === b))
 }
 
 /**
@@ -130,11 +153,59 @@ export function applyPairsStep(event: PairsEvent, step: PairsStep): void {
       if (r.round !== event.round || !table || !table.boards.includes(r.boardNo) || table.ns !== r.ns || table.ew !== r.ew)
         throw new ClubError('pairsNotPlaying')
       event.results.push({ ...r })
-      // The last board of the last round finishes the event
-      if (event.round === event.movement.rounds && roundDone(event, event.round)) {
-        event.status = 'finished'
-        event.finishedAt = r.playedAt
+      finishIfDone(event, r.playedAt)
+      return
+    }
+    case 'assign': {
+      if (!event.movement || (event.status !== 'playing' && event.status !== 'finished')) throw new ClubError('pairsNotPlaying')
+      const table = event.movement.schedule[step.round - 1]?.tables.find((t) => t.table === step.table)
+      if (!table || !table.boards.includes(step.boardNo) || step.round > event.round) throw new ClubError('refereeNoBoard', {}, 404)
+      const at = event.results.findIndex((o) => o.round === step.round && o.table === step.table && o.boardNo === step.boardNo)
+      const found = at >= 0 ? event.results[at] : undefined
+      // A board played there is ruled on its record (`e2-t35`), not here
+      if (found?.boardId) throw new ClubError('refereePlayed')
+      if (step.ruling === null) {
+        // Only while its round is on: an earlier round moved on because the board had a result
+        if (!found) return
+        if (event.status !== 'playing' || step.round !== event.round) throw new ClubError('refereeRoundOver')
+        event.results.splice(at, 1)
+        return
       }
+      const result: PairsResult = {
+        round: step.round,
+        table: step.table,
+        boardNo: step.boardNo,
+        ns: table.ns,
+        ew: table.ew,
+        boardId: '',
+        scoreNS: step.ruling.kind === 'score' ? (step.ruling.scoreNS ?? 0) : 0,
+        contract: null,
+        declarerTricks: null,
+        playedAt: step.at,
+        ruling: step.ruling,
+      }
+      if (found) event.results[at] = result
+      else {
+        if (event.status !== 'playing') throw new ClubError('pairsNotPlaying')
+        event.results.push(result)
+        finishIfDone(event, step.at)
+      }
+      return
+    }
+    case 'retable': {
+      if (event.status !== 'playing' || !event.movement) throw new ClubError('pairsNotPlaying')
+      if (step.round !== event.round) throw new ClubError('refereeRoundOver')
+      const table = event.movement.schedule[step.round - 1]?.tables.find((t) => t.table === step.table)
+      if (!table) throw new ClubError('refereeNoBoard', {}, 404)
+      // Re-opened already (a resend)
+      if (event.roundTables[step.round - 1]?.[step.table - 1] === step.tableId) return
+      if (!step.replay.every((b) => table.boards.includes(b))) throw new ClubError('refereeNoBoard', {}, 404)
+      event.results = event.results.filter(
+        (r) => !(r.round === step.round && r.table === step.table && step.replay.includes(r.boardNo)),
+      )
+      event.roundTables = event.roundTables.map((tables, i) =>
+        i === step.round - 1 ? tables.map((id, t) => (t === step.table - 1 ? step.tableId : id)) : tables,
+      )
       return
     }
     case 'round': {

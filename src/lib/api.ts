@@ -1,3 +1,4 @@
+import type { RefereeEvent, RefereeRequest } from '../../shared/referee.ts'
 import type { RulingRequest } from '../../shared/board-events.ts'
 import type { ChallengeSettings, ChallengeView } from '../../shared/challenge.ts'
 import type { ChallengeCommentsView } from '../../shared/challenge-comments.ts'
@@ -246,6 +247,9 @@ export const api = {
   /** A director's ruling on a board (e2-t35), or null to take it back; the record comes back */
   ruleBoard: (id: string, ruling: RulingRequest | null) =>
     post<{ record: BoardRecord }>(`/api/history/${encodeURIComponent(id)}/ruling`, { ruling }),
+  /** The tournament director's tools on a club event (e9-t17): the page is read again after */
+  referee: (kind: RefereeEvent, id: string, request: RefereeRequest) =>
+    post<{ ok: true }>(`/api/referee/${kind}/${encodeURIComponent(id)}`, request),
   /** Featured boards, newest first (e4-t30) */
   featured: () => request<{ featured: FeaturedBoard[] }>('/api/featured'),
   /** The club's practice sets, without their boards (e10-t16) */
@@ -301,7 +305,7 @@ export const api = {
     cancel: (id: string) => post<{ pairs: PairsView }>(`/api/pairs/${encodeURIComponent(id)}/cancel`),
     start: (id: string) => post<{ pairs: PairsView }>(`/api/pairs/${encodeURIComponent(id)}/start`),
   },
-  /** Tournament announcements and entries (`e9-t16`, §5.23): admins announce and start, members enter */
+  /** Tournament announcements and entries (`e9-t16`, §5.24): admins announce and start, members enter */
   tournaments: {
     list: () => request<{ tournaments: TournamentSummary[] }>('/api/tournaments'),
     get: (id: string) => request<{ tournament: TournamentView }>(`/api/tournaments/${encodeURIComponent(id)}`),

@@ -49,6 +49,8 @@ import { boardScores, type MatchChatLine, type RoomResult, type TeamMatch } from
 import { pairPlace } from '../shared/movement.ts'
 import { scorePairs, type PairsSummary, type PairsTableView, type PairsTraveller, type PairsView } from '../shared/pairs.ts'
 import { pairOf, type PairsEvent } from './pairs-flow.ts'
+import { delayOf, penalizedMatch, penaltiesOf, refereeNotes, type RefereeEntry } from '../shared/referee.ts'
+import { scoreRuling, type ScoreRuling } from '../shared/ruling-scoring.ts'
 
 /** A table as the Worker keeps it */
 export interface Table {
@@ -555,6 +557,7 @@ export function challengeView(
   userId: string,
   userById: (id: string) => PublicUser | undefined,
   boards: (boardId: string) => EventBoard | undefined = () => undefined,
+  director: EventDirecting = {},
 ): ChallengeView | null {
   const c = challenge
   const role = challengeRole(c, userId)
@@ -590,13 +593,24 @@ export function challengeView(
     }),
   }
 
+  // The director's penalties (`e9-t17`) count in the standings, and their notes go with them
+  const penalties = penaltiesOf(director.entries)
+  const withNotes = () => {
+    if (director.admin) view.canReferee = true
+    const notes = refereeNotes(director.entries, (id) => userById(id))
+    if (notes.length) view.referee = notes
+  }
   if (clubRanking) {
-    const standings = challengeStandings(c, rulingOf)
+    const standings = challengeStandings(c, rulingOf, penalties)
     view.standings = { ...standings, ranked: standings.ranked.map(({ boards: _matrix, ...rest }) => rest) }
+    withNotes()
     return view
   }
   // Expired and cancelled challenges rank nobody; their boards are open to the participants
-  if (c.status === 'finished' || (!role.ended && role.finished)) view.standings = challengeStandings(c, rulingOf)
+  if (c.status === 'finished' || (!role.ended && role.finished)) {
+    view.standings = challengeStandings(c, rulingOf, penalties)
+    withNotes()
+  } else if (director.admin) view.canReferee = true
   const travellers: ChallengeTraveller[] = []
   for (const [i, board] of c.deals.boards.entries()) {
     const seq = i + 1
@@ -639,18 +653,22 @@ export function teamMatchView(
   userId: string,
   userById: (id: string) => PublicUser | undefined,
   details?: Map<string, EventBoard>,
+  director: EventDirecting = {},
 ): TeamMatchView | null {
   const m = match
   const outsiderMaySee = m.status === 'playing' || m.status === 'finished' || m.status === 'abandoned'
   if (!isMatchPlayer(m, userId) && !outsiderMaySee) return null
-  const score = scoreTeamMatch(
-    m.settings.scoring,
-    Array.from({ length: m.settings.boards }, (_, i) =>
-      boardScores(
-        m.boards.find((b) => b.seq === i + 1),
-        (boardId) => details?.get(boardId)?.ruling,
+  const score = penalizedMatch(
+    scoreTeamMatch(
+      m.settings.scoring,
+      Array.from({ length: m.settings.boards }, (_, i) =>
+        boardScores(
+          m.boards.find((b) => b.seq === i + 1),
+          (boardId) => details?.get(boardId)?.ruling,
+        ),
       ),
     ),
+    penaltiesOf(director.entries),
   )
   const boards: MatchBoardView[] = []
   for (const [i, result] of score.boards.entries()) {
@@ -704,8 +722,24 @@ export function teamMatchView(
     boards,
     totals: score.totals,
     leader: score.leader,
+    ...(score.penalties && { penalties: score.penalties }),
+    ...((director.admin || m.hostId === userId) && { canReferee: true }),
+    ...refereeOf(),
+  }
+
+  /** A board's note only once the board is shown: before, it would tell one room how the other went */
+  function refereeOf() {
+    const shown = new Set(boards.map((b) => b.seq))
+    const seqOf = (boardId: string) => m.boards.find((b) => b.open?.boardId === boardId || b.closed?.boardId === boardId)?.seq
+    const notes = refereeNotes(director.entries, (id) => userById(id), (e) => {
+      if (e.action !== 'score') return true
+      const seq = e.boardId ? seqOf(e.boardId) : undefined
+      return seq !== undefined && shown.has(seq)
+    })
+    return notes.length ? { referee: notes } : {}
   }
 }
+
 
 /**
  * A team match board as watchers see it when the match plays one trick behind (`e8-t19`, AC-8.8):
@@ -857,16 +891,30 @@ export function pairsSummary(event: PairsEvent, viewerId: string, userById: (id:
  * else none. A record's id goes only with the viewer's own result until the event is over (the
  * records are kept back until then, `HELD_BACK`). The deal set never leaves the server
  */
-export function pairsView(event: PairsEvent, viewerId: string, userById: (id: string) => PublicUser | null): PairsView {
+export function pairsView(
+  event: PairsEvent,
+  viewerId: string,
+  userById: (id: string) => PublicUser | null,
+  director: PairsDirecting = {},
+): PairsView {
   const user = (id: string) => userById(id) ?? { id, username: '' }
   const movement = event.movement
   const myPair = pairOf(event, viewerId)
   const over = event.status === 'finished'
-  const scoring = movement ? scorePairs(movement, event.results) : null
+  const canReferee = event.directorId === viewerId || !!director.admin
+  const scoring = movement ? scorePairs(movement, event.results, pairsScoring(director)) : null
   const playedBy = (pair: number) => new Set(event.results.filter((r) => r.ns === pair || r.ew === pair).map((r) => r.boardNo))
   const mine = myPair >= 0 ? playedBy(myPair) : null
-  const seesBoard = (boardNo: number) =>
-    over || (mine ? mine.has(boardNo) : event.directorId === viewerId && event.status === 'playing')
+  // The director (or an admin directing, e9-t17) who is not in a pair sees every board, to rule
+  const seesBoard = (boardNo: number) => over || (mine ? mine.has(boardNo) : canReferee && event.status === 'playing')
+  // A note on a board's score goes with that board's traveller: before then it would tell how the board went
+  const noteShown = (entry: RefereeEntry) => {
+    if (entry.action !== 'score') return true
+    const boardNo = entry.boardNo ?? event.results.find((r) => r.boardId && r.boardId === entry.boardId)?.boardNo
+    return boardNo === undefined ? over || (canReferee && myPair < 0) : seesBoard(boardNo)
+  }
+  const delayed = event.status === 'open' ? delayOf(director.entries) : null
+  const notes = refereeNotes(director.entries, userById, noteShown)
   const round = movement?.schedule[event.round - 1]
   const tables: PairsTableView[] =
     event.status === 'playing' && round
@@ -889,7 +937,7 @@ export function pairsView(event: PairsEvent, viewerId: string, userById: (id: st
         entries: scoring.scored
           .filter((s) => s.result.boardNo === boardNo)
           .sort((a, b) => b.result.scoreNS - a.result.scoreNS || a.result.round - b.result.round)
-          .map(({ result: r, percentNS }) => ({
+          .map(({ result: r, percentNS, ruling }) => ({
             round: r.round,
             table: r.table,
             ns: r.ns,
@@ -899,7 +947,8 @@ export function pairsView(event: PairsEvent, viewerId: string, userById: (id: st
             ...(r.lead && { lead: r.lead }),
             scoreNS: r.scoreNS,
             percentNS,
-            ...((over || r.ns === myPair || r.ew === myPair) && { boardId: r.boardId }),
+            ...(ruling && { ruling: scoreRuling(ruling) }),
+            ...(r.boardId && (over || r.ns === myPair || r.ew === myPair) && { boardId: r.boardId }),
           })),
       })
     }
@@ -934,5 +983,28 @@ export function pairsView(event: PairsEvent, viewerId: string, userById: (id: st
     ...(event.startedAt !== undefined && { startedAt: event.startedAt }),
     ...(event.finishedAt !== undefined && { finishedAt: event.finishedAt }),
     canDirect: event.directorId === viewerId,
+    ...(canReferee && { canReferee: true }),
+    ...(notes.length > 0 && { referee: notes }),
+    ...(delayed !== null && { delayedUntil: delayed }),
   }
+}
+
+/** What an event's page needs of its director's work (`e9-t17`) */
+export interface EventDirecting {
+  /** The viewer is an admin, so they may direct it */
+  admin?: boolean
+  /** The director's log */
+  entries?: readonly RefereeEntry[]
+}
+
+/** What a pairs event's page and scoring need of its director (`e9-t17`) */
+export interface PairsDirecting extends EventDirecting {
+  /** A played board's ruling on its record (`e2-t35`) */
+  rulingOf?: (boardId: string) => ScoreRuling | undefined
+}
+
+/** The scoring's options from the director's log: the rulings on the records and the penalties by pair */
+export function pairsScoring(director: Pick<PairsDirecting, 'entries' | 'rulingOf'>) {
+  const penalties = new Map([...penaltiesOf(director.entries)].map(([target, amount]) => [Number(target), amount]))
+  return { ...(director.rulingOf && { rulingOf: director.rulingOf }), penalties }
 }

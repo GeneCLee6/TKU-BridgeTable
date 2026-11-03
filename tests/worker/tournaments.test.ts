@@ -8,7 +8,7 @@ import { TournamentService, type EventState } from '../../worker/tournaments.ts'
 import { teamHarness, tick } from './team-match-harness.ts'
 
 /**
- * Tournament announcements and entries (`e9-t16`, AC-9.7, ARCHITECTURE.md §5.23): an admin
+ * Tournament announcements and entries (`e9-t16`, AC-9.7, ARCHITECTURE.md §5.24): an admin
  * announces, members enter alone, with a partner or as a team (partners confirm), withdraw before
  * the deadline; the reminder an hour before the start; the admin makes the pairs event or the team
  * match from the entries; the results announced when it ends.

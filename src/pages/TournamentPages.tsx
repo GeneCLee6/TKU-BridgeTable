@@ -17,7 +17,7 @@ import { usePreferences, useT } from '../state/PreferencesContext.tsx'
 import type { Strings } from '../strings.ts'
 
 /**
- * 比賽公告與報名 (`e9-t16`, AC-9.7, ARCHITECTURE.md §5.23): the list with the admins' form for a new
+ * 比賽公告與報名 (`e9-t16`, AC-9.7, ARCHITECTURE.md §5.24): the list with the admins' form for a new
  * announcement, and one tournament's page — when and what, the entries, entering alone, with a
  * partner or as a team, confirming, withdrawing, and for admins the start (which makes the pairs
  * event or the team match from the entries), changing, cancelling and removing entries. The event

@@ -75,14 +75,16 @@ export class RankingsService {
     }
   }
 
-  challengeFinished(c: Challenge) {
+  /** `penalties`: the director's (`e9-t17`), by participant */
+  challengeFinished(c: Challenge, penalties?: ReadonlyMap<string, number>) {
     const boards = eventBoards(this.deps.store.sql, c.id)
-    this.record(challengeEvent(c, (b) => boards.get(b)?.ruling, this.deps.now()))
+    this.record(challengeEvent(c, (b) => boards.get(b)?.ruling, this.deps.now(), penalties))
   }
 
-  matchFinished(m: TeamMatch) {
+  /** `penalties`: the director's (`e9-t17`), by team */
+  matchFinished(m: TeamMatch, penalties?: ReadonlyMap<string, number>) {
     const boards = eventBoards(this.deps.store.sql, m.id)
-    this.record(matchEvent(m, (b) => boards.get(b)?.ruling, this.deps.now()))
+    this.record(matchEvent(m, (b) => boards.get(b)?.ruling, this.deps.now(), penalties))
   }
 
   // ── The pages (e9-t06, e9-t08) ─────────────────────────────────────────────────────────────

@@ -3,6 +3,7 @@ import type { Card } from './cards.ts'
 import type { ChallengeScoring } from './challenge-scoring.ts'
 import { isRobotKind, type PublicUser, type RobotKind } from './protocol.ts'
 import type { ScoreRuling } from './ruling-scoring.ts'
+import type { RefereeNote } from './referee.ts'
 
 /**
  * A challenge's lifecycle and settings (docs/PRD/e7-challenges.md, ARCHITECTURE.md §5.5).
@@ -197,6 +198,8 @@ export interface ChallengeStandingView {
   boards?: number[]
   /** The boards (1-based) a director ruled on for them (`e2-t36`): their total counts the rulings */
   ruled?: number[]
+  /** What the director took off `total` (`e9-t17`), in the scoring's unit */
+  penalty?: number
   /** A partner challenge (`e7-t28`): the partnership is one entry, under its first member, with this partner */
   partnerId?: string
 }
@@ -264,4 +267,8 @@ export interface ChallengeView {
   players: ChallengePlayerView[]
   standings?: ChallengeStandingsView
   travellers?: ChallengeTraveller[]
+  /** The viewer may use the director's tools (`e9-t17`): an admin */
+  canReferee?: boolean
+  /** What the director did (`e9-t17`), with the standings: only to those who see them */
+  referee?: RefereeNote[]
 }

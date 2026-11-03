@@ -53,7 +53,7 @@ export type FeatureSettings = Partial<Record<FeatureFlag, FeatureSetting>>
  * on the profile and their APIs. Off until the club settles the rules. The ledger and the ratings
  * are kept from every finished event either way, so opening it shows everything since J2; admins
  * reach the page with the flag off to set the rules first.
- * Tournaments (比賽公告與報名, e9-t16, ARCHITECTURE.md §5.23): the `/tournaments` pages, their API and
+ * Tournaments (比賽公告與報名, e9-t16, ARCHITECTURE.md §5.24): the `/tournaments` pages, their API and
  * the announcement notice. Off until the club announces its first one; admins reach the pages with
  * the flag off to announce and prepare it. A pairs event made from a tournament is played by its
  * players whether or not they have `pairs`.

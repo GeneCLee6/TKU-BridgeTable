@@ -5,7 +5,7 @@ import { parseTeamMatchSettings, TEAM_MATCH_LIMITS, type TeamMatchSettings } fro
 import type { MatchScoring } from './team-scoring.ts'
 
 /**
- * Tournament announcements and entries (比賽公告與報名, `e9-t16`, AC-9.7, ARCHITECTURE.md §5.23).
+ * Tournament announcements and entries (比賽公告與報名, `e9-t16`, AC-9.7, ARCHITECTURE.md §5.24).
  * A tournament is not an event engine of its own: an admin announces it (which existing event it
  * runs as, when, the deadline, how many may enter), members enter (alone or with a partner, or as
  * a team of four, each partner confirming), and when it is time the admin turns the entries into
