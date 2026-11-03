@@ -63,4 +63,39 @@ describe("the director's tools on a team match (e9-t17)", () => {
     expect(audit.map((a) => a.action)).toEqual(['referee:score', 'referee:penalty', 'referee:withdraw', 'referee:penalty'])
     expect(audit[0]).toMatchObject({ by: 'amy', target: `board:${boardId}` })
   })
+
+  it("re-credits the finished match's points when the director changes it afterwards (e9-t17 follow-up)", async () => {
+    const t = await teamHarness()
+    const m = await t.match({ boards: 4, seats: { ben: at('closed', 'S') } })
+    const { id, amy } = m
+    const ben = m.people.ben
+    const act = (body: unknown) => t.club().refereeAct(amy, 'match', id, body)
+    const view = (userId: string) => t.club().matches.get(id, userId)!
+    await t.send(amy, { type: 'startMatch', matchId: id })
+    // Everyone passes: a tie, both teams first (match rule: 2 + 4 per team beaten)
+    await t.playUntil([amy, ben], () => view(amy).status === 'finished')
+    const ledger = (userId: string) => t.club().rankings.ledger.ledger(userId, { from: 0, to: Infinity })[0]
+    expect(ledger(amy)).toMatchObject({ eventId: id, rank: 1, points: 2 })
+    expect(ledger(ben)).toMatchObject({ eventId: id, rank: 1, points: 2 })
+
+    await act({ action: 'penalty', target: 'A', amount: 3, reason: '遲到' })
+    expect(ledger(amy)).toMatchObject({ rank: 2, base: 2, points: 2, adjustments: [] })
+    expect(ledger(ben)).toMatchObject({ rank: 1, base: 2, points: 6, adjustments: [expect.objectContaining({ delta: 4, reason: '遲到', auto: true })] })
+    // A ruling on a board that puts A back ahead (which way NS is depends on the room): the places turn round
+    const boardId = t.club().matches.store.get(id)!.boards[0].open!.boardId
+    const rule = (scoreNS: number) => act({ action: 'score', boardId, ruling: { kind: 'score', scoreNS, reason: '錯誤說明' } })
+    let scoreNS = 1100
+    await rule(scoreNS)
+    if (view(amy).leader !== 'A') await rule((scoreNS = -1100))
+    expect(view(amy).leader).toBe('A')
+    expect(ledger(amy)).toMatchObject({ rank: 1, points: 6 })
+    expect(ledger(ben)).toMatchObject({ rank: 2, points: 2 })
+    // The same ruling again: nothing more is written
+    const written = ledger(amy).adjustments.length + ledger(ben).adjustments.length
+    await rule(scoreNS)
+    expect(ledger(amy).adjustments.length + ledger(ben).adjustments.length).toBe(written)
+    const audit = await new AuditLog(t.h.store).list()
+    expect(audit.filter((a) => a.action === 'points:recredit').every((a) => a.target === `match:${id}`)).toBe(true)
+    expect(audit.filter((a) => a.action === 'points:recredit').length).toBeGreaterThanOrEqual(2)
+  })
 })

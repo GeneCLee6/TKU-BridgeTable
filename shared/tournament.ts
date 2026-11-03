@@ -41,6 +41,13 @@ export const TOURNAMENT_LIMITS = {
   teamNameMax: TEAM_MATCH_LIMITS.nameMax,
   /** The reminder goes this long before the start */
   reminderMs: 60 * 60_000,
+  /**
+   * The day-before reminder goes this long before the start, when the start was set at least this
+   * long ahead (an announcement or a move less than a day before has only the hour's); not at all
+   * once less than `dayReminderLateMs` is left (the club's object slept through its time)
+   */
+  dayReminderMs: 24 * 60 * 60_000,
+  dayReminderLateMs: 12 * 60 * 60_000,
   /** Announced at most this far ahead */
   aheadMaxMs: 366 * 86_400_000,
 } as const
@@ -178,6 +185,15 @@ export interface Tournament {
   cancelledAt?: number
   /** The start the reminder already went out for (a changed start reminds again) */
   remindedFor?: number
+  /** The start a day-before reminder is due for: set when the start was set a day or more ahead */
+  dayReminderFor?: number
+  /** The start the day-before reminder already went out for */
+  dayRemindedFor?: number
+  /**
+   * The admin's order of the members alone (a pairs event; 2026-11-03): two by two they make the
+   * pairs. Kept as set; members alone since are added in the order they entered (`singlesOrder`)
+   */
+  pairing?: string[]
 }
 
 /** Whether every player of an entry confirmed */
@@ -196,19 +212,56 @@ export const tournamentPlayers = (t: Tournament) => t.entries.flatMap((e) => e.p
 export const entriesUsed = (t: Tournament) =>
   t.entries.reduce((n, e) => n + (e.players.length === 1 && t.settings.kind !== 'individual' ? 0.5 : 1), 0)
 
+/** The members who entered alone, in the order they entered */
+const aloneOf = (t: Tournament) => t.entries.filter((e) => e.players.length === 1).map((e) => e.players[0].userId)
+
+/**
+ * The members alone in the order they are paired (2026-11-03): the admin's order (`pairing`) for
+ * those still alone, then everyone alone since, in the order they entered. With no order set, the
+ * order they entered
+ */
+export function singlesOrder(t: Tournament): string[] {
+  const alone = aloneOf(t)
+  const kept = (t.pairing ?? []).filter((id) => alone.includes(id))
+  return [...kept, ...alone.filter((id) => !kept.includes(id))]
+}
+
+/**
+ * Whether `order` may be the admin's pairing: every member alone exactly once, nobody else. A
+ * member alone in no order at all (`null`) goes back to the order they entered
+ */
+export function isPairingOrder(t: Tournament, order: unknown): order is string[] | null {
+  if (order === null) return true
+  const alone = aloneOf(t)
+  return (
+    Array.isArray(order) &&
+    order.length === alone.length &&
+    new Set(order).size === order.length &&
+    order.every((id) => typeof id === 'string' && alone.includes(id))
+  )
+}
+
+/**
+ * The members alone two by two (`singlesOrder`): the proposed pairs and the one left over. What
+ * the admin sees, and changes, before the start
+ */
+export function singlesPairs(t: Tournament): { pairs: [string, string][]; leftOver: string[] } {
+  const alone = singlesOrder(t)
+  const pairs: [string, string][] = []
+  for (let i = 0; i + 1 < alone.length; i += 2) pairs.push([alone[i], alone[i + 1]])
+  return { pairs, leftOver: alone.length % 2 ? [alone.at(-1)!] : [] }
+}
+
 /**
  * The pairs a pairs event starts with: every pair whose partner confirmed, in the order they
- * entered, then the members alone two by two in the order they entered (one left over plays not)
+ * entered, then the members alone two by two (`singlesPairs`: the admin's pairing, else the order
+ * they entered; one left over plays not)
  */
 export function pairsFromEntries(t: Tournament): { pairs: [string, string][]; leftOver: string[] } {
   const pairs: [string, string][] = []
-  const alone: string[] = []
-  for (const e of t.entries) {
-    if (e.players.length === 1) alone.push(e.players[0].userId)
-    else if (e.players.length === 2 && entryComplete(e)) pairs.push([e.players[0].userId, e.players[1].userId])
-  }
-  for (let i = 0; i + 1 < alone.length; i += 2) pairs.push([alone[i], alone[i + 1]])
-  return { pairs, leftOver: alone.length % 2 ? [alone.at(-1)!] : [] }
+  for (const e of t.entries) if (e.players.length === 2 && entryComplete(e)) pairs.push([e.players[0].userId, e.players[1].userId])
+  const singles = singlesPairs(t)
+  return { pairs: [...pairs, ...singles.pairs], leftOver: singles.leftOver }
 }
 
 /**
@@ -266,8 +319,13 @@ export interface TournamentView extends TournamentSummary {
   eventLink?: string
   startedAt?: number
   finishedAt?: number
-  /** The viewer may change, cancel or start it, and remove entries (an admin) */
+  /** The viewer may change, cancel or start it, remove entries and change the singles' pairing (an admin) */
   canManage: boolean
+  /**
+   * A pairs event's members alone as they will be paired at the start (`singlesPairs`), while it
+   * is open: the admin may change it (`POST …/pairing`). `adjusted` once the admin changed it
+   */
+  singles?: { pairs: [PublicUser, PublicUser][]; leftOver: PublicUser[]; adjusted: boolean }
 }
 
 /** The page of a tournament's event (and its results); an individual event's is a pairs event's page */

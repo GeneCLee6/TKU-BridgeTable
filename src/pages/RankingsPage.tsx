@@ -186,7 +186,7 @@ function Entry({ entry, userId, admin, onChanged }: { entry: LedgerEntry; userId
       {entry.adjustments.length > 0 && <Muted as="span">{t.rankings.base(String(entry.base))}</Muted>}
       {entry.adjustments.map((a, i) => (
         <Muted as="span" key={i}>
-          {t.rankings.adjusted(signed(a.delta), a.reason)}
+          {(a.auto ? t.rankings.recredited : t.rankings.adjusted)(signed(a.delta), a.reason)}
         </Muted>
       ))}
       <Points>{entry.points}</Points>

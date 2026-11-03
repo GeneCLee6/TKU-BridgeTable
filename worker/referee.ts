@@ -93,6 +93,21 @@ export class RefereeLog {
     return entry
   }
 
+  /**
+   * The audit log's line for a re-credit of a finished event's points (`RankingsService.recredit`):
+   * each member's difference and what their entry comes to, then the director's reason
+   */
+  async auditRecredit(
+    actor: { username: string },
+    kind: RefereeEvent,
+    eventId: string,
+    changes: readonly { username: string; delta: number; points: number }[],
+    reason: string,
+  ) {
+    const list = changes.map((c) => `${c.username} ${c.delta > 0 ? '+' : ''}${c.delta} = ${c.points}`).join(', ')
+    await this.audit.record({ by: actor.username, action: 'points:recredit', target: `${kind}:${eventId}`, note: [list, reason].filter(Boolean).join(' · ') })
+  }
+
   /** Only the audit log: a ruling on a board of no event (a casual table's, `e2-t35`) */
   async auditOnly(actor: { username: string }, action: RefereeAction, reason: string, target: string) {
     await this.audit.record({ by: actor.username, action: AUDIT[action.action], target, note: [describe(action), reason].filter(Boolean).join(' · ') })

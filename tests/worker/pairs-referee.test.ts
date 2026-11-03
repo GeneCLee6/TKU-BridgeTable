@@ -184,5 +184,25 @@ describe("the director's tools on a pairs event (e9-t17)", () => {
     const audit = await new AuditLog(h.store).list()
     expect(audit.map((a) => a.action)).toEqual(['referee:penalty', 'referee:withdraw', 'referee:penalty', 'referee:score'])
     expect(audit.at(-1)).toMatchObject({ by: 'td', target: `board:${boardId}` })
+
+    // After the end (e9-t17 follow-up): taking the penalty back re-credits the points, as the
+    // results page now ranks the pairs (pairs rule: 2 + 1 per pair beaten)
+    const pointsOf = (userId: string) => club().rankings.ledger.ledger(userId, { from: 0, to: Infinity })[0]
+    const before = pointsOf(players[0].id)
+    const kept = viewOf(ids[0]).referee!.filter((n) => n.action === 'penalty' && !n.withdrawn).at(-1)!.id
+    await act(director, { action: 'withdraw', of: kept, reason: '查明不是他們' })
+    const standings = viewOf(director).standings
+    const expected = (p: number) => {
+      const percent = standings.find((s) => s.pair === p)!.percent
+      return 2 + standings.filter((s) => s.percent < percent - 1e-9).length
+    }
+    for (const [i, entry] of viewOf(director).pairs.entries())
+      for (const member of entry.players) expect(pointsOf(member.id).points).toBe(expected(i))
+    const after = pointsOf(players[0].id)
+    expect(after.rank).toBeLessThan(before.rank)
+    expect(after.adjustments).toEqual([expect.objectContaining({ delta: after.points - before.points, reason: '查明不是他們', auto: true })])
+    // Worked out again with nothing changed: nothing written
+    expect(club().rankings.recredit(club().pairs.rankedNow(id), director, '再算')).toEqual([])
+    expect((await new AuditLog(h.store).list())[0]).toMatchObject({ action: 'points:recredit', by: 'td', target: `pairs:${id}` })
   })
 })

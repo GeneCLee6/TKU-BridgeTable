@@ -78,6 +78,11 @@ export type AuditAction =
   | 'referee:withdraw'
   | 'referee:delay'
   | 'referee:restart'
+  /**
+   * A finished event's club points worked out again after a director's change (`e9-t17` follow-up,
+   * §5.23); `target` is `<kind>:<eventId>`, `note` each member's difference and the reason
+   */
+  | 'points:recredit'
 
 export interface AuditEntry {
   id: string

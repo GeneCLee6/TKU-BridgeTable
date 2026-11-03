@@ -3,11 +3,13 @@ import {
   entriesUsed,
   entryComplete,
   entryOf,
+  isPairingOrder,
   matchSettingsOf,
   pairsFromEntries,
   pairsSettingsOf,
   parseTournamentSettings,
   playersFromEntries,
+  singlesPairs,
   teamsFromEntries,
   tournamentEventLink,
   tournamentPlayers,
@@ -179,7 +181,33 @@ export class TournamentService {
       ...(t.startedAt !== undefined && { startedAt: t.startedAt }),
       ...(t.finishedAt !== undefined && { finishedAt: t.finishedAt }),
       canManage: this.deps.isAdmin(userId),
+      ...(t.settings.kind === 'pairs' && t.status === 'open' && this.singlesView(t, user)),
     }
+  }
+
+  /** The proposed pairing of the members alone (`TournamentView.singles`), when there is anyone alone */
+  private singlesView(t: Tournament, user: (id: string) => PublicUser): Pick<TournamentView, 'singles'> | null {
+    const { pairs, leftOver } = singlesPairs(t)
+    if (!pairs.length && !leftOver.length) return null
+    return { singles: { pairs: pairs.map(([a, b]) => [user(a), user(b)]), leftOver: leftOver.map(user), adjusted: !!t.pairing } }
+  }
+
+  /**
+   * `POST /api/tournaments/:id/pairing { order }`: before the start, an admin sets the order the
+   * members alone are paired in, two by two (2026-11-03): every member alone exactly once
+   * (`tournamentBadPairing` otherwise, e.g. someone entered or withdrew meanwhile: the page reads
+   * it again); `null` goes back to the order they entered
+   */
+  async setPairing(adminId: string, id: string, order: unknown): Promise<TournamentView> {
+    this.admin(adminId)
+    this.limited(adminId)
+    const t = this.require(id)
+    this.open(t)
+    if (t.settings.kind !== 'pairs' || !isPairingOrder(t, order)) throw new ClubError('tournamentBadPairing')
+    const { pairing: _, ...rest } = t
+    const next: Tournament = order === null ? rest : { ...rest, pairing: order }
+    await this.save(next)
+    return this.viewOf(next, adminId)
   }
 
   // ── The admin's announcement ─────────────────────────────────────────────────────────────
@@ -195,7 +223,10 @@ export class TournamentService {
     this.admin(adminId)
     this.limited(adminId)
     const settings = this.parse(value)
-    const t: Tournament = { id: this.deps.newId(), createdBy: adminId, createdAt: this.deps.now(), settings, status: 'open', entries: [] }
+    const t: Tournament = withDayReminder(
+      { id: this.deps.newId(), createdBy: adminId, createdAt: this.deps.now(), settings, status: 'open', entries: [] },
+      this.deps.now(),
+    )
     await this.save(t)
     this.scheduleReminder(t)
     await this.tell(
@@ -215,7 +246,7 @@ export class TournamentService {
     const settings = this.parse(value, t.settings)
     if (settings.kind !== t.settings.kind && t.entries.length) throw new ClubError('badTournament', { field: 'kind' })
     if (entriesUsed(t) > settings.capacity) throw new ClubError('badTournament', { field: 'capacity' })
-    const next = { ...t, settings }
+    const next = withDayReminder({ ...t, settings }, this.deps.now())
     await this.save(next)
     this.scheduleReminder(next)
     return this.viewOf(next, adminId)
@@ -422,15 +453,24 @@ export class TournamentService {
 
   // ── The reminder ─────────────────────────────────────────────────────────────────────────
 
-  /** An hour before the start (at once when that has passed), once per start time, unless it is over */
+  /**
+   * An hour before the start (at once when that has passed), once per start time, unless it is
+   * over; and a day before when the start was set a day or more ahead (`dayReminderFor`, the
+   * president 2026-11-03). A changed start has new jobs (the key carries it); the old ones wake
+   * to nothing
+   */
   private scheduleReminder(t: Tournament) {
-    if (t.status === 'cancelled' || t.status === 'finished' || t.remindedFor === t.settings.startsAt) return
+    if (t.status === 'cancelled' || t.status === 'finished') return
     const now = this.deps.now()
-    if (now >= t.settings.startsAt) return
-    const at = t.settings.startsAt - TOURNAMENT_LIMITS.reminderMs
-    this.deps.scheduler.add(`tournament:${t.id}:${t.settings.startsAt}`, 'tournament', Math.max(0, at - now), () =>
-      this.remind(t.id, t.settings.startsAt),
-    )
+    const startsAt = t.settings.startsAt
+    if (now >= startsAt) return
+    if (t.dayReminderFor === startsAt && t.dayRemindedFor !== startsAt) {
+      const at = startsAt - TOURNAMENT_LIMITS.dayReminderMs
+      this.deps.scheduler.add(`tournament:${t.id}:${startsAt}:day`, 'tournament', Math.max(0, at - now), () => this.remindDay(t.id, startsAt))
+    }
+    if (t.remindedFor === startsAt) return
+    const at = startsAt - TOURNAMENT_LIMITS.reminderMs
+    this.deps.scheduler.add(`tournament:${t.id}:${startsAt}`, 'tournament', Math.max(0, at - now), () => this.remind(t.id, startsAt))
   }
 
   private async remind(id: string, startsAt: number) {
@@ -442,4 +482,26 @@ export class TournamentService {
     await this.save(next)
     await this.tell(tournamentPlayers(t), 'tournamentReminder', next)
   }
+
+  /** The day before: as `remind`, but not when less than `dayReminderLateMs` is left (it would say tomorrow) */
+  private async remindDay(id: string, startsAt: number) {
+    const t = this.all.get(id)
+    if (!t || t.settings.startsAt !== startsAt || t.dayReminderFor !== startsAt || t.dayRemindedFor === startsAt) return
+    if (t.status === 'cancelled' || t.status === 'finished') return
+    if (startsAt - this.deps.now() < TOURNAMENT_LIMITS.dayReminderLateMs) return
+    const next = { ...t, dayRemindedFor: startsAt }
+    await this.save(next)
+    await this.tell(tournamentPlayers(t), 'tournamentDayReminder', next)
+  }
+}
+
+/**
+ * Whether the start, as just set (announced or changed), gets a day-before reminder: only when it
+ * is a day or more away now. The same start kept keeps what it had
+ */
+function withDayReminder(t: Tournament, now: number): Tournament {
+  const startsAt = t.settings.startsAt
+  if (t.dayReminderFor === startsAt) return t
+  const { dayReminderFor: _, ...rest } = t
+  return startsAt - now >= TOURNAMENT_LIMITS.dayReminderMs ? { ...rest, dayReminderFor: startsAt } : rest
 }

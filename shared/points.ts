@@ -247,6 +247,8 @@ export interface PointsAdjustment {
   reason: string
   by: string
   at: number
+  /** Written by the re-credit after a director's change to a finished event (`e9-t17` follow-up), not by an admin's 更正 */
+  auto?: true
 }
 
 /** One ledger entry as the ledger page lists it: the event, the place and the points after corrections */

@@ -21,7 +21,7 @@
 
 | Epic | 名稱 | Task 完成 | AC 完成 | M1 task 數 | 狀態 |
 | --- | --- | --- | --- | --- | --- |
-| [E1](e1-accounts-identity-community.md) | 帳號、身分與社群 | 36／36 | 7／9 | 13 | in-progress |
+| [E1](e1-accounts-identity-community.md) | 帳號、身分與社群 | 36／36 | 8／9 | 13 | in-progress |
 | [E2](e2-table-engine-realtime.md) | 牌桌引擎與即時連線 | 36／36 | 13／14 | 12 | in-progress |
 | [E3](e3-table-ui-experience.md) | 牌桌介面與體驗 | 44／44 | 12／12 | 13 | done |
 | [E4](e4-records-favorites-search.md) | 牌局紀錄、收藏與搜尋 | 37／39 | 10／13 | 24 | in-progress |
@@ -34,7 +34,7 @@
 | [E11](e11-platform-ops-scale.md) | 平台、維運、安全與規模 | 31／32 | 6／10 | 8 | in-progress |
 | [E12](e12-commercialization.md) | 多社團與商業化 | 0／19 | 0／9 | 0 | planned |
 | [E13](e13-community-forum.md) | 社群與論壇 | 13／13 | 5／7 | 0 | in-progress |
-| | **合計** | **349／406** | **90／137** | **177** | |
+| | **合計** | **349／406** | **91／137** | **177** | |
 
 里程碑分布：M0 95 個（全部完成）、M1 177 個、M2 97 個、M3 25 個。作廢的 task（刪除線）不計入。
 

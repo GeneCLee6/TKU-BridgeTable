@@ -400,6 +400,82 @@ function EnterForm({ view, onChange }: { view: TournamentView; onChange: (view: 
   )
 }
 
+/**
+ * How the members who entered alone will be paired at the start (2026-11-03): two by two in the
+ * order they entered, unless an admin changed it. An admin swaps any two of them here (the server
+ * checks the new order, `tournamentBadPairing`) or goes back to the order they entered
+ */
+function SinglesPairing({
+  view,
+  busy,
+  act,
+}: {
+  view: TournamentView
+  busy: boolean
+  act: (run: () => Promise<{ tournament: TournamentView }>) => void
+}) {
+  const { t } = usePreferences()
+  const tt = t.tournaments
+  const singles = view.singles
+  if (!singles) return null
+  const order = [...singles.pairs.flat(), ...singles.leftOver]
+  const nameOf = (u: (typeof order)[number]) => u.username || t.deletedMember
+  const swap = (a: string, b: string) => {
+    const next = order.map((u) => (u.id === a ? b : u.id === b ? a : u.id))
+    act(() => api.tournaments.pairing(view.id, next))
+  }
+  const person = (u: (typeof order)[number]) => (
+    <span key={u.id}>
+      <Link to={`/members/${u.id}`}>{nameOf(u)}</Link>
+      {view.canManage && order.length > 1 && (
+        <Select
+          aria-label={tt.swapLabel(nameOf(u))}
+          value=""
+          disabled={busy}
+          onChange={(e) => e.target.value && swap(u.id, e.target.value)}
+        >
+          <option value="">{tt.swapPick}</option>
+          {order
+            .filter((o) => o.id !== u.id)
+            .map((o) => (
+              <option key={o.id} value={o.id}>
+                {nameOf(o)}
+              </option>
+            ))}
+        </Select>
+      )}
+    </span>
+  )
+  return (
+    <Section aria-labelledby="tournament-singles">
+      <h2 id="tournament-singles">{tt.singles}</h2>
+      <Muted>{tt.singlesHint}</Muted>
+      {singles.adjusted && <Muted>{tt.singlesAdjusted}</Muted>}
+      <List>
+        {singles.pairs.map((pair, i) => (
+          <li key={pair[0].id}>
+            <strong>{tt.singlesPair(i + 1)}</strong>
+            {pair.map(person)}
+          </li>
+        ))}
+        {singles.leftOver.map((u) => (
+          <li key={u.id}>
+            <Pending>{tt.singlesLeftOver}</Pending>
+            {person(u)}
+          </li>
+        ))}
+      </List>
+      {view.canManage && singles.adjusted && (
+        <Row>
+          <Button type="button" $size="sm" disabled={busy} onClick={() => act(() => api.tournaments.pairing(view.id, null))}>
+            {tt.singlesReset}
+          </Button>
+        </Row>
+      )}
+    </Section>
+  )
+}
+
 export function TournamentPage() {
   const { t, lang } = usePreferences()
   const tt = t.tournaments
@@ -529,6 +605,8 @@ export function TournamentPage() {
           </List>
         )}
       </Section>
+
+      <SinglesPairing view={view} busy={busy} act={act} />
 
       {view.canManage && view.status === 'open' && (
         <Section aria-label={tt.edit}>
