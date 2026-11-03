@@ -5,10 +5,11 @@ import { api, ApiError } from '../lib/api.ts'
 import { TWO_FACTOR_ANCHOR } from '../lib/twoFactor.ts'
 import { useAuth } from '../state/AuthContext.tsx'
 import { usePreferences } from '../state/PreferencesContext.tsx'
+import { CredentialInput } from './CredentialInput.tsx'
 import { PasswordInput } from './PasswordInput.tsx'
 import { QrCode } from './QrCode.tsx'
 import { useToast } from './Toast.tsx'
-import { Button, Card, CardFooter, CardHeader, CardTitle, ErrorText, Field, FieldLabel, Input, Muted } from './ui.tsx'
+import { Button, Card, CardFooter, CardHeader, CardTitle, ErrorText, Field, FieldLabel, Muted } from './ui.tsx'
 
 /**
  * "My account"'s 兩步驟登入 (e11-t31): set up with an authenticator app (a QR code drawn in the
@@ -162,7 +163,7 @@ export function TwoFactorCard() {
   const codeField = (label: string) => (
     <Field>
       <FieldLabel htmlFor={`${id}-code`}>{label}</FieldLabel>
-      <Input
+      <CredentialInput
         id={`${id}-code`}
         value={code}
         inputMode={state.enabled ? 'text' : 'numeric'}

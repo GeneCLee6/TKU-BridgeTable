@@ -128,7 +128,7 @@ TKU-BridgeTable/
 │  ├─ referee.ts           RefereeLog：每場比賽的裁判紀錄（`referee:<種類>:<id>`），每一筆也寫進稽核紀錄（§5.23）
 │  ├─ audit.ts             稽核紀錄（`audit:`）：淡江橋館的內容變更與比賽的裁判工具，誰、何時、做了什麼
 │  ├─ scheduler.ts         統一排程器：機器人、自動發牌、挑戰的提醒與截止都走同一個 alarm 佇列
-│  ├─ auth.ts              PBKDF2 密碼雜湊（100,000 次，舊的登入時升級）、session cookie、忘記密碼的一次性代碼
+│  ├─ auth.ts              PBKDF2 密碼雜湊（100,000 次，舊的登入時升級；密碼一律存半形，舊的全形密碼仍可登入，docs/SECURITY.md）、session cookie、忘記密碼的一次性代碼
 │  ├─ password-policy.ts   新密碼的規則（e11-t29）：至少 12 字、不含帳號名稱、不在 common-passwords.ts 的外洩清單（docs/SECURITY.md V2.1）
 │  ├─ totp.ts              兩步驟登入（e11-t31）：TOTP（RFC 6238，WebCrypto）、base32、otpauth 連結、備用碼
 │  ├─ oauth.ts             Google 與 LINE 登入共用（e1-t31、e1-t32）：PKCE、state、nonce、哪個網站、flow cookie、流程的儲存（§5.2）

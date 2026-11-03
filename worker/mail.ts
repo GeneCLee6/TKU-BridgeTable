@@ -8,6 +8,7 @@
  */
 
 import { formatMessage, isLang, type Lang, type MessageCode, type MessageParams } from '../shared/messages.ts'
+import { toHalfWidth } from '../shared/halfwidth.ts'
 
 /** One plain-text message to one address */
 export interface MailMessage {
@@ -53,7 +54,8 @@ export function mailerFrom(env: { RESEND_API_KEY?: string; MAIL_FROM?: string })
 }
 
 /** An address as kept and compared: trimmed and lower-cased */
-export const normalizeEmail = (value: unknown) => String(value ?? '').trim().toLowerCase()
+/** An address as stored and compared: half-width (shared/halfwidth.ts), trimmed, lower case */
+export const normalizeEmail = (value: unknown) => toHalfWidth(String(value ?? '')).trim().toLowerCase()
 
 /**
  * Whether an address looks deliverable: one `@`, a dot in the domain, no spaces or angle brackets.

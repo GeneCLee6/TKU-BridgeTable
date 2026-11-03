@@ -1,6 +1,7 @@
 import { Eye, EyeOff } from 'lucide-react'
 import { useState, type InputHTMLAttributes } from 'react'
 import styled from 'styled-components'
+import { useHalfWidth } from '../lib/useHalfWidth.ts'
 import { useT } from '../state/PreferencesContext.tsx'
 import { inputStyles } from '../styles/controls.ts'
 import type { ControlSize } from '../styles/tokens.ts'
@@ -8,17 +9,22 @@ import type { ControlSize } from '../styles/tokens.ts'
 /**
  * A password field with a button that shows or hides what was typed. The field itself is the
  * browser's own `type="password"` with the shared input look: the same font size as every other
- * field, no letter-spacing, no enlarged dots.
+ * field, no letter-spacing, no enlarged dots. What is typed is always half-width (`useHalfWidth`):
+ * a full-width input method's ＡＢＣ１２３ becomes ABC123, which is what the server checks too.
  */
 export function PasswordInput({
   $size,
+  onChange,
+  onCompositionStart,
+  onCompositionEnd,
   ...props
 }: Omit<InputHTMLAttributes<HTMLInputElement>, 'type'> & { $size?: ControlSize }) {
   const t = useT()
   const [shown, setShown] = useState(false)
+  const halfWidth = useHalfWidth({ onChange, onCompositionStart, onCompositionEnd })
   return (
     <Wrap>
-      <Field {...props} $size={$size} type={shown ? 'text' : 'password'} />
+      <Field {...props} {...halfWidth} $size={$size} type={shown ? 'text' : 'password'} />
       <Toggle
         type="button"
         onClick={() => setShown((s) => !s)}
@@ -40,6 +46,8 @@ const Wrap = styled.span`
 const Field = styled.input<{ $size?: ControlSize }>`
   ${inputStyles}
   padding-right: 44px;
+  /* Old Firefox and IE only: the input method off. Everyone else gets useHalfWidth */
+  ime-mode: disabled;
 `
 
 const Toggle = styled.button`

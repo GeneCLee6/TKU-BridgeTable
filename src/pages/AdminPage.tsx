@@ -12,6 +12,7 @@ import {
   type Permission,
 } from '../../shared/protocol.ts'
 import type { BookSyncRow } from '../../shared/robot/system/tku/sources.ts'
+import { CredentialInput } from '../components/CredentialInput.tsx'
 import { AdminTwoFactorBanner } from '../components/AdminTwoFactorBanner.tsx'
 import { PasswordInput } from '../components/PasswordInput.tsx'
 import { FeatureFlags } from '../components/FeatureFlags.tsx'
@@ -545,7 +546,7 @@ function AdminPanels() {
                   <GridRow>
                     <FieldLabel htmlFor={`${id}-inviteCode`}>{t.inviteCode}</FieldLabel>
                     <Control>
-                      <Input
+                      <CredentialInput
                         {...fieldIds('inviteCode', true)}
                         value={draft.inviteCode}
                         autoComplete="off"
@@ -858,7 +859,7 @@ function AdminPanels() {
                 <GridRow>
                   <FieldLabel htmlFor={`${id}-username`}>{t.username}</FieldLabel>
                   <Control>
-                    <Input
+                    <CredentialInput
                       {...fieldIds('username', true)}
                       value={member.username}
                       autoComplete="off"
