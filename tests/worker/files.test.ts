@@ -41,6 +41,17 @@ const code = async (promise: Promise<unknown>) => {
   return 'no error'
 }
 
+const png = (size = 64) => {
+  const bytes = new Uint8Array(size)
+  bytes.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+  return bytes
+}
+const gif = (size = 64) => {
+  const bytes = new Uint8Array(size)
+  bytes.set([0x47, 0x49, 0x46, 0x38, 0x39, 0x61])
+  return bytes
+}
+
 const tokenOf = (url: string) => url.split('/').pop()!.split('?')[0]
 
 describe('FileService', () => {
@@ -106,7 +117,9 @@ describe('FileService', () => {
   })
 
   it('checks the type, the size and the pass', async () => {
-    expect(await code(files.createTicket('u1', { purpose: 'post', type: 'image/gif', size: 64 }))).toEqual({ code: 'fileBadFormat', status: 400 })
+    // GIF only for a post (e13-t13); SVG never
+    expect(await code(files.createTicket('u1', { purpose: 'article', type: 'image/gif', size: 64 }))).toEqual({ code: 'fileBadFormat', status: 400 })
+    expect(await code(files.createTicket('u1', { purpose: 'post', type: 'image/svg+xml', size: 64 }))).toEqual({ code: 'fileBadFormat', status: 400 })
     expect(await code(files.createTicket('u1', { purpose: 'avatar', type: 'image/webp', size: 64 }))).toEqual({ code: 'badMessage', status: 400 })
     expect(await code(files.createTicket('u1', { purpose: 'post', type: 'image/webp', size: FILE_LIMITS.maxBytes + 1 }))).toEqual({
       code: 'fileTooLarge',
@@ -127,6 +140,61 @@ describe('FileService', () => {
     now += FILE_LIMITS.ticketMs + 1
     expect(await code(files.upload(tokenOf(late.uploadUrl), 'file', webp()))).toEqual({ code: 'fileTicketExpired', status: 401 })
     expect(await code(files.upload('nope', 'file', webp()))).toEqual({ code: 'fileTicketExpired', status: 401 })
+  })
+
+  it('takes a GIF for a post by its first bytes, never an SVG or a mislabelled file (e13-t13)', async () => {
+    const ticket = await files.createTicket('u1', { purpose: 'post', type: 'image/gif', size: 64 })
+    expect(ticket.key).toMatch(/^post\/[0-9a-f]{24}\.gif$/)
+    const token = tokenOf(ticket.uploadUrl)
+    const svg = new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>')
+    expect(await code(files.upload(token, 'file', svg))).toEqual({ code: 'fileBadFormat', status: 400 })
+    // A PNG sent on a GIF pass: the bytes decide, not the Content-Type
+    expect(await code(files.upload(token, 'file', png()))).toEqual({ code: 'fileBadFormat', status: 400 })
+    const file = await files.upload(token, 'file', gif())
+    expect(file.type).toBe('image/gif')
+    expect(bucket.objects.get(ticket.key)?.type).toBe('image/gif')
+    await files.upload(token, 'thumb', webp())
+
+    const response = await files.serve(ticket.key, new URL(file.url, 'https://example.org'))
+    expect(response.headers.get('Content-Type')).toBe('image/gif')
+    expect(response.headers.get('X-Content-Type-Options')).toBe('nosniff')
+    expect(response.headers.get('Content-Disposition')).toBe('inline')
+    expect(response.headers.get('Content-Security-Policy')).toBe("default-src 'none'")
+    expect(response.headers.get('Cache-Control')).toMatch(/^private, max-age=\d+, immutable$/)
+  })
+
+  it('signs only the keys a check allows, and removes files by key whoever uploaded them', async () => {
+    const keys: string[] = []
+    for (const user of ['u1', 'u2']) {
+      const ticket = await files.createTicket(user, { purpose: 'post', type: 'image/webp', size: 64 })
+      await files.upload(tokenOf(ticket.uploadUrl), 'file', webp())
+      await files.upload(tokenOf(ticket.uploadUrl), 'thumb', webp(16))
+      keys.push(ticket.key)
+    }
+    const { urls } = await files.urls(keys, (_key, meta) => meta.owner === 'u1')
+    expect(Object.keys(urls)).toEqual([keys[0]])
+
+    expect((await files.ownedBy('u2')).map((f) => f.key)).toEqual([keys[1]])
+    expect((await files.ownedBy('u2'))[0].size).toBe(64 + 16)
+    expect(await files.removeKeys([keys[1], keys[1], 'post/000000000000000000000000.webp'])).toEqual([keys[1]])
+    expect(bucket.objects.has(keys[1])).toBe(false)
+    expect(bucket.objects.has(thumbKey(keys[1]))).toBe(false)
+    expect((await files.usage()).bytes).toBe(64 + 16)
+  })
+
+  it("forgets a deleted member's forum pictures no post uses, keeping the used ones and the library's", async () => {
+    const upload = async (purpose: 'post' | 'article') => {
+      const ticket = await files.createTicket('u1', { purpose, type: 'image/webp', size: 64 })
+      await files.upload(tokenOf(ticket.uploadUrl), 'file', webp())
+      return ticket.key
+    }
+    const posted = await upload('post')
+    const unposted = await upload('post')
+    const article = await upload('article')
+    expect(await store.get('file:day:u1')).toBeDefined()
+    expect(await files.forget('u1', (key) => key === posted)).toEqual([unposted])
+    expect([...bucket.objects.keys()].sort()).toEqual([article, posted].sort())
+    expect(await store.get('file:day:u1')).toBeUndefined()
   })
 
   it('allows 30 uploads a day per member, starting over the next day in Taiwan', async () => {

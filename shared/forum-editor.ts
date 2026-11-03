@@ -309,15 +309,20 @@ export function toMarkdown(blocks: readonly TextBlock[]): string {
 // ── The post as the editor holds it ──────────────────────────────────────────────────────────
 
 /**
- * The editor's pieces, in order: text in the Markdown subset, four hands, an auction, or a block
- * the table's editor does not edit (one hand, a picture, a handbook quote, a table record, from a
- * post written on BridgeHall), which is kept as it was and may only be moved or removed.
+ * The editor's pieces, in order: text in the Markdown subset, four hands, an auction, a picture
+ * (uploaded first, e13-t13: its key, alternative text and caption), or a block the table's editor
+ * does not edit (one hand, a handbook quote, a table record, from a post written on BridgeHall),
+ * which is kept as it was and may only be moved or removed.
  */
 export type EditorPiece =
   | { kind: 'text'; text: string }
   | { kind: 'deal'; deal: ForumDeal; caption: string }
   | { kind: 'auction'; auction: ForumAuction; caption: string }
+  | { kind: 'image'; assetId: string; alt: string; caption: string }
   | { kind: 'kept'; block: PostBlock }
+
+/** A picture's alternative text, as `worker/forum.ts` allows (BLOCK_LIMITS.altMax) */
+export const ALT_MAX = 200
 
 const isTextBlock = (block: PostBlock): block is TextBlock => block.kind === 'paragraph' || block.kind === 'rules' || block.kind === 'note'
 
@@ -337,6 +342,7 @@ export function piecesOf(blocks: readonly PostBlock[]): EditorPiece[] {
     flush()
     if (block.kind === 'deal') pieces.push({ kind: 'deal', deal: block.deal, caption: block.caption ?? '' })
     else if (block.kind === 'auction') pieces.push({ kind: 'auction', auction: block.auction, caption: block.caption ?? '' })
+    else if (block.kind === 'image') pieces.push({ kind: 'image', assetId: block.assetId, alt: block.alt, caption: block.caption ?? '' })
     else pieces.push({ kind: 'kept', block })
   }
   flush()
@@ -360,6 +366,8 @@ export function blocksOf(pieces: readonly EditorPiece[]): PostBlock[] {
           : []
       case 'auction':
         return piece.auction.calls.length ? [withCaption({ kind: 'auction' as const, auction: piece.auction }, piece.caption)] : []
+      case 'image':
+        return [withCaption({ kind: 'image' as const, assetId: piece.assetId, alt: piece.alt.trim().slice(0, ALT_MAX) }, piece.caption)]
       case 'kept':
         return [piece.block]
     }
@@ -400,6 +408,7 @@ export type PostProblem =
   | { kind: 'tooManyBlocks'; max: number }
   | { kind: 'tooLong'; length: number; max: number }
   | { kind: 'titleTooLong'; max: number }
+  | { kind: 'tooManyImages'; max: number }
   | { kind: 'deal'; problem: DealProblem }
   | { kind: 'auction'; problem: AuctionProblem }
 
@@ -411,6 +420,7 @@ export function postProblems(title: string, blocks: readonly PostBlock[]): PostP
   const length = textLength(blocks)
   if (length > FORUM_LIMITS.postTextMax) problems.push({ kind: 'tooLong', length, max: FORUM_LIMITS.postTextMax })
   if ([...title.trim()].length > FORUM_LIMITS.titleMax) problems.push({ kind: 'titleTooLong', max: FORUM_LIMITS.titleMax })
+  if (blocks.filter((b) => b.kind === 'image').length > FORUM_LIMITS.imagesMax) problems.push({ kind: 'tooManyImages', max: FORUM_LIMITS.imagesMax })
   for (const block of blocks) {
     if (block.kind === 'deal') problems.push(...dealProblems(block.deal).map((problem) => ({ kind: 'deal' as const, problem })))
     if (block.kind === 'auction') problems.push(...auctionProblems(block.auction).map((problem) => ({ kind: 'auction' as const, problem })))

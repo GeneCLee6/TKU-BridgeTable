@@ -15,13 +15,35 @@
  * also answers CORS, so a page may send it straight to the Worker's own address instead.
  *
  * Avatars are not files: they stay in the club's storage (`shared/avatar.ts`).
+ *
+ * The table's forum pictures (e13-t13): GIF is taken for posts only (an article's pictures stay the
+ * three types BridgeHall's article editor reads), uploaded as it is so it keeps moving; SVG never
+ * (it may carry script). A `post/` picture is signed only for someone who may see a post using
+ * it, and goes with its post (`worker/post-images.ts`, ARCHITECTURE.md §5.14).
  */
 
+import { sniffAvatar } from './avatar.ts'
 import type { EbookFileType } from './ebooks.ts'
 
-export const FILE_TYPES = ['image/jpeg', 'image/png', 'image/webp'] as const
+export const FILE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'] as const
 export type FileType = (typeof FILE_TYPES)[number]
 export const isFileType = (value: unknown): value is FileType => FILE_TYPES.includes(value as FileType)
+/** The types only a post's picture may be (e13-t13) */
+export const POST_ONLY_TYPES: readonly FileType[] = ['image/gif']
+
+const GIF87 = [0x47, 0x49, 0x46, 0x38, 0x37, 0x61]
+const GIF89 = [0x47, 0x49, 0x46, 0x38, 0x39, 0x61]
+
+/**
+ * A picture's type from its first bytes (magic numbers), whatever the upload's Content-Type says:
+ * JPEG, PNG, WebP (as for avatars) or GIF; null for anything else, SVG included
+ */
+export function sniffFile(bytes: Uint8Array): FileType | null {
+  const known = sniffAvatar(bytes)
+  if (known) return known
+  if (bytes.length >= 6 && (GIF87.every((b, i) => bytes[i] === b) || GIF89.every((b, i) => bytes[i] === b))) return 'image/gif'
+  return null
+}
 
 /** What a file is for; the first part of its key */
 export const FILE_PURPOSES = ['post', 'article'] as const
@@ -78,9 +100,9 @@ export interface FileUrls {
   urls: Record<string, { url: string; thumbUrl?: string }>
 }
 
-const EXTENSIONS: Record<FileType, string> = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' }
+const EXTENSIONS: Record<FileType, string> = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif' }
 export const fileExtension = (type: FileType) => EXTENSIONS[type]
 
 /** A file's key: `<purpose>/<24 hex digits>.<ext>`; its thumbnail adds `-thumb` before the extension */
-export const FILE_KEY = /^(post|article)\/[0-9a-f]{24}(-thumb)?\.(jpg|png|webp)$/
+export const FILE_KEY = /^(post|article)\/[0-9a-f]{24}(-thumb)?\.(jpg|png|webp|gif)$/
 export const thumbKey = (key: string) => key.replace(/\.(\w+)$/, '-thumb.$1')

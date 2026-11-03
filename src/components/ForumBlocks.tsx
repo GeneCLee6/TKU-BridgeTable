@@ -7,6 +7,7 @@ import type { ForumDeal as ForumDealValue, ForumRuleItem, PostBlock } from '../.
 import { dealRecord } from '../../shared/forum-editor.ts'
 import type { BoardRecord } from '../../shared/protocol.ts'
 import { api } from '../lib/api.ts'
+import { fileUrls } from '../lib/postImage.ts'
 import { CARD_SCALE } from '../lib/cards.ts'
 import { useMediaQuery } from '../lib/useMediaQuery.ts'
 import { mobileQuery } from '../styles/tokens.ts'
@@ -22,7 +23,31 @@ import { ContractResult, SuitSymbol, SuitText } from './Suit.tsx'
  * shown as text with its line breaks. Four hands are drawn with the record pages' `RecordDiagram` (K2).
  * A board shared from the history (`record`, e13-t07) is fetched from the record page's own API, so
  * the viewer sees it only as §4 lets them; the post keeps nothing but its id.
+ * Pictures (e13-t13) are kept by key; their signed, short-lived addresses are fetched with each read
+ * (`POST /api/files/urls`), and one the reader may no longer see (deleted, or on a hidden post)
+ * shows as a note instead.
  */
+
+/** Signed addresses of a post's pictures, by key */
+type PostFiles = Record<string, { url: string; thumbUrl?: string }>
+
+/** The pictures' addresses for these blocks; none while loading, when uploads are off or the call fails */
+function usePostFiles(blocks: readonly PostBlock[]): { files: PostFiles; loaded: boolean } {
+  const keyList = blocks.flatMap((b) => (b.kind === 'image' ? [b.assetId] : [])).join(' ')
+  const [state, setState] = useState<{ keys: string; files: PostFiles }>({ keys: '', files: {} })
+  useEffect(() => {
+    if (!keyList) return
+    let current = true
+    fileUrls(keyList.split(' ')).then(
+      (files) => current && setState({ keys: keyList, files }),
+      () => current && setState({ keys: keyList, files: {} }),
+    )
+    return () => {
+      current = false
+    }
+  }, [keyList])
+  return state.keys === keyList ? { files: state.files, loaded: true } : { files: {}, loaded: !keyList }
+}
 
 const Stack = styled.div`
   display: grid;
@@ -75,11 +100,26 @@ const Figure = styled.figure`
   display: grid;
   gap: 4px;
   margin: 0;
-  & > img {
+  & > a {
+    justify-self: start;
     max-width: 100%;
+  }
+  & img {
+    display: block;
+    max-width: 100%;
+    max-height: 640px;
     height: auto;
     border-radius: ${({ theme }) => theme.radius.sm};
   }
+`
+
+const Missing = styled.p`
+  margin: 0;
+  padding: ${({ theme }) => theme.space(3)};
+  border: 1px dashed ${({ theme }) => theme.colors.border};
+  border-radius: ${({ theme }) => theme.radius.sm};
+  color: ${({ theme }) => theme.colors.textMuted};
+  font-size: 14px;
 `
 
 const Ref = styled.a`
@@ -198,7 +238,7 @@ function Rules({ items, ordered }: { items: ForumRuleItem[]; ordered?: boolean }
   )
 }
 
-function Block({ block }: { block: PostBlock }) {
+function Block({ block, files, loaded }: { block: PostBlock; files: PostFiles; loaded: boolean }) {
   const { t } = usePreferences()
   switch (block.kind) {
     case 'paragraph':
@@ -231,13 +271,21 @@ function Block({ block }: { block: PostBlock }) {
           {block.caption && <Caption>{block.caption}</Caption>}
         </Figure>
       )
-    case 'image':
+    case 'image': {
+      const file = files[block.assetId]
       return (
         <Figure>
-          <img src={`/api/files/${block.assetId}`} alt={block.alt || t.forum.image} loading="lazy" />
+          {file ? (
+            <a href={file.url} target="_blank" rel="noreferrer" title={t.forum.imageOpen}>
+              <img src={file.url} alt={block.alt || t.forum.image} loading="lazy" />
+            </a>
+          ) : (
+            loaded && <Missing>{t.forum.imageMissing}</Missing>
+          )}
           {block.caption && <Caption>{block.caption}</Caption>}
         </Figure>
       )
+    }
     case 'ref':
       return (
         <Ref href={bookUrl(block.slug, block.sectionId)} target="_blank" rel="noreferrer">
@@ -250,10 +298,11 @@ function Block({ block }: { block: PostBlock }) {
 }
 
 export function ForumBlocks({ blocks }: { blocks: readonly PostBlock[] }) {
+  const { files, loaded } = usePostFiles(blocks)
   return (
     <Stack>
       {blocks.map((block, i) => (
-        <Block key={i} block={block} />
+        <Block key={i} block={block} files={files} loaded={loaded} />
       ))}
     </Stack>
   )
