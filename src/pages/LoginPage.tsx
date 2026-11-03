@@ -2,6 +2,7 @@ import { useEffect, useId, useState, type FormEvent, type ReactNode } from 'reac
 import styled from 'styled-components'
 import { PROFILE_LIMITS } from '../../shared/profile.ts'
 import { LIMITS, type OAuthName } from '../../shared/protocol.ts'
+import { CredentialInput } from '../components/CredentialInput.tsx'
 import { LogoMark } from '../components/Logo.tsx'
 import { PasswordInput } from '../components/PasswordInput.tsx'
 import { SignInButton } from '../components/SignInButtons.tsx'
@@ -451,11 +452,12 @@ export function LoginPage() {
             {!oauthCode && (
               <Field>
                 <FieldLabel htmlFor={`${id}-username`}>{emailing ? t.email.account : t.username}</FieldLabel>
-                <Input
+                <CredentialInput
                   {...describe('username', registering)}
                   $size="lg"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
+                  inputMode={emailing ? 'email' : 'text'}
                   autoComplete={emailing ? 'email' : 'username'}
                   required
                   minLength={emailing ? undefined : LIMITS.usernameMin}
@@ -481,7 +483,7 @@ export function LoginPage() {
             {withCode && (
               <Field>
                 <FieldLabel htmlFor={`${id}-code`}>{t.resetCode}</FieldLabel>
-                <Input
+                <CredentialInput
                   {...describe('code', true)}
                   $size="lg"
                   value={code}
@@ -518,7 +520,7 @@ export function LoginPage() {
             {((mode === 'login' && needOtp) || oauthCode) && (
               <Field>
                 <FieldLabel htmlFor={`${id}-otp`}>{t.twoFactor.code}</FieldLabel>
-                <Input
+                <CredentialInput
                   {...describe('otp', true)}
                   $size="lg"
                   value={otp}
@@ -548,7 +550,7 @@ export function LoginPage() {
             {(registering || resetting) && (
               <Field>
                 <FieldLabel htmlFor={`${id}-inviteCode`}>{t.inviteCode}</FieldLabel>
-                <Input
+                <CredentialInput
                   {...describe('inviteCode', true)}
                   $size="lg"
                   value={inviteCode}

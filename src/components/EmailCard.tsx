@@ -3,9 +3,10 @@ import styled from 'styled-components'
 import { api, ApiError } from '../lib/api.ts'
 import { useAuth } from '../state/AuthContext.tsx'
 import { usePreferences } from '../state/PreferencesContext.tsx'
+import { CredentialInput } from './CredentialInput.tsx'
 import { PasswordInput } from './PasswordInput.tsx'
 import { useToast } from './Toast.tsx'
-import { Button, Card, CardFooter, CardHeader, CardTitle, ErrorText, Field, FieldLabel, Input, Muted } from './ui.tsx'
+import { Button, Card, CardFooter, CardHeader, CardTitle, ErrorText, Field, FieldLabel, Muted } from './ui.tsx'
 
 /**
  * "My account"'s email (e1-t29): the verified address, one waiting for its link, binding or
@@ -79,9 +80,10 @@ export function EmailCard() {
         {error && <ErrorText role="alert">{error}</ErrorText>}
         <Field>
           <FieldLabel htmlFor={`${id}-address`}>{e.newAddress}</FieldLabel>
-          <Input
+          <CredentialInput
             id={`${id}-address`}
             type="email"
+            inputMode="email"
             value={address}
             autoComplete="email"
             maxLength={254}

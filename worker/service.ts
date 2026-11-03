@@ -85,7 +85,8 @@ import {
   normalizeEmail,
   type Mailer,
 } from './mail.ts'
-import { hashPassword, hashResetCode, needsRehash, randomId, RESET_CODE_MS, resetCode, verifyPassword } from './auth.ts'
+import { hashPassword, hashResetCode, matchPassword, needsRehash, randomId, RESET_CODE_MS, resetCode } from './auth.ts'
+import { credentialText, toHalfWidth } from '../shared/halfwidth.ts'
 import {
   hashRecoveryCode,
   looksLikeTotp,
@@ -1373,7 +1374,7 @@ export class ClubService {
       throw error
     }
     const name = this.checkNewName(username)
-    checkNewPassword(String(password ?? ''), name)
+    checkNewPassword(toHalfWidth(String(password ?? '')), name)
     this.checkRoom()
     const displayName = this.applicationName(extra.displayName)
     // Applying with Google or LINE (e1-t31, e1-t32): the flow the callback left for this browser, its account bound to nobody yet
@@ -1410,12 +1411,12 @@ export class ClubService {
 
   private checkInvite(inviteCode: string) {
     const { inviteCode: code } = this.clubSettings
-    if (code && inviteCode !== code) throw new ClubError('badInvite', {}, 403)
+    if (code && credentialText(inviteCode) !== credentialText(code)) throw new ClubError('badInvite', {}, 403)
   }
 
   /** A valid name nobody uses yet, including people still waiting for approval */
   private checkNewName(username: string) {
-    const name = String(username ?? '').trim()
+    const name = credentialText(username)
     if (name.length < LIMITS.usernameMin || name.length > LIMITS.usernameMax || !USERNAME_PATTERN.test(name))
       throw new ClubError('badUsername', { min: LIMITS.usernameMin, max: LIMITS.usernameMax })
     if (this.findUser(name) || this.findApplication(name) || name.toLowerCase() === ROBOT_NAME.toLowerCase())
@@ -1431,7 +1432,7 @@ export class ClubService {
   /** Accounts admins add themselves need no approval */
   private async createUser(username: string, password: string) {
     const name = this.checkNewName(username)
-    checkNewPassword(String(password ?? ''), name)
+    checkNewPassword(toHalfWidth(String(password ?? '')), name)
     this.checkRoom()
     return this.addUser(name, await hashPassword(String(password)))
   }
@@ -1455,7 +1456,7 @@ export class ClubService {
    * without letting a stranger lock a member out from everywhere
    */
   async login(username: string, password: string, address = '', userAgent = '', code = '', lang?: unknown) {
-    const name = String(username ?? '').trim()
+    const name = credentialText(username)
     const nameKey = `${address}|${name.toLowerCase()}`
     if (this.loginByName.blocked(nameKey) || this.loginByAddress.blocked(address)) {
       this.log({ event: 'loginLocked', username: name.slice(0, LIMITS.usernameMax) })
@@ -1470,14 +1471,17 @@ export class ClubService {
     if (!user) {
       // Someone still waiting for approval learns that, but only with their own password
       const application = this.findApplication(name)
-      if (application && (await verifyPassword(String(password ?? ''), application.passwordHash)))
+      if (application && (await matchPassword(password, application.passwordHash)))
         throw new ClubError('awaitingApproval', {}, 403)
       throw failed()
     }
-    if (!(await verifyPassword(String(password ?? ''), user.passwordHash))) throw failed()
+    const matched = await matchPassword(password, user.passwordHash)
+    if (!matched) throw failed()
     this.loginByName.clear(nameKey)
-    // A hash from before e11-t30 (fewer iterations) is made again now that the password is known
-    if (needsRehash(user.passwordHash)) user.passwordHash = await hashPassword(String(password))
+    // A hash from before e11-t30 (fewer iterations), or of a password saved with full-width characters
+    // (auth.ts `matchPassword`), is made again now that the password is known: hashPassword keeps
+    // the half-width form, which both ways of typing it match from then on
+    if (matched === 'legacy' || needsRehash(user.passwordHash)) user.passwordHash = await hashPassword(String(password))
     // 兩步驟登入 (e11-t31): only someone who knows the password learns that a code is needed
     if (user.twoFactor) await this.secondStep(user, String(code ?? ''), address, lang)
     user.lastLoginAt = this.now()
@@ -1568,7 +1572,7 @@ export class ClubService {
    */
   async changePassword(userId: string, current: string, next: string, token: string | null = null) {
     const user = this.requireUser(userId)
-    if (!(await verifyPassword(String(current ?? ''), user.passwordHash))) throw new ClubError('wrongPassword', {}, 403)
+    if (!(await matchPassword(current, user.passwordHash))) throw new ClubError('wrongPassword', {}, 403)
     // A reset link sent before no longer works
     delete user.emailReset
     await this.setPassword(user, String(next ?? ''))
@@ -1728,7 +1732,7 @@ export class ClubService {
    */
   async requestPasswordReset(username: string, inviteCode: string) {
     this.checkInvite(inviteCode)
-    const name = String(username ?? '').trim()
+    const name = credentialText(username)
     const user = this.findUser(name)
     if (!user) throw new ClubError(this.findApplication(name) ? 'resetApplication' : 'userGone', {}, 404)
     if (user.admin) throw new ClubError('adminNoSelfReset', {}, 403)
@@ -1774,7 +1778,7 @@ export class ClubService {
    * everywhere, edge passes and connections too, and the admin page shows when it happened
    */
   async resetForgottenPassword(username: string, code: string, password: string, address = '') {
-    const name = String(username ?? '').trim()
+    const name = credentialText(username)
     const nameKey = `${address}|${name.toLowerCase()}`
     if (this.loginByName.blocked(nameKey) || this.loginByAddress.blocked(address))
       throw new ClubError('tooManyLogins', { minutes: LOGIN_WINDOW_MS / 60_000 }, 429)
@@ -1787,7 +1791,7 @@ export class ClubService {
       this.loginByAddress.fail(address)
       throw new ClubError('resetCodeWrong', {}, 403)
     }
-    checkNewPassword(String(password ?? ''), user.username)
+    checkNewPassword(toHalfWidth(String(password ?? '')), user.username)
     user.passwordHash = await hashPassword(String(password))
     user.passwordResetAt = this.now()
     delete user.passwordReset
@@ -1848,7 +1852,7 @@ export class ClubService {
 
   /** On "My account", for a change to the second step: the password and a code (or a recovery code), with the same limits */
   private async confirmSecondFactor(user: StoredUser, password: string, code: string) {
-    if (!(await verifyPassword(String(password ?? ''), user.passwordHash))) throw new ClubError('wrongPassword', {}, 403)
+    if (!(await matchPassword(password, user.passwordHash))) throw new ClubError('wrongPassword', {}, 403)
     if (this.twoFactorFailures.blocked(user.id)) throw new ClubError('tooManyLogins', { minutes: LOGIN_WINDOW_MS / 60_000 }, 429)
     if ((await this.checkSecondFactor(user, String(code ?? ''))) === null) {
       this.twoFactorFailures.fail(user.id)
@@ -1877,7 +1881,7 @@ export class ClubService {
     const user = this.requireUser(userId)
     if (!user.admin) throw new ClubError('adminOnly', {}, 403)
     if (user.twoFactor) throw new ClubError('twoFactorOn', {}, 409)
-    if (!(await verifyPassword(String(password ?? ''), user.passwordHash))) throw new ClubError('wrongPassword', {}, 403)
+    if (!(await matchPassword(password, user.passwordHash))) throw new ClubError('wrongPassword', {}, 403)
     const secret = newTotpSecret()
     const expiresAt = this.now() + TOTP_SETUP_MS
     user.twoFactorSetup = { secret, expiresAt }
@@ -1959,7 +1963,7 @@ export class ClubService {
    * tells their email; the admin then signs in with the password and sets it up again
    */
   async ownerResetTwoFactor(username: string): Promise<{ username: string; cleared: true }> {
-    const user = this.findUser(String(username ?? '').trim())
+    const user = this.findUser(credentialText(username))
     if (!user) throw new ClubError('userGone', {}, 404)
     if (!user.twoFactor && !user.twoFactorSetup) throw new ClubError('twoFactorOff', {}, 409)
     delete user.twoFactor
@@ -2025,7 +2029,7 @@ export class ClubService {
     if (!this.oauthStartLimit.take(address)) throw new ClubError('slowDown', {}, 429)
     if (link) {
       const user = this.requireUser(link.userId)
-      if (!(await verifyPassword(String(link.password ?? ''), user.passwordHash))) throw new ClubError('wrongPassword', {}, 403)
+      if (!(await matchPassword(link.password, user.passwordHash))) throw new ClubError('wrongPassword', {}, 403)
       if (user[name]) throw new ClubError(oauthCode(name, 'Linked'), {}, 409)
     }
     const verifier = oauthRandom()
@@ -2183,7 +2187,7 @@ export class ClubService {
   async unlinkOAuth(name: OAuthName, userId: string, password: string): Promise<Me> {
     this.requireOAuth(name)
     const user = this.requireUser(userId)
-    if (!(await verifyPassword(String(password ?? ''), user.passwordHash))) throw new ClubError('wrongPassword', {}, 403)
+    if (!(await matchPassword(password, user.passwordHash))) throw new ClubError('wrongPassword', {}, 403)
     if (!user[name]) throw new ClubError(oauthCode(name, 'NotLinked'), {}, 404)
     delete user[name]
     await this.store.put(`user:${user.id}`, user)
@@ -2210,7 +2214,7 @@ export class ClubService {
   async setEmail(userId: string, address: string, password: string, origin: string, lang?: unknown): Promise<Me> {
     const mailer = this.requireMailer()
     const user = this.requireUser(userId)
-    if (!(await verifyPassword(String(password ?? ''), user.passwordHash))) throw new ClubError('wrongPassword', {}, 403)
+    if (!(await matchPassword(password, user.passwordHash))) throw new ClubError('wrongPassword', {}, 403)
     const wanted = normalizeEmail(address)
     if (!wanted) {
       delete user.email
@@ -2290,7 +2294,7 @@ export class ClubService {
   async requestEmailReset(account: string, origin: string, lang?: unknown, address = ''): Promise<void> {
     const mailer = this.requireMailer()
     if (!this.mailRequestLimit.take(address)) throw new ClubError('slowDown', {}, 429)
-    const wanted = String(account ?? '').trim()
+    const wanted = credentialText(account)
     if (!wanted || wanted.length > 300) return
     const user = wanted.includes('@')
       ? [...this.users.values()].find((u) => !!u.email && u.email === normalizeEmail(wanted))
@@ -2327,7 +2331,7 @@ export class ClubService {
       this.loginByAddress.fail(address)
       throw new ClubError('emailLinkWrong', {}, 403)
     }
-    checkNewPassword(String(password ?? ''), user.username)
+    checkNewPassword(toHalfWidth(String(password ?? '')), user.username)
     user.passwordHash = await hashPassword(String(password))
     user.passwordResetAt = this.now()
     delete user.emailReset
@@ -2339,7 +2343,7 @@ export class ClubService {
   }
 
   private async setPassword(user: StoredUser, password: string) {
-    checkNewPassword(password, user.username)
+    checkNewPassword(toHalfWidth(password), user.username)
     user.passwordHash = await hashPassword(password)
     await this.store.put(`user:${user.id}`, user)
   }
@@ -2434,14 +2438,17 @@ export class ClubService {
     if (asked === 'tku' && !this.mayUseTku(userId)) throw new ClubError('tkuSystemOnly', {}, 403)
   }
 
+  /**
+   * The member with this name, any case. A name is the same typed full-width or half-width
+   * (shared/halfwidth.ts): an exact match first, so an older account whose name has full-width
+   * letters still answers to them and two such accounts are never mixed up
+   */
   private findUser(username: string) {
-    const wanted = username.toLowerCase()
-    return [...this.users.values()].find((u) => u.username.toLowerCase() === wanted)
+    return byName([...this.users.values()], username)
   }
 
   private findApplication(username: string) {
-    const wanted = username.toLowerCase()
-    return [...this.applications.values()].find((a) => a.username.toLowerCase() === wanted)
+    return byName([...this.applications.values()], username)
   }
 
   private requireUser(id: string) {
@@ -2741,7 +2748,7 @@ export class ClubService {
         throw new ClubError('badCap', { min: LIMITS.maxUsersMin, max: LIMITS.maxUsersMax })
       next.maxUsers = max
     }
-    if (update.inviteCode !== undefined) next.inviteCode = String(update.inviteCode).trim().slice(0, 40)
+    if (update.inviteCode !== undefined) next.inviteCode = credentialText(update.inviteCode).slice(0, 40)
     this.settings = next
     await this.store.put('meta:settings', next)
     return this.clubSettings
@@ -2784,7 +2791,7 @@ export class ClubService {
     if (!Array.isArray(usernames) || usernames.length > FEATURE_USERS_MAX) throw new ClubError('badFeature')
     const users: string[] = []
     for (const name of usernames) {
-      const user = this.findUser(String(name ?? '').trim())
+      const user = this.findUser(credentialText(name))
       if (!user) throw new ClubError('unknownMember', { name: String(name ?? '').slice(0, LIMITS.usernameMax) }, 404)
       if (!users.includes(user.id)) users.push(user.id)
     }
@@ -2871,7 +2878,7 @@ export class ClubService {
    */
   async deleteOwnAccount(userId: string, password: string) {
     const user = this.requireUser(userId)
-    if (!(await verifyPassword(String(password ?? ''), user.passwordHash))) throw new ClubError('wrongPassword', {}, 403)
+    if (!(await matchPassword(password, user.passwordHash))) throw new ClubError('wrongPassword', {}, 403)
     if (user.admin && [...this.users.values()].filter((u) => u.admin).length === 1) throw new ClubError('lastAdminLeaving')
     this.log({ event: 'accountDeleted' })
     await this.batch(() => this.removeMember(user))
@@ -5562,4 +5569,13 @@ export class ClubService {
       }
     )
   }
+}
+
+/** findUser's match: the name in any case, then also with full-width letters made half-width */
+function byName<T extends { username: string }>(all: T[], username: string): T | undefined {
+  const wanted = username.toLowerCase()
+  const exact = all.find((u) => u.username.toLowerCase() === wanted)
+  if (exact) return exact
+  const half = toHalfWidth(wanted)
+  return all.find((u) => toHalfWidth(u.username.toLowerCase()) === half)
 }
