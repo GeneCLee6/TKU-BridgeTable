@@ -103,6 +103,7 @@ TKU-BridgeTable/
 │  ├─ direct-messages.ts   私訊的 SQL 表與 DirectMessageStore（§5.7）
 │  ├─ forum.ts             論壇（淡江橋館與牌桌共用）：SQL 五張表與 ForumService（§5.19）
 │  ├─ forum-notices.ts     討論區的通知：被回覆、被提到、公告、被置頂（橋館 e11-t08）
+│  ├─ forum-schedule.ts    論壇排程中的貼文：交給社團的排程器，時間到了發布並通知（e13-t12）
 │  ├─ log.ts               結構化日誌（§5.6）
 │  ├─ rate-limit.ts        速率限制（§5.6）
 │  ├─ metrics.ts           指標與告警，`/api/health` 與管理頁「系統狀態」（§5.13）
@@ -280,7 +281,7 @@ interface BoardState {
 - **大廳排序與快速入座**（`e2-t29`、`e2-t30`，`shared/lobby.ts`）：缺人的桌在前，缺越少越前面（最快能開打），滿的桌在後，同組照桌號；大廳卡片標「缺 N 家」。`quickSeat` 選第一張缺人、可以直接入座（`mayEnter`：公開，或受邀、已同意；房主沒封鎖他；不選練習桌、拒絕所有人的桌）的桌，坐第一個空位（南、北、東、西）；都滿就開新桌（預設設定）。已經坐在別桌的人會換過去
 - **斷線代打**（`e2-t31`）：一般牌桌上入座的真人斷線（最後一個 socket 關閉）滿 `SUBSTITUTE_MS`（3 分鐘），排程器的 `substitute:<社員>` 工作讓 TKB 坐進他的座位（同伴是機器人就用同伴的制度），`Table.substitutes` 記座位 → 本人，名牌顯示「代打 某某」（`SeatOccupant.substituteFor`）；只在桌上還有別的入座真人在線時才代打。本人重新連線（`connected`）立刻換回原座位（機器人換座位時記號跟著走）；別人坐進代打的座位、房主移走它，代打就結束。這一副有代打過，紀錄的 `BoardRecord.substitutes` 記座位與本人，單副紀錄頁的明細列出「北 · 代打 某某」（`RecordSubstitutes`）。斷線時間在記憶體（`offlineSince`），物件被回收後 `load()` 把離線的入座者從現在重新起算
 - **牌桌模式**：`Table.mode`（`casual`、挑戰的 `challenge` 或練習的 `practice`（§5.11），舊資料沒有這欄也當 `casual`）與 `modeState`；`ClubService` 只在三個地方問模式（`worker/modes.ts` 的 `TableModeHooks`，都拿到 `ModeContext`：社團的亂數、現在時間、`ChallengeStore`）：發新一副（`deal`，回傳牌號與四手牌，`null` 表示沒有下一副，最後一副留在桌上）、寫紀錄（`record`）、一副結束（`boardFinished`，在紀錄存好之後，所以拿得到牌局 id）。叫牌、出牌、入座與可見性在每種模式都一樣。牌從 `Table.dealSource` 來（`shared/deal-source.ts`；沒有就是每副重洗）
-- **排程**：機器人的下一步與自動發牌都交給同一個排程器（`worker/scheduler.ts`），每桌每種工作一個 key（`robot:<桌>`、`deal:<桌>`），每個進行中的挑戰一個 `challenge:<挑戰>`（§5.5），每位斷線的入座者一個 `substitute:<桌>:<社員>`（代打；雙人搭檔挑戰桌改成 `partnerAway:<桌>:<社員>`，§5.5），一副的紀錄社團還沒收下時每桌一個 `outbox:<桌>`（§5.10），沒搬完的舊牌桌一個 `migrate:tables`，同一個 key 還在等就不重排。Durable Object 用 `AlarmQueue`：工作放在記憶體，只把最早的一個設成物件唯一的 storage alarm（`alarm()` → `runDue()`），所以不會互相覆蓋 alarm，物件在兩步之間也能休眠；工作不寫進儲存，物件被回收後由 `load()` 依狀態重新排程。**每個 `TableObject` 有自己的佇列與 alarm**（牌桌的工作），社團的只剩挑戰、每週挑戰與搬移（§5.10）；`EVENT_OBJECTS=on` 時挑戰的 `challenge:<挑戰>` 也在那一場自己的 `EventObject`，社團只剩每週挑戰與搬移（`migrate:events`，§5.12 H2b）。測試傳 `schedule` 換成手動佇列
+- **排程**：機器人的下一步與自動發牌都交給同一個排程器（`worker/scheduler.ts`），每桌每種工作一個 key（`robot:<桌>`、`deal:<桌>`），每個進行中的挑戰一個 `challenge:<挑戰>`（§5.5），每位斷線的入座者一個 `substitute:<桌>:<社員>`（代打；雙人搭檔挑戰桌改成 `partnerAway:<桌>:<社員>`，§5.5），一副的紀錄社團還沒收下時每桌一個 `outbox:<桌>`（§5.10），沒搬完的舊牌桌一個 `migrate:tables`，論壇每篇排程中的貼文一個 `forum:<貼文>:<時間>`（§5.19「公告與新聞的編輯流程」），同一個 key 還在等就不重排。Durable Object 用 `AlarmQueue`：工作放在記憶體，只把最早的一個設成物件唯一的 storage alarm（`alarm()` → `runDue()`），所以不會互相覆蓋 alarm，物件在兩步之間也能休眠；工作不寫進儲存，物件被回收後由 `load()` 依狀態重新排程。**每個 `TableObject` 有自己的佇列與 alarm**（牌桌的工作），社團的只剩挑戰、每週挑戰與搬移（§5.10）；`EVENT_OBJECTS=on` 時挑戰的 `challenge:<挑戰>` 也在那一場自己的 `EventObject`，社團只剩每週挑戰與搬移（`migrate:events`，§5.12 H2b）。測試傳 `schedule` 換成手動佇列
 - **心跳**：兩條連線都一樣（`src/lib/liveSocket.ts`）：瀏覽器每 15 秒送 `ping`，由 `setWebSocketAutoResponse` 直接回 `pong`（不必喚醒物件）。40 秒沒收到任何訊息、分頁回到前景或網路恢復時，瀏覽器立刻重新連線；重連期間的動作暫存 8 秒內補送（社團的連線補送全部，桌的連線只補牌桌動作）
 - **好友與封鎖**（AC-1.6，`worker/relations.ts`）：**介面暫時隱藏**（社長 2026-10-27：現在只有社員在用，不需要加好友）：`shared/features.ts` 的 `FRIENDS_ENABLED` 是 `false` 時，社員列表、個人檔案卡與個人檔案頁不顯示加好友（星星）、「只看好友」與封鎖按鈕（只剩私訊；之前封鎖過的人仍有「解除封鎖」可以按），「我的帳號」沒有好友上線提示的開關，伺服器不送 `friendOnline`，大廳也不把好友置頂。名單、指令（`setFriend`／`setBlocked`）、儲存與封鎖的檢查都還在，資料不刪；重新開放是公開前的最後一批（docs/ROADMAP.md L3）。好友是單向關注，不需對方同意、也不通知對方（同 BBO）；`setFriend`／`setBlocked` 帶對方的 id 與 `true`／`false`，不能對自己（`notSelf`）、不存在的帳號或機器人（`userGone`）。封鎖會同時取消關注，封鎖中不能加好友（`unblockFirst`）。封鎖的效果都在伺服器：被封鎖者的聊天對封鎖者隱藏（§4），封鎖者當房主時被封鎖者不能 `joinTable` 或 `sit` 進那一桌（公開的桌回 `blockedByHost`，其他進入方式回跟任何沒被放行的人一樣的錯誤，申請也只是房主看不到，見「申請加入」；已經在桌上的不會被請走）。私訊（`e1-t27`，§5.7）、挑戰邀請（`e7-t05`）與受邀桌（`e2-t25`）也檢查 `blocks`，之後的隊制賽邀請也要。帳號刪除時雙方名單裡的他都會刪掉
 - 使用 Durable Object 的 hibernation API：沒人打牌時物件可以休眠，WebSocket 不會斷，醒來時從儲存重新載入。
@@ -937,12 +938,45 @@ K3、K4 留下的三個待決，社長都說「要」。
 
 **橋館要跟著改的**（另一個 PR，牌桌合併並部署之後再合併）：`src/lib/forum.ts` 的型別複本加 `Post.tags`、`PostInput.tags`、`ForumTags`、`FORUM_LIMITS` 的三個值與 `normalizeTag`／`splitTags`，以及 K4 留下的 `Post.hidden` 與「已隱藏」標記、`AuditAction` 的 `forum:hide`／`forum:unhide`；發文框加標籤、貼文顯示標籤、討論區依標籤篩選。
 
+### 公告與新聞的編輯流程（`e13-t12`，2026-11-03）
+
+AC-13.4 的「公告、新聞」沿用 K1 的對照：**公告與新聞都在「社團公告」板（`news`，`postPolicy: 'officers'`）**，不另開板面。開工前對照了橋館：橋館沒有伺服器上的草稿或排程（發文框只把草稿存在那台裝置），首頁用 `GET /api/forum/latest`（社團公告置頂在前，加上最新討論）。這次只在共用的 `ForumService` 加草稿與排程、牌桌加頁面，`latest` 的格式不變。
+
+**狀態**：一篇貼文三種狀態，存在 `forum_posts` 的兩個新欄位（`createTables` 照 `tags` 的做法用 `PRAGMA table_info` 檢查、沒有就 `ALTER TABLE … ADD COLUMN`，舊貼文都是「已發布」；備份是 `SELECT *`，新欄位跟著走）：
+
+| 狀態 | 欄位 | 誰看得到 | `Post` |
+| --- | --- | --- | --- |
+| 已發布 | `draft = 0`、`publish_at IS NULL` | 照原本的規則（隱藏的只有作者與幹部） | 跟以前一樣 |
+| 草稿 | `draft = 1` | **只有作者**，管理員也看不到（還沒寫完的東西是作者自己的） | `draft: true` |
+| 排程中 | `publish_at` = 發布時間（ms） | 作者與幹部（幹部要知道社團接下來會發什麼公告，免得重複） | `publishAt` |
+
+- **不在任何列表**：板面、所有貼文、個人頁、搜尋、標籤計數、首頁都只算已發布的（`visibleTo` 多一個 `PUBLISHED` 條件，所有列表本來就走它）。直接開網址：看不到的人得到 404 `postGone`（跟刪掉一樣）。留言、反應、檢舉、置頂、隱藏都要等發布：看得到的人得到 409 `postNotPublished`（`outPostRow`）。
+- **時間**：還沒發布的貼文 `createdAt` 是「上次儲存」，編輯不標「已編輯」；發布的那一刻 `createdAt` 改成發布時間，所以排在最新、像剛發的。發布之後不能改回草稿或排程（400 `badContent`）。
+- **誰能做**：草稿是任何能在那個板發文的人（社團公告板就只有幹部）；**排程只有幹部**（`forumModerate`，管理員也有；403 `forumScheduleOfficersOnly`），時間要在現在之後、最多 90 天（`FORUM_LIMITS.scheduleDaysMax`，400 `forumScheduleTime`）。每人草稿加排程最多 20 篇（`draftsMax`，409 `forumDraftLimit`）。發文的速率限制照舊算建立的那一次。
+- **API**（都是選填，橋館不送也不會壞）：`PostInput.draft`、`PostInput.publishAt`。建立時 `draft: true` 是草稿、`publishAt` 是排程、都沒有就立刻發布；**編輯時沒帶就維持原狀**，所以橋館（不知道草稿）編輯一篇草稿不會不小心把它發出去；`draft: false` 或 `publishAt: null` 是「立即發布」。`GET /api/forum/drafts` 回 `{ posts }`：自己的草稿與排程，幹部再加上所有人的排程；排程的在前（近的先），草稿在後（最近存的先）。
+- **排程發布**（`worker/forum-schedule.ts` 的 `ForumSchedule`）：時間存在貼文那一列，工作交給社團**唯一的排程器**（§5「排程」，`JobKind` 的 `forum`，經 `ClubService.scheduleAt`），key 是 `forum:<貼文>:<時間>`。改了時間就是新的 key，舊的工作醒來發現時間不同就什麼都不做；刪掉、改回草稿、已經發布的也一樣（`publishScheduled` 只認「還在等這個時間」的那一列）。工作照樣不存：`Club` 建構時在 `load()` 之後、還原備份之後都會把所有排程中的貼文重排一次，物件睡過了時間就一醒來立刻發布。
+- **發布時再檢查一次**：時間到時作者要還是社員、還是幹部（`ClubService.memberMe`）；不是的話這篇**改回作者的草稿**、不通知任何人，作者回來還找得到。
+- **通知跟一般貼文一樣**：發布的那一刻送 `forum-notices.ts` 的 `posted`（社團公告板：每位社員 `forumAnnouncement`；被 `@` 到的人 `forumMention`），作者算發文的人。存草稿、排程、編輯草稿都不通知；草稿或排程「立即發布」時也是 `posted`，不是 `edited`。
+- **頁面**：
+  - 發文編輯器（`ForumEditorPage.tsx`，改動盡量小）：還沒發布的貼文多一個「存成草稿」；幹部多一個「排程發布」（`components/ForumRelease.tsx`，勾選後填 `datetime-local`，瀏覽器的本地時間，預設一到兩小時後的整點），送出鍵變成「排程」；編輯草稿或排程時主按鈕是「立即發布」。已經發布的貼文只有「儲存」。存成草稿後這台裝置的草稿清掉（伺服器有了）。
+  - 貼文頁：標「草稿」或「排程中」，寫明誰看得到、什麼時候發布；沒有留言區、檢舉與隱藏。
+  - `/forum/drafts`（`ForumDraftsPage`）「草稿與排程」：用貼文列表，每篇寫「上次儲存 …」或「… 發布」；論壇首頁有連結。
+  - **首頁（大廳）**：`components/LobbyNews.tsx` 在牌桌列表上面放兩欄「社團公告」（社團公告板最新 3 篇，置頂的在前）與「最新討論」（其他板最新 3 篇），跟橋館首頁同一個 `GET /api/forum/latest`；只給有 `forum` 旗標的社員，讀不到就不顯示。草稿、排程、被隱藏的都不會出現（伺服器過濾）。
+- **測試**：`tests/worker/forum-schedule.test.ts`（草稿與排程的可見性、列表與標籤、留言等要等發布、上限、權限與時間、改時間、改回草稿、立即發布、舊表補欄位、路由；`ForumSchedule` 用真的 `AlarmQueue`：到時發布並通知、醒來重排與補發、改時間不重複發、作者不再是幹部或社員就改回草稿）；元件測試 `tests/presentation/forum-news.test.tsx`（存草稿、幹部排程、立即發布、已發布只能儲存、本地時間換算、貼文頁、草稿頁、大廳的公告）。
+
+**橋館要跟著改的**（不改也不會壞）：
+
+1. `src/lib/forum.ts` 的型別複本：`Post.draft?`、`Post.publishAt?`、`PostInput.draft?`、`PostInput.publishAt?`、`ForumUnpublished`、`FORUM_LIMITS.draftsMax`、`scheduleDaysMax`；`parity/table-types.ts` 的對拍會抓到。
+2. 錯誤代碼 `postNotPublished`、`forumScheduleOfficersOnly`、`forumScheduleTime`、`forumDraftLimit`（`shared/messages.ts`）的文字。
+3. 想要的話：發文框加「存成草稿」與幹部的「排程發布」、「草稿與排程」頁（`GET /api/forum/drafts`）。在那之前，橋館的社員從牌桌存的草稿只在牌桌看得到；橋館打開草稿的網址（作者本人）照樣能編輯，不會把它發出去。
+
 ### 之後
 
 - **K2**（做完）：四手牌編輯器（`e13-t05`）、叫牌過程輸入（`e13-t06`）、發文編輯器（`e13-t04`）；牌圖改用 `RecordDiagram`。見下面「發文編輯器」。
 - **K3**（做完）：從紀錄分享（`e13-t07`）、個人頁的貼文與隱私設定（`e13-t08`）、通知改連牌桌（`e13-t09`）。見下面「分享、個人頁、通知」。
 - **K4**（做完）：檢舉、隱藏與管理頁（`e13-t10`）、搜尋限定板面（`e13-t11`，評估後不用 FTS5）。見上面「檢舉、隱藏與搜尋」。
 - **K4 之後的三項**（做完，社長 2026-11-02）：貼文標籤（AC-13.7）、隱藏時通知作者、隱私擋紀錄的玩家搜尋。見上面「標籤、隱藏的通知、隱私擋玩家搜尋」。
+- **O3 `e13-t12`**（做完，2026-11-03）：草稿、排程發布、大廳的社團公告（AC-13.4）。見上面「公告與新聞的編輯流程」。
 
 ### 分享、個人頁、通知（K3：`e13-t07`、`e13-t08`、`e13-t09`）
 

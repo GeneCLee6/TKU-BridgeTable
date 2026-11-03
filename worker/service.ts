@@ -939,6 +939,16 @@ export class ClubService {
     await this.queue?.runDue()
   }
 
+  /**
+   * Runs `run` at `at` (ms; at once when it has passed) through the club's one scheduler, unless a
+   * job with the same key is waiting: for what the Durable Object keeps outside this service (the
+   * forum's scheduled posts, e13-t12, worker/forum-schedule.ts). Not stored: the caller schedules it
+   * again after a load
+   */
+  scheduleAt(key: string, kind: JobKind, at: number, run: () => Promise<void>) {
+    this.scheduler.add(key, kind, Math.max(0, at - this.now()), run)
+  }
+
   async load() {
     for (const user of (await this.store.list<StoredUser>('user:')).values()) this.users.set(user.id, user)
     for (const application of (await this.store.list<StoredApplication>('app:')).values())
@@ -2398,6 +2408,12 @@ export class ClubService {
   /** A member's name, for messages such as who saved a system profile first */
   usernameOf(userId: string): string | undefined {
     return this.users.get(userId)?.username
+  }
+
+  /** A member as they are signed in now (their roles and permissions); none when they are no longer one */
+  memberMe(userId: string): Me | undefined {
+    const user = this.users.get(userId)
+    return user && this.me(user)
   }
 
   /** Every member's id and name, nothing else, for picking a team's members or a partner */

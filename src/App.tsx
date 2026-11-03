@@ -18,7 +18,7 @@ import { RankingsPage } from './pages/RankingsPage.tsx'
 import { ComparePage } from './pages/ComparePage.tsx'
 import { FeaturedPage } from './pages/FeaturedPage.tsx'
 import { FavoritesPage } from './pages/FavoritesPage.tsx'
-import { ForumBoardPage, ForumHomePage, ForumPostPage } from './pages/ForumPages.tsx'
+import { ForumBoardPage, ForumDraftsPage, ForumHomePage, ForumPostPage } from './pages/ForumPages.tsx'
 import { ForumEditPostPage, ForumNewPostPage } from './pages/ForumEditorPage.tsx'
 import { ForumReportsPage, ForumSearchPage } from './pages/ForumModerationPages.tsx'
 import { HistoryPage } from './pages/HistoryPage.tsx'
@@ -127,6 +127,7 @@ function Routed() {
         {forumOn && <Route path="/forum/new" element={<ForumNewPostPage />} />}
         {forumOn && <Route path="/forum/search" element={<ForumSearchPage />} />}
         {forumOn && <Route path="/forum/reports" element={<ForumReportsPage />} />}
+        {forumOn && <Route path="/forum/drafts" element={<ForumDraftsPage />} />}
         {forumOn && <Route path="/forum/p/:postId" element={<ForumPostPage />} />}
         {forumOn && <Route path="/forum/p/:postId/edit" element={<ForumEditPostPage />} />}
         {forumOn && <Route path="/forum/:boardId" element={<ForumBoardPage />} />}
