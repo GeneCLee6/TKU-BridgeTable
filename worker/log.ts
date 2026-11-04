@@ -2,7 +2,12 @@
  * Structured logs: one JSON line per event, which Workers Logs (wrangler.jsonc `observability`)
  * indexes by field. Never put passwords, tokens, cookies or chat text in a log entry
  */
-export type LogEntry =
+export type LogEntry = LogEvent & {
+  /** The club whose object wrote the line (`clubLog`, e12-t03) */
+  club?: string
+}
+
+type LogEvent =
   /** A WebSocket message from a member: its type, how long it took, and the error code if it failed */
   | {
       event: 'action'
@@ -60,6 +65,14 @@ export type LogEntry =
 export type Logger = (entry: LogEntry) => void
 
 export const noLog: Logger = () => {}
+
+/**
+ * Every line of a club's objects (its own, its tables' and events') says which club (e12-t03), so
+ * Workers Logs can be filtered by club. 淡江's lines say `tku`
+ */
+export function clubLog(clubId: string, log: Logger): Logger {
+  return (entry) => log({ ...entry, club: clubId })
+}
 
 /** The Durable Object's logger: errors go to console.error so they show as errors in Workers Logs */
 export const jsonLog: Logger = (entry) => {

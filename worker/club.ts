@@ -1,5 +1,5 @@
 import { DurableObject } from 'cloudflare:workers'
-import { clubIdOfObject, DEFAULT_CLUB_ID } from '../shared/clubs.ts'
+import { clubOfClubObject, clubStoragePrefix, DEFAULT_CLUB_ID } from '../shared/clubs.ts'
 import { AppError } from '../shared/messages.ts'
 import type { ChallengeSettings } from '../shared/challenge.ts'
 import { parseHistoryQuery } from '../shared/history-query.ts'
@@ -13,6 +13,7 @@ import { bookSync } from '../shared/robot/system/tku/sources.ts'
 import { DEVICE_COOKIE, deviceCookie, randomId, readCookie, SESSION_COOKIE, sessionCookie } from './auth.ts'
 import { deviceLabel } from '../shared/account.ts'
 import { ACCOUNT_PREFIXES, backupAdmin, runBackup } from './backup.ts'
+import { scopedBucket } from './buckets.ts'
 import { BookService, IMPORT_LIMITS, importRequestFrom, publicBookResponse } from './book.ts'
 import { readForm, readJson, readText } from './body.ts'
 import { seedTokenMatches } from './book-seed.ts'
@@ -47,7 +48,8 @@ import { ReadingStore } from './reading.ts'
 import { CLIENT_ERROR_MAX_CHARS } from './client-errors.ts'
 import { d1Replica } from './d1.ts'
 import { edgeSecret, mintPass, PASS_COOKIE, passCookie, passNeedsRefresh } from './edge-auth.ts'
-import { crashEntry, jsonLog, sampleActions } from './log.ts'
+import { clubLog, crashEntry, jsonLog, type Logger, sampleActions } from './log.ts'
+import { eventStub, tableStub } from './clubs.ts'
 import { requireTurnstile, turnstileKeys } from './turnstile.ts'
 import type { TableStats } from './metrics.ts'
 import { type ChallengeRequest, ClubError, ClubService, type Connections, type OAuthOutcome } from './service.ts'
@@ -76,6 +78,12 @@ export interface Env {
    */
   EVENT_OBJECTS?: string
   ASSETS: Fetcher
+  /**
+   * The clubs this Worker serves besides 淡江 (e12-t03, shared/clubs.ts `knownClubs`): comma-separated
+   * ids. None in production until clubs can be opened and run (e12-t05, e12-t06); staging may name
+   * one to try a second club
+   */
+  CLUBS?: string
   MAX_USERS?: string
   INVITE_CODE?: string
   /** For TKU BridgeBook's AI import (wrangler secret put ANTHROPIC_API_KEY) */
@@ -236,10 +244,17 @@ export class Club extends DurableObject<Env> implements Connections {
   private readonly store: Store
   /** Signs edge passes (§5.12); none when switched off */
   private readonly edgeSecret: string | undefined
+  /** Which club this object is (e12-t02): its name says */
+  private readonly clubId: string
+  /** Every log line says the club (e12-t03) */
+  private readonly log: Logger
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env)
     const storage = ctx.storage
+    // One object per club (e12-t02): its name says which; 淡江's is `club`
+    const clubId = (this.clubId = clubOfClubObject(ctx.id.name))
+    const log = (this.log = clubLog(clubId, jsonLog))
     const store: Store = (this.store = {
       get: (key) => storage.get(key),
       put: (key, value) => storage.put(key, value),
@@ -253,28 +268,27 @@ export class Club extends DurableObject<Env> implements Connections {
       },
     })
     this.service = new ClubService(store, this, {
-      // One object per club (e12-t02): its name says which
-      clubId: clubIdOfObject(ctx.id.name) ?? DEFAULT_CLUB_ID,
+      clubId,
       maxUsers: Number(env.MAX_USERS ?? 10),
-      inviteCode: env.INVITE_CODE || undefined,
+      // INVITE_CODE is 淡江's (DEPLOY.md): another club's admin sets its own (e12-t03)
+      inviteCode: (clubId === DEFAULT_CLUB_ID && env.INVITE_CODE) || undefined,
       // One alarm wakes the object for every robot move and deal, so it can hibernate in between
       wake: (at) => void storage.setAlarm(at),
       // Actions sampled (H3b); the status page still counts every one
-      log: sampleActions(jsonLog),
+      log: sampleActions(log),
       // The lobby goes out at most every LOBBY_GAP_MS while it keeps changing (H3b)
       later: (run, ms) => void setTimeout(run, ms),
-      // Each table in its own object (§5.10), unless switched back with TABLE_OBJECTS=off
-      tableObjects: new RemoteTables((tableId) => env.TABLE.get(env.TABLE.idFromName(tableId)) as unknown as TableRpc),
+      // Each table in its own object (§5.10), unless switched back with TABLE_OBJECTS=off; named after
+      // this club, so no other club's object is ever reached (e12-t03, shared/clubs.ts tableObjectName)
+      tableObjects: new RemoteTables((tableId) => tableStub(env, clubId, tableId) as unknown as TableRpc),
       tablesInClub: env.TABLE_OBJECTS === 'off',
       // Each challenge (H2b) and team match (H2c) in its own object (§5.12) only when switched on; off by default
-      eventObjects: new RemoteEvents(
-        (challengeId) => env.EVENT.get(env.EVENT.idFromName(`challenge:${challengeId}`)) as unknown as EventRpc,
-      ),
-      matchObjects: new RemoteMatches((matchId) => env.EVENT.get(env.EVENT.idFromName(`match:${matchId}`)) as unknown as MatchRpc),
+      eventObjects: new RemoteEvents((challengeId) => eventStub(env, clubId, 'challenge', challengeId) as unknown as EventRpc),
+      matchObjects: new RemoteMatches((matchId) => eventStub(env, clubId, 'match', matchId) as unknown as MatchRpc),
       // A pairs event (§5.22) goes into its own object when made while the switch is on, and stays there
-      pairsObjects: new RemotePairs((eventId) => env.EVENT.get(env.EVENT.idFromName(`pairs:${eventId}`)) as unknown as PairsRpc),
+      pairsObjects: new RemotePairs((eventId) => eventStub(env, clubId, 'pairs', eventId) as unknown as PairsRpc),
       eventObjectsOn: env.EVENT_OBJECTS === 'on',
-      // The history pages' copy in D1, read by the Worker (§5.12)
+      // The history pages' copy in D1, read by the Worker (§5.12); this club's rows only (e12-t03)
       historyReplica: env.HISTORY ? d1Replica(env.HISTORY) : undefined,
       historyReplicaOff: env.HISTORY_D1 === 'off',
       systemProfileId: env.SYSTEM_PROFILE_ID || undefined,
@@ -284,7 +298,7 @@ export class Club extends DurableObject<Env> implements Connections {
       mailer: mailerFrom(env),
       // Google sign-in and LINE login (e1-t31, e1-t32): none unless their two secrets are set, and only
       // for 淡江: the way back carries no club, so it always reaches 淡江's object
-      ...((clubIdOfObject(ctx.id.name) ?? DEFAULT_CLUB_ID) === DEFAULT_CLUB_ID && { google: googleFrom(env), line: lineFrom(env) }),
+      ...(clubId === DEFAULT_CLUB_ID && { google: googleFrom(env), line: lineFrom(env) }),
       // Web Push (e1-t28): none unless the three VAPID secrets are set; sent after the answer, kept alive by waitUntil
       push: pushFrom(env),
       defer: (task) => ctx.waitUntil(task),
@@ -299,9 +313,16 @@ export class Club extends DurableObject<Env> implements Connections {
     this.book = new BookService(store)
     this.pending = new PendingService(store, this.book.auditTrail)
     // Admins hear when the files near R2's free room (BridgeHall e5-t15)
-    this.files = new FileService(store, env.FILES, Date.now, async (bytes) => {
-      for (const id of this.service.adminIds()) await this.service.notifications.notify(id, 'filesNearlyFull', { gb: Math.round((bytes / 1024 ** 3) * 10) / 10 })
-    })
+    // In the club's own part of the bucket (淡江's keys as they were, e12-t03), and its addresses name the club
+    this.files = new FileService(
+      store,
+      env.FILES && scopedBucket(env.FILES, clubStoragePrefix(clubId)),
+      Date.now,
+      async (bytes) => {
+        for (const id of this.service.adminIds()) await this.service.notifications.notify(id, 'filesNearlyFull', { gb: Math.round((bytes / 1024 ** 3) * 10) / 10 })
+      },
+      clubId,
+    )
     this.quiz = new QuizStore(store, Date.now, () => randomId(8))
     this.learning = new LearningStore(store, Date.now)
     this.reading = new ReadingStore(store, Date.now)
@@ -361,18 +382,24 @@ export class Club extends DurableObject<Env> implements Connections {
     await this.service.runDue()
   }
 
+  /** This club's own part of the backup bucket (e12-t03): 淡江's `daily/…` as it was, `clubs/<id>/daily/…` for any other club */
+  private backups() {
+    return this.env.BACKUPS && scopedBucket(this.env.BACKUPS, clubStoragePrefix(this.clubId))
+  }
+
   /** The daily backup to R2, called by the cron trigger (worker/index.ts `scheduled`) */
   async backup() {
-    if (!this.env.BACKUPS) {
-      jsonLog({ event: 'backup', ok: false, error: 'no BACKUPS binding' })
+    const bucket = this.backups()
+    if (!bucket) {
+      this.log({ event: 'backup', ok: false, error: 'no BACKUPS binding' })
       return null
     }
     try {
-      const result = await runBackup(this.store, this.env.BACKUPS, Date.now())
-      jsonLog({ event: 'backup', ok: true, name: result.name, keys: result.keys, rows: result.rows, bytes: result.bytes, deleted: result.deleted.length })
+      const result = await runBackup(this.store, bucket, Date.now())
+      this.log({ event: 'backup', ok: true, name: result.name, keys: result.keys, rows: result.rows, bytes: result.bytes, deleted: result.deleted.length })
       return result
     } catch (error) {
-      jsonLog({ event: 'backup', ok: false, error: error instanceof Error ? error.message : String(error) })
+      this.log({ event: 'backup', ok: false, error: error instanceof Error ? error.message : String(error) })
       throw error
     }
   }
@@ -457,7 +484,7 @@ export class Club extends DurableObject<Env> implements Connections {
       response = await this.route(request, url)
     } catch (error) {
       code = error instanceof AppError ? error.code : 'serverError'
-      response = errorResponse(error)
+      response = errorResponse(error, this.log)
     }
     this.service.logEntry({ event: 'http', method: request.method, path: url.pathname, status: response.status, ms: Date.now() - started, ...(code ? { code } : {}) })
     await this.edgePass(request, url, response)
@@ -510,14 +537,14 @@ export class Club extends DurableObject<Env> implements Connections {
     const pass = readCookie(cookies, PASS_COOKIE)
     if (!token && !pass) return
     try {
-      if (!(await passNeedsRefresh(secret, pass, Date.now()))) return
+      if (!(await passNeedsRefresh(secret, pass, Date.now(), this.clubId))) return
       const who = await this.service.passIdentity(token)
       const secure = url.protocol === 'https:'
-      if (who) response.headers.append('Set-Cookie', passCookie(await mintPass(secret, who.userId, who.sessionId, Date.now()), secure))
+      if (who) response.headers.append('Set-Cookie', passCookie(await mintPass(secret, who.userId, who.sessionId, Date.now(), this.clubId), secure))
       else if (pass) response.headers.append('Set-Cookie', passCookie('', secure))
     } catch (error) {
       // An answer whose headers cannot change (none of ours): the Worker asks the club instead
-      jsonLog(crashEntry('edgePass', error))
+      this.log(crashEntry('edgePass', error))
     }
   }
 
@@ -525,7 +552,7 @@ export class Club extends DurableObject<Env> implements Connections {
   private async signedIn(token: string, userId: string, secure: boolean): Promise<string[]> {
     const cookies = [sessionCookie(token, secure)]
     const who = this.edgeSecret ? await this.service.passIdentity(token) : null
-    if (who?.userId === userId) cookies.push(passCookie(await mintPass(this.edgeSecret!, userId, who.sessionId, Date.now()), secure))
+    if (who?.userId === userId) cookies.push(passCookie(await mintPass(this.edgeSecret!, userId, who.sessionId, Date.now(), this.clubId), secure))
     return cookies
   }
 
@@ -652,7 +679,7 @@ export class Club extends DurableObject<Env> implements Connections {
         headers: { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-store' },
       })
     } catch (error) {
-      response = errorResponse(error)
+      response = errorResponse(error, this.log)
     }
     for (const [key, value] of Object.entries(IMPORT_CORS)) response.headers.set(key, value)
     return response
@@ -670,7 +697,7 @@ export class Club extends DurableObject<Env> implements Connections {
       const bytes = await readFileUpload(request, await this.files.uploadMax(token, part))
       response = json({ file: await this.files.upload(token, part, bytes) })
     } catch (error) {
-      response = errorResponse(error)
+      response = errorResponse(error, this.log)
     }
     for (const [key, value] of Object.entries(FILE_CORS)) response.headers.set(key, value)
     return response
@@ -719,7 +746,7 @@ export class Club extends DurableObject<Env> implements Connections {
       const b = await body()
       const address = request.headers.get('CF-Connecting-IP') ?? ''
       const turnstile = turnstileKeys(this.env)
-      if (turnstile) await requireTurnstile(turnstile.secret, text(b.turnstileToken), address, jsonLog)
+      if (turnstile) await requireTurnstile(turnstile.secret, text(b.turnstileToken), address, this.log)
       // Applying with Google or LINE (e1-t31, e1-t32): `google: true` or `line: true` uses the flow the
       // callback left in this browser's cookie
       const via: OAuthName | undefined = b.google === true ? 'google' : b.line === true ? 'line' : undefined
@@ -1220,7 +1247,7 @@ export class Club extends DurableObject<Env> implements Connections {
     if (path === '/backups' || path.startsWith('/backups/'))
       return json(
         await backupAdmin(method, path, body, {
-          bucket: this.env.BACKUPS,
+          bucket: this.backups(),
           store: this.store,
           now: Date.now(),
           restored: async (prefixes, tables) => {
@@ -1563,7 +1590,7 @@ export class Club extends DurableObject<Env> implements Connections {
     try {
       await send()
     } catch (error) {
-      jsonLog({ event: 'crash', where, error: error instanceof Error ? error.message : String(error) })
+      this.log({ event: 'crash', where, error: error instanceof Error ? error.message : String(error) })
     }
   }
 
@@ -1904,8 +1931,8 @@ function textFile(text: string, name: string, headers: Record<string, string> = 
   })
 }
 
-function errorResponse(error: unknown) {
+function errorResponse(error: unknown, log: Logger) {
   if (error instanceof AppError) return json({ error: error.message, code: error.code, params: error.params }, error.status)
-  jsonLog(crashEntry('http', error))
+  log(crashEntry('http', error))
   return json({ error: '伺服器發生錯誤', code: 'serverError', params: {} }, 500)
 }

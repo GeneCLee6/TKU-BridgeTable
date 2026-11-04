@@ -4,45 +4,51 @@ import type { Seat } from '../shared/cards.ts'
 import { MESSAGE_MAX_CHARS } from '../shared/message-guard.ts'
 import { TABLE_SOCKET_REFUSED, type BoardRecord, type RobotSpeed, type ServerMessage, type TableAction, type TableSettings } from '../shared/protocol.ts'
 import type { Env } from './club.ts'
-import { homeClubStub } from './clubs.ts'
-import { jsonLog, sampleActions } from './log.ts'
+import { ownClub } from './clubs.ts'
+import { clubLog, jsonLog, sampleActions } from './log.ts'
 import type { TableStats } from './metrics.ts'
 import type { EventReport } from './modes.ts'
 import { AlarmQueue } from './scheduler.ts'
 import { TableHost, type TableSockets } from './table-host.ts'
 import type { ClubLink, MatchTableUpdate, Named, Person, TableRpc } from './tables.ts'
 import type { Table } from './views.ts'
-import { TABLE_USER_HEADER } from './routing.ts'
+import { TABLE_CLUB_HEADER, TABLE_USER_HEADER } from './routing.ts'
 
 interface Attachment {
   userId: string
 }
 
 /**
- * One table in its own Durable Object (`idFromName(<table id>)`, ARCHITECTURE.md §5.10). This is
+ * One table in its own Durable Object (`idFromName(tableObjectName(<club>, <table id>))`: the table id
+ * for 淡江, `<club>/<table id>` for any other club, ARCHITECTURE.md §5.10, e12-t03). This is
  * only the glue to Cloudflare: storage, the alarm, the table's WebSockets (hibernation API) and
  * the club's stub. What the table does is `TableHost` and `TableService`, which never touch a
  * Cloudflare API. The club calls the RPC methods below; browsers connect to `/ws/table/<id>`,
  * which the Worker forwards here with the member's id in `X-TBT-User` after checking the session.
+ * The object reports only to the club its name says, and takes sockets only for that club.
  */
 export class TableObject extends DurableObject<Env> implements TableRpc, TableSockets {
   private readonly host: TableHost
   private readonly queue: AlarmQueue
   /** The socket being closed in `webSocketClose`: `getWebSockets()` still lists it */
   private closing: WebSocket | null = null
+  /** The club this table belongs to, from the object's name (e12-t03) */
+  private readonly clubId: string
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env)
     const storage = ctx.storage
     this.queue = new AlarmQueue(Date.now, (at) => void storage.setAlarm(at))
-    // One stub, so the reports reach the club in the order they were made
-    const club = homeClubStub(env)
+    // One stub, so the reports reach the club in the order they were made; only the club the name says
+    const own = ownClub(env, ctx.id.name)
+    this.clubId = own.clubId
+    const club = own.stub
     const link: ClubLink = {
-      changed: (entry) => club.tableChanged(entry),
-      closed: (tableId) => club.tableClosed(tableId),
-      boardFinished: (record: BoardRecord, event: EventReport | null, stats?: TableStats) => club.tableBoardFinished(record, event, stats),
-      mayUseTku: (userId) => club.tableMayUseTku(userId),
-      bookNotes: (known) => club.tableBookNotes(known),
+      changed: (entry) => club().tableChanged(entry),
+      closed: (tableId) => club().tableClosed(tableId),
+      boardFinished: (record: BoardRecord, event: EventReport | null, stats?: TableStats) => club().tableBoardFinished(record, event, stats),
+      mayUseTku: (userId) => club().tableMayUseTku(userId),
+      bookNotes: (known) => club().tableBookNotes(known),
     }
     this.host = new TableHost({
       storage: {
@@ -57,7 +63,7 @@ export class TableObject extends DurableObject<Env> implements TableRpc, TableSo
       club: link,
       config: { now: Date.now, random: secureRandomInt, scheduler: this.queue },
       // Actions sampled (H3b); the table's counts for the status page still count every one
-      log: sampleActions(jsonLog),
+      log: sampleActions(clubLog(this.clubId, jsonLog)),
     })
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair('ping', 'pong'))
     ctx.blockConcurrencyWhile(() => this.host.load())
@@ -174,11 +180,14 @@ export class TableObject extends DurableObject<Env> implements TableRpc, TableSo
     }
   }
 
-  /** Only `/ws/table/<id>` from the Worker, which has checked the session and says who it is */
+  /**
+   * Only `/ws/table/<id>` from the Worker, which has checked the session and says who it is and in
+   * which club; a member of another club is never let in (e12-t03), whatever led the request here
+   */
   async fetch(request: Request): Promise<Response> {
     if (request.headers.get('Upgrade') !== 'websocket') return new Response('Expected WebSocket', { status: 426 })
     const userId = request.headers.get(TABLE_USER_HEADER)
-    if (!userId) return new Response('Unauthorized', { status: 401 })
+    if (!userId || request.headers.get(TABLE_CLUB_HEADER) !== this.clubId) return new Response('Unauthorized', { status: 401 })
     const { 0: client, 1: server } = new WebSocketPair()
     // Someone not at this table (or a table that is not here) is let go with TABLE_SOCKET_REFUSED,
     // so the browser stops trying. A plain accepted socket sends that close once the upgrade is

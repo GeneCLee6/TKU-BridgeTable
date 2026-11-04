@@ -304,7 +304,14 @@ export function boardsPlayedWith(sql: Sql, userId: string, otherId: string, part
 /** The declarer's side, for "my partner declared" and "the opponents declared" */
 const DECLARER_SIDE = "CASE WHEN b.declarer_seat IN ('N', 'S') THEN 'NS' ELSE 'EW' END"
 const GAME = "((b.strain = 'N' AND b.level >= 3) OR (b.strain IN ('H', 'S') AND b.level >= 4) OR b.level >= 5)"
-const SEATED = (who: string) => `EXISTS (SELECT 1 FROM board_players ${who} WHERE ${who}.board_id = b.board_id AND ${who}.user_id = ?)`
+/**
+ * In the D1 copy every row also says its club (e12-t03, `club_id`), and a board id is only unique
+ * inside a club: `sameClub` ties a `board_players` row to its board's club there, and is nothing in
+ * the club's own index, which holds one club only
+ */
+const sameClub = (who: string, club: string | undefined) => (club === undefined ? '' : ` AND ${who}.club_id = b.club_id`)
+const SEATED = (who: string, club: string | undefined) =>
+  `EXISTS (SELECT 1 FROM board_players ${who} WHERE ${who}.board_id = b.board_id${sameClub(who, club)} AND ${who}.user_id = ?)`
 
 const ORDER: Record<HistorySort, string> = {
   date_desc: 'b.played_at DESC, b.board_id DESC',
@@ -332,18 +339,30 @@ export const namesOthers = (query: HistoryQuery, viewer: string) =>
  * `hidden`: the members who keep their boards off their profile from this viewer (e13-t08, the
  * club's call: not the viewer, nobody for an admin). Searching for one of them as the player or the
  * declarer finds nothing (ARCHITECTURE.md §4); their boards still show in every other search
+ *
+ * `club`: the club whose rows the D1 copy reads (e12-t03); every search there is of one club's
+ * boards only, first of all. Left out for the club's own index, which has no other club's
  */
-function where(query: HistoryQuery, viewer: string, now: number, favorites: boolean, hidden: readonly string[] = []): [string, SqlValue[]] {
-  const parts: string[] = [`(b.reveal_at IS NULL OR b.reveal_at <= ? OR ${SEATED('v')})`]
-  const params: SqlValue[] = [now, viewer]
+function where(
+  query: HistoryQuery,
+  viewer: string,
+  now: number,
+  favorites: boolean,
+  hidden: readonly string[] = [],
+  club?: string,
+): [string, SqlValue[]] {
+  const parts: string[] = []
+  const params: SqlValue[] = []
   const add = (part: string, ...values: SqlValue[]) => {
     parts.push(part)
     params.push(...values)
   }
+  if (club !== undefined) add('b.club_id = ?', club)
+  add(`(b.reveal_at IS NULL OR b.reveal_at <= ? OR ${SEATED('v', club)})`, now, viewer)
   if ((query.player && hidden.includes(query.player)) || (query.declarer && hidden.includes(query.declarer))) add('0 = 1')
   if (favorites)
     add('EXISTS (SELECT 1 FROM favorites f WHERE f.user_id = ? AND f.board_id = b.board_id)', viewer)
-  else if (query.scope === 'mine') add(SEATED('m'), viewer)
+  else if (query.scope === 'mine') add(SEATED('m', club), viewer)
   if (query.tag)
     add(
       'EXISTS (SELECT 1 FROM favorite_tags ft WHERE ft.user_id = ? AND ft.tag = ? AND ft.board_id = b.board_id)',
@@ -366,22 +385,22 @@ function where(query: HistoryQuery, viewer: string, now: number, favorites: bool
   if (query.declarerSide === 'me') add('b.declarer_user = ?', viewer)
   if (query.declarerSide === 'partner')
     add(
-      `b.declarer_seat IS NOT NULL AND EXISTS (SELECT 1 FROM board_players p WHERE p.board_id = b.board_id
+      `b.declarer_seat IS NOT NULL AND EXISTS (SELECT 1 FROM board_players p WHERE p.board_id = b.board_id${sameClub('p', club)}
         AND p.user_id = ? AND p.side = ${DECLARER_SIDE} AND p.seat <> b.declarer_seat)`,
       viewer,
     )
   if (query.declarerSide === 'opponents')
     add(
-      `b.declarer_seat IS NOT NULL AND EXISTS (SELECT 1 FROM board_players p WHERE p.board_id = b.board_id
+      `b.declarer_seat IS NOT NULL AND EXISTS (SELECT 1 FROM board_players p WHERE p.board_id = b.board_id${sameClub('p', club)}
         AND p.user_id = ? AND p.side <> ${DECLARER_SIDE})`,
       viewer,
     )
-  if (query.player) add(SEATED('x'), query.player)
+  if (query.player) add(SEATED('x', club), query.player)
   if (query.partner)
     add(
       `EXISTS (SELECT 1 FROM board_players me JOIN board_players other
-        ON other.board_id = me.board_id AND other.side = me.side AND other.seat <> me.seat
-        WHERE me.board_id = b.board_id AND me.user_id = ? AND other.user_id = ?)`,
+        ON other.board_id = me.board_id${sameClub('other', club)} AND other.side = me.side AND other.seat <> me.seat
+        WHERE me.board_id = b.board_id${sameClub('me', club)} AND me.user_id = ? AND other.user_id = ?)`,
       viewer,
       query.partner,
     )
@@ -407,7 +426,8 @@ export interface Statement {
 
 /**
  * The two statements of a search: how many boards match, and one page of them (`columns` of
- * `boards_index b`, in order). The club's index and the D1 copy run the same SQL
+ * `boards_index b`, in order). The club's index and the D1 copy run the same SQL, the copy's for
+ * one `club` (`where`)
  */
 export function searchStatements(
   query: HistoryQuery,
@@ -416,8 +436,9 @@ export function searchStatements(
   favorites: boolean,
   columns = 'b.board_id',
   hidden: readonly string[] = [],
+  club?: string,
 ): { count: Statement; page: (page: number) => Statement } {
-  const [condition, params] = where(query, viewer, now, favorites, hidden)
+  const [condition, params] = where(query, viewer, now, favorites, hidden, club)
   return {
     count: { sql: `SELECT COUNT(*) AS n FROM boards_index b WHERE ${condition}`, params },
     page: (page) => ({
@@ -430,10 +451,11 @@ export function searchStatements(
 /**
  * How many boards a search finds per Taiwan date, newest day first, at most LIMITS.historyDaysMax
  * days (`sort`, `page` and `size` play no part). The same WHERE as the search, so boards kept back
- * count only for their own players. The club's index and the D1 copy run the same SQL
+ * count only for their own players. The club's index and the D1 copy run the same SQL, the copy's
+ * for one `club`
  */
-export function dayStatement(query: HistoryQuery, viewer: string, now: number, hidden: readonly string[] = []): Statement {
-  const [condition, params] = where(query, viewer, now, false, hidden)
+export function dayStatement(query: HistoryQuery, viewer: string, now: number, hidden: readonly string[] = [], club?: string): Statement {
+  const [condition, params] = where(query, viewer, now, false, hidden, club)
   return {
     sql: `SELECT (b.played_at + ${TAIWAN_OFFSET_MS}) / ${DAY_MS} AS day, COUNT(*) AS n FROM boards_index b
       WHERE ${condition} GROUP BY day ORDER BY day DESC LIMIT ?`,

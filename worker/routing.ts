@@ -1,4 +1,4 @@
-import { DEFAULT_CLUB_ID, requestClubId } from '../shared/clubs.ts'
+import { CLUB_IDS, requestClubId } from '../shared/clubs.ts'
 import { formatMessage } from '../shared/messages.ts'
 import { parseHistoryQuery, type HistoryQuery } from '../shared/history-query.ts'
 import { TABLE_ID_PATTERN, TABLE_SOCKET_PREFIX } from '../shared/protocol.ts'
@@ -10,6 +10,8 @@ import { noLog, type Logger } from './log.ts'
 
 /** The header the Worker puts on a table connection: who it is (ARCHITECTURE.md §5.10) */
 export const TABLE_USER_HEADER = 'X-TBT-User'
+/** And which club's member it is (e12-t03): a table takes sockets only for its own club */
+export const TABLE_CLUB_HEADER = 'X-TBT-Club'
 
 interface Fetches {
   fetch(request: Request): Promise<Response>
@@ -17,18 +19,23 @@ interface Fetches {
 
 /** Where the Worker sends requests; `worker/index.ts` gives the Durable Objects, the tests fakes */
 export interface Routes {
+  /** The clubs served (shared/clubs.ts `knownClubs`); 淡江 alone when not given */
+  clubs?: readonly string[]
   /** A club's object (shared/clubs.ts); the routing only asks for clubs that exist */
   club(clubId: string): Fetches & {
     /** The member signed in with this session token, or null (one call per table connection, not per message) */
     socketUser(token: string | null): Promise<string | null>
   }
-  table(tableId: string): Fetches
+  /** A club's table's object: `tableObjectName(clubId, tableId)`, so one club never reaches another's (e12-t03) */
+  table(clubId: string, tableId: string): Fetches
   assets: Fetches
   /**
    * What the Worker answers by itself (§5.12): `secret` checks edge passes (`EDGE_AUTH_SECRET`),
    * `revocations` the D1 list of ended sessions (e11-t28): a pass is trusted only once it is checked
    * there, so without it (a PR preview) the club decides. `history` is the history index's D1 copy.
-   * Any of them missing (switched off, a PR preview) means the club answers, as before
+   * Any of them missing (switched off, a PR preview) means the club answers, as before. A pass and
+   * the copy's rows are a club's (e12-t03): another club's pass is never taken, and a club's pages
+   * are read from its own rows only
    */
   edge?: { secret?: string; revocations?: ReplicaDb; history?: ReplicaDb; now?: () => number; log?: Logger }
 }
@@ -48,23 +55,26 @@ export async function route(request: Request, routes: Routes): Promise<Response>
   const url = new URL(request.url)
   const { pathname } = url
   // The club the request is for (e12-t02): `X-Club-Id` or `?club=`, none means 淡江
-  const clubId = requestClubId(request)
+  const clubId = requestClubId(request, routes.clubs ?? CLUB_IDS)
   if (clubId === null && (pathname === '/ws' || pathname.startsWith('/api/') || pathname.startsWith(TABLE_SOCKET_PREFIX))) {
     return unknownClub()
   }
+  // The app itself is the same for every club
+  if (clubId === null) return routes.assets.fetch(request)
   // A socket opened by another site's page is turned away (cross-site WebSocket hijacking, ASVS
   // 13.2; docs/SECURITY.md): browsers always send Origin on a WebSocket, other clients may leave it out
   if ((pathname === '/ws' || pathname.startsWith(TABLE_SOCKET_PREFIX)) && !sameOrigin(request, url)) {
     return new Response('Forbidden', { status: 403 })
   }
-  const club = () => routes.club(clubId ?? '')
+  const club = () => routes.club(clubId)
   const now = routes.edge?.now ?? Date.now
   const cookies = request.headers.get('Cookie')
-  // Who the pass is for, if it is good and its session has not ended (e11-t28); otherwise null and the club decides
+  // Who the pass is for, if it is good, made by this club (e12-t03) and its session has not ended
+  // (e11-t28); otherwise null and the club decides
   const passUser = async () => {
     const { secret, revocations, log = noLog } = routes.edge ?? {}
     if (!secret || !revocations) return null
-    const pass = await readPass(secret, readCookie(cookies, PASS_COOKIE), now())
+    const pass = await readPass(secret, readCookie(cookies, PASS_COOKIE), now(), clubId)
     if (!pass) return null
     const started = now()
     try {
@@ -83,13 +93,14 @@ export async function route(request: Request, routes: Routes): Promise<Response>
     if (!userId) return new Response('Unauthorized', { status: 401 })
     const headers = new Headers(request.headers)
     headers.set(TABLE_USER_HEADER, userId)
-    return routes.table(tableId).fetch(new Request(request, { headers }))
+    headers.set(TABLE_CLUB_HEADER, clubId)
+    return routes.table(clubId, tableId).fetch(new Request(request, { headers }))
   }
   const history = routes.edge?.history
-  // The D1 copy is 淡江's history index; another club's pages are its own object's
-  if (history && clubId === DEFAULT_CLUB_ID && request.method === 'GET' && EDGE_HISTORY.has(pathname)) {
+  // Each club's pages from its own rows of the D1 copy (e12-t03)
+  if (history && request.method === 'GET' && EDGE_HISTORY.has(pathname)) {
     const userId = await passUser()
-    const answer = userId && (await edgeHistory(url, userId, history, now, routes.edge?.log ?? noLog))
+    const answer = userId && (await edgeHistory(url, clubId, userId, history, now, routes.edge?.log ?? noLog))
     if (answer) return answer
   }
   if (pathname === '/ws' || pathname.startsWith('/api/')) return club().fetch(request)
@@ -121,7 +132,7 @@ function unknownClub(): Response {
  * tags are only in the club), one for another member as player or declarer (whether they keep their
  * boards off their profile is only in the club, e13-t08), a copy not complete, or D1 failing
  */
-async function edgeHistory(url: URL, userId: string, db: ReplicaDb, now: () => number, log: Logger): Promise<Response | null> {
+async function edgeHistory(url: URL, clubId: string, userId: string, db: ReplicaDb, now: () => number, log: Logger): Promise<Response | null> {
   const started = now()
   const params = url.searchParams
   let query: HistoryQuery
@@ -137,8 +148,8 @@ async function edgeHistory(url: URL, userId: string, db: ReplicaDb, now: () => n
   try {
     const page =
       url.pathname === '/api/history/days'
-        ? await daysReplica(db, query, userId, now()).then((days) => days && { days })
-        : await searchReplica(db, query, userId, now())
+        ? await daysReplica(db, clubId, query, userId, now()).then((days) => days && { days })
+        : await searchReplica(db, clubId, query, userId, now())
     if (!page) {
       log({ event: 'edge', path: url.pathname, ms: now() - started, fallback: 'notReady' })
       return null

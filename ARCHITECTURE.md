@@ -17,7 +17,28 @@
 ```
 
 - 社團是**一個 Durable Object**（`Club`）：帳號、大廳與牌桌目錄、牌局紀錄、挑戰、隊制賽、淡江橋譜。**每張牌桌是自己的 Durable Object**（`TableObject`，§5.10）：座位、叫牌出牌、機器人、聊天與這一桌的 WebSocket。每個物件裡的動作依序處理；社團只在大廳看得到的事情變了才被牌桌叫醒。開關 `TABLE_OBJECTS=off` 可以把牌桌搬回社團的物件（`DEPLOY.md` §4.3）。
-- **每個社團一個 Durable Object**（多租戶決策，`e12-t02`，2026-10-30 社長決定；淡江橋館 `e10-t10`）：社團 id 對應物件名稱在 `shared/clubs.ts`（目前只有淡江 `tku`，物件名稱維持原本的 `club`，正式站資料不搬）。社團之間的資料天生隔離，key **不加** `club:<id>:` 前綴。請求用 header `X-Club-Id` 說是哪個社團（WebSocket 不能帶 header，用 `?club=`），沒帶就是淡江，所以舊頁面與舊版本照舊；不認得的社團 404 `unknownClub`（`worker/routing.ts`）。`/api/me` 的 `clubId` 是帳號所屬的社團（物件的名稱決定），淡江橋館拿來帶在之後的請求上。牌桌與挑戰的物件目前一律回報淡江（`worker/clubs.ts` 的 `homeClubStub`；第二個社團開放時由 `e12-t04` 讓它們記住自己的社團），D1 的紀錄副本與每日備份的檔名也還是淡江一家的，開第二個社團前要先分開。
+- **每個社團一個 Durable Object**（多租戶決策，`e12-t02`，2026-10-30 社長決定；淡江橋館 `e10-t10`）：社團 id 對應物件名稱在 `shared/clubs.ts`（目前只有淡江 `tku`，物件名稱維持原本的 `club`，正式站資料不搬）。社團之間的資料天生隔離，key **不加** `club:<id>:` 前綴。請求用 header `X-Club-Id` 說是哪個社團（WebSocket 不能帶 header，用 `?club=`），沒帶就是淡江，所以舊頁面與舊版本照舊；不認得的社團 404 `unknownClub`（`worker/routing.ts`）。`/api/me` 的 `clubId` 是帳號所屬的社團（物件的名稱決定），淡江橋館拿來帶在之後的請求上。
+- **社團物件之外的東西也分社團**（`e12-t03`，2026-11-04；見下面「多社團的隔離」）。淡江的名稱與路徑一律維持原樣，正式站不必搬任何資料。
+
+### 多社團的隔離（`e12-t03`）
+
+社團物件裡的資料（帳號、session、紀錄、分享連結、通知、推播訂閱、論壇、比賽、積分、次數限制、指標）本來就各是各的；跨社團會碰到的只有物件**之外**的共用資源，每一樣都帶社團：
+
+| 共用的東西 | 怎麼分 | 淡江 |
+| --- | --- | --- |
+| 有哪些社團 | `shared/clubs.ts` 的 `knownClubs`：淡江加上 Worker 變數 `CLUBS`（逗號分隔的 id，格式 `CLUB_ID_PATTERN`）；其他社團的物件名稱是 `club:<id>`。社團物件從**自己的名稱**讀出自己是哪個社團（`clubOfClubObject`），所以 `CLUBS` 拿掉之後被 alarm 叫醒的物件也不會把自己當成淡江 | 物件名稱 `club` |
+| `TableObject` | 名稱 `tableObjectName(社團, 桌 id)`＝`<社團>/<桌 id>`；只有 `worker/clubs.ts` 組名稱，所以社團只叫得到自己的桌。牌桌從自己的名稱讀出社團（`clubOfScopedName`），只回報那個社團（`ownClub`；社團不再服務時回報失敗、留在 outbox，不會跑到別的社團）。`/ws/table/<id>` 由 Worker 轉過去時帶 `X-TBT-Club`（`TABLE_CLUB_HEADER`），牌桌只收自己社團的連線 | 名稱就是桌 id，同以前 |
+| `EventObject` | `eventObjectName`＝`<社團>/challenge:<id>`、`<社團>/match:<id>`、`<社團>/pairs:<id>`；同樣只回報名稱裡的社團 | `challenge:<id>` 等，同以前 |
+| 邊緣通行證 `tbt_pass` | 簽章內容加上社團（`pass3:<社團>:…`）：社員 id 只在社團內唯一，別的社團的通行證一律當成沒有，交給那個社團判斷 | 部署後舊的 `pass2` 通行證失效，社團下一次回答就換新的 |
+| D1 紀錄副本 | 每列都有 `club_id`，而且是每個主鍵的第一欄（`board_id` 只在社團內唯一）；每個社團只寫、只刪、只標記自己的列，`index_meta` 的 `ready` 也是每社團一列；所有讀取都經過 `history-index.ts` 的 `where()` 加 `b.club_id = ?`（子查詢的 `board_players` 也對上同一個社團）。`REPLICA_VERSION` 3：舊表（沒有 `club_id`）在第一次重填時刪掉重建（`replicaSchema`，只刪沒有這一欄的表） | 重填後全部是 `tku`；欄位預設值也是 `tku`，退回舊版 Worker 時照樣讀寫 |
+| R2 `FILES`（圖片、電子書）與 `BACKUPS` | `worker/buckets.ts` 的 `scopedBucket`：key 一律加上 `clubStoragePrefix`＝`clubs/<id>/`，列表時再拿掉；社團碰不到前綴以外的 key。檔案網址用社團自己的 `file:secret` 簽，其他社團的網址加 `&club=<id>`（`<img>` 不能帶 header），簽章內容也包含社團 | 前綴是空的：`daily/…`、`post/…`、`ebook/…` 原封不動，網址與簽章跟以前一樣 |
+| 每日備份（cron） | `everyClubStub`：每個服務中的社團各備份到自己的前綴、各自計算保留 30 天 | `daily/<日期>.jsonl` |
+| 日誌 | 社團、牌桌、比賽物件的每一行都帶 `club`（`worker/log.ts` 的 `clubLog`） | `club: "tku"` |
+| 環境變數 | `INVITE_CODE` 只給淡江（其他社團的邀請碼由它自己的管理員設）；Google／LINE 登入只給淡江（回呼網址沒帶社團，L2 再做）；`MAX_USERS` 是每個社團各自的上限 | 照舊 |
+
+不分社團、刻意共用的：`pass_revocations`（session id 是 128 位元隨機值，又只在簽給同一社團的通行證上查）、VAPID、Turnstile、`SEEN_SALT`、`EDGE_AUTH_SECRET`；平台經營者的權杖 `BOOK_SEED_TOKEN`、`BOOK_EXPORT_TOKEN`、`TWO_FACTOR_RESET_TOKEN` 對請求所指的社團有效（只有能操作 Cloudflare 帳號的人有）。隔離測試在 `tests/worker/club-isolation.test.ts`（兩個社團 `tku`、`ntu` 共用一個 D1、一個 bucket、一個物件命名空間）。
+
+**還沒做（L2）**：同一個網域上的 cookie 名稱相同（`tbt_session`、`tbt_pass`），在 B 社團登入會蓋掉 A 社團的 session（不會跨社團生效，只是被登出），登入範圍與社團網址是 `e12-t04`；分享連結、Email 連結、推播的網址還沒帶社團（打開時到淡江，找不到就是「不存在」，不會讀到別的社團）；新社團第一個註冊的人直接成為管理員（同淡江剛開站時），所以正式站在平台審核（`e12-t05`、`e12-t06`）之前不要設 `CLUBS`；R2 免費額度的用量提醒是每社團各算的，整個 bucket 的總量要平台後台再看。
 - **挑戰與隊制賽可以各自一個 Durable Object**（`EventObject`，H2b 挑戰、H2c 隊制賽，§5.12）：開關 `EVENT_OBJECTS=on` 才用，**預設關**（挑戰與隊制賽照舊在社團的物件裡）；正式站什麼時候開由社長決定（`DEPLOY.md` §4.6）。
 - **不必經過社團的請求由 Worker 自己回答**（§5.12）：紀錄列表與搜尋從 D1 的副本讀（社團寫好紀錄後經 outbox 複製過去），牌桌連線用簽章的邊緣通行證確認是誰；通行證或副本不能用時一律照舊交給社團。開關 `HISTORY_D1=off`、`EDGE_AUTH=off`（`DEPLOY.md` §4.5）。
 - 伺服器是唯一的真相：瀏覽器送「我要叫 1♠」「我要出 ♥K」，伺服器用 `shared/game.ts` 驗證後更新狀態，再推送每個人**可以看到的**畫面。
@@ -61,7 +82,7 @@ TKU-BridgeTable/
 │  ├─ messages.ts          錯誤代碼與六種語言的訊息
 │  ├─ integrity.ts         防作弊報表：型別、門檻、從登入紀錄配對帳號、線索強度（§5.17）
 │  ├─ protocol.ts          HTTP／WebSocket 的訊息與畫面型別
-│  ├─ clubs.ts             社團 id 與物件名稱、請求的社團（X-Club-Id／?club=，沒帶是淡江，§1）
+│  ├─ clubs.ts             社團 id 與物件名稱、請求的社團（X-Club-Id／?club=，沒帶是淡江）、牌桌與比賽物件的名稱、R2 前綴（§1）
 │  ├─ message-guard.ts     WebSocket 訊息的大小上限與型別守衛（§5.6）
 │  ├─ scrub.ts             錯誤回報去除個資（§5.6）
 │  └─ robot/               機器人：robots（兩種機器人與各自的叫牌）、hand（牌型分析）、
@@ -74,7 +95,8 @@ TKU-BridgeTable/
 │  ├─ body.ts              HTTP 本文邊讀邊算大小（e11-t32）
 │  ├─ history-replica.ts   紀錄索引的 D1 副本：ReplicaSync（outbox、填副本、開關）、寫入與搜尋的 SQL（§5.12）
 │  ├─ d1.ts                把 D1 binding 包成 ReplicaDb（唯一碰 D1 的程式）
-│  ├─ clubs.ts             社團 id → 社團物件的 stub（每社團一個，§1）
+│  ├─ clubs.ts             社團、牌桌、比賽物件的 stub（名稱帶社團，§1）
+│  ├─ buckets.ts           R2 bucket 裡社團自己的前綴（scopedBucket，§1）
 │  ├─ club.ts              社團的 Durable Object：HTTP 路由、WebSocket（hibernation）、儲存轉接、牌桌回報的 RPC
 │  ├─ table-object.ts      每桌一個的 Durable Object：儲存、alarm、這一桌的 WebSocket、社團的 stub（只是接線，§5.10）
 │  ├─ table-host.ts        TableHost：一個 TableObject 做的事（RPC 包裝錯誤、桌的連線只收在桌上的人、訊息驗證與速率限制、搬移），可在 Node 測試
@@ -344,7 +366,7 @@ interface BoardState {
 | `meta:schema` | 資料版本（現在是 4）：1→2 把舊版 `board:<時間>-<id>` 搬到新索引；2→3 把所有 `board:` 回填進 SQL 紀錄索引（§5.3）；3→4 把每個 `table:` 搬進自己的 `TableObject`、改存 `tabledir:`（§5.10）；`TABLE_OBJECTS=off` 時搬回來、回到 3 |
 | `replq:<boardId>` | 還沒複製到 D1 的牌局（outbox，§5.12）：值是排進來的時間＋序號，寫進 D1 後刪掉（期間又被改的留著） |
 | `meta:replica` | D1 副本的狀態（§5.12）：`off`／`filling`（做到哪一個 `board:` key）／`ready`，與填它時的 `REPLICA_VERSION` |
-| D1 `boards_index`、`board_players`、`board_summaries`、`index_meta` | 不在 Durable Object 裡：紀錄索引在 D1 的副本，加上每副的摘要與 `ready`（§5.12）；可以隨時從 `board:` 重建 |
+| D1 `boards_index`、`board_players`、`board_summaries`、`index_meta` | 不在 Durable Object 裡：紀錄索引在 D1 的副本，加上每副的摘要與 `ready`（§5.12）；每列帶 `club_id`（§1「多社團的隔離」）；可以隨時從 `board:` 重建 |
 | `meta:backfill` | 回填 SQL 索引時做到哪一個 `board:` key；做完就刪掉，物件中途被回收時從這裡接著做 |
 | `book:entry:<slug>` | 淡江橋譜線上修改的特約（版本、誰在何時改；`convention: null` 表示隱藏），內容在 `bookpart:` |
 | `book:rev:<slug>:<時間>-<id>` | 每次發布、隱藏、還原的版本紀錄 |
@@ -379,7 +401,7 @@ interface BoardState {
 | `article:series` | 叢書的系列（橋館 e5-t06）：`{ version, series: ArticleSeries[], updatedAt, updatedBy }`；沒有時橋館用內建系列 |
 | `bookpart:<key>:<n>` | 大內容的分段（Durable Object 單筆值上限 128 KiB，以 4 萬字一段儲存） |
 
-**備份**（`worker/backup.ts`，淡江橋譜 e10-t08、e11-t12）：cron trigger（每天台灣 03:00）呼叫 `Club.backup()`，把 `BACKUP_PREFIXES` 開頭的 key 匯出成一份 JSON Lines 存到 R2 bucket `tku-bridge-backups`（binding `BACKUPS`）的 `daily/<台灣日期>.jsonl`，保留 30 天；`GET/POST /api/admin/backups`、`POST /api/admin/backups/restore`（預設預演，真的還原要 `confirm`）。範圍：淡江橋譜的 `book*`、`profile*`、`article*`、`team:`、`pair:`、`userteam:`、`userpair:`，加上帳號 `user:`、`app:`、`avatar:`（同一次匯出，頭像版本與圖片一定對得上），以及好友與封鎖 `friend:`、`block:`（2026-11-04 起；還原時只寫回兩邊都是備份裡帳號的關係）；加上討論區的五張 SQL 表（`BACKUP_TABLES`：`forum_boards`、`forum_posts`、`forum_comments`、`forum_reactions`、`forum_reports`，2026-10-30 起，格式第 3 版：key 之後每列一行 `{"t":表,"r":列}`，有 rowid 的表照 rowid 順序寫、照順序寫回）；`session:`、`meta:settings`、私訊、牌局紀錄與紀錄索引的 SQL 表、橋館錯誤回報與使用統計的 `book_*` 表（§5.15）不在裡面，還原也不動它們。討論區的圖片本來就在 R2，備份只有它們的 `file:meta:`。格式第 2 版把位元組寫成 `{"$bytes":"<base64>"}`（`encodeValue`／`decodeValue`），第 1 版（只有橋譜）照樣讀、只還原它自己的 `prefixes`；第 1、2 版沒有表，還原時不動討論區。還原表時先檢查每張表與每個欄位現在都有（欄位名稱只用資料庫自己的），再在一個 transaction 裡清空、寫回；之後 `Club` 再跑一次 `ForumService.createTables()`（補內建看板與搜尋用的 `body_text`）。還原後 `Club` 換一個新的 `BookService`（與 `ArticleService`），記憶體裡的快取不會留下；有帳號時再呼叫 `ClubService.reloadAccounts()`：重讀帳號與申請、重讀好友與封鎖（`Relations.reload`，不是社員的一併刪掉）、備份之後才有的帳號照刪除帳號的方式清掉、刪掉全部 `session:`、斷開所有連線，大家重新登入。步驟見 DEPLOY.md §4.4。
+**備份**（`worker/backup.ts`，淡江橋譜 e10-t08、e11-t12）：cron trigger（每天台灣 03:00）呼叫 `Club.backup()`，把 `BACKUP_PREFIXES` 開頭的 key 匯出成一份 JSON Lines 存到 R2 bucket `tku-bridge-backups`（binding `BACKUPS`）的 `daily/<台灣日期>.jsonl`（淡江；其他社團在 `clubs/<id>/daily/…`，各自列表、各自保留，§1「多社團的隔離」），保留 30 天；`GET/POST /api/admin/backups`、`POST /api/admin/backups/restore`（預設預演，真的還原要 `confirm`）。範圍：淡江橋譜的 `book*`、`profile*`、`article*`、`team:`、`pair:`、`userteam:`、`userpair:`，加上帳號 `user:`、`app:`、`avatar:`（同一次匯出，頭像版本與圖片一定對得上），以及好友與封鎖 `friend:`、`block:`（2026-11-04 起；還原時只寫回兩邊都是備份裡帳號的關係）；加上討論區的五張 SQL 表（`BACKUP_TABLES`：`forum_boards`、`forum_posts`、`forum_comments`、`forum_reactions`、`forum_reports`，2026-10-30 起，格式第 3 版：key 之後每列一行 `{"t":表,"r":列}`，有 rowid 的表照 rowid 順序寫、照順序寫回）；`session:`、`meta:settings`、私訊、牌局紀錄與紀錄索引的 SQL 表、橋館錯誤回報與使用統計的 `book_*` 表（§5.15）不在裡面，還原也不動它們。討論區的圖片本來就在 R2，備份只有它們的 `file:meta:`。格式第 2 版把位元組寫成 `{"$bytes":"<base64>"}`（`encodeValue`／`decodeValue`），第 1 版（只有橋譜）照樣讀、只還原它自己的 `prefixes`；第 1、2 版沒有表，還原時不動討論區。還原表時先檢查每張表與每個欄位現在都有（欄位名稱只用資料庫自己的），再在一個 transaction 裡清空、寫回；之後 `Club` 再跑一次 `ForumService.createTables()`（補內建看板與搜尋用的 `body_text`）。還原後 `Club` 換一個新的 `BookService`（與 `ArticleService`），記憶體裡的快取不會留下；有帳號時再呼叫 `ClubService.reloadAccounts()`：重讀帳號與申請、重讀好友與封鎖（`Relations.reload`，不是社員的一併刪掉）、備份之後才有的帳號照刪除帳號的方式清掉、刪掉全部 `session:`、斷開所有連線，大家重新登入。步驟見 DEPLOY.md §4.4。
 
 每個動作處理完立即寫回，物件隨時被回收都不會遺失牌局。紀錄列表一次只讀到那一頁為止（每頁 10／20／50／100 筆摘要）。
 
@@ -422,8 +444,8 @@ interface BoardState {
 | 物件 | 幾個 | 負責 | 程式 |
 | --- | --- | --- | --- |
 | `Club`（就是 `Directory`，類別名稱不改，免得 Durable Object 要搬資料） | 一個 | 帳號、申請、session、好友與封鎖、通知、私訊、大廳（**牌桌目錄**）、紀錄與索引、收藏、精選、挑戰與每週挑戰、隊制賽、淡江橋譜 | `worker/club.ts`、`ClubService`（`worker/service.ts`） |
-| `TableObject` | 每桌一個（`idFromName(<桌 id>)`） | 這一桌的一切：座位與觀看者、叫牌出牌與撤回攤牌、機器人、自動發牌、時間上限與太久提醒、斷線代打、聊天、這桌最近 30 副、每位觀看者的牌桌畫面與「只送有變的」、這一桌的 WebSocket | `worker/table-object.ts`、`TableService`（`worker/table-service.ts`） |
-| `EventObject`（H2b、H2c，`e11-t18`） | 每場挑戰一個（`idFromName('challenge:<id>')`）、每場隊制賽一個（`idFromName('match:<id>')`），`EVENT_OBJECTS=on` 才用 | 挑戰的狀態、期限工作與結算；隊制賽的狀態與結算（每室的結果、最後一副結束比賽） | `worker/event-object.ts`、`EventHost`、`ChallengeEvent`、`MatchEvent`（§5.12「H2b」「H2c」） |
+| `TableObject` | 每桌一個（`idFromName(<桌 id>)`；淡江以外的社團是 `<社團>/<桌 id>`，§1） | 這一桌的一切：座位與觀看者、叫牌出牌與撤回攤牌、機器人、自動發牌、時間上限與太久提醒、斷線代打、聊天、這桌最近 30 副、每位觀看者的牌桌畫面與「只送有變的」、這一桌的 WebSocket | `worker/table-object.ts`、`TableService`（`worker/table-service.ts`） |
+| `EventObject`（H2b、H2c，`e11-t18`） | 每場挑戰一個（`idFromName('challenge:<id>')`）、每場隊制賽一個（`idFromName('match:<id>')`），淡江以外的社團前面加 `<社團>/`（§1），`EVENT_OBJECTS=on` 才用 | 挑戰的狀態、期限工作與結算；隊制賽的狀態與結算（每室的結果、最後一副結束比賽） | `worker/event-object.ts`、`EventHost`、`ChallengeEvent`、`MatchEvent`（§5.12「H2b」「H2c」） |
 
 **誰負責什麼規則**：跨桌的規則留在 `Club`，因為只有它知道每個人在哪裡：一人同時只在一桌、開桌與桌號、加入與入座前的封鎖與受邀檢查（`checkWelcome`）、快速入座、受邀名單的檢查與通知、開始／繼續挑戰。只跟一桌有關的規則在 `TableService`：座位有沒有人、這一副打到一半不能換座位、房主才能做的事、所有叫牌出牌（`shared/game.ts`）、機器人（只看自己的 `View`，§5.1）、可見性（仍然只在 `worker/views.ts`，§4）。`Club` 先用目錄做一次檢查（錯誤和現在一樣，在離開舊桌**之前**丟），`TableService` 再用自己的狀態做最後的檢查，兩邊的錯誤代碼相同。
 
@@ -550,7 +572,7 @@ H1 把牌桌拆出去之後（§5.10），社團的物件（`Club`）仍然是**
 
 ### 搬移正式站的資料（可中斷、可重來）
 
-- 部署後 `Club` 第一次載入，若有 `HISTORY` binding 而 `meta:replica` 還不是 `ready`：先在 D1 建表（`CREATE TABLE IF NOT EXISTS`，表與 `Club` 的完全相同，另加 `board_summaries` 與 `index_meta`）並把 `index_meta.ready` 設成 `0`；然後每次 alarm 寫 20 副 `board:`（一步 1 秒，做到哪一個 key 存在 `meta:replica`，物件被回收就從那裡接著做）；全部寫完才把 `ready` 設成 `1`。填的期間打完的副照樣進 outbox，不會漏。
+- 部署後 `Club` 第一次載入，若有 `HISTORY` binding 而 `meta:replica` 還不是 `ready`：先在 D1 建表（`CREATE TABLE IF NOT EXISTS`，欄位與 `Club` 的相同、另加 `club_id` 在每個主鍵最前面，另加 `board_summaries` 與 `index_meta`；`e12-t03` 起先讀 `sqlite_master`，沒有 `club_id` 的舊表刪掉重建）並把這個社團的 `index_meta.ready` 設成 `0`；然後每次 alarm 寫 20 副 `board:`（一步 1 秒，做到哪一個 key 存在 `meta:replica`，物件被回收就從那裡接著做）；全部寫完才把 `ready` 設成 `1`。填的期間打完的副照樣進 outbox，不會漏。
 - **Worker 每次讀 D1 都在同一個 batch 先看 `ready`**，不是 `1`（或表還不存在）就交給 `Club`。所以填到一半的副本永遠不會被讀到，也不需要部署順序上的配合。
 - 時間：一萬副 500 步，約 8–10 分鐘；正式站目前遠少於此。每步 11 個 statement，遠低於免費方案每次呼叫 50 個查詢。
 - `REPLICA_VERSION`：D1 的表或摘要的內容改了就加一，每個 `Club` 下次載入自動重填（期間 Worker 讀 `Club`）。
@@ -563,7 +585,7 @@ H1 把牌桌拆出去之後（§5.10），社團的物件（`Club`）仍然是**
 
 ### 邊緣通行證（`worker/edge-auth.ts`，`e11-t19`）
 
-- **格式**：`<社員 id>.<session id>.<到期時間，36 進位>.<HMAC-SHA-256，base64url>`，用 secret `EDGE_AUTH_SECRET` 簽，有效 `EDGE_PASS_MS`（10 分鐘）。session id 是 session 自己的 `id`（登入中的裝置列表用的那個），不是 token；`e11-t28` 之前沒有 session id 的舊通行證一律不認，社團下一次回答時換新的。cookie `tbt_pass` 與 session 一樣 HttpOnly、SameSite=Lax、Path=/。只有 WebCrypto，Worker、Durable Object、Node 測試同一份程式。
+- **格式**：`<社員 id>.<session id>.<到期時間，36 進位>.<HMAC-SHA-256，base64url>`，用 secret `EDGE_AUTH_SECRET` 簽，有效 `EDGE_PASS_MS`（10 分鐘）。簽的內容另含社團（`pass3:<社團>:…`，`e12-t03`）：Worker 只用請求所指的社團驗，別的社團的通行證當成沒有。session id 是 session 自己的 `id`（登入中的裝置列表用的那個），不是 token；`e11-t28` 之前沒有 session id 的舊通行證一律不認，社團下一次回答時換新的。cookie `tbt_pass` 與 session 一樣 HttpOnly、SameSite=Lax、Path=/。只有 WebCrypto，Worker、Durable Object、Node 測試同一份程式。
 - **誰發**：`Club`。登入、註冊（第一個帳號）時跟 session 一起發；之後任何 `/api/*` 的回答，若瀏覽器沒有通行證或已經用掉一半，就附上新的（`Club.edgePass`）；session 已經失效就清掉；登出時清掉。只要有在用網站（打開頁面就會呼叫 `/api/me`），通行證就一直有效。
 - **誰看**：Worker（`worker/routing.ts`）。驗證是一次 HMAC，**再查 D1 的 `pass_revocations` 那個 session 有沒有結束**（`passRevoked`，`e11-t28`）；不合法、過期、被改過、換了 secret、session 已結束、D1 查不到或沒有 D1（PR 預覽），一律當作沒有，改問 `Club`，結果跟現在一樣。通行證裡**只有社員 id**，沒有管理員與權限，所以需要權限的 API（管理、橋譜、精選）一律照舊進 `Club`。
 - **撤銷（`e11-t28`，2026-10-30）**：登出、登出某個裝置、登出其他裝置、改密碼、忘記密碼重設、管理員重設密碼、刪除帳號、還原備份時，`ClubService` 把結束的 session id 寫進 D1 的 `pass_revocations`（`revocationWrites`：一個 batch，先 `CREATE TABLE IF NOT EXISTS`、清掉已經不可能有有效通行證的列，保留 `REVOKED_FOR_MS`＝通行證效期加兩分鐘），**Worker 下一個請求就不認那張通行證**；同時關掉這個人的 `/ws` 與所在那一桌的連線（`TableApi.signOut`，4001），還登入著的裝置會自己重連。表不存在＝從來沒有撤銷過（第一次撤銷才建），不必在載入時碰 D1。寫 D1 失敗：記日誌、一分鐘後再試一次；D1 壞了時 Worker 的讀取通常也失敗，一樣改問 `Club`。`pass_revocations` 不受 `HISTORY_D1=off` 影響（只要有 `HISTORY` binding 就寫、就查）。代價：Worker 每次靠通行證回答前多一次 D1 讀取（一列、走主鍵），不經過 `Club`。
@@ -708,7 +730,7 @@ H1 把牌桌拆出去之後（§5.10），社團的物件（`Club`）仍然是**
 
 - **瀏覽器做影像處理**：縮到長邊 ≤ 2048 px、縮圖長邊 480 px；Worker 只看大小與檔頭（`sniffFile`：JPEG／PNG／WebP，貼文另可 GIF），不解碼圖片（免費方案 10 ms CPU）。
 - **一次性憑證直傳**：`POST /api/files/ticket { purpose: 'post' | 'article', type, size }` → `{ key, uploadUrl, thumbUrl, expires }`（10 分鐘，計入每人每天 30 張）；`PUT uploadUrl`（≤ 2 MB，型別要和憑證一致）、`PUT thumbUrl`（≤ 256 KB，要在原圖之後）；兩個都傳了或過期就作廢。上傳路由不看 session cookie、有 CORS，所以頁面也可以直接傳到 Worker 的網址。
-- **簽名短效網址**：`GET /api/files/<key>?e=<到期>&s=<HMAC>`，不用登入（`<img>` 跨站不帶 cookie），到期時間進位到整點再加一小時，同一小時內的網址相同、瀏覽器快取得到；`POST /api/files/urls { keys }` 重簽。金鑰是第一次用時產生的隨機值（`file:secret`），不需要另設 secret。PRD 寫的 `/_file/:key` 改放在 `/api/files/` 底下，兩站的 `/api/*` 本來就轉給 Worker。
+- **簽名短效網址**：`GET /api/files/<key>?e=<到期>&s=<HMAC>`（淡江以外的社團另加 `&club=<id>`，簽章也含社團；R2 的 key 在 `clubs/<id>/` 底下，§1「多社團的隔離」），不用登入（`<img>` 跨站不帶 cookie），到期時間進位到整點再加一小時，同一小時內的網址相同、瀏覽器快取得到；`POST /api/files/urls { keys }` 重簽。金鑰是第一次用時產生的隨機值（`file:secret`），不需要另設 secret。PRD 寫的 `/_file/:key` 改放在 `/api/files/` 底下，兩站的 `/api/*` 本來就轉給 Worker。
 - **刪除**：`DELETE /api/files/<key>`，上傳者、討論區幹部（`forumModerate`，橋館 G8）或管理員。帳號刪除見下面「論壇的圖片」。
 - **論壇的圖片**（牌桌 `e13-t13`，2026-11-03，`worker/post-images.ts`）：牌桌的發文編輯器也能插圖（`PostImageButton`、`src/lib/postImage.ts`）：照片在瀏覽器用 canvas 縮到長邊 2048 px、寫成 WebP（不支援就 JPEG），所以拍攝地點等 EXIF 不會上傳；**GIF 原樣上傳**（才會動，≤ 2 MB，只限 `purpose: 'post'`，叢書文章仍是三種，橋館的文章編輯器不必改），縮圖一律是靜態的。SVG 一律不收。決定：
   - **誰的**：新增或編輯貼文時，新加的 `image` 區塊要是作者自己上傳的檔案（`file:meta:` 的 `owner`），否則 403 `forumImageNotYours`；本來就在貼文裡的不再檢查。所以一張圖只屬於一位作者。
@@ -1038,7 +1060,7 @@ AC-13.4 的「公告、新聞」沿用 K1 的對照：**公告與新聞都在「
 - **速率限制**（`worker/rate-limit.ts`）：每個帳號的信（驗證加重設）一次 3 封、之後每 10 分鐘 1 封，驗證超過回 `slowDown`、重設超過**不說**（說了就洩漏帳號有 Email）；同一個 IP 的重設申請一次 5 次、之後每 2 分鐘 1 次（`slowDown`，只看 IP 不洩漏帳號）；錯的重設連結跟登入共用同一個 IP 的失敗次數（`tooManyLogins`）。
 - **個資**：Email 存在 `user:<id>` 裡，匯出（`GET /api/account/export`）有 `email`、`emailVerifiedAt` 與等待驗證的地址，沒有任何權杖雜湊；刪帳號時跟著 `user:<id>` 刪除。其他社員與管理頁都看不到 Email。隱私權政策加了一段（六種語言，`LEGAL_UPDATED` 2026-11-02）。
 - **信的文字**在 `shared/messages.ts`（`mailVerifySubject`、`mailVerifyBody`、`mailResetSubject`、`mailResetBody`，六種語言），語言照頁面送來的 `lang`，沒有就繁中；純文字，不寄 HTML。
-- **限制**：多社團（`e12-t02`）的連結沒有帶社團，Email 的 API 和其他沒登入的 API 一樣到預設社團（淡江）；開第二個社團時要一起處理。
+- **限制**：多社團（`e12-t02`、`e12-t03`）的連結沒有帶社團，Email 的 API 和其他沒登入的 API 一樣到預設社團（淡江）；別的社團的連結在淡江只會是「不存在」，不會讀到別的社團的資料。社團網址（`e12-t04`）時一起處理。
 
 ## 5.21 社團積分與實力評分（決策紀錄，`e9-t04`～`e9-t08`，2026-11-02，J2）
 

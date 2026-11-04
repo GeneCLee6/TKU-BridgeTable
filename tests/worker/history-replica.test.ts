@@ -85,7 +85,7 @@ let logs: LogEntry[]
 const NOW = DAY + 30 * 86_400_000
 
 function sync() {
-  return new ReplicaSync({ store, db: d1, scheduler: hand.scheduler, now: () => NOW, log: (entry) => logs.push(entry) })
+  return new ReplicaSync({ clubId: 'tku', store, db: d1, scheduler: hand.scheduler, now: () => NOW, log: (entry) => logs.push(entry) })
 }
 
 /** Writes records as the club does (its own index, then `board:`), queuing each for the copy */
@@ -112,7 +112,7 @@ async function both(query: HistoryQuery, viewer: string) {
   const found = searchBoards(store.sql, query, viewer, NOW)
   const boards = await Promise.all(found.ids.map(async (id) => summarize((await store.get<BoardRecord>(`board:${id}`))!)))
   const club = { boards, total: found.total, page: found.page, size: query.size }
-  const edge = await searchReplica(d1, query, viewer, NOW)
+  const edge = await searchReplica(d1, 'tku', query, viewer, NOW)
   return { club, edge }
 }
 
@@ -127,13 +127,13 @@ describe('filling the D1 copy', () => {
     }
     const replica = sync()
     await replica.load(true)
-    expect(await searchReplica(d1, listQuery(true, 1, 20), 'amy', NOW)).toBeNull()
-    expect(await daysReplica(d1, listQuery(true, 1, 20), 'amy', NOW)).toBeNull()
+    expect(await searchReplica(d1, 'tku', listQuery(true, 1, 20), 'amy', NOW)).toBeNull()
+    expect(await daysReplica(d1, 'tku', listQuery(true, 1, 20), 'amy', NOW)).toBeNull()
     // Not complete until the last step: the Worker keeps asking the club
     await hand.next()
     await hand.next()
     expect(ready()).toBe('0')
-    expect(await searchReplica(d1, listQuery(true, 1, 20), 'amy', NOW)).toBeNull()
+    expect(await searchReplica(d1, 'tku', listQuery(true, 1, 20), 'amy', NOW)).toBeNull()
     await hand.drain()
     expect(ready()).toBe('1')
     expect(replica.status).toBe('ready')
@@ -167,17 +167,17 @@ describe('filling the D1 copy', () => {
     }
     // The board kept back: only its players get it, from either side
     const kept = 'b0100'
-    const has = async (viewer: string) => (await searchReplica(d1, listQuery(true, 1, 100), viewer, NOW))!.boards.some((b) => b.id === kept)
+    const has = async (viewer: string) => (await searchReplica(d1, 'tku', listQuery(true, 1, 100), viewer, NOW))!.boards.some((b) => b.id === kept)
     expect(await has('amy')).toBe(true)
     expect(await has('dan')).toBe(false)
     // Boards per day (e3-t48): the same counts from either side, the held board only for its players
     for (const viewer of ['amy', 'dan'])
       for (const q of [{}, { scope: 'all' as const }, { scope: 'all' as const, table: 2 }]) {
         const query = { ...DEFAULT_HISTORY_QUERY, ...q }
-        expect(await daysReplica(d1, query, viewer, NOW)).toEqual(searchDays(store.sql, query, viewer, NOW))
+        expect(await daysReplica(d1, 'tku', query, viewer, NOW)).toEqual(searchDays(store.sql, query, viewer, NOW))
       }
     const total = async (viewer: string) =>
-      (await daysReplica(d1, listQuery(true, 1, 20), viewer, NOW))!.reduce((sum, day) => sum + day.count, 0)
+      (await daysReplica(d1, 'tku', listQuery(true, 1, 20), viewer, NOW))!.reduce((sum, day) => sum + day.count, 0)
     expect(await total('amy')).toBe((await total('dan')) + 1)
   })
 
@@ -215,11 +215,11 @@ describe('keeping the copy in step', () => {
     await write(replica, [kept, record(2), record(3)])
     expect(hand.jobs.get('replica:flush')?.kind).toBe('replica')
     await hand.drain()
-    expect((await searchReplica(d1, listQuery(true, 1, 20), 'amy', NOW))!.total).toBe(2)
+    expect((await searchReplica(d1, 'tku', listQuery(true, 1, 20), 'amy', NOW))!.total).toBe(2)
     // The challenge ends: the record is written again, shown from now
     await write(replica, [{ ...kept, revealAt: NOW }])
     await hand.drain()
-    expect((await searchReplica(d1, listQuery(true, 1, 20), 'amy', NOW))!.total).toBe(3)
+    expect((await searchReplica(d1, 'tku', listQuery(true, 1, 20), 'amy', NOW))!.total).toBe(3)
     expect(d1.rows('SELECT reveal_at FROM boards_index WHERE board_id = ?', kept.id)).toEqual([{ reveal_at: NOW }])
     // A board saved halfway is taken back out by the club (§5.3): the copy follows
     await store.delete(`board:${record(2).id}`)
@@ -293,7 +293,7 @@ describe('switching the copy off and on (HISTORY_D1=off)', () => {
     // Back on: everything written while off is in the copy before the Worker reads it again
     replica = sync()
     await replica.load(true)
-    expect(await searchReplica(d1, listQuery(true, 1, 20), 'amy', NOW)).toBeNull()
+    expect(await searchReplica(d1, 'tku', listQuery(true, 1, 20), 'amy', NOW)).toBeNull()
     await hand.drain()
     expect(ready()).toBe('1')
     expect(d1.rows('SELECT board_id FROM boards_index ORDER BY board_id')).toEqual([{ board_id: 'b0001' }, { board_id: 'b0002' }])
@@ -335,7 +335,38 @@ describe('switching the copy off and on (HISTORY_D1=off)', () => {
     await hand.drain()
     expect(replica.status).toBe('ready')
     expect(ready()).toBe('1')
-    // Made the tables and marked not complete, wrote the records, marked complete
-    expect(d1.batches - batches).toBe(3)
+    // Read which tables are there, made the tables and marked not complete, wrote the records, marked complete
+    expect(d1.batches - batches).toBe(4)
+  })
+
+  it("drops the tables from before clubs and fills them again with 淡江's rows (e12-t03)", async () => {
+    // The copy as a Worker from before clubs left it: no club_id, keyed by board id alone
+    d1.db.exec(`CREATE TABLE boards_index (board_id TEXT PRIMARY KEY, played_at INTEGER NOT NULL);
+      CREATE TABLE board_players (board_id TEXT NOT NULL, seat TEXT NOT NULL, PRIMARY KEY (board_id, seat));
+      CREATE TABLE board_summaries (board_id TEXT PRIMARY KEY, summary TEXT NOT NULL);
+      CREATE TABLE index_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+      INSERT INTO boards_index VALUES ('old', 1); INSERT INTO index_meta VALUES ('ready', '1');`)
+    await store.put('meta:replica', { state: 'ready', version: 2 })
+    for (const r of [record(1), record(2)]) {
+      indexRecord(store.sql, r)
+      await store.put(`board:${r.id}`, r)
+    }
+    const replica = sync()
+    await replica.load(true)
+    // Not complete until filled again: the Worker asks the club meanwhile
+    expect(await searchReplica(d1, 'tku', listQuery(true, 1, 20), 'amy', NOW)).toBeNull()
+    await hand.drain()
+    expect(replica.status).toBe('ready')
+    expect(d1.rows('SELECT club_id, board_id FROM boards_index ORDER BY board_id')).toEqual([
+      { club_id: 'tku', board_id: 'b0001' },
+      { club_id: 'tku', board_id: 'b0002' },
+    ])
+    expect(ready()).toBe('1')
+    expect((await searchReplica(d1, 'tku', listQuery(true, 1, 20), 'amy', NOW))!.total).toBe(2)
+    // Tables that have the column are kept as they are the next time
+    await store.put('meta:replica', { state: 'ready', version: 2 })
+    await sync().load(true)
+    await hand.drain()
+    expect(d1.rows('SELECT board_id FROM boards_index')).toHaveLength(2)
   })
 })
