@@ -188,7 +188,11 @@
   0q. **2026-11-04 第十一輪（社長：L2 全照建議）**：
      - #293（`e12-t05`、`e12-t06`）平台後台與建社申請：平台管理員由 secret `PLATFORM_OWNER`（社長的淡江 user id，要是淡江管理員且開兩步驟登入）認，其他人 `/api/platform/*` 一律 404；名冊存在淡江物件（`platform:club:`、`platform:apply:`），Worker 用 `ClubRegistryCache` 分派（30 秒），核准後不用重新部署；申請 `/clubs/apply`（不用登入，每網路每小時 3 份），核准時 `provisionFounder` 建第一位管理員，只有淡江保留「第一個帳號變管理員」；暫停社團結束所有 session、關連線、不刪資料。稽核 `platform:*`（橋館 #72 同步）。**社長要做：`npx wrangler secret put PLATFORM_OWNER`（DEPLOY.md §4.20）**；正式站仍不要設 `CLUBS`。
      - #294（`e12-t04`、`e12-t07`）社團網址 `/c/<id>/…`（淡江不變，`/c/tku/…` 導回原網址）、每個社團不同的 cookie 名稱（淡江沿用原名，沒有人被登出，可同時登入兩個社團）、分享／Email／推播／OAuth／核准信的連結帶社團；跨社團大廳（旗標 `publicLobby` 預設關，房主把桌設 `openToClubs`），其他社團只能觀看（`guestTableView`）；跨社團私訊、邀請、加好友都回 `userGone`。AC-12.1 已勾。
-     - L2 的程式完成：M2 公開版的程式都做完了（`e12-t01` 定價研究不是程式）。待決：登入頁要不要放申請連結、有新申請要不要通知社長、`/c/<id>/clubs/apply` 要導回淡江、PWA 起始頁、瀏覽器層級的推播訂閱、Google／LINE 開給其他社團時的回呼網址。
+     - L2 的程式完成：M2 公開版的程式都做完了（`e12-t01` 定價研究不是程式）。待決：Google／LINE 開給其他社團時的回呼網址（其餘五項在第十二輪做完）。
+  0r. **2026-11-04 第十二輪（社長：第十一輪待決全照建議）**：
+     - #296：淡江的登入頁加「申請建立社團」連結；新申請通知平台管理員（通知種類 `clubApplication`，推播組「平台」只給本人）；`/c/<id>/clubs/apply` 導回淡江，`/api/clubs/apply` 一律送到淡江的物件，其他社團的物件回 `clubApplyElsewhere`。
+     - #297：其他社團的「加入主畫面」：Worker 回 `/c/<id>/manifest.webmanifest`（社團名稱、`start_url`／`scope` 是 `/c/<id>/`，`wrangler.jsonc` 加 `ASSETS` binding）；推播訂閱分社團（瀏覽器記 `tbt-push-clubs`，在一個社團登出只取消那個社團的登錄，沒有社團在用時才取消瀏覽器的訂閱）。
+     - 程式面的 M2 公開版完成。剩下的 ROADMAP 多半要付費（Phase P 伺服器 DDS → Phase I 機器人追上 GIB → J6、J7）或不是程式（`e12-t01` 定價研究、O1 金流與法務、O2 命名與 SEO、O5 訓練資料、O6 App 上架）。
   1. H3b 完成（#150）：大廳拆 `LobbyShared`＋`LobbyMine`、只送差異（`lobbyDelta`）、100 ms 合併廣播、`action` 日誌 1/10 取樣；數字在 `docs/LOAD.md` §6。部署前開著的分頁要重新整理。本機 workerd 量測時社團物件中途重啟過一次（原因未查到，沒有動作失敗），遠端煙霧時留意。
   2. TKB 持續加強（模擬 → 改規則 → 評測）：V4 四項做完（見上）；下一輪從 V4 的待決與 `ROBOT.md` 的「待社團確認」挑。
   3. 秘密設好後：在任一 PR 預覽跑 `docs/LOAD.md` §6 的遠端煙霧測試，再決定正式站開 `EVENT_OBJECTS`。
