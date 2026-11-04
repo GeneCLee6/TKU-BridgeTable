@@ -180,6 +180,11 @@
      - #288（`e9-t14` 後續）多隊賽：管理員選賽制（自動／循環／瑞士）；多隊賽的比賽由裁判（與管理員）做超時裁定、暫停、中止、機器人代打、開下一段，裁判也能替房主按開始，房主只排自己隊的座位（`matchEventDirector`）；同一輪打同一組牌（`teamevdeal:`），多隊賽頁有逐副比較，整輪都打完那副才公開，同輪其他隊在自己比完前不能觀看（`teamEventNoWatching`）。輪空 12 VP、同分規則、積分預設照舊（§5.26）。
      - #287（L3，提前做）重新開放好友：`FEATURE_DEFAULTS.friends` 改 `on`（各社團可在管理頁關）。順手修了：邀請封鎖的人的錯誤訊息（`unblockToInvite`）、論壇的 @ 與回覆不通知封鎖了作者的人、「好友上線」推播（不在線的人收到，一小時失效）。挑戰與受邀桌仍可邀任何社員；跨社團規則留到 L2。待決的兩項社長 2026-11-04 核准：搭檔挑戰擋受邀者之間的封鎖（`challengePairBlocked`、接受時 `challengeAcceptBlocked`），每日備份包含好友與封鎖（DEPLOY.md §4.4）。
      - 下一批：L1 多社團（`e12-t03`，每個檔案都會碰，單獨一個 agent，期間不平行做別的功能）→ L2 → H6b 跨社團防作弊。推播的 VAPID 金鑰還沒設。
+  0p. **2026-11-04 第十輪（社長：L1 開工、第九輪待決全照建議）**：
+     - #290：搭檔挑戰擋互相封鎖的兩人排在一起（`challengePairBlocked`，接受時再查 `challengeAcceptBlocked`，都不透露方向）；每日備份含 `friend:`／`block:`，還原只寫回兩邊都在備份裡的關係（`Relations.reload`）。
+     - #291（`e12-t03`，L1）社團物件之外的共用資源分社團：牌桌與比賽物件名 `<club>/…`（淡江不變）、只回報自己的社團；邊緣通行證簽章含社團；D1 副本每列 `club_id`、`where()` 帶社團、`REPLICA_VERSION` 3（部署後自動重填一次）；R2 檔案、電子書、備份走 `scopedBucket`（淡江前綴不變，其他 `clubs/<id>/`）；日誌帶 `club`；`tests/worker/club-isolation.test.ts`。新的 Worker 變數 `CLUBS` **正式站先不要設**（新社團第一位註冊者會變管理員，要等 `e12-t05`／`e12-t06`）。`e12-t01` 定價研究不是程式，L1 那列保留未勾。
+     - L2 要處理（ARCHITECTURE §1、DEPLOY §4.19）：同網域的 `tbt_session`／`tbt_pass` 同名（換社團登入會登出另一個）、分享／信件／推播連結還沒帶社團、全站營運 token（`BOOK_SEED_TOKEN`、`BOOK_EXPORT_TOKEN`、`TWO_FACTOR_RESET_TOKEN`）對任何社團有效、R2 免費額度警示是每社團的、跨社團好友規則。
+     - 下一批：L2（`e12-t04` 社團網址與登入範圍、`e12-t05` 平台後台、`e12-t06` 自助建立社團、`e12-t07` 跨社團大廳）。
   1. H3b 完成（#150）：大廳拆 `LobbyShared`＋`LobbyMine`、只送差異（`lobbyDelta`）、100 ms 合併廣播、`action` 日誌 1/10 取樣；數字在 `docs/LOAD.md` §6。部署前開著的分頁要重新整理。本機 workerd 量測時社團物件中途重啟過一次（原因未查到，沒有動作失敗），遠端煙霧時留意。
   2. TKB 持續加強（模擬 → 改規則 → 評測）：V4 四項做完（見上）；下一輪從 V4 的待決與 `ROBOT.md` 的「待社團確認」挑。
   3. 秘密設好後：在任一 PR 預覽跑 `docs/LOAD.md` §6 的遠端煙霧測試，再決定正式站開 `EVENT_OBJECTS`。
