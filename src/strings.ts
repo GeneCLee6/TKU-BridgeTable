@@ -146,6 +146,7 @@ const zh = {
     tournamentDayReminder: (_name: string, title: string) => `「${title}」明天這個時候開賽`,
     tournamentResults: (_name: string, title: string) => `「${title}」結束了，來看結果`,
     teamEventRound: (title: string, round: number) => `「${title}」第 ${round} 輪配對好了，來看你們的比賽`,
+    clubApplication: (name: string) => `有新的建社申請：「${name}」，到平台後台審核`,
   },
   /** The invitation dialog (e1-t35): a challenge or a team match seat, answered at once */
   invites: {
@@ -1499,6 +1500,7 @@ const zh = {
       book: '淡江橋譜的特約與文章',
       forum: '討論區（回覆、提到你、公告）',
       admin: '管理（註冊與重設密碼的申請、檔案空間）',
+      platform: '平台（新的建社申請）',
       tournaments: '比賽（公告、報名、開賽提醒、結果）',
     },
   },
@@ -2015,6 +2017,8 @@ const zh = {
   },
   // Applying for a club (e12-t06, /clubs/apply) and the platform owner's back office (e12-t05, /platform)
   clubApply: {
+    fromSignIn: '想在這裡開你們社團的牌桌？',
+    fromSignInLink: '申請建立社團',
     title: '申請開設社團',
     intro: '橋藝社的幹部可以在這裡為社團申請一個自己的線上牌桌。平台審核通過後社團就會開通，申請時設定的帳號就是社團的第一位管理員。',
     closed: '目前不開放申請新社團。',
@@ -2208,6 +2212,7 @@ const en: Strings = {
     tournamentDayReminder: (_name, title) => `"${title}" starts this time tomorrow`,
     tournamentResults: (_name, title) => `"${title}" is over: see the results`,
     teamEventRound: (title, round) => `"${title}" round ${round} is paired: see your match`,
+    clubApplication: (name) => `New club application: "${name}". Review it in the platform back office`,
   },
   invites: {
     later: 'Answer later',
@@ -3544,6 +3549,7 @@ const en: Strings = {
       book: 'TKU BridgeBook conventions and articles',
       forum: 'Forum (replies, mentions, announcements)',
       admin: 'Admin (applications, password reset requests, file space)',
+      platform: 'Platform (new club applications)',
       tournaments: 'Tournaments (announcements, entries, start reminder, results)',
     },
   },
@@ -4052,6 +4058,8 @@ const en: Strings = {
   },
   // Applying for a club (e12-t06, /clubs/apply) and the platform owner's back office (e12-t05, /platform)
   clubApply: {
+    fromSignIn: 'Want a table for your own club here?',
+    fromSignInLink: 'Apply for a club',
     title: 'Apply for a club',
     intro: 'A bridge club’s officers can apply here for an online table of their own. Once the platform approves it the club opens, and the account set up here is its first admin.',
     closed: 'New clubs cannot be applied for at the moment.',
@@ -4243,6 +4251,7 @@ const zhHans: Strings = {
     tournamentDayReminder: (_name, title) => `「${title}」明天这个时候开赛`,
     tournamentResults: (_name, title) => `「${title}」结束了，来看结果`,
     teamEventRound: (title, round) => `「${title}」第 ${round} 轮配对好了，来看你们的比赛`,
+    clubApplication: (name) => `有新的建社申请：「${name}」，到平台后台审核`,
   },
   invites: {
     later: '稍后回复',
@@ -5577,6 +5586,7 @@ const zhHans: Strings = {
       book: '淡江桥谱的约定与文章',
       forum: '讨论区（回复、提到你、公告）',
       admin: '管理（注册与重设密码的申请、文件空间）',
+      platform: '平台（新的建社申请）',
       tournaments: '比赛（公告、报名、开赛提醒、结果）',
     },
   },
@@ -6085,6 +6095,8 @@ const zhHans: Strings = {
   },
   // Applying for a club (e12-t06, /clubs/apply) and the platform owner's back office (e12-t05, /platform)
   clubApply: {
+    fromSignIn: '想在这里开你们社团的牌桌？',
+    fromSignInLink: '申请建立社团',
     title: '申请开设社团',
     intro: '桥艺社的干部可以在这里为社团申请一个自己的线上牌桌。平台审核通过后社团就会开通，申请时设置的账号就是社团的第一位管理员。',
     closed: '目前不开放申请新社团。',
@@ -6276,6 +6288,7 @@ const vi: Strings = {
     tournamentDayReminder: (_name, title) => `"${title}" sẽ bắt đầu vào giờ này ngày mai`,
     tournamentResults: (_name, title) => `"${title}" đã kết thúc: xem kết quả`,
     teamEventRound: (title, round) => `"${title}" vòng ${round} đã bốc cặp: xem trận của đội bạn`,
+    clubApplication: (name) => `Có đơn đăng ký mở câu lạc bộ mới: "${name}". Hãy duyệt trong trang quản trị nền tảng`,
   },
   invites: {
     later: 'Trả lời sau',
@@ -7612,6 +7625,7 @@ const vi: Strings = {
       book: 'Quy ước và bài viết của TKU BridgeBook',
       forum: 'Diễn đàn (trả lời, nhắc đến bạn, thông báo)',
       admin: 'Quản trị (đơn đăng ký, yêu cầu đặt lại mật khẩu, dung lượng tệp)',
+      platform: 'Nền tảng (đơn mở câu lạc bộ mới)',
       tournaments: 'Giải đấu (thông báo, đăng ký, nhắc giờ bắt đầu, kết quả)',
     },
   },
@@ -8120,6 +8134,8 @@ const vi: Strings = {
   },
   // Applying for a club (e12-t06, /clubs/apply) and the platform owner's back office (e12-t05, /platform)
   clubApply: {
+    fromSignIn: 'Muốn mở bàn chơi cho câu lạc bộ của bạn ở đây?',
+    fromSignInLink: 'Đăng ký mở câu lạc bộ',
     title: 'Đăng ký mở câu lạc bộ',
     intro: 'Ban cán sự của một câu lạc bộ bridge có thể đăng ký ở đây một bàn chơi trực tuyến riêng. Khi nền tảng duyệt, câu lạc bộ được mở và tài khoản tạo ở đây là quản trị viên đầu tiên.',
     closed: 'Hiện chưa nhận đơn mở câu lạc bộ mới.',
@@ -8311,6 +8327,7 @@ const ja: Strings = {
     tournamentDayReminder: (_name, title) => `「${title}」は明日のこの時間に始まります`,
     tournamentResults: (_name, title) => `「${title}」が終わりました。結果を見ましょう`,
     teamEventRound: (title, round) => `「${title}」第 ${round} ラウンドの組み合わせが決まりました。試合を確認しましょう`,
+    clubApplication: (name) => `新しいクラブ開設申請「${name}」があります。プラットフォーム管理画面で審査してください`,
   },
   invites: {
     later: 'あとで返事する',
@@ -9647,6 +9664,7 @@ const ja: Strings = {
       book: 'TKU BridgeBook の約定と記事',
       forum: '掲示板（返信、メンション、お知らせ）',
       admin: '管理（登録とパスワード再設定の申請、ファイル容量）',
+      platform: 'プラットフォーム（新しいクラブ開設申請）',
       tournaments: '大会（お知らせ、申し込み、開始のお知らせ、結果）',
     },
   },
@@ -10155,6 +10173,8 @@ const ja: Strings = {
   },
   // Applying for a club (e12-t06, /clubs/apply) and the platform owner's back office (e12-t05, /platform)
   clubApply: {
+    fromSignIn: 'あなたのクラブのテーブルをここで開きませんか？',
+    fromSignInLink: 'クラブの開設を申請',
     title: 'クラブの開設申請',
     intro: 'ブリッジクラブの幹部は、ここでクラブ専用のオンラインテーブルを申請できます。プラットフォームが承認するとクラブが開設され、ここで設定したアカウントが最初の管理者になります。',
     closed: '現在、新しいクラブの申請は受け付けていません。',
@@ -10346,6 +10366,7 @@ const ko: Strings = {
     tournamentDayReminder: (_name, title) => `「${title}」이(가) 내일 이 시간에 시작합니다`,
     tournamentResults: (_name, title) => `「${title}」이(가) 끝났습니다. 결과를 확인하세요`,
     teamEventRound: (title, round) => `「${title}」 ${round}라운드 대진이 정해졌습니다. 경기를 확인하세요`,
+    clubApplication: (name) => `새 클럽 개설 신청 「${name}」이 있습니다. 플랫폼 관리 화면에서 심사하세요`,
   },
   invites: {
     later: '나중에 답하기',
@@ -11682,6 +11703,7 @@ const ko: Strings = {
       book: 'TKU BridgeBook 약속과 글',
       forum: '게시판(답글, 언급, 공지)',
       admin: '관리(가입·비밀번호 재설정 신청, 파일 공간)',
+      platform: '플랫폼(새 클럽 개설 신청)',
       tournaments: '대회(공지, 신청, 시작 알림, 결과)',
     },
   },
@@ -12190,6 +12212,8 @@ const ko: Strings = {
   },
   // Applying for a club (e12-t06, /clubs/apply) and the platform owner's back office (e12-t05, /platform)
   clubApply: {
+    fromSignIn: '여기에 우리 클럽의 테이블을 열고 싶나요?',
+    fromSignInLink: '클럽 개설 신청',
     title: '클럽 개설 신청',
     intro: '브리지 클럽 임원은 여기에서 클럽 전용 온라인 테이블을 신청할 수 있습니다. 플랫폼이 승인하면 클럽이 개설되고, 여기서 만든 계정이 첫 관리자가 됩니다.',
     closed: '현재 새 클럽 신청을 받지 않습니다.',

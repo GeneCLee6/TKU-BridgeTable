@@ -7,7 +7,10 @@ import { planRestore, type Backup } from '../../worker/backup.ts'
 import { ClubRegistryCache } from '../../worker/clubs.ts'
 import { ClubError } from '../../worker/errors.ts'
 import type { MailMessage } from '../../worker/mail.ts'
-import { CLUB_APPLICATIONS_PER_ADDRESS, PlatformService, requirePlatformOwner, type ClubDirectory } from '../../worker/platform.ts'
+import { CLUB_APPLICATIONS_PER_ADDRESS, PlatformService, requireApplyClub, requirePlatformOwner, type ClubDirectory } from '../../worker/platform.ts'
+import { notificationLink } from '../../shared/notification-link.ts'
+import { PUSH_GROUPS } from '../../shared/push.ts'
+import { pushMessage } from '../../shared/push-texts.ts'
 import { RegistrationLimit } from '../../worker/register-limit.ts'
 import { route, type Routes } from '../../worker/routing.ts'
 import { ClubService, type Connections } from '../../worker/service.ts'
@@ -238,6 +241,43 @@ describe('applying for a club (e12-t06)', () => {
     })
     expect(await code(failing.apply({ ...good, clubId: 'other' }, ''))).toBe('no error')
   })
+
+  it('tells the platform owner in 淡江’s bell, leading to the back office; nobody without an owner', async () => {
+    const tku = clubs.get('tku')!.club
+    const told = newPlatform({ notifyOwner: (params) => tku.notifications.notify('owner1', 'clubApplication', params) })
+    await told.apply(good, '1.2.3.4')
+    const { items, unread } = await tku.notifications.view('owner1')
+    expect(unread).toBe(1)
+    expect(items[0]).toMatchObject({ kind: 'clubApplication', params: { clubId: 'ntu', name: '臺大橋藝社' } })
+    expect(notificationLink(items[0])).toBe('/platform')
+    expect(pushMessage(items[0], 'zh').body).toBe('有新的建社申請：「臺大橋藝社」，到平台後台審核')
+    // The owner's own push group, shown to them alone ("My account")
+    expect(PUSH_GROUPS.platform).toEqual(['clubApplication'])
+    // A refused application tells nobody
+    expect(await code(told.apply({ ...good, clubId: 'ntu' }, '1.2.3.4'))).toBe('clubIdTaken')
+    expect((await tku.notifications.view('owner1')).items).toHaveLength(1)
+    // No owner (PLATFORM_OWNER unset): no notification at all, and the application stands when telling fails
+    expect(await code(platform.apply({ ...good, clubId: 'nccu' }, ''))).toBe('no error')
+    expect((await tku.notifications.view('owner1')).items).toHaveLength(1)
+    const failing = newPlatform({
+      notifyOwner: async () => {
+        throw new Error('store failed')
+      },
+    })
+    expect(await code(failing.apply({ ...good, clubId: 'nthu' }, ''))).toBe('no error')
+  })
+
+  it('is 淡江’s alone: another club’s object refuses it', () => {
+    expect(() => requireApplyClub('tku')).not.toThrow()
+    try {
+      requireApplyClub('ntu')
+      expect.unreachable()
+    } catch (error) {
+      expect(error).toBeInstanceOf(ClubError)
+      expect((error as ClubError).code).toBe('clubApplyElsewhere')
+      expect((error as ClubError).status).toBe(404)
+    }
+  })
 })
 
 describe('the back office (e12-t05)', () => {
@@ -401,6 +441,13 @@ describe('the registry the Worker routes by', () => {
     // The app itself still loads, to show the error
     expect((await at('/', 'nccu')).status).toBe(200)
     expect(seen.filter((s) => s.startsWith('nccu'))).toEqual([])
+    // Club applications reach 淡江's object whichever club the page names, even an unknown or suspended one
+    seen.length = 0
+    asked.length = 0
+    for (const club of ['ntu', 'nccu', 'nobody', undefined]) expect((await at('/api/clubs/apply', club)).status).toBe(200)
+    expect((await at('/api/clubs/apply?club=ntu')).status).toBe(200)
+    expect(seen).toEqual(['tku', 'tku', 'tku', 'tku', 'tku'])
+    expect(asked).toEqual([])
   })
 })
 

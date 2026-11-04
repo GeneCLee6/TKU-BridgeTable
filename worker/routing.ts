@@ -1,5 +1,5 @@
 import { CLUB_HEADER, CLUB_IDS, CLUB_PARAM, DEFAULT_CLUB_ID, requestClubId } from '../shared/clubs.ts'
-import type { ClubStatus } from '../shared/platform.ts'
+import { CLUB_APPLY_API, type ClubStatus } from '../shared/platform.ts'
 import { formatMessage, type MessageCode } from '../shared/messages.ts'
 import type { GuestTable, PublicLobby, PublicTable } from '../shared/public-lobby.ts'
 import { parseHistoryQuery, type HistoryQuery } from '../shared/history-query.ts'
@@ -74,6 +74,13 @@ const EDGE_HISTORY = new Set(['/api/history', '/api/history/search', '/api/histo
 export async function route(request: Request, routes: Routes): Promise<Response> {
   const url = new URL(request.url)
   const { pathname } = url
+  // Club applications (e12-t06) always reach 淡江's object, which keeps the platform's registry,
+  // whichever club the page was opened in (even one that does not exist or is suspended)
+  if (pathname === CLUB_APPLY_API) {
+    const headers = new Headers(request.headers)
+    headers.delete(CLUB_HEADER)
+    return routes.club(DEFAULT_CLUB_ID).fetch(new Request(request, { headers }))
+  }
   // Another club's home-screen app (`/c/<id>/manifest.webmanifest`): the club is in the path
   const manifestOf = manifestClub(pathname)
   if (manifestOf !== null && request.method === 'GET') return clubManifestAnswer(manifestOf, url, routes)

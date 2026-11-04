@@ -178,7 +178,7 @@ export function PushCard() {
       toast.success(p.saved)
     })
 
-  const groups = PUSH_GROUP_NAMES.filter((g) => (g === 'admin' ? user.admin : g === 'friends' ? friendsOn : g === 'tournaments' ? tournamentsOn || user.admin : true))
+  const groups = PUSH_GROUP_NAMES.filter((g) => (g === 'admin' ? user.admin : g === 'platform' ? !!user.platformOwner : g === 'friends' ? friendsOn : g === 'tournaments' ? tournamentsOn || user.admin : true))
   const hint = support === 'homeScreen' ? p.iosHint : support === 'unsupported' ? p.unsupported : support === 'denied' ? p.denied : ''
 
   return (
