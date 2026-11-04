@@ -1,5 +1,6 @@
 import {
   Award,
+  Building2,
   Check,
   ChevronDown,
   Flag,
@@ -369,6 +370,13 @@ export function AppHeader() {
               <Shield size={18} aria-hidden />
               <span>{t.navAdmin}</span>
               {!!user.applications && <Count aria-hidden>{user.applications}</Count>}
+            </Link>
+          )}
+          {/* The platform's back office (e12-t05): its owner only, and the server checks again */}
+          {user.platformOwner && (
+            <Link to="/platform" title={t.platform.link} aria-label={t.platform.link}>
+              <Building2 size={18} aria-hidden />
+              <span>{t.platform.link}</span>
             </Link>
           )}
         </Nav>

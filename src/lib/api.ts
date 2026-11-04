@@ -64,6 +64,7 @@ export type MatchPlayAction =
   | { action: 'next' }
 import type { FeaturedBoard, FeaturedInput } from '../../shared/featured.ts'
 import type { FeatureFlag, FeatureState, FeatureView } from '../../shared/features.ts'
+import type { ClubApplicationInput, ClubApplyOptions, ClubStatus, PlatformView } from '../../shared/platform.ts'
 import type { SessionInfo } from '../../shared/account.ts'
 import type { PushKinds, PushView } from '../../shared/push.ts'
 import type { PracticeSettings, SavedPractice } from '../../shared/practice.ts'
@@ -184,6 +185,20 @@ export const api = {
     unsubscribe: (id: string) => post<PushView>('/api/push/unsubscribe', { id }),
     kinds: (kinds: Partial<PushKinds>) => post<PushView>('/api/push/kinds', { kinds }),
     test: (id?: string) => post<{ devices: number }>('/api/push/test', id ? { id } : {}),
+  },
+  /** Applying for a new club (e12-t06): whether applications are open and Turnstile's key; sending one, no sign-in */
+  clubApply: {
+    options: () => request<ClubApplyOptions>('/api/clubs/apply'),
+    send: (input: ClubApplicationInput) => post<{ id: string; clubId: string }>('/api/clubs/apply', input),
+  },
+  /** The platform owner's back office (e12-t05): every answer is the whole view again */
+  platform: {
+    view: () => request<PlatformView>('/api/platform'),
+    approve: (applicationId: string) => post<PlatformView>(`/api/platform/applications/${encodeURIComponent(applicationId)}/approve`),
+    reject: (applicationId: string, note: string) =>
+      post<PlatformView>(`/api/platform/applications/${encodeURIComponent(applicationId)}/reject`, { note }),
+    setStatus: (clubId: string, status: ClubStatus, note: string) =>
+      post<PlatformView>(`/api/platform/clubs/${encodeURIComponent(clubId)}/status`, { status, note }),
   },
   logout: () => post<{ ok: true }>('/api/logout'),
   changePassword: (current: string, next: string) => post<{ ok: true }>('/api/account/password', { current, next }),

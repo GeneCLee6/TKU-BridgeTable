@@ -59,6 +59,16 @@ type LogEvent =
   | { event: 'replica'; step: 'fill' | 'flush' | 'off'; ok: boolean; error?: string }
   /** A history page the Worker answered from D1 (§5.12), or why it handed the request to the club */
   | { event: 'edge'; path: string; status?: number; ms: number; fallback?: 'notReady' | 'error' | 'revoked' }
+  /**
+   * The platform (e12-t05, e12-t06; worker/platform.ts): an application kept (its wanted club id, never
+   * who), an address over its applications for the hour, a club's object that did not answer for its
+   * usage, a mail to an applicant the provider refused, a club suspended or served again
+   */
+  | { event: 'clubApplied'; clubId: string }
+  | { event: 'clubApplyLimited' }
+  | { event: 'platformUsage'; clubId: string; error: string }
+  | { event: 'clubApplyMail'; ok: boolean; error: string }
+  | { event: 'clubStatus'; status: 'active' | 'suspended' | 'provisioned' }
   /** The daily backup to R2 (worker/backup.ts): what it wrote, or why it failed */
   | { event: 'backup'; ok: boolean; name?: string; keys?: number; rows?: number; bytes?: number; deleted?: number; error?: string }
 

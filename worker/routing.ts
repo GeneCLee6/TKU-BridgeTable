@@ -1,5 +1,6 @@
-import { CLUB_IDS, requestClubId } from '../shared/clubs.ts'
-import { formatMessage } from '../shared/messages.ts'
+import { CLUB_HEADER, CLUB_IDS, CLUB_PARAM, requestClubId } from '../shared/clubs.ts'
+import type { ClubStatus } from '../shared/platform.ts'
+import { formatMessage, type MessageCode } from '../shared/messages.ts'
 import { parseHistoryQuery, type HistoryQuery } from '../shared/history-query.ts'
 import { TABLE_ID_PATTERN, TABLE_SOCKET_PREFIX } from '../shared/protocol.ts'
 import { readCookie, SESSION_COOKIE } from './auth.ts'
@@ -21,6 +22,12 @@ interface Fetches {
 export interface Routes {
   /** The clubs served (shared/clubs.ts `knownClubs`); 淡江 alone when not given */
   clubs?: readonly string[]
+  /**
+   * A club the platform opened (e12-t06, worker/clubs.ts `ClubRegistryCache`), asked only for a
+   * club not in `clubs`: its status, or null when there is none. A suspended club's API and
+   * sockets are answered `clubSuspended` here (its object refuses them too, e12-t05)
+   */
+  findClub?(clubId: string): Promise<ClubStatus | null>
   /** A club's object (shared/clubs.ts); the routing only asks for clubs that exist */
   club(clubId: string): Fetches & {
     /** The member signed in with this session token, or null (one call per table connection, not per message) */
@@ -55,12 +62,22 @@ export async function route(request: Request, routes: Routes): Promise<Response>
   const url = new URL(request.url)
   const { pathname } = url
   // The club the request is for (e12-t02): `X-Club-Id` or `?club=`, none means 淡江
-  const clubId = requestClubId(request, routes.clubs ?? CLUB_IDS)
-  if (clubId === null && (pathname === '/ws' || pathname.startsWith('/api/') || pathname.startsWith(TABLE_SOCKET_PREFIX))) {
-    return unknownClub()
+  let clubId = requestClubId(request, routes.clubs ?? CLUB_IDS)
+  const served = pathname === '/ws' || pathname.startsWith('/api/') || pathname.startsWith(TABLE_SOCKET_PREFIX)
+  // A club the platform opened (e12-t06): the registry says whether it is there and whether suspended
+  let suspended = false
+  if (clubId === null && routes.findClub) {
+    const named = request.headers.get(CLUB_HEADER) ?? url.searchParams.get(CLUB_PARAM) ?? ''
+    const status = await routes.findClub(named)
+    if (status) {
+      clubId = named
+      suspended = status === 'suspended'
+    }
   }
+  if (clubId === null && served) return errorAnswer('unknownClub', 404)
   // The app itself is the same for every club
   if (clubId === null) return routes.assets.fetch(request)
+  if (suspended && served) return errorAnswer('clubSuspended', 403)
   // A socket opened by another site's page is turned away (cross-site WebSocket hijacking, ASVS
   // 13.2; docs/SECURITY.md): browsers always send Origin on a WebSocket, other clients may leave it out
   if ((pathname === '/ws' || pathname.startsWith(TABLE_SOCKET_PREFIX)) && !sameOrigin(request, url)) {
@@ -118,10 +135,10 @@ function sameOrigin(request: Request, url: URL): boolean {
   }
 }
 
-/** The answer for a club no one knows, shaped like the club's own errors */
-function unknownClub(): Response {
-  return new Response(JSON.stringify({ error: formatMessage('unknownClub', 'zh', {}), code: 'unknownClub', params: {} }), {
-    status: 404,
+/** The answer for a club no one knows or one suspended, shaped like the club's own errors */
+function errorAnswer(code: MessageCode, status: number): Response {
+  return new Response(JSON.stringify({ error: formatMessage(code, 'zh', {}), code, params: {} }), {
+    status,
     headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' },
   })
 }

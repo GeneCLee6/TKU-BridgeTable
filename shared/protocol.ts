@@ -75,6 +75,8 @@ export interface Me extends PublicUser {
   permissions: Permission[]
   /** Admins only: registrations waiting for approval */
   applications?: number
+  /** The platform owner (e12-t05, `PLATFORM_OWNER`): only they see the link to the back office at /platform */
+  platformOwner?: boolean
   /** Whether the bell says when a friend comes online (e1-t24); the server always sets it, on unless turned off */
   friendOnlineNotice?: boolean
   /**

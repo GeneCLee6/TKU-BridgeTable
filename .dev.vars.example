@@ -35,3 +35,7 @@ VAPID_SUBJECT=
 # http://localhost:5173/api/auth/line/callback; leave either empty and LINE login is off
 LINE_CHANNEL_ID=
 LINE_CHANNEL_SECRET=
+
+# The platform owner (DEPLOY.md §4.20): the user id of a 淡江 admin with two-step sign-in on
+# (see /api/me); leave empty and there is no back office at /platform and no club applications
+PLATFORM_OWNER=

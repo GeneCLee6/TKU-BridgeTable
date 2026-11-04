@@ -32,9 +32,9 @@
 | [E9](e9-tournaments-rankings.md) | 比賽、積分與錦標賽 | 17／17 | 5／8 | 0 | in-progress |
 | [E10](e10-practice-teaching.md) | 練習與教學 | 6／14 | 3／9 | 6 | in-progress |
 | [E11](e11-platform-ops-scale.md) | 平台、維運、安全與規模 | 31／32 | 6／10 | 8 | in-progress |
-| [E12](e12-commercialization.md) | 多社團與商業化 | 2／19 | 0／9 | 0 | in-progress |
+| [E12](e12-commercialization.md) | 多社團與商業化 | 4／19 | 0／9 | 0 | in-progress |
 | [E13](e13-community-forum.md) | 社群與論壇 | 13／13 | 5／7 | 0 | in-progress |
-| | **合計** | **352／406** | **92／137** | **177** | |
+| | **合計** | **354／406** | **92／137** | **177** | |
 
 里程碑分布：M0 95 個（全部完成）、M1 177 個、M2 97 個、M3 25 個。作廢的 task（刪除線）不計入。
 
