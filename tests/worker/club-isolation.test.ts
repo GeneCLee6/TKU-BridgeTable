@@ -7,6 +7,7 @@ import type { BoardState } from '../../shared/game.ts'
 import { taiwanDayStart } from '../../shared/history-query.ts'
 import type { BoardRecord, ServerMessage } from '../../shared/protocol.ts'
 import { type BackupBucket, listBackups, runBackup } from '../../worker/backup.ts'
+import { hashPassword } from '../../worker/auth.ts'
 import { scopedBucket } from '../../worker/buckets.ts'
 import { clubStub, eventStub, ownClub, tableStub } from '../../worker/clubs.ts'
 import { mintPass, PASS_COOKIE, passCookieName, readPass } from '../../worker/edge-auth.ts'
@@ -90,7 +91,10 @@ describe("a club's tables and events are objects of its own", () => {
     expect((eventStub(e as never, 'ntu', 'pairs', 'p1') as unknown as { name: string }).name).toBe('ntu/pairs:p1')
     expect((clubStub(e as never, 'tku') as unknown as { name: string }).name).toBe('club')
     expect((clubStub(e as never, 'ntu') as unknown as { name: string }).name).toBe('club:ntu')
-    expect(() => clubStub({ ...(e as object), CLUBS: '' } as never, 'ntu')).toThrow(/Unknown club/)
+    // A club the platform opened (e12-t06) is reached by its own name, whatever CLUBS says; its
+    // object decides whether it is open. Nothing that does not look like a club id reaches any object
+    expect((clubStub({ ...(e as object), CLUBS: '' } as never, 'ntu') as unknown as { name: string }).name).toBe('club:ntu')
+    expect(() => clubStub(e as never, 'Not A Club')).toThrow(/Unknown club/)
   })
 
   it('has a table or an event report only to the club its name says', () => {
@@ -107,10 +111,11 @@ describe("a club's tables and events are objects of its own", () => {
       own.stub()
       expect(e.CLUB.names.at(-1)).toBe(club === 'tku' ? 'club' : 'club:ntu')
     }
-    // A club no longer served: its reports fail rather than reach 淡江
+    // A club no longer served: its reports reach only its own object (which turns them away), never 淡江's
     const gone = ownClub(e as never, 'old/abc123')
     expect(gone.clubId).toBe('old')
-    expect(() => gone.stub()).toThrow(/Unknown club/)
+    gone.stub()
+    expect(e.CLUB.names.at(-1)).toBe('club:old')
   })
 })
 
@@ -414,8 +419,10 @@ describe('members, sessions, records, shares, notifications and the rest stay in
     const ntu = await makeClub('ntu')
     // The same name in both clubs: two different accounts
     const gene = await tku.register('gene', 'club-secret-1', '')
-    const other = await ntu.register('gene', 'club-secret-2', '')
-    if (!('token' in gene) || !('token' in other)) throw new Error('the first account should sign in at once')
+    // Another club's first admin comes from the platform's approval (e12-t06), not from registering first
+    await ntu.provisionFounder('gene', await hashPassword('club-secret-2'))
+    const other = await ntu.login('gene', 'club-secret-2', '', '')
+    if (!('token' in gene)) throw new Error('the first account should sign in at once')
     expect(gene.user.clubId).toBe('tku')
     expect(other.user.clubId).toBe('ntu')
     expect(gene.user.id).not.toBe(other.user.id)

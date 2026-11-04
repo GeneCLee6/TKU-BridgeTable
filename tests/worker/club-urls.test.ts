@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { clubOfPath, clubPath } from '../../shared/clubs.ts'
 import type { Notification, ServerMessage } from '../../shared/protocol.ts'
 import { pushMessage, testPushMessage } from '../../shared/push-texts.ts'
-import { sessionCookie } from '../../worker/auth.ts'
+import { hashPassword, sessionCookie } from '../../worker/auth.ts'
 import { PASS_COOKIE, passCookie, passCookieName } from '../../worker/edge-auth.ts'
 import type { MailMessage } from '../../worker/mail.ts'
 import { callbackPath, flowCookie, flowCookieName } from '../../worker/oauth.ts'
@@ -39,7 +39,9 @@ async function makeClub(clubId: string, name: string, extra: { mailer?: { send(m
   const sockets = new Inbox()
   const club = new ClubService(memoryStore(), sockets, { clubId, maxUsers: 10, now: () => NOW, schedule: () => {}, ...extra })
   await club.load()
-  const first = await club.register(name, 'club-secret-1', '')
+  // 淡江's first account signs in at once; another club's first admin comes from the platform's approval (e12-t06)
+  if (clubId !== 'tku') await club.provisionFounder(name, await hashPassword('club-secret-1'))
+  const first = clubId === 'tku' ? await club.register(name, 'club-secret-1', '') : await club.login(name, 'club-secret-1', '', '')
   if (!('token' in first)) throw new Error('the first account should sign in at once')
   sockets.online.add(first.user.id)
   return { club, sockets, user: first.user }
@@ -226,6 +228,16 @@ describe('the Worker answers the cross-club lobby from every club, for a member 
     expect(lobby.tables.map((t) => t.clubId)).toEqual(['tku'])
     const fromTku = (await (await get('/api/public/lobby', 'tku')).json()) as { tables: { clubId: string }[] }
     expect(fromTku.tables.map((t) => t.clubId)).toEqual(['ntu'])
+  })
+
+  it('asks the clubs the platform opened too (the registry), and only those not suspended', async () => {
+    routes.clubs = ['tku']
+    routes.findClub = async (id) => (id === 'ntu' ? 'active' : id === 'cyc' ? 'suspended' : null)
+    routes.openClubs = async () => ['ntu']
+    const lobby = (await (await get('/api/public/lobby', 'tku')).json()) as { tables: { clubId: string }[] }
+    expect(lobby.tables.map((t) => t.clubId)).toEqual(['ntu'])
+    expect(await (await get('/api/public/tables/ntu/t1', 'tku')).json()).toMatchObject({ table: { clubId: 'ntu' } })
+    expect(await (await get('/api/public/tables/cyc/t1', 'tku')).json()).toMatchObject({ code: 'unknownClub' })
   })
 
   it('shows one table of another club, and nothing for the viewer’s own club or a club no one knows', async () => {

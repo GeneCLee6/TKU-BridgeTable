@@ -1,5 +1,6 @@
 import { DurableObject } from 'cloudflare:workers'
-import { clubOfClubObject, clubOfPath, clubPath, clubStoragePrefix, DEFAULT_CLUB_ID } from '../shared/clubs.ts'
+import { clubOfClubObject, clubOfPath, clubPath, clubStoragePrefix, DEFAULT_CLUB_ID, knownClubs } from '../shared/clubs.ts'
+import type { ClubApplyOptions, ClubStatus, ClubUsage } from '../shared/platform.ts'
 import type { GuestTable, PublicTable } from '../shared/public-lobby.ts'
 import { AppError } from '../shared/messages.ts'
 import type { ChallengeSettings } from '../shared/challenge.ts'
@@ -13,7 +14,7 @@ import { TKU } from '../shared/robot/system/tku/index.ts'
 import { bookSync } from '../shared/robot/system/tku/sources.ts'
 import { DEVICE_COOKIE, deviceCookie, randomId, readCookie, sessionCookie, sessionCookieName } from './auth.ts'
 import { deviceLabel } from '../shared/account.ts'
-import { ACCOUNT_PREFIXES, backupAdmin, runBackup } from './backup.ts'
+import { ACCOUNT_PREFIXES, backupAdmin, listBackups, runBackup } from './backup.ts'
 import { scopedBucket } from './buckets.ts'
 import { BookService, IMPORT_LIMITS, importRequestFrom, publicBookResponse } from './book.ts'
 import { readForm, readJson, readText } from './body.ts'
@@ -50,7 +51,10 @@ import { CLIENT_ERROR_MAX_CHARS } from './client-errors.ts'
 import { d1Replica } from './d1.ts'
 import { edgeSecret, mintPass, passCookie, passCookieName, passNeedsRefresh } from './edge-auth.ts'
 import { clubLog, crashEntry, jsonLog, type Logger, sampleActions } from './log.ts'
-import { eventStub, tableStub } from './clubs.ts'
+import { clubStub, eventStub, tableStub } from './clubs.ts'
+import { seenSalt } from './integrity.ts'
+import { CLUB_APPLICATION_WINDOW_MS, CLUB_APPLICATIONS_PER_ADDRESS, PlatformService, requirePlatformOwner, type ClubSetup, type RegistryEntry } from './platform.ts'
+import { RegistrationLimit } from './register-limit.ts'
 import { requireTurnstile, turnstileKeys } from './turnstile.ts'
 import type { TableStats } from './metrics.ts'
 import { type ChallengeRequest, ClubError, ClubService, type Connections, type OAuthOutcome } from './service.ts'
@@ -85,6 +89,12 @@ export interface Env {
    * one to try a second club
    */
   CLUBS?: string
+  /**
+   * The platform owner (e12-t05, DEPLOY.md §4.20): the user id of the one 淡江 account that runs the
+   * platform's back office (/platform), with two-step sign-in on. Without it there is no back
+   * office and no club can be applied for
+   */
+  PLATFORM_OWNER?: string
   MAX_USERS?: string
   INVITE_CODE?: string
   /** For TKU BridgeBook's AI import (wrangler secret put ANTHROPIC_API_KEY) */
@@ -175,6 +185,21 @@ const FILE_CORS = {
   'Access-Control-Max-Age': '86400',
 }
 
+/**
+ * A club's own record of itself (e12-t05, e12-t06), at `meta:club` in its object: written when the
+ * platform owner approves it, changed when they suspend it or serve it again. 淡江 has none (it is
+ * always served). Not in the backup (`meta:`), so restoring one never changes a suspension
+ */
+interface ClubRecord {
+  id: string
+  name: string
+  organisation: string
+  contactEmail: string
+  status: ClubStatus
+  approvedAt: number
+}
+const CLUB_RECORD_KEY = 'meta:club'
+
 /** The import upload comes straight from TKU BridgeBook's page; its single-use pass is the check */
 const IMPORT_CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -249,6 +274,10 @@ export class Club extends DurableObject<Env> implements Connections {
   private readonly clubId: string
   /** Every log line says the club (e12-t03) */
   private readonly log: Logger
+  /** The club's own record (e12-t05): undefined for 淡江 and for a club never opened */
+  private record: ClubRecord | undefined
+  /** Club applications per address (e12-t06), used in 淡江's object only */
+  private readonly applyLimit: RegistrationLimit
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env)
@@ -309,6 +338,14 @@ export class Club extends DurableObject<Env> implements Connections {
         this.forum.forgetUnpublished(userId)
         await this.files.forget(userId, (key) => this.forum.imagesInUse([key], 'all').size > 0)
       },
+      // The platform owner (e12-t05): 淡江's account named by PLATFORM_OWNER
+      ...(clubId === DEFAULT_CLUB_ID && env.PLATFORM_OWNER && { platformOwnerId: env.PLATFORM_OWNER }),
+    })
+    this.applyLimit = new RegistrationLimit(store, Date.now, seenSalt(env.SEEN_SALT), {
+      key: 'meta:clubApplications',
+      label: 'clubApply',
+      max: CLUB_APPLICATIONS_PER_ADDRESS,
+      windowMs: CLUB_APPLICATION_WINDOW_MS,
     })
     this.edgeSecret = edgeSecret(env)
     this.book = new BookService(store)
@@ -373,6 +410,7 @@ export class Club extends DurableObject<Env> implements Connections {
     // one quickly; the runtime answers without waking the object
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair('ping', 'pong'))
     ctx.blockConcurrencyWhile(async () => {
+      if (clubId !== DEFAULT_CLUB_ID) this.record = await storage.get<ClubRecord>(CLUB_RECORD_KEY)
       await this.service.load()
       // Jobs are not stored: the scheduled posts wait for their times again (e13-t12)
       this.forumSchedule.load()
@@ -405,20 +443,118 @@ export class Club extends DurableObject<Env> implements Connections {
     }
   }
 
+  // ── The platform (e12-t05, e12-t06; worker/platform.ts) ─────────────────────────────────────
+
+  /**
+   * Why this club answers nothing, or null when it is served: 淡江 always is; another club once the
+   * platform opened it (its `meta:club`) or while the `CLUBS` override names it, and not while
+   * suspended. Checked by every request and socket, whatever the Worker's copy of the registry says
+   */
+  private closedBecause(): ClubError | null {
+    if (this.clubId === DEFAULT_CLUB_ID) return null
+    if (this.record) return this.record.status === 'suspended' ? new ClubError('clubSuspended', {}, 403) : null
+    return knownClubs(this.env.CLUBS).includes(this.clubId) ? null : new ClubError('unknownClub', {}, 404)
+  }
+
+  /** A table's or an event's report to a club never opened is turned away (it offers it again later) */
+  private requireOpened() {
+    if (this.closedBecause()?.code === 'unknownClub') throw new Error(`Club ${this.clubId} is not open`)
+  }
+
+  /** The platform's logic, in 淡江's object; made per use, so it always writes to the current audit trail */
+  private platform(): PlatformService {
+    if (this.clubId !== DEFAULT_CLUB_ID) throw new ClubError('noSuchApi', {}, 404)
+    return new PlatformService(this.store, {
+      now: Date.now,
+      newId: () => randomId(8),
+      audit: this.book.auditTrail,
+      limit: this.applyLimit,
+      mailer: mailerFrom(this.env),
+      extraClubs: knownClubs(this.env.CLUBS),
+      log: this.log,
+      clubs: {
+        provision: (id, setup) => clubStub(this.env, id).platformProvision(setup),
+        setStatus: (id, status) => clubStub(this.env, id).platformSetStatus(status),
+        // 淡江's own from here: an object never calls itself
+        usage: (id) => (id === this.clubId ? this.platformUsage() : clubStub(this.env, id).platformUsage()),
+      },
+    })
+  }
+
+  /** The clubs the platform opened, for the Worker's routing and the daily backup (淡江's object only) */
+  async platformRegistry(): Promise<RegistryEntry[]> {
+    return this.platform().registry()
+  }
+
+  /** Opens this club with its first admin (the owner approved it); again changes nothing */
+  async platformProvision(setup: ClubSetup): Promise<void> {
+    if (this.clubId === DEFAULT_CLUB_ID) throw new Error('淡江 is never provisioned')
+    await this.service.provisionFounder(setup.username, setup.passwordHash)
+    if (this.record) return
+    const record: ClubRecord = {
+      id: this.clubId,
+      name: setup.name,
+      organisation: setup.organisation,
+      contactEmail: setup.contactEmail,
+      status: 'active',
+      approvedAt: setup.approvedAt,
+    }
+    await this.ctx.storage.put(CLUB_RECORD_KEY, record)
+    this.record = record
+    this.log({ event: 'clubStatus', status: 'provisioned' })
+  }
+
+  /** Suspends this club (every session ends, every socket closes, nothing is deleted) or serves it again */
+  async platformSetStatus(status: ClubStatus): Promise<void> {
+    if (this.clubId === DEFAULT_CLUB_ID || !this.record) throw new Error(`Club ${this.clubId} has no record`)
+    const record: ClubRecord = { ...this.record, status }
+    await this.ctx.storage.put(CLUB_RECORD_KEY, record)
+    this.record = record
+    if (status === 'suspended') await this.service.endEverySession()
+    this.log({ event: 'clubStatus', status })
+  }
+
+  /** This club's size for the back office: counts from its own storage, R2 and D1 (rough) */
+  async platformUsage(): Promise<ClubUsage> {
+    const bucket = this.backups()
+    const backupBytes = bucket ? (await listBackups(bucket)).reduce((n, b) => n + b.size, 0) : null
+    let historyRows: number | null = null
+    if (this.env.HISTORY) {
+      try {
+        const [rows] = await d1Replica(this.env.HISTORY).batch([
+          { sql: 'SELECT COUNT(*) AS n FROM boards_index WHERE club_id = ?', params: [this.clubId] },
+        ])
+        historyRows = Number(rows?.[0]?.n ?? 0)
+      } catch {
+        // No copy yet (a new database): nothing to count
+      }
+    }
+    return {
+      ...this.service.platformCounts(),
+      storageBytes: this.ctx.storage.sql.databaseSize,
+      filesBytes: (await this.files.usage()).bytes,
+      backupBytes,
+      historyRows,
+    }
+  }
+
   // ── What the tables and the Worker ask over RPC (ARCHITECTURE.md §5.10) ────────────────────
 
   /** A table's lobby entry changed (`ClubLink.changed`) */
   async tableChanged(entry: TableEntry) {
+    this.requireOpened()
     await this.service.link.changed(entry)
   }
 
   /** A table closed (`ClubLink.closed`) */
   async tableClosed(tableId: string) {
+    this.requireOpened()
     await this.service.link.closed(tableId)
   }
 
   /** A table finished a board (`ClubLink.boardFinished`); a failure makes the table offer it again */
   async tableBoardFinished(record: BoardRecord, event: EventReport | null, stats?: TableStats) {
+    this.requireOpened()
     await this.service.link.boardFinished(record, event, stats)
   }
 
@@ -434,21 +570,26 @@ export class Club extends DurableObject<Env> implements Connections {
 
   /** A challenge in its own object changed on its own (`EventLink.changed`, H2b); a failure makes it tell again */
   async eventChanged(snapshot: EventSnapshot) {
+    this.requireOpened()
     await this.service.eventLink.changed(snapshot)
   }
 
   /** A team match in its own object tells a change again (`EventLink.matchChanged`, H2c); a failure makes it tell again */
   async matchChanged(snapshot: MatchSnapshot) {
+    this.requireOpened()
     await this.service.eventLink.matchChanged(snapshot)
   }
 
   /** A pairs event in its own object tells a change again (`EventLink.pairsChanged`, §5.22) */
   async pairsChanged(snapshot: PairsSnapshot) {
+    this.requireOpened()
     await this.service.pairs.changed(snapshot)
   }
 
   /** Whose session this is, for a table's connection: the Worker asks once per connection */
   async socketUser(token: string | null): Promise<string | null> {
+    // A suspended club (or one never opened) lets nobody connect (e12-t05)
+    if (this.closedBecause()) return null
     return (await this.service.userForToken(token))?.id ?? null
   }
 
@@ -461,10 +602,16 @@ export class Club extends DurableObject<Env> implements Connections {
     return this.service.publicViewer(userId)
   }
   async publicTables(): Promise<PublicTable[]> {
-    return this.service.publicTables()
+    return this.service.publicTables().map((table) => this.named(table))
   }
   async guestTable(tableId: string): Promise<GuestTable | null> {
-    return this.service.guestTable(tableId)
+    const table = await this.service.guestTable(tableId)
+    return table && this.named(table)
+  }
+  /** The name the platform opened the club with (its `meta:club`, e12-t06), else shared/clubs.ts's */
+  private named<T extends { clubName: string }>(table: T): T {
+    const name = this.record?.name
+    return name ? { ...table, clubName: name } : table
   }
 
   onlineUserIds(): string[] {
@@ -497,6 +644,9 @@ export class Club extends DurableObject<Env> implements Connections {
     let response: Response
     let code: string | undefined
     try {
+      // A club never opened or suspended answers nothing else (e12-t05, e12-t06)
+      const closed = this.closedBecause()
+      if (closed) throw closed
       response = await this.route(request, url)
     } catch (error) {
       code = error instanceof AppError ? error.code : 'serverError'
@@ -748,6 +898,25 @@ export class Club extends DurableObject<Env> implements Connections {
     return new Response(null, { status: 101, webSocket: client })
   }
 
+  /** `/api/platform/*` (e12-t05): the clubs and their usage, the applications, suspending */
+  private async platformApi(request: Request, url: URL, user: Me, body: () => Promise<Body>) {
+    const owner = requirePlatformOwner(user, this.env.PLATFORM_OWNER, this.clubId)
+    const platform = this.platform()
+    const route = `${request.method} ${url.pathname}`
+    if (route === 'GET /api/platform') return json(await platform.view())
+    const decision = /^POST \/api\/platform\/applications\/([\w-]+)\/(approve|reject)$/.exec(route)
+    if (decision) {
+      if (decision[2] === 'approve') return json(await platform.approve(owner, decision[1], url.origin))
+      return json(await platform.reject(owner, decision[1], (await body()).note))
+    }
+    const status = /^POST \/api\/platform\/clubs\/([\w-]+)\/status$/.exec(route)
+    if (status) {
+      const b = await body()
+      return json(await platform.setStatus(owner, status[1], b.status, b.note))
+    }
+    throw new ClubError('noSuchApi', {}, 404)
+  }
+
   private async api(request: Request, url: URL, token: string | null) {
     const secure = url.protocol === 'https:'
     const route = `${request.method} ${url.pathname}`
@@ -859,6 +1028,20 @@ export class Club extends DurableObject<Env> implements Connections {
       return this.files.serve(decodeURIComponent(url.pathname.slice(FILES_PATH.length)), url)
     }
 
+    // Applying for a new club (e12-t06): 淡江's object only, no sign-in, open once the platform has an owner
+    if (url.pathname === '/api/clubs/apply' && this.clubId === DEFAULT_CLUB_ID) {
+      const open = !!this.env.PLATFORM_OWNER
+      const turnstile = turnstileKeys(this.env)
+      if (request.method === 'GET') return json({ open, turnstileSiteKey: turnstile?.siteKey ?? null } satisfies ClubApplyOptions)
+      if (request.method === 'POST') {
+        if (!open) throw new ClubError('clubApplyClosed', {}, 403)
+        const b = await body()
+        const address = request.headers.get('CF-Connecting-IP') ?? ''
+        if (turnstile) await requireTurnstile(turnstile.secret, text(b.turnstileToken), address, this.log)
+        return json(await this.platform().apply(b, address), 202)
+      }
+    }
+
     // The owner's two-step sign-in reset (DEPLOY.md §4.15): only with TWO_FACTOR_RESET_TOKEN, which
     // exists only while the owner has set it with wrangler; without it (or with a wrong one) the route
     // is answered as if it were not there
@@ -919,6 +1102,8 @@ export class Club extends DurableObject<Env> implements Connections {
       return json(ebookRead.id ? await this.ebooks.get(reader, ebookRead.id) : await this.ebooks.list(reader))
     }
     if (route === 'GET /api/me') return json({ user })
+    // The platform's back office (e12-t05): the owner only; for anyone else (and on any club but 淡江) there is none
+    if (url.pathname === '/api/platform' || url.pathname.startsWith('/api/platform/')) return this.platformApi(request, url, user, body)
     if (url.pathname.startsWith('/api/book/')) return this.bookApi(request, url, user, body)
     if (url.pathname.startsWith('/api/club/')) return this.clubApi(request, url, user, body)
     if (url.pathname.startsWith('/api/forum/')) return this.forumApi(request, url, user, body)

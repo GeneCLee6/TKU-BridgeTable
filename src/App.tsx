@@ -11,6 +11,7 @@ import { BoardPage } from './pages/BoardPage.tsx'
 import { ChallengeBoardPage } from './pages/ChallengeBoardPage.tsx'
 import { ChallengePage } from './pages/ChallengePage.tsx'
 import { ChallengesPage } from './pages/ChallengesPage.tsx'
+import { ClubApplyPage } from './pages/ClubApplyPage.tsx'
 import { ChallengeStatsPage } from './pages/ChallengeStatsPage.tsx'
 import { DailyPage } from './pages/DailyPage.tsx'
 import { PairsEventPage, PairsListPage } from './pages/PairsPages.tsx'
@@ -32,6 +33,7 @@ import { MatchesPage } from './pages/MatchesPage.tsx'
 import { MatchPage } from './pages/MatchPage.tsx'
 import { MatchReplayPage } from './pages/MatchReplayPage.tsx'
 import { VugraphPage } from './pages/VugraphPage.tsx'
+import { PlatformPage } from './pages/PlatformPage.tsx'
 import { ProfilePage } from './pages/ProfilePage.tsx'
 import { GuestTablePage, PublicLobbyPage } from './pages/PublicLobbyPage.tsx'
 import { SharedBoardPage } from './pages/SharedBoardPage.tsx'
@@ -111,6 +113,8 @@ function Routed() {
   if (pathname === '/privacy' || pathname === '/terms') return <LegalPage kind={pathname === '/privacy' ? 'privacy' : 'terms'} />
   // The email links (e1-t29, e1-t30) work signed in or not, on any device
   if (pathname === '/email/verify' || pathname === '/email/reset') return <EmailLinkPage kind={pathname === '/email/verify' ? 'verify' : 'reset'} />
+  // Applying for a club of one's own (e12-t06) is for anyone, signed in or not
+  if (pathname === '/clubs/apply') return <ClubApplyPage />
   // A board's public link (e4-t38) is for anyone, signed in or not
   if (pathname.startsWith('/share/'))
     return (
@@ -161,6 +165,7 @@ function Routed() {
         <Route path="/account" element={<AccountPage />} />
         <Route path="/members/:userId" element={<ProfilePage />} />
         {user.admin && <Route path="/admin" element={<AdminPage />} />}
+        {user.platformOwner && <Route path="/platform" element={<PlatformPage />} />}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
       <ServerErrorToast />
