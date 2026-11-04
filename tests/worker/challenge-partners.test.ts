@@ -212,6 +212,52 @@ describe('creating a partner challenge (e7-t28)', () => {
   })
 })
 
+describe('blocks between the pairings (e7-t28)', () => {
+  const block = (by: string, other: string) => send(ids[by], { type: 'setBlocked', userId: ids[other], blocked: true })
+  const create = (invitees: string[]) =>
+    club
+      .challengeRequest(ids.amy, { type: 'createChallenge', invitees: invitees.map((n) => ids[n]), boards: 2, settings: { partners: true } })
+      .then(
+        () => null,
+        (error: { code: string; params: unknown }) => ({ code: error.code, params: error.params }),
+      )
+
+  it('refuses partners or opposing pairs where either blocked the other, naming the two but not who blocked', async () => {
+    await block('dan', 'cat')
+    const within = { code: 'challengePairBlocked', params: { a: 'cat', b: 'dan' } }
+    // The same answer whichever way the block goes, in the order the creator invited them
+    expect(await create(['ben', 'cat', 'dan'])).toEqual(within)
+    expect(await create(['ben', 'dan', 'cat'])).toEqual({ code: 'challengePairBlocked', params: { a: 'dan', b: 'cat' } })
+    await send(ids.dan, { type: 'setBlocked', userId: ids.cat, blocked: false })
+    // Across the pairs, the creator's partner included
+    await block('eve', 'ben')
+    expect(await create(['ben', 'cat', 'dan', 'eve', 'fay'])).toEqual({ code: 'challengePairBlocked', params: { a: 'ben', b: 'eve' } })
+    await send(ids.eve, { type: 'setBlocked', userId: ids.ben, blocked: false })
+    await block('cat', 'fay')
+    expect(await create(['ben', 'cat', 'dan', 'eve', 'fay'])).toEqual({ code: 'challengePairBlocked', params: { a: 'cat', b: 'fay' } })
+    // Without them the challenge is made
+    expect(await create(['ben', 'cat', 'dan'])).toBeNull()
+  })
+
+  it('does not let a member accept once a block came between them and someone still in it', async () => {
+    const id = await partnerChallenge([['cat', 'dan'], ['eve', 'fay']], {}, false)
+    await block('ben', 'dan')
+    const answer = (name: string, accept: boolean) =>
+      club.challengeRequest(ids[name], { type: 'answerChallenge', challengeId: id, accept }).then(
+        () => null,
+        (error: { code: string; params: unknown }) => ({ code: error.code, params: error.params }),
+      )
+    // Both sides hear the same, with no names
+    expect(await answer('ben', true)).toEqual({ code: 'challengeAcceptBlocked', params: {} })
+    expect(await answer('dan', true)).toEqual({ code: 'challengeAcceptBlocked', params: {} })
+    // cat has nothing to do with it; declining stays open to anyone
+    expect(await answer('cat', true)).toBeNull()
+    expect(await answer('dan', false)).toBeNull()
+    // dan's pair is out, so ben may accept now and play against eve and fay
+    expect(await answer('ben', true)).toBeNull()
+  })
+})
+
 describe('answers (e7-t28)', () => {
   it('turns active once an opposing partnership both accepted', async () => {
     const id = await partnerChallenge([['cat', 'dan']], {}, false)

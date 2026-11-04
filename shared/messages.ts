@@ -1464,6 +1464,22 @@ export const MESSAGES = {
     ja: 'このチャレンジのボードはすべてプレイしました',
     ko: '이 도전의 보드를 모두 플레이했습니다',
   },
+  challengePairBlocked: {
+    zh: '{a} 和 {b} 不能排在一起，請換一個組合',
+    'zh-Hans': '{a} 和 {b} 不能排在一起，请换一个组合',
+    en: '{a} and {b} cannot be put together: please choose other pairings',
+    vi: '{a} và {b} không thể xếp chung: hãy chọn cách ghép khác',
+    ja: '{a} さんと {b} さんは一緒に組めません。別の組み合わせにしてください',
+    ko: '{a} 님과 {b} 님은 함께 배정할 수 없습니다. 다른 조합을 선택하세요',
+  },
+  challengeAcceptBlocked: {
+    zh: '這場挑戰的組合已經不能成立，無法接受',
+    'zh-Hans': '这场挑战的组合已经不能成立，无法接受',
+    en: 'This challenge can no longer go ahead with these pairings, so you cannot accept it',
+    vi: 'Thử thách này không còn diễn ra được với cách ghép hiện tại nên bạn không thể nhận',
+    ja: 'このチャレンジは今の組み合わせでは成立しないため、受けられません',
+    ko: '이 도전은 현재 조합으로는 진행할 수 없어 수락할 수 없습니다',
+  },
   challengePartnerWaiting: {
     zh: '搭檔還沒接受挑戰，兩人都接受才能開打',
     'zh-Hans': '搭档还没接受挑战，两人都接受才能开打',

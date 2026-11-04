@@ -2687,8 +2687,8 @@ export class ClubService {
 
   /**
    * After a backup with the accounts was restored (worker/backup.ts): members, applications and
-   * pictures are read again from storage. A member the backup does not have goes the way a deleted
-   * member goes (tables, challenges, friends, notifications), and since sessions are not backed up
+   * pictures are read again from storage, and so are the friends and blocks. A member the backup
+   * does not have goes the way a deleted member goes (tables, challenges, friends, notifications), and since sessions are not backed up
    * every session is ended and every socket closed, so everyone signs in again against the
    * restored accounts and nobody keeps a page that shows the old ones.
    */
@@ -2703,6 +2703,21 @@ export class ClubService {
     this.applications.clear()
     for (const application of (await this.store.list<StoredApplication>('app:')).values())
       this.applications.set(application.id, application)
+    // Friends and blocks are in the backup too (from 2026-11-04); one before that leaves them as they are
+    const member = (id: string) => this.users.has(id)
+    await this.friends.reload(member)
+    await this.blocks.reload(member)
+    // A table keeps its people's blocks for its chat and who may join (`setBlocked` does the same)
+    for (const id of this.users.keys()) {
+      const entry = this.entryOf(id)
+      if (entry)
+        try {
+          await this.tables.get(entry.id).blocked(id, this.blocks.of(id))
+        } catch (error) {
+          // The restore is done either way; the table hears again when they next change a block
+          this.log(crashEntry('restoreBlocks', error))
+        }
+    }
     await this.revokePasses(await this.sessions.endEveryone())
     for (const id of this.connections.onlineUserIds()) this.connections.disconnect(id)
     this.broadcast()
@@ -3621,6 +3636,7 @@ export class ClubService {
       // Whether they blocked the creator stays private: the creator only hears they cannot be invited
       if (this.blocks.has(other, userId)) throw new ClubError('cannotInvite', { name }, 403)
     }
+    if (partners) this.checkPairings(invitees as string[])
     const parsed = parseChallengeSettings(wanted, invitees.length)
     if ('field' in parsed) throw new ClubError('badChallengeSettings', { field: parsed.field })
     let settings = parsed.settings
@@ -3665,6 +3681,21 @@ export class ClubService {
     for (const id of invitees as string[])
       await this.notifications.notify(id, 'challengeInvited', { challengeId: challenge.id, username })
     return challenge.id
+  }
+
+  /**
+   * A partner challenge's invitees (`e7-t28`) are partners or compete pair against pair, so no two
+   * of them may be members where either blocked the other (社長, 2026-11-04). The creator hears
+   * which two, in the order they invited them, never who blocked whom (`challengePairBlocked`);
+   * the creator against each invitee is checked by the caller as for any challenge
+   */
+  private checkPairings(invitees: string[]) {
+    for (let i = 0; i < invitees.length; i++)
+      for (let j = i + 1; j < invitees.length; j++) {
+        const [a, b] = [invitees[i], invitees[j]]
+        if (this.blocks.has(a, b) || this.blocks.has(b, a))
+          throw new ClubError('challengePairBlocked', { a: this.users.get(a)!.username, b: this.users.get(b)!.username })
+      }
   }
 
   /**
@@ -4040,6 +4071,12 @@ export class ClubService {
   private async answerChallenge(userId: string, challengeId: unknown, accept: unknown) {
     if (typeof accept !== 'boolean') throw new ClubError('unknownCommand')
     const challenge = this.requireChallenge(challengeId)
+    // A block made since the partner challenge was created (`e7-t28`): with anyone still in it, the
+    // member cannot accept, and does not hear with whom or which way (`challengeAcceptBlocked`)
+    if (accept && challenge.settings.partners)
+      for (const p of challenge.players)
+        if (p.userId !== userId && p.status !== 'declined' && (this.blocks.has(userId, p.userId) || this.blocks.has(p.userId, userId)))
+          throw new ClubError('challengeAcceptBlocked', {}, 403)
     this.applySnapshot(await this.eventFor(challenge.id).answer(userId, accept))
     // A partner challenge (`e7-t28`): one member saying no declines the partnership; the partner hears why
     const after = this.challenges.get(challenge.id)
