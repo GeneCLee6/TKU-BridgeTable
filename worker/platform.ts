@@ -103,6 +103,14 @@ export function requirePlatformOwner(me: Me | null, ownerId: string | undefined,
   return me
 }
 
+/**
+ * Applications are 淡江's alone (the registry is in its object): another club's object refuses
+ * them, though the Worker never sends them there (worker/routing.ts)
+ */
+export function requireApplyClub(clubId: string): void {
+  if (clubId !== DEFAULT_CLUB_ID) throw new ClubError('clubApplyElsewhere', {}, 404)
+}
+
 export interface PlatformConfig {
   now: () => number
   newId: () => string
@@ -115,6 +123,11 @@ export interface PlatformConfig {
   mailer?: Mailer
   /** Clubs served without the registry (the `CLUBS` override): their ids cannot be applied for */
   extraClubs?: readonly string[]
+  /**
+   * Tells the platform owner of a new application (the `clubApplication` notification in 淡江's
+   * bell, and so their push): only when `PLATFORM_OWNER` is set
+   */
+  notifyOwner?: (params: { clubId: string; name: string }) => Promise<unknown>
   log?: Logger
 }
 
@@ -200,6 +213,7 @@ export class PlatformService {
     await this.config.limit.count(from)
     await this.store.put(`${APPLY_KEY}${application.id}`, application)
     this.log({ event: 'clubApplied', clubId })
+    await this.tellOwner(clubId, name)
     await this.mail(application, 'mailClubAppliedSubject', 'mailClubAppliedBody', { id: clubId, username })
     return { id: application.id, clubId }
   }
@@ -343,6 +357,16 @@ export class PlatformService {
 
   private async audit(owner: Me, action: AuditAction, target: string, note?: string) {
     await this.config.audit.record({ by: owner.username, action, target, ...(note && { note }) })
+  }
+
+  /** The owner hears of a new application (e12-t06); a failure is only logged, the application stands */
+  private async tellOwner(clubId: string, name: string) {
+    if (!this.config.notifyOwner) return
+    try {
+      await this.config.notifyOwner({ clubId, name })
+    } catch (error) {
+      this.log({ event: 'clubApplyNotify', ok: false, error: error instanceof Error ? error.message : String(error) })
+    }
   }
 
   /** Mail to the applicant; without a mailer nothing is sent, and a failure is only logged */

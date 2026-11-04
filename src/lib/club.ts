@@ -1,4 +1,5 @@
 import { CLUB_HEADER, CLUB_PARAM, CLUB_PATH_PREFIX, clubOfPath, clubPath, DEFAULT_CLUB_ID } from '../../shared/clubs.ts'
+import { CLUB_APPLY_PAGE } from '../../shared/platform.ts'
 
 /**
  * Which club these pages are for (e12-t04, ARCHITECTURE.md §1): 淡江's at the site's own addresses
@@ -27,12 +28,16 @@ export function clubBase(): string {
 }
 
 /**
- * `/c/tku/…` is 淡江 at the plain address (社長 2026-11-04): the address to go to instead, or null
- * when the page is already where it should be
+ * `/c/tku/…` is 淡江 at the plain address (社長 2026-11-04), and so is the club application page
+ * under any club's address (`/c/<id>/clubs/apply`, e12-t06: applications go to the platform, which
+ * is 淡江's): the address to go to instead, or null when the page is already where it should be
  */
 export function plainAddress(pathname: string, search = '', hash = ''): string | null {
   const named = clubOfPath(pathname)
-  return named?.clubId === DEFAULT_CLUB_ID ? `${named.rest}${search}${hash}` : null
+  if (!named) return null
+  if (named.clubId === DEFAULT_CLUB_ID) return `${named.rest}${search}${hash}`
+  if (named.rest.replace(/\/+$/, '') === CLUB_APPLY_PAGE) return `${CLUB_APPLY_PAGE}${search}${hash}`
+  return null
 }
 
 /** A page of this club as a full path, for links outside the router (a share link, an `href`) */

@@ -25,6 +25,9 @@ export function notificationLink(n: Notification, options: { forum?: boolean } =
     case 'application':
     case 'passwordResetRequested':
       return '/admin'
+    // A new club application (e12-t06), to the platform owner: the back office, where it is decided
+    case 'clubApplication':
+      return '/platform'
     case 'friendOnline':
       return '/'
     case 'challengeInvited':

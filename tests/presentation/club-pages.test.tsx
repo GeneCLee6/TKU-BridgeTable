@@ -57,6 +57,14 @@ describe('the club of the page (src/lib/club.ts)', () => {
     expect(plainAddress('/table/abc')).toBeNull()
   })
 
+  it('sends the club application page under any club to 淡江’s, where the platform takes it (e12-t06)', () => {
+    expect(plainAddress('/c/ntu/clubs/apply')).toBe('/clubs/apply')
+    expect(plainAddress('/c/ntu/clubs/apply/', '?x=1', '#y')).toBe('/clubs/apply?x=1#y')
+    expect(plainAddress('/c/nobody/clubs/apply')).toBe('/clubs/apply')
+    expect(plainAddress('/c/ntu/clubs')).toBeNull()
+    expect(plainAddress('/clubs/apply')).toBeNull()
+  })
+
   it('names the club on every API call', async () => {
     const fetch = vi.fn(async () => new Response('{}'))
     vi.stubGlobal('fetch', fetch)

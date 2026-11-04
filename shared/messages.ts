@@ -381,6 +381,14 @@ export const MESSAGES = {
     ja: '現在、新しいクラブの申請は受け付けていません',
     ko: '현재 새 클럽 신청을 받지 않습니다',
   },
+  clubApplyElsewhere: {
+    zh: '開設社團的申請要從淡江牌桌的「申請開設社團」頁面送出',
+    'zh-Hans': '开设社团的申请要从淡江牌桌的「申请开设社团」页面送出',
+    en: 'Club applications are sent from TKU BridgeTable’s “Apply for a club” page',
+    vi: 'Đơn mở câu lạc bộ phải gửi từ trang “Đăng ký mở câu lạc bộ” của TKU BridgeTable',
+    ja: 'クラブの開設申請は TKU BridgeTable の「クラブの開設申請」ページから送ってください',
+    ko: '클럽 개설 신청은 TKU BridgeTable의 「클럽 개설 신청」 페이지에서 보내세요',
+  },
   noSuchClubApplication: {
     zh: '找不到這份社團申請',
     'zh-Hans': '找不到这份社团申请',
