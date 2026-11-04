@@ -112,3 +112,52 @@ export function clubOfClubObject(name: string | undefined): string {
 export function clubStoragePrefix(clubId: string): string {
   return clubId === DEFAULT_CLUB_ID ? '' : `clubs/${clubId}/`
 }
+
+// ── Club addresses and sign-in scope (e12-t04) ─────────────────────────────────────────────────
+
+/** Where another club's pages are: `/c/<id>/…`; 淡江's stay where they always were */
+export const CLUB_PATH_PREFIX = '/c/'
+
+/**
+ * A page's address in a club: the path as it is for 淡江, `/c/<id>` before it for any other club
+ * (`/` becomes `/c/<id>/`). Addresses on another site (`https://…`) are left alone
+ */
+export function clubPath(clubId: string, path: string): string {
+  if (clubId === DEFAULT_CLUB_ID || /^[a-z][a-z0-9+.-]*:/i.test(path)) return path
+  const rest = path.startsWith('/') ? path : `/${path}`
+  return `${CLUB_PATH_PREFIX}${clubId}${rest}`
+}
+
+/**
+ * The club a page's path names (`/c/<id>/…`), and the path inside it; null for a path without one
+ * (淡江's pages, and anything that only looks like a club). `/c/tku/…` names 淡江: the page goes to
+ * the plain address
+ */
+export function clubOfPath(pathname: string): { clubId: string; rest: string } | null {
+  if (!pathname.startsWith(CLUB_PATH_PREFIX)) return null
+  const after = pathname.slice(CLUB_PATH_PREFIX.length)
+  const slash = after.indexOf('/')
+  const clubId = slash === -1 ? after : after.slice(0, slash)
+  if (!CLUB_ID_PATTERN.test(clubId)) return null
+  return { clubId, rest: slash === -1 ? '/' : after.slice(slash) }
+}
+
+/**
+ * A sign-in cookie's name in a club (e12-t04, docs/SECURITY.md): the name as it always was for
+ * 淡江, so nobody there is signed out, and `<name>_<id>` for any other club. Every club's cookies are
+ * on the whole site (`Path=/`), so a member may be signed in to two clubs at once in one browser;
+ * each club reads only its own names, so one club's session never reaches another
+ */
+export function clubCookieName(name: string, clubId: string): string {
+  return clubId === DEFAULT_CLUB_ID ? name : `${name}_${clubId}`
+}
+
+/**
+ * The names the clubs are shown by to other clubs (the cross-club lobby, e12-t07); a club without
+ * one here is shown by its id until the platform's registry names it (e12-t05, e12-t06)
+ */
+export const CLUB_NAMES: Readonly<Record<string, string>> = { [DEFAULT_CLUB_ID]: '淡江橋藝社' }
+
+export function clubName(clubId: string): string {
+  return Object.hasOwn(CLUB_NAMES, clubId) ? CLUB_NAMES[clubId] : clubId
+}

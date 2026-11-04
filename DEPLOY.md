@@ -714,7 +714,16 @@ LINE Developers 主控台只有英文與日文介面，下面用英文介面的�
 
 ### 試第二個社團（只在 staging）
 
-Worker 變數 `CLUBS`（逗號分隔的社團 id，小寫英數與 `-`）讓 Worker 多服務幾個社團：請求帶 `X-Club-Id: <id>`（WebSocket 用 `?club=<id>`）就到那個社團自己的物件。**正式站不要設**：新社團的第一個註冊者直接成為管理員（同淡江剛開站），平台審核（`e12-t05`、`e12-t06`）做好之前沒有人管得住；牌桌前端也還不會帶社團（社團網址是 `e12-t04`）。要在 staging 試，在 `wrangler.jsonc` 的 `env.staging.vars` 加 `"CLUBS": "demo"`，用 API（例如瀏覽器 Console 的 `fetch('/api/register', { headers: { 'X-Club-Id': 'demo', … } })`）註冊與操作。其他社團的 R2 檔案與備份在 `clubs/<id>/` 底下；`INVITE_CODE`、Google／LINE 登入只給淡江。
+Worker 變數 `CLUBS`（逗號分隔的社團 id，小寫英數與 `-`）讓 Worker 多服務幾個社團：請求帶 `X-Club-Id: <id>`（WebSocket 用 `?club=<id>`）就到那個社團自己的物件。**正式站不要設**：新社團的第一個註冊者直接成為管理員（同淡江剛開站），平台審核（`e12-t05`、`e12-t06`）做好之前沒有人管得住。要在 staging 試，在 `wrangler.jsonc` 的 `env.staging.vars` 加 `"CLUBS": "demo"`，打開 `https://<staging>/c/demo/` 就是那個社團的牌桌（`e12-t04`，見下一節）。其他社團的 R2 檔案與備份在 `clubs/<id>/` 底下；`INVITE_CODE`、Google／LINE 登入只給淡江。
+
+### 社團網址、登入範圍與跨社團大廳（`e12-t04`、`e12-t07`，2026-11-04）
+
+規則見 `ARCHITECTURE.md` §1「社團網址與登入範圍」「跨社團大廳」、`docs/SECURITY.md`「社團與 cookie」。**淡江什麼都不變**：網址、cookie 名稱（`tbt_session`、`tbt_pass`、`tbt_google`、`tbt_line`、`tbt_device`）、信件與推播的連結、Google／LINE 的回呼網址都跟以前一樣，部署後沒有人被登出；`/c/tku/…` 會換成原本的網址。
+
+- **其他社團**的網址是 `/c/<id>/…`，cookie 是 `tbt_session_<id>`、`tbt_pass_<id>`，同一個瀏覽器可以同時登入淡江與那個社團。
+- **跨社團大廳**預設關：社團的管理員在管理頁「功能旗標」把「跨社團大廳」（`publicLobby`）打開才加入；有旗標的社員在頁首「其他社團」看別的社團開放的牌桌（只能觀看），也能把自己的公開桌設成「開放其他社團觀看」。只有一個社團時這頁是空的。
+- **給其他社團開 Google／LINE 登入**（目前沒有，只給淡江）：那個社團的回呼網址是 `https://<網域>/api/auth/google/callback?club=<id>`（LINE 同樣加 `?club=<id>`），要先加到 Google Cloud 的「已授權的重新導向 URI」與 LINE Developers 的 Callback URL（§4.16、§4.18），再改 `worker/club.ts` 建構子裡只給淡江的 `google`／`line`。提供者若不接受帶 query 的回呼網址，要改成每個社團一條路徑，屆時再決定。
+- **平台經營者的權杖** `BOOK_SEED_TOKEN`、`BOOK_EXPORT_TOKEN`、`TWO_FACTOR_RESET_TOKEN` 維持全站一套，只給能操作 Cloudflare 帳號的人（社長），對請求所指的社團有效（`X-Club-Id`，沒帶是淡江）；不要交給其他社團的管理員。
 
 ## 5. 費用與限制
 

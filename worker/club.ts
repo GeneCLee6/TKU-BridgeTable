@@ -1,5 +1,6 @@
 import { DurableObject } from 'cloudflare:workers'
-import { clubOfClubObject, clubStoragePrefix, DEFAULT_CLUB_ID } from '../shared/clubs.ts'
+import { clubOfClubObject, clubOfPath, clubPath, clubStoragePrefix, DEFAULT_CLUB_ID } from '../shared/clubs.ts'
+import type { GuestTable, PublicTable } from '../shared/public-lobby.ts'
 import { AppError } from '../shared/messages.ts'
 import type { ChallengeSettings } from '../shared/challenge.ts'
 import { parseHistoryQuery } from '../shared/history-query.ts'
@@ -10,7 +11,7 @@ import type { BoardRecord, Me, RegisterOptions, ServerMessage, SystemSpecStatus 
 import type { BookNotes } from '../shared/robot/system/book-spec.ts'
 import { TKU } from '../shared/robot/system/tku/index.ts'
 import { bookSync } from '../shared/robot/system/tku/sources.ts'
-import { DEVICE_COOKIE, deviceCookie, randomId, readCookie, SESSION_COOKIE, sessionCookie } from './auth.ts'
+import { DEVICE_COOKIE, deviceCookie, randomId, readCookie, sessionCookie, sessionCookieName } from './auth.ts'
 import { deviceLabel } from '../shared/account.ts'
 import { ACCOUNT_PREFIXES, backupAdmin, runBackup } from './backup.ts'
 import { scopedBucket } from './buckets.ts'
@@ -47,7 +48,7 @@ import { LearningStore } from './learning.ts'
 import { ReadingStore } from './reading.ts'
 import { CLIENT_ERROR_MAX_CHARS } from './client-errors.ts'
 import { d1Replica } from './d1.ts'
-import { edgeSecret, mintPass, PASS_COOKIE, passCookie, passNeedsRefresh } from './edge-auth.ts'
+import { edgeSecret, mintPass, passCookie, passCookieName, passNeedsRefresh } from './edge-auth.ts'
 import { clubLog, crashEntry, jsonLog, type Logger, sampleActions } from './log.ts'
 import { eventStub, tableStub } from './clubs.ts'
 import { requireTurnstile, turnstileKeys } from './turnstile.ts'
@@ -451,6 +452,21 @@ export class Club extends DurableObject<Env> implements Connections {
     return (await this.service.userForToken(token))?.id ?? null
   }
 
+  /**
+   * The cross-club lobby (e12-t07, ARCHITECTURE.md §1「跨社團大廳」), asked over RPC by the Worker
+   * only (`worker/routing.ts`; a browser never reaches a Durable Object): whether this club's member
+   * may use it, this club's tables shown to other clubs, and one of them as a guest watches it
+   */
+  async publicViewer(userId: string): Promise<boolean> {
+    return this.service.publicViewer(userId)
+  }
+  async publicTables(): Promise<PublicTable[]> {
+    return this.service.publicTables()
+  }
+  async guestTable(tableId: string): Promise<GuestTable | null> {
+    return this.service.guestTable(tableId)
+  }
+
   onlineUserIds(): string[] {
     const ids = this.ctx
       .getWebSockets()
@@ -499,7 +515,7 @@ export class Club extends DurableObject<Env> implements Connections {
   private deviceId(request: Request, url: URL, response: Response) {
     if (url.pathname !== '/api/me' || !response.ok) return
     const cookies = request.headers.get('Cookie')
-    if (!readCookie(cookies, SESSION_COOKIE) || validDevice(readCookie(cookies, DEVICE_COOKIE))) return
+    if (!readCookie(cookies, sessionCookieName(this.clubId)) || validDevice(readCookie(cookies, DEVICE_COOKIE))) return
     try {
       response.headers.append('Set-Cookie', deviceCookie(randomId(12), url.protocol === 'https:'))
     } catch {
@@ -533,15 +549,15 @@ export class Club extends DurableObject<Env> implements Connections {
     if (!secret || !url.pathname.startsWith('/api/') || url.pathname === '/api/book/import') return
     if (response.headers.has('Set-Cookie') || response.headers.get('Cache-Control') !== 'no-store') return
     const cookies = request.headers.get('Cookie')
-    const token = readCookie(cookies, SESSION_COOKIE)
-    const pass = readCookie(cookies, PASS_COOKIE)
+    const token = readCookie(cookies, sessionCookieName(this.clubId))
+    const pass = readCookie(cookies, passCookieName(this.clubId))
     if (!token && !pass) return
     try {
       if (!(await passNeedsRefresh(secret, pass, Date.now(), this.clubId))) return
       const who = await this.service.passIdentity(token)
       const secure = url.protocol === 'https:'
-      if (who) response.headers.append('Set-Cookie', passCookie(await mintPass(secret, who.userId, who.sessionId, Date.now(), this.clubId), secure))
-      else if (pass) response.headers.append('Set-Cookie', passCookie('', secure))
+      if (who) response.headers.append('Set-Cookie', passCookie(await mintPass(secret, who.userId, who.sessionId, Date.now(), this.clubId), secure, this.clubId))
+      else if (pass) response.headers.append('Set-Cookie', passCookie('', secure, this.clubId))
     } catch (error) {
       // An answer whose headers cannot change (none of ours): the Worker asks the club instead
       this.log(crashEntry('edgePass', error))
@@ -550,10 +566,23 @@ export class Club extends DurableObject<Env> implements Connections {
 
   /** The cookies of a sign-in: the session, and its first edge pass when passes are on */
   private async signedIn(token: string, userId: string, secure: boolean): Promise<string[]> {
-    const cookies = [sessionCookie(token, secure)]
+    const cookies = [sessionCookie(token, secure, this.clubId)]
     const who = this.edgeSecret ? await this.service.passIdentity(token) : null
-    if (who?.userId === userId) cookies.push(passCookie(await mintPass(this.edgeSecret!, userId, who.sessionId, Date.now(), this.clubId), secure))
+    if (who?.userId === userId) cookies.push(passCookie(await mintPass(this.edgeSecret!, userId, who.sessionId, Date.now(), this.clubId), secure, this.clubId))
     return cookies
+  }
+
+  /** A provider's flow cookie in this club (e12-t04): each club's flow is its own */
+  private readonly flowCookie = (name: OAuthName, id: string, secure: boolean, maxAgeMs?: number) =>
+    flowCookie(name, id, secure, maxAgeMs, this.clubId)
+
+  /**
+   * Where a flow started on this site goes back to (e12-t04): a page of this club, whatever path
+   * the page sent; 淡江橋館's paths are its own and stay as they are
+   */
+  private inClub(site: 'table' | 'book', path: string): string {
+    if (site === 'book' || this.clubId === DEFAULT_CLUB_ID) return path
+    return clubOfPath(path)?.clubId === this.clubId ? path : clubPath(this.clubId, path)
   }
 
   /**
@@ -565,7 +594,8 @@ export class Club extends DurableObject<Env> implements Connections {
    */
   private async oauthApi(name: OAuthName, request: Request, url: URL, route: string, token: string | null, body: () => Promise<Body>) {
     const secure = url.protocol === 'https:'
-    const flowId = readCookie(request.headers.get('Cookie'), flowCookieName(name))
+    const flowId = readCookie(request.headers.get('Cookie'), flowCookieName(name, this.clubId))
+    const flowCookie = this.flowCookie
     const base = `/api/auth/${name}`
     if (route === `GET ${base}`) return json(this.service.oauthStatus(name))
     if (route === `POST ${base}/start`) {
@@ -575,14 +605,14 @@ export class Club extends DurableObject<Env> implements Connections {
       const address = request.headers.get('CF-Connecting-IP') ?? ''
       const { url: to, flowId: id } = await this.service.startOAuth(
         name,
-        `${site.origin}${callbackPath(name)}`,
+        `${site.origin}${callbackPath(name, this.clubId)}`,
         site.site,
-        safeReturn(b.returnTo),
+        this.inClub(site.site, safeReturn(b.returnTo)),
         address,
       )
       return json({ url: to }, 200, flowCookie(name, id, secure))
     }
-    if (route === `GET ${callbackPath(name)}`) {
+    if (route === `GET ${base}/callback`) {
       const params = url.searchParams
       const query = { state: params.get('state') ?? '', code: params.get('code') ?? '', error: params.get('error') ?? '' }
       const sessionUser = (await this.service.userForToken(token))?.id ?? null
@@ -618,8 +648,11 @@ export class Club extends DurableObject<Env> implements Connections {
    * learns what happened from `?<provider>=code|apply|linked|error&code=…`
    */
   private async oauthRedirect(name: OAuthName, request: Request, outcome: OAuthOutcome, secure: boolean): Promise<Response> {
-    // 淡江牌桌 shows its sign-in page on any path when signed out; 淡江橋館's is /login
-    const signIn = outcome.site === 'book' ? '/login' : '/'
+    // 淡江牌桌 shows its sign-in page on any path when signed out (another club's at its own
+    // address, e12-t04); 淡江橋館's is /login
+    const table = (path: string) => (outcome.site === 'book' ? path : clubPath(this.clubId, path))
+    const signIn = outcome.site === 'book' ? '/login' : table('/')
+    const flowCookie = this.flowCookie
     const headers = new Headers({ 'Cache-Control': 'no-store' })
     let location: string
     let cookies: string[]
@@ -639,11 +672,11 @@ export class Club extends DurableObject<Env> implements Connections {
         cookies = [flowCookie(name, outcome.flowId, secure, OAUTH_APPLY_MS)]
         break
       case 'linked':
-        location = `/account?${name}=linked`
+        location = table(`/account?${name}=linked`)
         cookies = [flowCookie(name, '', secure)]
         break
       default:
-        location = `${outcome.link ? '/account' : signIn}?${name}=error&code=${outcome.code}`
+        location = `${outcome.link ? table('/account') : signIn}?${name}=error&code=${outcome.code}`
         cookies = [flowCookie(name, '', secure)]
     }
     headers.set('Location', location)
@@ -652,7 +685,7 @@ export class Club extends DurableObject<Env> implements Connections {
   }
 
   private async route(request: Request, url: URL): Promise<Response> {
-    const token = readCookie(request.headers.get('Cookie'), SESSION_COOKIE)
+    const token = readCookie(request.headers.get('Cookie'), sessionCookieName(this.clubId))
     if (url.pathname === '/api/book/import') return this.importUpload(request)
     if (url.pathname.startsWith(`${FILES_PATH}upload/`)) return this.fileUpload(request, url)
     if (url.pathname === '/ws') return this.upgrade(request, token)
@@ -750,7 +783,7 @@ export class Club extends DurableObject<Env> implements Connections {
       // Applying with Google or LINE (e1-t31, e1-t32): `google: true` or `line: true` uses the flow the
       // callback left in this browser's cookie
       const via: OAuthName | undefined = b.google === true ? 'google' : b.line === true ? 'line' : undefined
-      const oauth = via && { name: via, flow: readCookie(request.headers.get('Cookie'), flowCookieName(via)) }
+      const oauth = via && { name: via, flow: readCookie(request.headers.get('Cookie'), flowCookieName(via, this.clubId)) }
       const result = await this.service.register(
         text(b.username),
         text(b.password),
@@ -761,7 +794,7 @@ export class Club extends DurableObject<Env> implements Connections {
         address,
         { oauth, displayName: b.displayName },
       )
-      const cleared = via ? [flowCookie(via, '', secure)] : []
+      const cleared = via ? [this.flowCookie(via, '', secure)] : []
       if ('pending' in result) return json(result, 202, ...cleared)
       const device = await this.sighting(request, result.user.id, secure, true)
       return json({ user: result.user }, 200, ...(await this.signedIn(result.token, result.user.id, secure)), ...device, ...cleared)
@@ -791,7 +824,7 @@ export class Club extends DurableObject<Env> implements Connections {
     }
     if (route === 'POST /api/logout') {
       if (token) await this.service.logout(token)
-      return json({ ok: true }, 200, sessionCookie('', secure), passCookie('', secure))
+      return json({ ok: true }, 200, sessionCookie('', secure, this.clubId), passCookie('', secure, this.clubId))
     }
     // 忘記密碼 (e1-t36): ask with the invite code, an admin approves, the code they hand over sets the password
     if (route === 'POST /api/password/reset/request') {
@@ -912,11 +945,11 @@ export class Club extends DurableObject<Env> implements Connections {
       const site = oauthSite(text(b.origin), url)
       if (!site) throw new ClubError(`${name}Off`, {}, 403)
       const address = request.headers.get('CF-Connecting-IP') ?? ''
-      const { url: to, flowId } = await this.service.startOAuth(name, `${site.origin}${callbackPath(name)}`, site.site, '/account', address, {
+      const { url: to, flowId } = await this.service.startOAuth(name, `${site.origin}${callbackPath(name, this.clubId)}`, site.site, this.inClub(site.site, '/account'), address, {
         userId: user.id,
         password: text(b.password),
       })
-      return json({ url: to }, 200, flowCookie(name, flowId, secure))
+      return json({ url: to }, 200, this.flowCookie(name, flowId, secure))
     }
     // Push notifications (e1-t28, worker/push.ts): this member's devices and choices; off without the VAPID secrets
     if (url.pathname.startsWith('/api/push')) {
@@ -963,7 +996,7 @@ export class Club extends DurableObject<Env> implements Connections {
     }
     if (route === 'POST /api/account/delete') {
       await this.service.deleteOwnAccount(user.id, text((await body()).password))
-      return json({ ok: true }, 200, sessionCookie('', secure), passCookie('', secure))
+      return json({ ok: true }, 200, sessionCookie('', secure, this.clubId), passCookie('', secure, this.clubId))
     }
     if (route === 'POST /api/account/preferences') {
       const b = await body()

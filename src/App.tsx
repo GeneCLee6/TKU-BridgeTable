@@ -3,7 +3,7 @@ import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import styled from 'styled-components'
 import { AppHeader } from './components/AppHeader.tsx'
 import { TOAST_TIMEOUT, ToastProvider, useToast } from './components/Toast.tsx'
-import { PageMain } from './components/ui.tsx'
+import { Muted, PageMain } from './components/ui.tsx'
 import { useClubSounds } from './lib/sound/hooks.ts'
 import { AccountPage } from './pages/AccountPage.tsx'
 import { AdminPage } from './pages/AdminPage.tsx'
@@ -33,6 +33,7 @@ import { MatchPage } from './pages/MatchPage.tsx'
 import { MatchReplayPage } from './pages/MatchReplayPage.tsx'
 import { VugraphPage } from './pages/VugraphPage.tsx'
 import { ProfilePage } from './pages/ProfilePage.tsx'
+import { GuestTablePage, PublicLobbyPage } from './pages/PublicLobbyPage.tsx'
 import { SharedBoardPage } from './pages/SharedBoardPage.tsx'
 import { TablePage } from './pages/TablePage.tsx'
 import { AuthProvider, useAuth, useFeature } from './state/AuthContext.tsx'
@@ -80,8 +81,21 @@ function ConnectionBanner() {
   return status !== 'open' && lobby !== null ? <Banner role="status">{t.reconnecting}</Banner> : null
 }
 
+/** A `/c/<id>/` address of a club the site does not have (e12-t04) */
+function MissingClub() {
+  const { t } = usePreferences()
+  return (
+    <PageMain>
+      <Muted role="alert">{t.clubs.missing}</Muted>
+      <p>
+        <a href="/">{t.clubs.toHome}</a>
+      </p>
+    </PageMain>
+  )
+}
+
 function Routed() {
-  const { user } = useAuth()
+  const { user, missingClub } = useAuth()
   const { t } = usePreferences()
   const { pathname } = useLocation()
   // The forum's pages only for members who have the flag (E13 K1, shared/features.ts)
@@ -90,6 +104,9 @@ function Routed() {
   const pairsOn = useFeature('pairs')
   const rankingsOn = useFeature('rankings')
   const tournamentsOn = useFeature('tournaments')
+  // The cross-club lobby (e12-t07) behind its flag
+  const publicLobbyOn = useFeature('publicLobby')
+  if (missingClub) return <MissingClub />
   // The privacy policy and the terms are for anyone, signed in or not (e11-t27)
   if (pathname === '/privacy' || pathname === '/terms') return <LegalPage kind={pathname === '/privacy' ? 'privacy' : 'terms'} />
   // The email links (e1-t29, e1-t30) work signed in or not, on any device
@@ -139,6 +156,8 @@ function Routed() {
         {forumOn && <Route path="/forum/p/:postId" element={<ForumPostPage />} />}
         {forumOn && <Route path="/forum/p/:postId/edit" element={<ForumEditPostPage />} />}
         {forumOn && <Route path="/forum/:boardId" element={<ForumBoardPage />} />}
+        {publicLobbyOn && <Route path="/clubs" element={<PublicLobbyPage />} />}
+        {publicLobbyOn && <Route path="/clubs/:clubId/:tableId" element={<GuestTablePage />} />}
         <Route path="/account" element={<AccountPage />} />
         <Route path="/members/:userId" element={<ProfilePage />} />
         {user.admin && <Route path="/admin" element={<AdminPage />} />}

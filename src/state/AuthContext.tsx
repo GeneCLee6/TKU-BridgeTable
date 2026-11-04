@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { FEATURE_DEFAULTS, type FeatureFlag } from '../../shared/features.ts'
 import type { Me, RegisterResult } from '../../shared/protocol.ts'
-import { api, type OAuthApplication } from '../lib/api.ts'
+import { api, ApiError, type OAuthApplication } from '../lib/api.ts'
 import { forgetPushOnSignOut } from '../lib/push.ts'
 import { resetFavorites } from '../lib/favorites.ts'
 
@@ -22,19 +22,25 @@ interface Auth {
   logout: () => Promise<void>
   /** Reads the account again, e.g. after an admin handled applications */
   refresh: () => Promise<void>
+  /** The page's address names a club the site does not have (`/c/<id>/`, e12-t04) */
+  missingClub: boolean
 }
 
 const AuthContext = createContext<Auth | null>(null)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<Me | null | undefined>(undefined)
+  const [missingClub, setMissingClub] = useState(false)
 
   const refresh = useCallback(
     () =>
       api
         .me()
         .then(({ user }) => setUser(user))
-        .catch(() => setUser(null)),
+        .catch((error: unknown) => {
+          setMissingClub(error instanceof ApiError && error.code === 'unknownClub')
+          setUser(null)
+        }),
     [],
   )
 
@@ -64,7 +70,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null)
   }, [])
 
-  const value = useMemo(() => ({ user, login, register, logout, refresh }), [user, login, register, logout, refresh])
+  const value = useMemo(
+    () => ({ user, login, register, logout, refresh, missingClub }),
+    [user, login, register, logout, refresh, missingClub],
+  )
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
 

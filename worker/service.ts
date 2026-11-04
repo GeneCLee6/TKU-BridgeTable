@@ -1,6 +1,7 @@
 import { secureRandomInt, type RandomInt } from '../shared/board.ts'
 import { isSeat, SEATS, type Seat } from '../shared/cards.ts'
-import { DEFAULT_CLUB_ID } from '../shared/clubs.ts'
+import { clubName, clubPath, DEFAULT_CLUB_ID } from '../shared/clubs.ts'
+import { openToOtherClubs, type GuestTable, type PublicTable } from '../shared/public-lobby.ts'
 import { AppError, type MessageCode, type MessageParams } from '../shared/messages.ts'
 import {
   CLUB_PROFILE_ID,
@@ -55,6 +56,7 @@ import {
   type TableAction,
   type TableAccess,
   type TableMode,
+  type TableSettings,
   type TableSummary,
   type SharedTable,
   type HealthStatus,
@@ -273,6 +275,7 @@ import {
   challengeBoardVisible,
   challengeTraveller,
   challengeView,
+  guestSeats,
   liveRequests,
   mayEnter,
   memberProfileView,
@@ -802,6 +805,7 @@ export class ClubService {
       now: this.now,
       online: (userId) => this.connections.onlineUserIds().includes(userId),
       forum: (userId) => this.featureOn('forum', userId),
+      clubId: config.clubId ?? DEFAULT_CLUB_ID,
       defer: config.defer ?? ((task) => void task.catch(() => {})),
       log: (entry) => this.log(entry),
     })
@@ -2288,7 +2292,7 @@ export class ClubService {
     const token = emailToken()
     const message = composeMail(address, mailLang(lang), 'mailVerifySubject', 'mailVerifyBody', {
       username: user.username,
-      link: `${origin}/email/verify#${token}`,
+      link: `${origin}${clubPath(this.clubId, '/email/verify')}#${token}`,
       hours: EMAIL_VERIFY_MS / 3_600_000,
     })
     try {
@@ -2347,7 +2351,7 @@ export class ClubService {
     const token = emailToken()
     const message = composeMail(user.email, mailLang(lang), 'mailResetSubject', 'mailResetBody', {
       username: user.username,
-      link: `${origin}/email/reset#${token}`,
+      link: `${origin}${clubPath(this.clubId, '/email/reset')}#${token}`,
       minutes: EMAIL_RESET_MS / 60_000,
     })
     try {
@@ -2417,9 +2421,14 @@ export class ClubService {
     return user.admin ? [...PERMISSIONS] : PERMISSIONS.filter((p) => user.permissions?.includes(p))
   }
 
+  /** The club this is (shared/clubs.ts): 淡江 unless the config names another */
+  get clubId(): string {
+    return this.config.clubId ?? DEFAULT_CLUB_ID
+  }
+
   private me(user: StoredUser): Me {
     const me: Me = {
-      clubId: this.config.clubId ?? DEFAULT_CLUB_ID,
+      clubId: this.clubId,
       id: user.id,
       username: user.username,
       admin: !!user.admin,
@@ -4859,6 +4868,7 @@ export class ClubService {
   private async createTable(userId: string, wanted?: unknown, invitees?: unknown) {
     const settings = parseTableSettings(wanted)
     if (!settings) throw new ClubError('badTableSettings')
+    this.checkOpenToClubs(userId, settings)
     const invited = this.checkInvitees(userId, invitees)
     this.checkNotInMatch(userId)
     await this.leave(userId)
@@ -5091,6 +5101,11 @@ export class ClubService {
     this.applyResult(entry.id, await this.tables.get(entry.id).leave(userId))
   }
 
+  /** Only a host whose club joined the cross-club lobby (the `publicLobby` flag, e12-t07) opens a table to other clubs */
+  private checkOpenToClubs(userId: string, settings: Partial<TableSettings>) {
+    if (settings.openToClubs && !this.featureOn('publicLobby', userId)) throw new ClubError('publicLobbyOff', {}, 403)
+  }
+
   /** The host changes how the table is run; only the fields sent change, and the invitation list when sent */
   private async updateTableSettings(userId: string, wanted: unknown, invitees?: unknown) {
     const entry = this.entryOf(userId)
@@ -5100,6 +5115,7 @@ export class ClubService {
     if (entry.mode === 'team') throw new ClubError('matchTableFixed')
     const settings = parseTableSettings(wanted)
     if (!settings) throw new ClubError('badTableSettings')
+    this.checkOpenToClubs(userId, settings)
     const invited = this.checkInvitees(userId, invitees)
     const before = new Set(entry.invited)
     const named = invited?.map((id) => ({ id, username: this.users.get(id)!.username }))
@@ -5644,6 +5660,52 @@ export class ClubService {
       if (requests.length) asked.set(entry.id, new Set(requests.map((r) => r.userId)))
     }
     return { online: onlineSet, where, asked, tables: new Map() }
+  }
+
+  // ── The cross-club lobby (e12-t07, ARCHITECTURE.md §1「跨社團大廳」) ─────────────────────────────
+
+  /**
+   * Whether a member may use the cross-club lobby: their club joined it (the `publicLobby` flag, as
+   * the admins set it) and they have it. Asked by the Worker for the viewer's own club
+   */
+  publicViewer(userId: string | null): boolean {
+    return !!userId && this.featureOn('publicLobby', userId)
+  }
+
+  /** A table this club shows to other clubs: open to them (`openToOtherClubs`) by a host who still has the flag */
+  private shownToClubs(entry: TableEntry): boolean {
+    return openToOtherClubs(entry) && this.featureOn('publicLobby', entry.hostId)
+  }
+
+  /** This club's tables in the cross-club lobby (`GET /api/public/lobby`, through the Worker): names only, never ids */
+  publicTables(): PublicTable[] {
+    const online = new Set(this.connections.onlineUserIds())
+    const isOnline = (id: string) => isRobotId(id) || online.has(id)
+    return [...this.directory.values()]
+      .filter((entry) => this.shownToClubs(entry))
+      .sort((a, b) => a.number - b.number)
+      .map((entry) => ({
+        clubId: this.clubId,
+        clubName: clubName(this.clubId),
+        tableId: entry.id,
+        number: entry.number,
+        seats: guestSeats(this.occupants(entry, isOnline)),
+        boardsPlayed: entry.boardsPlayed,
+        playing: entry.playing,
+      }))
+  }
+
+  /** One of them as a guest from another club watches it, or null when it is not shown to other clubs (any more) */
+  async guestTable(tableId: string): Promise<GuestTable | null> {
+    const entry = this.directory.get(tableId)
+    if (!entry || !this.shownToClubs(entry)) return null
+    try {
+      const view = await this.tables.get(tableId).guestView()
+      return view && { clubId: this.clubId, clubName: clubName(this.clubId), ...view }
+    } catch (error) {
+      if (error instanceof ClubError && error.code === 'tableGone') return null
+      throw error
+    }
   }
 
   /** A table as everyone it is listed for sees it in the lobby, once per broadcast */

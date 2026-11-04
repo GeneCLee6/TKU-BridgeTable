@@ -1,5 +1,6 @@
 import {
   Award,
+  Building2,
   Check,
   ChevronDown,
   Flag,
@@ -298,6 +299,8 @@ export function AppHeader() {
   // The rankings' link (J2): members with the flag, and admins, who set the rules first
   const rankingsOn = useFeature('rankings')
   const tournamentsOn = useFeature('tournaments')
+  // The cross-club lobby (e12-t07)
+  const publicLobbyOn = useFeature('publicLobby')
   const { status, notifications, send } = useClub()
   const inviteBanner = useInviteBanner()
   const { mode, sound: soundOn, soundStyle, t, toggleMode, toggleSound } = usePreferences()
@@ -358,6 +361,12 @@ export function AppHeader() {
             <Link to="/forum" aria-label={t.navForum} title={t.navForum}>
               <MessagesSquare size={18} aria-hidden />
               <span>{t.navForum}</span>
+            </Link>
+          )}
+          {publicLobbyOn && (
+            <Link to="/clubs" aria-label={t.clubs.lobbyLink} title={t.clubs.lobbyLink}>
+              <Building2 size={18} aria-hidden />
+              <span>{t.clubs.lobbyLink}</span>
             </Link>
           )}
           {user.admin && (

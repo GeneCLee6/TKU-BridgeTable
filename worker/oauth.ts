@@ -17,6 +17,7 @@
  */
 
 import { BOOK_SITE } from '../shared/book-site.ts'
+import { CLUB_PARAM, clubCookieName, DEFAULT_CLUB_ID } from '../shared/clubs.ts'
 import type { OAuthName } from '../shared/protocol.ts'
 
 export type { OAuthName }
@@ -48,10 +49,16 @@ export interface OAuthProvider {
   identify(claims: Record<string, unknown>, expected: { nonce: string; now: number }): OAuthIdentity | null
 }
 
-/** Where the provider sends the browser back, on whichever site started the flow */
-export const callbackPath = (name: OAuthName) => `/api/auth/${name}/callback`
-/** The cookie that ties a flow to the browser that started it; only `/api/` reads it */
-export const flowCookieName = (name: OAuthName) => `tbt_${name}`
+/**
+ * Where the provider sends the browser back, on whichever site started the flow. The provider's
+ * redirect carries no header, so another club's callback names its club with `?club=<id>`
+ * (e12-t04): that address is the one to register with the provider when the club gets Google or
+ * LINE (only 淡江 has them today, DEPLOY.md §4.16); 淡江's stays as registered
+ */
+export const callbackPath = (name: OAuthName, clubId: string = DEFAULT_CLUB_ID) =>
+  `/api/auth/${name}/callback${clubId === DEFAULT_CLUB_ID ? '' : `?${CLUB_PARAM}=${clubId}`}`
+/** The cookie that ties a flow to the browser that started it; only `/api/` reads it. One per club (`tbt_google_<id>`, e12-t04) */
+export const flowCookieName = (name: OAuthName, clubId: string = DEFAULT_CLUB_ID) => clubCookieName(`tbt_${name}`, clubId)
 
 export const toBase64Url = (bytes: Uint8Array) =>
   btoa(String.fromCharCode(...bytes))
@@ -116,9 +123,9 @@ export function safeReturn(path: unknown): string {
 }
 
 /** A provider's flow cookie, or (with an empty id) the one that clears it */
-export function flowCookie(name: OAuthName, id: string, secure: boolean, maxAgeMs = OAUTH_START_MS): string {
+export function flowCookie(name: OAuthName, id: string, secure: boolean, maxAgeMs = OAUTH_START_MS, clubId: string = DEFAULT_CLUB_ID): string {
   return [
-    `${flowCookieName(name)}=${id}`,
+    `${flowCookieName(name, clubId)}=${id}`,
     'Path=/api/',
     'HttpOnly',
     'SameSite=Lax',

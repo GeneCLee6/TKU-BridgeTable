@@ -13,6 +13,7 @@ import { api, ApiError } from '../lib/api.ts'
 import { leave } from '../lib/leave.ts'
 import { usePreferences, useT } from '../state/PreferencesContext.tsx'
 import { mobile } from '../styles/tokens.ts'
+import { appPath } from '../lib/club.ts'
 
 const Wrap = styled.main`
   display: grid;
@@ -645,9 +646,9 @@ export function LoginPage() {
       <Footnote>{t.sharedAccountHint}</Footnote>
       <Footnote>
         {registering && <>{t.legal.agree} </>}
-        <a href="/privacy">{t.legal.privacyTitle}</a>
+        <a href={appPath('/privacy')}>{t.legal.privacyTitle}</a>
         {' · '}
-        <a href="/terms">{t.legal.termsTitle}</a>
+        <a href={appPath('/terms')}>{t.legal.termsTitle}</a>
       </Footnote>
     </Wrap>
   )

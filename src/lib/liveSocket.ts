@@ -1,4 +1,5 @@
 import type { ServerMessage } from '../../shared/protocol.ts'
+import { withClub } from './club.ts'
 
 /**
  * One live connection to the server (the club's `/ws`, or a table's `/ws/table/<id>`, ARCHITECTURE.md
@@ -49,7 +50,8 @@ export function liveSocket(options: LiveSocketOptions): LiveSocket {
     clearTimeout(retry)
     status('connecting')
     const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const ws = new WebSocket(`${protocol}//${location.host}${options.path}`)
+    // A socket cannot carry headers: another club's names itself with `?club=` (e12-t04)
+    const ws = new WebSocket(`${protocol}//${location.host}${withClub(options.path)}`)
     socket = ws
     ws.onopen = () => {
       attempt = 0

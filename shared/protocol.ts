@@ -261,6 +261,12 @@ export interface TableSettings {
   allowKibitz: boolean
   /** Minutes each board may take, one of BOARD_TIME_LIMITS; 0 is no limit */
   boardMinutes: number
+  /**
+   * Open to other clubs (e12-t07): members of other clubs in the cross-club lobby may watch it
+   * (watching only). Left out (the default) when not; only a casual, public table that allows
+   * kibitzers is ever shown to them (`openToOtherClubs`, shared/public-lobby.ts)
+   */
+  openToClubs?: boolean
 }
 export const DEFAULT_TABLE_SETTINGS: TableSettings = { access: 'public', allowKibitz: true, boardMinutes: 0 }
 /**
@@ -285,7 +291,7 @@ export function tableSettingsFrom(stored: unknown): TableSettings {
   const boardMinutes = (BOARD_TIME_LIMITS as readonly unknown[]).includes(saved.boardMinutes)
     ? (saved.boardMinutes as number)
     : DEFAULT_TABLE_SETTINGS.boardMinutes
-  return { access, allowKibitz, boardMinutes }
+  return { access, allowKibitz, boardMinutes, ...(saved.openToClubs === true && { openToClubs: true }) }
 }
 
 /** Request and hidden tables take their invited members without asking, so the host keeps a list for them */
@@ -313,17 +319,19 @@ export const PARTNER_AWAY_MS = 3 * 60_000
 export function parseTableSettings(value: unknown): Partial<TableSettings> | null {
   if (value === undefined) return {}
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
-  const { access, visibility, allowKibitz, boardMinutes, ...rest } = value as Record<string, unknown>
+  const { access, visibility, allowKibitz, boardMinutes, openToClubs, ...rest } = value as Record<string, unknown>
   if (Object.keys(rest).length) return null
   if (access !== undefined && !TABLE_ACCESS.includes(access as TableAccess)) return null
   if (visibility !== undefined && (access !== undefined || !Object.hasOwn(LEGACY_VISIBILITY, String(visibility)))) return null
   if (allowKibitz !== undefined && typeof allowKibitz !== 'boolean') return null
   if (boardMinutes !== undefined && !(BOARD_TIME_LIMITS as readonly unknown[]).includes(boardMinutes)) return null
+  if (openToClubs !== undefined && typeof openToClubs !== 'boolean') return null
   const wanted = access ?? (visibility === undefined ? undefined : LEGACY_VISIBILITY[String(visibility)])
   return {
     ...(wanted !== undefined && { access: wanted as TableAccess }),
     ...(allowKibitz !== undefined && { allowKibitz }),
     ...(boardMinutes !== undefined && { boardMinutes: boardMinutes as number }),
+    ...(openToClubs !== undefined && { openToClubs }),
   }
 }
 

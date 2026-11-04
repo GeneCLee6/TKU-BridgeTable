@@ -42,6 +42,8 @@ export interface PushOptions {
   online: (userId: string) => boolean
   /** Whether forum links lead to the table's own forum (the `forum` flag), as the bell does */
   forum: (userId: string) => boolean
+  /** The club whose pages the pushes open (e12-t04); 淡江 when left out */
+  clubId?: string
   /** Keeps the object alive until the pushes are out (the Durable Object's `waitUntil`) */
   defer: (task: Promise<unknown>) => void
   log: Logger
@@ -207,7 +209,7 @@ export class PushService {
     this.tested.set(userId, now)
     const record = await this.record(userId)
     const count = record.devices.filter((d) => !deviceId || d.id === deviceId).length
-    if (count) this.add({ userId, message: testPushMessage, urgency: 'normal', ttl: HOUR_S, deviceId })
+    if (count) this.add({ userId, message: (lang) => testPushMessage(lang, this.options.clubId), urgency: 'normal', ttl: HOUR_S, deviceId })
     return count
   }
 
@@ -216,7 +218,7 @@ export class PushService {
     if (!this.options.sender) return
     this.add({
       userId,
-      message: (lang) => pushMessage(n, lang, { forum: this.options.forum(userId) }),
+      message: (lang) => pushMessage(n, lang, { forum: this.options.forum(userId), clubId: this.options.clubId }),
       urgency: URGENT.has(n.kind) ? 'high' : 'normal',
       ttl: SHORT_LIVED.has(n.kind) ? HOUR_S : DAY_S,
       kind: n.kind,

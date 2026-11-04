@@ -9,7 +9,7 @@ import type { BoardRecord, ServerMessage } from '../../shared/protocol.ts'
 import { type BackupBucket, listBackups, runBackup } from '../../worker/backup.ts'
 import { scopedBucket } from '../../worker/buckets.ts'
 import { clubStub, eventStub, ownClub, tableStub } from '../../worker/clubs.ts'
-import { mintPass, PASS_COOKIE, readPass } from '../../worker/edge-auth.ts'
+import { mintPass, PASS_COOKIE, passCookieName, readPass } from '../../worker/edge-auth.ts'
 import { ClubError } from '../../worker/errors.ts'
 import { type FileBucket, FileService } from '../../worker/files.ts'
 import { createHistoryIndex, indexRecord, listQuery } from '../../worker/history-index.ts'
@@ -150,7 +150,7 @@ describe('the routing keeps each club to itself', () => {
   })
 
   it('sends a table socket to its own club’s table, with the club it was checked for', async () => {
-    await route(upgrade('/ws/table/abc123?club=ntu', { Cookie: 'tbt_session=ntu-token' }), routes)
+    await route(upgrade('/ws/table/abc123?club=ntu', { Cookie: 'tbt_session_ntu=ntu-token' }), routes)
     await route(upgrade('/ws/table/abc123', { Cookie: 'tbt_session=tku-token', [TABLE_CLUB_HEADER]: 'ntu' }), routes)
     expect(seen.map((s) => s.to)).toEqual(['table:ntu/abc123', 'table:abc123'])
     expect(seen.map((s) => s.request.headers.get(TABLE_CLUB_HEADER))).toEqual(['ntu', 'tku'])
@@ -159,6 +159,9 @@ describe('the routing keeps each club to itself', () => {
   it('never takes one club’s session for another’s', async () => {
     expect((await route(upgrade('/ws/table/abc123?club=ntu', { Cookie: 'tbt_session=tku-token' }), routes)).status).toBe(401)
     expect((await route(upgrade('/ws/table/abc123', { Cookie: 'tbt_session=ntu-token' }), routes)).status).toBe(401)
+    // Each club reads only its own cookie's name (e12-t04): 淡江's cookie at the other club, and the other club's at 淡江
+    expect((await route(upgrade('/ws/table/abc123', { Cookie: 'tbt_session_ntu=ntu-token' }), routes)).status).toBe(401)
+    expect((await route(upgrade('/ws/table/abc123?club=ntu', { Cookie: 'tbt_session_ntu=tku-token' }), routes)).status).toBe(401)
     expect(seen).toEqual([])
   })
 
@@ -171,7 +174,7 @@ describe('the routing keeps each club to itself', () => {
     // 淡江's pass on a table socket of the other club: no pass, and no session there either
     expect((await route(upgrade('/ws/table/abc123?club=ntu', { Cookie: `${PASS_COOKIE}=${tkuPass}` }), routes)).status).toBe(401)
     const ntuPass = await mintPass(SECRET, 'u1', 'a1', NOW, 'ntu')
-    await route(upgrade('/ws/table/abc123?club=ntu', { Cookie: `${PASS_COOKIE}=${ntuPass}` }), routes)
+    await route(upgrade('/ws/table/abc123?club=ntu', { Cookie: `${passCookieName('ntu')}=${ntuPass}` }), routes)
     expect(seen.map((s) => [s.to, s.request.headers.get(TABLE_USER_HEADER)])).toEqual([['table:ntu/abc123', 'u1']])
   })
 
@@ -186,7 +189,7 @@ describe('the routing keeps each club to itself', () => {
     const page = async (club: string) => {
       const pass = await mintPass(SECRET, 'u1', 'a1', NOW, club)
       const response = await route(
-        new Request('https://example.org/api/history?scope=all', { headers: { 'X-Club-Id': club, Cookie: `${PASS_COOKIE}=${pass}` } }),
+        new Request('https://example.org/api/history?scope=all', { headers: { 'X-Club-Id': club, Cookie: `${passCookieName(club)}=${pass}` } }),
         routes,
       )
       return (await response.json()) as { boards: { id: string; contract: Contract | null }[]; total: number }

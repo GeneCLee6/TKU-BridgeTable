@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import styled from 'styled-components'
 import { avatarUrl } from '../../shared/avatar.ts'
+import { withClub } from '../lib/club.ts'
 import type { PublicUser } from '../../shared/protocol.ts'
 import { avatarInitials, avatarSlot } from '../lib/avatar.ts'
 import { useLobby } from '../state/ClubContext.tsx'
@@ -62,7 +63,8 @@ function lobbyVersion(members: PublicUser[] | undefined, id: string): number | u
 export function Avatar({ id, name, size = 32, avatar }: { id: string; name: string; size?: number; avatar?: number }) {
   const members = useLobby()?.members
   const version = avatar ?? lobbyVersion(members, id)
-  const src = version ? avatarUrl(id, version) : null
+  // An <img> carries no header: another club's picture names its club in the address (e12-t04)
+  const src = version ? withClub(avatarUrl(id, version)) : null
   // The address that failed to load; a new version tries again
   const [failed, setFailed] = useState<string | null>(null)
   return (

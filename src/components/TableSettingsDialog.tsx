@@ -9,6 +9,7 @@ import {
   type TableAccess,
   type TableSettings,
 } from '../../shared/protocol.ts'
+import { useFeature } from '../state/AuthContext.tsx'
 import { useT } from '../state/PreferencesContext.tsx'
 import { Button, Card, Muted } from './ui.tsx'
 import { panelScroll } from '../styles/controls.ts'
@@ -165,6 +166,8 @@ export function TableSettingsDialog({
   const timeId = useId()
   const [settings, setSettings] = useState(initial)
   const [invitees, setInvitees] = useState(invited)
+  // Open to other clubs (the cross-club lobby, e12-t07): only for a host whose club joined it
+  const crossClub = useFeature('publicLobby') && !practice
   const first = useRef<HTMLInputElement>(null)
 
   // Focus once on opening; the table re-renders on every move and must not steal it back
@@ -185,7 +188,9 @@ export function TableSettingsDialog({
         <form
           onSubmit={(event) => {
             event.preventDefault()
-            onSubmit(settings, takesInvitees(settings.access) ? invitees : [])
+            // Without the flag the option is not offered, and a table it had stays open no longer
+            const sent = crossClub || !settings.openToClubs ? settings : { ...settings, openToClubs: false }
+            onSubmit(sent, takesInvitees(sent.access) ? invitees : [])
           }}
         >
           {practice && <Muted>{t.practiceAccessHint}</Muted>}
@@ -234,6 +239,17 @@ export function TableSettingsDialog({
                   <span>{t.allowKibitz}</span>
                   <Muted>{t.allowKibitzHint}</Muted>
                 </Choice>
+                {crossClub && (
+                  <Choice>
+                    <input
+                      type="checkbox"
+                      checked={!!settings.openToClubs}
+                      onChange={(event) => setSettings({ ...settings, openToClubs: event.target.checked })}
+                    />
+                    <span>{t.clubs.openToClubs}</span>
+                    <Muted>{t.clubs.openToClubsHint}</Muted>
+                  </Choice>
+                )}
               </Group>
               <Group>
                 <legend>

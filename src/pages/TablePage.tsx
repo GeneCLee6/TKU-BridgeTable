@@ -1,6 +1,7 @@
 import { ALL_PASS } from '../lib/calls.ts'
+import { pathInClub } from '../lib/club.ts'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { Ban, EyeOff, Gavel, Hand, Layers, List, Lock, Palette, Settings } from 'lucide-react'
+import { Ban, Building2, EyeOff, Gavel, Hand, Layers, List, Lock, Palette, Settings } from 'lucide-react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import styled, { css, keyframes } from 'styled-components'
 import { isVulnerable } from '../../shared/board.ts'
@@ -653,7 +654,7 @@ export function TablePage() {
   // A challenge table is not closed by it: the server keeps it, paused, until playChallenge
   useEffect(
     () => () => {
-      if (!window.location.pathname.startsWith('/table/')) send({ type: 'leaveTable' })
+      if (!pathInClub(window.location.pathname).startsWith('/table/')) send({ type: 'leaveTable' })
     },
     [send],
   )
@@ -1192,6 +1193,10 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
                     <AccessIcon size={15} aria-label={t.accessBadge[table.settings.access]} role="img" />
                   )}
                   {!table.settings.allowKibitz && <EyeOff size={15} aria-label={t.noKibitz} role="img" />}
+                  {/* Members of other clubs may be watching (the cross-club lobby, e12-t07) */}
+                  {table.settings.openToClubs && table.settings.access === 'public' && table.settings.allowKibitz && (
+                    <Building2 size={15} aria-label={t.clubs.openToClubs} role="img" />
+                  )}
                 </>
               )}
               {/* Card faces or text, two or four colours: here at the table, not in the header (社長 #8) */}

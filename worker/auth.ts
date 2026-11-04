@@ -3,6 +3,7 @@
  * and in Node tests. Hashes are stored as `pbkdf2$<iterations>$<salt>$<hash>` (base64), which lets
  * the iteration count change later without breaking existing accounts.
  */
+import { clubCookieName, DEFAULT_CLUB_ID } from '../shared/clubs.ts'
 import { toFullWidth, toHalfWidth } from '../shared/halfwidth.ts'
 
 /**
@@ -108,8 +109,12 @@ export async function hashResetCode(code: string): Promise<string> {
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('')
 }
 
+/** 淡江's session cookie; every other club's is `tbt_session_<id>` (`sessionCookieName`, e12-t04) */
 export const SESSION_COOKIE = 'tbt_session'
 export const SESSION_DAYS = 30
+
+/** The session cookie's name in a club: one club's sign-in never replaces or reaches another's (docs/SECURITY.md) */
+export const sessionCookieName = (clubId: string = DEFAULT_CLUB_ID) => clubCookieName(SESSION_COOKIE, clubId)
 
 export function readCookie(header: string | null, name: string): string | null {
   for (const part of (header ?? '').split(';')) {
@@ -119,10 +124,10 @@ export function readCookie(header: string | null, name: string): string | null {
   return null
 }
 
-export function sessionCookie(token: string, secure: boolean): string {
+export function sessionCookie(token: string, secure: boolean, clubId: string = DEFAULT_CLUB_ID): string {
   const maxAge = token ? SESSION_DAYS * 86_400 : 0
   return [
-    `${SESSION_COOKIE}=${token}`,
+    `${sessionCookieName(clubId)}=${token}`,
     'Path=/',
     'HttpOnly',
     'SameSite=Lax',
@@ -133,7 +138,8 @@ export function sessionCookie(token: string, secure: boolean): string {
 
 /**
  * The browser's own random id (`e11-t25`, the anti-cheating report): set once, kept a year, the
- * same whoever signs in with that browser. It is not a session and signs nobody in; two accounts
+ * same whoever signs in with that browser, in whichever club (e12-t04: one name for every club, so
+ * the platform can later see one browser across clubs, H6b). It is not a session and signs nobody in; two accounts
  * seen with one id were used from one browser. HttpOnly like the session, so a page's script never
  * reads it
  */

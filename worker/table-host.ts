@@ -218,6 +218,9 @@ export class TableHost implements TableRpc {
   vugraph(userId: string) {
     return this.ifTable(null, (table) => table.vugraph(userId))
   }
+  guestView() {
+    return this.ifTable(null, (table) => table.guestView())
+  }
   blocked(userId: string, blocked: string[]) {
     return this.ifTable(undefined, (table) => table.blocked(userId, blocked))
   }

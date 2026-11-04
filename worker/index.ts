@@ -1,3 +1,4 @@
+import type { GuestTable } from '../shared/public-lobby.ts'
 import type { Env } from './club.ts'
 import { clubsOf, clubStub, everyClubStub, tableStub } from './clubs.ts'
 import { d1Replica } from './d1.ts'
@@ -22,7 +23,14 @@ export default {
       // Each club its own object (e12-t02, shared/clubs.ts)
       club: (clubId) => {
         const stub = clubStub(env, clubId)
-        return { fetch: (r) => stub.fetch(r), socketUser: (token) => stub.socketUser(token) }
+        return {
+          fetch: (r) => stub.fetch(r),
+          socketUser: (token) => stub.socketUser(token),
+          // The cross-club lobby (e12-t07): RPC only, never reachable from a browser
+          publicViewer: (userId) => stub.publicViewer(userId),
+          publicTables: () => stub.publicTables(),
+          guestTable: (tableId) => stub.guestTable(tableId) as Promise<GuestTable | null>,
+        }
       },
       // A club's tables are named after it (e12-t03): 淡江's by the table id as before
       table: (clubId, tableId) => {
