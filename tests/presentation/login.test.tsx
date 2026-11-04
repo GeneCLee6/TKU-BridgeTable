@@ -1,6 +1,7 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { setClubFromPath } from '../../src/lib/club.ts'
 import { LoginPage } from '../../src/pages/LoginPage.tsx'
 import { AuthProvider } from '../../src/state/AuthContext.tsx'
 import { PreferencesProvider } from '../../src/state/PreferencesContext.tsx'
@@ -31,6 +32,22 @@ const page = () =>
 afterEach(() => vi.unstubAllGlobals())
 
 describe('LoginPage', () => {
+  it('links to the club application on 淡江’s sign-in page only (e12-t06)', () => {
+    stubApi({})
+    const { unmount } = page()
+    expect(screen.getByText(/想在這裡開你們社團的牌桌/)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: '申請建立社團' })).toHaveAttribute('href', '/clubs/apply')
+    unmount()
+    setClubFromPath('/c/ntu/')
+    try {
+      page()
+      expect(screen.queryByRole('link', { name: '申請建立社團' })).toBeNull()
+      expect(screen.queryByText(/想在這裡開你們社團的牌桌/)).toBeNull()
+    } finally {
+      setClubFromPath('/')
+    }
+  })
+
   it('shows and hides the password', async () => {
     stubApi({})
     page()

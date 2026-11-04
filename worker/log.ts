@@ -68,6 +68,7 @@ type LogEvent =
   | { event: 'clubApplyLimited' }
   | { event: 'platformUsage'; clubId: string; error: string }
   | { event: 'clubApplyMail'; ok: boolean; error: string }
+  | { event: 'clubApplyNotify'; ok: boolean; error: string }
   | { event: 'clubStatus'; status: 'active' | 'suspended' | 'provisioned' }
   /** The daily backup to R2 (worker/backup.ts): what it wrote, or why it failed */
   | { event: 'backup'; ok: boolean; name?: string; keys?: number; rows?: number; bytes?: number; deleted?: number; error?: string }

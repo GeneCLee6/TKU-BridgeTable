@@ -1,6 +1,6 @@
 import { DurableObject } from 'cloudflare:workers'
 import { clubOfClubObject, clubOfPath, clubPath, clubStoragePrefix, DEFAULT_CLUB_ID, knownClubs } from '../shared/clubs.ts'
-import type { ClubApplyOptions, ClubStatus, ClubUsage } from '../shared/platform.ts'
+import { CLUB_APPLY_API, type ClubApplyOptions, type ClubStatus, type ClubUsage } from '../shared/platform.ts'
 import type { GuestTable, PublicTable } from '../shared/public-lobby.ts'
 import { AppError } from '../shared/messages.ts'
 import type { ChallengeSettings } from '../shared/challenge.ts'
@@ -53,7 +53,7 @@ import { edgeSecret, mintPass, passCookie, passCookieName, passNeedsRefresh } fr
 import { clubLog, crashEntry, jsonLog, type Logger, sampleActions } from './log.ts'
 import { clubStub, eventStub, tableStub } from './clubs.ts'
 import { seenSalt } from './integrity.ts'
-import { CLUB_APPLICATION_WINDOW_MS, CLUB_APPLICATIONS_PER_ADDRESS, PlatformService, requirePlatformOwner, type ClubSetup, type RegistryEntry } from './platform.ts'
+import { CLUB_APPLICATION_WINDOW_MS, CLUB_APPLICATIONS_PER_ADDRESS, PlatformService, requireApplyClub, requirePlatformOwner, type ClubSetup, type RegistryEntry } from './platform.ts'
 import { RegistrationLimit } from './register-limit.ts'
 import { requireTurnstile, turnstileKeys } from './turnstile.ts'
 import type { TableStats } from './metrics.ts'
@@ -472,6 +472,10 @@ export class Club extends DurableObject<Env> implements Connections {
       mailer: mailerFrom(this.env),
       extraClubs: knownClubs(this.env.CLUBS),
       log: this.log,
+      // The owner's bell (and push) hears of each new application; no owner, no notification
+      ...(this.env.PLATFORM_OWNER && {
+        notifyOwner: (params: { clubId: string; name: string }) => this.service.notifications.notify(this.env.PLATFORM_OWNER!, 'clubApplication', params),
+      }),
       clubs: {
         provision: (id, setup) => clubStub(this.env, id).platformProvision(setup),
         setStatus: (id, status) => clubStub(this.env, id).platformSetStatus(status),
@@ -1028,8 +1032,9 @@ export class Club extends DurableObject<Env> implements Connections {
       return this.files.serve(decodeURIComponent(url.pathname.slice(FILES_PATH.length)), url)
     }
 
-    // Applying for a new club (e12-t06): 淡江's object only, no sign-in, open once the platform has an owner
-    if (url.pathname === '/api/clubs/apply' && this.clubId === DEFAULT_CLUB_ID) {
+    // Applying for a new club (e12-t06): 淡江's object only (another club's refuses), no sign-in, open once the platform has an owner
+    if (url.pathname === CLUB_APPLY_API) {
+      requireApplyClub(this.clubId)
       const open = !!this.env.PLATFORM_OWNER
       const turnstile = turnstileKeys(this.env)
       if (request.method === 'GET') return json({ open, turnstileSiteKey: turnstile?.siteKey ?? null } satisfies ClubApplyOptions)

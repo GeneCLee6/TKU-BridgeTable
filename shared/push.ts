@@ -57,6 +57,8 @@ export const PUSH_GROUPS = {
   ],
   forum: ['forumReply', 'forumMention', 'forumAnnouncement', 'forumPinned', 'forumHidden', 'forumUnhidden'],
   admin: ['application', 'passwordResetRequested', 'filesNearlyFull'],
+  // The platform owner's only (e12-t06): "My account" shows it to them alone
+  platform: ['clubApplication'],
 } as const satisfies Record<string, readonly NotificationKind[]>
 
 export type PushGroup = keyof typeof PUSH_GROUPS

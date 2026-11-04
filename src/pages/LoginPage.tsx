@@ -13,7 +13,9 @@ import { api, ApiError } from '../lib/api.ts'
 import { leave } from '../lib/leave.ts'
 import { usePreferences, useT } from '../state/PreferencesContext.tsx'
 import { mobile } from '../styles/tokens.ts'
-import { appPath } from '../lib/club.ts'
+import { appPath, currentClub } from '../lib/club.ts'
+import { DEFAULT_CLUB_ID } from '../../shared/clubs.ts'
+import { CLUB_APPLY_PAGE } from '../../shared/platform.ts'
 
 const Wrap = styled.main`
   display: grid;
@@ -644,6 +646,12 @@ export function LoginPage() {
         </Switch>
       </Panel>
       <Footnote>{t.sharedAccountHint}</Footnote>
+      {/* Another club's officers may ask for a table of their own (e12-t06): on 淡江's sign-in page only, the platform's home */}
+      {currentClub() === DEFAULT_CLUB_ID && (
+        <Footnote>
+          {t.clubApply.fromSignIn} <a href={CLUB_APPLY_PAGE}>{t.clubApply.fromSignInLink}</a>
+        </Footnote>
+      )}
       <Footnote>
         {registering && <>{t.legal.agree} </>}
         <a href={appPath('/privacy')}>{t.legal.privacyTitle}</a>

@@ -9,6 +9,14 @@ import { CLUB_ID_PATTERN, DEFAULT_CLUB_ID } from './clubs.ts'
 
 /** A club's state: served, or suspended (its API answers `clubSuspended`, its sockets are closed, its data kept) */
 export type ClubStatus = 'active' | 'suspended'
+/**
+ * Where club applications go (e12-t06): always 淡江's object, which keeps the platform's registry.
+ * The Worker sends it there whichever club a request names, and another club's object refuses it
+ */
+export const CLUB_APPLY_API = '/api/clubs/apply'
+/** The application page: 淡江's, also when opened under another club's address (`/c/<id>/clubs/apply`) */
+export const CLUB_APPLY_PAGE = '/clubs/apply'
+
 export const CLUB_STATUSES: readonly ClubStatus[] = ['active', 'suspended']
 
 /**

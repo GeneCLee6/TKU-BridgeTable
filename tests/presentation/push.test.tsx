@@ -141,6 +141,19 @@ describe('push notifications on My account (e1-t28)', () => {
     })
   })
 
+  it('shows the platform group to the platform owner alone (e12-t06)', async () => {
+    const admin: Me = { ...amy, admin: true }
+    stubApi({ '/api/me': { status: 200, body: { user: admin } }, '/api/push': { status: 200, body: view() } })
+    const { unmount } = wrap(<PushCard />)
+    expect(await screen.findByRole('checkbox', { name: /^管理/ })).toBeInTheDocument()
+    expect(screen.queryByRole('checkbox', { name: /^平台/ })).toBeNull()
+    unmount()
+    vi.unstubAllGlobals()
+    stubApi({ '/api/me': { status: 200, body: { user: { ...admin, platformOwner: true } } }, '/api/push': { status: 200, body: view() } })
+    wrap(<PushCard />)
+    expect(await screen.findByRole('checkbox', { name: '平台（新的建社申請）' })).toBeChecked()
+  })
+
   it('sends a test push to the devices', async () => {
     const sent = stubApi({
       ...ME,

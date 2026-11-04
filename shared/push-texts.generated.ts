@@ -61,7 +61,8 @@ export const PUSH_TEXTS: PushTexts = {
       "tournamentReminder": "「{title}」再一小時就開賽了",
       "tournamentResults": "「{title}」結束了，來看結果",
       "tournamentDayReminder": "「{title}」明天這個時候開賽",
-      "teamEventRound": "「{title}」第 {number} 輪配對好了，來看你們的比賽"
+      "teamEventRound": "「{title}」第 {number} 輪配對好了，來看你們的比賽",
+      "clubApplication": "有新的建社申請：「{name}」，到平台後台審核"
     }
   },
   "zh-Hans": {
@@ -123,7 +124,8 @@ export const PUSH_TEXTS: PushTexts = {
       "tournamentReminder": "「{title}」再一小时就开赛了",
       "tournamentResults": "「{title}」结束了，来看结果",
       "tournamentDayReminder": "「{title}」明天这个时候开赛",
-      "teamEventRound": "「{title}」第 {number} 轮配对好了，来看你们的比赛"
+      "teamEventRound": "「{title}」第 {number} 轮配对好了，来看你们的比赛",
+      "clubApplication": "有新的建社申请：「{name}」，到平台后台审核"
     }
   },
   "en": {
@@ -185,7 +187,8 @@ export const PUSH_TEXTS: PushTexts = {
       "tournamentReminder": "\"{title}\" starts in an hour",
       "tournamentResults": "\"{title}\" is over: see the results",
       "tournamentDayReminder": "\"{title}\" starts this time tomorrow",
-      "teamEventRound": "\"{title}\" round {number} is paired: see your match"
+      "teamEventRound": "\"{title}\" round {number} is paired: see your match",
+      "clubApplication": "New club application: \"{name}\". Review it in the platform back office"
     }
   },
   "vi": {
@@ -247,7 +250,8 @@ export const PUSH_TEXTS: PushTexts = {
       "tournamentReminder": "\"{title}\" sẽ bắt đầu sau một giờ",
       "tournamentResults": "\"{title}\" đã kết thúc: xem kết quả",
       "tournamentDayReminder": "\"{title}\" sẽ bắt đầu vào giờ này ngày mai",
-      "teamEventRound": "\"{title}\" vòng {number} đã bốc cặp: xem trận của đội bạn"
+      "teamEventRound": "\"{title}\" vòng {number} đã bốc cặp: xem trận của đội bạn",
+      "clubApplication": "Có đơn đăng ký mở câu lạc bộ mới: \"{name}\". Hãy duyệt trong trang quản trị nền tảng"
     }
   },
   "ja": {
@@ -309,7 +313,8 @@ export const PUSH_TEXTS: PushTexts = {
       "tournamentReminder": "「{title}」はあと 1 時間で始まります",
       "tournamentResults": "「{title}」が終わりました。結果を見ましょう",
       "tournamentDayReminder": "「{title}」は明日のこの時間に始まります",
-      "teamEventRound": "「{title}」第 {number} ラウンドの組み合わせが決まりました。試合を確認しましょう"
+      "teamEventRound": "「{title}」第 {number} ラウンドの組み合わせが決まりました。試合を確認しましょう",
+      "clubApplication": "新しいクラブ開設申請「{name}」があります。プラットフォーム管理画面で審査してください"
     }
   },
   "ko": {
@@ -371,7 +376,8 @@ export const PUSH_TEXTS: PushTexts = {
       "tournamentReminder": "「{title}」이(가) 한 시간 뒤에 시작합니다",
       "tournamentResults": "「{title}」이(가) 끝났습니다. 결과를 확인하세요",
       "tournamentDayReminder": "「{title}」이(가) 내일 이 시간에 시작합니다",
-      "teamEventRound": "「{title}」 {number}라운드 대진이 정해졌습니다. 경기를 확인하세요"
+      "teamEventRound": "「{title}」 {number}라운드 대진이 정해졌습니다. 경기를 확인하세요",
+      "clubApplication": "새 클럽 개설 신청 「{name}」이 있습니다. 플랫폼 관리 화면에서 심사하세요"
     }
   }
 }
