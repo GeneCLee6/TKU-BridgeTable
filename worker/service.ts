@@ -564,6 +564,11 @@ export interface ClubConfig {
    * (e13-t13, `FileService.forget`). A failure is logged and never stops the deletion
    */
   onMemberRemoved?: (userId: string) => Promise<void>
+  /**
+   * The platform owner's account (e12-t05, the Worker setting `PLATFORM_OWNER`; 淡江 only): their
+   * `Me.platformOwner` says so, for the page's link to the back office
+   */
+  platformOwnerId?: string
 }
 
 /** A provider's message code: `googleOff`, `lineTaken`… (shared/messages.ts has each) */
@@ -1390,7 +1395,9 @@ export class ClubService {
   // ── Accounts ────────────────────────────────────────────────────────────────────────────────
 
   /**
-   * The very first account becomes the admin and is signed in at once. Every later registration is
+   * The very first account of 淡江 becomes the admin and is signed in at once (how 淡江 began);
+   * any other club gets its first admin from the platform's approval (`provisionFounder`, e12-t06),
+   * so nobody becomes another club's admin by registering first. Every other registration is
    * an application that keeps the chosen name and password, and becomes an account only when an
    * admin approves it. TKU BridgeTable and TKU BridgeBook share these accounts, so `site` only
    * tells the admin where someone signed up.
@@ -1427,7 +1434,7 @@ export class ClubService {
     const passwordHash = await hashPassword(String(password))
     await this.registrations.count(from)
     if (via && identity) await this.oauthFlows[via.name].drop(String(via.flow))
-    if (!this.users.size) {
+    if (!this.users.size && this.clubId === DEFAULT_CLUB_ID) {
       const user = await this.addUser(name, passwordHash)
       if (via && identity) this.bindOAuth(user, via.name, identity)
       if (displayName) user.profile = { displayName }
@@ -1481,17 +1488,65 @@ export class ClubService {
     return this.addUser(name, await hashPassword(String(password)))
   }
 
-  private async addUser(username: string, passwordHash: string) {
+  private async addUser(username: string, passwordHash: string, admin = this.users.size === 0 && this.clubId === DEFAULT_CLUB_ID) {
     const user: StoredUser = {
       id: randomId(8),
       username,
       passwordHash,
       createdAt: this.now(),
-      admin: this.users.size === 0,
+      admin,
     }
     this.users.set(user.id, user)
     await this.store.put(`user:${user.id}`, user)
     return user
+  }
+
+  /** Which club this object is (shared/clubs.ts) */
+  private get clubId(): string {
+    return this.config.clubId ?? DEFAULT_CLUB_ID
+  }
+
+  /**
+   * A new club's first admin (e12-t06), as the platform owner approved them: the name and the
+   * password's hash from the application. Never for 淡江; once the club has an admin, nothing
+   * changes and that admin is answered (approving again after a failure halfway is safe)
+   */
+  async provisionFounder(username: string, passwordHash: string): Promise<Me> {
+    if (this.clubId === DEFAULT_CLUB_ID) throw new ClubError('noPermission', {}, 403)
+    const existing = [...this.users.values()].find((u) => u.admin)
+    if (existing) return this.me(existing)
+    const name = this.checkNewName(username)
+    return this.me(await this.addUser(name, passwordHash, true))
+  }
+
+  /**
+   * The club is suspended (e12-t05): every session ends (with its edge passes), every connection
+   * closes, the club's and the tables'. Nothing else changes; the members sign in again once it
+   * is served again
+   */
+  async endEverySession() {
+    await this.revokePasses(await this.sessions.endEveryone())
+    for (const id of this.users.keys()) {
+      this.connections.disconnect(id)
+      const entry = this.entryOf(id)
+      if (!entry) continue
+      try {
+        await this.tables.get(entry.id).signOut(id)
+      } catch (error) {
+        this.log(crashEntry('signOutAtTable', error))
+      }
+    }
+  }
+
+  /** The club's size for the platform's back office (e12-t05): members, admins, open tables, boards played */
+  platformCounts(): { members: number; admins: { id: string; username: string }[]; tables: number; boards: number } {
+    const boards = this.store.sql.exec<{ n: number }>('SELECT COUNT(*) AS n FROM boards_index')[0]?.n ?? 0
+    return {
+      members: this.users.size,
+      admins: [...this.users.values()].filter((u) => u.admin).map((u) => ({ id: u.id, username: u.username })),
+      tables: this.directory.size,
+      boards: Number(boards),
+    }
   }
 
   /**
@@ -2433,6 +2488,8 @@ export class ClubService {
     if (user.avatar) me.avatar = user.avatar
     if (user.bookProfile) me.bookProfile = user.bookProfile
     if (user.admin) me.applications = this.applications.size
+    // The platform owner (e12-t05): only 淡江's object knows one
+    if (this.config.platformOwnerId && user.id === this.config.platformOwnerId && this.clubId === DEFAULT_CLUB_ID) me.platformOwner = true
     if (this.config.mailer) {
       me.email = {
         address: user.email ?? null,

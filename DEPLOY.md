@@ -140,6 +140,8 @@ PR 關閉時預覽會自動刪除。若有漏掉的（例如當時還沒設定 s
 | `VAPID_SUBJECT` | `wrangler secret put VAPID_SUBJECT` | 無 | 推播服務聯絡得到的人：`mailto:` 開頭的 Email 或 `https:` 網址；**三個都設才開**，PR 預覽不設（預覽站沒有推播） |
 | `LINE_CHANNEL_ID` | `wrangler secret put LINE_CHANNEL_ID` | 無 | LINE 登入（§4.18）：LINE Developers 的 LINE Login channel 的 Channel ID |
 | `LINE_CHANNEL_SECRET` | `wrangler secret put LINE_CHANNEL_SECRET` | 無 | 那個 channel 的 Channel secret（也用來驗 ID token 的簽章）；**兩個都設才開**，PR 預覽不設 |
+| `PLATFORM_OWNER` | `wrangler secret put PLATFORM_OWNER` | 無 | 平台管理員（§4.20）：社長的**淡江帳號 user id**，那個帳號要是管理員並開了兩步驟登入；沒設定時沒有平台後台、不開放申請新社團 |
+| `CLUBS` | `wrangler.jsonc` 的 `vars` | 無 | **只給開發與 staging**（§4.19）：不經平台名冊就服務的社團代號；正式社團走申請與核准（§4.20） |
 | `ANTHROPIC_BASE_URL` | `.dev.vars` | 無 | 只給測試或 API 閘道用（本機可以指向假的 API），正式環境不要設定 |
 
 本機開發的值放在 `.dev.vars`（從 `.dev.vars.example` 複製，不會 commit）。
@@ -714,7 +716,43 @@ LINE Developers 主控台只有英文與日文介面，下面用英文介面的�
 
 ### 試第二個社團（只在 staging）
 
-Worker 變數 `CLUBS`（逗號分隔的社團 id，小寫英數與 `-`）讓 Worker 多服務幾個社團：請求帶 `X-Club-Id: <id>`（WebSocket 用 `?club=<id>`）就到那個社團自己的物件。**正式站不要設**：新社團的第一個註冊者直接成為管理員（同淡江剛開站），平台審核（`e12-t05`、`e12-t06`）做好之前沒有人管得住；牌桌前端也還不會帶社團（社團網址是 `e12-t04`）。要在 staging 試，在 `wrangler.jsonc` 的 `env.staging.vars` 加 `"CLUBS": "demo"`，用 API（例如瀏覽器 Console 的 `fetch('/api/register', { headers: { 'X-Club-Id': 'demo', … } })`）註冊與操作。其他社團的 R2 檔案與備份在 `clubs/<id>/` 底下；`INVITE_CODE`、Google／LINE 登入只給淡江。
+Worker 變數 `CLUBS`（逗號分隔的社團 id，小寫英數與 `-`）讓 Worker 多服務幾個社團：請求帶 `X-Club-Id: <id>`（WebSocket 用 `?club=<id>`）就到那個社團自己的物件。**正式社團一律走申請與核准（§4.20），`CLUBS` 只給開發與 staging**：列出的社團不經名冊就服務，但從 `e12-t06` 起**沒有人會因為第一個註冊而變成管理員**，所以單靠 `CLUBS` 開的社團沒有管理員；要管理員就在 staging 也設 `PLATFORM_OWNER`，用申請表申請一個社團（代號不能跟 `CLUBS` 裡的相同）再核准。牌桌前端還不會帶社團（社團網址是 `e12-t04`），要在 staging 操作新社團，用 API（例如瀏覽器 Console 的 `fetch('/api/login', { method: 'POST', headers: { 'X-Club-Id': 'demo', 'Content-Type': 'application/json' }, body: … })`）。其他社團的 R2 檔案與備份在 `clubs/<id>/` 底下；`INVITE_CODE`、Google／LINE 登入只給淡江。
+
+## 4.20 平台管理員與開設社團（`e12-t05`、`e12-t06`，2026-11-04）
+
+平台管理員只有社長一人：Worker secret `PLATFORM_OWNER` 指名的**淡江帳號**（ARCHITECTURE.md §1「平台與社團的申請」）。沒設時沒有平台後台，申請表也關著（顯示「目前不開放申請新社團」）；淡江本身完全不受影響。
+
+### 社長設定自己為平台管理員（一次）
+
+1. 用自己的淡江管理員帳號登入淡江牌桌，在「我的帳號」**開啟兩步驟登入**（沒開的話平台後台回 `platformNeedsTwoFactor`）。
+2. 找到自己的 user id：登入狀態下打開 `https://<網域>/api/me`，複製 `"id"` 的值（8 碼左右的英數字）。
+3. 設 secret（正式站；staging 加 `--env staging`）：
+   ```bash
+   npx wrangler secret put PLATFORM_OWNER   # 貼上第 2 步的 id
+   ```
+   secret 設好就生效，不必重新部署。頁首出現「平台後台」（`/platform`）。
+4. 換人或停用：`npx wrangler secret put PLATFORM_OWNER` 換成別的 id，或 `npx wrangler secret delete PLATFORM_OWNER`（後台與申請表一起關掉，已開通的社團照常運作）。
+
+### 審核申請
+
+- 社團幹部在 `https://<網域>/clubs/apply` 填申請（不必登入）：社團名稱、社團代號（網址會用，之後不能改）、學校或單位、聯絡 Email、理由，以及**新社團管理員的帳號與密碼**（跟淡江帳號無關）。同一個網路一小時 3 份、同時最多 50 份待審；有設 Turnstile（§4.13）時要過。
+- 社長在「平台後台」看申請：**核准並開通**＝新社團馬上建立、申請人用申請時的帳號密碼就是它的第一位管理員（他要先開兩步驟登入才能用管理功能，邀請碼與人數上限在他自己的管理頁設）；**退回**可以寫原因。有設 Resend（§4.14）時申請人會收到「已收到」「通過（附登入網址 `/c/<代號>`）」「退回（附原因）」三種信；沒設就不寄，社長要自己通知。
+- 新社團的網址與登入頁（`/c/<代號>`）是 `e12-t04`；在那之前新社團只能用 API（帶 `X-Club-Id`）操作。
+- 名冊存在淡江的物件裡，**核准後不必重新部署**；其他 Worker 最多 30 秒後也認得新社團。
+
+### 暫停與恢復
+
+- 後台每個社團有「暫停」（可寫原因）：那個社團的所有社員立刻被登出、連線中斷，API 與連線回「這個社團已被平台暫停使用」；**資料全部保留**，每日備份照常。「恢復使用」後社員重新登入即可。淡江不能暫停。
+- 每個動作（核准、退回、暫停、恢復）都記在淡江的稽核紀錄（`platform:approve`、`platform:reject`、`platform:suspend`、`platform:unsuspend`），淡江橋館管理頁看得到。
+
+### 用量
+
+後台列出每個社團的社員數、管理員、開著的桌、牌局數、Durable Object 儲存、R2 圖片與電子書、R2 備份、D1 紀錄副本的列數，以及全平台合計。R2（10 GB）、D1（5 GB）、Durable Object（5 GB）的免費額度是整個 Cloudflare 帳號共用的，看合計（§5）。數字是粗估：儲存大小是執行環境回報的，R2 圖片是社團自己記的帳。
+
+### 還原與退回
+
+- 還原淡江的備份（§4.4）**不會**改動名冊與申請（`platform:` 在備份裡，但還原時不寫也不刪）；還原別的社團的備份也不會改變它的暫停狀態（存在它自己的 `meta:club`，不在備份裡）。
+- 退回到沒有平台功能的舊版 Worker：已開通的社團不在 `CLUBS` 裡，就變成「找不到這個社團」（資料都還在它的物件裡）；回到新版就恢復。要讓舊版也服務它們，暫時把代號加進 `CLUBS`。
 
 ## 5. 費用與限制
 

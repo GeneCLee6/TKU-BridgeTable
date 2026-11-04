@@ -83,6 +83,15 @@ export type AuditAction =
    * §5.23); `target` is `<kind>:<eventId>`, `note` each member's difference and the reason
    */
   | 'points:recredit'
+  /**
+   * The platform owner's decisions (e12-t05, e12-t06; worker/platform.ts), in 淡江's trail;
+   * `target` is the club's id, `note` the first admin's name and the application (approve) or the
+   * reason given (reject, suspend, unsuspend)
+   */
+  | 'platform:approve'
+  | 'platform:reject'
+  | 'platform:suspend'
+  | 'platform:unsuspend'
 
 export interface AuditEntry {
   id: string

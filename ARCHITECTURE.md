@@ -26,7 +26,7 @@
 
 | 共用的東西 | 怎麼分 | 淡江 |
 | --- | --- | --- |
-| 有哪些社團 | `shared/clubs.ts` 的 `knownClubs`：淡江加上 Worker 變數 `CLUBS`（逗號分隔的 id，格式 `CLUB_ID_PATTERN`）；其他社團的物件名稱是 `club:<id>`。社團物件從**自己的名稱**讀出自己是哪個社團（`clubOfClubObject`），所以 `CLUBS` 拿掉之後被 alarm 叫醒的物件也不會把自己當成淡江 | 物件名稱 `club` |
+| 有哪些社團 | 淡江、平台核准的社團（名冊，下面「平台與社團的申請」，`e12-t06`），加上開發用的 Worker 變數 `CLUBS`（逗號分隔的 id，格式 `CLUB_ID_PATTERN`，`shared/clubs.ts` 的 `knownClubs`）；其他社團的物件名稱是 `club:<id>`。社團物件從**自己的名稱**讀出自己是哪個社團（`clubOfClubObject`），所以 `CLUBS` 拿掉之後被 alarm 叫醒的物件也不會把自己當成淡江 | 物件名稱 `club` |
 | `TableObject` | 名稱 `tableObjectName(社團, 桌 id)`＝`<社團>/<桌 id>`；只有 `worker/clubs.ts` 組名稱，所以社團只叫得到自己的桌。牌桌從自己的名稱讀出社團（`clubOfScopedName`），只回報那個社團（`ownClub`；社團不再服務時回報失敗、留在 outbox，不會跑到別的社團）。`/ws/table/<id>` 由 Worker 轉過去時帶 `X-TBT-Club`（`TABLE_CLUB_HEADER`），牌桌只收自己社團的連線 | 名稱就是桌 id，同以前 |
 | `EventObject` | `eventObjectName`＝`<社團>/challenge:<id>`、`<社團>/match:<id>`、`<社團>/pairs:<id>`；同樣只回報名稱裡的社團 | `challenge:<id>` 等，同以前 |
 | 邊緣通行證 `tbt_pass` | 簽章內容加上社團（`pass3:<社團>:…`）：社員 id 只在社團內唯一，別的社團的通行證一律當成沒有，交給那個社團判斷 | 部署後舊的 `pass2` 通行證失效，社團下一次回答就換新的 |
@@ -38,7 +38,23 @@
 
 不分社團、刻意共用的：`pass_revocations`（session id 是 128 位元隨機值，又只在簽給同一社團的通行證上查）、VAPID、Turnstile、`SEEN_SALT`、`EDGE_AUTH_SECRET`；平台經營者的權杖 `BOOK_SEED_TOKEN`、`BOOK_EXPORT_TOKEN`、`TWO_FACTOR_RESET_TOKEN` 對請求所指的社團有效（只有能操作 Cloudflare 帳號的人有）。隔離測試在 `tests/worker/club-isolation.test.ts`（兩個社團 `tku`、`ntu` 共用一個 D1、一個 bucket、一個物件命名空間）。
 
-**還沒做（L2）**：同一個網域上的 cookie 名稱相同（`tbt_session`、`tbt_pass`），在 B 社團登入會蓋掉 A 社團的 session（不會跨社團生效，只是被登出），登入範圍與社團網址是 `e12-t04`；分享連結、Email 連結、推播的網址還沒帶社團（打開時到淡江，找不到就是「不存在」，不會讀到別的社團）；新社團第一個註冊的人直接成為管理員（同淡江剛開站時），所以正式站在平台審核（`e12-t05`、`e12-t06`）之前不要設 `CLUBS`；R2 免費額度的用量提醒是每社團各算的，整個 bucket 的總量要平台後台再看。
+**還沒做（L2）**：同一個網域上的 cookie 名稱相同（`tbt_session`、`tbt_pass`），在 B 社團登入會蓋掉 A 社團的 session（不會跨社團生效，只是被登出），登入範圍與社團網址是 `e12-t04`；分享連結、Email 連結、推播的網址還沒帶社團（打開時到淡江，找不到就是「不存在」，不會讀到別的社團）；R2 免費額度的用量提醒是每社團各算的，整個 bucket 的總量在平台後台看（下一節）。新社團第一個註冊的人直接成為管理員的問題，`e12-t06` 已經拿掉：只有平台核准申請時才建立新社團的第一位管理員。
+
+### 平台與社團的申請（`e12-t05`、`e12-t06`，2026-11-04）
+
+社長 2026-11-04 決定：**平台管理員只有社長一人**、社團要申請並由平台審核才開通、拿掉「第一個註冊的人變管理員」（淡江開站時的那一次除外）。
+
+- **平台管理員是誰**：Worker secret `PLATFORM_OWNER`＝一個**淡江帳號的 user id**（`DEPLOY.md` §4.20）。那個帳號要是淡江的管理員、而且開了兩步驟登入（`worker/platform.ts` 的 `requirePlatformOwner`）；用淡江原本的登入與 session，不另外做一套帳號。沒設 secret、別的帳號、別的社團裡剛好同一個 id，`/api/platform/*` 一律 404 `noSuchApi`（不透露有沒有後台、誰是管理員）；本人沒開兩步驟登入或不是管理員時 403 `platformNeedsTwoFactor`。`/api/me` 只對本人帶 `platformOwner: true`，頁首才出現「平台後台」。不用 Cloudflare Access 或另一個網域：社長本來就用這個帳號登入，兩步驟登入與次數限制都已經有了。
+- **社團名冊存哪**：淡江的物件裡（`platform:club:<id>`，申請是 `platform:apply:<id>`），由 `PlatformService`（`worker/platform.ts`，不碰 Cloudflare API；其他社團的物件經 `ClubDirectory` 介面，`club.ts` 用 stub 實作）讀寫。沒有另外開 registry 物件或 D1 表：不必新增 binding 或 migration，PR 預覽照樣能用，淡江本來就是平台的管理者。**每個社團自己的物件也記一份自己的狀態**（`meta:club`：名稱、學校、聯絡 Email、`active`／`suspended`、核准時間），**這一份才是它回不回答的依據**：沒有 `meta:club`（也不在 `CLUBS` 裡）的社團物件對每個請求與連線回 404 `unknownClub`、拒絕牌桌與比賽物件的回報；暫停的回 403 `clubSuspended`、`socketUser` 一律 null。`meta:` 不在備份裡，還原備份不會改變暫停狀態。
+- **Worker 怎麼分派**：`worker/clubs.ts` 的 `ClubRegistryCache`，**只有請求指名淡江以外的社團時**才去淡江的物件讀名冊（RPC `platformRegistry`），每個 isolate 最多 30 秒讀一次（`REGISTRY_TTL_MS`），讀不到就沿用上一份。名冊沒有的社團 404、暫停的 403（`routing.ts` 的 `findClub`；靜態檔案照樣給，頁面才能顯示錯誤）。淡江的請求完全不經過名冊，正式站行為不變。平台管理員改了名冊（`POST /api/platform/*` 成功）那個 isolate 立刻重讀；其他 isolate 最多晚 30 秒，但暫停由社團自己的物件立刻生效。每日備份（cron）也包含名冊裡的社團（暫停的也備份）。
+- **`CLUBS` 變數**：保留為開發與 staging 的覆寫：列出的社團不經名冊就服務（社團物件也當它是開通的），但**不會**有第一位管理員；要有管理員一樣走申請與核准。名冊與申請都不能用 `CLUBS` 裡的代號。
+- **申請**（`POST /api/clubs/apply`，淡江的物件，不必登入；`GET` 回 `{ open, turnstileSiteKey }`，沒設 `PLATFORM_OWNER` 時 `open: false`、送出回 403 `clubApplyClosed`）：社團名稱 2～40 字、代號（`CLUB_ID_PATTERN`、不在 `RESERVED_CLUB_IDS`、不跟名冊、待審的申請、`CLUBS` 重複）、學校或單位 2～80 字、聯絡 Email、理由 10～1000 字、新社團管理員的帳號（同註冊的帳號規則）與密碼（`checkNewPassword`，只存 PBKDF2 雜湊）。每個網路一小時 3 份（`RegistrationLimit`，`meta:clubApplications`，同樣以 `SEEN_SALT` 加鹽）、同時最多 50 份待審（503 `clubApplicationsFull`）、有 Turnstile 時要過。有設 Resend 時寄「已收到」給聯絡 Email，沒設就不寄，寄失敗只記日誌。
+- **核准**（`POST /api/platform/applications/:id/approve`）：先叫新社團的物件 `platformProvision`：用申請的帳號與密碼雜湊建立第一位管理員（`ClubService.provisionFounder`，已有管理員就不動）、寫 `meta:club`；成功後才寫名冊、把申請標成已核准並**刪掉密碼雜湊**、記稽核、寄信（網址 `/c/<id>`，登入範圍是 `e12-t04`）。中途失敗時名冊沒寫，再按一次核准會再試（建立管理員重做也不會多一個）。新社團的管理員一樣要先開兩步驟登入才能用管理功能；邀請碼、人數上限等設定由它自己在管理頁設（存在它自己的物件）。
+- **退回**（`…/reject { note }`）：申請標成已退回、刪密碼雜湊、寄信附理由。已審核的申請最多留 50 份。
+- **暫停與恢復**（`POST /api/platform/clubs/:id/status { status, note }`）：先叫那個社團的物件 `platformSetStatus`：寫 `meta:club`，暫停時結束所有 session（含邊緣通行證）、關掉社團與牌桌的所有連線（`ClubService.endEverySession`）；資料一筆都不刪。恢復後社員重新登入。淡江不能暫停（`cannotSuspendDefaultClub`）。
+- **後台**（`GET /api/platform` → `PlatformView`，頁面 `/platform`）：每個社團（淡江在最前）的代號、名稱、狀態、學校、聯絡 Email、管理員，與用量（社團的物件自己算，RPC `platformUsage`）：社員數、開著的桌、牌局數（`boards_index`）、Durable Object 的 SQLite 大小（`storage.sql.databaseSize`）、R2 圖片與電子書（`file:usage`）、R2 備份（列出自己前綴的 `daily/`）、D1 副本裡自己的列數；加上全平台合計（R2 與 D1 的免費額度是整個帳號的）。某個社團沒回應時那一列的用量是空的，其他照常。
+- **稽核**：每個動作寫一筆淡江的 `audit:`（`worker/audit.ts`）：`platform:approve`（`target` 社團代號、`note` 第一位管理員與申請 id）、`platform:reject`、`platform:suspend`、`platform:unsuspend`（`note` 是理由）。淡江橋館管理頁的稽核紀錄看得到；橋館的 `AuditAction` 要同步這四個。
+- **名冊的備份**：`platform:` 在淡江的每日備份裡（災難時手動查），但還原時**不寫也不刪**（`backup.ts` 的 `KEPT_ON_RESTORE`）：回到舊的備份不能忘記之後開通的社團、也不能把暫停的社團放回來。
 - **挑戰與隊制賽可以各自一個 Durable Object**（`EventObject`，H2b 挑戰、H2c 隊制賽，§5.12）：開關 `EVENT_OBJECTS=on` 才用，**預設關**（挑戰與隊制賽照舊在社團的物件裡）；正式站什麼時候開由社長決定（`DEPLOY.md` §4.6）。
 - **不必經過社團的請求由 Worker 自己回答**（§5.12）：紀錄列表與搜尋從 D1 的副本讀（社團寫好紀錄後經 outbox 複製過去），牌桌連線用簽章的邊緣通行證確認是誰；通行證或副本不能用時一律照舊交給社團。開關 `HISTORY_D1=off`、`EDGE_AUTH=off`（`DEPLOY.md` §4.5）。
 - 伺服器是唯一的真相：瀏覽器送「我要叫 1♠」「我要出 ♥K」，伺服器用 `shared/game.ts` 驗證後更新狀態，再推送每個人**可以看到的**畫面。
@@ -83,6 +99,7 @@ TKU-BridgeTable/
 │  ├─ integrity.ts         防作弊報表：型別、門檻、從登入紀錄配對帳號、線索強度（§5.17）
 │  ├─ protocol.ts          HTTP／WebSocket 的訊息與畫面型別
 │  ├─ clubs.ts             社團 id 與物件名稱、請求的社團（X-Club-Id／?club=，沒帶是淡江）、牌桌與比賽物件的名稱、R2 前綴（§1）
+│  ├─ platform.ts          平台的型別：社團狀態、保留的代號、申請表、後台的畫面（§1）
 │  ├─ message-guard.ts     WebSocket 訊息的大小上限與型別守衛（§5.6）
 │  ├─ scrub.ts             錯誤回報去除個資（§5.6）
 │  └─ robot/               機器人：robots（兩種機器人與各自的叫牌）、hand（牌型分析）、
@@ -95,7 +112,8 @@ TKU-BridgeTable/
 │  ├─ body.ts              HTTP 本文邊讀邊算大小（e11-t32）
 │  ├─ history-replica.ts   紀錄索引的 D1 副本：ReplicaSync（outbox、填副本、開關）、寫入與搜尋的 SQL（§5.12）
 │  ├─ d1.ts                把 D1 binding 包成 ReplicaDb（唯一碰 D1 的程式）
-│  ├─ clubs.ts             社團、牌桌、比賽物件的 stub（名稱帶社團，§1）
+│  ├─ clubs.ts             社團、牌桌、比賽物件的 stub（名稱帶社團，§1）；Worker 讀平台名冊的快取（ClubRegistryCache）
+│  ├─ platform.ts          平台：社團名冊、開設社團的申請、平台管理員的後台（PlatformService，§1「平台與社團的申請」）
 │  ├─ buckets.ts           R2 bucket 裡社團自己的前綴（scopedBucket，§1）
 │  ├─ club.ts              社團的 Durable Object：HTTP 路由、WebSocket（hibernation）、儲存轉接、牌桌回報的 RPC
 │  ├─ table-object.ts      每桌一個的 Durable Object：儲存、alarm、這一桌的 WebSocket、社團的 stub（只是接線，§5.10）
@@ -332,6 +350,9 @@ interface BoardState {
 | `app:<id>` | 待審核的註冊申請：帳號名稱、密碼雜湊、自我介紹、從哪個網站申請；用 Google 申請的還有 Google 的 `sub`、Email 與顯示名稱（`e1-t31`）；用 LINE 申請的是 LINE 的 `sub` 與 LINE 名字（`e1-t32`） |
 | `google:<id>`、`line:<id>` | Google／LINE 登入進行中的流程（§5.2，`e1-t31`、`e1-t32`，`worker/oauth.ts` 的 `OAuthFlows`，每個登入方式各自的前綴與上限）：去 Google 的途中（PKCE verifier、nonce，10 分鐘）、等兩步驟驗證碼（5 分鐘）或等申請表（30 分鐘）；用一次就刪、過期的在下一次新增時清掉，最多 500 筆，不在備份裡 |
 | `session:<token>` | userId、到期時間、`id`（列表用，不是 token）、建立與最近使用時間、裝置名稱（`worker/sessions.ts`） |
+| `meta:club` | 社團自己的紀錄（淡江以外，§1「平台與社團的申請」）：名稱、學校、聯絡 Email、`active`／`suspended`、核准時間；平台核准時寫、暫停或恢復時改；不在備份裡 |
+| `platform:club:<id>`、`platform:apply:<id>` | 只在淡江的物件：平台的社團名冊與開設社團的申請（§1）；申請的密碼雜湊審核後就刪；在備份裡但還原時不動 |
+| `meta:clubApplications` | 只在淡江的物件：每個網路送出幾份社團申請（同 `meta:registrations`，一小時 3 份） |
 | `meta:registrations` | 申請加入的次數（§5.2，`e1-t33`，`worker/register-limit.ts`）：`{ <位址雜湊>: { count, since } }`，雜湊以 `SEEN_SALT` 加鹽、不存 IP；一小時的視窗結束就清掉；沒設 `SEEN_SALT` 時不寫（只在記憶體）；不在備份裡 |
 | `seen:<userId>` | 防作弊報表（§5.17，`worker/integrity.ts`）：登入與連線時的網路雜湊（以 Worker secret `SEEN_SALT` 加鹽的 SHA-256，不存 IP；鹽不在儲存裡）、瀏覽器 id（cookie `tbt_device`）與名稱、第一次與最近一次；每人最多 16 筆、90 天；帳號刪除時一起刪，不在備份裡 |
 | `tabledir:<id>` | 牌桌目錄（`TableEntry`，§5.10）：大廳與跨桌動作只讀它；牌桌在自己的 `TableObject` 時才有 |
@@ -1868,7 +1889,12 @@ SQL 由 `worker/history-index.ts` 的 `searchBoards` 組：只有固定的 SQL �
 | `DELETE /api/book/conventions/:slug/draft` | bookEdit | `{ draftRevision }` 捨棄草稿；沒有草稿 404 `bookDraftGone` |
 | `POST /api/book/conventions/:slug/reject` | bookReview | `{ draftRevision, note }` 退回送審中的草稿（不是送審中 409 `notInReview`），理由最多 500 字 |
 | `GET /api/book/reviews` | bookEdit | `{ drafts: BookDraftSummary[], articles: ArticleDraftSummary[] }`：所有特約與文章的草稿（送審中的在前），不含內容、附特約名或文章標題 |
-| `GET /api/book/audit` | bookEdit | `{ entries: AuditEntry[] }`：最近 200 筆審計紀錄（新的在前）：草稿、送審、退回、捨棄、發布、隱藏、還原、分類、制度集新增／儲存／刪除；發布、隱藏、還原帶 `revisionId` 連到版本 |
+| `GET /api/book/audit` | bookEdit | `{ entries: AuditEntry[] }`：最近 200 筆審計紀錄（新的在前）：草稿、送審、退回、捨棄、發布、隱藏、還原、分類、制度集新增／儲存／刪除；發布、隱藏、還原帶 `revisionId` 連到版本；平台管理員的 `platform:approve`／`reject`／`suspend`／`unsuspend`（§1） |
+| `GET /api/clubs/apply` | 不用登入（淡江） | `ClubApplyOptions` `{ open, turnstileSiteKey }`：有沒有開放申請社團（設了 `PLATFORM_OWNER`） |
+| `POST /api/clubs/apply` | 不用登入（淡江） | `ClubApplicationInput` → 202 `{ id, clubId }`；檢查與次數限制見 §1「平台與社團的申請」 |
+| `GET /api/platform` | 平台管理員 | `PlatformView`：社團、用量、管理員、申請、全平台合計；不是平台管理員一律 404 |
+| `POST /api/platform/applications/:id/approve`、`…/reject` | 平台管理員 | 核准（開通社團、申請人成為第一位管理員）或退回（`{ note }`），回 `PlatformView` |
+| `POST /api/platform/clubs/:id/status` | 平台管理員 | `{ status: 'active'\|'suspended', note }`，回 `PlatformView`；淡江不能暫停 |
 | `GET /api/book/pending` | 社員 | `{ open: PendingMeta[], closed: PendingMeta[], editors: string[] }`：待確認面板（橋館 e8-t06）。`open` 是有人動過的待確認（`pendingmeta:<slug>/<sectionId>/<n>`；沒有紀錄的是「未處理」），`closed` 是最近 100 筆已關閉（`pendingdone:<時間>-<id>`），`editors` 是有 bookEdit 的帳號（指派用） |
 | `PUT /api/book/pending/:slug/:sectionId/:n` | bookEdit | body `{ text, status: 'open'\|'working'\|'parked', assignee?, note?, resolution? }` → `{ meta }`。`已確認`不能手動設：發布（`PUT /api/book/conventions/:slug`）時，新版本裡找不到的待確認（以段落＋原文比對）自動關閉，記發布者、版本、關閉依據（沒填就用版本說明）；還在的跟著換位置 |
 | `POST /api/book/conventions/:slug/reset` | bookReview | 刪除線上版本，橋譜改回顯示內建的版本 |

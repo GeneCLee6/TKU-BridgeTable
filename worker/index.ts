@@ -1,5 +1,6 @@
+import { DEFAULT_CLUB_ID } from '../shared/clubs.ts'
 import type { Env } from './club.ts'
-import { clubsOf, clubStub, everyClubStub, tableStub } from './clubs.ts'
+import { ClubRegistryCache, clubsOf, clubStub, everyClubStub, tableStub } from './clubs.ts'
 import { d1Replica } from './d1.ts'
 import { edgeSecret } from './edge-auth.ts'
 import { jsonLog } from './log.ts'
@@ -10,6 +11,10 @@ export { Club } from './club.ts'
 export { TableObject } from './table-object.ts'
 export { EventObject } from './event-object.ts'
 
+/** The clubs the platform opened (e12-t06), read from 淡江's object only for requests naming another club */
+let registry: ClubRegistryCache | undefined
+const registryOf = (env: Env) => (registry ??= new ClubRegistryCache(() => clubStub(env, DEFAULT_CLUB_ID).platformRegistry()))
+
 /**
  * API and the club's WebSocket go to the club's Durable Object, a table's WebSocket to that
  * table's own object (ARCHITECTURE.md §5.10); the history pages are answered here from D1 when the
@@ -19,6 +24,8 @@ export default {
   async fetch(request, env) {
     const response = await route(request, {
       clubs: clubsOf(env),
+      // The platform's registry (e12-t06): never asked for 淡江's requests
+      findClub: (clubId) => registryOf(env).status(clubId),
       // Each club its own object (e12-t02, shared/clubs.ts)
       club: (clubId) => {
         const stub = clubStub(env, clubId)
@@ -38,15 +45,23 @@ export default {
         log: jsonLog,
       },
     })
+    const { pathname } = new URL(request.url)
+    // The owner changed the registry (approved or suspended a club): this isolate reads it again at once
+    if (request.method === 'POST' && pathname.startsWith('/api/platform/') && response.ok) registry?.forget()
     // CSP and the other security headers (e11-t23, worker/security-headers.ts)
-    return withSecurityHeaders(response, new URL(request.url).pathname)
+    return withSecurityHeaders(response, pathname)
   },
   /**
    * The cron trigger in wrangler.jsonc: every club's daily backup to R2 (worker/backup.ts), each in
    * its own part of the bucket (淡江's `daily/…`, another club's `clubs/<id>/daily/…`, e12-t03)
    */
   async scheduled(_controller, env, ctx) {
-    for (const club of everyClubStub(env)) ctx.waitUntil(club.backup())
+    // The clubs the platform opened too (e12-t06), suspended ones included: their data is kept
+    const registered = await clubStub(env, DEFAULT_CLUB_ID)
+      .platformRegistry()
+      .then((clubs) => clubs.map((c) => c.id))
+      .catch(() => [] as string[])
+    for (const club of everyClubStub(env, registered)) ctx.waitUntil(club.backup())
   },
 } satisfies ExportedHandler<Env>
 
