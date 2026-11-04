@@ -1,3 +1,5 @@
+import { clubHeaders, withClub } from './club.ts'
+import type { GuestTable, PublicLobby } from '../../shared/public-lobby.ts'
 import type { RefereeEvent, RefereeRequest } from '../../shared/referee.ts'
 import type { RulingRequest } from '../../shared/board-events.ts'
 import type { ChallengeSettings, ChallengeView } from '../../shared/challenge.ts'
@@ -86,10 +88,12 @@ export class ApiError extends Error {
 }
 
 export async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  // Every call names the page's club (e12-t04, src/lib/club.ts)
+  const headers = clubHeaders(init?.headers ?? (init?.body ? { 'Content-Type': 'application/json' } : undefined))
   const response = await fetch(path, {
     credentials: 'same-origin',
-    headers: init?.body ? { 'Content-Type': 'application/json' } : undefined,
     ...init,
+    headers,
   })
   const data = await response.json().catch(() => ({}))
   if (!response.ok)
@@ -226,7 +230,10 @@ export const api = {
   /** 登出其他裝置: every session but this one ends */
   endOtherSessions: () => post<{ ended: number }>('/api/account/sessions/others'),
   /** The member's own data as a JSON file (e11-t27); a link downloads it */
-  exportUrl: '/api/account/export',
+  /** A plain link (no headers), so it names the club in its address */
+  get exportUrl() {
+    return withClub('/api/account/export')
+  },
   /** Deletes the member's own account; the answer signs this device out too */
   deleteAccount: (password: string) => post<{ ok: true }>('/api/account/delete', { password }),
   /** Another member's profile card with their latest boards the viewer may see */
@@ -391,6 +398,10 @@ export const api = {
   matchPlay: (id: string, { action, ...body }: MatchPlayAction) =>
     post<{ match: TeamMatchView | null }>(`/api/matches/${encodeURIComponent(id)}/${action}`, body),
   /** The Vugraph page (`e8-t18`): both rooms, the score and the watchers' chat; never for a player while it is on */
+  /** The cross-club lobby (e12-t07): other clubs' tables open to every club, and one of them as a guest watches it */
+  publicLobby: () => request<PublicLobby>('/api/public/lobby'),
+  guestTable: (clubId: string, tableId: string) =>
+    request<{ table: GuestTable }>(`/api/public/tables/${encodeURIComponent(clubId)}/${encodeURIComponent(tableId)}`),
   matchVugraph: (id: string) => request<{ vugraph: MatchVugraph }>(`/api/matches/${encodeURIComponent(id)}/vugraph`),
   matchVugraphChat: (id: string, text: string) =>
     post<{ vugraph: MatchVugraph }>(`/api/matches/${encodeURIComponent(id)}/vugraph/chat`, { text }),

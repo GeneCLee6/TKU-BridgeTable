@@ -1,4 +1,4 @@
-import { CLUB_ID_PATTERN, DEFAULT_CLUB_ID } from '../shared/clubs.ts'
+import { CLUB_ID_PATTERN, clubPath, DEFAULT_CLUB_ID } from '../shared/clubs.ts'
 import { credentialText, toHalfWidth } from '../shared/halfwidth.ts'
 import type { MessageCode, MessageParams } from '../shared/messages.ts'
 import {
@@ -89,7 +89,7 @@ export const CLUB_APPLICATIONS_PER_ADDRESS = 3
 export const CLUB_APPLICATION_WINDOW_MS = 60 * 60_000
 
 /** The back office's address, for the owner; the new club's sign-in page (`/c/<id>`, e12-t04) for the mails */
-export const clubAddress = (origin: string, clubId: string) => `${origin}/c/${clubId}`
+export const clubAddress = (origin: string, clubId: string) => `${origin}${clubPath(clubId, '/')}`
 
 /**
  * The platform owner (社長 2026-11-04): exactly one 淡江 account, named by the Worker setting

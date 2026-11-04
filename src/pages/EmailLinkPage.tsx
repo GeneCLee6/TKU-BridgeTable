@@ -6,6 +6,7 @@ import { Button, Card, ErrorText, Field, FieldError, FieldHint, FieldLabel, Mute
 import { api, ApiError } from '../lib/api.ts'
 import { useAuth } from '../state/AuthContext.tsx'
 import { usePreferences } from '../state/PreferencesContext.tsx'
+import { appPath } from '../lib/club.ts'
 
 /**
  * The pages the email links open (e1-t29, e1-t30), signed in or not: `/email/verify#<token>`
@@ -138,7 +139,7 @@ export function EmailLinkPage({ kind }: { kind: 'verify' | 'reset' }) {
             </Button>
           </Form>
         )}
-        <a href="/">{e.toSite}</a>
+        <a href={appPath('/')}>{e.toSite}</a>
       </Panel>
     </PageMain>
   )

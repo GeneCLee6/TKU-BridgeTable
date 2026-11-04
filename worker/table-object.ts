@@ -135,6 +135,9 @@ export class TableObject extends DurableObject<Env> implements TableRpc, TableSo
   vugraph(userId: string) {
     return this.host.vugraph(userId)
   }
+  guestView() {
+    return this.host.guestView()
+  }
   close() {
     return this.host.close()
   }

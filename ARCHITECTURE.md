@@ -34,11 +34,31 @@
 | R2 `FILES`（圖片、電子書）與 `BACKUPS` | `worker/buckets.ts` 的 `scopedBucket`：key 一律加上 `clubStoragePrefix`＝`clubs/<id>/`，列表時再拿掉；社團碰不到前綴以外的 key。檔案網址用社團自己的 `file:secret` 簽，其他社團的網址加 `&club=<id>`（`<img>` 不能帶 header），簽章內容也包含社團 | 前綴是空的：`daily/…`、`post/…`、`ebook/…` 原封不動，網址與簽章跟以前一樣 |
 | 每日備份（cron） | `everyClubStub`：每個服務中的社團各備份到自己的前綴、各自計算保留 30 天 | `daily/<日期>.jsonl` |
 | 日誌 | 社團、牌桌、比賽物件的每一行都帶 `club`（`worker/log.ts` 的 `clubLog`） | `club: "tku"` |
-| 環境變數 | `INVITE_CODE` 只給淡江（其他社團的邀請碼由它自己的管理員設）；Google／LINE 登入只給淡江（回呼網址沒帶社團，L2 再做）；`MAX_USERS` 是每個社團各自的上限 | 照舊 |
+| 環境變數 | `INVITE_CODE` 只給淡江（其他社團的邀請碼由它自己的管理員設）；Google／LINE 登入只給淡江（其他社團的回呼網址已帶社團，見下面「社團網址與登入範圍」）；`MAX_USERS` 是每個社團各自的上限 | 照舊 |
 
 不分社團、刻意共用的：`pass_revocations`（session id 是 128 位元隨機值，又只在簽給同一社團的通行證上查）、VAPID、Turnstile、`SEEN_SALT`、`EDGE_AUTH_SECRET`；平台經營者的權杖 `BOOK_SEED_TOKEN`、`BOOK_EXPORT_TOKEN`、`TWO_FACTOR_RESET_TOKEN` 對請求所指的社團有效（只有能操作 Cloudflare 帳號的人有）。隔離測試在 `tests/worker/club-isolation.test.ts`（兩個社團 `tku`、`ntu` 共用一個 D1、一個 bucket、一個物件命名空間）。
 
-**還沒做（L2）**：同一個網域上的 cookie 名稱相同（`tbt_session`、`tbt_pass`），在 B 社團登入會蓋掉 A 社團的 session（不會跨社團生效，只是被登出），登入範圍與社團網址是 `e12-t04`；分享連結、Email 連結、推播的網址還沒帶社團（打開時到淡江，找不到就是「不存在」，不會讀到別的社團）；R2 免費額度的用量提醒是每社團各算的，整個 bucket 的總量在平台後台看（下一節）。新社團第一個註冊的人直接成為管理員的問題，`e12-t06` 已經拿掉：只有平台核准申請時才建立新社團的第一位管理員。
+**還沒做**：R2 免費額度的用量提醒是每社團各算的，整個 bucket 的總量在平台後台看（下面「平台與社團的申請」）。新社團第一個註冊的人直接成為管理員的問題，`e12-t06` 已經拿掉：只有平台核准申請時才建立新社團的第一位管理員。
+
+### 社團網址與登入範圍（`e12-t04`，2026-11-04 社長決定）
+
+- **網址**：淡江維持原本的網址（`/`、`/table/<id>`、`/history/<id>`…），其他社團在 `/c/<id>/…`（`/c/ntu/`、`/c/ntu/table/<id>`）；`/c/tku/…` 換成原本的網址（頁面載入時 `history.replaceState`，`src/main.tsx`）。網址的規則都在 `shared/clubs.ts`：`clubPath(社團, 路徑)`、`clubOfPath(路徑)`。
+- **前端從網址知道社團**（`src/lib/club.ts`）：載入時讀一次，React Router 用 `basename="/c/<id>"`，所以 app 裡每個 `<Link>`、`navigate()`、通知中心的連結都留在同一個社團，不用逐一改。每個 `fetch` 帶 `X-Club-Id`（`clubHeaders`，`request`、下載、錯誤回報），WebSocket、`<img>` 的頭像與下載連結帶 `?club=`（`withClub`）。淡江的請求什麼都不加，跟以前一模一樣。社團不存在時 `/api/me` 回 `unknownClub`，頁面顯示「找不到這個社團」。各社團的 localStorage 草稿分開（`clubStorageKey`：論壇草稿）。
+- **登入範圍**：每個社團的登入 cookie 名稱不同，淡江沿用原名（`tbt_session`、`tbt_pass`、`tbt_google`、`tbt_line`），其他社團是 `<原名>_<id>`（`clubCookieName`）；社團只讀自己名稱的 cookie，同一個瀏覽器可以同時登入兩個社團。`tbt_device` 全站一個。理由與另一個做法（`Path=/c/<id>/`）的比較在 docs/SECURITY.md「社團與 cookie」。
+- **連結帶社團**：平台核准新社團的信裡的連結是 `/c/<id>/`（`worker/platform.ts` 的 `clubAddress` 用 `clubPath`）；分享連結（`BoardShareDialog`，`appPath`）、Email 驗證與重設密碼的連結（`ClubService.sendVerification`／`requestEmailReset` 用 `clubPath`）、推播的網址（`pushMessage`／`testPushMessage` 的 `clubId`，`PushService` 的 `clubId`）、OAuth 的導回（`Club.inClub`：導回的路徑一律在那個社團的網址下），都開在對的社團。通知中心本來就是 app 裡的相對路徑（`notificationLink`），跟著 `basename`。淡江橋館的連結（`BOOK_SITE`）不變。
+- **Google／LINE**：目前只給淡江（環境變數），維持。其他社團將來開的時候，回呼網址是 `/api/auth/<provider>/callback?club=<id>`（`callbackPath`；提供者的轉址不能帶 header，所以社團放在網址裡，要照這個網址到 Google Cloud／LINE Developers 登錄），流程 cookie 是 `tbt_<provider>_<id>`，回來後導到 `/c/<id>/…`。步驟見 DEPLOY.md §4.19。
+- **跨社團的私訊與邀請**：社長 2026-11-04 決定不同社團的人要先是好友才能私訊或邀請（挑戰、受邀桌、隊制賽）；跨社團的好友還沒有，所以**現在跨社團的私訊與邀請都不可能**：每個社團只認得自己的社員，對別的社團的 id 一律 `userGone`（`ClubService.otherMember`；`tests/worker/club-urls.test.ts`）。跨社團好友做了再開。
+
+### 跨社團大廳（`e12-t07`，2026-11-04）
+
+最小而安全的做法：**別的社團的人只能觀看**，不能入座、不能聊天；跨社團入座（需要訪客身分）留到之後。
+
+- **社團選擇加入**：功能旗標 `publicLobby`（`shared/features.ts`，全站預設 `off`），社團的管理員在管理頁的「功能旗標」打開（可以只開給幹部或指定社員）。有旗標的社員看得到頁首的「其他社團」（`/clubs`），也可以把自己開的牌桌設成「開放其他社團觀看」。
+- **每桌選擇開放**：牌桌設定的 `openToClubs`（`TableSettings`，預設沒有）。只有**一般桌、公開、允許觀看**的牌桌才會給別的社團看（`shared/public-lobby.ts` 的 `openToOtherClubs`），而且房主現在還要有旗標（社團關掉旗標，牌桌立刻不再列出、也看不到）。沒旗標的人送 `openToClubs: true` 回 `publicLobbyOff`；練習、挑戰、隊制賽、雙人賽桌不能開放。牌桌標題列有一個圖示讓坐在桌上的人知道別的社團可能在看。
+- **怎麼看**：Worker 自己回答 `GET /api/public/lobby`（其他每個社團的開放牌桌，含社團名稱 `clubName`）與 `GET /api/public/tables/<社團>/<桌 id>`（`worker/routing.ts` 的 `publicApi`）。先用觀看者**自己社團**的 cookie（通行證或 session）確認身分，再問自己的社團他有沒有旗標（`Club.publicViewer`）；然後用 Durable Object RPC 問對方社團（`Club.publicTables`、`Club.guestTable`），瀏覽器碰不到這些方法。對方社團再問那一桌（`TableApi.guestView`，兩種 `TABLE_OBJECTS` 模式都一樣）。觀看頁 `/clubs/<社團>/<桌 id>` 每 3 秒問一次（`GUEST_POLL_MS`，分頁隱藏時暫停），畫面同 Vugraph（牌圖＋叫牌）。自己社團的牌桌不經過這裡（回 `tableGone`），在自己的大廳看。
+- **看得到什麼**（§4）：同任何觀看者：四家的牌與叫牌、出牌；座位只有名字、是不是機器人、在不在線（`guestSeats`），**沒有社員 id**（id 只在社團內有意義）、沒有聊天、旁觀者名單、最近的牌局、邀請與申請。訪客不在牌桌的旁觀者名單裡，沒有任何會改變牌桌的路由。
+- **哪些社團**：淡江、`CLUBS` 的與平台開通而沒有暫停的社團（`Routes.openClubs`，名冊 `ClubRegistryCache`）；社團名稱用平台開通時的名稱（社團物件的 `meta:club`），淡江是 `shared/clubs.ts` 的 `CLUB_NAMES`。
+- **量**：大廳一次問每個服務中的社團一次（社團少時沒問題）；觀看一桌每 3 秒一次 Worker 請求加兩次 RPC，同 Vugraph。社團多了以後再改成快取或推播。
 
 ### 平台與社團的申請（`e12-t05`、`e12-t06`，2026-11-04）
 
@@ -98,8 +118,9 @@ TKU-BridgeTable/
 │  ├─ messages.ts          錯誤代碼與六種語言的訊息
 │  ├─ integrity.ts         防作弊報表：型別、門檻、從登入紀錄配對帳號、線索強度（§5.17）
 │  ├─ protocol.ts          HTTP／WebSocket 的訊息與畫面型別
-│  ├─ clubs.ts             社團 id 與物件名稱、請求的社團（X-Club-Id／?club=，沒帶是淡江）、牌桌與比賽物件的名稱、R2 前綴（§1）
+│  ├─ clubs.ts             社團 id 與物件名稱、請求的社團（X-Club-Id／?club=，沒帶是淡江）、牌桌與比賽物件的名稱、R2 前綴、社團網址 /c/<id>/ 與 cookie 名稱（§1）
 │  ├─ platform.ts          平台的型別：社團狀態、保留的代號、申請表、後台的畫面（§1）
+│  ├─ public-lobby.ts      跨社團大廳：哪些桌給別的社團看、訪客看到的型別（§1）
 │  ├─ message-guard.ts     WebSocket 訊息的大小上限與型別守衛（§5.6）
 │  ├─ scrub.ts             錯誤回報去除個資（§5.6）
 │  └─ robot/               機器人：robots（兩種機器人與各自的叫牌）、hand（牌型分析）、
@@ -180,7 +201,7 @@ TKU-BridgeTable/
 ├─ src/                    React app
 │  ├─ components/          牌、手牌、叫牌盒、叫牌過程、牌號、名牌、墩、面板、頁首、聊天
 │  ├─ pages/               Login、Lobby、Table、History、Favorites、Board、Challenges、Challenge、Account、Admin
-│  ├─ state/               AuthContext、ClubContext（社團與牌桌兩條 WebSocket，`lib/liveSocket.ts` 保持連線）、PreferencesContext
+│  ├─ state/               AuthContext、ClubContext（社團與牌桌兩條 WebSocket，`lib/liveSocket.ts` 保持連線）、PreferencesContext；頁面屬於哪個社團在 `lib/club.ts`（§1）
 │  ├─ lib/                 api（fetch）、cards（尺寸、名稱）、format、useMediaQuery、robotRules（2/1 機器人的規則，
 │                          需要時才載入，`useRobotRules`）
 │  ├─ styles/              tokens、GlobalStyle
@@ -221,6 +242,7 @@ interface BoardState {
 | 替別的座位叫牌的人（座位控制權，`e10-t15`） | 加上他控制的每個座位的牌（`Table.controllers`，`seatsActedBy` 算出他「替哪幾家叫」，`boardView` 的 `acts`）；輪到其中任何一家時 `legalCalls` 給他（就是 `turn` 那一家），叫牌盒提示用那一家算、不把他控制的機器人當成機器人。那個座位上坐的人（練習桌是 TKB）不會因此多看到什麼，也不能替它叫；觀看者照常（四家）。叫品的 Alert：他自己替兩家叫的，兩家的說明他都看得到。目前只有只叫牌的練習桌會設控制權 |
 | 攤牌之後（被拒絕也一樣） | 攤過的牌不會再蓋回去：莊家攤牌後，兩位防家看得到四家的牌（莊家仍只看自己和夢家）；防家攤牌後，他的牌所有人都看得到。記在 `BoardState.claimed` |
 | 觀看者 | 四家（同 BBO kibitz）；練習桌的觀看者也一樣（§5.11） |
+| 其他社團的訪客（跨社團大廳，`e12-t07`） | 只限一般、公開、允許觀看、開放其他社團的牌桌：同觀看者（四家），座位只有名字（沒有社員 id），沒有聊天、旁觀者、最近牌局、邀請與申請（`guestTableView`，§1「跨社團大廳」） |
 | 不允許觀看的桌上沒有座位的人（站起來或被請離座的玩家，`e2-t26`） | 只看得到所有人都看得到的：首攻後的夢家、防家攤過的牌；打完後四家（`boardView` 的 `kibitz: false`） |
 | 所有人，打完後 | 四家原始牌與所有 Alert 說明 |
 | Alert 說明 | 叫牌者的同伴在打完前看不到；機器人的說明除外（`AuctionCall.robot`），所有人都看得到，同 BBO 的 GIB |
@@ -337,7 +359,7 @@ interface BoardState {
 - **牌桌模式**：`Table.mode`（`casual`、挑戰的 `challenge` 或練習的 `practice`（§5.11），舊資料沒有這欄也當 `casual`）與 `modeState`；`ClubService` 只在三個地方問模式（`worker/modes.ts` 的 `TableModeHooks`，都拿到 `ModeContext`：社團的亂數、現在時間、`ChallengeStore`）：發新一副（`deal`，回傳牌號與四手牌，`null` 表示沒有下一副，最後一副留在桌上）、寫紀錄（`record`）、一副結束（`boardFinished`，在紀錄存好之後，所以拿得到牌局 id）。叫牌、出牌、入座與可見性在每種模式都一樣。牌從 `Table.dealSource` 來（`shared/deal-source.ts`；沒有就是每副重洗）
 - **排程**：機器人的下一步與自動發牌都交給同一個排程器（`worker/scheduler.ts`），每桌每種工作一個 key（`robot:<桌>`、`deal:<桌>`），每個進行中的挑戰一個 `challenge:<挑戰>`（§5.5），每位斷線的入座者一個 `substitute:<桌>:<社員>`（代打；雙人搭檔挑戰桌改成 `partnerAway:<桌>:<社員>`，§5.5），一副的紀錄社團還沒收下時每桌一個 `outbox:<桌>`（§5.10），沒搬完的舊牌桌一個 `migrate:tables`，論壇每篇排程中的貼文一個 `forum:<貼文>:<時間>`（§5.19「公告與新聞的編輯流程」），同一個 key 還在等就不重排。Durable Object 用 `AlarmQueue`：工作放在記憶體，只把最早的一個設成物件唯一的 storage alarm（`alarm()` → `runDue()`），所以不會互相覆蓋 alarm，物件在兩步之間也能休眠；工作不寫進儲存，物件被回收後由 `load()` 依狀態重新排程。**每個 `TableObject` 有自己的佇列與 alarm**（牌桌的工作），社團的只剩挑戰、每週挑戰與搬移（§5.10）；`EVENT_OBJECTS=on` 時挑戰的 `challenge:<挑戰>` 也在那一場自己的 `EventObject`，社團只剩每週挑戰與搬移（`migrate:events`，§5.12 H2b）。測試傳 `schedule` 換成手動佇列
 - **心跳**：兩條連線都一樣（`src/lib/liveSocket.ts`）：瀏覽器每 15 秒送 `ping`，由 `setWebSocketAutoResponse` 直接回 `pong`（不必喚醒物件）。40 秒沒收到任何訊息、分頁回到前景或網路恢復時，瀏覽器立刻重新連線；重連期間的動作暫存 8 秒內補送（社團的連線補送全部，桌的連線只補牌桌動作）
-- **好友與封鎖**（AC-1.6，`worker/relations.ts`）：2026-10-27 起介面曾隱藏，社長 2026-11-03 核准重新開放（docs/ROADMAP.md L3）：功能旗標 `friends`（`shared/features.ts`）全站預設 `on`，`FRIENDS_ENABLED` 跟著是 `true`。社團仍可在管理頁把它關掉或只開給幹部；沒有這個旗標的社員，社員列表、個人檔案卡與個人檔案頁不顯示加好友（星星）、「只看好友」與封鎖按鈕（只剩私訊；之前封鎖過的人仍有「解除封鎖」可以按），「我的帳號」沒有好友上線提示的開關、推播設定沒有「好友上線」那一組，伺服器不送他 `friendOnline`，大廳也不把好友置頂。名單、指令（`setFriend`／`setBlocked`）、儲存與封鎖的檢查不看旗標，一直都在。好友是單向關注，不需對方同意、也不通知對方（同 BBO）；`setFriend`／`setBlocked` 帶對方的 id 與 `true`／`false`，不能對自己（`notSelf`）、不存在的帳號或機器人（`userGone`）。封鎖會同時取消關注，封鎖中不能加好友（`unblockFirst`）、不能邀請他（挑戰與受邀桌回 `unblockToInvite`）。封鎖的效果都在伺服器：被封鎖者的聊天對封鎖者隱藏（§4），封鎖者當房主時被封鎖者不能 `joinTable` 或 `sit` 進那一桌（公開的桌回 `blockedByHost`，其他進入方式回跟任何沒被放行的人一樣的錯誤，申請也只是房主看不到，見「申請加入」；已經在桌上的不會被請走）。私訊（`e1-t27`，§5.7）、挑戰邀請（`e7-t05`，含搭檔挑戰）、受邀桌（`e2-t25`）、隊制賽邀請（§5.8）、比賽報名的搭檔與隊友（§5.24，`tournamentBadPartner`；個人賽和已報名的任何人有封鎖關係就不能報名，`individualBlocked`）與雙人賽的搭檔（§5.22）也檢查 `blocks`；討論區的 `forumMention`／`forumReply` 不通知封鎖了作者的人（社團新聞與幹部的處理照常通知，`worker/forum-notices.ts`）。挑戰與受邀桌仍可邀請任何社員，不必是好友（社長 2026-10-27，2026-11-03 重新開放好友時維持）；跨社團的人是否要先是好友才能私訊或邀請，留到多社團（docs/ROADMAP.md L2）再決定。帳號刪除時雙方名單裡的他都會刪掉，個人資料匯出包含自己的好友與封鎖名單，每日備份也包含（DEPLOY.md §4.4）
+- **好友與封鎖**（AC-1.6，`worker/relations.ts`）：2026-10-27 起介面曾隱藏，社長 2026-11-03 核准重新開放（docs/ROADMAP.md L3）：功能旗標 `friends`（`shared/features.ts`）全站預設 `on`，`FRIENDS_ENABLED` 跟著是 `true`。社團仍可在管理頁把它關掉或只開給幹部；沒有這個旗標的社員，社員列表、個人檔案卡與個人檔案頁不顯示加好友（星星）、「只看好友」與封鎖按鈕（只剩私訊；之前封鎖過的人仍有「解除封鎖」可以按），「我的帳號」沒有好友上線提示的開關、推播設定沒有「好友上線」那一組，伺服器不送他 `friendOnline`，大廳也不把好友置頂。名單、指令（`setFriend`／`setBlocked`）、儲存與封鎖的檢查不看旗標，一直都在。好友是單向關注，不需對方同意、也不通知對方（同 BBO）；`setFriend`／`setBlocked` 帶對方的 id 與 `true`／`false`，不能對自己（`notSelf`）、不存在的帳號或機器人（`userGone`）。封鎖會同時取消關注，封鎖中不能加好友（`unblockFirst`）、不能邀請他（挑戰與受邀桌回 `unblockToInvite`）。封鎖的效果都在伺服器：被封鎖者的聊天對封鎖者隱藏（§4），封鎖者當房主時被封鎖者不能 `joinTable` 或 `sit` 進那一桌（公開的桌回 `blockedByHost`，其他進入方式回跟任何沒被放行的人一樣的錯誤，申請也只是房主看不到，見「申請加入」；已經在桌上的不會被請走）。私訊（`e1-t27`，§5.7）、挑戰邀請（`e7-t05`，含搭檔挑戰）、受邀桌（`e2-t25`）、隊制賽邀請（§5.8）、比賽報名的搭檔與隊友（§5.24，`tournamentBadPartner`；個人賽和已報名的任何人有封鎖關係就不能報名，`individualBlocked`）與雙人賽的搭檔（§5.22）也檢查 `blocks`；討論區的 `forumMention`／`forumReply` 不通知封鎖了作者的人（社團新聞與幹部的處理照常通知，`worker/forum-notices.ts`）。挑戰與受邀桌仍可邀請任何社員，不必是好友（社長 2026-10-27，2026-11-03 重新開放好友時維持）；跨社團：社長 2026-11-04 決定不同社團的人要先是好友才能私訊或邀請，跨社團好友還沒有，所以現在跨社團的私訊與邀請都不可能（§1「社團網址與登入範圍」）。帳號刪除時雙方名單裡的他都會刪掉，個人資料匯出包含自己的好友與封鎖名單，每日備份也包含（DEPLOY.md §4.4）
 - 使用 Durable Object 的 hibernation API：沒人打牌時物件可以休眠，WebSocket 不會斷，醒來時從儲存重新載入。
 
 **儲存**（Durable Object 的 key-value，SQLite 後端）：
@@ -1081,7 +1103,7 @@ AC-13.4 的「公告、新聞」沿用 K1 的對照：**公告與新聞都在「
 - **速率限制**（`worker/rate-limit.ts`）：每個帳號的信（驗證加重設）一次 3 封、之後每 10 分鐘 1 封，驗證超過回 `slowDown`、重設超過**不說**（說了就洩漏帳號有 Email）；同一個 IP 的重設申請一次 5 次、之後每 2 分鐘 1 次（`slowDown`，只看 IP 不洩漏帳號）；錯的重設連結跟登入共用同一個 IP 的失敗次數（`tooManyLogins`）。
 - **個資**：Email 存在 `user:<id>` 裡，匯出（`GET /api/account/export`）有 `email`、`emailVerifiedAt` 與等待驗證的地址，沒有任何權杖雜湊；刪帳號時跟著 `user:<id>` 刪除。其他社員與管理頁都看不到 Email。隱私權政策加了一段（六種語言，`LEGAL_UPDATED` 2026-11-02）。
 - **信的文字**在 `shared/messages.ts`（`mailVerifySubject`、`mailVerifyBody`、`mailResetSubject`、`mailResetBody`，六種語言），語言照頁面送來的 `lang`，沒有就繁中；純文字，不寄 HTML。
-- **限制**：多社團（`e12-t02`、`e12-t03`）的連結沒有帶社團，Email 的 API 和其他沒登入的 API 一樣到預設社團（淡江）；別的社團的連結在淡江只會是「不存在」，不會讀到別的社團的資料。社團網址（`e12-t04`）時一起處理。
+- **多社團**（`e12-t04`）：信裡的連結帶社團（其他社團是 `/c/<id>/email/verify#…`），頁面從網址知道社團、呼叫 API 時帶 `X-Club-Id`，所以連結在哪個裝置打開都到對的社團。
 
 ## 5.21 社團積分與實力評分（決策紀錄，`e9-t04`～`e9-t08`，2026-11-02，J2）
 

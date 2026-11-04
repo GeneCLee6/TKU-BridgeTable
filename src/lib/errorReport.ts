@@ -1,4 +1,5 @@
 import { scrub } from '../../shared/scrub.ts'
+import { clubHeaders, withClub } from './club.ts'
 
 /**
  * Sends the page's uncaught errors and unhandled promise rejections to `/api/client-errors`
@@ -49,8 +50,9 @@ export function setUpErrorReporting() {
     if (Math.random() >= REPORT_SAMPLE_RATE) return
     const body = JSON.stringify(report)
     try {
-      if (navigator.sendBeacon?.(REPORT_URL, body)) return
-      void fetch(REPORT_URL, { method: 'POST', body, keepalive: true, headers: { 'Content-Type': 'application/json' } }).catch(() => {})
+      // A beacon carries no header: another club's names itself in the address (e12-t04)
+      if (navigator.sendBeacon?.(withClub(REPORT_URL), body)) return
+      void fetch(REPORT_URL, { method: 'POST', body, keepalive: true, headers: clubHeaders({ 'Content-Type': 'application/json' }) }).catch(() => {})
     } catch {
       // Reporting must never cause another error
     }

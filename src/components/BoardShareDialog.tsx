@@ -8,6 +8,7 @@ import { usePreferences } from '../state/PreferencesContext.tsx'
 import { panelScroll } from '../styles/controls.ts'
 import { Backdrop } from './Modal.tsx'
 import { Button, Card, ErrorText, Input, Muted } from './ui.tsx'
+import { appPath } from '../lib/club.ts'
 
 /**
  * 公開分享連結 (e4-t38, ARCHITECTURE.md §4): a board's players and the admins make a link anyone
@@ -48,7 +49,8 @@ const Buttons = styled.div`
 `
 
 /** The address a share opens on this site */
-const shareUrl = (token: string) => `${window.location.origin}/share/${token}`
+// The link opens in the board's club (e12-t04): another club's under /c/<id>/
+const shareUrl = (token: string) => `${window.location.origin}${appPath(`/share/${token}`)}`
 
 export function BoardShareDialog({ boardId, onClose }: { boardId: string; onClose: () => void }) {
   const { t, lang, message } = usePreferences()

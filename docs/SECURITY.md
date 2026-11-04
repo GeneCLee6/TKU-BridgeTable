@@ -77,12 +77,41 @@ npx tsx -e "import {headersFile} from './worker/security-headers.ts'; process.st
 | 3.2.1／3.2.2 登入後換新 token、128 bit 以上隨機 | ✅ | 每次登入新的 256 bit token（`randomId(32)`，`crypto.getRandomValues`） |
 | 3.3.1 登出讓 session 失效 | ✅ | `POST /api/logout` 刪掉 `session:<token>` 並清 cookie |
 | 3.3.3 改密碼後可以登出其他 session | ✅ | 「登入中的裝置」卡（`GET /api/account/sessions`、`DELETE /api/account/sessions/:id`、`POST /api/account/sessions/others`）；改密碼時也自動登出其他裝置。`e11-t28` 起連邊緣通行證與牌桌的連線也一起失效 |
-| 多社團的隔離（`e12-t03`） | ✅ | 每個社團一個 Durable Object；物件之外的共用資源都帶社團：牌桌與比賽物件的名稱、牌桌連線的 `X-TBT-Club`、邊緣通行證的簽章內容、D1 副本每列的 `club_id`（每個查詢都過濾）、R2 的 `clubs/<id>/` 前綴與檔案網址的簽章（ARCHITECTURE.md §1「多社團的隔離」，`tests/worker/club-isolation.test.ts`）。已知限制：同網域的 cookie 名稱相同，在另一個社團登入會蓋掉這個社團的 session（被登出，不會跨社團生效），登入範圍是 `e12-t04` |
+| 多社團的隔離（`e12-t03`） | ✅ | 每個社團一個 Durable Object；物件之外的共用資源都帶社團：牌桌與比賽物件的名稱、牌桌連線的 `X-TBT-Club`、邊緣通行證的簽章內容、D1 副本每列的 `club_id`（每個查詢都過濾）、R2 的 `clubs/<id>/` 前綴與檔案網址的簽章（ARCHITECTURE.md §1「多社團的隔離」，`tests/worker/club-isolation.test.ts`） |
+| 多社團的登入範圍（`e12-t04`） | ✅ | 見下面「社團與 cookie」：每個社團的登入 cookie 名稱不同（淡江沿用原名），社團只讀自己名稱的 cookie，同一個瀏覽器可以同時登入兩個社團，A 社團的 session 永遠到不了 B 社團（`tests/worker/club-urls.test.ts`） |
 | 平台管理員與社團的開通（`e12-t05`、`e12-t06`） | ✅ | **只有一個平台管理員**（社長 2026-11-04）：Worker secret `PLATFORM_OWNER` 指名的那一個淡江帳號，而且必須是淡江的管理員、開了兩步驟登入，用淡江原本的登入與 session（`requirePlatformOwner`）；沒設 secret、別的帳號、別的社團的同一個 id，`/api/platform/*` 一律 404，不透露有沒有後台、誰是管理員。**沒有人能靠「第一個註冊」變成管理員**：只有淡江開站時的第一個帳號會（`ClubService.register`），其他社團的第一位管理員只能由平台核准申請時建立（`provisionFounder`）。**申請表**不必登入：每個網路一小時 3 份（加鹽雜湊，同 `RegistrationLimit`）、同時最多 50 份待審、有 Turnstile 時要過；代號檢查格式與保留字（`RESERVED_CLUB_IDS`）、不能跟現有或待審的重複；申請人的密碼照新密碼規則檢查、只存 PBKDF2 雜湊，審核（核准或退回）後立刻刪；聯絡 Email 只用來寄審核結果，已審核的申請最多留 50 份。**暫停**：社團自己的物件記住狀態（`meta:club`，不在備份裡、還原不會改），每個請求、連線與牌桌連線都先問它（`clubSuspended`），同時結束所有 session（含邊緣通行證）、關掉所有連線，資料不刪；Worker 的名冊副本最多 30 秒舊，只是先擋。社團名冊在淡江的物件（`platform:`），在備份裡但還原時不寫也不刪。每個動作記在淡江的稽核紀錄（`platform:approve`／`reject`／`suspend`／`unsuspend`）（ARCHITECTURE.md §1「平台與社團的申請」） |
-| 3.4.1～3.4.3 cookie 屬性 | ✅ | `tbt_session`、`tbt_pass`、`tbt_device`（瀏覽器 id，不是登入憑證，防作弊報表用，ARCHITECTURE.md §5.17）都是 HttpOnly、SameSite=Lax、Path=/，HTTPS 時加 Secure |
+| 3.4.1～3.4.3 cookie 屬性 | ✅ | `tbt_session`、`tbt_pass`、`tbt_device`（瀏覽器 id，不是登入憑證，防作弊報表用，ARCHITECTURE.md §5.17）都是 HttpOnly、SameSite=Lax、Path=/，HTTPS 時加 Secure；其他社團的是 `tbt_session_<id>`、`tbt_pass_<id>`，屬性相同 |
 | 3.4.4 `__Host-` 前綴 | 📋 | 沒用。改名會讓全部人（含淡江橋館經 Vercel 轉發的登入）重新登入一次，`e11-t28` 沒一起做，留給社長決定時間（§4） |
 | 3.7.1 重要操作再驗證 | ✅ | 改密碼要目前的密碼；刪除帳號要密碼＋確認 |
 | 邊緣通行證的撤銷窗口 | 🔧 | `e11-t28`：通行證帶 session id（`pass2` 格式）；session 結束時社團把 id 寫進 D1 的 `pass_revocations`，Worker 每次靠通行證回答前先查，**登出後下一個請求就不認**；同時關掉那個人在牌桌的連線（`TableApi.signOut`）。沒有 D1（PR 預覽）或查詢失敗時 Worker 不認通行證、改問社團（ARCHITECTURE.md §5.12） |
+
+#### 社團與 cookie（`e12-t04`，2026-11-04）
+
+所有社團在同一個網域（淡江在原本的網址，其他社團在 `/c/<id>/`），所以 cookie 要分社團，否則在 B 社團登入會蓋掉 A 社團的 session。考慮過兩種做法：
+
+| 做法 | 結果 |
+| --- | --- |
+| **每個社團的 cookie 名稱不同**（採用） | 淡江的 `tbt_session`、`tbt_pass`、`tbt_google`、`tbt_line` 一律不改名，正式站沒有人被登出；其他社團是 `<原名>_<社團 id>`（`shared/clubs.ts` 的 `clubCookieName`；`tbt_session_ntu`、`tbt_pass_ntu`、`tbt_google_ntu`）。API 路徑不變（`/api/*` 加 `X-Club-Id`），淡江橋館經 Vercel 的轉發也不用改。 |
+| cookie 加 `Path=/c/<id>/`、API 搬到 `/c/<id>/api/*` | 瀏覽器不會把別的社團的 cookie 送出來，但每一支 API、WebSocket、檔案網址、OAuth 回呼與淡江橋館的轉發都要改路徑；淡江的 cookie 若不改 Path 仍會送給所有社團的請求，隔離一樣要靠伺服器只讀自己的 cookie，沒有多買到什麼。 |
+
+規則：
+
+- **社團只讀自己名稱的 cookie**：社團物件（`worker/club.ts`）與 Worker（`worker/routing.ts`）都用 `sessionCookieName(社團)`、`passCookieName(社團)`、`flowCookieName(provider, 社團)` 找 cookie。請求的社團來自 `X-Club-Id`（WebSocket 用 `?club=`），所以就算把 A 社團的 token 改名成 B 社團的 cookie 送過去，B 社團也找不到這個 session（session 存在各社團自己的物件裡）。通行證另外簽了社團（`pass3:<社團>:…`，`e12-t03`）。
+- **同時登入兩個社團**：兩組 cookie 都在 `Path=/`，互不覆蓋；每個分頁照網址決定是哪個社團。登出只清那個社團的 cookie。
+- **`tbt_device` 不分社團**：它不是登入憑證，只是瀏覽器的隨機 id（防作弊報表），刻意全站一個，之後平台可以跨社團看同一個瀏覽器（H6b）。
+- **OAuth**：流程 cookie 分社團；回呼網址淡江照舊 `/api/auth/<provider>/callback`，其他社團加 `?club=<id>`（`callbackPath`），導回的頁面一律在那個社團的網址下（`Club.inClub`，淡江橋館的路徑不動）。Google／LINE 目前只給淡江，見 DEPLOY.md §4.19。
+- **淡江橋館**：只用淡江的 cookie 名稱（登入前不帶社團就是淡江），不受影響。
+
+已知限制：推播訂閱是瀏覽器層級的，在 B 社團登出會取消這個瀏覽器的推播訂閱，A 社團的推播也一起停（重新在 A 開啟即可）；PWA 安裝後的起始頁是淡江（`manifest.webmanifest` 的 `start_url`）。
+
+#### 平台經營者的權杖
+
+`BOOK_SEED_TOKEN`（淡江橋譜的初始內容）、`BOOK_EXPORT_TOKEN`（匯出）與 `TWO_FACTOR_RESET_TOKEN`（只有一位管理員又遺失兩步驟登入時的救援）是**平台經營者**（社長，能操作 Cloudflare 帳號的人）的權杖，刻意全站一套：對請求所指的社團（`X-Club-Id`）有效，不是任何社團的管理員可以拿到或設定的東西。`TWO_FACTOR_RESET_TOKEN` 平常不存在、用完就刪（DEPLOY.md §4.15）。社團自己的管理員只有自己社團的權限。
+
+#### 跨社團（`e12-t07`）
+
+- **私訊、邀請、好友只在社團內**：每個社團只知道自己的社員（帳號在各自的物件裡），私訊、挑戰、受邀桌、隊制賽邀請、加好友對別的社團的 id 一律回 `userGone`（`otherMember`，`tests/worker/club-urls.test.ts`）。社長 2026-11-04：不同社團的人要先是好友才能私訊或邀請；跨社團的好友還不存在，所以現在跨社團的私訊與邀請**都不可能**，等跨社團好友做了再開。
+- **跨社團大廳只能觀看**：見 ARCHITECTURE.md §1「跨社團大廳」。Worker 先用觀看者自己社團的 cookie 確認身分與旗標，再向對方社團要牌桌；對方社團只回開放其他社團的牌桌，內容由 `worker/views.ts` 的 `guestTableView` 決定（名字與牌，沒有社員 id、聊天、旁觀者名單）。訪客沒有任何寫入的路由。
 
 ### V4 存取控制
 

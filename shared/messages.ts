@@ -290,6 +290,15 @@ export const MESSAGES = {
     ja: 'このクラブは見つかりません',
     ko: '이 클럽을 찾을 수 없습니다',
   },
+  /** The cross-club lobby (e12-t07): the member's club has not joined it, or they do not have it (`publicLobby` flag) */
+  publicLobbyOff: {
+    zh: '你的社團沒有加入跨社團大廳',
+    'zh-Hans': '你的社团没有加入跨社团大厅',
+    en: 'Your club has not joined the cross-club lobby',
+    vi: 'Câu lạc bộ của bạn chưa tham gia sảnh liên câu lạc bộ',
+    ja: 'あなたのクラブはクラブ間ロビーに参加していません',
+    ko: '소속 클럽이 클럽 간 로비에 참여하지 않았습니다',
+  },
   // The platform (e12-t05, e12-t06; shared/platform.ts)
   /** A club the platform owner suspended: its data is kept, nobody can use it until it is unsuspended */
   clubSuspended: {

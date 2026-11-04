@@ -33,7 +33,8 @@ import type {
   TablePractice,
   TableSettings,
 } from '../shared/protocol.ts'
-import { TABLE_REQUEST_MS, type RobotSpeed } from '../shared/protocol.ts'
+import { isRobotId, TABLE_REQUEST_MS, tableSettingsFrom, type RobotSpeed } from '../shared/protocol.ts'
+import { openToOtherClubs, type GuestSeat, type GuestTable } from '../shared/public-lobby.ts'
 import type { EventReport, PracticeTableState } from './modes.ts'
 import { isOpenChallenge, type ChallengeTraveller, type ChallengeView } from '../shared/challenge.ts'
 import type { DealSource } from '../shared/deal-source.ts'
@@ -782,6 +783,40 @@ export function laggedBoard(board: BoardState): BoardState {
 export function vugraphBoard(board: BoardState, delay: boolean): BoardView {
   const { bookTopics: _topics, ...view } = boardView(delay ? laggedBoard(board) : board, null, { undoAllowed: false })
   return view
+}
+
+/**
+ * A table as a guest from another club watches it (the cross-club lobby, e12-t07, ARCHITECTURE.md
+ * §4): the board as any spectator sees it (all four hands, as kibitzers on BBO; `vugraphBoard`
+ * without delay), the seats by name only (`guestSeats`: no member ids, which mean nothing, or
+ * someone else, in the guest's club) and nothing else of the table: no chat, no spectators, no
+ * recent boards, no invitations or requests. Null for a table not open to other clubs
+ * (`openToOtherClubs`): a casual, public table that allows kibitzers, opened by its host
+ */
+export function guestTableView(
+  table: Table,
+  seats: Record<Seat, SeatOccupant | null>,
+): Omit<GuestTable, 'clubId' | 'clubName'> | null {
+  if (!openToOtherClubs({ mode: table.mode, settings: tableSettingsFrom(table.settings) })) return null
+  return {
+    tableId: table.id,
+    number: table.number,
+    seats: guestSeats(seats),
+    board: table.board ? vugraphBoard(table.board, false) : null,
+    boardsPlayed: table.boardsPlayed,
+  }
+}
+
+/** The seats as another club sees them: each one's name, whether it is a robot and online; never an id */
+export function guestSeats(seats: Record<Seat, (PublicUser & { online?: boolean }) | null>): Record<Seat, GuestSeat | null> {
+  const shown = {} as Record<Seat, GuestSeat | null>
+  for (const seat of SEATS) {
+    const occupant = seats[seat]
+    shown[seat] = occupant
+      ? { username: occupant.username, online: occupant.online ?? true, ...(isRobotId(occupant.id) && { robot: true as const }) }
+      : null
+  }
+  return shown
 }
 
 /** The watchers' chat as one member sees it: without the lines of those they blocked (as at a table, `chatFor`) */

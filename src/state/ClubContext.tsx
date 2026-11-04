@@ -26,6 +26,7 @@ import {
 import type { TeamMatchView } from '../../shared/team-match.ts'
 import { composeLobby, emptyReplica, receiveLobby } from '../../shared/lobby.ts'
 import type { MessageParams } from '../../shared/messages.ts'
+import { clubHeaders } from '../lib/club.ts'
 import { liveSocket, type ConnectionStatus, type LiveSocket } from '../lib/liveSocket.ts'
 import { useAuth } from './AuthContext.tsx'
 
@@ -138,7 +139,7 @@ export function ClubProvider({ children }: { children: ReactNode }) {
       onStatus: setStatus,
       onOpen: () => flush(socket, false),
       onRefused: () =>
-        void fetch('/api/me').then((r) => {
+        void fetch('/api/me', { headers: clubHeaders() }).then((r) => {
           if (r.status === 401) void logout()
         }),
     })

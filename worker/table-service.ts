@@ -70,7 +70,7 @@ import {
 import type { Scheduler } from './scheduler.ts'
 import { tableMatch, teamPaused, teamStateOf, teamTableOver } from './team-mode.ts'
 import { pairsStateOf, pairsTableOver, tablePairs } from './pairs-mode.ts'
-import type { ClubLink, MatchTableUpdate, Named, Person, TableApi, TableEntry, Tables } from './tables.ts'
+import type { ClubLink, GuestTableBody, MatchTableUpdate, Named, Person, TableApi, TableEntry, Tables } from './tables.ts'
 import type { VugraphRoom } from '../shared/team-match.ts'
 import {
   actorOf,
@@ -86,6 +86,7 @@ import {
   seatsActedBy,
   tableListed,
   vugraphBoard,
+  guestTableView,
   type AccessFacts,
   type Table,
 } from './views.ts'
@@ -396,7 +397,10 @@ export class TableService implements TableApi {
     // At a practice table only who may watch changes: it has no time limit, and watching is what coming in means
     if (table.mode === 'practice' && (settings.allowKibitz !== undefined || settings.boardMinutes !== undefined))
       throw this.fixed()
+    // Only a casual table is ever opened to other clubs (e12-t07)
+    if (settings.openToClubs && (table.mode ?? 'casual') !== 'casual') throw this.fixed()
     table.settings = { ...settingsOf(table), ...settings }
+    if (!table.settings.openToClubs) delete table.settings.openToClubs
     // Requests wait only at a request table; whoever was let in before stays let in
     if (table.settings.access !== 'request') table.requests = []
     if (invited) {
@@ -624,6 +628,14 @@ export class TableService implements TableApi {
       board: table.board ? vugraphBoard(table.board, !!state.delay && !state.closed) : null,
       match: tableMatch(table)!,
     }
+  }
+
+  /** The table as a guest from another club watches it (e12-t07): worker/views.ts decides what is shown */
+  async guestView(): Promise<GuestTableBody | null> {
+    const table = this.table
+    if (!table) return null
+    const online = this.connections.onlineUserIds()
+    return guestTableView(table, this.occupants(table, (id) => isRobotId(id) || online.includes(id)))
   }
 
   /**

@@ -1,4 +1,5 @@
 import type { Lang } from './messages.ts'
+import { clubPath, DEFAULT_CLUB_ID } from './clubs.ts'
 import { notificationLink } from './notification-link.ts'
 import type { Notification, NotificationKind } from './protocol.ts'
 import { PUSH_TEXTS } from './push-texts.generated.ts'
@@ -54,8 +55,11 @@ function fill(template: string, values: Record<string, string>): string {
 
 const clip = (text: string) => (text.length > PUSH_BODY_MAX ? `${text.slice(0, PUSH_BODY_MAX - 1)}…` : text)
 
-/** A notification as a push in `lang`: the same text as the bell and the same page when clicked */
-export function pushMessage(n: Notification, lang: Lang, options: { forum?: boolean } = {}): PushMessage {
+/**
+ * A notification as a push in `lang`: the same text as the bell and the same page when clicked, in
+ * the member's own club (`clubId`, e12-t04: another club's pages are under `/c/<id>/`)
+ */
+export function pushMessage(n: Notification, lang: Lang, options: { forum?: boolean; clubId?: string } = {}): PushMessage {
   const texts = PUSH_TEXTS[lang] ?? PUSH_TEXTS.zh
   const p = n.params
   const str = (value: unknown) => (value === undefined || value === null ? '' : String(value))
@@ -68,11 +72,11 @@ export function pushMessage(n: Notification, lang: Lang, options: { forum?: bool
     number: String(Number(p.number ?? 0)),
     gb: String(Number(p.gb ?? 0)),
   }
-  return { title: texts.title, body: clip(fill(texts.kinds[n.kind] ?? '', values)), url: notificationLink(n, options), tag: n.id }
+  return { title: texts.title, body: clip(fill(texts.kinds[n.kind] ?? '', values)), url: clubPath(options.clubId ?? DEFAULT_CLUB_ID, notificationLink(n, options)), tag: n.id }
 }
 
 /** The test push from "My account" */
-export function testPushMessage(lang: Lang): PushMessage {
+export function testPushMessage(lang: Lang, clubId: string = DEFAULT_CLUB_ID): PushMessage {
   const texts = PUSH_TEXTS[lang] ?? PUSH_TEXTS.zh
-  return { title: texts.title, body: texts.test, url: '/account', tag: 'push-test' }
+  return { title: texts.title, body: texts.test, url: clubPath(clubId, '/account'), tag: 'push-test' }
 }

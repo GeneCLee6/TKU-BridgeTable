@@ -31,6 +31,7 @@ import { fromLocalInput, initialRelease, notOut } from '../lib/forumRelease.ts'
 import { useAuth } from '../state/AuthContext.tsx'
 import { usePreferences } from '../state/PreferencesContext.tsx'
 import type { Strings } from '../strings.ts'
+import { clubStorageKey } from '../lib/club.ts'
 
 /**
  * 發文編輯器 (E13 K2, `e13-t04`, ARCHITECTURE.md §5.19): writing a post on the table's own site,
@@ -58,7 +59,7 @@ const SHARE_BOARD_ID = 'deals'
 
 function loadDraft(): PostDraft | null {
   try {
-    const value: unknown = JSON.parse(window.localStorage.getItem(DRAFT_KEY) ?? 'null')
+    const value: unknown = JSON.parse(window.localStorage.getItem(clubStorageKey(DRAFT_KEY)) ?? 'null')
     return isPostDraft(value) ? value : null
   } catch {
     return null
@@ -67,8 +68,8 @@ function loadDraft(): PostDraft | null {
 
 function saveDraft(draft: PostDraft | null) {
   try {
-    if (draft && (draft.title.trim() || draft.blocks.length)) window.localStorage.setItem(DRAFT_KEY, JSON.stringify(draft))
-    else window.localStorage.removeItem(DRAFT_KEY)
+    if (draft && (draft.title.trim() || draft.blocks.length)) window.localStorage.setItem(clubStorageKey(DRAFT_KEY), JSON.stringify(draft))
+    else window.localStorage.removeItem(clubStorageKey(DRAFT_KEY))
   } catch {
     // A full or blocked storage only loses the draft
   }

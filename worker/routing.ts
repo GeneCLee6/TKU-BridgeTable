@@ -1,10 +1,11 @@
 import { CLUB_HEADER, CLUB_IDS, CLUB_PARAM, requestClubId } from '../shared/clubs.ts'
 import type { ClubStatus } from '../shared/platform.ts'
 import { formatMessage, type MessageCode } from '../shared/messages.ts'
+import type { GuestTable, PublicLobby, PublicTable } from '../shared/public-lobby.ts'
 import { parseHistoryQuery, type HistoryQuery } from '../shared/history-query.ts'
 import { TABLE_ID_PATTERN, TABLE_SOCKET_PREFIX } from '../shared/protocol.ts'
-import { readCookie, SESSION_COOKIE } from './auth.ts'
-import { PASS_COOKIE, passRevoked, readPass } from './edge-auth.ts'
+import { readCookie, sessionCookieName } from './auth.ts'
+import { passCookieName, passRevoked, readPass } from './edge-auth.ts'
 import { listQuery, namesOthers } from './history-index.ts'
 import { daysReplica, searchReplica, type ReplicaDb } from './history-replica.ts'
 import { noLog, type Logger } from './log.ts'
@@ -28,10 +29,19 @@ export interface Routes {
    * sockets are answered `clubSuspended` here (its object refuses them too, e12-t05)
    */
   findClub?(clubId: string): Promise<ClubStatus | null>
+  /** The clubs the platform opened that are not suspended (the registry), for the cross-club lobby (e12-t07) */
+  openClubs?(): Promise<string[]>
   /** A club's object (shared/clubs.ts); the routing only asks for clubs that exist */
   club(clubId: string): Fetches & {
     /** The member signed in with this session token, or null (one call per table connection, not per message) */
     socketUser(token: string | null): Promise<string | null>
+    /**
+     * The cross-club lobby (e12-t07): whether the club's member may use it, the club's tables shown
+     * to other clubs, one of them as a guest watches it. Left out (tests that do not need it): off
+     */
+    publicViewer?(userId: string): Promise<boolean>
+    publicTables?(): Promise<PublicTable[]>
+    guestTable?(tableId: string): Promise<GuestTable | null>
   }
   /** A club's table's object: `tableObjectName(clubId, tableId)`, so one club never reaches another's (e12-t03) */
   table(clubId: string, tableId: string): Fetches
@@ -91,7 +101,7 @@ export async function route(request: Request, routes: Routes): Promise<Response>
   const passUser = async () => {
     const { secret, revocations, log = noLog } = routes.edge ?? {}
     if (!secret || !revocations) return null
-    const pass = await readPass(secret, readCookie(cookies, PASS_COOKIE), now(), clubId)
+    const pass = await readPass(secret, readCookie(cookies, passCookieName(clubId)), now(), clubId)
     if (!pass) return null
     const started = now()
     try {
@@ -106,7 +116,7 @@ export async function route(request: Request, routes: Routes): Promise<Response>
     const tableId = pathname.slice(TABLE_SOCKET_PREFIX.length)
     if (!TABLE_ID_PATTERN.test(tableId)) return new Response('Not found', { status: 404 })
     if (request.headers.get('Upgrade') !== 'websocket') return new Response('Expected WebSocket', { status: 426 })
-    const userId = (await passUser()) ?? (await club().socketUser(readCookie(cookies, SESSION_COOKIE)))
+    const userId = (await passUser()) ?? (await club().socketUser(readCookie(cookies, sessionCookieName(clubId))))
     if (!userId) return new Response('Unauthorized', { status: 401 })
     const headers = new Headers(request.headers)
     headers.set(TABLE_USER_HEADER, userId)
@@ -120,9 +130,53 @@ export async function route(request: Request, routes: Routes): Promise<Response>
     const answer = userId && (await edgeHistory(url, clubId, userId, history, now, routes.edge?.log ?? noLog))
     if (answer) return answer
   }
+  if (pathname.startsWith(PUBLIC_API)) {
+    const userId = (await passUser()) ?? (await club().socketUser(readCookie(cookies, sessionCookieName(clubId))))
+    return publicApi(pathname, request.method, clubId, userId, routes)
+  }
   if (pathname === '/ws' || pathname.startsWith('/api/')) return club().fetch(request)
   return routes.assets.fetch(request)
 }
+
+/** The cross-club lobby's API, answered by the Worker from every club (e12-t07) */
+const PUBLIC_API = '/api/public/'
+
+/**
+ * The cross-club lobby (e12-t07, ARCHITECTURE.md §1「跨社團大廳」): `GET /api/public/lobby` lists the
+ * tables every other club shows to other clubs, `GET /api/public/tables/<club>/<id>` is one of them
+ * as a guest watches it. Only for a member signed in to their own club (the request's), whose club
+ * joined it and who has it (`publicViewer`, the `publicLobby` flag); each other club decides what
+ * it shows (`ClubService.publicTables`, `guestTable`). Never a seat, a chat or a member id: the
+ * guest is only shown the table. A club's own tables are in its own lobby, not here
+ */
+async function publicApi(pathname: string, method: string, clubId: string, userId: string | null, routes: Routes): Promise<Response> {
+  if (method !== 'GET') return errorAnswer('noSuchApi', 404)
+  if (!userId) return errorAnswer('signInFirst', 401)
+  const own = routes.club(clubId)
+  if (!(await own.publicViewer?.(userId))) return errorAnswer('publicLobbyOff', 403)
+  // Every club served: 淡江, `CLUBS`'s and the ones the platform opened and did not suspend
+  const clubs = [...new Set([...(routes.clubs ?? CLUB_IDS), ...((await routes.openClubs?.().catch(() => [])) ?? [])])]
+  if (pathname === `${PUBLIC_API}lobby`) {
+    const lists = await Promise.all(
+      clubs
+        .filter((id) => id !== clubId)
+        .map((id) => Promise.resolve(routes.club(id).publicTables?.() ?? []).catch((): PublicTable[] => [])),
+    )
+    const tables = lists.flat().sort((a, b) => a.clubName.localeCompare(b.clubName) || a.number - b.number)
+    return jsonAnswer({ tables } satisfies PublicLobby)
+  }
+  const watched = /^\/api\/public\/tables\/([a-z][a-z0-9-]*)\/([^/]+)$/.exec(pathname)
+  if (!watched) return errorAnswer('noSuchApi', 404)
+  const [, hostClub, tableId] = watched
+  if (!clubs.includes(hostClub)) return errorAnswer('unknownClub', 404)
+  if (hostClub === clubId || !TABLE_ID_PATTERN.test(tableId)) return errorAnswer('tableGone', 404)
+  const table = (await routes.club(hostClub).guestTable?.(tableId)) ?? null
+  return table ? jsonAnswer({ table }) : errorAnswer('tableGone', 404)
+}
+
+const jsonAnswer = (data: unknown) =>
+  new Response(JSON.stringify(data), { headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' } })
+
 
 /** Whether a request came from a page of this site, or names no page at all (no Origin) */
 function sameOrigin(request: Request, url: URL): boolean {

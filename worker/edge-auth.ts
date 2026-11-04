@@ -19,10 +19,14 @@
  * the club, as when there is no pass at all.
  */
 
+import { clubCookieName, DEFAULT_CLUB_ID } from '../shared/clubs.ts'
 import type { Statement } from './history-index.ts'
 import type { ReplicaDb } from './history-replica.ts'
 
+/** 淡江's pass cookie; every other club's is `tbt_pass_<id>` (`passCookieName`, e12-t04) */
 export const PASS_COOKIE = 'tbt_pass'
+/** The pass cookie's name in a club, so a member signed in to two clubs keeps a pass for each */
+export const passCookieName = (clubId: string = DEFAULT_CLUB_ID) => clubCookieName(PASS_COOKIE, clubId)
 /** How long a pass is good for */
 export const EDGE_PASS_MS = 10 * 60_000
 /** The club hands out a new pass once the old one has less than this left */
@@ -102,9 +106,9 @@ export async function passNeedsRefresh(secret: string, pass: string | null, now:
 }
 
 /** The pass cookie, or (with an empty pass) the cookie that clears it; HttpOnly like the session's */
-export function passCookie(pass: string, secure: boolean): string {
+export function passCookie(pass: string, secure: boolean, clubId: string = DEFAULT_CLUB_ID): string {
   return [
-    `${PASS_COOKIE}=${pass}`,
+    `${passCookieName(clubId)}=${pass}`,
     'Path=/',
     'HttpOnly',
     'SameSite=Lax',

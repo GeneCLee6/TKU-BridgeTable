@@ -15,7 +15,7 @@
  * every language of `src/strings.ts` (`featureFlags`), and check it where the feature is.
  */
 
-export const FEATURE_FLAGS = ['friends', 'forum', 'rankings', 'pairs', 'tournaments'] as const
+export const FEATURE_FLAGS = ['friends', 'forum', 'rankings', 'pairs', 'tournaments', 'publicLobby'] as const
 export type FeatureFlag = (typeof FEATURE_FLAGS)[number]
 
 export const FEATURE_STATES = ['off', 'officers', 'on'] as const
@@ -59,6 +59,10 @@ export type FeatureSettings = Partial<Record<FeatureFlag, FeatureSetting>>
  * the announcement notice. Off until the club announces its first one; admins reach the pages with
  * the flag off to announce and prepare it. A pairs event made from a tournament is played by its
  * players whether or not they have `pairs`.
+ * Cross-club lobby (跨社團大廳, e12-t07, ARCHITECTURE.md §1「跨社團大廳」): the club joins it. A member
+ * who has the flag sees the other clubs' open tables (`/clubs`) and may watch them (watching only:
+ * no seat, no chat), and may mark a table they host "open to other clubs"; such a table is listed
+ * for the other clubs only while its host has the flag. Off until the club's admins choose to join.
  */
 export const FEATURE_DEFAULTS: Record<FeatureFlag, FeatureState> = {
   friends: 'on',
@@ -66,6 +70,7 @@ export const FEATURE_DEFAULTS: Record<FeatureFlag, FeatureState> = {
   pairs: 'off',
   rankings: 'off',
   tournaments: 'off',
+  publicLobby: 'off',
 }
 
 /** Kept for the code and tests written before flags: whether friends are on for everyone by default (true since L3) */
