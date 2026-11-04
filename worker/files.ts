@@ -14,6 +14,7 @@ import {
   thumbKey,
   type UploadedFile,
 } from '../shared/files.ts'
+import { CLUB_PARAM, DEFAULT_CLUB_ID } from '../shared/clubs.ts'
 import { randomId } from './auth.ts'
 import { ClubError } from './errors.ts'
 import type { Store } from './store.ts'
@@ -35,6 +36,12 @@ import type { Store } from './store.ts'
  * - `file:secret`: the random key that signs the addresses, made on first use
  * - `file:usage`: how many bytes the files take up, and whether admins were told it is nearly
  *   full (BridgeHall e5-t15); counted from `file:meta:` the first time it is missing
+ *
+ * Each club's files are its own (e12-t03): the club hands this its own part of the bucket
+ * (worker/buckets.ts: 淡江's keys as they always were, `clubs/<id>/…` for any other club), signs with
+ * its own `file:secret`, and keeps the records in its own storage, so a key or an address from one
+ * club finds nothing in another. Another club's addresses say `?club=<id>` (an `<img>` sends no
+ * header), and its signature covers the club as well.
  *
  * Forum pictures (the table's e13-t13): `urls` takes a check, so a `post/` picture is signed only
  * for someone who may see it (`worker/post-images.ts`); `removeKeys` takes away the pictures of a
@@ -96,17 +103,26 @@ export class FileService {
   /** Told once when the files pass `STORAGE_LIMITS.warnBytes`; the club tells its admins */
   private readonly onNearlyFull: (bytes: number) => Promise<void>
   private signingKey: Promise<CryptoKey> | undefined
+  /** The club the files are (e12-t03): any but 淡江 puts itself in its addresses and signatures */
+  private readonly clubId: string
 
   constructor(
     store: Store,
     bucket: FileBucket | undefined,
     now: () => number = Date.now,
     onNearlyFull: (bytes: number) => Promise<void> = async () => {},
+    clubId: string = DEFAULT_CLUB_ID,
   ) {
     this.store = store
     this.bucket = bucket
     this.now = now
     this.onNearlyFull = onNearlyFull
+    this.clubId = clubId
+  }
+
+  /** `&club=<id>` on another club's addresses, so they reach its object; nothing on 淡江's, which stay as they were */
+  private get clubQuery(): string {
+    return this.clubId === DEFAULT_CLUB_ID ? '' : `${CLUB_PARAM}=${encodeURIComponent(this.clubId)}`
   }
 
   private requireBucket(): FileBucket {
@@ -156,7 +172,8 @@ export class FileService {
     const expires = now + FILE_LIMITS.ticketMs
     await this.store.put<StoredTicket>(`file:ticket:${token}`, { userId, key, type, expires, done: [] })
     const base = `${FILES_PATH}upload/${token}`
-    return { key, uploadUrl: base, thumbUrl: `${base}?part=thumb`, expires }
+    const club = this.clubQuery
+    return { key, uploadUrl: club ? `${base}?${club}` : base, thumbUrl: `${base}?part=thumb${club && `&${club}`}`, expires }
   }
 
   /** `POST /api/files/ticket`: a single-use pass for one picture (and its thumbnail) */
@@ -346,7 +363,8 @@ export class FileService {
     const pdf = meta.type === EBOOK_TYPE
     const step = pdf ? 5 * 60_000 : 3600_000
     const expires = Math.ceil(this.now() / step) * step + (pdf ? EBOOK_LIMITS.urlMs : FILE_LIMITS.urlMs)
-    const address = async (k: string) => `${FILES_PATH}${k}?e=${expires}&s=${await this.sign(k, expires)}`
+    const club = this.clubQuery
+    const address = async (k: string) => `${FILES_PATH}${k}?e=${expires}&s=${await this.sign(k, expires)}${club && `&${club}`}`
     const file: UploadedFile = { key, type: meta.type, size: meta.size, url: await address(key) }
     if (meta.thumb) file.thumbUrl = await address(thumbKey(key))
     return file
@@ -354,7 +372,9 @@ export class FileService {
 
   private async sign(key: string, expires: number): Promise<string> {
     this.signingKey ??= this.loadKey()
-    const signature = await crypto.subtle.sign('HMAC', await this.signingKey, encoder.encode(`${key}\n${expires}`))
+    // 淡江's as before clubs, so the addresses pages hold stay good; any other club's names the club too
+    const signed = this.clubId === DEFAULT_CLUB_ID ? `${key}\n${expires}` : `${this.clubId}\n${key}\n${expires}`
+    const signature = await crypto.subtle.sign('HMAC', await this.signingKey, encoder.encode(signed))
     return toBase64Url(signature).slice(0, 32)
   }
 

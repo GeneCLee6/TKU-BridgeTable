@@ -7,7 +7,9 @@
  * whenever the pass is missing, expired, forged, revoked or the switch is off.
  *
  * Format: `<userId>.<session id>.<expiry, base 36>.<HMAC-SHA-256, base64url>`, signed with the
- * `EDGE_AUTH_SECRET` secret. WebCrypto only, so it runs in the Worker, the Durable Object and Node
+ * `EDGE_AUTH_SECRET` secret. The signature covers the club too (e12-t03): member ids are only
+ * unique inside a club, so a pass is good only for requests to the club that made it, and one
+ * from another club reads as no pass at all. WebCrypto only, so it runs in the Worker, the Durable Object and Node
  * tests alike.
  *
  * Revoking (e11-t28, docs/SECURITY.md): a pass names the session it was made for (the session's own
@@ -55,15 +57,17 @@ function fromBase64Url(text: string): Uint8Array<ArrayBuffer> | null {
   }
 }
 
-// `pass2`: passes from before e11-t28 (`pass1`, no session) are no longer taken; the club hands out new ones
-const signed = (userId: string, sessionId: string, expires: string) => encoder.encode(`pass2:${userId}:${sessionId}:${expires}`)
+// `pass3`: passes from before e12-t03 (`pass2`, no club) and e11-t28 (`pass1`, no session) are no
+// longer taken; the club hands out new ones
+const signed = (clubId: string, userId: string, sessionId: string, expires: string) =>
+  encoder.encode(`pass3:${clubId}:${userId}:${sessionId}:${expires}`)
 
-/** A pass for `userId` signed in with session `sessionId`, good until `now + EDGE_PASS_MS` */
-export async function mintPass(secret: string, userId: string, sessionId: string, now: number): Promise<string> {
+/** A pass for `userId` of club `clubId` signed in with session `sessionId`, good until `now + EDGE_PASS_MS` */
+export async function mintPass(secret: string, userId: string, sessionId: string, now: number, clubId: string): Promise<string> {
   if (!USER_ID.test(userId)) throw new Error('A pass needs a plain member id')
   if (!SESSION_ID.test(sessionId)) throw new Error('A pass needs a session id')
   const expires = (now + EDGE_PASS_MS).toString(36)
-  const signature = await crypto.subtle.sign('HMAC', await keyFor(secret), signed(userId, sessionId, expires))
+  const signature = await crypto.subtle.sign('HMAC', await keyFor(secret), signed(clubId, userId, sessionId, expires))
   return `${userId}.${sessionId}.${expires}.${toBase64Url(new Uint8Array(signature))}`
 }
 
@@ -73,8 +77,11 @@ export interface Pass {
   expires: number
 }
 
-/** What a pass says, if its signature is right and it has not expired; null otherwise. Revoking is checked apart (`passRevoked`) */
-export async function readPass(secret: string, pass: string | null, now: number): Promise<Pass | null> {
+/**
+ * What a pass says, if its signature is right for club `clubId` and it has not expired; null
+ * otherwise. Revoking is checked apart (`passRevoked`)
+ */
+export async function readPass(secret: string, pass: string | null, now: number, clubId: string): Promise<Pass | null> {
   if (!secret || !pass || pass.length > 240) return null
   const [userId, sessionId, expiresText, signatureText, ...rest] = pass.split('.')
   if (rest.length || !userId || !USER_ID.test(userId) || !SESSION_ID.test(sessionId ?? '')) return null
@@ -84,13 +91,13 @@ export async function readPass(secret: string, pass: string | null, now: number)
   if (!(expires > now) || expires > now + EDGE_PASS_MS + 60_000) return null
   const signature = fromBase64Url(signatureText ?? '')
   if (!signature) return null
-  const ok = await crypto.subtle.verify('HMAC', await keyFor(secret), signature, signed(userId, sessionId, expiresText))
+  const ok = await crypto.subtle.verify('HMAC', await keyFor(secret), signature, signed(clubId, userId, sessionId, expiresText))
   return ok ? { userId, sessionId, expires } : null
 }
 
-/** Whether the club should hand out a new pass with its answer: none, a bad one, or one more than half used */
-export async function passNeedsRefresh(secret: string, pass: string | null, now: number): Promise<boolean> {
-  const read = await readPass(secret, pass, now)
+/** Whether the club should hand out a new pass with its answer: none, a bad one (another club's too), or one more than half used */
+export async function passNeedsRefresh(secret: string, pass: string | null, now: number, clubId: string): Promise<boolean> {
+  const read = await readPass(secret, pass, now, clubId)
   return !read || read.expires - now < EDGE_PASS_REFRESH_MS
 }
 

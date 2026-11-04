@@ -1,7 +1,7 @@
 import { DurableObject } from 'cloudflare:workers'
 import type { Challenge, ChallengeResult } from './challenges.ts'
 import type { Env } from './club.ts'
-import { homeClubStub } from './clubs.ts'
+import { ownClub } from './clubs.ts'
 import { EventHost } from './event-host.ts'
 import type { EventRpc } from './events.ts'
 import type { MatchStep } from './match-event.ts'
@@ -9,12 +9,14 @@ import type { MatchRpc } from './match-events.ts'
 import type { PairsStep, PairsEvent } from './pairs-flow.ts'
 import type { PairsRpc } from './pairs-events.ts'
 import type { TeamMatch } from './team-matches.ts'
-import { jsonLog } from './log.ts'
+import { clubLog, jsonLog } from './log.ts'
 import { AlarmQueue } from './scheduler.ts'
 
 /**
  * One challenge (`idFromName('challenge:<id>')`, H2b), one team match (`idFromName('match:<id>')`,
- * H2c) or one pairs event (`idFromName('pairs:<id>')`, §5.22) in its own Durable Object (§5.12), used when `EVENT_OBJECTS=on`. This is
+ * H2c) or one pairs event (`idFromName('pairs:<id>')`, §5.22) in its own Durable Object (§5.12), used when `EVENT_OBJECTS=on`.
+ * Another club's names start with `<club>/` (`eventObjectName`, e12-t03), and the object reports
+ * only to the club its name says, so a club's calls can only ever reach its own events. This is
  * only the glue to Cloudflare: storage, the SQLite database, the alarm and the club's stub. What
  * the event does is `EventHost`, `ChallengeEvent` and `MatchEvent`, which never touch a Cloudflare
  * API. Only the club calls it (RPC); no browser connects here.
@@ -27,7 +29,9 @@ export class EventObject extends DurableObject<Env> implements EventRpc, MatchRp
     super(ctx, env)
     const storage = ctx.storage
     this.queue = new AlarmQueue(Date.now, (at) => void storage.setAlarm(at))
-    const club = homeClubStub(env)
+    // Only the club the object's name says (e12-t03)
+    const own = ownClub(env, ctx.id.name)
+    const club = own.stub
     this.host = new EventHost({
       storage: {
         get: (key) => storage.get(key),
@@ -45,13 +49,13 @@ export class EventObject extends DurableObject<Env> implements EventRpc, MatchRp
         transaction: (fn) => storage.transactionSync(fn),
       },
       club: {
-        changed: (snapshot) => club.eventChanged(snapshot),
-        matchChanged: (snapshot) => club.matchChanged(snapshot),
-        pairsChanged: (snapshot) => club.pairsChanged(snapshot),
+        changed: (snapshot) => club().eventChanged(snapshot),
+        matchChanged: (snapshot) => club().matchChanged(snapshot),
+        pairsChanged: (snapshot) => club().pairsChanged(snapshot),
       },
       scheduler: this.queue,
       now: Date.now,
-      log: jsonLog,
+      log: clubLog(own.clubId, jsonLog),
     })
     ctx.blockConcurrencyWhile(() => this.host.load())
   }

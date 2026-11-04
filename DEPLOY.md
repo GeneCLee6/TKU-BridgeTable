@@ -326,11 +326,11 @@ await call('POST', '/backups/restore', { name: 'daily/2026-10-25.jsonl', dryRun:
    - 副本完整、筆數對：
 
      ```bash
-     npx wrangler d1 execute tku-bridge-history --remote --command "SELECT value FROM index_meta WHERE key = 'ready'"
-     npx wrangler d1 execute tku-bridge-history --remote --command "SELECT COUNT(*) FROM boards_index"
+     npx wrangler d1 execute tku-bridge-history --remote --command "SELECT club_id, value FROM index_meta WHERE key = 'ready'"
+     npx wrangler d1 execute tku-bridge-history --remote --command "SELECT club_id, COUNT(*) FROM boards_index GROUP BY club_id"
      ```
 
-     `ready` 是 `1`；筆數等於社團的紀錄數（管理頁、或任一社員紀錄頁「全部」的總數，加上沒公開的挑戰／隊制賽牌局）。
+     淡江（`tku`）的 `ready` 是 `1`；筆數等於社團的紀錄數（管理頁、或任一社員紀錄頁「全部」的總數，加上沒公開的挑戰／隊制賽牌局）。
    - 登入後打開紀錄頁，Logs 搜尋 `event = edge`：有 `status: 200` 就是 Worker 從 D1 回答的；`fallback: notReady` 表示還在填，`fallback: error` 表示 D1 出錯（交給社團了，使用者看不出來）。
    - 瀏覽器開發者工具 → Application → Cookies 有 `tbt_pass`（設了 secret 才會有）。開一桌，Logs 裡不應該每次連上桌都出現社團的 `http` 紀錄。
 4. 打一副，十秒內出現在紀錄頁（副本約晚 1–2 秒）。
@@ -696,6 +696,25 @@ LINE Developers 主控台只有英文與日文介面，下面用英文介面的�
 - **關掉**：`npx wrangler secret delete LINE_CHANNEL_SECRET`。綁定留在帳號裡，重新打開後照樣能用。
 - **Channel secret 外洩時**：**Basic settings** → **Channel secret** 的 **Issue**（重新發行）→ 用 `wrangler secret put LINE_CHANNEL_SECRET` 換上新的（舊的立刻失效，換上前 LINE 登入會失敗）。
 - 日誌：與 Google 相同的 `oauthSignIn`、`oauthLinked`、`oauthUnlinked`、`oauthFailed`，`provider: 'line'`（`reason` 同 §4.16；`exchange` 也包括 ID token 的簽章不對，常見原因是 Channel secret 貼錯）。
+
+## 4.19 多社團的隔離（`e12-t03`，2026-11-04）
+
+社團物件之外的共用資源（牌桌與比賽的物件、D1 紀錄副本、R2 的圖片與備份、邊緣通行證、日誌）都帶社團，規則見 `ARCHITECTURE.md` §1「多社團的隔離」。淡江的名稱與路徑一律不變，**正式站不用搬資料、不用設任何東西**。
+
+### 部署這個版本時會自動發生的事
+
+1. **D1 紀錄副本重填一次**（`REPLICA_VERSION` 3）：社團的物件載入後，先把 D1 裡沒有 `club_id` 的舊表刪掉、照新格式重建，再從社團的紀錄重填（每秒 20 副，一萬副約 8–10 分鐘）。填完之前紀錄頁由社團回答，使用者看不出來；Logs 有 `{"event":"replica","step":"fill","ok":true,"club":"tku"}` 就是填完了。檢查方式同 §4.5（指令已帶 `club_id`）。
+2. **邊緣通行證換一次**：舊的通行證（不含社團）不再接受，社團下一次回答時發新的；這十分鐘內 Worker 多問社團幾次，不影響使用。
+3. **日誌多一個欄位** `club`（淡江是 `tku`），可以在 Workers Logs 依社團篩選。
+4. 圖片的網址、R2 裡的 `daily/…`、`post/…`、`ebook/…`、牌桌與挑戰物件的名稱都**跟以前一樣**。
+
+### 退回舊版時
+
+舊版 Worker 讀寫新的 D1 表也正常（`club_id` 預設 `tku`），但舊版的 `REPLICA_VERSION` 是 2，會再重填一次；通行證也會再換一次。都不用手動處理。
+
+### 試第二個社團（只在 staging）
+
+Worker 變數 `CLUBS`（逗號分隔的社團 id，小寫英數與 `-`）讓 Worker 多服務幾個社團：請求帶 `X-Club-Id: <id>`（WebSocket 用 `?club=<id>`）就到那個社團自己的物件。**正式站不要設**：新社團的第一個註冊者直接成為管理員（同淡江剛開站），平台審核（`e12-t05`、`e12-t06`）做好之前沒有人管得住；牌桌前端也還不會帶社團（社團網址是 `e12-t04`）。要在 staging 試，在 `wrangler.jsonc` 的 `env.staging.vars` 加 `"CLUBS": "demo"`，用 API（例如瀏覽器 Console 的 `fetch('/api/register', { headers: { 'X-Club-Id': 'demo', … } })`）註冊與操作。其他社團的 R2 檔案與備份在 `clubs/<id>/` 底下；`INVITE_CODE`、Google／LINE 登入只給淡江。
 
 ## 5. 費用與限制
 

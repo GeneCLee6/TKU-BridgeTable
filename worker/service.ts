@@ -969,7 +969,14 @@ export class ClubService {
       newDeals: (count) => makeDealSet({ kind: 'random', count }, this.random),
     })
     if (config.historyReplica)
-      this.replica = new ReplicaSync({ store, db: config.historyReplica, scheduler: this.scheduler, now: this.now, log: this.log })
+      this.replica = new ReplicaSync({
+        clubId: config.clubId ?? DEFAULT_CLUB_ID,
+        store,
+        db: config.historyReplica,
+        scheduler: this.scheduler,
+        now: this.now,
+        log: this.log,
+      })
     this.eventLink = {
       changed: (snapshot) => this.eventChanged(snapshot),
       matchChanged: (snapshot) => this.matchChanged(snapshot),

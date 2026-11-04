@@ -77,6 +77,7 @@ npx tsx -e "import {headersFile} from './worker/security-headers.ts'; process.st
 | 3.2.1／3.2.2 登入後換新 token、128 bit 以上隨機 | ✅ | 每次登入新的 256 bit token（`randomId(32)`，`crypto.getRandomValues`） |
 | 3.3.1 登出讓 session 失效 | ✅ | `POST /api/logout` 刪掉 `session:<token>` 並清 cookie |
 | 3.3.3 改密碼後可以登出其他 session | ✅ | 「登入中的裝置」卡（`GET /api/account/sessions`、`DELETE /api/account/sessions/:id`、`POST /api/account/sessions/others`）；改密碼時也自動登出其他裝置。`e11-t28` 起連邊緣通行證與牌桌的連線也一起失效 |
+| 多社團的隔離（`e12-t03`） | ✅ | 每個社團一個 Durable Object；物件之外的共用資源都帶社團：牌桌與比賽物件的名稱、牌桌連線的 `X-TBT-Club`、邊緣通行證的簽章內容、D1 副本每列的 `club_id`（每個查詢都過濾）、R2 的 `clubs/<id>/` 前綴與檔案網址的簽章（ARCHITECTURE.md §1「多社團的隔離」，`tests/worker/club-isolation.test.ts`）。已知限制：同網域的 cookie 名稱相同，在另一個社團登入會蓋掉這個社團的 session（被登出，不會跨社團生效），登入範圍是 `e12-t04` |
 | 3.4.1～3.4.3 cookie 屬性 | ✅ | `tbt_session`、`tbt_pass`、`tbt_device`（瀏覽器 id，不是登入憑證，防作弊報表用，ARCHITECTURE.md §5.17）都是 HttpOnly、SameSite=Lax、Path=/，HTTPS 時加 Secure |
 | 3.4.4 `__Host-` 前綴 | 📋 | 沒用。改名會讓全部人（含淡江橋館經 Vercel 轉發的登入）重新登入一次，`e11-t28` 沒一起做，留給社長決定時間（§4） |
 | 3.7.1 重要操作再驗證 | ✅ | 改密碼要目前的密碼；刪除帳號要密碼＋確認 |

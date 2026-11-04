@@ -32,8 +32,8 @@ describe('what answering history at the edge saves the club', () => {
     })
     for (const record of records) await store.put(`board:${record.id}`, record)
     const d1 = memoryD1()
-    await d1.batch([...REPLICA_SCHEMA.map((sql) => ({ sql, params: [] })), { sql: "INSERT INTO index_meta VALUES ('ready', '1')", params: [] }])
-    for (let i = 0; i < records.length; i += REPLICA_BATCH) await d1.batch(replicaWrites(records.slice(i, i + REPLICA_BATCH), []))
+    await d1.batch([...REPLICA_SCHEMA.map((sql) => ({ sql, params: [] })), { sql: "INSERT INTO index_meta (key, value) VALUES ('ready', '1')", params: [] }])
+    for (let i = 0; i < records.length; i += REPLICA_BATCH) await d1.batch(replicaWrites(records.slice(i, i + REPLICA_BATCH), [], 'tku'))
     const now = START + BOARDS * HOUR
     const viewer = 'm7'
 
@@ -43,9 +43,9 @@ describe('what answering history at the edge saves the club', () => {
       return JSON.stringify({ boards: loaded.flatMap((r) => (r ? [summarize(r)] : [])), total: found.total })
     }
     // The Worker's own part: the pass, then the rows D1 sent back (summaries as text) into the answer
-    const pass = await mintPass(SECRET, viewer, 'abc123', now)
+    const pass = await mintPass(SECRET, viewer, 'abc123', now, 'tku')
     const workerPart = async (rows: Record<string, unknown>[]) => {
-      await readPass(SECRET, pass, now)
+      await readPass(SECRET, pass, now, 'tku')
       return JSON.stringify({ boards: rows.map((row) => JSON.parse(String(row.summary))) })
     }
 
@@ -58,7 +58,7 @@ describe('what answering history at the edge saves the club', () => {
     ]
     for (const [name, q] of queries) {
       const query = { ...DEFAULT_HISTORY_QUERY, ...q }
-      const page = (await searchReplica(d1, query, viewer, now))!
+      const page = (await searchReplica(d1, 'tku', query, viewer, now))!
       expect(JSON.parse(await clubPage(query)).total).toBe(page.total)
       const rows = page.boards.map((b) => ({ summary: JSON.stringify(b) }))
       const club: number[] = []
@@ -77,7 +77,7 @@ describe('what answering history at the edge saves the club', () => {
     }
 
     // Copying to D1: statements per batch of REPLICA_BATCH boards, and batches to fill 10,000
-    const statements = replicaWrites(records.slice(0, REPLICA_BATCH), []).length
+    const statements = replicaWrites(records.slice(0, REPLICA_BATCH), [], 'tku').length
     lines.push(
       `  copying: ${statements} statements per ${REPLICA_BATCH} boards (free plan: 50 per call); filling ${BOARDS} boards takes ${Math.ceil(BOARDS / REPLICA_BATCH)} steps`,
     )
