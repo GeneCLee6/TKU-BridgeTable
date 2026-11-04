@@ -33,8 +33,10 @@ import type { Sql, SqlValue, Store } from './store.ts'
  * accounts (both sites'), the registrations waiting for approval and the pictures, together so a
  * member's `avatar` version always matches their picture. Not in it: `session:` (a restore signs
  * everyone out), `meta:settings` (the invite code and member cap: the env values stand in when it is
- * missing, and a restore must not bring back a code rotated since), friends and blocks, and the
- * games with their SQL tables (e11-t12). The forum's SQL tables are in it (BACKUP_TABLES).
+ * missing, and a restore must not bring back a code rotated since) and the games with their SQL
+ * tables (e11-t12). The forum's SQL tables are in it (BACKUP_TABLES), and from 2026-11-04 the
+ * friends and blocks (`friend:`, `block:`, 社長): read with the accounts, so they name members of
+ * the same moment, and a restore drops any that name an account the backup does not have.
  */
 export const BACKUP_PREFIXES = [
   'book',
@@ -52,6 +54,9 @@ export const BACKUP_PREFIXES = [
   // The pictures' owners and the key that signs their addresses (e11-t02); the pictures stay in R2
   'file:meta:',
   'file:secret',
+  // Who follows and who blocked whom (worker/relations.ts), from the backup's moment like the accounts
+  'friend:',
+  'block:',
 ] as const
 /**
  * The SQL tables a backup holds: TKU-BridgeHall's forum (E11; worker/forum.ts), with the order its
@@ -68,6 +73,8 @@ export const BACKUP_TABLES: readonly { name: string; order: string }[] = [
 ]
 /** The prefixes that hold accounts: restoring a backup with them reloads the club's members */
 export const ACCOUNT_PREFIXES: readonly string[] = ['user:', 'app:', 'avatar:']
+/** Friends and blocks: `<kind>:<userId>:<otherId>`, each naming two accounts */
+const RELATION_PREFIXES: readonly string[] = ['friend:', 'block:']
 /** Daily objects kept; older ones are deleted after each successful backup */
 export const BACKUP_KEEP_DAYS = 30
 export const BACKUP_FORMAT = 'tku-bridge-backup'
@@ -372,13 +379,25 @@ export function expiredBackups(names: string[], now: number, keepDays = BACKUP_K
 
 /**
  * What restoring a backup writes: every key under the backup's prefixes ends up exactly as in the
- * backup (keys made since are deleted), except that one-time upload passes are left out and
+ * backup (keys made since are deleted), except that one-time upload passes and friends or blocks
+ * naming an account the backup does not have are left out, and
  * `book:version` moves past both the backup's and the current version, so a browser holding the
  * current ETag cannot be told "not modified" about content that changed under it.
  */
 export function planRestore(backup: Backup, current: [string, unknown][]): RestorePlan {
   const { prefixes } = backup.header
-  const restored = backup.entries.filter(([key]) => !SKIPPED_ON_RESTORE.some((p) => key.startsWith(p)))
+  // A friend or block whose member the backup does not have would point at nobody: the accounts
+  // come back as of the backup, so its relations come back only between the accounts in it
+  const members = prefixes.includes('user:')
+    ? new Set(backup.entries.filter(([key]) => key.startsWith('user:')).map(([key]) => key.slice('user:'.length)))
+    : null
+  const dangling = (key: string) => {
+    const kind = RELATION_PREFIXES.find((p) => key.startsWith(p))
+    if (!kind || !members) return false
+    const [userId, otherId] = key.slice(kind.length).split(':')
+    return !members.has(userId) || !members.has(otherId)
+  }
+  const restored = backup.entries.filter(([key]) => !SKIPPED_ON_RESTORE.some((p) => key.startsWith(p)) && !dangling(key))
   const keep = new Set(restored.map(([key]) => key))
   const deletes = current.map(([key]) => key).filter((key) => prefixes.some((p) => key.startsWith(p)) && !keep.has(key))
   const versionOf = (entries: [string, unknown][]) => {
