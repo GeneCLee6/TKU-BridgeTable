@@ -3,7 +3,7 @@ import styled from 'styled-components'
 import { PUSH_GROUP_NAMES, PUSH_GROUPS, type PushGroup, type PushKinds, type PushView } from '../../shared/push.ts'
 import { api, ApiError } from '../lib/api.ts'
 import { formatDate } from '../lib/format.ts'
-import { pushSupport, subscribeThisDevice, thisDeviceId, unsubscribeThisDevice, type PushSupport } from '../lib/push.ts'
+import { forgetThisClub, pushSupport, subscribeThisDevice, thisDeviceId, unsubscribeThisDevice, type PushSupport } from '../lib/push.ts'
 import { useAuth, useFeature } from '../state/AuthContext.tsx'
 import { usePreferences } from '../state/PreferencesContext.tsx'
 import { useToast } from './Toast.tsx'
@@ -160,6 +160,8 @@ export function PushCard() {
   const remove = (id: string) =>
     act(async () => {
       setView(await api.push.unsubscribe(id))
+      // This browser, removed from the list: this club no longer uses its subscription (other clubs may)
+      if (id === mine) forgetThisClub()
       toast.success(p.removed)
     })
 

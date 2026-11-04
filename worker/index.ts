@@ -44,6 +44,7 @@ export default {
           publicViewer: (userId) => stub.publicViewer(userId),
           publicTables: () => stub.publicTables(),
           guestTable: (tableId) => stub.guestTable(tableId) as Promise<GuestTable | null>,
+          clubName: () => stub.clubName(),
         }
       },
       // A club's tables are named after it (e12-t03): 淡江's by the table id as before

@@ -1,4 +1,4 @@
-import { CLUB_HEADER, CLUB_IDS, CLUB_PARAM, requestClubId } from '../shared/clubs.ts'
+import { CLUB_HEADER, CLUB_IDS, CLUB_PARAM, DEFAULT_CLUB_ID, requestClubId } from '../shared/clubs.ts'
 import type { ClubStatus } from '../shared/platform.ts'
 import { formatMessage, type MessageCode } from '../shared/messages.ts'
 import type { GuestTable, PublicLobby, PublicTable } from '../shared/public-lobby.ts'
@@ -9,6 +9,7 @@ import { passCookieName, passRevoked, readPass } from './edge-auth.ts'
 import { listQuery, namesOthers } from './history-index.ts'
 import { daysReplica, searchReplica, type ReplicaDb } from './history-replica.ts'
 import { noLog, type Logger } from './log.ts'
+import { manifestAnswer, manifestClub } from './manifest.ts'
 
 /** The header the Worker puts on a table connection: who it is (ARCHITECTURE.md §5.10) */
 export const TABLE_USER_HEADER = 'X-TBT-User'
@@ -42,6 +43,8 @@ export interface Routes {
     publicViewer?(userId: string): Promise<boolean>
     publicTables?(): Promise<PublicTable[]>
     guestTable?(tableId: string): Promise<GuestTable | null>
+    /** The name the club is shown by (its `meta:club`), for its home-screen app's manifest; its id when left out */
+    clubName?(): Promise<string>
   }
   /** A club's table's object: `tableObjectName(clubId, tableId)`, so one club never reaches another's (e12-t03) */
   table(clubId: string, tableId: string): Fetches
@@ -71,6 +74,9 @@ const EDGE_HISTORY = new Set(['/api/history', '/api/history/search', '/api/histo
 export async function route(request: Request, routes: Routes): Promise<Response> {
   const url = new URL(request.url)
   const { pathname } = url
+  // Another club's home-screen app (`/c/<id>/manifest.webmanifest`): the club is in the path
+  const manifestOf = manifestClub(pathname)
+  if (manifestOf !== null && request.method === 'GET') return clubManifestAnswer(manifestOf, url, routes)
   // The club the request is for (e12-t02): `X-Club-Id` or `?club=`, none means 淡江
   let clubId = requestClubId(request, routes.clubs ?? CLUB_IDS)
   const served = pathname === '/ws' || pathname.startsWith('/api/') || pathname.startsWith(TABLE_SOCKET_PREFIX)
@@ -136,6 +142,24 @@ export async function route(request: Request, routes: Routes): Promise<Response>
   }
   if (pathname === '/ws' || pathname.startsWith('/api/')) return club().fetch(request)
   return routes.assets.fetch(request)
+}
+
+/**
+ * A club's web app manifest (worker/manifest.ts): 淡江's static one for `/c/tku/`, the static one
+ * made the club's for a club that is served, 404 for a club no one knows, 403 for a suspended one
+ */
+async function clubManifestAnswer(clubId: string, url: URL, routes: Routes): Promise<Response> {
+  const own = new Request(new URL('/manifest.webmanifest', url))
+  if (clubId === DEFAULT_CLUB_ID) return routes.assets.fetch(own)
+  if (!(routes.clubs ?? CLUB_IDS).includes(clubId)) {
+    const status = (await routes.findClub?.(clubId)) ?? null
+    if (status === null) return errorAnswer('unknownClub', 404)
+    if (status === 'suspended') return errorAnswer('clubSuspended', 403)
+  }
+  const base = await routes.assets.fetch(own)
+  if (!base.ok) return base
+  const name = (await routes.club(clubId).clubName?.().catch(() => null)) ?? clubId
+  return manifestAnswer((await base.json()) as Record<string, unknown>, clubId, name)
 }
 
 /** The cross-club lobby's API, answered by the Worker from every club (e12-t07) */

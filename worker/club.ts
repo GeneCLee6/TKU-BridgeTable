@@ -1,5 +1,5 @@
 import { DurableObject } from 'cloudflare:workers'
-import { clubOfClubObject, clubOfPath, clubPath, clubStoragePrefix, DEFAULT_CLUB_ID, knownClubs } from '../shared/clubs.ts'
+import { clubName, clubOfClubObject, clubOfPath, clubPath, clubStoragePrefix, DEFAULT_CLUB_ID, knownClubs } from '../shared/clubs.ts'
 import type { ClubApplyOptions, ClubStatus, ClubUsage } from '../shared/platform.ts'
 import type { GuestTable, PublicTable } from '../shared/public-lobby.ts'
 import { AppError } from '../shared/messages.ts'
@@ -607,6 +607,10 @@ export class Club extends DurableObject<Env> implements Connections {
   async guestTable(tableId: string): Promise<GuestTable | null> {
     const table = await this.service.guestTable(tableId)
     return table && this.named(table)
+  }
+  /** The name the club is shown by, for its home-screen app's manifest (worker/manifest.ts): RPC from the Worker only */
+  async clubName(): Promise<string> {
+    return this.record?.name || clubName(this.clubId)
   }
   /** The name the platform opened the club with (its `meta:club`, e12-t06), else shared/clubs.ts's */
   private named<T extends { clubName: string }>(table: T): T {

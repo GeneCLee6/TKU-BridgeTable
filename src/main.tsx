@@ -3,7 +3,7 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
 import { App } from './App.tsx'
-import { clubBase, plainAddress, setClubFromPath } from './lib/club.ts'
+import { clubBase, linkClubManifest, plainAddress, setClubFromPath } from './lib/club.ts'
 import { setUpErrorReporting } from './lib/errorReport.ts'
 import { setUpApp } from './lib/pwa.ts'
 
@@ -12,6 +12,8 @@ import { setUpApp } from './lib/pwa.ts'
 const plain = plainAddress(window.location.pathname, window.location.search, window.location.hash)
 if (plain !== null) window.history.replaceState(window.history.state, '', plain)
 setClubFromPath(window.location.pathname)
+// Adding another club's pages to the home screen makes that club's app
+linkClubManifest()
 
 setUpErrorReporting()
 setUpApp()
