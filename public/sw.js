@@ -4,6 +4,10 @@
 // connection are never touched.
 
 const CACHE = 'tku-bridge-table-v1'
+// The clubs this browser's push subscription is registered with (src/lib/push.ts writes it): kept
+// across versions, read when the browser renews the subscription
+const PUSH_CACHE = 'tku-bridge-table-push'
+const PUSH_CLUBS = '/push-clubs'
 const SHELL = ['/', '/manifest.webmanifest', '/icon-192.png', '/icon-512.png', '/favicon.svg']
 
 self.addEventListener('install', (event) => {
@@ -19,7 +23,7 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches
       .keys()
-      .then((keys) => Promise.all(keys.filter((key) => key !== CACHE).map((key) => caches.delete(key))))
+      .then((keys) => Promise.all(keys.filter((key) => key !== CACHE && key !== PUSH_CACHE).map((key) => caches.delete(key))))
       .then(() => self.clients.claim()),
   )
 })
@@ -54,7 +58,8 @@ self.addEventListener('fetch', (event) => {
 
 // Push notifications (e1-t28, ARCHITECTURE.md §5.4): the server sends { title, body, url, tag },
 // already in the member's language, encrypted for this browser (RFC 8291). Clicking one focuses a
-// window of the site and takes it to `url`, or opens one.
+// window of the site (one in the push's club first: `url` is under `/c/<id>/` for another club)
+// and takes it to `url`, or opens one.
 self.addEventListener('push', (event) => {
   let message = {}
   try {
@@ -84,13 +89,21 @@ const pushTarget = (url) => {
   }
 }
 
+/** The club a page of this site is for: `/c/<id>/…` is another club's, anything else 淡江's */
+const clubOf = (url) => {
+  const match = /^\/c\/([a-z][a-z0-9-]{1,23})(\/|$)/.exec(new URL(url).pathname)
+  return match && match[1] !== 'tku' ? match[1] : 'tku'
+}
+
 self.addEventListener('notificationclick', (event) => {
   event.notification.close()
   const target = pushTarget(event.notification.data && event.notification.data.url)
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(async (windows) => {
       if (target.origin === self.location.origin) {
-        const open = windows.find((w) => new URL(w.url).origin === self.location.origin)
+        // A window of the push's own club first (each club's pages are under its own address), else any of the site's
+        const ours = windows.filter((w) => new URL(w.url).origin === self.location.origin)
+        const open = ours.find((w) => clubOf(w.url) === clubOf(target.href)) || ours[0]
         if (open) {
           const focused = await open.focus()
           if (new URL(focused.url).href !== target.href) await focused.navigate(target.href).catch(() => undefined)
@@ -109,21 +122,34 @@ const siteLang = () => {
   return ['en', 'vi', 'ja', 'ko'].find((code) => lang.startsWith(code)) || 'zh'
 }
 
-// The browser renewed the subscription: hand the new one to the server (the old one answers 410 and is dropped)
+/** The clubs this browser registered its subscription with; 淡江 alone for one made before clubs */
+const pushClubs = () =>
+  caches
+    .open(PUSH_CACHE)
+    .then((cache) => cache.match(PUSH_CLUBS))
+    .then((hit) => (hit ? hit.json() : ['tku']))
+    .then((clubs) => (Array.isArray(clubs) ? clubs.filter((id) => typeof id === 'string') : ['tku']))
+    .catch(() => ['tku'])
+
+// The browser renewed the subscription: hand the new one to every club it was registered with
+// (each reads its own sign-in cookie; the old one answers 410 and is dropped)
 self.addEventListener('pushsubscriptionchange', (event) => {
   const old = event.oldSubscription
   const key = old && old.options && old.options.applicationServerKey
   if (!key) return
   event.waitUntil(
-    self.registration.pushManager
-      .subscribe({ userVisibleOnly: true, applicationServerKey: key })
-      .then((subscription) =>
-        fetch('/api/push/subscribe', {
-          method: 'POST',
-          credentials: 'same-origin',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ...subscription.toJSON(), lang: siteLang() }),
-        }),
+    Promise.all([self.registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key }), pushClubs()])
+      .then(([subscription, clubs]) =>
+        Promise.all(
+          clubs.map((club) =>
+            fetch('/api/push/subscribe', {
+              method: 'POST',
+              credentials: 'same-origin',
+              headers: club === 'tku' ? { 'Content-Type': 'application/json' } : { 'Content-Type': 'application/json', 'X-Club-Id': club },
+              body: JSON.stringify({ ...subscription.toJSON(), lang: siteLang() }),
+            }).catch(() => undefined),
+          ),
+        ),
       )
       .catch(() => undefined),
   )

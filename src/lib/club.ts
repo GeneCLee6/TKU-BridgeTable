@@ -71,3 +71,16 @@ export function withClub(url: string): string {
 export function clubStorageKey(key: string): string {
   return current === DEFAULT_CLUB_ID ? key : `${key}@${current}`
 }
+
+/**
+ * Another club's pages link its own web app manifest (`/c/<id>/manifest.webmanifest`, made by the
+ * Worker from 淡江's with the club's name, `worker/manifest.ts`), so adding them to the home screen
+ * makes an app that opens that club. 淡江's pages keep `/manifest.webmanifest` (index.html). The
+ * home-screen title for iPhones comes from the manifest too: 淡江's `apple-mobile-web-app-title` is dropped
+ */
+export function linkClubManifest(doc: Document = document) {
+  if (current === DEFAULT_CLUB_ID) return
+  const link = doc.querySelector<HTMLLinkElement>('link[rel="manifest"]')
+  if (link) link.href = `${CLUB_PATH_PREFIX}${current}/manifest.webmanifest`
+  doc.querySelector('meta[name="apple-mobile-web-app-title"]')?.remove()
+}

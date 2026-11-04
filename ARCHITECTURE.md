@@ -44,6 +44,7 @@
 
 - **網址**：淡江維持原本的網址（`/`、`/table/<id>`、`/history/<id>`…），其他社團在 `/c/<id>/…`（`/c/ntu/`、`/c/ntu/table/<id>`）；`/c/tku/…` 換成原本的網址（頁面載入時 `history.replaceState`，`src/main.tsx`）。網址的規則都在 `shared/clubs.ts`：`clubPath(社團, 路徑)`、`clubOfPath(路徑)`。
 - **前端從網址知道社團**（`src/lib/club.ts`）：載入時讀一次，React Router 用 `basename="/c/<id>"`，所以 app 裡每個 `<Link>`、`navigate()`、通知中心的連結都留在同一個社團，不用逐一改。每個 `fetch` 帶 `X-Club-Id`（`clubHeaders`，`request`、下載、錯誤回報），WebSocket、`<img>` 的頭像與下載連結帶 `?club=`（`withClub`）。淡江的請求什麼都不加，跟以前一模一樣。社團不存在時 `/api/me` 回 `unknownClub`，頁面顯示「找不到這個社團」。各社團的 localStorage 草稿分開（`clubStorageKey`：論壇草稿）。
+- **加入主畫面**：其他社團的頁面把 `<link rel="manifest">` 換成 `/c/<id>/manifest.webmanifest`（`linkClubManifest`，`src/main.tsx` 載入時），並拿掉淡江的 `apple-mobile-web-app-title`，所以從 `/c/<id>/` 加入主畫面得到的是那個社團的 app：`id`、`start_url`、`scope` 都是 `/c/<id>/`，名稱是社團的名稱（`meta:club`，`Club.clubName`），圖示與顏色跟淡江的 `public/manifest.webmanifest` 同一份（Worker 讀它再改，`worker/manifest.ts`）。淡江的 manifest 不變。這個網址要先給 Worker（`wrangler.jsonc` 的 `run_worker_first` 加 `/c/*/manifest.webmanifest`，靜態檔案的 binding `ASSETS`）；社團不存在回 404 `unknownClub`、暫停中回 403，`/c/tku/` 給淡江原本的。service worker 只有一個（`/sw.js`，範圍 `/`），管全部社團的頁面；網頁都是同一個 app shell，離線時給的也是同一份。
 - **登入範圍**：每個社團的登入 cookie 名稱不同，淡江沿用原名（`tbt_session`、`tbt_pass`、`tbt_google`、`tbt_line`），其他社團是 `<原名>_<id>`（`clubCookieName`）；社團只讀自己名稱的 cookie，同一個瀏覽器可以同時登入兩個社團。`tbt_device` 全站一個。理由與另一個做法（`Path=/c/<id>/`）的比較在 docs/SECURITY.md「社團與 cookie」。
 - **連結帶社團**：平台核准新社團的信裡的連結是 `/c/<id>/`（`worker/platform.ts` 的 `clubAddress` 用 `clubPath`）；分享連結（`BoardShareDialog`，`appPath`）、Email 驗證與重設密碼的連結（`ClubService.sendVerification`／`requestEmailReset` 用 `clubPath`）、推播的網址（`pushMessage`／`testPushMessage` 的 `clubId`，`PushService` 的 `clubId`）、OAuth 的導回（`Club.inClub`：導回的路徑一律在那個社團的網址下），都開在對的社團。通知中心本來就是 app 裡的相對路徑（`notificationLink`），跟著 `basename`。淡江橋館的連結（`BOOK_SITE`）不變。
 - **Google／LINE**：目前只給淡江（環境變數），維持。其他社團將來開的時候，回呼網址是 `/api/auth/<provider>/callback?club=<id>`（`callbackPath`；提供者的轉址不能帶 header，所以社團放在網址裡，要照這個網址到 Google Cloud／LINE Developers 登錄），流程 cookie 是 `tbt_<provider>_<id>`，回來後導到 `/c/<id>/…`。步驟見 DEPLOY.md §4.19。
@@ -129,7 +130,8 @@ TKU-BridgeTable/
 │                          `ROBOT.md` §6）
 ├─ worker/
 │  ├─ index.ts             Worker 入口：綁上 Durable Object 交給 routing.ts
-│  ├─ routing.ts           Worker 的路由（不碰 Cloudflare API）：/api/* 與 /ws 給社團，/ws/table/<id> 確認身分（通行證或問社團）後加 X-TBT-User 給那一桌，紀錄列表與搜尋可從 D1 回答（§5.12），其他給靜態檔案
+│  ├─ routing.ts           Worker 的路由（不碰 Cloudflare API）：/api/* 與 /ws 給社團，/ws/table/<id> 確認身分（通行證或問社團）後加 X-TBT-User 給那一桌，紀錄列表與搜尋可從 D1 回答（§5.12），/c/<id>/manifest.webmanifest 給那個社團的 manifest（§1），其他給靜態檔案
+│  ├─ manifest.ts          其他社團加入主畫面的 manifest：淡江的 manifest 換上社團的名稱與 id／start_url／scope（§1「加入主畫面」）
 │  ├─ edge-auth.ts         邊緣通行證：簽發、驗證、cookie、撤銷清單（D1 的 pass_revocations，§5.12）
 │  ├─ body.ts              HTTP 本文邊讀邊算大小（e11-t32）
 │  ├─ history-replica.ts   紀錄索引的 D1 副本：ReplicaSync（outbox、填副本、開關）、寫入與搜尋的 SQL（§5.12）
@@ -1754,8 +1756,9 @@ C4 的實作（2026-10-24）：
 - **送出**：在社團的 Durable Object 裡，不在 Worker 的請求裡（10 ms CPU）。同一輪（一個動作）通知的全部收進一批，`ctx.waitUntil` 撐著物件、回應不必等推播服務；一批 6 個同時送。每台裝置的推播：新的 P-256 金鑰對與 salt、ECDH＋HKDF、AES-128-GCM（RFC 8291 `aes128gcm`，一個 4096 的 record），`Authorization: vapid t=<JWT>, k=<公鑰>`；JWT（ES256，`aud` 是推播服務的 origin，12 小時）每個推播服務簽一次、快到期前一小時才換（`WebPush.jwtFor`），所以推給全社團（大多在 FCM）只簽一次。等人回應的種類（邀請、申請加入、叫裁判、隊制賽開始或替補）`Urgency: high`，其他 `normal`；跟某一桌或某人上線有關的 `TTL` 一小時（過了推播服務就丟掉），其他一天。推播服務回 404／410 表示瀏覽器已經取消訂閱，那台裝置刪掉；其他失敗（429、5xx、連不上）只記日誌（`push`），**不重送**：通知照樣在鈴鐺裡。物件在送出途中被回收，那一批就沒了（同樣的理由不存佇列）。
 - **在線不推**：用社團的連線判斷，跟鈴鐺推 `notifications` 同一個依據；送出那一刻才看（排隊時離線、送出時上線就不推）。在線包括開在背景分頁的網頁（電腦上通常一直連著；手機瀏覽器在背景幾分鐘內會斷線，之後就會推）；這時鈴鐺與邀請彈窗（e1-t35）已經會提醒。
 - **偏好**：存每個種類（`PushKinds`，只存跟預設不同的）；「我的帳號」把種類分成幾組（`PUSH_GROUPS`：挑戰、牌桌、隊制賽、搭檔、比賽（有 `tournaments` 旗標或管理員才顯示）、精選、好友上線（有 `friends` 旗標才顯示）、橋譜與文章、討論區、管理（只給管理員看）、平台（新的建社申請，只給平台管理員看）），勾一組就改那組全部的種類；每個種類一定在一組（測試）。`friendOnline` 預設不推（`PUSH_OFF_BY_DEFAULT`），其他預設推。偏好只管推播，鈴鐺不受影響。
-- **裝置的生命**：「在這台裝置關閉」與**登出**都會先 `POST /api/push/unsubscribe` 再取消瀏覽器的訂閱（同一台電腦下一個登入的人不會收到前一個人的推播，`forgetPushOnSignOut`，最多等 1.5 秒）；被登出所有裝置（`revokeSessions`：重設密碼、管理員改密碼、兩步驟被關掉…）時清掉全部裝置，社員之後要在各裝置重新開啟。自己改密碼只登出其他 session，不動推播（分不出哪個訂閱屬於這個 session）。瀏覽器換了訂閱（`pushsubscriptionchange`）時，service worker 自己用同一把公鑰重新訂閱並送到 `subscribe`。匯出資料有裝置名稱、開啟時間與種類，沒有 endpoint 與金鑰。
-- **瀏覽器**（`public/sw.js`、`src/lib/push.ts`、`src/components/PushCard.tsx`）：service worker 的 `push` 顯示通知（圖示 `icon-192.png`），`notificationclick` 把已開著的本站視窗叫到前面並前往 `url`，沒有就開新視窗（淡江橋譜的網址直接開）。iPhone／iPad 只有加入主畫面、從主畫面打開（iOS 16.4+）才有 `PushManager`，卡片改成說明；瀏覽器封鎖了通知也會說明。正式站載入時就註冊 service worker；開發模式不註冊，按「開啟推播」時才註冊。
+- **每個社團各自訂閱**（e12）：每個社團的物件各存自己的 `push:<userId>`，所以瀏覽器同一個訂閱（同一個 endpoint；VAPID 金鑰全站一把）可以登錄在好幾個社團。瀏覽器記得自己登錄在哪些社團（localStorage `tbt-push-clubs`，全站一份，另外抄一份到 Cache Storage `tku-bridge-table-push` 給 service worker 讀）；在第二個社團開啟推播時沿用同一個訂閱，不換掉。**只取消這個社團的登錄**：「在這台裝置關閉」、登出、在裝置列表移除這台，都只影響這個社團；瀏覽器的 `PushSubscription.unsubscribe()` 只在沒有任何社團還在用時才呼叫。這份清單出來之前就有的訂閱算淡江的。金鑰換了（訂閱要重做）時，新的訂閱也送給清單裡的其他社團（各社團看自己的登入 cookie，沒登入的就從清單拿掉）；`pushsubscriptionchange` 時 service worker 把新的訂閱送到清單裡的每個社團（`X-Club-Id`）。推播的 `url` 在社團自己的網址下（`/c/<id>/…`，`PushService` 的 `clubId`），`notificationclick` 優先用同一個社團的視窗。
+- **裝置的生命**：「在這台裝置關閉」與**登出**都會先 `POST /api/push/unsubscribe`（這個社團的），沒有別的社團在用時再取消瀏覽器的訂閱（同一台電腦下一個登入這個社團的人不會收到前一個人的推播，`forgetPushOnSignOut`，最多等 1.5 秒）；被登出所有裝置（`revokeSessions`：重設密碼、管理員改密碼、兩步驟被關掉…）時清掉全部裝置，社員之後要在各裝置重新開啟。自己改密碼只登出其他 session，不動推播（分不出哪個訂閱屬於這個 session）。瀏覽器換了訂閱（`pushsubscriptionchange`）時，service worker 自己用同一把公鑰重新訂閱並送到 `subscribe`。匯出資料有裝置名稱、開啟時間與種類，沒有 endpoint 與金鑰。
+- **瀏覽器**（`public/sw.js`、`src/lib/push.ts`、`src/components/PushCard.tsx`）：service worker 的 `push` 顯示通知（圖示 `icon-192.png`），`notificationclick` 把已開著的本站視窗（同一個社團的優先）叫到前面並前往 `url`，沒有就開新視窗（淡江橋譜的網址直接開）。iPhone／iPad 只有加入主畫面、從主畫面打開（iOS 16.4+）才有 `PushManager`，卡片改成說明；瀏覽器封鎖了通知也會說明。正式站載入時就註冊 service worker；開發模式不註冊，按「開啟推播」時才註冊。
 
 ## 5.3 紀錄的 SQL 索引（決策紀錄，`e4-t10`）
 
