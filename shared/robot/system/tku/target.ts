@@ -124,6 +124,7 @@ const STRAINS: readonly Strain[] = ['C', 'D', 'H', 'S', 'N']
 const BIDS: Call[] = [1, 2, 3, 4, 5, 6, 7].flatMap((level) => STRAINS.map((s) => bid(level, s)))
 
 export const target: Book = {
+  general: true,
   only: (ctx) => !!ctx.opening,
   rules: [...BIDS.map((call): Rule => plain(call, (h, ctx) => aim(h, ctx) === call)), plain('X', (h, ctx) => aim(h, ctx) === 'X'), rule('P')],
 }

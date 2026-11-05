@@ -2,7 +2,7 @@ import type { Call } from '../../../auction.ts'
 import type { Suit } from '../../../cards.ts'
 import type { Hand } from '../evaluate.ts'
 import { jumpsTo3NT } from '../nt-invite.ts'
-import type { Book, Range, Rule } from '../spec.ts'
+import { neverFits, type Book, type Range, type Rule } from '../spec.ts'
 import { shortness } from './majors.ts'
 import { above, bid, MAJORS, other, plus, UP } from './util.ts'
 
@@ -121,7 +121,7 @@ function responses(r: Ranges, stayman: Call, runout = false): Rule[] {
     { call: '4N', shows: quantitative(r.quant, 'smallSlam') },
     { call: '3N', shows: { hcp: r.game, notes: [{ key: 'signoff' }] } },
     // GIB does not like Gerber, but knows what it means
-    { call: '4C', shows: { name: 'gerber', artificial: true }, when: () => false },
+    { call: '4C', shows: { name: 'gerber', artificial: true }, when: neverFits },
   )
   // Inviting 3NT without a four-card major (T1, 社長 2026-11-01): a long, good minor jumps to game,
   // otherwise a natural 2NT (opener passes with a minimum, bids 3NT with a maximum)

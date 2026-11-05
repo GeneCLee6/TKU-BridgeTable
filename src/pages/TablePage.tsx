@@ -14,6 +14,7 @@ import {
   SLOW_TURN_MS,
   takesInvitees,
   type BoardView,
+  type RobotKind,
   type TableView,
 } from '../../shared/protocol.ts'
 import { AuctionBox } from '../components/AuctionBox.tsx'
@@ -28,6 +29,7 @@ import { DEAL_MS, DealAnimation } from '../components/DealAnimation.tsx'
 import { SidePanel } from '../components/SidePanel.tsx'
 import { HandView } from '../components/HandView.tsx'
 import { SeatPlate, type SeatAction } from '../components/SeatPlate.tsx'
+import { SystemCardDialog } from '../components/SystemCardView.tsx'
 import { TableAnnouncer } from '../components/TableAnnouncer.tsx'
 import { TableSettingsDialog } from '../components/TableSettingsDialog.tsx'
 import { TableTour } from '../components/TableTour.tsx'
@@ -718,6 +720,8 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
   // Toggles that belong to one board are stored with its number, so they reset on the next deal
   const boardNo = board?.boardNo ?? 0
   const [auctionFor, setAuctionFor] = useState(0)
+  const [cardOf, setCardOf] = useState<RobotKind | null>(null)
+  const closeCard = useCallback(() => setCardOf(null), [])
   const [lastTrickFor, setLastTrickFor] = useState(0)
   const [claimingFor, setClaimingFor] = useState(0)
   const [editingSettings, setEditingSettings] = useState(false)
@@ -914,6 +918,12 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
   const seatActions = (seat: Seat): SeatAction[] => {
     const occupant = table.seats[seat]
     const actions: SeatAction[] = []
+    // A robot's system card, at every kind of table: what its calls mean, nothing about the deal. A
+    // person's system is not known (the profile's is free text), so their seat offers no card
+    if (occupant?.robot) {
+      const kind = occupant.robotKind ?? 'tku'
+      actions.push({ label: t.systemCard.open(t.robotSystems[kind]), onSelect: () => setCardOf(kind) })
+    }
     if (challenge || practice || table.match || table.pairs) return actions
     const between = !board || board.phase === 'finished'
     // A free seat (or a robot's) can be taken; someone already seated moves only between boards
@@ -1432,6 +1442,7 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
       )}
       <TableAnnouncer board={board} me={me} who={spokenSeat} />
       {!tableTourSeen && <TableTour onClose={() => setPrefs({ tableTourSeen: true })} />}
+      {cardOf && <SystemCardDialog system={cardOf} onClose={closeCard} />}
       <SidePanel
         tabs={['chat', 'conventions', 'people', 'messages', 'history']}
         recent={table.recent}
