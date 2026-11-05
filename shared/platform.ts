@@ -1,4 +1,6 @@
 import { CLUB_ID_PATTERN, DEFAULT_CLUB_ID } from './clubs.ts'
+import type { PlatformNoticeView } from './notices.ts'
+import type { ForwardedSupport } from './support.ts'
 
 /**
  * The platform (e12-t05, e12-t06; ARCHITECTURE.md §1「平台與社團的申請」): the clubs it runs, the
@@ -161,6 +163,10 @@ export interface PlatformView {
   clubs: PlatformClub[]
   /** Pending first (oldest first), then the last decided */
   applications: ClubApplicationView[]
+  /** The platform's notices, newest first (e12-t15) */
+  notices: PlatformNoticeView[]
+  /** Support reports the clubs' admins forwarded (e12-t16): open ones first, oldest first; asked of each club when the page opens */
+  support: ForwardedSupport[]
   /** The whole bucket and database: the clubs' sums (R2 and D1's free allowances are for the account) */
   totals: { members: number; filesBytes: number; backupBytes: number; historyRows: number; storageBytes: number }
 }

@@ -1,7 +1,7 @@
 import { ALL_PASS } from '../lib/calls.ts'
 import { pathInClub } from '../lib/club.ts'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { Ban, Building2, EyeOff, Gavel, Hand, Layers, List, Lock, Palette, Settings } from 'lucide-react'
+import { Ban, Building2, EyeOff, Gavel, Hand, Layers, LifeBuoy, List, Lock, Palette, Settings } from 'lucide-react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import styled, { css, keyframes } from 'styled-components'
 import { isVulnerable } from '../../shared/board.ts'
@@ -29,6 +29,7 @@ import { SidePanel } from '../components/SidePanel.tsx'
 import { HandView } from '../components/HandView.tsx'
 import { SeatPlate, type SeatAction } from '../components/SeatPlate.tsx'
 import { TableAnnouncer } from '../components/TableAnnouncer.tsx'
+import { SupportDialog } from '../components/SupportDialog.tsx'
 import { TableSettingsDialog } from '../components/TableSettingsDialog.tsx'
 import { TableTour } from '../components/TableTour.tsx'
 import { ContractLabel } from '../components/Suit.tsx'
@@ -721,6 +722,7 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
   const [lastTrickFor, setLastTrickFor] = useState(0)
   const [claimingFor, setClaimingFor] = useState(0)
   const [editingSettings, setEditingSettings] = useState(false)
+  const [reporting, setReporting] = useState(false)
   // 檢討 of a bidding practice's board (`e10-t07`): open only while that board stays finished
   const [reviewing, setReviewing] = useState(false)
   const reviewable = !!table.practice?.biddingOnly && board?.phase === 'finished'
@@ -1239,6 +1241,17 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
                     <Gavel size={16} aria-hidden />
                   </RoundButton>
                 )}
+                <RoundButton
+                  type="button"
+                  aria-label={t.support.open}
+                  title={t.support.open}
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    setReporting(true)
+                  }}
+                >
+                  <LifeBuoy size={16} aria-hidden />
+                </RoundButton>
                 {canConfigure && (
                   <RoundButton
                     type="button"
@@ -1409,6 +1422,7 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
           onClose={() => setReviewing(false)}
         />
       )}
+      {reporting && <SupportDialog tableId={table.id} onClose={() => setReporting(false)} />}
       {editingSettings && canConfigure && (
         <TableSettingsDialog
           title={t.tableSettings}

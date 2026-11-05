@@ -39,11 +39,14 @@ export function buildReport(
   return report
 }
 
+/** The version the page was built from (`<meta name="app-version">`) */
+export const appVersion = () => document.querySelector<HTMLMetaElement>('meta[name="app-version"]')?.content ?? 'unknown'
+
 /** Call once at start-up */
 export function setUpErrorReporting() {
   if (typeof window === 'undefined') return
   const seen = new Set<string>()
-  const version = document.querySelector<HTMLMetaElement>('meta[name="app-version"]')?.content ?? 'unknown'
+  const version = appVersion()
   const send = (report: ClientErrorReport | null) => {
     if (!report || seen.size >= REPORT_MAX_PER_PAGE || seen.has(report.message)) return
     seen.add(report.message)

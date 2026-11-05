@@ -24,9 +24,11 @@ export function notificationLink(n: Notification, options: { forum?: boolean } =
   switch (n.kind) {
     case 'application':
     case 'passwordResetRequested':
+    case 'supportReport':
       return '/admin'
     // A new club application (e12-t06), to the platform owner: the back office, where it is decided
     case 'clubApplication':
+    case 'supportForwarded':
       return '/platform'
     case 'friendOnline':
       return '/'

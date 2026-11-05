@@ -77,5 +77,9 @@ export function notificationText(t: Strings, n: Notification): string {
       return t.notificationTexts.teamEventRound(String(n.params.title ?? ''), Number(n.params.number ?? 0))
     case 'clubApplication':
       return t.notificationTexts.clubApplication(String(n.params.name ?? n.params.slug ?? ''))
+    case 'supportReport':
+      return t.notificationTexts.supportReport(name)
+    case 'supportForwarded':
+      return t.notificationTexts.supportForwarded(String(n.params.name ?? n.params.slug ?? ''))
   }
 }

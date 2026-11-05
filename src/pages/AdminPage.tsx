@@ -15,6 +15,7 @@ import type { BookSyncRow } from '../../shared/robot/system/tku/sources.ts'
 import { CredentialInput } from '../components/CredentialInput.tsx'
 import { AdminTwoFactorBanner } from '../components/AdminTwoFactorBanner.tsx'
 import { PasswordInput } from '../components/PasswordInput.tsx'
+import { AdminBanner, AdminSupport } from '../components/AdminSupport.tsx'
 import { FeatureFlags } from '../components/FeatureFlags.tsx'
 import { IntegrityReport } from '../components/IntegrityReport.tsx'
 import { SystemStatus } from '../components/SystemStatus.tsx'
@@ -56,8 +57,8 @@ import { mobile } from '../styles/tokens.ts'
  * with TKU BridgeBook, which has the same approvals and permissions on its own admin page.
  */
 
-type SectionId = 'applications' | 'settings' | 'members' | 'add' | 'tables' | 'bookSync' | 'features' | 'integrity' | 'status'
-const SECTIONS: SectionId[] = ['applications', 'settings', 'members', 'add', 'tables', 'bookSync', 'features', 'integrity', 'status']
+type SectionId = 'applications' | 'settings' | 'members' | 'add' | 'tables' | 'bookSync' | 'support' | 'banner' | 'features' | 'integrity' | 'status'
+const SECTIONS: SectionId[] = ['applications', 'settings', 'members', 'add', 'tables', 'bookSync', 'support', 'banner', 'features', 'integrity', 'status']
 const anchor = (section: SectionId) => `admin-${section}`
 
 /** Fields a server error can belong to */
@@ -341,6 +342,8 @@ function AdminPanels() {
     add: t.addMember,
     tables: t.tablesTitle,
     bookSync: t.bookSyncTitle,
+    support: t.support.adminTitle,
+    banner: t.notices.bannerTitle,
     features: t.featureFlags.title,
     integrity: t.integrity.title,
     status: t.statusTitle,
@@ -353,6 +356,8 @@ function AdminPanels() {
     add: null,
     tables: tables.length,
     bookSync: outOfStep.length || null,
+    support: null,
+    banner: null,
     features: null,
     integrity: null,
     status: null,
@@ -980,6 +985,22 @@ function AdminPanels() {
                 </Table>
               </Flush>
             )}
+          </Section>
+
+          <Section id={anchor('support')} aria-labelledby={`${id}-h-support`}>
+            <CardHeader>
+              <CardTitle id={`${id}-h-support`}>{t.support.adminTitle}</CardTitle>
+              <Muted>{t.support.adminIntro}</Muted>
+            </CardHeader>
+            <AdminSupport />
+          </Section>
+
+          <Section id={anchor('banner')} aria-labelledby={`${id}-h-banner`}>
+            <CardHeader>
+              <CardTitle id={`${id}-h-banner`}>{t.notices.bannerTitle}</CardTitle>
+              <Muted>{t.notices.bannerIntro}</Muted>
+            </CardHeader>
+            <AdminBanner />
           </Section>
 
           <Section id={anchor('features')} aria-labelledby={`${id}-h-features`}>

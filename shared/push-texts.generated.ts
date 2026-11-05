@@ -62,7 +62,9 @@ export const PUSH_TEXTS: PushTexts = {
       "tournamentResults": "「{title}」結束了，來看結果",
       "tournamentDayReminder": "「{title}」明天這個時候開賽",
       "teamEventRound": "「{title}」第 {number} 輪配對好了，來看你們的比賽",
-      "clubApplication": "有新的建社申請：「{name}」，到平台後台審核"
+      "clubApplication": "有新的建社申請：「{name}」，到平台後台審核",
+      "supportReport": "{username} 送出一則客服回報",
+      "supportForwarded": "「{name}」轉交一則客服回報，到平台後台查看"
     }
   },
   "zh-Hans": {
@@ -125,7 +127,9 @@ export const PUSH_TEXTS: PushTexts = {
       "tournamentResults": "「{title}」结束了，来看结果",
       "tournamentDayReminder": "「{title}」明天这个时候开赛",
       "teamEventRound": "「{title}」第 {number} 轮配对好了，来看你们的比赛",
-      "clubApplication": "有新的建社申请：「{name}」，到平台后台审核"
+      "clubApplication": "有新的建社申请：「{name}」，到平台后台审核",
+      "supportReport": "{username} 送出一则客服回报",
+      "supportForwarded": "「{name}」转交一则客服回报，到平台后台查看"
     }
   },
   "en": {
@@ -188,7 +192,9 @@ export const PUSH_TEXTS: PushTexts = {
       "tournamentResults": "\"{title}\" is over: see the results",
       "tournamentDayReminder": "\"{title}\" starts this time tomorrow",
       "teamEventRound": "\"{title}\" round {number} is paired: see your match",
-      "clubApplication": "New club application: \"{name}\". Review it in the platform back office"
+      "clubApplication": "New club application: \"{name}\". Review it in the platform back office",
+      "supportReport": "{username} sent a support report",
+      "supportForwarded": "\"{name}\" forwarded a support report. See the platform back office"
     }
   },
   "vi": {
@@ -251,7 +257,9 @@ export const PUSH_TEXTS: PushTexts = {
       "tournamentResults": "\"{title}\" đã kết thúc: xem kết quả",
       "tournamentDayReminder": "\"{title}\" sẽ bắt đầu vào giờ này ngày mai",
       "teamEventRound": "\"{title}\" vòng {number} đã bốc cặp: xem trận của đội bạn",
-      "clubApplication": "Có đơn đăng ký mở câu lạc bộ mới: \"{name}\". Hãy duyệt trong trang quản trị nền tảng"
+      "clubApplication": "Có đơn đăng ký mở câu lạc bộ mới: \"{name}\". Hãy duyệt trong trang quản trị nền tảng",
+      "supportReport": "{username} đã gửi một báo cáo hỗ trợ",
+      "supportForwarded": "\"{name}\" đã chuyển một báo cáo hỗ trợ. Hãy xem trong trang quản trị nền tảng"
     }
   },
   "ja": {
@@ -314,7 +322,9 @@ export const PUSH_TEXTS: PushTexts = {
       "tournamentResults": "「{title}」が終わりました。結果を見ましょう",
       "tournamentDayReminder": "「{title}」は明日のこの時間に始まります",
       "teamEventRound": "「{title}」第 {number} ラウンドの組み合わせが決まりました。試合を確認しましょう",
-      "clubApplication": "新しいクラブ開設申請「{name}」があります。プラットフォーム管理画面で審査してください"
+      "clubApplication": "新しいクラブ開設申請「{name}」があります。プラットフォーム管理画面で審査してください",
+      "supportReport": "{username} さんがサポート報告を送りました",
+      "supportForwarded": "「{name}」がサポート報告を転送しました。プラットフォーム管理画面で確認してください"
     }
   },
   "ko": {
@@ -377,7 +387,9 @@ export const PUSH_TEXTS: PushTexts = {
       "tournamentResults": "「{title}」이(가) 끝났습니다. 결과를 확인하세요",
       "tournamentDayReminder": "「{title}」이(가) 내일 이 시간에 시작합니다",
       "teamEventRound": "「{title}」 {number}라운드 대진이 정해졌습니다. 경기를 확인하세요",
-      "clubApplication": "새 클럽 개설 신청 「{name}」이 있습니다. 플랫폼 관리 화면에서 심사하세요"
+      "clubApplication": "새 클럽 개설 신청 「{name}」이 있습니다. 플랫폼 관리 화면에서 심사하세요",
+      "supportReport": "{username} 님이 고객 지원 신고를 보냈습니다",
+      "supportForwarded": "「{name}」에서 고객 지원 신고를 전달했습니다. 플랫폼 관리 화면에서 확인하세요"
     }
   }
 }

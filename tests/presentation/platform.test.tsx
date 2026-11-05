@@ -88,6 +88,8 @@ describe('申請開設社團 (e12-t06)', () => {
 })
 
 const VIEW: PlatformView = {
+  notices: [],
+  support: [],
   clubs: [
     {
       id: 'tku',

@@ -14,7 +14,7 @@ export { EventObject } from './event-object.ts'
 
 /** The clubs the platform opened (e12-t06), read from 淡江's object only for requests naming another club */
 let registry: ClubRegistryCache | undefined
-const registryOf = (env: Env) => (registry ??= new ClubRegistryCache(() => clubStub(env, DEFAULT_CLUB_ID).platformRegistry()))
+const registryOf = (env: Env) => (registry ??= new ClubRegistryCache(() => clubStub(env, DEFAULT_CLUB_ID).platformSnapshot()))
 
 /**
  * API and the club's WebSocket go to the club's Durable Object, a table's WebSocket to that
@@ -34,6 +34,8 @@ export default {
         const statuses = await Promise.all(ids.map((id) => known.status(id)))
         return ids.filter((_, i) => statuses[i] === 'active')
       },
+      // The platform's notices (e12-t15): with the registry's cached read; no owner, no notices and no read
+      platformNotices: () => (env.PLATFORM_OWNER ? registryOf(env).notices() : Promise.resolve([])),
       // Each club its own object (e12-t02, shared/clubs.ts)
       club: (clubId) => {
         const stub = clubStub(env, clubId)
@@ -45,6 +47,7 @@ export default {
           publicTables: () => stub.publicTables(),
           guestTable: (tableId) => stub.guestTable(tableId) as Promise<GuestTable | null>,
           clubName: () => stub.clubName(),
+          memberNotices: (token) => stub.memberNotices(token),
         }
       },
       // A club's tables are named after it (e12-t03): 淡江's by the table id as before

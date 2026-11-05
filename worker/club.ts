@@ -1,6 +1,8 @@
 import { DurableObject } from 'cloudflare:workers'
 import { clubName, clubOfClubObject, clubOfPath, clubPath, clubStoragePrefix, DEFAULT_CLUB_ID, knownClubs } from '../shared/clubs.ts'
+import type { ClubBanner } from '../shared/notices.ts'
 import { CLUB_APPLY_API, type ClubApplyOptions, type ClubStatus, type ClubUsage } from '../shared/platform.ts'
+import type { ForwardedSupport, SupportStatus } from '../shared/support.ts'
 import type { GuestTable, PublicTable } from '../shared/public-lobby.ts'
 import { AppError } from '../shared/messages.ts'
 import type { ChallengeSettings } from '../shared/challenge.ts'
@@ -51,7 +53,7 @@ import { CLIENT_ERROR_MAX_CHARS } from './client-errors.ts'
 import { d1Replica } from './d1.ts'
 import { edgeSecret, mintPass, passCookie, passCookieName, passNeedsRefresh } from './edge-auth.ts'
 import { clubLog, crashEntry, jsonLog, type Logger, sampleActions } from './log.ts'
-import { clubStub, eventStub, tableStub } from './clubs.ts'
+import { clubStub, eventStub, tableStub, type RegistrySnapshot } from './clubs.ts'
 import { seenSalt } from './integrity.ts'
 import { CLUB_APPLICATION_WINDOW_MS, CLUB_APPLICATIONS_PER_ADDRESS, PlatformService, requireApplyClub, requirePlatformOwner, type ClubSetup, type RegistryEntry } from './platform.ts'
 import { RegistrationLimit } from './register-limit.ts'
@@ -338,6 +340,8 @@ export class Club extends DurableObject<Env> implements Connections {
         this.forum.forgetUnpublished(userId)
         await this.files.forget(userId, (key) => this.forum.imagesInUse([key], 'all').size > 0)
       },
+      // Forwarding a support report (e12-t16) tells the owner in 淡江's object; no owner, no forwarding
+      ...(env.PLATFORM_OWNER && { tellPlatformOwner: () => this.tellOwnerOfSupport() }),
       // The platform owner (e12-t05): 淡江's account named by PLATFORM_OWNER
       ...(clubId === DEFAULT_CLUB_ID && env.PLATFORM_OWNER && { platformOwnerId: env.PLATFORM_OWNER }),
     })
@@ -481,6 +485,9 @@ export class Club extends DurableObject<Env> implements Connections {
         setStatus: (id, status) => clubStub(this.env, id).platformSetStatus(status),
         // 淡江's own from here: an object never calls itself
         usage: (id) => (id === this.clubId ? this.platformUsage() : clubStub(this.env, id).platformUsage()),
+        forwardedSupport: (id) => (id === this.clubId ? this.platformForwardedSupport() : clubStub(this.env, id).platformForwardedSupport()),
+        setSupportStatus: (id, reportId, status) =>
+          id === this.clubId ? this.platformSupportStatus(reportId, status) : clubStub(this.env, id).platformSupportStatus(reportId, status),
       },
     })
   }
@@ -488,6 +495,33 @@ export class Club extends DurableObject<Env> implements Connections {
   /** The clubs the platform opened, for the Worker's routing and the daily backup (淡江's object only) */
   async platformRegistry(): Promise<RegistryEntry[]> {
     return this.platform().registry()
+  }
+
+  /** The registry and the platform's notices that are out, in one read: what `ClubRegistryCache` keeps (淡江's object only) */
+  async platformSnapshot(): Promise<RegistrySnapshot> {
+    return this.platform().snapshot()
+  }
+
+  /** This club's reports its admins forwarded, for the back office (RPC from 淡江's object; e12-t16) */
+  async platformForwardedSupport(): Promise<ForwardedSupport[]> {
+    return this.service.support.forwarded()
+  }
+
+  /** The platform owner resolved a forwarded report or opened it again (RPC from 淡江's object) */
+  async platformSupportStatus(reportId: string, status: SupportStatus): Promise<boolean> {
+    return this.service.support.setForwardedStatus(reportId, status)
+  }
+
+  /** A club's admin forwarded a report (RPC to 淡江's object): the owner's bell (and push) hears which club */
+  async platformSupportForwarded(name: string): Promise<void> {
+    if (this.clubId !== DEFAULT_CLUB_ID || !this.env.PLATFORM_OWNER) return
+    await this.service.notifications.notify(this.env.PLATFORM_OWNER, 'supportForwarded', { name })
+  }
+
+  private async tellOwnerOfSupport() {
+    const name = await this.clubName()
+    if (this.clubId === DEFAULT_CLUB_ID) await this.platformSupportForwarded(name)
+    else await clubStub(this.env, DEFAULT_CLUB_ID).platformSupportForwarded(name)
   }
 
   /** Opens this club with its first admin (the owner approved it); again changes nothing */
@@ -611,6 +645,14 @@ export class Club extends DurableObject<Env> implements Connections {
   async guestTable(tableId: string): Promise<GuestTable | null> {
     const table = await this.service.guestTable(tableId)
     return table && this.named(table)
+  }
+  /**
+   * `GET /api/notices` (e12-t15, worker/routing.ts): whether this session is a member's, and the
+   * club's banner. RPC from the Worker only, which adds the platform's notices from its own copy
+   */
+  async memberNotices(token: string | null): Promise<{ signedIn: boolean; banner: ClubBanner | null }> {
+    if (this.closedBecause() || !(await this.service.userForToken(token))) return { signedIn: false, banner: null }
+    return { signedIn: true, banner: await this.service.banners.current() }
   }
   /** The name the club is shown by, for its home-screen app's manifest (worker/manifest.ts): RPC from the Worker only */
   async clubName(): Promise<string> {
@@ -917,6 +959,17 @@ export class Club extends DurableObject<Env> implements Connections {
       if (decision[2] === 'approve') return json(await platform.approve(owner, decision[1], url.origin))
       return json(await platform.reject(owner, decision[1], (await body()).note))
     }
+    // The platform's notices (e12-t15)
+    if (route === 'POST /api/platform/notices') return json(await platform.saveNotice(owner, await body()))
+    const notice = /^POST \/api\/platform\/notices\/([\w-]+)\/(publish|withdraw|delete)$/.exec(route)
+    if (notice) {
+      if (notice[2] === 'publish') return json(await platform.publishNotice(owner, notice[1]))
+      if (notice[2] === 'withdraw') return json(await platform.withdrawNotice(owner, notice[1]))
+      return json(await platform.deleteNotice(owner, notice[1]))
+    }
+    // A forwarded support report resolved or opened again (e12-t16); it lives in its club's object
+    const report = /^POST \/api\/platform\/support\/([\w-]+)\/([\w-]+)\/status$/.exec(route)
+    if (report) return json(await platform.setSupportStatus(owner, report[1], report[2], (await body()).status))
     const status = /^POST \/api\/platform\/clubs\/([\w-]+)\/status$/.exec(route)
     if (status) {
       const b = await body()
@@ -1116,6 +1169,8 @@ export class Club extends DurableObject<Env> implements Connections {
     if (url.pathname.startsWith('/api/book/')) return this.bookApi(request, url, user, body)
     if (url.pathname.startsWith('/api/club/')) return this.clubApi(request, url, user, body)
     if (url.pathname.startsWith('/api/forum/')) return this.forumApi(request, url, user, body)
+    // A member's support report (e12-t16): the browser from the request, never the address
+    if (route === 'POST /api/support') return json(await this.service.sendSupportReport(user.id, await body(), request.headers.get('User-Agent') ?? ''), 202)
     if (route === 'POST /api/account/password') {
       const b = await body()
       await this.service.changePassword(user.id, text(b.current), text(b.next), token)
@@ -1493,6 +1548,21 @@ export class Club extends DurableObject<Env> implements Connections {
           },
         }),
       )
+    // The club's banner (e12-t15) and the members' support reports (e12-t16)
+    if (path === '/banner') {
+      if (method === 'GET') return json({ banner: await this.service.adminBanner(user.id) })
+      if (method === 'POST') return json({ banner: await this.service.adminSetBanner(user.id, await body()) })
+      if (method === 'DELETE') {
+        await this.service.adminClearBanner(user.id)
+        return json({ banner: null })
+      }
+    }
+    if (method === 'GET' && path === '/support') return json(this.service.adminSupport(user.id))
+    const supportReport = /^\/support\/([\w-]+)\/(status|forward)$/.exec(path)
+    if (method === 'POST' && supportReport) {
+      if (supportReport[2] === 'forward') return json(await this.service.adminForwardSupport(user.id, supportReport[1]))
+      return json(await this.service.adminSetSupportStatus(user.id, supportReport[1], (await body()).status))
+    }
     if (method === 'GET' && path === '/users') return json({ users: await this.service.adminUsers() })
     if (method === 'POST' && path === '/users') {
       const b = await body()

@@ -289,6 +289,9 @@ import {
   type Table,
 } from './views.ts'
 import { AuditLog } from './audit.ts'
+import { ClubBanners } from './notices.ts'
+import { SupportService } from './support.ts'
+import type { AdminSupportView } from '../shared/support.ts'
 import { RefereeLog, refereeKindOf } from './referee.ts'
 import {
   isRefereeEvent,
@@ -572,6 +575,11 @@ export interface ClubConfig {
    * `Me.platformOwner` says so, for the page's link to the back office
    */
   platformOwnerId?: string
+  /**
+   * Tells the platform owner a report was forwarded (e12-t16, a call to 淡江's object, `worker/club.ts`);
+   * none when `PLATFORM_OWNER` is not set, and then nothing can be forwarded
+   */
+  tellPlatformOwner?: () => Promise<unknown>
 }
 
 /** A provider's message code: `googleOff`, `lineTaken`… (shared/messages.ts has each) */
@@ -753,6 +761,11 @@ export class ClubService {
   readonly featured: FeaturedService
   /** Public links of boards (e4-t38) */
   readonly shares: BoardShares
+  private readonly audit: AuditLog
+  /** The club's own banner (e12-t15) */
+  readonly banners: ClubBanners
+  /** Support reports (e12-t16) */
+  readonly support: SupportService
   /** Members' saved practice settings (`e10-t16`, §5.11) */
   private readonly practicePresets: PracticePresets
   /** Keeps the history index's D1 copy in step (§5.12), when there is one */
@@ -920,6 +933,20 @@ export class ClubService {
       hidesBoards: (id) => !!this.users.get(id)?.hideProfileBoards,
       userById: (id) => this.publicUserById(id),
     })
+    this.audit = new AuditLog(store, this.now)
+    this.banners = new ClubBanners(store, this.audit, this.now, () => randomId(8))
+    this.support = new SupportService(store.sql, {
+      clubId: this.clubId,
+      now: this.now,
+      newId: () => randomId(8),
+      audit: this.audit,
+      usernameOf: (id) => this.users.get(id)?.username,
+      tellAdmins: async (username) => {
+        for (const id of this.adminIds()) await this.notifications.notify(id, 'supportReport', { username })
+      },
+      tellOwner: config.tellPlatformOwner,
+      failed: (what, error) => this.log(crashEntry(what, error)),
+    })
     this.directs = new DirectMessageStore(store.sql)
     this.sessions = new Sessions(store, this.now)
     this.sightings = new Sightings(store, this.now, seenSalt(config.seenSalt))
@@ -1066,6 +1093,7 @@ export class ClubService {
     this.metrics.restore(await this.store.get<MetricsState>('meta:metrics'))
     createHistoryIndex(this.store.sql)
     this.shares.createTables()
+    this.support.createTables()
     this.challenges.createTables()
     this.challengeExtras.createTables()
     this.homes.createTables()
@@ -2613,6 +2641,46 @@ export class ClubService {
     }))
   }
 
+  // ── Announcements and support (e12-t15, e12-t16) ────────────────────────────────────────────
+
+  /** `POST /api/support`: any member's report; the browser comes from the request */
+  async sendSupportReport(userId: string, input: Record<string, unknown>, browser: string) {
+    this.requireUser(userId)
+    return this.support.submit(userId, input, browser)
+  }
+
+  adminSupport(adminId: string): AdminSupportView {
+    this.requireAdmin(adminId)
+    return { reports: this.support.list(), canForward: !!this.config.tellPlatformOwner }
+  }
+
+  async adminSetSupportStatus(adminId: string, reportId: string, status: unknown): Promise<AdminSupportView> {
+    this.requireAdmin(adminId)
+    await this.support.setStatus(this.requireUser(adminId).username, reportId, status)
+    return this.adminSupport(adminId)
+  }
+
+  async adminForwardSupport(adminId: string, reportId: string): Promise<AdminSupportView> {
+    this.requireAdmin(adminId)
+    await this.support.forward(this.requireUser(adminId).username, reportId)
+    return this.adminSupport(adminId)
+  }
+
+  async adminBanner(adminId: string) {
+    this.requireAdmin(adminId)
+    return this.banners.current()
+  }
+
+  async adminSetBanner(adminId: string, input: { text?: unknown; expiresAt?: unknown }) {
+    this.requireAdmin(adminId)
+    return this.banners.set(this.requireUser(adminId).username, input)
+  }
+
+  async adminClearBanner(adminId: string) {
+    this.requireAdmin(adminId)
+    await this.banners.clear(this.requireUser(adminId).username)
+  }
+
   /** Throws unless the member may act as an admin now (`actsAsAdmin`) */
   requireAdmin(userId: string) {
     const user = this.users.get(userId)
@@ -2821,6 +2889,7 @@ export class ClubService {
     await this.blocks.forget(user.id)
     removeFavoritesOf(this.store.sql, user.id)
     this.shares.removeMadeBy(user.id)
+    this.support.forget(user.id, user.username)
     this.challengeExtras.forget(user.id)
     this.rankings.forget(user.id)
     await this.teamEvents.forget(user.id)
@@ -2987,6 +3056,8 @@ export class ClubService {
       boards,
       // The public links they made (e4-t38)
       boardShares: this.shares.madeBy(userId),
+      // The support reports they sent (e12-t16)
+      supportReports: this.support.exportOf(userId),
     }
   }
 

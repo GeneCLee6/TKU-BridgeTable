@@ -1,6 +1,8 @@
 import { CLUB_ID_PATTERN, clubPath, DEFAULT_CLUB_ID } from '../shared/clubs.ts'
 import { credentialText, toHalfWidth } from '../shared/halfwidth.ts'
 import type { MessageCode, MessageParams } from '../shared/messages.ts'
+import { NOTICE_LIMITS, noticeLive, type NoticeStatus, type PlatformNotice, type PlatformNoticeView } from '../shared/notices.ts'
+import type { ForwardedSupport, SupportStatus } from '../shared/support.ts'
 import {
   CLUB_APPLICATION_LIMITS,
   clubIdProblem,
@@ -17,6 +19,7 @@ import type { AuditAction, AuditLog } from './audit.ts'
 import { hashPassword } from './auth.ts'
 import { ClubError } from './errors.ts'
 import { noLog, type Logger } from './log.ts'
+import { noticeExcerpt, noticeExpiry, noticeText } from './notices.ts'
 import { composeMail, isEmail, mailLang, normalizeEmail, type Mailer } from './mail.ts'
 import { checkNewPassword } from './password-policy.ts'
 import type { RegistrationLimit } from './register-limit.ts'
@@ -51,6 +54,10 @@ export interface ClubDirectory {
   /** Suspends (every session ends, every socket closes, the data stays) or serves the club again */
   setStatus(clubId: string, status: ClubStatus): Promise<void>
   usage(clubId: string): Promise<ClubUsage>
+  /** The support reports the club's admins forwarded (e12-t16): they stay in the club's object */
+  forwardedSupport(clubId: string): Promise<ForwardedSupport[]>
+  /** False when the club has no such forwarded report */
+  setSupportStatus(clubId: string, reportId: string, status: SupportStatus): Promise<boolean>
 }
 
 /** One club in the registry, as the Worker routes it */
@@ -80,6 +87,7 @@ interface StoredApplication extends ClubApplicationView {
 
 const CLUB_KEY = 'platform:club:'
 const APPLY_KEY = 'platform:apply:'
+const NOTICE_KEY = 'platform:notice:'
 
 /** 淡江 in the back office: always served, never in the registry */
 const DEFAULT_CLUB = { id: DEFAULT_CLUB_ID, name: '淡江橋藝社', organisation: '淡江大學', contactEmail: '' }
@@ -152,6 +160,11 @@ export class PlatformService {
   /** The clubs the Worker serves besides 淡江, with their status (worker/clubs.ts `ClubRegistryCache`) */
   async registry(): Promise<RegistryEntry[]> {
     return (await this.clubs()).map(({ id, status }) => ({ id, status }))
+  }
+
+  /** The Worker's one read of 淡江 (worker/clubs.ts): the registry, and the notices members may see */
+  async snapshot(): Promise<{ clubs: RegistryEntry[]; notices: PlatformNotice[] }> {
+    return { clubs: await this.registry(), notices: (await this.notices()).flatMap((n) => this.outNow(n)) }
   }
 
   private async clubs(): Promise<StoredClub[]> {
@@ -250,6 +263,8 @@ export class PlatformService {
     return {
       clubs,
       applications: this.listed(await this.applications()).map(view),
+      notices: await this.notices(),
+      support: await this.forwardedSupport(entries.map((club) => club.id)),
       totals: {
         members: sum((u) => u.members),
         filesBytes: sum((u) => u.filesBytes),
@@ -333,6 +348,105 @@ export class PlatformService {
       const reason = String(note ?? '').trim().slice(0, CLUB_APPLICATION_LIMITS.noteMax)
       await this.audit(owner, status === 'suspended' ? 'platform:suspend' : 'platform:unsuspend', clubId, reason || undefined)
     }
+    return this.view()
+  }
+
+  // ── Announcements (e12-t15) ────────────────────────────────────────────────────────────────
+
+  /** Newest first */
+  private async notices(): Promise<PlatformNoticeView[]> {
+    const all = [...(await this.store.list<PlatformNoticeView>(NOTICE_KEY)).values()]
+    return all.sort((a, b) => b.createdAt - a.createdAt || a.id.localeCompare(b.id))
+  }
+
+  /** What members get of a notice: nothing unless it is out and its end has not come */
+  private outNow(notice: PlatformNoticeView): PlatformNotice[] {
+    if (notice.status !== 'published' || notice.publishedAt === undefined || !noticeLive(notice, this.config.now())) return []
+    const { id, text, publishedAt, expiresAt } = notice
+    return [{ id, text, publishedAt, ...(expiresAt !== undefined && { expiresAt }) }]
+  }
+
+  private async notice(id: string): Promise<PlatformNoticeView> {
+    const notice = /^[\w-]{1,32}$/.test(id) ? await this.store.get<PlatformNoticeView>(`${NOTICE_KEY}${id}`) : undefined
+    if (!notice) throw new ClubError('noSuchNotice', {}, 404)
+    return notice
+  }
+
+  /** A new draft, or an edit of a notice in any state (one that is out stays out, and whoever dismissed it stays rid of it) */
+  async saveNotice(owner: Me, input: { id?: unknown; text?: unknown; expiresAt?: unknown }): Promise<PlatformView> {
+    const now = this.config.now()
+    const text = noticeText(input.text)
+    const expiresAt = noticeExpiry(input.expiresAt, now)
+    let saved: PlatformNoticeView
+    if (input.id !== undefined) {
+      const { expiresAt: _old, ...notice } = await this.notice(String(input.id))
+      saved = { ...notice, text, updatedAt: now, ...(expiresAt !== undefined && { expiresAt }) }
+    } else {
+      const all = await this.notices()
+      if (all.length >= NOTICE_LIMITS.storedMax) throw new ClubError('tooManyNotices', { max: NOTICE_LIMITS.storedMax }, 409)
+      saved = { id: this.config.newId(), text, status: 'draft', createdAt: now, updatedAt: now, ...(expiresAt !== undefined && { expiresAt }) }
+    }
+    await this.store.put(`${NOTICE_KEY}${saved.id}`, saved)
+    await this.audit(owner, 'platform:noticeSave', saved.id, noticeExcerpt(text))
+    return this.view()
+  }
+
+  /** Out to every club's members within REGISTRY_TTL_MS. One withdrawn and published again shows again to whoever dismissed it */
+  async publishNotice(owner: Me, id: string): Promise<PlatformView> {
+    const notice = await this.notice(id)
+    const now = this.config.now()
+    if (notice.status !== 'published') {
+      noticeExpiry(notice.expiresAt, now)
+      const out = (await this.notices()).filter((n) => this.outNow(n).length)
+      if (out.length >= NOTICE_LIMITS.activeMax) throw new ClubError('tooManyActiveNotices', { max: NOTICE_LIMITS.activeMax }, 409)
+      await this.setNotice(owner, notice, 'published', 'platform:noticePublish', { publishedAt: now })
+    }
+    return this.view()
+  }
+
+  async withdrawNotice(owner: Me, id: string): Promise<PlatformView> {
+    const notice = await this.notice(id)
+    if (notice.status === 'published') await this.setNotice(owner, notice, 'withdrawn', 'platform:noticeWithdraw')
+    return this.view()
+  }
+
+  async deleteNotice(owner: Me, id: string): Promise<PlatformView> {
+    const notice = await this.notice(id)
+    await this.store.delete(`${NOTICE_KEY}${id}`)
+    await this.audit(owner, 'platform:noticeDelete', id, noticeExcerpt(notice.text))
+    return this.view()
+  }
+
+  private async setNotice(owner: Me, notice: PlatformNoticeView, status: NoticeStatus, action: AuditAction, extra: Partial<PlatformNoticeView> = {}) {
+    await this.store.put(`${NOTICE_KEY}${notice.id}`, { ...notice, ...extra, status, updatedAt: this.config.now() } satisfies PlatformNoticeView)
+    await this.audit(owner, action, notice.id, noticeExcerpt(notice.text))
+  }
+
+  // ── Forwarded support reports (e12-t16) ────────────────────────────────────────────────────
+
+  /** Each club's forwarded reports, asked when the back office opens; a club that does not answer is left out for now */
+  private async forwardedSupport(clubIds: string[]): Promise<ForwardedSupport[]> {
+    const lists = await Promise.all(
+      clubIds.map((clubId) =>
+        this.config.clubs.forwardedSupport(clubId).catch((error: unknown) => {
+          this.log({ event: 'platformUsage', clubId, error: error instanceof Error ? error.message : String(error) })
+          return [] as ForwardedSupport[]
+        }),
+      ),
+    )
+    const all = lists.flat()
+    const open = all.filter((r) => r.status === 'open').sort((a, b) => a.forwardedAt - b.forwardedAt)
+    const resolved = all.filter((r) => r.status !== 'open').sort((a, b) => (b.resolvedAt ?? 0) - (a.resolvedAt ?? 0))
+    return [...open, ...resolved]
+  }
+
+  /** A forwarded report resolved or opened again, in the club's object; the report's club names where it is */
+  async setSupportStatus(owner: Me, clubId: string, reportId: string, status: unknown): Promise<PlatformView> {
+    if (status !== 'open' && status !== 'resolved') throw new ClubError('badMessage')
+    if (clubId !== DEFAULT_CLUB_ID && !(CLUB_ID_PATTERN.test(clubId) && (await this.store.get(`${CLUB_KEY}${clubId}`)) !== undefined))
+      throw new ClubError('unknownClub', {}, 404)
+    if (!(await this.config.clubs.setSupportStatus(clubId, reportId, status))) throw new ClubError('noSuchSupportReport', {}, 404)
+    await this.audit(owner, status === 'resolved' ? 'platform:supportResolve' : 'platform:supportReopen', `${clubId}/${reportId}`)
     return this.view()
   }
 
