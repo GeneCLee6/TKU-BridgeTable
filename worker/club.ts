@@ -1194,6 +1194,8 @@ export class Club extends DurableObject<Env> implements Connections {
         },
       })
     }
+    // The boards they imported, a page at a time (e4-t39): the page joins them to the file above
+    if (route === 'GET /api/account/export/imported') return json(await this.service.exportImported(user.id, url.searchParams.get('after')))
     if (route === 'POST /api/account/delete') {
       await this.service.deleteOwnAccount(user.id, text((await body()).password))
       return json({ ok: true }, 200, sessionCookie('', secure, this.clubId), passCookie('', secure, this.clubId))
@@ -1248,7 +1250,13 @@ export class Club extends DurableObject<Env> implements Connections {
       const { records, total } = await this.service.exportBoards(user.id, parseHistoryQuery(url.searchParams))
       return textFile(toPbnFile(records), `tku-records-${records.length}.pbn`, { 'X-Boards-Total': String(total) })
     }
+    // Boards the browser read from a BBO LIN file (e4-t39), a batch at a time
+    if (route === 'POST /api/history/import') return json(await this.service.importBoards(user.id, await body()))
     const record = url.pathname.match(/^\/api\/history\/([\w-]+)$/)
+    if (request.method === 'DELETE' && record) {
+      await this.service.removeImported(user.id, record[1])
+      return json({ ok: true })
+    }
     if (request.method === 'GET' && record) {
       const found = await this.service.record(record[1], user.id)
       if (!found) throw new ClubError('boardGone', {}, 404)
@@ -1260,7 +1268,7 @@ export class Club extends DurableObject<Env> implements Connections {
       const records = await this.service.session(sessionLin[1], user.id)
       if (!records) throw new ClubError('boardGone', {}, 404)
       const first = records[0]
-      const place = first.mode === 'practice' ? 'Practice' : `Table ${first.tableNumber}`
+      const place = first.mode === 'practice' ? 'Practice' : first.mode === 'imported' ? 'Imported' : `Table ${first.tableNumber}`
       return textFile(toSessionLin(records, `TKU BridgeTable ${place}`), `tku-session-${sessionLin[1]}.lin`)
     }
     // A board's public link (e4-t38): its players and the admins see it, make it and take it back
@@ -1307,6 +1315,10 @@ export class Club extends DurableObject<Env> implements Connections {
     if (route === 'GET /api/practice/sets') return json({ sets: this.service.practiceSets() })
     if (route === 'GET /api/practice/presets') return json({ presets: await this.service.savedPractice(user.id) })
     if (route === 'POST /api/practice/presets') return json({ presets: await this.service.savePractice(user.id, await body()) })
+    // The member's own deals from PBN files (e10-t09)
+    if (route === 'GET /api/practice/deals') return json({ deals: await this.service.ownDealList(user.id) })
+    if (route === 'POST /api/practice/deals') return json(await this.service.importOwnDeals(user.id, await body()))
+    if (route === 'POST /api/practice/deals/remove') return json({ deals: await this.service.removeOwnDeals(user.id, (await body()).ids) })
     const preset = url.pathname.match(/^\/api\/practice\/presets\/([\w-]+)$/)
     if (preset && request.method === 'DELETE') return json({ presets: await this.service.removeSavedPractice(user.id, preset[1]) })
     // Partner bidding practice (e10-t08): only the session's two members, as worker/views.ts lets each see it

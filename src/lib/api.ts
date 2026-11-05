@@ -16,6 +16,7 @@ import { historyQueryString, type HistoryQuery } from '../../shared/history-quer
 import type { MessageParams } from '../../shared/messages.ts'
 import type { MemberProfile, Profile } from '../../shared/profile.ts'
 import type {
+  OwnDealInfo,
   TwoFactorSetup,
   AdminUser,
   ResetCode,
@@ -69,6 +70,7 @@ import type { FeatureFlag, FeatureState, FeatureView } from '../../shared/featur
 import type { ClubApplicationInput, ClubApplyOptions, ClubStatus, PlatformView } from '../../shared/platform.ts'
 import type { SessionInfo } from '../../shared/account.ts'
 import type { PushKinds, PushView } from '../../shared/push.ts'
+import type { ImportedBoard, ImportedDeal } from '../../shared/imports.ts'
 import type { PartnerBidSettings, PartnerBidSummary, PartnerBidView } from '../../shared/partner-bidding.ts'
 import type { PracticeSettings, SavedPractice } from '../../shared/practice.ts'
 import type { PracticeSetInfo } from '../../shared/practice-sets/types.ts'
@@ -232,6 +234,12 @@ export const api = {
   endOtherSessions: () => post<{ ended: number }>('/api/account/sessions/others'),
   /** The member's own data as a JSON file (e11-t27); a link downloads it */
   /** A plain link (no headers), so it names the club in its address */
+  /** The member's data (e11-t27) and, a page at a time, the boards they imported (e4-t39): `saveAccountData` */
+  accountData: () => request<{ account: { id: string }; importedBoardCount: number } & Record<string, unknown>>('/api/account/export'),
+  accountImportedBoards: (after: string | null) =>
+    request<{ boards: { id: string; importedAt: number; lin: string }[]; next: string | null }>(
+      `/api/account/export/imported${after ? `?after=${encodeURIComponent(after)}` : ''}`,
+    ),
   get exportUrl() {
     return withClub('/api/account/export')
   },
@@ -279,6 +287,13 @@ export const api = {
   /** The club's practice sets, without their boards (e10-t16) */
   practiceSets: () => request<{ sets: PracticeSetInfo[] }>('/api/practice/sets'),
   /** The member's saved practice settings (存成我的設定, e10-t16) */
+  // Deals from PBN files (e10-t09), boards from LIN files (e4-t39): the browser parses, the server checks
+  ownDeals: () => request<{ deals: OwnDealInfo[] }>('/api/practice/deals'),
+  importOwnDeals: (deals: ImportedDeal[]) => post<{ added: number; duplicates: number; deals: OwnDealInfo[] }>('/api/practice/deals', { deals }),
+  removeOwnDeals: (ids: string[]) => post<{ deals: OwnDealInfo[] }>('/api/practice/deals/remove', { ids }),
+  importBoards: (boards: ImportedBoard[], session: string) =>
+    post<{ added: number; duplicates: number; ids: string[] }>('/api/history/import', { boards, session }),
+  removeImportedBoard: (id: string) => request<{ ok: true }>(`/api/history/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   practicePresets: () => request<{ presets: SavedPractice[] }>('/api/practice/presets'),
   savePracticePreset: (name: string, settings: PracticeSettings) =>
     post<{ presets: SavedPractice[] }>('/api/practice/presets', { name, settings }),

@@ -1,17 +1,18 @@
-import { render, screen, within } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SessionInfo } from '../../shared/account.ts'
 import { DataCard, SessionsCard } from '../../src/components/AccountSecurity.tsx'
 import { ToastProvider } from '../../src/components/Toast.tsx'
+import { api } from '../../src/lib/api.ts'
 import { LegalPage } from '../../src/pages/LegalPage.tsx'
 import { PreferencesProvider } from '../../src/state/PreferencesContext.tsx'
 
 /** "My account"'s signed-in devices (e11-t23) and own data (e11-t27), and the legal pages */
 
 const mocks = vi.hoisted(() => ({
-  api: { sessions: vi.fn(), endSession: vi.fn(), endOtherSessions: vi.fn(), deleteAccount: vi.fn(), exportUrl: '/api/account/export' },
+  api: { sessions: vi.fn(), endSession: vi.fn(), endOtherSessions: vi.fn(), deleteAccount: vi.fn(), exportUrl: '/api/account/export', accountData: vi.fn(), accountImportedBoards: vi.fn() },
   refresh: vi.fn(async () => {}),
 }))
 
@@ -68,6 +69,28 @@ describe('DataCard', () => {
   it('links the download, and deletes the account only with the password and a confirmation', async () => {
     wrap(<DataCard />)
     expect(screen.getByRole('link', { name: '下載我的資料' })).toHaveAttribute('href', '/api/account/export')
+    // The boards they imported come a page at a time (e4-t39) and go into the same file
+    vi.mocked(api.accountData).mockResolvedValue({ account: { id: 'u1' }, importedBoardCount: 3 })
+    vi.mocked(api.accountImportedBoards)
+      .mockResolvedValueOnce({ boards: [{ id: 'a', importedAt: 1, lin: 'x' }, { id: 'b', importedAt: 1, lin: 'y' }], next: 'b' })
+      .mockResolvedValueOnce({ boards: [{ id: 'c', importedAt: 1, lin: 'z' }], next: null })
+    const blobs: Blob[] = []
+    URL.createObjectURL = vi.fn((blob: Blob) => {
+      blobs.push(blob)
+      return 'blob:x'
+    }) as never
+    URL.revokeObjectURL = vi.fn()
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+    await userEvent.click(screen.getByRole('link', { name: '下載我的資料' }))
+    await waitFor(() => expect(blobs).toHaveLength(1))
+    expect(vi.mocked(api.accountImportedBoards).mock.calls).toEqual([[null], ['b']])
+    const file = await new Promise<string>((resolve) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(String(reader.result))
+      reader.readAsText(blobs[0])
+    })
+    expect(JSON.parse(file).importedBoards.map((b: { id: string }) => b.id)).toEqual(['a', 'b', 'c'])
+    click.mockRestore()
     const form = screen.getByRole('form', { name: '刪除帳號' })
     await userEvent.type(within(form).getByLabelText('輸入密碼確認'), 'club-secret-1')
     const confirm = vi.spyOn(window, 'confirm').mockReturnValueOnce(false)
