@@ -222,6 +222,7 @@ export const slamAnswers: Book[] = [
  * After the other books, before the fallback.
  */
 export const slamAsks: Book = {
+  general: true,
   only: (ctx) => !!ctx.opening && ctx.opening.ours,
   more: true,
   rules: [

@@ -183,6 +183,9 @@ export interface Spec {
 
 export type Dynamic<T> = T | ((ctx: Ctx) => T)
 
+/** `Rule.when` of a call the robot never makes but reads when a person makes it */
+export const neverFits = () => false
+
 export interface Rule {
   /** The call, or how to work it out from the auction; null skips the rule */
   call: Dynamic<Call | null>
@@ -211,6 +214,12 @@ export interface Book {
   more?: boolean
   /** The 淡江橋館 articles these rules follow, by slug (`tku/sources.ts`, e5-t45) */
   bookSlugs?: readonly string[]
+  /**
+   * Rules for any auction rather than this system's agreements (finding a contract, asking for
+   * keycards): the system card (`card.ts`) leaves them out unless a group asks for them. The robot's
+   * bidding does not look at this
+   */
+  general?: boolean
 }
 
 export type SystemId = 'gib' | 'tku'

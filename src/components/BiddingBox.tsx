@@ -286,6 +286,8 @@ export function BiddingBox({
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.altKey || e.ctrlKey || e.metaKey) return
+      // A dialog over the table (a system card, a profile) keeps the keys to itself
+      if (document.querySelector('[aria-modal="true"]')) return
       // In the alert field only Enter counts (it sends the chosen call); the rest is the explanation
       if (typingIn(e.target) && !(e.key === 'Enter' && waiting)) return
       const key = e.key.toUpperCase()

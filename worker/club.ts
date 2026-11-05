@@ -43,6 +43,8 @@ import { ForumSchedule } from './forum-schedule.ts'
 import { addedRecordIds } from './forum-share.ts'
 import { BOOK_EVENTS_MAX_CHARS, BookTelemetry } from './book-telemetry.ts'
 import type { AuditAction } from './audit.ts'
+import tkuSystemCard from 'virtual:system-card-tku'
+import { tkuCardResponse } from './system-card.ts'
 import { robotMeaningsFor } from './system-spec.ts'
 import { QuizStore } from './quiz.ts'
 import { LearningStore } from './learning.ts'
@@ -1082,6 +1084,10 @@ export class Club extends DurableObject<Env> implements Connections {
       response.headers.set('X-Robots-Tag', 'noindex')
       return response
     }
+    // The club's system card (e5-t52): before the sign-in check, so the signed-out and other clubs get
+    // the same not-found answer
+    const tkuCard = tkuCardResponse(request.method, url.pathname, this.clubId, user, tkuSystemCard)
+    if (tkuCard) return tkuCard
     // Everything else needs signing in, BridgeHall's reading included: its whole site is for members
     // since 2026-10-29 (the handbook, glossary, practice fixes, learning paths, library and profiles)
     if (!user) throw new ClubError('signInFirst', {}, 401)

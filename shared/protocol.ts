@@ -213,6 +213,8 @@ export const isRobotId = (id: string | null | undefined) => !!id && id.startsWit
  * (GIB-compatible, docs/BBO GIB)
  */
 export const ROBOT_KINDS = ['tku', 'gib'] as const
+/** The club's system card: signed-in members of 淡江 only (`worker/system-card.ts`, ARCHITECTURE.md §4) */
+export const TKU_CARD_API = '/api/system-card/tku'
 export type RobotKind = (typeof ROBOT_KINDS)[number]
 export const isRobotKind = (value: unknown): value is RobotKind => ROBOT_KINDS.includes(value as RobotKind)
 

@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "tsc -b && vite build && npm run check:assets",
+    "check:assets": "node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/check-public-assets.ts",
     "typecheck": "tsc -b",
     "lint": "oxlint",
     "preview": "vite preview",
