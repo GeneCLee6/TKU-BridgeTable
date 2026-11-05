@@ -193,6 +193,12 @@
      - #296：淡江的登入頁加「申請建立社團」連結；新申請通知平台管理員（通知種類 `clubApplication`，推播組「平台」只給本人）；`/c/<id>/clubs/apply` 導回淡江，`/api/clubs/apply` 一律送到淡江的物件，其他社團的物件回 `clubApplyElsewhere`。
      - #297：其他社團的「加入主畫面」：Worker 回 `/c/<id>/manifest.webmanifest`（社團名稱、`start_url`／`scope` 是 `/c/<id>/`，`wrangler.jsonc` 加 `ASSETS` binding）；推播訂閱分社團（瀏覽器記 `tbt-push-clubs`，在一個社團登出只取消那個社團的登錄，沒有社團在用時才取消瀏覽器的訂閱）。
      - 程式面的 M2 公開版完成。剩下的 ROADMAP 多半要付費（Phase P 伺服器 DDS → Phase I 機器人追上 GIB → J6、J7）或不是程式（`e12-t01` 定價研究、O1 金流與法務、O2 命名與 SEO、O5 訓練資料、O6 App 上架）。
+  0s. **2026-11-05 第十三輪（社長：暫不使用付費方案，跳過 Phase P 與硬依賴它的批次）**：
+     - #299（`e10-t08`）搭檔非同步叫牌練習：`worker/partner-bidding.ts`，邀請者南、搭檔北、東西一律 Pass，一次叫一副，最多 8 副、每人 5 個進行中；入口只有練習對話框的連結與通知。待決：大廳或頁首要不要加入口、東西要不要讓 TKB 叫。AC-10.6 只有測試與部分實測，沒跑過真的兩個瀏覽器。
+     - #300（`e4-t39`、`e10-t09`）匯入 BBO LIN 與 PBN：瀏覽器解析、伺服器驗證，匯入的紀錄只有匯入者看得到（管理員也不行），不進排名與積分；帳號匯出分頁、刪除分批（`importPurge`）。**AC-4.13 未勾：要有人匯入一份真的 BBO LIN**。正式站 CPU 沒量過，超過就調低 `IMPORT_LIMITS.batchBoards`。
+     - #301（`e5-t52`）制度卡：由機器人規則推導（`shared/robot/system/card.ts`）。2/1 卡是靜態資源；淡江卡打包進 Worker，`GET /api/system-card/tku` 只給登入的淡江社員，`scripts/check-public-assets.ts` 在 build 時擋外流。**曾外流**：`337fd7f` 的 PR 預覽站把淡江卡放在公開 chunk，約 13 分鐘（2026-11-05 11:23–11:36 UTC），已被取代，舊檔案現在回 HTML；無法確認有沒有人下載。**注意：這個 repo 是公開的**，`shared/robot/` 的規則與 `robotRules` chunk 的約定名稱本來就看得到，淡江卡的存取限制只擋整理好的卡。待決：制度規則要不要移出公開 repo。既有落差沒改：淡江 2♦ 規則 5 點起、說明 6–10；11 點好牌開一線。
+     - #302（`e12-t15`、`e12-t16`）平台公告（`platform:notice:`）、社團橫幅（`meta:banner`，牌桌頁不顯示）、客服回報（管理頁處理，可轉給平台，轉交只是標記、不複製）。橋館 #73 同步 11 個稽核動作。開發時一度讓整站空白（`/api/notices` 回 `{}` 時崩潰，已修），**全站沒有 error boundary**，待補。待決：回報者要不要看到狀態或收到處理通知。AC-12.7 等 `e12-t08`。已知沒測：從匯入的牌局送回報，管理員的連結可能打不開。
+     - 下一批候選：教學桌（`e10-t10`、`t11`，PBN 已有）、全站 error boundary、謎題（`e10-t13`、`t14`，看能否用瀏覽器的 DD 驗證）、`e4-t35` 與 `e10-t12` 能否在瀏覽器算 DD、`e12-t13`／`t14` 官網與 SEO、`e12-t17` 匿名指標。
   1. H3b 完成（#150）：大廳拆 `LobbyShared`＋`LobbyMine`、只送差異（`lobbyDelta`）、100 ms 合併廣播、`action` 日誌 1/10 取樣；數字在 `docs/LOAD.md` §6。部署前開著的分頁要重新整理。本機 workerd 量測時社團物件中途重啟過一次（原因未查到，沒有動作失敗），遠端煙霧時留意。
   2. TKB 持續加強（模擬 → 改規則 → 評測）：V4 四項做完（見上）；下一輪從 V4 的待決與 `ROBOT.md` 的「待社團確認」挑。
   3. 秘密設好後：在任一 PR 預覽跑 `docs/LOAD.md` §6 的遠端煙霧測試，再決定正式站開 `EVENT_OBJECTS`。
