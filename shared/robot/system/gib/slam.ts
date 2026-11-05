@@ -38,6 +38,7 @@ function wantsSlam(h: Hand, ctx: Ctx): boolean {
 // ── Asking ───────────────────────────────────────────────────────────────────────────────────
 
 const askRkcb: Book = {
+  general: true,
   only: (ctx) => weBid(ctx) && !!trumpOf(ctx) && !asked(ctx) && (levelOf(cheapest(ctx, 'N') ?? '5N') <= 4),
   rules: [
     {

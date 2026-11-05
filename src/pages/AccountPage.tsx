@@ -337,7 +337,11 @@ function ProfileForm() {
             onChange={(e) => edit({ system: e.target.value })}
             {...invalid('system')}
           />
-          {errorFor('system')}
+          {errorFor('system') ?? (
+            <FieldHint>
+              <Link to="/system-card">{t.systemCard.title}</Link>
+            </FieldHint>
+          )}
         </Field>
         <Field>
           <LabelRow>

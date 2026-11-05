@@ -2,6 +2,7 @@
 import { cloudflare } from '@cloudflare/vite-plugin'
 import react from '@vitejs/plugin-react'
 import { defineConfig, type Plugin } from 'vite'
+import { systemCards } from './scripts/system-cards-plugin.ts'
 
 // Stamps the built commit into index.html so a deployment can be traced back to its commit.
 // The deploy workflow sets APP_VERSION to the commit it deploys.
@@ -21,7 +22,7 @@ const appVersion = (): Plugin => ({
 // it is left out of Vitest, which tests the Worker's logic directly, and of the visual tests
 // (playwright.config.ts), which answer the API and WebSocket from fixtures.
 export default defineConfig({
-  plugins: [react(), appVersion(), ...(process.env.VITEST || process.env.VISUAL_TEST ? [] : [cloudflare()])],
+  plugins: [react(), appVersion(), systemCards(), ...(process.env.VITEST || process.env.VISUAL_TEST ? [] : [cloudflare()])],
   // The DDS worker (src/lib/dds.worker.ts) is an ES module: its WASM loader uses import.meta
   worker: { format: 'es' },
   test: {

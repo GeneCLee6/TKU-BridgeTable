@@ -16,6 +16,7 @@ import { ClubApplyPage } from './pages/ClubApplyPage.tsx'
 import { ChallengeStatsPage } from './pages/ChallengeStatsPage.tsx'
 import { DailyPage } from './pages/DailyPage.tsx'
 import { PairsEventPage, PairsListPage } from './pages/PairsPages.tsx'
+import { SystemCardPage } from './pages/SystemCardPage.tsx'
 import { PartnerBiddingListPage, PartnerBiddingPage, PartnerBidReviewPage } from './pages/PartnerBiddingPages.tsx'
 import { TournamentPage, TournamentsListPage } from './pages/TournamentPages.tsx'
 import { TeamEventPage } from './pages/TeamEventPage.tsx'
@@ -168,6 +169,8 @@ function Routed() {
         {forumOn && <Route path="/forum/:boardId" element={<ForumBoardPage />} />}
         {publicLobbyOn && <Route path="/clubs" element={<PublicLobbyPage />} />}
         {publicLobbyOn && <Route path="/clubs/:clubId/:tableId" element={<GuestTablePage />} />}
+        <Route path="/system-card" element={<SystemCardPage />} />
+        <Route path="/system-card/:system" element={<SystemCardPage />} />
         <Route path="/account" element={<AccountPage />} />
         <Route path="/members/:userId" element={<ProfilePage />} />
         {user.admin && <Route path="/admin" element={<AdminPage />} />}

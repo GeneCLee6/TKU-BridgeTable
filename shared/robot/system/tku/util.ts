@@ -3,7 +3,7 @@ import { rankOf, SUITS, type Strain, type Suit } from '../../../cards.ts'
 import { stopper as holds, suitCards } from '../../hand.ts'
 import { cheapest, type Ctx } from '../context.ts'
 import type { Hand } from '../evaluate.ts'
-import { ANY, type Dynamic, type Note, type Range, type Rule, type Spec } from '../spec.ts'
+import { ANY, neverFits, type Dynamic, type Note, type Range, type Rule, type Spec } from '../spec.ts'
 
 /**
  * Helpers the club's books share. The club's system is a first-fit system (`System.firstFit`): in
@@ -35,7 +35,7 @@ export const rule = (call: Dynamic<Call | null>, shows?: Dynamic<Spec>, when?: (
   when ? { call, shows, needs: {}, when } : { call, shows, needs: {} }
 
 /** A call the club's robot never makes here but reads when a person makes it */
-export const reads = (call: Call, shows: Spec): Rule => ({ call, shows, needs: {}, when: () => false })
+export const reads = (call: Call, shows: Spec): Rule => ({ call, shows, needs: {}, when: neverFits })
 
 /** Pass, whatever the hand */
 export const pass = (shows?: Spec): Rule => rule('P', shows)
