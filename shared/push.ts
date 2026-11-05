@@ -43,6 +43,15 @@ export const PUSH_GROUPS = {
     'tournamentResults',
     'teamEventRound',
   ],
+  practice: [
+    'partnerBidInvited',
+    'partnerBidAccepted',
+    'partnerBidDeclined',
+    'partnerBidTurn',
+    'partnerBidFinished',
+    'partnerBidAbandoned',
+    'partnerBidExpired',
+  ],
   featured: ['boardFeatured'],
   friends: ['friendOnline'],
   book: [

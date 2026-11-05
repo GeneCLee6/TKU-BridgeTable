@@ -3,6 +3,14 @@ import type { Vulnerability } from '../shared/board.ts'
 import type { BoardEvent } from '../shared/board-events.ts'
 import { bookTopics } from '../shared/book-topics.ts'
 import { nextSeat, partnerOf, SEATS, sideOf, type Seat } from '../shared/cards.ts'
+import {
+  PARTNER_BID_INVITER_SEAT,
+  PARTNER_BID_PARTNER_SEAT,
+  type PartnerBidBoard,
+  type PartnerBidSession,
+  type PartnerBidSummary,
+  type PartnerBidView,
+} from '../shared/partner-bidding.ts'
 import { ROBOT_SYSTEMS } from '../shared/robot/robots.ts'
 import { explain } from '../shared/robot/system/engine.ts'
 import { bookNoteFor, type BookNotes } from '../shared/robot/system/book-spec.ts'
@@ -1163,5 +1171,63 @@ export function teamEventView(event: TeamEvent, viewerId: string, ctx: TeamEvent
     canNext: ctx.directs && open && event.played.length < event.roundsTotal && (!last || roundDone(last, ctx.scoreOf)),
     canCancel: ctx.directs && event.status === 'ready',
     ...(event.tournamentId !== undefined && { tournamentId: event.tournamentId }),
+  }
+}
+
+// ── Partner bidding practice (`e10-t08`, §4) ───────────────────────────────────────────────────
+
+/** A session in a member's list: who, how far, whose call; never any cards */
+export function partnerBidSummary(session: PartnerBidSession, viewerId: string, name: (id: string) => string): PartnerBidSummary {
+  return {
+    id: session.id,
+    status: session.status,
+    inviter: { id: session.inviterId, username: name(session.inviterId) },
+    partner: { id: session.partnerId, username: name(session.partnerId) },
+    seat: viewerId === session.inviterId ? PARTNER_BID_INVITER_SEAT : PARTNER_BID_PARTNER_SEAT,
+    settings: session.settings,
+    boards: session.settings.boards,
+    done: session.done,
+    yourTurn: session.status === 'active' && session.turnId === viewerId,
+    turnId: session.turnId,
+    createdAt: session.createdAt,
+    updatedAt: session.updatedAt,
+    expiresAt: session.expiresAt,
+  }
+}
+
+/**
+ * A session as one of its two members sees it. A board still being bid shows the viewer's hand alone
+ * and the auction so far, also after the session was abandoned or expired: the partner's hand only
+ * comes when that board's auction ended, with East and West's and everything worked out from them
+ * (its 檢討, what it teaches). The calls the viewer may make are worked out here, on their turn only
+ */
+export function partnerBidView(
+  session: PartnerBidSession,
+  boards: readonly PartnerBidBoard[],
+  viewerId: string,
+  name: (id: string) => string,
+): PartnerBidView {
+  const summary = partnerBidSummary(session, viewerId, name)
+  return {
+    ...summary,
+    sessionBoards: boards.map(({ seq, state, category, note, review }) => {
+      const over = state.phase !== 'auction'
+      const turn = over || session.status !== 'active' ? null : turnOf(state)
+      return {
+        seq,
+        boardNo: state.boardNo,
+        dealer: state.dealer,
+        vul: state.vul,
+        over,
+        hands: over ? state.hands : { [summary.seat]: state.hands[summary.seat] },
+        auction: state.auction,
+        contract: state.contract,
+        turn,
+        legalCalls: turn === summary.seat ? [...legalCalls(state.auction, state.dealer)] : [],
+        ...(category !== undefined && { category }),
+        ...(over && note !== undefined && { note }),
+        ...(over && review && { review }),
+      }
+    }),
   }
 }
