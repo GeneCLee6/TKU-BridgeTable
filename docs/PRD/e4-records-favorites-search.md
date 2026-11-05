@@ -146,7 +146,7 @@ SQL curations           board_id, title, category, body_md, trick_notes(json), c
 - [x] `e4-t36` PBN 匯出：單副與篩選結果整批下載 · AC-4.11 · S · ← e4-t14
 - [x] `e4-t37` 整場 LIN：同一張桌連續打的所有副合成一份 · AC-4.11 · S
 - [x] `e4-t38` 公開分享連結：每副產生 token、未登入可看、可撤銷、只顯示那一副 · AC-4.11 · M
-- [ ] `e4-t39` 匯入 BBO LIN：上傳檔案或貼上，解析成紀錄（模式＝匯入），重複匯入不產生重複紀錄 · AC-4.13 · M · ← e4-t11
+- [x] `e4-t39` 匯入 BBO LIN：上傳檔案或貼上，解析成紀錄（模式＝匯入），重複匯入不產生重複紀錄 · AC-4.13 · #PRNUM
 
 ## 風險與對策
 

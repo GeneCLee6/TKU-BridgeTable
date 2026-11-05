@@ -16,6 +16,7 @@ import { historyQueryString, type HistoryQuery } from '../../shared/history-quer
 import type { MessageParams } from '../../shared/messages.ts'
 import type { MemberProfile, Profile } from '../../shared/profile.ts'
 import type {
+  OwnDealInfo,
   TwoFactorSetup,
   AdminUser,
   ResetCode,
@@ -69,6 +70,7 @@ import type { FeatureFlag, FeatureState, FeatureView } from '../../shared/featur
 import type { ClubApplicationInput, ClubApplyOptions, ClubStatus, PlatformView } from '../../shared/platform.ts'
 import type { SessionInfo } from '../../shared/account.ts'
 import type { PushKinds, PushView } from '../../shared/push.ts'
+import type { ImportedBoard, ImportedDeal } from '../../shared/imports.ts'
 import type { PracticeSettings, SavedPractice } from '../../shared/practice.ts'
 import type { PracticeSetInfo } from '../../shared/practice-sets/types.ts'
 
@@ -278,6 +280,13 @@ export const api = {
   /** The club's practice sets, without their boards (e10-t16) */
   practiceSets: () => request<{ sets: PracticeSetInfo[] }>('/api/practice/sets'),
   /** The member's saved practice settings (存成我的設定, e10-t16) */
+  // Deals from PBN files (e10-t09), boards from LIN files (e4-t39): the browser parses, the server checks
+  ownDeals: () => request<{ deals: OwnDealInfo[] }>('/api/practice/deals'),
+  importOwnDeals: (deals: ImportedDeal[]) => post<{ added: number; duplicates: number; deals: OwnDealInfo[] }>('/api/practice/deals', { deals }),
+  removeOwnDeals: (ids: string[]) => post<{ deals: OwnDealInfo[] }>('/api/practice/deals/remove', { ids }),
+  importBoards: (boards: ImportedBoard[], session: string) =>
+    post<{ added: number; duplicates: number; ids: string[] }>('/api/history/import', { boards, session }),
+  removeImportedBoard: (id: string) => request<{ ok: true }>(`/api/history/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   practicePresets: () => request<{ presets: SavedPractice[] }>('/api/practice/presets'),
   savePracticePreset: (name: string, settings: PracticeSettings) =>
     post<{ presets: SavedPractice[] }>('/api/practice/presets', { name, settings }),

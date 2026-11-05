@@ -74,6 +74,9 @@ import {
 } from '../shared/practice.ts'
 import { PRACTICE_SETS, practiceSetInfos, type PracticeSetInfo } from '../shared/practice-sets/index.ts'
 import { PracticePresets } from './practice-presets.ts'
+import { IMPORT_LIMITS } from '../shared/imports.ts'
+import { toLin } from '../shared/lin.ts'
+import { checkImportedBoards, importedBoardId, importedRecord, OwnDeals } from './imported-boards.ts'
 import type { RobotBrain } from '../shared/robot/brain.ts'
 import { checkNewPassword } from './password-policy.ts'
 import {
@@ -178,6 +181,7 @@ import { parseRulingRequest, type RulingRequest } from '../shared/board-events.t
 import {
   createHistoryIndex,
   eventBoards,
+  importedBoardsOf,
   indexRecord,
   listQuery,
   revealBoards,
@@ -247,6 +251,8 @@ import { crashEntry, noLog, type LogEntry, type Logger } from './log.ts'
 import { alertsOf, Metrics, type MetricsState, type TableStats } from './metrics.ts'
 import {
   ACTION_BURST,
+  IMPORT_BURST,
+  IMPORTS_PER_SECOND,
   ACTIONS_PER_SECOND,
   CHAT_BURST,
   CHATS_PER_SECOND,
@@ -755,6 +761,8 @@ export class ClubService {
   readonly shares: BoardShares
   /** Members' saved practice settings (`e10-t16`, §5.11) */
   private readonly practicePresets: PracticePresets
+  private readonly ownDeals: OwnDeals
+  private readonly importLimit: TokenBuckets
   /** Keeps the history index's D1 copy in step (§5.12), when there is one */
   readonly replica?: ReplicaSync
   private readonly log: Logger
@@ -925,6 +933,8 @@ export class ClubService {
     this.sightings = new Sightings(store, this.now, seenSalt(config.seenSalt))
     this.registrations = new RegistrationLimit(store, this.now, seenSalt(config.seenSalt))
     this.practicePresets = new PracticePresets(store, this.now, () => randomId(8))
+    this.ownDeals = new OwnDeals(store, this.now)
+    this.importLimit = new TokenBuckets(IMPORT_BURST, IMPORTS_PER_SECOND, this.now)
     this.systemSpecs = new SystemSpecStore(store, this.now, config.systemProfileId)
     if (config.schedule) {
       this.scheduler = manualScheduler(config.schedule)
@@ -2825,6 +2835,8 @@ export class ClubService {
     this.rankings.forget(user.id)
     await this.teamEvents.forget(user.id)
     await this.practicePresets.removeAll(user.id)
+    await this.ownDeals.removeAll(user.id)
+    await this.forgetImported(user.id)
     await forgetQuizRounds(this.store, user.id)
     await forgetPathProgress(this.store, user.id)
     await forgetReading(this.store, user.id)
@@ -2931,8 +2943,9 @@ export class ClubService {
   /**
    * `GET /api/account/export`: everything the club keeps about the member, as one JSON file: the
    * account and its settings, profile, sessions, friends and blocks, notifications, direct messages,
-   * saved practice settings, favorites with notes and tags, and a summary of every board they
-   * played. Never the password hash or anyone's session token. The full record of a board stays on
+   * saved practice settings and their own deals, favorites with notes and tags, a summary of every
+   * board they played, and the boards they imported whole (as LIN, nowhere else to get them once
+   * the account is gone). Never the password hash or anyone's session token. The full record of a board stays on
    * its page (`/history/<id>`), which the summary's id leads to
    */
   async exportAccount(userId: string, token: string | null) {
@@ -2981,6 +2994,11 @@ export class ClubService {
       push: await this.push.exportOf(userId),
       directMessages: this.directs.everyMessage(userId).map((m) => ({ ...m, from: name(m.from), to: name(m.to) })),
       savedPractice: await this.practicePresets.list(userId),
+      // What they brought in from files (e10-t09, e4-t39): their own, so all of it
+      ownDeals: await this.ownDeals.list(userId),
+      importedBoards: (await Promise.all(importedBoardsOf(this.store.sql, userId).map((id) => this.store.get<BoardRecord>(`board:${id}`)))).flatMap((r) =>
+        r ? [{ id: r.id, importedAt: r.finishedAt, lin: toLin(r) }] : [],
+      ),
       challengeComments: this.challengeExtras.commentsOf(userId),
       ...this.rankings.exportOf(userId),
       favorites,
@@ -2993,8 +3011,8 @@ export class ClubService {
   /**
    * `POST /api/account/delete { password }`: the member deletes their own account (個資法的刪除),
    * the way an admin deletes one (`removeMember`): their account, picture, sessions, settings,
-   * friends, blocks, notifications, direct messages, favorites, saved practice and reading progress
-   * go. Boards they played stay, with their name, since they are the other players' records too;
+   * friends, blocks, notifications, direct messages, favorites, saved practice, the boards and deals
+   * they imported and reading progress go. Boards they played stay, with their name, since they are the other players' records too;
    * so do posts they wrote (docs/SECURITY.md §4). The club's last admin cannot leave this way
    */
   async deleteOwnAccount(userId: string, password: string) {
@@ -3213,6 +3231,57 @@ export class ClubService {
     return traveller
   }
 
+  // ── Boards imported from files (e4-t39, ARCHITECTURE.md §5.3) ───────────────────────────────
+
+  /**
+   * `POST /api/history/import { boards, session }`: a batch of boards the browser read from a LIN
+   * file, each checked with the engine; a board already imported is counted, not kept twice. Nothing
+   * is written if any board is wrong or the member's total would go over
+   */
+  async importBoards(userId: string, body: unknown): Promise<{ added: number; duplicates: number; ids: string[] }> {
+    this.requireUser(userId)
+    if (!this.importLimit.take(userId)) throw new ClubError('slowDown', {}, 429)
+    const boards = checkImportedBoards(body)
+    const rawSession = (body as { session?: unknown }).session
+    const session =
+      typeof rawSession === 'string' && /^[\w-]+$/.test(rawSession) && rawSession.length <= IMPORT_LIMITS.sessionMax ? rawSession : randomId(8)
+    const ids = await Promise.all(boards.map(({ board, state }) => importedBoardId(userId, state, board.names)))
+    const fresh = new Map<string, number>()
+    for (const [i, id] of ids.entries()) {
+      if (fresh.has(id) || (await this.store.get(`board:${id}`))) continue
+      fresh.set(id, i)
+    }
+    if (importedBoardsOf(this.store.sql, userId).length + fresh.size > IMPORT_LIMITS.linTotal)
+      throw new ClubError('importsFull', { max: IMPORT_LIMITS.linTotal })
+    const now = this.now()
+    for (const [id, i] of fresh) {
+      const { board, state } = boards[i]
+      // A millisecond apart, so the list keeps the file's order
+      await this.saveRecord(importedRecord({ id, board, state, userId, finishedAt: now - boards.length + i + 1, session: `import-${session}` }))
+    }
+    return { added: fresh.size, duplicates: boards.length - fresh.size, ids }
+  }
+
+  /** `DELETE /api/history/:id`: a member removes a board they imported; any other board is `boardGone` */
+  async removeImported(userId: string, id: string) {
+    const record = /^[\w-]+$/.test(id) ? await this.store.get<BoardRecord>(`board:${id}`) : undefined
+    if (record?.mode !== 'imported' || !SEATS.some((seat) => record.players[seat]?.id === userId)) throw new ClubError('boardGone', {}, 404)
+    await this.dropImported(userId, id)
+  }
+
+  private async dropImported(userId: string, id: string) {
+    removeFavorite(this.store.sql, userId, id)
+    unindexRecord(this.store.sql, id)
+    await this.store.delete(`board:${id}`)
+    // The copy takes out a board whose record is gone
+    await this.replica?.queue(id)
+  }
+
+  /** When an account is deleted: unlike a board played at a table, an imported one is nobody else's record */
+  private async forgetImported(userId: string) {
+    for (const id of importedBoardsOf(this.store.sql, userId)) await this.dropImported(userId, id)
+  }
+
   private async saveRecord(record: BoardRecord) {
     // The SQL index first, in one transaction: if it fails nothing is written. If a key-value
     // write fails after it, the index rows are taken back out, so a board is never half saved
@@ -3232,10 +3301,13 @@ export class ClubService {
     const order = `${String(record.finishedAt).padStart(14, '0')}-${record.id}`
     const summary = summarize(record)
     await this.store.put(`board:${record.id}`, record)
-    await this.store.put(`hist:${order}`, summary)
-    for (const id of new Set(SEATS.map((seat) => record.players[seat].id))) {
-      if (!id || isRobotId(id)) continue
-      await this.store.put(`uhist:${id}:${order}`, summary)
+    // An imported board (e4-t39) is in no count of the club's or a member's boards
+    if (record.mode !== 'imported') {
+      await this.store.put(`hist:${order}`, summary)
+      for (const id of new Set(SEATS.map((seat) => record.players[seat].id))) {
+        if (!id || isRobotId(id)) continue
+        await this.store.put(`uhist:${id}:${order}`, summary)
+      }
     }
     // Last, so a record whose writing failed is never copied to D1 (§5.12)
     await this.replica?.queue(record.id)
@@ -5021,6 +5093,8 @@ export class ClubService {
       if (!found) throw new ClubError('practiceSetGone', {}, 404)
       return found.problems.map((p) => ({ boardNo: p.boardNo, hands: p.hands, category: p.category, ...(p.note && { note: p.note }) }))
     }
+    // The member's own deals (e10-t09), from their list: never anyone else's
+    if (set.source === 'mine') return this.ownDeals.problems(userId, set.ids)
     const favorites = set.source === 'favorites' ? new Set(favoriteIds(this.store.sql, userId)) : null
     const problems: PracticeTableProblem[] = []
     for (const id of set.ids) {
@@ -5042,6 +5116,23 @@ export class ClubService {
   /** The club's practice sets, without their boards (`GET /api/practice/sets`) */
   practiceSets(): PracticeSetInfo[] {
     return practiceSetInfos()
+  }
+
+  /** The member's own deals, without their hands (`GET /api/practice/deals`, e10-t09) */
+  ownDealList(userId: string) {
+    return this.ownDeals.infos(userId)
+  }
+
+  /** Adds deals the browser read from a PBN file (`POST /api/practice/deals`): the whole list, and how many were new */
+  async importOwnDeals(userId: string, body: unknown) {
+    this.requireUser(userId)
+    if (!this.importLimit.take(userId)) throw new ClubError('slowDown', {}, 429)
+    return this.ownDeals.add(userId, body)
+  }
+
+  /** Removes some of the member's own deals (`POST /api/practice/deals/remove`); answers the whole list */
+  removeOwnDeals(userId: string, ids: unknown) {
+    return this.ownDeals.remove(userId, ids)
   }
 
   /** The member's saved practice settings (`GET /api/practice/presets`) */
@@ -5253,7 +5344,8 @@ export class ClubService {
    */
   async ruleBoard(userId: string, boardId: string, body: unknown): Promise<BoardRecord> {
     const record = /^[\w-]+$/.test(boardId) ? await this.store.get<BoardRecord>(`board:${boardId}`) : undefined
-    if (!record) throw new ClubError('boardGone', {}, 404)
+    // An imported board was played elsewhere and is its importer's alone
+    if (!record || record.mode === 'imported') throw new ClubError('boardGone', {}, 404)
     if (!this.mayDirect(userId, record.hostId)) throw new ClubError('directorOnly', {}, 403)
     let request: RulingRequest | null = null
     if (body !== null) {

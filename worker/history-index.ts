@@ -280,6 +280,17 @@ export function boardsPlayedBy(sql: Sql, userId: string): string[] {
   )
 }
 
+/** The boards a member imported (`e4-t39`): the member's id is on them only as the one at that table */
+export function importedBoardsOf(sql: Sql, userId: string): string[] {
+  return ids(
+    sql.exec(
+      `SELECT b.board_id FROM board_players p JOIN boards_index b ON b.board_id = p.board_id
+       WHERE p.user_id = ? AND b.mode = 'imported'`,
+      userId,
+    ),
+  )
+}
+
 /**
  * Boards a member played with another one, newest first: as partners (the same side) or, with
  * `partners` false, anywhere at the same table
@@ -413,8 +424,8 @@ function where(
   if (query.boardNo !== undefined) add('b.board_no = ?', query.boardNo)
   if (query.table !== undefined) add('b.table_no = ?', query.table)
   if (query.mode) add('b.mode = ?', query.mode)
-  // Practice boards (§5.11) stay out of the club's list, and so of profile cards, unless asked for
-  else if (query.scope === 'all' && !favorites) add("b.mode <> 'practice'")
+  // Practice boards (§5.11) and a member's own imported ones (§5.3) stay out of the club's list, and so of profile cards, unless asked for
+  else if (query.scope === 'all' && !favorites) add("b.mode NOT IN ('practice', 'imported')")
   return [parts.join(' AND '), params]
 }
 
