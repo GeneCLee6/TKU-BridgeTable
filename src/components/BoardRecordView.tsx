@@ -1,4 +1,4 @@
-import { Download, ExternalLink, LifeBuoy, Link2, Share2, Swords } from 'lucide-react'
+import { Download, ExternalLink, LifeBuoy, Link2, Share2, Swords, Trash2 } from 'lucide-react'
 import { useMemo, useState, type ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import styled, { css } from 'styled-components'
@@ -175,7 +175,9 @@ export function BoardRecordView({
   const forumOn = !!user?.features?.includes('forum')
   const shareable = record.revealAt === undefined || record.revealAt <= openedAt
   // 公開分享連結 (e4-t38): the board's players and the admins; the server checks again
-  const sharer = framed && !!user && (user.admin || SEATS.some((seat) => players[seat]?.id === user.id))
+  // An imported board (e4-t39) is its importer's alone: no link, no post; they may delete it
+  const imported = record.mode === 'imported'
+  const sharer = !imported && framed && !!user && (user.admin || SEATS.some((seat) => players[seat]?.id === user.id))
   const [sharing, setSharing] = useState(false)
   const [reporting, setReporting] = useState(false)
   const [downloadError, setDownloadError] = useState('')
@@ -206,6 +208,17 @@ export function BoardRecordView({
       await downloadFile(api.sessionLinPath(record.id), `tku-session-${record.id}.lin`)
     } catch (e) {
       setDownloadError(e instanceof ApiError ? message(e.code, e.params, e.message) : t.recordExport.failed)
+    }
+  }
+
+  const removeImported = async () => {
+    if (!window.confirm(t.boardImport.removeConfirm)) return
+    setDownloadError('')
+    try {
+      await api.removeImportedBoard(record.id)
+      navigate('/history')
+    } catch (e) {
+      setDownloadError(e instanceof ApiError ? message(e.code, e.params, e.message) : t.genericError)
     }
   }
 
@@ -284,7 +297,7 @@ export function BoardRecordView({
             )}
             <RecordSubstitutes record={record} />
           </Meta>
-          {!compact && <RulingPanel record={ruled} onRuled={setRuling} />}
+          {!compact && !imported && <RulingPanel record={ruled} onRuled={setRuling} />}
           <AuctionBox
             auction={board.auction}
             dealer={board.dealer}
@@ -330,7 +343,13 @@ export function BoardRecordView({
                 {t.recordExport.share}
               </Button>
             )}
-            {framed && forumOn &&
+            {imported && framed && (
+              <Button type="button" $small onClick={() => void removeImported()}>
+                <Trash2 size={16} aria-hidden />
+                {t.boardImport.remove}
+              </Button>
+            )}
+            {framed && forumOn && !imported &&
               (shareable ? (
                 <Button as={Link} to={`/forum/new?record=${encodeURIComponent(record.id)}`} $small>
                   <Share2 size={16} aria-hidden />

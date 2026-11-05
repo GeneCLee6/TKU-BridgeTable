@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useId, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useId, useState, type FormEvent, type MouseEvent } from 'react'
 import styled from 'styled-components'
 import type { SessionInfo } from '../../shared/account.ts'
 import { api, ApiError } from '../lib/api.ts'
+import { saveAccountData } from '../lib/download.ts'
 import { formatDateTime } from '../lib/format.ts'
 import { useAuth } from '../state/AuthContext.tsx'
 import { usePreferences } from '../state/PreferencesContext.tsx'
@@ -173,7 +174,15 @@ export function DataCard() {
         </CardHeader>
         <Muted>{s.dataIntro}</Muted>
         <CardFooter>
-          <Button as="a" href={api.exportUrl} download>
+          <Button
+            as="a"
+            href={api.exportUrl}
+            download
+            onClick={(e: MouseEvent) => {
+              e.preventDefault()
+              saveAccountData().catch((err: unknown) => toast.error(err instanceof ApiError ? message(err.code, err.params, err.message) : t.genericError))
+            }}
+          >
             {s.exportData}
           </Button>
         </CardFooter>

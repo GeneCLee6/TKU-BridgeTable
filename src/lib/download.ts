@@ -1,4 +1,4 @@
-import { ApiError } from './api.ts'
+import { api, ApiError } from './api.ts'
 import { clubHeaders } from './club.ts'
 
 /**
@@ -15,6 +15,22 @@ export function saveText(name: string, text: string) {
   link.download = name
   link.click()
   setTimeout(() => URL.revokeObjectURL(url), 1000)
+}
+
+/**
+ * The member's data as one file (e11-t27). The boards they imported (e4-t39) come a page at a time, as
+ * a member at the limit has more than one request's CPU can read, and go into the same file here
+ */
+export async function saveAccountData() {
+  const data = await api.accountData()
+  const importedBoards = []
+  let after: string | null = null
+  for (let more = data.importedBoardCount > 0; more; more = after !== null) {
+    const page: Awaited<ReturnType<typeof api.accountImportedBoards>> = await api.accountImportedBoards(after)
+    importedBoards.push(...page.boards)
+    after = page.next
+  }
+  saveText(`tku-bridge-table-${data.account.id}.json`, JSON.stringify({ ...data, importedBoards }, null, 2))
 }
 
 /** The file name the server gave (`Content-Disposition`), or `fallback` */

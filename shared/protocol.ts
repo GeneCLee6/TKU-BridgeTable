@@ -347,6 +347,12 @@ export const TABLE_MODES = ['casual', 'challenge', 'practice', 'team', 'pairs'] 
 export type TableMode = (typeof TABLE_MODES)[number]
 
 /**
+ * What a board record can say it was: a table's mode, or `imported`, a board a member brought in from
+ * a BBO LIN file (`e4-t39`, ARCHITECTURE.md §5.3), which only they see (§4)
+ */
+export type RecordMode = TableMode | 'imported'
+
+/**
  * A table that is one member's alone (a challenge table): not in the lobby, nobody else joins or
  * watches, and its seats, robots and settings stay as they were opened
  */
@@ -1134,8 +1140,8 @@ export interface BoardRecord {
   finishedAt: number
   players: Record<Seat, PublicUser>
   board: BoardState
-  /** The table's mode when it is not `casual` */
-  mode?: TableMode
+  /** The table's mode when it is not `casual`; `imported` for a board from a file */
+  mode?: RecordMode
   /** The challenge or match the board belongs to, if any */
   eventId?: string
   /** A team match board: which room it was played in (§5.8) */
@@ -1172,7 +1178,7 @@ export interface BoardSummary {
   vul: Vulnerability
   contract: Contract | null
   result: BoardResult
-  mode?: TableMode
+  mode?: RecordMode
   eventId?: string
   room?: Room
   revealAt?: number
@@ -1350,6 +1356,21 @@ export const LIMITS = {
   favoriteNoteMax: 500,
   favoriteTagsMax: 8,
   favoriteTagMax: 20,
+}
+
+/**
+ * A deal of a member's own list (`e10-t09`, ARCHITECTURE.md §5.11), as the practice dialog lists it:
+ * never its hands, which only the server deals
+ */
+export interface OwnDealInfo {
+  id: string
+  /** Its number in the file */
+  boardNo: number
+  dealer: Seat
+  vul: Vulnerability
+  /** PBN's `Event` */
+  title?: string
+  addedAt: number
 }
 
 export const USERNAME_PATTERN = /^[\p{L}\p{N}_.-]+$/u

@@ -85,7 +85,7 @@ export function toPbn(record: BoardRecord): string {
   const name = (seat: Seat) => players[seat]?.username ?? ''
   const lines = [
     tag('Event', 'TKU BridgeTable'),
-    tag('Site', record.mode === 'practice' ? 'Practice' : `Table ${record.tableNumber}`),
+    tag('Site', record.mode === 'practice' ? 'Practice' : record.mode === 'imported' ? 'Imported' : `Table ${record.tableNumber}`),
     tag('Date', pbnDate(record.finishedAt)),
     tag('Round', ''),
     tag('Board', String(board.boardNo)),
