@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import styled from 'styled-components'
 import { AppHeader } from './components/AppHeader.tsx'
+import { NoticeBanners } from './components/NoticeBanners.tsx'
 import { TOAST_TIMEOUT, ToastProvider, useToast } from './components/Toast.tsx'
 import { Muted, PageMain } from './components/ui.tsx'
 import { useClubSounds } from './lib/sound/hooks.ts'
@@ -129,6 +130,7 @@ function Routed() {
   return (
     <>
       <ConnectionBanner />
+      <NoticeBanners />
       <Routes>
         <Route path="/" element={<LobbyPage />} />
         <Route path="/table/:tableId" element={<TablePage />} />

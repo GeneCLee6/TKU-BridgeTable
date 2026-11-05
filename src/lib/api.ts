@@ -67,7 +67,9 @@ export type MatchPlayAction =
   | { action: 'next' }
 import type { FeaturedBoard, FeaturedInput } from '../../shared/featured.ts'
 import type { FeatureFlag, FeatureState, FeatureView } from '../../shared/features.ts'
+import { NOTICES_API, type ClubBanner, type ClubBannerInput, type NoticesView, type PlatformNoticeInput } from '../../shared/notices.ts'
 import type { ClubApplicationInput, ClubApplyOptions, ClubStatus, PlatformView } from '../../shared/platform.ts'
+import type { AdminSupportView, SupportInput, SupportStatus } from '../../shared/support.ts'
 import type { SessionInfo } from '../../shared/account.ts'
 import type { PushKinds, PushView } from '../../shared/push.ts'
 import type { ImportedBoard, ImportedDeal } from '../../shared/imports.ts'
@@ -206,7 +208,18 @@ export const api = {
       post<PlatformView>(`/api/platform/applications/${encodeURIComponent(applicationId)}/reject`, { note }),
     setStatus: (clubId: string, status: ClubStatus, note: string) =>
       post<PlatformView>(`/api/platform/clubs/${encodeURIComponent(clubId)}/status`, { status, note }),
+    /** The platform's notices (e12-t15): a new draft or an edit, then out, back or gone */
+    saveNotice: (input: PlatformNoticeInput) => post<PlatformView>('/api/platform/notices', input),
+    noticeAction: (id: string, action: 'publish' | 'withdraw' | 'delete') =>
+      post<PlatformView>(`/api/platform/notices/${encodeURIComponent(id)}/${action}`),
+    /** A forwarded support report (e12-t16), in its club's object */
+    setSupportStatus: (clubId: string, reportId: string, status: SupportStatus) =>
+      post<PlatformView>(`/api/platform/support/${encodeURIComponent(clubId)}/${encodeURIComponent(reportId)}/status`, { status }),
   },
+  /** What a member's page shows on top (e12-t15): answered by the Worker */
+  notices: () => request<NoticesView>(NOTICES_API),
+  /** A member's support report (e12-t16) */
+  sendSupportReport: (input: SupportInput) => post<{ id: string }>('/api/support', input),
   logout: () => post<{ ok: true }>('/api/logout'),
   changePassword: (current: string, next: string) => post<{ ok: true }>('/api/account/password', { current, next }),
   /** The account settings the server keeps (e1-t24) */
@@ -465,6 +478,15 @@ export const api = {
     weeklyChallenge: () => request<{ weekly: WeeklyChallengeView }>('/api/admin/weekly-challenge'),
     saveWeeklyChallenge: (schedule: Partial<WeeklyChallengeSchedule>) =>
       post<{ weekly: WeeklyChallengeView }>('/api/admin/weekly-challenge', schedule),
+    /** The club's own banner (e12-t15) */
+    banner: () => request<{ banner: ClubBanner | null }>('/api/admin/banner'),
+    setBanner: (input: ClubBannerInput) => post<{ banner: ClubBanner }>('/api/admin/banner', input),
+    clearBanner: () => request<{ banner: null }>('/api/admin/banner', { method: 'DELETE' }),
+    /** The members' support reports (e12-t16): every answer is the list again */
+    support: () => request<AdminSupportView>('/api/admin/support'),
+    setSupportStatus: (id: string, status: SupportStatus) =>
+      post<AdminSupportView>(`/api/admin/support/${encodeURIComponent(id)}/status`, { status }),
+    forwardSupport: (id: string) => post<AdminSupportView>(`/api/admin/support/${encodeURIComponent(id)}/forward`),
     /** Turns the daily club event on or off, and its robots' system (`e9-t02`) */
     saveDailyEvent: (settings: Partial<DailyEventSettings>) =>
       post<{ daily: DailyEventView }>('/api/admin/daily-event', settings),

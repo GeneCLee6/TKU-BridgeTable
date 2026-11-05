@@ -9,6 +9,7 @@ import { DataCard, SessionsCard } from '../components/AccountSecurity.tsx'
 import { EmailCard } from '../components/EmailCard.tsx'
 import { OAuthCard } from '../components/OAuthCard.tsx'
 import { PushCard } from '../components/PushCard.tsx'
+import { SupportCard } from '../components/SupportDialog.tsx'
 import { TwoFactorCard } from '../components/TwoFactorCard.tsx'
 import { Avatar } from '../components/Avatar.tsx'
 import { AvatarCropper } from '../components/AvatarCropper.tsx'
@@ -707,6 +708,7 @@ export function AccountPage() {
         <PushCard />
         <TwoFactorCard />
         <SessionsCard />
+        <SupportCard />
         <DataCard />
         <Muted>
           <Link to="/privacy">{t.legal.privacyTitle}</Link>

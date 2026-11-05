@@ -77,10 +77,34 @@
 - **後台**（`GET /api/platform` → `PlatformView`，頁面 `/platform`）：每個社團（淡江在最前）的代號、名稱、狀態、學校、聯絡 Email、管理員，與用量（社團的物件自己算，RPC `platformUsage`）：社員數、開著的桌、牌局數（`boards_index`）、Durable Object 的 SQLite 大小（`storage.sql.databaseSize`）、R2 圖片與電子書（`file:usage`）、R2 備份（列出自己前綴的 `daily/`）、D1 副本裡自己的列數；加上全平台合計（R2 與 D1 的免費額度是整個帳號的）。某個社團沒回應時那一列的用量是空的，其他照常。
 - **稽核**：每個動作寫一筆淡江的 `audit:`（`worker/audit.ts`）：`platform:approve`（`target` 社團代號、`note` 第一位管理員與申請 id）、`platform:reject`、`platform:suspend`、`platform:unsuspend`（`note` 是理由）。淡江橋館管理頁的稽核紀錄看得到；橋館的 `AuditAction` 要同步這四個。
 - **名冊的備份**：`platform:` 在淡江的每日備份裡（災難時手動查），但還原時**不寫也不刪**（`backup.ts` 的 `KEPT_ON_RESTORE`）：回到舊的備份不能忘記之後開通的社團、也不能把暫停的社團放回來。
+- **公告與客服回報**：見下面「公告」、「客服回報」（`e12-t15`、`e12-t16`）。
 - **挑戰與隊制賽可以各自一個 Durable Object**（`EventObject`，H2b 挑戰、H2c 隊制賽，§5.12）：開關 `EVENT_OBJECTS=on` 才用，**預設關**（挑戰與隊制賽照舊在社團的物件裡）；正式站什麼時候開由社長決定（`DEPLOY.md` §4.6）。
 - **不必經過社團的請求由 Worker 自己回答**（§5.12）：紀錄列表與搜尋從 D1 的副本讀（社團寫好紀錄後經 outbox 複製過去），牌桌連線用簽章的邊緣通行證確認是誰；通行證或副本不能用時一律照舊交給社團。開關 `HISTORY_D1=off`、`EDGE_AUTH=off`（`DEPLOY.md` §4.5）。
 - 伺服器是唯一的真相：瀏覽器送「我要叫 1♠」「我要出 ♥K」，伺服器用 `shared/game.ts` 驗證後更新狀態，再推送每個人**可以看到的**畫面。
 - 推送策略刻意簡單：任何變動後，對每位線上使用者送一份完整的大廳與他所在的牌桌。資料量小（一張桌幾 KB），不需要差異更新。
+
+### 公告（`e12-t15`，2026-11-05）
+
+**開工前的對照**：論壇的「社團公告」板（§5.19「公告與新聞的編輯流程」）已經給社團：長文、草稿、排程發布、置頂、發布時通知每位社員、推播、大廳的 `LobbyNews`。所以**社團的長公告不另做**。論壇沒有的是：(1) **跨社團**：論壇每個社團各一份，平台沒有地方對所有社團說話；(2) **有期限、可以關掉、每一頁都看得到的一句話**：`LobbyNews` 只在大廳、而且要有 `forum` 旗標（全站預設關），也沒有結束時間。這次只補這兩個。
+
+- **平台公告**：平台管理員在 `/platform` 寫（純文字，最多 500 字），先存草稿（`status: 'draft'`），發布（`published`），可設結束時間，可下架（`withdrawn`，可再發布），不是發布中的可以刪。存在淡江物件的 `platform:notice:<id>`，就在名冊旁邊（`PlatformService`），同樣在備份裡但還原時不動（`platform:`，`KEPT_ON_RESTORE`）。同時最多發布 3 則（`tooManyActiveNotices`）、總共留 50 則（`tooManyNotices`）。路由：`POST /api/platform/notices`（新草稿，帶 `id` 是編輯）、`POST /api/platform/notices/:id/publish|withdraw|delete`，都回整個 `PlatformView`；用 POST，所以既有的「平台改了東西那個 isolate 立刻重讀名冊」照樣涵蓋。
+- **社團橫幅**：社團管理員在管理頁設一句話（同樣最多 500 字、可設結束時間），一次一則，存在自己物件的 `meta:banner`（`worker/notices.ts` 的 `ClubBanners`；`meta:` 不在備份裡，還原不會把舊的帶回來）。`GET|POST|DELETE /api/admin/banner`，要有管理員權限（`ClubService.requireAdmin`）。每次設定都是新的 id。
+- **怎麼讀，不多花請求**（免費方案，每次請求 10 ms CPU）：`GET /api/notices` 由 **Worker 自己回答**（`worker/routing.ts` 的 `noticesAnswer`）：對**自己的社團**一次 RPC（`Club.memberNotices(token)`，同時確認 session 與取橫幅），平台公告從 isolate 的名冊快取拿（`ClubRegistryCache`：`Club.platformSnapshot` 一次讀回名冊與發布中的公告，每個 isolate 最多 30 秒一次）。所以**沒有任何一次看頁面會多打一次跨物件呼叫**；其他社團的物件永遠不會被問，淡江的物件最多每份快取一次。淡江的成員也走同一份快取（這是淡江的請求第一次讀快取，名冊的分派仍然只在指名其他社團時才查）。沒設 `PLATFORM_OWNER` 時完全不讀。結束時間在 Worker 回答時再查一次（`noticeLive`），所以快取最多晚 30 秒的只有「發布」與「下架」。淡江的物件沒回應時沿用上一份。
+- **頁面**（`components/NoticeBanners.tsx`）：登入後在頁首下方，平台公告在前（`primarySoft`）、社團橫幅在後（`accentSoft`）。**App 打開時讀一次**，分頁回到前景且超過 10 分鐘才再讀，不是每換一頁讀一次。**在牌桌頁不顯示**（`/table/`）：打牌時不能把牌往下推。讀不到就什麼都不顯示。橋館不顯示（它有自己的首頁，用 `/api/forum/latest`）。
+- **關掉**只記在那台瀏覽器的 localStorage（`tbt_notices_dismissed`，每個社團一份，最多記 30 筆），伺服器不存誰關了什麼。平台公告的 key 含 `publishedAt`，所以**編輯發布中的公告不會重新跳出來給關掉的人**（改錯字不打擾人），下架再發布才會；橫幅每次設定都是新的 id。
+- **稽核**：`platform:noticeSave`、`platform:noticePublish`、`platform:noticeWithdraw`、`platform:noticeDelete`（淡江的紀錄，`target` 公告 id，`note` 開頭 100 字）；`club:banner`、`club:bannerClear`（該社團的紀錄）。橋館的 `AuditAction` 要同步。
+
+### 客服回報（`e12-t16`，2026-11-05）
+
+- **送出**（`POST /api/support`，要登入）：類別（`bug`、`game`、`account`、`other`，`shared/support.ts`）、內容 5～2000 字，頁面附程式版本（`<meta name="app-version">`）與開啟的地方（牌局紀錄 `boardId`、牌桌 `tableId`；格式不對就不附）；伺服器加瀏覽器（`User-Agent`，截 300 字）。社團就是物件自己。表單上寫明會一起送什麼。**入口**：牌桌標題列的救生圈按鈕（`SupportDialog`，對話框，不離開牌桌；CLAUDE.md「離開牌桌頁面就離開牌桌」）、紀錄頁的按鈕、「我的帳號」的卡片。牌桌頁只附 `tableId`：打到一半的牌還沒有紀錄 id。
+- **保存**：社團物件的 SQL 表 `support_reports`（`worker/support.ts` 的 `SupportService`，由 `ClubService` 持有）。**只有**上面這些欄位、回報人的 user id、狀態與時間、轉交的管理員帳號名稱；**沒有 IP**、沒有網址。不在備份裡（`BACKUP_TABLES` 沒有它）：是短期的營運資料，備份裡多留 30 天沒有好處。已解決的每個社團最多留 500 筆，最舊的自動刪除；待處理的不刪。
+- **次數**：每人每小時 5 筆、同時待處理 20 筆（429 `tooManySupportReports`），算回報人自己的列，不另外存計數。
+- **給社團管理員**（管理頁「客服回報」，`GET /api/admin/support`，`POST /api/admin/support/:id/status { status }`）：待處理在前（舊的先），後面是最近 50 筆已解決。新回報用 `supportReport` 通知每位管理員（推播在「管理」一組），只帶回報人的名字，不帶內容。稽核 `support:resolve`、`support:reopen`（`target` 是回報 id，不記內容）。
+- **轉交平台管理員**（`POST /api/admin/support/:id/forward`，稽核 `support:forward`）：**只是標記**（`forwarded_at`、`forwarded_by`），**回報留在社團的物件，不複製**。後台打開時才問每個社團（`ClubDirectory.forwardedSupport` → `Club.platformForwardedSupport`，跟用量一樣每個社團一次 RPC）。所以：一個社團的回報不會存進別的物件、刪帳號就真的刪掉、也不必做刪除的跨物件重試。社團物件經 RPC 通知淡江的物件（`Club.platformSupportForwarded` → 平台管理員的 `supportForwarded { name }`，連到 `/platform`，推播在「平台」一組），通知失敗只記日誌。沒設 `PLATFORM_OWNER` 時 `canForward: false`、轉交回 403 `supportForwardOff`。
+- **給平台管理員**（`/platform`「轉交的客服回報」，`PlatformView.support`）：社團代號、類別、內容、瀏覽器、版本、牌局或牌桌 id、狀態、哪位管理員轉交；**沒有社員 id 或名字**，要找人問轉交的管理員。可以標成已解決或重新打開（`POST /api/platform/support/:club/:id/status`，稽核 `platform:supportResolve`、`platform:supportReopen` 記在淡江，`target` 是 `<社團>/<回報>`）；狀態改在社團那一列，社團管理員看到同一個狀態。沒有轉交的回報對平台管理員不存在（`noSuchSupportReport`）。某個社團沒回應時那個社團的先不列，其他照常。
+- **跨社團隔離**：每個社團只讀寫自己物件的表，沒有任何路由能指名另一個社團的回報；只有 `requirePlatformOwner` 之後的後台會問其他社團，而且只拿轉交的。測試 `tests/worker/notices-support.test.ts`（「reports across clubs」）。
+- **個資**（docs/SECURITY.md §5）：`GET /api/account/export` 有 `supportReports`；刪帳號（`dropMember`，`SupportService.forget`）刪掉他的回報，並把他的名字從他轉交過的回報上拿掉。隱私權政策有一段「客服回報」（六種語言，`LEGAL_UPDATED` 改了）。
+- **沒有做的**：回報人看不到處理進度、解決時也不通知回報人（要的話加一種通知與「我的回報」頁）；不寄 Email。
 
 ## 2. 資料夾結構
 
@@ -125,6 +149,8 @@ TKU-BridgeTable/
 │  ├─ protocol.ts          HTTP／WebSocket 的訊息與畫面型別
 │  ├─ clubs.ts             社團 id 與物件名稱、請求的社團（X-Club-Id／?club=，沒帶是淡江）、牌桌與比賽物件的名稱、R2 前綴、社團網址 /c/<id>/ 與 cookie 名稱（§1）
 │  ├─ platform.ts          平台的型別：社團狀態、保留的代號、申請表、後台的畫面（§1）
+│  ├─ notices.ts           公告的型別與上限：平台公告、社團橫幅（§1「公告」）
+│  ├─ support.ts           客服回報的型別與上限（§1「客服回報」）
 │  ├─ public-lobby.ts      跨社團大廳：哪些桌給別的社團看、訪客看到的型別（§1）
 │  ├─ message-guard.ts     WebSocket 訊息的大小上限與型別守衛（§5.6）
 │  ├─ scrub.ts             錯誤回報去除個資（§5.6）
@@ -140,6 +166,8 @@ TKU-BridgeTable/
 │  ├─ history-replica.ts   紀錄索引的 D1 副本：ReplicaSync（outbox、填副本、開關）、寫入與搜尋的 SQL（§5.12）
 │  ├─ d1.ts                把 D1 binding 包成 ReplicaDb（唯一碰 D1 的程式）
 │  ├─ clubs.ts             社團、牌桌、比賽物件的 stub（名稱帶社團，§1）；Worker 讀平台名冊的快取（ClubRegistryCache）
+│  ├─ notices.ts           社團橫幅（ClubBanners）與公告內容的檢查（§1「公告」）
+│  ├─ support.ts           客服回報（SupportService，§1「客服回報」）
 │  ├─ platform.ts          平台：社團名冊、開設社團的申請、平台管理員的後台（PlatformService，§1「平台與社團的申請」）
 │  ├─ buckets.ts           R2 bucket 裡社團自己的前綴（scopedBucket，§1）
 │  ├─ club.ts              社團的 Durable Object：HTTP 路由、WebSocket（hibernation）、儲存轉接、牌桌回報的 RPC
@@ -250,6 +278,7 @@ interface BoardState {
 | 替別的座位叫牌的人（座位控制權，`e10-t15`） | 加上他控制的每個座位的牌（`Table.controllers`，`seatsActedBy` 算出他「替哪幾家叫」，`boardView` 的 `acts`）；輪到其中任何一家時 `legalCalls` 給他（就是 `turn` 那一家），叫牌盒提示用那一家算、不把他控制的機器人當成機器人。那個座位上坐的人（練習桌是 TKB）不會因此多看到什麼，也不能替它叫；觀看者照常（四家）。叫品的 Alert：他自己替兩家叫的，兩家的說明他都看得到。目前只有只叫牌的練習桌會設控制權 |
 | 攤牌之後（被拒絕也一樣） | 攤過的牌不會再蓋回去：莊家攤牌後，兩位防家看得到四家的牌（莊家仍只看自己和夢家）；防家攤牌後，他的牌所有人都看得到。記在 `BoardState.claimed` |
 | 觀看者 | 四家（同 BBO kibitz）；練習桌的觀看者也一樣（§5.11） |
+| 平台管理員（`/platform`，`e12-t16`） | 看不到任何牌；各社團管理員**轉交**的客服回報裡，社員寫的內容與附上的牌局或牌桌 id，沒有社員的 id 或名字（§1「客服回報」） |
 | 其他社團的訪客（跨社團大廳，`e12-t07`） | 只限一般、公開、允許觀看、開放其他社團的牌桌：同觀看者（四家），座位只有名字（沒有社員 id），沒有聊天、旁觀者、最近牌局、邀請與申請（`guestTableView`，§1「跨社團大廳」） |
 | 不允許觀看的桌上沒有座位的人（站起來或被請離座的玩家，`e2-t26`） | 只看得到所有人都看得到的：首攻後的夢家、防家攤過的牌；打完後四家（`boardView` 的 `kibitz: false`） |
 | 所有人，打完後 | 四家原始牌與所有 Alert 說明 |
@@ -389,6 +418,8 @@ interface BoardState {
 | `session:<token>` | userId、到期時間、`id`（列表用，不是 token）、建立與最近使用時間、裝置名稱（`worker/sessions.ts`） |
 | `meta:club` | 社團自己的紀錄（淡江以外，§1「平台與社團的申請」）：名稱、學校、聯絡 Email、`active`／`suspended`、核准時間；平台核准時寫、暫停或恢復時改；不在備份裡 |
 | `platform:club:<id>`、`platform:apply:<id>` | 只在淡江的物件：平台的社團名冊與開設社團的申請（§1）；申請的密碼雜湊審核後就刪；在備份裡但還原時不動 |
+| `platform:notice:<id>` | 只在淡江的物件：平台公告（§1「公告」，`e12-t15`） |
+| `meta:banner` | 社團橫幅（§1「公告」，`e12-t15`）：一則，不在備份裡 |
 | `meta:clubApplications` | 只在淡江的物件：每個網路送出幾份社團申請（同 `meta:registrations`，一小時 3 份） |
 | `meta:registrations` | 申請加入的次數（§5.2，`e1-t33`，`worker/register-limit.ts`）：`{ <位址雜湊>: { count, since } }`，雜湊以 `SEEN_SALT` 加鹽、不存 IP；一小時的視窗結束就清掉；沒設 `SEEN_SALT` 時不寫（只在記憶體）；不在備份裡 |
 | `seen:<userId>` | 防作弊報表（§5.17，`worker/integrity.ts`）：登入與連線時的網路雜湊（以 Worker secret `SEEN_SALT` 加鹽的 SHA-256，不存 IP；鹽不在儲存裡）、瀏覽器 id（cookie `tbt_device`）與名稱、第一次與最近一次；每人最多 16 筆、90 天；帳號刪除時一起刪，不在備份裡 |

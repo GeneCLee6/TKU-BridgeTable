@@ -833,6 +833,8 @@ export const NOTIFICATION_KINDS = [
   'tournamentDayReminder',
   'teamEventRound',
   'clubApplication',
+  'supportReport',
+  'supportForwarded',
   'partnerBidInvited',
   'partnerBidAccepted',
   'partnerBidDeclined',
@@ -897,6 +899,9 @@ export interface Notification {
    * was paired (`e9-t14`, §5.26): to every player of the round's teams, with their match (none: a bye).
    * `clubApplication` { clubId, name } of a new application to open a club (e12-t06), to the platform
    * owner only (`PLATFORM_OWNER`, 淡江's object), leading to the back office (/platform).
+   * `supportReport` { username } a member sent a support report (e12-t16), to the club's admins,
+   * leading to the admin page. `supportForwarded` { name } a club's admin forwarded one, to the
+   * platform owner, leading to the back office; `name` is the club's. Never the report's text
    * The partner bidding kinds (`e10-t08`): { sessionId, username } of the other member of the session
    */
   params: Record<string, string | number>

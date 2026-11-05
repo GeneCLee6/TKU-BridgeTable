@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useId, useState } from 'react'
 import styled from 'styled-components'
 import type { ClubApplicationView, PlatformClub, PlatformView } from '../../shared/platform.ts'
+import { PlatformNotices, PlatformSupport } from '../components/PlatformNotices.tsx'
 import { useToast } from '../components/Toast.tsx'
 import { Button, Card, CardHeader, CardTitle, ErrorText, Field, FieldLabel, Input, Muted, PageMain, PageTitle } from '../components/ui.tsx'
 import { api, ApiError } from '../lib/api.ts'
@@ -218,6 +219,9 @@ export function PlatformPage() {
                 view.applications.map((a) => <ApplicationItem key={a.id} application={a} busy={busy} run={run} />)
               )}
             </Card>
+
+            <PlatformNotices view={view} busy={busy} run={run} />
+            <PlatformSupport view={view} busy={busy} run={run} />
           </>
         )}
       </Stack>

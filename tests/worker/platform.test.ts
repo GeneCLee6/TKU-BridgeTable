@@ -86,6 +86,8 @@ function newPlatform(extra: Partial<ConstructorParameters<typeof PlatformService
       const counts = clubs.get(id)?.club.platformCounts() ?? { members: 0, admins: [], tables: 0, boards: 0 }
       return { ...counts, storageBytes: 100, filesBytes: 10, backupBytes: 5, historyRows: id === 'tku' ? 3 : null }
     },
+    forwardedSupport: async () => [],
+    setSupportStatus: async () => true,
   }
   return new PlatformService(store, {
     now: () => 1_000,
@@ -252,7 +254,7 @@ describe('applying for a club (e12-t06)', () => {
     expect(notificationLink(items[0])).toBe('/platform')
     expect(pushMessage(items[0], 'zh').body).toBe('有新的建社申請：「臺大橋藝社」，到平台後台審核')
     // The owner's own push group, shown to them alone ("My account")
-    expect(PUSH_GROUPS.platform).toEqual(['clubApplication'])
+    expect(PUSH_GROUPS.platform).toEqual(['clubApplication', 'supportForwarded'])
     // A refused application tells nobody
     expect(await code(told.apply({ ...good, clubId: 'ntu' }, '1.2.3.4'))).toBe('clubIdTaken')
     expect((await tku.notifications.view('owner1')).items).toHaveLength(1)
@@ -320,6 +322,8 @@ describe('the back office (e12-t05)', () => {
         usage: async () => {
           throw new Error('no')
         },
+        forwardedSupport: async () => [],
+        setSupportStatus: async () => true,
       },
     })
     expect(await code(broken.approve(owner, id, ''))).toBe('Error: object unreachable')
@@ -386,7 +390,7 @@ describe('the registry the Worker routes by', () => {
       async () => {
         reads++
         if (fail) throw new Error('down')
-        return [{ id: 'ntu', status: 'active' }]
+        return { clubs: [{ id: 'ntu', status: 'active' }], notices: [] }
       },
       () => now,
       1_000,

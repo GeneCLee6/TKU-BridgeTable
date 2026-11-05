@@ -92,6 +92,24 @@ export type AuditAction =
   | 'platform:reject'
   | 'platform:suspend'
   | 'platform:unsuspend'
+  /**
+   * The platform's notices (e12-t15; worker/platform.ts), in 淡江's trail; `target` is the notice's
+   * id, `note` the start of its text. A forwarded support report resolved or opened again by the
+   * owner (e12-t16); `target` is `<club>/<report>`
+   */
+  | 'platform:noticeSave'
+  | 'platform:noticePublish'
+  | 'platform:noticeWithdraw'
+  | 'platform:noticeDelete'
+  | 'platform:supportResolve'
+  | 'platform:supportReopen'
+  /** A club's own banner set or taken down by its admin (e12-t15); `target` is the banner's id, `note` the start of its text */
+  | 'club:banner'
+  | 'club:bannerClear'
+  /** A support report resolved, opened again or forwarded to the platform owner by a club's admin (e12-t16); `target` is the report's id, never its text */
+  | 'support:resolve'
+  | 'support:reopen'
+  | 'support:forward'
 
 export interface AuditEntry {
   id: string

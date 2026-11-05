@@ -1,4 +1,4 @@
-import { Download, ExternalLink, Link2, Share2, Swords, Trash2 } from 'lucide-react'
+import { Download, ExternalLink, LifeBuoy, Link2, Share2, Swords, Trash2 } from 'lucide-react'
 import { useMemo, useState, type ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import styled, { css } from 'styled-components'
@@ -24,6 +24,7 @@ import { mobileQuery } from '../styles/tokens.ts'
 import { boardPlace, playerName, seatLetter } from '../strings.ts'
 import { AuctionBox } from './AuctionBox.tsx'
 import { BoardShareDialog } from './BoardShareDialog.tsx'
+import { SupportDialog } from './SupportDialog.tsx'
 import { ChallengeDialog } from './ChallengeDialog.tsx'
 import { DoubleDummyPanel } from './DoubleDummyPanel.tsx'
 import { DdReplayBar } from './DoubleDummyReplay.tsx'
@@ -178,6 +179,7 @@ export function BoardRecordView({
   const imported = record.mode === 'imported'
   const sharer = !imported && framed && !!user && (user.admin || SEATS.some((seat) => players[seat]?.id === user.id))
   const [sharing, setSharing] = useState(false)
+  const [reporting, setReporting] = useState(false)
   const [downloadError, setDownloadError] = useState('')
 
   const allTricks = tricksOf(board)
@@ -323,6 +325,12 @@ export function BoardRecordView({
                 </Button>
               </>
             )}
+            {framed && !!user && (
+              <Button type="button" $small onClick={() => setReporting(true)}>
+                <LifeBuoy size={16} aria-hidden />
+                {t.support.open}
+              </Button>
+            )}
             {sharer && (
               <Button
                 type="button"
@@ -438,6 +446,7 @@ export function BoardRecordView({
         </p>
       )}
       {sharing && <BoardShareDialog boardId={record.id} onClose={() => setSharing(false)} />}
+      {reporting && <SupportDialog boardId={record.id} onClose={() => setReporting(false)} />}
       {challenging && robots && (
         <ChallengeDialog
           fromBoards={{ ids: [record.id], robotKind: robots }}

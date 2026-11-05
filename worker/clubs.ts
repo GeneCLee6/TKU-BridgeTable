@@ -1,4 +1,5 @@
 import { CLUB_ID_PATTERN, clubObjectName, clubOfScopedName, DEFAULT_CLUB_ID, eventObjectName, knownClubs, tableObjectName } from '../shared/clubs.ts'
+import type { PlatformNotice } from '../shared/notices.ts'
 import type { ClubStatus } from '../shared/platform.ts'
 
 /**
@@ -58,6 +59,17 @@ export function everyClubStub<Id, Stub>(env: { CLUB: Namespace<Id, Stub>; CLUBS?
   return [...new Set([...clubsOf(env), ...registered.filter((id) => CLUB_ID_PATTERN.test(id))])].map((id) => clubStub(env, id))
 }
 
+/** What the Worker reads of 淡江's object (`Club.platformSnapshot`) */
+export interface RegistrySnapshot {
+  clubs: { id: string; status: ClubStatus }[]
+  notices: PlatformNotice[]
+}
+
+interface RegistryCopy {
+  clubs: Map<string, ClubStatus>
+  notices: PlatformNotice[]
+}
+
 /** How long a Worker trusts what it read of the registry (e12-t06): a new club is served within this */
 export const REGISTRY_TTL_MS = 30_000
 
@@ -67,16 +79,20 @@ export const REGISTRY_TTL_MS = 30_000
  * isolate and only for a request naming a club that is not 淡江 (淡江's requests never ask), so
  * an id no one knows costs nothing more than a lookup in memory. A suspension is enforced by the
  * club's own object at once; this copy only spares it the requests. When 淡江's object does not
- * answer, the last copy is used (or none: every other club waits)
+ * answer, the last copy is used (or none: every other club waits).
+ *
+ * The platform's notices (e12-t15) come along in the same read, so no page view of any club makes a
+ * call to 淡江's object of its own: `GET /api/notices` is the only thing that asks for them, also
+ * for 淡江's members, and at most one read per REGISTRY_TTL_MS per isolate reaches the object
  */
 export class ClubRegistryCache {
-  private readonly load: () => Promise<{ id: string; status: ClubStatus }[]>
+  private readonly load: () => Promise<RegistrySnapshot>
   private readonly now: () => number
   private readonly ttlMs: number
-  private copy: { at: number; clubs: Map<string, ClubStatus> } | null = null
-  private loading: Promise<Map<string, ClubStatus>> | null = null
+  private copy: ({ at: number } & RegistryCopy) | null = null
+  private loading: Promise<RegistryCopy> | null = null
 
-  constructor(load: () => Promise<{ id: string; status: ClubStatus }[]>, now: () => number = Date.now, ttlMs = REGISTRY_TTL_MS) {
+  constructor(load: () => Promise<RegistrySnapshot>, now: () => number = Date.now, ttlMs = REGISTRY_TTL_MS) {
     this.load = load
     this.now = now
     this.ttlMs = ttlMs
@@ -85,12 +101,17 @@ export class ClubRegistryCache {
   /** The club's status, or null for a club the platform never opened (淡江 is not in the registry) */
   async status(clubId: string): Promise<ClubStatus | null> {
     if (clubId === DEFAULT_CLUB_ID || !CLUB_ID_PATTERN.test(clubId)) return null
-    return (await this.clubs()).get(clubId) ?? null
+    return (await this.read()).clubs.get(clubId) ?? null
   }
 
   /** Every club in the registry */
   async ids(): Promise<string[]> {
-    return [...(await this.clubs()).keys()]
+    return [...(await this.read()).clubs.keys()]
+  }
+
+  /** The platform's notices that are out; the Worker checks their ends when it answers */
+  async notices(): Promise<PlatformNotice[]> {
+    return (await this.read()).notices
   }
 
   /** Read again on the next request (after the owner changed something) */
@@ -98,15 +119,15 @@ export class ClubRegistryCache {
     this.copy = null
   }
 
-  private async clubs(): Promise<Map<string, ClubStatus>> {
-    if (this.copy && this.now() - this.copy.at < this.ttlMs) return this.copy.clubs
+  private async read(): Promise<RegistryCopy> {
+    if (this.copy && this.now() - this.copy.at < this.ttlMs) return this.copy
     this.loading ??= this.load()
-      .then((list) => {
+      .then(({ clubs: list, notices }): RegistryCopy => {
         const clubs = new Map(list.map((c) => [c.id, c.status] as const))
-        this.copy = { at: this.now(), clubs }
-        return clubs
+        this.copy = { at: this.now(), clubs, notices }
+        return this.copy
       })
-      .catch(() => this.copy?.clubs ?? new Map<string, ClubStatus>())
+      .catch((): RegistryCopy => this.copy ?? { clubs: new Map<string, ClubStatus>(), notices: [] })
       .finally(() => {
         this.loading = null
       })

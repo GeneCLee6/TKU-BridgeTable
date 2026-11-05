@@ -1,4 +1,5 @@
 import { CLUB_HEADER, CLUB_IDS, CLUB_PARAM, DEFAULT_CLUB_ID, requestClubId } from '../shared/clubs.ts'
+import { NOTICES_API, noticeLive, type ClubBanner, type NoticesView, type PlatformNotice } from '../shared/notices.ts'
 import { CLUB_APPLY_API, type ClubStatus } from '../shared/platform.ts'
 import { formatMessage, type MessageCode } from '../shared/messages.ts'
 import type { GuestTable, PublicLobby, PublicTable } from '../shared/public-lobby.ts'
@@ -32,6 +33,8 @@ export interface Routes {
   findClub?(clubId: string): Promise<ClubStatus | null>
   /** The clubs the platform opened that are not suspended (the registry), for the cross-club lobby (e12-t07) */
   openClubs?(): Promise<string[]>
+  /** The platform's notices that are out (e12-t15), from the same cached read as the registry; never one call per page view */
+  platformNotices?(): Promise<PlatformNotice[]>
   /** A club's object (shared/clubs.ts); the routing only asks for clubs that exist */
   club(clubId: string): Fetches & {
     /** The member signed in with this session token, or null (one call per table connection, not per message) */
@@ -45,6 +48,8 @@ export interface Routes {
     guestTable?(tableId: string): Promise<GuestTable | null>
     /** The name the club is shown by (its `meta:club`), for its home-screen app's manifest; its id when left out */
     clubName?(): Promise<string>
+    /** Whether this session is a member's, and the club's banner (e12-t15): one call, for `GET /api/notices` */
+    memberNotices?(token: string | null): Promise<{ signedIn: boolean; banner: ClubBanner | null }>
   }
   /** A club's table's object: `tableObjectName(clubId, tableId)`, so one club never reaches another's (e12-t03) */
   table(clubId: string, tableId: string): Fetches
@@ -143,6 +148,7 @@ export async function route(request: Request, routes: Routes): Promise<Response>
     const answer = userId && (await edgeHistory(url, clubId, userId, history, now, routes.edge?.log ?? noLog))
     if (answer) return answer
   }
+  if (pathname === NOTICES_API && request.method === 'GET') return noticesAnswer(cookies, clubId, routes, now)
   if (pathname.startsWith(PUBLIC_API)) {
     const userId = (await passUser()) ?? (await club().socketUser(readCookie(cookies, sessionCookieName(clubId))))
     return publicApi(pathname, request.method, clubId, userId, routes)
@@ -167,6 +173,18 @@ async function clubManifestAnswer(clubId: string, url: URL, routes: Routes): Pro
   if (!base.ok) return base
   const name = (await routes.club(clubId).clubName?.().catch(() => null)) ?? clubId
   return manifestAnswer((await base.json()) as Record<string, unknown>, clubId, name)
+}
+
+/**
+ * What a member's page shows on top (e12-t15, ARCHITECTURE.md §1「公告」): their club's banner, asked
+ * of their own club with the session in one call, and the platform's notices, from this isolate's
+ * copy of the registry. Other clubs' objects are never asked, and 淡江's at most once per copy
+ */
+async function noticesAnswer(cookies: string | null, clubId: string, routes: Routes, now: () => number): Promise<Response> {
+  const own = await routes.club(clubId).memberNotices?.(readCookie(cookies, sessionCookieName(clubId)))
+  if (!own?.signedIn) return errorAnswer('signInFirst', 401)
+  const platform = (await routes.platformNotices?.().catch(() => [])) ?? []
+  return jsonAnswer({ platform: platform.filter((notice) => noticeLive(notice, now())), club: own.banner } satisfies NoticesView)
 }
 
 /** The cross-club lobby's API, answered by the Worker from every club (e12-t07) */
