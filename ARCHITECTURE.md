@@ -95,6 +95,9 @@ TKU-BridgeTable/
 │  ├─ practice.ts          練習桌的設定與檢查（預設集、四家條件、牌組、TKB 制度、Just Declare、只叫牌、顯示四家）、快速亂數、存的設定（§5.11）
 │  ├─ practice-sets/       練習牌組：每個 *.json 一組（import.meta.glob 自動列出），index.ts 讀取與檢查，只有 Worker import（§5.11）
 │  ├─ pbn.ts               PBN 的一手牌與整副牌（`AKQ2.K73.9.AJ852`、`N:… … … …`）讀寫
+│  ├─ pbn-import.ts        讀 PBN 檔的牌（瀏覽器，`e10-t09`）
+│  ├─ lin-import.ts        讀 BBO LIN 檔（瀏覽器，`e4-t39`）
+│  ├─ imports.ts           匯入的上限、檢查與重播（瀏覽器與伺服器共用）
 │  ├─ book-topics.ts       叫牌提示卡：目前叫牌對到淡江橋譜的哪幾頁（§5.11）；網址在 book-site.ts
 │  ├─ deal-set.ts          挑戰的固定牌組 DealSet：產生、檢查、PBN 存取、轉成 fixed 的 DealSource（§5.5）
 │  ├─ auction.ts           叫品、合法叫品、叫牌結束、合約與莊家
@@ -162,6 +165,7 @@ TKU-BridgeTable/
 │  ├─ history-index.ts     紀錄的 SQL 索引：建表、寫入、搜尋（§5.3）；D1 副本共用同一段 SQL
 │  ├─ favorites.ts         收藏的 SQL 讀寫（§5.3）
 │  ├─ practice-presets.ts  社員存的練習設定（存成我的設定，§5.11）
+│  ├─ imported-boards.ts   匯入的紀錄（`imp-<hash>`，§5.3）與我的牌組（§5.11）
 │  ├─ partner-bidding.ts   搭檔非同步叫牌練習：邀請、一副一副叫、到期清掃、檢討的工作（`e10-t08`，§5.11）
 │  ├─ practice-review.ts   叫牌練習的檢討：每一口 TKB 會叫什麼、四家 TKB 從頭叫（只給那一家的牌，§5.11）
 │  ├─ notifications.ts     通知中心（§5.4）
@@ -319,6 +323,10 @@ interface BoardState {
 - **猜 token**：token 是 128 位元的亂數（32 個十六進位字元）；每個網路位址（`CF-Connecting-IP`）查詢一次扣一個 token bucket（一次 30 個、之後每 2 秒一個），查錯（不存在、已撤銷、牌已不能看）15 分鐘內 10 次就整個擋 15 分鐘（`slowDown`，429），回應也帶 `X-Robots-Tag: noindex`。
 測試在 `tests/worker/record-export.test.ts`；`tests/worker/visibility/visibility.test.ts` 的 `exposure` 也檢查還沒公開的牌在 PBN 與整場 LIN 都拿不到。
 
+**匯入的牌局**（`e4-t39`，§5.3 的「匯入 BBO LIN」；決定：**只有匯入的人看得到**）：紀錄的 `revealAt` 是 `HELD_BACK`（永遠不會到）、沒有 `eventId`，四個座位裡**只有匯入者自己的座位帶他的 id**，另外三家的 id 是空字串。所以不用任何新規則，上面每一條「還沒公開」都直接套用：`recordVisible` 只讓他看，搜尋的 `where()`（社團的索引與 D1 副本共用）只找給他，收藏只有他能收；公開分享（`shareHeldBack`，別人 `boardGone`）、精選（`boardGone`／`featuredNotRevealed`）、論壇（`recordNotShareable`）、拿來當牌組（`boardGone`）、用這副牌挑戰（`boardGone`）都拿不到，**管理員也一樣**，裁定回 `boardGone`。「全部社員」與個人檔案卡（`scope=all`）也不列（連他自己的都不列，除非明確篩選 `mode=imported`），不寫 `hist:`／`uhist:`，所以管理頁的每人副數不變；排行、積分、實力評分、挑戰與比賽都只讀比賽的成績，沒有 `eventId` 的牌不會進去；防作弊報表要兩位社員同桌才算，匯入的牌上只有一位。**檔案裡的名字只是文字**：放在 `username`，id 是空的，所以 `player=`、`partner=`、`declarer=` 都找不到，也不會連到同名的社員；匯入者自己選「我是哪一家」（名字對得上或選座位），只決定那一副牌上他坐哪裡。測試在 `tests/worker/visibility/visibility.test.ts` 的 `imported boards`（每個入口＋D1 副本）與 `tests/worker/board-imports.test.ts`。
+
+**我的牌組**（`e10-t09`，§5.11）：PBN 匯入的牌只在 `practiceOwnDeals:<userId>`，每個讀寫都以自己的 id 為條件；`GET /api/practice/deals` 不送牌（`OwnDealInfo` 只有 id、牌號、發牌人、局況、標題），開桌時才由伺服器放進 `PracticeTableState.problems`，之後跟其他牌組一樣只照上表送出。
+
 **練習桌**（§5.11，`practiceView`）：牌照上表（社員只看到自己的牌，打完四家公開）；`TableView.practice` 只有社員自己選的設定與發了幾副，不含任何牌。**顯示四家**（`e10-t16`）：練習桌的主人（有座位）開了 `showHands`，`boardView` 另外帶 `shown`（四家）：只給他、只是看得到，叫牌盒與提示照舊（不是 `acts`）；觀看者照上表，沒有座位的人、別桌的人都不受影響，送不送牌由伺服器決定（`TableService.shownTo`）。**牌組**（`deal: 'set'`）：牌組的牌（`PracticeTableState.problems`）跟挑戰的牌組一樣只在伺服器，`practiceView` 只送正在打的那一副是第幾題、分類、精選的標題，**叫牌結束後**才送教學重點（`note`，叫牌前送會洩漏該怎麼叫）；收藏與精選的牌只能是看得到**而且已經公開**的（`revealAt` 已過或沒有）：還沒公開的挑戰、隊制賽牌，連打過的人也拿到 `boardGone`。練習牌組的 JSON 只有 Worker import，瀏覽器的 bundle 裡沒有（測試檢查 `src/` 沒有 import 它）。Just Declare 練習的叫牌是機器人叫的，跟所有機器人的叫品一樣公開。練習的紀錄所有人仍看得到（`recordVisible` 不變），只是「全部社員」的列表預設不列（§5.11）。
 
 **封鎖與聊天**（AC-1.6，`chatFor`）：牌桌聊天照每位觀看者過濾，他封鎖的社員說的話不會送到他的瀏覽器；其他人照常看得到，解除封鎖後保留的訊息會再出現。大廳的 `friends`／`blocked` 只在社員自己的那一份（`LobbyMine`），別人封鎖或加了誰不會送出。
@@ -388,6 +396,8 @@ interface BoardState {
 | `hist:<時間>-<id>` | 全社團的紀錄索引（摘要，補零的時間讓列表依時間排序） |
 | `uhist:<userId>:<時間>-<id>` | 每位社員自己的紀錄索引 |
 | `featured:<boardId>` | 精選牌局（§5.9）：標題、分類、講解、逐墩講解、誰先設的與時間、那副牌設精選時的摘要（`BoardSummary`）；帳號刪除時保留，設的人顯示「—」 |
+| `importPurge:<userId>` | 刪掉的帳號還有匯入的牌要刪（`e4-t39`，§5.3）：排程一次刪幾副，刪完就拿掉 |
+| `practiceOwnDeals:<userId>` | 社員自己的牌組（`e10-t09`，§5.11）：`OwnDeal[]`（id、牌號、發牌人、局況、標題、四手牌），新的在前，最多 200 副；帳號刪除時一起刪；不在備份裡（同練習設定） |
 | `practicePresets:<userId>` | 社員存的練習設定（`e10-t16`，§5.11）：`SavedPractice[]`（id、名稱、設定、時間），新的在前，最多 20 組；帳號刪除時一起刪 |
 | `notif:<userId>:<時間>-<id>` | 通知（`worker/notifications.ts`）：種類、參數、時間、是否已讀；每人只留最新 500 則，帳號刪除時一起刪 |
 | `push:<userId>` | PWA 推播（`e1-t28`，`worker/push.ts`）：每台裝置的訂閱（推播服務的網址、`p256dh`、`auth`、語言、裝置名稱、開啟時間；最多 10 台）與改過的推播種類（只存跟預設不同的）；被登出所有裝置時清掉裝置、帳號刪除時整筆刪；不在備份裡 |
@@ -573,6 +583,7 @@ interface BoardState {
   - **顯示四家**：`PracticeSettings.showHands`（開桌時可以先開），牌桌上主人用 `showHands { show }`（牌桌動作，`TABLE_ACTIONS`；不是練習桌 `practiceOnly`、不是主人 `hostOnly`）切換，存在 `PracticeTableState.showHands`。伺服器在 `boardView` 帶 `shown`（§4），畫面上只因為這樣才看得到的手牌標「顯示中」（`TablePage` 的 `ShownTag`），右下角「顯示四家／隱藏他家」。
   - **存成我的設定**：`practicePresets:<userId>` 一份清單（`worker/practice-presets.ts`，新的在前），每人最多 `PRACTICE_PRESETS_MAX` 20 組，名稱 1–30 字（`badPresetName`），同名覆蓋、超過回 `practicePresetsFull { max }`；設定照開桌的規則檢查（`parsePracticeSettings`），牌組只存選擇（哪一組、哪幾副的 id），不存牌。`GET /api/practice/presets`、`POST /api/practice/presets { name, settings }`（共用社員的動作速率限制）、`DELETE /api/practice/presets/:id`（`presetGone`），都回整份清單；只讀寫自己的。帳號刪除時一起刪。
   - **牌組**：`deal: 'set'` 帶 `set`：`{ source: 'practice', id }`（社團的練習牌組）或 `{ source: 'favorites' | 'featured', ids }`（自己的收藏或精選，最多 `PRACTICE_SET_BOARDS_MAX` 50 副）。開桌時 `ClubService.practiceProblems` 讀出牌放進 `PracticeTableState.problems`（找不到牌組 `practiceSetGone`；不是自己的收藏、沒被精選、看不到或還沒公開的牌一律 `boardGone`，§4），之後**依序出題**、發完一輪從頭（`modes.ts` 的 `practice.deal`），每副的牌號照那副的發牌人與局況（練習牌組用 `boardNoFor`，紀錄用原本的牌號）。牌組不能和 Just Declare 一起（`field: 'justDeclare'`）。精選的分類、標題與講解、練習牌組的分類與教學重點跟著題目，`TableView.practice.problem`（第幾題／共幾題，叫牌結束後才有 `note`），結果面板顯示「教學重點」。
+  - **我的牌組（PBN 匯入，`e10-t09`）**：牌組的第四個來源 `{ source: 'mine', ids }`。`PracticeSetPicker` 選「我的牌組」時可以上傳 `.pbn` 或貼上（單副或多副）：瀏覽器用 `shared/pbn-import.ts` 解析（`parsePbn`：只讀 `Board`、`Dealer`、`Vulnerable`、`Deal`、`Event`；`%` 與 `{…}` 註解略過；`#`、`##` 照 PBN 的繼承；少了發牌人或局況就照牌號），先顯示幾副可以匯入、哪一副有什麼問題（`importBadDeal`、`importBadBoard`，都帶 `{ board }`），再一批最多 `IMPORT_LIMITS.batchDeals` 50 副送出。`POST /api/practice/deals { deals }`（`worker/imported-boards.ts` 的 `OwnDeals`）只用 `parseDeal` 再查一次 52 張不同的牌，一副不對整批不存；同一組牌＋發牌人＋局況（`dealContent` 的 SHA-256）不重複加，回 `{ added, duplicates, deals }`。上限：檔案 1 MB、一份 200 副、每人 200 副（`ownDealsFull`）、速率跟紀錄匯入共用（見 §5.3）。`POST /api/practice/deals/remove { ids }` 刪勾選的。開桌時 `practiceProblems` 從這份清單拿牌（不是自己的或已刪掉的 `boardGone`，§4），牌號用 `boardNoFor(dealer, vul)`，所以發牌人與局況跟檔案一樣；標題是 PBN 的 `Event`。社團的教學桌（`e10-t10`）之後可以用同一份。
   - **練習牌組的檔案**：`shared/practice-sets/*.json`，一個檔一組（檔名就是 id），格式是陣列 `{ id, dealer, vulnerability: 'None'|'NS'|'EW'|'All', hands: 'N:<北> <東> <南> <西>', category, note }`。`index.ts` 用 Vite 的 `import.meta.glob` 找檔案，所以新增一個 JSON 就會列出來，不必改程式（Worker 由 Vite 的 Cloudflare 外掛建置、Vitest 也走 Vite，兩邊都支援；選它而不是在 index 一個個註冊，是因為出題的人只要放檔案）。格式不對的檔案不列出，記在 `PRACTICE_SET_ERRORS`，測試要求它是空的。`GET /api/practice/sets` 只回 id、副數與分類，不含牌；名稱來自 `strings.ts` 的 `practiceSetNames`（沒有就顯示 id）。
 - **叫牌練習室（三）：檢討**（`e10-t07`，ROADMAP U2c）：只叫牌的練習桌叫完一副，結果面板多一個「檢討」，打開 `PracticeReview` 對話框：四家牌、逐步對照、TKB 會叫到哪裡、DD 表與 par、牌組的教學重點。
   - **伺服器算、叫完才送**：叫牌結束（`endBidding`，四家 Pass 也算）時清掉舊的檢討，之後由 `TableService.scheduleReview` 用機器人排程（`robot` 類的工作，`review:<桌>`）分兩次算：先算每一口 TKB 會叫什麼（`reviewSteps`：對叫牌過程的每一口問 `RobotBrain.bid`，只給那一家的牌與那一口之前的叫牌，`askedState`），存好送出；下一個工作再讓四家 TKB 從頭叫同一副（`robotBidding`，每一家同樣只看自己的牌）。制度用桌子的 `robotKind`（淡江或 2/1）。結果存在 `PracticeTableState.review`，`practiceView` 只在這一副 `finished` 時送；重叫（`rebid`）、下一副（`dealBoard`）就丟掉。物件被回收時工作不會保存，`restore` → `scheduleRobots` 會把還缺的部分再排一次；機器人想太久或失敗時由規則機器人回答（同牌桌）。
@@ -1808,7 +1819,7 @@ C4 的實作（2026-10-24）：
 | `player`、`partner` | 某人有打（配 `scope=mine` 就是「我和他同桌」）、他是我的搭檔 |
 | `from`、`to` | 台灣日期 `YYYY-MM-DD`，兩端都含 |
 | `result` | `made`（含超墩）、`down`、`overtricks` |
-| `vul`、`boardNo`、`table`、`mode` | 身價、牌號、桌號、模式（`mode=challenge` 只列挑戰的牌，C5） |
+| `vul`、`boardNo`、`table`、`mode` | 身價、牌號、桌號、模式（`mode=challenge` 只列挑戰的牌，C5；`mode=imported` 是自己匯入的牌，`scope=all` 沒指定模式時不列） |
 | `sort` | `date_desc`（預設）、`date_asc`、`score_desc`、`score_asc`、`tricks_desc`、`tricks_asc`（四家 Pass 一律排最後） |
 | `page`、`size` | 頁碼（超過最後一頁就給最後一頁）、每頁 10／20／50／100 |
 
@@ -1853,6 +1864,19 @@ SQL 由 `worker/history-index.ts` 的 `searchBoards` 組：只有固定的 SQL �
 | `board_shares` | `token`（主鍵）、`board_id`（唯一）、`created_by`、`created_at` | 主鍵、`board_id` |
 
 `board_shares` 跟收藏一樣在社團的 SQLite（`BoardShares.createTables`，每次載入時建），不在每日備份裡（同收藏）；帳號匯出帶自己產生過的連結（`boardShares`），刪帳號時一起刪。
+
+**匯入 BBO LIN**（`e4-t39`，AC-4.13；可見性見 §4「匯入的牌局」）：紀錄頁的「匯入 LIN」（`LinImportDialog`）上傳 `.lin` 或貼上（Handviewer 連結也可以）。
+
+- **在瀏覽器解析**（社長：不升級付費方案，每次請求只有 10 ms CPU）：`shared/lin-import.ts` 的 `parseLin` 只依 LIN 公開的格式說明與我們自己的 `lin.ts` 寫法：`pn`、`md`（第四手可省略）、`ah`、`sv`、`mb`、`an`、`pc`、`mc`、`qx`（`o`／`c` 兩室，`pn` 八個名字時閉室取後四個），其他標籤略過。不管內容多亂都不丟例外：回 `{ boards, problems }`，每個問題帶那一副的牌號與 `shared/messages.ts` 的代碼（`importBadDeal`、`importBadBoard`、`importBadAuction`、`importBadPlay`、`importBadClaim`、`importUnfinished`），對話框先列出來，有問題的不送。只收打完的牌：叫完、13 墩打完或攤牌（`mc`，莊家總墩數）、或四家 Pass。
+- **伺服器再檢查**（`POST /api/history/import { boards, session }`，`ClubService.importBoards`）：`shared/imports.ts` 的 `readImportedBoard`（形狀與長度）與 `replayImported`（52 張不同的牌、合法叫牌、合法打牌、攤牌墩數合理），結果與分數由伺服器算，瀏覽器送來的其他欄位一律不看；一副不對整批不存，錯誤帶 `{ board }`。`replayImported` 不呼叫 `makeCall`／`playCard`（每張牌都會把整副重算，忙碌的開發機上約 3 ms 一副），而是走一次，判斷合法與計分用引擎的 `legalCalls`、`contractOf`、`trickWinner`、`finishBoard`，測試拿隨機的合法與壞掉的牌兩邊都跑、要求答案相同。
+- **CPU 的量**（忙碌的開發機，Node）：檢查一批 10 副中位數 1.5 ms、最多 4.4 ms；整個請求（JSON 解析、檢查、SHA-256、記憶體 store 與 `node:sqlite` 寫入）中位數約 8 ms、最多約 12 ms；檢查 50 副 PBN 約 1.6 ms。所以一批 `IMPORT_LIMITS.batchBoards` 10 副，瀏覽器分批送；正式站的 Durable Object 還沒量過，超過時再把一批改小（只改這個常數）。
+- **不重複**：紀錄 id 是 `imp-` 加 SHA-256（`importedBoardId`：社員 id＋`importedContent`：牌號、發牌人、局況、四手牌、叫品、出牌、莊家墩數、四個名字的小寫）前 32 個十六進位字元。同一位社員再匯入同一副 id 相同，算 `duplicates`，紀錄不動；Alert 說明與他選的座位不算內容，改了也不會變成另一副；同一副不同人匯入是各自的紀錄；同一副牌別人打的（名字不同）是另一副。
+- **紀錄**：`mode: 'imported'`（`RecordMode`，不是牌桌模式）、桌號 0、`finishedAt` 是匯入時間（LIN 沒有日期）、`tableId` 是這次匯入的 `import-<session>`（一次匯入算一場）。走 `saveRecord`，但 `writeRecord` 不寫 `hist:`／`uhist:`。`HISTORY_MODES` 多一個 `imported`，所以篩選、依主題分組、PBN 匯出、DD 分析都跟其他紀錄一樣。`board_players` 只有匯入者那一列有 `user_id`，所以「我打過的」與 `declarerSide` 都以他選的座位算。
+- **`REPLICA_VERSION` 不變**：表沒改，`summarize`、`BoardSummary` 的欄位沒改（`mode` 多一個值），舊資料列的內容也沒變；`where()` 只多排除一個模式，新舊 Worker 都讀得懂。匯入的列跟其他紀錄一樣經 outbox 進 D1，刪除時 outbox 看到紀錄不在就刪掉副本的列；所以一次匯入後列表可能要幾秒才更新（一批 20 副、每秒一批）。
+- **上限**：檔案或貼上 1 MB、一份 200 副（`linBoards`）、一個請求 10 副（`batchBoards`，否則 `importTooManyBoards`）、每人 1,000 副（`linTotal`，`importsFull`）、一副最多 64 口叫品（真實牌局遠低於此，超過算不合法）、名字 24 字、Alert 200 字。速率：每人 `IMPORT_BURST` 25 個請求，之後 30 秒一個（`slowDown`，跟 PBN 共用），剛好夠一份到上限的檔案一次送完。
+- **刪除**：`DELETE /api/history/:id`（`removeImported`）只有匯入者、只有匯入的牌，其他一律 `boardGone`；紀錄頁有按鈕。帳號刪除時也全部刪掉（跟打過的牌不同，那些是同桌其他人的紀錄）。一次請求刪不完 1,000 副（每副要刪 SQL 三張表、`board:` 與寫 outbox；忙碌的開發機上每 10 副中位數 0.6 ms、最多 1.8 ms，1,000 副就是幾十到上百 ms，超過 10 ms），所以刪帳號的請求只寫一個記號 `importPurge:<userId>`，之後由排程（`importPurge`，一次 `purgeStep` 10 副、隔 1 秒）刪，物件被回收時 `load` 看到記號接著做，1,000 副約兩分鐘；帳號一刪就沒有人看得到這些牌（只有那個 id 看得到），D1 的列由 outbox 接著刪。
+- **匯出**：帳號匯出的 JSON 帶 `ownDeals`（最多 200 副，含牌）與 `importedBoardCount`；完整的牌由瀏覽器用 `GET /api/account/export/imported?after=`（`exportImported`，一頁 `exportPage` 20 副的 LIN）接起來，放進同一個檔案的 `importedBoards`（`src/lib/download.ts` 的 `saveAccountData`）。`boards`（打過的牌的摘要）不再包含匯入的牌，所以匯入不會讓那個請求變重。同一台機器上一頁 20 副中位數 1.1 ms、最多 2.6 ms。打過的牌本身的摘要仍是一次讀完（本來就這樣，打很多副的社員可能超過，匯入沒有讓它變糟）。
+- 沒有稽核動作（只動自己的資料）。
 
 **紀錄頁**（`e4-t16`～`t21`）：`/history` 的篩選與排序都寫在網址（`/history?scope=all&level=4&strain=S&sort=score_desc`），重新整理或分享連結都是同一份清單；頁面用 `readHistoryQuery` 讀網址（不認得的參數直接略過，不像 API 回錯誤）、用 `historyQueryString` 寫回，條件改了就回第 1 頁。日期的「今天／本週（從週一）／本月」由 `datePresetRange` 換成台灣日期的 `from`／`to`。篩選介面在 `src/components/HistoryFilters.tsx`。用到的條件在清單上方顯示成標籤（`src/lib/historyChips.ts` 的 `filterChips`：階數＋花色合成一個「合約」、起訖日期合成一個「日期」），每個可單獨移除，「清除全部」只清條件、保留範圍、排序與每頁筆數（e4-t22）。手機版篩選收合在「篩選（n）」按鈕裡，按了才展開，展開後有「完成」收回；寬螢幕開啟帶條件的連結時直接展開。
 

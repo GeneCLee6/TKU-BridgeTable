@@ -127,6 +127,13 @@ export const FRIEND_ONLINE_QUIET_MS = 30 * 60_000
  */
 export const TWO_FACTOR_FAILURES = 5
 
+/**
+ * Requests that bring in boards or deals from files per member (e4-t39, e10-t09): 25 at once, enough
+ * for a file at its limit in batches, then one every 30 seconds
+ */
+export const IMPORT_BURST = 25
+export const IMPORTS_PER_SECOND = 1 / 30
+
 /** Google and LINE sign-ins started per network address, together (e1-t31, e1-t32): 10 at once, then one a minute */
 export const OAUTH_START_BURST = 10
 export const OAUTH_STARTS_PER_SECOND = 1 / 60

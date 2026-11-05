@@ -177,7 +177,7 @@ export function makeCall(state: BoardState, seat: Seat, call: Call, alert?: stri
   if (isAuctionComplete(auction)) {
     next.contract = contractOf(auction)
     if (next.contract) next.phase = 'play'
-    else return finish(next, 0, false)
+    else return finishBoard(next, 0, false)
   }
   return next
 }
@@ -205,7 +205,7 @@ export function playCard(state: BoardState, seat: Seat, card: Card): BoardState 
   const next: BoardState = { ...state, play: [...state.play, { seat, card }] }
   if (next.play.length === 52) {
     const declarer = next.contract!.declarer
-    return finish(next, tricksWon(next)[sideOf(declarer)], false)
+    return finishBoard(next, tricksWon(next)[sideOf(declarer)], false)
   }
   return next
 }
@@ -241,7 +241,7 @@ export function respondToClaim(state: BoardState, seat: Seat, accept: boolean): 
   const remaining = remainingTricks(state)
   const declarerShare = sameSide(claim.seat, declarer) ? claim.tricks : remaining - claim.tricks
   const settled = { ...state, claim: { ...claim, accepted } }
-  return finish(settled, tricksWon(state)[sideOf(declarer)] + declarerShare, true)
+  return finishBoard(settled, tricksWon(state)[sideOf(declarer)] + declarerShare, true)
 }
 
 /**
@@ -278,7 +278,8 @@ export function canUndoFor(state: BoardState, seat: Seat, auctionSeat: Seat = se
   }
 }
 
-function finish(state: BoardState, declarerTricks: number, claimed: boolean): BoardState {
+/** The board over, with the declarer's tricks in all and its score */
+export function finishBoard(state: BoardState, declarerTricks: number, claimed: boolean): BoardState {
   const contract = state.contract
   let scoreNS = 0
   if (contract) {

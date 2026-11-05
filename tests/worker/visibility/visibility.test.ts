@@ -122,6 +122,62 @@ const featureCode = (curator: string, boardId: string) =>
       (error: { code: string }) => error.code,
     )
 
+describe('imported boards (e4-t39)', () => {
+  const imported = {
+    boardNo: 3,
+    dealer: 'N',
+    vul: 'Both',
+    hands: 'N:AKQJ.AKQ.AKQ.AKQ T987.JT9.JT9.JT9 6543.876.876.876 2.5432.5432.5432',
+    calls: ['1N', 'P', 'P', 'P'].map((call) => ({ call })),
+    play: [],
+    claim: 7,
+    seat: 'S',
+  }
+
+  it('are their importer\'s alone, on every surface and at the edge; the names in the file tie to nobody', async () => {
+    const amy = await t.member('amy')
+    const ben = await t.member('ben')
+    // The file names ben, and an admin may not see it either
+    const names = { N: 'ben', E: 'x', S: 'amy', W: 'y' }
+    const { ids } = await t.club().importBoards(amy, { boards: [{ ...imported, names }] })
+    const [board] = ids
+
+    expect(await exposure(amy, board, amy)).toEqual({
+      record: true,
+      history: false,
+      mine: true,
+      search: false,
+      profile: false,
+      favorite: true,
+      traveller: false,
+      export: false,
+      session: true,
+    })
+    for (const viewer of [ben, t.h.boss]) {
+      expect(await exposure(viewer, board, amy)).toEqual(hidden)
+      expect(await exposure(viewer, board, ben)).toEqual(hidden)
+      const asked = { ...DEFAULT_HISTORY_QUERY, scope: 'all' as const, mode: 'imported' }
+      expect((await t.club().search(viewer, asked)).total).toBe(0)
+      expect(await searchReplica(t.d1, 'tku', asked, viewer, t.h.time)).toEqual(await t.club().search(viewer, asked))
+      expect(t.club().historyDays(viewer, asked).days).toEqual([])
+    }
+    // Their own, when they ask for imported boards in everyone's list too, and from either side
+    const asked = { ...DEFAULT_HISTORY_QUERY, scope: 'all' as const, mode: 'imported' }
+    expect((await t.club().search(amy, asked)).boards.map((b) => b.id)).toEqual([board])
+    expect(await searchReplica(t.d1, 'tku', asked, amy, t.h.time)).toEqual(await t.club().search(amy, asked))
+
+    // Nobody can give it away, not even its importer
+    expect(await shareCode(amy, board)).toBe('shareHeldBack')
+    expect(await shareCode(t.h.boss, board)).toBe('boardGone')
+    expect(await shareCode(ben, board)).toBe('boardGone')
+    expect(await featureCode(t.h.boss, board)).toBe('boardGone')
+    await expect(t.club().checkShareable(amy, board)).rejects.toMatchObject({ code: 'recordNotShareable' })
+    await expect(t.club().checkShareable(ben, board)).rejects.toMatchObject({ code: 'boardGone' })
+    await t.club().saveFavorite(amy, board, {})
+    expect(await t.refused(amy, { type: 'createPractice', settings: { deal: 'set', set: { source: 'favorites', ids: [board] } } } as never)).toBe('boardGone')
+  })
+})
+
 describe('casual tables', () => {
   it('shows a seated player their own hand (and dummy after the lead), a kibitzer all four, and someone without a seat at a no-kibitzing table only dummy', async () => {
     const amy = await t.member('amy')

@@ -1,4 +1,4 @@
-import { Download, Inbox, SearchX, SlidersHorizontal } from 'lucide-react'
+import { Download, Inbox, SearchX, SlidersHorizontal, Upload } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import styled from 'styled-components'
@@ -21,6 +21,7 @@ import {
   HistoryTable,
 } from '../components/HistoryRow.tsx'
 import { Pager, SortSelect } from '../components/Pager.tsx'
+import { LinImportDialog } from '../components/LinImportDialog.tsx'
 import { GroupingSwitch, RecordGroups } from '../components/RecordGroups.tsx'
 import { Button, Card, ErrorText, Muted, PageMain, PageTitle } from '../components/ui.tsx'
 import { api, ApiError } from '../lib/api.ts'
@@ -192,6 +193,10 @@ export function HistoryPage() {
     }
   }
 
+  // Boards from BBO (e4-t39): after an import the list is read again
+  const [importing, setImporting] = useState(false)
+  const [imports, setImports] = useState(0)
+
   const chooseSize = (next: number) => {
     update({ size: next })
     writePageSize(next)
@@ -261,7 +266,12 @@ export function HistoryPage() {
           <Download size={16} aria-hidden />
           {t.recordExport.exportPbn}
         </Button>
+        <Button type="button" $small onClick={() => setImporting(true)}>
+          <Upload size={16} aria-hidden />
+          {t.boardImport.linButton}
+        </Button>
       </Toolbar>
+      {importing && <LinImportDialog onClose={() => setImporting(false)} onImported={() => setImports((n) => n + 1)} />}
       {exportNote &&
         (exportNote.error ? <ErrorText role="alert">{exportNote.text}</ErrorText> : <Muted role="status">{exportNote.text}</Muted>)}
       {showFilters && (
@@ -277,7 +287,7 @@ export function HistoryPage() {
         </FilterCard>
       )}
       <FilterChips chips={chips} onChange={refilter} />
-      <ListCard as="section" aria-label={t.historyTitle}>
+      <ListCard key={imports} as="section" aria-label={t.historyTitle}>
         <RecordGroups
           query={query}
           grouping={groups.grouping}

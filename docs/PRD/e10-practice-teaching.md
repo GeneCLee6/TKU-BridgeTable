@@ -63,7 +63,7 @@ BBO 的練習功能（和機器人練習、Just Declare、叫牌練習、搭檔�
 - [x] `e10-t16` 叫牌練習室（二）：四家各設大牌點範圍與牌型、指定整手牌、四家顯示／隱藏、存成我的設定、從牌組選（`e5-t67` 的競叫牌組、精選、收藏）· AC-10.5 · M · ← e10-t15, e10-t02（#143；`SeatConditions` 的 `shapes`／`longest`／`shortest`／`hand`、`dealConflict`、`boardView` 的 `shown`、`practicePresets:<userId>`、`shared/practice-sets/`，ARCHITECTURE.md §4、§5.11）
 - [x] `e10-t07` 叫牌練習室（三）檢討：叫完顯示四家、DD 表（瀏覽器端 DDS）、機器人每一步建議的叫法與差異、叫品的制度解釋 · AC-10.5 · M · ← e10-t16, e6-t43（#144；`TablePractice.review`、`worker/practice-review.ts`、`PracticeReview`，ARCHITECTURE.md §4、§5.11）
 - [x] `e10-t08` 搭檔非同步叫牌練習：資料模型（一組牌、兩位社員、叫牌進度）、輪到誰的通知、檢討頁 · AC-10.6 · #299（`worker/partner-bidding.ts`、`shared/partner-bidding.ts`、`views.ts` 的 `partnerBidView`，東西一律 Pass；ARCHITECTURE.md §4、§5.11）
-- [ ] `e10-t09` PBN 匯入（單副與多副）· AC-10.7 · S
+- [x] `e10-t09` PBN 匯入（單副與多副）· AC-10.7 · #300
 - [ ] `e10-t10` 教學桌：`teach` 權限、老師看四家、任意撤回、重打同一副、指定牌組（PBN 或從紀錄選）· AC-10.7 · M · ← e10-t03, e10-t09
 - [ ] `e10-t11` 教學桌講解：老師暫停並在牌桌上標示（圈牌、箭頭、文字），學生端同步 · AC-10.7 · M · ← e10-t10
 - [ ] `e10-t12` 賽後分析頁：每副標出 DD 損失最大的幾步、附機器人在同一副的打法 · AC-10.8 · M · ← e4-t35

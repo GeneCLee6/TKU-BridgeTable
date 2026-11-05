@@ -16,6 +16,8 @@ export type JobKind =
   | 'forum'
   /** The partner bidding practice's expiry sweep (e10-t08, worker/partner-bidding.ts) */
   | 'partnerBid'
+  /** Deleting a deleted account's imported boards, a few at a time (e4-t39) */
+  | 'importPurge'
 
 /** Everything done later (robot moves, the next deal, a challenge's reminder and deadline, a robot sitting in for someone offline, the weekly club challenge, the daily event) goes through one scheduler */
 export interface Scheduler {

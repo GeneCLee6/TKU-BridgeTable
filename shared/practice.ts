@@ -21,14 +21,15 @@ export const PRACTICE_DEALS: readonly PracticeDeal[] = ['random', ...DEAL_PRESET
 /**
  * A deal set to practise (`e10-t16`), its boards one after the other: one of the club's practice
  * sets (`shared/practice-sets/`, by id), or boards of the member's favourites or of the featured
- * boards, by record id. The server deals them (only boards the member may see that are already
+ * boards, by record id, or deals of the member's own list (`mine`, from PBN files, `e10-t09`), by
+ * deal id. The server deals them (only boards the member may see that are already
  * public, §4) and keeps the hands to itself
  */
 export type PracticeSetChoice =
   | { source: 'practice'; id: string }
-  | { source: 'favorites' | 'featured'; ids: string[] }
+  | { source: 'favorites' | 'featured' | 'mine'; ids: string[] }
 
-export const PRACTICE_SET_SOURCES = ['practice', 'favorites', 'featured'] as const
+export const PRACTICE_SET_SOURCES = ['practice', 'favorites', 'featured', 'mine'] as const
 /** Boards a set of favourites or featured boards may have */
 export const PRACTICE_SET_BOARDS_MAX = 50
 
@@ -210,7 +211,7 @@ function parseSetChoice(value: unknown): PracticeSetChoice | null {
     if (!onlyKeys(value, ['source', 'id']) || typeof value.id !== 'string' || !SET_ID.test(value.id)) return null
     return { source: 'practice', id: value.id }
   }
-  if (value.source !== 'favorites' && value.source !== 'featured') return null
+  if (value.source !== 'favorites' && value.source !== 'featured' && value.source !== 'mine') return null
   const ids = value.ids
   if (!onlyKeys(value, ['source', 'ids']) || !Array.isArray(ids) || ids.length === 0 || ids.length > PRACTICE_SET_BOARDS_MAX)
     return null
