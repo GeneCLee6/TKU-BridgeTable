@@ -292,7 +292,7 @@ function CurrentBoard({
       <Felt>
         <AuctionBox auction={board.auction} dealer={board.dealer} vul={board.vul} viewer={session.seat} turn={board.turn} names={names} />
         <HandView cards={hand} count={hand.length} width={44} label={p.yourHand} />
-        {board.legalCalls.length > 0 && !busy && <BiddingBox legal={board.legalCalls} onCall={(call) => onCall(call)} />}
+        {board.legalCalls.length > 0 && !busy && <BiddingBox legal={board.legalCalls} noAlert onCall={(call) => onCall(call)} />}
       </Felt>
       {board.turn && board.legalCalls.length === 0 && <Muted role="status">{p.theirTurn(otherOf(session).username)}</Muted>}
     </Card>
