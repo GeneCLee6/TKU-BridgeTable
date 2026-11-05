@@ -43,6 +43,8 @@ import { ForumSchedule } from './forum-schedule.ts'
 import { addedRecordIds } from './forum-share.ts'
 import { BOOK_EVENTS_MAX_CHARS, BookTelemetry } from './book-telemetry.ts'
 import type { AuditAction } from './audit.ts'
+import tkuSystemCard from 'virtual:system-card-tku'
+import { tkuCardResponse } from './system-card.ts'
 import { robotMeaningsFor } from './system-spec.ts'
 import { QuizStore } from './quiz.ts'
 import { LearningStore } from './learning.ts'
@@ -1082,6 +1084,10 @@ export class Club extends DurableObject<Env> implements Connections {
       response.headers.set('X-Robots-Tag', 'noindex')
       return response
     }
+    // The club's system card (e5-t52): before the sign-in check, so the signed-out and other clubs get
+    // the same not-found answer
+    const tkuCard = tkuCardResponse(request.method, url.pathname, this.clubId, user, tkuSystemCard)
+    if (tkuCard) return tkuCard
     // Everything else needs signing in, BridgeHall's reading included: its whole site is for members
     // since 2026-10-29 (the handbook, glossary, practice fixes, learning paths, library and profiles)
     if (!user) throw new ClubError('signInFirst', {}, 401)
@@ -1303,6 +1309,21 @@ export class Club extends DurableObject<Env> implements Connections {
     if (route === 'POST /api/practice/presets') return json({ presets: await this.service.savePractice(user.id, await body()) })
     const preset = url.pathname.match(/^\/api\/practice\/presets\/([\w-]+)$/)
     if (preset && request.method === 'DELETE') return json({ presets: await this.service.removeSavedPractice(user.id, preset[1]) })
+    // Partner bidding practice (e10-t08): only the session's two members, as worker/views.ts lets each see it
+    if (route === 'GET /api/partner-bidding') return json({ sessions: this.service.partnerBids.list(user.id) })
+    if (route === 'POST /api/partner-bidding') return json({ session: await this.service.partnerBids.create(user.id, await body()) })
+    const partnerBid = url.pathname.match(/^\/api\/partner-bidding\/([\w-]+)(?:\/(answer|call|abandon))?$/)
+    if (partnerBid && request.method === 'GET' && !partnerBid[2]) return json({ session: this.service.partnerBids.get(user.id, partnerBid[1]) })
+    if (partnerBid && request.method === 'POST' && partnerBid[2] === 'answer') {
+      const b = await body()
+      return json({ session: await this.service.partnerBids.answer(user.id, partnerBid[1], b.accept) })
+    }
+    if (partnerBid && request.method === 'POST' && partnerBid[2] === 'call') {
+      const b = await body()
+      return json({ session: await this.service.partnerBids.call(user.id, partnerBid[1], b.call) })
+    }
+    if (partnerBid && request.method === 'POST' && partnerBid[2] === 'abandon')
+      return json({ session: await this.service.partnerBids.abandon(user.id, partnerBid[1]) })
     if (route === 'GET /api/challenges') return json({ challenges: this.service.challengeList(user.id) })
     // The daily club event's page (e9-t03): today's, yesterday's and the earlier days
     if (route === 'GET /api/daily') return json({ daily: this.service.dailyEvent(user.id) })

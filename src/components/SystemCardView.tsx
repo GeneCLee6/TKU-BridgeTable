@@ -162,8 +162,9 @@ const ranks = (holding: string) => [...holding].map(rankLabel).join(' ')
 export function SystemCardView({ system }: { system: RobotKind }) {
   const { t } = usePreferences()
   const s = t.systemCard
-  const card = useSystemCard(system)
+  const { card, failed } = useSystemCard(system)
   const rules = useRobotRules(true)
+  if (failed) return <Muted>{s.unavailable}</Muted>
   if (!card || !rules) return <Muted>{s.loading}</Muted>
   return (
     <Wrap>

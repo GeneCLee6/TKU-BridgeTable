@@ -1,7 +1,10 @@
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { deriveCard } from '../../shared/robot/system/card.ts'
+import { TKU } from '../../shared/robot/system/tku/index.ts'
+import { setClubFromPath } from '../../src/lib/club.ts'
 import { legalCalls } from '../../shared/auction.ts'
 import type { BoardView, LobbyView, TableView } from '../../shared/protocol.ts'
 import { TablePage } from '../../src/pages/TablePage.tsx'
@@ -95,8 +98,17 @@ async function openCard(seat: string, name: string) {
 const HAND_A = ['SA', 'SK', 'SQ', 'SJ', 'HA', 'HK', 'HQ', 'DA', 'DK', 'DQ', 'CA', 'CK', 'CQ']
 const HAND_B = ['S2', 'S3', 'S4', 'S5', 'H2', 'H3', 'H4', 'D2', 'D3', 'D4', 'C2', 'C3', 'C4']
 
+const server = vi.fn()
+
 beforeEach(() => {
   mocks.send.mockReset()
+  server.mockReset()
+  server.mockImplementation(async () => new Response(JSON.stringify(deriveCard(TKU))))
+  vi.stubGlobal('fetch', server)
+})
+
+afterEach(() => {
+  setClubFromPath('/')
 })
 
 describe('a seat’s system card at the table', () => {
@@ -109,6 +121,16 @@ describe('a seat’s system card at the table', () => {
     expect(screen.queryByRole('dialog')).toBeNull()
     const tku = await openCard('W', STRINGS.zh.robotSystems.tku)
     expect(tku.textContent).toContain('RKCB 1430')
+  })
+
+  it('in another club a 淡江 robot’s seat does not offer the club’s card; a 2/1 robot’s does', async () => {
+    setClubFromPath('/c/ntu/table/t1')
+    mocks.table = tableWith(HAND_A)
+    showTable()
+    // Nothing else to do with that seat either, so it is not even a button
+    expect(plate('W').tagName).toBe('DIV')
+    await openCard('E', '2/1')
+    expect(server.mock.calls.flat().join()).not.toContain('system-card')
   })
 
   it('a person’s seat offers no card: their system is not known, so nothing is guessed', async () => {
@@ -129,7 +151,19 @@ describe('a seat’s system card at the table', () => {
     expect(b).toBe(a)
   })
 
-  it('tells the server nothing, stays on the table, and the keyboard does not bid behind it', async () => {
+  it('the club’s card asks only for the card: nothing about the table goes to the server', async () => {
+    mocks.table = tableWith(HAND_A)
+    showTable()
+    server.mockClear()
+    await openCard('W', STRINGS.zh.robotSystems.tku)
+    const asked = server.mock.calls.filter(([url]) => String(url).includes('system-card'))
+    expect(asked).toHaveLength(1)
+    expect(asked[0][0]).toBe('/api/system-card/tku')
+    expect(asked[0][1].body).toBeUndefined()
+    expect(mocks.send).not.toHaveBeenCalled()
+  })
+
+  it('tells the table nothing, stays on the table, and the keyboard does not bid behind it', async () => {
     mocks.table = tableWith(HAND_A)
     showTable()
     await openCard('E', '2/1')

@@ -1,32 +1,38 @@
 import { useEffect, useState } from 'react'
-import type { RobotKind } from '../../shared/protocol.ts'
-import type { SystemCard, SystemCards } from '../../shared/robot/system/card.ts'
-import { appPath } from './club.ts'
+import { DEFAULT_CLUB_ID } from '../../shared/clubs.ts'
+import { TKU_CARD_API, type RobotKind } from '../../shared/protocol.ts'
+import type { SystemCard } from '../../shared/robot/system/card.ts'
+import { request } from './api.ts'
+import { appPath, currentClub } from './club.ts'
 
 /**
- * The system cards in the browser (e5-t52): data worked out when the site is built
- * (`scripts/system-cards-plugin.ts`), loaded once, the first time someone opens a card. Only types
- * come from the engine here, so opening a card asks the server nothing and sends nothing to it.
+ * The system cards in the browser (e5-t52). The 2/1 card is public rules: a chunk made when the site
+ * is built, loaded the first time someone opens it. The club's card is for members of 淡江 only
+ * (ARCHITECTURE.md §4), never in an asset: it comes from the server, is not kept, and is not offered
+ * to anyone the server would refuse. Only types come from the engine here.
  */
 
 /** The address of a card's page, for links that open in a new tab (a table's page must stay open) */
 export const systemCardUrl = (system: RobotKind) => appPath(`/system-card/${system}`)
 
-let loading: Promise<SystemCards> | null = null
+/** Whether the server would give this viewer the card (`worker/system-card.ts`) */
+export const mayReadCard = (system: RobotKind, user: unknown) => system === 'gib' || (!!user && currentClub() === DEFAULT_CLUB_ID)
 
-function loadSystemCards(): Promise<SystemCards> {
-  loading ??= import('virtual:system-cards').then((module) => module.default)
-  return loading
-}
+const load = (system: RobotKind): Promise<SystemCard> =>
+  system === 'gib' ? import('virtual:system-card-gib').then((module) => module.default) : request<SystemCard>(TKU_CARD_API)
 
-export function useSystemCard(system: RobotKind): SystemCard | null {
-  const [cards, setCards] = useState<SystemCards | null>(null)
+export function useSystemCard(system: RobotKind): { card: SystemCard | null; failed: boolean } {
+  const [state, setState] = useState<{ system: RobotKind; card: SystemCard | null; failed: boolean } | null>(null)
   useEffect(() => {
     let live = true
-    void loadSystemCards().then((loaded) => live && setCards(loaded))
+    load(system).then(
+      (card) => live && setState({ system, card, failed: false }),
+      () => live && setState({ system, card: null, failed: true }),
+    )
     return () => {
       live = false
     }
-  }, [])
-  return cards?.[system] ?? null
+  }, [system])
+  // A card still on its way must not show under the other system's name
+  return state?.system === system ? state : { card: null, failed: false }
 }

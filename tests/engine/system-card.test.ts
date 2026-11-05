@@ -1,10 +1,10 @@
 import { describe as group, expect, it } from 'vitest'
-import shipped from 'virtual:system-cards'
+import shipped from 'virtual:system-card-gib'
 import type { Call } from '../../shared/auction.ts'
 import { deal } from '../../shared/board.ts'
 import { rankValue, RANKS, type Seat } from '../../shared/cards.ts'
 import { LEAD_HOLDINGS, SIGNAL_IDS } from '../../shared/robot/card-play.ts'
-import { CARD_SECTIONS, deriveCard, deriveCards, type CardCall, type SystemCard } from '../../shared/robot/system/card.ts'
+import { CARD_SECTIONS, deriveCard, type CardCall, type SystemCard } from '../../shared/robot/system/card.ts'
 import type { Ctx } from '../../shared/robot/system/context.ts'
 import { describe as words } from '../../shared/robot/system/describe.ts'
 import { choose } from '../../shared/robot/system/engine.ts'
@@ -28,7 +28,7 @@ const SEEDED = (seed: number) => {
   }
 }
 
-const cards = deriveCards()
+const cards = { tku: deriveCard(TKU), gib: deriveCard(GIB) }
 
 const groupOf = (card: SystemCard, section: string, after: string, seat?: number) => {
   const found = card.sections.find((s) => s.id === section)?.groups.find((g) => g.after === after && g.seat === seat)
@@ -232,23 +232,24 @@ group('leads and signals come from the code that plays', () => {
   })
 })
 
-group('how the cards ship', () => {
+group('how the 2/1 card ships', () => {
   it('the bundled module is what the rules give now', () => {
-    expect(shipped).toEqual(JSON.parse(JSON.stringify(cards)))
+    expect(shipped).toEqual(JSON.parse(JSON.stringify(cards.gib)))
   })
 
-  it('is data and small: no functions, no engine, in a chunk of its own', () => {
+  it('is data and small', () => {
     const json = JSON.stringify(shipped)
     expect(JSON.parse(json)).toEqual(shipped)
-    expect(json.length).toBeLessThan(150_000)
-    expect(Object.keys(shipped).sort()).toEqual(['gib', 'tku'])
+    expect(json.length).toBeLessThan(80_000)
   })
 
   it('holds nothing about a deal: a card is a function of the system alone', () => {
     expect(deriveCard.length).toBe(1)
     expect(deriveCard(TKU)).toEqual(deriveCard(TKU))
-    for (const key of ['hands', 'board', 'tableId', 'dealer', 'auction']) expect(JSON.stringify(shipped.tku)).not.toContain(`"${key}`)
-    // Only sample holdings, never a whole hand: every holding is one suit
-    for (const signal of shipped.tku.signals) expect(signal.holding.length).toBeLessThanOrEqual(6)
+    for (const card of [cards.tku, cards.gib]) {
+      for (const key of ['hands', 'board', 'tableId', 'dealer', 'auction']) expect(JSON.stringify(card)).not.toContain(`"${key}`)
+      // Only sample holdings, never a whole hand: every holding is one suit
+      for (const signal of card.signals) expect(signal.holding.length).toBeLessThanOrEqual(6)
+    }
   })
 })

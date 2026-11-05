@@ -1096,12 +1096,14 @@ Stayman 一定要有 4 張高花，**沒有例外**：Z2 留下的 2/1 例外（
 - **讀的規則**：`Book.general` 的書（找合約的 `target`、2/1 的 `fallback`、問 RKCB 的那一本）不是約定，不列，否則每張卡都是「成局、小滿貫、大滿貫」；滿貫一節明確要 4NT 時才拿。`neverFits`（`reads`）的規則是機器人不主動叫、真人叫了照讀（例如 2♣ 的正面答叫），卡上標出來。身價影響說明的叫品（Michaels、CAPP）兩個都列。Pass 只列有名字的（處罰性 Pass）。
 - **以淡江橋譜為準**：淡江制度的每一節列出依照的橋館文章（由規則書的 `bookSlugs` 找出來，只算真的有列在這一節的書），連到橋館。卡上的字是機器人的規則，不是橋譜原文；兩者對不上的時候，照 §2 與 §5 改規則。文章名稱只有繁中。2/1 的字是我們自己的（`describe.ts`），不抄 BBO。
 - **語言**：叫品的說明存 `Spec`，瀏覽器用 `describe.ts` 依觀看者的語言寫，所以六種語言都有；外框文字與信號的文字在 `strings.ts` 的 `systemCard`。
-- **不佔 Worker 的 CPU**：卡在 build 時算好（`scripts/system-cards-plugin.ts`，`virtual:system-cards`），跟 JS 一起放靜態資源，第一次打開才載入（約 47 KB，gzip 5 KB）。瀏覽器不帶引擎，Worker 沒有新的路徑，也不算卡。在 Node 上兩張約 90 ms，放在請求裡會超過 10 ms。改了 `shared/robot/` 的規則，開發中的 `vite` 會重新啟動（它們是設定檔的相依）。
+- **誰看得到（社長的社團制度只給社員，ARCHITECTURE.md §4）**：2/1 的卡是公開的規則，放靜態資源。**淡江制度的卡不放任何公開檔案**（發布了就收不回來），只由 `GET /api/system-card/tku`（`worker/system-card.ts`）給已登入的淡江社員；未登入、其他社團、其他方法都是同一個「沒有這個 API」的 404（還沒開通的社團照常回 `unknownClub`）。不看 `tkuSystem` 權限：坐在淡江制度機器人旁邊的社員本來就看得到它的說明（§7）。看不到的人（`src/lib/systemCards.ts` 的 `mayReadCard`）頁面只有 2/1，名牌選單、側欄連結都沒有淡江的卡。
+- **不佔 Worker 的 CPU**：兩張卡都在 build 時算好（`scripts/system-cards-plugin.ts`）。2/1 是 `virtual:system-card-gib`，瀏覽器第一次打開才載入；淡江是 `virtual:system-card-tku`，打包進 Worker 的一個 JSON 字串，請求時原樣送出，不推導也不解析 JSON。瀏覽器不帶引擎。在 Node 上一張約 40 ms，放在請求裡會超過 10 ms。改了 `shared/robot/` 的規則，開發中的 `vite` 會重新啟動（它們是設定檔的相依）。
+- **檢查**：瀏覽器的 build 一 import `virtual:system-card-tku` 就失敗；`npm run build` 最後跑 `scripts/check-public-assets.ts`，在 `dist/client` 找淡江卡上每一列（2/1 卡沒有的那些，壓縮過也認得），找到就讓 build 失敗；它也確認找得到 `dist/client` 裡的 2/1 卡與 Worker 裡的淡江卡，否則檢查本身算失敗。
 - **牌桌上**：機器人的名牌選單多一項「查看制度卡（2/1）」，所有牌桌都有（練習、挑戰、隊制賽也是），對話框蓋在牌桌上，不離開頁面（離開頁面就離開牌桌），完整頁面 `/system-card/tku`、`/system-card/gib` 開新分頁。**真人的座位沒有**：個人檔案的「常用制度」是自由文字，牌桌也沒有每人的制度設定，所以不猜。
-- **不洩漏牌**：`deriveCard` 只收制度，對話框只收 `system`，資料是 build 時定好的，不送任何訊息給伺服器。叫牌盒的鍵盤在有 `aria-modal` 的對話框開著時不動作，對話框裡按鍵不會在後面叫牌。
+- **不洩漏牌**：`deriveCard` 只收制度，對話框只收 `system`，資料是 build 時定好的。2/1 的卡不問伺服器；淡江的卡只送一個不帶內容的 GET，跟牌桌與牌都無關。叫牌盒的鍵盤在有 `aria-modal` 的對話框開著時不動作，對話框裡按鍵不會在後面叫牌。
 - **卡上看不到的**：`Spec` 只有「表示什麼」，`when` 裡的條件不會上卡，所以有兩個已知落差（說明本來就這樣寫，測試明列，改了要一起改）：11 點好牌（Rule of 20，§2、`e5-t41`）當 12 點開叫，卡上寫 12–21；淡江 2♦ 的規則從 5 點起、說明寫 6–10。J2N 之後淡江開叫者 3♣／3♦／3♥ 的 `shows` 沒寫出短門，卡上跟 Alert 一樣只有張數與點力。
 
-**測試**：`tests/engine/system-card.test.ts`：開叫的範圍與張數跟規則書直接比對、固定一組數字（1NT 15–17 等，改了制度檔會失敗）、兩套制度不同的地方、把制度檔的 1NT 換成 12–14 卡跟著變；隨機 1,500 手牌實際開叫都符合卡上寫的（`choose` 對 `fits`）；首攻、信號與文字一致、兩套制度相同；打包的模組等於現在的規則算出來的。`tests/presentation/system-card.test.tsx`：頁面、對話框、不打 API。`tests/presentation/system-card-table.test.tsx`：名牌開卡、真人座位沒有、換一副牌內容完全相同、對話框開著時鍵盤不叫牌、練習桌也有。
+**測試**：`tests/engine/system-card.test.ts`：開叫的範圍與張數跟規則書直接比對、固定一組數字（1NT 15–17 等，改了制度檔會失敗）、兩套制度不同的地方、把制度檔的 1NT 換成 12–14 卡跟著變；隨機 1,500 手牌實際開叫都符合卡上寫的（`choose` 對 `fits`）；首攻、信號與文字一致、兩套制度相同；打包的模組等於現在的規則算出來的。`tests/worker/system-card.test.ts`：誰拿得到淡江的卡、其他人都是同一個 404、路徑在登入檢查之前、找得到外洩（JSON、壓縮過、字串裡）。`tests/presentation/system-card.test.tsx`：頁面、對話框、2/1 不打 API、淡江只問卡、其他社團只有 2/1。`tests/presentation/system-card-table.test.tsx`：名牌開卡、其他社團沒有淡江的那一項、真人座位沒有、換一副牌內容完全相同、對話框開著時鍵盤不叫牌、練習桌也有。
 
 ## 7. TKB 與 TKB Adv
 

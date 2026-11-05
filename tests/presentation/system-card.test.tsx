@@ -1,7 +1,11 @@
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { TKU_CARD_API } from '../../shared/protocol.ts'
+import { deriveCard } from '../../shared/robot/system/card.ts'
+import { TKU } from '../../shared/robot/system/tku/index.ts'
+import { setClubFromPath } from '../../src/lib/club.ts'
 import { SystemCardDialog, SystemCardView } from '../../src/components/SystemCardView.tsx'
 import { SeatPlate, type SeatAction } from '../../src/components/SeatPlate.tsx'
 import { SystemCardPage } from '../../src/pages/SystemCardPage.tsx'
@@ -21,8 +25,13 @@ const wrap = (ui: React.ReactNode) => render(<PreferencesProvider>{ui}</Preferen
 describe('system card', () => {
   const fetchSpy = vi.fn()
   beforeEach(() => {
-    fetchSpy.mockClear()
+    fetchSpy.mockReset()
+    // The server: the club's card, as worker/system-card.ts sends it
+    fetchSpy.mockImplementation(async () => new Response(JSON.stringify(deriveCard(TKU))))
     vi.stubGlobal('fetch', fetchSpy)
+  })
+  afterEach(() => {
+    setClubFromPath('/')
   })
 
   it('shows the club’s card from the rules: 1NT 15–17, its own conventions and article links', async () => {
@@ -54,10 +63,25 @@ describe('system card', () => {
     expect(document.body.textContent).toContain(s.signals.attitudeLike)
   })
 
-  it('asks the server nothing', async () => {
-    wrap(<SystemCardView system="tku" />)
+  it('the 2/1 card asks the server nothing', async () => {
+    wrap(<SystemCardView system="gib" />)
     await screen.findByText(s.sections.leads, {}, { timeout: 10_000 })
     expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  it('the club’s card comes from the server, asking only for the card', async () => {
+    wrap(<SystemCardView system="tku" />)
+    await screen.findByText(s.sections.leads, {}, { timeout: 10_000 })
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
+    expect(fetchSpy.mock.calls[0][0]).toBe(TKU_CARD_API)
+    expect(fetchSpy.mock.calls[0][1].body).toBeUndefined()
+  })
+
+  it('says so when the server refuses the club’s card', async () => {
+    fetchSpy.mockImplementation(async () => new Response('{"code":"noSuchApi"}', { status: 404 }))
+    wrap(<SystemCardView system="tku" />)
+    expect(await screen.findByText(s.unavailable)).toBeTruthy()
+    expect(document.body.textContent).not.toContain('RKCB 1430')
   })
 
   it('the dialog takes the system alone, closes with Esc and from its button', async () => {
@@ -91,6 +115,21 @@ describe('system card', () => {
     expect(screen.getByRole('link', { name: '2/1' }).getAttribute('aria-current')).toBe('page')
     await user.click(screen.getByRole('link', { name: t.robotSystems.tku }))
     await waitFor(() => expect(document.body.textContent).toContain('RKCB 1430'))
+  })
+
+  it('in another club the page has only the 2/1 card, even at the club card’s address', async () => {
+    setClubFromPath('/c/ntu/system-card/tku')
+    wrap(
+      <MemoryRouter initialEntries={['/system-card/tku']}>
+        <Routes>
+          <Route path="/system-card/:system" element={<SystemCardPage />} />
+        </Routes>
+      </MemoryRouter>,
+    )
+    await screen.findByText(s.sections.leads, {}, { timeout: 10_000 })
+    expect(document.body.textContent).toContain('RKCB 0314')
+    expect(screen.queryByRole('link', { name: t.robotSystems.tku })).toBeNull()
+    expect(fetchSpy).not.toHaveBeenCalled()
   })
 
   it('a robot’s seat menu offers its card; the host’s other actions stay', async () => {

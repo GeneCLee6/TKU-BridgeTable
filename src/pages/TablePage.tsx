@@ -30,6 +30,7 @@ import { SidePanel } from '../components/SidePanel.tsx'
 import { HandView } from '../components/HandView.tsx'
 import { SeatPlate, type SeatAction } from '../components/SeatPlate.tsx'
 import { SystemCardDialog } from '../components/SystemCardView.tsx'
+import { mayReadCard } from '../lib/systemCards.ts'
 import { TableAnnouncer } from '../components/TableAnnouncer.tsx'
 import { TableSettingsDialog } from '../components/TableSettingsDialog.tsx'
 import { TableTour } from '../components/TableTour.tsx'
@@ -918,10 +919,11 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
   const seatActions = (seat: Seat): SeatAction[] => {
     const occupant = table.seats[seat]
     const actions: SeatAction[] = []
-    // A robot's system card, at every kind of table: what its calls mean, nothing about the deal. A
-    // person's system is not known (the profile's is free text), so their seat offers no card
-    if (occupant?.robot) {
-      const kind = occupant.robotKind ?? 'tku'
+    // A robot's system card, at every kind of table: what its calls mean, nothing about the deal. Not
+    // the club's card for anyone the server would refuse it. A person's system is not known (the
+    // profile's is free text), so their seat offers no card
+    const kind = occupant?.robot ? (occupant.robotKind ?? 'tku') : null
+    if (kind && mayReadCard(kind, user)) {
       actions.push({ label: t.systemCard.open(t.robotSystems[kind]), onSelect: () => setCardOf(kind) })
     }
     if (challenge || practice || table.match || table.pairs) return actions

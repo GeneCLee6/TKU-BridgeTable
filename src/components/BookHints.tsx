@@ -3,7 +3,7 @@ import styled from 'styled-components'
 import type { BookTopic } from '../../shared/book-topics.ts'
 import { BOOK_SITE, bookUrl } from '../../shared/book-site.ts'
 import type { BoardView, RobotKind } from '../../shared/protocol.ts'
-import { systemCardUrl } from '../lib/systemCards.ts'
+import { mayReadCard, systemCardUrl } from '../lib/systemCards.ts'
 import { useRobotRules } from '../lib/useRobotRules.ts'
 import { usePreferences } from '../state/PreferencesContext.tsx'
 import { cardHover } from '../styles/controls.ts'
@@ -108,10 +108,12 @@ export function BookHints({ board, robotKind }: { board: BoardView | null; robot
         <BookOpen size={16} aria-hidden />
         {t.conventionsOpenBook}
       </BookLink>
-      <BookLink href={systemCardUrl(robotKind)} target="_blank" rel="noopener noreferrer">
-        <ExternalLink size={16} aria-hidden />
-        {t.systemCard.cardOf(t.robotSystems[robotKind])}
-      </BookLink>
+      {mayReadCard(robotKind, true) && (
+        <BookLink href={systemCardUrl(robotKind)} target="_blank" rel="noopener noreferrer">
+          <ExternalLink size={16} aria-hidden />
+          {t.systemCard.cardOf(t.robotSystems[robotKind])}
+        </BookLink>
+      )}
     </Wrap>
   )
 }

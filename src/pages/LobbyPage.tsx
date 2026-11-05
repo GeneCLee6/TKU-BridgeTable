@@ -660,6 +660,7 @@ export function LobbyPage() {
         )}
         {practising && (
           <PracticeDialog
+            partnerLink={<Link to="/partner-bidding">{t.partnerBid.entry}</Link>}
             robotKinds={robotKindsFor(user)}
             onClose={() => setPractising(false)}
             onSubmit={(settings, access) => {

@@ -4,11 +4,9 @@ import { leadRows, signalRows, type LeadRow, type SignalRow } from '../card-play
 import { patternAuction } from './book-spec.ts'
 import type { Ctx } from './context.ts'
 import { describe } from './describe.ts'
-import { GIB } from './gib/index.ts'
 import { contextFor } from './infer.ts'
 import { bookFits, meanings, resolve } from './rules.ts'
 import { neverFits, type Spec, type System, type SystemId } from './spec.ts'
-import { TKU } from './tku/index.ts'
 import { TKU_SOURCES } from './tku/sources.ts'
 
 /**
@@ -19,9 +17,9 @@ import { TKU_SOURCES } from './tku/sources.ts'
  * viewer's language with `describe.ts`; leads and signals are asked of the code that plays
  * (`card-play.ts`).
  *
- * This takes the whole engine, so it runs at build time only (the `virtual:system-cards` module,
- * `scripts/system-cards-plugin.ts`): the browser gets data, and no Worker request ever derives a
- * card (10 ms CPU). A card depends on the system alone: no table, no board, no hand reaches it.
+ * This takes the whole engine, so it runs at build time only (`scripts/system-cards-plugin.ts`): no
+ * request ever derives a card (10 ms CPU). A card depends on the system alone: no table, no board, no
+ * hand reaches it. The club's card is for its members only, served by `worker/system-card.ts`.
  */
 
 export const CARD_SECTIONS = ['openings', 'notrump', 'oneLevel', 'twoLevel', 'competitive', 'slam'] as const
@@ -194,8 +192,3 @@ export function deriveCard(system: System): SystemCard {
   })
   return { system: system.id, sections, leads: leadRows(), signals: signalRows(system.id) }
 }
-
-export type SystemCards = Record<SystemId, SystemCard>
-
-/** Both cards, as the site ships them */
-export const deriveCards = (): SystemCards => ({ tku: deriveCard(TKU), gib: deriveCard(GIB) })
