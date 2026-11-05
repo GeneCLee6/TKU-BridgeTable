@@ -71,6 +71,7 @@ import type { ClubApplicationInput, ClubApplyOptions, ClubStatus, PlatformView }
 import type { AdminSupportView, SupportInput, SupportStatus } from '../../shared/support.ts'
 import type { SessionInfo } from '../../shared/account.ts'
 import type { PushKinds, PushView } from '../../shared/push.ts'
+import type { PartnerBidSettings, PartnerBidSummary, PartnerBidView } from '../../shared/partner-bidding.ts'
 import type { PracticeSettings, SavedPractice } from '../../shared/practice.ts'
 import type { PracticeSetInfo } from '../../shared/practice-sets/types.ts'
 
@@ -296,6 +297,15 @@ export const api = {
     post<{ presets: SavedPractice[] }>('/api/practice/presets', { name, settings }),
   removePracticePreset: (id: string) =>
     request<{ presets: SavedPractice[] }>(`/api/practice/presets/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  /** Partner bidding practice (e10-t08): the member's sessions, one session as they may see it, and what they do in it */
+  partnerBids: () => request<{ sessions: PartnerBidSummary[] }>('/api/partner-bidding'),
+  partnerBid: (id: string) => request<{ session: PartnerBidView }>(`/api/partner-bidding/${encodeURIComponent(id)}`),
+  createPartnerBid: (partnerId: string, settings: Partial<PartnerBidSettings>) =>
+    post<{ session: PartnerBidView }>('/api/partner-bidding', { partnerId, settings }),
+  answerPartnerBid: (id: string, accept: boolean) =>
+    post<{ session: PartnerBidView }>(`/api/partner-bidding/${encodeURIComponent(id)}/answer`, { accept }),
+  callPartnerBid: (id: string, call: string) => post<{ session: PartnerBidView }>(`/api/partner-bidding/${encodeURIComponent(id)}/call`, { call }),
+  abandonPartnerBid: (id: string) => post<{ session: PartnerBidView }>(`/api/partner-bidding/${encodeURIComponent(id)}/abandon`),
   /** A board's feature, or null when it is not featured */
   featuredBoard: (id: string) => request<{ featured: FeaturedBoard | null }>(`/api/featured/${encodeURIComponent(id)}`),
   /** Features a board or edits its feature; needs the `boardCurate` permission */

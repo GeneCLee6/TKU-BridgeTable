@@ -7,6 +7,7 @@ import type { Card, Seat, Side } from './cards.ts'
 import type { ChallengeSettings } from './challenge.ts'
 import type { BoardResult, BoardState, Phase, Trick } from './game.ts'
 import type { MessageCode, MessageParams } from './messages.ts'
+import type { PartnerBidView } from './partner-bidding.ts'
 import type { PracticeSettings } from './practice.ts'
 import type { MatchSeat, Room, TeamMatchView } from './team-match.ts'
 import type { RulingKind, Team } from './team-scoring.ts'
@@ -826,6 +827,13 @@ export const NOTIFICATION_KINDS = [
   'clubApplication',
   'supportReport',
   'supportForwarded',
+  'partnerBidInvited',
+  'partnerBidAccepted',
+  'partnerBidDeclined',
+  'partnerBidTurn',
+  'partnerBidFinished',
+  'partnerBidAbandoned',
+  'partnerBidExpired',
 ] as const
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number]
 
@@ -886,6 +894,7 @@ export interface Notification {
    * `supportReport` { username } a member sent a support report (e12-t16), to the club's admins,
    * leading to the admin page. `supportForwarded` { name } a club's admin forwarded one, to the
    * platform owner, leading to the back office; `name` is the club's. Never the report's text
+   * The partner bidding kinds (`e10-t08`): { sessionId, username } of the other member of the session
    */
   params: Record<string, string | number>
   read: boolean
@@ -1106,6 +1115,8 @@ export type ServerMessage =
   | { type: 'error'; code: MessageCode; params: MessageParams; message: string }
   /** On connecting, and whenever the member's notifications change */
   | { type: 'notifications'; notifications: NotificationsView }
+  /** A partner bidding session changed (`e10-t08`): as this member may see it; null when it is gone */
+  | { type: 'partnerBid'; id: string; session: PartnerBidView | null }
   /** On connecting, and whenever the member's conversations or unread counts change */
   | { type: 'directs'; directs: DirectsView }
   /** A new direct message, sent only to its two members (all their tabs) */

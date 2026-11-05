@@ -64,7 +64,14 @@ export const PUSH_TEXTS: PushTexts = {
       "teamEventRound": "「{title}」第 {number} 輪配對好了，來看你們的比賽",
       "clubApplication": "有新的建社申請：「{name}」，到平台後台審核",
       "supportReport": "{username} 送出一則客服回報",
-      "supportForwarded": "「{name}」轉交一則客服回報，到平台後台查看"
+      "supportForwarded": "「{name}」轉交一則客服回報，到平台後台查看",
+      "partnerBidInvited": "{username} 邀你一起做搭檔叫牌練習",
+      "partnerBidAccepted": "{username} 接受了搭檔叫牌練習的邀請",
+      "partnerBidDeclined": "{username} 拒絕了搭檔叫牌練習的邀請",
+      "partnerBidTurn": "{username} 叫了，輪到你叫牌",
+      "partnerBidFinished": "和 {username} 的搭檔叫牌練習叫完了，一起來檢討",
+      "partnerBidAbandoned": "{username} 放棄了搭檔叫牌練習",
+      "partnerBidExpired": "和 {username} 的搭檔叫牌練習太久沒有動靜，已經結束"
     }
   },
   "zh-Hans": {
@@ -129,7 +136,14 @@ export const PUSH_TEXTS: PushTexts = {
       "teamEventRound": "「{title}」第 {number} 轮配对好了，来看你们的比赛",
       "clubApplication": "有新的建社申请：「{name}」，到平台后台审核",
       "supportReport": "{username} 送出一则客服回报",
-      "supportForwarded": "「{name}」转交一则客服回报，到平台后台查看"
+      "supportForwarded": "「{name}」转交一则客服回报，到平台后台查看",
+      "partnerBidInvited": "{username} 邀你一起做搭档叫牌练习",
+      "partnerBidAccepted": "{username} 接受了搭档叫牌练习的邀请",
+      "partnerBidDeclined": "{username} 拒绝了搭档叫牌练习的邀请",
+      "partnerBidTurn": "{username} 叫了，轮到你叫牌",
+      "partnerBidFinished": "和 {username} 的搭档叫牌练习叫完了，一起来复盘",
+      "partnerBidAbandoned": "{username} 放弃了搭档叫牌练习",
+      "partnerBidExpired": "和 {username} 的搭档叫牌练习太久没有动静，已经结束"
     }
   },
   "en": {
@@ -194,7 +208,14 @@ export const PUSH_TEXTS: PushTexts = {
       "teamEventRound": "\"{title}\" round {number} is paired: see your match",
       "clubApplication": "New club application: \"{name}\". Review it in the platform back office",
       "supportReport": "{username} sent a support report",
-      "supportForwarded": "\"{name}\" forwarded a support report. See the platform back office"
+      "supportForwarded": "\"{name}\" forwarded a support report. See the platform back office",
+      "partnerBidInvited": "{username} invited you to practise bidding as partners",
+      "partnerBidAccepted": "{username} accepted your partner bidding invitation",
+      "partnerBidDeclined": "{username} declined your partner bidding invitation",
+      "partnerBidTurn": "{username} called. It is your turn to bid",
+      "partnerBidFinished": "Your partner bidding with {username} is done. Time to review it",
+      "partnerBidAbandoned": "{username} abandoned your partner bidding session",
+      "partnerBidExpired": "Your partner bidding with {username} ended after a long silence"
     }
   },
   "vi": {
@@ -259,7 +280,14 @@ export const PUSH_TEXTS: PushTexts = {
       "teamEventRound": "\"{title}\" vòng {number} đã bốc cặp: xem trận của đội bạn",
       "clubApplication": "Có đơn đăng ký mở câu lạc bộ mới: \"{name}\". Hãy duyệt trong trang quản trị nền tảng",
       "supportReport": "{username} đã gửi một báo cáo hỗ trợ",
-      "supportForwarded": "\"{name}\" đã chuyển một báo cáo hỗ trợ. Hãy xem trong trang quản trị nền tảng"
+      "supportForwarded": "\"{name}\" đã chuyển một báo cáo hỗ trợ. Hãy xem trong trang quản trị nền tảng",
+      "partnerBidInvited": "{username} mời bạn cùng luyện xướng bài",
+      "partnerBidAccepted": "{username} đã nhận lời luyện xướng bài",
+      "partnerBidDeclined": "{username} đã từ chối lời mời luyện xướng bài",
+      "partnerBidTurn": "{username} đã xướng, đến lượt bạn",
+      "partnerBidFinished": "Buổi luyện xướng bài với {username} đã xong, hãy cùng xem lại",
+      "partnerBidAbandoned": "{username} đã bỏ buổi luyện xướng bài",
+      "partnerBidExpired": "Buổi luyện xướng bài với {username} đã kết thúc vì quá lâu không có ai xướng"
     }
   },
   "ja": {
@@ -324,7 +352,14 @@ export const PUSH_TEXTS: PushTexts = {
       "teamEventRound": "「{title}」第 {number} ラウンドの組み合わせが決まりました。試合を確認しましょう",
       "clubApplication": "新しいクラブ開設申請「{name}」があります。プラットフォーム管理画面で審査してください",
       "supportReport": "{username} さんがサポート報告を送りました",
-      "supportForwarded": "「{name}」がサポート報告を転送しました。プラットフォーム管理画面で確認してください"
+      "supportForwarded": "「{name}」がサポート報告を転送しました。プラットフォーム管理画面で確認してください",
+      "partnerBidInvited": "{username} さんからパートナー ビッド練習に招待されました",
+      "partnerBidAccepted": "{username} さんがパートナー ビッド練習の招待を受けました",
+      "partnerBidDeclined": "{username} さんがパートナー ビッド練習の招待を断りました",
+      "partnerBidTurn": "{username} さんがビッドしました。あなたの番です",
+      "partnerBidFinished": "{username} さんとのパートナー ビッド練習が終わりました。一緒に検討しましょう",
+      "partnerBidAbandoned": "{username} さんがパートナー ビッド練習を放棄しました",
+      "partnerBidExpired": "{username} さんとのパートナー ビッド練習は長く動きがなかったため終了しました"
     }
   },
   "ko": {
@@ -389,7 +424,14 @@ export const PUSH_TEXTS: PushTexts = {
       "teamEventRound": "「{title}」 {number}라운드 대진이 정해졌습니다. 경기를 확인하세요",
       "clubApplication": "새 클럽 개설 신청 「{name}」이 있습니다. 플랫폼 관리 화면에서 심사하세요",
       "supportReport": "{username} 님이 고객 지원 신고를 보냈습니다",
-      "supportForwarded": "「{name}」에서 고객 지원 신고를 전달했습니다. 플랫폼 관리 화면에서 확인하세요"
+      "supportForwarded": "「{name}」에서 고객 지원 신고를 전달했습니다. 플랫폼 관리 화면에서 확인하세요",
+      "partnerBidInvited": "{username} 님이 파트너 비딩 연습에 초대했습니다",
+      "partnerBidAccepted": "{username} 님이 파트너 비딩 연습 초대를 수락했습니다",
+      "partnerBidDeclined": "{username} 님이 파트너 비딩 연습 초대를 거절했습니다",
+      "partnerBidTurn": "{username} 님이 비드했습니다. 당신 차례입니다",
+      "partnerBidFinished": "{username} 님과의 파트너 비딩 연습이 끝났습니다. 함께 복기하세요",
+      "partnerBidAbandoned": "{username} 님이 파트너 비딩 연습을 포기했습니다",
+      "partnerBidExpired": "{username} 님과의 파트너 비딩 연습은 오랫동안 움직임이 없어 끝났습니다"
     }
   }
 }

@@ -108,6 +108,15 @@ export function notificationLink(n: Notification, options: { forum?: boolean } =
     case 'teamEventRound':
       if (n.params.matchId) return `/matches/${encodeURIComponent(String(n.params.matchId))}`
       return n.params.teamEventId ? teamEventLink(String(n.params.teamEventId)) : '/tournaments'
+    // Partner bidding practice (`e10-t08`): the session, where it is answered, bid and reviewed
+    case 'partnerBidInvited':
+    case 'partnerBidAccepted':
+    case 'partnerBidDeclined':
+    case 'partnerBidTurn':
+    case 'partnerBidFinished':
+    case 'partnerBidAbandoned':
+    case 'partnerBidExpired':
+      return n.params.sessionId ? `/partner-bidding/${encodeURIComponent(String(n.params.sessionId))}` : '/partner-bidding'
     case 'forumReply':
     case 'forumMention':
     case 'forumAnnouncement':

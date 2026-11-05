@@ -100,6 +100,29 @@ describe('the banners on top of a member’s pages (e12-t15)', () => {
     expect(screen.queryByRole('alert')).toBeNull()
   })
 
+  it('survives an answer of the wrong shape: a banner must never blank the page', async () => {
+    for (const body of [{}, { platform: 'nope' }, { platform: null, club: null }, null]) {
+      const sent = stubApi({ '/api/notices': ok(body) })
+      const { container, unmount } = wrap(
+        <>
+          <NoticeBanners />
+          <p>頁面還在</p>
+        </>,
+      )
+      await waitFor(() => expect(sent).toHaveLength(1))
+      await act(async () => {})
+      expect(screen.getByText('頁面還在')).toBeInTheDocument()
+      expect(container.querySelector('section')).toBeNull()
+      unmount()
+    }
+  })
+
+  it('still shows the club’s banner when the platform’s part is missing', async () => {
+    stubApi({ '/api/notices': ok({ club: { id: 'b1', text: '社課改到週四', setAt: 7 } }) })
+    wrap(<NoticeBanners />)
+    expect(await screen.findByText('社課改到週四')).toBeInTheDocument()
+  })
+
   it('reads again when the tab comes back after a while, not on every return', async () => {
     const sent = stubApi({ '/api/notices': ok(view) })
     const clock = vi.spyOn(Date, 'now')

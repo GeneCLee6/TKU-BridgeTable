@@ -105,7 +105,8 @@ export function NoticeBanners() {
 
   if (!view || pathname.startsWith('/table/')) return null
   const shown: { notice: PlatformNotice | ClubBanner; label: string; platform: boolean }[] = [
-    ...view.platform.map((notice) => ({ notice, label: n.platformLabel, platform: true })),
+    // A banner must never take the page down: an answer of any other shape shows nothing
+    ...(Array.isArray(view.platform) ? view.platform : []).map((notice) => ({ notice, label: n.platformLabel, platform: true })),
     ...(view.club ? [{ notice: view.club, label: n.clubLabel, platform: false }] : []),
   ].filter(({ notice }) => !dismissed.includes(noticeDismissKey(notice)))
   if (!shown.length) return null

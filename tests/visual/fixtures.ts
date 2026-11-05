@@ -341,6 +341,7 @@ export async function serve(page: Page, { me = ME, table: tableWire = null, pref
     if (path === '/api/challenges') return route.fulfill({ json: { challenges: challenges ? challengeList() : [] } })
     if (path === '/api/challenges/c9') return route.fulfill({ json: { challenge: finishedChallenge() } })
     if (path === '/api/featured') return route.fulfill({ json: { featured: [] } })
+    if (path === '/api/notices') return route.fulfill({ json: { platform: [], club: null } })
     if (path === '/api/history/search') {
       const page = Number(new URL(route.request().url()).searchParams.get('page') ?? 1)
       return route.fulfill({ json: historyPage(page) })
