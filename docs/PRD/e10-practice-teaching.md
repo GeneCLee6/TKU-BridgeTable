@@ -39,7 +39,7 @@ BBO 的練習功能（和機器人練習、Just Declare、叫牌練習、搭檔�
 - [x] AC-10.3 — Just Declare 練習：機器人代叫，真人只打莊。
 - [x] AC-10.4 — 叫牌提示卡：叫牌時側欄「特約」分頁顯示目前情境相關的淡江橋譜特約，可開到橋譜。
 - [ ] AC-10.5 — 叫牌練習：只叫牌不打，叫完顯示四家、DD 表與機器人建議的叫法，標出差異。
-- [ ] AC-10.6 — 搭檔非同步叫牌練習：兩位社員輪流叫，不必同時在線；輪到誰有通知；完成後一起檢討。
+- [x] AC-10.6 — 搭檔非同步叫牌練習：兩位社員輪流叫，不必同時在線；輪到誰有通知；完成後一起檢討。
 - [ ] AC-10.7 — 教學桌：老師可指定牌組（PBN 匯入或從紀錄選）、看四家、任意撤回、重打同一副；可暫停並在牌桌上標示重點，學生端同步。
 - [ ] AC-10.8 — 賽後分析：每副標出 DD 損失最大的幾步，附機器人在同一副的打法。
 - [ ] AC-10.9 — 謎題：單人做莊題，答案以 DD 驗證是否保證成約；分級與進度。
@@ -62,7 +62,7 @@ BBO 的練習功能（和機器人練習、Just Declare、叫牌練習、搭檔�
 - [x] `e10-t15` 叫牌練習室（一）：練習桌的「只叫不打」子模式、一個人控制多個座位（通用的座位控制權，在 `TableService` 驗證）、叫完攤四家、不進紀錄（2026-10-26 提前到 ROADMAP U2a）· AC-10.5 · M · ← e10-t03（#139；`Table.controllers`、`biddingOnly`、`rebid`，ARCHITECTURE.md §4、§5.11）
 - [x] `e10-t16` 叫牌練習室（二）：四家各設大牌點範圍與牌型、指定整手牌、四家顯示／隱藏、存成我的設定、從牌組選（`e5-t67` 的競叫牌組、精選、收藏）· AC-10.5 · M · ← e10-t15, e10-t02（#143；`SeatConditions` 的 `shapes`／`longest`／`shortest`／`hand`、`dealConflict`、`boardView` 的 `shown`、`practicePresets:<userId>`、`shared/practice-sets/`，ARCHITECTURE.md §4、§5.11）
 - [x] `e10-t07` 叫牌練習室（三）檢討：叫完顯示四家、DD 表（瀏覽器端 DDS）、機器人每一步建議的叫法與差異、叫品的制度解釋 · AC-10.5 · M · ← e10-t16, e6-t43（#144；`TablePractice.review`、`worker/practice-review.ts`、`PracticeReview`，ARCHITECTURE.md §4、§5.11）
-- [ ] `e10-t08` 搭檔非同步叫牌練習：資料模型（一組牌、兩位社員、叫牌進度）、輪到誰的通知、檢討頁 · AC-10.6 · M · ← e10-t07, e1-t22
+- [x] `e10-t08` 搭檔非同步叫牌練習：資料模型（一組牌、兩位社員、叫牌進度）、輪到誰的通知、檢討頁 · AC-10.6 · #PRNUM（`worker/partner-bidding.ts`、`shared/partner-bidding.ts`、`views.ts` 的 `partnerBidView`，東西一律 Pass；ARCHITECTURE.md §4、§5.11）
 - [ ] `e10-t09` PBN 匯入（單副與多副）· AC-10.7 · S
 - [ ] `e10-t10` 教學桌：`teach` 權限、老師看四家、任意撤回、重打同一副、指定牌組（PBN 或從紀錄選）· AC-10.7 · M · ← e10-t03, e10-t09
 - [ ] `e10-t11` 教學桌講解：老師暫停並在牌桌上標示（圈牌、箭頭、文字），學生端同步 · AC-10.7 · M · ← e10-t10

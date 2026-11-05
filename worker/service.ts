@@ -73,6 +73,7 @@ import {
   type SavedPractice,
 } from '../shared/practice.ts'
 import { PRACTICE_SETS, practiceSetInfos, type PracticeSetInfo } from '../shared/practice-sets/index.ts'
+import { PartnerBidService } from './partner-bidding.ts'
 import { PracticePresets } from './practice-presets.ts'
 import type { RobotBrain } from '../shared/robot/brain.ts'
 import { checkNewPassword } from './password-policy.ts'
@@ -755,6 +756,8 @@ export class ClubService {
   readonly shares: BoardShares
   /** Members' saved practice settings (`e10-t16`, §5.11) */
   private readonly practicePresets: PracticePresets
+  /** Partner bidding practice (`e10-t08`, §5.11), in the object's SQL */
+  readonly partnerBids: PartnerBidService
   /** Keeps the history index's D1 copy in step (§5.12), when there is one */
   readonly replica?: ReplicaSync
   private readonly log: Logger
@@ -932,6 +935,23 @@ export class ClubService {
       const wake = config.wake ?? ((at: number) => void setTimeout(() => void this.runDue(), Math.max(0, at - this.now())))
       this.scheduler = this.queue = new AlarmQueue(this.now, wake)
     }
+    this.partnerBids = new PartnerBidService({
+      sql: store.sql,
+      now: this.now,
+      newId: () => randomId(8),
+      random: this.random,
+      scheduler: this.scheduler,
+      brain: config.brain,
+      otherMember: (userId, otherId) => this.otherMember(userId, otherId),
+      name: (id) => this.users.get(id)?.username ?? id,
+      blocked: (by, other) => this.blocks.has(by, other),
+      takeAction: (id) => this.actionLimit.take(id),
+      notify: (id, kind, params) => this.notifications.notify(id, kind, params),
+      send: (id, message) => this.connections.send(id, message),
+      online: () => this.connections.onlineUserIds(),
+      defaultKind: (id) => this.defaultKindOf(id),
+      checkKind: (id, kind) => this.checkRobotKind(id, kind),
+    })
     this.tournaments = new TournamentService({
       store,
       now: this.now,
@@ -1072,6 +1092,7 @@ export class ClubService {
     this.matches.store.createTables()
     this.matchHomes.createTables()
     this.directs.createTables()
+    this.partnerBids.createTables()
     await this.rankings.load()
     await this.referee.load()
     const schema = (await this.store.get<number>('meta:schema')) ?? 1
@@ -2775,6 +2796,7 @@ export class ClubService {
     const member = (id: string) => this.users.has(id)
     await this.friends.reload(member)
     await this.blocks.reload(member)
+    this.partnerBids.reload(member)
     // A table keeps its people's blocks for its chat and who may join (`setBlocked` does the same)
     for (const id of this.users.keys()) {
       const entry = this.entryOf(id)
@@ -2825,6 +2847,7 @@ export class ClubService {
     this.rankings.forget(user.id)
     await this.teamEvents.forget(user.id)
     await this.practicePresets.removeAll(user.id)
+    this.partnerBids.forget(user.id)
     await forgetQuizRounds(this.store, user.id)
     await forgetPathProgress(this.store, user.id)
     await forgetReading(this.store, user.id)
@@ -2931,7 +2954,7 @@ export class ClubService {
   /**
    * `GET /api/account/export`: everything the club keeps about the member, as one JSON file: the
    * account and its settings, profile, sessions, friends and blocks, notifications, direct messages,
-   * saved practice settings, favorites with notes and tags, and a summary of every board they
+   * saved practice settings, partner bidding sessions, favorites with notes and tags, and a summary of every board they
    * played. Never the password hash or anyone's session token. The full record of a board stays on
    * its page (`/history/<id>`), which the summary's id leads to
    */
@@ -2981,6 +3004,8 @@ export class ClubService {
       push: await this.push.exportOf(userId),
       directMessages: this.directs.everyMessage(userId).map((m) => ({ ...m, from: name(m.from), to: name(m.to) })),
       savedPractice: await this.practicePresets.list(userId),
+      // Partner bidding practice (e10-t08): as they may see it, never the partner's hand on a board still being bid
+      partnerBidding: this.partnerBids.exportOf(userId),
       challengeComments: this.challengeExtras.commentsOf(userId),
       ...this.rankings.exportOf(userId),
       favorites,
@@ -3637,7 +3662,11 @@ export class ClubService {
     const other = this.otherMember(userId, otherId)
     if (typeof blocked !== 'boolean') throw new ClubError('unknownCommand')
     await this.blocks.set(userId, other, blocked)
-    if (blocked) await this.friends.set(userId, other, false)
+    if (blocked) {
+      await this.friends.set(userId, other, false)
+      // Nothing keeps two members bidding together once one blocked the other; they are not told why
+      this.partnerBids.endBetween(userId, other)
+    }
     // The chat they see at their table changes at once
     const entry = this.entryOf(userId)
     if (entry) await this.tables.get(entry.id).blocked(userId, this.blocks.of(userId))
