@@ -439,6 +439,24 @@ describe('ending', () => {
     expect(queue.filter((job) => job.kind === 'partnerBid')).toEqual([])
   })
 
+  it('a new invitation expires on time when only an ended session was waiting, far later', async () => {
+    const ended = await club.partnerBids.create(amy, { partnerId: ben })
+    await club.partnerBids.abandon(amy, ended.id)
+    await sweep(PARTNER_BID_INVITE_MS + 1)
+    expect(queue.filter((job) => job.kind === 'partnerBid').map((job) => job.ms)).toEqual([PARTNER_BID_KEEP_MS - PARTNER_BID_INVITE_MS - 1])
+    await club.partnerBids.create(amy, { partnerId: cat })
+    expect(queue.filter((job) => job.kind === 'partnerBid').map((job) => job.ms)).toContain(PARTNER_BID_INVITE_MS)
+  })
+
+  it('a session being bid does not pile up sweep jobs', async () => {
+    const { id } = await started(1)
+    const before = queue.filter((job) => job.kind === 'partnerBid').length
+    await call(ben, id, '1C')
+    await call(amy, id, '1H')
+    await call(ben, id, '1S')
+    expect(queue.filter((job) => job.kind === 'partnerBid').length).toBe(before)
+  })
+
   it('a call moves the expiry on, so an active session is not swept', async () => {
     const { id } = await started(1)
     time += PARTNER_BID_IDLE_MS - 1000

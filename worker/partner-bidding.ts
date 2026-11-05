@@ -161,6 +161,8 @@ export class PartnerBidService {
   private readonly sql: Sql
   /** When each member last called in a session, for `notifyTurn`; losing it only means one more bell */
   private readonly lastCall = new Map<string, { sessionId: string; at: number }>()
+  /** When the earliest sweep waiting wakes */
+  private armedAt: number | null = null
 
   constructor(deps: PartnerBidDeps) {
     this.deps = deps
@@ -513,13 +515,20 @@ export class PartnerBidService {
   // ── The sweep and the review ────────────────────────────────────────────────────────────────
 
   /**
-   * One job for the whole club, at the first session due: a session's expiry only moves later, so a
-   * job already waiting is never too late. `load()` arms it again after an eviction, one query
+   * One job at the first session due, and another only when something falls due before the one
+   * waiting (a new invitation, when only an ended session was left): a job that wakes too early finds
+   * nothing and arms the next, so the calls of a session being bid add none. `load()` arms it again
+   * after an eviction, one query
    */
   private armSweep() {
     const [row] = this.sql.exec<{ at: number | null }>('SELECT MIN(expires_at) AS at FROM partner_bid_sessions')
-    if (row?.at === null || row?.at === undefined) return
-    this.deps.scheduler.add(SWEEP_KEY, 'partnerBid', Math.max(0, row.at - this.deps.now()), () => this.sweep())
+    const at = row?.at
+    if (at === null || at === undefined || (this.armedAt !== null && this.armedAt <= at)) return
+    this.armedAt = at
+    this.deps.scheduler.add(`${SWEEP_KEY}:${at}`, 'partnerBid', Math.max(0, at - this.deps.now()), () => {
+      if (this.armedAt === at) this.armedAt = null
+      return this.sweep()
+    })
   }
 
   /** Open sessions past their time end; ended ones past theirs are deleted, reviews and all */
