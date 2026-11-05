@@ -31,6 +31,13 @@ export function notificationText(t: Strings, n: Notification): string {
     case 'pairAccepted':
     case 'pairDeclined':
     case 'pairEnded':
+    case 'partnerBidInvited':
+    case 'partnerBidAccepted':
+    case 'partnerBidDeclined':
+    case 'partnerBidTurn':
+    case 'partnerBidFinished':
+    case 'partnerBidAbandoned':
+    case 'partnerBidExpired':
       return t.notificationTexts[n.kind](name)
     case 'challengeReminder':
     case 'challengeResults':

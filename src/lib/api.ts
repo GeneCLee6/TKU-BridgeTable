@@ -71,6 +71,7 @@ import type { ClubApplicationInput, ClubApplyOptions, ClubStatus, PlatformView }
 import type { SessionInfo } from '../../shared/account.ts'
 import type { PushKinds, PushView } from '../../shared/push.ts'
 import type { ImportedBoard, ImportedDeal } from '../../shared/imports.ts'
+import type { PartnerBidSettings, PartnerBidSummary, PartnerBidView } from '../../shared/partner-bidding.ts'
 import type { PracticeSettings, SavedPractice } from '../../shared/practice.ts'
 import type { PracticeSetInfo } from '../../shared/practice-sets/types.ts'
 
@@ -233,6 +234,12 @@ export const api = {
   endOtherSessions: () => post<{ ended: number }>('/api/account/sessions/others'),
   /** The member's own data as a JSON file (e11-t27); a link downloads it */
   /** A plain link (no headers), so it names the club in its address */
+  /** The member's data (e11-t27) and, a page at a time, the boards they imported (e4-t39): `saveAccountData` */
+  accountData: () => request<{ account: { id: string }; importedBoardCount: number } & Record<string, unknown>>('/api/account/export'),
+  accountImportedBoards: (after: string | null) =>
+    request<{ boards: { id: string; importedAt: number; lin: string }[]; next: string | null }>(
+      `/api/account/export/imported${after ? `?after=${encodeURIComponent(after)}` : ''}`,
+    ),
   get exportUrl() {
     return withClub('/api/account/export')
   },
@@ -292,6 +299,15 @@ export const api = {
     post<{ presets: SavedPractice[] }>('/api/practice/presets', { name, settings }),
   removePracticePreset: (id: string) =>
     request<{ presets: SavedPractice[] }>(`/api/practice/presets/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  /** Partner bidding practice (e10-t08): the member's sessions, one session as they may see it, and what they do in it */
+  partnerBids: () => request<{ sessions: PartnerBidSummary[] }>('/api/partner-bidding'),
+  partnerBid: (id: string) => request<{ session: PartnerBidView }>(`/api/partner-bidding/${encodeURIComponent(id)}`),
+  createPartnerBid: (partnerId: string, settings: Partial<PartnerBidSettings>) =>
+    post<{ session: PartnerBidView }>('/api/partner-bidding', { partnerId, settings }),
+  answerPartnerBid: (id: string, accept: boolean) =>
+    post<{ session: PartnerBidView }>(`/api/partner-bidding/${encodeURIComponent(id)}/answer`, { accept }),
+  callPartnerBid: (id: string, call: string) => post<{ session: PartnerBidView }>(`/api/partner-bidding/${encodeURIComponent(id)}/call`, { call }),
+  abandonPartnerBid: (id: string) => post<{ session: PartnerBidView }>(`/api/partner-bidding/${encodeURIComponent(id)}/abandon`),
   /** A board's feature, or null when it is not featured */
   featuredBoard: (id: string) => request<{ featured: FeaturedBoard | null }>(`/api/featured/${encodeURIComponent(id)}`),
   /** Features a board or edits its feature; needs the `boardCurate` permission */

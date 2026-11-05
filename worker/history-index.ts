@@ -280,13 +280,36 @@ export function boardsPlayedBy(sql: Sql, userId: string): string[] {
   )
 }
 
-/** The boards a member imported (`e4-t39`): the member's id is on them only as the one at that table */
-export function importedBoardsOf(sql: Sql, userId: string): string[] {
+/** How many boards a member imported (`e4-t39`): their id is on a board only as the one at that table */
+export function countImported(sql: Sql, userId: string): number {
+  return sql.exec<{ n: number }>(
+    `SELECT COUNT(*) AS n FROM board_players p JOIN boards_index b ON b.board_id = p.board_id
+     WHERE p.user_id = ? AND b.mode = 'imported'`,
+    userId,
+  )[0].n
+}
+
+/** Up to `limit` of the boards a member imported, by id, after the id `after`: a page at a time, as a request's CPU allows */
+export function importedPage(sql: Sql, userId: string, limit: number, after = ''): string[] {
   return ids(
     sql.exec(
       `SELECT b.board_id FROM board_players p JOIN boards_index b ON b.board_id = p.board_id
-       WHERE p.user_id = ? AND b.mode = 'imported'`,
+       WHERE p.user_id = ? AND b.mode = 'imported' AND b.board_id > ? ORDER BY b.board_id LIMIT ?`,
       userId,
+      after,
+      limit,
+    ),
+  )
+}
+
+/** Boards a member played at a table, newest first: what they imported is not among them */
+export function tableBoardsOf(sql: Sql, userId: string, limit: number): string[] {
+  return ids(
+    sql.exec(
+      `SELECT b.board_id FROM board_players p JOIN boards_index b ON b.board_id = p.board_id
+       WHERE p.user_id = ? AND b.mode <> 'imported' ORDER BY b.played_at DESC, b.board_id DESC LIMIT ?`,
+      userId,
+      limit,
     ),
   )
 }

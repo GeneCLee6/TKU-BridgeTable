@@ -73,6 +73,7 @@ import {
   type SavedPractice,
 } from '../shared/practice.ts'
 import { PRACTICE_SETS, practiceSetInfos, type PracticeSetInfo } from '../shared/practice-sets/index.ts'
+import { PartnerBidService } from './partner-bidding.ts'
 import { PracticePresets } from './practice-presets.ts'
 import { IMPORT_LIMITS } from '../shared/imports.ts'
 import { toLin } from '../shared/lin.ts'
@@ -181,7 +182,9 @@ import { parseRulingRequest, type RulingRequest } from '../shared/board-events.t
 import {
   createHistoryIndex,
   eventBoards,
-  importedBoardsOf,
+  countImported,
+  importedPage,
+  tableBoardsOf,
   indexRecord,
   listQuery,
   revealBoards,
@@ -470,6 +473,10 @@ export const LOBBY_GAP_MS = 100
 
 /** Pages of 100 boards a member's data export reads at most, of their history and of their favorites */
 const EXPORT_PAGES_MAX = 100
+/** Deleted accounts whose imported boards are still being deleted (e4-t39): `importPurge:<userId>` */
+const IMPORT_PURGE = 'importPurge:'
+/** The pause between two steps of that, each in its own alarm */
+const IMPORT_PURGE_STEP_MS = 1000
 
 export interface ClubConfig {
   /** Which club this is (e12-t02, shared/clubs.ts); 淡江 when not given */
@@ -763,6 +770,8 @@ export class ClubService {
   private readonly practicePresets: PracticePresets
   private readonly ownDeals: OwnDeals
   private readonly importLimit: TokenBuckets
+  /** Partner bidding practice (`e10-t08`, §5.11), in the object's SQL */
+  readonly partnerBids: PartnerBidService
   /** Keeps the history index's D1 copy in step (§5.12), when there is one */
   readonly replica?: ReplicaSync
   private readonly log: Logger
@@ -942,6 +951,23 @@ export class ClubService {
       const wake = config.wake ?? ((at: number) => void setTimeout(() => void this.runDue(), Math.max(0, at - this.now())))
       this.scheduler = this.queue = new AlarmQueue(this.now, wake)
     }
+    this.partnerBids = new PartnerBidService({
+      sql: store.sql,
+      now: this.now,
+      newId: () => randomId(8),
+      random: this.random,
+      scheduler: this.scheduler,
+      brain: config.brain,
+      otherMember: (userId, otherId) => this.otherMember(userId, otherId),
+      name: (id) => this.users.get(id)?.username ?? id,
+      blocked: (by, other) => this.blocks.has(by, other),
+      takeAction: (id) => this.actionLimit.take(id),
+      notify: (id, kind, params) => this.notifications.notify(id, kind, params),
+      send: (id, message) => this.connections.send(id, message),
+      online: () => this.connections.onlineUserIds(),
+      defaultKind: (id) => this.defaultKindOf(id),
+      checkKind: (id, kind) => this.checkRobotKind(id, kind),
+    })
     this.tournaments = new TournamentService({
       store,
       now: this.now,
@@ -1082,12 +1108,15 @@ export class ClubService {
     this.matches.store.createTables()
     this.matchHomes.createTables()
     this.directs.createTables()
+    this.partnerBids.createTables()
     await this.rankings.load()
     await this.referee.load()
     const schema = (await this.store.get<number>('meta:schema')) ?? 1
     if (schema < 2) await this.migrate()
     if (schema < 3) await this.backfillIndex()
     await this.replica?.load(!this.config.historyReplicaOff)
+    // An account deleted before the object was evicted may still have imported boards to go
+    if ((await this.store.list(IMPORT_PURGE, { limit: 1 })).size) this.schedulePurge(0)
     await this.ensureAdmin()
     await this.batch(async () => {
       if (this.remote) {
@@ -2785,6 +2814,7 @@ export class ClubService {
     const member = (id: string) => this.users.has(id)
     await this.friends.reload(member)
     await this.blocks.reload(member)
+    this.partnerBids.reload(member)
     // A table keeps its people's blocks for its chat and who may join (`setBlocked` does the same)
     for (const id of this.users.keys()) {
       const entry = this.entryOf(id)
@@ -2836,7 +2866,8 @@ export class ClubService {
     await this.teamEvents.forget(user.id)
     await this.practicePresets.removeAll(user.id)
     await this.ownDeals.removeAll(user.id)
-    await this.forgetImported(user.id)
+    await this.queueImportPurge(user.id)
+    this.partnerBids.forget(user.id)
     await forgetQuizRounds(this.store, user.id)
     await forgetPathProgress(this.store, user.id)
     await forgetReading(this.store, user.id)
@@ -2943,9 +2974,10 @@ export class ClubService {
   /**
    * `GET /api/account/export`: everything the club keeps about the member, as one JSON file: the
    * account and its settings, profile, sessions, friends and blocks, notifications, direct messages,
-   * saved practice settings and their own deals, favorites with notes and tags, a summary of every
-   * board they played, and the boards they imported whole (as LIN, nowhere else to get them once
-   * the account is gone). Never the password hash or anyone's session token. The full record of a board stays on
+   * saved practice settings and their own deals, partner bidding sessions, favorites with notes and
+   * tags, and a summary of every board they played at a table. The boards they imported are counted
+   * here and come a page at a time (`exportImported`), as all of them would not fit one request's CPU.
+   * Never the password hash or anyone's session token. The full record of a board stays on
    * its page (`/history/<id>`), which the summary's id leads to
    */
   async exportAccount(userId: string, token: string | null) {
@@ -2974,11 +3006,9 @@ export class ClubService {
       favorites.push(...found.favorites)
       if (found.page * found.size >= found.total) break
     }
-    for (let page = 1; page <= EXPORT_PAGES_MAX; page++) {
-      const found = await this.history(userId, false, page, size)
-      boards.push(...found.boards)
-      if (found.page * found.size >= found.total) break
-    }
+    // The boards played at tables; what they imported comes a page at a time (`exportImported`)
+    const played = await Promise.all(tableBoardsOf(this.store.sql, userId, EXPORT_PAGES_MAX * size).map((id) => this.store.get<BoardRecord>(`board:${id}`)))
+    boards.push(...played.flatMap((record) => (record ? [summarize(record)] : [])))
     return {
       format: 'tku-bridge-table-account',
       version: ACCOUNT_EXPORT_VERSION,
@@ -2996,9 +3026,9 @@ export class ClubService {
       savedPractice: await this.practicePresets.list(userId),
       // What they brought in from files (e10-t09, e4-t39): their own, so all of it
       ownDeals: await this.ownDeals.list(userId),
-      importedBoards: (await Promise.all(importedBoardsOf(this.store.sql, userId).map((id) => this.store.get<BoardRecord>(`board:${id}`)))).flatMap((r) =>
-        r ? [{ id: r.id, importedAt: r.finishedAt, lin: toLin(r) }] : [],
-      ),
+      importedBoardCount: countImported(this.store.sql, userId),
+      // Partner bidding practice (e10-t08): as they may see it, never the partner's hand on a board still being bid
+      partnerBidding: this.partnerBids.exportOf(userId),
       challengeComments: this.challengeExtras.commentsOf(userId),
       ...this.rankings.exportOf(userId),
       favorites,
@@ -3251,7 +3281,7 @@ export class ClubService {
       if (fresh.has(id) || (await this.store.get(`board:${id}`))) continue
       fresh.set(id, i)
     }
-    if (importedBoardsOf(this.store.sql, userId).length + fresh.size > IMPORT_LIMITS.linTotal)
+    if (countImported(this.store.sql, userId) + fresh.size > IMPORT_LIMITS.linTotal)
       throw new ClubError('importsFull', { max: IMPORT_LIMITS.linTotal })
     const now = this.now()
     for (const [id, i] of fresh) {
@@ -3266,20 +3296,57 @@ export class ClubService {
   async removeImported(userId: string, id: string) {
     const record = /^[\w-]+$/.test(id) ? await this.store.get<BoardRecord>(`board:${id}`) : undefined
     if (record?.mode !== 'imported' || !SEATS.some((seat) => record.players[seat]?.id === userId)) throw new ClubError('boardGone', {}, 404)
-    await this.dropImported(userId, id)
+    removeFavorite(this.store.sql, userId, id)
+    await this.dropImported(id)
   }
 
-  private async dropImported(userId: string, id: string) {
-    removeFavorite(this.store.sql, userId, id)
+  /**
+   * `GET /api/account/export/imported?after=`: one page of the boards the member imported, whole, as
+   * LIN. The browser joins the pages to the export's file, since a member at the limit has more than
+   * one request's CPU can read
+   */
+  async exportImported(userId: string, after: unknown): Promise<{ boards: { id: string; importedAt: number; lin: string }[]; next: string | null }> {
+    this.requireUser(userId)
+    const from = typeof after === 'string' && /^[\w-]+$/.test(after) ? after : ''
+    const ids = importedPage(this.store.sql, userId, IMPORT_LIMITS.exportPage, from)
+    const records = await Promise.all(ids.map((id) => this.store.get<BoardRecord>(`board:${id}`)))
+    return {
+      boards: records.flatMap((r) => (r ? [{ id: r.id, importedAt: r.finishedAt, lin: toLin(r) }] : [])),
+      next: ids.length === IMPORT_LIMITS.exportPage ? ids[ids.length - 1] : null,
+    }
+  }
+
+  private async dropImported(id: string) {
     unindexRecord(this.store.sql, id)
     await this.store.delete(`board:${id}`)
     // The copy takes out a board whose record is gone
     await this.replica?.queue(id)
   }
 
-  /** When an account is deleted: unlike a board played at a table, an imported one is nobody else's record */
-  private async forgetImported(userId: string) {
-    for (const id of importedBoardsOf(this.store.sql, userId)) await this.dropImported(userId, id)
+  /**
+   * When an account is deleted: unlike a board played at a table, an imported one is nobody else's
+   * record, so it goes too. Up to IMPORT_LIMITS.linTotal boards do not fit one request's CPU: they go
+   * in scheduled steps (`purgeImported`), and the mark in storage carries on after an eviction. From
+   * this moment nobody sees them, as only the account's own id ever could
+   */
+  private async queueImportPurge(userId: string) {
+    if (!countImported(this.store.sql, userId)) return
+    await this.store.put(`${IMPORT_PURGE}${userId}`, this.now())
+    this.schedulePurge(0)
+  }
+
+  private schedulePurge(ms: number) {
+    this.scheduler.add('importPurge', 'importPurge', ms, () => this.purgeImported())
+  }
+
+  /** One step: a few boards of the first account waiting, then the next step while anyone is */
+  private async purgeImported() {
+    const [key] = (await this.store.list(IMPORT_PURGE, { limit: 1 })).keys()
+    if (!key) return
+    const ids = importedPage(this.store.sql, key.slice(IMPORT_PURGE.length), IMPORT_LIMITS.purgeStep)
+    for (const id of ids) await this.dropImported(id)
+    if (ids.length < IMPORT_LIMITS.purgeStep) await this.store.delete(key)
+    this.schedulePurge(IMPORT_PURGE_STEP_MS)
   }
 
   private async saveRecord(record: BoardRecord) {
@@ -3709,7 +3776,11 @@ export class ClubService {
     const other = this.otherMember(userId, otherId)
     if (typeof blocked !== 'boolean') throw new ClubError('unknownCommand')
     await this.blocks.set(userId, other, blocked)
-    if (blocked) await this.friends.set(userId, other, false)
+    if (blocked) {
+      await this.friends.set(userId, other, false)
+      // Nothing keeps two members bidding together once one blocked the other; they are not told why
+      this.partnerBids.endBetween(userId, other)
+    }
     // The chat they see at their table changes at once
     const entry = this.entryOf(userId)
     if (entry) await this.tables.get(entry.id).blocked(userId, this.blocks.of(userId))

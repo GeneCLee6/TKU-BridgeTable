@@ -35,6 +35,10 @@ export const IMPORT_LIMITS = {
   nameMax: 24,
   /** A deal's title (PBN's `Event`) */
   titleMax: 40,
+  /** Boards in one page of the member's data export (`exportImported`): reading them and writing their LIN */
+  exportPage: 20,
+  /** Boards deleted in one scheduled step after an account is deleted */
+  purgeStep: 10,
   /** A batch's session id, which groups the boards of one import */
   sessionMax: 24,
 } as const

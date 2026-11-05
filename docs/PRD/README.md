@@ -30,11 +30,11 @@
 | [E7](e7-challenges.md) | 挑戰（單挑與多人） | 29／29 | 6／9 | 25 | in-progress |
 | [E8](e8-two-table-team-match.md) | 雙桌隊制賽 | 22／22 | 9／9 | 17 | done |
 | [E9](e9-tournaments-rankings.md) | 比賽、積分與錦標賽 | 17／17 | 5／8 | 0 | in-progress |
-| [E10](e10-practice-teaching.md) | 練習與教學 | 7／14 | 3／9 | 6 | in-progress |
+| [E10](e10-practice-teaching.md) | 練習與教學 | 11／16 | 4／9 | 6 | in-progress |
 | [E11](e11-platform-ops-scale.md) | 平台、維運、安全與規模 | 31／32 | 6／10 | 8 | in-progress |
 | [E12](e12-commercialization.md) | 多社團與商業化 | 6／19 | 1／9 | 0 | in-progress |
 | [E13](e13-community-forum.md) | 社群與論壇 | 13／13 | 5／7 | 0 | in-progress |
-| | **合計** | **358／406** | **93／137** | **177** | |
+| | **合計** | **362／408** | **94／137** | **177** | |
 
 里程碑分布：M0 95 個（全部完成）、M1 177 個、M2 97 個、M3 25 個。作廢的 task（刪除線）不計入。
 

@@ -231,6 +231,7 @@ export function BiddingBox({
   size = 60,
   hints,
   confirm = false,
+  noAlert = false,
 }: {
   legal: Call[]
   onCall: (call: Call, alert?: string) => void
@@ -239,6 +240,8 @@ export function BiddingBox({
   hints?: BiddingHints | null
   /** A click only chooses the call; it is made from the confirm bar */
   confirm?: boolean
+  /** No Alert key: nobody is there to read one (the partner bidding practice, `e10-t08`) */
+  noAlert?: boolean
 }) {
   const t = useT()
   const keysId = useId()
@@ -463,18 +466,20 @@ export function BiddingBox({
             </KeyCap>
           </Key>
         ))}
-        <Key
-          type="button"
-          $size={size}
-          $tone="alert"
-          $wide
-          $selected={alerting}
-          aria-pressed={alerting}
-          data-tour="alert"
-          onClick={() => setAlerting(!alerting)}
-        >
-          {t.alert}
-        </Key>
+        {!noAlert && (
+          <Key
+            type="button"
+            $size={size}
+            $tone="alert"
+            $wide
+            $selected={alerting}
+            aria-pressed={alerting}
+            data-tour="alert"
+            onClick={() => setAlerting(!alerting)}
+          >
+            {t.alert}
+          </Key>
+        )}
       </Grid>
       {alerting && (
         <AlertInput

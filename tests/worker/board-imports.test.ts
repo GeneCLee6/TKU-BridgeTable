@@ -12,6 +12,8 @@ import type { BoardRecord } from '../../shared/protocol.ts'
 import { indexRecord } from '../../worker/history-index.ts'
 import { ownDealsKey } from '../../worker/imported-boards.ts'
 import { IMPORT_BURST } from '../../worker/rate-limit.ts'
+import type { ClubService } from '../../worker/service.ts'
+import { clubService } from './event-mode.ts'
 import { teamHarness } from './team-match-harness.ts'
 
 /**
@@ -44,6 +46,29 @@ function imported(over: Partial<ImportedBoard> = {}): ImportedBoard {
 
 const later = () => {
   t.h.time += 60_000
+}
+
+const settle = async () => {
+  for (let i = 0; i < 30; i++) await new Promise((resolve) => setImmediate(resolve))
+}
+
+/** Runs the deleting of imported boards to its end */
+async function purge() {
+  for (let i = 0; i < 200 && t.h.queue.some((job) => job.kind === 'importPurge'); i++) {
+    await t.run('importPurge')
+    await settle()
+  }
+}
+
+/** `count` different boards imported by the member, a batch at a time; their ids */
+async function addBoards(userId: string, count: number): Promise<string[]> {
+  const ids: string[] = []
+  for (let at = 0; at < count; at += IMPORT_LIMITS.batchBoards) {
+    t.h.time += 3_600_000
+    const boards = Array.from({ length: Math.min(IMPORT_LIMITS.batchBoards, count - at) }, (_, i) => imported({ boardNo: at + i + 1 }))
+    ids.push(...(await t.club().importBoards(userId, { boards })).ids)
+  }
+  return ids
 }
 
 const failure = (promise: Promise<unknown>) =>
@@ -221,11 +246,34 @@ describe('the member\'s own data', () => {
     const { ids } = await t.club().importBoards(amy, { boards: [imported()] })
     await t.club().importOwnDeals(amy, { deals: [{ boardNo: 3, dealer: 'N', vul: 'Both', hands: DEAL, title: 'mine' }] })
     const data = await t.club().exportAccount(amy, null)
-    expect(data.importedBoards).toHaveLength(1)
-    expect(data.importedBoards[0].id).toBe(ids[0])
-    expect(parseLin(data.importedBoards[0].lin).boards[0].claim).toBe(7)
-    expect(data.boards.map((b) => b.id)).toContain(ids[0])
+    expect(data.importedBoardCount).toBe(1)
+    expect(data.boards.map((b) => b.id)).not.toContain(ids[0])
     expect(data.ownDeals).toMatchObject([{ boardNo: 3, hands: DEAL, title: 'mine' }])
+    const page = await t.club().exportImported(amy, null)
+    expect(page.next).toBeNull()
+    expect(page.boards.map((b) => b.id)).toEqual(ids)
+    expect(parseLin(page.boards[0].lin).boards[0].claim).toBe(7)
+    expect((await t.club().exportImported(t.h.boss, null)).boards).toEqual([])
+  })
+
+  it('exports them a page at a time, every board once, and the boards played at tables are still summarized', async () => {
+    const amy = await t.member('amy')
+    const total = IMPORT_LIMITS.exportPage * 2 + 3
+    await addBoards(amy, total)
+    const seen: string[] = []
+    let after: string | null = null
+    let pages = 0
+    do {
+      const page: Awaited<ReturnType<ClubService['exportImported']>> = await t.club().exportImported(amy, after)
+      expect(page.boards.length).toBeLessThanOrEqual(IMPORT_LIMITS.exportPage)
+      seen.push(...page.boards.map((b) => b.id))
+      after = page.next
+      pages++
+    } while (after)
+    expect(pages).toBe(3)
+    expect(new Set(seen).size).toBe(total)
+    // Whatever `after` says, it is only ever their own boards
+    expect((await t.club().exportImported(amy, "x' OR 1=1")).boards).toHaveLength(IMPORT_LIMITS.exportPage)
   })
 
   it('deletes it with the account, leaving another member\'s copy', async () => {
@@ -236,6 +284,7 @@ describe('the member\'s own data', () => {
     await t.club().saveFavorite(amy, mine.ids[0], {})
     await t.club().importOwnDeals(amy, { deals: [{ boardNo: 3, dealer: 'N', vul: 'Both', hands: DEAL }] })
     await t.club().deleteOwnAccount(amy, 'club-secret-1')
+    await purge()
     const store = t.club()['store']
     expect(await store.get(`board:${mine.ids[0]}`)).toBeUndefined()
     expect(store.sql.exec('SELECT board_id FROM boards_index WHERE board_id = ?', mine.ids[0])).toEqual([])
@@ -245,6 +294,55 @@ describe('the member\'s own data', () => {
     await t.copyToD1()
     const rows = await t.d1.batch([{ sql: 'SELECT board_id FROM boards_index', params: [] }])
     expect(rows[0].map((r) => r.board_id)).toEqual(theirs.ids)
+  })
+})
+
+describe('deleting an account at the limit', () => {
+  it('deletes its boards in small scheduled steps, nobody seeing them meanwhile', async () => {
+    const amy = await t.member('amy')
+    const ben = await t.member('ben')
+    const total = IMPORT_LIMITS.purgeStep * 2 + 5
+    const ids = await addBoards(amy, total)
+    await t.club().importBoards(ben, { boards: [imported()] })
+    await t.club().deleteOwnAccount(amy, 'club-secret-1')
+    const store = t.club()['store']
+    const left = async () => (await Promise.all(ids.map((id) => store.get(`board:${id}`)))).filter(Boolean).length
+
+    // Nothing was deleted in the request itself, and no job does more than one step
+    expect(await left()).toBe(total)
+    expect(t.h.queue.filter((job) => job.kind === 'importPurge')).toHaveLength(1)
+    await t.run('importPurge')
+    await settle()
+    expect(await left()).toBe(total - IMPORT_LIMITS.purgeStep)
+    expect(await t.club().record(ids[0], ben)).toBeNull()
+    expect(await t.club().record(ids[0], t.h.boss)).toBeNull()
+
+    await purge()
+    expect(await left()).toBe(0)
+    expect(await store.get(`importPurge:${amy}`)).toBeUndefined()
+    expect(store.sql.exec("SELECT COUNT(*) AS n FROM boards_index WHERE mode = 'imported'")[0].n).toBe(1)
+    expect(t.h.queue.filter((job) => job.kind === 'importPurge')).toHaveLength(0)
+  })
+
+  it('carries on after the object is evicted', async () => {
+    const amy = await t.member('amy')
+    await addBoards(amy, 3)
+    await t.club().deleteOwnAccount(amy, 'club-secret-1')
+    t.h.queue.length = 0
+    const queue: { run: () => void; kind: string }[] = []
+    const again = clubService(t.h.store, t.h.connections, { maxUsers: 40, now: () => t.h.time, schedule: (run: () => void, _ms: number, kind: string) => queue.push({ run, kind }) })
+    await again.load()
+    const job = queue.find((j) => j.kind === 'importPurge')
+    expect(job).toBeDefined()
+    job!.run()
+    await settle()
+    expect(t.h.store.sql.exec("SELECT COUNT(*) AS n FROM boards_index WHERE mode = 'imported'")[0].n).toBe(0)
+  })
+
+  it('schedules nothing for a member who imported nothing', async () => {
+    const amy = await t.member('amy')
+    await t.club().deleteOwnAccount(amy, 'club-secret-1')
+    expect(t.h.queue.filter((job) => job.kind === 'importPurge')).toHaveLength(0)
   })
 })
 
