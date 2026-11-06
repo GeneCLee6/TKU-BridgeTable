@@ -13,15 +13,24 @@ import { postExcerpt } from './forum.ts'
  *   replies under it
  * - `forumAnnouncement`: every member, for a new post on an officers-only board (社團新聞)
  * - `forumPinned`: a post's author when an officer pins it
+ * - `forumHidden` / `forumUnhidden`: a post's author when an officer hides it or shows it again
+ *   (the table's e13-t10, 2026-11-02); `{ postId, title }` only, without the officer's name
  *
  * Each member hears one thing about one post or comment, the most particular first (being named
  * over a reply over the news). Nobody hears about their own doing, nor someone who is no longer a
- * member. Sending is the caller's (club.ts `tell`): what was saved stays saved when it fails.
+ * member, nor a member who blocked the one who named them or replied (AC-1.6: a mention or a reply
+ * from someone they blocked; the news and the officers' doings still reach them). Sending is the
+ * caller's (club.ts `tell`): what was saved stays saved when it fails.
  */
 export interface ForumNoticeDeps {
   notify: (userId: string, kind: NotificationKind, params: Notification['params']) => Promise<unknown>
   members: () => ClubMember[]
+  /** Whether `by` blocked `other` (worker/relations.ts); nobody when left out */
+  blocked?: (by: string, other: string) => boolean
 }
+
+/** The kinds a member who blocked the actor does not hear */
+const PERSONAL: readonly NotificationKind[] = ['forumMention', 'forumReply']
 
 export class ForumNotices {
   private readonly deps: ForumNoticeDeps
@@ -56,6 +65,15 @@ export class ForumNotices {
     await this.teller(actor, post)(post.authorId, 'forumPinned')
   }
 
+  /**
+   * An officer hid a post or showed it again (as it is now, `post.hidden`): its author hears which,
+   * not who did it (the officers' names are in the audit log). Not an officer hiding their own post
+   */
+  async hidden(actor: Me, post: Post) {
+    if (post.authorId === actor.id || !this.deps.members().some((m) => m.id === post.authorId)) return
+    await this.deps.notify(post.authorId, post.hidden ? 'forumHidden' : 'forumUnhidden', { postId: post.id, title: postExcerpt(post) })
+  }
+
   private teller(actor: Me, post: Post, commentId?: string) {
     const known = new Set(this.deps.members().map((m) => m.id))
     const told = new Set<string>([actor.id])
@@ -63,6 +81,8 @@ export class ForumNotices {
     if (commentId) params.commentId = commentId
     return async (userId: string, kind: NotificationKind) => {
       if (told.has(userId) || !known.has(userId)) return
+      // Not marked told: a member named in the news by an officer they blocked still hears the news
+      if (PERSONAL.includes(kind) && this.deps.blocked?.(userId, actor.id)) return
       told.add(userId)
       await this.deps.notify(userId, kind, params)
     }

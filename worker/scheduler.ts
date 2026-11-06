@@ -1,7 +1,25 @@
 /** What a waiting job is for; tests run each kind on its own */
-export type JobKind = 'robot' | 'deal' | 'challenge' | 'substitute' | 'weekly' | 'outbox' | 'migrate' | 'replica' | 'revoke'
+export type JobKind =
+  | 'robot'
+  | 'deal'
+  | 'challenge'
+  | 'substitute'
+  | 'partnerAway'
+  | 'weekly'
+  | 'daily'
+  | 'tournament'
+  | 'outbox'
+  | 'migrate'
+  | 'replica'
+  | 'revoke'
+  /** A scheduled forum post's time (e13-t12, worker/forum-schedule.ts) */
+  | 'forum'
+  /** The partner bidding practice's expiry sweep (e10-t08, worker/partner-bidding.ts) */
+  | 'partnerBid'
+  /** Deleting a deleted account's imported boards, a few at a time (e4-t39) */
+  | 'importPurge'
 
-/** Everything done later (robot moves, the next deal, a challenge's reminder and deadline, a robot sitting in for someone offline, the weekly club challenge) goes through one scheduler */
+/** Everything done later (robot moves, the next deal, a challenge's reminder and deadline, a robot sitting in for someone offline, the weekly club challenge, the daily event) goes through one scheduler */
 export interface Scheduler {
   /** Runs `run` after `ms`, unless a job with the same key is still waiting */
   add(key: string, kind: JobKind, ms: number, run: () => Promise<void>): void

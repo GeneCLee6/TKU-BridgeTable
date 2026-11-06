@@ -1,0 +1,134 @@
+import { BOOK_SITE } from './book-site.ts'
+import type { Notification } from './protocol.ts'
+import { SUPPORT_REPORTS_ANCHOR } from './support.ts'
+import { teamEventLink } from './team-event.ts'
+import { tournamentEventLink } from './tournament.ts'
+
+/**
+ * Where a notification leads when clicked: challenge news, an invitation too, to that challenge's
+ * page, where it is answered and played (`e7-t16`, `e7-t18`), except a partner sitting down at the
+ * partnership's table (`e7-t28`), which leads to that table; an invitation
+ * to a table, a request to join one and its answer, and a director call (`e2-t34`) to that table; a featured board to its record, where the explanation is shown; team
+ * match news to the match's prep room (`e8-t06`), except being taken off a seat, after which only
+ * the list of one's matches is left; partnership news to the partnership's page in TKU BridgeBook
+ * (an address on another site, which the bell opens as a page load); the files nearly full to
+ * TKU BridgeHall's e-books, where the largest files are (BridgeHall e5-t15); the handbook's news to
+ * BridgeHall (e8-t10, e8-t11, e2-t08): a published convention to its page, a draft sent for review to
+ * its review page, one sent back to its editor, an override to the profile's compare page (with
+ * `?unify=` naming the override a captain suggests dropping); an article sent for review or back to
+ * its editor (where articles are reviewed, J4), a published one to the article; the forum's news to the post,
+ * at the comment when there is one (`#comment-<id>`): on the table's own forum for a member who has
+ * it (`forum` flag on, e13-t09), otherwise on BridgeHall (e11-t08); tournament news to the
+ * tournament's page (`e9-t16`), its results straight to the event's page
+ */
+export function notificationLink(n: Notification, options: { forum?: boolean } = {}): string {
+  switch (n.kind) {
+    case 'application':
+    case 'passwordResetRequested':
+    case 'supportReport':
+      return '/admin'
+    // A new club application (e12-t06), to the platform owner: the back office, where it is decided
+    case 'clubApplication':
+    case 'supportForwarded':
+      return '/platform'
+    // Their own report resolved: their list on 我的帳號
+    case 'supportResolved':
+      return `/account#${SUPPORT_REPORTS_ANCHOR}`
+    case 'friendOnline':
+      return '/'
+    case 'challengeInvited':
+    case 'challengeWeekly':
+    case 'challengeAccepted':
+    case 'challengeDeclined':
+    case 'challengePartnerDeclined':
+    case 'challengeCancelled':
+    case 'challengeReminder':
+    case 'challengeResults':
+      return n.params.challengeId ? `/challenges/${encodeURIComponent(String(n.params.challengeId))}` : '/challenges'
+    // Straight to the partnership's table (`e7-t28`); `?challenge=` lets the table page sit them down
+    case 'challengePartnerSeated':
+      return n.params.tableId && n.params.challengeId
+        ? `/table/${encodeURIComponent(String(n.params.tableId))}?challenge=${encodeURIComponent(String(n.params.challengeId))}`
+        : '/challenges'
+    case 'tableInvited':
+    case 'tableRequest':
+    case 'tableRequestApproved':
+    case 'tableRequestDeclined':
+    case 'directorCalled':
+      return n.params.tableId ? `/table/${encodeURIComponent(String(n.params.tableId))}` : '/'
+    case 'matchRemoved':
+      return '/matches'
+    case 'matchInvited':
+    case 'matchAccepted':
+    case 'matchDeclined':
+    case 'matchLeft':
+    case 'matchCancelled':
+    case 'matchStarted':
+    case 'matchFinished':
+    case 'matchAbandoned':
+    case 'matchSubIn':
+      return n.params.matchId ? `/matches/${encodeURIComponent(String(n.params.matchId))}` : '/matches'
+    case 'boardFeatured':
+      return n.params.boardId ? `/history/${encodeURIComponent(String(n.params.boardId))}` : '/featured'
+    case 'pairInvited':
+    case 'pairAccepted':
+    case 'pairDeclined':
+    case 'pairEnded':
+      return n.params.pairId ? `${BOOK_SITE}/pairs/${encodeURIComponent(String(n.params.pairId))}` : BOOK_SITE
+    case 'filesNearlyFull':
+      return `${BOOK_SITE}/library/book`
+    case 'bookPublished':
+      return n.params.slug ? `${BOOK_SITE}/c/${encodeURIComponent(String(n.params.slug))}` : BOOK_SITE
+    case 'bookReviewRequested':
+      return n.params.slug ? `${BOOK_SITE}/review/${encodeURIComponent(String(n.params.slug))}` : `${BOOK_SITE}/review`
+    case 'bookReturned':
+      return n.params.slug ? `${BOOK_SITE}/edit/${encodeURIComponent(String(n.params.slug))}` : `${BOOK_SITE}/review`
+    // An article is reviewed in its editor, so a draft sent for review and one sent back both open it (J4)
+    case 'articleReviewRequested':
+    case 'articleReturned':
+      return n.params.slug ? `${BOOK_SITE}/library/${encodeURIComponent(String(n.params.slug))}/edit` : `${BOOK_SITE}/review`
+    case 'articlePublished':
+      return n.params.slug ? `${BOOK_SITE}/library/${encodeURIComponent(String(n.params.slug))}` : `${BOOK_SITE}/library`
+    case 'bookOverrideChanged':
+      return n.params.profileId ? `${BOOK_SITE}/profiles/${encodeURIComponent(String(n.params.profileId))}/compare` : BOOK_SITE
+    case 'bookSuggestUnify':
+      return n.params.profileId
+        ? `${BOOK_SITE}/profiles/${encodeURIComponent(String(n.params.profileId))}/compare?unify=${encodeURIComponent(String(n.params.ref ?? ''))}`
+        : BOOK_SITE
+    case 'tournamentAnnounced':
+    case 'tournamentPartner':
+    case 'tournamentWithdrawn':
+    case 'tournamentRemoved':
+    case 'tournamentCancelled':
+    case 'tournamentDayReminder':
+    case 'tournamentReminder':
+      return n.params.tournamentId ? `/tournaments/${encodeURIComponent(String(n.params.tournamentId))}` : '/tournaments'
+    // Straight to the results: the pairs event's or the team match's page
+    case 'tournamentResults':
+      if (n.params.eventId && (n.params.eventKind === 'pairs' || n.params.eventKind === 'match' || n.params.eventKind === 'individual' || n.params.eventKind === 'teams'))
+        return tournamentEventLink(n.params.eventKind, String(n.params.eventId))
+      return n.params.tournamentId ? `/tournaments/${encodeURIComponent(String(n.params.tournamentId))}` : '/tournaments'
+    // A round paired (`e9-t14`): the team's match, or the event's page for a bye
+    case 'teamEventRound':
+      if (n.params.matchId) return `/matches/${encodeURIComponent(String(n.params.matchId))}`
+      return n.params.teamEventId ? teamEventLink(String(n.params.teamEventId)) : '/tournaments'
+    // Partner bidding practice (`e10-t08`): the session, where it is answered, bid and reviewed
+    case 'partnerBidInvited':
+    case 'partnerBidAccepted':
+    case 'partnerBidDeclined':
+    case 'partnerBidTurn':
+    case 'partnerBidFinished':
+    case 'partnerBidAbandoned':
+    case 'partnerBidExpired':
+      return n.params.sessionId ? `/partner-bidding/${encodeURIComponent(String(n.params.sessionId))}` : '/partner-bidding'
+    case 'forumReply':
+    case 'forumMention':
+    case 'forumAnnouncement':
+    case 'forumPinned':
+    case 'forumHidden':
+    case 'forumUnhidden':
+      return n.params.postId
+        ? `${options.forum ? '' : BOOK_SITE}/forum/p/${encodeURIComponent(String(n.params.postId))}${n.params.commentId ? `#comment-${encodeURIComponent(String(n.params.commentId))}` : ''}`
+        : `${options.forum ? '' : BOOK_SITE}/forum`
+  }
+}

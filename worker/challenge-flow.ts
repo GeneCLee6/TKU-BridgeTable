@@ -1,5 +1,6 @@
 import {
   challengeDeadline,
+  challengePairsOf,
   isOpenChallenge,
   type ChallengeSettings,
   type ChallengeStandingsView,
@@ -41,6 +42,17 @@ export function newChallenge(c: {
   known?: ChallengeResult[]
 }): Challenge {
   const known = !!c.known
+  // A partner challenge (`e7-t28`): each member knows their partner, the creator's is the first invitee
+  const partners = new Map<string, string>()
+  if (c.settings.partners)
+    for (const [a, b] of challengePairsOf(c.creatorId, c.invitees) ?? []) {
+      partners.set(a, b)
+      partners.set(b, a)
+    }
+  const partner = (userId: string) => {
+    const id = partners.get(userId)
+    return id === undefined ? {} : { partnerId: id }
+  }
   return {
     id: c.id,
     creatorId: c.creatorId,
@@ -57,8 +69,11 @@ export function newChallenge(c: {
         answeredAt: c.now,
         ...(known && { startedAt: c.now, finishedAt: c.now }),
         knownDeals: known,
+        ...partner(c.creatorId),
       },
-      ...c.invitees.map((userId): ChallengePlayer => ({ userId, status: 'invited', invitedAt: c.now, knownDeals: false })),
+      ...c.invitees.map(
+        (userId): ChallengePlayer => ({ userId, status: 'invited', invitedAt: c.now, knownDeals: false, ...partner(userId) }),
+      ),
     ],
     results: c.known ?? [],
   }
@@ -67,10 +82,69 @@ export function newChallenge(c: {
 /** Whether answers and play are still taken: an open state and the deadline not reached */
 export const challengeTakesPart = (c: Challenge, now: number) => isOpenChallenge(c.status) && now < c.deadline
 
+// ── Partnerships (`e7-t28`) ─────────────────────────────────────────────────────────────────────
+
+/** A participant's partner in a partner challenge (null in any other, or once the partner is gone) */
+export function partnerOf(c: Challenge, userId: string): ChallengePlayer | null {
+  const id = c.players.find((p) => p.userId === userId)?.partnerId
+  return (id !== undefined && c.players.find((p) => p.userId === id)) || null
+}
+
+/**
+ * The member a partnership's table, results and standings go under: the one invited first (the
+ * creator for theirs). Oneself in a challenge without partners
+ */
+export function pairLead(c: Challenge, userId: string): string {
+  const partner = partnerOf(c, userId)
+  if (!partner) return userId
+  const at = (id: string) => c.players.findIndex((p) => p.userId === id)
+  return at(partner.userId) < at(userId) ? partner.userId : userId
+}
+
+/** Whether a participant is the second member of a partnership: one entry, so they are not listed apart */
+export const isPairSecond = (c: Challenge, userId: string) => pairLead(c, userId) !== userId
+
+/** Whether a participant may sit down to play: accepted, and in a partner challenge their partner too */
+export function pairReady(c: Challenge, player: ChallengePlayer): boolean {
+  if (player.status !== 'accepted') return false
+  if (!c.settings.partners) return true
+  return partnerOf(c, player.userId)?.status === 'accepted'
+}
+
+/**
+ * A partnership is one entry: when one member declines (or the deadline declines them), the other
+ * cannot play without them and declines too. Returns the changed rows, the given ones first
+ */
+function declinePairs(c: Challenge, changed: ChallengePlayer[], now: number): ChallengePlayer[] {
+  if (!c.settings.partners) return changed
+  const rows = new Map(c.players.map((p) => [p.userId, p]))
+  for (const p of changed) rows.set(p.userId, p)
+  const out = new Map(changed.map((p) => [p.userId, p]))
+  for (const p of changed) {
+    if (p.status !== 'declined' || p.partnerId === undefined) continue
+    const partner = rows.get(p.partnerId)
+    if (!partner || partner.status === 'declined') continue
+    const declined: ChallengePlayer = { ...partner, status: 'declined', answeredAt: partner.answeredAt ?? now }
+    rows.set(declined.userId, declined)
+    out.set(declined.userId, declined)
+  }
+  return [...out.values()]
+}
+
+/** The participants besides the creator and, in a partner challenge, the creator's partner */
+function opponentsIn(c: Challenge, players: ChallengePlayer[]): ChallengePlayer[] {
+  const own = new Set([c.creatorId])
+  const partner = c.settings.partners ? partnerOf(c, c.creatorId) : null
+  if (partner) own.add(partner.userId)
+  return players.filter((p) => !own.has(p.userId))
+}
+
 /**
  * An invitee's answer. Only once, only while the challenge is open and before the deadline. The
  * first acceptance besides the creator makes it `active`; when the last invitee declines and
- * nobody but the creator accepted, there is nobody left to wait for and it is `expired` at once
+ * nobody but the creator accepted, there is nobody left to wait for and it is `expired` at once.
+ * In a partner challenge (`e7-t28`) a partnership counts once both of them accepted, and one
+ * member declining declines their partner too (the change carries both rows)
  */
 export function answer(c: Challenge, userId: string, accept: boolean, now: number): ChallengeStep {
   const player = c.players.find((p) => p.userId === userId)
@@ -78,12 +152,15 @@ export function answer(c: Challenge, userId: string, accept: boolean, now: numbe
   if (!challengeTakesPart(c, now)) return { error: 'challengeClosed' }
   if (player.status !== 'invited') return { error: 'alreadyAnswered' }
   const answered: ChallengePlayer = { ...player, status: accept ? 'accepted' : 'declined', answeredAt: now }
-  const players = c.players.map((p) => (p.userId === userId ? answered : p))
-  const others = players.filter((p) => p.userId !== c.creatorId)
-  if (accept && c.status === 'pending') return { players: [answered], status: 'active' }
+  const changed = declinePairs(c, [answered], now)
+  const rows = new Map(changed.map((p) => [p.userId, p]))
+  const players = c.players.map((p) => rows.get(p.userId) ?? p)
+  const after: Challenge = { ...c, players }
+  const others = opponentsIn(c, players)
+  if (accept && c.status === 'pending' && others.some((p) => pairReady(after, p))) return { players: changed, status: 'active' }
   if (!accept && c.status === 'pending' && others.every((p) => p.status === 'declined'))
-    return { players: [answered], status: 'expired' }
-  return { players: [answered] }
+    return { players: changed, status: 'expired' }
+  return { players: changed }
 }
 
 /** The creator calls it off: only while it is open and nobody but the creator has started a board */
@@ -101,10 +178,13 @@ export function cancel(c: Challenge, userId: string): ChallengeStep {
  */
 export function deadlineOutcome(c: Challenge, now: number): ChallengeChange | null {
   if (!isOpenChallenge(c.status)) return null
-  const players = c.players
+  const unanswered = c.players
     .filter((p) => p.status === 'invited')
     .map((p): ChallengePlayer => ({ ...p, status: 'declined', answeredAt: now }))
-  const accepted = c.players.some((p) => p.userId !== c.creatorId && p.status === 'accepted')
+  // A member whose partner never answered could not play: the partnership declined (`e7-t28`)
+  const players = declinePairs(c, unanswered, now)
+  const rows = new Map(players.map((p) => [p.userId, p]))
+  const accepted = opponentsIn(c, c.players).some((p) => (rows.get(p.userId) ?? p).status === 'accepted')
   return { players, status: accepted ? 'finished' : 'expired' }
 }
 
@@ -156,8 +236,10 @@ export function earlyFinish(c: Challenge): ChallengeChange | null {
 export function challengeStandings(
   c: Challenge,
   rulingOf: (boardId: string) => ScoreRuling | undefined = () => undefined,
+  penalties?: ReadonlyMap<string, number>,
 ): ChallengeStandingsView {
-  const finishers = c.players.filter((p) => hasFinished(c, p))
+  // A partnership is one entry, under its first member (`e7-t28`): both have the same results
+  const finishers = c.players.filter((p) => hasFinished(c, p) && !isPairSecond(c, p.userId))
   const scoring = finishers.length > 1 ? c.settings.scoring : 'total'
   const scores: Record<string, number[]> = {}
   // A director's ruling on a participant's board (`e2-t36`), and which boards those are
@@ -176,7 +258,7 @@ export function challengeStandings(
     ruled[p.userId] = rulingRow.flatMap((ruling, i) => (ruling ? [i + 1] : []))
   }
   // Everyone ranked played every board, so the rule for unplayed boards never applies
-  const ranked = finishers.length ? scoreChallenge({ scoring, unfinished: 'worst', scores, rulings }) : []
+  const ranked = finishers.length ? scoreChallenge({ scoring, unfinished: 'worst', scores, rulings, ...(penalties && { penalties }) }) : []
   return {
     final: c.status === 'finished',
     scoring,
@@ -186,9 +268,17 @@ export function challengeStandings(
       total: s.total,
       boards: s.boards,
       ...(ruled[s.player].length > 0 && { ruled: ruled[s.player] }),
+      ...(s.penalty !== undefined && { penalty: s.penalty }),
+      ...withPartner(c, s.player),
     })),
     unfinished: c.players
-      .filter((p) => p.status === 'accepted' && !hasFinished(c, p))
-      .map((p) => ({ userId: p.userId, played: playedCount(c, p.userId) })),
+      .filter((p) => p.status === 'accepted' && !hasFinished(c, p) && !isPairSecond(c, p.userId))
+      .map((p) => ({ userId: p.userId, played: playedCount(c, p.userId), ...withPartner(c, p.userId) })),
   }
+}
+
+/** `{ partnerId }` for a member of a partnership, nothing otherwise: how the views name the second member */
+export function withPartner(c: Challenge, userId: string): { partnerId?: string } {
+  const partner = partnerOf(c, userId)
+  return partner ? { partnerId: partner.userId } : {}
 }

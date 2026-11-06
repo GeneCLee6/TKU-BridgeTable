@@ -7,7 +7,9 @@ import type { Card, Seat, Side } from './cards.ts'
 import type { ChallengeSettings } from './challenge.ts'
 import type { BoardResult, BoardState, Phase, Trick } from './game.ts'
 import type { MessageCode, MessageParams } from './messages.ts'
-import type { PracticeSettings } from './practice.ts'
+import type { PartnerBidView } from './partner-bidding.ts'
+import type { PracticeSetChoice, PracticeSettings } from './practice.ts'
+import type { TeachMark, TeachMarkInput } from './teaching.ts'
 import type { MatchSeat, Room, TeamMatchView } from './team-match.ts'
 import type { RulingKind, Team } from './team-scoring.ts'
 import type { Profile } from './profile.ts'
@@ -41,12 +43,12 @@ export interface PublicUser {
  * (`bookEdit`: drafts and sending them for review), publish its conventions and send drafts back
  * (`bookReview`, BridgeHall e8-t01; a reviewer is always an editor too, `withImpliedPermissions`),
  * import Word or PDF files into it (`bookImport`), feature finished boards
- * (`boardCurate`, e4-t28), and seat TKB in the club's system (`tkuSystem`, 社長 2026-10-26: the
+ * (`boardCurate`, e4-t28), open teaching tables (`teach`, e10-t10), and seat TKB in the club's system (`tkuSystem`, 社長 2026-10-26: the
  * club's robot is private; everyone else's TKB is the 2/1 one), and be an officer (幹部) of
  * BridgeHall's forum (`forumModerate`, e11-t09: post news, pin, lock, delete anyone's posts and
  * comments, handle reports). Admins have every permission.
  */
-export const PERMISSIONS = ['bookEdit', 'bookReview', 'bookImport', 'boardCurate', 'tkuSystem', 'forumModerate'] as const
+export const PERMISSIONS = ['bookEdit', 'bookReview', 'bookImport', 'boardCurate', 'tkuSystem', 'forumModerate', 'teach'] as const
 export type Permission = (typeof PERMISSIONS)[number]
 export const isPermission = (value: unknown): value is Permission => PERMISSIONS.includes(value as Permission)
 
@@ -55,6 +57,12 @@ export function withImpliedPermissions(permissions: readonly Permission[]): Perm
   const set = new Set(permissions)
   if (set.has('bookReview')) set.add('bookEdit')
   return PERMISSIONS.filter((p) => set.has(p))
+}
+
+/** Whether other members see a member's boards and forum posts on their profile page (e13-t08) */
+export interface ProfilePrivacy {
+  boards: boolean
+  posts: boolean
 }
 
 /** The signed-in user, as /api/me returns it */
@@ -69,6 +77,8 @@ export interface Me extends PublicUser {
   permissions: Permission[]
   /** Admins only: registrations waiting for approval */
   applications?: number
+  /** The platform owner (e12-t05, `PLATFORM_OWNER`): only they see the link to the back office at /platform */
+  platformOwner?: boolean
   /** Whether the bell says when a friend comes online (e1-t24); the server always sets it, on unless turned off */
   friendOnlineNotice?: boolean
   /**
@@ -86,8 +96,80 @@ export interface Me extends PublicUser {
   bookProfile?: string
   /** How fast the robots play at the member's tables (出牌速度); the server always sets it */
   robotSpeed?: RobotSpeed
+  /**
+   * What other members may see on the member's profile page (e13-t08, 隱私設定): the boards they
+   * played and their forum posts; the server always sets it, both shown unless turned off
+   */
+  profilePrivacy?: ProfilePrivacy
   /** The feature flags the member has (e11-t26, shared/features.ts); the server always sets it */
   features?: FeatureFlag[]
+  /** The member's email (e1-t29); left out when the club sends no mail (no mail provider set, DEPLOY.md §4.14) */
+  email?: AccountEmail
+  /**
+   * 兩步驟登入 (e11-t31): sent to admins (who may turn it on) and to anyone who has it on; left out
+   * for everyone else
+   */
+  twoFactor?: AccountTwoFactor
+  /**
+   * Google sign-in (e1-t31): the Google account bound to this one (only its address, for the
+   * owner), or null; left out when the club has no Google sign-in (DEPLOY.md §4.16)
+   */
+  google?: AccountGoogle | null
+  /**
+   * LINE login (e1-t32): the LINE account bound to this one (only its LINE name, for the owner), or
+   * null; left out when the club has no LINE login (DEPLOY.md §4.18)
+   */
+  line?: AccountLine | null
+}
+
+/** The other sites a member may sign in with (e1-t31 Google, e1-t32 LINE; worker/oauth.ts) */
+export type OAuthName = 'google' | 'line'
+
+/** `Me.google`: the address Google gave when it was bound, and when */
+export interface AccountGoogle {
+  email: string
+  linkedAt: number
+}
+
+/** `Me.line`: the LINE name when it was bound (LINE gives no email here), and when */
+export interface AccountLine {
+  name: string
+  linkedAt: number
+}
+
+/**
+ * `GET /api/auth/<google|line>/pending` (e1-t31, e1-t32): what this browser's sign-in with the
+ * provider waits for after coming back from it: the two-step code, or the application form (with
+ * the provider's name, only to fill in the display name)
+ */
+export type OAuthPending = { step: 'code' } | { step: 'apply'; name: string } | { step: null }
+
+/** `Me.email`: the verified address, and one waiting for its link */
+export interface AccountEmail {
+  address: string | null
+  verifiedAt: number | null
+  pending: string | null
+}
+
+/** `Me.twoFactor`: whether the second sign-in step is on, and how many recovery codes are unused */
+export interface AccountTwoFactor {
+  enabled: boolean
+  recoveryLeft: number
+  /**
+   * True for an admin who has not turned it on yet (社長 2026-11-02): they sign in and use the site
+   * as a member, but every admin-only action answers `adminTwoFactorRequired` until they set it up
+   */
+  required?: boolean
+}
+
+/** `POST /api/account/2fa/setup`: the new secret, as text and as the address an authenticator app reads */
+export interface TwoFactorSetup {
+  /** Base32, for typing into the app */
+  secret: string
+  /** `otpauth://totp/...` */
+  uri: string
+  /** When the secret stops waiting for its first code */
+  expiresAt: number
 }
 
 /** Where someone registered; both sites share the accounts */
@@ -105,6 +187,11 @@ export interface Application {
 
 /** POST /api/register: the first account signs in at once; later ones wait for approval */
 export type RegisterResult = { user: Me } | { pending: true; username: string }
+
+/** GET /api/register/options (e1-t33): Turnstile's site key when the form must show it, else null */
+export interface RegisterOptions {
+  turnstileSiteKey: string | null
+}
 
 export interface SeatOccupant extends PublicUser {
   online: boolean
@@ -127,6 +214,8 @@ export const isRobotId = (id: string | null | undefined) => !!id && id.startsWit
  * (GIB-compatible, docs/BBO GIB)
  */
 export const ROBOT_KINDS = ['tku', 'gib'] as const
+/** The club's system card: signed-in members of 淡江 only (`worker/system-card.ts`, ARCHITECTURE.md §4) */
+export const TKU_CARD_API = '/api/system-card/tku'
 export type RobotKind = (typeof ROBOT_KINDS)[number]
 export const isRobotKind = (value: unknown): value is RobotKind => ROBOT_KINDS.includes(value as RobotKind)
 
@@ -178,6 +267,12 @@ export interface TableSettings {
   allowKibitz: boolean
   /** Minutes each board may take, one of BOARD_TIME_LIMITS; 0 is no limit */
   boardMinutes: number
+  /**
+   * Open to other clubs (e12-t07): members of other clubs in the cross-club lobby may watch it
+   * (watching only). Left out (the default) when not; only a casual, public table that allows
+   * kibitzers is ever shown to them (`openToOtherClubs`, shared/public-lobby.ts)
+   */
+  openToClubs?: boolean
 }
 export const DEFAULT_TABLE_SETTINGS: TableSettings = { access: 'public', allowKibitz: true, boardMinutes: 0 }
 /**
@@ -202,7 +297,7 @@ export function tableSettingsFrom(stored: unknown): TableSettings {
   const boardMinutes = (BOARD_TIME_LIMITS as readonly unknown[]).includes(saved.boardMinutes)
     ? (saved.boardMinutes as number)
     : DEFAULT_TABLE_SETTINGS.boardMinutes
-  return { access, allowKibitz, boardMinutes }
+  return { access, allowKibitz, boardMinutes, ...(saved.openToClubs === true && { openToClubs: true }) }
 }
 
 /** Request and hidden tables take their invited members without asking, so the host keeps a list for them */
@@ -217,6 +312,11 @@ export const TABLE_REQUEST_COOLDOWN_MS = 10 * 60_000
 export const SLOW_TURN_MS = 60_000
 /** A seated member offline this long is replaced by a robot until they come back (代打, AC-2.13) */
 export const SUBSTITUTE_MS = 3 * 60_000
+/**
+ * A partner challenge (`e7-t28`): a member offline this long loses their seat, and the table is set
+ * aside (parked) until both are back; no robot plays for them (社長, 2026-11-02)
+ */
+export const PARTNER_AWAY_MS = 3 * 60_000
 
 /**
  * Checks settings from the browser: every field optional, nothing else allowed; null when invalid.
@@ -225,27 +325,36 @@ export const SUBSTITUTE_MS = 3 * 60_000
 export function parseTableSettings(value: unknown): Partial<TableSettings> | null {
   if (value === undefined) return {}
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
-  const { access, visibility, allowKibitz, boardMinutes, ...rest } = value as Record<string, unknown>
+  const { access, visibility, allowKibitz, boardMinutes, openToClubs, ...rest } = value as Record<string, unknown>
   if (Object.keys(rest).length) return null
   if (access !== undefined && !TABLE_ACCESS.includes(access as TableAccess)) return null
   if (visibility !== undefined && (access !== undefined || !Object.hasOwn(LEGACY_VISIBILITY, String(visibility)))) return null
   if (allowKibitz !== undefined && typeof allowKibitz !== 'boolean') return null
   if (boardMinutes !== undefined && !(BOARD_TIME_LIMITS as readonly unknown[]).includes(boardMinutes)) return null
+  if (openToClubs !== undefined && typeof openToClubs !== 'boolean') return null
   const wanted = access ?? (visibility === undefined ? undefined : LEGACY_VISIBILITY[String(visibility)])
   return {
     ...(wanted !== undefined && { access: wanted as TableAccess }),
     ...(allowKibitz !== undefined && { allowKibitz }),
     ...(boardMinutes !== undefined && { boardMinutes: boardMinutes as number }),
+    ...(openToClubs !== undefined && { openToClubs }),
   }
 }
 
 /**
  * What a table is for (`worker/modes.ts`): `casual` tables anyone opens, a participant's own
  * `challenge` table (ARCHITECTURE.md §5.5), a member's own `practice` table with three robots
- * (§5.11), and the two rooms of a `team` match (§5.8). Pairs events add theirs
+ * (§5.11), the two rooms of a `team` match (§5.8), a round's table of a `pairs` event (§5.22), and a
+ * teacher's `teach` table (§5.11, nothing played there is recorded)
  */
-export const TABLE_MODES = ['casual', 'challenge', 'practice', 'team'] as const
+export const TABLE_MODES = ['casual', 'challenge', 'practice', 'team', 'pairs', 'teach'] as const
 export type TableMode = (typeof TABLE_MODES)[number]
+
+/**
+ * What a board record can say it was: a table's mode, or `imported`, a board a member brought in from
+ * a BBO LIN file (`e4-t39`, ARCHITECTURE.md §5.3), which only they see (§4)
+ */
+export type RecordMode = TableMode | 'imported'
 
 /**
  * A table that is one member's alone (a challenge table): not in the lobby, nobody else joins or
@@ -275,6 +384,23 @@ export interface TablePractice extends PracticeSettings {
    * the server after the auction, in turns (`TableService.review`), so a part may still be missing
    */
   review?: PracticeReview
+}
+
+/**
+ * A teaching table as someone at it sees it (`e10-t10`, `e10-t11`, §4): never any cards but those in
+ * `marks`, and each member gets only the marks on cards they can see (`worker/views.ts`)
+ */
+export interface TableTeach {
+  /** The teacher paused the table: nobody calls or plays, robots neither */
+  paused: boolean
+  /** What the teacher marked on the table; gone when the table goes on */
+  marks: TeachMark[]
+  /** People without a seat see all four hands (the teacher chooses); hidden otherwise */
+  openHands: boolean
+  /** The board's place in the chosen deals, if the teacher chose any */
+  problem?: { seq: number; count: number; title?: string }
+  /** The teacher alone: there is a step to take back */
+  canUndo?: boolean
 }
 
 /** The review of a bidding practice's board (`e10-t07`); never sent while the board is being bid */
@@ -312,6 +438,18 @@ export interface TableChallenge {
   /** Boards the player has finished */
   played: number
   deadline: number
+  /**
+   * A partner challenge (`e7-t28`): the partner is away (left the table): nothing is dealt or
+   * played until they are back
+   */
+  partnerAway?: boolean
+  /**
+   * A partner challenge: a member at the table dropped offline; their seat is kept until this time
+   * (PARTNER_AWAY_MS), then the table is set aside until both are back
+   */
+  partnerOfflineUntil?: number
+  /** A partner challenge: the partner was offline too long and lost their seat; the board waits as it was */
+  partnerDropped?: boolean
 }
 
 /**
@@ -319,6 +457,22 @@ export interface TableChallenge {
  * many. The score is not here: it comes from the match itself (`TeamMatchView`), which only counts
  * boards both rooms finished
  */
+/** A pairs event's table as everyone at it sees it (`TableView.pairs`, §5.22) */
+export interface TablePairs {
+  id: string
+  round: number
+  rounds: number
+  /** The movement's table, 1-based */
+  table: number
+  /** Boards finished here this round, and how many the round has */
+  played: number
+  boards: number
+  /** Nothing left to play here this round: the players go to the next round's table */
+  over: boolean
+  /** An individual event's table (`e9-t15`): the partners change every round */
+  individual?: true
+}
+
 export interface TableMatch {
   id: string
   room: Room
@@ -362,6 +516,8 @@ export interface TableSummary {
   requested?: boolean
   /** A member's practice table (§5.11): its seats are taken by the member and three robots */
   practice?: boolean
+  /** A teaching table (`e10-t10`) */
+  teaching?: boolean
   seats: Record<Seat, SeatOccupant | null>
   spectators: number
   boardsPlayed: number
@@ -451,8 +607,12 @@ export interface TableView {
   challenge?: TableChallenge
   /** At a team match table (§5.8): no undo, and seats and settings are the match's */
   match?: TableMatch
+  /** A pairs event's table (§5.22) */
+  pairs?: TablePairs
   /** At a practice table (§5.11): its settings. Seats and settings do not change there; undo has no limit */
   practice?: TablePractice
+  /** At a teaching table (`e10-t10`) */
+  teach?: TableTeach
   /** The host only: the members invited to the table (`e2-t25`) */
   invited?: PublicUser[]
   /** The host only: members waiting for an answer to their request to join (oldest first, `at` server clock) */
@@ -557,6 +717,8 @@ export interface HealthStatus {
   online: number
   /** Challenges in their own objects (H2b), when the club has them */
   events?: { objects: number; unconfirmed: number }
+  /** The same for the team matches (H2c) */
+  matchEvents?: { objects: number; unconfirmed: number }
   /** Members seated at a table, and the robots seated */
   playing: number
   robots: number
@@ -645,6 +807,8 @@ export const NOTIFICATION_KINDS = [
   'challengeReminder',
   'challengeResults',
   'challengeWeekly',
+  'challengePartnerDeclined',
+  'challengePartnerSeated',
   'friendOnline',
   'tableInvited',
   'tableRequest',
@@ -678,8 +842,30 @@ export const NOTIFICATION_KINDS = [
   'forumMention',
   'forumAnnouncement',
   'forumPinned',
+  'forumHidden',
+  'forumUnhidden',
   'directorCalled',
   'passwordResetRequested',
+  'tournamentAnnounced',
+  'tournamentPartner',
+  'tournamentWithdrawn',
+  'tournamentRemoved',
+  'tournamentCancelled',
+  'tournamentReminder',
+  'tournamentResults',
+  'tournamentDayReminder',
+  'teamEventRound',
+  'clubApplication',
+  'supportReport',
+  'supportForwarded',
+  'supportResolved',
+  'partnerBidInvited',
+  'partnerBidAccepted',
+  'partnerBidDeclined',
+  'partnerBidTurn',
+  'partnerBidFinished',
+  'partnerBidAbandoned',
+  'partnerBidExpired',
 ] as const
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number]
 
@@ -722,9 +908,27 @@ export interface Notification {
    * the start of its text) and who did it: `forumReply` (+ `commentId`) a comment on the member's
    * post or a reply to their comment; `forumMention` (+ `commentId` when in a comment) the member
    * was named with `@`; `forumAnnouncement` a new post on an officers-only board (the news), to
-   * every member; `forumPinned` an officer pinned the member's post. `directorCalled` { tableId,
+   * every member; `forumPinned` an officer pinned the member's post; `forumHidden`, `forumUnhidden`
+   * { postId, title } only (no officer's name) an officer hid the member's post or showed it again
+   * (the table's e13-t10, 2026-11-02). `directorCalled` { tableId,
    * number, username } of the table and the player who called the director (`e2-t34`), to its host
-   * and the admins
+   * and the admins. The tournament kinds (`e9-t16`, §5.24), each { tournamentId, title }:
+   * `tournamentAnnounced` to every member with the flag; `tournamentPartner` (+ `username`) a member
+   * entered with them as partner or teammate, to confirm; `tournamentWithdrawn` (+ `username`) a
+   * partner withdrew or said no, so their entry is off; `tournamentRemoved` (+ `username`) an admin
+   * took their entry off; `tournamentCancelled`; `tournamentDayReminder` a day before the start
+   * (none when announced or moved less than a day before), `tournamentReminder` an hour before;
+   * `tournamentResults` (+ `eventKind`, `eventId`) its event finished, leading to the results.
+   * `teamEventRound` { teamEventId, title, number, matchId? } a multi-team event's round `number`
+   * was paired (`e9-t14`, §5.26): to every player of the round's teams, with their match (none: a bye).
+   * `clubApplication` { clubId, name } of a new application to open a club (e12-t06), to the platform
+   * owner only (`PLATFORM_OWNER`, 淡江's object), leading to the back office (/platform).
+   * `supportReport` { username } a member sent a support report (e12-t16), to the club's admins,
+   * leading to the admin page. `supportForwarded` { name } a club's admin forwarded one, to the
+   * platform owner, leading to the back office; `name` is the club's. Never the report's text.
+   * `supportResolved` {} the member's own report was resolved, leading to their list on 我的帳號;
+   * nothing about the report or who resolved it
+   * The partner bidding kinds (`e10-t08`): { sessionId, username } of the other member of the session
    */
   params: Record<string, string | number>
   read: boolean
@@ -796,6 +1000,11 @@ export const TABLE_ACTIONS = [
   'redeal',
   'rebid',
   'showHands',
+  'teachUndo',
+  'teachReplay',
+  'teachPause',
+  'teachMark',
+  'teachUnmark',
 ] as const
 
 export type TableAction = Extract<ClientMessage, { type: (typeof TABLE_ACTIONS)[number] }>
@@ -851,6 +1060,17 @@ export type ClientMessage =
    * `settings.robotKind`, boards dealt to `settings.deal`. Leaves any other table first
    */
   | { type: 'createPractice'; settings: PracticeSettings; access?: TableAccess }
+  /** Opens a teaching table (`e10-t10`), with the `teach` permission: the chosen deals, or any deal without `set` */
+  | { type: 'createTeaching'; set?: PracticeSetChoice; access?: TableAccess }
+  /** The teacher takes back the last step of the board, whoever made it */
+  | { type: 'teachUndo' }
+  /** The teacher starts the board on the table again from the deal */
+  | { type: 'teachReplay' }
+  /** The teacher pauses the table to explain, or goes on, which clears the marks (`e10-t11`) */
+  | { type: 'teachPause'; paused: boolean }
+  | { type: 'teachMark'; mark: TeachMarkInput }
+  /** Takes one mark off, or all of them without `id` */
+  | { type: 'teachUnmark'; id?: number }
   /** At a practice table only: the board on the table is put away unplayed and a new one dealt */
   | { type: 'redeal' }
   /** At a bidding practice only (`e10-t15`): the board on the table is bid again from the start, the same hands */
@@ -874,6 +1094,8 @@ export type ClientMessage =
   | { type: 'playChallenge'; challengeId: string }
   /**
    * Challenges 1–20 friends (§5.5): `boards` 1–16 (8 when left out), settings over the defaults.
+   * With `settings.partners` (`e7-t28`) the invitees are the creator's partner, then the opposing
+   * partnerships two by two (3–19 people)
    * With `fromBoards` (history ids, 1–16) the boards are ones the creator played with three robots
    * (「用這副牌挑戰」, `e7-t22`): their results count and they do not play again
    */
@@ -943,6 +1165,8 @@ export type ServerMessage =
   | { type: 'error'; code: MessageCode; params: MessageParams; message: string }
   /** On connecting, and whenever the member's notifications change */
   | { type: 'notifications'; notifications: NotificationsView }
+  /** A partner bidding session changed (`e10-t08`): as this member may see it; null when it is gone */
+  | { type: 'partnerBid'; id: string; session: PartnerBidView | null }
   /** On connecting, and whenever the member's conversations or unread counts change */
   | { type: 'directs'; directs: DirectsView }
   /** A new direct message, sent only to its two members (all their tabs) */
@@ -960,8 +1184,8 @@ export interface BoardRecord {
   finishedAt: number
   players: Record<Seat, PublicUser>
   board: BoardState
-  /** The table's mode when it is not `casual` */
-  mode?: TableMode
+  /** The table's mode when it is not `casual`; `imported` for a board from a file */
+  mode?: RecordMode
   /** The challenge or match the board belongs to, if any */
   eventId?: string
   /** A team match board: which room it was played in (§5.8) */
@@ -981,6 +1205,11 @@ export interface BoardRecord {
   events?: BoardEvent[]
   /** A director's ruling on the board (`e2-t35`) */
   ruling?: BoardRuling
+  /**
+   * The table it was played at (e4-t37: the boards of one session are the ones with the same
+   * table, one after another); records from before it have none
+   */
+  tableId?: string
 }
 
 export interface BoardSummary {
@@ -993,7 +1222,7 @@ export interface BoardSummary {
   vul: Vulnerability
   contract: Contract | null
   result: BoardResult
-  mode?: TableMode
+  mode?: RecordMode
   eventId?: string
   room?: Room
   revealAt?: number
@@ -1025,6 +1254,34 @@ export function summarize(record: BoardRecord): BoardSummary {
       },
     }),
   }
+}
+
+/**
+ * A board's public link (e4-t38, ARCHITECTURE.md §4): its players and the admins see it and may
+ * take it back; `createdBy` is who made it
+ */
+export interface BoardShare {
+  token: string
+  createdAt: number
+  createdBy: PublicUser
+}
+
+/** A seat on a shared board: a member's name, or null for one who keeps their boards off their profile */
+export interface SharedPlayer {
+  name: string | null
+  robot?: boolean
+  robotKind?: RobotKind
+}
+
+/**
+ * One board as anyone with its public link sees it (`GET /api/share/:token`, `sharedBoardView`):
+ * the finished deal, the auction with its alerts, the play and the result, and the seats' names.
+ * Nothing else of the record: no ids, no table, event or ruling, no timing
+ */
+export interface SharedBoard {
+  board: BoardState
+  finishedAt: number
+  players: Record<Seat, SharedPlayer>
 }
 
 /** One page of the history list, newest first; `page` counts from 1 */
@@ -1090,6 +1347,8 @@ export interface AdminUser {
    * code an admin gave them still works (until `until`), null otherwise
    */
   passwordReset: { state: 'requested'; at: number } | { state: 'approved'; at: number; until: number } | null
+  /** Whether they turned 兩步驟登入 on (e11-t31); another admin may turn it off for them */
+  twoFactor?: boolean
 }
 
 /** An approved password reset (e1-t36): the one-time code for the admin to hand over, shown once */
@@ -1119,7 +1378,8 @@ export interface ClubSettings {
 export const LIMITS = {
   usernameMin: 2,
   usernameMax: 16,
-  passwordMin: 6,
+  /** e11-t29: 12 (ASVS 2.1.1), decided 2026-11-02; only new passwords, existing ones still sign in */
+  passwordMin: 12,
   /** ASVS 2.1.2: long enough for any passphrase, short enough that hashing one costs nothing (docs/SECURITY.md) */
   passwordMax: 128,
   applicationNoteMax: 60,
@@ -1132,10 +1392,29 @@ export const LIMITS = {
   historyPageDefault: 20,
   /** Days the list by day goes back at most (`GET /api/history/days`) */
   historyDaysMax: 366,
+  /** Boards in one PBN download of the records page (e4-t36): the first of the search, in its order */
+  exportBoardsMax: 500,
+  /** Boards in one session's LIN (e4-t37) */
+  sessionBoardsMax: 100,
   favoritesMax: 1000,
   favoriteNoteMax: 500,
   favoriteTagsMax: 8,
   favoriteTagMax: 20,
+}
+
+/**
+ * A deal of a member's own list (`e10-t09`, ARCHITECTURE.md §5.11), as the practice dialog lists it:
+ * never its hands, which only the server deals
+ */
+export interface OwnDealInfo {
+  id: string
+  /** Its number in the file */
+  boardNo: number
+  dealer: Seat
+  vul: Vulnerability
+  /** PBN's `Event` */
+  title?: string
+  addedAt: number
 }
 
 export const USERNAME_PATTERN = /^[\p{L}\p{N}_.-]+$/u

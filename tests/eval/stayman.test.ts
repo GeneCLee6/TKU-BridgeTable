@@ -6,16 +6,18 @@ import { newBoard } from '../../shared/game.ts'
 import { ROBOT_SYSTEMS } from '../../shared/robot/robots.ts'
 import { choose } from '../../shared/robot/system/engine.ts'
 import { evaluate } from '../../shared/robot/system/evaluate.ts'
+import { jumpsTo3NT } from '../../shared/robot/system/nt-invite.ts'
+import { invitesInMinor } from '../../shared/robot/system/tku/notrump.ts'
 import { bidOut } from '../../eval/consistency.ts'
 import { evalBoards } from '../../eval/deals.ts'
 import { HEAVY_MS } from '../engine/heavy.ts'
 
 /**
  * Z2: Stayman always holds a four-card major (社長 2026-10-31), and opener answers a major only with
- * four or more of it. The one exception is 2/1's inviting Stayman over 1NT without a major
- * (docs/BBO GIB/gib-2over1.md §4: 2NT is a minor transfer there), which must be 8–9 HCP and bid 2NT
- * next. Every hand of a fixed sample of eval deals is put in each Stayman spot, and the deals are
- * bid out by four TKBs.
+ * four or more of it. No exceptions (T1, 社長 2026-11-01): an invitation over 1NT without a major
+ * bids a natural 2NT in both systems, and an invitation with one goes through Stayman from 8 HCP.
+ * Every hand of a fixed sample of eval deals is put in each Stayman spot, and the deals are bid out
+ * by four TKBs.
  */
 
 const SYSTEMS = ['tku', 'gib'] as const
@@ -50,21 +52,34 @@ const SPOTS: Record<(typeof SYSTEMS)[number], [string, string][]> = {
 
 describe('Stayman (Z2)', () => {
   for (const system of SYSTEMS)
-    it(`${system}: only with a four-card major (2/1: or inviting 3NT over 1NT, then 2NT)`, () => {
+    it(`${system}: only with a four-card major, no exceptions`, () => {
       let asked = 0
       for (const [before, stayman] of SPOTS[system])
         for (const cards of hands) {
           if (callFor(system, cards, before) !== stayman) continue
           asked++
-          if (fourMajor(cards)) continue
           const h = evaluate(cards)
-          const where = `${before} ${stayman} with ${h.shape.join('')} ${h.hcp} HCP`
-          // 2/1's one exception: an invitation over 1NT (also over a double, or doubling a 2♣ overcall)
-          expect(system === 'gib' && before.includes('1N'), where).toBe(true)
-          expect(h.hcp >= 8 && h.hcp <= 9, where).toBe(true)
-          for (const answer of ['2D', '2H', '2S']) expect(callFor(system, cards, `${before} ${stayman} P ${answer} P`), `${where}, after ${answer}`).toBe('2N')
+          expect(fourMajor(cards), `${before} ${stayman} with ${h.shape.join('')} ${h.hcp} HCP`).toBe(true)
         }
       expect(asked).toBeGreaterThan(30)
+    }, HEAVY_MS)
+
+  // T1: over 1NT an invitation (8–9) with a four-card major goes through Stayman, one without bids
+  // 2NT or, with a long good minor, 3NT; and a 2NT response never holds a four-card major. 淡江
+  // invites with a long minor not good enough for 3NT through 2♠ and four of the minor (S1)
+  for (const system of SYSTEMS)
+    it(`${system}: invites over 1NT with Stayman or a natural 2NT`, () => {
+      let invited = 0
+      for (const cards of hands) {
+        const h = evaluate(cards)
+        const call = callFor(system, cards, '1N P')
+        const where = `1N P ${call} with ${h.shape.join('')} ${h.hcp} HCP`
+        if (call === '2N') expect(fourMajor(cards) || h.len.H >= 5 || h.len.S >= 5, where).toBe(false)
+        if (h.hcp < 8 || h.hcp > 9 || h.len.H >= 5 || h.len.S >= 5) continue
+        invited++
+        expect(call, where).toBe(fourMajor(cards) ? '2C' : jumpsTo3NT(h) ? '3N' : system === 'tku' && invitesInMinor(h) ? '2S' : '2N')
+      }
+      expect(invited).toBeGreaterThan(30)
     }, HEAVY_MS)
 
   for (const system of SYSTEMS)
@@ -102,7 +117,7 @@ describe('Stayman (Z2)', () => {
           if (i === asked + 2 && calls[i - 1].call === 'P' && /^[23][HS]$/.test(call)) expect(h.len[call[1] as 'H' | 'S'], where).toBeGreaterThanOrEqual(4)
           if (shows?.name !== 'stayman' || !shows.notes?.some((n) => n.key === 'asksMajor')) return
           asked = i
-          if (!fourMajor(board.hands[seat])) expect(system === 'gib' && shows.hcp?.[0] === 8 && shows.hcp[1] === 9, where).toBe(true)
+          expect(fourMajor(board.hands[seat]), where).toBe(true)
         })
       }
   }, HEAVY_MS)

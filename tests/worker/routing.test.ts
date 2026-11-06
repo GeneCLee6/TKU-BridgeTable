@@ -30,7 +30,7 @@ beforeEach(() => {
   sessions = new Map([['good-token', 'amy']])
   routes = {
     club: (clubId) => (clubs.push(clubId), { ...answer('club'), socketUser: async (token) => (token && sessions.get(token)) ?? null }),
-    table: (tableId) => answer(`table:${tableId}`),
+    table: (clubId, tableId) => answer(clubId === 'tku' ? `table:${tableId}` : `table:${clubId}/${tableId}`),
     assets: answer('assets'),
   }
 })
@@ -106,23 +106,23 @@ const NOW = taiwanDayStart('2026-10-26')
 
 describe('edge passes', () => {
   it('says who it is for, and with which session, until it expires, and nothing once anything in it changes', async () => {
-    const pass = await mintPass(SECRET, 'amy', 'a1', NOW)
-    expect(await readPass(SECRET, pass, NOW)).toEqual({ userId: 'amy', sessionId: 'a1', expires: NOW + EDGE_PASS_MS })
-    expect(await readPass(SECRET, pass, NOW + EDGE_PASS_MS - 1)).toMatchObject({ userId: 'amy' })
-    expect(await readPass(SECRET, pass, NOW + EDGE_PASS_MS)).toBeNull()
-    expect(await readPass('another-secret', pass, NOW)).toBeNull()
+    const pass = await mintPass(SECRET, 'amy', 'a1', NOW, 'tku')
+    expect(await readPass(SECRET, pass, NOW, 'tku')).toEqual({ userId: 'amy', sessionId: 'a1', expires: NOW + EDGE_PASS_MS })
+    expect(await readPass(SECRET, pass, NOW + EDGE_PASS_MS - 1, 'tku')).toMatchObject({ userId: 'amy' })
+    expect(await readPass(SECRET, pass, NOW + EDGE_PASS_MS, 'tku')).toBeNull()
+    expect(await readPass('another-secret', pass, NOW, 'tku')).toBeNull()
     const [, session, expires, signature] = pass.split('.')
     // Someone else's id, another session, a later expiry, a changed signature, junk
-    expect(await readPass(SECRET, `ben.${session}.${expires}.${signature}`, NOW)).toBeNull()
-    expect(await readPass(SECRET, `amy.ab12.${expires}.${signature}`, NOW)).toBeNull()
-    expect(await readPass(SECRET, `amy.${session}.${(NOW + EDGE_PASS_MS * 50).toString(36)}.${signature}`, NOW)).toBeNull()
-    expect(await readPass(SECRET, `amy.${session}.${(NOW + EDGE_PASS_MS - 1).toString(36)}.${signature}`, NOW)).toBeNull()
-    expect(await readPass(SECRET, `amy.${session}.${expires}.${signature.slice(1)}A`, NOW)).toBeNull()
+    expect(await readPass(SECRET, `ben.${session}.${expires}.${signature}`, NOW, 'tku')).toBeNull()
+    expect(await readPass(SECRET, `amy.ab12.${expires}.${signature}`, NOW, 'tku')).toBeNull()
+    expect(await readPass(SECRET, `amy.${session}.${(NOW + EDGE_PASS_MS * 50).toString(36)}.${signature}`, NOW, 'tku')).toBeNull()
+    expect(await readPass(SECRET, `amy.${session}.${(NOW + EDGE_PASS_MS - 1).toString(36)}.${signature}`, NOW, 'tku')).toBeNull()
+    expect(await readPass(SECRET, `amy.${session}.${expires}.${signature.slice(1)}A`, NOW, 'tku')).toBeNull()
     // A pass from before e11-t28 (no session) is no longer taken
-    expect(await readPass(SECRET, `amy.${expires}.${signature}`, NOW)).toBeNull()
+    expect(await readPass(SECRET, `amy.${expires}.${signature}`, NOW, 'tku')).toBeNull()
     for (const junk of [null, '', 'amy', 'amy.x.y.z', `amy.${session}.${expires}.!!!`, 'a'.repeat(300)])
-      expect(await readPass(SECRET, junk, NOW)).toBeNull()
-    expect(await readPass('', pass, NOW)).toBeNull()
+      expect(await readPass(SECRET, junk, NOW, 'tku')).toBeNull()
+    expect(await readPass('', pass, NOW, 'tku')).toBeNull()
   })
 
   it('is listed as revoked in D1 for as long as a pass could be good, and nothing is revoked before the list exists', async () => {
@@ -144,10 +144,10 @@ describe('edge passes', () => {
   })
 
   it('is handed out again once more than half used', async () => {
-    const pass = await mintPass(SECRET, 'amy', 'a1', NOW)
-    expect(await passNeedsRefresh(SECRET, pass, NOW + EDGE_PASS_MS / 2 - 1)).toBe(false)
-    expect(await passNeedsRefresh(SECRET, pass, NOW + EDGE_PASS_MS / 2 + 1)).toBe(true)
-    expect(await passNeedsRefresh(SECRET, null, NOW)).toBe(true)
+    const pass = await mintPass(SECRET, 'amy', 'a1', NOW, 'tku')
+    expect(await passNeedsRefresh(SECRET, pass, NOW + EDGE_PASS_MS / 2 - 1, 'tku')).toBe(false)
+    expect(await passNeedsRefresh(SECRET, pass, NOW + EDGE_PASS_MS / 2 + 1, 'tku')).toBe(true)
+    expect(await passNeedsRefresh(SECRET, null, NOW, 'tku')).toBe(true)
     expect(passCookie(pass, true)).toBe(`${PASS_COOKIE}=${pass}; Path=/; HttpOnly; SameSite=Lax; Max-Age=600; Secure`)
     expect(passCookie('', false)).toBe(`${PASS_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`)
   })
@@ -176,7 +176,7 @@ describe('the Worker at the edge', () => {
     d1 = memoryD1()
     logs = []
     socketUsers = 0
-    await d1.batch([...REPLICA_SCHEMA.map((sql) => ({ sql, params: [] })), ...replicaWrites(records, [])])
+    await d1.batch([...REPLICA_SCHEMA.map((sql) => ({ sql, params: [] })), ...replicaWrites(records, [], 'tku')])
     await d1.batch([{ sql: "INSERT INTO index_meta (key, value) VALUES ('ready', '1')", params: [] }])
     routes.club = () => ({
       ...answer('club'),
@@ -189,7 +189,7 @@ describe('the Worker at the edge', () => {
   })
 
   const get = async (path: string, userId: string | null, init: RequestInit = {}) => {
-    const cookie = userId ? `${PASS_COOKIE}=${await mintPass(SECRET, userId, 'a1', NOW)}` : ''
+    const cookie = userId ? `${PASS_COOKIE}=${await mintPass(SECRET, userId, 'a1', NOW, 'tku')}` : ''
     return route(new Request(`https://example.org${path}`, { ...init, headers: { Cookie: cookie } }), routes)
   }
 
@@ -220,7 +220,7 @@ describe('the Worker at the edge', () => {
     expect(logs.every((entry) => entry.event === 'edge' && entry.status === 200)).toBe(true)
   })
 
-  it('leaves the history to the club without a good pass, for a tag, a bad query, a copy not complete or D1 failing', async () => {
+  it('leaves the history to the club without a good pass, for a tag, another player, a bad query, a copy not complete or D1 failing', async () => {
     const asks = async (path: string, userId: string | null, cookie?: string) => {
       seen = []
       const response = cookie
@@ -231,6 +231,10 @@ describe('the Worker at the edge', () => {
     expect(await asks('/api/history', null)).toEqual({ to: ['club'], body: 'club' })
     expect((await asks('/api/history', null, `${PASS_COOKIE}=amy.zzzz.abc; tbt_session=good-token`)).to).toEqual(['club'])
     expect((await asks('/api/history/search?tag=slam', 'amy')).to).toEqual(['club'])
+    // Another member as player or declarer: whether they hide their boards is the club's (e13-t08)
+    expect((await asks('/api/history/search?player=ben', 'amy')).to).toEqual(['club'])
+    expect((await asks('/api/history/days?declarer=ben', 'amy')).to).toEqual(['club'])
+    expect((await asks('/api/history/search?player=amy', 'amy')).to).toEqual([])
     expect((await asks('/api/history/search?level=9', 'amy')).to).toEqual(['club'])
     // Only GET, only these two pages
     seen = []
@@ -251,7 +255,7 @@ describe('the Worker at the edge', () => {
   })
 
   it('opens a table socket from the pass without asking the club, and asks it when the pass is missing or bad', async () => {
-    const pass = await mintPass(SECRET, 'amy', 'a1', NOW)
+    const pass = await mintPass(SECRET, 'amy', 'a1', NOW, 'tku')
     const response = await route(upgrade('/ws/table/abc123', { Cookie: `${PASS_COOKIE}=${pass}` }), routes)
     expect(await response.text()).toBe('table:abc123')
     expect(seen[0].request.headers.get(TABLE_USER_HEADER)).toBe('amy')
@@ -270,8 +274,8 @@ describe('the Worker at the edge', () => {
   })
 
   it('stops trusting a pass the moment its session ends (e11-t28), and without the list of ended sessions', async () => {
-    const pass = await mintPass(SECRET, 'amy', 'a1', NOW)
-    const other = await mintPass(SECRET, 'amy', 'b2', NOW)
+    const pass = await mintPass(SECRET, 'amy', 'a1', NOW, 'tku')
+    const other = await mintPass(SECRET, 'amy', 'b2', NOW, 'tku')
     const socket = (cookie: string) => route(upgrade('/ws/table/abc123', { Cookie: cookie }), routes)
     // Signed out elsewhere: that device's pass is turned away, this device's still works
     await d1.batch(revocationWrites(['b2'], NOW))

@@ -280,6 +280,40 @@ export function boardsPlayedBy(sql: Sql, userId: string): string[] {
   )
 }
 
+/** How many boards a member imported (`e4-t39`): their id is on a board only as the one at that table */
+export function countImported(sql: Sql, userId: string): number {
+  return sql.exec<{ n: number }>(
+    `SELECT COUNT(*) AS n FROM board_players p JOIN boards_index b ON b.board_id = p.board_id
+     WHERE p.user_id = ? AND b.mode = 'imported'`,
+    userId,
+  )[0].n
+}
+
+/** Up to `limit` of the boards a member imported, by id, after the id `after`: a page at a time, as a request's CPU allows */
+export function importedPage(sql: Sql, userId: string, limit: number, after = ''): string[] {
+  return ids(
+    sql.exec(
+      `SELECT b.board_id FROM board_players p JOIN boards_index b ON b.board_id = p.board_id
+       WHERE p.user_id = ? AND b.mode = 'imported' AND b.board_id > ? ORDER BY b.board_id LIMIT ?`,
+      userId,
+      after,
+      limit,
+    ),
+  )
+}
+
+/** Boards a member played at a table, newest first: what they imported is not among them */
+export function tableBoardsOf(sql: Sql, userId: string, limit: number): string[] {
+  return ids(
+    sql.exec(
+      `SELECT b.board_id FROM board_players p JOIN boards_index b ON b.board_id = p.board_id
+       WHERE p.user_id = ? AND b.mode <> 'imported' ORDER BY b.played_at DESC, b.board_id DESC LIMIT ?`,
+      userId,
+      limit,
+    ),
+  )
+}
+
 /**
  * Boards a member played with another one, newest first: as partners (the same side) or, with
  * `partners` false, anywhere at the same table
@@ -304,7 +338,14 @@ export function boardsPlayedWith(sql: Sql, userId: string, otherId: string, part
 /** The declarer's side, for "my partner declared" and "the opponents declared" */
 const DECLARER_SIDE = "CASE WHEN b.declarer_seat IN ('N', 'S') THEN 'NS' ELSE 'EW' END"
 const GAME = "((b.strain = 'N' AND b.level >= 3) OR (b.strain IN ('H', 'S') AND b.level >= 4) OR b.level >= 5)"
-const SEATED = (who: string) => `EXISTS (SELECT 1 FROM board_players ${who} WHERE ${who}.board_id = b.board_id AND ${who}.user_id = ?)`
+/**
+ * In the D1 copy every row also says its club (e12-t03, `club_id`), and a board id is only unique
+ * inside a club: `sameClub` ties a `board_players` row to its board's club there, and is nothing in
+ * the club's own index, which holds one club only
+ */
+const sameClub = (who: string, club: string | undefined) => (club === undefined ? '' : ` AND ${who}.club_id = b.club_id`)
+const SEATED = (who: string, club: string | undefined) =>
+  `EXISTS (SELECT 1 FROM board_players ${who} WHERE ${who}.board_id = b.board_id${sameClub(who, club)} AND ${who}.user_id = ?)`
 
 const ORDER: Record<HistorySort, string> = {
   date_desc: 'b.played_at DESC, b.board_id DESC',
@@ -317,20 +358,45 @@ const ORDER: Record<HistorySort, string> = {
 }
 
 /**
+ * Whether a search names another member as its player or declarer: those are the searches a member
+ * who keeps their boards off their profile (e13-t08) is left out of (`hidden` below), which only the
+ * club knows, so the D1 copy leaves them to the club (routing.ts `edgeHistory`)
+ */
+export const namesOthers = (query: HistoryQuery, viewer: string) =>
+  (!!query.player && query.player !== viewer) || (!!query.declarer && query.declarer !== viewer)
+
+/**
  * The WHERE clause of a search and its parameters. Every value goes in as a `?` parameter; only
  * fixed pieces of SQL are joined into the text. Boards still kept back (`reveal_at` in the future)
- * are left out unless the member asking played them, whatever the search (AC-4.9)
+ * are left out unless the member asking played them, whatever the search (AC-4.9).
+ *
+ * `hidden`: the members who keep their boards off their profile from this viewer (e13-t08, the
+ * club's call: not the viewer, nobody for an admin). Searching for one of them as the player or the
+ * declarer finds nothing (ARCHITECTURE.md §4); their boards still show in every other search
+ *
+ * `club`: the club whose rows the D1 copy reads (e12-t03); every search there is of one club's
+ * boards only, first of all. Left out for the club's own index, which has no other club's
  */
-function where(query: HistoryQuery, viewer: string, now: number, favorites: boolean): [string, SqlValue[]] {
-  const parts: string[] = [`(b.reveal_at IS NULL OR b.reveal_at <= ? OR ${SEATED('v')})`]
-  const params: SqlValue[] = [now, viewer]
+function where(
+  query: HistoryQuery,
+  viewer: string,
+  now: number,
+  favorites: boolean,
+  hidden: readonly string[] = [],
+  club?: string,
+): [string, SqlValue[]] {
+  const parts: string[] = []
+  const params: SqlValue[] = []
   const add = (part: string, ...values: SqlValue[]) => {
     parts.push(part)
     params.push(...values)
   }
+  if (club !== undefined) add('b.club_id = ?', club)
+  add(`(b.reveal_at IS NULL OR b.reveal_at <= ? OR ${SEATED('v', club)})`, now, viewer)
+  if ((query.player && hidden.includes(query.player)) || (query.declarer && hidden.includes(query.declarer))) add('0 = 1')
   if (favorites)
     add('EXISTS (SELECT 1 FROM favorites f WHERE f.user_id = ? AND f.board_id = b.board_id)', viewer)
-  else if (query.scope === 'mine') add(SEATED('m'), viewer)
+  else if (query.scope === 'mine') add(SEATED('m', club), viewer)
   if (query.tag)
     add(
       'EXISTS (SELECT 1 FROM favorite_tags ft WHERE ft.user_id = ? AND ft.tag = ? AND ft.board_id = b.board_id)',
@@ -353,22 +419,22 @@ function where(query: HistoryQuery, viewer: string, now: number, favorites: bool
   if (query.declarerSide === 'me') add('b.declarer_user = ?', viewer)
   if (query.declarerSide === 'partner')
     add(
-      `b.declarer_seat IS NOT NULL AND EXISTS (SELECT 1 FROM board_players p WHERE p.board_id = b.board_id
+      `b.declarer_seat IS NOT NULL AND EXISTS (SELECT 1 FROM board_players p WHERE p.board_id = b.board_id${sameClub('p', club)}
         AND p.user_id = ? AND p.side = ${DECLARER_SIDE} AND p.seat <> b.declarer_seat)`,
       viewer,
     )
   if (query.declarerSide === 'opponents')
     add(
-      `b.declarer_seat IS NOT NULL AND EXISTS (SELECT 1 FROM board_players p WHERE p.board_id = b.board_id
+      `b.declarer_seat IS NOT NULL AND EXISTS (SELECT 1 FROM board_players p WHERE p.board_id = b.board_id${sameClub('p', club)}
         AND p.user_id = ? AND p.side <> ${DECLARER_SIDE})`,
       viewer,
     )
-  if (query.player) add(SEATED('x'), query.player)
+  if (query.player) add(SEATED('x', club), query.player)
   if (query.partner)
     add(
       `EXISTS (SELECT 1 FROM board_players me JOIN board_players other
-        ON other.board_id = me.board_id AND other.side = me.side AND other.seat <> me.seat
-        WHERE me.board_id = b.board_id AND me.user_id = ? AND other.user_id = ?)`,
+        ON other.board_id = me.board_id${sameClub('other', club)} AND other.side = me.side AND other.seat <> me.seat
+        WHERE me.board_id = b.board_id${sameClub('me', club)} AND me.user_id = ? AND other.user_id = ?)`,
       viewer,
       query.partner,
     )
@@ -381,8 +447,8 @@ function where(query: HistoryQuery, viewer: string, now: number, favorites: bool
   if (query.boardNo !== undefined) add('b.board_no = ?', query.boardNo)
   if (query.table !== undefined) add('b.table_no = ?', query.table)
   if (query.mode) add('b.mode = ?', query.mode)
-  // Practice boards (§5.11) stay out of the club's list, and so of profile cards, unless asked for
-  else if (query.scope === 'all' && !favorites) add("b.mode <> 'practice'")
+  // Practice boards (§5.11) and a member's own imported ones (§5.3) stay out of the club's list, and so of profile cards, unless asked for
+  else if (query.scope === 'all' && !favorites) add("b.mode NOT IN ('practice', 'imported')")
   return [parts.join(' AND '), params]
 }
 
@@ -394,7 +460,8 @@ export interface Statement {
 
 /**
  * The two statements of a search: how many boards match, and one page of them (`columns` of
- * `boards_index b`, in order). The club's index and the D1 copy run the same SQL
+ * `boards_index b`, in order). The club's index and the D1 copy run the same SQL, the copy's for
+ * one `club` (`where`)
  */
 export function searchStatements(
   query: HistoryQuery,
@@ -402,8 +469,10 @@ export function searchStatements(
   now: number,
   favorites: boolean,
   columns = 'b.board_id',
+  hidden: readonly string[] = [],
+  club?: string,
 ): { count: Statement; page: (page: number) => Statement } {
-  const [condition, params] = where(query, viewer, now, favorites)
+  const [condition, params] = where(query, viewer, now, favorites, hidden, club)
   return {
     count: { sql: `SELECT COUNT(*) AS n FROM boards_index b WHERE ${condition}`, params },
     page: (page) => ({
@@ -416,10 +485,11 @@ export function searchStatements(
 /**
  * How many boards a search finds per Taiwan date, newest day first, at most LIMITS.historyDaysMax
  * days (`sort`, `page` and `size` play no part). The same WHERE as the search, so boards kept back
- * count only for their own players. The club's index and the D1 copy run the same SQL
+ * count only for their own players. The club's index and the D1 copy run the same SQL, the copy's
+ * for one `club`
  */
-export function dayStatement(query: HistoryQuery, viewer: string, now: number): Statement {
-  const [condition, params] = where(query, viewer, now, false)
+export function dayStatement(query: HistoryQuery, viewer: string, now: number, hidden: readonly string[] = [], club?: string): Statement {
+  const [condition, params] = where(query, viewer, now, false, hidden, club)
   return {
     sql: `SELECT (b.played_at + ${TAIWAN_OFFSET_MS}) / ${DAY_MS} AS day, COUNT(*) AS n FROM boards_index b
       WHERE ${condition} GROUP BY day ORDER BY day DESC LIMIT ?`,
@@ -432,8 +502,8 @@ export const dayRows = (rows: Record<string, SqlValue>[]): HistoryDay[] =>
   rows.map((row) => ({ date: new Date(Number(row.day) * DAY_MS).toISOString().slice(0, 10), count: Number(row.n) }))
 
 /** How many boards a search finds per Taiwan date, from the club's index (`dayStatement`) */
-export function searchDays(sql: Sql, query: HistoryQuery, viewer: string, now: number): HistoryDay[] {
-  const { sql: text, params } = dayStatement(query, viewer, now)
+export function searchDays(sql: Sql, query: HistoryQuery, viewer: string, now: number, hidden: readonly string[] = []): HistoryDay[] {
+  const { sql: text, params } = dayStatement(query, viewer, now, hidden)
   return dayRows(sql.exec(text, ...params))
 }
 
@@ -443,7 +513,7 @@ export const shownPage = (query: HistoryQuery, total: number) => Math.min(query.
 /**
  * One page of a search: the board ids in order, how many boards match, and the page shown (a page
  * past the end shows the last one). With `favorites`, only the viewer's favorites, whoever played
- * them (`scope` is then ignored); boards kept back stay out all the same
+ * them (`scope` is then ignored); boards kept back stay out all the same. `hidden`: as `where`
  */
 export function searchBoards(
   sql: Sql,
@@ -451,8 +521,9 @@ export function searchBoards(
   viewer: string,
   now: number,
   favorites = false,
+  hidden: readonly string[] = [],
 ): { ids: string[]; total: number; page: number } {
-  const statements = searchStatements(query, viewer, now, favorites)
+  const statements = searchStatements(query, viewer, now, favorites, 'b.board_id', hidden)
   const total = sql.exec<{ n: number }>(statements.count.sql, ...statements.count.params)[0].n
   const page = shownPage(query, total)
   const { sql: text, params } = statements.page(page)
@@ -470,4 +541,37 @@ export function listQuery(all: boolean, page: number, size: number): HistoryQuer
     page: Math.max(1, Math.floor(page) || 1),
     size: (HISTORY_PAGE_SIZES as readonly number[]).includes(size) ? size : LIMITS.historyPageDefault,
   }
+}
+
+/**
+ * The boards that may belong to the same session as one (e4-t37): played at a table with the same
+ * number, of the same mode and event, within `windowMs` before or after it, with at least one of
+ * its members at the table; at most `limit` each way, the nearest first, then oldest first.
+ * `sessionOf` (worker/board-shares.ts) keeps the ones of the same table, one after another
+ */
+export function sessionCandidates(
+  sql: Sql,
+  record: Pick<BoardRecord, 'id' | 'tableNumber' | 'mode' | 'eventId' | 'finishedAt' | 'players'>,
+  windowMs: number,
+  limit: number,
+): string[] {
+  const members = [...new Set(SEATS.flatMap((seat) => memberId(record.players[seat]?.id) ?? []))]
+  if (!members.length) return [record.id]
+  const side = (before: boolean) =>
+    ids(
+      sql.exec<{ board_id: string }>(
+        `SELECT b.board_id FROM boards_index b WHERE b.table_no = ? AND b.mode = ? AND b.event_id IS ?
+         AND b.played_at ${before ? '<=' : '>'} ? AND b.played_at ${before ? '>=' : '<='} ?
+         AND EXISTS (SELECT 1 FROM board_players p WHERE p.board_id = b.board_id AND p.user_id IN (${members.map(() => '?').join(', ')}))
+         ORDER BY b.played_at ${before ? 'DESC' : 'ASC'}, b.board_id ${before ? 'DESC' : 'ASC'} LIMIT ?`,
+        record.tableNumber,
+        record.mode ?? 'casual',
+        record.eventId ?? null,
+        record.finishedAt,
+        before ? record.finishedAt - windowMs : record.finishedAt + windowMs,
+        ...members,
+        limit,
+      ),
+    )
+  return [...side(true).reverse(), ...side(false)]
 }

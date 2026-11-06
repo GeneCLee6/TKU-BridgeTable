@@ -6,6 +6,7 @@ import type { MemoryStore } from '../../worker/store.ts'
 import type { Table } from '../../worker/views.ts'
 import { memoryStore } from './sqlite.ts'
 import { clubService } from './event-mode.ts'
+import { adminWithTwoFactor } from './admin-two-factor.ts'
 
 /**
  * TKB in the club's system is private (社長 2026-10-26, ROBOT.md §7): only members given
@@ -69,8 +70,10 @@ beforeEach(async () => {
 const tick = () => new Promise((resolve) => setImmediate(resolve))
 
 async function member(name: string) {
-  const result = await club.register(name, 'secret1', '')
+  const result = await club.register(name, 'club-secret-1', '')
   const user = 'user' in result ? result.user : await club.adminApprove(club.adminApplications().find((a) => a.username === name)!.id)
+  // The first account is the admin: it turns two-step sign-in on so that it acts as one (社長 2026-11-02)
+  if ('user' in result) await adminWithTwoFactor(club, user.id)
   connections.online.add(user.id)
   club.connected(user.id)
   await tick()
@@ -231,21 +234,21 @@ describe('practice tables', () => {
 describe('team matches', () => {
   it('are set up with the club’s robots only by a host with it; one set up so keeps them', async () => {
     const amy = await member('amy')
-    const code = (run: () => unknown) => {
+    const code = async (run: () => Promise<unknown>) => {
       try {
-        run()
+        await run()
       } catch (e) {
         return (e as ClubError).code
       }
     }
-    expect(code(() => club.matches.create(amy, { settings: { robotKind: 'tku' } }))).toBe('tkuSystemOnly')
-    const { id } = club.matches.create(amy, {})
+    expect(await code(() => club.matches.create(amy, { settings: { robotKind: 'tku' } }))).toBe('tkuSystemOnly')
+    const { id } = await club.matches.create(amy, {})
     expect(club.matches.get(id, amy)!.settings.robotKind).toBe('gib')
-    expect(code(() => club.matches.update(amy, id, { robotKind: 'tku' }))).toBe('tkuSystemOnly')
+    expect(await code(() => club.matches.update(amy, id, { robotKind: 'tku' }))).toBe('tkuSystemOnly')
     await club.adminSetPermissions(amy, ['tkuSystem'])
-    expect(club.matches.update(amy, id, { robotKind: 'tku' }).settings.robotKind).toBe('tku')
+    expect((await club.matches.update(amy, id, { robotKind: 'tku' })).settings.robotKind).toBe('tku')
     // Taken away later: the match keeps its robots and its other settings still change
     await club.adminSetPermissions(amy, [])
-    expect(club.matches.update(amy, id, { boards: 8 }).settings).toMatchObject({ boards: 8, robotKind: 'tku' })
+    expect((await club.matches.update(amy, id, { boards: 8 })).settings).toMatchObject({ boards: 8, robotKind: 'tku' })
   })
 })

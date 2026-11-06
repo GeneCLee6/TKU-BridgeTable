@@ -7,7 +7,7 @@ import { headToHead, headToHeadTotal, type ChallengeScoring } from '../../shared
 import type { ChallengeTravellerEntry, ChallengeView } from '../../shared/challenge.ts'
 import { resultLabel } from '../../shared/scoring.ts'
 import { cardName } from '../lib/cards.ts'
-import { formatScore, participantName, playerOf, resultOrder, tone, travellerRulings, travellerScores } from '../lib/challenges.ts'
+import { entryName, formatScore, pairLeadOf, resultOrder, tone, travellerRulings, travellerScores } from '../lib/challenges.ts'
 import { RulingTag } from './RulingTag.tsx'
 import { signed } from '../lib/format.ts'
 import { usePreferences } from '../state/PreferencesContext.tsx'
@@ -168,18 +168,20 @@ export function ChallengeResults({ challenge: c, userId }: { challenge: Challeng
   const { t } = usePreferences()
   if (!c.travellers?.length) return null
   const scoring = c.settings.scoring
+  // A partnership is one entry, under its first member (`e7-t28`)
+  const lead = pairLeadOf(c, userId)
   const scores = travellerScores(c)
-  const versus = scores[userId] ? headToHead(scoring, scores, userId, travellerRulings(c)) : []
+  const versus = scores[lead] ? headToHead(scoring, scores, lead, travellerRulings(c)) : []
   const versusOf = new Map(versus.map((v) => [v.opponent, v]))
-  const order = resultOrder(c, userId)
+  const order = resultOrder(c, lead)
   const place = (id: string) => order.indexOf(id)
   const points = new Map(c.standings?.ranked.map((r) => [r.userId, r.boards]) ?? [])
   const unit = c.standings?.scoring ?? scoring
   const withPoints = [...points.values()].some((b) => b !== undefined)
-  const nameOf = (id: string) => (id === userId ? t.you : participantName(t, playerOf(c, id)))
+  const nameOf = (id: string) => entryName(t, c, id, userId)
   const all = headToHeadTotal(scoring, versus)
-  // Cross-IMP challenges compare each pair in plain IMPs
-  const pairUnit = scoring === 'crossImp' ? 'imp' : scoring
+  // Cross-IMP and datum challenges compare each pair in plain IMPs
+  const pairUnit = scoring === 'crossImp' || scoring === 'datumImp' ? 'imp' : scoring
   const compared = versus.filter((v) => v.compared > 0).sort((a, b) => place(a.opponent) - place(b.opponent))
 
   return (
@@ -226,7 +228,7 @@ export function ChallengeResults({ challenge: c, userId }: { challenge: Challeng
         <Boards>
           {c.travellers.map((x) => {
             const entries = [...x.entries].sort((a, b) => place(a.userId) - place(b.userId))
-            const mine = scores[userId]?.[x.seq - 1] ?? null
+            const mine = scores[lead]?.[x.seq - 1] ?? null
             const to = `/challenges/${c.id}/boards/${x.seq}`
             const headId = `board-${x.seq}`
             return (
@@ -264,7 +266,7 @@ export function ChallengeResults({ challenge: c, userId }: { challenge: Challeng
                           entry={e}
                           name={nameOf(e.userId)}
                           to={`${to}?p=${encodeURIComponent(e.userId)}`}
-                          me={e.userId === userId}
+                          me={e.userId === lead}
                           points={withPoints ? (points.get(e.userId)?.[x.seq - 1] ?? null) : undefined}
                           unit={unit}
                           versus={mine === null ? undefined : (versusOf.get(e.userId)?.boards[x.seq - 1] ?? null)}

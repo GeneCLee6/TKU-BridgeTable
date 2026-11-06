@@ -147,6 +147,29 @@ const table = {
 const avatars = ['#1c2e4f', '#7a3b12', '#1f6b43', '#5b2c7a', '#a0302a', '#2a5d8f', '#6e5410', '#3d5a40', '#7a2a55', '#3f4a5c'] as const
 const onAvatar = '#ffffff'
 
+/**
+ * The sign-in buttons of other sites (e1-t31, e1-t32; DESIGN.md §7.11), in the colours their brand
+ * guidelines ask for and nowhere else. Google's button follows the theme (its light and dark
+ * versions; `hover` and `pressed` are the text colour at 8% and 12%), its "G" keeps its four
+ * colours in both. LINE's is LINE green in both, white text and logo, a 8% black line between
+ * them, black at 10% over it on hover and 30% when pressed
+ */
+const brandPalette = {
+  light: {
+    google: { bg: '#ffffff', border: '#747775', text: '#1f1f1f', hover: 'rgba(31, 31, 31, 0.08)', pressed: 'rgba(31, 31, 31, 0.12)' },
+  },
+  dark: {
+    google: { bg: '#131314', border: '#8e918f', text: '#e3e3e3', hover: 'rgba(227, 227, 227, 0.08)', pressed: 'rgba(227, 227, 227, 0.12)' },
+  },
+} as const
+const googleLogo = { blue: '#4285f4', green: '#34a853', yellow: '#fbbc05', red: '#ea4335' } as const
+const lineBrand = {
+  bg: '#06c755',
+  text: '#ffffff',
+  hover: 'rgba(0, 0, 0, 0.1)',
+  pressed: 'rgba(0, 0, 0, 0.3)',
+} as const
+
 export type Suits = Record<'S' | 'H' | 'D' | 'C', string>
 
 /**
@@ -222,6 +245,8 @@ export function createTheme(mode: ThemeMode, deck: DeckColors) {
     cardSuits: suitColours('light', deck),
     avatars,
     onAvatar,
+    /** Google's and LINE's sign-in buttons (e1-t31, e1-t32): their own brand colours */
+    brands: { google: brandPalette[mode].google, googleLogo, line: lineBrand },
     fonts,
     layout,
     space,
@@ -240,6 +265,8 @@ export function createTheme(mode: ThemeMode, deck: DeckColors) {
         ? '0 4px 12px rgba(27, 35, 51, 0.12), 0 12px 32px rgba(27, 35, 51, 0.1)'
         : '0 4px 12px rgba(0, 0, 0, 0.5), 0 12px 32px rgba(0, 0, 0, 0.4)',
     cardShadow: '0 1px 3px rgba(0, 0, 0, 0.35)',
+    /** A QR code (the two-step sign-in setup): black on white in both themes, as phone cameras read best */
+    qr: { dark: '#000000', light: '#ffffff' },
     /**
      * A clickable card pointed at (`cardHover` in controls.ts, DESIGN.md §5.3): a soft lantern-gold
      * glow spreading out from the edge, `accent` at low alpha, instead of a dark outline

@@ -3,7 +3,9 @@ import { nextSeat, partnerOf, rankOf, rankValue, RANKS, sameSide, SEATS, SUITS, 
 import { legalCards, remainingCards, tricksOf, type BoardState, type PlayedCard } from '../game.ts'
 import type { RobotKind } from '../protocol.ts'
 import { declarerLead, exitLead, holdUp, secondHandWin } from './declarer.ts'
+import { masters } from './declarer-technique.ts'
 import { declarerLength, noHurry } from './defence-plan.ts'
+import { preferencePair, runningPreference, runningSuitAt, wantedBack } from './defence-reading.ts'
 import { cashOut, coverLastHonour, defenceLead, dummyOverruffs, holdUpAgainstDummy, raceSuit, secondHand, thirdHand } from './defence.ts'
 import { suitCards } from './hand.ts'
 import { clubLeadCard, sequenceLead } from './lead-card.ts'
@@ -21,6 +23,11 @@ import { byRank, honours, value, View } from './view.ts'
  * leads a suit the opponents bid when there is a choice. The declaring side plays to a plan
  * (`declarer.ts`), the defenders from their inferences (`defence.ts`).
  */
+
+/** Third hand does not finesse when the card reading places the missing card behind it this likely (T3) */
+const BEHIND = 0.9
+/** With the danger hand last, third hand finesses only when the missing card is with second hand this likely (T3) */
+const AVOID = 0.75
 
 export function chooseCard(state: BoardState, seat: Seat, kind: RobotKind = 'tku'): Card {
   const legal = legalCards(state, seat)
@@ -44,7 +51,7 @@ export function chooseCard(state: BoardState, seat: Seat, kind: RobotKind = 'tku
 
   const defending = !sameSide(seat, contract.declarer)
   // A card that signals rather than wins, from the club's methods (橋牌防守信號)
-  const signal = (cards: Card[]) => (!defending ? lowest(cards) : signalFollow(state, seat, trick, cards, trump))
+  const signal = (cards: Card[]) => (!defending ? lowest(cards) : signalFollow(view, trick, cards, trump))
 
   if (following.length) {
     // A defender after partner's lead: third hand high, with its exceptions (defence.ts)
@@ -98,9 +105,19 @@ export function chooseCard(state: BoardState, seat: Seat, kind: RobotKind = 'tku
   // Void in the suit led
   const trumps = trump ? legal.filter((c) => suitOf(c) === trump) : []
   const partnerSafe = partnerWinning && (lastToPlay || view.isMaster(best.card))
+  if (!defending && trumps.length) {
+    // Partner, last to play, wins the trick with a master: keep the long hand's trumps (S3)
+    const card = spareLongTrump(view, trick, legal, led, trump!)
+    if (card) return card
+  }
   if (trumps.length && !partnerSafe) {
     const highestTrump = trick.filter((p) => suitOf(p.card) === trump).map((p) => rankValue(rankOf(p.card)))
     const over = trumps.filter((c) => rankValue(rankOf(c)) > Math.max(0, ...highestTrump))
+    if (!defending && over.length) {
+      // The defender behind may overruff (the card reading): ruff with a master (S3)
+      const card = ruffHigh(view, trick, over, led, trump!)
+      if (card) return card
+    }
     // Not when dummy, still to play, is seen to overruff (defence.ts)
     if (over.length && !(defending && dummyOverruffs(view, trick, led, lowest(over), trump!))) return lowest(over)
   }
@@ -147,8 +164,8 @@ function lead(state: BoardState, seat: Seat, view: View, legal: Card[], trump: S
       if (noHurry(view, s, trump)) continue
       if (view.isMaster(top) && state.play.length >= 4 && !ruffed(s)) return top
     }
-    // Lead the suit partner asked for with a discard
-    const wanted = partnerSignal(state, seat, trump)
+    // Lead the suit partner asked for with a discard, or with suit preference while dummy's suit ran (T4)
+    const wanted = partnerSignal(state, seat, trump) ?? runningPreference(view, trump)
     if (wanted && suitCards(hand, wanted).length && !ruffed(wanted)) {
       const cards = suitCards(hand, wanted)
       return cards.length === 2 ? cards[0] : cards.at(-1)!
@@ -202,17 +219,21 @@ function unblock(view: View, following: Card[], best: PlayedCard, led: Suit): Ca
 
 /**
  * Third hand on the declaring side, after partner led and second hand played. Partner's honour
- * that loses only to one outstanding card runs, unless the auction places that card behind us.
- * Otherwise take the finesse: the cheapest card that loses only to one outstanding card, unless
- * the auction places it with the last player; then go up with a winner. Null leaves it to the
- * usual third-hand play.
+ * that loses only to one outstanding card runs, unless the card reading all but places that card
+ * behind us (nine in ten, T3). Otherwise take the finesse: the cheapest card that loses only to
+ * one outstanding card, unless the reading all but places it with the last player; then go up
+ * with a winner. In notrump with the last player holding a suit we no longer stop, go up unless
+ * the missing card is clearly with second hand; and play for the drop when the odds say so
+ * (`dropOdds`). Null leaves it to the usual third-hand play.
  */
 function declarerThird(view: View, seat: Seat, following: Card[], best: PlayedCard, led: Suit, trump: Suit | null): Card | null {
   if (suitOf(best.card) !== led) return null
   const last = nextSeat(seat)
   const behind = (card: Card) => {
     const over = view.higherOut(card)
-    return over.length !== 1 || view.reading.holder(over[0]) === last
+    if (over.length !== 1) return true
+    // The card reading must all but place it there (T3): a finesse that may win is worth taking
+    return (view.cardReading.odds(over[0])[last] ?? 0) >= BEHIND
   }
   const low = [...following].sort(byRank)[0]
   if (best.seat === partnerOf(seat) && value(best.card) >= 10 && !behind(best.card)) return low
@@ -222,25 +243,43 @@ function declarerThird(view: View, seat: Seat, following: Card[], best: PlayedCa
   const winner = beaters.find((c) => view.isMaster(c))
   if (!beaters.length || winner === beaters[0]) return winner ?? null
   const finesse = beaters.find((c) => !behind(c))
-  if (finesse && winner && dropBetter(view, seat, led, finesse)) return winner
+  // Keep the danger hand off lead (T3): in notrump, when the last player holds the established
+  // cards of a suit we no longer stop, a losing finesse would put it in; go up unless the reading
+  // clearly places the missing card with second hand
+  if (finesse && winner && trump === null && SUITS.some((s) => s !== led && view.cardReading.danger(s) === last)) {
+    const missing = view.higherOut(finesse)[0]
+    if ((view.cardReading.odds(missing)[partnerOf(last)] ?? 0) < AVOID) return winner
+  }
+  if (finesse && winner && dropOdds(view, seat, led, finesse)) return winner
   return finesse ?? winner ?? null
 }
 
 /**
- * Eight ever, nine never (e6-t41): with nine cards or more between the hands and two masters to
- * cash, play for the missing card to drop rather than finesse, unless the auction places it with
- * the opponent who has already played. With two cards out (eleven between the hands) one master
- * is enough: AQ opposite the rest plays the ace for the king to drop (Y4, ROBOT.md §3.14)
+ * Drop or finesse by the odds (T3, ROBOT.md §3.17): the finesse wins when the missing card is
+ * with second hand (it has played); the drop when its holder has no more cards of the suit than
+ * the rounds our masters can play (second hand one fewer: this round is played). The chances
+ * come from the card reading: the lengths each defender has shown (vacant places), the lead,
+ * count signals, the points of the auction.
  */
-function dropBetter(view: View, seat: Seat, led: Suit, finesse: Card): boolean {
-  const second = partnerOf(nextSeat(seat))
-  const followed = view.state.play.length % 4 >= 2 && suitOf(view.state.play.at(-1)!.card) === led
-  const out = view.outstanding(led) + (followed ? 1 : 0)
-  if (out > 4) return false
+function dropOdds(view: View, seat: Seat, led: Suit, finesse: Card): boolean {
+  const last = nextSeat(seat)
+  const second = partnerOf(last)
+  const missing = view.higherOut(finesse)[0]
+  const reading = view.cardReading
   const ours = [...suitCards(view.ownCards(), led), ...suitCards(view.partnerCards(), led)]
-  // Eleven cards missing the king (two out): the ace may drop it (Y4)
-  if (ours.filter((c) => view.isMaster(c)).length < (out <= 2 ? 1 : 2)) return false
-  return view.reading.holder(view.higherOut(finesse)[0]) !== second
+  const rounds = Math.min(ours.filter((c) => view.isMaster(c)).length, Math.max(suitCards(view.ownCards(), led).length, suitCards(view.partnerCards(), led).length))
+  const pSecond = reading.odds(missing)[second] ?? 0.5
+  const falls = (s: Seat, most: number) => {
+    const p = reading.lengthOdds(s, led)
+    if (!p) return 0
+    const total = p.reduce((sum, w, k) => sum + w * k, 0)
+    if (total <= 0) return 0
+    // The chance the seat holds the card and at most `most` of the suit
+    const share = s === second ? pSecond : 1 - pSecond
+    return (share * p.reduce((sum, w, k) => sum + (k <= most ? w * k : 0), 0)) / total
+  }
+  const drop = falls(last, rounds) + falls(second, rounds - 1)
+  return drop > pSecond
 }
 
 /**
@@ -308,6 +347,53 @@ function fourthBest(cards: Card[]): Card {
   return cards.at(-1)!
 }
 
+/**
+ * Second hand on the declaring side, void in the suit a defender led, holding more trumps than
+ * partner: when partner, last to play, holds a master that beats the card led, and the card
+ * reading says the defender in between is not void (so it cannot ruff partner's master), throw
+ * a loser that costs nothing (`discardCosts`) instead of ruffing in the long hand (S3,
+ * ROBOT.md §3.4): the trick is ours anyway, and the long hand keeps its trump length
+ */
+function spareLongTrump(view: View, trick: PlayedCard[], legal: Card[], led: Suit, trump: Suit): Card | null {
+  if (trick.length !== 1) return null
+  const partner = view.partnerCards()
+  const myTrumps = suitCards(legal, trump).length
+  if (myTrumps <= suitCards(partner, trump).length) return null
+  const top = suitCards(partner, led)[0]
+  if (!top || value(top) < value(trick[0].card) || !view.isMaster(top)) return null
+  const third = nextSeat(view.seat)
+  if (view.reading.mayRuff(third, led, trump) || (view.cardReading.lengthOdds(third, led)?.[0] ?? 0) > 0.15) return null
+  // A real loser: the lowest card of a suit where this hand holds more cards than our masters win
+  const cost = discardCosts(view, legal, trump)
+  const losers = SUITS.filter((s) => s !== trump && suitCards(legal, s).length > masters(view, s) && cost[s] === 0)
+  if (!losers.length) return null
+  const s = [...losers].sort((a, b) => suitCards(legal, b).length - suitCards(legal, a).length)[0]
+  return suitCards(legal, s).at(-1)!
+}
+
+/** The defender behind is out of the suit led at least this likely: ruff high (S3) */
+const OVERRUFF = 0.3
+
+/**
+ * Ruffing on the declaring side with a defender still to play after us: when the card reading
+ * says it is likely out of the suit too (it showed out, or its length odds) and may hold a trump,
+ * ruff with the lowest master trump rather than the lowest trump, which it would overruff (S3,
+ * ROBOT.md §3.4). Only in the hand with fewer trumps (dummy, usually): the long hand's high trumps
+ * draw the defenders' (ruffing high there gave a trump trick back). Null when the low ruff is
+ * safe or no master is left.
+ */
+function ruffHigh(view: View, trick: PlayedCard[], over: Card[], led: Suit, trump: Suit): Card | null {
+  if (trick.length > 2 || view.outstanding(trump) === 0) return null
+  // Only in the hand with fewer trumps: the long hand's high trumps are the ones that draw theirs
+  if (suitCards(view.ownCards(), trump).length >= suitCards(view.partnerCards(), trump).length) return null
+  const next = nextSeat(view.seat)
+  if (view.reading.len(next, trump)[1] === 0) return null
+  if (view.cardReading.exhausted(next, led) < OVERRUFF) return null
+  const low = [...over].sort(byRank)[0]
+  if (view.isMaster(low)) return null
+  return [...over].sort(byRank).find((c) => view.isMaster(c)) ?? null
+}
+
 /** Throw the lowest card from the longest side suit, keeping winners and trumps */
 function discard(view: View, legal: Card[], trump: Suit | null): Card {
   const candidates = legal.filter((c) => suitOf(c) !== trump && !view.isMaster(c))
@@ -370,7 +456,8 @@ const highSpotOf = (cards: Card[]) => [...cards].sort(byRank).filter((c) => valu
  * - declarer's lead: count, standard (先大後小＝偶數張); in notrump, the first suit declarer
  *   plays carries a Smith Echo about the opening lead instead (小牌＝歡迎首攻花色)
  */
-function signalFollow(state: BoardState, seat: Seat, trick: PlayedCard[], cards: Card[], trump: Suit | null): Card {
+function signalFollow(view: View, trick: PlayedCard[], cards: Card[], trump: Suit | null): Card {
+  const { state, seat } = view
   const low = [...cards].sort(byRank)[0]
   if (cards.length === 1) return low
   // A high signal from cards that cannot take a trick (ours below outnumber the cards out above):
@@ -392,6 +479,12 @@ function signalFollow(state: BoardState, seat: Seat, trick: PlayedCard[], cards:
     // Partner's queen (KQ, QJ) asks attitude too: the jack likes it as well
     const like = cards.some((c) => (rankOf(leader.card) === 'Q' ? 'AKJ' : 'AKQ').includes(rankOf(c)))
     return like ? low : highSpot(cards)
+  }
+  // Dummy's long suit runs: the count tells partner nothing, so ask for a suit instead (T4)
+  if (trump && runningSuitAt(view, state.play.length - trick.length, trump) === led) {
+    const pair = preferencePair(led, trump)!
+    const want = wantedBack(view, pair)
+    if (want) return want === pair[0] ? highSpot(cards) : low
   }
   const tricks = tricksOf(state)
   const firstDeclarerTrick = tricks.slice(1).find((t) => sameSide(t.leader, state.contract!.declarer))

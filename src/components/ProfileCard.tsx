@@ -7,6 +7,7 @@ import { resultLabel } from '../../shared/scoring.ts'
 import { api, ApiError } from '../lib/api.ts'
 import { formatDateTime, signed } from '../lib/format.ts'
 import { useFeature } from '../state/AuthContext.tsx'
+import { RatingTrend } from './RatingTrend.tsx'
 import { usePreferences } from '../state/PreferencesContext.tsx'
 import { Avatar } from './Avatar.tsx'
 import { ContractLabel } from './Suit.tsx'
@@ -117,8 +118,14 @@ export function ProfileDetails({
   member,
   newTab = false,
   actions,
+  boardsHidden = false,
+  after,
 }: {
   member: MemberProfile
+  /** The member keeps their boards off their page (e13-t08): says so instead of "no boards" */
+  boardsHidden?: boolean
+  /** More sections at the end (the profile page's forum posts, e13-t08) */
+  after?: ReactNode
   /** Open board links in a new tab (from a table, so the player keeps their seat) */
   newTab?: boolean
   /** Buttons under the introduction: friend, block, message */
@@ -157,9 +164,11 @@ export function ProfileDetails({
       {profile.bio && <Bio>{profile.bio}</Bio>}
       {empty && <Muted style={{ marginTop: 12 }}>{t.profileEmpty}</Muted>}
       {actions}
+      {/* 實力評分 and its trend (J2), with the rankings flag */}
+      <RatingTrend userId={member.id} />
       <SectionTitle>{t.recentBoards}</SectionTitle>
       {member.recent.length === 0 ? (
-        <Muted>{t.noRecentBoards}</Muted>
+        <Muted>{boardsHidden ? t.forum.profileBoardsHidden : t.noRecentBoards}</Muted>
       ) : (
         <Boards>
           {member.recent.map((b) => (
@@ -180,6 +189,7 @@ export function ProfileDetails({
           ))}
         </Boards>
       )}
+      {after}
     </>
   )
 }
@@ -306,7 +316,7 @@ export function ProfileCard({
   newTab?: boolean
 }) {
   const { t, message } = usePreferences()
-  const [loaded, setLoaded] = useState<{ id: string; member?: MemberProfile; error?: string } | null>(null)
+  const [loaded, setLoaded] = useState<{ id: string; member?: MemberProfile; boardsHidden?: boolean; error?: string } | null>(null)
   const titleId = useId()
   const close = useRef<HTMLButtonElement>(null)
 
@@ -314,7 +324,7 @@ export function ProfileCard({
     let live = true
     api
       .member(userId)
-      .then((r) => live && setLoaded({ id: userId, member: r.member }))
+      .then((r) => live && setLoaded({ id: userId, member: r.member, boardsHidden: !!r.hidden?.boards }))
       .catch(
         (e) =>
           live && setLoaded({ id: userId, error: e instanceof ApiError ? message(e.code, e.params, e.message) : t.genericError }),
@@ -349,6 +359,7 @@ export function ProfileCard({
         ) : (
           <ProfileDetails
             member={current.member}
+            boardsHidden={current.boardsHidden}
             newTab={newTab}
             actions={
               isMe ? undefined : (

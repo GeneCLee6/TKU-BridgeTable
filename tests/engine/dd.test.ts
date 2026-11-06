@@ -43,6 +43,42 @@ function bruteForce(position: DoubleDummyPosition, side: Side): number {
 }
 
 describe('double-dummy solver', () => {
+  it('a run of top cards stops when partner must take the trick', () => {
+    // K Q opposite a bare A: North has to overtake, then can only lead the losing heart
+    const blocked: DoubleDummyPosition = {
+      hands: { S: ['SK', 'SQ'], N: ['SA', 'H2'], E: ['H3', 'H4'], W: ['H5', 'H6'] },
+      trick: [],
+      leader: 'S',
+      trump: null,
+    }
+    expect(canTake(blocked, 'NS', 2)).toBe(false)
+    expect(bruteForce(blocked, 'NS')).toBe(1)
+    // Top diamonds with partner holding only trumps: a forced ruff moves the lead too
+    const ruffs: DoubleDummyPosition = {
+      hands: { S: ['DA', 'DK', 'C2'], N: ['S2', 'S3', 'S4'], E: ['D3', 'D4', 'C3'], W: ['D5', 'D6', 'C4'] },
+      trick: [],
+      leader: 'S',
+      trump: 'S',
+    }
+    for (let tricks = 1; tricks <= 3; tricks++) expect(canTake(ruffs, 'NS', tricks)).toBe(bruteForce(ruffs, 'NS') >= tricks)
+  })
+
+  it('agrees with plain minimax on endings squeezed into few suits, where suits block', () => {
+    const random = seeded(23)
+    for (let round = 0; round < 400; round++) {
+      const size = 2 + random(3)
+      const deck = fullDeck().filter((card) => suitOf(card) === 'S' || suitOf(card) === 'H' || random(4) === 0)
+      for (let i = deck.length - 1; i > 0; i--) {
+        const j = random(i + 1)
+        ;[deck[i], deck[j]] = [deck[j], deck[i]]
+      }
+      const hands = Object.fromEntries(SEATS.map((seat, i) => [seat, deck.slice(i * size, (i + 1) * size)])) as Record<Seat, Card[]>
+      const position: DoubleDummyPosition = { hands, trick: [], leader: SEATS[random(4)], trump: [null, 'S', 'H', 'D'][random(4)] as Suit | null }
+      const most = bruteForce(position, 'NS')
+      for (let tricks = 1; tricks <= size; tricks++) expect(canTake(position, 'NS', tricks, 1_000_000)).toBe(most >= tricks)
+    }
+  }, 60_000)
+
   it('agrees with plain minimax on random endings', () => {
     const random = seeded(11)
     for (let round = 0; round < 150; round++) {

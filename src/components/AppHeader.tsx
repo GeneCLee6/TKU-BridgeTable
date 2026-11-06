@@ -1,10 +1,14 @@
 import {
   Award,
+  Building2,
   Check,
   ChevronDown,
+  Flag,
   Globe,
   History,
   LogOut,
+  Medal,
+  MessagesSquare,
   Moon,
   Shield,
   Star,
@@ -12,6 +16,7 @@ import {
   Swords,
   Trophy,
   Users,
+  UsersRound,
   Volume2,
   VolumeX,
 } from 'lucide-react'
@@ -19,13 +24,14 @@ import { useEffect, useRef, useState } from 'react'
 import { NavLink } from 'react-router-dom'
 import styled from 'styled-components'
 import { LANGS } from '../../shared/messages.ts'
-import { useAuth } from '../state/AuthContext.tsx'
+import { useAuth, useFeature } from '../state/AuthContext.tsx'
 import { useClub } from '../state/ClubContext.tsx'
 import { useInviteBanner } from '../state/InvitationsContext.tsx'
 import { usePreferences } from '../state/PreferencesContext.tsx'
 import { LANG_NAMES } from '../strings.ts'
 import { compactHeader, mobile, tablet } from '../styles/tokens.ts'
 import { Avatar } from './Avatar.tsx'
+import { PartBoundary } from './ErrorBoundary.tsx'
 import { LogoMark, LogoWordmark } from './Logo.tsx'
 import { NotificationBell } from './NotificationBell.tsx'
 
@@ -287,6 +293,15 @@ function LanguageMenu() {
 
 export function AppHeader() {
   const { user, logout } = useAuth()
+  // The forum's link only for members who have the flag (E13 K1)
+  const forumOn = useFeature('forum')
+  // Pairs events' link only with their flag (E9 J3)
+  const pairsOn = useFeature('pairs')
+  // The rankings' link (J2): members with the flag, and admins, who set the rules first
+  const rankingsOn = useFeature('rankings')
+  const tournamentsOn = useFeature('tournaments')
+  // The cross-club lobby (e12-t07)
+  const publicLobbyOn = useFeature('publicLobby')
   const { status, notifications, send } = useClub()
   const inviteBanner = useInviteBanner()
   const { mode, sound: soundOn, soundStyle, t, toggleMode, toggleSound } = usePreferences()
@@ -313,6 +328,18 @@ export function AppHeader() {
             <Trophy size={18} aria-hidden />
             <span>{t.navMatches}</span>
           </Link>
+          {pairsOn && (
+            <Link to="/pairs" aria-label={t.pairs.title} title={t.pairs.title}>
+              <UsersRound size={18} aria-hidden />
+              <span>{t.pairs.title}</span>
+            </Link>
+          )}
+          {tournamentsOn && (
+            <Link to="/tournaments" aria-label={t.tournaments.title} title={t.tournaments.title}>
+              <Flag size={18} aria-hidden />
+              <span>{t.tournaments.title}</span>
+            </Link>
+          )}
           <Link to="/history" aria-label={t.navHistory} title={t.navHistory}>
             <History size={18} aria-hidden />
             <span>{t.navHistory}</span>
@@ -325,6 +352,24 @@ export function AppHeader() {
             <Star size={18} aria-hidden />
             <span>{t.navFavorites}</span>
           </Link>
+          {(rankingsOn || user.admin) && (
+            <Link to="/rankings" aria-label={t.rankings.nav} title={t.rankings.nav}>
+              <Medal size={18} aria-hidden />
+              <span>{t.rankings.nav}</span>
+            </Link>
+          )}
+          {forumOn && (
+            <Link to="/forum" aria-label={t.navForum} title={t.navForum}>
+              <MessagesSquare size={18} aria-hidden />
+              <span>{t.navForum}</span>
+            </Link>
+          )}
+          {publicLobbyOn && (
+            <Link to="/clubs" aria-label={t.clubs.lobbyLink} title={t.clubs.lobbyLink}>
+              <Building2 size={18} aria-hidden />
+              <span>{t.clubs.lobbyLink}</span>
+            </Link>
+          )}
           {user.admin && (
             <Link
               to="/admin"
@@ -334,6 +379,13 @@ export function AppHeader() {
               <Shield size={18} aria-hidden />
               <span>{t.navAdmin}</span>
               {!!user.applications && <Count aria-hidden>{user.applications}</Count>}
+            </Link>
+          )}
+          {/* The platform's back office (e12-t05): its owner only, and the server checks again */}
+          {user.platformOwner && (
+            <Link to="/platform" title={t.platform.link} aria-label={t.platform.link}>
+              <Building2 size={18} aria-hidden />
+              <span>{t.platform.link}</span>
             </Link>
           )}
         </Nav>
@@ -360,9 +412,11 @@ export function AppHeader() {
         </IconButton>
         {user && (
           <>
-            {inviteBanner}
+            <PartBoundary name="invite-banner">{inviteBanner}</PartBoundary>
             {notifications && (
-              <NotificationBell notifications={notifications} onRead={(ids) => send({ type: 'readNotifications', ids })} />
+              <PartBoundary name="notification-bell">
+                <NotificationBell notifications={notifications} onRead={(ids) => send({ type: 'readNotifications', ids })} />
+              </PartBoundary>
             )}
             <Dot
               $ok={status === 'open'}

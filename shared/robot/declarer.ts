@@ -1,6 +1,7 @@
-import { nextSeat, partnerOf, sameSide, SUITS, suitOf, type Card, type Suit } from '../cards.ts'
+import { nextSeat, partnerOf, sameSide, SUITS, suitOf, type Card, type Seat, type Suit } from '../cards.ts'
 import type { PlayedCard } from '../game.ts'
 import { suitCards } from './hand.ts'
+import { createVoid, crossToRuff, ruffOut, throwIn } from './declarer-technique.ts'
 import { byRank, honours, value, type View } from './view.ts'
 
 /**
@@ -10,10 +11,16 @@ import { byRank, honours, value, type View } from './view.ts'
  * opponents hold some and our side can outlast them, giving up a trump trick if need be, or cross
  * to the hand that can; when the sure tricks are enough, cash them, the high cards from the shorter holding
  * first; when they are not, take a finesse the auction favours, then set up the longest suit
- * before cashing; in notrump hold up a single stopper in the suit the defence attacks; second hand
- * takes the trick with a master when partner cannot (Y4).
+ * before cashing; in notrump hold up a single stopper in the suit the defence attacks, as long
+ * as the card reading says the shorter defender still has one (T3); second hand takes the trick
+ * with a master when partner cannot (Y4). In a suit contract the techniques of S3
+ * (`declarer-technique.ts`): make the short hand void and ruff before drawing trumps, set up a
+ * long suit by ruffing, strip the hands and throw a defender in.
  * Only the cards the declaring side sees and the reading of the other two hands are used.
  */
+
+/** Hold up past the rule of seven when the shorter defender still holds the suit at least this likely (T3) */
+const HOLD_LONGER = 0.9
 
 /** The declaring side's lead, or null to fall back to the general rules */
 export function declarerLead(
@@ -37,11 +44,19 @@ export function declarerLead(
     if (!enough) {
       const ruff = ruffInShortHand(view, hand, partner, trump, ruffed)
       if (ruff) return ruff
+      // Make the short hand void, or cross to the long hand for the ruff, before drawing trumps (S3)
+      const ruffing = createVoid(view, hand, partner, trump, ruffed) ?? crossToRuff(view, hand, partner, trump, ruffed)
+      if (ruffing) return ruffing
     }
     const draw = drawTrumps(view, hand, partner, trump) ?? crossToDraw(view, hand, partner, trump, ruffed)
     if (draw) return draw
   }
 
+  if (trump && !enough) {
+    // Set up a long suit by ruffing; strip the hands and throw a defender in (S3)
+    const technique = ruffOut(view, hand, partner, trump, ruffed) ?? throwIn(view, hand, partner, trump, ruffed)
+    if (technique) return technique
+  }
   const cashing = cash(view, hand, partner, sides, ruffed)
   if (enough && cashing) return cashing
   const finessing = finesse([...(trumpsOut ? [trump!] : []), ...sides.filter((s) => !ruffed(s))])
@@ -269,7 +284,10 @@ function sequenceTop(view: View, cards: Card[]): Card | null {
 
 /**
  * Hold up the only stopper in notrump (the rule of seven): duck the suit the defence leads
- * 7 − (our cards in it) times, so the defender with the long suit has no way to reach partner
+ * 7 − (our cards in it) times, so the defender with the long suit has no way to reach partner.
+ * The rule guesses a five-card suit; when the card reading (T3, ROBOT.md §3.17) clearly shows
+ * the long hand, hold up longer while its partner is all but sure to hold another card, and
+ * stop once that partner is all but sure to be out and the long hand leads the suit itself
  */
 export function holdUp(view: View, trick: PlayedCard[], following: Card[], led: Suit, trump: Suit | null): Card | null {
   if (trump !== null || sameSide(trick[0].seat, view.seat)) return null
@@ -280,11 +298,27 @@ export function holdUp(view: View, trick: PlayedCard[], following: Card[], led: 
   if (masters.length !== 1 || partner.some((c) => view.isMaster(c))) return null
   const ours = [...following, ...partner].sort(byRank).reverse()
   if (ours[1] && view.higherOut(ours[1]).length < 2) return null
+  const low = [...following].sort(byRank)[0]
   const side = [view.seat, partnerOf(view.seat)]
   const played = view.state.play.filter((p) => side.includes(p.seat) && suitOf(p.card) === led).length
   const combined = following.length + partner.length + played
-  if (view.timesLed(led) >= 7 - combined) return null
-  return [...following].sort(byRank)[0]
+  // Card reading (T3): the rule of seven guesses the split; the lead, show-outs and count signals
+  // may tell it. Hold up longer while the shorter defender still holds a card of the suit (so it
+  // has none to lead to partner's long cards later); stop once it has none and the long hand
+  // itself leads the suit (there is nothing left to cut)
+  const reading = view.cardReading
+  if (reading.unseen.length === 2) {
+    const [a, b] = reading.unseen
+    const long = reading.expected(a, led) >= reading.expected(b, led) ? a : b
+    const short = partnerOf(long)
+    const toPlay = (s: Seat) => (trick.some((p) => p.seat === s) ? 0 : 1)
+    if (reading.expected(long, led) - toPlay(long) - (reading.expected(short, led) - toPlay(short)) >= 1) {
+      const holds = 1 - reading.exhausted(short, led, toPlay(short))
+      if (holds >= HOLD_LONGER) return low
+      if (holds <= 1 - HOLD_LONGER && trick[0].seat === long) return null
+    }
+  }
+  return view.timesLed(led) < 7 - combined ? low : null
 }
 
 /**
@@ -297,7 +331,7 @@ export function holdUp(view: View, trick: PlayedCard[], following: Card[], led: 
  */
 export function secondHandWin(view: View, trick: PlayedCard[], following: Card[], led: Suit, trump: Suit | null): Card | null {
   if (trick.length !== 1 || sameSide(trick[0].seat, view.seat) || suitOf(trick[0].card) !== led) return null
-  const master = following.filter((c) => view.isMaster(c) && value(c) > value(trick[0].card)).sort(byRank)[0]
+  const master = following.filter((c) => view.winsNow(c)).sort(byRank)[0]
   const partner = view.partnerCards()
   if (!master || !partner.length) return null
   const theirs = suitCards(partner, led)

@@ -25,7 +25,9 @@ import { Button, Muted } from './ui.tsx'
 
 const Wide = styled(Panel)`
   max-width: 620px;
+`
 
+const Sections = styled.div`
   & h3 {
     margin: ${({ theme }) => theme.space(4)} 0 ${({ theme }) => theme.space(2)};
     font-size: 16px;
@@ -185,24 +187,30 @@ function Outcome({ who, contract, outcome }: { who: string; contract: BoardView[
   )
 }
 
-export function PracticeReview({
+/** What the review needs of a board: the hands (all four, once its auction ended) and the auction */
+type ReviewedBoard = Pick<BoardView, 'boardNo' | 'dealer' | 'vul' | 'hands' | 'auction' | 'contract'>
+
+/**
+ * The review without its dialog, for a page of its own (the partner bidding practice, `e10-t08`).
+ * `robotHint` says how TKB bid the board when it was not four TKB from the start
+ */
+export function PracticeReviewBody({
   board,
   review,
   note,
   names,
-  onClose,
+  robotHint,
 }: {
   /** The board, finished at the end of its auction: all four hands are open */
-  board: BoardView
+  board: ReviewedBoard
   review: Review | undefined
   /** What a deal set's board teaches */
   note?: string
   names?: Partial<Record<Seat, string>>
-  onClose: () => void
+  robotHint?: string
 }) {
   const { t } = usePreferences()
   const r = t.practiceReview
-  const titleId = useId()
   const [picked, setPicked] = useState<number | null>(null)
   const meaning = useMeaning()
   // The DD table wants the board as a record has it: the four hands, nothing played
@@ -219,14 +227,6 @@ export function PracticeReview({
   const [solving] = useState(() => state)
   const dd = useDoubleDummy(solving)
 
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose()
-    }
-    document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
-  }, [onClose])
-
   const steps = review?.steps
   const robot = review?.robot
   const table = dd.status === 'done' ? dd.analysis.table : null
@@ -235,11 +235,7 @@ export function PracticeReview({
   const chosen = picked === null ? null : board.auction[picked]
 
   return (
-    <Backdrop onClick={(event) => event.target === event.currentTarget && onClose()}>
-      <Wide role="dialog" aria-modal="true" aria-labelledby={titleId}>
-        <h2 id={titleId}>
-          {r.title} · <ContractLabel contract={board.contract} />
-        </h2>
+    <Sections>
         {note && (
           <Teaches>
             <strong>{t.practiceNote}</strong>
@@ -313,7 +309,7 @@ export function PracticeReview({
 
         <section aria-label={r.robotBidding}>
           <h3>{r.robotBidding}</h3>
-          <Muted>{r.robotBiddingHint}</Muted>
+          <Muted>{robotHint ?? r.robotBiddingHint}</Muted>
           {!robot ? (
             <Muted role="status">{r.working}</Muted>
           ) : (
@@ -339,7 +335,43 @@ export function PracticeReview({
           <h3>{r.dd}</h3>
           <DoubleDummyPanel board={solving} />
         </section>
+    </Sections>
+  )
+}
 
+export function PracticeReview({
+  board,
+  review,
+  note,
+  names,
+  onClose,
+}: {
+  /** The board, finished at the end of its auction: all four hands are open */
+  board: BoardView
+  review: Review | undefined
+  /** What a deal set's board teaches */
+  note?: string
+  names?: Partial<Record<Seat, string>>
+  onClose: () => void
+}) {
+  const { t } = usePreferences()
+  const titleId = useId()
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose()
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  return (
+    <Backdrop onClick={(event) => event.target === event.currentTarget && onClose()}>
+      <Wide role="dialog" aria-modal="true" aria-labelledby={titleId}>
+        <h2 id={titleId}>
+          {t.practiceReview.title} · <ContractLabel contract={board.contract} />
+        </h2>
+        <PracticeReviewBody board={board} review={review} note={note} names={names} />
         <Buttons>
           <Button type="button" onClick={onClose}>
             {t.close}

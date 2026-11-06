@@ -1,6 +1,5 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it } from 'vitest'
-import { FRIENDS_ENABLED } from '../../shared/features.ts'
 import { parseClientMessage } from '../../shared/message-guard.ts'
 import { DIRECT_KEPT, DIRECT_PAGE_SIZE, LIMITS, type ClientMessage, type ServerMessage } from '../../shared/protocol.ts'
 import { DIRECT_BURST, FRIEND_ONLINE_QUIET_MS } from '../../worker/rate-limit.ts'
@@ -42,14 +41,14 @@ beforeEach(async () => {
   time = 1_000_000
   club = new ClubService(store, connections, { maxUsers: 20, now: () => time, schedule: () => undefined })
   await club.load()
-  const founder = await club.register('admin', 'secret1', '')
+  const founder = await club.register('admin', 'club-secret-1', '')
   if (!('user' in founder)) throw new Error('the first account should sign in at once')
   admin = founder.user.id
 })
 
 /** Registers, approves, and connects a member */
 async function member(name: string, online = true) {
-  const result = await club.register(name, 'secret1', '')
+  const result = await club.register(name, 'club-secret-1', '')
   const user =
     'user' in result ? result.user : await club.adminApprove(club.adminApplications().find((a) => a.username === name)!.id)
   if (online) await connect(user.id)
@@ -236,15 +235,16 @@ describe('friend online notice (e1-t24)', () => {
       .filter((n) => n.kind === 'friendOnline')
       .map((n) => n.params.username)
 
-  it.runIf(!FRIENDS_ENABLED)('says nothing while friends are hidden (FRIENDS_ENABLED)', async () => {
+  it('says nothing while the club has friends turned off (the `friends` flag)', async () => {
     const amy = await member('amy')
     const ben = await member('ben', false)
     await send(amy, { type: 'setFriend', userId: ben, friend: true })
+    await club.adminSetFeature({ flag: 'friends', state: 'off', usernames: [] })
     await connect(ben)
     expect(kinds(amy)).toEqual([])
   })
 
-  it.skipIf(!FRIENDS_ENABLED)('tells online followers once when a friend comes online, not on a reconnect soon after', async () => {
+  it('tells online followers once when a friend comes online, not on a reconnect soon after', async () => {
     const amy = await member('amy')
     const cat = await member('cat')
     const ben = await member('ben', false)
@@ -269,7 +269,7 @@ describe('friend online notice (e1-t24)', () => {
     expect(kinds(amy)).toEqual(['ben', 'ben'])
   })
 
-  it.skipIf(!FRIENDS_ENABLED)('can be turned off on the account page, and is not sent to someone the friend blocked', async () => {
+  it('can be turned off on the account page, and is not sent to someone the friend blocked', async () => {
     const amy = await member('amy')
     const cat = await member('cat')
     const ben = await member('ben', false)
@@ -296,7 +296,7 @@ describe('friend online notice (e1-t24)', () => {
     expect(me.bookProfile).toBe('a1b2c3')
     expect(me.friendOnlineNotice).toBe(false)
     // Signing in on another device gets the same choice
-    expect((await club.login('amy', 'secret1')).user.bookProfile).toBe('a1b2c3')
+    expect((await club.login('amy', 'club-secret-1')).user.bookProfile).toBe('a1b2c3')
 
     expect((await club.setAccountPreferences(amy, { bookProfile: 'club' })).bookProfile).toBeUndefined()
     await club.setAccountPreferences(amy, { bookProfile: 'a1b2c3' })
@@ -314,7 +314,7 @@ describe('friend online notice (e1-t24)', () => {
     expect(muted.bookAdoptedNotice).toBe(false)
     expect(muted.friendOnlineNotice).toBe(true)
     expect(club.mutesAdoptedNotices(amy)).toBe(true)
-    expect((await club.login('amy', 'secret1')).user.bookAdoptedNotice).toBe(false)
+    expect((await club.login('amy', 'club-secret-1')).user.bookAdoptedNotice).toBe(false)
     expect((await club.setAccountPreferences(amy, { bookAdoptedNotice: true })).bookAdoptedNotice).toBe(true)
     expect(club.mutesAdoptedNotices(amy)).toBe(false)
     await expect(club.setAccountPreferences(amy, { bookAdoptedNotice: 'no' })).rejects.toThrow()

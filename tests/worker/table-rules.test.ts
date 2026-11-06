@@ -89,7 +89,7 @@ beforeEach(async () => {
 const tick = () => new Promise((resolve) => setImmediate(resolve))
 
 async function member(name: string) {
-  const result = await club.register(name, 'secret1', '')
+  const result = await club.register(name, 'club-secret-1', '')
   let id: string
   if ('user' in result) id = result.user.id
   else id = (await club.adminApprove(club.adminApplications().find((a) => a.username === name)!.id)).id
@@ -193,7 +193,7 @@ describe('hidden tables with an invitation list (e2-t25)', () => {
     await send(gene, { type: 'setBlocked', userId: amy, blocked: true })
     await send(gene, { type: 'createTable', settings: { access: 'hidden' } })
     await send(gene, { type: 'updateTableSettings', settings: {}, invitees: [amy] })
-    expect(lastError(gene)).toBe('unblockFirst')
+    expect(lastError(gene)).toBe('unblockToInvite')
     expect(tableFor(gene).invited).toEqual([])
     expect(connections.last(amy, 'notifications')!.notifications.items.some((n) => n.kind === 'tableInvited')).toBe(false)
   })

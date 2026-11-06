@@ -24,7 +24,8 @@ const goodFive = (h: Hand, s: Suit) => h.len[s] >= 5 && topThree(h, s) >= 2
  */
 function enough(h: Hand, ctx: Ctx, s: Suit): boolean {
   if (h.hcp >= 12) return true
-  // A good 11 (e5-t41, 牌值): Rule of 20 and two quick tricks, as a 12-point opening (not in fourth seat)
+  // A good 11 (e5-t41, 牌值): Rule of 20 and two quick tricks, as a 12-point opening (not in fourth seat); the
+  // explanation stays 12–21 on purpose (社長 2026-11-06, ROBOT.md §2)
   if (h.hcp === 11 && ctx.position <= 3 && h.rule20 >= 20 && h.quickTricks >= 2) return true
   if (h.hcp < 10) return false
   if (ctx.position === 3) return goodFive(h, s)
@@ -77,8 +78,9 @@ export function openingBook(fiveMajorNotrump = NOTRUMP_WITH_FIVE_MAJOR): Book {
       ...(['H', 'S'] as const).map((m) =>
         rule(bid(2, m), twoSuiterShows[bid(2, m) as '2H' | '2S'], (h, ctx) => h.hcp >= 5 && h.hcp <= 10 && twoSuiter(h, m) && weakOk(h, ctx, m)),
       ),
-      // 一高弱二: six cards in one major with an honour, no good four-card other major (開叫2♥/♠（弱二）)
-      rule('2D', { name: 'oneMajorWeakTwo', hcp: [6, 10] }, (h, ctx) => {
+      // 一高弱二: six cards in one major with an honour, no good four-card other major (開叫2♥/♠（弱二）);
+      // 5–10 as the other weak openings (社長 2026-11-06, ROBOT.md §2)
+      rule('2D', { name: 'oneMajorWeakTwo', hcp: [5, 10] }, (h, ctx) => {
         const m = h.len.S === 6 ? 'S' : h.len.H === 6 ? 'H' : null
         return !!m && h.hcp >= 5 && h.hcp <= 10 && !(h.len[other(m)] >= 4 && topThree(h, other(m)) >= 1) && weakOk(h, ctx, m) && topThree(h, m) >= 1
       }),

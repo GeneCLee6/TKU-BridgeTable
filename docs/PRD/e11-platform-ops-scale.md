@@ -74,7 +74,7 @@ M0 跑在 Cloudflare 免費方案：一個 Worker 加一個 SQLite 後端的 Dur
 
 - [x] `e11-t16` 決策紀錄：拆分 Durable Object——`Directory`（帳號、session、好友、通知、大廳目錄）、`Table`（每桌一個）、`Event`（每個挑戰／隊制賽／比賽一個）；跨物件通訊、一致性、成本估算 · AC-11.4 · S
 - [x] `e11-t17` 抽出 `TableObject`：牌桌狀態與 WebSocket 移到每桌一個物件，大廳摘要回報給 `Directory`；所有 `tests/worker` 通過 · AC-11.4 · M · ← e11-t16
-- [x] `e11-t18` 抽出 `EventObject`：挑戰與隊制賽的狀態、排程與結算移到每個比賽一個物件 · AC-11.4 · M · ← e11-t17 · #140（挑戰；開關 `EVENT_OBJECTS` 預設關；隊制賽留給 H2c）
+- [x] `e11-t18` 抽出 `EventObject`：挑戰與隊制賽的狀態、排程與結算移到每個比賽一個物件 · AC-11.4 · M · ← e11-t17 · #140（H2b 挑戰）、#250（H2c 隊制賽）；開關 `EVENT_OBJECTS` 預設關，正式站還沒開
 - [x] `e11-t19` session 驗證在 Worker 邊緣處理（簽章 token 或快取），不必每次打到 `Directory` · AC-11.4 · M · ← e11-t16
 - [x] `e11-t20` 紀錄索引搬到 D1（沿用 E4 的 schema），寫入改為非同步佇列並可重送 · AC-11.4 · M · ← e11-t16, e4-t11
 - [x] `e11-t21` 負載測試：模擬 200 位使用者、30 桌的 WebSocket 機器人，報告延遲、CPU 與費用 · AC-11.4 · M · ← e11-t17 · #142（本機 200 人 30 桌＋大廳廣播的修正；遠端煙霧測試待預覽站的 secret，`docs/LOAD.md`）
@@ -84,16 +84,16 @@ M0 跑在 Cloudflare 免費方案：一個 Worker 加一個 SQLite 後端的 Dur
 
 - [x] `e11-t23` CSP 與安全標頭、session 列表與「登出其他裝置」· AC-11.7 · S（`docs/SECURITY.md` §2；通行證的 10 分鐘窗口留給 `e11-t28`）
 - [x] `e11-t24` 安全審查（對照 OWASP ASVS Level 1），修正清單逐項開 task · AC-11.7 · M · ← e11-t23（`docs/SECURITY.md` §3；當場修：密碼上限、改密碼登出其他裝置、WebSocket 的 Origin 檢查）
-- [ ] `e11-t25` 防作弊報表：同 IP／同裝置多帳號同場、挑戰與隊制賽中的異常模式，管理頁可查 · AC-11.8 · M · ← e7-t13, e8-t11
+- [x] `e11-t25` 防作弊報表：同 IP／同裝置多帳號同場、挑戰與隊制賽中的異常模式，管理頁可查（只做社團內部；ARCHITECTURE.md §5.17）· AC-11.8 · H6b
 - [x] `e11-t26` 功能旗標（全站／社團／使用者），新功能先對幹部開放 · AC-11.9 · S（`shared/features.ts`、管理頁「功能旗標」；第一個旗標是好友）
 - [x] `e11-t27` 隱私權政策與使用條款頁；社員匯出自己的資料、刪除帳號時的資料處理流程（台灣個資法）· AC-11.10, AC-11.6 · M（`/privacy`、`/terms`、「我的帳號」的下載與刪除，`docs/SECURITY.md` §5）
 
 **M2 · 安全審查的待辦（`e11-t24`，`docs/SECURITY.md` §4）**
 
 - [x] `e11-t28` 邊緣通行證帶 session 的雜湊：登出、登出其他裝置、改密碼、刪帳號時通行證與那一桌的連線立刻失效；cookie 改 `__Host-` 前綴 · AC-11.7 · M · ← e11-t23（通行證帶 session id、D1 的 `pass_revocations`；`__Host-` 前綴會讓全部人重新登入，留給社長決定，`docs/SECURITY.md` §4）
-- [ ] `e11-t29` 密碼政策：最短長度（ASVS 要 12）與常見／外洩密碼檢查（社長決定長度）· AC-11.7 · S
+- [x] `e11-t29` 密碼政策：最短長度（ASVS 要 12）與常見／外洩密碼檢查（社長決定長度）· AC-11.7 · S（社長 2026-11-02：12 字、擋常見密碼；只套用新設定的密碼，`worker/password-policy.ts`）
 - [x] `e11-t30` 提高 PBKDF2 次數（現在 50,000）或換演算法，登入時升級舊雜湊；先量測免費方案的 CPU · AC-11.7 · S（100,000 次，Cloudflare 的上限）
-- [ ] `e11-t31` 管理員的多因素驗證（TOTP）· AC-11.7 · M · ← e1-t29
+- [x] `e11-t31` 管理員的多因素驗證（TOTP）· AC-11.7 · M · ← e1-t29（備用碼、另一位管理員可替人關掉；社長 2026-11-02 決定：管理員一定要開、設定頁有 QR code、只有一位管理員時由 Cloudflare 帳號擁有者用臨時 secret 清掉，DEPLOY.md §4.15）
 - [x] `e11-t32` HTTP 本文邊讀邊算大小，不靠 `Content-Length` · AC-11.7 · S（`worker/body.ts`）
 
 ## 風險與對策

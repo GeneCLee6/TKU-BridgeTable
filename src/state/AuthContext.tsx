@@ -1,31 +1,46 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { FEATURE_DEFAULTS, type FeatureFlag } from '../../shared/features.ts'
 import type { Me, RegisterResult } from '../../shared/protocol.ts'
-import { api } from '../lib/api.ts'
+import { api, ApiError, type OAuthApplication } from '../lib/api.ts'
+import { forgetPushOnSignOut } from '../lib/push.ts'
 import { resetFavorites } from '../lib/favorites.ts'
 
 /** The signed-in member. `undefined` while the session is being checked, `null` when signed out. */
 interface Auth {
   user: Me | null | undefined
-  login: (username: string, password: string) => Promise<void>
+  /** `code` is the second step (兩步驟登入, e11-t31), for accounts that turned it on */
+  login: (username: string, password: string, code?: string, lang?: string) => Promise<void>
   /** Signs in the club's first account; later registrations come back pending */
-  register: (username: string, password: string, inviteCode: string, note: string) => Promise<RegisterResult>
+  register: (
+    username: string,
+    password: string,
+    inviteCode: string,
+    note: string,
+    turnstileToken?: string,
+    oauth?: OAuthApplication,
+  ) => Promise<RegisterResult>
   logout: () => Promise<void>
   /** Reads the account again, e.g. after an admin handled applications */
   refresh: () => Promise<void>
+  /** The page's address names a club the site does not have (`/c/<id>/`, e12-t04) */
+  missingClub: boolean
 }
 
 const AuthContext = createContext<Auth | null>(null)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<Me | null | undefined>(undefined)
+  const [missingClub, setMissingClub] = useState(false)
 
   const refresh = useCallback(
     () =>
       api
         .me()
         .then(({ user }) => setUser(user))
-        .catch(() => setUser(null)),
+        .catch((error: unknown) => {
+          setMissingClub(error instanceof ApiError && error.code === 'unknownClub')
+          setUser(null)
+        }),
     [],
   )
 
@@ -33,24 +48,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     void refresh()
   }, [refresh])
 
-  const login = useCallback(async (username: string, password: string) => {
-    setUser((await api.login(username, password)).user)
+  const login = useCallback(async (username: string, password: string, code?: string, lang?: string) => {
+    setUser((await api.login(username, password, code, lang)).user)
     resetFavorites()
   }, [])
 
-  const register = useCallback(async (username: string, password: string, inviteCode: string, note: string) => {
-    const result = await api.register(username, password, inviteCode, note)
-    if ('user' in result) setUser(result.user)
-    return result
-  }, [])
+  const register = useCallback(
+    async (username: string, password: string, inviteCode: string, note: string, turnstileToken?: string, oauth?: OAuthApplication) => {
+      const result = await api.register(username, password, inviteCode, note, turnstileToken, oauth)
+      if ('user' in result) setUser(result.user)
+      return result
+    },
+    [],
+  )
 
   const logout = useCallback(async () => {
+    // The next member signing in on this browser must not get this one's pushes (e1-t28)
+    await forgetPushOnSignOut()
     await api.logout().catch(() => undefined)
     resetFavorites()
     setUser(null)
   }, [])
 
-  const value = useMemo(() => ({ user, login, register, logout, refresh }), [user, login, register, logout, refresh])
+  const value = useMemo(
+    () => ({ user, login, register, logout, refresh, missingClub }),
+    [user, login, register, logout, refresh, missingClub],
+  )
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
 

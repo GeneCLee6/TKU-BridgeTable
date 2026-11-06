@@ -3,6 +3,7 @@ import type { Seat } from '../shared/cards.ts'
 import type { BookNotes } from '../shared/robot/system/book-spec.ts'
 import { AppError, type MessageCode, type MessageParams } from '../shared/messages.ts'
 import type { BoardRecord, RobotSpeed, TableAction, TableMode, TableSettings } from '../shared/protocol.ts'
+import type { GuestTable } from '../shared/public-lobby.ts'
 import type { Room, VugraphRoom } from '../shared/team-match.ts'
 import { ClubError } from './errors.ts'
 import type { EventReport } from './modes.ts'
@@ -15,6 +16,9 @@ import type { Table } from './views.ts'
  * directions are plain async calls with structured-clonable arguments, so they work the same in
  * one process (`LocalTables`, the tests) and as Durable Object RPC.
  */
+
+/** A table as a guest from another club sees it, before its club adds its own id and name */
+export type GuestTableBody = Omit<GuestTable, 'clubId' | 'clubName'>
 
 /** What the club keeps about a table: what the lobby shows and what moving between tables needs */
 export interface TableEntry {
@@ -38,7 +42,13 @@ export interface TableEntry {
   /** A board is on the table and not finished: nobody changes seats */
   playing: boolean
   /** A challenge table: whose and for which challenge */
-  challenge?: { challengeId: string; userId: string }
+  challenge?: {
+    challengeId: string
+    userId: string
+    partnerId?: string
+    /** A partner challenge: members who lost their seat for being offline too long, seated again when back online */
+    dropped?: string[]
+  }
   /** A team match room's table (§5.8): which match and room, and the teams' names for the lobby's list of matches */
   match?: {
     matchId: string
@@ -158,6 +168,11 @@ export interface TableApi {
    * anyone in the match while it is on; null when the table is not a match's. Changes nothing
    */
   vugraph(userId: string): Promise<VugraphRoom | null>
+  /**
+   * The table as a guest from another club watches it (the cross-club lobby, e12-t07; worker/views.ts
+   * `guestTableView`): null when the table is not open to other clubs. Changes nothing
+   */
+  guestView(): Promise<GuestTableBody | null>
   /** Closes the table (an admin, or a challenge that ended) */
   close(): Promise<void>
   /** A table action from a member at the table (bidding, play, chat, the host's seat changes) */
@@ -312,6 +327,9 @@ class RemoteTable implements TableApi {
   }
   vugraph(userId: string) {
     return this.call(this.rpc.vugraph(userId))
+  }
+  guestView() {
+    return this.call(this.rpc.guestView())
   }
   close() {
     return this.call(this.rpc.close())

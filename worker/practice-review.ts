@@ -25,11 +25,18 @@ export function askedState(board: BoardState, seat: Seat, calls: number): BoardS
   }
 }
 
-/** For each call of the board's auction: TKB's call from that seat at that point */
-export async function reviewSteps(brain: RobotBrain, kind: RobotKind, board: BoardState): Promise<PracticeReviewStep[]> {
+/**
+ * For each call of the board's auction: TKB's call from that seat at that point. Seats in `silent`
+ * always pass (the partner bidding practice's East and West, `e10-t08`) and the brain is not asked
+ */
+export async function reviewSteps(brain: RobotBrain, kind: RobotKind, board: BoardState, silent: readonly Seat[] = []): Promise<PracticeReviewStep[]> {
   const steps: PracticeReviewStep[] = []
   for (let i = 0; i < board.auction.length; i++) {
     const seat = board.auction[i].seat
+    if (silent.includes(seat)) {
+      steps.push({ call: 'P' })
+      continue
+    }
     const bid = await brain.bid(kind, askedState(board, seat, i), seat)
     steps.push({ call: bid.call, ...(bid.meaning && { meaning: bid.meaning }) })
   }
@@ -39,11 +46,20 @@ export async function reviewSteps(brain: RobotBrain, kind: RobotKind, board: Boa
 /** The most calls an auction can have (35 bids, each doubled and redoubled, with passes): a guard only */
 const MOST_CALLS = 320
 
-/** Four TKB bid the board from the start, each seeing only its own hand */
-export async function robotBidding(brain: RobotBrain, kind: RobotKind, board: BoardState): Promise<NonNullable<PracticeReview['robot']>> {
+/** Four TKB bid the board from the start, each seeing only its own hand; seats in `silent` always pass */
+export async function robotBidding(
+  brain: RobotBrain,
+  kind: RobotKind,
+  board: BoardState,
+  silent: readonly Seat[] = [],
+): Promise<NonNullable<PracticeReview['robot']>> {
   let bidding: BoardState = { ...askedState(board, board.dealer, 0), hands: board.hands }
   while (bidding.phase === 'auction' && bidding.auction.length < MOST_CALLS) {
     const seat = nextSeat(bidding.dealer, bidding.auction.length)
+    if (silent.includes(seat)) {
+      bidding = makeCall(bidding, seat, 'P')
+      continue
+    }
     const bid = await brain.bid(kind, askedState(bidding, seat, bidding.auction.length), seat)
     let next: BoardState
     try {

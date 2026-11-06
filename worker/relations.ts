@@ -25,6 +25,22 @@ export class Relations {
     }
   }
 
+  /**
+   * Reads the lists again after a backup was restored (DEPLOY.md §4.4): whatever was in memory is
+   * dropped, and an entry naming someone who is not a member any more is deleted
+   */
+  async reload(isMember: (id: string) => boolean) {
+    this.lists.clear()
+    await this.load()
+    for (const [userId, list] of [...this.lists])
+      for (const otherId of [...list])
+        if (!isMember(userId) || !isMember(otherId)) {
+          list.delete(otherId)
+          await this.store.delete(this.key(userId, otherId))
+        }
+    for (const [userId, list] of [...this.lists]) if (!list.size) this.lists.delete(userId)
+  }
+
   private listOf(userId: string) {
     let list = this.lists.get(userId)
     if (!list) this.lists.set(userId, (list = new Set()))

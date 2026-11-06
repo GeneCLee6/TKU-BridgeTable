@@ -30,7 +30,7 @@ M0 已經有一套社團用的帳號系統：邀請碼＋管理員核准、PBKDF
 ### 功能
 
 - 個人檔案：顯示名稱、自評等級（初學者／大專／公開組／橋士組，和機器人等級同一套名稱）、常用制度、自我介紹、頭像。
-- 好友是單向「關注」，不需對方同意；封鎖會擋掉私訊、挑戰與隊制賽邀請，並隱藏對方的聊天。
+- 好友是單向「關注」，不需對方同意；封鎖會擋掉私訊、挑戰、受邀桌與隊制賽邀請、比賽與雙人賽的搭檔，討論區的提及與回覆也不通知，並隱藏對方的聊天。挑戰與受邀桌不必是好友，任何社員都能邀（社長 2026-10-27，重新開放好友時維持）。
 - 通知中心：站內通知即時推送（WebSocket），離線時保留；M2 加 PWA 推播。
 - 私訊：一對一、未讀數、分頁讀取、速率限制。
 
@@ -52,10 +52,10 @@ M0 已經有一套社團用的帳號系統：邀請碼＋管理員核准、PBKDF
 - [x] AC-1.3 — 管理員可核准／拒絕申請、新增帳號、重設密碼、設定／取消管理員（至少保留一位）、刪除帳號（紀錄保留）、改人數上限與邀請碼、關閉牌桌；管理頁在手機上可用。
 - [x] AC-1.4 — 與淡江橋譜共用帳號；`bookEdit`、`bookImport` 兩種權限可由管理員開給社員；橋譜 API 與 AI 匯入可用。
 - [ ] AC-1.5 — 個人檔案：顯示名稱、自評等級、常用制度、自我介紹、頭像；在社員分頁點名字可以看到。
-- [x] AC-1.6 — 好友與封鎖：社員分頁可只看好友、好友置頂；好友上線有提示（可關）；封鎖者不能私訊或邀請。
+- [x] AC-1.6 — 好友與封鎖：社員分頁可只看好友、好友置頂；好友上線有提示（可關）；封鎖者不能私訊或邀請。（2026-10-27 起介面隱藏，2026-11-03 重新開放，`friends` 旗標預設開，docs/ROADMAP.md L3；跨社團的好友規則在 L2 決定）
 - [x] AC-1.7 — 私訊：一對一訊息、未讀數、離線保留、速率限制。
-- [ ] AC-1.8 — 通知中心：挑戰、隊制賽、私訊、精選等通知即時出現在頁首鈴鐺，點了直接到對應頁；M2 起可選 PWA 推播。
-- [ ] AC-1.9 — 公開階段的身分：Email 驗證與 Email 重設密碼、Google 與 LINE 登入、註冊有 Turnstile 與速率限制。
+- [x] AC-1.8 — 通知中心：挑戰、隊制賽、私訊、精選等通知即時出現在頁首鈴鐺，點了直接到對應頁；M2 起可選 PWA 推播。
+- [x] AC-1.9 — 公開階段的身分：Email 驗證與 Email 重設密碼、Google 與 LINE 登入、註冊有 Turnstile 與速率限制。（社長 2026-11-03 在正式站實測 LINE 登入成功）
 
 ## Task 拆分
 
@@ -98,12 +98,12 @@ M0 已經有一套社團用的帳號系統：邀請碼＋管理員核准、PBKDF
 
 **M2 · 推播與公開階段的身分**（全台灣橋手清單；多元登入 `e1-t29`–`e1-t33` 排在清單最後，社長 2026-10-30）
 
-- [ ] `e1-t28` PWA 推播：VAPID 金鑰、訂閱管理、依通知種類的推播偏好 · AC-1.8 · M · ← e1-t22
-- [ ] `e1-t29` Email 綁定與驗證信（寄信服務選型寫進 PR：Cloudflare Email Service 或 Resend）· AC-1.9 · M
-- [ ] `e1-t30` Email 重設密碼（社團模式仍可保留「帳號＋邀請碼」重設）· AC-1.9 · S · ← e1-t29
-- [ ] `e1-t31` Google 登入（OAuth，與既有帳號綁定）· AC-1.9 · M
-- [ ] `e1-t32` LINE 登入 · AC-1.9 · M · ← e1-t31
-- [ ] `e1-t33` 註冊防濫用：Cloudflare Turnstile、同 IP 註冊速率限制 · AC-1.9 · S
+- [x] `e1-t28` PWA 推播：VAPID 金鑰、訂閱管理、依通知種類的推播偏好 · AC-1.8 · M · ← e1-t22（Web Push 只用 WebCrypto：RFC 8291 aes128gcm 加密、RFC 8292 VAPID ES256；從社團的 Durable Object 送、在線的人不推、404／410 刪掉訂閱；「我的帳號」每台裝置各自開關、裝置列表、依群組勾選（伺服器存每個種類）；`VAPID_*` 三個 secret 都設才開，ARCHITECTURE.md §5.4、DEPLOY.md §4.17）
+- [x] `e1-t29` Email 綁定與驗證信（寄信服務選型寫進 PR：Cloudflare Email Service 或 Resend）· AC-1.9 · M（Resend，沒設 `RESEND_API_KEY`／`MAIL_FROM` 時關閉；ARCHITECTURE.md §5.20、DEPLOY.md §4.14）#253
+- [x] `e1-t30` Email 重設密碼（社團模式仍可保留「帳號＋邀請碼」重設）· AC-1.9 · S · ← e1-t29（一次性 30 分鐘連結、只存雜湊；管理員核准的 `e1-t36` 保留）#253
+- [x] `e1-t31` Google 登入（OAuth，與既有帳號綁定）· AC-1.9 · M（OIDC 授權碼＋PKCE，伺服器換 token、用 `sub` 認人；綁在既有帳號、用 Google 申請仍要核准、兩步驟登入照樣要驗證碼；`GOOGLE_CLIENT_ID`／`GOOGLE_CLIENT_SECRET` 都設才開，ARCHITECTURE.md §5.2、DEPLOY.md §4.16）
+- [x] `e1-t32` LINE 登入 · AC-1.9 · M · ← e1-t31（LINE Login v2.1 授權碼＋PKCE＋state＋nonce，與 Google 共用 `worker/oauth.ts`；ID token 驗 HS256 簽章、只用 `sub` 認人、不要 Email；綁在既有帳號、用 LINE 申請仍要核准、兩步驟登入照樣要驗證碼；`LINE_CHANNEL_ID`／`LINE_CHANNEL_SECRET` 都設才開，ARCHITECTURE.md §5.2、DEPLOY.md §4.18。同一批把 Google 與 LINE 按鈕改成兩家品牌規範的樣式，DESIGN.md §7.11）
+- [x] `e1-t33` 註冊防濫用：Cloudflare Turnstile、同 IP 註冊速率限制 · AC-1.9 · S（Turnstile 兩把金鑰都設才開，DEPLOY.md §4.13；同 IP 一小時 10 次一直開著）#252
 - [x] `e1-t34` 上傳頭像：瀏覽器先裁切、縮成小圖再上傳（Worker 免費方案每次 10 ms CPU，不在伺服器處理圖片）、大小與格式限制；2026-10-26 提前到 ROADMAP U4，不等 Email 登入；存在社團的 Durable Object（`avatar:<id>`），不用 R2，PR #136 · AC-1.5 · M · ← e1-t18
 
 ## 風險與對策

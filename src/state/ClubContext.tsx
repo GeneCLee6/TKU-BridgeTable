@@ -23,9 +23,11 @@ import {
   type TableView,
   type TableWire,
 } from '../../shared/protocol.ts'
+import type { PartnerBidView } from '../../shared/partner-bidding.ts'
 import type { TeamMatchView } from '../../shared/team-match.ts'
 import { composeLobby, emptyReplica, receiveLobby } from '../../shared/lobby.ts'
 import type { MessageParams } from '../../shared/messages.ts'
+import { clubHeaders } from '../lib/club.ts'
 import { liveSocket, type ConnectionStatus, type LiveSocket } from '../lib/liveSocket.ts'
 import { useAuth } from './AuthContext.tsx'
 
@@ -57,6 +59,8 @@ interface Club {
   error: { code: string; params: MessageParams; message: string; at: number } | null
   /** The latest team match pushed to the viewer (§5.8); the prep room takes it when it is the one shown */
   matchLive: { matchId: string; match: TeamMatchView | null } | null
+  /** The last partner bidding session that changed (`e10-t08`); null in `session` when it is gone */
+  partnerBidLive?: { id: string; session: PartnerBidView | null } | null
   send: (message: ClientMessage) => void
   dismissError: () => void
 }
@@ -101,6 +105,7 @@ export function ClubProvider({ children }: { children: ReactNode }) {
   const [directLive, setDirectLive] = useState<DirectMessage[]>([])
   const [error, setError] = useState<Club['error']>(null)
   const [matchLive, setMatchLive] = useState<Club['matchLive']>(null)
+  const [partnerBidLive, setPartnerBidLive] = useState<Club['partnerBidLive']>(null)
   const clubSocket = useRef<LiveSocket | null>(null)
   const tableSocket = useRef<LiveSocket | null>(null)
   const waiting = useRef<{ message: ClientMessage; at: number }[]>([])
@@ -121,6 +126,7 @@ export function ClubProvider({ children }: { children: ReactNode }) {
     else if (message.type === 'directs') setDirects(message.directs)
     else if (message.type === 'direct') setDirectLive((live) => [...live, message.message].slice(-LIVE_KEPT))
     else if (message.type === 'match') setMatchLive({ matchId: message.matchId, match: message.match })
+    else if (message.type === 'partnerBid') setPartnerBidLive({ id: message.id, session: message.session })
     else if (message.type === 'error') setError({ code: message.code, params: message.params, message: message.message, at: Date.now() })
   }, [])
 
@@ -138,7 +144,7 @@ export function ClubProvider({ children }: { children: ReactNode }) {
       onStatus: setStatus,
       onOpen: () => flush(socket, false),
       onRefused: () =>
-        void fetch('/api/me').then((r) => {
+        void fetch('/api/me', { headers: clubHeaders() }).then((r) => {
           if (r.status === 401) void logout()
         }),
     })
@@ -154,6 +160,7 @@ export function ClubProvider({ children }: { children: ReactNode }) {
       setDirects(null)
       setDirectLive([])
       setMatchLive(null)
+      setPartnerBidLive(null)
     }
   }, [user, logout, receive, flush])
 
@@ -184,8 +191,8 @@ export function ClubProvider({ children }: { children: ReactNode }) {
   const dismissError = useCallback(() => setError(null), [])
 
   const value = useMemo(
-    () => ({ status, lobby, table, notifications, directs, directLive, error, matchLive, send, dismissError }),
-    [status, lobby, table, notifications, directs, directLive, error, matchLive, send, dismissError],
+    () => ({ status, lobby, table, notifications, directs, directLive, error, matchLive, partnerBidLive, send, dismissError }),
+    [status, lobby, table, notifications, directs, directLive, error, matchLive, partnerBidLive, send, dismissError],
   )
   return <ClubContext.Provider value={value}>{children}</ClubContext.Provider>
 }

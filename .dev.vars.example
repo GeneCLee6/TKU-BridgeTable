@@ -5,3 +5,37 @@ INVITE_CODE=
 # Signs edge passes (ARCHITECTURE.md §5.12): set any long random string to try the history pages
 # answered from D1 by the Worker; leave empty and the club answers everything, as before
 EDGE_AUTH_SECRET=
+
+# Salts the anti-cheating report's network hashes (ARCHITECTURE.md §5.17): any random string of at
+# least 16 characters; leave empty and only browsers are compared
+SEEN_SALT=
+
+# Cloudflare Turnstile on registering (DEPLOY.md §4.13): on only when both are set. Cloudflare's
+# test keys always pass: site key 1x00000000000000000000AA, secret 1x0000000000000000000000000000000AA
+TURNSTILE_SITE_KEY=
+TURNSTILE_SECRET_KEY=
+
+# Email binding and email password reset (DEPLOY.md §4.14): a Resend API key and a sender on a
+# domain verified there; leave either empty and email is off
+RESEND_API_KEY=
+MAIL_FROM=
+
+# Google sign-in (DEPLOY.md §4.16): an OAuth client whose redirect URIs include
+# http://localhost:5173/api/auth/google/callback; leave either empty and Google sign-in is off
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+
+# Push notifications (DEPLOY.md §4.17): `npm run vapid` makes the pair; the subject is a contact
+# (mailto: or https:) for the push services; leave any empty and push is off
+VAPID_PUBLIC_KEY=
+VAPID_PRIVATE_KEY=
+VAPID_SUBJECT=
+
+# LINE login (DEPLOY.md §4.18): a LINE Login channel whose callback URLs include
+# http://localhost:5173/api/auth/line/callback; leave either empty and LINE login is off
+LINE_CHANNEL_ID=
+LINE_CHANNEL_SECRET=
+
+# The platform owner (DEPLOY.md §4.20): the user id of a 淡江 admin with two-step sign-in on
+# (see /api/me); leave empty and there is no back office at /platform and no club applications
+PLATFORM_OWNER=

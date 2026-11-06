@@ -4,6 +4,10 @@
  * lets a little more through
  */
 
+/** A teacher's marks on a teaching table (`e10-t11`): a few at once while explaining, then two a second */
+export const TEACH_MARK_BURST = 10
+export const TEACH_MARKS_PER_SECOND = 2
+
 /** A token bucket per key: `burst` actions at once, then `perSecond` */
 export class TokenBuckets {
   private readonly buckets = new Map<string, { tokens: number; at: number }>()
@@ -109,5 +113,31 @@ export const DIRECTS_PER_SECOND = 20 / 60
 /** Requests to join a table per member: 3 at once, then one every 30 seconds (a declined one also waits TABLE_REQUEST_COOLDOWN_MS) */
 export const REQUEST_BURST = 3
 export const REQUESTS_PER_SECOND = 1 / 30
+/**
+ * Mail sent per account (e1-t29, e1-t30): 3 at once, then one every 10 minutes, verification and
+ * reset links together. Over it a reset request is dropped without a word (it must not tell whether
+ * the account exists); a verification answers slowDown
+ */
+export const MAIL_BURST = 3
+export const MAILS_PER_SECOND = 1 / 600
+/** Reset requests per network address: 5 at once, then one every 2 minutes */
+export const MAIL_REQUEST_BURST = 5
+export const MAIL_REQUESTS_PER_SECOND = 1 / 120
 /** A friend coming online is announced at most once in this long, so reconnects stay quiet (e1-t24) */
 export const FRIEND_ONLINE_QUIET_MS = 30 * 60_000
+/**
+ * Wrong second-step codes per account (e11-t31), from anywhere: 5, then wait LOGIN_WINDOW_MS. Whoever
+ * gets this far knows the password, so the account's verified email hears when it locks
+ */
+export const TWO_FACTOR_FAILURES = 5
+
+/**
+ * Requests that bring in boards or deals from files per member (e4-t39, e10-t09): 25 at once, enough
+ * for a file at its limit in batches, then one every 30 seconds
+ */
+export const IMPORT_BURST = 25
+export const IMPORTS_PER_SECOND = 1 / 30
+
+/** Google and LINE sign-ins started per network address, together (e1-t31, e1-t32): 10 at once, then one a minute */
+export const OAUTH_START_BURST = 10
+export const OAUTH_STARTS_PER_SECOND = 1 / 60

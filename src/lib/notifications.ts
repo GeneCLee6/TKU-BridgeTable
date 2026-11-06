@@ -1,6 +1,8 @@
-import { BOOK_SITE } from '../../shared/book-site.ts'
 import type { Notification } from '../../shared/protocol.ts'
 import type { Strings } from '../strings.ts'
+
+// Where a notification leads is decided in shared/ so the server's push (e1-t28) leads to the same page
+export { notificationLink } from '../../shared/notification-link.ts'
 
 /** What a notification says, in the viewer's language */
 export function notificationText(t: Strings, n: Notification): string {
@@ -11,6 +13,8 @@ export function notificationText(t: Strings, n: Notification): string {
     case 'challengeInvited':
     case 'challengeAccepted':
     case 'challengeDeclined':
+    case 'challengePartnerDeclined':
+    case 'challengePartnerSeated':
     case 'challengeCancelled':
     case 'friendOnline':
     case 'matchInvited':
@@ -27,11 +31,19 @@ export function notificationText(t: Strings, n: Notification): string {
     case 'pairAccepted':
     case 'pairDeclined':
     case 'pairEnded':
+    case 'partnerBidInvited':
+    case 'partnerBidAccepted':
+    case 'partnerBidDeclined':
+    case 'partnerBidTurn':
+    case 'partnerBidFinished':
+    case 'partnerBidAbandoned':
+    case 'partnerBidExpired':
       return t.notificationTexts[n.kind](name)
     case 'challengeReminder':
     case 'challengeResults':
     case 'challengeWeekly':
     case 'matchFinished':
+    case 'supportResolved':
       return t.notificationTexts[n.kind]()
     case 'tableInvited':
     case 'tableRequest':
@@ -57,89 +69,25 @@ export function notificationText(t: Strings, n: Notification): string {
     case 'forumAnnouncement':
     case 'forumPinned':
       return t.notificationTexts[n.kind](name, String(n.params.title ?? ''))
-  }
-}
-
-/**
- * Where a notification leads when clicked: challenge news, an invitation too, to that challenge's
- * page, where it is answered and played (`e7-t16`, `e7-t18`); an invitation
- * to a table, a request to join one and its answer, and a director call (`e2-t34`) to that table; a featured board to its record, where the explanation is shown; team
- * match news to the match's prep room (`e8-t06`), except being taken off a seat, after which only
- * the list of one's matches is left; partnership news to the partnership's page in TKU BridgeBook
- * (an address on another site, which the bell opens as a page load); the files nearly full to
- * TKU BridgeHall's e-books, where the largest files are (BridgeHall e5-t15); the handbook's news to
- * BridgeHall (e8-t10, e8-t11, e2-t08): a published convention to its page, a draft sent for review to
- * its review page, one sent back to its editor, an override to the profile's compare page (with
- * `?unify=` naming the override a captain suggests dropping); an article sent for review or back to
- * its editor (where articles are reviewed, J4), a published one to the article; the forum's news to the post on
- * BridgeHall (e11-t08), at the comment when there is one (`#comment-<id>`)
- */
-export function notificationLink(n: Notification): string {
-  switch (n.kind) {
-    case 'application':
-    case 'passwordResetRequested':
-      return '/admin'
-    case 'friendOnline':
-      return '/'
-    case 'challengeInvited':
-    case 'challengeWeekly':
-    case 'challengeAccepted':
-    case 'challengeDeclined':
-    case 'challengeCancelled':
-    case 'challengeReminder':
-    case 'challengeResults':
-      return n.params.challengeId ? `/challenges/${encodeURIComponent(String(n.params.challengeId))}` : '/challenges'
-    case 'tableInvited':
-    case 'tableRequest':
-    case 'tableRequestApproved':
-    case 'tableRequestDeclined':
-    case 'directorCalled':
-      return n.params.tableId ? `/table/${encodeURIComponent(String(n.params.tableId))}` : '/'
-    case 'matchRemoved':
-      return '/matches'
-    case 'matchInvited':
-    case 'matchAccepted':
-    case 'matchDeclined':
-    case 'matchLeft':
-    case 'matchCancelled':
-    case 'matchStarted':
-    case 'matchFinished':
-    case 'matchAbandoned':
-    case 'matchSubIn':
-      return n.params.matchId ? `/matches/${encodeURIComponent(String(n.params.matchId))}` : '/matches'
-    case 'boardFeatured':
-      return n.params.boardId ? `/history/${encodeURIComponent(String(n.params.boardId))}` : '/featured'
-    case 'pairInvited':
-    case 'pairAccepted':
-    case 'pairDeclined':
-    case 'pairEnded':
-      return n.params.pairId ? `${BOOK_SITE}/pairs/${encodeURIComponent(String(n.params.pairId))}` : BOOK_SITE
-    case 'filesNearlyFull':
-      return `${BOOK_SITE}/library/book`
-    case 'bookPublished':
-      return n.params.slug ? `${BOOK_SITE}/c/${encodeURIComponent(String(n.params.slug))}` : BOOK_SITE
-    case 'bookReviewRequested':
-      return n.params.slug ? `${BOOK_SITE}/review/${encodeURIComponent(String(n.params.slug))}` : `${BOOK_SITE}/review`
-    case 'bookReturned':
-      return n.params.slug ? `${BOOK_SITE}/edit/${encodeURIComponent(String(n.params.slug))}` : `${BOOK_SITE}/review`
-    // An article is reviewed in its editor, so a draft sent for review and one sent back both open it (J4)
-    case 'articleReviewRequested':
-    case 'articleReturned':
-      return n.params.slug ? `${BOOK_SITE}/library/${encodeURIComponent(String(n.params.slug))}/edit` : `${BOOK_SITE}/review`
-    case 'articlePublished':
-      return n.params.slug ? `${BOOK_SITE}/library/${encodeURIComponent(String(n.params.slug))}` : `${BOOK_SITE}/library`
-    case 'bookOverrideChanged':
-      return n.params.profileId ? `${BOOK_SITE}/profiles/${encodeURIComponent(String(n.params.profileId))}/compare` : BOOK_SITE
-    case 'bookSuggestUnify':
-      return n.params.profileId
-        ? `${BOOK_SITE}/profiles/${encodeURIComponent(String(n.params.profileId))}/compare?unify=${encodeURIComponent(String(n.params.ref ?? ''))}`
-        : BOOK_SITE
-    case 'forumReply':
-    case 'forumMention':
-    case 'forumAnnouncement':
-    case 'forumPinned':
-      return n.params.postId
-        ? `${BOOK_SITE}/forum/p/${encodeURIComponent(String(n.params.postId))}${n.params.commentId ? `#comment-${encodeURIComponent(String(n.params.commentId))}` : ''}`
-        : `${BOOK_SITE}/forum`
+    case 'forumHidden':
+    case 'forumUnhidden':
+      return t.notificationTexts[n.kind](String(n.params.title ?? ''))
+    case 'tournamentAnnounced':
+    case 'tournamentPartner':
+    case 'tournamentWithdrawn':
+    case 'tournamentRemoved':
+    case 'tournamentCancelled':
+    case 'tournamentDayReminder':
+    case 'tournamentReminder':
+    case 'tournamentResults':
+      return t.notificationTexts[n.kind](name, String(n.params.title ?? ''))
+    case 'teamEventRound':
+      return t.notificationTexts.teamEventRound(String(n.params.title ?? ''), Number(n.params.number ?? 0))
+    case 'clubApplication':
+      return t.notificationTexts.clubApplication(String(n.params.name ?? n.params.slug ?? ''))
+    case 'supportReport':
+      return t.notificationTexts.supportReport(name)
+    case 'supportForwarded':
+      return t.notificationTexts.supportForwarded(String(n.params.name ?? n.params.slug ?? ''))
   }
 }

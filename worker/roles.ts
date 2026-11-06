@@ -24,13 +24,23 @@ import { ClubError } from './service.ts'
  */
 export type Need = 'member' | 'admin' | Permission
 
-export const allows = (me: Me, need: Need) =>
-  me.admin || need === 'member' || (need !== 'admin' && me.permissions.includes(need))
+/**
+ * An admin who has not turned two-step sign-in on yet (社長 2026-11-02, ARCHITECTURE.md §5.2): a
+ * member with their own permissions (`Me.permissions` is only those) until they set it up
+ */
+export const adminLocked = (me: Me) => me.admin && !!me.twoFactor?.required
 
-/** Throws 403 unless `me` may use a route that needs `need` */
+export const allows = (me: Me, need: Need) =>
+  (me.admin && !adminLocked(me)) || need === 'member' || (need !== 'admin' && me.permissions.includes(need))
+
+/**
+ * Throws 403 unless `me` may use a route that needs `need`; an admin who still has to turn two-step
+ * sign-in on hears `adminTwoFactorRequired`, so the page sends them to set it up
+ */
 export function requireNeed(me: Me, need: Need) {
-  if (!allows(me, need)) throw new ClubError(need === 'admin' ? 'adminOnly' : 'noPermission', {}, 403)
-  return me
+  if (allows(me, need)) return me
+  if (adminLocked(me)) throw new ClubError('adminTwoFactorRequired', {}, 403)
+  throw new ClubError(need === 'admin' ? 'adminOnly' : 'noPermission', {}, 403)
 }
 
 /** `/api/admin/*` (`path` without that prefix): accounts and settings are admins'; closing a table is an editor's */
@@ -186,9 +196,13 @@ export function forumRouteNeed(method: string, path: string): Need | null {
   if (path === '/boards') return method === 'GET' ? 'member' : method === 'POST' ? 'admin' : null
   if (/^\/boards\/[\w-]+$/.test(path)) return method === 'PATCH' || method === 'DELETE' ? 'admin' : null
   if (/^\/boards\/[\w-]+\/posts$/.test(path)) return method === 'GET' || method === 'POST' ? 'member' : null
-  if (path === '/latest' || path === '/feed' || path === '/search') return method === 'GET' ? 'member' : null
+  // The tags in use (the table's AC-13.7) are read like the lists
+  if (path === '/latest' || path === '/feed' || path === '/search' || path === '/tags') return method === 'GET' ? 'member' : null
+  // Their own drafts and scheduled posts (the table's e13-t12); who sees which is ForumService's
+  if (path === '/drafts') return method === 'GET' ? 'member' : null
   if (/^\/posts\/[\w-]+$/.test(path)) return method === 'GET' || method === 'PATCH' || method === 'DELETE' ? 'member' : null
-  if (/^\/posts\/[\w-]+\/(pin|lock)$/.test(path)) return method === 'POST' ? FORUM_MODERATE : null
+  // Hiding a post (the table's e13-t10) is the officers' too
+  if (/^\/posts\/[\w-]+\/(pin|lock|hide)$/.test(path)) return method === 'POST' ? FORUM_MODERATE : null
   if (/^\/posts\/[\w-]+\/comments$/.test(path)) return method === 'POST' ? 'member' : null
   if (/^\/comments\/[\w-]+$/.test(path)) return method === 'PATCH' || method === 'DELETE' ? 'member' : null
   if (/^\/(posts|comments)\/[\w-]+\/reaction$/.test(path)) return method === 'PUT' || method === 'DELETE' ? 'member' : null

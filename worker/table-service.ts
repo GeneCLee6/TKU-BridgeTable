@@ -15,6 +15,7 @@ import {
   respondToClaim,
   turnOf,
   undoFor,
+  undoLast,
   type BoardState,
 } from '../shared/game.ts'
 import { AppError } from '../shared/messages.ts'
@@ -31,6 +32,7 @@ import {
   slowestSpeed,
   SLOW_TURN_MS,
   soloTable,
+  PARTNER_AWAY_MS,
   SUBSTITUTE_MS,
   summarize,
   TABLE_REQUEST_COOLDOWN_MS,
@@ -54,20 +56,27 @@ import { inferredMeaning, type RobotBid } from '../shared/robot/robots.ts'
 import type { BoardEvent } from '../shared/board-events.ts'
 import { randomId } from './auth.ts'
 import { reviewSteps, robotBidding } from './practice-review.ts'
+import { TEACH_MARK_BURST, TEACH_MARKS_PER_SECOND, TokenBuckets } from './rate-limit.ts'
+import { parseTeachMark, TEACH_MARKS_MAX } from '../shared/teaching.ts'
 import { ClubError } from './errors.ts'
 import {
   biddingOnly,
+  challengePeople,
   challengeStateOf,
   challengeTableOpen,
   modeOf,
   nextTableSeq,
   practiceStateOf,
+  teachPaused,
+  teachStateOf,
+  type TeachTableState,
   type EventReport,
   type ModeContext,
 } from './modes.ts'
 import type { Scheduler } from './scheduler.ts'
 import { tableMatch, teamPaused, teamStateOf, teamTableOver } from './team-mode.ts'
-import type { ClubLink, MatchTableUpdate, Named, Person, TableApi, TableEntry, Tables } from './tables.ts'
+import { pairsStateOf, pairsTableOver, tablePairs } from './pairs-mode.ts'
+import type { ClubLink, GuestTableBody, MatchTableUpdate, Named, Person, TableApi, TableEntry, Tables } from './tables.ts'
 import type { VugraphRoom } from '../shared/team-match.ts'
 import {
   actorOf,
@@ -77,12 +86,14 @@ import {
   liveRequests,
   mayEnter,
   practiceView,
+  teachView,
   recordVisible,
   refusal,
   seatOccupants,
   seatsActedBy,
   tableListed,
   vugraphBoard,
+  guestTableView,
   type AccessFacts,
   type Table,
 } from './views.ts'
@@ -112,6 +123,8 @@ export interface TableConfig {
   onThink?: (ms: number) => void
 }
 
+/** How long a teaching table waits for a teacher who dropped offline before it closes */
+const TEACHER_AWAY_MS = 10 * 60_000
 const CHAT_KEEP = 100
 /** Boards a table keeps for its History panel */
 const RECENT_KEEP = 30
@@ -183,6 +196,8 @@ export class TableService implements TableApi {
   private entry: TableEntry | null = null
   private reported: string | undefined
   private rev = 0
+  /** A teacher's marks and pauses (`e10-t11`); in memory, as an eviction only ever lets a little more through */
+  private readonly markLimit: TokenBuckets
 
   constructor(id: string, store: TableStore, connections: TableConnections, link: ClubLink, config: TableConfig) {
     this.id = id
@@ -193,6 +208,7 @@ export class TableService implements TableApi {
     this.now = config.now
     this.brain = config.brain ?? ruleBrain
     this.scheduler = config.scheduler
+    this.markLimit = new TokenBuckets(TEACH_MARK_BURST, TEACH_MARKS_PER_SECOND, config.now)
   }
 
   /** The table as it is now, or null once it closed (for tests and the Durable Object) */
@@ -229,11 +245,12 @@ export class TableService implements TableApi {
 
   /**
    * Whether a member may hold a connection to this table (ARCHITECTURE.md §5.10): seated, watching,
-   * or the player of a parked challenge table
+   * or a player of a parked challenge table (either member of a partnership, `e7-t28`)
    */
   admits(userId: string): boolean {
     const table = this.table
-    return !!table && (this.isAt(userId) || challengeStateOf(table)?.userId === userId)
+    const state = table && challengeStateOf(table)
+    return !!table && (this.isAt(userId) || (!!state && challengePeople(state).includes(userId)))
   }
 
   private load(table: Table) {
@@ -248,6 +265,17 @@ export class TableService implements TableApi {
       const id = table.seats[seat]
       if (id && !isRobotId(id) && !online.includes(id) && table.mode !== 'challenge') this.awayFrom(id, this.now())
     }
+    // A teacher without a seat counts as away too: the table waits for them, not for long (`teacherAwayDue`)
+    if (table.mode === 'teach' && !online.includes(table.hostId) && !this.seatOf(table.hostId)) this.awayFrom(table.hostId, this.now())
+    // A partnership's table (`e7-t28`): the clock of whoever is offline goes on from when they dropped
+    const state = challengeStateOf(table)
+    if (state?.partnerId !== undefined)
+      for (const id of challengePeople(state)) {
+        if (!this.seatOf(id)) continue
+        if (online.includes(id)) {
+          if (state.offline) delete state.offline[id]
+        } else this.partnerOffline(id, state.offline?.[id] ?? this.now())
+      }
   }
 
   // ── The club's calls (TableApi) ─────────────────────────────────────────────────────────────
@@ -288,6 +316,15 @@ export class TableService implements TableApi {
       }
       throw new ClubError('matchNoWatching', {}, 403)
     }
+    // Nobody of a pairs event watches its tables while it is on (§5.22); a player a robot sits in for comes back
+    const pairs = pairsStateOf(table)
+    if (pairs && !pairs.closed && pairs.players.includes(person.id)) {
+      if (this.substituteSeat(person.id)) {
+        this.welcome(person)
+        return (await this.reclaim(person.id, true))!
+      }
+      throw new ClubError('matchNoWatching', {}, 403)
+    }
     if (table.mode !== 'team') this.checkAccess(person.id)
     if (!this.watchable(table)) throw new ClubError('noKibitzing', {}, 403)
     this.welcome(person)
@@ -312,6 +349,8 @@ export class TableService implements TableApi {
       if (this.otherRoom(userId)) throw new ClubError('matchOtherRoom', {}, 403)
       throw new ClubError('matchTableFixed')
     }
+    // A pairs event seats its players by the movement (§5.22)
+    if (table.mode === 'pairs') throw new ClubError('pairsTableFixed')
     if (!here) this.checkAccess(userId)
     // A person may take a robot's seat at any time, as on BBO
     const occupant = table.seats[seat]
@@ -335,16 +374,24 @@ export class TableService implements TableApi {
     const seat = this.seatOf(userId)
     this.sent.delete(userId)
     this.offlineSince.delete(userId)
+    // A teaching table is its teacher's: it closes when they leave, and its students go with it
+    if (table.mode === 'teach' && table.hostId === userId) {
+      await this.drop()
+      return null
+    }
     const challenge = challengeStateOf(table)
     if (challenge) {
+      if (challenge.offline) delete challenge.offline[userId]
       // Leaving a challenge table only pauses it (中途斷線視同暫停): it waits with the board as it
-      // was until they come back. One with nothing left to play closes
-      if (this.challengeTableOver()) {
+      // was until they come back. One with nothing left to play closes, once a partner still
+      // looking at the last board (`e7-t28`) leaves too
+      if (this.challengeTableOver() && this.humansSeated() <= 1) {
         await this.drop()
         return null
       }
       if (seat) {
-        challenge.parkedSeat = seat
+        // A partner always sits North (nobody changes seats when North-South are both people)
+        if (userId === challenge.userId) challenge.parkedSeat = seat
         this.vacate(seat)
       }
       await this.save()
@@ -365,10 +412,14 @@ export class TableService implements TableApi {
     if (table.hostId !== userId) throw new ClubError('hostOnly')
     if (soloTable(table.mode)) throw this.fixed()
     if (table.mode === 'team') throw new ClubError('matchTableFixed')
+    if (table.mode === 'pairs') throw new ClubError('pairsTableFixed')
     // At a practice table only who may watch changes: it has no time limit, and watching is what coming in means
-    if (table.mode === 'practice' && (settings.allowKibitz !== undefined || settings.boardMinutes !== undefined))
+    if ((table.mode === 'practice' || table.mode === 'teach') && (settings.allowKibitz !== undefined || settings.boardMinutes !== undefined))
       throw this.fixed()
+    // Only a casual table is ever opened to other clubs (e12-t07)
+    if (settings.openToClubs && (table.mode ?? 'casual') !== 'casual') throw this.fixed()
     table.settings = { ...settingsOf(table), ...settings }
+    if (!table.settings.openToClubs) delete table.settings.openToClubs
     // Requests wait only at a request table; whoever was let in before stays let in
     if (table.settings.access !== 'request') table.requests = []
     if (invited) {
@@ -382,7 +433,7 @@ export class TableService implements TableApi {
   async request(person: Person, muted: boolean): Promise<TableEntry> {
     const table = this.require()
     const userId = person.id
-    if (soloTable(table.mode) || table.mode === 'team') throw new ClubError('tableGone', {}, 404)
+    if (soloTable(table.mode) || table.mode === 'team' || table.mode === 'pairs') throw new ClubError('tableGone', {}, 404)
     if (this.isAt(userId)) return this.settled()!
     const facts = accessFacts(table)
     if (!tableListed(facts, userId, false)) throw new ClubError('tableGone', {}, 404)
@@ -408,7 +459,7 @@ export class TableService implements TableApi {
     const table = this.table
     if (!table || !this.isAt(userId)) throw new ClubError('notAtTable')
     if (call) {
-      if (fixedSeats(table.mode)) throw new ClubError('directorNotHere')
+      if (fixedSeats(table.mode) || table.mode === 'teach') throw new ClubError('directorNotHere')
       if (!this.seatOf(userId)) throw new ClubError('notSeated')
       table.directorCall = { userId, at: this.now() }
     } else delete table.directorCall
@@ -437,11 +488,16 @@ export class TableService implements TableApi {
   async resume(person: Person): Promise<TableEntry> {
     const table = this.require()
     const state = challengeStateOf(table)
-    if (!state || state.userId !== person.id) throw new ClubError('tableGone', {}, 404)
+    if (!state || !challengePeople(state).includes(person.id)) throw new ClubError('tableGone', {}, 404)
     if (this.isAt(person.id)) return this.settled()!
     this.welcome(person)
-    table.seats[state.parkedSeat ?? 'S'] = person.id
-    state.parkedSeat = undefined
+    if (person.id === state.userId) {
+      table.seats[state.parkedSeat ?? 'S'] = person.id
+      state.parkedSeat = undefined
+    } else table.seats.N = person.id
+    if (state.dropped) state.dropped = state.dropped.filter((id) => id !== person.id)
+    if (state.offline) delete state.offline[person.id]
+    if (!state.dropped?.length) delete state.dropped
     table.hostId = person.id
     this.startBoardIfReady()
     await this.save()
@@ -470,11 +526,19 @@ export class TableService implements TableApi {
     const table = this.table
     this.sent.delete(userId)
     if (!table || !this.isAt(userId)) return this.settled()
+    const challenge = challengeStateOf(table)
     if (online) {
       this.offlineSince.delete(userId)
+      // Back before PARTNER_AWAY_MS (`e7-t28`): the seat is theirs, nothing was set aside
+      if (challenge?.offline?.[userId] !== undefined) {
+        delete challenge.offline[userId]
+        await this.save()
+      }
       return this.settled()
     }
-    if (table.spectators.includes(userId)) {
+    // A teacher who drops offline keeps the table for a while, seated or not (`teacherAwayDue`)
+    const teacher = table.mode === 'teach' && table.hostId === userId
+    if (table.spectators.includes(userId) && !teacher) {
       table.spectators = table.spectators.filter((id) => id !== userId)
       this.checkHost()
       return this.saveOrDrop()
@@ -483,6 +547,12 @@ export class TableService implements TableApi {
     await this.save()
     // Away for SUBSTITUTE_MS, TKB plays for them until they come back (代打)
     if (table.mode !== 'challenge') this.awayFrom(userId, this.now())
+    // A partnership's table has no 代打 (a robot never plays for a member in a scored challenge):
+    // after PARTNER_AWAY_MS the table is set aside instead (`e7-t28`)
+    else if (challenge?.partnerId !== undefined && this.seatOf(userId)) {
+      this.partnerOffline(userId, this.now())
+      await this.save()
+    }
     return this.settled()
   }
 
@@ -509,12 +579,13 @@ export class TableService implements TableApi {
     const table = this.table
     if (!table) return null
     // Their challenges forget them, so their parked challenge table goes too
-    if (challengeStateOf(table)?.userId === userId) {
+    const state = challengeStateOf(table)
+    if ((state && challengePeople(state).includes(userId)) || (table.mode === 'teach' && table.hostId === userId)) {
       await this.drop()
       return null
     }
-    // A team match plays on: a robot of the match's system takes the deleted member's seat (§5.8)
-    const team = teamStateOf(table)
+    // A team match (or a pairs event's round) plays on: a robot takes the deleted member's seat (§5.8, §5.22)
+    const team = teamStateOf(table) ?? pairsStateOf(table)
     const kept = team && !team.closed ? this.seatOf(userId) : null
     if (kept) {
       this.vacate(kept)
@@ -580,6 +651,14 @@ export class TableService implements TableApi {
     }
   }
 
+  /** The table as a guest from another club watches it (e12-t07): worker/views.ts decides what is shown */
+  async guestView(): Promise<GuestTableBody | null> {
+    const table = this.table
+    if (!table) return null
+    const online = this.connections.onlineUserIds()
+    return guestTableView(table, this.occupants(table, (id) => isRobotId(id) || online.includes(id)))
+  }
+
   /**
    * The table's team match ended (finished, or abandoned): nothing more is dealt, and from now on
    * the table is like any other - people leave when they like, and it closes once nobody is left.
@@ -587,6 +666,14 @@ export class TableService implements TableApi {
    */
   async matchEnded(): Promise<TableEntry | null> {
     const table = this.table
+    // A pairs event's round (or the event) ended (§5.22): the same, with nothing to put away (the round's boards were all played)
+    const pairs = table && pairsStateOf(table)
+    if (table && pairs) {
+      pairs.closed = true
+      table.dealAt = undefined
+      if (table.board && table.board.phase !== 'finished') this.putAway()
+      return this.saveOrDrop()
+    }
     const state = table && teamStateOf(table)
     if (!table || !state) return this.settled()
     state.closed = true
@@ -665,6 +752,21 @@ export class TableService implements TableApi {
       case 'showHands':
         await this.showHands(userId, message.show)
         break
+      case 'teachUndo':
+        await this.teachUndo(userId)
+        break
+      case 'teachReplay':
+        await this.teachReplay(userId)
+        break
+      case 'teachPause':
+        await this.teachPause(userId, message.paused)
+        break
+      case 'teachMark':
+        await this.teachMark(userId, message.mark)
+        break
+      case 'teachUnmark':
+        await this.teachUnmark(userId, message.id)
+        break
       case 'call':
       case 'play':
       case 'claim':
@@ -720,6 +822,15 @@ export class TableService implements TableApi {
   /** Whether people without a seat may watch: as the host set it, and always at a practice table (watching is all there is to it) */
   private watchable(table: Table): boolean {
     return table.mode === 'practice' || settingsOf(table).allowKibitz
+  }
+
+  /**
+   * Whether this person without a seat is shown the hidden hands (`boardView`'s `kibitz`): whoever
+   * may watch; at a teaching table the teacher, and the others only when the teacher opened them
+   */
+  private kibitzes(table: Table, userId: string): boolean {
+    const teach = teachStateOf(table)
+    return teach ? table.hostId === userId || !!teach.openHands : this.watchable(table)
   }
 
   /** Notes a member's name and blocks as they come to the table */
@@ -779,10 +890,12 @@ export class TableService implements TableApi {
     const mode = this.table!.mode
     if (fixedSeats(mode)) throw this.fixed()
     if (mode === 'team') throw new ClubError('matchTableFixed')
+    if (mode === 'pairs') throw new ClubError('pairsTableFixed')
   }
 
   private fixed() {
-    return new ClubError(this.table!.mode === 'practice' ? 'practiceTableFixed' : 'challengeTableFixed')
+    const mode = this.table!.mode
+    return new ClubError(mode === 'practice' ? 'practiceTableFixed' : mode === 'teach' ? 'teachTableFixed' : 'challengeTableFixed')
   }
 
   /**
@@ -801,7 +914,7 @@ export class TableService implements TableApi {
    * people and six robots may leave one room to the robots) and when everyone at it leaves
    */
   private playsOn(): boolean {
-    const state = teamStateOf(this.table!)
+    const state = teamStateOf(this.table!) ?? pairsStateOf(this.table!)
     return !!state && !state.closed
   }
 
@@ -811,8 +924,8 @@ export class TableService implements TableApi {
    */
   private checkHost() {
     const table = this.table!
-    // A practice table stays its member's: it closes when they leave
-    if (table.mode === 'practice') return
+    // A practice table stays its member's, a teaching table its teacher's: it closes when they leave
+    if (table.mode === 'practice' || table.mode === 'teach') return
     const online = this.connections.onlineUserIds()
     const people = [
       ...SEATS.map((s) => table.seats[s]).filter((id): id is string => !!id && !isRobotId(id)),
@@ -913,7 +1026,7 @@ export class TableService implements TableApi {
    */
   private waitingOn(table: Table): Seat | null {
     const board = table.board
-    if (!board || board.phase === 'finished' || board.claim || table.undo || teamPaused(table)) return null
+    if (!board || board.phase === 'finished' || board.claim || table.undo || teamPaused(table) || teachPaused(table)) return null
     const turn = turnOf(board)
     if (!turn) return null
     const seat = board.phase === 'auction' ? turn : controllerOf(board, turn)
@@ -943,8 +1056,25 @@ export class TableService implements TableApi {
   /** Notes that a seated member went offline at `since` and queues the job that seats their substitute */
   private awayFrom(userId: string, since: number) {
     if (!this.offlineSince.has(userId)) this.offlineSince.set(userId, since)
+    const table = this.table
+    if (table?.mode === 'teach' && table.hostId === userId) {
+      const left = TEACHER_AWAY_MS - (this.now() - this.offlineSince.get(userId)!)
+      this.scheduler.add(`teachAway:${this.id}`, 'substitute', Math.max(0, left), () => this.teacherAwayDue(userId))
+      return
+    }
     const left = SUBSTITUTE_MS - (this.now() - this.offlineSince.get(userId)!)
     this.scheduler.add(`substitute:${this.id}:${userId}`, 'substitute', Math.max(0, left), () => this.substituteDue(userId))
+  }
+
+  /**
+   * A teacher has been offline TEACHER_AWAY_MS: no robot teaches for them, so the table closes. Back
+   * before that (`presence`), nothing happened; the students just waited
+   */
+  private async teacherAwayDue(userId: string) {
+    const since = this.offlineSince.get(userId)
+    if (since === undefined || this.connections.onlineUserIds().includes(userId)) return
+    if (this.now() - since < TEACHER_AWAY_MS) return this.awayFrom(userId, since)
+    await this.drop()
   }
 
   /**
@@ -959,8 +1089,8 @@ export class TableService implements TableApi {
     const table = this.table
     const seat = table && this.isAt(userId) ? this.seatOf(userId) : null
     if (!table || !seat || table.mode === 'challenge') return
-    // A team match room plays on with robots alone (`e8-t14`): its robot is the match's system
-    const team = teamStateOf(table)
+    // A team match room (or a pairs event's table) plays on with robots alone (`e8-t14`): its robot is the event's system
+    const team = teamStateOf(table) ?? pairsStateOf(table)
     const online = this.connections.onlineUserIds()
     if (!team && !SEATS.some((s) => s !== seat && online.includes(table.seats[s] ?? ''))) return
     // TKB plays the system of a robot partner, if there is one, else the table's (its host's when it opened)
@@ -983,6 +1113,42 @@ export class TableService implements TableApi {
     this.sent.delete(userId)
     this.checkHost()
     this.touchTurn()
+  }
+
+  // ── A partner offline (e7-t28) ────────────────────────────────────────────────────────────────
+
+  /**
+   * Notes that a member seated at a partnership's table went offline at `since` (kept in the table's
+   * state, so an evicted object goes on counting) and queues the job that sets the table aside
+   */
+  private partnerOffline(userId: string, since: number) {
+    const state = challengeStateOf(this.table!)!
+    state.offline = { ...state.offline, [userId]: state.offline?.[userId] ?? since }
+    const left = PARTNER_AWAY_MS - (this.now() - state.offline[userId])
+    this.scheduler.add(`partnerAway:${this.id}:${userId}`, 'partnerAway', Math.max(0, left), () => this.partnerAwayDue(userId))
+  }
+
+  /**
+   * A member of a partnership has been offline PARTNER_AWAY_MS: they lose their seat as if they had
+   * left, so the table is set aside with the board as it was (its partner is told, `partnerDropped`)
+   * and nobody is stuck waiting. No robot sits in. Back online, the club seats them again
+   * (`dropped`); a board still unfinished at the deadline is dropped as always. A job left from an
+   * earlier time away only puts itself back for the rest of the wait
+   */
+  private async partnerAwayDue(userId: string) {
+    const table = this.table
+    const state = table && challengeStateOf(table)
+    const since = state?.offline?.[userId]
+    if (!state || since === undefined) return
+    if (this.connections.onlineUserIds().includes(userId) || !this.seatOf(userId)) {
+      delete state.offline![userId]
+      await this.save()
+      return
+    }
+    if (this.now() - since < PARTNER_AWAY_MS) return this.partnerOffline(userId, since)
+    // Nothing left to play: they only leave (`leave` closes the table once nobody is at it)
+    if (!this.challengeTableOver()) state.dropped = [...new Set([...(state.dropped ?? []), userId])]
+    await this.leave(userId)
   }
 
   // ── Team match exceptions (§5.8, e8-t14–e8-t16) ──────────────────────────────────────────────
@@ -1101,14 +1267,19 @@ export class TableService implements TableApi {
 
   /** Whether the next board comes by itself after the countdown: not at a bidding practice, where the member asks for it */
   private dealsByItself() {
-    return !biddingOnly(this.table!)
+    return !biddingOnly(this.table!) && !teachStateOf(this.table!)
+  }
+
+  /** A table that deals and plays with robots alone: a match's room, and a teacher showing something with four robots */
+  private runsWithoutPeople() {
+    return this.playsOn() || !!teachStateOf(this.table!)
   }
 
   private canDeal() {
     const table = this.table!
     return (
       SEATS.every((s) => table.seats[s]) &&
-      (this.humansSeated() > 0 || this.playsOn()) &&
+      (this.humansSeated() > 0 || this.runsWithoutPeople()) &&
       !teamPaused(table) &&
       (!table.board || table.board.phase === 'finished')
     )
@@ -1127,6 +1298,7 @@ export class TableService implements TableApi {
     table.board = dealt.board ?? newBoard(dealt.boardNo, dealt.hands)
     const practice = practiceStateOf(table)
     if (practice) delete practice.review
+    this.clearTeachMarks()
     table.undo = undefined
     table.rejectedClaim = undefined
     table.recordId = undefined
@@ -1223,8 +1395,9 @@ export class TableService implements TableApi {
   private async redeal(userId: string) {
     const table = this.table
     if (!table || !this.isAt(userId)) throw new ClubError('notAtTable')
-    if (table.mode !== 'practice') throw new ClubError('practiceOnly')
-    if (table.hostId !== userId || !this.seatOf(userId)) throw new ClubError('hostOnly')
+    if (table.mode === 'teach') this.teacherTable(userId)
+    else if (table.mode !== 'practice') throw new ClubError('practiceOnly')
+    else if (table.hostId !== userId || !this.seatOf(userId)) throw new ClubError('hostOnly')
     const before = table.board
     this.dealBoard()
     // The conditions could not be met this time: the board stays
@@ -1243,15 +1416,22 @@ export class TableService implements TableApi {
     if (table.hostId !== userId || !this.seatOf(userId)) throw new ClubError('hostOnly')
     const board = table.board
     if (!board) throw new ClubError('noBoard')
-    table.board = newBoard(board.boardNo, board.hands)
     delete practiceStateOf(table)!.review
+    this.restartBoard(board)
+    await this.save()
+  }
+
+  /** The board on the table from the deal again: the same number and the same hands */
+  private restartBoard(board: BoardState) {
+    const table = this.table!
+    this.unswap()
+    table.board = newBoard(board.boardNo, board.hands)
     table.undo = undefined
     table.rejectedClaim = undefined
     table.dealAt = undefined
     table.boardStartedAt = this.now()
     table.events = [{ at: table.boardStartedAt, type: 'deal' }]
     this.touchTurn()
-    await this.save()
   }
 
   /**
@@ -1261,6 +1441,16 @@ export class TableService implements TableApi {
   private async showHands(userId: string, show: unknown) {
     const table = this.table
     if (!table || !this.isAt(userId)) throw new ClubError('notAtTable')
+    const teach = teachStateOf(table)
+    // At a teaching table: whether people without a seat see all four hands (`kibitzes`)
+    if (teach) {
+      this.teacherTable(userId)
+      if (typeof show !== 'boolean') throw new ClubError('badMessage')
+      if (show) teach.openHands = true
+      else delete teach.openHands
+      await this.save()
+      return
+    }
     const state = practiceStateOf(table)
     if (!state) throw new ClubError('practiceOnly')
     if (table.hostId !== userId || !this.seatOf(userId)) throw new ClubError('hostOnly')
@@ -1272,8 +1462,97 @@ export class TableService implements TableApi {
 
   /** The hands a viewer is shown besides their own (`boardView`'s `shown`): all four for a practice table's member who asked */
   private shownTo(table: Table, userId: string): Seat[] | undefined {
+    // A teacher sees all four hands from any seat; the students what anyone in their seat sees
+    if (table.mode === 'teach' && table.hostId === userId) return [...SEATS]
     const state = practiceStateOf(table)
     return state?.showHands && table.hostId === userId && this.seatOf(userId) ? [...SEATS] : undefined
+  }
+
+  // ── Teaching tables (`e10-t10`, `e10-t11`, §5.11) ─────────────────────────────────────────────
+
+  /** The table and its state, for its teacher; anyone else, at any other table too, is `teachOnly` */
+  private teacherTable(userId: string): { table: Table; state: TeachTableState } {
+    const table = this.table
+    if (!table || !this.isAt(userId)) throw new ClubError('notAtTable')
+    const state = teachStateOf(table)
+    if (!state || table.hostId !== userId) throw new ClubError('teachOnly', {}, 403)
+    return { table, state }
+  }
+
+  private clearTeachMarks() {
+    const state = teachStateOf(this.table!)
+    if (!state) return
+    delete state.paused
+    delete state.marks
+    delete state.nextMark
+  }
+
+  /**
+   * The teacher takes back the last step, whoever made it, without asking anyone, as many times as
+   * they like; a finished board opens again. Nothing else changes: paused stays paused
+   */
+  private async teachUndo(userId: string) {
+    const { table } = this.teacherTable(userId)
+    if (!table.board) throw new ClubError('noBoard')
+    table.board = undoLast(table.board)
+    table.undo = undefined
+    table.rejectedClaim = undefined
+    table.dealAt = undefined
+    if (table.board.phase === 'auction') this.unswap()
+    this.touchTurn()
+    await this.save()
+  }
+
+  /** The teacher plays the board on the table again from the deal: the hands stay, the marks go */
+  private async teachReplay(userId: string) {
+    const { table } = this.teacherTable(userId)
+    if (!table.board) throw new ClubError('noBoard')
+    this.clearTeachMarks()
+    this.restartBoard(table.board)
+    await this.save()
+  }
+
+  /** The teacher pauses the table to explain; going on clears the marks and starts the clocks anew */
+  private async teachPause(userId: string, paused: unknown) {
+    const { table, state } = this.teacherTable(userId)
+    if (typeof paused !== 'boolean') throw new ClubError('badMessage')
+    this.takeMarkToken(userId)
+    if (paused) {
+      if (!table.board) throw new ClubError('noBoard')
+      state.paused = true
+    } else {
+      this.clearTeachMarks()
+      this.touchTurn()
+    }
+    await this.save()
+  }
+
+  private takeMarkToken(userId: string) {
+    if (!this.markLimit.take(userId)) throw new ClubError('teachMarkTooFast', {}, 429)
+  }
+
+  /** The teacher marks the paused table: checked here, and each member is sent only what they may see (`visibleTeachMarks`) */
+  private async teachMark(userId: string, value: unknown) {
+    const { state } = this.teacherTable(userId)
+    if (!state.paused) throw new ClubError('teachNotPaused')
+    this.takeMarkToken(userId)
+    const mark = parseTeachMark(value)
+    if (!mark) throw new ClubError('teachBadMark')
+    const marks = state.marks ?? []
+    if (marks.length >= TEACH_MARKS_MAX) throw new ClubError('teachTooManyMarks', { max: TEACH_MARKS_MAX })
+    const id = state.nextMark ?? 1
+    state.nextMark = id + 1
+    state.marks = [...marks, { ...mark, id }]
+    await this.save()
+  }
+
+  /** The teacher takes one mark off, or all of them */
+  private async teachUnmark(userId: string, id: unknown) {
+    const { state } = this.teacherTable(userId)
+    if (id !== undefined && !Number.isInteger(id)) throw new ClubError('badMessage')
+    this.takeMarkToken(userId)
+    state.marks = id === undefined ? [] : (state.marks ?? []).filter((mark) => mark.id !== id)
+    await this.save()
   }
 
   // ── Challenge tables ────────────────────────────────────────────────────────────────────────
@@ -1296,16 +1575,30 @@ export class TableService implements TableApi {
     return !!state && !challengeTableOpen(state, this.now())
   }
 
+  /**
+   * A partnership's table (`e7-t28`) while one of the two is away: it stands still, the robots
+   * too, so the one still there cannot play on alone; it goes on when the partner is back
+   */
+  private partnerAway(): boolean {
+    const table = this.table!
+    return challengeStateOf(table)?.partnerId !== undefined && SEATS.some((s) => !table.seats[s])
+  }
+
   /** What a challenge table's player sees of the challenge: which board of how many, until when */
   private tableChallenge(table: Table): TableChallenge | undefined {
     const state = challengeStateOf(table)
     if (!state) return undefined
+    // Members of a partnership still seated but offline: the table is set aside when the first one's time is up
+    const offline = Object.entries(state.offline ?? {}).flatMap(([id, since]) => (this.seatOf(id) ? [since] : []))
     return {
       id: state.challengeId,
       seq: state.seq,
       boards: state.boards.length,
       played: state.played.length,
       deadline: state.deadline,
+      ...(this.partnerAway() && { partnerAway: true }),
+      ...(this.partnerAway() && !!state.dropped?.length && { partnerDropped: true }),
+      ...(offline.length > 0 && { partnerOfflineUntil: Math.min(...offline) + PARTNER_AWAY_MS }),
     }
   }
 
@@ -1316,9 +1609,13 @@ export class TableService implements TableApi {
     const seat = table && this.isAt(userId) ? this.seatOf(userId) : null
     if (!table || !seat) throw new ClubError('notSeated')
     if (teamPaused(table)) throw new ClubError('matchPaused')
+    if (teachPaused(table)) throw new ClubError('teachPaused')
     if (message.type === 'undoRequest' || message.type === 'undoRespond') {
+      // Only the teacher takes anything back at a teaching table (`teachUndo`)
+      if (table.mode === 'teach') throw new ClubError('teachOnly', {}, 403)
       if (table.mode === 'challenge') throw new ClubError('challengeNoUndo')
       if (table.mode === 'team') throw new ClubError('matchNoUndo')
+      if (table.mode === 'pairs') throw new ClubError('pairsNoUndo')
     }
     if (message.type === 'call') return this.applyAction(this.callingSeat(userId, seat, message.seat), message)
     if (message.type === 'undoRequest') return this.applyAction(this.undoSeat(userId, seat), message)
@@ -1359,6 +1656,7 @@ export class TableService implements TableApi {
     if (!board) throw new ClubError('noBoard')
     // At the deadline play stops, as on BBO: a board still going is dropped, not finished
     if (this.challengeClosed()) throw new ClubError('challengeClosed')
+    if (this.partnerAway()) throw new ClubError('challengePartnerAway')
 
     let next: BoardState
     switch (message.type) {
@@ -1458,7 +1756,8 @@ export class TableService implements TableApi {
     table.board = next
     this.touchTurn()
     if (board.phase === 'auction' && next.phase === 'play') this.swapForDeclarer()
-    const finished = next.phase === 'finished' && board.phase !== 'finished'
+    // Nothing played at a teaching table is kept: no record, so no list, ranking or rating ever has it (§5.11)
+    const finished = next.phase === 'finished' && board.phase !== 'finished' && table.mode !== 'teach'
     if (finished) {
       const record = this.recordBoard(next)
       const event = modeOf(table).boardFinished(table, record, this.modeContext())
@@ -1520,6 +1819,7 @@ export class TableService implements TableApi {
         board,
         ...(Object.keys(substitutes).length > 0 && { substitutes }),
         hostId: table.hostId,
+        tableId: table.id,
         ...(table.boardStartedAt !== undefined && { startedAt: table.boardStartedAt }),
         ...(table.events?.length && { events: table.events }),
       },
@@ -1573,8 +1873,8 @@ export class TableService implements TableApi {
   private robotMove(): { seat: Seat; delay: number; decide: (brain: RobotBrain) => Promise<RobotAnswer> } | null {
     const table = this.table
     const board = table?.board
-    if (!table || !board || board.phase === 'finished' || (this.humansSeated() === 0 && !this.playsOn())) return null
-    if (this.challengeClosed() || teamPaused(table)) return null
+    if (!table || !board || board.phase === 'finished' || (this.humansSeated() === 0 && !this.runsWithoutPeople())) return null
+    if (this.challengeClosed() || this.partnerAway() || teamPaused(table) || teachPaused(table)) return null
     const robot = (seat: Seat | null | undefined): seat is Seat => !!seat && isRobotId(table.seats[seat])
     // A robot whose calls a member makes (seat control) waits for them; it still answers undo and claims
     const robotActs = (seat: Seat | null | undefined): seat is Seat => robot(seat) && isRobotId(actorOf(table, seat))
@@ -1758,7 +2058,7 @@ export class TableService implements TableApi {
       this.thinking = false
     }
     this.config.onThink?.(thought)
-    if (this.table !== table || teamPaused(table)) return
+    if (this.table !== table || teamPaused(table) || teachPaused(table)) return
     // The table moved on while the robot thought (a person played, an undo, a seat changed): ask again
     if (this.positionOf() !== position) return this.scheduleRobots()
     const { message, meaning } = answer
@@ -1842,7 +2142,14 @@ export class TableService implements TableApi {
       boardNo: table.board ? table.board.boardNo : null,
       playing: !!table.board && table.board.phase !== 'finished',
       ...(table.directorCall && { directorCall: { ...table.directorCall } }),
-      ...(state && { challenge: { challengeId: state.challengeId, userId: state.userId } }),
+      ...(state && {
+        challenge: {
+          challengeId: state.challengeId,
+          userId: state.userId,
+          ...(state.partnerId !== undefined && { partnerId: state.partnerId }),
+          ...(!!state.dropped?.length && { dropped: [...state.dropped] }),
+        },
+      }),
       ...(team && {
         match: {
           matchId: team.matchId,
@@ -1929,6 +2236,21 @@ export class TableService implements TableApi {
     const controls = acts.some((seat) => seat !== mySeat)
     // A match that plays one trick behind shows its watchers the board as it was (e8-t19)
     const lag = mySeat === null && !!teamStateOf(table)?.delay && !teamStateOf(table)?.closed
+    const board = table.board
+      ? boardView(lag ? laggedBoard(table.board) : table.board, mySeat, {
+          acts,
+          shown: this.isAt(userId) ? this.shownTo(table, userId) : undefined,
+          undo: table.undo,
+          recordId: table.recordId,
+          rejectedClaim: table.rejectedClaim,
+          auctionSeat: mySeat ? this.auctionSeat(table, mySeat) : undefined,
+          undoAllowed: table.mode !== 'challenge' && table.mode !== 'team' && table.mode !== 'pairs' && table.mode !== 'teach',
+          kibitz: this.kibitzes(table, userId),
+          robots: Object.fromEntries(SEATS.flatMap((s) => (table.seats[s] && isRobotId(table.seats[s]!) ? [[s, robotKindOf(table.seats[s]!)]] : []))),
+          bookNotes: this.bookNotes,
+          frozen: teachPaused(table),
+        })
+      : null
     return {
       id: table.id,
       number: table.number,
@@ -1938,33 +2260,23 @@ export class TableService implements TableApi {
       spectators: table.spectators.flatMap((id) => this.publicUser(id) ?? []),
       mySeat,
       ...(controls && { acts }),
-      board: table.board
-        ? boardView(lag ? laggedBoard(table.board) : table.board, mySeat, {
-            acts,
-            shown: this.isAt(userId) ? this.shownTo(table, userId) : undefined,
-            undo: table.undo,
-            recordId: table.recordId,
-            rejectedClaim: table.rejectedClaim,
-            auctionSeat: mySeat ? this.auctionSeat(table, mySeat) : undefined,
-            undoAllowed: table.mode !== 'challenge' && table.mode !== 'team',
-            kibitz: this.watchable(table),
-            robots: Object.fromEntries(SEATS.flatMap((s) => (table.seats[s] && isRobotId(table.seats[s]!) ? [[s, robotKindOf(table.seats[s]!)]] : []))),
-            bookNotes: this.bookNotes,
-          })
-        : null,
+      board,
       boardsPlayed: table.boardsPlayed,
       dealAt:
-        table.board?.phase === 'finished' && this.canDeal() && !this.challengeTableOver() && !teamTableOver(table)
+        table.board?.phase === 'finished' && this.canDeal() && !this.challengeTableOver() && !teamTableOver(table) && !pairsTableOver(table)
           ? (table.dealAt ?? null)
           : null,
       chat: chatFor(table.chat, (authorId) => blocked.has(authorId), { player: table.mode === 'team' && mySeat !== null }),
       recent: (table.recent ?? []).filter((summary) => recordVisible(summary, userId, this.now())),
       ...(table.mode === 'challenge' && { challenge: this.tableChallenge(table) }),
       ...practiceView(table),
+      ...teachView(table, board, table.hostId === userId),
       ...(table.mode === 'team' && { match: tableMatch(table) }),
+      ...(table.mode === 'pairs' && { pairs: tablePairs(table) }),
       ...(table.hostId === userId &&
         !soloTable(table.mode) &&
-        table.mode !== 'team' && {
+        table.mode !== 'team' &&
+        table.mode !== 'pairs' && {
           invited: (table.invited ?? []).flatMap((id) => this.publicUser(id) ?? []),
           // Requests from members the host blocked never reach them (`muted`)
           requests: liveRequests(table.requests, this.now()).flatMap((r) => {

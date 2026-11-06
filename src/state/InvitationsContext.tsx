@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
+import { PartBoundary } from '../components/ErrorBoundary.tsx'
 import { InviteBanner, InviteDialog } from '../components/InviteDialog.tsx'
 import { useToast } from '../components/Toast.tsx'
 import { api, ApiError } from '../lib/api.ts'
@@ -242,7 +243,9 @@ export function InvitationsProvider({ children }: { children: ReactNode }) {
   return (
     <InvitationsContext.Provider value={{ banner }}>
       {children}
-      {dialog}
+      <PartBoundary name="invite-dialog" resetKey={current?.latest.id}>
+        {dialog}
+      </PartBoundary>
     </InvitationsContext.Provider>
   )
 }

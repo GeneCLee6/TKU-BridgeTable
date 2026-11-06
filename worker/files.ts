@@ -1,4 +1,3 @@
-import { sniffAvatar } from '../shared/avatar.ts'
 import { readBytes } from './body.ts'
 import { EBOOK_KEY, EBOOK_LIMITS, EBOOK_TYPE, type EbookFileType, type FileUsage, STORAGE_LIMITS } from '../shared/ebooks.ts'
 import {
@@ -10,9 +9,12 @@ import {
   type FileUrls,
   isFilePurpose,
   isFileType,
+  POST_ONLY_TYPES,
+  sniffFile,
   thumbKey,
   type UploadedFile,
 } from '../shared/files.ts'
+import { CLUB_PARAM, DEFAULT_CLUB_ID } from '../shared/clubs.ts'
 import { randomId } from './auth.ts'
 import { ClubError } from './errors.ts'
 import type { Store } from './store.ts'
@@ -34,6 +36,16 @@ import type { Store } from './store.ts'
  * - `file:secret`: the random key that signs the addresses, made on first use
  * - `file:usage`: how many bytes the files take up, and whether admins were told it is nearly
  *   full (BridgeHall e5-t15); counted from `file:meta:` the first time it is missing
+ *
+ * Each club's files are its own (e12-t03): the club hands this its own part of the bucket
+ * (worker/buckets.ts: 淡江's keys as they always were, `clubs/<id>/…` for any other club), signs with
+ * its own `file:secret`, and keeps the records in its own storage, so a key or an address from one
+ * club finds nothing in another. Another club's addresses say `?club=<id>` (an `<img>` sends no
+ * header), and its signature covers the club as well.
+ *
+ * Forum pictures (the table's e13-t13): `urls` takes a check, so a `post/` picture is signed only
+ * for someone who may see it (`worker/post-images.ts`); `removeKeys` takes away the pictures of a
+ * deleted post, and `forget` a deleted member's pictures no post uses.
  */
 
 export interface FileBucket {
@@ -91,17 +103,26 @@ export class FileService {
   /** Told once when the files pass `STORAGE_LIMITS.warnBytes`; the club tells its admins */
   private readonly onNearlyFull: (bytes: number) => Promise<void>
   private signingKey: Promise<CryptoKey> | undefined
+  /** The club the files are (e12-t03): any but 淡江 puts itself in its addresses and signatures */
+  private readonly clubId: string
 
   constructor(
     store: Store,
     bucket: FileBucket | undefined,
     now: () => number = Date.now,
     onNearlyFull: (bytes: number) => Promise<void> = async () => {},
+    clubId: string = DEFAULT_CLUB_ID,
   ) {
     this.store = store
     this.bucket = bucket
     this.now = now
     this.onNearlyFull = onNearlyFull
+    this.clubId = clubId
+  }
+
+  /** `&club=<id>` on another club's addresses, so they reach its object; nothing on 淡江's, which stay as they were */
+  private get clubQuery(): string {
+    return this.clubId === DEFAULT_CLUB_ID ? '' : `${CLUB_PARAM}=${encodeURIComponent(this.clubId)}`
   }
 
   private requireBucket(): FileBucket {
@@ -151,7 +172,8 @@ export class FileService {
     const expires = now + FILE_LIMITS.ticketMs
     await this.store.put<StoredTicket>(`file:ticket:${token}`, { userId, key, type, expires, done: [] })
     const base = `${FILES_PATH}upload/${token}`
-    return { key, uploadUrl: base, thumbUrl: `${base}?part=thumb`, expires }
+    const club = this.clubQuery
+    return { key, uploadUrl: club ? `${base}?${club}` : base, thumbUrl: `${base}?part=thumb${club && `&${club}`}`, expires }
   }
 
   /** `POST /api/files/ticket`: a single-use pass for one picture (and its thumbnail) */
@@ -159,7 +181,7 @@ export class FileService {
     this.requireBucket()
     const { purpose, type, size } = body
     if (!isFilePurpose(purpose)) throw new ClubError('badMessage')
-    if (!isFileType(type)) throw new ClubError('fileBadFormat')
+    if (!isFileType(type) || (POST_ONLY_TYPES.includes(type) && purpose !== 'post')) throw new ClubError('fileBadFormat')
     if (typeof size !== 'number' || !(size > 0)) throw new ClubError('badMessage')
     if (size > FILE_LIMITS.maxBytes) throw new ClubError('fileTooLarge', { max: FILE_LIMITS.maxBytes / 1024 / 1024 }, 413)
     await this.requireRoom(size)
@@ -211,7 +233,7 @@ export class FileService {
     const max = pdf ? EBOOK_LIMITS.maxBytes : part === 'file' ? FILE_LIMITS.maxBytes : FILE_LIMITS.thumbMaxBytes
     if (bytes.length > max)
       throw new ClubError(pdf ? 'ebookTooLarge' : 'fileTooLarge', { max: Math.round((max / 1024 / 1024) * 100) / 100 }, 413)
-    const sniffed = pdf ? (isPdf(bytes) ? EBOOK_TYPE : null) : sniffAvatar(bytes)
+    const sniffed = pdf ? (isPdf(bytes) ? EBOOK_TYPE : null) : sniffFile(bytes)
     if (!sniffed || (part === 'file' && sniffed !== ticket.type)) throw new ClubError(pdf ? 'ebookBadFormat' : 'fileBadFormat')
     if (part === 'thumb' && !ticket.done.includes('file')) throw new ClubError('badMessage')
 
@@ -237,15 +259,18 @@ export class FileService {
     return this.uploaded(ticket.key, meta)
   }
 
-  /** `POST /api/files/urls`: fresh signed addresses; keys with no file are left out */
-  async urls(keys: unknown): Promise<FileUrls> {
+  /**
+   * `POST /api/files/urls`: fresh signed addresses; keys with no file are left out, and so are the
+   * ones `allowed` turns down (a forum picture the reader may not see, e13-t13)
+   */
+  async urls(keys: unknown, allowed: (key: string, meta: StoredFile) => boolean = () => true): Promise<FileUrls> {
     this.requireBucket()
     if (!Array.isArray(keys) || keys.length > FILE_LIMITS.urlsMax) throw new ClubError('badMessage')
     const urls: FileUrls['urls'] = {}
     for (const key of new Set(keys)) {
       if (typeof key !== 'string' || !isStoredKey(key)) continue
       const meta = await this.store.get<StoredFile>(`file:meta:${key}`)
-      if (!meta) continue
+      if (!meta || !allowed(key, meta)) continue
       const { url, thumbUrl } = await this.uploaded(key, meta)
       urls[key] = thumbUrl ? { url, thumbUrl } : { url }
     }
@@ -268,6 +293,43 @@ export class FileService {
   }
 
   /**
+   * Takes away these files whoever uploaded them (a deleted post's pictures, e13-t13); keys with no
+   * file are skipped. Returns the keys removed
+   */
+  async removeKeys(keys: Iterable<string>): Promise<string[]> {
+    if (!this.bucket) return []
+    const removed: string[] = []
+    for (const key of new Set(keys)) {
+      const meta = isStoredKey(key) ? await this.store.get<StoredFile>(`file:meta:${key}`) : undefined
+      if (!meta) continue
+      await this.remove(meta.owner, key, true)
+      removed.push(key)
+    }
+    return removed
+  }
+
+  /** The files a member uploaded, oldest first: their data export (e11-t27) and deleting their account */
+  async ownedBy(userId: string): Promise<{ key: string; type: StoredType; size: number; createdAt: number }[]> {
+    const owned = []
+    for (const [metaKey, meta] of await this.store.list<StoredFile>('file:meta:'))
+      if (meta.owner === userId)
+        owned.push({ key: metaKey.slice('file:meta:'.length), type: meta.type, size: meta.size + (meta.thumb?.size ?? 0), createdAt: meta.createdAt })
+    return owned.sort((a, b) => a.createdAt - b.createdAt)
+  }
+
+  /**
+   * A member's account is deleted (e13-t13): their forum pictures (`post/`) that `inUse` says no post uses (never
+   * posted, or their post is gone) go from R2; the ones in posts that stay are kept with the posts,
+   * and so are articles' pictures and e-books (the library's).
+   * Their day's count goes too. Returns the keys removed
+   */
+  async forget(userId: string, inUse: (key: string) => boolean): Promise<string[]> {
+    await this.store.delete(`file:day:${userId}`)
+    if (!this.bucket) return []
+    return this.removeKeys((await this.ownedBy(userId)).map((f) => f.key).filter((key) => key.startsWith('post/') && !inUse(key)))
+  }
+
+  /**
    * `GET /api/files/<key>?e=&s=`: the file, when the address is signed and has not expired. No
    * sign-in: the signature is the check. The browser may keep it until the address expires
    */
@@ -285,6 +347,8 @@ export class FileService {
         'Content-Length': String(object.size),
         'Cache-Control': `private, max-age=${Math.floor((expires - now) / 1000)}, immutable`,
         'X-Content-Type-Options': 'nosniff',
+        // Shown in the page, never saved as a download or opened as a document of its own
+        'Content-Disposition': 'inline',
         'Content-Security-Policy': "default-src 'none'",
         // The signature is the check, so any page may read it: TKU BridgeHall's PDF reader fetches
         // an e-book straight from the Worker rather than through its own /api rewrite (e5-t10)
@@ -299,7 +363,8 @@ export class FileService {
     const pdf = meta.type === EBOOK_TYPE
     const step = pdf ? 5 * 60_000 : 3600_000
     const expires = Math.ceil(this.now() / step) * step + (pdf ? EBOOK_LIMITS.urlMs : FILE_LIMITS.urlMs)
-    const address = async (k: string) => `${FILES_PATH}${k}?e=${expires}&s=${await this.sign(k, expires)}`
+    const club = this.clubQuery
+    const address = async (k: string) => `${FILES_PATH}${k}?e=${expires}&s=${await this.sign(k, expires)}${club && `&${club}`}`
     const file: UploadedFile = { key, type: meta.type, size: meta.size, url: await address(key) }
     if (meta.thumb) file.thumbUrl = await address(thumbKey(key))
     return file
@@ -307,7 +372,9 @@ export class FileService {
 
   private async sign(key: string, expires: number): Promise<string> {
     this.signingKey ??= this.loadKey()
-    const signature = await crypto.subtle.sign('HMAC', await this.signingKey, encoder.encode(`${key}\n${expires}`))
+    // 淡江's as before clubs, so the addresses pages hold stay good; any other club's names the club too
+    const signed = this.clubId === DEFAULT_CLUB_ID ? `${key}\n${expires}` : `${this.clubId}\n${key}\n${expires}`
+    const signature = await crypto.subtle.sign('HMAC', await this.signingKey, encoder.encode(signed))
     return toBase64Url(signature).slice(0, 32)
   }
 

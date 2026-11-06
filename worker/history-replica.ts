@@ -1,6 +1,6 @@
 import type { HistoryQuery } from '../shared/history-query.ts'
 import { summarize, type BoardRecord, type BoardSummary, type HistoryDay, type HistoryPage } from '../shared/protocol.ts'
-import { dayRows, dayStatement, INDEX_COLUMNS, INDEX_SCHEMA, indexRow, searchStatements, shownPage, type PlayerRow, type Statement } from './history-index.ts'
+import { dayRows, dayStatement, INDEX_COLUMNS, indexRow, searchStatements, shownPage, type PlayerRow, type Statement } from './history-index.ts'
 import type { LogEntry } from './log.ts'
 import type { Scheduler } from './scheduler.ts'
 import type { SqlValue, Store } from './store.ts'
@@ -15,6 +15,12 @@ import type { SqlValue, Store } from './store.ts'
  *
  * Neither side touches a Cloudflare API: `ReplicaDb` is all of D1 they use (`worker/d1.ts` wraps a
  * real binding; tests use SQLite in memory, `tests/worker/d1.ts`).
+ *
+ * Every club's copy is in the same database (e12-t03): every row says its club (`club_id`, part of
+ * every key, since a board id is only unique inside a club), each club writes and deletes only its
+ * own rows, says only its own copy is complete, and every read is of one club's rows (`where`'s
+ * `club`). The tables from before clubs (no `club_id`) are dropped and filled again the first time
+ * (REPLICA_VERSION 3): 淡江's rows come back with `tku`.
  */
 
 /** What the history copy needs of D1: run statements in one round trip and one transaction, rows back per statement */
@@ -22,18 +28,75 @@ export interface ReplicaDb {
   batch(statements: Statement[]): Promise<Record<string, SqlValue>[][]>
 }
 
-/** The copy's tables: the club's index tables as they are, each board's summary, and whether the copy is complete */
+/**
+ * The copy's tables: the club's index tables with the club in front of every key (e12-t03), each
+ * board's summary, and whether each club's copy is complete. `club_id` defaults to 淡江's, so a
+ * Worker from before clubs (a rollback) still reads and writes 淡江's rows here as it did
+ */
 export const REPLICA_SCHEMA = [
-  ...INDEX_SCHEMA,
+  `CREATE TABLE IF NOT EXISTS boards_index (
+    club_id TEXT NOT NULL DEFAULT 'tku',
+    board_id TEXT NOT NULL,
+    played_at INTEGER NOT NULL,
+    table_no INTEGER NOT NULL,
+    mode TEXT NOT NULL,
+    event_id TEXT,
+    board_no INTEGER NOT NULL,
+    dealer TEXT NOT NULL,
+    vul TEXT NOT NULL,
+    level INTEGER,
+    strain TEXT,
+    doubled INTEGER NOT NULL,
+    declarer_seat TEXT,
+    declarer_user TEXT,
+    tricks INTEGER,
+    score_ns INTEGER NOT NULL,
+    claimed INTEGER NOT NULL,
+    reveal_at INTEGER,
+    PRIMARY KEY (club_id, board_id)
+  )`,
+  'CREATE INDEX IF NOT EXISTS boards_by_time ON boards_index (club_id, played_at, board_id)',
+  'CREATE INDEX IF NOT EXISTS boards_by_contract ON boards_index (club_id, level, strain, played_at)',
+  'CREATE INDEX IF NOT EXISTS boards_by_declarer ON boards_index (club_id, declarer_user, played_at)',
+  `CREATE TABLE IF NOT EXISTS board_players (
+    club_id TEXT NOT NULL DEFAULT 'tku',
+    board_id TEXT NOT NULL,
+    seat TEXT NOT NULL,
+    side TEXT NOT NULL,
+    user_id TEXT,
+    PRIMARY KEY (club_id, board_id, seat)
+  ) WITHOUT ROWID`,
+  'CREATE INDEX IF NOT EXISTS players_by_user ON board_players (club_id, user_id, board_id)',
   `CREATE TABLE IF NOT EXISTS board_summaries (
-    board_id TEXT PRIMARY KEY,
-    summary TEXT NOT NULL
+    club_id TEXT NOT NULL DEFAULT 'tku',
+    board_id TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    PRIMARY KEY (club_id, board_id)
   ) WITHOUT ROWID`,
   `CREATE TABLE IF NOT EXISTS index_meta (
-    key TEXT PRIMARY KEY,
-    value TEXT NOT NULL
+    club_id TEXT NOT NULL DEFAULT 'tku',
+    key TEXT NOT NULL,
+    value TEXT NOT NULL,
+    PRIMARY KEY (club_id, key)
   ) WITHOUT ROWID`,
 ]
+
+/** The copy's tables, the only names the upgrade below ever drops */
+const REPLICA_TABLES = ['boards_index', 'board_players', 'board_summaries', 'index_meta'] as const
+
+/**
+ * The statements that make the copy's tables, after dropping any made before clubs (no `club_id`,
+ * e12-t03): those held 淡江's rows only, keyed by board id alone, and the club that drops them fills
+ * its copy again right after. Tables that have the column are never dropped, so one club filling
+ * its copy never touches another's rows. One round trip to read what is there
+ */
+export async function replicaSchema(db: ReplicaDb): Promise<Statement[]> {
+  const [tables] = await db.batch([
+    { sql: `SELECT name, sql FROM sqlite_master WHERE type = 'table' AND name IN (${REPLICA_TABLES.map(() => '?').join(', ')})`, params: [...REPLICA_TABLES] },
+  ])
+  const old = REPLICA_TABLES.filter((name) => tables.some((t) => t.name === name && !String(t.sql).includes('club_id')))
+  return [...old.map((name) => ({ sql: `DROP TABLE IF EXISTS ${name}`, params: [] })), ...REPLICA_SCHEMA.map((sql) => ({ sql, params: [] }))]
+}
 
 /** Boards per write: about ten statements, well inside the free plan's 50 queries per call */
 export const REPLICA_BATCH = 20
@@ -48,9 +111,9 @@ export const RETRY_MAX_MS = 10 * 60_000
 /** D1 binds at most 100 parameters per statement */
 const MAX_PARAMS = 100
 
-const setReady = (ready: boolean): Statement => ({
-  sql: "INSERT OR REPLACE INTO index_meta (key, value) VALUES ('ready', ?)",
-  params: [ready ? '1' : '0'],
+const setReady = (clubId: string, ready: boolean): Statement => ({
+  sql: "INSERT OR REPLACE INTO index_meta (club_id, key, value) VALUES (?, 'ready', ?)",
+  params: [clubId, ready ? '1' : '0'],
 })
 
 function chunks<T>(items: T[], size: number): T[][] {
@@ -69,72 +132,82 @@ function inserts(head: string, width: number, rows: SqlValue[][]): Statement[] {
 }
 
 /**
- * The statements that make the copy match these records, in one batch: every board's rows written
- * again, and the boards in `gone` (no record any more) taken out. Idempotent
+ * The statements that make club `clubId`'s copy match these records, in one batch: every board's
+ * rows written again, and the boards in `gone` (no record any more) taken out. Only that club's
+ * rows (e12-t03). Idempotent
  */
-export function replicaWrites(records: BoardRecord[], gone: string[]): Statement[] {
+export function replicaWrites(records: BoardRecord[], gone: string[], clubId: string): Statement[] {
   const ids = [...records.map((r) => r.id), ...gone]
   if (!ids.length) return []
   const marks = (n: number) => Array(n).fill('?').join(', ')
-  const statements: Statement[] = [{ sql: `DELETE FROM board_players WHERE board_id IN (${marks(ids.length)})`, params: ids }]
-  if (gone.length)
-    statements.push(
-      { sql: `DELETE FROM boards_index WHERE board_id IN (${marks(gone.length)})`, params: gone },
-      { sql: `DELETE FROM board_summaries WHERE board_id IN (${marks(gone.length)})`, params: gone },
-    )
+  // D1's 100 parameters a statement, less the club's
+  const deletes = (table: string, of: string[]) =>
+    chunks(of, MAX_PARAMS - 1).map((part) => ({ sql: `DELETE FROM ${table} WHERE club_id = ? AND board_id IN (${marks(part.length)})`, params: [clubId, ...part] }))
+  const statements: Statement[] = deletes('board_players', ids)
+  if (gone.length) statements.push(...deletes('boards_index', gone), ...deletes('board_summaries', gone))
   const rows = records.map(indexRow)
   statements.push(
-    ...inserts(`INSERT OR REPLACE INTO boards_index (${INDEX_COLUMNS.join(', ')})`, INDEX_COLUMNS.length, rows.map((r) => r.board)),
     ...inserts(
-      'INSERT INTO board_players (board_id, seat, side, user_id)',
-      4,
-      rows.flatMap((r) => r.players as PlayerRow[]),
+      `INSERT OR REPLACE INTO boards_index (club_id, ${INDEX_COLUMNS.join(', ')})`,
+      INDEX_COLUMNS.length + 1,
+      rows.map((r) => [clubId, ...r.board]),
+    ),
+    ...inserts(
+      'INSERT INTO board_players (club_id, board_id, seat, side, user_id)',
+      5,
+      rows.flatMap((r) => (r.players as PlayerRow[]).map((player) => [clubId, ...player])),
     ),
     // Summaries are a kilobyte or two each: a few per statement keeps each well under D1's statement size
     ...chunks(records, 10).flatMap((chunk) =>
-      inserts('INSERT OR REPLACE INTO board_summaries (board_id, summary)', 2, chunk.map((r) => [r.id, JSON.stringify(summarize(r))])),
+      inserts(
+        'INSERT OR REPLACE INTO board_summaries (club_id, board_id, summary)',
+        3,
+        chunk.map((r) => [clubId, r.id, JSON.stringify(summarize(r))]),
+      ),
     ),
   )
   return statements
 }
 
 /**
- * Runs some reads on the copy in one round trip, or gives null when the copy is not complete
- * (being filled, switched off and back on, or never filled yet)
+ * Runs some reads on the copy in one round trip, or gives null when club `clubId`'s copy is not
+ * complete (being filled, switched off and back on, or never filled yet)
  */
-async function readyBatch(db: ReplicaDb, statements: Statement[]): Promise<Record<string, SqlValue>[][] | null> {
+async function readyBatch(db: ReplicaDb, clubId: string, statements: Statement[]): Promise<Record<string, SqlValue>[][] | null> {
   let answers: Record<string, SqlValue>[][]
   try {
-    answers = await db.batch([{ sql: "SELECT value FROM index_meta WHERE key = 'ready'", params: [] }, ...statements])
+    answers = await db.batch([{ sql: "SELECT value FROM index_meta WHERE club_id = ? AND key = 'ready'", params: [clubId] }, ...statements])
   } catch (error) {
-    // Never filled yet (a new database): not complete, like one being filled
-    if (error instanceof Error && /no such table/i.test(error.message)) return null
+    // Never filled yet (a new database), or the tables from before clubs (e12-t03): not complete, like one being filled
+    if (error instanceof Error && /no such table|no such column/i.test(error.message)) return null
     throw error
   }
   const [ready, ...rest] = answers
   return ready[0]?.value === '1' ? rest : null
 }
 
-/** How many boards a search finds per Taiwan date, from the copy (`dayStatement`), or null when it is not complete */
-export async function daysReplica(db: ReplicaDb, query: HistoryQuery, viewer: string, now: number): Promise<HistoryDay[] | null> {
-  const answers = await readyBatch(db, [dayStatement(query, viewer, now)])
+/** How many boards a search finds per Taiwan date, from club `clubId`'s copy (`dayStatement`), or null when it is not complete */
+export async function daysReplica(db: ReplicaDb, clubId: string, query: HistoryQuery, viewer: string, now: number): Promise<HistoryDay[] | null> {
+  const answers = await readyBatch(db, clubId, [dayStatement(query, viewer, now, [], clubId)])
   return answers && dayRows(answers[0])
 }
 
 /**
- * One page of a history search from the copy, as the club answers it (`ClubService.search`), or
- * null when the copy is not complete (being filled, or switched off and back on): the caller then
- * asks the club. One round trip, two when the page asked for is past the end
+ * One page of a history search from club `clubId`'s copy, as the club answers it
+ * (`ClubService.search`), or null when the copy is not complete (being filled, or switched off and
+ * back on): the caller then asks the club. One round trip, two when the page asked for is past the end
  */
-export async function searchReplica(db: ReplicaDb, query: HistoryQuery, viewer: string, now: number): Promise<HistoryPage | null> {
+export async function searchReplica(db: ReplicaDb, clubId: string, query: HistoryQuery, viewer: string, now: number): Promise<HistoryPage | null> {
   const statements = searchStatements(
     query,
     viewer,
     now,
     false,
-    'b.board_id, (SELECT s.summary FROM board_summaries s WHERE s.board_id = b.board_id) AS summary',
+    'b.board_id, (SELECT s.summary FROM board_summaries s WHERE s.club_id = b.club_id AND s.board_id = b.board_id) AS summary',
+    [],
+    clubId,
   )
-  const answers = await readyBatch(db, [statements.count, statements.page(query.page)])
+  const answers = await readyBatch(db, clubId, [statements.count, statements.page(query.page)])
   if (!answers) return null
   const [count, rows] = answers
   const total = Number(count[0].n)
@@ -150,9 +223,10 @@ export async function searchReplica(db: ReplicaDb, query: HistoryQuery, viewer: 
 
 /**
  * The copy's version: raise it when the D1 tables or what a board's row holds (its summary) change,
- * and every club fills its copy afresh on its next load (the Worker reads the club meanwhile)
+ * and every club fills its copy afresh on its next load (the Worker reads the club meanwhile).
+ * 3: every row says its club (e12-t03)
  */
-export const REPLICA_VERSION = 2
+export const REPLICA_VERSION = 3
 
 /** Where filling the copy has got to (`meta:replica`) */
 interface ReplicaState {
@@ -170,6 +244,8 @@ const STATE_KEY = 'meta:replica'
 const QUEUE = 'replq:'
 
 export interface ReplicaSyncConfig {
+  /** The club whose copy this keeps (e12-t03): it writes, deletes and marks only that club's rows */
+  clubId: string
   store: Store
   db: ReplicaDb
   scheduler: Scheduler
@@ -251,7 +327,7 @@ export class ReplicaSync {
   private async markNotComplete() {
     if (this.state.state !== 'off' || this.state.marked) return
     try {
-      await this.config.db.batch([...REPLICA_SCHEMA.map((sql) => ({ sql, params: [] })), setReady(false)])
+      await this.config.db.batch([...(await replicaSchema(this.config.db)), setReady(this.config.clubId, false)])
       await this.save({ state: 'off', marked: true })
       this.wait = RETRY_MS
     } catch (error) {
@@ -288,19 +364,19 @@ export class ReplicaSync {
     if (this.state.state === 'ready') return
     try {
       if (this.state.state === 'off') {
-        await this.config.db.batch([...REPLICA_SCHEMA.map((sql) => ({ sql, params: [] })), setReady(false)])
+        await this.config.db.batch([...(await replicaSchema(this.config.db)), setReady(this.config.clubId, false)])
         await this.save({ state: 'filling', version: REPLICA_VERSION })
       }
       const after = this.state.after
       const batch = await this.store.list<BoardRecord>('board:', { limit: REPLICA_BATCH, ...(after && { start: `${after}\0` }) })
-      if (batch.size) await this.config.db.batch(replicaWrites([...batch.values()], []))
+      if (batch.size) await this.config.db.batch(replicaWrites([...batch.values()], [], this.config.clubId))
       if (batch.size === REPLICA_BATCH) {
         await this.save({ state: 'filling', after: [...batch.keys()].at(-1)!, version: REPLICA_VERSION })
         this.wait = RETRY_MS
         this.scheduleFill(FILL_STEP_MS)
         return
       }
-      await this.config.db.batch([setReady(true)])
+      await this.config.db.batch([setReady(this.config.clubId, true)])
       await this.save({ state: 'ready', version: REPLICA_VERSION })
       this.config.log({ event: 'replica', step: 'fill', ok: true })
       this.wait = RETRY_MS
@@ -321,14 +397,14 @@ export class ReplicaSync {
       const records = await Promise.all(ids.map((id) => this.store.get<BoardRecord>(`board:${id}`)))
       const found = records.filter((r): r is BoardRecord => !!r)
       const gone = ids.filter((_, i) => !records[i])
-      await this.config.db.batch(replicaWrites(found, gone))
+      await this.config.db.batch(replicaWrites(found, gone, this.config.clubId))
       for (const [key, stamp] of queued) if ((await this.store.get(key)) === stamp) await this.store.delete(key)
       this.wait = RETRY_MS
       if ((await this.store.list(QUEUE, { limit: 1 })).size) this.scheduleFlush(FLUSH_DELAY_MS)
     } catch (error) {
       this.failed('flush', error)
-      // The copy's tables are gone (the database was replaced): fill it again from the records
-      if (error instanceof Error && /no such table/i.test(error.message)) {
+      // The copy's tables are gone (the database was replaced) or from before clubs: fill it again from the records
+      if (error instanceof Error && /no such table|no column named|no such column/i.test(error.message)) {
         await this.save({ state: 'off' })
         this.scheduleFill(0)
         return

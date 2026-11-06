@@ -5,6 +5,7 @@ import type { MemoryStore } from '../../worker/store.ts'
 import { memoryD1 } from './d1.ts'
 import { memoryStore } from './sqlite.ts'
 import { clubService } from './event-mode.ts'
+import { adminWithTwoFactor } from './admin-two-factor.ts'
 
 /**
  * A club in Node for the team match tests (F5) and the visibility suite (`e11-t13`): the tables
@@ -73,14 +74,16 @@ export async function teamHarness() {
     historyReplica: d1,
   })
   await h.club.load()
-  const founder = await h.club.register('boss', 'secret1', '')
+  const founder = await h.club.register('boss', 'club-secret-1', '')
   h.boss = 'user' in founder ? founder.user.id : ''
+  // The founder turns two-step sign-in on so that it acts as an admin (社長 2026-11-02)
+  await adminWithTwoFactor(h.club, h.boss)
 
   const club = () => h.club
   const send = (userId: string, message: ClientMessage) => club().handle(userId, message)
 
   async function member(name: string) {
-    const result = await club().register(name, 'secret1', '')
+    const result = await club().register(name, 'club-secret-1', '')
     const user = 'user' in result ? result.user : await club().adminApprove(club().adminApplications().find((a) => a.username === name)!.id)
     connections.online.add(user.id)
     club().connected(user.id)
@@ -108,7 +111,7 @@ export async function teamHarness() {
     segmentBoards = 0,
   } = {}) {
     const amy = await member('amy')
-    const { id } = club().matches.create(amy, { settings: { boards, scoring, boardMinutes, segmentBoards } })
+    const { id } = await club().matches.create(amy, { settings: { boards, scoring, boardMinutes, segmentBoards } })
     const people: Record<string, string> = { amy }
     for (const [name, seat] of Object.entries(seats)) {
       const userId = await member(name)

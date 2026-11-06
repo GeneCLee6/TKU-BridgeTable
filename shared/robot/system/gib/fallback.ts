@@ -290,6 +290,7 @@ const nth = (n: number): Rule => ({
 })
 
 export const fallback: Book = {
+  general: true,
   only: weAreBidding,
   rules: [
     ...Array.from({ length: 25 }, (_, n) => nth(n)),
@@ -300,6 +301,7 @@ export const fallback: Book = {
 
 /** The opponents opened and we have said nothing: the competition books (§7) decide; here, pass */
 export const silent: Book = {
+  general: true,
   only: (ctx) => !!ctx.opening && !weAreBidding(ctx),
   rules: [{ call: 'P' }],
 }

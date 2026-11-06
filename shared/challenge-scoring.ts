@@ -12,6 +12,9 @@ import type { RulingKind } from './team-scoring.ts'
  * - `mp`: each board, 2 points for every participant beaten and 1 for a tie, as a percentage of
  *   2 × (players − 1); the result is the average over the boards
  * - `crossImp`: each board, the IMPs against every other participant, averaged; added up
+ * - `datumImp` (`e7-t30`): each board, the IMPs against the datum, added up. The datum is the
+ *   average of every score compared on the board, the participant's own included, leaving out the
+ *   highest and the lowest when there are at least three, rounded to the nearest 10 (`datumOf`)
  *
  * A board someone has not played is scored by `unfinished`: `avgMinus` is 40% or −3 IMPs, `worst`
  * is 0% or the lowest score anyone made on it. With `total` both use the lowest score (0 when
@@ -25,7 +28,7 @@ import type { RulingKind } from './team-scoring.ts'
  * North-South side is theirs.
  */
 
-export const CHALLENGE_SCORINGS = ['imp', 'total', 'mp', 'crossImp'] as const
+export const CHALLENGE_SCORINGS = ['imp', 'total', 'mp', 'crossImp', 'datumImp'] as const
 export type ChallengeScoring = (typeof CHALLENGE_SCORINGS)[number]
 
 export const UNFINISHED_RULES = ['avgMinus', 'worst'] as const
@@ -41,6 +44,8 @@ export interface ChallengeScores {
   scores: Record<string, (number | null)[]>
   /** A director's ruling on a participant's board, in the same places as `scores` (`e2-t36`) */
   rulings?: Record<string, (ScoreRuling | null | undefined)[]>
+  /** What the director took off a participant's total (`e9-t17`), in the scoring's unit */
+  penalties?: ReadonlyMap<string, number>
 }
 
 export interface Standing {
@@ -52,13 +57,29 @@ export interface Standing {
   /** Equal totals share a place and the next place is skipped: 1, 2, 2, 4 */
   rank: number
   played: number
+  /** Taken off `total` by the director (`e9-t17`) */
+  penalty?: number
 }
 
 /** Totals this close count as equal (averaged IMPs and percentages are fractions) */
 const SAME = 1e-9
 
+/**
+ * The datum of a board (`e7-t30`): the average of the scores, leaving out one highest and one
+ * lowest when there are at least three, rounded to the nearest 10 as North-South scores are; 0
+ * when there are none
+ */
+export function datumOf(scores: number[]): number {
+  if (!scores.length) return 0
+  const sorted = [...scores].sort((a, b) => a - b)
+  const kept = sorted.length >= 3 ? sorted.slice(1, -1) : sorted
+  return Math.round(kept.reduce((a, b) => a + b, 0) / kept.length / 10) * 10
+}
+
 function boardResult(scoring: ChallengeScoring, mine: number, others: number[]): number {
   if (scoring === 'total') return mine
+  // Alone on a board, the datum is their own score: 0 IMPs, as with the other IMP scorings
+  if (scoring === 'datumImp') return imps(mine - datumOf([mine, ...others]))
   if (scoring === 'mp') {
     if (!others.length) return 50
     const points = others.reduce((sum, other) => sum + (mine > other ? 2 : mine === other ? 1 : 0), 0)
@@ -76,7 +97,7 @@ export function artificialResult(scoring: ChallengeScoring, kind: RulingKind, ot
   return average + ARTIFICIAL.points[kind]
 }
 
-export function scoreChallenge({ scoring, unfinished, scores, rulings }: ChallengeScores): Standing[] {
+export function scoreChallenge({ scoring, unfinished, scores, rulings, penalties }: ChallengeScores): Standing[] {
   const players = Object.keys(scores)
   const boards = Math.max(0, ...players.map((p) => scores[p].length))
 
@@ -105,12 +126,14 @@ export function scoreChallenge({ scoring, unfinished, scores, rulings }: Challen
   const standings = players.map((player) => {
     const list = results.get(player)!
     const sum = list.reduce((a, b) => a + b, 0)
+    const penalty = penalties?.get(player) ?? 0
     return {
       player,
       boards: list,
-      total: scoring === 'mp' ? (boards ? sum / boards : 0) : sum,
+      total: (scoring === 'mp' ? (boards ? sum / boards : 0) : sum) - penalty,
       rank: 0,
       played: scores[player].filter((s) => typeof s === 'number').length,
+      ...(penalty > 0 && { penalty }),
     }
   })
   for (const s of standings) s.rank = 1 + standings.filter((o) => o.total > s.total + SAME).length
@@ -122,7 +145,7 @@ export function scoreChallenge({ scoring, unfinished, scores, rulings }: Challen
  * Head to head (the results page, 社長 2026-10-25): how one participant did against each other
  * participant, board by board, as BBO's challenge results show it. The unit follows the challenge's
  * scoring:
- * - `imp`, `crossImp`: the IMPs of the difference between the two scores (positive: I won)
+ * - `imp`, `crossImp`, `datumImp`: the IMPs of the difference between the two scores (positive: I won)
  * - `mp`: the matchpoints of that pair as a percentage: 100 beaten, 50 tied, 0 lost
  * - `total`: the difference in points
  */

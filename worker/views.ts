@@ -2,7 +2,26 @@ import { legalCalls, type AuctionCall, type BookNote, type Call } from '../share
 import type { Vulnerability } from '../shared/board.ts'
 import type { BoardEvent } from '../shared/board-events.ts'
 import { bookTopics } from '../shared/book-topics.ts'
-import { nextSeat, partnerOf, SEATS, sideOf, type Seat } from '../shared/cards.ts'
+import { fullDeck, nextSeat, partnerOf, SEATS, sideOf, type Seat } from '../shared/cards.ts'
+import {
+  PARTNER_BID_INVITER_SEAT,
+  PARTNER_BID_PARTNER_SEAT,
+  type PartnerBidBoard,
+  type PartnerBidSession,
+  type PartnerBidSummary,
+  type PartnerBidView,
+} from '../shared/partner-bidding.ts'
+import {
+  legalPlays,
+  puzzleNeed,
+  puzzleState,
+  splitCards,
+  type AdminPuzzle,
+  type PuzzleProgress,
+  type PuzzleSummary,
+  type PuzzleView,
+} from '../shared/puzzles.ts'
+import type { Puzzle } from '../shared/puzzle-sets/index.ts'
 import { ROBOT_SYSTEMS } from '../shared/robot/robots.ts'
 import { explain } from '../shared/robot/system/engine.ts'
 import { bookNoteFor, type BookNotes } from '../shared/robot/system/book-spec.ts'
@@ -27,16 +46,21 @@ import type {
   PublicUser,
   RobotKind,
   SeatOccupant,
+  SharedBoard,
+  SharedPlayer,
   TableMode,
   TablePractice,
   TableSettings,
+  TableTeach,
 } from '../shared/protocol.ts'
-import { TABLE_REQUEST_MS, type RobotSpeed } from '../shared/protocol.ts'
-import type { EventReport, PracticeTableState } from './modes.ts'
+import type { TeachAnchor, TeachMark } from '../shared/teaching.ts'
+import { isRobotId, TABLE_REQUEST_MS, tableSettingsFrom, type RobotSpeed } from '../shared/protocol.ts'
+import { openToOtherClubs, type GuestSeat, type GuestTable } from '../shared/public-lobby.ts'
+import type { EventReport, PracticeTableState, TeachTableState } from './modes.ts'
 import { isOpenChallenge, type ChallengeTraveller, type ChallengeView } from '../shared/challenge.ts'
 import type { DealSource } from '../shared/deal-source.ts'
 import type { MemberProfile, Profile } from '../shared/profile.ts'
-import { challengeStandings, hasFinished } from './challenge-flow.ts'
+import { challengeStandings, hasFinished, isPairSecond, withPartner } from './challenge-flow.ts'
 import type { Challenge } from './challenges.ts'
 import type { Traveller } from '../shared/traveller.ts'
 import type { EventBoard } from './history-index.ts'
@@ -44,6 +68,23 @@ import { teamAt, type MatchBoardView, type MatchRoomView, type TeamMatchView, ty
 import { scoreTeamMatch } from '../shared/team-scoring.ts'
 import { isMatchPlayer } from './team-match-flow.ts'
 import { boardScores, type MatchChatLine, type RoomResult, type TeamMatch } from './team-matches.ts'
+import { pairPlace } from '../shared/movement.ts'
+import { resultSides, scorePairs, type PairsSummary, type PairsTableView, type PairsTraveller, type PairsView } from '../shared/pairs.ts'
+import { pairOf, type PairsEvent } from './pairs-flow.ts'
+import { delayOf, penalizedMatch, penaltiesOf, refereeNotes, type RefereeEntry } from '../shared/referee.ts'
+import { scoreRuling, type ScoreRuling } from '../shared/ruling-scoring.ts'
+import {
+  eventMatchVp,
+  eventStandings,
+  impQuotient,
+  matchCounts,
+  roundComparison,
+  roundDone,
+  shownImps,
+  type EventMatchScore,
+  type TeamEvent,
+  type TeamEventView,
+} from '../shared/team-event.ts'
 
 /** A table as the Worker keeps it */
 export interface Table {
@@ -166,7 +207,8 @@ export interface AccessFacts {
  */
 export function tableListed(table: AccessFacts, userId: string, at: boolean): boolean {
   // A team match's tables are listed with their match (`LobbyView.matches`, §5.8)
-  if (table.mode === 'challenge' || table.mode === 'team') return false
+  // A pairs event's tables are its players' only, reached from its page (§5.22)
+  if (table.mode === 'challenge' || table.mode === 'team' || table.mode === 'pairs') return false
   if (at || table.hostId === userId) return true
   return table.settings.access !== 'hidden' || !!table.invited?.includes(userId)
 }
@@ -178,7 +220,7 @@ export function tableListed(table: AccessFacts, userId: string, at: boolean): bo
  * (`LobbyMine`) of those it is listed for
  */
 export function listedForEveryone(table: AccessFacts): boolean {
-  return table.mode !== 'challenge' && table.mode !== 'team' && table.settings.access !== 'hidden'
+  return table.mode !== 'challenge' && table.mode !== 'team' && table.mode !== 'pairs' && table.settings.access !== 'hidden'
 }
 
 /**
@@ -222,6 +264,56 @@ export function recordVisible(
 ): boolean {
   if (record.revealAt === undefined || record.revealAt <= now) return true
   return SEATS.some((seat) => record.players[seat]?.id === userId)
+}
+
+/**
+ * One board as anyone with its public link sees it, signed in or not (e4-t38, ARCHITECTURE.md §4):
+ * null unless the board is finished and public (`revealAt` passed or none), so a challenge or match
+ * board still kept back is never shown. Only the deal, the auction with its alerts (a robot's are
+ * its short explanation, public as GIB's are on BBO), the play and the result go out, picked field
+ * by field: no record, table or event ids, no ruling, no timing, no engine readings of the calls
+ * nor 淡江橋館's words (`meaning`, `inferred`, `book`: the club's system is for members). Only the
+ * member who made the link (`sharedBy`) is named, by username, unless they keep their boards off
+ * their profile (`hides`, 「不公開打過的牌局」); every other member's seat is null (「社員」), so a
+ * link made by an admin who did not play names nobody (社長 2026-11-02). Robots keep their name.
+ * Never an id
+ */
+export function sharedBoardView(
+  record: BoardRecord,
+  sharedBy: string,
+  hides: (userId: string) => boolean,
+  now: number,
+): SharedBoard | null {
+  const { board } = record
+  if (!board.result || (record.revealAt !== undefined && record.revealAt > now)) return null
+  const players = {} as Record<Seat, SharedPlayer>
+  for (const seat of SEATS) {
+    const user = record.players[seat]
+    players[seat] = user?.robot
+      ? { name: user.username, robot: true, ...(user.robotKind && { robotKind: user.robotKind }) }
+      : { name: user?.id && user.id === sharedBy && !hides(user.id) ? user.username : null }
+  }
+  return {
+    board: {
+      boardNo: board.boardNo,
+      dealer: board.dealer,
+      vul: board.vul,
+      hands: board.hands,
+      auction: board.auction.map(({ seat, call, alert, robot }) => ({
+        seat,
+        call,
+        ...(alert !== undefined && { alert }),
+        ...(robot && { robot }),
+      })),
+      contract: board.contract,
+      play: board.play.map(({ seat, card }) => ({ seat, card })),
+      phase: 'finished',
+      ...(board.claimed?.length && { claimed: [...board.claimed] }),
+      result: { ...board.result },
+    },
+    finishedAt: record.finishedAt,
+    players,
+  }
 }
 
 /**
@@ -321,6 +413,8 @@ export function boardView(
      * for its member alone (`e10-t16`). Nothing else changes: no bidding box, no hints for them
      */
     shown?: Seat[]
+    /** A teaching table is paused (`e10-t11`): nobody has anything to do until it goes on */
+    frozen?: boolean
   } = {},
 ): BoardView {
   const finished = board.phase === 'finished'
@@ -359,7 +453,7 @@ export function boardView(
 
   const turn = turnOf(board)
   // The seat the viewer calls for now, if it is the turn of one of theirs
-  const calling = board.phase === 'auction' && turn && acts.includes(turn) ? turn : null
+  const calling = !extras.frozen && board.phase === 'auction' && turn && acts.includes(turn) ? turn : null
   const view: BoardView = {
     boardNo: board.boardNo,
     dealer: board.dealer,
@@ -374,7 +468,7 @@ export function boardView(
     tricks: tricksOf(board),
     tricksWon: tricksWon(board),
     legalCards:
-      viewer && turn && !board.claim && board.phase === 'play' && controllerOf(board, turn) === viewer
+      !extras.frozen && viewer && turn && !board.claim && board.phase === 'play' && controllerOf(board, turn) === viewer
         ? legalCards(board, turn)
         : [],
     legalCalls: calling ? [...legalCalls(board.auction, board.dealer)] : [],
@@ -384,7 +478,7 @@ export function boardView(
       !extras.undo &&
       (canUndoFor(board, viewer, extras.auctionSeat ?? viewer) ||
         (board.phase === 'auction' && acts.some((seat) => seat !== viewer && canUndoFor(board, seat)))),
-    canClaim: !!viewer && board.phase === 'play' && viewer !== dummy && !board.claim,
+    canClaim: !extras.frozen && !!viewer && board.phase === 'play' && viewer !== dummy && !board.claim,
   }
 
   if (board.claim) {
@@ -471,6 +565,20 @@ export function challengeBoardVisible(c: Challenge, boardId: string, userId: str
 }
 
 /**
+ * Who reads and who writes board `seq`'s discussion thread of a challenge (§4, `e7-t27`). Readers
+ * are exactly those `challengeView` gives that board's traveller: a participant who played every
+ * board, or any participant once it ended, and only once the board has a result. Writers are the
+ * readers who played every board (the known-deals creator too). Someone still playing reads
+ * nothing, as with the results, since a comment would tell them how a board went (社長); members
+ * outside the challenge never see it, even when its standings are open to the club
+ */
+export function challengeThreadAccess(c: Challenge, seq: number, userId: string): { read: boolean; write: boolean } {
+  const role = challengeRole(c, userId)
+  const read = !!role.player && (role.ended || role.finished) && c.results.some((r) => r.seq === seq)
+  return { read, write: read && role.finished }
+}
+
+/**
  * A challenge as a member may see it (§4, §5.5, `e7-t14`), or null. Participants (invited,
  * accepted or declined) always see the settings, the state and how many boards each person has
  * played; the deals never go out. On top of that, while it is open:
@@ -485,6 +593,7 @@ export function challengeView(
   userId: string,
   userById: (id: string) => PublicUser | undefined,
   boards: (boardId: string) => EventBoard | undefined = () => undefined,
+  director: EventDirecting = {},
 ): ChallengeView | null {
   const c = challenge
   const role = challengeRole(c, userId)
@@ -515,23 +624,36 @@ export function challengeView(
         ...(p.finishedAt !== undefined && { finishedAt: p.finishedAt }),
         played: played.get(p.userId) ?? 0,
         knownDeals: p.knownDeals,
+        ...(p.partnerId !== undefined && { partnerId: p.partnerId }),
       }
     }),
   }
 
+  // The director's penalties (`e9-t17`) count in the standings, and their notes go with them
+  const penalties = penaltiesOf(director.entries)
+  const withNotes = () => {
+    if (director.admin) view.canReferee = true
+    const notes = refereeNotes(director.entries, (id) => userById(id))
+    if (notes.length) view.referee = notes
+  }
   if (clubRanking) {
-    const standings = challengeStandings(c, rulingOf)
+    const standings = challengeStandings(c, rulingOf, penalties)
     view.standings = { ...standings, ranked: standings.ranked.map(({ boards: _matrix, ...rest }) => rest) }
+    withNotes()
     return view
   }
   // Expired and cancelled challenges rank nobody; their boards are open to the participants
-  if (c.status === 'finished' || (!role.ended && role.finished)) view.standings = challengeStandings(c, rulingOf)
+  if (c.status === 'finished' || (!role.ended && role.finished)) {
+    view.standings = challengeStandings(c, rulingOf, penalties)
+    withNotes()
+  } else if (director.admin) view.canReferee = true
   const travellers: ChallengeTraveller[] = []
   for (const [i, board] of c.deals.boards.entries()) {
     const seq = i + 1
     if (!role.ended && !role.finished) break
+    // A partnership's result is one entry, under its first member (`e7-t28`)
     const entries = c.results
-      .filter((r) => r.seq === seq)
+      .filter((r) => r.seq === seq && !isPairSecond(c, r.userId))
       .map((r) => {
         const found = boards(r.boardId)
         return {
@@ -542,6 +664,7 @@ export function challengeView(
           declarerTricks: found?.declarerTricks ?? null,
           ...(found?.lead !== undefined && { lead: found.lead }),
           ...(found?.ruling && { ruling: found.ruling }),
+          ...withPartner(c, r.userId),
         }
       })
     if (entries.length) travellers.push({ seq, boardNo: board.boardNo, entries })
@@ -566,18 +689,27 @@ export function teamMatchView(
   userId: string,
   userById: (id: string) => PublicUser | undefined,
   details?: Map<string, EventBoard>,
+  director: EventDirecting = {},
 ): TeamMatchView | null {
   const m = match
   const outsiderMaySee = m.status === 'playing' || m.status === 'finished' || m.status === 'abandoned'
-  if (!isMatchPlayer(m, userId) && !outsiderMaySee) return null
-  const score = scoreTeamMatch(
-    m.settings.scoring,
-    Array.from({ length: m.settings.boards }, (_, i) =>
-      boardScores(
-        m.boards.find((b) => b.seq === i + 1),
-        (boardId) => details?.get(boardId)?.ruling,
+  const player = isMatchPlayer(m, userId)
+  // A multi-team event's director (or an admin) runs its matches, from the prep room on (§5.26)
+  const directs = !!director.eventMatch && !!director.directs
+  if (!player && !outsiderMaySee && !directs) return null
+  // The round's other matches play the same deals: outside the match, a board only once every match of the round has done it
+  const hidden = (seq: number) => !player && !directs && !!director.shown && !director.shown(seq)
+  const score = penalizedMatch(
+    scoreTeamMatch(
+      m.settings.scoring,
+      Array.from({ length: m.settings.boards }, (_, i) =>
+        boardScores(
+          hidden(i + 1) ? undefined : m.boards.find((b) => b.seq === i + 1),
+          (boardId) => details?.get(boardId)?.ruling,
+        ),
       ),
     ),
+    penaltiesOf(director.entries),
   )
   const boards: MatchBoardView[] = []
   for (const [i, result] of score.boards.entries()) {
@@ -631,8 +763,25 @@ export function teamMatchView(
     boards,
     totals: score.totals,
     leader: score.leader,
+    ...(score.penalties && { penalties: score.penalties }),
+    ...((director.admin || (director.eventMatch ? directs : m.hostId === userId)) && { canReferee: true }),
+    ...(director.eventMatch && director.eventId !== undefined && { event: { id: director.eventId, directs } }),
+    ...refereeOf(),
+  }
+
+  /** A board's note only once the board is shown: before, it would tell one room how the other went */
+  function refereeOf() {
+    const shown = new Set(boards.map((b) => b.seq))
+    const seqOf = (boardId: string) => m.boards.find((b) => b.open?.boardId === boardId || b.closed?.boardId === boardId)?.seq
+    const notes = refereeNotes(director.entries, (id) => userById(id), (e) => {
+      if (e.action !== 'score') return true
+      const seq = e.boardId ? seqOf(e.boardId) : undefined
+      return seq !== undefined && shown.has(seq)
+    })
+    return notes.length ? { referee: notes } : {}
   }
 }
+
 
 /**
  * A team match board as watchers see it when the match plays one trick behind (`e8-t19`, AC-8.8):
@@ -657,6 +806,40 @@ export function laggedBoard(board: BoardState): BoardState {
 export function vugraphBoard(board: BoardState, delay: boolean): BoardView {
   const { bookTopics: _topics, ...view } = boardView(delay ? laggedBoard(board) : board, null, { undoAllowed: false })
   return view
+}
+
+/**
+ * A table as a guest from another club watches it (the cross-club lobby, e12-t07, ARCHITECTURE.md
+ * §4): the board as any spectator sees it (all four hands, as kibitzers on BBO; `vugraphBoard`
+ * without delay), the seats by name only (`guestSeats`: no member ids, which mean nothing, or
+ * someone else, in the guest's club) and nothing else of the table: no chat, no spectators, no
+ * recent boards, no invitations or requests. Null for a table not open to other clubs
+ * (`openToOtherClubs`): a casual, public table that allows kibitzers, opened by its host
+ */
+export function guestTableView(
+  table: Table,
+  seats: Record<Seat, SeatOccupant | null>,
+): Omit<GuestTable, 'clubId' | 'clubName'> | null {
+  if (!openToOtherClubs({ mode: table.mode, settings: tableSettingsFrom(table.settings) })) return null
+  return {
+    tableId: table.id,
+    number: table.number,
+    seats: guestSeats(seats),
+    board: table.board ? vugraphBoard(table.board, false) : null,
+    boardsPlayed: table.boardsPlayed,
+  }
+}
+
+/** The seats as another club sees them: each one's name, whether it is a robot and online; never an id */
+export function guestSeats(seats: Record<Seat, (PublicUser & { online?: boolean }) | null>): Record<Seat, GuestSeat | null> {
+  const shown = {} as Record<Seat, GuestSeat | null>
+  for (const seat of SEATS) {
+    const occupant = seats[seat]
+    shown[seat] = occupant
+      ? { username: occupant.username, online: occupant.online ?? true, ...(isRobotId(occupant.id) && { robot: true as const }) }
+      : null
+  }
+  return shown
 }
 
 /** The watchers' chat as one member sees it: without the lines of those they blocked (as at a table, `chatFor`) */
@@ -697,6 +880,7 @@ export function challengeTraveller(
     scoring: view.standings?.scoring ?? challenge.settings.scoring,
     entries: found.entries.map((e) => {
       const user = userById(e.userId)
+      const partner = e.partnerId === undefined ? undefined : userById(e.partnerId)
       const points = ranked.get(e.userId)?.[found.seq - 1]
       return {
         userId: e.userId,
@@ -709,6 +893,7 @@ export function challengeTraveller(
         scoreNS: e.scoreNS,
         ...(points !== undefined && { points }),
         ...(e.ruling && { ruling: e.ruling }),
+        ...(e.partnerId !== undefined && { partnerId: e.partnerId, ...(partner && { partner }) }),
       }
     }),
   }
@@ -754,5 +939,427 @@ export function practiceView(table: Pick<Table, 'mode' | 'modeState' | 'board'>)
       }),
       ...(reviewed && { review }),
     },
+  }
+}
+
+/**
+ * The marks one member may be sent (`e10-t11`, §4): a mark on a card only if that card is already in
+ * what the member was sent, in a hand of their `BoardView` or played on the table, so a circle or an
+ * arrow never tells where a hidden card is. Worked out from the very view they get, at every send, so
+ * a mark stops going out the moment a card goes back into a hidden hand (an undo). Ids are numbered
+ * afresh, so a gap never tells that something was left out, and with nothing to send for them nobody
+ * hears of a mark on a card they cannot see. Text goes to everyone: it is the teacher's own words
+ */
+export function visibleTeachMarks(marks: readonly TeachMark[], view: BoardView | null): TeachMark[] {
+  if (!view) return []
+  const seen = new Set<string>(Object.values(view.hands).flat())
+  for (const trick of view.tricks) for (const { card } of trick.cards) seen.add(card)
+  const shows = (anchor: TeachAnchor) => 'seat' in anchor || seen.has(anchor.card)
+  return marks
+    .filter((mark) => (mark.kind === 'circle' ? seen.has(mark.card) : mark.kind === 'arrow' ? shows(mark.from) && shows(mark.to) : true))
+    .map((mark, id) => ({ ...mark, id }))
+}
+
+/**
+ * What someone at a teaching table sees of it (§4): whether it is paused, the marks they may be sent
+ * and which of the chosen deals is on the table; never the deals. The teacher sees every mark and
+ * alone hears whether a step can be taken back
+ */
+export function teachView(table: Pick<Table, 'mode' | 'modeState' | 'board'>, view: BoardView | null, teacher: boolean): { teach?: TableTeach } {
+  if (table.mode !== 'teach') return {}
+  const { dealt, problems, paused, marks = [], openHands } = table.modeState as TeachTableState
+  const index = problems?.length && dealt > 0 ? (dealt - 1) % problems.length : null
+  const problem = index === null ? null : problems![index]
+  return {
+    teach: {
+      paused: !!paused,
+      marks: teacher ? marks : visibleTeachMarks(marks, view),
+      openHands: !!openHands,
+      ...(problem && { problem: { seq: index! + 1, count: problems!.length, ...(problem.title && { title: problem.title }) } }),
+      ...(teacher && { canUndo: !!table.board?.auction.length }),
+    },
+  }
+}
+
+// ── Pairs events (§5.22, `e9-t12`, `e9-t13`) ───────────────────────────────────────────────────
+
+/** A pairs event on the list */
+export function pairsSummary(event: PairsEvent, viewerId: string, userById: (id: string) => PublicUser | null): PairsSummary {
+  return {
+    id: event.id,
+    title: event.settings.title,
+    status: event.status,
+    director: userById(event.directorId) ?? { id: event.directorId, username: '' },
+    createdAt: event.createdAt,
+    pairs: event.pairs.length,
+    ...(event.format && { format: event.format }),
+    mine: pairOf(event, viewerId) >= 0,
+    round: event.round,
+    rounds: event.movement?.rounds ?? 0,
+  }
+}
+
+/**
+ * A pairs event as a member sees it (§4): the pairs, the movement, the current round's tables, the
+ * live standings (everyone), and the travellers. While the event is on, a member in it sees the
+ * traveller of a board only once their own pair played it, so nobody learns how a board went at
+ * other tables before playing it; the director who is not in a pair sees all (to rule), anyone
+ * else none. A record's id goes only with the viewer's own result until the event is over (the
+ * records are kept back until then, `HELD_BACK`). The deal set never leaves the server
+ */
+export function pairsView(
+  event: PairsEvent,
+  viewerId: string,
+  userById: (id: string) => PublicUser | null,
+  director: PairsDirecting = {},
+): PairsView {
+  const user = (id: string) => userById(id) ?? { id, username: '' }
+  const movement = event.movement
+  const myPair = pairOf(event, viewerId)
+  const over = event.status === 'finished'
+  const canReferee = event.directorId === viewerId || !!director.admin
+  const scoring = movement ? scorePairs(movement, event.results, pairsScoring(director)) : null
+  // The entrants of a result: its two pairs, or in an individual event (e9-t15) the four players at the table
+  const playedIn = (r: (typeof event.results)[number]) => {
+    if (!movement) return [r.ns, r.ew]
+    const sides = resultSides(movement, r)
+    return [...sides.ns, ...sides.ew]
+  }
+  const playedBy = (pair: number) => new Set(event.results.filter((r) => playedIn(r).includes(pair)).map((r) => r.boardNo))
+  const mine = myPair >= 0 ? playedBy(myPair) : null
+  // The director (or an admin directing, e9-t17) who is not in a pair sees every board, to rule
+  const seesBoard = (boardNo: number) => over || (mine ? mine.has(boardNo) : canReferee && event.status === 'playing')
+  // A note on a board's score goes with that board's traveller: before then it would tell how the board went
+  const noteShown = (entry: RefereeEntry) => {
+    if (entry.action !== 'score') return true
+    const boardNo = entry.boardNo ?? event.results.find((r) => r.boardId && r.boardId === entry.boardId)?.boardNo
+    return boardNo === undefined ? over || (canReferee && myPair < 0) : seesBoard(boardNo)
+  }
+  const delayed = event.status === 'open' ? delayOf(director.entries) : null
+  const notes = refereeNotes(director.entries, userById, noteShown)
+  const round = movement?.schedule[event.round - 1]
+  const tables: PairsTableView[] =
+    event.status === 'playing' && round
+      ? round.tables.map((t) => ({
+          table: t.table,
+          ns: t.ns,
+          ew: t.ew,
+          tableId: event.roundTables[event.round - 1]?.[t.table - 1] ?? '',
+          boards: t.boards,
+          played: event.results.filter((r) => r.round === event.round && r.table === t.table).length,
+          ...(t.seats && { seats: t.seats }),
+        }))
+      : []
+  const travellers: PairsTraveller[] = []
+  if (scoring) {
+    const boards = [...new Set(scoring.scored.map((s) => s.result.boardNo))].sort((a, b) => a - b)
+    for (const boardNo of boards) {
+      if (!seesBoard(boardNo)) continue
+      travellers.push({
+        boardNo,
+        entries: scoring.scored
+          .filter((s) => s.result.boardNo === boardNo)
+          .sort((a, b) => b.result.scoreNS - a.result.scoreNS || a.result.round - b.result.round)
+          .map(({ result: r, percentNS, ruling }) => ({
+            round: r.round,
+            table: r.table,
+            ns: r.ns,
+            ew: r.ew,
+            contract: r.contract,
+            declarerTricks: r.declarerTricks,
+            ...(r.lead && { lead: r.lead }),
+            scoreNS: r.scoreNS,
+            percentNS,
+            ...(ruling && { ruling: scoreRuling(ruling) }),
+            ...(movement?.kind === 'individual' && { seats: playedIn(r) as [number, number, number, number] }),
+            ...(r.boardId && (over || playedIn(r).includes(myPair)) && { boardId: r.boardId }),
+          })),
+      })
+    }
+  }
+  return {
+    id: event.id,
+    title: event.settings.title,
+    status: event.status,
+    director: user(event.directorId),
+    createdAt: event.createdAt,
+    settings: event.settings,
+    ...(event.format && { format: event.format }),
+    pairs: event.pairs.map((p, pair) => ({
+      pair,
+      players: p.players.map(user),
+      // A Mitchell's place (NS 1, EW 2); an individual event's players have none, they move every round
+      ...(movement?.kind === 'mitchell' && pairPlace(pair, movement.tables)),
+    })),
+    ...(myPair >= 0 && { myPair }),
+    ...(movement && {
+      movement: {
+        kind: movement.kind,
+        tables: movement.tables,
+        rounds: movement.rounds,
+        boardsPerRound: movement.boardsPerRound,
+        boards: movement.boards,
+      },
+    }),
+    round: event.round,
+    ...(myPair >= 0 &&
+      event.status === 'playing' && {
+        myTable: tables.find((t) => (t.seats ?? [t.ns, t.ew]).includes(myPair)) ?? null,
+      }),
+    tables,
+    standings: scoring?.standings ?? [],
+    travellers,
+    ...(event.startedAt !== undefined && { startedAt: event.startedAt }),
+    ...(event.finishedAt !== undefined && { finishedAt: event.finishedAt }),
+    canDirect: event.directorId === viewerId,
+    ...(canReferee && { canReferee: true }),
+    ...(notes.length > 0 && { referee: notes }),
+    ...(delayed !== null && { delayedUntil: delayed }),
+  }
+}
+
+/** What an event's page needs of its director's work (`e9-t17`) */
+export interface EventDirecting {
+  /** The viewer is an admin, so they may direct it */
+  admin?: boolean
+  /** The director's log */
+  entries?: readonly RefereeEntry[]
+  /** A multi-team event's match (`e9-t14`): its host plays in the event, so its director (or an admin) runs it */
+  eventMatch?: boolean
+  /** The multi-team event the match belongs to */
+  eventId?: string
+  /**
+   * A multi-team event's match: the viewer directs it (the event's director or an admin), so they
+   * see it while it is set up, start it, rule, pause, abandon (§5.26, 社長 2026-11-03)
+   */
+  directs?: boolean
+  /**
+   * A multi-team event's match whose round plays the same deals: which boards may be shown to
+   * people outside it (`roundBoardShown`); absent, every board both rooms played
+   */
+  shown?: (seq: number) => boolean
+}
+
+/** What a pairs event's page and scoring need of its director (`e9-t17`) */
+export interface PairsDirecting extends EventDirecting {
+  /** A played board's ruling on its record (`e2-t35`) */
+  rulingOf?: (boardId: string) => ScoreRuling | undefined
+}
+
+/** The scoring's options from the director's log: the rulings on the records and the penalties by pair */
+export function pairsScoring(director: Pick<PairsDirecting, 'entries' | 'rulingOf'>) {
+  const penalties = new Map([...penaltiesOf(director.entries)].map(([target, amount]) => [Number(target), amount]))
+  return { ...(director.rulingOf && { rulingOf: director.rulingOf }), penalties }
+}
+
+/** What a multi-team event's page needs besides the event (`e9-t14`) */
+export interface TeamEventContext {
+  userById: (id: string) => PublicUser | null
+  /** The viewer directs it (its director or an admin) */
+  directs: boolean
+  scoreOf: (matchId: string) => EventMatchScore | null
+}
+
+/**
+ * A multi-team event as one member sees it (`e9-t14`, AC-9.5, §5.26; who may see it at all is
+ * `TeamEventService.mayView`). Everything is public to them — the teams, the pairings, each
+ * match's score so far (as its own page shows it to anyone, §5.8: only boards both rooms played),
+ * the standings — except the line-up a team set for the next round: only its own players and
+ * the director see it until the round is made (then the seats are on the match's page anyway)
+ */
+export function teamEventView(event: TeamEvent, viewerId: string, ctx: TeamEventContext): TeamEventView {
+  const user = (id: string): PublicUser => ctx.userById(id) ?? { id, username: '' }
+  const myTeam = event.teams.findIndex((t) => t.players.includes(viewerId))
+  const open = event.status === 'ready' || event.status === 'playing'
+  const played = event.played.map((r) => ({
+    n: r.n,
+    matches: r.matches.map((m) => {
+      const s = ctx.scoreOf(m.matchId)
+      // The round's matches play the same deals: outside a match, its score counts only the boards
+      // every match of the round has done (§5.26); its own teams and the director see it all
+      const inside = ctx.directs || m.a === myTeam || m.b === myTeam
+      return {
+        matchId: m.matchId,
+        a: m.a,
+        b: m.b,
+        status: s?.status ?? ('gone' as const),
+        imps: !s ? { A: 0, B: 0 } : inside || !r.sameDeals ? s.imps : shownImps(r, s, ctx.scoreOf),
+        ...(matchCounts(s) && { vp: eventMatchVp(s.imps, s.boards) }),
+      }
+    }),
+    ...(r.bye !== undefined && { bye: r.bye }),
+    done: roundDone(r, ctx.scoreOf),
+    // Each board across the round's matches, once every one of them has done it (the same for everyone)
+    sameDeals: !!r.sameDeals,
+    boards: r.sameDeals ? roundComparison(r, event.settings.boards, ctx.scoreOf) : [],
+  }))
+  const last = event.played.at(-1)
+  const mine = myTeam >= 0 && last && !roundDone(last, ctx.scoreOf) ? last.matches.find((m) => m.a === myTeam || m.b === myTeam) : undefined
+  return {
+    id: event.id,
+    title: event.settings.title,
+    status: event.status,
+    format: event.format,
+    rounds: event.roundsTotal,
+    settings: event.settings,
+    director: user(event.directorId),
+    createdAt: event.createdAt,
+    ...(event.finishedAt !== undefined && { finishedAt: event.finishedAt }),
+    teams: event.teams.map((t, i) => {
+      const own = i === myTeam || ctx.directs
+      return {
+        id: t.id,
+        name: t.name,
+        players: t.players.map(user),
+        lineup: own ? t.lineup : [],
+        canLineup: open && (ctx.directs || t.players[0] === viewerId),
+      }
+    }),
+    played,
+    standings: eventStandings(event, ctx.scoreOf).map((s) => {
+      const q = impQuotient(s)
+      return { ...s, quotient: Number.isFinite(q) ? Math.round(q * 1000) / 1000 : null }
+    }),
+    ...(myTeam >= 0 && { myTeam }),
+    ...(mine && { myMatch: mine.matchId }),
+    canNext: ctx.directs && open && event.played.length < event.roundsTotal && (!last || roundDone(last, ctx.scoreOf)),
+    canCancel: ctx.directs && event.status === 'ready',
+    ...(event.tournamentId !== undefined && { tournamentId: event.tournamentId }),
+  }
+}
+
+// ── Partner bidding practice (`e10-t08`, §4) ───────────────────────────────────────────────────
+
+/** A session in a member's list: who, how far, whose call; never any cards */
+export function partnerBidSummary(session: PartnerBidSession, viewerId: string, name: (id: string) => string): PartnerBidSummary {
+  return {
+    id: session.id,
+    status: session.status,
+    inviter: { id: session.inviterId, username: name(session.inviterId) },
+    partner: { id: session.partnerId, username: name(session.partnerId) },
+    seat: viewerId === session.inviterId ? PARTNER_BID_INVITER_SEAT : PARTNER_BID_PARTNER_SEAT,
+    settings: session.settings,
+    boards: session.settings.boards,
+    done: session.done,
+    yourTurn: session.status === 'active' && session.turnId === viewerId,
+    turnId: session.turnId,
+    createdAt: session.createdAt,
+    updatedAt: session.updatedAt,
+    expiresAt: session.expiresAt,
+  }
+}
+
+/**
+ * A session as one of its two members sees it. A board still being bid shows the viewer's hand alone
+ * and the auction so far, also after the session was abandoned or expired: the partner's hand only
+ * comes when that board's auction ended, with East and West's and everything worked out from them
+ * (its 檢討, what it teaches). The calls the viewer may make are worked out here, on their turn only
+ */
+export function partnerBidView(
+  session: PartnerBidSession,
+  boards: readonly PartnerBidBoard[],
+  viewerId: string,
+  name: (id: string) => string,
+): PartnerBidView {
+  const summary = partnerBidSummary(session, viewerId, name)
+  return {
+    ...summary,
+    sessionBoards: boards.map(({ seq, state, category, note, review }) => {
+      const over = state.phase !== 'auction'
+      const turn = over || session.status !== 'active' ? null : turnOf(state)
+      return {
+        seq,
+        boardNo: state.boardNo,
+        dealer: state.dealer,
+        vul: state.vul,
+        over,
+        hands: over ? state.hands : { [summary.seat]: state.hands[summary.seat] },
+        auction: state.auction,
+        contract: state.contract,
+        turn,
+        legalCalls: turn === summary.seat ? [...legalCalls(state.auction, state.dealer)] : [],
+        ...(category !== undefined && { category }),
+        ...(over && note !== undefined && { note }),
+        ...(over && review && { review }),
+      }
+    }),
+  }
+}
+
+// ── Puzzles (`e10-t14`, §4) ────────────────────────────────────────────────────────────────────
+
+/** A puzzle in the member's list: never any cards */
+export function puzzleSummary(puzzle: Puzzle, progress: PuzzleProgress | null): PuzzleSummary {
+  const { id, level, title, contract } = puzzle.source
+  return {
+    id,
+    level,
+    title,
+    contract,
+    status: progress?.status ?? 'new',
+    solved: (progress?.solvedAt ?? null) !== null,
+    clean: progress?.clean ?? false,
+  }
+}
+
+/**
+ * A puzzle as the member plays it (rule 2). North and South are declarer's and dummy's: open from the
+ * start. East's and West's cards stay on the server, apart from what they have played, until this
+ * attempt is solved, and a member who plays a solved puzzle again has them hidden again. The
+ * explanation and the hints not asked for stay here too. The repo is public, so none of this is
+ * secret: it keeps the page from giving a puzzle away.
+ */
+export function puzzleView(puzzle: Puzzle, progress: PuzzleProgress | null): PuzzleView {
+  const { source } = puzzle
+  const played = progress?.played ?? splitCards(puzzle.solution.start)
+  const state = puzzleState(source, [...source.opening, ...played])
+  const summary = puzzleSummary(puzzle, progress)
+  const solved = summary.status === 'solved'
+  const start = puzzleState(source, [])
+  const held = new Set(SEATS.flatMap((seat) => start.hands[seat]))
+  const hintsGiven = progress?.hints ?? 0
+  return {
+    ...summary,
+    story: source.story,
+    wonBefore: source.won,
+    need: puzzleNeed(source),
+    won: state.won,
+    hands: solved ? state.hands : { N: state.hands.N, S: state.hands.S },
+    counts: { N: state.hands.N.length, E: state.hands.E.length, S: state.hands.S.length, W: state.hands.W.length },
+    ...(solved && { startHands: start.hands }),
+    gone: fullDeck().filter((card) => !held.has(card)),
+    tricks: state.tricks,
+    turn: solved ? null : state.turn,
+    legalCards: summary.status === 'solved' || summary.status === 'failed' ? [] : legalPlays(state),
+    wrong: progress?.wrong ?? null,
+    hints: source.hints.slice(0, hintsGiven),
+    hintsLeft: Math.max(0, source.hints.length - hintsGiven),
+    attempts: progress?.attempts ?? 0,
+    failures: progress?.failures ?? 0,
+    ...(solved && { explanation: source.explanation }),
+  }
+}
+
+/** A puzzle for an admin to review, published or not: all of it (`ClubService` checks who asks) */
+export function adminPuzzleView(puzzle: Puzzle, publication: { by: string; at: number } | null): AdminPuzzle {
+  const { source, solution } = puzzle
+  return {
+    id: source.id,
+    level: source.level,
+    status: publication ? 'published' : 'draft',
+    title: source.title,
+    contract: source.contract,
+    wonBefore: source.won,
+    need: puzzleNeed(source),
+    leader: source.leader,
+    opening: source.opening,
+    story: source.story,
+    hints: source.hints,
+    explanation: source.explanation,
+    hands: puzzleState(source, []).hands,
+    line: splitCards(solution.line),
+    size: solution.size,
+    publishedBy: publication?.by ?? null,
+    publishedAt: publication?.at ?? null,
   }
 }

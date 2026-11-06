@@ -9,7 +9,7 @@ import type { BoardRecord } from '../../shared/protocol.ts'
 import { DdReplayBar } from '../../src/components/DoubleDummyReplay.tsx'
 import { RecordDiagram } from '../../src/components/RecordDiagram.tsx'
 import { ReplayControls } from '../../src/components/ReplayControls.tsx'
-import type { DdPositionRaw, DdPositionRequest } from '../../src/lib/doubleDummy.ts'
+import { DdTooComplex, type DdPositionRaw, type DdPositionRequest } from '../../src/lib/doubleDummy.ts'
 import { useDoubleDummyReplay } from '../../src/lib/useDoubleDummyReplay.ts'
 import { useTrickReplay } from '../../src/lib/useTrickReplay.ts'
 import { ComparePage } from '../../src/pages/ComparePage.tsx'
@@ -158,6 +158,62 @@ describe('double-dummy mode in a replay', () => {
     await userEvent.click(screen.getByRole('switch', { name: '雙夢家模式' }))
     expect(await screen.findByRole('button', { name: /莊家 12 墩（倒 1 墩） · 最佳/ })).toBeEnabled()
     expect(document.querySelectorAll('[data-dd-mark]')).toHaveLength(13)
+  })
+
+  it('says what the last card lost and what the best cards were (e4-t35)', async () => {
+    const played = record().board.play[0].card
+    expect(played).toBe('CA')
+    // ♣K and below best here, so ♣A, which West played, lost one trick
+    mocks.solve.mockImplementation(async (request: DdPositionRequest) =>
+      request.currentTrickRank[0]
+        ? DISCARD
+        : { suit: [3, 3], rank: [14, 13], equals: [0, 0x3ffc & ~(1 << 13) & ~(1 << 14)], score: [0, 1] },
+    )
+    show()
+    await userEvent.click(screen.getByRole('switch', { name: '雙夢家模式' }))
+    await screen.findAllByRole('button', { name: /莊家 12 墩/ })
+    // Before the first card there is no last card
+    expect(document.querySelector('[data-dd-last]')).toBeNull()
+    await userEvent.click(screen.getByRole('button', { name: '下一張' }))
+    const line = await waitFor(() => {
+      const found = document.querySelector('[data-dd-last]')
+      expect(found).not.toBeNull()
+      return found as HTMLElement
+    })
+    expect(line).toHaveTextContent('這張牌少了 1 墩')
+    expect(line).toHaveTextContent(/最佳/)
+    // The twelve best cards after the word, the played ace not among them
+    expect(line.textContent!.split('最佳')[1]).toMatch(/K.*Q.*J.*2/)
+    expect(line.textContent!.split('最佳')[1]).not.toMatch(/A/)
+  })
+
+  it('says when the last card was one of the best', async () => {
+    show()
+    await userEvent.click(screen.getByRole('switch', { name: '雙夢家模式' }))
+    await screen.findByRole('button', { name: /莊家 12 墩/ })
+    await userEvent.click(screen.getByRole('button', { name: '下一張' }))
+    await waitFor(() => expect(document.querySelector('[data-dd-last]')).toHaveTextContent('是最佳的牌，沒有少墩'))
+  })
+
+  it('has no verdict for a card tried out', async () => {
+    show()
+    await userEvent.click(screen.getByRole('switch', { name: '雙夢家模式' }))
+    await userEvent.click(await screen.findByRole('button', { name: /莊家 12 墩/ }))
+    expect(await screen.findByText('假設打法')).toBeInTheDocument()
+    expect(document.querySelector('[data-dd-last]')).toBeNull()
+  })
+
+  it('says a position is too complex and marks no card, rather than show a part of an answer', async () => {
+    mocks.solve.mockImplementation(async () => {
+      throw new DdTooComplex()
+    })
+    show()
+    await userEvent.click(screen.getByRole('switch', { name: '雙夢家模式' }))
+    expect(await screen.findByText(/太複雜/)).toBeInTheDocument()
+    expect(document.querySelectorAll('[data-dd-mark]')).toHaveLength(0)
+    await userEvent.click(screen.getByRole('button', { name: '下一張' }))
+    await waitFor(() => expect(document.querySelector('[data-dd-last]')).toHaveTextContent(/太複雜/))
+    expect(screen.queryByText(/這張牌少了/)).toBeNull()
   })
 
   it('says when DDS fails', async () => {

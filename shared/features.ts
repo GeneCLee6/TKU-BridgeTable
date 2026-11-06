@@ -15,7 +15,7 @@
  * every language of `src/strings.ts` (`featureFlags`), and check it where the feature is.
  */
 
-export const FEATURE_FLAGS = ['friends'] as const
+export const FEATURE_FLAGS = ['friends', 'forum', 'rankings', 'pairs', 'tournaments', 'publicLobby'] as const
 export type FeatureFlag = (typeof FEATURE_FLAGS)[number]
 
 export const FEATURE_STATES = ['off', 'officers', 'on'] as const
@@ -34,18 +34,46 @@ export type FeatureSettings = Partial<Record<FeatureFlag, FeatureSetting>>
 /**
  * The site-wide defaults.
  *
- * Friends (好友, AC-1.6): only club members use the site, so nobody needs to follow anyone yet
- * (社長, 2026-10-27). While a member does not have it the People tab, the profile card and the
- * profile page show no friend, pin or block buttons and no "friends only" filter, the account page
- * has no friend-online setting, nobody is put on top of the People list, and the server sends them
- * no friend-online notice. The friend and block lists, their commands and their checks all stay;
- * challenges and table invitations take any member either way.
+ * Friends (好友, AC-1.6): on. Hidden from 2026-10-27 while only club members used the site (社長),
+ * opened again on 2026-11-03 (docs/ROADMAP.md L3). A club may still turn it off or give it to its
+ * officers only: while a member does not have it the People tab, the profile card and the profile
+ * page show no friend or block buttons and no "friends only" filter, the account page has no
+ * friend-online setting and the push settings no friend-online group, nobody is put on top of the
+ * People list, and the server sends them no friend-online notice. The friend and block lists, their
+ * commands and their checks never depend on it; challenges and table invitations take any member
+ * either way.
+ *
+ * Forum (論壇, E13 K1, ARCHITECTURE.md §5.19): the table's forum pages (`/forum/*`) and the header's
+ * link. Off until the club opens it. The flag guards the table's pages only: `/api/forum/*` is
+ * BridgeHall's forum too (the same posts), which its members already use, so the server checks
+ * each forum route's role (roles.ts `forumRouteNeed`), not this flag.
+ *
+ * Pairs events (雙人賽, E9 J3, ARCHITECTURE.md §5.22): the `/pairs` pages and their API. Off until the
+ * club tries one: it needs 10 members online at once. Without it `/api/pairs*` answers `pairsOff`;
+ * tables of an event already being played go on.
+ * Rankings (積分與實力評分, J2, ARCHITECTURE.md §5.21): the points boards (`/rankings`), the rating
+ * on the profile and their APIs. Off until the club settles the rules. The ledger and the ratings
+ * are kept from every finished event either way, so opening it shows everything since J2; admins
+ * reach the page with the flag off to set the rules first.
+ * Tournaments (比賽公告與報名, e9-t16, ARCHITECTURE.md §5.24): the `/tournaments` pages, their API and
+ * the announcement notice. Off until the club announces its first one; admins reach the pages with
+ * the flag off to announce and prepare it. A pairs event made from a tournament is played by its
+ * players whether or not they have `pairs`.
+ * Cross-club lobby (跨社團大廳, e12-t07, ARCHITECTURE.md §1「跨社團大廳」): the club joins it. A member
+ * who has the flag sees the other clubs' open tables (`/clubs`) and may watch them (watching only:
+ * no seat, no chat), and may mark a table they host "open to other clubs"; such a table is listed
+ * for the other clubs only while its host has the flag. Off until the club's admins choose to join.
  */
 export const FEATURE_DEFAULTS: Record<FeatureFlag, FeatureState> = {
-  friends: 'off',
+  friends: 'on',
+  forum: 'off',
+  pairs: 'off',
+  rankings: 'off',
+  tournaments: 'off',
+  publicLobby: 'off',
 }
 
-/** Kept for the code and tests written before flags: whether friends are on for everyone by default */
+/** Kept for the code and tests written before flags: whether friends are on for everyone by default (true since L3) */
 export const FRIENDS_ENABLED: boolean = FEATURE_DEFAULTS.friends === 'on'
 
 /** Most members a club may name for one flag */

@@ -1,11 +1,16 @@
 import { Volume2 } from 'lucide-react'
-import { useId, useRef, useState, type ChangeEvent, type FormEvent } from 'react'
-import { Link } from 'react-router-dom'
+import { useEffect, useId, useRef, useState, type ChangeEvent, type FormEvent } from 'react'
+import { Link, useLocation } from 'react-router-dom'
 import styled from 'styled-components'
 import { LANGS } from '../../shared/messages.ts'
 import { PROFILE_LEVELS, PROFILE_LIMITS, type Profile, type ProfileLevel } from '../../shared/profile.ts'
 import { DEFAULT_ROBOT_SPEED, LIMITS, ROBOT_SPEEDS, type Me, type RobotSpeed } from '../../shared/protocol.ts'
 import { DataCard, SessionsCard } from '../components/AccountSecurity.tsx'
+import { EmailCard } from '../components/EmailCard.tsx'
+import { OAuthCard } from '../components/OAuthCard.tsx'
+import { PushCard } from '../components/PushCard.tsx'
+import { SupportCard } from '../components/SupportDialog.tsx'
+import { TwoFactorCard } from '../components/TwoFactorCard.tsx'
 import { Avatar } from '../components/Avatar.tsx'
 import { AvatarCropper } from '../components/AvatarCropper.tsx'
 import { PasswordInput } from '../components/PasswordInput.tsx'
@@ -29,6 +34,7 @@ import {
   Textarea,
 } from '../components/ui.tsx'
 import { api, ApiError } from '../lib/api.ts'
+import { TWO_FACTOR_ANCHOR } from '../lib/twoFactor.ts'
 import { AVATAR_INPUT_TYPES } from '../lib/avatarImage.ts'
 import { isAppleMobile, isStandalone, useInstallOffer } from '../lib/pwa.ts'
 import { SOUND_STYLES, SOUND_VOLUMES } from '../lib/sound/events.ts'
@@ -331,7 +337,11 @@ function ProfileForm() {
             onChange={(e) => edit({ system: e.target.value })}
             {...invalid('system')}
           />
-          {errorFor('system')}
+          {errorFor('system') ?? (
+            <FieldHint>
+              <Link to="/system-card">{t.systemCard.title}</Link>
+            </FieldHint>
+          )}
         </Field>
         <Field>
           <LabelRow>
@@ -416,8 +426,10 @@ function PasswordForm() {
             autoComplete="new-password"
             minLength={LIMITS.passwordMin}
             onChange={(e) => setNext(e.target.value)}
+            aria-describedby={`${id}-next-hint`}
             required
           />
+          <FieldHint id={`${id}-next-hint`}>{t.passwordHint(LIMITS.passwordMin)}</FieldHint>
         </Field>
       </Form>
       <CardFooter>
@@ -569,11 +581,24 @@ export function AccountPage() {
   const { t, lang, mode, deck, cardStyle, cardSize, confirmCalls, confirmPlays, set } = usePreferences()
   const { user, refresh } = useAuth()
   const friendsOn = useFeature('friends')
+  const forumOn = useFeature('forum')
+  const { hash } = useLocation()
+
+  // The admin page's banner links to the two-step sign-in card (`#two-factor`)
+  useEffect(() => {
+    if (hash === `#${TWO_FACTOR_ANCHOR}`) document.getElementById(TWO_FACTOR_ANCHOR)?.scrollIntoView?.({ block: 'start' })
+  }, [hash])
 
   /** Kept on the server, which decides whom to tell (e1-t24) */
   const setFriendOnlineNotice = (on: boolean) =>
     void api
       .setAccountPreferences({ friendOnlineNotice: on })
+      .then(refresh)
+      .catch(() => undefined)
+  /** What others see on the member's profile page (e13-t08); the server leaves out what is hidden */
+  const setPrivacy = (change: { profileBoards?: boolean; profilePosts?: boolean }) =>
+    void api
+      .setAccountPreferences(change)
       .then(refresh)
       .catch(() => undefined)
   /** Kept on the server too, which paces the robots at the member's table (the slowest of those seated) */
@@ -590,6 +615,28 @@ export function AccountPage() {
       </PageTitle>
       <Stack>
         <ProfileForm />
+        {user && (
+          <Card>
+            <CardHeader>
+              <CardTitle>{t.forum.privacyTitle}</CardTitle>
+            </CardHeader>
+            <Options
+              legend={t.forum.privacyBoards}
+              value={user.profilePrivacy?.boards === false ? 'off' : 'on'}
+              options={[['on', t.forum.privacyShow], ['off', t.forum.privacyHide]]}
+              onChange={(v) => setPrivacy({ profileBoards: v === 'on' })}
+            />
+            {forumOn && (
+              <Options
+                legend={t.forum.privacyPosts}
+                value={user.profilePrivacy?.posts === false ? 'off' : 'on'}
+                options={[['on', t.forum.privacyShow], ['off', t.forum.privacyHide]]}
+                onChange={(v) => setPrivacy({ profilePosts: v === 'on' })}
+              />
+            )}
+            <Steps>{t.forum.privacyHint}</Steps>
+          </Card>
+        )}
         <Card>
           <CardHeader>
             <CardTitle>{t.preferences}</CardTitle>
@@ -655,7 +702,13 @@ export function AccountPage() {
           <InstallApp />
         </Card>
         <PasswordForm />
+        <EmailCard />
+        <OAuthCard provider="google" />
+        <OAuthCard provider="line" />
+        <PushCard />
+        <TwoFactorCard />
         <SessionsCard />
+        <SupportCard />
         <DataCard />
         <Muted>
           <Link to="/privacy">{t.legal.privacyTitle}</Link>

@@ -54,17 +54,65 @@ export type AuditAction =
   /**
    * The forum's officers (BridgeHall e11-t09; `target` is the post's id, or the board's): a post
    * pinned or taken down, locked or opened; someone else's post or comment deleted (`note` says
-   * whose and what); a report dismissed; a board added, changed or deleted
+   * whose and what); a report dismissed; a board added, changed or deleted; a post hidden or shown
+   * again (the table's e13-t10)
    */
   | 'forum:pin'
   | 'forum:unpin'
   | 'forum:lock'
   | 'forum:unlock'
+  | 'forum:hide'
+  | 'forum:unhide'
   | 'forum:removePost'
   | 'forum:removeComment'
   | 'forum:dismiss'
   | 'forum:board'
   | 'forum:boardDelete'
+  /**
+   * The tournament director's tools (the table's e9-t17; `target` is `<kind>:<eventId>` for an
+   * event, `board:<id>` for a ruling on a board record, `note` the reason): a board's score
+   * adjusted, a penalty given or taken back, the start delayed, a table re-opened
+   */
+  | 'referee:score'
+  | 'referee:penalty'
+  | 'referee:withdraw'
+  | 'referee:delay'
+  | 'referee:restart'
+  /**
+   * A finished event's club points worked out again after a director's change (`e9-t17` follow-up,
+   * §5.23); `target` is `<kind>:<eventId>`, `note` each member's difference and the reason
+   */
+  | 'points:recredit'
+  /**
+   * The platform owner's decisions (e12-t05, e12-t06; worker/platform.ts), in 淡江's trail;
+   * `target` is the club's id, `note` the first admin's name and the application (approve) or the
+   * reason given (reject, suspend, unsuspend)
+   */
+  | 'platform:approve'
+  | 'platform:reject'
+  | 'platform:suspend'
+  | 'platform:unsuspend'
+  /**
+   * The platform's notices (e12-t15; worker/platform.ts), in 淡江's trail; `target` is the notice's
+   * id, `note` the start of its text. A forwarded support report resolved or opened again by the
+   * owner (e12-t16); `target` is `<club>/<report>`
+   */
+  | 'platform:noticeSave'
+  | 'platform:noticePublish'
+  | 'platform:noticeWithdraw'
+  | 'platform:noticeDelete'
+  | 'platform:supportResolve'
+  | 'platform:supportReopen'
+  /** A club's own banner set or taken down by its admin (e12-t15); `target` is the banner's id, `note` the start of its text */
+  | 'club:banner'
+  | 'club:bannerClear'
+  /** A support report resolved, opened again or forwarded to the platform owner by a club's admin (e12-t16); `target` is the report's id, never its text */
+  | 'support:resolve'
+  | 'support:reopen'
+  | 'support:forward'
+  /** A puzzle published to this club's members or taken back by an admin (e10-t13); `target` is `<id>@<revision>`, the version they read */
+  | 'puzzle:publish'
+  | 'puzzle:unpublish'
 
 export interface AuditEntry {
   id: string
@@ -72,7 +120,7 @@ export interface AuditEntry {
   /** The member's username, as in BookRevision.by */
   by: string
   action: AuditAction
-  /** A convention's or an article's slug, a profile's id, `<profile>/<template>` for a card, 'categories' or 'series', a forum post's or board's id */
+  /** A convention's or an article's slug, a profile's id, `<profile>/<template>` for a card, 'categories' or 'series', a forum post's or board's id, a club event (`referee:*`) */
   target: string
   /** The version the change made (a published convention's, a profile's, the categories'); a draft has none */
   version?: number

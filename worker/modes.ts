@@ -14,9 +14,11 @@ import {
 } from '../shared/practice.ts'
 import type { BoardState } from '../shared/game.ts'
 import type { BoardRecord, PracticeReview, RobotKind, TableMode } from '../shared/protocol.ts'
+import type { TeachMark } from '../shared/teaching.ts'
 import type { Room } from '../shared/team-match.ts'
 import { challengeTakesPart } from './challenge-flow.ts'
 import type { Challenge, ChallengeResult } from './challenges.ts'
+import { pairsMode, type PairsTableResult } from './pairs-mode.ts'
 import { teamMode } from './team-mode.ts'
 import type { RoomResult } from './team-matches.ts'
 import type { Table } from './views.ts'
@@ -52,6 +54,17 @@ export type EventReport =
   | { kind: 'challenge'; challengeId: string; result: ChallengeResult | null }
   /** A team match room's board (§5.8): `seq` is its place in the match; null when it does not count (the match ended) */
   | { kind: 'team'; matchId: string; room: Room; seq: number; result: RoomResult | null }
+  /** A pairs event's board (§5.22): where in the movement it was played; null when it does not count (the round ended) */
+  | {
+      kind: 'pairs'
+      eventId: string
+      round: number
+      table: number
+      boardNo: number
+      ns: number
+      ew: number
+      result: PairsTableResult | null
+    }
 
 /**
  * The three places where a mode changes what a table does; bidding, play, seating and visibility
@@ -87,7 +100,14 @@ const casual: TableModeHooks = {
  */
 export interface ChallengeTableState {
   challengeId: string
+  /** The participant, South; for a partnership its first member, under whom its results go */
   userId: string
+  /**
+   * A partner challenge (`e7-t28`): the partner, North. Both seats must be taken for a board to be
+   * dealt or the robots to move; one who leaves gets their own seat back (nobody changes seats at a
+   * table where North-South are both people)
+   */
+  partnerId?: string
   /** The board on the table: its place in the deal set, 1-based (0 before the first) */
   seq: number
   /**
@@ -105,6 +125,16 @@ export interface ChallengeTableState {
   robotKind: RobotKind
   /** The challenge ended (finished, expired or cancelled): nothing more is played */
   closed?: boolean
+  /**
+   * A partner challenge: since when each seated member has been offline (kept so an evicted object
+   * still knows when PARTNER_AWAY_MS is up)
+   */
+  offline?: Record<string, number>
+  /**
+   * A partner challenge: the members who lost their seat for being offline PARTNER_AWAY_MS; coming
+   * back online seats them again (`ClubService.rejoinDropped`)
+   */
+  dropped?: string[]
 }
 
 export const challengeStateOf = (table: Table): ChallengeTableState | null =>
@@ -145,8 +175,13 @@ export function challengeSnapshot(
   }
 }
 
+/** The people a challenge table is for: its participant and, for a partnership, the partner */
+export const challengePeople = (state: ChallengeTableState): string[] =>
+  state.partnerId === undefined ? [state.userId] : [state.userId, state.partnerId]
+
 /**
- * One person in the South seat and three robots of the challenge's kind. Boards come from the
+ * One person in the South seat and three robots of the challenge's kind (a partnership: South and
+ * North, two robots). Boards come from the
  * deal set in order, numbered as in the set; each result is written once (the club skips a second
  * one). Nothing is dealt or counted once the challenge is closed or past its deadline
  */
@@ -277,7 +312,46 @@ const practice: TableModeHooks = {
   boardFinished: () => null,
 }
 
-const MODES: Record<TableMode, TableModeHooks> = { casual, challenge, practice, team: teamMode }
+/**
+ * A teaching table's state (`e10-t10`, `e10-t11`, §5.11): the deals the teacher chose (kept on the
+ * server like a practice table's, never sent), whether it is paused and what is marked on it
+ */
+export interface TeachTableState {
+  dealt: number
+  problems?: PracticeTableProblem[]
+  paused?: boolean
+  marks?: TeachMark[]
+  /** The next mark's id */
+  nextMark?: number
+  /** People without a seat see all four hands; hidden until the teacher says so */
+  openHands?: boolean
+}
+
+export const teachStateOf = (table: Table): TeachTableState | null =>
+  table.mode === 'teach' ? (table.modeState as TeachTableState) : null
+
+export const teachPaused = (table: Table): boolean => !!teachStateOf(table)?.paused
+
+/**
+ * A teacher's table: the chosen deals in turn and round again, or any deal. The next board comes
+ * only when the teacher asks, and nothing played here is recorded (`TableService.applyAction`), so
+ * `record` never runs; it is here because every mode has one
+ */
+const teach: TableModeHooks = {
+  deal: (table, ctx) => {
+    const state = teachStateOf(table)!
+    const dealt = state.dealt++
+    if (state.problems?.length) {
+      const problem = state.problems[dealt % state.problems.length]
+      return { boardNo: problem.boardNo, hands: structuredClone(problem.hands) }
+    }
+    return { boardNo: dealt + 1, hands: deal(ctx.random) }
+  },
+  record: (_table, record) => ({ ...record, mode: 'teach' }),
+  boardFinished: () => null,
+}
+
+const MODES: Record<TableMode, TableModeHooks> = { casual, challenge, practice, team: teamMode, pairs: pairsMode, teach }
 
 /** Tables saved before modes existed are casual */
 export function modeOf(table: Table): TableModeHooks {

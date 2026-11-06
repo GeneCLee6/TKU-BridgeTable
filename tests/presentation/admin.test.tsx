@@ -1,8 +1,10 @@
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { AdminUser, Application, HealthStatus, LobbyView } from '../../shared/protocol.ts'
+import type { AdminUser, Application, HealthStatus, LobbyView, Me } from '../../shared/protocol.ts'
 import type { FeatureView } from '../../shared/features.ts'
+import type { IntegrityReport } from '../../shared/integrity.ts'
 import { ToastProvider } from '../../src/components/Toast.tsx'
 import { formatRelative } from '../../src/lib/format.ts'
 import { AdminPage } from '../../src/pages/AdminPage.tsx'
@@ -26,10 +28,16 @@ const mocks = vi.hoisted(() => ({
     setAdmin: vi.fn(),
     updateMembers: vi.fn(),
     deleteUser: vi.fn(),
+    clearTwoFactor: vi.fn(),
     closeTable: vi.fn(),
     bookSync: vi.fn(),
+    support: vi.fn(),
+    banner: vi.fn(),
+    puzzles: vi.fn(),
+    publishPuzzle: vi.fn(),
     features: vi.fn(),
     setFeature: vi.fn(),
+    integrity: vi.fn(),
   },
   health: vi.fn(),
 }))
@@ -42,7 +50,7 @@ vi.mock('../../src/lib/api.ts', async (original) => ({
 const LOBBY: LobbyView = { online: [], members: [], tables: [], myTableId: null, friends: [], blocked: [] }
 vi.mock('../../src/state/ClubContext.tsx', () => ({ useClub: () => ({ lobby: LOBBY }) }))
 // The same object every render, as AuthProvider's memo gives (a new `refresh` each time would reload forever)
-const AUTH = { user: { id: 'boss', username: 'boss', admin: true, permissions: [] }, refresh: async () => {} }
+const AUTH: { user: Me; refresh: () => Promise<void> } = { user: { id: 'boss', username: 'boss', admin: true, permissions: [] }, refresh: async () => {} }
 vi.mock('../../src/state/AuthContext.tsx', () => ({ useAuth: () => AUTH }))
 
 const NOW = Date.now()
@@ -91,11 +99,13 @@ const HEALTH: HealthStatus = {
 
 const page = () =>
   render(
-    <PreferencesProvider>
-      <ToastProvider>
-        <AdminPage />
-      </ToastProvider>
-    </PreferencesProvider>,
+    <MemoryRouter>
+      <PreferencesProvider>
+        <ToastProvider>
+          <AdminPage />
+        </ToastProvider>
+      </PreferencesProvider>
+    </MemoryRouter>,
   )
 
 beforeEach(() => {
@@ -104,6 +114,9 @@ beforeEach(() => {
   mocks.api.applications.mockResolvedValue({ applications: [application] })
   mocks.api.settings.mockResolvedValue({ settings: { maxUsers: 60, inviteCode: 'tku' } })
   mocks.api.bookSync.mockResolvedValue({ sync: [] })
+  mocks.api.support.mockResolvedValue({ reports: [], canForward: false })
+  mocks.api.banner.mockResolvedValue({ banner: null })
+  mocks.api.puzzles.mockResolvedValue({ puzzles: [] })
   mocks.health.mockResolvedValue(HEALTH)
   mocks.api.features.mockResolvedValue({ features: [FRIENDS_FLAG] })
 })
@@ -124,12 +137,77 @@ describe('feature flags (e11-t26)', () => {
   })
 })
 
+describe('anti-cheating report (e11-t25)', () => {
+  const REPORT: IntegrityReport = {
+    days: 30,
+    generatedAt: NOW,
+    seen: 12,
+    networkOff: false,
+    more: 0,
+    shared: [{ label: 'a1b2c3', members: 9, lastSeen: NOW }],
+    pairs: [
+      {
+        a: { id: 'u1', username: 'amy' },
+        b: { id: 'u2', username: 'bob' },
+        level: 'high',
+        devices: ['Chrome · Windows'],
+        networks: 1,
+        lastSeen: NOW,
+        partners: 3,
+        opponents: 0,
+        boards: ['b1', 'b2'],
+        events: [{ id: 'ch1', mode: 'challenge', at: NOW, after: 'b' }],
+      },
+    ],
+  }
+
+  it('is read only when asked, for the period chosen, and shows each lead', async () => {
+    mocks.api.integrity.mockResolvedValue({ report: REPORT })
+    page()
+    const section = await screen.findByRole('region', { name: '防作弊報表' })
+    expect(mocks.api.integrity).not.toHaveBeenCalled()
+    await userEvent.selectOptions(within(section).getByLabelText('期間'), '90')
+    await userEvent.click(within(section).getByRole('button', { name: '產生報表' }))
+    expect(mocks.api.integrity).toHaveBeenCalledWith(90)
+    expect(await within(section).findByText('這段期間有 12 位社員的登入紀錄，找到 1 組線索。')).toBeInTheDocument()
+    expect(within(section).getByText('線索：強')).toBeInTheDocument()
+    expect(within(section).getByText('同一個瀏覽器（Chrome · Windows）')).toBeInTheDocument()
+    expect(within(section).getByText('同桌：搭檔 3 副、對手 0 副')).toBeInTheDocument()
+    expect(within(section).getByRole('link', { name: '紀錄 1' })).toHaveAttribute('href', '/history/b1')
+    expect(within(section).getByText(/bob 在對方打完後才打/)).toBeInTheDocument()
+    expect(within(section).getByText(/網路 a1b2c3：9 位社員/)).toBeInTheDocument()
+    expect(within(section).queryByText(/SEEN_SALT/)).not.toBeInTheDocument()
+  })
+
+  it('says when no network is kept because SEEN_SALT is not set', async () => {
+    mocks.api.integrity.mockResolvedValue({ report: { ...REPORT, networkOff: true, shared: [] } })
+    page()
+    const section = await screen.findByRole('region', { name: '防作弊報表' })
+    await userEvent.click(within(section).getByRole('button', { name: '產生報表' }))
+    expect(await within(section).findByText(/還沒有設定網路雜湊的鹽（SEEN_SALT/)).toBeInTheDocument()
+  })
+})
+
 describe('AdminPage', () => {
+  it('sends an admin without two-step sign-in to set it up, and asks the server for nothing (社長 2026-11-02)', async () => {
+    const before = AUTH.user
+    AUTH.user = { ...before, twoFactor: { enabled: false, recoveryLeft: 0, required: true } }
+    try {
+      page()
+      const banner = screen.getByRole('alert', { name: '請先開啟兩步驟登入' })
+      expect(within(banner).getByRole('link', { name: '到「我的帳號」設定' })).toHaveAttribute('href', '/account#two-factor')
+      expect(screen.queryByRole('navigation', { name: '管理頁的區塊' })).toBeNull()
+      expect(mocks.api.users).not.toHaveBeenCalled()
+    } finally {
+      AUTH.user = before
+    }
+  })
+
   it('has a section nav, with the waiting applications counted', async () => {
     page()
     const nav = await screen.findByRole('navigation', { name: '管理頁的區塊' })
     const links = within(nav).getAllByRole('link')
-    expect(links.map((l) => l.textContent)).toEqual(['待審核的申請1', '社團設定', '社員2', '新增社員', '牌桌0', '機器人與橋館同步', '功能旗標', '系統狀態'])
+    expect(links.map((l) => l.textContent)).toEqual(['待審核的申請1', '社團設定', '社員2', '新增社員', '牌桌0', '機器人與橋館同步', '客服回報', '社團橫幅', '謎題', '功能旗標', '防作弊報表', '系統狀態'])
     expect(links[0]).toHaveAttribute('aria-current', 'location')
   })
 
@@ -157,7 +235,7 @@ describe('AdminPage', () => {
     expect(rows[0]).toHaveTextContent('joey')
     expect(rows[0]).toHaveTextContent('12 條規則')
     const nav = screen.getByRole('navigation', { name: '管理頁的區塊' })
-    expect(within(nav).getAllByRole('link').at(-3)).toHaveTextContent('機器人與橋館同步1')
+    expect(within(nav).getAllByRole('link').at(-7)).toHaveTextContent('機器人與橋館同步1')
   })
 
   it('says when every article is in step', async () => {
@@ -341,6 +419,20 @@ describe('AdminPage', () => {
 
     await userEvent.click(screen.getByRole('button', { name: '確定' }))
     expect(mocks.api.deleteUser).toHaveBeenCalledWith('amy')
+  })
+
+  it('turns off a member’s 兩步驟登入 from the row menu, after asking (e11-t31)', async () => {
+    mocks.api.users.mockResolvedValue({ users: [user('boss', { admin: true }), user('kim', { admin: true, twoFactor: true })] })
+    mocks.api.clearTwoFactor.mockResolvedValue({ ok: true })
+    page()
+    expect(await screen.findByText('兩步驟登入')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'kim 的其他操作' }))
+    const menu = screen.getByRole('menu', { name: 'kim 的其他操作' })
+    await userEvent.click(within(menu).getByRole('menuitem', { name: '關閉兩步驟登入' }))
+    expect(screen.getByText(/確定要關閉 kim 的兩步驟登入嗎/)).toBeInTheDocument()
+    expect(mocks.api.clearTwoFactor).not.toHaveBeenCalled()
+    await userEvent.click(screen.getByRole('button', { name: '確定' }))
+    expect(mocks.api.clearTwoFactor).toHaveBeenCalledWith('kim')
   })
 
   it('shows times relative to today and the board counts', async () => {

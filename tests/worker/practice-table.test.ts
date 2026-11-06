@@ -15,6 +15,7 @@ import { ruleBrain, type RobotBrain } from '../../shared/robot/brain.ts'
 import { ClubService, type Connections, type ScheduleKind } from '../../worker/service.ts'
 import type { MemoryStore } from '../../worker/store.ts'
 import { memoryStore } from './sqlite.ts'
+import { adminWithTwoFactor } from './admin-two-factor.ts'
 
 /** The practice table (E10: `e10-t03`, `e10-t05`): one member, three robots, conditions, new deals, undo */
 
@@ -67,8 +68,10 @@ beforeEach(async () => {
     schedule: (run, ms, kind) => queue.push({ run, ms, kind }),
   })
   await club.load()
-  const founder = await club.register('boss', 'secret1', '')
+  const founder = await club.register('boss', 'club-secret-1', '')
   boss = 'user' in founder ? founder.user.id : ''
+  // The founder turns two-step sign-in on so that it acts as an admin (社長 2026-11-02)
+  await adminWithTwoFactor(club, boss)
 })
 
 const tick = () => new Promise((resolve) => setImmediate(resolve))
@@ -83,7 +86,7 @@ async function runRobots(limit = 400) {
 }
 
 async function member(name: string) {
-  const result = await club.register(name, 'secret1', '')
+  const result = await club.register(name, 'club-secret-1', '')
   const user =
     'user' in result ? result.user : await club.adminApprove(club.adminApplications().find((a) => a.username === name)!.id)
   connections.online.add(user.id)

@@ -1,4 +1,4 @@
-import { CalendarClock, Plus, Swords } from 'lucide-react'
+import { BarChart3, CalendarClock, CalendarDays, Plus, Swords } from 'lucide-react'
 import { useEffect, useId, useState } from 'react'
 import { Link } from 'react-router-dom'
 import styled from 'styled-components'
@@ -160,17 +160,22 @@ const Actions = styled.div`
   flex-wrap: wrap;
   gap: 8px;
 
-  /* A phone: the buttons share a line of their own under the title, in every language */
+  /*
+   * A phone: the buttons take two columns under the title, in every language; with an odd number
+   * the last one (starting a challenge) has a row of its own
+   */
   ${mobile} {
     display: grid;
-    grid-auto-columns: minmax(0, 1fr);
-    grid-auto-flow: column;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     width: 100%;
 
-    & > button {
+    & > * {
       min-width: 0;
       white-space: normal;
       text-align: center;
+    }
+    & > :last-child:nth-child(odd) {
+      grid-column: 1 / -1;
     }
   }
 `
@@ -234,6 +239,8 @@ export function ChallengesPage() {
   const [chosen, setChosen] = useState<ChallengeTab | null>(null)
   const [creating, setCreating] = useState(false)
   const [scheduling, setScheduling] = useState(false)
+  // The daily event's page (`e9-t03`): shown to members while it runs, to admins to turn it on
+  const [dailyOn, setDailyOn] = useState<boolean | null>(null)
   const [now, setNow] = useState(() => Date.now())
   const listing = useListParams(LIST_SORTS, 'newest')
 
@@ -257,6 +264,17 @@ export function ChallengesPage() {
       live = false
     }
   }, [latest, message])
+
+  useEffect(() => {
+    let live = true
+    api
+      .daily()
+      .then((r) => live && setDailyOn(r.daily ? r.daily.settings.enabled : null))
+      .catch(() => live && setDailyOn(null))
+    return () => {
+      live = false
+    }
+  }, [])
 
   // The countdowns move once a minute
   useEffect(() => {
@@ -286,6 +304,16 @@ export function ChallengesPage() {
       <Toolbar>
         <PageTitle>{t.navChallenges}</PageTitle>
         <Actions>
+          {(dailyOn || (dailyOn === false && user.admin)) && (
+            <Button as={Link} to="/daily">
+              <CalendarDays size={18} aria-hidden />
+              {t.daily.title}
+            </Button>
+          )}
+          <Button as={Link} to="/challenges/stats">
+            <BarChart3 size={18} aria-hidden />
+            {t.challengeExtras.statsLink}
+          </Button>
           {user.admin && (
             <Button type="button" onClick={() => setScheduling(true)}>
               <CalendarClock size={18} aria-hidden />

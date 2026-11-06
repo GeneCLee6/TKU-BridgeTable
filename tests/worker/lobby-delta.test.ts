@@ -159,10 +159,10 @@ async function clubWith(config: { later?: (run: () => void, ms: number) => void 
   const make = () => new ClubService(store, wire, { maxUsers: 20, now: () => clock.time, schedule: () => undefined, ...config })
   let club = make()
   await club.load()
-  const founder = await club.register('admin', 'secret1', '')
+  const founder = await club.register('admin', 'club-secret-1', '')
   const admin = 'user' in founder ? founder.user.id : ''
   const ids = [admin]
-  for (const name of ['amy', 'ben', 'cal']) ids.push((await club.adminCreateUser(name, 'secret1')).id)
+  for (const name of ['amy', 'ben', 'cal']) ids.push((await club.adminCreateUser(name, 'club-secret-1')).id)
   for (const id of ids) {
     wire.online.add(id)
     club.connected(id)

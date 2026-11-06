@@ -1,9 +1,11 @@
 import { secureRandomInt, type RandomInt } from '../shared/board.ts'
 import { isSeat, SEATS, type Seat } from '../shared/cards.ts'
-import { DEFAULT_CLUB_ID } from '../shared/clubs.ts'
-import { AppError, type MessageCode } from '../shared/messages.ts'
+import { clubName, clubPath, DEFAULT_CLUB_ID } from '../shared/clubs.ts'
+import { openToOtherClubs, type GuestTable, type PublicTable } from '../shared/public-lobby.ts'
+import { AppError, type MessageCode, type MessageParams } from '../shared/messages.ts'
 import {
   CLUB_PROFILE_ID,
+  type OAuthPending,
   DEFAULT_ROBOT_SPEED,
   DEFAULT_TABLE_SETTINGS,
   fixedSeats,
@@ -43,6 +45,7 @@ import {
   type LobbyShared,
   type LobbyView,
   type Me,
+  type TwoFactorSetup,
   type MemberChange,
   type MemberStatus,
   type Permission,
@@ -53,6 +56,7 @@ import {
   type TableAction,
   type TableAccess,
   type TableMode,
+  type TableSettings,
   type TableSummary,
   type SharedTable,
   type HealthStatus,
@@ -62,6 +66,7 @@ import { dealWith } from '../shared/dealer.ts'
 import {
   controlledSeats,
   parsePracticeSettings,
+  parseTeachSet,
   PRACTICE_MAX_ATTEMPTS,
   practiceConditions,
   quickRandom,
@@ -69,15 +74,53 @@ import {
   type SavedPractice,
 } from '../shared/practice.ts'
 import { PRACTICE_SETS, practiceSetInfos, type PracticeSetInfo } from '../shared/practice-sets/index.ts'
+import { PartnerBidService } from './partner-bidding.ts'
+import { PuzzleService } from './puzzles.ts'
 import { PracticePresets } from './practice-presets.ts'
+import { IMPORT_LIMITS } from '../shared/imports.ts'
+import { toLin } from '../shared/lin.ts'
+import { checkImportedBoards, importedBoardId, importedRecord, OwnDeals } from './imported-boards.ts'
 import type { RobotBrain } from '../shared/robot/brain.ts'
-import { hashPassword, hashResetCode, needsRehash, randomId, RESET_CODE_MS, resetCode, verifyPassword } from './auth.ts'
+import { checkNewPassword } from './password-policy.ts'
+import {
+  composeMail,
+  EMAIL_RESET_MS,
+  EMAIL_VERIFY_MS,
+  emailToken,
+  hashEmailToken,
+  isEmail,
+  mailLang,
+  normalizeEmail,
+  type Mailer,
+} from './mail.ts'
+import { hashPassword, hashResetCode, matchPassword, needsRehash, randomId, RESET_CODE_MS, resetCode } from './auth.ts'
+import { credentialText, toHalfWidth } from '../shared/halfwidth.ts'
+import {
+  hashRecoveryCode,
+  looksLikeTotp,
+  newRecoveryCodes,
+  newTotpSecret,
+  otpauthUri,
+  TOTP_SETUP_MS,
+  verifyTotp,
+} from './totp.ts'
 import { revocationWrites } from './edge-auth.ts'
+import {
+  OAUTH_APPLY_MS,
+  OAUTH_CODE_MS,
+  OAUTH_START_MS,
+  OAuthFlows,
+  oauthRandom,
+  pkceChallenge,
+  type OAuthName,
+  type OAuthProvider,
+} from './oauth.ts'
 import { checkFavorite } from '../shared/favorites.ts'
 import { DEFAULT_HISTORY_QUERY, type HistoryQuery } from '../shared/history-query.ts'
 import {
   CHALLENGE_LIMITS,
   isOpenChallenge,
+  opponentsOf,
   parseChallengeSettings,
   scoringsFor,
   type ChallengeSettings,
@@ -90,11 +133,25 @@ import {
   parseWeeklySchedule,
   type WeeklyChallengeView,
 } from '../shared/weekly-challenge.ts'
+import {
+  DAILY_BOARDS,
+  DAILY_DAYS,
+  DAILY_HISTORY,
+  DEFAULT_DAILY_SETTINGS,
+  latestDailySlot,
+  parseDailySettings,
+  taiwanDay,
+  type DailyEventView,
+} from '../shared/daily-event.ts'
 import { dealSourceOf, makeDealSet, type DealSet, type DealSetBoard } from '../shared/deal-set.ts'
 import { openingLead, type Traveller } from '../shared/traveller.ts'
 import {
   challengeTakesPart,
+  isPairSecond,
   newChallenge,
+  pairLead,
+  pairReady,
+  partnerOf,
   remindWhom,
 } from './challenge-flow.ts'
 import { ChallengeStore, type Challenge, type ChallengeResult } from './challenges.ts'
@@ -106,26 +163,41 @@ import { forgetQuizRounds } from './quiz.ts'
 import { forgetPathProgress } from './learning.ts'
 import { forgetReading } from './reading.ts'
 import { PROFILE_ID } from './profiles.ts'
+import { BoardShares, SESSION_WINDOW_MS, sessionOf } from './board-shares.ts'
 import { FeaturedService } from './featured.ts'
 import { TeamMatchService, type MatchPlayAction } from './team-match-service.ts'
 import { ReplicaSync, type ReplicaDb } from './history-replica.ts'
-import { isMatchPlayer, type RoomClock } from './team-match-flow.ts'
-import { TeamMatchStore } from './team-matches.ts'
+import { isMatchPlayer, matchMembers, type RoomClock } from './team-match-flow.ts'
+import { LocalMatches, type MatchStep } from './match-event.ts'
+import type { RemotePairs } from './pairs-events.ts'
+import { PairsService } from './pairs-service.ts'
+import { TournamentService } from './tournaments.ts'
+import { TeamEventService, type EventMatchInput } from './team-events.ts'
+import { matchTotals } from './ranking-events.ts'
+import type { TournamentKind } from '../shared/tournament.ts'
+import { MatchHomes, type MatchApi, type MatchSnapshot, type RemoteMatches } from './match-events.ts'
+import { TeamMatchStore, type RoomResult, type TeamMatch } from './team-matches.ts'
+import type { EventMatchBoard, EventRoomResult } from '../shared/team-event.ts'
 import { teamTable } from './team-mode.ts'
-import { parseRulingReason, ROOMS, TEAM_MATCH_LIMITS, VUGRAPH_CHAT_MAX, type MatchVugraph, type Room, type TeamMatchView, type VugraphRoom } from '../shared/team-match.ts'
-import { parseRulingRequest } from '../shared/board-events.ts'
+import { parseRulingReason, ROOMS, TEAM_MATCH_LIMITS, teamAt, VUGRAPH_CHAT_MAX, type MatchVugraph, type Room, type TeamMatchSettings, type TeamMatchView, type VugraphRoom } from '../shared/team-match.ts'
+import { parseRulingRequest, type RulingRequest } from '../shared/board-events.ts'
 import {
   createHistoryIndex,
   eventBoards,
+  countImported,
+  importedPage,
+  tableBoardsOf,
   indexRecord,
   listQuery,
   revealBoards,
   revealEvent,
   searchBoards,
   searchDays,
+  sessionCandidates,
   unindexRecord,
 } from './history-index.ts'
 import {
+  challengePeople,
   challengeSnapshot,
   challengeStateOf,
   nextSeq,
@@ -133,6 +205,7 @@ import {
   type EventReport,
   type PracticeTableProblem,
   type PracticeTableState,
+  type TeachTableState,
 } from './modes.ts'
 import { DirectMessageStore } from './direct-messages.ts'
 import {
@@ -146,6 +219,8 @@ import {
   saveFavorite,
 } from './favorites.ts'
 import { NotificationService } from './notifications.ts'
+import { PushService } from './push.ts'
+import type { PushSender } from './web-push.ts'
 import {
   enabledFeatures,
   featureEnabled,
@@ -161,20 +236,29 @@ import {
 } from '../shared/features.ts'
 import { ACCOUNT_EXPORT_VERSION, type SessionInfo } from '../shared/account.ts'
 import { Sessions } from './sessions.ts'
+import { integrityReport, seenSalt, Sightings } from './integrity.ts'
+import { RegistrationLimit, REGISTRATION_WINDOW_MS } from './register-limit.ts'
+import { integrityDays, type IntegrityReport } from '../shared/integrity.ts'
 import { Relations } from './relations.ts'
 import { AlarmQueue, manualScheduler, type JobKind, type Scheduler } from './scheduler.ts'
 import { LocalTables, ROBOT_NAME, robotUser, TableService, type TableConfig, type TableStore } from './table-service.ts'
 import type { ClubLink, Person, RemoteTables, TableEntry, Tables } from './tables.ts'
 import { nextWeeklyRun, WEEKLY_KEY, type WeeklyState } from './weekly-challenge.ts'
+import { DAILY_KEY, nextDailyRun, type DailyState } from './daily-event.ts'
+import { RankingsService } from './rankings-service.ts'
+import type { RankedEvent } from './rankings.ts'
+import { ChallengeExtras } from './challenge-extras.ts'
 import type { Store } from './store.ts'
 import { parseClientMessage } from '../shared/message-guard.ts'
-import { parseProfile, PROFILE_RECENT, type MemberProfile, type Profile } from '../shared/profile.ts'
+import { parseProfile, PROFILE_LIMITS, PROFILE_RECENT, type MemberProfile, type Profile } from '../shared/profile.ts'
 import { composeLobby, quickSeatChoice } from '../shared/lobby.ts'
 import { parseClientError } from './client-errors.ts'
 import { crashEntry, noLog, type LogEntry, type Logger } from './log.ts'
 import { alertsOf, Metrics, type MetricsState, type TableStats } from './metrics.ts'
 import {
   ACTION_BURST,
+  IMPORT_BURST,
+  IMPORTS_PER_SECOND,
   ACTIONS_PER_SECOND,
   CHAT_BURST,
   CHATS_PER_SECOND,
@@ -187,15 +271,23 @@ import {
   LOGIN_FAILURES_PER_ADDRESS,
   LOGIN_FAILURES_PER_NAME,
   LOGIN_WINDOW_MS,
+  MAIL_BURST,
+  MAIL_REQUEST_BURST,
+  OAUTH_START_BURST,
+  OAUTH_STARTS_PER_SECOND,
+  MAIL_REQUESTS_PER_SECOND,
+  MAILS_PER_SECOND,
   REQUEST_BURST,
   REQUESTS_PER_SECOND,
   TokenBuckets,
+  TWO_FACTOR_FAILURES,
 } from './rate-limit.ts'
 import { AVATAR_BURST, AVATAR_MAX_BYTES, AVATARS_PER_SECOND, sniffAvatar, type AvatarType } from '../shared/avatar.ts'
 import {
   challengeBoardVisible,
   challengeTraveller,
   challengeView,
+  guestSeats,
   liveRequests,
   mayEnter,
   memberProfileView,
@@ -205,8 +297,23 @@ import {
   listedForEveryone,
   tableListed,
   vugraphChat,
+  type EventDirecting,
   type Table,
 } from './views.ts'
+import { AuditLog } from './audit.ts'
+import { ClubBanners } from './notices.ts'
+import { SupportService } from './support.ts'
+import type { AdminSupportView, MySupportReport } from '../shared/support.ts'
+import { RefereeLog, refereeKindOf } from './referee.ts'
+import {
+  isRefereeEvent,
+  parseRefereeRequest,
+  penaltiesOf,
+  REFEREE_LIMITS,
+  type RefereeAction,
+  type RefereeEvent,
+} from '../shared/referee.ts'
+import { scoreRuling } from '../shared/ruling-scoring.ts'
 
 export { ClubError } from './errors.ts'
 
@@ -222,6 +329,13 @@ interface StoredUser {
   passwordResetAt?: number
   /** A forgotten password (e1-t36): asked for, and once an admin approves, the one-time code's hash */
   passwordReset?: PasswordReset
+  /** The member's email address (e1-t29), set once the link sent to it was opened */
+  email?: string
+  emailVerifiedAt?: number
+  /** An address waiting for its verification link (only the link's hash is kept) */
+  emailPending?: { address: string; tokenHash: string; expiresAt: number }
+  /** A password reset link sent to the verified address (e1-t30); only its hash is kept */
+  emailReset?: { tokenHash: string; expiresAt: number }
   /** False when the member turned off the notice that a friend came online (e1-t24) */
   friendOnlineNotice?: boolean
   /** False when the member turned off the notice that a convention their profile plays was published (BridgeHall F4) */
@@ -234,6 +348,38 @@ interface StoredUser {
   avatar?: number
   /** How fast the robots play at their tables (出牌速度); absent for DEFAULT_ROBOT_SPEED */
   robotSpeed?: RobotSpeed
+  /** True when the member hides the boards they played from their profile page (e13-t08) */
+  hideProfileBoards?: boolean
+  /** True when the member hides their forum posts from their profile page (e13-t08) */
+  hideProfilePosts?: boolean
+  /** The second sign-in step (兩步驟登入, e11-t31), once turned on */
+  twoFactor?: TwoFactor
+  /** A secret shown at setup, waiting for its first code (TOTP_SETUP_MS) */
+  twoFactorSetup?: { secret: string; expiresAt: number }
+  /**
+   * Google sign-in bound to the account (e1-t31): Google's stable id (`sub`, what finds the
+   * account), and the address Google gave when it was bound, only to show the owner which Google
+   * account it is. Never shown to anyone else
+   */
+  google?: { sub: string; email: string; linkedAt: number }
+  /**
+   * LINE login bound to the account (e1-t32): LINE's user id (`sub`, what finds the account), and
+   * the LINE name when it was bound, only to show the owner which LINE account it is (LINE gives no
+   * email without its approval). Never shown to anyone else
+   */
+  line?: { sub: string; name: string; linkedAt: number }
+}
+
+/**
+ * 兩步驟登入 (e11-t31, docs/SECURITY.md V2.7): the authenticator app's secret (base32; it has to be
+ * kept as it is to check codes, like the password hash it lives with), the last 30-second step that
+ * signed in (a code works once) and the SHA-256 of each unused recovery code
+ */
+interface TwoFactor {
+  secret: string
+  enabledAt: number
+  lastStep: number
+  recovery: string[]
 }
 
 /**
@@ -264,7 +410,25 @@ interface StoredApplication {
   note: string
   site: Site
   createdAt: number
+  /** Applied with Google (e1-t31): bound to the account once an admin approves it */
+  google?: { sub: string; email: string }
+  /** Applied with LINE (e1-t32): bound to the account once an admin approves it */
+  line?: { sub: string; name: string }
+  /** The display name the applicant chose (Google's or LINE's name may have filled it in) */
+  displayName?: string
 }
+
+/**
+ * How a Google or LINE callback ended (e1-t31, e1-t32), on which site: the Durable Object turns it
+ * into a redirect and cookies. `link` says the flow was binding the provider on "My account"
+ */
+export type OAuthOutcome = { site: 'table' | 'book' } & (
+  | { kind: 'signedIn'; user: Me; token: string; returnTo: string }
+  | { kind: 'code'; flowId: string }
+  | { kind: 'apply'; flowId: string }
+  | { kind: 'linked' }
+  | { kind: 'failed'; code: MessageCode; link: boolean }
+)
 
 /** Who is connected; the Durable Object implements it with its hibernatable WebSockets */
 export interface Connections {
@@ -315,6 +479,10 @@ export const LOBBY_GAP_MS = 100
 
 /** Pages of 100 boards a member's data export reads at most, of their history and of their favorites */
 const EXPORT_PAGES_MAX = 100
+/** Deleted accounts whose imported boards are still being deleted (e4-t39): `importPurge:<userId>` */
+const IMPORT_PURGE = 'importPurge:'
+/** The pause between two steps of that, each in its own alarm */
+const IMPORT_PURGE_STEP_MS = 1000
 
 export interface ClubConfig {
   /** Which club this is (e12-t02, shared/clubs.ts); 淡江 when not given */
@@ -370,11 +538,68 @@ export interface ClubConfig {
    */
   eventObjectsOn?: boolean
   /**
+   * The team matches' own Durable Objects (the same `EventObject` class, H2c, §5.12), moved there
+   * by the same switch (`eventObjectsOn`). Without it every match lives in this object (`LocalMatches`)
+   */
+  matchObjects?: RemoteMatches
+  /**
+   * The pairs events' own Durable Objects (the same `EventObject` class, §5.22): a new event goes
+   * there while `eventObjectsOn`, else into this object, and stays where it was made
+   */
+  pairsObjects?: RemotePairs
+  /**
    * The system profile whose 淡江橋館 rules TKB follows in the club's system (BridgeHall e7-t03,
    * `worker/system-spec.ts`): the club's (CLUB_PROFILE_ID) unless set (`SYSTEM_PROFILE_ID`)
    */
   systemProfileId?: string
+  /**
+   * The salt for the anti-cheating report's network hashes (`wrangler secret put SEEN_SALT`, at
+   * least SEEN_SALT_MIN characters; ARCHITECTURE.md §5.17). Kept out of the club's storage on
+   * purpose; without it no network is kept, only the browser
+   */
+  seenSalt?: string
+  /**
+   * Sends mail (e1-t29, e1-t30; `worker/mail.ts`). Without it (no `RESEND_API_KEY`/`MAIL_FROM`)
+   * email is off: `Me.email` is left out and every email route answers `emailOff`
+   */
+  mailer?: Mailer
+  /**
+   * Google sign-in (e1-t31; `worker/google.ts`). Without it (no `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`)
+   * it is off: `Me.google` is left out and every Google route answers `googleOff`
+   */
+  google?: OAuthProvider
+  /**
+   * LINE login (e1-t32; `worker/line.ts`). Without it (no `LINE_CHANNEL_ID`/`LINE_CHANNEL_SECRET`)
+   * it is off: `Me.line` is left out and every LINE route answers `lineOff`
+   */
+  line?: OAuthProvider
+  /**
+   * Web Push (e1-t28; `worker/web-push.ts`, `worker/push.ts`). Without it (no `VAPID_*` secrets,
+   * PR previews) push is off: `GET /api/push` says so and the other push routes answer `pushOff`
+   */
+  push?: PushSender
+  /** Keeps the object alive for work after the answer (the Durable Object's `waitUntil`); tests leave it out */
+  defer?: (task: Promise<unknown>) => void
+  /**
+   * A member's account is gone (deleted by an admin or themselves, or not in a restored backup):
+   * what lives outside the club's accounts goes too, e.g. their forum pictures no post uses
+   * (e13-t13, `FileService.forget`). A failure is logged and never stops the deletion
+   */
+  onMemberRemoved?: (userId: string) => Promise<void>
+  /**
+   * The platform owner's account (e12-t05, the Worker setting `PLATFORM_OWNER`; 淡江 only): their
+   * `Me.platformOwner` says so, for the page's link to the back office
+   */
+  platformOwnerId?: string
+  /**
+   * Tells the platform owner a report was forwarded (e12-t16, a call to 淡江's object, `worker/club.ts`);
+   * none when `PLATFORM_OWNER` is not set, and then nothing can be forwarded
+   */
+  tellPlatformOwner?: () => Promise<unknown>
 }
+
+/** A provider's message code: `googleOff`, `lineTaken`… (shared/messages.ts has each) */
+const oauthCode = (name: OAuthName, what: 'Off' | 'Failed' | 'NotLinked' | 'Linked' | 'Taken'): MessageCode => `${name}${what}`
 
 export type ScheduleKind = JobKind
 
@@ -392,12 +617,14 @@ const MOVE_RETRY_MS = 60_000
 const EVENTS_KEY = 'meta:events'
 const EVENTS_IN_CLUB = 1
 const EVENTS_IN_OBJECTS = 2
+/** `meta:matches`: the same for the team matches (H2c): 1 in the club, 2 once every open one lives in its own object */
+const MATCHES_KEY = 'meta:matches'
 /** Boards indexed per step of the backfill; the position is saved after each step */
 const BACKFILL_BATCH = 100
 /** How many closed tables the club remembers, to drop their reports that arrive late (§5.10) */
 const CLOSED_KEPT = 200
 /** The table actions only the host may take: outside any table they are `notAtTable`, not `notSeated` */
-const HOST_ACTIONS = new Set<string>(['kick', 'addRobot', 'removeRobot', 'replaceWithRobot'])
+const HOST_ACTIONS = new Set<string>(['kick', 'addRobot', 'removeRobot', 'replaceWithRobot', 'teachUndo', 'teachReplay', 'teachPause', 'teachMark', 'teachUnmark'])
 
 /** The error for changing seats or settings at a challenge or practice table (`fixedSeats`) */
 const fixedTable = (mode: TableMode | undefined) =>
@@ -461,6 +688,12 @@ export class ClubService {
   private features: FeatureSettings = {}
   /** Who is signed in where (e11-t23) */
   private readonly sessions: Sessions
+  /** Where members were signed in, for the anti-cheating report (`e11-t25`) */
+  private readonly sightings: Sightings
+  /** Applications and wrong invite codes per address (e1-t33), by a salted hash of it */
+  private readonly registrations: RegistrationLimit
+  /** The missing SEEN_SALT is logged once per wake, not at every sign-in */
+  private saltMissingLogged = false
   private readonly store: Store
   private readonly connections: Connections
   private readonly config: ClubConfig
@@ -488,6 +721,8 @@ export class ClubService {
   >()
   /** The notification centre; other parts of the club call `notifications.notify` */
   readonly notifications: NotificationService
+  /** Push notifications to members' devices (e1-t28, worker/push.ts) */
+  readonly push: PushService
   /** 淡江橋館's rules synced for TKB (BridgeHall e7-t03); the book routes in `club.ts` use it too */
   readonly systemSpecs: SystemSpecStore
   /** Whom each member follows (好友) and whom they blocked (AC-1.6) */
@@ -503,6 +738,8 @@ export class ClubService {
    * those that live in their own `EventObject` (H2b, §5.12). Every page and rule reads this
    */
   readonly challenges: ChallengeStore
+  /** Each board's discussion thread and a member's challenge record (M2: e7-t27, e7-t29) */
+  readonly challengeExtras: ChallengeExtras
   /** Which challenges live in their own object, and what the club already did about each one's state */
   private readonly homes: EventHomes
   /** The challenges that live in this object */
@@ -513,12 +750,46 @@ export class ClubService {
   readonly eventLink: EventLink
   /** The weekly club challenge's schedule (`e7-t23`), null until an admin sets one */
   private weekly: WeeklyState | null = null
-  /** Two-table team matches, kept in SQL (§5.7); set up over HTTP, played in later batches */
+  /** The daily club event's settings and the events it created (`e9-t02`), null until an admin sets it */
+  private daily: DailyState | null = null
+  /** Club points and ratings (J2, §5.21): the ledger, the boards and each member's rating */
+  readonly rankings: RankingsService
+  /**
+   * Two-table team matches, kept in SQL (§5.7): the matches that live in this object, and the
+   * club's copy of those in their own `EventObject` (H2c, §5.12). Every page and rule reads this
+   */
   readonly matches: TeamMatchService
+  /** Pairs events (`e9-t09`–`e9-t13`, §5.22): the club's half and its copy of every event */
+  readonly pairs: PairsService
+  /** The director's log of every club event (`e9-t17`, §5.23), each entry in the audit log too */
+  readonly referee: RefereeLog
+  /** Tournament announcements and entries (`e9-t16`, §5.24), made into pairs events or team matches */
+  readonly tournaments: TournamentService
+  /** Multi-team events (`e9-t14`, §5.26), made from tournaments: rounds of ordinary team matches, VP standings */
+  readonly teamEvents: TeamEventService
+  /** Which matches live in their own object, and which ended matches the club already closed up */
+  private readonly matchHomes: MatchHomes
+  /** The matches that live in this object */
+  private readonly localMatches: LocalMatches
+  /** The matches' own objects, when configured (even switched off: those not brought back yet are reached there) */
+  private readonly matchObjects?: RemoteMatches
   /** Featured boards (精選牌局, AC-4.5, §5.9) */
   readonly featured: FeaturedService
+  /** Public links of boards (e4-t38) */
+  readonly shares: BoardShares
+  private readonly audit: AuditLog
+  /** The club's own banner (e12-t15) */
+  readonly banners: ClubBanners
+  /** Support reports (e12-t16) */
+  readonly support: SupportService
   /** Members' saved practice settings (`e10-t16`, §5.11) */
   private readonly practicePresets: PracticePresets
+  private readonly ownDeals: OwnDeals
+  private readonly importLimit: TokenBuckets
+  /** Partner bidding practice (`e10-t08`, §5.11), in the object's SQL */
+  readonly partnerBids: PartnerBidService
+  /** 謎題 (e10-t13, e10-t14): what this club published and each member's progress */
+  readonly puzzles: PuzzleService
   /** Keeps the history index's D1 copy in step (§5.12), when there is one */
   readonly replica?: ReplicaSync
   private readonly log: Logger
@@ -531,8 +802,16 @@ export class ClubService {
   private readonly requestLimit: TokenBuckets
   private readonly loginByName: FailureWindow
   private readonly loginByAddress: FailureWindow
+  /** Wrong second-step codes per account (e11-t31), wherever they come from */
+  private readonly twoFactorFailures: FailureWindow
   private readonly clientErrorLimit: TokenBuckets
   private readonly avatarLimit: TokenBuckets
+  /** Mail per account, and reset requests per network address (e1-t29, e1-t30) */
+  private readonly mailLimit: TokenBuckets
+  private readonly mailRequestLimit: TokenBuckets
+  /** Google's and LINE's flows in storage, and how often one network address may start one (e1-t31, e1-t32) */
+  private readonly oauthFlows: Record<OAuthName, OAuthFlows>
+  private readonly oauthStartLimit: TokenBuckets
 
   constructor(store: Store, connections: Connections, config: ClubConfig) {
     this.store = store
@@ -553,14 +832,51 @@ export class ClubService {
     this.requestLimit = new TokenBuckets(REQUEST_BURST, REQUESTS_PER_SECOND, this.now)
     this.loginByName = new FailureWindow(LOGIN_FAILURES_PER_NAME, LOGIN_WINDOW_MS, this.now)
     this.loginByAddress = new FailureWindow(LOGIN_FAILURES_PER_ADDRESS, LOGIN_WINDOW_MS, this.now)
+    this.twoFactorFailures = new FailureWindow(TWO_FACTOR_FAILURES, LOGIN_WINDOW_MS, this.now)
     this.clientErrorLimit = new TokenBuckets(CLIENT_ERROR_BURST, CLIENT_ERRORS_PER_SECOND, this.now)
     this.avatarLimit = new TokenBuckets(AVATAR_BURST, AVATARS_PER_SECOND, this.now)
+    this.mailLimit = new TokenBuckets(MAIL_BURST, MAILS_PER_SECOND, this.now)
+    this.mailRequestLimit = new TokenBuckets(MAIL_REQUEST_BURST, MAIL_REQUESTS_PER_SECOND, this.now)
+    this.oauthFlows = { google: new OAuthFlows(store, this.now, 'google'), line: new OAuthFlows(store, this.now, 'line') }
+    this.oauthStartLimit = new TokenBuckets(OAUTH_START_BURST, OAUTH_STARTS_PER_SECOND, this.now)
     this.random = config.random ?? secureRandomInt
-    this.notifications = new NotificationService(store, this.now, (userId) => void this.pushNotifications(userId))
+    this.push = new PushService(store, {
+      sender: config.push,
+      now: this.now,
+      online: (userId) => this.connections.onlineUserIds().includes(userId),
+      forum: (userId) => this.featureOn('forum', userId),
+      clubId: config.clubId ?? DEFAULT_CLUB_ID,
+      defer: config.defer ?? ((task) => void task.catch(() => {})),
+      log: (entry) => this.log(entry),
+    })
+    this.notifications = new NotificationService(
+      store,
+      this.now,
+      (userId) => void this.pushNotifications(userId),
+      (userId, item) => this.push.queue(userId, item),
+    )
     this.friends = new Relations(store, 'friend', this.now)
     this.blocks = new Relations(store, 'block', this.now)
     this.challenges = new ChallengeStore(store.sql)
+    this.challengeExtras = new ChallengeExtras({
+      sql: store.sql,
+      challenges: this.challenges,
+      now: this.now,
+      userById: (id) => this.publicUserById(id),
+      isAdmin: (id) => this.actsAsAdmin(this.users.get(id)),
+      takeAction: (id) => this.actionLimit.take(id),
+      boardsOf: (eventId) => eventBoards(this.store.sql, eventId),
+    })
     this.homes = new EventHomes(store.sql)
+    this.rankings = new RankingsService({
+      store,
+      now: this.now,
+      log: (entry) => this.log(entry),
+      isAdmin: (id) => this.actsAsAdmin(this.users.get(id)),
+      exists: (id) => this.users.has(id),
+      userById: (id) => this.publicUserById(id),
+      featureOn: (flag, id) => this.featureOn(flag, id),
+    })
     this.matches = new TeamMatchService(new TeamMatchStore(store.sql), {
       now: this.now,
       newId: () => randomId(8),
@@ -575,7 +891,54 @@ export class ClubService {
       live: (matchId) => this.matchLive(matchId),
       boardDetails: (matchId) => eventBoards(this.store.sql, matchId),
       mayUseTku: (id) => this.mayUseTku(id),
+      add: (match) => this.addMatch(match),
+      write: (matchId, step) => this.writeMatch(matchId, step),
+      directing: (matchId, userId) => this.directing('match', matchId, userId),
+      eventTeams: (matchId) => this.teamEvents.ofMatch(matchId)?.teams ?? null,
+      eventRole: (matchId, userId) => this.teamEvents.roleIn(matchId, userId),
+      eventDirector: (matchId) => this.teamEvents.directorOf(matchId),
     })
+    this.matchHomes = new MatchHomes(store.sql)
+    this.referee = new RefereeLog(store, new AuditLog(store, this.now), this.now, () => randomId(6))
+    this.pairs = new PairsService({
+      store,
+      now: this.now,
+      newId: () => randomId(8),
+      random: (n) => this.random(n),
+      log: (entry) => this.log(entry),
+      userById: (id) => this.publicUserById(id) ?? null,
+      userByName: (name) => [...this.users.values()].find((u) => u.username.toLowerCase() === name.toLowerCase())?.id ?? null,
+      blocked: (by, other) => this.blocks.has(by, other),
+      online: () => this.connections.onlineUserIds(),
+      featureOn: (id) => this.featureOn('pairs', id),
+      takeAction: (id) => this.actionLimit.take(id),
+      person: (id) => ({ username: this.users.get(id)?.username ?? '', blocked: this.blocks.of(id), robotSpeed: this.speedOf(id) }),
+      inMatch: (id) => !!this.matches.playingOf(id),
+      openTable: async (table) => this.applyEntry(await this.tables.get(table.id).open(table)),
+      endTable: async (tableId) => this.applyResult(tableId, await this.tables.get(tableId).matchEnded()),
+      closeTable: (tableId) => this.closeTable(tableId),
+      leave: (id) => this.leave(id),
+      reveal: async (eventId) => this.revealRecords(revealEvent(this.store.sql, eventId, this.now())),
+      ranked: (event) => {
+        this.rankings.record(event)
+        void this.tournaments.eventEnded(event.kind === 'individual' ? 'individual' : 'pairs', event.id)
+      },
+      isAdmin: (id) => this.actsAsAdmin(this.users.get(id)),
+      refereeOf: (id) => this.referee.of('pairs', id),
+      rulingsOf: (id) => {
+        const boards = eventBoards(this.store.sql, id)
+        return (boardId) => boards.get(boardId)?.ruling
+      },
+      objects: config.pairsObjects,
+      objectsOn: !!config.eventObjectsOn,
+    })
+    this.localMatches = new LocalMatches({ store: this.matches.store, now: this.now })
+    this.matchObjects = config.matchObjects
+    if (this.matchObjects)
+      this.matchObjects.attach = {
+        snapshot: (snapshot) => this.applyMatchSnapshot(snapshot),
+        copy: (id) => (this.matchHomes.rev(id) === undefined ? null : this.matches.store.get(id)),
+      }
     this.featured = new FeaturedService(store, {
       now: this.now,
       userById: (id) => this.publicUserById(id),
@@ -583,9 +946,37 @@ export class ClubService {
       notify: (id, kind, params) => this.notifications.notify(id, kind, params),
       takeAction: (id) => this.actionLimit.take(id),
     })
+    this.shares = new BoardShares(store.sql, {
+      now: this.now,
+      newToken: () => randomId(16),
+      record: (id) => this.store.get<BoardRecord>(`board:${id}`),
+      visibleRecord: (id, userId) => this.record(id, userId),
+      isAdmin: (id) => !!this.users.get(id)?.admin,
+      hidesBoards: (id) => !!this.users.get(id)?.hideProfileBoards,
+      userById: (id) => this.publicUserById(id),
+    })
+    this.audit = new AuditLog(store, this.now)
+    this.banners = new ClubBanners(store, this.audit, this.now, () => randomId(8))
+    this.support = new SupportService(store.sql, {
+      clubId: this.clubId,
+      now: this.now,
+      newId: () => randomId(8),
+      audit: this.audit,
+      usernameOf: (id) => this.users.get(id)?.username,
+      tellAdmins: async (username) => {
+        for (const id of this.adminIds()) await this.notifications.notify(id, 'supportReport', { username })
+      },
+      tellOwner: config.tellPlatformOwner,
+      tellReporter: (userId) => this.notifications.notify(userId, 'supportResolved'),
+      failed: (what, error) => this.log(crashEntry(what, error)),
+    })
     this.directs = new DirectMessageStore(store.sql)
     this.sessions = new Sessions(store, this.now)
+    this.sightings = new Sightings(store, this.now, seenSalt(config.seenSalt))
+    this.registrations = new RegistrationLimit(store, this.now, seenSalt(config.seenSalt))
     this.practicePresets = new PracticePresets(store, this.now, () => randomId(8))
+    this.ownDeals = new OwnDeals(store, this.now)
+    this.importLimit = new TokenBuckets(IMPORT_BURST, IMPORTS_PER_SECOND, this.now)
     this.systemSpecs = new SystemSpecStore(store, this.now, config.systemProfileId)
     if (config.schedule) {
       this.scheduler = manualScheduler(config.schedule)
@@ -593,9 +984,88 @@ export class ClubService {
       const wake = config.wake ?? ((at: number) => void setTimeout(() => void this.runDue(), Math.max(0, at - this.now())))
       this.scheduler = this.queue = new AlarmQueue(this.now, wake)
     }
+    this.partnerBids = new PartnerBidService({
+      sql: store.sql,
+      now: this.now,
+      newId: () => randomId(8),
+      random: this.random,
+      scheduler: this.scheduler,
+      brain: config.brain,
+      otherMember: (userId, otherId) => this.otherMember(userId, otherId),
+      name: (id) => this.users.get(id)?.username ?? id,
+      blocked: (by, other) => this.blocks.has(by, other),
+      takeAction: (id) => this.actionLimit.take(id),
+      notify: (id, kind, params) => this.notifications.notify(id, kind, params),
+      send: (id, message) => this.connections.send(id, message),
+      online: () => this.connections.onlineUserIds(),
+      defaultKind: (id) => this.defaultKindOf(id),
+      checkKind: (id, kind) => this.checkRobotKind(id, kind),
+    })
+    this.puzzles = new PuzzleService({
+      sql: store.sql,
+      now: this.now,
+      audit: this.audit,
+      takeAction: (id) => this.actionLimit.take(id),
+    })
+    this.tournaments = new TournamentService({
+      store,
+      now: this.now,
+      newId: () => randomId(8),
+      log: (entry) => this.log(entry),
+      scheduler: this.scheduler,
+      isAdmin: (id) => this.actsAsAdmin(this.users.get(id)),
+      featureOn: (id) => this.featureOn('tournaments', id),
+      members: () => [...this.users.keys()],
+      userById: (id) => this.publicUserById(id) ?? null,
+      userByName: (name) => [...this.users.values()].find((u) => u.username.toLowerCase() === name.toLowerCase())?.id ?? null,
+      blocked: (by, other) => this.blocks.has(by, other),
+      takeAction: (id) => this.actionLimit.take(id),
+      notify: (id, kind, params) => this.notifications.notify(id, kind, params),
+      createPairs: (directorId, settings, pairs) => this.pairs.createFrom(directorId, settings, pairs),
+      createIndividual: (directorId, settings, players) => this.pairs.createIndividual(directorId, settings, players),
+      createMatch: (teams, settings) => this.tournamentMatch(teams, settings),
+      createTeams: (directorId, settings, teams, tournamentId) => this.teamEvents.createFrom(directorId, settings, teams, tournamentId),
+      eventState: (kind, id) => this.tournamentEventState(kind, id),
+    })
+    this.teamEvents = new TeamEventService({
+      store,
+      now: this.now,
+      newId: () => randomId(8),
+      log: (entry) => this.log(entry),
+      isAdmin: (id) => this.actsAsAdmin(this.users.get(id)),
+      featureOn: (id) => this.featureOn('tournaments', id),
+      userById: (id) => this.publicUserById(id) ?? null,
+      takeAction: (id) => this.actionLimit.take(id),
+      notify: (id, kind, params) => this.notifications.notify(id, kind, params),
+      createMatch: (input) => this.eventMatch(input),
+      cancelMatch: async (matchId) => {
+        await this.writeMatch(matchId, { kind: 'cancel', userId: this.matches.store.get(matchId)?.hostId ?? '' })
+      },
+      matchScore: (matchId) => this.eventMatchScore(matchId),
+      matchPlayers: (matchId) => {
+        const m = this.matches.store.get(matchId)
+        const of = (team: 'A' | 'B') =>
+          m ? [...new Set(m.seats.flatMap((s) => (teamAt(s.room, s.seat) === team && !s.robot && s.userId !== undefined ? [s.userId] : [])))] : []
+        return { A: of('A'), B: of('B') }
+      },
+      record: (event) => this.rankings.record(event),
+      ended: (id) => this.tournaments.eventEnded('teams', id),
+      newDeals: (count) => makeDealSet({ kind: 'random', count }, this.random),
+    })
     if (config.historyReplica)
-      this.replica = new ReplicaSync({ store, db: config.historyReplica, scheduler: this.scheduler, now: this.now, log: this.log })
-    this.eventLink = { changed: (snapshot) => this.eventChanged(snapshot) }
+      this.replica = new ReplicaSync({
+        clubId: config.clubId ?? DEFAULT_CLUB_ID,
+        store,
+        db: config.historyReplica,
+        scheduler: this.scheduler,
+        now: this.now,
+        log: this.log,
+      })
+    this.eventLink = {
+      changed: (snapshot) => this.eventChanged(snapshot),
+      matchChanged: (snapshot) => this.matchChanged(snapshot),
+      pairsChanged: (snapshot) => this.pairs.changed(snapshot),
+    }
     this.localEvents = new LocalEvents({
       store: this.challenges,
       scheduler: this.scheduler,
@@ -650,6 +1120,16 @@ export class ClubService {
     await this.queue?.runDue()
   }
 
+  /**
+   * Runs `run` at `at` (ms; at once when it has passed) through the club's one scheduler, unless a
+   * job with the same key is waiting: for what the Durable Object keeps outside this service (the
+   * forum's scheduled posts, e13-t12, worker/forum-schedule.ts). Not stored: the caller schedules it
+   * again after a load
+   */
+  scheduleAt(key: string, kind: JobKind, at: number, run: () => Promise<void>) {
+    this.scheduler.add(key, kind, Math.max(0, at - this.now()), run)
+  }
+
   async load() {
     for (const user of (await this.store.list<StoredUser>('user:')).values()) this.users.set(user.id, user)
     for (const application of (await this.store.list<StoredApplication>('app:')).values())
@@ -660,14 +1140,24 @@ export class ClubService {
     this.features = (await this.store.get<FeatureSettings>('meta:features')) ?? {}
     this.metrics.restore(await this.store.get<MetricsState>('meta:metrics'))
     createHistoryIndex(this.store.sql)
+    this.shares.createTables()
+    this.support.createTables()
     this.challenges.createTables()
+    this.challengeExtras.createTables()
     this.homes.createTables()
     this.matches.store.createTables()
+    this.matchHomes.createTables()
     this.directs.createTables()
+    this.partnerBids.createTables()
+    this.puzzles.createTables()
+    await this.rankings.load()
+    await this.referee.load()
     const schema = (await this.store.get<number>('meta:schema')) ?? 1
     if (schema < 2) await this.migrate()
     if (schema < 3) await this.backfillIndex()
     await this.replica?.load(!this.config.historyReplicaOff)
+    // An account deleted before the object was evicted may still have imported boards to go
+    if ((await this.store.list(IMPORT_PURGE, { limit: 1 })).size) this.schedulePurge(0)
     await this.ensureAdmin()
     await this.batch(async () => {
       if (this.remote) {
@@ -684,6 +1174,11 @@ export class ClubService {
     await this.batch(() => this.loadEvents())
     this.weekly = (await this.store.get<WeeklyState>(WEEKLY_KEY)) ?? null
     this.scheduleWeekly()
+    this.daily = (await this.store.get<DailyState>(DAILY_KEY)) ?? null
+    this.scheduleDaily()
+    await this.pairs.load()
+    await this.tournaments.load()
+    await this.teamEvents.load()
   }
 
   /** A table kept in this object's storage takes its state back (brought up to date first) */
@@ -768,6 +1263,9 @@ export class ClubService {
     else if (this.eventObjects) await this.bringEventsBack()
     for (const id of this.challenges.openIds())
       if (this.homes.rev(id) === undefined) this.localEvents.event(id).schedule()
+    // The team matches the same way (H2c); a match has no job of its own to schedule
+    if (this.matchObjects && this.config.eventObjectsOn) await this.moveMatchesOut()
+    else if (this.matchObjects) await this.bringMatchesBack()
   }
 
   /**
@@ -804,12 +1302,90 @@ export class ClubService {
       await this.store.put(EVENTS_KEY, EVENTS_IN_OBJECTS)
   }
 
-  /** Moves the challenges whose object did not answer again in a minute (either way: the switch decides) */
+  /**
+   * Moves the challenges and team matches whose object did not answer again in a minute (either
+   * way: the switch decides). Moving is idempotent, so one job does both
+   */
   private retryEventMove() {
     this.scheduler.add('migrate:events', 'migrate', MOVE_RETRY_MS, async () => {
-      await this.batch(() => (this.config.eventObjectsOn ? this.moveEventsOut() : this.bringEventsBack()))
+      await this.batch(async () => {
+        if (this.config.eventObjectsOn) {
+          if (this.eventObjects) await this.moveEventsOut()
+          if (this.matchObjects) await this.moveMatchesOut()
+        } else {
+          if (this.eventObjects) await this.bringEventsBack()
+          if (this.matchObjects) await this.bringMatchesBack()
+        }
+      })
       this.broadcast()
     })
+  }
+
+  /**
+   * `meta:matches` 1 → 2 (H2c, §5.12): every open team match kept in the club moves into its own
+   * `EventObject`, as the challenges do (`moveEventsOut`): marked as living there first
+   * (`match_homes`, not yet confirmed), then adopted by the object from the club's copy, its answer
+   * written back. One whose object fails is tried again later (and adopts the copy anyway the first
+   * time the club writes to it). Matches that already ended never change and stay in the club
+   */
+  private async moveMatchesOut() {
+    const objects = this.matchObjects!
+    const homes = this.matchHomes
+    for (const id of this.matches.store.openIds()) if (homes.rev(id) === undefined) homes.setRev(id, -1)
+    const pending = homes.unconfirmed()
+    let failed = 0
+    await Promise.all(
+      pending.map(async (id) => {
+        const copy = this.matches.store.get(id)
+        if (!copy) return homes.drop(id)
+        try {
+          this.applyMatchSnapshot(await objects.get(id).adopt(copy))
+          await this.settleMatch(id)
+        } catch (error) {
+          failed++
+          this.log(crashEntry('moveMatchesOut', error))
+        }
+      }),
+    )
+    if (pending.length) this.log({ event: 'eventsMoved', kind: 'matches', to: 'objects', moved: pending.length - failed, failed })
+    if (failed) return this.retryEventMove()
+    if (((await this.store.get<number>(MATCHES_KEY)) ?? EVENTS_IN_CLUB) < EVENTS_IN_OBJECTS)
+      await this.store.put(MATCHES_KEY, EVENTS_IN_OBJECTS)
+  }
+
+  /**
+   * The switch back for the team matches (`EVENT_OBJECTS` not `on`), as `bringEventsBack`: the
+   * object hands the match over and keeps still, the club writes it over its copy and forgets the
+   * object is its home, the object forgets it. One whose object fails stays there, reached there,
+   * and is tried again later; `meta:matches` goes back to 1 once none is left
+   */
+  private async bringMatchesBack() {
+    const objects = this.matchObjects!
+    const ids = this.matchHomes.ids()
+    let failed = 0
+    for (const id of ids) {
+      try {
+        const match = await objects.handOver(id)
+        this.store.sql.transaction(() => {
+          if (match) this.matches.store.replace(match)
+          this.matchHomes.drop(id)
+        })
+        await this.settleMatch(id)
+      } catch (error) {
+        failed++
+        this.log(crashEntry('bringMatchesBack', error))
+        continue
+      }
+      try {
+        await objects.release(id)
+      } catch (error) {
+        // It keeps still (frozen) and is wiped the next time it adopts
+        this.log(crashEntry('releaseMatch', error))
+      }
+    }
+    if (ids.length) this.log({ event: 'eventsMoved', kind: 'matches', to: 'club', moved: ids.length - failed, failed })
+    if (failed) return this.retryEventMove()
+    if ((await this.store.get<number>(MATCHES_KEY)) === EVENTS_IN_OBJECTS) await this.store.put(MATCHES_KEY, EVENTS_IN_CLUB)
   }
 
   /**
@@ -903,7 +1479,9 @@ export class ClubService {
   // ── Accounts ────────────────────────────────────────────────────────────────────────────────
 
   /**
-   * The very first account becomes the admin and is signed in at once. Every later registration is
+   * The very first account of 淡江 becomes the admin and is signed in at once (how 淡江 began);
+   * any other club gets its first admin from the platform's approval (`provisionFounder`, e12-t06),
+   * so nobody becomes another club's admin by registering first. Every other registration is
    * an application that keeps the chosen name and password, and becomes an account only when an
    * admin approves it. TKU BridgeTable and TKU BridgeBook share these accounts, so `site` only
    * tells the admin where someone signed up.
@@ -915,14 +1493,36 @@ export class ClubService {
     note = '',
     site: Site = 'table',
     userAgent = '',
+    address = '',
+    extra: { oauth?: { name: OAuthName; flow: string | null }; displayName?: unknown } = {},
   ): Promise<{ user: Me; token: string } | { pending: true; username: string }> {
-    this.checkInvite(inviteCode)
+    // Per address (e1-t33): applications and wrong invite codes count, mistakes in the form do not
+    const from = await this.registrations.key(address)
+    if (await this.registrations.blocked(from)) {
+      this.log({ event: 'registerLimited' })
+      throw new ClubError('tooManyRegistrations', { minutes: REGISTRATION_WINDOW_MS / 60_000 }, 429)
+    }
+    try {
+      this.checkInvite(inviteCode)
+    } catch (error) {
+      await this.registrations.count(from)
+      throw error
+    }
     const name = this.checkNewName(username)
-    this.checkPassword(String(password ?? ''))
+    checkNewPassword(toHalfWidth(String(password ?? '')), name)
     this.checkRoom()
+    const displayName = this.applicationName(extra.displayName)
+    // Applying with Google or LINE (e1-t31, e1-t32): the flow the callback left for this browser, its account bound to nobody yet
+    const via = extra.oauth
+    const identity = via ? await this.oauthApplication(via.name, via.flow) : undefined
     const passwordHash = await hashPassword(String(password))
-    if (!this.users.size) {
+    await this.registrations.count(from)
+    if (via && identity) await this.oauthFlows[via.name].drop(String(via.flow))
+    if (!this.users.size && this.clubId === DEFAULT_CLUB_ID) {
       const user = await this.addUser(name, passwordHash)
+      if (via && identity) this.bindOAuth(user, via.name, identity)
+      if (displayName) user.profile = { displayName }
+      await this.store.put(`user:${user.id}`, user)
       return { user: this.me(user), token: await this.sessions.create(user.id, userAgent) }
     }
     const application: StoredApplication = {
@@ -932,6 +1532,9 @@ export class ClubService {
       note: String(note ?? '').trim().slice(0, LIMITS.applicationNoteMax),
       site: site === 'book' ? 'book' : 'table',
       createdAt: this.now(),
+      ...(via?.name === 'google' && identity && { google: { sub: identity.sub, email: identity.email } }),
+      ...(via?.name === 'line' && identity && { line: { sub: identity.sub, name: identity.name } }),
+      ...(displayName && { displayName }),
     }
     this.applications.set(application.id, application)
     await this.store.put(`app:${application.id}`, application)
@@ -943,12 +1546,12 @@ export class ClubService {
 
   private checkInvite(inviteCode: string) {
     const { inviteCode: code } = this.clubSettings
-    if (code && inviteCode !== code) throw new ClubError('badInvite', {}, 403)
+    if (code && credentialText(inviteCode) !== credentialText(code)) throw new ClubError('badInvite', {}, 403)
   }
 
   /** A valid name nobody uses yet, including people still waiting for approval */
   private checkNewName(username: string) {
-    const name = String(username ?? '').trim()
+    const name = credentialText(username)
     if (name.length < LIMITS.usernameMin || name.length > LIMITS.usernameMax || !USERNAME_PATTERN.test(name))
       throw new ClubError('badUsername', { min: LIMITS.usernameMin, max: LIMITS.usernameMax })
     if (this.findUser(name) || this.findApplication(name) || name.toLowerCase() === ROBOT_NAME.toLowerCase())
@@ -964,27 +1567,65 @@ export class ClubService {
   /** Accounts admins add themselves need no approval */
   private async createUser(username: string, password: string) {
     const name = this.checkNewName(username)
-    this.checkPassword(String(password ?? ''))
+    checkNewPassword(toHalfWidth(String(password ?? '')), name)
     this.checkRoom()
     return this.addUser(name, await hashPassword(String(password)))
   }
 
-  private async addUser(username: string, passwordHash: string) {
+  private async addUser(username: string, passwordHash: string, admin = this.users.size === 0 && this.clubId === DEFAULT_CLUB_ID) {
     const user: StoredUser = {
       id: randomId(8),
       username,
       passwordHash,
       createdAt: this.now(),
-      admin: this.users.size === 0,
+      admin,
     }
     this.users.set(user.id, user)
     await this.store.put(`user:${user.id}`, user)
     return user
   }
 
-  private checkPassword(password: string) {
-    if (password.length < LIMITS.passwordMin) throw new ClubError('shortPassword', { min: LIMITS.passwordMin })
-    if (password.length > LIMITS.passwordMax) throw new ClubError('longPassword', { max: LIMITS.passwordMax })
+  /**
+   * A new club's first admin (e12-t06), as the platform owner approved them: the name and the
+   * password's hash from the application. Never for 淡江; once the club has an admin, nothing
+   * changes and that admin is answered (approving again after a failure halfway is safe)
+   */
+  async provisionFounder(username: string, passwordHash: string): Promise<Me> {
+    if (this.clubId === DEFAULT_CLUB_ID) throw new ClubError('noPermission', {}, 403)
+    const existing = [...this.users.values()].find((u) => u.admin)
+    if (existing) return this.me(existing)
+    const name = this.checkNewName(username)
+    return this.me(await this.addUser(name, passwordHash, true))
+  }
+
+  /**
+   * The club is suspended (e12-t05): every session ends (with its edge passes), every connection
+   * closes, the club's and the tables'. Nothing else changes; the members sign in again once it
+   * is served again
+   */
+  async endEverySession() {
+    await this.revokePasses(await this.sessions.endEveryone())
+    for (const id of this.users.keys()) {
+      this.connections.disconnect(id)
+      const entry = this.entryOf(id)
+      if (!entry) continue
+      try {
+        await this.tables.get(entry.id).signOut(id)
+      } catch (error) {
+        this.log(crashEntry('signOutAtTable', error))
+      }
+    }
+  }
+
+  /** The club's size for the platform's back office (e12-t05): members, admins, open tables, boards played */
+  platformCounts(): { members: number; admins: { id: string; username: string }[]; tables: number; boards: number } {
+    const boards = this.store.sql.exec<{ n: number }>('SELECT COUNT(*) AS n FROM boards_index')[0]?.n ?? 0
+    return {
+      members: this.users.size,
+      admins: [...this.users.values()].filter((u) => u.admin).map((u) => ({ id: u.id, username: u.username })),
+      tables: this.directory.size,
+      boards: Number(boards),
+    }
   }
 
   /**
@@ -992,8 +1633,8 @@ export class ClubService {
    * passwords are counted per username from that address and per address, so guessing is slowed
    * without letting a stranger lock a member out from everywhere
    */
-  async login(username: string, password: string, address = '', userAgent = '') {
-    const name = String(username ?? '').trim()
+  async login(username: string, password: string, address = '', userAgent = '', code = '', lang?: unknown) {
+    const name = credentialText(username)
     const nameKey = `${address}|${name.toLowerCase()}`
     if (this.loginByName.blocked(nameKey) || this.loginByAddress.blocked(address)) {
       this.log({ event: 'loginLocked', username: name.slice(0, LIMITS.usernameMax) })
@@ -1008,14 +1649,19 @@ export class ClubService {
     if (!user) {
       // Someone still waiting for approval learns that, but only with their own password
       const application = this.findApplication(name)
-      if (application && (await verifyPassword(String(password ?? ''), application.passwordHash)))
+      if (application && (await matchPassword(password, application.passwordHash)))
         throw new ClubError('awaitingApproval', {}, 403)
       throw failed()
     }
-    if (!(await verifyPassword(String(password ?? ''), user.passwordHash))) throw failed()
+    const matched = await matchPassword(password, user.passwordHash)
+    if (!matched) throw failed()
     this.loginByName.clear(nameKey)
-    // A hash from before e11-t30 (fewer iterations) is made again now that the password is known
-    if (needsRehash(user.passwordHash)) user.passwordHash = await hashPassword(String(password))
+    // A hash from before e11-t30 (fewer iterations), or of a password saved with full-width characters
+    // (auth.ts `matchPassword`), is made again now that the password is known: hashPassword keeps
+    // the half-width form, which both ways of typing it match from then on
+    if (matched === 'legacy' || needsRehash(user.passwordHash)) user.passwordHash = await hashPassword(String(password))
+    // 兩步驟登入 (e11-t31): only someone who knows the password learns that a code is needed
+    if (user.twoFactor) await this.secondStep(user, String(code ?? ''), address, lang)
     user.lastLoginAt = this.now()
     await this.store.put(`user:${user.id}`, user)
     return { user: this.me(user), token: await this.sessions.create(user.id, userAgent) }
@@ -1104,7 +1750,9 @@ export class ClubService {
    */
   async changePassword(userId: string, current: string, next: string, token: string | null = null) {
     const user = this.requireUser(userId)
-    if (!(await verifyPassword(String(current ?? ''), user.passwordHash))) throw new ClubError('wrongPassword', {}, 403)
+    if (!(await matchPassword(current, user.passwordHash))) throw new ClubError('wrongPassword', {}, 403)
+    // A reset link sent before no longer works
+    delete user.emailReset
     await this.setPassword(user, String(next ?? ''))
     const { ended, ids } = await this.sessions.endAll(user.id, token)
     if (ended) await this.sessionsEnded(user.id, ids)
@@ -1115,17 +1763,25 @@ export class ClubService {
    * optional, but at least one must be there: the friend-online notice (e1-t24), the notice that a
    * convention the member's profile plays was published (BridgeHall F4, `bookAdoptedNotice`), the handbook's
    * system profile (TKU-BridgeBook e1-t16; the club's id or '' goes back to the club's), and how
-   * fast the robots play (出牌速度, `ROBOT_SPEEDS`; the table they are at changes at once). The profile
+   * fast the robots play (出牌速度, `ROBOT_SPEEDS`; the table they are at changes at once), and what
+   * others see on their profile page (e13-t08: `profileBoards`, `profilePosts`). The profile
    * is not looked up: one deleted later simply shows the club's.
    */
   async setAccountPreferences(
     userId: string,
-    preferences: { friendOnlineNotice?: unknown; bookAdoptedNotice?: unknown; bookProfile?: unknown; robotSpeed?: unknown },
+    preferences: {
+      friendOnlineNotice?: unknown
+      bookAdoptedNotice?: unknown
+      bookProfile?: unknown
+      robotSpeed?: unknown
+      profileBoards?: unknown
+      profilePosts?: unknown
+    },
   ): Promise<Me> {
     const user = this.requireUser(userId)
-    const { friendOnlineNotice, bookAdoptedNotice, bookProfile, robotSpeed } = preferences
-    if (friendOnlineNotice === undefined && bookAdoptedNotice === undefined && bookProfile === undefined && robotSpeed === undefined)
-      throw new ClubError('unknownCommand')
+    const { friendOnlineNotice, bookAdoptedNotice, bookProfile, robotSpeed, profileBoards, profilePosts } = preferences
+    if (Object.values(preferences).every((value) => value === undefined)) throw new ClubError('unknownCommand')
+    for (const flag of [profileBoards, profilePosts]) if (flag !== undefined && typeof flag !== 'boolean') throw new ClubError('unknownCommand')
     if (friendOnlineNotice !== undefined && typeof friendOnlineNotice !== 'boolean') throw new ClubError('unknownCommand')
     if (bookAdoptedNotice !== undefined && typeof bookAdoptedNotice !== 'boolean') throw new ClubError('unknownCommand')
     if (robotSpeed !== undefined && !isRobotSpeed(robotSpeed)) throw new ClubError('unknownCommand')
@@ -1135,6 +1791,10 @@ export class ClubService {
     else if (friendOnlineNotice === false) user.friendOnlineNotice = false
     if (bookAdoptedNotice === true) delete user.bookAdoptedNotice
     else if (bookAdoptedNotice === false) user.bookAdoptedNotice = false
+    if (profileBoards === true) delete user.hideProfileBoards
+    else if (profileBoards === false) user.hideProfileBoards = true
+    if (profilePosts === true) delete user.hideProfilePosts
+    else if (profilePosts === false) user.hideProfilePosts = true
     if (bookProfile === '' || bookProfile === CLUB_PROFILE_ID) delete user.bookProfile
     else if (bookProfile !== undefined) user.bookProfile = bookProfile
     const speedChanged = robotSpeed !== undefined && robotSpeed !== (user.robotSpeed ?? DEFAULT_ROBOT_SPEED)
@@ -1162,12 +1822,14 @@ export class ClubService {
 
   /**
    * `GET /api/members/:id`: another member's profile card (AC-1.5) with their latest boards the
-   * viewer may see (the history search's own visibility rule). Only `memberProfileView`'s fields leave
+   * viewer may see (the history search's own visibility rule). Only `memberProfileView`'s fields leave.
+   * A member who hides their boards (e13-t08) shows none to others; they still see their own
    */
   async memberProfile(viewerId: string, memberId: string): Promise<MemberProfile> {
     this.requireUser(viewerId)
     const member = this.users.get(String(memberId ?? ''))
     if (!member) throw new ClubError('userGone', {}, 404)
+    if (member.hideProfileBoards && viewerId !== member.id) return memberProfileView(member, [])
     const recent = await this.search(viewerId, {
       ...DEFAULT_HISTORY_QUERY,
       scope: 'all',
@@ -1175,6 +1837,29 @@ export class ClubService {
       size: PROFILE_RECENT,
     })
     return memberProfileView(member, recent.boards)
+  }
+
+  /**
+   * What a member's profile page leaves out for this viewer (e13-t08, 隱私設定): their boards, their
+   * forum posts. Nothing for the member themselves; a member who is gone has nothing to hide
+   */
+  profileHidden(viewerId: string, memberId: string): { boards: boolean; posts: boolean } {
+    const member = this.users.get(String(memberId ?? ''))
+    if (!member || member.id === viewerId) return { boards: false, posts: false }
+    return { boards: !!member.hideProfileBoards, posts: !!member.hideProfilePosts }
+  }
+
+  /**
+   * Checks that a member may share a board on the forum (e13-t07, AC-13.3): one everybody in the club
+   * may see (`recordVisible` for anyone), so a post never points at cards kept back. A board the
+   * member may not see at all is `boardGone`, as on the record page, so asking tells nothing about
+   * it; one they may see only as its player or a challenge's entrant, its challenge or match not over
+   * yet (`revealAt` to come), is `recordNotShareable`
+   */
+  async checkShareable(userId: string, boardId: string): Promise<void> {
+    const record = await this.record(boardId, userId)
+    if (!record) throw new ClubError('boardGone', {}, 404)
+    if (record.revealAt !== undefined && record.revealAt > this.now()) throw new ClubError('recordNotShareable', {}, 409)
   }
 
   /**
@@ -1225,7 +1910,7 @@ export class ClubService {
    */
   async requestPasswordReset(username: string, inviteCode: string) {
     this.checkInvite(inviteCode)
-    const name = String(username ?? '').trim()
+    const name = credentialText(username)
     const user = this.findUser(name)
     if (!user) throw new ClubError(this.findApplication(name) ? 'resetApplication' : 'userGone', {}, 404)
     if (user.admin) throw new ClubError('adminNoSelfReset', {}, 403)
@@ -1271,7 +1956,7 @@ export class ClubService {
    * everywhere, edge passes and connections too, and the admin page shows when it happened
    */
   async resetForgottenPassword(username: string, code: string, password: string, address = '') {
-    const name = String(username ?? '').trim()
+    const name = credentialText(username)
     const nameKey = `${address}|${name.toLowerCase()}`
     if (this.loginByName.blocked(nameKey) || this.loginByAddress.blocked(address))
       throw new ClubError('tooManyLogins', { minutes: LOGIN_WINDOW_MS / 60_000 }, 429)
@@ -1284,28 +1969,596 @@ export class ClubService {
       this.loginByAddress.fail(address)
       throw new ClubError('resetCodeWrong', {}, 403)
     }
-    this.checkPassword(String(password ?? ''))
+    checkNewPassword(toHalfWidth(String(password ?? '')), user.username)
     user.passwordHash = await hashPassword(String(password))
     user.passwordResetAt = this.now()
     delete user.passwordReset
+    delete user.emailReset
     this.loginByName.clear(nameKey)
     await this.store.put(`user:${user.id}`, user)
     await this.revokeSessions(user.id)
   }
 
+  // ── 兩步驟登入 (e11-t31; ARCHITECTURE.md §5.2, docs/SECURITY.md V2.7) ───────────────────────────
+
+  /**
+   * Signing in, after the right password, for an account with the second step: no code answers
+   * `twoFactorNeeded` (the page then asks for one, and sends the name and password again with it);
+   * a wrong one counts against the account (TWO_FACTOR_FAILURES in LOGIN_WINDOW_MS, from anywhere)
+   * and the network. The account's verified email hears when the codes lock (someone knows the
+   * password) and when a recovery code is used
+   */
+  private async secondStep(user: StoredUser, code: string, address: string, lang: unknown) {
+    if (!code.trim()) throw new ClubError('twoFactorNeeded', {}, 401)
+    if (this.twoFactorFailures.blocked(user.id)) throw new ClubError('tooManyLogins', { minutes: LOGIN_WINDOW_MS / 60_000 }, 429)
+    const used = await this.checkSecondFactor(user, code)
+    if (used === null) {
+      this.loginByAddress.fail(address)
+      this.twoFactorFailures.fail(user.id)
+      this.log({ event: 'twoFactorFailed' })
+      if (this.twoFactorFailures.blocked(user.id)) await this.securityMail(user, 'mailTwoFactorLockedBody', lang)
+      throw new ClubError('twoFactorWrong', {}, 401)
+    }
+    this.twoFactorFailures.clear(user.id)
+    if (used === 'recovery') {
+      this.log({ event: 'twoFactorRecoveryUsed' })
+      await this.securityMail(user, 'mailRecoveryUsedBody', lang, { left: user.twoFactor?.recovery.length ?? 0 })
+    }
+  }
+
+  /**
+   * Whether a code from the app (6 digits) or an unused recovery code is right; a recovery code is
+   * used up and the app's step is remembered, both saved. Null when it is wrong
+   */
+  private async checkSecondFactor(user: StoredUser, code: string): Promise<'totp' | 'recovery' | null> {
+    const factor = user.twoFactor
+    if (!factor) return null
+    if (looksLikeTotp(code)) {
+      const step = await verifyTotp(factor.secret, code, this.now(), factor.lastStep)
+      if (step === null) return null
+      factor.lastStep = step
+      await this.store.put(`user:${user.id}`, user)
+      return 'totp'
+    }
+    const hash = await hashRecoveryCode(code)
+    const index = factor.recovery.indexOf(hash)
+    if (index < 0) return null
+    factor.recovery.splice(index, 1)
+    await this.store.put(`user:${user.id}`, user)
+    return 'recovery'
+  }
+
+  /** On "My account", for a change to the second step: the password and a code (or a recovery code), with the same limits */
+  private async confirmSecondFactor(user: StoredUser, password: string, code: string) {
+    if (!(await matchPassword(password, user.passwordHash))) throw new ClubError('wrongPassword', {}, 403)
+    if (this.twoFactorFailures.blocked(user.id)) throw new ClubError('tooManyLogins', { minutes: LOGIN_WINDOW_MS / 60_000 }, 429)
+    if ((await this.checkSecondFactor(user, String(code ?? ''))) === null) {
+      this.twoFactorFailures.fail(user.id)
+      throw new ClubError('twoFactorWrong', {}, 403)
+    }
+    this.twoFactorFailures.clear(user.id)
+  }
+
+  /** A security notice to the account's verified email, when the club sends mail; a failure is only logged */
+  private async securityMail(user: StoredUser, body: MessageCode, lang: unknown, params: MessageParams = {}) {
+    const mailer = this.config.mailer
+    if (!mailer || !user.email || !this.mailLimit.take(user.id)) return
+    try {
+      await mailer.send(composeMail(user.email, mailLang(lang), 'mailSecuritySubject', body, { username: user.username, ...params }))
+    } catch {
+      this.log({ event: 'mailFailed', kind: 'security' })
+    }
+  }
+
+  /**
+   * `POST /api/account/2fa/setup { password }`: step 1 of turning the second step on, admins only
+   * (e11-t31). A new secret, shown once as text and as the `otpauth://` address the app reads; it
+   * counts only after its first code (`enableTwoFactor`) within TOTP_SETUP_MS
+   */
+  async startTwoFactor(userId: string, password: string): Promise<TwoFactorSetup> {
+    const user = this.requireUser(userId)
+    if (!user.admin) throw new ClubError('adminOnly', {}, 403)
+    if (user.twoFactor) throw new ClubError('twoFactorOn', {}, 409)
+    if (!(await matchPassword(password, user.passwordHash))) throw new ClubError('wrongPassword', {}, 403)
+    const secret = newTotpSecret()
+    const expiresAt = this.now() + TOTP_SETUP_MS
+    user.twoFactorSetup = { secret, expiresAt }
+    await this.store.put(`user:${user.id}`, user)
+    return { secret, uri: otpauthUri(secret, user.username), expiresAt }
+  }
+
+  /**
+   * `POST /api/account/2fa/enable { code }`: step 2, the app's first code turns it on. Answers the
+   * recovery codes, shown only now (only their hashes are kept). Every other device is signed out:
+   * a session opened with the password alone does not stay
+   */
+  async enableTwoFactor(userId: string, code: string, token: string | null): Promise<{ user: Me; recoveryCodes: string[] }> {
+    const user = this.requireUser(userId)
+    if (!user.admin) throw new ClubError('adminOnly', {}, 403)
+    if (user.twoFactor) throw new ClubError('twoFactorOn', {}, 409)
+    const setup = user.twoFactorSetup
+    if (!setup || setup.expiresAt <= this.now()) throw new ClubError('twoFactorSetupGone', {}, 404)
+    if (this.twoFactorFailures.blocked(user.id)) throw new ClubError('tooManyLogins', { minutes: LOGIN_WINDOW_MS / 60_000 }, 429)
+    const step = await verifyTotp(setup.secret, String(code ?? ''), this.now())
+    if (step === null) {
+      this.twoFactorFailures.fail(user.id)
+      throw new ClubError('twoFactorWrong', {}, 403)
+    }
+    this.twoFactorFailures.clear(user.id)
+    const { codes, hashes } = await newRecoveryCodes()
+    user.twoFactor = { secret: setup.secret, enabledAt: this.now(), lastStep: step, recovery: hashes }
+    delete user.twoFactorSetup
+    await this.store.put(`user:${user.id}`, user)
+    this.log({ event: 'twoFactorOn' })
+    const { ended, ids } = await this.sessions.endAll(user.id, token)
+    if (ended) await this.sessionsEnded(user.id, ids)
+    return { user: this.me(user), recoveryCodes: codes }
+  }
+
+  /** `POST /api/account/2fa/recovery { password, code }`: new recovery codes; the old ones stop working */
+  async renewRecoveryCodes(userId: string, password: string, code: string): Promise<{ user: Me; recoveryCodes: string[] }> {
+    const user = this.requireUser(userId)
+    if (!user.twoFactor) throw new ClubError('twoFactorOff', {}, 409)
+    await this.confirmSecondFactor(user, password, code)
+    const { codes, hashes } = await newRecoveryCodes()
+    user.twoFactor.recovery = hashes
+    await this.store.put(`user:${user.id}`, user)
+    return { user: this.me(user), recoveryCodes: codes }
+  }
+
+  /** `POST /api/account/2fa/disable { password, code }`: turns it off, with the password and a code; the email hears */
+  async disableTwoFactor(userId: string, password: string, code: string, lang?: unknown): Promise<Me> {
+    const user = this.requireUser(userId)
+    if (!user.twoFactor) throw new ClubError('twoFactorOff', {}, 409)
+    await this.confirmSecondFactor(user, password, code)
+    delete user.twoFactor
+    await this.store.put(`user:${user.id}`, user)
+    this.log({ event: 'twoFactorOff' })
+    await this.securityMail(user, 'mailTwoFactorOffBody', lang)
+    return this.me(user)
+  }
+
+  /**
+   * `DELETE /api/admin/users/:id/2fa`: another admin turns a member's second step off, for one who
+   * lost the phone and the recovery codes. Not for oneself (that needs a code). Their email hears
+   */
+  async adminClearTwoFactor(actorId: string, userId: string) {
+    if (actorId === userId) throw new ClubError('notSelf')
+    const user = this.requireUser(userId)
+    if (!user.twoFactor) throw new ClubError('twoFactorOff', {}, 409)
+    delete user.twoFactor
+    delete user.twoFactorSetup
+    this.twoFactorFailures.clear(user.id)
+    await this.store.put(`user:${user.id}`, user)
+    this.log({ event: 'twoFactorCleared' })
+    await this.securityMail(user, 'mailTwoFactorOffBody', undefined)
+  }
+
+  /**
+   * `POST /api/ops/two-factor-reset { username }` with TWO_FACTOR_RESET_TOKEN (club.ts): the site
+   * owner's last resort when the only admin lost both the phone and the recovery codes (社長
+   * 2026-11-02, DEPLOY.md §4.15). Clears the second step, signs the member out everywhere and
+   * tells their email; the admin then signs in with the password and sets it up again
+   */
+  async ownerResetTwoFactor(username: string): Promise<{ username: string; cleared: true }> {
+    const user = this.findUser(credentialText(username))
+    if (!user) throw new ClubError('userGone', {}, 404)
+    if (!user.twoFactor && !user.twoFactorSetup) throw new ClubError('twoFactorOff', {}, 409)
+    delete user.twoFactor
+    delete user.twoFactorSetup
+    this.twoFactorFailures.clear(user.id)
+    await this.store.put(`user:${user.id}`, user)
+    await this.revokeSessions(user.id)
+    this.log({ event: 'twoFactorOwnerReset' })
+    await this.securityMail(user, 'mailTwoFactorOffBody', undefined)
+    return { username: user.username, cleared: true }
+  }
+
+  // ── Email (e1-t29, e1-t30; ARCHITECTURE.md §5.20) ─────────────────────────────────────────────
+
+  // ── Google sign-in and LINE login (e1-t31, e1-t32; ARCHITECTURE.md §5.2, docs/SECURITY.md V2, worker/oauth.ts) ──
+
+  /** `GET /api/auth/<google|line>`: whether the club has the provider, so the pages show its buttons */
+  oauthStatus(name: OAuthName) {
+    return { enabled: !!this.config[name] }
+  }
+
+  private requireOAuth(name: OAuthName): OAuthProvider {
+    const provider = this.config[name]
+    if (!provider) throw new ClubError(oauthCode(name, 'Off'), {}, 503)
+    return provider
+  }
+
+  /** The account a provider's `sub` is bound to */
+  private userByOAuth(name: OAuthName, sub: string) {
+    return [...this.users.values()].find((u) => u[name]?.sub === sub)
+  }
+
+  private applicationByOAuth(name: OAuthName, sub: string) {
+    return [...this.applications.values()].find((a) => a[name]?.sub === sub)
+  }
+
+  /**
+   * Binds a provider's account to a member: its `sub`, and only what shows its owner which one it
+   * is (Google: the email; LINE: the LINE name). Not written to storage here
+   */
+  private bindOAuth(user: StoredUser, name: OAuthName, identity: { sub: string; email?: string; name?: string }) {
+    const linkedAt = this.now()
+    if (name === 'google') user.google = { sub: identity.sub, email: identity.email ?? '', linkedAt }
+    else user.line = { sub: identity.sub, name: identity.name ?? '', linkedAt }
+  }
+
+  /**
+   * `POST /api/auth/<provider>/start`: a new flow, and the provider's address for it. `redirectUri`
+   * is the callback on the site the page is on (the Durable Object checks the site, `oauthSite`).
+   * `link` is a signed-in member binding the provider on "My account": their password is asked
+   * again, so a session left open cannot add a way into the account. Limited per network address
+   * (both providers together)
+   */
+  async startOAuth(
+    name: OAuthName,
+    redirectUri: string,
+    site: 'table' | 'book',
+    returnTo: string,
+    address: string,
+    link?: { userId: string; password: string },
+  ): Promise<{ url: string; flowId: string }> {
+    const provider = this.requireOAuth(name)
+    if (!this.oauthStartLimit.take(address)) throw new ClubError('slowDown', {}, 429)
+    if (link) {
+      const user = this.requireUser(link.userId)
+      if (!(await matchPassword(link.password, user.passwordHash))) throw new ClubError('wrongPassword', {}, 403)
+      if (user[name]) throw new ClubError(oauthCode(name, 'Linked'), {}, 409)
+    }
+    const verifier = oauthRandom()
+    const nonce = oauthRandom()
+    const flowId = await this.oauthFlows[name].create({
+      step: 'start',
+      site,
+      returnTo,
+      redirectUri,
+      verifier,
+      nonce,
+      ...(link && { userId: link.userId }),
+      expiresAt: this.now() + OAUTH_START_MS,
+    })
+    if (!flowId) throw new ClubError('slowDown', {}, 429)
+    const url = provider.authorizeUrl({ redirectUri, state: flowId, nonce, challenge: await pkceChallenge(verifier) })
+    return { url, flowId }
+  }
+
+  /**
+   * `GET /api/auth/<provider>/callback`: the provider sent the browser back. The flow is the one
+   * the browser's cookie names, and `state` must be the same; it works once. The code is exchanged
+   * and the ID token checked (`OAuthProvider.identify`); then, by the provider's `sub`:
+   * - binding (`userId`): the same member must still be signed in, and no other account may have this provider account
+   * - signing in: the account's session, or the code step for an account with 兩步驟登入 (the provider never replaces it)
+   * - no account: on 淡江牌桌 the application form (`apply`), on 淡江橋館 `<provider>NotLinked`
+   * Errors come back as a message code for the page to show
+   */
+  async finishOAuth(
+    name: OAuthName,
+    cookieFlow: string | null,
+    query: { state: string; code: string; error: string },
+    sessionUserId: string | null,
+    userAgent = '',
+  ): Promise<OAuthOutcome> {
+    const provider = this.requireOAuth(name)
+    const flows = this.oauthFlows[name]
+    const flow = cookieFlow && cookieFlow === query.state ? await flows.take(cookieFlow) : null
+    if (!flow || flow.step !== 'start') {
+      this.log({ event: 'oauthFailed', provider: name, reason: 'state' })
+      return { kind: 'failed', code: oauthCode(name, 'Failed'), link: false, site: 'table' }
+    }
+    const link = !!flow.userId
+    const failed = (code: MessageCode, reason: string): OAuthOutcome => {
+      this.log({ event: 'oauthFailed', provider: name, reason })
+      return { kind: 'failed', code, link, site: flow.site }
+    }
+    // The member pressed cancel at the provider, or the provider refused
+    if (query.error || !query.code) return failed(oauthCode(name, 'Failed'), query.error ? 'denied' : 'noCode')
+    let claims: Record<string, unknown>
+    try {
+      claims = await provider.exchange({ code: query.code, verifier: flow.verifier, redirectUri: flow.redirectUri })
+    } catch {
+      return failed(oauthCode(name, 'Failed'), 'exchange')
+    }
+    const identity = provider.identify(claims, { nonce: flow.nonce, now: this.now() })
+    if (!identity) return failed(oauthCode(name, 'Failed'), 'token')
+    const owner = this.userByOAuth(name, identity.sub)
+    if (flow.userId) {
+      const user = this.users.get(flow.userId)
+      if (!user || sessionUserId !== user.id) return failed(oauthCode(name, 'Failed'), 'session')
+      if (user[name]) return failed(oauthCode(name, 'Linked'), 'linked')
+      if ((owner && owner.id !== user.id) || this.applicationByOAuth(name, identity.sub)) return failed(oauthCode(name, 'Taken'), 'taken')
+      this.bindOAuth(user, name, identity)
+      await this.store.put(`user:${user.id}`, user)
+      this.log({ event: 'oauthLinked', provider: name })
+      return { kind: 'linked', site: flow.site }
+    }
+    if (owner) {
+      if (owner.twoFactor) {
+        const flowId = await flows.create({
+          step: 'code',
+          site: flow.site,
+          returnTo: flow.returnTo,
+          userId: owner.id,
+          expiresAt: this.now() + OAUTH_CODE_MS,
+        })
+        if (!flowId) return failed('slowDown', 'full')
+        return { kind: 'code', flowId, site: flow.site }
+      }
+      return { kind: 'signedIn', ...(await this.oauthSession(name, owner, userAgent)), returnTo: flow.returnTo, site: flow.site }
+    }
+    if (this.applicationByOAuth(name, identity.sub)) return failed('awaitingApproval', 'pending')
+    if (flow.site === 'book') return failed(oauthCode(name, 'NotLinked'), 'unknown')
+    const flowId = await flows.create({
+      step: 'apply',
+      sub: identity.sub,
+      email: identity.email,
+      name: identity.name,
+      expiresAt: this.now() + OAUTH_APPLY_MS,
+    })
+    if (!flowId) return failed('slowDown', 'full')
+    return { kind: 'apply', flowId, site: flow.site }
+  }
+
+  private async oauthSession(name: OAuthName, user: StoredUser, userAgent: string) {
+    user.lastLoginAt = this.now()
+    await this.store.put(`user:${user.id}`, user)
+    this.log({ event: 'oauthSignIn', provider: name })
+    return { user: this.me(user), token: await this.sessions.create(user.id, userAgent) }
+  }
+
+  /**
+   * `GET /api/auth/<provider>/pending`: what the browser's flow waits for after the provider, for
+   * the sign-in page: the code step, or the application form with the name the provider gave (only
+   * to prefill the display name, never kept unless the applicant sends it). `step: null` when
+   * there is none
+   */
+  async oauthPending(name: OAuthName, cookieFlow: string | null): Promise<OAuthPending> {
+    if (!this.config[name]) return { step: null }
+    const flow = await this.oauthFlows[name].peek(cookieFlow)
+    if (flow?.step === 'code') return { step: 'code' }
+    if (flow?.step === 'apply') return { step: 'apply', name: [...flow.name].slice(0, PROFILE_LIMITS.displayNameMax).join('') }
+    return { step: null }
+  }
+
+  /**
+   * `POST /api/auth/<provider>/code { code }`: the second step after the provider, for the account
+   * the browser's flow names. The same rules as signing in with the password (`secondStep`): no
+   * code answers `twoFactorNeeded`, wrong ones count against the account and the network; the flow
+   * stays for another try until OAUTH_CODE_MS is up. Signs in and ends the flow
+   */
+  async finishOAuthCode(name: OAuthName, cookieFlow: string | null, code: string, address = '', userAgent = '', lang?: unknown) {
+    this.requireOAuth(name)
+    if (this.loginByAddress.blocked(address)) throw new ClubError('tooManyLogins', { minutes: LOGIN_WINDOW_MS / 60_000 }, 429)
+    const flow = await this.oauthFlows[name].peek(cookieFlow)
+    const user = flow?.step === 'code' ? this.users.get(flow.userId) : undefined
+    if (!flow || flow.step !== 'code' || !user) throw new ClubError(oauthCode(name, 'Failed'), {}, 401)
+    if (user.twoFactor) await this.secondStep(user, String(code ?? ''), address, lang)
+    await this.oauthFlows[name].drop(String(cookieFlow))
+    return { ...(await this.oauthSession(name, user, userAgent)), returnTo: flow.returnTo }
+  }
+
+  /** The provider's account of an application with it: the browser's flow, bound to nobody yet */
+  private async oauthApplication(name: OAuthName, cookieFlow: string | null): Promise<{ sub: string; email: string; name: string }> {
+    this.requireOAuth(name)
+    const flow = await this.oauthFlows[name].peek(cookieFlow)
+    if (flow?.step !== 'apply') throw new ClubError(oauthCode(name, 'Failed'), {}, 401)
+    if (this.userByOAuth(name, flow.sub) || this.applicationByOAuth(name, flow.sub)) throw new ClubError(oauthCode(name, 'Taken'), {}, 409)
+    return { sub: flow.sub, email: flow.email, name: flow.name }
+  }
+
+  /** An application's display name: optional, within the profile's limit */
+  private applicationName(value: unknown): string | undefined {
+    if (value === undefined || value === null || value === '') return undefined
+    const parsed = parseProfile({ displayName: value })
+    if ('error' in parsed) throw new ClubError(parsed.error, parsed.params)
+    return parsed.profile.displayName
+  }
+
+  /**
+   * `POST /api/account/<provider>/unlink { password }`: the member removes the provider from the
+   * account. They still sign in with their password (every account has one), so nobody is locked out
+   */
+  async unlinkOAuth(name: OAuthName, userId: string, password: string): Promise<Me> {
+    this.requireOAuth(name)
+    const user = this.requireUser(userId)
+    if (!(await matchPassword(password, user.passwordHash))) throw new ClubError('wrongPassword', {}, 403)
+    if (!user[name]) throw new ClubError(oauthCode(name, 'NotLinked'), {}, 404)
+    delete user[name]
+    await this.store.put(`user:${user.id}`, user)
+    this.log({ event: 'oauthUnlinked', provider: name })
+    return this.me(user)
+  }
+
+  /** `GET /api/email`: whether the club sends mail, so the sign-in page offers the email reset */
+  emailStatus() {
+    return { enabled: !!this.config.mailer }
+  }
+
+  private requireMailer(): Mailer {
+    if (!this.config.mailer) throw new ClubError('emailOff', {}, 503)
+    return this.config.mailer
+  }
+
+  /**
+   * `POST /api/account/email { address, password }`: the member binds an address, or changes it.
+   * The password is asked so a session left open cannot redirect the account's reset mail. The
+   * address only counts once the link sent to it is opened (`verifyEmail`); until then a verified
+   * address stays as it was. An empty address (with the password) removes the address
+   */
+  async setEmail(userId: string, address: string, password: string, origin: string, lang?: unknown): Promise<Me> {
+    const mailer = this.requireMailer()
+    const user = this.requireUser(userId)
+    if (!(await matchPassword(password, user.passwordHash))) throw new ClubError('wrongPassword', {}, 403)
+    const wanted = normalizeEmail(address)
+    if (!wanted) {
+      delete user.email
+      delete user.emailVerifiedAt
+      delete user.emailPending
+      delete user.emailReset
+      await this.store.put(`user:${user.id}`, user)
+      return this.me(user)
+    }
+    if (!isEmail(wanted)) throw new ClubError('badEmail')
+    if (wanted === user.email) throw new ClubError('emailSame')
+    await this.sendVerification(mailer, user, wanted, origin, lang)
+    return this.me(user)
+  }
+
+  /** `POST /api/account/email/resend`: a fresh link for the address waiting for verification */
+  async resendEmailVerification(userId: string, origin: string, lang?: unknown): Promise<Me> {
+    const mailer = this.requireMailer()
+    const user = this.requireUser(userId)
+    if (!user.emailPending) throw new ClubError('noEmailPending', {}, 404)
+    await this.sendVerification(mailer, user, user.emailPending.address, origin, lang)
+    return this.me(user)
+  }
+
+  private async sendVerification(mailer: Mailer, user: StoredUser, address: string, origin: string, lang: unknown) {
+    if (!this.mailLimit.take(user.id)) throw new ClubError('slowDown', {}, 429)
+    const token = emailToken()
+    const message = composeMail(address, mailLang(lang), 'mailVerifySubject', 'mailVerifyBody', {
+      username: user.username,
+      link: `${origin}${clubPath(this.clubId, '/email/verify')}#${token}`,
+      hours: EMAIL_VERIFY_MS / 3_600_000,
+    })
+    try {
+      await mailer.send(message)
+    } catch {
+      this.log({ event: 'mailFailed', kind: 'verify' })
+      throw new ClubError('emailSendFailed', {}, 502)
+    }
+    // Only a link that went out replaces the one before
+    user.emailPending = { address, tokenHash: await hashEmailToken(token), expiresAt: this.now() + EMAIL_VERIFY_MS }
+    await this.store.put(`user:${user.id}`, user)
+  }
+
+  /**
+   * `POST /api/email/verify { token }`: the link from the verification mail, once. No sign-in: the
+   * link itself is the proof, and it may be opened on another device. An address another account
+   * already verified is refused (only whoever reads that inbox can learn it)
+   */
+  async verifyEmail(token: string): Promise<{ username: string; address: string }> {
+    this.requireMailer()
+    const hash = await hashEmailToken(String(token ?? ''))
+    const user = [...this.users.values()].find((u) => u.emailPending?.tokenHash === hash)
+    const pending = user?.emailPending
+    if (!user || !pending || pending.expiresAt <= this.now()) throw new ClubError('emailLinkWrong', {}, 403)
+    if ([...this.users.values()].some((u) => u.id !== user.id && u.email === pending.address)) {
+      delete user.emailPending
+      await this.store.put(`user:${user.id}`, user)
+      throw new ClubError('emailTaken', {}, 409)
+    }
+    user.email = pending.address
+    user.emailVerifiedAt = this.now()
+    delete user.emailPending
+    // A reset link sent to the old address no longer works
+    delete user.emailReset
+    await this.store.put(`user:${user.id}`, user)
+    this.log({ event: 'emailVerified' })
+    return { username: user.username, address: pending.address }
+  }
+
+  /**
+   * `POST /api/email/reset/request { account }`: 忘記密碼 by email (e1-t30). `account` is the
+   * username or the verified address; if it names an account with a verified address, a one-time
+   * link good for EMAIL_RESET_MS goes there. The answer is the same whether or not it does, so it
+   * tells nobody whether an account or an address exists. Accounts without one still ask the admins
+   * (e1-t36, `requestPasswordReset`). Limited per network address (slowDown) and per account (quietly)
+   */
+  async requestEmailReset(account: string, origin: string, lang?: unknown, address = ''): Promise<void> {
+    const mailer = this.requireMailer()
+    if (!this.mailRequestLimit.take(address)) throw new ClubError('slowDown', {}, 429)
+    const wanted = credentialText(account)
+    if (!wanted || wanted.length > 300) return
+    const user = wanted.includes('@')
+      ? [...this.users.values()].find((u) => !!u.email && u.email === normalizeEmail(wanted))
+      : this.findUser(wanted)
+    if (!user?.email || !this.mailLimit.take(user.id)) return
+    const token = emailToken()
+    const message = composeMail(user.email, mailLang(lang), 'mailResetSubject', 'mailResetBody', {
+      username: user.username,
+      link: `${origin}${clubPath(this.clubId, '/email/reset')}#${token}`,
+      minutes: EMAIL_RESET_MS / 60_000,
+    })
+    try {
+      await mailer.send(message)
+    } catch {
+      // Told nowhere but the log: an error here would say that the account has an address
+      this.log({ event: 'mailFailed', kind: 'reset' })
+      return
+    }
+    user.emailReset = { tokenHash: await hashEmailToken(token), expiresAt: this.now() + EMAIL_RESET_MS }
+    await this.store.put(`user:${user.id}`, user)
+  }
+
+  /**
+   * `POST /api/email/reset { token, password }`: the link from the reset mail sets a new password,
+   * once. Wrong links count as failed sign-ins from that network (worker/rate-limit.ts). The member
+   * is signed out everywhere, as with the admins' code (e1-t36), whose code stops working too
+   */
+  async resetPasswordByEmail(token: string, password: string, address = ''): Promise<{ username: string }> {
+    this.requireMailer()
+    if (this.loginByAddress.blocked(address)) throw new ClubError('tooManyLogins', { minutes: LOGIN_WINDOW_MS / 60_000 }, 429)
+    const hash = await hashEmailToken(String(token ?? ''))
+    const user = [...this.users.values()].find((u) => u.emailReset?.tokenHash === hash)
+    if (!user || !user.email || (user.emailReset?.expiresAt ?? 0) <= this.now()) {
+      this.loginByAddress.fail(address)
+      throw new ClubError('emailLinkWrong', {}, 403)
+    }
+    checkNewPassword(toHalfWidth(String(password ?? '')), user.username)
+    user.passwordHash = await hashPassword(String(password))
+    user.passwordResetAt = this.now()
+    delete user.emailReset
+    delete user.passwordReset
+    await this.store.put(`user:${user.id}`, user)
+    await this.revokeSessions(user.id)
+    this.log({ event: 'passwordResetByEmail' })
+    return { username: user.username }
+  }
+
   private async setPassword(user: StoredUser, password: string) {
-    this.checkPassword(password)
+    checkNewPassword(toHalfWidth(password), user.username)
     user.passwordHash = await hashPassword(password)
     await this.store.put(`user:${user.id}`, user)
   }
 
+  /**
+   * Whether the member may act as an admin now: an admin who has turned two-step sign-in on
+   * (社長 2026-11-02, ARCHITECTURE.md §5.2). An admin without it signs in and plays as a member with
+   * their own permissions, and every admin-only action answers `adminTwoFactorRequired` (roles.ts
+   * `requireNeed`, `requireAdmin` here) until they set it up on the account page, which stays open
+   */
+  private actsAsAdmin(user: StoredUser | undefined): boolean {
+    return !!user?.admin && !!user.twoFactor
+  }
+
+  /** An admin who still has to turn two-step sign-in on */
+  private adminLocked(user: StoredUser): boolean {
+    return !!user.admin && !user.twoFactor
+  }
+
+  /** What the member may use now: every permission for an admin who may act as one (`actsAsAdmin`) */
   private permissionsOf(user: StoredUser): Permission[] {
+    return this.actsAsAdmin(user) ? [...PERMISSIONS] : PERMISSIONS.filter((p) => user.permissions?.includes(p))
+  }
+
+  /** What the member's role gives, two-step sign-in or not: what the admin page lists and who gets assigned notes */
+  private rolePermissions(user: StoredUser): Permission[] {
     return user.admin ? [...PERMISSIONS] : PERMISSIONS.filter((p) => user.permissions?.includes(p))
+  }
+
+  /** The club this is (shared/clubs.ts): 淡江 unless the config names another */
+  get clubId(): string {
+    return this.config.clubId ?? DEFAULT_CLUB_ID
   }
 
   private me(user: StoredUser): Me {
     const me: Me = {
-      clubId: this.config.clubId ?? DEFAULT_CLUB_ID,
+      clubId: this.clubId,
       id: user.id,
       username: user.username,
       admin: !!user.admin,
@@ -1313,12 +2566,31 @@ export class ClubService {
       friendOnlineNotice: user.friendOnlineNotice !== false,
       bookAdoptedNotice: user.bookAdoptedNotice !== false,
       robotSpeed: user.robotSpeed ?? DEFAULT_ROBOT_SPEED,
+      profilePrivacy: { boards: !user.hideProfileBoards, posts: !user.hideProfilePosts },
     }
     if (user.profile) me.profile = user.profile
     if (user.avatar) me.avatar = user.avatar
     if (user.bookProfile) me.bookProfile = user.bookProfile
     if (user.admin) me.applications = this.applications.size
-    me.features = enabledFeatures(this.features, { id: user.id, admin: !!user.admin, permissions: me.permissions })
+    // The platform owner (e12-t05): only 淡江's object knows one
+    if (this.config.platformOwnerId && user.id === this.config.platformOwnerId && this.clubId === DEFAULT_CLUB_ID) me.platformOwner = true
+    if (this.config.mailer) {
+      me.email = {
+        address: user.email ?? null,
+        verifiedAt: user.emailVerifiedAt ?? null,
+        pending: user.emailPending?.address ?? null,
+      }
+    }
+    // Google sign-in and LINE login (e1-t31, e1-t32): only when the club has them; the address or LINE name only for the owner
+    if (this.config.google) me.google = user.google ? { email: user.google.email, linkedAt: user.google.linkedAt } : null
+    if (this.config.line) me.line = user.line ? { name: user.line.name, linkedAt: user.line.linkedAt } : null
+    // 兩步驟登入 (e11-t31): admins may turn it on; anyone who has it sees it, even after the admin role went
+    // An admin without it is told to turn it on (`required`) before any admin-only action works
+    if (user.admin || user.twoFactor) {
+      me.twoFactor = { enabled: !!user.twoFactor, recoveryLeft: user.twoFactor?.recovery.length ?? 0 }
+      if (this.adminLocked(user)) me.twoFactor.required = true
+    }
+    me.features = enabledFeatures(this.features, { id: user.id, admin: !!user.admin, permissions: this.rolePermissions(user) })
     return me
   }
 
@@ -1326,7 +2598,8 @@ export class ClubService {
   requirePermission(userId: string, permission: Permission): Me {
     const user = this.users.get(userId)
     if (!user) throw new ClubError('signInAgain', {}, 401)
-    if (!this.permissionsOf(user).includes(permission)) throw new ClubError('noPermission', {}, 403)
+    if (!this.permissionsOf(user).includes(permission))
+      throw this.adminLocked(user) ? new ClubError('adminTwoFactorRequired', {}, 403) : new ClubError('noPermission', {}, 403)
     return this.me(user)
   }
 
@@ -1350,14 +2623,17 @@ export class ClubService {
     if (asked === 'tku' && !this.mayUseTku(userId)) throw new ClubError('tkuSystemOnly', {}, 403)
   }
 
+  /**
+   * The member with this name, any case. A name is the same typed full-width or half-width
+   * (shared/halfwidth.ts): an exact match first, so an older account whose name has full-width
+   * letters still answers to them and two such accounts are never mixed up
+   */
   private findUser(username: string) {
-    const wanted = username.toLowerCase()
-    return [...this.users.values()].find((u) => u.username.toLowerCase() === wanted)
+    return byName([...this.users.values()], username)
   }
 
   private findApplication(username: string) {
-    const wanted = username.toLowerCase()
-    return [...this.applications.values()].find((a) => a.username.toLowerCase() === wanted)
+    return byName([...this.applications.values()], username)
   }
 
   private requireUser(id: string) {
@@ -1370,6 +2646,8 @@ export class ClubService {
   private async revokeSessions(userId: string) {
     const { ids } = await this.sessions.endAll(userId)
     await this.sessionsEnded(userId, ids)
+    // A device signed out stops getting the member's pushes too (e1-t28): each subscribes again after signing in
+    await this.push.dropDevices(userId)
   }
 
   // ── Admin ───────────────────────────────────────────────────────────────────────────────────
@@ -1377,6 +2655,12 @@ export class ClubService {
   /** A member's name, for messages such as who saved a system profile first */
   usernameOf(userId: string): string | undefined {
     return this.users.get(userId)?.username
+  }
+
+  /** A member as they are signed in now (their roles and permissions); none when they are no longer one */
+  memberMe(userId: string): Me | undefined {
+    const user = this.users.get(userId)
+    return user && this.me(user)
   }
 
   /** Every member's id and name, nothing else, for picking a team's members or a partner */
@@ -1392,12 +2676,12 @@ export class ClubService {
   }
 
   reviewerIds(): string[] {
-    return [...this.users.values()].filter((u) => u.admin || this.permissionsOf(u).includes('bookReview')).map((u) => u.id)
+    return [...this.users.values()].filter((u) => this.rolePermissions(u).includes('bookReview')).map((u) => u.id)
   }
 
   /** The usernames of the members who may edit the handbook, for assigning a 待確認 note (BridgeHall e8-t06) */
   editorNames(): string[] {
-    return [...this.users.values()].filter((u) => this.permissionsOf(u).includes('bookEdit')).map((u) => u.username).sort()
+    return [...this.users.values()].filter((u) => this.rolePermissions(u).includes('bookEdit')).map((u) => u.username).sort()
   }
 
   memberDirectory(): ClubMember[] {
@@ -1409,8 +2693,68 @@ export class ClubService {
     }))
   }
 
+  // ── Announcements and support (e12-t15, e12-t16) ────────────────────────────────────────────
+
+  /** `POST /api/support`: any member's report; the browser comes from the request */
+  async sendSupportReport(userId: string, input: Record<string, unknown>, browser: string) {
+    this.requireUser(userId)
+    return this.support.submit(userId, input, browser)
+  }
+
+  /** `GET /api/support/mine`: the member's own reports and how they stand */
+  mySupportReports(userId: string): { reports: MySupportReport[] } {
+    this.requireUser(userId)
+    return { reports: this.support.mine(userId) }
+  }
+
+  adminSupport(adminId: string): AdminSupportView {
+    this.requireAdmin(adminId)
+    return { reports: this.support.list(), canForward: !!this.config.tellPlatformOwner }
+  }
+
+  async adminSetSupportStatus(adminId: string, reportId: string, status: unknown): Promise<AdminSupportView> {
+    this.requireAdmin(adminId)
+    await this.support.setStatus(this.requireUser(adminId).username, reportId, status)
+    return this.adminSupport(adminId)
+  }
+
+  async adminForwardSupport(adminId: string, reportId: string): Promise<AdminSupportView> {
+    this.requireAdmin(adminId)
+    await this.support.forward(this.requireUser(adminId).username, reportId)
+    return this.adminSupport(adminId)
+  }
+
+  /** Puzzles for an admin to read and publish (e10-t13): drafts reach members only through this */
+  adminPuzzles(adminId: string) {
+    this.requireAdmin(adminId)
+    return this.puzzles.adminList()
+  }
+
+  async adminSetPuzzlePublished(adminId: string, id: unknown, published: unknown) {
+    this.requireAdmin(adminId)
+    return this.puzzles.setPublished(this.requireUser(adminId).username, id, published)
+  }
+
+  async adminBanner(adminId: string) {
+    this.requireAdmin(adminId)
+    return this.banners.current()
+  }
+
+  async adminSetBanner(adminId: string, input: { text?: unknown; expiresAt?: unknown }) {
+    this.requireAdmin(adminId)
+    return this.banners.set(this.requireUser(adminId).username, input)
+  }
+
+  async adminClearBanner(adminId: string) {
+    this.requireAdmin(adminId)
+    await this.banners.clear(this.requireUser(adminId).username)
+  }
+
+  /** Throws unless the member may act as an admin now (`actsAsAdmin`) */
   requireAdmin(userId: string) {
-    if (!this.users.get(userId)?.admin) throw new ClubError('adminOnly', {}, 403)
+    const user = this.users.get(userId)
+    if (user && this.adminLocked(user)) throw new ClubError('adminTwoFactorRequired', {}, 403)
+    if (!this.actsAsAdmin(user)) throw new ClubError('adminOnly', {}, 403)
   }
 
   async adminUsers(): Promise<AdminUser[]> {
@@ -1425,9 +2769,10 @@ export class ClubService {
         lastLoginAt: u.lastLoginAt ?? null,
         boards: (await this.store.list(`uhist:${u.id}:`)).size,
         online: online.includes(u.id),
-        permissions: this.permissionsOf(u),
+        permissions: this.rolePermissions(u),
         passwordResetAt: u.passwordResetAt ?? null,
         passwordReset: this.resetState(u),
+        twoFactor: !!u.twoFactor,
       })),
     )
   }
@@ -1458,6 +2803,13 @@ export class ClubService {
     // An admin may have added an account with the same name in the meantime
     if (this.findUser(application.username)) throw new ClubError('usernameTaken', {}, 409)
     const user = await this.addUser(application.username, application.passwordHash)
+    // Google or LINE, unless another account bound the same one in the meantime (e1-t31, e1-t32)
+    for (const name of ['google', 'line'] as const) {
+      const bound = application[name]
+      if (bound && !this.userByOAuth(name, bound.sub)) this.bindOAuth(user, name, bound)
+    }
+    if (application.displayName) user.profile = { displayName: application.displayName }
+    if (user.google || user.line || user.profile) await this.store.put(`user:${user.id}`, user)
     await this.dropApplication(application)
     return this.me(user)
   }
@@ -1540,8 +2892,8 @@ export class ClubService {
 
   /**
    * After a backup with the accounts was restored (worker/backup.ts): members, applications and
-   * pictures are read again from storage. A member the backup does not have goes the way a deleted
-   * member goes (tables, challenges, friends, notifications), and since sessions are not backed up
+   * pictures are read again from storage, and so are the friends and blocks. A member the backup
+   * does not have goes the way a deleted member goes (tables, challenges, friends, notifications), and since sessions are not backed up
    * every session is ended and every socket closed, so everyone signs in again against the
    * restored accounts and nobody keeps a page that shows the old ones.
    */
@@ -1556,6 +2908,23 @@ export class ClubService {
     this.applications.clear()
     for (const application of (await this.store.list<StoredApplication>('app:')).values())
       this.applications.set(application.id, application)
+    // Friends and blocks are in the backup too (from 2026-11-04); one before that leaves them as they are
+    const member = (id: string) => this.users.has(id)
+    await this.friends.reload(member)
+    await this.blocks.reload(member)
+    this.partnerBids.reload(member)
+    this.puzzles.reload(member)
+    // A table keeps its people's blocks for its chat and who may join (`setBlocked` does the same)
+    for (const id of this.users.keys()) {
+      const entry = this.entryOf(id)
+      if (entry)
+        try {
+          await this.tables.get(entry.id).blocked(id, this.blocks.of(id))
+        } catch (error) {
+          // The restore is done either way; the table hears again when they next change a block
+          this.log(crashEntry('restoreBlocks', error))
+        }
+    }
     await this.revokePasses(await this.sessions.endEveryone())
     for (const id of this.connections.onlineUserIds()) this.connections.disconnect(id)
     this.broadcast()
@@ -1569,6 +2938,7 @@ export class ClubService {
     for (const entry of [...this.directory.values()]) {
       const involved =
         entry.challenge?.userId === user.id ||
+        entry.challenge?.partnerId === user.id ||
         entry.invited.includes(user.id) ||
         Object.values(entry.substitutes).includes(user.id) ||
         // A team match plays on: a robot takes their seat (§5.8)
@@ -1583,11 +2953,22 @@ export class ClubService {
     await this.store.delete(`user:${user.id}`)
     await this.store.delete(`avatar:${user.id}`)
     await this.revokeSessions(user.id)
+    await this.sightings.forget(user.id)
     await this.notifications.forget(user.id)
+    await this.push.forget(user.id)
     await this.friends.forget(user.id)
     await this.blocks.forget(user.id)
     removeFavoritesOf(this.store.sql, user.id)
+    this.shares.removeMadeBy(user.id)
+    this.support.forget(user.id, user.username)
+    this.challengeExtras.forget(user.id)
+    this.rankings.forget(user.id)
+    await this.teamEvents.forget(user.id)
     await this.practicePresets.removeAll(user.id)
+    await this.ownDeals.removeAll(user.id)
+    await this.queueImportPurge(user.id)
+    this.partnerBids.forget(user.id)
+    this.puzzles.forget(user.id)
     await forgetQuizRounds(this.store, user.id)
     await forgetPathProgress(this.store, user.id)
     await forgetReading(this.store, user.id)
@@ -1605,8 +2986,22 @@ export class ClubService {
         this.log(crashEntry('forgetInChallenge', error))
       }
     }
-    // A match they host that has not started is cancelled; their seats are emptied (§5.7)
-    this.matches.store.forget(user.id, this.now())
+    // A match they host that has not started is cancelled; their seats are emptied (§5.7), where each match lives (H2c)
+    this.matches.store.forgetChat(user.id)
+    for (const id of this.matches.store.openIdsOf(user.id)) {
+      try {
+        await this.writeMatch(id, { kind: 'forget', userId: user.id })
+      } catch (error) {
+        // Their account is gone either way; the match only keeps their name in its seat
+        this.log(crashEntry('forgetInMatch', error))
+      }
+    }
+    try {
+      await this.config.onMemberRemoved?.(user.id)
+    } catch (error) {
+      // Their account is gone either way; only what the hook keeps is left behind
+      this.log(crashEntry('memberRemovedHook', error))
+    }
     this.connections.disconnect(user.id)
   }
 
@@ -1618,7 +3013,7 @@ export class ClubService {
         throw new ClubError('badCap', { min: LIMITS.maxUsersMin, max: LIMITS.maxUsersMax })
       next.maxUsers = max
     }
-    if (update.inviteCode !== undefined) next.inviteCode = String(update.inviteCode).trim().slice(0, 40)
+    if (update.inviteCode !== undefined) next.inviteCode = credentialText(update.inviteCode).slice(0, 40)
     this.settings = next
     await this.store.put('meta:settings', next)
     return this.clubSettings
@@ -1629,7 +3024,7 @@ export class ClubService {
   /** Whether a member has a flag; nobody has one for an account that is gone */
   featureOn(flag: FeatureFlag, userId: string): boolean {
     const user = this.users.get(userId)
-    return !!user && featureEnabled(flag, this.features, { id: user.id, admin: !!user.admin, permissions: this.permissionsOf(user) })
+    return !!user && featureEnabled(flag, this.features, { id: user.id, admin: !!user.admin, permissions: this.rolePermissions(user) })
   }
 
   /** `GET /api/admin/features`: every flag, its default, the club's state and the members named */
@@ -1661,7 +3056,7 @@ export class ClubService {
     if (!Array.isArray(usernames) || usernames.length > FEATURE_USERS_MAX) throw new ClubError('badFeature')
     const users: string[] = []
     for (const name of usernames) {
-      const user = this.findUser(String(name ?? '').trim())
+      const user = this.findUser(credentialText(name))
       if (!user) throw new ClubError('unknownMember', { name: String(name ?? '').slice(0, LIMITS.usernameMax) }, 404)
       if (!users.includes(user.id)) users.push(user.id)
     }
@@ -1680,13 +3075,29 @@ export class ClubService {
   /**
    * `GET /api/account/export`: everything the club keeps about the member, as one JSON file: the
    * account and its settings, profile, sessions, friends and blocks, notifications, direct messages,
-   * saved practice settings, favorites with notes and tags, and a summary of every board they
-   * played. Never the password hash or anyone's session token. The full record of a board stays on
+   * saved practice settings and their own deals, partner bidding sessions, favorites with notes and
+   * tags, and a summary of every board they played at a table. The boards they imported are counted
+   * here and come a page at a time (`exportImported`), as all of them would not fit one request's CPU.
+   * Never the password hash or anyone's session token. The full record of a board stays on
    * its page (`/history/<id>`), which the summary's id leads to
    */
   async exportAccount(userId: string, token: string | null) {
     const user = this.requireUser(userId)
-    const { passwordHash: _hash, passwordReset: _reset, ...account } = user
+    const {
+      passwordHash: _hash,
+      passwordReset: _reset,
+      emailPending,
+      emailReset: _emailReset,
+      twoFactor,
+      twoFactorSetup: _setup,
+      ...rest
+    } = user
+    // The address waiting for verification, never a link's hash; for 兩步驟登入 when it was turned on, never its secret
+    const account = {
+      ...rest,
+      ...(emailPending ? { emailPending: emailPending.address } : {}),
+      ...(twoFactor ? { twoFactorEnabledAt: twoFactor.enabledAt } : {}),
+    }
     const size = HISTORY_PAGE_SIZES[HISTORY_PAGE_SIZES.length - 1]
     const name = (id: string) => this.users.get(id)?.username ?? id
     const favorites: Favorite[] = []
@@ -1696,41 +3107,96 @@ export class ClubService {
       favorites.push(...found.favorites)
       if (found.page * found.size >= found.total) break
     }
-    for (let page = 1; page <= EXPORT_PAGES_MAX; page++) {
-      const found = await this.history(userId, false, page, size)
-      boards.push(...found.boards)
-      if (found.page * found.size >= found.total) break
-    }
+    // The boards played at tables; what they imported comes a page at a time (`exportImported`)
+    const played = await Promise.all(tableBoardsOf(this.store.sql, userId, EXPORT_PAGES_MAX * size).map((id) => this.store.get<BoardRecord>(`board:${id}`)))
+    boards.push(...played.flatMap((record) => (record ? [summarize(record)] : [])))
     return {
       format: 'tku-bridge-table-account',
       version: ACCOUNT_EXPORT_VERSION,
       exportedAt: this.now(),
       account,
       sessions: await this.sessions.list(userId, token),
+      // Where they were seen signed in (the anti-cheating report, e11-t25): a hash of the network, never the address
+      signIns: await this.sightings.of(userId),
       friends: this.friends.of(userId).map(name),
       blocked: this.blocks.of(userId).map(name),
       notifications: await this.notifications.view(userId),
+      // The devices that get pushes (e1-t28): their names and dates, never the subscription's address or keys
+      push: await this.push.exportOf(userId),
       directMessages: this.directs.everyMessage(userId).map((m) => ({ ...m, from: name(m.from), to: name(m.to) })),
       savedPractice: await this.practicePresets.list(userId),
+      // What they brought in from files (e10-t09, e4-t39): their own, so all of it
+      ownDeals: await this.ownDeals.list(userId),
+      importedBoardCount: countImported(this.store.sql, userId),
+      // Partner bidding practice (e10-t08): as they may see it, never the partner's hand on a board still being bid
+      partnerBidding: this.partnerBids.exportOf(userId),
+      // Puzzle progress (e10-t14): how far they got on each, published or not any more
+      puzzles: this.puzzles.exportOf(userId),
+      challengeComments: this.challengeExtras.commentsOf(userId),
+      ...this.rankings.exportOf(userId),
       favorites,
       boards,
+      // The public links they made (e4-t38)
+      boardShares: this.shares.madeBy(userId),
+      // The support reports they sent (e12-t16)
+      supportReports: this.support.exportOf(userId),
     }
   }
 
   /**
    * `POST /api/account/delete { password }`: the member deletes their own account (個資法的刪除),
    * the way an admin deletes one (`removeMember`): their account, picture, sessions, settings,
-   * friends, blocks, notifications, direct messages, favorites, saved practice and reading progress
-   * go. Boards they played stay, with their name, since they are the other players' records too;
+   * friends, blocks, notifications, direct messages, favorites, saved practice, the boards and deals
+   * they imported and reading progress go. Boards they played stay, with their name, since they are the other players' records too;
    * so do posts they wrote (docs/SECURITY.md §4). The club's last admin cannot leave this way
    */
   async deleteOwnAccount(userId: string, password: string) {
     const user = this.requireUser(userId)
-    if (!(await verifyPassword(String(password ?? ''), user.passwordHash))) throw new ClubError('wrongPassword', {}, 403)
+    if (!(await matchPassword(password, user.passwordHash))) throw new ClubError('wrongPassword', {}, 403)
     if (user.admin && [...this.users.values()].filter((u) => u.admin).length === 1) throw new ClubError('lastAdminLeaving')
     this.log({ event: 'accountDeleted' })
     await this.batch(() => this.removeMember(user))
     this.broadcast()
+  }
+
+  // ── The anti-cheating report (e11-t25, ARCHITECTURE.md §5.17) ─────────────────────────────────
+
+  /**
+   * Notes where a member is signed in: at signing in and at every club connection. `address` is
+   * CF-Connecting-IP (only its salted hash is kept, and only with SEEN_SALT set), `device` the
+   * browser's `tbt_device` cookie, `label` its browser and system. Never fails the request it rides on
+   */
+  async noteSighting(userId: string, address: string, device: string, label: string) {
+    if (!this.users.has(userId)) return
+    if (address && !this.sightings.networks && !this.saltMissingLogged) {
+      this.saltMissingLogged = true
+      this.log({ event: 'seenSaltMissing' })
+    }
+    try {
+      await this.sightings.note(userId, address, device, label)
+    } catch (error) {
+      this.log(crashEntry('noteSighting', error))
+    }
+  }
+
+  /**
+   * `GET /api/admin/integrity?days=`: members seen on one browser or one small network, and what
+   * those accounts played together in the last `days` (30 by default). Admins only; a lead to look
+   * into, never acted on by itself
+   */
+  async adminIntegrityReport(adminId: string, days: unknown): Promise<IntegrityReport> {
+    this.requireAdmin(adminId)
+    return integrityReport({
+      sql: this.store.sql,
+      sightings: await this.sightings.all(),
+      member: (id) => {
+        const user = this.users.get(id)
+        return user ? { id, username: user.username } : null
+      },
+      days: integrityDays(days),
+      now: this.now(),
+      networks: this.sightings.networks,
+    })
   }
 
   async adminCloseTable(tableId: string) {
@@ -1746,9 +3212,22 @@ export class ClubService {
     return this.search(userId, listQuery(all, page, size))
   }
 
-  /** One page of a history search (`shared/history-query.ts`), from the SQL index; boards kept back are left out */
+  /**
+   * The members a history search by player or declarer must not find for this viewer (e13-t08,
+   * ARCHITECTURE.md §4): of the ones this query names, those who keep their boards off their profile.
+   * None for themselves (`profileHidden`) or an admin
+   */
+  private hiddenPlayers(viewerId: string, query: HistoryQuery): string[] {
+    if (this.users.get(viewerId)?.admin) return []
+    return [query.player, query.declarer].filter((id): id is string => !!id && this.profileHidden(viewerId, id).boards)
+  }
+
+  /**
+   * One page of a history search (`shared/history-query.ts`), from the SQL index; boards kept back
+   * are left out, and a search for a member who keeps their boards off their profile finds nothing (§4)
+   */
   async search(userId: string, query: HistoryQuery): Promise<HistoryPage> {
-    const found = searchBoards(this.store.sql, query, userId, this.now())
+    const found = searchBoards(this.store.sql, query, userId, this.now(), false, this.hiddenPlayers(userId, query))
     const records = await Promise.all(found.ids.map((id) => this.store.get<BoardRecord>(`board:${id}`)))
     return {
       boards: records.flatMap((record) => (record ? [summarize(record)] : [])),
@@ -1760,7 +3239,7 @@ export class ClubService {
 
   /** How many boards a history search finds per Taiwan date, newest first (the side panel's list by day, e3-t48) */
   historyDays(userId: string, query: HistoryQuery): HistoryDays {
-    return { days: searchDays(this.store.sql, query, userId, this.now()) }
+    return { days: searchDays(this.store.sql, query, userId, this.now(), this.hiddenPlayers(userId, query)) }
   }
 
   // ── Favorites (AC-4.4) ──────────────────────────────────────────────────────────────────────
@@ -1778,7 +3257,7 @@ export class ClubService {
 
   /** One page of the member's favorites, filtered as history is (and by `tag`), with their notes and tags */
   async favorites(userId: string, query: HistoryQuery): Promise<FavoritesPage> {
-    const found = searchBoards(this.store.sql, query, userId, this.now(), true)
+    const found = searchBoards(this.store.sql, query, userId, this.now(), true, this.hiddenPlayers(userId, query))
     const records = await Promise.all(found.ids.map((id) => this.store.get<BoardRecord>(`board:${id}`)))
     const boards = records.flatMap((record) => (record ? [summarize(record)] : []))
     const kept = favoritesAmong(this.store.sql, userId, boards.map((b) => b.id))
@@ -1833,6 +3312,31 @@ export class ClubService {
   }
 
   /**
+   * The boards of a records-page search for one PBN file (e4-t36): the same search as the list
+   * (`searchBoards`, so boards kept back and members who hide their boards stay out as there), its
+   * first LIMITS.exportBoardsMax boards in its order. `total` is how many the search finds
+   */
+  async exportBoards(userId: string, query: HistoryQuery): Promise<{ records: BoardRecord[]; total: number }> {
+    const all = { ...query, page: 1, size: LIMITS.exportBoardsMax }
+    const found = searchBoards(this.store.sql, all, userId, this.now(), false, this.hiddenPlayers(userId, query))
+    const records = await Promise.all(found.ids.map((id) => this.store.get<BoardRecord>(`board:${id}`)))
+    return { records: records.flatMap((r) => (r ? [r] : [])), total: found.total }
+  }
+
+  /**
+   * A board's session (e4-t37): it and the boards played before and after it at the same table
+   * (`sessionOf`), only those the member may see (`record`), oldest first; null when they may not
+   * see this board
+   */
+  async session(id: string, userId: string): Promise<BoardRecord[] | null> {
+    const target = await this.record(id, userId)
+    if (!target) return null
+    const ids = sessionCandidates(this.store.sql, target, SESSION_WINDOW_MS, LIMITS.sessionBoardsMax * 2)
+    const candidates = await Promise.all(ids.filter((other) => other !== id).map((other) => this.record(other, userId)))
+    return sessionOf(target, candidates.flatMap((r) => (r ? [r] : [])))
+  }
+
+  /**
    * The traveller of a board (`e4-t32`, AC-4.12): everyone's result on the same board of its
    * challenge, as the member may see it (`challengeTraveller`, §4); null for a board that belongs
    * to no event or that they may not compare yet. The leads and declarers are read from the records
@@ -1862,6 +3366,94 @@ export class ClubService {
     return traveller
   }
 
+  // ── Boards imported from files (e4-t39, ARCHITECTURE.md §5.3) ───────────────────────────────
+
+  /**
+   * `POST /api/history/import { boards, session }`: a batch of boards the browser read from a LIN
+   * file, each checked with the engine; a board already imported is counted, not kept twice. Nothing
+   * is written if any board is wrong or the member's total would go over
+   */
+  async importBoards(userId: string, body: unknown): Promise<{ added: number; duplicates: number; ids: string[] }> {
+    this.requireUser(userId)
+    if (!this.importLimit.take(userId)) throw new ClubError('slowDown', {}, 429)
+    const boards = checkImportedBoards(body)
+    const rawSession = (body as { session?: unknown }).session
+    const session =
+      typeof rawSession === 'string' && /^[\w-]+$/.test(rawSession) && rawSession.length <= IMPORT_LIMITS.sessionMax ? rawSession : randomId(8)
+    const ids = await Promise.all(boards.map(({ board, state }) => importedBoardId(userId, state, board.names)))
+    const fresh = new Map<string, number>()
+    for (const [i, id] of ids.entries()) {
+      if (fresh.has(id) || (await this.store.get(`board:${id}`))) continue
+      fresh.set(id, i)
+    }
+    if (countImported(this.store.sql, userId) + fresh.size > IMPORT_LIMITS.linTotal)
+      throw new ClubError('importsFull', { max: IMPORT_LIMITS.linTotal })
+    const now = this.now()
+    for (const [id, i] of fresh) {
+      const { board, state } = boards[i]
+      // A millisecond apart, so the list keeps the file's order
+      await this.saveRecord(importedRecord({ id, board, state, userId, finishedAt: now - boards.length + i + 1, session: `import-${session}` }))
+    }
+    return { added: fresh.size, duplicates: boards.length - fresh.size, ids }
+  }
+
+  /** `DELETE /api/history/:id`: a member removes a board they imported; any other board is `boardGone` */
+  async removeImported(userId: string, id: string) {
+    const record = /^[\w-]+$/.test(id) ? await this.store.get<BoardRecord>(`board:${id}`) : undefined
+    if (record?.mode !== 'imported' || !SEATS.some((seat) => record.players[seat]?.id === userId)) throw new ClubError('boardGone', {}, 404)
+    removeFavorite(this.store.sql, userId, id)
+    await this.dropImported(id)
+  }
+
+  /**
+   * `GET /api/account/export/imported?after=`: one page of the boards the member imported, whole, as
+   * LIN. The browser joins the pages to the export's file, since a member at the limit has more than
+   * one request's CPU can read
+   */
+  async exportImported(userId: string, after: unknown): Promise<{ boards: { id: string; importedAt: number; lin: string }[]; next: string | null }> {
+    this.requireUser(userId)
+    const from = typeof after === 'string' && /^[\w-]+$/.test(after) ? after : ''
+    const ids = importedPage(this.store.sql, userId, IMPORT_LIMITS.exportPage, from)
+    const records = await Promise.all(ids.map((id) => this.store.get<BoardRecord>(`board:${id}`)))
+    return {
+      boards: records.flatMap((r) => (r ? [{ id: r.id, importedAt: r.finishedAt, lin: toLin(r) }] : [])),
+      next: ids.length === IMPORT_LIMITS.exportPage ? ids[ids.length - 1] : null,
+    }
+  }
+
+  private async dropImported(id: string) {
+    unindexRecord(this.store.sql, id)
+    await this.store.delete(`board:${id}`)
+    // The copy takes out a board whose record is gone
+    await this.replica?.queue(id)
+  }
+
+  /**
+   * When an account is deleted: unlike a board played at a table, an imported one is nobody else's
+   * record, so it goes too. Up to IMPORT_LIMITS.linTotal boards do not fit one request's CPU: they go
+   * in scheduled steps (`purgeImported`), and the mark in storage carries on after an eviction. From
+   * this moment nobody sees them, as only the account's own id ever could
+   */
+  private async queueImportPurge(userId: string) {
+    if (!countImported(this.store.sql, userId)) return
+    await this.store.put(`${IMPORT_PURGE}${userId}`, this.now())
+    this.schedulePurge(0)
+  }
+
+  private schedulePurge(ms: number) {
+    this.scheduler.add('importPurge', 'importPurge', ms, () => this.purgeImported())
+  }
+
+  /** One step: a few boards of the first account waiting, then the next step while anyone is */
+  private async purgeImported() {
+    const [key] = (await this.store.list(IMPORT_PURGE, { limit: 1 })).keys()
+    if (!key) return
+    const ids = importedPage(this.store.sql, key.slice(IMPORT_PURGE.length), IMPORT_LIMITS.purgeStep)
+    for (const id of ids) await this.dropImported(id)
+    if (ids.length < IMPORT_LIMITS.purgeStep) await this.store.delete(key)
+    this.schedulePurge(IMPORT_PURGE_STEP_MS)
+  }
+
   private async saveRecord(record: BoardRecord) {
     // The SQL index first, in one transaction: if it fails nothing is written. If a key-value
     // write fails after it, the index rows are taken back out, so a board is never half saved
@@ -1881,10 +3473,13 @@ export class ClubService {
     const order = `${String(record.finishedAt).padStart(14, '0')}-${record.id}`
     const summary = summarize(record)
     await this.store.put(`board:${record.id}`, record)
-    await this.store.put(`hist:${order}`, summary)
-    for (const id of new Set(SEATS.map((seat) => record.players[seat].id))) {
-      if (!id || isRobotId(id)) continue
-      await this.store.put(`uhist:${id}:${order}`, summary)
+    // An imported board (e4-t39) is in no count of the club's or a member's boards
+    if (record.mode !== 'imported') {
+      await this.store.put(`hist:${order}`, summary)
+      for (const id of new Set(SEATS.map((seat) => record.players[seat].id))) {
+        if (!id || isRobotId(id)) continue
+        await this.store.put(`uhist:${id}:${order}`, summary)
+      }
     }
     // Last, so a record whose writing failed is never copied to D1 (§5.12)
     await this.replica?.queue(record.id)
@@ -1904,6 +3499,7 @@ export class ClubService {
     const entry = this.entryOf(userId)
     if (entry && !this.remote) void this.tables.get(entry.id).presence(userId, true)
     void this.reclaimSeats(userId)
+    void this.rejoinDropped(userId)
     this.broadcast()
     void this.pushNotifications(userId)
     this.pushDirects(userId)
@@ -1916,9 +3512,11 @@ export class ClubService {
   }
 
   /**
-   * Tells the online members who follow someone that they just came online (e1-t24), through the
-   * notification centre. Not for followers who turned it off or whom the newcomer blocked, and not
-   * again within FRIEND_ONLINE_QUIET_MS, so a phone that keeps reconnecting stays quiet
+   * Tells the members who follow someone that they just came online (e1-t24): in the notification
+   * centre for followers who are online; for the ones who are not, only a push if they turned on
+   * that kind (`friendOnline` is off by default, shared/push.ts), so no stale bell item waits for
+   * them. Not for followers who turned the notice off or whom the newcomer blocked, and not again
+   * within FRIEND_ONLINE_QUIET_MS, so a phone that keeps reconnecting stays quiet
    */
   private async announceOnline(userId: string) {
     const user = this.users.get(userId)
@@ -1926,13 +3524,21 @@ export class ClubService {
     const last = this.announced.get(userId)
     if (last !== undefined && this.now() - last < FRIEND_ONLINE_QUIET_MS) return
     this.announced.set(userId, this.now())
-    for (const followerId of this.connections.onlineUserIds()) {
+    const online = new Set(this.connections.onlineUserIds())
+    for (const [followerId, follower] of this.users) {
       if (followerId === userId || !this.friends.has(followerId, userId) || this.blocks.has(userId, followerId)) continue
-      if (this.users.get(followerId)?.friendOnlineNotice === false) continue
+      if (follower.friendOnlineNotice === false) continue
       // Only to followers who have friends (the `friends` flag, e11-t26)
       if (!this.featureOn('friends', followerId)) continue
-      await this.notifications.notify(followerId, 'friendOnline', { username: user.username })
+      const params = { username: user.username }
+      if (online.has(followerId)) await this.notifications.notify(followerId, 'friendOnline', params)
+      else this.push.queue(followerId, { id: randomId(6), at: this.now(), kind: 'friendOnline', params, read: false })
     }
+  }
+
+  /** Whether `by` blocked `other` (AC-1.6), for the forum's notices (club.ts) */
+  hasBlocked(by: string, other: string): boolean {
+    return this.blocks.has(by, other)
   }
 
   /** Sends a member their conversation list if they are online and it changed since the last send */
@@ -2015,6 +3621,27 @@ export class ClubService {
     this.matches.presence(userId)
   }
 
+  /**
+   * A member of a partnership who lost their seat for being offline too long (`e7-t28`,
+   * PARTNER_AWAY_MS) sits down again as they come back online, and the board goes on as it was.
+   * Quietly: a reconnect does not tell the partner (`challengePartnerSeated`), and if the challenge
+   * no longer takes them nothing happens
+   */
+  private async rejoinDropped(userId: string) {
+    const entry = [...this.directory.values()].find((t) => t.challenge?.dropped?.includes(userId))
+    if (!entry || this.entryOf(userId)) return
+    const challengeId = entry.challenge!.challengeId
+    await this.inLane(userId, async () => {
+      try {
+        await this.batch(() => this.playChallenge(userId, challengeId, { quiet: true }))
+      } catch (error) {
+        if (!(error instanceof AppError)) throw error
+        return
+      }
+      this.broadcast()
+    })
+  }
+
   /** A member back online takes their seat back from the robot sitting in for them (代打) */
   private async reclaimSeats(userId: string) {
     for (const entry of [...this.directory.values()]) {
@@ -2070,6 +3697,8 @@ export class ClubService {
       online: this.connections.onlineUserIds().length,
       // How many challenges live in their own objects (H2b), when there are objects to live in
       ...(this.eventObjects && { events: this.homes.counts() }),
+      // And how many team matches (H2c)
+      ...(this.matchObjects && { matchEvents: this.matchHomes.counts() }),
     }
   }
 
@@ -2161,6 +3790,8 @@ export class ClubService {
         return this.quickSeat(userId)
       case 'createPractice':
         return this.createPractice(userId, message.settings, message.access)
+      case 'createTeaching':
+        return this.createTeaching(userId, message.set, message.access)
       case 'joinTable':
         return this.joinTable(userId, this.requireEntry(message.tableId))
       case 'requestJoin':
@@ -2252,7 +3883,11 @@ export class ClubService {
     const other = this.otherMember(userId, otherId)
     if (typeof blocked !== 'boolean') throw new ClubError('unknownCommand')
     await this.blocks.set(userId, other, blocked)
-    if (blocked) await this.friends.set(userId, other, false)
+    if (blocked) {
+      await this.friends.set(userId, other, false)
+      // Nothing keeps two members bidding together once one blocked the other; they are not told why
+      this.partnerBids.endBetween(userId, other)
+    }
     // The chat they see at their table changes at once
     const entry = this.entryOf(userId)
     if (entry) await this.tables.get(entry.id).blocked(userId, this.blocks.of(userId))
@@ -2303,19 +3938,23 @@ export class ClubService {
     wanted: unknown,
     fromBoards?: unknown,
   ): Promise<string> {
-    const { invitedMin, invitedMax, boardsMin, boardsMax, boardsDefault } = CHALLENGE_LIMITS
+    const { invitedMin, invitedMax, boardsMin, boardsMax, boardsDefault, pairsMin, pairsMax } = CHALLENGE_LIMITS
     if (!Array.isArray(invitees)) throw new ClubError('badChallengeSettings', { field: 'invitees' })
-    if (invitees.length < invitedMin || invitees.length > invitedMax)
-      throw new ClubError('challengeInvitees', { min: invitedMin, max: invitedMax })
+    // A partner challenge (`e7-t28`): the creator's partner, then each opposing partnership
+    const partners = !!wanted && typeof wanted === 'object' && (wanted as { partners?: unknown }).partners === true
+    const [min, max] = partners ? [1 + 2 * pairsMin, 1 + 2 * pairsMax] : [invitedMin, invitedMax]
+    if (invitees.length < min || invitees.length > max) throw new ClubError('challengeInvitees', { min, max })
+    if (partners && invitees.length % 2 === 0) throw new ClubError('badChallengeSettings', { field: 'invitees' })
     if (new Set(invitees).size !== invitees.length) throw new ClubError('badChallengeSettings', { field: 'invitees' })
     for (const id of invitees) {
       const other = this.otherMember(userId, id)
       const name = this.users.get(other)!.username
       // Any member may be invited, friend or not (社長, 2026-10-27); one the creator blocked must be unblocked first
-      if (this.blocks.has(userId, other)) throw new ClubError('unblockFirst')
+      if (this.blocks.has(userId, other)) throw new ClubError('unblockToInvite')
       // Whether they blocked the creator stays private: the creator only hears they cannot be invited
       if (this.blocks.has(other, userId)) throw new ClubError('cannotInvite', { name }, 403)
     }
+    if (partners) this.checkPairings(invitees as string[])
     const parsed = parseChallengeSettings(wanted, invitees.length)
     if ('field' in parsed) throw new ClubError('badChallengeSettings', { field: parsed.field })
     let settings = parsed.settings
@@ -2323,6 +3962,8 @@ export class ClubService {
     let known: ChallengeResult[] | undefined
     if (fromBoards !== undefined) {
       if (boards !== undefined) throw new ClubError('badChallengeSettings', { field: 'boards' })
+      // Boards the creator played alone are no partnership's to compare
+      if (settings.partners) throw new ClubError('badChallengeSettings', { field: 'partners' })
       const given = await this.boardsToChallengeWith(userId, fromBoards)
       // Their own boards are dealt as they were: no Best Hand, no Just Declare, and the same robots
       if (settings.bestHand) throw new ClubError('badChallengeSettings', { field: 'bestHand' })
@@ -2358,6 +3999,21 @@ export class ClubService {
     for (const id of invitees as string[])
       await this.notifications.notify(id, 'challengeInvited', { challengeId: challenge.id, username })
     return challenge.id
+  }
+
+  /**
+   * A partner challenge's invitees (`e7-t28`) are partners or compete pair against pair, so no two
+   * of them may be members where either blocked the other (社長, 2026-11-04). The creator hears
+   * which two, in the order they invited them, never who blocked whom (`challengePairBlocked`);
+   * the creator against each invitee is checked by the caller as for any challenge
+   */
+  private checkPairings(invitees: string[]) {
+    for (let i = 0; i < invitees.length; i++)
+      for (let j = i + 1; j < invitees.length; j++) {
+        const [a, b] = [invitees[i], invitees[j]]
+        if (this.blocks.has(a, b) || this.blocks.has(b, a))
+          throw new ClubError('challengePairBlocked', { a: this.users.get(a)!.username, b: this.users.get(b)!.username })
+      }
   }
 
   /**
@@ -2408,9 +4064,10 @@ export class ClubService {
     if (me.status !== 'accepted') throw new ClubError('challengeNotAccepted')
     // Next week's club challenge comes by itself
     if (c.settings.weekly) throw new ClubError('weeklyNoRematch')
-    const others = c.players
-      .filter((p) => p.userId !== userId && p.status !== 'declined' && this.users.has(p.userId))
-      .map((p) => p.userId)
+    if (c.settings.daily) throw new ClubError('dailyNoRematch')
+    const others = c.settings.partners
+      ? this.rematchPairs(c, userId)
+      : c.players.filter((p) => p.userId !== userId && p.status !== 'declined' && this.users.has(p.userId)).map((p) => p.userId)
     if (!others.length) throw new ClubError('rematchNobody')
     // As many boards as before, a 「用這副牌挑戰」 of one board too (社長, 2026-10-25)
     const { boardsMin, boardsMax } = CHALLENGE_LIMITS
@@ -2420,8 +4077,36 @@ export class ClubService {
     // made with the club's robots comes back with the 2/1 TKB for a member without `tkuSystem`
     const robotKind = c.settings.robotKind === 'tku' && !this.mayUseTku(userId) ? 'gib' : c.settings.robotKind
     // With someone gone the number of people may no longer fit the scoring: then the default
-    const fits = scoringsFor(others.length).includes(scoring)
-    return this.createChallenge(userId, others, boards, { robotKind, bestHand, justDeclare, days, ranking, ...(fits && { scoring }) })
+    const partners = !!c.settings.partners
+    const fits = scoringsFor(opponentsOf(others.length, partners)).includes(scoring)
+    return this.createChallenge(userId, others, boards, {
+      robotKind,
+      bestHand,
+      justDeclare,
+      days,
+      ranking,
+      ...(fits && { scoring }),
+      ...(partners && { partners }),
+    })
+  }
+
+  /**
+   * A partner challenge's rematch (`e7-t28`): the same partnerships, the one asking with their own
+   * partner first; a partnership with a member who declined or left the club is not asked again.
+   * Empty when their own partner is gone or no other partnership is left
+   */
+  private rematchPairs(c: Challenge, userId: string): string[] {
+    const here = (id: string) => {
+      const p = c.players.find((q) => q.userId === id)
+      return !!p && p.status !== 'declined' && this.users.has(id)
+    }
+    const mine = partnerOf(c, userId)
+    if (!mine || !here(mine.userId)) return []
+    const pairs = c.players
+      .filter((p) => p.partnerId !== undefined && !isPairSecond(c, p.userId) && pairLead(c, userId) !== p.userId)
+      .map((p) => [p.userId, p.partnerId!])
+      .filter(([a, b]) => here(a) && here(b))
+    return pairs.length ? [mine.userId, ...pairs.flat()] : []
   }
 
   private requireChallenge(id: unknown): Challenge {
@@ -2503,6 +4188,8 @@ export class ClubService {
         if (again) await this.challengeEnded(challenge)
         return
       }
+      // Its points and ratings (J2): kept once, whenever the club hears of it (`RankingsService`)
+      this.rankings.challengeFinished(challenge, penaltiesOf(this.referee.of('challenge', id)))
       this.homes.settle(id, 'ended')
       await this.challengeEnded(challenge)
       if (challenge.status !== 'finished') return
@@ -2513,18 +4200,210 @@ export class ClubService {
     }
     if (challenge.remindedAt !== undefined && !done.reminded) {
       this.homes.settle(id, 'reminded')
-      for (const userId of remindWhom(challenge))
-        await this.notifications.notify(userId, 'challengeReminder', { challengeId: id })
+      // The daily event reminds nobody: every member is invited, every day
+      if (!challenge.settings.daily)
+        for (const userId of remindWhom(challenge))
+          await this.notifications.notify(userId, 'challengeReminder', { challengeId: id })
     }
+  }
+
+  // ── Where each team match lives (H2c, §5.12) ────────────────────────────────────────────────
+
+  /** The match, where it lives: its own object (`match_homes` has it), or this one */
+  private matchFor(id: string): MatchApi {
+    return this.matchObjects && this.matchHomes.rev(id) !== undefined ? this.matchObjects.get(id) : this.localMatches.get(id)
+  }
+
+  /**
+   * A new match goes where the switch says. Into its own object: the club's copy and its home are
+   * written first, so from then on the club reaches it there; if the object does not answer, it
+   * adopts the copy the next time it is written to, or when the move is tried again
+   */
+  private async addMatch(match: TeamMatch) {
+    if (!this.matchObjects || !this.config.eventObjectsOn) {
+      await this.localMatches.get(match.id).adopt(match)
+      return
+    }
+    this.store.sql.transaction(() => {
+      this.matches.store.replace(match)
+      this.matchHomes.setRev(match.id, -1)
+    })
+    try {
+      this.applyMatchSnapshot(await this.matchObjects.get(match.id).adopt(match))
+    } catch (error) {
+      this.log(crashEntry('adoptMatch', error))
+      this.retryEventMove()
+    }
+  }
+
+  /** One change to a match, where it lives; its answer is written over the club's copy (`TeamMatchDeps.write`) */
+  private async writeMatch(id: string, step: MatchStep) {
+    this.applyMatchSnapshot(await this.matchFor(id).step(step))
+  }
+
+  /**
+   * A match in its own object as it answered or reported: written over the club's copy, unless the
+   * club already wrote a newer one. Nothing to write for one that lives here: the copy is the match
+   */
+  private applyMatchSnapshot({ match, rev }: MatchSnapshot) {
+    const known = this.matchHomes.rev(match.id)
+    if (known === undefined || rev <= known) return
+    this.store.sql.transaction(() => {
+      this.matches.store.replace(match)
+      this.matchHomes.setRev(match.id, rev)
+    })
+  }
+
+  /**
+   * A match in its own object tells a change again (`EventLink.matchChanged`: the answer that
+   * carried it may have been lost). Only while it lives there; the club catches up from its state
+   */
+  private async matchChanged(snapshot: MatchSnapshot) {
+    const known = this.matchHomes.rev(snapshot.match.id)
+    if (known === undefined || snapshot.rev <= known) return
+    this.applyMatchSnapshot(snapshot)
+    await this.batch(() => this.settleMatch(snapshot.match.id))
+    this.matches.push(snapshot.match.id)
+    this.broadcast()
+  }
+
+  /**
+   * What the club does about a match's state, however often or late it hears of it (H2c): every
+   * board done in both rooms (or ruled on) is shown to everyone (only the records still kept back
+   * change); a match that ended, once (`match_settled`): a finished one is announced to everyone in
+   * it, and its tables are told and its every board shown (`matchTablesEnded`). Noted first, so a
+   * failure halfway never does it twice
+   */
+  private async settleMatch(id: string) {
+    const match = this.matches.store.get(id)
+    if (!match) return
+    const done = match.boards.flatMap((b) =>
+      b.ruling || (b.open && b.closed) ? [b.open?.boardId, b.closed?.boardId].filter((x): x is string => x !== undefined) : [],
+    )
+    // A multi-team event's round plays the same deals in every match: its boards are shown across the round together (§5.26)
+    if (this.teamEvents.shownIn(id)) await this.revealRound(id)
+    else if (done.length) await this.revealRecords(revealBoards(this.store.sql, done, this.now()))
+    if ((match.status !== 'finished' && match.status !== 'abandoned') || this.matchHomes.ended(id)) return
+    // A multi-team event's match (`e9-t14`) counts in the event's points, once the event finishes
+    const forEvent = !!this.teamEvents.ofMatch(id)
+    if (!forEvent) this.rankings.matchFinished(match, penaltiesOf(this.referee.of('match', id)))
+    this.matchHomes.settleEnd(id)
+    if (forEvent) await this.teamEvents.matchEnded(id)
+    else await this.tournaments.eventEnded('match', id)
+    if (match.status === 'finished')
+      for (const userId of matchMembers(match)) await this.notifications.notify(userId, 'matchFinished', { matchId: id })
+    await this.matchTablesEnded(id)
+  }
+
+  /**
+   * A tournament's team match (`e9-t16`, §5.24): hosted by the first team's first player (open
+   * room South), every other player invited to their seat as the host would (the first team
+   * North-South in the open room and East-West in the closed one); they accept in the invitation
+   * dialog and the host starts it. An invitation refused (a block) calls the match off again
+   */
+  private async tournamentMatch(teams: { name: string; players: string[] }[], settings: Partial<TeamMatchSettings>): Promise<string> {
+    const [a, b] = teams
+    const host = a.players[0]
+    const { id } = await this.matches.create(host, {
+      settings: { ...settings, teamNames: [a.name, b.name] },
+      seat: { room: 'open', seat: 'S' },
+    })
+    const seats: [string, Room, Seat][] = [
+      [a.players[1], 'open', 'N'],
+      [a.players[2], 'closed', 'E'],
+      [a.players[3], 'closed', 'W'],
+      [b.players[0], 'open', 'E'],
+      [b.players[1], 'open', 'W'],
+      [b.players[2], 'closed', 'N'],
+      [b.players[3], 'closed', 'S'],
+    ]
+    try {
+      for (const [userId, room, seat] of seats) await this.matches.act(host, { type: 'matchInvite', matchId: id, room, seat, userId })
+    } catch (error) {
+      await this.matches.cancel(host, id).catch(() => undefined)
+      throw error
+    }
+    return id
+  }
+
+  /**
+   * A multi-team event's round match (`e9-t14`, §5.26): the two line-ups in their seats as a
+   * tournament's team match would have them (team A North-South in the open room and East-West in
+   * the closed one), IMPs (the VP scale needs them), no robots but for a seat nobody is left for
+   */
+  private async eventMatch(input: EventMatchInput): Promise<string> {
+    const { A, B } = input.lineups
+    const seat = (userId: string | undefined, room: Room, s: Seat) => ({ room, seat: s, userId: userId ?? null })
+    return this.matches.createSeated({
+      hostId: A[0],
+      captainB: B[0],
+      settings: { teamNames: input.teamNames, boards: input.boards, boardMinutes: input.boardMinutes, scoring: 'imp' },
+      seats: [
+        seat(A[1], 'open', 'N'),
+        seat(A[2], 'closed', 'E'),
+        seat(A[3], 'closed', 'W'),
+        seat(B[0], 'open', 'E'),
+        seat(B[1], 'open', 'W'),
+        seat(B[2], 'closed', 'N'),
+        seat(B[3], 'closed', 'S'),
+      ],
+    })
+  }
+
+  /** One match as a multi-team event counts it (`e9-t14`): the rulings and the director's penalties in its IMPs */
+  private eventMatchScore(matchId: string) {
+    const m = this.matches.store.get(matchId)
+    if (!m) return null
+    const boards = eventBoards(this.store.sql, matchId)
+    const score = matchTotals(m, (b) => boards.get(b)?.ruling, penaltiesOf(this.referee.of('match', matchId)))
+    // Each board done, for the round's comparison (§5.26): the two rooms' contracts and scores, what each team won
+    const room = (r: RoomResult | undefined): EventRoomResult | undefined => {
+      if (!r) return undefined
+      const found = boards.get(r.boardId)
+      return { scoreNS: r.scoreNS, ...(found && { contract: found.contract, declarerTricks: found.declarerTricks }) }
+    }
+    const played = score.boards.flatMap((result, i): EventMatchBoard[] => {
+      if (!result) return []
+      const board = m.boards.find((b) => b.seq === i + 1)
+      const open = room(board?.open)
+      const closed = room(board?.closed)
+      return [{ seq: i + 1, ...(open && { open }), ...(closed && { closed }), result: { A: result.A, B: result.B }, ruled: result.ruled }]
+    })
+    return { status: m.status, imps: { A: score.totals.A, B: score.totals.B }, boards: m.settings.boards, played }
+  }
+
+  /** Where a tournament's event stands (`e9-t16`): an abandoned match counts as finished (its boards are scored) */
+  private tournamentEventState(kind: TournamentKind, id: string): 'on' | 'finished' | 'cancelled' | null {
+    if (kind === 'teams') {
+      const s = this.teamEvents.statusOf(id)
+      return s === null ? null : s === 'finished' ? 'finished' : s === 'cancelled' ? 'cancelled' : 'on'
+    }
+    // An individual event (e9-t15) is a pairs event of the individual format
+    const status = kind === 'pairs' || kind === 'individual' ? this.pairs.statusOf(id) : (this.matches.store.get(id)?.status ?? null)
+    if (status === null) return null
+    if (status === 'finished' || status === 'abandoned') return 'finished'
+    return status === 'cancelled' ? 'cancelled' : 'on'
   }
 
   /** An invitee accepts or declines (e7-t06); the creator is told either way */
   private async answerChallenge(userId: string, challengeId: unknown, accept: unknown) {
     if (typeof accept !== 'boolean') throw new ClubError('unknownCommand')
     const challenge = this.requireChallenge(challengeId)
+    // A block made since the partner challenge was created (`e7-t28`): with anyone still in it, the
+    // member cannot accept, and does not hear with whom or which way (`challengeAcceptBlocked`)
+    if (accept && challenge.settings.partners)
+      for (const p of challenge.players)
+        if (p.userId !== userId && p.status !== 'declined' && (this.blocks.has(userId, p.userId) || this.blocks.has(p.userId, userId)))
+          throw new ClubError('challengeAcceptBlocked', {}, 403)
     this.applySnapshot(await this.eventFor(challenge.id).answer(userId, accept))
-    // The weekly club challenge's creator is the club: no admin hears every member's answer
-    if (!challenge.settings.weekly)
+    // A partner challenge (`e7-t28`): one member saying no declines the partnership; the partner hears why
+    const after = this.challenges.get(challenge.id)
+    const name = this.users.get(userId)?.username ?? ''
+    for (const p of challenge.players)
+      if (p.userId !== userId && p.userId !== challenge.creatorId && p.status !== 'declined' && after?.players.find((q) => q.userId === p.userId)?.status === 'declined')
+        await this.notifications.notify(p.userId, 'challengePartnerDeclined', { challengeId: challenge.id, username: name })
+    // The weekly and daily events' creator is the club: no admin hears every member's answer
+    if (!challenge.settings.weekly && !challenge.settings.daily)
       await this.notifications.notify(challenge.creatorId, accept ? 'challengeAccepted' : 'challengeDeclined', {
         challengeId: challenge.id,
         username: this.users.get(userId)!.username,
@@ -2580,9 +4459,13 @@ export class ClubService {
   challengeList(userId: string): ChallengeView[] {
     return this.challenges.idsOf(userId).flatMap((id) => {
       const challenge = this.challenges.get(id)
+      // One a day for every member: the daily events have their own page (`dailyEvent`)
+      if (challenge?.settings.daily) return []
       // The boards' rulings count in the standings (`e2-t36`)
       const boards = challenge && eventBoards(this.store.sql, id)
-      const view = challenge && challengeView(challenge, userId, (other) => this.publicUserById(other), (b) => boards?.get(b))
+      const view =
+        challenge &&
+        challengeView(challenge, userId, (other) => this.publicUserById(other), (b) => boards?.get(b), this.directing('challenge', id, userId))
       if (!view) return []
       const { travellers: _later, ...rest } = view
       return [rest]
@@ -2597,7 +4480,13 @@ export class ClubService {
     const challenge = this.challenges.get(id)
     if (!challenge) return null
     const boards = eventBoards(this.store.sql, id)
-    return challengeView(challenge, userId, (other) => this.publicUserById(other), (boardId) => boards.get(boardId))
+    return challengeView(
+      challenge,
+      userId,
+      (other) => this.publicUserById(other),
+      (boardId) => boards.get(boardId),
+      this.directing('challenge', id, userId),
+    )
   }
 
   /**
@@ -2611,7 +4500,8 @@ export class ClubService {
     if (!challenge) return null
     const boards = eventBoards(this.store.sql, id)
     const user = (other: string) => this.publicUserById(other)
-    const view = challengeView(challenge, userId, user, (boardId) => boards.get(boardId))
+    const directing = this.directing('challenge', id, userId)
+    const view = challengeView(challenge, userId, user, (boardId) => boards.get(boardId), directing)
     const shown = view?.travellers?.flatMap((x) => x.entries.map((e) => e.boardId)) ?? []
     if (!shown.length) return view
     const records = await Promise.all(shown.map((boardId) => this.store.get<BoardRecord>(`board:${boardId}`)))
@@ -2620,7 +4510,7 @@ export class ClubService {
       const board = records[i]?.board
       if (found && board) boards.set(boardId, { ...found, lead: openingLead(board) })
     })
-    return challengeView(challenge, userId, user, (boardId) => boards.get(boardId))
+    return challengeView(challenge, userId, user, (boardId) => boards.get(boardId), directing)
   }
 
   // ── Challenge settlement (§5.5, e7-t13; the deadline job is the challenge's own, `ChallengeEvent`) ──
@@ -2738,11 +4628,126 @@ export class ClubService {
     return challenge.id
   }
 
+  // ── The daily club event (§5.18, e9-t02, e9-t03) ────────────────────────────────────────────
+
+  /**
+   * What the daily page shows (`e9-t03`): the settings, when the next event is created, today's and
+   * yesterday's events as the member may see them (`challengeFor`, §4: today's standings only once
+   * they played every board) and every earlier day, newest first
+   */
+  dailyEvent(userId: string): DailyEventView {
+    const state = this.daily
+    const runs = state?.runs ?? []
+    const now = this.now()
+    const today = taiwanDay(now)
+    const yesterday = taiwanDay(now - 86_400_000)
+    const viewOf = (day: string) => {
+      const run = runs.find((r) => r.day === day)
+      return run ? this.challengeFor(run.challengeId, userId) : null
+    }
+    const history = runs
+      .filter((r) => r.day !== today)
+      .slice(-DAILY_HISTORY)
+      .reverse()
+      .flatMap((run) => {
+        const c = this.challenges.get(run.challengeId)
+        if (!c) return []
+        const finished = c.players.filter((p) => p.finishedAt !== undefined).length
+        return [{ day: run.day, challengeId: run.challengeId, status: c.status, finished }]
+      })
+    return {
+      settings: state?.settings ?? DEFAULT_DAILY_SETTINGS,
+      next: state ? nextDailyRun(state) : null,
+      today: viewOf(today),
+      yesterday: viewOf(yesterday),
+      history,
+    }
+  }
+
+  /**
+   * An admin turns the daily event on or off and picks the robots' system (`parseDailySettings`).
+   * The next event is at the first midnight after now, so saving never creates one at once
+   */
+  async adminSetDailyEvent(adminId: string, value: unknown): Promise<DailyEventView> {
+    const parsed = parseDailySettings(value, this.daily?.settings)
+    if ('field' in parsed) throw new ClubError('badChallengeSettings', { field: parsed.field })
+    this.daily = { runs: [], ...this.daily, settings: parsed.settings, adminId, savedAt: this.now() }
+    await this.store.put(DAILY_KEY, this.daily)
+    this.scheduleDaily()
+    return this.dailyEvent(adminId)
+  }
+
+  /** One job, keyed by when the settings were saved, as the weekly one (`scheduleWeekly`) */
+  private scheduleDaily() {
+    const state = this.daily
+    const at = state && nextDailyRun(state)
+    if (!state || at === null || at === undefined) return
+    const savedAt = state.savedAt
+    this.scheduler.add(`daily:${savedAt}`, 'daily', Math.max(0, at - this.now()), () => this.dailyDue(savedAt))
+  }
+
+  /**
+   * The daily job: the midnight is noted first (a failure halfway never creates two), then the
+   * event is created and the job waits for the next midnight. An object that slept through
+   * several days creates today's event only, counted from today's midnight
+   */
+  private async dailyDue(savedAt: number) {
+    const state = this.daily
+    if (!state || state.savedAt !== savedAt) return
+    const at = nextDailyRun(state)
+    if (at === null) return
+    const now = this.now()
+    if (now >= at) {
+      const slot = latestDailySlot(now)
+      state.lastRunAt = slot
+      await this.store.put(DAILY_KEY, state)
+      const id = await this.createDailyEvent(state, slot)
+      if (id) {
+        state.runs.push({ day: taiwanDay(slot), challengeId: id })
+        await this.store.put(DAILY_KEY, state)
+        this.broadcast()
+      }
+    }
+    this.scheduleDaily()
+  }
+
+  /**
+   * Creates the day's event: a challenge of 8 boards in matchpoints for every member, ending at the
+   * next midnight (`createdAt` is the midnight, whenever the job ran), made as the weekly one is
+   * (`createWeeklyChallenge`): the admin who saved the settings is its creator, or the oldest admin.
+   * Nobody is notified: it comes every day and the daily page shows it. Null when there is nobody to invite
+   */
+  private async createDailyEvent(state: DailyState, slot: number): Promise<string | null> {
+    const members = [...this.users.values()].sort((a, b) => a.createdAt - b.createdAt)
+    const creator = members.find((u) => u.admin && u.id === state.adminId) ?? members.find((u) => u.admin)
+    if (!creator) return null
+    const invitees = members.filter((u) => u.id !== creator.id).map((u) => u.id)
+    if (!invitees.length) return null
+    const { robotKind } = state.settings
+    const settings: ChallengeSettings = {
+      // Head to head (a club of two) matchpoints mean little: IMPs instead
+      scoring: invitees.length > 1 ? 'mp' : 'imp',
+      robotKind,
+      bestHand: false,
+      justDeclare: false,
+      days: DAILY_DAYS,
+      ranking: 'club',
+      daily: true,
+    }
+    const deals = challengeDeals({ count: DAILY_BOARDS, bestHand: false, justDeclare: false, robotKind }, this.random)
+    if (!deals) return null
+    const challenge = newChallenge({ id: randomId(8), creatorId: creator.id, invitees, settings, deals, now: slot })
+    await this.addChallenge(challenge)
+    return challenge.id
+  }
+
   // ── Challenge tables (§5.5, e7-t08, e7-t12) ─────────────────────────────────────────────────
 
-  /** A participant's table for a challenge, at it or parked */
+  /** A participant's table for a challenge, at it or parked (a partnership's, for either member: `e7-t28`) */
   private challengeEntry(challengeId: string, userId: string): TableEntry | undefined {
-    return [...this.directory.values()].find((t) => t.challenge?.challengeId === challengeId && t.challenge.userId === userId)
+    return [...this.directory.values()].find(
+      (t) => t.challenge?.challengeId === challengeId && (t.challenge.userId === userId || t.challenge.partnerId === userId),
+    )
   }
 
   /**
@@ -2753,7 +4758,7 @@ export class ClubService {
    * where they were: a board in progress goes on exactly as it was, a finished one is followed by
    * the next board of the set. Whatever table they were at they leave first
    */
-  private async playChallenge(userId: string, challengeId: unknown) {
+  private async playChallenge(userId: string, challengeId: unknown, { quiet = false } = {}) {
     const challenge = this.requireChallenge(challengeId)
     const player = challenge.players.find((p) => p.userId === userId)
     if (!player) throw new ClubError('challengeGone', {}, 404)
@@ -2764,22 +4769,40 @@ export class ClubService {
       throw new ClubError('challengeClosed')
     }
     if (player.status !== 'accepted') throw new ClubError('challengeNotAccepted')
+    // A partnership sits down once both accepted (`e7-t28`)
+    if (!pairReady(challenge, player)) throw new ClubError('challengePartnerWaiting')
     if (atIt) return
     this.checkNotInMatch(userId)
     if (player.knownDeals || (!existing && nextSeq(challenge, userId) === null)) throw new ClubError('challengeDone')
     await this.leave(userId)
     if (existing) {
-      this.applyResult(existing.id, await this.tables.get(existing.id).resume(this.person(userId)))
+      const entry = await this.tables.get(existing.id).resume(this.person(userId))
+      this.applyResult(existing.id, entry)
+      if (!quiet) await this.tellPartnerSeated(challenge, userId, entry)
       return
     }
     const kind = challenge.settings.robotKind
-    const state: ChallengeTableState = { challengeId: challenge.id, userId, seq: 0, ...challengeSnapshot(challenge, userId, this.now()) }
+    // A partnership's table (`e7-t28`): its first member South, the partner North, two robots;
+    // whoever comes first sits and the table waits for the other
+    const lead = pairLead(challenge, userId)
+    const partner = partnerOf(challenge, lead)?.userId
+    const people = partner === undefined ? [userId] : [lead, partner]
+    const state: ChallengeTableState = {
+      challengeId: challenge.id,
+      userId: lead,
+      ...(partner !== undefined && { partnerId: partner }),
+      seq: 0,
+      ...challengeSnapshot(challenge, lead, this.now()),
+    }
     const table: Table = {
       id: randomId(6),
       // Challenge tables are not in the lobby and take no number from it
       number: 0,
       hostId: userId,
-      seats: { N: robotId(kind, 'N'), E: robotId(kind, 'E'), S: userId, W: robotId(kind, 'W') },
+      seats:
+        partner === undefined
+          ? { N: robotId(kind, 'N'), E: robotId(kind, 'E'), S: userId, W: robotId(kind, 'W') }
+          : { N: userId === partner ? userId : null, E: robotId(kind, 'E'), S: userId === lead ? userId : null, W: robotId(kind, 'W') },
       spectators: [],
       boardsPlayed: state.played.length,
       board: null,
@@ -2789,13 +4812,30 @@ export class ClubService {
       modeState: state,
       dealSource: dealSourceOf(challenge.deals),
       settings: { access: 'hidden', allowKibitz: false, boardMinutes: 0 },
-      names: { [userId]: this.users.get(userId)!.username },
-      blocks: { [userId]: this.blocks.of(userId) },
+      names: Object.fromEntries(people.map((id) => [id, this.users.get(id)?.username ?? ''])),
+      blocks: Object.fromEntries(people.map((id) => [id, this.blocks.of(id)])),
       ...this.speedsFor(userId),
     }
     // The table deals its first board as it opens
     if (player.startedAt === undefined) this.applySnapshot(await this.eventFor(challenge.id).started(userId))
-    this.applyEntry(await this.tables.get(table.id).open(table))
+    const entry = await this.tables.get(table.id).open(table)
+    this.applyEntry(entry)
+    await this.tellPartnerSeated(challenge, userId, entry)
+  }
+
+  /**
+   * A member of a partnership sat down at its table and the partner is not there (`e7-t28`): the
+   * partner hears it, with a link straight to the table. Once per sit-down (`playChallenge`), not
+   * on a reconnect, and not when the partner is already seated
+   */
+  private async tellPartnerSeated(challenge: Challenge, userId: string, entry: TableEntry | null) {
+    const partner = partnerOf(challenge, userId)?.userId
+    if (partner === undefined || !entry || SEATS.some((s) => entry.seats[s] === partner)) return
+    await this.notifications.notify(partner, 'challengePartnerSeated', {
+      challengeId: challenge.id,
+      tableId: entry.id,
+      username: this.users.get(userId)?.username ?? '',
+    })
   }
 
   // ── Team matches being played (§5.8, e8-t07–e8-t11, e8-t13) ─────────────────────────────────
@@ -2824,8 +4864,9 @@ export class ClubService {
     for (const id of members)
       if (this.matches.store.playingIdOf(id))
         throw new ClubError('matchPlayerBusy', { name: this.users.get(id)?.username ?? '' })
-    const deals = makeDealSet({ kind: 'random', count: match.settings.boards }, this.random)
-    if (!deals) throw new ClubError('serverError', {}, 500)
+    // A multi-team event's round plays the same deals in each of its matches (§5.26); any other match its own
+    const deals = (await this.teamEvents.dealsFor(match.id)) ?? makeDealSet({ kind: 'random', count: match.settings.boards }, this.random)
+    if (!deals || deals.boards.length !== match.settings.boards) throw new ClubError('serverError', {}, 500)
     const people = Object.fromEntries(
       members.flatMap((id) => {
         const user = this.users.get(id)
@@ -2846,7 +4887,14 @@ export class ClubService {
       throw failed.reason instanceof AppError ? failed.reason : new ClubError('serverError', {}, 500)
     }
     for (const result of opened) if (result.status === 'fulfilled') this.applyEntry(result.value)
-    await this.matches.started(match.id, deals, ids)
+    try {
+      await this.matches.started(match.id, deals, ids, userId)
+    } catch (error) {
+      // The match's own object did not take the start (H2c): it stays set up, and both rooms close
+      if (this.matches.store.get(match.id)?.status === 'setup')
+        for (const room of ROOMS) await this.closeTable(ids[room]).catch(() => undefined)
+      throw error instanceof AppError ? error : new ClubError('serverError', {}, 500)
+    }
   }
 
   /**
@@ -2855,6 +4903,9 @@ export class ClubService {
    * table checks the other room again with its own state
    */
   private checkNotInMatch(userId: string, target?: TableEntry) {
+    // A pairs event's player is at their round's table and nowhere else until it ends (§5.22)
+    const pairsTable = this.pairs.tableOf(userId)
+    if (pairsTable !== null && target?.id !== pairsTable) throw new ClubError('inPairs')
     const match = this.matches.playingOf(userId)
     if (!match) return
     if (target?.match?.matchId !== match.id) throw new ClubError('inMatch')
@@ -2881,28 +4932,48 @@ export class ClubService {
    */
   private async teamBoardFinished(event: Extract<EventReport, { kind: 'team' }>) {
     if (!event.result) return
-    const outcome = this.matches.addResult(event.matchId, event.seq, event.room, event.result)
+    // Where the match lives it is written once; the last board finishes it there (H2c). A match
+    // whose object does not answer throws: the table offers the board again (its outbox)
+    const outcome = await this.matches.addResult(event.matchId, event.seq, event.room, event.result)
     if (!outcome) return
-    await this.revealRecords(revealBoards(this.store.sql, outcome.reveal, this.now()))
-    if (outcome.finished) await this.endMatch(event.matchId)
+    // The board's records shown once both rooms played it; a finished match closed up (`e8-t11`):
+    // its tables told (nothing more is dealt; each closes once its people leave), any board still
+    // kept back shown to everyone, and everyone in it told
+    await this.settleMatch(event.matchId)
     this.matches.push(event.matchId)
-  }
-
-  /**
-   * A match whose every board is done (`e8-t11`): finished, its tables told (nothing more is dealt;
-   * each closes once its people leave), any board still kept back shown to everyone, and everyone
-   * in it told
-   */
-  private async endMatch(matchId: string) {
-    await this.matches.finish(matchId)
-    await this.matchTablesEnded(matchId)
   }
 
   /** The match ended (finished or abandoned): its tables are told, and every board of it is shown to everyone */
   private async matchTablesEnded(matchId: string) {
     for (const entry of [...this.directory.values()])
       if (entry.match?.matchId === matchId) this.applyResult(entry.id, await this.tables.get(entry.id).matchEnded())
-    await this.revealRecords(revealEvent(this.store.sql, matchId, this.now()))
+    // A multi-team event's round: its boards are shown once the round's other matches played them too (`revealRound`)
+    if (this.teamEvents.shownIn(matchId)) await this.revealRound(matchId)
+    else await this.revealRecords(revealEvent(this.store.sql, matchId, this.now()))
+  }
+
+  /**
+   * Shows a multi-team event's round's records (§5.26): its matches play the same deals, so each
+   * board's records (every match's two rooms) are kept back until every match of the round has
+   * done it or will not play it any more (`roundBoardShown`); once every match of the round is
+   * over, all of them are shown, as a match's are when it ends. Until then only the four who played
+   * a room's board see its record (§4)
+   */
+  private async revealRound(matchId: string) {
+    const found = this.teamEvents.roundOf(matchId)
+    const shown = this.teamEvents.shownIn(matchId)
+    if (!found || !shown) return
+    const matches = found.round.matches.map((m) => this.matches.store.get(m.matchId))
+    const over = matches.every((m) => !m || m.status === 'finished' || m.status === 'abandoned' || m.status === 'cancelled')
+    const now = this.now()
+    if (over) {
+      for (const m of found.round.matches) await this.revealRecords(revealEvent(this.store.sql, m.matchId, now))
+      return
+    }
+    const boardIds = matches.flatMap((m) =>
+      (m?.boards ?? []).flatMap((b) => (shown(b.seq) ? [b.open?.boardId, b.closed?.boardId].filter((x): x is string => x !== undefined) : [])),
+    )
+    if (boardIds.length) await this.revealRecords(revealBoards(this.store.sql, boardIds, now))
   }
 
   /** A match's tables in the directory, by room */
@@ -2952,6 +5023,8 @@ export class ClubService {
     if (!stored || !match) throw new ClubError('matchGone', {}, 404)
     if ((stored.status === 'setup' || stored.status === 'playing') && isMatchPlayer(stored, userId))
       throw new ClubError('matchNoWatching', {}, 403)
+    // The round's other matches play the same deals: not while one's own team still plays them (§5.26)
+    if (this.teamEvents.watchBarred(matchId, userId)) throw new ClubError('teamEventNoWatching', {}, 403)
     const rooms: Partial<Record<Room, VugraphRoom>> = {}
     if (stored.status === 'playing') {
       const tables = this.matchTables(matchId)
@@ -2987,15 +5060,15 @@ export class ClubService {
     switch (message.type) {
       case 'matchRule': {
         // e8-t15: the room playing the board puts it away; the board is done, so its records are shown
-        const { seq, reveal, finished } = this.matches.rule(userId, message)
+        // The last board finishes the match where it lives (H2c); the club closes it up from its state
+        const { seq } = await this.matches.rule(userId, message)
         for (const entry of Object.values(this.matchTables(matchId)))
           this.applyResult(entry.id, await this.tables.get(entry.id).matchUpdate({ ruled: seq }))
-        await this.revealRecords(revealBoards(this.store.sql, reveal, this.now()))
-        if (finished) await this.endMatch(matchId)
+        await this.settleMatch(matchId)
         break
       }
       case 'matchPause': {
-        const { changed } = this.matches.pause(userId, matchId, message.paused)
+        const { changed } = await this.matches.pause(userId, matchId, message.paused)
         if (changed)
           for (const entry of Object.values(this.matchTables(matchId)))
             this.applyResult(entry.id, await this.tables.get(entry.id).matchUpdate({ paused: message.paused }))
@@ -3003,7 +5076,8 @@ export class ClubService {
       }
       case 'matchAbandon':
         await this.matches.abandon(userId, matchId)
-        await this.matchTablesEnded(matchId)
+        // Its tables told and its boards shown, once (`settleMatch`)
+        await this.settleMatch(matchId)
         break
       case 'matchReplace': {
         // Someone watching the match has seen its boards: they may not come in (e11-t13)
@@ -3035,7 +5109,7 @@ export class ClubService {
       }
       case 'matchNextSegment': {
         // e8-t21: each room takes on its seats as the captains left them (a pair may have changed rooms) and deals on
-        const next = this.matches.nextSegment(userId, matchId)
+        const next = await this.matches.nextSegment(userId, matchId)
         for (const [room, entry] of Object.entries(this.matchTables(matchId)) as [Room, TableEntry][]) {
           const seats = Object.fromEntries(
             SEATS.map((seat) => {
@@ -3096,6 +5170,7 @@ export class ClubService {
   private async createTable(userId: string, wanted?: unknown, invitees?: unknown) {
     const settings = parseTableSettings(wanted)
     if (!settings) throw new ClubError('badTableSettings')
+    this.checkOpenToClubs(userId, settings)
     const invited = this.checkInvitees(userId, invitees)
     this.checkNotInMatch(userId)
     await this.leave(userId)
@@ -3184,6 +5259,42 @@ export class ClubService {
   }
 
   /**
+   * Opens a teaching table (`e10-t10`, §5.11), with the `teach` permission: the teacher watches or
+   * takes a seat, and students come in as its access mode says, hidden unless chosen. The deals are
+   * read now and kept on the table, never sent (§4); without any the table deals at random. The
+   * teacher leaves when the table closes, like a practice table's member
+   */
+  private async createTeaching(userId: string, wanted: unknown, access?: unknown) {
+    this.requirePermission(userId, 'teach')
+    if (access !== undefined && !TABLE_ACCESS.includes(access as never)) throw new ClubError('badTableSettings')
+    const set = wanted === undefined ? null : parseTeachSet(wanted)
+    if (wanted !== undefined && !set) throw new ClubError('badPracticeSettings', { field: 'set' })
+    const problems = set ? await this.practiceProblems(userId, set) : undefined
+    this.checkNotInMatch(userId)
+    await this.leave(userId)
+    const state: TeachTableState = { dealt: 0, ...(problems && { problems }) }
+    const table: Table = {
+      id: randomId(6),
+      number: this.freeNumber(),
+      hostId: userId,
+      seats: { N: null, E: null, S: null, W: null },
+      spectators: [userId],
+      boardsPlayed: 0,
+      board: null,
+      chat: [],
+      createdAt: this.now(),
+      mode: 'teach',
+      modeState: state,
+      settings: { ...PRACTICE_TABLE_SETTINGS, ...(access !== undefined && { access: access as TableAccess }) },
+      names: { [userId]: this.users.get(userId)!.username },
+      blocks: { [userId]: this.blocks.of(userId) },
+      ...this.speedsFor(userId),
+      robotKind: this.defaultKindOf(userId),
+    }
+    this.applyEntry(await this.tables.get(table.id).open(table))
+  }
+
+  /**
    * The boards of a deal set to practise (`e10-t16`): a practice set of the club's, or boards of the
    * member's favourites or of the featured list. A board must be one the member may see and already
    * public (§4): a challenge or team match board still kept back is refused even to its players,
@@ -3196,11 +5307,15 @@ export class ClubService {
       if (!found) throw new ClubError('practiceSetGone', {}, 404)
       return found.problems.map((p) => ({ boardNo: p.boardNo, hands: p.hands, category: p.category, ...(p.note && { note: p.note }) }))
     }
+    // The member's own deals (e10-t09), from their list: never anyone else's
+    if (set.source === 'mine') return this.ownDeals.problems(userId, set.ids)
     const favorites = set.source === 'favorites' ? new Set(favoriteIds(this.store.sql, userId)) : null
     const problems: PracticeTableProblem[] = []
     for (const id of set.ids) {
-      const featured = favorites ? null : await this.featured.get(id, userId)
-      if (favorites ? !favorites.has(id) : !featured) throw new ClubError('boardGone', {}, 404)
+      // Records the teacher may read (`e10-t10`): the same rule as below, nothing more
+      const anyRecord = set.source === 'records'
+      const featured = favorites || anyRecord ? null : await this.featured.get(id, userId)
+      if (!anyRecord && (favorites ? !favorites.has(id) : !featured)) throw new ClubError('boardGone', {}, 404)
       const record = await this.store.get<BoardRecord>(`board:${id}`)
       const now = this.now()
       if (!record || !recordVisible(record, userId, now) || (record.revealAt !== undefined && record.revealAt > now))
@@ -3217,6 +5332,23 @@ export class ClubService {
   /** The club's practice sets, without their boards (`GET /api/practice/sets`) */
   practiceSets(): PracticeSetInfo[] {
     return practiceSetInfos()
+  }
+
+  /** The member's own deals, without their hands (`GET /api/practice/deals`, e10-t09) */
+  ownDealList(userId: string) {
+    return this.ownDeals.infos(userId)
+  }
+
+  /** Adds deals the browser read from a PBN file (`POST /api/practice/deals`): the whole list, and how many were new */
+  async importOwnDeals(userId: string, body: unknown) {
+    this.requireUser(userId)
+    if (!this.importLimit.take(userId)) throw new ClubError('slowDown', {}, 429)
+    return this.ownDeals.add(userId, body)
+  }
+
+  /** Removes some of the member's own deals (`POST /api/practice/deals/remove`); answers the whole list */
+  removeOwnDeals(userId: string, ids: unknown) {
+    return this.ownDeals.remove(userId, ids)
   }
 
   /** The member's saved practice settings (`GET /api/practice/presets`) */
@@ -3246,7 +5378,7 @@ export class ClubService {
     for (const id of invitees) {
       const other = this.otherMember(userId, id)
       const name = this.users.get(other)!.username
-      if (this.blocks.has(userId, other)) throw new ClubError('unblockFirst')
+      if (this.blocks.has(userId, other)) throw new ClubError('unblockToInvite')
       if (this.blocks.has(other, userId)) throw new ClubError('cannotInvite', { name }, 403)
     }
     return invitees as string[]
@@ -3265,6 +5397,7 @@ export class ClubService {
       (t) =>
         !fixedSeats(t.mode) &&
         t.mode !== 'team' &&
+        t.mode !== 'teach' &&
         !(seated && t.id === here!.id) &&
         mayEnter(t, userId, false) &&
         !this.blocks.has(t.hostId, userId),
@@ -3285,6 +5418,8 @@ export class ClubService {
       return
     }
     this.checkNotInMatch(userId, entry)
+    // A multi-team event's round plays the same deals in every match: no watching another while one's own team plays them (§5.26)
+    if (entry.match && this.teamEvents.watchBarred(entry.match.matchId, userId)) throw new ClubError('teamEventNoWatching', {}, 403)
     this.checkWelcome(userId, entry)
     // A table without kibitzers takes people only into its seats (`e2-t26`); a practice table only has watchers
     if (!entry.settings.allowKibitz && entry.mode !== 'practice') throw new ClubError('noKibitzing', {}, 403)
@@ -3326,6 +5461,11 @@ export class ClubService {
     this.applyResult(entry.id, await this.tables.get(entry.id).leave(userId))
   }
 
+  /** Only a host whose club joined the cross-club lobby (the `publicLobby` flag, e12-t07) opens a table to other clubs */
+  private checkOpenToClubs(userId: string, settings: Partial<TableSettings>) {
+    if (settings.openToClubs && !this.featureOn('publicLobby', userId)) throw new ClubError('publicLobbyOff', {}, 403)
+  }
+
   /** The host changes how the table is run; only the fields sent change, and the invitation list when sent */
   private async updateTableSettings(userId: string, wanted: unknown, invitees?: unknown) {
     const entry = this.entryOf(userId)
@@ -3335,6 +5475,7 @@ export class ClubService {
     if (entry.mode === 'team') throw new ClubError('matchTableFixed')
     const settings = parseTableSettings(wanted)
     if (!settings) throw new ClubError('badTableSettings')
+    this.checkOpenToClubs(userId, settings)
     const invited = this.checkInvitees(userId, invitees)
     const before = new Set(entry.invited)
     const named = invited?.map((id) => ({ id, username: this.users.get(id)!.username }))
@@ -3384,7 +5525,7 @@ export class ClubService {
 
   /** Whether a member directs a table or rules on its boards: its host, or an admin */
   private mayDirect(userId: string, hostId: string | undefined): boolean {
-    return userId === hostId || !!this.users.get(userId)?.admin
+    return userId === hostId || this.actsAsAdmin(this.users.get(userId))
   }
 
   /**
@@ -3395,7 +5536,7 @@ export class ClubService {
   private async callDirector(userId: string) {
     const entry = this.entryOf(userId)
     if (!entry) throw new ClubError('notSeated')
-    if (fixedSeats(entry.mode)) throw new ClubError('directorNotHere')
+    if (fixedSeats(entry.mode) || entry.mode === 'teach') throw new ClubError('directorNotHere')
     if (!this.seatIn(entry, userId)) throw new ClubError('notSeated')
     this.applyEntry(await this.tables.get(entry.id).director(userId, true))
     const username = this.users.get(userId)!.username
@@ -3420,20 +5561,182 @@ export class ClubService {
    */
   async ruleBoard(userId: string, boardId: string, body: unknown): Promise<BoardRecord> {
     const record = /^[\w-]+$/.test(boardId) ? await this.store.get<BoardRecord>(`board:${boardId}`) : undefined
-    if (!record) throw new ClubError('boardGone', {}, 404)
+    // An imported board was played elsewhere and is its importer's alone
+    if (!record || record.mode === 'imported') throw new ClubError('boardGone', {}, 404)
     if (!this.mayDirect(userId, record.hostId)) throw new ClubError('directorOnly', {}, 403)
-    if (body === null) delete record.ruling
-    else {
-      const request = parseRulingRequest(body, parseRulingReason)
+    let request: RulingRequest | null = null
+    if (body !== null) {
+      request = parseRulingRequest(body, parseRulingReason)
       if (!request) throw new ClubError('badBoardRuling', { max: TEAM_MATCH_LIMITS.reasonMax })
-      record.ruling = { ...request, by: this.publicUserById(userId)!, at: this.now() }
     }
+    return this.ruleRecord(userId, record, request)
+  }
+
+  /**
+   * Writes a ruling on a board record (or takes it back): the record, its index row (the scoring
+   * reads it, `e2-t36`), its summaries and the D1 copy; then the director's log of the event it
+   * belongs to (`e9-t17`) and the audit log, so the result page and the admins see who, when and why
+   */
+  private async ruleRecord(userId: string, record: BoardRecord, request: RulingRequest | null): Promise<BoardRecord> {
+    const before = record.ruling
+    if (request === null) delete record.ruling
+    else record.ruling = { ...request, by: this.publicUserById(userId)!, at: this.now() }
     // The index keeps the ruling for the scoring (`e2-t36`): a challenge's standings and a team
     // match's score are worked out again from it whenever they are shown
     indexRecord(this.store.sql, record)
     await this.writeRecord(record)
     if (record.mode === 'team' && record.eventId) this.matches.push(record.eventId)
+    // Taking back a ruling that was not there leaves no trace
+    if (!request && !before) return record
+    const actor = this.users.get(userId)!
+    const action: RefereeAction = { action: 'score', boardId: record.id, ruling: request ? scoreRuling(request) : null }
+    const kind = refereeKindOf(record)
+    if (kind && record.eventId) {
+      await this.referee.add(kind, record.eventId, actor, action, request?.reason ?? '', `board:${record.id}`)
+      // A ruling on a board of an event that finished and was credited: its points again
+      await this.recreditPoints(kind, record.eventId, actor, request?.reason ?? '')
+    } else await this.referee.auditOnly(actor, action, request?.reason ?? '', `board:${record.id}`)
     return record
+  }
+
+  /**
+   * A director changed an event after its end (`e9-t17` follow-up, §5.23): when its club points were
+   * credited already, they are worked out again from the event as its page shows it now (rulings and
+   * penalties) and each member's difference goes into the points ledger (`RankingsService.recredit`)
+   * and the audit log. Doing it twice writes nothing more. An event not credited yet (still going, or
+   * its settlement not run) is left to its settlement, which counts the change. Never fails the
+   * director's action: a failure is logged
+   */
+  private async recreditPoints(kind: RefereeEvent, eventId: string, actor: StoredUser, reason: string) {
+    try {
+      const penalties = penaltiesOf(this.referee.of(kind, eventId))
+      let event: RankedEvent | null = null
+      if (kind === 'pairs') event = this.pairs.rankedNow(eventId)
+      else if (kind === 'match') {
+        const match = this.matches.store.get(eventId)
+        event = match ? this.rankings.matchNow(match, penalties) : null
+      } else {
+        const challenge = this.challenges.get(eventId)
+        event = challenge ? this.rankings.challengeNow(challenge, penalties) : null
+      }
+      const credit = async (ranked: RankedEvent | null, target: RefereeEvent | 'teams', id: string) => {
+        const changes = this.rankings.recredit(ranked, actor.id, reason)
+        if (changes.length)
+          await this.referee.auditRecredit(
+            actor,
+            target,
+            id,
+            changes.map((c) => ({ ...c, username: this.users.get(c.userId)?.username ?? c.userId })),
+            reason,
+          )
+      }
+      await credit(event, kind, eventId)
+      // A multi-team event's match (`e9-t14`) has no points of its own: the event's are worked out again
+      const teamEvent = kind === 'match' ? this.teamEvents.ofMatch(eventId)?.event : undefined
+      if (teamEvent) await credit(this.teamEvents.rankedNow(teamEvent.id), 'teams', teamEvent.id)
+    } catch (error) {
+      this.log(crashEntry('recreditPoints', error))
+    }
+  }
+
+  /** What an event's page needs of the director's work (`e9-t17`): whether the viewer is an admin, and the log */
+  private directing(kind: RefereeEvent, eventId: string, userId: string): EventDirecting {
+    const teamEvent = kind === 'match' ? this.teamEvents.ofMatch(eventId) : null
+    // A multi-team event's match (§5.26): its director runs it; the round's boards are shown across its matches together
+    const shown = teamEvent ? this.teamEvents.shownIn(eventId) : null
+    return {
+      admin: this.actsAsAdmin(this.users.get(userId)),
+      entries: this.referee.of(kind, eventId),
+      ...(teamEvent && {
+        eventMatch: true,
+        eventId: teamEvent.event.id,
+        directs: this.teamEvents.directsMatch(eventId, userId),
+        ...(shown && { shown }),
+      }),
+    }
+  }
+
+  /**
+   * `POST /api/referee/:kind/:id` (`e9-t17`, AC-9.8): the director's tools on a club event — a
+   * board's score (a ruling on its record, `ruleRecord`; a pairs board never played), a penalty or
+   * taking one back, the start delayed (a pairs event before its start), a table re-opened (a
+   * pairs event's round). A pairs event's director or a team match's host may, and admins on
+   * every event (challenges, the daily event among them, only admins: their creator plays in
+   * them). Each one goes into the event's log and the audit log; the pages work the scores out
+   * again from it whenever they are shown
+   */
+  async refereeAct(userId: string, kind: unknown, eventId: string, body: unknown): Promise<{ ok: true }> {
+    if (!isRefereeEvent(kind)) throw new ClubError('refereeNotHere', {}, 404)
+    const request = parseRefereeRequest(body)
+    if (!request) throw new ClubError('badReferee', { max: REFEREE_LIMITS.reasonMax })
+    const actor = this.users.get(userId)
+    if (!actor) throw new ClubError('refereeOnly', {}, 403)
+    const admin = this.actsAsAdmin(actor)
+    // Who may, and who a penalty may be for
+    let targets: (target: string) => boolean
+    if (kind === 'pairs') {
+      const event = this.pairs.requireReferee(userId, eventId)
+      targets = (t) => /^\d+$/.test(t) && Number(t) < event.pairs.length && event.status !== 'open' && event.status !== 'cancelled'
+    } else if (kind === 'match') {
+      const match = this.matches.store.get(eventId)
+      if (!match) throw new ClubError('matchGone', {}, 404)
+      // A multi-team event's match (`e9-t14`): its host is a player in the event, so its director (or an admin) instead
+      const event = this.teamEvents.ofMatch(eventId)
+      if (!admin && (event ? !this.teamEvents.directsMatch(eventId, userId) : match.hostId !== userId)) throw new ClubError('refereeOnly', {}, 403)
+      targets = (t) => (t === 'A' || t === 'B') && match.status !== 'setup' && match.status !== 'cancelled'
+    } else {
+      const challenge = this.challenges.get(eventId)
+      if (!challenge) throw new ClubError('challengeGone', {}, 404)
+      if (!admin) throw new ClubError('refereeOnly', {}, 403)
+      targets = (t) => challenge.players.some((p) => p.userId === t && p.status === 'accepted' && !isPairSecond(challenge, t))
+    }
+    if (!this.actionLimit.take(userId)) throw new ClubError('slowDown', {}, 429)
+    const log = (action: RefereeAction, reason: string) => this.referee.add(kind, eventId, actor, action, reason)
+    switch (request.action) {
+      case 'score': {
+        if ('boardId' in request) {
+          const record = await this.store.get<BoardRecord>(`board:${request.boardId}`)
+          if (!record || record.eventId !== eventId || refereeKindOf(record) !== kind) throw new ClubError('refereeNoBoard', {}, 404)
+          await this.ruleRecord(userId, record, request.ruling)
+          break
+        }
+        if (kind !== 'pairs') throw new ClubError('refereeNotHere')
+        const ruling = request.ruling ? scoreRuling(request.ruling) : null
+        const { round } = await this.pairs.assign(eventId, { ...request, ruling })
+        await log({ action: 'score', round, table: request.table, boardNo: request.boardNo, ruling }, request.ruling?.reason ?? '')
+        break
+      }
+      case 'penalty':
+        if (!targets(request.target)) throw new ClubError('refereeBadTarget')
+        await log({ action: 'penalty', target: request.target, amount: request.amount }, request.reason)
+        break
+      case 'withdraw': {
+        const entries = this.referee.of(kind, eventId)
+        const penalty = entries.find((e) => e.id === request.of && e.action === 'penalty')
+        if (!penalty || entries.some((e) => e.action === 'withdraw' && e.of === request.of)) throw new ClubError('refereeNoEntry', {}, 404)
+        await log({ action: 'withdraw', of: request.of }, request.reason)
+        break
+      }
+      case 'delay': {
+        if (kind !== 'pairs') throw new ClubError('refereeNotHere')
+        if (this.pairs.requireReferee(userId, eventId).status !== 'open') throw new ClubError('pairsNotOpen')
+        const until = request.minutes ? this.now() + request.minutes * 60_000 : null
+        await log({ action: 'delay', until }, request.reason)
+        break
+      }
+      case 'restart': {
+        if (kind !== 'pairs') throw new ClubError('refereeNotHere')
+        const { round } = await this.pairs.restart(eventId, request.table, request.replay)
+        await log({ action: 'restart', round, table: request.table, replay: request.replay }, request.reason)
+        break
+      }
+    }
+    // A finished event's points follow the change (a ruling on a board did already, `ruleRecord`)
+    if (request.action === 'penalty' || request.action === 'withdraw' || (request.action === 'score' && !('boardId' in request)))
+      await this.recreditPoints(kind, eventId, actor, request.action === 'score' ? (request.ruling?.reason ?? '') : request.reason)
+    // A match's score changed for those watching it
+    if (kind === 'match') this.matches.push(eventId)
+    return { ok: true }
   }
 
   /** A table action (bidding, play, chat, the host's seat changes): the member's own table handles it */
@@ -3496,6 +5799,7 @@ export class ClubService {
     await this.saveRecord(record)
     this.metrics.board(stats)
     if (event?.kind === 'team') return this.teamBoardFinished(event)
+    if (event?.kind === 'pairs') return this.pairs.boardFinished(event)
     if (event?.kind !== 'challenge') return
     if (!this.challenges.get(event.challengeId)) return
     if (event.result) await this.addChallengeResult(event.challengeId, event.result)
@@ -3531,7 +5835,7 @@ export class ClubService {
       table.hostId,
     ])
     const state = challengeStateOf(table)
-    if (state) people.add(state.userId)
+    if (state) for (const id of challengePeople(state)) people.add(id)
     const names: Record<string, string> = { ...table.names }
     for (const id of people) {
       const user = this.users.get(id)
@@ -3719,6 +6023,52 @@ export class ClubService {
     return { online: onlineSet, where, asked, tables: new Map() }
   }
 
+  // ── The cross-club lobby (e12-t07, ARCHITECTURE.md §1「跨社團大廳」) ─────────────────────────────
+
+  /**
+   * Whether a member may use the cross-club lobby: their club joined it (the `publicLobby` flag, as
+   * the admins set it) and they have it. Asked by the Worker for the viewer's own club
+   */
+  publicViewer(userId: string | null): boolean {
+    return !!userId && this.featureOn('publicLobby', userId)
+  }
+
+  /** A table this club shows to other clubs: open to them (`openToOtherClubs`) by a host who still has the flag */
+  private shownToClubs(entry: TableEntry): boolean {
+    return openToOtherClubs(entry) && this.featureOn('publicLobby', entry.hostId)
+  }
+
+  /** This club's tables in the cross-club lobby (`GET /api/public/lobby`, through the Worker): names only, never ids */
+  publicTables(): PublicTable[] {
+    const online = new Set(this.connections.onlineUserIds())
+    const isOnline = (id: string) => isRobotId(id) || online.has(id)
+    return [...this.directory.values()]
+      .filter((entry) => this.shownToClubs(entry))
+      .sort((a, b) => a.number - b.number)
+      .map((entry) => ({
+        clubId: this.clubId,
+        clubName: clubName(this.clubId),
+        tableId: entry.id,
+        number: entry.number,
+        seats: guestSeats(this.occupants(entry, isOnline)),
+        boardsPlayed: entry.boardsPlayed,
+        playing: entry.playing,
+      }))
+  }
+
+  /** One of them as a guest from another club watches it, or null when it is not shown to other clubs (any more) */
+  async guestTable(tableId: string): Promise<GuestTable | null> {
+    const entry = this.directory.get(tableId)
+    if (!entry || !this.shownToClubs(entry)) return null
+    try {
+      const view = await this.tables.get(tableId).guestView()
+      return view && { clubId: this.clubId, clubName: clubName(this.clubId), ...view }
+    } catch (error) {
+      if (error instanceof ClubError && error.code === 'tableGone') return null
+      throw error
+    }
+  }
+
   /** A table as everyone it is listed for sees it in the lobby, once per broadcast */
   private sharedTable(t: TableEntry, basis: LobbyBasis): SharedTable {
     const known = basis.tables.get(t.id)
@@ -3730,6 +6080,7 @@ export class ClubService {
       hostName: this.users.get(t.hostId)?.username ?? '—',
       settings: t.settings,
       ...(t.mode === 'practice' && { practice: true }),
+      ...(t.mode === 'teach' && { teaching: true }),
       seats: this.occupants(t, isOnline),
       spectators: t.spectators.length,
       boardsPlayed: t.boardsPlayed,
@@ -3841,4 +6192,13 @@ export class ClubService {
       }
     )
   }
+}
+
+/** findUser's match: the name in any case, then also with full-width letters made half-width */
+function byName<T extends { username: string }>(all: T[], username: string): T | undefined {
+  const wanted = username.toLowerCase()
+  const exact = all.find((u) => u.username.toLowerCase() === wanted)
+  if (exact) return exact
+  const half = toHalfWidth(wanted)
+  return all.find((u) => toHalfWidth(u.username.toLowerCase()) === half)
 }

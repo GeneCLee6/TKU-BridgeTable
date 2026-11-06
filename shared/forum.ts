@@ -7,7 +7,8 @@ import type { Call } from './auction.ts'
  * reactions and reports. The handbook builds the forum first for the club's members; the types
  * and the Worker module (`worker/forum.ts`, e11-t06) live here so E13 can take them over with only
  * a front end to write (AC-11.8). TKU-BridgeHall `src/lib/forum.ts` is a copy, checked by its type
- * parity (`parity/table-types.ts`). Types and limits only; nothing here depends on the handbook.
+ * parity (`parity/table-types.ts`). Types and limits only, and the two pure tag helpers
+ * (`normalizeTag`, `splitTags`) both sites and the Worker share; nothing here depends on the handbook.
  *
  * A post is structured blocks, not HTML: each site draws them with its own components (the deal
  * and the auction with the same cards and calls as `shared/cards.ts` and `shared/auction.ts`).
@@ -144,10 +145,31 @@ export interface Post {
   pinned?: boolean
   /** No new comments */
   locked?: boolean
+  /**
+   * An officer hid it (the table's e13-t10): only its author and the officers see it, with this set;
+   * everyone else gets 404 `postGone` and does not find it in a list or a search
+   */
+  hidden?: boolean
   reactions: Reactions
   commentCount: number
   /** The members its text names with `@` (username or display name), in the order they first appear */
   mentions?: string[]
+  /**
+   * Its tags (the table's AC-13.7, 2026-11-02), as `normalizeTag` writes them, at most
+   * FORUM_LIMITS.tagsMax; none when it has none
+   */
+  tags?: string[]
+  /**
+   * Not out yet (the table's e13-t12): a draft only its author sees. Never in a list, a search or
+   * the tag counts; `GET /api/forum/drafts` lists them. `createdAt` is when it was last saved
+   */
+  draft?: boolean
+  /**
+   * Not out yet (the table's e13-t12): scheduled by an officer to come out then (ms), seen only by
+   * its author and the officers until it does; then it is posted as of that moment and every member
+   * hears as of a new post
+   */
+  publishAt?: number
 }
 
 /** Comments nest one level: a reply to a reply hangs under the same top comment */
@@ -214,7 +236,37 @@ export const FORUM_LIMITS = {
   /** A search (e11-t10): its characters, and its words (split at spaces; a post must hold every one) */
   searchMax: 50,
   searchWordsMax: 5,
+  /** Tags on one post, the characters of one tag, and the tags `GET /api/forum/tags` suggests (AC-13.7) */
+  tagsMax: 5,
+  tagMax: 20,
+  tagsShown: 30,
+  /** Drafts and scheduled posts one member may have at once, and how far ahead a post may be scheduled (the table's e13-t12) */
+  draftsMax: 20,
+  scheduleDaysMax: 90,
 } as const
+
+// ── Tags (the table's AC-13.7) ───────────────────────────────────────────────────────────────
+
+/**
+ * A tag as it is kept and compared: NFKC (full-width letters and digits become half-width), Latin
+ * letters in lower case, the leading `#`s and the spaces around it dropped, runs of spaces made one,
+ * the characters that separate tags in the editor (`,` `，` `、` `;` `；`) and control characters
+ * dropped. Empty when nothing is left; the length limit (FORUM_LIMITS.tagMax) is the caller's
+ */
+export function normalizeTag(value: string): string {
+  return value
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/[\p{Cc},，、;；]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/^#+\s*/, '')
+}
+
+/** The tags typed in one box, split at `,` `，` `、` `;` `；` and normalized; empty and repeated ones dropped */
+export function splitTags(value: string): string[] {
+  return [...new Set(value.split(/[,，、;；\n]/).map(normalizeTag).filter(Boolean))]
+}
 
 // ── Requests and answers (worker/forum.ts, e11-t06, e11-t07) ─────────────────────────────────
 
@@ -231,6 +283,24 @@ export interface BoardInput {
 export interface PostInput {
   title?: string
   blocks: PostBlock[]
+  /**
+   * Its tags (AC-13.7): each normalized (`normalizeTag`), repeats dropped; 400 `badContent` past
+   * FORUM_LIMITS.tagsMax or a tag past FORUM_LIMITS.tagMax. Left out of an edit: the tags stay as
+   * they were (so a site without tags keeps them); `[]` takes them all off
+   */
+  tags?: string[]
+  /**
+   * The table's e13-t12: `true` saves it as a draft (only its author sees it); `false` puts a draft
+   * or a scheduled post out now. Left out: a new post is out now, an edit keeps it as it was (so a
+   * site without drafts never publishes one by editing it). A post that is out stays out (400 `badContent`)
+   */
+  draft?: boolean
+  /**
+   * The table's e13-t12, officers only (403 `forumScheduleOfficersOnly`): when it comes out (ms),
+   * after now and at most FORUM_LIMITS.scheduleDaysMax days ahead (400 `forumScheduleTime`); `null`
+   * puts it out now. Not with `draft: true`
+   */
+  publishAt?: number | null
 }
 
 /** `POST /api/forum/posts/:id/comments` (`parentId` set: a reply) and `PATCH /api/forum/comments/:id` (blocks only) */
@@ -239,7 +309,10 @@ export interface CommentInput {
   blocks: CommentBlock[]
 }
 
-/** `GET /api/forum/boards/:id/posts?page=`: the pinned posts (page 1 only), then newest first */
+/**
+ * `GET /api/forum/boards/:id/posts?page=`: the pinned posts (page 1 only), then newest first.
+ * `&tag=`: only the posts with that tag (normalized as `normalizeTag`), the pinned ones too (AC-13.7)
+ */
 export interface BoardPage {
   board: Board
   pinned: Post[]
@@ -253,7 +326,8 @@ export interface BoardPage {
 /**
  * `GET /api/forum/feed?page=`: every board's posts newest first (the forum's front page, BridgeHall
  * e11-t15); no pinned section. `&author=<member id>`: only that member's posts (我的貼文);
- * `&mentions=<member id>`: only posts that member is `@`-mentioned in, in the post or a comment (e11-t10)
+ * `&mentions=<member id>`: only posts that member is `@`-mentioned in, in the post or a comment (e11-t10);
+ * `&tag=`: only posts with that tag (the table's AC-13.7)
  */
 export interface ForumFeed {
   posts: Post[]
@@ -266,17 +340,38 @@ export interface ForumFeed {
 /**
  * `GET /api/forum/search?q=&page=` (e11-t10): posts whose title or text blocks (paragraphs, notes,
  * lists) hold every word of `q`, newest first; `query` is the words as searched, `total` how many posts
- * match. 400 `badContent` when `q` is empty or over FORUM_LIMITS.searchMax / searchWordsMax
+ * match. `&board=<board id>`: only that board's posts (the table's e13-t11); `&tag=`: only posts with
+ * that tag (AC-13.7), and then `q` may be empty (every post with the tag). Hidden posts only for
+ * their authors and the officers. 400 `badContent` when `q` is empty without a tag, or over
+ * FORUM_LIMITS.searchMax / searchWordsMax
  */
 export interface ForumSearch extends ForumFeed {
   query: string
   total: number
 }
 
+/**
+ * `GET /api/forum/tags` (AC-13.7): the tags in use, most posts first (ties by name), at most
+ * FORUM_LIMITS.tagsShown; for the editor's suggestions and the tag filters. Only posts the member may
+ * see are counted (a hidden post's tags only for its author and the officers)
+ */
+export interface ForumTags {
+  tags: { tag: string; count: number }[]
+}
+
 /** `GET /api/forum/posts/:id`: the post and every comment, oldest first (replies after their top comment's earlier ones) */
 export interface PostThread {
   post: Post
   comments: Comment[]
+}
+
+/**
+ * `GET /api/forum/drafts` (the table's e13-t12): the member's drafts and scheduled posts, and an
+ * officer's view of everyone's scheduled posts too; scheduled first (soonest first), then drafts
+ * (last saved first). At most FORUM_LIMITS.draftsMax a member
+ */
+export interface ForumUnpublished {
+  posts: Post[]
 }
 
 /** `GET /api/forum/latest`: the home page's 社團新聞 (the news board, pinned first) and 最新討論 (the other boards) */

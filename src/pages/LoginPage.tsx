@@ -1,13 +1,21 @@
-import { useId, useState, type FormEvent, type ReactNode } from 'react'
+import { useEffect, useId, useState, type FormEvent, type ReactNode } from 'react'
 import styled from 'styled-components'
-import { LIMITS } from '../../shared/protocol.ts'
+import { PROFILE_LIMITS } from '../../shared/profile.ts'
+import { LIMITS, type OAuthName } from '../../shared/protocol.ts'
+import { CredentialInput } from '../components/CredentialInput.tsx'
 import { LogoMark } from '../components/Logo.tsx'
 import { PasswordInput } from '../components/PasswordInput.tsx'
+import { SignInButton } from '../components/SignInButtons.tsx'
+import { Turnstile } from '../components/Turnstile.tsx'
 import { Button, Card, ErrorText, Field, FieldError, FieldHint, FieldLabel, Input, Muted } from '../components/ui.tsx'
 import { useAuth } from '../state/AuthContext.tsx'
 import { api, ApiError } from '../lib/api.ts'
+import { leave } from '../lib/leave.ts'
 import { usePreferences, useT } from '../state/PreferencesContext.tsx'
 import { mobile } from '../styles/tokens.ts'
+import { appPath, currentClub } from '../lib/club.ts'
+import { DEFAULT_CLUB_ID } from '../../shared/clubs.ts'
+import { CLUB_APPLY_PAGE } from '../../shared/platform.ts'
 
 const Wrap = styled.main`
   display: grid;
@@ -120,14 +128,57 @@ const Done = styled.p`
   line-height: 1.6;
 `
 
+/** 或 between the form and the Google and LINE buttons, with a rule on each side */
+const Or = styled.p`
+  display: flex;
+  align-items: center;
+  gap: ${({ theme }) => theme.space(3)};
+  margin: 0;
+  color: ${({ theme }) => theme.colors.textMuted};
+  font-size: ${({ theme }) => theme.type.small.size};
+
+  &::before,
+  &::after {
+    content: '';
+    flex: 1;
+    border-top: 1px solid ${({ theme }) => theme.colors.border};
+  }
+`
+
+const PROVIDERS: readonly OAuthName[] = ['google', 'line']
+
+/**
+ * Where Google or LINE sent the browser back to (e1-t31, e1-t32): `?google=code|apply|error&code=…`
+ * or the same with `?line=`, read once
+ */
+function oauthReturn(): { provider: OAuthName; step: 'code' | 'apply' | 'error' | null; code: string } {
+  const params = new URLSearchParams(window.location.search)
+  const provider = PROVIDERS.find((p) => params.has(p)) ?? 'google'
+  const step = params.get(provider)
+  return {
+    provider,
+    step: step === 'code' || step === 'apply' || step === 'error' ? step : null,
+    code: params.get('code') ?? '',
+  }
+}
+
+/** A button for each provider the club has, in a stack */
+const Providers = styled.div`
+  display: grid;
+  gap: ${({ theme }) => theme.space(3)};
+`
+
 const Footnote = styled(Muted)`
   text-align: center;
   font-size: 13px;
 `
 
-/** `reset` asks the admins (with the invite code), `resetCode` sets the password with the code they handed over (e1-t36) */
-type Mode = 'login' | 'register' | 'reset' | 'resetCode'
-type FieldName = 'username' | 'password' | 'repeat' | 'inviteCode' | 'code'
+/**
+ * `reset` asks the admins (with the invite code), `resetCode` sets the password with the code they
+ * handed over (e1-t36); `emailReset` mails a link to the account's verified address (e1-t30)
+ */
+type Mode = 'login' | 'register' | 'reset' | 'resetCode' | 'emailReset' | 'oauthCode'
+type FieldName = 'username' | 'password' | 'repeat' | 'inviteCode' | 'code' | 'otp' | 'displayName'
 
 /** Server error codes that belong to one field; the rest show above the form */
 const FIELD_OF: Record<string, FieldName> = {
@@ -135,6 +186,9 @@ const FIELD_OF: Record<string, FieldName> = {
   usernameTaken: 'username',
   shortPassword: 'password',
   longPassword: 'password',
+  passwordHasUsername: 'password',
+  commonPassword: 'password',
+  profileNameTooLong: 'displayName',
   badInvite: 'inviteCode',
   resetCodeWrong: 'code',
 }
@@ -144,32 +198,143 @@ const FIELD_OF: Record<string, FieldName> = {
  * application that an admin approves on the admin page (only the club's first account signs in at
  * once); the account then works on both TKU BridgeTable and TKU BridgeBook. 忘記密碼 is two steps
  * (e1-t36): ask the admins, then enter the one-time code an admin hands over with a new password.
+ * With Google sign-in (e1-t31) or LINE login (e1-t32) on there is a branded button for each: the
+ * provider sends the browser back here with `?google=` or `?line=` when the account has 兩步驟登入
+ * (the code step, `oauthCode`), when its account has no club account (the application form, the
+ * provider's name filling in the display name) or on an error.
  */
 export function LoginPage() {
   const t = useT()
-  const { message } = usePreferences()
-  const { login, register } = useAuth()
+  const { message, lang } = usePreferences()
+  const { login, register, refresh } = useAuth()
   const id = useId()
-  const [mode, setMode] = useState<Mode>('login')
+  /** Where Google or LINE sent the browser back to (e1-t31, e1-t32), read once */
+  const [back] = useState(oauthReturn)
+  const [mode, setMode] = useState<Mode>(back.step === 'code' ? 'oauthCode' : 'login')
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [repeat, setRepeat] = useState('')
   const [inviteCode, setInviteCode] = useState('')
   const [code, setCode] = useState('')
+  /** 兩步驟登入 (e11-t31): set once the server answers that this account needs a code, and the code typed */
+  const [needOtp, setNeedOtp] = useState(false)
+  const [otp, setOtp] = useState('')
   const [note, setNote] = useState('')
-  const [error, setError] = useState('')
+  const [error, setError] = useState(() => (back.step === 'error' ? message(back.code, {}, t.genericError) : ''))
   const [fieldError, setFieldError] = useState<{ field: FieldName; text: string } | null>(null)
   const [done, setDone] = useState('')
   const [busy, setBusy] = useState(false)
+  /** Turnstile on 申請加入 (e1-t33): its site key once the Worker says it is on, and the current token */
+  const [siteKey, setSiteKey] = useState<string | null>(null)
+  const [turnstileToken, setTurnstileToken] = useState('')
+  const [turnstileReset, setTurnstileReset] = useState(0)
+  /** Google sign-in and LINE login (e1-t31, e1-t32): which are on, the one an application uses, and its display name */
+  const [providersOn, setProvidersOn] = useState<Record<OAuthName, boolean>>({ google: false, line: false })
+  const [applyWith, setApplyWith] = useState<OAuthName | null>(null)
+  const [displayName, setDisplayName] = useState('')
+
+  /** Whether the club sends mail (e1-t29): only then is there 忘記密碼 by email */
+  const [emailOn, setEmailOn] = useState(false)
+  useEffect(() => {
+    let live = true
+    api
+      .emailStatus()
+      .then(({ enabled }) => live && setEmailOn(enabled))
+      .catch(() => undefined)
+    return () => {
+      live = false
+    }
+  }, [])
+  useEffect(() => {
+    let live = true
+    for (const provider of PROVIDERS)
+      api[provider]
+        .status()
+        .then(({ enabled }) => live && setProvidersOn((on) => ({ ...on, [provider]: enabled })))
+        .catch(() => undefined)
+    return () => {
+      live = false
+    }
+  }, [])
+
+  // Back from Google or LINE: the code step, the application form with the provider's name, or what went wrong
+  useEffect(() => {
+    if (!back.step) return
+    let live = true
+    window.history.replaceState(null, '', window.location.pathname)
+    if (back.step === 'apply')
+      api[back.provider]
+        .pending()
+        .then((pending) => {
+          if (!live) return
+          if (pending.step !== 'apply') return setError(message(`${back.provider}Failed`, {}, t.genericError))
+          setMode('register')
+          setApplyWith(back.provider)
+          setDisplayName(pending.name)
+        })
+        .catch(() => live && setError(t.genericError))
+    return () => {
+      live = false
+    }
+  }, [back, message, t])
+
+  const startOAuth = async (provider: OAuthName) => {
+    setError('')
+    setBusy(true)
+    try {
+      leave.to((await api[provider].start(window.location.pathname + window.location.search)).url)
+    } catch (e) {
+      setError(e instanceof ApiError ? message(e.code, e.params, e.message) : t.genericError)
+      setBusy(false)
+    }
+  }
+
   const registering = mode === 'register'
+  const oauthCode = mode === 'oauthCode'
+  /** The provider of the code step, or of the application in progress */
+  const via = applyWith ?? back.provider
   const resetting = mode === 'reset'
   const withCode = mode === 'resetCode'
-  const title = registering ? t.register : resetting ? t.resetTitle : withCode ? t.enterResetCode : t.login
-  const intro = registering ? t.registerIntro : resetting ? t.resetIntro : withCode ? t.resetCodeIntro : t.loginIntro
-  const submitLabel = resetting ? t.resetRequestButton : title
-  /** Who signs in or registers types a password; asking for a reset does not */
-  const needsPassword = !resetting
+  const emailing = mode === 'emailReset'
+  const title = registering
+    ? t.register
+    : resetting
+      ? t.resetTitle
+      : withCode
+        ? t.enterResetCode
+        : emailing
+          ? t.email.resetTitle
+          : oauthCode
+            ? t[via].codeTitle
+            : t.login
+  const intro = registering
+    ? t.registerIntro
+    : resetting
+      ? t.resetIntro
+      : withCode
+        ? t.resetCodeIntro
+        : emailing
+          ? t.email.resetIntro
+          : oauthCode
+            ? t[via].codeIntro
+            : t.loginIntro
+  const submitLabel = resetting ? t.resetRequestButton : emailing ? t.email.sendLink : oauthCode ? t.login : title
+  /** Who signs in or registers types a password; asking for a reset (or the code step after Google or LINE) does not */
+  const needsPassword = !resetting && !emailing && !oauthCode
   const newPassword = registering || withCode
+
+  useEffect(() => {
+    if (!registering || siteKey !== null) return
+    let cancelled = false
+    api.registerOptions().then(
+      (options) => !cancelled && setSiteKey(options.turnstileSiteKey ?? ''),
+      () => undefined,
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [registering, siteKey])
+  const needsTurnstile = registering && !!siteKey
 
   const switchTo = (next: Mode) => {
     setMode(next)
@@ -178,6 +343,9 @@ export function LoginPage() {
     setDone('')
     setPassword('')
     setRepeat('')
+    setNeedOtp(false)
+    setOtp('')
+    setApplyWith(null)
   }
 
   const submit = async (event: FormEvent) => {
@@ -188,25 +356,56 @@ export function LoginPage() {
       setFieldError({ field: 'repeat', text: t.passwordMismatch })
       return
     }
+    if (needsTurnstile && !turnstileToken) {
+      setError(t.captchaNeeded)
+      return
+    }
     setBusy(true)
     try {
-      if (registering) {
-        const result = await register(username, password, inviteCode, note)
+      if (oauthCode) {
+        // The code step after Google or LINE (e1-t31, e1-t32): signed in, back to where the member was
+        const { returnTo } = await api[via].code(otp, lang)
+        window.history.replaceState(null, '', returnTo)
+        await refresh()
+      } else if (registering) {
+        const result = await register(
+          username,
+          password,
+          inviteCode,
+          note,
+          needsTurnstile ? turnstileToken : undefined,
+          applyWith ? { provider: applyWith, displayName } : undefined,
+        )
         if ('pending' in result) setDone(t.applicationSent(result.username))
       } else if (resetting) {
         await api.requestPasswordReset(username, inviteCode)
         setDone(t.resetRequested)
+      } else if (emailing) {
+        await api.requestEmailReset(username, lang)
+        setDone(t.email.linkSent)
       } else if (withCode) {
         await api.resetPassword(username, code, password)
         switchTo('login')
         setCode('')
         setDone(t.resetDone)
-      } else await login(username, password)
+      } else await login(username, password, needOtp ? otp : undefined, lang)
     } catch (e) {
+      // The right password for an account with the second step: ask for the code, no error
+      if (e instanceof ApiError && e.code === 'twoFactorNeeded') {
+        setNeedOtp(true)
+        return
+      }
+      // The code step after Google or LINE ran out: start again from the sign-in form
+      const flowGone = e instanceof ApiError && e.code === `${via}Failed`
+      if (oauthCode && flowGone) switchTo('login')
+      if (flowGone) setApplyWith(null)
       const text = e instanceof ApiError ? message(e.code, e.params, e.message) : t.genericError
-      const field = e instanceof ApiError && mode !== 'login' ? FIELD_OF[e.code] : undefined
+      const field =
+        e instanceof ApiError ? (e.code === 'twoFactorWrong' ? 'otp' : mode !== 'login' ? FIELD_OF[e.code] : undefined) : undefined
       if (field) setFieldError({ field, text })
       else setError(text)
+      // A Turnstile token is good for one try
+      if (needsTurnstile) setTurnstileReset((n) => n + 1)
     } finally {
       setBusy(false)
     }
@@ -252,24 +451,42 @@ export function LoginPage() {
           <Form onSubmit={submit} aria-label={title}>
             {error && <ErrorText role="alert">{error}</ErrorText>}
             {done && <Done role="status">{done}</Done>}
-            <Field>
-              <FieldLabel htmlFor={`${id}-username`}>{t.username}</FieldLabel>
-              <Input
-                {...describe('username', registering)}
-                $size="lg"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                autoComplete="username"
-                required
-                minLength={LIMITS.usernameMin}
-                maxLength={LIMITS.usernameMax}
-              />
-              {below('username', registering && t.usernameHint(LIMITS.usernameMin, LIMITS.usernameMax))}
-            </Field>
+            {registering && applyWith && <Done role="status">{t[applyWith].applyNotice}</Done>}
+            {!oauthCode && (
+              <Field>
+                <FieldLabel htmlFor={`${id}-username`}>{emailing ? t.email.account : t.username}</FieldLabel>
+                <CredentialInput
+                  {...describe('username', registering)}
+                  $size="lg"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  inputMode={emailing ? 'email' : 'text'}
+                  autoComplete={emailing ? 'email' : 'username'}
+                  required
+                  minLength={emailing ? undefined : LIMITS.usernameMin}
+                  maxLength={emailing ? 254 : LIMITS.usernameMax}
+                />
+                {below('username', registering && t.usernameHint(LIMITS.usernameMin, LIMITS.usernameMax))}
+              </Field>
+            )}
+            {registering && applyWith && (
+              <Field>
+                <FieldLabel htmlFor={`${id}-displayName`}>{t[applyWith].displayName}</FieldLabel>
+                <Input
+                  {...describe('displayName', true)}
+                  $size="lg"
+                  value={displayName}
+                  onChange={(e) => setDisplayName(e.target.value)}
+                  maxLength={PROFILE_LIMITS.displayNameMax}
+                  autoComplete="nickname"
+                />
+                {below('displayName', t[applyWith].displayNameHint)}
+              </Field>
+            )}
             {withCode && (
               <Field>
                 <FieldLabel htmlFor={`${id}-code`}>{t.resetCode}</FieldLabel>
-                <Input
+                <CredentialInput
                   {...describe('code', true)}
                   $size="lg"
                   value={code}
@@ -286,7 +503,7 @@ export function LoginPage() {
                 <LabelRow>
                   <FieldLabel htmlFor={`${id}-password`}>{withCode ? t.newPassword : t.password}</FieldLabel>
                   {mode === 'login' && (
-                    <LinkButton type="button" onClick={() => switchTo('reset')}>
+                    <LinkButton type="button" onClick={() => switchTo(emailOn ? 'emailReset' : 'reset')}>
                       {t.forgotPassword}
                     </LinkButton>
                   )}
@@ -301,6 +518,22 @@ export function LoginPage() {
                   minLength={newPassword ? LIMITS.passwordMin : undefined}
                 />
                 {below('password', newPassword && t.passwordHint(LIMITS.passwordMin))}
+              </Field>
+            )}
+            {((mode === 'login' && needOtp) || oauthCode) && (
+              <Field>
+                <FieldLabel htmlFor={`${id}-otp`}>{t.twoFactor.code}</FieldLabel>
+                <CredentialInput
+                  {...describe('otp', true)}
+                  $size="lg"
+                  value={otp}
+                  onChange={(e) => setOtp(e.target.value)}
+                  autoComplete="one-time-code"
+                  autoFocus
+                  required
+                  maxLength={20}
+                />
+                {below('otp', t.twoFactor.loginHint)}
               </Field>
             )}
             {withCode && (
@@ -320,7 +553,7 @@ export function LoginPage() {
             {(registering || resetting) && (
               <Field>
                 <FieldLabel htmlFor={`${id}-inviteCode`}>{t.inviteCode}</FieldLabel>
-                <Input
+                <CredentialInput
                   {...describe('inviteCode', true)}
                   $size="lg"
                   value={inviteCode}
@@ -345,14 +578,50 @@ export function LoginPage() {
                 <FieldHint id={`${id}-note-hint`}>{t.applicationNoteHint}</FieldHint>
               </Field>
             )}
+            {needsTurnstile && siteKey && <Turnstile siteKey={siteKey} resetKey={turnstileReset} onToken={setTurnstileToken} />}
             <Button type="submit" $variant="primary" $size="lg" $busy={busy}>
               {submitLabel}
             </Button>
+            {PROVIDERS.some((p) => providersOn[p]) && (mode === 'login' || (registering && !applyWith)) && (
+              <>
+                <Or>{t.google.or}</Or>
+                <Providers>
+                  {PROVIDERS.filter((p) => providersOn[p]).map((provider) => (
+                    <SignInButton key={provider} provider={provider} disabled={busy} onClick={() => void startOAuth(provider)}>
+                      {registering ? t[provider].apply : t[provider].signIn}
+                    </SignInButton>
+                  ))}
+                </Providers>
+              </>
+            )}
           </Form>
         )}
         <Switch>
-          {resetting || withCode ? (
+          {emailing ? (
             <>
+              <LinkButton type="button" onClick={() => switchTo('reset')}>
+                {t.email.byAdmin}
+              </LinkButton>
+              {' · '}
+              <LinkButton type="button" onClick={() => switchTo('login')}>
+                {t.backToLogin}
+              </LinkButton>
+            </>
+          ) : oauthCode ? (
+            <LinkButton type="button" onClick={() => switchTo('login')}>
+              {t[via].usePassword}
+            </LinkButton>
+          ) : resetting || withCode ? (
+            <>
+              {resetting && emailOn && (
+                <>
+                  {t.email.haveEmail}{' '}
+                  <LinkButton type="button" onClick={() => switchTo('emailReset')}>
+                    {t.email.resetByEmail}
+                  </LinkButton>
+                  {' · '}
+                </>
+              )}
               {resetting && (
                 <>
                   {t.haveResetCode}{' '}
@@ -377,11 +646,17 @@ export function LoginPage() {
         </Switch>
       </Panel>
       <Footnote>{t.sharedAccountHint}</Footnote>
+      {/* Another club's officers may ask for a table of their own (e12-t06): on 淡江's sign-in page only, the platform's home */}
+      {currentClub() === DEFAULT_CLUB_ID && (
+        <Footnote>
+          {t.clubApply.fromSignIn} <a href={CLUB_APPLY_PAGE}>{t.clubApply.fromSignInLink}</a>
+        </Footnote>
+      )}
       <Footnote>
         {registering && <>{t.legal.agree} </>}
-        <a href="/privacy">{t.legal.privacyTitle}</a>
+        <a href={appPath('/privacy')}>{t.legal.privacyTitle}</a>
         {' · '}
-        <a href="/terms">{t.legal.termsTitle}</a>
+        <a href={appPath('/terms')}>{t.legal.termsTitle}</a>
       </Footnote>
     </Wrap>
   )

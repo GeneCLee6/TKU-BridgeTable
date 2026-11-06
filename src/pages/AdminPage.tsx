@@ -1,5 +1,6 @@
 import { MoreHorizontal, Pencil, Search } from 'lucide-react'
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react'
+import { Link } from 'react-router-dom'
 import styled, { css } from 'styled-components'
 import {
   LIMITS,
@@ -11,8 +12,13 @@ import {
   type Permission,
 } from '../../shared/protocol.ts'
 import type { BookSyncRow } from '../../shared/robot/system/tku/sources.ts'
+import { CredentialInput } from '../components/CredentialInput.tsx'
+import { AdminTwoFactorBanner } from '../components/AdminTwoFactorBanner.tsx'
 import { PasswordInput } from '../components/PasswordInput.tsx'
+import { AdminBanner, AdminSupport } from '../components/AdminSupport.tsx'
+import { AdminPuzzles } from '../components/AdminPuzzles.tsx'
 import { FeatureFlags } from '../components/FeatureFlags.tsx'
+import { IntegrityReport } from '../components/IntegrityReport.tsx'
 import { SystemStatus } from '../components/SystemStatus.tsx'
 import { useToast } from '../components/Toast.tsx'
 import {
@@ -33,6 +39,7 @@ import {
 } from '../components/ui.tsx'
 import { api, ApiError } from '../lib/api.ts'
 import { formatDate, formatRelative } from '../lib/format.ts'
+import { mustTurnOnTwoFactor } from '../lib/twoFactor.ts'
 import { useAuth } from '../state/AuthContext.tsx'
 import { useClub } from '../state/ClubContext.tsx'
 import { usePreferences } from '../state/PreferencesContext.tsx'
@@ -42,8 +49,8 @@ import { mobile } from '../styles/tokens.ts'
  * The club admin page (DESIGN.md §7.8, docs/design/03-admin.png): registrations waiting for
  * approval, settings (account limit, invite code), members (TKU BridgeBook permissions, reset
  * password, admin role, delete), adding a member directly, closing stuck tables, and the 淡江橋館
- * articles edited online since the robot's rules were checked against them (e5-t45), and the feature
- * flags (e11-t26). A section nav
+ * articles edited online since the robot's rules were checked against them (e5-t45), the feature
+ * flags (e11-t26) and the anti-cheating report (e11-t25). A section nav
  * on the left (a dropdown on a phone), one card per section. Everything opens read-only; the
  * settings and the members' roles and permissions change only after 「編輯」, and 「儲存」 sends the
  * section's changes in one request (DESIGN.md §7.9). Saving shows a toast, and an error the
@@ -51,14 +58,14 @@ import { mobile } from '../styles/tokens.ts'
  * with TKU BridgeBook, which has the same approvals and permissions on its own admin page.
  */
 
-type SectionId = 'applications' | 'settings' | 'members' | 'add' | 'tables' | 'bookSync' | 'features' | 'status'
-const SECTIONS: SectionId[] = ['applications', 'settings', 'members', 'add', 'tables', 'bookSync', 'features', 'status']
+type SectionId = 'applications' | 'settings' | 'members' | 'add' | 'tables' | 'bookSync' | 'support' | 'banner' | 'puzzles' | 'features' | 'integrity' | 'status'
+const SECTIONS: SectionId[] = ['applications', 'settings', 'members', 'add', 'tables', 'bookSync', 'support', 'banner', 'puzzles', 'features', 'integrity', 'status']
 const anchor = (section: SectionId) => `admin-${section}`
 
 /** Fields a server error can belong to */
 type FieldKey = 'maxUsers' | 'inviteCode' | 'username' | 'password' | 'reset'
 
-type Pending = { id: string; action: 'password' | 'delete' | 'reject' | 'close' } | null
+type Pending = { id: string; action: 'password' | 'delete' | 'reject' | 'close' | 'twoFactor' } | null
 
 /** A member's role and permissions, as the members section edits them */
 type Role = { admin: boolean; permissions: Permission[] }
@@ -84,7 +91,23 @@ function changesOf(users: AdminUser[], draft: Record<string, Role>): MemberChang
   return changes
 }
 
+/**
+ * Admins must turn two-step sign-in on first (社長 2026-11-02): until then the server refuses every
+ * admin request, so the page shows only the banner that sends them to set it up
+ */
 export function AdminPage() {
+  const { t } = usePreferences()
+  const { user } = useAuth()
+  if (!mustTurnOnTwoFactor(user)) return <AdminPanels />
+  return (
+    <PageMain>
+      <PageTitle>{t.adminTitle}</PageTitle>
+      <AdminTwoFactorBanner />
+    </PageMain>
+  )
+}
+
+function AdminPanels() {
   const { t, lang, message } = usePreferences()
   const { user: me, refresh } = useAuth()
   const { lobby } = useClub()
@@ -228,6 +251,7 @@ export function AdminPage() {
     boardCurate: t.permissionBoardCurate,
     tkuSystem: t.permissionTkuSystem,
     forumModerate: t.permissionForumModerate,
+    teach: t.permissionTeach,
   }
   const editMembers = () => {
     if (!users) return
@@ -256,7 +280,14 @@ export function AdminPage() {
         await api.admin.createUser(member.username, member.password)
         setMember({ username: '', password: '' })
       },
-      { badUsername: 'username', usernameTaken: 'username', shortPassword: 'password', longPassword: 'password' },
+      {
+        badUsername: 'username',
+        usernameTaken: 'username',
+        shortPassword: 'password',
+        longPassword: 'password',
+        passwordHasUsername: 'password',
+        commonPassword: 'password',
+      },
     )
   }
 
@@ -313,7 +344,11 @@ export function AdminPage() {
     add: t.addMember,
     tables: t.tablesTitle,
     bookSync: t.bookSyncTitle,
+    support: t.support.adminTitle,
+    banner: t.notices.bannerTitle,
+    puzzles: t.puzzles.adminTitle,
     features: t.featureFlags.title,
+    integrity: t.integrity.title,
     status: t.statusTitle,
   }
   const outOfStep = sync?.filter((row) => !row.synced) ?? []
@@ -324,7 +359,11 @@ export function AdminPage() {
     add: null,
     tables: tables.length,
     bookSync: outOfStep.length || null,
+    support: null,
+    banner: null,
+    puzzles: null,
     features: null,
+    integrity: null,
     status: null,
   }
   const words = { today: t.timeToday, yesterday: t.timeYesterday }
@@ -516,7 +555,7 @@ export function AdminPage() {
                   <GridRow>
                     <FieldLabel htmlFor={`${id}-inviteCode`}>{t.inviteCode}</FieldLabel>
                     <Control>
-                      <Input
+                      <CredentialInput
                         {...fieldIds('inviteCode', true)}
                         value={draft.inviteCode}
                         autoComplete="off"
@@ -635,6 +674,7 @@ export function AdminPage() {
                             ) : (
                               <Badge $on={u.admin}>{u.admin ? t.admin : t.member}</Badge>
                             )}
+                            {u.twoFactor && <Sub>{t.twoFactor.adminTag}</Sub>}
                           </td>
                           <td>
                             {role.admin ? (
@@ -689,6 +729,8 @@ export function AdminPage() {
                                       void run(`password-${u.id}`, () => api.admin.resetPassword(u.id, newPassword), {
                                         shortPassword: 'reset',
                                         longPassword: 'reset',
+                                        passwordHasUsername: 'reset',
+                                        commonPassword: 'reset',
                                       })
                                     }
                                   >
@@ -700,6 +742,22 @@ export function AdminPage() {
                                 </Actions>
                                 {below('reset')}
                               </PasswordRow>
+                            ) : editing === 'twoFactor' ? (
+                              <Actions>
+                                <span>{t.twoFactor.adminClearConfirm(u.username)}</span>
+                                <Button
+                                  type="button"
+                                  $size="sm"
+                                  $variant="danger"
+                                  $busy={busy === `twoFactor-${u.id}`}
+                                  onClick={() => void run(`twoFactor-${u.id}`, () => api.admin.clearTwoFactor(u.id))}
+                                >
+                                  {t.confirm}
+                                </Button>
+                                <Button type="button" $size="sm" onClick={() => editPending(null)}>
+                                  {t.cancel}
+                                </Button>
+                              </Actions>
                             ) : editing === 'delete' ? (
                               <Actions>
                                 <span>{t.confirmDelete(u.username)}</span>
@@ -749,18 +807,33 @@ export function AdminPage() {
                                 </Button>
                                 <RowMenu label={t.adminMoreActions(u.username)} disabled={self}>
                                   {(close) => (
-                                    // The role is edited with the permissions (「編輯」); deleting is not an edit
-                                    <MenuItem
-                                      type="button"
-                                      role="menuitem"
-                                      $danger
-                                      onClick={() => {
-                                        close()
-                                        editPending({ id: u.id, action: 'delete' })
-                                      }}
-                                    >
-                                      {t.adminDeleteMember}
-                                    </MenuItem>
+                                    // The role is edited with the permissions (「編輯」); deleting is not an edit.
+                                    // Turning off 兩步驟登入 (e11-t31) is for a member who lost the phone
+                                    <>
+                                      {u.twoFactor && (
+                                        <MenuItem
+                                          type="button"
+                                          role="menuitem"
+                                          onClick={() => {
+                                            close()
+                                            editPending({ id: u.id, action: 'twoFactor' })
+                                          }}
+                                        >
+                                          {t.twoFactor.adminClear}
+                                        </MenuItem>
+                                      )}
+                                      <MenuItem
+                                        type="button"
+                                        role="menuitem"
+                                        $danger
+                                        onClick={() => {
+                                          close()
+                                          editPending({ id: u.id, action: 'delete' })
+                                        }}
+                                      >
+                                        {t.adminDeleteMember}
+                                      </MenuItem>
+                                    </>
                                   )}
                                 </RowMenu>
                               </Actions>
@@ -795,7 +868,7 @@ export function AdminPage() {
                 <GridRow>
                   <FieldLabel htmlFor={`${id}-username`}>{t.username}</FieldLabel>
                   <Control>
-                    <Input
+                    <CredentialInput
                       {...fieldIds('username', true)}
                       value={member.username}
                       autoComplete="off"
@@ -918,12 +991,47 @@ export function AdminPage() {
             )}
           </Section>
 
+          <Section id={anchor('support')} aria-labelledby={`${id}-h-support`}>
+            <CardHeader>
+              <CardTitle id={`${id}-h-support`}>{t.support.adminTitle}</CardTitle>
+              <Muted>{t.support.adminIntro}</Muted>
+            </CardHeader>
+            <AdminSupport />
+          </Section>
+
+          <Section id={anchor('banner')} aria-labelledby={`${id}-h-banner`}>
+            <CardHeader>
+              <CardTitle id={`${id}-h-banner`}>{t.notices.bannerTitle}</CardTitle>
+              <Muted>{t.notices.bannerIntro}</Muted>
+            </CardHeader>
+            <AdminBanner />
+          </Section>
+
+          <Section id={anchor('puzzles')} aria-labelledby={`${id}-h-puzzles`}>
+            <CardHeader>
+              <CardTitle id={`${id}-h-puzzles`}>{t.puzzles.adminTitle}</CardTitle>
+              <Muted>{t.puzzles.adminIntro}</Muted>
+            </CardHeader>
+            <AdminPuzzles />
+          </Section>
+
           <Section id={anchor('features')} aria-labelledby={`${id}-h-features`}>
             <CardHeader>
               <CardTitle id={`${id}-h-features`}>{t.featureFlags.title}</CardTitle>
               <Muted>{t.featureFlags.intro}</Muted>
+              <Muted>
+                <Link to="/tournaments">{t.tournaments.adminLink}</Link>
+              </Muted>
             </CardHeader>
             <FeatureFlags />
+          </Section>
+
+          <Section id={anchor('integrity')} aria-labelledby={`${id}-h-integrity`}>
+            <CardHeader>
+              <CardTitle id={`${id}-h-integrity`}>{t.integrity.title}</CardTitle>
+              <Muted>{t.integrity.intro}</Muted>
+            </CardHeader>
+            <IntegrityReport />
           </Section>
 
           <Section id={anchor('status')} aria-labelledby={`${id}-h-status`}>

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 
-type RobotRules = typeof import('./robotRules.ts')
+export type RobotRules = typeof import('./robotRules.ts')
 
 let loading: Promise<RobotRules> | null = null
 

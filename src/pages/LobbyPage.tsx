@@ -1,4 +1,4 @@
-import { Ban, Bot, Dumbbell, Eye, EyeOff, Hand, LayoutGrid, Lock, Plus, Timer, UserPlus, Zap } from 'lucide-react'
+import { Ban, Bot, Dumbbell, Eye, EyeOff, GraduationCap, Hand, LayoutGrid, Lock, Plus, Timer, UserPlus, UsersRound, Zap } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Link, Navigate, useNavigate } from 'react-router-dom'
 import styled from 'styled-components'
@@ -11,8 +11,10 @@ import { playable } from '../lib/challenges.ts'
 import { formatDateTime } from '../lib/format.ts'
 import { useAuth } from '../state/AuthContext.tsx'
 import { Avatar } from '../components/Avatar.tsx'
+import { LobbyNews } from '../components/LobbyNews.tsx'
 import { SidePanel } from '../components/SidePanel.tsx'
 import { PracticeDialog } from '../components/PracticeDialog.tsx'
+import { TeachDialog } from '../components/TeachDialog.tsx'
 import { TableSettingsDialog } from '../components/TableSettingsDialog.tsx'
 import { Button, Card, CardFooter, Muted, PageMain, PageTitle } from '../components/ui.tsx'
 import { useClub } from '../state/ClubContext.tsx'
@@ -81,7 +83,28 @@ const PracticeCard = styled(Card)`
     color: ${({ theme }) => theme.colors.text};
     font-size: ${({ theme }) => theme.type.h3.size};
   }
-  & > div { flex: 1 1 280px; }
+  & > div:first-child { flex: 1 1 280px; }
+`
+
+/** Practice with robots and 搭檔叫牌: side by side, and on a phone evenly across the card in every language */
+const PracticeEntries = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+
+  ${mobile} {
+    display: grid;
+    flex: 1 1 100%;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+
+    & > * {
+      min-width: 0;
+      white-space: normal;
+      text-align: center;
+    }
+    /* The words need the room, in Vietnamese and Japanese most of all */
+    & svg { display: none; }
+  }
 `
 
 /** A lobby area: an 18px heading with a link or hint on the right */
@@ -361,7 +384,7 @@ export function TableTile({
   const t = useT()
   const missing = missingSeats(table)
   // Only those the access mode lets in may sit or watch (AC-2.9); at a request table others ask first
-  const canWatch = table.welcome && (table.settings.allowKibitz || !!table.practice)
+  const canWatch = table.welcome && (table.settings.allowKibitz || !!table.practice || !!table.teaching)
   const asking = !table.welcome && table.settings.access === 'request'
   const access = table.settings.access
   const AccessIcon = access === 'public' ? null : ACCESS_ICONS[access]
@@ -406,6 +429,12 @@ export function TableTile({
           <Tag>
             <Dumbbell size={14} aria-hidden />
             {t.practiceTable}
+          </Tag>
+        )}
+        {table.teaching && (
+          <Tag>
+            <GraduationCap size={14} aria-hidden />
+            {t.teach.tag}
           </Tag>
         )}
         {missing > 0 && (
@@ -601,6 +630,7 @@ export function LobbyPage() {
   const [follow, setFollow] = useState<{ to?: string; from: string | null } | null>(null)
   const [opening, setOpening] = useState(false)
   const [practising, setPractising] = useState(false)
+  const [teaching, setTeaching] = useState(false)
   // Still connecting after ten seconds: say so (DESIGN.md §7.6)
   const [slowConnect, setSlowConnect] = useState(false)
   useEffect(() => {
@@ -659,12 +689,24 @@ export function LobbyPage() {
         )}
         {practising && (
           <PracticeDialog
+            partnerLink={<Link to="/partner-bidding">{t.partnerBid.entry}</Link>}
+            puzzleLink={<Link to="/puzzles">{t.puzzles.title}</Link>}
             robotKinds={robotKindsFor(user)}
             onClose={() => setPractising(false)}
             onSubmit={(settings, access) => {
               setPractising(false)
               setFollow({ from: lobby.myTableId })
               send({ type: 'createPractice', settings, access })
+            }}
+          />
+        )}
+        {teaching && (
+          <TeachDialog
+            onClose={() => setTeaching(false)}
+            onSubmit={(set, access) => {
+              setTeaching(false)
+              setFollow({ from: lobby.myTableId })
+              send({ type: 'createTeaching', ...(set && { set }), access })
             }}
           />
         )}
@@ -692,9 +734,22 @@ export function LobbyPage() {
               </h2>
               <Muted>{t.practiceIntro}</Muted>
             </div>
-            <Button type="button" $variant="primary" onClick={() => setPractising(true)}>
-              {t.practiceOpen}
-            </Button>
+            <PracticeEntries>
+              <Button as={Link} to="/partner-bidding">
+                <UsersRound size={18} aria-hidden />
+                {t.partnerBid.lobbyEntry}
+              </Button>
+              <Button type="button" $variant="primary" onClick={() => setPractising(true)}>
+                {t.practiceOpen}
+              </Button>
+              {/* A teaching table (`e10-t10`): for those the admin gave the `teach` permission; the server checks */}
+              {user?.permissions.includes('teach') && (
+                <Button type="button" onClick={() => setTeaching(true)}>
+                  <GraduationCap size={16} aria-hidden />
+                  {t.teach.openDialog}
+                </Button>
+              )}
+            </PracticeEntries>
           </PracticeCard>
         )}
         <MyChallenges
@@ -704,6 +759,8 @@ export function LobbyPage() {
             send({ type: 'playChallenge', challengeId })
           }}
         />
+        {/* 社團公告 and the newest discussions (E13 e13-t12), with the forum flag */}
+        <LobbyNews />
         <Section aria-labelledby="lobby-tables">
           <SectionHead>
             <h2 id="lobby-tables">{t.tables}</h2>

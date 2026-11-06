@@ -1,15 +1,23 @@
 import { DurableObject } from 'cloudflare:workers'
-import { clubIdOfObject, DEFAULT_CLUB_ID } from '../shared/clubs.ts'
+import { clubName, clubOfClubObject, clubOfPath, clubPath, clubStoragePrefix, DEFAULT_CLUB_ID, knownClubs } from '../shared/clubs.ts'
+import type { ClubBanner } from '../shared/notices.ts'
+import { CLUB_APPLY_API, type ClubApplyOptions, type ClubStatus, type ClubUsage } from '../shared/platform.ts'
+import type { ForwardedSupport, SupportStatus } from '../shared/support.ts'
+import type { GuestTable, PublicTable } from '../shared/public-lobby.ts'
 import { AppError } from '../shared/messages.ts'
 import type { ChallengeSettings } from '../shared/challenge.ts'
 import { parseHistoryQuery } from '../shared/history-query.ts'
+import { toSessionLin } from '../shared/lin.ts'
+import { toPbnFile } from '../shared/pbn.ts'
 import { MESSAGE_MAX_CHARS } from '../shared/message-guard.ts'
-import type { BoardRecord, Me, ServerMessage, SystemSpecStatus } from '../shared/protocol.ts'
+import type { BoardRecord, Me, RegisterOptions, ServerMessage, SystemSpecStatus } from '../shared/protocol.ts'
 import type { BookNotes } from '../shared/robot/system/book-spec.ts'
 import { TKU } from '../shared/robot/system/tku/index.ts'
 import { bookSync } from '../shared/robot/system/tku/sources.ts'
-import { randomId, readCookie, SESSION_COOKIE, sessionCookie } from './auth.ts'
-import { ACCOUNT_PREFIXES, backupAdmin, runBackup } from './backup.ts'
+import { DEVICE_COOKIE, deviceCookie, randomId, readCookie, sessionCookie, sessionCookieName } from './auth.ts'
+import { deviceLabel } from '../shared/account.ts'
+import { ACCOUNT_PREFIXES, backupAdmin, listBackups, runBackup } from './backup.ts'
+import { scopedBucket } from './buckets.ts'
 import { BookService, IMPORT_LIMITS, importRequestFrom, publicBookResponse } from './book.ts'
 import { readForm, readJson, readText } from './body.ts'
 import { seedTokenMatches } from './book-seed.ts'
@@ -17,34 +25,51 @@ import { BookNotices } from './book-notices.ts'
 import { PendingService } from './pending.ts'
 import { GlossaryService, publicGlossaryResponse } from './glossary.ts'
 import { claudeImporter } from './importer.ts'
+import { mailerFrom } from './mail.ts'
+import { pushFrom } from './web-push.ts'
+import { googleFrom } from './google.ts'
+import { lineFrom } from './line.ts'
+import { callbackPath, flowCookie, flowCookieName, OAUTH_APPLY_MS, OAUTH_CODE_MS, oauthSite, safeReturn, type OAuthName } from './oauth.ts'
 import { ProfileService } from './profiles.ts'
 import { CardPdfService, pdfResponse } from './card-pdf.ts'
 import { CardSnapshotService } from './card-snapshots.ts'
 import { avatarResponse, readAvatarUpload } from './avatars.ts'
 import { FILES_PATH, FileService, readFileUpload } from './files.ts'
+import { addedImageKeys, checkImagesOwned, droppedImageKeys, releaseImages, signFiles } from './post-images.ts'
 import { adminRouteNeed, allows, articleReadRoute, bookRouteNeed, ebookReadRoute, clubRouteNeed, forumRouteNeed, moderatesForum, requireNeed } from './roles.ts'
 import { type ArticleReader, ArticleService } from './articles.ts'
 import { type EbookReader, EbookService } from './ebooks.ts'
-import { ForumService, postExcerpt } from './forum.ts'
+import { ForumService, postExcerpt, postImageKeys, tagFilter } from './forum.ts'
 import { ForumNotices } from './forum-notices.ts'
+import { ForumSchedule } from './forum-schedule.ts'
+import { addedRecordIds } from './forum-share.ts'
 import { BOOK_EVENTS_MAX_CHARS, BookTelemetry } from './book-telemetry.ts'
 import type { AuditAction } from './audit.ts'
+import tkuSystemCard from 'virtual:system-card-tku'
+import { tkuCardResponse } from './system-card.ts'
 import { robotMeaningsFor } from './system-spec.ts'
 import { QuizStore } from './quiz.ts'
 import { LearningStore } from './learning.ts'
 import { ReadingStore } from './reading.ts'
 import { CLIENT_ERROR_MAX_CHARS } from './client-errors.ts'
 import { d1Replica } from './d1.ts'
-import { edgeSecret, mintPass, PASS_COOKIE, passCookie, passNeedsRefresh } from './edge-auth.ts'
-import { crashEntry, jsonLog, sampleActions } from './log.ts'
+import { edgeSecret, mintPass, passCookie, passCookieName, passNeedsRefresh } from './edge-auth.ts'
+import { clubLog, crashEntry, jsonLog, type Logger, sampleActions } from './log.ts'
+import { clubStub, eventStub, tableStub, type RegistrySnapshot } from './clubs.ts'
+import { seenSalt } from './integrity.ts'
+import { CLUB_APPLICATION_WINDOW_MS, CLUB_APPLICATIONS_PER_ADDRESS, PlatformService, requireApplyClub, requirePlatformOwner, type ClubSetup, type RegistryEntry } from './platform.ts'
+import { RegistrationLimit } from './register-limit.ts'
+import { requireTurnstile, turnstileKeys } from './turnstile.ts'
 import type { TableStats } from './metrics.ts'
-import { type ChallengeRequest, ClubError, ClubService, type Connections } from './service.ts'
+import { type ChallengeRequest, ClubError, ClubService, type Connections, type OAuthOutcome } from './service.ts'
 import type { EventReport } from './modes.ts'
 import type { Store } from './store.ts'
 import { TeamService } from './teams.ts'
 import type { TableObject } from './table-object.ts'
 import type { EventObject } from './event-object.ts'
 import { RemoteEvents, type EventRpc, type EventSnapshot } from './events.ts'
+import { RemoteMatches, type MatchRpc, type MatchSnapshot } from './match-events.ts'
+import { RemotePairs, type PairsRpc, type PairsSnapshot } from './pairs-events.ts'
 import { RemoteTables, type TableEntry, type TableRpc } from './tables.ts'
 import type { MatchAction, MatchPlayAction } from './team-match-service.ts'
 
@@ -62,6 +87,18 @@ export interface Env {
    */
   EVENT_OBJECTS?: string
   ASSETS: Fetcher
+  /**
+   * The clubs this Worker serves besides 淡江 (e12-t03, shared/clubs.ts `knownClubs`): comma-separated
+   * ids. None in production until clubs can be opened and run (e12-t05, e12-t06); staging may name
+   * one to try a second club
+   */
+  CLUBS?: string
+  /**
+   * The platform owner (e12-t05, DEPLOY.md §4.20): the user id of the one 淡江 account that runs the
+   * platform's back office (/platform), with two-step sign-in on. Without it there is no back
+   * office and no club can be applied for
+   */
+  PLATFORM_OWNER?: string
   MAX_USERS?: string
   INVITE_CODE?: string
   /** For TKU BridgeBook's AI import (wrangler secret put ANTHROPIC_API_KEY) */
@@ -92,12 +129,56 @@ export interface Env {
   HISTORY?: D1Database
   /** "off" stops keeping and reading the D1 copy: the switch back (DEPLOY.md §4.5) */
   HISTORY_D1?: string
+  /**
+   * Salts the anti-cheating report's network hashes (wrangler secret put SEEN_SALT, ARCHITECTURE.md
+   * §5.17); without it no network is kept, only the browser
+   */
+  SEEN_SALT?: string
+  /**
+   * Turnstile on 申請加入 (e1-t33, worker/turnstile.ts, DEPLOY.md §4.13): the site key is a plain
+   * variable, the secret a wrangler secret; Turnstile is on only when both are set
+   */
+  TURNSTILE_SITE_KEY?: string
+  TURNSTILE_SECRET_KEY?: string
   /** Signs edge passes (wrangler secret put EDGE_AUTH_SECRET); without it the Worker asks the club every time */
   EDGE_AUTH_SECRET?: string
   /** "off" stops handing out and reading edge passes: the switch back (DEPLOY.md §4.5) */
   EDGE_AUTH?: string
   /** The system profile whose 淡江橋館 rules TKB follows (BridgeHall e7-t03); the club's when unset */
   SYSTEM_PROFILE_ID?: string
+  /**
+   * Email (e1-t29, e1-t30; worker/mail.ts, DEPLOY.md §4.14): Resend's API key (wrangler secret put
+   * RESEND_API_KEY) and the sender, an address on a domain verified there. Without both, email is off
+   */
+  RESEND_API_KEY?: string
+  MAIL_FROM?: string
+  /**
+   * The site owner's last resort for an admin who lost both the authenticator and the recovery
+   * codes (社長 2026-11-02, DEPLOY.md §4.15): set with `wrangler secret put` only for the reset and
+   * deleted right after, so only someone with access to the Cloudflare account can use it. Without
+   * it (the normal state) `POST /api/ops/two-factor-reset` does not exist
+   */
+  TWO_FACTOR_RESET_TOKEN?: string
+  /**
+   * Google sign-in (e1-t31; worker/google.ts, DEPLOY.md §4.16): the OAuth client's id and secret
+   * from Google Cloud (wrangler secret put). Without both, Google sign-in is off; PR previews never get them
+   */
+  GOOGLE_CLIENT_ID?: string
+  GOOGLE_CLIENT_SECRET?: string
+  /**
+   * Web Push (e1-t28; worker/web-push.ts, DEPLOY.md §4.17): the VAPID key pair made by `npm run vapid`
+   * and a contact (`mailto:` or `https:`) for the push services, all three wrangler secrets. Without
+   * all three, push is off; PR previews never get them
+   */
+  VAPID_PUBLIC_KEY?: string
+  VAPID_PRIVATE_KEY?: string
+  VAPID_SUBJECT?: string
+  /**
+   * LINE login (e1-t32; worker/line.ts, DEPLOY.md §4.18): the LINE Login channel's id and secret
+   * from LINE Developers (wrangler secret put). Without both, LINE login is off; PR previews never get them
+   */
+  LINE_CHANNEL_ID?: string
+  LINE_CHANNEL_SECRET?: string
 }
 
 /** A picture's upload may come straight from TKU BridgeBook's page too; its single-use pass is the check */
@@ -107,6 +188,21 @@ const FILE_CORS = {
   'Access-Control-Allow-Headers': 'Content-Type',
   'Access-Control-Max-Age': '86400',
 }
+
+/**
+ * A club's own record of itself (e12-t05, e12-t06), at `meta:club` in its object: written when the
+ * platform owner approves it, changed when they suspend it or serve it again. 淡江 has none (it is
+ * always served). Not in the backup (`meta:`), so restoring one never changes a suspension
+ */
+interface ClubRecord {
+  id: string
+  name: string
+  organisation: string
+  contactEmail: string
+  status: ClubStatus
+  approvedAt: number
+}
+const CLUB_RECORD_KEY = 'meta:club'
 
 /** The import upload comes straight from TKU BridgeBook's page; its single-use pass is the check */
 const IMPORT_CORS = {
@@ -169,6 +265,8 @@ export class Club extends DurableObject<Env> implements Connections {
   private readonly forum: ForumService
   /** The forum's notifications (BridgeHall e11-t08); keeps nothing in memory */
   private readonly forumNotices: ForumNotices
+  /** The forum's scheduled posts (e13-t12): their times are in the forum's rows, their jobs in the club's scheduler */
+  private readonly forumSchedule: ForumSchedule
   /** BridgeHall's error reports and anonymous usage counts (e10-t06, e10-t07) in the object's SQLite database */
   private readonly telemetry: BookTelemetry
   /** The handbook's notifications and who follows which convention (BridgeHall e8-t10); keeps nothing in memory */
@@ -176,10 +274,21 @@ export class Club extends DurableObject<Env> implements Connections {
   private readonly store: Store
   /** Signs edge passes (§5.12); none when switched off */
   private readonly edgeSecret: string | undefined
+  /** Which club this object is (e12-t02): its name says */
+  private readonly clubId: string
+  /** Every log line says the club (e12-t03) */
+  private readonly log: Logger
+  /** The club's own record (e12-t05): undefined for 淡江 and for a club never opened */
+  private record: ClubRecord | undefined
+  /** Club applications per address (e12-t06), used in 淡江's object only */
+  private readonly applyLimit: RegistrationLimit
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env)
     const storage = ctx.storage
+    // One object per club (e12-t02): its name says which; 淡江's is `club`
+    const clubId = (this.clubId = clubOfClubObject(ctx.id.name))
+    const log = (this.log = clubLog(clubId, jsonLog))
     const store: Store = (this.store = {
       get: (key) => storage.get(key),
       put: (key, value) => storage.put(key, value),
@@ -193,36 +302,71 @@ export class Club extends DurableObject<Env> implements Connections {
       },
     })
     this.service = new ClubService(store, this, {
-      // One object per club (e12-t02): its name says which
-      clubId: clubIdOfObject(ctx.id.name) ?? DEFAULT_CLUB_ID,
+      clubId,
       maxUsers: Number(env.MAX_USERS ?? 10),
-      inviteCode: env.INVITE_CODE || undefined,
+      // INVITE_CODE is 淡江's (DEPLOY.md): another club's admin sets its own (e12-t03)
+      inviteCode: (clubId === DEFAULT_CLUB_ID && env.INVITE_CODE) || undefined,
       // One alarm wakes the object for every robot move and deal, so it can hibernate in between
       wake: (at) => void storage.setAlarm(at),
       // Actions sampled (H3b); the status page still counts every one
-      log: sampleActions(jsonLog),
+      log: sampleActions(log),
       // The lobby goes out at most every LOBBY_GAP_MS while it keeps changing (H3b)
       later: (run, ms) => void setTimeout(run, ms),
-      // Each table in its own object (§5.10), unless switched back with TABLE_OBJECTS=off
-      tableObjects: new RemoteTables((tableId) => env.TABLE.get(env.TABLE.idFromName(tableId)) as unknown as TableRpc),
+      // Each table in its own object (§5.10), unless switched back with TABLE_OBJECTS=off; named after
+      // this club, so no other club's object is ever reached (e12-t03, shared/clubs.ts tableObjectName)
+      tableObjects: new RemoteTables((tableId) => tableStub(env, clubId, tableId) as unknown as TableRpc),
       tablesInClub: env.TABLE_OBJECTS === 'off',
-      // Each challenge in its own object (H2b, §5.12) only when switched on; off by default
-      eventObjects: new RemoteEvents(
-        (challengeId) => env.EVENT.get(env.EVENT.idFromName(`challenge:${challengeId}`)) as unknown as EventRpc,
-      ),
+      // Each challenge (H2b) and team match (H2c) in its own object (§5.12) only when switched on; off by default
+      eventObjects: new RemoteEvents((challengeId) => eventStub(env, clubId, 'challenge', challengeId) as unknown as EventRpc),
+      matchObjects: new RemoteMatches((matchId) => eventStub(env, clubId, 'match', matchId) as unknown as MatchRpc),
+      // A pairs event (§5.22) goes into its own object when made while the switch is on, and stays there
+      pairsObjects: new RemotePairs((eventId) => eventStub(env, clubId, 'pairs', eventId) as unknown as PairsRpc),
       eventObjectsOn: env.EVENT_OBJECTS === 'on',
-      // The history pages' copy in D1, read by the Worker (§5.12)
+      // The history pages' copy in D1, read by the Worker (§5.12); this club's rows only (e12-t03)
       historyReplica: env.HISTORY ? d1Replica(env.HISTORY) : undefined,
       historyReplicaOff: env.HISTORY_D1 === 'off',
       systemProfileId: env.SYSTEM_PROFILE_ID || undefined,
+      // The anti-cheating report's network salt (§5.17): a secret, never in the club's storage
+      seenSalt: env.SEEN_SALT || undefined,
+      // Email (e1-t29, e1-t30): none unless RESEND_API_KEY and MAIL_FROM are set
+      mailer: mailerFrom(env),
+      // Google sign-in and LINE login (e1-t31, e1-t32): none unless their two secrets are set, and only
+      // for 淡江: the way back carries no club, so it always reaches 淡江's object
+      ...(clubId === DEFAULT_CLUB_ID && { google: googleFrom(env), line: lineFrom(env) }),
+      // Web Push (e1-t28): none unless the three VAPID secrets are set; sent after the answer, kept alive by waitUntil
+      push: pushFrom(env),
+      defer: (task) => ctx.waitUntil(task),
+      // A deleted member's forum drafts and scheduled posts go (the president, 2026-11-03), then
+      // their pictures that no post uses go from R2 (e13-t13); the ones in their published posts stay with the posts
+      onMemberRemoved: async (userId) => {
+        this.forum.forgetUnpublished(userId)
+        await this.files.forget(userId, (key) => this.forum.imagesInUse([key], 'all').size > 0)
+      },
+      // Forwarding a support report (e12-t16) tells the owner in 淡江's object; no owner, no forwarding
+      ...(env.PLATFORM_OWNER && { tellPlatformOwner: () => this.tellOwnerOfSupport() }),
+      // The platform owner (e12-t05): 淡江's account named by PLATFORM_OWNER
+      ...(clubId === DEFAULT_CLUB_ID && env.PLATFORM_OWNER && { platformOwnerId: env.PLATFORM_OWNER }),
+    })
+    this.applyLimit = new RegistrationLimit(store, Date.now, seenSalt(env.SEEN_SALT), {
+      key: 'meta:clubApplications',
+      label: 'clubApply',
+      max: CLUB_APPLICATIONS_PER_ADDRESS,
+      windowMs: CLUB_APPLICATION_WINDOW_MS,
     })
     this.edgeSecret = edgeSecret(env)
     this.book = new BookService(store)
     this.pending = new PendingService(store, this.book.auditTrail)
     // Admins hear when the files near R2's free room (BridgeHall e5-t15)
-    this.files = new FileService(store, env.FILES, Date.now, async (bytes) => {
-      for (const id of this.service.adminIds()) await this.service.notifications.notify(id, 'filesNearlyFull', { gb: Math.round((bytes / 1024 ** 3) * 10) / 10 })
-    })
+    // In the club's own part of the bucket (淡江's keys as they were, e12-t03), and its addresses name the club
+    this.files = new FileService(
+      store,
+      env.FILES && scopedBucket(env.FILES, clubStoragePrefix(clubId)),
+      Date.now,
+      async (bytes) => {
+        for (const id of this.service.adminIds()) await this.service.notifications.notify(id, 'filesNearlyFull', { gb: Math.round((bytes / 1024 ** 3) * 10) / 10 })
+      },
+      clubId,
+    )
     this.quiz = new QuizStore(store, Date.now, () => randomId(8))
     this.learning = new LearningStore(store, Date.now)
     this.reading = new ReadingStore(store, Date.now)
@@ -259,30 +403,178 @@ export class Club extends DurableObject<Env> implements Connections {
     this.forumNotices = new ForumNotices({
       notify: (id, kind, params) => this.service.notifications.notify(id, kind, params),
       members: () => this.service.memberDirectory(),
+      blocked: (by, other) => this.service.hasBlocked(by, other),
+    })
+    this.forumSchedule = new ForumSchedule({
+      forum: this.forum,
+      at: (key, at, run) => this.service.scheduleAt(key, 'forum', at, run),
+      member: (id) => this.service.memberMe(id),
+      // Out at its time: told as a new post is
+      published: (author, post, board) => this.tell(() => this.forumNotices.posted(author, post, board), 'forumNotice'),
     })
     // Browsers send "ping" every few seconds to keep phone connections alive and to notice a dead
     // one quickly; the runtime answers without waking the object
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair('ping', 'pong'))
-    ctx.blockConcurrencyWhile(() => this.service.load())
+    ctx.blockConcurrencyWhile(async () => {
+      if (clubId !== DEFAULT_CLUB_ID) this.record = await storage.get<ClubRecord>(CLUB_RECORD_KEY)
+      await this.service.load()
+      // Jobs are not stored: the scheduled posts wait for their times again (e13-t12)
+      this.forumSchedule.load()
+    })
   }
 
   async alarm() {
     await this.service.runDue()
   }
 
+  /** This club's own part of the backup bucket (e12-t03): 淡江's `daily/…` as it was, `clubs/<id>/daily/…` for any other club */
+  private backups() {
+    return this.env.BACKUPS && scopedBucket(this.env.BACKUPS, clubStoragePrefix(this.clubId))
+  }
+
   /** The daily backup to R2, called by the cron trigger (worker/index.ts `scheduled`) */
   async backup() {
-    if (!this.env.BACKUPS) {
-      jsonLog({ event: 'backup', ok: false, error: 'no BACKUPS binding' })
+    const bucket = this.backups()
+    if (!bucket) {
+      this.log({ event: 'backup', ok: false, error: 'no BACKUPS binding' })
       return null
     }
     try {
-      const result = await runBackup(this.store, this.env.BACKUPS, Date.now())
-      jsonLog({ event: 'backup', ok: true, name: result.name, keys: result.keys, rows: result.rows, bytes: result.bytes, deleted: result.deleted.length })
+      const result = await runBackup(this.store, bucket, Date.now())
+      this.log({ event: 'backup', ok: true, name: result.name, keys: result.keys, rows: result.rows, bytes: result.bytes, deleted: result.deleted.length })
       return result
     } catch (error) {
-      jsonLog({ event: 'backup', ok: false, error: error instanceof Error ? error.message : String(error) })
+      this.log({ event: 'backup', ok: false, error: error instanceof Error ? error.message : String(error) })
       throw error
+    }
+  }
+
+  // ── The platform (e12-t05, e12-t06; worker/platform.ts) ─────────────────────────────────────
+
+  /**
+   * Why this club answers nothing, or null when it is served: 淡江 always is; another club once the
+   * platform opened it (its `meta:club`) or while the `CLUBS` override names it, and not while
+   * suspended. Checked by every request and socket, whatever the Worker's copy of the registry says
+   */
+  private closedBecause(): ClubError | null {
+    if (this.clubId === DEFAULT_CLUB_ID) return null
+    if (this.record) return this.record.status === 'suspended' ? new ClubError('clubSuspended', {}, 403) : null
+    return knownClubs(this.env.CLUBS).includes(this.clubId) ? null : new ClubError('unknownClub', {}, 404)
+  }
+
+  /** A table's or an event's report to a club never opened is turned away (it offers it again later) */
+  private requireOpened() {
+    if (this.closedBecause()?.code === 'unknownClub') throw new Error(`Club ${this.clubId} is not open`)
+  }
+
+  /** The platform's logic, in 淡江's object; made per use, so it always writes to the current audit trail */
+  private platform(): PlatformService {
+    if (this.clubId !== DEFAULT_CLUB_ID) throw new ClubError('noSuchApi', {}, 404)
+    return new PlatformService(this.store, {
+      now: Date.now,
+      newId: () => randomId(8),
+      audit: this.book.auditTrail,
+      limit: this.applyLimit,
+      mailer: mailerFrom(this.env),
+      extraClubs: knownClubs(this.env.CLUBS),
+      log: this.log,
+      // The owner's bell (and push) hears of each new application; no owner, no notification
+      ...(this.env.PLATFORM_OWNER && {
+        notifyOwner: (params: { clubId: string; name: string }) => this.service.notifications.notify(this.env.PLATFORM_OWNER!, 'clubApplication', params),
+      }),
+      clubs: {
+        provision: (id, setup) => clubStub(this.env, id).platformProvision(setup),
+        setStatus: (id, status) => clubStub(this.env, id).platformSetStatus(status),
+        // 淡江's own from here: an object never calls itself
+        usage: (id) => (id === this.clubId ? this.platformUsage() : clubStub(this.env, id).platformUsage()),
+        forwardedSupport: (id) => (id === this.clubId ? this.platformForwardedSupport() : clubStub(this.env, id).platformForwardedSupport()),
+        setSupportStatus: (id, reportId, status) =>
+          id === this.clubId ? this.platformSupportStatus(reportId, status) : clubStub(this.env, id).platformSupportStatus(reportId, status),
+      },
+    })
+  }
+
+  /** The clubs the platform opened, for the Worker's routing and the daily backup (淡江's object only) */
+  async platformRegistry(): Promise<RegistryEntry[]> {
+    return this.platform().registry()
+  }
+
+  /** The registry and the platform's notices that are out, in one read: what `ClubRegistryCache` keeps (淡江's object only) */
+  async platformSnapshot(): Promise<RegistrySnapshot> {
+    return this.platform().snapshot()
+  }
+
+  /** This club's reports its admins forwarded, for the back office (RPC from 淡江's object; e12-t16) */
+  async platformForwardedSupport(): Promise<ForwardedSupport[]> {
+    return this.service.support.forwarded()
+  }
+
+  /** The platform owner resolved a forwarded report or opened it again (RPC from 淡江's object) */
+  async platformSupportStatus(reportId: string, status: SupportStatus): Promise<boolean> {
+    return this.service.support.setForwardedStatus(reportId, status)
+  }
+
+  /** A club's admin forwarded a report (RPC to 淡江's object): the owner's bell (and push) hears which club */
+  async platformSupportForwarded(name: string): Promise<void> {
+    if (this.clubId !== DEFAULT_CLUB_ID || !this.env.PLATFORM_OWNER) return
+    await this.service.notifications.notify(this.env.PLATFORM_OWNER, 'supportForwarded', { name })
+  }
+
+  private async tellOwnerOfSupport() {
+    const name = await this.clubName()
+    if (this.clubId === DEFAULT_CLUB_ID) await this.platformSupportForwarded(name)
+    else await clubStub(this.env, DEFAULT_CLUB_ID).platformSupportForwarded(name)
+  }
+
+  /** Opens this club with its first admin (the owner approved it); again changes nothing */
+  async platformProvision(setup: ClubSetup): Promise<void> {
+    if (this.clubId === DEFAULT_CLUB_ID) throw new Error('淡江 is never provisioned')
+    await this.service.provisionFounder(setup.username, setup.passwordHash)
+    if (this.record) return
+    const record: ClubRecord = {
+      id: this.clubId,
+      name: setup.name,
+      organisation: setup.organisation,
+      contactEmail: setup.contactEmail,
+      status: 'active',
+      approvedAt: setup.approvedAt,
+    }
+    await this.ctx.storage.put(CLUB_RECORD_KEY, record)
+    this.record = record
+    this.log({ event: 'clubStatus', status: 'provisioned' })
+  }
+
+  /** Suspends this club (every session ends, every socket closes, nothing is deleted) or serves it again */
+  async platformSetStatus(status: ClubStatus): Promise<void> {
+    if (this.clubId === DEFAULT_CLUB_ID || !this.record) throw new Error(`Club ${this.clubId} has no record`)
+    const record: ClubRecord = { ...this.record, status }
+    await this.ctx.storage.put(CLUB_RECORD_KEY, record)
+    this.record = record
+    if (status === 'suspended') await this.service.endEverySession()
+    this.log({ event: 'clubStatus', status })
+  }
+
+  /** This club's size for the back office: counts from its own storage, R2 and D1 (rough) */
+  async platformUsage(): Promise<ClubUsage> {
+    const bucket = this.backups()
+    const backupBytes = bucket ? (await listBackups(bucket)).reduce((n, b) => n + b.size, 0) : null
+    let historyRows: number | null = null
+    if (this.env.HISTORY) {
+      try {
+        const [rows] = await d1Replica(this.env.HISTORY).batch([
+          { sql: 'SELECT COUNT(*) AS n FROM boards_index WHERE club_id = ?', params: [this.clubId] },
+        ])
+        historyRows = Number(rows?.[0]?.n ?? 0)
+      } catch {
+        // No copy yet (a new database): nothing to count
+      }
+    }
+    return {
+      ...this.service.platformCounts(),
+      storageBytes: this.ctx.storage.sql.databaseSize,
+      filesBytes: (await this.files.usage()).bytes,
+      backupBytes,
+      historyRows,
     }
   }
 
@@ -290,16 +582,19 @@ export class Club extends DurableObject<Env> implements Connections {
 
   /** A table's lobby entry changed (`ClubLink.changed`) */
   async tableChanged(entry: TableEntry) {
+    this.requireOpened()
     await this.service.link.changed(entry)
   }
 
   /** A table closed (`ClubLink.closed`) */
   async tableClosed(tableId: string) {
+    this.requireOpened()
     await this.service.link.closed(tableId)
   }
 
   /** A table finished a board (`ClubLink.boardFinished`); a failure makes the table offer it again */
   async tableBoardFinished(record: BoardRecord, event: EventReport | null, stats?: TableStats) {
+    this.requireOpened()
     await this.service.link.boardFinished(record, event, stats)
   }
 
@@ -315,12 +610,60 @@ export class Club extends DurableObject<Env> implements Connections {
 
   /** A challenge in its own object changed on its own (`EventLink.changed`, H2b); a failure makes it tell again */
   async eventChanged(snapshot: EventSnapshot) {
+    this.requireOpened()
     await this.service.eventLink.changed(snapshot)
+  }
+
+  /** A team match in its own object tells a change again (`EventLink.matchChanged`, H2c); a failure makes it tell again */
+  async matchChanged(snapshot: MatchSnapshot) {
+    this.requireOpened()
+    await this.service.eventLink.matchChanged(snapshot)
+  }
+
+  /** A pairs event in its own object tells a change again (`EventLink.pairsChanged`, §5.22) */
+  async pairsChanged(snapshot: PairsSnapshot) {
+    this.requireOpened()
+    await this.service.pairs.changed(snapshot)
   }
 
   /** Whose session this is, for a table's connection: the Worker asks once per connection */
   async socketUser(token: string | null): Promise<string | null> {
+    // A suspended club (or one never opened) lets nobody connect (e12-t05)
+    if (this.closedBecause()) return null
     return (await this.service.userForToken(token))?.id ?? null
+  }
+
+  /**
+   * The cross-club lobby (e12-t07, ARCHITECTURE.md §1「跨社團大廳」), asked over RPC by the Worker
+   * only (`worker/routing.ts`; a browser never reaches a Durable Object): whether this club's member
+   * may use it, this club's tables shown to other clubs, and one of them as a guest watches it
+   */
+  async publicViewer(userId: string): Promise<boolean> {
+    return this.service.publicViewer(userId)
+  }
+  async publicTables(): Promise<PublicTable[]> {
+    return this.service.publicTables().map((table) => this.named(table))
+  }
+  async guestTable(tableId: string): Promise<GuestTable | null> {
+    const table = await this.service.guestTable(tableId)
+    return table && this.named(table)
+  }
+  /**
+   * `GET /api/notices` (e12-t15, worker/routing.ts): whether this session is a member's, and the
+   * club's banner. RPC from the Worker only, which adds the platform's notices from its own copy
+   */
+  async memberNotices(token: string | null): Promise<{ signedIn: boolean; banner: ClubBanner | null }> {
+    if (this.closedBecause() || !(await this.service.userForToken(token))) return { signedIn: false, banner: null }
+    return { signedIn: true, banner: await this.service.banners.current() }
+  }
+  /** The name the club is shown by, for its home-screen app's manifest (worker/manifest.ts): RPC from the Worker only */
+  async clubName(): Promise<string> {
+    return this.record?.name || clubName(this.clubId)
+  }
+  /** The name the platform opened the club with (its `meta:club`, e12-t06), else shared/clubs.ts's */
+  private named<T extends { clubName: string }>(table: T): T {
+    const name = this.record?.name
+    return name ? { ...table, clubName: name } : table
   }
 
   onlineUserIds(): string[] {
@@ -353,14 +696,49 @@ export class Club extends DurableObject<Env> implements Connections {
     let response: Response
     let code: string | undefined
     try {
+      // A club never opened or suspended answers nothing else (e12-t05, e12-t06)
+      const closed = this.closedBecause()
+      if (closed) throw closed
       response = await this.route(request, url)
     } catch (error) {
       code = error instanceof AppError ? error.code : 'serverError'
-      response = errorResponse(error)
+      response = errorResponse(error, this.log)
     }
     this.service.logEntry({ event: 'http', method: request.method, path: url.pathname, status: response.status, ms: Date.now() - started, ...(code ? { code } : {}) })
     await this.edgePass(request, url, response)
+    this.deviceId(request, url, response)
     return response
+  }
+
+  /**
+   * Gives a signed-in browser without one its `tbt_device` id (e11-t25) with its next `/api/me`, so
+   * browsers signed in before the report existed get one without signing in again
+   */
+  private deviceId(request: Request, url: URL, response: Response) {
+    if (url.pathname !== '/api/me' || !response.ok) return
+    const cookies = request.headers.get('Cookie')
+    if (!readCookie(cookies, sessionCookieName(this.clubId)) || validDevice(readCookie(cookies, DEVICE_COOKIE))) return
+    try {
+      response.headers.append('Set-Cookie', deviceCookie(randomId(12), url.protocol === 'https:'))
+    } catch {
+      // An answer whose headers cannot change (none of ours): the next one tries again
+    }
+  }
+
+  /**
+   * Notes where a member signed in or connected from (the anti-cheating report, e11-t25): the
+   * address's hash and the browser's id. A sign-in from a browser with no id gets one: its cookie
+   */
+  private async sighting(request: Request, userId: string, secure: boolean, fresh = false): Promise<string[]> {
+    const had = readCookie(request.headers.get('Cookie'), DEVICE_COOKIE)
+    const device = validDevice(had) ? had! : fresh ? randomId(12) : ''
+    await this.service.noteSighting(
+      userId,
+      request.headers.get('CF-Connecting-IP') ?? '',
+      device,
+      deviceLabel(request.headers.get('User-Agent')),
+    )
+    return device && device !== had ? [deviceCookie(device, secure)] : []
   }
 
   /**
@@ -373,31 +751,143 @@ export class Club extends DurableObject<Env> implements Connections {
     if (!secret || !url.pathname.startsWith('/api/') || url.pathname === '/api/book/import') return
     if (response.headers.has('Set-Cookie') || response.headers.get('Cache-Control') !== 'no-store') return
     const cookies = request.headers.get('Cookie')
-    const token = readCookie(cookies, SESSION_COOKIE)
-    const pass = readCookie(cookies, PASS_COOKIE)
+    const token = readCookie(cookies, sessionCookieName(this.clubId))
+    const pass = readCookie(cookies, passCookieName(this.clubId))
     if (!token && !pass) return
     try {
-      if (!(await passNeedsRefresh(secret, pass, Date.now()))) return
+      if (!(await passNeedsRefresh(secret, pass, Date.now(), this.clubId))) return
       const who = await this.service.passIdentity(token)
       const secure = url.protocol === 'https:'
-      if (who) response.headers.append('Set-Cookie', passCookie(await mintPass(secret, who.userId, who.sessionId, Date.now()), secure))
-      else if (pass) response.headers.append('Set-Cookie', passCookie('', secure))
+      if (who) response.headers.append('Set-Cookie', passCookie(await mintPass(secret, who.userId, who.sessionId, Date.now(), this.clubId), secure, this.clubId))
+      else if (pass) response.headers.append('Set-Cookie', passCookie('', secure, this.clubId))
     } catch (error) {
       // An answer whose headers cannot change (none of ours): the Worker asks the club instead
-      jsonLog(crashEntry('edgePass', error))
+      this.log(crashEntry('edgePass', error))
     }
   }
 
   /** The cookies of a sign-in: the session, and its first edge pass when passes are on */
   private async signedIn(token: string, userId: string, secure: boolean): Promise<string[]> {
-    const cookies = [sessionCookie(token, secure)]
+    const cookies = [sessionCookie(token, secure, this.clubId)]
     const who = this.edgeSecret ? await this.service.passIdentity(token) : null
-    if (who?.userId === userId) cookies.push(passCookie(await mintPass(this.edgeSecret!, userId, who.sessionId, Date.now()), secure))
+    if (who?.userId === userId) cookies.push(passCookie(await mintPass(this.edgeSecret!, userId, who.sessionId, Date.now(), this.clubId), secure, this.clubId))
     return cookies
   }
 
+  /** A provider's flow cookie in this club (e12-t04): each club's flow is its own */
+  private readonly flowCookie = (name: OAuthName, id: string, secure: boolean, maxAgeMs?: number) =>
+    flowCookie(name, id, secure, maxAgeMs, this.clubId)
+
+  /**
+   * Where a flow started on this site goes back to (e12-t04): a page of this club, whatever path
+   * the page sent; 淡江橋館's paths are its own and stay as they are
+   */
+  private inClub(site: 'table' | 'book', path: string): string {
+    if (site === 'book' || this.clubId === DEFAULT_CLUB_ID) return path
+    return clubOfPath(path)?.clubId === this.clubId ? path : clubPath(this.clubId, path)
+  }
+
+  /**
+   * Google sign-in's and LINE login's routes that need no session (e1-t31, e1-t32), for provider
+   * `name`. The page sends its own origin, which must be this Worker's or 淡江橋館's (`oauthSite`):
+   * the callback, and so the cookies, stay on that site. The callback answers with a redirect to a
+   * path on the same site (relative, so it stays on 淡江橋館 when Vercel passed it here): the place
+   * the member was, the code step, the application form or an error code for the page to show
+   */
+  private async oauthApi(name: OAuthName, request: Request, url: URL, route: string, token: string | null, body: () => Promise<Body>) {
+    const secure = url.protocol === 'https:'
+    const flowId = readCookie(request.headers.get('Cookie'), flowCookieName(name, this.clubId))
+    const flowCookie = this.flowCookie
+    const base = `/api/auth/${name}`
+    if (route === `GET ${base}`) return json(this.service.oauthStatus(name))
+    if (route === `POST ${base}/start`) {
+      const b = await body()
+      const site = oauthSite(text(b.origin), url)
+      if (!site) throw new ClubError(`${name}Off`, {}, 403)
+      const address = request.headers.get('CF-Connecting-IP') ?? ''
+      const { url: to, flowId: id } = await this.service.startOAuth(
+        name,
+        `${site.origin}${callbackPath(name, this.clubId)}`,
+        site.site,
+        this.inClub(site.site, safeReturn(b.returnTo)),
+        address,
+      )
+      return json({ url: to }, 200, flowCookie(name, id, secure))
+    }
+    if (route === `GET ${base}/callback`) {
+      const params = url.searchParams
+      const query = { state: params.get('state') ?? '', code: params.get('code') ?? '', error: params.get('error') ?? '' }
+      const sessionUser = (await this.service.userForToken(token))?.id ?? null
+      let outcome: OAuthOutcome
+      try {
+        outcome = await this.service.finishOAuth(name, flowId, query, sessionUser, request.headers.get('User-Agent') ?? '')
+      } catch (error) {
+        // The provider switched off between the start and the way back
+        if (!(error instanceof AppError)) throw error
+        outcome = { kind: 'failed', code: `${name}Off`, link: false, site: 'table' }
+      }
+      return this.oauthRedirect(name, request, outcome, secure)
+    }
+    if (route === `GET ${base}/pending`) return json(await this.service.oauthPending(name, flowId))
+    if (route === `POST ${base}/code`) {
+      const b = await body()
+      const { user, token: newToken, returnTo } = await this.service.finishOAuthCode(
+        name,
+        flowId,
+        text(b.code),
+        request.headers.get('CF-Connecting-IP') ?? '',
+        request.headers.get('User-Agent') ?? '',
+        b.lang,
+      )
+      const device = await this.sighting(request, user.id, secure, true)
+      return json({ user, returnTo }, 200, ...(await this.signedIn(newToken, user.id, secure)), ...device, flowCookie(name, '', secure))
+    }
+    return null
+  }
+
+  /**
+   * Where a Google or LINE callback sends the browser, with the cookies it ends with. The page
+   * learns what happened from `?<provider>=code|apply|linked|error&code=…`
+   */
+  private async oauthRedirect(name: OAuthName, request: Request, outcome: OAuthOutcome, secure: boolean): Promise<Response> {
+    // 淡江牌桌 shows its sign-in page on any path when signed out (another club's at its own
+    // address, e12-t04); 淡江橋館's is /login
+    const table = (path: string) => (outcome.site === 'book' ? path : clubPath(this.clubId, path))
+    const signIn = outcome.site === 'book' ? '/login' : table('/')
+    const flowCookie = this.flowCookie
+    const headers = new Headers({ 'Cache-Control': 'no-store' })
+    let location: string
+    let cookies: string[]
+    switch (outcome.kind) {
+      case 'signedIn': {
+        location = safeReturn(outcome.returnTo)
+        const device = await this.sighting(request, outcome.user.id, secure, true)
+        cookies = [...(await this.signedIn(outcome.token, outcome.user.id, secure)), ...device, flowCookie(name, '', secure)]
+        break
+      }
+      case 'code':
+        location = `${signIn}?${name}=code`
+        cookies = [flowCookie(name, outcome.flowId, secure, OAUTH_CODE_MS)]
+        break
+      case 'apply':
+        location = `${signIn}?${name}=apply`
+        cookies = [flowCookie(name, outcome.flowId, secure, OAUTH_APPLY_MS)]
+        break
+      case 'linked':
+        location = table(`/account?${name}=linked`)
+        cookies = [flowCookie(name, '', secure)]
+        break
+      default:
+        location = `${outcome.link ? table('/account') : signIn}?${name}=error&code=${outcome.code}`
+        cookies = [flowCookie(name, '', secure)]
+    }
+    headers.set('Location', location)
+    for (const cookie of cookies) headers.append('Set-Cookie', cookie)
+    return new Response(null, { status: 302, headers })
+  }
+
   private async route(request: Request, url: URL): Promise<Response> {
-    const token = readCookie(request.headers.get('Cookie'), SESSION_COOKIE)
+    const token = readCookie(request.headers.get('Cookie'), sessionCookieName(this.clubId))
     if (url.pathname === '/api/book/import') return this.importUpload(request)
     if (url.pathname.startsWith(`${FILES_PATH}upload/`)) return this.fileUpload(request, url)
     if (url.pathname === '/ws') return this.upgrade(request, token)
@@ -424,7 +914,7 @@ export class Club extends DurableObject<Env> implements Connections {
         headers: { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-store' },
       })
     } catch (error) {
-      response = errorResponse(error)
+      response = errorResponse(error, this.log)
     }
     for (const [key, value] of Object.entries(IMPORT_CORS)) response.headers.set(key, value)
     return response
@@ -442,7 +932,7 @@ export class Club extends DurableObject<Env> implements Connections {
       const bytes = await readFileUpload(request, await this.files.uploadMax(token, part))
       response = json({ file: await this.files.upload(token, part, bytes) })
     } catch (error) {
-      response = errorResponse(error)
+      response = errorResponse(error, this.log)
     }
     for (const [key, value] of Object.entries(FILE_CORS)) response.headers.set(key, value)
     return response
@@ -456,7 +946,38 @@ export class Club extends DurableObject<Env> implements Connections {
     this.ctx.acceptWebSocket(server, [user.id])
     server.serializeAttachment({ userId: user.id } satisfies Attachment)
     this.service.connected(user.id)
+    await this.sighting(request, user.id, false)
     return new Response(null, { status: 101, webSocket: client })
+  }
+
+  /** `/api/platform/*` (e12-t05): the clubs and their usage, the applications, suspending */
+  private async platformApi(request: Request, url: URL, user: Me, body: () => Promise<Body>) {
+    const owner = requirePlatformOwner(user, this.env.PLATFORM_OWNER, this.clubId)
+    const platform = this.platform()
+    const route = `${request.method} ${url.pathname}`
+    if (route === 'GET /api/platform') return json(await platform.view())
+    const decision = /^POST \/api\/platform\/applications\/([\w-]+)\/(approve|reject)$/.exec(route)
+    if (decision) {
+      if (decision[2] === 'approve') return json(await platform.approve(owner, decision[1], url.origin))
+      return json(await platform.reject(owner, decision[1], (await body()).note))
+    }
+    // The platform's notices (e12-t15)
+    if (route === 'POST /api/platform/notices') return json(await platform.saveNotice(owner, await body()))
+    const notice = /^POST \/api\/platform\/notices\/([\w-]+)\/(publish|withdraw|delete)$/.exec(route)
+    if (notice) {
+      if (notice[2] === 'publish') return json(await platform.publishNotice(owner, notice[1]))
+      if (notice[2] === 'withdraw') return json(await platform.withdrawNotice(owner, notice[1]))
+      return json(await platform.deleteNotice(owner, notice[1]))
+    }
+    // A forwarded support report resolved or opened again (e12-t16); it lives in its club's object
+    const report = /^POST \/api\/platform\/support\/([\w-]+)\/([\w-]+)\/status$/.exec(route)
+    if (report) return json(await platform.setSupportStatus(owner, report[1], report[2], (await body()).status))
+    const status = /^POST \/api\/platform\/clubs\/([\w-]+)\/status$/.exec(route)
+    if (status) {
+      const b = await body()
+      return json(await platform.setStatus(owner, status[1], b.status, b.note))
+    }
+    throw new ClubError('noSuchApi', {}, 404)
   }
 
   private async api(request: Request, url: URL, token: string | null) {
@@ -482,8 +1003,19 @@ export class Club extends DurableObject<Env> implements Connections {
       if (!ok) throw new ClubError('badMessage')
       return new Response(null, { status: 204 })
     }
+    // What 申請加入 needs before it is sent (e1-t33): Turnstile's site key, or null when it is off
+    if (route === 'GET /api/register/options') {
+      return json({ turnstileSiteKey: turnstileKeys(this.env)?.siteKey ?? null } satisfies RegisterOptions)
+    }
     if (route === 'POST /api/register') {
       const b = await body()
+      const address = request.headers.get('CF-Connecting-IP') ?? ''
+      const turnstile = turnstileKeys(this.env)
+      if (turnstile) await requireTurnstile(turnstile.secret, text(b.turnstileToken), address, this.log)
+      // Applying with Google or LINE (e1-t31, e1-t32): `google: true` or `line: true` uses the flow the
+      // callback left in this browser's cookie
+      const via: OAuthName | undefined = b.google === true ? 'google' : b.line === true ? 'line' : undefined
+      const oauth = via && { name: via, flow: readCookie(request.headers.get('Cookie'), flowCookieName(via, this.clubId)) }
       const result = await this.service.register(
         text(b.username),
         text(b.password),
@@ -491,10 +1023,17 @@ export class Club extends DurableObject<Env> implements Connections {
         text(b.note),
         b.site === 'book' ? 'book' : 'table',
         request.headers.get('User-Agent') ?? '',
+        address,
+        { oauth, displayName: b.displayName },
       )
-      if ('pending' in result) return json(result, 202)
-      return json({ user: result.user }, 200, ...(await this.signedIn(result.token, result.user.id, secure)))
+      const cleared = via ? [this.flowCookie(via, '', secure)] : []
+      if ('pending' in result) return json(result, 202, ...cleared)
+      const device = await this.sighting(request, result.user.id, secure, true)
+      return json({ user: result.user }, 200, ...(await this.signedIn(result.token, result.user.id, secure)), ...device, ...cleared)
     }
+    // `code` is the second step (兩步驟登入, e11-t31), only for accounts that turned it on: without
+    // it they get 401 twoFactorNeeded and send the same request again with it. Everyone else's
+    // request and answer are as before (TKU BridgeHall signs in here too)
     if (route === 'POST /api/login') {
       const b = await body()
       const { user, token: newToken } = await this.service.login(
@@ -502,12 +1041,22 @@ export class Club extends DurableObject<Env> implements Connections {
         text(b.password),
         request.headers.get('CF-Connecting-IP') ?? '',
         request.headers.get('User-Agent') ?? '',
+        text(b.code),
+        b.lang,
       )
-      return json({ user }, 200, ...(await this.signedIn(newToken, user.id, secure)))
+      const device = await this.sighting(request, user.id, secure, true)
+      return json({ user }, 200, ...(await this.signedIn(newToken, user.id, secure)), ...device)
+    }
+    // Google sign-in and LINE login (e1-t31, e1-t32, worker/oauth.ts): whether each is on, the way to
+    // the provider and back, the code step for 兩步驟登入 and what the sign-in page should show after coming back
+    const provider = /^\/api\/auth\/(google|line)(\/|$)/.exec(url.pathname)?.[1] as OAuthName | undefined
+    if (provider) {
+      const answer = await this.oauthApi(provider, request, url, route, token, body)
+      if (answer) return answer
     }
     if (route === 'POST /api/logout') {
       if (token) await this.service.logout(token)
-      return json({ ok: true }, 200, sessionCookie('', secure), passCookie('', secure))
+      return json({ ok: true }, 200, sessionCookie('', secure, this.clubId), passCookie('', secure, this.clubId))
     }
     // 忘記密碼 (e1-t36): ask with the invite code, an admin approves, the code they hand over sets the password
     if (route === 'POST /api/password/reset/request') {
@@ -521,9 +1070,48 @@ export class Club extends DurableObject<Env> implements Connections {
       await this.service.resetForgottenPassword(text(b.username), text(b.code), text(b.password), address)
       return json({ ok: true })
     }
+    // Email (e1-t29, e1-t30): whether it is on, a verification link, and 忘記密碼 by a link mailed
+    // to the verified address. No sign-in: the links are the proof, and asking says nothing about
+    // whether the account or the address exists
+    if (route === 'GET /api/email') return json(this.service.emailStatus())
+    if (route === 'POST /api/email/verify') return json(await this.service.verifyEmail(text((await body()).token)))
+    if (route === 'POST /api/email/reset/request') {
+      const b = await body()
+      const address = request.headers.get('CF-Connecting-IP') ?? ''
+      await this.service.requestEmailReset(text(b.account), url.origin, b.lang, address)
+      return json({ ok: true })
+    }
+    if (route === 'POST /api/email/reset') {
+      const b = await body()
+      const address = request.headers.get('CF-Connecting-IP') ?? ''
+      return json(await this.service.resetPasswordByEmail(text(b.token), text(b.password), address))
+    }
     // A picture by its signed address (e11-t02): the signature is the check, so no sign-in
     if (request.method === 'GET' && url.pathname.startsWith(FILES_PATH)) {
       return this.files.serve(decodeURIComponent(url.pathname.slice(FILES_PATH.length)), url)
+    }
+
+    // Applying for a new club (e12-t06): 淡江's object only (another club's refuses), no sign-in, open once the platform has an owner
+    if (url.pathname === CLUB_APPLY_API) {
+      requireApplyClub(this.clubId)
+      const open = !!this.env.PLATFORM_OWNER
+      const turnstile = turnstileKeys(this.env)
+      if (request.method === 'GET') return json({ open, turnstileSiteKey: turnstile?.siteKey ?? null } satisfies ClubApplyOptions)
+      if (request.method === 'POST') {
+        if (!open) throw new ClubError('clubApplyClosed', {}, 403)
+        const b = await body()
+        const address = request.headers.get('CF-Connecting-IP') ?? ''
+        if (turnstile) await requireTurnstile(turnstile.secret, text(b.turnstileToken), address, this.log)
+        return json(await this.platform().apply(b, address), 202)
+      }
+    }
+
+    // The owner's two-step sign-in reset (DEPLOY.md §4.15): only with TWO_FACTOR_RESET_TOKEN, which
+    // exists only while the owner has set it with wrangler; without it (or with a wrong one) the route
+    // is answered as if it were not there
+    if (route === 'POST /api/ops/two-factor-reset') {
+      if (!(await seedTokenMatches(request, this.env.TWO_FACTOR_RESET_TOKEN))) throw new ClubError('noSuchApi', {}, 404)
+      return json(await this.service.ownerResetTwoFactor(text((await body()).username)))
     }
 
     const user = await this.service.userForToken(token)
@@ -542,6 +1130,17 @@ export class Club extends DurableObject<Env> implements Connections {
     // A convention card version shared by link (BridgeHall e3-t09): anyone, signed in or not
     const shared = request.method === 'GET' ? await this.sharedCardResponse(url.pathname) : null
     if (shared) return shared
+    // A board's public link (e4-t38): anyone, signed in or not; rate-limited per address (worker/board-shares.ts)
+    const shareLink = url.pathname.match(/^\/api\/share\/([\w-]+)$/)
+    if (request.method === 'GET' && shareLink) {
+      const response = json({ shared: await this.service.shares.open(shareLink[1], request.headers.get('CF-Connecting-IP') ?? '') })
+      response.headers.set('X-Robots-Tag', 'noindex')
+      return response
+    }
+    // The club's system card (e5-t52): before the sign-in check, so the signed-out and other clubs get
+    // the same not-found answer
+    const tkuCard = tkuCardResponse(request.method, url.pathname, this.clubId, user, tkuSystemCard)
+    if (tkuCard) return tkuCard
     // Everything else needs signing in, BridgeHall's reading included: its whole site is for members
     // since 2026-10-29 (the handbook, glossary, practice fixes, learning paths, library and profiles)
     if (!user) throw new ClubError('signInFirst', {}, 401)
@@ -571,13 +1170,65 @@ export class Club extends DurableObject<Env> implements Connections {
       return json(ebookRead.id ? await this.ebooks.get(reader, ebookRead.id) : await this.ebooks.list(reader))
     }
     if (route === 'GET /api/me') return json({ user })
+    // The platform's back office (e12-t05): the owner only; for anyone else (and on any club but 淡江) there is none
+    if (url.pathname === '/api/platform' || url.pathname.startsWith('/api/platform/')) return this.platformApi(request, url, user, body)
     if (url.pathname.startsWith('/api/book/')) return this.bookApi(request, url, user, body)
     if (url.pathname.startsWith('/api/club/')) return this.clubApi(request, url, user, body)
     if (url.pathname.startsWith('/api/forum/')) return this.forumApi(request, url, user, body)
+    // A member's support report (e12-t16): the browser from the request, never the address
+    if (route === 'POST /api/support') return json(await this.service.sendSupportReport(user.id, await body(), request.headers.get('User-Agent') ?? ''), 202)
+    if (route === 'GET /api/support/mine') return json(this.service.mySupportReports(user.id))
     if (route === 'POST /api/account/password') {
       const b = await body()
       await this.service.changePassword(user.id, text(b.current), text(b.next), token)
       return json({ ok: true })
+    }
+    // The member's email (e1-t29): bind or change it (a link goes to it), remove it, or resend the link
+    if (route === 'POST /api/account/email') {
+      const b = await body()
+      return json({ user: await this.service.setEmail(user.id, text(b.address), text(b.password), url.origin, b.lang) })
+    }
+    if (route === 'POST /api/account/email/resend') {
+      return json({ user: await this.service.resendEmailVerification(user.id, url.origin, (await body()).lang) })
+    }
+    // Google sign-in and LINE login (e1-t31, e1-t32): binding asks for the password again, then goes to
+    // the provider; unbinding asks for it too
+    const bound = /^POST \/api\/account\/(google|line)\/(link|unlink)$/.exec(route)
+    if (bound) {
+      const name = bound[1] as OAuthName
+      const b = await body()
+      if (bound[2] === 'unlink') return json({ user: await this.service.unlinkOAuth(name, user.id, text(b.password)) })
+      const site = oauthSite(text(b.origin), url)
+      if (!site) throw new ClubError(`${name}Off`, {}, 403)
+      const address = request.headers.get('CF-Connecting-IP') ?? ''
+      const { url: to, flowId } = await this.service.startOAuth(name, `${site.origin}${callbackPath(name, this.clubId)}`, site.site, this.inClub(site.site, '/account'), address, {
+        userId: user.id,
+        password: text(b.password),
+      })
+      return json({ url: to }, 200, this.flowCookie(name, flowId, secure))
+    }
+    // Push notifications (e1-t28, worker/push.ts): this member's devices and choices; off without the VAPID secrets
+    if (url.pathname.startsWith('/api/push')) {
+      const push = this.service.push
+      if (route === 'GET /api/push') return json(await push.view(user.id))
+      if (route === 'POST /api/push/subscribe') return json(await push.subscribe(user.id, await body(), request.headers.get('User-Agent') ?? ''))
+      if (route === 'POST /api/push/unsubscribe') return json(await push.unsubscribe(user.id, text((await body()).id)))
+      if (route === 'POST /api/push/kinds') return json(await push.setKinds(user.id, (await body()).kinds))
+      if (route === 'POST /api/push/test') {
+        const id = (await body()).id
+        return json({ devices: await push.test(user.id, typeof id === 'string' && id ? id : undefined) })
+      }
+    }
+    // 兩步驟登入 (e11-t31): a secret to set up (admins), its first code turns it on, new recovery codes, off
+    if (route === 'POST /api/account/2fa/setup') return json(await this.service.startTwoFactor(user.id, text((await body()).password)))
+    if (route === 'POST /api/account/2fa/enable') return json(await this.service.enableTwoFactor(user.id, text((await body()).code), token))
+    if (route === 'POST /api/account/2fa/recovery') {
+      const b = await body()
+      return json(await this.service.renewRecoveryCodes(user.id, text(b.password), text(b.code)))
+    }
+    if (route === 'POST /api/account/2fa/disable') {
+      const b = await body()
+      return json({ user: await this.service.disableTwoFactor(user.id, text(b.password), text(b.code), b.lang) })
     }
     // Where the member is signed in, and signing other devices out (e11-t23)
     if (route === 'GET /api/account/sessions') return json({ sessions: await this.service.accountSessions(user.id, token) })
@@ -589,7 +1240,8 @@ export class Club extends DurableObject<Env> implements Connections {
     }
     // The member's own data, and deleting their account (e11-t27)
     if (route === 'GET /api/account/export') {
-      const data = await this.service.exportAccount(user.id, token)
+      // With the pictures they uploaded (e13-t13): keys, types and sizes, not the bytes
+      const data = { ...(await this.service.exportAccount(user.id, token)), files: await this.files.ownedBy(user.id) }
       return new Response(JSON.stringify(data, null, 2), {
         headers: {
           'Content-Type': 'application/json; charset=utf-8',
@@ -598,9 +1250,11 @@ export class Club extends DurableObject<Env> implements Connections {
         },
       })
     }
+    // The boards they imported, a page at a time (e4-t39): the page joins them to the file above
+    if (route === 'GET /api/account/export/imported') return json(await this.service.exportImported(user.id, url.searchParams.get('after')))
     if (route === 'POST /api/account/delete') {
       await this.service.deleteOwnAccount(user.id, text((await body()).password))
-      return json({ ok: true }, 200, sessionCookie('', secure), passCookie('', secure))
+      return json({ ok: true }, 200, sessionCookie('', secure, this.clubId), passCookie('', secure, this.clubId))
     }
     if (route === 'POST /api/account/preferences') {
       const b = await body()
@@ -609,6 +1263,8 @@ export class Club extends DurableObject<Env> implements Connections {
           bookAdoptedNotice: b.bookAdoptedNotice,
           bookProfile: b.bookProfile,
           robotSpeed: b.robotSpeed,
+          profileBoards: b.profileBoards,
+          profilePosts: b.profilePosts,
         }) })
     }
     if (route === 'PATCH /api/account/profile') return json({ user: await this.service.setProfile(user.id, await body()) })
@@ -617,7 +1273,8 @@ export class Club extends DurableObject<Env> implements Connections {
     if (route === 'DELETE /api/account/avatar') return json({ user: await this.service.deleteAvatar(user.id) })
     // Pictures for posts and articles (e11-t02): a pass to upload one, fresh addresses, removing one
     if (route === 'POST /api/files/ticket') return json(await this.files.createTicket(user.id, await body()))
-    if (route === 'POST /api/files/urls') return json(await this.files.urls((await body()).keys))
+    // A forum picture only for its uploader or a reader of a post using it (e13-t13)
+    if (route === 'POST /api/files/urls') return json(await signFiles(this.files, this.forum, user, (await body()).keys))
     if (request.method === 'DELETE' && url.pathname.startsWith(FILES_PATH)) {
       // The forum's officers (and admins) may remove anyone's picture (BridgeHall e11-t09)
       await this.files.remove(user.id, decodeURIComponent(url.pathname.slice(FILES_PATH.length)), moderatesForum(user))
@@ -628,7 +1285,9 @@ export class Club extends DurableObject<Env> implements Connections {
     if (request.method === 'GET' && avatar) return avatarResponse(await this.service.avatar(avatar[1]), request)
     // Another member's profile card (AC-1.5)
     const member = url.pathname.match(/^\/api\/members\/([\w-]+)$/)
-    if (request.method === 'GET' && member) return json({ member: await this.service.memberProfile(user.id, member[1]) })
+    if (request.method === 'GET' && member)
+      // `hidden`: what the member keeps off their page for this viewer (e13-t08); BridgeHall reads only `member`
+      return json({ member: await this.service.memberProfile(user.id, member[1]), hidden: this.service.profileHidden(user.id, member[1]) })
     // A page of the member's own conversation with another member (AC-1.7); new messages come over the socket
     const conversation = url.pathname.match(/^\/api\/messages\/([\w-]+)$/)
     if (request.method === 'GET' && conversation) {
@@ -642,11 +1301,46 @@ export class Club extends DurableObject<Env> implements Connections {
     }
     if (route === 'GET /api/history/search') return json(await this.service.search(user.id, parseHistoryQuery(url.searchParams)))
     if (route === 'GET /api/history/days') return json(this.service.historyDays(user.id, parseHistoryQuery(url.searchParams)))
+    // The records page's search as one PBN file (e4-t36): its first LIMITS.exportBoardsMax boards
+    if (route === 'GET /api/history/export.pbn') {
+      const { records, total } = await this.service.exportBoards(user.id, parseHistoryQuery(url.searchParams))
+      return textFile(toPbnFile(records), `tku-records-${records.length}.pbn`, { 'X-Boards-Total': String(total) })
+    }
+    // Boards the browser read from a BBO LIN file (e4-t39), a batch at a time
+    if (route === 'POST /api/history/import') return json(await this.service.importBoards(user.id, await body()))
     const record = url.pathname.match(/^\/api\/history\/([\w-]+)$/)
+    if (request.method === 'DELETE' && record) {
+      await this.service.removeImported(user.id, record[1])
+      return json({ ok: true })
+    }
     if (request.method === 'GET' && record) {
       const found = await this.service.record(record[1], user.id)
       if (!found) throw new ClubError('boardGone', {}, 404)
       return json({ record: found })
+    }
+    // A board's whole session at its table (post-game analysis, e10-t12): only what the member may read
+    const sessionBoards = url.pathname.match(/^\/api\/history\/([\w-]+)\/session$/)
+    if (request.method === 'GET' && sessionBoards) {
+      const records = await this.service.session(sessionBoards[1], user.id)
+      if (!records) throw new ClubError('boardGone', {}, 404)
+      return json({ records })
+    }
+    // A board's whole session at its table as one LIN file (e4-t37)
+    const sessionLin = url.pathname.match(/^\/api\/history\/([\w-]+)\/session\.lin$/)
+    if (request.method === 'GET' && sessionLin) {
+      const records = await this.service.session(sessionLin[1], user.id)
+      if (!records) throw new ClubError('boardGone', {}, 404)
+      const first = records[0]
+      const place = first.mode === 'practice' ? 'Practice' : first.mode === 'imported' ? 'Imported' : `Table ${first.tableNumber}`
+      return textFile(toSessionLin(records, `TKU BridgeTable ${place}`), `tku-session-${sessionLin[1]}.lin`)
+    }
+    // A board's public link (e4-t38): its players and the admins see it, make it and take it back
+    const share = url.pathname.match(/^\/api\/history\/([\w-]+)\/share$/)
+    if (share && request.method === 'GET') return json({ share: await this.service.shares.get(user.id, share[1]) })
+    if (share && request.method === 'POST') return json({ share: await this.service.shares.create(user.id, share[1]) })
+    if (share && request.method === 'DELETE') {
+      await this.service.shares.revoke(user.id, share[1])
+      return json({ ok: true })
     }
     // A director's ruling on a board (e2-t35): `{ ruling }`, null to take one back; the record comes back
     const ruling = url.pathname.match(/^\/api\/history\/([\w-]+)\/ruling$/)
@@ -684,9 +1378,47 @@ export class Club extends DurableObject<Env> implements Connections {
     if (route === 'GET /api/practice/sets') return json({ sets: this.service.practiceSets() })
     if (route === 'GET /api/practice/presets') return json({ presets: await this.service.savedPractice(user.id) })
     if (route === 'POST /api/practice/presets') return json({ presets: await this.service.savePractice(user.id, await body()) })
+    // The member's own deals from PBN files (e10-t09)
+    if (route === 'GET /api/practice/deals') return json({ deals: await this.service.ownDealList(user.id) })
+    if (route === 'POST /api/practice/deals') return json(await this.service.importOwnDeals(user.id, await body()))
+    if (route === 'POST /api/practice/deals/remove') return json({ deals: await this.service.removeOwnDeals(user.id, (await body()).ids) })
     const preset = url.pathname.match(/^\/api\/practice\/presets\/([\w-]+)$/)
     if (preset && request.method === 'DELETE') return json({ presets: await this.service.removeSavedPractice(user.id, preset[1]) })
+    // Puzzles (e10-t14): the published ones; every card is checked against the stored data
+    if (route === 'GET /api/puzzles') return json({ puzzles: this.service.puzzles.list(user.id) })
+    const puzzle = url.pathname.match(/^\/api\/puzzles\/([\w-]+)(?:\/(play|retry|hint))?$/)
+    if (puzzle && request.method === 'GET' && !puzzle[2]) return json({ puzzle: this.service.puzzles.get(user.id, puzzle[1]) })
+    if (puzzle && request.method === 'POST' && puzzle[2] === 'play') return json({ puzzle: this.service.puzzles.play(user.id, puzzle[1], (await body()).card) })
+    if (puzzle && request.method === 'POST' && puzzle[2] === 'retry') return json({ puzzle: this.service.puzzles.retry(user.id, puzzle[1], (await body()).from) })
+    if (puzzle && request.method === 'POST' && puzzle[2] === 'hint') return json({ puzzle: this.service.puzzles.hint(user.id, puzzle[1]) })
+    // Partner bidding practice (e10-t08): only the session's two members, as worker/views.ts lets each see it
+    if (route === 'GET /api/partner-bidding') return json({ sessions: this.service.partnerBids.list(user.id) })
+    if (route === 'POST /api/partner-bidding') return json({ session: await this.service.partnerBids.create(user.id, await body()) })
+    const partnerBid = url.pathname.match(/^\/api\/partner-bidding\/([\w-]+)(?:\/(answer|call|abandon))?$/)
+    if (partnerBid && request.method === 'GET' && !partnerBid[2]) return json({ session: this.service.partnerBids.get(user.id, partnerBid[1]) })
+    if (partnerBid && request.method === 'POST' && partnerBid[2] === 'answer') {
+      const b = await body()
+      return json({ session: await this.service.partnerBids.answer(user.id, partnerBid[1], b.accept) })
+    }
+    if (partnerBid && request.method === 'POST' && partnerBid[2] === 'call') {
+      const b = await body()
+      return json({ session: await this.service.partnerBids.call(user.id, partnerBid[1], b.call) })
+    }
+    if (partnerBid && request.method === 'POST' && partnerBid[2] === 'abandon')
+      return json({ session: await this.service.partnerBids.abandon(user.id, partnerBid[1]) })
     if (route === 'GET /api/challenges') return json({ challenges: this.service.challengeList(user.id) })
+    // The daily club event's page (e9-t03): today's, yesterday's and the earlier days
+    if (route === 'GET /api/daily') return json({ daily: this.service.dailyEvent(user.id) })
+    // Club points and ratings (J2, ARCHITECTURE.md §5.21); the service checks the flag and who may
+    if (route === 'GET /api/rankings') return json({ board: this.service.rankings.leaderboard(user.id, url.searchParams) })
+    if (route === 'GET /api/rankings/ledger')
+      return json({ entries: this.service.rankings.memberLedger(user.id, url.searchParams) })
+    if (route === 'POST /api/rankings/rules') return json({ rules: await this.service.rankings.adminSetRules(user.id, await body()) })
+    if (route === 'POST /api/rankings/adjust') return json({ entry: this.service.rankings.adminAdjust(user.id, await body()) })
+    if (route === 'POST /api/ratings/visibility')
+      return json({ rating: this.service.rankings.setHidden(user.id, (await body()).hidden) })
+    const rated = url.pathname.match(/^\/api\/ratings\/([\w-]+)$/)
+    if (rated && request.method === 'GET') return json({ rating: this.service.rankings.rating(user.id, rated[1]) })
     // The challenge pages create, answer and cancel over HTTP to hear back at once (e7-t16, e7-t17)
     if (route === 'POST /api/challenges') {
       const b = await body()
@@ -712,17 +1444,96 @@ export class Club extends DurableObject<Env> implements Connections {
             : { type: 'rematchChallenge', challengeId }
       return json({ challenge: await this.service.challengeRequest(user.id, message) })
     }
+    // A member's challenge record (e7-t29): their own only
+    if (route === 'GET /api/challenges/stats') return json({ stats: this.service.challengeExtras.stats(user.id) })
+    // Each board's discussion thread (e7-t27); `challengeThreadAccess` decides who reads and writes
+    const thread = url.pathname.match(/^\/api\/challenges\/([\w-]+)\/boards\/(\d+)\/comments(?:\/(\d+))?$/)
+    if (thread) {
+      const [, challengeId, seqText, commentId] = thread
+      const seq = Number(seqText)
+      const extras = this.service.challengeExtras
+      if (request.method === 'GET' && !commentId) return json({ thread: extras.comments(challengeId, seq, user.id) })
+      if (request.method === 'POST' && !commentId)
+        return json({ thread: extras.addComment(challengeId, seq, user.id, (await body()).text) })
+      if (request.method === 'DELETE' && commentId)
+        return json({ thread: extras.removeComment(challengeId, seq, user.id, Number(commentId)) })
+    }
     const challenge = url.pathname.match(/^\/api\/challenges\/([\w-]+)$/)
     if (request.method === 'GET' && challenge) {
       const found = await this.service.challengeDetail(challenge[1], user.id)
       if (!found) throw new ClubError('challengeGone', {}, 404)
       return json({ challenge: found })
     }
+    // The tournament director's tools (e9-t17, §5.24): a board's score, a penalty, the start delayed, a table re-opened
+    const referee = url.pathname.match(/^\/api\/referee\/(pairs|match|challenge)\/([\w-]+)$/)
+    if (request.method === 'POST' && referee) {
+      const done = await this.service.refereeAct(user.id, referee[1], referee[2], await body())
+      // A table re-opened changes the lobby
+      this.service.broadcast()
+      return json(done)
+    }
+    // Pairs events (§5.22, e9-t10–e9-t13): the list, one event, and its actions
+    if (route === 'GET /api/pairs') return json({ pairs: this.service.pairs.list(user.id) })
+    if (route === 'POST /api/pairs') {
+      // `format: 'individual'`: an individual event (e9-t15, §5.25)
+      const b = await body()
+      return json({ pairs: await this.service.pairs.create(user.id, b.settings, b.format) })
+    }
+    const pairsPage = url.pathname.match(/^\/api\/pairs\/([\w-]+)(?:\/(enter|withdraw|cancel|start))?$/)
+    if (pairsPage) {
+      const [, eventId, action] = pairsPage
+      if (request.method === 'GET' && !action) return json({ pairs: this.service.pairs.view(eventId, user.id) })
+      if (request.method === 'POST' && action) {
+        const b = await body()
+        const pairs = this.service.pairs
+        if (action === 'enter') return json({ pairs: await pairs.enter(user.id, eventId, b.partner) })
+        if (action === 'withdraw') return json({ pairs: await pairs.withdraw(user.id, eventId, b.userId) })
+        if (action === 'cancel') return json({ pairs: await pairs.cancel(user.id, eventId) })
+        const started = await pairs.start(user.id, eventId)
+        this.service.broadcast()
+        return json({ pairs: started })
+      }
+    }
+    // Tournament announcements and entries (§5.24, e9-t16): admins announce, change, cancel and start; members enter
+    const tournaments = this.service.tournaments
+    if (route === 'GET /api/tournaments') return json({ tournaments: tournaments.list(user.id) })
+    if (route === 'POST /api/tournaments') return json({ tournament: await tournaments.create(user.id, (await body()).settings) })
+    const tournamentPage = url.pathname.match(/^\/api\/tournaments\/([\w-]+)(?:\/(settings|cancel|remove|enter|answer|withdraw|pairing|start))?$/)
+    if (tournamentPage) {
+      const [, id, action] = tournamentPage
+      if (request.method === 'GET' && !action) return json({ tournament: tournaments.view(id, user.id) })
+      if (request.method === 'POST' && action) {
+        const b = await body()
+        if (action === 'settings') return json({ tournament: await tournaments.update(user.id, id, b.settings) })
+        if (action === 'cancel') return json({ tournament: await tournaments.cancel(user.id, id) })
+        if (action === 'remove') return json({ tournament: await tournaments.remove(user.id, id, b.entryId) })
+        if (action === 'enter') return json({ tournament: await tournaments.enter(user.id, id, { partners: b.partners, teamName: b.teamName }) })
+        if (action === 'answer') return json({ tournament: await tournaments.answer(user.id, id, b.accept) })
+        if (action === 'withdraw') return json({ tournament: await tournaments.withdraw(user.id, id) })
+        if (action === 'pairing') return json({ tournament: await tournaments.setPairing(user.id, id, b.order) })
+        return json({ tournament: await tournaments.start(user.id, id) })
+      }
+    }
+    // Multi-team events (§5.26, e9-t14): made from a tournament; line-ups, the director's next round and cancel
+    const teamEvent = url.pathname.match(/^\/api\/team-events\/([\w-]+)(?:\/(lineup|next|cancel))?$/)
+    if (teamEvent) {
+      const [, eventId, action] = teamEvent
+      const events = this.service.teamEvents
+      if (request.method === 'GET' && !action) return json({ event: events.view(eventId, user.id) })
+      if (request.method === 'POST' && action) {
+        const b = await body()
+        if (action === 'lineup') return json({ event: await events.setLineup(user.id, eventId, b.team, b.players) })
+        if (action === 'cancel') return json({ event: await events.cancel(user.id, eventId) })
+        const next = await events.nextRound(user.id, eventId)
+        this.service.broadcast()
+        return json({ event: next })
+      }
+    }
     // Team matches (§5.8): set up (e8-t03), seated (e8-t04, e8-t05) and started (e8-t07) over HTTP
     if (route === 'GET /api/matches') return json({ matches: this.service.matches.list(user.id) })
     if (route === 'POST /api/matches') {
       const b = await body()
-      return json({ match: this.service.matches.create(user.id, { settings: b.settings, seat: b.seat }) })
+      return json({ match: await this.service.matches.create(user.id, { settings: b.settings, seat: b.seat }) })
     }
     // The Vugraph page (e8-t18): both rooms, the score and the watchers' chat; never for the match's players
     const vugraph = url.pathname.match(/^\/api\/matches\/([\w-]+)\/vugraph(\/chat)?$/)
@@ -740,7 +1551,7 @@ export class Club extends DurableObject<Env> implements Connections {
         const message = { ...(await body()), type: play[action as keyof typeof play], matchId } as MatchPlayAction
         return json({ match: await this.service.matchPlayRequest(user.id, message) })
       }
-      if (action === 'settings') return json({ match: this.service.matches.update(user.id, matchId, (await body()).settings) })
+      if (action === 'settings') return json({ match: await this.service.matches.update(user.id, matchId, (await body()).settings) })
       if (action === 'cancel') return json({ match: await this.service.matches.cancel(user.id, matchId) })
       if (action === 'start') return json({ match: await this.service.startMatchRequest(user.id, matchId) })
       const type = `match${action[0].toUpperCase()}${action.slice(1)}`
@@ -766,7 +1577,7 @@ export class Club extends DurableObject<Env> implements Connections {
     if (path === '/backups' || path.startsWith('/backups/'))
       return json(
         await backupAdmin(method, path, body, {
-          bucket: this.env.BACKUPS,
+          bucket: this.backups(),
           store: this.store,
           now: Date.now(),
           restored: async (prefixes, tables) => {
@@ -778,10 +1589,32 @@ export class Club extends DurableObject<Env> implements Connections {
             // Members come back as of the backup and everyone signs in again (DEPLOY.md §4.4)
             if (prefixes.some((p) => ACCOUNT_PREFIXES.includes(p))) await this.service.reloadAccounts()
             // The forum keeps nothing in memory; this fills in what an older backup's rows lack (search words, built-in boards)
-            if (tables.length) this.forum.createTables()
+            if (tables.length) {
+              this.forum.createTables()
+              this.forumSchedule.load()
+            }
           },
         }),
       )
+    // Puzzles to read and publish (e10-t13)
+    if (path === '/puzzles' && method === 'GET') return json({ puzzles: this.service.adminPuzzles(user.id) })
+    const puzzle = path.match(/^\/puzzles\/([\w-]+)\/publish$/)
+    if (puzzle && method === 'POST') return json({ puzzles: await this.service.adminSetPuzzlePublished(user.id, puzzle[1], (await body()).published) })
+    // The club's banner (e12-t15) and the members' support reports (e12-t16)
+    if (path === '/banner') {
+      if (method === 'GET') return json({ banner: await this.service.adminBanner(user.id) })
+      if (method === 'POST') return json({ banner: await this.service.adminSetBanner(user.id, await body()) })
+      if (method === 'DELETE') {
+        await this.service.adminClearBanner(user.id)
+        return json({ banner: null })
+      }
+    }
+    if (method === 'GET' && path === '/support') return json(this.service.adminSupport(user.id))
+    const supportReport = /^\/support\/([\w-]+)\/(status|forward)$/.exec(path)
+    if (method === 'POST' && supportReport) {
+      if (supportReport[2] === 'forward') return json(await this.service.adminForwardSupport(user.id, supportReport[1]))
+      return json(await this.service.adminSetSupportStatus(user.id, supportReport[1], (await body()).status))
+    }
     if (method === 'GET' && path === '/users') return json({ users: await this.service.adminUsers() })
     if (method === 'POST' && path === '/users') {
       const b = await body()
@@ -801,7 +1634,12 @@ export class Club extends DurableObject<Env> implements Connections {
     if (method === 'GET' && path === '/weekly-challenge') return json({ weekly: this.service.weeklyChallenge() })
     if (method === 'POST' && path === '/weekly-challenge')
       return json({ weekly: await this.service.adminSetWeeklyChallenge(user.id, await body()) })
+    if (method === 'POST' && path === '/daily-event')
+      return json({ daily: await this.service.adminSetDailyEvent(user.id, await body()) })
     if (method === 'GET' && path === '/settings') return json({ settings: this.service.clubSettings })
+    // The anti-cheating report (e11-t25): admins only, checked again in the service
+    if (method === 'GET' && path === '/integrity')
+      return json({ report: await this.service.adminIntegrityReport(user.id, url.searchParams.get('days')) })
     // Feature flags (e11-t26): the club's state of each and the members who get it anyway
     if (method === 'GET' && path === '/features') return json({ features: this.service.adminFeatures() })
     if (method === 'POST' && path === '/features') return json({ features: await this.service.adminSetFeature(await body()) })
@@ -825,6 +1663,12 @@ export class Club extends DurableObject<Env> implements Connections {
     if (reset && (method === 'POST' || method === 'DELETE')) {
       const code = await this.service.adminAnswerPasswordReset(user.id, reset[1], method === 'POST')
       return json(code ?? { ok: true })
+    }
+    // 兩步驟登入 (e11-t31): turning off a member's second step, for one who lost the phone and the recovery codes
+    const twoFactor = path.match(/^\/users\/(\w+)\/2fa$/)
+    if (twoFactor && method === 'DELETE') {
+      await this.service.adminClearTwoFactor(user.id, twoFactor[1])
+      return json({ ok: true })
     }
     const member = path.match(/^\/users\/(\w+)(\/password|\/admin|\/permissions)?$/)
     if (member) {
@@ -924,21 +1768,41 @@ export class Club extends DurableObject<Env> implements Connections {
       await audit('forum:board', created.id, created.name)
       return json({ board: created })
     }
-    if (path === '/latest') return json(forum.latest())
+    if (path === '/latest') return json(forum.latest(user))
+    // My drafts and scheduled posts, and an officer's view of everyone's scheduled ones (e13-t12)
+    if (path === '/drafts') return json(forum.unpublished(user))
+    // The tags in use (the table's AC-13.7): the editor's suggestions and the tag filters
+    if (path === '/tags') return json(forum.tags(user))
+    // `&tag=` narrows a board, the feed and a search to the posts with that tag (AC-13.7)
+    const tag = tagFilter(url.searchParams.get('tag'))
     if (path === '/feed') {
       // 我的貼文 and 我提到的 (BridgeHall e11-t10): one member's posts, or the posts mentioning one
       const member = (name: string) => url.searchParams.get(name)?.slice(0, 64) || undefined
-      return json(forum.feed(Number(url.searchParams.get('page') ?? 1), { author: member('author'), mentions: member('mentions') }))
+      // Another member's posts on their profile page, unless they keep them off it (e13-t08)
+      const author = member('author')
+      if (author && this.service.profileHidden(user.id, author).posts) return json({ posts: [], page: 1, pages: 1 })
+      return json(forum.feed(Number(url.searchParams.get('page') ?? 1), { author, mentions: member('mentions'), tag }, user))
     }
-    // 搜尋 (BridgeHall e11-t10): titles and text blocks
-    if (path === '/search') return json(forum.search(url.searchParams.get('q'), Number(url.searchParams.get('page') ?? 1)))
+    // 搜尋 (BridgeHall e11-t10): titles and text blocks; `board` narrows it to one board (the table's e13-t11)
+    if (path === '/search')
+      return json(
+        forum.search(url.searchParams.get('q'), Number(url.searchParams.get('page') ?? 1), {
+          board: url.searchParams.get('board')?.slice(0, 64) || undefined,
+          tag,
+          viewer: user,
+        }),
+      )
     if (path === '/reports') {
       if (method === 'GET') return json({ reports: forum.reports(url.searchParams.get('status') === 'all' ? 'all' : 'open') })
       return json({ report: forum.fileReport(user, await body()) })
     }
     const report = path.match(/^\/reports\/([\w-]+)$/)
     if (report) {
+      // A reported post removed takes its pictures with it (e13-t13)
+      const asked = forum.report(report[1])
+      const images = asked.target === 'post' ? this.postImagesOf(asked.targetId) : []
       const { report: handled, reported } = forum.decideReport(user, report[1], await body())
+      if (handled.status === 'removed') await this.releasePostImages(images)
       const what = reported.authorId ? whose(reported.authorId, reported.excerpt ?? '') : ''
       const note = [what, `檢舉：${handled.reason}`].filter(Boolean).join('；')
       if (handled.status === 'dismissed') await audit('forum:dismiss', reported.postId ?? handled.targetId, note)
@@ -948,9 +1812,16 @@ export class Club extends DurableObject<Env> implements Connections {
     }
     const posts = path.match(/^\/boards\/([\w-]+)\/posts$/)
     if (posts) {
-      if (method === 'GET') return json(forum.boardPage(posts[1], Number(url.searchParams.get('page') ?? 1)))
-      const post = forum.createPost(user, posts[1], await body())
-      await tell(() => notices.posted(user, post, forum.board(post.boardId)))
+      if (method === 'GET') return json(forum.boardPage(posts[1], Number(url.searchParams.get('page') ?? 1), user, tag))
+      const input = await body()
+      // A board shared from the history (e13-t07): only one the whole club may see
+      for (const id of addedRecordIds(input)) await this.service.checkShareable(user.id, id)
+      // Only pictures the author uploaded (e13-t13)
+      await checkImagesOwned(this.files, user.id, addedImageKeys(input))
+      const post = forum.createPost(user, posts[1], input)
+      // A draft or a scheduled post is told about once it is out (e13-t12)
+      if (post.draft || post.publishAt !== undefined) this.forumSchedule.saved(post)
+      else await tell(() => notices.posted(user, post, forum.board(post.boardId)))
       return json({ post })
     }
     const board = path.match(/^\/boards\/([\w-]+)$/)
@@ -971,7 +1842,7 @@ export class Club extends DurableObject<Env> implements Connections {
       if (method === 'PUT') return json({ reactions: forum.react(user, target, reaction[2], await body()) })
       return json({ reactions: forum.unreact(user, target, reaction[2]) })
     }
-    const postAction = path.match(/^\/posts\/([\w-]+)\/(pin|lock|comments)$/)
+    const postAction = path.match(/^\/posts\/([\w-]+)\/(pin|lock|hide|comments)$/)
     if (postAction) {
       const [, id, action] = postAction
       if (action === 'pin') {
@@ -990,21 +1861,44 @@ export class Club extends DurableObject<Env> implements Connections {
         if (was !== (post.locked === true)) await audit(post.locked ? 'forum:lock' : 'forum:unlock', id, postExcerpt(post))
         return json({ post })
       }
+      if (action === 'hide') {
+        // An officer hides a post (the table's e13-t10); its open reports close with it, and its author is told (2026-11-02)
+        const before = forum.post(id)
+        const post = forum.setHidden(user, id, await body())
+        if ((before.hidden === true) !== (post.hidden === true)) {
+          await audit(post.hidden ? 'forum:hide' : 'forum:unhide', id, whose(post.authorId, postExcerpt(post)))
+          await tell(() => notices.hidden(user, post))
+        }
+        return json({ post })
+      }
       const comment = forum.addComment(user, id, await body())
       await tell(() => notices.commented(user, forum.post(id), comment, comment.parentId ? forum.comment(comment.parentId) : undefined))
       return json({ comment })
     }
     const post = path.match(/^\/posts\/([\w-]+)$/)
     if (post) {
-      if (method === 'GET') return json(forum.thread(post[1]))
+      if (method === 'GET') return json(forum.thread(post[1], user))
       const before = forum.post(post[1])
       if (method === 'PATCH') {
-        const updated = forum.updatePost(user, post[1], await body())
-        await tell(() => notices.edited(user, updated, before.mentions ?? []))
+        const input = await body()
+        if (before.authorId === user.id) {
+          for (const id of addedRecordIds(input, before.blocks)) await this.service.checkShareable(user.id, id)
+          await checkImagesOwned(this.files, user.id, addedImageKeys(input, before.blocks))
+        }
+        const updated = forum.updatePost(user, post[1], input)
+        const wasOut = !before.draft && before.publishAt === undefined
+        const out = !updated.draft && updated.publishAt === undefined
+        // A draft or a scheduled post put out now is told about as a new post (e13-t12); one still waiting is not told about yet
+        if (wasOut) await tell(() => notices.edited(user, updated, before.mentions ?? []))
+        else if (out) await tell(() => notices.posted(user, updated, forum.board(updated.boardId)))
+        else this.forumSchedule.saved(updated)
+        // A picture edited out of the post goes from R2 unless another post uses it (e13-t13)
+        await this.releasePostImages(droppedImageKeys(before.blocks, updated.blocks))
         return json({ post: updated })
       }
       forum.deletePost(user, post[1])
       if (before.authorId !== user.id) await audit('forum:removePost', post[1], whose(before.authorId, postExcerpt(before)))
+      await this.releasePostImages(postImageKeys(before.blocks))
       return json({ ok: true })
     }
     const comment = path.match(/^\/comments\/([\w-]+)$/)
@@ -1026,12 +1920,26 @@ export class Club extends DurableObject<Env> implements Connections {
    * TKU BridgeBook's online editing and system profiles; reading the content (publicBookResponse)
    * needs any member (since 2026-10-29). Who may use each route is in roles.ts.
    */
+  /** A post's pictures, none when it is gone */
+  private postImagesOf(postId: string): string[] {
+    try {
+      return postImageKeys(this.forum.post(postId).blocks)
+    } catch {
+      return []
+    }
+  }
+
+  /** Pictures no post uses any more go from R2 (e13-t13); a failure only leaves them there, never fails the answer */
+  private async releasePostImages(keys: readonly string[]) {
+    if (keys.length) await this.tell(async () => void (await releaseImages(this.files, this.forum, keys)), 'forumImages')
+  }
+
   /** Sends the handbook's notifications (e8-t10); what was saved stays saved when they fail */
   private async tell(send: () => Promise<void>, where = 'bookNotice') {
     try {
       await send()
     } catch (error) {
-      jsonLog({ event: 'crash', where, error: error instanceof Error ? error.message : String(error) })
+      this.log({ event: 'crash', where, error: error instanceof Error ? error.message : String(error) })
     }
   }
 
@@ -1351,14 +2259,29 @@ function docxResponse(bytes: Uint8Array, name: string) {
   })
 }
 
+/** A `tbt_device` id as this club makes them (randomId), not whatever a browser sent */
+const validDevice = (id: string | null) => !!id && /^[\w-]{8,64}$/.test(id)
+
 function json(data: unknown, status = 200, ...cookies: string[]) {
   const headers = new Headers({ 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' })
   for (const cookie of cookies) headers.append('Set-Cookie', cookie)
   return new Response(JSON.stringify(data), { status, headers })
 }
 
-function errorResponse(error: unknown) {
+/** A text file to download (PBN, LIN): ASCII file names only, so no encoding is needed */
+function textFile(text: string, name: string, headers: Record<string, string> = {}) {
+  return new Response(text, {
+    headers: {
+      'Content-Type': 'text/plain; charset=utf-8',
+      'Content-Disposition': `attachment; filename="${name.replace(/[^\w.-]/g, '_')}"`,
+      'Cache-Control': 'no-store',
+      ...headers,
+    },
+  })
+}
+
+function errorResponse(error: unknown, log: Logger) {
   if (error instanceof AppError) return json({ error: error.message, code: error.code, params: error.params }, error.status)
-  jsonLog(crashEntry('http', error))
+  log(crashEntry('http', error))
   return json({ error: '伺服器發生錯誤', code: 'serverError', params: {} }, 500)
 }

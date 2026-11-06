@@ -17,10 +17,12 @@ import {
 } from '../../shared/team-match.ts'
 import { MATCH_SCORINGS, RULINGS, TEAMS, type RulingKind, type Team } from '../../shared/team-scoring.ts'
 import { BoardScores, ScoreLine, Tag } from '../components/MatchParts.tsx'
+import { RefereeNotes, RefereeTools } from '../components/RefereePanel.tsx'
 import { ActionLink, Button, Card, ErrorText, Field, FieldLabel, Input, Muted, PageMain, PageTitle, Select } from '../components/ui.tsx'
 import { ApiError, api, type MatchPlayAction, type MatchSeatAction } from '../lib/api.ts'
 import { arranges, betweenSegments, matchSettingsLine, myRoomTable, mySeat, robotsUneven, sameSeat, seatLabel, teamName } from '../lib/matches.ts'
 import { useTeamMatch } from '../lib/useTeamMatch.ts'
+import { teamEventLink } from '../../shared/team-event.ts'
 import { useAuth } from '../state/AuthContext.tsx'
 import { useClub } from '../state/ClubContext.tsx'
 import { usePreferences } from '../state/PreferencesContext.tsx'
@@ -236,6 +238,12 @@ export function MatchPage() {
   const m = match
   const me = user.id
   const isHost = m.hostId === me
+  /** A multi-team event's match (§5.26): its seats are the line-ups, its director runs it; the host only plays */
+  const eventMatch = m.event
+  /** Who runs it while it is played (rulings, pause, abandon, sit-in, segments): the host, or the event's director */
+  const runs = eventMatch ? eventMatch.directs : isHost
+  /** Who may start it: the host, or a multi-team event's director for the host */
+  const canStart = isHost || !!eventMatch?.directs
   const setup = m.status === 'setup'
   const mine = mySeat(m, me)
   const hostName = m.seats.find((s) => s.userId === m.hostId)?.user?.username ?? t.deletedMember
@@ -284,13 +292,13 @@ export function MatchPage() {
    */
   const playActions = (s: MatchSeatView) => {
     const buttons = onBreak ? moveButtons(s, arranges(m, me, s)) : []
-    if (isHost && s.status === 'seated' && !s.robot && s.userId !== undefined && !s.substitute)
+    if (runs && s.status === 'seated' && !s.robot && s.userId !== undefined && !s.substitute)
       buttons.push(
         <Button key="sitin" type="button" $size="sm" $variant="ghost" disabled={busy} onClick={() => void playAction({ action: 'sitin', room: s.room, seat: s.seat })}>
           {t.teamMatch.sitIn}
         </Button>,
       )
-    if ((paused || onBreak) && s.userId !== m.hostId && (isHost || arrangerOf(m, s.team) === me))
+    if ((paused || onBreak) && s.userId !== m.hostId && (runs || arrangerOf(m, s.team) === me))
       buttons.push(
         <Button key="replace" type="button" $size="sm" $variant="ghost" disabled={busy} onClick={() => setInviting(inviting && sameSeat(inviting, s) ? null : s)}>
           {t.teamMatch.replace}
@@ -324,7 +332,7 @@ export function MatchPage() {
           </Button>,
         )
     } else {
-      if ((captain || isHost) && s.userId !== m.hostId && s.userId !== me)
+      if (!eventMatch && (captain || isHost) && s.userId !== m.hostId && s.userId !== me)
         buttons.push(
           <Button key="clear" type="button" $size="sm" $variant="ghost" disabled={busy} onClick={() => void seatAction({ action: 'clear', room: s.room, seat: s.seat })}>
             {s.status === 'invited' ? t.teamMatch.withdraw : t.teamMatch.remove}
@@ -391,6 +399,12 @@ export function MatchPage() {
         <Muted as="span">{matchSettingsLine(t, m)}</Muted>
         <Muted as="span">{t.teamMatch.host(hostName)}</Muted>
       </Meta>
+      {eventMatch && (
+        <Muted>
+          {eventMatch.directs ? t.teamMatch.eventDirectorHint : t.teamMatch.eventMatchHint}{' '}
+          <Link to={teamEventLink(eventMatch.id)}>{t.teamMatch.eventLink}</Link>
+        </Muted>
+      )}
       {error && <ErrorText role="alert">{error}</ErrorText>}
 
       {setup && mine?.status === 'invited' && (
@@ -485,6 +499,12 @@ export function MatchPage() {
           <Bar>
             <ScoreLine match={m} />
           </Bar>
+          {/* The director's penalties (e9-t17), already out of the totals */}
+          {m.penalties && (
+            <Muted>
+              {TEAMS.filter((team) => m.penalties![team]).map((team) => `${teamName(t, m, team)} ${t.referee.penaltyMark(String(m.penalties![team]))}`).join(' · ')}
+            </Muted>
+          )}
           {m.status === 'playing' && <Muted>{t.teamMatch.playingHint}</Muted>}
           {m.status === 'abandoned' && <Muted>{t.teamMatch.abandonedNote}</Muted>}
           {m.status === 'playing' && m.tables && (
@@ -522,10 +542,13 @@ export function MatchPage() {
         </Section>
       )}
 
-      {playing && isHost && <ManageMatch match={m} busy={busy} onAction={(action) => void playAction(action)} />}
-      {setup && isHost && <StartBar match={m} busy={busy} onStart={() => void run(() => api.startMatch(m.id))} />}
-      {setup && isHost && <SettingsForm key={JSON.stringify(m.settings)} match={m} busy={busy} onSave={(settings) => void run(() => api.matchSettings(m.id, settings))} />}
-      {setup && (
+      {playing && runs && <ManageMatch match={m} busy={busy} onAction={(action) => void playAction(action)} />}
+      {!setup && m.status !== 'cancelled' && (!!m.referee?.length || !!m.canReferee) && (
+        <MatchReferee match={m} onDone={() => void api.match(m.id).then((r) => setMatch(r.match), fail)} />
+      )}
+      {setup && canStart && <StartBar match={m} busy={busy} onStart={() => void run(() => api.startMatch(m.id))} />}
+      {setup && isHost && !eventMatch && <SettingsForm key={JSON.stringify(m.settings)} match={m} busy={busy} onSave={(settings) => void run(() => api.matchSettings(m.id, settings))} />}
+      {setup && !eventMatch && (
         <Bar>
           {isHost ? (
             <Button
@@ -546,6 +569,35 @@ export function MatchPage() {
         </Bar>
       )}
     </PageMain>
+  )
+}
+
+/** What the director did (e9-t17): penalties in IMPs (or BAM points), and the rulings on the rooms' boards */
+function MatchReferee({ match: m, onDone }: { match: TeamMatchView; onDone: () => void }) {
+  const { t } = usePreferences()
+  const notes = m.referee ?? []
+  const unit = m.settings.scoring === 'bam' ? t.referee.units.bam : t.referee.units.imp
+  const label = (team: string) => teamName(t, m, team as Team)
+  return (
+    <Section aria-labelledby="referee-title">
+      <h2 id="referee-title">{m.canReferee ? t.referee.title : t.referee.notes}</h2>
+      {notes.length > 0 && <Muted>{t.referee.notesHint}</Muted>}
+      <RefereeNotes notes={notes} targetLabel={label} unit={unit} />
+      {m.canReferee && (
+        <>
+          <Muted>{t.referee.recordHint}</Muted>
+          <RefereeTools
+            kind="match"
+            eventId={m.id}
+            targets={TEAMS.map((team) => ({ value: team, label: label(team) }))}
+            targetLabel={label}
+            unit={unit}
+            notes={notes}
+            onDone={onDone}
+          />
+        </>
+      )}
+    </Section>
   )
 }
 

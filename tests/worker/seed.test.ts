@@ -45,7 +45,7 @@ beforeEach(async () => {
 
 describe('seed (e11-t15)', () => {
   it('creates the admin, members and one application', async () => {
-    const result = await seed({ url: STAGING, password: 'secret1', inviteCode: 'staging-code', members: 3 }, fetcher)
+    const result = await seed({ url: STAGING, password: 'club-secret-1', inviteCode: 'staging-code', members: 3 }, fetcher)
     expect(result).toEqual({ created: ['admin', 'tester1', 'tester2', 'tester3'], existing: [], pending: ['applicant1'] })
     const users = await club.adminUsers()
     expect(users.map((u) => u.username).sort()).toEqual(['admin', 'tester1', 'tester2', 'tester3'])
@@ -54,13 +54,13 @@ describe('seed (e11-t15)', () => {
   })
 
   it('can run again without duplicating anything', async () => {
-    await seed({ url: STAGING, password: 'secret1', inviteCode: 'staging-code', members: 2 }, fetcher)
-    const again = await seed({ url: STAGING, password: 'secret1', inviteCode: 'staging-code', members: 3 }, fetcher)
+    await seed({ url: STAGING, password: 'club-secret-1', inviteCode: 'staging-code', members: 2 }, fetcher)
+    const again = await seed({ url: STAGING, password: 'club-secret-1', inviteCode: 'staging-code', members: 3 }, fetcher)
     expect(again).toEqual({ created: ['tester3'], existing: ['admin', 'tester1', 'tester2', 'applicant1'], pending: [] })
   })
 
   it('stops on a wrong invite code', async () => {
-    await expect(seed({ url: STAGING, password: 'secret1', inviteCode: 'nope' }, fetcher)).rejects.toThrow(/badInvite/)
+    await expect(seed({ url: STAGING, password: 'club-secret-1', inviteCode: 'nope' }, fetcher)).rejects.toThrow(/badInvite/)
   })
 
   it('never seeds production or an unknown site', () => {

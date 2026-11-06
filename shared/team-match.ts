@@ -1,6 +1,7 @@
 import type { Contract } from './auction.ts'
 import type { Card, Seat } from './cards.ts'
 import { isRobotKind, type BoardView, type PublicUser, type RobotKind, type SeatOccupant, type TableMatch } from './protocol.ts'
+import type { RefereeNote } from './referee.ts'
 import type { ScoreRuling } from './ruling-scoring.ts'
 import { MATCH_SCORINGS, type MatchScoring, type Ruling, type Team, type TeamBoardResult } from './team-scoring.ts'
 
@@ -264,8 +265,15 @@ export interface TeamMatchView {
   tables?: Record<Room, string>
   /** Only boards with a result: a board one room has played and the other has not is never shown */
   boards: MatchBoardView[]
+  /** Each team's total, after any penalty (`penalties`) */
   totals: Record<Team, number>
   leader: Team | null
+  /** What the director took off each team's total (`e9-t17`): IMPs, or BAM points */
+  penalties?: Partial<Record<Team, number>>
+  /** The viewer may use the director's tools (`e9-t17`): the host, or an admin */
+  canReferee?: boolean
+  /** What the director did (`e9-t17`): a board's note only once the board is shown */
+  referee?: RefereeNote[]
   /** While setting up: whether the host can start, or why not (`matchReady`, worked out each time) */
   ready?: { ready: true } | { ready: false; reason: NotReady }
   /** The host paused it (`e8-t16`): since when */
@@ -276,8 +284,19 @@ export interface TeamMatchView {
    */
   segment?: number
   breakAt?: number
-  /** While it is played, to the host only: each room's board and clock, for rulings (`e8-t15`) */
+  /**
+   * While it is played, to whoever runs it only (the host; in a multi-team event's match its
+   * director or an admin instead, `event`): each room's board and clock, for rulings (`e8-t15`)
+   */
   rooms?: Record<Room, MatchRoomClock>
+  /**
+   * A multi-team event's match (§5.26): the event, and whether the viewer directs it. Its director
+   * (or an admin) runs it instead of the host: may start it for the host, and while it is played
+   * rules over the time limit, pauses, abandons, has a robot sit in and starts the next segment;
+   * the host only plays. Its seats are the line-ups (only swapped within a team), its settings
+   * stay, it is not called off
+   */
+  event?: { id: string; directs: boolean }
 }
 
 // ── The Vugraph page (`e8-t18`, `e8-t19`, AC-8.8) ────────────────────────────────────────────

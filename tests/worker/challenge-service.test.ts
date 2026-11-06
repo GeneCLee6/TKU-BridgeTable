@@ -48,13 +48,13 @@ beforeEach(async () => {
   club = makeClub()
   await club.load()
   // The first account is the admin and hears of every registration; keep that out of the bells
-  await club.register('boss', 'secret1', '')
+  await club.register('boss', 'club-secret-1', '')
 })
 
 const tick = () => new Promise((resolve) => setImmediate(resolve))
 
 async function member(name: string) {
-  const result = await club.register(name, 'secret1', '')
+  const result = await club.register(name, 'club-secret-1', '')
   const user =
     'user' in result ? result.user : await club.adminApprove(club.adminApplications().find((a) => a.username === name)!.id)
   connections.online.add(user.id)
@@ -154,7 +154,7 @@ describe('creating a challenge (e7-t05)', () => {
     const [amy, ben, cat] = await friends('amy', 'ben', 'cat')
     // Amy blocks Ben: she has to unblock him first
     await send(amy, { type: 'setBlocked', userId: ben, blocked: true })
-    expect(await refused(amy, { type: 'createChallenge', invitees: [ben] })).toBe('unblockFirst')
+    expect(await refused(amy, { type: 'createChallenge', invitees: [ben] })).toBe('unblockToInvite')
     // Cat blocks Amy
     await send(cat, { type: 'setBlocked', userId: amy, blocked: true })
     expect(await refused(amy, { type: 'createChallenge', invitees: [cat] })).toBe('cannotInvite')

@@ -15,6 +15,8 @@ import { ChallengeDialog } from '../../src/components/ChallengeDialog.tsx'
 import { ChallengeBoardPage } from '../../src/pages/ChallengeBoardPage.tsx'
 import { ChallengePage } from '../../src/pages/ChallengePage.tsx'
 import { ChallengesPage } from '../../src/pages/ChallengesPage.tsx'
+import { ChallengeStatsPage } from '../../src/pages/ChallengeStatsPage.tsx'
+import { ApiError } from '../../src/lib/api.ts'
 import { PreferencesProvider } from '../../src/state/PreferencesContext.tsx'
 
 /** The challenge pages (C6): the challenge lobby, the dialog that starts one, the standings */
@@ -29,6 +31,7 @@ const mocks = vi.hoisted(() => ({
   api: {
     challenges: vi.fn(),
     challenge: vi.fn(),
+    daily: vi.fn(),
     createChallenge: vi.fn(),
     answerChallenge: vi.fn(),
     cancelChallenge: vi.fn(),
@@ -36,6 +39,10 @@ const mocks = vi.hoisted(() => ({
     rematchChallenge: vi.fn(),
     traveller: vi.fn(),
     record: vi.fn(),
+    challengeThread: vi.fn(),
+    postChallengeComment: vi.fn(),
+    removeChallengeComment: vi.fn(),
+    challengeStats: vi.fn(),
   },
   send: vi.fn(),
   /** amy's permissions: TKB in the club's system needs `tkuSystem` (ROBOT.md §7) */
@@ -118,6 +125,10 @@ beforeEach(() => {
   for (const fn of Object.values(mocks.api)) fn.mockReset()
   mocks.send.mockReset()
   mocks.permissions = []
+  mocks.api.daily.mockResolvedValue({
+    daily: { settings: { enabled: false, robotKind: 'gib' }, next: null, today: null, yesterday: null, history: [] },
+  })
+  mocks.api.challengeThread.mockResolvedValue({ thread: { comments: [], canPost: false } })
 })
 
 describe('ChallengesPage (e7-t16)', () => {
@@ -141,6 +152,22 @@ describe('ChallengesPage (e7-t16)', () => {
     const active = screen.getByRole('listitem', { name: 'amy 發起' })
     expect(within(active).getByRole('progressbar', { name: '你的進度 · 已打 3／8 副' })).toBeInTheDocument()
     expect(within(active).getByRole('link')).toHaveAttribute('href', '/challenges/c2')
+  })
+
+  it('links to the daily event while it runs (e9-t03)', async () => {
+    mocks.api.challenges.mockResolvedValue({ challenges: [] })
+    mocks.api.daily.mockResolvedValue({
+      daily: { settings: { enabled: true, robotKind: 'gib' }, next: null, today: null, yesterday: null, history: [] },
+    })
+    show('/challenges', <ChallengesPage />)
+    expect(await screen.findByRole('link', { name: '每日賽' })).toHaveAttribute('href', '/daily')
+  })
+
+  it('has no daily event link while it is off, for a member', async () => {
+    mocks.api.challenges.mockResolvedValue({ challenges: [] })
+    show('/challenges', <ChallengesPage />)
+    await waitFor(() => expect(mocks.api.daily).toHaveBeenCalled())
+    expect(screen.queryByRole('link', { name: '每日賽' })).not.toBeInTheDocument()
   })
 
   it('sorts and pages the list, and shows many participants side by side with how many more', async () => {
@@ -606,11 +633,209 @@ describe('a challenge board’s page (社長, 2026-10-25)', () => {
     expect(mocks.api.record).toHaveBeenCalledWith('b-ben')
   })
 
+  const FINISHED_ONE = () =>
+    challenge('c9', {
+      status: 'finished',
+      endedAt: NOW,
+      deadline: NOW,
+      boards: 1,
+      players: [player('amy', 'accepted', 1), player('ben', 'accepted', 1)],
+      travellers: [
+        {
+          seq: 1,
+          boardNo: 1,
+          entries: [
+            { userId: 'amy', boardId: 'b-amy', scoreNS: 640, contract: contract(5), declarerTricks: 13 },
+            { userId: 'ben', boardId: 'b-ben', scoreNS: 1440, contract: contract(6), declarerTricks: 13 },
+          ],
+        },
+      ],
+    })
+
+  it('has a discussion thread for those who played every board (e7-t27)', async () => {
+    mocks.api.challenge.mockResolvedValue({ challenge: FINISHED_ONE() })
+    mocks.api.traveller.mockResolvedValue({ traveller: null })
+    mocks.api.record.mockResolvedValue({ record: record('b-amy', 'amy', '5D', 640) })
+    const ben = { id: 1, userId: 'ben', user: { id: 'ben', username: 'ben' }, text: 'Slam was cold', at: NOW, removable: false }
+    mocks.api.challengeThread.mockResolvedValue({ thread: { comments: [ben], canPost: true } })
+    mocks.api.postChallengeComment.mockResolvedValue({
+      thread: { comments: [ben, { id: 2, userId: 'amy', user: { id: 'amy', username: 'amy' }, text: 'I stopped in five', at: NOW, removable: true }], canPost: true },
+    })
+    showBoard('/challenges/c9/boards/1')
+    const thread = await screen.findByRole('region', { name: '討論' })
+    expect(await within(thread).findByText('Slam was cold')).toBeInTheDocument()
+    expect(mocks.api.challengeThread).toHaveBeenCalledWith('c9', 1)
+    expect(within(thread).queryByRole('button', { name: '刪除' })).not.toBeInTheDocument()
+
+    await userEvent.type(within(thread).getByRole('textbox'), 'I stopped in five')
+    await userEvent.click(within(thread).getByRole('button', { name: '留言' }))
+    expect(mocks.api.postChallengeComment).toHaveBeenCalledWith('c9', 1, 'I stopped in five')
+    expect(await within(thread).findByText('I stopped in five')).toBeInTheDocument()
+    expect(within(thread).getByRole('button', { name: '刪除' })).toBeInTheDocument()
+    expect(within(thread).getByRole('textbox')).toHaveValue('')
+  })
+
+  it('shows no thread when the server says there is none for this member', async () => {
+    mocks.api.challenge.mockResolvedValue({ challenge: FINISHED_ONE() })
+    mocks.api.traveller.mockResolvedValue({ traveller: null })
+    mocks.api.record.mockResolvedValue({ record: record('b-amy', 'amy', '5D', 640) })
+    mocks.api.challengeThread.mockRejectedValue(new ApiError('找不到這個挑戰', 404, 'challengeGone'))
+    showBoard('/challenges/c9/boards/1')
+    await screen.findAllByRole('tab')
+    await waitFor(() => expect(mocks.api.challengeThread).toHaveBeenCalled())
+    expect(screen.queryByRole('region', { name: '討論' })).not.toBeInTheDocument()
+  })
+
+  it('reads only, without a box, for someone who did not play every board', async () => {
+    mocks.api.challenge.mockResolvedValue({ challenge: FINISHED_ONE() })
+    mocks.api.traveller.mockResolvedValue({ traveller: null })
+    mocks.api.record.mockResolvedValue({ record: record('b-amy', 'amy', '5D', 640) })
+    showBoard('/challenges/c9/boards/1')
+    const thread = await screen.findByRole('region', { name: '討論' })
+    expect(await within(thread).findByText('你沒打完全部副數，只能看不能留言。')).toBeInTheDocument()
+    expect(within(thread).queryByRole('textbox')).not.toBeInTheDocument()
+  })
+
   it('says a board is not shown when the server sent no results for it', async () => {
     mocks.api.challenge.mockResolvedValue({ challenge: ACTIVE })
     showBoard('/challenges/c2/boards/1')
     expect(await screen.findByText('這一副現在還看不到別人的結果')).toBeInTheDocument()
     expect(mocks.api.record).not.toHaveBeenCalled()
     expect(mocks.api.traveller).not.toHaveBeenCalled()
+  })
+})
+
+describe('ChallengeStatsPage (e7-t29)', () => {
+  it('shows the record and the head to head with each opponent', async () => {
+    mocks.api.challengeStats.mockResolvedValue({
+      stats: {
+        challenges: 2,
+        firsts: 1,
+        wins: 1,
+        losses: 1,
+        draws: 1,
+        winRate: 0.5,
+        boards: 6,
+        averageImps: 0.5,
+        opponents: [
+          { opponent: 'ben', user: { id: 'ben', username: 'ben' }, challenges: 2, wins: 1, losses: 1, draws: 0, boards: 4, imps: 3, lastAt: NOW },
+          { opponent: 'cat', challenges: 1, wins: 0, losses: 0, draws: 1, boards: 2, imps: 0, lastAt: NOW },
+        ],
+      },
+    })
+    show('/challenges/stats', <ChallengeStatsPage />)
+    expect(await screen.findByText('50%')).toBeInTheDocument()
+    expect(screen.getByText('+0.50')).toBeInTheDocument()
+    const rows = within(screen.getByRole('region', { name: '對每位的戰績' })).getAllByRole('row')
+    expect(rows[1]).toHaveTextContent('ben')
+    expect(rows[1]).toHaveTextContent('1–1–0')
+    expect(rows[1]).toHaveTextContent('+3')
+    // A deleted opponent keeps their row without a name
+    expect(rows[2]).toHaveTextContent('已刪除的社員')
+  })
+
+  it('says there is nothing to count yet', async () => {
+    mocks.api.challengeStats.mockResolvedValue({
+      stats: { challenges: 0, firsts: 0, wins: 0, losses: 0, draws: 0, winRate: null, boards: 0, averageImps: null, opponents: [] },
+    })
+    show('/challenges/stats', <ChallengeStatsPage />)
+    expect(await screen.findByText(/還沒有算得到的挑戰/)).toBeInTheDocument()
+  })
+})
+
+describe('partner challenges (e7-t28)', () => {
+  it('picks the partner first, then the opposing pairs, and sends a partner challenge', async () => {
+    mocks.api.createChallenge.mockResolvedValue({ challenge: challenge('new', {}) })
+    render(
+      <PreferencesProvider>
+        <ChallengeDialog onClose={() => {}} onCreated={() => {}} />
+      </PreferencesProvider>,
+    )
+    await userEvent.click(screen.getByRole('checkbox', { name: /雙人搭檔挑戰/ }))
+    const box = screen.getByRole('combobox', { name: '邀請社員' })
+    for (const name of ['ben', 'bea']) {
+      await userEvent.click(box)
+      await userEvent.click(screen.getByRole('option', { name }))
+    }
+    // Two picks do not pair up: the partner and half a pair
+    await userEvent.click(screen.getByRole('button', { name: '發出挑戰' }))
+    expect(screen.getByRole('alert')).toHaveTextContent('先選 1 位搭檔')
+    expect(mocks.api.createChallenge).not.toHaveBeenCalled()
+    await userEvent.click(box)
+    await userEvent.click(screen.getByRole('option', { name: 'cat' }))
+    expect(screen.getByText('你的搭檔').parentElement).toHaveTextContent('ben')
+    expect(screen.getAllByText('第 1 組').map((e) => e.parentElement?.textContent)).toEqual(['第 1 組bea', '第 1 組cat'])
+    // One opposing partnership: IMPs or total points, as one on one
+    expect(within(screen.getByLabelText('計分')).getAllByRole('option').map((o) => o.textContent)).toEqual(['IMP', '總分'])
+    expect(screen.getByTestId('challenge-preview')).toHaveTextContent('雙人搭檔 · 1 組對手')
+    await userEvent.click(screen.getByRole('button', { name: '發出挑戰' }))
+    expect(mocks.api.createChallenge).toHaveBeenCalledWith(['ben', 'bea', 'cat'], 8, expect.objectContaining({ scoring: 'imp', partners: true }))
+  })
+
+  const PAIRS = challenge('p1', {
+    status: 'finished',
+    endedAt: NOW,
+    deadline: NOW,
+    boards: 1,
+    creatorId: 'ben',
+    settings: { ...defaultChallengeSettings(1), partners: true },
+    // amy is ben's partner: the partnership is under ben, invited first
+    players: [
+      player('ben', 'accepted', 1, { partnerId: 'amy' }),
+      player('amy', 'accepted', 1, { partnerId: 'ben' }),
+      player('cat', 'accepted', 1, { partnerId: 'zoe' }),
+      player('zoe', 'accepted', 1, { partnerId: 'cat' }),
+    ],
+    standings: {
+      final: true,
+      scoring: 'imp',
+      ranked: [
+        { userId: 'cat', rank: 1, total: 6, boards: [6], partnerId: 'zoe' },
+        { userId: 'ben', rank: 2, total: -6, boards: [-6], partnerId: 'amy' },
+      ],
+      unfinished: [],
+    },
+    travellers: [
+      {
+        seq: 1,
+        boardNo: 1,
+        entries: [
+          { userId: 'ben', boardId: 'r-ben', scoreNS: 420, contract: { level: 4, strain: 'S', doubled: '', declarer: 'S' }, declarerTricks: 10, partnerId: 'amy' },
+          { userId: 'cat', boardId: 'r-cat', scoreNS: 620, contract: { level: 4, strain: 'S', doubled: '', declarer: 'N' }, declarerTricks: 11, partnerId: 'zoe' },
+        ],
+      },
+    ],
+  })
+
+  it('shows each partnership as one entry, the viewer’s own as 你和 partner', async () => {
+    mocks.api.challenge.mockResolvedValue({ challenge: PAIRS })
+    show('/challenges/p1', <ChallengePage />)
+    const places = within(await screen.findByRole('region', { name: '最終排名' })).getByRole('list', { name: '總成績 · IMP' })
+    const rows = within(places).getAllByRole('listitem')
+    expect(rows.map((r) => r.textContent)).toEqual(['1cat & zoe+6', '2ben & amy-6'])
+    // amy is the partnership's second member, and still sees it as her own
+    expect(rows[1]).toHaveAttribute('aria-current', 'true')
+    const board = within(screen.getByRole('region', { name: '每一副的結果' }))
+    expect(board.getByRole('link', { name: '你和 ben' })).toBeInTheDocument()
+    expect(board.getByRole('link', { name: 'cat & zoe' })).toBeInTheDocument()
+    expect(document.body).toHaveTextContent('雙人搭檔')
+  })
+
+  it('waits for the partner to accept before offering to play', async () => {
+    mocks.api.challenge.mockResolvedValue({
+      challenge: challenge('p2', {
+        status: 'active',
+        settings: { ...defaultChallengeSettings(1), partners: true },
+        players: [
+          player('amy', 'accepted', 0, { partnerId: 'ben' }),
+          player('ben', 'invited', 0, { partnerId: 'amy' }),
+          player('cat', 'accepted', 0, { partnerId: 'zoe' }),
+          player('zoe', 'accepted', 0, { partnerId: 'cat' }),
+        ],
+      }),
+    })
+    show('/challenges/p2', <ChallengePage />)
+    expect(await screen.findByRole('status')).toHaveTextContent('搭檔還沒接受，兩人都接受才能開打')
+    expect(screen.queryByRole('button', { name: '開始打' })).toBeNull()
   })
 })

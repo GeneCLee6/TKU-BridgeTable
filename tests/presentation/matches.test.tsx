@@ -566,3 +566,46 @@ describe('the Vugraph page (e8-t18, e8-t19) and the whole match replayed (e8-t20
     expect(screen.getByRole('button', { name: '下一副' })).toBeDisabled()
   })
 })
+
+describe("MatchPage in a multi-team event's match (§5.26)", () => {
+  const event = (directs: boolean) => ({ event: { id: 'e1', directs } })
+
+  it('gives the director the start and the match management; the host only plays', async () => {
+    mocks.me = 'boss'
+    mocks.api.match.mockResolvedValue({ match: prepRoom({ ...event(true), ready: { ready: true } }) })
+    mocks.api.startMatch.mockResolvedValue({ match: playing(event(true)) })
+    show('/matches/m1')
+    expect(await screen.findByText(/你是這場多隊賽的裁判/)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: '回多隊賽' })).toHaveAttribute('href', '/team-events/e1')
+    // No settings or cancelling: the event decides them
+    expect(screen.queryByRole('button', { name: '取消比賽' })).toBeNull()
+    await userEvent.click(screen.getByRole('button', { name: '開始比賽' }))
+    expect(mocks.api.startMatch).toHaveBeenCalledWith('m1')
+  })
+
+  it('shows the director the management while it is played', async () => {
+    mocks.me = 'boss'
+    mocks.api.match.mockResolvedValue({ match: playing(event(true)) })
+    mocks.api.matchPlay.mockResolvedValue({ match: playing({ ...event(true), pausedAt: 1 }) })
+    show('/matches/m1')
+    expect(await screen.findByRole('heading', { name: '比賽管理' })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: '暫停比賽' }))
+    expect(mocks.api.matchPlay).toHaveBeenCalledWith('m1', { action: 'pause', paused: true })
+  })
+
+  it('leaves the host no management, settings or cancelling, but the start', async () => {
+    mocks.api.match.mockResolvedValue({ match: playing(event(false)) })
+    show('/matches/m1')
+    expect(await screen.findByText(/這是多隊賽的一場/)).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: '比賽管理' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '改由機器人代打' })).toBeNull()
+  })
+
+  it('leaves the host the start in the prep room, without settings or cancelling', async () => {
+    mocks.api.match.mockResolvedValue({ match: prepRoom({ ...event(false), ready: { ready: true } }) })
+    show('/matches/m1')
+    expect(await screen.findByRole('button', { name: '開始比賽' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '取消比賽' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '儲存' })).toBeNull()
+  })
+})

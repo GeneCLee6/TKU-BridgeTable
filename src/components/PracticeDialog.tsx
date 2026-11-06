@@ -1,5 +1,5 @@
 import { Trash2 } from 'lucide-react'
-import { useEffect, useId, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import styled from 'styled-components'
 import { SEATS } from '../../shared/cards.ts'
 import { conditionsProblem } from '../../shared/dealer.ts'
@@ -82,10 +82,16 @@ export function PracticeDialog({
   onSubmit,
   onClose,
   robotKinds = ['gib'],
+  partnerLink,
+  puzzleLink,
 }: {
   /** The practice settings, and who may watch (hidden unless changed: only the invited) */
   onSubmit: (settings: PracticeSettings, access: TableAccess) => void
   onClose: () => void
+  /** The way to the partner bidding practice (`e10-t08`), a link the page makes */
+  partnerLink?: ReactNode
+  /** Where the puzzles are (e10-t14) */
+  puzzleLink?: ReactNode
   /** The systems the member may seat TKB in (`robotKindsFor`), the first one chosen to begin with */
   robotKinds?: readonly RobotKind[]
 }) {
@@ -331,6 +337,18 @@ export function PracticeDialog({
               <Muted>{t.practicePresetsHint(PRACTICE_PRESETS_MAX)}</Muted>
             )}
           </Group>
+          {partnerLink && (
+            <Group>
+              {partnerLink}
+              <Muted>{t.partnerBid.entryHint}</Muted>
+            </Group>
+          )}
+          {puzzleLink && (
+            <Group>
+              {puzzleLink}
+              <Muted>{t.puzzles.entryHint}</Muted>
+            </Group>
+          )}
           <Buttons>
             <Button type="button" onClick={onClose}>
               {t.cancel}

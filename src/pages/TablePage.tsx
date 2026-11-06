@@ -1,7 +1,8 @@
 import { ALL_PASS } from '../lib/calls.ts'
+import { pathInClub } from '../lib/club.ts'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { Ban, EyeOff, Gavel, Hand, Layers, List, Lock, Palette, Settings } from 'lucide-react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Ban, Building2, EyeOff, Gavel, Hand, Layers, LifeBuoy, List, Lock, Palette, Settings } from 'lucide-react'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import styled, { css, keyframes } from 'styled-components'
 import { isVulnerable } from '../../shared/board.ts'
 import { withMemberProfile } from '../../shared/lobby.ts'
@@ -13,6 +14,7 @@ import {
   SLOW_TURN_MS,
   takesInvitees,
   type BoardView,
+  type RobotKind,
   type TableView,
 } from '../../shared/protocol.ts'
 import { AuctionBox } from '../components/AuctionBox.tsx'
@@ -27,10 +29,17 @@ import { DEAL_MS, DealAnimation } from '../components/DealAnimation.tsx'
 import { SidePanel } from '../components/SidePanel.tsx'
 import { HandView } from '../components/HandView.tsx'
 import { SeatPlate, type SeatAction } from '../components/SeatPlate.tsx'
+import { SystemCardDialog } from '../components/SystemCardView.tsx'
+import { mayReadCard } from '../lib/systemCards.ts'
 import { TableAnnouncer } from '../components/TableAnnouncer.tsx'
+import { PageBoundary, PartBoundary } from '../components/ErrorBoundary.tsx'
+import { SupportDialog } from '../components/SupportDialog.tsx'
 import { TableSettingsDialog } from '../components/TableSettingsDialog.tsx'
 import { TableTour } from '../components/TableTour.tsx'
 import { ContractLabel } from '../components/Suit.tsx'
+import { TeachBanner, TeachControls } from '../components/TeachControls.tsx'
+import { useTeachMarking } from '../lib/useTeachMarking.ts'
+import { TeachOverlay } from '../components/TeachOverlay.tsx'
 import { ClaimPicker, FeltButton, FeltPanel, JoinRequests, Prompt, ResultPanel } from '../components/TablePanels.tsx'
 import { PracticeReview } from '../components/PracticeReview.tsx'
 import { TrickArea, TrickSpace, type CardOrigin, type Position } from '../components/TrickArea.tsx'
@@ -49,6 +58,8 @@ import { useClub } from '../state/ClubContext.tsx'
 import { usePreferences, useT } from '../state/PreferencesContext.tsx'
 import { dockHeight, mobile, tabletQuery } from '../styles/tokens.ts'
 import { playerName, seatLetter } from '../strings.ts'
+import { PairsBanner } from '../components/PairsBanner.tsx'
+import { usePairsFollow } from '../lib/usePairsFollow.ts'
 
 /** The levels in the seat menu: the ones offered now, and 橋士組 shown as coming later */
 
@@ -610,6 +621,26 @@ export function TablePage() {
   const { tableId } = useParams()
   const { table, lobby, status, send } = useClub()
   const t = useT()
+  // A pairs event's player goes on to the next round's table (§5.22)
+  usePairsFollow(tableId, table, lobby?.myTableId)
+  // The link of `challengePartnerSeated` (`e7-t28`): sit down at the partnership's table, once
+  const [search] = useSearchParams()
+  const challengeId = search.get('challenge')
+  const askedFor = useRef<string | null>(null)
+  const [joining, setJoining] = useState(false)
+  useEffect(() => {
+    if (status !== 'open' || !lobby || !tableId || !challengeId || lobby.myTableId === tableId) return
+    if (askedFor.current === tableId) return
+    askedFor.current = tableId
+    setJoining(true)
+    send({ type: 'playChallenge', challengeId })
+  }, [status, lobby, tableId, challengeId, send])
+  // A refusal comes as an error message: after a while the page says the table is not there
+  useEffect(() => {
+    if (!joining) return
+    const timer = setTimeout(() => setJoining(false), 5000)
+    return () => clearTimeout(timer)
+  }, [joining])
 
   // Only those the access mode lets in come to the table (others may ask at a request table), and a
   // table without kibitzers takes people only into its seats (a practice table only has watchers)
@@ -631,13 +662,14 @@ export function TablePage() {
   // A challenge table is not closed by it: the server keeps it, paused, until playChallenge
   useEffect(
     () => () => {
-      if (!window.location.pathname.startsWith('/table/')) send({ type: 'leaveTable' })
+      if (!pathInClub(window.location.pathname).startsWith('/table/')) send({ type: 'leaveTable' })
     },
     [send],
   )
 
   if (!lobby) return <PageMain>{t.connecting}</PageMain>
   // A challenge table is not in the lobby: it is there only for its player
+  if (lobby.myTableId !== tableId && !listed && joining) return <PageMain>{t.connecting}</PageMain>
   if (lobby.myTableId !== tableId && !listed)
     return (
       <PageMain>
@@ -673,7 +705,12 @@ export function TablePage() {
   }
   if (!table || table.id !== tableId) return <PageMain>{t.loading}</PageMain>
 
-  return <TableScreen table={table} send={send} />
+  // Under this page's own effects: leaving the page from the error message still leaves the table
+  return (
+    <PageBoundary name="table">
+      <TableScreen table={table} send={send} />
+    </PageBoundary>
+  )
 }
 
 function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeof useClub>['send'] }) {
@@ -694,9 +731,12 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
   // Toggles that belong to one board are stored with its number, so they reset on the next deal
   const boardNo = board?.boardNo ?? 0
   const [auctionFor, setAuctionFor] = useState(0)
+  const [cardOf, setCardOf] = useState<RobotKind | null>(null)
+  const closeCard = useCallback(() => setCardOf(null), [])
   const [lastTrickFor, setLastTrickFor] = useState(0)
   const [claimingFor, setClaimingFor] = useState(0)
   const [editingSettings, setEditingSettings] = useState(false)
+  const [reporting, setReporting] = useState(false)
   // 檢討 of a bidding practice's board (`e10-t07`): open only while that board stays finished
   const [reviewing, setReviewing] = useState(false)
   const reviewable = !!table.practice?.biddingOnly && board?.phase === 'finished'
@@ -709,12 +749,17 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
   const me = table.mySeat
   const challenge = table.challenge
   const practice = table.practice
+  const teach = table.teach
+  // The teacher marks the table while it is paused (`e10-t11`): cards are picked with the tool in hand
+  const teacher = !!teach && table.hostId === user?.id
+  const marking = useTeachMarking((mark) => send({ type: 'teachMark', mark }))
+  const pickingCards = teacher && !!teach?.paused && marking.takesCards
   // The seats I make the calls for (seat control, `e10-t15`): my own, and any others the server gave me
   const acts: Seat[] = table.acts ?? (me ? [me] : [])
   // Nobody runs a challenge, practice or team match table: its seats, robots and settings are
   // fixed; only who may watch a practice table changes (its member's settings button)
-  const iAmHost = !!user && table.hostId === user.id && !challenge && !practice && !table.match
-  const canConfigure = !!user && table.hostId === user.id && !challenge && !table.match
+  const iAmHost = !!user && table.hostId === user.id && !challenge && !practice && !table.match && !table.pairs
+  const canConfigure = !!user && table.hostId === user.id && !challenge && !table.match && !table.pairs
   const AccessIcon = { public: null, request: Hand, hidden: Lock, closed: Ban }[table.settings.access]
   const viewer = me ?? 'S'
   const at = rotation(viewer)
@@ -890,7 +935,14 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
   const seatActions = (seat: Seat): SeatAction[] => {
     const occupant = table.seats[seat]
     const actions: SeatAction[] = []
-    if (challenge || practice || table.match) return actions
+    // A robot's system card, at every kind of table: what its calls mean, nothing about the deal. Not
+    // the club's card for anyone the server would refuse it. A person's system is not known (the
+    // profile's is free text), so their seat offers no card
+    const kind = occupant?.robot ? (occupant.robotKind ?? 'tku') : null
+    if (kind && mayReadCard(kind, user)) {
+      actions.push({ label: t.systemCard.open(t.robotSystems[kind]), onSelect: () => setCardOf(kind) })
+    }
+    if (challenge || practice || table.match || table.pairs) return actions
     const between = !board || board.phase === 'finished'
     // A free seat (or a robot's) can be taken; someone already seated moves only between boards
     if ((!occupant || (occupant.robot && !me)) && (!me || between))
@@ -944,7 +996,7 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
     // Seen only because the member turned on 顯示四家: marked, so it is never taken for their own
     const exposedDummy = board?.dummy === seat && !!board?.tricks.some((trick) => trick.cards.length > 0)
     const shownOnly =
-      !!practice?.showHands && !!me && !!cards && board?.phase !== 'finished' && !acts.includes(seat) && !exposedDummy
+      (!!practice?.showHands || teacher) && !!cards && (!!me || teacher) && board?.phase !== 'finished' && !acts.includes(seat) && !exposedDummy
     // Only the plate: an empty hand stays, so a card played from it glides from there
     const hand = board && onlyPlate ? (
       <div data-hand={seat} data-hand-at={position} data-plate-only />
@@ -958,9 +1010,9 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
           style={cardStyle}
           orientation={orientation}
           order={cards ? orderFor(seat, cards) : undefined}
-          playable={board.turn === seat && !pendingShown ? board.legalCards : []}
+          playable={pickingCards ? (cards ?? []) : board.turn === seat && !pendingShown ? board.legalCards : []}
           chosen={board.turn === seat ? chosen : null}
-          onPlay={pick}
+          onPlay={pickingCards ? marking.pickCard : pick}
           label={`${seatLetter[seat]} ${nameOf(seat)}`}
         />
       </div>
@@ -1159,6 +1211,10 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
                 <PracticeBanner practice={practice} />
               ) : table.match ? (
                 <MatchBanner match={table.match} watching={!me} />
+              ) : table.pairs ? (
+                <PairsBanner pairs={table.pairs} />
+              ) : teach ? (
+                <TeachBanner teach={teach} number={table.number} />
               ) : (
                 <>
                   <span>{t.tableName(table.number)} ·</span>
@@ -1167,6 +1223,10 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
                     <AccessIcon size={15} aria-label={t.accessBadge[table.settings.access]} role="img" />
                   )}
                   {!table.settings.allowKibitz && <EyeOff size={15} aria-label={t.noKibitz} role="img" />}
+                  {/* Members of other clubs may be watching (the cross-club lobby, e12-t07) */}
+                  {table.settings.openToClubs && table.settings.access === 'public' && table.settings.allowKibitz && (
+                    <Building2 size={15} aria-label={t.clubs.openToClubs} role="img" />
+                  )}
                 </>
               )}
               {/* Card faces or text, two or four colours: here at the table, not in the header (社長 #8) */}
@@ -1196,7 +1256,7 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
                   <Palette size={16} aria-hidden />
                 </RoundButton>
                 {/* 叫裁判 (`e2-t34`): rare, so a small button here, as BBO keeps it in a menu */}
-                {me && !table.directorCall && !challenge && !practice && (
+                {me && !table.directorCall && !challenge && !practice && !teach && (
                   <RoundButton
                     type="button"
                     aria-label={t.director.call}
@@ -1209,6 +1269,17 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
                     <Gavel size={16} aria-hidden />
                   </RoundButton>
                 )}
+                <RoundButton
+                  type="button"
+                  aria-label={t.support.open}
+                  title={t.support.open}
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    setReporting(true)
+                  }}
+                >
+                  <LifeBuoy size={16} aria-hidden />
+                </RoundButton>
                 {canConfigure && (
                   <RoundButton
                     type="button"
@@ -1285,7 +1356,11 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
         </Area>
         <Area $area="actions" $align="end" $justify="end" data-tour="actions">
           <Actions>
-            {!me && <Note>{t.kibitzing}</Note>}
+            {!me && !teacher && <Note>{t.kibitzing}</Note>}
+            {teach?.paused && !teacher && <Note role="status">{t.teach.pausedNote}</Note>}
+            {teacher && teach && (
+              <TeachControls teach={teach} hasBoard={!!board} marking={marking} seatName={(seat) => t.seatNames[seat]} send={send} onEnd={() => navigate('/')} />
+            )}
             {/* 叫裁判 (`e2-t34`): everyone at the table sees the call; the host, an admin or the caller clears it */}
             {table.directorCall && (
               <Note role="status">
@@ -1345,16 +1420,19 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
             )}
             {board && me && board.phase !== 'finished' && (
               <>
-                <FeltButton
-                  type="button"
-                  $tone="plain"
-                  disabled={!canUndo}
-                  title={challenge ? t.challengeNoUndo : table.match ? t.teamMatch.noUndo : undefined}
-                  data-tour="undo"
-                  onClick={() => send({ type: 'undoRequest' })}
-                >
-                  {t.undo}
-                </FeltButton>
+                {/* At a teaching table only the teacher takes anything back (`TeachControls`) */}
+                {!teach && (
+                  <FeltButton
+                    type="button"
+                    $tone="plain"
+                    disabled={!canUndo}
+                    title={challenge ? t.challengeNoUndo : table.match ? t.teamMatch.noUndo : table.pairs ? t.pairs.noUndo : undefined}
+                    data-tour="undo"
+                    onClick={() => send({ type: 'undoRequest' })}
+                  >
+                    {t.undo}
+                  </FeltButton>
+                )}
                 <FeltButton
                   type="button"
                   $tone="plain"
@@ -1369,7 +1447,18 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
             )}
           </Actions>
         </Area>
+        {teach && <TeachOverlay marks={teach.marks} version={board} />}
       </Felt>
+      {/* A dialog that fails closes, so it can be opened again; the felt stays */}
+      <PartBoundary
+        name="table-dialog"
+        resetKey={`${reviewing}-${reporting}-${editingSettings}`}
+        onFail={() => {
+          setReviewing(false)
+          setReporting(false)
+          setEditingSettings(false)
+        }}
+      >
       {reviewing && board && (
         <PracticeReview
           board={board}
@@ -1379,12 +1468,13 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
           onClose={() => setReviewing(false)}
         />
       )}
+      {reporting && <SupportDialog tableId={table.id} onClose={() => setReporting(false)} />}
       {editingSettings && canConfigure && (
         <TableSettingsDialog
           title={t.tableSettings}
           submitLabel={t.save}
           initial={table.settings}
-          practice={!!practice}
+          practice={!!practice || !!teach}
           members={(lobby?.members ?? []).filter((m) => m.id !== user?.id && !lobby?.blocked.includes(m.id))}
           invited={table.invited?.map((u) => u.id) ?? []}
           onClose={() => setEditingSettings(false)}
@@ -1394,14 +1484,20 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
             // at a practice table only who may watch changes
             send({
               type: 'updateTableSettings',
-              settings: practice ? { access: settings.access } : settings,
+              settings: practice || teach ? { access: settings.access } : settings,
               ...(takesInvitees(settings.access) && { invitees }),
             })
           }}
         />
       )}
-      <TableAnnouncer board={board} me={me} who={spokenSeat} />
-      {!tableTourSeen && <TableTour onClose={() => setPrefs({ tableTourSeen: true })} />}
+      </PartBoundary>
+      <PartBoundary name="table-announcer">
+        <TableAnnouncer board={board} me={me} who={spokenSeat} />
+      </PartBoundary>
+      <PartBoundary name="table-tour">{!tableTourSeen && <TableTour onClose={() => setPrefs({ tableTourSeen: true })} />}</PartBoundary>
+      <PartBoundary name="system-card" resetKey={cardOf} onFail={closeCard}>
+        {cardOf && <SystemCardDialog system={cardOf} onClose={closeCard} />}
+      </PartBoundary>
       <SidePanel
         tabs={['chat', 'conventions', 'people', 'messages', 'history']}
         recent={table.recent}

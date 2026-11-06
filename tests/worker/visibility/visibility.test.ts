@@ -23,8 +23,8 @@ import { lobbyFrom } from '../lobby-copy.ts'
  *   hidden hand sent to someone without a seat at a table that allows no kibitzers. Robots never
  *   claim and the members here never do, so no claim opens a hand.
  * - **Every way to a finished board**: `exposure` asks each surface the club has — the record, the
- *   history list, search (mine and everyone's), a member's profile, favourites, the traveller and
- *   featuring it — whether a member may get the board, so a board still kept back is checked
+ *   history list, search (mine and everyone's), a member's profile, favourites, the traveller, the
+ *   PBN export and a session's LIN, and featuring it — whether a member may get the board, so a board still kept back is checked
  *   everywhere at once, and so is the same board once it is shown.
  *
  * It runs with the rest of `tests/worker` in CI (`npm test`). A new surface or table mode belongs here.
@@ -74,10 +74,10 @@ async function exposure(viewer: string, boardId: string, player: string) {
   // The history pages the Worker answers from D1 at the edge (§5.12) answer exactly as the club does
   await t.copyToD1()
   for (const query of [listQuery(true, 1, 20), DEFAULT_HISTORY_QUERY, all, { ...all, mode: 'team' as const }, { ...all, player }]) {
-    expect(await searchReplica(t.d1, query, viewer, t.h.time), `the edge, ${JSON.stringify(query)}`).toEqual(await club.search(viewer, query))
+    expect(await searchReplica(t.d1, 'tku', query, viewer, t.h.time), `the edge, ${JSON.stringify(query)}`).toEqual(await club.search(viewer, query))
     // The side panel's boards per day (e3-t48), from either side, count what the search lists
     const days = club.historyDays(viewer, query).days
-    expect(await daysReplica(t.d1, query, viewer, t.h.time), `the edge's days, ${JSON.stringify(query)}`).toEqual(days)
+    expect(await daysReplica(t.d1, 'tku', query, viewer, t.h.time), `the edge's days, ${JSON.stringify(query)}`).toEqual(days)
     const listed = await club.search(viewer, { ...query, page: 1, size: 100 })
     expect(days.reduce((sum, day) => sum + day.count, 0)).toBe(listed.total)
   }
@@ -92,12 +92,27 @@ async function exposure(viewer: string, boardId: string, player: string) {
       () => false,
     ),
     traveller: (await club.traveller(boardId, viewer)) !== null,
+    // The records page's PBN (e4-t36) and a session's LIN (e4-t37)
+    export: (await Promise.all([all, { ...all, mode: 'team' as const }].map((q) => club.exportBoards(viewer, q)))).some((e) =>
+      e.records.some((r) => r.id === boardId),
+    ),
+    session: !!(await club.session(boardId, viewer))?.some((r) => r.id === boardId),
   }
 }
 
-const hidden = { record: false, history: false, mine: false, search: false, profile: false, favorite: false, traveller: false }
+const hidden = { record: false, history: false, mine: false, search: false, profile: false, favorite: false, traveller: false, export: false, session: false }
 
-/** What a curator gets trying to feature the board: the board must be public first, and an outsider is not told it exists */
+/** What a member gets trying to make the board's public link (e4-t38): only once it is public, and an outsider is not told it exists */
+const shareCode = (userId: string, boardId: string) =>
+  t
+    .club()
+    .shares.create(userId, boardId)
+    .then(
+      () => 'shared',
+      (error: { code: string }) => error.code,
+    )
+
+/** What a member gets trying to feature the board: the board must be public first, and an outsider is not told it exists */
 const featureCode = (curator: string, boardId: string) =>
   t
     .club()
@@ -106,6 +121,62 @@ const featureCode = (curator: string, boardId: string) =>
       () => 'featured',
       (error: { code: string }) => error.code,
     )
+
+describe('imported boards (e4-t39)', () => {
+  const imported = {
+    boardNo: 3,
+    dealer: 'N',
+    vul: 'Both',
+    hands: 'N:AKQJ.AKQ.AKQ.AKQ T987.JT9.JT9.JT9 6543.876.876.876 2.5432.5432.5432',
+    calls: ['1N', 'P', 'P', 'P'].map((call) => ({ call })),
+    play: [],
+    claim: 7,
+    seat: 'S',
+  }
+
+  it('are their importer\'s alone, on every surface and at the edge; the names in the file tie to nobody', async () => {
+    const amy = await t.member('amy')
+    const ben = await t.member('ben')
+    // The file names ben, and an admin may not see it either
+    const names = { N: 'ben', E: 'x', S: 'amy', W: 'y' }
+    const { ids } = await t.club().importBoards(amy, { boards: [{ ...imported, names }] })
+    const [board] = ids
+
+    expect(await exposure(amy, board, amy)).toEqual({
+      record: true,
+      history: false,
+      mine: true,
+      search: false,
+      profile: false,
+      favorite: true,
+      traveller: false,
+      export: false,
+      session: true,
+    })
+    for (const viewer of [ben, t.h.boss]) {
+      expect(await exposure(viewer, board, amy)).toEqual(hidden)
+      expect(await exposure(viewer, board, ben)).toEqual(hidden)
+      const asked = { ...DEFAULT_HISTORY_QUERY, scope: 'all' as const, mode: 'imported' }
+      expect((await t.club().search(viewer, asked)).total).toBe(0)
+      expect(await searchReplica(t.d1, 'tku', asked, viewer, t.h.time)).toEqual(await t.club().search(viewer, asked))
+      expect(t.club().historyDays(viewer, asked).days).toEqual([])
+    }
+    // Their own, when they ask for imported boards in everyone's list too, and from either side
+    const asked = { ...DEFAULT_HISTORY_QUERY, scope: 'all' as const, mode: 'imported' }
+    expect((await t.club().search(amy, asked)).boards.map((b) => b.id)).toEqual([board])
+    expect(await searchReplica(t.d1, 'tku', asked, amy, t.h.time)).toEqual(await t.club().search(amy, asked))
+
+    // Nobody can give it away, not even its importer
+    expect(await shareCode(amy, board)).toBe('shareHeldBack')
+    expect(await shareCode(t.h.boss, board)).toBe('boardGone')
+    expect(await shareCode(ben, board)).toBe('boardGone')
+    expect(await featureCode(t.h.boss, board)).toBe('boardGone')
+    await expect(t.club().checkShareable(amy, board)).rejects.toMatchObject({ code: 'recordNotShareable' })
+    await expect(t.club().checkShareable(ben, board)).rejects.toMatchObject({ code: 'boardGone' })
+    await t.club().saveFavorite(amy, board, {})
+    expect(await t.refused(amy, { type: 'createPractice', settings: { deal: 'set', set: { source: 'favorites', ids: [board] } } } as never)).toBe('boardGone')
+  })
+})
 
 describe('casual tables', () => {
   it('shows a seated player their own hand (and dummy after the lead), a kibitzer all four, and someone without a seat at a no-kibitzing table only dummy', async () => {
@@ -134,6 +205,36 @@ describe('casual tables', () => {
     // The kibitzer saw all four, which is allowed
     expect(noHiddenCards(ben)).toBeGreaterThan(10)
     expect(inbox(eve).some((m) => m.type === 'table' && m.table?.id === closed)).toBe(false)
+  })
+})
+
+describe('teaching tables', () => {
+  it('send a seated student what any player sees, a watcher what is face up, and the teacher all four (e10-t10)', async () => {
+    const tia = await t.member('tia')
+    await t.club().adminSetPermissions(tia, ['teach'])
+    const amy = await t.member('amy')
+    const ben = await t.member('ben')
+    await t.send(tia, { type: 'createTeaching', access: 'public' })
+    const table = t.club().lobbyView(tia).myTableId!
+    await t.send(amy, { type: 'sit', tableId: table, seat: 'S' })
+    await t.send(ben, { type: 'joinTable', tableId: table })
+    for (const seat of ['N', 'E', 'W'] as const) await t.send(tia, { type: 'addRobot', seat })
+    expect(Object.keys(t.view(tia)!.board!.hands)).toHaveLength(4)
+    await t.playUntil([amy], () => t.tableState(table)!.board?.phase === 'finished')
+    expect(noHiddenCards(amy)).toBeGreaterThan(2)
+    // The watcher's hands are hidden even though the table takes watchers (`settings.allowKibitz`)
+    let watched = 0
+    for (const message of inbox(ben)) {
+      if (message.type !== 'table' || !message.table?.board || message.table.board.phase === 'finished') continue
+      const board = message.table.board
+      const led = board.tricks.some((trick) => trick.cards.length > 0)
+      for (const seat of Object.keys(board.hands)) expect(led && seat === board.dummy, `ben saw ${seat}`).toBe(true)
+      watched++
+    }
+    expect(watched).toBeGreaterThan(2)
+    // Nothing of it in any list
+    expect((await t.club().search(amy, DEFAULT_HISTORY_QUERY)).total).toBe(0)
+    expect(t.tableState(table)!.outbox).toBeUndefined()
   })
 })
 
@@ -374,6 +475,9 @@ describe('team match tables', () => {
     expect(await exposure(amy, first, amy)).toMatchObject({ record: true, mine: true, favorite: true, traveller: false })
     for (const viewer of [ben, bea, cat]) expect(await exposure(viewer, first, amy)).toEqual(hidden)
     expect(await featureCode(t.h.boss, first)).toBe('boardGone')
+    // No public link before it is public: its player is told why, the others not that it exists
+    expect(await shareCode(amy, first)).toBe('shareHeldBack')
+    for (const viewer of [ben, cat]) expect(await shareCode(viewer, first)).toBe('boardGone')
     for (const player of [ben, bea]) {
       const sent = inbox(player)
       // Not a message about the other room's table, not its record, not its score
@@ -390,6 +494,14 @@ describe('team match tables', () => {
     await t.playUntil([ben, bea], () => t.played(closed) === 1)
     expect(await exposure(cat, first, amy)).toMatchObject({ record: true, history: true, search: true, profile: true, favorite: true })
     expect(await featureCode(t.h.boss, first)).toBe('featured')
+    // Its public link names only the member who made it (社長 2026-11-02): every other member is 「社員」
+    expect(await shareCode(amy, first)).toBe('shared')
+    const { token } = (await t.club().shares.get(amy, first))!
+    const shared = await t.club().shares.open(token, '9.9.9.9')
+    const named = Object.values(shared.players).filter((p) => !p.robot && p.name !== null).map((p) => p.name)
+    expect(named).toEqual(['amy'])
+    const record = (await t.club().record(first, amy))!
+    for (const seat of SEATS) if (record.players[seat].id) expect(JSON.stringify(shared)).not.toContain(record.players[seat].id)
 
     await t.playUntil([amy, ben, bea], () => t.club().matches.get(id, amy)!.status === 'finished')
     for (const userId of [amy, ben, bea]) expect(noHiddenCards(userId)).toBeGreaterThan(10)

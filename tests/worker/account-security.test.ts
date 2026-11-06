@@ -4,8 +4,11 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { deviceLabel, SESSION_SEEN_STEP_MS } from '../../shared/account.ts'
 import { enabledFeatures, featureEnabled, FEATURE_DEFAULTS } from '../../shared/features.ts'
 import type { BoardState } from '../../shared/game.ts'
-import type { BoardRecord } from '../../shared/protocol.ts'
+import { LIMITS, type BoardRecord } from '../../shared/protocol.ts'
+import { hashPassword } from '../../worker/auth.ts'
+import { COMMON_PASSWORDS } from '../../worker/common-passwords.ts'
 import { indexRecord } from '../../worker/history-index.ts'
+import { isCommonPassword } from '../../worker/password-policy.ts'
 import { headersFile, PAGE_CSP, withSecurityHeaders } from '../../worker/security-headers.ts'
 import { ClubService, type Connections } from '../../worker/service.ts'
 import type { MemoryStore } from '../../worker/store.ts'
@@ -33,13 +36,13 @@ beforeEach(async () => {
   disconnected = []
   club = new ClubService(store, connections, { maxUsers: 20, now: () => time, schedule: () => undefined })
   await club.load()
-  const founder = await club.register('admin', 'secret1', '')
+  const founder = await club.register('admin', 'club-secret-1', '')
   if (!('user' in founder)) throw new Error('the first account should sign in at once')
   adminId = founder.user.id
 })
 
 async function member(name: string) {
-  await club.register(name, 'secret1', '')
+  await club.register(name, 'club-secret-1', '')
   return (await club.adminApprove(club.adminApplications().find((a) => a.username === name)!.id)).id
 }
 
@@ -56,9 +59,9 @@ describe('deviceLabel', () => {
 describe('sessions (e11-t23)', () => {
   it('lists where the member is signed in, this device first, without any token', async () => {
     const ben = await member('ben')
-    const { token: phone } = await club.login('ben', 'secret1', '', SAFARI_IPHONE)
+    const { token: phone } = await club.login('ben', 'club-secret-1', '', SAFARI_IPHONE)
     time += 5 * SESSION_SEEN_STEP_MS
-    const { token: laptop } = await club.login('ben', 'secret1', '', CHROME_WINDOWS)
+    const { token: laptop } = await club.login('ben', 'club-secret-1', '', CHROME_WINDOWS)
     const sessions = await club.accountSessions(ben, laptop)
     expect(sessions.map((s) => [s.device, s.current])).toEqual([
       ['Chrome · Windows', true],
@@ -73,7 +76,7 @@ describe('sessions (e11-t23)', () => {
 
   it('notes the last use at most once an hour', async () => {
     const ben = await member('ben')
-    const { token } = await club.login('ben', 'secret1', '', CHROME_WINDOWS)
+    const { token } = await club.login('ben', 'club-secret-1', '', CHROME_WINDOWS)
     const started = time
     time += SESSION_SEEN_STEP_MS / 2
     await club.userForToken(token)
@@ -85,10 +88,10 @@ describe('sessions (e11-t23)', () => {
 
   it('signs other devices out and keeps this one, closing the member’s sockets', async () => {
     const ben = await member('ben')
-    const { token: phone } = await club.login('ben', 'secret1', '', SAFARI_IPHONE)
-    const { token: tablet } = await club.login('ben', 'secret1', '', SAFARI_IPHONE)
-    const { token: laptop } = await club.login('ben', 'secret1', '', CHROME_WINDOWS)
-    const { token: admins } = await club.login('admin', 'secret1')
+    const { token: phone } = await club.login('ben', 'club-secret-1', '', SAFARI_IPHONE)
+    const { token: tablet } = await club.login('ben', 'club-secret-1', '', SAFARI_IPHONE)
+    const { token: laptop } = await club.login('ben', 'club-secret-1', '', CHROME_WINDOWS)
+    const { token: admins } = await club.login('admin', 'club-secret-1')
     expect(await club.endOtherSessions(ben, laptop)).toBe(2)
     expect(await club.userForToken(phone)).toBeNull()
     expect(await club.userForToken(tablet)).toBeNull()
@@ -102,8 +105,8 @@ describe('sessions (e11-t23)', () => {
 
   it('signs one device out by its id, only the member’s own and never this one', async () => {
     const ben = await member('ben')
-    const { token: phone } = await club.login('ben', 'secret1', '', SAFARI_IPHONE)
-    const { token: laptop } = await club.login('ben', 'secret1', '', CHROME_WINDOWS)
+    const { token: phone } = await club.login('ben', 'club-secret-1', '', SAFARI_IPHONE)
+    const { token: laptop } = await club.login('ben', 'club-secret-1', '', CHROME_WINDOWS)
     const [current, other] = await club.accountSessions(ben, laptop)
     await expect(club.endSession(ben, laptop, current.id)).rejects.toMatchObject({ code: 'notSelf' })
     // Someone else cannot end it, and learns nothing about whether it exists
@@ -115,9 +118,9 @@ describe('sessions (e11-t23)', () => {
 
   it('signs the other devices out when the password changes (ASVS 3.3.3)', async () => {
     const ben = await member('ben')
-    const { token: phone } = await club.login('ben', 'secret1', '', SAFARI_IPHONE)
-    const { token: laptop } = await club.login('ben', 'secret1', '', CHROME_WINDOWS)
-    await club.changePassword(ben, 'secret1', 'secret2', laptop)
+    const { token: phone } = await club.login('ben', 'club-secret-1', '', SAFARI_IPHONE)
+    const { token: laptop } = await club.login('ben', 'club-secret-1', '', CHROME_WINDOWS)
+    await club.changePassword(ben, 'club-secret-1', 'club-secret-2', laptop)
     expect(await club.userForToken(phone)).toBeNull()
     expect((await club.userForToken(laptop))?.id).toBe(ben)
     expect(disconnected).toEqual([ben])
@@ -125,8 +128,8 @@ describe('sessions (e11-t23)', () => {
 
   it('takes passwords up to LIMITS.passwordMax (ASVS 2.1.2)', async () => {
     const ben = await member('ben')
-    await expect(club.changePassword(ben, 'secret1', 'x'.repeat(129))).rejects.toMatchObject({ code: 'longPassword', params: { max: 128 } })
-    await club.changePassword(ben, 'secret1', 'x'.repeat(128))
+    await expect(club.changePassword(ben, 'club-secret-1', 'x'.repeat(129))).rejects.toMatchObject({ code: 'longPassword', params: { max: 128 } })
+    await club.changePassword(ben, 'club-secret-1', 'xy'.repeat(64))
     await expect(club.register('cal', 'y'.repeat(129), '')).rejects.toMatchObject({ code: 'longPassword' })
   })
 
@@ -136,6 +139,50 @@ describe('sessions (e11-t23)', () => {
     const [first] = await club.accountSessions(ben, 'old-token')
     expect(first).toMatchObject({ device: '', current: true, createdAt: time + 86_400_000 - 30 * 86_400_000 })
     expect((await club.accountSessions(ben, 'old-token'))[0].id).toBe(first.id)
+  })
+})
+
+describe('password policy (e11-t29)', () => {
+  it('wants 12 characters, not the username and not a breached password, wherever a password is set', async () => {
+    expect(LIMITS.passwordMin).toBe(12)
+    await expect(club.register('cal', 'eleven-char', '')).rejects.toMatchObject({ code: 'shortPassword', params: { min: 12 } })
+    await expect(club.register('calvin', 'Calvin-Bridge-1', '')).rejects.toMatchObject({ code: 'passwordHasUsername' })
+    await expect(club.register('calvin', 'qwerty123456', '')).rejects.toMatchObject({ code: 'commonPassword' })
+    // Case does not matter, nor a club word, nor one character over and over
+    await expect(club.register('calvin', 'QWERTY123456', '')).rejects.toMatchObject({ code: 'commonPassword' })
+    await expect(club.register('calvin', 'TKUBridgeTable', '')).rejects.toMatchObject({ code: 'commonPassword' })
+    await expect(club.register('calvin', 'zzzzzzzzzzzz', '')).rejects.toMatchObject({ code: 'commonPassword' })
+    expect(club.adminApplications()).toEqual([])
+
+    const ben = await member('ben')
+    await expect(club.changePassword(ben, 'club-secret-1', 'short-pass')).rejects.toMatchObject({ code: 'shortPassword' })
+    await expect(club.changePassword(ben, 'club-secret-1', 'my-name-is-BEN')).rejects.toMatchObject({ code: 'passwordHasUsername' })
+    await expect(club.adminResetPassword(ben, '1q2w3e4r5t6y')).rejects.toMatchObject({ code: 'commonPassword' })
+    await expect(club.adminCreateUser('dora', 'dora-dora-dora')).rejects.toMatchObject({ code: 'passwordHasUsername' })
+    await club.changePassword(ben, 'club-secret-1', 'three blind mice')
+    await club.login('ben', 'three blind mice')
+  })
+
+  it('leaves a two-letter name out of the contains check', async () => {
+    await club.register('al', 'fall-into-a-pool', '')
+    await expect(club.register('ed', 'ed', '')).rejects.toMatchObject({ code: 'shortPassword' })
+    expect(isCommonPassword('fall-into-a-pool')).toBe(false)
+  })
+
+  it('still signs in an account whose older password is shorter', async () => {
+    const ben = await member('ben')
+    const stored = (await store.get<Record<string, unknown>>(`user:${ben}`))!
+    await store.put(`user:${ben}`, { ...stored, passwordHash: await hashPassword('abc123') })
+    const reloaded = new ClubService(store, connections, { maxUsers: 20, now: () => time, schedule: () => undefined })
+    await reloaded.load()
+    expect((await reloaded.login('ben', 'abc123')).user.id).toBe(ben)
+  })
+
+  it('keeps the list small and only of passwords long enough to matter', () => {
+    const list = COMMON_PASSWORDS.split('\n')
+    expect(list.length).toBeGreaterThan(1000)
+    expect(COMMON_PASSWORDS.length).toBeLessThan(32_000)
+    expect(list.every((p) => p.length >= LIMITS.passwordMin && p === p.toLowerCase())).toBe(true)
   })
 })
 
@@ -166,7 +213,7 @@ describe('feature flags (e11-t26)', () => {
       users: [{ id: dan, username: 'dan' }],
     })
     const features = async (id: string) => {
-      const { token } = await club.login(club.usernameOf(id)!, 'secret1')
+      const { token } = await club.login(club.usernameOf(id)!, 'club-secret-1')
       return (await club.userForToken(token))?.features
     }
     expect(await features(adminId)).toEqual(['friends'])
@@ -211,7 +258,7 @@ describe('the member’s own data (e11-t27)', () => {
   it('exports everything kept about the member, without the password hash or any token', async () => {
     const ben = await member('ben')
     const amy = await member('amy')
-    const { token } = await club.login('ben', 'secret1', '', CHROME_WINDOWS)
+    const { token } = await club.login('ben', 'club-secret-1', '', CHROME_WINDOWS)
     await club.setProfile(ben, { displayName: '小明' })
     await club.handle(ben, { type: 'sendDirect', to: amy, text: 'hi amy' })
     await played('b1', [ben, amy, adminId, 'robot:N'])
@@ -235,21 +282,41 @@ describe('the member’s own data (e11-t27)', () => {
 
   it('deletes the member’s own account with their password, signing them out everywhere', async () => {
     const ben = await member('ben')
-    const { token } = await club.login('ben', 'secret1')
+    const { token } = await club.login('ben', 'club-secret-1')
     await expect(club.deleteOwnAccount(ben, 'wrong')).rejects.toMatchObject({ code: 'wrongPassword' })
     expect(club.usernameOf(ben)).toBe('ben')
-    await club.deleteOwnAccount(ben, 'secret1')
+    await club.deleteOwnAccount(ben, 'club-secret-1')
     expect(club.usernameOf(ben)).toBeUndefined()
     expect(await club.userForToken(token)).toBeNull()
     expect(disconnected).toContain(ben)
-    await expect(club.login('ben', 'secret1')).rejects.toMatchObject({ code: 'badLogin' })
+    await expect(club.login('ben', 'club-secret-1')).rejects.toMatchObject({ code: 'badLogin' })
+  })
+
+  it('tells the club when an account goes, so their unused forum pictures go too (e13-t13), and survives a failing hook', async () => {
+    const removed: string[] = []
+    club = new ClubService(store, connections, {
+      maxUsers: 20,
+      now: () => time,
+      schedule: () => undefined,
+      onMemberRemoved: async (id) => {
+        removed.push(id)
+        if (removed.length > 1) throw new Error('R2 is down')
+      },
+    })
+    await club.load()
+    const ben = await member('ben')
+    const amy = await member('amy')
+    await club.deleteOwnAccount(ben, 'club-secret-1')
+    await club.adminDeleteUser(adminId, amy)
+    expect(removed).toEqual([ben, amy])
+    expect(club.usernameOf(amy)).toBeUndefined()
   })
 
   it('keeps the club’s last admin', async () => {
-    await expect(club.deleteOwnAccount(adminId, 'secret1')).rejects.toMatchObject({ code: 'lastAdminLeaving' })
+    await expect(club.deleteOwnAccount(adminId, 'club-secret-1')).rejects.toMatchObject({ code: 'lastAdminLeaving' })
     const ben = await member('ben')
     await club.adminSetAdmin(adminId, ben, true)
-    await club.deleteOwnAccount(adminId, 'secret1')
+    await club.deleteOwnAccount(adminId, 'club-secret-1')
     expect(club.usernameOf(adminId)).toBeUndefined()
   })
 })
@@ -266,6 +333,10 @@ describe('security headers (e11-t23)', () => {
     expect(PAGE_CSP).toContain("connect-src 'self'")
     expect(PAGE_CSP).toContain("frame-ancestors 'none'")
     expect(PAGE_CSP).toContain("object-src 'none'")
+    // The one other origin: Cloudflare Turnstile's script and frame on 申請加入 (e1-t33)
+    expect(PAGE_CSP).toContain("script-src 'self' 'wasm-unsafe-eval' https://challenges.cloudflare.com;")
+    expect(PAGE_CSP).toContain('frame-src https://challenges.cloudflare.com;')
+    expect(PAGE_CSP.match(/https:\/\/[^\s;]+/g)!.every((origin) => origin === 'https://challenges.cloudflare.com')).toBe(true)
   })
 
   it('adds the API’s headers, keeps what an answer set, and leaves a WebSocket upgrade alone', () => {

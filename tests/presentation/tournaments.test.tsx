@@ -1,0 +1,252 @@
+import { render, screen, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { TournamentView } from '../../shared/tournament.ts'
+import { TournamentPage, TournamentsListPage } from '../../src/pages/TournamentPages.tsx'
+import { PreferencesProvider } from '../../src/state/PreferencesContext.tsx'
+
+/** The tournament pages (e9-t16, AC-9.7): the announcement, entering, confirming, and the admin's start */
+
+const mocks = vi.hoisted(() => ({
+  api: {
+    tournaments: {
+      list: vi.fn(),
+      get: vi.fn(),
+      create: vi.fn(),
+      update: vi.fn(),
+      enter: vi.fn(),
+      answer: vi.fn(),
+      withdraw: vi.fn(),
+      remove: vi.fn(),
+      cancel: vi.fn(),
+      start: vi.fn(),
+      pairing: vi.fn(),
+    },
+  },
+  user: { id: 'u1', username: 'amy', admin: false, permissions: [] as string[] },
+}))
+
+vi.mock('../../src/lib/api.ts', async (original) => ({
+  ...(await original<typeof import('../../src/lib/api.ts')>()),
+  api: mocks.api,
+}))
+vi.mock('../../src/state/AuthContext.tsx', () => ({
+  useAuth: () => ({ user: mocks.user }),
+}))
+
+const START = Date.UTC(2026, 10, 14, 6)
+const user = (id: string, username: string, confirmed = true) => ({ id, username, confirmed })
+
+const OPEN: TournamentView = {
+  id: 't1',
+  title: '社慶盃',
+  kind: 'pairs',
+  status: 'open',
+  startsAt: START,
+  deadline: START - 86_400_000,
+  capacity: 10,
+  used: 1.5,
+  mine: false,
+  description: '週六下午兩點，社辦見',
+  createdBy: { id: 'boss', username: 'boss' },
+  createdAt: START - 7 * 86_400_000,
+  settings: {
+    kind: 'pairs',
+    title: '社慶盃',
+    description: '週六下午兩點，社辦見',
+    startsAt: START,
+    deadline: START - 86_400_000,
+    capacity: 10,
+    pairs: { boardsPerRound: 3, boardMinutes: 8 },
+    match: { boards: 8, scoring: 'imp', boardMinutes: 10 },
+  },
+  entries: [
+    { id: 'e1', players: [user('u2', 'ben'), user('u3', 'cat', false)], complete: false, at: 1 },
+    { id: 'e2', players: [user('u4', 'dan')], complete: true, at: 2 },
+  ],
+  entriesOpen: true,
+  canManage: false,
+}
+
+function renderPage(path = '/tournaments/t1') {
+  return render(
+    <PreferencesProvider>
+      <MemoryRouter initialEntries={[path]}>
+        <Routes>
+          <Route path="/tournaments" element={<TournamentsListPage />} />
+          <Route path="/tournaments/:tournamentId" element={<TournamentPage />} />
+          <Route path="/pairs/:id" element={<p>pairs page</p>} />
+        </Routes>
+      </MemoryRouter>
+    </PreferencesProvider>,
+  )
+}
+
+describe('tournament pages', () => {
+  beforeEach(() => {
+    for (const fn of Object.values(mocks.api.tournaments)) fn.mockReset()
+    mocks.user.admin = false
+  })
+
+  it('shows the announcement and the entries, and enters with a partner', async () => {
+    mocks.api.tournaments.get.mockResolvedValue({ tournament: OPEN })
+    mocks.api.tournaments.enter.mockResolvedValue({
+      tournament: { ...OPEN, mine: true, myEntry: 'e3', entries: [...OPEN.entries, { id: 'e3', players: [user('u1', 'amy'), user('u5', 'eve', false)], complete: false, at: 3 }] },
+    })
+    renderPage()
+    expect(await screen.findByRole('heading', { name: '社慶盃' })).toBeInTheDocument()
+    expect(screen.getByText('週六下午兩點，社辦見')).toBeInTheDocument()
+    expect(screen.getByText('1.5／10 對')).toBeInTheDocument()
+    const entries = screen.getByRole('list')
+    expect(within(entries).getAllByRole('listitem')).toHaveLength(2)
+    expect(within(entries).getByText('（等確認）')).toBeInTheDocument()
+    expect(within(entries).getByText('單人（開賽時和其他單人配對）')).toBeInTheDocument()
+    // Nobody named: entering alone
+    expect(screen.getByRole('button', { name: '自己報名' })).toBeInTheDocument()
+    await userEvent.type(screen.getByLabelText('搭檔的帳號名稱（留白就是自己報名）'), 'eve')
+    await userEvent.click(screen.getByRole('button', { name: '報名' }))
+    expect(mocks.api.tournaments.enter).toHaveBeenCalledWith('t1', ['eve'], undefined)
+    expect(await screen.findByText('你已經報名了。')).toBeInTheDocument()
+    // Members cannot manage it
+    expect(screen.queryByRole('button', { name: '用報名名單開賽' })).not.toBeInTheDocument()
+  })
+
+  it('lets a partner confirm', async () => {
+    mocks.api.tournaments.get.mockResolvedValue({ tournament: { ...OPEN, mine: true, myEntry: 'e1', myPending: true } })
+    mocks.api.tournaments.answer.mockResolvedValue({ tournament: { ...OPEN, mine: true, myEntry: 'e1' } })
+    renderPage()
+    expect(await screen.findByText('有人和你一起報名了這場比賽，請確認。')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: '確認報名' }))
+    expect(mocks.api.tournaments.answer).toHaveBeenCalledWith('t1', true)
+    expect(await screen.findByRole('button', { name: '退出報名' })).toBeInTheDocument()
+  })
+
+  it('asks a team for three teammates', async () => {
+    mocks.api.tournaments.get.mockResolvedValue({ tournament: { ...OPEN, kind: 'match', capacity: 2, used: 0, entries: [] } })
+    renderPage()
+    const button = await screen.findByRole('button', { name: '整隊報名' })
+    expect(button).toBeDisabled()
+    await userEvent.type(screen.getByLabelText('三位隊友的帳號名稱（用逗號或空白分開）'), 'ben, cat dan')
+    expect(button).toBeEnabled()
+  })
+
+  it('asks a multi-team event for three to five teammates (e9-t14)', async () => {
+    mocks.api.tournaments.get.mockResolvedValue({ tournament: { ...OPEN, kind: 'teams', capacity: 8, used: 0, entries: [] } })
+    renderPage()
+    const button = await screen.findByRole('button', { name: '整隊報名' })
+    const box = screen.getByLabelText('三到五位隊友的帳號名稱（用逗號或空白分開）')
+    await userEvent.type(box, 'ben cat')
+    expect(button).toBeDisabled()
+    await userEvent.type(box, ' dan eve fay')
+    expect(button).toBeEnabled()
+    await userEvent.type(box, ' gus')
+    expect(button).toBeDisabled()
+    expect(screen.getByText('0／8 隊')).toBeInTheDocument()
+  })
+
+  it('lets an admin start it from the entries, then links the event', async () => {
+    mocks.user.admin = true
+    mocks.api.tournaments.get.mockResolvedValue({ tournament: { ...OPEN, canManage: true } })
+    mocks.api.tournaments.start.mockResolvedValue({ tournament: { ...OPEN, canManage: true, status: 'started', eventId: 'p1', eventLink: '/pairs/p1' } })
+    renderPage()
+    await userEvent.click(await screen.findByRole('button', { name: '用報名名單開賽' }))
+    expect(mocks.api.tournaments.start).toHaveBeenCalledWith('t1')
+    expect(await screen.findByRole('link', { name: '前往比賽' })).toHaveAttribute('href', '/pairs/p1')
+  })
+
+  it('links the results once it is over', async () => {
+    mocks.api.tournaments.get.mockResolvedValue({ tournament: { ...OPEN, status: 'finished', eventId: 'p1', eventLink: '/pairs/p1' } })
+    renderPage()
+    expect(await screen.findByRole('link', { name: '看比賽結果' })).toHaveAttribute('href', '/pairs/p1')
+    expect(screen.getByText('比賽結束了，結果已經公告。')).toBeInTheDocument()
+  })
+
+  it('lists the tournaments, with the form for admins', async () => {
+    mocks.user.admin = true
+    mocks.api.tournaments.list.mockResolvedValue({
+      tournaments: [{ id: 't1', title: '社慶盃', kind: 'pairs', status: 'open', startsAt: START, deadline: START - 1, capacity: 10, used: 2, mine: true }],
+    })
+    renderPage('/tournaments')
+    expect(await screen.findByRole('link', { name: '社慶盃' })).toHaveAttribute('href', '/tournaments/t1')
+    expect(screen.getByText('2／10 對')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '公告比賽' })).toBeInTheDocument()
+  })
+
+  it('shows how those alone will be paired, and lets an admin swap them or go back (2026-11-03)', async () => {
+    mocks.user.admin = true
+    const u = (id: string, username: string) => ({ id, username })
+    const singles: NonNullable<TournamentView['singles']> = {
+      pairs: [
+        [u('u4', 'dan'), u('u5', 'eve')],
+        [u('u6', 'fay'), u('u7', 'gus')],
+      ],
+      leftOver: [u('u8', 'hal')],
+      adjusted: false,
+    }
+    mocks.api.tournaments.get.mockResolvedValue({ tournament: { ...OPEN, canManage: true, singles } })
+    mocks.api.tournaments.pairing.mockResolvedValue({
+      tournament: { ...OPEN, canManage: true, singles: { pairs: [[u('u4', 'dan'), u('u6', 'fay')], [u('u5', 'eve'), u('u7', 'gus')]], leftOver: [u('u8', 'hal')], adjusted: true } },
+    })
+    renderPage()
+    const section = await screen.findByRole('region', { name: '單人報名的配對' })
+    expect(within(section).getByText('第 1 對')).toBeInTheDocument()
+    expect(within(section).getByText('多出一人（這次不排）')).toBeInTheDocument()
+    expect(within(section).queryByRole('button', { name: '恢復報名順序' })).not.toBeInTheDocument()
+    // Eve swaps places with Fay: the whole new order goes to the server
+    await userEvent.selectOptions(within(section).getByRole('combobox', { name: '把 eve 和誰交換' }), 'u6')
+    expect(mocks.api.tournaments.pairing).toHaveBeenCalledWith('t1', ['u4', 'u6', 'u5', 'u7', 'u8'])
+    expect(await within(section).findByText('管理員調整過配對。')).toBeInTheDocument()
+    mocks.api.tournaments.pairing.mockResolvedValue({ tournament: { ...OPEN, canManage: true, singles } })
+    await userEvent.click(within(section).getByRole('button', { name: '恢復報名順序' }))
+    expect(mocks.api.tournaments.pairing).toHaveBeenLastCalledWith('t1', null)
+  })
+
+  it('shows members the proposed pairing without the controls', async () => {
+    const singles: NonNullable<TournamentView['singles']> = {
+      pairs: [[{ id: 'u4', username: 'dan' }, { id: 'u5', username: 'eve' }]],
+      leftOver: [],
+      adjusted: true,
+    }
+    mocks.api.tournaments.get.mockResolvedValue({ tournament: { ...OPEN, singles } })
+    renderPage()
+    const section = await screen.findByRole('region', { name: '單人報名的配對' })
+    expect(within(section).getByRole('link', { name: 'eve' })).toBeInTheDocument()
+    expect(within(section).queryByRole('combobox')).not.toBeInTheDocument()
+    expect(within(section).queryByRole('button')).not.toBeInTheDocument()
+  })
+
+  it('lets an admin choose round robin or Swiss for a multi-team event, its rounds following the places', async () => {
+    mocks.user.admin = true
+    mocks.api.tournaments.list.mockResolvedValue({ tournaments: [] })
+    mocks.api.tournaments.create.mockResolvedValue({ tournament: { ...OPEN, kind: 'teams' } })
+    renderPage('/tournaments')
+    const form = await screen.findByRole('form', { name: '公告比賽' })
+    await userEvent.type(within(form).getByLabelText('名稱'), '團體賽')
+    await userEvent.selectOptions(within(form).getByLabelText('比賽方式'), 'teams')
+    const places = within(form).getByLabelText('名額（隊）')
+    await userEvent.clear(places)
+    await userEvent.type(places, '6')
+    await userEvent.selectOptions(within(form).getByLabelText('賽制'), 'roundRobin')
+    const rounds = within(form).getByLabelText('輪數（循環賽：每隊遇到每隊一次）')
+    expect(rounds).toHaveValue(5)
+    expect(rounds).toHaveAttribute('readonly')
+    expect(within(form).getByText(/循環賽的輪數是名額減一/)).toBeInTheDocument()
+    // Fewer places: the rounds follow
+    await userEvent.clear(places)
+    await userEvent.type(places, '5')
+    expect(rounds).toHaveValue(5)
+    await userEvent.clear(places)
+    await userEvent.type(places, '4')
+    expect(rounds).toHaveValue(3)
+    // Swiss: the rounds are the admin's; back to the round robin before announcing
+    await userEvent.selectOptions(within(form).getByLabelText('賽制'), 'swiss')
+    expect(within(form).getByLabelText('輪數（瑞士制，少於名額）')).not.toHaveAttribute('readonly')
+    await userEvent.selectOptions(within(form).getByLabelText('賽制'), 'roundRobin')
+    mocks.api.tournaments.get.mockResolvedValue({ tournament: { ...OPEN, kind: 'teams' } })
+    await userEvent.click(within(form).getByRole('button', { name: '公告比賽' }))
+    expect(mocks.api.tournaments.create).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: 'teams', capacity: 4, teams: expect.objectContaining({ format: 'roundRobin', rounds: 3 }) }),
+    )
+  })
+})

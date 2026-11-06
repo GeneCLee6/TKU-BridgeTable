@@ -57,7 +57,7 @@ const tick = async (times = 1) => {
 }
 
 async function member(name: string) {
-  await club.register(name, 'secret1', '')
+  await club.register(name, 'club-secret-1', '')
   const user = await club.adminApprove(club.adminApplications().find((a) => a.username === name)!.id)
   connections.online.add(user.id)
   club.connected(user.id)
@@ -84,7 +84,7 @@ beforeEach(async () => {
   time = MONDAY_8AM
   club = newClub()
   await club.load()
-  const founder = await club.register('boss', 'secret1', '')
+  const founder = await club.register('boss', 'club-secret-1', '')
   if (!('user' in founder)) throw new Error('the first account signs in at once')
   boss = founder.user.id
   connections.online.add(boss)

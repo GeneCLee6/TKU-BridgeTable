@@ -177,7 +177,7 @@ export function makeCall(state: BoardState, seat: Seat, call: Call, alert?: stri
   if (isAuctionComplete(auction)) {
     next.contract = contractOf(auction)
     if (next.contract) next.phase = 'play'
-    else return finish(next, 0, false)
+    else return finishBoard(next, 0, false)
   }
   return next
 }
@@ -205,7 +205,7 @@ export function playCard(state: BoardState, seat: Seat, card: Card): BoardState 
   const next: BoardState = { ...state, play: [...state.play, { seat, card }] }
   if (next.play.length === 52) {
     const declarer = next.contract!.declarer
-    return finish(next, tricksWon(next)[sideOf(declarer)], false)
+    return finishBoard(next, tricksWon(next)[sideOf(declarer)], false)
   }
   return next
 }
@@ -241,7 +241,7 @@ export function respondToClaim(state: BoardState, seat: Seat, accept: boolean): 
   const remaining = remainingTricks(state)
   const declarerShare = sameSide(claim.seat, declarer) ? claim.tricks : remaining - claim.tricks
   const settled = { ...state, claim: { ...claim, accepted } }
-  return finish(settled, tricksWon(state)[sideOf(declarer)] + declarerShare, true)
+  return finishBoard(settled, tricksWon(state)[sideOf(declarer)] + declarerShare, true)
 }
 
 /**
@@ -267,6 +267,20 @@ export function undoFor(state: BoardState, seat: Seat, auctionSeat: Seat = seat)
   return { ...rest, phase: 'auction', contract: null, auction: state.auction.slice(0, from) }
 }
 
+/**
+ * A teacher's undo (`e10-t10`): takes back the last step of the board, whoever made it and without
+ * asking anyone: a claim, then the last card, then the last call. A finished board opens again; the
+ * auction reopens when the last call of a finished auction is taken back
+ */
+export function undoLast(state: BoardState): BoardState {
+  const { claim, result: _result, claimed, ...rest } = state
+  // A claim, waiting or accepted, is the last step: the cards go back to how they were
+  if (claim) return { ...rest, phase: 'play' }
+  if (state.play.length) return { ...rest, ...(claimed && { claimed }), phase: 'play', play: state.play.slice(0, -1) }
+  if (!state.auction.length) throw new GameError('nothingToUndo')
+  return { ...rest, phase: 'auction', contract: null, auction: state.auction.slice(0, -1) }
+}
+
 /** Whether `undoFor` has something to take back for the seat */
 export function canUndoFor(state: BoardState, seat: Seat, auctionSeat: Seat = seat): boolean {
   try {
@@ -278,7 +292,8 @@ export function canUndoFor(state: BoardState, seat: Seat, auctionSeat: Seat = se
   }
 }
 
-function finish(state: BoardState, declarerTricks: number, claimed: boolean): BoardState {
+/** The board over, with the declarer's tricks in all and its score */
+export function finishBoard(state: BoardState, declarerTricks: number, claimed: boolean): BoardState {
   const contract = state.contract
   let scoreNS = 0
   if (contract) {

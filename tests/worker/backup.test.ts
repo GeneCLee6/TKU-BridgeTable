@@ -86,7 +86,7 @@ beforeEach(() => {
 })
 
 describe('export', () => {
-  it('takes the book, the accounts and their pictures, sorted, and nothing else', async () => {
+  it('takes the book, the accounts, their pictures, friends and blocks, sorted, and nothing else', async () => {
     await store.put('user:u1', { username: 'amy' })
     await store.put('app:a1', { username: 'cat' })
     await store.put('avatar:u1', { version: 5, type: 'image/webp', bytes: new Uint8Array([1, 2, 3]) })
@@ -94,6 +94,8 @@ describe('export', () => {
     await store.put('session:t', { userId: 'u1' })
     await store.put('meta:settings', { inviteCode: 'x' })
     await store.put('friend:u1:u2', 1)
+    await store.put('block:u2:u1', 1)
+    await store.put('friendship:x', 1)
     await store.put('board:b1', {})
     await store.put('book:version', 3)
     await store.put('bookpart:book:entry:x:0', '{"a":1}')
@@ -104,9 +106,11 @@ describe('export', () => {
       'app:a1',
       'article:a',
       'avatar:u1',
+      'block:u2:u1',
       'book:entry:x',
       'book:version',
       'bookpart:book:entry:x:0',
+      'friend:u1:u2',
       'profile:club',
       'user:u1',
       'userteam:u1:t1',
@@ -276,6 +280,29 @@ describe('restore plan', () => {
       ['user:u1', { username: 'amy', avatar: 5 }],
       ['book:version', 1],
     ])
+  })
+
+  it('puts friends and blocks back only between accounts the backup has, and deletes the ones made since', () => {
+    const plan = planRestore(
+      backup([
+        ['block:u2:u1', { at: 1 }],
+        // Written by hand: a backup's relations name its own accounts, but one naming another is not put back
+        ['block:u1:u9', { at: 1 }],
+        ['friend:u1:u2', { at: 1 }],
+        ['friend:u9:u1', { at: 1 }],
+        ['user:u1', { username: 'amy' }],
+        ['user:u2', { username: 'ben' }],
+      ]),
+      [
+        ['block:u2:u1', { at: 1 }],
+        ['friend:u1:u3', { at: 2 }],
+        ['user:u1', { username: 'amy' }],
+        ['user:u2', { username: 'ben' }],
+        ['user:u3', { username: 'cat' }],
+      ],
+    )
+    expect(plan.puts.map(([k]) => k)).toEqual(['block:u2:u1', 'friend:u1:u2', 'user:u1', 'user:u2', 'book:version'])
+    expect(plan.deletes).toEqual(['friend:u1:u3', 'user:u3'])
   })
 
   it('leaves out one-time upload passes', () => {
@@ -475,10 +502,10 @@ describe('restoring the accounts into a running club', () => {
     const sqlStore = memoryStore()
     const club = new ClubService(sqlStore, connections, { maxUsers: 20, now: () => time, schedule: () => undefined })
     await club.load()
-    const founder = await club.register('admin', 'secret1', '')
+    const founder = await club.register('admin', 'club-secret-1', '')
     if (!('user' in founder)) throw new Error('the first account should sign in at once')
     const member = async (name: string) => {
-      await club.register(name, 'secret1', '')
+      await club.register(name, 'club-secret-1', '')
       return (await club.adminApprove(club.adminApplications().find((a) => a.username === name)!.id)).id
     }
     const amy = await member('amy')
@@ -491,8 +518,8 @@ describe('restoring the accounts into a running club', () => {
     expect(second).not.toBe(first)
     const ben = await member('ben')
     await club.setAvatar(ben, picture(3))
-    await club.register('cat', 'secret1', '')
-    const { token } = await club.login('amy', 'secret1')
+    await club.register('cat', 'club-secret-1', '')
+    const { token } = await club.login('amy', 'club-secret-1')
     expect(await club.userForToken(token)).toMatchObject({ id: amy })
     online.add(amy).add(ben)
 
@@ -525,6 +552,49 @@ describe('restoring the accounts into a running club', () => {
     expect(await club.userForToken(token)).toBeNull()
     expect((await sqlStore.list('session:')).size).toBe(0)
     expect(new Set(disconnected)).toEqual(new Set([amy, ben]))
-    expect((await club.login('amy', 'secret1')).user.avatar).toBe(first)
+    expect((await club.login('amy', 'club-secret-1')).user.avatar).toBe(first)
+  })
+
+  it('brings friends and blocks back as of the backup, only between the accounts it has', async () => {
+    const connections: Connections = { onlineUserIds: () => [], send: () => undefined, disconnect: () => undefined }
+    const sqlStore = memoryStore()
+    const club = new ClubService(sqlStore, connections, { maxUsers: 20, now: () => NOW, schedule: () => undefined })
+    await club.load()
+    await club.register('admin', 'club-secret-1', '')
+    const member = async (name: string) => {
+      await club.register(name, 'club-secret-1', '')
+      return (await club.adminApprove(club.adminApplications().find((a) => a.username === name)!.id)).id
+    }
+    const [amy, ben, cat] = [await member('amy'), await member('ben'), await member('cat')]
+    await club.handle(amy, { type: 'setFriend', userId: ben, friend: true })
+    await club.handle(ben, { type: 'setBlocked', userId: cat, blocked: true })
+    await runBackup(sqlStore, bucket, NOW)
+
+    // After the backup: amy unfollows ben and follows cat, cat blocks amy, and dan joins with friends of his own
+    await club.handle(amy, { type: 'setFriend', userId: ben, friend: false })
+    await club.handle(amy, { type: 'setFriend', userId: cat, friend: true })
+    await club.handle(cat, { type: 'setBlocked', userId: amy, blocked: true })
+    const dan = await member('dan')
+    await club.handle(dan, { type: 'setFriend', userId: amy, friend: true })
+    await club.handle(amy, { type: 'setFriend', userId: dan, friend: true })
+
+    const name = day('2026-10-25')
+    await backupAdmin('POST', '/backups/restore', async () => ({ name, dryRun: false, confirm: name }), {
+      bucket,
+      store: sqlStore,
+      now: NOW,
+      restored: async (prefixes) => {
+        if (prefixes.some((p) => ACCOUNT_PREFIXES.includes(p))) await club.reloadAccounts()
+      },
+    })
+    const relations = async (kind: string) => [...(await sqlStore.list(`${kind}:`)).keys()].sort()
+    expect(await relations('friend')).toEqual([`friend:${amy}:${ben}`])
+    expect(await relations('block')).toEqual([`block:${ben}:${cat}`])
+    // What the club holds in memory is the backup's too
+    const lobby = (id: string) => club.lobbyView(id, [])
+    expect(lobby(amy)).toMatchObject({ friends: [ben], blocked: [] })
+    expect(lobby(ben)).toMatchObject({ friends: [], blocked: [cat] })
+    expect(lobby(cat)).toMatchObject({ friends: [], blocked: [] })
+    expect(club.usernameOf(dan)).toBeUndefined()
   })
 })

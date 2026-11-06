@@ -5,8 +5,10 @@
   "compatibility_date": "2026-09-01",
   "observability": { "enabled": true },
   "assets": {
+    // env.ASSETS: the Worker reads the static manifest to make another club's (worker/manifest.ts)
+    "binding": "ASSETS",
     "not_found_handling": "single-page-application",
-    "run_worker_first": ["/api/*", "/ws", "/ws/*"]
+    "run_worker_first": ["/api/*", "/ws", "/ws/*", "/c/*/manifest.webmanifest"]
   },
   "durable_objects": {
     // The club, and one object per table (ARCHITECTURE.md §5.10)

@@ -65,7 +65,7 @@ PR 預覽部署好後，機器人會在 PR 留一則留言貼預覽網址（之�
 | --- | --- | --- |
 | `PREVIEW_INVITE_CODE` | 所有 PR 預覽的註冊邀請碼 | 不部署預覽（工作流程顯示提示，不會失敗） |
 | `STAGING_INVITE_CODE` | staging 的註冊邀請碼 | 不部署 staging |
-| `SEED_PASSWORD` | 測試帳號的密碼（預覽與 staging 共用，至少 6 個字） | 不建立測試帳號，第一個註冊的人就是管理員 |
+| `SEED_PASSWORD` | 測試帳號的密碼（預覽與 staging 共用，至少 12 個字，不能是常見密碼，也不能包含 `admin` 或測試帳號的名稱） | 不建立測試帳號，第一個註冊的人就是管理員 |
 
 在專案資料夾逐一執行（貼上值後按 Enter，不會顯示在畫面上），邀請碼請不要和正式站相同：
 
@@ -122,11 +122,26 @@ PR 關閉時預覽會自動刪除。若有漏掉的（例如當時還沒設定 s
 | `ANTHROPIC_API_KEY` | `wrangler secret put ANTHROPIC_API_KEY` | 無 | 淡江橋譜「匯入檔案」用的 Claude API 金鑰；沒設定時匯入頁會說明尚未設定，其他功能不受影響 |
 | `IMPORT_MODEL` | `wrangler.jsonc` 的 `vars` | `claude-opus-5-5` | 匯入用的模型，通常不用改 |
 | `EDGE_AUTH_SECRET` | `wrangler secret put EDGE_AUTH_SECRET` | 無 | 簽邊緣通行證（§4.5）；沒設定時不發通行證，Worker 什麼都問社團 |
+| `SEEN_SALT` | `wrangler secret put SEEN_SALT` | 無 | 防作弊報表的網路雜湊用的鹽（§4.12，至少 16 字，建議 32 bytes 隨機）；沒設定時不記網路、只比對同一個瀏覽器，報表上會說明 |
+| `TURNSTILE_SITE_KEY` | `wrangler.jsonc` 的 `vars` 或 `--var` | 無 | 申請加入的 Cloudflare Turnstile（§4.13）：site key，公開的 |
+| `TURNSTILE_SECRET_KEY` | `wrangler secret put TURNSTILE_SECRET_KEY` | 無 | Turnstile 的 secret key；**兩個都設才開**，少一個就不顯示、不驗證 |
 | `EDGE_AUTH` | `wrangler.jsonc` 的 `vars` 或 `--var` | 開 | `off` 關掉通行證（§4.5） |
 | `HISTORY_D1` | `wrangler.jsonc` 的 `vars` 或 `--var` | 開 | `off` 讓紀錄頁改回社團回答、停止寫 D1（§4.5）；沒有 `HISTORY` binding（PR 預覽）時本來就沒有 |
 | `SYSTEM_PROFILE_ID` | `wrangler.jsonc` 的 `vars` 或 `--var` | `club` | TKB 用淡江制度時，叫品帶哪個制度集的橋館文字（ROBOT.md「橋館的文字跟著叫品」）；那個制度集要先在橋館差異報告頁同步過 |
 | `BOOK_SEED_TOKEN` | `wrangler secret put BOOK_SEED_TOKEN` | 無 | 橋館寫入內建特約用的權杖（§4.9，至少 32 字）；沒設定時只有管理員登入後能寫 |
 | `BOOK_EXPORT_TOKEN` | `wrangler secret put BOOK_EXPORT_TOKEN` | 無 | 橋館排程備份讀全部特約用的權杖（§4.10，至少 32 字，只能讀 `GET /api/book/export`）；沒設定時只有管理員登入後能匯出 |
+| `TWO_FACTOR_RESET_TOKEN` | `wrangler secret put TWO_FACTOR_RESET_TOKEN` | **無（平常不要設）** | 只有一位管理員又遺失手機與備用碼時的最後手段（§4.15，至少 32 字隨機）：設了才有 `POST /api/ops/two-factor-reset`，**用完立刻 `wrangler secret delete`** |
+| `RESEND_API_KEY` | `wrangler secret put RESEND_API_KEY` | 無 | 寄 Email 驗證信與重設密碼信（§4.14）；跟 `MAIL_FROM` 兩個都設才打開，沒設定時沒有 Email 功能 |
+| `MAIL_FROM` | `wrangler.jsonc` 的 `vars` 或 secret | 無 | 寄件人，要是 Resend 驗證過的網域上的地址（§4.14） |
+| `GOOGLE_CLIENT_ID` | `wrangler secret put GOOGLE_CLIENT_ID` | 無 | Google 登入（§4.16）：Google Cloud 的 OAuth 用戶端 ID |
+| `GOOGLE_CLIENT_SECRET` | `wrangler secret put GOOGLE_CLIENT_SECRET` | 無 | 那個用戶端的密鑰；**兩個都設才開**，PR 預覽不設（預覽站沒有 Google 登入） |
+| `VAPID_PUBLIC_KEY` | `wrangler secret put VAPID_PUBLIC_KEY` | 無 | PWA 推播（§4.17）：`npm run vapid` 產生的公鑰（公開的，瀏覽器訂閱時要用；放 secret 只是跟私鑰放一起） |
+| `VAPID_PRIVATE_KEY` | `wrangler secret put VAPID_PRIVATE_KEY` | 無 | 同一對的私鑰，**只放 secret** |
+| `VAPID_SUBJECT` | `wrangler secret put VAPID_SUBJECT` | 無 | 推播服務聯絡得到的人：`mailto:` 開頭的 Email 或 `https:` 網址；**三個都設才開**，PR 預覽不設（預覽站沒有推播） |
+| `LINE_CHANNEL_ID` | `wrangler secret put LINE_CHANNEL_ID` | 無 | LINE 登入（§4.18）：LINE Developers 的 LINE Login channel 的 Channel ID |
+| `LINE_CHANNEL_SECRET` | `wrangler secret put LINE_CHANNEL_SECRET` | 無 | 那個 channel 的 Channel secret（也用來驗 ID token 的簽章）；**兩個都設才開**，PR 預覽不設 |
+| `PLATFORM_OWNER` | `wrangler secret put PLATFORM_OWNER` | 無 | 平台管理員（§4.20）：社長的**淡江帳號 user id**，那個帳號要是管理員並開了兩步驟登入；沒設定時沒有平台後台、不開放申請新社團 |
+| `CLUBS` | `wrangler.jsonc` 的 `vars` | 無 | **只給開發與 staging**（§4.19）：不經平台名冊就服務的社團代號；正式社團走申請與核准（§4.20） |
 | `ANTHROPIC_BASE_URL` | `.dev.vars` | 無 | 只給測試或 API 閘道用（本機可以指向假的 API），正式環境不要設定 |
 
 本機開發的值放在 `.dev.vars`（從 `.dev.vars.example` 複製，不會 commit）。
@@ -140,7 +155,8 @@ PR 關閉時預覽會自動刪除。若有漏掉的（例如當時還沒設定 s
 | 核准註冊 | 「待審核的申請」→「核准」或「拒絕」。申請人可以填自我介紹（例如姓名、系級），方便確認是社員；拒絕後那個帳號名稱可以重新申請 |
 | 開橋譜權限 | 社員列表的「橋譜權限」：**線上編輯**（在淡江橋譜修改、新增特約）、**匯入檔案**（用 AI 把 Word／PDF 整理成特約，會用到 API 額度）。管理員自動擁有全部權限 |
 | 社員忘記密碼 | 社員在登入頁按「忘記密碼？」，輸入帳號和邀請碼送出申請；管理員會收到通知，社員列表那一列顯示「申請重設密碼」。**先確認是本人**（例如當面、或用你知道是他的 LINE 問一聲），再按「核准重設」：畫面會顯示一組重設代碼（例如 `ABCDE-FGH23`，只顯示這一次、3 天內有效），當面或私訊交給他；他在登入頁按「輸入重設代碼」，填代碼和新密碼就好，所有裝置的登入會被登出，社員列表會顯示「自行重設密碼」的時間。不是本人申請的就按「拒絕重設」。也可以直接在社員列表 →「重設密碼」替他設一個 |
-| 管理員忘記密碼 | 為了安全，管理員帳號不能用「忘記密碼」，要由另一位管理員重設。**請至少設兩位管理員** |
+| 管理員忘記密碼 | 為了安全，管理員帳號不能用「忘記密碼」的核准流程。有 Email 功能（§4.14）時，先在「我的帳號」綁定並驗證 Email，忘記密碼就用登入頁的 Email 重設（之後仍要兩步驟登入的驗證碼）；有第二位管理員時也可以請他重設 |
+| 兩步驟登入（`e11-t31`） | **管理員一定要開**（社長 2026-11-02）：沒開的管理員能登入，但管理頁只會顯示「請先開啟兩步驟登入」，所有管理功能（含淡江橋館的）都會被伺服器擋下。到「我的帳號」→「兩步驟登入」開啟（§4.15）。手機和備用碼都不見時：有另一位管理員就請他在社員列表那一列的「⋯」→「關閉兩步驟登入」；**只有一位管理員**時由網站擁有者照 §4.15 的「最後手段」處理 |
 | 新增社員 | 「新增社員」輸入帳號密碼（不需要邀請碼也不用審核，仍受人數上限限制） |
 | 釋出名額 | 「刪除」不用的帳號；他的牌局紀錄會保留 |
 | 多一位管理員 | 「設為管理員」；至少要保留一位，不能取消自己 |
@@ -197,8 +213,9 @@ npx wrangler deploy --var TABLE_OBJECTS:off   # 牌桌搬回社團的物件，�
 - **範圍**：key 開頭是下面這些的全部資料：
   - 淡江橋譜：`book`（線上特約、`bookpart:` 分段、版本紀錄、分類、匯入草稿）、`profile`（制度集）、`article`（文章）、`team:`／`pair:`／`userteam:`／`userpair:`（隊伍與搭檔）。
   - 帳號（兩站共用）：`user:`（帳號、密碼雜湊、權限、頭像版本）、`app:`（等待核准的註冊申請）、`avatar:`（頭像圖片）。帳號與頭像在同一份備份、同一個時間點匯出，還原後每個人的頭像版本一定對得上圖片。
+  - 好友與封鎖（2026-11-04 起，社長）：`friend:`、`block:`，和帳號同一個時間點匯出。當初（#152，2026-10-27）只備份帳號、沒寫為什麼不含好友與封鎖；那天好友功能剛隱藏，名單沒人在用。2026-11-03 重新開放後，封鎖是社員保護自己的設定，還原後消失等於默默解除封鎖，所以一起備份。
   - 淡江橋館的討論區（2026-10-30 起）：Durable Object SQLite 的五張表 `forum_boards`、`forum_posts`、`forum_comments`、`forum_reactions`、`forum_reports`（看板、貼文、留言、反應、檢舉）。圖片本身在 R2 `bridgebook-files`，不在備份裡（R2 不會跟著還原而消失），備份只有圖片的擁有者紀錄 `file:meta:`。討論區的文字不大：一篇貼文最多幾 KB，一千篇加留言約幾 MB，每天一份、留 30 天仍遠低於 R2 免費的 10 GB；日誌的 `bytes` 可以看實際大小。
-  - **不在裡面**：`session:`（登入狀態，還原後大家重新登入）、`meta:settings`（邀請碼與人數上限：沒有時用 `wrangler.jsonc` 的值，而且還原不該把換掉的邀請碼帶回來；遺失的話在管理頁重新設定）、好友與封鎖、私訊、牌局紀錄與紀錄索引的 SQL 表（之後的 e11-t12）、淡江橋館的錯誤回報與匿名使用統計（`book_errors`、`book_metrics`、`book_visitors`、`book_telemetry_settings`，ARCHITECTURE.md §5.15：可以重新累積，還原時也不動）。
+  - **不在裡面**：`session:`（登入狀態，還原後大家重新登入）、`meta:settings`（邀請碼與人數上限：沒有時用 `wrangler.jsonc` 的值，而且還原不該把換掉的邀請碼帶回來；遺失的話在管理頁重新設定）、私訊、牌局紀錄與紀錄索引的 SQL 表（之後的 e11-t12）、淡江橋館的錯誤回報與匿名使用統計（`book_errors`、`book_metrics`、`book_visitors`、`book_telemetry_settings`，ARCHITECTURE.md §5.15：可以重新累積，還原時也不動）。
 - **格式**：JSON Lines。第一行是 `{"format":"tku-bridge-backup","version":3,"createdAt":…,"prefixes":[…],"keys":N,"tables":[…],"rows":M}`，之後每個 key 一行 `{"k":"<key>","v":<值>}`，key 之後是 SQL 表的每一列 `{"t":"forum_posts","r":{欄位: 值}}`（照寫入的順序），值與 Durable Object 裡存的一樣；只有位元組（頭像圖片的 `Uint8Array`）寫成 `{"$bytes":"<base64>"}`，讀回來時還原成位元組（剛好叫 `$bytes` 的欄位名稱會多加一個 `$` 跳脫，讀回來一樣）。舊的 `version: 1` 備份（只有淡江橋譜）照樣可以還原，而且只還原它自己的範圍（`prefixes`），不會動到帳號；`version: 1`、`2` 沒有 SQL 表，還原時討論區不動。
 - **只有正式站**：staging 與 PR 預覽（§2.1）沒有 `BACKUPS` binding、cron 也關掉（`wrangler.jsonc` 的 `env.*.triggers`），不會寫到正式站的 bucket；在那裡呼叫管理 API 會回 503（`backupUnavailable`）。
 - **日誌**：每次備份記一筆 `event = backup`（`ok`、`name`、`keys`、`rows`（SQL 表的列數）、`bytes`、`deleted`；失敗時 `error`）。
@@ -243,6 +260,7 @@ await call('POST', '/backups/restore', { name: 'daily/2026-10-25.jsonl', dryRun:
 還原 `version: 2` 的備份時，帳號也回到那一天：
 
 - 備份之後註冊的帳號、送出的申請、上傳的頭像都會被刪掉；被刪掉的帳號照刪除帳號的方式處理（離開牌桌、從挑戰與邀請裡移除、好友與通知清掉）。備份之後才刪掉的帳號會回來；改過的密碼、權限、頭像回到備份那天。
+- **好友與封鎖**也回到備份那天（備份之後加的好友、封鎖或解除封鎖都還原）；名單裡只留備份裡有的帳號之間的關係，不會為不在備份裡的帳號帶回好友或封鎖（`planRestore` 略過，`reloadAccounts` 重讀名單時也清掉）。2026-11-04 以前的備份沒有好友與封鎖：還原時名單不動，只清掉被刪掉的帳號。
 - **所有人都要重新登入**：登入狀態不在備份裡，還原後全部登入失效、所有連線斷開（包括執行還原的管理員自己）。社團的物件會重新讀取帳號，大廳不會顯示舊的社員。邊緣通行證（§4.5）同時列進撤銷清單，Worker 立刻不認。
 - 還原前先在社團公告，避免有人在牌桌中途被登出。
 
@@ -310,11 +328,11 @@ await call('POST', '/backups/restore', { name: 'daily/2026-10-25.jsonl', dryRun:
    - 副本完整、筆數對：
 
      ```bash
-     npx wrangler d1 execute tku-bridge-history --remote --command "SELECT value FROM index_meta WHERE key = 'ready'"
-     npx wrangler d1 execute tku-bridge-history --remote --command "SELECT COUNT(*) FROM boards_index"
+     npx wrangler d1 execute tku-bridge-history --remote --command "SELECT club_id, value FROM index_meta WHERE key = 'ready'"
+     npx wrangler d1 execute tku-bridge-history --remote --command "SELECT club_id, COUNT(*) FROM boards_index GROUP BY club_id"
      ```
 
-     `ready` 是 `1`；筆數等於社團的紀錄數（管理頁、或任一社員紀錄頁「全部」的總數，加上沒公開的挑戰／隊制賽牌局）。
+     淡江（`tku`）的 `ready` 是 `1`；筆數等於社團的紀錄數（管理頁、或任一社員紀錄頁「全部」的總數，加上沒公開的挑戰／隊制賽牌局）。
    - 登入後打開紀錄頁，Logs 搜尋 `event = edge`：有 `status: 200` 就是 Worker 從 D1 回答的；`fallback: notReady` 表示還在填，`fallback: error` 表示 D1 出錯（交給社團了，使用者看不出來）。
    - 瀏覽器開發者工具 → Application → Cookies 有 `tbt_pass`（設了 secret 才會有）。開一桌，Logs 裡不應該每次連上桌都出現社團的 `http` 紀錄。
 4. 打一副，十秒內出現在紀錄頁（副本約晚 1–2 秒）。
@@ -334,31 +352,33 @@ npx wrangler deploy --var EDGE_AUTH:off    # 不發也不認通行證，Worker �
 
 D1 免費額度（每天讀 500 萬列、寫 10 萬列、5 GB）的估算在 `ARCHITECTURE.md` §5.12「免費方案」：社團現在的量遠低於上限。Dashboard → Storage & Databases → D1 → `tku-bridge-history` → Metrics 可以看每天讀寫的列數。超過時紀錄頁自動改由社團回答，寫入隔天補上。
 
-## 4.6 每場挑戰一個 Durable Object（H2b，`e11-t18`）
+## 4.6 每場挑戰與隊制賽一個 Durable Object（H2b、H2c，`e11-t18`）
 
-從這一版起，每場挑戰**可以**在自己的 Durable Object（`EventObject`）裡跑：狀態、12 小時前的提醒、截止結算都在那一場的物件，社團的物件（`Club`）留一份副本給所有頁面讀，並負責通知、收桌與公開牌（`ARCHITECTURE.md` §5.12「H2b」）。`wrangler.jsonc` 多了 `EVENT` binding（三個環境各一份）與 migration `v3`（`new_sqlite_classes: ["EventObject"]`，只新增類別，部署時自動套用）。隊制賽還在社團裡（H2c）。
+從這一版起，每場挑戰**可以**在自己的 Durable Object（`EventObject`）裡跑：狀態、12 小時前的提醒、截止結算都在那一場的物件，社團的物件（`Club`）留一份副本給所有頁面讀，並負責通知、收桌與公開牌（`ARCHITECTURE.md` §5.12「H2b」）。`wrangler.jsonc` 多了 `EVENT` binding（三個環境各一份）與 migration `v3`（`new_sqlite_classes: ["EventObject"]`，只新增類別，部署時自動套用）。**H2c 起隊制賽也一樣**：每場開著的隊制賽在自己的 `EventObject`（`match:<id>`），同一個類別、同一個開關，不用新的 binding 或 migration（`ARCHITECTURE.md` §5.12「H2c」）。
 
-**開關 `EVENT_OBJECTS`，預設關**：只有值是 `on` 才用 `EventObject`。正式站的 `vars` 沒有它，所以**合併、部署這一版之後正式站的行為不變**：挑戰照舊在社團的物件裡，社團第一次載入時只多建兩個表（`event_homes` 空的；`challenge_settled` 把已經結束或已經提醒的舊挑戰標成做過，不會重發通知）。staging 與 PR 預覽在 `wrangler.jsonc` 已經設成 `on`，可以先在那裡試。**正式站什麼時候打開由社長決定。**
+**開關 `EVENT_OBJECTS`，預設關**：只有值是 `on` 才用 `EventObject`。正式站的 `vars` 沒有它，所以**合併、部署這一版之後正式站的行為不變**：挑戰照舊在社團的物件裡，社團第一次載入時只多建幾個表（`event_homes`、`match_homes` 空的；`challenge_settled` 把已經結束或已經提醒的舊挑戰、`match_settled` 把已經結束的舊隊制賽標成做過，不會重發通知）。staging 與 PR 預覽在 `wrangler.jsonc` 已經設成 `on`，可以先在那裡試。**正式站什麼時候打開由社長決定。**
 
 ### 先在 staging 試（已預設開）
 
 1. `https://<staging 網域>/api/health` 的 `events` 是 `{"objects":N,"unconfirmed":0}`：N 是住在物件裡的挑戰數，`unconfirmed` 不是 0 表示有物件還沒收下（60 秒後重試，看 Logs 的 `crash`，`where` 是 `moveEventsOut` 或 `adoptChallenge`）。
 2. 建一場挑戰、對方接受、各打一副：挑戰頁的進度與名次正確；Dashboard → Durable Objects 出現 `EventObject`。
 3. 取消一場、或等一場到期（可以建 1 天的）：大家收到該收的通知、只收一次；挑戰的牌之後在紀錄頁對所有人公開。
+4. 隊制賽：`/api/health` 的 `matchEvents` 同上（`where` 是 `moveMatchesOut` 或 `adoptMatch`）。開一場 4 副的隊制賽（其他座位放機器人）、開始、打完：比分正確、兩室都打完的副公開、完賽通知只來一次；中途暫停、裁定、替補也試一次。
 
 ### 正式站打開（社長決定之後）
 
 1. 挑沒有挑戰快要截止的時候。開一個 PR，把 `"EVENT_OBJECTS": "on"` 加進 `wrangler.jsonc` 最上層的 `vars`，CI 綠了合併自動部署（只用 `npx wrangler deploy --var EVENT_OBJECTS:on` 也可以，但下一次 CI 部署會把它關回去）。
-2. 社團的物件重新載入時，把每場**還開著**的挑戰一場一場搬進各自的物件（`meta:events` 1 → 2），已經結束的留在社團。中途被回收或某一場失敗都沒關係：失敗的 60 秒後再搬，重做不會重複；搬到一半時那一場照樣能用（物件第一次被呼叫時會拿社團的副本）。
+2. 社團的物件重新載入時，把每場**還開著**的挑戰與隊制賽一場一場搬進各自的物件（`meta:events`、`meta:matches` 1 → 2），已經結束的留在社團。進行中的隊制賽也可以搬：兩室的牌桌不動，下一副的結果直接送到比賽的物件。中途被回收或某一場失敗都沒關係：失敗的 60 秒後再搬，重做不會重複；搬到一半時那一場照樣能用（物件第一次被呼叫時會拿社團的副本）。
 3. 檢查：
    - `/api/health` 的 `events.objects` 等於開著的挑戰數、`unconfirmed` 是 0。
    - Logs 搜尋 `eventsMoved`：`{"event":"eventsMoved","to":"objects","moved":N,"failed":0}`（沒有開著的挑戰就沒有這一行）；`failed` 不是 0 時看同一時間的 `crash`（`where: "moveEventsOut"`）。
    - 打開一場進行中的挑戰：進度、名次跟搬之前一樣；再打一副，結果有算進去。
+   - 隊制賽：`matchEvents.objects` 等於開著的隊制賽數；Logs 的 `eventsMoved` 多一行 `"kind":"matches"`；進行中的那場比分跟搬之前一樣，再打一副有算進去。
    - 等下一次提醒或截止（或在 staging 先試過）：通知只來一次。
 
 ### 出問題時（切回去）
 
-把 `vars` 裡的 `EVENT_OBJECTS` 拿掉（或改成 `off`）再部署；急的話先 `npx wrangler deploy --var EVENT_OBJECTS:off`。社團的物件重新載入時把每場挑戰從它的物件拿回來（那一場先停住，不再改、不跑工作、不回報），寫回社團的表、刪掉 `event_homes` 那一列、在社團排好提醒與截止，再清掉那個物件；全部搬完 `meta:events` 回到 1，Logs 有 `{"event":"eventsMoved","to":"club",...}`。拿不回來的那一場繼續在物件裡照常運作，稍後再試。正本只會在一個地方（社團或那一場的物件），所以怎麼切都不會掉挑戰或結果。**不要**刪掉 `EventObject` 類別或 migration `v3`：Cloudflare 會拒絕部署，要刪得另外加一個 `deleted_classes` 的 migration（會連資料一起刪）。
+把 `vars` 裡的 `EVENT_OBJECTS` 拿掉（或改成 `off`）再部署；急的話先 `npx wrangler deploy --var EVENT_OBJECTS:off`。社團的物件重新載入時把每場挑戰與隊制賽從它的物件拿回來（那一場先停住，不再改、不跑工作、不回報），寫回社團的表、刪掉 `event_homes` 那一列、在社團排好提醒與截止，再清掉那個物件；全部搬完 `meta:events`（隊制賽是 `meta:matches`、`match_homes`）回到 1，Logs 有 `{"event":"eventsMoved","to":"club",...}`（隊制賽多 `"kind":"matches"`）。拿不回來的那一場繼續在物件裡照常運作，稍後再試。正本只會在一個地方（社團或那一場的物件），所以怎麼切都不會掉挑戰、隊制賽或結果。雙人賽（ARCHITECTURE.md §5.22）不搬回來：已經在物件裡的那幾場繼續從物件存取，關掉之後新建的才在社團。**不要**刪掉 `EventObject` 類別或 migration `v3`：Cloudflare 會拒絕部署，要刪得另外加一個 `deleted_classes` 的 migration（會連資料一起刪）。
 
 ## 4.7 系統狀態、指標與負載測試（H3，`e11-t21`、`e11-t22`）
 
@@ -427,10 +447,327 @@ LOAD_PASSWORD=... LOAD_INVITE_CODE=... npm run load -- --url https://tku-bridge-
 - **用量**：Cloudflare Dashboard 的 Browser Run 頁面看每天用掉的時間。
 - **關掉**：拿掉 `wrangler.jsonc` 的三個 `browser` 綁定再部署，橋館自動退回瀏覽器列印。
 
+## 4.12 防作弊報表的鹽（H6b，`e11-t25`）
+
+管理頁的「防作弊報表」（ARCHITECTURE.md §5.17）把登入時的 IP 加鹽做雜湊，用來比對「同一個小網路」。鹽是 Worker secret `SEEN_SALT`，**不存在社團的儲存裡**：拿到儲存或備份的人沒有鹽，就無法窮舉 IPv4 還原位址（社長 2026-11-02 決定）。
+
+### 部署這個版本**之前**（只做一次）
+
+正式站與 staging 各一個、**不要相同**；值是一串隨機字，不必記住：
+
+```bash
+node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"   # 產生一串，複製
+npx wrangler secret put SEEN_SALT                                             # 貼上（正式站）
+node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"   # 再產生一串
+npx wrangler secret put SEEN_SALT --name tku-bridge-table-staging             # 貼上（staging）
+```
+
+- 沒設（或少於 16 字）也能部署：報表**只比對同一個瀏覽器**，不記網路、沒有「共用網路」；報表上方會寫「還沒有設定網路雜湊的鹽」，日誌有 `seenSaltMissing`。設好之後從下一次登入或連線開始記網路。
+- PR 預覽不設（每次部署產生新的鹽，雜湊會對不起來），所以預覽站只比對瀏覽器。
+- **不要隨便換**：換了之後新舊雜湊對不起來，舊的網路紀錄不會再配對，90 天內自然清掉；外洩時才換。
+- 合併前的 PR 版本曾把鹽存在社團儲存的 `meta:seenSalt`，那個版本沒有上過正式站；程式不再讀它，用它算的雜湊作廢，不用處理。
+
+## 4.13 申請加入的防濫用（H5b，`e1-t33`）
+
+申請加入有兩道（ARCHITECTURE.md §5.2）：
+
+- **同一個網路一小時最多 10 次**（送出的申請與錯的邀請碼都算），一直都開，不用設定。位址只存加鹽的雜湊；鹽是 §4.12 的 `SEEN_SALT`，沒設時次數只在記憶體、物件被回收就重算（照樣有效，只是比較鬆）。社團的招生活動如果大家都連校園 Wi-Fi（同一個對外 IP），一小時超過 10 人申請會被擋：請部分新生改用手機網路，或由管理員在管理頁直接新增帳號（不算次數）。
+- **Cloudflare Turnstile**（人機驗證），預設關。
+
+### 打開 Turnstile
+
+1. **先確認淡江橋館也送 `turnstileToken`**：橋館的申請也走 `/api/register`，這邊打開之後，還沒改的橋館送申請會被擋（`captchaFailed`）。橋館要做的：申請表單呼叫 `GET /api/register/options`，有 `turnstileSiteKey` 就畫 Turnstile、送出時帶 `turnstileToken`，並在它的 CSP 放行 `https://challenges.cloudflare.com`（script 與 frame）。
+2. Cloudflare 控制台 → Turnstile → Add widget：網域加上正式站與橋館的網域（staging 用另一個 widget，網域是 staging 與 `localhost` 以外的預覽網域）；模式選 **Managed**。
+3. 設定（正式站；staging 加 `--name tku-bridge-table-staging`，用 staging 的那組）：
+
+```bash
+npx wrangler secret put TURNSTILE_SECRET_KEY        # 貼上 widget 的 Secret Key
+```
+
+   site key 是公開的，放 `wrangler.jsonc` 的 `vars`（`"TURNSTILE_SITE_KEY": "0x4AAAA…"`）後部署；或部署時 `--var TURNSTILE_SITE_KEY:0x4AAAA…`。
+4. 檢查：開申請加入，表單上出現 Turnstile；`curl -s https://<網站>/api/register/options` 回 site key；不帶 token 直接 `POST /api/register` 回 403 `captchaFailed`。開發者工具的 Console 不應有 CSP 錯誤（`_headers` 已放行 `challenges.cloudflare.com`，docs/SECURITY.md §2）。
+
+- **關掉**：`wrangler secret delete TURNSTILE_SECRET_KEY`（或拿掉 site key）再部署，表單就不顯示、伺服器不驗證。
+- 本機開發、測試、PR 預覽都不設，不受影響。想在本機試，`.dev.vars` 可以放 Cloudflare 的測試金鑰（site key `1x00000000000000000000AA`、secret `1x0000000000000000000000000000000AA`，永遠通過）。
+- 連不到 Cloudflare 的驗證時一律不放行（申請者看到「人機驗證沒有通過」，再試一次）；日誌有 `turnstileFailed`。
+
+## 4.14 Email 綁定與 Email 重設密碼（H5a，`e1-t29`、`e1-t30`）
+
+寄信用 Resend（ARCHITECTURE.md §5.20 有選型）。**沒設定也能部署**：Email 功能自動關閉（「我的帳號」沒有 Email、登入頁的忘記密碼只有管理員核准），其他功能不受影響。
+
+### 啟用（只做一次）
+
+1. 到 <https://resend.com> 註冊（免費方案：每月 3,000 封、每天 100 封），**Domains → Add Domain** 加社團的網域，照畫面把 SPF、DKIM 的 DNS 紀錄加到網域的 DNS，等狀態變成 Verified。沒有自己的網域就不能寄給社員（`onboarding@resend.dev` 只能寄給 Resend 帳號自己的信箱，只適合試用）。
+2. **API Keys → Create API Key**，權限選 **Sending access**、網域選上面那個。
+3. 設定 Worker（正式站與 staging 可以用同一個金鑰，寄件人可以不同）：
+
+   ```bash
+   npx wrangler secret put RESEND_API_KEY                                   # 貼上 re_ 開頭的金鑰（正式站）
+   npx wrangler secret put RESEND_API_KEY --name tku-bridge-table-staging   # staging
+   ```
+
+   寄件人 `MAIL_FROM` 加到 `wrangler.jsonc` 的 `vars`（或用 secret，一樣有效），要是驗證過的網域上的地址，例如 `"MAIL_FROM": "淡江牌桌 <no-reply@example.org>"`。
+4. 部署後到「我的帳號」綁定自己的 Email，確認收得到驗證信；登出後在登入頁按「忘記密碼？」，應該先看到「用 Email 重設密碼」。
+
+- 兩個都設才會打開；只設一個等於沒設。
+- 寄不出去時（金鑰錯、網域沒驗證、超過額度），綁定會顯示「信寄不出去」，重設申請照樣回「已寄出」（不能洩漏帳號有沒有 Email），日誌有 `mailFailed`（`kind: verify` 或 `reset`）。
+- 關掉：`npx wrangler secret delete RESEND_API_KEY`。已綁定的 Email 留在帳號裡，重新打開後照樣能用。
+- PR 預覽不設，所以預覽站沒有 Email。
+
+## 4.15 管理員的兩步驟登入（`e11-t31`）
+
+不用設定任何 secret，部署後就有。**管理員一定要開**（社長 2026-11-02）：沒開的管理員照樣能登入、打牌，但管理頁只顯示「請先開啟兩步驟登入」的橫幅，所有要管理員或權限的功能（核准申請、社員、設定、橋館的編輯與審核、論壇管理等）都會被伺服器擋下，訊息是「管理員要先開啟兩步驟登入才能使用管理功能」。一般社員不受影響。
+
+**部署這個版本後，社長（唯一的管理員）要立刻開啟**，否則管理功能都不能用：
+
+1. 手機裝一個驗證 App（Google Authenticator、Microsoft Authenticator、1Password、Bitwarden 等都可以）。
+2. 「我的帳號」→「兩步驟登入」→ 輸入密碼 →「開始設定」。用驗證 App **掃描畫面上的 QR code**；在手機上也可以直接點「用驗證 App 開啟」，或在 App 裡手動輸入畫面上的金鑰。
+3. 輸入 App 顯示的 6 位數驗證碼 →「開啟兩步驟登入」。畫面會顯示 **10 組備用碼，只顯示這一次**，抄下來或存在密碼管理器（和手機分開放）。這個分頁保持登入，其他裝置會被登出。
+4. 之後登入：帳號密碼對了以後，登入頁會多一格「驗證碼」，輸入 App 上的 6 位數；手機不見時輸入一組備用碼（每組只能用一次）。淡江橋館的登入頁也一樣（橋館加上驗證碼欄位的版本部署之後）。
+
+- 新設的管理員也一樣：被設成管理員後，要自己到「我的帳號」開啟才能用管理功能。關掉兩步驟登入的管理員也會立刻回到「要先開啟」。
+- 驗證碼連續錯 5 次，那個帳號 15 分鐘內不能登入（不論從哪裡）；有驗證過的 Email 會收到通知，表示有人知道密碼，要立刻改密碼。用了備用碼、或兩步驟登入被關掉時，也會寄通知信（Email 功能要打開，§4.14）。
+- 備用碼快用完時，在「我的帳號」→「產生新的備用碼」（要密碼和驗證碼），舊的全部失效。
+- 改密碼、Email 重設密碼都**不會**關掉兩步驟登入：拿到信箱的人也還要驗證碼。
+- 手機與備用碼都不見、而**有另一位管理員**：請他在社員列表「⋯」→「關閉兩步驟登入」（先確認是本人），再用密碼登入、重新開啟。
+
+### 最後手段：只有一位管理員又遺失手機與備用碼
+
+社長是唯一的管理員，也是 Cloudflare 帳號的擁有者，所以救援放在 **Cloudflare 帳號這一層**：用一個臨時的 Worker secret `TWO_FACTOR_RESET_TOKEN` 打開一條只能清掉兩步驟登入的路由，用完就刪。**平常這個 secret 不存在**，那條路由回 404，跟不存在一樣；沒有 Cloudflare 帳號的人（包括知道密碼的人）設不了它，所以不是網頁上的後門。（wrangler 沒有指令能直接改 Durable Object 裡的帳號資料，從備份還原又會把其他人的新資料一起倒回去，所以不用那兩種方法。）
+
+在專案資料夾（已經 `npx wrangler login` 登入 Cloudflare 帳號）：
+
+1. 產生一個隨機權杖（64 個十六進位字），先記在這個終端機裡：
+
+   ```bash
+   TOKEN=$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")
+   echo "$TOKEN"
+   ```
+
+2. 設成 secret（貼上剛剛的權杖；設 secret 會讓 Worker 重新部署，約幾秒鐘）：
+
+   ```bash
+   echo "$TOKEN" | npx wrangler secret put TWO_FACTOR_RESET_TOKEN
+   ```
+
+3. 清掉那個帳號的兩步驟登入（`username` 換成管理員的帳號名稱）：
+
+   ```bash
+   curl -sS -X POST https://tku-bridge-table.genelee-pro.workers.dev/api/ops/two-factor-reset      -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json"      -d '{"username":"管理員帳號"}'
+   ```
+
+   成功會回 `{"username":"…","cleared":true}`。回 404（`noSuchApi`）表示 secret 還沒生效或權杖不對，等幾秒再試；`userGone` 是帳號名稱打錯；`twoFactorOff` 是那個帳號本來就沒開。
+
+4. **立刻刪掉 secret**（這一步不能省）：
+
+   ```bash
+   npx wrangler secret delete TWO_FACTOR_RESET_TOKEN
+   ```
+
+   刪掉後再呼叫一次第 3 步，應該回 404。
+
+5. 用密碼登入，照上面的步驟重新開啟兩步驟登入（舊的備用碼已經失效）。
+
+- 清掉時那個帳號的所有裝置都會被登出，有驗證過的 Email 會收到「兩步驟登入被關掉」的通知；Workers Logs 會有一筆 `twoFactorOwnerReset`（不記是誰）。收到通知卻不是自己做的，表示有人拿到了 Cloudflare 帳號：先改 Cloudflare 帳號的密碼並開它的兩步驟驗證。
+- Windows PowerShell 沒有 `$(...)` 管線與 `curl` 的這些寫法時，可以改用 Git Bash 執行上面的指令。
+- staging 或 PR 預覽要練習時，在第 2、4 步加 `--env staging`（或 `--name tku-bridge-table-pr-<號>`），第 3 步換成那個環境的網址。
+- **Cloudflare 帳號本身一定要開兩步驟驗證**：這個救援等於信任能登入 Cloudflare 帳號的人。
+
+## 4.16 Google 登入（`e1-t31`）
+
+Google 是**綁在既有帳號上的另一種登入方式**（ARCHITECTURE.md §5.2）：社員在「我的帳號」輸入密碼後綁定，之後可以按「用 Google 登入」（淡江牌桌與淡江橋館都有）。帳號名稱與顯示名稱不變；開了兩步驟登入的帳號（管理員一定有）用 Google 登入後還是要輸入驗證碼。新的人可以「用 Google 申請加入」，但照樣要選帳號名稱與密碼、填邀請碼，等管理員核准。**沒設定也能部署**：兩個 secret 都設才會打開，否則登入頁與「我的帳號」都沒有 Google。
+
+### 啟用（只做一次，社長用自己的 Google 帳號）
+
+1. 到 <https://console.cloud.google.com/>，上方選專案 →「新增專案」，名稱例如 `TKU BridgeTable`（不用綁信用卡；Google 登入免費）。
+2. 左側選單 →「API 和服務」→「OAuth 同意畫面」（新版叫 **Google Auth Platform**）→「開始」：
+   - 應用程式名稱 `淡江牌桌`、使用者支援電子郵件填自己的 Gmail；目標對象選 **外部**；聯絡資訊填自己的 Gmail；同意政策後建立。
+   - 「品牌塑造」可以加首頁 `https://tku-bridge-table.genelee-pro.workers.dev`、隱私權政策 `…/privacy`、服務條款 `…/terms`；**授權網域**加 `genelee-pro.workers.dev` 與 `vercel.app`（Google 不接受 `workers.dev`／`vercel.app` 這類公用網域時可以留空，只用到 `openid email profile` 時不影響登入）。
+   - 「資料存取」（範圍）只要 `openid`、`.../auth/userinfo.email`、`.../auth/userinfo.profile`，這三個不用 Google 審查。
+   - 「目標對象」→ **發布應用程式**（改成「實際運作中」）。停在「測試中」時只有列在測試使用者裡的 Gmail 能登入，而且 7 天就要重新同意。
+3. 「用戶端」（舊版是「憑證」→「建立憑證」→「OAuth 用戶端 ID」）→ 應用程式類型 **網頁應用程式**，名稱 `淡江牌桌（正式站）`：
+   - **已授權的 JavaScript 來源**：不用填（流程在伺服器，沒有在頁面裡呼叫 Google 的 script）。
+   - **已授權的重新導向 URI**（要一字不差，包括 `https`、沒有結尾的 `/`）：
+
+     ```
+     https://tku-bridge-table.genelee-pro.workers.dev/api/auth/google/callback
+     https://tku-bridge-hall.vercel.app/api/auth/google/callback
+     ```
+
+     第二個是淡江橋館：橋館的 `/api/*` 由 Vercel 轉到牌桌的 Worker，cookie 才會留在橋館自己的網域（跟密碼登入一樣，兩站各自登入）。以後換成社團的網域時，在這裡加上新網域的 `…/api/auth/google/callback`，並改 `shared/book-site.ts` 的 `BOOK_SITE`（橋館的網域）。
+   - 建立後複製**用戶端 ID**（`…apps.googleusercontent.com`）與**用戶端密鑰**（`GOCSPX-…`）。
+4. 設定 Worker（正式站）：
+
+   ```bash
+   npx wrangler secret put GOOGLE_CLIENT_ID        # 貼上用戶端 ID
+   npx wrangler secret put GOOGLE_CLIENT_SECRET    # 貼上用戶端密鑰
+   ```
+
+5. 檢查：`curl -s https://tku-bridge-table.genelee-pro.workers.dev/api/auth/google` 回 `{"enabled":true}`；用密碼登入 →「我的帳號」→「Google 登入」→ 輸入密碼 →「綁定 Google 帳號」→ 選 Google 帳號 → 回到「我的帳號」顯示「已綁定：…」。登出後按「用 Google 登入」：社長有開兩步驟登入，會再問驗證碼。橋館的登入頁也試一次（橋館的 PR 部署之後）。
+
+- **staging**：另建一個 OAuth 用戶端（或在同一個用戶端加 URI）`https://tku-bridge-table-staging.genelee-pro.workers.dev/api/auth/google/callback`，用 `--name tku-bridge-table-staging` 設那兩個 secret。staging 不支援橋館（橋館的 `/api` 只轉到正式站）。
+- **PR 預覽沒有 Google 登入**：每個 PR 的網址都不同（`tku-bridge-table-pr-<號>`），Google 只接受事先登記、一字不差的重新導向 URI，不能用萬用字元；而且預覽的 Worker 不會拿到這兩個 secret，所以預覽站自動關閉（看不到按鈕）。要測流程就在 staging 測。橋館的 Vercel 預覽也一樣：頁面送出的網站不是正式的橋館網址，Worker 回 `googleOff`。
+- **本機**：要試的話在同一個用戶端加 `http://localhost:5173/api/auth/google/callback`（橋館的開發伺服器再加 `http://localhost:5174/...`），把兩個值放 `.dev.vars`（不要 commit）。
+- **CSP 不用改**：整頁導向到 Google 再導回來，不載入 Google 的 script 或 iframe（docs/SECURITY.md §2）。
+- **關掉**：`npx wrangler secret delete GOOGLE_CLIENT_SECRET`。綁定留在帳號裡，重新打開後照樣能用；關掉期間大家用密碼登入。
+- **用戶端密鑰外洩時**：在 Google Cloud 的用戶端頁面「新增密鑰」→ 用 `wrangler secret put GOOGLE_CLIENT_SECRET` 換上新的 → 停用舊的。
+- 日誌：`oauthSignIn`、`oauthLinked`、`oauthUnlinked`、`oauthFailed`，都帶 `provider: 'google'`（LINE 是 `'line'`，§4.18）（`oauthFailed` 的 `reason`：`state` 是 cookie 不見或過期、`denied` 是在 Google 按了取消、`exchange` 是 Google 拒絕 code（常見原因：重新導向 URI 沒登記或密鑰錯）、`token` 是 ID token 檢查沒過）。
+
+## 4.17 PWA 推播（`e1-t28`）
+
+社員在「我的帳號」→「推播通知」按「在這台裝置開啟推播」，之後**沒開著網頁時**，通知中心的每則新通知（挑戰邀請、牌桌邀請、隊制賽、討論區回覆…）也會出現在手機或電腦的系統通知裡，點了直接到對應的頁面。每台裝置各自開；要推哪幾類可以勾選（「關注的人上線」預設不推）。**沒設定也能部署**：三個 secret 都設才會打開，否則「我的帳號」沒有這張卡片。不用申請任何帳號，也不用付費：推播走各瀏覽器自己的推播服務（Chrome／Edge／Android 是 Google FCM、Firefox 是 Mozilla、Safari 是 Apple），用一對自己產生的 VAPID 金鑰辨認我們的網站。
+
+### 啟用（只做一次）
+
+1. 產生金鑰（本機，在專案資料夾）：
+
+   ```bash
+   npm run vapid
+   ```
+
+   會印出兩行 `VAPID_PUBLIC_KEY=…`、`VAPID_PRIVATE_KEY=…`（不會寫進任何檔案）。沒有專案的電腦也可以用 Node 22 以上的一行指令：
+
+   ```bash
+   node -e "crypto.subtle.generateKey({name:'ECDSA',namedCurve:'P-256'},true,['sign']).then(async k=>{console.log('VAPID_PUBLIC_KEY='+Buffer.from(await crypto.subtle.exportKey('raw',k.publicKey)).toString('base64url'));console.log('VAPID_PRIVATE_KEY='+(await crypto.subtle.exportKey('jwk',k.privateKey)).d)})"
+   ```
+
+2. 設定 Worker（正式站），每個指令貼上對應的值：
+
+   ```bash
+   npx wrangler secret put VAPID_PUBLIC_KEY      # 貼上 VAPID_PUBLIC_KEY= 後面那串
+   npx wrangler secret put VAPID_PRIVATE_KEY     # 貼上 VAPID_PRIVATE_KEY= 後面那串
+   npx wrangler secret put VAPID_SUBJECT         # 例如 mailto:社長的 Email（推播服務聯絡用）
+   ```
+
+   `VAPID_SUBJECT` 是推播服務（Google、Mozilla、Apple）有問題時聯絡的方式，**一定要 `mailto:` 或 `https:` 開頭**，否則視為沒設定。私鑰只放 secret，不要存進檔案或貼到聊天室；印出來的那兩行用完就關掉終端機。
+3. 檢查：用手機或電腦登入 →「我的帳號」→「推播通知」→「在這台裝置開啟推播」→ 瀏覽器問要不要允許通知，按允許 → 下面的裝置列表出現這台 →「傳送測試通知」，幾秒內收到「推播通知設定好了…」。再關掉網頁，請另一位社員邀請你參加挑戰，手機應該跳出通知，點了到挑戰頁。
+4. **iPhone 與 iPad**：只有 iOS 16.4 以上、而且要先在 Safari 按「分享」→「加入主畫面」，**從主畫面的圖示打開**淡江牌桌，才能開啟推播（Apple 的限制，在 Safari 分頁裡不行）。卡片上會說明。
+
+- **staging**：另產生一對金鑰（或用同一對），用 `--name tku-bridge-table-staging` 設那三個 secret。
+- **PR 預覽沒有推播**：預覽的 Worker 拿不到這三個 secret，自動關閉。要測就在 staging 測。
+- **本機**：放 `.dev.vars`（不要 commit）。`npm run dev` 不會自動註冊 service worker，按「開啟推播」時才註冊；Chrome 允許 `localhost` 用推播。
+- **CSP 不用改**：訂閱是瀏覽器內建的 `pushManager`，送推播是伺服器對推播服務的請求，頁面不連外部網址（docs/SECURITY.md §2）。
+- **關掉**：`npx wrangler secret delete VAPID_SUBJECT`（刪任一個就關）。社員的訂閱留在儲存裡，重新設回**同一對金鑰**就恢復；換了新的一對，舊訂閱推不出去（推播服務會拒絕），社員要在「我的帳號」重新開啟一次。
+- **金鑰外洩時**：用 `npm run vapid` 產生新的一對、`wrangler secret put` 換上；請社員重新開啟推播（舊訂閱會在推播失敗時被刪掉或留著不再有效）。
+- 日誌：`push`（`sent` 送出幾則、`failed` 失敗幾則與 `statuses` 推播服務回的狀態碼、`removed` 因為 404／410 刪掉幾個失效的訂閱；不記是誰）。`statuses` 裡常見的 `403`／`401` 是金鑰換過或 `VAPID_SUBJECT` 格式不對，`413` 是內容太長（不應該發生），`429` 是推播服務限流。
+- 額度：每則推播是社團 Durable Object 對推播服務的一個 `fetch`，在 Durable Object 裡做（不佔 Worker 每次請求的 10 ms CPU）；加密每台裝置約 1 ms 以內。一般一則通知只給一兩個人，每週挑戰給全社團也只是幾十個。
+
+## 4.18 LINE 登入（`e1-t32`）
+
+跟 Google 登入（§4.16）是同一套：LINE 是綁在既有帳號上的**另一種登入方式**，綁定要輸入密碼、用 LINE 申請仍要選帳號名稱、設密碼、等管理員核准（LINE 的名字只預先填入顯示名稱），開了兩步驟登入的帳號用 LINE 登入一樣要輸入驗證碼。只用 LINE Login v2.1 的 `openid profile`，**不要求 Email**（要 Email 得向 LINE 申請審核，我們也用不到：認人只用 ID token 的 `sub`）。`LINE_CHANNEL_ID` 與 `LINE_CHANNEL_SECRET` 兩個 Worker secret **都設**才開；PR 預覽不會拿到，所以預覽站沒有 LINE 登入。
+
+### 啟用（只做一次，社長用自己的 LINE 帳號）
+
+LINE Developers 主控台只有英文與日文介面，下面用英文介面的名稱，括號裡是說明。
+
+1. 到 <https://developers.line.biz/console/>，按 **Log in with LINE account**（用自己的 LINE 帳號登入，手機 LINE 會跳出確認）。第一次進來要填 **Developer name**（開發者名稱，填自己的名字）與 Email、同意 **LINE Developers Agreement** 後 **Create my account**。
+2. **Providers** → **Create**（建立「提供者」：LINE 同意畫面上顯示的服務提供者）→ **Provider name** 填 `淡江橋藝社` → **Create**。
+3. 在這個 provider 裡選 **Create a new channel** → **LINE Login**（不是 Messaging API），填：
+   - **Region to provide the service**（服務地區）：`Taiwan`
+   - **Company or owner's country or region**（公司或擁有者所在地）：`Taiwan`
+   - **Channel name**（頻道名稱，登入時 LINE 顯示給使用者看）：`淡江牌桌`（名稱裡不能有「LINE」）
+   - **Channel description**（說明）：`淡江橋藝社的線上牌桌與橋館`
+   - **App types**（應用程式類型）：只勾 **Web app**
+   - **Email address**（LINE 用來聯絡開發者的信箱）：自己的 Email
+   - **Privacy policy URL**／**Terms of use URL**（選填）：`https://tku-bridge-table.genelee-pro.workers.dev/privacy`、`…/terms`
+   - 勾選同意 **LINE Developers Agreement** 等條款 → **Create**
+4. 頻道的 **Basic settings** 分頁：複製 **Channel ID**（一串數字）與 **Channel secret**（按 **Issue**／顯示後複製的 32 字元英數）。**OpenID Connect** 那一欄的 **Email address permission** 不要申請。
+5. **LINE Login** 分頁 → **Callback URL** → **Edit**，一行一個（要一字不差，包括 `https`、沒有結尾的 `/`）→ **Update**：
+
+   ```
+   https://tku-bridge-table.genelee-pro.workers.dev/api/auth/line/callback
+   https://tku-bridge-hall.vercel.app/api/auth/line/callback
+   ```
+
+   第二個是淡江橋館：橋館的 `/api/*` 由 Vercel 轉到牌桌的 Worker，cookie 才會留在橋館自己的網域。以後換成社團的網域時，在這裡加上新網域的 `…/api/auth/line/callback`。同一頁的 **Use LINE Login in your mobile app**、**Email address permission** 都不用開；**Linked LINE Official Account**（加官方帳號好友的提示）留空。
+6. **公開頻道**：頻道名稱旁邊的狀態是 **Developing**（開發中，只有頻道的管理員與 **Roles** 裡加的測試者能登入）→ 按 **Developing** → **Publish**（公開）→ 確認。沒有公開的話社員用 LINE 登入會失敗（`lineFailed`，日誌 `reason: 'denied'`）。
+7. 設定 Worker（正式站）：
+
+   ```bash
+   npx wrangler secret put LINE_CHANNEL_ID        # 貼上 Channel ID
+   npx wrangler secret put LINE_CHANNEL_SECRET    # 貼上 Channel secret
+   ```
+
+8. 檢查：`curl -s https://tku-bridge-table.genelee-pro.workers.dev/api/auth/line` 回 `{"enabled":true}`；用密碼登入 →「我的帳號」→「LINE 登入」→ 輸入密碼 →「綁定 LINE 帳號」→ LINE 的同意畫面按「許可」→ 回到「我的帳號」顯示「已綁定：（你的 LINE 名字）」。登出後按「用 LINE 登入」：社長有開兩步驟登入，會再問驗證碼。手機上會直接跳到 LINE App 確認（或電腦版用 QR code 登入）。
+
+- **staging**：在同一個頻道的 Callback URL 加 `https://tku-bridge-table-staging.genelee-pro.workers.dev/api/auth/line/callback`，用 `--name tku-bridge-table-staging` 設那兩個 secret。staging 不支援橋館。
+- **PR 預覽沒有 LINE 登入**：預覽的網址每次都不同，LINE 只接受登記過的 Callback URL；預覽的 Worker 也不會拿到這兩個 secret，所以預覽站自動關閉（看不到按鈕）。橋館的 Vercel 預覽也一樣回 `lineOff`。
+- **本機**：在 Callback URL 加 `http://localhost:5173/api/auth/line/callback`，把兩個值放 `.dev.vars`（不要 commit）。
+- **ID token 的驗證**：LINE 網頁登入的 ID token 用 Channel secret 以 HS256 簽章，伺服器每次都驗（一次 HMAC，免費方案的 10 ms CPU 綽綽有餘），再檢查 `iss`（`https://access.line.me`）、`aud`（Channel ID）、`exp`、`iat`、`nonce`（`worker/line.ts`）。
+- **CSP 不用改**：整頁導向到 `access.line.me` 再導回來，LINE 的 logo 是頁面裡的 SVG，不載入 LINE 的 script 或圖片（docs/SECURITY.md §2）。
+- **關掉**：`npx wrangler secret delete LINE_CHANNEL_SECRET`。綁定留在帳號裡，重新打開後照樣能用。
+- **Channel secret 外洩時**：**Basic settings** → **Channel secret** 的 **Issue**（重新發行）→ 用 `wrangler secret put LINE_CHANNEL_SECRET` 換上新的（舊的立刻失效，換上前 LINE 登入會失敗）。
+- 日誌：與 Google 相同的 `oauthSignIn`、`oauthLinked`、`oauthUnlinked`、`oauthFailed`，`provider: 'line'`（`reason` 同 §4.16；`exchange` 也包括 ID token 的簽章不對，常見原因是 Channel secret 貼錯）。
+
+## 4.19 多社團的隔離（`e12-t03`，2026-11-04）
+
+社團物件之外的共用資源（牌桌與比賽的物件、D1 紀錄副本、R2 的圖片與備份、邊緣通行證、日誌）都帶社團，規則見 `ARCHITECTURE.md` §1「多社團的隔離」。淡江的名稱與路徑一律不變，**正式站不用搬資料、不用設任何東西**。
+
+### 部署這個版本時會自動發生的事
+
+1. **D1 紀錄副本重填一次**（`REPLICA_VERSION` 3）：社團的物件載入後，先把 D1 裡沒有 `club_id` 的舊表刪掉、照新格式重建，再從社團的紀錄重填（每秒 20 副，一萬副約 8–10 分鐘）。填完之前紀錄頁由社團回答，使用者看不出來；Logs 有 `{"event":"replica","step":"fill","ok":true,"club":"tku"}` 就是填完了。檢查方式同 §4.5（指令已帶 `club_id`）。
+2. **邊緣通行證換一次**：舊的通行證（不含社團）不再接受，社團下一次回答時發新的；這十分鐘內 Worker 多問社團幾次，不影響使用。
+3. **日誌多一個欄位** `club`（淡江是 `tku`），可以在 Workers Logs 依社團篩選。
+4. 圖片的網址、R2 裡的 `daily/…`、`post/…`、`ebook/…`、牌桌與挑戰物件的名稱都**跟以前一樣**。
+
+### 退回舊版時
+
+舊版 Worker 讀寫新的 D1 表也正常（`club_id` 預設 `tku`），但舊版的 `REPLICA_VERSION` 是 2，會再重填一次；通行證也會再換一次。都不用手動處理。
+
+### 試第二個社團（只在 staging）
+
+Worker 變數 `CLUBS`（逗號分隔的社團 id，小寫英數與 `-`）讓 Worker 多服務幾個社團：請求帶 `X-Club-Id: <id>`（WebSocket 用 `?club=<id>`）就到那個社團自己的物件。**正式社團一律走申請與核准（§4.20），`CLUBS` 只給開發與 staging**：列出的社團不經名冊就服務，但從 `e12-t06` 起**沒有人會因為第一個註冊而變成管理員**，所以單靠 `CLUBS` 開的社團沒有管理員；要管理員就在 staging 也設 `PLATFORM_OWNER`，用申請表申請一個社團（代號不能跟 `CLUBS` 裡的相同）再核准。新社團的牌桌在 `https://<網域>/c/<代號>/`（`e12-t04`，見下一節）。其他社團的 R2 檔案與備份在 `clubs/<id>/` 底下；`INVITE_CODE`、Google／LINE 登入只給淡江。
+
+### 社團網址、登入範圍與跨社團大廳（`e12-t04`、`e12-t07`，2026-11-04）
+
+規則見 `ARCHITECTURE.md` §1「社團網址與登入範圍」「跨社團大廳」、`docs/SECURITY.md`「社團與 cookie」。**淡江什麼都不變**：網址、cookie 名稱（`tbt_session`、`tbt_pass`、`tbt_google`、`tbt_line`、`tbt_device`）、信件與推播的連結、Google／LINE 的回呼網址都跟以前一樣，部署後沒有人被登出；`/c/tku/…` 會換成原本的網址。
+
+- **其他社團**的網址是 `/c/<id>/…`，cookie 是 `tbt_session_<id>`、`tbt_pass_<id>`，同一個瀏覽器可以同時登入淡江與那個社團。
+- **跨社團大廳**預設關：社團的管理員在管理頁「功能旗標」把「跨社團大廳」（`publicLobby`）打開才加入；有旗標的社員在頁首「其他社團」看別的社團開放的牌桌（只能觀看），也能把自己的公開桌設成「開放其他社團觀看」。只有一個社團時這頁是空的。
+- **給其他社團開 Google／LINE 登入**（目前沒有，只給淡江）：那個社團的回呼網址是 `https://<網域>/api/auth/google/callback?club=<id>`（LINE 同樣加 `?club=<id>`），要先加到 Google Cloud 的「已授權的重新導向 URI」與 LINE Developers 的 Callback URL（§4.16、§4.18），再改 `worker/club.ts` 建構子裡只給淡江的 `google`／`line`。提供者若不接受帶 query 的回呼網址，要改成每個社團一條路徑，屆時再決定。
+- **平台經營者的權杖** `BOOK_SEED_TOKEN`、`BOOK_EXPORT_TOKEN`、`TWO_FACTOR_RESET_TOKEN` 維持全站一套，只給能操作 Cloudflare 帳號的人（社長），對請求所指的社團有效（`X-Club-Id`，沒帶是淡江）；不要交給其他社團的管理員。
+
+## 4.20 平台管理員與開設社團（`e12-t05`、`e12-t06`，2026-11-04）
+
+平台管理員只有社長一人：Worker secret `PLATFORM_OWNER` 指名的**淡江帳號**（ARCHITECTURE.md §1「平台與社團的申請」）。沒設時沒有平台後台，申請表也關著（顯示「目前不開放申請新社團」）；淡江本身完全不受影響。
+
+### 社長設定自己為平台管理員（一次）
+
+1. 用自己的淡江管理員帳號登入淡江牌桌，在「我的帳號」**開啟兩步驟登入**（沒開的話平台後台回 `platformNeedsTwoFactor`）。
+2. 找到自己的 user id：登入狀態下打開 `https://<網域>/api/me`，複製 `"id"` 的值（8 碼左右的英數字）。
+3. 設 secret（正式站；staging 加 `--env staging`）：
+   ```bash
+   npx wrangler secret put PLATFORM_OWNER   # 貼上第 2 步的 id
+   ```
+   secret 設好就生效，不必重新部署。頁首出現「平台後台」（`/platform`）。
+4. 換人或停用：`npx wrangler secret put PLATFORM_OWNER` 換成別的 id，或 `npx wrangler secret delete PLATFORM_OWNER`（後台與申請表一起關掉，已開通的社團照常運作）。
+
+### 審核申請
+
+- 社團幹部在 `https://<網域>/clubs/apply` 填申請（不必登入）：社團名稱、社團代號（網址會用，之後不能改）、學校或單位、聯絡 Email、理由，以及**新社團管理員的帳號與密碼**（跟淡江帳號無關）。同一個網路一小時 3 份、同時最多 50 份待審；有設 Turnstile（§4.13）時要過。
+- 社長在「平台後台」看申請：**核准並開通**＝新社團馬上建立、申請人用申請時的帳號密碼就是它的第一位管理員（他要先開兩步驟登入才能用管理功能，邀請碼與人數上限在他自己的管理頁設）；**退回**可以寫原因。有設 Resend（§4.14）時申請人會收到「已收到」「通過（附登入網址 `/c/<代號>`）」「退回（附原因）」三種信；沒設就不寄，社長要自己通知。
+- 新社團的網址與登入頁是 `/c/<代號>/`（`e12-t04`），核准信裡的連結就是它。
+- 名冊存在淡江的物件裡，**核准後不必重新部署**；其他 Worker 最多 30 秒後也認得新社團。
+
+### 暫停與恢復
+
+- 後台每個社團有「暫停」（可寫原因）：那個社團的所有社員立刻被登出、連線中斷，API 與連線回「這個社團已被平台暫停使用」；**資料全部保留**，每日備份照常。「恢復使用」後社員重新登入即可。淡江不能暫停。
+- 每個動作（核准、退回、暫停、恢復）都記在淡江的稽核紀錄（`platform:approve`、`platform:reject`、`platform:suspend`、`platform:unsuspend`），淡江橋館管理頁看得到。
+
+### 用量
+
+後台列出每個社團的社員數、管理員、開著的桌、牌局數、Durable Object 儲存、R2 圖片與電子書、R2 備份、D1 紀錄副本的列數，以及全平台合計。R2（10 GB）、D1（5 GB）、Durable Object（5 GB）的免費額度是整個 Cloudflare 帳號共用的，看合計（§5）。數字是粗估：儲存大小是執行環境回報的，R2 圖片是社團自己記的帳。
+
+### 還原與退回
+
+- 還原淡江的備份（§4.4）**不會**改動名冊與申請（`platform:` 在備份裡，但還原時不寫也不刪）；還原別的社團的備份也不會改變它的暫停狀態（存在它自己的 `meta:club`，不在備份裡）。
+- 退回到沒有平台功能的舊版 Worker：已開通的社團不在 `CLUBS` 裡，就變成「找不到這個社團」（資料都還在它的物件裡）；回到新版就恢復。要讓舊版也服務它們，暫時把代號加進 `CLUBS`。
+
 ## 5. 費用與限制
 
 - Workers 免費方案：每天 10 萬次請求；WebSocket 訊息以 20:1 計算，一個晚上打牌遠低於上限。
 - SQLite Durable Object 免費方案：5 GB 儲存；一副牌的紀錄連同索引約 4 KB，約可存一百萬副以上。紀錄列表一次只讀 50 筆，資料再多也不會變慢。
 - 密碼雜湊使用 100,000 次 PBKDF2-SHA-256（`worker/auth.ts`，`e11-t30`；Cloudflare 的 PBKDF2 最多只收 100,000 次）。一次約 12 ms CPU，在社團的 Durable Object 裡算（不是 Worker 每次請求的 10 ms），登入有次數限制。2026-10-30 之前的帳號是 50,000 次，下次登入時自動升級。
+- Resend 免費方案：每月 3,000 封、每天 100 封，只寄 Email 驗證與重設密碼的信（§4.14）；每個帳號 10 分鐘最多 1 封（一次可以 3 封）。
 - Browser Run 免費方案：每天 10 分鐘瀏覽器時間，只用在橋館的制度卡 PDF（§4.11）。
 - D1 免費方案：每天讀 500 萬列、寫 10 萬列，全部 5 GB。紀錄索引的副本每副約寫 14 列，一天約 7,000 副才到上限（§4.5、`ARCHITECTURE.md` §5.12）。

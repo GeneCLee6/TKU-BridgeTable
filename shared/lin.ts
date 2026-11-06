@@ -40,6 +40,17 @@ export function toLin(record: BoardRecord): string {
   return parts.join('|') + '|'
 }
 
+/**
+ * A session (e4-t37): boards played one after another at one table as one LIN file, the way BBO
+ * writes a whole match: a `vg` line naming it, then one line per board, each opened with `qx|o<n>|`
+ * and carrying its own players (`pn`), since they may change during a session
+ */
+export function toSessionLin(records: readonly BoardRecord[], title: string): string {
+  const head = `vg|${escape(title).replace(/,/g, ' ')},,P,1,${records.length},,0,,0|`
+  const boards = records.map((record, i) => `qx|o${i + 1}|${toLin(record)}`)
+  return [head, ...boards].join('\n') + '\n'
+}
+
 export function handviewerUrl(record: BoardRecord): string {
   return `https://www.bridgebase.com/tools/handviewer.html?lin=${encodeURIComponent(toLin(record))}`
 }
