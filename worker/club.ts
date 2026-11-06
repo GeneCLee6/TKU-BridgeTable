@@ -1177,6 +1177,7 @@ export class Club extends DurableObject<Env> implements Connections {
     if (url.pathname.startsWith('/api/forum/')) return this.forumApi(request, url, user, body)
     // A member's support report (e12-t16): the browser from the request, never the address
     if (route === 'POST /api/support') return json(await this.service.sendSupportReport(user.id, await body(), request.headers.get('User-Agent') ?? ''), 202)
+    if (route === 'GET /api/support/mine') return json(this.service.mySupportReports(user.id))
     if (route === 'POST /api/account/password') {
       const b = await body()
       await this.service.changePassword(user.id, text(b.current), text(b.next), token)

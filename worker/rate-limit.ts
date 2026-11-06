@@ -4,6 +4,10 @@
  * lets a little more through
  */
 
+/** A teacher's marks on a teaching table (`e10-t11`): a few at once while explaining, then two a second */
+export const TEACH_MARK_BURST = 10
+export const TEACH_MARKS_PER_SECOND = 2
+
 /** A token bucket per key: `burst` actions at once, then `perSecond` */
 export class TokenBuckets {
   private readonly buckets = new Map<string, { tokens: number; at: number }>()

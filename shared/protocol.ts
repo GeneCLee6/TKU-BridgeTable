@@ -8,7 +8,8 @@ import type { ChallengeSettings } from './challenge.ts'
 import type { BoardResult, BoardState, Phase, Trick } from './game.ts'
 import type { MessageCode, MessageParams } from './messages.ts'
 import type { PartnerBidView } from './partner-bidding.ts'
-import type { PracticeSettings } from './practice.ts'
+import type { PracticeSetChoice, PracticeSettings } from './practice.ts'
+import type { TeachMark, TeachMarkInput } from './teaching.ts'
 import type { MatchSeat, Room, TeamMatchView } from './team-match.ts'
 import type { RulingKind, Team } from './team-scoring.ts'
 import type { Profile } from './profile.ts'
@@ -42,12 +43,12 @@ export interface PublicUser {
  * (`bookEdit`: drafts and sending them for review), publish its conventions and send drafts back
  * (`bookReview`, BridgeHall e8-t01; a reviewer is always an editor too, `withImpliedPermissions`),
  * import Word or PDF files into it (`bookImport`), feature finished boards
- * (`boardCurate`, e4-t28), and seat TKB in the club's system (`tkuSystem`, 社長 2026-10-26: the
+ * (`boardCurate`, e4-t28), open teaching tables (`teach`, e10-t10), and seat TKB in the club's system (`tkuSystem`, 社長 2026-10-26: the
  * club's robot is private; everyone else's TKB is the 2/1 one), and be an officer (幹部) of
  * BridgeHall's forum (`forumModerate`, e11-t09: post news, pin, lock, delete anyone's posts and
  * comments, handle reports). Admins have every permission.
  */
-export const PERMISSIONS = ['bookEdit', 'bookReview', 'bookImport', 'boardCurate', 'tkuSystem', 'forumModerate'] as const
+export const PERMISSIONS = ['bookEdit', 'bookReview', 'bookImport', 'boardCurate', 'tkuSystem', 'forumModerate', 'teach'] as const
 export type Permission = (typeof PERMISSIONS)[number]
 export const isPermission = (value: unknown): value is Permission => PERMISSIONS.includes(value as Permission)
 
@@ -343,9 +344,10 @@ export function parseTableSettings(value: unknown): Partial<TableSettings> | nul
 /**
  * What a table is for (`worker/modes.ts`): `casual` tables anyone opens, a participant's own
  * `challenge` table (ARCHITECTURE.md §5.5), a member's own `practice` table with three robots
- * (§5.11), the two rooms of a `team` match (§5.8), and a round's table of a `pairs` event (§5.22)
+ * (§5.11), the two rooms of a `team` match (§5.8), a round's table of a `pairs` event (§5.22), and a
+ * teacher's `teach` table (§5.11, nothing played there is recorded)
  */
-export const TABLE_MODES = ['casual', 'challenge', 'practice', 'team', 'pairs'] as const
+export const TABLE_MODES = ['casual', 'challenge', 'practice', 'team', 'pairs', 'teach'] as const
 export type TableMode = (typeof TABLE_MODES)[number]
 
 /**
@@ -382,6 +384,23 @@ export interface TablePractice extends PracticeSettings {
    * the server after the auction, in turns (`TableService.review`), so a part may still be missing
    */
   review?: PracticeReview
+}
+
+/**
+ * A teaching table as someone at it sees it (`e10-t10`, `e10-t11`, §4): never any cards but those in
+ * `marks`, and each member gets only the marks on cards they can see (`worker/views.ts`)
+ */
+export interface TableTeach {
+  /** The teacher paused the table: nobody calls or plays, robots neither */
+  paused: boolean
+  /** What the teacher marked on the table; gone when the table goes on */
+  marks: TeachMark[]
+  /** People without a seat see all four hands (the teacher chooses); hidden otherwise */
+  openHands: boolean
+  /** The board's place in the chosen deals, if the teacher chose any */
+  problem?: { seq: number; count: number; title?: string }
+  /** The teacher alone: there is a step to take back */
+  canUndo?: boolean
 }
 
 /** The review of a bidding practice's board (`e10-t07`); never sent while the board is being bid */
@@ -497,6 +516,8 @@ export interface TableSummary {
   requested?: boolean
   /** A member's practice table (§5.11): its seats are taken by the member and three robots */
   practice?: boolean
+  /** A teaching table (`e10-t10`) */
+  teaching?: boolean
   seats: Record<Seat, SeatOccupant | null>
   spectators: number
   boardsPlayed: number
@@ -590,6 +611,8 @@ export interface TableView {
   pairs?: TablePairs
   /** At a practice table (§5.11): its settings. Seats and settings do not change there; undo has no limit */
   practice?: TablePractice
+  /** At a teaching table (`e10-t10`) */
+  teach?: TableTeach
   /** The host only: the members invited to the table (`e2-t25`) */
   invited?: PublicUser[]
   /** The host only: members waiting for an answer to their request to join (oldest first, `at` server clock) */
@@ -835,6 +858,7 @@ export const NOTIFICATION_KINDS = [
   'clubApplication',
   'supportReport',
   'supportForwarded',
+  'supportResolved',
   'partnerBidInvited',
   'partnerBidAccepted',
   'partnerBidDeclined',
@@ -901,7 +925,9 @@ export interface Notification {
    * owner only (`PLATFORM_OWNER`, 淡江's object), leading to the back office (/platform).
    * `supportReport` { username } a member sent a support report (e12-t16), to the club's admins,
    * leading to the admin page. `supportForwarded` { name } a club's admin forwarded one, to the
-   * platform owner, leading to the back office; `name` is the club's. Never the report's text
+   * platform owner, leading to the back office; `name` is the club's. Never the report's text.
+   * `supportResolved` {} the member's own report was resolved, leading to their list on 我的帳號;
+   * nothing about the report or who resolved it
    * The partner bidding kinds (`e10-t08`): { sessionId, username } of the other member of the session
    */
   params: Record<string, string | number>
@@ -974,6 +1000,11 @@ export const TABLE_ACTIONS = [
   'redeal',
   'rebid',
   'showHands',
+  'teachUndo',
+  'teachReplay',
+  'teachPause',
+  'teachMark',
+  'teachUnmark',
 ] as const
 
 export type TableAction = Extract<ClientMessage, { type: (typeof TABLE_ACTIONS)[number] }>
@@ -1029,6 +1060,17 @@ export type ClientMessage =
    * `settings.robotKind`, boards dealt to `settings.deal`. Leaves any other table first
    */
   | { type: 'createPractice'; settings: PracticeSettings; access?: TableAccess }
+  /** Opens a teaching table (`e10-t10`), with the `teach` permission: the chosen deals, or any deal without `set` */
+  | { type: 'createTeaching'; set?: PracticeSetChoice; access?: TableAccess }
+  /** The teacher takes back the last step of the board, whoever made it */
+  | { type: 'teachUndo' }
+  /** The teacher starts the board on the table again from the deal */
+  | { type: 'teachReplay' }
+  /** The teacher pauses the table to explain, or goes on, which clears the marks (`e10-t11`) */
+  | { type: 'teachPause'; paused: boolean }
+  | { type: 'teachMark'; mark: TeachMarkInput }
+  /** Takes one mark off, or all of them without `id` */
+  | { type: 'teachUnmark'; id?: number }
   /** At a practice table only: the board on the table is put away unplayed and a new one dealt */
   | { type: 'redeal' }
   /** At a bidding practice only (`e10-t15`): the board on the table is bid again from the start, the same hands */

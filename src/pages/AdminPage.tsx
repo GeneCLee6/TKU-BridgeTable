@@ -250,6 +250,7 @@ function AdminPanels() {
     boardCurate: t.permissionBoardCurate,
     tkuSystem: t.permissionTkuSystem,
     forumModerate: t.permissionForumModerate,
+    teach: t.permissionTeach,
   }
   const editMembers = () => {
     if (!users) return

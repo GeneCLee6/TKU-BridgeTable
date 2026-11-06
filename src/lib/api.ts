@@ -69,7 +69,7 @@ import type { FeaturedBoard, FeaturedInput } from '../../shared/featured.ts'
 import type { FeatureFlag, FeatureState, FeatureView } from '../../shared/features.ts'
 import { NOTICES_API, type ClubBanner, type ClubBannerInput, type NoticesView, type PlatformNoticeInput } from '../../shared/notices.ts'
 import type { ClubApplicationInput, ClubApplyOptions, ClubStatus, PlatformView } from '../../shared/platform.ts'
-import type { AdminSupportView, SupportInput, SupportStatus } from '../../shared/support.ts'
+import type { AdminSupportView, MySupportReport, SupportInput, SupportStatus } from '../../shared/support.ts'
 import type { SessionInfo } from '../../shared/account.ts'
 import type { PushKinds, PushView } from '../../shared/push.ts'
 import type { ImportedBoard, ImportedDeal } from '../../shared/imports.ts'
@@ -220,6 +220,7 @@ export const api = {
   notices: () => request<NoticesView>(NOTICES_API),
   /** A member's support report (e12-t16) */
   sendSupportReport: (input: SupportInput) => post<{ id: string }>('/api/support', input),
+  mySupportReports: () => request<{ reports: MySupportReport[] }>('/api/support/mine'),
   logout: () => post<{ ok: true }>('/api/logout'),
   changePassword: (current: string, next: string) => post<{ ok: true }>('/api/account/password', { current, next }),
   /** The account settings the server keeps (e1-t24) */

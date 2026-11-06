@@ -36,7 +36,7 @@ const Row = styled.div`
   gap: ${({ theme }) => theme.space(2)};
 `
 
-const Badge = styled.span<{ $open: boolean }>`
+export const Badge = styled.span<{ $open: boolean }>`
   padding: 1px 8px;
   border-radius: 999px;
   font-size: 13px;
@@ -68,6 +68,7 @@ export function SupportFacts({ report }: { report: ForwardedSupport | AdminSuppo
       <p>{report.text}</p>
       <Small as="div">{s.browser(report.browser)}</Small>
       <Small as="div">{s.version(report.version)}</Small>
+      {report.boardImported && <Small as="div">{s.boardImported}</Small>}
     </>
   )
 }

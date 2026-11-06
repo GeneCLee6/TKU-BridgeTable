@@ -1,11 +1,15 @@
 import { LifeBuoy } from 'lucide-react'
-import { useEffect, useId, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useId, useState, type FormEvent } from 'react'
+import { useLocation } from 'react-router-dom'
 import styled from 'styled-components'
-import { SUPPORT_CATEGORIES, SUPPORT_LIMITS, type SupportCategory } from '../../shared/support.ts'
+import { isImportedBoardId } from '../../shared/imports.ts'
+import { SUPPORT_CATEGORIES, SUPPORT_LIMITS, SUPPORT_REPORTS_ANCHOR, type MySupportReport, type SupportCategory } from '../../shared/support.ts'
 import { api, ApiError } from '../lib/api.ts'
 import { appVersion } from '../lib/errorReport.ts'
+import { formatDateTime } from '../lib/format.ts'
 import { usePreferences } from '../state/PreferencesContext.tsx'
 import { panelScroll } from '../styles/controls.ts'
+import { Badge } from './AdminSupport.tsx'
 import { Backdrop } from './Modal.tsx'
 import { useToast } from './Toast.tsx'
 import { Button, Card, CardHeader, CardTitle, ErrorText, Field, FieldHint, FieldLabel, Muted, Select, Textarea } from './ui.tsx'
@@ -38,7 +42,7 @@ const Buttons = styled.div`
   gap: ${({ theme }) => theme.space(2)};
 `
 
-export function SupportDialog({ boardId, tableId, onClose }: { boardId?: string; tableId?: string; onClose: () => void }) {
+export function SupportDialog({ boardId, tableId, onClose, onSent }: { boardId?: string; tableId?: string; onClose: () => void; onSent?: () => void }) {
   const { t, message } = usePreferences()
   const s = t.support
   const toast = useToast()
@@ -69,6 +73,7 @@ export function SupportDialog({ boardId, tableId, onClose }: { boardId?: string;
         ...(tableId && { tableId }),
       })
       toast.success(s.sent)
+      onSent?.()
       onClose()
     } catch (e) {
       setError(e instanceof ApiError ? message(e.code, e.params, e.message) : t.genericError)
@@ -95,7 +100,8 @@ export function SupportDialog({ boardId, tableId, onClose }: { boardId?: string;
         <Field>
           <FieldLabel htmlFor={`${id}-text`}>{s.text}</FieldLabel>
           <Textarea id={`${id}-text`} rows={5} maxLength={SUPPORT_LIMITS.textMax} value={text} onChange={(e) => setText(e.target.value)} required />
-          <FieldHint>{boardId ? s.attachedBoard(boardId) : tableId ? s.attachedTable(tableId) : s.attached}</FieldHint>
+          {/* An imported board's id means nothing to whoever reads this: it says they cannot open it (ARCHITECTURE.md §1「客服回報」) */}
+          <FieldHint>{boardId ? (isImportedBoardId(boardId) ? s.attachedImported : s.attachedBoard(boardId)) : tableId ? s.attachedTable(tableId) : s.attached}</FieldHint>
         </Field>
         {error && <ErrorText role="alert">{error}</ErrorText>}
         <Buttons>
@@ -111,12 +117,80 @@ export function SupportDialog({ boardId, tableId, onClose }: { boardId?: string;
   )
 }
 
-/** On 「我的帳號」: a report that is not about one table or record */
+const Reports = styled.ul`
+  display: grid;
+  gap: ${({ theme }) => theme.space(3)};
+  margin: 0;
+  padding: 0;
+  list-style: none;
+
+  & p {
+    margin: ${({ theme }) => theme.space(1)} 0 0;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+`
+
+const ReportHead = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: ${({ theme }) => theme.space(2)};
+`
+
+/** The member's own reports and how they stand; the server sends nothing about who handled them */
+function MyReports({ reports }: { reports: MySupportReport[] | null }) {
+  const { t, lang } = usePreferences()
+  const s = t.support
+  if (!reports) return null
+  return (
+    <section aria-label={s.mineTitle}>
+      <h3>{s.mineTitle}</h3>
+      {reports.length === 0 ? (
+        <Muted>{s.mineNone}</Muted>
+      ) : (
+        <Reports>
+          {reports.map((report) => (
+            <li key={report.id}>
+              <ReportHead>
+                <strong>{s.categories[report.category]}</strong>
+                <Badge $open={report.status === 'open'}>{report.status === 'open' ? s.statusOpen : s.statusResolved}</Badge>
+                <Muted as="span">{formatDateTime(report.createdAt, lang)}</Muted>
+              </ReportHead>
+              <p>{report.text}</p>
+              {report.resolvedAt !== undefined && <Muted>{s.mineResolvedAt(formatDateTime(report.resolvedAt, lang))}</Muted>}
+            </li>
+          ))}
+        </Reports>
+      )}
+    </section>
+  )
+}
+
+/** On 「我的帳號」: a report that is not about one table or record, and the member's reports so far */
 export function SupportCard() {
   const { t } = usePreferences()
+  const { hash } = useLocation()
   const [open, setOpen] = useState(false)
+  const [reports, setReports] = useState<MySupportReport[] | null>(null)
+
+  // The list is extra: when it cannot be read the card still sends
+  const read = useCallback(() => {
+    api.mySupportReports().then(
+      (found) => setReports(found.reports),
+      () => undefined,
+    )
+  }, [])
+  useEffect(read, [read])
+
+  // The link of `supportResolved`: the list is below the fold of a long page
+  const loaded = reports !== null
+  useEffect(() => {
+    if (loaded && hash === `#${SUPPORT_REPORTS_ANCHOR}`) document.getElementById(SUPPORT_REPORTS_ANCHOR)?.scrollIntoView?.({ block: 'start' })
+  }, [loaded, hash])
+
   return (
-    <Card>
+    <Card id={SUPPORT_REPORTS_ANCHOR}>
       <CardHeader>
         <CardTitle>{t.support.open}</CardTitle>
         <Muted>{t.support.cardHint}</Muted>
@@ -127,7 +201,8 @@ export function SupportCard() {
           {t.support.open}
         </Button>
       </div>
-      {open && <SupportDialog onClose={() => setOpen(false)} />}
+      <MyReports reports={reports} />
+      {open && <SupportDialog onSent={read} onClose={() => setOpen(false)} />}
     </Card>
   )
 }
