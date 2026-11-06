@@ -110,6 +110,9 @@ export type AuditAction =
   | 'support:resolve'
   | 'support:reopen'
   | 'support:forward'
+  /** A puzzle published to this club's members or taken back by an admin (e10-t13); `target` is `<id>@<revision>`, the version they read */
+  | 'puzzle:publish'
+  | 'puzzle:unpublish'
 
 export interface AuditEntry {
   id: string

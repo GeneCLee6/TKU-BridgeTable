@@ -198,6 +198,7 @@ TKU-BridgeTable/
 │  ├─ practice-presets.ts  社員存的練習設定（存成我的設定，§5.11）
 │  ├─ imported-boards.ts   匯入的紀錄（`imp-<hash>`，§5.3）與我的牌組（§5.11）
 │  ├─ partner-bidding.ts   搭檔非同步叫牌練習：邀請、一副一副叫、到期清掃、檢討的工作（`e10-t08`，§5.11）
+│  ├─ puzzles.ts           謎題：社團發布了哪幾題、社員的進度，每張牌查預先算好的資料（`e10-t13`、`t14`，§5.11）
 │  ├─ practice-review.ts   叫牌練習的檢討：每一口 TKB 會叫什麼、四家 TKB 從頭叫（只給那一家的牌，§5.11）
 │  ├─ notifications.ts     通知中心（§5.4）
 │  ├─ push.ts              PWA 推播（e1-t28）：社員的裝置與推播偏好、批次送出、刪掉失效的訂閱（§5.4）
@@ -293,6 +294,7 @@ interface BoardState {
 | 重播的每步損失與賽後分析（`e4-t35`、`e10-t12`） | 都在瀏覽器裡算，只用已經讀得到的紀錄：`canAnalyse`／`hasSteps` 只收打完、四家完整的牌。賽後分析頁讀 `GET /api/history/:id/session`，跟整場 LIN（`e4-t37`）是同一個 `ClubService.session`：每一副都過 `record()` 的判斷（`recordVisible`、挑戰的 `challengeBoardVisible`），還沒公開的挑戰牌局不會出現（`tests/worker/visibility/visibility.test.ts` 的 `session`）。結果只放記憶體，關掉分頁就沒了，不寫 IndexedDB：共用電腦上不留牌 |
 | 叫牌練習的檢討（`e10-t07`） | 只叫牌的練習桌**這一副結束後**（四家已公開）才有 `TablePractice.review`：每一口 TKB 拿那一家的牌在那時會叫什麼（`steps`）、四家 TKB 從頭叫的過程與合約（`robot`）。它是從四家的牌算出來的，叫牌中送出就等於洩漏別家的牌，所以叫牌中、重叫、下一副時一律沒有（`practiceView`）；問機器人時只給那一家的牌（`practice-review.ts` 的 `askedState`）|
 | 搭檔非同步叫牌練習（`e10-t08`） | 只有這次練習的兩位社員讀得到（別人一律 `partnerBidGone`，管理員也一樣）。**一副還在叫時只有自己那一手與叫牌過程**（`views.ts` 的 `partnerBidView`：`hands` 只有自己的座位），`legalCalls` 只在輪到自己時由伺服器算好送；這一副叫完（`phase` 不是 `auction`）才有四家、檢討（`review`）與牌組的教學重點（`note`）。放棄或過期的練習，正在叫的那一副一樣不公開；還沒叫到的牌根本還沒發，邀請階段沒有任何牌。列表（`partnerBidSummary`）沒有牌。WebSocket 的 `partnerBid` 訊息與帳號匯出都走同一個 view，不會多看到什麼（`tests/worker/partner-bidding.test.ts`）|
+| 謎題（`e10-t13`、`t14`） | 沒發布的題目對社員不存在（`puzzleGone`）；管理員在管理頁看得到完整內容才能審（四手牌、提示、解說、一條打法）。社員的 `puzzleView`：**南北兩手一直公開；東西的牌只有已經打出的部分，這一次解開（`status: 'solved'`）才給四手牌與解說**；解開後從頭再打一次又會藏起來。提示要按才給，列表（`puzzleSummary`）沒有任何牌。之前出過的牌（`gone`）是公開的，等於桌上看過的牌。這個 repo 是公開的，所以題目與答案都不是祕密：伺服器不先送，是為了硬性規則 1 與不讓頁面直接洩題 |
 | 叫牌提示卡 | 每個看的人都有 `BoardView.bookTopics`：淡江橋譜裡跟目前叫牌有關的頁面，從叫牌過程與淡江制度的規則算出，不看任何一手牌；看的人的同伴是 2/1 的 TKB 時不送（`e10-t06`）|
 
 **誰看得到哪一桌**（四種進入方式，§5「牌桌設定」，判斷在 `worker/views.ts` 的 `tableListed`／`mayEnter`）：大廳與成員列表的「在哪一桌」只列出觀看者看得到的桌：挑戰桌誰都不列；**隱藏**的桌只列給房主、受邀者與已經在桌上的人，其他人連桌號都看不到（成員列表的 `tableNumber` 是 `null`），`joinTable`／`sit`／`requestJoin` 都拿到 `tableGone`，跟不存在的桌一樣；公開、申請加入、拒絕所有人的桌列給所有人。**加入申請**只送給房主（`TableView.requests`），房主封鎖的人送出的申請房主看不到（`muted`），申請者也看不出差別；`TableSummary.requested` 只告訴觀看者自己有沒有申請在等。受邀名單同樣只送給房主（`TableView.invited`）。
@@ -444,6 +446,7 @@ interface BoardState {
 | `push:<userId>` | PWA 推播（`e1-t28`，`worker/push.ts`）：每台裝置的訂閱（推播服務的網址、`p256dh`、`auth`、語言、裝置名稱、開啟時間；最多 10 台）與改過的推播種類（只存跟預設不同的）；被登出所有裝置時清掉裝置、帳號刪除時整筆刪；不在備份裡 |
 | `friend:<userId>:<friendId>` | 社員關注的好友（單向），值是 `{ at }`；載入時全部讀進記憶體 |
 | `block:<userId>:<otherId>` | 社員封鎖的對象，值是 `{ at }`；載入時全部讀進記憶體 |
+| SQL `puzzle_publications`、`puzzle_progress` | 謎題（§5.11，`worker/puzzles.ts`）：這個社團發布了哪幾題（題目、版本、誰、何時）；每位社員每題一列（版本、狀態、這次出過的牌、決策點、出錯的牌、提示數、次數、出錯數、第一次解開的時間、是否一次解開）。不在備份裡（跟牌局一樣）；物件的資料遺失時題目退回草稿，是安全的方向 |
 | SQL `partner_bid_sessions`、`partner_bid_boards` | 搭檔非同步叫牌練習（`e10-t08`，§5.11，`worker/partner-bidding.ts`）：一次練習一列（兩位社員、狀態、設定、叫到第幾副、輪到誰、到期時間），發過的每一副一列（四家、叫牌過程、檢討）；不放在記憶體，不在每日備份裡（練習用的資料，還原時只刪掉帳號已不存在的）；帳號刪除時那個人的整筆練習連同對方的副本一起刪 |
 | SQL `challenges`、`challenge_players`、`challenge_results` | 挑戰的正本（不是索引），見 §5.5；`EVENT_OBJECTS=on` 時，住在自己 `EventObject` 的挑戰正本在那個物件，這裡是社團的副本（§5.12 H2b） |
 | SQL `event_homes` | 哪些挑戰住在自己的 `EventObject`，與社團寫進副本的最後一個變更編號（`rev`，-1＝物件還沒確認收下）；沒有這一列的挑戰住在社團（§5.12 H2b） |
@@ -640,6 +643,15 @@ interface BoardState {
   - **限制與到期**：每人同時 `PARTNER_BID_ACTIVE_MAX` 5 個（含邀請，兩邊都算：`partnerBidTooMany`、`partnerBidPartnerBusy`）；邀請 7 天沒回、進行中 14 天沒人叫就 `expired`；結束的留 30 天，每人最多 20 個，舊的先刪（`PARTNER_BID_KEPT`）。清掃是**全社團一個工作**（`partnerBid:sweep:<時間>`，類別 `partnerBid`，排在最早到期的那一筆；有更早到期的才多排一個，太早醒的什麼都不做、再排下一個，所以叫牌不會累積工作）；排程不存檔，`load()` 用一個查詢重排，一次最多處理 20 筆。
   - **檢討**：跟叫牌練習室同一份程式（`practice-review.ts`），在 `robot` 類的排程工作裡分兩次算，每次一副（`partnerBid:review:<id>:<seq>`）：先算每一口 TKB 會叫什麼與社員叫品的制度解釋（`inferredMeaning`，只看叫牌過程），再算 TKB 從頭叫。**東西不叫**（`silent`），比較才公平，也少問一半；問機器人時一樣只給那一家的牌（`askedState`，硬性規則 6）。物件被回收丟掉工作時，下次讀這一副（`get`）會重排。DD 表用瀏覽器端的 `DoubleDummyPanel`，只在打開檢討頁時算，伺服器不多花。
   - **為什麼這樣省 CPU**（免費方案每次請求 10 ms）：一次請求只動一副牌（幾 KB 的 JSON），牌到了才發（每次 `practiceBoard` 約數毫秒以內，一次 8 副就要乘 8），檢討不在叫最後一口的請求裡算，列表只讀欄位不讀牌。
+- **謎題**（`e10-t13`、`e10-t14`，AC-10.9）：一個人做莊，同時出夢家的牌，對手打雙明手最好的防守。不是牌桌：沒有 `Table`、不進牌局紀錄、排名與積分。
+  - **資料**（`shared/puzzles.ts`、`shared/puzzle-sets/`）：一題是一副牌（通常是殘局，沒寫到的牌算之前出過）、合約（莊家一律南）、之前拿了幾墩、誰先出、桌上已有的牌、分級 1–3、文字（標題、題目、提示、解說，**只有繁中**，其他語言的頁面說明這件事，直接顯示繁中）。`puzzle-sets/` 只有 Worker 與腳本 import，手牌不進瀏覽器的 bundle（`tests/engine/puzzles.test.ts` 檢查）。
+  - **出題時算，請求時查**：`npm run puzzles`（`scripts/puzzles.ts`、`shared/puzzle-solver.ts`）用 `shared/robot/dd.ts` 解每一題，寫出 `solutions.generated.ts`。沒有伺服器 DDS（`e6-t13` 要付費），也不在請求裡解牌。每個決策點存**所有對的牌**，每張對的牌存防家的回應與下一個決策點；防家選讓莊家墩數最少的牌，一樣少時選之後最難的，再一樣選最小的。沒列出的合法牌就是「這張牌之後保證不了合約」。**再也沒有錯的牌可以出時就算解開**，所以不用存後面的局面。`dd.ts` 放棄（2 千萬個局面）、無法成約、沒有任何決定、超過 2,000 個決策點或 48 KB，就**拒絕這一題、什麼都不寫**。測試重新用 `dd.ts` 走過每個決策點。
+  - **多大的牌算得完**：試過一副整副 13 張的牌：`dd.ts` 在 2 千萬個局面內放棄，約一分鐘後被拒絕。9 張牌以內幾秒算完，但對的出牌順序太多時會超過 2,000 個決策點（試過的 7 張、9 張牌都有超過的）。第一批是 5–9 張的殘局，存下來的資料合計約 30 KB。
+  - **草稿與發布**：程式裡的題目一律 `status: 'draft'`（`puzzleProblem` 不接受別的）。管理頁「謎題」看完整內容，一題一題「發布給社員」（`POST /api/admin/puzzles/:id/publish { published }`），只影響這個社團，寫稽核 `puzzle:publish`、`puzzle:unpublish`（`target` 是 `<id>@<revision>`）。發布綁題目的版本（deal、合約與文字的雜湊）：題目改了就退回草稿，社員的舊進度重新開始。**solver 只證明這個牌型下做得成**，不證明打法合理、也不看文字，所以要幹部讀過才發布。
+  - **出牌**（硬性規則 1）：`POST /api/puzzles/:id/play { card }`：不合法 `puzzleIllegalCard`；不在資料裡就是錯的，這一次變 `failed`，牌不算出，`wrong` 記那張牌，失敗數加一，之後 `puzzleAttemptOver`，要 `POST .../retry { from: 'mistake' | 'start' }` 退回這一步或從頭來。對的牌連同防家的回應一起算出去，下一個決策點是 -1 就解開。`POST .../hint` 一次給一個提示，用過提示或出過錯就不算「一次解開」（第一次解開時定下，之後重打不變）。限速走 `actionLimit`。
+  - **進度**：`GET /api/puzzles` 依分級列出已發布的題目與狀態（還沒做、進行中、已解開、一次解開）。帳號匯出有 `puzzles`（題目、狀態、出過的牌、提示、次數、出錯、時間），刪帳號一起刪，還原備份時清掉已不是社員的進度。
+  - **10 ms**：一張牌是讀一列、切一段字串（最大 48 KB）、重放最多 13 墩的牌、寫一列，不跑任何搜尋；測試在記憶體資料庫上要求每張牌 5 ms 以內。資料是字串常數，載入時幾乎不花時間。
+  - **入口**：大廳的練習對話框（跟搭檔叫牌練習一樣的連結）。
 - **教學桌**（`e10-t10`、`e10-t11`，AC-10.7）：`mode: 'teach'`，`modeState` 是 `TeachTableState`（`worker/modes.ts`）。規則都在 `TableService`（硬性規則 1），可見性在 §4。
   - **權限**：`teach`（`PERMISSIONS`，管理頁「權限」欄勾選，跟其他權限同一條路；管理員都有）。只在開桌時檢查（`createTeaching` 的 `requirePermission`，`noPermission`）；開著的桌不因拿掉權限而關，老師離開就沒了。
   - **開桌**（`createTeaching { set?, access? }`，大廳練習卡片旁的按鈕，`TeachDialog`）：`set` 同練習桌的牌組，另可 `{ source: 'records', ids }`（只有 `parseTeachSet` 接受，練習桌的 `parsePracticeSettings` 拒絕）；沒有 `set` 就隨機。`access` 預設隱藏，邀請從牌桌的設定按鈕（同練習桌，只能改 `access` 與邀請名單，其他 `teachTableFixed`）。老師一開始沒有座位（`spectators`），可以坐下；座位上的機器人老師自己放（一般牌桌的 `addRobot`）；學生照 `access` 入座或旁聽；可以四個機器人示範（`runsWithoutPeople`）。不進快速入座、不能叫裁判（`directorNotHere`）。

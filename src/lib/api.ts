@@ -74,6 +74,7 @@ import type { SessionInfo } from '../../shared/account.ts'
 import type { PushKinds, PushView } from '../../shared/push.ts'
 import type { ImportedBoard, ImportedDeal } from '../../shared/imports.ts'
 import type { PartnerBidSettings, PartnerBidSummary, PartnerBidView } from '../../shared/partner-bidding.ts'
+import type { AdminPuzzle, PuzzleSummary, PuzzleView } from '../../shared/puzzles.ts'
 import type { PracticeSettings, SavedPractice } from '../../shared/practice.ts'
 import type { PracticeSetInfo } from '../../shared/practice-sets/types.ts'
 
@@ -316,6 +317,11 @@ export const api = {
   removePracticePreset: (id: string) =>
     request<{ presets: SavedPractice[] }>(`/api/practice/presets/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   /** Partner bidding practice (e10-t08): the member's sessions, one session as they may see it, and what they do in it */
+  puzzles: () => request<{ puzzles: PuzzleSummary[] }>('/api/puzzles'),
+  puzzle: (id: string) => request<{ puzzle: PuzzleView }>(`/api/puzzles/${encodeURIComponent(id)}`),
+  playPuzzle: (id: string, card: string) => post<{ puzzle: PuzzleView }>(`/api/puzzles/${encodeURIComponent(id)}/play`, { card }),
+  retryPuzzle: (id: string, from: 'mistake' | 'start') => post<{ puzzle: PuzzleView }>(`/api/puzzles/${encodeURIComponent(id)}/retry`, { from }),
+  puzzleHint: (id: string) => post<{ puzzle: PuzzleView }>(`/api/puzzles/${encodeURIComponent(id)}/hint`),
   partnerBids: () => request<{ sessions: PartnerBidSummary[] }>('/api/partner-bidding'),
   partnerBid: (id: string) => request<{ session: PartnerBidView }>(`/api/partner-bidding/${encodeURIComponent(id)}`),
   createPartnerBid: (partnerId: string, settings: Partial<PartnerBidSettings>) =>
@@ -486,6 +492,8 @@ export const api = {
     setBanner: (input: ClubBannerInput) => post<{ banner: ClubBanner }>('/api/admin/banner', input),
     clearBanner: () => request<{ banner: null }>('/api/admin/banner', { method: 'DELETE' }),
     /** The members' support reports (e12-t16): every answer is the list again */
+    puzzles: () => request<{ puzzles: AdminPuzzle[] }>('/api/admin/puzzles'),
+    publishPuzzle: (id: string, published: boolean) => post<{ puzzles: AdminPuzzle[] }>(`/api/admin/puzzles/${encodeURIComponent(id)}/publish`, { published }),
     support: () => request<AdminSupportView>('/api/admin/support'),
     setSupportStatus: (id: string, status: SupportStatus) =>
       post<AdminSupportView>(`/api/admin/support/${encodeURIComponent(id)}/status`, { status }),

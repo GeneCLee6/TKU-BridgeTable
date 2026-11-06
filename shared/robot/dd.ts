@@ -72,8 +72,10 @@ export function canTake(position: DoubleDummyPosition, side: Side, tricks: numbe
   const quick = (seat: number) => {
     const lho = (seat + 1) & 3
     const rho = (seat + 3) & 3
+    const partner = (seat + 2) & 3
     const ruffA = trump >= 0 && hand[lho * 4 + trump] !== 0
     const ruffB = trump >= 0 && hand[rho * 4 + trump] !== 0
+    const partnerTrumps = trump >= 0 && hand[partner * 4 + trump] !== 0
     let total = 0
     for (let s = 0; s < 4; s++) {
       const mine = hand[seat * 4 + s]
@@ -88,6 +90,12 @@ export function canTake(position: DoubleDummyPosition, side: Side, tricks: numbe
         if (ruffA) cash = Math.min(cash, bits(a))
         if (ruffB) cash = Math.min(cash, bits(b))
       }
+      // The run stops if partner may have to take the trick: a higher card it must play (a blocked
+      // suit, K Q opposite a bare A), or a ruff when it holds nothing but trumps
+      const ours = hand[partner * 4 + s]
+      let counted = mine
+      for (let extra = bits(mine) - cash; extra > 0; extra--) counted &= counted - 1
+      if (ours ? cash > 0 && highest(ours) > 31 - Math.clz32(counted & -counted) : s !== trump && partnerTrumps) cash = 0
       total += cash
     }
     return total

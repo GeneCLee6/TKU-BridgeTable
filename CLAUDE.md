@@ -48,6 +48,7 @@
 - **`/api/book/*` 是淡江橋譜在用的介面**：型別在橋譜的 `src/lib/api.ts`，AI 匯入的扁平 schema 由橋譜的 `src/lib/importResult.ts` 解讀，改了要一起改橋譜。
 - **紀錄頁讀的是 D1 的副本**（ARCHITECTURE.md §5.12）：改了 `summarize`、`BoardSummary` 或索引的表，要把 `worker/history-replica.ts` 的 `REPLICA_VERSION` 加一，副本才會重填；搜尋條件只改 `history-index.ts` 的 `where()`，兩邊共用。
 - **CSP 只放行本站**：網頁的標頭在 `public/_headers`（由 `worker/security-headers.ts` 產生，測試檢查一致）；加外部資源（CDN、字型、分析）或行內 script 會被擋，要先改 `PAGE_CSP`（docs/SECURITY.md §2）。`npm run dev` 不套用 `_headers`，要用 build 後的預覽站檢查。
+- **謎題改了要重算**：改 `shared/puzzle-sets/` 或 `dd.ts` 之後跑 `npm run puzzles`；文字一改版本就變，已發布的題目會退回草稿（ARCHITECTURE.md §5.11）。
 - **免費方案每次請求只有 10 ms CPU**：AI 匯入的串流原封不動轉回瀏覽器（`asResponse()`），PDF 走 Files API，不要在 Worker 解析串流或做 base64。
 
 ## 指令
