@@ -286,6 +286,8 @@ export const api = {
   sharedBoard: (token: string) => request<{ shared: SharedBoard }>(`/api/share/${encodeURIComponent(token)}`),
   /** The records page's search as one PBN file (e4-t36): its first LIMITS.exportBoardsMax boards */
   exportPbnPath: (query: Partial<HistoryQuery>) => `/api/history/export.pbn?${historyQueryString(query)}`,
+  /** A board's whole session at its table, the boards this member may read (post-game analysis, e10-t12) */
+  session: (id: string) => request<{ records: BoardRecord[] }>(`/api/history/${encodeURIComponent(id)}/session`),
   /** A board's whole session at its table as one LIN file (e4-t37) */
   sessionLinPath: (id: string) => `/api/history/${encodeURIComponent(id)}/session.lin`,
   /** Everyone's result on the same board of its challenge, if the member may see it (e4-t32) */

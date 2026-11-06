@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import type { BoardState } from '../../shared/game.ts'
 import {
+  DD_STEP_BUDGET_MS,
+  DdTooComplex,
   ddRequest,
   isCompleteDeal,
   positionKey,
@@ -25,51 +27,108 @@ export type DoubleDummyState =
   | { status: 'done'; analysis: DdAnalysis }
   | { status: 'error' }
 
-type Reply = { id: number; result?: unknown; error?: string }
+type Reply = { id: number; started?: boolean; result?: unknown; error?: string }
 type Message = { request: DdRequest } | { position: DdPositionRequest }
+
+/*
+ * One worker, one job at a time. DDS cannot be interrupted, so a job is stopped by terminating the
+ * worker, and the next job starts a new one. A job's clock only starts when the worker says the
+ * solve has begun, so a slow download of the module is not held against a position.
+ */
+
+/** 'now': something on the screen waits for it; 'later': background work (a whole board's steps) */
+export type DdPriority = 'now' | 'later'
+
+interface Job {
+  message: Message
+  priority: DdPriority
+  /** A position's key: what the budget applies to. The DD table has none and runs to the end. */
+  key?: string
+  /** Who still wants the answer; nobody left and the job is withdrawn */
+  wanted: number
+  resolve: (result: never) => void
+  reject: (error: Error) => void
+}
+
+/** A solve nobody wants any more gets this long, since most positions finish well inside it and the worker stays loaded */
+const CANCEL_GRACE_MS = 150
 
 let worker: Worker | null = null
 let nextId = 0
-const pending = new Map<number, { resolve: (result: unknown) => void; reject: (error: Error) => void }>()
-/** Each deal is solved once per page load, however often its record is opened */
-const cache = new Map<string, Promise<DdAnalysis>>()
+let running: { id: number; job: Job; started: boolean; deadline: number; timer?: ReturnType<typeof setTimeout> } | null = null
+const waiting: Job[] = []
+/** Over the budget once: not tried again until the page is reloaded */
+const tooComplex = new Set<string>()
 
-function failAll(error: Error) {
-  for (const { reject } of pending.values()) reject(error)
-  pending.clear()
+function stopRunning(error: Error) {
+  if (!running) return
+  const { job, timer } = running
+  clearTimeout(timer)
+  running = null
   worker?.terminate()
   worker = null
+  job.reject(error)
+  pump()
+}
+
+/** The running job's clock: what is left of its budget, or the short grace when nobody wants it any more */
+function arm() {
+  if (!running?.started) return
+  const { job, deadline } = running
+  clearTimeout(running.timer)
+  if (job.wanted <= 0) running.timer = setTimeout(() => stopRunning(new Error('DDS cancelled')), CANCEL_GRACE_MS)
+  else if (job.key) {
+    const key = job.key
+    running.timer = setTimeout(() => {
+      tooComplex.add(key)
+      stopRunning(new DdTooComplex())
+    }, deadline - Date.now())
+  }
 }
 
 function startWorker(): Worker {
   const started = new Worker(new URL('./dds.worker.ts', import.meta.url), { type: 'module' })
   started.addEventListener('message', (event: MessageEvent<Reply>) => {
-    const { id, result, error } = event.data
-    const request = pending.get(id)
-    if (!request) return
-    pending.delete(id)
-    if (result) request.resolve(result)
-    else request.reject(new Error(error ?? 'DDS failed'))
+    const { id, started: began, result, error } = event.data
+    if (!running || running.id !== id) return
+    if (began) {
+      running.started = true
+      running.deadline = Date.now() + DD_STEP_BUDGET_MS
+      arm()
+      return
+    }
+    const { job, timer } = running
+    clearTimeout(timer)
+    running = null
+    if (result) job.resolve(result as never)
+    else job.reject(new Error(error ?? 'DDS failed'))
+    pump()
   })
-  started.addEventListener('error', () => failAll(new Error('DDS worker failed')))
+  started.addEventListener('error', () => stopRunning(new Error('DDS worker failed')))
   return started
 }
 
-function post<T>(message: Message): Promise<T> {
+function pump() {
+  if (running || !waiting.length) return
+  const at = waiting.findIndex((job) => job.priority === 'now')
+  const [job] = waiting.splice(Math.max(at, 0), 1)
   worker ??= startWorker()
   const id = nextId++
-  const running = worker
-  return new Promise<T>((resolve, reject) => {
-    pending.set(id, { resolve: resolve as (result: unknown) => void, reject })
-    running.postMessage({ id, ...message })
-  })
+  running = { id, job, started: false, deadline: 0 }
+  worker.postMessage({ id, ...job.message })
 }
+
+/** Each deal is solved once per page load, however often its record is opened */
+const cache = new Map<string, Promise<DdAnalysis>>()
 
 function solve(request: DdRequest): Promise<DdAnalysis> {
   const key = `${request.deal}|${request.dealer}|${request.vulnerable}`
   let analysis = cache.get(key)
   if (!analysis) {
-    analysis = post<DdRawResult>({ request }).then(toAnalysis)
+    analysis = new Promise<DdRawResult>((resolve, reject) => {
+      waiting.push({ message: { request }, priority: 'now', wanted: 1, resolve: resolve as Job['resolve'], reject })
+      pump()
+    }).then(toAnalysis)
     // A failure is not remembered, so opening the record again tries again
     analysis.catch(() => cache.delete(key))
     cache.set(key, analysis)
@@ -78,67 +137,60 @@ function solve(request: DdRequest): Promise<DdAnalysis> {
 }
 
 /*
- * Positions in double-dummy mode. Stepping through a replay asks for one position after another,
- * so only one is with the worker at a time and the ones still waiting can be withdrawn: when the
- * viewer has moved on, the position they left is never solved. Answers are kept for the page load.
+ * Positions in double-dummy mode and in a board's analysis. Stepping through a replay asks for one
+ * position after another, so the ones still waiting can be withdrawn: when the viewer has moved on,
+ * the position they left is never solved. Answers are kept for the page load, in memory.
  */
 
 const POSITIONS_KEPT = 4000
 const solved = new Map<string, DdPositionRaw>()
-const solving = new Map<string, Promise<DdPositionRaw>>()
-interface Job {
-  key: string
-  request: DdPositionRequest
-  wanted: number
-  resolve: (raw: DdPositionRaw) => void
-  reject: (error: Error) => void
-}
-const waiting: Job[] = []
-let busy = false
+const solving = new Map<string, { job: Job; result: Promise<DdPositionRaw> }>()
 
-function pump() {
-  if (busy) return
-  const job = waiting.shift()
-  if (!job) return
-  busy = true
-  post<DdPositionRaw>({ position: job.request })
-    .then((raw) => {
-      if (solved.size >= POSITIONS_KEPT) solved.delete(solved.keys().next().value!)
-      solved.set(job.key, raw)
-      job.resolve(raw)
-    }, job.reject)
-    .finally(() => {
-      solving.delete(job.key)
-      busy = false
-      pump()
-    })
-}
-
-/** The cards of one position; `cancel` withdraws the request if the worker has not started on it */
-export function solvePosition(request: DdPositionRequest): { result: Promise<DdPositionRaw>; cancel: () => void } {
+/**
+ * The cards of one position; `cancel` withdraws the request, and stops the worker if it is on it.
+ * Over `DD_STEP_BUDGET_MS` the promise rejects with `DdTooComplex`: there is never a partial answer.
+ */
+export function solvePosition(request: DdPositionRequest, priority: DdPriority = 'now'): { result: Promise<DdPositionRaw>; cancel: () => void } {
   const key = positionKey(request)
   const known = solved.get(key)
   if (known) return { result: Promise.resolve(known), cancel: () => {} }
-  let result = solving.get(key)
-  let job = waiting.find((j) => j.key === key)
-  if (!result) {
-    result = new Promise<DdPositionRaw>((resolve, reject) => {
-      job = { key, request, wanted: 0, resolve, reject }
-      waiting.push(job)
+  if (tooComplex.has(key)) return { result: Promise.reject(new DdTooComplex()), cancel: () => {} }
+  let entry = solving.get(key)
+  if (!entry) {
+    let created!: Job
+    const result = new Promise<DdPositionRaw>((resolve, reject) => {
+      created = { message: { position: request }, priority, key, wanted: 0, resolve: resolve as Job['resolve'], reject }
+    }).then((raw) => {
+      if (solved.size >= POSITIONS_KEPT) solved.delete(solved.keys().next().value!)
+      solved.set(key, raw)
+      return raw
     })
-    solving.set(key, result)
+    const job = created
+    const forget = () => {
+      if (solving.get(key)?.job === job) solving.delete(key)
+    }
+    result.then(forget, forget)
+    entry = { job, result }
+    solving.set(key, entry)
+    waiting.push(job)
   }
-  if (job) job.wanted++
+  const { job, result } = entry
+  if (priority === 'now') job.priority = 'now'
+  job.wanted++
+  if (running?.job === job) arm()
   pump()
-  const asked = job
+  let asked = true
   return {
     result,
     cancel: () => {
-      if (!asked || --asked.wanted > 0) return
-      const at = waiting.indexOf(asked)
-      if (at < 0) return
-      waiting.splice(at, 1)
-      solving.delete(key)
+      if (!asked) return
+      asked = false
+      if (--job.wanted > 0) return
+      const at = waiting.indexOf(job)
+      if (at >= 0) {
+        waiting.splice(at, 1)
+        job.reject(new Error('DDS cancelled'))
+      } else if (running?.job === job) arm()
     },
   }
 }

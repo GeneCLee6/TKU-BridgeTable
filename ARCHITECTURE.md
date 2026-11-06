@@ -290,6 +290,7 @@ interface BoardState {
 | Alert 說明 | 叫牌者的同伴在打完前看不到；機器人的說明除外（`AuctionCall.robot`），所有人都看得到，同 BBO 的 GIB |
 | 叫品的推論意義 | 真人的叫品帶引擎依那一方制度讀出的意義（`AuctionCall.meaning`＋`inferred`：機器人同伴的制度，沒有就用淡江制度），所有人都看得到，同伴也是：只由公開的叫牌過程與制度算出，等於制度卡（`e5-t22`）|
 | 叫牌盒提示 | 輪到自己叫、桌上有機器人時，`BoardView.callMeanings` 帶每個合法叫品在機器人制度裡的意義（同伴是機器人用同伴的，否則用對手機器人的）；伺服器用引擎的 `explain` 只依叫牌過程算出，不看任何一手牌（`views.ts` 的 `callMeaningsFor`，`e5-t22`）|
+| 重播的每步損失與賽後分析（`e4-t35`、`e10-t12`） | 都在瀏覽器裡算，只用已經讀得到的紀錄：`canAnalyse`／`hasSteps` 只收打完、四家完整的牌。賽後分析頁讀 `GET /api/history/:id/session`，跟整場 LIN（`e4-t37`）是同一個 `ClubService.session`：每一副都過 `record()` 的判斷（`recordVisible`、挑戰的 `challengeBoardVisible`），還沒公開的挑戰牌局不會出現（`tests/worker/visibility/visibility.test.ts` 的 `session`）。結果只放記憶體，關掉分頁就沒了，不寫 IndexedDB：共用電腦上不留牌 |
 | 叫牌練習的檢討（`e10-t07`） | 只叫牌的練習桌**這一副結束後**（四家已公開）才有 `TablePractice.review`：每一口 TKB 拿那一家的牌在那時會叫什麼（`steps`）、四家 TKB 從頭叫的過程與合約（`robot`）。它是從四家的牌算出來的，叫牌中送出就等於洩漏別家的牌，所以叫牌中、重叫、下一副時一律沒有（`practiceView`）；問機器人時只給那一家的牌（`practice-review.ts` 的 `askedState`）|
 | 搭檔非同步叫牌練習（`e10-t08`） | 只有這次練習的兩位社員讀得到（別人一律 `partnerBidGone`，管理員也一樣）。**一副還在叫時只有自己那一手與叫牌過程**（`views.ts` 的 `partnerBidView`：`hands` 只有自己的座位），`legalCalls` 只在輪到自己時由伺服器算好送；這一副叫完（`phase` 不是 `auction`）才有四家、檢討（`review`）與牌組的教學重點（`note`）。放棄或過期的練習，正在叫的那一副一樣不公開；還沒叫到的牌根本還沒發，邀請階段沒有任何牌。列表（`partnerBidSummary`）沒有牌。WebSocket 的 `partnerBid` 訊息與帳號匯出都走同一個 view，不會多看到什麼（`tests/worker/partner-bidding.test.ts`）|
 | 叫牌提示卡 | 每個看的人都有 `BoardView.bookTopics`：淡江橋譜裡跟目前叫牌有關的頁面，從叫牌過程與淡江制度的規則算出，不看任何一手牌；看的人的同伴是 2/1 的 TKB 時不送（`e10-t06`）|
@@ -2157,7 +2158,7 @@ SQL 由 `worker/history-index.ts` 的 `searchBoards` 組：只有固定的 SQL �
 **付費：暫不付（社團決定，2026-10-24）**。現階段的做法：
 
 1. **先把規則機器人做強**，不用 DDS：出牌時讀叫牌推論、數牌、坐莊計畫、防守推論（ROADMAP 新的 B4、B10）。這就是 TKB，不需要伺服器 DDS。
-2. **DDS 只用在不花錢的地方**：殘局與攤牌判斷用 `dd.ts`（已經在做）；牌打完、四家公開以後，紀錄頁在**瀏覽器**裡用 WASM 版 DDS 算 DD 表與 par（`e6-t43`，B11，已完成：`src/lib/dds.worker.ts` 是延遲載入的 Web Worker，`bridge-dds` 只打包進它，Worker 端的程式碼不含 DDS；授權聲明在 `public/licenses/dds-apache-2.0.txt`，紀錄頁的 DD 表下方有連結）。重播的**雙夢家模式**也用同一個 Web Worker：`doubleDummy.ts` 的 `ddPosition` 把重播到的那一點（實際出過的牌加上假設出的牌）換成 DDS 的 `SolveBoardPBN` 輸入（還在手上的牌、這一墩已經出的牌與首家），`ddsSolve.ts` 的 `solvePosition` 要每張可出的牌的墩數，`cardOutcomes` 換算成莊家對合約的結果。每個局面在頁面載入期間只算一次；同時只送一個局面給 Worker，還在排隊的局面在觀看者移開後就撤回（`useDoubleDummy.ts` 的 `solvePosition`），重播一張張出牌時也先不算。只有打完的牌才有，四家牌紀錄本來就看得到，不需要伺服器的新資料。機器人打牌時的思考不能放在瀏覽器，因為那需要別人的牌（`CLAUDE.md` 硬性規則 2）。
+2. **DDS 只用在不花錢的地方**：殘局與攤牌判斷用 `dd.ts`（已經在做）；牌打完、四家公開以後，紀錄頁在**瀏覽器**裡用 WASM 版 DDS 算 DD 表與 par（`e6-t43`，B11，已完成：`src/lib/dds.worker.ts` 是延遲載入的 Web Worker，`bridge-dds` 只打包進它，Worker 端的程式碼不含 DDS；授權聲明在 `public/licenses/dds-apache-2.0.txt`，紀錄頁的 DD 表下方有連結）。重播的**雙夢家模式**也用同一個 Web Worker：`doubleDummy.ts` 的 `ddPosition` 把重播到的那一點（實際出過的牌加上假設出的牌）換成 DDS 的 `SolveBoardPBN` 輸入（還在手上的牌、這一墩已經出的牌與首家），`ddsSolve.ts` 的 `solvePosition` 要每張可出的牌的墩數，`cardOutcomes` 換算成莊家對合約的結果。每個局面在頁面載入期間只算一次；同時只送一件工作給 Worker（畫面上要看的優先於背景分析），還在排隊的局面在觀看者移開後就撤回，正在算的給 150 ms 再 `terminate`（`useDoubleDummy.ts` 的 `solvePosition`），一個局面最多算 8 秒（`DD_STEP_BUDGET_MS`，從 Worker 回報開始算起，模組下載不算），重播一張張出牌時也先不算。重播再顯示上一張牌少了幾墩與當時的最佳牌（`e4-t35`，`ddSteps.ts`）；賽後分析頁（`e10-t12`，`PostGamePage`、`ddAnalysis.ts`）一張一張算完一整場，可以停止、繼續，算完的牌最多留 200 副在記憶體。只有打完的牌才有，四家牌紀錄本來就看得到，不需要伺服器的新資料。機器人打牌時的思考不能放在瀏覽器，因為那需要別人的牌（`CLAUDE.md` 硬性規則 2）。
 3. **之後再付**：要做 TKB Adv（DDS 殘局、模擬出牌），或同時在線的人多到規則機器人不夠用時，再升級付費方案。升級只是在 Cloudflare 後台切換方案，不用搬家；`RobotBrain` 讓 DDS 大腦直接換進來（ROADMAP Phase P）。
 
 **規模估算**（全台灣使用時參考，2026-10 的官方價格）：最壞的情況是 300 人同時在線、每人一桌配 3 個 GIB 式機器人，尖峰每天 4 小時，每月約 43 萬副。每次出牌模擬 50 副牌、每副機器人約用 10–20 秒 CPU：
@@ -2185,6 +2186,19 @@ SQL 由 `worker/history-index.ts` 的 `searchBoards` 組：只有固定的 SQL �
 | `dd.ts` 解整副牌（500 萬節點上限） | 20 副有 18 副超過上限放棄，每副約 2 秒 | 做不到 |
 | `dd.ts` 解每家 6–9 張 | 平均 2–63 ms，與 DDS 結果 60／60 一致 | — |
 | 每家 5 張的殘局 | `dd.ts` 與 DDS 300／300 一致 | — |
+
+**瀏覽器裡的每步分析（`e4-t35`、`e10-t12`，2026-11-06 量測）**：i5-14500、headless Chromium 156，跑實際的程式路徑（`ddAnalysis.ts` → `useDoubleDummy.ts` → `dds.worker.ts`，開發伺服器），牌是評測牌組（`evalBoards`）讓四個 TKB（2/1）叫完打完，一步是一張牌，時間是兩次進度回報之間的間隔：
+
+| 牌組 | 副／步 | 每步平均、p50、p99、最大 | 首攻 p50、p90、p99、最大 | 每副平均、p90、最大 | 算完的步 |
+| --- | --- | --- | --- | --- | --- |
+| 一般 | 992／51,584 | 2.6、0.4、48.5、1,509 ms | 30、158、812、1,509 ms | 135、298、2,421 ms | 100% |
+| 滿貫區（`slam:`） | 300／15,600 | 1.4、0.3、21.8、1,031 ms | 13、91、483、1,031 ms | 74、145、1,268 ms | 100% |
+
+一般牌組的首攻 98.3% 在 500 ms 內、99.5% 在 1 秒內、全部在 2 秒內。解題時頁面的主執行緒最長只卡 23 ms。正式 build 配上站上真的 CSP（`public/_headers`），賽後分析頁一場 100 副 5,200 步 15.5 秒，也跑過 Firefox（16 副 3 秒）；WebKit（Playwright 的 Windows 版）只確認過 Worker 本身算得對，整頁停在 app 載入、到不了這一頁，所以 Safari 算沒驗證。**沒量真的手機**：Chrome 的 CPU 節流（6 倍）只拖慢主執行緒，不拖慢 Web Worker（首攻 p50 只從 30 變 37 ms），所以那組數字不能當手機看；8 秒的上限是最慢的 1.5 秒再留 5 倍。超過上限的局面顯示「太複雜」，不給數字：DDS 不能中途停，也沒有部分結果，頁面直接 `terminate` Worker 再開新的（把上限臨時改成 5 ms，在真的瀏覽器裡確認過這條路）。
+
+**為什麼不是 `dd.ts`**：PRD 提到的 3 萬局面上限是 `dd.ts`（機器人判斷攤牌用）的，這個功能不用它。同一批牌的前 300 副、同一個瀏覽器，問一個約略合約墩數的是非題，`dd.ts` 答得出來的比例：每家 13 張 2.7%、11 張 10%、10 張 30%、9 張 55%、8 張 87%、7 張 98%、6 張以下 100%。如果只有它，就只能分析最後幾墩，所以才用瀏覽器的 WASM DDS。
+
+**「機器人在同一副的打法」（AC-10.8 後半）還沒做**：算一副只要幾毫秒（220 副全打完 1.9 秒），但 `chooseCard` → `View` → `TableReading` 用 `ROBOT_SYSTEMS` 讀叫牌，import 了 `shared/robot/system/tku/*`（esbuild 打包確認：只打包 `play.ts` 就有整套淡江規則），放進瀏覽器等於公開社團制度（ROBOT.md「淡江制度的卡不放任何公開檔案」，發布了收不回來）。不違反這條的做法都要社長決定：讓伺服器算（每副一次請求，免費方案 10 ms CPU 很緊），或把制度從 `reading.ts` 拆開、瀏覽器只帶 2/1（用 2/1 讀淡江制度叫出來的牌，結果會跟真的 TKB 不一樣）。
 
 結論：DDS 用 WASM 版（**自己寫 TypeScript 的 DDS 不划算**，`dd.ts` 在整副牌慢上百倍，留作後備與殘局）。AC-6.4 的「< 1 秒」與「< 20 ms」單靠 WASM 只有多數牌做得到，尾端要靠：逾時就用規則機器人（`e6-t11`）、同一副牌連續呼叫時重用 DDS 的轉置表、只在需要時才算整張 DD 表。原生 DDS 的量測留到真的考慮 B 時再做。
 

@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { Card } from '../../shared/cards.ts'
 import type { BoardState, PlayedCard } from '../../shared/game.ts'
-import { cardOutcomes, cardScores, ddPosition, positionKey, type CardOutcome, type DdPosition } from './doubleDummy.ts'
+import { cardOutcomes, cardScores, ddPosition, DdTooComplex, positionKey, type CardOutcome, type DdPosition } from './doubleDummy.ts'
+import { forcedStep, positionBefore, solvedStep, tooComplexStep, type DdStep } from './ddSteps.ts'
 import { solvePosition } from './useDoubleDummy.ts'
 
 /**
@@ -9,10 +10,11 @@ import { solvePosition } from './useDoubleDummy.ts'
  * play may play shows how the board ends for declarer if both sides play perfectly from there.
  * Clicking a card tries it out ("what if") and the analysis goes on from the new point; moving the
  * replay, or `reset`, goes back to the cards actually played. Only for finished boards, whose four
- * hands the record already shows (`canAnalyse`).
+ * hands the record already shows (`canAnalyse`). The card the record shows last also gets its
+ * verdict (`e4-t35`, `lastCard`): what the best cards were and how many tricks it lost.
  */
 
-export type DdStatus = 'off' | 'over' | 'loading' | 'done' | 'error'
+export type DdStatus = 'off' | 'over' | 'loading' | 'done' | 'error' | 'tooComplex'
 
 export interface DdReplay {
   on: boolean
@@ -23,11 +25,13 @@ export interface DdReplay {
   whatIf: boolean
   position: DdPosition | null
   outcomes: ReadonlyMap<Card, CardOutcome> | null
+  /** The last card of the record on the table, once it is worked out; null while it is, or with none */
+  lastCard: DdStep | null
   playCard: (card: Card) => void
   reset: () => void
 }
 
-type Answer = { key: string; scores: Map<Card, number> } | { key: string; error: true }
+type Answer = { key: string; scores: Map<Card, number> } | { key: string; error: true } | { key: string; tooComplex: true }
 
 /**
  * `paused` holds back the solver while the replay is dealing out a trick card by card, so only the
@@ -41,13 +45,37 @@ export function useDoubleDummyReplay(board: BoardState, step: number, on: boolea
   const position = useMemo(() => (on ? ddPosition(board, play) : null), [on, board, play])
   const key = position ? positionKey(position.request) : null
 
+  // The card that brought the replay here, asked first so the point on the screen comes straight after it
+  const [last, setLast] = useState<{ board: BoardState; step: number; result: DdStep } | null>(null)
+  const lastIndex = on && !paused && extra.length === 0 && step > 0 && step <= board.play.length ? step - 1 : null
+  useEffect(() => {
+    if (lastIndex === null) return
+    const before = positionBefore(board, lastIndex)
+    if (!before) return
+    if (before.legal.length === 1) {
+      setLast({ board, step: lastIndex + 1, result: forcedStep(board, lastIndex) })
+      return
+    }
+    let live = true
+    const { result, cancel } = solvePosition(before.request)
+    result.then(
+      (raw) => live && setLast({ board, step: lastIndex + 1, result: solvedStep(board, lastIndex, before, cardScores(raw)) }),
+      (error: unknown) => live && error instanceof DdTooComplex && setLast({ board, step: lastIndex + 1, result: tooComplexStep(board, lastIndex) }),
+    )
+    return () => {
+      live = false
+      cancel()
+    }
+  }, [board, lastIndex])
+  const lastCard = lastIndex !== null && last?.board === board && last.step === lastIndex + 1 ? last.result : null
+
   useEffect(() => {
     if (!position || !key || paused) return
     let live = true
     const { result, cancel } = solvePosition(position.request)
     result.then(
       (raw) => live && setAnswer({ key, scores: cardScores(raw) }),
-      () => live && setAnswer({ key, error: true }),
+      (error: unknown) => live && setAnswer(error instanceof DdTooComplex ? { key, tooComplex: true } : { key, error: true }),
     )
     return () => {
       live = false
@@ -62,7 +90,7 @@ export function useDoubleDummyReplay(board: BoardState, step: number, on: boolea
     () => (position && current && 'scores' in current ? cardOutcomes(position, current.scores, board.contract!.level) : null),
     [position, current, board.contract],
   )
-  const status: DdStatus = !on ? 'off' : !position ? 'over' : !current ? 'loading' : 'error' in current ? 'error' : 'done'
+  const status: DdStatus = !on ? 'off' : !position ? 'over' : !current ? 'loading' : 'error' in current ? 'error' : 'tooComplex' in current ? 'tooComplex' : 'done'
 
   return {
     on,
@@ -71,6 +99,7 @@ export function useDoubleDummyReplay(board: BoardState, step: number, on: boolea
     whatIf: extra.length > 0,
     position,
     outcomes,
+    lastCard,
     playCard: (card) => {
       if (!position?.legal.includes(card)) return
       setTried({ board, step, cards: [...extra, { seat: position.turn, card }] })

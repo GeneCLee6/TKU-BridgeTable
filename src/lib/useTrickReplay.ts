@@ -11,10 +11,10 @@ export const REPLAY_CARD_MS = 550
  * `gaps` (照實際速度, `e2-t33`): how long to wait before each card instead of `delay`, as long as it
  * was played at the table; `play` then runs the rest of the board, `pause` stops it.
  */
-export function useTrickReplay(total: number, delay = REPLAY_CARD_MS, gaps?: readonly number[]) {
-  const [step, setStep] = useState(0)
+export function useTrickReplay(total: number, delay = REPLAY_CARD_MS, gaps?: readonly number[], start = 0) {
+  const [step, setStep] = useState(() => Math.max(0, Math.min(total, start)))
   // The card the replay is heading for; while step < target the cards come out one by one
-  const [target, setTarget] = useState(0)
+  const [target, setTarget] = useState(() => Math.max(0, Math.min(total, start)))
 
   useEffect(() => {
     if (step >= target) return

@@ -40,6 +40,7 @@ import { VugraphPage } from './pages/VugraphPage.tsx'
 import { PlatformPage } from './pages/PlatformPage.tsx'
 import { ProfilePage } from './pages/ProfilePage.tsx'
 import { GuestTablePage, PublicLobbyPage } from './pages/PublicLobbyPage.tsx'
+import { PostGamePage } from './pages/PostGamePage.tsx'
 import { SharedBoardPage } from './pages/SharedBoardPage.tsx'
 import { TablePage } from './pages/TablePage.tsx'
 import { AuthProvider, useAuth, useFeature } from './state/AuthContext.tsx'
@@ -155,6 +156,7 @@ function Routed() {
         <Route path="/matches/:matchId/replay" element={<MatchReplayPage />} />
         <Route path="/history" element={<HistoryPage />} />
         <Route path="/history/:recordId" element={<BoardPage />} />
+        <Route path="/history/:recordId/analysis" element={<PostGamePage />} />
         <Route path="/history/:recordId/vs/:otherId" element={<ComparePage />} />
         <Route path="/featured" element={<FeaturedPage />} />
         <Route path="/favorites" element={<FavoritesPage />} />

@@ -134,6 +134,20 @@ export interface DdPositionRaw {
   score: number[]
 }
 
+/**
+ * How long one position may keep the solver busy before it is called too complex. DDS searches to
+ * the end or returns nothing, so such a position has no number at all (measurements:
+ * ARCHITECTURE.md §5.1.1).
+ */
+export const DD_STEP_BUDGET_MS = 8000
+
+export class DdTooComplex extends Error {
+  constructor() {
+    super('DDS: over the time budget')
+    this.name = 'DdTooComplex'
+  }
+}
+
 /** What one card is worth, seen from the declaring side as BBO shows it */
 export interface CardOutcome {
   /** Tricks declarer's side ends the board with */
