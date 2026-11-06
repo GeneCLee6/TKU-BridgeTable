@@ -15,7 +15,10 @@ import { defineConfig } from '@playwright/test'
  * - Locally without Docker, `PW_CHANNEL=msedge npm run test:visual -- --update-snapshots` draws
  *   the screens with the installed Edge, to look at; do not commit those.
  */
-const PORT = 4179
+const PORT = Number(process.env.VISUAL_PORT ?? 4179)
+/** A production build, for what only it can show (tests/visual/production.spec.ts) */
+const PROD_PORT = Number(process.env.VISUAL_PROD_PORT ?? 4180)
+const PROD_DIR = 'node_modules/.cache/visual-production'
 
 export default defineConfig({
   testDir: 'tests/visual',
@@ -37,11 +40,20 @@ export default defineConfig({
     reducedMotion: 'reduce',
     deviceScaleFactor: 1,
   },
-  webServer: {
-    command: `npx vite --port ${PORT} --strictPort`,
-    env: { VISUAL_TEST: '1' },
-    url: `http://localhost:${PORT}`,
-    reuseExistingServer: !process.env.CI,
-    timeout: 60_000,
-  },
+  webServer: [
+    {
+      command: `npx vite --port ${PORT} --strictPort`,
+      env: { VISUAL_TEST: '1' },
+      url: `http://localhost:${PORT}`,
+      reuseExistingServer: !process.env.CI,
+      timeout: 60_000,
+    },
+    {
+      command: `npx vite build --outDir ${PROD_DIR} --emptyOutDir && npx vite preview --outDir ${PROD_DIR} --port ${PROD_PORT} --strictPort`,
+      env: { VISUAL_TEST: '1' },
+      url: `http://localhost:${PROD_PORT}`,
+      reuseExistingServer: !process.env.CI,
+      timeout: 240_000,
+    },
+  ],
 })

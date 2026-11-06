@@ -32,6 +32,7 @@ import { SeatPlate, type SeatAction } from '../components/SeatPlate.tsx'
 import { SystemCardDialog } from '../components/SystemCardView.tsx'
 import { mayReadCard } from '../lib/systemCards.ts'
 import { TableAnnouncer } from '../components/TableAnnouncer.tsx'
+import { PageBoundary, PartBoundary } from '../components/ErrorBoundary.tsx'
 import { SupportDialog } from '../components/SupportDialog.tsx'
 import { TableSettingsDialog } from '../components/TableSettingsDialog.tsx'
 import { TableTour } from '../components/TableTour.tsx'
@@ -704,7 +705,12 @@ export function TablePage() {
   }
   if (!table || table.id !== tableId) return <PageMain>{t.loading}</PageMain>
 
-  return <TableScreen table={table} send={send} />
+  // Under this page's own effects: leaving the page from the error message still leaves the table
+  return (
+    <PageBoundary name="table">
+      <TableScreen table={table} send={send} />
+    </PageBoundary>
+  )
 }
 
 function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeof useClub>['send'] }) {
@@ -1443,6 +1449,16 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
         </Area>
         {teach && <TeachOverlay marks={teach.marks} version={board} />}
       </Felt>
+      {/* A dialog that fails closes, so it can be opened again; the felt stays */}
+      <PartBoundary
+        name="table-dialog"
+        resetKey={`${reviewing}-${reporting}-${editingSettings}`}
+        onFail={() => {
+          setReviewing(false)
+          setReporting(false)
+          setEditingSettings(false)
+        }}
+      >
       {reviewing && board && (
         <PracticeReview
           board={board}
@@ -1474,9 +1490,14 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
           }}
         />
       )}
-      <TableAnnouncer board={board} me={me} who={spokenSeat} />
-      {!tableTourSeen && <TableTour onClose={() => setPrefs({ tableTourSeen: true })} />}
-      {cardOf && <SystemCardDialog system={cardOf} onClose={closeCard} />}
+      </PartBoundary>
+      <PartBoundary name="table-announcer">
+        <TableAnnouncer board={board} me={me} who={spokenSeat} />
+      </PartBoundary>
+      <PartBoundary name="table-tour">{!tableTourSeen && <TableTour onClose={() => setPrefs({ tableTourSeen: true })} />}</PartBoundary>
+      <PartBoundary name="system-card" resetKey={cardOf} onFail={closeCard}>
+        {cardOf && <SystemCardDialog system={cardOf} onClose={closeCard} />}
+      </PartBoundary>
       <SidePanel
         tabs={['chat', 'conventions', 'people', 'messages', 'history']}
         recent={table.recent}

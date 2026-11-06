@@ -11,6 +11,9 @@ export type SupportCategory = (typeof SUPPORT_CATEGORIES)[number]
 
 export type SupportStatus = 'open' | 'resolved'
 
+/** Where a member's own reports are on 我的帳号, for the link of `supportResolved` */
+export const SUPPORT_REPORTS_ANCHOR = 'my-support-reports'
+
 export const SUPPORT_LIMITS = {
   textMin: 5,
   textMax: 2000,
@@ -20,6 +23,8 @@ export const SUPPORT_LIMITS = {
   openPerMember: 20,
   /** Resolved reports the admin page and the back office list */
   resolvedListed: 50,
+  /** A member's own reports on 我的帳號, newest first */
+  mineListed: 50,
   /** Resolved reports a club keeps; the oldest go */
   resolvedKept: 500,
   browserMax: 300,
@@ -46,11 +51,29 @@ export interface SupportReport {
   browser: string
   version: string
   boardId?: string
+  /**
+   * For the admins and the back office, in place of `boardId`: the report is about a board the member
+   * imported, which only they can open (`e4-t39`, ARCHITECTURE.md §4), so a link would lead nowhere
+   */
+  boardImported?: true
   tableId?: string
   createdAt: number
   status: SupportStatus
   resolvedAt?: number
   forwardedAt?: number
+}
+
+/**
+ * `GET /api/support/mine`, on the author's 我的帳號: what they wrote and how it stands. Picked field by
+ * field, so nothing about who handled or forwarded it is ever in it
+ */
+export interface MySupportReport {
+  id: string
+  category: SupportCategory
+  text: string
+  createdAt: number
+  status: SupportStatus
+  resolvedAt?: number
 }
 
 /** On the club's admin page: with who wrote it and which admin forwarded it */

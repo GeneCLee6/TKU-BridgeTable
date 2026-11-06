@@ -43,6 +43,7 @@ export function notificationText(t: Strings, n: Notification): string {
     case 'challengeResults':
     case 'challengeWeekly':
     case 'matchFinished':
+    case 'supportResolved':
       return t.notificationTexts[n.kind]()
     case 'tableInvited':
     case 'tableRequest':
