@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import styled from 'styled-components'
 import { nextSeat, type Seat } from '../../shared/cards.ts'
-import { PUZZLE_LEVELS, type PuzzleAttemptStatus, type PuzzleSummary, type PuzzleView } from '../../shared/puzzles.ts'
+import { PUZZLE_LEVELS, replayPuzzle, type PuzzleAnswer, type PuzzleAttemptStatus, type PuzzleSummary, type PuzzleView } from '../../shared/puzzles.ts'
 import { CardList } from '../components/CardList.tsx'
 import { HandView } from '../components/HandView.tsx'
 import { SuitSymbol } from '../components/Suit.tsx'
@@ -16,8 +16,8 @@ import { seatLetter } from '../strings.ts'
  * 謎題 (`e10-t14`, AC-10.9, ARCHITECTURE.md §5.11): the published puzzles by level with the member's
  * progress (`/puzzles`) and one puzzle (`/puzzles/:puzzleId`). The pages only show: which cards may be
  * played and whether a card was right comes from the server (`PuzzleService`, `puzzleView`), and
- * East's and West's cards arrive only when the puzzle is solved. The puzzles' own words are in
- * 繁體中文; in any other language the page says so and shows them as they are.
+ * East's and West's cards arrive only when the puzzle is solved or the member asks for the answer,
+ * which then no longer counts as solved. The puzzles' own words are in 繁體中文; in any other language the page says so and shows them as they are.
  */
 
 const CARD_WIDTH = 46
@@ -49,6 +49,19 @@ const Row = styled.li`
 
 const Solved = styled.strong`
   color: ${({ theme }) => theme.colors.success};
+`
+
+/** A puzzle whose answer was viewed: not solved, and not to be mistaken for it */
+const Revealed = styled.strong`
+  color: ${({ theme }) => theme.colors.accentStrong};
+`
+
+const RevealedVerdict = styled.p`
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: ${({ theme }) => theme.radius.sm};
+  color: ${({ theme }) => theme.colors.text};
+  background: ${({ theme }) => theme.colors.accentSoft};
 `
 
 const Felt = styled.div`
@@ -121,6 +134,7 @@ function useStatusWord() {
     playing: t.puzzles.statusPlaying,
     failed: t.puzzles.statusFailed,
     solved: t.puzzles.statusSolved,
+    revealed: t.puzzles.statusRevealed,
   }
   return words
 }
@@ -164,7 +178,7 @@ export function PuzzleListPage() {
                         {puzzle.contract.level}
                         <SuitSymbol suit={puzzle.contract.strain} />
                         {' · '}
-                        {puzzle.solved ? <Solved>{puzzle.clean ? p.clean : p.statusSolved}</Solved> : words[puzzle.status]}
+                        {puzzle.solved ? <Solved>{puzzle.clean ? p.clean : p.statusSolved}</Solved> : puzzle.revealed ? <Revealed>{p.statusRevealed}</Revealed> : words[puzzle.status]}
                       </span>
                     </Row>
                   ))}
@@ -179,7 +193,7 @@ export function PuzzleListPage() {
 
 const POSITIONS: Record<Seat, Position> = { N: 'top', E: 'right', S: 'bottom', W: 'left' }
 
-/** The table: North and South open and playable on their turn, East and West face down until solved */
+/** The table: North and South open and playable on their turn, East and West face down until solved or revealed */
 function PuzzleTable({ puzzle, busy, onPlay }: { puzzle: PuzzleView; busy: boolean; onPlay: (card: string) => void }) {
   const { t } = usePreferences()
   const p = t.puzzles
@@ -222,6 +236,44 @@ function PuzzleTable({ puzzle, busy, onPlay }: { puzzle: PuzzleView; busy: boole
   )
 }
 
+/** The table as it stood after this many of the answer's cards, worked out from what the server sent; nothing here can be played */
+function answerTable(puzzle: PuzzleView, answer: PuzzleAnswer, step: number): PuzzleView {
+  if (!puzzle.startHands) return puzzle
+  const state = replayPuzzle(puzzle.startHands, puzzle.contract.strain, answer.leader, answer.line.slice(0, step))
+  return {
+    ...puzzle,
+    hands: state.hands,
+    counts: { N: state.hands.N.length, E: state.hands.E.length, S: state.hands.S.length, W: state.hands.W.length },
+    tricks: state.tricks,
+    turn: null,
+    legalCards: [],
+  }
+}
+
+/** One card at a time through the answer; the table above shows where it has got to */
+function AnswerSteps({ answer, step, onStep }: { answer: PuzzleAnswer; step: number; onStep: (step: number) => void }) {
+  const { t } = usePreferences()
+  const p = t.puzzles
+  const total = answer.line.length
+  return (
+    <>
+      <h3>{p.answerTitle}</h3>
+      <Muted>{p.answerIntro}</Muted>
+      <CardList cards={answer.line} />
+      <Actions>
+        <Button type="button" disabled={step <= answer.first} onClick={() => onStep(step - 1)}>
+          {p.answerPrev}
+        </Button>
+        <Button type="button" disabled={step >= total} onClick={() => onStep(step + 1)}>
+          {p.answerNext}
+        </Button>
+      </Actions>
+      <Muted role="status">{p.answerStep(step, total)}</Muted>
+      {step >= total && <Muted>{p.answerEnd}</Muted>}
+    </>
+  )
+}
+
 export function PuzzlePage() {
   const { puzzleId } = useParams()
   const { t, message } = usePreferences()
@@ -230,6 +282,8 @@ export function PuzzlePage() {
   const [puzzle, setPuzzle] = useState<PuzzleView | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  /** How far through the answer the table shows; null is where the answer starts */
+  const [answerStep, setAnswerStep] = useState<number | null>(null)
 
   const failed = useCallback((e: unknown) => setError(e instanceof ApiError ? message(e.code, e.params, e.message) : t.genericError), [message, t.genericError])
   useEffect(() => {
@@ -242,11 +296,18 @@ export function PuzzlePage() {
     setError(null)
     try {
       setPuzzle((await action()).puzzle)
+      setAnswerStep(null)
     } catch (e) {
       failed(e)
     } finally {
       setBusy(false)
     }
+  }
+
+  /** Having seen the answer or solved it, there is nothing left to lose: no need to ask */
+  const reveal = (shown: PuzzleView, id: string) => {
+    if (!shown.solved && !shown.revealed && !window.confirm(p.revealConfirm)) return
+    void run(() => api.revealPuzzle(id))
   }
 
   const back = <Link to="/puzzles">{p.back}</Link>
@@ -259,6 +320,7 @@ export function PuzzlePage() {
       </PageMain>
     )
 
+  const step = puzzle.answer ? (answerStep ?? puzzle.answer.first) : 0
   return (
     <PageMain>
       <PageTitle>{puzzle.title}</PageTitle>
@@ -279,10 +341,14 @@ export function PuzzlePage() {
             <dd>{puzzle.gone.length > 0 ? <CardList cards={puzzle.gone} /> : p.goneNone}</dd>
           </Facts>
         </Card>
-        <PuzzleTable puzzle={puzzle} busy={busy} onPlay={(card) => void run(() => api.playPuzzle(puzzleId, card))} />
+        <PuzzleTable puzzle={puzzle.answer ? answerTable(puzzle, puzzle.answer, step) : puzzle} busy={busy} onPlay={(card) => void run(() => api.playPuzzle(puzzleId, card))} />
         {error && <ErrorText role="alert">{error}</ErrorText>}
         <Card>
           {puzzle.status === 'solved' && <Verdict $good role="status">{p.solved}</Verdict>}
+          {puzzle.status === 'revealed' && (
+            <RevealedVerdict role="status">{puzzle.solved ? p.revealedKept : puzzle.finishedAfterReveal ? p.revealedFinished : p.revealedNote}</RevealedVerdict>
+          )}
+          {puzzle.revealed && !puzzle.solved && puzzle.status !== 'revealed' && <Muted>{p.revealedRetrying}</Muted>}
           {puzzle.status === 'failed' && puzzle.wrong && (
             <Verdict $good={false} role="alert">
               <CardList cards={[puzzle.wrong]} /> {p.wrongCard}
@@ -300,9 +366,14 @@ export function PuzzlePage() {
                 {p.restart}
               </Button>
             )}
-            {puzzle.status !== 'solved' && (
+            {puzzle.status !== 'solved' && puzzle.status !== 'revealed' && (
               <Button type="button" disabled={busy || puzzle.hintsLeft === 0} onClick={() => void run(() => api.puzzleHint(puzzleId))}>
                 {puzzle.hintsLeft === 0 ? p.noHints : p.hintButton}
+              </Button>
+            )}
+            {!puzzle.answer && (
+              <Button type="button" disabled={busy} onClick={() => reveal(puzzle, puzzleId)}>
+                {p.revealButton}
               </Button>
             )}
           </Actions>
@@ -314,6 +385,7 @@ export function PuzzlePage() {
               ))}
             </>
           )}
+          {puzzle.answer && <AnswerSteps answer={puzzle.answer} step={step} onStep={setAnswerStep} />}
           {puzzle.explanation && (
             <>
               <h3>{p.explanationTitle}</h3>
