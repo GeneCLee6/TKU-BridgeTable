@@ -146,6 +146,42 @@ describe('Interference over 1♣', () => {
   })
 })
 
+describe('Second rounds that were lost to the fallback (found reading the worst boards)', () => {
+  it('accepts the 2NT invitation after the 1NT rebid with the top of 16–18', () => {
+    expect(bid('AK2 KQ4 QJ5 Q432', ['1C', 'P', '1D', 'P', '1N', 'P', '2N', 'P']).call).toBe('3N')
+    expect(bid('AK2 KQ4 Q52 Q432', ['1C', 'P', '1D', 'P', '1N', 'P', '2N', 'P']).call).toBe('P')
+  })
+
+  it('completes a minor transfer after the 1NT rebid', () => {
+    expect(bid('AK2 KQ4 Q52 Q432', ['1C', 'P', '1D', 'P', '1N', 'P', '2S', 'P']).call).toBe('3C')
+  })
+
+  it('does not sell out to an overcall of the negative with a strong hand', () => {
+    expect(bid('KQ2 Q7 Q8 AKQJ43', ['1C', 'P', '1D', '1H']).call).toBe('2C')
+    expect(bid('72 AKQ73 AQ2 A63', ['1C', 'P', '1D', '1S']).call).toBe('2H')
+    expect(bid('KJT5 AKT AK54 Q9', ['1C', 'P', '1D', '1H']).call).toBe('1N')
+    expect(bid('AKJ5 T2 AK54 AQ9', ['1C', 'P', '1D', '1H']).call).toBe('X')
+    expect(bid('AK32 43 AQ52 K43', ['1C', 'P', '1D', '1H']).call).toBe('P')
+  })
+
+  it('finds a major after the cue bid', () => {
+    expect(bid('T63 AKJ32 A7 A54', ['1C', '2D', '3D', 'P']).call).toBe('3H')
+    expect(bid('KQJ3 K96 A KQT32', ['1C', '2D', '3D', 'P']).call).toBe('3S')
+  })
+
+  it('keeps responder from driving on with 7 at most, opener shows a second suit over 1NT', () => {
+    expect(bid('AJ9654 JT7 T3 J3', ['1C', 'P', '1D', 'P', '2C', 'P']).call).toBe('2S')
+    expect(bid('975 Q52 QJ95 J96', ['1C', 'P', '1D', 'P', '1S', 'P']).call).not.toBe('2N')
+    expect(bid('AKJ65 K87 AJT98 -', ['1C', 'P', '1D', 'P', '1S', 'P', '1N', 'P']).call).toBe('2D')
+  })
+
+  it('opener bids his own long suit over a notrump response, so the strong hand declares', () => {
+    expect(bid('AKT73 KJ5 KQ5 QJ', ['1C', 'P', '1N', 'P']).call).toBe('2S')
+    expect(explain(PRECISION, auctionOf(['1C', 'P', '1N', 'P']), 'N').get('2H')?.name).toBeUndefined()
+    expect(bid('AQ32 KQ32 AJ5 Q3', ['1C', 'P', '1N', 'P']).call).toBe('2C')
+  })
+})
+
 describe('After 1♦, 2♣ and 2♦', () => {
   it.each([
     ['AQ32 432 432 Q32', ['1D', 'P'], '1S', 'a four-card major'],

@@ -81,6 +81,48 @@ function afterPositive(y: Suit): Rule[] {
   ]
 }
 
+// ── Second rounds after the negative ─────────────────────────────────────────────────────────
+
+/** Responder after 1♣–1♦–suit (not forcing): a raise, a five-card suit, 1NT, else pass; never more with 7 at most */
+function afterRebid(y: Suit): Rule[] {
+  const support = isMajor(y) ? 3 : 4
+  return [
+    { call: (ctx) => cheapest(ctx, y), shows: { len: { [y]: [support, 13] }, hcp: [4, 7], notes: [{ key: 'support', strain: y }] }, when: (h) => h.len[y] >= support },
+    ...UP.filter((s) => s !== y).map(
+      (s): Rule => ({
+        call: (ctx) => {
+          const call = cheapest(ctx, s)
+          return call && levelOf(call) <= 2 ? call : null
+        },
+        shows: { len: { [s]: [5, 13] }, hcp: [3, 7] },
+        when: (h) => longest(h, UP.filter((t) => t !== y)) === s,
+      }),
+    ),
+    {
+      call: (ctx) => {
+        const call = cheapest(ctx, 'N')
+        return call && levelOf(call) === 1 ? call : null
+      },
+      shows: { hcp: [4, 7] },
+    },
+    { call: 'P', shows: {} },
+  ]
+}
+
+/** Opener after 1♣–1♦–suit–1NT: a second suit or a six-card first suit rather than play notrump */
+function afterRebidNotrump(y: Suit): Rule[] {
+  return [
+    ...UP.filter((s) => s !== y).map(
+      (s): Rule => ({
+        call: (ctx) => cheapest(ctx, s),
+        shows: { len: { [s]: [4, 13] } },
+        when: (h) => !h.balanced && longest(h, UP.filter((t) => t !== y)) === s,
+      }),
+    ),
+    { call: (ctx) => cheapest(ctx, y), shows: { len: { [y]: [6, 13] } } },
+  ]
+}
+
 // ── Interference ─────────────────────────────────────────────────────────────────────────────
 
 /** Their suit when they overcalled 1♣ with a suit bid; null for notrump */
@@ -131,6 +173,66 @@ const overOvercall: Rule[] = [
   { call: 'P', shows: (ctx): Spec => ({ hcp: theirSuit(ctx) ? [0, 4] : [0, 7] }) },
 ]
 
+/** The suit the opponents bid last, when they bid one */
+function lastTheirs(ctx: Ctx): Suit | null {
+  const call = ctx.turns.findLast((t) => !t.ours && isBid(t.call))?.call
+  return call && strainOf(call) !== 'N' ? (strainOf(call) as Suit) : null
+}
+
+/**
+ * Opener when partner has shown little and the opponents bid (1♣–1♦–overcall, or 1♣–overcall–pass–
+ * pass): a strong hand does not sell out at a low level. A five-card suit, notrump with a stopper,
+ * or a takeout double with `double` or more
+ */
+const openerOverInterference = (suit: number, double: number): Rule[] => [
+  ...SUITS_DOWN.map(
+    (s): Rule => ({
+      call: (ctx: Ctx): Call | null => {
+        const call = cheapest(ctx, s)
+        return call && lastTheirs(ctx) !== s && levelOf(call) <= 3 ? call : null
+      },
+      shows: { len: { [s]: [5, 13] }, hcp: plus(suit) },
+      when: (h, ctx) => longest(h, UP.filter((t) => t !== lastTheirs(ctx))) === s,
+    }),
+  ),
+  {
+    call: (ctx) => {
+      const call = cheapest(ctx, 'N')
+      return call && lastTheirs(ctx) && levelOf(call) <= 2 ? call : null
+    },
+    shows: (ctx): Spec => ({ hcp: plus(suit), balanced: true, stop: { [lastTheirs(ctx)!]: 'stop' } }),
+  },
+  {
+    call: (ctx) => (lastTheirs(ctx) && levelOf(ctx.last!.call) <= 3 ? 'X' : null),
+    shows: (ctx): Spec => ({ name: 'takeout', hcp: plus(double), len: { [lastTheirs(ctx)!]: [0, 2] }, forcing: 'oneRound' }),
+  },
+]
+
+/** Opener after the cue bid (8+, no five-card suit, no stopper): a major first, then notrump or a long minor */
+const afterCue: Rule[] = [
+  ...(['S', 'H'] as Suit[]).map(
+    (M): Rule => ({
+      call: (ctx: Ctx) => (theirSuit(ctx) === M ? null : cheapest(ctx, M)),
+      shows: { len: { [M]: [4, 13] }, forcing: 'game' },
+      when: (h) => h.len[M] >= (M === 'S' ? Math.max(4, h.len.H) : 4),
+    }),
+  ),
+  {
+    call: (ctx) => cheapest(ctx, 'N'),
+    shows: (ctx): Spec => ({ stop: { [theirSuit(ctx)!]: 'stop' }, forcing: 'game' }),
+  },
+]
+
+/** Opener over a notrump response: a five-card suit himself, so the strong hand declares it (2♣ or 3♣ is Stayman) */
+const naturalOverNotrump = (level: 2 | 3): Rule[] =>
+  SUITS_DOWN.filter((s) => !(s === 'C' && level === 2)).map(
+    (s): Rule => ({
+      call: bid(s === 'C' ? level + 1 : level === 2 ? 2 : 3, s),
+      shows: { len: { [s]: [5, 13] }, forcing: 'game' },
+      when: (h) => longest(h) === s,
+    }),
+  )
+
 /** Over a double of 1♣: pass 0–4, 1♦ 5–7, redouble 8+ with no five-card suit, a suit positive as usual */
 const overDouble: Rule[] = [
   { call: 'XX', shows: { len: FLAT, hcp: plus(8), notes: [{ key: 'positive' }], forcing: 'game' } },
@@ -151,6 +253,21 @@ const books: Book[] = [
   { after: '1C (X)', rules: overDouble, more: true },
   { after: '1C (+)', only: (ctx) => ctx.turns[1]?.call !== 'X', rules: overOvercall, more: true },
 ]
-for (const y of UP) books.push({ after: `1C (P) ${bid(isMajor(y) ? 1 : 2, y)} (P)`, rules: afterPositive(y), more: true })
+for (const y of UP) {
+  const low = bid(isMajor(y) ? 1 : 2, y)
+  books.push(
+    { after: `1C (P) ${low} (P)`, rules: afterPositive(y), more: true },
+    { after: `1C (P) 1D (P) ${low} (P)`, rules: afterRebid(y), more: true },
+    { after: `1C (P) 1D (P) ${low} (P) 1N (P)`, rules: afterRebidNotrump(y), more: true },
+  )
+}
+const suitOvercall = (ctx: Ctx) => !!lastTheirs(ctx)
+books.push(
+  { after: '1C (P) 1D (+)', only: suitOvercall, rules: openerOverInterference(16, 18), more: true },
+  { after: '1C (+) P (P)', only: (ctx) => ctx.turns[1]?.call !== 'X' && suitOvercall(ctx), rules: openerOverInterference(18, 19), more: true },
+  { after: '1C (+) * (P)', only: (ctx) => ctx.said.partner?.name === 'cue', rules: afterCue, more: true },
+  { after: '1C (P) 1N (P)', rules: naturalOverNotrump(2), more: true },
+  { after: '1C (P) 2N (P)', rules: naturalOverNotrump(3), more: true },
+)
 
 export const club: readonly Book[] = books

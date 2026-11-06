@@ -6,6 +6,7 @@ import { notrumpBooks, oneNotrumpExtras, type Ranges } from '../gib/notrump.ts'
 import { slamAnswers, slamAsks, slamCheck } from '../gib/slam.ts'
 import { soloway } from '../gib/soloway.ts'
 import { strong } from '../gib/strong.ts'
+import { tokens } from '../context.ts'
 import type { Book, Range, System } from '../spec.ts'
 import { club, REBID_1N, REBID_2N } from './club.ts'
 import { diamond } from './diamond.ts'
@@ -33,6 +34,16 @@ const OVER_RESPONSE_1N: Ranges = { up: 0, weak: [0, 15], invite: null, game: [16
 const OVER_RESPONSE_2N: Ranges = { up: 1, weak: [0, 15], invite: null, game: [16, 18], slamTry: [17, 18], quant: [19, 20], slam: [21, 23], grand: [24, 25], top: 13 }
 
 /** 2/1's Gerber answers without its strong 2♣ auction: here 2♣–2♦–2NT is the ask's answer */
+/**
+ * Opener over a notrump response keeps Stayman, and bids a long suit himself (`naturalOverNotrump`):
+ * a transfer would make the weak hand declare. So the books for the transfers' answers go
+ */
+const askOnly = (books: readonly Book[], stayman: string): Book[] =>
+  books.filter((book) => {
+    const after = typeof book.after === 'string' ? tokens(book.after) : []
+    return after.length <= 4 || after[4] === stayman
+  })
+
 const answers: Book[] = slamAnswers.map((book) => (Array.isArray(book.after) ? { ...book, after: book.after.filter((after: string) => !after.startsWith('2C')) } : book))
 
 export const PRECISION: System = {
@@ -43,9 +54,10 @@ export const PRECISION: System = {
     openings,
     ...club,
     ...limited(notrumpBooks(OVER_REBID_1N, '1C (P) 1D (P) 1N'), REBID_1N, NEGATIVE),
+    ...limited(oneNotrumpExtras(OVER_REBID_1N, '1C (P) 1D (P) 1N'), REBID_1N, NEGATIVE),
     ...limited(notrumpBooks(OVER_REBID_2N, '1C (P) 1D (P) 2N'), REBID_2N, NEGATIVE),
-    ...limited(notrumpBooks(OVER_RESPONSE_1N, '1C (P) 1N'), STRONG, [8, 10]),
-    ...limited(notrumpBooks(OVER_RESPONSE_2N, '1C (P) 2N'), STRONG, [11, 40]),
+    ...limited(askOnly(notrumpBooks(OVER_RESPONSE_1N, '1C (P) 1N'), '2C'), STRONG, [8, 10]),
+    ...limited(askOnly(notrumpBooks(OVER_RESPONSE_2N, '1C (P) 2N'), '3C'), STRONG, [11, 40]),
     ...diamond,
     ...twos,
     ...notrumpBooks(ONE_NT, '1N'),

@@ -472,11 +472,11 @@ export function notrumpBooks(r: Ranges, open: string): Book[] {
  * the rest stays on; over a double the system stays on and redouble rescues into a minor; other
  * two-level overcalls: Lebensohl)
  */
-export function oneNotrumpExtras(r: Ranges): Book[] {
+export function oneNotrumpExtras(r: Ranges, open = '1N'): Book[] {
   const books: Book[] = []
   // After 1NT, with or without a double or a 2♣ overcall (the system stays on): the natural 2NT
   // invitation (T1), and the minor transfers, 2♠ to clubs and 3♣ to diamonds, which opener must accept
-  for (const start of ['1N (P)', '1N (2C)', '1N (X)']) {
+  for (const start of [`${open} (P)`, `${open} (2C)`, `${open} (X)`]) {
     books.push({ after: `${start} 2N (P)`, rules: acceptInvite(r, '3N', 'P'), more: true })
     for (const [transfer, m] of [
       ['2S', 'C'],
@@ -489,20 +489,20 @@ export function oneNotrumpExtras(r: Ranges): Book[] {
     }
   }
   books.push(
-    { after: '1N (2C)', rules: responses(r, 'X').filter((rule) => rule.call !== '2C'), more: true },
-    { after: '1N (2C) X (P)', rules: staymanAnswers(r), more: true },
-    { after: '1N (X)', rules: responses(r, '2C', true), more: true },
-    { after: '1N (X) 2C (P)', rules: staymanAnswers(r), more: true },
+    { after: `${open} (2C)`, rules: responses(r, 'X').filter((rule) => rule.call !== '2C'), more: true },
+    { after: `${open} (2C) X (P)`, rules: staymanAnswers(r), more: true },
+    { after: `${open} (X)`, rules: responses(r, '2C', true), more: true },
+    { after: `${open} (X) 2C (P)`, rules: staymanAnswers(r), more: true },
     // Responder goes on after the answer as without the interference (Z2)
-    ...staymanBooks(r, '1N (2C) X (P)'),
-    ...staymanBooks(r, '1N (X) 2C (P)'),
+    ...staymanBooks(r, `${open} (2C) X (P)`),
+    ...staymanBooks(r, `${open} (X) 2C (P)`),
     // Transfers over a 2♣ overcall or a double: opener completes them as usual
     ...MAJORS.flatMap((M): Book[] =>
-      ['1N (2C)', '1N (X)'].map((start) => ({ after: `${start} ${M === 'H' ? '2D' : '2H'} (P)`, rules: transferAnswers(r, M), more: true })),
+      [`${open} (2C)`, `${open} (X)`].map((start) => ({ after: `${start} ${M === 'H' ? '2D' : '2H'} (P)`, rules: transferAnswers(r, M), more: true })),
     ),
-    { after: '1N (X) XX (P)', rules: [{ call: '2C', shows: { notes: [{ key: 'completes' }], artificial: true } }], more: true },
+    { after: `${open} (X) XX (P)`, rules: [{ call: '2C', shows: { notes: [{ key: 'completes' }], artificial: true } }], more: true },
     {
-      after: '1N (X) XX (P) 2C (P)',
+      after: `${open} (X) XX (P) 2C (P)`,
       rules: [
         { call: '2D', shows: { len: { D: [5, 13] }, notes: [{ key: 'signoff' }] }, when: (h) => h.len.D > h.len.C },
         { call: 'P', shows: { len: { C: [5, 13] }, notes: [{ key: 'toPlay' }] } },
@@ -512,9 +512,9 @@ export function oneNotrumpExtras(r: Ranges): Book[] {
   )
   for (const theirs of ['D', 'H', 'S'] as Suit[])
     books.push(
-      { after: `1N (2${theirs})`, rules: lebensohl(r, theirs), more: true },
-      { after: `1N (2${theirs}) 2N (P)`, rules: [{ call: '3C', shows: { notes: [{ key: 'completes' }], artificial: true } }], more: true },
-      { after: `1N (2${theirs}) 2N (P) 3C (P)`, rules: afterLebensohlRelay(r, theirs), more: true },
+      { after: `${open} (2${theirs})`, rules: lebensohl(r, theirs), more: true },
+      { after: `${open} (2${theirs}) 2N (P)`, rules: [{ call: '3C', shows: { notes: [{ key: 'completes' }], artificial: true } }], more: true },
+      { after: `${open} (2${theirs}) 2N (P) 3C (P)`, rules: afterLebensohlRelay(r, theirs), more: true },
     )
   return books
 }
