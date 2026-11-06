@@ -8,9 +8,9 @@ import { useAuth } from '../state/AuthContext.tsx'
 import { usePreferences } from '../state/PreferencesContext.tsx'
 
 /**
- * 制度卡 (e5-t52, AC-5.11): the cards of the two systems TKB bids, one address each so a table can
+ * 制度卡 (e5-t52, AC-5.11): the cards of the systems TKB bids, one address each so a table can
  * link to one in a new tab. Without a system in the address, the one TKB is seated in by default.
- * The club's card is offered only to those the server gives it to; for others the page is the 2/1 card.
+ * The club's card is offered only to those the server gives it to; for others the page falls back to the 2/1 card.
  */
 
 const Choices = styled.nav`

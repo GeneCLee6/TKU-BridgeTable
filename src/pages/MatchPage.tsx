@@ -844,19 +844,17 @@ function SettingsForm({
             onChange={(e) => set('boardMinutes', Number(e.target.value))}
           />
         </Field>
-        {/* Only a host who may use the club's system chooses the robots; one set up with them before keeps showing it */}
-        {(robotKinds.length > 1 || match.settings.robotKind !== 'gib') && (
-          <Field>
-            <FieldLabel htmlFor="match-robot-kind">{t.teamMatch.robotKind}</FieldLabel>
-            <Select id="match-robot-kind" value={draft.robotKind} onChange={(e) => set('robotKind', e.target.value as TeamMatchSettings['robotKind'])}>
-              {[...new Set([...robotKinds, match.settings.robotKind])].map((k) => (
-                <option key={k} value={k}>
-                  {t.robots[k]}
-                </option>
-              ))}
-            </Select>
-          </Field>
-        )}
+        {/* A match set up with the club's system before keeps showing it to a host who may not choose it */}
+        <Field>
+          <FieldLabel htmlFor="match-robot-kind">{t.teamMatch.robotKind}</FieldLabel>
+          <Select id="match-robot-kind" value={draft.robotKind} onChange={(e) => set('robotKind', e.target.value as TeamMatchSettings['robotKind'])}>
+            {[...new Set([...robotKinds, match.settings.robotKind])].map((k) => (
+              <option key={k} value={k}>
+                {t.robots[k]}
+              </option>
+            ))}
+          </Select>
+        </Field>
         <Field>
           <FieldLabel htmlFor="match-invite">{t.teamMatch.inviteMode}</FieldLabel>
           <Select id="match-invite" value={draft.invite} onChange={(e) => set('invite', e.target.value as TeamMatchSettings['invite'])}>

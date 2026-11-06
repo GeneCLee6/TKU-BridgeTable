@@ -1,13 +1,13 @@
 import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { isRobotKind } from '../shared/protocol.ts'
+import { isRobotKind, ROBOT_KINDS, type RobotKind } from '../shared/protocol.ts'
 import type { RobotBrain } from '../shared/robot/brain.ts'
 import { EVAL_SEED, FULL_SET_SIZE, QUICK_SET_SIZE, SLAM_PREFIX } from './deals.ts'
 import type { RobotConfig } from './match.ts'
 
 /**
  * Reading the command line's robot configurations (Node only). A configuration is the system TKB
- * bids, `tku` or `gib`; `@dir` takes the rule robot from another checkout's `shared/robot` (such
+ * bids, `tku`, `gib` or `sayc`; `@dir` takes the rule robot from another checkout's `shared/robot` (such
  * as main's, checked out in `base/`), and `,play=dir` only its card play:
  *
  *   tku            this checkout's TKB in the club's system
@@ -16,6 +16,13 @@ import type { RobotConfig } from './match.ts'
  */
 
 const brains = new Map<string, Promise<RobotBrain>>()
+
+/** The systems the checkout in `dir` has: a ratchet against a base compares only those */
+export async function kindsFrom(dir: string): Promise<readonly RobotKind[]> {
+  const file = resolve(dir, 'shared/protocol.ts')
+  const module = (await import(pathToFileURL(file).href)) as { ROBOT_KINDS: readonly RobotKind[] }
+  return module.ROBOT_KINDS
+}
 
 /** The rule robot of the checkout in `dir` (its `shared/robot/brain.ts`) */
 export function brainFrom(dir: string): Promise<RobotBrain> {
@@ -34,7 +41,7 @@ export function brainFrom(dir: string): Promise<RobotBrain> {
 export async function parseConfig(spec: string): Promise<RobotConfig> {
   const [main, ...options] = spec.split(',')
   const [robot, dir] = main.split('@')
-  if (!isRobotKind(robot)) throw new Error(`unknown robot "${robot}" in "${spec}" (tku or gib)`)
+  if (!isRobotKind(robot)) throw new Error(`unknown robot "${robot}" in "${spec}" (${ROBOT_KINDS.join(', ')})`)
   const config: RobotConfig = { name: spec, kind: robot }
   if (dir) config.brain = await brainFrom(dir)
   for (const option of options) {

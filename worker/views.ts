@@ -494,9 +494,10 @@ export function boardView(
     const hints = callMeaningsFor(board, calling, robots, extras.bookNotes)
     if (hints) view.callMeanings = hints
   }
-  // The hint card (`e10-t06`): the club's book, so not when the partner of the seat bidding is TKB playing 2/1
+  // The hint card (`e10-t06`): the club's book, so not when the partner of the seat bidding is TKB in a public system
   const bidder = calling ?? viewer
-  if (!bidder || extras.robots?.[partnerOf(bidder)] !== 'gib')
+  const partnerRobot = bidder ? extras.robots?.[partnerOf(bidder)] : undefined
+  if (!partnerRobot || partnerRobot === 'tku')
     view.bookTopics = bookTopics(ROBOT_SYSTEMS.tku, board.auction, board.dealer, board.vul, sideOf(bidder ?? 'S'), board.phase !== 'auction', explained)
   return view
 }

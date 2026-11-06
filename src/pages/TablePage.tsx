@@ -947,12 +947,10 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
     // A free seat (or a robot's) can be taken; someone already seated moves only between boards
     if ((!occupant || (occupant.robot && !me)) && (!me || between))
       actions.push({ label: t.takeSeat(seatLetter[seat]), onSelect: () => send({ type: 'sit', tableId: table.id, seat }) })
-    // The host seats TKB in the club's system or in 2/1 (GIB-compatible); a host without
-    // `tkuSystem` has one TKB, the 2/1 one, and no choice (ROBOT.md §7)
+    // The host seats TKB in a system of their choice; the club's only with `tkuSystem` (ROBOT.md §7)
     if (iAmHost && !occupant) {
-      const kinds = robotKindsFor(user)
-      for (const kind of kinds)
-        actions.push({ label: kinds.length > 1 ? t.addRobots[kind] : t.addRobot, onSelect: () => send({ type: 'addRobot', seat, kind }) })
+      for (const kind of robotKindsFor(user))
+        actions.push({ label: t.addRobots[kind], onSelect: () => send({ type: 'addRobot', seat, kind }) })
     }
     if (iAmHost && occupant?.robot)
       actions.push({ label: t.removeRobot, onSelect: () => send({ type: 'removeRobot', seat }), tone: 'danger' })

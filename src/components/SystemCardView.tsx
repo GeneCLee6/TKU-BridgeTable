@@ -169,7 +169,7 @@ export function SystemCardView({ system }: { system: RobotKind }) {
   return (
     <Wrap>
       <Muted>
-        {s.intro} {system === 'tku' ? s.sourceTku : s.sourceGib}
+        {s.intro} {s.sources[system]}
       </Muted>
       <Muted>{s.legend}</Muted>
       {card.sections.map((section, i) => (
