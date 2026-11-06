@@ -16,6 +16,7 @@ import { CredentialInput } from '../components/CredentialInput.tsx'
 import { AdminTwoFactorBanner } from '../components/AdminTwoFactorBanner.tsx'
 import { PasswordInput } from '../components/PasswordInput.tsx'
 import { AdminBanner, AdminSupport } from '../components/AdminSupport.tsx'
+import { AdminPuzzles } from '../components/AdminPuzzles.tsx'
 import { FeatureFlags } from '../components/FeatureFlags.tsx'
 import { IntegrityReport } from '../components/IntegrityReport.tsx'
 import { SystemStatus } from '../components/SystemStatus.tsx'
@@ -57,8 +58,8 @@ import { mobile } from '../styles/tokens.ts'
  * with TKU BridgeBook, which has the same approvals and permissions on its own admin page.
  */
 
-type SectionId = 'applications' | 'settings' | 'members' | 'add' | 'tables' | 'bookSync' | 'support' | 'banner' | 'features' | 'integrity' | 'status'
-const SECTIONS: SectionId[] = ['applications', 'settings', 'members', 'add', 'tables', 'bookSync', 'support', 'banner', 'features', 'integrity', 'status']
+type SectionId = 'applications' | 'settings' | 'members' | 'add' | 'tables' | 'bookSync' | 'support' | 'banner' | 'puzzles' | 'features' | 'integrity' | 'status'
+const SECTIONS: SectionId[] = ['applications', 'settings', 'members', 'add', 'tables', 'bookSync', 'support', 'banner', 'puzzles', 'features', 'integrity', 'status']
 const anchor = (section: SectionId) => `admin-${section}`
 
 /** Fields a server error can belong to */
@@ -344,6 +345,7 @@ function AdminPanels() {
     bookSync: t.bookSyncTitle,
     support: t.support.adminTitle,
     banner: t.notices.bannerTitle,
+    puzzles: t.puzzles.adminTitle,
     features: t.featureFlags.title,
     integrity: t.integrity.title,
     status: t.statusTitle,
@@ -358,6 +360,7 @@ function AdminPanels() {
     bookSync: outOfStep.length || null,
     support: null,
     banner: null,
+    puzzles: null,
     features: null,
     integrity: null,
     status: null,
@@ -1001,6 +1004,14 @@ function AdminPanels() {
               <Muted>{t.notices.bannerIntro}</Muted>
             </CardHeader>
             <AdminBanner />
+          </Section>
+
+          <Section id={anchor('puzzles')} aria-labelledby={`${id}-h-puzzles`}>
+            <CardHeader>
+              <CardTitle id={`${id}-h-puzzles`}>{t.puzzles.adminTitle}</CardTitle>
+              <Muted>{t.puzzles.adminIntro}</Muted>
+            </CardHeader>
+            <AdminPuzzles />
           </Section>
 
           <Section id={anchor('features')} aria-labelledby={`${id}-h-features`}>

@@ -18,6 +18,7 @@ import { DailyPage } from './pages/DailyPage.tsx'
 import { PairsEventPage, PairsListPage } from './pages/PairsPages.tsx'
 import { SystemCardPage } from './pages/SystemCardPage.tsx'
 import { PartnerBiddingListPage, PartnerBiddingPage, PartnerBidReviewPage } from './pages/PartnerBiddingPages.tsx'
+import { PuzzleListPage, PuzzlePage } from './pages/PuzzlePages.tsx'
 import { TournamentPage, TournamentsListPage } from './pages/TournamentPages.tsx'
 import { TeamEventPage } from './pages/TeamEventPage.tsx'
 import { RankingsPage } from './pages/RankingsPage.tsx'
@@ -140,6 +141,8 @@ function Routed() {
         {(rankingsOn || user.admin) && <Route path="/rankings" element={<RankingsPage />} />}
         <Route path="/challenges/:challengeId" element={<ChallengePage />} />
         <Route path="/challenges/:challengeId/boards/:seq" element={<ChallengeBoardPage />} />
+        <Route path="/puzzles" element={<PuzzleListPage />} />
+        <Route path="/puzzles/:puzzleId" element={<PuzzlePage />} />
         <Route path="/partner-bidding" element={<PartnerBiddingListPage />} />
         <Route path="/partner-bidding/:sessionId" element={<PartnerBiddingPage />} />
         <Route path="/partner-bidding/:sessionId/boards/:seq" element={<PartnerBidReviewPage />} />

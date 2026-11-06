@@ -2,7 +2,7 @@ import { legalCalls, type AuctionCall, type BookNote, type Call } from '../share
 import type { Vulnerability } from '../shared/board.ts'
 import type { BoardEvent } from '../shared/board-events.ts'
 import { bookTopics } from '../shared/book-topics.ts'
-import { nextSeat, partnerOf, SEATS, sideOf, type Seat } from '../shared/cards.ts'
+import { fullDeck, nextSeat, partnerOf, SEATS, sideOf, type Seat } from '../shared/cards.ts'
 import {
   PARTNER_BID_INVITER_SEAT,
   PARTNER_BID_PARTNER_SEAT,
@@ -11,6 +11,17 @@ import {
   type PartnerBidSummary,
   type PartnerBidView,
 } from '../shared/partner-bidding.ts'
+import {
+  legalPlays,
+  puzzleNeed,
+  puzzleState,
+  splitCards,
+  type AdminPuzzle,
+  type PuzzleProgress,
+  type PuzzleSummary,
+  type PuzzleView,
+} from '../shared/puzzles.ts'
+import type { Puzzle } from '../shared/puzzle-sets/index.ts'
 import { ROBOT_SYSTEMS } from '../shared/robot/robots.ts'
 import { explain } from '../shared/robot/system/engine.ts'
 import { bookNoteFor, type BookNotes } from '../shared/robot/system/book-spec.ts'
@@ -1229,5 +1240,83 @@ export function partnerBidView(
         ...(over && review && { review }),
       }
     }),
+  }
+}
+
+// ── Puzzles (`e10-t14`, §4) ────────────────────────────────────────────────────────────────────
+
+/** A puzzle in the member's list: never any cards */
+export function puzzleSummary(puzzle: Puzzle, progress: PuzzleProgress | null): PuzzleSummary {
+  const { id, level, title, contract } = puzzle.source
+  return {
+    id,
+    level,
+    title,
+    contract,
+    status: progress?.status ?? 'new',
+    solved: (progress?.solvedAt ?? null) !== null,
+    clean: progress?.clean ?? false,
+  }
+}
+
+/**
+ * A puzzle as the member plays it (rule 2). North and South are declarer's and dummy's: open from the
+ * start. East's and West's cards stay on the server, apart from what they have played, until this
+ * attempt is solved, and a member who plays a solved puzzle again has them hidden again. The
+ * explanation and the hints not asked for stay here too. The repo is public, so none of this is
+ * secret: it keeps the page from giving a puzzle away.
+ */
+export function puzzleView(puzzle: Puzzle, progress: PuzzleProgress | null): PuzzleView {
+  const { source } = puzzle
+  const played = progress?.played ?? splitCards(puzzle.solution.start)
+  const state = puzzleState(source, [...source.opening, ...played])
+  const summary = puzzleSummary(puzzle, progress)
+  const solved = summary.status === 'solved'
+  const start = puzzleState(source, [])
+  const held = new Set(SEATS.flatMap((seat) => start.hands[seat]))
+  const hintsGiven = progress?.hints ?? 0
+  return {
+    ...summary,
+    story: source.story,
+    wonBefore: source.won,
+    need: puzzleNeed(source),
+    won: state.won,
+    hands: solved ? state.hands : { N: state.hands.N, S: state.hands.S },
+    counts: { N: state.hands.N.length, E: state.hands.E.length, S: state.hands.S.length, W: state.hands.W.length },
+    ...(solved && { startHands: start.hands }),
+    gone: fullDeck().filter((card) => !held.has(card)),
+    tricks: state.tricks,
+    turn: solved ? null : state.turn,
+    legalCards: summary.status === 'solved' || summary.status === 'failed' ? [] : legalPlays(state),
+    wrong: progress?.wrong ?? null,
+    hints: source.hints.slice(0, hintsGiven),
+    hintsLeft: Math.max(0, source.hints.length - hintsGiven),
+    attempts: progress?.attempts ?? 0,
+    failures: progress?.failures ?? 0,
+    ...(solved && { explanation: source.explanation }),
+  }
+}
+
+/** A puzzle for an admin to review, published or not: all of it (`ClubService` checks who asks) */
+export function adminPuzzleView(puzzle: Puzzle, publication: { by: string; at: number } | null): AdminPuzzle {
+  const { source, solution } = puzzle
+  return {
+    id: source.id,
+    level: source.level,
+    status: publication ? 'published' : 'draft',
+    title: source.title,
+    contract: source.contract,
+    wonBefore: source.won,
+    need: puzzleNeed(source),
+    leader: source.leader,
+    opening: source.opening,
+    story: source.story,
+    hints: source.hints,
+    explanation: source.explanation,
+    hands: puzzleState(source, []).hands,
+    line: splitCards(solution.line),
+    size: solution.size,
+    publishedBy: publication?.by ?? null,
+    publishedAt: publication?.at ?? null,
   }
 }

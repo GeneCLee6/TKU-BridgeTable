@@ -83,12 +83,15 @@ export function PracticeDialog({
   onClose,
   robotKinds = ['gib'],
   partnerLink,
+  puzzleLink,
 }: {
   /** The practice settings, and who may watch (hidden unless changed: only the invited) */
   onSubmit: (settings: PracticeSettings, access: TableAccess) => void
   onClose: () => void
   /** The way to the partner bidding practice (`e10-t08`), a link the page makes */
   partnerLink?: ReactNode
+  /** Where the puzzles are (e10-t14) */
+  puzzleLink?: ReactNode
   /** The systems the member may seat TKB in (`robotKindsFor`), the first one chosen to begin with */
   robotKinds?: readonly RobotKind[]
 }) {
@@ -338,6 +341,12 @@ export function PracticeDialog({
             <Group>
               {partnerLink}
               <Muted>{t.partnerBid.entryHint}</Muted>
+            </Group>
+          )}
+          {puzzleLink && (
+            <Group>
+              {puzzleLink}
+              <Muted>{t.puzzles.entryHint}</Muted>
             </Group>
           )}
           <Buttons>

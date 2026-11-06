@@ -1376,6 +1376,13 @@ export class Club extends DurableObject<Env> implements Connections {
     if (route === 'POST /api/practice/deals/remove') return json({ deals: await this.service.removeOwnDeals(user.id, (await body()).ids) })
     const preset = url.pathname.match(/^\/api\/practice\/presets\/([\w-]+)$/)
     if (preset && request.method === 'DELETE') return json({ presets: await this.service.removeSavedPractice(user.id, preset[1]) })
+    // Puzzles (e10-t14): the published ones; every card is checked against the stored data
+    if (route === 'GET /api/puzzles') return json({ puzzles: this.service.puzzles.list(user.id) })
+    const puzzle = url.pathname.match(/^\/api\/puzzles\/([\w-]+)(?:\/(play|retry|hint))?$/)
+    if (puzzle && request.method === 'GET' && !puzzle[2]) return json({ puzzle: this.service.puzzles.get(user.id, puzzle[1]) })
+    if (puzzle && request.method === 'POST' && puzzle[2] === 'play') return json({ puzzle: this.service.puzzles.play(user.id, puzzle[1], (await body()).card) })
+    if (puzzle && request.method === 'POST' && puzzle[2] === 'retry') return json({ puzzle: this.service.puzzles.retry(user.id, puzzle[1], (await body()).from) })
+    if (puzzle && request.method === 'POST' && puzzle[2] === 'hint') return json({ puzzle: this.service.puzzles.hint(user.id, puzzle[1]) })
     // Partner bidding practice (e10-t08): only the session's two members, as worker/views.ts lets each see it
     if (route === 'GET /api/partner-bidding') return json({ sessions: this.service.partnerBids.list(user.id) })
     if (route === 'POST /api/partner-bidding') return json({ session: await this.service.partnerBids.create(user.id, await body()) })
@@ -1581,6 +1588,10 @@ export class Club extends DurableObject<Env> implements Connections {
           },
         }),
       )
+    // Puzzles to read and publish (e10-t13)
+    if (path === '/puzzles' && method === 'GET') return json({ puzzles: this.service.adminPuzzles(user.id) })
+    const puzzle = path.match(/^\/puzzles\/([\w-]+)\/publish$/)
+    if (puzzle && method === 'POST') return json({ puzzles: await this.service.adminSetPuzzlePublished(user.id, puzzle[1], (await body()).published) })
     // The club's banner (e12-t15) and the members' support reports (e12-t16)
     if (path === '/banner') {
       if (method === 'GET') return json({ banner: await this.service.adminBanner(user.id) })

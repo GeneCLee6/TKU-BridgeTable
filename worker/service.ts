@@ -74,6 +74,7 @@ import {
 } from '../shared/practice.ts'
 import { PRACTICE_SETS, practiceSetInfos, type PracticeSetInfo } from '../shared/practice-sets/index.ts'
 import { PartnerBidService } from './partner-bidding.ts'
+import { PuzzleService } from './puzzles.ts'
 import { PracticePresets } from './practice-presets.ts'
 import { IMPORT_LIMITS } from '../shared/imports.ts'
 import { toLin } from '../shared/lin.ts'
@@ -785,6 +786,8 @@ export class ClubService {
   private readonly importLimit: TokenBuckets
   /** Partner bidding practice (`e10-t08`, §5.11), in the object's SQL */
   readonly partnerBids: PartnerBidService
+  /** 謎題 (e10-t13, e10-t14): what this club published and each member's progress */
+  readonly puzzles: PuzzleService
   /** Keeps the history index's D1 copy in step (§5.12), when there is one */
   readonly replica?: ReplicaSync
   private readonly log: Logger
@@ -995,6 +998,12 @@ export class ClubService {
       defaultKind: (id) => this.defaultKindOf(id),
       checkKind: (id, kind) => this.checkRobotKind(id, kind),
     })
+    this.puzzles = new PuzzleService({
+      sql: store.sql,
+      now: this.now,
+      audit: this.audit,
+      takeAction: (id) => this.actionLimit.take(id),
+    })
     this.tournaments = new TournamentService({
       store,
       now: this.now,
@@ -1137,6 +1146,7 @@ export class ClubService {
     this.matchHomes.createTables()
     this.directs.createTables()
     this.partnerBids.createTables()
+    this.puzzles.createTables()
     await this.rankings.load()
     await this.referee.load()
     const schema = (await this.store.get<number>('meta:schema')) ?? 1
@@ -2705,6 +2715,17 @@ export class ClubService {
     return this.adminSupport(adminId)
   }
 
+  /** Puzzles for an admin to read and publish (e10-t13): drafts reach members only through this */
+  adminPuzzles(adminId: string) {
+    this.requireAdmin(adminId)
+    return this.puzzles.adminList()
+  }
+
+  async adminSetPuzzlePublished(adminId: string, id: unknown, published: unknown) {
+    this.requireAdmin(adminId)
+    return this.puzzles.setPublished(this.requireUser(adminId).username, id, published)
+  }
+
   async adminBanner(adminId: string) {
     this.requireAdmin(adminId)
     return this.banners.current()
@@ -2883,6 +2904,7 @@ export class ClubService {
     await this.friends.reload(member)
     await this.blocks.reload(member)
     this.partnerBids.reload(member)
+    this.puzzles.reload(member)
     // A table keeps its people's blocks for its chat and who may join (`setBlocked` does the same)
     for (const id of this.users.keys()) {
       const entry = this.entryOf(id)
@@ -2937,6 +2959,7 @@ export class ClubService {
     await this.ownDeals.removeAll(user.id)
     await this.queueImportPurge(user.id)
     this.partnerBids.forget(user.id)
+    this.puzzles.forget(user.id)
     await forgetQuizRounds(this.store, user.id)
     await forgetPathProgress(this.store, user.id)
     await forgetReading(this.store, user.id)
@@ -3098,6 +3121,8 @@ export class ClubService {
       importedBoardCount: countImported(this.store.sql, userId),
       // Partner bidding practice (e10-t08): as they may see it, never the partner's hand on a board still being bid
       partnerBidding: this.partnerBids.exportOf(userId),
+      // Puzzle progress (e10-t14): how far they got on each, published or not any more
+      puzzles: this.puzzles.exportOf(userId),
       challengeComments: this.challengeExtras.commentsOf(userId),
       ...this.rankings.exportOf(userId),
       favorites,
