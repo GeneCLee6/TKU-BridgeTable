@@ -7,6 +7,7 @@ import { choose } from './system/engine.ts'
 import { contextFor } from './system/infer.ts'
 import { meanings } from './system/rules.ts'
 import { GIB } from './system/gib/index.ts'
+import { PRECISION } from './system/precision/index.ts'
 import { TKU } from './system/tku/index.ts'
 import type { Spec, System } from './system/spec.ts'
 
@@ -24,7 +25,7 @@ export interface RobotBid {
 }
 
 /** The system each robot bids with */
-export const ROBOT_SYSTEMS: Record<RobotKind, System> = { tku: TKU, gib: GIB }
+export const ROBOT_SYSTEMS: Record<RobotKind, System> = { tku: TKU, gib: GIB, precision: PRECISION }
 
 export function robotCall(
   kind: RobotKind,

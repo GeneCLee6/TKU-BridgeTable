@@ -295,7 +295,10 @@ function dropOdds(view: View, seat: Seat, led: Suit, finesse: Card): boolean {
  */
 function openingLead(state: BoardState, seat: Seat, view: View, hand: Card[], trump: Suit | null): Card {
   const lead = (s: Suit) => clubLeadCard(suitCards(hand, s), trump)
-  const partnerBid = state.auction.find((c) => c.seat === partnerOf(seat) && isBid(c.call) && strainOf(c.call) !== 'N' && strainOf(c.call) !== trump)
+  // A suit the call did not show (Precision's 1♣) is not partner's suit; `reading.namesSuit`
+  const partnerBid = state.auction.find(
+    (c) => c.seat === partnerOf(seat) && isBid(c.call) && strainOf(c.call) !== 'N' && strainOf(c.call) !== trump && view.reading.namesSuit(partnerOf(seat), strainOf(c.call) as Suit),
+  )
   const named = partnerBid && suitCards(hand, strainOf(partnerBid.call) as Suit).length ? (strainOf(partnerBid.call) as Suit) : null
   // Suits partner showed (four or more as the auction reads: a natural bid, a negative double, a
   // two-suited overcall), the one held most of

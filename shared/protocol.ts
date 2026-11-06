@@ -213,7 +213,7 @@ export const isRobotId = (id: string | null | undefined) => !!id && id.startsWit
  * (淡江制度, the club's system in TKU BridgeBook; only with the `tkuSystem` permission) or 2/1
  * (GIB-compatible, docs/BBO GIB)
  */
-export const ROBOT_KINDS = ['tku', 'gib'] as const
+export const ROBOT_KINDS = ['tku', 'gib', 'precision'] as const
 /** The club's system card: signed-in members of 淡江 only (`worker/system-card.ts`, ARCHITECTURE.md §4) */
 export const TKU_CARD_API = '/api/system-card/tku'
 export type RobotKind = (typeof ROBOT_KINDS)[number]

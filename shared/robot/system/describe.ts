@@ -77,6 +77,10 @@ const NAMES: Record<Convention, Words> = {
   minorAsk: { zh: '詢問低花', 'zh-Hans': '询问低花', en: 'Minor-suit ask', vi: 'Hỏi hoa thấp', ja: 'マイナーのアスク', ko: '마이너 질문' },
   passOrCorrect: { zh: 'P/C', 'zh-Hans': 'P/C', en: 'Pass or correct', vi: 'Pass hoặc sửa', ja: 'パス・オア・コレクト', ko: '패스 오어 코렉트' },
   ask: { zh: '詢問', 'zh-Hans': '询问', en: 'Asking bid', vi: 'Hỏi', ja: 'アスク', ko: '질문' },
+  strongClub: { zh: '強 1♣', 'zh-Hans': '强 1♣', en: 'Strong 1♣', vi: '1♣ mạnh', ja: '強い1♣', ko: '강한 1♣' },
+  clubNegative: { zh: '否定答叫', 'zh-Hans': '否定应叫', en: 'Negative response', vi: 'Đáp phủ định', ja: 'ネガティブ・レスポンス', ko: '네거티브 응답' },
+  shortDiamonds: { zh: '♦ 短門的三門牌', 'zh-Hans': '♦ 短门的三门牌', en: 'Three-suiter, short diamonds', vi: 'Ba hoa, ♦ ngắn', ja: '♦ショートのスリースーター', ko: '♦ 숏 쓰리 수터' },
+  gambling3N: { zh: '賭博性 3NT', 'zh-Hans': '赌博性 3NT', en: 'Gambling 3NT', vi: '3NT đánh liều', ja: 'ギャンブリング3NT', ko: '갬블링 3NT' },
 }
 
 const QUALITY: Record<Quality, Words> = {

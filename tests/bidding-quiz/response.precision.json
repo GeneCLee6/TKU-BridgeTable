@@ -1,0 +1,14 @@
+{
+  "category": "response",
+  "title": "答叫（精準制）",
+  "questions": [
+    { "id": "prec-resp-001", "system": "precision", "dealer": "N", "vul": "None", "hand": "432.432.5432.432", "auction": ["1C", "P"], "answer": "1D", "source": "精準制（docs/systems/precision.md §2）", "reviewer": null, "status": "pending", "note": "0 點，0–7 答 1♦ 否定" },
+    { "id": "prec-resp-002", "system": "precision", "dealer": "N", "vul": "None", "hand": "AJ432.K32.432.32", "auction": ["1C", "P"], "answer": "1S", "source": "精準制（docs/systems/precision.md §2）", "reviewer": null, "status": "pending", "note": "8 點 5 張♠，正面答叫迫叫成局" },
+    { "id": "prec-resp-003", "system": "precision", "dealer": "N", "vul": "None", "hand": "A432.K32.432.Q32", "auction": ["1C", "P"], "answer": "1N", "source": "精準制（docs/systems/precision.md §2）", "reviewer": null, "status": "pending", "note": "9 點沒有 5 張花色，1NT 是 8–10" },
+    { "id": "prec-resp-004", "system": "precision", "dealer": "N", "vul": "None", "hand": "K32.Q32.5432.Q32", "auction": ["1C", "1S"], "answer": "X", "source": "精準制（docs/systems/precision.md §2）", "reviewer": null, "status": "pending", "note": "7 點，1♣ 被蓋叫之後賭倍是 5–7" },
+    { "id": "prec-resp-005", "system": "precision", "dealer": "N", "vul": "None", "hand": "K32.Q32.5432.Q32", "auction": ["1C", "X"], "answer": "1D", "source": "精準制（docs/systems/precision.md §2）", "reviewer": null, "status": "pending", "note": "7 點，1♣ 被賭倍之後 1♦ 是 5–7" },
+    { "id": "prec-resp-006", "system": "precision", "dealer": "N", "vul": "None", "hand": "AQ32.432.432.Q32", "auction": ["1D", "P"], "answer": "1S", "source": "精準制（docs/systems/precision.md §3）", "reviewer": null, "status": "pending", "note": "8 點 4 張♠" },
+    { "id": "prec-resp-007", "system": "precision", "dealer": "N", "vul": "None", "hand": "AQ32.K32.Q32.432", "auction": ["2C", "P"], "answer": "2D", "source": "精準制（docs/systems/precision.md §4）", "reviewer": null, "status": "pending", "note": "11 點 4 張♠：2♦ 問高花" },
+    { "id": "prec-resp-008", "system": "precision", "dealer": "N", "vul": "None", "hand": "AQ32.K32.AQ32.32", "auction": ["2D", "P"], "answer": "2N", "source": "精準制（docs/systems/precision.md §4）", "reviewer": null, "status": "pending", "note": "15 點，2NT 問牌，有成局實力" }
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "category": "opening",
+  "title": "開叫（精準制）",
+  "questions": [
+    { "id": "prec-open-001", "system": "precision", "dealer": "N", "vul": "None", "hand": "AKQ2.KQ4.J52.Q43", "auction": [], "answer": "1C", "source": "精準制（docs/systems/precision.md §1）", "reviewer": null, "status": "pending", "note": "17 點，16 點以上不論牌型都開 1♣" },
+    { "id": "prec-open-002", "system": "precision", "dealer": "N", "vul": "None", "hand": "AQ932.K43.Q54.J2", "auction": [], "answer": "1S", "source": "精準制（docs/systems/precision.md §1）", "reviewer": null, "status": "pending", "note": "12 點 5 張♠，11–15 開高花" },
+    { "id": "prec-open-003", "system": "precision", "dealer": "E", "vul": "NS", "hand": "AQ93.K43.Q54.Q32", "auction": [], "answer": "1N", "source": "精準制（docs/systems/precision.md §1）", "reviewer": null, "status": "pending", "note": "13 點平均牌型，1NT 是 13–15" },
+    { "id": "prec-open-004", "system": "precision", "dealer": "S", "vul": "EW", "hand": "AQ93.K432.Q5.J32", "auction": [], "answer": "1D", "source": "精準制（docs/systems/precision.md §1）", "reviewer": null, "status": "pending", "note": "12 點 4-4-2-3，不到 1NT，1♦ 可以只有兩張" },
+    { "id": "prec-open-005", "system": "precision", "dealer": "W", "vul": "Both", "hand": "K4.Q32.A5.KJ9432", "auction": [], "answer": "2C", "source": "精準制（docs/systems/precision.md §1）", "reviewer": null, "status": "pending", "note": "13 點 6 張♣，2♣ 是 11–15 的長梅花" },
+    { "id": "prec-open-006", "system": "precision", "dealer": "N", "vul": "None", "hand": "AQ93.K432.5.KJ32", "auction": [], "answer": "2D", "source": "精準制（docs/systems/precision.md §1）", "reviewer": null, "status": "pending", "note": "13 點 4=4=1=4，2♦ 是♦短的三門牌" }
+  ]
+}

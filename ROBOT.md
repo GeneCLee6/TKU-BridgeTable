@@ -1107,6 +1107,18 @@ Stayman 一定要有 4 張高花，**沒有例外**：Z2 留下的 2/1 例外（
 
 **測試**：`tests/engine/system-card.test.ts`：開叫的範圍與張數跟規則書直接比對、固定一組數字（1NT 15–17 等，改了制度檔會失敗）、兩套制度不同的地方、把制度檔的 1NT 換成 12–14 卡跟著變；隨機 1,500 手牌實際開叫都符合卡上寫的（`choose` 對 `fits`）；首攻、信號與文字一致、兩套制度相同；打包的模組等於現在的規則算出來的。`tests/worker/system-card.test.ts`：誰拿得到淡江的卡、其他人都是同一個 404、路徑在登入檢查之前、找得到外洩（JSON、壓縮過、字串裡）。`tests/presentation/system-card.test.tsx`：頁面、對話框、2/1 不打 API、淡江只問卡、其他社團只有 2/1。`tests/presentation/system-card-table.test.tsx`：名牌開卡、其他社團沒有淡江的那一項、真人座位沒有、換一副牌內容完全相同、對話框開著時鍵盤不叫牌、練習桌也有。
 
+### 6.16 精準制（`precision`，`e5-t50`，AC-5.11，2026-11-06）
+
+TKB 的另一個制度：1♣ 16+ 人工叫、1♦ 11–15 可能短、1M 11–15 五張、1NT 13–15、2♣ 長梅花、2♦ ♦短三門牌。每個選擇、來源與待社團決定的項目在 [`docs/systems/precision.md`](docs/systems/precision.md)；全部是依公開資料整理，**還沒有人審核**。規則在 `shared/robot/system/precision/`。
+
+- **只寫不同的地方**：開叫、1♣、1♦、2♣、2♦ 是自己的書；1M、弱二與阻擊、NT 結構、對方開叫、滿貫用 2/1 的書。`limited` 把開叫者不可能有的規則拿掉（11–15 的開叫沒有 19 點的跳叫新花）。`gib/notrump.ts` 的 NT 之後與干擾的書改成吃 `Ranges`（`oneNotrumpExtras`），2/1 的數字不變。
+- **說明前後一致**：用同一個引擎，`npm run consistency -- --system precision` 矛盾、過寬、漏掉都是 0。
+- **同桌不同制度**（`AuctionCall.system`）：機器人的叫品記下它的制度，出牌讀叫牌時每個叫品照叫的人的制度讀（`reading.ts`、`read` 的 `systemOf`）。以前同一桌全部照讀牌者的制度讀，淡江與 2/1 差不多所以沒事；精準制的 1♣、1NT、2♣ 差太多。同制度一桌結果不變；**淡江對 2/1 的對抗數字會變**，因為現在才讀對。真人的叫品仍照讀牌者的制度讀，所以真人對手打自然制時，精準制機器人會把他的 1NT 讀成 13–15（已知的限制）。
+- **首攻**（`System.leadsOnlyShown`）：同伴的 1♣、2♦ 不算同伴的花色，只有讀牌顯示 4+ 張才算。2/1 與淡江不設，首攻不變。
+- **評測**：見 `docs/systems/precision.md` 與 PR；精準制對 2/1 全部 5,000 副 −0.12 ± 0.06 IMP／副。
+
+**測試**：`tests/engine/precision.test.ts`（開叫、答叫、再叫、干擾、Alert 六種語言、首攻、跨制度讀牌、制度卡）；題庫 `tests/bidding-quiz/opening.precision.json`、`response.precision.json`（全部 `pending`）。
+
 ## 7. TKB 與 TKB Adv
 
 社長 2026-10-24 決定：**不分等級**。伺服器沒有 DDS 之前，只訓練一個機器人——現在最強的那個——取名 **TKB**（像 BBO 的 GIB）。之後伺服器加上 DDS（Phase P，ARCHITECTURE.md §5.1.1），再有第二個 **TKB Adv**。最多就這兩個，不再有等級。

@@ -24,7 +24,7 @@ export interface Ranges {
   top: number
 }
 
-const ONE_NT: Ranges = { up: 0, weak: [0, 7], invite: [8, 9], game: [10, 15], slamTry: [14, 15], quant: [16, 17], slam: [18, 19], grand: [20, 21], top: 17 }
+export const ONE_NT: Ranges = { up: 0, weak: [0, 7], invite: [8, 9], game: [10, 15], slamTry: [14, 15], quant: [16, 17], slam: [18, 19], grand: [20, 21], top: 17 }
 const TWO_NT: Ranges = { up: 1, weak: [0, 3], invite: null, game: [4, 10], slamTry: [9, 10], quant: [11, 12], slam: [13, 15], grand: [16, 17], top: 21 }
 
 const fourMajor = (h: Hand) => h.len.H === 4 || h.len.S === 4
@@ -77,7 +77,7 @@ function responses(r: Ranges, stayman: Call, runout = false): Rule[] {
     for (const x of ['D', 'H', 'S'] as Suit[])
       rules.push({
         call: bid(3, x),
-        shows: { len: { [x]: [0, 1] }, hcp: plus(10), notes: [{ key: 'shortIn', strain: x }], forcing: 'game' },
+        shows: { len: { [x]: [0, 1] }, hcp: plus(r.game[0]), notes: [{ key: 'shortIn', strain: x }], forcing: 'game' },
         when: (h) => UP.every((s) => s === x || h.len[s] >= 4) && h.len.H < 5 && h.len.S < 5,
       })
   // Minor-suit Stayman over 2NT only: over 1NT 2♠ is the club transfer (T1, 社團決定)
@@ -104,7 +104,7 @@ function responses(r: Ranges, stayman: Call, runout = false): Rule[] {
   if (r.up === 0) {
     // Minor transfers: weak to play, or game values with a short suit. 2♠ to clubs, not GIB's 2NT
     // (T1, 社團決定): 2NT is a natural invitation
-    const minorTransfer = (h: Hand, m: Suit) => h.len[m] >= 6 && (h.hcp <= r.weak[1] || (h.hcp >= 10 && shortness(h, m) !== null))
+    const minorTransfer = (h: Hand, m: Suit) => h.len[m] >= 6 && (h.hcp <= r.weak[1] || (h.hcp >= r.game[0] && shortness(h, m) !== null))
     for (const [call, m] of [
       ['2S', 'C'],
       ['3C', 'D'],
@@ -318,16 +318,16 @@ function shortMajor(r: Ranges): Rule[] {
 }
 
 /** After a completed minor transfer: pass to play, a new suit is shortness, 3NT a mild slam try */
-function afterMinorTransfer(m: Suit): Rule[] {
+function afterMinorTransfer(r: Ranges, m: Suit): Rule[] {
   return [
-    { call: 'P', shows: { hcp: [0, 7], notes: [{ key: 'signoff' }] }, when: (h) => h.hcp <= 7 },
+    { call: 'P', shows: { hcp: r.weak, notes: [{ key: 'signoff' }] }, when: (h) => h.hcp <= r.weak[1] },
     ...UP.filter((s) => s !== m && s !== 'C').map(
       (x): Rule => ({
         call: bid(3, x),
-        shows: { len: { [m]: [6, 13], [x]: [0, 1] }, hcp: plus(10), notes: [{ key: 'shortIn', strain: x }], forcing: 'game' },
+        shows: { len: { [m]: [6, 13], [x]: [0, 1] }, hcp: plus(r.game[0]), notes: [{ key: 'shortIn', strain: x }], forcing: 'game' },
       }),
     ),
-    { call: '3N', shows: { len: { [m]: [6, 13] }, hcp: [14, 15], notes: [{ key: 'slamTry' }] } },
+    { call: '3N', shows: { len: { [m]: [6, 13] }, hcp: r.slamTry, notes: [{ key: 'slamTry' }] } },
   ]
 }
 
@@ -342,12 +342,12 @@ function afterMinorShortness(m: Suit, x: Suit): Rule[] {
   ]
 }
 
-function afterMinorSlamTry(m: Suit): Rule[] {
+function afterMinorSlamTry(r: Ranges, m: Suit): Rule[] {
   return [
     {
       call: '4N',
       shows: { name: 'rkcb', trump: m, notes: [{ key: 'slamInterest' }], forcing: 'oneRound', artificial: true },
-      when: (h) => h.hcp >= 16 && /[AKQ]/.test(h.ranks[m]),
+      when: (h) => h.hcp >= r.top - 1 && /[AKQ]/.test(h.ranks[m]),
     },
     { call: 'P', shows: { notes: [{ key: 'toPlay' }] } },
   ]
@@ -355,44 +355,48 @@ function afterMinorSlamTry(m: Suit): Rule[] {
 
 // ── Lebensohl after an overcall of 1NT at the two level ──────────────────────────────────────
 
-function lebensohl(theirs: Suit): Rule[] {
+function lebensohl(r: Ranges, theirs: Suit): Rule[] {
+  const game = r.game[0]
+  const weak: Range = [0, game - 1]
   const unbidMajor = (h: Hand) => MAJORS.some((M) => M !== theirs && h.len[M] >= 4)
   const rules: Rule[] = [
-    { call: 'X', shows: { name: 'penalty', len: { [theirs]: [4, 13] }, hcp: plus(8) } },
+    { call: 'X', shows: { name: 'penalty', len: { [theirs]: [4, 13] }, hcp: plus(game - 2) } },
     // Fast denies: the cue bid or 3NT at once have no stopper
     {
       call: bid(3, theirs),
-      shows: { name: 'stayman', hcp: plus(10), notes: [{ key: 'fourMajor' }, { key: 'asksMajor' }], forcing: 'game', artificial: true },
+      shows: { name: 'stayman', hcp: plus(game), notes: [{ key: 'fourMajor' }, { key: 'asksMajor' }], forcing: 'game', artificial: true },
       when: (h) => !stopped(h, theirs) && unbidMajor(h),
     },
     // A new suit at the three level forces to game
-    ...UP.filter((s) => s !== theirs).map((x): Rule => ({ call: bid(3, x), shows: { len: { [x]: [5, 13] }, hcp: plus(10), forcing: 'game' } })),
-    { call: '3N', shows: { hcp: plus(10), notes: [{ key: 'game' }] }, when: (h) => !stopped(h, theirs) },
+    ...UP.filter((s) => s !== theirs).map((x): Rule => ({ call: bid(3, x), shows: { len: { [x]: [5, 13] }, hcp: plus(game), forcing: 'game' } })),
+    { call: '3N', shows: { hcp: plus(game), notes: [{ key: 'game' }] }, when: (h) => !stopped(h, theirs) },
     // At the two level it is to play
-    ...UP.filter((s) => above(s, theirs)).map((x): Rule => ({ call: bid(2, x), shows: { len: { [x]: [5, 13] }, hcp: [0, 9], notes: [{ key: 'toPlay' }] } })),
+    ...UP.filter((s) => above(s, theirs)).map((x): Rule => ({ call: bid(2, x), shows: { len: { [x]: [5, 13] }, hcp: weak, notes: [{ key: 'toPlay' }] } })),
     {
       call: '2N',
       shows: { name: 'lebensohl', notes: [{ key: 'relayTo', calls: ['3C'] }], forcing: 'oneRound', artificial: true },
-      when: (h) => (h.hcp >= 10 && stopped(h, theirs)) || (h.hcp <= 9 && UP.some((s) => !above(s, theirs) && s !== theirs && h.len[s] >= 6)),
+      when: (h) => (h.hcp >= game && stopped(h, theirs)) || (h.hcp < game && UP.some((s) => !above(s, theirs) && s !== theirs && h.len[s] >= 6)),
     },
-    { call: 'P', shows: { hcp: [0, 9] } },
+    { call: 'P', shows: { hcp: weak } },
   ]
   return rules
 }
 
-function afterLebensohlRelay(theirs: Suit): Rule[] {
+function afterLebensohlRelay(r: Ranges, theirs: Suit): Rule[] {
+  const game = r.game[0]
+  const weak: Range = [0, game - 1]
   return [
     // Slow shows: the cue bid or 3NT after the relay promise a stopper
     {
       call: bid(3, theirs),
-      shows: { name: 'stayman', hcp: plus(10), stop: { [theirs]: 'stop' }, notes: [{ key: 'fourMajor' }, { key: 'asksMajor' }], forcing: 'game', artificial: true },
-      when: (h) => h.hcp >= 10 && MAJORS.some((M) => M !== theirs && h.len[M] >= 4),
+      shows: { name: 'stayman', hcp: plus(game), stop: { [theirs]: 'stop' }, notes: [{ key: 'fourMajor' }, { key: 'asksMajor' }], forcing: 'game', artificial: true },
+      when: (h) => h.hcp >= game && MAJORS.some((M) => M !== theirs && h.len[M] >= 4),
     },
-    { call: '3N', shows: { hcp: plus(10), stop: { [theirs]: 'stop' } }, when: (h) => h.hcp >= 10 },
+    { call: '3N', shows: { hcp: plus(game), stop: { [theirs]: 'stop' } }, when: (h) => h.hcp >= game },
     ...UP.filter((s) => s !== 'C' && !above(s, theirs) && s !== theirs).map(
-      (x): Rule => ({ call: bid(3, x), shows: { len: { [x]: [6, 13] }, hcp: [0, 9], notes: [{ key: 'signoff' }] } }),
+      (x): Rule => ({ call: bid(3, x), shows: { len: { [x]: [6, 13] }, hcp: weak, notes: [{ key: 'signoff' }] } }),
     ),
-    { call: 'P', shows: { len: { C: [6, 13] }, hcp: [0, 9], notes: [{ key: 'toPlay' }] } },
+    { call: 'P', shows: { len: { C: [6, 13] }, hcp: weak, notes: [{ key: 'toPlay' }] } },
   ]
 }
 
@@ -462,50 +466,59 @@ export function notrumpBooks(r: Ranges, open: string): Book[] {
   return books
 }
 
-const books: Book[] = [...notrumpBooks(ONE_NT, '1N'), ...notrumpBooks(TWO_NT, '2N')]
-// After 1NT, with or without a double or a 2♣ overcall (the system stays on): the natural 2NT
-// invitation (T1), and the minor transfers, 2♠ to clubs and 3♣ to diamonds, which opener must accept
-for (const start of ['1N (P)', '1N (2C)', '1N (X)']) {
-  books.push({ after: `${start} 2N (P)`, rules: acceptInvite(ONE_NT, '3N', 'P'), more: true })
-  for (const [transfer, m] of [
-    ['2S', 'C'],
-    ['3C', 'D'],
-  ] as const) {
-    const done = `${start} ${transfer} (P) 3${m} (P)`
-    books.push({ after: `${start} ${transfer} (P)`, rules: completes(bid(3, m)), more: true }, { after: done, rules: afterMinorTransfer(m), more: true })
-    for (const x of UP.filter((s) => s !== m && s !== 'C')) books.push({ after: `${done} 3${x} (P)`, rules: afterMinorShortness(m, x), more: true })
-    books.push({ after: `${done} 3N (P)`, rules: afterMinorSlamTry(m), more: true })
+/**
+ * What goes with a 1NT opening besides `notrumpBooks`, for its ranges: the natural 2NT invitation,
+ * the minor transfers, and the interference (over a 2♣ overcall, one-suited, double is Stayman and
+ * the rest stays on; over a double the system stays on and redouble rescues into a minor; other
+ * two-level overcalls: Lebensohl)
+ */
+export function oneNotrumpExtras(r: Ranges): Book[] {
+  const books: Book[] = []
+  // After 1NT, with or without a double or a 2♣ overcall (the system stays on): the natural 2NT
+  // invitation (T1), and the minor transfers, 2♠ to clubs and 3♣ to diamonds, which opener must accept
+  for (const start of ['1N (P)', '1N (2C)', '1N (X)']) {
+    books.push({ after: `${start} 2N (P)`, rules: acceptInvite(r, '3N', 'P'), more: true })
+    for (const [transfer, m] of [
+      ['2S', 'C'],
+      ['3C', 'D'],
+    ] as const) {
+      const done = `${start} ${transfer} (P) 3${m} (P)`
+      books.push({ after: `${start} ${transfer} (P)`, rules: completes(bid(3, m)), more: true }, { after: done, rules: afterMinorTransfer(r, m), more: true })
+      for (const x of UP.filter((s) => s !== m && s !== 'C')) books.push({ after: `${done} 3${x} (P)`, rules: afterMinorShortness(m, x), more: true })
+      books.push({ after: `${done} 3N (P)`, rules: afterMinorSlamTry(r, m), more: true })
+    }
   }
-}
-// Interference: over a 2♣ overcall (one-suited) double is Stayman and the rest stays on; over a
-// double the system stays on and redouble rescues into a minor; other two-level overcalls: Lebensohl
-books.push(
-  { after: '1N (2C)', rules: responses(ONE_NT, 'X').filter((rule) => rule.call !== '2C'), more: true },
-  { after: '1N (2C) X (P)', rules: staymanAnswers(ONE_NT), more: true },
-  { after: '1N (X)', rules: responses(ONE_NT, '2C', true), more: true },
-  { after: '1N (X) 2C (P)', rules: staymanAnswers(ONE_NT), more: true },
-  // Responder goes on after the answer as without the interference (Z2)
-  ...staymanBooks(ONE_NT, '1N (2C) X (P)'),
-  ...staymanBooks(ONE_NT, '1N (X) 2C (P)'),
-  // Transfers over a 2♣ overcall or a double: opener completes them as usual
-  ...MAJORS.flatMap((M): Book[] =>
-    ['1N (2C)', '1N (X)'].map((start) => ({ after: `${start} ${M === 'H' ? '2D' : '2H'} (P)`, rules: transferAnswers(ONE_NT, M), more: true })),
-  ),
-  { after: '1N (X) XX (P)', rules: [{ call: '2C', shows: { notes: [{ key: 'completes' }], artificial: true } }], more: true },
-  {
-    after: '1N (X) XX (P) 2C (P)',
-    rules: [
-      { call: '2D', shows: { len: { D: [5, 13] }, notes: [{ key: 'signoff' }] }, when: (h) => h.len.D > h.len.C },
-      { call: 'P', shows: { len: { C: [5, 13] }, notes: [{ key: 'toPlay' }] } },
-    ],
-    more: true,
-  },
-)
-for (const theirs of ['D', 'H', 'S'] as Suit[])
   books.push(
-    { after: `1N (2${theirs})`, rules: lebensohl(theirs), more: true },
-    { after: `1N (2${theirs}) 2N (P)`, rules: [{ call: '3C', shows: { notes: [{ key: 'completes' }], artificial: true } }], more: true },
-    { after: `1N (2${theirs}) 2N (P) 3C (P)`, rules: afterLebensohlRelay(theirs), more: true },
+    { after: '1N (2C)', rules: responses(r, 'X').filter((rule) => rule.call !== '2C'), more: true },
+    { after: '1N (2C) X (P)', rules: staymanAnswers(r), more: true },
+    { after: '1N (X)', rules: responses(r, '2C', true), more: true },
+    { after: '1N (X) 2C (P)', rules: staymanAnswers(r), more: true },
+    // Responder goes on after the answer as without the interference (Z2)
+    ...staymanBooks(r, '1N (2C) X (P)'),
+    ...staymanBooks(r, '1N (X) 2C (P)'),
+    // Transfers over a 2♣ overcall or a double: opener completes them as usual
+    ...MAJORS.flatMap((M): Book[] =>
+      ['1N (2C)', '1N (X)'].map((start) => ({ after: `${start} ${M === 'H' ? '2D' : '2H'} (P)`, rules: transferAnswers(r, M), more: true })),
+    ),
+    { after: '1N (X) XX (P)', rules: [{ call: '2C', shows: { notes: [{ key: 'completes' }], artificial: true } }], more: true },
+    {
+      after: '1N (X) XX (P) 2C (P)',
+      rules: [
+        { call: '2D', shows: { len: { D: [5, 13] }, notes: [{ key: 'signoff' }] }, when: (h) => h.len.D > h.len.C },
+        { call: 'P', shows: { len: { C: [5, 13] }, notes: [{ key: 'toPlay' }] } },
+      ],
+      more: true,
+    },
   )
+  for (const theirs of ['D', 'H', 'S'] as Suit[])
+    books.push(
+      { after: `1N (2${theirs})`, rules: lebensohl(r, theirs), more: true },
+      { after: `1N (2${theirs}) 2N (P)`, rules: [{ call: '3C', shows: { notes: [{ key: 'completes' }], artificial: true } }], more: true },
+      { after: `1N (2${theirs}) 2N (P) 3C (P)`, rules: afterLebensohlRelay(r, theirs), more: true },
+    )
+  return books
+}
+
+const books: Book[] = [...notrumpBooks(ONE_NT, '1N'), ...notrumpBooks(TWO_NT, '2N'), ...oneNotrumpExtras(ONE_NT)]
 
 export const notrump: readonly Book[] = books
