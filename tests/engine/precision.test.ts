@@ -13,6 +13,7 @@ import { read } from '../../shared/robot/system/infer.ts'
 import { GIB } from '../../shared/robot/system/gib/index.ts'
 import { PRECISION } from '../../shared/robot/system/precision/index.ts'
 import { LANGS } from '../../shared/messages.ts'
+import { consistencyCheck } from '../../eval/consistency.ts'
 import { evalBoards } from '../../eval/deals.ts'
 
 /** e5-t50: TKB in Precision (docs/systems/precision.md), against the engine itself */
@@ -229,6 +230,17 @@ describe('Reading the auction across systems', () => {
     const seen = new TableReading(next, defender, 'gib')
     expect(seen.hcp('N')[1]).toBeLessThanOrEqual(15)
   })
+})
+
+describe('The consistency check', () => {
+  it('finds no contradiction, nothing wider and nothing left out, on deals and in the quiz', () => {
+    const { conflicts, wide, dropped, calls } = consistencyCheck({ systems: ['precision'], deals: 200 })
+    expect(calls['precision deal']).toBeGreaterThan(1000)
+    expect(calls['precision quiz']).toBeGreaterThan(10)
+    expect(conflicts.map((c) => `${c.pattern} ${c.feature}`)).toEqual([])
+    expect(wide.map((c) => `${c.pattern} ${c.feature}`)).toEqual([])
+    expect(dropped.map((c) => `${c.pattern} ${c.feature}`)).toEqual([])
+  }, 120_000)
 })
 
 describe('The system card', () => {
