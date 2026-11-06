@@ -10,7 +10,7 @@ import { api, ApiError } from '../lib/api.ts'
 import { formatDate } from '../lib/format.ts'
 import { usePreferences } from '../state/PreferencesContext.tsx'
 import { ImportProblems, ImportSource } from './ImportSource.tsx'
-import { Button, ErrorText, Muted } from './ui.tsx'
+import { Button, ErrorText, Input, Muted } from './ui.tsx'
 
 /**
  * Which deal set to practise (`e10-t16`): one of the club's practice sets, or boards of the member's
@@ -70,14 +70,16 @@ const Import = styled.div`
   border-top: 1px solid ${({ theme }) => theme.colors.border};
 `
 
-type Source = (typeof PRACTICE_SET_SOURCES)[number]
+type Source = (typeof PRACTICE_SET_SOURCES)[number] | 'records'
 interface Item {
   id: string
   label: string
 }
 
-export function PracticeSetPicker({ value, onChange }: { value: PracticeSetChoice | undefined; onChange: (set: PracticeSetChoice | undefined) => void }) {
+/** `records`: a teaching table also deals records the teacher may read, by id (`e10-t10`) */
+export function PracticeSetPicker({ value, onChange, records = false }: { value: PracticeSetChoice | undefined; onChange: (set: PracticeSetChoice | undefined) => void; records?: boolean }) {
   const { t, lang } = usePreferences()
+  const sources: readonly Source[] = records ? [...PRACTICE_SET_SOURCES, 'records'] : PRACTICE_SET_SOURCES
   const [source, setSource] = useState<Source>(value?.source ?? 'practice')
   const [items, setItems] = useState<Partial<Record<Source, Item[]>>>({})
   const ownItems = useCallback(
@@ -102,6 +104,13 @@ export function PracticeSetPicker({ value, onChange }: { value: PracticeSetChoic
         return page.boards.filter((b: BoardSummary) => b.mode !== 'imported').map((b: BoardSummary) => ({ id: b.id, label: t.practiceSetBoard(b.boardNo, formatDate(b.finishedAt, lang)) }))
       }
       if (source === 'mine') return ownItems((await api.ownDeals()).deals)
+      if (source === 'records') {
+        // Boards already public: one still kept back would be refused, even to those who played it (§4)
+        const page = await api.searchHistory({ scope: 'all', size: PRACTICE_SET_BOARDS_MAX })
+        return page.boards
+          .filter((b: BoardSummary) => b.revealAt === undefined || b.revealAt <= Date.now())
+          .map((b: BoardSummary) => ({ id: b.id, label: t.practiceSetBoard(b.boardNo, formatDate(b.finishedAt, lang)) }))
+      }
       const { featured } = await api.featured()
       return featured.map((f: FeaturedBoard) => ({ id: f.boardId, label: `${f.title} · ${t.practiceSetBoard(f.board.boardNo, formatDate(f.board.finishedAt, lang))}` }))
     }
@@ -120,7 +129,7 @@ export function PracticeSetPicker({ value, onChange }: { value: PracticeSetChoic
 
   const list = items[source]
   const picked = value && value.source !== 'practice' && value.source === source ? value.ids : []
-  const pick = (ids: string[]) => onChange(ids.length ? { source: source as 'favorites' | 'featured' | 'mine', ids: ids.slice(0, PRACTICE_SET_BOARDS_MAX) } : undefined)
+  const pick = (ids: string[]) => onChange(ids.length ? { source: source as 'favorites' | 'featured' | 'mine' | 'records', ids: ids.slice(0, PRACTICE_SET_BOARDS_MAX) } : undefined)
   const removePicked = async () => {
     const { deals } = await api.removeOwnDeals(picked)
     setItems((before) => ({ ...before, mine: ownItems(deals) }))
@@ -130,7 +139,7 @@ export function PracticeSetPicker({ value, onChange }: { value: PracticeSetChoic
   return (
     <Box>
       <Sources role="radiogroup" aria-label={t.practiceSetLegend}>
-        {PRACTICE_SET_SOURCES.map((s) => (
+        {sources.map((s) => (
           <label key={s}>
             <input
               type="radio"
@@ -200,9 +209,38 @@ export function PracticeSetPicker({ value, onChange }: { value: PracticeSetChoic
           </List>
         </>
       )}
+      {source === 'records' && <RecordById onAdd={(id) => {
+        setItems((before) => ({ ...before, records: [...(before.records ?? []).filter((item) => item.id !== id), { id, label: id }] }))
+        if (!picked.includes(id)) pick([...picked, id])
+      }} />}
       {source === 'mine' && <PbnImport onDeals={(deals) => setItems((before) => ({ ...before, mine: ownItems(deals) }))} />}
       <Muted>{t.practiceSetHint}</Muted>
     </Box>
+  )
+}
+
+const RECORD_ID = /(?:\/history\/)?([\w-]{1,40})\/?(?:[?#].*)?$/
+
+/** A record not in the list: its address or id; the server checks when the table opens that it may be read (§4) */
+function RecordById({ onAdd }: { onAdd: (id: string) => void }) {
+  const { t } = usePreferences()
+  const [text, setText] = useState('')
+  const id = text.trim().match(RECORD_ID)?.[1]
+  return (
+    <Tools>
+      <Input $size="sm" value={text} aria-label={t.teach.recordId} placeholder={t.teach.recordId} onChange={(event) => setText(event.target.value)} />
+      <Button
+        type="button"
+        $size="sm"
+        disabled={!id}
+        onClick={() => {
+          if (id) onAdd(id)
+          setText('')
+        }}
+      >
+        {t.teach.recordAdd}
+      </Button>
+    </Tools>
   )
 }
 

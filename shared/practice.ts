@@ -28,6 +28,8 @@ export const PRACTICE_DEALS: readonly PracticeDeal[] = ['random', ...DEAL_PRESET
 export type PracticeSetChoice =
   | { source: 'practice'; id: string }
   | { source: 'favorites' | 'featured' | 'mine'; ids: string[] }
+  /** Records the teacher may read, by id: a teaching table only (`e10-t10`, `parseTeachSet`) */
+  | { source: 'records'; ids: string[] }
 
 export const PRACTICE_SET_SOURCES = ['practice', 'favorites', 'featured', 'mine'] as const
 /** Boards a set of favourites or featured boards may have */
@@ -203,6 +205,16 @@ export function parseConditions(value: unknown): { conditions: DealConditions } 
 }
 
 const SET_ID = /^[\w-]{1,40}$/
+
+/**
+ * A teaching table's deal set (`e10-t10`): what a practice table may use, or records the teacher may
+ * read (`records`); null when it is not one. Whether they exist and may be used is the server's to check
+ */
+export function parseTeachSet(value: unknown): PracticeSetChoice | null {
+  if (!isObject(value) || value.source !== 'records') return parseSetChoice(value)
+  const ids = parseSetChoice({ ...value, source: 'mine' })
+  return ids && 'ids' in ids ? { source: 'records', ids: ids.ids } : null
+}
 
 /** A deal set as sent from the browser, or null; whether the set or the boards exist is the server's to check */
 function parseSetChoice(value: unknown): PracticeSetChoice | null {
