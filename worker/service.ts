@@ -66,6 +66,7 @@ import { dealWith } from '../shared/dealer.ts'
 import {
   controlledSeats,
   parsePracticeSettings,
+  parseTeachSet,
   PRACTICE_MAX_ATTEMPTS,
   practiceConditions,
   quickRandom,
@@ -203,6 +204,7 @@ import {
   type EventReport,
   type PracticeTableProblem,
   type PracticeTableState,
+  type TeachTableState,
 } from './modes.ts'
 import { DirectMessageStore } from './direct-messages.ts'
 import {
@@ -621,7 +623,7 @@ const BACKFILL_BATCH = 100
 /** How many closed tables the club remembers, to drop their reports that arrive late (§5.10) */
 const CLOSED_KEPT = 200
 /** The table actions only the host may take: outside any table they are `notAtTable`, not `notSeated` */
-const HOST_ACTIONS = new Set<string>(['kick', 'addRobot', 'removeRobot', 'replaceWithRobot'])
+const HOST_ACTIONS = new Set<string>(['kick', 'addRobot', 'removeRobot', 'replaceWithRobot', 'teachUndo', 'teachReplay', 'teachPause', 'teachMark', 'teachUnmark'])
 
 /** The error for changing seats or settings at a challenge or practice table (`fixedSeats`) */
 const fixedTable = (mode: TableMode | undefined) =>
@@ -3763,6 +3765,8 @@ export class ClubService {
         return this.quickSeat(userId)
       case 'createPractice':
         return this.createPractice(userId, message.settings, message.access)
+      case 'createTeaching':
+        return this.createTeaching(userId, message.set, message.access)
       case 'joinTable':
         return this.joinTable(userId, this.requireEntry(message.tableId))
       case 'requestJoin':
@@ -5230,6 +5234,42 @@ export class ClubService {
   }
 
   /**
+   * Opens a teaching table (`e10-t10`, §5.11), with the `teach` permission: the teacher watches or
+   * takes a seat, and students come in as its access mode says, hidden unless chosen. The deals are
+   * read now and kept on the table, never sent (§4); without any the table deals at random. The
+   * teacher leaves when the table closes, like a practice table's member
+   */
+  private async createTeaching(userId: string, wanted: unknown, access?: unknown) {
+    this.requirePermission(userId, 'teach')
+    if (access !== undefined && !TABLE_ACCESS.includes(access as never)) throw new ClubError('badTableSettings')
+    const set = wanted === undefined ? null : parseTeachSet(wanted)
+    if (wanted !== undefined && !set) throw new ClubError('badPracticeSettings', { field: 'set' })
+    const problems = set ? await this.practiceProblems(userId, set) : undefined
+    this.checkNotInMatch(userId)
+    await this.leave(userId)
+    const state: TeachTableState = { dealt: 0, ...(problems && { problems }) }
+    const table: Table = {
+      id: randomId(6),
+      number: this.freeNumber(),
+      hostId: userId,
+      seats: { N: null, E: null, S: null, W: null },
+      spectators: [userId],
+      boardsPlayed: 0,
+      board: null,
+      chat: [],
+      createdAt: this.now(),
+      mode: 'teach',
+      modeState: state,
+      settings: { ...PRACTICE_TABLE_SETTINGS, ...(access !== undefined && { access: access as TableAccess }) },
+      names: { [userId]: this.users.get(userId)!.username },
+      blocks: { [userId]: this.blocks.of(userId) },
+      ...this.speedsFor(userId),
+      robotKind: this.defaultKindOf(userId),
+    }
+    this.applyEntry(await this.tables.get(table.id).open(table))
+  }
+
+  /**
    * The boards of a deal set to practise (`e10-t16`): a practice set of the club's, or boards of the
    * member's favourites or of the featured list. A board must be one the member may see and already
    * public (§4): a challenge or team match board still kept back is refused even to its players,
@@ -5247,8 +5287,10 @@ export class ClubService {
     const favorites = set.source === 'favorites' ? new Set(favoriteIds(this.store.sql, userId)) : null
     const problems: PracticeTableProblem[] = []
     for (const id of set.ids) {
-      const featured = favorites ? null : await this.featured.get(id, userId)
-      if (favorites ? !favorites.has(id) : !featured) throw new ClubError('boardGone', {}, 404)
+      // Records the teacher may read (`e10-t10`): the same rule as below, nothing more
+      const anyRecord = set.source === 'records'
+      const featured = favorites || anyRecord ? null : await this.featured.get(id, userId)
+      if (!anyRecord && (favorites ? !favorites.has(id) : !featured)) throw new ClubError('boardGone', {}, 404)
       const record = await this.store.get<BoardRecord>(`board:${id}`)
       const now = this.now()
       if (!record || !recordVisible(record, userId, now) || (record.revealAt !== undefined && record.revealAt > now))
@@ -5330,6 +5372,7 @@ export class ClubService {
       (t) =>
         !fixedSeats(t.mode) &&
         t.mode !== 'team' &&
+        t.mode !== 'teach' &&
         !(seated && t.id === here!.id) &&
         mayEnter(t, userId, false) &&
         !this.blocks.has(t.hostId, userId),
@@ -5468,7 +5511,7 @@ export class ClubService {
   private async callDirector(userId: string) {
     const entry = this.entryOf(userId)
     if (!entry) throw new ClubError('notSeated')
-    if (fixedSeats(entry.mode)) throw new ClubError('directorNotHere')
+    if (fixedSeats(entry.mode) || entry.mode === 'teach') throw new ClubError('directorNotHere')
     if (!this.seatIn(entry, userId)) throw new ClubError('notSeated')
     this.applyEntry(await this.tables.get(entry.id).director(userId, true))
     const username = this.users.get(userId)!.username
@@ -6012,6 +6055,7 @@ export class ClubService {
       hostName: this.users.get(t.hostId)?.username ?? '—',
       settings: t.settings,
       ...(t.mode === 'practice' && { practice: true }),
+      ...(t.mode === 'teach' && { teaching: true }),
       seats: this.occupants(t, isOnline),
       spectators: t.spectators.length,
       boardsPlayed: t.boardsPlayed,

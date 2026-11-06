@@ -208,6 +208,36 @@ describe('casual tables', () => {
   })
 })
 
+describe('teaching tables', () => {
+  it('send a seated student what any player sees, a watcher what is face up, and the teacher all four (e10-t10)', async () => {
+    const tia = await t.member('tia')
+    await t.club().adminSetPermissions(tia, ['teach'])
+    const amy = await t.member('amy')
+    const ben = await t.member('ben')
+    await t.send(tia, { type: 'createTeaching', access: 'public' })
+    const table = t.club().lobbyView(tia).myTableId!
+    await t.send(amy, { type: 'sit', tableId: table, seat: 'S' })
+    await t.send(ben, { type: 'joinTable', tableId: table })
+    for (const seat of ['N', 'E', 'W'] as const) await t.send(tia, { type: 'addRobot', seat })
+    expect(Object.keys(t.view(tia)!.board!.hands)).toHaveLength(4)
+    await t.playUntil([amy], () => t.tableState(table)!.board?.phase === 'finished')
+    expect(noHiddenCards(amy)).toBeGreaterThan(2)
+    // The watcher's hands are hidden even though the table takes watchers (`settings.allowKibitz`)
+    let watched = 0
+    for (const message of inbox(ben)) {
+      if (message.type !== 'table' || !message.table?.board || message.table.board.phase === 'finished') continue
+      const board = message.table.board
+      const led = board.tricks.some((trick) => trick.cards.length > 0)
+      for (const seat of Object.keys(board.hands)) expect(led && seat === board.dummy, `ben saw ${seat}`).toBe(true)
+      watched++
+    }
+    expect(watched).toBeGreaterThan(2)
+    // Nothing of it in any list
+    expect((await t.club().search(amy, DEFAULT_HISTORY_QUERY)).total).toBe(0)
+    expect(t.tableState(table)!.outbox).toBeUndefined()
+  })
+})
+
 describe('practice tables', () => {
   it('shows all four hands to the member who turned on 顯示四家, and nobody else any more than before (e10-t16)', async () => {
     const amy = await t.member('amy')

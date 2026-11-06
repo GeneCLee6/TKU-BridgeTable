@@ -40,10 +40,12 @@ import type {
   TableMode,
   TablePractice,
   TableSettings,
+  TableTeach,
 } from '../shared/protocol.ts'
+import type { TeachAnchor, TeachMark } from '../shared/teaching.ts'
 import { isRobotId, TABLE_REQUEST_MS, tableSettingsFrom, type RobotSpeed } from '../shared/protocol.ts'
 import { openToOtherClubs, type GuestSeat, type GuestTable } from '../shared/public-lobby.ts'
-import type { EventReport, PracticeTableState } from './modes.ts'
+import type { EventReport, PracticeTableState, TeachTableState } from './modes.ts'
 import { isOpenChallenge, type ChallengeTraveller, type ChallengeView } from '../shared/challenge.ts'
 import type { DealSource } from '../shared/deal-source.ts'
 import type { MemberProfile, Profile } from '../shared/profile.ts'
@@ -400,6 +402,8 @@ export function boardView(
      * for its member alone (`e10-t16`). Nothing else changes: no bidding box, no hints for them
      */
     shown?: Seat[]
+    /** A teaching table is paused (`e10-t11`): nobody has anything to do until it goes on */
+    frozen?: boolean
   } = {},
 ): BoardView {
   const finished = board.phase === 'finished'
@@ -438,7 +442,7 @@ export function boardView(
 
   const turn = turnOf(board)
   // The seat the viewer calls for now, if it is the turn of one of theirs
-  const calling = board.phase === 'auction' && turn && acts.includes(turn) ? turn : null
+  const calling = !extras.frozen && board.phase === 'auction' && turn && acts.includes(turn) ? turn : null
   const view: BoardView = {
     boardNo: board.boardNo,
     dealer: board.dealer,
@@ -453,7 +457,7 @@ export function boardView(
     tricks: tricksOf(board),
     tricksWon: tricksWon(board),
     legalCards:
-      viewer && turn && !board.claim && board.phase === 'play' && controllerOf(board, turn) === viewer
+      !extras.frozen && viewer && turn && !board.claim && board.phase === 'play' && controllerOf(board, turn) === viewer
         ? legalCards(board, turn)
         : [],
     legalCalls: calling ? [...legalCalls(board.auction, board.dealer)] : [],
@@ -463,7 +467,7 @@ export function boardView(
       !extras.undo &&
       (canUndoFor(board, viewer, extras.auctionSeat ?? viewer) ||
         (board.phase === 'auction' && acts.some((seat) => seat !== viewer && canUndoFor(board, seat)))),
-    canClaim: !!viewer && board.phase === 'play' && viewer !== dummy && !board.claim,
+    canClaim: !extras.frozen && !!viewer && board.phase === 'play' && viewer !== dummy && !board.claim,
   }
 
   if (board.claim) {
@@ -923,6 +927,45 @@ export function practiceView(table: Pick<Table, 'mode' | 'modeState' | 'board'>)
         },
       }),
       ...(reviewed && { review }),
+    },
+  }
+}
+
+/**
+ * The marks one member may be sent (`e10-t11`, §4): a mark on a card only if that card is already in
+ * what the member was sent, in a hand of their `BoardView` or played on the table, so a circle or an
+ * arrow never tells where a hidden card is. Worked out from the very view they get, at every send, so
+ * a mark stops going out the moment a card goes back into a hidden hand (an undo). Ids are numbered
+ * afresh, so a gap never tells that something was left out, and with nothing to send for them nobody
+ * hears of a mark on a card they cannot see. Text goes to everyone: it is the teacher's own words
+ */
+export function visibleTeachMarks(marks: readonly TeachMark[], view: BoardView | null): TeachMark[] {
+  if (!view) return []
+  const seen = new Set<string>(Object.values(view.hands).flat())
+  for (const trick of view.tricks) for (const { card } of trick.cards) seen.add(card)
+  const shows = (anchor: TeachAnchor) => 'seat' in anchor || seen.has(anchor.card)
+  return marks
+    .filter((mark) => (mark.kind === 'circle' ? seen.has(mark.card) : mark.kind === 'arrow' ? shows(mark.from) && shows(mark.to) : true))
+    .map((mark, id) => ({ ...mark, id }))
+}
+
+/**
+ * What someone at a teaching table sees of it (§4): whether it is paused, the marks they may be sent
+ * and which of the chosen deals is on the table; never the deals. The teacher sees every mark and
+ * alone hears whether a step can be taken back
+ */
+export function teachView(table: Pick<Table, 'mode' | 'modeState' | 'board'>, view: BoardView | null, teacher: boolean): { teach?: TableTeach } {
+  if (table.mode !== 'teach') return {}
+  const { dealt, problems, paused, marks = [], openHands } = table.modeState as TeachTableState
+  const index = problems?.length && dealt > 0 ? (dealt - 1) % problems.length : null
+  const problem = index === null ? null : problems![index]
+  return {
+    teach: {
+      paused: !!paused,
+      marks: teacher ? marks : visibleTeachMarks(marks, view),
+      openHands: !!openHands,
+      ...(problem && { problem: { seq: index! + 1, count: problems!.length, ...(problem.title && { title: problem.title }) } }),
+      ...(teacher && { canUndo: !!table.board?.auction.length }),
     },
   }
 }

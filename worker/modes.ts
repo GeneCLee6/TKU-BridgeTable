@@ -14,6 +14,7 @@ import {
 } from '../shared/practice.ts'
 import type { BoardState } from '../shared/game.ts'
 import type { BoardRecord, PracticeReview, RobotKind, TableMode } from '../shared/protocol.ts'
+import type { TeachMark } from '../shared/teaching.ts'
 import type { Room } from '../shared/team-match.ts'
 import { challengeTakesPart } from './challenge-flow.ts'
 import type { Challenge, ChallengeResult } from './challenges.ts'
@@ -311,7 +312,46 @@ const practice: TableModeHooks = {
   boardFinished: () => null,
 }
 
-const MODES: Record<TableMode, TableModeHooks> = { casual, challenge, practice, team: teamMode, pairs: pairsMode }
+/**
+ * A teaching table's state (`e10-t10`, `e10-t11`, §5.11): the deals the teacher chose (kept on the
+ * server like a practice table's, never sent), whether it is paused and what is marked on it
+ */
+export interface TeachTableState {
+  dealt: number
+  problems?: PracticeTableProblem[]
+  paused?: boolean
+  marks?: TeachMark[]
+  /** The next mark's id */
+  nextMark?: number
+  /** People without a seat see all four hands; hidden until the teacher says so */
+  openHands?: boolean
+}
+
+export const teachStateOf = (table: Table): TeachTableState | null =>
+  table.mode === 'teach' ? (table.modeState as TeachTableState) : null
+
+export const teachPaused = (table: Table): boolean => !!teachStateOf(table)?.paused
+
+/**
+ * A teacher's table: the chosen deals in turn and round again, or any deal. The next board comes
+ * only when the teacher asks, and nothing played here is recorded (`TableService.applyAction`), so
+ * `record` never runs; it is here because every mode has one
+ */
+const teach: TableModeHooks = {
+  deal: (table, ctx) => {
+    const state = teachStateOf(table)!
+    const dealt = state.dealt++
+    if (state.problems?.length) {
+      const problem = state.problems[dealt % state.problems.length]
+      return { boardNo: problem.boardNo, hands: structuredClone(problem.hands) }
+    }
+    return { boardNo: dealt + 1, hands: deal(ctx.random) }
+  },
+  record: (_table, record) => ({ ...record, mode: 'teach' }),
+  boardFinished: () => null,
+}
+
+const MODES: Record<TableMode, TableModeHooks> = { casual, challenge, practice, team: teamMode, pairs: pairsMode, teach }
 
 /** Tables saved before modes existed are casual */
 export function modeOf(table: Table): TableModeHooks {

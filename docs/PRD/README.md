@@ -15,30 +15,30 @@
 | [`01-bbo-competitive-analysis.md`](01-bbo-competitive-analysis.md) | BBO 競品分析：功能盤點、GIB／GIBBO 怎麼做、挑戰與隊制賽對照、我們怎麼超越 |
 | `e1` … `e12` | 各 epic，見下表 |
 
-94／137 Epic 進度
+## Epic 進度
 
-統計日期 2026-11-05。勾選以各 epic 文件為準，改了勾選順手更新這張表。
+統計日期 2026-11-06。勾選以各 epic 文件為準，改了勾選順手更新這張表。
 
 | Epic | 名稱 | Task 完成 | AC 完成 | M1 task 數 | 狀態 |
 | --- | --- | --- | --- | --- | --- |
 | [E1](e1-accounts-identity-community.md) | 帳號、身分與社群 | 36／36 | 8／9 | 13 | in-progress |
 | [E2](e2-table-engine-realtime.md) | 牌桌引擎與即時連線 | 36／36 | 13／14 | 12 | in-progress |
-| [E3](e3-table-ui-experience.md) | 牌桌介面與體驗 | 44／44 | 12／12 | 13 | done |
+| [E3](e3-table-ui-experience.md) | 牌桌介面與體驗 | 48／48 | 12／12 | 13 | done |
 | [E4](e4-records-favorites-search.md) | 牌局紀錄、收藏與搜尋 | 38／39 | 10／13 | 24 | in-progress |
 | [E5](e5-robot-bidding-brain.md) | 智慧機器人（一）：叫牌制度引擎、2/1 機器人與完整 5542 | 57／65 | 9／14 | 45 | in-progress |
-| [E6](e6-robot-play-levels-evaluation.md) | 智慧機器人（二）：打牌大腦、TKB 與評測 | 25／42 | 6／14 | 14 | in-progress |
+| [E6](e6-robot-play-levels-evaluation.md) | 智慧機器人（二）：打牌大腦、TKB 與評測 | 27／44 | 6／14 | 14 | in-progress |
 | [E7](e7-challenges.md) | 挑戰（單挑與多人） | 29／29 | 6／9 | 25 | in-progress |
 | [E8](e8-two-table-team-match.md) | 雙桌隊制賽 | 22／22 | 9／9 | 17 | done |
 | [E9](e9-tournaments-rankings.md) | 比賽、積分與錦標賽 | 17／17 | 5／8 | 0 | in-progress |
-| [E10](e10-practice-teaching.md) | 練習與教學 | 11／16 | 4／9 | 6 | in-progress |
+| [E10](e10-practice-teaching.md) | 練習與教學 | 13／16 | 5／9 | 6 | in-progress |
 | [E11](e11-platform-ops-scale.md) | 平台、維運、安全與規模 | 31／32 | 6／10 | 8 | in-progress |
 | [E12](e12-commercialization.md) | 多社團與商業化 | 8／19 | 1／9 | 0 | in-progress |
 | [E13](e13-community-forum.md) | 社群與論壇 | 13／13 | 5／7 | 0 | in-progress |
-| | **合計** | **367／410** | **94／137** | **177** | |
+| | **合計** | **375／416** | **95／137** | **177** | |
 
 里程碑分布：M0 95 個（全部完成）、M1 177 個、M2 97 個、M3 25 個。作廢的 task（刪除線）不計入。
 
-94／137 Task 格式
+## Task 格式
 
 ```markdown
 - [ ] `e4-t16` 合約篩選 UI：階數＋花色選擇器 … · AC-4.6 · S · ← e4-t14
@@ -64,7 +64,7 @@
 
 里程碑：**M0** 社團 MVP（已上線）、**M1** 社團完整版、**M2** 公開測試、**M3** 商業化（`00-prd.md` §11）。同一個 epic 內，M1 的 task 不依賴 M2 以後的 task。
 
-94／137 M1 建議順序
+## M1 建議順序
 
 M1 的四大功能（收藏／精選／篩選、聰明的機器人、挑戰、雙桌隊制賽）共用三個基礎，先做基礎再平行開四條線：
 
@@ -104,7 +104,7 @@ flowchart LR
 | 第 2 波 | 四條線：紀錄（E4）、挑戰（E7）、雙桌（E8，等 `e7-t02`、`e7-t04`）、機器人（E5 搬移與推論、E6 DDS、評測、等級） | 四條線之間 |
 | 第 3 波 | 補齊體驗：E1 好友與私訊、E3 二次確認與鍵盤、E10 練習桌與叫牌提示卡、E11 日誌與備份、E5 完整 5542 與題庫擴充 | 全部 |
 
-94／137 怎麼新增一個 epic
+## 怎麼新增一個 epic
 
 1. 檔名 `e<n>-<英文-slug>.md`，frontmatter 照現有 epic（`title`、`date`、`status`、`epic`、`owner`、`milestones`、`depends_on`）。
 2. 章節：背景、目標、非目標、需求、設計方向、驗收條件、Task 拆分、風險與對策、未決問題。
