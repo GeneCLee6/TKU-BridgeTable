@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import styled from 'styled-components'
 import { AppHeader } from './components/AppHeader.tsx'
+import { PageBoundary, PartBoundary } from './components/ErrorBoundary.tsx'
 import { NoticeBanners } from './components/NoticeBanners.tsx'
 import { TOAST_TIMEOUT, ToastProvider, useToast } from './components/Toast.tsx'
 import { Muted, PageMain } from './components/ui.tsx'
@@ -40,6 +41,7 @@ import { VugraphPage } from './pages/VugraphPage.tsx'
 import { PlatformPage } from './pages/PlatformPage.tsx'
 import { ProfilePage } from './pages/ProfilePage.tsx'
 import { GuestTablePage, PublicLobbyPage } from './pages/PublicLobbyPage.tsx'
+import { PostGamePage } from './pages/PostGamePage.tsx'
 import { SharedBoardPage } from './pages/SharedBoardPage.tsx'
 import { TablePage } from './pages/TablePage.tsx'
 import { AuthProvider, useAuth, useFeature } from './state/AuthContext.tsx'
@@ -130,8 +132,13 @@ function Routed() {
   if (user === null) return <LoginPage />
   return (
     <>
-      <ConnectionBanner />
-      <NoticeBanners />
+      <PartBoundary name="connection-banner">
+        <ConnectionBanner />
+      </PartBoundary>
+      <PartBoundary name="notice-banners">
+        <NoticeBanners />
+      </PartBoundary>
+      <PageBoundary name="route">
       <Routes>
         <Route path="/" element={<LobbyPage />} />
         <Route path="/table/:tableId" element={<TablePage />} />
@@ -152,6 +159,7 @@ function Routed() {
         <Route path="/matches/:matchId/replay" element={<MatchReplayPage />} />
         <Route path="/history" element={<HistoryPage />} />
         <Route path="/history/:recordId" element={<BoardPage />} />
+        <Route path="/history/:recordId/analysis" element={<PostGamePage />} />
         <Route path="/history/:recordId/vs/:otherId" element={<ComparePage />} />
         <Route path="/featured" element={<FeaturedPage />} />
         <Route path="/favorites" element={<FavoritesPage />} />
@@ -180,8 +188,13 @@ function Routed() {
         {user.platformOwner && <Route path="/platform" element={<PlatformPage />} />}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
-      <ServerErrorToast />
-      <ClubSounds />
+      </PageBoundary>
+      <PartBoundary name="server-error-toast">
+        <ServerErrorToast />
+      </PartBoundary>
+      <PartBoundary name="club-sounds">
+        <ClubSounds />
+      </PartBoundary>
     </>
   )
 }
@@ -194,8 +207,13 @@ export function App() {
         <AuthProvider>
           <ClubProvider>
             <InvitationsProvider>
-              <AppHeader />
-              <Routed />
+              <PartBoundary name="header">
+                <AppHeader />
+              </PartBoundary>
+              {/* The pages before sign-in and what comes before the routes; the routes have their own, under the banners */}
+              <PageBoundary name="page">
+                <Routed />
+              </PageBoundary>
             </InvitationsProvider>
           </ClubProvider>
         </AuthProvider>

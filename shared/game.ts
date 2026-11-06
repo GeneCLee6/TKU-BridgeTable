@@ -267,6 +267,20 @@ export function undoFor(state: BoardState, seat: Seat, auctionSeat: Seat = seat)
   return { ...rest, phase: 'auction', contract: null, auction: state.auction.slice(0, from) }
 }
 
+/**
+ * A teacher's undo (`e10-t10`): takes back the last step of the board, whoever made it and without
+ * asking anyone: a claim, then the last card, then the last call. A finished board opens again; the
+ * auction reopens when the last call of a finished auction is taken back
+ */
+export function undoLast(state: BoardState): BoardState {
+  const { claim, result: _result, claimed, ...rest } = state
+  // A claim, waiting or accepted, is the last step: the cards go back to how they were
+  if (claim) return { ...rest, phase: 'play' }
+  if (state.play.length) return { ...rest, ...(claimed && { claimed }), phase: 'play', play: state.play.slice(0, -1) }
+  if (!state.auction.length) throw new GameError('nothingToUndo')
+  return { ...rest, phase: 'auction', contract: null, auction: state.auction.slice(0, -1) }
+}
+
 /** Whether `undoFor` has something to take back for the seat */
 export function canUndoFor(state: BoardState, seat: Seat, auctionSeat: Seat = seat): boolean {
   try {

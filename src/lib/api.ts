@@ -69,7 +69,7 @@ import type { FeaturedBoard, FeaturedInput } from '../../shared/featured.ts'
 import type { FeatureFlag, FeatureState, FeatureView } from '../../shared/features.ts'
 import { NOTICES_API, type ClubBanner, type ClubBannerInput, type NoticesView, type PlatformNoticeInput } from '../../shared/notices.ts'
 import type { ClubApplicationInput, ClubApplyOptions, ClubStatus, PlatformView } from '../../shared/platform.ts'
-import type { AdminSupportView, SupportInput, SupportStatus } from '../../shared/support.ts'
+import type { AdminSupportView, MySupportReport, SupportInput, SupportStatus } from '../../shared/support.ts'
 import type { SessionInfo } from '../../shared/account.ts'
 import type { PushKinds, PushView } from '../../shared/push.ts'
 import type { ImportedBoard, ImportedDeal } from '../../shared/imports.ts'
@@ -221,6 +221,7 @@ export const api = {
   notices: () => request<NoticesView>(NOTICES_API),
   /** A member's support report (e12-t16) */
   sendSupportReport: (input: SupportInput) => post<{ id: string }>('/api/support', input),
+  mySupportReports: () => request<{ reports: MySupportReport[] }>('/api/support/mine'),
   logout: () => post<{ ok: true }>('/api/logout'),
   changePassword: (current: string, next: string) => post<{ ok: true }>('/api/account/password', { current, next }),
   /** The account settings the server keeps (e1-t24) */
@@ -286,6 +287,8 @@ export const api = {
   sharedBoard: (token: string) => request<{ shared: SharedBoard }>(`/api/share/${encodeURIComponent(token)}`),
   /** The records page's search as one PBN file (e4-t36): its first LIMITS.exportBoardsMax boards */
   exportPbnPath: (query: Partial<HistoryQuery>) => `/api/history/export.pbn?${historyQueryString(query)}`,
+  /** A board's whole session at its table, the boards this member may read (post-game analysis, e10-t12) */
+  session: (id: string) => request<{ records: BoardRecord[] }>(`/api/history/${encodeURIComponent(id)}/session`),
   /** A board's whole session at its table as one LIN file (e4-t37) */
   sessionLinPath: (id: string) => `/api/history/${encodeURIComponent(id)}/session.lin`,
   /** Everyone's result on the same board of its challenge, if the member may see it (e4-t32) */

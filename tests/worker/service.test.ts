@@ -787,9 +787,9 @@ describe('admin', () => {
       { id: ben.id, admin: true },
     ])
     expect(await listed()).toEqual([
-      ['admin', true, ['bookEdit', 'bookReview', 'bookImport', 'boardCurate', 'tkuSystem', 'forumModerate']],
+      ['admin', true, ['bookEdit', 'bookReview', 'bookImport', 'boardCurate', 'tkuSystem', 'forumModerate', 'teach']],
       ['amy', false, ['bookEdit', 'bookImport']],
-      ['ben', true, ['bookEdit', 'bookReview', 'bookImport', 'boardCurate', 'tkuSystem', 'forumModerate']],
+      ['ben', true, ['bookEdit', 'bookReview', 'bookImport', 'boardCurate', 'tkuSystem', 'forumModerate', 'teach']],
     ])
     // One bad change stores nothing
     const before = await listed()
@@ -1106,7 +1106,7 @@ describe('permissions', () => {
     expect(admin.permissions).toEqual([])
     expect(() => club.requirePermission(admin.id, 'bookEdit')).toThrow('管理員要先開啟兩步驟登入')
     await adminWithTwoFactor(club, admin.id)
-    expect(club.requirePermission(admin.id, 'bookEdit').permissions).toEqual(['bookEdit', 'bookReview', 'bookImport', 'boardCurate', 'tkuSystem', 'forumModerate'])
+    expect(club.requirePermission(admin.id, 'bookEdit').permissions).toEqual(['bookEdit', 'bookReview', 'bookImport', 'boardCurate', 'tkuSystem', 'forumModerate', 'teach'])
     const amy = await join('amy')
     expect(() => club.requirePermission(amy.id, 'bookEdit')).toThrow('沒有這項權限')
     await club.adminSetPermissions(amy.id, ['bookImport', 'bookEdit', 'bookEdit'])
@@ -1115,7 +1115,7 @@ describe('permissions', () => {
     expect(() => club.requirePermission(amy.id, 'bookImport')).toThrow(ClubError)
     await expect(club.adminSetPermissions(amy.id, ['everything'])).rejects.toThrow('不明的權限')
     expect((await club.adminUsers()).map((u) => [u.username, u.permissions])).toEqual([
-      ['admin', ['bookEdit', 'bookReview', 'bookImport', 'boardCurate', 'tkuSystem', 'forumModerate']],
+      ['admin', ['bookEdit', 'bookReview', 'bookImport', 'boardCurate', 'tkuSystem', 'forumModerate', 'teach']],
       ['amy', ['bookEdit']],
     ])
     expect(() => club.requirePermission(admin.id, 'bookImport')).not.toThrow()

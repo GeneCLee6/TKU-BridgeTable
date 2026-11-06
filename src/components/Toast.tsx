@@ -3,6 +3,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import styled, { css, type DefaultTheme } from 'styled-components'
 import { useT } from '../state/PreferencesContext.tsx'
 import { mobile } from '../styles/tokens.ts'
+import { PartBoundary } from './ErrorBoundary.tsx'
 
 /**
  * Toasts (DESIGN.md §5.5): success, error and info, bottom right on a desktop and bottom centre
@@ -70,11 +71,13 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   return (
     <ToastContext.Provider value={api}>
       {children}
-      <Stack>
-        {items.map((item) => (
-          <ToastItem key={item.id} item={item} onClose={() => dismiss(item.id)} />
-        ))}
-      </Stack>
+      <PartBoundary name="toasts" resetKey={items.length}>
+        <Stack>
+          {items.map((item) => (
+            <ToastItem key={item.id} item={item} onClose={() => dismiss(item.id)} />
+          ))}
+        </Stack>
+      </PartBoundary>
     </ToastContext.Provider>
   )
 }

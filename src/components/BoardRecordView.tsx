@@ -1,6 +1,6 @@
-import { Download, ExternalLink, LifeBuoy, Link2, Share2, Swords, Trash2 } from 'lucide-react'
+import { Download, ExternalLink, LifeBuoy, Link2, ListChecks, Share2, Swords, Trash2 } from 'lucide-react'
 import { useMemo, useState, type ReactNode } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import styled, { css } from 'styled-components'
 import { actionTimes, realGaps } from '../../shared/board-events.ts'
 import { rankLabel, rankOf, SEATS, suitOf } from '../../shared/cards.ts'
@@ -153,7 +153,10 @@ export function BoardRecordView({
   const times = useMemo(() => actionTimes(record.events, board.auction.length, total), [record.events, board.auction.length, total])
   const gaps = useMemo(() => times && realGaps(times, record.startedAt), [times, record.startedAt])
   const [realSpeed, setRealSpeed] = useState(false)
-  const replay = useTrickReplay(total, REPLAY_CARD_MS, realSpeed && gaps ? gaps : undefined)
+  // The post-game analysis (e10-t12) links to a step: the replay starts there, in double-dummy mode
+  const [params] = useSearchParams()
+  const linkedStep = framed ? Number.parseInt(params.get('step') ?? '', 10) : NaN
+  const replay = useTrickReplay(total, REPLAY_CARD_MS, realSpeed && gaps ? gaps : undefined, Number.isNaN(linkedStep) ? 0 : linkedStep)
   // A ruling given or taken back on this page (`e2-t35`) shows at once
   const [ruling, setRuling] = useState(record.ruling)
   const ruled = ruling === record.ruling ? record : { ...record, ruling }
@@ -165,7 +168,7 @@ export function BoardRecordView({
   const [openedAt] = useState(() => Date.now())
   // Double-dummy mode in the replay (BBO's "DD"): only a finished board with a contract
   const analysable = canAnalyse(board) && !!board.contract
-  const [ddOn, setDdOn] = useState(false)
+  const [ddOn, setDdOn] = useState(!Number.isNaN(linkedStep))
   const dd = useDoubleDummyReplay(board, step, analysable && ddOn, replay.playing)
   // 「用這副牌挑戰」 (`e7-t22`): only a board the viewer played with three robots, of a system they
   // may set up (the club's needs `tkuSystem`, ROBOT.md §7)
@@ -361,6 +364,12 @@ export function BoardRecordView({
                   {t.forum.share}
                 </Button>
               ))}
+            {framed && analysable && (
+              <Button as={Link} to={`/history/${encodeURIComponent(record.id)}/analysis`} $small>
+                <ListChecks size={16} aria-hidden />
+                {t.postGame.title}
+              </Button>
+            )}
             {robots && (
               <Button type="button" $small onClick={() => setChallenging(true)}>
                 <Swords size={16} aria-hidden />

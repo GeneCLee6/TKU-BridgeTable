@@ -65,6 +65,8 @@ export const PUSH_GROUPS = {
     'articlePublished',
   ],
   forum: ['forumReply', 'forumMention', 'forumAnnouncement', 'forumPinned', 'forumHidden', 'forumUnhidden'],
+  // A member's own reports (ARCHITECTURE.md §1「客服回報」): every member has them, unlike the admins' group below
+  support: ['supportResolved'],
   admin: ['application', 'passwordResetRequested', 'filesNearlyFull', 'supportReport'],
   // The platform owner's only (e12-t06): "My account" shows it to them alone
   platform: ['clubApplication', 'supportForwarded'],
