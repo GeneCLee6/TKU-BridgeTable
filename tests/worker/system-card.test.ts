@@ -3,10 +3,13 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import clubCard from 'virtual:system-card-tku'
 import publicCard from 'virtual:system-card-gib'
+import saycCard from 'virtual:system-card-sayc'
 import { TKU_CARD_API, type Me } from '../../shared/protocol.ts'
 import { cardRows, clubOnlyRows, normalized, rowsIn } from '../../shared/robot/system/card-leaks.ts'
 import { deriveCard } from '../../shared/robot/system/card.ts'
 import { GIB } from '../../shared/robot/system/gib/index.ts'
+import { OPEN_SYSTEMS } from '../../shared/robot/system/open-systems.ts'
+import { SAYC } from '../../shared/robot/system/sayc/index.ts'
 import { TKU } from '../../shared/robot/system/tku/index.ts'
 import { ClubError } from '../../worker/errors.ts'
 import { tkuCardResponse } from '../../worker/system-card.ts'
@@ -62,7 +65,7 @@ describe('who gets the club’s card', () => {
 describe('nothing of the club’s card in the public assets', () => {
   const club = deriveCard(TKU)
   const open = deriveCard(GIB)
-  const rows = clubOnlyRows(club, open)
+  const rows = clubOnlyRows(club, [open])
 
   it('the browser never imports the club’s module', () => {
     expect(publicCard.system).toBe('gib')
@@ -94,5 +97,20 @@ describe('nothing of the club’s card in the public assets', () => {
 
   it('finds nothing in the 2/1 card, so shipping that is fine', () => {
     expect(rowsIn(rows, [JSON.stringify(publicCard)])).toEqual([])
+  })
+
+  it('ships the SAYC card in a chunk of its own, and counts its rows as public', () => {
+    expect(saycCard.system).toBe('sayc')
+    expect(saycCard).toEqual(JSON.parse(JSON.stringify(deriveCard(SAYC))))
+    expect(readFileSync('src/lib/systemCards.ts', 'utf8')).toContain('virtual:system-card-sayc')
+    const all = clubOnlyRows(club, Object.values(OPEN_SYSTEMS).map(deriveCard))
+    expect(rowsIn(all, [JSON.stringify(saycCard), JSON.stringify(publicCard)])).toEqual([])
+    expect(all.length).toBeGreaterThan(100)
+    expect(all.some((row) => row.includes('oneMajorWeakTwo'))).toBe(true)
+  })
+
+  it('leaves the club out of the list of public systems', () => {
+    expect(Object.keys(OPEN_SYSTEMS)).not.toContain('tku')
+    expect(readFileSync('shared/robot/system/card-leaks.ts', 'utf8')).not.toMatch(/tku\//)
   })
 })

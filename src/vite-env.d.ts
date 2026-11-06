@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 
-/** The 2/1 system card, worked out when the site is built (scripts/system-cards-plugin.ts) */
-declare module 'virtual:system-card-gib' {
+/** A public system's card, worked out when the site is built (scripts/system-cards-plugin.ts) */
+declare module 'virtual:system-card-*' {
   const card: import('../shared/robot/system/card.ts').SystemCard
   export default card
 }

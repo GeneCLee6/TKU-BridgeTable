@@ -8,13 +8,13 @@ import { auctionCheck, auctionConflicts, consistencyCheck, contradictions, dropp
  */
 
 /** Conflicts allowed in the sample (a ratchet: never raise it) */
-const MOST = { tku: 0, gib: 0 }
+const MOST = { tku: 0, gib: 0, sayc: 0 }
 
 /** Explanations wider than what the player had shown, allowed in the sample (Y2; a ratchet too) */
-const MOST_WIDE = { tku: 0, gib: 0 }
+const MOST_WIDE = { tku: 0, gib: 0, sayc: 0 }
 
 /** Explanations that leave out something the player had shown, allowed in the sample (Z1; a ratchet too) */
-const MOST_DROPPED = { tku: 0, gib: 0 }
+const MOST_DROPPED = { tku: 0, gib: 0, sayc: 0 }
 
 describe('dropped', () => {
   it('flags a feature of the whole picture the explanation does not tell, in the call or in `before`', () => {
@@ -70,7 +70,7 @@ describe('the consistency check', () => {
     const { conflicts, wide, dropped: left, calls } = consistencyCheck({ deals: 200 })
     expect(calls['tku deal']).toBeGreaterThan(1000)
     expect(calls['gib quiz']).toBeGreaterThan(100)
-    for (const system of ['tku', 'gib'] as const) {
+    for (const system of ['tku', 'gib', 'sayc'] as const) {
       const mine = conflicts.filter((c) => c.system === system)
       expect(mine.length, mine.map((c) => `${c.source} ${c.id}: ${c.pattern} ${c.feature}`).join('\n')).toBeLessThanOrEqual(MOST[system])
       const loose = wide.filter((w) => w.system === system)

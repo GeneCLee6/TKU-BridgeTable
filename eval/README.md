@@ -16,7 +16,7 @@ npm run eval:gate -- --base ../main              # CI 門檻（見下）
 
 | 參數 | 意思 |
 | --- | --- |
-| `--a`、`--b` | 機器人設定：TKB 用的制度，`tku`（淡江制度）或 `gib`（2/1）；預設 `tku`。以前的 `種類:等級` 寫法已經拿掉 |
+| `--a`、`--b` | 機器人設定：TKB 用的制度，`tku`（淡江制度）、`gib`（2/1）或 `sayc`；預設 `tku`。以前的 `種類:等級` 寫法已經拿掉 |
 | `@目錄` | 機器人用那個目錄的 `shared/robot/brain.ts`（`ruleBrain`），例如 main 的 checkout；叫牌與出牌都換 |
 | `,play=目錄` | 只換出牌與攤牌的回應，叫牌照這份程式：兩桌合約一樣，差別只在出牌 |
 | `--set` | `quick`（200 副，預設）、`full`（5,000 副）或副數 |
@@ -53,7 +53,7 @@ npm run eval:gate -- --base ../main              # CI 門檻（見下）
 
 ## CI 門檻（`gate.ts`，`e6-t17`）
 
-`.github/workflows/ci.yml` 的 `robot-eval`：pull request 改到 `shared/`（機器人和它們依照的引擎）或 `eval/` 時，把目標分支（main）checkout 到 `base/`，這個分支的 TKB 對 main 的打快速版 200 副，淡江制度、2/1 各一場。
+`.github/workflows/ci.yml` 的 `robot-eval`：pull request 改到 `shared/`（機器人和它們依照的引擎）或 `eval/` 時，把目標分支（main）checkout 到 `base/`，這個分支的 TKB 對 main 的打快速版 200 副，main 有的每種制度各一場（`ROBOT_KINDS`；剛加的制度下一個 PR 才開始比）。
 
 **規則**：任何一場 A（這個分支）比 B（main）**差超過 2 個標準誤，而且差超過 0.25 IMP／副**，就失敗（`stats.ts` 的 `regressed`）。
 
@@ -85,7 +85,7 @@ npm run quiz -- --base base   # CI 棘輪：base 的 TKB 答同樣的題目，�
 | 欄位 | 意思 |
 | --- | --- |
 | `id` | 全題庫唯一，小寫英數與 `-`，例如 `tku-resp-012` |
-| `system` | 答案依哪套制度：`tku`（淡江制度）或 `gib`（2/1）；機器人用這套制度作答 |
+| `system` | 答案依哪套制度：`tku`（淡江制度）、`gib`（2/1）或 `sayc`；機器人用這套制度作答 |
 | `dealer`、`vul` | 發牌者（`N` `E` `S` `W`）與身價（`None` `NS` `EW` `Both`） |
 | `hand` | 輪到叫牌那一家的手牌，`♠.♥.♦.♣` 由大到小，10 寫 `T`，缺門留空（`AKQ32..5432.J43`） |
 | `auction` | 從發牌者開始的叫品：`1C`～`7N`、`P`、`X`、`XX`；空的就是開叫題。輪到誰由發牌者與叫品數決定 |
@@ -144,7 +144,7 @@ npm run consistency -- --seed slam:x2 --deals 2000   # 滿貫區牌組
 
 | 參數 | 意思 |
 | --- | --- |
-| `--system` | 只跑 `tku` 或 `gib`（預設兩種） |
+| `--system` | 只跑 `tku`、`gib` 或 `sayc`（預設全部） |
 | `--deals` | 用四個 TKB 叫完評測牌組的前幾副（預設 2,000） |
 | `--seed` | 換一組牌，`slam:` 開頭是滿貫區牌組 |
 | `--top` | 列出幾種最常見的叫牌（預設 30） |

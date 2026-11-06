@@ -108,6 +108,14 @@ describe('the bidding hint card (e10-t06)', () => {
     expect(screen.getByText(/2\/1 制度/)).toBeInTheDocument()
   })
 
+  it('says the same at a SAYC table, and shows no pages of the book', () => {
+    const auction = [call('N', '1N')]
+    const board = { auction, dealer: 'N', vul: 'None', phase: 'auction', bookTopics: bookTopics(ROBOT_SYSTEMS.tku, auction, 'N', 'None', 'NS') } as unknown as BoardView
+    wrap(<BookHints board={board} robotKind="sayc" />)
+    expect(screen.getByText(/SAYC 制度/)).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /1NT 開叫與答叫/ })).toBeNull()
+  })
+
   it('lists nothing without the server’s pages: the browser never runs the engine', async () => {
     const board = { auction: [call('N', '1N')], dealer: 'N', vul: 'None', phase: 'auction' } as unknown as BoardView
     wrap(<BookHints board={board} robotKind="tku" />)

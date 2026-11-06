@@ -1,6 +1,7 @@
 import { appendFileSync, existsSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { parseConfig, readArgs, setSize } from './config.ts'
+import { ROBOT_KINDS } from '../shared/protocol.ts'
+import { kindsFrom, parseConfig, readArgs, setSize } from './config.ts'
 import { EVAL_SEED, evalBoards } from './deals.ts'
 import { playMatch } from './match.ts'
 import { matchReport } from './report.ts'
@@ -8,14 +9,12 @@ import { GATE_ERRORS, GATE_FLOOR, regressed, summarize } from './stats.ts'
 
 /**
  * The CI gate (e6-t17, eval/README.md): this checkout's robots (A) against the robots of the
- * checkout in `--base` (B, main in CI) on the quick set, TKB in both systems. Fails
+ * checkout in `--base` (B, main in CI) on the quick set, TKB in every system the base has. Fails
  * (exit 1) when any match regressed (`regressed` in stats.ts). The report goes to stdout and, in
  * GitHub Actions, to the job summary.
  *
  *   npm run eval:gate -- --base base [--set quick|full|N]
  */
-
-const MATCHES = ['tku', 'gib']
 
 async function main() {
   const args = readArgs(process.argv.slice(2))
@@ -23,6 +22,9 @@ async function main() {
   if (!base || !existsSync(resolve(base, 'shared/robot/brain.ts'))) throw new Error('--base must be a checkout with shared/robot/brain.ts')
   const count = setSize(args.get('set') ?? 'quick')
   const boards = evalBoards(count, EVAL_SEED)
+
+  const inBase = await kindsFrom(base)
+  const MATCHES = ROBOT_KINDS.filter((kind) => inBase.includes(kind))
 
   const started = performance.now()
   const sections: string[] = []
