@@ -1,5 +1,5 @@
 import { ArrowLeft, BookOpen, History, Mail, MessageSquare, Users } from 'lucide-react'
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type ComponentProps, type KeyboardEvent, type PointerEvent, type ReactNode } from 'react'
 import styled, { css, keyframes } from 'styled-components'
 import {
   DEFAULT_HISTORY_QUERY,
@@ -21,6 +21,7 @@ import { dockHeight, mobile, mobileQuery, tablet } from '../styles/tokens.ts'
 import { boardPlace, playerName } from '../strings.ts'
 import { BoardRecordView } from './BoardRecordView.tsx'
 import { DirectMessages } from './DirectMessages.tsx'
+import { PartBoundary, PartFailedNote } from './ErrorBoundary.tsx'
 import { PeopleList } from './PeopleList.tsx'
 import { GroupingSwitch, RecordGroups } from './RecordGroups.tsx'
 import { ActionButton, ActionLink, Button } from './ui.tsx'
@@ -272,7 +273,16 @@ function writeOpen(page: string, tab: PanelTab | null) {
   }
 }
 
-export function SidePanel({
+/** A failure in the dock stays in the dock: the table or the lobby beside it goes on */
+export function SidePanel(props: ComponentProps<typeof Dockable>) {
+  return (
+    <PartBoundary name="side-panel">
+      <Dockable {...props} />
+    </PartBoundary>
+  )
+}
+
+function Dockable({
   tabs,
   page,
   initial = null,
@@ -389,23 +399,26 @@ export function SidePanel({
             <span>{label[open]}</span>
           </ContentHead>
           <Body>
-            {open === 'chat' && chat}
-            {open === 'conventions' && conventions}
-            {open === 'people' && (
-              <People
-                onMessage={tabs.includes('messages') ? message : undefined}
-                newTab={page === 'table'}
-              />
-            )}
-            {open === 'messages' && <Messages talkTo={talkTo} onTalkTo={setTalkTo} />}
-            {open === 'history' && (
-              <HistoryList
-                recent={recent}
-                board={board}
-                onBoard={setBoard}
-                newTab={page === 'table'}
-              />
-            )}
+            {/* One tab failing leaves the others: its note goes when another tab opens */}
+            <PartBoundary name={`side-panel-${open}`} resetKey={open} fallback={<PartFailedNote />}>
+              {open === 'chat' && chat}
+              {open === 'conventions' && conventions}
+              {open === 'people' && (
+                <People
+                  onMessage={tabs.includes('messages') ? message : undefined}
+                  newTab={page === 'table'}
+                />
+              )}
+              {open === 'messages' && <Messages talkTo={talkTo} onTalkTo={setTalkTo} />}
+              {open === 'history' && (
+                <HistoryList
+                  recent={recent}
+                  board={board}
+                  onBoard={setBoard}
+                  newTab={page === 'table'}
+                />
+              )}
+            </PartBoundary>
           </Body>
         </Content>
       )}

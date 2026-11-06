@@ -1,4 +1,4 @@
-import { Ban, Bot, Dumbbell, Eye, EyeOff, Hand, LayoutGrid, Lock, Plus, Timer, UserPlus, Zap } from 'lucide-react'
+import { Ban, Bot, Dumbbell, Eye, EyeOff, Hand, LayoutGrid, Lock, Plus, Timer, UserPlus, UsersRound, Zap } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Link, Navigate, useNavigate } from 'react-router-dom'
 import styled from 'styled-components'
@@ -82,7 +82,28 @@ const PracticeCard = styled(Card)`
     color: ${({ theme }) => theme.colors.text};
     font-size: ${({ theme }) => theme.type.h3.size};
   }
-  & > div { flex: 1 1 280px; }
+  & > div:first-child { flex: 1 1 280px; }
+`
+
+/** Practice with robots and 搭檔叫牌: side by side, and on a phone evenly across the card in every language */
+const PracticeEntries = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+
+  ${mobile} {
+    display: grid;
+    flex: 1 1 100%;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+
+    & > * {
+      min-width: 0;
+      white-space: normal;
+      text-align: center;
+    }
+    /* The words need the room, in Vietnamese and Japanese most of all */
+    & svg { display: none; }
+  }
 `
 
 /** A lobby area: an 18px heading with a link or hint on the right */
@@ -694,9 +715,15 @@ export function LobbyPage() {
               </h2>
               <Muted>{t.practiceIntro}</Muted>
             </div>
-            <Button type="button" $variant="primary" onClick={() => setPractising(true)}>
-              {t.practiceOpen}
-            </Button>
+            <PracticeEntries>
+              <Button as={Link} to="/partner-bidding">
+                <UsersRound size={18} aria-hidden />
+                {t.partnerBid.lobbyEntry}
+              </Button>
+              <Button type="button" $variant="primary" onClick={() => setPractising(true)}>
+                {t.practiceOpen}
+              </Button>
+            </PracticeEntries>
           </PracticeCard>
         )}
         <MyChallenges

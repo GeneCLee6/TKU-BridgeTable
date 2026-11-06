@@ -6,7 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { LANGS } from '../../shared/messages.ts'
 import type { NoticesView } from '../../shared/notices.ts'
 import type { PlatformView } from '../../shared/platform.ts'
-import { SUPPORT_CATEGORIES, type AdminSupportReport, type AdminSupportView } from '../../shared/support.ts'
+import { notificationLink } from '../../shared/notification-link.ts'
+import { SUPPORT_CATEGORIES, SUPPORT_REPORTS_ANCHOR, type AdminSupportReport, type AdminSupportView, type MySupportReport } from '../../shared/support.ts'
 import { AdminBanner, AdminSupport } from '../../src/components/AdminSupport.tsx'
 import { NoticeBanners } from '../../src/components/NoticeBanners.tsx'
 import { PlatformNotices, PlatformSupport } from '../../src/components/PlatformNotices.tsx'
@@ -169,15 +170,76 @@ describe('回報問題 (e12-t16)', () => {
   })
 
   it('attaches neither from the account page', async () => {
-    const sent = stubApi({ '/api/support': { status: 202, body: { id: 'r1' } } })
+    const sent = stubApi({ '/api/support': { status: 202, body: { id: 'r1' } }, '/api/support/mine': ok({ reports: [] }) })
     wrap(<SupportCard />)
     await userEvent.click(screen.getByRole('button', { name: '回報問題' }))
     const dialog = screen.getByRole('dialog')
     expect(within(dialog).getByText('會一起送出：瀏覽器、程式版本、社團。')).toBeInTheDocument()
     await userEvent.type(within(dialog).getByLabelText('發生了什麼事'), '收不到推播通知')
     await userEvent.click(within(dialog).getByRole('button', { name: '送出' }))
+    const posted = () => sent.filter((s) => s.method === 'POST')
+    await waitFor(() => expect(posted()).toHaveLength(1))
+    expect(posted()[0].body).toEqual({ category: 'bug', text: '收不到推播通知', version: 'unknown' })
+  })
+
+  it('says an imported board stays private instead of naming its id, and still sends it', async () => {
+    const sent = stubApi({ '/api/support': { status: 202, body: { id: 'r1' } } })
+    wrap(<SupportDialog boardId="imp-0123456789abcdef" onClose={() => {}} />)
+    expect(screen.getByText(STRINGS.zh.support.attachedImported)).toBeInTheDocument()
+    expect(screen.queryByText(/imp-0123/)).toBeNull()
+    await userEvent.type(screen.getByLabelText('發生了什麼事'), '這副的分數不對')
+    await userEvent.click(screen.getByRole('button', { name: '送出' }))
     await waitFor(() => expect(sent).toHaveLength(1))
-    expect(sent[0].body).toEqual({ category: 'bug', text: '收不到推播通知', version: 'unknown' })
+    expect(sent[0].body).toMatchObject({ boardId: 'imp-0123456789abcdef' })
+  })
+})
+
+describe('我的回報 on 我的帳號', () => {
+  const REPORTS: MySupportReport[] = [
+    { id: 'r2', category: 'game', text: '分數算錯了', createdAt: 5, status: 'resolved', resolvedAt: 6 },
+    { id: 'r1', category: 'bug', text: '叫牌框打不開', createdAt: 1, status: 'open' },
+  ]
+
+  it('lists the member’s own reports and how they stand', async () => {
+    stubApi({ '/api/support/mine': ok({ reports: REPORTS }) })
+    wrap(<SupportCard />)
+    const list = await screen.findByRole('region', { name: '我的回報' })
+    const [resolved, open] = within(list).getAllByRole('listitem')
+    expect(within(resolved).getByText('分數算錯了')).toBeInTheDocument()
+    expect(within(resolved).getByText('已解決')).toBeInTheDocument()
+    expect(within(resolved).getByText(/^處理完成：/)).toBeInTheDocument()
+    expect(within(open).getByText('待處理')).toBeInTheDocument()
+    expect(within(open).queryByText(/^處理完成：/)).toBeNull()
+  })
+
+  it('says when there are none, and shows a report just sent', async () => {
+    const reports: MySupportReport[] = []
+    stubApi({ '/api/support/mine': () => ok({ reports }), '/api/support': () => {
+      reports.push(REPORTS[1])
+      return { status: 202, body: { id: 'r1' } }
+    } })
+    wrap(<SupportCard />)
+    expect(await screen.findByText('你還沒有送出過回報。')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: '回報問題' }))
+    await userEvent.type(screen.getByLabelText('發生了什麼事'), '叫牌框打不開')
+    await userEvent.click(screen.getByRole('button', { name: '送出' }))
+    expect(await screen.findByText('待處理')).toBeInTheDocument()
+  })
+
+  it('keeps the card working when the list cannot be read', async () => {
+    stubApi({ '/api/support/mine': { status: 500, body: { error: 'x', code: 'internal', params: {} } } })
+    wrap(<SupportCard />)
+    expect(await screen.findByRole('button', { name: '回報問題' })).toBeInTheDocument()
+    await waitFor(() => expect(screen.queryByRole('region', { name: '我的回報' })).toBeNull())
+  })
+
+  it('opens at the list from the notification’s link', async () => {
+    const scroll = vi.fn()
+    Element.prototype.scrollIntoView = scroll
+    stubApi({ '/api/support/mine': ok({ reports: REPORTS }) })
+    wrap(<SupportCard />, `/account#${SUPPORT_REPORTS_ANCHOR}`)
+    await waitFor(() => expect(scroll).toHaveBeenCalled())
+    expect(notificationLink({ id: 'n', at: 0, kind: 'supportResolved', params: {}, read: false })).toBe(`/account#${SUPPORT_REPORTS_ANCHOR}`)
   })
 
   it('stays open and says why when the server refuses', async () => {
@@ -194,10 +256,12 @@ describe('回報問題 (e12-t16)', () => {
     for (const lang of LANGS) {
       const t = STRINGS[lang]
       for (const c of SUPPORT_CATEGORIES) expect(t.support.categories[c]).toBeTruthy()
-      const note = (kind: 'supportReport' | 'supportForwarded') =>
+      const note = (kind: 'supportReport' | 'supportForwarded' | 'supportResolved') =>
         notificationText(t, { id: 'n', at: 0, kind, params: { username: 'amy', name: '臺大' }, read: false })
       expect(note('supportReport')).toContain('amy')
       expect(note('supportForwarded')).toContain('臺大')
+      expect(note('supportResolved')).toBeTruthy()
+      for (const text of [t.support.attachedImported, t.support.boardImported, t.support.mineTitle, t.support.mineNone, t.support.mineResolvedAt('x'), t.push.groups.support]) expect(text).toBeTruthy()
       expect(t.legal.privacy.some((section) => section.p.includes('User-Agent'))).toBe(true)
     }
   })
@@ -234,6 +298,15 @@ describe('客服回報 on the admin page (e12-t16)', () => {
     expect(await within(item).findByText('已解決')).toBeInTheDocument()
     expect(within(item).getByRole('button', { name: '重新打開' })).toBeInTheDocument()
     expect(sent.at(-1)).toEqual({ path: '/api/admin/support/r1/status', method: 'POST', body: { status: 'resolved' } })
+  })
+
+  it('says an imported board is private to the member, with no link that leads nowhere', async () => {
+    const { boardId: _boardId, ...rest } = REPORT
+    stubApi({ '/api/admin/support': ok(list([{ ...rest, boardImported: true }])) })
+    wrap(<AdminSupport />)
+    const item = await screen.findByRole('article', { name: '回報人：amy' })
+    expect(within(item).getByText(STRINGS.zh.support.boardImported)).toBeInTheDocument()
+    expect(within(item).queryByRole('link')).toBeNull()
   })
 
   it('forwards to the platform owner once, and only when there is one', async () => {

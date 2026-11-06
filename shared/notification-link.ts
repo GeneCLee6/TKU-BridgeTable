@@ -1,5 +1,6 @@
 import { BOOK_SITE } from './book-site.ts'
 import type { Notification } from './protocol.ts'
+import { SUPPORT_REPORTS_ANCHOR } from './support.ts'
 import { teamEventLink } from './team-event.ts'
 import { tournamentEventLink } from './tournament.ts'
 
@@ -30,6 +31,9 @@ export function notificationLink(n: Notification, options: { forum?: boolean } =
     case 'clubApplication':
     case 'supportForwarded':
       return '/platform'
+    // Their own report resolved: their list on 我的帳號
+    case 'supportResolved':
+      return `/account#${SUPPORT_REPORTS_ANCHOR}`
     case 'friendOnline':
       return '/'
     case 'challengeInvited':
