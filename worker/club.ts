@@ -1317,6 +1317,13 @@ export class Club extends DurableObject<Env> implements Connections {
       if (!found) throw new ClubError('boardGone', {}, 404)
       return json({ record: found })
     }
+    // A board's whole session at its table (post-game analysis, e10-t12): only what the member may read
+    const sessionBoards = url.pathname.match(/^\/api\/history\/([\w-]+)\/session$/)
+    if (request.method === 'GET' && sessionBoards) {
+      const records = await this.service.session(sessionBoards[1], user.id)
+      if (!records) throw new ClubError('boardGone', {}, 404)
+      return json({ records })
+    }
     // A board's whole session at its table as one LIN file (e4-t37)
     const sessionLin = url.pathname.match(/^\/api\/history\/([\w-]+)\/session\.lin$/)
     if (request.method === 'GET' && sessionLin) {
