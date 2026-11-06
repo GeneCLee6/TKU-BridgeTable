@@ -162,17 +162,16 @@ export function applyPlay(state: PuzzleState, card: Card): PuzzleState {
   return { ...state, hands, tricks, turn: trick.winner, won: state.won + (sameSide(trick.winner, 'N') ? 1 : 0) }
 }
 
-/** The table after these cards, counted from the position shown, the opening's cards first */
-export function puzzleState(source: Pick<PuzzleSource, 'deal' | 'contract' | 'leader'>, played: readonly Card[]): PuzzleState {
-  let state: PuzzleState = {
-    hands: parsePuzzleDeal(source.deal) ?? { N: [], E: [], S: [], W: [] },
-    trump: source.contract.strain === 'N' ? null : source.contract.strain,
-    tricks: [],
-    turn: source.leader,
-    won: 0,
-  }
+/** The table after these cards from these hands; the page walking through an answer uses it to show what the server sent */
+export function replayPuzzle(hands: Record<Seat, Card[]>, strain: Strain, leader: Seat, played: readonly Card[]): PuzzleState {
+  let state: PuzzleState = { hands, trump: strain === 'N' ? null : strain, tricks: [], turn: leader, won: 0 }
   for (const card of played) state = applyPlay(state, card)
   return state
+}
+
+/** The table after these cards, counted from the position shown, the opening's cards first */
+export function puzzleState(source: Pick<PuzzleSource, 'deal' | 'contract' | 'leader'>, played: readonly Card[]): PuzzleState {
+  return replayPuzzle(parsePuzzleDeal(source.deal) ?? { N: [], E: [], S: [], W: [] }, source.contract.strain, source.leader, played)
 }
 
 /** What is wrong with a puzzle as written, or null */
@@ -202,8 +201,12 @@ export function puzzleProblem(source: PuzzleSource): string | null {
 
 // ── What the browser gets (`worker/views.ts` makes these) ───────────────────────────────────────
 
-/** Where a member's attempt stands: `new` before the first card, `failed` after a wrong card (nothing applied), `solved` once no wrong card is left */
-export type PuzzleAttemptStatus = 'new' | 'playing' | 'failed' | 'solved'
+/**
+ * Where a member's attempt stands: `new` before the first card, `failed` after a wrong card (nothing
+ * applied), `solved` once no wrong card is left. `revealed`: the attempt ended by viewing the answer,
+ * or by finishing after viewing it without having solved the puzzle first
+ */
+export type PuzzleAttemptStatus = 'new' | 'playing' | 'failed' | 'solved' | 'revealed'
 
 /** How a member's progress is stored, one row per puzzle */
 export interface PuzzleProgress {
@@ -227,6 +230,11 @@ export interface PuzzleProgress {
   solvedAt: number | null
   /** The first solve had no wrong card and no hint */
   clean: boolean
+  /**
+   * The first time the member viewed the answer. Nothing clears it: no retry, no later right line.
+   * From then on `solvedAt` and `clean` stay as they are, so only a solve before it counts
+   */
+  revealedAt: number | null
   updatedAt: number
 }
 
@@ -238,11 +246,23 @@ export interface PuzzleSummary {
   contract: PuzzleContract
   status: PuzzleAttemptStatus
   solved: boolean
-  /** The first solve had no wrong card and no hint */
+  /** The first solve had no wrong card, no hint and no answer viewed */
   clean: boolean
+  /** The member viewed the answer; `solved` is true only if they had solved it before that */
+  revealed: boolean
 }
 
-/** One puzzle as the member sees it. East's and West's cards come only when `status` is `solved` */
+/** A winning line, once the member asked for it (`POST /api/puzzles/:id/reveal`) */
+export interface PuzzleAnswer {
+  /** Who plays the line's first card */
+  leader: Seat
+  /** Every card from the position shown, the opening's and the defenders' too, until no wrong card is left */
+  line: Card[]
+  /** How many of the line's cards were on the table before the member's first decision */
+  first: number
+}
+
+/** One puzzle as the member sees it. East's and West's cards come only when `status` is `solved` or `revealed` */
 export interface PuzzleView extends PuzzleSummary {
   story: string
   /** Tricks won before the position shown */
@@ -251,16 +271,16 @@ export interface PuzzleView extends PuzzleSummary {
   need: number
   /** Tricks won from the position shown */
   won: number
-  /** The cards each seat holds now: North and South always, East and West once solved */
+  /** The cards each seat holds now: North and South always, East and West once solved or revealed */
   hands: Partial<Record<Seat, Card[]>>
   /** How many cards each seat holds now */
   counts: Record<Seat, number>
-  /** All four hands at the position shown, once solved */
+  /** All four hands at the position shown, once solved or revealed */
   startHands?: Record<Seat, Card[]>
   /** The cards played before the position shown: public, as they would be at a table */
   gone: Card[]
   tricks: PuzzleTrick[]
-  /** Whose card it is, until solved */
+  /** Whose card it is, until solved or revealed */
   turn: Seat | null
   /** What may be played now; only the server works it out */
   legalCards: Card[]
@@ -271,8 +291,12 @@ export interface PuzzleView extends PuzzleSummary {
   hintsLeft: number
   attempts: number
   failures: number
-  /** Shown once solved */
+  /** Shown once solved or revealed */
   explanation?: string
+  /** Only after the member asked for it, and hidden again while they play the puzzle again */
+  answer?: PuzzleAnswer
+  /** This attempt was played right to the end after viewing the answer: it does not count */
+  finishedAfterReveal?: boolean
 }
 
 /** A puzzle as an admin reviews it before publishing: everything */
