@@ -294,7 +294,7 @@ interface BoardState {
 | 重播的每步損失與賽後分析（`e4-t35`、`e10-t12`） | 都在瀏覽器裡算，只用已經讀得到的紀錄：`canAnalyse`／`hasSteps` 只收打完、四家完整的牌。賽後分析頁讀 `GET /api/history/:id/session`，跟整場 LIN（`e4-t37`）是同一個 `ClubService.session`：每一副都過 `record()` 的判斷（`recordVisible`、挑戰的 `challengeBoardVisible`），還沒公開的挑戰牌局不會出現（`tests/worker/visibility/visibility.test.ts` 的 `session`）。結果只放記憶體，關掉分頁就沒了，不寫 IndexedDB：共用電腦上不留牌 |
 | 叫牌練習的檢討（`e10-t07`） | 只叫牌的練習桌**這一副結束後**（四家已公開）才有 `TablePractice.review`：每一口 TKB 拿那一家的牌在那時會叫什麼（`steps`）、四家 TKB 從頭叫的過程與合約（`robot`）。它是從四家的牌算出來的，叫牌中送出就等於洩漏別家的牌，所以叫牌中、重叫、下一副時一律沒有（`practiceView`）；問機器人時只給那一家的牌（`practice-review.ts` 的 `askedState`）|
 | 搭檔非同步叫牌練習（`e10-t08`） | 只有這次練習的兩位社員讀得到（別人一律 `partnerBidGone`，管理員也一樣）。**一副還在叫時只有自己那一手與叫牌過程**（`views.ts` 的 `partnerBidView`：`hands` 只有自己的座位），`legalCalls` 只在輪到自己時由伺服器算好送；這一副叫完（`phase` 不是 `auction`）才有四家、檢討（`review`）與牌組的教學重點（`note`）。放棄或過期的練習，正在叫的那一副一樣不公開；還沒叫到的牌根本還沒發，邀請階段沒有任何牌。列表（`partnerBidSummary`）沒有牌。WebSocket 的 `partnerBid` 訊息與帳號匯出都走同一個 view，不會多看到什麼（`tests/worker/partner-bidding.test.ts`）|
-| 謎題（`e10-t13`、`t14`） | 沒發布的題目對社員不存在（`puzzleGone`）；管理員在管理頁看得到完整內容才能審（四手牌、提示、解說、一條打法）。社員的 `puzzleView`：**南北兩手一直公開；東西的牌只有已經打出的部分，這一次解開（`status: 'solved'`）才給四手牌與解說**；解開後從頭再打一次又會藏起來。提示要按才給，列表（`puzzleSummary`）沒有任何牌。之前出過的牌（`gone`）是公開的，等於桌上看過的牌。這個 repo 是公開的，所以題目與答案都不是祕密：伺服器不先送，是為了硬性規則 1 與不讓頁面直接洩題 |
+| 謎題（`e10-t13`、`t14`） | 沒發布的題目對社員不存在（`puzzleGone`）；管理員在管理頁看得到完整內容才能審（四手牌、提示、解說、一條打法）。社員的 `puzzleView`：**南北兩手一直公開；東西的牌只有已經打出的部分，這一次解開（`status: 'solved'`）或社員按了看答案（`status: 'revealed'`）才給四手牌與解說**；從頭再打一次又會藏起來。**答案（`answer`：一條打法）只有社員送過 `POST /api/puzzles/:id/reveal` 才給**，解開了也一樣；再打一次時也藏起來，要再按一次看答案。提示要按才給，列表（`puzzleSummary`）沒有任何牌，只有 `revealed` 這個是非值。之前出過的牌（`gone`）是公開的，等於桌上看過的牌。這個 repo 是公開的，所以題目與答案都不是祕密：伺服器不先送，是為了硬性規則 1 與不讓頁面直接洩題 |
 | 叫牌提示卡 | 每個看的人都有 `BoardView.bookTopics`：淡江橋譜裡跟目前叫牌有關的頁面，從叫牌過程與淡江制度的規則算出，不看任何一手牌；看的人的同伴是 2/1 的 TKB 時不送（`e10-t06`）|
 
 **誰看得到哪一桌**（四種進入方式，§5「牌桌設定」，判斷在 `worker/views.ts` 的 `tableListed`／`mayEnter`）：大廳與成員列表的「在哪一桌」只列出觀看者看得到的桌：挑戰桌誰都不列；**隱藏**的桌只列給房主、受邀者與已經在桌上的人，其他人連桌號都看不到（成員列表的 `tableNumber` 是 `null`），`joinTable`／`sit`／`requestJoin` 都拿到 `tableGone`，跟不存在的桌一樣；公開、申請加入、拒絕所有人的桌列給所有人。**加入申請**只送給房主（`TableView.requests`），房主封鎖的人送出的申請房主看不到（`muted`），申請者也看不出差別；`TableSummary.requested` 只告訴觀看者自己有沒有申請在等。受邀名單同樣只送給房主（`TableView.invited`）。
@@ -380,7 +380,7 @@ interface BoardState {
 
 瀏覽器拿到的 `BoardView` 只包含它能看的牌，以及伺服器算好的 `legalCalls`／`legalCards`／`canUndo`／`canClaim`，畫面不需要自己判斷規則。攤牌被拒絕後，`rejectedClaim` 記下誰拒絕，直到下一個動作。
 
-**制度卡（`e5-t52`，ROBOT.md §6.15）**：卡只由制度算出來，不含任何牌桌或牌的資料，所以打牌中打開也不洩漏牌。可見性在於制度本身：2/1 是公開的規則，放在靜態資源；淡江制度是社團的（同 #271 從公開分享頁拿掉 `meaning`／`book`），**不放任何公開檔案**，只由 `GET /api/system-card/tku`（`worker/system-card.ts`）給已登入的淡江社員，內容是 build 時算好打包進 Worker 的字串。未登入、其他社團、其他方法都回同一個 `noSuchApi` 404，這個路徑排在 `signInFirst` 之前，未登入與其他社團才會得到一樣的回答（還沒開通的社團照常回 `unknownClub`，所有路徑都一樣）。`npm run build` 的 `scripts/check-public-assets.ts` 確認 `dist/client` 裡沒有淡江卡的內容。
+**制度卡（`e5-t52`，ROBOT.md §6.15）**：卡只由制度算出來，不含任何牌桌或牌的資料，所以打牌中打開也不洩漏牌。可見性在於制度本身：2/1、SAYC 是公開的規則（`shared/robot/system/open-systems.ts`），各放在一個靜態資源；淡江制度是社團的（同 #271 從公開分享頁拿掉 `meaning`／`book`），**不放任何公開檔案**，只由 `GET /api/system-card/tku`（`worker/system-card.ts`）給已登入的淡江社員，內容是 build 時算好打包進 Worker 的字串。未登入、其他社團、其他方法都回同一個 `noSuchApi` 404，這個路徑排在 `signInFirst` 之前，未登入與其他社團才會得到一樣的回答（還沒開通的社團照常回 `unknownClub`，所有路徑都一樣）。`npm run build` 的 `scripts/check-public-assets.ts` 確認 `dist/client` 裡沒有淡江卡的內容。
 
 ## 5. 通訊與儲存
 
@@ -446,7 +446,7 @@ interface BoardState {
 | `push:<userId>` | PWA 推播（`e1-t28`，`worker/push.ts`）：每台裝置的訂閱（推播服務的網址、`p256dh`、`auth`、語言、裝置名稱、開啟時間；最多 10 台）與改過的推播種類（只存跟預設不同的）；被登出所有裝置時清掉裝置、帳號刪除時整筆刪；不在備份裡 |
 | `friend:<userId>:<friendId>` | 社員關注的好友（單向），值是 `{ at }`；載入時全部讀進記憶體 |
 | `block:<userId>:<otherId>` | 社員封鎖的對象，值是 `{ at }`；載入時全部讀進記憶體 |
-| SQL `puzzle_publications`、`puzzle_progress` | 謎題（§5.11，`worker/puzzles.ts`）：這個社團發布了哪幾題（題目、版本、誰、何時）；每位社員每題一列（版本、狀態、這次出過的牌、決策點、出錯的牌、提示數、次數、出錯數、第一次解開的時間、是否一次解開）。不在備份裡（跟牌局一樣）；物件的資料遺失時題目退回草稿，是安全的方向 |
+| SQL `puzzle_publications`、`puzzle_progress` | 謎題（§5.11，`worker/puzzles.ts`）：這個社團發布了哪幾題（題目、版本、誰、何時）；每位社員每題一列（版本、狀態、這次出過的牌、決策點、出錯的牌、提示數、次數、出錯數、第一次解開的時間、是否一次解開、第一次看答案的時間 `revealed_at`）。不在備份裡（跟牌局一樣）；物件的資料遺失時題目退回草稿，是安全的方向 |
 | SQL `partner_bid_sessions`、`partner_bid_boards` | 搭檔非同步叫牌練習（`e10-t08`，§5.11，`worker/partner-bidding.ts`）：一次練習一列（兩位社員、狀態、設定、叫到第幾副、輪到誰、到期時間），發過的每一副一列（四家、叫牌過程、檢討）；不放在記憶體，不在每日備份裡（練習用的資料，還原時只刪掉帳號已不存在的）；帳號刪除時那個人的整筆練習連同對方的副本一起刪 |
 | SQL `challenges`、`challenge_players`、`challenge_results` | 挑戰的正本（不是索引），見 §5.5；`EVENT_OBJECTS=on` 時，住在自己 `EventObject` 的挑戰正本在那個物件，這裡是社團的副本（§5.12 H2b） |
 | SQL `event_homes` | 哪些挑戰住在自己的 `EventObject`，與社團寫進副本的最後一個變更編號（`rev`，-1＝物件還沒確認收下）；沒有這一列的挑戰住在社團（§5.12 H2b） |
@@ -649,7 +649,12 @@ interface BoardState {
   - **多大的牌算得完**：試過一副整副 13 張的牌：`dd.ts` 在 2 千萬個局面內放棄，約一分鐘後被拒絕。9 張牌以內幾秒算完，但對的出牌順序太多時會超過 2,000 個決策點（試過的 7 張、9 張牌都有超過的）。第一批是 5–9 張的殘局，存下來的資料合計約 30 KB。
   - **草稿與發布**：程式裡的題目一律 `status: 'draft'`（`puzzleProblem` 不接受別的）。管理頁「謎題」看完整內容，一題一題「發布給社員」（`POST /api/admin/puzzles/:id/publish { published }`），只影響這個社團，寫稽核 `puzzle:publish`、`puzzle:unpublish`（`target` 是 `<id>@<revision>`）。發布綁題目的版本（deal、合約與文字的雜湊）：題目改了就退回草稿，社員的舊進度重新開始。**solver 只證明這個牌型下做得成**，不證明打法合理、也不看文字，所以要幹部讀過才發布。
   - **出牌**（硬性規則 1）：`POST /api/puzzles/:id/play { card }`：不合法 `puzzleIllegalCard`；不在資料裡就是錯的，這一次變 `failed`，牌不算出，`wrong` 記那張牌，失敗數加一，之後 `puzzleAttemptOver`，要 `POST .../retry { from: 'mistake' | 'start' }` 退回這一步或從頭來。對的牌連同防家的回應一起算出去，下一個決策點是 -1 就解開。`POST .../hint` 一次給一個提示，用過提示或出過錯就不算「一次解開」（第一次解開時定下，之後重打不變）。限速走 `actionLimit`。
-  - **進度**：`GET /api/puzzles` 依分級列出已發布的題目與狀態（還沒做、進行中、已解開、一次解開）。帳號匯出有 `puzzles`（題目、狀態、出過的牌、提示、次數、出錯、時間），刪帳號一起刪，還原備份時清掉已不是社員的進度。
+  - **看答案**（社長決定：社員可以看，看過的題目不算解開）：頁面先用確認視窗說明不會算解開（已經解開或看過的不用再問），再 `POST /api/puzzles/:id/reveal`，權限與其他謎題動作相同（登入的社員、已發布的題目、`actionLimit`）。`revealed_at` 記第一次看的時間，**沒有任何動作會清掉它**：`retry` 的兩種 `from`、提示、收回再發布都帶著它（`begun` 與 `save` 都寫回）。這一次的狀態變 `revealed`：結束這次（`wrong` 清掉，不能再出牌，`retry { from: 'mistake' }` 回 `puzzleNothingToRetry`），給四手牌、解說與 `answer`（`solutions.generated.ts` 的 `line`）；頁面在原本的牌桌上一張一張走（`replayPuzzle` 只用伺服器給的牌重畫，不判斷對錯）。
+    - **看過之後可以 `retry { from: 'start' }` 再打**：牌與答案又藏起來、照常檢查每張牌，但打對到底 `solvedAt` 與 `clean` 都不會變，狀態回到 `revealed`（`finishedAfterReveal`，頁面說打對了但不算）。分級進度只數 `solved`（`solvedAt` 有值），所以不會算進去；列表對這種題目顯示「看過答案」。
+    - **看之前已經解開的**：一直算解開，`solvedAt`、`clean` 不變，列表照舊顯示已解開，只多記 `revealed_at`。
+    - **題目改版**（版本不同）：跟其他進度一樣重新開始，看過答案的紀錄也一起重來，因為那已經是另一題；這要改程式再由幹部重新發布，社員自己做不到。
+    - 舊資料：`createTables` 用 `PRAGMA table_info` 檢查後 `ALTER TABLE` 加欄位，舊的列是 `NULL`（沒看過），行為不變。
+  - **進度**：`GET /api/puzzles` 依分級列出已發布的題目與狀態（還沒做、進行中、已解開、一次解開、看過答案）。帳號匯出有 `puzzles`（題目、狀態、出過的牌、提示、次數、出錯、時間，包含看答案的時間 `revealedAt`），刪帳號一起刪，還原備份時清掉已不是社員的進度。
   - **10 ms**：一張牌是讀一列、切一段字串（最大 48 KB）、重放最多 13 墩的牌、寫一列，不跑任何搜尋；測試在記憶體資料庫上要求每張牌 5 ms 以內。資料是字串常數，載入時幾乎不花時間。
   - **入口**：大廳的練習對話框（跟搭檔叫牌練習一樣的連結）。
 - **教學桌**（`e10-t10`、`e10-t11`，AC-10.7）：`mode: 'teach'`，`modeState` 是 `TeachTableState`（`worker/modes.ts`）。規則都在 `TableService`（硬性規則 1），可見性在 §4。
@@ -2138,15 +2143,15 @@ SQL 由 `worker/history-index.ts` 的 `searchBoards` 組：只有固定的 SQL �
 
 ### 5.1.2 淡江制度的 TKB 只給有權限的社員（社長 2026-10-26）
 
-淡江制度的機器人（`RobotKind` 的 `tku`）不公開：只有管理員在管理頁勾了 **`tkuSystem`**（「淡江制度機器人」）的社員能用，管理員本來就有。其他人只有一個 TKB、沒有制度可選，就是 2/1（`gib`）的那個。**伺服器檢查**，不只是畫面藏起來：沒有權限卻要 `tku` 一律回 `tkuSystemOnly`（403）。
+淡江制度的機器人（`RobotKind` 的 `tku`）不公開：只有管理員在管理頁勾了 **`tkuSystem`**（「淡江制度機器人」）的社員能用，管理員本來就有。其他人可以選公開的制度（`OPEN_ROBOT_KINDS`：2/1 的 `gib`、SAYC 的 `sayc`），預設 `gib`。**伺服器檢查**，不只是畫面藏起來：沒有權限卻要 `tku` 一律回 `tkuSystemOnly`（403）。
 
 - **看的是誰設定機器人**：放機器人的房主、建立挑戰或隊制賽的人、開練習桌的人。坐到有權限的房主桌上的其他人照常跟淡江制度的機器人同桌、對打，看得到它的說明（§4 的機器人叫品說明不變）；挑戰的受邀者照打挑戰的制度。
 - **每個選制度的地方**（`ClubService` 的 `mayUseTku`、`defaultKindOf`、`checkRobotKind`，牌桌的 `TableService.robotKindFor`；瀏覽器用 `shared/protocol.ts` 的 `robotKindsFor`、`mayUseTkuSystem`）：
-  - 牌桌的 `addRobot`、`replaceWithRobot`：由牌桌自己檢查（`TableService.robotKindFor`），所以走大廳的連線或牌桌自己的連線（`/ws/table/<id>` → `TableHost.message`，不經過 `ClubService`）都一樣。牌桌透過 `ClubLink.mayUseTku` 問社團（Durable Object 之間是 RPC `Club.tableMayUseTku`），帳號只在社團，每次問到的都是現在的權限，房主換人或權限改了也不用通知牌桌；問不到就是 `serverError`，不會放錯。沒寫 `kind` 就用房主的預設（有權限 `tku`，否則 `gib`）。座位選單有權限時有「放 TKB（淡江制度）」「放 TKB（2/1）」兩個，沒有時只有「放 TKB」。
+  - 牌桌的 `addRobot`、`replaceWithRobot`：由牌桌自己檢查（`TableService.robotKindFor`），所以走大廳的連線或牌桌自己的連線（`/ws/table/<id>` → `TableHost.message`，不經過 `ClubService`）都一樣。牌桌透過 `ClubLink.mayUseTku` 問社團（Durable Object 之間是 RPC `Club.tableMayUseTku`），帳號只在社團，每次問到的都是現在的權限，房主換人或權限改了也不用通知牌桌；問不到就是 `serverError`，不會放錯。沒寫 `kind` 就用房主的預設（有權限 `tku`，否則 `gib`）。座位選單列出他可以選的每一種制度（`robotKindsFor`）。
   - 代打（斷線 3 分鐘，`substituteDue`）：同伴是機器人就用同伴的制度，否則用牌桌的 `Table.robotKind`（開桌時記下房主的預設）。
-  - 練習桌：`parsePracticeSettings(value, 預設)`，沒寫 `robotKind` 就用開桌者的預設；`PracticeDialog` 只在有權限時顯示制度。
-  - 挑戰：`createChallenge` 檢查設定的 `robotKind`（預設本來就是 `gib`）；「用這副牌挑戰」的牌若是跟淡江制度的機器人打的（例如在別人桌上），沒有權限也回 `tkuSystemOnly`，紀錄頁不顯示那個按鈕。一鍵再戰是新的牌，所以沒有權限的人再戰淡江制度的挑戰時改成 2/1，不拒絕。`ChallengeDialog` 只在有權限時顯示「機器人」。
-  - 隊制賽：`TeamMatchService.create` 與 `update` 檢查（`TeamMatchDeps.mayUseTku`）；預設本來就是 `gib`。只有從別的制度**改成** `tku` 才要權限，已經是 `tku` 的比賽改其他設定照常。設定表只在有權限（或比賽已經是淡江制度）時顯示制度。
+  - 練習桌：`parsePracticeSettings(value, 預設)`，沒寫 `robotKind` 就用開桌者的預設；`PracticeDialog` 列出他可以選的制度。
+  - 挑戰：`createChallenge` 檢查設定的 `robotKind`（預設本來就是 `gib`）；「用這副牌挑戰」的牌若是跟淡江制度的機器人打的（例如在別人桌上），沒有權限也回 `tkuSystemOnly`，紀錄頁不顯示那個按鈕。一鍵再戰是新的牌，所以沒有權限的人再戰淡江制度的挑戰時改成 2/1，不拒絕。`ChallengeDialog` 列出他可以選的制度。
+  - 隊制賽：`TeamMatchService.create` 與 `update` 檢查（`TeamMatchDeps.mayUseTku`）；預設本來就是 `gib`。只有從別的制度**改成** `tku` 才要權限，已經是 `tku` 的比賽改其他設定照常。設定表列出他可以選的制度，比賽已經是淡江制度時也列出它。
   - 每週挑戰：只有管理員設定（管理員有權限），全社都會打，所以預設是 2/1（社長 2026-10-26）；管理員仍可以改成淡江制度。已經存過的設定照存的。
 - **舊資料照舊**：存下來的牌桌、座位 id、挑戰、隊制賽、紀錄裡的 `tku` 都照讀照打，不改寫；沒有 `Table.robotKind` 的舊牌桌代打照舊用淡江制度。權限被收回時，已經開好的牌桌、挑戰、比賽也照舊，只是不能再新開或改成淡江制度。
 - **不受影響的**：真人叫品的推論意義（§4，同伴不是機器人時用淡江制度讀）與叫牌提示卡（`bookTopics`）是淡江橋譜的公開內容，不是機器人，照舊。

@@ -16,7 +16,7 @@
 | 負載測試、指標與系統狀態、額度估算 | `docs/LOAD.md`、`ARCHITECTURE.md` §5.13 |
 | 安全標頭與 CSP、session、安全審查（ASVS）、個資匯出與刪除、功能旗標 | `docs/SECURITY.md`、`shared/features.ts` |
 | 帳號申請、權限、淡江橋譜的 API | `ARCHITECTURE.md` §5.2 |
-| 機器人（TKB，淡江制度或 2/1）的叫牌與防守 | `ROBOT.md`；2/1（GIB 相容）的制度與來源：`docs/BBO GIB/` |
+| 機器人（TKB，淡江制度、2/1、SAYC 或精準制）的叫牌與防守 | `ROBOT.md`；2/1（GIB 相容）的制度與來源：`docs/BBO GIB/`；SAYC：`docs/systems/sayc.md` |
 | 產品範圍與 Roadmap | `docs/PRD/00-prd.md`（總 PRD）、`docs/PRD/01-bbo-competitive-analysis.md`（BBO 競品分析） |
 | **開工前** | `docs/NEXT.md`（現在的位置、工作方式、開工指令範本）、`docs/ROADMAP.md`（全部批次的順序，一批一個 PR）|
 | 開工一個 task | `docs/PRD/README.md`（task 格式、一組 task 一個 PR）與該 task 所在的 epic（`docs/PRD/e*.md`） |
@@ -28,7 +28,7 @@
 3. **`shared/` 保持純函式**，不 import React、DOM 或 `cloudflare:workers`。
 4. **`ClubService` 與 `TableService` 不碰 Cloudflare API**，只透過 `Store`、`Connections` 與牌桌介面（`worker/tables.ts`）；Durable Object 的細節留在 `club.ts` 與 `table-object.ts`（一桌的邏輯在不碰 Cloudflare 的 `table-host.ts`）。
 5. **顏色只來自 `styles/tokens.ts`**，介面文字只來自 `strings.ts`（繁中、簡中、英、越、日、韓六份都要加，`shared/messages.ts` 也一樣）；伺服器的錯誤只丟 `ClubError`／`GameError` 加 `shared/messages.ts` 的代碼。只用於樣式的 prop 加 `$` 前綴。
-6. **機器人只能用它看得到的牌**（`shared/robot/play.ts` 的 `View`），不能讀 `state.hands` 裡別人的牌。機器人只有一個 TKB、沒有等級（之後有伺服器 DDS 才加 TKB Adv）；TKB 用淡江制度時叫牌以淡江橋譜為準，用 2/1 時照 `docs/BBO GIB/gib-2over1.md`（BBO GIB 公開的制度，不複製 BBO 的程式或原文）；改了要更新 `ROBOT.md`。
+6. **機器人只能用它看得到的牌**（`shared/robot/play.ts` 的 `View`），不能讀 `state.hands` 裡別人的牌。機器人只有一個 TKB、沒有等級（之後有伺服器 DDS 才加 TKB Adv）；TKB 用淡江制度時叫牌以淡江橋譜為準，用 2/1 時照 `docs/BBO GIB/gib-2over1.md`（BBO GIB 公開的制度，不複製 BBO 的程式或原文），用 SAYC 時照 `docs/systems/sayc.md`（ACBL 公開的制度，不複製原文）；新增制度的入口是 `shared/protocol.ts` 的 `ROBOT_KINDS` 與 `shared/robot/system/open-systems.ts`；改了要更新 `ROBOT.md`。
 7. **不要直接推送到 `main`，也不要 force-push。** 功能走分支＋PR。合併一律用 `gh pr merge <號> --squash --delete-branch`，遠端與本地分支一起刪；分支在 worktree 裡的話先 `git worktree remove` 再刪分支。GitHub 已開「合併後自動刪除分支」，但關掉不合併的 PR 不會自動刪，要手動 `git push origin --delete <分支>`。
 8. 程式碼、註解、commit、**PR 標題**用英文（標題不能有中文，PR 本文可以用繁中）；文件與介面用繁體中文（台灣用語）。
 

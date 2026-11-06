@@ -6,14 +6,13 @@ import { describe } from './system/describe.ts'
 import { choose } from './system/engine.ts'
 import { contextFor } from './system/infer.ts'
 import { meanings } from './system/rules.ts'
-import { GIB } from './system/gib/index.ts'
-import { PRECISION } from './system/precision/index.ts'
+import { OPEN_SYSTEMS } from './system/open-systems.ts'
 import { TKU } from './system/tku/index.ts'
 import type { Spec, System } from './system/spec.ts'
 
 /**
- * The robot a host can seat, TKB (ROBOT.md), in either system: the club's system or GIB's 2/1;
- * both with the system engine (`system/`)
+ * The robot a host can seat, TKB (ROBOT.md), in any system: the club's system or a public one
+ * (`open-systems.ts`); all with the system engine (`system/`)
  */
 
 export interface RobotBid {
@@ -25,7 +24,7 @@ export interface RobotBid {
 }
 
 /** The system each robot bids with */
-export const ROBOT_SYSTEMS: Record<RobotKind, System> = { tku: TKU, gib: GIB, precision: PRECISION }
+export const ROBOT_SYSTEMS: Record<RobotKind, System> = { tku: TKU, ...OPEN_SYSTEMS }
 
 export function robotCall(
   kind: RobotKind,

@@ -37,7 +37,7 @@ function agrees(rule: Spec, hint: Spec): string | null {
   return null
 }
 
-const KINDS: RobotKind[] = ['tku', 'gib']
+const KINDS: RobotKind[] = ['tku', 'gib', 'sayc']
 
 describe('the explanation of a call agrees with the rule TKB bids it by', () => {
   it('on 150 random auctions in each system', { timeout: HEAVY_MS }, () => {
@@ -67,7 +67,7 @@ describe('the explanation of a call agrees with the rule TKB bids it by', () => 
   })
 
   it('1♥–1♠–1NT–2♣ is new minor forcing in both systems, however many passes came first', () => {
-    for (const kind of KINDS) {
+    for (const kind of ['tku', 'gib'] as const) {
       for (const before of [[], ['P'], ['P', 'P'], ['P', 'P', 'P']]) {
         const calls = [...before, '1H', 'P', '1S', 'P', '1N', 'P']
         const auction = calls.map((call, i) => ({ seat: (['N', 'E', 'S', 'W'] as const)[i % 4], call }))

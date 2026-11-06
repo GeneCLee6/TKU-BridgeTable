@@ -1,4 +1,5 @@
 import type { Call } from '../../auction.ts'
+import type { RobotKind } from '../../protocol.ts'
 import type { Strain, Suit } from '../../cards.ts'
 import type { CardSectionId, GroupIndex } from './card.ts'
 import type { Ctx } from './context.ts'
@@ -79,6 +80,7 @@ export const CONVENTIONS = [
   'ekb',
   'blackwood',
   'grandSlamForce',
+  'sos',
   'keycards',
   'queenAsk',
   'kingAsk',
@@ -228,7 +230,7 @@ export interface Book {
   general?: boolean
 }
 
-export type SystemId = 'gib' | 'tku' | 'precision'
+export type SystemId = RobotKind
 
 export interface System {
   id: SystemId

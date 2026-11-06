@@ -31,6 +31,7 @@ describe('the hint card in the table view', () => {
     const other = { ...board, hands: newBoard(1, deal()).hands }
     expect(boardView(other, 'S').bookTopics).toEqual(boardView(board, 'S').bookTopics)
     expect(boardView(board, 'S', { robots: { N: 'gib' } }).bookTopics).toBeUndefined()
+    expect(boardView(board, 'S', { robots: { N: 'sayc' } }).bookTopics).toBeUndefined()
     expect(boardView(board, 'S', { robots: { N: 'tku', E: 'gib' } }).bookTopics).toBeDefined()
   })
 

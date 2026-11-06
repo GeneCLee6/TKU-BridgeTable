@@ -14,9 +14,9 @@ export function cardRows(card: SystemCard): string[] {
   return [...new Set(rows.map((row) => normalized(JSON.stringify(row))))]
 }
 
-/** The rows of the club's card that say something the public 2/1 card does not */
-export function clubOnlyRows(club: SystemCard, open: SystemCard): string[] {
-  const shared = new Set(cardRows(open))
+/** The rows of the club's card that say something no public system's card does */
+export function clubOnlyRows(club: SystemCard, open: readonly SystemCard[]): string[] {
+  const shared = new Set(open.flatMap(cardRows))
   return cardRows(club).filter((row) => !shared.has(row))
 }
 

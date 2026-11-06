@@ -67,6 +67,7 @@ const NAMES: Record<Convention, Words> = {
   ekb: { zh: 'EKB（除外問 A）', 'zh-Hans': 'EKB（除外问 A）', en: 'Exclusion keycard', vi: 'Exclusion keycard', ja: 'エクスクルージョン・キーカード', ko: '익스클루전 키카드' },
   blackwood: { zh: '黑木問 A', 'zh-Hans': '黑木问 A', en: 'Blackwood', vi: 'Blackwood', ja: 'ブラックウッド', ko: '블랙우드' },
   grandSlamForce: { zh: '大滿貫迫叫', 'zh-Hans': '大满贯逼叫', en: 'Grand slam force', vi: 'Ép grand slam', ja: 'グランドスラム・フォース', ko: '그랜드 슬램 포스' },
+  sos: { zh: '求救再賭倍', 'zh-Hans': '求救再加倍', en: 'SOS redouble', vi: 'Tái phạt SOS', ja: 'SOS リダブル', ko: 'SOS 리더블' },
   dopi: { zh: 'DOPI', 'zh-Hans': 'DOPI', en: 'DOPI', vi: 'DOPI', ja: 'DOPI', ko: 'DOPI' },
   cue: { zh: '扣叫', 'zh-Hans': '扣叫', en: 'Cue bid', vi: 'Cue bid', ja: 'キュービッド', ko: '큐비드' },
   relay: { zh: '接力', 'zh-Hans': '接力', en: 'Relay', vi: 'Chuyển tiếp', ja: 'リレー', ko: '릴레이' },
