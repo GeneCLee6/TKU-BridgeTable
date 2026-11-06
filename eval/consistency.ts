@@ -2,7 +2,7 @@ import { isAuctionComplete, seatToCall, type AuctionCall, type Call } from '../s
 import type { Vulnerability } from '../shared/board.ts'
 import { partnerOf, SUITS, type Card, type Hands, type Seat } from '../shared/cards.ts'
 import { newBoard } from '../shared/game.ts'
-import type { RobotKind } from '../shared/protocol.ts'
+import { ROBOT_KINDS, type RobotKind } from '../shared/protocol.ts'
 import { ROBOT_SYSTEMS } from '../shared/robot/robots.ts'
 import { contextOf, emptyReading } from '../shared/robot/system/context.ts'
 import { choose } from '../shared/robot/system/engine.ts'
@@ -236,7 +236,7 @@ export interface Consistency {
 }
 
 export function consistencyCheck(options: ConsistencyOptions = {}): Consistency {
-  const systems = options.systems ?? (['tku', 'gib'] as const)
+  const systems = options.systems ?? ROBOT_KINDS
   const conflicts: Conflict[] = []
   const wide: Wide[] = []
   const left: Wide[] = []

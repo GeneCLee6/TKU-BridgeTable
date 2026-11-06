@@ -380,7 +380,7 @@ interface BoardState {
 
 瀏覽器拿到的 `BoardView` 只包含它能看的牌，以及伺服器算好的 `legalCalls`／`legalCards`／`canUndo`／`canClaim`，畫面不需要自己判斷規則。攤牌被拒絕後，`rejectedClaim` 記下誰拒絕，直到下一個動作。
 
-**制度卡（`e5-t52`，ROBOT.md §6.15）**：卡只由制度算出來，不含任何牌桌或牌的資料，所以打牌中打開也不洩漏牌。可見性在於制度本身：2/1 是公開的規則，放在靜態資源；淡江制度是社團的（同 #271 從公開分享頁拿掉 `meaning`／`book`），**不放任何公開檔案**，只由 `GET /api/system-card/tku`（`worker/system-card.ts`）給已登入的淡江社員，內容是 build 時算好打包進 Worker 的字串。未登入、其他社團、其他方法都回同一個 `noSuchApi` 404，這個路徑排在 `signInFirst` 之前，未登入與其他社團才會得到一樣的回答（還沒開通的社團照常回 `unknownClub`，所有路徑都一樣）。`npm run build` 的 `scripts/check-public-assets.ts` 確認 `dist/client` 裡沒有淡江卡的內容。
+**制度卡（`e5-t52`，ROBOT.md §6.15）**：卡只由制度算出來，不含任何牌桌或牌的資料，所以打牌中打開也不洩漏牌。可見性在於制度本身：2/1、SAYC 是公開的規則（`shared/robot/system/open-systems.ts`），各放在一個靜態資源；淡江制度是社團的（同 #271 從公開分享頁拿掉 `meaning`／`book`），**不放任何公開檔案**，只由 `GET /api/system-card/tku`（`worker/system-card.ts`）給已登入的淡江社員，內容是 build 時算好打包進 Worker 的字串。未登入、其他社團、其他方法都回同一個 `noSuchApi` 404，這個路徑排在 `signInFirst` 之前，未登入與其他社團才會得到一樣的回答（還沒開通的社團照常回 `unknownClub`，所有路徑都一樣）。`npm run build` 的 `scripts/check-public-assets.ts` 確認 `dist/client` 裡沒有淡江卡的內容。
 
 ## 5. 通訊與儲存
 
@@ -2138,15 +2138,15 @@ SQL 由 `worker/history-index.ts` 的 `searchBoards` 組：只有固定的 SQL �
 
 ### 5.1.2 淡江制度的 TKB 只給有權限的社員（社長 2026-10-26）
 
-淡江制度的機器人（`RobotKind` 的 `tku`）不公開：只有管理員在管理頁勾了 **`tkuSystem`**（「淡江制度機器人」）的社員能用，管理員本來就有。其他人只有一個 TKB、沒有制度可選，就是 2/1（`gib`）的那個。**伺服器檢查**，不只是畫面藏起來：沒有權限卻要 `tku` 一律回 `tkuSystemOnly`（403）。
+淡江制度的機器人（`RobotKind` 的 `tku`）不公開：只有管理員在管理頁勾了 **`tkuSystem`**（「淡江制度機器人」）的社員能用，管理員本來就有。其他人可以選公開的制度（`OPEN_ROBOT_KINDS`：2/1 的 `gib`、SAYC 的 `sayc`），預設 `gib`。**伺服器檢查**，不只是畫面藏起來：沒有權限卻要 `tku` 一律回 `tkuSystemOnly`（403）。
 
 - **看的是誰設定機器人**：放機器人的房主、建立挑戰或隊制賽的人、開練習桌的人。坐到有權限的房主桌上的其他人照常跟淡江制度的機器人同桌、對打，看得到它的說明（§4 的機器人叫品說明不變）；挑戰的受邀者照打挑戰的制度。
 - **每個選制度的地方**（`ClubService` 的 `mayUseTku`、`defaultKindOf`、`checkRobotKind`，牌桌的 `TableService.robotKindFor`；瀏覽器用 `shared/protocol.ts` 的 `robotKindsFor`、`mayUseTkuSystem`）：
-  - 牌桌的 `addRobot`、`replaceWithRobot`：由牌桌自己檢查（`TableService.robotKindFor`），所以走大廳的連線或牌桌自己的連線（`/ws/table/<id>` → `TableHost.message`，不經過 `ClubService`）都一樣。牌桌透過 `ClubLink.mayUseTku` 問社團（Durable Object 之間是 RPC `Club.tableMayUseTku`），帳號只在社團，每次問到的都是現在的權限，房主換人或權限改了也不用通知牌桌；問不到就是 `serverError`，不會放錯。沒寫 `kind` 就用房主的預設（有權限 `tku`，否則 `gib`）。座位選單有權限時有「放 TKB（淡江制度）」「放 TKB（2/1）」兩個，沒有時只有「放 TKB」。
+  - 牌桌的 `addRobot`、`replaceWithRobot`：由牌桌自己檢查（`TableService.robotKindFor`），所以走大廳的連線或牌桌自己的連線（`/ws/table/<id>` → `TableHost.message`，不經過 `ClubService`）都一樣。牌桌透過 `ClubLink.mayUseTku` 問社團（Durable Object 之間是 RPC `Club.tableMayUseTku`），帳號只在社團，每次問到的都是現在的權限，房主換人或權限改了也不用通知牌桌；問不到就是 `serverError`，不會放錯。沒寫 `kind` 就用房主的預設（有權限 `tku`，否則 `gib`）。座位選單列出他可以選的每一種制度（`robotKindsFor`）。
   - 代打（斷線 3 分鐘，`substituteDue`）：同伴是機器人就用同伴的制度，否則用牌桌的 `Table.robotKind`（開桌時記下房主的預設）。
-  - 練習桌：`parsePracticeSettings(value, 預設)`，沒寫 `robotKind` 就用開桌者的預設；`PracticeDialog` 只在有權限時顯示制度。
-  - 挑戰：`createChallenge` 檢查設定的 `robotKind`（預設本來就是 `gib`）；「用這副牌挑戰」的牌若是跟淡江制度的機器人打的（例如在別人桌上），沒有權限也回 `tkuSystemOnly`，紀錄頁不顯示那個按鈕。一鍵再戰是新的牌，所以沒有權限的人再戰淡江制度的挑戰時改成 2/1，不拒絕。`ChallengeDialog` 只在有權限時顯示「機器人」。
-  - 隊制賽：`TeamMatchService.create` 與 `update` 檢查（`TeamMatchDeps.mayUseTku`）；預設本來就是 `gib`。只有從別的制度**改成** `tku` 才要權限，已經是 `tku` 的比賽改其他設定照常。設定表只在有權限（或比賽已經是淡江制度）時顯示制度。
+  - 練習桌：`parsePracticeSettings(value, 預設)`，沒寫 `robotKind` 就用開桌者的預設；`PracticeDialog` 列出他可以選的制度。
+  - 挑戰：`createChallenge` 檢查設定的 `robotKind`（預設本來就是 `gib`）；「用這副牌挑戰」的牌若是跟淡江制度的機器人打的（例如在別人桌上），沒有權限也回 `tkuSystemOnly`，紀錄頁不顯示那個按鈕。一鍵再戰是新的牌，所以沒有權限的人再戰淡江制度的挑戰時改成 2/1，不拒絕。`ChallengeDialog` 列出他可以選的制度。
+  - 隊制賽：`TeamMatchService.create` 與 `update` 檢查（`TeamMatchDeps.mayUseTku`）；預設本來就是 `gib`。只有從別的制度**改成** `tku` 才要權限，已經是 `tku` 的比賽改其他設定照常。設定表列出他可以選的制度，比賽已經是淡江制度時也列出它。
   - 每週挑戰：只有管理員設定（管理員有權限），全社都會打，所以預設是 2/1（社長 2026-10-26）；管理員仍可以改成淡江制度。已經存過的設定照存的。
 - **舊資料照舊**：存下來的牌桌、座位 id、挑戰、隊制賽、紀錄裡的 `tku` 都照讀照打，不改寫；沒有 `Table.robotKind` 的舊牌桌代打照舊用淡江制度。權限被收回時，已經開好的牌桌、挑戰、比賽也照舊，只是不能再新開或改成淡江制度。
 - **不受影響的**：真人叫品的推論意義（§4，同伴不是機器人時用淡江制度讀）與叫牌提示卡（`bookTopics`）是淡江橋譜的公開內容，不是機器人，照舊。

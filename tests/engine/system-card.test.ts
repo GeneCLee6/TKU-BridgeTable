@@ -12,6 +12,7 @@ import { evaluate, fits } from '../../shared/robot/system/evaluate.ts'
 import { GIB } from '../../shared/robot/system/gib/index.ts'
 import { openings as gibOpenings } from '../../shared/robot/system/gib/openings.ts'
 import { resolve } from '../../shared/robot/system/rules.ts'
+import { SAYC } from '../../shared/robot/system/sayc/index.ts'
 import type { Book, Spec, System } from '../../shared/robot/system/spec.ts'
 import { TKU } from '../../shared/robot/system/tku/index.ts'
 import { openings as tkuOpenings } from '../../shared/robot/system/tku/openings.ts'
@@ -28,7 +29,7 @@ const SEEDED = (seed: number) => {
   }
 }
 
-const cards = { tku: deriveCard(TKU), gib: deriveCard(GIB) }
+const cards = { tku: deriveCard(TKU), gib: deriveCard(GIB), sayc: deriveCard(SAYC) }
 
 const groupOf = (card: SystemCard, section: string, after: string, seat?: number) => {
   const found = card.sections.find((s) => s.id === section)?.groups.find((g) => g.after === after && g.seat === seat)
@@ -166,14 +167,14 @@ group('the card agrees with what TKB actually bids', () => {
    * exception the president confirmed on 2026-11-06 (ROBOT.md §2): the explanation stays 12–21. In
    * 2/1 the points agree (11–21) but the total points can fall outside the 12–22 announced
    */
-  const known = (system: 'tku' | 'gib', call: Call, spec: Spec): Spec => {
+  const known = (system: 'tku' | 'gib' | 'sayc', call: Call, spec: Spec): Spec => {
     if (system === 'tku' && /^1[CDHS]$/.test(call)) return { ...spec, hcp: [11, 21] }
     if (system === 'gib' && /^1[CDHS]$/.test(call)) return { ...spec, tp: undefined, hcp: [11, 21] }
     return spec
   }
 
-  it.each(['tku', 'gib'] as const)('%s: 1,500 hands open as the card says', (system) => {
-    const engine = system === 'tku' ? TKU : GIB
+  it.each(['tku', 'gib', 'sayc'] as const)('%s: 1,500 hands open as the card says', (system) => {
+    const engine = { tku: TKU, gib: GIB, sayc: SAYC }[system]
     const random = SEEDED(system === 'tku' ? 52 : 25)
     let checked = 0
     for (let i = 0; i < 375; i++) {

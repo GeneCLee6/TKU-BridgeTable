@@ -209,24 +209,33 @@ export const ROBOT_PREFIX = 'robot:'
 export const isRobotId = (id: string | null | undefined) => !!id && id.startsWith(ROBOT_PREFIX)
 
 /**
- * The robot is TKB (ROBOT.md), and a host seats it in either bidding system: the club's
- * (淡江制度, the club's system in TKU BridgeBook; only with the `tkuSystem` permission) or 2/1
- * (GIB-compatible, docs/BBO GIB)
+ * The robot is TKB (ROBOT.md), and a host seats it in any of these bidding systems: the club's
+ * (淡江制度, the club's system in TKU BridgeBook; only with the `tkuSystem` permission), 2/1
+ * (GIB-compatible, docs/BBO GIB) or SAYC (docs/systems/sayc.md).
+ *
+ * A new public system is one word here, its rules in `shared/robot/system/open-systems.ts`, and
+ * whatever the compiler then asks for: its card's loader (`src/lib/systemCards.ts`) and its name
+ * in each language (`strings.ts`: the maps keyed by system). A stored value keeps its meaning, so
+ * append and never rename; `robotKindOf` reads the ids.
  */
-export const ROBOT_KINDS = ['tku', 'gib'] as const
+export const ROBOT_KINDS = ['tku', 'gib', 'sayc'] as const
 /** The club's system card: signed-in members of 淡江 only (`worker/system-card.ts`, ARCHITECTURE.md §4) */
 export const TKU_CARD_API = '/api/system-card/tku'
 export type RobotKind = (typeof ROBOT_KINDS)[number]
 export const isRobotKind = (value: unknown): value is RobotKind => ROBOT_KINDS.includes(value as RobotKind)
+/** The public systems: anyone may seat TKB in them, and their rules and cards are public */
+export type OpenRobotKind = Exclude<RobotKind, 'tku'>
+export const OPEN_ROBOT_KINDS = ROBOT_KINDS.filter((kind): kind is OpenRobotKind => kind !== 'tku')
+export const isOpenRobotKind = (kind: RobotKind): kind is OpenRobotKind => kind !== 'tku'
 
 /**
  * Whether a member may seat TKB in the club's system (淡江制度): the `tkuSystem` permission, which
  * admins have too (`Me.permissions` lists everything for them). The server checks it again
  */
 export const mayUseTkuSystem = (me: Pick<Me, 'permissions'> | null | undefined) => !!me?.permissions.includes('tkuSystem')
-/** The systems a member may seat TKB in: both with `tkuSystem`, otherwise only 2/1 (there is one TKB for them) */
+/** The systems a member may seat TKB in: all with `tkuSystem`, otherwise the public ones; the first is the one offered first */
 export const robotKindsFor = (me: Pick<Me, 'permissions'> | null | undefined): readonly RobotKind[] =>
-  mayUseTkuSystem(me) ? ROBOT_KINDS : ['gib']
+  mayUseTkuSystem(me) ? ROBOT_KINDS : OPEN_ROBOT_KINDS
 /** The system TKB is seated in when a member does not say: the club's for those who may use it, otherwise 2/1 */
 export const defaultRobotKind = (me: Pick<Me, 'permissions'> | null | undefined): RobotKind => (mayUseTkuSystem(me) ? 'tku' : 'gib')
 

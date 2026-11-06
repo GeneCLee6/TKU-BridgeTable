@@ -289,14 +289,14 @@ describe('ChallengeDialog (e7-t17)', () => {
     await waitFor(() => expect(onCreated).toHaveBeenCalled())
   })
 
-  it('has no choice of robots for a member without tkuSystem: one TKB, the 2/1 one (ROBOT.md §7)', async () => {
+  it('offers a member without tkuSystem the public systems, 2/1 first (ROBOT.md §7)', async () => {
     mocks.api.createChallenge.mockResolvedValue({ challenge: challenge('new', {}) })
     render(
       <PreferencesProvider>
         <ChallengeDialog onClose={() => {}} onCreated={() => {}} />
       </PreferencesProvider>,
     )
-    expect(screen.queryByLabelText('機器人')).toBeNull()
+    expect([...screen.getByLabelText('機器人').querySelectorAll('option')].map((o) => (o as HTMLOptionElement).value)).toEqual(['gib', 'sayc'])
     await userEvent.click(screen.getByRole('combobox', { name: '邀請社員' }))
     await userEvent.click(screen.getByRole('option', { name: 'ben' }))
     await userEvent.click(screen.getByRole('button', { name: '發出挑戰' }))

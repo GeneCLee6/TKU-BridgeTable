@@ -1,7 +1,7 @@
 import { appendFileSync, existsSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { ruleBrain } from '../shared/robot/brain.ts'
-import { brainFrom, readArgs } from './config.ts'
+import { brainFrom, kindsFrom, readArgs } from './config.ts'
 import { bankProblems, loadBank, QUIZ_DIR, quizMisses, quizRegressions, quizReport, runQuiz, scoreQuiz } from './quiz.ts'
 
 /**
@@ -11,7 +11,8 @@ import { bankProblems, loadBank, QUIZ_DIR, quizMisses, quizRegressions, quizRepo
  *   npm run quiz -- --base base      the CI ratchet: the base checkout's TKB on the same questions;
  *                                    exit 1 when any category has fewer correct answers than the base's
  *
- * The questions are always this checkout's (`tests/bidding-quiz`), so adding questions never fails.
+ * The questions are always this checkout's (`tests/bidding-quiz`), so adding questions never fails;
+ * a system the base does not have yet is left out of its run.
  * In GitHub Actions the report also goes to the job summary.
  */
 
@@ -28,7 +29,9 @@ async function main() {
   let failed = false
   if (baseDir) {
     if (!existsSync(resolve(baseDir, 'shared/robot/brain.ts'))) throw new Error('--base must be a checkout with shared/robot/brain.ts')
-    const baseScores = scoreQuiz(await runQuiz(await brainFrom(baseDir), files))
+    const inBase = await kindsFrom(baseDir)
+    const asked = files.map((file) => ({ ...file, questions: file.questions.filter((q) => inBase.includes(q.system)) }))
+    const baseScores = scoreQuiz(await runQuiz(await brainFrom(baseDir), asked))
     const worse = quizRegressions(scores, baseScores)
     failed = worse.length > 0
     report = [

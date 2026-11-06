@@ -93,8 +93,8 @@ export function BookHints({ board, robotKind }: { board: BoardView | null; robot
 
   return (
     <Wrap>
-      {robotKind === 'gib' ? (
-        <Muted>{t.conventionsGib}</Muted>
+      {robotKind !== 'tku' ? (
+        <Muted>{t.conventionsPublic(t.robotSystems[robotKind])}</Muted>
       ) : !topics || topics.soFar.length + topics.next.length === 0 ? (
         <Muted>{t.conventionsNone}</Muted>
       ) : (

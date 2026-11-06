@@ -25,7 +25,7 @@
 | [E2](e2-table-engine-realtime.md) | 牌桌引擎與即時連線 | 36／36 | 13／14 | 12 | in-progress |
 | [E3](e3-table-ui-experience.md) | 牌桌介面與體驗 | 48／48 | 12／12 | 13 | done |
 | [E4](e4-records-favorites-search.md) | 牌局紀錄、收藏與搜尋 | 39／39 | 11／13 | 24 | in-progress |
-| [E5](e5-robot-bidding-brain.md) | 智慧機器人（一）：叫牌制度引擎、2/1 機器人與完整 5542 | 57／65 | 9／14 | 45 | in-progress |
+| [E5](e5-robot-bidding-brain.md) | 智慧機器人（一）：叫牌制度引擎、2/1 機器人與完整 5542 | 58／65 | 9／14 | 45 | in-progress |
 | [E6](e6-robot-play-levels-evaluation.md) | 智慧機器人（二）：打牌大腦、TKB 與評測 | 27／44 | 6／14 | 14 | in-progress |
 | [E7](e7-challenges.md) | 挑戰（單挑與多人） | 29／29 | 6／9 | 25 | in-progress |
 | [E8](e8-two-table-team-match.md) | 雙桌隊制賽 | 22／22 | 9／9 | 17 | done |

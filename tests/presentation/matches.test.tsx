@@ -207,16 +207,16 @@ describe('MatchPage (e8-t06)', () => {
     expect(mocks.api.matchSettings).toHaveBeenCalledWith('m1', expect.objectContaining({ boards: 12, invite: 'captains', delay: true }))
   })
 
-  it('lets only a host with tkuSystem choose the robots’ system (ROBOT.md §7)', async () => {
+  it('offers the club’s system only to a host with tkuSystem (ROBOT.md §7)', async () => {
     mocks.api.match.mockResolvedValue({ match: prepRoom() })
     show('/matches/m1')
     await screen.findByLabelText('副數')
-    expect(screen.queryByLabelText('機器人的制度')).toBeNull()
+    expect([...(await screen.findByLabelText('機器人的制度')).querySelectorAll('option')].map((o) => (o as HTMLOptionElement).value)).toEqual(['gib', 'sayc'])
     cleanup()
     mocks.permissions = ['tkuSystem']
     show('/matches/m1')
     const kind = await screen.findByLabelText('機器人的制度')
-    expect([...kind.querySelectorAll('option')].map((o) => o.value)).toEqual(['tku', 'gib'])
+    expect([...kind.querySelectorAll('option')].map((o) => o.value)).toEqual(['tku', 'gib', 'sayc'])
     mocks.permissions = []
   })
 })
