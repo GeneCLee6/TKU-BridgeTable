@@ -1386,11 +1386,12 @@ export class Club extends DurableObject<Env> implements Connections {
     if (preset && request.method === 'DELETE') return json({ presets: await this.service.removeSavedPractice(user.id, preset[1]) })
     // Puzzles (e10-t14): the published ones; every card is checked against the stored data
     if (route === 'GET /api/puzzles') return json({ puzzles: this.service.puzzles.list(user.id) })
-    const puzzle = url.pathname.match(/^\/api\/puzzles\/([\w-]+)(?:\/(play|retry|hint))?$/)
+    const puzzle = url.pathname.match(/^\/api\/puzzles\/([\w-]+)(?:\/(play|retry|hint|reveal))?$/)
     if (puzzle && request.method === 'GET' && !puzzle[2]) return json({ puzzle: this.service.puzzles.get(user.id, puzzle[1]) })
     if (puzzle && request.method === 'POST' && puzzle[2] === 'play') return json({ puzzle: this.service.puzzles.play(user.id, puzzle[1], (await body()).card) })
     if (puzzle && request.method === 'POST' && puzzle[2] === 'retry') return json({ puzzle: this.service.puzzles.retry(user.id, puzzle[1], (await body()).from) })
     if (puzzle && request.method === 'POST' && puzzle[2] === 'hint') return json({ puzzle: this.service.puzzles.hint(user.id, puzzle[1]) })
+    if (puzzle && request.method === 'POST' && puzzle[2] === 'reveal') return json({ puzzle: this.service.puzzles.reveal(user.id, puzzle[1]) })
     // Partner bidding practice (e10-t08): only the session's two members, as worker/views.ts lets each see it
     if (route === 'GET /api/partner-bidding') return json({ sessions: this.service.partnerBids.list(user.id) })
     if (route === 'POST /api/partner-bidding') return json({ session: await this.service.partnerBids.create(user.id, await body()) })

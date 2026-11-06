@@ -1299,22 +1299,24 @@ export function puzzleSummary(puzzle: Puzzle, progress: PuzzleProgress | null): 
     status: progress?.status ?? 'new',
     solved: (progress?.solvedAt ?? null) !== null,
     clean: progress?.clean ?? false,
+    revealed: (progress?.revealedAt ?? null) !== null,
   }
 }
 
 /**
  * A puzzle as the member plays it (rule 2). North and South are declarer's and dummy's: open from the
  * start. East's and West's cards stay on the server, apart from what they have played, until this
- * attempt is solved, and a member who plays a solved puzzle again has them hidden again. The
- * explanation and the hints not asked for stay here too. The repo is public, so none of this is
- * secret: it keeps the page from giving a puzzle away.
+ * attempt is solved or the member asks for the answer, and a member who plays the puzzle again has
+ * them hidden again. The explanation and the hints not asked for stay here too, and the answer stays
+ * here until they ask for it (`PuzzleService.reveal`), solved or not. The repo is public, so none of
+ * this is secret: it keeps the page from giving a puzzle away.
  */
 export function puzzleView(puzzle: Puzzle, progress: PuzzleProgress | null): PuzzleView {
   const { source } = puzzle
   const played = progress?.played ?? splitCards(puzzle.solution.start)
   const state = puzzleState(source, [...source.opening, ...played])
   const summary = puzzleSummary(puzzle, progress)
-  const solved = summary.status === 'solved'
+  const open = summary.status === 'solved' || summary.status === 'revealed'
   const start = puzzleState(source, [])
   const held = new Set(SEATS.flatMap((seat) => start.hands[seat]))
   const hintsGiven = progress?.hints ?? 0
@@ -1324,19 +1326,28 @@ export function puzzleView(puzzle: Puzzle, progress: PuzzleProgress | null): Puz
     wonBefore: source.won,
     need: puzzleNeed(source),
     won: state.won,
-    hands: solved ? state.hands : { N: state.hands.N, S: state.hands.S },
+    hands: open ? state.hands : { N: state.hands.N, S: state.hands.S },
     counts: { N: state.hands.N.length, E: state.hands.E.length, S: state.hands.S.length, W: state.hands.W.length },
-    ...(solved && { startHands: start.hands }),
+    ...(open && { startHands: start.hands }),
     gone: fullDeck().filter((card) => !held.has(card)),
     tricks: state.tricks,
-    turn: solved ? null : state.turn,
-    legalCards: summary.status === 'solved' || summary.status === 'failed' ? [] : legalPlays(state),
+    turn: open ? null : state.turn,
+    legalCards: open || summary.status === 'failed' ? [] : legalPlays(state),
     wrong: progress?.wrong ?? null,
     hints: source.hints.slice(0, hintsGiven),
     hintsLeft: Math.max(0, source.hints.length - hintsGiven),
     attempts: progress?.attempts ?? 0,
     failures: progress?.failures ?? 0,
-    ...(solved && { explanation: source.explanation }),
+    ...(open && { explanation: source.explanation }),
+    ...(open &&
+      summary.revealed && {
+        answer: {
+          leader: source.leader,
+          line: splitCards(puzzle.solution.line),
+          first: source.opening.length + splitCards(puzzle.solution.start).length,
+        },
+      }),
+    ...(summary.status === 'revealed' && progress?.node === -1 && { finishedAfterReveal: true }),
   }
 }
 

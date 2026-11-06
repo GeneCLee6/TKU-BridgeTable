@@ -322,6 +322,7 @@ export const api = {
   playPuzzle: (id: string, card: string) => post<{ puzzle: PuzzleView }>(`/api/puzzles/${encodeURIComponent(id)}/play`, { card }),
   retryPuzzle: (id: string, from: 'mistake' | 'start') => post<{ puzzle: PuzzleView }>(`/api/puzzles/${encodeURIComponent(id)}/retry`, { from }),
   puzzleHint: (id: string) => post<{ puzzle: PuzzleView }>(`/api/puzzles/${encodeURIComponent(id)}/hint`),
+  revealPuzzle: (id: string) => post<{ puzzle: PuzzleView }>(`/api/puzzles/${encodeURIComponent(id)}/reveal`),
   partnerBids: () => request<{ sessions: PartnerBidSummary[] }>('/api/partner-bidding'),
   partnerBid: (id: string) => request<{ session: PartnerBidView }>(`/api/partner-bidding/${encodeURIComponent(id)}`),
   createPartnerBid: (partnerId: string, settings: Partial<PartnerBidSettings>) =>
