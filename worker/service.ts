@@ -300,7 +300,7 @@ import {
 import { AuditLog } from './audit.ts'
 import { ClubBanners } from './notices.ts'
 import { SupportService } from './support.ts'
-import type { AdminSupportView } from '../shared/support.ts'
+import type { AdminSupportView, MySupportReport } from '../shared/support.ts'
 import { RefereeLog, refereeKindOf } from './referee.ts'
 import {
   isRefereeEvent,
@@ -962,6 +962,7 @@ export class ClubService {
         for (const id of this.adminIds()) await this.notifications.notify(id, 'supportReport', { username })
       },
       tellOwner: config.tellPlatformOwner,
+      tellReporter: (userId) => this.notifications.notify(userId, 'supportResolved'),
       failed: (what, error) => this.log(crashEntry(what, error)),
     })
     this.directs = new DirectMessageStore(store.sql)
@@ -2686,6 +2687,12 @@ export class ClubService {
   async sendSupportReport(userId: string, input: Record<string, unknown>, browser: string) {
     this.requireUser(userId)
     return this.support.submit(userId, input, browser)
+  }
+
+  /** `GET /api/support/mine`: the member's own reports and how they stand */
+  mySupportReports(userId: string): { reports: MySupportReport[] } {
+    this.requireUser(userId)
+    return { reports: this.support.mine(userId) }
   }
 
   adminSupport(adminId: string): AdminSupportView {

@@ -149,6 +149,7 @@ const zh = {
     clubApplication: (name: string) => `有新的建社申請：「${name}」，到平台後台審核`,
     supportReport: (name: string) => `${name} 送出一則客服回報`,
     supportForwarded: (name: string) => `「${name}」轉交一則客服回報，到平台後台查看`,
+    supportResolved: () => '你回報的問題已經處理好了，到「我的帳號」查看',
     partnerBidInvited: (name: string) => `${name} 邀你一起做搭檔叫牌練習`,
     partnerBidAccepted: (name: string) => `${name} 接受了搭檔叫牌練習的邀請`,
     partnerBidDeclined: (name: string) => `${name} 拒絕了搭檔叫牌練習的邀請`,
@@ -238,6 +239,15 @@ const zh = {
   practiceIntro: '你坐南，和三個 TKB 打。可以指定牌型、隨時重發、撤回不限；紀錄標「練習」，不會出現在全部社員的紀錄裡。',
   practiceStart: '練習',
   practiceOpen: '開始練習',
+  // What shows when a page or the app fails to render (components/ErrorBoundary.tsx)
+  errorBoundary: {
+    title: '這一頁出了點問題',
+    hint: '不是你操作錯誤，我們已經收到記錄。可以重試一次，或先回大廳。',
+    retry: '重試',
+    home: '回大廳',
+    reload: '重新載入',
+    part: '這個區塊暫時無法顯示。',
+  },
   backToPractice: '回到練習桌',
   practiceDealLegend: '發什麼牌',
   practiceDeals: {
@@ -362,6 +372,7 @@ const zh = {
   },
   /** Partner bidding practice (e10-t08) */
   partnerBid: {
+    lobbyEntry: '搭檔叫牌',
     title: '搭檔叫牌練習',
     entry: '和搭檔輪流叫牌（不必同時在線）',
     entryHint: '邀一位社員，各自有空時叫自己那一手',
@@ -1631,6 +1642,7 @@ const zh = {
       book: '淡江橋譜的特約與文章',
       forum: '討論區（回覆、提到你、公告）',
       admin: '管理（註冊與重設密碼的申請、檔案空間）',
+      support: '客服回報（你的回報處理好了）',
       platform: '平台（新的建社申請）',
       tournaments: '比賽（公告、報名、開賽提醒、結果）',
     },
@@ -2249,6 +2261,11 @@ const zh = {
     platformIntro: '各社團管理員轉交的回報，內容仍在該社團，沒有社員的名字；要找人請問轉交的管理員。',
     platformNone: '沒有轉交的回報。',
     fromClub: (id: string) => `來自社團 ${id}`,
+    attachedImported: '會一起送出：瀏覽器、程式版本、社團。這副是你匯入的牌局，只有你看得到，管理員打不開，需要他們知道的內容請寫在上面。',
+    boardImported: '這是社員自己匯入的牌局，只有社員本人看得到，所以沒有連結。需要牌局內容請向社員詢問。',
+    mineTitle: '我的回報',
+    mineNone: '你還沒有送出過回報。',
+    mineResolvedAt: (at: string) => `處理完成：${at}`,
   },
   platform: {
     title: '平台後台',
@@ -2426,6 +2443,7 @@ const en: Strings = {
     clubApplication: (name) => `New club application: "${name}". Review it in the platform back office`,
     supportReport: (name) => `${name} sent a support report`,
     supportForwarded: (name) => `"${name}" forwarded a support report. See the platform back office`,
+    supportResolved: () => 'A problem you reported has been resolved. See your Account page',
     partnerBidInvited: (name) => `${name} invited you to practise bidding as partners`,
     partnerBidAccepted: (name) => `${name} accepted your partner bidding invitation`,
     partnerBidDeclined: (name) => `${name} declined your partner bidding invitation`,
@@ -2513,6 +2531,15 @@ const en: Strings = {
   practiceIntro: 'You sit South with three TKB. Choose the kind of hands, deal again at any time and undo as often as you like; the boards are marked "Practice" and stay out of the club’s history list.',
   practiceStart: 'Practice',
   practiceOpen: 'Start practising',
+  // What shows when a page or the app fails to render (components/ErrorBoundary.tsx)
+  errorBoundary: {
+    title: 'Something went wrong on this page',
+    hint: 'It’s nothing you did, and we’ve logged it. You can try again, or go back to the lobby.',
+    retry: 'Try again',
+    home: 'Back to the lobby',
+    reload: 'Reload',
+    part: 'This part can’t be shown right now.',
+  },
   backToPractice: 'Back to practice',
   practiceDealLegend: 'Hands to deal',
   practiceDeals: {
@@ -2637,6 +2664,7 @@ const en: Strings = {
   },
   /** Partner bidding practice (e10-t08) */
   partnerBid: {
+    lobbyEntry: 'Partner bidding',
     title: 'Partner bidding practice',
     entry: 'Bid with a partner in turns (no need to be online together)',
     entryHint: 'Invite a member; each of you bids your own hand when you have time',
@@ -3891,6 +3919,7 @@ const en: Strings = {
       book: 'TKU BridgeBook conventions and articles',
       forum: 'Forum (replies, mentions, announcements)',
       admin: 'Admin (applications, password reset requests, file space)',
+      support: 'Support (a report of yours was resolved)',
       platform: 'Platform (new club applications)',
       tournaments: 'Tournaments (announcements, entries, start reminder, results)',
     },
@@ -4501,6 +4530,11 @@ const en: Strings = {
     platformIntro: 'Reports clubs’ admins forwarded. They stay in their club and carry no member’s name: ask the admin who forwarded one.',
     platformNone: 'No forwarded reports.',
     fromClub: (id) => `From club ${id}`,
+    attachedImported: 'Sent along: your browser, the app’s version, your club. This is a board you imported, which only you can see: admins can’t open it, so write above whatever they need to know.',
+    boardImported: 'A board the member imported: only they can see it, so there is no link. Ask the member if you need its details.',
+    mineTitle: 'My reports',
+    mineNone: 'You haven’t sent any reports yet.',
+    mineResolvedAt: (at) => `Resolved: ${at}`,
   },
   platform: {
     title: 'Platform',
@@ -4676,6 +4710,7 @@ const zhHans: Strings = {
     clubApplication: (name) => `有新的建社申请：「${name}」，到平台后台审核`,
     supportReport: (name) => `${name} 送出一则客服回报`,
     supportForwarded: (name) => `「${name}」转交一则客服回报，到平台后台查看`,
+    supportResolved: () => '你回报的问题已经处理好了，到「我的账号」查看',
     partnerBidInvited: (name) => `${name} 邀你一起做搭档叫牌练习`,
     partnerBidAccepted: (name) => `${name} 接受了搭档叫牌练习的邀请`,
     partnerBidDeclined: (name) => `${name} 拒绝了搭档叫牌练习的邀请`,
@@ -4763,6 +4798,15 @@ const zhHans: Strings = {
   practiceIntro: '你坐南，和三个 TKB 打。可以指定牌型、随时重发、撤回不限；记录标「练习」，不会出现在全部社员的记录里。',
   practiceStart: '练习',
   practiceOpen: '开始练习',
+  // What shows when a page or the app fails to render (components/ErrorBoundary.tsx)
+  errorBoundary: {
+    title: '这一页出了点问题',
+    hint: '不是你操作错误，我们已经收到记录。可以重试一次，或先回大厅。',
+    retry: '重试',
+    home: '回大厅',
+    reload: '重新加载',
+    part: '这个区块暂时无法显示。',
+  },
   backToPractice: '回到练习桌',
   practiceDealLegend: '发什么牌',
   practiceDeals: {
@@ -4887,6 +4931,7 @@ const zhHans: Strings = {
   },
   /** Partner bidding practice (e10-t08) */
   partnerBid: {
+    lobbyEntry: '搭档叫牌',
     title: '搭档叫牌练习',
     entry: '和搭档轮流叫牌（不必同时在线）',
     entryHint: '邀一位社员，各自有空时叫自己那一手',
@@ -6139,6 +6184,7 @@ const zhHans: Strings = {
       book: '淡江桥谱的约定与文章',
       forum: '讨论区（回复、提到你、公告）',
       admin: '管理（注册与重设密码的申请、文件空间）',
+      support: '客服回报（你的回报处理好了）',
       platform: '平台（新的建社申请）',
       tournaments: '比赛（公告、报名、开赛提醒、结果）',
     },
@@ -6749,6 +6795,11 @@ const zhHans: Strings = {
     platformIntro: '各社团管理员转交的回报，内容仍在该社团，没有社员的名字；要找人请问转交的管理员。',
     platformNone: '没有转交的回报。',
     fromClub: (id) => `来自社团 ${id}`,
+    attachedImported: '会一起送出：浏览器、程序版本、社团。这副是你导入的牌局，只有你看得到，管理员打不开，需要他们知道的内容请写在上面。',
+    boardImported: '这是社员自己导入的牌局，只有社员本人看得到，所以没有链接。需要牌局内容请向社员询问。',
+    mineTitle: '我的回报',
+    mineNone: '你还没有送出过回报。',
+    mineResolvedAt: (at) => `处理完成：${at}`,
   },
   platform: {
     title: '平台后台',
@@ -6924,6 +6975,7 @@ const vi: Strings = {
     clubApplication: (name) => `Có đơn đăng ký mở câu lạc bộ mới: "${name}". Hãy duyệt trong trang quản trị nền tảng`,
     supportReport: (name) => `${name} đã gửi một báo cáo hỗ trợ`,
     supportForwarded: (name) => `"${name}" đã chuyển một báo cáo hỗ trợ. Hãy xem trong trang quản trị nền tảng`,
+    supportResolved: () => 'Vấn đề bạn báo đã được xử lý. Hãy xem trong trang Tài khoản',
     partnerBidInvited: (name) => `${name} mời bạn cùng luyện xướng bài`,
     partnerBidAccepted: (name) => `${name} đã nhận lời luyện xướng bài`,
     partnerBidDeclined: (name) => `${name} đã từ chối lời mời luyện xướng bài`,
@@ -7011,6 +7063,15 @@ const vi: Strings = {
   practiceIntro: 'Bạn ngồi Nam, chơi với ba TKB. Chọn kiểu bài, chia lại bất cứ lúc nào và hoàn tác không giới hạn; ván được ghi là "Luyện tập" và không hiện trong lịch sử của cả câu lạc bộ.',
   practiceStart: 'Luyện tập',
   practiceOpen: 'Bắt đầu luyện tập',
+  // What shows when a page or the app fails to render (components/ErrorBoundary.tsx)
+  errorBoundary: {
+    title: 'Trang này gặp sự cố',
+    hint: 'Không phải do bạn thao tác sai, và chúng tôi đã ghi nhận lỗi. Bạn có thể thử lại hoặc quay về sảnh.',
+    retry: 'Thử lại',
+    home: 'Về sảnh',
+    reload: 'Tải lại',
+    part: 'Hiện không thể hiển thị phần này.',
+  },
   backToPractice: 'Về bàn luyện tập',
   practiceDealLegend: 'Chia bài gì',
   practiceDeals: {
@@ -7135,6 +7196,7 @@ const vi: Strings = {
   },
   /** Partner bidding practice (e10-t08) */
   partnerBid: {
+    lobbyEntry: 'Xướng bài cùng bạn',
     title: 'Luyện xướng bài cùng bạn',
     entry: 'Xướng bài lần lượt với bạn (không cần online cùng lúc)',
     entryHint: 'Mời một thành viên; mỗi người xướng tay bài của mình khi rảnh',
@@ -8389,6 +8451,7 @@ const vi: Strings = {
       book: 'Quy ước và bài viết của TKU BridgeBook',
       forum: 'Diễn đàn (trả lời, nhắc đến bạn, thông báo)',
       admin: 'Quản trị (đơn đăng ký, yêu cầu đặt lại mật khẩu, dung lượng tệp)',
+      support: 'Hỗ trợ (báo cáo của bạn đã được xử lý)',
       platform: 'Nền tảng (đơn mở câu lạc bộ mới)',
       tournaments: 'Giải đấu (thông báo, đăng ký, nhắc giờ bắt đầu, kết quả)',
     },
@@ -8999,6 +9062,11 @@ const vi: Strings = {
     platformIntro: 'Báo cáo do quản trị viên các câu lạc bộ chuyển đến. Chúng vẫn nằm ở câu lạc bộ đó và không có tên thành viên; hãy hỏi quản trị viên đã chuyển.',
     platformNone: 'Không có báo cáo được chuyển.',
     fromClub: (id) => `Từ câu lạc bộ ${id}`,
+    attachedImported: 'Gửi kèm: trình duyệt, phiên bản ứng dụng, câu lạc bộ. Đây là ván bài bạn nhập vào, chỉ bạn xem được: quản trị viên không mở được, nên hãy ghi ở trên những gì họ cần biết.',
+    boardImported: 'Ván bài do thành viên tự nhập: chỉ người đó xem được nên không có liên kết. Hãy hỏi thành viên nếu cần nội dung ván bài.',
+    mineTitle: 'Báo cáo của tôi',
+    mineNone: 'Bạn chưa gửi báo cáo nào.',
+    mineResolvedAt: (at) => `Đã xử lý: ${at}`,
   },
   platform: {
     title: 'Quản trị nền tảng',
@@ -9174,6 +9242,7 @@ const ja: Strings = {
     clubApplication: (name) => `新しいクラブ開設申請「${name}」があります。プラットフォーム管理画面で審査してください`,
     supportReport: (name) => `${name} さんがサポート報告を送りました`,
     supportForwarded: (name) => `「${name}」がサポート報告を転送しました。プラットフォーム管理画面で確認してください`,
+    supportResolved: () => '報告した問題が解決しました。「アカウント」で確認してください',
     partnerBidInvited: (name) => `${name} さんからパートナー ビッド練習に招待されました`,
     partnerBidAccepted: (name) => `${name} さんがパートナー ビッド練習の招待を受けました`,
     partnerBidDeclined: (name) => `${name} さんがパートナー ビッド練習の招待を断りました`,
@@ -9261,6 +9330,15 @@ const ja: Strings = {
   practiceIntro: 'あなたはサウスに座り、3 人の TKB とプレイします。ハンドの条件を選べ、いつでも配り直せて、取り消しは無制限です。記録には「練習」と付き、クラブ全体の記録一覧には出ません。',
   practiceStart: '練習',
   practiceOpen: '練習を始める',
+  // What shows when a page or the app fails to render (components/ErrorBoundary.tsx)
+  errorBoundary: {
+    title: 'このページで問題が発生しました',
+    hint: 'あなたの操作が原因ではありません。記録は届いています。もう一度試すか、ロビーに戻ってください。',
+    retry: '再試行',
+    home: 'ロビーに戻る',
+    reload: '再読み込み',
+    part: 'この部分は現在表示できません。',
+  },
   backToPractice: '練習テーブルに戻る',
   practiceDealLegend: '配るハンド',
   practiceDeals: {
@@ -9385,6 +9463,7 @@ const ja: Strings = {
   },
   /** Partner bidding practice (e10-t08) */
   partnerBid: {
+    lobbyEntry: 'ペアでビッド',
     title: 'パートナー ビッド練習',
     entry: 'パートナーと交互にビッド（同時にオンラインでなくて可）',
     entryHint: 'メンバーを招待し、それぞれ時間のあるときに自分の手をビッドします',
@@ -10639,6 +10718,7 @@ const ja: Strings = {
       book: 'TKU BridgeBook の約定と記事',
       forum: '掲示板（返信、メンション、お知らせ）',
       admin: '管理（登録とパスワード再設定の申請、ファイル容量）',
+      support: 'サポート（あなたの報告が解決しました）',
       platform: 'プラットフォーム（新しいクラブ開設申請）',
       tournaments: '大会（お知らせ、申し込み、開始のお知らせ、結果）',
     },
@@ -11249,6 +11329,11 @@ const ja: Strings = {
     platformIntro: '各クラブの管理者が転送した報告です。データはそのクラブにあり、メンバーの名前は含まれません。詳しくは転送した管理者に尋ねてください。',
     platformNone: '転送された報告はありません。',
     fromClub: (id) => `クラブ ${id} から`,
+    attachedImported: '一緒に送信：ブラウザ、アプリのバージョン、クラブ。これはあなたがインポートしたボードで、あなたにしか見えません。管理者は開けないので、伝えたい内容は上に書いてください。',
+    boardImported: 'メンバーがインポートしたボードです。本人にしか見えないためリンクはありません。内容が必要な場合は本人に確認してください。',
+    mineTitle: '自分の報告',
+    mineNone: 'まだ報告を送信していません。',
+    mineResolvedAt: (at) => `解決日時：${at}`,
   },
   platform: {
     title: 'プラットフォーム管理',
@@ -11424,6 +11509,7 @@ const ko: Strings = {
     clubApplication: (name) => `새 클럽 개설 신청 「${name}」이 있습니다. 플랫폼 관리 화면에서 심사하세요`,
     supportReport: (name) => `${name} 님이 고객 지원 신고를 보냈습니다`,
     supportForwarded: (name) => `「${name}」에서 고객 지원 신고를 전달했습니다. 플랫폼 관리 화면에서 확인하세요`,
+    supportResolved: () => '신고한 문제가 해결되었습니다. 내 계정에서 확인하세요',
     partnerBidInvited: (name) => `${name} 님이 파트너 비딩 연습에 초대했습니다`,
     partnerBidAccepted: (name) => `${name} 님이 파트너 비딩 연습 초대를 수락했습니다`,
     partnerBidDeclined: (name) => `${name} 님이 파트너 비딩 연습 초대를 거절했습니다`,
@@ -11511,6 +11597,15 @@ const ko: Strings = {
   practiceIntro: '당신은 남쪽에 앉아 TKB 셋과 플레이합니다. 패 조건을 고르고, 언제든 다시 돌리고, 되돌리기는 제한이 없습니다. 기록에는 "연습"이 붙고 클럽 전체 기록 목록에는 나오지 않습니다.',
   practiceStart: '연습',
   practiceOpen: '연습 시작',
+  // What shows when a page or the app fails to render (components/ErrorBoundary.tsx)
+  errorBoundary: {
+    title: '이 페이지에 문제가 생겼습니다',
+    hint: '사용자의 조작 때문이 아니며 기록은 전달되었습니다. 다시 시도하거나 로비로 돌아가세요.',
+    retry: '다시 시도',
+    home: '로비로 돌아가기',
+    reload: '새로고침',
+    part: '이 부분은 지금 표시할 수 없습니다.',
+  },
   backToPractice: '연습 테이블로 돌아가기',
   practiceDealLegend: '돌릴 패',
   practiceDeals: {
@@ -11635,6 +11730,7 @@ const ko: Strings = {
   },
   /** Partner bidding practice (e10-t08) */
   partnerBid: {
+    lobbyEntry: '파트너 비딩',
     title: '파트너 비딩 연습',
     entry: '파트너와 번갈아 비딩 (동시에 접속하지 않아도 됩니다)',
     entryHint: '멤버를 초대해 각자 시간이 날 때 자기 패를 비딩합니다',
@@ -12889,6 +12985,7 @@ const ko: Strings = {
       book: 'TKU BridgeBook 약속과 글',
       forum: '게시판(답글, 언급, 공지)',
       admin: '관리(가입·비밀번호 재설정 신청, 파일 공간)',
+      support: '고객 지원 (내 신고가 해결됨)',
       platform: '플랫폼(새 클럽 개설 신청)',
       tournaments: '대회(공지, 신청, 시작 알림, 결과)',
     },
@@ -13499,6 +13596,11 @@ const ko: Strings = {
     platformIntro: '각 클럽 관리자가 전달한 신고입니다. 내용은 해당 클럽에 있으며 회원 이름은 없습니다. 자세한 내용은 전달한 관리자에게 문의하세요.',
     platformNone: '전달된 신고가 없습니다.',
     fromClub: (id) => `클럽 ${id}에서`,
+    attachedImported: '함께 전송: 브라우저, 앱 버전, 클럽. 이 보드는 직접 가져온 것으로 본인만 볼 수 있습니다. 관리자는 열 수 없으니 알려야 할 내용을 위에 적어 주세요.',
+    boardImported: '회원이 직접 가져온 보드입니다. 본인만 볼 수 있어 링크가 없습니다. 내용이 필요하면 회원에게 문의하세요.',
+    mineTitle: '내 신고',
+    mineNone: '아직 보낸 신고가 없습니다.',
+    mineResolvedAt: (at) => `해결: ${at}`,
   },
   platform: {
     title: '플랫폼 관리',

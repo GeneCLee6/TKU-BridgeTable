@@ -1,9 +1,11 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it } from 'vitest'
+import { IMPORTED_BOARD_PREFIX, type ImportedBoard } from '../../shared/imports.ts'
 import { noticeDismissKey, NOTICE_LIMITS, type ClubBanner, type NoticesView } from '../../shared/notices.ts'
 import { notificationLink } from '../../shared/notification-link.ts'
 import type { ForwardedSupport } from '../../shared/support.ts'
-import { SUPPORT_LIMITS } from '../../shared/support.ts'
+import { PUSH_GROUPS, PUSH_OFF_BY_DEFAULT } from '../../shared/push.ts'
+import { SUPPORT_LIMITS, SUPPORT_REPORTS_ANCHOR } from '../../shared/support.ts'
 import type { Me, Notification, ServerMessage } from '../../shared/protocol.ts'
 import { AuditLog } from '../../worker/audit.ts'
 import { hashPassword } from '../../worker/auth.ts'
@@ -436,6 +438,163 @@ describe('support reports (e12-t16)', () => {
   })
 })
 
+describe('a member’s own reports', () => {
+  beforeEach(() => {
+    now = 10_000_000_000
+  })
+
+  const resolved = async (club: ClubService, userId: string) => (await inbox(club, userId)).filter((n) => n.kind === 'supportResolved')
+
+  it('tells the reporter when it is resolved, and nothing about the report or who resolved it', async () => {
+    const { club, admin, member } = await makeClub('tku')
+    const { id } = await club.sendSupportReport(member, report, CHROME)
+    await club.adminSetSupportStatus(admin, id, 'resolved')
+    const [told, ...more] = await resolved(club, member)
+    expect(more).toEqual([])
+    expect(told.params).toEqual({})
+    expect(notificationLink(told)).toBe(`/account#${SUPPORT_REPORTS_ANCHOR}`)
+    expect(await resolved(club, admin)).toEqual([])
+  })
+
+  it('tells them once for each time it is resolved, and not when it is opened again or stays as it was', async () => {
+    const { club, admin, member } = await makeClub('tku')
+    const { id } = await club.sendSupportReport(member, report, CHROME)
+    await club.adminSetSupportStatus(admin, id, 'open')
+    expect(await resolved(club, member)).toHaveLength(0)
+    await club.adminSetSupportStatus(admin, id, 'resolved')
+    await club.adminSetSupportStatus(admin, id, 'resolved')
+    expect(await resolved(club, member)).toHaveLength(1)
+    await club.adminSetSupportStatus(admin, id, 'open')
+    expect(await resolved(club, member)).toHaveLength(1)
+    await club.adminSetSupportStatus(admin, id, 'resolved')
+    expect(await resolved(club, member)).toHaveLength(2)
+  })
+
+  it('does not tell an admin who resolved their own report', async () => {
+    const { club, admin } = await makeClub('tku')
+    const { id } = await club.sendSupportReport(admin, report, CHROME)
+    await club.adminSetSupportStatus(admin, id, 'resolved')
+    expect(await resolved(club, admin)).toEqual([])
+  })
+
+  it('leaves the status when the notification cannot go', async () => {
+    const { club, admin, member } = await makeClub('tku')
+    const { id } = await club.sendSupportReport(member, report, CHROME)
+    const notify = club.notifications.notify.bind(club.notifications)
+    club.notifications.notify = async () => {
+      throw new Error('no storage')
+    }
+    await club.adminSetSupportStatus(admin, id, 'resolved')
+    club.notifications.notify = notify
+    expect(club.mySupportReports(member).reports[0].status).toBe('resolved')
+  })
+
+  it('pushes in a group every member has', () => {
+    expect(PUSH_GROUPS.support).toEqual(['supportResolved'])
+    expect(PUSH_OFF_BY_DEFAULT).not.toContain('supportResolved')
+  })
+
+  it('lists only their own, newest first, with nothing about who handled them', async () => {
+    const { club, admin, member } = await makeClub('tku')
+    const other = await club.adminCreateUser('ben', 'club-secret-1')
+    const first = await club.sendSupportReport(member, { ...report, text: '第一則回報的內容' }, CHROME)
+    now += 1000
+    const second = await club.sendSupportReport(member, { ...report, text: '第二則回報的內容' }, CHROME)
+    const theirs = await club.sendSupportReport(other.id, { ...report, text: '別人回報的內容' }, CHROME)
+    await club.adminForwardSupport(admin, first.id).catch(() => undefined)
+    now += 1000
+    await club.adminSetSupportStatus(admin, first.id, 'resolved')
+
+    const { reports } = club.mySupportReports(member)
+    expect(reports.map((r) => r.id)).toEqual([second.id, first.id])
+    expect(reports[1]).toEqual({ id: first.id, category: 'bug', text: '第一則回報的內容', createdAt: 10_000_000_000, status: 'resolved', resolvedAt: now })
+    expect(Object.keys(reports[0]).sort()).toEqual(['category', 'createdAt', 'id', 'status', 'text'])
+    const shown = JSON.stringify(reports)
+    expect(shown).not.toContain('boss')
+    expect(shown).not.toContain(admin)
+    expect(shown).not.toContain(theirs.id)
+    expect(shown).not.toContain('別人')
+    expect(club.mySupportReports(other.id).reports.map((r) => r.id)).toEqual([theirs.id])
+  })
+
+  it('never tells the name of the admin who forwarded it, even when the owner resolves it', async () => {
+    const told: string[] = []
+    const { club, admin, member } = await makeClub('tku', { tellPlatformOwner: async () => void told.push('owner') })
+    const { id } = await club.sendSupportReport(member, report, CHROME)
+    await club.adminForwardSupport(admin, id)
+    expect(told).toEqual(['owner'])
+    expect(await club.support.setForwardedStatus(id, 'resolved')).toBe(true)
+    const [note] = await resolved(club, member)
+    expect(note.params).toEqual({})
+    expect(JSON.stringify(club.mySupportReports(member))).not.toContain('boss')
+    expect(JSON.stringify(club.mySupportReports(member))).not.toContain('forward')
+  })
+
+  it('answers members only', async () => {
+    const { club } = await makeClub('tku')
+    expect(() => club.mySupportReports('nobody')).toThrow(ClubError)
+  })
+})
+
+describe('a report from an imported board (e4-t39)', () => {
+  beforeEach(() => {
+    now = 10_000_000_000
+  })
+
+  const HANDS = 'N:AKQJ.AKQ.AKQ.AKQ T987.JT9.JT9.JT9 6543.876.876.876 2.5432.5432.5432'
+  const BOARD: ImportedBoard = {
+    boardNo: 3,
+    dealer: 'N',
+    vul: 'Both',
+    hands: HANDS,
+    calls: ['1N', 'P', 'P', 'P'].map((call) => ({ call })),
+    play: [],
+    claim: 7,
+    names: { N: 'west_coast', E: 'ben', S: 'carol', W: 'dan' },
+    seat: 'S',
+  }
+
+  async function importedReport() {
+    const made = await makeClub('tku', { tellPlatformOwner: async () => {} })
+    const { ids } = await made.club.importBoards(made.member, { boards: [BOARD] })
+    const { id } = await made.club.sendSupportReport(made.member, { ...report, boardId: ids[0], tableId: undefined }, CHROME)
+    return { ...made, boardId: ids[0], reportId: id }
+  }
+
+  it('would dead-end: the admin cannot open the board, only the member can', async () => {
+    const { club, admin, member, boardId } = await importedReport()
+    expect(boardId.startsWith(IMPORTED_BOARD_PREFIX)).toBe(true)
+    expect(await club.record(boardId, member)).not.toBeNull()
+    expect(await club.record(boardId, admin)).toBeNull()
+  })
+
+  it('gives the admin a note and not the id', async () => {
+    const { club, admin, boardId } = await importedReport()
+    const [listed] = club.adminSupport(admin).reports
+    expect(listed.boardImported).toBe(true)
+    expect(listed.boardId).toBeUndefined()
+    expect(JSON.stringify(listed)).not.toContain(boardId)
+  })
+
+  it('gives the back office a note too, and the admin the id of any other board', async () => {
+    const { club, admin, member, reportId, boardId } = await importedReport()
+    await club.adminForwardSupport(admin, reportId)
+    const [forwarded] = club.support.forwarded()
+    expect(forwarded.boardImported).toBe(true)
+    expect(JSON.stringify(forwarded)).not.toContain(boardId)
+    await club.sendSupportReport(member, report, CHROME)
+    const plain = club.adminSupport(admin).reports.find((r) => r.id !== reportId)
+    expect(plain).toMatchObject({ boardId: 'b1' })
+    expect(plain?.boardImported).toBeUndefined()
+  })
+
+  it('leaves the id in the member’s own export', async () => {
+    const { club, member, boardId } = await importedReport()
+    const data = await club.exportAccount(member, null)
+    expect(data.supportReports[0].boardId).toBe(boardId)
+  })
+})
+
 describe('reports across clubs (e12-t16)', () => {
   beforeEach(() => {
     now = 10_000_000_000
@@ -530,6 +689,8 @@ describe('reports across clubs (e12-t16)', () => {
     expect(ntu.club.adminSupport(ntu.admin).reports.find((r) => r.id === kept.id)?.status).toBe('open')
     const entries = await audit.list()
     expect(entries.map((e) => [e.action, e.target])).toEqual([['platform:supportResolve', `ntu/${sent.id}`]])
+    // The reporter hears of it in their own club, as from an admin, and no one elsewhere does
+    expect((await inbox(ntu.club, ntu.member)).filter((n) => n.kind === 'supportResolved')).toHaveLength(1)
   })
 
   it('leaves a club that does not answer out of the list, and the rest in', async () => {

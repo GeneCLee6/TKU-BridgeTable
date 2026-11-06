@@ -65,6 +65,13 @@ function systemMode(): ThemeMode {
   }
 }
 
+/** The language chosen, or else the browser's; for what must speak without this provider (`RootBoundary`) */
+// oxlint-disable-next-line react/only-export-components
+export function storedLang(): Lang {
+  const stored = readStored().lang
+  return isLang(stored) ? stored : systemLang()
+}
+
 /** Traditional Chinese unless the browser asks for another language the site speaks (else English) */
 function systemLang(): Lang {
   try {

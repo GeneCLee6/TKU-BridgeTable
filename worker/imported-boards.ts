@@ -1,4 +1,4 @@
-import { boardLabel, cleanName, dealContent, IMPORT_LIMITS, importedContent, readImportedBoard, readImportedDeal, replayImported, type ImportCode, type ImportedBoard, type ImportedDeal } from '../shared/imports.ts'
+import { boardLabel, cleanName, dealContent, IMPORT_LIMITS, IMPORTED_BOARD_PREFIX, importedContent, readImportedBoard, readImportedDeal, replayImported, type ImportCode, type ImportedBoard, type ImportedDeal } from '../shared/imports.ts'
 import { formatDeal, parseDeal } from '../shared/pbn.ts'
 import { SEATS, type Hands, type Seat } from '../shared/cards.ts'
 import type { BoardState } from '../shared/game.ts'
@@ -46,7 +46,7 @@ export function checkImportedBoards(body: unknown): { board: ImportedBoard; stat
  * member has the same id, so it is never kept twice; another member's copy of it is another record
  */
 export const importedBoardId = async (userId: string, state: BoardState, names: Record<Seat, string>) =>
-  `imp-${await sha256Hex(`${userId}\n${importedContent(state, names)}`, 32)}`
+  `${IMPORTED_BOARD_PREFIX}${await sha256Hex(`${userId}\n${importedContent(state, names)}`, 32)}`
 
 /**
  * The seats of an imported record. Three are text alone: no id, so no search, profile or list ever

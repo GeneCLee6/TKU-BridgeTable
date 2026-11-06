@@ -14,6 +14,10 @@ import { LIMITS } from './protocol.ts'
  * preview and the server's refusal say the same thing. Nothing here throws on bad input.
  */
 
+/** How an imported board's record id starts (`importedBoardId`); no other record's id does, they are plain hex */
+export const IMPORTED_BOARD_PREFIX = 'imp-'
+export const isImportedBoardId = (id: string) => id.startsWith(IMPORTED_BOARD_PREFIX)
+
 export const IMPORT_LIMITS = {
   /** A file or a paste */
   fileBytes: 1024 * 1024,

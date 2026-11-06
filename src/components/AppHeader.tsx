@@ -31,6 +31,7 @@ import { usePreferences } from '../state/PreferencesContext.tsx'
 import { LANG_NAMES } from '../strings.ts'
 import { compactHeader, mobile, tablet } from '../styles/tokens.ts'
 import { Avatar } from './Avatar.tsx'
+import { PartBoundary } from './ErrorBoundary.tsx'
 import { LogoMark, LogoWordmark } from './Logo.tsx'
 import { NotificationBell } from './NotificationBell.tsx'
 
@@ -411,9 +412,11 @@ export function AppHeader() {
         </IconButton>
         {user && (
           <>
-            {inviteBanner}
+            <PartBoundary name="invite-banner">{inviteBanner}</PartBoundary>
             {notifications && (
-              <NotificationBell notifications={notifications} onRead={(ids) => send({ type: 'readNotifications', ids })} />
+              <PartBoundary name="notification-bell">
+                <NotificationBell notifications={notifications} onRead={(ids) => send({ type: 'readNotifications', ids })} />
+              </PartBoundary>
             )}
             <Dot
               $ok={status === 'open'}

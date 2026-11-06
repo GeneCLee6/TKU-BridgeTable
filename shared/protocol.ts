@@ -835,6 +835,7 @@ export const NOTIFICATION_KINDS = [
   'clubApplication',
   'supportReport',
   'supportForwarded',
+  'supportResolved',
   'partnerBidInvited',
   'partnerBidAccepted',
   'partnerBidDeclined',
@@ -901,7 +902,9 @@ export interface Notification {
    * owner only (`PLATFORM_OWNER`, 淡江's object), leading to the back office (/platform).
    * `supportReport` { username } a member sent a support report (e12-t16), to the club's admins,
    * leading to the admin page. `supportForwarded` { name } a club's admin forwarded one, to the
-   * platform owner, leading to the back office; `name` is the club's. Never the report's text
+   * platform owner, leading to the back office; `name` is the club's. Never the report's text.
+   * `supportResolved` {} the member's own report was resolved, leading to their list on 我的帳號;
+   * nothing about the report or who resolved it
    * The partner bidding kinds (`e10-t08`): { sessionId, username } of the other member of the session
    */
   params: Record<string, string | number>
