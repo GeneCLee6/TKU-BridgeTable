@@ -36,6 +36,7 @@ const SCHEMA = [
     failures INTEGER NOT NULL,
     solved_at INTEGER,
     clean INTEGER NOT NULL,
+    revealed_at INTEGER,
     updated_at INTEGER NOT NULL,
     PRIMARY KEY (user_id, puzzle_id)
   ) WITHOUT ROWID`,
@@ -61,6 +62,8 @@ interface ProgressRow extends Record<string, SqlValue> {
   failures: number
   solved_at: number | null
   clean: number
+  /** Null on rows from before 看答案, and on every puzzle whose answer was not viewed */
+  revealed_at: number | null
   updated_at: number
 }
 
@@ -76,6 +79,7 @@ const toProgress = (row: ProgressRow): PuzzleProgress => ({
   failures: row.failures,
   solvedAt: row.solved_at,
   clean: row.clean === 1,
+  revealedAt: row.revealed_at,
   updatedAt: row.updated_at,
 })
 
@@ -101,6 +105,9 @@ export class PuzzleService {
 
   createTables() {
     for (const statement of SCHEMA) this.sql.exec(statement)
+    // 看答案 added `revealed_at`; progress from before it gets the column here, with no answer viewed
+    const columns = this.sql.exec<{ name: string }>('PRAGMA table_info(puzzle_progress)').map((c) => c.name)
+    if (!columns.includes('revealed_at')) this.sql.exec('ALTER TABLE puzzle_progress ADD COLUMN revealed_at INTEGER')
   }
 
   // ── Reading ─────────────────────────────────────────────────────────────────────────────────
@@ -125,8 +132,8 @@ export class PuzzleService {
 
   private save(userId: string, progress: PuzzleProgress) {
     this.sql.exec(
-      `INSERT OR REPLACE INTO puzzle_progress (user_id, puzzle_id, revision, status, played, node, wrong, hints, attempts, failures, solved_at, clean, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT OR REPLACE INTO puzzle_progress (user_id, puzzle_id, revision, status, played, node, wrong, hints, attempts, failures, solved_at, clean, revealed_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       userId,
       progress.puzzleId,
       progress.revision,
@@ -139,6 +146,7 @@ export class PuzzleService {
       progress.failures,
       progress.solvedAt,
       progress.clean ? 1 : 0,
+      progress.revealedAt,
       progress.updatedAt,
     )
   }
@@ -157,6 +165,8 @@ export class PuzzleService {
       failures: previous?.failures ?? 0,
       solvedAt: previous?.solvedAt ?? null,
       clean: previous?.clean ?? false,
+      // Starting over does not take back having seen the answer
+      revealedAt: previous?.revealedAt ?? null,
       updatedAt: this.deps.now(),
     }
   }
@@ -197,15 +207,18 @@ export class PuzzleService {
     if (typeof card !== 'string' || !legalPlays(state).includes(card)) throw new ClubError('puzzleIllegalCard')
     const edge = puzzleEdges(puzzle.solution, progress.node).find((e) => e.card === card)
     const now = this.deps.now()
+    const finished = edge !== undefined && edge.next < 0
+    // Only a solve before viewing the answer counts: after it, the right line changes nothing that is kept
+    const counts = finished && progress.revealedAt === null
     const next: PuzzleProgress = edge
       ? {
           ...progress,
           played: [...progress.played, edge.card, ...edge.replies],
           node: edge.next,
-          status: edge.next < 0 ? 'solved' : 'playing',
+          status: !finished ? 'playing' : counts || progress.solvedAt !== null ? 'solved' : 'revealed',
           // A later try does not change when it was first solved
-          solvedAt: edge.next < 0 ? (progress.solvedAt ?? now) : progress.solvedAt,
-          clean: progress.clean || (edge.next < 0 && progress.solvedAt === null && progress.failures === 0 && progress.hints === 0),
+          solvedAt: counts ? (progress.solvedAt ?? now) : progress.solvedAt,
+          clean: progress.clean || (counts && progress.solvedAt === null && progress.failures === 0 && progress.hints === 0),
           updatedAt: now,
         }
       : { ...progress, status: 'failed', wrong: card, failures: progress.failures + 1, updatedAt: now }
@@ -236,6 +249,21 @@ export class PuzzleService {
     const progress = this.progress(userId, puzzle) ?? this.begun(puzzle, null)
     if (progress.hints >= puzzle.source.hints.length) throw new ClubError('puzzleNoMoreHints')
     const next = { ...progress, hints: progress.hints + 1, updatedAt: this.deps.now() }
+    this.save(userId, next)
+    return puzzleView(puzzle, next)
+  }
+
+  /**
+   * `POST /api/puzzles/:id/reveal`: 看答案. The attempt ends, the view opens with the answer, and the
+   * member keeps `revealedAt` from now on, so the puzzle no longer counts unless it was already solved
+   * (`solvedAt` and `clean` are left as they are). Asking again keeps the first time.
+   */
+  reveal(userId: string, id: unknown): PuzzleView {
+    if (!this.deps.takeAction(userId)) throw new ClubError('slowDown', {}, 429)
+    const puzzle = this.published(id)
+    const progress = this.progress(userId, puzzle) ?? this.begun(puzzle, null)
+    const now = this.deps.now()
+    const next: PuzzleProgress = { ...progress, status: 'revealed', wrong: null, revealedAt: progress.revealedAt ?? now, updatedAt: now }
     this.save(userId, next)
     return puzzleView(puzzle, next)
   }

@@ -3,7 +3,9 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { deal, secureRandomInt } from '../../../shared/board.ts'
 import { SEATS, type Seat } from '../../../shared/cards.ts'
 import { makeCall, newBoard } from '../../../shared/game.ts'
-import { boardView } from '../../../worker/views.ts'
+import { boardView, puzzleSummary, puzzleView } from '../../../worker/views.ts'
+import { PUZZLES } from '../../../shared/puzzle-sets/index.ts'
+import { puzzleState, splitCards, type PuzzleAttemptStatus, type PuzzleProgress } from '../../../shared/puzzles.ts'
 import { DEFAULT_HISTORY_QUERY } from '../../../shared/history-query.ts'
 import type { ServerMessage } from '../../../shared/protocol.ts'
 import { listQuery } from '../../../worker/history-index.ts'
@@ -175,6 +177,53 @@ describe('imported boards (e4-t39)', () => {
     await expect(t.club().checkShareable(ben, board)).rejects.toMatchObject({ code: 'boardGone' })
     await t.club().saveFavorite(amy, board, {})
     expect(await t.refused(amy, { type: 'createPractice', settings: { deal: 'set', set: { source: 'favorites', ids: [board] } } } as never)).toBe('boardGone')
+  })
+})
+
+describe('puzzles (e10-t14)', () => {
+  const puzzle = PUZZLES[0]
+  const start = splitCards(puzzle.solution.start)
+  const progress = (status: Exclude<PuzzleAttemptStatus, 'new'>, over: Partial<PuzzleProgress> = {}): PuzzleProgress => ({
+    puzzleId: puzzle.source.id,
+    revision: puzzle.solution.revision,
+    status,
+    played: start,
+    node: 0,
+    wrong: null,
+    hints: 0,
+    attempts: 1,
+    failures: 0,
+    solvedAt: null,
+    clean: false,
+    revealedAt: null,
+    updatedAt: 1,
+    ...over,
+  })
+  const defenders = () => {
+    const { E, W } = puzzleState(puzzle.source, [...puzzle.source.opening, ...start]).hands
+    return [...E, ...W]
+  }
+
+  it('keeps the defenders\' cards and the answer back in every state but the two that open them, and the list has no cards in any', () => {
+    const closed = [null, progress('playing'), progress('failed', { wrong: 'S2' }), progress('playing', { revealedAt: 5 }), progress('failed', { revealedAt: 5 }), progress('playing', { solvedAt: 2 })]
+    for (const state of closed) {
+      const view = puzzleView(puzzle, state)
+      expect(view.answer).toBeUndefined()
+      expect(view.startHands).toBeUndefined()
+      expect(view.explanation).toBeUndefined()
+      expect(Object.keys(view.hands).sort()).toEqual(['N', 'S'])
+      const wire = JSON.stringify(view)
+      for (const card of defenders()) expect(wire).not.toContain(`"${card}"`)
+    }
+    const opened = [progress('solved', { solvedAt: 2, node: -1 }), progress('revealed', { revealedAt: 5 })]
+    for (const state of opened) expect(puzzleView(puzzle, state).startHands).toBeDefined()
+    // Solved alone opens the hands, not the line; only the action does
+    expect(puzzleView(puzzle, opened[0]).answer).toBeUndefined()
+    expect(puzzleView(puzzle, opened[1]).answer?.line).toEqual(splitCards(puzzle.solution.line))
+    for (const state of [...closed, ...opened]) {
+      const wire = JSON.stringify(puzzleSummary(puzzle, state))
+      for (const card of defenders()) expect(wire).not.toContain(`"${card}"`)
+    }
   })
 })
 

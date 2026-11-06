@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { LANGS } from '../../shared/messages.ts'
 import type { AdminPuzzle, PuzzleSummary, PuzzleView } from '../../shared/puzzles.ts'
 import { AdminPuzzles } from '../../src/components/AdminPuzzles.tsx'
+import { cardName } from '../../src/lib/cards.ts'
 import { PuzzleListPage, PuzzlePage } from '../../src/pages/PuzzlePages.tsx'
 import { PreferencesProvider } from '../../src/state/PreferencesContext.tsx'
 import { STRINGS } from '../../src/strings.ts'
@@ -18,6 +19,7 @@ const mocks = vi.hoisted(() => ({
     playPuzzle: vi.fn(),
     retryPuzzle: vi.fn(),
     puzzleHint: vi.fn(),
+    revealPuzzle: vi.fn(),
   },
   admin: { puzzles: vi.fn(), publishPuzzle: vi.fn() },
 }))
@@ -37,6 +39,7 @@ const summary = (over: Partial<PuzzleSummary> = {}): PuzzleSummary => ({
   status: 'new',
   solved: false,
   clean: false,
+  revealed: false,
   ...over,
 })
 
@@ -117,6 +120,21 @@ describe('the list', () => {
     expect(screen.queryByText(p.zhOnly)).not.toBeInTheDocument()
   })
 
+  it('marks a puzzle whose answer was viewed, which does not count; one solved before viewing stays solved', async () => {
+    mocks.api.puzzles.mockResolvedValue({
+      puzzles: [
+        summary({ title: '看過', status: 'revealed', revealed: true }),
+        summary({ id: 'p02', title: '再打一次', status: 'playing', revealed: true }),
+        summary({ id: 'p03', title: '先解開', status: 'revealed', revealed: true, solved: true, clean: true }),
+      ],
+    })
+    wrap('/puzzles')
+    expect(await screen.findByText(p.levelProgress(1, 3))).toBeInTheDocument()
+    expect(screen.getAllByText(p.statusRevealed)).toHaveLength(2)
+    expect(screen.queryByText(p.statusPlaying)).not.toBeInTheDocument()
+    expect(screen.getByText(p.clean)).toBeInTheDocument()
+  })
+
   it('says so when the club published none', async () => {
     mocks.api.puzzles.mockResolvedValue({ puzzles: [] })
     wrap('/puzzles')
@@ -180,6 +198,98 @@ describe('a puzzle', () => {
     expect(screen.getByRole('heading', { name: p.startHands })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: p.hintButton })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: p.restart })).toBeInTheDocument()
+  })
+
+  describe('看答案', () => {
+    const answered = (over: Partial<PuzzleView> = {}) =>
+      view({
+        status: 'revealed',
+        revealed: true,
+        turn: null,
+        legalCards: [],
+        attempts: 1,
+        explanation: '第二輪要超過',
+        hands: { N: ['SA', 'H2'], E: ['S7', 'HK'], S: ['SK', 'HA'], W: ['S5', 'HJ'] },
+        startHands: { N: ['SA', 'H2'], E: ['S7', 'HK'], S: ['SK', 'HA'], W: ['S5', 'HJ'] },
+        answer: { leader: 'S', line: ['SK', 'S5', 'SA', 'S7'], first: 0 },
+        ...over,
+      })
+
+    it('asks first, saying it will not count; declining sends nothing', async () => {
+      mocks.api.puzzle.mockResolvedValue({ puzzle: view() })
+      const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+      const user = userEvent.setup()
+      wrap('/puzzles/p01')
+      await user.click(await screen.findByRole('button', { name: p.revealButton }))
+      expect(confirm).toHaveBeenCalledWith(p.revealConfirm)
+      expect(mocks.api.revealPuzzle).not.toHaveBeenCalled()
+      expect(screen.getByRole('group', { name: p.hiddenHand('E') })).toBeInTheDocument()
+      confirm.mockRestore()
+    })
+
+    it('after the yes: opens the hands and walks through the line one card at a time, nothing to play', async () => {
+      mocks.api.puzzle.mockResolvedValue({ puzzle: view() })
+      mocks.api.revealPuzzle.mockResolvedValue({ puzzle: answered() })
+      const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
+      const user = userEvent.setup()
+      wrap('/puzzles/p01')
+      await user.click(await screen.findByRole('button', { name: p.revealButton }))
+      expect(mocks.api.revealPuzzle).toHaveBeenCalledWith('p01')
+      expect(await screen.findByRole('heading', { name: p.answerTitle })).toBeInTheDocument()
+      expect(screen.getByText(p.revealedNote)).toBeInTheDocument()
+      expect(screen.getByText('第二輪要超過')).toBeInTheDocument()
+      expect(screen.getByRole('group', { name: p.openHand('E') })).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: p.revealButton })).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: p.hintButton })).not.toBeInTheDocument()
+
+      expect(screen.getByText(p.answerStep(0, 4))).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: p.answerPrev })).toBeDisabled()
+      // The table follows: the card leaves South's hand for the trick, and comes back
+      const inTrick = () => within(screen.getByRole('group', { name: p.trick })).queryAllByLabelText(cardName('SK', STRINGS.zh))
+      const inSouth = () => within(screen.getByRole('group', { name: p.declarer })).queryAllByLabelText(cardName('SK', STRINGS.zh))
+      expect(inTrick()).toHaveLength(0)
+      expect(inSouth()).toHaveLength(1)
+      await user.click(screen.getByRole('button', { name: p.answerNext }))
+      expect(screen.getByText(p.answerStep(1, 4))).toBeInTheDocument()
+      expect(inTrick()).toHaveLength(1)
+      expect(inSouth()).toHaveLength(0)
+      await user.click(screen.getByRole('button', { name: p.answerPrev }))
+      expect(screen.getByText(p.answerStep(0, 4))).toBeInTheDocument()
+      expect(inTrick()).toHaveLength(0)
+      for (let i = 0; i < 4; i++) await user.click(screen.getByRole('button', { name: p.answerNext }))
+      expect(screen.getByRole('button', { name: p.answerNext })).toBeDisabled()
+      expect(screen.getByText(p.answerEnd)).toBeInTheDocument()
+      expect(mocks.api.playPuzzle).not.toHaveBeenCalled()
+      confirm.mockRestore()
+    })
+
+    it('does not ask when there is nothing to lose: already solved, or seen before', async () => {
+      const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+      const user = userEvent.setup()
+      mocks.api.puzzle.mockResolvedValue({ puzzle: view({ status: 'playing', solved: true, clean: true }) })
+      mocks.api.revealPuzzle.mockResolvedValue({ puzzle: answered({ solved: true, clean: true }) })
+      const first = wrap('/puzzles/p01')
+      await user.click(await screen.findByRole('button', { name: p.revealButton }))
+      expect(await screen.findByText(p.revealedKept)).toBeInTheDocument()
+      first.unmount()
+
+      mocks.api.puzzle.mockResolvedValue({ puzzle: view({ status: 'playing', revealed: true }) })
+      mocks.api.revealPuzzle.mockResolvedValue({ puzzle: answered() })
+      wrap('/puzzles/p01')
+      expect(await screen.findByText(p.revealedRetrying)).toBeInTheDocument()
+      await user.click(screen.getByRole('button', { name: p.revealButton }))
+      expect(await screen.findByText(p.revealedNote)).toBeInTheDocument()
+      expect(confirm).not.toHaveBeenCalled()
+      confirm.mockRestore()
+    })
+
+    it('finished right after viewing: says it does not count, not that it is solved', async () => {
+      mocks.api.puzzle.mockResolvedValue({ puzzle: answered({ finishedAfterReveal: true }) })
+      wrap('/puzzles/p01')
+      expect(await screen.findByText(p.revealedFinished)).toBeInTheDocument()
+      expect(screen.queryByText(p.solved)).not.toBeInTheDocument()
+      expect(screen.getByRole('button', { name: p.restart })).toBeInTheDocument()
+    })
   })
 
   it('an unpublished puzzle shows the server\'s message', async () => {
