@@ -296,7 +296,7 @@ describe('ChallengeDialog (e7-t17)', () => {
         <ChallengeDialog onClose={() => {}} onCreated={() => {}} />
       </PreferencesProvider>,
     )
-    expect([...screen.getByLabelText('機器人').querySelectorAll('option')].map((o) => (o as HTMLOptionElement).value)).toEqual(['gib', 'sayc'])
+    expect([...screen.getByLabelText('機器人').querySelectorAll('option')].map((o) => (o as HTMLOptionElement).value)).toEqual(['gib', 'sayc', 'precision'])
     await userEvent.click(screen.getByRole('combobox', { name: '邀請社員' }))
     await userEvent.click(screen.getByRole('option', { name: 'ben' }))
     await userEvent.click(screen.getByRole('button', { name: '發出挑戰' }))

@@ -211,12 +211,12 @@ describe('MatchPage (e8-t06)', () => {
     mocks.api.match.mockResolvedValue({ match: prepRoom() })
     show('/matches/m1')
     await screen.findByLabelText('副數')
-    expect([...(await screen.findByLabelText('機器人的制度')).querySelectorAll('option')].map((o) => (o as HTMLOptionElement).value)).toEqual(['gib', 'sayc'])
+    expect([...(await screen.findByLabelText('機器人的制度')).querySelectorAll('option')].map((o) => (o as HTMLOptionElement).value)).toEqual(['gib', 'sayc', 'precision'])
     cleanup()
     mocks.permissions = ['tkuSystem']
     show('/matches/m1')
     const kind = await screen.findByLabelText('機器人的制度')
-    expect([...kind.querySelectorAll('option')].map((o) => o.value)).toEqual(['tku', 'gib', 'sayc'])
+    expect([...kind.querySelectorAll('option')].map((o) => o.value)).toEqual(['tku', 'gib', 'sayc', 'precision'])
     mocks.permissions = []
   })
 })
