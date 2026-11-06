@@ -6,7 +6,7 @@ import { declarerLead, exitLead, holdUp, secondHandWin } from './declarer.ts'
 import { masters } from './declarer-technique.ts'
 import { declarerLength, noHurry } from './defence-plan.ts'
 import { preferencePair, runningPreference, runningSuitAt, wantedBack } from './defence-reading.ts'
-import { cashOut, coverLastHonour, defenceLead, dummyOverruffs, holdUpAgainstDummy, raceSuit, secondHand, thirdHand } from './defence.ts'
+import { cashOut, coverLastHonour, defenceLead, dummyOverruffs, holdUpAgainstDummy, raceSuit, secondHand, thirdHand, topOfSequence } from './defence.ts'
 import { suitCards } from './hand.ts'
 import { clubLeadCard, sequenceLead } from './lead-card.ts'
 import { byRank, honours, value, View } from './view.ts'
@@ -168,6 +168,9 @@ function lead(state: BoardState, seat: Seat, view: View, legal: Card[], trump: S
     const wanted = partnerSignal(state, seat, trump) ?? runningPreference(view, trump)
     if (wanted && suitCards(hand, wanted).length && !ruffed(wanted)) {
       const cards = suitCards(hand, wanted)
+      // Top of touching honours, as from any sequence (e6-t28): AK6 is two tricks, the 6 gives one away
+      const top = topOfSequence(view, cards)
+      if (top) return top
       return cards.length === 2 ? cards[0] : cards.at(-1)!
     }
     // Attack or sit tight (defence.ts): partner's opening lead, through dummy's honours, a sequence…
@@ -446,8 +449,18 @@ function winningCard(trick: { seat: Seat; card: Card }[], trump: Suit | null) {
   return best
 }
 
-/** The highest card below the jack, so a signal never wastes an honour */
-const highSpotOf = (cards: Card[]) => [...cards].sort(byRank).filter((c) => value(c) < 11).at(-1) ?? [...cards].sort(byRank)[0]
+/**
+ * The highest card below the jack, so a signal never wastes an honour; the ten only when the next
+ * card down would be the holding's lowest and so read as low (T76 signals with the 7, T7 with the
+ * ten: e6-t28, ROBOT.md §3.20)
+ */
+const highSpotOf = (cards: Card[]) => {
+  const sorted = [...cards].sort(byRank)
+  const spots = sorted.filter((c) => value(c) < 11)
+  const top = spots.at(-1) ?? sorted[0]
+  const under = spots.at(-2)
+  return value(top) === 10 && under && under !== sorted[0] ? under : top
+}
 
 /**
  * Following suit without trying to win, as the club signals:
@@ -470,7 +483,14 @@ function signalFollow(view: View, trick: PlayedCard[], cards: Card[], trump: Sui
   }
   const spare = cards.filter((c) => !couldWin(c))
   const sorted = [...cards].sort(byRank)
-  const highSpot = (all: Card[]) => (spare.length >= 2 ? highSpotOf(spare) : couldWin(highSpotOf(all)) && value(sorted[1]) < 11 ? sorted[1] : highSpotOf(all))
+  const highSpot = (all: Card[]) => {
+    if (spare.length >= 2) return highSpotOf(spare)
+    const top = highSpotOf(all)
+    if (!couldWin(top) || value(sorted[1]) >= 11) return top
+    // Every card above the lowest may take a trick: a trick is worth more than the count (T6 under
+    // the jack with the honours gone keeps the ten: e6-t28, ROBOT.md §3.20)
+    return couldWin(sorted[1]) ? low : sorted[1]
+  }
   const leader = trick[0]
   const led = suitOf(leader.card)
   const hand = remainingCards(state, seat)
@@ -532,7 +552,18 @@ function signalDiscard(view: View, legal: Card[], trump: Suit | null, led: Suit)
   const askHigh = want !== null && want === higher
   const candidates = trump ? pool.filter((c) => value(c) % 2 === 0 && value(c) < 11) : pool.filter((c) => value(c) < 11)
   const sorted = (candidates.length ? candidates : pool).sort(byRank)
-  return askHigh ? sorted.at(-1)! : sorted[0]
+  const card = askHigh ? sorted.at(-1)! : sorted[0]
+  if (want && readDiscard(card, trump, led) !== want) {
+    // The card would tell partner another suit: a card of a suit that costs the same and reads right
+    // (e6-t28, ROBOT.md §3.20)
+    const reads = sideSuits
+      .filter((s) => s !== want && cost[s] === cost[throwFrom])
+      .flatMap(spare)
+      .filter((c) => value(c) < 11 && readDiscard(c, trump, led) === want)
+      .sort(byRank)
+    if (reads.length) return reads[0]
+  }
+  return card
 }
 
 /** The suit partner asked for with their first discard, read with the club's methods */
@@ -542,15 +573,23 @@ function partnerSignal(state: BoardState, seat: Seat, trump: Suit | null): Suit 
     const led = suitOf(trick.cards[0].card)
     const theirs = trick.cards.find((p) => p.seat === partner)
     if (!theirs || suitOf(theirs.card) === led || suitOf(theirs.card) === trump) continue
-    const suit = suitOf(theirs.card)
-    const v = value(theirs.card)
-    if (trump && v % 2 === 1 && v < 11) return suit
-    const pointsTo = SUITS.filter((s) => s !== suit && s !== (trump ?? led))
-    if (pointsTo.length !== 2) return null
-    // SUITS runs ♠ ♥ ♦ ♣, so the first is the higher ranking
-    const high = trump ? v >= 6 : v >= 7
-    return high ? pointsTo[0] : pointsTo[1]
+    return readDiscard(theirs.card, trump, led)
   }
   return null
+}
+
+/**
+ * The suit a first discard asks for, as the club reads it: against a suit contract an odd card
+ * asks for its own suit; otherwise high (trumps 6 up, notrump 7 up) asks for the higher and low
+ * for the lower of the two suits it points to. Null when it points to no two suits.
+ */
+export function readDiscard(card: Card, trump: Suit | null, led: Suit): Suit | null {
+  const suit = suitOf(card)
+  const v = value(card)
+  if (trump && v % 2 === 1 && v < 11) return suit
+  const pointsTo = SUITS.filter((s) => s !== suit && s !== (trump ?? led))
+  if (pointsTo.length !== 2) return null
+  // SUITS runs ♠ ♥ ♦ ♣, so the first is the higher ranking
+  return (trump ? v >= 6 : v >= 7) ? pointsTo[0] : pointsTo[1]
 }
 

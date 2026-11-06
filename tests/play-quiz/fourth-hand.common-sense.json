@@ -1,0 +1,8 @@
+{
+  "category": "fourth-hand",
+  "title": "第四家：信號不浪費會贏墩的牌（e6-t28）",
+  "questions": [
+    {"id":"play-fourth-003","system":"tku","board":12,"hands":{"N":"932.AJ9754.Q94.4","E":"QT87.Q63.AK65.Q7","S":"AJ5.T82.JT3.KT62","W":"K64.K.872.AJ9853"},"auction":["P","2D","X","P","3C","P","P","P"],"play":["S3","S7","SJ","SK","CA","C4","C7","C6","C3","H5","CQ","CK","SA","S4","S9","S8","H2","HK","HA","H3","S2","ST","S5","S6","DA","D3","D2","D4","HQ","HT","D7","H7","DK","DT","D8","D9","D5","DJ","C5","DQ","CJ","H4","H6"],"answer":"C2","source":"教科書：信號不值得賠一墩（評測牌組第 12 副）","reviewer":null,"status":"pending","note":"莊家領 ♣J，手上 T2，外面比 T 大的只有桌上的 J。出 T 就少一墩：出 2"},
+    {"id":"play-fourth-004","system":"tku","board":739,"hands":{"N":"J5.J2.98754.KT82","E":"AK84.9.T62.AJ963","S":"Q963.AKQ.QJ3.Q74","W":"T72.T876543.AK.5"},"auction":["1N","P","P","P"],"play":["H8","H2","H9","HQ","DQ","DK","D4","D6","HT","HJ","C9","HK","HA","H3","C2","DT","SQ","S2","S5","SK","SA","S3"],"answer":"S7","source":"教科書：信號不值得賠一墩（評測牌組第 739 副）","reviewer":null,"status":"pending","note":"同伴拔 ♠A，手上 T7，比 T 大的只剩夢家的 J，T 可能是贏墩：不用 T 表示不歡迎，出 7"}
+  ]
+}

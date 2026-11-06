@@ -16,6 +16,7 @@ npm run sim -- compare --deals 60 --samples 30         # TKB 對單明手抽樣�
 npm run sim -- compare --deals 500 --points lead       # 只比首攻
 npm run sim -- compare --deals 5000 --points defence --threads 6   # 只比首攻之後的防守（§3.2），約 25 分鐘
 npm run sim -- compare --deals 2000 --points declarer --threads 5  # 只比坐莊方（莊家與夢家）的牌（§3.3、§3.5、§3.6），約 25 分鐘
+npm run sim -- common-sense --deals 5000 --samples 20   # 常識打法的量測（§3.12），約 2 分鐘
 npm run sim -- leads --deals 10000 --analyse           # 不算，只用檔案裡已有的紀錄重做報告
 npm run sim -- replay --out data/leads-….jsonl         # 用這份程式的首攻規則重播一個首攻紀錄檔：舊首攻對新首攻（§8），不用再解 DDS
 npm run sim -- leads --boards 清單.txt --samples 20 --out 檔  # 只算清單裡的副號（例如重播時首攻改變的副），加單明手抽樣
@@ -328,6 +329,17 @@ npm run sim -- compare --deals 2000 --samples 30 --threads 5 --points defence --
 | **合計** | 121.8 | **118.6** | **−3.2 ± 1.5** | 115.1 | **112.5** | **−2.6 ± 1.4** |
 
 兩種制度合計都少了約兩個標準誤，各情境都在誤差內或變少；第二家（不蓋）抽樣上略多但在誤差內。評測（對同一個 main 5,000 副，只換出牌）淡江 +0.03 ± 0.02、2/1 +0.02 ± 0.02 IMP／副，方向一致。逐條的開關評測與沒有採用的候選在 `ROBOT.md` §3.19。
+
+### 3.12 常識打法（`common-sense.ts`，`e6-t28`，2026-11-06）
+
+```bash
+npm run sim -- common-sense --deals 5000 --samples 20 --threads 8 --system tku   # 每種制度約 2 分鐘：只解被標記的決策
+npm run sim -- common-sense --deals 5000 --samples 20 --threads 8 --system gib
+```
+
+四個 TKB 打完一副。每個首攻之外有選擇的決策，`commonSenseFlags` 只看那一家看得到的牌，標出「照書應該出別張」的情況（`secondHigh` 第二家出大牌、`thirdLow`／`thirdShort` 第三家不夠大、`wasteHonour` 浪費大牌、`wasteRuff` 王吃太大張、`equalsFollow`／`equalsLead` 相連牌出得不對、`signalFollow`／`signalDiscard` 信號與社團打法相反、`discardWinner` 有輸張卻墊贏張）。只有被標記的決策才解雙明手：真實牌型一次，加 `--samples` 個該家知識裡抽的佈局。「無差別」是全部佈局兩張牌墩數一樣；否則看抽樣平均，書上那張較好或較差。**書上較差的不是問題**，是規則有它的理由。
+
+計數、採用與不採用的規則、逐條評測在 `ROBOT.md` §3.20。
 
 ## 4. 第一個研究：首攻（`leads.ts`）
 
@@ -702,7 +714,7 @@ npm run sim -- bidding --system gib --boards 清單.txt --threads 5             
 
 | 檔案 | 內容 |
 | --- | --- |
-| `cli.ts` | 指令列：`bench`、`tables`、`leads`、`compare`、`bidding`（`compete`） |
+| `cli.ts` | 指令列：`bench`、`tables`、`leads`、`compare`、`common-sense`、`bidding`（`compete`） |
 | `dds.ts` | Node 用的 DDS 包裝：`loadSolver`、`Solver.table`（DD 表）、`Solver.solve`（一個局面每張牌的墩數）、`Solver.par`（`DealerPar`，南北的 par 分數）、`expandEquals` |
 | `pool.ts`、`worker.ts`、`jobs.ts` | 執行緒池與工作格式；`defaultThreads`、`chunked` |
 | `sampler.ts` | `knowledgeOf`（一家看得到的）、`sampleLayout`／`sampleLayouts`（拒絕抽樣）、`positionOf` |
@@ -710,6 +722,7 @@ npm run sim -- bidding --system gib --boards 清單.txt --threads 5             
 | `board.ts` | 四個 TKB 叫完一副（`bidBoard`）、合約與叫牌的文字 |
 | `leads.ts` | 首攻紀錄（`leadRecord`）、慣例牌、首攻類型、社長的觀念（`CONCEPTS`）、統計（`LeadStudyBuilder`）與報告 |
 | `compare.ts` | 一副每個決策的對照（`compareBoard`）、情境、統計與報告 |
+| `common-sense.ts` | 常識打法的量測（§3.12）：只看看得到的牌標記（`commonSenseFlags`）、解標記的決策（`commonSenseBoard`）、統計與報告 |
 | `replay.ts` | 首攻重播（§8）：`stateAtLead`（從種子發牌、照紀錄叫牌）、`replayLead`、`LeadReplayBuilder`（舊對新：實際牌局的墩、倒合約、IMP，抽樣的墩、倒合約、分數與偏差）與報告 |
 | `bidding.ts` | 叫牌研究（§7）：決策點的分類（`classify`）、替代叫品（`alternativesFor`）、一副的紀錄（`biddingRecord`）、統計（`BiddingStudyBuilder`）、報告與練習牌組（`practiceDeals`）；滿貫區的表（`strongSide`、`slamCellOf`，§9） |
 | `store.ts`、`progress.ts`、`random.ts` | JSON Lines 續跑、進度與 ETA、種子亂數 |

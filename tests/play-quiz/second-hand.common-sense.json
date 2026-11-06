@@ -1,0 +1,8 @@
+{
+  "category": "second-hand",
+  "title": "第二家：信號不浪費會贏墩的牌（e6-t28）",
+  "questions": [
+    {"id":"play-second-013","system":"tku","board":64,"hands":{"N":"AJ8542.T.874.854","E":"T63.J86.JT953.QT","S":"Q.AKQ532.A2.AK62","W":"K97.974.KQ6.J973"},"auction":["P","2D","P","2N","P","3D","P","3N","P","P","P"],"play":["C3","C4","CQ","CK","HA","H9","HT","H6","SQ","SK","SA","S3","SJ"],"answer":"S6","source":"教科書：信號不值得賠一墩（評測牌組第 64 副）","reviewer":null,"status":"pending","note":"夢家領 ♠J，A K Q 都出過了，手上 T6 的 T 就會是大牌。張數信號本來要先大後小，但出 T 就把贏墩丟了：出 6"},
+    {"id":"play-second-014","system":"tku","board":21,"hands":{"N":"AK98.AQ93.Q.K952","E":"Q62.KJ.J2.AQT743","S":"743.865.T853.J86","W":"JT5.T742.AK9764."},"auction":["1C","P","P","1D","P","2N","P","P","P"],"play":["C6","H2","CK","CA","CQ","C8","D4","C2","D2"],"answer":"D8","source":"教科書：張數信號用小牌（評測牌組第 21 副）","reviewer":null,"status":"pending","note":"莊家領小牌，T853 是偶數張要先大後小：用 8 就讀得出是大牌，不必動用 T"}
+  ]
+}

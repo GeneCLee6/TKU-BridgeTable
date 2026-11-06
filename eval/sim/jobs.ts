@@ -1,5 +1,6 @@
 import type { Card } from '../../shared/cards.ts'
 import type { RobotKind } from '../../shared/protocol.ts'
+import type { CommonSenseOptions, CommonSenseRecord } from './common-sense.ts'
 import type { CompareOptions, CompareRecord } from './compare.ts'
 import type { BiddingOptions, BiddingRecord } from './bidding.ts'
 import type { DdTable } from './dds.ts'
@@ -14,6 +15,7 @@ export type Job =
   | { kind: 'tables'; seed: string; boards: number[] }
   | { kind: 'leads'; seed: string; boards: number[]; system: RobotKind; samples: number }
   | { kind: 'compare'; seed: string; boards: number[]; system: RobotKind; options: CompareOptions }
+  | { kind: 'commonSense'; seed: string; boards: number[]; system: RobotKind; options: CommonSenseOptions }
   | { kind: 'replay'; seed: string; records: LeadRecord[] }
   | { kind: 'bidding'; seed: string; boards: number[]; system: RobotKind; options: BiddingOptions }
 
@@ -28,6 +30,6 @@ export interface ReplayResult {
   lead: Card
 }
 
-export type JobResult = TableRecord | LeadRecord | CompareRecord | ReplayResult | BiddingRecord
+export type JobResult = TableRecord | LeadRecord | CompareRecord | CommonSenseRecord | ReplayResult | BiddingRecord
 
 export type WorkerMessage = { id: number; progress: number } | { id: number; results: JobResult[] } | { id: number; error: string } | { ready: true }

@@ -6,6 +6,7 @@ import { isRobotKind, type RobotKind } from '../../shared/protocol.ts'
 import { deckSeed, readArgs } from '../config.ts'
 import { evalBoard } from '../deals.ts'
 import { bidBoard } from './board.ts'
+import { commonSenseReport, commonSenseStudy, type CommonSenseRecord } from './common-sense.ts'
 import { compareReport, compareStudy, type CompareOptions, type CompareRecord } from './compare.ts'
 import { BiddingStudyBuilder, biddingReport, CATEGORIES, COMPETE_CATEGORIES, CONSTRUCTIVE, practiceDeals, type BiddingCategory, type BiddingRecord, type Example, type PracticeDeal } from './bidding.ts'
 import { loadSolver } from './dds.ts'
@@ -28,6 +29,7 @@ import { ruleBrain } from '../../shared/robot/brain.ts'
  *   npm run sim -- leads --deals N [--from 1] [--seed s] [--system tku|gib] [--samples 0] [--threads N] [--out file] [--report file] [--analyse]
  *   npm run sim -- compare --deals N [--from 1] [--seed s] [--system tku|gib] [--samples 30] [--objective score|tricks|contract]
  *                          [--dd-bias 0] [--points lead|all|defence|declarer] [--threads N] [--out file] [--report file] [--analyse]
+ *   npm run sim -- common-sense --deals N [--from 1] [--seed s] [--system tku|gib] [--samples 20] [--threads N] [--out file] [--report file] [--analyse]
  *   npm run sim -- replay --out leads.jsonl [--from 1 --deals N | --boards file] [--report file] [--changed file]
  *   npm run sim -- bidding --deals N [--from 1] [--seed s] [--system tku|gib] [--threads N] [--out file] [--report file]
  *                          [--practice dir] [--analyse]
@@ -38,12 +40,13 @@ import { ruleBrain } from '../../shared/robot/brain.ts'
  */
 
 const USAGE = [
-  'usage: npm run sim -- <bench|tables|leads|compare|replay|bidding|compete> [options]',
+  'usage: npm run sim -- <bench|tables|leads|compare|common-sense|replay|bidding|compete> [options]',
   '  bench    [--deals 200] [--threads N]',
   '  tables   --deals N [--from 1] [--seed s] [--threads N] [--out file]',
   '  leads    --deals N [--from 1] [--seed s] [--system tku|gib] [--samples 0] [--threads N] [--out file] [--report file] [--analyse]',
   '  compare  --deals N [--from 1] [--seed s] [--system tku|gib] [--samples 30] [--objective score|tricks|contract] [--dd-bias 0]',
   '           [--points lead|all|defence|declarer] [--threads N] [--out file] [--report file] [--analyse]',
+  '  common-sense --deals N [--from 1] [--seed s] [--system tku|gib] [--samples 20] [--threads N] [--out file] [--report file] [--analyse]',
   '  replay   --out leads.jsonl [--from 1 --deals N | --boards file] [--seed s] [--report file] [--changed file]',
   '  bidding  --deals N [--from 1] [--seed s] [--system tku|gib] [--threads N] [--out file] [--report file] [--practice dir] [--analyse]',
   '  compete  the same as bidding, only the competitive decisions',
@@ -234,6 +237,24 @@ async function compare(args: Map<string, string>) {
   console.error(`${records.length} records → ${file}`)
 }
 
+/** Where TKB's card breaks common sense and double dummy cannot tell (e6-t28) */
+async function commonSense(args: Map<string, string>) {
+  const c = common(args)
+  const samples = Number(args.get('samples') ?? 20)
+  if (!Number.isInteger(samples) || samples < 1) throw new Error('--samples must be a number of layouts')
+  const name = `common-sense-${fileSeed(c)}-${c.system}-s${samples}-r${rulesFingerprint()}`
+  const store = await JsonlStore.open<CommonSenseRecord>(args.get('out') ?? resolve(DATA_DIR, `${name}.jsonl`))
+  let seconds = 0
+  if (!args.has('analyse')) seconds = await runStudy('Common sense', c, store, 5, (boards) => ({ kind: 'commonSense', seed: c.seed, boards, system: c.system, options: { samples, seed: c.seed } }))
+  const records: CommonSenseRecord[] = []
+  for await (const record of store.records()) if (covers(c, record.board)) records.push(record)
+  const report = commonSenseReport(commonSenseStudy(records), `${c.system}，${c.seed} ${span(c)}，每個標記的決策抽 ${samples} 個佈局${seconds ? `，${clock(seconds)}` : ''}`)
+  const file = args.get('report') ?? resolve(DATA_DIR, `${name}.md`)
+  writeFileSync(file, report)
+  console.log(report)
+  console.error(`${records.length} records → ${file}`)
+}
+
 async function replay(args: Map<string, string>) {
   const c = common(args)
   const file = args.get('out')
@@ -339,7 +360,7 @@ async function main() {
     console.log(USAGE)
     return
   }
-  const commands: Record<string, (args: Map<string, string>) => Promise<void>> = { bench, tables, leads, compare, replay, bidding: (a) => bidding(a), compete: (a) => bidding(a, true) }
+  const commands: Record<string, (args: Map<string, string>) => Promise<void>> = { bench, tables, leads, compare, 'common-sense': commonSense, replay, bidding: (a) => bidding(a), compete: (a) => bidding(a, true) }
   const run = commands[command]
   if (!run) throw new Error(`unknown command "${command}"`)
   await run(args)
