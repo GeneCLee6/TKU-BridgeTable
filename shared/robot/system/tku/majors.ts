@@ -340,7 +340,7 @@ const weakTwoRebids: Book = {
         ['3S', 'H', true],
       ] as const
     ).map(([call, m, high]) =>
-      rule(onlyIf(answerIs('2N'), call), { len: length(m, 6, 6), hcp: high ? [9, 10] : [6, 8], notes: [{ key: high ? 'maximum' : 'minimum' }], artificial: true }, (h) => weakMajor(h) === m && h.hcp >= 9 === high),
+      rule(onlyIf(answerIs('2N'), call), { len: length(m, 6, 6), hcp: high ? [9, 10] : [5, 8], notes: [{ key: high ? 'maximum' : 'minimum' }], artificial: true }, (h) => weakMajor(h) === m && h.hcp >= 9 === high),
     ),
     // Pass or correct: pass in our major, otherwise bid it
     ...(

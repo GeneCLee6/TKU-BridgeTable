@@ -60,6 +60,7 @@ group('the system card says what the system files say', () => {
     ['gib', '1S', [11, 21]],
     ['tku', '3S', [5, 10]],
     ['gib', '3S', [5, 10]],
+    ['tku', '2D', [5, 10]],
   ] as const)('%s opening %s is %j points', (system, call, hcp) => {
     expect(callOn(cards[system], 'openings', '', call).shows.hcp).toEqual(hcp)
   })
@@ -160,14 +161,13 @@ group('the system card says what the system files say', () => {
 
 group('the card agrees with what TKB actually bids', () => {
   /**
-   * The cases the rules choose outside what the call announces, on purpose and documented
-   * (ROBOT.md §2): a good 11 (Rule of 20, e5-t41) that opens as a 12-point hand (in 2/1 too, with
-   * its total points short of the 12 announced), and the 2♦ weak two that the rule takes from 5
-   * points while its explanation says 6–10
+   * The cases the rules choose outside what the call announces, on purpose and documented: a good
+   * 11 (Rule of 20, e5-t41) that opens as a 12-point hand. For the club's system this is a known
+   * exception the president confirmed on 2026-11-06 (ROBOT.md §2): the explanation stays 12–21. In
+   * 2/1 the points agree (11–21) but the total points can fall outside the 12–22 announced
    */
   const known = (system: 'tku' | 'gib', call: Call, spec: Spec): Spec => {
     if (system === 'tku' && /^1[CDHS]$/.test(call)) return { ...spec, hcp: [11, 21] }
-    if (system === 'tku' && call === '2D') return { ...spec, hcp: [5, 10] }
     if (system === 'gib' && /^1[CDHS]$/.test(call)) return { ...spec, tp: undefined, hcp: [11, 21] }
     return spec
   }
