@@ -38,8 +38,6 @@ const palette = {
     headerMuted: '#aab4c8',
     /** A hovered link or icon in the header */
     headerHover: 'rgba(243, 239, 230, 0.1)',
-    /** ♥♦ in the header's tagline, readable on navy */
-    headerSuitRed: '#ff8f80',
     /** Lantern gold: rules, the selected tab's underline, badge backgrounds. Not a text colour on light. */
     accent: '#c9972e',
     /** Gold when it has to be text (badge labels) */
@@ -74,7 +72,6 @@ const palette = {
     onHeader: '#ece7dc',
     headerMuted: '#8f9ab0',
     headerHover: 'rgba(236, 231, 220, 0.08)',
-    headerSuitRed: '#ff8f80',
     accent: '#e0b255',
     accentStrong: '#e0b255',
     accentSoft: '#3a2f17',

@@ -1,4 +1,5 @@
 import { useEffect } from 'react'
+import { LANDING_PAGE, pageTitle } from '../shared/site.ts'
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import styled from 'styled-components'
 import { AppHeader } from './components/AppHeader.tsx'
@@ -31,6 +32,7 @@ import { ForumEditPostPage, ForumNewPostPage } from './pages/ForumEditorPage.tsx
 import { ForumReportsPage, ForumSearchPage } from './pages/ForumModerationPages.tsx'
 import { HistoryPage } from './pages/HistoryPage.tsx'
 import { LobbyPage } from './pages/LobbyPage.tsx'
+import { LandingPage } from './pages/LandingPage.tsx'
 import { LegalPage } from './pages/LegalPage.tsx'
 import { EmailLinkPage } from './pages/EmailLinkPage.tsx'
 import { LoginPage } from './pages/LoginPage.tsx'
@@ -96,7 +98,7 @@ function MissingClub() {
     <PageMain>
       <Muted role="alert">{t.clubs.missing}</Muted>
       <p>
-        <a href="/">{t.clubs.toHome}</a>
+        <a href={LANDING_PAGE}>{t.clubs.toHome}</a>
       </p>
     </PageMain>
   )
@@ -115,6 +117,8 @@ function Routed() {
   // The cross-club lobby (e12-t07) behind its flag
   const publicLobbyOn = useFeature('publicLobby')
   if (missingClub) return <MissingClub />
+  // The platform's landing page (e12-t13) is for anyone, signed in or not
+  if (pathname === LANDING_PAGE) return <LandingPage />
   // The privacy policy and the terms are for anyone, signed in or not (e11-t27)
   if (pathname === '/privacy' || pathname === '/terms') return <LegalPage kind={pathname === '/privacy' ? 'privacy' : 'terms'} />
   // The email links (e1-t29, e1-t30) work signed in or not, on any device
@@ -200,8 +204,15 @@ function Routed() {
 }
 
 export function App() {
+  const { pathname } = useLocation()
+  // The tab says the platform's name, in English, on every page; each public page says its own
+  useEffect(() => {
+    document.title = pageTitle(pathname)
+  }, [pathname])
   return (
-    <PreferencesProvider>
+    // Only the landing page is in English for someone who has not chosen; every other page keeps
+    // the browser's language as it always has (社長 2026-11-07)
+    <PreferencesProvider unchosenLang={pathname === LANDING_PAGE ? 'en' : undefined}>
       <GlobalStyle />
       <ToastProvider>
         <AuthProvider>

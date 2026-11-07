@@ -1,6 +1,6 @@
 # DEPLOY — 部署與管理
 
-淡江牌桌部署在 Cloudflare Workers（免費方案）。前端靜態檔案、API、WebSocket 與資料庫都在同一個 Worker 底下，網址是 `https://tku-bridge-table.genelee-pro.workers.dev`。
+平台 **Overtrick**（淡江橋藝社是平台上的第一個社團）部署在 Cloudflare Workers（免費方案）。Worker 與 repo 的名稱維持 `tku-bridge-table`、不改。前端靜態檔案、API、WebSocket 與資料庫都在同一個 Worker 底下，網址是 `https://tku-bridge-table.genelee-pro.workers.dev`。
 
 這個 Worker 也是姊妹站**淡江橋譜**（TKU BridgeBook，部署在 Vercel）的後端：兩個網站共用同一批帳號，橋譜線上編輯的內容、版本紀錄與 AI 匯入也存在這裡。橋譜的 `vercel.json` 把它的 `/api/*` 轉給這個 Worker（見 ARCHITECTURE.md §5.2）。**Worker 的網址若改變，要同步改橋譜的 `vercel.json` 與 `src/lib/api.ts` 的 `TABLE_SITE`。**
 
@@ -506,7 +506,7 @@ npx wrangler secret put TURNSTILE_SECRET_KEY        # 貼上 widget 的 Secret K
    npx wrangler secret put RESEND_API_KEY --name tku-bridge-table-staging   # staging
    ```
 
-   寄件人 `MAIL_FROM` 加到 `wrangler.jsonc` 的 `vars`（或用 secret，一樣有效），要是驗證過的網域上的地址，例如 `"MAIL_FROM": "淡江牌桌 <no-reply@example.org>"`。
+   寄件人 `MAIL_FROM` 加到 `wrangler.jsonc` 的 `vars`（或用 secret，一樣有效），要是驗證過的網域上的地址，例如 `"MAIL_FROM": "Overtrick <no-reply@example.org>"`。
 4. 部署後到「我的帳號」綁定自己的 Email，確認收得到驗證信；登出後在登入頁按「忘記密碼？」，應該先看到「用 Email 重設密碼」。
 
 - 兩個都設才會打開；只設一個等於沒設。
@@ -762,6 +762,24 @@ Worker 變數 `CLUBS`（逗號分隔的社團 id，小寫英數與 `-`）讓 Wor
 
 - 還原淡江的備份（§4.4）**不會**改動名冊與申請（`platform:` 在備份裡，但還原時不寫也不刪）；還原別的社團的備份也不會改變它的暫停狀態（存在它自己的 `meta:club`，不在備份裡）。
 - 退回到沒有平台功能的舊版 Worker：已開通的社團不在 `CLUBS` 裡，就變成「找不到這個社團」（資料都還在它的物件裡）；回到新版就恢復。要讓舊版也服務它們，暫時把代號加進 `CLUBS`。
+
+## 4.21 官網、SEO 與之後買網域（`e12-t13`、`e12-t14`，2026-11-07）
+
+**現況**：正式站的網址就是 `workers.dev`。所有 canonical、分享預覽圖、`robots.txt`、`sitemap.xml` 的網址都來自 `shared/site.ts` 的 `SITE_URL` 這一行（build 時寫進檔案，`scripts/seo.ts`）。
+
+**爬蟲收到什麼**（`curl -s https://<網站>/about | head -40`）：`/about`、`/clubs/apply`、`/privacy`、`/terms` 是 build 時做的靜態檔，有自己的標題、描述、canonical、Open Graph 與 Twitter card；`/about` 另外帶整頁的英文內容。其他路徑（包括根目錄 `/`）拿到 `index.html`，`<meta name="robots" content="noindex">`；`/share/*` 再加 `X-Robots-Tag: noindex`。`robots.txt` 故意不擋私人頁：爬蟲要讀得到頁面才看得到 `noindex`。staging 與 PR 預覽（build 時有 `CLOUDFLARE_ENV`）的 `robots.txt` 是 `Disallow: /`，公開頁也 `noindex`。頁面都不經過 Worker，不佔 10 ms CPU，也不用付費功能。
+
+**檢查**：`npm run build && npx vite preview`（`npm run dev` 不套用 `_headers`，也沒有這些靜態頁），再 `curl -sD - -o /dev/null <預覽站>/share/x | grep -i x-robots`。
+
+**買了網域之後**，照順序：
+
+1. Cloudflare Dashboard → Workers → `tku-bridge-table` → Settings → Domains & Routes 加 Custom Domain。**先留著 `workers.dev`**，不要關。
+2. 把 `shared/site.ts` 的 `SITE_URL` 改成新網址，走 PR 部署。只有這一行，測試會確認其他地方都跟著變。
+3. Google 與 LINE 登入的後台各加一組新回呼網址（`https://<新網域>/api/auth/google/callback`、`…/line/callback`，§4.16、§4.18），並更新首頁、隱私權政策、條款的網址；Worker 的 `oauthSite` 只接受本站網址，部署後用新網域登入試一次。
+4. Google Search Console 驗證新網域、提交 `https://<新網域>/sitemap.xml`。
+5. 寄信的 `MAIL_FROM`：Resend 驗證新網域後改成新網域的地址（§4.14）。
+
+**要先想清楚的事**：cookie 與瀏覽器的設定都綁在網址上，所以**社員第一次開新網域時要重新登入**，手機主畫面上的 App 也要重新加。舊網址的 session 不受影響，仍然能用。要不要把舊網址轉到新網址、什麼時候轉，是社長的決定，這個 PR 沒做。
 
 ## 5. 費用與限制
 

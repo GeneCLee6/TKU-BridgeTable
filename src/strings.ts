@@ -21,8 +21,7 @@ import type { ListSort, RecordGrouping } from './lib/lists.ts'
  * translated with shared/messages.ts.
  */
 const zh = {
-  appNameEn: 'TKU BridgeTable',
-  appNameZh: '淡江牌桌',
+  appName: 'Overtrick',
   tagline: '淡江橋藝社的線上牌桌',
 
   // Navigation and preferences
@@ -79,9 +78,9 @@ const zh = {
   captchaLabel: '人機驗證',
   captchaNeeded: '請先完成人機驗證',
   captchaLoadFailed: '人機驗證載入失敗，請檢查網路後重新整理頁面',
-  applicationSent: (name: string) => `已送出 ${name} 的申請。管理員核准後，就能用這個帳號登入淡江牌桌和淡江橋館。`,
-  sharedAccountHint: '淡江牌桌和淡江橋館用同一組帳號。',
-  loginBrandSub: 'TKU BridgeTable · 淡江橋藝社',
+  applicationSent: (name: string) => `已送出 ${name} 的申請。管理員核准後，就能用這個帳號登入 Overtrick 和淡江橋館。`,
+  sharedAccountHint: 'Overtrick 和淡江橋館用同一組帳號。',
+  tkuClubName: '淡江橋藝社',
   registerIntro: '填好帳號、密碼和邀請碼送出申請，管理員核准後就能登入。',
 
   // Lobby
@@ -814,7 +813,7 @@ const zh = {
   // Club addresses and the cross-club lobby (e12-t04, e12-t07)
   clubs: {
     missing: '找不到這個社團，請確認網址。',
-    toHome: '前往淡江牌桌',
+    toHome: '前往 Overtrick',
     lobbyLink: '其他社團',
     lobbyTitle: '其他社團的牌桌',
     lobbyIntro: '這些是其他社團開放給所有社團觀看的牌桌。你只能觀看：不能入座，也看不到、不能用聊天。',
@@ -1107,7 +1106,7 @@ const zh = {
   languageName: '語言',
   sound: '音效',
   installTitle: '安裝成手機 App',
-  installIntro: '把淡江牌桌放到手機主畫面，之後像 App 一樣從圖示全螢幕開啟。',
+  installIntro: '把 Overtrick 放到手機主畫面，之後像 App 一樣從圖示全螢幕開啟。',
   installButton: '安裝到這台裝置',
   installIos: 'iPhone／iPad：用 Safari 開啟本站，按下方的「分享」按鈕，再選「加入主畫面」。',
   installAndroid: 'Android：用 Chrome 開啟本站，按右上角「⋮」，再選「安裝應用程式」或「加到主畫面」。',
@@ -1172,7 +1171,7 @@ const zh = {
   never: '—',
   applicationsTitle: '待審核的申請',
   noApplications: '目前沒有待審核的申請',
-  appliedFrom: (site: 'table' | 'book'): string => (site === 'book' ? '從淡江橋館申請' : '從淡江牌桌申請'),
+  appliedFrom: (site: 'table' | 'book'): string => (site === 'book' ? '從淡江橋館申請' : '從 Overtrick 申請'),
   bookSyncTitle: '機器人與橋館同步',
   bookSyncIntro: 'TKB 用淡江制度時照淡江橋館的特約叫牌。橋館的文章在線上改過之後，這裡列出跟著它的規則，請幹部對照新內容檢查機器人。',
   bookSyncAllSynced: (n: number) => `${n} 篇文章都和機器人的規則同步。`,
@@ -1680,7 +1679,7 @@ const zh = {
     newPasswordIntro: '輸入新密碼。改好後，你的帳號在所有裝置都會登出。',
     passwordDone: (username: string) => `${username} 的密碼已重設，請用新密碼登入。`,
     linkMissing: '連結不完整，請直接點信裡的連結打開這一頁。',
-    toSite: '回到淡江牌桌',
+    toSite: '回到 Overtrick',
   },
   // Google sign-in (e1-t31)
   google: {
@@ -1694,7 +1693,7 @@ const zh = {
     codeIntro: '這個帳號開了兩步驟登入，用 Google 登入也要輸入驗證 App 上的 6 位數驗證碼或一組備用碼。',
     usePassword: '改用帳號密碼登入',
     title: 'Google 登入',
-    intro: '綁定 Google 帳號後，可以用 Google 登入淡江牌桌與淡江橋館。帳號名稱與顯示名稱不會改變，也照樣可以用密碼登入；開了兩步驟登入的帳號用 Google 登入時一樣要輸入驗證碼。Google 的 Email 只有你自己看得到。',
+    intro: '綁定 Google 帳號後，可以用 Google 登入 Overtrick 與淡江橋館。帳號名稱與顯示名稱不會改變，也照樣可以用密碼登入；開了兩步驟登入的帳號用 Google 登入時一樣要輸入驗證碼。Google 的 Email 只有你自己看得到。',
     linked: (email: string) => `已綁定：${email}`,
     none: '還沒有綁定 Google 帳號。',
     password: '輸入密碼確認',
@@ -1716,7 +1715,7 @@ const zh = {
     codeIntro: '這個帳號開了兩步驟登入，用 LINE 登入也要輸入驗證 App 上的 6 位數驗證碼或一組備用碼。',
     usePassword: '改用帳號密碼登入',
     title: 'LINE 登入',
-    intro: '綁定 LINE 帳號後，可以用 LINE 登入淡江牌桌與淡江橋館。帳號名稱與顯示名稱不會改變，也照樣可以用密碼登入；開了兩步驟登入的帳號用 LINE 登入時一樣要輸入驗證碼。綁定時的 LINE 名字只有你自己看得到。',
+    intro: '綁定 LINE 帳號後，可以用 LINE 登入 Overtrick 與淡江橋館。帳號名稱與顯示名稱不會改變，也照樣可以用密碼登入；開了兩步驟登入的帳號用 LINE 登入時一樣要輸入驗證碼。綁定時的 LINE 名字只有你自己看得到。',
     linked: (name: string) => `已綁定：${name}`,
     none: '還沒有綁定 LINE 帳號。',
     password: '輸入密碼確認',
@@ -1730,9 +1729,9 @@ const zh = {
   /** Push notifications on "My account" (e1-t28) */
   push: {
     title: '推播通知',
-    intro: '關掉網頁後，邀請與消息也會出現在手機或電腦的通知裡。每台裝置要各自開啟；開著淡江牌桌的時候不會推播（鈴鐺裡已經看得到）。',
+    intro: '關掉網頁後，邀請與消息也會出現在手機或電腦的通知裡。每台裝置要各自開啟；開著 Overtrick 的時候不會推播（鈴鐺裡已經看得到）。',
     unsupported: '這個瀏覽器不支援推播通知。',
-    iosHint: 'iPhone 與 iPad（iOS 16.4 以上）要先在 Safari 按「分享」→「加入主畫面」，再從主畫面的圖示打開淡江牌桌，才能開啟推播。',
+    iosHint: 'iPhone 與 iPad（iOS 16.4 以上）要先在 Safari 按「分享」→「加入主畫面」，再從主畫面的圖示打開 Overtrick，才能開啟推播。',
     denied: '這個瀏覽器封鎖了本站的通知，請先到瀏覽器的網站設定允許「通知」，再回來開啟。',
     thisOn: '這台裝置已開啟推播。',
     thisOff: '這台裝置還沒開啟推播。',
@@ -1810,12 +1809,12 @@ const zh = {
     privacyTitle: '隱私權政策',
     termsTitle: '使用條款',
     updated: (date: string) => `最後更新：${date}`,
-    home: '回到淡江牌桌',
+    home: '回到 Overtrick',
     agree: '註冊即表示你同意使用條款與隱私權政策。',
     privacy: [
       {
         h: '誰保管你的資料',
-        p: '淡江牌桌與淡江橋館由淡江大學橋藝社（以下稱「本社」）的社員經營，非營利。本社依《個人資料保護法》蒐集、處理與利用你的個人資料，目的是會員管理、社團活動與資訊安全。',
+        p: 'Overtrick 與淡江橋館由淡江大學橋藝社（以下稱「本社」）的社員經營，非營利。本社依《個人資料保護法》蒐集、處理與利用你的個人資料，目的是會員管理、社團活動與資訊安全。',
       },
       {
         h: '蒐集哪些資料',
@@ -1851,7 +1850,7 @@ const zh = {
       },
       {
         h: '匿名使用統計',
-        p: '為了知道有多少人回來、哪些功能有人用，本社在伺服器上數數字：每天與每週來了幾個人、某一週註冊的社員之後每週回來幾個人、幾桌打完牌與打了幾副，以及幾項功能（和哪一套制度的機器人打、開挑戰、隊制賽、搭檔叫牌練習、解出謎題、賽後分析、匯入牌局、教學桌）用了幾次。為了不重複計算，當天與當週會暫存你帳號的雜湊，用每段期間各自的隨機金鑰算出；那段期間結束後，最遲在下一次有人使用時，雜湊與金鑰一起刪除，所以不同期間連不起來。不存帳號、牌桌或牌局編號、IP 位址與瀏覽器資訊，不傳給第三方，也沒有放追蹤程式。留下的數字沒有對應到帳號，所以不在「下載我的資料」裡，刪除帳號時也不會扣掉。不過某一週只有一兩個人註冊時，那個數字接近某個人有沒有來，所以少於 5 的數字任何頁面都不顯示，包括管理員的頁面（能直接操作資料庫的人仍看得到）。每週回來的人數保存 13 週，其他數字 180 天，都不在備份裡。管理員可以關掉統計，淡江牌桌與淡江橋館一起關。',
+        p: '為了知道有多少人回來、哪些功能有人用，本社在伺服器上數數字：每天與每週來了幾個人、某一週註冊的社員之後每週回來幾個人、幾桌打完牌與打了幾副，以及幾項功能（和哪一套制度的機器人打、開挑戰、隊制賽、搭檔叫牌練習、解出謎題、賽後分析、匯入牌局、教學桌）用了幾次。為了不重複計算，當天與當週會暫存你帳號的雜湊，用每段期間各自的隨機金鑰算出；那段期間結束後，最遲在下一次有人使用時，雜湊與金鑰一起刪除，所以不同期間連不起來。不存帳號、牌桌或牌局編號、IP 位址與瀏覽器資訊，不傳給第三方，也沒有放追蹤程式。留下的數字沒有對應到帳號，所以不在「下載我的資料」裡，刪除帳號時也不會扣掉。不過某一週只有一兩個人註冊時，那個數字接近某個人有沒有來，所以少於 5 的數字任何頁面都不顯示，包括管理員的頁面（能直接操作資料庫的人仍看得到）。每週回來的人數保存 13 週，其他數字 180 天，都不在備份裡。管理員可以關掉統計，Overtrick 與淡江橋館一起關。',
       },
       {
         h: '存在哪裡、存多久',
@@ -1877,7 +1876,7 @@ const zh = {
     terms: [
       {
         h: '誰可以使用',
-        p: '淡江牌桌是淡江大學橋藝社社員的線上牌桌。註冊要有社團的邀請碼，並經管理員核准。',
+        p: 'Overtrick 是橋藝社團的線上牌桌。註冊要有所屬社團的邀請碼，並經該社團的管理員核准。',
       },
       {
         h: '帳號',
@@ -2242,7 +2241,7 @@ const zh = {
   productMetrics: {
     title: '使用情況',
     intro: '有多少人回來、哪些功能有人用，幫助決定接下來做什麼。只有管理員看得到，而且只有數字：不記帳號、牌桌或牌局編號、IP 位址與瀏覽器。',
-    switchLabel: '統計使用情況（這個開關同時控制淡江牌桌與淡江橋館）',
+    switchLabel: '統計使用情況（這個開關同時控制 Overtrick 與淡江橋館）',
     switchHint: '這裡和橋館管理頁的「社團開啟匿名分析」是同一個開關，一邊關掉，兩個網站都停止統計。已有的數字留著，到期才刪除；錯誤回報不受影響。',
     saved: '已儲存',
     off: '統計已關閉：牌桌與橋館都不會新增數字，下面是關閉前的資料。',
@@ -2326,9 +2325,9 @@ const zh = {
     shareRevoked: '已撤銷，舊的連結不能再用了。',
     shareMadeBy: (name: string, when: string) => `${name} 在 ${when} 產生`,
     shareHeldHint: '挑戰或比賽結束後才能公開分享',
-    sharedNote: '這副牌由淡江牌桌的社員公開分享。',
+    sharedNote: '這副牌由 Overtrick 的社員公開分享。',
     hiddenPlayer: '社員',
-    sharedHome: '淡江牌桌首頁',
+    sharedHome: 'Overtrick 首頁',
   },
   // Applying for a club (e12-t06, /clubs/apply) and the platform owner's back office (e12-t05, /platform)
   clubApply: {
@@ -2346,12 +2345,12 @@ const zh = {
     reason: '申請理由',
     reasonHint: (min: number, max: number) => `${min}～${max} 個字：社團的規模、打算怎麼使用。`,
     account: '新社團的管理員帳號',
-    accountHint: '這是新社團裡的帳號，跟淡江牌桌的帳號無關；審核通過後用它登入新社團。',
+    accountHint: '這是新社團裡的帳號，跟你在其他社團的帳號無關；審核通過後用它登入新社團。',
     username: '帳號',
     password: '密碼',
     send: '送出申請',
     sent: (id: string) => `已送出「${id}」的申請。平台審核後會寄信到聯絡 Email（如果平台有開寄信）；通過後就能用申請的帳號登入。`,
-    toSite: '回到淡江牌桌',
+    toSite: '回到 Overtrick',
     link: '幫你的橋藝社申請一個牌桌',
   },
   /** Announcements (e12-t15) */
@@ -2482,13 +2481,46 @@ const zh = {
   },
   loading: '載入中…',
   genericError: '發生錯誤，請再試一次',
+  /** The platform's landing page (e12-t13, `/about`) */
+  landing: {
+    link: '關於 Overtrick',
+    headline: '給橋藝社團的線上橋牌',
+    lead: 'Overtrick 讓橋藝社有自己的地方打牌：四人即時牌桌、補空位的機器人，每一副牌都留下紀錄。',
+    apply: '幫你的社團申請',
+    signIn: '登入淡江橋藝社',
+    backTo: (club: string) => `回到 ${club}`,
+    signInOther: '其他社團的社員，請從自己社團的網址登入。',
+    featuresTitle: '有什麼',
+    tablesH: '四人即時牌桌',
+    tablesP: '四個人同時上桌，叫牌與打牌即時同步。用瀏覽器就能打，手機、電腦都可以。',
+    robotsH: '機器人 TKB',
+    robotsP: '空位可以放機器人，叫牌制度可選 2/1、SAYC 或 Precision；有權限的社員還可以選淡江制度。',
+    analysisH: '賽後分析',
+    analysisP: '打完回頭看，用 Double Dummy 一張一張算，找出最貴的幾步。',
+    recordsH: '牌局紀錄',
+    recordsP: '每一副都會保存，可以搜尋、重播，也可以匯出 PBN 或 LIN。',
+    challengesH: '挑戰',
+    challengesP: '跟其他社員打同樣的牌，在排名表上比成績。',
+    matchesH: '隊制賽',
+    matchesP: '開室與閉室對打，比賽中可以觀看，打完可以重播。',
+    joinTitle: '社團怎麼加入',
+    joinSteps: [
+      '填寫申請表：社團名稱、網址代號、聯絡 Email，以及第一位管理員的帳號。',
+      '平台審核申請。',
+      '通過後社團有自己的網址，社員、牌桌與紀錄都跟其他社團分開。',
+    ],
+    joinCta: '申請開設社團',
+    freeTitle: '免費',
+    freeP: 'Overtrick 免費使用。',
+    whoTitle: '誰在經營',
+    whoP: 'Overtrick 由淡江大學橋藝社的社員經營，非營利。',
+  },
 }
 
 export type Strings = typeof zh
 
 const en: Strings = {
-  appNameEn: 'TKU BridgeTable',
-  appNameZh: '淡江牌桌',
+  appName: 'Overtrick',
   tagline: 'The Tamkang bridge club’s online table',
 
   navLobby: 'Lobby',
@@ -2542,9 +2574,9 @@ const en: Strings = {
   captchaLabel: 'Human check',
   captchaNeeded: 'Please complete the human check first',
   captchaLoadFailed: 'The human check could not load; check your connection and reload the page',
-  applicationSent: (name) => `Registration for ${name} sent. Once an admin approves it, this account signs in to both TKU BridgeTable and TKU BridgeHall.`,
-  sharedAccountHint: 'TKU BridgeTable and TKU BridgeHall share one account.',
-  loginBrandSub: 'TKU BridgeTable · Tamkang Bridge Club',
+  applicationSent: (name) => `Registration for ${name} sent. Once an admin approves it, this account signs in to both Overtrick and TKU BridgeHall.`,
+  sharedAccountHint: 'Overtrick and TKU BridgeHall share one account.',
+  tkuClubName: 'Tamkang Bridge Club',
   registerIntro: 'Choose a username and password, add the invite code and send your application. You can sign in once an admin approves it.',
 
   notifications: 'Notifications',
@@ -3270,7 +3302,7 @@ const en: Strings = {
   // Club addresses and the cross-club lobby (e12-t04, e12-t07)
   clubs: {
     missing: 'There is no such club. Please check the address.',
-    toHome: 'Go to TKU BridgeTable',
+    toHome: 'Go to Overtrick',
     lobbyLink: 'Other clubs',
     lobbyTitle: 'Tables at other clubs',
     lobbyIntro: 'Tables other clubs opened for every club to watch. You can only watch: no seat, and no chat.',
@@ -3558,7 +3590,7 @@ const en: Strings = {
   languageName: 'Language',
   sound: 'Sound',
   installTitle: 'Install as a phone app',
-  installIntro: 'Put TKU BridgeTable on your home screen and open it full screen, like an app.',
+  installIntro: 'Put Overtrick on your home screen and open it full screen, like an app.',
   installButton: 'Install on this device',
   installIos: 'iPhone / iPad: open the site in Safari, tap Share, then “Add to Home Screen”.',
   installAndroid: 'Android: open the site in Chrome, tap ⋮ at the top right, then “Install app” or “Add to Home screen”.',
@@ -3622,7 +3654,7 @@ const en: Strings = {
   never: '—',
   applicationsTitle: 'Waiting for approval',
   noApplications: 'No registrations are waiting',
-  appliedFrom: (site) => (site === 'book' ? 'From TKU BridgeHall' : 'From TKU BridgeTable'),
+  appliedFrom: (site) => (site === 'book' ? 'From TKU BridgeHall' : 'From Overtrick'),
   bookSyncTitle: 'Robot and BridgeHall',
   bookSyncIntro: 'With the club’s system, TKB bids by the conventions on TKU BridgeHall. When an article is edited online, the rules that follow it are listed here for an officer to check against the new text.',
   bookSyncAllSynced: (n) => `All ${n} articles match the robot’s rules.`,
@@ -4125,7 +4157,7 @@ const en: Strings = {
     newPasswordIntro: 'Enter a new password. You will be signed out on every device.',
     passwordDone: (username: string) => `${username}’s password is reset; sign in with the new one.`,
     linkMissing: 'This link is incomplete; open the page from the link in the email.',
-    toSite: 'Back to TKU BridgeTable',
+    toSite: 'Back to Overtrick',
   },
   // Google sign-in (e1-t31)
   google: {
@@ -4139,7 +4171,7 @@ const en: Strings = {
     codeIntro: 'This account uses two-step sign-in: signing in with Google also needs the 6-digit code from your authenticator app, or a recovery code.',
     usePassword: 'Sign in with a password instead',
     title: 'Google sign-in',
-    intro: 'With a Google account linked, you can sign in to TKU BridgeTable and TKU BridgeHall with Google. Your username and display name stay the same, and your password still works; accounts with two-step sign-in still enter their code. Only you see the Google email.',
+    intro: 'With a Google account linked, you can sign in to Overtrick and TKU BridgeHall with Google. Your username and display name stay the same, and your password still works; accounts with two-step sign-in still enter their code. Only you see the Google email.',
     linked: (email: string) => `Linked: ${email}`,
     none: 'No Google account linked yet.',
     password: 'Your password, to confirm',
@@ -4161,7 +4193,7 @@ const en: Strings = {
     codeIntro: 'This account uses two-step sign-in: logging in with LINE also needs the 6-digit code from your authenticator app, or a recovery code.',
     usePassword: 'Sign in with a password instead',
     title: 'LINE login',
-    intro: 'With a LINE account linked, you can log in to TKU BridgeTable and TKU BridgeHall with LINE. Your username and display name stay the same, and your password still works; accounts with two-step sign-in still enter their code. Only you see the LINE name kept with the link.',
+    intro: 'With a LINE account linked, you can log in to Overtrick and TKU BridgeHall with LINE. Your username and display name stay the same, and your password still works; accounts with two-step sign-in still enter their code. Only you see the LINE name kept with the link.',
     linked: (name: string) => `Linked: ${name}`,
     none: 'No LINE account linked yet.',
     password: 'Your password, to confirm',
@@ -4175,9 +4207,9 @@ const en: Strings = {
   /** Push notifications on "My account" (e1-t28) */
   push: {
     title: 'Push notifications',
-    intro: 'Invitations and news reach your phone or computer even with the site closed. Turn it on on each device; nothing is pushed while TKU BridgeTable is open (the bell already shows it).',
+    intro: 'Invitations and news reach your phone or computer even with the site closed. Turn it on on each device; nothing is pushed while Overtrick is open (the bell already shows it).',
     unsupported: 'This browser does not support push notifications.',
-    iosHint: 'On iPhone and iPad (iOS 16.4 or later), first tap Share, then Add to Home Screen in Safari, and open TKU BridgeTable from the home screen icon to turn on push.',
+    iosHint: 'On iPhone and iPad (iOS 16.4 or later), first tap Share, then Add to Home Screen in Safari, and open Overtrick from the home screen icon to turn on push.',
     denied: 'This browser blocks notifications from this site. Allow notifications in the site settings of the browser, then come back.',
     thisOn: 'Push is on for this device.',
     thisOff: 'Push is not on for this device yet.',
@@ -4254,12 +4286,12 @@ const en: Strings = {
     privacyTitle: 'Privacy policy',
     termsTitle: 'Terms of use',
     updated: (date) => `Last updated: ${date}`,
-    home: 'Back to TKU BridgeTable',
+    home: 'Back to Overtrick',
     agree: 'By registering you agree to the terms of use and the privacy policy.',
     privacy: [
       {
         h: 'Who keeps your data',
-        p: 'TKU BridgeTable and TKU BridgeHall are run, not for profit, by members of the Tamkang University Bridge Club (“the club”). The club collects, processes and uses your personal data under Taiwan’s Personal Data Protection Act, for running its membership and activities and keeping the site secure.',
+        p: 'Overtrick and TKU BridgeHall are run, not for profit, by members of the Tamkang University Bridge Club (“the club”). The club collects, processes and uses your personal data under Taiwan’s Personal Data Protection Act, for running its membership and activities and keeping the site secure.',
       },
       {
         h: 'What we collect',
@@ -4295,7 +4327,7 @@ const en: Strings = {
       },
       {
         h: 'Anonymous usage counts',
-        p: 'To know how many people come back and which features are used, the club counts on its server: how many people came each day and week, how many of those who signed up in a given week came back each week after, how many tables finished boards and how many boards, and how often some features were used (playing robots of each bidding system, challenges, team matches, partner bidding practice, puzzles solved, post-game analysis, importing boards, teaching tables). So that nobody counts twice, a hash of your account is kept for the current day and week, made with a random key for that period; when the period ends, at the latest the next time anyone uses the site, the hashes and the key are deleted together, so one period cannot be linked to another. No accounts, table or board ids, IP addresses or browser details are stored, nothing goes to a third party and there is no tracking script. The numbers that remain are not linked to your account, so they are not in “Download my data” and deleting your account does not subtract from them. When only one or two people signed up in a week, though, such a number comes close to whether one person came, so numbers below 5 are not shown on any page, admin pages included (someone with direct access to the database can still see them). The weekly returning counts are kept 13 weeks and the other numbers 180 days, none of them in the backups. Admins can turn counting off, for TKU BridgeTable and TKU BridgeHall together.',
+        p: 'To know how many people come back and which features are used, the club counts on its server: how many people came each day and week, how many of those who signed up in a given week came back each week after, how many tables finished boards and how many boards, and how often some features were used (playing robots of each bidding system, challenges, team matches, partner bidding practice, puzzles solved, post-game analysis, importing boards, teaching tables). So that nobody counts twice, a hash of your account is kept for the current day and week, made with a random key for that period; when the period ends, at the latest the next time anyone uses the site, the hashes and the key are deleted together, so one period cannot be linked to another. No accounts, table or board ids, IP addresses or browser details are stored, nothing goes to a third party and there is no tracking script. The numbers that remain are not linked to your account, so they are not in “Download my data” and deleting your account does not subtract from them. When only one or two people signed up in a week, though, such a number comes close to whether one person came, so numbers below 5 are not shown on any page, admin pages included (someone with direct access to the database can still see them). The weekly returning counts are kept 13 weeks and the other numbers 180 days, none of them in the backups. Admins can turn counting off, for Overtrick and TKU BridgeHall together.',
       },
       {
         h: 'Where and how long',
@@ -4321,7 +4353,7 @@ const en: Strings = {
     terms: [
       {
         h: 'Who may use it',
-        p: 'TKU BridgeTable is the online bridge table of the Tamkang University Bridge Club’s members. Registering needs the club’s invite code and an admin’s approval.',
+        p: 'Overtrick is online bridge for clubs. Registering needs your club’s invite code and the approval of one of its admins.',
       },
       {
         h: 'Your account',
@@ -4679,7 +4711,7 @@ const en: Strings = {
   productMetrics: {
     title: 'Usage',
     intro: 'How many people come back and which features get used, to help decide what to build next. Admins only, and numbers only: no accounts, table or board ids, IP addresses or browsers.',
-    switchLabel: 'Count usage (this one switch controls both TKU BridgeTable and TKU BridgeHall)',
+    switchLabel: 'Count usage (this one switch controls both Overtrick and TKU BridgeHall)',
     switchHint: 'This is the same switch as the anonymous analytics on BridgeHall\'s admin page: turn it off on either and both sites stop counting. The numbers so far stay until they expire; error reports are not affected.',
     saved: 'Saved',
     off: 'Counting is off: neither site adds numbers. Below is what was counted before.',
@@ -4763,9 +4795,9 @@ const en: Strings = {
     shareRevoked: 'Revoked: the old link no longer works.',
     shareMadeBy: (name, when) => `Created by ${name} on ${when}`,
     shareHeldHint: 'It can be shared once the challenge or match is over',
-    sharedNote: 'A member of TKU BridgeTable shared this board.',
+    sharedNote: 'A member of Overtrick shared this board.',
     hiddenPlayer: 'Member',
-    sharedHome: 'TKU BridgeTable home',
+    sharedHome: 'Overtrick home',
   },
   // Applying for a club (e12-t06, /clubs/apply) and the platform owner's back office (e12-t05, /platform)
   clubApply: {
@@ -4783,12 +4815,12 @@ const en: Strings = {
     reason: 'Why you apply',
     reasonHint: (min: number, max: number) => `${min}–${max} characters: how big the club is and how you will use it.`,
     account: 'The new club’s admin account',
-    accountHint: 'An account in the new club, not your TKU BridgeTable account; sign in to the new club with it once approved.',
+    accountHint: 'An account in the new club, separate from any account in another club; sign in to the new club with it once approved.',
     username: 'Username',
     password: 'Password',
     send: 'Send the application',
     sent: (id: string) => `The application for “${id}” is sent. The platform emails the contact address once it decides (when mail is on); once approved, sign in with the account you applied with.`,
-    toSite: 'Back to TKU BridgeTable',
+    toSite: 'Back to Overtrick',
     link: 'Apply for a table for your bridge club',
   },
   /** Announcements (e12-t15) */
@@ -4919,11 +4951,44 @@ const en: Strings = {
   },
   loading: 'Loading…',
   genericError: 'Something went wrong, please try again',
+  /** The platform's landing page (e12-t13, `/about`) */
+  landing: {
+    link: 'About Overtrick',
+    headline: 'Online bridge for clubs',
+    lead: 'Overtrick gives a bridge club its own place to play: real-time four-player tables, robots for the empty seats, and a record of every board.',
+    apply: 'Apply for your club',
+    signIn: 'Sign in to Tamkang Bridge Club',
+    backTo: (club) => `Back to ${club}`,
+    signInOther: 'Members of other clubs sign in at their club\'s own address.',
+    featuresTitle: 'What\'s in it',
+    tablesH: 'Real-time four-player tables',
+    tablesP: 'Four players at a table, with the auction and the play live for everyone. It runs in a browser, on a phone or a computer.',
+    robotsH: 'TKB, the robot',
+    robotsP: 'TKB fills any empty seat and bids 2/1, SAYC or Precision. Members given access can also seat it in the Tamkang system.',
+    analysisH: 'Post-game analysis',
+    analysisP: 'Go back over a session with Double Dummy, card by card, and find the steps that cost the most.',
+    recordsH: 'Records',
+    recordsP: 'Every board is saved. Search it, replay it, or export it as PBN or LIN.',
+    challengesH: 'Challenges',
+    challengesP: 'Play the same boards as other members and compare results in the standings.',
+    matchesH: 'Team matches',
+    matchesP: 'Open and closed rooms, with the match open to watch while it is played and to replay afterward.',
+    joinTitle: 'How a club joins',
+    joinSteps: [
+      'Fill in the application: your club\'s name, its address, a contact email and the first admin\'s account.',
+      'The platform reviews the application.',
+      'Once approved, your club has its own address, and its members, tables and records are kept apart from every other club\'s.',
+    ],
+    joinCta: 'Apply for a club',
+    freeTitle: 'Free',
+    freeP: 'Overtrick is free to use.',
+    whoTitle: 'Who runs it',
+    whoP: 'Overtrick is run, not for profit, by members of the Tamkang University Bridge Club.',
+  },
 }
 
 const zhHans: Strings = {
-  appNameEn: 'TKU BridgeTable',
-  appNameZh: '淡江牌桌',
+  appName: 'Overtrick',
   tagline: '淡江桥艺社的线上牌桌',
 
   navLobby: '大厅',
@@ -4977,9 +5042,9 @@ const zhHans: Strings = {
   captchaLabel: '人机验证',
   captchaNeeded: '请先完成人机验证',
   captchaLoadFailed: '人机验证加载失败，请检查网络后刷新页面',
-  applicationSent: (name) => `已送出 ${name} 的申请。管理员核准后，就能用这个账号登录淡江牌桌和淡江桥馆。`,
-  sharedAccountHint: '淡江牌桌和淡江桥馆用同一组账号。',
-  loginBrandSub: 'TKU BridgeTable · 淡江桥艺社',
+  applicationSent: (name) => `已送出 ${name} 的申请。管理员核准后，就能用这个账号登录 Overtrick 和淡江桥馆。`,
+  sharedAccountHint: 'Overtrick 和淡江桥馆用同一组账号。',
+  tkuClubName: '淡江桥艺社',
   registerIntro: '填好账号、密码和邀请码送出申请，管理员核准后就能登录。',
 
   notifications: '通知',
@@ -5704,7 +5769,7 @@ const zhHans: Strings = {
   // Club addresses and the cross-club lobby (e12-t04, e12-t07)
   clubs: {
     missing: '找不到这个社团，请确认网址。',
-    toHome: '前往淡江牌桌',
+    toHome: '前往 Overtrick',
     lobbyLink: '其他社团',
     lobbyTitle: '其他社团的牌桌',
     lobbyIntro: '这些是其他社团开放给所有社团观看的牌桌。你只能观看：不能入座，也看不到、不能用聊天。',
@@ -5992,7 +6057,7 @@ const zhHans: Strings = {
   languageName: '语言',
   sound: '音效',
   installTitle: '安装成手机 App',
-  installIntro: '把淡江牌桌放到手机主屏幕，之后像 App 一样从图标全屏打开。',
+  installIntro: '把 Overtrick 放到手机主屏幕，之后像 App 一样从图标全屏打开。',
   installButton: '安装到这台设备',
   installIos: 'iPhone／iPad：用 Safari 打开本站，点下方的“分享”按钮，再选“添加到主屏幕”。',
   installAndroid: 'Android：用 Chrome 打开本站，点右上角“⋮”，再选“安装应用”或“添加到主屏幕”。',
@@ -6056,7 +6121,7 @@ const zhHans: Strings = {
   never: '—',
   applicationsTitle: '待审核的申请',
   noApplications: '目前没有待审核的申请',
-  appliedFrom: (site) => (site === 'book' ? '从淡江桥馆申请' : '从淡江牌桌申请'),
+  appliedFrom: (site) => (site === 'book' ? '从淡江桥馆申请' : '从 Overtrick 申请'),
   bookSyncTitle: '机器人与桥馆同步',
   bookSyncIntro: 'TKB 用淡江制度时照淡江桥馆的约定叫牌。桥馆的文章在线上改过之后，这里列出跟着它的规则，请干部对照新内容检查机器人。',
   bookSyncAllSynced: (n) => `${n} 篇文章都和机器人的规则同步。`,
@@ -6558,7 +6623,7 @@ const zhHans: Strings = {
     newPasswordIntro: '输入新密码。改好后，你的账号在所有设备都会登出。',
     passwordDone: (username: string) => `${username} 的密码已重设，请用新密码登录。`,
     linkMissing: '链接不完整，请直接点信里的链接打开这一页。',
-    toSite: '回到淡江牌桌',
+    toSite: '回到 Overtrick',
   },
   // Google sign-in (e1-t31)
   google: {
@@ -6572,7 +6637,7 @@ const zhHans: Strings = {
     codeIntro: '这个账号开了两步验证登录，用 Google 登录也要输入验证 App 上的 6 位数验证码或一组备用码。',
     usePassword: '改用账号密码登录',
     title: 'Google 登录',
-    intro: '绑定 Google 账号后，可以用 Google 登录淡江牌桌与淡江桥馆。账号名称与显示名称不会改变，也照样可以用密码登录；开了两步验证登录的账号用 Google 登录时一样要输入验证码。Google 的 Email 只有你自己看得到。',
+    intro: '绑定 Google 账号后，可以用 Google 登录 Overtrick 与淡江桥馆。账号名称与显示名称不会改变，也照样可以用密码登录；开了两步验证登录的账号用 Google 登录时一样要输入验证码。Google 的 Email 只有你自己看得到。',
     linked: (email: string) => `已绑定：${email}`,
     none: '还没有绑定 Google 账号。',
     password: '输入密码确认',
@@ -6594,7 +6659,7 @@ const zhHans: Strings = {
     codeIntro: '这个账号开了两步验证登录，用 LINE 登录也要输入验证 App 上的 6 位数验证码或一组备用码。',
     usePassword: '改用账号密码登录',
     title: 'LINE 登录',
-    intro: '绑定 LINE 账号后，可以用 LINE 登录淡江牌桌与淡江桥馆。账号名称与显示名称不会改变，也照样可以用密码登录；开了两步验证登录的账号用 LINE 登录时一样要输入验证码。绑定时的 LINE 名字只有你自己看得到。',
+    intro: '绑定 LINE 账号后，可以用 LINE 登录 Overtrick 与淡江桥馆。账号名称与显示名称不会改变，也照样可以用密码登录；开了两步验证登录的账号用 LINE 登录时一样要输入验证码。绑定时的 LINE 名字只有你自己看得到。',
     linked: (name: string) => `已绑定：${name}`,
     none: '还没有绑定 LINE 账号。',
     password: '输入密码确认',
@@ -6608,9 +6673,9 @@ const zhHans: Strings = {
   /** Push notifications on "My account" (e1-t28) */
   push: {
     title: '推送通知',
-    intro: '关掉网页后，邀请与消息也会出现在手机或电脑的通知里。每台设备要各自开启；开着淡江牌桌的时候不会推送（铃铛里已经看得到）。',
+    intro: '关掉网页后，邀请与消息也会出现在手机或电脑的通知里。每台设备要各自开启；开着 Overtrick 的时候不会推送（铃铛里已经看得到）。',
     unsupported: '这个浏览器不支持推送通知。',
-    iosHint: 'iPhone 与 iPad（iOS 16.4 以上）要先在 Safari 点“分享”→“添加到主屏幕”，再从主屏幕的图标打开淡江牌桌，才能开启推送。',
+    iosHint: 'iPhone 与 iPad（iOS 16.4 以上）要先在 Safari 点“分享”→“添加到主屏幕”，再从主屏幕的图标打开 Overtrick，才能开启推送。',
     denied: '这个浏览器屏蔽了本站的通知，请先到浏览器的网站设置允许“通知”，再回来开启。',
     thisOn: '这台设备已开启推送。',
     thisOff: '这台设备还没开启推送。',
@@ -6687,12 +6752,12 @@ const zhHans: Strings = {
     privacyTitle: '隐私政策',
     termsTitle: '使用条款',
     updated: (date) => `最后更新：${date}`,
-    home: '回到淡江牌桌',
+    home: '回到 Overtrick',
     agree: '注册即表示你同意使用条款与隐私政策。',
     privacy: [
       {
         h: '谁保管你的数据',
-        p: '淡江牌桌与淡江桥馆由淡江大学桥艺社（以下称“本社”）的社员经营，非营利。本社依台湾《个人资料保护法》收集、处理与利用你的个人资料，目的是会员管理、社团活动与信息安全。',
+        p: 'Overtrick 与淡江桥馆由淡江大学桥艺社（以下称“本社”）的社员经营，非营利。本社依台湾《个人资料保护法》收集、处理与利用你的个人资料，目的是会员管理、社团活动与信息安全。',
       },
       {
         h: '收集哪些数据',
@@ -6728,7 +6793,7 @@ const zhHans: Strings = {
       },
       {
         h: '匿名使用统计',
-        p: '为了知道有多少人回来、哪些功能有人用，本社在服务器上数数字：每天与每周来了几个人、某一周注册的社员之后每周回来几个人、几桌打完牌与打了几副，以及几项功能（和哪一套制度的机器人打、开挑战、队制赛、搭档叫牌练习、解出谜题、赛后分析、导入牌局、教学桌）用了几次。为了不重复计算，当天与当周会暂存你账号的哈希，用每段期间各自的随机密钥算出；那段期间结束后，最迟在下一次有人使用时，哈希与密钥一起删除，所以不同期间连不起来。不存账号、牌桌或牌局编号、IP 地址与浏览器信息，不传给第三方，也没有放追踪程序。留下的数字没有对应到账号，所以不在“下载我的数据”里，删除账号时也不会扣掉。不过某一周只有一两个人注册时，那个数字接近某个人有没有来，所以少于 5 的数字任何页面都不显示，包括管理员的页面（能直接操作数据库的人仍看得到）。每周回来的人数保存 13 周，其他数字 180 天，都不在备份里。管理员可以关掉统计，淡江牌桌与淡江桥馆一起关。',
+        p: '为了知道有多少人回来、哪些功能有人用，本社在服务器上数数字：每天与每周来了几个人、某一周注册的社员之后每周回来几个人、几桌打完牌与打了几副，以及几项功能（和哪一套制度的机器人打、开挑战、队制赛、搭档叫牌练习、解出谜题、赛后分析、导入牌局、教学桌）用了几次。为了不重复计算，当天与当周会暂存你账号的哈希，用每段期间各自的随机密钥算出；那段期间结束后，最迟在下一次有人使用时，哈希与密钥一起删除，所以不同期间连不起来。不存账号、牌桌或牌局编号、IP 地址与浏览器信息，不传给第三方，也没有放追踪程序。留下的数字没有对应到账号，所以不在“下载我的数据”里，删除账号时也不会扣掉。不过某一周只有一两个人注册时，那个数字接近某个人有没有来，所以少于 5 的数字任何页面都不显示，包括管理员的页面（能直接操作数据库的人仍看得到）。每周回来的人数保存 13 周，其他数字 180 天，都不在备份里。管理员可以关掉统计，Overtrick 与淡江桥馆一起关。',
       },
       {
         h: '存在哪里、存多久',
@@ -6754,7 +6819,7 @@ const zhHans: Strings = {
     terms: [
       {
         h: '谁可以使用',
-        p: '淡江牌桌是淡江大学桥艺社社员的线上牌桌。注册需要社团的邀请码，并经管理员审核。',
+        p: 'Overtrick 是桥艺社团的线上牌桌。注册需要所属社团的邀请码，并经该社团的管理员审核。',
       },
       {
         h: '账号',
@@ -7112,7 +7177,7 @@ const zhHans: Strings = {
   productMetrics: {
     title: '使用情况',
     intro: '有多少人回来、哪些功能有人用，帮助决定接下来做什么。只有管理员看得到，而且只有数字：不记账号、牌桌或牌局编号、IP 地址与浏览器。',
-    switchLabel: '统计使用情况（这个开关同时控制淡江牌桌与淡江桥馆）',
+    switchLabel: '统计使用情况（这个开关同时控制 Overtrick 与淡江桥馆）',
     switchHint: '这里和桥馆管理页的“社团开启匿名分析”是同一个开关，一边关掉，两个网站都停止统计。已有的数字留着，到期才删除；错误报告不受影响。',
     saved: '已保存',
     off: '统计已关闭：牌桌与桥馆都不会新增数字，下面是关闭前的数据。',
@@ -7196,9 +7261,9 @@ const zhHans: Strings = {
     shareRevoked: '已撤销，旧的链接不能再用了。',
     shareMadeBy: (name, when) => `${name} 在 ${when} 生成`,
     shareHeldHint: '挑战或比赛结束后才能公开分享',
-    sharedNote: '这副牌由淡江牌桌的社员公开分享。',
+    sharedNote: '这副牌由 Overtrick 的社员公开分享。',
     hiddenPlayer: '社员',
-    sharedHome: '淡江牌桌首页',
+    sharedHome: 'Overtrick 首页',
   },
   // Applying for a club (e12-t06, /clubs/apply) and the platform owner's back office (e12-t05, /platform)
   clubApply: {
@@ -7216,12 +7281,12 @@ const zhHans: Strings = {
     reason: '申请理由',
     reasonHint: (min: number, max: number) => `${min}～${max} 个字：社团的规模、打算怎么使用。`,
     account: '新社团的管理员账号',
-    accountHint: '这是新社团里的账号，跟淡江牌桌的账号无关；审核通过后用它登录新社团。',
+    accountHint: '这是新社团里的账号，跟你在其他社团的账号无关；审核通过后用它登录新社团。',
     username: '账号',
     password: '密码',
     send: '提交申请',
     sent: (id: string) => `已提交「${id}」的申请。平台审核后会寄信到联系 Email（如果平台开了寄信）；通过后就能用申请的账号登录。`,
-    toSite: '回到淡江牌桌',
+    toSite: '回到 Overtrick',
     link: '帮你的桥艺社申请一个牌桌',
   },
   /** Announcements (e12-t15) */
@@ -7352,11 +7417,44 @@ const zhHans: Strings = {
   },
   loading: '加载中…',
   genericError: '发生错误，请再试一次',
+  /** The platform's landing page (e12-t13, `/about`) */
+  landing: {
+    link: '关于 Overtrick',
+    headline: '给桥艺社团的线上桥牌',
+    lead: 'Overtrick 让桥艺社有自己的地方打牌：四人实时牌桌、补空位的机器人，每一副牌都留下记录。',
+    apply: '帮你的社团申请',
+    signIn: '登录淡江桥艺社',
+    backTo: (club) => `回到 ${club}`,
+    signInOther: '其他社团的社员，请从自己社团的网址登录。',
+    featuresTitle: '有什么',
+    tablesH: '四人实时牌桌',
+    tablesP: '四个人同时上桌，叫牌与打牌实时同步。用浏览器就能打，手机、电脑都可以。',
+    robotsH: '机器人 TKB',
+    robotsP: '空位可以放机器人，叫牌制度可选 2/1、SAYC 或 Precision；有权限的社员还可以选淡江制度。',
+    analysisH: '赛后分析',
+    analysisP: '打完回头看，用 Double Dummy 一张一张算，找出最贵的几步。',
+    recordsH: '牌局记录',
+    recordsP: '每一副都会保存，可以搜索、重播，也可以导出 PBN 或 LIN。',
+    challengesH: '挑战',
+    challengesP: '跟其他社员打同样的牌，在排名表上比成绩。',
+    matchesH: '队制赛',
+    matchesP: '开室与闭室对打，比赛中可以观看，打完可以重播。',
+    joinTitle: '社团怎么加入',
+    joinSteps: [
+      '填写申请表：社团名称、网址代号、联络 Email，以及第一位管理员的账号。',
+      '平台审核申请。',
+      '通过后社团有自己的网址，社员、牌桌与记录都跟其他社团分开。',
+    ],
+    joinCta: '申请开设社团',
+    freeTitle: '免费',
+    freeP: 'Overtrick 免费使用。',
+    whoTitle: '谁在经营',
+    whoP: 'Overtrick 由淡江大学桥艺社的社员经营，非营利。',
+  },
 }
 
 const vi: Strings = {
-  appNameEn: 'TKU BridgeTable',
-  appNameZh: '淡江牌桌',
+  appName: 'Overtrick',
   tagline: 'Bàn bridge trực tuyến của CLB Bridge Đại học Đạm Giang',
 
   navLobby: 'Sảnh',
@@ -7410,9 +7508,9 @@ const vi: Strings = {
   captchaLabel: 'Xác minh không phải người máy',
   captchaNeeded: 'Vui lòng hoàn tất xác minh trước',
   captchaLoadFailed: 'Không tải được phần xác minh, hãy kiểm tra kết nối và tải lại trang',
-  applicationSent: (name) => `Đã gửi đơn đăng ký của ${name}. Khi quản trị viên duyệt, tài khoản này đăng nhập được cả TKU BridgeTable và TKU BridgeHall.`,
-  sharedAccountHint: 'TKU BridgeTable và TKU BridgeHall dùng chung một tài khoản.',
-  loginBrandSub: 'TKU BridgeTable · CLB Bridge Đạm Giang',
+  applicationSent: (name) => `Đã gửi đơn đăng ký của ${name}. Khi quản trị viên duyệt, tài khoản này đăng nhập được cả Overtrick và TKU BridgeHall.`,
+  sharedAccountHint: 'Overtrick và TKU BridgeHall dùng chung một tài khoản.',
+  tkuClubName: 'CLB Bridge Đạm Giang',
   registerIntro: 'Chọn tên đăng nhập, mật khẩu, nhập mã mời rồi gửi đơn. Bạn đăng nhập được sau khi quản trị viên duyệt.',
 
   notifications: 'Thông báo',
@@ -8138,7 +8236,7 @@ const vi: Strings = {
   // Club addresses and the cross-club lobby (e12-t04, e12-t07)
   clubs: {
     missing: 'Không tìm thấy câu lạc bộ này. Vui lòng kiểm tra địa chỉ.',
-    toHome: 'Đến TKU BridgeTable',
+    toHome: 'Đến Overtrick',
     lobbyLink: 'CLB khác',
     lobbyTitle: 'Bàn của các câu lạc bộ khác',
     lobbyIntro: 'Các bàn mà câu lạc bộ khác mở cho mọi câu lạc bộ xem. Bạn chỉ có thể xem: không ngồi và không trò chuyện.',
@@ -8426,7 +8524,7 @@ const vi: Strings = {
   languageName: 'Ngôn ngữ',
   sound: 'Âm thanh',
   installTitle: 'Cài đặt thành ứng dụng điện thoại',
-  installIntro: 'Đặt TKU BridgeTable lên màn hình chính và mở toàn màn hình như một ứng dụng.',
+  installIntro: 'Đặt Overtrick lên màn hình chính và mở toàn màn hình như một ứng dụng.',
   installButton: 'Cài đặt trên thiết bị này',
   installIos: 'iPhone / iPad: mở trang bằng Safari, chạm Chia sẻ, rồi chọn “Thêm vào MH chính”.',
   installAndroid: 'Android: mở trang bằng Chrome, chạm ⋮ ở góc phải trên, rồi chọn “Cài đặt ứng dụng” hoặc “Thêm vào màn hình chính”.',
@@ -8490,7 +8588,7 @@ const vi: Strings = {
   never: '—',
   applicationsTitle: 'Đơn chờ duyệt',
   noApplications: 'Không có đơn nào đang chờ',
-  appliedFrom: (site) => (site === 'book' ? 'Từ TKU BridgeHall' : 'Từ TKU BridgeTable'),
+  appliedFrom: (site) => (site === 'book' ? 'Từ TKU BridgeHall' : 'Từ Overtrick'),
   bookSyncTitle: 'Robot và BridgeHall',
   bookSyncIntro: 'Với hệ thống của câu lạc bộ, TKB gọi bài theo các quy ước trên TKU BridgeHall. Khi một bài viết được sửa trực tuyến, các quy tắc theo nó được liệt kê ở đây để cán bộ kiểm tra lại.',
   bookSyncAllSynced: (n) => `Cả ${n} bài viết đều khớp với quy tắc của robot.`,
@@ -8993,7 +9091,7 @@ const vi: Strings = {
     newPasswordIntro: 'Nhập mật khẩu mới. Sau khi đổi, tài khoản sẽ bị đăng xuất trên mọi thiết bị.',
     passwordDone: (username: string) => `Đã đặt lại mật khẩu của ${username}; hãy đăng nhập bằng mật khẩu mới.`,
     linkMissing: 'Liên kết không đầy đủ; hãy mở trang này từ liên kết trong email.',
-    toSite: 'Quay lại TKU BridgeTable',
+    toSite: 'Quay lại Overtrick',
   },
   // Google sign-in (e1-t31)
   google: {
@@ -9007,7 +9105,7 @@ const vi: Strings = {
     codeIntro: 'Tài khoản này dùng đăng nhập hai bước: đăng nhập bằng Google cũng cần mã 6 chữ số từ ứng dụng xác thực, hoặc một mã dự phòng.',
     usePassword: 'Đăng nhập bằng mật khẩu',
     title: 'Đăng nhập bằng Google',
-    intro: 'Khi đã liên kết tài khoản Google, bạn có thể đăng nhập TKU BridgeTable và TKU BridgeHall bằng Google. Tên tài khoản và tên hiển thị không đổi, mật khẩu vẫn dùng được; tài khoản có đăng nhập hai bước vẫn phải nhập mã. Chỉ bạn thấy email Google.',
+    intro: 'Khi đã liên kết tài khoản Google, bạn có thể đăng nhập Overtrick và TKU BridgeHall bằng Google. Tên tài khoản và tên hiển thị không đổi, mật khẩu vẫn dùng được; tài khoản có đăng nhập hai bước vẫn phải nhập mã. Chỉ bạn thấy email Google.',
     linked: (email: string) => `Đã liên kết: ${email}`,
     none: 'Chưa liên kết tài khoản Google.',
     password: 'Nhập mật khẩu để xác nhận',
@@ -9029,7 +9127,7 @@ const vi: Strings = {
     codeIntro: 'Tài khoản này dùng đăng nhập hai bước: đăng nhập bằng LINE cũng cần mã 6 chữ số từ ứng dụng xác thực, hoặc một mã dự phòng.',
     usePassword: 'Đăng nhập bằng mật khẩu',
     title: 'Đăng nhập bằng LINE',
-    intro: 'Khi đã liên kết tài khoản LINE, bạn có thể đăng nhập TKU BridgeTable và TKU BridgeHall bằng LINE. Tên tài khoản và tên hiển thị không đổi, mật khẩu vẫn dùng được; tài khoản có đăng nhập hai bước vẫn phải nhập mã. Chỉ bạn thấy tên LINE lưu kèm liên kết.',
+    intro: 'Khi đã liên kết tài khoản LINE, bạn có thể đăng nhập Overtrick và TKU BridgeHall bằng LINE. Tên tài khoản và tên hiển thị không đổi, mật khẩu vẫn dùng được; tài khoản có đăng nhập hai bước vẫn phải nhập mã. Chỉ bạn thấy tên LINE lưu kèm liên kết.',
     linked: (name: string) => `Đã liên kết: ${name}`,
     none: 'Chưa liên kết tài khoản LINE.',
     password: 'Nhập mật khẩu để xác nhận',
@@ -9043,9 +9141,9 @@ const vi: Strings = {
   /** Push notifications on "My account" (e1-t28) */
   push: {
     title: 'Thông báo đẩy',
-    intro: 'Lời mời và tin mới vẫn đến điện thoại hoặc máy tính khi đã đóng trang. Bật riêng trên từng thiết bị; khi đang mở TKU BridgeTable thì không đẩy (chuông đã hiện rồi).',
+    intro: 'Lời mời và tin mới vẫn đến điện thoại hoặc máy tính khi đã đóng trang. Bật riêng trên từng thiết bị; khi đang mở Overtrick thì không đẩy (chuông đã hiện rồi).',
     unsupported: 'Trình duyệt này không hỗ trợ thông báo đẩy.',
-    iosHint: 'Trên iPhone và iPad (iOS 16.4 trở lên), trước tiên hãy bấm Chia sẻ → Thêm vào MH chính trong Safari, rồi mở TKU BridgeTable từ biểu tượng trên màn hình chính để bật thông báo đẩy.',
+    iosHint: 'Trên iPhone và iPad (iOS 16.4 trở lên), trước tiên hãy bấm Chia sẻ → Thêm vào MH chính trong Safari, rồi mở Overtrick từ biểu tượng trên màn hình chính để bật thông báo đẩy.',
     denied: 'Trình duyệt này đang chặn thông báo của trang. Hãy cho phép thông báo trong phần cài đặt trang của trình duyệt rồi quay lại.',
     thisOn: 'Thiết bị này đã bật thông báo đẩy.',
     thisOff: 'Thiết bị này chưa bật thông báo đẩy.',
@@ -9122,12 +9220,12 @@ const vi: Strings = {
     privacyTitle: 'Chính sách quyền riêng tư',
     termsTitle: 'Điều khoản sử dụng',
     updated: (date) => `Cập nhật lần cuối: ${date}`,
-    home: 'Về TKU BridgeTable',
+    home: 'Về Overtrick',
     agree: 'Khi đăng ký, bạn đồng ý với điều khoản sử dụng và chính sách quyền riêng tư.',
     privacy: [
       {
         h: 'Ai giữ dữ liệu của bạn',
-        p: 'TKU BridgeTable và TKU BridgeHall do các thành viên Câu lạc bộ Bridge Đại học Đạm Giang (“câu lạc bộ”) vận hành, phi lợi nhuận. Câu lạc bộ thu thập, xử lý và sử dụng dữ liệu cá nhân của bạn theo Luật Bảo vệ Dữ liệu Cá nhân của Đài Loan, nhằm quản lý thành viên, tổ chức hoạt động và bảo đảm an toàn cho trang.',
+        p: 'Overtrick và TKU BridgeHall do các thành viên Câu lạc bộ Bridge Đại học Đạm Giang (“câu lạc bộ”) vận hành, phi lợi nhuận. Câu lạc bộ thu thập, xử lý và sử dụng dữ liệu cá nhân của bạn theo Luật Bảo vệ Dữ liệu Cá nhân của Đài Loan, nhằm quản lý thành viên, tổ chức hoạt động và bảo đảm an toàn cho trang.',
       },
       {
         h: 'Chúng tôi thu thập gì',
@@ -9163,7 +9261,7 @@ const vi: Strings = {
       },
       {
         h: 'Thống kê sử dụng ẩn danh',
-        p: 'Để biết bao nhiêu người quay lại và tính năng nào được dùng, câu lạc bộ đếm trên máy chủ: mỗi ngày và mỗi tuần có bao nhiêu người đến, trong số người đăng ký một tuần có bao nhiêu người quay lại mỗi tuần sau đó, bao nhiêu bàn chơi xong và bao nhiêu ván, cùng số lần dùng một số tính năng (chơi với robot theo từng hệ thống gọi bài, thách đấu, đấu đội, luyện gọi bài cùng bạn, giải câu đố, phân tích sau ván, nhập ván, bàn dạy học). Để không đếm trùng, trong ngày và tuần hiện tại có lưu tạm mã băm của tài khoản bạn, tính bằng khóa ngẫu nhiên riêng của từng giai đoạn; khi giai đoạn kết thúc, muộn nhất là lần tiếp theo có người dùng trang, mã băm và khóa bị xóa cùng lúc, nên các giai đoạn không thể nối với nhau. Không lưu tài khoản, mã bàn hay mã ván, địa chỉ IP và thông tin trình duyệt, không gửi cho bên thứ ba và không có chương trình theo dõi. Các con số còn lại không gắn với tài khoản của bạn, nên không có trong “Tải dữ liệu của tôi” và không bị trừ đi khi bạn xóa tài khoản. Tuy nhiên, khi một tuần chỉ có một hai người đăng ký, con số đó gần như cho biết một người có đến hay không, nên số nhỏ hơn 5 không hiển thị ở bất kỳ trang nào, kể cả trang quản trị (người có quyền truy cập trực tiếp cơ sở dữ liệu vẫn thấy được). Số người quay lại mỗi tuần được giữ 13 tuần, các số khác 180 ngày, tất cả đều không có trong bản sao lưu. Quản trị viên có thể tắt thống kê, cho cả TKU BridgeTable và TKU BridgeHall.',
+        p: 'Để biết bao nhiêu người quay lại và tính năng nào được dùng, câu lạc bộ đếm trên máy chủ: mỗi ngày và mỗi tuần có bao nhiêu người đến, trong số người đăng ký một tuần có bao nhiêu người quay lại mỗi tuần sau đó, bao nhiêu bàn chơi xong và bao nhiêu ván, cùng số lần dùng một số tính năng (chơi với robot theo từng hệ thống gọi bài, thách đấu, đấu đội, luyện gọi bài cùng bạn, giải câu đố, phân tích sau ván, nhập ván, bàn dạy học). Để không đếm trùng, trong ngày và tuần hiện tại có lưu tạm mã băm của tài khoản bạn, tính bằng khóa ngẫu nhiên riêng của từng giai đoạn; khi giai đoạn kết thúc, muộn nhất là lần tiếp theo có người dùng trang, mã băm và khóa bị xóa cùng lúc, nên các giai đoạn không thể nối với nhau. Không lưu tài khoản, mã bàn hay mã ván, địa chỉ IP và thông tin trình duyệt, không gửi cho bên thứ ba và không có chương trình theo dõi. Các con số còn lại không gắn với tài khoản của bạn, nên không có trong “Tải dữ liệu của tôi” và không bị trừ đi khi bạn xóa tài khoản. Tuy nhiên, khi một tuần chỉ có một hai người đăng ký, con số đó gần như cho biết một người có đến hay không, nên số nhỏ hơn 5 không hiển thị ở bất kỳ trang nào, kể cả trang quản trị (người có quyền truy cập trực tiếp cơ sở dữ liệu vẫn thấy được). Số người quay lại mỗi tuần được giữ 13 tuần, các số khác 180 ngày, tất cả đều không có trong bản sao lưu. Quản trị viên có thể tắt thống kê, cho cả Overtrick và TKU BridgeHall.',
       },
       {
         h: 'Lưu ở đâu và bao lâu',
@@ -9189,7 +9287,7 @@ const vi: Strings = {
     terms: [
       {
         h: 'Ai được sử dụng',
-        p: 'TKU BridgeTable là bàn bridge trực tuyến của thành viên Câu lạc bộ Bridge Đại học Đạm Giang. Đăng ký cần mã mời của câu lạc bộ và được quản trị viên duyệt.',
+        p: 'Overtrick là bridge trực tuyến dành cho các câu lạc bộ. Đăng ký cần mã mời của câu lạc bộ bạn và được quản trị viên của câu lạc bộ đó duyệt.',
       },
       {
         h: 'Tài khoản',
@@ -9547,7 +9645,7 @@ const vi: Strings = {
   productMetrics: {
     title: 'Mức sử dụng',
     intro: 'Bao nhiêu người quay lại và tính năng nào được dùng, để quyết định làm gì tiếp theo. Chỉ quản trị viên xem được và chỉ có con số: không lưu tài khoản, mã bàn hay mã ván, địa chỉ IP và trình duyệt.',
-    switchLabel: 'Thống kê mức sử dụng (công tắc này điều khiển cả TKU BridgeTable và TKU BridgeHall)',
+    switchLabel: 'Thống kê mức sử dụng (công tắc này điều khiển cả Overtrick và TKU BridgeHall)',
     switchHint: 'Đây là cùng một công tắc với phân tích ẩn danh ở trang quản trị của BridgeHall: tắt ở một bên thì cả hai trang đều ngừng thống kê. Số đã có vẫn giữ đến khi hết hạn; báo lỗi không bị ảnh hưởng.',
     saved: 'Đã lưu',
     off: 'Thống kê đang tắt: cả hai trang đều không thêm số mới. Bên dưới là dữ liệu trước khi tắt.',
@@ -9631,9 +9729,9 @@ const vi: Strings = {
     shareRevoked: 'Đã thu hồi: liên kết cũ không còn dùng được.',
     shareMadeBy: (name, when) => `${name} tạo lúc ${when}`,
     shareHeldHint: 'Chỉ chia sẻ được sau khi thử thách hoặc trận đấu kết thúc',
-    sharedNote: 'Một thành viên của TKU BridgeTable đã chia sẻ ván này.',
+    sharedNote: 'Một thành viên của Overtrick đã chia sẻ ván này.',
     hiddenPlayer: 'Thành viên',
-    sharedHome: 'Trang chủ TKU BridgeTable',
+    sharedHome: 'Trang chủ Overtrick',
   },
   // Applying for a club (e12-t06, /clubs/apply) and the platform owner's back office (e12-t05, /platform)
   clubApply: {
@@ -9651,12 +9749,12 @@ const vi: Strings = {
     reason: 'Lý do đăng ký',
     reasonHint: (min: number, max: number) => `${min}–${max} ký tự: quy mô câu lạc bộ và cách bạn sẽ sử dụng.`,
     account: 'Tài khoản quản trị của câu lạc bộ mới',
-    accountHint: 'Đây là tài khoản trong câu lạc bộ mới, không phải tài khoản TKU BridgeTable; dùng nó để đăng nhập câu lạc bộ mới sau khi được duyệt.',
+    accountHint: 'Đây là tài khoản trong câu lạc bộ mới, tách biệt với tài khoản ở câu lạc bộ khác; dùng nó để đăng nhập câu lạc bộ mới sau khi được duyệt.',
     username: 'Tên đăng nhập',
     password: 'Mật khẩu',
     send: 'Gửi đơn',
     sent: (id: string) => `Đã gửi đơn cho “${id}”. Nền tảng sẽ gửi email đến địa chỉ liên hệ khi xét duyệt (nếu có bật email); khi được duyệt, hãy đăng nhập bằng tài khoản đã đăng ký.`,
-    toSite: 'Về TKU BridgeTable',
+    toSite: 'Về Overtrick',
     link: 'Đăng ký bàn chơi cho câu lạc bộ bridge của bạn',
   },
   /** Announcements (e12-t15) */
@@ -9787,11 +9885,44 @@ const vi: Strings = {
   },
   loading: 'Đang tải…',
   genericError: 'Đã xảy ra lỗi, vui lòng thử lại',
+  /** The platform's landing page (e12-t13, `/about`) */
+  landing: {
+    link: 'Giới thiệu Overtrick',
+    headline: 'Bridge trực tuyến cho các câu lạc bộ',
+    lead: 'Overtrick cho câu lạc bộ bridge một nơi chơi của riêng mình: bàn bốn người theo thời gian thực, robot cho ghế trống và bản ghi của mọi ván.',
+    apply: 'Đăng ký cho câu lạc bộ của bạn',
+    signIn: 'Đăng nhập CLB Bridge Đạm Giang',
+    backTo: (club) => `Quay lại ${club}`,
+    signInOther: 'Thành viên câu lạc bộ khác đăng nhập tại địa chỉ riêng của câu lạc bộ mình.',
+    featuresTitle: 'Có những gì',
+    tablesH: 'Bàn bốn người theo thời gian thực',
+    tablesP: 'Bốn người cùng ngồi một bàn, kêu bài và đánh bài cập nhật tức thì. Chạy trên trình duyệt, cả điện thoại lẫn máy tính.',
+    robotsH: 'Robot TKB',
+    robotsP: 'TKB ngồi vào ghế trống và kêu bài theo 2/1, SAYC hoặc Precision. Thành viên được cấp quyền có thể chọn thêm hệ thống Đạm Giang.',
+    analysisH: 'Phân tích sau trận',
+    analysisP: 'Xem lại buổi chơi bằng Double Dummy, từng lá một, để tìm những nước đi mất nhiều nhất.',
+    recordsH: 'Bản ghi',
+    recordsP: 'Mọi ván đều được lưu. Có thể tìm kiếm, xem lại hoặc xuất ra PBN hay LIN.',
+    challengesH: 'Thử thách',
+    challengesP: 'Chơi cùng những ván với các thành viên khác rồi so kết quả trên bảng xếp hạng.',
+    matchesH: 'Trận đồng đội',
+    matchesP: 'Phòng mở và phòng kín, có thể theo dõi trong lúc đấu và xem lại sau đó.',
+    joinTitle: 'Câu lạc bộ tham gia thế nào',
+    joinSteps: [
+      'Điền đơn: tên câu lạc bộ, địa chỉ, email liên hệ và tài khoản của quản trị viên đầu tiên.',
+      'Nền tảng xét đơn.',
+      'Khi được duyệt, câu lạc bộ có địa chỉ riêng; thành viên, bàn chơi và bản ghi được tách biệt với các câu lạc bộ khác.',
+    ],
+    joinCta: 'Đăng ký mở câu lạc bộ',
+    freeTitle: 'Miễn phí',
+    freeP: 'Overtrick được dùng miễn phí.',
+    whoTitle: 'Ai vận hành',
+    whoP: 'Overtrick do các thành viên Câu lạc bộ Bridge Đại học Đạm Giang vận hành, phi lợi nhuận.',
+  },
 }
 
 const ja: Strings = {
-  appNameEn: 'TKU BridgeTable',
-  appNameZh: '淡江牌桌',
+  appName: 'Overtrick',
   tagline: '淡江大学ブリッジ部のオンラインテーブル',
 
   navLobby: 'ロビー',
@@ -9845,9 +9976,9 @@ const ja: Strings = {
   captchaLabel: 'ロボットでないことの確認',
   captchaNeeded: '先にロボットでないことを確認してください',
   captchaLoadFailed: '確認を読み込めませんでした。接続を確認してページを再読み込みしてください',
-  applicationSent: (name) => `${name} の登録申請を送りました。管理者が承認すると、このアカウントで TKU BridgeTable と TKU BridgeHall の両方にログインできます。`,
-  sharedAccountHint: 'TKU BridgeTable と TKU BridgeHall は同じアカウントを使います。',
-  loginBrandSub: 'TKU BridgeTable · 淡江ブリッジ部',
+  applicationSent: (name) => `${name} の登録申請を送りました。管理者が承認すると、このアカウントで Overtrick と TKU BridgeHall の両方にログインできます。`,
+  sharedAccountHint: 'Overtrick と TKU BridgeHall は同じアカウントを使います。',
+  tkuClubName: '淡江ブリッジ部',
   registerIntro: 'ユーザー名・パスワード・招待コードを入力して申請してください。管理者が承認するとログインできます。',
 
   notifications: 'お知らせ',
@@ -10573,7 +10704,7 @@ const ja: Strings = {
   // Club addresses and the cross-club lobby (e12-t04, e12-t07)
   clubs: {
     missing: 'このクラブは見つかりません。アドレスを確認してください。',
-    toHome: 'TKU BridgeTable へ',
+    toHome: 'Overtrick へ',
     lobbyLink: '他のクラブ',
     lobbyTitle: '他のクラブのテーブル',
     lobbyIntro: '他のクラブがすべてのクラブに観戦を公開したテーブルです。観戦のみで、着席やチャットはできません。',
@@ -10925,7 +11056,7 @@ const ja: Strings = {
   never: '—',
   applicationsTitle: '承認待ちの申請',
   noApplications: '承認待ちの申請はありません',
-  appliedFrom: (site) => (site === 'book' ? 'TKU BridgeHall から申請' : 'TKU BridgeTable から申請'),
+  appliedFrom: (site) => (site === 'book' ? 'TKU BridgeHall から申請' : 'Overtrick から申請'),
   bookSyncTitle: 'ロボットと BridgeHall',
   bookSyncIntro: 'クラブのシステムでは、TKB は TKU BridgeHall の約束事どおりにビッドします。記事がオンラインで編集されると、それに従うルールがここに表示されます。幹部が新しい内容と照らし合わせて確認してください。',
   bookSyncAllSynced: (n) => `${n} 件の記事はすべてロボットのルールと一致しています。`,
@@ -11428,7 +11559,7 @@ const ja: Strings = {
     newPasswordIntro: '新しいパスワードを入力してください。変更後はすべての端末でログアウトされます。',
     passwordDone: (username: string) => `${username} さんのパスワードを再設定しました。新しいパスワードでログインしてください。`,
     linkMissing: 'リンクが不完全です。メールのリンクからこのページを開いてください。',
-    toSite: 'TKU BridgeTable に戻る',
+    toSite: 'Overtrick に戻る',
   },
   // Google sign-in (e1-t31)
   google: {
@@ -11442,7 +11573,7 @@ const ja: Strings = {
     codeIntro: 'このアカウントは 2 段階ログインを使っています。Google でログインする場合も、認証アプリの 6 桁のコードかバックアップコードが必要です。',
     usePassword: 'パスワードでログインする',
     title: 'Google ログイン',
-    intro: 'Google アカウントを連携すると、TKU BridgeTable と TKU BridgeHall に Google でログインできます。アカウント名と表示名は変わらず、パスワードでも引き続きログインできます。2 段階ログインを使っているアカウントは Google でもコードの入力が必要です。Google のメールアドレスはあなただけに表示されます。',
+    intro: 'Google アカウントを連携すると、Overtrick と TKU BridgeHall に Google でログインできます。アカウント名と表示名は変わらず、パスワードでも引き続きログインできます。2 段階ログインを使っているアカウントは Google でもコードの入力が必要です。Google のメールアドレスはあなただけに表示されます。',
     linked: (email: string) => `連携済み：${email}`,
     none: 'Google アカウントはまだ連携されていません。',
     password: '確認のためパスワードを入力',
@@ -11464,7 +11595,7 @@ const ja: Strings = {
     codeIntro: 'このアカウントは 2 段階ログインを使っています。LINE でログインする場合も、認証アプリの 6 桁のコードかバックアップコードが必要です。',
     usePassword: 'パスワードでログインする',
     title: 'LINE ログイン',
-    intro: 'LINE アカウントを連携すると、TKU BridgeTable と TKU BridgeHall に LINE でログインできます。アカウント名と表示名は変わらず、パスワードでも引き続きログインできます。2 段階ログインを使っているアカウントは LINE でもコードの入力が必要です。連携時の LINE の名前はあなただけに表示されます。',
+    intro: 'LINE アカウントを連携すると、Overtrick と TKU BridgeHall に LINE でログインできます。アカウント名と表示名は変わらず、パスワードでも引き続きログインできます。2 段階ログインを使っているアカウントは LINE でもコードの入力が必要です。連携時の LINE の名前はあなただけに表示されます。',
     linked: (name: string) => `連携済み：${name}`,
     none: 'LINE アカウントはまだ連携されていません。',
     password: '確認のためパスワードを入力',
@@ -11478,9 +11609,9 @@ const ja: Strings = {
   /** Push notifications on "My account" (e1-t28) */
   push: {
     title: 'プッシュ通知',
-    intro: 'ページを閉じていても、招待やお知らせがスマートフォンやパソコンの通知に届きます。端末ごとにオンにしてください。TKU BridgeTable を開いている間はプッシュしません（ベルに表示されます）。',
+    intro: 'ページを閉じていても、招待やお知らせがスマートフォンやパソコンの通知に届きます。端末ごとにオンにしてください。Overtrick を開いている間はプッシュしません（ベルに表示されます）。',
     unsupported: 'このブラウザはプッシュ通知に対応していません。',
-    iosHint: 'iPhone と iPad（iOS 16.4 以降）では、まず Safari の「共有」→「ホーム画面に追加」を選び、ホーム画面のアイコンから TKU BridgeTable を開いてからプッシュをオンにしてください。',
+    iosHint: 'iPhone と iPad（iOS 16.4 以降）では、まず Safari の「共有」→「ホーム画面に追加」を選び、ホーム画面のアイコンから Overtrick を開いてからプッシュをオンにしてください。',
     denied: 'このブラウザはこのサイトの通知をブロックしています。ブラウザのサイト設定で通知を許可してから戻ってください。',
     thisOn: 'この端末はプッシュ通知がオンです。',
     thisOff: 'この端末はまだプッシュ通知がオンになっていません。',
@@ -11557,12 +11688,12 @@ const ja: Strings = {
     privacyTitle: 'プライバシーポリシー',
     termsTitle: '利用規約',
     updated: (date) => `最終更新：${date}`,
-    home: 'TKU BridgeTable に戻る',
+    home: 'Overtrick に戻る',
     agree: '登録すると、利用規約とプライバシーポリシーに同意したことになります。',
     privacy: [
       {
         h: 'データの管理者',
-        p: 'TKU BridgeTable と TKU BridgeHall は、淡江大学ブリッジクラブ（以下「クラブ」）の部員が非営利で運営しています。クラブは台湾の個人情報保護法に基づき、会員管理、クラブ活動、情報セキュリティのためにあなたの個人データを収集・処理・利用します。',
+        p: 'Overtrick と TKU BridgeHall は、淡江大学ブリッジクラブ（以下「クラブ」）の部員が非営利で運営しています。クラブは台湾の個人情報保護法に基づき、会員管理、クラブ活動、情報セキュリティのためにあなたの個人データを収集・処理・利用します。',
       },
       {
         h: '収集するデータ',
@@ -11598,7 +11729,7 @@ const ja: Strings = {
       },
       {
         h: '匿名の利用集計',
-        p: 'どれだけの人が戻ってくるか、どの機能が使われているかを知るため、本クラブはサーバーで数を数えます。毎日と毎週の来訪人数、ある週に登録した会員のうちその後の各週に戻ってきた人数、ボードを終えたテーブル数とボード数、いくつかの機能（各ビッドシステムのロボットとの対局、チャレンジ、チーム戦、パートナービッド練習、パズルの正解、対局後の分析、ボードの取り込み、教室テーブル）の利用回数です。重複して数えないよう、当日と当週はあなたのアカウントのハッシュを一時的に保存します。ハッシュは期間ごとのランダムな鍵で計算し、期間が終わると、遅くとも次に誰かが利用したときに、ハッシュと鍵を一緒に削除します。そのため異なる期間を結びつけることはできません。アカウント、テーブルやボードの番号、IP アドレス、ブラウザ情報は保存せず、第三者にも渡さず、追跡プログラムも入れていません。残る数値はアカウントと結びついていないため、「データをダウンロード」には含まれず、アカウントを削除しても差し引かれません。ただし、ある週に 1～2 人しか登録しなかった場合、その数値は特定の人が来たかどうかに近くなるので、5 未満の数値は管理者のページを含むどのページにも表示しません（データベースを直接操作できる人には見えます）。毎週戻ってきた人数は 13 週、その他の数値は 180 日保存し、いずれもバックアップには含みません。管理者は集計を停止でき、TKU BridgeTable と TKU BridgeHall の両方が一緒に止まります。',
+        p: 'どれだけの人が戻ってくるか、どの機能が使われているかを知るため、本クラブはサーバーで数を数えます。毎日と毎週の来訪人数、ある週に登録した会員のうちその後の各週に戻ってきた人数、ボードを終えたテーブル数とボード数、いくつかの機能（各ビッドシステムのロボットとの対局、チャレンジ、チーム戦、パートナービッド練習、パズルの正解、対局後の分析、ボードの取り込み、教室テーブル）の利用回数です。重複して数えないよう、当日と当週はあなたのアカウントのハッシュを一時的に保存します。ハッシュは期間ごとのランダムな鍵で計算し、期間が終わると、遅くとも次に誰かが利用したときに、ハッシュと鍵を一緒に削除します。そのため異なる期間を結びつけることはできません。アカウント、テーブルやボードの番号、IP アドレス、ブラウザ情報は保存せず、第三者にも渡さず、追跡プログラムも入れていません。残る数値はアカウントと結びついていないため、「データをダウンロード」には含まれず、アカウントを削除しても差し引かれません。ただし、ある週に 1～2 人しか登録しなかった場合、その数値は特定の人が来たかどうかに近くなるので、5 未満の数値は管理者のページを含むどのページにも表示しません（データベースを直接操作できる人には見えます）。毎週戻ってきた人数は 13 週、その他の数値は 180 日保存し、いずれもバックアップには含みません。管理者は集計を停止でき、Overtrick と TKU BridgeHall の両方が一緒に止まります。',
       },
       {
         h: '保存場所と期間',
@@ -11624,7 +11755,7 @@ const ja: Strings = {
     terms: [
       {
         h: '利用できる人',
-        p: 'TKU BridgeTable は淡江大学ブリッジクラブ部員のためのオンラインのブリッジテーブルです。登録にはクラブの招待コードと管理者の承認が必要です。',
+        p: 'Overtrick はクラブのためのオンラインブリッジです。登録には所属クラブの招待コードと、そのクラブの管理者の承認が必要です。',
       },
       {
         h: 'アカウント',
@@ -11982,7 +12113,7 @@ const ja: Strings = {
   productMetrics: {
     title: '利用状況',
     intro: 'どれだけの人が戻ってくるか、どの機能が使われているかを見て、次に何を作るかを決めるためのものです。管理者だけが見られ、数値のみです。アカウント、テーブルやボードの番号、IP アドレス、ブラウザは記録しません。',
-    switchLabel: '利用状況を集計する（このスイッチは TKU BridgeTable と TKU BridgeHall の両方に効きます）',
+    switchLabel: '利用状況を集計する（このスイッチは Overtrick と TKU BridgeHall の両方に効きます）',
     switchHint: 'BridgeHall の管理ページの匿名分析と同じスイッチです。どちらかで切ると、両方のサイトで集計が止まります。これまでの数値は期限まで残ります。エラー報告には影響しません。',
     saved: '保存しました',
     off: '集計は停止中です。両サイトとも数値は増えません。以下は停止前のデータです。',
@@ -12066,9 +12197,9 @@ const ja: Strings = {
     shareRevoked: '取り消しました。前のリンクはもう使えません。',
     shareMadeBy: (name, when) => `${name} が ${when} に作成`,
     shareHeldHint: 'チャレンジまたは試合が終わってから公開できます',
-    sharedNote: 'TKU BridgeTable の会員が公開したボードです。',
+    sharedNote: 'Overtrick の会員が公開したボードです。',
     hiddenPlayer: '会員',
-    sharedHome: 'TKU BridgeTable のホーム',
+    sharedHome: 'Overtrick のホーム',
   },
   // Applying for a club (e12-t06, /clubs/apply) and the platform owner's back office (e12-t05, /platform)
   clubApply: {
@@ -12086,12 +12217,12 @@ const ja: Strings = {
     reason: '申請理由',
     reasonHint: (min: number, max: number) => `${min}～${max} 文字：クラブの規模と使い方。`,
     account: '新しいクラブの管理者アカウント',
-    accountHint: '新しいクラブ内のアカウントで、TKU BridgeTable のアカウントとは別です。承認後、これで新しいクラブにログインします。',
+    accountHint: '新しいクラブ内のアカウントで、ほかのクラブのアカウントとは別です。承認後、これで新しいクラブにログインします。',
     username: 'ユーザー名',
     password: 'パスワード',
     send: '申請を送信',
     sent: (id: string) => `「${id}」の申請を送信しました。審査後、連絡先メールにお知らせします（メールが有効な場合）。承認されたら申請したアカウントでログインできます。`,
-    toSite: 'TKU BridgeTable に戻る',
+    toSite: 'Overtrick に戻る',
     link: 'あなたのブリッジクラブのテーブルを申請する',
   },
   /** Announcements (e12-t15) */
@@ -12222,11 +12353,44 @@ const ja: Strings = {
   },
   loading: '読み込み中…',
   genericError: 'エラーが発生しました。もう一度お試しください',
+  /** The platform's landing page (e12-t13, `/about`) */
+  landing: {
+    link: 'Overtrick について',
+    headline: 'クラブのためのオンラインブリッジ',
+    lead: 'Overtrick は、ブリッジクラブに自分たちの場所を用意します。4 人のリアルタイムのテーブル、空席を埋めるロボット、すべてのボードの記録があります。',
+    apply: 'クラブの開設を申請',
+    signIn: '淡江ブリッジ部にログイン',
+    backTo: (club) => `${club} に戻る`,
+    signInOther: 'ほかのクラブの部員は、自分のクラブのアドレスからログインしてください。',
+    featuresTitle: 'できること',
+    tablesH: '4 人のリアルタイムのテーブル',
+    tablesP: '4 人が同じテーブルにつき、ビッドもプレイもその場で全員に届きます。ブラウザで動くので、スマートフォンでもパソコンでも遊べます。',
+    robotsH: 'ロボット TKB',
+    robotsP: '空席に TKB を座らせられます。ビッドのシステムは 2/1、SAYC、Precision から選べ、権限のある部員は淡江システムも選べます。',
+    analysisH: '対局後の分析',
+    analysisP: '終わったあと Double Dummy で 1 枚ずつ計算し、損の大きかった手を見つけます。',
+    recordsH: '記録',
+    recordsP: 'すべてのボードが保存され、検索や再生、PBN と LIN への書き出しができます。',
+    challengesH: 'チャレンジ',
+    challengesP: 'ほかの部員と同じボードをプレイし、順位表で結果を比べます。',
+    matchesH: 'チーム戦',
+    matchesP: 'オープンルームとクローズドルームで対戦し、試合中は観戦でき、終わったあとは再生できます。',
+    joinTitle: 'クラブの参加方法',
+    joinSteps: [
+      '申請フォームに記入します。クラブ名、アドレス、連絡先メール、最初の管理者のアカウントです。',
+      'プラットフォームが申請を審査します。',
+      '承認されるとクラブ専用のアドレスができ、部員、テーブル、記録はほかのクラブと分けて保たれます。',
+    ],
+    joinCta: 'クラブの開設を申請',
+    freeTitle: '無料',
+    freeP: 'Overtrick は無料で使えます。',
+    whoTitle: '運営',
+    whoP: 'Overtrick は淡江大学ブリッジクラブの部員が非営利で運営しています。',
+  },
 }
 
 const ko: Strings = {
-  appNameEn: 'TKU BridgeTable',
-  appNameZh: '淡江牌桌',
+  appName: 'Overtrick',
   tagline: '담강대학교 브리지 동아리의 온라인 테이블',
 
   navLobby: '로비',
@@ -12280,9 +12444,9 @@ const ko: Strings = {
   captchaLabel: '사람 확인',
   captchaNeeded: '먼저 사람 확인을 완료해 주세요',
   captchaLoadFailed: '사람 확인을 불러오지 못했습니다. 연결을 확인하고 페이지를 새로 고치세요',
-  applicationSent: (name) => `${name} 님의 가입 신청을 보냈습니다. 관리자가 승인하면 이 계정으로 TKU BridgeTable과 TKU BridgeHall에 모두 로그인할 수 있습니다.`,
-  sharedAccountHint: 'TKU BridgeTable과 TKU BridgeHall은 같은 계정을 씁니다.',
-  loginBrandSub: 'TKU BridgeTable · 담강 브리지 동아리',
+  applicationSent: (name) => `${name} 님의 가입 신청을 보냈습니다. 관리자가 승인하면 이 계정으로 Overtrick과 TKU BridgeHall에 모두 로그인할 수 있습니다.`,
+  sharedAccountHint: 'Overtrick과 TKU BridgeHall은 같은 계정을 씁니다.',
+  tkuClubName: '담강 브리지 동아리',
   registerIntro: '아이디, 비밀번호, 초대 코드를 입력해 신청하세요. 관리자가 승인하면 로그인할 수 있습니다.',
 
   notifications: '알림',
@@ -13008,7 +13172,7 @@ const ko: Strings = {
   // Club addresses and the cross-club lobby (e12-t04, e12-t07)
   clubs: {
     missing: '이 클럽을 찾을 수 없습니다. 주소를 확인해 주세요.',
-    toHome: 'TKU BridgeTable로 가기',
+    toHome: 'Overtrick으로 가기',
     lobbyLink: '다른 클럽',
     lobbyTitle: '다른 클럽의 테이블',
     lobbyIntro: '다른 클럽이 모든 클럽에 관전을 공개한 테이블입니다. 관전만 할 수 있으며 착석과 채팅은 할 수 없습니다.',
@@ -13360,7 +13524,7 @@ const ko: Strings = {
   never: '—',
   applicationsTitle: '승인 대기 중인 신청',
   noApplications: '승인 대기 중인 신청이 없습니다',
-  appliedFrom: (site) => (site === 'book' ? 'TKU BridgeHall에서 신청' : 'TKU BridgeTable에서 신청'),
+  appliedFrom: (site) => (site === 'book' ? 'TKU BridgeHall에서 신청' : 'Overtrick에서 신청'),
   bookSyncTitle: '로봇과 BridgeHall',
   bookSyncIntro: '클럽 시스템에서 TKB는 TKU BridgeHall의 약속대로 비드합니다. 글이 온라인에서 수정되면 그 글을 따르는 규칙이 여기에 표시되니, 임원이 새 내용과 대조해 확인해 주세요.',
   bookSyncAllSynced: (n) => `글 ${n}편 모두 로봇의 규칙과 일치합니다.`,
@@ -13863,7 +14027,7 @@ const ko: Strings = {
     newPasswordIntro: '새 비밀번호를 입력하세요. 변경하면 모든 기기에서 로그아웃됩니다.',
     passwordDone: (username: string) => `${username}님의 비밀번호를 재설정했습니다. 새 비밀번호로 로그인하세요.`,
     linkMissing: '링크가 완전하지 않습니다. 메일의 링크로 이 페이지를 여세요.',
-    toSite: 'TKU BridgeTable로 돌아가기',
+    toSite: 'Overtrick으로 돌아가기',
   },
   // Google sign-in (e1-t31)
   google: {
@@ -13877,7 +14041,7 @@ const ko: Strings = {
     codeIntro: '이 계정은 2단계 로그인을 사용합니다. Google로 로그인할 때도 인증 앱의 6자리 코드나 백업 코드가 필요합니다.',
     usePassword: '비밀번호로 로그인',
     title: 'Google 로그인',
-    intro: 'Google 계정을 연결하면 TKU BridgeTable과 TKU BridgeHall에 Google로 로그인할 수 있습니다. 계정 이름과 표시 이름은 바뀌지 않고 비밀번호로도 계속 로그인할 수 있습니다. 2단계 로그인을 쓰는 계정은 Google로 로그인할 때도 코드를 입력해야 합니다. Google 이메일은 본인에게만 보입니다.',
+    intro: 'Google 계정을 연결하면 Overtrick과 TKU BridgeHall에 Google로 로그인할 수 있습니다. 계정 이름과 표시 이름은 바뀌지 않고 비밀번호로도 계속 로그인할 수 있습니다. 2단계 로그인을 쓰는 계정은 Google로 로그인할 때도 코드를 입력해야 합니다. Google 이메일은 본인에게만 보입니다.',
     linked: (email: string) => `연결됨: ${email}`,
     none: '아직 연결된 Google 계정이 없습니다.',
     password: '확인을 위해 비밀번호 입력',
@@ -13899,7 +14063,7 @@ const ko: Strings = {
     codeIntro: '이 계정은 2단계 로그인을 사용합니다. LINE으로 로그인할 때도 인증 앱의 6자리 코드나 백업 코드가 필요합니다.',
     usePassword: '비밀번호로 로그인',
     title: 'LINE 로그인',
-    intro: 'LINE 계정을 연결하면 TKU BridgeTable과 TKU BridgeHall에 LINE으로 로그인할 수 있습니다. 계정 이름과 표시 이름은 바뀌지 않고 비밀번호로도 계속 로그인할 수 있습니다. 2단계 로그인을 쓰는 계정은 LINE으로 로그인할 때도 코드를 입력해야 합니다. 연결할 때의 LINE 이름은 본인에게만 보입니다.',
+    intro: 'LINE 계정을 연결하면 Overtrick과 TKU BridgeHall에 LINE으로 로그인할 수 있습니다. 계정 이름과 표시 이름은 바뀌지 않고 비밀번호로도 계속 로그인할 수 있습니다. 2단계 로그인을 쓰는 계정은 LINE으로 로그인할 때도 코드를 입력해야 합니다. 연결할 때의 LINE 이름은 본인에게만 보입니다.',
     linked: (name: string) => `연결됨: ${name}`,
     none: '아직 연결된 LINE 계정이 없습니다.',
     password: '확인을 위해 비밀번호 입력',
@@ -13913,9 +14077,9 @@ const ko: Strings = {
   /** Push notifications on "My account" (e1-t28) */
   push: {
     title: '푸시 알림',
-    intro: '페이지를 닫아도 초대와 소식이 휴대폰이나 컴퓨터 알림으로 옵니다. 기기마다 따로 켜야 하며, TKU BridgeTable을 열어 둔 동안에는 푸시하지 않습니다(종에 이미 표시됩니다).',
+    intro: '페이지를 닫아도 초대와 소식이 휴대폰이나 컴퓨터 알림으로 옵니다. 기기마다 따로 켜야 하며, Overtrick을 열어 둔 동안에는 푸시하지 않습니다(종에 이미 표시됩니다).',
     unsupported: '이 브라우저는 푸시 알림을 지원하지 않습니다.',
-    iosHint: 'iPhone과 iPad(iOS 16.4 이상)에서는 먼저 Safari에서 공유 → 홈 화면에 추가를 누른 다음, 홈 화면 아이콘으로 TKU BridgeTable을 열어야 푸시를 켤 수 있습니다.',
+    iosHint: 'iPhone과 iPad(iOS 16.4 이상)에서는 먼저 Safari에서 공유 → 홈 화면에 추가를 누른 다음, 홈 화면 아이콘으로 Overtrick을 열어야 푸시를 켤 수 있습니다.',
     denied: '이 브라우저가 이 사이트의 알림을 차단했습니다. 브라우저의 사이트 설정에서 알림을 허용한 뒤 다시 오세요.',
     thisOn: '이 기기에서 푸시 알림이 켜져 있습니다.',
     thisOff: '이 기기에서는 아직 푸시 알림을 켜지 않았습니다.',
@@ -13992,12 +14156,12 @@ const ko: Strings = {
     privacyTitle: '개인정보 처리방침',
     termsTitle: '이용약관',
     updated: (date) => `최종 업데이트: ${date}`,
-    home: 'TKU BridgeTable로 돌아가기',
+    home: 'Overtrick으로 돌아가기',
     agree: '가입하면 이용약관과 개인정보 처리방침에 동의하는 것입니다.',
     privacy: [
       {
         h: '누가 데이터를 관리하나요',
-        p: 'TKU BridgeTable과 TKU BridgeHall은 단장대학교 브리지 동아리(이하 “동아리”) 회원들이 비영리로 운영합니다. 동아리는 대만 개인정보보호법에 따라 회원 관리, 동아리 활동, 정보 보안을 위해 당신의 개인정보를 수집·처리·이용합니다.',
+        p: 'Overtrick과 TKU BridgeHall은 단장대학교 브리지 동아리(이하 “동아리”) 회원들이 비영리로 운영합니다. 동아리는 대만 개인정보보호법에 따라 회원 관리, 동아리 활동, 정보 보안을 위해 당신의 개인정보를 수집·처리·이용합니다.',
       },
       {
         h: '수집하는 데이터',
@@ -14033,7 +14197,7 @@ const ko: Strings = {
       },
       {
         h: '익명 이용 집계',
-        p: '얼마나 많은 사람이 돌아오고 어떤 기능을 쓰는지 알기 위해 동아리는 서버에서 숫자를 셉니다. 매일과 매주 온 인원, 어떤 주에 가입한 회원 중 이후 각 주에 돌아온 인원, 보드를 끝낸 테이블 수와 보드 수, 몇 가지 기능(비딩 시스템별 로봇과의 대국, 챌린지, 팀 대항전, 파트너 비딩 연습, 퍼즐 풀기, 대국 후 분석, 보드 가져오기, 교육 테이블)의 사용 횟수입니다. 중복으로 세지 않도록 그날과 그 주에는 계정의 해시를 임시로 저장하며, 기간마다 다른 임의의 키로 계산합니다. 기간이 끝나면, 늦어도 다음에 누군가 사이트를 쓸 때 해시와 키를 함께 삭제하므로 서로 다른 기간을 연결할 수 없습니다. 계정, 테이블·보드 번호, IP 주소, 브라우저 정보는 저장하지 않고 제3자에게 보내지 않으며 추적 프로그램도 없습니다. 남는 숫자는 계정과 연결되어 있지 않아 “내 데이터 내려받기”에 포함되지 않고 계정을 삭제해도 빠지지 않습니다. 다만 어떤 주에 한두 명만 가입했다면 그 숫자는 특정인이 왔는지와 거의 같으므로, 5 미만의 숫자는 관리자 페이지를 포함한 어떤 페이지에도 표시하지 않습니다(데이터베이스를 직접 다룰 수 있는 사람은 볼 수 있습니다). 매주 돌아온 인원은 13주, 나머지 숫자는 180일 보관하며 모두 백업에 포함되지 않습니다. 관리자는 집계를 끌 수 있으며 TKU BridgeTable과 TKU BridgeHall이 함께 꺼집니다.',
+        p: '얼마나 많은 사람이 돌아오고 어떤 기능을 쓰는지 알기 위해 동아리는 서버에서 숫자를 셉니다. 매일과 매주 온 인원, 어떤 주에 가입한 회원 중 이후 각 주에 돌아온 인원, 보드를 끝낸 테이블 수와 보드 수, 몇 가지 기능(비딩 시스템별 로봇과의 대국, 챌린지, 팀 대항전, 파트너 비딩 연습, 퍼즐 풀기, 대국 후 분석, 보드 가져오기, 교육 테이블)의 사용 횟수입니다. 중복으로 세지 않도록 그날과 그 주에는 계정의 해시를 임시로 저장하며, 기간마다 다른 임의의 키로 계산합니다. 기간이 끝나면, 늦어도 다음에 누군가 사이트를 쓸 때 해시와 키를 함께 삭제하므로 서로 다른 기간을 연결할 수 없습니다. 계정, 테이블·보드 번호, IP 주소, 브라우저 정보는 저장하지 않고 제3자에게 보내지 않으며 추적 프로그램도 없습니다. 남는 숫자는 계정과 연결되어 있지 않아 “내 데이터 내려받기”에 포함되지 않고 계정을 삭제해도 빠지지 않습니다. 다만 어떤 주에 한두 명만 가입했다면 그 숫자는 특정인이 왔는지와 거의 같으므로, 5 미만의 숫자는 관리자 페이지를 포함한 어떤 페이지에도 표시하지 않습니다(데이터베이스를 직접 다룰 수 있는 사람은 볼 수 있습니다). 매주 돌아온 인원은 13주, 나머지 숫자는 180일 보관하며 모두 백업에 포함되지 않습니다. 관리자는 집계를 끌 수 있으며 Overtrick과 TKU BridgeHall이 함께 꺼집니다.',
       },
       {
         h: '어디에, 얼마나 보관하나요',
@@ -14059,7 +14223,7 @@ const ko: Strings = {
     terms: [
       {
         h: '이용 대상',
-        p: 'TKU BridgeTable은 단장대학교 브리지 동아리 회원의 온라인 브리지 테이블입니다. 가입하려면 동아리 초대 코드와 관리자 승인이 필요합니다.',
+        p: 'Overtrick은 동아리를 위한 온라인 브리지입니다. 가입하려면 소속 동아리의 초대 코드와 그 동아리 관리자의 승인이 필요합니다.',
       },
       {
         h: '계정',
@@ -14417,7 +14581,7 @@ const ko: Strings = {
   productMetrics: {
     title: '이용 현황',
     intro: '얼마나 많은 사람이 돌아오고 어떤 기능을 쓰는지 보고 다음에 무엇을 만들지 정하기 위한 것입니다. 관리자만 볼 수 있고 숫자뿐입니다. 계정, 테이블·보드 번호, IP 주소, 브라우저는 기록하지 않습니다.',
-    switchLabel: '이용 현황 집계 (이 스위치 하나로 TKU BridgeTable과 TKU BridgeHall을 함께 제어합니다)',
+    switchLabel: '이용 현황 집계 (이 스위치 하나로 Overtrick과 TKU BridgeHall을 함께 제어합니다)',
     switchHint: 'BridgeHall 관리 페이지의 익명 분석과 같은 스위치입니다. 어느 쪽에서 끄든 두 사이트 모두 집계를 멈춥니다. 지금까지의 숫자는 기한까지 남습니다. 오류 보고에는 영향이 없습니다.',
     saved: '저장했습니다',
     off: '집계가 꺼져 있습니다. 두 사이트 모두 숫자가 늘지 않습니다. 아래는 끄기 전 데이터입니다.',
@@ -14501,9 +14665,9 @@ const ko: Strings = {
     shareRevoked: '취소했습니다. 이전 링크는 더 이상 쓸 수 없습니다.',
     shareMadeBy: (name, when) => `${name}님이 ${when}에 만듦`,
     shareHeldHint: '챌린지나 경기가 끝난 뒤에 공개할 수 있습니다',
-    sharedNote: 'TKU BridgeTable 회원이 공개한 보드입니다.',
+    sharedNote: 'Overtrick 회원이 공개한 보드입니다.',
     hiddenPlayer: '회원',
-    sharedHome: 'TKU BridgeTable 홈',
+    sharedHome: 'Overtrick 홈',
   },
   // Applying for a club (e12-t06, /clubs/apply) and the platform owner's back office (e12-t05, /platform)
   clubApply: {
@@ -14521,12 +14685,12 @@ const ko: Strings = {
     reason: '신청 사유',
     reasonHint: (min: number, max: number) => `${min}~${max}자: 클럽 규모와 사용 계획.`,
     account: '새 클럽의 관리자 계정',
-    accountHint: '새 클럽 안의 계정이며 TKU BridgeTable 계정과는 별개입니다. 승인 후 이 계정으로 새 클럽에 로그인합니다.',
+    accountHint: '새 클럽 안의 계정이며 다른 클럽의 계정과는 별개입니다. 승인 후 이 계정으로 새 클럽에 로그인합니다.',
     username: '아이디',
     password: '비밀번호',
     send: '신청 보내기',
     sent: (id: string) => `「${id}」 신청을 보냈습니다. 심사 후 연락 이메일로 알려 드립니다(메일이 켜져 있을 때). 승인되면 신청한 계정으로 로그인하세요.`,
-    toSite: 'TKU BridgeTable로 돌아가기',
+    toSite: 'Overtrick으로 돌아가기',
     link: '우리 브리지 클럽의 테이블 신청하기',
   },
   /** Announcements (e12-t15) */
@@ -14657,6 +14821,40 @@ const ko: Strings = {
   },
   loading: '불러오는 중…',
   genericError: '오류가 발생했습니다. 다시 시도해 주세요',
+  /** The platform's landing page (e12-t13, `/about`) */
+  landing: {
+    link: 'Overtrick 소개',
+    headline: '동아리를 위한 온라인 브리지',
+    lead: 'Overtrick은 브리지 동아리에 자신들만의 공간을 줍니다. 4인 실시간 테이블, 빈자리를 채우는 로봇, 모든 보드의 기록이 있습니다.',
+    apply: '동아리 개설 신청',
+    signIn: '담강 브리지 동아리 로그인',
+    backTo: (club) => `${club}(으)로 돌아가기`,
+    signInOther: '다른 동아리 회원은 자기 동아리 주소에서 로그인하세요.',
+    featuresTitle: '무엇이 있나요',
+    tablesH: '4인 실시간 테이블',
+    tablesP: '네 명이 한 테이블에 앉아 비딩과 플레이를 실시간으로 함께합니다. 브라우저에서 돌아가므로 휴대폰과 컴퓨터 모두 됩니다.',
+    robotsH: '로봇 TKB',
+    robotsP: '빈자리에 TKB를 앉힐 수 있고 비딩 시스템은 2/1, SAYC, Precision 중에서 고릅니다. 권한이 있는 회원은 담강 시스템도 고를 수 있습니다.',
+    analysisH: '경기 후 분석',
+    analysisP: '끝난 뒤 Double Dummy로 한 장씩 계산해 손해가 가장 큰 수를 찾습니다.',
+    recordsH: '기록',
+    recordsP: '모든 보드가 저장되며 검색과 다시 보기, PBN과 LIN 내보내기가 됩니다.',
+    challengesH: '챌린지',
+    challengesP: '다른 회원과 같은 보드를 플레이하고 순위표에서 결과를 비교합니다.',
+    matchesH: '팀 경기',
+    matchesP: '오픈 룸과 클로즈드 룸으로 겨루며, 경기 중에는 관전하고 끝난 뒤에는 다시 볼 수 있습니다.',
+    joinTitle: '동아리 가입 방법',
+    joinSteps: [
+      '신청서를 작성합니다. 동아리 이름, 주소, 연락 이메일, 첫 관리자 계정입니다.',
+      '플랫폼이 신청을 심사합니다.',
+      '승인되면 동아리 전용 주소가 생기고, 회원과 테이블과 기록은 다른 동아리와 분리됩니다.',
+    ],
+    joinCta: '동아리 개설 신청',
+    freeTitle: '무료',
+    freeP: 'Overtrick은 무료로 쓸 수 있습니다.',
+    whoTitle: '운영',
+    whoP: 'Overtrick은 단장대학교 브리지 동아리 회원들이 비영리로 운영합니다.',
+  },
 }
 
 export const STRINGS: Record<Lang, Strings> = { zh, 'zh-Hans': zhHans, en, vi, ja, ko }

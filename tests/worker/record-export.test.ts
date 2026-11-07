@@ -56,7 +56,7 @@ function record(id: string, at: number, ids: [string, string, string, string], e
 describe('PBN and LIN', () => {
   it('writes a board as PBN: tags, deal, auction with notes, play from the leader', () => {
     const pbn = toPbn(record('b1', Date.UTC(2026, 10, 1, 20), ['amy', 'ben', 'cat', 'robot:tku:W']))
-    expect(pbn).toContain('[Event "TKU BridgeTable"]')
+    expect(pbn).toContain('[Event "Overtrick"]')
     expect(pbn).toContain('[Site "Table 2"]')
     // Taiwan date: 2026-11-01 20:00 UTC is 2026-11-02 in Taipei
     expect(pbn).toContain('[Date "2026.11.02"]')
@@ -95,10 +95,10 @@ describe('PBN and LIN', () => {
   it('writes a session as one LIN, one line per board', () => {
     const a = record('a', 0, ['amy', 'ben', 'cat', 'dan'])
     const b = record('b', 1, ['amy', 'ben', 'cat', 'eve'])
-    const lin = toSessionLin([a, b], 'TKU BridgeTable Table 2')
+    const lin = toSessionLin([a, b], 'Overtrick Table 2')
     const lines = lin.trim().split('\n')
     expect(lines).toHaveLength(3)
-    expect(lines[0]).toBe('vg|TKU BridgeTable Table 2,,P,1,2,,0,,0|')
+    expect(lines[0]).toBe('vg|Overtrick Table 2,,P,1,2,,0,,0|')
     expect(lines[1]).toBe(`qx|o1|${toLin(a)}`)
     expect(lines[2]).toContain('pn|cat,eve,amy,ben')
   })

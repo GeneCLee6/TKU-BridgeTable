@@ -1,5 +1,6 @@
 import { CLUB_HEADER, CLUB_PARAM, CLUB_PATH_PREFIX, clubOfPath, clubPath, DEFAULT_CLUB_ID } from '../../shared/clubs.ts'
 import { CLUB_APPLY_PAGE } from '../../shared/platform.ts'
+import { LANDING_PAGE } from '../../shared/site.ts'
 
 /**
  * Which club these pages are for (e12-t04, ARCHITECTURE.md §1): 淡江's at the site's own addresses
@@ -38,6 +39,14 @@ export function plainAddress(pathname: string, search = '', hash = ''): string |
   if (named.clubId === DEFAULT_CLUB_ID) return `${named.rest}${search}${hash}`
   if (named.rest.replace(/\/+$/, '') === CLUB_APPLY_PAGE) return `${CLUB_APPLY_PAGE}${search}${hash}`
   return null
+}
+
+/**
+ * Where "home" is from a page anyone may read: the club's for a member and at a club's own address;
+ * for a visitor at the plain address the platform's page, since the root is 淡江's sign-in
+ */
+export function homePath(signedIn: boolean): string {
+  return signedIn || current !== DEFAULT_CLUB_ID ? '/' : LANDING_PAGE
 }
 
 /** A page of this club as a full path, for links outside the router (a share link, an `href`) */

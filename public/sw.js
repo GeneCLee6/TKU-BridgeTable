@@ -1,9 +1,10 @@
-// TKU BridgeTable service worker: lets phones install the site as an app and open it quickly.
+// Overtrick's service worker: lets phones install the site as an app and open it quickly.
 // Pages always come from the network when it is there (so a new version shows at once); built
 // files, whose names change with every build, come from the cache. The API and the live
 // connection are never touched.
 
-const CACHE = 'tku-bridge-table-v1'
+// The version goes up when the shell's files change (2: Overtrick's icons), so no phone keeps old ones
+const CACHE = 'tku-bridge-table-v2'
 // The clubs this browser's push subscription is registered with (src/lib/push.ts writes it): kept
 // across versions, read when the browser renews the subscription
 const PUSH_CACHE = 'tku-bridge-table-push'
@@ -67,7 +68,7 @@ self.addEventListener('push', (event) => {
   } catch {
     message = {}
   }
-  const title = typeof message.title === 'string' && message.title ? message.title : '淡江牌桌'
+  const title = typeof message.title === 'string' && message.title ? message.title : 'Overtrick'
   event.waitUntil(
     self.registration.showNotification(title, {
       body: typeof message.body === 'string' ? message.body : '',

@@ -6,6 +6,8 @@ import { PasswordInput } from '../components/PasswordInput.tsx'
 import { Turnstile } from '../components/Turnstile.tsx'
 import { Button, Card, ErrorText, Field, FieldError, FieldHint, FieldLabel, Input, Muted, PageMain, PageTitle, Textarea } from '../components/ui.tsx'
 import { api, ApiError } from '../lib/api.ts'
+import { homePath } from '../lib/club.ts'
+import { useSignedIn } from '../state/AuthContext.tsx'
 import { usePreferences } from '../state/PreferencesContext.tsx'
 
 /**
@@ -56,6 +58,7 @@ type Fields = typeof EMPTY
 
 export function ClubApplyPage() {
   const { t, lang, message } = usePreferences()
+  const signedIn = useSignedIn()
   const a = t.clubApply
   const id = useId()
   const [open, setOpen] = useState<boolean | null>(null)
@@ -213,7 +216,7 @@ export function ClubApplyPage() {
             </Button>
           </Form>
         )}
-        <a href="/">{a.toSite}</a>
+        <a href={homePath(signedIn)}>{a.toSite}</a>
       </Panel>
     </PageMain>
   )

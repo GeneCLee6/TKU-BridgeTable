@@ -71,7 +71,7 @@ describe('binding an email (e1-t29)', () => {
     expect(me.email).toEqual({ address: null, verifiedAt: null, pending: 'amy@example.org' })
     expect(sent).toHaveLength(1)
     expect(sent[0].to).toBe('amy@example.org')
-    expect(sent[0].subject).toBe('TKU BridgeTable: verify your email')
+    expect(sent[0].subject).toBe('Overtrick: verify your email')
     expect(sent[0].text).toContain(`${ORIGIN}/email/verify#`)
     const token = lastToken()
     const stored = JSON.stringify(await store.get(`user:${amy}`))
@@ -143,7 +143,7 @@ describe('忘記密碼 by email (e1-t30)', () => {
     sent = []
     await club.requestEmailReset('AMY', ORIGIN, 'zh')
     expect(sent).toHaveLength(1)
-    expect(sent[0]).toMatchObject({ to: 'amy@example.org', subject: '淡江牌桌：重設密碼' })
+    expect(sent[0]).toMatchObject({ to: 'amy@example.org', subject: 'Overtrick：重設密碼' })
     expect(sent[0].text).toContain(`${ORIGIN}/email/reset#`)
     const token = lastToken()
     expect(JSON.stringify(await store.get(`user:${amy}`))).not.toContain(token)

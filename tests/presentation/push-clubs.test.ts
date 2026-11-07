@@ -125,7 +125,7 @@ describe('push subscriptions per club', () => {
 describe('home-screen app per club', () => {
   const head = () => {
     document.head.innerHTML =
-      '<link rel="manifest" href="/manifest.webmanifest" /><meta name="apple-mobile-web-app-title" content="淡江牌桌" />'
+      '<link rel="manifest" href="/manifest.webmanifest" /><meta name="apple-mobile-web-app-title" content="Overtrick" />'
   }
 
   it('links another club’s own manifest and leaves 淡江’s alone', () => {

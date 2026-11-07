@@ -23,7 +23,7 @@ export const TOTP_SETUP_MS = 10 * 60_000
 /** Recovery codes made at once; each signs in once in place of a code */
 export const RECOVERY_CODES = 10
 /** The name authenticator apps show above the code */
-export const TOTP_ISSUER = 'TKU BridgeTable'
+export const TOTP_ISSUER = 'Overtrick'
 
 const BASE32 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'
 

@@ -1,10 +1,82 @@
 import styled from 'styled-components'
+import { MARK_CARDS, MARK_GOLD_CARD, MARK_RADIUS, WORD_HEIGHT, WORD_PATHS, WORD_STROKE, WORD_WIDTH } from './overtrickArt.ts'
 
 /**
- * The lantern mark (public/logo-mark.svg) inline, so its navy parts follow the theme through
- * currentColor. The lantern body, red suits and gold tassel stay fixed in both themes.
+ * The logos (DESIGN.md §6). The platform's is Overtrick's, in `overtrickArt.ts`; a club's is its own:
+ * 淡江's lantern, or a letter for a club with no logo yet.
  */
-export function LogoMark({ size = 40 }: { size?: number }) {
+
+const GoldCard = styled.rect`
+  fill: ${({ theme }) => theme.colors.accent};
+`
+
+/** Overtrick's mark: its ring in the text's colour, so it follows the header and the theme */
+export function OvertrickMark({ size = 24 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden focusable="false">
+      {MARK_CARDS.map((card) => (
+        <rect key={card.x} {...card} rx={MARK_RADIUS} fill="currentColor" />
+      ))}
+      <GoldCard {...MARK_GOLD_CARD} rx={MARK_RADIUS} />
+    </svg>
+  )
+}
+
+/** Overtrick's name as drawn in the logo: no font, and the same in every language */
+export function OvertrickName({ height = 16 }: { height?: number }) {
+  return (
+    <svg width={(height * WORD_WIDTH) / WORD_HEIGHT} height={height} viewBox={`0 0 ${WORD_WIDTH} ${WORD_HEIGHT}`} aria-hidden focusable="false">
+      <g fill="none" stroke="currentColor" strokeWidth={WORD_STROKE} strokeLinecap="round" strokeLinejoin="round">
+        {WORD_PATHS.map((d) => (
+          <path key={d} d={d} />
+        ))}
+      </g>
+    </svg>
+  )
+}
+
+const Full = styled.span`
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35em;
+`
+
+/** The whole logo: the mark and the name, with the name's height given */
+export function OvertrickWordmark({ height = 20 }: { height?: number }) {
+  return (
+    <Full role="img" aria-label="Overtrick" style={{ fontSize: height }}>
+      <OvertrickMark size={height * 1.3} />
+      <OvertrickName height={height} />
+    </Full>
+  )
+}
+
+const Letter = styled.span<{ $size: number }>`
+  display: inline-grid;
+  place-items: center;
+  width: ${({ $size }) => $size}px;
+  height: ${({ $size }) => $size}px;
+  border: 2px solid currentColor;
+  border-radius: ${({ theme }) => theme.radius.sm};
+  font-size: ${({ $size }) => Math.round($size * 0.5)}px;
+  font-weight: 800;
+  line-height: 1;
+`
+
+/** A club with no logo yet (AC-12.2): the first letter of its name */
+export function ClubLetter({ name, size = 36 }: { name: string; size?: number }) {
+  return (
+    <Letter $size={size} aria-hidden>
+      {Array.from(name)[0]?.toUpperCase()}
+    </Letter>
+  )
+}
+
+/**
+ * 淡江橋藝社's lantern (public/brand/tamkang-mark.svg) inline, so its navy parts follow the theme
+ * through currentColor. The lantern body, red suits and gold tassel stay fixed in both themes.
+ */
+export function TamkangMark({ size = 40 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden focusable="false">
       <path d="M32 2.5v6" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
@@ -39,76 +111,5 @@ export function LogoMark({ size = 40 }: { size?: number }) {
         <path d="M42.4 58.5h1.2l.7 3.5h-2.6z" />
       </g>
     </svg>
-  )
-}
-
-const Wordmark = styled.span`
-  display: grid;
-  gap: 2px;
-  line-height: 1.1;
-  color: ${({ theme }) => theme.colors.onHeader};
-`
-
-const Line = styled.span`
-  display: flex;
-  align-items: center;
-  gap: 7px;
-`
-
-/** The TKU badge with a gold bar under it, as in logo.svg; off-white on the navy header */
-const Badge = styled.span`
-  padding: 1px 5px 0;
-  border-bottom: 2px solid ${({ theme }) => theme.colors.accent};
-  border-radius: 4px 4px 2px 2px;
-  background: ${({ theme }) => theme.colors.onHeader};
-  color: ${({ theme }) => theme.colors.header};
-  font-family: 'Arial Black', 'Segoe UI', Arial, sans-serif;
-  font-size: 12px;
-  font-weight: 900;
-  letter-spacing: 1px;
-`
-
-const English = styled.span`
-  font-family: ${({ theme }) => theme.fonts.cards};
-  font-size: 18px;
-  font-weight: 700;
-`
-
-const Chinese = styled.span`
-  font-size: 14px;
-  font-weight: 700;
-  letter-spacing: 3px;
-`
-
-/** The suits and the club's line; left out when the header is short of room */
-const Tagline = styled.span`
-  color: ${({ theme }) => theme.colors.headerMuted};
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: 1px;
-
-  & > [data-red] { color: ${({ theme }) => theme.colors.headerSuitRed}; }
-  @media (max-width: 1180px) { display: none; }
-`
-
-/**
- * The wordmark of public/logo.svg, laid out the same way for the page header: the TKU badge and
- * BridgeTable on the first line, 淡江牌桌 and the club's line under it. It is the club's name, so
- * it reads the same in every language (like the logo itself); its colours are the header's.
- */
-export function LogoWordmark() {
-  return (
-    <Wordmark aria-hidden>
-      <Line>
-        <Badge>TKU</Badge>
-        <English>BridgeTable</English>
-      </Line>
-      <Line>
-        <Chinese>淡江牌桌</Chinese>
-        <Tagline>
-          ♠<span data-red>♥♦</span>♣ 橋藝社線上牌桌
-        </Tagline>
-      </Line>
-    </Wordmark>
   )
 }

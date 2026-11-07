@@ -1,7 +1,9 @@
 import { Link } from 'react-router-dom'
 import styled from 'styled-components'
 import { Muted, PageMain, PageTitle } from '../components/ui.tsx'
+import { homePath } from '../lib/club.ts'
 import { formatDate } from '../lib/format.ts'
+import { useSignedIn } from '../state/AuthContext.tsx'
 import { usePreferences } from '../state/PreferencesContext.tsx'
 
 /**
@@ -40,6 +42,7 @@ const Links = styled.nav`
 
 export function LegalPage({ kind }: { kind: 'privacy' | 'terms' }) {
   const { t, lang } = usePreferences()
+  const signedIn = useSignedIn()
   const l = t.legal
   const sections = kind === 'privacy' ? l.privacy : l.terms
   return (
@@ -56,7 +59,7 @@ export function LegalPage({ kind }: { kind: 'privacy' | 'terms' }) {
       </Article>
       <Links>
         {kind === 'privacy' ? <Link to="/terms">{l.termsTitle}</Link> : <Link to="/privacy">{l.privacyTitle}</Link>}
-        <Link to="/">{l.home}</Link>
+        <Link to={homePath(signedIn)}>{l.home}</Link>
       </Links>
     </PageMain>
   )

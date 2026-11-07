@@ -18,9 +18,9 @@ export function clubManifest(base: Record<string, unknown>, clubId: string, name
   const home = clubPath(clubId, '/')
   return {
     ...base,
-    name: `${name}・TKU BridgeTable`,
+    name: `${name}・Overtrick`,
     short_name: name,
-    description: `${name}的線上牌桌`,
+    description: `${name} on Overtrick`,
     // Its own app (not 淡江's, whose id is its start_url `/`): opens and stays in the club's pages
     id: home,
     start_url: home,

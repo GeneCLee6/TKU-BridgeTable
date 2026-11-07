@@ -5,6 +5,7 @@ import styled from 'styled-components'
 import { LANGS } from '../../shared/messages.ts'
 import { PROFILE_LEVELS, PROFILE_LIMITS, type Profile, type ProfileLevel } from '../../shared/profile.ts'
 import { DEFAULT_ROBOT_SPEED, LIMITS, ROBOT_SPEEDS, type Me, type RobotSpeed } from '../../shared/protocol.ts'
+import { LANDING_PAGE } from '../../shared/site.ts'
 import { DataCard, SessionsCard } from '../components/AccountSecurity.tsx'
 import { EmailCard } from '../components/EmailCard.tsx'
 import { OAuthCard } from '../components/OAuthCard.tsx'
@@ -714,6 +715,8 @@ export function AccountPage() {
           <Link to="/privacy">{t.legal.privacyTitle}</Link>
           {' · '}
           <Link to="/terms">{t.legal.termsTitle}</Link>
+          {' · '}
+          <Link to={LANDING_PAGE}>{t.landing.link}</Link>
         </Muted>
       </Stack>
     </PageMain>

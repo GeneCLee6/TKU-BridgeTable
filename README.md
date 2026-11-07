@@ -1,8 +1,10 @@
 <p align="center">
-  <img src="public/logo.svg" alt="TKU BridgeTable 淡江牌桌" width="392" />
+  <img src="public/logo.svg" alt="Overtrick" width="392" />
 </p>
 
-# TKU BridgeTable · 淡江牌桌
+# Overtrick
+
+（repo 名稱與內部識別字沿用 TKU BridgeTable；淡江橋藝社是平台上的第一個社團。）
 
 **淡江橋藝社自己的線上牌桌。**
 

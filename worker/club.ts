@@ -1333,7 +1333,7 @@ export class Club extends DurableObject<Env> implements Connections {
       if (!records) throw new ClubError('boardGone', {}, 404)
       const first = records[0]
       const place = first.mode === 'practice' ? 'Practice' : first.mode === 'imported' ? 'Imported' : `Table ${first.tableNumber}`
-      return textFile(toSessionLin(records, `TKU BridgeTable ${place}`), `tku-session-${sessionLin[1]}.lin`)
+      return textFile(toSessionLin(records, `Overtrick ${place}`), `tku-session-${sessionLin[1]}.lin`)
     }
     // A board's public link (e4-t38): its players and the admins see it, make it and take it back
     const share = url.pathname.match(/^\/api\/history\/([\w-]+)\/share$/)
