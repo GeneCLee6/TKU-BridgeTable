@@ -29,7 +29,7 @@ import { ruleBrain } from '../../shared/robot/brain.ts'
  *   npm run sim -- leads --deals N [--from 1] [--seed s] [--system tku|gib] [--samples 0] [--threads N] [--out file] [--report file] [--analyse]
  *   npm run sim -- compare --deals N [--from 1] [--seed s] [--system tku|gib] [--samples 30] [--objective score|tricks|contract]
  *                          [--dd-bias 0] [--points lead|all|defence|declarer] [--threads N] [--out file] [--report file] [--analyse]
- *   npm run sim -- common-sense --deals N [--from 1] [--seed s] [--system tku|gib] [--samples 20] [--threads N] [--out file] [--report file] [--analyse]
+ *   npm run sim -- common-sense --deals N [--from 1] [--seed s] [--system tku|gib|sayc] [--samples 20] [--threads N] [--out file] [--report file] [--analyse]
  *   npm run sim -- replay --out leads.jsonl [--from 1 --deals N | --boards file] [--report file] [--changed file]
  *   npm run sim -- bidding --deals N [--from 1] [--seed s] [--system tku|gib] [--threads N] [--out file] [--report file]
  *                          [--practice dir] [--analyse]
@@ -46,7 +46,7 @@ const USAGE = [
   '  leads    --deals N [--from 1] [--seed s] [--system tku|gib] [--samples 0] [--threads N] [--out file] [--report file] [--analyse]',
   '  compare  --deals N [--from 1] [--seed s] [--system tku|gib] [--samples 30] [--objective score|tricks|contract] [--dd-bias 0]',
   '           [--points lead|all|defence|declarer] [--threads N] [--out file] [--report file] [--analyse]',
-  '  common-sense --deals N [--from 1] [--seed s] [--system tku|gib] [--samples 20] [--threads N] [--out file] [--report file] [--analyse]',
+  '  common-sense --deals N [--from 1] [--seed s] [--system tku|gib|sayc] [--samples 20] [--threads N] [--out file] [--report file] [--analyse]',
   '  replay   --out leads.jsonl [--from 1 --deals N | --boards file] [--seed s] [--report file] [--changed file]',
   '  bidding  --deals N [--from 1] [--seed s] [--system tku|gib] [--threads N] [--out file] [--report file] [--practice dir] [--analyse]',
   '  compete  the same as bidding, only the competitive decisions',
@@ -82,7 +82,7 @@ interface Common {
 
 function common(args: Map<string, string>): Common {
   const system = args.get('system') ?? 'tku'
-  if (!isRobotKind(system)) throw new Error(`--system is tku or gib, not "${system}"`)
+  if (!isRobotKind(system)) throw new Error(`--system is tku, gib or sayc, not "${system}"`)
   const deals = Number(args.get('deals') ?? 200)
   const from = Number(args.get('from') ?? 1)
   const threads = Number(args.get('threads') ?? defaultThreads())

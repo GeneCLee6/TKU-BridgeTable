@@ -450,6 +450,12 @@ function winningCard(trick: { seat: Seat; card: Card }[], trump: Suit | null) {
 }
 
 /**
+ * A high signal gives way to the trick only for a card this high or higher (the club president,
+ * 2026-11-06; ROBOT.md §3.20): 82 with the eight likely to win plays the two, 72 still shows count
+ */
+const KEEP_FROM = 8
+
+/**
  * The highest card below the jack, so a signal never wastes an honour; the ten only when the next
  * card down would be the holding's lowest and so read as low (T76 signals with the 7, T7 with the
  * ten: e6-t28, ROBOT.md §3.20)
@@ -487,9 +493,9 @@ function signalFollow(view: View, trick: PlayedCard[], cards: Card[], trump: Sui
     if (spare.length >= 2) return highSpotOf(spare)
     const top = highSpotOf(all)
     if (!couldWin(top) || value(sorted[1]) >= 11) return top
-    // Every card above the lowest may take a trick: a trick is worth more than the count (T6 under
-    // the jack with the honours gone keeps the ten: e6-t28, ROBOT.md §3.20)
-    return couldWin(sorted[1]) ? low : sorted[1]
+    // Every card above the lowest may take a trick: from the eight up, a trick is worth more than
+    // the count (T6 under the jack with the honours gone keeps the ten: e6-t28, ROBOT.md §3.20)
+    return couldWin(sorted[1]) && value(sorted[1]) >= KEEP_FROM ? low : sorted[1]
   }
   const leader = trick[0]
   const led = suitOf(leader.card)

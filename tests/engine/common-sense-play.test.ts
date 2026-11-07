@@ -17,38 +17,45 @@ function at(id: string): BoardState {
   return playState(question)
 }
 
-const KINDS: RobotKind[] = ['tku', 'gib']
+const KINDS: RobotKind[] = ['tku', 'gib', 'sayc']
 const plays = (state: BoardState) => KINDS.map((kind) => chooseCard(state, turnOf(state)!, kind))
 
 describe('a signal does not cost a trick', () => {
   it('keeps a ten that will win rather than show count from T6', () => {
-    expect(plays(at('play-second-013'))).toEqual(['S6', 'S6'])
+    expect(plays(at('play-second-013'))).toEqual(['S6', 'S6', 'S6'])
   })
 
   it('keeps the ten behind declarer’s jack as fourth hand', () => {
-    expect(plays(at('play-fourth-003'))).toEqual(['C2', 'C2'])
+    expect(plays(at('play-fourth-003'))).toEqual(['C2', 'C2', 'C2'])
   })
 
   it('keeps the ten when discouraging partner’s ace', () => {
-    expect(plays(at('play-fourth-004'))).toEqual(['S7', 'S7'])
+    expect(plays(at('play-fourth-004'))).toEqual(['S7', 'S7', 'S7'])
+  })
+
+  it('keeps a card back only from the eight up', () => {
+    // H85 under declarer's jack, the eight likely to win: the five
+    expect(plays(at('play-second-015'))).toEqual(['H5', 'H5', 'H5'])
+    // H74 under the jack, the seven likely to win: the seven, the count still shown
+    expect(plays(at('play-second-016'))).toEqual(['H7', 'H7', 'H7'])
   })
 
   it('shows count from T853 with the eight, the next card that still reads as high', () => {
-    expect(plays(at('play-second-014'))).toEqual(['D8', 'D8'])
+    expect(plays(at('play-second-014'))).toEqual(['D8', 'D8', 'D8'])
   })
 })
 
 describe('the suit partner asked for', () => {
   it('is led from the top of touching honours', () => {
-    expect(plays(at('play-lead-common-001'))).toEqual(['DA', 'DA'])
-    expect(plays(at('play-lead-common-002'))).toEqual(['DK', 'DK'])
-    expect(plays(at('play-lead-common-003'))).toEqual(['HA', 'HA'])
+    expect(plays(at('play-lead-common-001'))).toEqual(['DA', 'DA', 'DA'])
+    expect(plays(at('play-lead-common-002'))).toEqual(['DK', 'DK', 'DK'])
+    expect(plays(at('play-lead-common-003'))).toEqual(['HA', 'HA', 'HA'])
   })
 })
 
 describe('the first discard', () => {
   it('reads as the suit wanted when a card of a suit that costs the same does', () => {
-    expect(plays(at('play-discard-common-001'))).toEqual(['C3', 'C3'])
+    expect(plays(at('play-discard-common-001'))).toEqual(['C3', 'C3', 'C3'])
   })
 
   it('reads the way the club reads it', () => {
@@ -65,6 +72,6 @@ describe('the first discard', () => {
 
 describe('third hand', () => {
   it('overtakes partner’s jack from a doubleton KQ with the queen', () => {
-    expect(plays(at('play-third-common-001'))).toEqual(['CQ', 'CQ'])
+    expect(plays(at('play-third-common-001'))).toEqual(['CQ', 'CQ', 'CQ'])
   })
 })
