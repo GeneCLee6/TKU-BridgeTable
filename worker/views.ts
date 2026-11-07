@@ -912,7 +912,7 @@ export function challengeTraveller(
  */
 export function practiceView(table: Pick<Table, 'mode' | 'modeState' | 'board'>): { practice?: TablePractice } {
   if (table.mode !== 'practice') return {}
-  const { deal, conditions, robotKind, justDeclare, biddingOnly, seats, set, showHands, dealt, problems, review } =
+  const { deal, conditions, robotKind, justDeclare, biddingOnly, seats, set, showHands, dealt, problems, review, dealStuck } =
     table.modeState as PracticeTableState
   const index = problems?.length && dealt > 0 ? (dealt - 1) % problems.length : null
   const problem = index === null ? null : problems![index]
@@ -939,6 +939,8 @@ export function practiceView(table: Pick<Table, 'mode' | 'modeState' | 'board'>)
         },
       }),
       ...(reviewed && { review }),
+      // Only while nothing is being played: a board taken back to play on has no next board to wait for
+      ...(dealStuck && (!table.board || table.board.phase === 'finished') && { dealStuck }),
     },
   }
 }
