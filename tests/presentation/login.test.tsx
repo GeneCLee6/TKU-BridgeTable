@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { setClubFromPath } from '../../src/lib/club.ts'
 import { LoginPage } from '../../src/pages/LoginPage.tsx'
-import { AuthProvider } from '../../src/state/AuthContext.tsx'
+import { AuthProvider, useAuth } from '../../src/state/AuthContext.tsx'
 import { PreferencesProvider } from '../../src/state/PreferencesContext.tsx'
 
 /** Answers the API calls the page makes; records what was sent */
@@ -30,6 +30,26 @@ const page = () =>
   )
 
 afterEach(() => vi.unstubAllGlobals())
+
+describe('signing in, when /api/me is not answered by the Worker', () => {
+  function Shown() {
+    const { user } = useAuth()
+    return <p>{user === undefined ? 'loading' : user === null ? 'signed out' : user.username}</p>
+  }
+
+  it('a 200 that is not JSON does not leave the app on loading forever', async () => {
+    // What a Wi-Fi sign-in page, or anything else in front of the Worker, answers with
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('<!doctype html><html></html>', { status: 200, headers: { 'Content-Type': 'text/html' } })))
+    render(
+      <PreferencesProvider>
+        <AuthProvider>
+          <Shown />
+        </AuthProvider>
+      </PreferencesProvider>,
+    )
+    expect(await screen.findByText('signed out')).toBeInTheDocument()
+  })
+})
 
 describe('LoginPage', () => {
   it('links to the club application on 淡江’s sign-in page only (e12-t06)', () => {

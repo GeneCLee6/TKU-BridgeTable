@@ -250,7 +250,7 @@
 
 實際例子：1568×726 的視窗自己的牌約 88px 寬（原本 82px），叫牌表的字約 26px；1920×945（側欄開著）約 117px；1366×657（側欄開著）約 73px。
 
-**視覺回歸測試**（`tests/visual/`，`npm run test:visual`）：Playwright 在 Vite 開發伺服器上跑真的前端，API 與 WebSocket 由固定資料回答，截圖比對 `tests/visual/__screenshots__/` 的基準：牌桌叫牌中／打牌中／結果（桌機 1280、手機 390）、深色、平板橫向 1024×768 與直向 1024×1366、導覽第一步、大廳與登入頁。基準在 CI 的 Playwright 容器裡產生（字型才一致）；版面刻意改變時，CI 失敗會上傳新的基準，確認差異後提交（`playwright.config.ts` 開頭有說明）。
+**視覺回歸測試**（`tests/visual/`，`npm run test:visual`）：Playwright 在 Vite 開發伺服器上跑真的前端，API 與 WebSocket 由固定資料回答，截圖比對 `tests/visual/__screenshots__/` 的基準：牌桌叫牌中／打牌中／結果（桌機 1280、手機 390）、深色、平板橫向 1024×768 與直向 1024×1366、導覽第一步、大廳與登入頁。基準在 CI 的 Playwright 容器裡產生（字型才一致）；版面刻意改變時，CI 失敗會上傳新的基準，確認差異後提交（`playwright.config.ts` 開頭有說明）。同一個 CI job 也跑 `webkit` project（`tests/visual/webkit.smoke.ts`）：正式 build 加站上真的標頭，在 WebKit 上確認登入頁、大廳、牌桌、service worker、賽後分析打得開；不截圖、沒有基準，也不等於驗證過 Safari（ARCHITECTURE.md §5.1.1）。
 
 ## 6. Logo
 
