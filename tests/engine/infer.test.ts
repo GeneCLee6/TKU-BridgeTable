@@ -176,10 +176,10 @@ describe('narrow, full: every explanation tells all the player has shown (Z1)', 
 
   it('explains RKCB with what the asker had shown, and a later answer with the keycards shown', () => {
     const auction = auctionOf('1S P 3C P 3D P 4C P')
-    expect(words(explain(TKU, auction, 'N').get('4N')!, 'zh')).toBe('RKCB 1430：有 Slam 興趣，迫叫一圈\n已表示：5+ 張♠，14–21 大牌點')
-    expect(words(explain(TKU, auction, 'N').get('4N')!, 'en')).toBe('RKCB 1430: slam interest; forcing\nShown so far: 5+ ♠; 14–21 HCP')
+    expect(words(explain(TKU, auction, 'N').get('4N')!, 'zh')).toBe('RKCB 1430：有 Slam 興趣，Forcing one round\n已表示：5+ 張♠，14–21 大牌點')
+    expect(words(explain(TKU, auction, 'N').get('4N')!, 'en')).toBe('RKCB 1430: slam interest; Forcing one round\nShown so far: 5+ ♠; 14–21 HCP')
     // The call's own meaning alone, as partner reads it
-    expect(words(explain(TKU, auction, 'N', 'None', false).get('4N')!, 'zh')).toBe('RKCB 1430：有 Slam 興趣，迫叫一圈')
+    expect(words(explain(TKU, auction, 'N', 'None', false).get('4N')!, 'zh')).toBe('RKCB 1430：有 Slam 興趣，Forcing one round')
     expect(words(explain(TKU, auctionOf('1S P 3C P 3D P 4C P 4N P 5C P 5D P'), 'N').get('5S')!, 'zh')).toBe(
       '回答關鍵張：沒有 Trump Q\n已表示：4+ 張♠，1 張♣，10–11 大牌點，1 或 4 張關鍵張',
     )

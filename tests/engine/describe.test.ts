@@ -49,10 +49,10 @@ group('describe: what a call shows, in words', () => {
 
   it('names conventions and adds their notes', () => {
     const stayman: Spec = { name: 'stayman', hcp: [8, ANY], notes: [{ key: 'asksMajor' }], forcing: 'oneRound', artificial: true }
-    expect(describe(stayman, 'zh')).toBe('Stayman：詢問 4 張高花，8+ 大牌點，迫叫一圈')
-    expect(describe(stayman, 'en')).toBe('Stayman: asks for a 4-card major; 8+ HCP; forcing')
+    expect(describe(stayman, 'zh')).toBe('Stayman：詢問 4 張 Major，8+ 大牌點，Forcing one round')
+    expect(describe(stayman, 'en')).toBe('Stayman: asks for a 4-card major; 8+ HCP; Forcing one round')
     const transfer: Spec = { name: 'transfer', len: { H: [5, 13] }, notes: [{ key: 'transferTo', strain: 'H' }] }
-    expect(describe(transfer, 'zh')).toBe('轉換：轉到♥，5+ 張♥')
+    expect(describe(transfer, 'zh')).toBe('Jacoby Transfer：Transfer 到♥，5+ 張♥')
     const choice: Spec = { notes: [{ key: 'choiceOf', calls: ['3N', '4H'] }] }
     expect(describe(choice, 'en')).toBe('choice of 3NT or 4♥')
     const answer: Spec = { name: 'keycards', trump: 'S', keycards: [0, 3] }

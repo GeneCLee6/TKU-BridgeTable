@@ -106,7 +106,7 @@ describe('announcements', () => {
     const contract = { level: 3, strain: 'N' as const, doubled: 'X' as const, declarer: 'S' as Seat }
     const before = board({ phase: 'play', contract, dummy: 'N', turn: 'W' })
     const after = board({ ...before, phase: 'finished', turn: null, result: { declarerTricks: 7, scoreNS: -200, claimed: true } })
-    expect(announcements(before, after, ctx)).toEqual(['結果：倒 2 墩，南北 -200 分'])
+    expect(announcements(before, after, ctx)).toEqual(['結果：Down 2，南北 -200 分'])
 
     const undone = board({ auction: [{ seat: 'N', call: '1H' }], turn: 'E' })
     const back = board({ auction: [], turn: 'N' })

@@ -120,7 +120,7 @@ describe('openings (淡江制度)', () => {
     expect(bidOver(hand('4 KJ974 83 AQ852'), '')).toBe('2H')
     expect(bidOver(hand('QJ932 QJ432 K2 2'), '')).toBe('2H')
     expect(bidOver(hand('QJ985 7 KQ963 42'), '')).toBe('2S')
-    expect(robotCall('tku', hand('QJ985 7 KQ963 42'), 'N', [], 'N', 'None').alert).toBe('雙套：和一門低花，5+ 張♠，0–4 張♥，5–10 大牌點')
+    expect(robotCall('tku', hand('QJ985 7 KQ963 42'), 'N', [], 'N', 'None').alert).toBe('雙套：和一門 Minor，5+ 張♠，0–4 張♥，5–10 大牌點')
     expect(robotCall('tku', hand('4 KJ974 83 AQ852'), 'N', [], 'N', 'None').alert).toContain('和另一門 5 張以上的花色')
     // Not 5-4, not in fourth seat; a seven-card suit preempts
     expect(bidOver(hand('QJ985 7 KQ96 432'), '')).toBe('P')
@@ -366,7 +366,7 @@ describe('after 1♥ / 1♠', () => {
     expect(bidOver(hand('32 KQ4 AJ543 Q32'), '1S P')).toBe('2D')
     expect(bidOver(hand('KQ43 32 J54 Q432'), '1H P')).toBe('1S')
     // 2/1 is a game force; 4♥ to play with five trumps, a singleton and a weak hand
-    expect(robotCall('tku', hand('32 KQ4 AJ543 Q32'), 'S', [{ seat: 'N', call: '1S' }, { seat: 'E', call: 'P' }], 'N', 'None').alert).toContain('迫叫成局')
+    expect(robotCall('tku', hand('32 KQ4 AJ543 Q32'), 'S', [{ seat: 'N', call: '1S' }, { seat: 'E', call: 'P' }], 'N', 'None').alert).toContain('Game Forcing')
     expect(bidOver(hand('3 Q8432 K8432 32'), '1H P')).toBe('4H')
   })
 
@@ -440,7 +440,7 @@ describe('competitive bidding (競叫篇與技光、賭倍性叫品、CAPP)', ()
     expect(bidOver(hand('KQ8 A73 K84 KJ32'), '1D')).toBe('1N')
     // 16+ doubles first whatever the shape (強力型)
     expect(bidOver(hand('8 AKJ73 KQJ3 Q92'), '1S')).toBe('X')
-    expect(meaning('1C', '2C')).toMatch(/^Michaels 扣叫：兩門高花/)
+    expect(meaning('1C', '2C')).toMatch(/^Michaels Cuebid：兩門 Major/)
     expect(meaning('1D', '2S')).toMatch(/^Weak Jump Overcall/)
   })
 
@@ -462,7 +462,7 @@ describe('competitive bidding (競叫篇與技光、賭倍性叫品、CAPP)', ()
     expect(bidOver(hand('98 Q73 KJ84 A932'), '1D 1S P')).toBe('1N')
     expect(bidOver(hand('Q9842 73 84 9532'), '1D 1S P')).toBe('4S')
     expect(bidOver(hand('Q984 73 842 9532'), '1D 1S P')).toBe('3S')
-    expect(meaning('1D 1S P', '2D')).toMatch(/^扣叫：13\+ 大牌點，迫叫一圈/)
+    expect(meaning('1D 1S P', '2D')).toMatch(/^Cuebid：13\+ 大牌點，Forcing one round/)
     // The overcaller: minimum rebids the suit, more jumps, six cards and 12+ bid game
     expect(bidOver(hand('KQJ72 J4 83 Q962'), '1D 1S P 2D P')).toBe('2S')
     expect(bidOver(hand('AKQ72 J4 83 K962'), '1D 1S P 2D P')).toBe('3S')
@@ -545,7 +545,7 @@ describe('competitive bidding (競叫篇與技光、賭倍性叫品、CAPP)', ()
     expect(bidOver(hand('AQJ85 73 84 KQ93'), '1N')).toBe('2S')
     expect(bidOver(hand('K5 3 QJ984 KJ932'), '1N')).toBe('2N')
     expect(meaning('1N', '2C')).toMatch(/^Cappelletti：一門長套/)
-    expect(meaning('1N', '2D')).toMatch(/^Cappelletti：兩門高花/)
+    expect(meaning('1N', '2D')).toMatch(/^Cappelletti：兩門 Major/)
     // Advancing: relay to 2♦, the better major, pass or correct
     expect(bidOver(hand('T84 Q73 K843 932'), '1N 2C P')).toBe('2D')
     expect(bidOver(hand('9854 Q73 K843 92'), '1N 2D P')).toBe('2S')
@@ -581,13 +581,13 @@ describe('the club’s rules in the system engine', () => {
   })
 
   it('explain each call for the bidding box hints, in every language', () => {
-    expect(reads('1S P', '3C')).toBe('Bergen 加叫：4+ 張♠，10–11 大牌點')
-    expect(reads('1S P', '2N')).toBe('J2N：3+ 張♠，12+ 大牌點，迫叫成局')
-    expect(reads('1N P', '2D')).toBe('轉換：轉到♥，5+ 張♥')
-    expect(reads('1N P', '2C', 'en')).toBe('Stayman: holds a 4+ card major; asks for a 4-card major; 8+ HCP; forcing')
-    expect(reads('', '2D')).toBe('一高弱二：5–10 大牌點')
+    expect(reads('1S P', '3C')).toBe('Bergen Raise：4+ 張♠，10–11 大牌點')
+    expect(reads('1S P', '2N')).toBe('J2N：3+ 張♠，12+ 大牌點，Game Forcing')
+    expect(reads('1N P', '2D')).toBe('Jacoby Transfer：Transfer 到♥，5+ 張♥')
+    expect(reads('1N P', '2C', 'en')).toBe('Stayman: holds a 4+ card major; asks for a 4-card major; 8+ HCP; Forcing one round')
+    expect(reads('', '2D')).toBe('一門 Major 的弱二：5–10 大牌點')
     expect(reads('1H 2N', '3C')).toContain('對抗不尋常 2NT')
-    expect(reads('1H X 2H', 'X')).toBe('Responsive Double：兩門低花，6–11 大牌點')
+    expect(reads('1H X 2H', 'X')).toBe('Responsive Double：兩門 Minor，6–11 大牌點')
     expect(reads('1N P', 'P')).toBe('0–7 大牌點')
     // A call no rule makes means nothing in particular to the robot
     expect(reads('1N P', '5C')).toBeUndefined()
@@ -596,8 +596,8 @@ describe('the club’s rules in the system engine', () => {
   it('keep what each robot call shows, for the alert in each viewer’s language', () => {
     const bid = robotCall('tku', hand('KJ32 Q43 J54 A32'), 'S', [{ seat: 'N', call: '1S' }, { seat: 'E', call: 'P' }], 'N', 'None')
     expect(bid.call).toBe('3C')
-    expect(bid.alert).toBe('Bergen 加叫：4+ 張♠，10–11 大牌點')
-    expect(words(bid.meaning!, 'en')).toBe('Bergen raise: 4+ ♠; 10–11 HCP')
+    expect(bid.alert).toBe('Bergen Raise：4+ 張♠，10–11 大牌點')
+    expect(words(bid.meaning!, 'en')).toBe('Bergen Raise: 4+ ♠; 10–11 HCP')
   })
 
   it('read partner’s calls with the same rules in the later rounds', () => {

@@ -168,13 +168,13 @@ describe('after 1♣ / 1♦ (§2)', () => {
   })
 
   it('explains these calls the way GIB does', () => {
-    expect(meaning('1C P', '2C')).toBe('倒轉低花加叫：0–3 張♠，0–3 張♥，5+ 張♣，10+ 大牌點，迫叫一圈')
+    expect(meaning('1C P', '2C')).toBe('Inverted Minor Raise：0–3 張♠，0–3 張♥，5+ 張♣，10+ 大牌點，Forcing one round')
     expect(meaning('1C P', '1N')).toBe('0–3 張♠，0–3 張♥，6–10 大牌點')
     expect(meaning('1C P', 'P')).toBe('0–5 大牌點')
-    expect(meaning('1C P 1S P', '2D')).toBe('反序：4+ 張♦，5+ 張♣，17–21 大牌點，迫叫一圈')
-    expect(meaning('1C P 1H P 1N P', '2D')).toBe('新低花迫叫：11+ 大牌點，迫叫一圈')
-    expect(meaning('1C P 1D P 1H P', '1S')).toBe('第四花色迫叫：12+ 大牌點，迫叫成局')
-    expect(meaning('1C P 1S P 2D P', '2N')).toBe('雷本索：請同伴叫 3♣，6–8 大牌點，迫叫一圈')
+    expect(meaning('1C P 1S P', '2D')).toBe('反序：4+ 張♦，5+ 張♣，17–21 大牌點，Forcing one round')
+    expect(meaning('1C P 1H P 1N P', '2D')).toBe('New Minor Forcing：11+ 大牌點，Forcing one round')
+    expect(meaning('1C P 1D P 1H P', '1S')).toBe('Fourth Suit Forcing：12+ 大牌點，Game Forcing')
+    expect(meaning('1C P 1S P 2D P', '2N')).toBe('雷本索：請同伴叫 3♣，6–8 大牌點，Forcing one round')
   })
 })
 
@@ -247,13 +247,13 @@ describe('after 1♥ / 1♠ (§3)', () => {
   })
 
   it('explains these calls the way GIB does', () => {
-    expect(meaning('1S P', '2N')).toBe('Jacoby 2NT：4+ 張♠，13+ 總點，迫叫成局')
-    expect(meaning('1S P', '4C')).toBe('Splinter：♣單張或缺門，4+ 張♠，0–1 張♣，13–16 總點，迫叫成局')
+    expect(meaning('1S P', '2N')).toBe('Jacoby 2NT：4+ 張♠，13+ 總點，Game Forcing')
+    expect(meaning('1S P', '4C')).toBe('Splinter：♣單張或缺門，4+ 張♠，0–1 張♣，13–16 總點，Game Forcing')
     expect(meaning('1S P', '2S')).toBe('3+ 張♠，7–10 總點')
-    expect(meaning('1S P', '1N')).toBe('6–12 大牌點，迫叫一圈')
-    expect(meaning('1S P 2S P', '2N')).toBe('短門成局試探：某一門單張或缺門，16–18 總點，迫叫一圈')
-    expect(meaning('1H P 2H P', '2N')).toBe('長門成局試探：♠需要幫助，3+ 張♠，16–18 總點，迫叫一圈')
-    expect(meaning('P P 1S P', '2C')).toBe('Reverse Drury：3+ 張♠，11–12 總點，迫叫一圈')
+    expect(meaning('1S P', '1N')).toBe('6–12 大牌點，Forcing one round')
+    expect(meaning('1S P 2S P', '2N')).toBe('短門 Game 試探：某一門單張或缺門，16–18 總點，Forcing one round')
+    expect(meaning('1H P 2H P', '2N')).toBe('長門 Game 試探：♠需要幫助，3+ 張♠，16–18 總點，Forcing one round')
+    expect(meaning('P P 1S P', '2C')).toBe('Reverse Drury：3+ 張♠，11–12 總點，Forcing one round')
   })
 })
 
@@ -354,14 +354,14 @@ describe('after 1NT / 2NT (§4, §5)', () => {
   })
 
   it('explains these calls the way GIB does', () => {
-    expect(meaning('1N P', '2C')).toBe('Stayman：有 4 張以上的高花，詢問 4 張高花，8+ 大牌點，迫叫一圈')
-    expect(meaning('1N P', '2N')).toBe('沒有 4 張高花，邀請，0–3 張♠，0–3 張♥，8–9 大牌點')
-    expect(meaning('1N P', '2S')).toBe('轉換：轉到♣，6+ 張♣，迫叫一圈')
-    expect(meaning('1N P', '2D')).toBe('轉換：轉到♥，5+ 張♥，迫叫一圈')
+    expect(meaning('1N P', '2C')).toBe('Stayman：有 4 張以上的 Major，詢問 4 張 Major，8+ 大牌點，Forcing one round')
+    expect(meaning('1N P', '2N')).toBe('沒有 4 張 Major，Invitational，0–3 張♠，0–3 張♥，8–9 大牌點')
+    expect(meaning('1N P', '2S')).toBe('Jacoby Transfer：Transfer 到♣，6+ 張♣，Forcing one round')
+    expect(meaning('1N P', '2D')).toBe('Jacoby Transfer：Transfer 到♥，5+ 張♥，Forcing one round')
     expect(meaning('1N P', '4C')).toBe('Gerber')
     expect(meaning('1N P 2D P 2H P', '3N')).toBe('請同伴選 4♥ 或 3NT，5 張♥，10–15 大牌點')
-    expect(meaning('1N P 2C P 2D P', '3S')).toBe('Smolen：4 張♠，5 張♥，10+ 大牌點，迫叫成局')
-    expect(meaning('1N 2H', '2N')).toBe('雷本索：請同伴叫 3♣，迫叫一圈')
+    expect(meaning('1N P 2C P 2D P', '3S')).toBe('Smolen：4 張♠，5 張♥，10+ 大牌點，Game Forcing')
+    expect(meaning('1N 2H', '2N')).toBe('雷本索：請同伴叫 3♣，Forcing one round')
   })
 })
 
@@ -422,9 +422,9 @@ describe('the 2/1 audit: forcing calls and the notrump structure (ROBOT.md §6.7
   })
 
   it('explains these calls the way GIB does', () => {
-    expect(meaning('1N P', '4H')).toBe('Texas 轉換：轉到♠，6+ 張♠，10+ 大牌點，迫叫一圈')
+    expect(meaning('1N P', '4H')).toBe('Texas Transfer：Transfer 到♠，6+ 張♠，10+ 大牌點，Forcing one round')
     expect(meaning('1N P 2H P 2S P', '4S')).toBe('沒有單張或缺門，有 Slam 興趣，6+ 張♠，13–15 大牌點')
-    expect(meaning('1C P 1H P 1S P 2D P', '2H')).toBe('支持同伴的♥，3+ 張♥，迫叫成局')
+    expect(meaning('1C P 1H P 1S P 2D P', '2H')).toBe('支持同伴的♥，3+ 張♥，Game Forcing')
   })
 })
 
@@ -462,10 +462,10 @@ describe('after 2♣, weak twos and preempts (§6)', () => {
   })
 
   it('explains these calls the way GIB does', () => {
-    expect(meaning('2C P', '2D')).toBe('等待叫：迫叫一圈')
+    expect(meaning('2C P', '2D')).toBe('等待叫：Forcing one round')
     // GIB's own example: weak with four trumps or strong with two
     expect(meaning('2S P', '4S')).toBe('打這個 Contract，2+ 張♠，4+ 總點')
-    expect(meaning('2S P', '2N')).toBe('詢問特徵：15+ 大牌點，迫叫一圈')
+    expect(meaning('2S P', '2N')).toBe('詢問特徵：15+ 大牌點，Forcing one round')
     expect(meaning('2S P 2N P', '3H')).toBe('特徵：高限，♥有 A 或 K，8–10 大牌點')
   })
 })
@@ -544,13 +544,13 @@ describe('when the opponents open (§7)', () => {
   })
 
   it('explains these calls the way GIB does', () => {
-    expect(meaning('1C', '2C')).toBe('Michaels 扣叫：兩門高花，5+ 張♠，5+ 張♥，8+ 大牌點，迫叫一圈')
-    expect(meaning('1H', 'X')).toBe('Takeout Double：12+ 大牌點，迫叫一圈')
-    expect(meaning('1S', '2N')).toBe('不尋常 2NT：兩門低花，5+ 張♦，5+ 張♣，8–12 大牌點，迫叫一圈')
+    expect(meaning('1C', '2C')).toBe('Michaels Cuebid：兩門 Major，5+ 張♠，5+ 張♥，8+ 大牌點，Forcing one round')
+    expect(meaning('1H', 'X')).toBe('Takeout Double：12+ 大牌點，Forcing one round')
+    expect(meaning('1S', '2N')).toBe('不尋常 2NT：兩門 Minor，5+ 張♦，5+ 張♣，8–12 大牌點，Forcing one round')
     expect(meaning('1C', '2S')).toBe('Weak Jump Overcall：6+ 張♠，3–9 大牌點')
     expect(meaning('1C', '1S')).toBe('Overcall：5+ 張♠，8–17 大牌點，9–19 總點')
-    expect(meaning('1N', '2D')).toBe('Cappelletti：兩門高花，4+ 張♠，4+ 張♥，10–15 大牌點')
-    expect(meaning('1H X 2H', 'X')).toBe('Responsive Double：4+ 張♦，4+ 張♣，7+ 大牌點，迫叫一圈')
+    expect(meaning('1N', '2D')).toBe('Cappelletti：兩門 Major，4+ 張♠，4+ 張♥，10–15 大牌點')
+    expect(meaning('1H X 2H', 'X')).toBe('Responsive Double：4+ 張♦，4+ 張♣，7+ 大牌點，Forcing one round')
   })
 })
 
@@ -577,7 +577,7 @@ describe('when our opening is doubled or overcalled (§8)', () => {
     // The cheapest bid in a new suit over a two-level overcall: 5+ cards, 10+, forcing
     expect(bidOver('AK5 2 AKT8743 63', '1C 2H')).toBe('3D')
     expect(bidOver('AJ 32 K63 KJ9876', '1H 2D')).toBe('3C')
-    expect(meaning('1C 2H', '3D')).toBe('5+ 張♦，10+ 大牌點，迫叫一圈')
+    expect(meaning('1C 2H', '3D')).toBe('5+ 張♦，10+ 大牌點，Forcing one round')
     // 3NT with their suit stopped is 13+, not 13–15 (these passed)
     expect(bidOver('AJ92 A85 A93 AT8', '1D 2S')).toBe('3N')
     expect(bidOver('AKJ AJT8 K75 Q76', '1D 2H')).toBe('3N')
@@ -628,12 +628,12 @@ describe('when our opening is doubled or overcalled (§8)', () => {
   })
 
   it('explains these calls the way GIB does', () => {
-    expect(meaning('1C 1D', 'X')).toBe('Negative Double：4+ 張♠，4+ 張♥，6+ 大牌點，迫叫一圈')
-    expect(meaning('1D 1H', 'X')).toBe('Negative Double：4 張♠，6+ 大牌點，迫叫一圈')
-    expect(meaning('1H X', '2N')).toBe('Truscott 2NT：3+ 張♥，10+ 總點，迫叫一圈')
-    expect(meaning('1H 2N', '3C')).toBe('對抗不尋常 2NT：3+ 張♥，10+ 總點，迫叫一圈')
-    expect(meaning('1C P 1H 1S', 'X')).toBe('Support Double：2–3 張♥，迫叫一圈')
-    expect(meaning('1H 1S', '2S')).toBe('扣叫加叫：3+ 張♥，10+ 總點，迫叫一圈')
+    expect(meaning('1C 1D', 'X')).toBe('Negative Double：4+ 張♠，4+ 張♥，6+ 大牌點，Forcing one round')
+    expect(meaning('1D 1H', 'X')).toBe('Negative Double：4 張♠，6+ 大牌點，Forcing one round')
+    expect(meaning('1H X', '2N')).toBe('Truscott 2NT：3+ 張♥，10+ 總點，Forcing one round')
+    expect(meaning('1H 2N', '3C')).toBe('對抗不尋常 2NT：3+ 張♥，10+ 總點，Forcing one round')
+    expect(meaning('1C P 1H 1S', 'X')).toBe('Support Double：2–3 張♥，Forcing one round')
+    expect(meaning('1H 1S', '2S')).toBe('Cuebid Raise：3+ 張♥，10+ 總點，Forcing one round')
   })
 })
 
@@ -664,7 +664,7 @@ describe('Soloway jump shifts (§9)', () => {
   })
 
   it('explains the jump shift the way GIB does', () => {
-    expect(meaning('1C P', '2S')).toBe('Soloway 跳叫新花：♠ 可再叫，17+ 總點，4+ 控制，迫叫成局')
+    expect(meaning('1C P', '2S')).toBe('Soloway Jump Shift：♠ Rebiddable，17+ 總點，4+ 控制，Game Forcing')
   })
 })
 
@@ -703,10 +703,10 @@ describe('slams (§10)', () => {
   })
 
   it('explains these calls the way GIB does', () => {
-    expect(meaning(jacoby, '4N')).toBe('RKCB 0314：有 Slam 興趣，迫叫一圈')
+    expect(meaning(jacoby, '4N')).toBe('RKCB 0314：有 Slam 興趣，Forcing one round')
     expect(meaning(`${jacoby} 4N P`, '5C')).toBe('回答關鍵張：0 或 3 張關鍵張')
     expect(meaning(`${jacoby} 4N P`, '5H')).toBe('回答關鍵張：2 或 5 張關鍵張，沒有 Trump Q')
-    expect(meaning(`${jacoby} 4N P 5C P`, '5D')).toBe('詢問 Trump Q：迫叫一圈')
+    expect(meaning(`${jacoby} 4N P 5C P`, '5D')).toBe('詢問 Trump Q：Forcing one round')
     expect(meaning('1N P 4C P', '4D')).toBe('回答關鍵張：0 或 4 張 A')
   })
 })
@@ -749,7 +749,7 @@ describe('when no book covers the auction (§11)', () => {
 
   it('explains every bid it might make', () => {
     const calls = explain(FALLBACK_ONLY, auctionOf('1N P 2N P', 'N'), 'N')
-    expect(words(calls.get('3N')!, 'zh')).toMatch(/成局/)
+    expect(words(calls.get('3N')!, 'zh')).toMatch(/Game/)
     expect(words(calls.get('6N')!, 'zh')).toMatch(/Small Slam/)
   })
 })
@@ -812,8 +812,8 @@ describe('openings (§1)', () => {
     expect(meaning('', '1S', 'N', 'en')).toBe('5+ ♠; 11–21 HCP; 12–22 total points')
     expect(meaning('', '1C')).toBe('3+ 張♣，11–21 大牌點，12–22 總點')
     expect(meaning('', '1N')).toBe('15–17 大牌點，平均牌型')
-    expect(meaning('', '2C')).toBe('強 2♣：22+ 大牌點，迫叫一圈')
-    expect(meaning('', '2S')).toBe('弱二：6 張♠，♠ 可兩次再叫，5–10 大牌點')
+    expect(meaning('', '2C')).toBe('強 2♣：22+ 大牌點，Forcing one round')
+    expect(meaning('', '2S')).toBe('弱二：6 張♠，♠ Twice Rebiddable，5–10 大牌點')
     expect(meaning('', 'P')).toBe('0–11 大牌點')
     // A third-seat opening may be a point lighter
     expect(meaning('P P', '1S')).toBe('5+ 張♠，10–21 大牌點，11–22 總點')

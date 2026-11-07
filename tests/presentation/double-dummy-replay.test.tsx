@@ -95,15 +95,15 @@ describe('double-dummy mode in a replay', () => {
     await userEvent.click(toggle)
     expect(toggle).toHaveAttribute('aria-checked', 'true')
     // ♣A: declarer 12 tricks, one down, the defence's best; the rest let 7♦ make
-    expect(await screen.findByRole('button', { name: /Declarer 12 墩（倒 1 墩） · 最佳/ })).toBeEnabled()
+    expect(await screen.findByRole('button', { name: /Declarer 12 墩（Down 1） · 最佳/ })).toBeEnabled()
     expect(screen.getAllByRole('button', { name: /Declarer 13 墩（剛好做成）/ })).toHaveLength(12)
     // The colour says over or down: the number goes on the card without a sign, the words in the label and tooltip
     const marks = [...document.querySelectorAll('[data-dd-mark]')].map((m) => m.textContent)
     expect(marks.filter((m) => m === '1')).toHaveLength(1)
     expect(marks.filter((m) => m === '=')).toHaveLength(12)
     expect(marks.some((m) => /[+−-]/.test(m ?? ''))).toBe(false)
-    expect(screen.getByRole('button', { name: /Declarer 12 墩/ })).toHaveAttribute('title', expect.stringContaining('Declarer 12 墩（倒 1 墩）'))
-    expect(screen.getByText(/綠底的數字是超幾墩、紅底是倒幾墩，= 剛好做成/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Declarer 12 墩/ })).toHaveAttribute('title', expect.stringContaining('Declarer 12 墩（Down 1）'))
+    expect(screen.getByText(/綠底的數字是超幾墩、紅底是 Down 幾墩，= 剛好做成/)).toBeInTheDocument()
     expect(mocks.solve).toHaveBeenCalledWith(expect.objectContaining({ trump: 2, first: 3, currentTrickRank: [0, 0, 0] }))
 
     await userEvent.click(toggle)
@@ -156,7 +156,7 @@ describe('double-dummy mode in a replay', () => {
   it('marks card faces too', async () => {
     show('cards')
     await userEvent.click(screen.getByRole('switch', { name: 'Double Dummy 模式' }))
-    expect(await screen.findByRole('button', { name: /Declarer 12 墩（倒 1 墩） · 最佳/ })).toBeEnabled()
+    expect(await screen.findByRole('button', { name: /Declarer 12 墩（Down 1） · 最佳/ })).toBeEnabled()
     expect(document.querySelectorAll('[data-dd-mark]')).toHaveLength(13)
   })
 
