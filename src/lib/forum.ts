@@ -1,6 +1,7 @@
 import type {
   BoardPage,
   Comment,
+  CommentBlock,
   CommentInput,
   ForumFeed,
   ForumSearch,
@@ -11,6 +12,8 @@ import type {
   Post,
   PostInput,
   PostThread,
+  ReactionEmoji,
+  Reactions,
   Report,
   ReportDecision,
   ReportInput,
@@ -23,12 +26,14 @@ import { request } from './api.ts'
  * as BridgeHall's forum (`worker/forum.ts`), so both sites show the same posts. Only what the
  * table's pages use so far: reading boards, posts and comments; writing, editing (posts) and
  * deleting posts and comments (K2, the post editor); search, reports and hiding (K4); tags (AC-13.7);
- * drafts, scheduled posts and the home page's announcements (e13-t12).
+ * drafts, scheduled posts and the home page's announcements (e13-t12); reactions, pins and editing comments (AC-13.1).
  * Errors come back as `ApiError` with the server's code (404 `forumBoardGone`, `postGone`,
  * `commentGone`, `forumReportGone`; 403 `notYours`, `forumBoardOfficersOnly`, `forumScheduleOfficersOnly`;
  * 409 `postLocked`, `postNotPublished`, `forumReportHandled`, `forumReportLimit`, `forumDraftLimit`;
  * 429 `slowDown`; 400 `badContent`, `forumScheduleTime`).
  */
+
+type ForumTarget = 'post' | 'comment'
 
 const id = (value: string) => encodeURIComponent(value)
 const send = <T>(method: string, path: string, body?: unknown) =>
@@ -83,4 +88,15 @@ export const forumApi = {
     send<{ report: Report }>('POST', `/api/forum/reports/${id(reportId)}`, { action }).then((r) => r.report),
   /** Officers: hide a post from everyone but its author and the officers, or show it again; hiding closes its reports */
   hide: (postId: string, hidden: boolean) => send<{ post: Post }>('POST', `/api/forum/posts/${id(postId)}/hide`, { hidden }).then((r) => r.post),
+  /** Officers: pin a post above the board's others, or take it down (AC-13.1) */
+  pin: (postId: string, pinned: boolean) => send<{ post: Post }>('POST', `/api/forum/posts/${id(postId)}/pin`, { pinned }).then((r) => r.post),
+  /** My one reaction to a post or a comment (AC-13.1); another emoji replaces it. The target's reactions now */
+  react: (target: ForumTarget, targetId: string, emoji: ReactionEmoji) =>
+    send<{ reactions: Reactions }>('PUT', `/api/forum/${target}s/${id(targetId)}/reaction`, { emoji }).then((r) => r.reactions),
+  /** Takes my reaction back */
+  unreact: (target: ForumTarget, targetId: string) =>
+    send<{ reactions: Reactions }>('DELETE', `/api/forum/${target}s/${id(targetId)}/reaction`).then((r) => r.reactions),
+  /** Only its author: a comment's blocks (AC-13.1) */
+  updateComment: (commentId: string, blocks: CommentBlock[]) =>
+    send<{ comment: Comment }>('PATCH', `/api/forum/comments/${id(commentId)}`, { blocks }).then((r) => r.comment),
 }

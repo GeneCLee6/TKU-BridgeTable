@@ -105,7 +105,7 @@ const Empty = styled.p`
   font-size: 14px;
 `
 
-/** The topics a search can have: the one its filter asks for, else all four */
+/** The topics a search can have: the one its filter asks for, else all of them */
 const topicsFor = (query: HistoryQuery): HistoryMode[] => {
   const only = HISTORY_MODES.find((m) => m === query.mode)
   return only ? [only] : [...HISTORY_MODES]

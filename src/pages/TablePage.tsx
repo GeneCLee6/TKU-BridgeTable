@@ -1381,6 +1381,10 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
                 {t.challengeAllDone} <Link to="/">{t.navLobby}</Link>
               </Note>
             )}
+            {/* The conditions gave no next board (AC-10.1): say so, and say what the member can do about it */}
+            {practice?.dealStuck && (
+              <Note role="alert">{me ? t.dealStuck(practice.biddingOnly ? t.nextBoard : t.redeal) : t.dealStuckWatching}</Note>
+            )}
             {practice && me && (
               <>
                 {practice.biddingOnly ? (
@@ -1399,7 +1403,7 @@ function TableScreen({ table, send }: { table: TableView; send: ReturnType<typeo
                     </FeltButton>
                   </>
                 ) : (
-                  <FeltButton type="button" $tone="plain" title={t.redealHint} onClick={() => send({ type: 'redeal' })}>
+                  <FeltButton type="button" $tone={practice.dealStuck ? 'go' : 'plain'} title={t.redealHint} onClick={() => send({ type: 'redeal' })}>
                     {t.redeal}
                   </FeltButton>
                 )}

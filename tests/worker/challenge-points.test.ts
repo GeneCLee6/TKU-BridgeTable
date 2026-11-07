@@ -184,6 +184,55 @@ describe('points from a finished challenge (e9-t05)', () => {
   })
 })
 
+describe('points from the daily event (AC-9.2)', () => {
+  /** The day's event, Amy and Ben accepting it and each playing all its boards, Amy ahead on every one; run to its deadline */
+  async function playDaily() {
+    const amy = await member('amy')
+    const ben = await member('ben')
+    await club.adminSetDailyEvent(boss, { enabled: true })
+    // 2026-11-10 08:00 in Taiwan: the next midnight is 16 hours on
+    time += 16 * 3_600_000
+    const due = queue.filter((job) => job.kind === 'daily')
+    queue = queue.filter((job) => job.kind !== 'daily')
+    for (const job of due) job.run()
+    await tick(10)
+    const { id, boards } = club.dailyEvent(amy).today!
+    for (const userId of [amy, ben]) {
+      await send(userId, { type: 'answerChallenge', challengeId: id, accept: true })
+      for (let seq = 1; seq <= boards; seq++)
+        writeChallenge(club, id, (s) =>
+          s.addResult(id, { userId, seq, boardId: `b-${id}-${userId}-${seq}`, scoreNS: userId === amy ? 420 : 100, playedAt: time }),
+        )
+    }
+    await toDeadline(id)
+    return { id, amy, ben }
+  }
+
+  it('goes by the daily rule, not the challenge rule, and each entry traces back to the day’s event', async () => {
+    const { id, amy, ben } = await playDaily()
+    // The daily rule: 1 for taking part + 1 per player beaten, two needed. The same two in a
+    // challenge get nothing (its rule needs three, 'a head-to-head challenge gives no points')
+    expect(board()).toEqual([
+      ['amy', 1, 2, 1],
+      ['ben', 2, 1, 1],
+    ])
+    const entries = (userId: string) => club.rankings.memberLedger(boss, new URLSearchParams({ month: taiwanMonth(time), user: userId }))
+    const at = club.challenges.get(id)!.deadline - 1
+    expect(entries(amy)).toEqual([{ eventId: id, kind: 'daily', at, rank: 1, field: 2, base: 2, points: 2, adjustments: [] }])
+    expect(entries(ben)).toEqual([{ eventId: id, kind: 'daily', at, rank: 2, field: 2, base: 1, points: 1, adjustments: [] }])
+  })
+
+  it('takes the rule an admin set for daily events, and that rule only for them', async () => {
+    await club.rankings.adminSetRules(boss, { kinds: { daily: { participation: 5 } } })
+    expect(club.rankings.pointsRules.kinds.challenge.participation).toBe(0)
+    await playDaily()
+    expect(board()).toEqual([
+      ['amy', 1, 6, 1],
+      ['ben', 2, 5, 1],
+    ])
+  })
+})
+
 describe('who sees the boards and ratings (flag, 不公開)', () => {
   it('members need the rankings flag; admins reach the page to set the rules first', async () => {
     const ben = await member('ben')

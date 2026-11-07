@@ -625,6 +625,7 @@ interface BoardState {
 - **誰可以觀看**（四種進入方式，§5「牌桌設定」）：練習桌也用 `access`，只是「加入」只有觀看。**預設隱藏**：練習是自己的事，不該一開就出現在大廳讓人圍觀；想讓教練或朋友看就從牌桌的設定按鈕（只問進入方式與邀請名單，`TableSettingsDialog` 的 `practice`）邀請他們，或改成公開、申請加入。`updateTableSettings` 在練習桌只接受 `access`（與 `invitees`），帶 `allowKibitz`、`boardMinutes` 回 `practiceTableFixed`；`allowKibitz` 固定允許、不限時。觀看者看到的跟一般牌桌的觀看者一樣（四家，§4），不能叫牌、出牌、重發；大廳卡片標「練習桌」（`TableSummary.practice`）。
 - **發牌**（`worker/modes.ts` 的 `practice`）：有條件時每副都由南家發牌（牌號 3、7、11、15…，局況輪流），隨機時照一般牌桌輪流。條件發牌用 `quickRandom`（每副用 CSPRNG 取一次種子的 mulberry32）：CSPRNG 每次嘗試約 1 ms，條件發牌要很多次嘗試，免費方案的 CPU 不夠；快速版每次約 10 µs，最難的滿貫牌平均約 350 次。
 - **隨時重發**（`redeal`，牌桌動作，只有練習桌的主人、要有座位）：這一副不管打到哪裡直接丟掉（不留紀錄、`boardsPlayed` 不變），立刻發下一副；這次抽不到時牌留著、回 `dealTooStrict`；不是練習桌回 `practiceOnly`。
+- **抽不到下一副**（AC-10.1）：開桌前的檢查只抽過一次，之後每一副還是可能在 `PRACTICE_MAX_ATTEMPTS` 內抽不到。一副打完或結束（或第一副就沒發出來）而下一副抽不到時，`TableService.dealBoard` 在 `PracticeTableState` 記 `dealStuck`，隨牌桌存檔，`TablePractice.dealStuck` 送給桌上每個人（一個布林值，沒有牌的資訊）；桌子不再倒數，也不會自己重試（每次嘗試都用掉請求的 CPU），由社員決定。牌桌右下角顯示原因：社員看到「按『重發』（只叫牌時是『下一副』）再抽一次，或結束練習、放寬條件再開一桌」，觀看者看到「等房主處理」。練習條件不能在牌桌上改（`practiceTableFixed`），所以放寬要重開一桌。下一副發出來或 `rebid` 就清掉；打到一半按重發失敗只回 `dealTooStrict`，不算卡住。`tests/worker/practice-stuck.test.ts`。
 - **撤回不限**：練習桌的撤回跟一般牌桌一樣（機器人一律同意），沒有次數限制；挑戰桌才不能撤回。
 - **叫牌練習室（一）：只叫牌、一人控制多家**（`e10-t15`，ROADMAP U2a）：`PracticeSettings.biddingOnly` 與 `seats`（社員替哪幾家叫，一定有南；南以外只在 `biddingOnly` 時可以，現在沒有人同時打好幾手牌；`biddingOnly` 不能和 `justDeclare` 一起，錯了是 `badPracticeSettings { field: 'biddingOnly' | 'seats' }`）。
   - **座位控制權（通用）**：`Table.controllers: Partial<Record<Seat, userId>>`，「替這個座位叫牌的人」，沒列的座位就是坐在那裡的人（`views.ts` 的 `actorOf`）。座位上仍是原本的佔位者（練習桌是 TKB），所以座位、`fixedSeats`、代打、`swapForDeclarer`、大廳顯示都不用改；機器人輪到一個被控制的座位就不動（`robotMove` 的 `robotActs`），但撤回與攤牌照樣由坐著的機器人回答。之所以不把社員的 id 同時放進好幾個座位：`seatOf`、代打、入座離座、紀錄的 `players` 都假設一個人一個座位，改那個模型會動到每一種牌桌；控制權另外一張表，之後搭檔非同步叫牌（`e10-t08`，搭檔控制北）與教學桌（`e10-t10`，老師控制任一家）只要設這張表。
@@ -1047,7 +1048,8 @@ E13 的 PRD 原本寫「貼文與留言進 D1」。現況是社團 Durable Objec
 - 作者名稱用大廳的社員列表（`lobby.members`，顯示名稱優先）；已不是社員的顯示「已離開的社員」。
 - 區塊由 `ForumBlocks` 畫：段落、提示、條列照文字（花色符號上色，`SuitText`）；一手牌用文字牌型；**四手牌用紀錄頁的 `RecordDiagram`**（K2，`ForumDeal`：`shared/forum-editor.ts` 的 `dealRecord` 把 `ForumDeal` 轉成沒有牌號、沒有玩家的紀錄，`anonymous` 讓四家顯示方位而不是名字，`BoardInfo` 不寫牌號）；叫牌過程用紀錄頁的 `AuctionBox`；圖片（`e13-t13`）用 `POST /api/files/urls` 拿簽名網址直接顯示、點了開原圖，拿不到的（刪了或貼文被隱藏）顯示「圖片已刪除」；橋館制度、牌桌紀錄是連結。
 - **發文在牌桌站內**（K2）：頁面上的「發文」開牌桌的 `/forum/new`。通知鈴鐺的論壇通知：有 `forum` 旗標的社員連牌桌的貼文，沒有的照舊連橋館（K3 `e13-t09`）。
-- 檢舉、隱藏、搜尋在 K4 做了（見下面「檢舉、隱藏與搜尋」）；反應還沒排批次。編輯與刪除貼文在 K2 做了。
+- 檢舉、隱藏、搜尋在 K4 做了（見下面「檢舉、隱藏與搜尋」）。編輯與刪除貼文在 K2 做了。
+- **按讚、置頂、編輯留言**（AC-13.1）：後端本來就有，牌桌頁面接上，API 沒變，橋館不受影響。貼文與每則留言下面有五種反應的按鈕（`ReactionBar`，`PUT`／`DELETE /api/forum/{posts|comments}/:id/reaction`）：按另一種是換掉，按同一種是收回；伺服器回傳現在的反應，滑過按鈕看到是誰按的。幹部在貼文頁看到「設為置頂／取消置頂」（`POST /api/forum/posts/:id/pin { pinned }`，`useOfficer` 只決定顯示，權限在 `forumRouteNeed`）。作者在自己的留言看到「編輯留言」（`PATCH /api/forum/comments/:id`）：只改文字，留言裡的叫牌過程或牌留著；幹部不能改別人的留言（`notYours`）。草稿與排程中的貼文都沒有這些按鈕。
 
 ### 發文編輯器（K2：`e13-t04`、`e13-t05`、`e13-t06`）
 
@@ -1334,6 +1336,8 @@ AC-9.2（社團積分：依名次給分、月榜年榜、規則可設定、每�
 - 每個變更是一個 `PairsStep`，在社團先用副本跑一次同一個純函式（`applyPairsStep`，錯誤照樣丟），再交給正本跑一次，正本的回答（`PairsSnapshot`：整場＋`rev`）寫回副本（只寫比較新的）。物件說沒有這場時拿副本給它 `adoptPairs` 再送一次；物件的變更 5 秒後再回報一次（`pairsChanged`，回答丟了的時候補）。一副的結果送不到時錯誤傳回牌桌，沿用牌桌的 `outbox` 重送。
 - **開關關著時**：新的雙人賽都在社團的物件裡，行為完全一樣（測試兩種模式都跑）。**跟挑戰、隊制賽不同，不做搬移與退回**：雙人賽是新的，沒有舊資料要搬；開關從開改成關時，已經在物件裡的那幾場繼續從物件存取（`ClubConfig.pairsObjects` 一直都接著），新的才在社團。沒有自己的期限工作，所以物件只在社團呼叫時變。
 - 需要 workerd 才能測的只有接線（`event-object.ts` 的 `adoptPairs`／`stepPairs`、`Club.pairsChanged`）：PR 預覽與 staging 已經是開的。
+
+**紀錄的模式篩選**：紀錄頁與側欄的「模式」多了「雙人賽／個人賽」（`HISTORY_MODES` 的 `pairs`）。個人賽的紀錄也是 `mode: 'pairs'`，所以兩種放在同一個選項；每日賽、每週挑戰的紀錄是 `challenge`；教學桌不留紀錄，沒有選項。可見性跟其他紀錄一樣（`revealAt`，§4），集中回歸在 `tests/worker/visibility/`。
 
 ## 5.23 比賽的裁判工具（決策紀錄，`e9-t17`，AC-9.8，2026-11-03）
 
