@@ -4,14 +4,17 @@
  *
  * Simulated members against a local `wrangler dev`, staging or a PR preview, never production
  * (docs/LOAD.md). Accounts are `load001`… made through the admin API by the site's first account
- * (`--admin`, default `admin`, registered when the site is empty). The password and invite code
- * come from LOAD_PASSWORD and LOAD_INVITE_CODE (kept out of the shell history). A remote run is
- * refused when its estimate is over 15% of any of the free plan's daily allowances (budget.ts)
+ * (`--admin`, default `admin`, registered when the site is empty). Two-step sign-in is turned on
+ * for that and off again (admin-access.ts); when a person has it on, LOAD_TOTP_SECRET is the
+ * admin's. The password and invite code come from LOAD_PASSWORD and LOAD_INVITE_CODE (kept out of
+ * the shell history). A remote run is refused when its estimate is over 15% of any of the free
+ * plan's daily allowances (budget.ts)
  */
 import { writeFileSync } from 'node:fs'
 import { parseArgs } from 'node:util'
 import type { Seat } from '../../shared/cards.ts'
 import { LIMITS } from '../../shared/protocol.ts'
+import { adminAccess } from '../admin-access.ts'
 import { checkTarget } from '../seed.ts'
 import { describe, estimate, measured, RUN_SHARE, worstShare, type Plan } from './budget.ts'
 import { SimUser } from './client.ts'
@@ -92,14 +95,24 @@ async function pool<T>(items: T[], width: number, work: (item: T, index: number)
 const admin = new SimUser(values.admin, password, site)
 const founded = await admin.http<{ code?: string }>('POST', '/api/register', { username: values.admin, password, inviteCode: process.env.LOAD_INVITE_CODE ?? '' }, 'register')
 if (founded.status === 202) throw new Error(`${values.admin} is not the site's first account: pass the admin's name with --admin`)
-await admin.login()
+const access = await adminAccess((path, body) => admin.http('POST', path, body, 'adminAccess'), {
+  username: values.admin,
+  password,
+  totpSecret: process.env.LOAD_TOTP_SECRET || undefined,
+})
+if (!access) throw new Error(`${values.admin} has two-step sign-in on: set LOAD_TOTP_SECRET to add members (docs/LOAD.md §7)`)
+admin.id = access.userId
 const names = Array.from({ length: plan.users - 1 }, (_, i) => `${values.prefix}${String(i + 1).padStart(3, '0')}`)
 let created = 0
-await pool(names, 4, async (username) => {
-  const { status, data } = await admin.http<{ code?: string }>('POST', '/api/admin/users', { username, password }, 'createUser')
-  if (status === 200) created++
-  else if (data.code !== 'usernameTaken') throw new Error(`Adding ${username}: ${status} ${data.code ?? ''}`)
-})
+try {
+  await pool(names, 4, async (username) => {
+    const { status, data } = await admin.http<{ code?: string }>('POST', '/api/admin/users', { username, password }, 'createUser')
+    if (status === 200) created++
+    else if (data.code !== 'usernameTaken') throw new Error(`Adding ${username}: ${status} ${data.code ?? ''}`)
+  })
+} finally {
+  await access.release()
+}
 log(`accounts: ${created} created, ${names.length - created} already there`)
 const users = [admin, ...names.map((name) => new SimUser(name, password, site))]
 await pool(users.slice(1), 8, (user) => user.login())

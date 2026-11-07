@@ -2,7 +2,10 @@
  * Test data for staging and PR previews (DEPLOY.md §2.1): the founding admin, a handful of members
  * and one application waiting for approval, created through the public API like a person would.
  * Safe to run again: accounts that already exist are left alone. Never runs against production.
+ * Adding members takes an admin with two-step sign-in on: `adminAccess` turns it on for the run and
+ * off again, and leaves it alone when someone has turned it on themselves.
  */
+import { adminAccess, type AdminPost } from './admin-access.ts'
 
 export const PRODUCTION_HOST = 'tku-bridge-table.genelee-pro.workers.dev'
 
@@ -16,9 +19,17 @@ export type SeedOptions = {
   /** How many members besides the admin (default 8) */
   members?: number
   admin?: string
+  /** The admin's TOTP secret, when someone turned two-step sign-in on and members are still missing */
+  totpSecret?: string
 }
 
-export type SeedResult = { created: string[]; existing: string[]; pending: string[] }
+export type SeedResult = {
+  created: string[]
+  existing: string[]
+  pending: string[]
+  /** How the run left the admin: 'off' signs in with the password alone, 'on' also takes a code */
+  adminTwoFactor: 'on' | 'off'
+}
 
 type Fetch = (input: string, init?: RequestInit) => Promise<Response>
 
@@ -44,7 +55,7 @@ export async function seed(options: SeedOptions, fetcher: Fetch = fetch): Promis
   const origin = checkTarget(options.url)
   const admin = options.admin ?? 'admin'
   const { password, inviteCode } = options
-  const result: SeedResult = { created: [], existing: [], pending: [] }
+  const result: SeedResult = { created: [], existing: [], pending: [], adminTwoFactor: 'on' }
 
   const call = async (path: string, body: unknown, cookie?: string) => {
     const response = await fetcher(`${origin}${path}`, {
@@ -66,16 +77,36 @@ export async function seed(options: SeedOptions, fetcher: Fetch = fetch): Promis
     throw new Error(`${admin} was sent as an application: this site already has an admin, so seed it with that account (--admin)`)
   else throw fail(`Registering ${admin}`, founder.data, founder.response.status)
 
-  const login = await call('/api/login', { username: admin, password })
-  if (!login.response.ok) throw fail(`Signing in as ${admin}`, login.data, login.response.status)
-  const cookie = (login.response.headers.get('set-cookie') ?? '').split(';')[0]
-
-  for (let i = 1; i <= (options.members ?? 8); i++) {
-    const username = `${SEED_PREFIX}${i}`
-    const added = await call('/api/admin/users', { username, password }, cookie)
-    if (added.response.ok) result.created.push(username)
-    else if (added.data.code === 'usernameTaken') result.existing.push(username)
-    else throw fail(`Adding ${username}`, added.data, added.response.status)
+  let cookie = ''
+  const post: AdminPost = async (path, body) => {
+    const { response, data } = await call(path, body, cookie)
+    if (path === '/api/login' && response.ok) cookie = (response.headers.get('set-cookie') ?? '').split(';')[0]
+    return { status: response.status, data }
+  }
+  const memberNames = Array.from({ length: options.members ?? 8 }, (_, i) => `${SEED_PREFIX}${i + 1}`)
+  const access = await adminAccess(post, { username: admin, password, totpSecret: options.totpSecret })
+  if (access) {
+    try {
+      for (const username of memberNames) {
+        const added = await call('/api/admin/users', { username, password }, cookie)
+        if (added.response.ok) result.created.push(username)
+        else if (added.data.code === 'usernameTaken') result.existing.push(username)
+        else throw fail(`Adding ${username}`, added.data, added.response.status)
+      }
+    } finally {
+      await access.release()
+    }
+    if (access.turnedOn) result.adminTwoFactor = 'off'
+  } else {
+    // Two-step sign-in is on and the secret is not here. Nothing to do if the members are already
+    // there (a person using the site, a later push); stops at the first one that is not, since
+    // each miss counts against this address's failed sign-ins
+    for (const username of memberNames) {
+      const member = await call('/api/login', { username, password })
+      if (!member.response.ok)
+        throw new Error(`${admin} has two-step sign-in on, so ${username} cannot be added (sign-in answered ${member.response.status} ${member.data.code ?? ''}): set SEED_TOTP_SECRET (DEPLOY.md §2.1)`)
+      result.existing.push(username)
+    }
   }
 
   // One application for the admin page's approval queue

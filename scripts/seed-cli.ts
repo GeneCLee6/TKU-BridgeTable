@@ -1,8 +1,10 @@
 /**
  * npm run seed -- --url <staging or preview site> [--members 8] [--admin admin]
  * The password and invite code come from SEED_PASSWORD and SEED_INVITE_CODE (kept out of the shell
- * history and the Actions log). DEPLOY.md §2.1.
+ * history and the Actions log), and SEED_TOTP_SECRET is the admin's when a person has turned
+ * two-step sign-in on and members are missing. DEPLOY.md §2.1.
  */
+import { appendFileSync } from 'node:fs'
 import { parseArgs } from 'node:util'
 import { seed } from './seed.ts'
 
@@ -27,10 +29,14 @@ try {
     inviteCode: process.env.SEED_INVITE_CODE ?? '',
     members: Number(values.members),
     admin: values.admin,
+    totpSecret: process.env.SEED_TOTP_SECRET || undefined,
   })
   console.log(`Created: ${result.created.join(', ') || '(none)'}`)
   console.log(`Already there: ${result.existing.join(', ') || '(none)'}`)
   console.log(`Waiting for approval: ${result.pending.join(', ') || '(none)'}`)
+  console.log(`${values.admin}'s two-step sign-in: ${result.adminTwoFactor}`)
+  // For the pull request comment (preview.yml)
+  if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `admin_two_factor=${result.adminTwoFactor}\n`)
 } catch (error) {
   console.error(error instanceof Error ? error.message : error)
   process.exit(1)
