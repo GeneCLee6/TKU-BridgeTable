@@ -88,6 +88,8 @@ export interface PuzzleDeps {
   now: () => number
   audit: AuditLog
   takeAction: (id: string) => boolean
+  /** A member solved a puzzle for the first time (e12-t17) */
+  solved?: () => void
   /** The puzzles in the code; tests give their own */
   puzzles?: readonly Puzzle[]
 }
@@ -223,6 +225,7 @@ export class PuzzleService {
         }
       : { ...progress, status: 'failed', wrong: card, failures: progress.failures + 1, updatedAt: now }
     this.save(userId, next)
+    if (counts && progress.solvedAt === null) this.deps.solved?.()
     return puzzleView(puzzle, next)
   }
 

@@ -42,6 +42,12 @@ const PATH_MAX = 200
 const QUERY_MAX = 50
 const DAY_MS = 86_400_000
 
+/** The club's switch for counting usage; product-metrics.ts (e12-t17) follows the same one */
+export const TELEMETRY_SETTINGS_SCHEMA = `CREATE TABLE IF NOT EXISTS book_telemetry_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  ) WITHOUT ROWID`
+
 const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS book_errors (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -68,10 +74,7 @@ const SCHEMA = [
     visitor TEXT NOT NULL,
     PRIMARY KEY (week, visitor)
   ) WITHOUT ROWID`,
-  `CREATE TABLE IF NOT EXISTS book_telemetry_settings (
-    key TEXT PRIMARY KEY,
-    value TEXT NOT NULL
-  ) WITHOUT ROWID`,
+  TELEMETRY_SETTINGS_SCHEMA,
 ]
 
 /** The tables this module keeps; none of them is backed up */
@@ -86,6 +89,21 @@ type ErrorReport = Omit<BookClientError, 'id' | 'at' | 'count'>
 
 /** `book_metrics.type` for each kind of count */
 type MetricType = 'page' | 'convention' | 'search' | 'profile' | 'quiz'
+
+export function analyticsEnabled(sql: Sql): boolean {
+  const row = sql.exec<{ value: string }>("SELECT value FROM book_telemetry_settings WHERE key = 'analytics'")[0]
+  return row?.value !== 'off'
+}
+
+/** False when the body is not `{ enabled: boolean }` */
+export function setAnalyticsEnabled(sql: Sql, body: unknown): boolean {
+  if (!isRecord(body) || typeof body.enabled !== 'boolean') return false
+  sql.exec(
+    "INSERT INTO book_telemetry_settings (key, value) VALUES ('analytics', ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+    body.enabled ? 'on' : 'off',
+  )
+  return true
+}
 
 /** UTC day, YYYY-MM-DD */
 export const dayOf = (ms: number) => new Date(ms).toISOString().slice(0, 10)
@@ -281,18 +299,12 @@ export class BookTelemetry {
   }
 
   enabled(): boolean {
-    const row = this.sql.exec<{ value: string }>("SELECT value FROM book_telemetry_settings WHERE key = 'analytics'")[0]
-    return row?.value !== 'off'
+    return analyticsEnabled(this.sql)
   }
 
   /** `PUT /api/book/analytics/settings` (admins'); false when the body is not `{ enabled: boolean }` */
   setEnabled(body: unknown): boolean {
-    if (!isRecord(body) || typeof body.enabled !== 'boolean') return false
-    this.sql.exec(
-      "INSERT INTO book_telemetry_settings (key, value) VALUES ('analytics', ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value",
-      body.enabled ? 'on' : 'off',
-    )
-    return true
+    return setAnalyticsEnabled(this.sql, body)
   }
 
   /**

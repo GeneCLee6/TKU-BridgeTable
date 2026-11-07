@@ -1323,6 +1323,7 @@ export class Club extends DurableObject<Env> implements Connections {
     if (request.method === 'GET' && sessionBoards) {
       const records = await this.service.session(sessionBoards[1], user.id)
       if (!records) throw new ClubError('boardGone', {}, 404)
+      this.service.countFeature('postGameAnalysis')
       return json({ records })
     }
     // A board's whole session at its table as one LIN file (e4-t37)
@@ -1641,6 +1642,9 @@ export class Club extends DurableObject<Env> implements Connections {
     // The anti-cheating report (e11-t25): admins only, checked again in the service
     if (method === 'GET' && path === '/integrity')
       return json({ report: await this.service.adminIntegrityReport(user.id, url.searchParams.get('days')) })
+    // How much the site is used (e12-t17): admins only, checked again in the service
+    if (method === 'GET' && path === '/product-metrics') return json(await this.service.adminProductMetrics(user.id))
+    if (method === 'PUT' && path === '/product-metrics/settings') return json(await this.service.adminSetProductMetrics(user.id, await body()))
     // Feature flags (e11-t26): the club's state of each and the members who get it anyway
     if (method === 'GET' && path === '/features') return json({ features: this.service.adminFeatures() })
     if (method === 'POST' && path === '/features') return json({ features: await this.service.adminSetFeature(await body()) })
@@ -1960,6 +1964,8 @@ export class Club extends DurableObject<Env> implements Connections {
     if (path === '/analytics') return json(this.telemetry.view())
     if (path === '/analytics/settings') {
       if (!this.telemetry.setEnabled(await body())) throw new ClubError('badMessage')
+      // The same switch stops the table site's counts (e12-t17)
+      this.service.analyticsSwitched()
       return json(this.telemetry.view())
     }
 

@@ -29,6 +29,7 @@ import type {
   FavoritesPage,
   FavoriteTag,
   HealthStatus,
+  ProductMetricsView,
   HistoryDays,
   HistoryPage,
   Me,
@@ -474,6 +475,11 @@ export const api = {
     clearTwoFactor: (id: string) => request<{ ok: true }>(`/api/admin/users/${id}/2fa`, { method: 'DELETE' }),
     settings: () => request<{ settings: ClubSettings }>('/api/admin/settings'),
     saveSettings: (settings: Partial<ClubSettings>) => post<{ settings: ClubSettings }>('/api/admin/settings', settings),
+    /** How much the site is used (e12-t17), with what is too small to show already hidden */
+    productMetrics: () => request<ProductMetricsView>('/api/admin/product-metrics'),
+    /** The club's one switch for counting usage, on both sites */
+    setProductMetrics: (enabled: boolean) =>
+      request<ProductMetricsView>('/api/admin/product-metrics/settings', { method: 'PUT', body: JSON.stringify({ enabled }) }),
     /** The feature flags (e11-t26): the club's state of each and the members who get it anyway */
     features: () => request<{ features: FeatureView[] }>('/api/admin/features'),
     /** `state: null` follows the site-wide default again */

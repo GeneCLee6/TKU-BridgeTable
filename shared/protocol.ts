@@ -1852,3 +1852,57 @@ export interface BookAnalyticsView {
   /** Last 28 days */
   quiz: { answered: number; correct: number }
 }
+
+// How much the site is used, for the club's admins (e12-t17, worker/product-metrics.ts,
+// ARCHITECTURE.md §5.27): counts only, nothing about who
+
+/** A number of people or uses below this is not given to anyone: it comes as null */
+export const PRODUCT_METRIC_MIN = 5
+
+/** What is counted: a closed list, each counted in a request that was happening anyway */
+export const PRODUCT_FEATURES = [
+  ...ROBOT_KINDS.map((kind) => `robotBoard:${kind}` as const),
+  'challengeCreated',
+  'teamMatchStarted',
+  'partnerBidding',
+  'puzzleSolved',
+  'postGameAnalysis',
+  'boardImport',
+  'teachingTable',
+] as const
+export type ProductFeature = (typeof PRODUCT_FEATURES)[number]
+
+/** Monday (UTC) of a week; the numbers are null when below PRODUCT_METRIC_MIN */
+export interface ProductWeek {
+  week: string
+  active: number | null
+  tables: number | null
+  boards: number | null
+  boardsPerTable: number | null
+}
+
+export interface ProductRetentionRow {
+  /** The Monday of the week its members signed up; null for everyone from before the table and from signup weeks too small to show */
+  cohort: string | null
+  size: number | null
+  /** The weeks since then; `active` is null when hidden, and a hidden cell may be any number */
+  cells: { week: string; active: number | null }[]
+}
+
+export interface ProductMetricsView {
+  /** Whether the club is counting: the switch shared with BridgeHall */
+  enabled: boolean
+  minCount: number
+  /** The first day with any count (UTC) */
+  since: string | null
+  /** The last 28 days, today last and still under way */
+  days: { day: string; active: number | null }[]
+  /** The last twelve weeks, this week last and still under way */
+  weeks: ProductWeek[]
+  /** Boards per table over the last four weeks */
+  boardsPerTable: number | null
+  /** Finished weeks only */
+  retention: { weeks: string[]; rows: ProductRetentionRow[] }
+  /** The last 28 days, most used first */
+  features: { key: ProductFeature; count: number | null }[]
+}
