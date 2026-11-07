@@ -70,8 +70,21 @@ type LogEvent =
   | { event: 'clubApplyMail'; ok: boolean; error: string }
   | { event: 'clubApplyNotify'; ok: boolean; error: string }
   | { event: 'clubStatus'; status: 'active' | 'suspended' | 'provisioned' }
-  /** The daily backup to R2 (worker/backup.ts): what it wrote, or why it failed */
-  | { event: 'backup'; ok: boolean; name?: string; keys?: number; rows?: number; bytes?: number; deleted?: number; error?: string }
+  /** The daily backup to R2 (worker/backup.ts): what it wrote, or why it failed; `step` is a later step's (worker/backup-steps.ts) */
+  | {
+      event: 'backup'
+      ok: boolean
+      step?: 'step' | 'activity' | 'sweep' | 'restore'
+      name?: string
+      keys?: number
+      rows?: number
+      bytes?: number
+      deleted?: number
+      parts?: number
+      objects?: number
+      boards?: number
+      error?: string
+    }
 
 export type Logger = (entry: LogEntry) => void
 

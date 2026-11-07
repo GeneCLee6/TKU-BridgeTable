@@ -443,13 +443,13 @@ interface BoardState {
 | `uhist:<userId>:<時間>-<id>` | 每位社員自己的紀錄索引 |
 | `featured:<boardId>` | 精選牌局（§5.9）：標題、分類、講解、逐墩講解、誰先設的與時間、那副牌設精選時的摘要（`BoardSummary`）；帳號刪除時保留，設的人顯示「—」 |
 | `importPurge:<userId>` | 刪掉的帳號還有匯入的牌要刪（`e4-t39`，§5.3）：排程一次刪幾副，刪完就拿掉 |
-| `practiceOwnDeals:<userId>` | 社員自己的牌組（`e10-t09`，§5.11）：`OwnDeal[]`（id、牌號、發牌人、局況、標題、四手牌），新的在前，最多 200 副；帳號刪除時一起刪；不在備份裡（同練習設定） |
+| `practiceOwnDeals:<userId>` | 社員自己的牌組（`e10-t09`，§5.11）：`OwnDeal[]`（id、牌號、發牌人、局況、標題、四手牌），新的在前，最多 200 副；帳號刪除時一起刪；在備份的活動裡（同練習設定） |
 | `practicePresets:<userId>` | 社員存的練習設定（`e10-t16`，§5.11）：`SavedPractice[]`（id、名稱、設定、時間），新的在前，最多 20 組；帳號刪除時一起刪 |
 | `notif:<userId>:<時間>-<id>` | 通知（`worker/notifications.ts`）：種類、參數、時間、是否已讀；每人只留最新 500 則，帳號刪除時一起刪 |
 | `push:<userId>` | PWA 推播（`e1-t28`，`worker/push.ts`）：每台裝置的訂閱（推播服務的網址、`p256dh`、`auth`、語言、裝置名稱、開啟時間；最多 10 台）與改過的推播種類（只存跟預設不同的）；被登出所有裝置時清掉裝置、帳號刪除時整筆刪；不在備份裡 |
 | `friend:<userId>:<friendId>` | 社員關注的好友（單向），值是 `{ at }`；載入時全部讀進記憶體 |
 | `block:<userId>:<otherId>` | 社員封鎖的對象，值是 `{ at }`；載入時全部讀進記憶體 |
-| SQL `puzzle_publications`、`puzzle_progress` | 謎題（§5.11，`worker/puzzles.ts`）：這個社團發布了哪幾題（題目、版本、誰、何時）；每位社員每題一列（版本、狀態、這次出過的牌、決策點、出錯的牌、提示數、次數、出錯數、第一次解開的時間、是否一次解開、第一次看答案的時間 `revealed_at`）。不在備份裡（跟牌局一樣）；物件的資料遺失時題目退回草稿，是安全的方向 |
+| SQL `puzzle_publications`、`puzzle_progress` | 謎題（§5.11，`worker/puzzles.ts`）：這個社團發布了哪幾題（題目、版本、誰、何時）；每位社員每題一列（版本、狀態、這次出過的牌、決策點、出錯的牌、提示數、次數、出錯數、第一次解開的時間、是否一次解開、第一次看答案的時間 `revealed_at`）。在備份的活動裡（2026-11-07 起） |
 | SQL `partner_bid_sessions`、`partner_bid_boards` | 搭檔非同步叫牌練習（`e10-t08`，§5.11，`worker/partner-bidding.ts`）：一次練習一列（兩位社員、狀態、設定、叫到第幾副、輪到誰、到期時間），發過的每一副一列（四家、叫牌過程、檢討）；不放在記憶體，不在每日備份裡（練習用的資料，還原時只刪掉帳號已不存在的）；帳號刪除時那個人的整筆練習連同對方的副本一起刪 |
 | SQL `challenges`、`challenge_players`、`challenge_results` | 挑戰的正本（不是索引），見 §5.5；`EVENT_OBJECTS=on` 時，住在自己 `EventObject` 的挑戰正本在那個物件，這裡是社團的副本（§5.12 H2b） |
 | SQL `event_homes` | 哪些挑戰住在自己的 `EventObject`，與社團寫進副本的最後一個變更編號（`rev`，-1＝物件還沒確認收下）；沒有這一列的挑戰住在社團（§5.12 H2b） |
@@ -474,6 +474,9 @@ interface BoardState {
 | `replq:<boardId>` | 還沒複製到 D1 的牌局（outbox，§5.12）：值是排進來的時間＋序號，寫進 D1 後刪掉（期間又被改的留著） |
 | `meta:replica` | D1 副本的狀態（§5.12）：`off`／`filling`（做到哪一個 `board:` key）／`ready`，與填它時的 `REPLICA_VERSION` |
 | D1 `boards_index`、`board_players`、`board_summaries`、`index_meta` | 不在 Durable Object 裡：紀錄索引在 D1 的副本，加上每副的摘要與 `ready`（§5.12）；每列帶 `club_id`（§1「多社團的隔離」）；可以隨時從 `board:` 重建 |
+| `bakq:<boardId>` | 還沒寫進備份 log 的牌局（outbox，`worker/backup-steps.ts`，DEPLOY.md §4.4）：值是排進來的時間＋序號；只在有 `BACKUPS` 的環境 |
+| `meta:backupjob` | 備份的步驟做到哪：下一個 log 物件的序號、完成的幾輪、進行中的匯出、掃描、還原 |
+| `bkgone:<boardId>` | 還原讀 log 時，已知後來被刪掉的牌局（只在還原期間） |
 | `meta:backfill` | 回填 SQL 索引時做到哪一個 `board:` key；做完就刪掉，物件中途被回收時從這裡接著做 |
 | `book:entry:<slug>` | 淡江橋譜線上修改的特約（版本、誰在何時改；`convention: null` 表示隱藏），內容在 `bookpart:` |
 | `book:rev:<slug>:<時間>-<id>` | 每次發布、隱藏、還原的版本紀錄 |
@@ -492,10 +495,10 @@ interface BoardState {
 | `pair:<id>` | 淡江橋譜的搭檔（`Partnership`：兩人 `[邀請者, 受邀者]`、所屬隊伍、制度集 id（接受前是空字串）、狀態 `pending`／`active`／`ended`）；婉拒或收回的邀請直接刪掉 |
 | `userteam:<userId>:<teamId>`、`userpair:<userId>:<pairId>` | 某人在哪些隊伍、有哪些搭檔（值是 `true`） |
 | `book:quizfix:<題目 id>` | 淡江橋館幹部的修題（橋館 e6-t06，`worker/quiz.ts`）：自動題的停用、改答案或選項（附修正時的原文 `basis`），或手動出的題；誰、何時 |
-| `quizlog:<userId>:<時間>-<id>` | 社員在淡江橋館練習的成績（橋館 e6-t04）：每次練習的制度集與每題對錯，每人最新 100 次；帳號刪除時一起刪，不在每日備份裡 |
+| `quizlog:<userId>:<時間>-<id>` | 社員在淡江橋館練習的成績（橋館 e6-t04）：每次練習的制度集與每題對錯，每人最新 100 次；帳號刪除時一起刪，在備份的活動裡 |
 | `book:path:<路徑 id>` | 淡江橋館幹部改過的學習路徑（橋館 e4-t08、e4-t12，`worker/learning.ts`、`shared/learning.ts`）：課次、每課讀哪些特約或段落、題目、檢核清單；誰、何時。刪掉就回到橋館內建的路徑 |
-| `pathprogress:<userId>:<路徑 id>` | 社員在淡江橋館學習路徑完成的課次（橋館 e4-t11）；沒有完成的課就不存；帳號刪除時一起刪，不在每日備份裡 |
-| `reading:<userId>` | 社員在淡江橋館文章與電子書讀到哪裡（`ReadingPlace[]`，新的在前，最多 30 筆；橋館 e5-t14）；帳號刪除時一起刪，不在每日備份裡 |
+| `pathprogress:<userId>:<路徑 id>` | 社員在淡江橋館學習路徑完成的課次（橋館 e4-t11）；沒有完成的課就不存；帳號刪除時一起刪，在備份的活動裡 |
+| `reading:<userId>` | 社員在淡江橋館文章與電子書讀到哪裡（`ReadingPlace[]`，新的在前，最多 30 筆；橋館 e5-t14）；帳號刪除時一起刪，在備份的活動裡 |
 | `book:draft:<時間>-<id>` | AI 匯入產生的草稿（只留最新 30 份） |
 | `book:ticket:<token>` | 匯入上傳用的一次性憑證（10 分鐘） |
 | `book:version` | 橋譜線上內容的版本號，`GET /api/book/content` 與 `/api/book/manifest` 的 ETag；分類改了也會加一 |
@@ -508,11 +511,13 @@ interface BoardState {
 | `article:series` | 叢書的系列（橋館 e5-t06）：`{ version, series: ArticleSeries[], updatedAt, updatedBy }`；沒有時橋館用內建系列 |
 | `bookpart:<key>:<n>` | 大內容的分段（Durable Object 單筆值上限 128 KiB，以 4 萬字一段儲存） |
 
-**備份**（`worker/backup.ts`，淡江橋譜 e10-t08、e11-t12）：cron trigger（每天台灣 03:00）呼叫 `Club.backup()`，把 `BACKUP_PREFIXES` 開頭的 key 匯出成一份 JSON Lines 存到 R2 bucket `tku-bridge-backups`（binding `BACKUPS`）的 `daily/<台灣日期>.jsonl`（淡江；其他社團在 `clubs/<id>/daily/…`，各自列表、各自保留，§1「多社團的隔離」），保留 30 天；`GET/POST /api/admin/backups`、`POST /api/admin/backups/restore`（預設預演，真的還原要 `confirm`）。範圍：淡江橋譜的 `book*`、`profile*`、`article*`、`team:`、`pair:`、`userteam:`、`userpair:`，加上帳號 `user:`、`app:`、`avatar:`（同一次匯出，頭像版本與圖片一定對得上），以及好友與封鎖 `friend:`、`block:`（2026-11-04 起；還原時只寫回兩邊都是備份裡帳號的關係）；加上討論區的五張 SQL 表（`BACKUP_TABLES`：`forum_boards`、`forum_posts`、`forum_comments`、`forum_reactions`、`forum_reports`，2026-10-30 起，格式第 3 版：key 之後每列一行 `{"t":表,"r":列}`，有 rowid 的表照 rowid 順序寫、照順序寫回）；`session:`、`meta:settings`、私訊、牌局紀錄與紀錄索引的 SQL 表、橋館錯誤回報與使用統計的 `book_*` 表（§5.15）不在裡面，還原也不動它們。討論區的圖片本來就在 R2，備份只有它們的 `file:meta:`。格式第 2 版把位元組寫成 `{"$bytes":"<base64>"}`（`encodeValue`／`decodeValue`），第 1 版（只有橋譜）照樣讀、只還原它自己的 `prefixes`；第 1、2 版沒有表，還原時不動討論區。還原表時先檢查每張表與每個欄位現在都有（欄位名稱只用資料庫自己的），再在一個 transaction 裡清空、寫回；之後 `Club` 再跑一次 `ForumService.createTables()`（補內建看板與搜尋用的 `body_text`）。還原後 `Club` 換一個新的 `BookService`（與 `ArticleService`），記憶體裡的快取不會留下；有帳號時再呼叫 `ClubService.reloadAccounts()`：重讀帳號與申請、重讀好友與封鎖（`Relations.reload`，不是社員的一併刪掉）、備份之後才有的帳號照刪除帳號的方式清掉、刪掉全部 `session:`、斷開所有連線，大家重新登入。步驟見 DEPLOY.md §4.4。
+**備份的第 4 版**（`worker/backup-steps.ts`，`e11-t12`，2026-11-07，決策與數字在 DEPLOY.md §4.4）：下面這份「核心」之外，牌局紀錄（`board:`）寫成增量的 log `games/<序號>.jsonl`（一個 alarm 一個物件、一個 20 副，每 14 天全部掃一輪，再刪掉更舊的），牌局以外的活動（`ACTIVITY_PREFIXES`、`ACTIVITY_TABLES`）寫成 `activity/<日期>/<段>.jsonl`；都走社團的 `scopedBucket`，進度在 `meta:backupjob`，工作 kind `backup`，物件被回收後 `load()` 接著做。還原這兩種**只補缺的**：進行中的牌桌與比賽不受影響，備份之後才打的牌留著。補回的牌局走 `ClubService.restoreBoard`（紀錄、摘要，索引最後），D1 走 outbox，最後 `ReplicaSync.dropMissing` 拿掉社團沒有紀錄的列。活動補回來後物件重啟一次（`ClubConfig.restart`，`ctx.abort`），讓記憶體裡的比賽、積分、排程從儲存重讀。還原一天最多寫 6.3 萬列（約 3,000 副）。
+
+**備份的核心**（`worker/backup.ts`，淡江橋譜 e10-t08、e11-t12）：cron trigger（每天台灣 03:00）呼叫 `Club.backup()`，把 `BACKUP_PREFIXES` 開頭的 key 匯出成一份 JSON Lines 存到 R2 bucket `tku-bridge-backups`（binding `BACKUPS`）的 `daily/<台灣日期>.jsonl`（淡江；其他社團在 `clubs/<id>/daily/…`，各自列表、各自保留，§1「多社團的隔離」），保留 30 天；`GET/POST /api/admin/backups`、`POST /api/admin/backups/restore`（預設預演，真的還原要 `confirm`）。範圍：淡江橋譜的 `book*`、`profile*`、`article*`、`team:`、`pair:`、`userteam:`、`userpair:`，加上帳號 `user:`、`app:`、`avatar:`（同一次匯出，頭像版本與圖片一定對得上），以及好友與封鎖 `friend:`、`block:`（2026-11-04 起；還原時只寫回兩邊都是備份裡帳號的關係）；加上討論區的五張 SQL 表（`BACKUP_TABLES`：`forum_boards`、`forum_posts`、`forum_comments`、`forum_reactions`、`forum_reports`，2026-10-30 起，格式第 3 版：key 之後每列一行 `{"t":表,"r":列}`，有 rowid 的表照 rowid 順序寫、照順序寫回）；`session:`、`meta:settings`、橋館錯誤回報與使用統計的 `book_*` 表（§5.15）不在裡面，還原也不動它們。討論區的圖片本來就在 R2，備份只有它們的 `file:meta:`。格式第 2 版把位元組寫成 `{"$bytes":"<base64>"}`（`encodeValue`／`decodeValue`），第 1 版（只有橋譜）照樣讀、只還原它自己的 `prefixes`；第 1、2 版沒有表，還原時不動討論區。還原表時先檢查每張表與每個欄位現在都有（欄位名稱只用資料庫自己的），再在一個 transaction 裡清空、寫回；之後 `Club` 再跑一次 `ForumService.createTables()`（補內建看板與搜尋用的 `body_text`）。還原後 `Club` 換一個新的 `BookService`（與 `ArticleService`），記憶體裡的快取不會留下；有帳號時再呼叫 `ClubService.reloadAccounts()`：重讀帳號與申請、重讀好友與封鎖（`Relations.reload`，不是社員的一併刪掉）、備份之後才有的帳號照刪除帳號的方式清掉、刪掉全部 `session:`、斷開所有連線，大家重新登入。步驟見 DEPLOY.md §4.4。
 
 每個動作處理完立即寫回，物件隨時被回收都不會遺失牌局。紀錄列表一次只讀到那一頁為止（每頁 10／20／50／100 筆摘要）。
 
-**容量**：免費方案每個帳號 5 GB；一副牌的紀錄連同兩筆索引約 4 KB，大約可存一百萬副以上。
+**容量**：免費方案每個帳號 5 GB；一副打完的牌紀錄約 6.5 KB（含動作事件），連同摘要與索引約 9 KB，大約可存 55 萬副（所有社團合計）。
 
 ### 5.6 可觀測性與輸入防護（`e11-t08`～`e11-t11`）
 
@@ -1962,7 +1967,7 @@ SQL 由 `worker/history-index.ts` 的 `searchBoards` 組：只有固定的 SQL �
 | --- | --- | --- |
 | `board_shares` | `token`（主鍵）、`board_id`（唯一）、`created_by`、`created_at` | 主鍵、`board_id` |
 
-`board_shares` 跟收藏一樣在社團的 SQLite（`BoardShares.createTables`，每次載入時建），不在每日備份裡（同收藏）；帳號匯出帶自己產生過的連結（`boardShares`），刪帳號時一起刪。
+`board_shares` 跟收藏一樣在社團的 SQLite（`BoardShares.createTables`，每次載入時建），在備份的活動裡（同收藏）；帳號匯出帶自己產生過的連結（`boardShares`），刪帳號時一起刪。
 
 **匯入 BBO LIN**（`e4-t39`，AC-4.13；可見性見 §4「匯入的牌局」）：紀錄頁的「匯入 LIN」（`LinImportDialog`）上傳 `.lin` 或貼上（Handviewer 連結也可以）。
 
