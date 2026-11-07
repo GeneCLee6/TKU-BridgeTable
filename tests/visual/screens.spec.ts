@@ -48,6 +48,20 @@ for (const { name, board } of screens) {
   })
 }
 
+for (const { name, board } of screens) {
+  test(`table ${name} · every button by the title can be clicked`, async ({ page }) => {
+    await atTable(page, { table: table(board) }, DESKTOP)
+    const gear = page.getByRole('button', { name: STRINGS.zh.tableSettings })
+    await expect(gear).toBeVisible()
+    // A hand laid over it is what the member would click instead
+    const onTop = await gear.evaluate((button) => {
+      const { left, right, top, bottom } = button.getBoundingClientRect()
+      return [left + 2, right - 2].every((x) => button.contains(document.elementFromPoint(x, (top + bottom) / 2)))
+    })
+    expect(onTop).toBe(true)
+  })
+}
+
 test('table play · dark', async ({ page }) => {
   await atTable(page, { table: table(playBoard), prefs: { mode: 'dark' } }, DESKTOP)
   await shot(page, 'table-play-dark')
