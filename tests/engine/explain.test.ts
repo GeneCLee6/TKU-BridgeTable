@@ -73,7 +73,7 @@ describe('the explanation of a call agrees with the rule TKB bids it by', () => 
         const auction = calls.map((call, i) => ({ seat: (['N', 'E', 'S', 'W'] as const)[i % 4], call }))
         const hint = explain(ROBOT_SYSTEMS[kind], auction, 'N', 'None').get('2C')
         expect(hint, `${kind} after ${calls.join(' ')}`).toMatchObject({ name: 'newMinorForcing', artificial: true, forcing: 'oneRound' })
-        expect(words(hint!, 'zh')).toMatch(/^新低花迫叫/)
+        expect(words(hint!, 'zh')).toMatch(/^New Minor Forcing/)
       }
     }
   })
