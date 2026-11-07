@@ -50,7 +50,7 @@ TBT_LOAD=full npx vitest run tests/worker/load-cpu.test.ts --project default --s
 | 計畫 | Workers 請求 | DO 請求 | DO 時間 |
 | --- | ---: | ---: | ---: |
 | 本機完整：200 人、30 桌（5 桌 TKB）、45 人觀看、3 人挑戰、10 分鐘 | 1,177（1.2%） | 4,843（4.8%） | 1,117 GB-s（8.6%） |
-| 遠端煙霧：30 人、5 桌（2 桌 TKB）、6 人觀看、3 人挑戰、5 分鐘 | 約 150（0.2%） | 約 600（0.6%） | 約 160 GB-s（1.2%） |
+| 遠端煙霧：22 人、5 桌（2 桌 TKB）、3 人觀看、3 人挑戰、5 分鐘 | 110（0.11%） | 688（0.69%） | 162 GB-s（1.25%） |
 
 所以 200 人 30 桌在正式站打 **一小時** 約用 DO 時間的 50%、DO 請求的 30%：一個晚上的大型活動要先想好（§5）。
 
@@ -189,17 +189,39 @@ TBT_LOAD=full npx vitest run tests/worker/load-cpu.test.ts --project default --s
 **沒做的**：
 - 牌桌自己的連線（`/ws/table/<id>`）沒有改；那裡本來就只有桌上的四到八個人。
 - 部署前就開著的瀏覽器分頁聽不懂新的大廳訊息，大廳會停在舊的樣子，重新整理就好。
-- 遠端（預覽、staging）一樣還沒跑（§7）。
+- 遠端（PR 預覽）後來跑了小規模煙霧，見 §7。
 
 ## 7. 遠端煙霧測試
 
-**還沒跑（2026-10-26）**：這個 PR（#142）的預覽沒有部署。`preview.yml` 要 `PREVIEW_INVITE_CODE` 這個 secret 才部署，repo 裡只有 `CLOUDFLARE_API_TOKEN` 與 `CLOUDFLARE_ACCOUNT_ID`（staging 同樣缺 `STAGING_INVITE_CODE`），所以每個 PR 的 Preview 都顯示「skipping the preview」。照規定不自己改 secret、不手動建 Worker，**遠端這次用掉的額度是 0**。
-
-社長設定 secret 之後（`DEPLOY.md` §2.1：`gh secret set PREVIEW_INVITE_CODE`、`gh secret set SEED_PASSWORD`），重新跑這個 PR 的 Preview（或下一次 push），PR 上會出現預覽網址，然後：
+**跑過一次（2026-11-07，PR #328 自己的預覽站，從 GitHub Actions 的機器跑）**。沒碰正式站或 staging。
 
 ```bash
-# 1. 先看估算（約 Workers 0.2%、DO 請求 0.6%、DO 時間 1.2%，遠低於 15%）
-LOAD_PASSWORD=<SEED_PASSWORD> LOAD_INVITE_CODE=<PREVIEW_INVITE_CODE> npm run load --   --url https://tku-bridge-table-pr-<號>.<子網域>.workers.dev --users 30 --tables 5 --robot-tables 2   --watchers 6 --minutes 5 --challenge 3 --dry-run
-# 2. 拿掉 --dry-run 跑（預覽的 MAX_USERS 是 30，admin＋29 個 load 帳號剛好）
+# 1. 先看估算
+LOAD_PASSWORD=<SEED_PASSWORD> LOAD_INVITE_CODE=<PREVIEW_INVITE_CODE> npm run load --   --url https://tku-bridge-table-pr-<號>.<子網域>.workers.dev --users 22 --tables 5 --robot-tables 2   --watchers 3 --minutes 5 --challenge 3 --dry-run
+# 2. 拿掉 --dry-run 跑
 # 3. 照 DEPLOY.md §4.6 檢查：/api/health 的 events.unconfirmed 是 0、挑戰 finished、Logs 沒有 crash
 ```
+
+- **為什麼是 22 人**：預覽的 `MAX_USERS` 是 30，種子已經用掉 9 個（`admin`、`tester1`–`tester8`），剩 21 個 `load` 帳號。空的預覽站才有 30 人的空間；超過時腳本停在 `memberCap`。
+- **管理員**：腳本自己開、建完帳號就關兩步驟登入（§1）。`admin` 被人開了的話要 `LOAD_TOTP_SECRET`。
+- **誰能跑**：要知道 `SEED_PASSWORD` 與 `PREVIEW_INVITE_CODE` 才能在自己的電腦跑。這次是在 PR 上暫時加一個只對這個 PR 號生效的 `preview.yml` 步驟，用 workflow 已有的 secret 跑，看完 log 就 revert（log 裡沒有密鑰、備用碼或 session）。
+
+結果（22 人：3 桌四人、2 桌一人＋三個 TKB、3 人觀看、3 人挑戰、2 人在大廳，沒有 `--churn`）：
+
+| 動作 | 次數 | p50 ms | p95 ms | p99 ms | 最大 ms |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 叫牌出牌（`call`＋`play`） | 662 | 76 | 135 | 181 | 368 |
+| 聊天 | 14 | 65 | 78 | 78 | 78 |
+| 開桌 | 5 | 397 | 527 | 527 | 527 |
+| 入座 | 9 | 150 | 172 | 172 | 172 |
+| 觀看 | 3 | 158 | 160 | 160 | 160 |
+| 離桌 | 20 | 203 | 206 | 211 | 211 |
+| 新增帳號（管理 API） | 21 | 180 | 206 | 542 | 542 |
+| 登入（PBKDF2） | 21 | 256 | 298 | 550 | 550 |
+| 開挑戰 | 1 | 456 | 456 | 456 | 456 |
+
+- 打完 16 副、機器人 370 步，送出 726 則動作、795 個 ping；沒有重連、沒有失敗、`crashes` 0、`serverErrors` 0、`alerts` 空的。
+- 挑戰 82 秒結算（`finished`、有名次），`events.unconfirmed` 從頭到尾是 0。
+- **用量**（依實際次數）：Workers 請求 114（0.11%）、DO 請求 669（0.67%）、DO 時間 154 GB-s（1.18%），與估算（110／688／162）相符。
+- **讀法**：這些延遲都含 GitHub 機器到 Cloudflare 的來回（連 `/api/health` 都要 73 ms），機器與物件都不在台灣，所以不代表社員實際感受。§4 預測的「在 Cloudflare 上每個物件各自跑、桌子不被大廳拖累」在這個規模成立（叫牌出牌 p99 只比 p50 多約 100 ms），但 22 人測不到 §5 的瓶頸；**200 人 30 桌在 Cloudflare 上還沒量過**，那要先想額度（§2），也超過預覽的人數上限。
+- 這一輪也驗證了：同一個預覽站再跑一次種子（已存在的帳號略過，`admin` 仍可用密碼登入，`tester1`、`tester8` 登入 200）。
