@@ -394,7 +394,7 @@ describe("the forum's SQL tables", () => {
     const boards = s.sql.exec('SELECT * FROM forum_boards').length
     expect(result.rows).toBe(boards + 5)
     const backup = parseBackup(bucket.objects.get(day('2026-10-25'))!.text)
-    expect(backup.header).toMatchObject({ version: 3, tables: BACKUP_TABLES.map((t) => t.name), rows: boards + 5 })
+    expect(backup.header).toMatchObject({ version: BACKUP_FORMAT_VERSION, tables: BACKUP_TABLES.map((t) => t.name), rows: boards + 5 })
 
     // After the backup: a post edited, one added, a reaction removed, a board renamed
     s.sql.exec("UPDATE forum_posts SET title = '改過' WHERE id = 'p2'")

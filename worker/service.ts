@@ -168,6 +168,8 @@ import { PROFILE_ID } from './profiles.ts'
 import { BoardShares, SESSION_WINDOW_MS, sessionOf } from './board-shares.ts'
 import { FeaturedService } from './featured.ts'
 import { TeamMatchService, type MatchPlayAction } from './team-match-service.ts'
+import type { BackupBucket } from './backup.ts'
+import { BackupSteps } from './backup-steps.ts'
 import { ReplicaSync, type ReplicaDb } from './history-replica.ts'
 import { isMatchPlayer, matchMembers, type RoomClock } from './team-match-flow.ts'
 import { LocalMatches, type MatchStep } from './match-event.ts'
@@ -530,6 +532,10 @@ export interface ClubConfig {
   historyReplica?: ReplicaDb
   /** Stops keeping the D1 copy and tells the Worker not to read it: the switch back (`HISTORY_D1=off`) */
   historyReplicaOff?: boolean
+  /** This club's part of the backup bucket (worker/backup-steps.ts); without it (staging, previews, most tests) no game log is kept */
+  backupBucket?: BackupBucket
+  /** After a restore put activity back: drop everything in memory (the Durable Object resets; `backupBucket` only) */
+  restart?: () => void
   /**
    * The challenges' own Durable Objects (`EventObject`, H2b, ARCHITECTURE.md §5.12). Without it
    * (most tests) every challenge lives in this object (`LocalEvents`)
@@ -795,6 +801,8 @@ export class ClubService {
   readonly puzzles: PuzzleService
   /** Keeps the history index's D1 copy in step (§5.12), when there is one */
   readonly replica?: ReplicaSync
+  /** The game log and the activity's parts in R2 (e11-t12), when there is a bucket */
+  readonly backups?: BackupSteps
   private readonly log: Logger
   /** The status page's numbers (e11-t22, §5.13): counted from the log entries, the connections and the tables' reports */
   readonly metrics: Metrics
@@ -1068,6 +1076,17 @@ export class ClubService {
         now: this.now,
         log: this.log,
       })
+    if (config.backupBucket)
+      this.backups = new BackupSteps({
+        store,
+        bucket: config.backupBucket,
+        scheduler: this.scheduler,
+        now: this.now,
+        log: this.log,
+        restoreBoard: (record) => this.restoreBoard(record),
+        replica: this.replica,
+        restart: () => config.restart?.(),
+      })
     this.eventLink = {
       changed: (snapshot) => this.eventChanged(snapshot),
       matchChanged: (snapshot) => this.matchChanged(snapshot),
@@ -1187,6 +1206,7 @@ export class ClubService {
     await this.pairs.load()
     await this.tournaments.load()
     await this.teamEvents.load()
+    await this.backups?.load()
   }
 
   /** A table kept in this object's storage takes its state back (brought up to date first) */
@@ -3433,8 +3453,9 @@ export class ClubService {
   private async dropImported(id: string) {
     unindexRecord(this.store.sql, id)
     await this.store.delete(`board:${id}`)
-    // The copy takes out a board whose record is gone
+    // The copy takes out a board whose record is gone, and the backup's log marks it gone
     await this.replica?.queue(id)
+    await this.backups?.queue(id)
   }
 
   /**
@@ -3477,7 +3498,7 @@ export class ClubService {
   }
 
   /** The record and its two key-value summaries (written again when a challenge brings `revealAt` forward) */
-  private async writeRecord(record: BoardRecord) {
+  private async writeRecord(record: BoardRecord, restored = false) {
     // Zero-padded time keeps the indexes in chronological order
     const order = `${String(record.finishedAt).padStart(14, '0')}-${record.id}`
     const summary = summarize(record)
@@ -3487,11 +3508,24 @@ export class ClubService {
       await this.store.put(`hist:${order}`, summary)
       for (const id of new Set(SEATS.map((seat) => record.players[seat].id))) {
         if (!id || isRobotId(id)) continue
+        // A restored board keeps its deleted players' names, but nobody is left to list it for them
+        if (restored && !this.users.has(id)) continue
         await this.store.put(`uhist:${id}:${order}`, summary)
       }
     }
     // Last, so a record whose writing failed is never copied to D1 (§5.12)
     await this.replica?.queue(record.id)
+    if (!restored) await this.backups?.queue(record.id)
+  }
+
+  /**
+   * A board back from the backup's log (worker/backup-steps.ts): written as a new one is, its index
+   * rebuilt from the record. The index last, so a step that dies between the two leaves a record with
+   * no index, which the restore's next try finds and indexes
+   */
+  private async restoreBoard(record: BoardRecord) {
+    await this.writeRecord(record, true)
+    indexRecord(this.store.sql, record)
   }
 
   // ── Connections ─────────────────────────────────────────────────────────────────────────────

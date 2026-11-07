@@ -160,50 +160,10 @@ npm run consistency -- --seed slam:x2 --deals 2000   # 滿貫區牌組
 
 在社長的電腦上用多核心 DDS 算幾萬到幾百萬副牌，比較 TKB 的出牌跟單明手抽樣的最佳，和首攻研究：`npm run sim -- …`，見 [`sim/README.md`](sim/README.md)。
 
-## BBO 比對（`bbo-compare.ts`，`e6-t29`）
-
-拿自己打過的牌局（LIN，含跟 GIB 打的）一個決定一個決定地問 TKB：坐在那一家，你會怎麼叫、怎麼出？不一樣的地方再用雙明手算差多少。只是量測，不改機器人；只在開發者電腦上跑（用 `sim/` 的 `bridge-dds`），不動線上 Worker，也不需要付費方案或伺服器 DDS（`e6-t13`）。
-
-```bash
-npm run bbo-compare -- 我的牌局.lin                        # 預設 TKB 打 2/1（對應 GIB），報告在 eval/sim/data/bbo-compare-gib.md
-npm run bbo-compare -- lin資料夾 --system tku --top 50     # 資料夾裡所有 .lin（含子資料夾），淡江制度
-npm run bbo-compare -- lin資料夾 --gib --side defence      # 只看 GIB 防守的牌
-npm run bbo-compare -- lin資料夾 --player sam --only bidding --json eval/sim/data/sam.json
-```
-
-| 參數 | 意思 |
-| --- | --- |
-| 檔案或資料夾 | 放在所有 `--` 參數前面，可以多個。直接指名的檔案不看副檔名；資料夾只找 `.lin` |
-| `--system` | TKB 用的制度：`2over1`（或 `2/1`、`gib`，預設）、`tku`、`sayc`、`precision` |
-| `--player a,b` | 只看這些玩家的決定（名字不分大小寫）；夢家的牌算莊家的決定 |
-| `--gib` | 只看名字像機器人的玩家（`GIB_NAMES`：`gib`、`~~` 開頭，或 `Robot`）。**這個樣子還沒用真的 BBO 檔案核對過**；報告的「玩家」表會列出檔案裡的名字，不對就用 `--gib-pattern 正規表示式` |
-| `--side` | `declarer` 或 `defence`：只看坐莊方或防家的牌（不含叫牌） |
-| `--only` | `bidding` 或 `play`：只看叫牌或出牌 |
-| `--top N` | 損失最大、TKB 較好最多的清單各列幾個（預設 25） |
-| `--no-dd` | 不算雙明手，只看不同率（很快） |
-| `--report 檔`、`--json 檔` | 報告（Markdown）與完整結果（JSON）的位置；報告預設在 `eval/sim/data/`。報告有牌與玩家名字，**不要放到會進 git 的地方** |
-
-**牌局來源的界線**：只用社員自己打的牌局，自己在 BBO 網頁手動下載；公開比賽的牌局能不能用，PRD E6 的未決問題還沒有答案，所以不用；不寫程式爬 BBO、不接 GIB（BBO 的使用條款禁止，[`docs/BBO GIB/README.md`](../docs/BBO%20GIB/README.md)）。檔案和報告都不進 git。
-
-**怎麼比**：
-
-- **叫牌**：每個叫品，TKB 拿到那一家的手牌和前面的叫品（LIN 裡別人的 Alert 不給，它只看叫品），用 `brain.bid` 回答。分組：開叫、答叫、再叫、對抗、競叫（`bidCategory`）。
-- **出牌**：每張有選擇的牌（合法牌超過一張），用 `brain.play`，也就是 `chooseCard` 的 `View`：只有自己的牌、首攻後的夢家（打夢家時加上莊家的牌）和已出的牌。測試把看不到的牌重發，答案要一樣（硬性規則 6）。分組：坐莊方或防家 × 首攻、領出、跟牌、墊牌或王吃。
-- **DD 損益**：都是「TKB 減實際」，從那一家的方向看，正的是 TKB 較好。出牌是從同一個局面（真實的四手）解 DDS，兩張牌之後那一方各拿幾墩，再加上已經贏的墩換成分數與 IMP。同一門相連的牌（♠Q 對 ♠J）算「不同但一樣」。叫牌是兩個叫品之後都由四個 TKB 叫完，比最後合約的雙明手分數。每副另外算 LIN 最後合約的雙明手分數對 par（`DealerPar`）的差。
-- **跳過**：叫牌或出牌不合法、牌不完整、沒打完（沒有攤牌也沒打完 52 張）的副，依 `e4-t39` 解析器（`shared/lin-import.ts`）的代碼計數，列在報告最後；同一副重複出現只算一次；讀不到的檔案、機器人或 DDS 出錯也計數，不會中斷。攤牌結束的副比到攤牌為止。
-
-**怎麼讀**：
-
-1. 每個決策各自比較，牌局照 LIN 繼續，TKB 不同的那張牌「之後會怎樣」只有雙明手的估計。加總是決定差多少，不是牌局會變成幾分（`sim/README.md` §3.2 也有同樣的限制）。
-2. 雙明手看得到全部的牌：飛牌一定飛對、防家不會被騙，所以單一張牌「DD 輸了」不一定是錯（`sim/README.md` §2）。
-3. 叫牌的損益是四個 TKB 叫完的結果，LIN 的玩家可能也不是打這套制度；不同率高可能只是制度不同（例如社團的 2/1 跟 GIB 不同的項目，`docs/BBO GIB/README.md`）。
-4. **這個工具只用自己構造的 LIN 驗證過**（`tests/eval/fixtures/bbo-session.lin`，和四個 TKB 打完、由 `toLin` 寫出來的牌）；repo 裡沒有真的 GIB 牌局。單執行緒，有別的工作在跑時 100 副約 4 分鐘。要從 BBO 下載一份自己的牌局跑過才算驗證了真實檔案（`e4-t39` 的 AC-4.13 也在等同一件事）。
-
 ## 檔案
 
 | 檔案 | 內容 |
 | --- | --- |
-| `bbo-compare.ts`、`bbo-compare-cli.ts` | BBO 比對：LIN 的每個決策問 TKB、DD 損益、報告；`npm run bbo-compare` |
 | `sim/` | 離線雙明手模擬：執行緒池、單明手抽樣、TKB 對照、首攻研究（`sim/README.md`） |
 | `quiz.ts`、`quiz-cli.ts` | 叫牌題庫：格式檢查、作答、各類正確率、棘輪與報告；`npm run quiz` |
 | `play-quiz.ts`、`play-quiz-cli.ts` | 出牌題庫：格式檢查、作答、各類正確率，棘輪與報告沿用叫牌題庫的；`npm run quiz:play` |

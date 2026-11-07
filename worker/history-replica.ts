@@ -110,6 +110,8 @@ export const RETRY_MAX_MS = 10 * 60_000
 
 /** D1 binds at most 100 parameters per statement */
 const MAX_PARAMS = 100
+/** Boards `dropMissing` looks at per step: the club's SQLite binds at most 100 as well */
+const DROP_PAGE = 100
 
 const setReady = (clubId: string, ready: boolean): Statement => ({
   sql: "INSERT OR REPLACE INTO index_meta (club_id, key, value) VALUES (?, 'ready', ?)",
@@ -385,6 +387,35 @@ export class ReplicaSync {
       this.failed('fill', error)
       this.scheduleFill(this.backoff())
     }
+  }
+
+  /**
+   * After a restore (worker/backup-steps.ts): a page of this club's boards in the copy, and those the
+   * club has no board for are queued, which takes them out. Returns where to go on from, or null at
+   * the end. Boards the restore wrote went through the outbox already; these are the ones that were
+   * played after the last backup on a club that then lost them
+   */
+  async dropMissing(after: string | undefined): Promise<string | null> {
+    if (this.state.state === 'off') return null
+    let rows: Record<string, SqlValue>[]
+    try {
+      ;[rows] = await this.config.db.batch([
+        {
+          sql: `SELECT board_id FROM boards_index WHERE club_id = ?${after === undefined ? '' : ' AND board_id > ?'} ORDER BY board_id LIMIT ${DROP_PAGE}`,
+          params: after === undefined ? [this.config.clubId] : [this.config.clubId, after],
+        },
+      ])
+    } catch (error) {
+      if (error instanceof Error && /no such table/i.test(error.message)) return null
+      throw error
+    }
+    const ids = rows.map((row) => String(row.board_id))
+    if (!ids.length) return null
+    const here = new Set(
+      this.store.sql.exec<{ board_id: string }>(`SELECT board_id FROM boards_index WHERE board_id IN (${ids.map(() => '?').join(', ')})`, ...ids).map((row) => row.board_id),
+    )
+    for (const id of ids) if (!here.has(id)) await this.queue(id)
+    return ids.length === DROP_PAGE ? ids.at(-1)! : null
   }
 
   /** Copies a batch of queued boards; what D1 took leaves the outbox unless it was queued again meanwhile */
