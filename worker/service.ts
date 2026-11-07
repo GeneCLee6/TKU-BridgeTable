@@ -60,6 +60,8 @@ import {
   type TableSummary,
   type SharedTable,
   type HealthStatus,
+  type ProductFeature,
+  type ProductMetricsView,
   type RobotSpeed,
 } from '../shared/protocol.ts'
 import { dealWith } from '../shared/dealer.ts'
@@ -255,6 +257,7 @@ import { composeLobby, quickSeatChoice } from '../shared/lobby.ts'
 import { parseClientError } from './client-errors.ts'
 import { crashEntry, noLog, type LogEntry, type Logger } from './log.ts'
 import { alertsOf, Metrics, type MetricsState, type TableStats } from './metrics.ts'
+import { ProductMetrics } from './product-metrics.ts'
 import {
   ACTION_BURST,
   IMPORT_BURST,
@@ -797,6 +800,7 @@ export class ClubService {
   readonly metrics: Metrics
   /** Rate limits (AC-11.7): messages and chat lines per member, wrong passwords, browser error reports */
   private readonly actionLimit: TokenBuckets
+  private readonly product: ProductMetrics
   private readonly chatLimit: TokenBuckets
   private readonly directLimit: TokenBuckets
   private readonly requestLimit: TokenBuckets
@@ -826,6 +830,7 @@ export class ClubService {
       this.metrics.observe(entry)
       write(entry)
     }
+    this.product = new ProductMetrics(store.sql, { now: this.now, log: this.log })
     this.actionLimit = new TokenBuckets(ACTION_BURST, ACTIONS_PER_SECOND, this.now)
     this.chatLimit = new TokenBuckets(CHAT_BURST, CHATS_PER_SECOND, this.now)
     this.directLimit = new TokenBuckets(DIRECT_BURST, DIRECTS_PER_SECOND, this.now)
@@ -985,6 +990,7 @@ export class ClubService {
       this.scheduler = this.queue = new AlarmQueue(this.now, wake)
     }
     this.partnerBids = new PartnerBidService({
+      started: () => this.product.count('partnerBidding'),
       sql: store.sql,
       now: this.now,
       newId: () => randomId(8),
@@ -1006,6 +1012,7 @@ export class ClubService {
       now: this.now,
       audit: this.audit,
       takeAction: (id) => this.actionLimit.take(id),
+      solved: () => this.product.count('puzzleSolved'),
     })
     this.tournaments = new TournamentService({
       store,
@@ -1150,6 +1157,7 @@ export class ClubService {
     this.directs.createTables()
     this.partnerBids.createTables()
     this.puzzles.createTables()
+    this.product.createTables()
     await this.rankings.load()
     await this.referee.load()
     const schema = (await this.store.get<number>('meta:schema')) ?? 1
@@ -3394,6 +3402,7 @@ export class ClubService {
       // A millisecond apart, so the list keeps the file's order
       await this.saveRecord(importedRecord({ id, board, state, userId, finishedAt: now - boards.length + i + 1, session: `import-${session}` }))
     }
+    if (fresh.size) this.product.count('boardImport')
     return { added: fresh.size, duplicates: boards.length - fresh.size, ids }
   }
 
@@ -3491,6 +3500,7 @@ export class ClubService {
     const user = this.users.get(userId)
     if (!user) return
     this.metrics.connected(userId, this.connections.onlineUserIds().length)
+    this.product.member(userId, user.createdAt)
     // A new socket starts with nothing: send it everything
     this.sent.delete(userId)
     this.connections.send(userId, { type: 'welcome', me: this.me(user) })
@@ -3723,6 +3733,30 @@ export class ClubService {
     return n
   }
 
+  /** How much the site is used (e12-t17, §5.27): counts only, for admins */
+  async adminProductMetrics(adminId: string): Promise<ProductMetricsView> {
+    this.requireAdmin(adminId)
+    return this.product.view([...this.users.values()].map((u) => u.createdAt))
+  }
+
+  /** The `analytics` switch, one for the club's two sites; `{ enabled: boolean }` */
+  async adminSetProductMetrics(adminId: string, body: unknown): Promise<ProductMetricsView> {
+    this.requireAdmin(adminId)
+    await this.product.settled()
+    if (!this.product.setEnabled(body)) throw new ClubError('badMessage')
+    return this.adminProductMetrics(adminId)
+  }
+
+  /** BridgeHall's admin page changed the same switch (`PUT /api/book/analytics/settings`) */
+  analyticsSwitched() {
+    this.product.switched()
+  }
+
+  /** A feature used through a route of the Durable Object's (`worker/club.ts`) */
+  countFeature(feature: ProductFeature) {
+    this.product.count(feature)
+  }
+
   /** Writes a log entry and counts it (the club's `http` lines, `worker/club.ts`) */
   logEntry(entry: LogEntry) {
     this.log(entry)
@@ -3780,7 +3814,10 @@ export class ClubService {
   }
 
   private async dispatch(userId: string, message: ClientMessage) {
-    if (!this.users.has(userId)) throw new ClubError('signInAgain', {}, 401)
+    const user = this.users.get(userId)
+    if (!user) throw new ClubError('signInAgain', {}, 401)
+    // A socket stays open past midnight: its messages count for the new day too
+    this.product.member(userId, user.createdAt)
     switch (message?.type) {
       case 'createTable':
         return this.createTable(userId, message.settings, message.invitees)
@@ -3998,6 +4035,7 @@ export class ClubService {
     const username = this.users.get(userId)!.username
     for (const id of invitees as string[])
       await this.notifications.notify(id, 'challengeInvited', { challengeId: challenge.id, username })
+    this.product.count('challengeCreated')
     return challenge.id
   }
 
@@ -4895,6 +4933,7 @@ export class ClubService {
         for (const room of ROOMS) await this.closeTable(ids[room]).catch(() => undefined)
       throw error instanceof AppError ? error : new ClubError('serverError', {}, 500)
     }
+    this.product.count('teamMatchStarted')
   }
 
   /**
@@ -5292,6 +5331,7 @@ export class ClubService {
       robotKind: this.defaultKindOf(userId),
     }
     this.applyEntry(await this.tables.get(table.id).open(table))
+    this.product.count('teachingTable')
   }
 
   /**
@@ -5798,6 +5838,17 @@ export class ClubService {
   private async boardFinished(record: BoardRecord, event: EventReport | null, stats?: TableStats) {
     await this.saveRecord(record)
     this.metrics.board(stats)
+    await this.boardReachedEvent(event)
+    // Last: a failure above makes the table offer the same board again, and it must count once
+    const players = SEATS.map((seat) => record.players[seat])
+    this.product.board(record.tableId, players.flatMap((p) => (p?.robot ? [p.robotKind ?? 'tku'] : [])))
+    for (const p of players) {
+      const member = p && !p.robot ? this.users.get(p.id) : undefined
+      if (member) this.product.member(member.id, member.createdAt)
+    }
+  }
+
+  private async boardReachedEvent(event: EventReport | null) {
     if (event?.kind === 'team') return this.teamBoardFinished(event)
     if (event?.kind === 'pairs') return this.pairs.boardFinished(event)
     if (event?.kind !== 'challenge') return

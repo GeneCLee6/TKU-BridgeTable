@@ -38,6 +38,8 @@ const mocks = vi.hoisted(() => ({
     features: vi.fn(),
     setFeature: vi.fn(),
     integrity: vi.fn(),
+    productMetrics: vi.fn(),
+    setProductMetrics: vi.fn(),
   },
   health: vi.fn(),
 }))
@@ -118,6 +120,7 @@ beforeEach(() => {
   mocks.api.banner.mockResolvedValue({ banner: null })
   mocks.api.puzzles.mockResolvedValue({ puzzles: [] })
   mocks.health.mockResolvedValue(HEALTH)
+  mocks.api.productMetrics.mockResolvedValue({ enabled: true, minCount: 5, since: null, days: [], weeks: [], boardsPerTable: null, retention: { weeks: [], rows: [] }, features: [] })
   mocks.api.features.mockResolvedValue({ features: [FRIENDS_FLAG] })
 })
 
@@ -207,7 +210,7 @@ describe('AdminPage', () => {
     page()
     const nav = await screen.findByRole('navigation', { name: '管理頁的區塊' })
     const links = within(nav).getAllByRole('link')
-    expect(links.map((l) => l.textContent)).toEqual(['待審核的申請1', '社團設定', '社員2', '新增社員', '牌桌0', '機器人與橋館同步', '客服回報', '社團橫幅', '謎題', '功能旗標', '防作弊報表', '系統狀態'])
+    expect(links.map((l) => l.textContent)).toEqual(['待審核的申請1', '社團設定', '社員2', '新增社員', '牌桌0', '機器人與橋館同步', '客服回報', '社團橫幅', '謎題', '功能旗標', '防作弊報表', '使用情況', '系統狀態'])
     expect(links[0]).toHaveAttribute('aria-current', 'location')
   })
 
@@ -235,7 +238,7 @@ describe('AdminPage', () => {
     expect(rows[0]).toHaveTextContent('joey')
     expect(rows[0]).toHaveTextContent('12 條規則')
     const nav = screen.getByRole('navigation', { name: '管理頁的區塊' })
-    expect(within(nav).getAllByRole('link').at(-7)).toHaveTextContent('機器人與橋館同步1')
+    expect(within(nav).getAllByRole('link').at(-8)).toHaveTextContent('機器人與橋館同步1')
   })
 
   it('says when every article is in step', async () => {

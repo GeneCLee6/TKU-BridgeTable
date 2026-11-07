@@ -11,7 +11,7 @@ import { usePreferences } from '../state/PreferencesContext.tsx'
  */
 
 /** When the policy and the terms last changed (Taiwan date) */
-const LEGAL_UPDATED = Date.UTC(2026, 10, 5, 12)
+const LEGAL_UPDATED = Date.UTC(2026, 10, 7, 12)
 
 const Article = styled.article`
   display: grid;
