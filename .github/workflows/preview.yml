@@ -112,6 +112,22 @@ jobs:
           SEED_INVITE_CODE: ${{ secrets.PREVIEW_INVITE_CODE }}
         run: npm run seed -- --url "$SITE_URL"
 
+      # TEMPORARY, removed before this pull request is ready: docs/LOAD.md §6's smoke on this preview only
+      - name: Load smoke (PR 328 only)
+        if: steps.seed.outcome == 'success' && github.event.pull_request.number == 328
+        continue-on-error: true
+        timeout-minutes: 9
+        env:
+          SITE_URL: ${{ steps.deploy.outputs.url }}
+          LOAD_PASSWORD: ${{ secrets.SEED_PASSWORD }}
+          LOAD_INVITE_CODE: ${{ secrets.PREVIEW_INVITE_CODE }}
+        run: |
+          for name in admin tester1 tester8; do
+            body=$(NAME="$name" node -e 'console.log(JSON.stringify({ username: process.env.NAME, password: process.env.LOAD_PASSWORD }))')
+            curl -s -o /dev/null -w "$name login %{http_code}\n" -X POST -H 'Content-Type: application/json' -d "$body" "$SITE_URL/api/login"
+          done
+          npm run -s load -- --url "$SITE_URL" --users 22 --tables 5 --robot-tables 2 --watchers 3 --minutes 5 --challenge 3
+
       - name: Comment the link on the pull request
         if: steps.creds.outputs.ready == 'true' && steps.deploy.outputs.url != ''
         env:
