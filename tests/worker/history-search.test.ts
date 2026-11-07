@@ -4,8 +4,8 @@ import type { Contract } from '../../shared/auction.ts'
 import type { Vulnerability } from '../../shared/board.ts'
 import type { Seat } from '../../shared/cards.ts'
 import type { BoardState } from '../../shared/game.ts'
-import { DEFAULT_HISTORY_QUERY, taiwanDayStart, type HistoryQuery } from '../../shared/history-query.ts'
-import type { BoardRecord } from '../../shared/protocol.ts'
+import { DEFAULT_HISTORY_QUERY, HISTORY_MODES, taiwanDayStart, type HistoryQuery } from '../../shared/history-query.ts'
+import { TABLE_MODES, type BoardRecord } from '../../shared/protocol.ts'
 import { createHistoryIndex, indexRecord, namesOthers, searchBoards, searchDays } from '../../worker/history-index.ts'
 import { memorySql } from './sqlite.ts'
 
@@ -75,6 +75,20 @@ function search(query: Partial<HistoryQuery>, viewer = 'amy', now = DAY + 10 * 8
 const ids = (query: Partial<HistoryQuery>, viewer?: string) => new Set(search(query, viewer).ids)
 
 describe('history search', () => {
+  it('finds a pairs event’s boards by their mode, and every kind of record has a mode to ask for', () => {
+    const sql = memorySql()
+    createHistoryIndex(sql)
+    indexRecord(sql, { ...record({ id: 'pairs' }), mode: 'pairs', eventId: 'e1' })
+    indexRecord(sql, { ...record({ id: 'daily' }), mode: 'challenge', eventId: 'c1' })
+    indexRecord(sql, record({ id: 'casual' }))
+    const found = (mode: string) => searchBoards(sql, { ...DEFAULT_HISTORY_QUERY, scope: 'all', mode }, 'amy', DAY + 10).ids
+    expect(found('pairs')).toEqual(['pairs'])
+    expect(found('challenge')).toEqual(['daily'])
+    expect(found('casual')).toEqual(['casual'])
+    // A teaching table keeps no records (§5.11); every other table mode, and imported boards, do
+    expect([...HISTORY_MODES].sort()).toEqual([...TABLE_MODES.filter((mode) => mode !== 'teach'), 'imported'].sort())
+  })
+
   it('lists everything newest first, or only my boards', () => {
     expect(search({}).ids).toEqual(['nextday', 'noamy', 'passed', 'grand', 'slam', 'hearts2', 'nt3', 'spades4x', 'spades4'])
     expect(ids({ scope: 'mine' })).not.toContain('noamy')

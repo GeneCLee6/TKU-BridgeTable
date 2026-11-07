@@ -393,6 +393,11 @@ export interface TablePractice extends PracticeSettings {
    * the server after the auction, in turns (`TableService.review`), so a part may still be missing
    */
   review?: PracticeReview
+  /**
+   * The next board could not be dealt to the conditions (AC-10.1): nothing comes by itself until the
+   * member deals again (`redeal`) or ends the practice to open one with wider conditions
+   */
+  dealStuck?: boolean
 }
 
 /**

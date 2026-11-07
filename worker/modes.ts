@@ -236,6 +236,12 @@ export interface PracticeTableState extends PracticeSettings {
    * sends it only while that board is finished
    */
   review?: PracticeReview
+  /**
+   * The next board could not be dealt: the conditions were not met in PRACTICE_MAX_ATTEMPTS, and the
+   * table stands still until the member deals again (`redeal`). `practiceView` says so; a board
+   * dealt clears it
+   */
+  dealStuck?: boolean
 }
 
 /** A board of a practice table's deal set */

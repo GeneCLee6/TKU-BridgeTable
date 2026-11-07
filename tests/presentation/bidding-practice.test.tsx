@@ -164,3 +164,40 @@ describe('the bidding practice table (e10-t15)', () => {
     expect(mocks.send).toHaveBeenCalledWith({ type: 'redeal' })
   })
 })
+
+describe('a practice table with no next board (AC-10.1)', () => {
+  const finishedBoard = { phase: 'finished', turn: null, legalCalls: [] } as Partial<BoardView>
+  const stuck = (over: Partial<TableView> = {}): TableView => {
+    const table = practiceTable(finishedBoard)
+    return { ...table, practice: { deal: 'custom', robotKind: 'gib', justDeclare: false, dealt: 3, dealStuck: true }, acts: undefined, ...over }
+  }
+
+  it('says why and what to do, and deals again from there', async () => {
+    mocks.table = stuck()
+    showTable()
+    expect(screen.getByRole('alert')).toHaveTextContent('條件太嚴，這次抽不到下一副。按「重發」再抽一次，或結束練習、放寬條件再開一桌。')
+    await userEvent.click(screen.getByRole('button', { name: '重發' }))
+    expect(mocks.send).toHaveBeenCalledWith({ type: 'redeal' })
+    expect(screen.getByRole('button', { name: '結束練習' })).toBeInTheDocument()
+  })
+
+  it('names the button a bidding practice has', () => {
+    const table = stuck()
+    mocks.table = { ...table, practice: { ...table.practice!, biddingOnly: true } }
+    showTable()
+    expect(screen.getByRole('alert')).toHaveTextContent('按「下一副」再抽一次')
+  })
+
+  it('tells someone watching the reason, with no buttons to press', () => {
+    mocks.table = stuck({ mySeat: null, hostId: 'cat' })
+    showTable()
+    expect(screen.getByRole('alert')).toHaveTextContent('條件太嚴，這次抽不到下一副，等房主處理。')
+    expect(screen.queryByRole('button', { name: '重發' })).not.toBeInTheDocument()
+  })
+
+  it('says nothing otherwise', () => {
+    mocks.table = practiceTable(finishedBoard)
+    showTable()
+    expect(screen.queryByText(/條件太嚴/)).not.toBeInTheDocument()
+  })
+})

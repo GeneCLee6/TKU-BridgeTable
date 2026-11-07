@@ -1288,16 +1288,22 @@ export class TableService implements TableApi {
   private dealBoard() {
     const table = this.table!
     const dealt = modeOf(table).deal(table, this.modeContext())
+    const practice = practiceStateOf(table)
     // The mode has no more boards: the last one stays on the table
     if (!dealt) {
       table.dealAt = undefined
+      // At a practice table that means the conditions were not met: the member has to be told (AC-10.1).
+      // A board still being played goes on, so it is not waiting for anything
+      if (practice && (!table.board || table.board.phase === 'finished')) practice.dealStuck = true
       return
     }
     // A person who declared from a robot partner's seat goes back to their own for the new board
     this.unswap()
     table.board = dealt.board ?? newBoard(dealt.boardNo, dealt.hands)
-    const practice = practiceStateOf(table)
-    if (practice) delete practice.review
+    if (practice) {
+      delete practice.review
+      delete practice.dealStuck
+    }
     this.clearTeachMarks()
     table.undo = undefined
     table.rejectedClaim = undefined
@@ -1400,8 +1406,12 @@ export class TableService implements TableApi {
     else if (table.hostId !== userId || !this.seatOf(userId)) throw new ClubError('hostOnly')
     const before = table.board
     this.dealBoard()
-    // The conditions could not be met this time: the board stays
-    if (table.board === before) throw new ClubError('dealTooStrict')
+    // The conditions could not be met this time: the board stays, and the table says so (`dealStuck`)
+    if (table.board === before) {
+      await this.save()
+      this.settled()
+      throw new ClubError('dealTooStrict')
+    }
     await this.save()
   }
 
@@ -1417,6 +1427,7 @@ export class TableService implements TableApi {
     const board = table.board
     if (!board) throw new ClubError('noBoard')
     delete practiceStateOf(table)!.review
+    delete practiceStateOf(table)!.dealStuck
     this.restartBoard(board)
     await this.save()
   }
