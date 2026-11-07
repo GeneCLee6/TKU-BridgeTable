@@ -371,3 +371,39 @@
 | 文字 | 「使用 Google 帳戶登入」「使用 Google 帳戶申請加入」（英文 Sign in with Google／Sign up with Google，六種語言照 Google 的譯法） | 「用 LINE 登入」「用 LINE 申請加入」（英文 Log in with LINE，日文 LINEでログイン） |
 
 鍵盤焦點同其他按鈕（`focus` 2px 外框、外推 2px）；停用與處理中不透明度 0.45、`aria-busy`。logo 是行內 SVG（CSP 只放行本站，docs/SECURITY.md §2），`aria-hidden`，按鈕的名稱就是文字。不要改 logo 的顏色、比例，也不要只放 logo 不放字。
+
+## 8. 橋牌用語：介面一律用英文（社長決定，2026-11-07）
+
+介面裡的橋牌術語**六種語言都寫英文**，大小寫與下表相同；介面語言的偵測與預設不變。術語前後的文法照該語言寫（「Declarer 打 3NT」「你的 Contract」），CJK（繁中、簡中、日文）與英文之間空一格，韓文的助詞直接接在後面（`Contract을`）。英文介面的句子照英文文法小寫（`the contract`），不必硬改成大寫。
+
+**寫英文（六種語言都一樣）**
+
+| 英文 | 舊中文（讀文件、橋譜時對照用） | 備註 |
+| --- | --- | --- |
+| Pass | 不叫 | |
+| Double、Doubled | 賭倍（簡中：加倍） | 篩選條件用 Doubled |
+| Redouble | 再賭倍 | |
+| Alert | 警示 | |
+| Overcall | 蓋叫（更舊：爭叫；簡中：争叫） | 跟 Competitive bidding 是不同的概念 |
+| Takeout Double | 迫伴賭倍（更舊：技術性賭倍） | |
+| Competitive bidding | 競叫 | 競爭叫牌的整個情境，不是 Overcall |
+| Notrump／NT | 無王（簡中：无将） | |
+| Declarer | 莊家；「做莊、當莊、打莊」寫「當 Declarer」 | 坐莊的分類是 Declarer Play |
+| Dummy | 夢家（簡中：明手） | |
+| Defender | 防家 | 活動的「防守」不算術語 |
+| Contract | 合約（簡中：定约） | 使用條款的「合約」不是這個字 |
+| Lead、Opening Lead | 攻、領出；首攻 | 表格欄位窄，寫 Lead（同英文介面） |
+| Trump | 王牌（簡中：将牌） | |
+| Ruff | 王吃 | |
+| Slam | 滿貫 | |
+| Vulnerable、Vulnerability | 有身價（簡中：有局）；身價、局況 | 形容詞、名詞；無身價寫「都不 Vulnerable」或 Not Vulnerable |
+| Finesse | 飛牌 | |
+| Overtrick、Overtricks | 超墩 | 數墩數的「超 2 墩」照舊 |
+| Opening、Open | 開叫 | 名詞、動詞 |
+| Response | 應叫、答叫 | |
+
+**後來加的（同一條線上的技術用語）**：Small Slam、Grand Slam（小／大滿貫）、Part Score（部分合約）、Preempt（阻擊）、Double Dummy（雙夢家、雙明手）、Negative Double、Responsive Double、Support Double、Penalty Double、SOS Redouble、Weak Jump Overcall、Preemptive Raise、Negative Response、Positive Response、Grand Slam Force。約定的名稱（Stayman、Blackwood、RKCB……）維持原樣。
+
+**照各語言翻譯（日常用語或計數單位）**：叫牌、打牌、花色、墩（「下 2 墩」「超 2 墩」）、牌、同伴、對手、社員、牌桌、防守、做成、倒約、成局、高花、低花、迫叫、邀請、扣叫、加叫、跳叫、再叫、轉換、止叫、插叫。
+
+**不適用**：程式碼裡的識別字、註解、已存的資料（舊牌局留著當時的說明）、文件（繼續用繁中與上表的舊詞）、姊妹站淡江橋譜（`/api/book/*` 與書的內容，所以 `shared/robot/system/tku/sources.ts` 的文章名照引原文）；第一批謎題（`shared/puzzle-sets/first-set.ts`）的文字改了版本就變（ARCHITECTURE.md §5.11），要等確定沒有已發布的題目才能改。

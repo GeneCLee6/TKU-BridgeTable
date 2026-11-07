@@ -40,7 +40,7 @@ function board(change: Partial<BoardView> = {}): BoardView {
 describe('announcements', () => {
   it('says the new board and whose turn it is on arrival, without reading out what is already on screen', () => {
     const said = announcements(null, board({ auction: [{ seat: 'N', call: '1H' }], turn: 'E' }), ctx)
-    expect(said).toEqual(['第 1 副，北家發牌，雙方無身價', '輪到 東 Ben 叫牌'])
+    expect(said).toEqual(['第 1 副，北家發牌，雙方都不 Vulnerable', '輪到 東 Ben 叫牌'])
   })
 
   it('says each new call and that it is your call', () => {
@@ -66,7 +66,7 @@ describe('announcements', () => {
       auction: [...auction.auction, { seat: 'W', call: 'P' }],
       turn: 'E',
     })
-    expect(announcements(auction, play, ctx)).toEqual(['西 Dan 叫 Pass', '叫牌結束：合約 4 黑桃，莊家 北 Amy', '輪到 東 Ben 出牌'])
+    expect(announcements(auction, play, ctx)).toEqual(['西 Dan 叫 Pass', '叫牌結束：Contract 4 黑桃，Declarer 北 Amy', '輪到 東 Ben 出牌'])
 
     const trick = board({
       ...play,
@@ -99,7 +99,7 @@ describe('announcements', () => {
     const contract = { level: 1, strain: 'N' as const, doubled: '' as const, declarer: 'S' as Seat }
     const before = board({ phase: 'play', contract, dummy: 'N', turn: 'W' })
     const after = board({ ...before, tricks: [{ leader: 'W', cards: [{ seat: 'W', card: 'C5' }] }], turn: 'N', legalCards: ['C2'] })
-    expect(announcements(before, after, ctx)).toEqual(['西 Dan 出 梅花5', '輪到你出夢家的牌'])
+    expect(announcements(before, after, ctx)).toEqual(['西 Dan 出 梅花5', '輪到你出 Dummy 的牌'])
   })
 
   it('says the result, and nothing about calls taken back', () => {
@@ -144,7 +144,7 @@ describe('TableAnnouncer', () => {
         </PreferencesProvider>,
       ),
     )
-    expect(log).toHaveTextContent('東 Ben 叫 1 無王')
+    expect(log).toHaveTextContent('東 Ben 叫 1 Notrump')
     expect(log).toHaveTextContent('輪到你叫牌')
   })
 })

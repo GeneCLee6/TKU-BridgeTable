@@ -27,7 +27,7 @@ describe('PracticeDialog (e10-t04)', () => {
     const dialog = screen.getByRole('dialog', { name: '和機器人練習' })
     expect(within(dialog).getByRole('radio', { name: /隨機/ })).toBeChecked()
     expect(within(dialog).getByRole('radio', { name: 'TKB（淡江制度）' })).toBeChecked()
-    await userEvent.click(within(dialog).getByRole('radio', { name: /1NT 開叫/ }))
+    await userEvent.click(within(dialog).getByRole('radio', { name: /1NT Opening/ }))
     await userEvent.click(within(dialog).getByRole('radio', { name: 'TKB（2/1）' }))
     await userEvent.click(within(dialog).getByRole('checkbox', { name: /Just Declare/ }))
     // Who may watch: hidden (only the invited) unless the member opens it up
@@ -74,7 +74,7 @@ describe('PracticeBanner', () => {
   it('names the board and how the table deals', () => {
     wrap(<PracticeBanner practice={{ deal: 'slam', robotKind: 'tku', justDeclare: true, dealt: 4 }} />)
     expect(screen.getByText('練習 · 第 4 副')).toBeInTheDocument()
-    expect(screen.getByText('滿貫牌 · TKB（淡江制度） · 只打莊（Just Declare）')).toBeInTheDocument()
+    expect(screen.getByText('Slam 牌 · TKB（淡江制度） · 只當 Declarer（Just Declare）')).toBeInTheDocument()
   })
 })
 
@@ -100,7 +100,7 @@ describe('the bidding hint card (e10-t06)', () => {
     const auction = [call('N', '1N')]
     const board = { auction, dealer: 'N', vul: 'None', phase: 'auction', bookTopics: bookTopics(ROBOT_SYSTEMS.tku, auction, 'N', 'None', 'NS') } as unknown as BoardView
     const { unmount } = wrap(<BookHints board={board} robotKind="tku" />)
-    const link = await screen.findByRole('link', { name: /1NT 開叫與答叫/ })
+    const link = await screen.findByRole('link', { name: /1NT Opening 與 Response/ })
     expect(link).toHaveAttribute('href', 'https://tku-bridge-hall.vercel.app/c/system-notrump')
     expect(link).toHaveAttribute('target', '_blank')
     unmount()
@@ -113,13 +113,13 @@ describe('the bidding hint card (e10-t06)', () => {
     const board = { auction, dealer: 'N', vul: 'None', phase: 'auction', bookTopics: bookTopics(ROBOT_SYSTEMS.tku, auction, 'N', 'None', 'NS') } as unknown as BoardView
     wrap(<BookHints board={board} robotKind="sayc" />)
     expect(screen.getByText(/SAYC 制度/)).toBeInTheDocument()
-    expect(screen.queryByRole('link', { name: /1NT 開叫與答叫/ })).toBeNull()
+    expect(screen.queryByRole('link', { name: /1NT Opening 與 Response/ })).toBeNull()
   })
 
   it('lists nothing without the server’s pages: the browser never runs the engine', async () => {
     const board = { auction: [call('N', '1N')], dealer: 'N', vul: 'None', phase: 'auction' } as unknown as BoardView
     wrap(<BookHints board={board} robotKind="tku" />)
     expect(await screen.findByText(/叫牌開始後/)).toBeInTheDocument()
-    expect(screen.queryByRole('link', { name: /1NT 開叫與答叫/ })).toBeNull()
+    expect(screen.queryByRole('link', { name: /1NT Opening 與 Response/ })).toBeNull()
   })
 })

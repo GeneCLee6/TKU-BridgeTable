@@ -88,21 +88,21 @@ beforeEach(() => {
 describe('double-dummy mode in a replay', () => {
   it('is off until switched on, then marks each card West may lead', async () => {
     show()
-    const toggle = screen.getByRole('switch', { name: '雙夢家模式' })
+    const toggle = screen.getByRole('switch', { name: 'Double Dummy 模式' })
     expect(toggle).toHaveAttribute('aria-checked', 'false')
     expect(mocks.solve).not.toHaveBeenCalled()
 
     await userEvent.click(toggle)
     expect(toggle).toHaveAttribute('aria-checked', 'true')
     // ♣A: declarer 12 tricks, one down, the defence's best; the rest let 7♦ make
-    expect(await screen.findByRole('button', { name: /莊家 12 墩（倒 1 墩） · 最佳/ })).toBeEnabled()
-    expect(screen.getAllByRole('button', { name: /莊家 13 墩（剛好做成）/ })).toHaveLength(12)
+    expect(await screen.findByRole('button', { name: /Declarer 12 墩（倒 1 墩） · 最佳/ })).toBeEnabled()
+    expect(screen.getAllByRole('button', { name: /Declarer 13 墩（剛好做成）/ })).toHaveLength(12)
     // The colour says over or down: the number goes on the card without a sign, the words in the label and tooltip
     const marks = [...document.querySelectorAll('[data-dd-mark]')].map((m) => m.textContent)
     expect(marks.filter((m) => m === '1')).toHaveLength(1)
     expect(marks.filter((m) => m === '=')).toHaveLength(12)
     expect(marks.some((m) => /[+−-]/.test(m ?? ''))).toBe(false)
-    expect(screen.getByRole('button', { name: /莊家 12 墩/ })).toHaveAttribute('title', expect.stringContaining('莊家 12 墩（倒 1 墩）'))
+    expect(screen.getByRole('button', { name: /Declarer 12 墩/ })).toHaveAttribute('title', expect.stringContaining('Declarer 12 墩（倒 1 墩）'))
     expect(screen.getByText(/綠底的數字是超幾墩、紅底是倒幾墩，= 剛好做成/)).toBeInTheDocument()
     expect(mocks.solve).toHaveBeenCalledWith(expect.objectContaining({ trump: 2, first: 3, currentTrickRank: [0, 0, 0] }))
 
@@ -113,39 +113,39 @@ describe('double-dummy mode in a replay', () => {
 
   it('tries a card out and goes back to the actual play', async () => {
     show()
-    await userEvent.click(screen.getByRole('switch', { name: '雙夢家模式' }))
-    await userEvent.click(await screen.findByRole('button', { name: /莊家 12 墩/ }))
+    await userEvent.click(screen.getByRole('switch', { name: 'Double Dummy 模式' }))
+    await userEvent.click(await screen.findByRole('button', { name: /Declarer 12 墩/ }))
     // ♣A is on the table; North is to play and the solver is asked about the new point
     expect(await screen.findByText('假設打法')).toBeInTheDocument()
     expect(mocks.solve).toHaveBeenLastCalledWith(expect.objectContaining({ first: 3, currentTrickSuit: [3, 0, 0], currentTrickRank: [14, 0, 0] }))
-    await waitFor(() => expect(screen.getAllByRole('button', { name: /莊家 13 墩/ })).toHaveLength(13))
+    await waitFor(() => expect(screen.getAllByRole('button', { name: /Declarer 13 墩/ })).toHaveLength(13))
     const north = screen.getByRole('group', { name: /^N / })
-    expect(within(north).getAllByRole('button', { name: /莊家 13 墩/ })).toHaveLength(13)
+    expect(within(north).getAllByRole('button', { name: /Declarer 13 墩/ })).toHaveLength(13)
 
     await userEvent.click(screen.getByRole('button', { name: '回到實際打法' }))
     expect(screen.queryByText('假設打法')).toBeNull()
-    expect(await screen.findByRole('button', { name: /莊家 12 墩/ })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: /Declarer 12 墩/ })).toBeInTheDocument()
   })
 
   it('steps one card at a time, and the hand to play next shows every card it may play', async () => {
     show()
     expect(screen.getByRole('button', { name: '下一墩' })).toBeInTheDocument()
-    await userEvent.click(screen.getByRole('switch', { name: '雙夢家模式' }))
-    await screen.findByRole('button', { name: /莊家 12 墩/ })
+    await userEvent.click(screen.getByRole('switch', { name: 'Double Dummy 模式' }))
+    await screen.findByRole('button', { name: /Declarer 12 墩/ })
     await userEvent.click(screen.getByRole('button', { name: '下一張' }))
     // West's lead is on the table, and North (to play next) is solved: all 13 spades marked
     expect(mocks.solve).toHaveBeenLastCalledWith(expect.objectContaining({ first: 3, currentTrickSuit: [3, 0, 0] }))
     const north = screen.getByRole('group', { name: /^N / })
-    await waitFor(() => expect(within(north).getAllByRole('button', { name: /莊家 13 墩/ })).toHaveLength(13))
+    await waitFor(() => expect(within(north).getAllByRole('button', { name: /Declarer 13 墩/ })).toHaveLength(13))
     expect(screen.queryByText('假設打法')).toBeNull()
     await userEvent.click(screen.getByRole('button', { name: '上一張' }))
-    expect(await screen.findByRole('button', { name: /莊家 12 墩/ })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: /Declarer 12 墩/ })).toBeInTheDocument()
   })
 
   it('moving the replay leaves a tried-out line and solves the new point', async () => {
     show()
-    await userEvent.click(screen.getByRole('switch', { name: '雙夢家模式' }))
-    await userEvent.click(await screen.findByRole('button', { name: /莊家 12 墩/ }))
+    await userEvent.click(screen.getByRole('switch', { name: 'Double Dummy 模式' }))
+    await userEvent.click(await screen.findByRole('button', { name: /Declarer 12 墩/ }))
     expect(await screen.findByText('假設打法')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '結尾' }))
     expect(screen.queryByText('假設打法')).toBeNull()
@@ -155,8 +155,8 @@ describe('double-dummy mode in a replay', () => {
 
   it('marks card faces too', async () => {
     show('cards')
-    await userEvent.click(screen.getByRole('switch', { name: '雙夢家模式' }))
-    expect(await screen.findByRole('button', { name: /莊家 12 墩（倒 1 墩） · 最佳/ })).toBeEnabled()
+    await userEvent.click(screen.getByRole('switch', { name: 'Double Dummy 模式' }))
+    expect(await screen.findByRole('button', { name: /Declarer 12 墩（倒 1 墩） · 最佳/ })).toBeEnabled()
     expect(document.querySelectorAll('[data-dd-mark]')).toHaveLength(13)
   })
 
@@ -170,8 +170,8 @@ describe('double-dummy mode in a replay', () => {
         : { suit: [3, 3], rank: [14, 13], equals: [0, 0x3ffc & ~(1 << 13) & ~(1 << 14)], score: [0, 1] },
     )
     show()
-    await userEvent.click(screen.getByRole('switch', { name: '雙夢家模式' }))
-    await screen.findAllByRole('button', { name: /莊家 12 墩/ })
+    await userEvent.click(screen.getByRole('switch', { name: 'Double Dummy 模式' }))
+    await screen.findAllByRole('button', { name: /Declarer 12 墩/ })
     // Before the first card there is no last card
     expect(document.querySelector('[data-dd-last]')).toBeNull()
     await userEvent.click(screen.getByRole('button', { name: '下一張' }))
@@ -189,16 +189,16 @@ describe('double-dummy mode in a replay', () => {
 
   it('says when the last card was one of the best', async () => {
     show()
-    await userEvent.click(screen.getByRole('switch', { name: '雙夢家模式' }))
-    await screen.findByRole('button', { name: /莊家 12 墩/ })
+    await userEvent.click(screen.getByRole('switch', { name: 'Double Dummy 模式' }))
+    await screen.findByRole('button', { name: /Declarer 12 墩/ })
     await userEvent.click(screen.getByRole('button', { name: '下一張' }))
     await waitFor(() => expect(document.querySelector('[data-dd-last]')).toHaveTextContent('是最佳的牌，沒有少墩'))
   })
 
   it('has no verdict for a card tried out', async () => {
     show()
-    await userEvent.click(screen.getByRole('switch', { name: '雙夢家模式' }))
-    await userEvent.click(await screen.findByRole('button', { name: /莊家 12 墩/ }))
+    await userEvent.click(screen.getByRole('switch', { name: 'Double Dummy 模式' }))
+    await userEvent.click(await screen.findByRole('button', { name: /Declarer 12 墩/ }))
     expect(await screen.findByText('假設打法')).toBeInTheDocument()
     expect(document.querySelector('[data-dd-last]')).toBeNull()
   })
@@ -208,7 +208,7 @@ describe('double-dummy mode in a replay', () => {
       throw new DdTooComplex()
     })
     show()
-    await userEvent.click(screen.getByRole('switch', { name: '雙夢家模式' }))
+    await userEvent.click(screen.getByRole('switch', { name: 'Double Dummy 模式' }))
     expect(await screen.findByText(/太複雜/)).toBeInTheDocument()
     expect(document.querySelectorAll('[data-dd-mark]')).toHaveLength(0)
     await userEvent.click(screen.getByRole('button', { name: '下一張' }))
@@ -221,8 +221,8 @@ describe('double-dummy mode in a replay', () => {
       throw new Error('boom')
     })
     show()
-    await userEvent.click(screen.getByRole('switch', { name: '雙夢家模式' }))
-    expect(await screen.findByRole('alert')).toHaveTextContent('無法計算雙夢家分析')
+    await userEvent.click(screen.getByRole('switch', { name: 'Double Dummy 模式' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('無法計算 Double Dummy 分析')
   })
 })
 
@@ -238,8 +238,8 @@ describe('double-dummy mode side by side', () => {
         </MemoryRouter>
       </PreferencesProvider>,
     )
-    const toggle = await screen.findByRole('switch', { name: '雙夢家模式' })
+    const toggle = await screen.findByRole('switch', { name: 'Double Dummy 模式' })
     await userEvent.click(toggle)
-    await waitFor(() => expect(screen.getAllByRole('button', { name: /莊家 12 墩/ })).toHaveLength(2))
+    await waitFor(() => expect(screen.getAllByRole('button', { name: /Declarer 12 墩/ })).toHaveLength(2))
   })
 })

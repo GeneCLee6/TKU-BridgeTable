@@ -116,7 +116,7 @@ describe('four-hand editor (e13-t05)', () => {
     fireEvent.click(cardButton(/東家/))
     expect(last.hands.E).toEqual([])
     fireEvent.change(screen.getByLabelText('發牌'), { target: { value: 'W' } })
-    fireEvent.change(screen.getByLabelText('身價'), { target: { value: 'Both' } })
+    fireEvent.change(screen.getByLabelText('Vulnerability'), { target: { value: 'Both' } })
     expect(last).toMatchObject({ dealer: 'W', vul: 'Both' })
   })
 })
@@ -257,7 +257,7 @@ describe('post editor (e13-t04)', () => {
     expect(screen.getByLabelText('發布到')).toBeDisabled()
     // The four hands are drawn with the record pages' diagram, the seats named instead of players
     expect(screen.getByText('北 · 7 點')).toBeInTheDocument()
-    expect(screen.getByRole('img', { name: /發牌 S，南北有身價/ })).toBeInTheDocument()
+    expect(screen.getByRole('img', { name: /發牌 S，南北 Vulnerable/ })).toBeInTheDocument()
     expect(screen.getByText('這個區塊在淡江橋館編輯，這裡只能移動或移除。')).toBeInTheDocument()
     fireEvent.change(screen.getByRole('textbox', { name: '文字' }), { target: { value: '新內容' } })
     await userEvent.click(screen.getByRole('button', { name: '儲存' }))

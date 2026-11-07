@@ -110,7 +110,7 @@ describe('the post-game analysis page', () => {
     expect(within(item).getByRole('img', { name: /梅花.*A|♣.*A/ })).toBeInTheDocument()
     expect(within(item).getByRole('link', { name: '看這一步' })).toHaveAttribute('href', '/history/a?step=1')
     await screen.findByText('分析完成。')
-    expect(screen.getByText('莊家方少 0 墩，防家方少 1 墩')).toBeInTheDocument()
+    expect(screen.getByText('Declarer 方少 0 墩，Defender 方少 1 墩')).toBeInTheDocument()
     expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '52')
   })
 
@@ -133,8 +133,8 @@ describe('the post-game analysis page', () => {
     })
     mocks.api.session.mockResolvedValue({ records: [record('a', playedBoard('C4'))] })
     show()
-    expect(await screen.findByRole('alert')).toHaveTextContent('無法計算雙夢家分析')
-    expect(screen.queryByText(/莊家方少/)).toBeNull()
+    expect(await screen.findByRole('alert')).toHaveTextContent('無法計算 Double Dummy 分析')
+    expect(screen.queryByText(/Declarer 方少/)).toBeNull()
     expect(screen.queryByText('分析完成。')).toBeNull()
   })
 

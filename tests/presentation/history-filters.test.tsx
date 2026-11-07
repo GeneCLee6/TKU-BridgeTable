@@ -90,7 +90,7 @@ describe('history filters and sorting (e4-t16…t21)', () => {
     expect(address.search).toBe('?bracket=game&group=none')
     await user.selectOptions(screen.getByRole('combobox', { name: '誰主打' }), 'partner')
     await user.selectOptions(screen.getByRole('combobox', { name: '我和誰同桌' }), 'u-amy')
-    await user.selectOptions(screen.getByRole('combobox', { name: '賭倍' }), 'XX')
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Doubled' }), 'XX')
     await user.selectOptions(screen.getByRole('combobox', { name: '模式' }), 'challenge')
     await user.selectOptions(screen.getByRole('combobox', { name: '排序' }), 'tricks_desc')
     await waitFor(() =>
@@ -138,14 +138,14 @@ describe('history filters and sorting (e4-t16…t21)', () => {
     open('/history?scope=all&level=4&strain=S&partner=u-ben&vul=Both&boardNo=7&sort=score_desc&size=50')
     const chips = await screen.findByRole('list', { name: '目前的篩選條件' })
     expect(within(chips).getAllByRole('listitem').map((li) => li.textContent)).toEqual([
-      '合約：4 黑桃',
+      'Contract：4 黑桃',
       '我的搭檔：ben',
-      '雙方有身價',
+      '雙方 Vulnerable',
       '牌號：7',
       '清除全部',
     ])
     expect(screen.getByRole('button', { name: '篩選 4' })).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: '移除「合約：4 黑桃」' }))
+    await user.click(screen.getByRole('button', { name: '移除「Contract：4 黑桃」' }))
     expect(address.search).toBe('?scope=all&partner=u-ben&vul=Both&boardNo=7&sort=score_desc&size=50&group=none')
     // Clearing keeps the scope, the sorting and the page size: they are not conditions
     await user.click(screen.getByRole('button', { name: '清除全部' }))

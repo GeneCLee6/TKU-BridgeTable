@@ -141,7 +141,7 @@ describe('the review of a bidding practice (e10-t07)', () => {
     expect(within(robot).getByTestId('robot-auction')).toHaveTextContent('N 1♠ – E Pass – S 4♠')
     expect(within(robot).getByText('你們').closest('li')).toHaveTextContent('3NT S = · DD 9 墩 · NS +400')
     expect(within(robot).getByText('TKB').closest('li')).toHaveTextContent('4♠ S = · DD 10 墩 · NS +420')
-    expect(within(robot).getByRole('status')).toHaveTextContent('TKB 的合約多拿 1 IMP')
+    expect(within(robot).getByRole('status')).toHaveTextContent('TKB 的 Contract 多拿 1 IMP')
     // The DD table and par, as on the record page
     expect(screen.getByRole('table', { name: /DD 表/ })).toBeInTheDocument()
   })
