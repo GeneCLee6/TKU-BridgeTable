@@ -211,14 +211,14 @@ export const isRobotId = (id: string | null | undefined) => !!id && id.startsWit
 /**
  * The robot is TKB (ROBOT.md), and a host seats it in any of these bidding systems: the club's
  * (淡江制度, the club's system in TKU BridgeBook; only with the `tkuSystem` permission), 2/1
- * (GIB-compatible, docs/BBO GIB) or SAYC (docs/systems/sayc.md).
+ * (GIB-compatible, docs/BBO GIB), SAYC (docs/systems/sayc.md) or Precision (docs/systems/precision.md).
  *
  * A new public system is one word here, its rules in `shared/robot/system/open-systems.ts`, and
  * whatever the compiler then asks for: its card's loader (`src/lib/systemCards.ts`) and its name
  * in each language (`strings.ts`: the maps keyed by system). A stored value keeps its meaning, so
  * append and never rename; `robotKindOf` reads the ids.
  */
-export const ROBOT_KINDS = ['tku', 'gib', 'sayc'] as const
+export const ROBOT_KINDS = ['tku', 'gib', 'sayc', 'precision'] as const
 /** The club's system card: signed-in members of 淡江 only (`worker/system-card.ts`, ARCHITECTURE.md §4) */
 export const TKU_CARD_API = '/api/system-card/tku'
 export type RobotKind = (typeof ROBOT_KINDS)[number]

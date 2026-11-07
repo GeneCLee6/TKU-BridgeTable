@@ -1672,7 +1672,9 @@ export class TableService implements TableApi {
         // A 2/1 robot's call also carries what it shows, explained in each viewer's language
         if (byRobot) {
           // TKB in the club's system: 淡江橋館's words for the call too (BridgeHall e7-t03)
-          const made = { ...next.auction.at(-1)!, robot: true, ...(meaning ? { meaning } : {}), ...(book ? { book } : {}) }
+          const own = table.seats[seat]
+          const system = own && isRobotId(own) ? robotKindOf(own) : undefined
+          const made = { ...next.auction.at(-1)!, robot: true, ...(system ? { system } : {}), ...(meaning ? { meaning } : {}), ...(book ? { book } : {}) }
           next = { ...next, auction: [...board.auction, made] }
         } else {
           // A person's call carries what the engine reads it as, in their side's system: a robot

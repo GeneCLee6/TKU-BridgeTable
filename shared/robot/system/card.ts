@@ -62,7 +62,7 @@ export interface SystemCard {
   signals: SignalRow[]
 }
 
-interface GroupIndex {
+export interface GroupIndex {
   after: string
   seat?: 3 | 4
   /** Only these calls (the section is about them) */
@@ -180,7 +180,7 @@ export function deriveCard(system: System): SystemCard {
     // The same answers after another auction say nothing new (2/1's Blackwood auction reads as RKCB);
     // third and fourth seat keep a group each even when they read the same
     const seen = new Set<string>()
-    const found = INDEX[id].flatMap((index) => {
+    const found = [...INDEX[id], ...(system.cardGroups?.[id] ?? [])].flatMap((index) => {
       const derived = deriveGroup(system, index)
       if (!derived) return []
       const key = JSON.stringify(derived.group.calls)

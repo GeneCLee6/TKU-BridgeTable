@@ -545,8 +545,8 @@ describe('a new system on the old stored values', () => {
   })
 
   it('offers each member the public systems, and the club’s only with the permission', () => {
-    expect(robotKindsFor(null)).toEqual(['gib', 'sayc'])
-    expect(robotKindsFor({ permissions: ['tkuSystem'] })).toEqual(['tku', 'gib', 'sayc'])
+    expect(robotKindsFor(null)).toEqual(['gib', 'sayc', 'precision'])
+    expect(robotKindsFor({ permissions: ['tkuSystem'] })).toEqual(['tku', 'gib', 'sayc', 'precision'])
     expect(parsePracticeSettings({ robotKind: 'sayc' })).toMatchObject({ settings: { robotKind: 'sayc' } })
     expect(parsePracticeSettings({ robotKind: 'nope' })).toEqual({ field: 'robotKind' })
   })

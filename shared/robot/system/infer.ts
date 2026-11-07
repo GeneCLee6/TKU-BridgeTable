@@ -17,12 +17,13 @@ import type { System } from './spec.ts'
 export { intersect }
 
 /** Reads every call so far: what each seat has shown, how far its last call forces, game forces */
-export function read(system: System, auction: readonly AuctionCall[], dealer: Seat, vul: Vulnerability): Reading {
+export function read(system: System, auction: readonly AuctionCall[], dealer: Seat, vul: Vulnerability, systemOf?: (call: AuctionCall) => System | undefined): Reading {
   const reading = emptyReading()
   for (let i = 0; i < auction.length; i++) {
     const { seat, call } = auction[i]
     const ctx = contextOf(seat, auction.slice(0, i), dealer, vul, reading)
-    const spec = meanings(system, ctx).get(call)
+    // A call by a robot of another system means what it means there (`AuctionCall.system`)
+    const spec = meanings(systemOf?.(auction[i]) ?? system, ctx).get(call)
     reading.forcing[seat] = spec?.forcing
     reading.said[seat] = spec
     if (!spec) continue

@@ -8,7 +8,7 @@ import type { RobotKind } from '../shared/protocol.ts'
  * calls ruled out, explanations wider than what the player had shown (Y2), and explanations
  * that leave out something the player had shown (Z1).
  *
- *   npm run consistency -- [--system tku|gib|sayc] [--deals 2000] [--seed s] [--top 30] [--json out.json]
+ *   npm run consistency -- [--system tku|gib|sayc|precision] [--deals 2000] [--seed s] [--top 30] [--json out.json]
  */
 
 const args = readArgs(process.argv.slice(2))
