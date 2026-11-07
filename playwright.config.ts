@@ -12,8 +12,8 @@ import { defineConfig } from '@playwright/test'
  *   new baselines in and commit them. Or, with Docker:
  *   docker run --rm -v "$PWD":/work -w /work mcr.microsoft.com/playwright:v1.64.0-noble \
  *     sh -c "npm ci && npx playwright test --update-snapshots"
- * - Locally without Docker, `PW_CHANNEL=msedge npm run test:visual -- --update-snapshots` draws
- *   the screens with the installed Edge, to look at; do not commit those.
+ * - Locally without Docker, `PW_CHANNEL=msedge npm run test:visual -- --project=chromium --update-snapshots`
+ *   draws the screens with the installed Edge, to look at; do not commit those.
  */
 const PORT = Number(process.env.VISUAL_PORT ?? 4179)
 /** A production build, for what only it can show (tests/visual/production.spec.ts) */
@@ -32,14 +32,24 @@ export default defineConfig({
   },
   use: {
     baseURL: `http://localhost:${PORT}`,
-    browserName: 'chromium',
-    // Locally, `PW_CHANNEL=msedge` uses the installed Edge instead of downloading Chromium
-    channel: process.env.PW_CHANNEL || undefined,
     locale: 'zh-TW',
     timezoneId: 'Asia/Taipei',
     reducedMotion: 'reduce',
     deviceScaleFactor: 1,
   },
+  projects: [
+    {
+      name: 'chromium',
+      use: {
+        browserName: 'chromium',
+        // Locally, `PW_CHANNEL=msedge` uses the installed Edge instead of downloading Chromium
+        channel: process.env.PW_CHANNEL || undefined,
+      },
+    },
+    // Does the app start on WebKit? tests/visual/webkit.smoke.ts, no screenshots. `.smoke.ts` is
+    // not a name the chromium project picks up. Locally: npm run test:visual -- --project=webkit
+    { name: 'webkit', testMatch: /\.smoke\.ts$/, use: { browserName: 'webkit' } },
+  ],
   webServer: [
     {
       command: `npx vite --port ${PORT} --strictPort`,

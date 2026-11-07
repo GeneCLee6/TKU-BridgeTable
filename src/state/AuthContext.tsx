@@ -36,7 +36,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     () =>
       api
         .me()
-        .then(({ user }) => setUser(user))
+        // `request` reads a 200 that is not JSON as `{}`: something other than the Worker answered
+        // (a Wi-Fi sign-in page, a misrouted request). `undefined` here would mean "still loading"
+        // and the page would stay on 載入中 forever, so it counts as not signed in, as a failed
+        // request does.
+        .then(({ user }) => setUser(user ?? null))
         .catch((error: unknown) => {
           setMissingClub(error instanceof ApiError && error.code === 'unknownClub')
           setUser(null)
