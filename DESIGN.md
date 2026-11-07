@@ -423,9 +423,24 @@
 | Overtrick、Overtricks | 超墩 | 數墩數的「超 2 墩」照舊 |
 | Opening、Open | 開叫 | 名詞、動詞 |
 | Response | 應叫、答叫 | |
+| Game | 成局（簡中：到局、成局） | |
+| Forcing | 迫叫（簡中：逼叫） | |
+| Cuebid | 扣叫 | |
+| Invitational | 邀請（簡中：邀叫），只限叫牌的意思 | 邀請社員到牌桌、挑戰、搭檔，還有邀請碼，都是日常用語，照翻 |
+| Raise | 加叫 | 「加叫牌過程」是「加上叫牌過程」，不是這個字 |
+| Jump | 跳叫 | |
+| Rebid | 再叫；可再叫寫 Rebiddable | 「再叫一線」「重叫這一副」是日常說法，不是這個字 |
+| Transfer | 轉換（簡中：转移），只限叫牌與信號的意思 | 介面的切換、把牌轉成你坐南、轉給別人，都照翻 |
+| Sign-off | 止叫 | |
+| Interference | 插叫 | 指得出是哪一口叫品時寫 Overcall（「北家 1♠ Overcall」） |
+| Major | 高花（越：hoa cao） | 「高一門」（hoa cao hơn）不是 Major |
+| Minor | 低花（越：hoa thấp） | |
+| Down | 倒約（簡中：宕；越：thiếu、Thua；日：ダウン；韓：다운） | 「倒 2 墩」寫「Down 2」，不帶單位；六種語言都一樣 |
 
 **後來加的（同一條線上的技術用語）**：Small Slam、Grand Slam（小／大滿貫）、Part Score（部分合約）、Preempt（阻擊）、Double Dummy（雙夢家、雙明手）、Negative Double、Responsive Double、Support Double、Penalty Double、SOS Redouble、Weak Jump Overcall、Preemptive Raise、Negative Response、Positive Response、Grand Slam Force。約定的名稱（Stayman、Blackwood、RKCB……）維持原樣。
 
-**照各語言翻譯（日常用語或計數單位）**：叫牌、打牌、花色、墩（「下 2 墩」「超 2 墩」）、牌、同伴、對手、社員、牌桌、防守、做成、倒約、成局、高花、低花、迫叫、邀請、扣叫、加叫、跳叫、再叫、轉換、止叫、插叫。
+**複合詞（六種語言一樣，除了標 * 的只換其中的術語）**：Game Forcing（迫叫成局）、Forcing one round（迫叫一輪、一圈）、Game Invitational（成局邀請）、Game Try*（成局試探：短門 Game 試探、Short-suit Game Try）、Quantitative Invitational（定量邀請）、Limit Raise、Bergen Raise、Cuebid Raise（扣叫加叫）、Inverted Minor Raise（倒轉低花加叫）、New Minor Forcing（新低花迫叫）、Fourth Suit Forcing（第四花色迫叫）、Fit Jump（配合跳叫）、Weak Jump Shift（弱跳叫新花）、Soloway Jump Shift、Michaels Cuebid、Jacoby Transfer（機器人說明的「轉換」）、Texas Transfer、Full Transfer（全轉換）、Minor Stayman（低花 Stayman）、Minor ask*（詢問低花）、Major Opening（高花開叫的練習條件）、Rebiddable、Twice Rebiddable、Strong Rebiddable（可再叫、可兩次再叫、強可再叫）、Overruff（超吃）、Trump Coup（王牌短打）。
 
-**不適用**：程式碼裡的識別字、註解、已存的資料（舊牌局留著當時的說明）、文件（繼續用繁中與上表的舊詞）、姊妹站淡江橋譜（`/api/book/*` 與書的內容，所以 `shared/robot/system/tku/sources.ts` 的文章名照引原文）；第一批謎題（`shared/puzzle-sets/first-set.ts`）的文字改了版本就變（ARCHITECTURE.md §5.11），要等確定沒有已發布的題目才能改。
+**照各語言翻譯（日常用語或計數單位）**：叫牌、打牌、花色、墩（「超 2 墩」）、牌、同伴、對手、社員、牌桌、防守、做成。
+
+**不適用**：程式碼裡的識別字、註解、已存的資料（舊牌局留著當時的說明）、文件（繼續用繁中與上表的舊詞）、姊妹站淡江橋譜（`/api/book/*` 與書的內容，所以 `shared/robot/system/tku/sources.ts` 的文章名照引原文）。謎題（`shared/puzzle-sets/first-set.ts`）的文字也照這張表，但文字改了版本就變（ARCHITECTURE.md §5.11），已發布的題目會退回草稿、社員的進度重新開始，改之前要先讓社長知道。

@@ -86,7 +86,7 @@ describe('history filters and sorting (e4-t16…t21)', () => {
     const user = userEvent.setup()
     open('/history?page=3')
     await user.click(screen.getByRole('button', { name: '篩選' }))
-    await user.click(screen.getByRole('button', { name: '成局' }))
+    await user.click(screen.getByRole('button', { name: 'Game' }))
     expect(address.search).toBe('?bracket=game&group=none')
     await user.selectOptions(screen.getByRole('combobox', { name: '誰主打' }), 'partner')
     await user.selectOptions(screen.getByRole('combobox', { name: '我和誰同桌' }), 'u-amy')
@@ -106,7 +106,7 @@ describe('history filters and sorting (e4-t16…t21)', () => {
     )
     expect(new URLSearchParams(address.search).get('sort')).toBe('tricks_desc')
     // Pressing the quick filter again takes it off
-    await user.click(screen.getByRole('button', { name: '成局' }))
+    await user.click(screen.getByRole('button', { name: 'Game' }))
     expect(new URLSearchParams(address.search).has('bracket')).toBe(false)
   })
 
@@ -166,7 +166,7 @@ describe('history filters and sorting (e4-t16…t21)', () => {
     try {
       open('/history?bracket=game&result=down')
       // The chips show what is set; the filters themselves stay folded until asked for
-      expect(await screen.findByText('成局')).toBeInTheDocument()
+      expect(await screen.findByText('Game')).toBeInTheDocument()
       expect(screen.queryByRole('combobox', { name: '結果' })).not.toBeInTheDocument()
       const toggle = screen.getByRole('button', { name: '篩選 2' })
       expect(toggle).toHaveAttribute('aria-expanded', 'false')

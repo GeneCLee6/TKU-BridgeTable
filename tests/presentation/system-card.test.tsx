@@ -39,7 +39,7 @@ describe('system card', () => {
     expect(await screen.findByText(s.sections.leads, {}, { timeout: 10_000 })).toBeTruthy()
     const text = document.body.textContent ?? ''
     expect(text).toContain('15–17 大牌點')
-    expect(text).toContain('一高弱二')
+    expect(text).toContain('一門 Major 的弱二')
     expect(text).toContain('RKCB 1430')
     expect(text).toContain(s.sources.tku)
     expect(screen.getAllByRole('link', { name: '雷本索特約' })[0].getAttribute('href')).toContain('lebensohl')
@@ -51,7 +51,7 @@ describe('system card', () => {
     const text = document.body.textContent ?? ''
     expect(text).toContain('RKCB 0314')
     expect(text).toContain('Jacoby 2NT')
-    expect(text).not.toContain('一高弱二')
+    expect(text).not.toContain('一門 Major 的弱二')
     expect(text).toContain(s.sources.gib)
     expect(screen.queryByText(s.articles)).toBeNull()
   })
@@ -62,7 +62,7 @@ describe('system card', () => {
     const text = document.body.textContent ?? ''
     expect(text).toContain('黑木問 A')
     expect(text).not.toContain('RKCB')
-    expect(text).not.toContain('一高弱二')
+    expect(text).not.toContain('一門 Major 的弱二')
     expect(text).toContain(s.sources.sayc)
     expect(screen.queryByText(s.articles)).toBeNull()
   })

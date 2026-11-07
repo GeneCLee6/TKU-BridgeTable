@@ -258,3 +258,19 @@ test('challenges never scroll sideways on a phone', async ({ page }) => {
     expect(overflow, path).toBe(0)
   }
 })
+
+/** English bridge terms are longer than the words they replaced (DESIGN.md §8): the system cards and the history filters on a narrow phone */
+test('long bridge terms fit a phone: system cards and history filters', async ({ page }) => {
+  test.setTimeout(120_000)
+  const narrow = { width: 360, height: 800 }
+  for (const lang of ['en', 'vi', 'zh', 'zh-Hans', 'ja', 'ko'] as const) {
+    for (const path of ['/system-card/gib', '/system-card/sayc', '/system-card/precision', '/history?group=none&bracket=game&result=down'] as const) {
+      await open(page, path, { prefs: { lang } }, narrow)
+      await page.waitForLoadState('networkidle')
+      // Every section of a card open, the longest words included
+      await page.evaluate(() => document.querySelectorAll('details').forEach((section) => (section.open = true)))
+      const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
+      expect(overflow, `${lang} ${path}`).toBe(0)
+    }
+  }
+})
