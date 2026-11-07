@@ -11,6 +11,7 @@ import { auctionBoard, CHALLENGE_NOW, playBoard, resultBoard, serve, table, type
 const DESKTOP = { width: 1280, height: 800 }
 const PHONE = { width: 390, height: 844 }
 const TABLET = { width: 1024, height: 768 }
+const WIDE = { width: 1500, height: 800 }
 const TABLET_PORTRAIT = { width: 1024, height: 1366 }
 
 async function open(page: Page, path: string, club: Club, size: { width: number; height: number }) {
@@ -103,6 +104,41 @@ test('lobby · phone', async ({ page }) => {
   await open(page, '/', {}, PHONE)
   await expect(page.getByRole('main')).toBeVisible()
   await shot(page, 'lobby-phone')
+})
+
+test('landing page · desktop, English in a Chinese browser', async ({ page }) => {
+  await open(page, '/about', { me: null }, DESKTOP)
+  await expect(page.getByRole('heading', { level: 1, name: STRINGS.en.landing.headline })).toBeVisible()
+  await expect(page.locator('html')).toHaveAttribute('lang', 'en')
+  await shot(page, 'landing-desktop')
+})
+
+test('landing page · phone dark', async ({ page }) => {
+  await page.emulateMedia({ colorScheme: 'dark' })
+  await open(page, '/about', { me: null }, PHONE)
+  await expect(page.getByRole('heading', { level: 1, name: STRINGS.en.landing.headline })).toBeVisible()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+  await shot(page, 'landing-phone-dark')
+})
+
+test('landing page · a member, with their club in the header', async ({ page }) => {
+  await open(page, '/about', {}, WIDE)
+  await expect(page.getByRole('link', { name: STRINGS.en.landing.backTo('Tamkang Bridge Club') })).toBeVisible()
+  await shot(page, 'landing-member-wide')
+})
+
+test('the other pages go on following the browser: 繁中 here, after the landing page too', async ({ page }) => {
+  await open(page, '/about', { me: null }, DESKTOP)
+  await expect(page.locator('html')).toHaveAttribute('lang', 'en')
+  await page.goto('/')
+  await expect(page.locator('html')).toHaveAttribute('lang', 'zh-Hant-TW')
+  await expect(page.getByRole('button', { name: '登入' })).toBeVisible()
+})
+
+test('lobby · wide, with the club and the platform named in the header', async ({ page }) => {
+  await open(page, '/', {}, WIDE)
+  await expect(page.getByRole('main')).toBeVisible()
+  await shot(page, 'lobby-wide')
 })
 
 test('sign in · desktop', async ({ page }) => {

@@ -40,7 +40,7 @@ depends_on: [E1, E11]
 - [ ] AC-12.3 — 方案：免費方案與付費方案（社團方案、個人方案），權益集中檢查；方案頁與升級流程。
 - [ ] AC-12.4 — 金流：先接一家（台灣在地金流或國際金流，依 `e12-t01` 結論），訂閱週期、webhook、退款；開立電子發票；App 內購遵守商店規則。
 - [ ] AC-12.5 — 不做賭博：挑戰與比賽不以付費入場換取現金或可兌現獎品（不做 BBO Challenge Reward 的模式）；法務審查紀錄。
-- [ ] AC-12.6 — 品牌：脫離「淡江」的通用產品名稱與 Logo（淡江版保留為社團名稱）、官網介紹頁、SEO。
+- [x] AC-12.6 — 品牌：脫離「淡江」的通用產品名稱與 Logo（淡江版保留為社團名稱）、官網介紹頁、SEO。
 - [ ] AC-12.7 — 營運：平台與社團公告、客服回報表單（自動附牌局 id 與瀏覽器資訊）、平台管理後台（社團、方案、用量）。
 - [ ] AC-12.8 — 原生 App：iOS 與 Android 包裝（Capacitor）、推播、上架。
 - [ ] AC-12.9 — 指標：DAU／WAU、留存、付費轉換、每桌平均副數的匿名事件與儀表板。
@@ -77,8 +77,10 @@ depends_on: [E1, E11]
 
 **M3 · 品牌、營運、App、指標**
 
-- [ ] `e12-t13` 產品命名、Logo、官網介紹頁 · AC-12.6 · M
-- [ ] `e12-t14` SEO：公開頁的標題、描述、分享預覽圖 · AC-12.6 · S · ← e12-t13
+- [x] `e12-t13` 產品命名、Logo、官網介紹頁 · AC-12.6 · M
+  - 完成（2026-11-07，社長決定平台叫 **Overtrick**）：原創的記號與字標（`DESIGN.md` §6，頁面與檔案共用 `src/components/overtrickArt.ts`），favicon、App 圖示、PWA 名稱。頁首：社員看到自己的社團（淡江是宮燈），Overtrick 是它所在的平台（§6.2）。官網介紹頁在 `/about`：根目錄是淡江的登入與大廳，社員的網址不能變。介紹頁對還沒選語言的訪客一律英文（`PreferencesProvider` 的 `unchosenLang`，不寫進設定），其他頁面的語言偵測不變；舊資料的語言跟瀏覽器不同才算選過。名稱換到介面、Email、推播、法律頁、匯出檔與驗證器 App；淡江橋藝社的名稱、網址、帳號、cookie、儲存 key、Worker 與 repo 名稱都沒動。
+- [x] `e12-t14` SEO：公開頁的標題、描述、分享預覽圖 · AC-12.6 · S · ← e12-t13
+  - 完成（2026-11-07）：網頁是靜態資產、不經過 Worker，所以每頁的 meta 在 build 時做成檔案（`scripts/seo.ts`、`scripts/seo-plugin.ts`），不花請求的 CPU：`/about`、`/clubs/apply`、`/privacy`、`/terms` 各有標題、描述、canonical、Open Graph、Twitter card（介紹頁的 HTML 另外帶整頁英文內容），其他路徑拿到的 `index.html` 一律 `noindex`，分享連結再加 `X-Robots-Tag`；`robots.txt`、`sitemap.xml`、1200×630 的 `public/og-image.png`。網址只寫在 `shared/site.ts` 的 `SITE_URL`，買網域後改一行（`DEPLOY.md` §4.21）。staging 與預覽站要求不被收錄。CSP 沒動。
 - [x] `e12-t15` 公告系統（平台與社團）· AC-12.7
   - 完成（2026-11-05）：論壇的「社團公告」板已有長文、草稿、排程、通知與大廳的 `LobbyNews`，不重做；補它沒有的：平台公告（平台管理員在 `/platform` 存草稿、發布、可設結束時間、下架；存在淡江物件的 `platform:notice:<id>`，Worker 跟名冊一起快取讀，每次看頁面不多打跨物件呼叫）與社團橫幅（管理頁設一句話，`meta:banner`）。每一頁上方顯示、可以關掉（只記在瀏覽器）、牌桌頁不顯示。每個動作都有稽核。見 `ARCHITECTURE.md` §1「公告」。
 - [x] `e12-t16` 客服回報表單（自動附牌局 id、瀏覽器與版本）· AC-12.7
@@ -95,7 +97,7 @@ depends_on: [E1, E11]
 
 ## 未決問題
 
-- [ ] **Q:** 產品名稱要不要保留「BridgeTable」？淡江以外的社團是否願意用帶「淡江」的產品？
-      **A:** _(unanswered)_
+- [x] **Q:** 產品名稱要不要保留「BridgeTable」？淡江以外的社團是否願意用帶「淡江」的產品？
+      **A:** 不保留。平台叫 **Overtrick**（社長 2026-11-07 決定），只有英文，淡江橋藝社是平台上的社團。
 - [ ] **Q:** 先收社團的錢還是個人的錢？
       **A:** _(unanswered)_

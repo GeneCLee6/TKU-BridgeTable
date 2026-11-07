@@ -21,9 +21,14 @@ import {
   VolumeX,
 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
-import { NavLink } from 'react-router-dom'
+import { NavLink, useLocation } from 'react-router-dom'
 import styled from 'styled-components'
+import { DEFAULT_CLUB_ID } from '../../shared/clubs.ts'
 import { LANGS } from '../../shared/messages.ts'
+import { CLUB_APPLY_PAGE } from '../../shared/platform.ts'
+import { LANDING_PAGE } from '../../shared/site.ts'
+import { currentClub } from '../lib/club.ts'
+import { useClubName } from '../lib/useClubName.ts'
 import { useAuth, useFeature } from '../state/AuthContext.tsx'
 import { useClub } from '../state/ClubContext.tsx'
 import { useInviteBanner } from '../state/InvitationsContext.tsx'
@@ -32,7 +37,7 @@ import { LANG_NAMES } from '../strings.ts'
 import { compactHeader, mobile, tablet } from '../styles/tokens.ts'
 import { Avatar } from './Avatar.tsx'
 import { PartBoundary } from './ErrorBoundary.tsx'
-import { LogoMark, LogoWordmark } from './Logo.tsx'
+import { ClubLetter, OvertrickMark, OvertrickName, OvertrickWordmark, TamkangMark } from './Logo.tsx'
 import { NotificationBell } from './NotificationBell.tsx'
 
 const Bar = styled.header`
@@ -54,19 +59,62 @@ const Bar = styled.header`
   color: ${({ theme }) => theme.colors.onHeader};
 `
 
-const Brand = styled(NavLink)`
+const Brand = styled.div`
   display: flex;
   align-items: center;
   gap: 9px;
-  color: ${({ theme }) => theme.colors.onHeader};
-  text-decoration: none;
   flex: none;
-  font-weight: 700;
   white-space: nowrap;
 
-  ${compactHeader} {
-    & > span { display: none; }
-  }
+  ${mobile} { gap: 4px; }
+`
+
+/** The club's mark, leading home to the club */
+const ClubHome = styled(NavLink)`
+  display: flex;
+  color: ${({ theme }) => theme.colors.onHeader};
+`
+
+/** The club's name, and under it the platform's; the words give way to the marks when room is short */
+const Names = styled.span`
+  display: grid;
+  gap: 1px;
+  line-height: 1.1;
+  font-weight: 700;
+
+  ${compactHeader} { display: none; }
+`
+
+const ClubNameLink = styled(NavLink)`
+  max-width: 170px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: ${({ theme }) => theme.colors.onHeader};
+  font-size: 15px;
+  text-decoration: none;
+`
+
+/** "Overtrick" under the club's name: the platform this club is on, leading to its page */
+const PlatformLink = styled(NavLink)`
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: ${({ theme }) => theme.colors.headerMuted};
+  text-decoration: none;
+
+  &:hover { color: ${({ theme }) => theme.colors.onHeader}; }
+`
+
+/** When the words are gone, the platform's mark alone stays beside the club's */
+const PlatformMarkLink = styled(PlatformLink)`
+  display: none;
+  ${compactHeader} { display: inline-flex; }
+`
+
+/** The platform alone: a visitor at the plain address, on a page that is no club's */
+const PlatformBrand = styled(NavLink)`
+  display: flex;
+  color: ${({ theme }) => theme.colors.onHeader};
 `
 
 const Nav = styled.nav`
@@ -291,6 +339,8 @@ function LanguageMenu() {
   )
 }
 
+const PLATFORM_PAGES = [LANDING_PAGE, CLUB_APPLY_PAGE, '/privacy', '/terms']
+
 export function AppHeader() {
   const { user, logout } = useAuth()
   // The forum's link only for members who have the flag (E13 K1)
@@ -307,13 +357,36 @@ export function AppHeader() {
   const { mode, sound: soundOn, soundStyle, t, toggleMode, toggleSound } = usePreferences()
   // A style set to 關閉 on the account page shows as off here too
   const sound = soundOn && soundStyle !== 'off'
+  const { pathname } = useLocation()
+  const clubName = useClubName()
+  // Signed out at the plain address, the pages anyone may read belong to the platform, not to 淡江
+  const platformOnly = !user && currentClub() === DEFAULT_CLUB_ID && (PLATFORM_PAGES.includes(pathname) || pathname.startsWith('/share/'))
 
   return (
     <Bar>
-      <Brand to="/" aria-label={`${t.appNameEn} ${t.appNameZh}`}>
-        <LogoMark size={42} />
-        <LogoWordmark />
-      </Brand>
+      {platformOnly ? (
+        <PlatformBrand to={LANDING_PAGE}>
+          <OvertrickWordmark height={20} />
+        </PlatformBrand>
+      ) : (
+        <Brand>
+          <ClubHome to="/" end aria-label={clubName}>
+            {currentClub() === DEFAULT_CLUB_ID ? <TamkangMark size={42} /> : <ClubLetter name={clubName} size={36} />}
+          </ClubHome>
+          <Names>
+            <ClubNameLink to="/" end tabIndex={-1} aria-hidden>
+              {clubName}
+            </ClubNameLink>
+            <PlatformLink to={LANDING_PAGE} aria-label={t.landing.link} title={t.landing.link}>
+              <OvertrickMark size={14} />
+              <OvertrickName height={11} />
+            </PlatformLink>
+          </Names>
+          <PlatformMarkLink to={LANDING_PAGE} aria-label={t.landing.link} title={t.landing.link}>
+            <OvertrickMark size={22} />
+          </PlatformMarkLink>
+        </Brand>
+      )}
       {user && (
         <Nav aria-label={t.navLobby}>
           <Link to="/" end aria-label={t.navLobby} title={t.navLobby}>

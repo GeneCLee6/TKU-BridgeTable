@@ -37,6 +37,8 @@
 
 **PWA 推播（`e1-t28`）也不用改 CSP**：頁面只呼叫本站的 `/api/push*`（`connect-src 'self'`）與瀏覽器內建的 `Notification.requestPermission`、`pushManager.subscribe`，訂閱時瀏覽器自己連它的推播服務，不受頁面的 CSP 管。Service worker 還是本站的 `/sw.js`（`worker-src 'self'`），它的 `fetch`（推播服務換了訂閱時送回 `/api/push/subscribe`）是本站；通知的圖示是本站的 `/icon-192.png`。送推播是社團的 Durable Object 對推播服務發的請求，跟頁面無關。所以 `PAGE_CSP` 與 `public/_headers` 都沒變。
 
+**品牌與 SEO（`e12-t13`、`e12-t14`）也不用改 CSP**：Logo、圖示、分享預覽圖都是本站檔案；介紹頁給爬蟲的內容只有 `style` 屬性（`style-src` 已放行），沒有行內 script。`public/_headers` 多了 `/share/*` 與 `/c/:club/share/*` 的 `X-Robots-Tag: noindex`（`headersFile()`，其他私人頁的 `noindex` 在 `index.html`，DEPLOY.md §4.21）。
+
 **開發模式不受影響**：`@cloudflare/vite-plugin` 在 `npm run dev` 只有開實驗選項才套用 `_headers`，所以 Vite 的行內 HMR script 照常；`npm run build` 後 `dist/client/_headers` 才生效（`vite preview`、預覽站、正式站）。
 
 **檢查方式**：PR 預覽站或正式站

@@ -1,8 +1,10 @@
-# CLAUDE.md — TKU BridgeTable · 淡江牌桌
+# CLAUDE.md — Overtrick（repo：TKU BridgeTable）
 
 給 Claude Code 的專案說明。開始工作前先讀 `RULES.md` 與 `ARCHITECTURE.md`。
 
 ## 這是什麼
+
+平台的名字是 **Overtrick**（只有英文，社長 2026-11-07 決定，DESIGN.md §6）；淡江橋藝社是平台上的第一個社團。內部識別字（repo、package、Worker、cookie、儲存 key）沿用舊名，不要改。
 
 淡江橋藝社的線上牌桌：社員註冊（管理員核准）、開桌、四人即時打橋牌、保存牌局紀錄。這個 Worker 也是姊妹站淡江橋譜的後端：兩站共用帳號，橋譜的線上內容、版本紀錄與 AI 匯入在 `worker/book.ts`、`worker/importer.ts`（ARCHITECTURE.md §5.2）。牌桌樣式參照 BBO。React 19 + TypeScript（strict）+ styled-components + Vite；後端是 Cloudflare Worker + 一個 Durable Object（`Club`）。姊妹專案是 TKU BridgeBook（`C:\dev\TKU-BridgeBook`），外框設計與慣例相同。
 
@@ -47,6 +49,8 @@
 - **只有淡江的第一個帳號會變管理員**（`e12-t06`）：其他社團的第一位管理員只由平台核准申請時建立（`ClubService.provisionFounder`）；測試非淡江社團要先 `provisionFounder` 再登入。社團物件沒有 `meta:club`（也不在 `CLUBS`）時什麼都不回答（ARCHITECTURE.md §1「平台與社團的申請」）。
 - **`/api/book/*` 是淡江橋譜在用的介面**：型別在橋譜的 `src/lib/api.ts`，AI 匯入的扁平 schema 由橋譜的 `src/lib/importResult.ts` 解讀，改了要一起改橋譜。
 - **紀錄頁讀的是 D1 的副本**（ARCHITECTURE.md §5.12）：改了 `summarize`、`BoardSummary` 或索引的表，要把 `worker/history-replica.ts` 的 `REPLICA_VERSION` 加一，副本才會重填；搜尋條件只改 `history-index.ts` 的 `where()`，兩邊共用。
+- **官網頁的語言**：只有 `/about` 對沒選過語言的人顯示英文（`PreferencesProvider` 的 `unchosenLang`，不寫進設定），其他頁照舊偵測；設定裡的 `lang` 可能只是第一次來時偵測到的，要看 `langChosen`。
+- **SEO 是 build 時產生的靜態檔**（`scripts/seo.ts`）：新增公開頁要加到 `shared/site.ts` 的 `PUBLIC_PAGES`；其他路徑拿到的 `index.html` 一律 `noindex`，網址只寫在 `SITE_URL`（DEPLOY.md §4.21）。
 - **CSP 只放行本站**：網頁的標頭在 `public/_headers`（由 `worker/security-headers.ts` 產生，測試檢查一致）；加外部資源（CDN、字型、分析）或行內 script 會被擋，要先改 `PAGE_CSP`（docs/SECURITY.md §2）。`npm run dev` 不套用 `_headers`，要用 build 後的預覽站檢查。
 - **謎題改了要重算**：改 `shared/puzzle-sets/` 或 `dd.ts` 之後跑 `npm run puzzles`；文字一改版本就變，已發布的題目會退回草稿（ARCHITECTURE.md §5.11）。
 - **免費方案每次請求只有 10 ms CPU**：AI 匯入的串流原封不動轉回瀏覽器（`asResponse()`），PDF 走 Files API，不要在 Worker 解析串流或做 base64。

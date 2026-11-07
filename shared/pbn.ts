@@ -84,7 +84,7 @@ export function toPbn(record: BoardRecord): string {
   const result = board.result
   const name = (seat: Seat) => players[seat]?.username ?? ''
   const lines = [
-    tag('Event', 'TKU BridgeTable'),
+    tag('Event', 'Overtrick'),
     tag('Site', record.mode === 'practice' ? 'Practice' : record.mode === 'imported' ? 'Imported' : `Table ${record.tableNumber}`),
     tag('Date', pbnDate(record.finishedAt)),
     tag('Round', ''),
@@ -132,5 +132,5 @@ export function toPbn(record: BoardRecord): string {
 
 /** Boards as one PBN file, in the order given; games are separated by an empty line */
 export function toPbnFile(records: readonly BoardRecord[]): string {
-  return ['% PBN 2.1', '% EXPORT', '% TKU BridgeTable', '', ...records.map((r) => `${toPbn(r)}\n`)].join('\n')
+  return ['% PBN 2.1', '% EXPORT', '% Overtrick', '', ...records.map((r) => `${toPbn(r)}\n`)].join('\n')
 }

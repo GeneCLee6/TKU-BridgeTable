@@ -373,7 +373,7 @@ describe('parsePbn', () => {
       expect(deal.dealer).toBe(boards[i].dealer)
       expect(deal.vul).toBe(boards[i].vul)
       expect(parseDeal(deal.hands)).toEqual(boards[i].hands)
-      expect(deal.title).toBe('TKU BridgeTable')
+      expect(deal.title).toBe('Overtrick')
     }
     expect(parsePbn(toPbnFile([record(boards[1])])).deals).toHaveLength(1)
   })

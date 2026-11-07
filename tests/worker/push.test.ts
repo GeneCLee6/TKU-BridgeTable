@@ -123,11 +123,11 @@ describe('push notifications (e1-t28)', () => {
     expect(sender.sent).toHaveLength(2)
     const byEndpoint = new Map(sender.sent.map((s) => [s.endpoint, s]))
     expect(byEndpoint.get(phone.endpoint)).toMatchObject({
-      message: { title: '淡江牌桌', body: 'ben 邀請你參加挑戰', url: '/challenges/c1', tag: n.id },
+      message: { title: 'Overtrick', body: 'ben 邀請你參加挑戰', url: '/challenges/c1', tag: n.id },
       urgency: 'high',
       ttl: 86_400,
     })
-    expect(byEndpoint.get(laptop.endpoint)?.message.title).toBe('TKU BridgeTable')
+    expect(byEndpoint.get(laptop.endpoint)?.message.title).toBe('Overtrick')
     expect(deferred.length).toBeGreaterThan(0)
   })
 

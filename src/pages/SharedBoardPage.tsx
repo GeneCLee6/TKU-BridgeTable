@@ -10,10 +10,12 @@ import { ReplayControls } from '../components/ReplayControls.tsx'
 import { ContractLabel, ContractResult } from '../components/Suit.tsx'
 import { Card, ErrorText, Muted, PageMain, PageTitle } from '../components/ui.tsx'
 import { api, ApiError } from '../lib/api.ts'
+import { homePath } from '../lib/club.ts'
 import { formatDateTime, signed } from '../lib/format.ts'
 import { useMediaQuery } from '../lib/useMediaQuery.ts'
 import { canAnalyse } from '../lib/useDoubleDummy.ts'
 import { REPLAY_CARD_MS, useTrickReplay } from '../lib/useTrickReplay.ts'
+import { useSignedIn } from '../state/AuthContext.tsx'
 import { usePreferences } from '../state/PreferencesContext.tsx'
 import { playerName, type Strings } from '../strings.ts'
 import { mobileQuery } from '../styles/tokens.ts'
@@ -70,6 +72,7 @@ function sharedRecord(shared: SharedBoard, t: Strings): BoardRecord {
 export function SharedBoardPage() {
   const { token = '' } = useParams()
   const { t, message } = usePreferences()
+  const signedIn = useSignedIn()
   const [shared, setShared] = useState<SharedBoard | null>(null)
   const [error, setError] = useState('')
 
@@ -89,7 +92,7 @@ export function SharedBoardPage() {
       <PageMain>
         <ErrorText role="alert">{error}</ErrorText>
         <p>
-          <Link to="/">{t.recordExport.sharedHome}</Link>
+          <Link to={homePath(signedIn)}>{t.recordExport.sharedHome}</Link>
         </p>
       </PageMain>
     )
@@ -99,6 +102,7 @@ export function SharedBoardPage() {
 
 function SharedBoardView({ shared }: { shared: SharedBoard }) {
   const { t, lang, cardStyle } = usePreferences()
+  const signedIn = useSignedIn()
   const phone = useMediaQuery(mobileQuery)
   const record = useMemo(() => sharedRecord(shared, t), [shared, t])
   const { board } = record
@@ -157,7 +161,7 @@ function SharedBoardView({ shared }: { shared: SharedBoard }) {
         </>
       )}
       <p>
-        <Link to="/">{t.recordExport.sharedHome}</Link>
+        <Link to={homePath(signedIn)}>{t.recordExport.sharedHome}</Link>
       </p>
     </PageMain>
   )

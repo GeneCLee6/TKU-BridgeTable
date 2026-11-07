@@ -90,7 +90,7 @@ describe('TOTP (RFC 6238)', () => {
 
   it('builds the address authenticator apps read', () => {
     expect(otpauthUri('JBSWY3DPEHPK3PXP', 'amy')).toBe(
-      'otpauth://totp/TKU%20BridgeTable%3Aamy?secret=JBSWY3DPEHPK3PXP&issuer=TKU%20BridgeTable&algorithm=SHA1&digits=6&period=30',
+      'otpauth://totp/Overtrick%3Aamy?secret=JBSWY3DPEHPK3PXP&issuer=Overtrick&algorithm=SHA1&digits=6&period=30',
     )
   })
 })
@@ -207,7 +207,7 @@ describe('signing in with 兩步驟登入', () => {
     const { user } = await club.login('admin', PASSWORD, '', '', recoveryCodes[0].toLowerCase(), 'en')
     expect(user.twoFactor).toEqual({ enabled: true, recoveryLeft: RECOVERY_CODES - 1 })
     expect(sent).toHaveLength(1)
-    expect(sent[0].subject).toBe('TKU BridgeTable: account security notice')
+    expect(sent[0].subject).toBe('Overtrick: account security notice')
     expect(sent[0].text).toContain(`${RECOVERY_CODES - 1} are left`)
     await expect(club.login('admin', PASSWORD, '', '', recoveryCodes[0])).rejects.toMatchObject({ code: 'twoFactorWrong' })
   })

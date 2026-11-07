@@ -3,7 +3,7 @@ import type { PushTexts } from './push-texts.ts'
 
 export const PUSH_TEXTS: PushTexts = {
   "zh": {
-    "title": "淡江牌桌",
+    "title": "Overtrick",
     "test": "推播通知設定好了，之後的邀請與消息會出現在這裡。",
     "kinds": {
       "application": "{username} 申請加入，等你核准",
@@ -76,7 +76,7 @@ export const PUSH_TEXTS: PushTexts = {
     }
   },
   "zh-Hans": {
-    "title": "淡江牌桌",
+    "title": "Overtrick",
     "test": "推送通知设置好了，之后的邀请与消息会出现在这里。",
     "kinds": {
       "application": "{username} 申请加入，等你批准",
@@ -149,7 +149,7 @@ export const PUSH_TEXTS: PushTexts = {
     }
   },
   "en": {
-    "title": "TKU BridgeTable",
+    "title": "Overtrick",
     "test": "Push notifications are set up: invitations and news will show here.",
     "kinds": {
       "application": "{username} asked to join and is waiting for approval",
@@ -222,7 +222,7 @@ export const PUSH_TEXTS: PushTexts = {
     }
   },
   "vi": {
-    "title": "TKU BridgeTable",
+    "title": "Overtrick",
     "test": "Đã thiết lập thông báo đẩy: lời mời và tin mới sẽ hiện ở đây.",
     "kinds": {
       "application": "{username} xin tham gia, đang chờ bạn duyệt",
@@ -295,7 +295,7 @@ export const PUSH_TEXTS: PushTexts = {
     }
   },
   "ja": {
-    "title": "TKU BridgeTable",
+    "title": "Overtrick",
     "test": "プッシュ通知の設定ができました。招待やお知らせはここに表示されます。",
     "kinds": {
       "application": "{username} さんが参加を申請し、承認を待っています",
@@ -368,7 +368,7 @@ export const PUSH_TEXTS: PushTexts = {
     }
   },
   "ko": {
-    "title": "TKU BridgeTable",
+    "title": "Overtrick",
     "test": "푸시 알림 설정이 끝났습니다. 초대와 소식이 여기에 표시됩니다.",
     "kinds": {
       "application": "{username} 님이 가입을 신청하고 승인을 기다립니다",

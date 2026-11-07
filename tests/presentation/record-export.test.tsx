@@ -31,6 +31,7 @@ vi.mock('../../src/lib/api.ts', async (original) => ({
 vi.mock('../../src/lib/download.ts', () => mocks.download)
 vi.mock('../../src/state/AuthContext.tsx', () => ({
   useAuth: () => ({ user: mocks.user }),
+  useSignedIn: () => false,
   useFeature: () => false,
 }))
 const LOBBY: LobbyView = { online: [], members: [], tables: [], myTableId: null, friends: [], blocked: [] }
@@ -151,7 +152,8 @@ describe('a board opened by its public link (e4-t38)', () => {
     expect(screen.getAllByText(/社員/).length).toBeGreaterThan(0)
     expect(screen.getAllByText(/amy/).length).toBeGreaterThan(0)
     const links = screen.getAllByRole('link')
-    expect(links.map((l) => l.getAttribute('href'))).toEqual(['/'])
+    // Home for a visitor is the platform's page: the root is 淡江's sign-in
+    expect(links.map((l) => l.getAttribute('href'))).toEqual(['/about'])
   })
 
   it('says when the link is gone', async () => {

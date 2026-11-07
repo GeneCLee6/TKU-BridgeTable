@@ -83,7 +83,20 @@ export function withSecurityHeaders(response: Response, pathname: string): Respo
   return out
 }
 
-/** `public/_headers` as it should read: every path gets `PAGE_HEADERS` */
+/**
+ * `public/_headers` as it should read: every path gets `PAGE_HEADERS`; a board's public link is not
+ * for search engines (e12-t14), at 淡江's address or another club's. Every other private page says
+ * so in index.html (scripts/seo.ts)
+ */
 export function headersFile(): string {
-  return ['/*', ...Object.entries(PAGE_HEADERS).map(([key, value]) => `  ${key}: ${value}`)].join('\n') + '\n'
+  return (
+    [
+      '/*',
+      ...Object.entries(PAGE_HEADERS).map(([key, value]) => `  ${key}: ${value}`),
+      '/share/*',
+      '  X-Robots-Tag: noindex',
+      '/c/:club/share/*',
+      '  X-Robots-Tag: noindex',
+    ].join('\n') + '\n'
+  )
 }

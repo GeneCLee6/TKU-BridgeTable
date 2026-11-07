@@ -3,7 +3,7 @@ import styled from 'styled-components'
 import { PROFILE_LIMITS } from '../../shared/profile.ts'
 import { LIMITS, type OAuthName } from '../../shared/protocol.ts'
 import { CredentialInput } from '../components/CredentialInput.tsx'
-import { LogoMark } from '../components/Logo.tsx'
+import { ClubLetter, TamkangMark } from '../components/Logo.tsx'
 import { PasswordInput } from '../components/PasswordInput.tsx'
 import { SignInButton } from '../components/SignInButtons.tsx'
 import { Turnstile } from '../components/Turnstile.tsx'
@@ -15,6 +15,8 @@ import { usePreferences, useT } from '../state/PreferencesContext.tsx'
 import { mobile } from '../styles/tokens.ts'
 import { appPath, currentClub } from '../lib/club.ts'
 import { DEFAULT_CLUB_ID } from '../../shared/clubs.ts'
+import { LANDING_PAGE } from '../../shared/site.ts'
+import { useClubName } from '../lib/useClubName.ts'
 import { CLUB_APPLY_PAGE } from '../../shared/platform.ts'
 
 const Wrap = styled.main`
@@ -206,6 +208,7 @@ const FIELD_OF: Record<string, FieldName> = {
 export function LoginPage() {
   const t = useT()
   const { message, lang } = usePreferences()
+  const clubName = useClubName()
   const { login, register, refresh } = useAuth()
   const id = useId()
   /** Where Google or LINE sent the browser back to (e1-t31, e1-t32), read once */
@@ -430,10 +433,10 @@ export function LoginPage() {
     <Wrap>
       <Panel>
         <Brand>
-          <LogoMark size={40} />
+          {currentClub() === DEFAULT_CLUB_ID ? <TamkangMark size={40} /> : <ClubLetter name={clubName} size={40} />}
           <span>
-            <strong>{t.appNameZh}</strong>
-            <small>{t.loginBrandSub}</small>
+            <strong>{clubName}</strong>
+            <small>{t.appName}</small>
           </span>
         </Brand>
         <Heading>
@@ -657,6 +660,8 @@ export function LoginPage() {
         <a href={appPath('/privacy')}>{t.legal.privacyTitle}</a>
         {' · '}
         <a href={appPath('/terms')}>{t.legal.termsTitle}</a>
+        {' · '}
+        <a href={appPath(LANDING_PAGE)}>{t.landing.link}</a>
       </Footnote>
     </Wrap>
   )

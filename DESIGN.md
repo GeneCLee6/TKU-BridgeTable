@@ -36,7 +36,6 @@
 | `onHeader` | `#f3efe6` | `#ece7dc` | 頁首文字、logo；對 `header` 13.5 |
 | `headerMuted` | `#aab4c8` | `#8f9ab0` | 頁首未選中的連結與圖示；對 `header` 7.4 |
 | `headerHover` | 米白 10% | 米白 8% | 頁首連結、圖示滑過的底 |
-| `headerSuitRed` | `#ff8f80` | `#ff8f80` | 頁首字標裡的 ♥♦ |
 | `accent` | `#c9972e` 宮燈金 | `#e0b255` | 強調線、選中頁面的底線、計數徽章底；淺色**不當文字**（對 `surface` 2.6），深色可以（8.5） |
 | `accentStrong` | `#8a6414` | `#e0b255` | 必須用金色寫字時（徽章文字）；對 `bg` 4.8 |
 | `accentSoft` | `#f6ebd2` | `#3a2f17` | 金色徽章、「重新連線中」橫條的底 |
@@ -92,7 +91,6 @@
 - 所有花色在它會畫上去的底色（白牌、面板、名牌、叫牌盒按鈕、說明框、外框的 `bg`／`surface`／`surfaceAlt`／`primarySoft`）都 ≥ 4.5:1。
 - 黃底（選中的叫品 `bidSelected`、Alert 的格子 `alert`、文字牌模式可出的牌 `turn`）**只要求 ≥ 3:1**（X1 定案：符號字大，算大字），測試也只檢查 3:1；目前的色票實際上 ≥ 4.1:1。
 - 跟 X1 比：♥ 從 `#d10f1f` 改成外框原本的 `#c8102e`；四色 ♦ 從 `#b34d00` 再加深成 `#a64700`（`#b34d00` 在外框 `surfaceAlt` 只有 4.4:1）；四色 ♣ 從 `#18852f`（面板 4.44:1）加深成 `#15702a`；淺色外框的 ♠ 從 `#1a2233` 統一成牌面的 `#111111`；深色外框的 ♥♦♣ 改成跟淺色同色相（原本 `#ff6b6b`／`#ffa04d`／`#5fd27a` 色相偏了）。
-- 頁首字標的 ♥♦（`headerSuitRed`）是 logo 的一部分，不屬於這套色票。
 - 叫品說明裡的花色符號（`SuitText`，W4）：機器人的 Alert 說明、叫牌過程的叫品意義、叫牌盒的提示、淡江橋館的說明、叫牌練習檢討裡的 ♠♥♦♣ 都上色。文字本身不變，螢幕閱讀器照原文唸。說明的繁中用語：蓋叫（overcall，舊稱爭叫；「競叫」是雙方爭合約時的叫牌，另一回事）、迫伴賭倍（takeout double，舊稱技術性賭倍）。
 - 淡江橋館有自己的花色（六種風格各一組），還沒跟這套色票對齊。
 
@@ -256,7 +254,31 @@
 
 ## 6. Logo
 
-宮燈＋黑桃（`public/logo-mark.svg`，App 圖示是米色底 #fbf6ea）。完整 logo（`public/logo.svg`）：宮燈旁兩行字標，上行 TKU 徽章（深藍底、金色底線）＋ BridgeTable，下行「淡江牌桌」＋「♠♥♦♣ 橋藝社線上牌桌」；四周留白，每行字都指定固定寬度（`textLength`），換什麼字型都不會超出畫布。`components/Logo.tsx` 的 `LogoMark` 是宮燈的 inline 版本，`LogoWordmark` 是頁首用的同樣兩行字標（網頁文字，用頁首的顏色：米白字、TKU 徽章米白底藏青字＋金色底線；視窗較窄時省略副標，手機只留宮燈）。字標是社團名稱，任何語言都一樣。姊妹站淡江橋館（TKU BridgeHall，2026-10-24 由淡江橋譜改名）用藍底的屋簷＋拱門圖示，牌桌是米底宮燈，兩個 App 不會撞。不使用 BBO 標誌。
+平台叫 **Overtrick**（社長 2026-11-07 決定）；淡江橋藝社是平台上的一個社團，保留自己的宮燈。Logo 與品牌名稱只有英文，沒有中文，也不配中文名。
+
+### 6.1 Overtrick（平台）
+
+原創的記號：從上往下看的一墩牌，四張牌圍成一圈，圍出名字的 O；上面那張金色的牌往外跨出一步，就是比合約多出來的那一墩。字標沒有用字型，是手畫的筆畫（圓頭、等寬），放在哪裡都一樣、也不會有別的語言。不模仿 BBO、Funbridge、Bridgemate。
+
+- **形狀只有一份**：`src/components/overtrickArt.ts`。`components/Logo.tsx` 畫頁面裡的（`OvertrickMark`、`OvertrickName`、`OvertrickWordmark`），`scripts/brand-assets.ts` 產生 `public/` 的檔案；檔案是產生一次後提交的，build 不跑它。改形狀後重跑（指令在檔頭）。
+- **顏色**：頁面裡的環用 `currentColor`、金牌用 `theme.colors.accent`。SVG 與 PNG 讀不到 tokens，所以寫死同樣的值：藏青 `#16243f`（`header`）、米白 `#f3efe6`（`onHeader`）、金 `#c9972e`（`accent` 淺色）、`#e0b255`（`accent` 深色）。
+- **檔案**：`public/logo.svg`（記號＋字標）、`public/logo-mark.svg`（記號），兩個都用 `prefers-color-scheme` 跟著淺色或深色；`public/favicon.svg` 與 App 圖示 `icon-192.png`、`icon-512.png`、`apple-touch-icon.png`、`icon-maskable-512.png`（可遮罩，記號在中間 80％內）是藏青底的方塊，放在任何顏色的分頁上都看得清楚，16 px 也認得出來；`public/og-image.png` 是 1200×630 的分享預覽圖。
+- 改了圖示要把 `public/sw.js` 的 `CACHE` 版本加一，已安裝的手機才不會留著舊圖。
+
+### 6.2 平台與社團怎麼一起出現
+
+**社員看到的是自己的社團，Overtrick 是它所在的平台。**
+
+| 情境 | 頁首 |
+| --- | --- |
+| 社員（登入後），或社團自己的登入頁 | 社團的記號＋社團名稱（連回社團首頁），名稱下面一行小字的 Overtrick 記號＋字標（連到 `/about`）。1400 px 以下字收掉，只留社團記號與小的 Overtrick 記號；手機也一樣 |
+| 沒登入的訪客，在主網址的 `/about`、`/clubs/apply`、`/privacy`、`/terms`、`/share/…` | 只有 Overtrick：這些頁不屬於任何社團 |
+
+社團的記號：淡江是宮燈，**任何語言都不換**；社團名稱跟著語言（`t.tkuClubName`）。其他社團還沒有 Logo（AC-12.2），用名稱的第一個字（`ClubLetter`）；名稱來自那個社團公開的 manifest（`src/lib/useClubName.ts`）。登入頁的卡片也一樣：社團的記號與名稱，下面一行 Overtrick。
+
+### 6.3 淡江橋藝社的宮燈
+
+宮燈＋黑桃（`public/brand/tamkang-mark.svg`，App 圖示是米色底 #fbf6ea）。完整 logo（`public/brand/tamkang-logo.svg`）：宮燈旁兩行字標，上行 TKU 徽章（深藍底、金色底線）＋ BridgeTable，下行「淡江牌桌」＋「♠♥♦♣ 橋藝社線上牌桌」；四周留白，每行字都指定固定寬度（`textLength`），換什麼字型都不會超出畫布。`components/Logo.tsx` 的 `TamkangMark` 是宮燈的 inline 版本。姊妹站淡江橋館（TKU BridgeHall，2026-10-24 由淡江橋譜改名）用藍底的屋簷＋拱門圖示，牌桌是米底宮燈，兩個 App 不會撞。不使用 BBO 標誌。
 
 ## 7. 外框元件
 

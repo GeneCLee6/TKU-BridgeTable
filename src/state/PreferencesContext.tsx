@@ -24,6 +24,11 @@ interface Prefs extends SoundPrefs {
   mode: ThemeMode
   deck: DeckColors
   lang: Lang
+  /**
+   * Whether the viewer picked `lang` themselves (a language menu), rather than it coming from their
+   * browser. Only the landing page asks (`unchosenLang`); the app itself treats both alike
+   */
+  langChosen: boolean
   cardStyle: CardStyle
   playedCards: PlayedCards
   confirmCalls: boolean
@@ -85,16 +90,34 @@ function systemLang(): Lang {
   }
 }
 
+/**
+ * Whether a remembered language was the viewer's choice. Preferences saved before `langChosen`
+ * existed hold the browser's language too, written on the first visit: one that differs from the
+ * browser's can only have been chosen, and one that matches is taken as not chosen
+ */
+function wasChosen(stored: Partial<Prefs>): boolean {
+  if (typeof stored.langChosen === 'boolean') return stored.langChosen
+  return isLang(stored.lang) && stored.lang !== systemLang()
+}
+
 /** The `lang` attribute of the page for each language */
 const HTML_LANG: Record<Lang, string> = { zh: 'zh-Hant-TW', 'zh-Hans': 'zh-Hans-CN', en: 'en', vi: 'vi', ja: 'ja', ko: 'ko' }
 
-export function PreferencesProvider({ children }: { children: ReactNode }) {
+export function PreferencesProvider({
+  children,
+  unchosenLang,
+}: {
+  children: ReactNode
+  /** This page's language for a viewer who has not chosen one; never saved */
+  unchosenLang?: Lang
+}) {
   const [prefs, setPrefs] = useState<Prefs>(() => {
     const stored = readStored()
     return {
       mode: stored.mode ?? systemMode(),
       deck: stored.deck ?? 'two',
       lang: isLang(stored.lang) ? stored.lang : systemLang(),
+      langChosen: wasChosen(stored),
       cardStyle: stored.cardStyle ?? 'cards',
       sound: stored.sound ?? DEFAULT_SOUND_PREFS.sound,
       soundStyle: SOUND_STYLES.includes(stored.soundStyle as SoundStyle) ? stored.soundStyle! : DEFAULT_SOUND_PREFS.soundStyle,
@@ -117,14 +140,24 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     } catch {
       // Private mode or blocked storage: the preference simply is not remembered.
     }
-    document.documentElement.lang = HTML_LANG[prefs.lang]
   }, [prefs])
 
-  const set = useCallback((change: Partial<Prefs>) => setPrefs((p) => ({ ...p, ...change })), [])
+  // `prefs.lang` is what is saved and what every other page uses; this page may show another
+  const lang = unchosenLang && !prefs.langChosen ? unchosenLang : prefs.lang
+  useEffect(() => {
+    document.documentElement.lang = HTML_LANG[lang]
+  }, [lang])
+
+  // Setting a language is choosing it, wherever it was set
+  const set = useCallback(
+    (change: Partial<Prefs>) => setPrefs((p) => ({ ...p, ...change, ...(change.lang ? { langChosen: true } : {}) })),
+    [],
+  )
   const value = useMemo<Preferences>(() => {
-    const t = STRINGS[prefs.lang]
+    const t = STRINGS[lang]
     return {
       ...prefs,
+      lang,
       set,
       toggleMode: () => set({ mode: prefs.mode === 'light' ? 'dark' : 'light' }),
       toggleDeck: () => set({ deck: prefs.deck === 'two' ? 'four' : 'two' }),
@@ -136,9 +169,9 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
           : set({ sound: true, soundStyle: prefs.soundStyle === 'off' ? DEFAULT_SOUND_PREFS.soundStyle : prefs.soundStyle }),
       t,
       message: (code, params, fallback) =>
-        isMessageCode(code) ? formatMessage(code, prefs.lang, params) : (fallback ?? t.genericError),
+        isMessageCode(code) ? formatMessage(code, lang, params) : (fallback ?? t.genericError),
     }
-  }, [prefs, set])
+  }, [prefs, lang, set])
 
   const theme = useMemo(() => createTheme(prefs.mode, prefs.deck), [prefs.mode, prefs.deck])
 

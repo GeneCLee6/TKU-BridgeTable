@@ -13,7 +13,7 @@ import { COMMON_PASSWORDS } from './common-passwords.ts'
 const USERNAME_IN_PASSWORD_MIN = 3
 
 /** Words anyone would guess for this club's site, on top of the breached list */
-const CLUB_WORDS = ['tkubridgetable', 'tkubridgebook', 'tamkangbridge', 'tamkanguniversity', 'bridgetable', 'bridgebook']
+const CLUB_WORDS = ['overtrick123', 'overtrick1234', 'overtrickbridge', 'tkubridgetable', 'tkubridgebook', 'tamkangbridge', 'tamkanguniversity', 'bridgetable', 'bridgebook']
 
 let common: Set<string> | undefined
 

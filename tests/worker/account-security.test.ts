@@ -151,6 +151,7 @@ describe('password policy (e11-t29)', () => {
     // Case does not matter, nor a club word, nor one character over and over
     await expect(club.register('calvin', 'QWERTY123456', '')).rejects.toMatchObject({ code: 'commonPassword' })
     await expect(club.register('calvin', 'TKUBridgeTable', '')).rejects.toMatchObject({ code: 'commonPassword' })
+    await expect(club.register('calvin', 'overtrick1234', '')).rejects.toMatchObject({ code: 'commonPassword' })
     await expect(club.register('calvin', 'zzzzzzzzzzzz', '')).rejects.toMatchObject({ code: 'commonPassword' })
     expect(club.adminApplications()).toEqual([])
 

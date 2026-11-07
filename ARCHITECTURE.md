@@ -1,4 +1,6 @@
-# ARCHITECTURE — TKU BridgeTable · 淡江牌桌
+# ARCHITECTURE — Overtrick（repo：TKU-BridgeTable）
+
+> 平台叫 Overtrick（2026-11-07），淡江橋藝社是平台上的第一個社團；內部識別字（repo、Worker、cookie、儲存 key）沿用舊名、不改。官網介紹頁在 `/about`，SEO 見 DEPLOY.md §4.21，平台與社團怎麼一起出現見 DESIGN.md §6.2。
 
 ## 1. 總覽
 

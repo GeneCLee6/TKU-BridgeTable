@@ -88,6 +88,12 @@ export function useFeature(flag: FeatureFlag): boolean {
   return !!ctx.user?.features?.includes(flag)
 }
 
+/** Whether someone is signed in; for the pages anyone may read, which also draw outside the provider */
+// oxlint-disable-next-line react/only-export-components
+export function useSignedIn(): boolean {
+  return !!useContext(AuthContext)?.user
+}
+
 // oxlint-disable-next-line react/only-export-components
 export function useAuth(): Auth {
   const ctx = useContext(AuthContext)

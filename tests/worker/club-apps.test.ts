@@ -17,8 +17,8 @@ import { memoryStore } from './sqlite.ts'
  */
 
 const STATIC_MANIFEST = {
-  name: 'TKU BridgeTable 淡江牌桌',
-  short_name: '淡江牌桌',
+  name: 'Overtrick',
+  short_name: 'Overtrick',
   start_url: '/',
   scope: '/',
   display: 'standalone',
@@ -64,9 +64,9 @@ describe('a home-screen app per club', () => {
     expect(answer.headers.get('Content-Type')).toMatch(/^application\/manifest\+json/)
     expect(await answer.json()).toEqual({
       ...STATIC_MANIFEST,
-      name: '臺大橋藝社・TKU BridgeTable',
+      name: '臺大橋藝社・Overtrick',
       short_name: '臺大橋藝社',
-      description: '臺大橋藝社的線上牌桌',
+      description: '臺大橋藝社 on Overtrick',
       id: '/c/ntu/',
       start_url: '/c/ntu/',
       scope: '/c/ntu/',

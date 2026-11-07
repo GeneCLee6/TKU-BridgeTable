@@ -33,7 +33,7 @@ const RESEND_URL = 'https://api.resend.com/emails'
 
 /**
  * Resend (https://resend.com): `RESEND_API_KEY` and `MAIL_FROM` (an address on a domain verified
- * there, e.g. `淡江牌桌 <no-reply@example.org>`). `fetcher` is for tests
+ * there, e.g. `Overtrick <no-reply@example.org>`). `fetcher` is for tests
  */
 export function resendMailer(apiKey: string, from: string, fetcher: typeof fetch = fetch): Mailer {
   return {

@@ -21,7 +21,7 @@ vi.mock('../../src/lib/api.ts', async (original) => ({
   api: mocks.api,
 }))
 const AUTH = { user: { id: 'amy', username: 'amy', admin: false, permissions: [] }, refresh: mocks.refresh }
-vi.mock('../../src/state/AuthContext.tsx', () => ({ useAuth: () => AUTH }))
+vi.mock('../../src/state/AuthContext.tsx', () => ({ useAuth: () => AUTH, useSignedIn: () => false }))
 
 const NOW = Date.now()
 const SESSIONS: SessionInfo[] = [

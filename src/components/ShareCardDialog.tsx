@@ -59,7 +59,7 @@ export function ShareCardDialog({ challenge, data, onClose }: { challenge: Chall
     drawShareCard(
       ctx,
       shareCardText(data, {
-        site: `${t.appNameZh} · ${t.appNameEn}`,
+        site: t.appName,
         title,
         rank: t.shareCardRank,
         of: t.shareCardOf,
