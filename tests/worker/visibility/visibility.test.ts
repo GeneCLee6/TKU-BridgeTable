@@ -10,12 +10,12 @@ import { DEFAULT_HISTORY_QUERY } from '../../../shared/history-query.ts'
 import type { ServerMessage } from '../../../shared/protocol.ts'
 import { listQuery } from '../../../worker/history-index.ts'
 import { daysReplica, searchReplica } from '../../../worker/history-replica.ts'
-import { at, teamHarness } from '../team-match-harness.ts'
+import { at, teamHarness, tick } from '../team-match-harness.ts'
 import { lobbyFrom } from '../lobby-copy.ts'
 
 /**
  * The information-isolation regression suite (`e11-t13`, AC-11.8; ARCHITECTURE.md §4): in one place,
- * for every kind of table — casual, practice, challenge and team match — and every role at it,
+ * for every kind of table — casual, practice, challenge, team match and pairs event — and every role at it,
  * nothing reaches a browser that its member may not see. Two kinds of checks:
  *
  * - **Every message, after the fact**: each test plays real boards with robots while every message
@@ -75,7 +75,7 @@ async function exposure(viewer: string, boardId: string, player: string) {
   const all = { ...DEFAULT_HISTORY_QUERY, scope: 'all' as const }
   // The history pages the Worker answers from D1 at the edge (§5.12) answer exactly as the club does
   await t.copyToD1()
-  for (const query of [listQuery(true, 1, 20), DEFAULT_HISTORY_QUERY, all, { ...all, mode: 'team' as const }, { ...all, player }]) {
+  for (const query of [listQuery(true, 1, 20), DEFAULT_HISTORY_QUERY, all, { ...all, mode: 'team' as const }, { ...all, mode: 'pairs' as const }, { ...all, player }]) {
     expect(await searchReplica(t.d1, 'tku', query, viewer, t.h.time), `the edge, ${JSON.stringify(query)}`).toEqual(await club.search(viewer, query))
     // The side panel's boards per day (e3-t48), from either side, count what the search lists
     const days = club.historyDays(viewer, query).days
@@ -87,7 +87,7 @@ async function exposure(viewer: string, boardId: string, player: string) {
     record: (await club.record(boardId, viewer)) !== null,
     history: has(await club.history(viewer, true)),
     mine: has(await club.search(viewer, DEFAULT_HISTORY_QUERY)),
-    search: has(await club.search(viewer, all)) || has(await club.search(viewer, { ...all, mode: 'team' })),
+    search: has(await club.search(viewer, all)) || has(await club.search(viewer, { ...all, mode: 'team' })) || has(await club.search(viewer, { ...all, mode: 'pairs' })),
     profile: (await club.memberProfile(viewer, player)).recent.some((b) => b.id === boardId),
     favorite: await club.favorite(viewer, boardId).then(
       () => true,
@@ -95,7 +95,7 @@ async function exposure(viewer: string, boardId: string, player: string) {
     ),
     traveller: (await club.traveller(boardId, viewer)) !== null,
     // The records page's PBN (e4-t36) and a session's LIN (e4-t37)
-    export: (await Promise.all([all, { ...all, mode: 'team' as const }].map((q) => club.exportBoards(viewer, q)))).some((e) =>
+    export: (await Promise.all([all, { ...all, mode: 'team' as const }, { ...all, mode: 'pairs' as const }].map((q) => club.exportBoards(viewer, q)))).some((e) =>
       e.records.some((r) => r.id === boardId),
     ),
     session: !!(await club.session(boardId, viewer))?.some((r) => r.id === boardId),
@@ -561,5 +561,74 @@ describe('team match tables', () => {
     expect(await t.refused(cat, { type: 'createPractice', settings: practise } as never)).toBeUndefined()
     expect(Object.keys(t.view(cat)!.board!.hands)).toEqual(['S'])
     expect(noHiddenCards(cat)).toBeGreaterThan(10)
+  })
+})
+
+describe('pairs event tables (§5.22)', () => {
+  it('keeps a board from everyone but the four who played it until the event ends, and nobody watches a table of it', async () => {
+    const names = Array.from({ length: 10 }, (_, i) => `p${i + 1}`)
+    const ids: string[] = []
+    for (const name of names) ids.push(await t.member(name))
+    const outsider = await t.member('outsider')
+    await t.club().adminSetFeature({ flag: 'pairs', state: 'on', usernames: [] })
+    const director = ids[0]
+    const { id } = await t.club().pairs.create(director, { title: '週五雙人賽', boardsPerRound: 1 })
+    for (let i = 0; i < 5; i++) await t.club().pairs.enter(ids[i * 2], id, names[i * 2 + 1])
+    const started = await t.club().pairs.start(director, id)
+    t.club().broadcast()
+    await tick()
+    const viewOf = (userId: string) => t.club().pairs.view(id, userId)
+
+    // 5 pairs: two tables play each round, one pair sits out. A pair's table is theirs alone
+    expect(started.tables).toHaveLength(2)
+    const tableOf = (userId: string) => viewOf(userId).myTable?.tableId
+    const sitting = ids.filter((userId) => !tableOf(userId))
+    expect(sitting).toHaveLength(2)
+    const [first, second] = started.tables.map((table) => table.tableId)
+    const atFirst = ids.filter((userId) => tableOf(userId) === first)
+    const atSecond = ids.filter((userId) => tableOf(userId) === second)
+    expect(atFirst).toHaveLength(4)
+    expect(atSecond).toHaveLength(4)
+    // Nobody in the event watches another table of it, sitting out or not
+    expect(await t.refused(sitting[0], { type: 'joinTable', tableId: first })).toBe('inPairs')
+    expect(await t.refused(atSecond[0], { type: 'joinTable', tableId: first })).toBe('inPairs')
+    expect(t.tableState(first)!.spectators).toEqual([])
+
+    await t.playUntil(ids, () => viewOf(director).round === 2)
+    const player = atFirst[0]
+    const board = viewOf(player).travellers[0].entries.find((entry) => entry.boardId)!.boardId!
+
+    // The four who played it have it, kept back for everyone else, on every surface
+    for (const userId of atFirst) expect(await exposure(userId, board, player)).toMatchObject({ record: true, mine: true, favorite: true, traveller: false })
+    for (const viewer of [...atSecond, ...sitting, outsider, t.h.boss]) {
+      if (atFirst.includes(viewer)) continue
+      expect(await exposure(viewer, board, player), viewer).toEqual(hidden)
+      expect(JSON.stringify(inbox(viewer)), viewer).not.toContain(board)
+      expect(await shareCode(viewer, board)).toBe('boardGone')
+    }
+    expect(await shareCode(player, board)).toBe('shareHeldBack')
+    expect(await featureCode(t.h.boss, board)).toBe('boardGone')
+    // The event's own page: no other table's boards, nor any score of them; none for who has played none
+    for (const userId of sitting) expect(viewOf(userId).travellers).toEqual([])
+    for (const userId of atSecond) {
+      const own = viewOf(userId).myPair
+      for (const traveller of viewOf(userId).travellers)
+        for (const entry of traveller.entries) expect(!!entry.boardId).toBe(entry.ns === own || entry.ew === own)
+      expect(viewOf(userId).travellers.flatMap((traveller) => traveller.entries).some((entry) => entry.boardId === board)).toBe(false)
+    }
+    // To someone not in the event a table that is playing is not there: no watching it, no sitting at it
+    const playing = viewOf(director).tables[0].tableId
+    expect(t.tableState(playing)!.board).not.toBeNull()
+    expect(await t.refused(outsider, { type: 'joinTable', tableId: playing })).toBe('tableGone')
+    expect(await t.refused(outsider, { type: 'sit', tableId: playing, seat: 'N' })).toBe('tableGone')
+
+    await t.playUntil(ids, () => viewOf(director).status === 'finished')
+    // Every card each player's browser ever got, over the whole event
+    for (const userId of ids) expect(noHiddenCards(userId)).toBeGreaterThan(2)
+    expect(inbox(outsider).some((m) => m.type === 'table' && m.table?.pairs)).toBe(false)
+
+    // Once it is over the boards are everyone's, from the club and at the edge
+    expect(await exposure(outsider, board, player)).toMatchObject({ record: true, history: true, search: true, profile: true, favorite: true })
+    expect(await featureCode(t.h.boss, board)).toBe('featured')
   })
 })

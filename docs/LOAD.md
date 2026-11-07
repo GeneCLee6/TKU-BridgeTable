@@ -193,9 +193,9 @@ TBT_LOAD=full npx vitest run tests/worker/load-cpu.test.ts --project default --s
 
 ## 7. 遠端煙霧測試
 
-**還沒跑（2026-10-26）**：這個 PR（#142）的預覽沒有部署。`preview.yml` 要 `PREVIEW_INVITE_CODE` 這個 secret 才部署，repo 裡只有 `CLOUDFLARE_API_TOKEN` 與 `CLOUDFLARE_ACCOUNT_ID`（staging 同樣缺 `STAGING_INVITE_CODE`），所以每個 PR 的 Preview 都顯示「skipping the preview」。照規定不自己改 secret、不手動建 Worker，**遠端這次用掉的額度是 0**。
+**還沒跑（2026-11-07）**。不再缺 secret：`PREVIEW_INVITE_CODE`、`STAGING_INVITE_CODE`、`SEED_PASSWORD` 2026-10-27 都設好了（`gh secret list`），每個 PR 的預覽都會部署，PR 上有預覽網址（例如 #323）。
 
-社長設定 secret 之後（`DEPLOY.md` §2.1：`gh secret set PREVIEW_INVITE_CODE`、`gh secret set SEED_PASSWORD`），重新跑這個 PR 的 Preview（或下一次 push），PR 上會出現預覽網址，然後：
+**但腳本現在過不了帳號這一步**：管理員要先開兩步驟登入才能用管理功能（社長 2026-11-02，ARCHITECTURE.md §5.2），而 `scripts/load/cli.ts` 與 `scripts/seed.ts` 都用還沒開兩步驟的管理員呼叫 `POST /api/admin/users` 建帳號，所以拿到 403 `adminTwoFactorRequired`。預覽的「Seed test accounts」步驟就是這樣失敗（`continue-on-error`，工作流程還是綠的，PR 留言寫「沒有測試帳號」；留言說的「沒有設定 `SEED_PASSWORD`」並不是原因）。要跑遠端煙霧，先讓這兩支腳本能建帳號，然後：
 
 ```bash
 # 1. 先看估算（約 Workers 0.2%、DO 請求 0.6%、DO 時間 1.2%，遠低於 15%）

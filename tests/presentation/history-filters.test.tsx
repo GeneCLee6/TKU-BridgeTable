@@ -110,6 +110,18 @@ describe('history filters and sorting (e4-t16…t21)', () => {
     expect(new URLSearchParams(address.search).has('bracket')).toBe(false)
   })
 
+  it('offers every kind of record as a mode, a pairs event too, and shows it as a chip', async () => {
+    const user = userEvent.setup()
+    open('/history')
+    await user.click(screen.getByRole('button', { name: '篩選' }))
+    const mode = screen.getByRole('combobox', { name: '模式' })
+    expect(within(mode).getByRole('option', { name: '雙人賽／個人賽' })).toBeInTheDocument()
+    await user.selectOptions(mode, 'pairs')
+    await waitFor(() => expect(lastQuery()).toMatchObject({ mode: 'pairs' }))
+    expect(new URLSearchParams(address.search).get('mode')).toBe('pairs')
+    expect(within(screen.getByRole('list', { name: '目前的篩選條件' })).getByText('模式：雙人賽／個人賽')).toBeInTheDocument()
+  })
+
   it('offers today, this week, this month and a custom range', async () => {
     const user = userEvent.setup()
     open('/history')

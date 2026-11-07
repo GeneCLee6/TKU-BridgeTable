@@ -443,13 +443,13 @@ interface BoardState {
 | `uhist:<userId>:<時間>-<id>` | 每位社員自己的紀錄索引 |
 | `featured:<boardId>` | 精選牌局（§5.9）：標題、分類、講解、逐墩講解、誰先設的與時間、那副牌設精選時的摘要（`BoardSummary`）；帳號刪除時保留，設的人顯示「—」 |
 | `importPurge:<userId>` | 刪掉的帳號還有匯入的牌要刪（`e4-t39`，§5.3）：排程一次刪幾副，刪完就拿掉 |
-| `practiceOwnDeals:<userId>` | 社員自己的牌組（`e10-t09`，§5.11）：`OwnDeal[]`（id、牌號、發牌人、局況、標題、四手牌），新的在前，最多 200 副；帳號刪除時一起刪；不在備份裡（同練習設定） |
+| `practiceOwnDeals:<userId>` | 社員自己的牌組（`e10-t09`，§5.11）：`OwnDeal[]`（id、牌號、發牌人、局況、標題、四手牌），新的在前，最多 200 副；帳號刪除時一起刪；在備份的活動裡（同練習設定） |
 | `practicePresets:<userId>` | 社員存的練習設定（`e10-t16`，§5.11）：`SavedPractice[]`（id、名稱、設定、時間），新的在前，最多 20 組；帳號刪除時一起刪 |
 | `notif:<userId>:<時間>-<id>` | 通知（`worker/notifications.ts`）：種類、參數、時間、是否已讀；每人只留最新 500 則，帳號刪除時一起刪 |
 | `push:<userId>` | PWA 推播（`e1-t28`，`worker/push.ts`）：每台裝置的訂閱（推播服務的網址、`p256dh`、`auth`、語言、裝置名稱、開啟時間；最多 10 台）與改過的推播種類（只存跟預設不同的）；被登出所有裝置時清掉裝置、帳號刪除時整筆刪；不在備份裡 |
 | `friend:<userId>:<friendId>` | 社員關注的好友（單向），值是 `{ at }`；載入時全部讀進記憶體 |
 | `block:<userId>:<otherId>` | 社員封鎖的對象，值是 `{ at }`；載入時全部讀進記憶體 |
-| SQL `puzzle_publications`、`puzzle_progress` | 謎題（§5.11，`worker/puzzles.ts`）：這個社團發布了哪幾題（題目、版本、誰、何時）；每位社員每題一列（版本、狀態、這次出過的牌、決策點、出錯的牌、提示數、次數、出錯數、第一次解開的時間、是否一次解開、第一次看答案的時間 `revealed_at`）。不在備份裡（跟牌局一樣）；物件的資料遺失時題目退回草稿，是安全的方向 |
+| SQL `puzzle_publications`、`puzzle_progress` | 謎題（§5.11，`worker/puzzles.ts`）：這個社團發布了哪幾題（題目、版本、誰、何時）；每位社員每題一列（版本、狀態、這次出過的牌、決策點、出錯的牌、提示數、次數、出錯數、第一次解開的時間、是否一次解開、第一次看答案的時間 `revealed_at`）。在備份的活動裡（2026-11-07 起） |
 | SQL `partner_bid_sessions`、`partner_bid_boards` | 搭檔非同步叫牌練習（`e10-t08`，§5.11，`worker/partner-bidding.ts`）：一次練習一列（兩位社員、狀態、設定、叫到第幾副、輪到誰、到期時間），發過的每一副一列（四家、叫牌過程、檢討）；不放在記憶體，不在每日備份裡（練習用的資料，還原時只刪掉帳號已不存在的）；帳號刪除時那個人的整筆練習連同對方的副本一起刪 |
 | SQL `challenges`、`challenge_players`、`challenge_results` | 挑戰的正本（不是索引），見 §5.5；`EVENT_OBJECTS=on` 時，住在自己 `EventObject` 的挑戰正本在那個物件，這裡是社團的副本（§5.12 H2b） |
 | SQL `event_homes` | 哪些挑戰住在自己的 `EventObject`，與社團寫進副本的最後一個變更編號（`rev`，-1＝物件還沒確認收下）；沒有這一列的挑戰住在社團（§5.12 H2b） |
@@ -474,6 +474,9 @@ interface BoardState {
 | `replq:<boardId>` | 還沒複製到 D1 的牌局（outbox，§5.12）：值是排進來的時間＋序號，寫進 D1 後刪掉（期間又被改的留著） |
 | `meta:replica` | D1 副本的狀態（§5.12）：`off`／`filling`（做到哪一個 `board:` key）／`ready`，與填它時的 `REPLICA_VERSION` |
 | D1 `boards_index`、`board_players`、`board_summaries`、`index_meta` | 不在 Durable Object 裡：紀錄索引在 D1 的副本，加上每副的摘要與 `ready`（§5.12）；每列帶 `club_id`（§1「多社團的隔離」）；可以隨時從 `board:` 重建 |
+| `bakq:<boardId>` | 還沒寫進備份 log 的牌局（outbox，`worker/backup-steps.ts`，DEPLOY.md §4.4）：值是排進來的時間＋序號；只在有 `BACKUPS` 的環境 |
+| `meta:backupjob` | 備份的步驟做到哪：下一個 log 物件的序號、完成的幾輪、進行中的匯出、掃描、還原 |
+| `bkgone:<boardId>` | 還原讀 log 時，已知後來被刪掉的牌局（只在還原期間） |
 | `meta:backfill` | 回填 SQL 索引時做到哪一個 `board:` key；做完就刪掉，物件中途被回收時從這裡接著做 |
 | `book:entry:<slug>` | 淡江橋譜線上修改的特約（版本、誰在何時改；`convention: null` 表示隱藏），內容在 `bookpart:` |
 | `book:rev:<slug>:<時間>-<id>` | 每次發布、隱藏、還原的版本紀錄 |
@@ -492,10 +495,10 @@ interface BoardState {
 | `pair:<id>` | 淡江橋譜的搭檔（`Partnership`：兩人 `[邀請者, 受邀者]`、所屬隊伍、制度集 id（接受前是空字串）、狀態 `pending`／`active`／`ended`）；婉拒或收回的邀請直接刪掉 |
 | `userteam:<userId>:<teamId>`、`userpair:<userId>:<pairId>` | 某人在哪些隊伍、有哪些搭檔（值是 `true`） |
 | `book:quizfix:<題目 id>` | 淡江橋館幹部的修題（橋館 e6-t06，`worker/quiz.ts`）：自動題的停用、改答案或選項（附修正時的原文 `basis`），或手動出的題；誰、何時 |
-| `quizlog:<userId>:<時間>-<id>` | 社員在淡江橋館練習的成績（橋館 e6-t04）：每次練習的制度集與每題對錯，每人最新 100 次；帳號刪除時一起刪，不在每日備份裡 |
+| `quizlog:<userId>:<時間>-<id>` | 社員在淡江橋館練習的成績（橋館 e6-t04）：每次練習的制度集與每題對錯，每人最新 100 次；帳號刪除時一起刪，在備份的活動裡 |
 | `book:path:<路徑 id>` | 淡江橋館幹部改過的學習路徑（橋館 e4-t08、e4-t12，`worker/learning.ts`、`shared/learning.ts`）：課次、每課讀哪些特約或段落、題目、檢核清單；誰、何時。刪掉就回到橋館內建的路徑 |
-| `pathprogress:<userId>:<路徑 id>` | 社員在淡江橋館學習路徑完成的課次（橋館 e4-t11）；沒有完成的課就不存；帳號刪除時一起刪，不在每日備份裡 |
-| `reading:<userId>` | 社員在淡江橋館文章與電子書讀到哪裡（`ReadingPlace[]`，新的在前，最多 30 筆；橋館 e5-t14）；帳號刪除時一起刪，不在每日備份裡 |
+| `pathprogress:<userId>:<路徑 id>` | 社員在淡江橋館學習路徑完成的課次（橋館 e4-t11）；沒有完成的課就不存；帳號刪除時一起刪，在備份的活動裡 |
+| `reading:<userId>` | 社員在淡江橋館文章與電子書讀到哪裡（`ReadingPlace[]`，新的在前，最多 30 筆；橋館 e5-t14）；帳號刪除時一起刪，在備份的活動裡 |
 | `book:draft:<時間>-<id>` | AI 匯入產生的草稿（只留最新 30 份） |
 | `book:ticket:<token>` | 匯入上傳用的一次性憑證（10 分鐘） |
 | `book:version` | 橋譜線上內容的版本號，`GET /api/book/content` 與 `/api/book/manifest` 的 ETag；分類改了也會加一 |
@@ -508,11 +511,13 @@ interface BoardState {
 | `article:series` | 叢書的系列（橋館 e5-t06）：`{ version, series: ArticleSeries[], updatedAt, updatedBy }`；沒有時橋館用內建系列 |
 | `bookpart:<key>:<n>` | 大內容的分段（Durable Object 單筆值上限 128 KiB，以 4 萬字一段儲存） |
 
-**備份**（`worker/backup.ts`，淡江橋譜 e10-t08、e11-t12）：cron trigger（每天台灣 03:00）呼叫 `Club.backup()`，把 `BACKUP_PREFIXES` 開頭的 key 匯出成一份 JSON Lines 存到 R2 bucket `tku-bridge-backups`（binding `BACKUPS`）的 `daily/<台灣日期>.jsonl`（淡江；其他社團在 `clubs/<id>/daily/…`，各自列表、各自保留，§1「多社團的隔離」），保留 30 天；`GET/POST /api/admin/backups`、`POST /api/admin/backups/restore`（預設預演，真的還原要 `confirm`）。範圍：淡江橋譜的 `book*`、`profile*`、`article*`、`team:`、`pair:`、`userteam:`、`userpair:`，加上帳號 `user:`、`app:`、`avatar:`（同一次匯出，頭像版本與圖片一定對得上），以及好友與封鎖 `friend:`、`block:`（2026-11-04 起；還原時只寫回兩邊都是備份裡帳號的關係）；加上討論區的五張 SQL 表（`BACKUP_TABLES`：`forum_boards`、`forum_posts`、`forum_comments`、`forum_reactions`、`forum_reports`，2026-10-30 起，格式第 3 版：key 之後每列一行 `{"t":表,"r":列}`，有 rowid 的表照 rowid 順序寫、照順序寫回）；`session:`、`meta:settings`、私訊、牌局紀錄與紀錄索引的 SQL 表、橋館錯誤回報與使用統計的 `book_*` 表（§5.15）不在裡面，還原也不動它們。討論區的圖片本來就在 R2，備份只有它們的 `file:meta:`。格式第 2 版把位元組寫成 `{"$bytes":"<base64>"}`（`encodeValue`／`decodeValue`），第 1 版（只有橋譜）照樣讀、只還原它自己的 `prefixes`；第 1、2 版沒有表，還原時不動討論區。還原表時先檢查每張表與每個欄位現在都有（欄位名稱只用資料庫自己的），再在一個 transaction 裡清空、寫回；之後 `Club` 再跑一次 `ForumService.createTables()`（補內建看板與搜尋用的 `body_text`）。還原後 `Club` 換一個新的 `BookService`（與 `ArticleService`），記憶體裡的快取不會留下；有帳號時再呼叫 `ClubService.reloadAccounts()`：重讀帳號與申請、重讀好友與封鎖（`Relations.reload`，不是社員的一併刪掉）、備份之後才有的帳號照刪除帳號的方式清掉、刪掉全部 `session:`、斷開所有連線，大家重新登入。步驟見 DEPLOY.md §4.4。
+**備份的第 4 版**（`worker/backup-steps.ts`，`e11-t12`，2026-11-07，決策與數字在 DEPLOY.md §4.4）：下面這份「核心」之外，牌局紀錄（`board:`）寫成增量的 log `games/<序號>.jsonl`（一個 alarm 一個物件、一個 20 副，每 14 天全部掃一輪，再刪掉更舊的），牌局以外的活動（`ACTIVITY_PREFIXES`、`ACTIVITY_TABLES`）寫成 `activity/<日期>/<段>.jsonl`；都走社團的 `scopedBucket`，進度在 `meta:backupjob`，工作 kind `backup`，物件被回收後 `load()` 接著做。還原這兩種**只補缺的**：進行中的牌桌與比賽不受影響，備份之後才打的牌留著。補回的牌局走 `ClubService.restoreBoard`（紀錄、摘要，索引最後），D1 走 outbox，最後 `ReplicaSync.dropMissing` 拿掉社團沒有紀錄的列。活動補回來後物件重啟一次（`ClubConfig.restart`，`ctx.abort`），讓記憶體裡的比賽、積分、排程從儲存重讀。還原一天最多寫 6.3 萬列（約 3,000 副）。
+
+**備份的核心**（`worker/backup.ts`，淡江橋譜 e10-t08、e11-t12）：cron trigger（每天台灣 03:00）呼叫 `Club.backup()`，把 `BACKUP_PREFIXES` 開頭的 key 匯出成一份 JSON Lines 存到 R2 bucket `tku-bridge-backups`（binding `BACKUPS`）的 `daily/<台灣日期>.jsonl`（淡江；其他社團在 `clubs/<id>/daily/…`，各自列表、各自保留，§1「多社團的隔離」），保留 30 天；`GET/POST /api/admin/backups`、`POST /api/admin/backups/restore`（預設預演，真的還原要 `confirm`）。範圍：淡江橋譜的 `book*`、`profile*`、`article*`、`team:`、`pair:`、`userteam:`、`userpair:`，加上帳號 `user:`、`app:`、`avatar:`（同一次匯出，頭像版本與圖片一定對得上），以及好友與封鎖 `friend:`、`block:`（2026-11-04 起；還原時只寫回兩邊都是備份裡帳號的關係）；加上討論區的五張 SQL 表（`BACKUP_TABLES`：`forum_boards`、`forum_posts`、`forum_comments`、`forum_reactions`、`forum_reports`，2026-10-30 起，格式第 3 版：key 之後每列一行 `{"t":表,"r":列}`，有 rowid 的表照 rowid 順序寫、照順序寫回）；`session:`、`meta:settings`、橋館錯誤回報與使用統計的 `book_*` 表（§5.15）不在裡面，還原也不動它們。討論區的圖片本來就在 R2，備份只有它們的 `file:meta:`。格式第 2 版把位元組寫成 `{"$bytes":"<base64>"}`（`encodeValue`／`decodeValue`），第 1 版（只有橋譜）照樣讀、只還原它自己的 `prefixes`；第 1、2 版沒有表，還原時不動討論區。還原表時先檢查每張表與每個欄位現在都有（欄位名稱只用資料庫自己的），再在一個 transaction 裡清空、寫回；之後 `Club` 再跑一次 `ForumService.createTables()`（補內建看板與搜尋用的 `body_text`）。還原後 `Club` 換一個新的 `BookService`（與 `ArticleService`），記憶體裡的快取不會留下；有帳號時再呼叫 `ClubService.reloadAccounts()`：重讀帳號與申請、重讀好友與封鎖（`Relations.reload`，不是社員的一併刪掉）、備份之後才有的帳號照刪除帳號的方式清掉、刪掉全部 `session:`、斷開所有連線，大家重新登入。步驟見 DEPLOY.md §4.4。
 
 每個動作處理完立即寫回，物件隨時被回收都不會遺失牌局。紀錄列表一次只讀到那一頁為止（每頁 10／20／50／100 筆摘要）。
 
-**容量**：免費方案每個帳號 5 GB；一副牌的紀錄連同兩筆索引約 4 KB，大約可存一百萬副以上。
+**容量**：免費方案每個帳號 5 GB；一副打完的牌紀錄約 6.5 KB（含動作事件），連同摘要與索引約 9 KB，大約可存 55 萬副（所有社團合計）。
 
 ### 5.6 可觀測性與輸入防護（`e11-t08`～`e11-t11`）
 
@@ -620,6 +625,7 @@ interface BoardState {
 - **誰可以觀看**（四種進入方式，§5「牌桌設定」）：練習桌也用 `access`，只是「加入」只有觀看。**預設隱藏**：練習是自己的事，不該一開就出現在大廳讓人圍觀；想讓教練或朋友看就從牌桌的設定按鈕（只問進入方式與邀請名單，`TableSettingsDialog` 的 `practice`）邀請他們，或改成公開、申請加入。`updateTableSettings` 在練習桌只接受 `access`（與 `invitees`），帶 `allowKibitz`、`boardMinutes` 回 `practiceTableFixed`；`allowKibitz` 固定允許、不限時。觀看者看到的跟一般牌桌的觀看者一樣（四家，§4），不能叫牌、出牌、重發；大廳卡片標「練習桌」（`TableSummary.practice`）。
 - **發牌**（`worker/modes.ts` 的 `practice`）：有條件時每副都由南家發牌（牌號 3、7、11、15…，局況輪流），隨機時照一般牌桌輪流。條件發牌用 `quickRandom`（每副用 CSPRNG 取一次種子的 mulberry32）：CSPRNG 每次嘗試約 1 ms，條件發牌要很多次嘗試，免費方案的 CPU 不夠；快速版每次約 10 µs，最難的滿貫牌平均約 350 次。
 - **隨時重發**（`redeal`，牌桌動作，只有練習桌的主人、要有座位）：這一副不管打到哪裡直接丟掉（不留紀錄、`boardsPlayed` 不變），立刻發下一副；這次抽不到時牌留著、回 `dealTooStrict`；不是練習桌回 `practiceOnly`。
+- **抽不到下一副**（AC-10.1）：開桌前的檢查只抽過一次，之後每一副還是可能在 `PRACTICE_MAX_ATTEMPTS` 內抽不到。一副打完或結束（或第一副就沒發出來）而下一副抽不到時，`TableService.dealBoard` 在 `PracticeTableState` 記 `dealStuck`，隨牌桌存檔，`TablePractice.dealStuck` 送給桌上每個人（一個布林值，沒有牌的資訊）；桌子不再倒數，也不會自己重試（每次嘗試都用掉請求的 CPU），由社員決定。牌桌右下角顯示原因：社員看到「按『重發』（只叫牌時是『下一副』）再抽一次，或結束練習、放寬條件再開一桌」，觀看者看到「等房主處理」。練習條件不能在牌桌上改（`practiceTableFixed`），所以放寬要重開一桌。下一副發出來或 `rebid` 就清掉；打到一半按重發失敗只回 `dealTooStrict`，不算卡住。`tests/worker/practice-stuck.test.ts`。
 - **撤回不限**：練習桌的撤回跟一般牌桌一樣（機器人一律同意），沒有次數限制；挑戰桌才不能撤回。
 - **叫牌練習室（一）：只叫牌、一人控制多家**（`e10-t15`，ROADMAP U2a）：`PracticeSettings.biddingOnly` 與 `seats`（社員替哪幾家叫，一定有南；南以外只在 `biddingOnly` 時可以，現在沒有人同時打好幾手牌；`biddingOnly` 不能和 `justDeclare` 一起，錯了是 `badPracticeSettings { field: 'biddingOnly' | 'seats' }`）。
   - **座位控制權（通用）**：`Table.controllers: Partial<Record<Seat, userId>>`，「替這個座位叫牌的人」，沒列的座位就是坐在那裡的人（`views.ts` 的 `actorOf`）。座位上仍是原本的佔位者（練習桌是 TKB），所以座位、`fixedSeats`、代打、`swapForDeclarer`、大廳顯示都不用改；機器人輪到一個被控制的座位就不動（`robotMove` 的 `robotActs`），但撤回與攤牌照樣由坐著的機器人回答。之所以不把社員的 id 同時放進好幾個座位：`seatOf`、代打、入座離座、紀錄的 `players` 都假設一個人一個座位，改那個模型會動到每一種牌桌；控制權另外一張表，之後搭檔非同步叫牌（`e10-t08`，搭檔控制北）與教學桌（`e10-t10`，老師控制任一家）只要設這張表。
@@ -1042,7 +1048,8 @@ E13 的 PRD 原本寫「貼文與留言進 D1」。現況是社團 Durable Objec
 - 作者名稱用大廳的社員列表（`lobby.members`，顯示名稱優先）；已不是社員的顯示「已離開的社員」。
 - 區塊由 `ForumBlocks` 畫：段落、提示、條列照文字（花色符號上色，`SuitText`）；一手牌用文字牌型；**四手牌用紀錄頁的 `RecordDiagram`**（K2，`ForumDeal`：`shared/forum-editor.ts` 的 `dealRecord` 把 `ForumDeal` 轉成沒有牌號、沒有玩家的紀錄，`anonymous` 讓四家顯示方位而不是名字，`BoardInfo` 不寫牌號）；叫牌過程用紀錄頁的 `AuctionBox`；圖片（`e13-t13`）用 `POST /api/files/urls` 拿簽名網址直接顯示、點了開原圖，拿不到的（刪了或貼文被隱藏）顯示「圖片已刪除」；橋館制度、牌桌紀錄是連結。
 - **發文在牌桌站內**（K2）：頁面上的「發文」開牌桌的 `/forum/new`。通知鈴鐺的論壇通知：有 `forum` 旗標的社員連牌桌的貼文，沒有的照舊連橋館（K3 `e13-t09`）。
-- 檢舉、隱藏、搜尋在 K4 做了（見下面「檢舉、隱藏與搜尋」）；反應還沒排批次。編輯與刪除貼文在 K2 做了。
+- 檢舉、隱藏、搜尋在 K4 做了（見下面「檢舉、隱藏與搜尋」）。編輯與刪除貼文在 K2 做了。
+- **按讚、置頂、編輯留言**（AC-13.1）：後端本來就有，牌桌頁面接上，API 沒變，橋館不受影響。貼文與每則留言下面有五種反應的按鈕（`ReactionBar`，`PUT`／`DELETE /api/forum/{posts|comments}/:id/reaction`）：按另一種是換掉，按同一種是收回；伺服器回傳現在的反應，滑過按鈕看到是誰按的。幹部在貼文頁看到「設為置頂／取消置頂」（`POST /api/forum/posts/:id/pin { pinned }`，`useOfficer` 只決定顯示，權限在 `forumRouteNeed`）。作者在自己的留言看到「編輯留言」（`PATCH /api/forum/comments/:id`）：只改文字，留言裡的叫牌過程或牌留著；幹部不能改別人的留言（`notYours`）。草稿與排程中的貼文都沒有這些按鈕。
 
 ### 發文編輯器（K2：`e13-t04`、`e13-t05`、`e13-t06`）
 
@@ -1329,6 +1336,8 @@ AC-9.2（社團積分：依名次給分、月榜年榜、規則可設定、每�
 - 每個變更是一個 `PairsStep`，在社團先用副本跑一次同一個純函式（`applyPairsStep`，錯誤照樣丟），再交給正本跑一次，正本的回答（`PairsSnapshot`：整場＋`rev`）寫回副本（只寫比較新的）。物件說沒有這場時拿副本給它 `adoptPairs` 再送一次；物件的變更 5 秒後再回報一次（`pairsChanged`，回答丟了的時候補）。一副的結果送不到時錯誤傳回牌桌，沿用牌桌的 `outbox` 重送。
 - **開關關著時**：新的雙人賽都在社團的物件裡，行為完全一樣（測試兩種模式都跑）。**跟挑戰、隊制賽不同，不做搬移與退回**：雙人賽是新的，沒有舊資料要搬；開關從開改成關時，已經在物件裡的那幾場繼續從物件存取（`ClubConfig.pairsObjects` 一直都接著），新的才在社團。沒有自己的期限工作，所以物件只在社團呼叫時變。
 - 需要 workerd 才能測的只有接線（`event-object.ts` 的 `adoptPairs`／`stepPairs`、`Club.pairsChanged`）：PR 預覽與 staging 已經是開的。
+
+**紀錄的模式篩選**：紀錄頁與側欄的「模式」多了「雙人賽／個人賽」（`HISTORY_MODES` 的 `pairs`）。個人賽的紀錄也是 `mode: 'pairs'`，所以兩種放在同一個選項；每日賽、每週挑戰的紀錄是 `challenge`；教學桌不留紀錄，沒有選項。可見性跟其他紀錄一樣（`revealAt`，§4），集中回歸在 `tests/worker/visibility/`。
 
 ## 5.23 比賽的裁判工具（決策紀錄，`e9-t17`，AC-9.8，2026-11-03）
 
@@ -1958,7 +1967,7 @@ SQL 由 `worker/history-index.ts` 的 `searchBoards` 組：只有固定的 SQL �
 | --- | --- | --- |
 | `board_shares` | `token`（主鍵）、`board_id`（唯一）、`created_by`、`created_at` | 主鍵、`board_id` |
 
-`board_shares` 跟收藏一樣在社團的 SQLite（`BoardShares.createTables`，每次載入時建），不在每日備份裡（同收藏）；帳號匯出帶自己產生過的連結（`boardShares`），刪帳號時一起刪。
+`board_shares` 跟收藏一樣在社團的 SQLite（`BoardShares.createTables`，每次載入時建），在備份的活動裡（同收藏）；帳號匯出帶自己產生過的連結（`boardShares`），刪帳號時一起刪。
 
 **匯入 BBO LIN**（`e4-t39`，AC-4.13；可見性見 §4「匯入的牌局」）：紀錄頁的「匯入 LIN」（`LinImportDialog`）上傳 `.lin` 或貼上（Handviewer 連結也可以）。
 
@@ -2238,7 +2247,7 @@ SQL 由 `worker/history-index.ts` 的 `searchBoards` 組：只有固定的 SQL �
 | 一般 | 992／51,584 | 2.6、0.4、48.5、1,509 ms | 30、158、812、1,509 ms | 135、298、2,421 ms | 100% |
 | 滿貫區（`slam:`） | 300／15,600 | 1.4、0.3、21.8、1,031 ms | 13、91、483、1,031 ms | 74、145、1,268 ms | 100% |
 
-一般牌組的首攻 98.3% 在 500 ms 內、99.5% 在 1 秒內、全部在 2 秒內。解題時頁面的主執行緒最長只卡 23 ms。正式 build 配上站上真的 CSP（`public/_headers`），賽後分析頁一場 100 副 5,200 步 15.5 秒，也跑過 Firefox（16 副 3 秒）；WebKit（Playwright 的 Windows 版）只確認過 Worker 本身算得對，整頁停在 app 載入、到不了這一頁，所以 Safari 算沒驗證。**沒量真的手機**：Chrome 的 CPU 節流（6 倍）只拖慢主執行緒，不拖慢 Web Worker（首攻 p50 只從 30 變 37 ms），所以那組數字不能當手機看；8 秒的上限是最慢的 1.5 秒再留 5 倍。超過上限的局面顯示「太複雜」，不給數字：DDS 不能中途停，也沒有部分結果，頁面直接 `terminate` Worker 再開新的（把上限臨時改成 5 ms，在真的瀏覽器裡確認過這條路）。
+一般牌組的首攻 98.3% 在 500 ms 內、99.5% 在 1 秒內、全部在 2 秒內。解題時頁面的主執行緒最長只卡 23 ms。正式 build 配上站上真的 CSP（`public/_headers`），賽後分析頁一場 100 副 5,200 步 15.5 秒，也跑過 Firefox（16 副 3 秒）。WebKit（Playwright）也跑得起來：`tests/visual/webkit.smoke.ts` 在 CI（Linux）與 Windows 上用正式 build 加站上真的標頭，解完一副 52 張、算得出損失；只是冒煙，沒量速度。先前「整頁停在 app 載入」查到的原因不是 WebKit 不相容：service worker 接管頁面之後，Playwright 在 WebKit 上的 `page.route` 攔不到請求（Chromium 攔得到），`/api/me` 落到沒有 API 的靜態伺服器、回 200 的 `index.html`；`request()` 把非 JSON 讀成 `{}`，`user` 變 `undefined`，畫面就永遠是「載入中…」。所以不是 Windows 版才有：CI 的 Linux 版 WebKit 拿掉修正後，冒煙測試也卡在同一步。`/api/me` 回 HTML 時，Chromium 用同一份 build 也一樣停住，已修成視為未登入（`AuthContext`）；真實世界裡碰得到的是 Wi-Fi 認證頁這類擋在 Worker 前面的回應。用真的 Worker（本機 `vite preview`，真的 CSP、cookie、Durable Object、WebSocket、service worker，沒有攔截）在 Windows 版 WebKit 上走過登入、大廳、重新整理、開練習桌發牌，都正常，修之前的 build 也一樣。**Safari 與 iPhone 仍然沒驗證**：Playwright 的 WebKit 不是 Safari（沒有 iOS 的記憶體與背景限制，本機也不是 https 與 `wss:`）；還要用真的 iPhone 確認能登入、打一副牌、背景回來會重連、加到主畫面、賽後分析的速度。`vite build` 的預設目標是 Safari 16.4，`shared/` 也用了 regex lookbehind，比這舊的 iOS 會是白畫面。**沒量真的手機**：Chrome 的 CPU 節流（6 倍）只拖慢主執行緒，不拖慢 Web Worker（首攻 p50 只從 30 變 37 ms），所以那組數字不能當手機看；8 秒的上限是最慢的 1.5 秒再留 5 倍。超過上限的局面顯示「太複雜」，不給數字：DDS 不能中途停，也沒有部分結果，頁面直接 `terminate` Worker 再開新的（把上限臨時改成 5 ms，在真的瀏覽器裡確認過這條路）。
 
 **為什麼不是 `dd.ts`**：PRD 提到的 3 萬局面上限是 `dd.ts`（機器人判斷攤牌用）的，這個功能不用它。同一批牌的前 300 副、同一個瀏覽器，問一個約略合約墩數的是非題，`dd.ts` 答得出來的比例：每家 13 張 2.7%、11 張 10%、10 張 30%、9 張 55%、8 張 87%、7 張 98%、6 張以下 100%。如果只有它，就只能分析最後幾墩，所以才用瀏覽器的 WASM DDS。
 

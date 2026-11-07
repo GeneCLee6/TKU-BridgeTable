@@ -16,7 +16,7 @@ import { TKU } from '../shared/robot/system/tku/index.ts'
 import { bookSync } from '../shared/robot/system/tku/sources.ts'
 import { DEVICE_COOKIE, deviceCookie, randomId, readCookie, sessionCookie, sessionCookieName } from './auth.ts'
 import { deviceLabel } from '../shared/account.ts'
-import { ACCOUNT_PREFIXES, backupAdmin, listBackups, runBackup } from './backup.ts'
+import { ACCOUNT_PREFIXES, backupAdmin, backupUsage, runBackup } from './backup.ts'
 import { scopedBucket } from './buckets.ts'
 import { BookService, IMPORT_LIMITS, importRequestFrom, publicBookResponse } from './book.ts'
 import { readForm, readJson, readText } from './body.ts'
@@ -325,6 +325,11 @@ export class Club extends DurableObject<Env> implements Connections {
       // The history pages' copy in D1, read by the Worker (§5.12); this club's rows only (e12-t03)
       historyReplica: env.HISTORY ? d1Replica(env.HISTORY) : undefined,
       historyReplicaOff: env.HISTORY_D1 === 'off',
+      // The game log and the activity's parts (e11-t12): this club's part of the bucket, only where there is one
+      backupBucket: env.BACKUPS && scopedBucket(env.BACKUPS, clubStoragePrefix(clubId)),
+      // A restore put activity back: start again from storage, as after any eviction. Written first, so the
+      // job carries on from where it says; a reset closes the sockets, and a restore already closed them
+      restart: () => void storage.sync().then(() => ctx.abort('Restored from a backup')),
       systemProfileId: env.SYSTEM_PROFILE_ID || undefined,
       // The anti-cheating report's network salt (§5.17): a secret, never in the club's storage
       seenSalt: env.SEEN_SALT || undefined,
@@ -440,6 +445,8 @@ export class Club extends DurableObject<Env> implements Connections {
       return null
     }
     try {
+      // First: the games' steps do not depend on the core going well
+      await this.service.backups?.startExport()
       const result = await runBackup(this.store, bucket, Date.now())
       this.log({ event: 'backup', ok: true, name: result.name, keys: result.keys, rows: result.rows, bytes: result.bytes, deleted: result.deleted.length })
       return result
@@ -557,7 +564,7 @@ export class Club extends DurableObject<Env> implements Connections {
   /** This club's size for the back office: counts from its own storage, R2 and D1 (rough) */
   async platformUsage(): Promise<ClubUsage> {
     const bucket = this.backups()
-    const backupBytes = bucket ? (await listBackups(bucket)).reduce((n, b) => n + b.size, 0) : null
+    const backupBytes = bucket ? (await backupUsage(bucket)).bytes : null
     let historyRows: number | null = null
     if (this.env.HISTORY) {
       try {
@@ -1582,6 +1589,7 @@ export class Club extends DurableObject<Env> implements Connections {
           bucket: this.backups(),
           store: this.store,
           now: Date.now(),
+          steps: this.service.backups,
           restored: async (prefixes, tables) => {
             this.book = new BookService(this.store)
             this.articles = this.newArticles()

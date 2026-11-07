@@ -18,6 +18,8 @@ export type JobKind =
   | 'partnerBid'
   /** Deleting a deleted account's imported boards, a few at a time (e4-t39) */
   | 'importPurge'
+  /** The backup's parts and game log, written and restored a step at a time (e11-t12, worker/backup-steps.ts) */
+  | 'backup'
 
 /** Everything done later (robot moves, the next deal, a challenge's reminder and deadline, a robot sitting in for someone offline, the weekly club challenge, the daily event) goes through one scheduler */
 export interface Scheduler {
