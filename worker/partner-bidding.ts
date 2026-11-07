@@ -123,6 +123,8 @@ const SWEEP_BATCH = 20
 const SWEEP_KEY = 'partnerBid:sweep'
 
 export interface PartnerBidDeps {
+  /** An invitation went out (e12-t17) */
+  started?: () => void
   sql: Sql
   now: () => number
   newId: () => string
@@ -279,6 +281,7 @@ export class PartnerBidService {
       now + PARTNER_BID_INVITE_MS,
     )
     this.armSweep()
+    this.deps.started?.()
     await this.deps.notify(partner, 'partnerBidInvited', { username: this.deps.name(userId), sessionId: id })
     const session = this.row(id)!
     this.push(session)

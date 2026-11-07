@@ -19,6 +19,7 @@ import { AdminBanner, AdminSupport } from '../components/AdminSupport.tsx'
 import { AdminPuzzles } from '../components/AdminPuzzles.tsx'
 import { FeatureFlags } from '../components/FeatureFlags.tsx'
 import { IntegrityReport } from '../components/IntegrityReport.tsx'
+import { ProductMetrics } from '../components/ProductMetrics.tsx'
 import { SystemStatus } from '../components/SystemStatus.tsx'
 import { useToast } from '../components/Toast.tsx'
 import {
@@ -58,8 +59,8 @@ import { mobile } from '../styles/tokens.ts'
  * with TKU BridgeBook, which has the same approvals and permissions on its own admin page.
  */
 
-type SectionId = 'applications' | 'settings' | 'members' | 'add' | 'tables' | 'bookSync' | 'support' | 'banner' | 'puzzles' | 'features' | 'integrity' | 'status'
-const SECTIONS: SectionId[] = ['applications', 'settings', 'members', 'add', 'tables', 'bookSync', 'support', 'banner', 'puzzles', 'features', 'integrity', 'status']
+type SectionId = 'applications' | 'settings' | 'members' | 'add' | 'tables' | 'bookSync' | 'support' | 'banner' | 'puzzles' | 'features' | 'integrity' | 'usage' | 'status'
+const SECTIONS: SectionId[] = ['applications', 'settings', 'members', 'add', 'tables', 'bookSync', 'support', 'banner', 'puzzles', 'features', 'integrity', 'usage', 'status']
 const anchor = (section: SectionId) => `admin-${section}`
 
 /** Fields a server error can belong to */
@@ -349,6 +350,7 @@ function AdminPanels() {
     puzzles: t.puzzles.adminTitle,
     features: t.featureFlags.title,
     integrity: t.integrity.title,
+    usage: t.productMetrics.title,
     status: t.statusTitle,
   }
   const outOfStep = sync?.filter((row) => !row.synced) ?? []
@@ -364,6 +366,7 @@ function AdminPanels() {
     puzzles: null,
     features: null,
     integrity: null,
+    usage: null,
     status: null,
   }
   const words = { today: t.timeToday, yesterday: t.timeYesterday }
@@ -1032,6 +1035,14 @@ function AdminPanels() {
               <Muted>{t.integrity.intro}</Muted>
             </CardHeader>
             <IntegrityReport />
+          </Section>
+
+          <Section id={anchor('usage')} aria-labelledby={`${id}-h-usage`}>
+            <CardHeader>
+              <CardTitle id={`${id}-h-usage`}>{t.productMetrics.title}</CardTitle>
+              <Muted>{t.productMetrics.intro}</Muted>
+            </CardHeader>
+            <ProductMetrics />
           </Section>
 
           <Section id={anchor('status')} aria-labelledby={`${id}-h-status`}>

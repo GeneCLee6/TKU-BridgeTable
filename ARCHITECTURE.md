@@ -212,6 +212,7 @@ TKU-BridgeTable/
 │  ├─ log.ts               結構化日誌（§5.6）
 │  ├─ rate-limit.ts        速率限制（§5.6）
 │  ├─ metrics.ts           指標與告警，`/api/health` 與管理頁「系統狀態」（§5.13）
+│  ├─ product-metrics.ts   使用情況：匿名的活躍人數、留存、每桌副數、功能次數，小數字由伺服器藏（`e12-t17`，§5.27）
 │  ├─ client-errors.ts     瀏覽器錯誤回報的檢查（§5.6）
 │  ├─ book-telemetry.ts    淡江橋館的錯誤回報與匿名使用統計：SQL 四張表與 BookTelemetry（§5.15）
 │  ├─ challenges.ts        挑戰的 SQL 表與 ChallengeStore（§5.5）
@@ -460,6 +461,7 @@ interface BoardState {
 | SQL `direct_messages`、`direct_threads` | 私訊的正本，見 §5.7 |
 | SQL `forum_boards`、`forum_posts`、`forum_comments`、`forum_reactions`、`forum_reports` | 淡江橋館討論區的正本（`worker/forum.ts`，橋館 E11），見 §5.7 後的「論壇 Worker」 |
 | SQL `book_errors`、`book_metrics`、`book_visitors`、`book_telemetry_settings` | 淡江橋館的錯誤回報與匿名使用統計（`worker/book-telemetry.ts`，橋館 e10-t06、e10-t07），見 §5.15；不在每日備份裡 |
+| SQL `product_metrics`、`product_retention`、`product_seen`、`product_salts` | 使用情況的匿名計數與當期的雜湊（`worker/product-metrics.ts`，`e12-t17`），見 §5.27；不在每日備份裡 |
 | `meta:settings` | 管理員改過的人數上限與邀請碼（沒改過就用環境變數） |
 | `meta:weekly` | 每週社團挑戰的排程、誰存的、上一場的時間與 id（`worker/weekly-challenge.ts`，§5.5） |
 | `meta:daily` | 每日賽的設定、誰存的、上一場的 00:00、每一天的挑戰 id（`worker/daily-event.ts`，§5.18） |
@@ -897,7 +899,7 @@ H1 把牌桌拆出去之後（§5.10），社團的物件（`Club`）仍然是**
   - `book_visitors(week, visitor)`：`visitor` 是瀏覽器每個 ISO 週自己產生的亂數，只用來算每週不重複人數（週一 UTC 為一週）；保留 **13 週**（本週＋前 12 週，剛好是圖表要的）。
   - **不存**：社員 id、帳號名稱、制度集 id、IP、User-Agent、完整網址、單一事件的時間或順序；`book_metrics` 和訪客 id 之間沒有連結，所以看不出誰讀了什麼。
   - 清理：寫入時，每天（UTC）第一次寫入順便刪掉超過保留期的列，不另設排程。
-- **開關**：`book_telemetry_settings` 的 `analytics`，預設開；管理員用 `PUT /api/book/analytics/settings` 關掉後，`POST /api/book/events` 整批丟掉（已存的彙總留著，照保留期過期）。錯誤回報不受這個開關影響。
+- **開關**：`book_telemetry_settings` 的 `analytics`，預設開；管理員用 `PUT /api/book/analytics/settings` 關掉後，`POST /api/book/events` 整批丟掉（已存的彙總留著，照保留期過期）。錯誤回報不受這個開關影響。**牌桌的使用情況（§5.27）也跟這個開關**：兩邊的管理頁改的是同一個值。
 - **查詢**（`GET /api/book/analytics`，編輯者與管理員）：最近 12 週（含本週，舊→新，沒資料的週補 0）的不重複訪客與頁面數；最近 28 天（含今天，UTC）的熱門特約、熱門搜尋（各前 20）、切換制度集次數、練習作答與答對數。
 - **不在每日備份裡**（`BACKUP_TABLES` 只列討論區的表）：都是可以重新累積的統計，還原時也不清空、不覆寫這四張表，所以開關的設定在還原後照舊。
 
@@ -1439,6 +1441,29 @@ AC-9.6：「個人賽：每輪換搭檔的移位與個人排名。」**不是另
 - **人數照舊只收 8／12／16／20**；其他人數要機器人補位（雙人賽的引擎還沒有），或接受每輪有人輪空的排法（搭檔次數會不平均），這次都不做。比賽公告多出來的人**不排**（照報名順序取前面的人）。
 - **輪數**：給「只打前幾輪」的選項（上面「只打前幾輪」），預設仍是人數 − 1。
 - **積分預設不變**：個人賽參加 2、每贏過一人 0.5、至少 4 人。
+
+## 5.27 使用情況：匿名的產品指標（`e12-t17`，AC-12.9，2026-11-07）
+
+讓管理員看有多少人回來、哪些功能有人用。§5.13 是維運（最近一小時），這裡是產品（幾個月）。程式在 `worker/product-metrics.ts`（只透過 `Sql` 介面，不碰 Cloudflare API），**全部在伺服器數**：不多任何瀏覽器請求，不能偽造，廣告擋不到，CSP 不用動。**不做付費轉換**：還沒有金流（`e12-t08`、`t10` 跳過），所以 AC-12.9 沒勾。
+
+- **什麼算活躍**：社員開了社團的連線（`connected`）、從連線送訊息或經由 `dispatch` 的請求（連線可能開過午夜），或打完一副（牌桌在自己的物件時，社員的動作不經過社團，`boardFinished` 帶著座位）。只用橋館不開連線的社員不算；只看紀錄頁（D1 回答）也不算。
+- **不存穩定的 id**：`product_seen(period, hash)` 只放這一天（`d:<day>`）與這一週（`w:<monday>`）的社員雜湊，HMAC-SHA-256，金鑰是 `product_salts` 裡每個期間各自的亂數。期間結束後的第一次寫入把人數加到 `product_metrics`、刪掉雜湊與金鑰，**所以不同期間連不起來**。`WITHOUT ROWID`：列依雜湊排序，看不出來的先後。沒有人再來時，雜湊與金鑰會留到下一次有人使用或管理員開頁面（沒有另外排程），隱私權政策有寫。
+- **省寫入**：記憶體裡記著今天算過誰（只在記憶體），之後完全不碰儲存；物件被回收後第一次多算一次雜湊與讀一列，不寫。一次一個（`queue`），因為 WebCrypto 要 `await`。
+- **留存不連結週與週**：一位社員這週第一次來，`product_retention(week, cohort, count)` 的（這週、他註冊的週）加一，沒有每個人的歷史。分母在查詢時從社員的 `createdAt` 算；刪了帳號的人分母會少、分子還在。
+- **每桌平均副數**：`boards`（每副加一）÷ `tables`（一天裡打完至少一副的桌，也用當天金鑰的雜湊去重，`t:<day>`）。跨午夜的桌兩天各算一次。放在 `boardFinished` 的**最後**：前面失敗時牌桌會再送同一副，這樣只算一次。
+- **功能次數**（`PRODUCT_FEATURES`，封閉的型別，`product_metrics` 的 `feature`）：和機器人打的副數（每套制度一個鍵，`ROBOT_KINDS`）、開挑戰（每週社團挑戰不算）、開始隊制賽、邀搭檔叫牌、第一次解出謎題、開賽後分析（讀 `/api/history/:id/session`，LIN 下載不算）、匯入牌局（有新牌局的一次匯入）、開教學桌。都在本來就有的請求裡，一次寫一列。
+- **保留**：`product_metrics` 180 天，`product_retention` 13 週，每天第一次寫入（或管理員看的時候）清，沒有新的排程。**不在每日備份裡**（`BACKUP_TABLES` 沒有列），還原也不動。不用稽核紀錄（沒有新的 `AuditAction`）。
+- **小數字**：`PRODUCT_METRIC_MIN`（5）以下**由伺服器**換成 `null`，頁面拿不到（`view`、`hideSmallCells`）：
+  - 每日、每週人數、桌數、副數、功能次數、有效桌數不足的平均。0 也是 `null`，分不出「沒人」與「一兩個人」。
+  - 留存格：少於 5、註冊週少於 5，或**那一週註冊的全都來了**（等於說了每個人做什麼）。
+  - **推算**：同一週的格子加起來就是那週的活躍人數，只藏一格等於沒藏。所以一週只有一格被藏時，再藏最小的一格；沒有別格就藏那週的總數。
+  - **本週不進留存表**：管理員開著頁面，就能從數字跳動看出剛上線的人是哪一週註冊的。
+  - 人數少的註冊週不單獨一列，併進「更早或人數少的週」：不然每個小週都是一排「–」，還連累旁邊的格子；一個社團一週很少有 5 人註冊。代價：這一列的分母也包含當週還沒註冊的人，早期的比例會偏低。
+  - **限制**：這是給頁面的。`product_retention` 的原始列裡，一週只有一個人註冊時，那個數字就等於他那週有沒有來，直接操作資料庫的人看得到（保留 13 週），隱私權政策也這樣寫。要避免就只能把註冊週改粗（例如每月）。
+- **開關**：沿用 §5.15 的 `book_telemetry_settings.analytics`（`analyticsEnabled`、`setAnalyticsEnabled`），**一個社團一個開關，兩個網站一起開關**。`PUT /api/admin/product-metrics/settings` 與 `PUT /api/book/analytics/settings` 都是管理員。關掉時當下的雜湊與金鑰立刻加總後刪除；同一天再打開，社員會再算一次當天（不再留著雜湊就分不出來）。
+- **查詢**：`GET /api/admin/product-metrics`（`requireAdmin`：管理員且開了兩步驟登入）：最近 28 天（含今天）、12 週（含本週）、8 個已結束的週的留存表、4 週平均副數、28 天的功能次數。一次請求只讀 SQL 與記憶體裡的社員。時間一律 UTC（同 §5.15），台灣早上 8 點換日。頁面：`src/components/ProductMetrics.tsx`，管理頁「使用情況」，打開時讀一次。
+- **多社團**：每個社團的物件各自一份，開關也是。**`/platform` 沒有全平台總表**：要在一次請求裡問每個社團的物件，免費方案的 10 ms CPU 與 DO 請求都不划算；之後要做的話，由各社團每天寫一列到 D1。
+- **匯出與刪除**：這些數字對不回帳號，所以不在 `GET /api/account/export`，`removeMember` 也不動（隱私權政策有寫、docs/SECURITY.md §5）。當期的雜湊在帳號刪除後留到期間結束，之後沒有人有 id 可以對。
 
 ## 5.26 多隊賽：循環與瑞士制（決策紀錄，`e9-t14`，AC-9.5，2026-11-03）
 
