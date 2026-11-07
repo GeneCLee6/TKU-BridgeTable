@@ -104,6 +104,7 @@ jobs:
       - name: Seed test accounts
         id: seed
         # A failed seed (say, the invite code was changed on the admin page) leaves the preview standing
+        # and does not hold the pull request up; the comment below says it failed
         continue-on-error: true
         if: steps.creds.outputs.ready == 'true' && steps.deploy.outputs.url != '' && env.SEED_PASSWORD != ''
         env:
@@ -116,7 +117,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           SITE_URL: ${{ steps.deploy.outputs.url }}
-          SEEDED: ${{ steps.seed.outcome == 'success' }}
+          # success, failure, or skipped when SEED_PASSWORD is not set
+          SEED_OUTCOME: ${{ steps.seed.outcome }}
+          ADMIN_TWO_FACTOR: ${{ steps.seed.outputs.admin_two_factor }}
         run: |
           marker='<!-- tku-preview -->'
           {
@@ -125,8 +128,15 @@ jobs:
             echo
             echo "- commit：\`$HEAD_SHA\`"
             echo "- 獨立的 Worker（\`$WORKER\`）與資料，不會動到正式站；PR 關閉時自動刪除"
-            if [ "$SEEDED" = "true" ]; then
+            if [ "$SEED_OUTCOME" = "success" ]; then
               echo "- 測試帳號：\`admin\`（管理員）、\`tester1\`–\`tester8\`，密碼是 repo secret \`SEED_PASSWORD\`；註冊要用 \`PREVIEW_INVITE_CODE\`"
+              if [ "$ADMIN_TWO_FACTOR" = "off" ]; then
+                echo "- \`admin\` 用密碼就能登入；要用管理功能先到「我的帳號」自己開啟兩步驟登入（DEPLOY.md §2.1）"
+              else
+                echo "- \`admin\` 開著兩步驟登入，要有驗證碼才進得去。不是你開的：關掉這個 PR 再打開，預覽會整個重建（DEPLOY.md §2.1）"
+              fi
+            elif [ "$SEED_OUTCOME" = "failure" ]; then
+              echo "- **測試帳號建立失敗**，帳號可能不齊：[看這次的 log]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID) 的 Seed test accounts（DEPLOY.md §2.1）"
             else
               echo "- 沒有測試帳號（沒有設定 \`SEED_PASSWORD\`）：第一個註冊的人是管理員，註冊要用 \`PREVIEW_INVITE_CODE\`"
             fi

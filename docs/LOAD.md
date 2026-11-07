@@ -21,7 +21,7 @@
 - `--churn 0.02`：每 30 秒每人 2% 的機率斷線（兩條連線一起），1～3 秒後重連。
 - `--challenge 3`：三個人開一場一副的挑戰（建立、接受、各自開挑戰桌打完），看它結算（驗證 `EventObject`，§4）。
 
-帳號：網站的第一個帳號（`--admin`，空的網站會先註冊）用管理 API 建 `load001`…，密碼與邀請碼從 `LOAD_PASSWORD`、`LOAD_INVITE_CODE` 讀，不進 shell 歷史。本機要 200 人，`.dev.vars.preview` 設 `MAX_USERS=250`（`maxUsers` 的管理頁上限是 100）。
+帳號：網站的第一個帳號（`--admin`，空的網站會先註冊）用管理 API 建 `load001`…，密碼與邀請碼從 `LOAD_PASSWORD`、`LOAD_INVITE_CODE` 讀，不進 shell 歷史。管理 API 要管理員開著兩步驟登入：腳本走公開 API 開啟、建完帳號就關掉（`scripts/admin-access.ts`，DEPLOY.md §2.1）；如果是人自己開的，腳本要 `LOAD_TOTP_SECRET` 才能用，否則直接停下來。本機要 200 人，`.dev.vars.preview` 設 `MAX_USERS=250`（`maxUsers` 的管理頁上限是 100）。
 
 ```bash
 # 本機：.dev.vars.preview 放 INVITE_CODE=、MAX_USERS=250、EVENT_OBJECTS=on
