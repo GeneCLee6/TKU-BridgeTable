@@ -1,0 +1,9 @@
+{
+  "category": "defence-lead",
+  "title": "防家領出：同伴要的花色從連張頂張攻（e6-t28）",
+  "questions": [
+    {"id":"play-lead-common-001","system":"tku","board":144,"hands":{"N":"K873.AK5.9875.KJ","E":"Q96.Q9642.J63.83","S":"JT2.J8.Q2.AQ6542","W":"A54.T73.AKT4.T97"},"auction":["P","1D","P","1N","P","P","P"],"play":["CT","CJ","C8","C2","HA","H2","H8","HT","HK","H6","HJ","H7","CK","C3","CA","C9","CQ","C7","S3","H4","C6","H3","D5","D3","C5","S4","S7","S6","C4","S5","D7","D6","SJ","SA","S8","S9"],"answer":"DA","source":"教科書：連張攻頂張（評測牌組第 144 副）","reviewer":null,"status":"pending","note":"同伴要 ♦，手上 AKT4：先出 A，不要從 AK 底下攻 4"},
+    {"id":"play-lead-common-002","system":"tku","board":479,"hands":{"N":"AQ6.2.KQJ3.QJ982","E":"KJ7.KQ84.9842.AK","S":"932.AT53.T6.6543","W":"T854.J976.A75.T7"},"auction":["P","P","1C","1N","P","P","P"],"play":["C5","C7","C8","CK","HK","HA","H6","H2","C6","CT","CJ","CA","SK","S2","S4","SA","CQ","D2","C4","S5","C9","D4","C3","D5","C2","H4","H3","H7"],"answer":"DK","source":"教科書：連張攻頂張（評測牌組第 479 副）","reviewer":null,"status":"pending","note":"同伴要 ♦，手上 KQJ3：攻 K，不要攻 3"},
+    {"id":"play-lead-common-003","system":"tku","board":515,"hands":{"N":"KQ3.952.764.AJ62","E":"AJ8.AK6.AQJ.T983","S":"T9762.Q87.K832.K","W":"54.JT43.T95.Q754"},"auction":["P","P","P","1C","1S","P","2S","P","P","P"],"play":["C4","C2","C8","CK","ST","S5","SQ","SA","CT","D2","C5","CJ","SK","S8","S2","S4","CA","C9","D3","C7","S3","SJ","S6","DT"],"answer":"HA","source":"教科書：連張攻頂張（評測牌組第 515 副）","reviewer":null,"status":"pending","note":"同伴要 ♥，手上 AK6：出 A，不要攻 6"}
+  ]
+}

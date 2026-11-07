@@ -1,0 +1,7 @@
+{
+  "category": "discard",
+  "title": "墊牌：墊出來的牌要讀得出自己要的花色（e6-t28）",
+  "questions": [
+    {"id":"play-discard-common-001","system":"tku","board":135,"hands":{"N":"32.AQ94.653.KQ75","E":"54.2.AQ972.JT843","S":"KQJT98.87.T4.A96","W":"A76.KJT653.KJ8.2"},"auction":["2D","2H","2N","P","P","P"],"play":["H2","H7","HK","HA","S2","S5","S8","SA","HJ","HQ"],"answer":"C3","source":"社團墊牌：全轉換（評測牌組第 135 副）","reviewer":null,"status":"pending","note":"有 ♦AQ 要 ♦。♠4 是小牌，要 ♦、♣ 中較低的 ♣，跟要的相反；♣3 是小牌，要 ♠、♦ 中較低的 ♦"}
+  ]
+}

@@ -1,0 +1,7 @@
+{
+  "category": "third-hand",
+  "title": "第三家：相連的牌出最小張（e6-t28）",
+  "questions": [
+    {"id":"play-third-common-001","system":"tku","board":54,"hands":{"N":"KQJT5.973.Q.KQ85","E":"A43.K2.T8532.A76","S":"92.AJ5.J9764.J42","W":"876.QT864.AK.T93"},"auction":["P","P","P","1S","P","1N","2H","P","2N","P","P","P"],"play":["S9","S6","ST","S3","SK","SA","S2","S7","D2","D9","DK","DQ","H4","H3","HK","HA","D4","DA","S5","D3","HQ","H9","H2","H5","C3","C8","CA","C2","D5","D6","H6","H7","DJ","H8","C5","D8","HJ","HT","SJ","C6","CJ","C9"],"answer":"CQ","source":"教科書：第三家連張出最小（評測牌組第 54 副）","reviewer":null,"status":"pending","note":"無王同伴攻 ♣J，雙張 KQ 要超吃解阻塞：相連的牌出 Q，不是 K"}
+  ]
+}

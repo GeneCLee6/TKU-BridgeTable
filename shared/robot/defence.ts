@@ -41,7 +41,7 @@ export function defenceLead(view: View, hand: Card[], trump: Suit | null, ruffed
       else if (!theirs.some((c) => value(c) >= 10)) n += 2
     }
     if (ruffing && s === trump) n += 4
-    const seq = sequence(view, mine)
+    const seq = topOfSequence(view, mine)
     if (seq) n += 3
     // Leading away from a lone honour gives a trick away (unless dummy's suit is about to run, or
     // the declarer's points place the cards above it with partner, T4)
@@ -68,7 +68,7 @@ export function defenceLead(view: View, hand: Card[], trump: Suit | null, ruffed
   }
   const best = [...suits].sort((a, b) => score(b) - score(a) || suitCards(hand, b).length - suitCards(hand, a).length)[0]
   const cards = suitCards(hand, best)
-  const seq = sequence(view, cards)
+  const seq = topOfSequence(view, cards)
   if (seq) return seq
   if (cards.length <= 2) return cards[0]
   return cards.some((c) => value(c) >= 11) ? (cards[3] ?? cards.at(-1)!) : cards[0]
@@ -142,7 +142,7 @@ function trumpLead(view: View, hand: Card[], trump: Suit, dummyCards: Card[]): b
 }
 
 /** The top of two or more touching cards at the head of the holding (KQ, QJ, JT, AK) */
-function sequence(view: View, cards: Card[]): Card | null {
+export function topOfSequence(view: View, cards: Card[]): Card | null {
   if (cards.length < 2 || value(cards[0]) < 10) return null
   return view.lowestEqual(cards[0], cards) !== cards[0] ? cards[0] : null
 }
@@ -271,7 +271,7 @@ export function thirdHand(view: View, trick: PlayedCard[], following: Card[], be
   if (partnerWinning && !dummyBeats) {
     const honourLed = value(partnerCard) >= 11
     // Unblock in notrump: a doubleton honour over partner's honour
-    if (honourLed) return trump === null && following.length === 2 && value(top) > value(partnerCard) ? top : null
+    if (honourLed) return trump === null && following.length === 2 && value(top) > value(partnerCard) ? view.lowestEqual(top, following) : null
     // Nobody can beat partner's card: the declarer has played to the trick and dummy, last, has
     // nothing over it; or the cards above it are all in view
     if (dummyLast) return null
