@@ -66,7 +66,7 @@ BBO 的練習功能（和機器人練習、Just Declare、叫牌練習、搭檔�
 - [x] `e10-t09` PBN 匯入（單副與多副）· AC-10.7 · #300
 - [x] `e10-t10` 教學桌：`teach` 權限、老師看四家、任意撤回、重打同一副、指定牌組（PBN 或從紀錄選）· AC-10.7 · #307（`mode: 'teach'`、`undoLast`、不留紀錄、`source: 'records'`；ARCHITECTURE.md §4、§5.11）
 - [x] `e10-t11` 教學桌講解：老師暫停並在牌桌上標示（圈牌、箭頭、文字），學生端同步 · AC-10.7 · #307（`shared/teaching.ts`、`views.ts` 的 `visibleTeachMarks`：看不到的牌上的標示不送；ARCHITECTURE.md §4、§5.11）
-- [ ] `e10-t12` 賽後分析頁：每副標出 DD 損失最大的幾步、附機器人在同一副的打法 · AC-10.8 · M · ← e4-t35（**只做完前半**，#308：`/history/:id/analysis` 的 DD 損失。「機器人的打法」還沒做：TKB 的出牌程式 import 了淡江制度的規則，放進瀏覽器就等於公開社團制度，而伺服器算要社長決定，見 ARCHITECTURE.md §5.1.1）
+- [ ] `e10-t12` 賽後分析頁：每副標出 DD 損失最大的幾步、附機器人在同一副的打法 · AC-10.8 · M · ← e4-t35（**只做完前半**，#308：`/history/:id/analysis` 的 DD 損失。「機器人的打法」還沒做：TKB 的出牌程式 import 了淡江制度的規則，放進瀏覽器就等於公開社團制度，伺服器算也暫不做，社長 2026-11-06 決定後半先不做，見 ARCHITECTURE.md §5.1.1）
 - [x] `e10-t13` 謎題資料格式與第一批 10 題（社團出題）· AC-10.9 · #309（`shared/puzzles.ts`、`shared/puzzle-sets/`、`npm run puzzles`；**10 題是 AI 草稿**，`status: draft`，程式只驗證牌，橋牌內容要幹部審，管理員從管理頁一題一題發布）
 - [x] `e10-t14` 謎題模式：單人做莊、DD 驗證答案、分級與進度 · AC-10.9 · #309（**依賴改了**：原本 ← e10-t13, e6-t13；暫不用付費方案，所以不等伺服器 DDS，改用出題時預先算好的資料，社長 2026-11-05 決定跳過 Phase P；`worker/puzzles.ts`、`views.ts` 的 `puzzleView`，ARCHITECTURE.md §4、§5.11）。**之後加了看答案**（社長決定）：社員可以看，先確認；看過的題目不算解開，再打對也不算，看之前已解開的維持已解開（`POST /api/puzzles/:id/reveal`，`revealed_at`）
 
