@@ -341,10 +341,11 @@ const TableTitle = styled.div`
   & > svg { color: ${({ theme }) => theme.table.feltMuted}; }
 `
 
-/** The round buttons under the table's name: always one row of their own, never split up */
+/** The round buttons under the table's name: their own row, wrapping rather than running under the north hand */
 const TitleTools = styled.span`
   display: flex;
   flex-basis: 100%;
+  flex-wrap: wrap;
   gap: 6px;
 `
 
