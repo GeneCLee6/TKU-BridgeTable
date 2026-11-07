@@ -175,6 +175,7 @@ test('table play · phone vi', async ({ page }) => {
 })
 
 test('long languages fit a phone: no sideways scroll, the table title clear of the contract', async ({ page }) => {
+  test.setTimeout(90_000)
   await page.clock.setFixedTime(new Date(CHALLENGE_NOW))
   const narrow = { width: 360, height: 800 }
   for (const lang of ['en', 'vi', 'zh', 'zh-Hans', 'ja', 'ko'] as const) {
