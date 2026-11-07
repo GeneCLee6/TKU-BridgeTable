@@ -2,7 +2,7 @@ import { isBid, strainOf } from '../auction.ts'
 import { nextSeat, partnerOf, rankOf, rankValue, RANKS, sameSide, SEATS, SUITS, suitOf, type Card, type Seat, type Suit } from '../cards.ts'
 import { legalCards, remainingCards, tricksOf, type BoardState, type PlayedCard } from '../game.ts'
 import type { RobotKind } from '../protocol.ts'
-import { declarerLead, exitLead, holdUp, secondHandWin } from './declarer.ts'
+import { declarerLead, exitLead, holdUp, secondHandCover, secondHandWin } from './declarer.ts'
 import { masters } from './declarer-technique.ts'
 import { declarerLength, noHurry } from './defence-plan.ts'
 import { preferencePair, runningPreference, runningSuitAt, wantedBack } from './defence-reading.ts'
@@ -79,8 +79,8 @@ export function chooseCard(state: BoardState, seat: Seat, kind: RobotKind = 'tku
     if (trumped) return signal(following)
     const beaters = following.filter((c) => suitOf(best.card) === led && rankValue(rankOf(c)) > rankValue(rankOf(best.card)))
     if (trick.length === 1 && !defending) {
-      // With a master partner cannot match, take the trick (declarer.ts, Y4)
-      const card = secondHandWin(view, trick, following, led, trump)
+      // With a master partner cannot match, take the trick (declarer.ts, Y4); cover when partner has nothing (§3.21)
+      const card = secondHandWin(view, trick, following, led, trump) ?? secondHandCover(view, trick, following, led, trump)
       if (card) return card
     }
     if (trick.length === 1 && defending && beaters.length) {
@@ -246,6 +246,12 @@ function declarerThird(view: View, seat: Seat, following: Card[], best: PlayedCa
   const winner = beaters.find((c) => view.isMaster(c))
   if (!beaters.length || winner === beaters[0]) return winner ?? null
   const finesse = beaters.find((c) => !behind(c))
+  if (!finesse && !winner) {
+    // Nothing to finesse and no winner: the bottom of the top sequence makes the last hand pay (QJT7: the ten)
+    const top = beaters.at(-1)!
+    const bottom = view.lowestEqual(top, following)
+    if (bottom !== top && value(bottom) >= 10 && value(bottom) > value(best.card)) return bottom
+  }
   // Keep the danger hand off lead (T3): in notrump, when the last player holds the established
   // cards of a suit we no longer stop, a losing finesse would put it in; go up unless the reading
   // clearly places the missing card with second hand

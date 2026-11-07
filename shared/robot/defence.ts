@@ -268,6 +268,9 @@ export function thirdHand(view: View, trick: PlayedCard[], following: Card[], be
   // Dummy, still to play, holds a card over partner's: partner's card is not winning after all
   const dummyBeats = dummyLast && dummyLeft.some((c) => value(c) > value(best.card))
 
+  // In notrump, every card of the suit left is ours: overtake, or partner's card wins and the suit is
+  // stranded with no way back to it (A87 under partner's last card, the nine: the ace; ROBOT.md §3.21)
+  if (trump === null && partnerWinning && following.length >= 2 && view.outstanding(led) === 0 && view.isMaster(top)) return beaters[0]
   if (partnerWinning && !dummyBeats) {
     const honourLed = value(partnerCard) >= 11
     // Unblock in notrump: a doubleton honour over partner's honour

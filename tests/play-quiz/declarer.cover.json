@@ -1,0 +1,30 @@
+{
+  "category": "declarer",
+  "title": "坐莊（同伴沒牌時第二家蓋、低的牌能拿就不忍讓、第三家連張）",
+  "questions": [
+    {"id": "play-decl-101", "system": "both", "board": 49,
+     "hands": {"N": "T75432..852.KJT9", "E": "A6.A963.AQT74.75", "S": ".KQJT82.KJ96.643", "W": "KQJ98.754.3.AQ82"},
+     "auction": ["P", "1D", "2H", "2S", "P", "3N", "P", "P", "P"],
+     "play": ["HK", "H4", "S2", "HA", "SA", "H8", "S8", "S7", "DA", "D9", "D3", "D2", "C5", "C3", "CQ", "CK", "D8"],
+     "answer": "DT", "accepted": ["DQ"], "source": "單明手抽樣對照（評測牌組第 49 副，ROBOT.md §3.21）", "reviewer": null, "status": "pending",
+     "note": "3NT，北領 ♦8，夢家 ♦ 已經缺門，莊家 QT74 第二家：出小就讓南用小牌拿到；出 T（或 Q）逼南花大牌"},
+    {"id": "play-decl-102", "system": "both", "board": 3,
+     "hands": {"N": "9876.AK2.QT5.AK4", "E": "54.J654.AK76.T98", "S": "AKQJT.Q73.832.53", "W": "32.T98.J94.QJ762"},
+     "auction": ["1S", "P", "4S", "P", "P", "P"],
+     "play": ["D4"],
+     "answer": "DT", "accepted": ["DQ"], "source": "構造的牌例（ROBOT.md §3.21）", "reviewer": null, "status": "pending",
+     "note": "4♠，西首攻 ♦4，夢家 QT5 第二家、莊家 832 沒有能爭這一墩的牌：出小東用小牌就拿到，出 T（或 Q）逼東花大牌"},
+    {"id": "play-decl-103", "system": "both", "board": 39,
+     "hands": {"N": "KT52.972.KQ43.75", "E": "AQJ8763.QJ.T97.6", "S": "9.AT43.86.KQ9432", "W": "4.K865.AJ52.AJT8"},
+     "auction": ["P", "1C", "P", "1S", "P", "1N", "P", "3S", "P", "3N", "P", "P", "P"],
+     "play": ["D3", "D7", "D8"],
+     "answer": "DJ", "accepted": [], "source": "單明手抽樣對照（評測牌組第 39 副，ROBOT.md §3.21）", "reviewer": null, "status": "pending",
+     "note": "3NT，莊家最後出、AJ52 對南的 ♦8：J 就能拿，A 還留著當擋張；忍讓是白送一墩"},
+    {"id": "play-decl-104", "system": "both", "board": 261,
+     "hands": {"N": "KJ.QJT7.Q983.AT3", "E": "T83.AK53.T2.Q974", "S": "754.92.AK764.K65", "W": "AQ962.864.J5.J82"},
+     "auction": ["1D", "P", "2N", "P", "3N", "P", "P", "P"],
+     "play": ["S6", "SJ", "S8", "S4", "D3", "D2", "DK", "D5", "H2", "H4"],
+     "answer": "HT", "accepted": ["HJ", "HQ"], "source": "單明手抽樣對照（評測牌組第 261 副，ROBOT.md §3.21）", "reviewer": null, "status": "pending",
+     "note": "3NT，莊家朝夢家 QJT7 引小牌，第三家沒有飛牌：出連張最小的 T，逼東花大牌；出 7 會輸給 8"}
+  ]
+}

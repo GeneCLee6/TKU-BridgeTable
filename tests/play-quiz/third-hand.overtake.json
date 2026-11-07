@@ -1,0 +1,12 @@
+{
+  "category": "third-hand",
+  "title": "第三家（這門剩下的牌都在手上就超吃）",
+  "questions": [
+    {"id": "play-third-101", "system": "both", "board": 100,
+     "hands": {"N": "Q54.AJ65.A2.JT62", "E": "AJ876.QT7.T65.75", "S": "K3.K92.J984.AK94", "W": "T92.843.KQ73.Q83"},
+     "auction": ["P", "1C", "P", "1D", "P", "1H", "P", "3N", "P", "P", "P"],
+     "play": ["S2", "S4", "SJ", "SK", "H2", "H8", "HJ", "HQ", "S6", "S3", "ST", "SQ", "CJ", "C7", "C4", "CQ", "S9", "S5"],
+     "answer": "SA", "accepted": [], "source": "單明手抽樣對照（評測牌組第 100 副，ROBOT.md §3.21）", "reviewer": null, "status": "pending",
+     "note": "3NT，同伴領 ♠9 會贏，但外面已經沒有 ♠，同伴也沒有了：不超吃，出牌權在同伴、♠A87 就回不來；用 A 超吃連跑"}
+  ]
+}
