@@ -197,7 +197,7 @@ AI 匯入的費用：每次分析用 `claude-opus-5-5`，一份幾頁的講義�
 
 ## 4.2 資料存在哪
 
-所有資料（帳號、待審核的申請、密碼雜湊、牌桌、牌局紀錄、淡江橋譜的線上內容與版本紀錄）都在 Cloudflare 上這個 Worker 的 Durable Object（SQLite 儲存），不在你的電腦或 GitHub。帳號、頭像與淡江橋譜的資料每天另外備份到 R2（§4.4）。紀錄索引另有一份副本在 D1（`tku-bridge-history`，§4.5），只給紀錄頁讀，隨時可以從社團的紀錄重建。密碼只存 PBKDF2 雜湊，管理員也看不到原文。需要直接查看時：Cloudflare Dashboard → Workers & Pages → `tku-bridge-table` → Durable Objects。
+所有資料（帳號、待審核的申請、密碼雜湊、牌桌、牌局紀錄、淡江橋譜的線上內容與版本紀錄）都在 Cloudflare 上這個 Worker 的 Durable Object（SQLite 儲存），不在你的電腦或 GitHub。帳號、頭像、淡江橋譜、牌局與活動每天另外備份到 R2（§4.4）。紀錄索引另有一份副本在 D1（`tku-bridge-history`，§4.5），只給紀錄頁讀，隨時可以從社團的紀錄重建。密碼只存 PBKDF2 雜湊，管理員也看不到原文。需要直接查看時：Cloudflare Dashboard → Workers & Pages → `tku-bridge-table` → Durable Objects。
 
 ## 4.3 每桌一個 Durable Object（H1b，`e11-t17`）
 
@@ -224,17 +224,54 @@ npx wrangler deploy --var TABLE_OBJECTS:off   # 牌桌搬回社團的物件，�
 
 ## 4.4 每日備份與還原（淡江橋譜 e10-t08、e11-t12）
 
-每天台灣時間 03:00（`wrangler.jsonc` 的 `triggers.crons`：`0 19 * * *` UTC），Worker 把帳號與淡江橋譜的資料匯出到 R2 bucket `tku-bridge-backups`，檔名 `daily/<台灣日期>.jsonl`，保留 **30 天**（每次備份成功後刪掉更舊的；最新的一份永遠保留，名稱不是 `daily/YYYY-MM-DD.jsonl` 的物件不會被刪）。程式在 `worker/backup.ts`。
+每天台灣時間 03:00（`wrangler.jsonc` 的 `triggers.crons`：`0 19 * * *` UTC），Worker 把社團的資料匯出到 R2 bucket `tku-bridge-backups`（其他社團在 `clubs/<id>/` 底下，互相碰不到）。程式在 `worker/backup.ts`（範圍與理由）、`worker/backup-steps.ts`（分步）。一次備份有三種物件：
 
-- **範圍**：key 開頭是下面這些的全部資料：
+| 物件 | 內容 | 怎麼寫 | 保留 | 還原 |
+| --- | --- | --- | --- | --- |
+| `daily/<台灣日期>.jsonl` | 核心：帳號、頭像、好友與封鎖、淡江橋譜、論壇 | 一個請求一次寫完（同一個時間點） | 30 天；最新一份永遠保留 | **回到那一天**：之後新增的刪掉 |
+| `activity/<日期>/<段>.jsonl`（第 4 版起） | 牌局以外的活動：挑戰、隊制賽、比賽、積分、私訊、收藏…… | 一個 alarm 一段，約 60 KB | 跟著那天的 `daily` | **只補缺的**，已經有的不動 |
+| `games/<序號>.jsonl`（第 4 版起） | 牌局紀錄（`board:`），增量的 log，不分天 | 一個 alarm 一個物件，20 副 | 見「牌局為什麼不每天全寫」 | **只補缺的**，與選哪一天無關 |
+
+- **核心的範圍**：key 開頭是下面這些的全部資料：
   - 淡江橋譜：`book`（線上特約、`bookpart:` 分段、版本紀錄、分類、匯入草稿）、`profile`（制度集）、`article`（文章）、`team:`／`pair:`／`userteam:`／`userpair:`（隊伍與搭檔）。
   - 帳號（兩站共用）：`user:`（帳號、密碼雜湊、權限、頭像版本）、`app:`（等待核准的註冊申請）、`avatar:`（頭像圖片）。帳號與頭像在同一份備份、同一個時間點匯出，還原後每個人的頭像版本一定對得上圖片。
   - 好友與封鎖（2026-11-04 起，社長）：`friend:`、`block:`，和帳號同一個時間點匯出。當初（#152，2026-10-27）只備份帳號、沒寫為什麼不含好友與封鎖；那天好友功能剛隱藏，名單沒人在用。2026-11-03 重新開放後，封鎖是社員保護自己的設定，還原後消失等於默默解除封鎖，所以一起備份。
   - 淡江橋館的討論區（2026-10-30 起）：Durable Object SQLite 的五張表 `forum_boards`、`forum_posts`、`forum_comments`、`forum_reactions`、`forum_reports`（看板、貼文、留言、反應、檢舉）。圖片本身在 R2 `bridgebook-files`，不在備份裡（R2 不會跟著還原而消失），備份只有圖片的擁有者紀錄 `file:meta:`。討論區的文字不大：一篇貼文最多幾 KB，一千篇加留言約幾 MB，每天一份、留 30 天仍遠低於 R2 免費的 10 GB；日誌的 `bytes` 可以看實際大小。
-  - **不在裡面**：`session:`（登入狀態，還原後大家重新登入）、`meta:settings`（邀請碼與人數上限：沒有時用 `wrangler.jsonc` 的值，而且還原不該把換掉的邀請碼帶回來；遺失的話在管理頁重新設定）、私訊、牌局紀錄與紀錄索引的 SQL 表（之後的 e11-t12）、淡江橋館的錯誤回報與匿名使用統計（`book_errors`、`book_metrics`、`book_visitors`、`book_telemetry_settings`，ARCHITECTURE.md §5.15：可以重新累積，還原時也不動）、牌桌的匿名使用情況（`product_metrics`、`product_retention`、`product_seen`、`product_salts`，§5.27，同樣不動）。
-- **格式**：JSON Lines。第一行是 `{"format":"tku-bridge-backup","version":3,"createdAt":…,"prefixes":[…],"keys":N,"tables":[…],"rows":M}`，之後每個 key 一行 `{"k":"<key>","v":<值>}`，key 之後是 SQL 表的每一列 `{"t":"forum_posts","r":{欄位: 值}}`（照寫入的順序），值與 Durable Object 裡存的一樣；只有位元組（頭像圖片的 `Uint8Array`）寫成 `{"$bytes":"<base64>"}`，讀回來時還原成位元組（剛好叫 `$bytes` 的欄位名稱會多加一個 `$` 跳脫，讀回來一樣）。舊的 `version: 1` 備份（只有淡江橋譜）照樣可以還原，而且只還原它自己的範圍（`prefixes`），不會動到帳號；`version: 1`、`2` 沒有 SQL 表，還原時討論區不動。
+- **活動的範圍**（`ACTIVITY_PREFIXES`、`ACTIVITY_TABLES`，2026-11-07 起）：
+  - Key：精選 `featured:`、比賽公告 `tourn:`、多隊賽 `teamev:`／`teamevdeal:`、雙人賽與個人賽 `pairsev:`、裁判紀錄 `referee:`、審計 `audit:`、待處理註記 `pendingmeta:`／`pendingdone:`、練習設定與自己的牌組 `practicePresets:`／`practiceOwnDeals:`、練習成績與學習進度 `quizlog:`／`pathprogress:`／`reading:`，以及 `meta:points`（積分規則）、`meta:weekly`、`meta:daily`、`meta:features`、`meta:events`、`meta:matches`。
+  - SQL 表：收藏 `favorites`、`favorite_tags`；分享 `board_shares`；挑戰 `challenges`、`challenge_players`、`challenge_results`、`challenge_comments`、`challenge_settled`、`event_homes`；隊制賽 `matches`、`match_seats`、`match_boards`、`match_chat`、`match_settled`、`match_homes`；私訊 `direct_threads`、`direct_messages`；積分與評分 `ranked_events`、`points_entries`、`points_adjustments`、`ratings`、`rating_history`；謎題 `puzzle_publications`、`puzzle_progress`。
+- **牌局**：`board:`。裁定在紀錄裡（`BoardRecord.ruling`），匯入的牌局也是 `board:`（`mode: 'imported'`）。
+- **不在任何物件裡**（`tests/worker/backup-steps.test.ts` 檢查每張 SQL 表都有歸屬，新增的表要先決定）：
+  - 可以重建：`hist:`、`uhist:`、SQL `boards_index`、`board_players`、`board_rulings`（還原牌局時從紀錄寫回）、D1 副本與它的 `replq:`、`meta:replica`。
+  - 留著沒意義或會出錯：`session:`（還原後大家重新登入）、`google:`、`line:`、`file:ticket:`、`file:day:`、`file:usage`、`meta:registrations`、`meta:clubApplications`、`meta:metrics`、`meta:backfill`、`meta:banner`、`partnerBid:sweep`。
+  - 進行中、有自己生命週期的：`table:`、`tabledir:`、`meta:schema`；每桌與每場比賽自己的 Durable Object 不在備份裡（打完的牌已經交給社團）。
+  - 看過就算、綁裝置或短期的個資：`notif:`（每人最多 500 則）、`push:`（推播要重新開啟）、`seen:`（90 天）、`importPurge:`。
+  - 另有決定：`meta:settings`（邀請碼與人數上限：沒有時用 `wrangler.jsonc` 的值，而且還原不該把換掉的邀請碼帶回來；遺失的話在管理頁重新設定）、`meta:club`（平台的紀錄，§4.20）。
+  - 練習與統計：`partner_bid_*`（會到期的練習，還原時只刪掉帳號已不存在的）、`match_watchers`、`support_reports`（短期的營運資料，ARCHITECTURE.md §1「客服回報」）、淡江橋館的錯誤回報與匿名使用統計（`book_errors`、`book_metrics`、`book_visitors`、`book_telemetry_settings`，ARCHITECTURE.md §5.15：可以重新累積，還原時也不動）、牌桌的匿名使用情況（`product_metrics`、`product_retention`、`product_seen`、`product_salts`，§5.27，同樣不動）。
+- **格式**：JSON Lines。`daily` 第一行是 `{"format":"tku-bridge-backup","version":4,"createdAt":…,"prefixes":[…],"keys":N,"tables":[…],"rows":M,"boards":當時的牌局數}`，之後每個 key 一行 `{"k":"<key>","v":<值>}`，key 之後是 SQL 表的每一列 `{"t":"forum_posts","r":{欄位: 值}}`（照寫入的順序），值與 Durable Object 裡存的一樣；只有位元組（頭像圖片的 `Uint8Array`）寫成 `{"$bytes":"<base64>"}`，讀回來時還原成位元組（剛好叫 `$bytes` 的欄位名稱會多加一個 `$` 跳脫，讀回來一樣）。舊的 `version: 1` 備份（只有淡江橋譜）照樣可以還原，而且只還原它自己的範圍（`prefixes`），不會動到帳號；`version: 1`、`2` 沒有 SQL 表，還原時討論區不動；`version: 1`～`3` 只有核心，還原時不讀 `activity/` 與 `games/`。`activity` 第一行 `{"format":…,"kind":"activity","part":n,"lines":N,"last":是否最後一段}`，之後同樣是 `{"k",…}`、`{"t",…}`。`games` 第一行 `{"format":…,"kind":"outbox"|"sweep","seq":n,"boards":M,"lines":N}`，之後每行 `{"b":紀錄}` 或 `{"x":"<牌局 id>"}`（這副已刪除）。
 - **只有正式站**：staging 與 PR 預覽（§2.1）沒有 `BACKUPS` binding、cron 也關掉（`wrangler.jsonc` 的 `env.*.triggers`），不會寫到正式站的 bucket；在那裡呼叫管理 API 會回 503（`backupUnavailable`）。
-- **日誌**：每次備份記一筆 `event = backup`（`ok`、`name`、`keys`、`rows`（SQL 表的列數）、`bytes`、`deleted`；失敗時 `error`）。
+- **日誌**：每次備份記一筆 `event = backup`（`ok`、`name`、`keys`、`rows`（SQL 表的列數）、`bytes`、`deleted`；失敗時 `error`）。之後的步驟帶 `step`：`activity`（`parts`）、`sweep`（`objects`、`boards`）、`restore`（`rows`、`boards`）、`step`（某一步失敗，`error`，30 秒起倍增、最多 10 分鐘後重試）。
+
+### 牌局為什麼不每天全寫（2026-11-07 決定，`e11-t12`）
+
+限制：免費方案，每次請求 10 ms CPU，R2 免費 10 GB、備份留 30 天。量到的數字（本機 Node，負載不輕，只當上限看，**沒有在 Cloudflare 上量過**）：一副 52 張打完的紀錄連動作事件約 **6.5 KB**（只叫牌就 pass 掉的約 1.4 KB）；50 副 JSON 序列化約 11 ms、解析約 17 ms、寫回（紀錄、摘要、索引）每副約 2 ms；300 列 SQL 寫回約 30 ms（測試的 SQLite 每次都重新 prepare）。
+
+| 牌局數 | 每天全寫 30 份 | 現在的 log（最多三輪） | 每輪物件數／時間 |
+| --- | --- | --- | --- |
+| 1 萬副 | 2 GB | 0.2 GB | 500 個／8 分鐘 |
+| 5 萬副 | **9.8 GB，放不下** | 1 GB | 2,500 個／42 分鐘 |
+| 10 萬副 | 20 GB | 2 GB | 5,000 個／83 分鐘 |
+
+所以：
+
+- **增量**：每副寫入或刪除時進 outbox（`bakq:<id>`，每副多 2 列寫入），每天備份時一次 20 副寫成一個物件（約 130 KB，序列化約 4 ms），一個 alarm 一個物件。紀錄不是真的不可變（裁定、`revealAt` 提前會重寫），所以同一副可能出現好幾次，序號大的算數；刪除寫 `x`。
+- **每 14 天掃一輪**（`SWEEP_EVERY_DAYS`）：把全部 `board:` 再寫一輪，寫完刪掉比前一輪更舊的物件。第一輪就是把上線前的舊牌局帶進來，也讓 log 不會無限長、已刪除的牌（帳號刪除時匯入的牌）**約 30 天內**從 R2 消失，和其他備份的 30 天一致。R2 裡最多有三輪（兩輪完成的＋一輪寫到一半）。
+- **安全閥**：只刪這個物件自己編號過的物件，所以物件資料全失之後，舊的 log 不會被自動清掉；一輪掃到的牌局少於前一輪的一半時也不刪，日誌記一筆 `ok: false`（`older objects kept`）。
+- **活動**：一段約 60 KB，每段讀 50 個 key 或 100 列，用主鍵接續（不用 OFFSET：讀過的列也算額度）。各段之間差幾秒，不是嚴格的同一刻；還原只補缺的，對得上就好。
+
+額度（以 5 萬副、每天 300 副估）：R2 約 1 GB 牌局＋活動（目前幾十 KB，私訊十萬則加其他約 40 MB／天，× 30 ＝ 1.2 GB 是上限估計）＋核心（目前 0.6 MB；三百位社員每人都有頭像約 25 MB，× 30 ＝ 0.8 GB），合計約 **3 GB，放得下**。R2 Class A 每輪 2,500 次、每月約 6,000 次，遠低於 100 萬。Durable Object 掃一輪多 2,500 次 alarm、讀 5 萬列、寫 2,500 列（狀態），都遠低於每天 10 萬次請求、500 萬列讀、10 萬列寫。**放不下的時候**：大約 48 萬副（一副三份 19.5 KB）才碰到 10 GB，那時先把 log 用 gzip 壓（文字約 5 倍）或改留一輪；Durable Object 的 5 GB（所有社團合計，約 55 萬副）也差不多同時到，到時要一起處理。
+
+核心還是一個請求寫完：頭像多的時候（§5）可能超過 10 ms。Durable Object 目前沒有被這個限制擋（PBKDF2 一次就 12 ms，§5），但沒有保證，社員破百、`bytes` 破 10 MB 時要把頭像也搬去分段。
 
 ### 第一次啟用（部署這個版本**之前**）
 
@@ -269,7 +306,18 @@ await call('POST', '/backups/restore', { name: 'daily/2026-10-25.jsonl', dryRun:
 
 ### 還原
 
-還原會讓**備份範圍內**（那份備份標頭的 `prefixes` 與 `tables`）的資料變回備份當時的樣子：備份之後新增的特約、版本紀錄、草稿都會被刪掉；牌局紀錄不受影響。
+還原分兩部分：**核心**在那個請求裡做完，**回到備份當天**；活動與牌局之後由 alarm 一步一步做（`version: 4` 才有），**只補缺的**。進度看 `GET /backups` 的 `steps`。
+
+核心還原後，**備份範圍內**（那份備份標頭的 `prefixes` 與 `tables`）的資料變回備份當時的樣子：備份之後新增的特約、版本紀錄、草稿都會被刪掉。
+
+**活動與牌局為什麼只補缺的**：
+
+- **進行中的牌桌與比賽不會壞**：`table:`、`tabledir:` 不在備份裡；挑戰、隊制賽、積分帳本已經有的列一律不動（`INSERT OR IGNORE`），key 已經有的不寫。所以健康的社團還原幾乎什麼都不寫，也不重啟。
+- **還原到舊時間點時，備份之後才打的牌局會留著**：牌局是發生過的事，不跟著帳號倒帶。不論選哪一天，log 都從最新的物件往回讀，同一副第一個看到的版本算數（`x` 標記的不回來）。紀錄裡的玩家名字照舊；備份之後才註冊、被這次還原刪掉的帳號，名字還在那些牌局上，只是沒有帳號了（同刪除帳號）。
+- **操作失誤的極限**：只補缺的，所以救得回被刪掉的列，救不回**改錯**的列（例如裁定錯了、積分調整錯了），那要照常用裁定與調整改回來。之後刪掉的東西（取消的收藏、刪掉的練習設定）還原後會回來。
+- **整個物件遺失時**：先讓牌局以外的回來（活動），然後物件重新啟動一次（`ctx.abort`，每個服務從儲存重新讀，和被回收一樣），牌局再從新到舊補回來，所以最近的牌最先看得到。牌局的索引（`boards_index`、`board_players`、`board_rulings`、`hist:`、`uhist:`）從紀錄寫回；已刪除帳號的 `uhist:` 不寫。D1 副本：補回來的每副走 outbox 進 D1，最後翻一次 D1 的 `board_id`，把社團沒有紀錄的（備份之後才打、物件遺失時沒救回來的）拿掉。
+- **寫入額度**：還原一天最多寫 6.3 萬列（`RESTORE_ROWS_PER_DAY`），一副約 21 列，所以**一天約 3,000 副**，超過就等下一個 UTC 日接著做（其他 3.7 萬列留給社團繼續運作，免費方案超過 10 萬列之後所有寫入都會失敗）。**3 萬副要 10 天**，新的先回來。D1 一副約 14 列，一天 4.2 萬列，也在額度內。健康的社團沒有要寫的，不受影響。
+- **中斷**：每一步之後才記進度，物件被回收、R2 失敗都從記下的地方重來；同一副寫兩次結果一樣。
 
 `version: 3` 的備份也把**討論區**還原到那一天：五張表先清空、再寫回備份的列（同一個 transaction，失敗就全部不變）；備份之後的貼文、留言、反應、檢舉都會消失，改過的看板名稱回到那天。寫入前先檢查每張表與欄位現在都還在，對不上就整個拒絕（`badBackup`），帳號與特約也不會動。備份之後上傳的討論區圖片仍在 R2，但引用它的貼文消失了，就沒人看得到；之後若要清理再另外處理。預演的回應多了 `tables` 與 `rows`。`book:ticket:`（匯入用的一次性憑證）不還原。`book:version` 會設成比現在和備份都大的數字，讓所有瀏覽器重新下載內容。
 
@@ -282,11 +330,21 @@ await call('POST', '/backups/restore', { name: 'daily/2026-10-25.jsonl', dryRun:
 
 1. 決定要還原到哪一天：`GET /backups`。
 2. **先備份現況**：`POST /backups`（還原錯了還能回來；注意同一天會覆蓋當天的檔，要保留今天稍早的版本就先下載：`npx wrangler r2 object get tku-bridge-backups/daily/<日期>.jsonl --remote --file before-restore.jsonl`）。
-3. 預演：`POST /backups/restore { name }`，看 `puts`、`deletes` 合不合理。
-4. 還原：`POST /backups/restore { name, dryRun: false, confirm: name }`。
-5. 到淡江橋譜重新整理，確認特約內容與分類是備份那天的樣子；重新登入淡江牌桌，確認社員名單與頭像是備份那天的樣子；打開淡江橋館的討論區，確認最新的貼文是備份那天的。
+3. 預演：`POST /backups/restore { name }`，看 `puts`、`deletes` 合不合理；`steps` 是之後會讀的：`activityParts`、`activityComplete`（`false` 表示那天的活動沒寫完，寫到的還是會補）、`gameObjects`、`boardsNow`（現在有幾副，和那份標頭的 `boards` 比）。
+4. 還原：`POST /backups/restore { name, dryRun: false, confirm: name }`。回來只表示核心好了。
+5. `GET /backups` 看 `steps.restoring`（`stage`：`activity`→`games`→`replica`、`left`、`boards`）直到變 `null`；結果在 `steps.lastRestore`（`merged`、`boards`、`gone`，`badParts`、`badLines` 應該都是 0）。
+6. 到淡江橋譜重新整理，確認特約內容與分類是備份那天的樣子；重新登入淡江牌桌，確認社員名單與頭像是備份那天的樣子；打開淡江橋館的討論區，確認最新的貼文是備份那天的。
 
-要看備份內容：`npx wrangler r2 object get tku-bridge-backups/daily/<日期>.jsonl --remote --file backup.jsonl`，用文字編輯器打開（每行一個 key）。
+**整個物件遺失**（資料全沒了，R2 還在）：
+
+1. 公告維護，不要讓社員先打牌或發私訊：新的私訊、留言編號從 1 開始，和備份裡相同編號的列會擋掉備份裡那一列。
+2. 淡江：重新部署後註冊一個新帳號（第一個帳號是管理員，還原時會被刪掉）。其他社團：社團物件沒有 `meta:club` 什麼都不回答，要平台先重新核准（§4.20，`provisionFounder`）。
+3. 照上面 3～6 還原**最新一天**。`meta:settings`、推播、通知不會回來；邀請碼與人數上限回到 `wrangler.jsonc` 的值，在管理頁重設。還原前開著的牌桌在大廳看不到了（目錄 `tabledir:` 不在備份裡），社員重開一桌就好。
+4. 牌局一天回來約 3,000 副（上面的「寫入額度」），最近的先回來。
+
+兩次備份之間打的牌：下一次備份前只在社團裡，物件遺失就沒了（同其他資料）；D1 副本還有那些牌的摘要，但沒有叫牌與打牌，`replica` 階段會拿掉。
+
+要看備份內容：`npx wrangler r2 object get tku-bridge-backups/daily/<日期>.jsonl --remote --file backup.jsonl`，用文字編輯器打開（每行一個 key）；`games/00000001.jsonl`、`activity/<日期>/0001.jsonl` 同樣。
 
 ### 還原演練（上線後做一次，AC-10.5）
 
@@ -302,6 +360,25 @@ await call('POST', '/backups/restore', { name: 'daily/2026-10-25.jsonl', dryRun:
 | 日期 | 執行人 | 備份檔 | keys／大小 | 結果 |
 | --- | --- | --- | --- | --- |
 | 2026-10-30 | 管理員 IceBanana（Console 執行腳本） | `daily/2026-10-30.jsonl`（11:05Z 手動備份，格式第 3 版） | 60 keys＋討論區 4 列／約 600 KB；備份 0.9 秒 | 預演與還原都 200：puts 59、deletes 3、rows 4，還原 466 ms；內建特約逐字一致 |
+
+### 牌局的還原演練（`e11-t12` 要做完才能勾；第 4 版部署後由人執行）
+
+程式與測試都在記憶體裡的 R2 與 SQLite 上跑過，**還沒有在真的 R2、真的 Durable Object 上跑過**。`ctx.abort`、每一步的 CPU 與 alarm 的節奏都要在這裡確認。
+
+**在 staging 做**（staging 預設沒有 `BACKUPS` binding、cron 也關著，§2.1；要先開一個測試用 bucket，綁在 staging 上，演練完拿掉，不要用正式站的 bucket）：
+
+1. [ ] 打幾副牌（或放三個機器人打），`POST /backups`，看 R2 出現 `daily/`、`activity/<日期>/`、`games/`，日誌有 `step: activity`、`step: sweep`，都是 `ok: true`；Workers Logs 看這些 alarm 有沒有 `exceededCpu`。
+2. [ ] 健康還原：預演、還原，`steps.lastRestore` 的 `merged`、`boards` 是 0，物件沒有重啟（開著的牌桌沒斷），打到一半的牌能打完。
+3. [ ] 刪掉幾副（`wrangler` 或測試用的腳本）再還原：`boards` 等於刪掉的數量，紀錄列表與搜尋回來，日誌沒有 `badLines`。
+4. [ ] 全失：刪掉 staging 的社團物件（或換一個社團 id 走 `CLUBS`），新物件還原：社員、紀錄列表、搜尋、單副紀錄、私訊、收藏、挑戰結果、積分都回來；確認 `ctx.abort` 之後工作自己接著做完；`index_meta` 的 `ready` 是 1。
+5. [ ] 帶著一場開著的挑戰與一桌打到一半的牌做第 2 步，確認都沒壞。
+
+**正式站**：
+
+6. [ ] 部署後隔天看 R2 有 `games/`，第一輪掃完（`step: sweep`），`boards` 等於 `daily` 標頭的 `boards`。
+7. [ ] `GET /backups` 的 `usage.bytes` 與估算差不多；連續 14 天後看第二輪掃完，第三輪之後舊物件有被刪掉。
+8. [ ] 預演一次（`dryRun`，不真的還原），`gameObjects`、`activityComplete` 合理。不用在正式站做全失演練。
+9. [ ] 記錄日期、執行人、物件數與大小、花的時間，加到上面的表，然後才勾 `e11-t12`。
 
 ## 4.5 紀錄頁由 Worker 從 D1 回答、邊緣通行證（H2a，`e11-t19`、`e11-t20`）
 
@@ -801,7 +878,7 @@ Worker 變數 `CLUBS`（逗號分隔的社團 id，小寫英數與 `-`）讓 Wor
 ## 5. 費用與限制
 
 - Workers 免費方案：每天 10 萬次請求；WebSocket 訊息以 20:1 計算，一個晚上打牌遠低於上限。
-- SQLite Durable Object 免費方案：5 GB 儲存；一副牌的紀錄連同索引約 4 KB，約可存一百萬副以上。紀錄列表一次只讀 50 筆，資料再多也不會變慢。
+- SQLite Durable Object 免費方案：5 GB 儲存；一副打完的牌紀錄約 6.5 KB（2026-11-07 量的，含動作事件），連同摘要與索引約 9 KB，約可存 55 萬副。紀錄列表一次只讀 50 筆，資料再多也不會變慢。
 - 密碼雜湊使用 100,000 次 PBKDF2-SHA-256（`worker/auth.ts`，`e11-t30`；Cloudflare 的 PBKDF2 最多只收 100,000 次）。一次約 12 ms CPU，在社團的 Durable Object 裡算（不是 Worker 每次請求的 10 ms），登入有次數限制。2026-10-30 之前的帳號是 50,000 次，下次登入時自動升級。
 - Resend 免費方案：每月 3,000 封、每天 100 封，只寄 Email 驗證與重設密碼的信（§4.14）；每個帳號 10 分鐘最多 1 封（一次可以 3 封）。
 - Browser Run 免費方案：每天 10 分鐘瀏覽器時間，只用在橋館的制度卡 PDF（§4.11）。

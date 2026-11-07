@@ -43,7 +43,9 @@ jobs:
   # fixtures (tests/visual/fixtures.ts), screenshotted in Playwright's container so fonts match the
   # baselines in tests/visual/__screenshots__. When a screenshot differs, the diffs and a fresh set
   # of baselines are uploaded as the `visual` artifact: if the change was meant, commit those
-  # baselines (playwright.config.ts says how).
+  # baselines (playwright.config.ts says how). The same run has the `webkit` project: a few pages of
+  # the production build on WebKit (tests/visual/webkit.smoke.ts), no screenshots; it shares the
+  # container and the servers, so it adds seconds.
   visual:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -61,7 +63,7 @@ jobs:
 
       - name: New baselines, after a difference
         if: failure() && steps.compare.outcome == 'failure'
-        run: npx playwright test --update-snapshots || true
+        run: npx playwright test --project=chromium --update-snapshots || true
 
       - uses: actions/upload-artifact@v7
         if: failure()

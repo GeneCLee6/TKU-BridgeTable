@@ -1,4 +1,5 @@
-import { ClubError } from './service.ts'
+import { ClubError } from './errors.ts'
+import type { BackupSteps } from './backup-steps.ts'
 import type { Sql, SqlValue, Store } from './store.ts'
 
 /**
@@ -23,6 +24,17 @@ import type { Sql, SqlValue, Store } from './store.ts'
  * The export only reads the Durable Object's storage from its first key to its last, so no other
  * request runs in between (input gates): a member's `user:` and `avatar:` come from the same moment
  * and a restore puts back a matching pair.
+ *
+ * From version 4 that one object is the snapshot's small core, and two more kinds of object hold
+ * what does not fit one request's 10 ms of CPU (`worker/backup-steps.ts` writes and reads them, a
+ * step per alarm; DEPLOY.md §4.4 has the numbers):
+ * - `activity/<date>/<part>.jsonl`: the ACTIVITY_PREFIXES and ACTIVITY_TABLES, in parts, kept as
+ *   long as that day's snapshot;
+ * - `games/<seq>.jsonl`: the `board:` records as a log of what changed, not per day: thirty daily
+ *   copies of tens of thousands of boards would not fit R2's free 10 GB.
+ * The core's restore rolls back (below). These two only ever add what is missing, so a restore
+ * leaves the tables and matches being played alone and comes to the same thing whichever day it
+ * names: boards played after that day stay. A version 3 or older backup has neither.
  */
 
 /**
@@ -33,8 +45,9 @@ import type { Sql, SqlValue, Store } from './store.ts'
  * accounts (both sites'), the registrations waiting for approval and the pictures, together so a
  * member's `avatar` version always matches their picture. Not in it: `session:` (a restore signs
  * everyone out), `meta:settings` (the invite code and member cap: the env values stand in when it is
- * missing, and a restore must not bring back a code rotated since) and the games with their SQL
- * tables (e11-t12). The forum's SQL tables are in it (BACKUP_TABLES), and from 2026-11-04 the
+ * missing, and a restore must not bring back a code rotated since); the games and what grew up
+ * around them are in the objects of their own (ACTIVITY_PREFIXES, ACTIVITY_TABLES, the `board:`
+ * log). The forum's SQL tables are in it (BACKUP_TABLES), and from 2026-11-04 the
  * friends and blocks (`friend:`, `block:`, 社長): read with the accounts, so they name members of
  * the same moment, and a restore drops any that name an account the backup does not have.
  * The platform's registry and club applications (`platform:`, 淡江's object only, e12-t06) are in
@@ -76,6 +89,90 @@ export const BACKUP_TABLES: readonly { name: string; order: string }[] = [
   { name: 'forum_reactions', order: 'target, target_id, user_id' },
   { name: 'forum_reports', order: 'rowid' },
 ]
+/**
+ * What else a member would miss (e11-t12), written in parts and restored only where missing, so
+ * none of it can overwrite a tournament or a ledger still moving (ACTIVITY_TABLES below):
+ * featured boards, tournaments, team events, pairs events, directors' logs, the audit trail (never
+ * rewound: a restore must not forget what was done since), the book's pending notes, members' own
+ * practice settings and deals, quiz rounds, reading places and learning progress, the points rules,
+ * the weekly and daily challenges' schedules, the feature flags and where the events live.
+ *
+ * Left out on purpose:
+ * - Rebuilt from the records: `hist:`, `uhist:` (and the SQL `boards_index`, `board_players`,
+ *   `board_rulings`, which `indexRecord` writes), the D1 copy and its `replq:` and `meta:replica`.
+ * - Worthless or wrong later: `session:`, `google:`, `line:`, `file:ticket:`, `file:day:`,
+ *   `meta:registrations`, `meta:clubApplications`, `meta:metrics`,
+ *   `meta:backfill`, `partnerBid:sweep`, `meta:banner`, `file:usage` (counted again from `file:meta:`).
+ * - Live state with its own lifecycle: `table:`, `tabledir:` (a table lives in its own object; a
+ *   finished board reaches `board:` by its outbox), `meta:schema` (a new object writes its own).
+ * - Read and forgotten, and large: `notif:` (500 a member). Tied to a device: `push:` (a push
+ *   service's address goes stale; members turn it on again).
+ * - Personal data with a short life: `seen:` (90 days, anti-cheating), `importPurge:` (a mark that
+ *   would delete the boards of an account the restore just brought back).
+ * - Decided elsewhere: `meta:settings`, `meta:club`, `platform:` (see above and DEPLOY.md §4.20).
+ */
+export const ACTIVITY_PREFIXES = [
+  'featured:',
+  'tourn:',
+  'teamev:',
+  'teamevdeal:',
+  'pairsev:',
+  'referee:',
+  'audit:',
+  'pendingmeta:',
+  'pendingdone:',
+  'practicePresets:',
+  'practiceOwnDeals:',
+  'quizlog:',
+  'pathprogress:',
+  'reading:',
+  'meta:points',
+  'meta:weekly',
+  'meta:daily',
+  'meta:features',
+  'meta:events',
+  'meta:matches',
+] as const
+/**
+ * The SQL tables in the parts, each with its primary key: a part reads on from the last key it
+ * wrote (an OFFSET would read every earlier row again, and rows read are what the free plan counts).
+ * Favorites, shared boards, challenges with their results and comments, team matches with their
+ * chat, private messages, the points ledger and ratings, puzzles' publications and progress.
+ * `event_homes` and `match_homes` say which event lives in its own `EventObject` (which a
+ * lost club does not lose), and the `*_settled` tables keep a club from notifying everyone again of
+ * events it already finished.
+ *
+ * Left out: the history index's tables (rebuilt, above); `partner_bid_*` (practice that expires,
+ * ARCHITECTURE.md §5.11); `match_watchers` (who looked); `support_reports` (short-lived, §1: 30 more
+ * days in a backup do nobody any good); `book_*` and `product_*` (anonymous counts
+ * that start again, §5.15, §5.27).
+ */
+export const ACTIVITY_TABLES: readonly { name: string; key: readonly string[] }[] = [
+  { name: 'favorites', key: ['user_id', 'board_id'] },
+  { name: 'favorite_tags', key: ['user_id', 'tag', 'board_id'] },
+  { name: 'board_shares', key: ['token'] },
+  { name: 'challenges', key: ['challenge_id'] },
+  { name: 'challenge_players', key: ['challenge_id', 'user_id'] },
+  { name: 'challenge_results', key: ['challenge_id', 'user_id', 'seq'] },
+  { name: 'challenge_comments', key: ['id'] },
+  { name: 'challenge_settled', key: ['challenge_id'] },
+  { name: 'event_homes', key: ['event_id'] },
+  { name: 'matches', key: ['match_id'] },
+  { name: 'match_seats', key: ['match_id', 'room', 'seat'] },
+  { name: 'match_boards', key: ['match_id', 'seq'] },
+  { name: 'match_chat', key: ['match_id', 'at', 'id'] },
+  { name: 'match_settled', key: ['match_id'] },
+  { name: 'match_homes', key: ['match_id'] },
+  { name: 'direct_threads', key: ['user_id', 'other_id'] },
+  { name: 'direct_messages', key: ['id'] },
+  { name: 'ranked_events', key: ['event_id'] },
+  { name: 'points_entries', key: ['event_id', 'user_id'] },
+  { name: 'points_adjustments', key: ['id'] },
+  { name: 'ratings', key: ['user_id'] },
+  { name: 'rating_history', key: ['user_id', 'event_id'] },
+  { name: 'puzzle_publications', key: ['puzzle_id'] },
+  { name: 'puzzle_progress', key: ['user_id', 'puzzle_id'] },
+]
 /** The prefixes that hold accounts: restoring a backup with them reloads the club's members */
 export const ACCOUNT_PREFIXES: readonly string[] = ['user:', 'app:', 'avatar:']
 /** Friends and blocks: `<kind>:<userId>:<otherId>`, each naming two accounts */
@@ -83,10 +180,13 @@ const RELATION_PREFIXES: readonly string[] = ['friend:', 'block:']
 /** Daily objects kept; older ones are deleted after each successful backup */
 export const BACKUP_KEEP_DAYS = 30
 export const BACKUP_FORMAT = 'tku-bridge-backup'
-/** 3: the forum's SQL tables too; 2: accounts and avatars, binary values tagged; 1: TKU BridgeBook only. All are read */
-export const BACKUP_FORMAT_VERSION = 3
-const READABLE_VERSIONS: readonly number[] = [1, 2, 3]
+/** 4: the games and the activity in objects of their own; 3: the forum's SQL tables too; 2: accounts and avatars, binary values tagged; 1: TKU BridgeBook only. All are read */
+export const BACKUP_FORMAT_VERSION = 4
+const READABLE_VERSIONS: readonly number[] = [1, 2, 3, 4]
 const DAILY = 'daily/'
+/** Where `worker/backup-steps.ts` writes */
+export const ACTIVITY_OBJECTS = 'activity/'
+export const GAME_OBJECTS = 'games/'
 const DAILY_KEY = /^daily\/(\d{4}-\d{2}-\d{2})\.jsonl$/
 /** The club is in Taiwan: a backup is named after its date there (UTC+8, no daylight saving) */
 const TAIPEI_OFFSET_MS = 8 * 3600_000
@@ -102,14 +202,16 @@ const LIST_PAGE = 500
 
 export interface BackupHeader {
   format: typeof BACKUP_FORMAT
-  /** 1 for the old book-only backups, 2 before the forum; new ones are BACKUP_FORMAT_VERSION */
-  version: 1 | 2 | typeof BACKUP_FORMAT_VERSION
+  /** 1 for the old book-only backups, 2 before the forum, 3 before the games; new ones are BACKUP_FORMAT_VERSION */
+  version: 1 | 2 | 3 | typeof BACKUP_FORMAT_VERSION
   createdAt: string
   prefixes: string[]
   keys: number
   /** From version 3: the SQL tables in it, and their rows in all */
   tables?: string[]
   rows?: number
+  /** From version 4: the boards the club had at this moment, to compare after a restore */
+  boards?: number
 }
 
 export type SqlRow = Record<string, SqlValue>
@@ -164,6 +266,18 @@ export interface RestoreResult {
   /** The SQL tables it emptied and wrote back, and their rows; none for a backup before version 3 */
   tables: string[]
   rows: number
+  /** The backup's own version: from 4 the activity and the games follow, a step at a time */
+  version: number
+  /** What the steps after this request read (`BackupSteps.plan`) */
+  steps?: RestoreStepsPlan
+}
+
+export interface RestoreStepsPlan {
+  activityParts: number
+  /** False when that day's export of the activity never finished: what is there still comes back */
+  activityComplete: boolean
+  gameObjects: number
+  boardsNow: number
 }
 
 // ── Binary values ────────────────────────────────────────────────────────────────────────────
@@ -279,6 +393,7 @@ export function serializeBackup(
   createdAt: Date,
   prefixes: readonly string[] = BACKUP_PREFIXES,
   sql: { tables: string[]; rows: [string, SqlRow][] } = { tables: [], rows: [] },
+  boards?: number,
 ) {
   const header: BackupHeader = {
     format: BACKUP_FORMAT,
@@ -288,6 +403,7 @@ export function serializeBackup(
     keys: entries.length,
     tables: [...sql.tables],
     rows: sql.rows.length,
+    ...(boards !== undefined && { boards }),
   }
   const lines = [header, ...entries.map(([k, v]) => ({ k, v: encodeValue(v) })), ...sql.rows.map(([t, r]) => ({ t, r }))]
   return lines.map((line) => JSON.stringify(line)).join('\n') + '\n'
@@ -424,13 +540,44 @@ export async function runBackup(store: Store, bucket: BackupBucket, now: number,
   const entries = await exportEntries(store)
   // Read right after the keys, with no await in between that would let another request in
   const sql = exportRows(store.sql)
-  const text = serializeBackup(entries, new Date(now), BACKUP_PREFIXES, sql)
+  const text = serializeBackup(entries, new Date(now), BACKUP_PREFIXES, sql, countBoards(store.sql))
   const name = backupName(now)
   await bucket.put(name, text, { httpMetadata: { contentType: 'application/x-ndjson; charset=utf-8' } })
   // Only after the new backup is safely written
   const deleted = expiredBackups((await listBackups(bucket)).map((b) => b.name), now, keepDays)
   if (deleted.length) await bucket.delete(deleted)
   return { name, keys: entries.length, rows: sql.rows.length, bytes: new TextEncoder().encode(text).length, deleted }
+}
+
+/** The boards in the history index, or undefined for a store without SQL */
+export function countBoards(sql: Sql) {
+  try {
+    return Number(sql.exec<{ n: number }>('SELECT COUNT(*) AS n FROM boards_index')[0]?.n ?? 0)
+  } catch {
+    return undefined
+  }
+}
+
+/** Every object under a prefix, in key order */
+export async function listObjects(bucket: BackupBucket, prefix: string) {
+  const objects: { key: string; size: number; uploaded: Date }[] = []
+  let cursor: string | undefined
+  do {
+    const page = await bucket.list({ prefix, cursor })
+    objects.push(...page.objects)
+    cursor = page.truncated ? page.cursor : undefined
+  } while (cursor)
+  return objects
+}
+
+/** R2 room this club's backups take, by kind (each prefix on its own: 淡江's bucket also holds the other clubs') */
+export async function backupUsage(bucket: BackupBucket) {
+  const sum = async (prefix: string) => {
+    const objects = await listObjects(bucket, prefix)
+    return { objects: objects.length, bytes: objects.reduce((n, o) => n + o.size, 0) }
+  }
+  const [daily, activity, games] = await Promise.all([sum(DAILY), sum(ACTIVITY_OBJECTS), sum(GAME_OBJECTS)])
+  return { daily, activity, games, bytes: daily.bytes + activity.bytes + games.bytes }
 }
 
 /** Every backup object, newest first */
@@ -449,7 +596,8 @@ export async function listBackups(bucket: BackupBucket): Promise<BackupObject[]>
  * Restores a backup over the current data, under the backup's own prefixes only (a version 1
  * backup leaves the accounts alone). With `dryRun` it only says how many keys it would write and
  * delete. Callers must drop whatever they hold in memory from these keys afterwards (`Club` makes a
- * new BookService and, when accounts came back, calls `ClubService.reloadAccounts`).
+ * new BookService and, when accounts came back, calls `ClubService.reloadAccounts`). This is the
+ * core only: from version 4 `BackupSteps.startRestore` goes on with the activity and the games.
  */
 export async function restoreBackup(store: Store, bucket: BackupBucket, name: string, dryRun: boolean): Promise<RestoreResult> {
   if (!DAILY_KEY.test(name)) throw new ClubError('backupNotFound', { name }, 404)
@@ -478,6 +626,7 @@ export async function restoreBackup(store: Store, bucket: BackupBucket, name: st
     deletes: plan.deletes.length,
     tables,
     rows: backup.rows.length,
+    version: backup.header.version,
   }
 }
 
@@ -519,12 +668,18 @@ export async function backupAdmin(
     now: number
     /** After a real restore, with the prefixes and SQL tables it put back */
     restored: (prefixes: string[], tables: string[]) => void | Promise<void>
+    /** The objects written and restored a step at a time; without it only the core */
+    steps?: BackupSteps
   },
 ): Promise<unknown> {
   const { bucket } = club
   if (!bucket) throw new ClubError('backupUnavailable', {}, 503)
-  if (method === 'GET' && path === '/backups') return { backups: await listBackups(bucket), keepDays: BACKUP_KEEP_DAYS }
-  if (method === 'POST' && path === '/backups') return { backup: await runBackup(club.store, bucket, club.now) }
+  if (method === 'GET' && path === '/backups')
+    return { backups: await listBackups(bucket), keepDays: BACKUP_KEEP_DAYS, usage: await backupUsage(bucket), steps: club.steps?.status() ?? null }
+  if (method === 'POST' && path === '/backups') {
+    await club.steps?.startExport()
+    return { backup: await runBackup(club.store, bucket, club.now) }
+  }
   if (method === 'POST' && path === '/backups/restore') {
     const b = await body()
     const name = String(b.name ?? '')
@@ -532,6 +687,10 @@ export async function backupAdmin(
     if (!dryRun && b.confirm !== name) throw new ClubError('backupConfirm', { name })
     const result = await restoreBackup(club.store, bucket, name, dryRun)
     if (!dryRun) await club.restored(result.prefixes, result.tables)
+    if (club.steps && result.version >= 4) {
+      result.steps = await club.steps.plan(name)
+      if (!dryRun) await club.steps.startRestore(name)
+    }
     return { restore: result }
   }
   throw new ClubError('noSuchApi', {}, 404)

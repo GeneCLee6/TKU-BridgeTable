@@ -4,6 +4,7 @@ import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'reac
 import styled from 'styled-components'
 import {
   FORUM_LIMITS,
+  REACTION_EMOJIS,
   type Board,
   type BoardPage,
   type Comment,
@@ -13,6 +14,8 @@ import {
   type ForumTags,
   type Post,
   type PostThread,
+  type ReactionEmoji,
+  type Reactions,
 } from '../../shared/forum.ts'
 import { emptyAuction } from '../../shared/forum-editor.ts'
 import { AuctionEditor } from '../components/AuctionEditor.tsx'
@@ -36,8 +39,9 @@ import { ReportForm } from './ForumModerationPages.tsx'
  * - `/forum`: the boards and the tags in use, then every board's posts newest first, a page at a time
  * - `/forum/:boardId`: one board, its pinned posts first (page 1), then newest first
  * - `?tag=` on either: only the posts with that tag (AC-13.7); a post's tags link there
- * - `/forum/p/:postId`: the post and its comments (one level of replies); members comment and
- *   reply, and delete their own comments (officers anyone's; the server checks)
+ * - `/forum/p/:postId`: the post and its comments (one level of replies); members comment, reply and
+ *   react, edit their own comments and delete them (officers anyone's), and officers pin the post;
+ *   the server checks all of it
  * - `/forum/drafts`: my drafts and scheduled posts, and for an officer everyone's scheduled ones (e13-t12)
  *
  * Posts are written and edited with the table's own editor (K2, `ForumEditorPage.tsx`); a comment
@@ -324,6 +328,143 @@ const Composer = styled.form`
     gap: ${({ theme }) => theme.space(2)};
   }
 `
+
+const PostReactions = styled.div`
+  margin-top: ${({ theme }) => theme.space(3)};
+`
+
+const ReactionRow = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+`
+
+const ReactionButton = styled.button<{ $mine: boolean }>`
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 28px;
+  padding: 2px 10px;
+  border: 1px solid ${({ theme, $mine }) => ($mine ? theme.colors.primary : theme.colors.border)};
+  border-radius: ${({ theme }) => theme.radius.pill};
+  background: ${({ theme, $mine }) => ($mine ? theme.colors.accentSoft : theme.colors.surface)};
+  color: ${({ theme, $mine }) => ($mine ? theme.colors.accentStrong : theme.colors.textMuted)};
+  font-size: 13px;
+  cursor: pointer;
+
+  &:hover:not(:disabled) {
+    border-color: ${({ theme }) => theme.colors.primary};
+  }
+  &:disabled {
+    cursor: default;
+  }
+`
+
+/**
+ * 按讚 (AC-13.1): the five reactions under a post or a comment. A member has one on each: another
+ * replaces it, the same one again takes it back. The server answers with the reactions as they are now
+ */
+function ReactionBar({
+  target,
+  targetId,
+  reactions,
+  onError,
+}: {
+  target: 'post' | 'comment'
+  targetId: string
+  reactions: Reactions
+  onError: (error: unknown) => void
+}) {
+  const { t } = usePreferences()
+  const { user } = useAuth()
+  const name = useMemberName()
+  // What the server last answered, until the page loads the post again
+  const [answer, setAnswer] = useState<{ of: Reactions; now: Reactions } | null>(null)
+  const current = answer?.of === reactions ? answer.now : reactions
+  const [busy, setBusy] = useState(false)
+
+  const mine = REACTION_EMOJIS.find((emoji) => !!user && current[emoji]?.includes(user.id))
+  const choose = async (emoji: ReactionEmoji) => {
+    setBusy(true)
+    try {
+      const now = emoji === mine ? await forumApi.unreact(target, targetId) : await forumApi.react(target, targetId, emoji)
+      setAnswer({ of: reactions, now })
+    } catch (error) {
+      onError(error)
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <ReactionRow role="group" aria-label={t.forum.reactions}>
+      {REACTION_EMOJIS.map((emoji) => {
+        const who = current[emoji] ?? []
+        return (
+          <ReactionButton
+            key={emoji}
+            type="button"
+            $mine={emoji === mine}
+            aria-pressed={emoji === mine}
+            aria-label={t.forum.react(emoji, who.length)}
+            title={who.map(name).join(', ') || undefined}
+            disabled={busy}
+            onClick={() => void choose(emoji)}
+          >
+            <span aria-hidden>{emoji}</span>
+            {who.length > 0 && <span aria-hidden>{who.length}</span>}
+          </ReactionButton>
+        )
+      })}
+    </ReactionRow>
+  )
+}
+
+/** A comment's text: its paragraphs, which are what the edit form changes */
+const commentText = (blocks: CommentBlock[]) =>
+  blocks.flatMap((block) => (block.kind === 'paragraph' ? [block.text] : [])).join('\n\n')
+
+/** The blocks with `text` as their one paragraph, where the first one was; its auction or hand stays as it is */
+function withCommentText(blocks: CommentBlock[], text: string): CommentBlock[] {
+  const others = blocks.filter((block) => block.kind !== 'paragraph')
+  const trimmed = text.trim()
+  if (!trimmed) return others
+  // Everything before the first paragraph is not a paragraph, so its place among the others is the same
+  const at = Math.max(0, blocks.findIndex((block) => block.kind === 'paragraph'))
+  return [...others.slice(0, at), { kind: 'paragraph', text: trimmed }, ...others.slice(at)]
+}
+
+/** Its author edits a comment's text in place (AC-13.1) */
+function CommentEditForm({ comment, onSave, onCancel }: { comment: Comment; onSave: (blocks: CommentBlock[]) => Promise<void>; onCancel: () => void }) {
+  const { t } = usePreferences()
+  const [text, setText] = useState(() => commentText(comment.blocks))
+  const [busy, setBusy] = useState(false)
+  const blocks = withCommentText(comment.blocks, text)
+  const submit = async (e: FormEvent) => {
+    e.preventDefault()
+    if (!blocks.length || busy) return
+    setBusy(true)
+    try {
+      await onSave(blocks)
+    } catch {
+      // The page shows the error; the form stays open with the text
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <Composer onSubmit={submit}>
+      <Textarea aria-label={t.forum.editCommentLabel} rows={3} maxLength={FORUM_LIMITS.commentTextMax} value={text} onChange={(e) => setText(e.target.value)} />
+      <div>
+        <Button type="button" $variant="ghost" onClick={onCancel}>
+          {t.forum.cancel}
+        </Button>
+        <Button type="submit" disabled={!blocks.length} $busy={busy}>
+          {t.forum.saveComment}
+        </Button>
+      </div>
+    </Composer>
+  )
+}
 
 /** The page in `?page=`, from 1, and the tag in `?tag=` (AC-13.7), kept when the page changes */
 function usePage(): [number, (page: number) => void, string] {
@@ -651,6 +792,8 @@ export function ForumPostPage() {
   // Which post or comment the report form is open on (K4, e13-t10), and the thanks once one is sent
   const [reporting, setReporting] = useState<string | null>(null)
   const [reported, setReported] = useState(false)
+  // The comment being edited (AC-13.1)
+  const [editing, setEditing] = useState<string | null>(null)
 
   const load = useCallback(
     () =>
@@ -726,6 +869,33 @@ export function ForumPostPage() {
       setError(message(err.code ?? '', err.params ?? {}, err.message))
     }
   }
+  /** What the server said, on the page */
+  const showError = (e: unknown) => {
+    const err = e as { code?: string; params?: Record<string, string | number>; message: string }
+    setError(message(err.code ?? '', err.params ?? {}, err.message))
+  }
+  /** An officer pins the post above the board's others, or takes it down; the server checks */
+  const togglePinned = async () => {
+    if (!post) return
+    try {
+      setError('')
+      await forumApi.pin(post.id, !post.pinned)
+      await load()
+    } catch (e) {
+      showError(e)
+    }
+  }
+  const saveComment = (commentId: string) => async (blocks: CommentBlock[]) => {
+    try {
+      setError('')
+      await forumApi.updateComment(commentId, blocks)
+      setEditing(null)
+      await load()
+    } catch (e) {
+      showError(e)
+      throw e
+    }
+  }
   const reportButton = (key: string, authorId: string) =>
     user && authorId !== user.id ? (
       <Button
@@ -784,6 +954,11 @@ export function ForumPostPage() {
               </Button>
             )}
             {officer && !unpublished && (
+              <Button type="button" $variant="ghost" $size="sm" onClick={() => void togglePinned()}>
+                {post.pinned ? t.forum.unpin : t.forum.pin}
+              </Button>
+            )}
+            {officer && !unpublished && (
               <Button type="button" $variant="ghost" $size="sm" onClick={() => void toggleHidden()}>
                 {post.hidden ? t.forum.unhide : t.forum.hide}
               </Button>
@@ -801,6 +976,9 @@ export function ForumPostPage() {
           </Card>
           {!unpublished && (
             <>
+              <PostReactions>
+                <ReactionBar target="post" targetId={post.id} reactions={post.reactions} onError={showError} />
+              </PostReactions>
               <SectionTitle>
                 {t.forum.comments} ({comments.length})
               </SectionTitle>
@@ -820,6 +998,11 @@ export function ForumPostPage() {
                               {t.forum.reply}
                             </Button>
                           )}
+                          {comment.authorId === user?.id && (
+                            <Button type="button" $variant="ghost" $size="sm" onClick={() => setEditing(editing === comment.id ? null : comment.id)}>
+                              {t.forum.editComment}
+                            </Button>
+                          )}
                           {(comment.authorId === user?.id || officer) && (
                             <Button type="button" $variant="ghost" $size="sm" onClick={() => void remove(comment)}>
                               {t.forum.deleteComment}
@@ -829,7 +1012,12 @@ export function ForumPostPage() {
                         </Actions>
                       </CommentHead>
                       {reportForm(comment.id, 'comment', comment.id)}
-                      <ForumBlocks blocks={comment.blocks} />
+                      {editing === comment.id ? (
+                        <CommentEditForm comment={comment} onSave={saveComment(comment.id)} onCancel={() => setEditing(null)} />
+                      ) : (
+                        <ForumBlocks blocks={comment.blocks} />
+                      )}
+                      <ReactionBar target="comment" targetId={comment.id} reactions={comment.reactions} onError={showError} />
                       {replyTo === comment.id && (
                         <CommentForm
                           label={t.forum.replyLabel(name(comment.authorId))}

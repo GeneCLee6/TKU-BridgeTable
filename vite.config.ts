@@ -4,6 +4,7 @@ import react from '@vitejs/plugin-react'
 import { defineConfig, type Plugin } from 'vite'
 import { seoPages } from './scripts/seo-plugin.ts'
 import { systemCards } from './scripts/system-cards-plugin.ts'
+import { PAGE_HEADERS } from './worker/security-headers.ts'
 
 // Stamps the built commit into index.html so a deployment can be traced back to its commit.
 // The deploy workflow sets APP_VERSION to the commit it deploys.
@@ -26,6 +27,9 @@ export default defineConfig({
   plugins: [react(), appVersion(), systemCards(), seoPages(), ...(process.env.VITEST || process.env.VISUAL_TEST ? [] : [cloudflare()])],
   // The DDS worker (src/lib/dds.worker.ts) is an ES module: its WASM loader uses import.meta
   worker: { format: 'es' },
+  // `vite preview` does not read public/_headers: the visual tests' production build gets the
+  // site's headers here, so what they run under is the real Content-Security-Policy
+  ...(process.env.VISUAL_TEST ? { preview: { headers: PAGE_HEADERS } } : {}),
   test: {
     environment: 'jsdom',
     globals: true,
