@@ -16,7 +16,7 @@
 | 負載測試、指標與系統狀態、額度估算 | `docs/LOAD.md`、`ARCHITECTURE.md` §5.13 |
 | 安全標頭與 CSP、session、安全審查（ASVS）、個資匯出與刪除、功能旗標 | `docs/SECURITY.md`、`shared/features.ts` |
 | 帳號申請、權限、淡江橋譜的 API | `ARCHITECTURE.md` §5.2 |
-| 機器人（TKB，淡江制度、2/1 或 SAYC）的叫牌與防守 | `ROBOT.md`；2/1（GIB 相容）的制度與來源：`docs/BBO GIB/`；SAYC：`docs/systems/sayc.md` |
+| 機器人（TKB，淡江制度、2/1、SAYC 或精準制）的叫牌與防守 | `ROBOT.md`；2/1（GIB 相容）的制度與來源：`docs/BBO GIB/`；SAYC：`docs/systems/sayc.md` |
 | 產品範圍與 Roadmap | `docs/PRD/00-prd.md`（總 PRD）、`docs/PRD/01-bbo-competitive-analysis.md`（BBO 競品分析） |
 | **開工前** | `docs/NEXT.md`（現在的位置、工作方式、開工指令範本）、`docs/ROADMAP.md`（全部批次的順序，一批一個 PR）|
 | 開工一個 task | `docs/PRD/README.md`（task 格式、一組 task 一個 PR）與該 task 所在的 epic（`docs/PRD/e*.md`） |

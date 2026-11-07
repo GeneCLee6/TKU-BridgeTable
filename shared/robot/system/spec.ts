@@ -1,6 +1,7 @@
 import type { Call } from '../../auction.ts'
 import type { RobotKind } from '../../protocol.ts'
 import type { Strain, Suit } from '../../cards.ts'
+import type { CardSectionId, GroupIndex } from './card.ts'
 import type { Ctx } from './context.ts'
 import type { Hand } from './evaluate.ts'
 
@@ -94,6 +95,11 @@ export const CONVENTIONS = [
   'minorAsk',
   'passOrCorrect',
   'ask',
+  // Precision (docs/systems/precision.md)
+  'strongClub',
+  'clubNegative',
+  'shortDiamonds',
+  'gambling3N',
 ] as const
 export type Convention = (typeof CONVENTIONS)[number]
 
@@ -243,4 +249,12 @@ export interface System {
    * kept only when some rule explains it, so partner reads it as the robot meant it.
    */
   revise?: (hand: Hand, ctx: Ctx, call: Call, shows: Spec | undefined, explain: (call: Call) => Spec | undefined) => Call | null
+  /**
+   * Calls in this system often say nothing about their own strain (Precision's 1♣, the short 1♦ and
+   * 2♦): partner's opening lead follows a suit only where the reading shows it (`reading.ts`), not a
+   * suit merely named
+   */
+  leadsOnlyShown?: boolean
+  /** Auctions the system card (`card.ts`) shows besides the ones every system has */
+  cardGroups?: Partial<Record<CardSectionId, readonly GroupIndex[]>>
 }

@@ -19,6 +19,8 @@ export interface AuctionCall {
    * person's call: what the engine reads it as in the system named by `inferred`
    */
   meaning?: Spec
+  /** A robot's call: the system it bid in, so a robot of another system reads it as meant (`reading.ts`) */
+  system?: SystemId
   /** Set on a person's call whose `meaning` is the engine's reading, in this system (`tku`, `gib`) */
   inferred?: SystemId
   /**

@@ -31,6 +31,7 @@ export async function playTable(board: EvalBoard, ns: RobotConfig, ew: RobotConf
     const config = configOf(seat)
     const { call, alert } = await (config.brain ?? ruleBrain).bid(config.kind, state, seat)
     state = makeCall(state, seat, call, alert)
+    state.auction[state.auction.length - 1].system = config.kind
   }
   while (state.phase === 'play') {
     // The declarer plays dummy's cards: `turnOf` is the seat whose card is due, and both are one side

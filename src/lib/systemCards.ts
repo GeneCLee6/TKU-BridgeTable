@@ -22,6 +22,7 @@ export const mayReadCard = (system: RobotKind, user: unknown) => isOpenRobotKind
 const OPEN_CARDS: Record<OpenRobotKind, () => Promise<{ default: SystemCard }>> = {
   gib: () => import('virtual:system-card-gib'),
   sayc: () => import('virtual:system-card-sayc'),
+  precision: () => import('virtual:system-card-precision'),
 }
 
 const load = (system: RobotKind): Promise<SystemCard> =>

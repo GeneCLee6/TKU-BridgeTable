@@ -7,7 +7,7 @@ import type { RobotConfig } from './match.ts'
 
 /**
  * Reading the command line's robot configurations (Node only). A configuration is the system TKB
- * bids, `tku`, `gib` or `sayc`; `@dir` takes the rule robot from another checkout's `shared/robot` (such
+ * bids, `tku`, `gib`, `sayc` or `precision`; `@dir` takes the rule robot from another checkout's `shared/robot` (such
  * as main's, checked out in `base/`), and `,play=dir` only its card play:
  *
  *   tku            this checkout's TKB in the club's system

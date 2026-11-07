@@ -6,6 +6,7 @@
 | --- | --- | --- |
 | **淡江制度**（`tku`） | [TKU BridgeHall 淡江橋館](https://tku-bridge-hall.vercel.app/) 收錄的社團制度與特約（原始資料：`TKU-BridgeBook/src/content/conventions/`），橋譜沒寫到的照 5542 自然制 | §1–§5，`shared/robot/system/tku/` |
 | **2/1**（`gib`，GIB 相容） | BBO 的 GIB 公開的 2/1 迫叫成局制度（[`docs/BBO GIB`](docs/BBO%20GIB/README.md)），叫法與說明跟 BBO 的 GIB 一致 | §6，`shared/robot/system/gib/` |
+| **精準制**（`precision`） | 依公開資料整理的現代精準制（[`docs/systems/precision.md`](docs/systems/precision.md)），待社團審核 | §6.17，`shared/robot/system/precision/` |
 | **SAYC**（`sayc`） | ACBL 的 Standard American Yellow Card（[`docs/systems/sayc.md`](docs/systems/sayc.md)）：五張高花、1NT 15–17、二蓋一只迫叫一圈、沒有倒轉低花、黑木問 A | §6.16，`shared/robot/system/sayc/` |
 
 房主在空位的座位選單選「放 TKB（淡江制度）」「放 TKB（2/1）」或「放 TKB（SAYC）」，名牌顯示「TKB」與制度。三種機器人都不做雙明手分析、不猜測對手的牌，只依照規則與一般坐莊／防守原則行動，所以叫的牌社員看得懂。淡江機器人是練習社團制度的搭檔；2/1 機器人讓社員練 BBO 上通用的 2/1；SAYC 機器人給習慣標準美式的人。三種機器人用同一個制度引擎（§6），所以同伴是哪一種機器人，輪到自己叫牌時叫牌盒都會提示機器人怎麼理解每個叫品。出牌三種機器人完全一樣，坐莊、首攻、防守信號都照社團的規則（§3、§3.2）。
@@ -1085,7 +1086,7 @@ Stayman 一定要有 4 張高花，**沒有例外**：Z2 留下的 2/1 例外（
 
 ### 6.15 制度卡（`e5-t52`，AC-5.11，2026-11-05）
 
-一張讀得懂的制度摘要，每套制度一張（淡江制度、2/1、SAYC）。**內容不是抄的**：`shared/robot/system/card.ts` 的 `deriveCard` 拿機器人叫牌用的同一份規則（`meanings`，叫牌盒提示與 Alert 也是它）讀出每個叫品表示什麼，手寫的只有「目錄」（`INDEX`：每一節列哪幾個叫牌過程）。改了規則書，卡就跟著變，不用另外改。
+一張讀得懂的制度摘要，每套制度一張（淡江制度、2/1、SAYC、精準制）。**內容不是抄的**：`shared/robot/system/card.ts` 的 `deriveCard` 拿機器人叫牌用的同一份規則（`meanings`，叫牌盒提示與 Alert 也是它）讀出每個叫品表示什麼，手寫的只有「目錄」（`INDEX`：每一節列哪幾個叫牌過程）。改了規則書，卡就跟著變，不用另外改。
 
 | 節 | 內容 |
 | --- | --- |
@@ -1128,6 +1129,18 @@ Stayman 一定要有 4 張高花，**沒有例外**：Z2 留下的 2/1 例外（
 **評測**（5,000 副，`npm run eval -- --a sayc --b gib --set full`）：SAYC 對 2/1 **−0.01 ± 0.06** IMP／副（95% CI [−0.12, +0.11]，贏／輸／平 981／999／3020，同合約 2987 副）。這只是健全性數字（叫牌有沒有壞掉），不是制度優劣。出牌共用，淡江與 2/1 對 main 都是 **+0.00 ± 0.00**。
 
 **新增制度**：`shared/protocol.ts` 的 `ROBOT_KINDS` 加一個字、`shared/robot/system/open-systems.ts` 加一行，編譯器會要求其他的（`src/lib/systemCards.ts` 的制度卡載入、`strings.ts` 每個依制度的表）。公開制度的選單、伺服器驗證、制度卡頁、靜態資源檢查、一致性檢查、評測門檻都讀這兩個清單。
+
+### 6.17 精準制（`precision`，`e5-t50`，AC-5.11，2026-11-06）
+
+TKB 的另一個制度：1♣ 16+ 人工叫、1♦ 11–15 可能短、1M 11–15 五張、1NT 13–15、2♣ 長梅花、2♦ ♦短三門牌。每個選擇、來源與待社團決定的項目在 [`docs/systems/precision.md`](docs/systems/precision.md)；全部是依公開資料整理，**還沒有人審核**。規則在 `shared/robot/system/precision/`。
+
+- **只寫不同的地方**：開叫、1♣、1♦、2♣、2♦ 是自己的書；1M、弱二與阻擊、NT 結構、對方開叫、滿貫用 2/1 的書。`limited` 把開叫者不可能有的規則拿掉（11–15 的開叫沒有 19 點的跳叫新花）。`gib/notrump.ts` 的 NT 之後與干擾的書改成吃 `Ranges`（`oneNotrumpExtras`），2/1 的數字不變。
+- **說明前後一致**：用同一個引擎，`npm run consistency -- --system precision` 矛盾、過寬、漏掉都是 0。
+- **同桌不同制度**（`AuctionCall.system`）：機器人的叫品記下它的制度，出牌讀叫牌時每個叫品照叫的人的制度讀（`reading.ts`、`read` 的 `systemOf`）。以前同一桌全部照讀牌者的制度讀，淡江與 2/1 差不多所以沒事；精準制的 1♣、1NT、2♣ 差太多。同制度一桌結果不變；淡江對 2/1 全部 5,000 副 main −0.19 ± 0.07、這裡 −0.18 ± 0.07，在誤差之內。真人的叫品仍照讀牌者的制度讀，所以真人對手打自然制時，精準制機器人會把他的 1NT 讀成 13–15（已知的限制）。
+- **首攻**（`System.leadsOnlyShown`）：同伴的 1♣、2♦ 不算同伴的花色，只有讀牌顯示 4+ 張才算。2/1 與淡江不設，首攻不變。
+- **評測**：精準制對 2/1 全部 5,000 副 −0.05 ± 0.06 IMP／副。讀最差的牌找到的錯：1NT 再叫之後 2NT 邀請沒有接受的書（開叫者 18 點也 Pass）、低花轉換沒有完成、否定之後對方蓋叫開叫者 19 點也賣掉、扣叫之後不找高花、答叫者 7 點以內靠後備規則叫 2NT、對 NT 答叫用轉換讓弱牌當莊；修好之前是 −0.12 ± 0.06。
+
+**測試**：`tests/engine/precision.test.ts`（開叫、答叫、再叫、干擾、Alert 六種語言、首攻、跨制度讀牌、制度卡）；題庫 `tests/bidding-quiz/opening.precision.json`、`response.precision.json`（全部 `pending`）。
 
 ## 7. TKB 與 TKB Adv
 

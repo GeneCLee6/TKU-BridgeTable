@@ -540,6 +540,8 @@ describe('robots at the table', () => {
     for (const entry of auction) {
       if (entry.call === 'P' || !entry.robot) continue
       expect(entry.meaning, `${entry.seat} ${entry.call}`).toBeDefined()
+      // ...and the system it bid in, so a robot of another system reads it as meant
+      expect(entry.system).toBe(view.seats[entry.seat]?.robotKind)
     }
   })
 

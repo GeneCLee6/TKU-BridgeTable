@@ -24,7 +24,8 @@ const auctions = new WeakMap<object, Partial<Record<RobotKind, Record<Seat, Spec
 function shownIn(state: BoardState, kind: RobotKind): Record<Seat, Spec> {
   const cached = auctions.get(state.auction) ?? {}
   if (!cached[kind]) {
-    cached[kind] = read(ROBOT_SYSTEMS[kind], state.auction, state.dealer, state.vul).shown
+    // Each call as its maker's system means it, when the auction says (a robot of another system)
+    cached[kind] = read(ROBOT_SYSTEMS[kind], state.auction, state.dealer, state.vul, (call) => (call.system ? ROBOT_SYSTEMS[call.system] : undefined)).shown
     auctions.set(state.auction, cached)
   }
   return cached[kind]
@@ -44,10 +45,12 @@ export class TableReading {
   private readonly unseenCards = new Set<Card>()
 
   private readonly seat: Seat
+  private readonly kind: RobotKind
 
   constructor(state: BoardState, seat: Seat, kind: RobotKind) {
     this.state = state
     this.seat = seat
+    this.kind = kind
     const dummy = dummyOf(state)
     this.visible = new Set<Seat>([seat, ...(state.claimed ?? [])])
     if (dummy && state.play.length > 0) {
@@ -100,6 +103,11 @@ export class TableReading {
   /** The seat showed length in the suit in the auction (a natural bid: four cards or more) */
   bid(seat: Seat, suit: Suit): boolean {
     return (this.shown[seat].len?.[suit]?.[0] ?? 0) >= 4
+  }
+
+  /** A bid in this suit can be read as the suit: in Precision only what the reading shows (`System.leadsOnlyShown`) */
+  namesSuit(seat: Seat, suit: Suit): boolean {
+    return !ROBOT_SYSTEMS[this.kind].leadsOnlyShown || this.bid(seat, suit)
   }
 
   /**

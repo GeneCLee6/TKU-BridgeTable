@@ -200,7 +200,7 @@ tests/bidding-quiz/*.json   題庫：手牌、叫牌過程、身價、正解、�
 - [ ] `e5-t47` 候選叫品評估：每個候選往下用制度預演到叫牌結束，以 DDS（或 E6 的估墩模型）估墩，換算 IMP／MP 期望值 · AC-5.10 · M · ← e5-t46, e6-t13
 - [ ] `e5-t48` 何時模擬：規則標 `judgement`（競叫高度、賭倍、成局邊界），時間上限與規則後備；在機器人運算環境執行 · AC-5.10 · S · ← e5-t47, e6-t11
 - [ ] ~~`e5-t49` 2/1 迫叫成局制度檔（對齊 BBO GIB，供 E6 的 BBO 比對）~~ 提前到 M1 並拆成 `e5-t54`～`e5-t63`（2/1 機器人）
-- [ ] `e5-t50` 精準制制度檔 · AC-5.11 · M · ← e5-t18
+- [x] `e5-t50` 精準制制度檔 · AC-5.11 · 規則在 `shared/robot/system/precision/`，制度摘要在 [`docs/systems/precision.md`](../systems/precision.md)
 - [x] `e5-t51` SAYC 制度檔 · AC-5.11 · 規則在 `shared/robot/system/sayc/`，制度摘要在 [`docs/systems/sayc.md`](../systems/sayc.md)
 - [x] `e5-t52` 制度卡：由制度檔產生可讀的制度卡頁，牌桌上可查看對手與同伴（機器人）的制度卡 · AC-5.11 · #301
 
