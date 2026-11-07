@@ -431,7 +431,7 @@ describe('ChallengePage (e7-t18)', () => {
     const boards = screen.getByRole('region', { name: '每一副的結果' })
     const first = within(boards).getByRole('article', { name: '第 1 副' })
     expect(within(first).getAllByRole('row').map((r) => r.textContent)).toEqual([
-      '社員合約首攻結果南北比賽分（MP）你對他',
+      '社員ContractLead結果南北比賽分（MP）你對他',
       '你4♠ S♥K=+42075%—',
       'cat4♠ N♦A=+42075%50%',
       'ben2♠ S♥K+1+1700%100%',
@@ -443,7 +443,7 @@ describe('ChallengePage (e7-t18)', () => {
     expect(within(first).getByRole('link', { name: 'cat' })).toHaveAttribute('href', '/challenges/c7/boards/1?p=cat')
     const second = within(boards).getByRole('article', { name: '第 2 副' })
     expect(within(second).getAllByRole('row').map((r) => r.textContent)).toEqual([
-      '社員合約首攻結果南北比賽分（MP）你對他',
+      '社員ContractLead結果南北比賽分（MP）你對他',
       '你--——050%—',
       'cat3NT E♠2+1-10025%100%',
       'ben3NT E♠2-1+5075%0%',

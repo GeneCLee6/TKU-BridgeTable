@@ -22,7 +22,7 @@ describe('DoubleDummyPanel (e4-t34)', () => {
   it('says it is working while DDS runs', () => {
     state = { status: 'loading' }
     show()
-    expect(screen.getByRole('status')).toHaveTextContent('正在計算雙夢家分析')
+    expect(screen.getByRole('status')).toHaveTextContent('正在計算 Double Dummy 分析')
   })
 
   it('shows tricks for each declarer and strain, and the par', () => {

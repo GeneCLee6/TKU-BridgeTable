@@ -152,7 +152,7 @@ describe('PracticeDialog: deal sets and saved settings (e10-t16)', () => {
     mocks.remove.mockResolvedValue({ presets: [] })
     const onSubmit = open()
     await userEvent.click(await screen.findByRole('button', { name: '套用「1NT 練習」' }))
-    expect(screen.getByRole('radio', { name: /1NT 開叫/ })).toBeChecked()
+    expect(screen.getByRole('radio', { name: /1NT Opening/ })).toBeChecked()
     expect(screen.getByRole('checkbox', { name: /顯示四家/ })).toBeChecked()
     const name = screen.getByRole('textbox', { name: '設定的名稱' })
     await userEvent.clear(name)

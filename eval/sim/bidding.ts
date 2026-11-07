@@ -941,17 +941,17 @@ const practiceVul = (vul: Vulnerability): PracticeDeal['vulnerability'] => (vul 
 const shapeOf = (pbn: string) => pbn.split('.').map((ranks) => ranks.length).join('-')
 
 const POSITION: Record<BiddingCategory, string> = {
-  opening: '輪到你開叫',
-  response: '同伴開叫之後',
+  opening: '輪到你 Open',
+  response: '同伴 Open 之後',
   game: '我方自由叫牌',
   slam: '我方已到成局',
-  direct: '對方開叫之後',
-  takeout: '對方開叫之後',
+  direct: '對方 Open 之後',
+  takeout: '對方 Open 之後',
   balancing: '平衡位置（再 Pass 叫牌就結束）',
-  preempt: '對方阻擊之後',
-  notrump: '對方開叫 1NT 之後',
+  preempt: '對方 Preempt 之後',
+  notrump: '對方 Open 1NT 之後',
   high: '對方叫到高線之後',
-  contested: '我方開叫、對方插叫之後',
+  contested: '我方 Open、對方插叫之後',
 }
 
 /** The teaching point of a decision: what the deal says the hand should do */
@@ -963,10 +963,10 @@ export function practiceNote(e: Example): string {
   const why: Record<AltKind, string> = {
     pass: competitive ? '這手牌不值得在這個高度出手，Pass 讓對方去打' : '牌力不夠再往上，停在這裡',
     lower: '這副少叫一線就夠，不必叫到那麼高',
-    higher: e.category === 'slam' ? '雙方牌力夠滿貫，再叫上去' : e.category === 'high' ? '我方配合夠長，再叫一線競叫或犧牲' : '牌力夠再叫一線（邀請或成局）',
-    strain: '換一個王牌（或無王）比較好打',
-    double: e.category === 'high' || e.category === 'notrump' ? '對方叫得太高，賭倍處罰' : e.category === 'contested' ? '用賭倍表示牌力，讓同伴決定' : '短門在對方的花色，該賭倍讓同伴選花色',
-    bid: e.category === 'opening' ? '這手牌值得開叫' : e.category === 'response' ? '有牌力就要答叫' : competitive || e.category === 'contested' ? '這手牌值得出手叫出來' : '牌力夠，該叫下去',
+    higher: e.category === 'slam' ? '雙方牌力夠 Slam，再叫上去' : e.category === 'high' ? '我方配合夠長，再叫一線 Competitive bidding 或犧牲' : '牌力夠再叫一線（邀請或成局）',
+    strain: '換一個 Trump（或 Notrump）比較好打',
+    double: e.category === 'high' || e.category === 'notrump' ? '對方叫得太高，用 Penalty Double' : e.category === 'contested' ? '用 Double 表示牌力，讓同伴決定' : '短門在對方的花色，該 Double 讓同伴選花色',
+    bid: e.category === 'opening' ? '這手牌值得 Open' : e.category === 'response' ? '有牌力就要 Response' : competitive || e.category === 'contested' ? '這手牌值得出手叫出來' : '牌力夠，該叫下去',
   }
   return `${lead}：TKB 叫 ${callLabel(e.tkb)}，這副 ${callLabel(e.alternative)} 比較好（${-e.imps} IMP，雙方合計 ${e.pairHcp} 點）。${why[kind]}。`
 }

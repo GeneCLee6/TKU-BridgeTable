@@ -123,7 +123,7 @@ describe('BiddingBox', () => {
   describe('with a 2/1 robot partner', () => {
     const hints = {
       title: 'TKB（2/1）的理解',
-      text: (call: string) => ({ P: '0–5 大牌點', '1S': '4+ 張♠，6+ 大牌點，迫叫一圈', X: '負性賭倍' })[call] ?? '機器人沒有特別的理解',
+      text: (call: string) => ({ P: '0–5 大牌點', '1S': '4+ 張♠，6+ 大牌點，迫叫一圈', X: 'Negative Double' })[call] ?? '機器人沒有特別的理解',
     }
     const legal = [...legalCalls([{ seat: 'N', call: '1C' }, { seat: 'E', call: '1D' }], 'N')]
 
@@ -143,7 +143,7 @@ describe('BiddingBox', () => {
     it('shows it on keyboard focus too', async () => {
       wrap(<BiddingBox legal={legal} onCall={vi.fn()} hints={hints} />)
       screen.getByRole('button', { name: 'X' }).focus()
-      expect(await screen.findByRole('status')).toHaveTextContent('負性賭倍')
+      expect(await screen.findByRole('status')).toHaveTextContent('Negative Double')
     })
 
     it('shows it on a long press on a phone, and that press makes no call', async () => {
@@ -507,7 +507,7 @@ describe('viewer perspective and robots', () => {
       />,
     )
     expect(screen.getByLabelText('房主')).toBeInTheDocument()
-    expect(screen.getByText('莊家').parentElement?.style.marginLeft ?? '').toBe('')
+    expect(screen.getByText('Declarer').parentElement?.style.marginLeft ?? '').toBe('')
     expect(screen.queryByRole('button')).toBeNull()
   })
 

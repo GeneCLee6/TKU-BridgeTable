@@ -242,7 +242,7 @@ describe('the review page', () => {
     expect(screen.getByText('不同')).toBeInTheDocument()
     expect(screen.getByText('牌組的重點')).toBeInTheDocument()
     // Not four TKB here: East and West stay silent
-    expect(screen.getByText('南北都換成 TKB，東西一樣不叫，從頭叫同一副')).toBeInTheDocument()
+    expect(screen.getByText('南北都換成 TKB，東西一樣 Pass，從頭叫同一副')).toBeInTheDocument()
   })
 
   it('never shows a review of a board still being bid', async () => {

@@ -171,7 +171,7 @@ describe('RKCB 1430, the queen ask, the king ask (e5-t35)', () => {
   })
 
   it('explains RKCB 1430 and the answers', () => {
-    expect(reads('1S P 3C P 3D P 4C P', '4N')).toBe('RKCB 1430：有滿貫興趣，迫叫一圈')
+    expect(reads('1S P 3C P 3D P 4C P', '4N')).toBe('RKCB 1430：有 Slam 興趣，迫叫一圈')
     expect(reads('1S P 3C P 3D P 4C P 4N P', '5C')).toContain('1 或 4 張關鍵張')
     expect(reads('1S P 3C P 3D P 4C P 4N P', '5S', 'en')).toContain('2 or 5 keycards')
   })

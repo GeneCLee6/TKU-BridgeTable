@@ -200,7 +200,7 @@ describe('grouped as on 牌局紀錄, and a board in the record page’s own vie
     const record = { ...summary(1, Date.now()), board } as unknown as BoardRecord
     mocks.api.record.mockResolvedValue({ record })
     show({ board: 'b1' })
-    expect(await screen.findByRole('switch', { name: '雙夢家模式' })).toBeInTheDocument()
+    expect(await screen.findByRole('switch', { name: 'Double Dummy 模式' })).toBeInTheDocument()
     expect(screen.getByRole('group', { name: '逐墩重播' })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: '開啟完整頁面' })).toHaveAttribute('target', '_blank')
   })
