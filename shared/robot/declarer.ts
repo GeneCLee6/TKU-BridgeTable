@@ -299,6 +299,9 @@ export function holdUp(view: View, trick: PlayedCard[], following: Card[], led: 
   const ours = [...following, ...partner].sort(byRank).reverse()
   if (ours[1] && view.higherOut(ours[1]).length < 2) return null
   const low = [...following].sort(byRank)[0]
+  // Last to play with a card below the master that beats the trick: it wins now and the master
+  // stays as the stopper (AJ5 over East's ten: the jack; ducking gives the trick away for nothing)
+  if (trick.length === 3 && suitOf(best.card) === led && following.some((c) => value(c) > value(best.card) && !masters.includes(c))) return null
   const side = [view.seat, partnerOf(view.seat)]
   const played = view.state.play.filter((p) => side.includes(p.seat) && suitOf(p.card) === led).length
   const combined = following.length + partner.length + played
@@ -337,4 +340,23 @@ export function secondHandWin(view: View, trick: PlayedCard[], following: Card[]
   const theirs = suitCards(partner, led)
   const cannot = trump === null ? theirs.length === 0 : !theirs.some((c) => view.isMaster(c))
   return cannot ? master : null
+}
+
+/** Partner's cards below this cannot fight for the trick, and this hand's from here up can (ROBOT.md §3.21) */
+const COVER_BELOW = 10
+
+/**
+ * Second hand on the declaring side after a defender's lead, partner (last to play) holding nothing
+ * that can fight for the trick: no card of the ten or higher, or a void with no trump to ruff. Low
+ * from here hands third hand a cheap trick, so cover with the cheapest ten or higher over the lead
+ * (dummy's Q84 opposite declarer's 753 on a low lead: the queen; ROBOT.md §3.21). Null to stay low.
+ */
+export function secondHandCover(view: View, trick: PlayedCard[], following: Card[], led: Suit, trump: Suit | null): Card | null {
+  if (trick.length !== 1 || sameSide(trick[0].seat, view.seat) || suitOf(trick[0].card) !== led) return null
+  const partner = view.partnerCards()
+  if (!partner.length) return null
+  const theirs = suitCards(partner, led)
+  if (!theirs.length && trump && suitCards(partner, trump).length) return null
+  if (theirs.some((c) => value(c) >= COVER_BELOW)) return null
+  return following.filter((c) => value(c) > value(trick[0].card) && value(c) >= COVER_BELOW).sort(byRank)[0] ?? null
 }
