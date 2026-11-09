@@ -242,7 +242,7 @@ Phase H–L 的表格保留原來的批次與 task，順序以這份清單為準
 | [x] O4 | `e9-t14` `e9-t15` | 多隊賽（#284，循環／瑞士制、VP）、個人賽（#282，whist 移位） |
 | [ ] O5 | `e6-t32` `e6-t33` `e6-t34` `e6-t35` `e6-t36` `e6-t37` `e5-t53` | 訓練資料同意、資料管線、估墩模型、叫牌模型、部署、上線門檻 |
 | [ ] O6 | `e12-t18` `e12-t19` | App 包裝與上架 |
-| [x] O7 | `e1-t37` | 姊妹站 TKU Arcade 的選用登入：對外簽短效 token，不共用 session（#PRNUM；TKU Arcade 擁有者 2026-11-09 要求，不在原本的順序裡；secret 設了才開，DEPLOY.md §4.22） |
+| [x] O7 | `e1-t37` | 姊妹站 TKU Arcade 的選用登入：對外簽短效 token，不共用 session（#331；TKU Arcade 擁有者 2026-11-09 要求，不在原本的順序裡；secret 設了才開，DEPLOY.md §4.22） |
 
 ---
 
