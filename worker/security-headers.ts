@@ -10,8 +10,8 @@
  * `<style>` tags and React's `style` attributes (`'unsafe-inline'` for styles only), pictures and
  * fonts from the site or `data:`/`blob:` (an avatar being cropped, a share card), and requests and
  * WebSockets to the site itself (`connect-src 'self'` covers `wss:` to the same host). Pictures of
- * posts and articles, avatars and e-book PDFs come from the Worker's own `/api/files/` and
- * `/api/avatar/`; TKU BridgeBook reaches `/api/book/*` through its own domain (Vercel), so neither
+ * posts and articles, avatars, clubs' logos and e-book PDFs come from the Worker's own `/api/files/`,
+ * `/api/avatar/` and `/api/logo`; TKU BridgeBook reaches `/api/book/*` through its own domain (Vercel), so neither
  * needs another origin here. The one other origin is Cloudflare Turnstile's (`TURNSTILE_ORIGIN`),
  * for its script and frame on 申請加入.
  */

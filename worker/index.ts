@@ -47,6 +47,7 @@ export default {
           publicTables: () => stub.publicTables(),
           guestTable: (tableId) => stub.guestTable(tableId) as Promise<GuestTable | null>,
           clubName: () => stub.clubName(),
+          clubBrand: () => stub.clubBrand(),
           memberNotices: (token) => stub.memberNotices(token),
         }
       },

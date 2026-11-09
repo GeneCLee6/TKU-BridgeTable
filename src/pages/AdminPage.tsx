@@ -16,6 +16,7 @@ import { CredentialInput } from '../components/CredentialInput.tsx'
 import { AdminTwoFactorBanner } from '../components/AdminTwoFactorBanner.tsx'
 import { PasswordInput } from '../components/PasswordInput.tsx'
 import { AdminBanner, AdminSupport } from '../components/AdminSupport.tsx'
+import { AdminLogo } from '../components/AdminLogo.tsx'
 import { AdminPuzzles } from '../components/AdminPuzzles.tsx'
 import { FeatureFlags } from '../components/FeatureFlags.tsx'
 import { IntegrityReport } from '../components/IntegrityReport.tsx'
@@ -38,7 +39,9 @@ import {
   PageTitle,
   Select,
 } from '../components/ui.tsx'
+import { DEFAULT_CLUB_ID } from '../../shared/clubs.ts'
 import { api, ApiError } from '../lib/api.ts'
+import { currentClub } from '../lib/club.ts'
 import { formatDate, formatRelative } from '../lib/format.ts'
 import { mustTurnOnTwoFactor } from '../lib/twoFactor.ts'
 import { useAuth } from '../state/AuthContext.tsx'
@@ -59,8 +62,10 @@ import { mobile } from '../styles/tokens.ts'
  * with TKU BridgeBook, which has the same approvals and permissions on its own admin page.
  */
 
-type SectionId = 'applications' | 'settings' | 'members' | 'add' | 'tables' | 'bookSync' | 'support' | 'banner' | 'puzzles' | 'features' | 'integrity' | 'usage' | 'status'
-const SECTIONS: SectionId[] = ['applications', 'settings', 'members', 'add', 'tables', 'bookSync', 'support', 'banner', 'puzzles', 'features', 'integrity', 'usage', 'status']
+type SectionId = 'applications' | 'settings' | 'members' | 'add' | 'tables' | 'bookSync' | 'support' | 'banner' | 'logo' | 'puzzles' | 'features' | 'integrity' | 'usage' | 'status'
+const ALL_SECTIONS: SectionId[] = ['applications', 'settings', 'members', 'add', 'tables', 'bookSync', 'support', 'banner', 'logo', 'puzzles', 'features', 'integrity', 'usage', 'status']
+/** 淡江 keeps its lantern (DESIGN.md §6): no logo section on its admin page */
+const sections = () => (currentClub() === DEFAULT_CLUB_ID ? ALL_SECTIONS.filter((s) => s !== 'logo') : ALL_SECTIONS)
 const anchor = (section: SectionId) => `admin-${section}`
 
 /** Fields a server error can belong to */
@@ -309,9 +314,10 @@ function AdminPanels() {
     if (!users) return
     const onScroll = () => {
       const doc = document.documentElement
-      if (window.innerHeight + window.scrollY >= doc.scrollHeight - 2) return setActive(SECTIONS[SECTIONS.length - 1])
-      let current = SECTIONS[0]
-      for (const section of SECTIONS) {
+      const all = sections()
+      if (window.innerHeight + window.scrollY >= doc.scrollHeight - 2) return setActive(all[all.length - 1])
+      let current = all[0]
+      for (const section of all) {
         const top = document.getElementById(anchor(section))?.getBoundingClientRect().top
         if (top !== undefined && top <= 120) current = section
       }
@@ -347,6 +353,7 @@ function AdminPanels() {
     bookSync: t.bookSyncTitle,
     support: t.support.adminTitle,
     banner: t.notices.bannerTitle,
+    logo: t.logo.title,
     puzzles: t.puzzles.adminTitle,
     features: t.featureFlags.title,
     integrity: t.integrity.title,
@@ -363,6 +370,7 @@ function AdminPanels() {
     bookSync: outOfStep.length || null,
     support: null,
     banner: null,
+    logo: null,
     puzzles: null,
     features: null,
     integrity: null,
@@ -405,14 +413,14 @@ function AdminPanels() {
             value={active}
             onChange={(e) => go(e.target.value as SectionId)}
           >
-            {SECTIONS.map((s) => (
+            {sections().map((s) => (
               <option key={s} value={s}>
                 {count[s] !== null ? `${label[s]}（${count[s]}）` : label[s]}
               </option>
             ))}
           </SectionSelect>
           <NavList>
-            {SECTIONS.map((s) => (
+            {sections().map((s) => (
               <li key={s}>
                 <NavLink
                   href={`#${anchor(s)}`}
@@ -1009,6 +1017,16 @@ function AdminPanels() {
             </CardHeader>
             <AdminBanner />
           </Section>
+
+          {currentClub() !== DEFAULT_CLUB_ID && (
+            <Section id={anchor('logo')} aria-labelledby={`${id}-h-logo`}>
+              <CardHeader>
+                <CardTitle id={`${id}-h-logo`}>{t.logo.title}</CardTitle>
+                <Muted>{t.logo.intro}</Muted>
+              </CardHeader>
+              <AdminLogo />
+            </Section>
+          )}
 
           <Section id={anchor('puzzles')} aria-labelledby={`${id}-h-puzzles`}>
             <CardHeader>

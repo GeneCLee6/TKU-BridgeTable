@@ -308,6 +308,7 @@ import {
 } from './views.ts'
 import { AuditLog } from './audit.ts'
 import { ClubBanners } from './notices.ts'
+import { ClubLogos } from './logos.ts'
 import { SupportService } from './support.ts'
 import type { AdminSupportView, MySupportReport } from '../shared/support.ts'
 import { RefereeLog, refereeKindOf } from './referee.ts'
@@ -790,6 +791,8 @@ export class ClubService {
   private readonly audit: AuditLog
   /** The club's own banner (e12-t15) */
   readonly banners: ClubBanners
+  /** The club's logo (AC-12.2) */
+  readonly logos: ClubLogos
   /** Support reports (e12-t16) */
   readonly support: SupportService
   /** Members' saved practice settings (`e10-t16`, §5.11) */
@@ -977,6 +980,7 @@ export class ClubService {
     })
     this.audit = new AuditLog(store, this.now)
     this.banners = new ClubBanners(store, this.audit, this.now, () => randomId(8))
+    this.logos = new ClubLogos(store, this.audit, this.clubId, this.now)
     this.support = new SupportService(store.sql, {
       clubId: this.clubId,
       now: this.now,
@@ -2794,6 +2798,18 @@ export class ClubService {
   async adminClearBanner(adminId: string) {
     this.requireAdmin(adminId)
     await this.banners.clear(this.requireUser(adminId).username)
+  }
+
+  /** `PUT /api/admin/logo` (AC-12.2): the club's logo, cropped and shrunk in the browser; not 淡江's */
+  async adminSetLogo(adminId: string, bytes: Uint8Array<ArrayBuffer>) {
+    this.requireAdmin(adminId)
+    return this.logos.set(this.requireUser(adminId).username, bytes)
+  }
+
+  /** `DELETE /api/admin/logo`: back to the club's letter */
+  async adminClearLogo(adminId: string) {
+    this.requireAdmin(adminId)
+    await this.logos.clear(this.requireUser(adminId).username)
   }
 
   /** Throws unless the member may act as an admin now (`actsAsAdmin`) */

@@ -95,7 +95,9 @@ export const BACKUP_TABLES: readonly { name: string; order: string }[] = [
  * featured boards, tournaments, team events, pairs events, directors' logs, the audit trail (never
  * rewound: a restore must not forget what was done since), the book's pending notes, members' own
  * practice settings and deals, quiz rounds, reading places and learning progress, the points rules,
- * the weekly and daily challenges' schedules, the feature flags and where the events live.
+ * the weekly and daily challenges' schedules, the feature flags, where the events live and the
+ * club's logo (`meta:logo`, at most 128 KB). An application's logo waiting for the owner is under
+ * `platform:` (backed up, never restored, deleted once decided).
  *
  * Left out on purpose:
  * - Rebuilt from the records: `hist:`, `uhist:` (and the SQL `boards_index`, `board_players`,
@@ -132,6 +134,8 @@ export const ACTIVITY_PREFIXES = [
   'meta:features',
   'meta:events',
   'meta:matches',
+  // The club's logo (AC-12.2): restored only when the club has none, so a newer one stays
+  'meta:logo',
 ] as const
 /**
  * The SQL tables in the parts, each with its primary key: a part reads on from the last key it

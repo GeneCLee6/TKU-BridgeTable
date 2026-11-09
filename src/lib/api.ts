@@ -70,6 +70,7 @@ import type { FeaturedBoard, FeaturedInput } from '../../shared/featured.ts'
 import type { FeatureFlag, FeatureState, FeatureView } from '../../shared/features.ts'
 import { NOTICES_API, type ClubBanner, type ClubBannerInput, type NoticesView, type PlatformNoticeInput } from '../../shared/notices.ts'
 import type { ClubApplicationInput, ClubApplyOptions, ClubStatus, PlatformView } from '../../shared/platform.ts'
+import type { ClubLogoRef } from '../../shared/club-logo.ts'
 import type { AdminSupportView, MySupportReport, SupportInput, SupportStatus } from '../../shared/support.ts'
 import type { SessionInfo } from '../../shared/account.ts'
 import type { PushKinds, PushView } from '../../shared/push.ts'
@@ -498,6 +499,11 @@ export const api = {
     banner: () => request<{ banner: ClubBanner | null }>('/api/admin/banner'),
     setBanner: (input: ClubBannerInput) => post<{ banner: ClubBanner }>('/api/admin/banner', input),
     clearBanner: () => request<{ banner: null }>('/api/admin/banner', { method: 'DELETE' }),
+    /** The club's logo (AC-12.2): the square the browser cropped and shrank */
+    logo: () => request<{ logo: ClubLogoRef | null }>('/api/admin/logo'),
+    setLogo: (picture: Blob) =>
+      request<{ logo: ClubLogoRef }>('/api/admin/logo', { method: 'PUT', headers: { 'Content-Type': picture.type }, body: picture }),
+    clearLogo: () => request<{ logo: null }>('/api/admin/logo', { method: 'DELETE' }),
     /** The members' support reports (e12-t16): every answer is the list again */
     puzzles: () => request<{ puzzles: AdminPuzzle[] }>('/api/admin/puzzles'),
     publishPuzzle: (id: string, published: boolean) => post<{ puzzles: AdminPuzzle[] }>(`/api/admin/puzzles/${encodeURIComponent(id)}/publish`, { published }),

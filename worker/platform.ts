@@ -17,6 +17,7 @@ import {
 import { LIMITS, USERNAME_PATTERN, type Me } from '../shared/protocol.ts'
 import type { AuditAction, AuditLog } from './audit.ts'
 import { hashPassword } from './auth.ts'
+import { checkedLogo, logoFromBase64, type StoredLogo } from './logos.ts'
 import { ClubError } from './errors.ts'
 import { noLog, type Logger } from './log.ts'
 import { noticeExcerpt, noticeExpiry, noticeText } from './notices.ts'
@@ -45,6 +46,8 @@ export interface ClubSetup {
   username: string
   passwordHash: string
   approvedAt: number
+  /** The logo it was applied with (AC-12.2), already checked */
+  logo?: Uint8Array<ArrayBuffer>
 }
 
 /** The clubs' own objects, as the platform reaches them (`worker/club.ts` makes it from their stubs) */
@@ -88,6 +91,8 @@ interface StoredApplication extends ClubApplicationView {
 const CLUB_KEY = 'platform:club:'
 const APPLY_KEY = 'platform:apply:'
 const NOTICE_KEY = 'platform:notice:'
+/** An application's logo (AC-12.2), apart from the application so listing them reads no pictures; deleted once decided */
+const APPLY_LOGO_KEY = 'platform:logo:'
 
 /** 淡江 in the back office: always served, never in the registry */
 const DEFAULT_CLUB = { id: DEFAULT_CLUB_ID, name: '淡江橋藝社', organisation: '淡江大學', contactEmail: '' }
@@ -201,6 +206,8 @@ export class PlatformService {
       throw new ClubError('badUsername', { min: LIMITS.usernameMin, max: LIMITS.usernameMax })
     const password = toHalfWidth(String(input.password ?? ''))
     checkNewPassword(password, username)
+    // The logo is optional; a bad one turns the application away before it is counted
+    const logo = logoFromBase64(input.logo)
     const applications = await this.applications()
     const pending = applications.filter((a) => a.status === 'pending')
     if (
@@ -222,8 +229,10 @@ export class PlatformService {
       status: 'pending',
       passwordHash: await hashPassword(password),
       lang: mailLang(input.lang),
+      ...(logo && { logo: true }),
     }
     await this.config.limit.count(from)
+    if (logo) await this.store.put(`${APPLY_LOGO_KEY}${application.id}`, logo)
     await this.store.put(`${APPLY_KEY}${application.id}`, application)
     this.log({ event: 'clubApplied', clubId })
     await this.tellOwner(clubId, name)
@@ -294,6 +303,7 @@ export class PlatformService {
     const application = await this.pending(applicationId)
     if ((await this.store.get(`${CLUB_KEY}${application.clubId}`)) !== undefined) throw new ClubError('clubIdTaken', {}, 409)
     const now = this.config.now()
+    const logo = application.logo ? await this.store.get<Uint8Array<ArrayBuffer>>(`${APPLY_LOGO_KEY}${application.id}`) : undefined
     await this.config.clubs.provision(application.clubId, {
       name: application.name,
       organisation: application.organisation,
@@ -301,6 +311,7 @@ export class PlatformService {
       username: application.username,
       passwordHash: application.passwordHash!,
       approvedAt: now,
+      ...(logo && { logo }),
     })
     const club: StoredClub = {
       id: application.clubId,
@@ -450,6 +461,16 @@ export class PlatformService {
     return this.view()
   }
 
+  /** An application's logo, as the owner reviews it (`GET /api/platform/applications/:id/logo`); only while it waits */
+  async applicationLogo(applicationId: string): Promise<StoredLogo | undefined> {
+    const application = /^[\w-]{1,32}$/.test(applicationId) ? await this.store.get<StoredApplication>(`${APPLY_KEY}${applicationId}`) : undefined
+    if (!application?.logo) return undefined
+    const bytes = await this.store.get<Uint8Array<ArrayBuffer>>(`${APPLY_LOGO_KEY}${application.id}`)
+    if (!bytes) return undefined
+    const { type, size } = checkedLogo(bytes)
+    return { version: application.createdAt, type, size, bytes }
+  }
+
   private async pending(applicationId: string): Promise<StoredApplication> {
     const application = /^[\w-]{1,32}$/.test(applicationId) ? await this.store.get<StoredApplication>(`${APPLY_KEY}${applicationId}`) : undefined
     if (!application) throw new ClubError('noSuchClubApplication', {}, 404)
@@ -461,6 +482,9 @@ export class PlatformService {
   private async decide(application: StoredApplication, status: ClubApplicationStatus, at: number, note?: string) {
     const decided: StoredApplication = { ...application, status, decidedAt: at, ...(note && { note }) }
     delete decided.passwordHash
+    // The logo went to the club (approved) or is not wanted (rejected)
+    delete decided.logo
+    await this.store.delete(`${APPLY_LOGO_KEY}${application.id}`)
     await this.store.put(`${APPLY_KEY}${application.id}`, decided)
     const old = (await this.applications())
       .filter((a) => a.status !== 'pending')

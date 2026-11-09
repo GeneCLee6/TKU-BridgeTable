@@ -1,9 +1,10 @@
+import { useState } from 'react'
 import styled from 'styled-components'
 import { MARK_CARDS, MARK_GOLD_CARD, MARK_RADIUS, WORD_HEIGHT, WORD_PATHS, WORD_STROKE, WORD_WIDTH } from './overtrickArt.ts'
 
 /**
  * The logos (DESIGN.md §6). The platform's is Overtrick's, in `overtrickArt.ts`; a club's is its own:
- * 淡江's lantern, or a letter for a club with no logo yet.
+ * 淡江's lantern, the logo another club set (AC-12.2), or a letter for a club with none.
  */
 
 const GoldCard = styled.rect`
@@ -70,6 +71,25 @@ export function ClubLetter({ name, size = 36 }: { name: string; size?: number })
       {Array.from(name)[0]?.toUpperCase()}
     </Letter>
   )
+}
+
+const Picture = styled.img<{ $size: number }>`
+  display: block;
+  width: ${({ $size }) => $size}px;
+  height: ${({ $size }) => $size}px;
+  object-fit: contain;
+  border-radius: ${({ theme }) => theme.radius.sm};
+`
+
+/**
+ * A club's own mark (AC-12.2): its logo when it set one (`src` is its address, shared/club-logo.ts
+ * `clubLogoUrl`), else its letter, which also stands in if the picture does not load (a suspended
+ * club answers nothing). Decorative: the club's name is always written beside it
+ */
+export function ClubMark({ name, logo, size = 36 }: { name: string; logo: string | null; size?: number }) {
+  const [failed, setFailed] = useState<string | null>(null)
+  if (!logo || failed === logo) return <ClubLetter name={name} size={size} />
+  return <Picture src={logo} alt="" $size={size} width={size} height={size} decoding="async" onError={() => setFailed(logo)} />
 }
 
 /**
