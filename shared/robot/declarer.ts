@@ -15,12 +15,18 @@ import { byRank, honours, value, type View } from './view.ts'
  * as the card reading says the shorter defender still has one (T3); second hand takes the trick
  * with a master when partner cannot (Y4). In a suit contract the techniques of S3
  * (`declarer-technique.ts`): make the short hand void and ruff before drawing trumps, set up a
- * long suit by ruffing, strip the hands and throw a defender in.
+ * long suit by ruffing, strip the hands and throw a defender in. Which suit first (§3.22): the suit
+ * with the most tricks is cashed first; in notrump a suit that runs on a normal split comes before
+ * a finesse; the short hand's trump master goes first; a bare ace above a gap is not "set up"; a
+ * hand that will not get the lead again takes its finesse now.
  * Only the cards the declaring side sees and the reading of the other two hands are used.
  */
 
 /** Hold up past the rule of seven when the shorter defender still holds the suit at least this likely (T3) */
 const HOLD_LONGER = 0.9
+
+/** Take the last-entry finesse unless the missing card is with second hand less often than this (§3.22) */
+const LAST_ENTRY_ODDS = 0.4
 
 /** The declaring side's lead, or null to fall back to the general rules */
 export function declarerLead(
@@ -59,8 +65,19 @@ export function declarerLead(
   }
   const cashing = cash(view, hand, partner, sides, ruffed)
   if (enough && cashing) return cashing
-  const finessing = finesse([...(trumpsOut ? [trump!] : []), ...sides.filter((s) => !ruffed(s))])
+  // Notrump: run a suit that comes in on a normal split before taking a finesse (ROBOT.md §3.22)
+  if (!trump && !enough) {
+    const run = sides.find((s) => !ruffed(s) && probableRun(view, s) && view.isMaster(mine(s)[0]))
+    if (run) return cash(view, hand, partner, [run], ruffed)
+  }
+  const finessable = [...(trumpsOut ? [trump!] : []), ...sides.filter((s) => !ruffed(s))]
+  const finessing = finesse(finessable)
   if (finessing) return finessing
+  // This hand may not get the lead back: take the finesse towards partner's tenace now (§3.22)
+  if (!enough) {
+    const last = lastEntryFinesse(view, hand, partner, finessable)
+    if (last) return last
+  }
   if (!enough) {
     const develop = setUp(view, hand, partner, sides, ruffed)
     if (develop) return develop
@@ -103,6 +120,9 @@ function drawTrumps(view: View, hand: Card[], partner: Card[], trump: Suit): Car
   const theirs = suitCards(partner, trump)
   const out = view.outstanding(trump)
   if (!mine.length || !out) return null
+  // Partner, shorter, holds a master: low to it first, so the suit does not block (AJ742 opposite
+  // K9: the king, then back for the finesse; ROBOT.md §3.22)
+  if (theirs.length && theirs.length < mine.length && view.isMaster(theirs[0]) && !view.isMaster(mine.at(-1)!)) return mine.at(-1)!
   if (view.isMaster(mine[0])) return mine[0]
   if (theirs.length && view.isMaster(theirs[0])) return mine.at(-1)!
   const ours = [...mine, ...theirs].sort(byRank).reverse()
@@ -178,9 +198,25 @@ function runningTricks(view: View, s: Suit): number {
   return top > 0 && top >= view.outstanding(s) ? longer : top
 }
 
-/** Cash a sure winner, not into a ruff: from the shorter holding first so the suit does not block */
+/**
+ * The suit runs from the top on a normal split, though not on every split: two or more masters
+ * in a row, at least half the cards out (rounded up), fewer than the cards out and than the longer
+ * holding (AKQ872 opposite 654 against four out; ROBOT.md §3.22)
+ */
+function probableRun(view: View, s: Suit): boolean {
+  const top = view.topTricks(s)
+  const out = view.outstanding(s)
+  const longer = Math.max(suitCards(view.ownCards(), s).length, suitCards(view.partnerCards(), s).length)
+  return top >= 2 && top < longer && top < out && top >= Math.ceil(out / 2)
+}
+
+/**
+ * Cash a sure winner, not into a ruff: from the shorter holding first so the suit does not block;
+ * the suit with the most tricks first, the single winners kept as stoppers and entries (§3.22)
+ */
 function cash(view: View, hand: Card[], partner: Card[], sides: Suit[], ruffed: (s: Suit) => boolean): Card | null {
-  for (const s of sides) {
+  const order = [...sides].sort((a, b) => runningTricks(view, b) - runningTricks(view, a))
+  for (const s of order) {
     if (ruffed(s)) continue
     const mine = suitCards(hand, s)
     const theirs = suitCards(partner, s)
@@ -196,8 +232,9 @@ function cash(view: View, hand: Card[], partner: Card[], sides: Suit[], ruffed: 
 /**
  * Set up the longest side suit that is not ours yet (does not run from the top; an ace-headed
  * suit such as AQJxx counts): six cards or more between the hands, at most two cards out above
- * our second best. Knock out the top with a sequence, or lead
- * low towards partner's honours.
+ * our second best. Knock out the top with a sequence, or lead low towards partner's honours. A
+ * bare master with a gap below it (the ace of AQ or AJ opposite small cards) knocks nothing out
+ * and spends the tenace: try the next suit instead (ROBOT.md §3.22).
  */
 function setUp(view: View, hand: Card[], partner: Card[], sides: Suit[], ruffed: (s: Suit) => boolean): Card | null {
   const both = [...hand, ...partner]
@@ -209,13 +246,40 @@ function setUp(view: View, hand: Card[], partner: Card[], sides: Suit[], ruffed:
     const second = ours[1]
     return second !== undefined && view.higherOut(second).length <= 2 && runningTricks(view, s) < length(s)
   })
-  if (!candidates.length) return null
-  const s = [...candidates].sort((a, b) => length(b) - length(a) || honours(suitCards(both, b)) - honours(suitCards(both, a)))[0]
-  const mine = suitCards(hand, s)
-  const theirs = suitCards(partner, s)
-  if (touching(view, mine[0], both) && value(mine[0]) >= 10) return mine[0]
-  if (theirs.length && value(theirs[0]) > value(mine[0])) return mine.at(-1)!
-  return value(mine[0]) >= 10 ? mine[0] : null
+  const ordered = candidates.sort((a, b) => length(b) - length(a) || honours(suitCards(both, b)) - honours(suitCards(both, a)))
+  for (const s of ordered) {
+    const mine = suitCards(hand, s)
+    const theirs = suitCards(partner, s)
+    if (touching(view, mine[0], both) && value(mine[0]) >= 10) return mine[0]
+    if (theirs.length && value(theirs[0]) > value(mine[0])) return mine.at(-1)!
+    if (view.isMaster(mine[0])) continue
+    return value(mine[0]) >= 10 ? mine[0] : null
+  }
+  return null
+}
+
+/**
+ * Nothing else to do but cash, and this hand may not get the lead again (no card that wins a
+ * round of a suit partner can lead to it): take the finesse towards partner's tenace now, whatever
+ * the auction says, unless the card reading puts the missing card behind the tenace (dummy's
+ * K532 opposite AKJT: the club towards the jack before the last entry is gone; ROBOT.md §3.22)
+ */
+function lastEntryFinesse(view: View, hand: Card[], partner: Card[], suits: Suit[]): Card | null {
+  if (!partner.length) return null
+  const entry = SUITS.some((s) => {
+    const top = suitCards(hand, s)[0]
+    const theirs = suitCards(partner, s)
+    return top && theirs.length > 0 && (view.isMaster(top) || value(top) > value(theirs[0]))
+  })
+  if (entry) return null
+  const second = nextSeat(view.seat)
+  for (const s of suits) {
+    const low = suitCards(hand, s).at(-1)
+    const tenace = suitCards(partner, s).find((c) => view.higherOut(c).length === 1)
+    if (!low || !tenace || value(low) > value(tenace)) continue
+    if ((view.cardReading.odds(view.higherOut(tenace)[0])[second] ?? 0.5) >= LAST_ENTRY_ODDS) return low
+  }
+  return null
 }
 
 /** The next lower card of the suit is ours too (or already played up to one of ours) */
