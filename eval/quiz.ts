@@ -41,6 +41,106 @@ export interface QuizQuestion {
   status: QuizStatus
   /** Why, in a sentence: points, shape and the rule */
   note?: string
+  /**
+   * The PRD's area (E5 AC-5.4), only where `topicOf` would guess it wrong; most questions leave it
+   * out and get it from the auction
+   */
+  topic?: QuizTopic
+}
+
+/**
+ * The nine areas of the full 5542 natural system that AC-5.4 asks for (docs/PRD/e5, the table from
+ * 開叫 to 滿貫): a question's area is what the call is about, whatever file it sits in.
+ */
+export const QUIZ_TOPICS = [
+  'opening',
+  'response',
+  'opener-rebid',
+  'responder-rebid',
+  'overcall',
+  'advance',
+  'double',
+  'competition',
+  'slam',
+] as const
+export type QuizTopic = (typeof QUIZ_TOPICS)[number]
+
+/** The PRD's names for the areas */
+export const TOPIC_TITLES: Record<QuizTopic, string> = {
+  opening: '開叫',
+  response: '答叫',
+  'opener-rebid': '開叫者再叫',
+  'responder-rebid': '答叫者再叫',
+  overcall: '蓋叫',
+  advance: '蓋叫的答叫',
+  double: '賭倍',
+  competition: '競叫',
+  slam: '滿貫',
+}
+
+export const isQuizTopic = (value: unknown): value is QuizTopic => QUIZ_TOPICS.includes(value as QuizTopic)
+
+const isDouble = (call: Call) => call === 'X' || call === 'XX'
+const levelOf = (call: Call) => (/^[1-7]/.test(call) ? Number(call[0]) : 0)
+
+/**
+ * The question's area (eval/README.md, 「九類」): its `topic` when it has one, otherwise from the
+ * auction, the first rule that fits:
+ *
+ * 1. 滿貫: the file is a slam file, the answer is a six or seven level contract, or our side has
+ *    bid 4NT or 5NT (Blackwood, RKCB, quantitative, the grand slam force) or Gerber (4♣ right after
+ *    partner's 1NT/2NT) — unless the opponents have bid at the four level (then 4NT is not asking)
+ * 2. 開叫: nobody has bid yet
+ * 3. They opened:
+ *    - not one of a suit (1NT, weak twos, preempts): 競叫 (the PRD puts 對抗敵方 1NT and 對抗弱二與
+ *      三線阻擊 there)
+ *    - our side's first action was a double, and this is the advancer's first call or the doubler's
+ *      second: 賭倍 (迫伴賭倍與回答、賭倍者再叫); so is any double or redouble of ours
+ *    - our side has not acted: 蓋叫; partner overcalled and this is our first action: 蓋叫的答叫
+ *    - later (the overcaller's rebid and on): 競叫
+ * 4. We opened:
+ *    - a double or redouble (negative, support, responsive, penalty), or opener answering partner's
+ *      negative double: 賭倍
+ *    - the opponents have bid or doubled: 競叫
+ *    - otherwise by who calls: the responder's first call 答叫, opener's later calls 開叫者再叫,
+ *      the responder's later calls 答叫者再叫
+ */
+export function topicOf(q: QuizQuestion, category: string): QuizTopic {
+  if (q.topic) return q.topic
+  const calls = [...q.auction, q.answer]
+  const n = q.auction.length
+  const ours = (i: number) => (n - i) % 2 === 0
+  const mine = (i: number) => (n - i) % 4 === 0
+  const ourBids = calls.flatMap((call, i) => (ours(i) && call !== 'P' ? [{ call, i }] : []))
+  const theirTop = Math.max(0, ...calls.map((call, i) => (ours(i) ? 0 : levelOf(call))))
+  const gerber = ourBids.some(({ call }, k) => call === '4C' && k > 0 && ['1N', '2N'].includes(ourBids[k - 1].call))
+  const asking = theirTop < 4 && (ourBids.some(({ call }) => call === '4N' || call === '5N') || gerber)
+  if (category === 'slam' || levelOf(q.answer) >= 6 || asking) return 'slam'
+
+  const first = calls.findIndex((call, i) => i < n && call !== 'P')
+  if (first < 0) return 'opening'
+  const before = ourBids.filter(({ i }) => i < n)
+  if (!ours(first)) {
+    if (levelOf(calls[first]) !== 1 || calls[first] === '1N') return 'competition'
+    if (before.length && before[0].call === 'X') {
+      const advancing = before.length === 1 && !mine(before[0].i)
+      const doublerAgain = before.length <= 2 && mine(before[0].i)
+      if (advancing || doublerAgain) return 'double'
+    }
+    if (isDouble(q.answer)) return 'double'
+    if (!before.length) return 'overcall'
+    if (before.length === 1 && !mine(before[0].i)) return 'advance'
+    return 'competition'
+  }
+  if (isDouble(q.answer)) return 'double'
+  const theyActed = calls.some((call, i) => i < n && !ours(i) && call !== 'P')
+  if (theyActed) {
+    const partners = before.filter(({ i }) => !mine(i))
+    const openerAnswering = mine(first) && partners.length === 1 && partners[0].call === 'X'
+    return openerAnswering ? 'double' : 'competition'
+  }
+  if (mine(first)) return 'opener-rebid'
+  return before.some(({ i }) => mine(i)) ? 'responder-rebid' : 'response'
 }
 
 export interface QuizFile {
@@ -103,6 +203,7 @@ export function questionProblems(q: QuizQuestion): string[] {
       if (q.accepted?.includes(q.answer)) fail('the answer is repeated in accepted')
     }
   }
+  if (q.topic !== undefined && !isQuizTopic(q.topic)) fail(`topic is one of ${QUIZ_TOPICS.join(', ')}, not "${q.topic}"`)
   if (typeof q.source !== 'string' || !q.source.trim()) fail('source is required')
   if (q.status === 'pending' && q.reviewer !== null) fail('a pending question has no reviewer yet (null)')
   else if (q.status === 'reviewed' && !(typeof q.reviewer === 'string' && q.reviewer.trim())) fail('a reviewed question names its reviewer')
@@ -169,6 +270,8 @@ export type Grade = 'answer' | 'accepted' | 'wrong'
 export interface QuizResult {
   question: QuizQuestion
   category: string
+  /** The PRD's area (`topicOf`) */
+  topic: QuizTopic
   call: Call
   grade: Grade
 }
@@ -184,7 +287,7 @@ export async function runQuiz(brain: RobotBrain, files: readonly QuizFile[]): Pr
   for (const file of files) {
     for (const question of file.questions) {
       const { call } = await brain.bid(question.system, quizState(question), seatOf(question))
-      results.push({ question, category: file.category, call, grade: grade(question, call) })
+      results.push({ question, category: file.category, topic: topicOf(question, file.category), call, grade: grade(question, call) })
     }
   }
   return results
@@ -260,13 +363,44 @@ function totalOf(rows: readonly QuizScore[]): QuizScore {
   return total
 }
 
+/** AC-5.4 asks each of the nine areas for at least this many questions, all answered right */
+export const TOPIC_MINIMUM = 30
+
+/** Scores by system and the PRD's nine areas (`topicOf`), the areas in the PRD's order */
+export function scoreTopics(results: readonly QuizResult[]): QuizScore[] {
+  const rows = scoreQuiz(results.map((r) => ({ ...r, category: r.topic })))
+  const order = (row: QuizScore) => QUIZ_TOPICS.indexOf(row.category as QuizTopic)
+  const systems = [...new Set(rows.map((r) => r.system))]
+  return [...rows].sort((a, b) => systems.indexOf(a.system) - systems.indexOf(b.system) || order(a) - order(b))
+}
+
+/**
+ * The nine areas in Markdown: questions, pending review, correct, and whether the area meets
+ * AC-5.4 (at least `TOPIC_MINIMUM` questions, every one right). Areas without a question show 0.
+ */
+export function topicReport(rows: readonly QuizScore[]): string {
+  const lines = ['| System | Area | Questions | Pending review | Correct | AC-5.4 |', '| --- | --- | --- | --- | --- | --- |']
+  for (const system of [...new Set(rows.map((r) => r.system))]) {
+    for (const topic of QUIZ_TOPICS) {
+      const row = rows.find((r) => r.system === system && r.category === topic)
+      const questions = row?.questions ?? 0
+      const correct = row?.correct ?? 0
+      const mark = questions < TOPIC_MINIMUM ? `${TOPIC_MINIMUM - questions} short` : correct < questions ? `${questions - correct} wrong` : '✅'
+      lines.push(`| ${system} | ${TOPIC_TITLES[topic]} (${topic}) | ${questions} | ${row?.pending ?? 0} | ${correct}/${questions} (${percent(correct, questions)}) | ${mark} |`)
+    }
+  }
+  return lines.join('\n')
+}
+
 /** The questions the brain got wrong, for the report */
 export function quizMisses(results: readonly QuizResult[]): string {
   const wrong = results.filter((r) => r.grade === 'wrong')
   if (!wrong.length) return 'No misses.'
   return [
-    '| Question | Auction | Hand | Book | Robot |',
-    '| --- | --- | --- | --- | --- |',
-    ...wrong.map(({ question: q, call }) => `| ${q.id} | ${q.auction.join(' ') || '(opens)'} | ${q.hand} | ${[q.answer, ...(q.accepted ?? [])].join(' / ')} | ${call} |`),
+    '| Question | Area | Auction | Hand | Book | Robot |',
+    '| --- | --- | --- | --- | --- | --- |',
+    ...wrong.map(({ question: q, topic, call }) =>
+      `| ${q.id} | ${topic} | ${q.auction.join(' ') || '(opens)'} | ${q.hand} | ${[q.answer, ...(q.accepted ?? [])].join(' / ')} | ${call} |`,
+    ),
   ].join('\n')
 }
