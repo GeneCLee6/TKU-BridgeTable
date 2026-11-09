@@ -106,6 +106,9 @@ export type AuditAction =
   /** A club's own banner set or taken down by its admin (e12-t15); `target` is the banner's id, `note` the start of its text */
   | 'club:banner'
   | 'club:bannerClear'
+  /** A club's logo set or removed by its admin (AC-12.2); `target` is the logo's version, never the picture */
+  | 'club:logo'
+  | 'club:logoClear'
   /** A support report resolved, opened again or forwarded to the platform owner by a club's admin (e12-t16); `target` is the report's id, never its text */
   | 'support:resolve'
   | 'support:reopen'

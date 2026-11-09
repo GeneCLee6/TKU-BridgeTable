@@ -1,11 +1,13 @@
-import { useEffect, useId, useState, type FormEvent } from 'react'
+import { useEffect, useId, useRef, useState, type ChangeEvent, type FormEvent } from 'react'
 import styled from 'styled-components'
 import { CLUB_APPLICATION_LIMITS, clubIdProblem } from '../../shared/platform.ts'
 import { LIMITS } from '../../shared/protocol.ts'
+import { LogoCropper } from '../components/AdminLogo.tsx'
 import { PasswordInput } from '../components/PasswordInput.tsx'
 import { Turnstile } from '../components/Turnstile.tsx'
 import { Button, Card, ErrorText, Field, FieldError, FieldHint, FieldLabel, Input, Muted, PageMain, PageTitle, Textarea } from '../components/ui.tsx'
 import { api, ApiError } from '../lib/api.ts'
+import { AVATAR_INPUT_TYPES, blobBase64, isLogoInput } from '../lib/avatarImage.ts'
 import { homePath } from '../lib/club.ts'
 import { useSignedIn } from '../state/AuthContext.tsx'
 import { usePreferences } from '../state/PreferencesContext.tsx'
@@ -53,6 +55,21 @@ const Done = styled.p`
   overflow-wrap: anywhere;
 `
 
+const LogoRow = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: ${({ theme }) => theme.space(3)};
+
+  & > img {
+    width: 64px;
+    height: 64px;
+    object-fit: contain;
+    border: 1px solid ${({ theme }) => theme.colors.border};
+    border-radius: ${({ theme }) => theme.radius.sm};
+  }
+`
+
 const EMPTY = { clubId: '', name: '', organisation: '', contactEmail: '', reason: '', username: '', password: '' }
 type Fields = typeof EMPTY
 
@@ -70,6 +87,24 @@ export function ClubApplyPage() {
   const [idError, setIdError] = useState('')
   const [done, setDone] = useState('')
   const [busy, setBusy] = useState(false)
+  // The logo (AC-12.2), optional: the cropped square, sent with the form as base64
+  const logoInput = useRef<HTMLInputElement>(null)
+  const [logoFile, setLogoFile] = useState<File | null>(null)
+  const [logo, setLogo] = useState<{ picture: Blob; preview: string } | null>(null)
+  const [logoError, setLogoError] = useState('')
+  const keepLogo = (picture: Blob | null) => {
+    if (logo) URL.revokeObjectURL(logo.preview)
+    setLogo(picture && { picture, preview: URL.createObjectURL(picture) })
+  }
+
+  const chooseLogo = (event: ChangeEvent<HTMLInputElement>) => {
+    const picked = event.target.files?.[0]
+    event.target.value = ''
+    if (!picked) return
+    if (!isLogoInput(picked)) return setLogoError(message('logoBadFormat', {}))
+    setLogoError('')
+    setLogoFile(picked)
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -100,11 +135,17 @@ export function ClubApplyPage() {
     }
     setBusy(true)
     try {
-      const { clubId } = await api.clubApply.send({ ...fields, lang, ...(siteKey && { turnstileToken: token }) })
+      const { clubId } = await api.clubApply.send({
+        ...fields,
+        lang,
+        ...(siteKey && { turnstileToken: token }),
+        ...(logo && { logo: await blobBase64(logo.picture) }),
+      })
       setDone(a.sent(clubId))
     } catch (err) {
       const text = err instanceof ApiError ? message(err.code, err.params, err.message) : t.genericError
       if (err instanceof ApiError && ['badClubId', 'clubIdReserved', 'clubIdTaken'].includes(err.code)) setIdError(text)
+      else if (err instanceof ApiError && ['logoTooLarge', 'logoBadFormat'].includes(err.code)) setLogoError(text)
       else setError(text)
       // A Turnstile token is good for one try
       if (siteKey) setReset((n) => n + 1)
@@ -154,6 +195,23 @@ export function ClubApplyPage() {
             <Field>
               <FieldLabel htmlFor={`${id}-org`}>{a.org}</FieldLabel>
               <Input id={`${id}-org`} value={fields.organisation} onChange={set('organisation')} maxLength={L.organisationMax} required />
+            </Field>
+            <Field>
+              <FieldLabel as="span" id={`${id}-logo`}>{t.logo.applyLabel}</FieldLabel>
+              <LogoRow role="group" aria-labelledby={`${id}-logo`} aria-describedby={`${id}-logo-hint`}>
+                {logo && <img src={logo.preview} alt={t.logo.current} />}
+                <Button type="button" $size="sm" onClick={() => logoInput.current?.click()}>
+                  {logo ? t.logo.change : t.logo.upload}
+                </Button>
+                {logo && (
+                  <Button type="button" $size="sm" $variant="ghost" onClick={() => keepLogo(null)}>
+                    {t.logo.applyRemove}
+                  </Button>
+                )}
+                <input ref={logoInput} type="file" accept={AVATAR_INPUT_TYPES.join(',')} hidden aria-label={t.logo.upload} onChange={chooseLogo} />
+              </LogoRow>
+              <FieldHint id={`${id}-logo-hint`}>{t.logo.applyHint}</FieldHint>
+              {logoError && <FieldError role="alert">{logoError}</FieldError>}
             </Field>
             <Field>
               <FieldLabel htmlFor={`${id}-email`}>{a.email}</FieldLabel>
@@ -215,6 +273,16 @@ export function ClubApplyPage() {
               {a.send}
             </Button>
           </Form>
+        )}
+        {logoFile && (
+          <LogoCropper
+            file={logoFile}
+            onClose={() => setLogoFile(null)}
+            onCropped={async (picture) => {
+              keepLogo(picture)
+              setLogoFile(null)
+            }}
+          />
         )}
         <a href={homePath(signedIn)}>{a.toSite}</a>
       </Panel>

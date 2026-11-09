@@ -34,6 +34,8 @@ import { ProfileService } from './profiles.ts'
 import { CardPdfService, pdfResponse } from './card-pdf.ts'
 import { CardSnapshotService } from './card-snapshots.ts'
 import { avatarResponse, readAvatarUpload } from './avatars.ts'
+import { logoResponse, readLogoUpload, type LogoRef } from './logos.ts'
+import { CLUB_LOGO_API } from '../shared/club-logo.ts'
 import { FILES_PATH, FileService, readFileUpload } from './files.ts'
 import { addedImageKeys, checkImagesOwned, droppedImageKeys, releaseImages, signFiles } from './post-images.ts'
 import { adminRouteNeed, allows, articleReadRoute, bookRouteNeed, ebookReadRoute, clubRouteNeed, forumRouteNeed, moderatesForum, requireNeed } from './roles.ts'
@@ -537,6 +539,8 @@ export class Club extends DurableObject<Env> implements Connections {
   async platformProvision(setup: ClubSetup): Promise<void> {
     if (this.clubId === DEFAULT_CLUB_ID) throw new Error('淡江 is never provisioned')
     await this.service.provisionFounder(setup.username, setup.passwordHash)
+    // The logo it was applied with (AC-12.2), unless its admin already set one
+    if (setup.logo) await this.service.logos.provision(setup.logo)
     if (this.record) return
     const record: ClubRecord = {
       id: this.clubId,
@@ -578,6 +582,7 @@ export class Club extends DurableObject<Env> implements Connections {
     }
     return {
       ...this.service.platformCounts(),
+      logo: (await this.service.logos.ref())?.version ?? null,
       storageBytes: this.ctx.storage.sql.databaseSize,
       filesBytes: (await this.files.usage()).bytes,
       backupBytes,
@@ -666,6 +671,10 @@ export class Club extends DurableObject<Env> implements Connections {
   /** The name the club is shown by, for its home-screen app's manifest (worker/manifest.ts): RPC from the Worker only */
   async clubName(): Promise<string> {
     return this.record?.name || clubName(this.clubId)
+  }
+  /** Its name and logo (AC-12.2), for its home-screen app's manifest and so its pages' header: RPC from the Worker only */
+  async clubBrand(): Promise<{ name: string; logo: LogoRef | null }> {
+    return { name: await this.clubName(), logo: await this.service.logos.ref() }
   }
   /** The name the platform opened the club with (its `meta:club`, e12-t06), else shared/clubs.ts's */
   private named<T extends { clubName: string }>(table: T): T {
@@ -963,6 +972,9 @@ export class Club extends DurableObject<Env> implements Connections {
     const platform = this.platform()
     const route = `${request.method} ${url.pathname}`
     if (route === 'GET /api/platform') return json(await platform.view())
+    // An application's logo (AC-12.2): only the owner sees it before the club is approved
+    const applicationLogo = /^GET \/api\/platform\/applications\/([\w-]+)\/logo$/.exec(route)
+    if (applicationLogo) return logoResponse(await platform.applicationLogo(applicationLogo[1]), request, 'private')
     const decision = /^POST \/api\/platform\/applications\/([\w-]+)\/(approve|reject)$/.exec(route)
     if (decision) {
       if (decision[2] === 'approve') return json(await platform.approve(owner, decision[1], url.origin))
@@ -1093,6 +1105,8 @@ export class Club extends DurableObject<Env> implements Connections {
       const address = request.headers.get('CF-Connecting-IP') ?? ''
       return json(await this.service.resetPasswordByEmail(text(b.token), text(b.password), address))
     }
+    // The club's logo (AC-12.2): anyone, signed in or not (the sign-in page shows it)
+    if (route === `GET ${CLUB_LOGO_API}`) return logoResponse(await this.service.logos.get(), request)
     // A picture by its signed address (e11-t02): the signature is the check, so no sign-in
     if (request.method === 'GET' && url.pathname.startsWith(FILES_PATH)) {
       return this.files.serve(decodeURIComponent(url.pathname.slice(FILES_PATH.length)), url)
@@ -1610,6 +1624,21 @@ export class Club extends DurableObject<Env> implements Connections {
     if (path === '/puzzles' && method === 'GET') return json({ puzzles: this.service.adminPuzzles(user.id) })
     const puzzle = path.match(/^\/puzzles\/([\w-]+)\/publish$/)
     if (puzzle && method === 'POST') return json({ puzzles: await this.service.adminSetPuzzlePublished(user.id, puzzle[1], (await body()).published) })
+    // The club's logo (AC-12.2): the admin is checked before the upload is read
+    if (path === '/logo') {
+      if (method === 'GET') {
+        this.service.requireAdmin(user.id)
+        return json({ logo: await this.service.logos.ref() })
+      }
+      if (method === 'PUT') {
+        this.service.requireAdmin(user.id)
+        return json({ logo: await this.service.adminSetLogo(user.id, await readLogoUpload(request)) })
+      }
+      if (method === 'DELETE') {
+        await this.service.adminClearLogo(user.id)
+        return json({ logo: null })
+      }
+    }
     // The club's banner (e12-t15) and the members' support reports (e12-t16)
     if (path === '/banner') {
       if (method === 'GET') return json({ banner: await this.service.adminBanner(user.id) })

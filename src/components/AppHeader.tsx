@@ -28,7 +28,7 @@ import { LANGS } from '../../shared/messages.ts'
 import { CLUB_APPLY_PAGE } from '../../shared/platform.ts'
 import { LANDING_PAGE } from '../../shared/site.ts'
 import { currentClub } from '../lib/club.ts'
-import { useClubName } from '../lib/useClubName.ts'
+import { useClubBrand } from '../lib/useClubName.ts'
 import { useAuth, useFeature } from '../state/AuthContext.tsx'
 import { useClub } from '../state/ClubContext.tsx'
 import { useInviteBanner } from '../state/InvitationsContext.tsx'
@@ -37,7 +37,7 @@ import { LANG_NAMES } from '../strings.ts'
 import { compactHeader, mobile, tablet } from '../styles/tokens.ts'
 import { Avatar } from './Avatar.tsx'
 import { PartBoundary } from './ErrorBoundary.tsx'
-import { ClubLetter, OvertrickMark, OvertrickName, OvertrickWordmark, TamkangMark } from './Logo.tsx'
+import { ClubMark, OvertrickMark, OvertrickName, OvertrickWordmark, TamkangMark } from './Logo.tsx'
 import { NotificationBell } from './NotificationBell.tsx'
 
 const Bar = styled.header`
@@ -358,7 +358,7 @@ export function AppHeader() {
   // A style set to 關閉 on the account page shows as off here too
   const sound = soundOn && soundStyle !== 'off'
   const { pathname } = useLocation()
-  const clubName = useClubName()
+  const { name: clubName, logo: clubLogo } = useClubBrand()
   // Signed out at the plain address, the pages anyone may read belong to the platform, not to 淡江
   const platformOnly = !user && currentClub() === DEFAULT_CLUB_ID && (PLATFORM_PAGES.includes(pathname) || pathname.startsWith('/share/'))
 
@@ -371,7 +371,7 @@ export function AppHeader() {
       ) : (
         <Brand>
           <ClubHome to="/" end aria-label={clubName}>
-            {currentClub() === DEFAULT_CLUB_ID ? <TamkangMark size={42} /> : <ClubLetter name={clubName} size={36} />}
+            {currentClub() === DEFAULT_CLUB_ID ? <TamkangMark size={42} /> : <ClubMark name={clubName} logo={clubLogo} size={36} />}
           </ClubHome>
           <Names>
             <ClubNameLink to="/" end tabIndex={-1} aria-hidden>

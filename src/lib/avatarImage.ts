@@ -73,9 +73,21 @@ const QUALITIES = [0.86, 0.76, 0.64, 0.5, 0.38]
  * The smallest good-enough file: WebP from the best quality down, and JPEG the same way where the
  * browser wrote something else for WebP (toBlob falls back to PNG); null if nothing fits
  */
-export async function encodeAvatar(encode: EncodeCanvas, maxBytes = AVATAR_MAX_BYTES): Promise<Blob | null> {
-  for (const type of ['image/webp', 'image/jpeg']) {
-    for (const quality of QUALITIES) {
+export function encodeAvatar(encode: EncodeCanvas, maxBytes = AVATAR_MAX_BYTES): Promise<Blob | null> {
+  return encodePicture(encode, maxBytes, ['image/webp', 'image/jpeg'])
+}
+
+/**
+ * The same for a club's logo (AC-12.2), which keeps its transparency: WebP, then PNG (one try: it
+ * has no quality) for browsers that cannot write WebP, then JPEG (the cropper flattens it first)
+ */
+export function encodeLogo(encode: EncodeCanvas, maxBytes: number): Promise<Blob | null> {
+  return encodePicture(encode, maxBytes, ['image/webp', 'image/png', 'image/jpeg'])
+}
+
+async function encodePicture(encode: EncodeCanvas, maxBytes: number, types: readonly string[]): Promise<Blob | null> {
+  for (const type of types) {
+    for (const quality of type === 'image/png' ? [1] : QUALITIES) {
       const blob = await encode(type, quality)
       if (!blob || blob.type !== type) break
       if (blob.size <= maxBytes) return blob
@@ -89,3 +101,14 @@ export const canvasEncoder =
   (canvas: HTMLCanvasElement): EncodeCanvas =>
   (type, quality) =>
     new Promise((resolve) => canvas.toBlob(resolve, type, quality))
+
+/** A picture's bytes as base64, for a JSON body (a club application's logo, AC-12.2) */
+export async function blobBase64(blob: Blob): Promise<string> {
+  const bytes = new Uint8Array(await blob.arrayBuffer())
+  let binary = ''
+  for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
+  return btoa(binary)
+}
+
+/** Whether a picked file is one the cropper reads (a logo too); anything else is turned down before it is read */
+export const isLogoInput = (file: File) => (AVATAR_INPUT_TYPES as readonly string[]).includes(file.type)

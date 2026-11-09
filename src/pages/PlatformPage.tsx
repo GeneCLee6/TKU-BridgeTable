@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useId, useState } from 'react'
 import styled from 'styled-components'
+import { applicationLogoUrl, clubLogoUrl } from '../../shared/club-logo.ts'
+import { DEFAULT_CLUB_ID } from '../../shared/clubs.ts'
 import type { ClubApplicationView, PlatformClub, PlatformView } from '../../shared/platform.ts'
+import { ClubMark, TamkangMark } from '../components/Logo.tsx'
 import { PlatformNotices, PlatformSupport } from '../components/PlatformNotices.tsx'
 import { useToast } from '../components/Toast.tsx'
 import { Button, Card, CardHeader, CardTitle, ErrorText, Field, FieldLabel, Input, Muted, PageMain, PageTitle } from '../components/ui.tsx'
@@ -13,6 +16,22 @@ import { usePreferences } from '../state/PreferencesContext.tsx'
  * checks again on every request, worker/platform.ts `requirePlatformOwner`). Every club with its
  * usage and admins, suspending and serving one again, and the applications to open one (e12-t06)
  */
+
+/** A club's mark beside its name and details */
+const Named = styled.div`
+  display: flex;
+  align-items: flex-start;
+  gap: ${({ theme }) => theme.space(2)};
+`
+
+/** The logo an application came with (AC-12.2), for the owner to look at before approving */
+const AppliedLogo = styled.img`
+  width: 64px;
+  height: 64px;
+  object-fit: contain;
+  border: 1px solid ${({ theme }) => theme.colors.border};
+  border-radius: ${({ theme }) => theme.radius.sm};
+`
 
 const Stack = styled.div`
   display: grid;
@@ -245,9 +264,18 @@ function ClubRow({ club, busy, run }: { club: PlatformClub; busy: string | null;
         <code>{club.id}</code>
       </td>
       <td>
-        {club.name}
-        {club.organisation && <Muted as="div">{club.organisation}</Muted>}
-        {club.contactEmail && <Muted as="div">{club.contactEmail}</Muted>}
+        <Named>
+          {club.id === DEFAULT_CLUB_ID ? (
+            <TamkangMark size={32} />
+          ) : (
+            <ClubMark name={club.name} logo={u?.logo ? clubLogoUrl(club.id, u.logo) : null} size={32} />
+          )}
+          <div>
+            {club.name}
+            {club.organisation && <Muted as="div">{club.organisation}</Muted>}
+            {club.contactEmail && <Muted as="div">{club.contactEmail}</Muted>}
+          </div>
+        </Named>
       </td>
       <td>
         <Badge $tone={suspended ? 'bad' : 'good'}>{suspended ? p.suspended : p.active}</Badge>
@@ -267,7 +295,7 @@ function ClubRow({ club, busy, run }: { club: PlatformClub; busy: string | null;
       </td>
       <td>{u ? u.admins.map((a) => a.username).join(', ') || p.none : p.none}</td>
       <td>
-        {club.id === 'tku' ? (
+        {club.id === DEFAULT_CLUB_ID ? (
           p.none
         ) : suspended ? (
           <Button
@@ -320,6 +348,7 @@ function ApplicationItem({ application: a, busy, run }: { application: ClubAppli
   return (
     <Application aria-labelledby={`${id}-title`}>
       <Row>
+        {a.logo && a.status === 'pending' && <AppliedLogo src={applicationLogoUrl(a.id)} alt={t.logo.of(a.name)} width={64} height={64} />}
         <h3 id={`${id}-title`}>
           {a.name} <code>{a.clubId}</code>
         </h3>

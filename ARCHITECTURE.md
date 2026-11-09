@@ -46,7 +46,7 @@
 
 - **網址**：淡江維持原本的網址（`/`、`/table/<id>`、`/history/<id>`…），其他社團在 `/c/<id>/…`（`/c/ntu/`、`/c/ntu/table/<id>`）；`/c/tku/…` 換成原本的網址（頁面載入時 `history.replaceState`，`src/main.tsx`）。網址的規則都在 `shared/clubs.ts`：`clubPath(社團, 路徑)`、`clubOfPath(路徑)`。
 - **前端從網址知道社團**（`src/lib/club.ts`）：載入時讀一次，React Router 用 `basename="/c/<id>"`，所以 app 裡每個 `<Link>`、`navigate()`、通知中心的連結都留在同一個社團，不用逐一改。每個 `fetch` 帶 `X-Club-Id`（`clubHeaders`，`request`、下載、錯誤回報），WebSocket、`<img>` 的頭像與下載連結帶 `?club=`（`withClub`）。淡江的請求什麼都不加，跟以前一模一樣。社團不存在時 `/api/me` 回 `unknownClub`，頁面顯示「找不到這個社團」。各社團的 localStorage 草稿分開（`clubStorageKey`：論壇草稿）。
-- **加入主畫面**：其他社團的頁面把 `<link rel="manifest">` 換成 `/c/<id>/manifest.webmanifest`（`linkClubManifest`，`src/main.tsx` 載入時），並拿掉淡江的 `apple-mobile-web-app-title`，所以從 `/c/<id>/` 加入主畫面得到的是那個社團的 app：`id`、`start_url`、`scope` 都是 `/c/<id>/`，名稱是社團的名稱（`meta:club`，`Club.clubName`），圖示與顏色跟淡江的 `public/manifest.webmanifest` 同一份（Worker 讀它再改，`worker/manifest.ts`）。淡江的 manifest 不變。這個網址要先給 Worker（`wrangler.jsonc` 的 `run_worker_first` 加 `/c/*/manifest.webmanifest`，靜態檔案的 binding `ASSETS`）；社團不存在回 404 `unknownClub`、暫停中回 403，`/c/tku/` 給淡江原本的。service worker 只有一個（`/sw.js`，範圍 `/`），管全部社團的頁面；網頁都是同一個 app shell，離線時給的也是同一份。
+- **加入主畫面**：其他社團的頁面把 `<link rel="manifest">` 換成 `/c/<id>/manifest.webmanifest`（`linkClubManifest`，`src/main.tsx` 載入時），並拿掉淡江的 `apple-mobile-web-app-title`，所以從 `/c/<id>/` 加入主畫面得到的是那個社團的 app：`id`、`start_url`、`scope` 都是 `/c/<id>/`，名稱是社團的名稱（`meta:club`，`Club.clubBrand`），顏色跟淡江的 `public/manifest.webmanifest` 同一份（Worker 讀它再改，`worker/manifest.ts`）；圖示是社團的 Logo（下面「社團 Logo」），沒有 Logo 時沿用 Overtrick 的。淡江的 manifest 不變。這個網址要先給 Worker（`wrangler.jsonc` 的 `run_worker_first` 加 `/c/*/manifest.webmanifest`，靜態檔案的 binding `ASSETS`）；社團不存在回 404 `unknownClub`、暫停中回 403，`/c/tku/` 給淡江原本的。service worker 只有一個（`/sw.js`，範圍 `/`），管全部社團的頁面；網頁都是同一個 app shell，離線時給的也是同一份。
 - **登入範圍**：每個社團的登入 cookie 名稱不同，淡江沿用原名（`tbt_session`、`tbt_pass`、`tbt_google`、`tbt_line`），其他社團是 `<原名>_<id>`（`clubCookieName`）；社團只讀自己名稱的 cookie，同一個瀏覽器可以同時登入兩個社團。`tbt_device` 全站一個。理由與另一個做法（`Path=/c/<id>/`）的比較在 docs/SECURITY.md「社團與 cookie」。
 - **連結帶社團**：平台核准新社團的信裡的連結是 `/c/<id>/`（`worker/platform.ts` 的 `clubAddress` 用 `clubPath`）；分享連結（`BoardShareDialog`，`appPath`）、Email 驗證與重設密碼的連結（`ClubService.sendVerification`／`requestEmailReset` 用 `clubPath`）、推播的網址（`pushMessage`／`testPushMessage` 的 `clubId`，`PushService` 的 `clubId`）、OAuth 的導回（`Club.inClub`：導回的路徑一律在那個社團的網址下），都開在對的社團。通知中心本來就是 app 裡的相對路徑（`notificationLink`），跟著 `basename`。淡江橋館的連結（`BOOK_SITE`）不變。
 - **Google／LINE**：目前只給淡江（環境變數），維持。其他社團將來開的時候，回呼網址是 `/api/auth/<provider>/callback?club=<id>`（`callbackPath`；提供者的轉址不能帶 header，所以社團放在網址裡，要照這個網址到 Google Cloud／LINE Developers 登錄），流程 cookie 是 `tbt_<provider>_<id>`，回來後導到 `/c/<id>/…`。步驟見 DEPLOY.md §4.19。
@@ -79,11 +79,22 @@
 - **後台**（`GET /api/platform` → `PlatformView`，頁面 `/platform`）：每個社團（淡江在最前）的代號、名稱、狀態、學校、聯絡 Email、管理員，與用量（社團的物件自己算，RPC `platformUsage`）：社員數、開著的桌、牌局數（`boards_index`）、Durable Object 的 SQLite 大小（`storage.sql.databaseSize`）、R2 圖片與電子書（`file:usage`）、R2 備份（列出自己前綴的 `daily/`）、D1 副本裡自己的列數；加上全平台合計（R2 與 D1 的免費額度是整個帳號的）。某個社團沒回應時那一列的用量是空的，其他照常。
 - **稽核**：每個動作寫一筆淡江的 `audit:`（`worker/audit.ts`）：`platform:approve`（`target` 社團代號、`note` 第一位管理員與申請 id）、`platform:reject`、`platform:suspend`、`platform:unsuspend`（`note` 是理由）。淡江橋館管理頁的稽核紀錄看得到；橋館的 `AuditAction` 要同步這四個。
 - **名冊的備份**：`platform:` 在淡江的每日備份裡（災難時手動查），但還原時**不寫也不刪**（`backup.ts` 的 `KEPT_ON_RESTORE`）：回到舊的備份不能忘記之後開通的社團、也不能把暫停的社團放回來。
+- **社團 Logo**：見下面「社團 Logo」（AC-12.2）。
 - **公告與客服回報**：見下面「公告」、「客服回報」（`e12-t15`、`e12-t16`）。
 - **挑戰與隊制賽可以各自一個 Durable Object**（`EventObject`，H2b 挑戰、H2c 隊制賽，§5.12）：開關 `EVENT_OBJECTS=on` 才用，**預設關**（挑戰與隊制賽照舊在社團的物件裡）；正式站什麼時候開由社長決定（`DEPLOY.md` §4.6）。
 - **不必經過社團的請求由 Worker 自己回答**（§5.12）：紀錄列表與搜尋從 D1 的副本讀（社團寫好紀錄後經 outbox 複製過去），牌桌連線用簽章的邊緣通行證確認是誰；通行證或副本不能用時一律照舊交給社團。開關 `HISTORY_D1=off`、`EDGE_AUTH=off`（`DEPLOY.md` §4.5）。
 - 伺服器是唯一的真相：瀏覽器送「我要叫 1♠」「我要出 ♥K」，伺服器用 `shared/game.ts` 驗證後更新狀態，再推送每個人**可以看到的**畫面。
 - 推送策略刻意簡單：任何變動後，對每位線上使用者送一份完整的大廳與他所在的牌桌。資料量小（一張桌幾 KB），不需要差異更新。
+
+### 社團 Logo（AC-12.2，2026-11-09）
+
+- **上傳方式比照頭像（U4，#136），不用論壇圖片的 `FileService`**：瀏覽器先裁成正方形、縮成 512×512（`ImageCropper`，頭像的裁切元件加上尺寸與透明背景的參數；WebP，不能寫 WebP 的瀏覽器用 PNG，最後才是 JPEG），Worker 不解碼圖片。存在**社團自己的物件**（`meta:logo`：`{ version, type, size, bytes }`，最多 128 KB），不用 R2：Logo 一個社團只有一張、很小、每次看頁面都要讀，放 R2 要簽網址（Logo 是公開的，簽了也沒有意義）又要另算用量；放物件裡跟頭像一樣，不必新增 binding，staging 與 PR 預覽照樣能用。
+- **檢查（`shared/club-logo.ts` 的 `inspectLogo`、`logoProblem`）**：不只看前幾個位元組，而是走完檔案的結構：PNG 逐塊走到 `IEND` 而且剛好是檔尾，只接受畫面與色彩的塊（`IHDR`、`PLTE`、`IDAT`、`tRNS`、`sRGB`、`gAMA`、`cHRM`、`iCCP`、`sBIT`、`pHYs`、`bKGD`），文字（`tEXt`、`zTXt`、`iTXt`）與 `eXIf` 一律拒絕；WebP 的 RIFF 長度要等於檔案長度，只接受 `VP8 `、`VP8L`、`VP8X`、`ALPH`、`ICCP`（`EXIF`、`XMP ` 與動畫拒絕）；JPEG 只接受 APP0、APP2、APP14 與畫面需要的段（APP1 的 EXIF／XMP、註解拒絕），掃描資料要以 `FFD9` 結尾。尺寸要是正方形、64～512 px。所以這個公開的網址**放不了任意檔案**：圖片後面接不了別的東西，也藏不了文字或 metadata；回應的 `Content-Type` 是結構檢查認出來的型別，加 `nosniff` 與 API 的 `sandbox` CSP（`worker/security-headers.ts`）。像素本身不解碼（Worker 每次請求 10 ms CPU），瀏覽器照型別畫。
+- **誰能改**：`PUT|DELETE|GET /api/admin/logo`，社團的管理員（`ClubService.requireAdmin`，要先開兩步驟登入）；社團各自的物件，所以只改得到自己的。每個社團 5 次後每分鐘 1 次（`LOGO_BURST`）。**淡江不能設**（`logoDefaultClub`，宮燈不換，DESIGN.md §6），管理頁也沒有這一項。稽核 `club:logo`、`club:logoClear`（`target` 是版本，不存圖片），記在那個社團。
+- **誰能看**：`GET /api/logo?club=<id>&v=<版本>` 不必登入（登入頁要用），在社團物件的登入檢查之前；版本對時快取一年（`public, immutable`），否則每次用 ETag 確認；沒有 Logo 回 404 `noLogo`。暫停的社團 Worker 直接 403，頁面退回名稱第一個字。
+- **顯示**：其他社團的 manifest（`/c/<id>/manifest.webmanifest`，`worker/manifest.ts`）有 Logo 時，`icons` 只放 Logo（`sizes` 是實際尺寸）；頁首與登入頁從同一份 manifest 讀名稱與 Logo（`useClubBrand`），不多一次請求。Worker 問社團物件一次 RPC（`Club.clubBrand`，名稱＋Logo 版本），manifest 快取 5 分鐘。平台後台的社團列表從用量的 RPC 拿版本（`ClubUsage.logo`）。
+- **申請時附上**：`POST /api/clubs/apply` 的 `logo`（base64，先量長度再解碼，同樣的檢查）；不良的 Logo 在計入「每個網路每小時 3 份」之前就拒絕，速率限制、Turnstile、同時 50 份待審都沿用申請的。存在淡江物件的 `platform:logo:<申請 id>`（和申請分開，列申請時不讀圖片），**只有平台管理員看得到**（`GET /api/platform/applications/:id/logo`，`private, no-store`），所以沒登入的人上傳的檔案在核准前不會有公開網址。核准時隨 `platformProvision` 交給新社團（`ClubLogos.provision`，社團已經有 Logo 就不動），核准或退回後就刪。
+- **備份**：`meta:logo` 在活動的分批備份（`ACTIVITY_PREFIXES`），還原時只補沒有的：較新的 Logo 不會被舊的蓋掉。待審申請的 Logo 在 `platform:` 底下（備份、但還原不寫不刪）。
 
 ### 公告（`e12-t15`，2026-11-05）
 
@@ -155,6 +166,7 @@ TKU-BridgeTable/
 │  ├─ clubs.ts             社團 id 與物件名稱、請求的社團（X-Club-Id／?club=，沒帶是淡江）、牌桌與比賽物件的名稱、R2 前綴、社團網址 /c/<id>/ 與 cookie 名稱（§1）
 │  ├─ platform.ts          平台的型別：社團狀態、保留的代號、申請表、後台的畫面（§1）
 │  ├─ notices.ts           公告的型別與上限：平台公告、社團橫幅（§1「公告」）
+│  ├─ club-logo.ts         社團 Logo 的上限、網址與檔案結構檢查（§1「社團 Logo」）
 │  ├─ support.ts           客服回報的型別與上限（§1「客服回報」）
 │  ├─ public-lobby.ts      跨社團大廳：哪些桌給別的社團看、訪客看到的型別（§1）
 │  ├─ message-guard.ts     WebSocket 訊息的大小上限與型別守衛（§5.6）
@@ -172,6 +184,7 @@ TKU-BridgeTable/
 │  ├─ d1.ts                把 D1 binding 包成 ReplicaDb（唯一碰 D1 的程式）
 │  ├─ clubs.ts             社團、牌桌、比賽物件的 stub（名稱帶社團，§1）；Worker 讀平台名冊的快取（ClubRegistryCache）
 │  ├─ notices.ts           社團橫幅（ClubBanners）與公告內容的檢查（§1「公告」）
+│  ├─ logos.ts             社團 Logo（ClubLogos）：存、換、刪與公開的回應（§1「社團 Logo」）
 │  ├─ support.ts           客服回報（SupportService，§1「客服回報」）
 │  ├─ platform.ts          平台：社團名冊、開設社團的申請、平台管理員的後台（PlatformService，§1「平台與社團的申請」）
 │  ├─ buckets.ts           R2 bucket 裡社團自己的前綴（scopedBucket，§1）

@@ -26,7 +26,7 @@
 | `default-src` | `'self'` | 其他沒列的都只能來自本站 |
 | `script-src` | `'self' 'wasm-unsafe-eval' https://challenges.cloudflare.com` | Vite 產物都是外部檔案（`index.html` 沒有行內 script）；DDS（`bridge-dds`）在 Web Worker 裡用 `WebAssembly.instantiate` 編譯內嵌的 WASM，需要 `'wasm-unsafe-eval'`（不是 `'unsafe-eval'`）；Cloudflare Turnstile 的 script（`e1-t33`，`TURNSTILE_ORIGIN`），只在申請加入、而且 Worker 給了 site key 時才載入 |
 | `style-src` | `'self' 'unsafe-inline'` | styled-components 插 `<style>`、React 的 `style` 屬性；只開給樣式，script 沒有 `'unsafe-inline'` |
-| `img-src` | `'self' data: blob:` | 頭像與圖片都是本站的 `/api/avatar/`、`/api/files/`；裁切頭像、分享卡用 `blob:` |
+| `img-src` | `'self' data: blob:` | 頭像、圖片與社團 Logo 都是本站的 `/api/avatar/`、`/api/files/`、`/api/logo`；裁切頭像與 Logo、申請表的 Logo 預覽、分享卡用 `blob:` |
 | `font-src` | `'self' data:` | Noto Sans TC 隨網站打包；小檔可能被 Vite 內嵌成 `data:` |
 | `frame-src` | `https://challenges.cloudflare.com` | Turnstile 在 iframe 裡做驗證（`e1-t33`）；其他網站一律不能被框進來 |
 | `connect-src` | `'self'` | API 與 WebSocket 都在本站（CSP Level 3 的 `'self'` 也涵蓋同主機的 `wss:`）；淡江橋館走它自己的網域（Vercel 轉發），不需要放行 |
@@ -170,7 +170,7 @@ npx tsx -e "import {headersFile} from './worker/security-headers.ts'; process.st
 
 | 項目 | 狀態 | 說明 |
 | --- | --- | --- |
-| 12.1.1 上傳大小 | ✅ | 頭像 64 KB、圖片 2 MB、縮圖 256 KB、電子書 50 MB，超過 413；每人每天 30 張圖片（`fileDailyLimit`），R2 全部 10 GB（`fileStorageFull`） |
+| 12.1.1 上傳大小 | ✅ | 頭像 64 KB、社團 Logo 128 KB（申請表裡的 base64 先量長度再解碼）、圖片 2 MB、縮圖 256 KB、電子書 50 MB，超過 413；每人每天 30 張圖片（`fileDailyLimit`），R2 全部 10 GB（`fileStorageFull`） |
 | 12.2.1 檔案型別 | ✅ | 看檔頭的 magic bytes，不信 `Content-Type`；Worker 不解碼圖片。JPEG、PNG、WebP，貼文另可 GIF（`e13-t13`）；SVG 一律不收（可能帶 script）。照片在瀏覽器用 canvas 重畫後才上傳，拍攝地點等 EXIF 不會進 R2（GIF 原樣上傳，GIF 沒有 EXIF） |
 | 13.2.3 CSRF | ✅ | cookie 是 SameSite=Lax，跨站的 POST／PUT／DELETE 不帶 cookie；`workers.dev` 在 Public Suffix List 上，別人的 `*.workers.dev` 不算同站 |
 | 跨站 WebSocket（CSWSH） | 🔧 | `/ws` 與 `/ws/table/*` 的 `Origin` 必須是本站（`worker/routing.ts`），別的網站的頁面開不了；沒有 `Origin` 的非瀏覽器用戶端（負載測試）照舊 |

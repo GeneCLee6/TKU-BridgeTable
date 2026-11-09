@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type PointerEvent, type WheelEvent } from 'react'
 import styled, { useTheme } from 'styled-components'
 import { AVATAR_MAX_BYTES, AVATAR_PIXELS } from '../../shared/avatar.ts'
+import type { MessageCode } from '../../shared/messages.ts'
 import type { Me } from '../../shared/protocol.ts'
 import { api, ApiError } from '../lib/api.ts'
 import {
@@ -8,6 +9,8 @@ import {
   canvasEncoder,
   clampCrop,
   encodeAvatar,
+  encodeLogo,
+  type EncodeCanvas,
   initialCrop,
   moveCrop,
   sourceSquare,
@@ -23,9 +26,12 @@ import { Backdrop } from './Modal.tsx'
  * 裁切頭像 (e1-t34): the chosen picture under a square frame, moved by dragging (or the arrow
  * keys) and zoomed with the slider (or the wheel, or + and -). The frame's canvas is the upload
  * itself, 256×256; the circle over it is only CSS, so the saved square has no mask drawn in.
+ * A club's logo (AC-12.2) uses the same cropper (`ImageCropper`): a larger square, no circle, and
+ * its transparency kept.
  */
 
-const FRAME = AVATAR_PIXELS
+/** How wide the frame is on the page; the canvas inside may have more pixels */
+const SHOWN = AVATAR_PIXELS
 
 const Panel = styled(Card)`
   width: 100%;
@@ -40,9 +46,9 @@ const Panel = styled(Card)`
   }
 `
 
-const Stage = styled.div`
+const Stage = styled.div<{ $round: boolean }>`
   position: relative;
-  width: min(${FRAME}px, 100%);
+  width: min(${SHOWN}px, 100%);
   aspect-ratio: 1;
   margin: 12px auto;
   overflow: hidden;
@@ -52,10 +58,11 @@ const Stage = styled.div`
   /* The round avatar others will see; outside it is dimmed */
   &::after {
     content: '';
+    display: ${({ $round }) => ($round ? 'block' : 'none')};
     position: absolute;
     inset: 0;
     border-radius: 50%;
-    box-shadow: 0 0 0 ${FRAME}px ${({ theme }) => theme.colors.overlay};
+    box-shadow: 0 0 0 ${SHOWN}px ${({ theme }) => theme.colors.overlay};
     pointer-events: none;
   }
 `
@@ -103,6 +110,46 @@ function loadImage(file: Blob): Promise<HTMLImageElement | null> {
 }
 
 export function AvatarCropper({ file, onClose, onSaved }: { file: File; onClose: () => void; onSaved: (user: Me) => void }) {
+  const { t } = usePreferences()
+  return (
+    <ImageCropper
+      file={file}
+      onClose={onClose}
+      title={t.avatarCropTitle}
+      hint={t.avatarCropHint}
+      frameLabel={t.avatarFrame}
+      pixels={AVATAR_PIXELS}
+      maxBytes={AVATAR_MAX_BYTES}
+      tooLarge="avatarTooLarge"
+      round
+      onCropped={async (picture) => onSaved((await api.uploadAvatar(picture)).user)}
+    />
+  )
+}
+
+interface CropperProps {
+  file: File
+  onClose: () => void
+  title: string
+  hint: string
+  /** The frame's accessible name */
+  frameLabel: string
+  /** The square's side in the file written */
+  pixels: number
+  maxBytes: number
+  /** The message when nothing fits `maxBytes` */
+  tooLarge: MessageCode
+  /** The avatar's circle over the frame; without it the square is what others see */
+  round?: boolean
+  /** Keeps a transparent picture transparent (a logo); else the page's surface goes behind it */
+  transparent?: boolean
+  /** Does something with the file written (uploads it, keeps it for a form); a thrown ApiError is shown */
+  onCropped: (picture: Blob) => Promise<void>
+}
+
+/** A square crop of a picture, written small enough for `maxBytes` */
+export function ImageCropper(props: CropperProps) {
+  const { file, onClose, title, hint, frameLabel, pixels: FRAME, maxBytes, tooLarge, round = false, transparent = false, onCropped } = props
   const { t, message } = usePreferences()
   const theme = useTheme()
   const titleId = useId()
@@ -126,7 +173,7 @@ export function AvatarCropper({ file, onClose, onSaved }: { file: File; onClose:
     return () => {
       cancelled = true
     }
-  }, [file, t])
+  }, [file, t, FRAME])
 
   // The frame shows exactly what will be uploaded
   useEffect(() => {
@@ -134,11 +181,14 @@ export function AvatarCropper({ file, onClose, onSaved }: { file: File; onClose:
     if (!ctx || !image || !crop) return
     const { sx, sy, size: side } = sourceSquare(crop, { width: image.naturalWidth, height: image.naturalHeight }, FRAME)
     ctx.imageSmoothingQuality = 'high'
-    // A transparent picture gets the page's surface behind it, not black
-    ctx.fillStyle = theme.colors.surface
-    ctx.fillRect(0, 0, FRAME, FRAME)
+    // A transparent picture gets the page's surface behind it, not black (a logo keeps it)
+    ctx.clearRect(0, 0, FRAME, FRAME)
+    if (!transparent) {
+      ctx.fillStyle = theme.colors.surface
+      ctx.fillRect(0, 0, FRAME, FRAME)
+    }
     ctx.drawImage(image, sx, sy, side, side, 0, 0, FRAME, FRAME)
-  }, [image, crop, theme])
+  }, [image, crop, theme, transparent, FRAME])
 
   useEffect(() => {
     const onKey = (event: globalThis.KeyboardEvent) => {
@@ -193,9 +243,11 @@ export function AvatarCropper({ file, onClose, onSaved }: { file: File; onClose:
     setBusy(true)
     setError(null)
     try {
-      const picture = await encodeAvatar(canvasEncoder(canvas.current))
-      if (!picture) throw new ApiError('', 413, 'avatarTooLarge', { max: AVATAR_MAX_BYTES / 1024 })
-      onSaved((await api.uploadAvatar(picture)).user)
+      const picture = transparent
+        ? await encodeLogo(flatJpeg(canvas.current, theme.colors.surface), maxBytes)
+        : await encodeAvatar(canvasEncoder(canvas.current), maxBytes)
+      if (!picture) throw new ApiError('', 413, tooLarge, { max: maxBytes / 1024 })
+      await onCropped(picture)
     } catch (err) {
       setError(err instanceof ApiError && err.code ? message(err.code, err.params, err.message) : t.genericError)
       setBusy(false)
@@ -205,16 +257,16 @@ export function AvatarCropper({ file, onClose, onSaved }: { file: File; onClose:
   return (
     <Backdrop onClick={(event) => event.target === event.currentTarget && onClose()}>
       <Panel role="dialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={hintId}>
-        <h2 id={titleId}>{t.avatarCropTitle}</h2>
-        <Muted id={hintId}>{t.avatarCropHint}</Muted>
-        <Stage>
+        <h2 id={titleId}>{title}</h2>
+        <Muted id={hintId}>{hint}</Muted>
+        <Stage $round={round}>
           <Frame
             ref={canvas}
             width={FRAME}
             height={FRAME}
             tabIndex={0}
             role="img"
-            aria-label={t.avatarFrame}
+            aria-label={frameLabel}
             onPointerDown={onPointerDown}
             onPointerMove={onPointerMove}
             onPointerUp={onPointerUp}
@@ -247,4 +299,24 @@ export function AvatarCropper({ file, onClose, onSaved }: { file: File; onClose:
       </Panel>
     </Backdrop>
   )
+}
+
+/**
+ * The canvas as it is, except JPEG (which has no transparency): that is written from a copy with
+ * the page's surface behind the picture, so a transparent logo does not turn black
+ */
+function flatJpeg(canvas: HTMLCanvasElement, surface: string): EncodeCanvas {
+  const plain = canvasEncoder(canvas)
+  return (type, quality) => {
+    if (type !== 'image/jpeg') return plain(type, quality)
+    const flat = document.createElement('canvas')
+    flat.width = canvas.width
+    flat.height = canvas.height
+    const ctx = flat.getContext('2d')
+    if (!ctx) return Promise.resolve(null)
+    ctx.fillStyle = surface
+    ctx.fillRect(0, 0, flat.width, flat.height)
+    ctx.drawImage(canvas, 0, 0)
+    return canvasEncoder(flat)(type, quality)
+  }
 }

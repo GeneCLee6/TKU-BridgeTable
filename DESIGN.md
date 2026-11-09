@@ -274,7 +274,7 @@
 | 社員（登入後），或社團自己的登入頁 | 社團的記號＋社團名稱（連回社團首頁），名稱下面一行小字的 Overtrick 記號＋字標（連到 `/about`）。1400 px 以下字收掉，只留社團記號與小的 Overtrick 記號；手機也一樣 |
 | 沒登入的訪客，在主網址的 `/about`、`/clubs/apply`、`/privacy`、`/terms`、`/share/…` | 只有 Overtrick：這些頁不屬於任何社團 |
 
-社團的記號：淡江是宮燈，**任何語言都不換**；社團名稱跟著語言（`t.tkuClubName`）。其他社團還沒有 Logo（AC-12.2），用名稱的第一個字（`ClubLetter`）；名稱來自那個社團公開的 manifest（`src/lib/useClubName.ts`）。登入頁的卡片也一樣：社團的記號與名稱，下面一行 Overtrick。
+社團的記號：淡江是宮燈，**任何語言都不換**，管理頁也沒有換 Logo 的地方；社團名稱跟著語言（`t.tkuClubName`）。其他社團用自己上傳的 Logo（AC-12.2，`ClubMark`：正方形，`object-fit: contain`，圓角同 `radius.sm`，透明背景保留）；沒有上傳或圖片載不到時用名稱的第一個字（`ClubLetter`）。名稱與 Logo 都來自那個社團公開的 manifest（`src/lib/useClubName.ts` 的 `useClubBrand`：`short_name` 與 `/api/logo` 的那個圖示）。登入頁的卡片也一樣：社團的記號與名稱，下面一行 Overtrick。社團的 Logo 也是它「加入主畫面」的唯一圖示（取代 Overtrick 的圖示），平台後台的社團列表與申請審核也顯示它。
 
 ### 6.3 淡江橋藝社的宮燈
 

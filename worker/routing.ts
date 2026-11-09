@@ -10,7 +10,7 @@ import { passCookieName, passRevoked, readPass } from './edge-auth.ts'
 import { listQuery, namesOthers } from './history-index.ts'
 import { daysReplica, searchReplica, type ReplicaDb } from './history-replica.ts'
 import { noLog, type Logger } from './log.ts'
-import { manifestAnswer, manifestClub } from './manifest.ts'
+import { manifestAnswer, manifestClub, type ManifestLogo } from './manifest.ts'
 
 /** The header the Worker puts on a table connection: who it is (ARCHITECTURE.md §5.10) */
 export const TABLE_USER_HEADER = 'X-TBT-User'
@@ -48,6 +48,8 @@ export interface Routes {
     guestTable?(tableId: string): Promise<GuestTable | null>
     /** The name the club is shown by (its `meta:club`), for its home-screen app's manifest; its id when left out */
     clubName?(): Promise<string>
+    /** Its name and logo (AC-12.2), for the same manifest; `clubName` is asked when left out */
+    clubBrand?(): Promise<{ name: string; logo: ManifestLogo | null }>
     /** Whether this session is a member's, and the club's banner (e12-t15): one call, for `GET /api/notices` */
     memberNotices?(token: string | null): Promise<{ signedIn: boolean; banner: ClubBanner | null }>
   }
@@ -171,8 +173,11 @@ async function clubManifestAnswer(clubId: string, url: URL, routes: Routes): Pro
   }
   const base = await routes.assets.fetch(own)
   if (!base.ok) return base
-  const name = (await routes.club(clubId).clubName?.().catch(() => null)) ?? clubId
-  return manifestAnswer((await base.json()) as Record<string, unknown>, clubId, name)
+  const club = routes.club(clubId)
+  const brand = club.clubBrand
+    ? await club.clubBrand().catch(() => null)
+    : { name: (await club.clubName?.().catch(() => null)) ?? clubId, logo: null }
+  return manifestAnswer((await base.json()) as Record<string, unknown>, clubId, brand?.name ?? clubId, brand?.logo ?? null)
 }
 
 /**

@@ -107,6 +107,8 @@ export interface ClubApplicationInput {
   /** The language of the mails to the applicant */
   lang?: string
   turnstileToken?: string
+  /** The club's logo (AC-12.2), optional: the cropped square's bytes in base64 (shared/club-logo.ts) */
+  logo?: string
 }
 
 export type ClubApplicationStatus = 'pending' | 'approved' | 'rejected'
@@ -125,6 +127,8 @@ export interface ClubApplicationView {
   decidedAt?: number
   /** Why it was rejected, as the owner wrote it */
   note?: string
+  /** It came with a logo, which the owner sees at `applicationLogoUrl` while it waits (AC-12.2) */
+  logo?: boolean
 }
 
 /** A club's size, as its own object counts it (rough: storage sizes are what the runtime reports) */
@@ -143,6 +147,8 @@ export interface ClubUsage {
   backupBytes: number | null
   /** Its rows in the D1 history copy, or null without D1 */
   historyRows: number | null
+  /** Its logo's version (`clubLogoUrl`, AC-12.2), or null without one */
+  logo?: number | null
 }
 
 /** One club in the back office */
