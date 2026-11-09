@@ -2,7 +2,19 @@ import { appendFileSync, existsSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { ruleBrain } from '../shared/robot/brain.ts'
 import { brainFrom, kindsFrom, readArgs } from './config.ts'
-import { bankProblems, loadBank, QUIZ_DIR, quizMisses, quizRegressions, quizReport, runQuiz, scoreQuiz } from './quiz.ts'
+import {
+  bankProblems,
+  loadBank,
+  QUIZ_DIR,
+  quizMisses,
+  quizRegressions,
+  quizReport,
+  runQuiz,
+  scoreQuiz,
+  scoreTopics,
+  TOPIC_MINIMUM,
+  topicReport,
+} from './quiz.ts'
 
 /**
  * The bidding question bank on the command line (e5-t23, eval/README.md):
@@ -13,6 +25,8 @@ import { bankProblems, loadBank, QUIZ_DIR, quizMisses, quizRegressions, quizRepo
  *
  * The questions are always this checkout's (`tests/bidding-quiz`), so adding questions never fails;
  * a system the base does not have yet is left out of its run.
+ * The report also counts the club's questions by the PRD's nine areas (AC-5.4, `topicOf`); that
+ * table is information only, the ratchet stays by file category.
  * In GitHub Actions the report also goes to the job summary.
  */
 
@@ -42,6 +56,11 @@ async function main() {
       quizReport(scores, baseScores),
     ].join('\n')
   } else report = `### Bidding question bank\n\n${quizReport(scores)}`
+  const topics = scoreTopics(mine)
+  const club = topics.filter((row) => row.system === 'tku')
+  const others = topics.filter((row) => row.system !== 'tku')
+  report += `\n\n#### TKB by the PRD's nine areas (AC-5.4: at least ${TOPIC_MINIMUM} questions each, all right)\n\n${topicReport(club)}`
+  if (others.length) report += `\n\n<details><summary>Other systems by area</summary>\n\n${topicReport(others)}\n\n</details>`
   report += `\n\n<details><summary>This branch's misses</summary>\n\n${quizMisses(mine)}\n\n</details>\n`
   console.log(report)
   if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${report}\n`)

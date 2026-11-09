@@ -13,7 +13,12 @@ import {
   quizState,
   runQuiz,
   scoreQuiz,
+  scoreTopics,
   seatOf,
+  TOPIC_MINIMUM,
+  topicOf,
+  topicReport,
+  QUIZ_TOPICS,
   type QuizQuestion,
   type QuizScore,
 } from '../../eval/quiz.ts'
@@ -62,11 +67,69 @@ describe('bidding question bank: the format', () => {
     expect(questionProblems(question({ reviewer: '社長' })).join()).toMatch(/pending/)
     expect(questionProblems(question({ status: 'reviewed' })).join()).toMatch(/reviewer/)
     expect(questionProblems(question({ status: 'reviewed', reviewer: '社長' }))).toEqual([])
+    expect(questionProblems(question({ topic: 'competition' }))).toEqual([])
+    expect(questionProblems(question({ topic: 'preempt' as never })).join()).toMatch(/topic/)
   })
 
   it('grades the book\'s call, an accepted call and anything else', () => {
     const q = question({ accepted: ['1C'] })
     expect([grade(q, '1N'), grade(q, '1C'), grade(q, '1D')]).toEqual(['answer', 'accepted', 'wrong'])
+  })
+})
+
+describe("bidding question bank: the PRD's nine areas (AC-5.4)", () => {
+  const area = (auction: string[], answer: string, category = 'competitive') => topicOf(question({ auction, answer }), category)
+
+  it('opens, responds and rebids when the opponents stay out', () => {
+    expect(area([], '1S')).toBe('opening')
+    expect(area(['P', 'P'], '3C')).toBe('opening')
+    expect(area(['1H', 'P'], '2C')).toBe('response')
+    expect(area(['P', 'P', '1S', 'P'], '2S')).toBe('response')
+    expect(area(['1C', 'P', '1H', 'P'], '1N')).toBe('opener-rebid')
+    expect(area(['1C', 'P', '1H', 'P', '1S', 'P'], '2D')).toBe('responder-rebid')
+    expect(area(['1N', 'P', '2C', 'P', '2D', 'P'], '2S')).toBe('responder-rebid')
+  })
+
+  it('overcalls, advances and doubles over their one of a suit', () => {
+    expect(area(['1D'], '1S')).toBe('overcall')
+    expect(area(['1H', 'P', 'P'], '1N')).toBe('overcall')
+    expect(area(['1D'], 'X')).toBe('double')
+    expect(area(['1D', '1S', 'P'], '2S')).toBe('advance')
+    expect(area(['1C', '1H', '1S'], '2H')).toBe('advance')
+    expect(area(['1D', '1S', '2D'], 'X')).toBe('double')
+    expect(area(['1D', 'X', 'P'], '1H')).toBe('double')
+    expect(area(['1D', 'X', 'P', '1H', 'P'], '2H')).toBe('double')
+    expect(area(['1D', '1S', 'P', '2S', 'P'], '3S')).toBe('competition')
+  })
+
+  it("puts their 1NT, weak twos and preempts, and our side's bidding over interference, under competition", () => {
+    expect(area(['1N'], '2D')).toBe('competition')
+    expect(area(['2S'], 'X')).toBe('competition')
+    expect(area(['3H', 'X', 'P'], '4S')).toBe('competition')
+    expect(area(['1H', '2C'], '3H')).toBe('competition')
+    expect(area(['1H', '1S', '2H', '2S'], '3H')).toBe('competition')
+    expect(area(['1H', '1S'], 'X')).toBe('double')
+    expect(area(['1C', '1H', 'X', 'P'], '1S')).toBe('double')
+  })
+
+  it('puts slam bidding under slam, but not a 4NT over their four-level bid', () => {
+    expect(area(['1S', 'P', '3S', 'P'], '4N')).toBe('slam')
+    expect(area(['1S', 'P', '3S', 'P', '4N', 'P'], '5D')).toBe('slam')
+    expect(area(['1N', 'P'], '4C')).toBe('slam')
+    expect(area(['1N', 'P', '4C', 'P'], '4H')).toBe('slam')
+    expect(area(['1H', 'P', '2S', 'P'], '3H', 'slam')).toBe('slam')
+    expect(area(['1S', 'P', '4N', 'P', '5H', 'P'], '6S')).toBe('slam')
+    expect(area(['4S'], '4N')).toBe('competition')
+    expect(topicOf(question({ auction: ['1S', '2H', '4S'], answer: '5H', topic: 'competition' }), 'competitive')).toBe('competition')
+  })
+
+  it('reports each area against AC-5.4: short, wrong or done', () => {
+    const row = (category: string, questions: number, correct: number): QuizScore => ({ system: 'tku', category, questions, answer: correct, correct, pending: questions })
+    const report = topicReport([row('opening', 40, 40), row('advance', 21, 21), row('double', 35, 33)])
+    expect(report).toContain('| tku | 開叫 (opening) | 40 | 40 | 40/40 (100.0%) | ✅ |')
+    expect(report).toContain(`| tku | 蓋叫的答叫 (advance) | 21 | 21 | 21/21 (100.0%) | ${TOPIC_MINIMUM - 21} short |`)
+    expect(report).toContain('| tku | 賭倍 (double) | 35 | 35 | 33/35 (94.3%) | 2 wrong |')
+    expect(report).toContain('| tku | 滿貫 (slam) | 0 | 0 | 0/0 (—) | 30 short |')
   })
 })
 
@@ -101,5 +164,9 @@ describe('bidding question bank: tests/bidding-quiz', () => {
     for (const { question: q, call } of results) expect(questionProblems({ ...q, answer: call, accepted: [] })).toEqual([])
     const scores = scoreQuiz(results)
     expect(scores.map((s) => s.category)).toEqual(expect.arrayContaining(['competitive', 'opening', 'rebid', 'response', 'slam']))
+    // AC-5.4: each of the nine areas has at least 30 of the club's questions (whether TKB gets them all right is the report's)
+    const club = scoreTopics(results).filter((s) => s.system === 'tku')
+    for (const row of club) expect([row.category, row.questions >= TOPIC_MINIMUM]).toEqual([row.category, true])
+    expect(club.map((s) => s.category)).toEqual([...QUIZ_TOPICS])
   })
 })
