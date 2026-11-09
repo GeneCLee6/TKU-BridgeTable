@@ -48,6 +48,7 @@ export default {
           guestTable: (tableId) => stub.guestTable(tableId) as Promise<GuestTable | null>,
           clubName: () => stub.clubName(),
           memberNotices: (token) => stub.memberNotices(token),
+          arcadeIdentity: (token) => stub.arcadeIdentity(token),
         }
       },
       // A club's tables are named after it (e12-t03): 淡江's by the table id as before
@@ -56,6 +57,8 @@ export default {
         return { fetch: (r) => stub.fetch(r) }
       },
       assets: env.ASSETS,
+      // TKU Arcade's sign-in (e1-t37): off until both are set (DEPLOY.md §4.22)
+      arcade: { secret: env.ARCADE_LOGIN_SECRET, origins: env.ARCADE_ORIGINS, log: jsonLog },
       edge: {
         secret: edgeSecret(env),
         // Ended sessions (e11-t28): kept whatever HISTORY_D1 says, since passes need them

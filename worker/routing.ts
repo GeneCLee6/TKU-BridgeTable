@@ -5,6 +5,7 @@ import { formatMessage, type MessageCode } from '../shared/messages.ts'
 import type { GuestTable, PublicLobby, PublicTable } from '../shared/public-lobby.ts'
 import { parseHistoryQuery, type HistoryQuery } from '../shared/history-query.ts'
 import { TABLE_ID_PATTERN, TABLE_SOCKET_PREFIX } from '../shared/protocol.ts'
+import { ARCADE_LOGIN_API, arcadeLogin } from './arcade-login.ts'
 import { readCookie, sessionCookieName } from './auth.ts'
 import { passCookieName, passRevoked, readPass } from './edge-auth.ts'
 import { listQuery, namesOthers } from './history-index.ts'
@@ -50,6 +51,8 @@ export interface Routes {
     clubName?(): Promise<string>
     /** Whether this session is a member's, and the club's banner (e12-t15): one call, for `GET /api/notices` */
     memberNotices?(token: string | null): Promise<{ signedIn: boolean; banner: ClubBanner | null }>
+    /** The member signed in with this session token and the name they are shown by, for TKU Arcade (e1-t37) */
+    arcadeIdentity?(token: string | null): Promise<{ id: string; name: string } | null>
   }
   /** A club's table's object: `tableObjectName(clubId, tableId)`, so one club never reaches another's (e12-t03) */
   table(clubId: string, tableId: string): Fetches
@@ -63,6 +66,11 @@ export interface Routes {
    * are read from its own rows only
    */
   edge?: { secret?: string; revocations?: ReplicaDb; history?: ReplicaDb; now?: () => number; log?: Logger }
+  /**
+   * Signing in to TKU Arcade (e1-t37, worker/arcade-login.ts): the shared secret and the arcade's
+   * origins. Either missing: the endpoint answers `arcadeLoginOff`
+   */
+  arcade?: { secret?: string; origins?: string; log?: Logger }
 }
 
 /** The history pages the Worker may answer from D1 */
@@ -85,6 +93,17 @@ export async function route(request: Request, routes: Routes): Promise<Response>
     const headers = new Headers(request.headers)
     headers.delete(CLUB_HEADER)
     return routes.club(DEFAULT_CLUB_ID).fetch(new Request(request, { headers }))
+  }
+  // TKU Arcade's sign-in (e1-t37) is for 淡江's members only, whatever club the request names: only
+  // 淡江's session cookie is read and only 淡江's object is asked
+  if (pathname === ARCADE_LOGIN_API) {
+    const tku = routes.club(DEFAULT_CLUB_ID)
+    return arcadeLogin(request, {
+      ...routes.arcade,
+      identity: (token) => tku.arcadeIdentity?.(token) ?? Promise.resolve(null),
+      sessionToken: readCookie(request.headers.get('Cookie'), sessionCookieName(DEFAULT_CLUB_ID)),
+      now: routes.edge?.now,
+    })
   }
   // Another club's home-screen app (`/c/<id>/manifest.webmanifest`): the club is in the path
   const manifestOf = manifestClub(pathname)

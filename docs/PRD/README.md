@@ -21,7 +21,7 @@
 
 | Epic | 名稱 | Task 完成 | AC 完成 | M1 task 數 | 狀態 |
 | --- | --- | --- | --- | --- | --- |
-| [E1](e1-accounts-identity-community.md) | 帳號、身分與社群 | 36／36 | 9／9 | 13 | done |
+| [E1](e1-accounts-identity-community.md) | 帳號、身分與社群 | 37／37 | 9／9 | 13 | done |
 | [E2](e2-table-engine-realtime.md) | 牌桌引擎與即時連線 | 36／36 | 14／14 | 12 | done |
 | [E3](e3-table-ui-experience.md) | 牌桌介面與體驗 | 48／48 | 12／12 | 13 | done |
 | [E4](e4-records-favorites-search.md) | 牌局紀錄、收藏與搜尋 | 39／39 | 12／13 | 24 | in-progress |

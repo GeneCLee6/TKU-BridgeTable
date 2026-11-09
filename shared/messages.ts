@@ -921,6 +921,23 @@ export const MESSAGES = {
     ja: 'このブラウザのプッシュ購読は使えません。ページを再読み込みしてもう一度お試しください',
     ko: '이 브라우저의 푸시 구독을 사용할 수 없습니다. 페이지를 새로 고친 뒤 다시 시도하세요',
   },
+  // Signing in to TKU Arcade (e1-t37)
+  arcadeLoginOff: {
+    zh: '這個網站沒有開放登入 TKU Arcade',
+    'zh-Hans': '这个网站没有开放登录 TKU Arcade',
+    en: 'Signing in to TKU Arcade is not available here',
+    vi: 'Trang này chưa cho phép đăng nhập TKU Arcade',
+    ja: 'このサイトでは TKU Arcade へのログインを使えません',
+    ko: '이 사이트에서는 TKU Arcade 로그인을 사용할 수 없습니다',
+  },
+  arcadeReturnNotAllowed: {
+    zh: '這個登入連結不正確，請回到 TKU Arcade 再按一次登入',
+    'zh-Hans': '这个登录链接不正确，请回到 TKU Arcade 再按一次登录',
+    en: 'This sign-in link is not valid. Go back to TKU Arcade and sign in again',
+    vi: 'Liên kết đăng nhập này không hợp lệ. Hãy quay lại TKU Arcade và đăng nhập lại',
+    ja: 'このログインリンクは正しくありません。TKU Arcade に戻ってもう一度ログインしてください',
+    ko: '이 로그인 링크가 올바르지 않습니다. TKU Arcade로 돌아가서 다시 로그인하세요',
+  },
   // Google sign-in (e1-t31)
   googleOff: {
     zh: '社團還沒有開放 Google 登入',
