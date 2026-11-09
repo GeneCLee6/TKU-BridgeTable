@@ -307,6 +307,27 @@ describe('friend online notice (e1-t24)', () => {
     await expect(club.setAccountPreferences(amy, {})).rejects.toThrow()
   })
 
+  it("keeps BridgeHall's display settings with the account, replaced whole (BridgeHall AC-9.9)", async () => {
+    const amy = await member('amy')
+    expect((await club.setAccountPreferences(amy, { friendOnlineNotice: false })).bookDisplay).toBeUndefined()
+
+    const display = { style: 'chinese', layout: 'three', textSize: 'large', theme: 'dark' }
+    expect((await club.setAccountPreferences(amy, { bookDisplay: display })).bookDisplay).toEqual(display)
+    // Signing in on another device gets the same settings
+    expect((await club.login('amy', 'club-secret-1')).user.bookDisplay).toEqual(display)
+    // A save replaces them all; other preferences stay
+    const me = await club.setAccountPreferences(amy, { bookDisplay: { style: 'minimal' } })
+    expect(me.bookDisplay).toEqual({ style: 'minimal' })
+    expect(me.friendOnlineNotice).toBe(false)
+    expect((await club.setAccountPreferences(amy, { bookDisplay: null })).bookDisplay).toBeUndefined()
+    await club.setAccountPreferences(amy, { bookDisplay: { style: 'minimal' } })
+    expect((await club.setAccountPreferences(amy, { bookDisplay: {} })).bookDisplay).toBeUndefined()
+
+    const many = Object.fromEntries(Array.from({ length: 17 }, (_, i) => [`k${'x'.repeat(i)}`, 'a']))
+    for (const bad of ['general', ['general'], { style: 7 }, { style: 'a b' }, { 'bad-key': 'a' }, { style: 'x'.repeat(25) }, many])
+      await expect(club.setAccountPreferences(amy, { bookDisplay: bad })).rejects.toThrow()
+  })
+
   it('keeps the notice about conventions one\'s profile plays apart from the others (BridgeHall F4)', async () => {
     const amy = await member('amy')
     expect(club.mutesAdoptedNotices(amy)).toBe(false)

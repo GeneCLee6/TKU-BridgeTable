@@ -48,6 +48,32 @@ export interface PublicUser {
  * BridgeHall's forum (`forumModerate`, e11-t09: post news, pin, lock, delete anyone's posts and
  * comments, handle reports). Admins have every permission.
  */
+/**
+ * BridgeHall's display settings (個人設定, its e9-t15, AC-9.9): style, layout, font, text size, suit
+ * colours, density, reading mode and light/dark, each a short name such as `general` or `three`.
+ * The table never reads them; it keeps them with the account so they follow the member to every
+ * device, and only checks their size (`isBookDisplay`), so BridgeHall can add a setting alone.
+ */
+export type BookDisplay = Record<string, string>
+export const BOOK_DISPLAY_LIMITS = { keys: 16, keyLength: 24, valueLength: 24 } as const
+const BOOK_DISPLAY_KEY = /^[a-zA-Z]+$/
+const BOOK_DISPLAY_VALUE = /^[\w-]*$/
+export const isBookDisplay = (value: unknown): value is BookDisplay => {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
+  const entries = Object.entries(value)
+  return (
+    entries.length <= BOOK_DISPLAY_LIMITS.keys &&
+    entries.every(
+      ([key, v]) =>
+        key.length <= BOOK_DISPLAY_LIMITS.keyLength &&
+        BOOK_DISPLAY_KEY.test(key) &&
+        typeof v === 'string' &&
+        v.length <= BOOK_DISPLAY_LIMITS.valueLength &&
+        BOOK_DISPLAY_VALUE.test(v),
+    )
+  )
+}
+
 export const PERMISSIONS = ['bookEdit', 'bookReview', 'bookImport', 'boardCurate', 'tkuSystem', 'forumModerate', 'teach'] as const
 export type Permission = (typeof PERMISSIONS)[number]
 export const isPermission = (value: unknown): value is Permission => PERMISSIONS.includes(value as Permission)
@@ -94,6 +120,8 @@ export interface Me extends PublicUser {
    * every device; absent for the club's own
    */
   bookProfile?: string
+  /** BridgeHall's display settings (`BookDisplay`), the same on every device; absent until first saved */
+  bookDisplay?: BookDisplay
   /** How fast the robots play at the member's tables (出牌速度); the server always sets it */
   robotSpeed?: RobotSpeed
   /**

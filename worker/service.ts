@@ -63,6 +63,8 @@ import {
   type ProductFeature,
   type ProductMetricsView,
   type RobotSpeed,
+  type BookDisplay,
+  isBookDisplay,
 } from '../shared/protocol.ts'
 import { dealWith } from '../shared/dealer.ts'
 import {
@@ -349,6 +351,8 @@ interface StoredUser {
   bookAdoptedNotice?: boolean
   /** The handbook's system profile the member chose (TKU-BridgeBook e1-t16); absent for the club's */
   bookProfile?: string
+  /** BridgeHall's display settings (AC-9.9), kept as they came (`isBookDisplay`) */
+  bookDisplay?: BookDisplay
   /** What the member tells the club about themselves (AC-1.5); others see it through `memberProfileView` */
   profile?: Profile
   /** The version of their uploaded picture (e1-t34), kept in `avatar:<id>`; none means the default avatar */
@@ -1812,7 +1816,8 @@ export class ClubService {
    * `POST /api/account/preferences`: the member's own settings the server needs. Each field is
    * optional, but at least one must be there: the friend-online notice (e1-t24), the notice that a
    * convention the member's profile plays was published (BridgeHall F4, `bookAdoptedNotice`), the handbook's
-   * system profile (TKU-BridgeBook e1-t16; the club's id or '' goes back to the club's), and how
+   * system profile (TKU-BridgeBook e1-t16; the club's id or '' goes back to the club's), the
+   * handbook's display settings (BridgeHall AC-9.9, `bookDisplay`: replaced whole, null clears), and how
    * fast the robots play (出牌速度, `ROBOT_SPEEDS`; the table they are at changes at once), and what
    * others see on their profile page (e13-t08: `profileBoards`, `profilePosts`). The profile
    * is not looked up: one deleted later simply shows the club's.
@@ -1823,18 +1828,20 @@ export class ClubService {
       friendOnlineNotice?: unknown
       bookAdoptedNotice?: unknown
       bookProfile?: unknown
+      bookDisplay?: unknown
       robotSpeed?: unknown
       profileBoards?: unknown
       profilePosts?: unknown
     },
   ): Promise<Me> {
     const user = this.requireUser(userId)
-    const { friendOnlineNotice, bookAdoptedNotice, bookProfile, robotSpeed, profileBoards, profilePosts } = preferences
+    const { friendOnlineNotice, bookAdoptedNotice, bookProfile, bookDisplay, robotSpeed, profileBoards, profilePosts } = preferences
     if (Object.values(preferences).every((value) => value === undefined)) throw new ClubError('unknownCommand')
     for (const flag of [profileBoards, profilePosts]) if (flag !== undefined && typeof flag !== 'boolean') throw new ClubError('unknownCommand')
     if (friendOnlineNotice !== undefined && typeof friendOnlineNotice !== 'boolean') throw new ClubError('unknownCommand')
     if (bookAdoptedNotice !== undefined && typeof bookAdoptedNotice !== 'boolean') throw new ClubError('unknownCommand')
     if (robotSpeed !== undefined && !isRobotSpeed(robotSpeed)) throw new ClubError('unknownCommand')
+    if (bookDisplay !== undefined && bookDisplay !== null && !isBookDisplay(bookDisplay)) throw new ClubError('unknownCommand')
     if (bookProfile !== undefined && (typeof bookProfile !== 'string' || (bookProfile !== '' && !PROFILE_ID.test(bookProfile))))
       throw new ClubError('unknownCommand')
     if (friendOnlineNotice === true) delete user.friendOnlineNotice
@@ -1847,6 +1854,8 @@ export class ClubService {
     else if (profilePosts === false) user.hideProfilePosts = true
     if (bookProfile === '' || bookProfile === CLUB_PROFILE_ID) delete user.bookProfile
     else if (bookProfile !== undefined) user.bookProfile = bookProfile
+    if (bookDisplay === null || (bookDisplay && !Object.keys(bookDisplay).length)) delete user.bookDisplay
+    else if (bookDisplay !== undefined) user.bookDisplay = { ...bookDisplay }
     const speedChanged = robotSpeed !== undefined && robotSpeed !== (user.robotSpeed ?? DEFAULT_ROBOT_SPEED)
     if (robotSpeed === DEFAULT_ROBOT_SPEED) delete user.robotSpeed
     else if (robotSpeed !== undefined) user.robotSpeed = robotSpeed
@@ -2621,6 +2630,7 @@ export class ClubService {
     if (user.profile) me.profile = user.profile
     if (user.avatar) me.avatar = user.avatar
     if (user.bookProfile) me.bookProfile = user.bookProfile
+    if (user.bookDisplay) me.bookDisplay = user.bookDisplay
     if (user.admin) me.applications = this.applications.size
     // The platform owner (e12-t05): only 淡江's object knows one
     if (this.config.platformOwnerId && user.id === this.config.platformOwnerId && this.clubId === DEFAULT_CLUB_ID) me.platformOwner = true

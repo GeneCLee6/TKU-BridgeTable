@@ -1283,6 +1283,7 @@ export class Club extends DurableObject<Env> implements Connections {
           friendOnlineNotice: b.friendOnlineNotice,
           bookAdoptedNotice: b.bookAdoptedNotice,
           bookProfile: b.bookProfile,
+          bookDisplay: b.bookDisplay,
           robotSpeed: b.robotSpeed,
           profileBoards: b.profileBoards,
           profilePosts: b.profilePosts,
