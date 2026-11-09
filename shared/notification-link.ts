@@ -27,6 +27,10 @@ export function notificationLink(n: Notification, options: { forum?: boolean } =
     case 'passwordResetRequested':
     case 'supportReport':
       return '/admin'
+    // The status page's alerts (AC-11.5): its section of the admin page
+    case 'systemAlert':
+    case 'systemRecovered':
+      return '/admin#admin-status'
     // A new club application (e12-t06), to the platform owner: the back office, where it is decided
     case 'clubApplication':
     case 'supportForwarded':

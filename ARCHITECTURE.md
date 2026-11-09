@@ -214,6 +214,7 @@ TKU-BridgeTable/
 │  ├─ log.ts               結構化日誌（§5.6）
 │  ├─ rate-limit.ts        速率限制（§5.6）
 │  ├─ metrics.ts           指標與告警，`/api/health` 與管理頁「系統狀態」（§5.13）
+│  ├─ alerts.ts            告警通知管理員：有活動或告警亮著時才排一次檢查，同一種只通知一次（AC-11.5，§5.13）
 │  ├─ product-metrics.ts   使用情況：匿名的活躍人數、留存、每桌副數、功能次數，小數字由伺服器藏（`e12-t17`，§5.27）
 │  ├─ client-errors.ts     瀏覽器錯誤回報的檢查（§5.6）
 │  ├─ book-telemetry.ts    淡江橋館的錯誤回報與匿名使用統計：SQL 四張表與 BookTelemetry（§5.15）
@@ -848,14 +849,19 @@ H1 把牌桌拆出去之後（§5.10），社團的物件（`Club`）仍然是**
 
 **指標從既有的結構化日誌數**（`worker/metrics.ts`，不碰 Cloudflare API）：`ClubService` 的 `log` 先交給 `Metrics.observe` 再寫出去，所以 `action`（次數、耗時分桶、有錯誤代碼的算「被拒」）、`rejected`、`crash`、`http`（`Club.fetch` 的那一行改經 `ClubService.logEntry`，5xx 算伺服器錯誤）不必另外埋點。另外數三件事：
 - **連線與重連**：`connected` 時如果這個人上一條連線在 60 秒內（`RECONNECT_WINDOW_MS`）才斷，算一次重連；同時記最高在線人數。
-- **機器人思考時間**：`TableService.runRobot` 量 `think` 前後的 `performance.now()`，交給 `TableConfig.onThink`。
+- **機器人延遲**（2026-11-09 取代「思考時間」）：每一步從**該出手的時間**（`scheduleRobots` 排程的時間＋節奏的等待，`robotDueAt`）到**動作套用並寫回儲存之後**的牆鐘時間，`TableService.runRobot` 交給 `TableConfig.onRobotMove`。含 alarm 晚到、遠端大腦的等待、淡江橋館的叫牌說明 RPC 與儲存；這些都是 I/O，時鐘會前進，所以量得到。下面「時間的限制」說明為什麼不量思考。
 - **牌桌物件自己的數字**（桌的連線上的動作、被拒、bug、機器人思考）：`TableHost` 用 `TableCounters` 累積，**跟著下一副的 `boardFinished` 一起送給社團**（`ClubLink.boardFinished` 多一個選填的 `stats`），沒送到就放回去下次再送；不多任何 RPC。牌桌物件被回收時沒送出去的會掉，最多一副的量。
 
 切成 5 分鐘一格、保留一小時。**社團的物件只要閒幾秒就會休眠（連線還開著也一樣）**，記憶體裡的數字會跟著不見，所以最多每分鐘把整份寫回 `meta:metrics` 一次（一列；只在有事的時候寫，一天最多 1,440 列），`load()` 時讀回來、同一格相加。不記任何人的 id：重連判斷用的「誰剛斷線」只在記憶體、60 秒後就清。
 
-**告警**（`alertsOf`，量夠才判斷，避免一兩次就亮）：伺服器錯誤率（`crash`＋5xx）÷（動作＋請求）超過 1%（至少 50 次）、重連率超過 20%（至少 20 次連線）、動作 p95 超過 1 秒（至少 50 次）、機器人平均思考超過 0.5 秒（至少 20 步）。`/api/health` 的 `alerts` 列出亮的，管理頁「系統狀態」用紅底顯示。
+**告警**（`alertsOf`，量夠才判斷，避免一兩次就亮）：伺服器錯誤率（`crash`＋5xx）÷（動作＋請求）超過 1%（至少 50 次）、重連率超過 20%（至少 20 次連線）、動作 p95 超過 1 秒（至少 50 次）、機器人平均比預定晚超過 1 秒（至少 20 步，`robotSlow`）。`/api/health` 的 `alerts` 列出亮的，管理頁「系統狀態」用紅底顯示，並通知管理員（下一段）。
 
-**時間的限制**：Workers 裡 `Date.now()` 與 `performance.now()` 只在 I/O 之後才前進，所以這裡的耗時是「等」（RPC、儲存），不是 CPU；規則機器人的思考在正式環境會量成 0（之後有遠端的 TKB Adv 才有意義）。**每次呼叫的 CPU 在 Workers Logs 的 `$workers.cpuTimeMs`**（`DEPLOY.md` §4.7）。本機的 CPU 量法見 `docs/LOAD.md`。
+**告警通知管理員**（AC-11.5，`worker/alerts.ts` 的 `AlertWatch`，2026-11-09）：告警出現時，社團的每位管理員收到通知中心的 `systemAlert`（`params.alerts` 是新亮的種類，逗號分隔；文字不寫是哪一種，點了到管理頁「系統狀態」`/admin#admin-status` 看），開了推播「管理」那一組的人也收到推播；全部恢復時收到一次 `systemRecovered`。**去重**：上一次檢查時亮著的種類存在 `meta:alerts`（`{ active, at }`），只有「這次亮、上次沒亮」的種類才通知，所以持續時只通知一次、恢復後再出現才再通知；兩種裡只恢復一種不通知（還有告警亮著）。先寫 `meta:alerts` 再通知，物件被回收、重新載入都不會重複通知。多社團：每個社團物件只通知自己的管理員（`adminIds()`）；平台層級的告警不在這裡。
+- **什麼時候檢查**：用社團的統一排程器（job 種類 `alerts`，key 固定是 `alerts`）。`Metrics` 每數到一筆（動作、被拒、crash、HTTP、連線、一副結束、機器人一步；**只讀不算**，所以 `/api/health` 的 `view()` 不會排）就叫 `activity()`，排一次 `ALERT_CHECK_MS`（5 分鐘）後的檢查，已經排了就不重排。檢查完只有**還有告警亮著**才再排下一次，好讓沒人在線時、壞的那幾格滑出一小時也能發現恢復。沒有活動、沒有告警時什麼都不排，安靜的社團不會被叫醒。重新載入時 `meta:alerts` 有亮著的就排一次（工作不存）。
+- **為什麼是 5 分鐘**：指標是 5 分鐘一格，沒人在線時「恢復」只會在一格滑出一小時的那一刻發生，查得更密也不會更早知道；只有一位管理員、不是值班，5 分鐘內知道就夠。
+- **額度**：一次檢查是一次 alarm（一個 DO 請求）＋算一次 `view()`（12 格相加，微秒級）；通知時每位管理員寫一兩列。最多每 5 分鐘一次，一天最多 288 次（DO 請求額度的 0.29%）；實際上只在有人用的時段與告警亮著的那一小時。檢查多在物件本來就醒著的時候（活動後 5 分鐘內）；最壞情況每次都叫醒一個休眠的物件、每次以 10 秒 128 MB 計，一天 288 × 1.25 ≈ 360 GB-s（DO 時間額度的 2.8%），社團一晚上打牌本來就醒著，實際遠低於此。
+
+**時間的限制**：Workers 裡 `Date.now()` 與 `performance.now()` 只在 I/O 之後才前進（Cloudflare 防 Spectre 的設計，官方文件 Workers → Runtime APIs → Performance：「timers … only advance or increment after I/O occurs」，純計算時開始與結束的值完全相同；本機 `wrangler dev` 不受限，所以本機量得到、正式環境量不到），所以這裡的耗時是「等」（RPC、儲存、alarm 晚到），不是 CPU。**原本的「機器人思考時間」量的是 `think` 前後的 `performance.now()`**：規則機器人（`ruleBrain`）的叫牌與出牌是純計算、中間沒有任何 I/O，所以正式環境每一步都是 0，`robotSlow` 永遠不會亮。Worker 裡沒有量單一段程式 CPU 的方法，所以改量上面的「機器人延遲」：社員感受到的就是機器人比該出的時間晚多久，含 I/O，量得到。舊的 `meta:metrics` 裡的機器人步數（`thinkMs`，全是 0）載入時丟掉，不當成準時算。**每次呼叫的 CPU 在 Workers Logs 的 `$workers.cpuTimeMs`**（`DEPLOY.md` §4.7）。本機的 CPU 量法見 `docs/LOAD.md`。
 
 **系統狀態頁**（`src/components/SystemStatus.tsx`，管理頁最後一個區塊）：讀 `/api/health`，開著時每 30 秒（分頁看得見才讀）更新一次，一次是一個 Worker 請求＋一個社團請求。外部監控（例如 UptimeRobot 免費方案）可以直接監看同一個網址的 `"alerts":[]`，要不要接由社長決定（`DEPLOY.md` §4.7）。
 

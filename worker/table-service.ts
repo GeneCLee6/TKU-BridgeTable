@@ -119,8 +119,12 @@ export interface TableConfig {
   thinkLimitMs?: number
   /** Robot moves, the next deal and robot substitutes */
   scheduler: Scheduler
-  /** How long each robot move took to think (ms), for the status page (e11-t22) */
-  onThink?: (ms: number) => void
+  /**
+   * How much later than planned each robot move went out (ms), for the status page (e11-t22): from
+   * when it was due (scheduled, plus its pace) to when it was applied and saved. Not the thinking:
+   * on Cloudflare the clock stands still during pure computation (ARCHITECTURE.md §5.13)
+   */
+  onRobotMove?: (lateMs: number) => void
 }
 
 /** How long a teaching table waits for a teacher who dropped offline before it closes */
@@ -188,6 +192,8 @@ export class TableService implements TableApi {
   private readonly offlineSince = new Map<string, number>()
   /** A robot is thinking; nothing else is scheduled for the table until it answers */
   private thinking = false
+  /** When the robot move waiting in the scheduler is due (`config.now`), to tell how late it went out */
+  private robotDueAt = 0
   /** 淡江橋館's words for the club's system, and the deal they were last asked for (`loadBookNotes`) */
   private bookNotes: BookNotes | null = null
   private bookNotesDeal: BoardState['hands'] | null = null
@@ -1946,6 +1952,7 @@ export class TableService implements TableApi {
     if (!this.table || this.scheduler.pending(key) || this.thinking) return
     const move = this.robotMove()
     if (!move) return
+    this.robotDueAt = this.config.now() + move.delay
     this.scheduler.add(key, 'robot', move.delay, () => this.runRobot())
   }
 
@@ -2061,22 +2068,20 @@ export class TableService implements TableApi {
     this.thinking = true
     let answer: RobotAnswer
     let book: BookNote | undefined
-    const started = performance.now()
-    let thought = 0
+    const dueAt = this.robotDueAt
     try {
       answer = await this.think(move.decide)
-      thought = performance.now() - started
       book = await this.bookNoteOf(move.seat, answer.message)
     } finally {
       this.thinking = false
     }
-    this.config.onThink?.(thought)
     if (this.table !== table || teamPaused(table) || teachPaused(table)) return
     // The table moved on while the robot thought (a person played, an undo, a seat changed): ask again
     if (this.positionOf() !== position) return this.scheduleRobots()
     const { message, meaning } = answer
     try {
       await this.applyAction(move.seat, message, true, meaning, book)
+      this.config.onRobotMove?.(Math.max(0, this.config.now() - dueAt))
     } catch (error) {
       // A robot move that turns out illegal must not stall the table: pass or play any legal card
       if (!(error instanceof AppError)) throw error

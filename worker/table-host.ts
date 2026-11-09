@@ -124,7 +124,7 @@ export class TableHost implements TableRpc {
 
   private make(tableId: string): TableService {
     const { storage, sockets } = this.deps
-    const config = { ...this.deps.config, onThink: (ms: number) => this.counters.think(ms) }
+    const config = { ...this.deps.config, onRobotMove: (ms: number) => this.counters.robotMove(ms) }
     this.service = new TableService(
       tableId,
       {

@@ -10,8 +10,11 @@ export type { MetricAlert, MetricsView }
  * (`meta:metrics`): its object hibernates whenever it is idle for a few seconds, even with sockets
  * open, and would otherwise start over each time. No Cloudflare API, no member ids kept: counts only.
  *
- * Inside a Worker the clock only moves on I/O, so a time here is the waiting (an RPC, storage),
- * not the CPU; the CPU of every invocation is in Workers Logs (`$workers.cpuTimeMs`, DEPLOY.md §4.7)
+ * Inside a Worker the clock only moves on I/O (Cloudflare's guard against Spectre: `Date.now()` and
+ * `performance.now()` stand still during pure computation), so a time here is the waiting (an RPC,
+ * storage, an alarm firing late), never the CPU: the CPU of every invocation is in Workers Logs
+ * (`$workers.cpuTimeMs`, DEPLOY.md §4.7). That is why the robots are measured by how late their
+ * moves went out, not by how long they thought (ARCHITECTURE.md §5.13)
  */
 
 /** Upper bounds (ms) of the latency buckets an action's time falls in */
@@ -32,11 +35,17 @@ export interface TableStats {
   /** Messages that never reached a handler: too large, malformed, over the rate limit */
   rejected: number
   robotMoves: number
-  thinkMs: number
-  thinkMaxMs: number
+  /**
+   * How much later than planned the robots' moves went out, summed (ms): from when the move was due
+   * (scheduled, plus its pace) to when it was applied and saved. Wall-clock time, so it holds the
+   * alarm's lag, a stronger brain's wait and the storage; a rule robot's thinking is pure CPU and
+   * reads as 0 on Cloudflare
+   */
+  robotLateMs: number
+  robotLateMaxMs: number
 }
 
-export const noTableStats = (): TableStats => ({ actions: 0, refused: 0, crashes: 0, rejected: 0, robotMoves: 0, thinkMs: 0, thinkMaxMs: 0 })
+export const noTableStats = (): TableStats => ({ actions: 0, refused: 0, crashes: 0, rejected: 0, robotMoves: 0, robotLateMs: 0, robotLateMaxMs: 0 })
 
 export interface Slice extends TableStats {
   start: number
@@ -56,8 +65,11 @@ export const ALERT_LIMITS = {
   reconnectRate: { above: 0.2, atLeast: 20 },
   /** The 95th percentile of an action took more than a second, over at least 50 actions */
   actionSlow: { aboveMs: 1000, atLeast: 50 },
-  /** A robot thought half a second on average (the brain's limit is 2 s, ROBOT.md) */
-  robotSlow: { aboveMs: 500, atLeast: 20 },
+  /**
+   * The robots' moves went out more than a second later than planned on average, over at least 20
+   * moves: the alarm lagging, a slow brain (its limit is 2 s, ROBOT.md) or slow storage
+   */
+  robotSlow: { aboveMs: 1000, atLeast: 20 },
 }
 
 export function alertsOf(view: MetricsView): MetricAlert[] {
@@ -66,7 +78,7 @@ export function alertsOf(view: MetricsView): MetricAlert[] {
   if (view.actions + view.requests >= errorRate.atLeast && view.errorRate > errorRate.above) alerts.push('errorRate')
   if (view.connects >= reconnectRate.atLeast && view.reconnectRate > reconnectRate.above) alerts.push('reconnectRate')
   if (view.actions >= actionSlow.atLeast && (view.actionP95Ms ?? 0) > actionSlow.aboveMs) alerts.push('actionSlow')
-  if (view.robot.moves >= robotSlow.atLeast && (view.robot.avgMs ?? 0) > robotSlow.aboveMs) alerts.push('robotSlow')
+  if (view.robot.moves >= robotSlow.atLeast && (view.robot.lateAvgMs ?? 0) > robotSlow.aboveMs) alerts.push('robotSlow')
   return alerts
 }
 
@@ -85,10 +97,11 @@ export class TableCounters {
     else if (entry.event === 'crash') this.stats.crashes++
   }
 
-  think(ms: number) {
+  /** A robot move went out `ms` later than planned */
+  robotMove(ms: number) {
     this.stats.robotMoves++
-    this.stats.thinkMs += ms
-    this.stats.thinkMaxMs = Math.max(this.stats.thinkMaxMs, ms)
+    this.stats.robotLateMs += ms
+    this.stats.robotLateMaxMs = Math.max(this.stats.robotLateMaxMs, ms)
   }
 
   /** The counts so far, starting over; `putBack` when they did not reach the club */
@@ -110,8 +123,8 @@ function addStats(a: TableStats, b: TableStats): TableStats {
     crashes: a.crashes + b.crashes,
     rejected: a.rejected + b.rejected,
     robotMoves: a.robotMoves + b.robotMoves,
-    thinkMs: a.thinkMs + b.thinkMs,
-    thinkMaxMs: Math.max(a.thinkMaxMs, b.thinkMaxMs),
+    robotLateMs: a.robotLateMs + b.robotLateMs,
+    robotLateMaxMs: Math.max(a.robotLateMaxMs, b.robotLateMaxMs),
   }
 }
 
@@ -129,6 +142,16 @@ function mergeSlices(a: Slice, b: Slice): Slice {
   }
 }
 
+/**
+ * A slice as written before the robots were measured by lateness (2026-11-09): it had `thinkMs`,
+ * which on Cloudflare was always 0, so its robot moves are left out rather than counted as on time
+ */
+function upgradeSlice(slice: Slice): Slice {
+  if (typeof slice.robotLateMs === 'number') return slice
+  const { thinkMs: _ms, thinkMaxMs: _max, ...rest } = slice as Slice & { thinkMs?: number; thinkMaxMs?: number }
+  return { ...rest, robotMoves: 0, robotLateMs: 0, robotLateMaxMs: 0 }
+}
+
 /** What is kept in storage between wakes */
 export interface MetricsState {
   started: number
@@ -141,15 +164,18 @@ export class Metrics {
   private readonly now: () => number
   private started: number
   private readonly save?: (state: MetricsState) => void
+  /** Told whenever something is counted, so the alerts are looked at (worker/alerts.ts); not when only read */
+  private readonly onActivity?: () => void
   private savedAt = -Infinity
   private saving = false
   /** When each member's last connection closed, for telling a reconnect from a new visit */
   private readonly gone = new Map<string, number>()
 
-  constructor(now: () => number, save?: (state: MetricsState) => void) {
+  constructor(now: () => number, save?: (state: MetricsState) => void, onActivity?: () => void) {
     this.now = now
     this.started = now()
     this.save = save
+    this.onActivity = onActivity
   }
 
   /** The counts as last written, after the object woke up again */
@@ -157,7 +183,9 @@ export class Metrics {
     if (!state?.slices) return
     const now = this.now()
     this.started = Math.min(this.started, state.started)
-    const kept = new Map(state.slices.filter((s) => s.start > now - METRICS_WINDOW_MS).map((s) => [s.start, s]))
+    const kept = new Map(
+      state.slices.filter((s) => s.start > now - METRICS_WINDOW_MS).map((s) => [s.start, upgradeSlice(s)] as const),
+    )
     for (const slice of this.slices) {
       const old = kept.get(slice.start)
       kept.set(slice.start, old ? mergeSlices(old, slice) : slice)
@@ -176,7 +204,9 @@ export class Metrics {
     })
   }
 
-  private slice(): Slice {
+  /** The current slice; `activity` when something is being counted in it */
+  private slice(activity = false): Slice {
+    if (activity) this.onActivity?.()
     const now = this.now()
     const start = now - (now % SLICE_MS)
     let last = this.slices.at(-1)
@@ -190,7 +220,8 @@ export class Metrics {
   }
 
   observe(entry: LogEntry) {
-    const slice = this.slice()
+    const counted = entry.event === 'action' || entry.event === 'rejected' || entry.event === 'crash' || entry.event === 'http'
+    const slice = this.slice(counted)
     if (entry.event === 'action') {
       slice.actions++
       slice.latency[bucketOf(entry.ms)]++
@@ -205,7 +236,7 @@ export class Metrics {
 
   /** A member's connection opened; `online` is how many members are online now */
   connected(userId: string, online: number) {
-    const slice = this.slice()
+    const slice = this.slice(true)
     slice.connects++
     const gone = this.gone.get(userId)
     if (gone !== undefined && this.now() - gone <= RECONNECT_WINDOW_MS) slice.reconnects++
@@ -220,17 +251,17 @@ export class Metrics {
     if (this.gone.size > 2000) for (const [id, at] of this.gone) if (now - at > RECONNECT_WINDOW_MS) this.gone.delete(id)
   }
 
-  /** A robot in this object answered after `ms` (tables in the club's own object, H1a) */
-  think(ms: number) {
-    const slice = this.slice()
+  /** A robot move in this object went out `ms` later than planned (tables in the club's own object, H1a) */
+  robotMove(ms: number) {
+    const slice = this.slice(true)
     slice.robotMoves++
-    slice.thinkMs += ms
-    slice.thinkMaxMs = Math.max(slice.thinkMaxMs, ms)
+    slice.robotLateMs += ms
+    slice.robotLateMaxMs = Math.max(slice.robotLateMaxMs, ms)
   }
 
   /** A finished board reached the club, with what its table counted since its last report */
   board(stats?: TableStats) {
-    const slice = this.slice()
+    const slice = this.slice(true)
     slice.boards++
     if (stats) Object.assign(slice, addStats(slice, stats))
   }
@@ -270,8 +301,8 @@ export class Metrics {
       peakOnline: all.reduce((peak, s) => Math.max(peak, s.peakOnline), 0),
       robot: {
         moves,
-        avgMs: moves ? Math.round((sum('thinkMs') / moves) * 10) / 10 : null,
-        maxMs: moves ? all.reduce((max, s) => Math.max(max, s.thinkMaxMs), 0) : null,
+        lateAvgMs: moves ? Math.round((sum('robotLateMs') / moves) * 10) / 10 : null,
+        lateMaxMs: moves ? all.reduce((max, s) => Math.max(max, s.robotLateMaxMs), 0) : null,
       },
     }
   }

@@ -41,17 +41,17 @@ describe('metrics', () => {
     const counters = new TableCounters()
     counters.observe({ event: 'action', type: 'play', user: 'u', ms: 0 })
     counters.observe({ event: 'action', type: 'play', user: 'u', ms: 0, code: 'notYourTurn' })
-    for (const ms of [1, 3, 800]) counters.think(ms)
+    for (const ms of [1, 3, 800]) counters.robotMove(ms)
     const stats = counters.take()
     metrics.board(stats)
-    metrics.think(4)
-    expect(metrics.view()).toMatchObject({ boards: 1, robot: { moves: 4, avgMs: 202, maxMs: 800 } })
+    metrics.robotMove(4)
+    expect(metrics.view()).toMatchObject({ boards: 1, robot: { moves: 4, lateAvgMs: 202, lateMaxMs: 800 } })
     // What did not reach the club is sent again with the next board
-    counters.think(2)
-    counters.putBack({ ...stats, thinkMaxMs: 10 })
-    expect(counters.take()).toMatchObject({ actions: 2, robotMoves: 4, thinkMaxMs: 10 })
+    counters.robotMove(2)
+    counters.putBack({ ...stats, robotLateMaxMs: 10 })
+    expect(counters.take()).toMatchObject({ actions: 2, robotMoves: 4, robotLateMaxMs: 10 })
     time += METRICS_WINDOW_MS + 10 * 60_000
-    expect(metrics.view()).toMatchObject({ boards: 0, actions: 0, robot: { moves: 0, avgMs: null }, minutes: 60 })
+    expect(metrics.view()).toMatchObject({ boards: 0, actions: 0, robot: { moves: 0, lateAvgMs: null }, minutes: 60 })
   })
 
   it('keeps its counts across a hibernation, written at most once a minute', async () => {
@@ -81,11 +81,27 @@ describe('metrics', () => {
     expect(alertsOf(metrics.view())).toEqual([])
     for (let i = 0; i < 60; i++) metrics.observe({ event: 'action', type: 'call', user: 'u', ms: 3000 })
     for (let i = 0; i < 30; i++) {
-      metrics.think(900)
+      metrics.robotMove(1500)
       metrics.connected(`m${i}`, 1)
       metrics.disconnected(`m${i}`)
       metrics.connected(`m${i}`, 1)
     }
     expect(alertsOf(metrics.view())).toEqual(['reconnectRate', 'actionSlow', 'robotSlow'])
+  })
+
+  it('drops the robot moves of counts written when it measured thinking, which read 0 on Cloudflare', () => {
+    const time = 1_000_000
+    const old = new Metrics(() => time)
+    old.observe({ event: 'action', type: 'call', user: 'u', ms: 1 })
+    old.robotMove(0)
+    const view = old.view()
+    const slices = (JSON.parse(JSON.stringify({ old })) as { old: { slices: Record<string, unknown>[] } }).old.slices.map((s) => {
+      const { robotLateMs: _a, robotLateMaxMs: _b, ...rest } = s
+      return { ...rest, thinkMs: 0, thinkMaxMs: 0 }
+    })
+    expect(view.robot.moves).toBe(1)
+    const woken = new Metrics(() => time)
+    woken.restore({ started: time, slices } as never)
+    expect(woken.view()).toMatchObject({ actions: 1, robot: { moves: 0, lateAvgMs: null } })
   })
 })

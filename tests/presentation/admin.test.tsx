@@ -94,7 +94,7 @@ const HEALTH: HealthStatus = {
     reconnectRate: 0.3,
     boards: 22,
     peakOnline: 16,
-    robot: { moves: 400, avgMs: 1.5, maxMs: 9 },
+    robot: { moves: 400, lateAvgMs: 1.5, lateMaxMs: 9 },
   },
   alerts: ['reconnectRate'],
 }
