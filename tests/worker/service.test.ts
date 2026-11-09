@@ -23,6 +23,7 @@ import { adminWithTwoFactor } from './admin-two-factor.ts'
 import { lobbyFrom } from './lobby-copy.ts'
 import { indexRecord } from '../../worker/history-index.ts'
 import type { Table } from '../../worker/views.ts'
+import { ALERT_CHECK_MS } from '../../worker/alerts.ts'
 
 class FakeConnections implements Connections {
   online = new Set<string>()
@@ -1477,11 +1478,11 @@ describe('robots that think asynchronously (e6-t11)', () => {
     const { brain, ruled } = brainWith(() => new Promise((resolve) => (late = resolve)), 'N')
     await setup({ brain, thinkLimitMs: 20 })
     const gene = await robotTable()
-    queue.splice(queue.findIndex((job) => !isDeal(job)), 1)[0].run()
+    queue.splice(queue.findIndex((job) => job.kind === 'robot'), 1)[0].run()
     await wait(5)
     // Still thinking: nothing happened yet, and nothing else is scheduled for the table
     expect(tableFor(gene).board!.auction).toHaveLength(0)
-    expect(queue.filter((job) => !isDeal(job))).toHaveLength(0)
+    expect(queue.filter((job) => job.kind === 'robot')).toHaveLength(0)
     await wait(40)
     expect(tableFor(gene).board!.auction.map((a) => a.call)).toEqual([ruled[0]])
     // The answer that comes after the limit changes nothing
@@ -1613,9 +1614,11 @@ describe('the alarm queue in the club', () => {
     const gene = await member('gene')
     await send(gene, { type: 'createTable' })
     for (const seat of ['N', 'E', 'W'] as const) await send(gene, { type: 'addRobot', seat })
-    // Board 1 is North's deal: the robot there calls first, after a pause
-    expect(wakes).toHaveLength(1)
-    expect(wakes[0]).toBeGreaterThan(time)
+    // Board 1 is North's deal: the robot there calls first, after a pause. The first wake was
+    // asked for by the alerts' look five minutes on (AC-11.5); the robot's, sooner, came after it
+    expect(wakes).toEqual([time + ALERT_CHECK_MS, expect.any(Number)])
+    expect(wakes[1]).toBeGreaterThan(time)
+    expect(wakes[1]).toBeLessThan(time + ALERT_CHECK_MS)
     await club.runDue()
     expect(tableFor(gene).board!.auction).toHaveLength(0)
     time = wakes.at(-1)!

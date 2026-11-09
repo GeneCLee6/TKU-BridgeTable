@@ -44,6 +44,8 @@ export function notificationText(t: Strings, n: Notification): string {
     case 'challengeWeekly':
     case 'matchFinished':
     case 'supportResolved':
+    case 'systemAlert':
+    case 'systemRecovered':
       return t.notificationTexts[n.kind]()
     case 'tableInvited':
     case 'tableRequest':

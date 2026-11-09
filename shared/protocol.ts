@@ -713,7 +713,12 @@ export interface MetricsView {
   reconnectRate: number
   boards: number
   peakOnline: number
-  robot: { moves: number; avgMs: number | null; maxMs: number | null }
+  /**
+   * How much later than planned the robots' moves went out (ms, from due to applied and saved),
+   * average and longest; null with no moves. Not their thinking: on Cloudflare the clock stands
+   * still during pure computation (ARCHITECTURE.md §5.13)
+   */
+  robot: { moves: number; lateAvgMs: number | null; lateMaxMs: number | null }
 }
 
 /** What the status page warns about, and when (`alertsOf`) */
@@ -880,6 +885,8 @@ export const NOTIFICATION_KINDS = [
   'partnerBidFinished',
   'partnerBidAbandoned',
   'partnerBidExpired',
+  'systemAlert',
+  'systemRecovered',
 ] as const
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number]
 
@@ -943,6 +950,9 @@ export interface Notification {
    * `supportResolved` {} the member's own report was resolved, leading to their list on 我的帳號;
    * nothing about the report or who resolved it
    * The partner bidding kinds (`e10-t08`): { sessionId, username } of the other member of the session
+   * `systemAlert` { alerts } the status page started warning (AC-11.5, worker/alerts.ts), to the
+   * club's admins: `alerts` the new `MetricAlert`s, comma-separated (the text names none; the admin
+   * page says which); once while they last. `systemRecovered` {} every alert is off again
    */
   params: Record<string, string | number>
   read: boolean

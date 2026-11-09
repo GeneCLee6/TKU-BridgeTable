@@ -72,7 +72,9 @@ export const PUSH_TEXTS: PushTexts = {
       "partnerBidTurn": "{username} 叫了，輪到你叫牌",
       "partnerBidFinished": "和 {username} 的搭檔叫牌練習叫完了，一起來檢討",
       "partnerBidAbandoned": "{username} 放棄了搭檔叫牌練習",
-      "partnerBidExpired": "和 {username} 的搭檔叫牌練習太久沒有動靜，已經結束"
+      "partnerBidExpired": "和 {username} 的搭檔叫牌練習太久沒有動靜，已經結束",
+      "systemAlert": "系統狀態出現告警，到管理頁的「系統狀態」查看",
+      "systemRecovered": "系統狀態的告警都解除了"
     }
   },
   "zh-Hans": {
@@ -145,7 +147,9 @@ export const PUSH_TEXTS: PushTexts = {
       "partnerBidTurn": "{username} 叫了，轮到你叫牌",
       "partnerBidFinished": "和 {username} 的搭档叫牌练习叫完了，一起来复盘",
       "partnerBidAbandoned": "{username} 放弃了搭档叫牌练习",
-      "partnerBidExpired": "和 {username} 的搭档叫牌练习太久没有动静，已经结束"
+      "partnerBidExpired": "和 {username} 的搭档叫牌练习太久没有动静，已经结束",
+      "systemAlert": "系统状态出现告警，到管理页的「系统状态」查看",
+      "systemRecovered": "系统状态的告警都解除了"
     }
   },
   "en": {
@@ -218,7 +222,9 @@ export const PUSH_TEXTS: PushTexts = {
       "partnerBidTurn": "{username} called. It is your turn to bid",
       "partnerBidFinished": "Your partner bidding with {username} is done. Time to review it",
       "partnerBidAbandoned": "{username} abandoned your partner bidding session",
-      "partnerBidExpired": "Your partner bidding with {username} ended after a long silence"
+      "partnerBidExpired": "Your partner bidding with {username} ended after a long silence",
+      "systemAlert": "The system status is warning about something. See System status on the admin page",
+      "systemRecovered": "The system status warnings have all cleared"
     }
   },
   "vi": {
@@ -291,7 +297,9 @@ export const PUSH_TEXTS: PushTexts = {
       "partnerBidTurn": "{username} đã xướng, đến lượt bạn",
       "partnerBidFinished": "Buổi luyện xướng bài với {username} đã xong, hãy cùng xem lại",
       "partnerBidAbandoned": "{username} đã bỏ buổi luyện xướng bài",
-      "partnerBidExpired": "Buổi luyện xướng bài với {username} đã kết thúc vì quá lâu không có ai xướng"
+      "partnerBidExpired": "Buổi luyện xướng bài với {username} đã kết thúc vì quá lâu không có ai xướng",
+      "systemAlert": "Trạng thái hệ thống đang có cảnh báo. Hãy xem mục Trạng thái hệ thống trong trang quản trị",
+      "systemRecovered": "Các cảnh báo về trạng thái hệ thống đã hết"
     }
   },
   "ja": {
@@ -364,7 +372,9 @@ export const PUSH_TEXTS: PushTexts = {
       "partnerBidTurn": "{username} さんがビッドしました。あなたの番です",
       "partnerBidFinished": "{username} さんとのパートナー ビッド練習が終わりました。一緒に検討しましょう",
       "partnerBidAbandoned": "{username} さんがパートナー ビッド練習を放棄しました",
-      "partnerBidExpired": "{username} さんとのパートナー ビッド練習は長く動きがなかったため終了しました"
+      "partnerBidExpired": "{username} さんとのパートナー ビッド練習は長く動きがなかったため終了しました",
+      "systemAlert": "システムの状態に警告が出ています。管理ページの「システムの状態」を確認してください",
+      "systemRecovered": "システムの状態の警告はすべて解消しました"
     }
   },
   "ko": {
@@ -437,7 +447,9 @@ export const PUSH_TEXTS: PushTexts = {
       "partnerBidTurn": "{username} 님이 비드했습니다. 당신 차례입니다",
       "partnerBidFinished": "{username} 님과의 파트너 비딩 연습이 끝났습니다. 함께 복기하세요",
       "partnerBidAbandoned": "{username} 님이 파트너 비딩 연습을 포기했습니다",
-      "partnerBidExpired": "{username} 님과의 파트너 비딩 연습은 오랫동안 움직임이 없어 끝났습니다"
+      "partnerBidExpired": "{username} 님과의 파트너 비딩 연습은 오랫동안 움직임이 없어 끝났습니다",
+      "systemAlert": "시스템 상태에 경고가 있습니다. 관리 페이지의 「시스템 상태」를 확인하세요",
+      "systemRecovered": "시스템 상태 경고가 모두 해제되었습니다"
     }
   }
 }

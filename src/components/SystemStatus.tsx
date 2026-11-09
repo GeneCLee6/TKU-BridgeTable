@@ -58,8 +58,8 @@ export function SystemStatus() {
         [t.statusErrorRate, pct(m.errorRate)],
         [t.statusReconnectRate, pct(m.reconnectRate)],
         [
-          t.statusRobotThink,
-          m.robot.avgMs === null ? t.statusNone : `${t.statusMs(m.robot.avgMs)} / ${t.statusMs(m.robot.maxMs ?? 0)}`,
+          t.statusRobotLate,
+          m.robot.lateAvgMs === null ? t.statusNone : `${t.statusMs(m.robot.lateAvgMs)} / ${t.statusMs(m.robot.lateMaxMs ?? 0)}`,
         ],
         ...(status.events ? ([[t.statusEvents, String(status.events.objects)]] as [string, string][]) : []),
       ]

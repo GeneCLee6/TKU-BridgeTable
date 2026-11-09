@@ -20,6 +20,8 @@ export type JobKind =
   | 'importPurge'
   /** The backup's parts and game log, written and restored a step at a time (e11-t12, worker/backup-steps.ts) */
   | 'backup'
+  /** A look at the status page's alerts, to tell the admins (AC-11.5, worker/alerts.ts) */
+  | 'alerts'
 
 /** Everything done later (robot moves, the next deal, a challenge's reminder and deadline, a robot sitting in for someone offline, the weekly club challenge, the daily event) goes through one scheduler */
 export interface Scheduler {

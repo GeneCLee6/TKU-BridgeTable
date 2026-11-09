@@ -259,6 +259,7 @@ import { composeLobby, quickSeatChoice } from '../shared/lobby.ts'
 import { parseClientError } from './client-errors.ts'
 import { crashEntry, noLog, type LogEntry, type Logger } from './log.ts'
 import { alertsOf, Metrics, type MetricsState, type TableStats } from './metrics.ts'
+import { AlertWatch } from './alerts.ts'
 import { ProductMetrics } from './product-metrics.ts'
 import {
   ACTION_BURST,
@@ -806,6 +807,8 @@ export class ClubService {
   private readonly log: Logger
   /** The status page's numbers (e11-t22, §5.13): counted from the log entries, the connections and the tables' reports */
   readonly metrics: Metrics
+  /** Tells the admins when the status page starts and stops warning (AC-11.5, worker/alerts.ts); set once the scheduler is */
+  private readonly alerts: AlertWatch | undefined
   /** Rate limits (AC-11.7): messages and chat lines per member, wrong passwords, browser error reports */
   private readonly actionLimit: TokenBuckets
   private readonly product: ProductMetrics
@@ -833,7 +836,11 @@ export class ClubService {
     this.lobbyEpoch = this.now()
     const write = config.log ?? noLog
     // Written to storage at most once a minute: the object hibernates whenever it is idle
-    this.metrics = new Metrics(this.now, (state) => void store.put('meta:metrics', state).catch(() => {}))
+    this.metrics = new Metrics(
+      this.now,
+      (state) => void store.put('meta:metrics', state).catch(() => {}),
+      () => this.alerts?.activity(),
+    )
     this.log = (entry) => {
       this.metrics.observe(entry)
       write(entry)
@@ -997,6 +1004,16 @@ export class ClubService {
       const wake = config.wake ?? ((at: number) => void setTimeout(() => void this.runDue(), Math.max(0, at - this.now())))
       this.scheduler = this.queue = new AlarmQueue(this.now, wake)
     }
+    this.alerts = new AlertWatch({
+      store,
+      scheduler: this.scheduler,
+      now: this.now,
+      view: () => this.metrics.view(),
+      tell: async (alerts, recovered) => {
+        for (const id of this.adminIds())
+          await this.notifications.notify(id, recovered ? 'systemRecovered' : 'systemAlert', recovered ? {} : { alerts: alerts.join(',') })
+      },
+    })
     this.partnerBids = new PartnerBidService({
       started: () => this.product.count('partnerBidding'),
       sql: store.sql,
@@ -1131,7 +1148,7 @@ export class ClubService {
       brain: config.brain,
       thinkLimitMs: config.thinkLimitMs,
       scheduler: this.scheduler,
-      onThink: (ms) => this.metrics.think(ms),
+      onRobotMove: (ms) => this.metrics.robotMove(ms),
     }
     this.tables = this.localTables = new LocalTables((id) => new TableService(id, tableStore, connections, link, tableConfig))
   }
@@ -1165,6 +1182,7 @@ export class ClubService {
     this.settings = (await this.store.get<Partial<ClubSettings>>('meta:settings')) ?? {}
     this.features = (await this.store.get<FeatureSettings>('meta:features')) ?? {}
     this.metrics.restore(await this.store.get<MetricsState>('meta:metrics'))
+    await this.alerts?.load()
     createHistoryIndex(this.store.sql)
     this.shares.createTables()
     this.support.createTables()
