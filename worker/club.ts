@@ -135,6 +135,13 @@ export interface Env {
    */
   SEEN_SALT?: string
   /**
+   * TKU Arcade's sign-in (e1-t37, worker/arcade-login.ts, DEPLOY.md §4.22): the secret shared with
+   * the arcade's Worker (its `AUTH_SHARED_SECRET`, 32 characters or more) and the arcade's origins
+   * (a plain variable in wrangler.jsonc). Off unless both are set
+   */
+  ARCADE_LOGIN_SECRET?: string
+  ARCADE_ORIGINS?: string
+  /**
    * Turnstile on 申請加入 (e1-t33, worker/turnstile.ts, DEPLOY.md §4.13): the site key is a plain
    * variable, the secret a wrangler secret; Turnstile is on only when both are set
    */
@@ -662,6 +669,16 @@ export class Club extends DurableObject<Env> implements Connections {
   async memberNotices(token: string | null): Promise<{ signedIn: boolean; banner: ClubBanner | null }> {
     if (this.closedBecause() || !(await this.service.userForToken(token))) return { signedIn: false, banner: null }
     return { signedIn: true, banner: await this.service.banners.current() }
+  }
+  /**
+   * TKU Arcade's sign-in (e1-t37, worker/arcade-login.ts): the member signed in with this session
+   * and the name they are shown by (their profile's display name, else their username). RPC from the
+   * Worker only, which asks 淡江's object alone; a suspended club signs nobody in
+   */
+  async arcadeIdentity(token: string | null): Promise<{ id: string; name: string } | null> {
+    if (this.closedBecause()) return null
+    const me = await this.service.userForToken(token)
+    return me && { id: me.id, name: me.profile?.displayName || me.username }
   }
   /** The name the club is shown by, for its home-screen app's manifest (worker/manifest.ts): RPC from the Worker only */
   async clubName(): Promise<string> {

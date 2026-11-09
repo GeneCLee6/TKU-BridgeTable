@@ -875,6 +875,28 @@ Worker 變數 `CLUBS`（逗號分隔的社團 id，小寫英數與 `-`）讓 Wor
 
 **要先想清楚的事**：cookie 與瀏覽器的設定都綁在網址上，所以**社員第一次開新網域時要重新登入**，手機主畫面上的 App 也要重新加。舊網址的 session 不受影響，仍然能用。要不要把舊網址轉到新網址、什麼時候轉，是社長的決定，這個 PR 沒做。
 
+## 4.22 TKU Arcade 的登入交接（`e1-t37`，2026-11-09）
+
+姊妹站 TKU Arcade（另一個 repo `GeneCLee6/TKU-Arcade`、另一個 Worker `tku-arcade`）讓淡江的社員用這裡的帳號登入：這裡簽一個 5 分鐘的 token，TKU Arcade 驗簽後發自己的 session（ARCHITECTURE.md §5.2「TKU Arcade 的登入交接」）。**預設關閉**：沒設 secret 時 `GET /api/arcade/login` 回 404 `arcadeLoginOff`，什麼都不會發生。
+
+- `ARCADE_ORIGINS`（var，已經寫在 `wrangler.jsonc` 頂層）：TKU Arcade 的正式站與 PR 預覽。換網址或買了網域就改這一行，走 PR。staging 與預覽沒有。
+- `ARCADE_LOGIN_SECRET`（Worker secret，至少 32 字）：**跟 TKU Arcade 的 `AUTH_SHARED_SECRET` 同一個值**。
+
+**打開**（兩邊用同一個值；值不要貼進聊天、issue 或 PR）：
+
+```sh
+# 產生一個 256 bit 的值（只在自己的終端機）
+node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
+npx wrangler secret put ARCADE_LOGIN_SECRET            # 牌桌正式站（互動貼上）
+# TKU Arcade 那邊的步驟在它的 DEPLOY.md「選用登入」
+```
+
+先設這邊、再設 TKU Arcade；TKU Arcade 沒設之前它的登入按鈕不會出現。檢查：已登入的瀏覽器開 `https://<牌桌>/api/arcade/login?return_to=https%3A%2F%2Ftku-arcade.genelee-pro.workers.dev%2F&state=abcdefghijklmnop1234`，應該轉到 TKU Arcade、網址後面帶 `#overtrick_token=`（TKU Arcade 會因為 `state` 不是它發的而拒絕，這樣就對了）；Workers Logs 搜尋 `arcadeToken`。
+
+**換金鑰**：產生新值 → 這邊 `wrangler secret put ARCADE_LOGIN_SECRET` → TKU Arcade 那邊 `wrangler secret put AUTH_SHARED_SECRET`，兩個指令之間（約一分鐘）登入會失敗，已經登入 TKU Arcade 的人照樣在（換金鑰會讓 TKU Arcade 的 session 全部失效，看它的文件）。**關掉**：`npx wrangler secret delete ARCADE_LOGIN_SECRET`。
+
+**不要**把這個 secret 設在 staging 或 PR 預覽：要測就在 TKU Arcade 的預覽用隨機的測試值，自己簽 token（TKU Arcade 的 DEPLOY.md 有步驟），不必動這裡。
+
 ## 5. 費用與限制
 
 - Workers 免費方案：每天 10 萬次請求；WebSocket 訊息以 20:1 計算，一個晚上打牌遠低於上限。

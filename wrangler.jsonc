@@ -50,7 +50,10 @@
   "triggers": { "crons": ["0 19 * * *"] },
   "vars": {
     // Account cap for the club; INVITE_CODE is a secret (wrangler secret put INVITE_CODE)
-    "MAX_USERS": "10"
+    "MAX_USERS": "10",
+    // TKU Arcade's sign-in (e1-t37, DEPLOY.md §4.22): where a token may be sent back to. Off until the
+    // secret ARCADE_LOGIN_SECRET is set too. Staging and previews have neither
+    "ARCADE_ORIGINS": "https://tku-arcade.genelee-pro.workers.dev,https://tku-arcade-pr-*.genelee-pro.workers.dev"
   },
   // Staging and PR previews (DEPLOY.md §2.1): separate Workers, so each has its own Durable Object
   // namespace and storage and never touches production data. Pick one at build time with

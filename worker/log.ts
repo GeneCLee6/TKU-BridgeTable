@@ -45,6 +45,9 @@ type LogEvent =
   | { event: 'seenSaltMissing' }
   /** An address used up its registrations for the hour (e1-t33); the address is not logged */
   | { event: 'registerLimited' }
+  /** A token for TKU Arcade was signed (e1-t37), or a request for one was refused; never who */
+  | { event: 'arcadeToken' }
+  | { event: 'arcadeRefused'; reason: 'returnTo' | 'state' }
   /** Turnstile turned a registration away (e1-t33): Cloudflare's error codes, or `unreachable` */
   | { event: 'turnstileFailed'; codes: string }
   /** Tables moved between the club and their own objects (schema 3 ↔ 4, ARCHITECTURE.md §5.10) */

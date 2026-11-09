@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import { LANDING_PAGE, pageTitle } from '../shared/site.ts'
+import { ARCADE_LOGIN_PAGE } from '../shared/arcade.ts'
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import styled from 'styled-components'
 import { AppHeader } from './components/AppHeader.tsx'
@@ -10,6 +11,7 @@ import { Muted, PageMain } from './components/ui.tsx'
 import { useClubSounds } from './lib/sound/hooks.ts'
 import { AccountPage } from './pages/AccountPage.tsx'
 import { AdminPage } from './pages/AdminPage.tsx'
+import { ArcadeHandoffPage } from './pages/ArcadeHandoffPage.tsx'
 import { BoardPage } from './pages/BoardPage.tsx'
 import { ChallengeBoardPage } from './pages/ChallengeBoardPage.tsx'
 import { ChallengePage } from './pages/ChallengePage.tsx'
@@ -134,6 +136,8 @@ function Routed() {
     )
   if (user === undefined) return <PageMain>{t.loading}</PageMain>
   if (user === null) return <LoginPage />
+  // Signed in for TKU Arcade (e1-t37): straight on, without the club's pages
+  if (pathname === ARCADE_LOGIN_PAGE) return <ArcadeHandoffPage />
   return (
     <>
       <PartBoundary name="connection-banner">
